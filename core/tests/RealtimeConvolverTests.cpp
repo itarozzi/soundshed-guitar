@@ -12,6 +12,11 @@
  *    by their respective latencies (so the toggle only changes latency/CPU,
  *    not the tone).
  *  - Reset() clears state so a subsequent run is identical to a fresh one.
+ *  - A multi-second IR is split into a bounded number of partitions rather than
+ *    one per host block, so its per-sample cost does not scale with IR length.
+ *  - The partition accumulation, which is spread across the samples of a block
+ *    rather than done in one burst at the block boundary, still completes when
+ *    the host feeds irregular chunk sizes.
  */
 
 #include <algorithm>
@@ -120,6 +125,44 @@ std::vector<float> MakeIR(std::size_t length)
 
     ir[0] = 1.0f; // strong direct component
     return ir;
+}
+
+// Same as RunConvolver, but hands over chunks of varying size instead of a steady
+// block. The accumulation schedule is driven by how far through a partition the
+// convolver is, so a host that chops the stream unevenly must still get the whole
+// partition list folded in before each block boundary.
+std::vector<double> RunConvolverRaggedly(guitarfx::RealtimeConvolver& conv, const std::vector<float>& input,
+                                         unsigned seed)
+{
+    std::vector<double> output(input.size(), 0.0);
+    std::mt19937 rng(seed);
+    std::uniform_int_distribution<int> chunkDist(1, 700);
+    std::vector<float> inBlock(700);
+    std::vector<float> outBlock(700);
+
+    std::size_t pos = 0;
+
+    while (pos < input.size())
+    {
+        const int n =
+            static_cast<int>(std::min<std::size_t>(static_cast<std::size_t>(chunkDist(rng)), input.size() - pos));
+
+        for (int i = 0; i < n; ++i)
+        {
+            inBlock[static_cast<std::size_t>(i)] = input[pos + static_cast<std::size_t>(i)];
+        }
+
+        conv.Process(inBlock.data(), outBlock.data(), n);
+
+        for (int i = 0; i < n; ++i)
+        {
+            output[pos + static_cast<std::size_t>(i)] = static_cast<double>(outBlock[static_cast<std::size_t>(i)]);
+        }
+
+        pos += static_cast<std::size_t>(n);
+    }
+
+    return output;
 }
 
 std::vector<float> MakeNoise(std::size_t length, unsigned seed)
@@ -272,6 +315,89 @@ bool TestNonUniformMatchesUniform()
     return true;
 }
 
+// A reverb-length IR must not be split into one partition per host block: the
+// per-sample cost of a partitioned convolution is proportional to the partition
+// count, and the non-uniform engine's latency is pinned to its base block, so its
+// tail is free to use a partition far larger than the host asked for.
+bool TestLongIrKeepsPartitionCountBounded()
+{
+    std::cout << "Test: long IR keeps the partition count bounded... ";
+
+    const std::vector<float> ir = MakeIR(226304); // ~4.7 s at 48 kHz, a plate reverb
+    const int blockSize = 64;                     // the smallest block a low-latency ASIO setup asks for
+
+    guitarfx::RealtimeConvolver conv;
+    conv.SetLowLatencyMode(true);
+
+    if (!conv.SetImpulse(ir, blockSize))
+    {
+        std::cout << "FAILED (SetImpulse returned false)\n";
+        return false;
+    }
+
+    // Tying the tail partition to the host block would give ~880 partitions here.
+    const std::size_t partitions = conv.GetNumPartitions();
+
+    if (partitions > 128)
+    {
+        std::cout << "FAILED (" << partitions << " partitions for a 4.7 s IR)\n";
+        return false;
+    }
+
+    if (conv.GetLatency() != blockSize)
+    {
+        std::cout << "FAILED (latency " << conv.GetLatency() << ", expected " << blockSize << ")\n";
+        return false;
+    }
+
+    std::cout << "OK (" << partitions << " partitions, latency " << conv.GetLatency() << ")\n";
+    return true;
+}
+
+// The accumulation is spread across the samples of a block, so it must still be
+// complete at every block boundary no matter how the host divides the stream.
+bool TestRaggedBlockSizesMatchReference()
+{
+    std::cout << "Test: ragged host chunks match reference convolution... ";
+
+    const std::vector<float> ir = MakeIR(8192); // long enough for a multi-partition tail
+    const int blockSize = 64;
+    const std::vector<float> input = MakeNoise(32768, 4242u);
+
+    guitarfx::RealtimeConvolver conv;
+    conv.SetLowLatencyMode(true);
+
+    if (!conv.SetImpulse(ir, blockSize))
+    {
+        std::cout << "FAILED (SetImpulse returned false)\n";
+        return false;
+    }
+
+    const int latency = conv.GetLatency();
+    const std::vector<double> got = RunConvolverRaggedly(conv, input, 31337u);
+    const std::vector<double> ref = ReferenceConvolve(input, ir);
+
+    std::vector<double> aligned(ref.size(), 0.0);
+
+    for (std::size_t k = 0; k + static_cast<std::size_t>(latency) < got.size(); ++k)
+    {
+        aligned[k] = got[k + static_cast<std::size_t>(latency)];
+    }
+
+    const std::size_t start = static_cast<std::size_t>(latency) + ir.size();
+    const std::size_t end = ref.size() - static_cast<std::size_t>(latency);
+    const double err = NormalizedRmsDiff(aligned, ref, start, end);
+
+    if (!(err < 1e-3))
+    {
+        std::cout << "FAILED (normalized RMS error " << err << ")\n";
+        return false;
+    }
+
+    std::cout << "OK (error " << err << ")\n";
+    return true;
+}
+
 // Reset() must clear all internal state so a second run is identical to a
 // fresh convolver's run.
 bool TestResetClearsState()
@@ -326,6 +452,8 @@ int main()
     runTest(TestLowLatencyReportsSmallerLatency);
     runTest(TestNonUniformMatchesReference);
     runTest(TestNonUniformMatchesUniform);
+    runTest(TestLongIrKeepsPartitionCountBounded);
+    runTest(TestRaggedBlockSizesMatchReference);
     runTest(TestResetClearsState);
 
     std::cout << "\n================================================\n";

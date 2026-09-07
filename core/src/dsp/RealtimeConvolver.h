@@ -25,7 +25,12 @@ namespace guitarfx
  * SetLowLatencyMode(true) before SetImpulse(). In this mode the IR head is
  * convolved with small partitions (low latency) while the tail uses larger
  * partitions for efficiency. Latency drops to the small base block size
- * (e.g. 128) at the cost of some extra CPU. See RealtimeConvolver.cpp.
+ * (e.g. 128), and for a long IR the big tail partition makes it cheaper than
+ * the uniform engine as well. See RealtimeConvolver.cpp.
+ *
+ * Either engine spreads a block's partition multiplies across the samples of
+ * that block rather than doing them all at the block boundary, so per-callback
+ * cost stays flat even when the host block is much smaller than the partition.
  */
 class RealtimeConvolver
 {
@@ -92,6 +97,11 @@ class RealtimeConvolver
     void ProcessBlock();
     void ProcessDirect(const float* input, float* output, int numSamples);
 
+    // Folds IR partitions [mPreAccumPartition, target) into mAccumulator for the block
+    // that is still filling. Called a slice at a time from Process() so a long IR costs
+    // the same on every callback. See RealtimeConvolver.cpp.
+    void AccumulatePartitionsUpTo(size_t target);
+
     // Builds a uniformly-partitioned overlap-save engine with an explicit
     // partition size (power of two). Used both for the default uniform path and
     // for each stage of the non-uniform engine.
@@ -135,6 +145,13 @@ class RealtimeConvolver
     std::vector<std::complex<float>> mFFTInputBuffer;  // Input to FFT
     std::vector<std::complex<float>> mFFTOutputBuffer; // Output from FFT
     std::vector<std::complex<float>> mAccumulator;     // Freq domain accumulator
+
+    // Accumulation schedule. mAccumulator is built up across the block rather than in
+    // one burst at the block boundary: mPreAccumAnchor is the delay-line slot holding
+    // the newest input frame at the start of the current block, and mPreAccumPartition
+    // is the next IR partition still to be folded in.
+    size_t mPreAccumAnchor = 0;
+    size_t mPreAccumPartition = 0;
 
     // FFT plan
     std::unique_ptr<SimdFFT> mFFT;

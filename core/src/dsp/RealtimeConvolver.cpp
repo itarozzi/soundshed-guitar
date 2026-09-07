@@ -20,6 +20,20 @@ constexpr size_t NextPowerOf2(size_t n)
 
     return power;
 }
+
+// Tail partition size for the non-uniform engine. That engine's latency is pinned to
+// its base block, so the tail is free to use a partition far larger than the host
+// block -- and it has to be, because a partitioned convolution's per-sample cost is
+// proportional to the partition COUNT. A 4.7 s plate reverb split at 256 samples is
+// ~880 partitions and streams 28 KB of spectra per output sample, which is DRAM-bound;
+// at 4096 it is ~55 partitions and 1.8 KB. Size the tail so the count stays near the
+// target rather than tying it to the host block, which has nothing to do with the IR.
+constexpr size_t kTargetTailPartitions = 64;
+
+size_t TailPartitionForIR(size_t irLength)
+{
+    return std::clamp(NextPowerOf2(irLength / kTargetTailPartitions), size_t{256}, size_t{4096});
+}
 } // namespace
 
 RealtimeConvolver::RealtimeConvolver() = default;
@@ -58,8 +72,8 @@ bool RealtimeConvolver::SetImpulse(const std::vector<float>& irSamples, int bloc
         return true;
     }
 
-    // Partition size the uniform engine would use (also the maximum partition the
-    // non-uniform engine uses for its efficient tail).
+    // Partition size the uniform engine would use. It doubles as that engine's
+    // latency, which is why it stays tied to the host block.
     const size_t uniformPartition =
         std::clamp(NextPowerOf2(static_cast<size_t>(std::max(blockSize, 256))), size_t{256}, size_t{2048});
 
@@ -70,12 +84,15 @@ bool RealtimeConvolver::SetImpulse(const std::vector<float>& irSamples, int bloc
         const size_t base =
             std::clamp(NextPowerOf2(static_cast<size_t>(std::max(blockSize, 64))), size_t{64}, size_t{256});
 
-        if (base < uniformPartition)
+        // Non-uniform pays off whenever its tail partition beats the base block: for
+        // latency when the base is below the uniform partition, and -- since a long IR's
+        // tail partition now outgrows the uniform one -- for CPU as well.
+        if (base < TailPartitionForIR(irSamples.size()))
         {
             return BuildNonUniform(irSamples, blockSize);
         }
 
-        // No latency benefit available (host block already >= uniform partition):
+        // No benefit available (short IR and a host block already >= uniform partition):
         // fall through to the uniform engine.
     }
 
@@ -157,6 +174,12 @@ bool RealtimeConvolver::BuildUniform(const std::vector<float>& irSamples, size_t
     // Previous input block for overlap-save (needed for proper convolution)
     mPreviousInputBlock.assign(mPartitionSize, 0.0f);
 
+    // The accumulator is carried across the block now, so it starts cleared with
+    // nothing scheduled: the first ProcessBlock() has no older frames to fold in.
+    std::fill(mAccumulator.begin(), mAccumulator.end(), std::complex<float>(0.0f, 0.0f));
+    mPreAccumAnchor = 0;
+    mPreAccumPartition = mNumPartitions;
+
     mInitialized = true;
     return true;
 }
@@ -173,7 +196,7 @@ bool RealtimeConvolver::BuildUniform(const std::vector<float>& irSamples, size_t
 // correctly time-aligned (h_seg * x)[n - off] to an output emitted with system
 // latency L, the stage output is delayed by d = L + off - P. With L = base and
 // the chosen layout (P == off for every stage after the head, and the tail
-// starting exactly at the uniform partition), d == base for ALL stages except
+// starting at exactly its own partition size), d == base for ALL stages except
 // the head (off=0, P=base, d=0). So a single shared delay line of `base`
 // samples aligns every non-head stage. Summing all stages reconstructs the
 // full convolution delayed by `base` samples.
@@ -186,8 +209,9 @@ bool RealtimeConvolver::BuildNonUniform(const std::vector<float>& irSamples, int
 
     const size_t n = irSamples.size();
     const size_t base = std::clamp(NextPowerOf2(static_cast<size_t>(std::max(blockSize, 64))), size_t{64}, size_t{256});
-    const size_t maxPartition =
-        std::clamp(NextPowerOf2(static_cast<size_t>(std::max(blockSize, 256))), size_t{256}, size_t{2048});
+    // Never below `base`: the layout below relies on the tail starting at exactly its own
+    // partition size, which the geometric growth from `base` can only reach from underneath.
+    const size_t maxPartition = std::max(TailPartitionForIR(n), base);
 
     // Build a single-block uniform stage covering irSamples[off, off+len).
     auto addStage = [&](size_t off, size_t len, size_t partition) -> bool {
@@ -291,8 +315,39 @@ void RealtimeConvolver::ProcessDirect(const float* input, float* output, int num
     }
 }
 
+// Fold IR partitions into the accumulator up to (but not including) `target`.
+//
+// Partition p pairs the IR's p-th slice with the input frame from p blocks back, so
+// every partition except p == 0 uses a frame that has been sitting in the delay line
+// since before the current block started. Only p == 0 has to wait for the boundary.
+// Process() therefore walks this forward a slice at a time as the block fills, which
+// turns "one 880-multiply burst every partition" into the same work spread evenly over
+// the callbacks that produce it. With a 64-sample host block against a multi-second IR
+// the burst was several times the callback deadline; the average was never the problem.
+void RealtimeConvolver::AccumulatePartitionsUpTo(size_t target)
+{
+    const size_t limit = std::min(target, mNumPartitions);
+
+    while (mPreAccumPartition < limit)
+    {
+        const size_t p = mPreAccumPartition;
+
+        // Measured from the newest frame as of this block's start, partition p's frame
+        // is (p - 1) slots older.
+        const size_t delayIdx = (mPreAccumAnchor + mNumPartitions - (p - 1)) % mNumPartitions;
+        SimdFFT::ComplexMultiplyAccumulate(mAccumulator.data(), mInputFFTDelayLine[delayIdx].data(),
+                                           mIRPartitionsFFT[p].data(), mFFTSize);
+        ++mPreAccumPartition;
+    }
+}
+
 void RealtimeConvolver::ProcessBlock()
 {
+    // Everything but partition 0 should already be in the accumulator. Finish whatever
+    // the schedule has not reached: the very first block, or a host feeding us fewer
+    // samples than it takes to walk the whole partition list.
+    AccumulatePartitionsUpTo(mNumPartitions);
+
     // Prepare FFT input: [previous samples | current samples]
     // This is the correct overlap-save arrangement for linear convolution
     for (size_t i = 0; i < mPartitionSize; ++i)
@@ -307,26 +362,13 @@ void RealtimeConvolver::ProcessBlock()
     // Forward FFT of input block
     mFFT->Forward(mFFTOutputBuffer.data(), mFFTInputBuffer.data());
 
-    // Store in delay line
+    // Store in delay line. This is the slot the accumulation pass never reads, so the
+    // frame it replaces (the oldest) is already spent.
     auto& currentSlot = mInputFFTDelayLine[mDelayLineIndex];
     std::copy(mFFTOutputBuffer.begin(), mFFTOutputBuffer.end(), currentSlot.begin());
 
-    // Clear accumulator using SIMD
-    SimdFFT::ClearBuffer(mAccumulator.data(), mFFTSize);
-
-    // Accumulate contributions from all IR partitions using SIMD
-    for (size_t p = 0; p < mNumPartitions; ++p)
-    {
-        const size_t delayIdx = (mDelayLineIndex + mNumPartitions - p) % mNumPartitions;
-        const auto& inputFFT = mInputFFTDelayLine[delayIdx];
-        const auto& irFFT = mIRPartitionsFFT[p];
-
-        // SIMD complex multiply-accumulate (the hot path)
-        SimdFFT::ComplexMultiplyAccumulate(mAccumulator.data(), inputFFT.data(), irFFT.data(), mFFTSize);
-    }
-
-    // Advance delay line write position
-    mDelayLineIndex = (mDelayLineIndex + 1) % mNumPartitions;
+    // Partition 0 is the only one that needs the frame that just closed.
+    SimdFFT::ComplexMultiplyAccumulate(mAccumulator.data(), currentSlot.data(), mIRPartitionsFFT[0].data(), mFFTSize);
 
     // Inverse FFT
     mFFT->Inverse(mFFTInputBuffer.data(), mAccumulator.data());
@@ -353,6 +395,13 @@ void RealtimeConvolver::ProcessBlock()
 
         mOutputBuffer[i] = sample;
     }
+
+    // Open the next block's accumulation against the frame just stored, and hand the
+    // write cursor on to the slot that frame will displace.
+    SimdFFT::ClearBuffer(mAccumulator.data(), mFFTSize);
+    mPreAccumAnchor = mDelayLineIndex;
+    mPreAccumPartition = 1;
+    mDelayLineIndex = (mDelayLineIndex + 1) % mNumPartitions;
 
     mOutputBufferReadPos = 0;
 }
@@ -403,6 +452,13 @@ void RealtimeConvolver::Process(const float* input, float* output, int numSample
             mInputBuffer[bufferPos] = input[i];
             ++mOutputBufferReadPos;
             ++i;
+        }
+
+        // Keep the accumulation as far through the partition list as the block is
+        // through its samples, so the cost lands evenly instead of all at the boundary.
+        if (mNumPartitions > 1)
+        {
+            AccumulatePartitionsUpTo(1 + ((mNumPartitions - 1) * mOutputBufferReadPos) / mPartitionSize);
         }
     }
 }
@@ -499,6 +555,11 @@ void RealtimeConvolver::Reset()
     }
 
     mDelayLineIndex = 0;
+
+    // Drop the part-built accumulation along with the frames it was built from.
+    std::fill(mAccumulator.begin(), mAccumulator.end(), std::complex<float>(0.0f, 0.0f));
+    mPreAccumAnchor = 0;
+    mPreAccumPartition = mNumPartitions;
 
     // Clear buffers
     std::fill(mInputBuffer.begin(), mInputBuffer.end(), 0.0f);
