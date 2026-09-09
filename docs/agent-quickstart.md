@@ -96,6 +96,13 @@ files still have to come in under 800. CI runs this
 
 ## Common Agent Tasks
 
+### Research and Create Artist Presets
+
+For artist-inspired tones made in the running app, follow
+[artist-tone-preset-workflow.md](artist-tone-preset-workflow.md). It covers
+dated rig research, local/Tone3000 resource matching, scene authoring, folder
+merging, and verification of both saved data and the audio path.
+
 ### Add a New Effect
 
 1. Implement EffectProcessor in core/src/dsp/effects/.
