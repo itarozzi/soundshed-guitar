@@ -42,13 +42,36 @@
     display: none;
   }
 
+  /* Too narrow for a side-by-side panel, and a full-width band across the top
+     pushes every control down for artwork nobody came here to read. Take the
+     artwork out of the grid and pin it to the left of the shell header, as a
+     thumbnail beside the effect's name — the same role the layout thumbnail
+     plays on a signal chain node. It is decorative, so it takes no pointer
+     events; the header is indented to leave it room. */
   .default-effect-shell-content.has-equipment-image {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .default-effect-shell-equipment-panel {
-    min-height: 200px;
-    max-height: 320px;
+  .default-effect-shell:has(.default-effect-shell-content.has-equipment-image) .default-effect-shell-header {
+    padding-left: 62px;
+  }
+
+  /* Positioned against the shell (the header's own box is a grid track), so the
+     offsets match the shell's 8px/14px padding. */
+  .default-effect-shell-content.has-equipment-image .default-effect-shell-equipment-panel {
+    position: absolute;
+    top: 8px;
+    left: 14px;
+    z-index: 3;
+    width: 52px;
+    height: 34px;
+    min-height: 0;
+    max-height: none;
+    border-radius: 8px;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.06),
+      0 6px 12px rgba(0, 0, 0, 0.45);
+    pointer-events: none;
   }
 }
 
@@ -61,8 +84,15 @@
     min-width: 100%;
   }
 
-  .default-effect-shell-equipment-panel {
-    display: none;
+  /* A thumbnail this small still fits, so it stays on rather than disappearing
+     the way the old full-width band had to. */
+  .default-effect-shell:has(.default-effect-shell-content.has-equipment-image) .default-effect-shell-header {
+    padding-left: 52px;
+  }
+
+  .default-effect-shell-content.has-equipment-image .default-effect-shell-equipment-panel {
+    width: 44px;
+    height: 30px;
   }
 }
 

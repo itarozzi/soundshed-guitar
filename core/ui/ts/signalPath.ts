@@ -46,7 +46,7 @@ import {
 } from "./signalPath/state.js";
 import { sendCollapseParallelSplit, sendMoveSignalPathNodeToEdge, sendReplaceSignalPathNode, sendSignalPathNodeDelete, sendSignalPathNodeReorder } from "./signalPath/commands.js";
 import { getSelectedSignalPathNode } from "./signalPath/nodeResources.js";
-import { updateEffectVisualization } from "./signalPath/visualization.js";
+import { getEffectVisualizationEquipmentImage, updateEffectVisualization } from "./signalPath/visualization.js";
 import { getCategoryClass, getNodeCategory, getNodeIcon, handleNamIrFileDrop, inferResourceTypeFromFile, isNamOrCabIrNode, nodeAcceptsResourceType } from "./signalPath/nodeTypes.js";
 import { getEditableSignalPathPreset, pushScenePresetToBackend, removeInlineMixer, renderInlineMixer, renderMixerPresetTabs } from "./signalPath/mixer.js";
 import { isMixTabActive } from "./signalPath/state.js";
@@ -995,7 +995,7 @@ function renderNodeElement(node: GraphNode, options?: RenderNodeElementOptions):
     ? ` aria-label="${escapeHtml(nodeTitle)}${nodeBypassed ? " (bypassed)" : ""}"`
     : "";
 
-  // Use the layout thumbnail as a small avatar at the top-left of the node if available.
+  // Small avatar over the node's top edge: layout thumbnail, else the custom-effect one, else the same artwork the visualization panel shows.
   const blendId = (() => {
     const params = node.params as Record<string, unknown> | undefined;
     return typeof params?.blend === "string" ? params.blend : "";
@@ -1008,9 +1008,9 @@ function renderNodeElement(node: GraphNode, options?: RenderNodeElementOptions):
     matchText: buildNodeLayoutMatchText(node),
     presetId: uiState.activePresetId,
   });
-  const thumbUrl = nodeLayout?.thumbnailDataUrl ?? nodeTypeInfo?.thumbnailDataUrl ?? null;
+  const thumbUrl = nodeLayout?.thumbnailDataUrl ?? nodeTypeInfo?.thumbnailDataUrl ?? (getEffectVisualizationEquipmentImage(node) || null);
   const thumbAvatar = thumbUrl
-    ? `<img class="node-layout-thumb" src="${thumbUrl.replace(/"/g, "&quot;")}" alt="" aria-hidden="true" />` 
+    ? `<span class="node-layout-thumb-wrap" aria-hidden="true"><img class="node-layout-thumb" src="${thumbUrl.replace(/"/g, "&quot;")}" alt="" /><span class="node-layout-thumb-icon">${icon}</span></span>`
     : "";
   const thumbClass = thumbUrl ? " has-thumb" : "";
   const deleteButton = allowDelete

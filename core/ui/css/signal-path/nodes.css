@@ -309,17 +309,48 @@ body.signal-path-resizing * {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--node-drag-over) 24%, transparent);
 }
 
-/* Layout thumbnail avatar — small card at top-left of node */
-.node-layout-thumb {
+/* Layout thumbnail avatar — small card over the node's top edge. The wrapper
+   carries the placement so the image can size itself from its own aspect. */
+.node-layout-thumb-wrap {
   position: absolute;
   top: -8px;
   height: 32px;
+  line-height: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.node-layout-thumb {
+  display: block;
+  height: 100%;
+  width: auto;
   object-fit: cover;
   border-radius: 3px;
   opacity: 0.85;
-  pointer-events: none;
-  z-index: 1;
   border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+/* One dark rig photo looks much like another, so the effect's own accented icon
+   sits in the middle of the artwork to say what the node actually is. */
+.node-layout-thumb-icon {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: var(--radius-pill);
+  background: rgba(9, 11, 17, 0.78);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.55);
+  color: var(--node-accent-strong);
+}
+
+.node-layout-thumb-icon .fx-effect-icon {
+  width: 9px;
+  height: 9px;
 }
 
 .signal-node.bypassed {
@@ -439,13 +470,29 @@ body.signal-path-resizing * {
   display: none;
 }
 
-.signal-path-bar[data-density="compact"] .signal-node.has-thumb .node-layout-thumb {
-  position: static;
+/* Relative, not static: in flow like the icon it replaces, but still the badge's
+   containing block. */
+.signal-path-bar[data-density="compact"] .signal-node.has-thumb .node-layout-thumb-wrap {
+  position: relative;
   top: auto;
+  height: 26px;
+}
+
+.signal-path-bar[data-density="compact"] .signal-node.has-thumb .node-layout-thumb {
   width: 26px;
   height: 26px;
   border-radius: var(--radius-sm);
   opacity: 1;
+}
+
+.signal-path-bar[data-density="compact"] .signal-node.has-thumb .node-layout-thumb-icon {
+  width: 12px;
+  height: 12px;
+}
+
+.signal-path-bar[data-density="compact"] .signal-node.has-thumb .node-layout-thumb-icon .fx-effect-icon {
+  width: 8px;
+  height: 8px;
 }
 
 /* Compact connectors retain a fixed, readable spacing. */

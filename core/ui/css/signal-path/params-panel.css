@@ -476,7 +476,11 @@
   margin-inline: auto;
 }
 
+/* The equipment artwork is the panel's backdrop, not a photo in a frame: it
+   fills the box edge to edge and the panel's radius plus `overflow: hidden`
+   round its corners. The gradients below show only while the artwork loads. */
 .default-effect-shell-equipment-panel {
+  position: relative;
   border-radius: 18px;
   border: 1px solid rgba(168, 182, 212, 0.14);
   background:
@@ -486,20 +490,37 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.05),
     inset 0 -1px 0 rgba(0, 0, 0, 0.45),
     0 18px 28px rgba(0, 0, 0, 0.28);
-  padding: 10px;
-  min-height: 280px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  padding: 0;
+  /* Landscape rather than near-square: a full-bleed crop of a wide gear shot
+     loses most of the unit in a tall box. Taller controls still stretch it. */
+  min-height: 200px;
+  max-height: 620px;
   overflow: hidden;
 }
 
 .default-effect-shell-equipment-image {
+  position: absolute;
+  inset: 0;
+  display: block;
   width: 100%;
   height: 100%;
-  max-height: 620px;
-  object-fit: contain;
-  filter: drop-shadow(0 20px 22px rgba(0, 0, 0, 0.42));
+  object-fit: cover;
+  object-position: top;
+  border-radius: inherit;
+}
+
+/* Sits above the artwork so the panel keeps its lit edges and settles into the
+   shell instead of reading as a raw photo pasted over it. */
+.default-effect-shell-equipment-panel::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(8, 10, 16, 0) 55%, rgba(8, 10, 16, 0.34) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.4);
 }
 
 .default-effect-section {
