@@ -12,6 +12,7 @@ import {
   applyPresetFromLibrary,
 } from "./presets.js";
 import { initCompactMode, isCompact } from "./compactMode.js";
+import { initCompactStage } from "./compactStage.js";
 import { installFetchLogger, renderLogEntries } from "./logging.js";
 import { scheduleDSPPerformancePlotUpdate } from "./views.js";
 import { handleIncomingMessage } from "./messages.js";
@@ -31,7 +32,7 @@ import { initializeBlendEditorModal, initSignalPathResize, renderSignalPathBar, 
 import { initSignalChainHistory } from "./signalPath/history.js";
 import { initializeCustomEffectDesignerModal } from "./customEffectDesigner.js";
 import { initializeDialogModals } from "./dialogs.js";
-import { activateTab, initializeControlBarTabs, initializeIconBarTabs, initializePlayFooterPadsToggle, initializeTabButtons, switchMainPanel, initControlBarCollapse, initSignalPathCollapse } from "./navigation.js";
+import { activateTab, initCompactStagePersistence, initializeControlBarTabs, initializeIconBarTabs, initializePlayFooterPadsToggle, initializeTabButtons, switchMainPanel, initControlBarCollapse, initSignalPathCollapse } from "./navigation.js";
 import { handleDroppedRiffAudioFiles, initializeRiffLibraryPanel } from "./riffLibrary.js";
 import { initializePracticeToolPanel, setPracticeToolPresetRecaller } from "./practiceTool.js";
 import { initializeGlobalFileDrop, registerGlobalFileDropHandler } from "./fileDrop.js";
@@ -185,6 +186,8 @@ async function bootstrap(): Promise<void> {
 
   initializeTabButtons();
   initializeControlBarTabs();
+  initCompactStage();
+  initCompactStagePersistence();
   initControlBarCollapse();
   initSignalPathCollapse();
 

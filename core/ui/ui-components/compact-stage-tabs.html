@@ -1,0 +1,24 @@
+    <!--
+      Compact only. On a small display the signal chain and the panel below it
+      cannot both be useful at once, so they take turns here instead of splitting
+      ~250px between them. Hidden at full density and on every panel but Play;
+      ts/compactStage.ts owns the switching.
+    -->
+    <div class="compact-stage-tabs" role="tablist" aria-label="Play view">
+      <button
+        class="compact-stage-tab is-active"
+        id="compact-stage-tab-chain"
+        type="button"
+        role="tab"
+        aria-selected="true"
+        data-compact-stage="chain"
+      >Chain</button>
+      <button
+        class="compact-stage-tab"
+        id="compact-stage-tab-detail"
+        type="button"
+        role="tab"
+        aria-selected="false"
+        data-compact-stage="detail"
+      >Effect</button>
+    </div>

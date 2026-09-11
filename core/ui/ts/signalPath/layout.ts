@@ -193,28 +193,35 @@ export function onSignalPathResizeDoubleClick(event: MouseEvent): void {
   setSignalPathScrollHeight(SIGNAL_PATH_FULL_HEIGHT, { persist: true });
 }
 
-/** The app density this last ran at, so entering compact can be told from staying in it. */
-let lastAppliedAppDensity: "compact" | "full" | null = null;
+/** Full-size nodes when the chain has the compact stage to itself. Not persisted:
+ *  this is what compact means, not a choice the user made about their desktop. */
+function applyCompactChainDensity(): void {
+  if (!isCompact()) {
+    return;
+  }
+  setSignalPathScrollHeight(SIGNAL_PATH_FULL_HEIGHT, { persist: false });
+}
 
 /**
  * Restores the persisted signal-path height, snapped to the nearest mode.
  *
- * Arriving on a compact display forces the 48px chain whatever a desktop session
- * saved — 96px of chain on a 400px-tall window is a third of the screen. It is
- * only forced on the way in, though, and never persisted: the splitter still
- * expands the chain here, and that choice survives the state messages that call
- * this several times a minute.
+ * The stored value is a *split* preference — how much of a shared screen the
+ * chain is worth next to the params panel. Compact does not share: the chain has
+ * its own tab and the whole stage, so that preference has nothing to say there
+ * and full-size nodes (the ones with legible labels) are what make the tab worth
+ * opening. The splitter still overrides this for the session; ignoring the stored
+ * value rather than forcing one on every call is what lets that stick, since this
+ * runs again on each state message.
  */
 function applySignalPathHeightFromSettings(): void {
-  const appDensity = isCompact() ? "compact" : "full";
-  const enteringCompact = appDensity === "compact" && lastAppliedAppDensity !== "compact";
-  lastAppliedAppDensity = appDensity;
-
+  if (isCompact()) {
+    return;
+  }
   const settings = getCurrentUiSettings();
   const stored = typeof settings.signalPathHeight === "number" && Number.isFinite(settings.signalPathHeight)
     ? settings.signalPathHeight
     : signalPathScrollHeight;
-  const density = enteringCompact ? "compact" : densityFromSignalPathHeight(stored);
+  const density = densityFromSignalPathHeight(stored);
   setSignalPathScrollHeight(heightForSignalPathDensity(density), { persist: false });
 }
 
@@ -239,14 +246,22 @@ export function initSignalPathResize(): void {
   });
 
   window.addEventListener("densityChanged", () => {
+    applyCompactChainDensity();
     applySignalPathHeightFromSettings();
     scheduleSignalPathLayoutAdapt();
+  });
+
+  window.addEventListener("compactStageChanged", (event) => {
+    if ((event as CustomEvent<{ stage?: unknown }>).detail?.stage === "chain") {
+      applyCompactChainDensity();
+    }
   });
 
   window.addEventListener("resize", () => {
     scheduleSignalPathLayoutAdapt();
   });
 
+  applyCompactChainDensity();
   applySignalPathHeightFromSettings();
   scheduleSignalPathLayoutAdapt();
 }

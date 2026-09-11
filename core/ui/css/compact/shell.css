@@ -485,3 +485,103 @@ html[data-density="compact"] .footer-ab-btn {
     min-height: 32px !important;
   }
 }
+
+/* ── Play stage tabs ──────────────────────────────────────────────────────────
+ *
+ * The signal chain and the panel under it take turns at this density rather than
+ * splitting the ~250px between them — see ts/compactStage.ts for why. The tabs
+ * themselves cost 30px and hand back 45px to the detail view and 180px to the
+ * chain, which is the difference between icon-only nodes and nodes with labels.
+ *
+ * The component exists only for this density, so its base rules live here rather
+ * than in a components sheet that would carry a permanently hidden element.
+ */
+
+.compact-stage-tabs {
+  display: none;
+}
+
+html[data-density="compact"][data-main-panel="visualizer"] .compact-stage-tabs {
+  display: flex;
+  flex: none;
+  justify-content: center;
+  gap: 3px;
+  padding: 3px calc(6px + var(--ssg-safe-right)) 3px calc(6px + var(--ssg-safe-left));
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-light);
+}
+
+html[data-density="compact"] .compact-stage-tab {
+  min-width: 96px;
+  min-height: 24px;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+html[data-density="compact"] .compact-stage-tab:hover {
+  color: var(--text-primary);
+  background: var(--overlay-light);
+}
+
+html[data-density="compact"] .compact-stage-tab:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+html[data-density="compact"] .compact-stage-tab.is-active {
+  background: color-mix(in srgb, var(--accent-primary) 20%, var(--bg-secondary));
+  border-color: color-mix(in srgb, var(--accent-primary) 42%, var(--border-light));
+  color: var(--text-primary);
+}
+
+/* Chain tab: the chain takes the whole stage. .signal-path-visualizer is pinned
+   to --signal-path-scroll-height by default, which is what keeps it at node
+   height when it shares the screen; here it should grow instead. */
+html[data-density="compact"][data-main-panel="visualizer"][data-compact-stage="chain"] .main-content {
+  display: none;
+}
+
+html[data-density="compact"][data-main-panel="visualizer"][data-compact-stage="chain"] .signal-path-stage {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+html[data-density="compact"][data-main-panel="visualizer"][data-compact-stage="chain"] .signal-path-bar,
+html[data-density="compact"][data-main-panel="visualizer"][data-compact-stage="chain"] .signal-path-body {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+html[data-density="compact"][data-main-panel="visualizer"][data-compact-stage="chain"] .signal-path-visualizer {
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 0;
+}
+
+/* Detail tab: the chain steps aside, taking the FX flyout anchored to it. */
+html[data-density="compact"][data-main-panel="visualizer"][data-compact-stage="detail"] .signal-path-stage {
+  display: none;
+}
+
+/* The chevron that collapsed the chain is what the tabs now do. */
+html[data-density="compact"][data-main-panel="visualizer"] .signal-path-collapse-btn {
+  display: none;
+}
+
+@media (pointer: coarse) {
+  html[data-density="compact"] .compact-stage-tab {
+    min-height: 30px;
+  }
+}

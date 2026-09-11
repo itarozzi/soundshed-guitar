@@ -6,6 +6,7 @@ import type {
   Preset,
 } from "./types.js";
 import { postMessage } from "./bridge.js";
+import { revealCompactNodeDetail } from "./compactStage.js";
 import { escapeHtml } from "./utils.js";
 import { showNotification } from "./notifications.js";
 import { EffectTypeRegistry, getNodeEffectInfo } from "./presetV2.js";
@@ -1162,6 +1163,9 @@ function bindNodeClickHandlers(preset: Preset): void {
   const selectNodeElement = (node: GraphNode, el: HTMLElement, focusElement: boolean): void => {
     setSelectedNodeId(node.id);
     showNodeParamsPanel(node, preset);
+    // Compact shows the chain and the params panel one at a time, so picking a
+    // node here has to bring its controls forward or the tap looks like a no-op.
+    revealCompactNodeDetail();
       // Always animate the 3D stage to the selected unit (amp head / cab / rack).
       chain3dView?.focusNode(node.id, false);
 

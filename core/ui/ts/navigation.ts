@@ -1,6 +1,7 @@
 import { uiState } from "./state.js";
 import { postMessage } from "./bridge.js";
 import { isCompact } from "./compactMode.js";
+import { applyCompactStage, isCompactStage, setCompactStageDetailLabel } from "./compactStage.js";
 import { initSettingsPanel, updateSettingsSessionStatus, activateEquipmentTab, activateLibraryTab, activateAdvancedSubTab, setSettingsViewStateSuppressed } from "./settings.js";
 import { ensureTone3000Session } from "./tone3000.js";
 import { handleJamPanelActivated, initializeJamPanel } from "./jam.js";
@@ -78,6 +79,8 @@ function applyPlayViewMode(mode: "visualizer" | "pads", persistState = true): vo
     performancePanel.classList.toggle("active", showPads);
     performancePanel.setAttribute("aria-hidden", showPads ? "false" : "true");
   }
+  // The compact stage's second tab is whichever of these is behind it.
+  setCompactStageDetailLabel(showPads ? "Setlist" : "Effect");
   padsFooterButtons.forEach((button) => {
     button.classList.toggle("is-active", showPads);
     button.setAttribute("aria-pressed", showPads ? "true" : "false");
@@ -145,6 +148,10 @@ export function switchMainPanel(panelId: string): void {
     return normalizedPanelId;
   })();
 
+  // The compact stage tabs belong to Play alone, and CSS cannot see which panel
+  // is active from outside .main-content.
+  document.documentElement.dataset.mainPanel = effectivePanelId;
+
   const panelSwitchButtons = getPanelSwitchButtons();
   const mainTabPanels = getMainTabPanels();
   panelSwitchButtons.forEach((btn) => {
@@ -209,6 +216,22 @@ export function initializePlayFooterPadsToggle(): void {
     button.addEventListener("click", togglePlayViewMode);
   });
   applyPlayViewMode(playViewMode, false);
+}
+
+/**
+ * Remember which compact stage tab the user left on.
+ *
+ * compactStage.ts announces the change rather than writing it down itself: view
+ * state is this module's to own, and importing it back the other way would put a
+ * cycle through a module the shell loads before anything else.
+ */
+export function initCompactStagePersistence(): void {
+  window.addEventListener("compactStageChanged", (event) => {
+    const stage = (event as CustomEvent<{ stage?: unknown }>).detail?.stage;
+    if (isCompactStage(stage)) {
+      updateUiViewState({ compactStage: stage });
+    }
+  });
 }
 
 export function initializeIconBarTabs(options?: { onEq?: () => void; onMetronome?: () => void }): void {
@@ -396,6 +419,9 @@ export function applyUiViewState(state?: UiViewState): void {
   applyingViewState = true;
   if (next.mainPanel) {
     switchMainPanel(next.mainPanel);
+  }
+  if (isCompactStage(next.compactStage)) {
+    applyCompactStage(next.compactStage);
   }
   if (isPlayViewMode(next.playView)) {
     applyPlayViewMode(next.playView, false);
