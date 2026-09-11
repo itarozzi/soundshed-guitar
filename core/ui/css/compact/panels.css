@@ -1,0 +1,268 @@
+/* ===== Compact density: the main panels =====
+ *
+ * What the shell hands the content area at 640x400 is about 232px. These rules
+ * are what makes each panel honest about living in it: no minimum heights taller
+ * than the viewport, no side rails eating a third of a 640px width, and one
+ * scroll container per panel rather than several fighting each other.
+ */
+
+html[data-density="compact"] .panel-content {
+  padding: 10px;
+}
+
+/* ── Play: the node params panel ──────────────────────────────────────────────
+ *
+ * The 400px floor under .effect-visualization is the single biggest offender
+ * here — on a 400px-tall window it is the entire screen, so the panel could only
+ * ever be scrolled, never seen. Lifting it lets the shell size to its content.
+ */
+
+html[data-density="compact"] .effect-visualization {
+  min-height: 0;
+}
+
+html[data-density="compact"] .visualization-panel {
+  overscroll-behavior: contain;
+}
+
+html[data-density="compact"] .effect-visualization-header {
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+html[data-density="compact"] .effect-visualization-title {
+  font-size: 12px;
+}
+
+html[data-density="compact"] .default-effect-shell {
+  gap: 6px;
+  padding: 6px 8px 8px;
+}
+
+/*
+  The equipment artwork is the one thing on this panel that is purely there to
+  look like the gear. At this size it would take the whole content area and push
+  every knob off-screen, so the shell drops to a single column without it. The
+  node's own icon and name still identify it in the header above.
+*/
+html[data-density="compact"] .default-effect-shell-content.has-equipment-image {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+html[data-density="compact"] .default-effect-shell-equipment-panel {
+  display: none;
+}
+
+html[data-density="compact"] .default-effect-shell-content,
+html[data-density="compact"] .default-effect-shell-main {
+  gap: 8px;
+}
+
+html[data-density="compact"] .default-effect-section {
+  padding: 6px;
+  border-radius: 12px;
+}
+
+html[data-density="compact"] .default-effect-section-controls,
+html[data-density="compact"] .default-effect-shell.neural-model-effect .default-effect-section-controls {
+  padding: 8px;
+}
+
+html[data-density="compact"] .default-effect-shell .params-controls {
+  gap: 10px;
+}
+
+html[data-density="compact"] .default-effect-shell .node-param-group-block,
+html[data-density="compact"] .default-effect-shell .eq-visualizer,
+html[data-density="compact"] .default-effect-shell .mixer-inputs-section,
+html[data-density="compact"] .default-effect-shell .input-analyzer-panel,
+html[data-density="compact"] .default-effect-shell .node-resource-selector {
+  padding: 8px;
+  border-radius: 12px;
+}
+
+html[data-density="compact"] .default-effect-shell .node-param-group-block {
+  min-width: 0;
+}
+
+html[data-density="compact"] .default-effect-shell .effect-inline-resource-selectors {
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+html[data-density="compact"] .default-effect-shell .effect-inline-resource-selectors .node-resource-selector {
+  flex: 1 1 100%;
+}
+
+/* A drag-and-drop affordance, on a display that is usually touched. The picker
+   itself still opens on tap, and drop still works if a pointer can do it. */
+html[data-density="compact"] .default-effect-shell .resource-drop-hint {
+  display: none;
+}
+
+/*
+  34px rather than 38px. The knob is the grab target and shrinking it any further
+  makes a fine adjustment a fight, so this is the one place the height comes back
+  from padding and label size instead.
+*/
+html[data-density="compact"] .default-effect-shell .knob {
+  width: 34px;
+  height: 34px;
+}
+
+html[data-density="compact"] .node-params-header {
+  margin-bottom: 6px;
+}
+
+html[data-density="compact"] .node-param-steps {
+  margin-top: 3px;
+}
+
+/* ── Tones and Jam ────────────────────────────────────────────────────────────
+ *
+ * Both are the same shell: a 220px rail of section buttons beside the content.
+ * At 640px that rail is a third of the window, so it becomes a strip of chips
+ * across the top that scrolls sideways.
+ */
+
+html[data-density="compact"] .tone-sharing-shell {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 8px;
+}
+
+html[data-density="compact"] .tone-sharing-sidebar {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  min-height: 0;
+  padding-right: 0;
+  padding-bottom: 8px;
+  border-right: none;
+  border-bottom: 1px solid var(--border-medium);
+}
+
+html[data-density="compact"] .tone-sharing-sidebar-actions {
+  flex-direction: row;
+  flex: none;
+}
+
+/*
+  `display: flex` is not redundant. Below 860px the rail already becomes
+  `display: grid` with auto-fit 140px columns, which wraps six sections onto two
+  or three rows — 67px of a 286px content area for a row of chips, and every
+  flex property below silently inert. One scrolling row costs half that.
+*/
+html[data-density="compact"] .tone-sharing-browse-nav {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-right: 0;
+  padding-bottom: 2px;
+  scrollbar-width: thin;
+}
+
+html[data-density="compact"] .tone-sharing-nav-btn {
+  width: auto;
+  flex: 0 0 auto;
+  justify-content: center;
+  padding: 7px 10px;
+  white-space: nowrap;
+}
+
+/*
+  Search field and button side by side, not stacked.
+
+  The base layout already puts them in one row; `@media (max-width: 760px)` in
+  jam.css stacks them, which is the right call when the constraint is width and
+  the wrong one here — it spends ~50px of height to widen a button that was
+  already wide enough. Compact is short before it is narrow, so the row goes back
+  to two columns and the button takes only what its label needs.
+*/
+html[data-density="compact"] .jam-search-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+html[data-density="compact"] #jam-search-button {
+  padding: 8px 14px;
+  box-shadow: none;
+}
+
+html[data-density="compact"] .jam-search-row input {
+  padding: 8px 12px;
+}
+
+/* Explanatory copy for a rail that no longer exists. */
+html[data-density="compact"] .tone-sharing-share-hint {
+  display: none;
+}
+
+html[data-density="compact"] .tone-sharing-toolbar {
+  gap: 6px;
+  padding: 6px 0;
+}
+
+/* ── Settings ─────────────────────────────────────────────────────────────────
+ *
+ * The section rail already stacks at 980px. What is left is the row grid: a
+ * fixed 120px label column beside the control squeezes every select and text
+ * field into what is left of 640px. Stacking the label over the control gives
+ * the control the full width.
+ */
+
+html[data-density="compact"] .settings-panel {
+  gap: 12px;
+}
+
+html[data-density="compact"] .settings-row,
+html[data-density="compact"] .settings-row.settings-row-two {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+html[data-density="compact"] .settings-row label {
+  margin-bottom: 0;
+}
+
+html[data-density="compact"] .settings-section {
+  padding: 10px;
+}
+
+html[data-density="compact"] .equipment-tabs {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: thin;
+}
+
+html[data-density="compact"] .equipment-tabs .equipment-tab-btn {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+html[data-density="compact"] .equipment-library-filters-primary,
+html[data-density="compact"] .equipment-library-filters-advanced {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+html[data-density="compact"] .settings-hint {
+  font-size: 10px;
+}
+
+/* ── Performance pads ─────────────────────────────────────────────────────────
+ *
+ * The pad grid is already fluid; it just needs to stop reserving desktop gutters.
+ */
+
+html[data-density="compact"] .performance-pad-panel,
+html[data-density="compact"] #panel-performance {
+  padding: 8px;
+}

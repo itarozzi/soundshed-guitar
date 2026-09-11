@@ -62,6 +62,8 @@ export const themeSelect = document.getElementById("theme-select") as HTMLSelect
 
 export const zoomLevelSelect = document.getElementById("zoom-level-select") as HTMLSelectElement | null;
 
+export const densityLevelSelect = document.getElementById("density-level-select") as HTMLSelectElement | null;
+
 export const librarySearchInput = document.getElementById("equipment-library-search") as HTMLInputElement | null;
 
 export const libraryTypeSelect = document.getElementById("equipment-library-type") as HTMLSelectElement | null;

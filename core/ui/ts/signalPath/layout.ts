@@ -1,3 +1,4 @@
+import { isCompact } from "../compactMode.js";
 import { getCurrentUiSettings } from "../windowSettings.js";
 import { updateUiSettings } from "../windowSettings.js";
 import {
@@ -192,13 +193,28 @@ export function onSignalPathResizeDoubleClick(event: MouseEvent): void {
   setSignalPathScrollHeight(SIGNAL_PATH_FULL_HEIGHT, { persist: true });
 }
 
-/** Restores the persisted signal-path height, snapped to the nearest mode. */
+/** The app density this last ran at, so entering compact can be told from staying in it. */
+let lastAppliedAppDensity: "compact" | "full" | null = null;
+
+/**
+ * Restores the persisted signal-path height, snapped to the nearest mode.
+ *
+ * Arriving on a compact display forces the 48px chain whatever a desktop session
+ * saved — 96px of chain on a 400px-tall window is a third of the screen. It is
+ * only forced on the way in, though, and never persisted: the splitter still
+ * expands the chain here, and that choice survives the state messages that call
+ * this several times a minute.
+ */
 function applySignalPathHeightFromSettings(): void {
+  const appDensity = isCompact() ? "compact" : "full";
+  const enteringCompact = appDensity === "compact" && lastAppliedAppDensity !== "compact";
+  lastAppliedAppDensity = appDensity;
+
   const settings = getCurrentUiSettings();
   const stored = typeof settings.signalPathHeight === "number" && Number.isFinite(settings.signalPathHeight)
     ? settings.signalPathHeight
     : signalPathScrollHeight;
-  const density = densityFromSignalPathHeight(stored);
+  const density = enteringCompact ? "compact" : densityFromSignalPathHeight(stored);
   setSignalPathScrollHeight(heightForSignalPathDensity(density), { persist: false });
 }
 
@@ -220,6 +236,11 @@ export function initSignalPathResize(): void {
 
   window.addEventListener("uiSettingsApplied", () => {
     applySignalPathHeightFromSettings();
+  });
+
+  window.addEventListener("densityChanged", () => {
+    applySignalPathHeightFromSettings();
+    scheduleSignalPathLayoutAdapt();
   });
 
   window.addEventListener("resize", () => {

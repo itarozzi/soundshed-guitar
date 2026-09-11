@@ -35,6 +35,21 @@
       delete window.inAndroidUserScriptEval;
     }
   </script>
+  <script>
+    /*
+      Display density, applied before first paint.
+
+      ts/compactMode.ts owns this for the rest of the session — it also accounts
+      for the UI zoom setting and for the user's stored Auto/Compact/Full
+      preference, neither of which is known this early. This runs only so the
+      first frame is already laid out at the right density instead of painting
+      the desktop shell and reflowing to the compact one a moment later.
+
+      The two thresholds must match COMPACT_MAX_WIDTH / COMPACT_MAX_HEIGHT.
+    */
+    document.documentElement.dataset.density =
+      window.innerWidth <= 980 || window.innerHeight <= 620 ? "compact" : "full";
+  </script>
   <script src="build-flags.js"></script>
   <script src="dist/alpine.min.js"></script>
   <!--
@@ -117,6 +132,13 @@
   <link rel="stylesheet" href="css/themes/dark.css" />
   <link rel="stylesheet" href="css/themes/classic.css" />
   <link rel="stylesheet" href="css/grain.css" />
+  <!-- Compact density. Last in the cascade because every rule here is a layout
+       override of a sheet above it, keyed off html[data-density="compact"];
+       none of them set colour, so the themes are untouched. Order matters:
+       these are parts of one sheet, shell before the panels it sizes. -->
+  <link rel="stylesheet" href="css/compact/shell.css" />
+  <link rel="stylesheet" href="css/compact/panels.css" />
+  <link rel="stylesheet" href="css/compact/modals.css" />
 </head>
 
 <body>

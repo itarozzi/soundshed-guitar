@@ -8,7 +8,7 @@
 
 import { postMessage, setAppSetting } from "./bridge.js";
 import { appendLog } from "./logging.js";
-import { initThemeSelect, initZoomControls } from "./settings/appearance.js";
+import { initDensitySelect, initThemeSelect, initZoomControls } from "./settings/appearance.js";
 import { apiKeyInput, clearButton, dspNominalLevelInput, dspOutputLimiterToggle, dspProtectionCeilingInput, factoryArchiveLoadingToggle, namAntiAliasPhaseSelect, namAutoInputCalibrationToggle, namInterfaceCalibrationLevelInput, namOversamplingSelect, namSlimmableSizeInput, openAudioPreferencesButton, openAudioPreferencesHint, openAudioPreferencesRow, presetSwitchTailSelect, saveButton, themeSelect, tone3000UseSoundshedApiToggle, updateCheckToggle } from "./settings/dom.js";
 import { initDiagnosticsToggle, initDspLevelTargetControls, initFactoryArchiveLoadingToggle, initPresetSwitchControls, initUpdateCheckToggle } from "./settings/dspSettings.js";
 import { initFeatureToggles, refreshFeatureToggleStates, syncFeatureVisibility } from "./settings/features.js";
@@ -28,7 +28,7 @@ import { getTone3000ApiClientConfig } from "./tone3000Api.js";
 import { initTone3000Browser } from "./tone3000Browser.js";
 import { updateSignalDiagnosticsView } from "./views.js";
 
-export { initThemeSelect, initZoomControls } from "./settings/appearance.js";
+export { initDensitySelect, initThemeSelect, initZoomControls } from "./settings/appearance.js";
 export { initDiagnosticsToggle } from "./settings/dspSettings.js";
 export { handleUserInputCalibrationDiagnosticsUpdate, initUserInputCalibrationControls } from "./settings/inputCalibration.js";
 export { activateAdvancedSubTab, activateEquipmentTab, activateLibraryTab } from "./settings/tabs.js";
@@ -62,6 +62,7 @@ export function initSettingsPanel(): void {
   initLibraryCleanup();
   initThemeSelect();
   initZoomControls();
+  initDensitySelect();
   initLibraryTabs();
   initLibraryExport();
 

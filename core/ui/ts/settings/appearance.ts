@@ -3,16 +3,55 @@
  * rather than how it sounds.
  */
 
+import type { DensityPreference } from "../compactMode.js";
+import { getDensityPreference, setDensityPreference } from "../compactMode.js";
 import { uiState } from "../state.js";
 import { themeSwitcher } from "../theme-switcher.js";
 import type { ThemeName } from "../theme-switcher.js";
 import { updateUiSettings } from "../windowSettings.js";
-import { themeSelect, zoomLevelSelect } from "./dom.js";
+import { densityLevelSelect, themeSelect, zoomLevelSelect } from "./dom.js";
 import { ZOOM_DEFAULT, ZOOM_LEVEL_OPTIONS, ZOOM_MAX, ZOOM_MIN } from "./keys.js";
 
 let themeSelectInitialized = false;
 
 let zoomControlsInitialized = false;
+
+let densitySelectInitialized = false;
+
+/**
+ * Layout density. Auto follows the window, which is what almost everyone wants;
+ * the two pinned values are for the cases it cannot see — a player who wants the
+ * dense stage layout on a large display, and someone who would rather scroll a
+ * full-size panel than learn a second arrangement of it.
+ */
+export function initDensitySelect(): void {
+  const select = densityLevelSelect;
+  if (!select || densitySelectInitialized) {
+    return;
+  }
+  densitySelectInitialized = true;
+
+  const options: Array<{ value: DensityPreference; label: string }> = [
+    { value: "auto", label: "Auto layout" },
+    { value: "compact", label: "Compact" },
+    { value: "full", label: "Full" },
+  ];
+
+  select.innerHTML = options
+    .map((option) => `<option value="${option.value}">${option.label}</option>`)
+    .join("");
+
+  select.value = getDensityPreference();
+
+  select.addEventListener("change", () => {
+    setDensityPreference(select.value as DensityPreference);
+  });
+
+  // The stored preference arrives with app settings, well after this binds.
+  window.addEventListener("densityPreferenceChanged", () => {
+    select.value = getDensityPreference();
+  });
+}
 
 export function initThemeSelect(): void {
   // Bound to a local so the null check still narrows inside the listeners:

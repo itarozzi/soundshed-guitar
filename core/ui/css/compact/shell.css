@@ -1,0 +1,487 @@
+/* ===== Compact density: the app shell =====
+ *
+ * Header, control bar, signal-chain bar and footer, on a display too small for
+ * the desktop shell. Everything here is keyed off html[data-density="compact"],
+ * which ts/compactMode.ts sets from the effective viewport (zoom included) or
+ * from the user's pinned Compact/Full choice.
+ *
+ * The budget this is written to. At 640x400 — the app's own minimum editor size
+ * — the desktop shell spends 44 + 167 + 151 + 38 = 400px of chrome and leaves
+ * the node params panel exactly zero pixels to lay out in. Compact spends
+ * 36 + 36 + 64 + 32 = 168px and leaves 232px, which is enough for a model row
+ * and a row of knobs.
+ *
+ * Two rules of thumb for anything added here:
+ *   - Nothing a player touches mid-song may move behind a menu. Preset name,
+ *     preset step, A/B, undo and the chain itself stay on the bars; options and
+ *     level trims are what collapse.
+ *   - Never shrink a control below 26px (32px under a coarse pointer). Reclaim
+ *     height by removing chrome, not by making targets unhittable.
+ */
+
+/* ── Header ───────────────────────────────────────────────────────────────── */
+
+html[data-density="compact"] .icon-bar {
+  height: calc(36px + var(--ssg-safe-top));
+  padding: var(--ssg-safe-top) calc(8px + var(--ssg-safe-right)) 0
+    calc(8px + var(--ssg-safe-left));
+  gap: 4px;
+}
+
+/* The wordmark is the one thing on this bar nobody needs at 640px wide. */
+html[data-density="compact"] .app-title {
+  display: none;
+}
+
+html[data-density="compact"] .icon-bar .icon-bar-spacer:first-of-type {
+  flex: 0 0 0;
+}
+
+html[data-density="compact"] .nav-tab {
+  padding: 0 12px !important;
+  font-size: 10px !important;
+  letter-spacing: 0.06em !important;
+}
+
+html[data-density="compact"] .nav-settings-btn {
+  width: 28px !important;
+  height: 28px !important;
+  flex: none;
+}
+
+html[data-density="compact"] .nav-settings-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* ── Control bar ──────────────────────────────────────────────────────────────
+ *
+ * The desktop bar is three columns — input trims, preset, output trims — and the
+ * narrow layout stacks them, which makes it *taller* (124px wide, 167px narrow)
+ * on exactly the displays with no height to give. Compact turns it into one
+ * 36px strip that carries only the preset row, and moves the input/output trims
+ * into a sheet that drops over the content instead of pushing it down.
+ *
+ * The strip is never hidden: switching preset is a performance action.
+ * navigation.ts keeps the preset panel active at this density and drives the
+ * sheet through data-compact-controls.
+ */
+
+html[data-density="compact"] .control-bar-body-inner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  grid-template-columns: none;
+  grid-template-rows: none;
+  padding: 0 6px 0 calc(6px + var(--ssg-safe-left));
+  min-height: 36px;
+}
+
+/* Collapse chevron: still there, just out of the way of the preset name. */
+html[data-density="compact"] .control-bar-collapse-btn {
+  position: absolute;
+  top: 2px;
+  left: calc(2px + var(--ssg-safe-left));
+  z-index: 2;
+  padding: 2px 4px;
+}
+
+html[data-density="compact"] .control-bar-collapsed-label > span {
+  font-size: 9px;
+}
+
+/* The Preset/Controls tab pair becomes a single toggle for the trims sheet. */
+html[data-density="compact"] .control-bar-tabs {
+  display: flex;
+  order: 2;
+  flex: none;
+  gap: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  justify-self: auto;
+}
+
+html[data-density="compact"] .control-bar-tab[data-control-bar-tab="preset"] {
+  display: none;
+}
+
+html[data-density="compact"] .control-bar-tab[data-control-bar-tab="controls"] {
+  min-width: 0;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+}
+
+html[data-density="compact"] .control-bar[data-compact-controls="open"]
+  .control-bar-tab[data-control-bar-tab="controls"] {
+  background: color-mix(in srgb, var(--accent-primary) 22%, var(--bg-secondary));
+  border-color: color-mix(in srgb, var(--accent-primary) 48%, var(--border-light));
+  color: var(--text-primary);
+}
+
+/* Preset row: the whole strip minus the toggle. */
+html[data-density="compact"] .control-bar-preset-panel {
+  display: flex;
+  order: 1;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+html[data-density="compact"] .control-bar-preset-panel[hidden] {
+  display: flex;
+}
+
+html[data-density="compact"] .preset-group {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+}
+
+/*
+  Both rows want `width: 100%` from the stacked layout they were built for. Side
+  by side that means the toolbar claims the whole strip and the preset name gets
+  whatever is left, which is nothing — it rendered as a single clipped letter.
+  The name is the most important thing on this bar, so it takes the slack and the
+  buttons take only what they measure.
+*/
+html[data-density="compact"] .preset-row {
+  width: auto;
+}
+
+html[data-density="compact"] .preset-selector-row {
+  flex: 1 1 auto;
+  min-width: 0;
+  gap: 4px;
+}
+
+html[data-density="compact"] .preset-selector {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 28px;
+}
+
+html[data-density="compact"] .preset-chooser-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  padding-inline: 8px;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Load history is a keyboard shortcut and a footer control; it need not be here. */
+html[data-density="compact"] .preset-history-btn,
+html[data-density="compact"] .preset-selector-status {
+  display: none;
+}
+
+/* .nav-btn carries a 44px min-height that wins over a plain height, and it was
+   setting the whole strip 16px taller than its tallest control. */
+html[data-density="compact"] .preset-nav-btn {
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
+  flex: none;
+}
+
+html[data-density="compact"] .preset-nav-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Preset actions keep only what is used mid-session; the rest is already behind
+   the row's own overflow button. */
+html[data-density="compact"] .preset-toolbar-row {
+  flex: 0 0 auto;
+  order: 3;
+  align-items: center;
+}
+
+html[data-density="compact"] .preset-toolbar {
+  flex: 0 0 auto;
+  width: auto;
+  gap: 2px;
+}
+
+html[data-density="compact"] .preset-toolbar-separator {
+  display: none;
+}
+
+html[data-density="compact"] .preset-action-btn {
+  min-height: 28px;
+  padding-inline: 6px;
+}
+
+html[data-density="compact"] .preset-action-btn-label {
+  display: none;
+}
+
+html[data-density="compact"] .tone-sharing-preview-indicator {
+  display: none !important;
+}
+
+/* The trims sheet. Absolute so it costs the layout nothing when closed and
+   overlays the chain when open. */
+html[data-density="compact"] .control-bar {
+  position: relative;
+}
+
+html[data-density="compact"] .control-bar-controls-panel {
+  display: none;
+}
+
+html[data-density="compact"] .control-bar[data-compact-controls="open"] .control-bar-body {
+  overflow: visible;
+}
+
+html[data-density="compact"] .control-bar[data-compact-controls="open"] .control-bar-controls-panel,
+html[data-density="compact"] .control-bar[data-compact-controls="open"] .control-bar-controls-panel[hidden] {
+  position: absolute;
+  top: 100%;
+  right: 6px;
+  left: 6px;
+  z-index: var(--z-popover, 900);
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 16px;
+  justify-content: space-between;
+  max-height: min(60vh, 320px);
+  overflow: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--border-dark-medium);
+  border-radius: var(--radius-lg);
+  background: var(--bg-tertiary);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.38);
+}
+
+html[data-density="compact"] .control-bar[data-compact-controls="open"] .control-bar-group {
+  flex: 1 1 0;
+  justify-content: center;
+  min-width: 0;
+}
+
+/* ── Signal chain bar ─────────────────────────────────────────────────────────
+ *
+ * signalPath/layout.ts pins the scroll area to its compact 48px at this density,
+ * so all that is left is the chrome around it.
+ */
+
+/*
+  Lifted out of the grid and floated over the chain. As its own row it cost 13px
+  of a ~64px bar for a chevron — the same trade the control bar's collapse button
+  makes above.
+*/
+html[data-density="compact"] .signal-path-collapse-btn {
+  position: absolute;
+  top: 0;
+  left: calc(2px + var(--ssg-safe-left));
+  z-index: 2;
+  padding: 1px 4px;
+}
+
+/*
+  One row, sized by its content. The bar ships as `auto 1fr`, where the first row
+  is the collapse chevron; floating that chevron empties the row but leaves the
+  body in the `1fr` one, which stretches it to fill the bar — and since the bar
+  takes its height from the body's own scrollHeight, each frame made the last one
+  taller. `auto` breaks the loop.
+*/
+html[data-density="compact"] .signal-path-bar {
+  grid-template-rows: auto;
+}
+
+/* Collapsed, the floated chevron is all that is left in the bar, so it has to
+   keep room for it. */
+html[data-density="compact"] .signal-path-bar.is-collapsed {
+  grid-template-rows: 0fr;
+  min-height: 16px;
+}
+
+html[data-density="compact"] .signal-path-collapsed-label > span {
+  font-size: 9px;
+}
+
+html[data-density="compact"] .composite-edit-banner {
+  padding: 2px 8px;
+  font-size: 0.7rem;
+}
+
+html[data-density="compact"] .composite-edit-banner-hint {
+  display: none;
+}
+
+html[data-density="compact"] .signal-path-scroll {
+  padding-block: 2px;
+}
+
+/* ── Footer ───────────────────────────────────────────────────────────────────
+ *
+ * The overflow popover here already existed behind `@media (max-width: 680px)`.
+ * It is driven by density now instead: a 1280x400 window needs it just as much
+ * as a 600x900 one does, and the width query could not see that.
+ */
+
+html[data-density="compact"] .footer-bar {
+  justify-content: space-between;
+  min-height: 32px;
+  padding: 3px calc(8px + var(--ssg-safe-right)) calc(3px + var(--ssg-safe-bottom))
+    calc(8px + var(--ssg-safe-left));
+  gap: 6px;
+}
+
+html[data-density="compact"] .footer-compact-shortcuts,
+html[data-density="compact"] .footer-actions-toggle {
+  display: inline-flex;
+}
+
+html[data-density="compact"] .footer-compact-shortcuts .footer-btn,
+html[data-density="compact"] .footer-actions-toggle {
+  min-height: 26px;
+  padding-inline: 8px;
+  font-size: 10px;
+}
+
+html[data-density="compact"] .footer-actions-panel {
+  position: absolute;
+  right: 8px;
+  bottom: calc(100% + 6px);
+  z-index: var(--z-popover, 900);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  width: min(360px, calc(100vw - 16px));
+  max-height: min(72vh, 520px);
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid var(--border-dark-medium);
+  border-radius: var(--radius-2xl);
+  background: var(--bg-footer);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.32);
+}
+
+html[data-density="compact"] .footer-bar:not(.footer-actions-open) .footer-actions-panel,
+html[data-density="compact"] .footer-actions-panel[aria-hidden="true"] {
+  display: none;
+}
+
+html[data-density="compact"] .footer-group {
+  align-items: center;
+  justify-content: flex-start;
+  flex: none;
+  width: 100%;
+}
+
+html[data-density="compact"] .footer-group + .footer-group {
+  padding-top: 8px;
+  padding-left: 0;
+  border-top: 1px solid color-mix(in srgb, var(--text-dark-disabled) 34%, transparent);
+  border-left: none;
+}
+
+html[data-density="compact"] .footer-demo-group,
+html[data-density="compact"] .footer-view-group {
+  display: flex;
+  flex: none;
+}
+
+html[data-density="compact"] .footer-demo-controls {
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+html[data-density="compact"] .footer-demo-select {
+  flex: 1 1 138px;
+  max-width: none;
+}
+
+html[data-density="compact"] .footer-tools-group,
+html[data-density="compact"] .footer-tempo-group,
+html[data-density="compact"] .footer-view-group {
+  flex-wrap: wrap;
+}
+
+html[data-density="compact"] .footer-right {
+  margin-left: 0;
+}
+
+html[data-density="compact"] .footer-zoom-control,
+html[data-density="compact"] .footer-density-control,
+html[data-density="compact"] .footer-theme-select {
+  flex: 1 1 112px;
+}
+
+html[data-density="compact"] .zoom-level-select,
+html[data-density="compact"] .density-level-select,
+html[data-density="compact"] .footer-theme-select .footer-demo-select {
+  width: 100%;
+  max-width: none;
+}
+
+html[data-density="compact"] .footer-bpm-panel {
+  position: static;
+  width: 100%;
+  margin-top: 4px;
+  transform: none;
+}
+
+html[data-density="compact"] .footer-chain-history {
+  gap: 2px;
+}
+
+html[data-density="compact"] .notification-toast {
+  bottom: 42px;
+}
+
+/* ── Touch targets ────────────────────────────────────────────────────────────
+ *
+ * A compact display is usually a touched one. 38 of the 73 controls on screen at
+ * 640x400 were under 28px before this; nothing that takes a tap is allowed to be.
+ */
+
+html[data-density="compact"] .footer-btn,
+html[data-density="compact"] .footer-play-btn,
+html[data-density="compact"] .footer-repeat-btn,
+html[data-density="compact"] .footer-debug-capture-btn,
+html[data-density="compact"] .footer-demo-actions-button,
+html[data-density="compact"] .footer-metronome-btn,
+html[data-density="compact"] .footer-metronome-play-btn,
+html[data-density="compact"] .footer-chain-step-btn,
+html[data-density="compact"] .footer-ab-btn {
+  min-height: 26px;
+}
+
+@media (pointer: coarse) {
+  html[data-density="compact"] .footer-compact-shortcuts .footer-btn,
+  html[data-density="compact"] .footer-actions-toggle,
+  html[data-density="compact"] .footer-btn,
+  html[data-density="compact"] .bpm-display.metronome-only,
+  html[data-density="compact"] .footer-demo-select,
+  html[data-density="compact"] .preset-action-btn,
+  html[data-density="compact"] .control-bar-tab {
+    min-height: 32px;
+  }
+
+  html[data-density="compact"] .footer-play-btn,
+  html[data-density="compact"] .footer-repeat-btn,
+  html[data-density="compact"] .footer-debug-capture-btn,
+  html[data-density="compact"] .footer-demo-actions-button,
+  html[data-density="compact"] .footer-metronome-btn,
+  html[data-density="compact"] .footer-metronome-play-btn,
+  html[data-density="compact"] .preset-nav-btn,
+  html[data-density="compact"] .nav-settings-btn {
+    width: 32px !important;
+    height: 32px !important;
+    min-height: 32px !important;
+  }
+}

@@ -6,6 +6,7 @@
 import { applyAutomationState } from "../automationPanel.js";
 import { renderBlendList } from "../blendManager.js";
 import { requestGlobalChainState } from "../bridge.js";
+import { applyDensityAppSettings } from "../compactMode.js";
 import { renderCompositeList } from "../compositeEditor.js";
 import { handleCompositeLibrary } from "../compositeEffects.js";
 import type { CompositeEffectDefinition } from "../compositeTypes.js";
@@ -84,6 +85,7 @@ export function onState(payload: IncomingPayload): void {
   const appSettings = (payload as { appSettings?: Record<string, unknown> }).appSettings;
   if (appSettings) {
     uiState.appSettings = appSettings as AppSettings;
+    applyDensityAppSettings(appSettings);
     applyStoredDemoAudioSelection();
     applyToneSharingAppSettings(appSettings);
     applyJamAppSettings();

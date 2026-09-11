@@ -1,5 +1,6 @@
 import { uiState } from "./state.js";
 import { postMessage } from "./bridge.js";
+import { isCompact } from "./compactMode.js";
 import { initSettingsPanel, updateSettingsSessionStatus, activateEquipmentTab, activateLibraryTab, activateAdvancedSubTab, setSettingsViewStateSuppressed } from "./settings.js";
 import { ensureTone3000Session } from "./tone3000.js";
 import { handleJamPanelActivated, initializeJamPanel } from "./jam.js";
@@ -257,29 +258,31 @@ export function initializeControlBarTabs(): void {
   const panels = Array.from(bar.querySelectorAll<HTMLElement>(".control-bar-panel"));
   const compactQuery = window.matchMedia("(max-width: 980px)");
   let activeTabId = "preset";
+  let compactControlsOpen = false;
 
-  const activateControlBarTab = (tabId: string) => {
-    activeTabId = tabId;
+  /*
+    Three layouts share these two panels.
 
-    tabs.forEach((tab) => {
-      const isActive = tab.dataset.controlBarTab === tabId;
-      tab.classList.toggle("is-active", isActive);
-      tab.setAttribute("aria-selected", isActive ? "true" : "false");
-      tab.tabIndex = isActive ? 0 : -1;
-    });
+    Desktop lays both out side by side and the tab strip is hidden. Narrow (the
+    980px query) turns them into a real tab pair — one visible at a time. Compact
+    keeps the preset row on screen permanently, because stepping presets is a
+    performance action and must never be a menu away, and shows the input/output
+    trims as a sheet over the content instead. The Controls tab is that sheet's
+    toggle at this density, so it is the one case where picking a "tab" does not
+    hide its sibling.
+  */
+  const applyPanelVisibility = () => {
+    if (isCompact()) {
+      bar.dataset.compactControls = compactControlsOpen ? "open" : "closed";
+      panels.forEach((panel) => {
+        const isControls = panel.id === "control-bar-controls-panel";
+        panel.classList.toggle("is-active", isControls ? compactControlsOpen : true);
+        panel.hidden = isControls && !compactControlsOpen;
+      });
+      return;
+    }
 
-    panels.forEach((panel) => {
-      const isActive = panel.id === `control-bar-${tabId}-panel`;
-      panel.classList.toggle("is-active", isActive);
-      panel.hidden = compactQuery.matches && !isActive;
-    });
-  };
-
-  const syncControlBarTabMode = () => {
-    tabs.forEach((tab) => {
-      tab.tabIndex = tab.dataset.controlBarTab === activeTabId ? 0 : -1;
-    });
-
+    delete bar.dataset.compactControls;
     panels.forEach((panel) => {
       const isActive = panel.id === `control-bar-${activeTabId}-panel`;
       panel.classList.toggle("is-active", isActive);
@@ -287,7 +290,66 @@ export function initializeControlBarTabs(): void {
     });
   };
 
-  tabs.forEach((tab, index) => {
+  const applyTabVisuals = () => {
+    tabs.forEach((tab) => {
+      const isActive = tab.dataset.controlBarTab === activeTabId;
+      tab.classList.toggle("is-active", isActive);
+      tab.setAttribute("aria-selected", isActive ? "true" : "false");
+      tab.tabIndex = isActive ? 0 : -1;
+      if (tab.dataset.controlBarTab === "controls") {
+        tab.setAttribute("aria-expanded", compactControlsOpen ? "true" : "false");
+      }
+    });
+  };
+
+  const setCompactControlsOpen = (open: boolean) => {
+    compactControlsOpen = open;
+    applyTabVisuals();
+    applyPanelVisibility();
+  };
+
+  const activateControlBarTab = (tabId: string) => {
+    if (isCompact()) {
+      setCompactControlsOpen(tabId === "controls" ? !compactControlsOpen : false);
+      // The Controls button is the sheet's toggle here, not a tab selection, so
+      // the preset row stays the selected panel underneath it.
+      if (tabId === "controls") {
+        return;
+      }
+    }
+
+    activeTabId = tabId;
+    applyTabVisuals();
+    applyPanelVisibility();
+  };
+
+  const syncControlBarTabMode = () => {
+    if (!isCompact()) {
+      compactControlsOpen = false;
+    }
+    applyTabVisuals();
+    applyPanelVisibility();
+  };
+
+  document.addEventListener("click", (event) => {
+    if (!compactControlsOpen || !isCompact()) {
+      return;
+    }
+    const target = event.target as Node | null;
+    if (target && bar.contains(target)) {
+      return;
+    }
+    setCompactControlsOpen(false);
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || !compactControlsOpen || !isCompact()) {
+      return;
+    }
+    setCompactControlsOpen(false);
+  });
+
+  tabs.forEach((tab) => {
     tab.addEventListener("click", () => {
       const tabId = tab.dataset.controlBarTab;
       if (tabId) {
@@ -302,9 +364,16 @@ export function initializeControlBarTabs(): void {
 
       event.preventDefault();
       const direction = event.key === "ArrowRight" ? 1 : -1;
-      const nextIndex = (index + direction + tabs.length) % tabs.length;
-      tabs[nextIndex].focus();
-      const tabId = tabs[nextIndex].dataset.controlBarTab;
+      // Compact hides the Preset tab — arrowing onto it would move focus to
+      // something the user cannot see.
+      const visible = tabs.filter((candidate) => candidate.offsetParent !== null);
+      const from = visible.indexOf(tab);
+      if (visible.length < 2 || from === -1) {
+        return;
+      }
+      const next = visible[(from + direction + visible.length) % visible.length];
+      next.focus();
+      const tabId = next.dataset.controlBarTab;
       if (tabId) {
         activateControlBarTab(tabId);
       }
@@ -312,6 +381,7 @@ export function initializeControlBarTabs(): void {
   });
 
   compactQuery.addEventListener("change", syncControlBarTabMode);
+  window.addEventListener("densityChanged", syncControlBarTabMode);
   activateControlBarTab("preset");
 }
 

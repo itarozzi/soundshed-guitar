@@ -1,0 +1,269 @@
+/* ===== Compact density: modals =====
+ *
+ * Every modal in the app shares one shell — .modal, .modal-content, and a
+ * header/body/footer inside it — so almost all of this is five selectors rather
+ * than twenty dialogs' worth of special cases.
+ *
+ * What breaks on a small display is not width (the dialogs already cap at 92-96vw)
+ * but height and padding. The backdrop's own 24px inset, plus 16px of header, 20px
+ * of body and 16px of footer padding, is 104px of chrome before a single control —
+ * a third of a 400px-tall window. And because .modal-content is not a flex column
+ * by default, nothing inside it is a scroll container: a dialog taller than its
+ * 85vh cap simply overflowed with its footer buttons off-screen, which on a
+ * confirm dialog means no way to confirm.
+ *
+ * So: trim the chrome, make every content box a column that fits the viewport,
+ * and give the body the overflow so the header and footer stay put.
+ */
+
+html[data-density="compact"] .modal {
+  padding: 6px;
+}
+
+html[data-density="compact"] .modal-content,
+html[data-density="compact"] .eq-modal-content,
+html[data-density="compact"] .tuner-modal .tuner-content,
+html[data-density="compact"] .metronome-modal .metronome-content {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 100%;
+  max-height: 100%;
+  min-height: 0;
+  border-radius: 12px;
+}
+
+html[data-density="compact"] .modal-header,
+html[data-density="compact"] .eq-modal-header,
+html[data-density="compact"] .tuner-header {
+  flex: none;
+  padding: 8px 10px;
+}
+
+html[data-density="compact"] .modal-header h3,
+html[data-density="compact"] .eq-modal-title,
+html[data-density="compact"] .tuner-title {
+  font-size: 13px;
+}
+
+html[data-density="compact"] .modal-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 10px;
+}
+
+/* The EQ dialog has its own header/body pair rather than the shared one, so it
+   needs the same treatment naming its own classes. */
+html[data-density="compact"] .eq-modal-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  gap: 10px;
+  padding: 10px 12px 12px;
+}
+
+html[data-density="compact"] .modal-footer {
+  flex: none;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 10px;
+}
+
+html[data-density="compact"] .modal-footer button {
+  min-height: 30px;
+  padding: 6px 12px;
+}
+
+html[data-density="compact"] .modal-close {
+  width: 30px;
+  height: 30px;
+}
+
+/* A dialog whose body is already its own flex column keeps that; it just must not
+   double-scroll, so the inner region owns the overflow and this one does not. */
+html[data-density="compact"] .resource-browser-modal-content .modal-body,
+html[data-density="compact"] .layout-designer-body {
+  overflow: hidden;
+}
+
+/* ── Dialogs with their own fixed width ──────────────────────────────────────── */
+
+html[data-density="compact"] .dialog-modal .dialog-content,
+html[data-density="compact"] .custom-effect-designer-content,
+html[data-density="compact"] .input-calibration-content,
+html[data-density="compact"] .resource-browser-modal-content,
+html[data-density="compact"] .layout-designer-content,
+html[data-density="compact"] .tuner-modal .tuner-content {
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  max-height: 100%;
+}
+
+/* ── Resource browser ─────────────────────────────────────────────────────────
+ *
+ * The most-used modal in the app, and the one with the most toolbar in it. Its
+ * filter rows are built for a 900px dialog; here they wrap and each control takes
+ * the full width rather than being squeezed to a few characters.
+ */
+
+/*
+  The tab strip and the filter block are fixed furniture above a results list that
+  takes the rest. Both ship as `flex: 0 1 auto` inside that column, which on a
+  258px body squeezed the tab strip to 12px and pushed the filters 130px above the
+  panel's own top edge. They size to their content here and the list absorbs the
+  difference.
+*/
+html[data-density="compact"] .resource-browser-tabs,
+html[data-density="compact"] .resource-browser-filters,
+html[data-density="compact"] .resource-browser-tag-filter-bar {
+  flex: 0 0 auto;
+}
+
+html[data-density="compact"] .resource-browser-tabs {
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+html[data-density="compact"] .resource-browser-tabs .tab-btn {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+/* Wrap, but only as far as the controls actually need — one control per row turns
+   this into 181px of filters above a 200px list. */
+html[data-density="compact"] .resource-browser-filters {
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+html[data-density="compact"] .resource-browser-filters > input {
+  flex: 1 1 150px;
+  min-width: 0;
+}
+
+html[data-density="compact"] .resource-browser-filters > select {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+/*
+  The list carries `min-height: 200px`, which with the filters and tag bar above
+  it adds up to 295px inside a 236px panel — the block overflowed 88px above the
+  panel's own top edge and landed on the tab strip. It takes what is left instead.
+*/
+html[data-density="compact"] .resource-browser-list,
+html[data-density="compact"] .resource-browser-modal .results.results--compact {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+}
+
+/* Three lines of footer for one sentence of guidance, on a dialog whose list is
+   the point. The double-click shortcut it describes still works. */
+html[data-density="compact"] .resource-browser-footer-hint {
+  display: none;
+}
+
+/* ── Layout designer ──────────────────────────────────────────────────────────
+ *
+ * A canvas beside a 240px inspector rail does not fit in 640px. The rail moves
+ * under the canvas and takes its height from the content instead of the window.
+ */
+
+html[data-density="compact"] .layout-designer-body {
+  flex-direction: column;
+}
+
+html[data-density="compact"] .layout-designer-sidebar {
+  width: 100%;
+  min-width: 0;
+  max-height: 40%;
+  border-left: none;
+  border-top: 1px solid var(--border-dark-medium);
+}
+
+html[data-density="compact"] .layout-designer-toolbar {
+  gap: 4px 6px;
+  padding: 6px;
+}
+
+/* ── Tuner ────────────────────────────────────────────────────────────────────
+ *
+ * The one modal that is read at arm's length on a stage, so the note stays as
+ * large as the height allows and the surrounding chrome gives way instead.
+ */
+
+html[data-density="compact"] .tuner-display {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 10px 12px;
+}
+
+html[data-density="compact"] .tuner-cents-display {
+  margin-bottom: 8px;
+  padding: 0;
+}
+
+/* 80px of empty track either side of a 2px line, on a 400px-tall screen. The
+   note readout below it is what gets read from a few feet away, so the track
+   gives up the height and the note keeps its size. */
+html[data-density="compact"] .tuner-pitch-track {
+  height: 48px;
+  margin: 0 16px;
+}
+
+html[data-density="compact"] .tuner-controls {
+  flex: none;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 10px;
+}
+
+/* ── Metronome ────────────────────────────────────────────────────────────────
+ *
+ * The one dialog that cannot own its scrolling. Its card body is deliberately
+ * `overflow: visible` so the meter picker's popup can escape the card, and an
+ * inner scroller would clip exactly that. So the backdrop scrolls instead: the
+ * dialog keeps its natural height, everything inside stays visible, and the whole
+ * card moves under the finger.
+ */
+
+html[data-density="compact"] .metronome-modal {
+  align-items: flex-start;
+  overflow-y: auto;
+}
+
+html[data-density="compact"] .metronome-modal .metronome-content {
+  max-height: none;
+}
+
+html[data-density="compact"] .metronome-card {
+  padding: 10px;
+}
+
+html[data-density="compact"] .metronome-card-header {
+  margin-bottom: 8px;
+}
+
+html[data-density="compact"] .metronome-card-body {
+  gap: 10px;
+}
+
+html[data-density="compact"] .metronome-top-row {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+html[data-density="compact"] .metronome-bottom-row {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+html[data-density="compact"] .metronome-hint {
+  display: none;
+}

@@ -1,0 +1,169 @@
+/**
+ * Display density — the one switch the compact layout hangs off.
+ *
+ * Every compact rule in `css/compact/` keys off `data-density="compact"` on the
+ * root element, and the handful of layout behaviours that cannot be expressed in
+ * CSS (the control-bar overlay, the footer overflow popover, the forced-compact
+ * signal chain) read `getDensity()` instead of running their own `matchMedia`.
+ * That is deliberate: before this module the shell had four independent width
+ * breakpoints in three files, none of which could see how *short* the window was,
+ * which is the constraint that actually breaks this UI. At 640x400 — the app's
+ * own minimum editor size — the chrome added up to the full viewport height and
+ * the main content area was laid out at zero pixels.
+ *
+ * Two things this does that a media query cannot:
+ *
+ *  - **Height counts.** A 1280x400 window is as unusable as a 640x800 one, and
+ *    only `data-density` sees both.
+ *  - **Zoom counts.** The UI zoom setting is `zoom` on `document.body`, so a
+ *    viewport is only as large as `innerWidth / zoom` once the content is laid
+ *    out. At 150% zoom a 1280x800 window has a 853x533 layout box and wants the
+ *    compact shell; a media query would still read 1280x800 and give it the
+ *    desktop one.
+ *
+ * A preference of `auto` follows the viewport; `compact` and `full` pin it. The
+ * choice persists as an app setting so it survives a restart.
+ */
+
+import { setAppSetting } from "./bridge.js";
+
+export type Density = "compact" | "full";
+
+export type DensityPreference = "auto" | Density;
+
+export const DENSITY_SETTING = "ui.density";
+
+/**
+ * Widths at or below this get the compact shell. 980 is not a new number — it is
+ * the breakpoint the control bar already stacked at, kept so nothing that worked
+ * before regresses.
+ */
+export const COMPACT_MAX_WIDTH = 980;
+
+/**
+ * Heights at or below this get the compact shell. The full shell spends ~361px on
+ * chrome, and the node params panel wants ~300px to show a model row and a knob
+ * grid without scrolling, so anything under ~660px is already squeezed.
+ *
+ * Keep this and {@link COMPACT_MAX_WIDTH} in step with the pre-paint bootstrap in
+ * `index.template.html`, which applies the same test before this module loads.
+ */
+export const COMPACT_MAX_HEIGHT = 620;
+
+const DENSITY_PREFERENCES: readonly DensityPreference[] = ["auto", "compact", "full"];
+
+let preference: DensityPreference = "auto";
+let density: Density = "full";
+let initialized = false;
+let evaluateRaf = 0;
+
+export function isDensityPreference(value: unknown): value is DensityPreference {
+  return typeof value === "string" && DENSITY_PREFERENCES.includes(value as DensityPreference);
+}
+
+/**
+ * The zoom actually applied to the document. `windowSettings` owns this setting,
+ * but reading it back off the element keeps this module a leaf — importing the
+ * settings module from here would put a cycle through `bridge`.
+ */
+function currentZoom(): number {
+  const inline = Number.parseFloat(document.body?.style.zoom || "");
+  if (Number.isFinite(inline) && inline > 0) {
+    return inline;
+  }
+  const computed = Number.parseFloat(window.getComputedStyle(document.body).zoom);
+  return Number.isFinite(computed) && computed > 0 ? computed : 1;
+}
+
+/** Viewport in the CSS pixels the laid-out content actually gets, zoom included. */
+export function effectiveViewport(): { width: number; height: number } {
+  const zoom = currentZoom();
+  return {
+    width: window.innerWidth / zoom,
+    height: window.innerHeight / zoom,
+  };
+}
+
+function densityForViewport(): Density {
+  const { width, height } = effectiveViewport();
+  return width <= COMPACT_MAX_WIDTH || height <= COMPACT_MAX_HEIGHT ? "compact" : "full";
+}
+
+function resolveDensity(): Density {
+  return preference === "auto" ? densityForViewport() : preference;
+}
+
+export function getDensity(): Density {
+  return density;
+}
+
+export function isCompact(): boolean {
+  return density === "compact";
+}
+
+export function getDensityPreference(): DensityPreference {
+  return preference;
+}
+
+function applyResolvedDensity(): void {
+  const next = resolveDensity();
+  const root = document.documentElement;
+  root.dataset.densityPref = preference;
+
+  if (next === density && root.dataset.density === next) {
+    return;
+  }
+
+  density = next;
+  root.dataset.density = next;
+  window.dispatchEvent(new CustomEvent("densityChanged", { detail: { density: next, preference } }));
+}
+
+function scheduleEvaluate(): void {
+  if (evaluateRaf) {
+    return;
+  }
+  evaluateRaf = requestAnimationFrame(() => {
+    evaluateRaf = 0;
+    applyResolvedDensity();
+  });
+}
+
+/**
+ * Apply a preference without persisting it — for the value arriving from stored
+ * app settings, which would otherwise be written straight back to the engine.
+ */
+export function applyDensityPreference(next: DensityPreference): void {
+  preference = next;
+  applyResolvedDensity();
+  // Fires on the stored-settings path too, not just on a user change: the footer
+  // selector is bound during bootstrap, long before app settings arrive, so this
+  // is how it learns what the stored preference turned out to be.
+  window.dispatchEvent(new CustomEvent("densityPreferenceChanged", { detail: { preference: next } }));
+}
+
+/** Apply a preference the user just chose, and remember it. */
+export function setDensityPreference(next: DensityPreference): void {
+  applyDensityPreference(next);
+  setAppSetting(DENSITY_SETTING, next);
+}
+
+/** Pick the stored preference out of an app-settings blob, if it carries one. */
+export function applyDensityAppSettings(appSettings: Record<string, unknown> | undefined): void {
+  const stored = appSettings?.[DENSITY_SETTING];
+  applyDensityPreference(isDensityPreference(stored) ? stored : "auto");
+}
+
+export function initCompactMode(): void {
+  if (initialized) {
+    applyResolvedDensity();
+    return;
+  }
+  initialized = true;
+
+  window.addEventListener("resize", scheduleEvaluate);
+  // Zoom changes the layout box without changing the window, so the resize event
+  // never fires for them.
+  window.addEventListener("uiSettingsApplied", scheduleEvaluate);
+  applyResolvedDensity();
+}

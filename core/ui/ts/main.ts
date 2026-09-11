@@ -11,6 +11,7 @@ import {
   requestSignalPathTest,
   applyPresetFromLibrary,
 } from "./presets.js";
+import { initCompactMode, isCompact } from "./compactMode.js";
 import { installFetchLogger, renderLogEntries } from "./logging.js";
 import { scheduleDSPPerformancePlotUpdate } from "./views.js";
 import { handleIncomingMessage } from "./messages.js";
@@ -19,7 +20,7 @@ import { initFxSelector, refreshFxSelector } from "./fxSelector.js";
 import { themeSwitcher } from "./theme-switcher.js";
 import { startUiSettingsTracking } from "./windowSettings.js";
 import { renderFooterDemoAudioControls, bindFooterDemoAudioControls } from "./demoAudio.js";
-import { initDiagnosticsToggle, initThemeSelect, initZoomControls, initUserInputCalibrationControls } from "./settings.js";
+import { initDensitySelect, initDiagnosticsToggle, initThemeSelect, initZoomControls, initUserInputCalibrationControls } from "./settings.js";
 import { postMessage } from "./bridge.js";
 import { initializeMetronome } from "./metronome.js";
 import { initializeAutomationPanel } from "./automationPanel.js";
@@ -110,15 +111,22 @@ function initFooterActionsPopup(): void {
 
   toggle.dataset.bound = "true";
   const compactQuery = window.matchMedia("(max-width: 680px)");
+  /*
+    The overflow popover follows the compact shell, and also the old width query
+    so that pinning Full on a narrow window still gets the layout that query
+    styles. Density alone is not enough: the two can disagree, and the JS has to
+    match whichever CSS is actually applied.
+  */
+  const isFooterCompact = () => isCompact() || compactQuery.matches;
 
   const setOpen = (open: boolean) => {
     footer.classList.toggle("footer-actions-open", open);
     toggle.setAttribute("aria-expanded", open ? "true" : "false");
-    panel.setAttribute("aria-hidden", compactQuery.matches && !open ? "true" : "false");
+    panel.setAttribute("aria-hidden", isFooterCompact() && !open ? "true" : "false");
   };
 
   const syncMode = () => {
-    if (!compactQuery.matches) {
+    if (!isFooterCompact()) {
       setOpen(false);
       panel.setAttribute("aria-hidden", "false");
       return;
@@ -131,7 +139,7 @@ function initFooterActionsPopup(): void {
   });
 
   document.addEventListener("click", (event) => {
-    if (!compactQuery.matches || !footer.classList.contains("footer-actions-open")) {
+    if (!isFooterCompact() || !footer.classList.contains("footer-actions-open")) {
       return;
     }
     const target = event.target as Node | null;
@@ -146,17 +154,23 @@ function initFooterActionsPopup(): void {
       return;
     }
     setOpen(false);
-    if (compactQuery.matches) {
+    if (isFooterCompact()) {
       toggle.focus();
     }
   });
 
   compactQuery.addEventListener("change", syncMode);
+  window.addEventListener("densityChanged", syncMode);
   syncMode();
 }
 
 
 async function bootstrap(): Promise<void> {
+  // Before anything measures or lays out: the pre-paint script in
+  // index.template.html has already set a density from the raw viewport, and this
+  // takes ownership of it so zoom and the stored preference are accounted for.
+  initCompactMode();
+
   initSplashScreen();
 
   installFetchLogger();
@@ -196,6 +210,7 @@ async function bootstrap(): Promise<void> {
   console.log("[JS] Theme switcher initialized:", themeSwitcher.getCurrentTheme());
   initThemeSelect();
   initZoomControls();
+  initDensitySelect();
   
   // Add theme switcher UI to icon bar
 
