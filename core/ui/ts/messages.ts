@@ -870,7 +870,6 @@ function onState(payload: IncomingPayload): void {
   syncControlsFromState();
   updatePresetActionButtons();
   updatePresetDropdownSelection();
-  showNotification("");
   refreshSettingsView();
 }
 

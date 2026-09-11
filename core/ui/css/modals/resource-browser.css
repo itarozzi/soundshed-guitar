@@ -17,6 +17,21 @@
   position: relative;
 }
 
+.resource-browser-footer-hint {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-right: auto;
+  align-self: center;
+  color: var(--text-dark-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+/* The hint wraps when the window is narrow; the buttons keep their size. */
+.resource-browser-modal-content .modal-footer button {
+  flex: 0 0 auto;
+}
+
 .resource-browser-tabs {
   display: flex;
   gap: 0;

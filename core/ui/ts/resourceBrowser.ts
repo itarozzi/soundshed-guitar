@@ -300,6 +300,7 @@ export class ResourceBrowserModal {
   private closeBtn: HTMLButtonElement | null = null;
   private cancelBtn: HTMLButtonElement | null = null;
   private selectBtn: HTMLButtonElement | null = null;
+  private footerHint: HTMLElement | null = null;
   private editPopover: HTMLElement | null = null;
   private editNameInput: HTMLInputElement | null = null;
   private editCategoryInput: HTMLInputElement | null = null;
@@ -688,6 +689,7 @@ export class ResourceBrowserModal {
     this.closeBtn = document.getElementById("resource-browser-close") as HTMLButtonElement | null;
     this.cancelBtn = document.getElementById("resource-browser-cancel") as HTMLButtonElement | null;
     this.selectBtn = document.getElementById("resource-browser-select") as HTMLButtonElement | null;
+    this.footerHint = this.modal.querySelector(".resource-browser-footer-hint") as HTMLElement | null;
     this.editPopover = document.getElementById("resource-browser-edit-popover");
     this.editNameInput = document.getElementById("resource-browser-edit-name") as HTMLInputElement | null;
     this.editCategoryInput = document.getElementById("resource-browser-edit-category") as HTMLInputElement | null;
@@ -841,6 +843,7 @@ export class ResourceBrowserModal {
     
     // Library item click
     this.libraryList?.addEventListener("click", (event) => void this.handleLibraryClick(event));
+    this.libraryList?.addEventListener("dblclick", (event) => this.handleLibraryDoubleClick(event));
 
     // Folder tab events
     this.folderAddBtn?.addEventListener("click", () => this.requestAddFolder());
@@ -865,6 +868,7 @@ export class ResourceBrowserModal {
       this.renderFolderList(true);
     });
     this.folderList?.addEventListener("click", (event) => this.handleFolderClick(event));
+    this.folderList?.addEventListener("dblclick", (event) => this.handleFolderDoubleClick(event));
     this.folderList?.addEventListener("scroll", () => this.queueFolderVirtualWindowRender(), { passive: true });
     
     // Tone3000 search
@@ -2130,13 +2134,60 @@ export class ResourceBrowserModal {
     }
     
     this.selectedResourceId = resourceId;
-    this.renderLibraryList();
+    this.applyLibrarySelectionHighlight();
     this.updateSelectButtonState();
-    
+
     // Immediately preview the library resource
     this.previewLibraryResource(resourceId);
   }
-  
+
+  /// Moves the selection highlight without repainting the list. A full render
+  /// would detach the row under the pointer between the two clicks of a double
+  /// click, and a dblclick on a detached row never reaches the delegated
+  /// listener on the list - so the shortcut below would silently never fire.
+  private applyLibrarySelectionHighlight(): void {
+    if (!this.libraryList || !this.options) {
+      return;
+    }
+
+    const aliasMap = this.libraryResourceAliases.get(this.options.resourceType) ?? new Map<string, string>();
+    const resolvedId = resolveResourceIdAlias(this.selectedResourceId, aliasMap);
+    this.libraryList.querySelectorAll<HTMLElement>(".resource-browser-item-row[data-resource-id]").forEach((row) => {
+      const id = row.dataset.resourceId ?? "";
+      const isSelected = Boolean(id) && (id === this.selectedResourceId || id === resolvedId);
+      row.classList.toggle("is-selected", isSelected);
+      const selectBtn = row.querySelector(".resource-browser-item-select") as HTMLElement | null;
+      selectBtn?.classList.toggle("is-active", isSelected);
+      selectBtn?.setAttribute("aria-pressed", isSelected ? "true" : "false");
+    });
+
+    this.updateLibraryNavigationButtons();
+  }
+
+  /// A double click on a result is "preview it, then take it" - the first click
+  /// of the pair has already selected and previewed, so this only has to commit.
+  private handleLibraryDoubleClick(event: Event): void {
+    const target = event.target as HTMLElement | null;
+    if (!target || !this.options) {
+      return;
+    }
+    if (isDoubleClickExempt(target)) {
+      return;
+    }
+
+    const item = target.closest(".resource-browser-item") as HTMLElement | null;
+    // Should a render between the two clicks (a library import landing, say)
+    // still replace the row, the event lands on the container instead - but
+    // what the first click selected is the row the user double clicked.
+    const resourceId = item?.dataset.resourceId ?? this.selectedResourceId;
+    if (!resourceId) {
+      return;
+    }
+
+    this.selectedResourceId = resourceId;
+    this.confirmSelection();
+  }
+
   private previewLibraryResource(resourceId: string): void {
     if (!this.options) {
       return;
@@ -2994,6 +3045,12 @@ export class ResourceBrowserModal {
   }
   
   private updateSelectButtonState(): void {
+    // Tone3000 results are taken with their own per-model select button, so the
+    // double click shortcut - and its hint - only apply to the other two tabs.
+    if (this.footerHint) {
+      this.footerHint.hidden = this.activeTab === "tone3000";
+    }
+
     if (!this.selectBtn) {
       return;
     }
@@ -3649,6 +3706,33 @@ export class ResourceBrowserModal {
     }
   }
 
+  /// Double clicking a file takes it, the same as the library tab. Directories
+  /// already open on the first click, so their second click belongs to
+  /// whatever is now under the pointer in the new listing - leave it alone.
+  private handleFolderDoubleClick(event: Event): void {
+    const target = event.target as HTMLElement | null;
+    if (!target || !this.options) {
+      return;
+    }
+    if (isDoubleClickExempt(target) || target.closest('[data-kind="dir"]')) {
+      return;
+    }
+
+    const fileEntry = target.closest('[data-kind="file"]') as HTMLElement | null;
+    const path = fileEntry?.dataset.path ?? this.selectedFolderPath;
+    if (!path) {
+      return;
+    }
+
+    const file = this.folderListing?.files.find((entry) => entry.path === path);
+    if (!file || file.resourceType !== this.options.resourceType) {
+      return;
+    }
+
+    this.selectedFolderPath = path;
+    this.confirmFolderSelection(path);
+  }
+
   private buildFolderImportPayload(
     path: string,
     resourceType: ResourceType,
@@ -3730,7 +3814,25 @@ export class ResourceBrowserModal {
       showNotification("Previewing", `${this.folderFileDisplayName(path)} - click OK to confirm`);
     }
     this.updateSelectButtonState();
-    this.renderFolderList();
+    this.applyFolderSelectionHighlight();
+  }
+
+  /// The folder tab's equivalent of applyLibrarySelectionHighlight: patch the
+  /// rows that changed rather than rebuilding the virtual window, so the row
+  /// under the pointer survives to receive its dblclick.
+  private applyFolderSelectionHighlight(): void {
+    if (!this.folderList) {
+      return;
+    }
+
+    this.folderList.querySelectorAll<HTMLElement>('[data-kind="file"][data-path]').forEach((entry) => {
+      const path = entry.dataset.path ?? "";
+      entry.classList.toggle("is-previewing", Boolean(path) && this.folderPreviewPath === path);
+      const selectBtn = entry.querySelector(".resource-browser-folder-select-preview") as HTMLElement | null;
+      const isSelected = Boolean(path) && this.selectedFolderPath === path;
+      selectBtn?.classList.toggle("is-active", isSelected);
+      selectBtn?.setAttribute("aria-pressed", isSelected ? "true" : "false");
+    });
   }
 
   /// Returns the library list this context navigates through, building it on
@@ -4131,6 +4233,16 @@ export class ResourceBrowserModal {
 // Singleton instance
 export const resourceBrowserModal = new ResourceBrowserModal();
 
+
+/// Controls inside a result row (favourite, edit, delete, attribution links)
+/// own their own clicks, and the expanded details panel is text the user may
+/// well be double clicking to select, so neither means "take this resource".
+function isDoubleClickExempt(target: HTMLElement): boolean {
+  return Boolean(
+    target.closest("button, a, input, select, textarea")
+    || target.closest(".resource-browser-item-details-panel"),
+  );
+}
 
 function sanitizeFilename(raw: string): string {
   const trimmed = raw.trim() || "resource";

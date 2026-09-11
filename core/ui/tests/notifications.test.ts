@@ -36,6 +36,29 @@ describe("showNotification", () => {
     expect(toast.textContent).toBe("Failed to apply preset: disk full");
   });
 
+  it("shows nothing when there is nothing to say", async () => {
+    const { showNotification, toast } = await loadWithToastElement();
+    showNotification("");
+    expect(toast.classList.contains("visible")).toBe(false);
+    showNotification("   ", "  ");
+    expect(toast.classList.contains("visible")).toBe(false);
+    expect(toast.textContent).toBe("");
+  });
+
+  it("leaves a toast already on screen alone when a blank call arrives", async () => {
+    const { showNotification, toast } = await loadWithToastElement();
+    showNotification("Preset saved");
+    showNotification("");
+    expect(toast.textContent).toBe("Preset saved");
+    expect(toast.classList.contains("visible")).toBe(true);
+  });
+
+  it("shows the detail on its own when the message is empty", async () => {
+    const { showNotification, toast } = await loadWithToastElement();
+    showNotification("", "disk full");
+    expect(toast.textContent).toBe("disk full");
+  });
+
   it("does not render a severity word passed as the detail", async () => {
     const { showNotification, toast } = await loadWithToastElement();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
