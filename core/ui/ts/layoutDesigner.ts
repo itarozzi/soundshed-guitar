@@ -1,85 +1,101 @@
 /**
- * Layout Designer Modal
+ * Layout Designer — the editor for a custom effect layout.
  *
- * Visual editor for creating custom effect parameter layouts with
- * drag-and-drop control positioning, custom backgrounds, and text labels.
+ * The panels and interactions it is made of live in ./layoutDesigner/; this file
+ * owns the modal itself, the canvas it draws onto, and the undo stack behind both.
  */
 
 import { postMessage } from "./bridge.js";
-import { uiState } from "./state.js";
-import { EffectTypeRegistry, type ParameterDef } from "./presetV2.js";
-import { showNotification } from "./notifications.js";
+import { CanvasProperties } from "./layoutDesigner/canvasProperties.js";
+import { LayoutStore } from "./layoutDesigner/layoutStore.js";
+import { ElementProperties } from "./layoutDesigner/elementProperties.js";
+import { getLayoutImageUrl } from "./layoutDesigner/images.js";
 import { showConfirm } from "./dialogs.js";
-import { arrayBufferToBase64 } from "./utils.js";
-import { colorWithAlpha, renderCustomLayoutPreviewLayers, type LayoutResourceControlDef } from "./layoutRenderer.js";
+import type { CopiedTextLabelPayload, DragState, LayoutResourceCandidate, SelectedElement } from "./layoutDesigner/types.js";
 import { ensureLayoutImagesLoaded } from "./layoutImages.js";
+import { colorWithAlpha, renderCustomLayoutPreviewLayers } from "./layoutRenderer.js";
+import type { LayoutResourceControlDef } from "./layoutRenderer.js";
+import { DEFAULT_LAYOUT_DIMENSIONS, LAYOUT_DIMENSION_LIMITS, LAYOUT_GRID_SIZE, generateLabelId, generateLayoutId, generateOverlayId, layoutLookupKey, snapToGrid } from "./layoutTypes.js";
+import type { EffectLayout, LayoutBackground, LayoutControl, LayoutImageRef, LayoutLibraryEntry, LayoutRectangleOverlay, LayoutTextLabel } from "./layoutTypes.js";
+import { showNotification } from "./notifications.js";
+import { EffectTypeRegistry } from "./presetV2.js";
+import type { ParameterDef } from "./presetV2.js";
 import { buildDefaultParamControlsHtml } from "./signalPath.js";
+import { uiState } from "./state.js";
 import type { GraphNode } from "./types.js";
-import {
-  type EffectLayout,
-  type LayoutControl,
-  type LayoutTextLabel,
-  type LayoutBackground,
-  type LayoutImageRef,
-  type LayoutRectangleOverlay,
-  type LayoutLibraryEntry,
-  type LabelPosition,
-  type KnobStylePreset,
-  LAYOUT_GRID_SIZE,
-  DEFAULT_LAYOUT_DIMENSIONS,
-  LAYOUT_DIMENSION_LIMITS,
-  snapToGrid,
-  sanitizeLayout,
-  generateLayoutId,
-  generateLabelId,
-  generateOverlayId,
-  createEmptyLayout,
-  layoutLookupKey,
-} from "./layoutTypes.js";
-
-type SelectedElement =
-  | { type: "control"; paramKey: string }
-  | { type: "label"; id: string }
-  | { type: "overlay"; id: string }
-  | { type: "background"; layerIndex: number }
-  | null;
-
-interface DragState {
-  active: boolean;
-  element: HTMLElement | null;
-  startX: number;
-  startY: number;
-  elementStartX: number;
-  elementStartY: number;
-  elementStartWidth: number;
-  elementStartHeight: number;
-  type: "control" | "label" | "overlay" | null;
-  mode: "move" | "resize";
-  resizeHandle: "top-left" | "top-right" | "bottom-left" | "bottom-right" | null;
-  id: string;
-}
-
-interface LayoutResourceCandidate {
-  controlKey: string;
-  displayName: string;
-  resourceType: string;
-  resourceIndex: number;
-  exposedResourceId?: string;
-  allowBrowseFile?: boolean;
-}
-
-interface CopiedTextLabelPayload {
-  text: string;
-  position: { x: number; y: number };
-  fontSize: number;
-  fontWeight?: "normal" | "bold";
-  fontFamily?: string;
-  color?: string;
-  textAlign?: "left" | "center" | "right";
-}
 
 export class LayoutDesignerModal {
-  private static readonly LIBRARY_CHANGED_EVENT = "layout-library-changed";
+  /**
+   * The canvas and background properties panels, handed an adapter of closures
+   * so the members they read stay private to this class.
+   */
+  /** Saving, deleting, exporting and importing the layout being edited. */
+  private readonly store = new LayoutStore({
+    getLayout: () => this.layout,
+    setLayout: (layout) => {
+      this.layout = layout;
+    },
+    getEffectType: () => this.effectType,
+    getBlendId: () => this.blendId,
+    getFallbackLayoutName: () => this.fallbackLayoutName,
+    isFactoryLayout: () => this.isFactoryLayout,
+    setFactoryLayout: (value) => {
+      this.isFactoryLayout = value;
+    },
+    isNewLayout: () => this.isNewLayout,
+    setNewLayout: (value) => {
+      this.isNewLayout = value;
+    },
+    getParamDefs: () => this.paramDefs,
+    applyLayoutName: (pushUndo) => this.applyLayoutName(pushUndo),
+    collectReferencedImageIds: () => this.collectReferencedImageIds(),
+    updateDeleteButtonVisibility: () => this.updateDeleteButtonVisibility(),
+    takeImportFile: () => {
+      const file = this.importFileInput?.files?.[0] ?? null;
+      if (this.importFileInput) this.importFileInput.value = "";
+      return file;
+    },
+    closeModal: (didSave) => this.close(didSave),
+    notifySaved: (layout) => this.onSaveCallback?.(layout),
+    pushUndoState: () => this.pushUndoState(),
+    updateDimensionInputs: () => this.updateDimensionInputs(),
+    renderCanvas: () => this.renderCanvas(),
+    selectElement: (element) => this.selectElement(element),
+  });
+
+  private readonly canvasProperties = new CanvasProperties({
+    getLayout: () => this.layout,
+    getParamDefs: () => this.paramDefs,
+    getResourceCandidates: () => this.resourceCandidates,
+    getSidebarContent: () => this.sidebarContent,
+    pushUndoState: () => this.pushUndoState(),
+    pushSidebarUndoOnce: () => this.pushSidebarUndoOnce(),
+    renderCanvas: () => this.renderCanvas(),
+    renderSidebar: () => this.renderSidebar(),
+    selectElement: (element) => this.selectElement(element),
+    renderImageOptionsHtml: (purpose, selectedImageId) => this.renderImageOptionsHtml(purpose, selectedImageId),
+    browseBackgroundImage: (layerIndex) => this.browseBackgroundImage(layerIndex),
+    browseKnobImage: (control) => this.browseKnobImage(control),
+    isResourceControl: (control) => this.isResourceControl(control),
+  });
+
+  /** The properties panels for a control, a text label, or a rectangle overlay. */
+  private readonly elementProperties = new ElementProperties({
+    getLayout: () => this.layout,
+    getParamDefs: () => this.paramDefs,
+    getResourceCandidates: () => this.resourceCandidates,
+    getSidebarContent: () => this.sidebarContent,
+    pushUndoState: () => this.pushUndoState(),
+    pushSidebarUndoOnce: () => this.pushSidebarUndoOnce(),
+    renderCanvas: () => this.renderCanvas(),
+    renderSidebar: () => this.renderSidebar(),
+    selectElement: (element) => this.selectElement(element),
+    renderImageOptionsHtml: (purpose, selectedImageId) => this.renderImageOptionsHtml(purpose, selectedImageId),
+    browseBackgroundImage: (layerIndex) => this.browseBackgroundImage(layerIndex),
+    browseKnobImage: (control) => this.browseKnobImage(control),
+    isResourceControl: (control) => this.isResourceControl(control),
+  });
+
   private initialized = false;
   private effectType = "";
   private blendId = "";
@@ -227,11 +243,11 @@ export class LayoutDesignerModal {
     // Close buttons
     this.closeBtn?.addEventListener("click", () => this.close());
     this.cancelBtn?.addEventListener("click", () => this.close());
-    this.saveBtn?.addEventListener("click", () => { void this.save(); });
+    this.saveBtn?.addEventListener("click", () => { void this.store.save(); });
     this.deleteBtn?.addEventListener("click", () => { void this.confirmDeleteCurrentLayout(); });
-    this.exportBtn?.addEventListener("click", () => this.exportLayout());
+    this.exportBtn?.addEventListener("click", () => this.store.exportLayout());
     this.importBtn?.addEventListener("click", () => this.importFileInput?.click());
-    this.importFileInput?.addEventListener("change", () => this.handleImportFileSelected());
+    this.importFileInput?.addEventListener("change", () => this.store.handleImportFileSelected());
 
     // Modal backdrop click
     this.modal?.addEventListener("mousedown", (e) => {
@@ -330,7 +346,7 @@ export class LayoutDesignerModal {
     if (existingLayout) {
       this.layout = JSON.parse(JSON.stringify(existingLayout)); // Deep clone
     } else {
-      this.layout = this.createDefaultLayout(effectType);
+      this.layout = this.store.createDefaultLayout(effectType);
       this.layout.name = this.fallbackLayoutName;
     }
 
@@ -450,43 +466,6 @@ export class LayoutDesignerModal {
     this.onCloseCallback = callback;
   }
 
-  private persistLayoutLocally(layout: EffectLayout): void {
-    if (!uiState.layoutLibrary) {
-      uiState.layoutLibrary = { byEffectType: {}, defaults: {}, images: [] };
-    }
-
-    const blendId = this.blendId || layout.blendId || "";
-    const lookupKey = layoutLookupKey(this.effectType || layout.effectType, blendId || undefined);
-    if (!uiState.layoutLibrary.byEffectType[lookupKey]) {
-      uiState.layoutLibrary.byEffectType[lookupKey] = [];
-    }
-
-    const list = uiState.layoutLibrary.byEffectType[lookupKey];
-    const layoutId = layout.layoutId || generateLayoutId();
-    layout.layoutId = layoutId;
-
-    const clonedLayout = JSON.parse(JSON.stringify(layout)) as EffectLayout;
-    const existingIndex = list.findIndex((entry) => entry.layoutId === layoutId);
-    const newEntry: LayoutLibraryEntry = {
-      layout: clonedLayout,
-      isDefault: true,
-      layoutId,
-      filePath: existingIndex >= 0 ? list[existingIndex].filePath : undefined,
-    };
-
-    if (existingIndex >= 0) {
-      list[existingIndex] = newEntry;
-    } else {
-      list.push(newEntry);
-    }
-
-    uiState.layoutLibrary.defaults[lookupKey] = layoutId;
-    uiState.layoutLibrary.byEffectType[lookupKey] = list.map((entry) => ({
-      ...entry,
-      isDefault: entry.layoutId === layoutId,
-    }));
-    window.dispatchEvent(new CustomEvent(LayoutDesignerModal.LIBRARY_CHANGED_EVENT));
-  }
 
   private updateDeleteButtonVisibility(): void {
     if (!this.deleteBtn) {
@@ -534,47 +513,9 @@ export class LayoutDesignerModal {
       return;
     }
 
-    this.deleteCurrentLayout(current.key, current.entries, current.entry);
+    this.store.deleteCurrentLayout(current.key, current.entries, current.entry);
   }
 
-  private deleteCurrentLayout(key: string, entries: LayoutLibraryEntry[], entry: LayoutLibraryEntry): void {
-    const library = uiState.layoutLibrary;
-    if (!library) {
-      return;
-    }
-    const layoutName = entry.layout.name || entry.layout.effectType;
-
-    postMessage({
-      type: "deleteLayout",
-      effectType: entry.layout.effectType,
-      blendId: entry.layout.blendId ?? "",
-      layoutId: entry.layoutId,
-    });
-
-    library.byEffectType[key] = entries.filter((candidate) => candidate.layoutId !== entry.layoutId);
-    if (library.defaults[key] === entry.layoutId) {
-      const nextDefault =
-        library.byEffectType[key]?.find((candidate) => !candidate.isFactory)?.layoutId ??
-        library.byEffectType[key]?.[0]?.layoutId;
-      if (nextDefault) {
-        library.defaults[key] = nextDefault;
-        library.byEffectType[key] = library.byEffectType[key].map((candidate) => ({
-          ...candidate,
-          isDefault: candidate.layoutId === nextDefault,
-        }));
-      } else {
-        delete library.defaults[key];
-      }
-    }
-
-    if ((library.byEffectType[key] ?? []).length === 0) {
-      delete library.byEffectType[key];
-    }
-
-    window.dispatchEvent(new CustomEvent(LayoutDesignerModal.LIBRARY_CHANGED_EVENT));
-    showNotification(`Layout "${layoutName}" deleted`);
-    this.close(false);
-  }
 
   /** Collect all image IDs referenced by the current layout. */
   private collectReferencedImageIds(): string[] {
@@ -589,396 +530,16 @@ export class LayoutDesignerModal {
     return Array.from(ids);
   }
 
-  private async save(): Promise<void> {
-    if (!this.layout) return;
 
-    // Pick up any name edit that has not been committed by a blur yet
-    this.applyLayoutName();
-    if (!this.layout.name) {
-      this.layout.name = this.fallbackLayoutName;
-    }
 
-    this.layout.modifiedAt = new Date().toISOString();
 
-    // Ensure blendId is stored in the layout itself
-    if (this.blendId) {
-      this.layout.blendId = this.blendId;
-    }
 
-    // Capture a thumbnail of the current design state before persisting
-    try {
-      const thumbnail = await this.captureLayoutThumbnail();
-      if (thumbnail) this.layout.thumbnailDataUrl = thumbnail;
-    } catch { /* thumbnail failure must not block save */ }
-
-    const isNewLayout = this.isNewLayout;
-    const referencedImageIds = isNewLayout ? this.collectReferencedImageIds() : [];
-
-    // Send to plugin for persistence (include blendId for per-blend file naming)
-    postMessage({
-      type: "saveEffectLayout",
-      effectType: this.effectType,
-      blendId: this.blendId || undefined,
-      layoutId: this.layout.layoutId,
-      layout: this.layout,
-      isNewLayout,
-      referencedImageIds,
-    });
-
-    // After first save the layout is no longer new/factory
-    this.isNewLayout = false;
-    this.isFactoryLayout = false;
-    this.updateDeleteButtonVisibility();
-
-    this.persistLayoutLocally(this.layout);
-
-    if (this.onSaveCallback) {
-      this.onSaveCallback(this.layout);
-    }
-
-    showNotification("Layout saved");
-    this.close(true);
-  }
-
-  /** Render a compact thumbnail of the current layout onto an offscreen canvas and return a JPEG data URL. */
-  private async captureLayoutThumbnail(): Promise<string | null> {
-    const layout = this.layout;
-    if (!layout) return null;
-
-    const THUMB_W = 280;
-    const layoutW = layout.dimensions.width;
-    const layoutH = layout.dimensions.height;
-    const scale = Math.min(THUMB_W / layoutW, 1);
-    const scaledW = Math.ceil(layoutW * scale);
-    const scaledH = Math.ceil(layoutH * scale);
-
-    const canvasEl = document.createElement("canvas");
-    canvasEl.width = scaledW;
-    canvasEl.height = scaledH;
-    const ctx = canvasEl.getContext("2d");
-    if (!ctx) return null;
-
-    // Base fill for transparent/unset areas
-    ctx.fillStyle = "#1c1c1c";
-    ctx.fillRect(0, 0, scaledW, scaledH);
-
-    // Backgrounds
-    const sortedBgs = [...layout.backgrounds].sort((a, b) => a.layerIndex - b.layerIndex);
-    for (const bg of sortedBgs) {
-      ctx.globalAlpha = bg.opacity ?? 1;
-      if (bg.type === "color") {
-        ctx.fillStyle = bg.value;
-        ctx.fillRect(0, 0, scaledW, scaledH);
-      } else if (bg.type === "image") {
-        const imageRef = uiState.layoutLibrary?.images.find((img) => img.imageId === bg.value);
-        if (imageRef?.dataUrl) {
-          try {
-            const imgEl = await LayoutDesignerModal.loadThumbnailImage(imageRef.dataUrl);
-            ctx.drawImage(imgEl, 0, 0, scaledW, scaledH);
-          } catch { /* ignore failed image */ }
-        }
-      }
-      ctx.globalAlpha = 1;
-    }
-
-    // Rectangle overlays
-    for (const overlay of layout.overlays ?? []) {
-      const ox = overlay.position.x * scale;
-      const oy = overlay.position.y * scale;
-      const ow = overlay.size.width * scale;
-      const oh = overlay.size.height * scale;
-      const style = overlay.style ?? {};
-      if (style.backgroundColor) {
-        ctx.globalAlpha = style.backgroundOpacity ?? 1;
-        ctx.fillStyle = style.backgroundColor;
-        ctx.fillRect(ox, oy, ow, oh);
-        ctx.globalAlpha = 1;
-      }
-      if (style.borderColor && (style.borderWidth ?? 0) > 0) {
-        ctx.strokeStyle = style.borderColor;
-        ctx.lineWidth = Math.max(0.5, (style.borderWidth ?? 1) * scale);
-        ctx.strokeRect(ox, oy, ow, oh);
-      }
-    }
-
-    // Control indicator dots
-    if (!layout.useDefaultControls) {
-      ctx.fillStyle = "rgba(90, 159, 212, 0.55)";
-      const r = Math.max(4, 7 * scale);
-      for (const control of layout.controls) {
-        const cx = control.position.x * scale + r;
-        const cy = control.position.y * scale + r;
-        ctx.beginPath();
-        ctx.arc(cx, cy, r, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-
-    // Text labels
-    for (const label of layout.textLabels) {
-      const fontSize = Math.max(5, Math.round((label.fontSize || 11) * scale));
-      ctx.font = `${label.fontWeight ?? "normal"} ${fontSize}px ${label.fontFamily ?? "sans-serif"}`;
-      ctx.fillStyle = label.color ?? "#dddddd";
-      ctx.globalAlpha = 0.9;
-      ctx.textAlign = (label.textAlign as CanvasTextAlign) ?? "left";
-      ctx.fillText(label.text, label.position.x * scale, label.position.y * scale + fontSize);
-      ctx.globalAlpha = 1;
-    }
-
-    return canvasEl.toDataURL("image/jpeg", 0.82);
-  }
-
-  private static loadThumbnailImage(src: string): Promise<HTMLImageElement> {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => resolve(img);
-      img.onerror = reject;
-      img.src = src;
-    });
-  }
-
-  private async exportLayout(): Promise<void> {
-    if (!this.layout) return;
-
-    const zipLib = window.JSZip;
-    if (!zipLib) {
-      showNotification("Export failed: archive library not available");
-      return;
-    }
-
-    const zip = new zipLib();
-
-    // Collect all image IDs referenced by this layout
-    const referencedImageIds = new Set<string>();
-    for (const bg of this.layout.backgrounds) {
-      if (bg.type === "image" && bg.value) {
-        referencedImageIds.add(bg.value);
-      }
-    }
-    for (const control of this.layout.controls) {
-      if (control.style?.knobImageId) {
-        referencedImageIds.add(control.style.knobImageId);
-      }
-    }
-
-    // Add referenced images to zip
-    const imagesFolder = zip.folder("images");
-    const imageManifest: Array<{ imageId: string; fileName: string; type?: string }> = [];
-
-    if (imagesFolder) {
-      const images = uiState.layoutLibrary?.images ?? [];
-      for (const imageId of referencedImageIds) {
-        const img = images.find((i) => i.imageId === imageId);
-        if (!img?.dataUrl) continue;
-
-        // Extract base64 data from data URL (data:image/png;base64,...)
-        const match = img.dataUrl.match(/^data:image\/([^;]+);base64,(.+)$/);
-        if (!match) continue;
-
-        const ext = match[1] === "jpeg" ? "jpg" : match[1];
-        const base64Data = match[2];
-        const fileName = img.fileName || `${imageId}.${ext}`;
-
-        imagesFolder.file(fileName, base64Data, { base64: true });
-        imageManifest.push({
-          imageId: img.imageId,
-          fileName,
-          type: img.type,
-        });
-      }
-    }
-
-    // Build layout JSON for export (includes image manifest for reimport).
-    // When useDefaultControls is true the controls array is redundant — strip it
-    // to keep the exported file clean.
-    const exportLayout = this.layout.useDefaultControls
-      ? { ...this.layout, controls: [] }
-      : this.layout;
-
-    const exportData = {
-      formatVersion: 1,
-      createdAt: new Date().toISOString(),
-      layout: exportLayout,
-      images: imageManifest,
-    };
-
-    zip.file("layout.json", JSON.stringify(exportData, null, 2));
-
-    const blob = await zip.generateAsync({ type: "blob" });
-    const buffer = await blob.arrayBuffer();
-    const data = arrayBufferToBase64(buffer);
-
-    const safeName = this.effectType.replace(/[^a-zA-Z0-9_-]/g, "_");
-    const blendSuffix = this.blendId ? `--${this.blendId.replace(/[^a-zA-Z0-9_-]/g, "_")}` : "";
-    postMessage({
-      type: "exportEffectLayout",
-      fileName: `${safeName}${blendSuffix}.sgfxlayout.zip`,
-      data,
-    });
-  }
-
-  private async handleImportFileSelected(): Promise<void> {
-    const file = this.importFileInput?.files?.[0];
-    if (!file) return;
-
-    // Reset file input so the same file can be re-selected
-    if (this.importFileInput) this.importFileInput.value = "";
-
-    const zipLib = window.JSZip;
-    if (!zipLib) {
-      showNotification("Import failed: archive library not available");
-      return;
-    }
-
-    try {
-      const buffer = await file.arrayBuffer();
-      const zip = await zipLib.loadAsync(buffer);
-
-      const layoutEntry = zip.file("layout.json");
-      if (!layoutEntry) {
-        showNotification("Import failed: archive is missing layout.json");
-        return;
-      }
-
-      const layoutText = await layoutEntry.async("text");
-      const archive = JSON.parse(layoutText) as {
-        formatVersion?: number;
-        layout?: EffectLayout;
-        images?: Array<{ imageId: string; fileName: string; type?: string }>;
-      };
-
-      if (!archive.layout) {
-        showNotification("Import failed: archive has no layout data");
-        return;
-      }
-
-      // Extract images from zip and build data URLs
-      const imageManifest = archive.images ?? [];
-      const importedImages: Array<{ imageId: string; fileName: string; dataUrl: string; rawBase64: string; type?: string }> = [];
-
-      for (const imgRef of imageManifest) {
-        const imgEntry = zip.file(`images/${imgRef.fileName}`);
-        if (!imgEntry) continue;
-
-        const imgBuffer = await imgEntry.async("arraybuffer");
-        const imgBase64 = arrayBufferToBase64(imgBuffer);
-
-        // Determine MIME type from extension
-        const ext = imgRef.fileName.split(".").pop()?.toLowerCase() ?? "png";
-        const mimeMap: Record<string, string> = {
-          png: "image/png",
-          jpg: "image/jpeg",
-          jpeg: "image/jpeg",
-          gif: "image/gif",
-          webp: "image/webp",
-          svg: "image/svg+xml",
-        };
-        const mime = mimeMap[ext] ?? "image/png";
-        const dataUrl = `data:${mime};base64,${imgBase64}`;
-
-        importedImages.push({
-          imageId: imgRef.imageId,
-          fileName: imgRef.fileName,
-          dataUrl,
-          rawBase64: imgBase64,
-          type: imgRef.type,
-        });
-      }
-
-      // Register images in the layout library
-      if (importedImages.length > 0) {
-        if (!uiState.layoutLibrary) {
-          uiState.layoutLibrary = { byEffectType: {}, defaults: {}, images: [] };
-        }
-        for (const img of importedImages) {
-          // Replace existing or add new
-          const existingIdx = uiState.layoutLibrary.images.findIndex((i) => i.imageId === img.imageId);
-          const imageRef = {
-            imageId: img.imageId,
-            fileName: img.fileName,
-            dataUrl: img.dataUrl,
-            type: img.type as "background" | "knob" | "general" | undefined,
-          };
-          if (existingIdx >= 0) {
-            uiState.layoutLibrary.images[existingIdx] = imageRef;
-          } else {
-            uiState.layoutLibrary.images.push(imageRef);
-          }
-
-          // Send image to C++ for persistent storage
-          postMessage({
-            type: "saveLayoutImage",
-            imageId: img.imageId,
-            fileName: img.fileName,
-            data: img.rawBase64,
-            layoutId: archive.layout.layoutId ?? "",
-          });
-        }
-      }
-
-      // Load the imported layout into the designer
-      this.pushUndoState();
-      this.layout = sanitizeLayout(archive.layout);
-      // Update effect type if it matches or override with current
-      if (this.effectType && archive.layout.effectType !== this.effectType) {
-        this.layout.effectType = this.effectType;
-      }
-      this.layout.modifiedAt = new Date().toISOString();
-
-      this.updateDimensionInputs();
-      this.renderCanvas();
-      this.selectElement(null);
-      showNotification("Layout imported");
-    } catch (err) {
-      console.error("[LayoutDesigner] Import failed:", err);
-      showNotification(`Import failed: ${err instanceof Error ? err.message : "unknown error"}`);
-    }
-  }
-
-  private createDefaultLayout(effectType: string): EffectLayout {
-    const layout = createEmptyLayout(effectType);
-
-    // Auto-populate controls from param definitions
-    const controlsPerRow = 4;
-    const controlSpacing = 80;
-    const startX = 40;
-    const startY = 60;
-
-    this.paramDefs.forEach((param, index) => {
-      const row = Math.floor(index / controlsPerRow);
-      const col = index % controlsPerRow;
-
-      layout.controls.push({
-        paramKey: param.key,
-        type: param.unit === "toggle" ? "toggle" : "knob",
-        position: {
-          x: snapToGrid(startX + col * controlSpacing),
-          y: snapToGrid(startY + row * controlSpacing),
-        },
-        style: {
-          labelPosition: "top",
-          showValue: true,
-          valuePosition: "bottom",
-          knobStyle: "default",
-        },
-      });
-    });
-
-    // Adjust dimensions to fit controls
-    const rows = Math.ceil(this.paramDefs.length / controlsPerRow);
-    layout.dimensions.height = Math.max(
-      DEFAULT_LAYOUT_DIMENSIONS.height,
-      snapToGrid(startY + rows * controlSpacing + 40)
-    );
-
-    return layout;
-  }
 
   private resetLayout(): void {
     if (!this.effectType) return;
 
     this.pushUndoState();
-    this.layout = this.createDefaultLayout(this.effectType);
+    this.layout = this.store.createDefaultLayout(this.effectType);
     this.selectedElement = null;
     this.updateDimensionInputs();
     this.renderCanvas();
@@ -1287,7 +848,7 @@ export class LayoutDesignerModal {
         layer.style.background = bg.value;
       } else if (bg.type === "image") {
         // bg.value is imageId - resolve to actual URL
-        const imageUrl = this.getImageUrl(bg.value);
+        const imageUrl = getLayoutImageUrl(bg.value);
         if (imageUrl) {
           layer.style.backgroundImage = `url(${imageUrl})`;
           // Apply size mode or custom scale
@@ -1380,21 +941,6 @@ export class LayoutDesignerModal {
     }
 
     return el;
-  }
-
-  private getImageUrl(imageId: string): string | null {
-    // Check layout library for image
-    const image = uiState.layoutLibrary?.images.find((img) => img.imageId === imageId);
-    if (image) {
-      // Prefer data URL (base64) for WebView access
-      if (image.dataUrl) {
-        return image.dataUrl;
-      }
-      if (image.fileName) {
-        return `layout-images/${image.fileName}`;
-      }
-    }
-    return null;
   }
 
   private getReusableLayoutImages(purpose: "background" | "knob", selectedImageId?: string): LayoutImageRef[] {
@@ -1510,7 +1056,7 @@ export class LayoutDesignerModal {
     } else {
       const knobStyle = control.style?.knobStyle || "default";
       const knobImageUrl = knobStyle === "custom" && control.style?.knobImageId
-        ? this.getImageUrl(control.style.knobImageId)
+        ? getLayoutImageUrl(control.style.knobImageId)
         : null;
       const customKnobClass = knobImageUrl ? " is-custom-image" : "";
       const customKnobStyle = knobImageUrl ? ` style="background-image: url('${knobImageUrl}');"` : "";
@@ -1633,756 +1179,27 @@ export class LayoutDesignerModal {
     this.sidebarUndoPushed = false;
 
     if (!this.selectedElement) {
-      this.renderCanvasProperties();
+      this.canvasProperties.renderCanvasProperties();
       return;
     }
 
     if (this.selectedElement.type === "control") {
-      this.renderControlProperties(this.selectedElement.paramKey);
+      this.elementProperties.renderControlProperties(this.selectedElement.paramKey);
     } else if (this.selectedElement.type === "label") {
-      this.renderLabelProperties(this.selectedElement.id);
+      this.elementProperties.renderLabelProperties(this.selectedElement.id);
     } else if (this.selectedElement.type === "overlay") {
-      this.renderOverlayProperties(this.selectedElement.id);
+      this.elementProperties.renderOverlayProperties(this.selectedElement.id);
     } else if (this.selectedElement.type === "background") {
-      this.renderBackgroundProperties(this.selectedElement.layerIndex);
+      this.canvasProperties.renderBackgroundProperties(this.selectedElement.layerIndex);
     }
   }
 
-  private renderCanvasProperties(): void {
-    if (!this.sidebarContent || !this.layout) return;
 
-    const containerTheme = this.layout.containerTheme ?? '';
-    const isBackdrop = this.layout.useDefaultControls === true;
-    const offsetX = this.layout.defaultControlsOffset?.x ?? 0;
-    const offsetY = this.layout.defaultControlsOffset?.y ?? 0;
-    const scaleX = this.layout.defaultControlsScale?.x ?? 1;
-    const scaleY = this.layout.defaultControlsScale?.y ?? 1;
 
-    const backdropSections = isBackdrop ? `
-      <div class="layout-property-group">
-        <div class="layout-property-group-title">Default Controls — Position</div>
-        <div class="layout-property-row">
-          <span class="layout-property-label">Left (px)</span>
-          <div class="layout-property-input">
-            <input type="number" id="prop-dc-offset-x" value="${offsetX}" step="1">
-          </div>
-        </div>
-        <div class="layout-property-row">
-          <span class="layout-property-label">Top (px)</span>
-          <div class="layout-property-input">
-            <input type="number" id="prop-dc-offset-y" value="${offsetY}" step="1">
-          </div>
-        </div>
-      </div>
-      <div class="layout-property-group">
-        <div class="layout-property-group-title">Default Controls — Scale</div>
-        <div class="layout-property-row">
-          <span class="layout-property-label">Scale X</span>
-          <div class="layout-property-input">
-            <input type="number" id="prop-dc-scale-x" value="${scaleX}" min="0.1" max="3" step="0.05">
-          </div>
-        </div>
-        <div class="layout-property-row">
-          <span class="layout-property-label">Scale Y</span>
-          <div class="layout-property-input">
-            <input type="number" id="prop-dc-scale-y" value="${scaleY}" min="0.1" max="3" step="0.05">
-          </div>
-        </div>
-        <div class="layout-property-row">
-          <button id="prop-dc-scale-reset" style="font-size: 11px;">Reset to 1:1</button>
-        </div>
-      </div>
-    ` : `
-      <div class="layout-designer-sidebar-empty" style="font-size:11px; padding: 6px 0 0;">
-        Select a control, label, background, or rectangle to edit its properties.
-      </div>
-    `;
 
-    this.sidebarContent.innerHTML = `
-      <div class="layout-property-group">
-        <div class="layout-property-group-title">Container</div>
-        <div class="layout-property-row">
-          <span class="layout-property-label">Theme</span>
-          <div class="layout-property-input">
-            <select id="prop-container-theme" title="Override CSS colour variables inside this container. Useful when the layout background differs from the global app theme.">
-              <option value="" ${containerTheme === '' ? 'selected' : ''}>Inherit (app theme)</option>
-              <option value="dark" ${containerTheme === 'dark' ? 'selected' : ''}>Dark</option>
-              <option value="light" ${containerTheme === 'light' ? 'selected' : ''}>Light</option>
-              <option value="classic" ${containerTheme === 'classic' ? 'selected' : ''}>Classic</option>
-            </select>
-          </div>
-        </div>
-      </div>
-      ${backdropSections}
-    `;
 
-    // Container theme selector
-    const themeSelect = document.getElementById("prop-container-theme") as HTMLSelectElement | null;
-    themeSelect?.addEventListener("change", () => {
-      if (!this.layout) return;
-      this.pushSidebarUndoOnce();
-      const val = themeSelect.value as 'light' | 'dark' | 'classic' | '';
-      this.layout.containerTheme = val === '' ? undefined : val;
-      this.renderCanvas();
-    });
 
-    if (!isBackdrop) return;
 
-    // Backdrop offset/scale bindings
-    const bindNum = (id: string, apply: (v: number) => void) => {
-      const el = document.getElementById(id) as HTMLInputElement | null;
-      el?.addEventListener("change", () => {
-        const v = parseFloat(el.value);
-        if (!isNaN(v)) {
-          this.pushSidebarUndoOnce();
-          apply(v);
-          this.renderCanvas();
-        }
-      });
-    };
-
-    bindNum("prop-dc-offset-x", (v) => {
-      if (!this.layout) return;
-      this.layout.defaultControlsOffset = { x: Math.round(v), y: this.layout.defaultControlsOffset?.y ?? 0 };
-    });
-    bindNum("prop-dc-offset-y", (v) => {
-      if (!this.layout) return;
-      this.layout.defaultControlsOffset = { x: this.layout.defaultControlsOffset?.x ?? 0, y: Math.round(v) };
-    });
-    bindNum("prop-dc-scale-x", (v) => {
-      if (!this.layout) return;
-      this.layout.defaultControlsScale = { x: Math.max(0.1, v), y: this.layout.defaultControlsScale?.y ?? 1 };
-    });
-    bindNum("prop-dc-scale-y", (v) => {
-      if (!this.layout) return;
-      this.layout.defaultControlsScale = { x: this.layout.defaultControlsScale?.x ?? 1, y: Math.max(0.1, v) };
-    });
-
-    document.getElementById("prop-dc-scale-reset")?.addEventListener("click", () => {
-      if (!this.layout) return;
-      this.pushUndoState();
-      this.layout.defaultControlsScale = { x: 1, y: 1 };
-      this.renderCanvas();
-      this.renderSidebar();
-    });
-  }
-
-  private renderBackgroundProperties(layerIndex: number): void {
-    if (!this.sidebarContent || !this.layout) return;
-
-    const bg = this.layout.backgrounds.find((b) => b.layerIndex === layerIndex);
-    if (!bg) return;
-
-    const isCustomScale = bg.size === "custom";
-    const isImage = bg.type === "image";
-
-    // Type-specific value editor
-    let valueEditor = "";
-    if (bg.type === "color") {
-      valueEditor = `
-        <div class="layout-property-row">
-          <span class="layout-property-label">Color</span>
-          <div class="layout-property-input">
-            <input type="color" id="prop-bg-color" value="${bg.value || "#1a1a2e"}">
-          </div>
-        </div>
-      `;
-    } else if (bg.type === "gradient") {
-      valueEditor = `
-        <div class="layout-property-row">
-          <span class="layout-property-label">Gradient</span>
-          <div class="layout-property-input">
-            <input type="text" id="prop-bg-gradient" value="${bg.value}" placeholder="linear-gradient(...)">
-          </div>
-        </div>
-      `;
-    }
-
-    // Type selector
-    const typeSelector = bg.type !== "image" ? `
-      <div class="layout-property-row">
-        <span class="layout-property-label">Type</span>
-        <div class="layout-property-input">
-          <select id="prop-bg-type">
-            <option value="color" ${bg.type === "color" ? "selected" : ""}>Solid Color</option>
-            <option value="gradient" ${bg.type === "gradient" ? "selected" : ""}>Gradient</option>
-          </select>
-        </div>
-      </div>
-    ` : `
-      <div class="layout-property-row">
-        <span class="layout-property-label">Type</span>
-        <span class="layout-property-input">Image</span>
-      </div>
-    `;
-
-    this.sidebarContent.innerHTML = `
-      <div class="layout-property-group">
-        <div class="layout-property-group-title">Background Layer ${layerIndex + 1}</div>
-        ${typeSelector}
-        ${valueEditor}
-      </div>
-
-      ${isImage ? `
-      <div class="layout-property-group">
-        <div class="layout-property-group-title">Image Source</div>
-        <div class="layout-image-preview">
-          ${bg.value ? `<img src="${this.getImageUrl(bg.value) || ""}" alt="Background">` : `<span class="layout-image-preview-placeholder">No image</span>`}
-        </div>
-        <div class="layout-property-row">
-          <span class="layout-property-label">Use Existing</span>
-          <div class="layout-property-input">
-            <select id="prop-bg-image-select">
-              ${this.renderImageOptionsHtml("background", bg.value)}
-            </select>
-          </div>
-        </div>
-        <div class="layout-image-actions">
-          <button id="prop-browse-bg-image">Browse...</button>
-        </div>
-      </div>
-
-      <div class="layout-property-group">
-        <div class="layout-property-group-title">Size & Position</div>
-        <div class="layout-property-row">
-          <span class="layout-property-label">Size Mode</span>
-          <div class="layout-property-input">
-            <select id="prop-bg-size">
-              <option value="cover" ${bg.size === "cover" ? "selected" : ""}>Cover</option>
-              <option value="contain" ${bg.size === "contain" || !bg.size ? "selected" : ""}>Contain</option>
-              <option value="stretch" ${bg.size === "stretch" ? "selected" : ""}>Stretch</option>
-              <option value="tile" ${bg.size === "tile" ? "selected" : ""}>Tile</option>
-              <option value="custom" ${bg.size === "custom" ? "selected" : ""}>Custom Scale</option>
-            </select>
-          </div>
-        </div>
-        ${isCustomScale ? `
-        <div class="layout-property-row">
-          <span class="layout-property-label">Scale</span>
-          <div class="layout-property-input">
-            <input type="range" id="prop-bg-scale" min="10" max="300" value="${(bg.scale || 1) * 100}" style="width: 80px;">
-            <span id="prop-bg-scale-value">${Math.round((bg.scale || 1) * 100)}%</span>
-          </div>
-        </div>
-        ` : ""}
-        <div class="layout-property-row">
-          <span class="layout-property-label">Offset X</span>
-          <div class="layout-property-input">
-            <input type="number" id="prop-bg-offset-x" value="${bg.offsetX || 0}" step="8">
-          </div>
-        </div>
-        <div class="layout-property-row">
-          <span class="layout-property-label">Offset Y</span>
-          <div class="layout-property-input">
-            <input type="number" id="prop-bg-offset-y" value="${bg.offsetY || 0}" step="8">
-          </div>
-        </div>
-      </div>
-      ` : ""}
-
-      <div class="layout-property-group">
-        <div class="layout-property-group-title">Appearance</div>
-        <div class="layout-property-row">
-          <span class="layout-property-label">Opacity</span>
-          <div class="layout-property-input">
-            <input type="range" id="prop-bg-opacity" min="0" max="100" value="${(bg.opacity ?? 1) * 100}" style="width: 80px;">
-            <span id="prop-bg-opacity-value">${Math.round((bg.opacity ?? 1) * 100)}%</span>
-          </div>
-        </div>
-      </div>
-
-      <div class="layout-property-group">
-        <button id="prop-delete-bg" style="width: 100%; background: rgba(255,100,100,0.2); color: #ff6b6b;">Remove Background</button>
-      </div>
-    `;
-
-    this.bindBackgroundPropertyHandlers(bg);
-  }
-
-  private bindBackgroundPropertyHandlers(bg: LayoutBackground): void {
-    // Push undo once on first input/change in this sidebar session
-    this.sidebarContent?.addEventListener("input", () => this.pushSidebarUndoOnce(), { once: true, capture: true });
-    this.sidebarContent?.addEventListener("change", () => this.pushSidebarUndoOnce(), { once: true, capture: true });
-
-    const typeSelect = document.getElementById("prop-bg-type") as HTMLSelectElement;
-    const colorInput = document.getElementById("prop-bg-color") as HTMLInputElement;
-    const gradientInput = document.getElementById("prop-bg-gradient") as HTMLInputElement;
-    const sizeSelect = document.getElementById("prop-bg-size") as HTMLSelectElement;
-    const scaleInput = document.getElementById("prop-bg-scale") as HTMLInputElement;
-    const scaleValue = document.getElementById("prop-bg-scale-value") as HTMLElement;
-    const offsetXInput = document.getElementById("prop-bg-offset-x") as HTMLInputElement;
-    const offsetYInput = document.getElementById("prop-bg-offset-y") as HTMLInputElement;
-    const opacityInput = document.getElementById("prop-bg-opacity") as HTMLInputElement;
-    const opacityValue = document.getElementById("prop-bg-opacity-value") as HTMLElement;
-    const deleteBtn = document.getElementById("prop-delete-bg") as HTMLButtonElement;
-    const bgImageSelect = document.getElementById("prop-bg-image-select") as HTMLSelectElement;
-    const browseBgBtn = document.getElementById("prop-browse-bg-image") as HTMLButtonElement;
-
-    typeSelect?.addEventListener("change", () => {
-      const newType = typeSelect.value as "color" | "gradient";
-      bg.type = newType;
-      if (newType === "color") {
-        bg.value = "#1a1a2e";
-      } else if (newType === "gradient") {
-        bg.value = "linear-gradient(180deg, #2a2a3a 0%, #1a1a2e 100%)";
-      }
-      this.renderCanvas();
-      this.renderSidebar();
-    });
-
-    colorInput?.addEventListener("input", () => {
-      bg.value = colorInput.value;
-      this.renderCanvas();
-    });
-
-    gradientInput?.addEventListener("change", () => {
-      bg.value = gradientInput.value;
-      this.renderCanvas();
-    });
-
-    sizeSelect?.addEventListener("change", () => {
-      bg.size = sizeSelect.value as "cover" | "contain" | "stretch" | "tile" | "custom";
-      if (bg.size === "custom" && bg.scale === undefined) {
-        bg.scale = 1;
-      }
-      this.renderCanvas();
-      this.renderSidebar(); // Re-render to show/hide scale slider
-    });
-
-    scaleInput?.addEventListener("input", () => {
-      bg.scale = parseInt(scaleInput.value) / 100;
-      if (scaleValue) scaleValue.textContent = `${scaleInput.value}%`;
-      this.renderCanvas();
-    });
-
-    offsetXInput?.addEventListener("change", () => {
-      bg.offsetX = parseInt(offsetXInput.value) || 0;
-      this.renderCanvas();
-    });
-
-    offsetYInput?.addEventListener("change", () => {
-      bg.offsetY = parseInt(offsetYInput.value) || 0;
-      this.renderCanvas();
-    });
-
-    opacityInput?.addEventListener("input", () => {
-      bg.opacity = parseInt(opacityInput.value) / 100;
-      if (opacityValue) opacityValue.textContent = `${opacityInput.value}%`;
-      this.renderCanvas();
-    });
-
-    bgImageSelect?.addEventListener("change", () => {
-      const imageId = bgImageSelect.value;
-      if (!imageId) return;
-      bg.type = "image";
-      bg.value = imageId;
-      this.renderCanvas();
-      this.renderSidebar();
-    });
-
-    browseBgBtn?.addEventListener("click", () => {
-      this.browseBackgroundImage(bg.layerIndex);
-    });
-
-    deleteBtn?.addEventListener("click", () => {
-      if (!this.layout) return;
-      this.layout.backgrounds = this.layout.backgrounds.filter((b) => b.layerIndex !== bg.layerIndex);
-      this.selectElement(null);
-      this.renderCanvas();
-    });
-  }
-
-  private renderControlProperties(paramKey: string): void {
-    if (!this.sidebarContent || !this.layout) return;
-
-    const control = this.layout.controls.find((c) => c.paramKey === paramKey);
-    if (!control) return;
-
-    const isResourceControl = this.isResourceControl(control);
-    const paramDef = isResourceControl ? undefined : this.paramDefs.find((p) => p.key === paramKey);
-    const resourceDef = isResourceControl
-      ? this.resourceCandidates.find((candidate) => candidate.controlKey === paramKey)
-      : undefined;
-
-    const bindingLabel = isResourceControl
-      ? `${resourceDef?.displayName || paramKey} (${resourceDef?.resourceType || "resource"})`
-      : (paramDef?.name || paramKey);
-
-    const typeOptions = isResourceControl
-      ? `<option value="dropdown" selected>Dropdown</option>`
-      : `
-              <option value="knob" ${control.type === "knob" ? "selected" : ""}>Knob</option>
-              <option value="toggle" ${control.type === "toggle" ? "selected" : ""}>Toggle</option>
-              <option value="slider" ${control.type === "slider" ? "selected" : ""}>Slider</option>
-            `;
-
-    const styleSection = isResourceControl
-      ? ""
-      : `
-      <div class="layout-property-group">
-        <div class="layout-property-group-title">Style</div>
-        <div class="layout-property-row">
-          <span class="layout-property-label">Knob Style</span>
-          <div class="layout-property-input">
-            <select id="prop-knob-style">
-              <option value="default" ${control.style?.knobStyle === "default" ? "selected" : ""}>Default</option>
-              <option value="pedal" ${control.style?.knobStyle === "pedal" ? "selected" : ""}>Pedal</option>
-              <option value="amp" ${control.style?.knobStyle === "amp" ? "selected" : ""}>Amp</option>
-              <option value="minimal" ${control.style?.knobStyle === "minimal" ? "selected" : ""}>Minimal</option>
-              <option value="custom" ${control.style?.knobStyle === "custom" ? "selected" : ""}>Custom Image</option>
-            </select>
-          </div>
-        </div>
-        ${control.style?.knobStyle === "custom" ? `
-        <div class="layout-image-preview">
-          ${control.style?.knobImageId ? `<img src="${this.getImageUrl(control.style.knobImageId) || ""}" alt="Knob">` : `<span class="layout-image-preview-placeholder">No image</span>`}
-        </div>
-        <div class="layout-property-row">
-          <span class="layout-property-label">Use Existing</span>
-          <div class="layout-property-input">
-            <select id="prop-knob-image-select">
-              ${this.renderImageOptionsHtml("knob", control.style?.knobImageId)}
-            </select>
-          </div>
-        </div>
-        <div class="layout-image-actions">
-          <button id="prop-browse-knob-image">Browse...</button>
-          ${control.style?.knobImageId ? `<button id="prop-clear-knob-image">Clear</button>` : ""}
-        </div>
-        ` : ""}
-        <div class="layout-property-row">
-          <span class="layout-property-label">Show Value</span>
-          <div class="layout-property-input">
-            <input type="checkbox" id="prop-show-value" ${control.style?.showValue !== false ? "checked" : ""}>
-          </div>
-        </div>
-      </div>
-      `;
-
-    this.sidebarContent.innerHTML = `
-      <div class="layout-property-group">
-        <div class="layout-property-group-title">Control</div>
-        <div class="layout-property-row">
-          <span class="layout-property-label">Binding</span>
-          <span class="layout-property-input">${bindingLabel}</span>
-        </div>
-        <div class="layout-property-row">
-          <span class="layout-property-label">Type</span>
-          <div class="layout-property-input">
-            <select id="prop-control-type">
-              ${typeOptions}
-            </select>
-          </div>
-        </div>
-      </div>
-
-      <div class="layout-property-group">
-        <div class="layout-property-group-title">Position</div>
-        <div class="layout-position-inputs">
-          <label>X <input type="number" id="prop-pos-x" value="${control.position.x}" step="8"></label>
-          <label>Y <input type="number" id="prop-pos-y" value="${control.position.y}" step="8"></label>
-        </div>
-      </div>
-
-      <div class="layout-property-group">
-        <div class="layout-property-group-title">Label</div>
-        <div class="layout-property-row">
-          <span class="layout-property-label">Hide Label</span>
-          <div class="layout-property-input">
-            <input type="checkbox" id="prop-hide-label" ${control.style?.hideLabel ? "checked" : ""}>
-          </div>
-        </div>
-        <div class="layout-property-row">
-          <span class="layout-property-label">Override</span>
-          <div class="layout-property-input">
-            <input type="text" id="prop-label-override" value="${control.labelOverride || ""}" placeholder="${bindingLabel}">
-          </div>
-        </div>
-        <div class="layout-property-row">
-          <span class="layout-property-label">Position</span>
-          <div class="layout-property-input">
-            <select id="prop-label-position">
-              <option value="top" ${control.style?.labelPosition === "top" ? "selected" : ""}>Top</option>
-              <option value="bottom" ${control.style?.labelPosition === "bottom" ? "selected" : ""}>Bottom</option>
-              <option value="left" ${control.style?.labelPosition === "left" ? "selected" : ""}>Left</option>
-              <option value="right" ${control.style?.labelPosition === "right" ? "selected" : ""}>Right</option>
-              <option value="none" ${control.style?.labelPosition === "none" ? "selected" : ""}>Hidden</option>
-            </select>
-          </div>
-        </div>
-        <div class="layout-property-row">
-          <span class="layout-property-label">Color</span>
-          <div class="layout-property-input">
-            <input type="color" id="prop-label-color" value="${control.style?.labelColor || "#ffffff"}">
-          </div>
-        </div>
-      </div>
-
-      ${styleSection}
-
-      <div class="layout-property-group">
-        <button id="prop-delete-control" style="width: 100%; background: rgba(255,100,100,0.2); color: #ff6b6b;">Remove from Layout</button>
-      </div>
-    `;
-
-    // Bind property change handlers
-    this.bindControlPropertyHandlers(control);
-  }
-
-  private bindControlPropertyHandlers(control: LayoutControl): void {
-    this.sidebarContent?.addEventListener("input", () => this.pushSidebarUndoOnce(), { once: true, capture: true });
-    this.sidebarContent?.addEventListener("change", () => this.pushSidebarUndoOnce(), { once: true, capture: true });
-
-    const typeSelect = document.getElementById("prop-control-type") as HTMLSelectElement;
-    const posXInput = document.getElementById("prop-pos-x") as HTMLInputElement;
-    const posYInput = document.getElementById("prop-pos-y") as HTMLInputElement;
-    const hideLabelCheck = document.getElementById("prop-hide-label") as HTMLInputElement;
-    const labelOverrideInput = document.getElementById("prop-label-override") as HTMLInputElement;
-    const labelPosSelect = document.getElementById("prop-label-position") as HTMLSelectElement;
-    const labelColorInput = document.getElementById("prop-label-color") as HTMLInputElement;
-    const knobStyleSelect = document.getElementById("prop-knob-style") as HTMLSelectElement;
-    const showValueCheck = document.getElementById("prop-show-value") as HTMLInputElement;
-    const deleteBtn = document.getElementById("prop-delete-control") as HTMLButtonElement;
-    const browseKnobBtn = document.getElementById("prop-browse-knob-image") as HTMLButtonElement;
-    const clearKnobBtn = document.getElementById("prop-clear-knob-image") as HTMLButtonElement;
-    const knobImageSelect = document.getElementById("prop-knob-image-select") as HTMLSelectElement;
-    const isResourceControl = this.isResourceControl(control);
-
-    typeSelect?.addEventListener("change", () => {
-      control.type = typeSelect.value as "knob" | "toggle" | "slider" | "dropdown";
-      this.renderCanvas();
-    });
-
-    posXInput?.addEventListener("change", () => {
-      control.position.x = snapToGrid(parseInt(posXInput.value) || 0);
-      posXInput.value = String(control.position.x);
-      this.renderCanvas();
-    });
-
-    posYInput?.addEventListener("change", () => {
-      control.position.y = snapToGrid(parseInt(posYInput.value) || 0);
-      posYInput.value = String(control.position.y);
-      this.renderCanvas();
-    });
-
-    hideLabelCheck?.addEventListener("change", () => {
-      if (!control.style) control.style = {};
-      control.style.hideLabel = hideLabelCheck.checked;
-      this.renderCanvas();
-    });
-
-    labelOverrideInput?.addEventListener("change", () => {
-      control.labelOverride = labelOverrideInput.value.trim() || undefined;
-      this.renderCanvas();
-    });
-
-    labelPosSelect?.addEventListener("change", () => {
-      if (!control.style) control.style = {};
-      control.style.labelPosition = labelPosSelect.value as LabelPosition;
-      this.renderCanvas();
-    });
-
-    labelColorInput?.addEventListener("change", () => {
-      if (!control.style) control.style = {};
-      control.style.labelColor = labelColorInput.value;
-      this.renderCanvas();
-    });
-
-    knobStyleSelect?.addEventListener("change", () => {
-      if (!control.style) control.style = {};
-      control.style.knobStyle = knobStyleSelect.value as KnobStylePreset;
-      this.renderCanvas();
-      this.renderSidebar(); // Re-render to show/hide custom image picker
-    });
-
-    showValueCheck?.addEventListener("change", () => {
-      if (!control.style) control.style = {};
-      control.style.showValue = showValueCheck.checked;
-      this.renderCanvas();
-    });
-
-    deleteBtn?.addEventListener("click", () => {
-      if (!this.layout) return;
-      this.layout.controls = this.layout.controls.filter((c) => c.paramKey !== control.paramKey);
-      this.selectElement(null);
-      this.renderCanvas();
-    });
-
-    browseKnobBtn?.addEventListener("click", () => {
-      this.browseKnobImage(control);
-    });
-
-    clearKnobBtn?.addEventListener("click", () => {
-      if (control.style) {
-        control.style.knobImageId = undefined;
-        this.renderCanvas();
-        this.renderSidebar();
-      }
-    });
-
-    knobImageSelect?.addEventListener("change", () => {
-      const imageId = knobImageSelect.value;
-      if (!imageId) return;
-      if (!control.style) control.style = {};
-      control.style.knobStyle = "custom";
-      control.style.knobImageId = imageId;
-      this.renderCanvas();
-      this.renderSidebar();
-    });
-
-    if (isResourceControl) {
-      control.type = "dropdown";
-    }
-  }
-
-  private renderLabelProperties(labelId: string): void {
-    if (!this.sidebarContent || !this.layout) return;
-
-    const label = this.layout.textLabels.find((l) => l.id === labelId);
-    if (!label) return;
-
-    this.sidebarContent.innerHTML = `
-      <div class="layout-property-group">
-        <div class="layout-property-group-title">Text Label</div>
-        <div class="layout-property-row">
-          <span class="layout-property-label">Text</span>
-          <div class="layout-property-input">
-            <input type="text" id="prop-label-text" value="${label.text}">
-          </div>
-        </div>
-      </div>
-
-      <div class="layout-property-group">
-        <div class="layout-property-group-title">Position</div>
-        <div class="layout-position-inputs">
-          <label>X <input type="number" id="prop-label-pos-x" value="${label.position.x}" step="8"></label>
-          <label>Y <input type="number" id="prop-label-pos-y" value="${label.position.y}" step="8"></label>
-        </div>
-      </div>
-
-      <div class="layout-property-group">
-        <div class="layout-property-group-title">Style</div>
-        <div class="layout-property-row">
-          <span class="layout-property-label">Font</span>
-          <div class="layout-property-input">
-            <select id="prop-label-font">
-              <option value="" ${!label.fontFamily ? "selected" : ""}>Default</option>
-              <option value="Arial, sans-serif" ${label.fontFamily === "Arial, sans-serif" ? "selected" : ""}>Arial</option>
-              <option value="'Helvetica Neue', Helvetica, sans-serif" ${label.fontFamily?.includes("Helvetica") ? "selected" : ""}>Helvetica</option>
-              <option value="'Segoe UI', Tahoma, sans-serif" ${label.fontFamily?.includes("Segoe") ? "selected" : ""}>Segoe UI</option>
-              <option value="Georgia, serif" ${label.fontFamily?.includes("Georgia") ? "selected" : ""}>Georgia</option>
-              <option value="'Times New Roman', Times, serif" ${label.fontFamily?.includes("Times") ? "selected" : ""}>Times New Roman</option>
-              <option value="'Courier New', Courier, monospace" ${label.fontFamily?.includes("Courier") ? "selected" : ""}>Courier New</option>
-              <option value="Impact, sans-serif" ${label.fontFamily?.includes("Impact") ? "selected" : ""}>Impact</option>
-              <option value="'Comic Sans MS', cursive" ${label.fontFamily?.includes("Comic") ? "selected" : ""}>Comic Sans</option>
-            </select>
-          </div>
-        </div>
-        <div class="layout-property-row">
-          <span class="layout-property-label">Font Size</span>
-          <div class="layout-property-input">
-            <input type="number" id="prop-label-font-size" value="${label.fontSize}" min="8" max="48">
-          </div>
-        </div>
-        <div class="layout-property-row">
-          <span class="layout-property-label">Weight</span>
-          <div class="layout-property-input">
-            <select id="prop-label-weight">
-              <option value="normal" ${label.fontWeight !== "bold" ? "selected" : ""}>Normal</option>
-              <option value="bold" ${label.fontWeight === "bold" ? "selected" : ""}>Bold</option>
-            </select>
-          </div>
-        </div>
-        <div class="layout-property-row">
-          <span class="layout-property-label">Color</span>
-          <div class="layout-property-input">
-            <input type="color" id="prop-label-color" value="${label.color || "#ffffff"}">
-          </div>
-        </div>
-        <div class="layout-property-row">
-          <span class="layout-property-label">Align</span>
-          <div class="layout-property-input">
-            <select id="prop-label-align">
-              <option value="left" ${label.textAlign !== "center" && label.textAlign !== "right" ? "selected" : ""}>Left</option>
-              <option value="center" ${label.textAlign === "center" ? "selected" : ""}>Center</option>
-              <option value="right" ${label.textAlign === "right" ? "selected" : ""}>Right</option>
-            </select>
-          </div>
-        </div>
-      </div>
-
-      <div class="layout-property-group">
-        <button id="prop-delete-label" style="width: 100%; background: rgba(255,100,100,0.2); color: #ff6b6b;">Delete Label</button>
-      </div>
-    `;
-
-    // Bind property handlers
-    this.bindLabelPropertyHandlers(label);
-  }
-
-  private bindLabelPropertyHandlers(label: LayoutTextLabel): void {
-    this.sidebarContent?.addEventListener("input", () => this.pushSidebarUndoOnce(), { once: true, capture: true });
-    this.sidebarContent?.addEventListener("change", () => this.pushSidebarUndoOnce(), { once: true, capture: true });
-
-    const textInput = document.getElementById("prop-label-text") as HTMLInputElement;
-    const posXInput = document.getElementById("prop-label-pos-x") as HTMLInputElement;
-    const posYInput = document.getElementById("prop-label-pos-y") as HTMLInputElement;
-    const fontSelect = document.getElementById("prop-label-font") as HTMLSelectElement;
-    const fontSizeInput = document.getElementById("prop-label-font-size") as HTMLInputElement;
-    const weightSelect = document.getElementById("prop-label-weight") as HTMLSelectElement;
-    const colorInput = document.getElementById("prop-label-color") as HTMLInputElement;
-    const alignSelect = document.getElementById("prop-label-align") as HTMLSelectElement;
-    const deleteBtn = document.getElementById("prop-delete-label") as HTMLButtonElement;
-
-    textInput?.addEventListener("change", () => {
-      label.text = textInput.value || "Label";
-      this.renderCanvas();
-    });
-
-    posXInput?.addEventListener("change", () => {
-      label.position.x = snapToGrid(parseInt(posXInput.value) || 0);
-      posXInput.value = String(label.position.x);
-      this.renderCanvas();
-    });
-
-    posYInput?.addEventListener("change", () => {
-      label.position.y = snapToGrid(parseInt(posYInput.value) || 0);
-      posYInput.value = String(label.position.y);
-      this.renderCanvas();
-    });
-
-    fontSelect?.addEventListener("change", () => {
-      label.fontFamily = fontSelect.value || undefined;
-      this.renderCanvas();
-    });
-
-    fontSizeInput?.addEventListener("change", () => {
-      label.fontSize = Math.max(8, Math.min(48, parseInt(fontSizeInput.value) || 12));
-      this.renderCanvas();
-    });
-
-    weightSelect?.addEventListener("change", () => {
-      label.fontWeight = weightSelect.value as "normal" | "bold";
-      this.renderCanvas();
-    });
-
-    colorInput?.addEventListener("change", () => {
-      label.color = colorInput.value;
-      this.renderCanvas();
-    });
-
-    alignSelect?.addEventListener("change", () => {
-      label.textAlign = alignSelect.value as "left" | "center" | "right";
-      this.renderCanvas();
-    });
-
-    deleteBtn?.addEventListener("click", () => {
-      if (!this.layout) return;
-      this.layout.textLabels = this.layout.textLabels.filter((l) => l.id !== label.id);
-      this.selectElement(null);
-      this.renderCanvas();
-    });
-  }
 
   private addTextLabel(): void {
     if (!this.layout) return;
@@ -2436,197 +1253,7 @@ export class LayoutDesignerModal {
     this.renderCanvas();
   }
 
-  private renderOverlayProperties(overlayId: string): void {
-    if (!this.sidebarContent || !this.layout) return;
 
-    const overlay = (this.layout.overlays ?? []).find((item) => item.id === overlayId);
-    if (!overlay) return;
-
-    const style = overlay.style ?? {};
-    const visibilityMode = style.visibilityMode ?? "always";
-    const toggleBypassOnClick = style.toggleBypassOnClick === true;
-    const backgroundColor = style.backgroundColor || "#000000";
-    const backgroundOpacity = Math.round(((typeof style.backgroundOpacity === "number" ? style.backgroundOpacity : 0.25) * 100));
-    const borderColor = style.borderColor || "#ffffff";
-    const borderWidth = style.borderWidth ?? 1;
-    const borderRadius = style.borderRadius ?? 0;
-
-    this.sidebarContent.innerHTML = `
-      <div class="layout-property-group">
-        <div class="layout-property-group-title">Rectangle Overlay</div>
-        ${toggleBypassOnClick ? `<div class="layout-overlay-sidebar-badge">Power Indicator</div>` : ""}
-        <div class="layout-property-row">
-          <span class="layout-property-label">Visible</span>
-          <div class="layout-property-input">
-            <select id="prop-overlay-visibility-mode">
-              <option value="always" ${visibilityMode === "always" ? "selected" : ""}>Always</option>
-              <option value="enabled" ${visibilityMode === "enabled" ? "selected" : ""}>When Enabled</option>
-              <option value="bypassed" ${visibilityMode === "bypassed" ? "selected" : ""}>When Bypassed</option>
-            </select>
-          </div>
-        </div>
-        <div class="layout-property-row">
-          <span class="layout-property-label">On Click</span>
-          <div class="layout-property-input">
-            <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-dark-secondary);">
-              <input type="checkbox" id="prop-overlay-toggle-bypass" ${toggleBypassOnClick ? "checked" : ""}>
-              Toggle Bypass
-            </label>
-          </div>
-        </div>
-      </div>
-
-      <div class="layout-property-group">
-        <div class="layout-property-group-title">Position</div>
-        <div class="layout-position-inputs">
-          <label>X <input type="number" id="prop-overlay-x" value="${overlay.position.x}" step="8"></label>
-          <label>Y <input type="number" id="prop-overlay-y" value="${overlay.position.y}" step="8"></label>
-        </div>
-      </div>
-
-      <div class="layout-property-group">
-        <div class="layout-property-group-title">Size</div>
-        <div class="layout-position-inputs">
-          <label>W <input type="number" id="prop-overlay-width" value="${overlay.size.width}" min="16" step="8"></label>
-          <label>H <input type="number" id="prop-overlay-height" value="${overlay.size.height}" min="16" step="8"></label>
-        </div>
-      </div>
-
-      <div class="layout-property-group">
-        <div class="layout-property-group-title">Appearance</div>
-        <div class="layout-property-row">
-          <span class="layout-property-label">Fill</span>
-          <div class="layout-property-input">
-            <input type="color" id="prop-overlay-bg-color" value="${backgroundColor}">
-          </div>
-        </div>
-        <div class="layout-property-row">
-          <span class="layout-property-label">Fill Opacity</span>
-          <div class="layout-property-input">
-            <input type="range" id="prop-overlay-bg-opacity" min="0" max="100" value="${backgroundOpacity}" style="width: 80px;">
-            <span id="prop-overlay-bg-opacity-value">${backgroundOpacity}%</span>
-          </div>
-        </div>
-        <div class="layout-property-row">
-          <span class="layout-property-label">Border</span>
-          <div class="layout-property-input">
-            <input type="color" id="prop-overlay-border-color" value="${borderColor}">
-          </div>
-        </div>
-        <div class="layout-property-row">
-          <span class="layout-property-label">Border W</span>
-          <div class="layout-property-input">
-            <input type="number" id="prop-overlay-border-width" value="${borderWidth}" min="0" max="24" step="1">
-          </div>
-        </div>
-        <div class="layout-property-row">
-          <span class="layout-property-label">Radius</span>
-          <div class="layout-property-input">
-            <input type="number" id="prop-overlay-border-radius" value="${borderRadius}" min="0" max="64" step="1">
-          </div>
-        </div>
-      </div>
-
-      <div class="layout-property-group">
-        <button id="prop-delete-overlay" style="width: 100%; background: rgba(255,100,100,0.2); color: #ff6b6b;">Delete Rectangle</button>
-      </div>
-    `;
-
-    this.bindOverlayPropertyHandlers(overlay);
-  }
-
-  private bindOverlayPropertyHandlers(overlay: LayoutRectangleOverlay): void {
-    this.sidebarContent?.addEventListener("input", () => this.pushSidebarUndoOnce(), { once: true, capture: true });
-    this.sidebarContent?.addEventListener("change", () => this.pushSidebarUndoOnce(), { once: true, capture: true });
-
-    const xInput = document.getElementById("prop-overlay-x") as HTMLInputElement;
-    const yInput = document.getElementById("prop-overlay-y") as HTMLInputElement;
-    const visibilityModeSelect = document.getElementById("prop-overlay-visibility-mode") as HTMLSelectElement;
-    const toggleBypassCheck = document.getElementById("prop-overlay-toggle-bypass") as HTMLInputElement;
-    const widthInput = document.getElementById("prop-overlay-width") as HTMLInputElement;
-    const heightInput = document.getElementById("prop-overlay-height") as HTMLInputElement;
-    const bgColorInput = document.getElementById("prop-overlay-bg-color") as HTMLInputElement;
-    const bgOpacityInput = document.getElementById("prop-overlay-bg-opacity") as HTMLInputElement;
-    const bgOpacityValue = document.getElementById("prop-overlay-bg-opacity-value") as HTMLElement;
-    const borderColorInput = document.getElementById("prop-overlay-border-color") as HTMLInputElement;
-    const borderWidthInput = document.getElementById("prop-overlay-border-width") as HTMLInputElement;
-    const borderRadiusInput = document.getElementById("prop-overlay-border-radius") as HTMLInputElement;
-    const deleteBtn = document.getElementById("prop-delete-overlay") as HTMLButtonElement;
-
-    xInput?.addEventListener("change", () => {
-      overlay.position.x = snapToGrid(parseInt(xInput.value) || 0);
-      xInput.value = String(overlay.position.x);
-      this.renderCanvas();
-    });
-
-    visibilityModeSelect?.addEventListener("change", () => {
-      if (!overlay.style) overlay.style = {};
-      overlay.style.visibilityMode = visibilityModeSelect.value as "always" | "enabled" | "bypassed";
-      this.renderCanvas();
-    });
-
-    toggleBypassCheck?.addEventListener("change", () => {
-      if (!overlay.style) overlay.style = {};
-      overlay.style.toggleBypassOnClick = toggleBypassCheck.checked;
-      this.renderCanvas();
-    });
-
-    yInput?.addEventListener("change", () => {
-      overlay.position.y = snapToGrid(parseInt(yInput.value) || 0);
-      yInput.value = String(overlay.position.y);
-      this.renderCanvas();
-    });
-
-    widthInput?.addEventListener("change", () => {
-      overlay.size.width = Math.max(16, snapToGrid(parseInt(widthInput.value) || 16));
-      widthInput.value = String(overlay.size.width);
-      this.renderCanvas();
-    });
-
-    heightInput?.addEventListener("change", () => {
-      overlay.size.height = Math.max(16, snapToGrid(parseInt(heightInput.value) || 16));
-      heightInput.value = String(overlay.size.height);
-      this.renderCanvas();
-    });
-
-    bgColorInput?.addEventListener("change", () => {
-      if (!overlay.style) overlay.style = {};
-      overlay.style.backgroundColor = bgColorInput.value;
-      this.renderCanvas();
-    });
-
-    bgOpacityInput?.addEventListener("input", () => {
-      if (!overlay.style) overlay.style = {};
-      overlay.style.backgroundOpacity = (parseInt(bgOpacityInput.value) || 0) / 100;
-      if (bgOpacityValue) bgOpacityValue.textContent = `${bgOpacityInput.value}%`;
-      this.renderCanvas();
-    });
-
-    borderColorInput?.addEventListener("change", () => {
-      if (!overlay.style) overlay.style = {};
-      overlay.style.borderColor = borderColorInput.value;
-      this.renderCanvas();
-    });
-
-    borderWidthInput?.addEventListener("change", () => {
-      if (!overlay.style) overlay.style = {};
-      overlay.style.borderWidth = Math.max(0, parseInt(borderWidthInput.value) || 0);
-      this.renderCanvas();
-    });
-
-    borderRadiusInput?.addEventListener("change", () => {
-      if (!overlay.style) overlay.style = {};
-      overlay.style.borderRadius = Math.max(0, parseInt(borderRadiusInput.value) || 0);
-      this.renderCanvas();
-    });
-
-    deleteBtn?.addEventListener("click", () => {
-      if (!this.layout?.overlays) return;
-      this.layout.overlays = this.layout.overlays.filter((item) => item.id !== overlay.id);
-      this.selectElement(null);
-      this.renderCanvas();
-    });
-  }
 
   private showAddBackgroundMenu(): void {
     if (!this.layout || !this.sidebarContent) return;

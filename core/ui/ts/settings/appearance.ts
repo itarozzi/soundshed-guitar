@@ -1,0 +1,124 @@
+/**
+ * Theme and zoom — the two settings that change how the rest of the UI looks
+ * rather than how it sounds.
+ */
+
+import { uiState } from "../state.js";
+import { themeSwitcher } from "../theme-switcher.js";
+import type { ThemeName } from "../theme-switcher.js";
+import { updateUiSettings } from "../windowSettings.js";
+import { themeSelect, zoomLevelSelect } from "./dom.js";
+import { ZOOM_DEFAULT, ZOOM_LEVEL_OPTIONS, ZOOM_MAX, ZOOM_MIN } from "./keys.js";
+
+let themeSelectInitialized = false;
+
+let zoomControlsInitialized = false;
+
+export function initThemeSelect(): void {
+  // Bound to a local so the null check still narrows inside the listeners:
+  // TypeScript will not carry a narrowing on an imported binding into a
+  // closure, because another module could reassign it between the two.
+  const select = themeSelect;
+  if (!select || themeSelectInitialized) {
+    return;
+  }
+  themeSelectInitialized = true;
+
+  const themes: Array<{ value: ThemeName; label: string }> = [
+    { value: "light", label: "Light" },
+    { value: "dark", label: "Dark" },
+    { value: "classic", label: "Vintage" },
+  ];
+
+  select.innerHTML = themes
+    .map((theme) => `<option value="${theme.value}">${theme.label}</option>`)
+    .join("");
+
+  select.value = themeSwitcher.getCurrentTheme();
+
+  select.addEventListener("change", () => {
+    const value = select.value as ThemeName;
+    themeSwitcher.setTheme(value);
+  });
+
+  window.addEventListener("themeChanged", ((event: CustomEvent) => {
+    select.value = event.detail.theme as ThemeName;
+  }) as EventListener);
+}
+
+export function initZoomControls(): void {
+  if (!zoomLevelSelect || zoomControlsInitialized) {
+    return;
+  }
+  zoomControlsInitialized = true;
+
+  const select = zoomLevelSelect;
+
+  function getCurrentZoom(): number {
+    const stateZoom = uiState.uiSettings?.zoom;
+    if (typeof stateZoom === "number" && Number.isFinite(stateZoom)) {
+      return stateZoom;
+    }
+    const inlineZoom = Number.parseFloat(document.body.style.zoom || "");
+    if (Number.isFinite(inlineZoom)) {
+      return inlineZoom;
+    }
+    return ZOOM_DEFAULT;
+  }
+
+  function findClosestZoomOption(zoomLevel: number): number {
+    let closest = ZOOM_LEVEL_OPTIONS[0];
+    let minDistance = Number.POSITIVE_INFINITY;
+    for (const option of ZOOM_LEVEL_OPTIONS) {
+      const distance = Math.abs(option - zoomLevel);
+      if (distance < minDistance) {
+        minDistance = distance;
+        closest = option;
+      }
+    }
+    return closest;
+  }
+
+  function populateZoomSelect(): void {
+    if (!select) {
+      return;
+    }
+    select.innerHTML = ZOOM_LEVEL_OPTIONS
+      .map((option) => {
+        const percentage = Math.round(option * 100);
+        return `<option value="${option.toFixed(2)}">${percentage}%</option>`;
+      })
+      .join("");
+  }
+
+  function syncZoomSelect(zoomLevel: number): void {
+    const closestOption = findClosestZoomOption(zoomLevel);
+    select.value = closestOption.toFixed(2);
+  }
+
+  function setZoomLevel(zoomLevel: number): void {
+    const clampedZoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, zoomLevel));
+    uiState.uiSettings = {
+      ...(uiState.uiSettings ?? { zoom: clampedZoom }),
+      zoom: clampedZoom,
+    };
+    syncZoomSelect(clampedZoom);
+    updateUiSettings({ zoom: clampedZoom });
+  }
+
+  populateZoomSelect();
+  select.addEventListener("change", () => {
+    const selected = Number.parseFloat(select.value);
+    if (Number.isFinite(selected)) {
+      setZoomLevel(selected);
+    }
+  });
+
+  window.addEventListener("uiSettingsApplied", () => {
+    const current = getCurrentZoom();
+    syncZoomSelect(current);
+  });
+
+  const currentZoom = getCurrentZoom();
+  syncZoomSelect(currentZoom);
+}

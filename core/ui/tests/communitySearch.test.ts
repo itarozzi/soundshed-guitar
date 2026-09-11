@@ -4,14 +4,15 @@ import { runInNewContext } from "node:vm";
 import ts from "typescript";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-// Exercise the panel's private request handlers without booting the native audio bridge.
-const source = ts.createSourceFile("panel.ts", readFileSync(new URL("../ts/toneSharingPanel.ts", import.meta.url), "utf8"), ts.ScriptTarget.Latest, true);
+// Exercise the feed's private request handlers without booting the native audio bridge.
+const source = ts.createSourceFile("panel.ts", readFileSync(new URL("../ts/toneSharingPanel/feed.ts", import.meta.url), "utf8"), ts.ScriptTarget.Latest, true);
 const names = new Set(["loadStandardBrowsePage", "resetBrowseCollections", "scheduleCommunitySearch"]);
-const handlers = source.statements.filter(node => ts.isFunctionDeclaration(node) && names.has(node.name?.text ?? "")).map(node => node.getText(source)).join("\n");
+// `export` is stripped because the extracted text is run as a plain script, not a module.
+const handlers = source.statements.filter(node => ts.isFunctionDeclaration(node) && names.has(node.name?.text ?? "")).map(node => node.getText(source).replace(/^export /, "")).join("\n");
 function harness(apiFetch = vi.fn().mockResolvedValue({ items: [] })) {
   const context = {
-    apiFetch, browseRequestVersion: 0, communitySearchTimer: undefined,
-    communityPresetSearchQuery: "", communityPresetTagFilter: "", browseMode: "items", activeSharedTarget: null,
+    apiFetch, communitySearchTimer: undefined,
+    browseState: { mode: "items", activeSharedTarget: null, featuredHiddenPresetCount: 0, searchQuery: "", tagFilter: "", requestVersion: 0 },
     browseCollections: { page: 1, pageSize: 36, items: [], packs: [], hasMore: false, loadingMore: false },
     renderStandardBrowseCollection: vi.fn(), updateBrowseFooter: vi.fn(),
     element: () => ({ innerHTML: "" }), loadBrowse: vi.fn(), setTimeout, clearTimeout,
@@ -25,7 +26,7 @@ describe("community search requests", () => {
   it("sends encoded queries on every page and trusts API matches", async () => {
     const api = vi.fn().mockResolvedValue({ items: [{ id: "older", title: "Different title" }] });
     const { context, actions } = harness(api);
-    context.communityPresetSearchQuery = "blues & clean";
+    context.browseState.searchQuery = "blues & clean";
     await actions.loadStandardBrowsePage(1);
     await actions.loadStandardBrowsePage(2, true);
     expect(api.mock.calls.map(call => call[0])).toEqual([
@@ -33,7 +34,7 @@ describe("community search requests", () => {
       "/items?page=2&pageSize=36&q=blues%20%26%20clean",
     ]);
     expect(context.browseCollections.items).toHaveLength(2);
-    context.communityPresetSearchQuery = "";
+    context.browseState.searchQuery = "";
     actions.resetBrowseCollections();
     await actions.loadStandardBrowsePage(1);
     expect(api).toHaveBeenLastCalledWith("/items?page=1&pageSize=36&q=");
@@ -42,12 +43,12 @@ describe("community search requests", () => {
   it("keeps tag filters across pages, combines search, and can remove the tag", async () => {
     const api = vi.fn().mockResolvedValue({ items: [] });
     const { context, actions } = harness(api);
-    context.communityPresetTagFilter = "high-gain";
-    context.communityPresetSearchQuery = "vintage";
+    context.browseState.tagFilter = "high-gain";
+    context.browseState.searchQuery = "vintage";
     await actions.loadStandardBrowsePage(1);
     await actions.loadStandardBrowsePage(2, true);
     expect(api).toHaveBeenLastCalledWith("/items?page=2&pageSize=36&q=vintage&tag=high-gain");
-    context.communityPresetTagFilter = "";
+    context.browseState.tagFilter = "";
     actions.resetBrowseCollections();
     await actions.loadStandardBrowsePage(1);
     expect(api).toHaveBeenLastCalledWith("/items?page=1&pageSize=36&q=vintage");
@@ -57,7 +58,7 @@ describe("community search requests", () => {
     let resolve!: (value: unknown) => void;
     const { context, actions } = harness(vi.fn(() => new Promise(r => { resolve = r; })));
     const pending = actions.loadStandardBrowsePage(2, true);
-    context.communityPresetSearchQuery = "new";
+    context.browseState.searchQuery = "new";
     actions.scheduleCommunitySearch();
     resolve({ items: [{ id: "stale" }] });
     await pending;
