@@ -3104,6 +3104,72 @@ bool ExpectChainOrder(const guitarfx::SignalGraph& graph, const std::vector<std:
     return true;
 }
 
+bool TestEffectReplacementSurvivesLaterInteractions()
+{
+    const fs::path sandbox = fs::temp_directory_path() / "guitarfx-preset-management-tests" / "replace-effect";
+    std::error_code ec;
+    fs::remove_all(sandbox, ec);
+    fs::create_directories(sandbox, ec);
+    SetSettingsEnvRoot(sandbox);
+    TestHost host(sandbox);
+    guitarfx::PluginController controller(host);
+    controller.Initialize();
+
+    auto preset = BuildChainPreset("p-replace");
+    preset.graph.FindNode("fx2")->type = guitarfx::EffectGuids::kDelayDoubler;
+    preset.graph.FindNode("fx2")->category = "delay";
+    preset.graph.FindNode("fx2")->enabled = false;
+    controller.HandleUIMessage(nlohmann::json{
+        {"type", "loadPreset"}, {"presetId", preset.id},
+        {"preset", nlohmann::json::parse(guitarfx::PresetStorage::SerializeToJson(preset))}}.dump());
+
+    controller.HandleUIMessage(nlohmann::json{
+        {"type", "replaceSignalPathNode"}, {"nodeId", "fx2"},
+        {"newEffectType", guitarfx::EffectGuids::kReverbIr}}.dump());
+    const auto checkReplacement = [&](const char* context) {
+        const auto& active = controller.GetActivePreset();
+        const auto* node = active ? active->graph.FindNode("fx2") : nullptr;
+        const auto* sceneNode = active ? ActiveEditGraph(*active).FindNode("fx2") : nullptr;
+        if (!node || !sceneNode || node->type != guitarfx::EffectGuids::kReverbIr ||
+            sceneNode->type != node->type || node->category != "reverb" || node->params.contains("gainDb"))
+        {
+            std::cerr << context << ": replacement was rejected or reverted\n";
+            return false;
+        }
+        return true;
+    };
+    if (!checkReplacement("after replacement") || !controller.GetActivePreset()->graph.FindNode("fx2")->enabled)
+        return false;
+
+    controller.HandleUIMessage(nlohmann::json{
+        {"type", "updateSignalPathNodeParam"}, {"nodeId", "fx2"}, {"presetId", preset.id},
+        {"paramKey", "mix"}, {"value", 0.35}}.dump());
+    controller.HandleUIMessage(nlohmann::json{
+        {"type", "updateSignalPathNodeBypass"}, {"nodeId", "fx1"}, {"presetId", preset.id},
+        {"bypassed", true}}.dump());
+    controller.HandleUIMessage(nlohmann::json{{"type", "requestState"}}.dump());
+    if (!checkReplacement("after knob and bypass interactions")) return false;
+
+    controller.HandleUIMessage(nlohmann::json{
+        {"type", "addSignalPathNode"}, {"effectType", guitarfx::EffectGuids::kGain},
+        {"insertAfter", "fx3"}}.dump());
+    if (!checkReplacement("after adding another effect") || controller.GetActivePreset()->graph.nodes.size() != 6)
+        return false;
+
+    const auto savedState = controller.SerializeState();
+    guitarfx::PluginController restored(host);
+    restored.Initialize();
+    restored.DeserializeState(savedState);
+    const auto& recalled = restored.GetActivePreset();
+    const auto* node = recalled ? ActiveEditGraph(*recalled).FindNode("fx2") : nullptr;
+    if (!node || node->type != guitarfx::EffectGuids::kReverbIr || node->params.at("mix") != 0.35)
+    {
+        std::cerr << "State round-trip lost replacement or its parameters\n";
+        return false;
+    }
+    return true;
+}
+
 bool TestReorderSignalPathNodeFailuresDoNotCorruptGraph()
 {
     const fs::path sandbox = fs::temp_directory_path() / "guitarfx-preset-management-tests" / "reorder-node";
@@ -3653,6 +3719,7 @@ int main()
     run("Standalone startup keeps selected input channel", TestStandaloneStartupInputModeOverridesRestoredPreset());
     run("Riff library path normalization", TestRiffLibraryPathNormalization());
     run("Optimized NAM metadata alias parsing", TestOptimizedNamMetadataAliasParsing());
+    run("Effect replacement survives later interactions", TestEffectReplacementSurvivesLaterInteractions());
     run("Reorder signal path node failures do not corrupt graph", TestReorderSignalPathNodeFailuresDoNotCorruptGraph());
     run("Setlist cursor switches preset without stacking mixer", TestSetlistCursorSwitchesPresetWithoutStackingMixer());
     run("Multi-Rig round-trips its mix gain", TestCompositePresetRoundTripsMixGain());

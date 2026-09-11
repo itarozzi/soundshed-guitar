@@ -1066,7 +1066,6 @@ void PluginController::HandleReplaceSignalPathNodeRequest(const nlohmann::json& 
         return;
     }
 
-    const auto oldEffectInfoOpt = EffectRegistry::Instance().GetTypeInfo(node->type);
     const std::string resolvedNewEffectType = EffectRegistry::Instance().Resolve(newEffectType);
     const auto newEffectInfoOpt = EffectRegistry::Instance().GetTypeInfo(resolvedNewEffectType);
 
@@ -1076,18 +1075,12 @@ void PluginController::HandleReplaceSignalPathNodeRequest(const nlohmann::json& 
         return;
     }
 
-    const std::string oldCategory = oldEffectInfoOpt ? oldEffectInfoOpt->category : node->category;
-    const std::string requestedCategory = !categoryOverride.empty() ? categoryOverride : newEffectInfoOpt->category;
-
-    if (!oldCategory.empty() && !requestedCategory.empty() && oldCategory != requestedCategory)
-    {
-        ReportErrorToUI("Replace node failed", "Cannot replace effect with different category");
-        return;
-    }
-
+    // FX chooser replacements may cross categories (for example, delay to reverb).
+    // Keep the node ID and connections, and match the UI's enabled replacement state.
     node->type = resolvedNewEffectType;
     node->label = newEffectInfoOpt->displayName;
     node->category = newEffectInfoOpt->category;
+    node->enabled = true;
     node->params.clear();
     node->resources.clear();
     node->config.clear();
