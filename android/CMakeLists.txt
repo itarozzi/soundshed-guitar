@@ -27,11 +27,11 @@ set(SSG_ANDROID_LIB_OUT "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}")
 # is unavailable here. (Default is ON, so this override matters.)
 set(GUITARFX_CORE_ENABLE_WASM_EFFECTS OFF CACHE BOOL "" FORCE)
 
-# The core enables AVX2 for any x86_64 target, which includes the Android
-# x86_64 ABI — and nothing in that ABI's baseline guarantees AVX2, so an
-# emulator or device without it would take an illegal instruction. Also ON by
-# default, so this override matters too.
-set(GUITARFX_CORE_ENABLE_AVX2 OFF CACHE BOOL "" FORCE)
+# The core raises the SIMD baseline for any x86_64 target, which includes the
+# Android x86_64 ABI — and nothing in that ABI's baseline guarantees AVX or
+# AVX2, so an emulator or device without it would take an illegal instruction.
+# avx2 is the default, so this override matters too.
+set(GUITARFX_CORE_SIMD_LEVEL "sse2" CACHE STRING "" FORCE)
 
 # `char` is unsigned by default on ARM, and WDL (vendored under NAM's
 # AudioDSPTools) refuses to compile in that mode — it has a static assert

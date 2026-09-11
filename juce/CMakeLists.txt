@@ -36,7 +36,6 @@ else()
     set(FORMATS Standalone AU AAX VST3)
 endif()
 option(GUITARFX_ENABLE_LV2 "Build the LV2 plugin target on Linux" OFF)
-option(GUITARFX_CORE_ENABLE_AVX2 "Enable AVX2 compile flags for x64 Release/RelWithDebInfo builds" ON)
 
 if(LINUX AND GUITARFX_ENABLE_LV2)
     list(APPEND FORMATS LV2)
@@ -97,6 +96,11 @@ project(${PROJECT_NAME} VERSION ${CURRENT_VERSION})
 # Modern concise way to add dependencies to your project
 include (CPM)
 include(FetchContent)
+
+# Declares GUITARFX_CORE_SIMD_LEVEL (avx2/avx/sse2), the deprecated
+# GUITARFX_CORE_ENABLE_AVX2 shim, and guitarfx_apply_simd_arch_flags(). Included
+# after project() because it probes the compiler for /arch: support.
+include("${CMAKE_CURRENT_LIST_DIR}/../core/cmake/GuitarfxSimdLevel.cmake")
 
 CPMAddPackage(
     NAME nlohmann_json

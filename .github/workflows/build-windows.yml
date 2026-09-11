@@ -12,6 +12,16 @@ on:
           - both
           - x64
           - arm64
+      avx_variant:
+        description: "x64 SIMD baseline: avx2 (standard), avx (Sandy Bridge / Bulldozer 2011+), noavx (no AVX at all), or all"
+        required: false
+        default: "avx2"
+        type: choice
+        options:
+          - avx2
+          - avx
+          - noavx
+          - all
 
 permissions:
   contents: read
@@ -36,7 +46,7 @@ jobs:
           echo "Signing configuration is valid."
 
   build:
-    name: windows-${{ matrix.arch }}
+    name: windows-${{ matrix.arch }}${{ matrix.avx == 'avx2' && '' || format('-{0}', matrix.avx) }}
     runs-on: windows-latest
     needs: validate-signing-config
     strategy:
@@ -44,6 +54,15 @@ jobs:
       matrix:
         # Resolves to ["x64"], ["arm64"], or ["x64","arm64"] based on the target_arch input (default: both)
         arch: ${{ github.event.inputs.target_arch == 'x64' && fromJSON('["x64"]') || github.event.inputs.target_arch == 'arm64' && fromJSON('["arm64"]') || fromJSON('["x64","arm64"]') }}
+        # Resolves to a single tier, or all three, based on the avx_variant input (default: avx2)
+        avx: ${{ github.event.inputs.avx_variant == 'avx' && fromJSON('["avx"]') || github.event.inputs.avx_variant == 'noavx' && fromJSON('["noavx"]') || github.event.inputs.avx_variant == 'all' && fromJSON('["avx2","avx","noavx"]') || fromJSON('["avx2"]') }}
+        exclude:
+          # The x86-64 SIMD baseline never applies to arm64, which picks its own
+          # /arch:armv8.x, so these would be duplicates of the standard build.
+          - arch: arm64
+            avx: avx
+          - arch: arm64
+            avx: noavx
 
     env:
       R2_BUCKET: ${{ vars.CLOUDFLARE_R2_BUCKET }}
@@ -71,7 +90,11 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $env:GUITARFX_WINDOWS_CMAKE_GENERATOR = 'Visual Studio 18 2026'
-          .\build_windows.bat '${{ matrix.arch }}'
+          # The workflow calls the sse2 tier "noavx" so the installer filename reads well.
+          $simd = switch ('${{ matrix.avx }}') { 'noavx' { 'sse2' } 'avx' { 'avx' } default { 'avx2' } }
+          $buildArgs = @('${{ matrix.arch }}', '--simd', $simd)
+          Write-Host "Running build_windows.bat $buildArgs"
+          .\build_windows.bat @buildArgs
 
       - name: Resolve installer path
         id: installer
@@ -163,7 +186,8 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $version = (Get-Content '.\juce\VERSION' -Raw).Trim()
-          $assetName = "SoundshedGuitar-$version-Windows-${{ matrix.arch }}-setup.exe"
+          $variantSuffix = switch ('${{ matrix.avx }}') { 'noavx' { '-noavx' } 'avx' { '-avx' } default { '' } }
+          $assetName = "SoundshedGuitar-$version-Windows-${{ matrix.arch }}$variantSuffix-setup.exe"
           $assetPath = Join-Path $PWD $assetName
           Copy-Item '${{ steps.installer.outputs.installer_path }}' $assetPath -Force
 
@@ -173,7 +197,7 @@ jobs:
       - name: Upload GitHub artifact
         uses: actions/upload-artifact@v6
         with:
-          name: windows-${{ matrix.arch }}-installer
+          name: windows-${{ matrix.arch }}${{ matrix.avx == 'avx2' && '' || format('-{0}', matrix.avx) }}-installer
           path: ${{ steps.asset.outputs.asset_path }}
           if-no-files-found: error
 

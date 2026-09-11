@@ -4,7 +4,7 @@ Soundshed Guitar is a guitar/bass effects app and plugin combining Neural Amp Mo
 
 Downloads: https://guitar.soundshed.com
 
-Requirements: x64 CPU with AVX2 support (circa late 2015+; use `build_windows.bat --no-avx2` for a non-AVX2 Windows build), or M1 onwards for macOS.
+Requirements: x64 CPU with AVX2 support (Intel Haswell 2013+, AMD Excavator 2015+), or M1 onwards for macOS. Windows builds can drop to a lower SIMD baseline with `build_windows.bat --simd avx` (Intel Sandy Bridge 2011+, AMD Bulldozer 2011+, still fully vectorised) or `--simd sse2` (no AVX at all).
 
 ![Screenshot](https://guitar.soundshed.com/img/site/amp.png)
 

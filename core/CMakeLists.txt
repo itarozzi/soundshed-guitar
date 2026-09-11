@@ -26,20 +26,9 @@ else()
 endif()
 option(GUITARFX_CORE_BUILD_TESTS "Build core unit tests" OFF)
 option(GUITARFX_CORE_ENABLE_WASM_EFFECTS "Build the generic WASM effect host" ON)
-option(GUITARFX_CORE_ENABLE_AVX2 "Enable AVX2 compile flags for x64 Release/RelWithDebInfo builds" ON)
-
-if(GUITARFX_CORE_ENABLE_AVX2)
-    message(STATUS "Core AVX2 release flags: ON (applies to x64/x86_64 targets only)")
-else()
-    message(STATUS "Core AVX2 release flags: OFF")
-endif()
-
-if(MSVC)
-    include(CheckCXXCompilerFlag)
-    check_cxx_compiler_flag("/arch:AVX2" GUITARFX_MSVC_HAS_ARCH_AVX2)
-    check_cxx_compiler_flag("/arch:armv8.2" GUITARFX_MSVC_HAS_ARCH_ARMV82)
-    check_cxx_compiler_flag("/arch:armv8.1" GUITARFX_MSVC_HAS_ARCH_ARMV81)
-endif()
+# Declares GUITARFX_CORE_SIMD_LEVEL (avx2/avx/sse2), the deprecated
+# GUITARFX_CORE_ENABLE_AVX2 shim, and guitarfx_apply_simd_arch_flags().
+include("${CMAKE_CURRENT_LIST_DIR}/cmake/GuitarfxSimdLevel.cmake")
 
 function(guitarfx_apply_release_optimizations target_name)
     if(MSVC)
@@ -48,63 +37,16 @@ function(guitarfx_apply_release_optimizations target_name)
             $<$<CONFIG:RelWithDebInfo>:/Ox>
             $<$<CONFIG:Release>:/fp:fast>
             $<$<CONFIG:RelWithDebInfo>:/fp:fast>)
-        set(_guitarfx_windows_arch "${CMAKE_GENERATOR_PLATFORM}")
-        if(NOT _guitarfx_windows_arch)
-            set(_guitarfx_windows_arch "${CMAKE_SYSTEM_PROCESSOR}")
-        endif()
-        string(TOLOWER "${_guitarfx_windows_arch}" _guitarfx_windows_arch)
-
-        if(GUITARFX_CORE_ENABLE_AVX2 AND _guitarfx_windows_arch MATCHES "^(x64|amd64|x86_64)$" AND GUITARFX_MSVC_HAS_ARCH_AVX2)
-            target_compile_options(${target_name} PRIVATE
-                $<$<CONFIG:Release>:/arch:AVX2>
-                $<$<CONFIG:RelWithDebInfo>:/arch:AVX2>)
-        elseif(_guitarfx_windows_arch MATCHES "^(arm64|arm64ec|aarch64)$")
-            if(GUITARFX_MSVC_HAS_ARCH_ARMV82)
-                target_compile_options(${target_name} PRIVATE
-                    $<$<CONFIG:Release>:/arch:armv8.2>
-                    $<$<CONFIG:RelWithDebInfo>:/arch:armv8.2>)
-            elseif(GUITARFX_MSVC_HAS_ARCH_ARMV81)
-                target_compile_options(${target_name} PRIVATE
-                    $<$<CONFIG:Release>:/arch:armv8.1>
-                    $<$<CONFIG:RelWithDebInfo>:/arch:armv8.1>)
-            endif()
-        endif()
-    elseif(APPLE)
-        target_compile_options(${target_name} PRIVATE
-            $<$<CONFIG:Release>:-O3>
-            $<$<CONFIG:RelWithDebInfo>:-O3>
-            $<$<CONFIG:Release>:-ffast-math>
-            $<$<CONFIG:RelWithDebInfo>:-ffast-math>)
-
-        set(_guitarfx_osx_arches "${CMAKE_OSX_ARCHITECTURES}")
-        if(NOT _guitarfx_osx_arches)
-            set(_guitarfx_osx_arches "${CMAKE_SYSTEM_PROCESSOR}")
-        endif()
-
-        if(GUITARFX_CORE_ENABLE_AVX2 AND _guitarfx_osx_arches MATCHES "x86_64")
-            if(CMAKE_CONFIGURATION_TYPES)
-                target_compile_options(${target_name} PRIVATE
-                    $<$<CONFIG:Release>:-Xarch_x86_64>
-                    $<$<CONFIG:Release>:-mavx2>
-                    $<$<CONFIG:RelWithDebInfo>:-Xarch_x86_64>
-                    $<$<CONFIG:RelWithDebInfo>:-mavx2>)
-            elseif(CMAKE_BUILD_TYPE MATCHES "^(Release|RelWithDebInfo)$")
-                target_compile_options(${target_name} PRIVATE
-                    "SHELL:-Xarch_x86_64 -mavx2")
-            endif()
-        endif()
     else()
         target_compile_options(${target_name} PRIVATE
             $<$<CONFIG:Release>:-O3>
             $<$<CONFIG:RelWithDebInfo>:-O3>
             $<$<CONFIG:Release>:-ffast-math>
             $<$<CONFIG:RelWithDebInfo>:-ffast-math>)
-        if(GUITARFX_CORE_ENABLE_AVX2 AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(AMD64|x86_64)$")
-            target_compile_options(${target_name} PRIVATE
-                $<$<CONFIG:Release>:-mavx2>
-                $<$<CONFIG:RelWithDebInfo>:-mavx2>)
-        endif()
     endif()
+
+    # Dispatches on platform and architecture internally.
+    guitarfx_apply_simd_arch_flags(${target_name} PRIVATE)
 endfunction()
 
 function(guitarfx_disable_linux_gnu_unique target_name)

@@ -4,24 +4,38 @@ setlocal EnableExtensions EnableDelayedExpansion
 :: ---------------------------------------------------------------------------
 :: Full release build: JUCE Standalone + VST3, then installer
 :: Run from the workspace root.
-:: Usage: build_windows.bat [x86|x64|arm64] [--no-avx2|--no-avx]
+:: Usage: build_windows.bat [x86|x64|arm64] [--simd=avx2|avx|sse2]
+::   --simd=avx2  (default) /arch:AVX2 - Intel Haswell 2013+, AMD Excavator 2015+
+::   --simd=avx   /arch:AVX  - Intel Sandy Bridge / AMD Bulldozer 2011+; keeps
+::                every 256-bit kernel in core/src/dsp/simd/SimdMath.h
+::   --simd=sse2  no /arch: flag - CPUs with no AVX at all
+::   --no-avx2 is an alias for --simd=avx, --no-avx an alias for --simd=sse2
 :: ---------------------------------------------------------------------------
 
 set "WORKSPACE_ROOT=%~dp0"
 set "JUCE_BUILDS=%WORKSPACE_ROOT%juce\Builds"
 set "INSTALLER_SCRIPT=%WORKSPACE_ROOT%juce\packaging\build-installer.bat"
 set "UI_DIR=%WORKSPACE_ROOT%core\ui"
-set "CORE_ENABLE_AVX2=ON"
+set "CORE_SIMD_LEVEL=avx2"
 
 :parse_args
 if "%~1"=="" goto :args_done
+:: --no-avx drops AVX entirely; --no-avx2 keeps AVX and only gives up AVX2.
 if /I "%~1"=="--no-avx" (
-    set "CORE_ENABLE_AVX2=OFF"
+    set "CORE_SIMD_LEVEL=sse2"
     shift
     goto :parse_args
 )
 if /I "%~1"=="--no-avx2" (
-    set "CORE_ENABLE_AVX2=OFF"
+    set "CORE_SIMD_LEVEL=avx"
+    shift
+    goto :parse_args
+)
+:: cmd.exe splits on "=" as well as spaces, so "--simd=avx" arrives here as two
+:: separate tokens; consuming the next token handles both spellings.
+if /I "%~1"=="--simd" (
+    set "CORE_SIMD_LEVEL=%~2"
+    shift
     shift
     goto :parse_args
 )
@@ -31,10 +45,17 @@ if not defined ARCH_INPUT (
     goto :parse_args
 )
 echo ERROR: Too many arguments.
-echo Usage: %~nx0 [x86^|x64^|arm64] [--no-avx2^|--no-avx]
+echo Usage: %~nx0 [x86^|x64^|arm64] [--simd=avx2^|avx^|sse2]
 exit /b 1
 
 :args_done
+
+if /I "%CORE_SIMD_LEVEL%"=="avx2" goto :simd_ok
+if /I "%CORE_SIMD_LEVEL%"=="avx" goto :simd_ok
+if /I "%CORE_SIMD_LEVEL%"=="sse2" goto :simd_ok
+echo ERROR: Unsupported SIMD level "%CORE_SIMD_LEVEL%". Expected one of: avx2, avx, sse2.
+exit /b 1
+:simd_ok
 
 if not defined ARCH_INPUT (
     if defined GUITARFX_WINDOWS_ARCH (
@@ -72,7 +93,6 @@ if not defined ARCH (
     echo ERROR: Unsupported Windows architecture "%ARCH_INPUT%". Expected one of: x86, x64, arm64.
     exit /b 1
 )
-echo       AVX2 support: %CORE_ENABLE_AVX2%
 :: Export the resolved platform for Inno Setup architecture/install path selection.
 set "GUITARFX_WINDOWS_ARCH=%ARCH%"
 if defined GUITARFX_WINDOWS_CMAKE_GENERATOR (
@@ -86,7 +106,8 @@ for /f %%I in ('powershell -NoProfile -Command "[DateTimeOffset]::UtcNow.ToUnixT
 echo [0/5] Configuring CMake...
 echo       Generator: %CMAKE_GENERATOR%
 echo       Architecture: %ARCH_LABEL% ^(CMake platform: %ARCH%^)
-cmake -G "%CMAKE_GENERATOR%" -A "%ARCH%" -S juce -B "%JUCE_BUILDS%" -DGUITARFX_CORE_ENABLE_AVX2=%CORE_ENABLE_AVX2%
+echo       SIMD baseline: %CORE_SIMD_LEVEL%
+cmake -G "%CMAKE_GENERATOR%" -A "%ARCH%" -S juce -B "%JUCE_BUILDS%" -DGUITARFX_CORE_SIMD_LEVEL=%CORE_SIMD_LEVEL%
 if !ERRORLEVEL! neq 0 (
     echo ERROR: CMake configure failed.
     goto :fail
