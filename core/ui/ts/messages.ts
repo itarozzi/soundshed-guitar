@@ -4,6 +4,7 @@ import { renderActivePreset, populatePresetDropdown, updatePresetDropdownSelecti
 import { syncControlsFromState, handleInputModeChanged, handleAmpCabStateChanged, syncAutoLevelControlsFromState, applyStoredInputChannel } from "./controls.js";
 import { showNotification } from "./notifications.js";
 import { appendLog } from "./logging.js";
+import { resolveExposedResourceSlot } from "./exposedResourceSlots.js";
 import { applyStoredDemoAudioSelection, previewSelectedDemoAudio, onDemoAudioStarted, onDemoAudioStopped, refreshDemoAudioSelectors, syncDemoAudioSelectionFromPreview } from "./demoAudio.js";
 import { handleTunerUpdate, handleTunerStarted, handleTunerStopped, handleTunerReferenceChanged, handleTunerLiveModeChanged } from "./tuner.js";
 import { applyUiSettings } from "./windowSettings.js";
@@ -1942,9 +1943,8 @@ function onEffectCatalog(payload: IncomingPayload): void {
 
       const exposedResources = Array.isArray(effect.exposedResources)
         ? effect.exposedResources
-            .filter((resource) => resource && typeof resource === "object")
-            .map((resource) => {
-              const r = resource as {
+            .map((resource, declarationIndex) => {
+              const r = (resource && typeof resource === "object" ? resource : {}) as {
                 resourceId?: unknown;
                 displayName?: unknown;
                 nodeId?: unknown;
@@ -1959,7 +1959,13 @@ function onEffectCatalog(payload: IncomingPayload): void {
                 displayName: typeof r.displayName === "string" ? r.displayName : "",
                 nodeId: typeof r.nodeId === "string" ? r.nodeId : "",
                 resourceType: typeof r.resourceType === "string" ? r.resourceType : "",
-                resourceIndex: typeof r.resourceIndex === "number" ? r.resourceIndex : 0,
+                // For a composite the index sent here is the inner node's slot,
+                // not the slot on the node the picker writes.
+                resourceIndex: resolveExposedResourceSlot(
+                  type,
+                  typeof r.resourceIndex === "number" ? r.resourceIndex : undefined,
+                  declarationIndex,
+                ),
                 allowBrowseFile: typeof r.allowBrowseFile === "boolean" ? r.allowBrowseFile : true,
                 parameterId: typeof r.parameterId === "string" ? r.parameterId : undefined,
                 parameterValue: typeof r.parameterValue === "number" ? r.parameterValue : undefined,

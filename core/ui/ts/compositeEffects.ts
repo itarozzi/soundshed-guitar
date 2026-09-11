@@ -9,6 +9,7 @@ import { uiState } from "./state.js";
 import { showNotification } from "./notifications.js";
 import { appendLog } from "./logging.js";
 import { EffectTypeRegistry } from "./presetV2.js";
+import { resolveExposedResourceSlot } from "./exposedResourceSlots.js";
 import type {
   CompositeEffectDefinition,
   ExposedParameter,
@@ -231,12 +232,14 @@ function registerCompositeEffectType(def: CompositeEffectDefinition): void {
       max: ep.maxValue ?? 1,
       unit: ep.unit ?? "",
     })),
-    exposedResources: (def.exposedResources ?? []).map((er) => ({
+    exposedResources: (def.exposedResources ?? []).map((er, declarationIndex) => ({
       resourceId: er.resourceId,
       displayName: er.displayName,
       nodeId: er.nodeId,
       resourceType: er.resourceType,
-      resourceIndex: er.resourceIndex ?? 0,
+      // er.resourceIndex is the slot on the inner node this forwards to, not
+      // the slot on the composite node the picker writes.
+      resourceIndex: resolveExposedResourceSlot(typeId, er.resourceIndex, declarationIndex),
       allowBrowseFile: er.allowBrowseFile ?? true,
       parameterId: er.parameterId,
       parameterValue: er.parameterValue,

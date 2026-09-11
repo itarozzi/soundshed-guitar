@@ -48,6 +48,13 @@ export interface EffectTypeInfo {
     displayName: string;
     nodeId: string;
     resourceType: string;
+    /**
+     * The slot on the graph node itself that this picker reads and writes —
+     * always, whatever the effect. A WASM module numbers its blobs from 1
+     * because slot 0 is the module; a composite's slots run in declaration
+     * order. A composite definition's own `resourceIndex` means the slot on the
+     * inner node it forwards to and must be translated, not copied, into this.
+     */
     resourceIndex?: number;
     allowBrowseFile?: boolean;
     parameterId?: string;

@@ -6,7 +6,7 @@
     "ts/layoutDesigner.ts": 3409,
     "ts/settings.ts": 3231,
     "ts/presets.ts": 2800,
-    "ts/messages.ts": 2259,
+    "ts/messages.ts": 2265,
     "ts/signalPath/paramsPanel.ts": 2140,
     "ts/signalPath.ts": 1781,
     "ts/presets/archive.ts": 1547,
@@ -25,7 +25,7 @@
     "ts/controls.ts": 990,
     "ts/performancePads.ts": 965,
     "ts/amp3d/ampView.ts": 916,
-    "ts/presetV2.ts": 883,
+    "ts/presetV2.ts": 890,
     "ts/eqCurve.ts": 857,
     "css/layout-designer.css": 845
   }
