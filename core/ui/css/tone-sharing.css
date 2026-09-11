@@ -176,7 +176,8 @@
   color: var(--text-muted);
 }
 
-.tone-sharing-community-search input {
+.tone-sharing-community-search input,
+.tone-sharing-community-search select {
   flex: 1;
   min-width: 200px;
   background: var(--bg-input);
@@ -185,6 +186,11 @@
   color: var(--text-primary);
   padding: 8px;
   font-size: 12px;
+}
+
+.tone-sharing-community-search select {
+  flex: 0 1 140px;
+  min-width: 110px;
 }
 
 .tone-sharing-featured-more {
@@ -537,17 +543,6 @@
   flex-direction: column;
   min-height: 0;
   position: relative;
-}
-
-.tone-sharing-card-item::before {
-  content: "";
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 1px;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--tone-card-accent), #fff 18%) 0%, color-mix(in srgb, var(--tone-card-accent), #000 10%) 100%),
-    linear-gradient(90deg, color-mix(in srgb, var(--tone-card-accent), transparent 14%) 0%, color-mix(in srgb, var(--tone-card-accent), transparent 52%) 48%, transparent 100%);
-  opacity: 0.9;
 }
 
 .tone-sharing-card-art {
