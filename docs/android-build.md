@@ -13,7 +13,7 @@ android/
   settings.gradle.kts     Gradle project definition
   build.gradle.kts        Root build; pins the Android Gradle Plugin
   gradle.properties       Build-wide flags, including which ABIs to build
-  deploy.bat              Installs the APK on the first connected phone and launches it
+  deploy.bat              Builds (on request), installs and launches the APK on a connected phone
   local.properties        Machine-local SDK path (not checked in)
   app/
     build.gradle.kts      App module: NDK/CMake wiring, JUCE Java sources, UI assets
@@ -107,9 +107,22 @@ adb shell am start -n com.soundshed.guitar/.MainActivity
 adb logcat -s SoundshedGuitar JUCE
 ```
 
-On Windows, `deploy.bat [release|debug] [nolaunch]` does the first two steps
-against the first connected phone or tablet, skipping emulators, and finds
-`adb` from `local.properties`. The release APK is the default.
+On Windows, `deploy.bat [release|debug] [build] [nolaunch] [abi=<abi>]` does the
+first two steps against the first connected phone or tablet, skipping emulators,
+and finds `adb` from `local.properties`. The release APK is the default, and the
+arguments may appear in any order.
+
+Add `build` (or `rebuild`) to run the Gradle build first, so one command covers
+the whole edit-run loop:
+
+```bat
+deploy.bat build
+```
+
+It builds for the ABI the connected device reports, falling back to `arm64-v8a`
+if it cannot be read; `abi=x86_64` overrides that (quote the argument to pass a
+comma-separated list, since cmd splits on commas). A failed build stops before
+the install.
 
 ## How it differs from the desktop builds
 
