@@ -31,6 +31,20 @@ export type Density = "compact" | "full";
 
 export type DensityPreference = "auto" | Density;
 
+/**
+ * How the compact shell is arranged, which follows the shape of the viewport.
+ *
+ * A landscape compact viewport is starved of height and has width to spare. That
+ * is a phone — and on Android landscape is the only way the app runs — or a short
+ * desktop window. So the top-level navigation leaves its row for a rail down the
+ * left edge (`rail`), and the row goes back to the effect controls. A portrait
+ * viewport keeps the stacked bars (`stack`): there the rail would take a real
+ * share of a narrow screen's width, and height is what it has to give.
+ *
+ * Stamped on the root as `data-compact-layout`, and only while density is compact.
+ */
+export type CompactLayout = "rail" | "stack";
+
 export const DENSITY_SETTING = "ui.density";
 
 /**
@@ -50,10 +64,19 @@ export const COMPACT_MAX_WIDTH = 980;
  */
 export const COMPACT_MAX_HEIGHT = 620;
 
+/**
+ * Landscape gets the rail; portrait and square keep the stacked bars. The
+ * pre-paint bootstrap in `index.template.html` applies the same test.
+ */
+export function compactLayoutForViewport(width: number, height: number): CompactLayout {
+  return width > height ? "rail" : "stack";
+}
+
 const DENSITY_PREFERENCES: readonly DensityPreference[] = ["auto", "compact", "full"];
 
 let preference: DensityPreference = "auto";
 let density: Density = "full";
+let layout: CompactLayout | null = null;
 let initialized = false;
 let evaluateRaf = 0;
 
@@ -101,22 +124,40 @@ export function isCompact(): boolean {
   return density === "compact";
 }
 
+/** How the compact shell is arranged, or null at full density. */
+export function getCompactLayout(): CompactLayout | null {
+  return layout;
+}
+
 export function getDensityPreference(): DensityPreference {
   return preference;
 }
 
 function applyResolvedDensity(): void {
   const next = resolveDensity();
+  const { width, height } = effectiveViewport();
+  const nextLayout = next === "compact" ? compactLayoutForViewport(width, height) : null;
   const root = document.documentElement;
   root.dataset.densityPref = preference;
 
-  if (next === density && root.dataset.density === next) {
+  const unchanged = next === density && root.dataset.density === next
+    && nextLayout === layout && (root.dataset.compactLayout ?? null) === nextLayout;
+  if (unchanged) {
     return;
   }
 
   density = next;
+  layout = nextLayout;
   root.dataset.density = next;
-  window.dispatchEvent(new CustomEvent("densityChanged", { detail: { density: next, preference } }));
+  if (nextLayout) {
+    root.dataset.compactLayout = nextLayout;
+  } else {
+    delete root.dataset.compactLayout;
+  }
+  // A layout change on its own is announced too: turning a compact window from
+  // portrait to landscape moves the navigation to another edge, and anything that
+  // sizes itself off the shell needs to hear that as much as a density change.
+  window.dispatchEvent(new CustomEvent("densityChanged", { detail: { density: next, layout: nextLayout, preference } }));
 }
 
 function scheduleEvaluate(): void {

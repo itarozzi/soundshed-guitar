@@ -1,7 +1,7 @@
 import { uiState } from "./state.js";
 import { postMessage } from "./bridge.js";
 import { isCompact } from "./compactMode.js";
-import { applyCompactStage, isCompactStage, setCompactStageDetailLabel } from "./compactStage.js";
+import { applyCompactStage, isCompactStage, setCompactStage, setCompactStageDetailLabel } from "./compactStage.js";
 import { initSettingsPanel, updateSettingsSessionStatus, activateEquipmentTab, activateLibraryTab, activateAdvancedSubTab, setSettingsViewStateSuppressed } from "./settings.js";
 import { ensureTone3000Session } from "./tone3000.js";
 import { handleJamPanelActivated, initializeJamPanel } from "./jam.js";
@@ -231,6 +231,32 @@ export function initCompactStagePersistence(): void {
     if (isCompactStage(stage)) {
       updateUiViewState({ compactStage: stage });
     }
+  });
+}
+
+/**
+ * The landscape rail's Chain and Effect buttons: each opens Play on that half.
+ *
+ * Bound here rather than in compactStage.ts because they switch the main panel as
+ * well, and that leaf cannot import this module back. Which one is lit is read
+ * off the root by css/compact/rail.css, so there is no state to keep in step.
+ */
+export function initCompactStageDestinations(): void {
+  document.querySelectorAll<HTMLButtonElement>("[data-compact-destination]").forEach((button) => {
+    if (button.dataset.bound === "true") {
+      return;
+    }
+    button.dataset.bound = "true";
+    button.addEventListener("click", () => {
+      const stage = button.dataset.compactDestination;
+      if (!isCompactStage(stage)) {
+        return;
+      }
+      if (document.documentElement.dataset.mainPanel !== "visualizer") {
+        switchMainPanel("visualizer");
+      }
+      setCompactStage(stage);
+    });
   });
 }
 

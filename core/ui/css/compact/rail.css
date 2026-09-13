@@ -1,0 +1,249 @@
+/* ===== Compact density: the landscape rail =====
+ *
+ * A compact viewport wider than it is tall — a phone, which Android locks to
+ * landscape, or a short desktop window — has width to spare and almost no
+ * height. The stacked compact shell spent two whole rows of that height on
+ * navigation: 36px for Play/Tones/Jam and 31px for the Chain/Effect tabs, which
+ * at 740x360 is 67px of the ~290px left for the stage.
+ *
+ * Here navigation moves into a rail down the left edge and both rows go. The rail
+ * lists where you can be — Chain, Effect, Tones, Jam — rather than which panel is
+ * up, so each half of Play is one tap from anywhere instead of two. Play has no
+ * button of its own on the rail; Chain and Effect are what it is.
+ *
+ * ts/compactMode.ts stamps html[data-compact-layout="rail"]. The header is not
+ * replaced, only stood on its end: Tones and Jam keep their feature-flag gating
+ * and Alpine bindings, and settings keeps its handler.
+ */
+
+/* Rail-only markup in the header, hidden everywhere else. */
+.nav-rail-stage,
+.nav-tab-icon {
+  display: none;
+}
+
+html[data-density="compact"][data-compact-layout="rail"] {
+  --compact-rail-width: 60px;
+}
+
+/* ── The column beside it ─────────────────────────────────────────────────────
+ *
+ * #app stays a flex column, padded on the left for the rail. Taking the header
+ * out of the flow rather than moving #app to a grid keeps every row sizing the
+ * way it already does, including the ones that come and go with the panel.
+ */
+
+html[data-density="compact"][data-compact-layout="rail"] #app {
+  position: relative;
+  box-sizing: border-box;
+  padding-left: calc(var(--compact-rail-width) + var(--ssg-safe-left));
+}
+
+/*
+  The rail covers the left-hand system inset (a display cutout, or the nav bar
+  when the phone is turned the other way), so nothing to its right should step
+  round it again. The bars add --ssg-safe-left to their own padding in several
+  rules; zeroing the variable for them is simpler than overriding each one.
+*/
+html[data-density="compact"][data-compact-layout="rail"] #app > :not(.icon-bar) {
+  --ssg-safe-left: 0px;
+}
+
+/* The header used to carry the top inset (the status bar). The control bar is the
+   top of this column now. */
+html[data-density="compact"][data-compact-layout="rail"] .control-bar {
+  padding-top: var(--ssg-safe-top);
+}
+
+html[data-density="compact"][data-compact-layout="rail"] .control-bar-collapse-btn {
+  top: calc(2px + var(--ssg-safe-top));
+}
+
+/* The right-hand inset — the nav bar, or a cutout on that side. The footer already
+   pads for it; the rows above it never had to, because the header did. */
+html[data-density="compact"][data-compact-layout="rail"] .control-bar-body-inner {
+  padding-right: calc(6px + var(--ssg-safe-right));
+}
+
+html[data-density="compact"][data-compact-layout="rail"] .signal-path-stage,
+html[data-density="compact"][data-compact-layout="rail"] .main-content {
+  padding-right: var(--ssg-safe-right);
+}
+
+/*
+  More room between the top strip's controls, once the strip has it to give. Every
+  pixel of gap here comes out of the preset name, which takes whatever is left: at
+  640px wide these gaps cost it 24px, from 163px to 139px, and cut a name short
+  that had fitted. From 720px the name keeps 200px or more with them in place.
+  A media query cannot see the UI zoom, but the price of it guessing wrong is a
+  few pixels of gap, not a broken layout.
+*/
+@media (min-width: 720px) {
+  html[data-density="compact"][data-compact-layout="rail"] .control-bar-body-inner,
+  html[data-density="compact"][data-compact-layout="rail"] .preset-group {
+    gap: 10px;
+  }
+
+  html[data-density="compact"][data-compact-layout="rail"] .preset-selector-row,
+  html[data-density="compact"][data-compact-layout="rail"] .preset-toolbar {
+    gap: 6px;
+  }
+}
+
+/* The FX flyout is sized off the viewport (94vw) but centred on the chain stage,
+   which the rail makes 60px narrower than the viewport — so it hung off the right
+   edge, where anything focused inside it would scroll the whole shell sideways.
+   Size it off the stage instead. */
+html[data-density="compact"][data-compact-layout="rail"] .fx-selector-panel {
+  width: min(calc(100% - 16px), 860px);
+}
+
+/* The rail's Chain and Effect buttons are these tabs. */
+html[data-density="compact"][data-compact-layout="rail"][data-main-panel="visualizer"] .compact-stage-tabs {
+  display: none;
+}
+
+/* ── The rail ───────────────────────────────────────────────────────────────── */
+
+html[data-density="compact"][data-compact-layout="rail"] .icon-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 21;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  width: calc(var(--compact-rail-width) + var(--ssg-safe-left));
+  height: auto;
+  padding: calc(6px + var(--ssg-safe-top)) 5px calc(6px + var(--ssg-safe-bottom))
+    calc(5px + var(--ssg-safe-left));
+  border-bottom: none;
+  border-right: 1px solid var(--border-dark);
+  /* A very short window still has to be able to reach settings. */
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+/* The wordmark is already gone at compact, and its spacer would push the tabs
+   down to the middle of the rail. The spacer after the tabs is the one that sends
+   settings to the bottom. */
+html[data-density="compact"][data-compact-layout="rail"] .app-title + .icon-bar-spacer {
+  display: none;
+}
+
+html[data-density="compact"][data-compact-layout="rail"] .icon-bar-spacer {
+  flex: 1 1 auto;
+}
+
+html[data-density="compact"][data-compact-layout="rail"] .nav-tabs {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  height: auto;
+}
+
+/*
+  The desktop tabs are underlined words with their box properties pinned by
+  !important in navigation.css, so the ones that change here have to be as well.
+*/
+html[data-density="compact"][data-compact-layout="rail"] .nav-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 100% !important;
+  height: auto !important;
+  min-height: 46px;
+  padding: 6px 2px 5px !important;
+  border: none !important;
+  border-radius: var(--radius-lg) !important;
+  font-size: 9px !important;
+  letter-spacing: 0.04em !important;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* Play is Chain and Effect here. (Feature flags hide Tones and Jam with the hidden
+   attribute, which base.css enforces with !important, so those need nothing.) */
+html[data-density="compact"][data-compact-layout="rail"] .nav-tab[data-panel="visualizer"] {
+  display: none;
+}
+
+html[data-density="compact"][data-compact-layout="rail"] .nav-tab-icon {
+  display: block;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Effect is renamed Setlist while the Play view is switched to the performance
+   pads (navigation.ts does that), and the glyph follows it. */
+html[data-density="compact"][data-compact-layout="rail"] .nav-tab-icon-setlist,
+html[data-density="compact"][data-compact-layout="rail"]:has(#panel-visualizer.show-performance-pads) .nav-tab-icon-effect {
+  display: none;
+}
+
+html[data-density="compact"][data-compact-layout="rail"]:has(#panel-visualizer.show-performance-pads) .nav-tab-icon-setlist {
+  display: block;
+}
+
+html[data-density="compact"][data-compact-layout="rail"] .nav-tab-label {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+html[data-density="compact"][data-compact-layout="rail"] .nav-tab:hover {
+  background: var(--overlay-light) !important;
+}
+
+html[data-density="compact"][data-compact-layout="rail"] .nav-tab:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+
+/*
+  Where you are. Tones and Jam get .active from switchMainPanel, as they do on the
+  bar. Chain and Effect are both Play, so theirs is read off the root — the main
+  panel and the stage together — instead of being kept in step from script.
+*/
+html[data-density="compact"][data-compact-layout="rail"] .nav-tab.active,
+html[data-density="compact"][data-compact-layout="rail"][data-main-panel="visualizer"][data-compact-stage="chain"] .nav-rail-stage[data-compact-destination="chain"],
+html[data-density="compact"][data-compact-layout="rail"][data-main-panel="visualizer"][data-compact-stage="detail"] .nav-rail-stage[data-compact-destination="detail"] {
+  background: color-mix(in srgb, var(--color-accent) 18%, transparent) !important;
+  color: var(--color-accent) !important;
+}
+
+html[data-density="compact"][data-compact-layout="rail"] .nav-settings-btn {
+  align-self: center;
+  flex: none;
+  width: 42px !important;
+  height: 42px !important;
+  min-height: 42px !important;
+}
+
+html[data-density="compact"][data-compact-layout="rail"] .nav-settings-btn svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* The docked Jam player has nowhere to sit on a 60px rail. With its host hidden,
+   jam/player.ts floats the player instead, as it does on any narrow window. */
+html[data-density="compact"][data-compact-layout="rail"] .jam-player-dock {
+  display: none;
+}
+
+@media (pointer: coarse) {
+  html[data-density="compact"][data-compact-layout="rail"] .nav-tab {
+    min-height: 50px;
+  }
+}

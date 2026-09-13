@@ -45,10 +45,19 @@
       first frame is already laid out at the right density instead of painting
       the desktop shell and reflowing to the compact one a moment later.
 
-      The two thresholds must match COMPACT_MAX_WIDTH / COMPACT_MAX_HEIGHT.
+      The two thresholds must match COMPACT_MAX_WIDTH / COMPACT_MAX_HEIGHT, and the
+      landscape test must match compactLayoutForViewport: a wrong guess at the
+      layout paints the navigation on the wrong edge for a frame, which is the
+      reflow this is here to prevent.
     */
-    document.documentElement.dataset.density =
-      window.innerWidth <= 980 || window.innerHeight <= 620 ? "compact" : "full";
+    (function () {
+      var root = document.documentElement;
+      var compact = window.innerWidth <= 980 || window.innerHeight <= 620;
+      root.dataset.density = compact ? "compact" : "full";
+      if (compact) {
+        root.dataset.compactLayout = window.innerWidth > window.innerHeight ? "rail" : "stack";
+      }
+    })();
   </script>
   <script src="build-flags.js"></script>
   <script src="dist/alpine.min.js"></script>
@@ -134,10 +143,13 @@
   <link rel="stylesheet" href="css/grain.css" />
   <!-- Compact density. Last in the cascade because every rule here is a layout
        override of a sheet above it, keyed off html[data-density="compact"];
-       none of them set colour, so the themes are untouched. Order matters:
-       these are parts of one sheet, shell before the panels it sizes. -->
+       anything they tint uses theme tokens, so the themes are untouched. Order
+       matters: these are parts of one sheet, the shell and its landscape rail
+       before the panels they size. -->
   <link rel="stylesheet" href="css/compact/shell.css" />
+  <link rel="stylesheet" href="css/compact/rail.css" />
   <link rel="stylesheet" href="css/compact/panels.css" />
+  <link rel="stylesheet" href="css/compact/effect-panel.css" />
   <link rel="stylesheet" href="css/compact/modals.css" />
 </head>
 

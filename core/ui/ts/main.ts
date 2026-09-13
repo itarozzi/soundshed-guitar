@@ -32,7 +32,7 @@ import { initializeBlendEditorModal, initSignalPathResize, renderSignalPathBar, 
 import { initSignalChainHistory } from "./signalPath/history.js";
 import { initializeCustomEffectDesignerModal } from "./customEffectDesigner.js";
 import { initializeDialogModals } from "./dialogs.js";
-import { activateTab, initCompactStagePersistence, initializeControlBarTabs, initializeIconBarTabs, initializePlayFooterPadsToggle, initializeTabButtons, switchMainPanel, initControlBarCollapse, initSignalPathCollapse } from "./navigation.js";
+import { activateTab, initCompactStageDestinations, initCompactStagePersistence, initializeControlBarTabs, initializeIconBarTabs, initializePlayFooterPadsToggle, initializeTabButtons, switchMainPanel, initControlBarCollapse, initSignalPathCollapse } from "./navigation.js";
 import { handleDroppedRiffAudioFiles, initializeRiffLibraryPanel } from "./riffLibrary.js";
 import { initializePracticeToolPanel, setPracticeToolPresetRecaller } from "./practiceTool.js";
 import { initializeGlobalFileDrop, registerGlobalFileDropHandler } from "./fileDrop.js";
@@ -188,6 +188,7 @@ async function bootstrap(): Promise<void> {
   initializeControlBarTabs();
   initCompactStage();
   initCompactStagePersistence();
+  initCompactStageDestinations();
   initControlBarCollapse();
   initSignalPathCollapse();
 

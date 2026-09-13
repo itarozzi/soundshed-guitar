@@ -14,6 +14,9 @@
  *
  * Inert at full density, and on every panel but Play — `navigation.ts` stamps
  * `data-main-panel` on the root, and the CSS only shows the tabs for `visualizer`.
+ * On the landscape rail the tabs are hidden and the rail's Chain and Effect
+ * buttons stand in for them; `navigation.ts` binds those, because they switch
+ * the main panel as well.
  *
  * This is a leaf: it imports nothing but `compactMode`. Persisting the choice
  * happens the other way round — it announces `compactStageChanged` and
@@ -88,14 +91,16 @@ export function revealCompactNodeDetail(): void {
 }
 
 /**
- * The detail tab is the params panel most of the time and the performance pads
- * when the Play view is switched to them, so it says which.
+ * The detail stage is the params panel most of the time and the performance pads
+ * when the Play view is switched to them, so whatever names it says which: the
+ * stage tab, and the Effect button on the landscape rail.
  */
 export function setCompactStageDetailLabel(label: string): void {
-  const tab = document.getElementById("compact-stage-tab-detail");
-  if (tab && tab.textContent !== label) {
-    tab.textContent = label;
-  }
+  document.querySelectorAll<HTMLElement>("[data-compact-stage-detail-label]").forEach((element) => {
+    if (element.textContent !== label) {
+      element.textContent = label;
+    }
+  });
 }
 
 export function initCompactStage(): void {
