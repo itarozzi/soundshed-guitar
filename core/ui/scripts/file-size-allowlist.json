@@ -3,7 +3,7 @@
   "allowed": {
     "ts/resourceBrowser.ts": 2207,
     "ts/layoutDesigner.ts": 2036,
-    "ts/signalPath.ts": 1781,
+    "ts/signalPath.ts": 1728,
     "ts/presets/archive.ts": 1547,
     "ts/blendEditor.ts": 1527,
     "css/tone-sharing.css": 1484,
@@ -16,7 +16,7 @@
     "css/settings.css": 1098,
     "css/modals/resource-browser.css": 1028,
     "css/controls.css": 1016,
-    "css/themes/light.css": 1014,
+    "css/themes/light.css": 1001,
     "ts/controls.ts": 990,
     "ts/performancePads.ts": 965,
     "ts/amp3d/ampView.ts": 916,

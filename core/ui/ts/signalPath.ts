@@ -59,13 +59,14 @@ import { showNodeParamsPanel } from "./signalPath/paramsPanel.js";
 import { chain3dPanelActive, chain3dView, hideNodeParamsPanel } from "./signalPath/amp3dBridge.js";
 import { buildMissingResourceTooltip, buildNodeLayoutMatchText, getMissingResourceEntries, getNodeArchitectureBadge, getNodeDisplayName, getNodeResourceDisplayName } from "./signalPath/nodeLabels.js";
 import { isProtectedSignalPathNode, isToggleableSignalPathNode, toggleSignalPathNodeBypass } from "./signalPath/bypass.js";
+import { updateSignalPathClipIndicators } from "./signalPath/telemetry.js";
 export { applySignalPathNodeBypassState, isToggleableSignalPathNode } from "./signalPath/bypass.js";
 export { applySpatialPositionUpdate, buildDefaultParamControlsHtml } from "./signalPath/paramsPanel.js";
 export { closeEffectPresetsFlyout, refreshEffectPresetsFlyout } from "./signalPath/effectPresets.js";
 export { initSignalPathResize } from "./signalPath/layout.js";
 export { getSignalPathScrollHeight, scheduleSignalPathLayoutAdapt, setSignalPathScrollHeight, updateSignalPathLayoutAdapt } from "./signalPath/layout.js";
 export { handleHostedPluginResourceLoadCompleted, handleHostedPluginResourceLoadFailed, handleNodeResourceBrowseCancelled } from "./signalPath/hostedPlugins.js";
-export { updateSelectedNodeAnalyzerPanel, updateSelectedNodeDspStatus, updateSelectedNodePeakMeter } from "./signalPath/telemetry.js";
+export { updateSelectedNodeAnalyzerPanel, updateSelectedNodeDspStatus, updateSelectedNodePeakMeter, updateSignalPathClipIndicators } from "./signalPath/telemetry.js";
 export { isNodeBypassed };
 export { initializeBlendEditorModal, openBlendEditorWithDefinition } from "./signalPathBlend.js";
 
@@ -1041,64 +1042,6 @@ function renderNodeElement(node: GraphNode, options?: RenderNodeElementOptions):
       ${missingBadge}
     </div>
   `;
-}
-
-export function updateSignalPathClipIndicators(): void {
-  const nodeElements = signalPathNodesElement?.querySelectorAll(".signal-node[data-node-id]");
-  if (!nodeElements) {
-    return;
-  }
-
-  const diagnostics = uiState.signalDiagnostics;
-
-  // Build a map of nodeId → clipped for all nodes in the diagnostics snapshot.
-  // No preset-ID filtering here: effect nodes use unique UUIDs so there is no
-  // collision across preset instances, and __input__/__output__ are resolved via
-  // dedicated diagnostics.input / diagnostics.output fields below.
-  const nodeClipMap = new Map<string, boolean>();
-  if (diagnostics) {
-    diagnostics.nodes.forEach((node) => {
-      if (typeof node.nodeId === "string") {
-        nodeClipMap.set(node.nodeId, Boolean(node.levels?.clipped));
-      }
-    });
-  }
-
-  nodeElements.forEach((element) => {
-    const el = element as HTMLElement;
-    const indicator = el.querySelector(".node-clip-indicator") as HTMLElement | null;
-    if (!indicator) return;
-
-    indicator.classList.remove("clip-on", "clip-off", "clip-inactive", "clip-unknown");
-
-    if (!diagnostics) {
-      indicator.classList.add("clip-inactive");
-      indicator.title = "Waiting for diagnostics data";
-      return;
-    }
-
-    const nodeId = el.dataset.nodeId ?? "";
-    let clipped: boolean | undefined;
-
-    if (nodeId === "__input__") {
-      clipped = diagnostics.input?.clipped;
-    } else if (nodeId === "__output__") {
-      clipped = diagnostics.output?.clipped;
-    } else if (nodeClipMap.has(nodeId)) {
-      clipped = nodeClipMap.get(nodeId);
-    }
-
-    if (clipped === true) {
-      indicator.classList.add("clip-on");
-      indicator.title = "Clipping detected";
-    } else if (clipped === false) {
-      indicator.classList.add("clip-off");
-      indicator.title = "No clipping";
-    } else {
-      indicator.classList.add("clip-unknown");
-      indicator.title = "No diagnostics data";
-    }
-  });
 }
 
 function bindNodeClickHandlers(preset: Preset): void {

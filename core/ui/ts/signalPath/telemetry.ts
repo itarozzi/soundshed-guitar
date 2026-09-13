@@ -13,6 +13,7 @@ import {
   getSelectedNodeId,
   nodeParamsPanelElement,
   selectedNodeDspStatusAverages,
+  signalPathNodesElement,
 } from "./state.js";
 
 let selectedNodeDspStatusVisible = false;
@@ -463,4 +464,66 @@ export function resetDspStatusAverages(): void {
 /** Whether the DSP status readout is expanded in the node parameters panel. */
 export function isDspStatusVisible(): boolean {
   return selectedNodeDspStatusVisible;
+}
+
+/**
+ * Sets the clip indicator on every node in the signal path bar from the latest
+ * diagnostics snapshot — all of them, unlike the selected-node readouts above.
+ */
+export function updateSignalPathClipIndicators(): void {
+  const nodeElements = signalPathNodesElement?.querySelectorAll(".signal-node[data-node-id]");
+  if (!nodeElements) {
+    return;
+  }
+
+  const diagnostics = uiState.signalDiagnostics;
+
+  // Build a map of nodeId → clipped for all nodes in the diagnostics snapshot.
+  // No preset-ID filtering here: effect nodes use unique UUIDs so there is no
+  // collision across preset instances, and __input__/__output__ are resolved via
+  // dedicated diagnostics.input / diagnostics.output fields below.
+  const nodeClipMap = new Map<string, boolean>();
+  if (diagnostics) {
+    diagnostics.nodes.forEach((node) => {
+      if (typeof node.nodeId === "string") {
+        nodeClipMap.set(node.nodeId, Boolean(node.levels?.clipped));
+      }
+    });
+  }
+
+  nodeElements.forEach((element) => {
+    const el = element as HTMLElement;
+    const indicator = el.querySelector(".node-clip-indicator") as HTMLElement | null;
+    if (!indicator) return;
+
+    indicator.classList.remove("clip-on", "clip-off", "clip-inactive", "clip-unknown");
+
+    if (!diagnostics) {
+      indicator.classList.add("clip-inactive");
+      indicator.title = "Waiting for diagnostics data";
+      return;
+    }
+
+    const nodeId = el.dataset.nodeId ?? "";
+    let clipped: boolean | undefined;
+
+    if (nodeId === "__input__") {
+      clipped = diagnostics.input?.clipped;
+    } else if (nodeId === "__output__") {
+      clipped = diagnostics.output?.clipped;
+    } else if (nodeClipMap.has(nodeId)) {
+      clipped = nodeClipMap.get(nodeId);
+    }
+
+    if (clipped === true) {
+      indicator.classList.add("clip-on");
+      indicator.title = "Clipping detected";
+    } else if (clipped === false) {
+      indicator.classList.add("clip-off");
+      indicator.title = "No clipping";
+    } else {
+      indicator.classList.add("clip-unknown");
+      indicator.title = "No diagnostics data";
+    }
+  });
 }

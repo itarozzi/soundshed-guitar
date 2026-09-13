@@ -180,14 +180,8 @@
 }
 
 .theme-light .footer-btn:disabled,
-.theme-light .footer-btn.footer-btn-disabled,
-.theme-light .footer-btn:disabled:hover,
-.theme-light .footer-btn.footer-btn-disabled:hover {
+.theme-light .footer-btn:disabled:hover {
   color: var(--text-muted);
-}
-
-.theme-light .footer-divider {
-  color: var(--border-dark);
 }
 
 .theme-light .footer-play-btn,
@@ -239,12 +233,6 @@
 .theme-light .footer-demo-select:focus {
   border-color: var(--color-accent);
   box-shadow: var(--focus-ring);
-}
-
-.theme-light .footer-theme-label,
-.theme-light .footer-zoom-label,
-.theme-light .footer-hint {
-  color: var(--text-muted);
 }
 
 .theme-light .bpm-display {
@@ -804,29 +792,6 @@
   color: rgba(69, 83, 110, 0.72);
 }
 
-.theme-light .node-params-title {
-  color: var(--text-primary);
-}
-
-.theme-light .node-params-close {
-  background: transparent;
-  color: var(--text-muted);
-}
-
-.theme-light .node-params-close:hover {
-  background: rgba(181, 82, 30, 0.1);
-  color: var(--text-primary);
-}
-
-.theme-light .node-param-steps {
-  color: var(--text-muted);
-}
-
-.theme-light .node-param-step {
-  background: #f3f4f6;
-  border-color: var(--border-light);
-}
-
 .theme-light .node-param-group-block {
   background: #ffffff;
   border-color: var(--border-light);
@@ -849,11 +814,6 @@
   background: #f3f4f6;
 }
 
-.theme-light .node-actions {
-  border-top-color: var(--border-light);
-}
-
-.theme-light .param-control label,
 .theme-light .node-param-label {
   color: var(--text-muted);
 }
