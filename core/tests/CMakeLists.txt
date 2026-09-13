@@ -3,6 +3,7 @@
 set(TEST_SOURCES
     AutomationBypassEndToEndTests.cpp
     AutomationSlotMidiToggleTests.cpp
+    BoundaryNodeGainTests.cpp
     CustomEffectLibraryTests.cpp
     DefaultPresetIntegrityTests.cpp
     DSPPerformanceTests.cpp

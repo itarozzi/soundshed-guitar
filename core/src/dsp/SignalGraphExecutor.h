@@ -242,13 +242,19 @@ class SignalGraphExecutor
 
     /// Memoises 10^(dB/20). The trim almost never changes, but std::pow was being
     /// called twice per block per graph regardless.
+    ///
+    /// It starts out already holding the answer for 0 dB rather than a NaN "not computed
+    /// yet" sentinel. The core builds with fast floating-point semantics, where comparing
+    /// against NaN is not guaranteed to come out unordered: this one came out equal, so
+    /// the first lookup never computed, every later one returned the initial 1.0, and the
+    /// Input/Output node gains and the trims did nothing.
     class DbToLinear
     {
       public:
         [[nodiscard]] float Get(double db);
 
       private:
-        double mDb = std::numeric_limits<double>::quiet_NaN();
+        double mDb = 0.0;
         float mLinear = 1.0f;
     };
 

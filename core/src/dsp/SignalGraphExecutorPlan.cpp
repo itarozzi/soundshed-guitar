@@ -28,7 +28,6 @@ using namespace guitarfx::executor_detail;
 
 float SignalGraphExecutor::DbToLinear::Get(double db)
 {
-    // NaN on first use, so the initial call always computes.
     if (db != mDb)
     {
         mDb = db;
