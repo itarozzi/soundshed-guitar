@@ -52,6 +52,9 @@ Define a flexible preset organization model with hierarchical folders and ordere
 ## UI Notes
 - Folder navigation provides a tree view.
 - Setlists display ordered slots (drag/drop reorder), allow repeated presets.
+- A preset dragged onto a pad of the setlist pads view (from the library, or the loaded
+  preset's name in the toolbar) is assigned to that pad's slot; a pad that already holds a
+  different preset asks before it is replaced.
 - Bank number is edited in setlist settings and validated for uniqueness.
 
 ## Multi-Rig Presets

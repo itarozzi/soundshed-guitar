@@ -15,7 +15,7 @@ import type { Preset } from "../types.js";
 import { renderMixerPanel, renderPresetDetails, renderPresetList } from "../views.js";
 import { updatePresetFolderExportButtons } from "./actions.js";
 import { presetChooserLabel } from "./dom.js";
-import { movePresetFolder, movePresetToFolder, setActivePresetFolder, syncPresetFolderToolbarState } from "./folderControls.js";
+import { movePresetFolder, setActivePresetFolder, syncPresetFolderToolbarState } from "./folderControls.js";
 import { applyPresetFromLibrary, bindLoadButtons, requestSignalPathTest } from "./load.js";
 import { closePresetLibraryPopover, takePresetChooserOverride } from "./popover.js";
 
@@ -82,7 +82,6 @@ export function renderPresetUI(preset: Preset | null): void {
     folders: sortPresetFoldersAlphabetically(uiState.presetFolders ?? []),
     activeFolderId: uiState.activePresetFolderId ?? PRESET_FOLDER_ALL_ID,
     onSelectFolder: setActivePresetFolder,
-    onMovePresetToFolder: movePresetToFolder,
     onMoveFolder: movePresetFolder,
     getRating: getPresetRating,
     onRate: setPresetRating,

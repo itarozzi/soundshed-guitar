@@ -18,6 +18,7 @@ import { uiState } from "./state.js";
 
 export { deleteCurrentPreset, deletePresetFromBackend, initializePresetActionButtons, isUserPreset, openEditPresetModal, saveOverwriteCurrentPreset, updatePresetActionButtons } from "./presets/actions.js";
 export { initializePresetControls, selectNextPreset, selectPreviousPreset } from "./presets/controls.js";
+export { registerPresetDropZone } from "./presets/drag.js";
 export { applyPresetFoldersFromBackend } from "./presets/folderControls.js";
 export { filterPresets, initializePresetTagFilterBar, populatePresetDropdown, renderActivePreset, updatePresetDropdownSelection } from "./presets/library.js";
 export { applyPresetFromLibrary, bindLoadButtons, loadIRFromPath, loadModelFromPath, loadPresetIndex, requestSignalPathTest } from "./presets/load.js";

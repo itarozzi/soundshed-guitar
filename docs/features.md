@@ -334,6 +334,7 @@ Visual node graph editor for building and editing effect chains.
 - Rename, delete, duplicate presets.
 - Folder tree navigation; create, rename, delete folders; move presets between folders.
 - Setlist panel: create/rename/delete setlists, drag-drop slot reordering, assign bank number.
+- Drag a preset — a library row, or the loaded preset's name in the toolbar — onto a folder to file it, onto the setlist panel to add a slot, or onto a pad of the setlist pads view to assign that pad (`presets/drag.ts`, `setlistPadDrop.ts`).
 - Mark presets as favorites; star ratings (stored in settings).
 - Export individual presets or full folder exports (with optional embedded resources).
 - Import presets from file (auto-extracts embedded resources).

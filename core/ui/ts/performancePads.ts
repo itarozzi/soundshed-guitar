@@ -302,13 +302,13 @@ function selectSetlistSlot(index: number): void {
   renderPerformancePads();
 }
 
-async function assignSetlistSlot(index: number): Promise<void> {
+/** Assign a preset to a pad of the active setlist, asking first when it would replace a different one. */
+export async function assignSetlistSlot(index: number, presetId: string): Promise<void> {
   const setlist = getActiveSetlist();
   if (!setlist) {
     showNotification("No setlist selected", "Create or select a setlist first.");
     return;
   }
-  const presetId = uiState.activePresetId?.trim() ?? "";
   if (!presetId) {
     showNotification("No preset selected", "Choose a preset in the main preset chooser first.");
     return;
@@ -553,7 +553,7 @@ function renderSetlistMode(): string {
     const active = padIndex === activeCursor;
     const disabled = !slot?.presetId;
     return `
-      <div class="performance-setlist-pad-wrap">
+      <div class="performance-setlist-pad-wrap" data-slot-index="${padIndex}">
         <button
           class="performance-pad performance-setlist-pad${active ? " is-active" : ""}${disabled ? " is-empty" : ""}"
           type="button"
@@ -879,7 +879,7 @@ function handleAssignPointerDown(event: PointerEvent): void {
 
   longPressTimer = setTimeout(() => {
     longPressTimer = null;
-    void assignSetlistSlot(slotIndex);
+    void assignSetlistSlot(slotIndex, uiState.activePresetId?.trim() ?? "");
   }, LONG_PRESS_MS);
 }
 

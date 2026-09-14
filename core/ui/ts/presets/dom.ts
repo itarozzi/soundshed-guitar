@@ -49,6 +49,12 @@ export const presetLibraryPresetsTab = document.getElementById("preset-lib-tab-p
 
 export const presetLibraryMultiRigPanel = document.getElementById("preset-library-multi-rig-panel") as HTMLElement | null;
 
+/** The library's preset rows; rendered by views.ts, re-rendered on every filter. */
+export const presetListElement = document.getElementById("preset-list");
+
+/** The library's folder tree, rendered alongside the rows. */
+export const presetFolderTreeElement = document.getElementById("preset-folder-tree");
+
 export const presetFolderNameInput = document.getElementById("preset-folder-name") as HTMLInputElement | null;
 
 export const presetFolderAddButton = document.getElementById("preset-folder-add") as HTMLButtonElement | null;

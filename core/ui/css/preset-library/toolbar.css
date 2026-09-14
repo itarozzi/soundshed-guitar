@@ -328,6 +328,11 @@
   background: transparent;
 }
 
+/* The loaded preset's name can be dragged onto a folder or a setlist pad (ts/presets/drag.ts). */
+.preset-chooser-label.dragging {
+  opacity: 0.6;
+}
+
 .preset-favorite {
   width: 32px;
   height: 100%;

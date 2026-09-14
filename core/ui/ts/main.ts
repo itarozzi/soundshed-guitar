@@ -42,6 +42,7 @@ import { hideSplashScreen, initSplashScreen } from "./splash.js";
 import { FEATURE_FLAGS_CHANGED_EVENT } from "./featureFlags.js";
 import { initAlpineStores, startAlpine } from "./alpine.js";
 import { initializePerformancePads } from "./performancePads.js";
+import { initializeSetlistPadPresetDrop } from "./setlistPadDrop.js";
 const eqModal = document.getElementById("eq-modal");
 const eqModalCloseBtn = document.getElementById("eq-modal-close");
 
@@ -287,6 +288,7 @@ async function bootstrap(): Promise<void> {
   initFooterActionsPopup();
   initializePlayFooterPadsToggle();
   initializePerformancePads();
+  initializeSetlistPadPresetDrop();
   // Signal-chain undo/redo + A/B. Bound after the footer exists and before the
   // first preset lands, so the initial chain seeds the stacks.
   initSignalChainHistory();

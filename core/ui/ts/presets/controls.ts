@@ -11,13 +11,14 @@ import { toggleFavoritePreset } from "../presets/favorites.js";
 import { PRESET_FOLDER_ALL_ID } from "../presets/folderArchive.js";
 import { isVirtualPresetFolderId } from "../presets/folders.js";
 import { uiState } from "../state.js";
-import { nextPresetBtn, presetExportFolderButton, presetExtraActionsBtn, presetExtraActionsMenu, presetFolderAddButton, presetFolderDeleteButton, presetFolderNameInput, presetFolderRenameButton, presetLibraryCloseButton, presetLibraryPopover, presetRedoBtn, presetSelector, presetUndoBtn, prevPresetBtn, randomPresetBtn, setlistAddButton, setlistBankInput, setlistCollapsible, setlistNameInput, setlistSlotsElement, setlistToggle } from "./dom.js";
+import { nextPresetBtn, presetExportFolderButton, presetExtraActionsBtn, presetExtraActionsMenu, presetFolderAddButton, presetFolderDeleteButton, presetFolderNameInput, presetFolderRenameButton, presetLibraryCloseButton, presetLibraryPopover, presetRedoBtn, presetSelector, presetUndoBtn, prevPresetBtn, randomPresetBtn, setlistAddButton, setlistBankInput, setlistCollapsible, setlistNameInput, setlistToggle } from "./dom.js";
+import { initializePresetDrag } from "./drag.js";
 import { createFolder, deleteFolderById, getCurrentRealPresetFolder, renameFolder, syncPresetFolderToolbarState } from "./folderControls.js";
 import { stepPresetHistory } from "./history.js";
 import { filterPresets, updatePresetDropdownSelection } from "./library.js";
 import { applyPresetFromLibrary } from "./load.js";
 import { closePresetExtraActionsMenu, closePresetLibraryPopover, syncPresetLibraryFeatureVisibility, togglePresetLibraryPopover } from "./popover.js";
-import { addPresetToSetlist, createSetlist, renderSetlistPanel, setSetlistExpanded } from "./setlists.js";
+import { createSetlist, renderSetlistPanel, setSetlistExpanded } from "./setlists.js";
 
 export function getActivePresetIndex(): number {
   if (!uiState.activePresetId) return -1;
@@ -59,9 +60,6 @@ export async function selectNextPreset(): Promise<void> {
 }
 
 export function initializePresetControls(): void {
-  // Bound to a local so the null check narrows inside the closures below; a
-  // narrowing on an imported binding does not survive into a closure.
-  const slotsElement = setlistSlotsElement;
   syncPresetLibraryFeatureVisibility();
 
   if (presetSelector) {
@@ -196,24 +194,8 @@ export function initializePresetControls(): void {
     });
   }
 
-  if (slotsElement) {
-    slotsElement.addEventListener("dragover", (event) => {
-      event.preventDefault();
-      slotsElement.classList.add("drag-over");
-    });
-    slotsElement.addEventListener("dragleave", () => {
-      slotsElement.classList.remove("drag-over");
-    });
-    slotsElement.addEventListener("drop", (event) => {
-      event.preventDefault();
-      slotsElement.classList.remove("drag-over");
-      const presetId = event.dataTransfer?.getData("text/plain") ?? "";
-      if (presetId) {
-        addPresetToSetlist(presetId);
-        setSetlistExpanded(true);
-      }
-    });
-  }
+  // Presets dragged onto folders, the setlist panel and setlist pads.
+  initializePresetDrag();
 
   if (presetFolderAddButton) {
     presetFolderAddButton.addEventListener("click", () => {

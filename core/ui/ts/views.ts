@@ -282,7 +282,6 @@ export function renderPresetList(
     folders: PresetFolder[];
     activeFolderId: string | null;
     onSelectFolder: (folderId: string) => void;
-    onMovePresetToFolder: (presetId: string, folderId: string) => void;
     onMoveFolder: (folderId: string, targetParentId: string) => void;
     getRating: (presetId: string) => number | null;
     onRate: (presetId: string, rating: number | null) => void;
@@ -302,7 +301,7 @@ export function renderPresetList(
   }
 
   if (presetFolderTreeElement && options) {
-    const { folders, activeFolderId, onSelectFolder, onMovePresetToFolder, onMoveFolder, recentsCount, recentsActive, onSelectRecents, favoritesCount, favoritesActive, onSelectFavorites } = options;
+    const { folders, activeFolderId, onSelectFolder, onMoveFolder, recentsCount, recentsActive, onSelectRecents, favoritesCount, favoritesActive, onSelectFavorites } = options;
     const activeId = activeFolderId ?? PRESET_FOLDER_ALL_ID;
     const allPresetCount = uiState.presets.length;
 
@@ -369,11 +368,11 @@ export function renderPresetList(
         event.dataTransfer?.setDragImage(item, 20, 20);
       });
 
+      // A preset lands here by pointer (presets/drag.ts); the only native drag is a folder's own.
       item.addEventListener("drop", (event) => {
         event.preventDefault();
         item.classList.remove("drag-over");
         const folderDragId = event.dataTransfer?.getData("application/x-preset-folder") ?? "";
-        const presetId = event.dataTransfer?.getData("text/plain") ?? "";
         const folderId = item.dataset.folderId ?? PRESET_FOLDER_ALL_ID;
         if (folderDragId) {
           if (folderId === PRESET_FOLDER_RECENTS_ID || folderId === PRESET_FOLDER_FAVORITES_ID) {
@@ -387,10 +386,6 @@ export function renderPresetList(
             ? PRESET_FOLDER_ALL_ID
             : (isIndentDrop ? parentId : folderId);
           onMoveFolder(folderDragId, targetParentId);
-          return;
-        }
-        if (presetId) {
-          onMovePresetToFolder(presetId, folderId);
         }
       });
     });
@@ -452,7 +447,7 @@ export function renderPresetList(
         const isLoadingPreset = preset.id === uiState.presetLoadingId;
 
         return `
-        <article class="preset-item ${preset.id === activePresetId ? "active" : ""}${isLoadingPreset ? " loading" : ""}" data-id="${preset.id}" draggable="true">
+        <article class="preset-item ${preset.id === activePresetId ? "active" : ""}${isLoadingPreset ? " loading" : ""}" data-id="${preset.id}">
           <header>
             <h3>${escapeHtml(preset.name)}</h3>
             ${addToMixerBtn}
@@ -527,14 +522,6 @@ export function renderPresetList(
         }
       });
     }
-
-    element.addEventListener("dragstart", (event) => {
-      const presetId = element.getAttribute("data-id") ?? "";
-      if (presetId) {
-        event.dataTransfer?.setData("text/plain", presetId);
-        event.dataTransfer?.setDragImage(element, 20, 20);
-      }
-    });
   });
 
   presetListElement.querySelectorAll<HTMLButtonElement>(".preset-rating-star").forEach((button) => {

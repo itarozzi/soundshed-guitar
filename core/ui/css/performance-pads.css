@@ -391,8 +391,16 @@
   width: 100%;
 }
 
-.performance-setlist-pad-wrap.is-assigning .performance-pad {
+/* While a preset is being dragged (ts/presets/drag.ts), outline the pads it can
+   land on, and ring the one it is over. */
+body.preset-dragging .performance-setlist-pad {
+  outline: 2px dashed color-mix(in srgb, var(--color-accent) 45%, transparent);
+  outline-offset: -2px;
+}
+
+.performance-setlist-pad-wrap.drag-over .performance-pad {
   border-color: var(--color-accent);
+  outline-color: var(--color-accent);
   box-shadow: var(--shadow-lg), 0 0 0 3px color-mix(in srgb, var(--color-accent) 42%, transparent);
 }
 

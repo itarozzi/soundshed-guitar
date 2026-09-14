@@ -378,6 +378,57 @@
   background: var(--overlay-light);
 }
 
+/* ── Dragging a preset (ts/presets/drag.ts) ── */
+
+.preset-list .preset-item.dragging {
+  opacity: 0.5;
+}
+
+/* The preview is a clone of the dragged row or toolbar label, appended to <body>
+   and cut down to the preset's name. Scoped through the drag's body class so it
+   outranks the theme rules the label's clone still matches. */
+body.preset-dragging > .preset-drag-preview {
+  position: fixed;
+  z-index: 1000;
+  box-sizing: border-box;
+  width: auto !important; /* pointerDrag.ts sizes the clone to its source, inline */
+  max-width: 280px;
+  margin: 0;
+  padding: 6px 12px;
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-pill);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+
+body.preset-dragging > .preset-drag-preview > :not(header),
+body.preset-dragging > .preset-drag-preview .preset-add-to-mixer-btn {
+  display: none;
+}
+
+body.preset-dragging > .preset-drag-preview h3 {
+  margin: 0;
+  font: inherit;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Once a drag has left the popover it steps aside, so what it covers — the
+   setlist pads — can take the drop. */
+body.preset-dragging .preset-library-popover.drag-released {
+  opacity: 0.2;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+
 .setlist-hint {
   margin-top: 8px;
   font-size: 11px;
@@ -433,6 +484,8 @@
   margin-bottom: 8px;
 
   cursor: pointer;
+  /* A row is a drag source (ts/presets/drag.ts): a press that moves drags it rather than selecting text. */
+  user-select: none;
   transition: transform 0.2s ease, border-color 0.2s ease;
 }
 
