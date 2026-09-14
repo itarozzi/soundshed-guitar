@@ -54,6 +54,7 @@ Web-based SPA in a native WebView container.
 - Bidirectional JSON message protocol with the plugin
 - Event-based state synchronization
 - Platform-specific WebView: WebView2 (Windows), WKWebView (macOS)
+- On Windows the WebView2 profile (cache, storage) is one stable folder, `%LOCALAPPDATA%\Soundshed Guitar\WebView2`. A launch with `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` set gets a sibling folder keyed on those arguments, because WebView2 will not share one profile between processes with different browser arguments (`juce/source/WebView2UserData.h`).
 
 ## Design Principles
 

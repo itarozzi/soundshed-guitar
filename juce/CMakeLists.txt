@@ -722,6 +722,33 @@ if(WIN32)
         TIMEOUT 900
     )
 
+    # The WebView2 profile folder helpers (source/WebView2UserData.h): plain juce::File
+    # work with no plugin or DSP dependency, so it runs on any machine.
+    add_executable(WebView2UserDataTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/WebView2UserDataTests.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/source/WebView2UserData.h"
+    )
+
+    target_include_directories(WebView2UserDataTests
+        PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/source"
+    )
+
+    target_link_libraries(WebView2UserDataTests
+        PRIVATE
+            juce_core
+            juce::juce_recommended_config_flags
+            juce::juce_recommended_warning_flags
+    )
+
+    set_target_properties(WebView2UserDataTests PROPERTIES
+        CXX_STANDARD 20
+        CXX_STANDARD_REQUIRED ON
+        FOLDER "GuitarFX/Tests"
+    )
+
+    add_test(NAME WebView2UserDataTests COMMAND WebView2UserDataTests)
+
     # Offline renderer that automates external plugins' transpose parameter for
     # the transpose benchmark (see tools/transpose-benchmark/). Not a ctest.
     add_executable(TransposeExternalRender

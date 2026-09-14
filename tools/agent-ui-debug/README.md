@@ -24,7 +24,10 @@ See `docs/agent-quickstart.md` → "Live UI testing" for when to reach for this.
      "juce/builds/SoundshedGuitar_artefacts/Release/Standalone/Soundshed Guitar.exe" &
    ```
    Run this in the background (e.g. the Bash tool's `run_in_background`) —
-   it's a GUI app that stays open.
+   it's a GUI app that stays open. A launch with this variable set uses its own
+   WebView2 profile folder (`%LOCALAPPDATA%\Soundshed Guitar\WebView2-<hash>`),
+   so it runs alongside a normally launched instance: WebView2 refuses to share
+   one profile between processes whose browser arguments differ.
 
 3. **Get the page's websocket URL:**
    ```bash

@@ -3,12 +3,14 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <mutex>
 #include <unordered_map>
 #include <vector>
 
 #include <nlohmann/json.hpp>
 
 #include "UiBridge.h"
+#include "WebView2UserData.h"
 
 namespace
 {
@@ -315,6 +317,44 @@ namespace
 #endif
     }
 
+    // The WebView2 profile: one stable per-user folder, shared by the support probe
+    // and the editor itself (WebView2UserData.h says why it is keyed on the runtime's
+    // extra browser arguments). Empty elsewhere, where the option is ignored anyway.
+    juce::File webView2UserDataFolder()
+    {
+#if JUCE_WINDOWS
+        const auto folder = guitarfx::webview2::resolveUserDataFolder (
+            juce::File::getSpecialLocation (juce::File::windowsLocalAppData),
+            juce::SystemStats::getEnvironmentVariable ("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", {}));
+        folder.createDirectory();
+        return folder;
+#else
+        return {};
+#endif
+    }
+
+#if JUCE_WINDOWS
+    // Builds before September 2026 left one profile per launch under %TEMP%. Once per
+    // process, off the message thread; a profile another process still holds is left
+    // for a later pass (sweepLegacyProfileFolders).
+    void sweepLegacyWebView2ProfilesOnce()
+    {
+        static std::once_flag once;
+
+        std::call_once (once, [] {
+            juce::Thread::launch ([] {
+                const auto swept = guitarfx::webview2::sweepLegacyProfileFolders (
+                    juce::File::getSpecialLocation (juce::File::tempDirectory));
+
+                if (swept.removed > 0 || swept.skipped > 0)
+                    writeStartupLog ("[PluginEditor] Legacy WebView2 profiles: removed "
+                                     + juce::String (swept.removed) + ", still in use "
+                                     + juce::String (swept.skipped));
+            });
+        });
+    }
+#endif
+
 #if JUCE_LINUX
     bool hasNonEmptyEnvironmentVariable (const char* name)
     {
@@ -397,10 +437,7 @@ PluginEditor::PluginEditor (PluginProcessorAdapter& p)
           auto options = juce::WebBrowserComponent::Options {}
                              .withBackend (getPreferredBrowserBackend())
                              .withWinWebView2Options (juce::WebBrowserComponent::Options::WinWebView2 {}
-                                     .withUserDataFolder (
-                                         juce::File::getSpecialLocation (juce::File::tempDirectory)
-                                             .getChildFile ("SoundshedGuitarWebView2")
-                                             .getChildFile (juce::String (juce::Time::getCurrentTime().toMilliseconds()))))
+                                     .withUserDataFolder (webView2UserDataFolder()))
                              .withUserScript (
                                  "window.IPlugSendMsg = function(payload) {"
                                  "  try {"
@@ -498,16 +535,17 @@ PluginEditor::PluginEditor (PluginProcessorAdapter& p)
 #if JUCE_WINDOWS
     // NOTE: areOptionsSupported must be called with a writable user data folder.
     // When installed under Program Files the default folder (next to the .exe) is
-    // read-only for standard users, causing the check to falsely return false.
+    // read-only for standard users, causing the check to falsely return false. It
+    // probes the editor's own profile folder, so the view below joins the browser
+    // process the probe started instead of opening a second profile.
     const auto webView2Supported = juce::WebBrowserComponent::areOptionsSupported (
         juce::WebBrowserComponent::Options {}
             .withBackend (getPreferredBrowserBackend())
             .withWinWebView2Options (juce::WebBrowserComponent::Options::WinWebView2 {}
-                    .withUserDataFolder (
-                        juce::File::getSpecialLocation (juce::File::tempDirectory)
-                            .getChildFile ("SoundshedGuitarWebView2Check"))));
+                    .withUserDataFolder (webView2UserDataFolder())));
 
     writeStartupLog ("[PluginEditor] WebView2 supported: " + juce::String (webView2Supported ? "YES" : "NO"));
+    sweepLegacyWebView2ProfilesOnce();
 
     if (!webView2Supported)
     {
