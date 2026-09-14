@@ -26,6 +26,15 @@
  * SSG_VALIDATOR_TOOLS_DIR environment variable). pluginval's logs land in
  * juce/builds/validation/ so CI can upload them when a run fails.
  *
+ * Each run gives the plugin a fresh, empty data root (juce/builds/validation-profile/):
+ * the document store, presets and settings the core resolves from APPDATA on Windows
+ * and HOME elsewhere (core/src/util/FileSystem.cpp). A local run so starts from what a
+ * first-time user and a CI runner see, and cannot change the developer's own presets.
+ * It is not a full sandbox. A few paths come from the OS rather than the environment
+ * and still point at the real per-user folders: the factory preset and click-sound
+ * lookups (read only), the editor's startup log, and the WebView2 cache. The macOS AU
+ * keeps the real profile outright; see validationEnv.
+ *
  * Exit status is 1 if any validated format fails.
  */
 
@@ -68,11 +77,12 @@ const TOOLS = {
       sha256: "d935c3af0a45c3911ea2e900f4aa5d6709dac82bb485f0c4ce28648ab2cd0c10",
       bin: "clap-validator.exe",
     },
-    // The macOS and Linux zips wrap a .tar.gz that holds the actual binary.
+    // The macOS and Linux zips wrap a .tar.gz that holds the actual binary: under binaries/
+    // in the macOS tarball, at the root of the Linux one.
     darwin: {
       url: "https://github.com/free-audio/clap-validator/releases/download/0.4.1/clap-validator-0.4.1-127-g152b982-macos-universal.zip",
       sha256: "bbec8cd7d18274e549d5d8c12ece3cec54be966129388dd2e742b9957f2ba9f1",
-      bin: "clap-validator",
+      bin: "binaries/clap-validator",
       innerTarball: true,
     },
     linux: {
@@ -100,6 +110,8 @@ function parseArgs(argv) {
     artefacts: null,
     toolsDir: process.env.SSG_VALIDATOR_TOOLS_DIR || path.join(REPO_ROOT, "juce", "builds", "tools"),
     logsDir: path.join(REPO_ROOT, "juce", "builds", "validation"),
+    // Outside logsDir: CI uploads logsDir on failure, and a profile is not a log.
+    profileDir: path.join(REPO_ROOT, "juce", "builds", "validation-profile"),
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -258,7 +270,7 @@ function validateWithPluginval(format, target, args) {
   ];
   if (args.skipGuiTests) pvArgs.push("--skip-gui-tests");
   pvArgs.push("--validate", target);
-  return run(pluginval, pvArgs) === 0 ? "PASS" : "FAIL";
+  return run(pluginval, pvArgs, { env: validationEnv(args, format) }) === 0 ? "PASS" : "FAIL";
 }
 
 function validateVst3(product, args) {
@@ -290,7 +302,7 @@ function validateClap(product, args) {
   if (!existsSync(target)) return missing("CLAP", target, args);
   const validator = ensureTool("clap-validator", args.toolsDir);
   banner(`clap-validator: CLAP (${args.config})`);
-  return run(validator, ["validate", target]) === 0 ? "PASS" : "FAIL";
+  return run(validator, ["validate", target], { env: validationEnv(args, "CLAP") }) === 0 ? "PASS" : "FAIL";
 }
 
 function validateLv2(product, args) {
@@ -301,7 +313,7 @@ function validateLv2(product, args) {
   banner(`lv2lint: LV2 (${args.config})`);
   // lv2lint takes the plugin URI and finds the bundle through LV2_PATH.
   const uri = readLv2Uri();
-  const env = { ...process.env, LV2_PATH: path.dirname(target) };
+  const env = { ...validationEnv(args, "LV2"), LV2_PATH: path.dirname(target) };
   return run(lv2lint, ["-s", "lv2_generate_ttl", uri], { env }) === 0 ? "PASS" : "FAIL";
 }
 
@@ -314,6 +326,22 @@ function readLv2Uri() {
     // fall through
   }
   return "urn:soundshed:guitar";
+}
+
+// The environment a validator (and so the plugin it loads) runs with: the user-profile
+// variable the core derives its data root from points at this run's empty profile.
+function validationEnv(args, format) {
+  // auval finds the AU through the per-user component registry. That lookup has not
+  // been tried with a redirected HOME, so the AU keeps the real one.
+  if (PLATFORM === "darwin" && format === "AU") return process.env;
+  const key = PLATFORM === "win32" ? "APPDATA" : "HOME";
+  return { ...process.env, [key]: args.profileDir };
+}
+
+function resetValidationProfile(args) {
+  rmSync(args.profileDir, { recursive: true, force: true });
+  mkdirSync(args.profileDir, { recursive: true });
+  log(`plugin data root for this run: ${args.profileDir}`);
 }
 
 function skip(format, reason) {
@@ -344,6 +372,7 @@ function main() {
   for (const f of formats) if (!validators[f]) fail(`unknown format ${f}; choose from ${Object.keys(validators).join(", ")}`);
 
   log(`product "${product}", ${args.config} artefacts at ${args.artefacts}`);
+  resetValidationProfile(args);
   const results = {};
   for (const f of formats) results[f] = validators[f](product, args);
 

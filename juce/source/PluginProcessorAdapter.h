@@ -12,6 +12,7 @@
 #include "IPluginHost.h"
 #include "PluginController.h"
 
+#include <atomic>
 #include <filesystem>
 #include <functional>
 #include <memory>
@@ -103,6 +104,7 @@ public:
 private:
     [[nodiscard]] std::filesystem::path locateAssetsRoot() const;
     void ensureStandaloneProtocolHandlerRegistration();
+    void applyPendingDAWParamChanges();
 
     // ── State ──────────────────────────────────────────────────────
     guitarfx::PluginController mController;
@@ -114,10 +116,14 @@ private:
     std::unique_ptr<juce::FileChooser> mFileChooser;
     bool mStandaloneProtocolRegistrationAttempted = false;
 
-    // Pending DAW parameter changes, drained in processBlock under the DSP lock.
-    // Each entry: (slotId, normalized 0..1).
+    // Pending DAW parameter changes, drained under the DSP lock by processBlock, or by
+    // releaseResources for a block that is not coming. Each entry: (slotId, normalized 0..1).
     std::mutex mPendingDAWParamMutex;
     std::vector<std::pair<std::string, float>> mPendingDAWParamChanges;
+
+    // True from prepareToPlay to releaseResources. Only then does anything drain the
+    // queue above, so only then does AutomationSlotParameter::setValue use it.
+    std::atomic<bool> mAudioActive { false };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PluginProcessorAdapter)
 };

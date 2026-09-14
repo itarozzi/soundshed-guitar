@@ -8,6 +8,7 @@
  * runtime resampling around the core model.
  */
 
+#include "dsp/BiquadFrequency.h"
 #include "dsp/EffectProcessor.h"
 #include "dsp/LevelTargets.h"
 #include "dsp/EffectRegistry.h"
@@ -68,7 +69,7 @@ struct AmpToneBiquad
     {
         static constexpr double kPi = 3.14159265358979323846;
         const double A = std::pow(10.0, gainDb / 40.0);
-        const double w0 = 2.0 * kPi * freqHz / sampleRate;
+        const double w0 = 2.0 * kPi * ClampBiquadFrequency(freqHz, sampleRate) / sampleRate;
         const double cosw = std::cos(w0);
         const double sinw = std::sin(w0);
         const double sqA = std::sqrt(A);
@@ -87,7 +88,7 @@ struct AmpToneBiquad
     {
         static constexpr double kPi = 3.14159265358979323846;
         const double A = std::pow(10.0, gainDb / 40.0);
-        const double w0 = 2.0 * kPi * freqHz / sampleRate;
+        const double w0 = 2.0 * kPi * ClampBiquadFrequency(freqHz, sampleRate) / sampleRate;
         const double cosw = std::cos(w0);
         const double sinw = std::sin(w0);
         const double sqA = std::sqrt(A);
@@ -105,7 +106,7 @@ struct AmpToneBiquad
     {
         static constexpr double kPi = 3.14159265358979323846;
         const double A = std::pow(10.0, gainDb / 40.0);
-        const double w0 = 2.0 * kPi * freqHz / sampleRate;
+        const double w0 = 2.0 * kPi * ClampBiquadFrequency(freqHz, sampleRate) / sampleRate;
         const double cosw = std::cos(w0);
         const double alpha = std::sin(w0) / (2.0 * Q);
         const double a0 = 1.0 + alpha / A;
@@ -120,7 +121,7 @@ struct AmpToneBiquad
     void SetHighPass(double freqHz, double Q, double sampleRate)
     {
         static constexpr double kPi = 3.14159265358979323846;
-        const double w0 = 2.0 * kPi * freqHz / sampleRate;
+        const double w0 = 2.0 * kPi * ClampBiquadFrequency(freqHz, sampleRate) / sampleRate;
         const double cosw = std::cos(w0);
         const double sinw = std::sin(w0);
         const double alpha = sinw / (2.0 * Q);
@@ -134,6 +135,15 @@ struct AmpToneBiquad
 };
 
 inline bool gEnableNamPostDcBlocker = true;
+// Tone stack frequencies (UpdateToneStack). BiquadNyquistTests designs the same filters from
+// these, so the test follows any change here.
+static constexpr double kAmpToneBassHz = 100.0;
+static constexpr double kAmpToneMidHz = 500.0;
+static constexpr double kAmpToneMidQ = 1.0;
+static constexpr double kAmpToneTrebleHz = 3200.0;
+static constexpr double kAmpTonePresenceHz = 6300.0;
+static constexpr double kAmpTonePresenceQ = 1.5;
+
 static constexpr double kNamPostDcBlockerFrequencyHz = 5.0;
 static constexpr double kNamPostDcBlockerQ = 0.7071067811865476;
 
@@ -856,10 +866,10 @@ class OptimizedNAMAmpEffect : public EffectProcessor
 
         for (int ch = 0; ch < 2; ++ch)
         {
-            mBassFilter[ch].SetLowShelf(100.0, mBassDb, mSampleRate);
-            mMidFilter[ch].SetPeaking(500.0, mMidDb, 1.0, mSampleRate);
-            mTrebleFilter[ch].SetHighShelf(3200.0, mTrebleDb, mSampleRate);
-            mPresenceFilter[ch].SetPeaking(6300.0, mPresenceDb, 1.5, mSampleRate);
+            mBassFilter[ch].SetLowShelf(kAmpToneBassHz, mBassDb, mSampleRate);
+            mMidFilter[ch].SetPeaking(kAmpToneMidHz, mMidDb, kAmpToneMidQ, mSampleRate);
+            mTrebleFilter[ch].SetHighShelf(kAmpToneTrebleHz, mTrebleDb, mSampleRate);
+            mPresenceFilter[ch].SetPeaking(kAmpTonePresenceHz, mPresenceDb, kAmpTonePresenceQ, mSampleRate);
         }
     }
 

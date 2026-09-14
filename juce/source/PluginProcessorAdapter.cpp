@@ -162,7 +162,21 @@ public:
 
     void setValue(float newValue) override
     {
-        // Queue the change for draining in processBlock (audio thread, under DSP lock).
+        // While audio runs, the change waits for processBlock, which applies it under the
+        // DSP lock ahead of the block it belongs to.
+        //
+        // Nothing drains that queue before the first prepareToPlay or after
+        // releaseResources, so a value set then would never reach the chain, and
+        // getValue() would go on reporting the old one. Hosts do set values then: a CLAP
+        // host flushes parameter changes into a plugin it has not activated, which is
+        // what clap-validator's param-set tests check. With no audio thread to race,
+        // apply it now.
+        if (!mOwner.mAudioActive.load (std::memory_order_acquire))
+        {
+            mOwner.mController.ApplyAutomationFromDAW (mParamID.toStdString(), newValue);
+            return;
+        }
+
         std::lock_guard<std::mutex> lock(mOwner.mPendingDAWParamMutex);
         mOwner.mPendingDAWParamChanges.emplace_back(mParamID.toStdString(), newValue);
     }
@@ -248,11 +262,35 @@ PluginProcessorAdapter::~PluginProcessorAdapter() = default;
 void PluginProcessorAdapter::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     mController.Prepare (sampleRate, samplesPerBlock);
+    mAudioActive.store (true, std::memory_order_release);
 }
 
 void PluginProcessorAdapter::releaseResources()
 {
+    // Anything still queued was waiting for a block that is not coming. Apply it now,
+    // or it would sit unapplied until the next prepare while getValue() reports stale
+    // values. The flag goes first so a setValue racing this applies directly.
+    mAudioActive.store (false, std::memory_order_release);
+    applyPendingDAWParamChanges();
     mController.Reset();
+}
+
+void PluginProcessorAdapter::applyPendingDAWParamChanges()
+{
+    std::vector<std::pair<std::string, float>> changes;
+    {
+        std::lock_guard<std::mutex> lock (mPendingDAWParamMutex);
+
+        // Swapping an empty queue would hand its capacity to this local and free it on
+        // the audio thread every block.
+        if (mPendingDAWParamChanges.empty())
+            return;
+
+        changes.swap (mPendingDAWParamChanges);
+    }
+
+    for (const auto& [slotId, value] : changes)
+        mController.ApplyAutomationFromDAW (slotId, value);
 }
 
 bool PluginProcessorAdapter::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -307,21 +345,7 @@ void PluginProcessorAdapter::processBlock (juce::AudioBuffer<float>& buffer,
     mController.ProcessQueuedMidi();
 
     // Drain pending DAW parameter changes (collected by AutomationSlotParameter::setValue)
-    {
-        std::vector<std::pair<std::string, float>> changes;
-        {
-            std::lock_guard<std::mutex> lock(mPendingDAWParamMutex);
-            if (!mPendingDAWParamChanges.empty())
-            {
-                changes.swap(mPendingDAWParamChanges);
-            }
-        }
-        if (!changes.empty())
-        {
-            for (const auto& [slotId, value] : changes)
-                mController.ApplyAutomationFromDAW(slotId, value);
-        }
-    }
+    applyPendingDAWParamChanges();
 
     // Set up float** for the core ProcessAudio
     float* inputs[2] = {
@@ -473,6 +497,12 @@ void PluginProcessorAdapter::setStateInformation (const void* data, int sizeInBy
         return;
 
     mController.DeserializeState (controllerState);
+
+    // The automation parameters' values are part of that state, so a restore changes what
+    // they report. Ask the host to read them again: JUCE turns a program change into CLAP's
+    // values rescan and VST3's kParamValuesChanged. Values that change on load without that
+    // request are a bug to hosts, and a failure in clap-validator's state tests.
+    updateHostDisplay (juce::AudioProcessor::ChangeDetails().withProgramChanged (true));
 }
 
 void PluginProcessorAdapter::setNonRealtime (bool isNonRealtime) noexcept

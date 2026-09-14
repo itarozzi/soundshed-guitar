@@ -168,6 +168,7 @@ std::string PluginController::SerializeState() const
     state["mixer"] = std::move(mixer);
 
     state["automation"] = mAutomationSlots.SaveToJson();
+    state["automationValues"] = mAutomationSlots.SaveValuesToJson();
 
     return state.dump();
 }
@@ -465,6 +466,13 @@ void PluginController::DeserializeState(const std::string& json)
         if (state.contains("automation") && state["automation"].is_object())
         {
             mAutomationSlots.LoadFromJson(state["automation"]);
+        }
+
+        // After LoadFromJson, which can rebuild the custom slots these values belong to.
+        // States written before values were saved have no key, and leave values alone.
+        if (state.contains("automationValues") && state["automationValues"].is_object())
+        {
+            mAutomationSlots.LoadValuesFromJson(state["automationValues"]);
         }
     }
     catch (const std::exception&)

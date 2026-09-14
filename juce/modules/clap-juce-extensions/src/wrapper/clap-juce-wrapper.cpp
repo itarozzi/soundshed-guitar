@@ -27,6 +27,10 @@
 #include <juce_audio_processors/format_types/juce_LegacyAudioParameter.cpp>
 #endif
 
+#if JUCE_WINDOWS && JUCE_VERSION >= 0x070006
+#include <juce_gui_basics/native/juce_WindowsHooks_windows.h>
+#endif
+
 #if JUCE_VERSION >= 0x070006
 #include <juce_audio_plugin_client/detail/juce_IncludeSystemHeaders.h>
 #include <juce_audio_plugin_client/detail/juce_PluginUtilities.h>
@@ -410,6 +414,7 @@ class ClapJuceWrapper : public clap::helpers::Plugin<
         nullptr};
 
     bool usingLegacyParameterAPI{false};
+    std::atomic<bool> callLatencyChangeOnNextActivate{false};
 
     ClapJuceWrapper(const clap_host *host, juce::AudioProcessor *p)
         : clap::helpers::Plugin<clap::helpers::MisbehaviourHandler::CLAP_MISBEHAVIOUR_HANDLER_LEVEL,
@@ -451,6 +456,17 @@ class ClapJuceWrapper : public clap::helpers::Plugin<
                         _host.remoteControlsChanged();
                 });
             };
+
+            processorAsClapExtensions->voiceInfoChangedSignal = [this]() {
+                runOnMainThread([this] {
+                    if (isBeingDestroyed())
+                        return;
+
+                    if (_host.canUseVoiceInfo())
+                        _host.voiceInfoChanged();
+                });
+            };
+
             processorAsClapExtensions->suggestRemoteControlsPageSignal = [this](uint32_t pageID) {
                 runOnMainThread([this, pageID] {
                     if (isBeingDestroyed())
@@ -575,7 +591,7 @@ class ClapJuceWrapper : public clap::helpers::Plugin<
         {
             for (auto &fd : registeredFDs)
             {
-                _host.posixFdSupportRegister(fd, CLAP_POSIX_FD_READ | CLAP_POSIX_FD_WRITE | CLAP_POSIX_FD_ERROR);
+                _host.posixFdSupportRegister(fd, CLAP_POSIX_FD_READ);
             }
         }
     }
@@ -622,7 +638,10 @@ class ClapJuceWrapper : public clap::helpers::Plugin<
                     return;
 
                 if (_host.canUseLatency())
-                    _host.latencyChanged();
+                {
+                    callLatencyChangeOnNextActivate = true;
+                    _host.requestRestart();
+                }
             });
         }
         if (details.programChanged)
@@ -818,7 +837,10 @@ class ClapJuceWrapper : public clap::helpers::Plugin<
             {
                 info.timeInSeconds =
                     1.0 * (double)transportInfo->song_pos_seconds / CLAP_SECTIME_FACTOR;
-                info.timeInSamples = (int64_t)(info.timeInSeconds * sampleRate());
+                // Round rather than truncate: song_pos_seconds is fixed point, so
+                // seconds * sampleRate lands a hair under the true sample on about
+                // half of all blocks and truncation reports them one sample early.
+                info.timeInSamples = (int64_t)std::llround(info.timeInSeconds * sampleRate());
             }
             info.isPlaying = flags & CLAP_TRANSPORT_IS_PLAYING;
             info.isRecording = flags & CLAP_TRANSPORT_IS_RECORDING;
@@ -861,7 +883,10 @@ class ClapJuceWrapper : public clap::helpers::Plugin<
                 auto timeInSeconds =
                     1.0 * (double)transportInfo->song_pos_seconds / CLAP_SECTIME_FACTOR;
                 posinfo.setTimeInSeconds(timeInSeconds);
-                posinfo.setTimeInSamples((int64_t)(timeInSeconds * sampleRate()));
+                // Round rather than truncate: song_pos_seconds is fixed point, so
+                // seconds * sampleRate lands a hair under the true sample on about
+                // half of all blocks and truncation reports them one sample early.
+                posinfo.setTimeInSamples((int64_t)std::llround(timeInSeconds * sampleRate()));
             }
             posinfo.setIsPlaying(flags & CLAP_TRANSPORT_IS_PLAYING);
             posinfo.setIsRecording(flags & CLAP_TRANSPORT_IS_RECORDING);
@@ -890,6 +915,12 @@ class ClapJuceWrapper : public clap::helpers::Plugin<
                   uint32_t maxFrameCount) noexcept override
     {
         juce::ignoreUnused(minFrameCount);
+
+        if (callLatencyChangeOnNextActivate && _host.canUseLatency()) {
+            _host.latencyChanged();
+            callLatencyChangeOnNextActivate = false;
+        }
+
         processor->setRateAndBufferSizeDetails(sampleRate, (int)maxFrameCount);
         processor->prepareToPlay(sampleRate, (int)maxFrameCount);
         midiBuffer.ensureSize(2048);
@@ -908,6 +939,7 @@ class ClapJuceWrapper : public clap::helpers::Plugin<
 
     void deactivate() noexcept override
     {
+        processor->releaseResources();
         if (processorAsClapProperties)
             processorAsClapProperties->is_clap_active = false;
     }
@@ -973,7 +1005,7 @@ class ClapJuceWrapper : public clap::helpers::Plugin<
         };
 
         info->id = getPortID(isInput, index);
-        strncpy(info->name, bus->getName().toRawUTF8(), sizeof(info->name));
+        snprintf(info->name, sizeof(info->name), "%s", bus->getName().toRawUTF8());
 
         bool couldBeMain = true;
         if (isInput && processorAsClapExtensions)
@@ -1330,21 +1362,23 @@ class ClapJuceWrapper : public clap::helpers::Plugin<
                                    .getGroupsForParameter(paramVariant.processorParam)
                                    .getLast();
         juce::String group = "";
+
         while (parameterGroup && parameterGroup->getParent() &&
-               parameterGroup->getParent()->getName().isNotEmpty())
+               parameterGroup->getParent() != nullptr)
         {
-            group = parameterGroup->getName() + "/" + group;
+            if (group.isNotEmpty())
+                group = parameterGroup->getName() + "/" + group;
+            else
+                group = parameterGroup->getName();
+
             parameterGroup = parameterGroup->getParent();
         }
 
-        if (group.isNotEmpty())
-            group = "/" + group;
-
         // Fixme - using parameter groups here would be lovely but until then
         info->id = paramID;
-        strncpy(info->name, (paramVariant.processorParam->getName(CLAP_NAME_SIZE)).toRawUTF8(),
-                CLAP_NAME_SIZE);
-        strncpy(info->module, group.toRawUTF8(), CLAP_NAME_SIZE);
+        snprintf(info->name, CLAP_NAME_SIZE, "%s",
+                 (paramVariant.processorParam->getName(CLAP_NAME_SIZE)).toRawUTF8());
+        snprintf(info->module, CLAP_NAME_SIZE, "%s", group.toRawUTF8());
 
 #if CLAP_USE_JUCE_PARAMETER_RANGES != CLAP_USE_JUCE_PARAMETER_RANGES_OFF
         // For discrete parameters, JUCE uses ranges [0, N], so we'll report that
@@ -1791,7 +1825,8 @@ class ClapJuceWrapper : public clap::helpers::Plugin<
                 for (auto meta : midiBuffer)
                 {
                     auto msg = meta.getMessage();
-                    if (msg.getRawDataSize() == 3)
+                    auto msgSize = msg.getRawDataSize();
+                    if (msgSize == 2 || msgSize == 3)
                     {
                         auto evt = clap_event_midi();
                         evt.header.size = sizeof(clap_event_midi);
@@ -1800,7 +1835,10 @@ class ClapJuceWrapper : public clap::helpers::Plugin<
                         evt.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
                         evt.header.flags = 0;
                         evt.port_index = 0;
-                        memcpy(&evt.data, msg.getRawData(), 3 * sizeof(uint8_t));
+                        memcpy(&evt.data, msg.getRawData(), static_cast<size_t>(msgSize) * sizeof(uint8_t));
+                        if (msgSize == 2) {
+                          evt.data[2] = 0;
+                        }
                         ov->try_push(ov, reinterpret_cast<const clap_event_header *>(&evt));
                     }
                 }
@@ -2166,6 +2204,9 @@ class ClapJuceWrapper : public clap::helpers::Plugin<
       private:
         juce::Rectangle<int> lastBounds;
         bool resizingChild = false, resizingParent = false;
+#if JUCE_WINDOWS && JUCE_VERSION >= 0x070006
+        juce::detail::WindowsHooks hooks;
+#endif
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(EditorWrapperComponent)
     };
     std::unique_ptr<EditorWrapperComponent> editorWrapper;
@@ -2421,9 +2462,16 @@ class ClapJuceWrapper : public clap::helpers::Plugin<
 #if JUCE_VERSION < 0x070006
         juce::initialiseMacVST();
         auto hostWindow = juce::attachComponentToWindowRefVST(editorWrapper.get(), nsView, true);
-#else
+#elif JUCE_VERSION < 0x090000
         const auto desktopFlags =
             juce::detail::PluginUtilities::getDesktopFlags(editorWrapper->editor.get());
+        auto hostWindow = juce::detail::VSTWindowUtilities::attachComponentToWindowRefVST(
+            editorWrapper.get(), desktopFlags, nsView);
+#else
+        const auto desktopFlags =
+            juce::detail::PluginUtilities::getDesktopFlagsAndWindowsMultiTouchMode(
+                editorWrapper->editor.get())
+                .desktopFlags;
         auto hostWindow = juce::detail::VSTWindowUtilities::attachComponentToWindowRefVST(
             editorWrapper.get(), desktopFlags, nsView);
 #endif
@@ -2439,6 +2487,19 @@ class ClapJuceWrapper : public clap::helpers::Plugin<
         const juce::MessageManagerLock mmLock;
         editorWrapper->setVisible(false);
         editorWrapper->addToDesktop(0, (void *)window);
+#if JUCE_VERSION >= 0x090000
+        // JUCE 9 embedded peers follow the host window's DPI on their own. This
+        // wrapper scales via the editor transform and reports transform-inflated
+        // bounds, so the peer must stay 1:1 or the scale is applied twice. The
+        // override alone does not resize the native window addToDesktop just
+        // created at the native scale, and that stale size flows back into the
+        // component on the first window event — push the geometry to match.
+        if (auto *peer = editorWrapper->getPeer())
+        {
+            peer->setCustomPlatformScaleFactor(1.0);
+            peer->setBounds(editorWrapper->getBounds(), false);
+        }
+#endif
         auto *display = juce::XWindowSystem::getInstance()->getDisplay();
         juce::X11Symbols::getInstance()->xReparentWindow(
             display, (Window)editorWrapper->getWindowHandle(), window, 0, 0);
@@ -2453,6 +2514,19 @@ class ClapJuceWrapper : public clap::helpers::Plugin<
         editorWrapper->setVisible(false);
         editorWrapper->setTopLeftPosition(0, 0);
         editorWrapper->addToDesktop(0, (void *)window);
+#if JUCE_VERSION >= 0x090000
+        // JUCE 9 embedded peers follow the host window's DPI on their own. This
+        // wrapper scales via the editor transform and reports transform-inflated
+        // bounds, so the peer must stay 1:1 or the scale is applied twice. The
+        // override alone does not resize the native window addToDesktop just
+        // created at the native scale, and that stale size flows back into the
+        // component on the first window event — push the geometry to match.
+        if (auto *peer = editorWrapper->getPeer())
+        {
+            peer->setCustomPlatformScaleFactor(1.0);
+            peer->setBounds(editorWrapper->getBounds(), false);
+        }
+#endif
         editorWrapper->setVisible(true);
         return true;
     }

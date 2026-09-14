@@ -1,5 +1,6 @@
 #pragma once
 
+#include "dsp/BiquadFrequency.h"
 #include "dsp/EffectProcessor.h"
 #include "dsp/EffectRegistry.h"
 #include "dsp/EffectGuids.h"
@@ -190,7 +191,7 @@ class SimpleCabEffect : public EffectProcessor
 
     void ComputeHighPass(double freq, double Q, double& b0, double& b1, double& b2, double& a1, double& a2)
     {
-        const double w0 = 2.0 * kPi * freq / mSampleRate;
+        const double w0 = 2.0 * kPi * ClampBiquadFrequency(freq, mSampleRate) / mSampleRate;
         const double cosw0 = std::cos(w0);
         const double sinw0 = std::sin(w0);
         const double alpha = sinw0 / (2.0 * Q);
@@ -205,7 +206,7 @@ class SimpleCabEffect : public EffectProcessor
 
     void ComputeLowPass(double freq, double Q, double& b0, double& b1, double& b2, double& a1, double& a2)
     {
-        const double w0 = 2.0 * kPi * freq / mSampleRate;
+        const double w0 = 2.0 * kPi * ClampBiquadFrequency(freq, mSampleRate) / mSampleRate;
         const double cosw0 = std::cos(w0);
         const double sinw0 = std::sin(w0);
         const double alpha = sinw0 / (2.0 * Q);
@@ -222,7 +223,7 @@ class SimpleCabEffect : public EffectProcessor
                           double& a2)
     {
         const double A = std::pow(10.0, gainDb / 40.0);
-        const double w0 = 2.0 * kPi * freq / mSampleRate;
+        const double w0 = 2.0 * kPi * ClampBiquadFrequency(freq, mSampleRate) / mSampleRate;
         const double cosw0 = std::cos(w0);
         const double sinw0 = std::sin(w0);
         const double alpha = sinw0 / (2.0 * Q);

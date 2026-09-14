@@ -5,6 +5,7 @@
 #include "automation/AutomationSlotTable.h"
 #include "dsp/MultiPresetMixer.h"
 #include "dsp/EffectRegistry.h"
+#include "dsp/FiniteCheck.h"
 
 #include <algorithm>
 #include <cmath>
@@ -477,6 +478,48 @@ void AutomationSlotTable::LoadFromJson(const nlohmann::json& j)
                 mSlots.push_back(std::move(slot));
             }
         }
+    }
+}
+
+// ── Host state: slot values ──────────────────────────────────────────────
+
+nlohmann::json AutomationSlotTable::SaveValuesToJson() const
+{
+    // A json object is an ordered map, so the same values always dump to the same bytes.
+    // Hosts, and clap-validator's state tests, compare saved states byte for byte.
+    nlohmann::json values = nlohmann::json::object();
+
+    for (const auto& slot : mSlots)
+    {
+        values[slot.slotId] = slot.value.load();
+    }
+
+    return values;
+}
+
+void AutomationSlotTable::LoadValuesFromJson(const nlohmann::json& json)
+{
+    for (auto& slot : mSlots)
+    {
+        float value = 0.0f;
+
+        if (const auto it = json.find(slot.slotId); it != json.end() && it->is_number())
+        {
+            const auto stored = it->get<double>();
+
+            // std::clamp passes a NaN straight through, so a non-finite value is rejected
+            // before clamping rather than after.
+            if (IsFinite(stored))
+            {
+                value = static_cast<float>(std::clamp(stored, 0.0, 1.0));
+            }
+        }
+
+        slot.value.store(value);
+        // As if this value had been applied: a host re-sending it is then not a rising
+        // edge, and does not fire the trigger.
+        slot.lastNormalized.store(value);
+        slot.pendingApply.store(false);
     }
 }
 

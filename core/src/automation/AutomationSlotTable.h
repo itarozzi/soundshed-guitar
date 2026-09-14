@@ -49,6 +49,17 @@ class AutomationSlotTable
     /// Serialize to JSON for persistence.
     [[nodiscard]] nlohmann::json SaveToJson() const;
 
+    /// The slots' current values, for the state a DAW saves with its project. Kept out of
+    /// SaveToJson, which is also the machine-wide automation.json and the cross-instance
+    /// sync payload: a value belongs to this instance, not to the user's mappings.
+    [[nodiscard]] nlohmann::json SaveValuesToJson() const;
+
+    /// Restores values written by SaveValuesToJson without applying them. Reopening a
+    /// project must not fire a setlist or scene trigger, and continuous targets such as
+    /// the input and output trims restore from their own state. A slot the object does not
+    /// name goes back to 0, so a reused instance cannot keep a value the project never had.
+    void LoadValuesFromJson(const nlohmann::json& json);
+
     /// Get all slots (default + custom) for UI.
     [[nodiscard]] nlohmann::json GetSlotsJson() const;
 
