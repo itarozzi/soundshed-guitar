@@ -81,6 +81,19 @@ jobs:
           chmod +x ./build_macos.sh
           ./build_macos.sh --universal --no-pkg
 
+      - name: Validate plugin formats (pluginval, clap-validator)
+        # Before pruning and signing: auval registers the AU from a copy under
+        # ~/Library, and a validation failure should not cost a signing round.
+        run: node tools/validate-plugins.mjs --config Release
+
+      - name: Upload validation logs
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: validation-logs-macos
+          path: juce/builds/validation
+          if-no-files-found: ignore
+
       - name: Prune bundled ui non-runtime files (pre-sign)
         run: |
           set -euo pipefail

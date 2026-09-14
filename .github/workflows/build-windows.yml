@@ -96,6 +96,21 @@ jobs:
           Write-Host "Running build_windows.bat $buildArgs"
           .\build_windows.bat @buildArgs
 
+      - name: Validate plugin formats (pluginval, clap-validator)
+        # The arm64 leg cross-compiles on an x64 runner, so its plugins cannot be
+        # loaded here; the x64 legs cover every SIMD tier the runner can execute.
+        if: ${{ matrix.arch == 'x64' }}
+        shell: pwsh
+        run: node tools/validate-plugins.mjs --config Release
+
+      - name: Upload validation logs
+        if: ${{ failure() && matrix.arch == 'x64' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: validation-logs-windows-${{ matrix.arch }}${{ matrix.avx == 'avx2' && '' || format('-{0}', matrix.avx) }}
+          path: juce/builds/validation
+          if-no-files-found: ignore
+
       - name: Resolve installer path
         id: installer
         shell: pwsh
