@@ -212,10 +212,6 @@ body.theme-classic {
   border-color: #5a5048;
 }
 
-.theme-classic .footer-divider {
-  color: color-mix(in srgb, var(--text-dark-disabled), #000 10%);
-}
-
 .theme-classic .footer-play-btn,
 .theme-classic .footer-repeat-btn,
 .theme-classic .footer-debug-capture-btn,
@@ -249,11 +245,6 @@ body.theme-classic {
 
 .theme-classic .bpm-display.metronome-only:hover {
   background: rgba(255, 244, 220, 0.1);
-}
-
-.theme-classic .footer-theme-label,
-.theme-classic .footer-hint {
-  color: var(--text-dark-muted);
 }
 
 .theme-classic .footer-bpm-panel {
@@ -591,29 +582,6 @@ body.theme-classic {
   color: var(--text-dark-tertiary);
 }
 
-.theme-classic .node-params-title {
-  color: var(--text-dark-primary);
-}
-
-.theme-classic .node-params-close {
-  background: rgba(255, 244, 214, 0.12);
-  color: var(--text-dark-tertiary);
-}
-
-.theme-classic .node-params-close:hover {
-  background: rgba(255, 244, 214, 0.2);
-  color: var(--text-dark-primary);
-}
-
-.theme-classic .node-param-steps {
-  color: var(--text-dark-muted);
-}
-
-.theme-classic .node-param-step {
-  background: rgba(65, 42, 26, 0.64);
-  border-color: rgba(255, 244, 214, 0.22);
-}
-
 .theme-classic .node-param-group-block {
   background: rgba(61, 47, 37, 0.75);
   border-color: #5a5048;
@@ -635,11 +603,6 @@ body.theme-classic {
   background: rgba(31, 24, 21, 0.9);
 }
 
-.theme-classic .node-actions {
-  border-top-color: var(--border-dark-medium);
-}
-
-.theme-classic .param-control label,
 .theme-classic .node-param-label {
   color: var(--text-dark-muted);
 }

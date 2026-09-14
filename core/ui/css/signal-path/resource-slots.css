@@ -539,28 +539,6 @@
   margin-left: 1px;
 }
 
-.node-actions {
-  display: flex;
-  gap: 8px;
-  padding-top: 8px;
-  border-top: 1px solid #4a4a58;
-}
-
-.param-control {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-}
-
-.param-control label {
-  font-size: 9px;
-  font-weight: 600;
-  color: var(--text-dark-dimmed);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
 .knob-container {
   display: flex;
   flex-direction: column;
