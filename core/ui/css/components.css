@@ -187,6 +187,39 @@
   height: 15px;
 }
 
+/* Footer tool icons */
+.footer-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.footer-tool-icon {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex-shrink: 0;
+}
+
+.footer-midi-pin {
+  fill: currentColor;
+  stroke: none;
+}
+
+.footer-record-icon {
+  color: #ff4d55;
+  fill: currentColor;
+  stroke: none;
+}
+
 /* ---------- Tabs ---------- */
 .tab-bar {
   display: flex;

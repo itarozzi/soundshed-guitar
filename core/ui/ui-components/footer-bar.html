@@ -1,7 +1,20 @@
 <footer class="footer-bar film-grain">
       <div class="footer-compact-shortcuts" aria-label="Quick tools">
-        <button class="footer-btn" id="footer-compact-pads-btn" type="button" aria-pressed="false">SETLIST</button>
-        <button class="footer-btn" id="footer-compact-tuner-btn" type="button">TUNER</button>
+        <button class="footer-btn footer-icon-btn" id="footer-compact-pads-btn" type="button" aria-label="Setlist" aria-pressed="false" title="Setlist">
+          <svg class="footer-tool-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <rect x="3.5" y="3.5" width="7" height="7" rx="1.5" />
+            <rect x="13.5" y="3.5" width="7" height="7" rx="1.5" />
+            <rect x="3.5" y="13.5" width="7" height="7" rx="1.5" />
+            <rect x="13.5" y="13.5" width="7" height="7" rx="1.5" />
+          </svg>
+        </button>
+        <button class="footer-btn footer-icon-btn" id="footer-compact-tuner-btn" type="button" aria-label="Tuner" title="Tuner">
+          <svg class="footer-tool-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M7 3v5a5 5 0 0 0 10 0V3" />
+            <path d="M12 13v8" />
+            <path d="M9 21h6" />
+          </svg>
+        </button>
       </div>
       <!-- Signal-chain undo/redo and the A/B pair. Outside footer-actions-panel so
            it stays on the bar at every width — it is a performance control, not an option. -->
@@ -45,10 +58,37 @@
           </div>
         </div>
         <div class="footer-group footer-tools-group" aria-label="Tools">
-          <button class="footer-btn" id="footer-pads-btn" type="button" aria-pressed="false">SETLIST</button>
-          <button class="footer-btn" id="footer-tuner-btn" type="button">TUNER</button>
-          <button class="footer-btn" id="footer-midi-btn" type="button">MIDI</button>
-          <button class="footer-btn metronome-only" id="footer-riff-record-btn" type="button">REC</button>
+          <button class="footer-btn footer-icon-btn" id="footer-pads-btn" type="button" aria-label="Setlist" aria-pressed="false" title="Setlist">
+            <svg class="footer-tool-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <rect x="3.5" y="3.5" width="7" height="7" rx="1.5" />
+              <rect x="13.5" y="3.5" width="7" height="7" rx="1.5" />
+              <rect x="3.5" y="13.5" width="7" height="7" rx="1.5" />
+              <rect x="13.5" y="13.5" width="7" height="7" rx="1.5" />
+            </svg>
+          </button>
+          <button class="footer-btn footer-icon-btn" id="footer-tuner-btn" type="button" aria-label="Tuner" title="Tuner">
+            <svg class="footer-tool-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M7 3v5a5 5 0 0 0 10 0V3" />
+              <path d="M12 13v8" />
+              <path d="M9 21h6" />
+            </svg>
+          </button>
+          <button class="footer-btn footer-icon-btn" id="footer-midi-btn" type="button" aria-label="MIDI and automation" title="MIDI &amp; automation">
+            <svg class="footer-tool-icon footer-midi-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <circle cx="12" cy="12" r="9" />
+              <path d="M10 20v-2h4v2" />
+              <circle class="footer-midi-pin" cx="7.5" cy="10.5" r="1.15" />
+              <circle class="footer-midi-pin" cx="9.6" cy="7.6" r="1.15" />
+              <circle class="footer-midi-pin" cx="12" cy="6.6" r="1.15" />
+              <circle class="footer-midi-pin" cx="14.4" cy="7.6" r="1.15" />
+              <circle class="footer-midi-pin" cx="16.5" cy="10.5" r="1.15" />
+            </svg>
+          </button>
+          <button class="footer-btn footer-icon-btn metronome-only" id="footer-riff-record-btn" type="button" aria-label="Record riff" title="Record riff">
+            <svg class="footer-tool-icon footer-record-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <circle cx="12" cy="12" r="7" />
+            </svg>
+          </button>
         </div>
         <div class="footer-group footer-tempo-group" aria-label="Tempo">
           <button class="bpm-display metronome-only" id="footer-bpm-btn" type="button" title="Set BPM">

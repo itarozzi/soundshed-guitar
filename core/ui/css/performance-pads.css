@@ -19,6 +19,7 @@
   --performance-section-gap: clamp(10px, 1.7vmin, 16px);
   --performance-surface-gap: clamp(8px, 1.2vmin, 12px);
   --performance-control-height: clamp(38px, 5vmin, 42px);
+  --performance-header-control-height: clamp(30px, 4vmin, 32px);
   --performance-surface-radius: clamp(16px, 2.2vmin, 22px);
   --performance-kicker-size: clamp(10px, 1.4vmin, 11px);
   --performance-label-size: clamp(11px, 1.5vmin, 12px);
@@ -90,20 +91,20 @@
 
 .performance-mode-switch {
   display: inline-flex;
-  padding: 3px;
+  padding: 2px;
   border: 1px solid var(--border-dark-light);
   border-radius: var(--radius-2xl);
   background: color-mix(in srgb, var(--bg-dark-secondary) 82%, transparent);
 }
 
 .performance-mode-btn {
-  min-height: var(--performance-control-height);
-  padding: 0 clamp(14px, 2.2vmin, 18px);
+  min-height: var(--performance-header-control-height);
+  padding: 0 clamp(10px, 1.7vmin, 14px);
   border: 0;
   border-radius: var(--radius-xl);
   background: transparent;
   color: var(--text-secondary);
-  font-size: var(--performance-label-size);
+  font-size: var(--performance-meta-size);
   font-weight: 800;
   letter-spacing: 0.04em;
   cursor: pointer;
@@ -117,18 +118,19 @@
 .performance-pad-count {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   color: var(--text-secondary);
-  font-size: var(--performance-label-size);
+  font-size: var(--performance-meta-size);
   font-weight: 800;
   letter-spacing: 0.05em;
   text-transform: uppercase;
 }
 
 .performance-pad-count select {
-  min-height: var(--performance-control-height);
-  min-width: 64px;
-  font-size: var(--performance-body-size);
+  min-height: var(--performance-header-control-height);
+  min-width: 56px;
+  padding: 4px 8px;
+  font-size: var(--performance-meta-size);
 }
 
 .performance-pad-body,
