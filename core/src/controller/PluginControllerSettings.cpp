@@ -401,7 +401,7 @@ void PluginController::ApplyNamInterfaceCalibrationFromAppSettings()
     }
 
     const auto it = mAppSettings.find(kNamInterfaceCalibrationLevelDbuSettingKey);
-    double calLevel = std::numeric_limits<double>::quiet_NaN();
+    std::optional<double> calLevel;
 
     if (autoCalibrationEnabled)
     {
@@ -432,8 +432,6 @@ void PluginController::ApplyNamInterfaceCalibrationFromAppSettings()
     if (!mActivePresetId.empty() && mActivePreset)
     {
         const auto& graph = mActivePreset->graph;
-        const bool hasCalibrationValue = std::isfinite(calLevel);
-        const double clearValue = std::numeric_limits<double>::quiet_NaN();
         std::lock_guard<std::mutex> lock(mDSPMutex);
 
         for (const auto& node : graph.nodes)
@@ -443,8 +441,7 @@ void PluginController::ApplyNamInterfaceCalibrationFromAppSettings()
                 continue;
             }
 
-            const double calibrationToInject = hasCalibrationValue ? calLevel : clearValue;
-            mPresetMixer.SetNodeParam(mActivePresetId, node.id, "calibrationInputLevel", calibrationToInject);
+            InjectNamInterfaceCalibration(mActivePresetId, node.id);
         }
     }
 }

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "dsp/FiniteCheck.h"
+
 #include <atomic>
 #include <cstdint>
 #include <cmath>
@@ -23,7 +25,7 @@ inline double DbToLinearGain(double db)
 
 inline double SanitizeNominalOperatingLevelDbfs(double value)
 {
-    if (!std::isfinite(value))
+    if (!IsFinite(value))
     {
         return kDefaultNominalOperatingLevelDbfs;
     }
@@ -33,7 +35,7 @@ inline double SanitizeNominalOperatingLevelDbfs(double value)
 
 inline double SanitizeOutputProtectionCeilingDbfs(double value)
 {
-    if (!std::isfinite(value))
+    if (!IsFinite(value))
     {
         return kDefaultOutputProtectionCeilingDbfs;
     }

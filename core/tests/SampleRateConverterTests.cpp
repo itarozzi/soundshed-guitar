@@ -214,17 +214,20 @@ bool TestNamOversamplingConfiguration()
 /// fall back to the documented defaults rather than reaching the resampler.
 bool TestNamQualitySanitizing()
 {
+    // Parsed at run time, not written as std::numeric_limits constants: in a clang Release
+    // build -ffast-math lets the optimiser assume a NaN or infinity constant away before it
+    // ever reaches the function under test. See FastMathNanTests.
+    const double nanInput = std::strtod("nan", nullptr);
+    const double infiniteInput = std::strtod("inf", nullptr);
+
     return guitarfx::SanitizeNamOversamplingIndex(-4.0) == 0 &&
            guitarfx::SanitizeNamOversamplingIndex(99.0) == guitarfx::kNamOversamplingMaxIndex &&
-           guitarfx::SanitizeNamOversamplingIndex(std::numeric_limits<double>::quiet_NaN()) ==
-               guitarfx::kNamOversamplingIndexDefault &&
+           guitarfx::SanitizeNamOversamplingIndex(nanInput) == guitarfx::kNamOversamplingIndexDefault &&
            guitarfx::SanitizeNamAntiAliasPhaseIndex(7.0) == guitarfx::kNamAntiAliasPhaseMaxIndex &&
-           guitarfx::SanitizeNamAntiAliasPhaseIndex(std::numeric_limits<double>::infinity()) ==
-               guitarfx::kNamAntiAliasPhaseIndexDefault &&
+           guitarfx::SanitizeNamAntiAliasPhaseIndex(infiniteInput) == guitarfx::kNamAntiAliasPhaseIndexDefault &&
            guitarfx::SanitizeNamSlimmableSize(-1.0) == guitarfx::kNamSlimmableSizeMin &&
            guitarfx::SanitizeNamSlimmableSize(5.0) == guitarfx::kNamSlimmableSizeMax &&
-           guitarfx::SanitizeNamSlimmableSize(std::numeric_limits<double>::quiet_NaN()) ==
-               guitarfx::kNamSlimmableSizeDefault;
+           guitarfx::SanitizeNamSlimmableSize(nanInput) == guitarfx::kNamSlimmableSizeDefault;
 }
 
 /// Oversampling settings are owned per node, not by a process-wide global: two

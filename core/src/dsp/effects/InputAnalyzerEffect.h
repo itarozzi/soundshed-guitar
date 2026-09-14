@@ -3,6 +3,7 @@
 #include "dsp/EffectGuids.h"
 #include "dsp/EffectProcessor.h"
 #include "dsp/EffectRegistry.h"
+#include "dsp/FiniteCheck.h"
 #include "dsp/LevelTargets.h"
 
 #include <algorithm>
@@ -12,6 +13,7 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <optional>
 #include <vector>
 
 namespace guitarfx
@@ -34,6 +36,10 @@ class InputAnalyzerEffect : public EffectProcessor
     static constexpr double kBarkMaxDbfs = 0.0;
     static constexpr double kBarkMinFrequencyHz = 20.0;
     static constexpr double kBarkMaxFrequencyHz = 15500.0;
+    /// What the loudness atomics hold when there is nothing to measure. A finite floor, where it
+    /// used to be -infinity: the fast floating-point Release builds assume no value is infinite.
+    /// GetTelemetrySnapshot() turns it into an empty optional.
+    static constexpr double kNoLoudnessLufs = std::numeric_limits<double>::lowest();
 
     struct TelemetrySnapshot
     {
@@ -44,9 +50,10 @@ class InputAnalyzerEffect : public EffectProcessor
         double rmsDbv = 0.0;
         double rmsVolts = 0.0;
         bool loudnessValid = false;
-        double momentaryLufs = -std::numeric_limits<double>::infinity();
-        double shortTermLufs = -std::numeric_limits<double>::infinity();
-        double integratedLufs = -std::numeric_limits<double>::infinity();
+        // Empty when there is nothing to measure; see AnalyzerTelemetry.
+        std::optional<double> momentaryLufs;
+        std::optional<double> shortTermLufs;
+        std::optional<double> integratedLufs;
         bool stereo = false;
         int activeChannelCount = 0;
         std::array<float, kSpectrogramBins> spectrogramBinsDb{};
@@ -119,9 +126,9 @@ class InputAnalyzerEffect : public EffectProcessor
         mRmsDbv.store(0.0, std::memory_order_relaxed);
         mRmsVolts.store(0.0, std::memory_order_relaxed);
         mLoudnessValid.store(false, std::memory_order_relaxed);
-        mMomentaryLufs.store(-std::numeric_limits<double>::infinity(), std::memory_order_relaxed);
-        mShortTermLufs.store(-std::numeric_limits<double>::infinity(), std::memory_order_relaxed);
-        mIntegratedLufs.store(-std::numeric_limits<double>::infinity(), std::memory_order_relaxed);
+        mMomentaryLufs.store(kNoLoudnessLufs, std::memory_order_relaxed);
+        mShortTermLufs.store(kNoLoudnessLufs, std::memory_order_relaxed);
+        mIntegratedLufs.store(kNoLoudnessLufs, std::memory_order_relaxed);
         mActiveChannelCount.store(0, std::memory_order_relaxed);
         mStereoSignal.store(false, std::memory_order_relaxed);
         mStereoLatched = false;
@@ -412,9 +419,13 @@ class InputAnalyzerEffect : public EffectProcessor
         snapshot.rmsDbv = mRmsDbv.load(std::memory_order_relaxed);
         snapshot.rmsVolts = mRmsVolts.load(std::memory_order_relaxed);
         snapshot.loudnessValid = mLoudnessValid.load(std::memory_order_relaxed);
-        snapshot.momentaryLufs = mMomentaryLufs.load(std::memory_order_relaxed);
-        snapshot.shortTermLufs = mShortTermLufs.load(std::memory_order_relaxed);
-        snapshot.integratedLufs = mIntegratedLufs.load(std::memory_order_relaxed);
+        const auto loudness = [](const std::atomic<double>& lufs) -> std::optional<double> {
+            const double value = lufs.load(std::memory_order_relaxed);
+            return value > kNoLoudnessLufs ? std::optional<double>(value) : std::nullopt;
+        };
+        snapshot.momentaryLufs = loudness(mMomentaryLufs);
+        snapshot.shortTermLufs = loudness(mShortTermLufs);
+        snapshot.integratedLufs = loudness(mIntegratedLufs);
         snapshot.activeChannelCount = mActiveChannelCount.load(std::memory_order_relaxed);
         snapshot.stereo = mStereoSignal.load(std::memory_order_relaxed);
 
@@ -456,7 +467,7 @@ class InputAnalyzerEffect : public EffectProcessor
 
     static double ToDbfs(double linear)
     {
-        if (linear <= kMinLinear || !std::isfinite(linear))
+        if (!IsFinite(linear) || linear <= kMinLinear)
         {
             return kSpectrogramMinDbfs;
         }
@@ -466,7 +477,7 @@ class InputAnalyzerEffect : public EffectProcessor
 
     static double LufsToMeanSquare(double lufs)
     {
-        if (!std::isfinite(lufs))
+        if (!IsFinite(lufs))
         {
             return 0.0;
         }
@@ -476,9 +487,9 @@ class InputAnalyzerEffect : public EffectProcessor
 
     static double MeanSquareToLufs(double meanSquare)
     {
-        if (!std::isfinite(meanSquare) || meanSquare <= kMinLinear)
+        if (!IsFinite(meanSquare) || meanSquare <= kMinLinear)
         {
-            return -std::numeric_limits<double>::infinity();
+            return kNoLoudnessLufs;
         }
 
         return -0.691 + 10.0 * std::log10(meanSquare);
@@ -521,8 +532,7 @@ class InputAnalyzerEffect : public EffectProcessor
 
     static int FindBarkBandIndex(double frequencyHz)
     {
-        if (!std::isfinite(frequencyHz) || frequencyHz < kBarkBandEdgesHz.front() ||
-            frequencyHz > kBarkBandEdgesHz.back())
+        if (!IsFinite(frequencyHz) || frequencyHz < kBarkBandEdgesHz.front() || frequencyHz > kBarkBandEdgesHz.back())
         {
             return -1;
         }
@@ -634,7 +644,7 @@ class InputAnalyzerEffect : public EffectProcessor
 
     void AppendIntegratedBlock(double blockLufs)
     {
-        if (!std::isfinite(blockLufs))
+        if (!IsFinite(blockLufs) || blockLufs <= kNoLoudnessLufs)
         {
             return;
         }
@@ -654,7 +664,7 @@ class InputAnalyzerEffect : public EffectProcessor
     {
         if (mLoudnessBlockCount == 0)
         {
-            mIntegratedLufs.store(-std::numeric_limits<double>::infinity(), std::memory_order_relaxed);
+            mIntegratedLufs.store(kNoLoudnessLufs, std::memory_order_relaxed);
             return;
         }
 
@@ -667,7 +677,7 @@ class InputAnalyzerEffect : public EffectProcessor
                 (mLoudnessBlockWriteIndex + kLoudnessHistoryBlocks - mLoudnessBlockCount + i) % kLoudnessHistoryBlocks;
             const double lufs = mLoudnessBlocks[index];
 
-            if (!std::isfinite(lufs) || lufs < kLoudnessAbsoluteGateLufs)
+            if (!IsFinite(lufs) || lufs < kLoudnessAbsoluteGateLufs)
             {
                 continue;
             }
@@ -677,7 +687,7 @@ class InputAnalyzerEffect : public EffectProcessor
 
         if (validCount == 0)
         {
-            mIntegratedLufs.store(-std::numeric_limits<double>::infinity(), std::memory_order_relaxed);
+            mIntegratedLufs.store(kNoLoudnessLufs, std::memory_order_relaxed);
             return;
         }
 
@@ -707,7 +717,7 @@ class InputAnalyzerEffect : public EffectProcessor
 
         if (gatedCount == 0)
         {
-            mIntegratedLufs.store(-std::numeric_limits<double>::infinity(), std::memory_order_relaxed);
+            mIntegratedLufs.store(kNoLoudnessLufs, std::memory_order_relaxed);
             return;
         }
 
@@ -717,12 +727,12 @@ class InputAnalyzerEffect : public EffectProcessor
 
     static double BallisticAlpha(double deltaSeconds, double timeConstantSeconds)
     {
-        if (!std::isfinite(deltaSeconds) || deltaSeconds <= 0.0)
+        if (!IsFinite(deltaSeconds) || deltaSeconds <= 0.0)
         {
             return 0.0;
         }
 
-        if (!std::isfinite(timeConstantSeconds) || timeConstantSeconds <= 0.0)
+        if (!IsFinite(timeConstantSeconds) || timeConstantSeconds <= 0.0)
         {
             return 0.0;
         }
@@ -733,12 +743,12 @@ class InputAnalyzerEffect : public EffectProcessor
     static double SmoothWithBallistics(double currentLinear, double previousLinear, double deltaSeconds,
                                        double attackSeconds, double releaseSeconds)
     {
-        if (!std::isfinite(currentLinear))
+        if (!IsFinite(currentLinear))
         {
             currentLinear = 0.0;
         }
 
-        if (!std::isfinite(previousLinear))
+        if (!IsFinite(previousLinear))
         {
             previousLinear = 0.0;
         }
@@ -756,9 +766,9 @@ class InputAnalyzerEffect : public EffectProcessor
     std::atomic<double> mRmsDbv{0.0};
     std::atomic<double> mRmsVolts{0.0};
     std::atomic<bool> mLoudnessValid{false};
-    std::atomic<double> mMomentaryLufs{-std::numeric_limits<double>::infinity()};
-    std::atomic<double> mShortTermLufs{-std::numeric_limits<double>::infinity()};
-    std::atomic<double> mIntegratedLufs{-std::numeric_limits<double>::infinity()};
+    std::atomic<double> mMomentaryLufs{kNoLoudnessLufs};
+    std::atomic<double> mShortTermLufs{kNoLoudnessLufs};
+    std::atomic<double> mIntegratedLufs{kNoLoudnessLufs};
     std::atomic<int> mActiveChannelCount{0};
     std::atomic<bool> mStereoSignal{false};
     std::array<std::atomic<float>, kSpectrogramBins> mSpectrogramBinsDb{};

@@ -2,6 +2,7 @@
 
 #include "IPluginHost.h"
 #include "controller/internal/ControllerUtils.h"
+#include "dsp/FiniteCheck.h"
 #include "dsp/MultiPresetMixer.h"
 #include "dsp/effects/InputAnalyzerEffect.h"
 
@@ -208,7 +209,7 @@ void TelemetryPublisher::SendSignalDiagnostics()
 
             for (const float value : values)
             {
-                out.push_back(std::isfinite(value) ? static_cast<int>(std::lround(value)) : -120);
+                out.push_back(IsFinite(value) ? static_cast<int>(std::lround(value)) : -120);
             }
 
             return out;
@@ -223,6 +224,12 @@ void TelemetryPublisher::SendSignalDiagnostics()
         // converts them back to dBFS for display, where 0.1 percentage points is a 6 dB error
         // on a quiet signal. 1e-6 is far below the -120 dBFS floor and still trims the double.
         const auto roundPercent = [](double v) { return std::round(v * 1.0e6) / 1.0e6; };
+        // No loudness goes out as an explicit null, which the UI shows as a dash. It used to be
+        // -infinity left for the JSON library to write as null, behind a std::isfinite check that
+        // the clang Release builds fold away.
+        const auto roundLoudness = [&roundDb](const std::optional<double>& lufs) {
+            return lufs ? nlohmann::json(roundDb(*lufs)) : nlohmann::json(nullptr);
+        };
 
         // [peakPercent, rmsPercent, rmsDbu, rmsDbv, rmsVolts, momentaryLufs, shortTermLufs,
         //  integratedLufs, activeChannelCount, stereo, loudnessValid]
@@ -232,9 +239,9 @@ void TelemetryPublisher::SendSignalDiagnostics()
             roundDb(analyzer.rmsDbu),
             roundDb(analyzer.rmsDbv),
             std::round(analyzer.rmsVolts * 1000.0) / 1000.0,
-            roundDb(analyzer.momentaryLufs),
-            roundDb(analyzer.shortTermLufs),
-            roundDb(analyzer.integratedLufs),
+            roundLoudness(analyzer.momentaryLufs),
+            roundLoudness(analyzer.shortTermLufs),
+            roundLoudness(analyzer.integratedLufs),
             analyzer.activeChannelCount,
             analyzer.stereo ? 1 : 0,
             analyzer.loudnessValid ? 1 : 0,

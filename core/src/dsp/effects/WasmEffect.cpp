@@ -1,5 +1,6 @@
 #include "dsp/effects/WasmEffect.h"
 
+#include "dsp/FiniteCheck.h"
 #include "util/FileIO.h"
 
 #include <algorithm>
@@ -25,7 +26,7 @@ constexpr std::size_t kTempoParamIndex = WasmEffect::kGuestMacroCount;
 
 float ClampFinite(float value, float fallback)
 {
-    return std::isfinite(value) ? value : fallback;
+    return IsFinite(value) ? value : fallback;
 }
 
 double DbToLinear(double value)

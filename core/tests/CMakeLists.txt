@@ -8,6 +8,7 @@ set(TEST_SOURCES
     DefaultPresetIntegrityTests.cpp
     DSPPerformanceTests.cpp
     EffectProcessorTests.cpp
+    FastMathNanTests.cpp
     GaplessSwitchingTests.cpp
     PresetRetirementTests.cpp
     DemoPreviewLoopTests.cpp

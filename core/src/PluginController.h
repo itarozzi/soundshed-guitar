@@ -617,6 +617,8 @@ class PluginController
 
     // NAM level-state normalization
     void ResetNamNodeLevelState(const std::string& nodeId);
+    /// Pushes mNamInterfaceCalibrationLevelDbu, or its absence, to one NAM node.
+    void InjectNamInterfaceCalibration(const std::string& presetId, const std::string& nodeId);
     void ClearNamCalibrationParams(GraphNode& node) const;
 
     // Settings persistence
@@ -835,7 +837,9 @@ class PluginController
     std::optional<EditorWindowSize> mPendingEditorWindowSize;
     bool mEditorWindowSizeChangedSinceIdle = false;
     bool mUserInputCalibrationTrainingActive = false;
-    double mNamInterfaceCalibrationLevelDbu = std::numeric_limits<double>::quiet_NaN();
+    /// The interface calibration level injected into NAM nodes; empty while NAM auto input
+    /// calibration is switched off. See InjectNamInterfaceCalibration().
+    std::optional<double> mNamInterfaceCalibrationLevelDbu;
 
     // Metronome facade. The click engine itself is MetronomeService; these
     // stay on the controller because their callers are spread across the

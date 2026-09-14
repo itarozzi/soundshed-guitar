@@ -19,9 +19,6 @@
 #include "presets/PresetStorage.h"
 #include "util/PathEncoding.h"
 
-#include <cmath>
-#include <limits>
-
 using namespace guitarfx::controller_detail;
 
 namespace guitarfx
@@ -223,7 +220,6 @@ void PluginController::ResetNamNodeLevelState(const std::string& nodeId)
 
     if (!mActivePresetId.empty())
     {
-        const double clearValue = std::numeric_limits<double>::quiet_NaN();
         const auto useCalibrationIt = node->params.find("useCalibration");
         const double useCalibrationValue =
             (useCalibrationIt != node->params.end() && useCalibrationIt->second <= 0.5) ? 0.0 : 1.0;
@@ -232,15 +228,28 @@ void PluginController::ResetNamNodeLevelState(const std::string& nodeId)
         // Re-inject current interface calibration level for this NAM node.
         // Keep this value resident even if no model is currently resolved so
         // calibration takes effect immediately when a model loads.
-        const double calLevelToInject =
-            std::isfinite(mNamInterfaceCalibrationLevelDbu) ? mNamInterfaceCalibrationLevelDbu : clearValue;
-        mPresetMixer.SetNodeParam(mActivePresetId, nodeId, "calibrationInputLevel", calLevelToInject);
+        InjectNamInterfaceCalibration(mActivePresetId, nodeId);
     }
+}
+
+void PluginController::InjectNamInterfaceCalibration(const std::string& presetId, const std::string& nodeId)
+{
+    // "No level" travels as a flag of its own. It used to be a NaN level, which the Release builds'
+    // fast floating-point semantics cannot carry: clang assumed the NaN away, and the node applied
+    // whatever was left of it as a real calibration level.
+    if (mNamInterfaceCalibrationLevelDbu)
+    {
+        mPresetMixer.SetNodeParam(presetId, nodeId, "calibrationInputLevel", *mNamInterfaceCalibrationLevelDbu);
+    }
+
+    mPresetMixer.SetNodeParam(presetId, nodeId, "calibrationInputLevelEnabled",
+                              mNamInterfaceCalibrationLevelDbu ? 1.0 : 0.0);
 }
 
 void PluginController::ClearNamCalibrationParams(GraphNode& node) const
 {
     node.params.erase("calibrationInputLevel");
+    node.params.erase("calibrationInputLevelEnabled");
     node.params.erase("calibrationOutputLevel");
 }
 } // namespace guitarfx

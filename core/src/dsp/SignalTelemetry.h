@@ -1,7 +1,7 @@
 #pragma once
 
 #include <cstdint>
-#include <limits>
+#include <optional>
 #include <vector>
 
 namespace guitarfx
@@ -22,9 +22,12 @@ struct AnalyzerTelemetry
     double rmsDbv = 0.0;
     double rmsVolts = 0.0;
     bool loudnessValid = false;
-    double momentaryLufs = -std::numeric_limits<double>::infinity();
-    double shortTermLufs = -std::numeric_limits<double>::infinity();
-    double integratedLufs = -std::numeric_limits<double>::infinity();
+    // Empty when there is no loudness to report: the signal is below the analyzer's floor, or no
+    // block has cleared the gates yet. These used to be -infinity, which the fast floating-point
+    // Release builds assume never happens; under clang that reached the UI as a number, not a dash.
+    std::optional<double> momentaryLufs;
+    std::optional<double> shortTermLufs;
+    std::optional<double> integratedLufs;
     bool stereo = false;
     int activeChannelCount = 0;
     std::vector<float> spectrogramBinsDb;

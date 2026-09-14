@@ -1,4 +1,5 @@
 #include "RealtimeConvolver.h"
+#include "FiniteCheck.h"
 #include "SimdFFT.h"
 
 #include <algorithm>
@@ -384,7 +385,7 @@ void RealtimeConvolver::ProcessBlock()
         float sample = mFFTInputBuffer[mPartitionSize + i].real() * scale;
 
         // Safety: clamp to reasonable audio range to prevent numeric instability
-        if (std::isnan(sample) || std::isinf(sample))
+        if (!IsFinite(sample))
         {
             sample = 0.0f;
         }

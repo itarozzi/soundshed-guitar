@@ -1,6 +1,7 @@
 #pragma once
 
 #include "NAM/dsp.h"
+#include "dsp/FiniteCheck.h"
 
 // ResamplingContainer pulls in WDL, which includes <windows.h> on Win32. That
 // defines UpdateResource as UpdateResourceA, which then mangles unrelated member
@@ -51,7 +52,7 @@ inline constexpr int kNamAntiAliasPhaseIndexDefault = 0;
 
 [[nodiscard]] inline int SanitizeNamOversamplingIndex(double value)
 {
-    if (!std::isfinite(value))
+    if (!IsFinite(value))
     {
         return kNamOversamplingIndexDefault;
     }
@@ -61,7 +62,7 @@ inline constexpr int kNamAntiAliasPhaseIndexDefault = 0;
 
 [[nodiscard]] inline int SanitizeNamAntiAliasPhaseIndex(double value)
 {
-    if (!std::isfinite(value))
+    if (!IsFinite(value))
     {
         return kNamAntiAliasPhaseIndexDefault;
     }

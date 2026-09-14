@@ -12,6 +12,7 @@
 #include "dsp/LevelTargets.h"
 #include "dsp/EffectRegistry.h"
 #include "dsp/EffectGuids.h"
+#include "dsp/FiniteCheck.h"
 #include "dsp/NamModelCache.h"
 #include "dsp/RealtimeParallel.h"
 #include "dsp/effects/NAMSampleRate.h"
@@ -515,7 +516,7 @@ class OptimizedNAMAmpEffect : public EffectProcessor
         }
         else if (key == "calibrationInputLevel")
         {
-            if (std::isfinite(value))
+            if (IsFinite(value))
             {
                 mCalibrationInputLevel = value;
             }
@@ -524,6 +525,11 @@ class OptimizedNAMAmpEffect : public EffectProcessor
                 mCalibrationInputLevel.reset();
             }
 
+            RecalculateAutoGains();
+        }
+        else if (key == "calibrationInputLevelEnabled")
+        {
+            mCalibrationInputLevelEnabled = value > 0.5;
             RecalculateAutoGains();
         }
         else if (key == "bass")
@@ -811,6 +817,10 @@ class OptimizedNAMAmpEffect : public EffectProcessor
     std::optional<double> mModelInputLevel;
     std::optional<double> mModelOutputLevel;
     std::optional<double> mCalibrationInputLevel;
+    // Off while the controller has no interface level to give. It used to withdraw the level by
+    // sending a NaN, which the fast floating-point Release builds cannot recognise. On by default,
+    // so a level set directly on the node applies.
+    bool mCalibrationInputLevelEnabled = true;
     bool mEnabled = true;
     std::uint64_t mLevelTargetsRevision = 0;
 
@@ -871,12 +881,15 @@ class OptimizedNAMAmpEffect : public EffectProcessor
             return;
         }
 
+        const std::optional<double> calibrationInputLevel =
+            mCalibrationInputLevelEnabled ? mCalibrationInputLevel : std::nullopt;
+
         // Input: delta = calibrationInputLevel(dBu) - model.inputLevel(dBu)
         // Mirrors NeuralAmpModelerPlugin _SetInputGain(). Requires both interface
         // calibration and model input-level metadata.
-        if (mModelInputLevel.has_value() && mCalibrationInputLevel.has_value())
+        if (mModelInputLevel.has_value() && calibrationInputLevel.has_value())
         {
-            const double raw = *mCalibrationInputLevel - *mModelInputLevel;
+            const double raw = *calibrationInputLevel - *mModelInputLevel;
             const double deltaDb = std::clamp(raw, -24.0, 24.0);
             mAutoInputGain = std::pow(10.0, deltaDb / 20.0);
         }
@@ -884,9 +897,9 @@ class OptimizedNAMAmpEffect : public EffectProcessor
         // Output: delta = model.outputLevel(dBu) - calibrationInputLevel(dBu)
         // Mirrors NeuralAmpModelerPlugin _SetOutputGain() case 2. Reconstructs the
         // real-world level relationship so downstream effects see consistent drive.
-        if (mModelOutputLevel.has_value() && mCalibrationInputLevel.has_value())
+        if (mModelOutputLevel.has_value() && calibrationInputLevel.has_value())
         {
-            const double raw = *mModelOutputLevel - *mCalibrationInputLevel;
+            const double raw = *mModelOutputLevel - *calibrationInputLevel;
             const double deltaDb = std::clamp(raw, -24.0, 24.0);
             mAutoOutputGain = std::pow(10.0, deltaDb / 20.0);
         }

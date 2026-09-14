@@ -1,6 +1,7 @@
 #include "dsp/MultiPresetMixer.h"
 #include "dsp/LevelTargets.h"
 #include "dsp/EffectGuids.h"
+#include "dsp/FiniteCheck.h"
 #include "resources/ResourceLibrary.h"
 
 #include <array>
@@ -447,7 +448,7 @@ MultiPresetMixer& MultiPresetMixer::operator=(MultiPresetMixer&& other) noexcept
 
 void MultiPresetMixer::SetUserInputCalibrationGainDb(double dB)
 {
-    const double clamped = std::isfinite(dB) ? std::clamp(dB, -24.0, 24.0) : 0.0;
+    const double clamped = IsFinite(dB) ? std::clamp(dB, -24.0, 24.0) : 0.0;
     mUserInputCalibrationGainDb = clamped;
     mUserInputCalibrationGainLinear = static_cast<float>(std::pow(10.0, clamped / 20.0));
 }
@@ -594,7 +595,7 @@ bool MultiPresetMixer::CommitPresetReplacement(const std::string& presetId)
 
 void MultiPresetMixer::SetPresetSwapTailSeconds(double seconds)
 {
-    mTailSpillSeconds = std::isfinite(seconds) ? std::clamp(seconds, 0.0, kMaxPresetSwapTailSeconds) : 0.0;
+    mTailSpillSeconds = IsFinite(seconds) ? std::clamp(seconds, 0.0, kMaxPresetSwapTailSeconds) : 0.0;
 }
 
 int MultiPresetMixer::TailHoldSamples() const

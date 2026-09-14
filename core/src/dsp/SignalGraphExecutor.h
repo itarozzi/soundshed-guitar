@@ -188,6 +188,9 @@ class SignalGraphExecutor
     [[nodiscard]] int GetTotalLatencySamples() const;
 
   private:
+    /// NodeState::processingTimeUs for a node that did not run in the last block.
+    static constexpr double kNodeDidNotRunUs = -1.0;
+
     struct NodeState
     {
         std::string id;
@@ -201,11 +204,14 @@ class SignalGraphExecutor
         std::atomic<double> peak{0.0};
         std::atomic<double> rms{0.0};
         std::atomic<int> clipCount{0};
-        // Last block's processing time, or NaN when the node did not run. Published here
-        // rather than into a map so the audio thread never allocates; GetPerformanceStats()
-        // collects it on the message thread, the same way node latency already works. NaN
-        // (not 0) marks "did not run" so a bypassed node stays absent from the stats map.
-        std::atomic<double> processingTimeUs{std::numeric_limits<double>::quiet_NaN()};
+        // Last block's processing time, or kNodeDidNotRunUs when the node did not run. Published
+        // here rather than into a map so the audio thread never allocates; GetPerformanceStats()
+        // collects it on the message thread, the same way node latency already works. "Did not
+        // run" has to stay distinct from any real time so a bypassed node is left out of the stats
+        // map. It used to be NaN, but the Release builds' fast floating-point semantics fold
+        // std::isfinite to true, so the NaN went out as a time. One atomic rather than a time and a
+        // flag, so a reader can never pair halves from two different blocks.
+        std::atomic<double> processingTimeUs{kNodeDidNotRunUs};
     };
 
     /// One resolved incoming connection.

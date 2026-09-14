@@ -3,6 +3,7 @@
 #include "dsp/EffectProcessor.h"
 #include "dsp/EffectRegistry.h"
 #include "dsp/EffectGuids.h"
+#include "dsp/FiniteCheck.h"
 #include "dsp/effects/TempoSync.h"
 #include <atomic>
 #include <algorithm>
@@ -111,12 +112,12 @@ class FlangerEffect : public EffectProcessor
             float writeL = inL + feedbackL;
             float writeR = inR + feedbackR;
 
-            if (!std::isfinite(writeL))
+            if (!IsFinite(writeL))
             {
                 writeL = 0.0f;
             }
 
-            if (!std::isfinite(writeR))
+            if (!IsFinite(writeR))
             {
                 writeR = 0.0f;
             }
@@ -128,12 +129,12 @@ class FlangerEffect : public EffectProcessor
             float outR = inR * (1.0f - mix) + delayedR * mix;
 
             // Safety: guard downstream effects against NaN/Inf
-            if (!std::isfinite(outL))
+            if (!IsFinite(outL))
             {
                 outL = 0.0f;
             }
 
-            if (!std::isfinite(outR))
+            if (!IsFinite(outR))
             {
                 outR = 0.0f;
             }
@@ -308,7 +309,7 @@ class FlangerEffect : public EffectProcessor
         const float result = buffer[index0] * (1.0f - frac) + buffer[index1] * frac;
         // A NaN in the history (from a prior corrupted buffer) must not re-enter
         // the feedback loop, as it would corrupt every subsequent output sample.
-        return std::isfinite(result) ? result : 0.0f;
+        return IsFinite(result) ? result : 0.0f;
     }
 
     void AdvanceWriteIndex()

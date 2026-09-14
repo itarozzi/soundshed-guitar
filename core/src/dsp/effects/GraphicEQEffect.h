@@ -3,6 +3,7 @@
 #include "dsp/EffectGuids.h"
 #include "dsp/EffectProcessor.h"
 #include "dsp/EffectRegistry.h"
+#include "dsp/FiniteCheck.h"
 
 #include <algorithm>
 #include <array>
@@ -195,7 +196,7 @@ class GraphicEQEffect : public EffectProcessor
 
     static double FiniteOr(double value, double fallback)
     {
-        return std::isfinite(value) ? value : fallback;
+        return IsFinite(value) ? value : fallback;
     }
 
     static double ClampFinite(double value, double minimum, double maximum, double fallback)
@@ -235,10 +236,10 @@ class GraphicEQEffect : public EffectProcessor
     static float ProcessSample(float input, float b0, float b1, float b2, float a1, float a2, float& x1, float& x2,
                                float& y1, float& y2)
     {
-        const float sanitizedInput = std::isfinite(input) ? input : 0.0f;
+        const float sanitizedInput = IsFinite(input) ? input : 0.0f;
         float output = b0 * sanitizedInput + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
 
-        if (!std::isfinite(output))
+        if (!IsFinite(output))
         {
             x1 = x2 = y1 = y2 = 0.0f;
             return sanitizedInput;
@@ -274,7 +275,7 @@ class GraphicEQEffect : public EffectProcessor
             const double alpha = std::sin(w0) / (2.0 * band.q);
             const double a0 = 1.0 + alpha / amplitude;
 
-            if (!std::isfinite(a0) || std::abs(a0) < 1.0e-9)
+            if (!IsFinite(a0) || std::abs(a0) < 1.0e-9)
             {
                 band.b0 = 1.0f;
                 band.b1 = band.b2 = band.a1 = band.a2 = 0.0f;

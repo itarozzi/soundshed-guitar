@@ -13,6 +13,7 @@
 #include "dsp/LevelTargets.h"
 #include "dsp/EffectRegistry.h"
 #include "dsp/EffectGuids.h"
+#include "dsp/FiniteCheck.h"
 #include "dsp/NamModelCache.h"
 #include "dsp/RealtimeParallel.h"
 #include "dsp/effects/NAMSampleRate.h"
@@ -297,7 +298,7 @@ class MultiModelNAMAmpEffect : public EffectProcessor
         }
         else if (key == "calibrationInputLevel")
         {
-            if (std::isfinite(value))
+            if (IsFinite(value))
             {
                 mCalibrationInputLevel = value;
             }
@@ -305,6 +306,10 @@ class MultiModelNAMAmpEffect : public EffectProcessor
             {
                 mCalibrationInputLevel.reset();
             }
+        }
+        else if (key == "calibrationInputLevelEnabled")
+        {
+            mCalibrationInputLevelEnabled = value > 0.5;
         }
         else if (key == "blend")
         {
@@ -573,6 +578,8 @@ class MultiModelNAMAmpEffect : public EffectProcessor
     NamDryDelay mDryDelayRight;
 
     std::optional<double> mCalibrationInputLevel;
+    // Off while the controller has no interface level to give. See OptimizedNAMAmpEffect.
+    bool mCalibrationInputLevelEnabled = true;
 
     void UpdateEffectiveGains()
     {
@@ -766,14 +773,7 @@ class MultiModelNAMAmpEffect : public EffectProcessor
             return selection;
         }
 
-        std::size_t bestIndex = 0;
-        std::size_t secondIndex = 0;
-        double bestDist = std::numeric_limits<double>::infinity();
-        double secondDist = std::numeric_limits<double>::infinity();
-
-        for (std::size_t i = 0; i < mModels.size(); ++i)
-        {
-            const auto& model = mModels[i];
+        const auto distanceTo = [this](const ModelInstance& model) {
             double dist = 0.0;
             bool anyMatched = false;
 
@@ -797,6 +797,26 @@ class MultiModelNAMAmpEffect : public EffectProcessor
                 dist += 9.0;
             }
 
+            return dist;
+        };
+
+        // Seeded from the first two models rather than from infinity, which the fast floating-point
+        // Release builds assume never occurs. There are at least two models by this point.
+        std::size_t bestIndex = 0;
+        std::size_t secondIndex = 1;
+        double bestDist = distanceTo(mModels[0]);
+        double secondDist = distanceTo(mModels[1]);
+
+        if (secondDist < bestDist)
+        {
+            std::swap(bestIndex, secondIndex);
+            std::swap(bestDist, secondDist);
+        }
+
+        for (std::size_t i = 2; i < mModels.size(); ++i)
+        {
+            const double dist = distanceTo(mModels[i]);
+
             if (dist < bestDist)
             {
                 secondDist = bestDist;
@@ -811,7 +831,7 @@ class MultiModelNAMAmpEffect : public EffectProcessor
             }
         }
 
-        if (mSnapBlend || !std::isfinite(secondDist))
+        if (mSnapBlend)
         {
             selection.lowerIndex = bestIndex;
             selection.upperIndex = bestIndex;
@@ -946,19 +966,22 @@ class MultiModelNAMAmpEffect : public EffectProcessor
         const auto blendedOutputLevel =
             BlendOptional(modelA->outputLevel, modelB->outputLevel, selection.weightLower, selection.weightUpper);
 
+        const std::optional<double> calibrationInputLevel =
+            mCalibrationInputLevelEnabled ? mCalibrationInputLevel : std::nullopt;
+
         // Input: delta = calibrationInputLevel(dBu) - model.inputLevel(dBu)
         // Requires calibrationInputLevel to be set by controller.
-        if (blendedInputLevel.has_value() && mCalibrationInputLevel.has_value())
+        if (blendedInputLevel.has_value() && calibrationInputLevel.has_value())
         {
-            const double raw = *mCalibrationInputLevel - *blendedInputLevel;
+            const double raw = *calibrationInputLevel - *blendedInputLevel;
             const double deltaDb = std::clamp(raw, -24.0, 24.0);
             mAutoInputGain = std::pow(10.0, deltaDb / 20.0);
         }
 
         // Output: delta = model.outputLevel(dBu) - calibrationInputLevel(dBu)
-        if (blendedOutputLevel.has_value() && mCalibrationInputLevel.has_value())
+        if (blendedOutputLevel.has_value() && calibrationInputLevel.has_value())
         {
-            const double raw = *blendedOutputLevel - *mCalibrationInputLevel;
+            const double raw = *blendedOutputLevel - *calibrationInputLevel;
             const double deltaDb = std::clamp(raw, -24.0, 24.0);
             mAutoOutputGain = std::pow(10.0, deltaDb / 20.0);
         }

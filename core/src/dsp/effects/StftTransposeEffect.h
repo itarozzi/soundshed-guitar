@@ -3,6 +3,7 @@
 #include "dsp/EffectGuids.h"
 #include "dsp/EffectProcessor.h"
 #include "dsp/EffectRegistry.h"
+#include "dsp/FiniteCheck.h"
 
 #include <StftPitchShift/STFT.h>
 #include <StftPitchShift/StftPitchShiftCore.h>
@@ -132,7 +133,7 @@ class StftTransposeChannel
             if (mOutputReadIndex < mOutputQueue.size())
             {
                 const float queued = static_cast<float>(mOutputQueue[mOutputReadIndex++]);
-                output[sampleIndex] = std::isfinite(queued) ? std::clamp(queued, -8.0f, 8.0f) : 0.0f;
+                output[sampleIndex] = IsFinite(queued) ? std::clamp(queued, -8.0f, 8.0f) : 0.0f;
             }
             else
             {

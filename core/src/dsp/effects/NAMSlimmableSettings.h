@@ -2,6 +2,7 @@
 
 #include "NAM/dsp.h"
 #include "NAM/slimmable.h"
+#include "dsp/FiniteCheck.h"
 
 #include <algorithm>
 #include <cmath>
@@ -14,7 +15,7 @@ constexpr double kNamSlimmableSizeMax = 1.0;
 
 inline double SanitizeNamSlimmableSize(double value)
 {
-    if (!std::isfinite(value))
+    if (!IsFinite(value))
     {
         return kNamSlimmableSizeDefault;
     }

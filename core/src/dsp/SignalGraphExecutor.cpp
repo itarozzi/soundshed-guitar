@@ -896,9 +896,9 @@ void SignalGraphExecutor::Process(float** inputs, float** outputs, int numSample
 
         if (diagnosticsEnabled)
         {
-            // NaN marks "did not run this block", so it has to be reset every block even
-            // when the level meters are not being refreshed.
-            state.processingTimeUs.store(std::numeric_limits<double>::quiet_NaN(), std::memory_order_relaxed);
+            // "Did not run this block" has to be reset every block, even when the level
+            // meters are not being refreshed.
+            state.processingTimeUs.store(kNodeDidNotRunUs, std::memory_order_relaxed);
         }
 
         if (collectLevels)
@@ -1194,12 +1194,12 @@ SignalGraphExecutor::DSPPerformanceStats SignalGraphExecutor::GetPerformanceStat
             continue;
         }
 
-        // NaN means the node did not run in the last block (bypassed, or no input); leave
-        // it out so the UI renders a blank rather than a zero. Callers scope these ids --
-        // see MultiPresetMixer::mergeStats.
+        // A node that did not run in the last block (bypassed, or no input) is left out, so
+        // the UI renders a blank rather than a zero. Callers scope these ids -- see
+        // MultiPresetMixer::mergeStats.
         const double nodeTimeUs = state.processingTimeUs.load(std::memory_order_relaxed);
 
-        if (std::isfinite(nodeTimeUs))
+        if (nodeTimeUs >= 0.0)
         {
             stats.nodeProcessingTimesUs[nodeId] = nodeTimeUs;
         }

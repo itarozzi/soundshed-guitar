@@ -748,9 +748,6 @@ void PluginController::ApplyPreset(const Preset& preset)
         // effect nodes (overrides preset params; calibrationInputLevel is not
         // stored in preset data). We inject even when a model is not currently
         // resolved so the value is already present once the model loads.
-        const bool hasCalibrationValue = std::isfinite(mNamInterfaceCalibrationLevelDbu);
-        const double clearValue = std::numeric_limits<double>::quiet_NaN();
-
         for (const auto& node : normalizedPreset.graph.nodes)
         {
             if (!IsNamCalibratableEffectType(node.type))
@@ -758,8 +755,7 @@ void PluginController::ApplyPreset(const Preset& preset)
                 continue;
             }
 
-            const double calibrationToInject = hasCalibrationValue ? mNamInterfaceCalibrationLevelDbu : clearValue;
-            mPresetMixer.SetNodeParam(initialSlotId, node.id, "calibrationInputLevel", calibrationToInject);
+            InjectNamInterfaceCalibration(initialSlotId, node.id);
         }
     }
 

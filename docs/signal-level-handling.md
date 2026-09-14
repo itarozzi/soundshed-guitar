@@ -67,6 +67,7 @@ NAM effects apply a single dBu‑based calibration stage using model metadata.
 - **Output calibration**: `gain = model.outputLevel_dBu − calibrationInputLevel_dBu`. Reconstructs the real‑world output level so downstream effects see consistent drive regardless of which model is loaded.
 - Both corrections are clamped to ±24 dB and combined with the user's manual input/output gain knobs.
 - The **Use Calibration** advanced toggle (on by default) can be disabled to bypass all automatic correction, leaving only the manual gain controls active.
+- The interface level comes from **NAM auto input calibration** in Settings. Switching that off withdraws the level from every NAM node, which then applies no correction, just as with Use Calibration off. (The engine sends this as its own `calibrationInputLevelEnabled` flag rather than as a NaN level, which Release builds cannot carry.)
 
 In simple terms: when enabled, the NAM effect reads the model's dBu metadata and the interface calibration level to reconstruct correct gain staging automatically. No loudness normalization or product‑level gain metadata is applied.
 

@@ -1,6 +1,7 @@
 #include "controller/internal/ControllerUtils.h"
 
 #include "IPluginHost.h"
+#include "dsp/FiniteCheck.h"
 #include "presets/PresetTypes.h"
 #include "presets/PresetTypesJson.h"
 #include "resources/PluginPathUtils.h"
@@ -100,7 +101,7 @@ std::string FormatTimestamp()
 
 double LinearFromDb(double db)
 {
-    if (!std::isfinite(db))
+    if (!IsFinite(db))
     {
         return 0.0;
     }

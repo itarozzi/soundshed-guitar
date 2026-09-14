@@ -10,6 +10,7 @@
 #include "dsp/EffectProcessor.h"
 #include "dsp/EffectRegistry.h"
 #include "dsp/EffectGuids.h"
+#include "dsp/FiniteCheck.h"
 #include <algorithm>
 #include <array>
 
@@ -104,7 +105,7 @@ class ParametricEQEffect : public EffectProcessor
                 float outL = band.b0 * sampleL + band.b1 * band.z1L + band.b2 * band.z2L - band.a1 * band.x1L -
                              band.a2 * band.x2L;
 
-                if (!std::isfinite(outL))
+                if (!IsFinite(outL))
                 {
                     ResetBandState(band); // clear both L and R state on overflow
                     outL = sampleL;
@@ -121,7 +122,7 @@ class ParametricEQEffect : public EffectProcessor
                 float outR = band.b0 * sampleR + band.b1 * band.z1R + band.b2 * band.z2R - band.a1 * band.x1R -
                              band.a2 * band.x2R;
 
-                if (!std::isfinite(outR))
+                if (!IsFinite(outR))
                 {
                     ResetBandState(band);
                     outR = sampleR;
@@ -382,7 +383,7 @@ class ParametricEQEffect : public EffectProcessor
     // Returns `fallback` if `value` is NaN or ±infinity; otherwise clamps to [minimum, maximum].
     static double ClampFinite(double value, double minimum, double maximum, double fallback)
     {
-        if (!std::isfinite(value))
+        if (!IsFinite(value))
         {
             return fallback;
         }
@@ -393,7 +394,7 @@ class ParametricEQEffect : public EffectProcessor
     // Replaces non-finite audio samples (NaN, ±inf, denormals produce 0 here) with silence.
     static float SanitizeSample(float sample)
     {
-        return std::isfinite(sample) ? sample : 0.0f;
+        return IsFinite(sample) ? sample : 0.0f;
     }
 
     // Zeros all four delay lines for both channels. Used after coefficient changes
@@ -418,8 +419,7 @@ class ParametricEQEffect : public EffectProcessor
     // combinations (e.g. freq at Nyquist, very low Q).  Falls back to identity.
     static void SanitizeBandCoefficients(Band& band)
     {
-        if (!std::isfinite(band.b0) || !std::isfinite(band.b1) || !std::isfinite(band.b2) || !std::isfinite(band.a1) ||
-            !std::isfinite(band.a2))
+        if (!IsFinite(band.b0) || !IsFinite(band.b1) || !IsFinite(band.b2) || !IsFinite(band.a1) || !IsFinite(band.a2))
         {
             SetIdentity(band);
         }
@@ -467,7 +467,7 @@ class ParametricEQEffect : public EffectProcessor
         // a0 is the normalisation factor; guard against near-zero to avoid division explosion.
         const double a0 = 1.0 + alpha / A;
 
-        if (!std::isfinite(a0) || std::abs(a0) < 1.0e-9)
+        if (!IsFinite(a0) || std::abs(a0) < 1.0e-9)
         {
             SetIdentity(band);
             return;
@@ -526,7 +526,7 @@ class ParametricEQEffect : public EffectProcessor
 
         const double a0 = (A + 1.0) + (A - 1.0) * cosw0 + 2.0 * sqrtA * alpha;
 
-        if (!std::isfinite(a0) || std::abs(a0) < 1.0e-9)
+        if (!IsFinite(a0) || std::abs(a0) < 1.0e-9)
         {
             SetIdentity(band);
             return;
@@ -578,7 +578,7 @@ class ParametricEQEffect : public EffectProcessor
 
         const double a0 = (A + 1.0) - (A - 1.0) * cosw0 + 2.0 * sqrtA * alpha;
 
-        if (!std::isfinite(a0) || std::abs(a0) < 1.0e-9)
+        if (!IsFinite(a0) || std::abs(a0) < 1.0e-9)
         {
             SetIdentity(band);
             return;
