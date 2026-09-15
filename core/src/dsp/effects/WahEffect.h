@@ -515,8 +515,10 @@ namespace wah
  *
  * Sweep ranges come from the manufacturers' published specifications where they exist (every
  * Dunlop model here), from circuit analysis and measurement for the GCB-95 and Vox, and from
- * reviews and descriptions otherwise. Q, taper and the tone controls are voiced to the
- * character those sources describe. docs/fx-library.md lists the basis of each.
+ * reviews and descriptions otherwise, which covers the Morley signature wahs and the Big Bad
+ * Wah. No manufacturer publishes Q, so it is set against the measured GCB-95. Q, taper and the
+ * tone controls are voiced to the character those sources describe. docs/fx-library.md lists
+ * the basis of each.
  */
 struct Voicing
 {
@@ -538,11 +540,12 @@ struct Voicing
 constexpr const char* kDefaultPresetId = "cry-baby-gcb95";
 
 // clang-format off
-inline constexpr std::array<Voicing, 22> kFactoryVoicings = {{
+inline constexpr std::array<Voicing, 34> kFactoryVoicings = {{
     //  id                              display name                        heel   toe     taper  Q     toeQ  toeGain low   treble sat   level resp
     {kDefaultPresetId,                  "Cry Baby GCB-95",                  440.0, 2000.0, -0.25, 8.0,  0.25, 0.0,    0.15, 0.0,   0.20, 0.0,  12.0},
     {"vox-v847",                        "Vox V847",                         450.0, 1600.0, -0.30, 6.0,  0.35, 0.0,    0.20, -1.0,  0.20, -1.0, 12.0},
     {"vox-clyde-mccoy-67",              "Vox Clyde McCoy '67",              420.0, 1700.0, -0.35, 11.0, 0.30, 0.0,    0.30, -1.0,  0.25, -1.0, 12.0},
+    {"joe-satriani-big-bad-wah",        "Joe Satriani Big Bad Wah",         430.0, 1700.0, -0.30, 5.5,  0.40, 0.0,    0.40, 0.0,   0.30, 1.0,  12.0},
     {"thomas-organ-cry-baby-68",        "Thomas Organ Cry Baby '68",        300.0, 1450.0, -0.20, 5.0,  0.40, 0.0,    0.30, -2.0,  0.30, -1.0, 12.0},
     {"cry-baby-535q",                   "Cry Baby 535Q",                    440.0, 2200.0, -0.20, 9.0,  0.30, 0.0,    0.15, 0.0,   0.15, 6.0,  12.0},
     {"cry-baby-95q",                    "Cry Baby 95Q",                     390.0, 2000.0, -0.20, 7.0,  0.30, 0.0,    0.20, 0.0,   0.15, 3.0,  12.0},
@@ -551,8 +554,19 @@ inline constexpr std::array<Voicing, 22> kFactoryVoicings = {{
     {"slash-sw95",                      "Slash SW95",                       320.0, 1700.0, -0.10, 6.0,  0.35, 0.5,    0.30, 2.0,   0.45, 4.0,  12.0},
     {"dimebag-db01",                    "Dimebag Cry Baby From Hell",       295.0, 1400.0, -0.15, 10.0, 0.35, 0.0,    0.35, 1.0,   0.30, 6.0,  12.0},
     {"kirk-hammett-kh95",               "Kirk Hammett KH95",                340.0, 1600.0, -0.20, 9.0,  0.30, 4.5,    0.20, 0.0,   0.20, 1.0,  12.0},
+    {"zakk-wylde-zw45",                 "Zakk Wylde ZW45",                  300.0, 1900.0, -0.25, 8.0,  0.25, 0.5,    0.35, -1.0,  0.25, 0.0,  12.0},
+    {"jerry-cantrell-jc95",             "Jerry Cantrell JC95",              355.0, 1450.0, -0.25, 8.0,  0.25, 2.5,    0.30, -2.0,  0.20, 0.0,  12.0},
+    {"buddy-guy-bg95",                  "Buddy Guy BG95",                   340.0, 1700.0, -0.20, 6.0,  0.35, 0.5,    0.25, 0.0,   0.20, 0.0,  12.0},
+    {"john-petrucci-jp95",              "John Petrucci JP95",               220.0, 1350.0, -0.20, 5.0,  0.40, 0.0,    0.45, -2.0,  0.20, 6.0,  12.0},
+    {"joe-bonamassa-jb95",              "Joe Bonamassa JB95",               300.0, 1450.0, 0.00,  5.5,  0.35, 0.5,    0.30, -1.5,  0.25, 0.0,  12.0},
+    {"cry-baby-cm95-clyde-mccoy",       "Cry Baby CM95 Clyde McCoy",        410.0, 2200.0, -0.30, 6.0,  0.35, 0.0,    0.25, -1.5,  0.25, -1.0, 12.0},
+    {"cae-mc404",                       "CAE MC404",                        400.0, 2050.0, -0.25, 8.0,  0.30, 0.5,    0.20, 1.0,   0.25, 0.0,  12.0},
     {"cry-baby-105q-bass",              "Cry Baby 105Q Bass",               180.0, 1800.0, -0.20, 5.0,  0.40, 7.5,    0.60, 0.0,   0.10, 2.0,  12.0},
     {"morley-power-wah",                "Morley Power Wah",                 250.0, 3200.0, 0.25,  3.0,  0.70, 0.0,    0.45, 1.0,   0.05, 0.0,  45.0},
+    {"steve-vai-bad-horsie",            "Steve Vai Bad Horsie",             375.0, 1900.0, 0.00,  8.0,  0.35, 0.0,    0.30, 0.0,   0.15, 0.0,  35.0},
+    {"steve-vai-bad-horsie-2-contour",  "Steve Vai Bad Horsie 2 · Contour", 400.0, 2100.0, 0.00,  7.0,  0.45, 1.5,    0.25, 1.5,   0.10, 3.0,  35.0},
+    {"mark-tremonti-power-wah",         "Mark Tremonti Power Wah",          450.0, 1500.0, 0.00,  8.0,  0.40, 0.0,    0.30, -2.0,  0.05, 4.0,  35.0},
+    {"george-lynch-dragon-2",           "George Lynch Dragon 2",            300.0, 2400.0, 0.00,  6.0,  0.45, 0.0,    0.30, 1.5,   0.05, 3.0,  35.0},
     {"ibanez-weeping-demon",            "Ibanez Weeping Demon",             380.0, 2300.0, 0.00,  6.0,  0.80, 0.0,    0.70, 0.0,   0.05, 0.0,  25.0},
     {"fulltone-clyde-deluxe-jimi",      "Fulltone Clyde Deluxe · Jimi",     400.0, 1650.0, -0.35, 9.0,  0.30, 0.0,    0.30, -1.0,  0.30, 2.0,  12.0},
     {"fulltone-clyde-deluxe-wacked",    "Fulltone Clyde Deluxe · Wacked",   280.0, 1900.0, -0.30, 7.0,  0.35, 0.0,    0.70, 0.0,   0.35, 3.0,  12.0},

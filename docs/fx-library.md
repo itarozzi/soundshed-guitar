@@ -584,6 +584,7 @@ no published figure was found.
 | Cry Baby GCB-95 | 440–2000 | Dunlop spec (350–450 Hz heel, 1.5–2.5 kHz toe); Smith's measured fit (Q 8 → 2); ElectroSmash's mid-pedal frequency for the taper |
 | Vox V847 | 450–1600 | ElectroSmash circuit analysis; medium-high Q, slight level drop |
 | Vox Clyde McCoy '67 | 420–1700 | Sharpest Q of the classics, ICAR taper, rounder bass (reviewer consensus); range estimated |
+| Joe Satriani Big Bad Wah | 430–1700 | Vox's Wah 1 voice: a hot-rodded V847 with lower Q and more lows (reviews); Vox publishes no frequencies, so range estimated |
 | Thomas Organ Cry Baby '68 | 300–1450 | Estimated from the JH1D, which Dunlop bases on it; smooth, lower Q |
 | Cry Baby 535Q | 440–2200 | Dunlop spec, range 1; Q knob high; boost +6 dB |
 | Cry Baby 95Q | 390–2000 | Dunlop spec; boost +3 dB |
@@ -592,8 +593,19 @@ no published figure was found.
 | Slash SW95 | 320–1700 | Dunlop spec (270–370 Hz, 1.5–1.9 kHz); lush top, drives with its boost |
 | Dimebag Cry Baby From Hell | 295–1400 | Dunlop spec, range 5; Q high; boost +6 dB |
 | Kirk Hammett KH95 | 340–1600 | Dunlop spec (300–380 Hz, 1.4–1.8 kHz; +17 dB heel, +21 dB toe, hence Toe Gain +4.5) |
+| Zakk Wylde ZW45 | 300–1900 | Dunlop spec (250–350 Hz, 1.4–2.4 kHz, +17 dB at both ends); GCB-95 Q; thick lows, a less harsh top |
+| Jerry Cantrell JC95 | 355–1450 | Dunlop spec (320–390 Hz; toe 1.05–2.07 kHz on its Fine Tune knob, here at noon; +18 dB heel, +20 dB toe); dark |
+| Buddy Guy BG95 | 340–1700 | Dunlop spec for the BG voice (290–390 Hz, 1.5–1.9 kHz, +16 dB); warm, medium Q estimated |
+| John Petrucci JP95 | 220–1350 | Dunlop spec (200–240 Hz, 1.2–1.5 kHz); wide Q, fat lows and rounded highs (review); the internal volume and EQ trims are estimated |
+| Joe Bonamassa JB95 | 300–1450 | Dunlop spec (290–310 Hz, 1.40–1.51 kHz, +16.5 dB); smooth Halo-inductor Q; buffered, so a slightly darker top |
+| Cry Baby CM95 Clyde McCoy | 410–2200 | Dunlop spec (410 Hz–2.2 kHz, up to +18 dB); smooth, lower Q (Halo inductor); its low input impedance softens the top |
+| CAE MC404 | 400–2050 | Dunlop spec with the yellow inductor (400 Hz, 1.9–2.2 kHz, +16 dB); boost off |
 | Cry Baby 105Q Bass | 180–1800 | Dunlop spec (+25 dB heel, +32 dB toe, hence Toe Gain +7.5); bass retained |
 | Morley Power Wah | 250–3200 | Optical: wide, low Q, 45 ms lag, no inductor saturation. Morley's own 25 Hz–4 kHz claim is trimmed |
+| Steve Vai Bad Horsie | 375–1900 | Optical, medium-high Q, chewy vocal mids (reviews); Morley publishes no frequencies, so range and a 35 ms lag are estimated |
+| Steve Vai Bad Horsie 2 · Contour | 400–2100 | Contour mode with the knob at noon and Level +3 dB: fewer mids, a peakier toe (reviews); range estimated |
+| Mark Tremonti Power Wah | 450–1500 | A narrower, modern sweep with the harsh top removed (reviews); boost at +4 dB of its 0–20 dB; range estimated |
+| George Lynch Dragon 2 | 300–2400 | Wah mode with Level +3 dB; voiced to cut through high gain (reviews); range estimated |
 | Ibanez Weeping Demon | 380–2300 | A state-variable filter mixing bandpass and lowpass, so a flat low end (DAFx-15 analysis); range estimated |
 | Fulltone Clyde Deluxe · Jimi | 400–1650 | Fulltone manual's late-'60s Clyde mode; range estimated |
 | Fulltone Clyde Deluxe · Wacked | 280–1900 | Fulltone manual's Colorsound-like deep-bass mode; range estimated |
@@ -607,7 +619,9 @@ no published figure was found.
 Sources: the Dunlop product manuals (jimdunlop.com/content/manuals); J. O. Smith's Faust
 `crybaby` model and his LAC 2008 paper; Holters and Zölzer, *Physical modelling of a wah-wah
 effect pedal*, DAFx-11; ElectroSmash's GCB-95 and V847 analyses; the DAFx-15 paper on the
-Ibanez Weeping Demon; and the Fulltone, Xotic and Real McCoy manuals and product pages.
+Ibanez Weeping Demon; the Fulltone, Xotic, Real McCoy and Vox Big Bad Wah manuals and product
+pages; and for the Morley signature wahs, Morley's product copy and published reviews. Tom
+Morello's TBM95 shares the GCB-95's published specification, so the GCB-95 preset covers it.
 
 ### Pitch Shift (`pitch_shift`)
 Pitch shift effect using Signalsmith Stretch with stepped or free-form control.
