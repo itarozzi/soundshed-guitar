@@ -62,7 +62,17 @@ void PluginController::HandlePresetLoadRequest(const nlohmann::json& payload)
 
         if (!requestedPresetId.empty() && scrubbedHostedState)
         {
-            if (auto storedPreset = TryLoadStoredPresetById(requestedPresetId))
+            if (const auto activeSlotId = ResolveActivePresetSlotId(requestedPresetId))
+            {
+                // The UI's copy of the preset being edited. Its graph can rightly differ from
+                // ours (a scene switch, or a chain-history undo putting back an earlier graph),
+                // so keep it, and fill in only the plugin state the UI never holds. Swapping in
+                // the working copy instead turned every such undo into a silent no-op.
+                CaptureRuntimePluginStates(preset, *activeSlotId, &mActivePreset->graph);
+                AppendSessionLog("Hosted plugin load rehydrated presetId=" + requestedPresetId +
+                                 " onto its payload from the working copy: " + SummarizeHostedPluginState(preset));
+            }
+            else if (auto storedPreset = TryLoadStoredPresetById(requestedPresetId))
             {
                 AppendSessionLog("Hosted plugin load rehydrated presetId=" + requestedPresetId +
                                  " from authoritative source: " + SummarizeHostedPluginState(*storedPreset));
@@ -142,9 +152,9 @@ void PluginController::HandlePresetLoadRequest(const nlohmann::json& payload)
     }
 }
 
-std::optional<Preset> PluginController::TryLoadStoredPresetById(const std::string& presetId)
+std::optional<std::string> PluginController::ResolveActivePresetSlotId(const std::string& presetId) const
 {
-    if (presetId.empty())
+    if (presetId.empty() || !mActivePreset)
     {
         return std::nullopt;
     }
@@ -152,21 +162,29 @@ std::optional<Preset> PluginController::TryLoadStoredPresetById(const std::strin
     const auto aliasIt = mFactoryArchivePresetAliases.find(presetId);
     const std::string resolvedPresetId = aliasIt != mFactoryArchivePresetAliases.end() ? aliasIt->second : presetId;
 
-    if (mActivePreset)
-    {
-        const bool matchesActivePreset =
-            mActivePreset->id == resolvedPresetId ||
-            (!mActivePresetId.empty() && (mActivePresetId == presetId || mActivePresetId == resolvedPresetId));
+    const bool matchesActivePreset =
+        mActivePreset->id == resolvedPresetId ||
+        (!mActivePresetId.empty() && (mActivePresetId == presetId || mActivePresetId == resolvedPresetId));
 
-        if (matchesActivePreset)
-        {
-            Preset preset = *mActivePreset;
-            CaptureRuntimePluginStates(preset, mActivePresetId.empty() ? resolvedPresetId : mActivePresetId);
-            AppendSessionLog("Hosted plugin rehydrate source=active presetId=" + resolvedPresetId +
-                             ", state=" + SummarizeHostedPluginState(preset));
-            return preset;
-        }
+    if (!matchesActivePreset)
+    {
+        return std::nullopt;
     }
+
+    return mActivePresetId.empty() ? resolvedPresetId : mActivePresetId;
+}
+
+std::optional<Preset> PluginController::TryLoadStoredPresetById(const std::string& presetId)
+{
+    // Never asked for the preset being edited: its working copy is newer than anything stored,
+    // so HandlePresetLoadRequest rehydrates that payload in place (ResolveActivePresetSlotId).
+    if (presetId.empty())
+    {
+        return std::nullopt;
+    }
+
+    const auto aliasIt = mFactoryArchivePresetAliases.find(presetId);
+    const std::string resolvedPresetId = aliasIt != mFactoryArchivePresetAliases.end() ? aliasIt->second : presetId;
 
     if (!IsFactoryPresetArchiveLoadingEnabled() && mTrackedFactoryArchivePresetIds.contains(resolvedPresetId))
     {
@@ -759,7 +777,7 @@ void PluginController::ApplyPreset(const Preset& preset)
         }
     }
 
-    mHost.NotifyStateChanged();
+    NotifyHostStateChanged();
 }
 
 std::optional<Preset> PluginController::LoadUserPreset(const std::string& presetId) const

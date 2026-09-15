@@ -193,7 +193,7 @@ void PluginController::ApplyGlobalFxSettingsFromAppSettings()
 
 void PluginController::PersistGlobalFxSettingsToAppSettings()
 {
-    mHost.NotifyStateChanged();
+    NotifyHostStateChanged();
 
     if (!mHost.IsStandalone())
     {
@@ -272,7 +272,7 @@ bool PluginController::ApplyNamQualitySettings()
     if (!mHost.IsStandalone())
     {
         // Tell the host its saved state is stale so the project keeps this tier.
-        mHost.NotifyStateChanged();
+        NotifyHostStateChanged();
     }
 
     return settingsChanged;

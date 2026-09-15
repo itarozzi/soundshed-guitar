@@ -399,7 +399,7 @@ void PluginController::OnIdle()
 
             if (!mHost.IsStandalone())
             {
-                mHost.NotifyStateChanged();
+                NotifyHostStateChanged();
             }
         }
     }

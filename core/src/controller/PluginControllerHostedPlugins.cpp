@@ -276,7 +276,7 @@ void PluginController::HandleRuntimeNodeConfigChanged(const std::string& presetI
     }
 
     mPendingStateBroadcast = true;
-    mHost.NotifyStateChanged();
+    NotifyHostStateChanged();
 }
 
 void PluginController::TryRemapHostedPluginResources(Preset& preset) const
@@ -486,7 +486,8 @@ void PluginController::PersistHostedPluginResourceMetadata(const GraphNode& node
     ResourceLibrary::PutInStore(Store(), updated, ResolveResourcesRoot());
 }
 
-void PluginController::CaptureRuntimePluginStates(Preset& preset, const std::string& presetId) const
+void PluginController::CaptureRuntimePluginStates(Preset& preset, const std::string& presetId,
+                                                  const SignalGraph* runningGraph) const
 {
     // Only one scene is ever loaded into the DSP, so live runtime state belongs to that
     // scene and to the top-level graph that mirrors it — nowhere else. Stamping it into
@@ -552,6 +553,21 @@ void PluginController::CaptureRuntimePluginStates(Preset& preset, const std::str
         return {};
     };
 
+    // Live state is read by node id, which is only safe while the node still points at the
+    // plugin running under that id. A payload restoring an earlier graph (undoing a plugin
+    // swap, say) can put a different plugin there, and must not be handed the running plugin's
+    // chunk. The resource is compared rather than the identity keys, which a plugin publishes
+    // only once it has loaded, so a payload captured before then would never match.
+    const auto runtimeStateFits = [&](const GraphNode& node) {
+        if (!runningGraph)
+        {
+            return true;
+        }
+
+        const auto* runningNode = runningGraph->FindNode(node.id);
+        return runningNode != nullptr && HostedPluginResourceKey(*runningNode) == HostedPluginResourceKey(node);
+    };
+
     // sceneId is empty for the top-level graph, which mirrors the live scene.
     const auto captureGraph = [&](SignalGraph& graph, const std::string& sceneId) {
         const bool isLiveGraph = sceneId.empty() || sceneId == liveSceneId;
@@ -569,7 +585,7 @@ void PluginController::CaptureRuntimePluginStates(Preset& preset, const std::str
             std::string state;
             std::string source;
 
-            if (isLiveGraph)
+            if (isLiveGraph && runtimeStateFits(node))
             {
                 state = captureRuntimeState(node.id);
                 source = "runtime";
@@ -783,7 +799,7 @@ void PluginController::CaptureLiveHostedPluginStateIntoActivePreset()
     mMixerPresetJsonCache[mActivePresetId] = mActivePresetJson;
     AppendSessionLog("Hosted plugin live state folded into working copy presetId=" + mActivePresetId +
                      ", state=" + SummarizeHostedPluginState(*mActivePreset));
-    mHost.NotifyStateChanged();
+    NotifyHostStateChanged();
 }
 
 void PluginController::CaptureMixerSlotHostedPluginState(Preset& preset, const std::string& presetId) const
@@ -893,7 +909,7 @@ void PluginController::ApplyRuntimeNodeConfigToMixerCache(const std::string& pre
 
     cachedIt->second = PresetStorage::SerializeToJson(*presetOpt);
     mPendingStateBroadcast = true;
-    mHost.NotifyStateChanged();
+    NotifyHostStateChanged();
 }
 
 bool PluginController::ClearStaleHostedPluginState(GraphNode& node, const std::string& previousIdentity)

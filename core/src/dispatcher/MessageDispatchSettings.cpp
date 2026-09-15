@@ -90,7 +90,7 @@ bool MessageDispatcher::DispatchSettings(PluginController& c, const nlohmann::js
             }
 
             c.SaveAppSettings();
-            c.mHost.NotifyStateChanged();
+            c.NotifyHostStateChanged();
             return true;
         }
 
@@ -105,7 +105,7 @@ bool MessageDispatcher::DispatchSettings(PluginController& c, const nlohmann::js
         }
 
         c.SaveAppSettings();
-        c.mHost.NotifyStateChanged();
+        c.NotifyHostStateChanged();
         return true;
     }
 
@@ -114,7 +114,7 @@ bool MessageDispatcher::DispatchSettings(PluginController& c, const nlohmann::js
         if (msg.contains("viewState") && msg["viewState"].is_object())
         {
             c.mUiViewState = msg["viewState"];
-            c.mHost.NotifyStateChanged();
+            c.NotifyHostStateChanged();
             return true;
         }
 

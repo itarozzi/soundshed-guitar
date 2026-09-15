@@ -499,10 +499,18 @@ void PluginProcessorAdapter::setStateInformation (const void* data, int sizeInBy
     mController.DeserializeState (controllerState);
 
     // The automation parameters' values are part of that state, so a restore changes what
-    // they report. Ask the host to read them again: JUCE turns a program change into CLAP's
-    // values rescan and VST3's kParamValuesChanged. Values that change on load without that
-    // request are a bug to hosts, and a failure in clap-validator's state tests.
-    updateHostDisplay (juce::AudioProcessor::ChangeDetails().withProgramChanged (true));
+    // they report, and the host has to be asked to read them again. JUCE turns a program
+    // change into CLAP's values rescan; values that change on load without it are a bug to a
+    // CLAP host and fail clap-validator's state tests. AU keeps it as well, because JUCE's AU
+    // restore sends no change notification of its own.
+    //
+    // Not for VST3. The host follows setState with setComponentState, which already re-reads
+    // every parameter and raises kParamValuesChanged. All a program change adds there is JUCE's
+    // Program parameter: once the setlist cursor has moved, it reports that as a
+    // begin/perform/end edit from inside setState, and hosts that turn plugin gestures into
+    // undo steps record the restore (their own undo, say) as a new edit and drop their redo.
+    if (wrapperType != wrapperType_VST3)
+        updateHostDisplay (juce::AudioProcessor::ChangeDetails().withProgramChanged (true));
 }
 
 void PluginProcessorAdapter::setNonRealtime (bool isNonRealtime) noexcept

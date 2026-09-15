@@ -197,7 +197,7 @@ void PluginController::HandleUpdateSignalPathNodeConfigRequest(const nlohmann::j
 
     if (notifyStateChanged)
     {
-        mHost.NotifyStateChanged();
+        NotifyHostStateChanged();
     }
 }
 

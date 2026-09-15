@@ -73,6 +73,21 @@ void PluginController::SetEditorWindowSize(int width, int height)
     mEditorWindowSizeChangedSinceIdle = true;
 }
 
+void PluginController::NotifyHostStateChanged()
+{
+    // A restore replays the state the host has just handed over, and everything it applies
+    // on the way (the preset, the NAM quality tier) would otherwise report itself as a change.
+    // Hosts take that at its word: the project reads as modified the moment it opens, and a
+    // host that snapshots plugin state for undo can record the restore, which may be its own
+    // undo, as a new step and discard its redo.
+    if (mRestoringHostState)
+    {
+        return;
+    }
+
+    mHost.NotifyStateChanged();
+}
+
 std::string PluginController::SerializeState() const
 {
     nlohmann::json state = nlohmann::json::object();
@@ -194,7 +209,8 @@ void PluginController::DeserializeState(const std::string& json)
     //
     // The scope blocks writes for the duration and rebases the baseline on the way
     // out, including on the exception path, so a partial restore cannot leave project
-    // values queued for publication either.
+    // values queued for publication either. It also stops anything applied during the
+    // restore from reporting itself to the host as a change (see NotifyHostStateChanged).
     struct HostStateRestoreScope
     {
         PluginController& controller;

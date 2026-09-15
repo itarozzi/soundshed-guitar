@@ -1,6 +1,6 @@
 // Hosted plugin state recall: how a hosted plugin's opaque state chunk survives graph
-// edits, scene switches, mixer slots, preset saves, DAW project round-trips and standalone
-// restarts.
+// edits, scene switches, chain-history restores, mixer slots, preset saves, DAW project
+// round-trips and standalone restarts.
 //
 // The real hosted plugin effect lives in the JUCE layer and needs a plugin binary, so these
 // tests register a stand-in under the same effect type. It behaves like the real one where
@@ -9,6 +9,7 @@
 // state without notifying anyone — which is exactly the failure mode that made state
 // vanish on rebuild.
 
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -1037,6 +1038,234 @@ bool TestEmptyRuntimeCaptureDoesNotEraseStoredState()
     return ExpectEqual(ActiveGraphState(controller), "state-worth-keeping",
                        "stored state after an empty runtime capture");
 }
+
+// ── Host restores and chain-history restores ──────────────────────────────────
+
+/// The chain history's structural restore as history.ts's applyWholeGraph sends it: the UI's
+/// scrubbed copy of the preset, reloaded under its active scene, with no presetId of its own.
+void RestoreLikeChainHistory(guitarfx::PluginController& controller, const guitarfx::Preset& preset,
+                             const std::string& sceneId)
+{
+    controller.HandleUIMessage(nlohmann::json{
+        {"type", "loadPreset"},
+        {"sceneId", sceneId},
+        {"preset", nlohmann::json::parse(guitarfx::PresetStorage::SerializeToJson(ScrubLikeUi(
+                       preset)))}}.dump());
+}
+
+/// `preset` with the "tail" node taken out of every graph and its neighbours joined up.
+guitarfx::Preset WithoutTailNode(guitarfx::Preset preset)
+{
+    const auto dropTail = [](guitarfx::SignalGraph& graph) {
+        std::vector<std::string> sources;
+        std::vector<std::string> destinations;
+        std::vector<guitarfx::GraphEdge> edges;
+
+        for (const auto& edge : graph.edges)
+        {
+            if (edge.to == "tail")
+            {
+                sources.push_back(edge.from);
+            }
+            else if (edge.from == "tail")
+            {
+                destinations.push_back(edge.to);
+            }
+            else
+            {
+                edges.push_back(edge);
+            }
+        }
+
+        for (const auto& from : sources)
+        {
+            for (const auto& to : destinations)
+            {
+                edges.push_back({from, to, 0, 0, 1.0});
+            }
+        }
+
+        graph.edges = std::move(edges);
+        graph.nodes.erase(std::remove_if(graph.nodes.begin(), graph.nodes.end(),
+                                         [](const guitarfx::GraphNode& node) { return node.id == "tail"; }),
+                          graph.nodes.end());
+    };
+
+    dropTail(preset.graph);
+
+    for (auto& scene : preset.scenes)
+    {
+        dropTail(scene.graph);
+    }
+
+    return preset;
+}
+
+/// Restoring host state hands the plugin back the host's own copy. Reporting that as a change
+/// marks a project modified the moment it opens, and in a host that snapshots plugin state for
+/// undo it can arrive as a new step in the middle of the host's own undo.
+bool TestHostStateRestoreDoesNotNotifyHost()
+{
+    const auto sandbox = MakeSandbox("host-state-restore-silent");
+
+    std::string serialized;
+    {
+        TestHost host(sandbox);
+        guitarfx::PluginController controller(host);
+        controller.Initialize();
+        controller.Prepare(48000.0, 512);
+        LoadPreset(controller, BuildHostedPluginPreset("hp-restore-silent", "Restore Silent", "state-in-project"));
+        serialized = controller.SerializeState();
+    }
+
+    TestHost restoredHost(sandbox);
+    guitarfx::PluginController restored(restoredHost);
+    restored.Initialize();
+    restored.Prepare(48000.0, 512);
+
+    restoredHost.stateChangedNotifications = 0;
+    restored.DeserializeState(serialized);
+
+    bool ok = true;
+    ok &= Expect(restoredHost.stateChangedNotifications == 0,
+                 "restoring host state reported " + std::to_string(restoredHost.stateChangedNotifications) +
+                     " state change(s) back to the host");
+
+    // The silence belongs to the restore alone: an edit made after it still has to reach the host.
+    restoredHost.stateChangedNotifications = 0;
+    restored.HandleUIMessage(nlohmann::json{
+        {"type", "updateSignalPathNodeConfig"}, {"nodeId", "tail"}, {"key", "testMarker"}, {"value", "after-restore"}}
+                                 .dump());
+    ok &= Expect(restoredHost.stateChangedNotifications > 0, "an edit after the restore did not notify the host");
+    return ok;
+}
+
+/// A chain-history undo whose graph has a different shape from the running one goes through a
+/// whole-preset load, scrubbed like every UI payload. That load has to install the graph it was
+/// sent, not swap the working copy back in, and the plugin has to keep its live state.
+bool TestRestoringAnEarlierGraphKeepsItAndPluginState()
+{
+    const auto sandbox = MakeSandbox("restore-earlier-graph");
+
+    TestHost host(sandbox);
+    guitarfx::PluginController controller(host);
+    controller.Initialize();
+    controller.Prepare(48000.0, 512);
+
+    LoadPreset(controller, BuildHostedPluginPreset("hp-restore-graph", "Restore Graph", "state-initial"));
+
+    auto* live = NewestLiveFake();
+
+    if (!Expect(live != nullptr, "no live processor after load"))
+    {
+        return false;
+    }
+
+    // Only the running plugin knows this state; nothing was told about it.
+    live->MutateStateSilently("state-live-edit");
+
+    const auto& working = controller.GetActivePreset();
+
+    if (!Expect(working.has_value() && !working->scenes.empty(), "no working copy with a scene after load"))
+    {
+        return false;
+    }
+
+    // Undo "add tail": the history holds the graph from before the tail node existed.
+    const auto earlier = WithoutTailNode(*working);
+    const std::string sceneId = working->scenes.front().id;
+    RestoreLikeChainHistory(controller, earlier, sceneId);
+
+    const auto& active = controller.GetActivePreset();
+
+    if (!Expect(active.has_value(), "no active preset after the restore"))
+    {
+        return false;
+    }
+
+    bool ok = true;
+    ok &= Expect(active->graph.FindNode("tail") == nullptr,
+                 "the restore reinstalled the working copy: the undone tail node is still in the graph");
+    ok &= ExpectEqual(ActiveGraphState(controller), "state-live-edit", "plugin state in the restored graph");
+
+    auto* rebuilt = NewestLiveFake();
+    ok &= Expect(rebuilt != nullptr, "no live processor after the restore");
+
+    if (rebuilt)
+    {
+        ok &= ExpectEqual(rebuilt->LiveState(), "state-live-edit", "processor state after the restore");
+    }
+
+    return ok;
+}
+
+/// Undoing a plugin swap restores a graph that hosts the previous plugin under the same node id.
+/// Live state is read by node id, so it must not be handed over unless the plugin running there
+/// is the one the restored node asks for.
+bool TestRestoredGraphDoesNotInheritSwappedPluginState()
+{
+    const auto sandbox = MakeSandbox("restore-after-plugin-swap");
+
+    TestHost host(sandbox);
+    guitarfx::PluginController controller(host);
+    controller.Initialize();
+    controller.Prepare(48000.0, 512);
+
+    LoadPreset(controller, BuildHostedPluginPreset("hp-swap-undo", "Swap Undo", "state-plugin-one", "test.plugin.one"));
+
+    const auto& loaded = controller.GetActivePreset();
+
+    if (!Expect(loaded.has_value() && !loaded->scenes.empty(), "no working copy with a scene after load"))
+    {
+        return false;
+    }
+
+    // What the chain history holds for "before the swap".
+    const auto beforeSwap = *loaded;
+    const std::string sceneId = loaded->scenes.front().id;
+
+    controller.HandleUIMessage(nlohmann::json{{"type", "updateNodeResource"},
+                                              {"nodeId", kPluginNodeId},
+                                              {"resourceIndex", 0},
+                                              {"resourceType", "plugin"},
+                                              {"resourceId", "test.plugin.two"}}
+                                   .dump());
+
+    auto* live = NewestLiveFake();
+
+    if (!Expect(live != nullptr, "no live processor after the swap"))
+    {
+        return false;
+    }
+
+    live->MutateStateSilently("state-plugin-two");
+
+    RestoreLikeChainHistory(controller, beforeSwap, sceneId);
+
+    const auto& active = controller.GetActivePreset();
+
+    if (!Expect(active.has_value(), "no active preset after the restore"))
+    {
+        return false;
+    }
+
+    const auto* node = active->graph.FindNode(kPluginNodeId);
+
+    if (!Expect(node != nullptr && !node->resources.empty(), "plugin node or its resource missing after the restore"))
+    {
+        return false;
+    }
+
+    bool ok = true;
+    ok &= ExpectEqual(node->resources.front().resourceId, "test.plugin.one", "plugin put back by the undo");
+    ok &= Expect(ActiveGraphState(controller) != "state-plugin-two",
+                 "the restored plugin one was handed plugin two's state chunk");
+
+    auto* rebuilt = NewestLiveFake();
+    ok &= Expect(rebuilt == nullptr || rebuilt->LiveState() != "state-plugin-two",
+                 "the rebuilt processor for plugin one was given plugin two's state");
+    return ok;
+}
 } // namespace
 
 int main()
@@ -1070,6 +1299,10 @@ int main()
         TestStandaloneIgnoresSessionStateForDifferentPreset());
     run("Plugin swap drops stale state", TestPluginSwapDropsStaleState());
     run("Empty runtime capture does not erase stored state", TestEmptyRuntimeCaptureDoesNotEraseStoredState());
+    run("Host state restore does not report a change to the host", TestHostStateRestoreDoesNotNotifyHost());
+    run("Restoring an earlier graph keeps it and the plugin state", TestRestoringAnEarlierGraphKeepsItAndPluginState());
+    run("Restored graph does not inherit a swapped plugin's state",
+        TestRestoredGraphDoesNotInheritSwappedPluginState());
 
     std::cout << "\nHosted plugin state workflow tests: " << passed << " passed, " << failed << " failed\n";
     return failed == 0 ? 0 : 1;

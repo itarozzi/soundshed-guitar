@@ -505,8 +505,25 @@ class PluginController
                                                     int resourceIndex = -1);
     void UpdateHostLatency();
     int mLastReportedLatency = -1; ///< Guards against redundant host latency notifications
+    /**
+     * Tell the host that the state it would save has changed (marks the DAW project dirty).
+     *
+     * Silent while DeserializeState() is restoring: the host already holds that state, and
+     * hearing it changed marks a project modified the moment it opens, or lands as a new step
+     * in the middle of the host's own undo. Call this rather than mHost.NotifyStateChanged().
+     */
+    void NotifyHostStateChanged();
     void ApplyBlendDefinitions(Preset& preset);
-    void CaptureRuntimePluginStates(Preset& preset, const std::string& presetId) const;
+    /**
+     * Fill in hosted plugin state across `preset`'s graphs: live state for the graph the DSP
+     * is running, stored state from the working copy for the other scenes.
+     *
+     * Pass `runningGraph` when `preset` did not come from the working copy, e.g. a UI payload
+     * that may hold a different graph. Live state is then only taken for a node that still
+     * points at the plugin running under its id.
+     */
+    void CaptureRuntimePluginStates(Preset& preset, const std::string& presetId,
+                                    const SignalGraph* runningGraph = nullptr) const;
     /**
      * Fold live hosted plugin state back into the focused preset's working copy.
      *
@@ -539,6 +556,9 @@ class PluginController
     /// that startup already loaded from the store. See the definition for why standalone
     /// takes this narrow path instead of the full DeserializeState restore.
     void RestoreStandaloneHostedPluginState(const std::string& json);
+    /// The mixer slot id the focused preset runs under, when `presetId` names that preset
+    /// (directly or through a factory-archive alias); nullopt for any other preset.
+    [[nodiscard]] std::optional<std::string> ResolveActivePresetSlotId(const std::string& presetId) const;
     std::optional<Preset> TryLoadStoredPresetById(const std::string& presetId);
     /**
      * Push mAppSettings into the running DSP and UI state.
@@ -807,7 +827,7 @@ class PluginController
     mutable nlohmann::json mAppSettingsBaseline = nlohmann::json::object();
 
     /// True while DeserializeState() is restoring host state, during which
-    /// SaveAppSettings() is a no-op. Set only by its scope guard.
+    /// SaveAppSettings() and NotifyHostStateChanged() are no-ops. Set only by its scope guard.
     bool mRestoringHostState = false;
 
     /**
