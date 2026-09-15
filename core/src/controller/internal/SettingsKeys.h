@@ -47,6 +47,11 @@ inline constexpr const char* kNamOversamplingNodeConfigKey = "oversampling";
 inline constexpr const char* kNamAntiAliasPhaseSettingKey = "audio.nam.antiAliasPhase";
 inline constexpr const char* kNamAntiAliasPhaseNodeConfigKey = "antiAliasPhase";
 
+// ── MIDI controller ─────────────────────────────────────────────────
+// Whether the active preset's name is sent to the MIDI controller's display as SysEx
+// (see ControllerDisplayFeed). Absent means on.
+inline constexpr const char* kControllerDisplayPresetNameSettingKey = "midi.controllerDisplay.presetName";
+
 // ── Input calibration ───────────────────────────────────────────────
 inline constexpr const char* kNamInterfaceCalibrationLevelDbuSettingKey = "audio.nam.interfaceCalibrationLevelDbu";
 inline constexpr double kNamInterfaceCalibrationLevelDbuDefault = 12.0;

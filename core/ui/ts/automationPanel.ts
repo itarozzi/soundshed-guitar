@@ -2,11 +2,12 @@
  * automationPanel.ts — MIDI & Automation mapping modal.
  *
  * Opened from the MIDI button in the footer bar. Contains two tabs:
- *  - Mappings: automation slot configuration (MIDI/keyboard mapping)
+ *  - Mappings: automation slot configuration (MIDI/keyboard mapping), and the
+ *    switch for sending the preset name to the controller's display
  *  - MIDI Log: real-time diagnostic log of incoming MIDI events
  */
 
-import { postMessage } from "./bridge.js";
+import { postMessage, setAppSetting } from "./bridge.js";
 import { uiState } from "./state.js";
 import type { AutomationSlot, AutomationRegistryEntry } from "./types.js";
 import { EffectTypeRegistry } from "./presetV2.js";
@@ -21,6 +22,12 @@ let editingSlotId: string | null = null;
 let midiLogEnabled = false;
 const midiLogEntries: { time: string; type: string; data: string }[] = [];
 const MAX_LOG_ENTRIES = 500;
+
+/**
+ * App-settings key for sending the active preset's name to the MIDI controller's
+ * display as SysEx (the engine's ControllerDisplayFeed). Absent means on.
+ */
+const CONTROLLER_DISPLAY_PRESET_NAME_SETTING = "midi.controllerDisplay.presetName";
 
 /**
  * `event.key` for the spacebar. Space is never claimed as a mapping: it is the
@@ -130,6 +137,7 @@ export function initializeAutomationPanel(): void {
 
   wireModal();
   wireTabs();
+  wireControllerDisplayToggle();
   renderAutomationPanel();
   renderKeyboardPanel();
   renderMidiLog();
@@ -175,6 +183,8 @@ function openMidiModal(): void {
   modal.style.display = "flex";
   // Sync backend MIDI-log forwarding with the current toggle state.
   postMessage({ type: "setMidiLogEnabled", enabled: midiLogEnabled });
+  // Settings can change from another instance while the panel is closed.
+  syncControllerDisplayToggle();
   requestAutomationState();
   renderKeyboardPanel();
   // Steal focus so keyboard events aren't consumed by buttons/inputs
@@ -232,6 +242,36 @@ function wireTabs(): void {
       renderMidiLog();
     });
   }
+}
+
+// ── Controller display ────────────────────────────────────────────────────
+
+function getControllerDisplayToggle(): HTMLInputElement | null {
+  return document.getElementById("midi-controller-display-preset-name") as HTMLInputElement | null;
+}
+
+function syncControllerDisplayToggle(): void {
+  const toggle = getControllerDisplayToggle();
+  if (toggle) {
+    toggle.checked = uiState.appSettings?.[CONTROLLER_DISPLAY_PRESET_NAME_SETTING] !== false;
+  }
+}
+
+function wireControllerDisplayToggle(): void {
+  const toggle = getControllerDisplayToggle();
+  if (!toggle) return;
+
+  syncControllerDisplayToggle();
+  toggle.addEventListener("change", () => {
+    if (!uiState.appSettings) {
+      uiState.appSettings = {};
+    }
+    uiState.appSettings[CONTROLLER_DISPLAY_PRESET_NAME_SETTING] = toggle.checked;
+    setAppSetting(CONTROLLER_DISPLAY_PRESET_NAME_SETTING, toggle.checked);
+    // blurActive() only releases buttons; a focused checkbox would hold keys the
+    // keyboard mappings are listening for.
+    toggle.blur();
+  });
 }
 
 // ── State requests ────────────────────────────────────────────────────────

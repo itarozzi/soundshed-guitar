@@ -1,6 +1,6 @@
 /**
  * PluginControllerAutomation.cpp - Host automation slots, MIDI learn, setlists
- * and scenes.
+ * and scenes, and the preset name sent back to the MIDI controller's display.
  *
  * The *Direct variants of the setlist and scene switches run on the caller's
  * thread; the plain ones defer to the message pump. MIDI arrives on the audio
@@ -10,8 +10,10 @@
 #include "PluginController.h"
 
 #include "controller/ControlSurfaceQueue.h"
+#include "controller/ControllerDisplayFeed.h"
 
 #include "controller/internal/HostedPluginSupport.h"
+#include "controller/internal/SettingsKeys.h"
 
 #include <algorithm>
 
@@ -210,6 +212,21 @@ void PluginController::SyncAutomationActivePreset()
         std::lock_guard<std::mutex> lock(mDSPMutex);
         mAutomationSlots.SetActivePresetId(activeId);
     }
+}
+
+void PluginController::SyncControllerDisplay()
+{
+    // Every tick, but the feed compares the name with the one it last queued, so only a
+    // preset switch, a rename, the setting coming back on or a refresh sends anything.
+    const auto setting = mAppSettings.find(kControllerDisplayPresetNameSettingKey);
+    const bool enabled = setting == mAppSettings.end() || !setting->is_boolean() || setting->get<bool>();
+
+    mControllerDisplay->Update(mActivePreset ? std::string_view(mActivePreset->name) : std::string_view{}, enabled);
+}
+
+std::size_t PluginController::TakeControllerDisplaySysEx(std::span<std::uint8_t> out)
+{
+    return mControllerDisplay->TakeSysEx(out);
 }
 
 void PluginController::HandleSetAutomationValueRequest(const nlohmann::json& payload)

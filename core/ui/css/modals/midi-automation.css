@@ -272,6 +272,12 @@
   color: var(--modal-text);
 }
 
+/* Option switches at the top of the Mappings tab */
+.midi-option-toggle {
+  width: fit-content;
+  margin-bottom: 12px;
+}
+
 /* MIDI Log */
 .midi-log-controls {
   display: flex;
@@ -281,7 +287,8 @@
   flex-shrink: 0;
 }
 
-.midi-log-toggle {
+.midi-log-toggle,
+.midi-option-toggle {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -290,7 +297,8 @@
   cursor: pointer;
 }
 
-.midi-log-toggle input[type="checkbox"] {
+.midi-log-toggle input[type="checkbox"],
+.midi-option-toggle input[type="checkbox"] {
   accent-color: var(--color-accent);
 }
 

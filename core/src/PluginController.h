@@ -40,6 +40,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <span>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -50,6 +51,7 @@
 namespace guitarfx
 {
 class ControlSurfaceQueue;
+class ControllerDisplayFeed;
 class DemoPreviewService;
 class MetronomeService;
 class SignalTestService;
@@ -244,6 +246,10 @@ class PluginController
     void ProcessQueuedMidi();
     /// Enable/disable forwarding of raw MIDI events to the UI diagnostics log.
     void SetMidiLogEnabled(bool enabled);
+    /// Audio thread: copies the preset-name SysEx waiting for the MIDI controller's display
+    /// into `out` and returns its length, or 0 when there is none. Never blocks or allocates;
+    /// the adapter adds it to the block's MIDI output. See ControllerDisplayFeed.
+    [[nodiscard]] std::size_t TakeControllerDisplaySysEx(std::span<std::uint8_t> out);
     void ApplySetlistPresetByIndex(int index);
     void SetlistBankUp(int steps);
     void SetlistBankDown(int steps);
@@ -465,6 +471,8 @@ class PluginController
     void ForgetPresetAutomation(const std::string& presetId);
     /// Hands the automation table the active preset id when it has changed (idle tick).
     void SyncAutomationActivePreset();
+    /// Hands the controller-display feed the active preset's name (idle tick).
+    void SyncControllerDisplay();
     void HandleGetThemeRequest();
     void HandleSetThemeRequest(const nlohmann::json& payload);
     void HandleGetSharedSyncStateRequest();
@@ -877,6 +885,7 @@ class PluginController
     void DeactivateRiffGuidance(bool previewOnly = false);
 
     std::unique_ptr<ControlSurfaceQueue> mControlSurface;
+    std::unique_ptr<ControllerDisplayFeed> mControllerDisplay;
     std::unique_ptr<MetronomeService> mMetronome;
     std::unique_ptr<SignalTestService> mSignalTest;
     std::unique_ptr<TelemetryPublisher> mTelemetry;

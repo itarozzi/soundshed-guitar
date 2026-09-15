@@ -12,7 +12,14 @@
 #include "IPluginHost.h"
 #include "PluginController.h"
 
+// Defined by clap_juce_extensions, which the CLAP build links into the shared code (not on Android).
+#ifdef HAS_CLAP_JUCE_EXTENSIONS
+ #include <clap-juce-extensions/clap-juce-extensions.h>
+#endif
+
+#include <array>
 #include <atomic>
+#include <cstddef>
 #include <filesystem>
 #include <functional>
 #include <memory>
@@ -26,6 +33,9 @@ namespace juce
 
 class PluginProcessorAdapter : public juce::AudioProcessor,
                                public guitarfx::IPluginHost
+                              #ifdef HAS_CLAP_JUCE_EXTENSIONS
+                               , public clap_juce_extensions::clap_juce_audio_processor_capabilities
+                              #endif
 {
 public:
     PluginProcessorAdapter();
@@ -33,11 +43,23 @@ public:
 
     // ── juce::AudioProcessor overrides ─────────────────────────────
     using juce::AudioProcessor::processBlock;
+    using juce::AudioProcessor::processBlockBypassed;
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
     void releaseResources() override;
     bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
+    void processBlockBypassed (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
+
+   #ifdef HAS_CLAP_JUCE_EXTENSIONS
+    // ── CLAP outbound events ───────────────────────────────────────
+    /// The CLAP wrapper's own MIDI output forwards only two- and three-byte messages, so the
+    /// controller-display SysEx would never reach the host without taking the queue over.
+    bool supportsOutboundEvents() override { return true; }
+    void addOutboundEventsToQueue (const clap_output_events* outEvents,
+                                   const juce::MidiBuffer& midiBuffer,
+                                   int sampleOffset) override;
+   #endif
 
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override;
@@ -124,6 +146,15 @@ private:
     // True from prepareToPlay to releaseResources. Only then does anything drain the
     // queue above, so only then does AutomationSlotParameter::setValue use it.
     std::atomic<bool> mAudioActive { false };
+
+   #ifdef HAS_CLAP_JUCE_EXTENSIONS
+    // A CLAP SysEx event points at its bytes, and the host reads them after process()
+    // returns, by which time the MidiBuffer has been reused for the next slice of the
+    // block. They are copied here instead; the arena starts over with each process() call.
+    // Audio thread only.
+    std::array<juce::uint8, 512> mClapSysExArena {};
+    std::size_t mClapSysExArenaUsed = 0;
+   #endif
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PluginProcessorAdapter)
 };

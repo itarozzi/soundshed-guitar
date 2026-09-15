@@ -352,6 +352,8 @@ juce_add_plugin("${PROJECT_NAME}"
     NEEDS_WEB_BROWSER TRUE
     NEEDS_WEBVIEW2 TRUE
     NEEDS_MIDI_INPUT TRUE
+    # The only MIDI sent is the preset name for the controller's display (ControllerDisplayFeed).
+    NEEDS_MIDI_OUTPUT TRUE
     MICROPHONE_PERMISSION_ENABLED TRUE
     MICROPHONE_PERMISSION_TEXT "Soundshed Guitar needs microphone access to record and process live audio input."
     XCODE_EXTRA_PLIST_ENTRIES "${GUITARFX_XCODE_EXTRA_PLIST_ENTRIES}"

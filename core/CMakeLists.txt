@@ -464,6 +464,8 @@ set(GUITARFX_CORE_SOURCES
     src/dispatcher/MessageDispatchPracticeTool.cpp
     src/controller/ControlSurfaceQueue.h
     src/controller/ControlSurfaceQueue.cpp
+    src/controller/ControllerDisplayFeed.h
+    src/controller/ControllerDisplayFeed.cpp
     src/controller/DemoPreviewService.h
     src/controller/DemoPreviewService.cpp
     src/controller/PracticeToolService.h

@@ -8,6 +8,7 @@ set(TEST_SOURCES
     AutomationSlotMidiToggleTests.cpp
     BiquadNyquistTests.cpp
     BoundaryNodeGainTests.cpp
+    ControllerDisplayFeedTests.cpp
     CustomEffectLibraryTests.cpp
     DefaultPresetIntegrityTests.cpp
     DSPPerformanceTests.cpp

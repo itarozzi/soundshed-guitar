@@ -14,6 +14,13 @@
 
       <!-- Mappings Tab -->
       <div class="midi-tab-panel active" id="midi-tab-mappings">
+        <label
+          class="midi-option-toggle"
+          title="Sent as SysEx whenever the preset changes. Controllers without a display for it ignore the message."
+        >
+          <input type="checkbox" id="midi-controller-display-preset-name" />
+          <span>Show the preset name on the MIDI controller's display</span>
+        </label>
         <p class="midi-help">
           Map automation slots to MIDI control messages, keyboard keys, or DAW parameters.
           Default slots are always available; custom slots can target any effect parameter.

@@ -11,6 +11,7 @@
 #include "PluginEditor.h" // existing editor, unchanged
 #include "UiBridge.h"
 
+#include "controller/ControllerDisplayFeed.h"
 #include "resources/PluginPathUtils.h"
 #include "util/FileSystem.h"
 
@@ -20,6 +21,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <iostream>
 #include <mutex>
@@ -363,7 +365,78 @@ void PluginProcessorAdapter::processBlock (juce::AudioBuffer<float>& buffer,
         // Controller couldn't acquire DSP lock — silence
         buffer.clear();
     }
+
+    // The only MIDI this plugin sends: the preset name for the controller's display. The
+    // incoming messages were cleared above, so nothing is echoed back out.
+    guitarfx::ControllerDisplayFeed::SysExBuffer displaySysEx {};
+
+    if (const auto size = mController.TakeControllerDisplaySysEx (displaySysEx); size > 0)
+        midiMessages.addEvent (displaySysEx.data(), static_cast<int> (size), 0);
 }
+
+void PluginProcessorAdapter::processBlockBypassed (juce::AudioBuffer<float>& buffer,
+    juce::MidiBuffer& midiMessages)
+{
+    // JUCE's default passes the incoming MIDI through to the output. With a MIDI output
+    // declared, that would echo a controller's own footswitches back at it while the host
+    // has the plugin bypassed.
+    midiMessages.clear();
+    juce::AudioProcessor::processBlockBypassed (buffer, midiMessages);
+}
+
+#ifdef HAS_CLAP_JUCE_EXTENSIONS
+void PluginProcessorAdapter::addOutboundEventsToQueue (const clap_output_events* outEvents,
+    const juce::MidiBuffer& midiBuffer,
+    int sampleOffset)
+{
+    // Called after each slice's processBlock; the first slice of a process() call is at
+    // offset 0, and nothing pushed during the previous call is read any more.
+    if (sampleOffset == 0)
+        mClapSysExArenaUsed = 0;
+
+    for (const auto metadata : midiBuffer)
+    {
+        const auto size = static_cast<std::size_t> (metadata.numBytes);
+        const auto time = static_cast<uint32_t> (metadata.samplePosition + sampleOffset);
+
+        if (size == 0)
+            continue;
+
+        if (metadata.data[0] == 0xF0)
+        {
+            // Dropped rather than allocated for if the arena is full. The display message is
+            // 39 bytes and at most one is sent per block, so this is only a safety valve.
+            if (size > mClapSysExArena.size() - mClapSysExArenaUsed)
+                continue;
+
+            auto* bytes = mClapSysExArena.data() + mClapSysExArenaUsed;
+            std::memcpy (bytes, metadata.data, size);
+            mClapSysExArenaUsed += size;
+
+            clap_event_midi_sysex event {};
+            event.header.size = sizeof (event);
+            event.header.time = time;
+            event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+            event.header.type = CLAP_EVENT_MIDI_SYSEX;
+            event.port_index = 0;
+            event.buffer = bytes;
+            event.size = static_cast<uint32_t> (size);
+            outEvents->try_push (outEvents, &event.header);
+        }
+        else if (size <= 3)
+        {
+            clap_event_midi event {};
+            event.header.size = sizeof (event);
+            event.header.time = time;
+            event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+            event.header.type = CLAP_EVENT_MIDI;
+            event.port_index = 0;
+            std::memcpy (event.data, metadata.data, size);
+            outEvents->try_push (outEvents, &event.header);
+        }
+    }
+}
+#endif
 
 std::vector<juce::String> PluginProcessorAdapter::getAutomationParameterIds() const
 {
@@ -450,7 +523,7 @@ juce::AudioProcessorEditor* PluginProcessorAdapter::createEditor()
 bool PluginProcessorAdapter::hasEditor() const { return true; }
 const juce::String PluginProcessorAdapter::getName() const { return JucePlugin_Name; }
 bool PluginProcessorAdapter::acceptsMidi() const { return true; }
-bool PluginProcessorAdapter::producesMidi() const { return false; }
+bool PluginProcessorAdapter::producesMidi() const { return true; } // must match NEEDS_MIDI_OUTPUT in juce/CMakeLists.txt
 bool PluginProcessorAdapter::isMidiEffect() const { return false; }
 double PluginProcessorAdapter::getTailLengthSeconds() const { return 0.0; }
 

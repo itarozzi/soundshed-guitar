@@ -16,6 +16,7 @@
 #include "PluginController.h"
 #include "MessageDispatcher.h"
 #include "controller/ControlSurfaceQueue.h"
+#include "controller/ControllerDisplayFeed.h"
 #include "controller/DemoPreviewService.h"
 #include "controller/MetronomeService.h"
 #include "controller/SignalTestService.h"
@@ -48,6 +49,7 @@ PluginController::PluginController(IPluginHost& host) : mHost(host)
     const auto onError = [this](const std::string& msg, const std::string& detail) { ReportErrorToUI(msg, detail); };
 
     mControlSurface = std::make_unique<ControlSurfaceQueue>(sendToUI);
+    mControllerDisplay = std::make_unique<ControllerDisplayFeed>();
     mMetronome = std::make_unique<MetronomeService>(mHost, mAppSettings, mResourceRoot, sendToUI);
     mTelemetry = std::make_unique<TelemetryPublisher>(mHost, mPresetMixer, sendToUI);
     mSignalTest = std::make_unique<SignalTestService>(sendToUI);
@@ -259,6 +261,11 @@ void PluginController::Prepare(double sampleRate, int blockSize)
     // known only after Prepare sets the sample rate).
     UpdateHostLatency();
 
+    // A stream that has just started may be feeding a MIDI output the user has only now
+    // picked (the standalone restarts its callbacks when the output changes), or a
+    // controller that was power-cycled meanwhile. Its display may be blank either way.
+    mControllerDisplay->RequestRefresh();
+
     if (mHost.IsStandalone())
     {
         mMetronome->ResetTransport();
@@ -405,6 +412,7 @@ void PluginController::OnIdle()
     }
 
     SyncAutomationActivePreset();
+    SyncControllerDisplay();
 
     // MIDI learn capture polling
     if (mAutomationSlots.IsMidiLearnArmed())

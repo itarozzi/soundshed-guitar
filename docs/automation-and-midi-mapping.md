@@ -192,7 +192,7 @@ The `custom.3 transpose` example above is the proof of the generic model: a futu
 `juce/source/PluginProcessorAdapter` changes:
 
 1. **Parameter layout is slot-driven, not target-driven.** In the constructor, after `mController.Initialize()`, the adapter asks the controller for the slot table (5 defaults + the reserved custom range of 16) and registers one `AutomationSlotParameter` (a `juce::AudioProcessorParameter` subclass) per slot. Each parameter's `getParameterID()` returns the stable slot ID (`"default.inputLevel"`, `"custom.7"`). The parameter's display label/unit is pulled from the slot's resolved `ParamRegistryEntry` via the controller. This keeps DAW automation lanes stable across mapping edits.
-2. `acceptsMidi()` → `true`. (`producesMidi()` and `isMidiEffect()` stay false.)
+2. `acceptsMidi()` → `true`. `producesMidi()` is `true` too, but only for the preset name sent to the controller's display (§5); `isMidiEffect()` stays false.
 3. In `processBlock`, before DSP:
    - The JUCE wrapper has already applied host automation to the `AutomationSlotParameter` objects by this point. Iterate the slot parameters, and for each whose value differs from the slot's last-applied value, call `controller.ApplyAutomationFromDAW(slotId, normalized)`.
    - Drain the `juce::MidiBuffer` and pass each `juce::MidiMessage` to `controller.HandleMidi(ev)` (see §5).
@@ -284,6 +284,30 @@ struct MidiControlMap {
 ### MIDI device plumbing
 
 Standalone: JUCE's `AudioDeviceManager` (already used via `juce_showStandaloneAudioSettingsDialog`) automatically lists MIDI inputs once `acceptsMidi()=true`; the `MidiBuffer` arrives in `processBlock`. Plugin builds receive MIDI from the host track via the same `MidiBuffer`. No separate device-management UI for v1.
+
+The same dialog lists MIDI outputs because `producesMidi()` is true (`NEEDS_MIDI_OUTPUT` in `juce/CMakeLists.txt` — the two must agree). The standalone sends whatever `processBlock` leaves in the buffer to the output chosen there. Every incoming message is cleared before that, including while the host bypasses the plugin (`processBlockBypassed`), so nothing is echoed back to the controller.
+
+### Preset name on the controller's display
+
+The active preset's name is sent to the controller as SysEx, so a control surface with a screen shows what is loaded. The message is the Soundshed Go's `SET_TEXT` (soundshed-go `docs/04-config-protocol.md`), on display line 0:
+
+```
+F0 7D 53 47 07 00 <name, up to 32 ASCII bytes> F7
+```
+
+`7D` is the manufacturer id reserved for non-commercial use and `53 47` is `"SG"`, so other devices ignore it. The name is converted for a 7-bit display — accents dropped, typographic dashes, quotes and ellipses made plain, anything else `?` — then trimmed and cut to 32 characters (`ControllerDisplayFeed::ToDisplayText`). No active preset sends an empty line, which clears it. The controller answers each message with a `RESULT` SysEx, which the adapter drops along with all other incoming SysEx.
+
+`core/src/controller/ControllerDisplayFeed` owns it. `PluginController::SyncControllerDisplay` hands it the active preset's name every idle tick, and it queues a message only when the name has changed. The adapter collects that in `processBlock` through `TakeControllerDisplaySysEx`, which never blocks or allocates, and adds it to the block's MIDI output. Only the newest message is kept. The device does not store the text, so `PluginController::Prepare` asks for a resend: a stream that starts, or restarts because a different MIDI output was chosen, puts the name back on a display that may be blank.
+
+Where it goes:
+
+- **Standalone** — the MIDI output chosen in the audio settings dialog. Nothing is sent until one is chosen.
+- **VST3, AU, AAX, LV2** — the plugin's MIDI output, wherever the host routes it.
+- **CLAP** — the wrapper forwards only two- and three-byte messages on its own, so the adapter implements clap-juce-extensions' `addOutboundEventsToQueue` and pushes SysEx as `CLAP_EVENT_MIDI_SYSEX`. The event points at its bytes and the host reads them after `process()` returns, so they are copied into an arena on the adapter that lasts until the next `process()` call.
+
+The name is picked up on the idle tick, which the editor's timer drives. In a plugin whose editor is closed, a preset change reaches the display when the editor next opens.
+
+The *Mappings* tab of the MIDI & Automation panel has a checkbox for it, backed by the app setting `midi.controllerDisplay.presetName` (absent = on). Turned off, nothing is sent; turned back on, the name is sent again.
 
 ### MIDI learn
 
