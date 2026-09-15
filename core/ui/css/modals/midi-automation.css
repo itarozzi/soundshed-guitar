@@ -459,6 +459,10 @@
   opacity: 0.55;
 }
 
+.midi-learn-menu-item + .midi-learn-menu-item {
+  margin-top: 2px;
+}
+
 .midi-learn-menu-hint {
   font-family: var(--font-mono, monospace);
   font-size: 11px;

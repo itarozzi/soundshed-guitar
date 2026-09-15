@@ -173,3 +173,48 @@ export function describeMidiMap(map: Pick<AutomationMidiMap, "eventType" | "chan
   const text = `${MIDI_EVENT_NAMES[map.eventType] || "CC"} ${map.controller} ch${formatMidiChannel(map.channel)}`;
   return map.mode === undefined ? text : `${text} ${MIDI_MODE_NAMES[map.mode] || "Abs"}`;
 }
+
+export type MidiLearnMenuAction = "learn" | "cancel" | "clear";
+
+export interface MidiLearnMenuItem {
+  action: MidiLearnMenuAction;
+  label: string;
+  hint: string;
+  disabled: boolean;
+}
+
+export interface MidiLearnMenuState {
+  /** The slot that drives the right-clicked control, if one does. */
+  slot: AutomationSlot | undefined;
+  armedSlotId: string | null;
+  customSlotCount: number;
+  maxCustomSlots: number;
+}
+
+/**
+ * What the right-click menu offers: MIDI Learn (Cancel MIDI Learn while that slot is
+ * listening), and Clear Mapping, naming the mapping it removes, when the slot has one.
+ */
+export function buildMidiLearnMenuItems(state: MidiLearnMenuState): MidiLearnMenuItem[] {
+  const { slot, armedSlotId, customSlotCount, maxCustomSlots } = state;
+  const items: MidiLearnMenuItem[] = [];
+
+  if (slot && slot.slotId === armedSlotId) {
+    items.push({ action: "cancel", label: "Cancel MIDI Learn", hint: "Listening…", disabled: false });
+  } else {
+    // A control no slot drives yet needs a free custom slot to learn into.
+    const noFreeSlot = !slot && customSlotCount >= maxCustomSlots;
+    items.push({
+      action: "learn",
+      label: "MIDI Learn…",
+      hint: noFreeSlot ? `All ${maxCustomSlots} custom slots in use` : "",
+      disabled: noFreeSlot,
+    });
+  }
+
+  if (slot?.midiMap) {
+    items.push({ action: "clear", label: "Clear Mapping", hint: describeMidiMap(slot.midiMap), disabled: false });
+  }
+
+  return items;
+}

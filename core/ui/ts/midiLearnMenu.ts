@@ -12,13 +12,13 @@
 import { armMidiLearn, cancelMidiLearn, getArmedMidiLearnSlotId, onMidiLearnChange } from "./automationPanel.js";
 import type { MidiLearnCapture } from "./automationPanel.js";
 import { postMessage } from "./bridge.js";
-import { countCustomSlots, describeMidiMap, findSlotForAddress, nextCustomSlotId, resolveMidiLearnTarget } from "./midiMapping.js";
+import { buildMidiLearnMenuItems, countCustomSlots, describeMidiMap, findSlotForAddress, nextCustomSlotId, resolveMidiLearnTarget } from "./midiMapping.js";
 import type { MidiLearnTarget } from "./midiMapping.js";
 import { showNotification } from "./notifications.js";
 import { BUILTIN_EFFECTS, EffectTypeRegistry } from "./presetV2.js";
 import type { EffectTypeInfo } from "./presetV2.js";
 import { getActivePresetForRender, uiState } from "./state.js";
-import type { GraphNode } from "./types.js";
+import type { AutomationSlot, GraphNode } from "./types.js";
 import { escapeHtml } from "./utils.js";
 
 /** How far inside the window the menu's edges are kept. */
@@ -108,17 +108,12 @@ function openMenu(target: MidiLearnTarget, x: number, y: number): void {
   const slots = uiState.automation?.slots ?? [];
   const maxCustomSlots = uiState.automation?.maxCustomSlots ?? 16;
   const slot = findSlotForAddress(slots, target.address);
-  const armed = slot !== undefined && slot.slotId === getArmedMidiLearnSlotId();
-  const noFreeSlot = !slot && countCustomSlots(slots) >= maxCustomSlots;
-
-  let hint = "";
-  if (armed) {
-    hint = "Listening…";
-  } else if (noFreeSlot) {
-    hint = `All ${maxCustomSlots} custom slots in use`;
-  } else if (slot?.midiMap) {
-    hint = describeMidiMap(slot.midiMap);
-  }
+  const items = buildMidiLearnMenuItems({
+    slot,
+    armedSlotId: getArmedMidiLearnSlotId(),
+    customSlotCount: countCustomSlots(slots),
+    maxCustomSlots,
+  });
 
   const menu = document.createElement("div");
   menu.className = "midi-learn-menu";
@@ -126,20 +121,21 @@ function openMenu(target: MidiLearnTarget, x: number, y: number): void {
   menu.setAttribute("aria-label", "MIDI Learn");
   menu.innerHTML = `
     <div class="midi-learn-menu-title">${escapeHtml(slot?.label || target.label)}</div>
-    <button class="midi-learn-menu-item" type="button" role="menuitem"${noFreeSlot ? " disabled" : ""}>
-      <span>${armed ? "Cancel MIDI Learn" : "MIDI Learn…"}</span>
-      ${hint ? `<span class="midi-learn-menu-hint">${escapeHtml(hint)}</span>` : ""}
-    </button>
+    ${items.map((item) => `
+      <button class="midi-learn-menu-item" type="button" role="menuitem" data-action="${item.action}"${item.disabled ? " disabled" : ""}>
+        <span>${escapeHtml(item.label)}</span>
+        ${item.hint ? `<span class="midi-learn-menu-hint">${escapeHtml(item.hint)}</span>` : ""}
+      </button>
+    `).join("")}
   `;
 
-  const item = menu.querySelector<HTMLButtonElement>(".midi-learn-menu-item");
-  item?.addEventListener("click", () => {
-    closeMenu();
-    if (armed) {
-      cancelMidiLearn();
-    } else {
-      startMidiLearn(target);
+  menu.addEventListener("click", (event) => {
+    const button = event.target instanceof Element ? event.target.closest<HTMLButtonElement>(".midi-learn-menu-item") : null;
+    if (!button || button.disabled) {
+      return;
     }
+    closeMenu();
+    runMenuAction(button.dataset.action, target, slot);
   });
 
   // Measured in place, then pulled back inside the window if it would overhang.
@@ -148,12 +144,32 @@ function openMenu(target: MidiLearnTarget, x: number, y: number): void {
   menu.style.left = `${Math.max(VIEWPORT_MARGIN_PX, Math.min(x, window.innerWidth - width - VIEWPORT_MARGIN_PX))}px`;
   menu.style.top = `${Math.max(VIEWPORT_MARGIN_PX, Math.min(y, window.innerHeight - height - VIEWPORT_MARGIN_PX))}px`;
   menuElement = menu;
-  item?.focus();
+  menu.querySelector<HTMLButtonElement>(".midi-learn-menu-item:not(:disabled)")?.focus();
 }
 
 function closeMenu(): void {
   menuElement?.remove();
   menuElement = null;
+}
+
+function runMenuAction(action: string | undefined, target: MidiLearnTarget, slot: AutomationSlot | undefined): void {
+  if (action === "learn") {
+    startMidiLearn(target);
+  } else if (action === "cancel") {
+    cancelMidiLearn();
+  } else if (action === "clear" && slot) {
+    clearMidiMapping(slot);
+  }
+}
+
+/**
+ * Removes the slot's MIDI mapping, as the MIDI panel's clear button does. The slot itself
+ * stays, with any keyboard mapping and DAW automation, so a later learn on the same
+ * control fills it again rather than taking another custom slot.
+ */
+function clearMidiMapping(slot: AutomationSlot): void {
+  postMessage({ type: "setAutomationSlot", slotId: slot.slotId, midiMap: null });
+  showNotification(`Cleared MIDI mapping for ${slot.label}`);
 }
 
 function startMidiLearn(target: MidiLearnTarget): void {
@@ -193,6 +209,16 @@ function handleMidiLearnChange(armedSlotId: string | null, capture: MidiLearnCap
 }
 
 function handleKeydown(event: KeyboardEvent): void {
+  if (menuElement && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+    const items = Array.from(menuElement.querySelectorAll<HTMLButtonElement>(".midi-learn-menu-item:not(:disabled)"));
+    const step = event.key === "ArrowDown" ? 1 : -1;
+    const current = items.findIndex((item) => item === document.activeElement);
+    // With nothing focused yet, Down lands on the first item and Up on the last.
+    const from = current >= 0 ? current : (step > 0 ? -1 : 0);
+    items[(from + step + items.length) % items.length]?.focus();
+    event.preventDefault();
+    return;
+  }
   if (event.key !== "Escape") {
     return;
   }

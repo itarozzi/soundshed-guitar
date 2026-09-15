@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { EffectGuids } from "../ts/effectGuids.js";
 import {
+  buildMidiLearnMenuItems,
   countCustomSlots,
   describeMidiMap,
   findSlotForAddress,
@@ -187,6 +188,35 @@ describe("slot lookup", () => {
       slot("custom.54321", "", false),
       slot("custom.named", "", false),
     ])).toBe("custom.54322");
+  });
+});
+
+describe("buildMidiLearnMenuItems", () => {
+  const mapped: AutomationSlot = {
+    ...slot("custom.3", "node.amp.gain", false),
+    midiMap: { eventType: 0, channel: 0, controller: 7, mode: 0, sensitivity: 0.1, pickupRange: 0.1 },
+  };
+  const menu = (state: Parameters<typeof buildMidiLearnMenuItems>[0]) => buildMidiLearnMenuItems(state)
+    .map((item) => `${item.action}${item.disabled ? " (disabled)" : ""}${item.hint ? `: ${item.hint}` : ""}`);
+
+  it("offers only learn when the control has no MIDI mapping", () => {
+    expect(menu({ slot: undefined, armedSlotId: null, customSlotCount: 2, maxCustomSlots: 16 })).toEqual(["learn"]);
+    // A slot that already drives the control needs no free custom slot.
+    expect(menu({ slot: slot("default.bankUp", "setlist.bankUp", true), armedSlotId: null, customSlotCount: 16, maxCustomSlots: 16 })).toEqual(["learn"]);
+  });
+
+  it("offers Clear Mapping, naming the mapping, when the slot has one", () => {
+    expect(menu({ slot: mapped, armedSlotId: null, customSlotCount: 16, maxCustomSlots: 16 })).toEqual(["learn", "clear: CC 7 ch1 Abs"]);
+  });
+
+  it("swaps learn for cancel while that slot listens, and keeps Clear Mapping", () => {
+    expect(menu({ slot: mapped, armedSlotId: "custom.3", customSlotCount: 3, maxCustomSlots: 16 })).toEqual(["cancel: Listening…", "clear: CC 7 ch1 Abs"]);
+    // Another slot listening does not change this control's menu.
+    expect(menu({ slot: mapped, armedSlotId: "default.bankUp", customSlotCount: 3, maxCustomSlots: 16 })).toEqual(["learn", "clear: CC 7 ch1 Abs"]);
+  });
+
+  it("disables learn on an undriven control when every custom slot is taken", () => {
+    expect(menu({ slot: undefined, armedSlotId: null, customSlotCount: 16, maxCustomSlots: 16 })).toEqual(["learn (disabled): All 16 custom slots in use"]);
   });
 });
 
