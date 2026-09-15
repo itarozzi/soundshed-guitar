@@ -820,13 +820,7 @@
 
 .theme-light .parallel-split,
 .theme-light .parallel-join {
-  background: #f3f4f6;
-  border-color: var(--border-light);
-}
-
-.theme-light .split-icon,
-.theme-light .join-icon {
-  color: var(--text-secondary);
+  background: transparent;
 }
 
 .theme-light .parallel-branches {

@@ -1,5 +1,5 @@
 /**
- * Theme and zoom — the two settings that change how the rest of the UI looks
+ * Theme, zoom and density — settings that change how the rest of the UI looks
  * rather than how it sounds.
  */
 

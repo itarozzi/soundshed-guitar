@@ -2,6 +2,7 @@
 
 .signal-connector-wrapper {
   --signal-add-anchor-x: 40%;
+  --signal-route-color: var(--signal-route-main);
   position: relative;
   display: flex;
   align-items: center;
@@ -13,18 +14,17 @@
   position: absolute;
   left: var(--signal-add-anchor-x);
   top: 50%;
-  width: 14px;
-  height: 14px;
+  width: 9px;
+  height: 9px;
   transform: translate(-50%, -50%);
   border-radius: var(--radius-pill);
-  border: 1px solid color-mix(in srgb, var(--color-success) 32%, var(--border-medium));
+  border: 1px solid color-mix(in srgb, var(--signal-route-color) 68%, transparent);
   background:
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none'%3E%3Cpath d='M8 3.5v9M3.5 8h9' stroke='%23d7dde9' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E") center / 10px 10px no-repeat,
-    color-mix(in srgb, var(--bg-secondary) 76%, transparent);
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--bg-primary) 55%, transparent),
-    0 4px 10px rgba(0, 0, 0, 0.18);
-  opacity: 0.72;
+    linear-gradient(var(--signal-route-color), var(--signal-route-color)) center / 5px 1px no-repeat,
+    linear-gradient(var(--signal-route-color), var(--signal-route-color)) center / 1px 5px no-repeat,
+    color-mix(in srgb, var(--signal-route-surface) 72%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--signal-route-surface) 64%, transparent);
+  opacity: 0.7;
   pointer-events: none;
   transition: opacity 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
   z-index: 9;
@@ -57,7 +57,7 @@
 .signal-connector-wrapper:focus-within::after,
 .signal-connector-wrapper.drag-over::after {
   opacity: 0;
-  transform: translate(-50%, -50%) scale(0.82);
+  transform: translate(-50%, -50%) scale(0.6);
 }
 
 .signal-connector-wrapper:hover .signal-add-btn,

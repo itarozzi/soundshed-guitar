@@ -416,13 +416,11 @@ html[data-density="compact"] .footer-right {
 }
 
 html[data-density="compact"] .footer-zoom-control,
-html[data-density="compact"] .footer-density-control,
 html[data-density="compact"] .footer-theme-select {
   flex: 1 1 112px;
 }
 
 html[data-density="compact"] .zoom-level-select,
-html[data-density="compact"] .density-level-select,
 html[data-density="compact"] .footer-theme-select .footer-demo-select {
   width: 100%;
   max-width: none;

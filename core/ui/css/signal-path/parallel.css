@@ -1,8 +1,18 @@
 /* Parallel Branches */
 .parallel-container {
+  /* 49px reaches the node edge; the extra 14px hides roughly the final 20%
+     of a full-size routing node's 72px width beneath its card surface. */
+  --parallel-route-reach: 63px;
+  --parallel-route-half-gap: 4px;
+  position: relative;
+  z-index: 0;
   display: flex;
   align-items: center;
   gap: 0;
+}
+
+.signal-graph-row > .signal-node {
+  z-index: 1;
 }
 
 .parallel-split,
@@ -19,22 +29,17 @@
 
 .split-icon,
 .join-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  line-height: 0;
-  color: var(--text-light);
-  opacity: 0.8;
+  display: none;
 }
 
 .parallel-flow-icon {
-  width: 32px;
-  height: 32px;
+  display: none;
 }
 
-.signal-path-bar[data-density="compact"] .parallel-flow-icon {
-  width: 22px;
-  height: 22px;
+.signal-path-bar[data-density="compact"] .parallel-container {
+  /* Compact routing nodes are 40px wide, so the hidden fifth is 8px. */
+  --parallel-route-reach: 43px;
+  --parallel-route-half-gap: 2px;
 }
 
 .parallel-branches {
@@ -73,25 +78,66 @@
   border-radius: var(--radius-lg);
 }
 
-.parallel-branch::before {
-  content: attr(data-branch-index);
+.parallel-branch::before,
+.parallel-branch::after {
+  content: "";
   position: absolute;
-  left: -16px;
-  top: 50%;
-  transform: translateY(-50%);
-  font-size: 9px;
-  font-weight: 700;
-  color: var(--color-primary);
-  background: var(--bg-dark-surface);
-  padding: 2px 4px;
-  border-radius: 3px;
   display: none;
+  width: calc(var(--parallel-route-reach) + 9px);
+  box-sizing: border-box;
+  pointer-events: none;
 }
 
-.parallel-branch:nth-child(1) { --parallel-branch-accent: var(--color-primary); }
-.parallel-branch:nth-child(2) { --parallel-branch-accent: #48a8e0; }
+/* A two-way split gets continuous, branch-coloured elbow paths. The height is
+   derived from each branch, so the curves follow density and node-size changes. */
+.parallel-branch:first-child:nth-last-child(2)::before,
+.parallel-branch:first-child:nth-last-child(2)::after,
+.parallel-branch:last-child:nth-child(2)::before,
+.parallel-branch:last-child:nth-child(2)::after {
+  display: block;
+  height: calc(50% + var(--parallel-route-half-gap) + var(--signal-route-half-width));
+}
+
+.parallel-branch:first-child:nth-last-child(2)::before {
+  left: calc(0px - var(--parallel-route-reach));
+  top: calc(50% - var(--signal-route-half-width));
+  border-top: var(--signal-route-width) solid color-mix(in srgb, var(--parallel-branch-accent) 72%, transparent);
+  border-left: var(--signal-route-width) solid color-mix(in srgb, var(--parallel-branch-accent) 72%, transparent);
+  border-top-left-radius: 12px;
+}
+
+.parallel-branch:first-child:nth-last-child(2)::after {
+  right: calc(0px - var(--parallel-route-reach));
+  top: calc(50% - var(--signal-route-half-width));
+  border-top: var(--signal-route-width) solid color-mix(in srgb, var(--parallel-branch-accent) 72%, transparent);
+  border-right: var(--signal-route-width) solid color-mix(in srgb, var(--parallel-branch-accent) 72%, transparent);
+  border-top-right-radius: 12px;
+}
+
+.parallel-branch:last-child:nth-child(2)::before {
+  left: calc(0px - var(--parallel-route-reach));
+  bottom: calc(50% - var(--signal-route-half-width));
+  border-bottom: var(--signal-route-width) solid color-mix(in srgb, var(--parallel-branch-accent) 72%, transparent);
+  border-left: var(--signal-route-width) solid color-mix(in srgb, var(--parallel-branch-accent) 72%, transparent);
+  border-bottom-left-radius: 12px;
+}
+
+.parallel-branch:last-child:nth-child(2)::after {
+  right: calc(0px - var(--parallel-route-reach));
+  bottom: calc(50% - var(--signal-route-half-width));
+  border-right: var(--signal-route-width) solid color-mix(in srgb, var(--parallel-branch-accent) 72%, transparent);
+  border-bottom: var(--signal-route-width) solid color-mix(in srgb, var(--parallel-branch-accent) 72%, transparent);
+  border-bottom-right-radius: 12px;
+}
+
+.parallel-branch:nth-child(1) { --parallel-branch-accent: #f0a06b; }
+.parallel-branch:nth-child(2) { --parallel-branch-accent: #8794ff; }
 .parallel-branch:nth-child(3) { --parallel-branch-accent: #48e078; }
 .parallel-branch:nth-child(4) { --parallel-branch-accent: #e048a8; }
+
+.parallel-branch .signal-connector-wrapper {
+  --signal-route-color: var(--parallel-branch-accent);
+}
 
 /* Stretch the last connector in each parallel branch to fill the remaining width */
 .parallel-branch > .signal-connector-wrapper:last-child {

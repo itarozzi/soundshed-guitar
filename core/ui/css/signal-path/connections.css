@@ -1,0 +1,41 @@
+/* Route-map connection system. Graph layout remains owned by the signal-path renderer. */
+.signal-path-nodes {
+  --signal-route-main: color-mix(in srgb, var(--text-secondary) 78%, var(--color-success) 22%);
+  --signal-route-surface: var(--bg-secondary);
+  --signal-route-width: 2px;
+  --signal-route-half-width: 1px;
+}
+
+.signal-connector {
+  width: 36px;
+  height: var(--signal-route-width);
+  background: color-mix(in srgb, var(--signal-route-color, var(--signal-route-main)) 72%, transparent);
+  border-radius: var(--radius-pill);
+  flex-shrink: 0;
+  position: relative;
+  transition: background 0.15s ease, height 0.15s ease;
+  cursor: pointer;
+}
+
+.signal-connector::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  top: 50%;
+  width: 5px;
+  height: 5px;
+  border-top: 1.5px solid var(--signal-route-color, var(--signal-route-main));
+  border-right: 1.5px solid var(--signal-route-color, var(--signal-route-main));
+  transform: translateY(-50%) rotate(45deg);
+  transform-origin: center;
+}
+
+.signal-connector.drag-over {
+  height: 4px;
+  background: var(--node-drag-over);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--node-drag-over) 20%, transparent);
+}
+
+.signal-connector.drag-over::after {
+  border-color: var(--node-drag-over);
+}

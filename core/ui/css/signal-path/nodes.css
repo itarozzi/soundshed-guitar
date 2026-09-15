@@ -743,39 +743,6 @@ body.signal-path-resizing * {
   margin: 0 4px;
 }
 
-.signal-connector {
-  width: 32px;
-  height: 1.5px;
-  background: var(--color-success);
-  border-radius: var(--radius-xs);
-  flex-shrink: 0;
-  position: relative;
-  transition: background 0.15s ease;
-  cursor: pointer;
-}
-
-.signal-connector::after {
-  content: "";
-  position: absolute;
-  right: -2px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 8px;
-  height: 8px;
-  background: var(--text-secondary);
-  clip-path: polygon(0 0, 100% 50%, 0 100%);
-}
-
-.signal-connector.drag-over {
-  height: 3px;
-  background: var(--node-drag-over);
-  box-shadow: 0 0 8px rgba(72, 224, 120, 0.5);
-}
-
-.signal-connector.drag-over::after {
-  border-left-color: var(--node-drag-over);
-}
-
 .signal-graph-container {
   display: flex;
   flex-direction: column;
