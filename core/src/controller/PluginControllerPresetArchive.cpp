@@ -662,7 +662,24 @@ void PluginController::LoadFactoryPresetArchives()
             const auto archiveExtractDir = extractedRoot / archiveKey;
             [[maybe_unused]] const auto ensuredArchiveDir = mFileSystem.EnsureDirectory(archiveExtractDir);
             const auto targetPath = archiveExtractDir / resolvedName;
-            const bool needsWrite = archiveChanged || !std::filesystem::exists(targetPath);
+            const bool fileMissing = !std::filesystem::exists(targetPath);
+            const bool refreshLibraryEntry = archiveChanged || fileMissing;
+            bool needsWrite = fileMissing;
+
+            if (!needsWrite)
+            {
+                // On a fresh profile every instance starting together sees
+                // archiveChanged, because the archive state is only saved at the
+                // end of this function. Skipping a file that already holds these
+                // bytes spares the rewrite and keeps its write time, which
+                // NamModelCache keys on. With the archive unchanged only the size
+                // is checked — a stat, not a read of every model on every launch —
+                // which still repairs a file an older build left cut short.
+                std::error_code sizeEc;
+                const auto existingSize = std::filesystem::file_size(targetPath, sizeEc);
+                needsWrite = sizeEc || existingSize != resource.bytes.size() ||
+                             (archiveChanged && !util::FileContentEquals(targetPath, resource.bytes));
+            }
 
             if (needsWrite && !WriteFile(targetPath, resource.bytes))
             {
@@ -692,7 +709,7 @@ void PluginController::LoadFactoryPresetArchives()
             libraryResource.metadata["factoryArchiveHash"] = archiveHash;
             libraryResource.metadata["originalId"] = resource.id;
 
-            if (needsWrite || !mResourceLibrary.HasResource(libraryResource.type, libraryResource.id))
+            if (refreshLibraryEntry || !mResourceLibrary.HasResource(libraryResource.type, libraryResource.id))
             {
                 AppendUserLibraryResource(libraryResource);
             }

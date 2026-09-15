@@ -1,4 +1,5 @@
 #include "presets/CompositePresetStorage.h"
+#include "util/FileIO.h"
 #include "util/PathSanitizer.h"
 
 #include <fstream>
@@ -62,15 +63,7 @@ bool CompositePresetStorage::SaveToFile(const CompositePreset& cp, const std::fi
             return false;
         }
 
-        std::ofstream ofs(path, std::ios::out | std::ios::trunc);
-
-        if (!ofs.is_open())
-        {
-            return false;
-        }
-
-        ofs << SerializeToJson(cp);
-        return ofs.good();
+        return util::WriteTextFileAtomic(path, SerializeToJson(cp));
     }
     catch (...)
     {

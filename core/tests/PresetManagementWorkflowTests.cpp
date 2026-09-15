@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -2785,6 +2786,20 @@ bool TestFactoryPresetArchiveStartupImport()
         return false;
     }
 
+    const fs::path extractedModelPath = resourceIt->filePath;
+    const auto readExtractedModel = [&extractedModelPath]() {
+        std::ifstream input(extractedModelPath, std::ios::binary);
+        return std::string(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
+    };
+
+    // An older build extracted in place, so a crash or a racing instance could
+    // leave a model cut short. With the archive unchanged the next launch still
+    // has to notice the wrong size and extract it again.
+    {
+        std::ofstream truncate(extractedModelPath, std::ios::binary | std::ios::trunc);
+        truncate << 'n';
+    }
+
     {
         guitarfx::PluginController unchangedController(host);
         unchangedController.Initialize();
@@ -2794,6 +2809,12 @@ bool TestFactoryPresetArchiveStartupImport()
     if (!unchangedPreset || unchangedPreset->name != "Local Factory Override")
     {
         std::cerr << "Unchanged factory archive should not have been re-imported\n";
+        return false;
+    }
+
+    if (readExtractedModel() != "nam")
+    {
+        std::cerr << "A truncated extracted model was not repaired on the next launch\n";
         return false;
     }
 
@@ -2820,6 +2841,12 @@ bool TestFactoryPresetArchiveStartupImport()
     if (!reimportedPreset || reimportedPreset->name != "Archive Factory Preset Updated")
     {
         std::cerr << "Changed factory archive was not re-imported\n";
+        return false;
+    }
+
+    if (readExtractedModel() != "nam2")
+    {
+        std::cerr << "Changed factory archive did not re-extract its model\n";
         return false;
     }
 

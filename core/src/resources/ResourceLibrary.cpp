@@ -1,4 +1,5 @@
 #include "resources/ResourceLibrary.h"
+#include "util/FileIO.h"
 #include "util/PathEncoding.h"
 #include "presets/PresetTypes.h"
 
@@ -485,12 +486,7 @@ void ResourceLibrary::SaveToFile(const std::filesystem::path& path) const
         json.push_back(ResourceToJson(resource, resourcesRoot));
     }
 
-    std::ofstream file(path);
-
-    if (file.is_open())
-    {
-        file << json.dump(2);
-    }
+    [[maybe_unused]] const bool saved = util::WriteTextFileAtomic(path, json.dump(2));
 }
 
 void ResourceLibrary::LoadFromFile(const std::filesystem::path& path)

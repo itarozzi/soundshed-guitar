@@ -18,6 +18,7 @@
 #include "resources/PluginPathUtils.h"
 #include "resources/ResourceLibrary.h"
 #include "util/Base64.h"
+#include "util/FileIO.h"
 #include "util/PathEncoding.h"
 #include "util/PathSanitizer.h"
 #include "util/Wav.h"
@@ -2224,12 +2225,7 @@ void PluginController::HandleCleanupResourceLibraryRequest(const nlohmann::json&
         }
 
         [[maybe_unused]] const auto ensuredLibraryDir = mFileSystem.EnsureDirectory(libraryDir);
-        std::ofstream output(libraryFile);
-
-        if (output)
-        {
-            output << updated.dump(2);
-        }
+        [[maybe_unused]] const bool savedIndex = util::WriteTextFileAtomic(libraryFile, updated.dump(2));
 
         TouchSharedSyncState({"resourceLibrary"});
     }

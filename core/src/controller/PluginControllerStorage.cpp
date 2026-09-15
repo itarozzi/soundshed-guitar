@@ -17,9 +17,10 @@
 #include "PluginController.h"
 
 #include "controller/internal/ControllerUtils.h"
+#include "util/FileIO.h"
+#include "util/PathEncoding.h"
 
 #include <chrono>
-#include <fstream>
 #include <iostream>
 
 using namespace guitarfx::controller_detail;
@@ -213,17 +214,23 @@ void PluginController::SaveUiStorageJson(const std::string& filename, const nloh
 
 bool PluginController::WriteFile(const std::filesystem::path& target, const std::vector<std::uint8_t>& data) const
 {
+    // Always atomic, for every caller. Extracted and imported models are parsed by
+    // other plugin instances — several of them start at once when a DAW opens a
+    // project — and an in-place write let them read a file cut off mid-write. The
+    // same holds for a replacement model the engine may be loading, a layout image
+    // the WebView may be fetching, and an export overwriting a file that is open
+    // elsewhere; a failed write now also leaves the previous file intact.
     try
     {
-        std::ofstream ofs(target, std::ios::binary);
+        std::string error;
 
-        if (!ofs.is_open())
+        if (util::WriteFileAtomic(target, data, &error))
         {
-            return false;
+            return true;
         }
 
-        ofs.write(reinterpret_cast<const char*>(data.data()), static_cast<std::streamsize>(data.size()));
-        return true;
+        AppendSessionLog("Failed to write " + util::PathToUtf8(target) + ": " + error);
+        return false;
     }
     catch (const std::exception&)
     {

@@ -73,12 +73,7 @@ void SaveEffectLayoutsSettings(const FileSystem& fileSystem, const nlohmann::jso
     {
         const auto dir = path.parent_path();
         [[maybe_unused]] const auto ensured = fileSystem.EnsureDirectory(dir);
-        std::ofstream output(path);
-
-        if (output)
-        {
-            output << root.dump(2);
-        }
+        [[maybe_unused]] const bool saved = util::WriteTextFileAtomic(path, root.dump(2));
     }
     catch (...)
     {

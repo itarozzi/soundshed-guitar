@@ -2,6 +2,7 @@
 #include "dsp/EffectRegistry.h"
 #include "presets/PresetTypesJson.h"
 #include "resources/ResourceLibrary.h"
+#include "util/FileIO.h"
 
 #include <algorithm>
 #include <filesystem>
@@ -353,15 +354,7 @@ bool CompositeEffectLibrary::SaveDefinition(const CompositeEffectDefinition& def
         std::string filename = def.id + ".json";
         std::filesystem::path filePath = userDir / filename;
 
-        std::ofstream file(filePath);
-
-        if (!file.is_open())
-        {
-            return false;
-        }
-
-        file << j.dump(2);
-        return true;
+        return util::WriteTextFileAtomic(filePath, j.dump(2));
     }
     catch (const std::exception&)
     {

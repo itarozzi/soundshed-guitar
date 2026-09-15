@@ -1,6 +1,7 @@
 # Tests for SoundshedGuitarCore
 
 set(TEST_SOURCES
+    AtomicFileWriteTests.cpp
     AutomationBypassEndToEndTests.cpp
     AutomationSlotMidiToggleTests.cpp
     BiquadNyquistTests.cpp

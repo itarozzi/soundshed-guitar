@@ -1,4 +1,5 @@
 #include "resources/CustomEffectLibrary.h"
+#include "util/FileIO.h"
 
 #include <algorithm>
 #include <fstream>
@@ -227,12 +228,7 @@ void CustomEffectLibrary::SaveToFile(const std::filesystem::path& path) const
         json.push_back(SerializeCustomEffectLibraryEntry(entry));
     }
 
-    std::ofstream file(path);
-
-    if (file.is_open())
-    {
-        file << json.dump(2);
-    }
+    [[maybe_unused]] const bool saved = util::WriteTextFileAtomic(path, json.dump(2));
 }
 
 void CustomEffectLibrary::LoadFromStore(storage::JsonStore& store)

@@ -1,6 +1,7 @@
 #include "storage/StorageMigration.h"
 
 #include "storage/JsonStore.h"
+#include "util/FileIO.h"
 #include "util/PathEncoding.h"
 
 #include <nlohmann/json.hpp>
@@ -8,6 +9,7 @@
 #include <chrono>
 #include <fstream>
 #include <iostream>
+#include <sstream>
 
 namespace guitarfx::storage
 {
@@ -53,13 +55,7 @@ void WriteLegacyTreeMarker(const std::filesystem::path& settingsDirectory, const
 {
     try
     {
-        std::ofstream marker(settingsDirectory / "MIGRATED-TO-soundshed-db.txt");
-
-        if (!marker.is_open())
-        {
-            return;
-        }
-
+        std::ostringstream marker;
         marker << "The JSON files in this folder were imported into a database on " << NowMillis() << " (unix ms).\n\n"
                << "  database: " << util::PathToUtf8(dbPath) << "\n"
                << "  items:    " << itemsImported << "\n\n"
@@ -67,6 +63,9 @@ void WriteLegacyTreeMarker(const std::filesystem::path& settingsDirectory, const
                << "The running app no longer reads or writes them, so they are frozen at the\n"
                << "state the library was in at the moment of the upgrade. Editing them has no\n"
                << "effect; deleting them loses the ability to downgrade, nothing else.\n";
+
+        [[maybe_unused]] const bool written =
+            util::WriteTextFileAtomic(settingsDirectory / "MIGRATED-TO-soundshed-db.txt", marker.str());
     }
     catch (const std::exception&)
     {

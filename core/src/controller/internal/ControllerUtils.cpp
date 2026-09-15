@@ -13,7 +13,6 @@
 #include <cmath>
 #include <ctime>
 #include <deque>
-#include <fstream>
 #include <iomanip>
 #include <limits>
 #include <random>
@@ -252,12 +251,7 @@ void SaveJsonFile(const guitarfx::FileSystem& fileSystem, const std::filesystem:
     try
     {
         [[maybe_unused]] const auto ensuredParent = fileSystem.EnsureDirectory(path.parent_path());
-        std::ofstream output(path);
-
-        if (output.is_open())
-        {
-            output << payload.dump(2);
-        }
+        [[maybe_unused]] const bool saved = guitarfx::util::WriteTextFileAtomic(path, payload.dump(2));
     }
     catch (const std::exception&)
     {

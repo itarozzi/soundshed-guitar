@@ -689,6 +689,8 @@ class PluginController
     /// running — see ProcessAudioLocked. Defined in PluginControllerRiffs.cpp.
     void ProcessRiffCaptureBlock(float** inputs, int numSamples);
 
+    /// Atomic: readers see the old file or all of the new one (util::WriteFileAtomic).
+    /// Defined in PluginControllerStorage.cpp.
     bool WriteFile(const std::filesystem::path& target, const std::vector<std::uint8_t>& data) const;
 
     void AppendSessionLog(const std::string& message) const;

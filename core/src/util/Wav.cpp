@@ -1,6 +1,7 @@
 #include "Wav.h"
 
 #include "dsp/BlockSincResampler.h"
+#include "util/FileIO.h"
 
 #include <algorithm>
 #include <array>
@@ -370,15 +371,7 @@ bool WriteStereo16BitWav(const std::filesystem::path& path, const std::vector<fl
     try
     {
         std::filesystem::create_directories(path.parent_path());
-        std::ofstream output(path, std::ios::binary);
-
-        if (!output)
-        {
-            return false;
-        }
-
-        output.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
-        return static_cast<bool>(output);
+        return WriteFileAtomic(path, bytes);
     }
     catch (...)
     {

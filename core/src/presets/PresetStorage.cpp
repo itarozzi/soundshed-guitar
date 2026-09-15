@@ -2,6 +2,7 @@
 #include "presets/PresetTypesJson.h"
 #include "dsp/EffectRegistry.h"
 #include "dsp/EffectGuids.h"
+#include "util/FileIO.h"
 #include "util/PathEncoding.h"
 #include <nlohmann/json.hpp>
 #include <fstream>
@@ -621,12 +622,6 @@ bool PresetStorage::SaveToFile(const Preset& preset, const std::filesystem::path
     try
     {
         std::filesystem::create_directories(path.parent_path());
-        std::ofstream file(path);
-
-        if (!file.is_open())
-        {
-            return false;
-        }
 
         const std::optional<std::filesystem::path> baseDirectory = path.parent_path();
         Preset normalizedPreset = preset;
@@ -711,8 +706,7 @@ bool PresetStorage::SaveToFile(const Preset& preset, const std::filesystem::path
             }
         }
 
-        file << json.dump(2);
-        return true;
+        return util::WriteTextFileAtomic(path, json.dump(2));
     }
     catch (const std::exception&)
     {
