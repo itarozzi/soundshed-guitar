@@ -22,13 +22,30 @@ void MessageDispatcher::Dispatch(PluginController& c, const std::string& jsonMes
         return; // Ignore malformed JSON
     }
 
-    const std::string type = msg.value("type", "");
+    // A message can parse and still hold a field of the wrong JSON type. json::value() then
+    // throws type_error, here for a non-string "type" or in whichever handler reads the field.
+    // Uncaught, that terminates the app, so log the message and drop it instead.
+    // nlohmann::json::exception derives from std::exception, so one handler covers both.
+    std::string type;
 
-    if (type.empty())
+    try
     {
-        return;
-    }
+        type = msg.value("type", "");
 
+        if (!type.empty())
+        {
+            DispatchByType(c, msg, type);
+        }
+    }
+    catch (const std::exception& e)
+    {
+        c.AppendSessionLog("Dropped UI message type=" + (type.empty() ? std::string{"(unknown)"} : type) + ": " +
+                           e.what());
+    }
+}
+
+void MessageDispatcher::DispatchByType(PluginController& c, const nlohmann::json& msg, const std::string& type)
+{
     if (DispatchStateAndLists(c, msg, type))
     {
         return;
