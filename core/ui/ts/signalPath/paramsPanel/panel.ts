@@ -6,6 +6,7 @@
 import { EffectGuids } from "../../effectGuids.js";
 import { GRAPHIC_EQ_FREQUENCIES, graphicEqFrequencyBounds } from "../../eqCurve.js";
 import { isNodeBypassed } from "../../graphNodes.js";
+import { renderIcon } from "../../iconAssets.js";
 import { resolveLayoutForNode } from "../../layoutPreferences.js";
 import { formatParamValue, renderCustomLayout, renderCustomLayoutBackdrop } from "../../layoutRenderer.js";
 import { EffectTypeRegistry, getNodeEffectInfo } from "../../presetV2.js";
@@ -451,7 +452,7 @@ export function showNodeParamsPanel(node: GraphNode, preset: Preset): void {
   // would otherwise be denied presets despite having plenty to save.
   const hasSavableParams = (typeInfo?.parameters?.length ?? 0) > 0;
   const effectPresetsButton = hasSavableParams
-    ? `<button class="default-effect-shell-chip default-effect-shell-chip-presets" type="button" data-effect-presets-open title="Factory and saved presets for this effect" aria-label="Effect presets" aria-haspopup="dialog">Presets</button>`
+    ? `<button class="default-effect-shell-chip default-effect-shell-chip-presets" type="button" data-effect-presets-open title="Factory and saved presets for this effect" aria-label="Effect presets" aria-haspopup="dialog" aria-expanded="false"><span>Presets</span>${renderIcon("chevron-down", "default-effect-shell-chip-caret")}</button>`
     : "";
 
   nodeParamsPanelElement.innerHTML = `

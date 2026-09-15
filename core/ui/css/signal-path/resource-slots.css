@@ -348,18 +348,48 @@
   font-weight: 700;
 }
 
-/* "Presets" chip in the effect header. Reads as an action rather than a status
-   badge, so it is tinted and keeps a pointer cursor. */
+/* The presets trigger opens a list, so it is drawn as a compact dropdown — sentence-case
+   label, input surface, caret — rather than as one more status badge beside it. */
 .default-effect-shell-chip-presets {
-  cursor: pointer;
-  border-color: rgba(190, 204, 236, 0.26);
+  gap: 6px;
+  padding: 0 6px 0 10px;
+  border-radius: var(--radius-md);
+  border-color: var(--border-medium, rgba(190, 204, 236, 0.26));
+  background: var(--bg-input, rgba(10, 12, 19, 0.88));
   color: rgba(235, 240, 250, 0.95);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: normal;
+  text-transform: none;
+  cursor: pointer;
   transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
 }
 
-.default-effect-shell-chip-presets:hover {
+.default-effect-shell-chip-caret {
+  flex: 0 0 auto;
+  width: 12px;
+  height: 12px;
+  opacity: 0.75;
+  background-color: currentColor;
+  -webkit-mask-image: var(--icon-url);
+  mask-image: var(--icon-url);
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  transition: transform 0.15s ease;
+}
+
+.default-effect-shell-chip-presets:hover,
+.default-effect-shell-chip-presets[aria-expanded="true"] {
   border-color: var(--accent-primary);
   color: #fff;
+}
+
+.default-effect-shell-chip-presets[aria-expanded="true"] .default-effect-shell-chip-caret {
+  transform: rotate(180deg);
 }
 
 .default-effect-shell-chip-presets:focus-visible {
