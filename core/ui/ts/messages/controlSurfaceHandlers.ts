@@ -30,8 +30,13 @@ export function onMidiLog(payload: IncomingPayload): void {
 }
 
 export function onMidiLearnCapture(payload: IncomingPayload): void {
-  const capturePayload = payload as { slotId?: string };
+  const capturePayload = payload as { slotId?: string; eventType?: number; channel?: number; controller?: number };
   if (typeof capturePayload.slotId === "string") {
-    handleMidiLearnCapture(capturePayload.slotId);
+    handleMidiLearnCapture({
+      slotId: capturePayload.slotId,
+      eventType: capturePayload.eventType ?? 0,
+      channel: capturePayload.channel ?? 0,
+      controller: capturePayload.controller ?? 0,
+    });
   }
 }

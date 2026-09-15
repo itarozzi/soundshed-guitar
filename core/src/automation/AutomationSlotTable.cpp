@@ -26,6 +26,24 @@ bool IsBypassNodeAddress(const std::string& address)
 
     return paramId == "bypassed" || paramId == "bypass" || paramId == "enabled";
 }
+
+/// Maps a slot's 0..1 value onto the range an effect declares for a parameter, snapped to
+/// the parameter's step, or to a whole index for an enum.
+double DenormalizeNodeParam(const ParameterDef& def, double normalized)
+{
+    double native = def.minValue + normalized * (def.maxValue - def.minValue);
+
+    if (def.step > 0.0)
+    {
+        native = def.minValue + std::round((native - def.minValue) / def.step) * def.step;
+    }
+    else if (!def.labels.empty())
+    {
+        native = std::round(native);
+    }
+
+    return std::clamp(native, std::min(def.minValue, def.maxValue), std::max(def.minValue, def.maxValue));
+}
 } // namespace
 
 // ── AutomationSlot copy helpers ──────────────────────────────────────────
@@ -810,9 +828,16 @@ bool AutomationSlotTable::ApplySlotLocked(AutomationSlot& slot)
                 return ok;
             }
 
-            // Compute native value — node params use 0..1 range directly
-            // (the effect's SetParam already knows the parameter's native range)
-            const double native = static_cast<double>(slot.value.load());
+            // Every source hands a slot a 0..1 value, but an effect takes its parameters in
+            // native units. A parameter the effect does not declare has no range to map onto,
+            // so it keeps the 0..1 value.
+            double native = static_cast<double>(slot.value.load());
+
+            if (const auto* def = mEffectRegistry ? mEffectRegistry->FindParameter(effectType, paramId) : nullptr)
+            {
+                native = DenormalizeNodeParam(*def, native);
+            }
+
             const bool ok = mMixer->SetNodeParamByType(effectType, paramId, native);
 
             if (ok && mOnNodeParamApplied)

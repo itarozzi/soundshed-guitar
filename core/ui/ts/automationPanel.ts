@@ -11,6 +11,7 @@ import { uiState } from "./state.js";
 import type { AutomationSlot, AutomationRegistryEntry } from "./types.js";
 import { EffectTypeRegistry } from "./presetV2.js";
 import { getXMarkSvg } from "./iconAssets.js";
+import { describeMidiMap, formatMidiChannel } from "./midiMapping.js";
 import { escapeHtml } from "./utils.js";
 
 let modalInitialized = false;
@@ -51,9 +52,58 @@ export function applyAutomationState(next: Partial<AutomationState>): void {
   renderKeyboardPanel();
 }
 
-export function handleMidiLearnCapture(_slotId: string): void {
+// ── MIDI learn ────────────────────────────────────────────────────────────
+// One slot listens at a time, whether it was armed here or from a control's
+// right-click menu (midiLearnMenu.ts), so the panel always shows the truth.
+
+/** The event a learn captured, as the engine reports it in `midiLearnCapture`. */
+export interface MidiLearnCapture {
+  slotId: string;
+  eventType: number;
+  channel: number;
+  controller: number;
+}
+
+/**
+ * Told of every change to the armed learn: `armedSlotId` is the slot now listening
+ * (null when none is), and `capture` is set when the change is a learn completing.
+ */
+export type MidiLearnListener = (armedSlotId: string | null, capture: MidiLearnCapture | null) => void;
+
+const midiLearnListeners = new Set<MidiLearnListener>();
+
+export function onMidiLearnChange(listener: MidiLearnListener): void {
+  midiLearnListeners.add(listener);
+}
+
+function notifyMidiLearnChange(capture: MidiLearnCapture | null): void {
+  midiLearnListeners.forEach((listener) => listener(pendingLearnSlotId, capture));
+}
+
+export function getArmedMidiLearnSlotId(): string | null {
+  return pendingLearnSlotId;
+}
+
+/** Listen for the next MIDI event on a slot, replacing any learn already armed. */
+export function armMidiLearn(slotId: string): void {
+  pendingLearnSlotId = slotId;
+  postMessage({ type: "armMidiLearn", slotId });
+  renderAutomationPanel();
+  notifyMidiLearnChange(null);
+}
+
+export function cancelMidiLearn(): void {
+  if (!pendingLearnSlotId) return;
+  pendingLearnSlotId = null;
+  postMessage({ type: "cancelMidiLearn" });
+  renderAutomationPanel();
+  notifyMidiLearnChange(null);
+}
+
+export function handleMidiLearnCapture(capture: MidiLearnCapture): void {
   pendingLearnSlotId = null;
   renderAutomationPanel();
+  notifyMidiLearnChange(capture);
 }
 
 export function initializeAutomationPanel(): void {
@@ -62,7 +112,6 @@ export function initializeAutomationPanel(): void {
 
   wireModal();
   wireTabs();
-  requestAutomationState();
   renderAutomationPanel();
   renderKeyboardPanel();
   renderMidiLog();
@@ -123,10 +172,7 @@ function closeMidiModal(): void {
   modal.style.display = "none";
   // Stop backend MIDI-log forwarding while the panel is closed.
   postMessage({ type: "setMidiLogEnabled", enabled: false });
-  if (pendingLearnSlotId) {
-    pendingLearnSlotId = null;
-    postMessage({ type: "cancelMidiLearn" });
-  }
+  cancelMidiLearn();
   pendingKeyLearnSlotId = null;
   editingSlotId = null;
   renderAutomationPanel();
@@ -172,7 +218,13 @@ function wireTabs(): void {
 
 // ── State requests ────────────────────────────────────────────────────────
 
-function requestAutomationState(): void {
+/**
+ * Ask the engine for the slot table and parameter registry. main.ts sends this at
+ * startup once IPlugReceiveData is registered: sent from initializeAutomationPanel,
+ * which runs earlier, the reply was lost, and the registry stayed empty (and the
+ * right-click MIDI Learn menu absent) until the MIDI panel was first opened.
+ */
+export function requestAutomationState(): void {
   postMessage({ type: "getAutomation" });
 }
 
@@ -222,26 +274,13 @@ function renderAutomationPanel(): void {
   wireSlotEvents(container);
 }
 
-/**
- * MIDI channels are stored 0-15 on the wire (and -1 for "any"), but musicians
- * and hardware label them 1-16 — always display the 1-based number.
- */
-function formatMidiChannel(channel: number): string {
-  return channel < 0 ? "any" : String(channel + 1);
-}
-
 function renderSlotRow(slot: AutomationSlot, registry: AutomationRegistryEntry[]): string {
   const entry = registry.find((e) => e.address === slot.address);
   const rangeText = entry ? `(${entry.min}..${entry.max}${entry.unit ? " " + entry.unit : ""})` : "";
   const isLearn = pendingLearnSlotId === slot.slotId;
   const showTestButton = Boolean(entry?.isTrigger) || !slot.isDefault;
 
-  let midiText = "—";
-  if (slot.midiMap) {
-    const eventType = ["CC", "PC", "NoteOn", "NoteOff", "PBend"][slot.midiMap.eventType] || "CC";
-    const mode = ["Abs", "Rel", "Toggle", "Pickup"][slot.midiMap.mode] || "Abs";
-    midiText = `${eventType} ${slot.midiMap.controller} ch${formatMidiChannel(slot.midiMap.channel)} ${mode}`;
-  }
+  const midiText = slot.midiMap ? describeMidiMap(slot.midiMap) : "—";
 
   let keyText = "—";
   if (slot.keyMap && slot.keyMap.length > 0) {
@@ -274,13 +313,10 @@ function wireSlotEvents(container: HTMLElement): void {
     btn.addEventListener("click", () => {
       const slotId = btn.dataset.slotId || "";
       if (pendingLearnSlotId === slotId) {
-        pendingLearnSlotId = null;
-        postMessage({ type: "cancelMidiLearn" });
+        cancelMidiLearn();
       } else {
-        pendingLearnSlotId = slotId;
-        postMessage({ type: "armMidiLearn", slotId });
+        armMidiLearn(slotId);
       }
-      renderAutomationPanel();
       blurActive();
     });
   });

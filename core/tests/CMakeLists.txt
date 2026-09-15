@@ -3,6 +3,7 @@
 set(TEST_SOURCES
     AtomicFileWriteTests.cpp
     AutomationBypassEndToEndTests.cpp
+    AutomationNodeParamRangeTests.cpp
     AutomationSlotMidiToggleTests.cpp
     BiquadNyquistTests.cpp
     BoundaryNodeGainTests.cpp

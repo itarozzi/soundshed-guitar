@@ -111,6 +111,11 @@ class EffectRegistry
     [[nodiscard]] bool HasType(const std::string& type) const;
     [[nodiscard]] std::optional<EffectTypeInfo> GetTypeInfo(const std::string& type) const;
 
+    /// The parameter `type` declares under `paramId`, or nullptr. Points into the registry
+    /// rather than copying, so it allocates nothing and automation can call it on the audio
+    /// thread. `type` may be a canonical id or an alias.
+    [[nodiscard]] const ParameterDef* FindParameter(const std::string& type, const std::string& paramId) const;
+
   private:
     EffectRegistry() = default;
 

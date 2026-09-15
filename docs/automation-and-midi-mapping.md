@@ -239,6 +239,8 @@ void PluginController::ApplyAutomationLocked(const std::string& slotId, double n
 
 The `node.*` case is handled by *one* registry handler registered at startup that pattern-matches the `node.` prefix, not by per-node entries. That handler does the graph lookup and the `SetNodeParam` call. So the registry stays tiny (global + setlist entries only), and node targets are convention-based.
 
+A slot value is 0..1 whichever source wrote it, but effects take parameters in native units. For a `node.*` target the value is mapped onto the range the effect declares for that parameter (`ParameterDef::minValue..maxValue`, snapped to `step`, or to a whole index for an enum) before `SetNodeParam`, so CC 0..127 sweeps a ±24 dB gain knob end to end. A parameter the effect does not declare gets the 0..1 value unchanged. The lookup is `EffectRegistry::FindParameter`, which returns a pointer rather than a copy because this runs on the audio thread. `AutomationNodeParamRangeTests` covers it.
+
 `MultiPresetMixer::SetNodeParam(nodeId, paramId, value, alreadyLocked)` is a new method that reuses the existing per-node parameter application code (today routed through `HandleUpdateSignalPathNodeParamRequest`), with the mutex assumption made explicit. No new DSP code.
 
 ## 5. MIDI Handling
@@ -287,7 +289,19 @@ Standalone: JUCE's `AudioDeviceManager` (already used via `juce_showStandaloneAu
 
 Each slot row has a "Learn" button. When armed, the next matching MIDI event becomes that slot's `MidiControlMap`. The engine forwards the raw event to the UI as `midiLearnCapture {slotId, eventType, channel, controller}` so the UI can show the captured values and let the user confirm/cancel.
 
-`channel` is 0-based everywhere in the engine, storage, and messaging (0-15, or -1 for "any"), matching the MIDI status byte. The UI displays it 1-based (1-16, or "any") — the convention users see on hardware — via `formatMidiChannel()` in `core/ui/ts/automationPanel.ts`. Keep the conversion at the display boundary only.
+The same learn is reachable from the control itself: right-click → **MIDI Learn…** on
+
+- the input and output level knobs (`global.inputTrim`, `global.outputTrim`),
+- any effect parameter its effect type declares (`node.<effectType>.<paramKey>`) — knobs, toggles and sliders, in the default and custom layouts,
+- a setlist pad or a slot in the setlist editor (`setlist.preset1`..`8`), the bank arrows (`setlist.bankUp`/`bankDown`) and the current-bank panel (`setlist.bankSelect`).
+
+`core/ui/ts/midiLearnMenu.ts` arms the slot that already drives that address — a default slot first, then a custom one — or, for an effect parameter nothing drives yet, creates a custom slot for it (within `kMaxCustomSlots`) and arms that. While it listens an indicator offers Cancel, and Escape cancels too. The captured mapping lands in the slot table the panel edits, and learning again replaces it. Which address an element drives is `resolveMidiLearnTarget()` in `core/ui/ts/midiMapping.ts`. No message was added for this: the menu uses `setAutomationSlot` and `armMidiLearn`, and the learn state lives in `automationPanel.ts` so the panel's Learn button and the menu never disagree about which slot is listening.
+
+Two consequences of existing rules are worth knowing. A `node.*` address names an effect type, so learning on the second of two identical effects drives the first (see §2). A custom slot created at runtime is not a DAW parameter until the plugin is next instantiated — the same as one added from the panel, since the parameter layout is fixed at construction (§3). Parameters of hosted plugins and WASM modules belong to the loaded module rather than the effect type, and the chain's Input and Output routing nodes are defined only in the UI (`ROUTING_NODE_EFFECTS` in `presetV2.ts`), so the engine has no range for their gain. None of those are offered.
+
+The automation state (slots plus registry) is requested from `main.ts` once `IPlugReceiveData` is registered. Requested earlier, the reply was lost; the `state` broadcast carries slots but not the registry, so the registry stayed empty until the MIDI panel was first opened — and the menu, which needs the registry, did not appear.
+
+`channel` is 0-based everywhere in the engine, storage, and messaging (0-15, or -1 for "any"), matching the MIDI status byte. The UI displays it 1-based (1-16, or "any") — the convention users see on hardware — via `formatMidiChannel()` in `core/ui/ts/midiMapping.ts`. Keep the conversion at the display boundary only.
 
 ## 5b. Keyboard Handling
 

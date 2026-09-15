@@ -403,3 +403,121 @@
   color: #fff;
   animation: pulse-learn 1.2s ease-in-out infinite;
 }
+
+/* Right-click "MIDI Learn…" menu and its listening indicator (midiLearnMenu.ts).
+   Both sit above modals: the menu can open from inside one. */
+.midi-learn-menu {
+  position: fixed;
+  z-index: calc(var(--z-modal, 1000) + 10);
+  min-width: 200px;
+  max-width: min(320px, calc(100vw - 8px));
+  padding: 6px;
+  border: 1px solid var(--modal-border);
+  border-radius: var(--radius-lg);
+  background: var(--modal-bg-raised);
+  box-shadow: 0 18px 36px rgba(0, 0, 0, 0.42);
+  color: var(--modal-text);
+  font-size: 12px;
+}
+
+.midi-learn-menu-title {
+  padding: 4px 8px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--modal-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.midi-learn-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--modal-text);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.midi-learn-menu-item:hover:not(:disabled),
+.midi-learn-menu-item:focus-visible {
+  background: var(--color-accent);
+  color: #fff;
+  outline: none;
+}
+
+.midi-learn-menu-item:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.midi-learn-menu-hint {
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  font-weight: 400;
+  opacity: 0.75;
+  white-space: nowrap;
+}
+
+.midi-learn-status {
+  position: fixed;
+  left: 50%;
+  bottom: 88px;
+  transform: translateX(-50%);
+  z-index: calc(var(--z-modal, 1000) + 10);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: calc(100vw - 32px);
+  padding: 6px 6px 6px 14px;
+  border: 1px solid var(--color-accent);
+  border-radius: 999px;
+  background: var(--modal-bg-raised);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.4);
+  color: var(--modal-text);
+  font-size: 12px;
+}
+
+.midi-learn-status[hidden] {
+  display: none;
+}
+
+.midi-learn-status-dot {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--color-accent);
+  animation: pulse-learn 1.2s ease-in-out infinite;
+}
+
+.midi-learn-status-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.midi-learn-status-cancel {
+  flex-shrink: 0;
+  padding: 4px 12px;
+  border: 1px solid var(--modal-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--modal-text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.midi-learn-status-cancel:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}

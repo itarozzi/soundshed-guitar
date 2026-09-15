@@ -118,4 +118,37 @@ std::optional<EffectTypeInfo> EffectRegistry::GetTypeInfo(const std::string& typ
 
     return std::nullopt;
 }
+
+const ParameterDef* EffectRegistry::FindParameter(const std::string& type, const std::string& paramId) const
+{
+    // Resolve() returns a copy; follow the alias in place instead so nothing allocates.
+    auto it = mTypeInfo.find(type);
+
+    if (it == mTypeInfo.end())
+    {
+        const auto alias = mAliases.find(type);
+
+        if (alias == mAliases.end())
+        {
+            return nullptr;
+        }
+
+        it = mTypeInfo.find(alias->second);
+
+        if (it == mTypeInfo.end())
+        {
+            return nullptr;
+        }
+    }
+
+    for (const auto& param : it->second.parameters)
+    {
+        if (param.id == paramId)
+        {
+            return &param;
+        }
+    }
+
+    return nullptr;
+}
 } // namespace guitarfx
