@@ -40,6 +40,7 @@ void PluginController::HandleGetAutomationRequest()
 
     msg["registry"] = std::move(registry);
     msg["maxCustomSlots"] = kMaxCustomSlots;
+    msg["maxPresetSlots"] = kMaxPresetSlotsPerPreset;
     SendMessageToUI(msg.dump());
 }
 
@@ -54,6 +55,14 @@ void PluginController::HandleSetAutomationSlotRequest(const nlohmann::json& payl
 
     const auto* existing = mAutomationSlots.FindSlot(slotId);
     const bool isDefault = existing && existing->isDefault;
+
+    // A per-preset MIDI mapping: an existing one keeps its preset, a new one names it.
+    std::string presetId = existing ? existing->presetId : std::string{};
+
+    if (!existing && payload.contains("presetId") && payload["presetId"].is_string())
+    {
+        presetId = payload["presetId"].get<std::string>();
+    }
 
     std::optional<std::string> label;
 
@@ -129,6 +138,10 @@ void PluginController::HandleSetAutomationSlotRequest(const nlohmann::json& payl
         {
             mAutomationSlots.SetDefaultSlotOverrides(slotId, label, midiMap, keyMaps);
         }
+        else if (!presetId.empty())
+        {
+            mAutomationSlots.SetPresetSlot(slotId, presetId, label, address, midiMap);
+        }
         else
         {
             mAutomationSlots.SetCustomSlot(slotId, label, address, nodeSelector, midiMap, keyMaps);
@@ -168,6 +181,35 @@ void PluginController::HandleRemoveAutomationSlotRequest(const nlohmann::json& p
     }
     SaveUiStorageJson("automation.json", mAutomationSlots.SaveToJson());
     HandleGetAutomationRequest();
+}
+
+void PluginController::ForgetPresetAutomation(const std::string& presetId)
+{
+    int removed = 0;
+    {
+        std::lock_guard<std::mutex> lock(mDSPMutex);
+        removed = mAutomationSlots.RemovePresetSlots(presetId);
+    }
+
+    if (removed > 0)
+    {
+        SaveUiStorageJson("automation.json", mAutomationSlots.SaveToJson());
+        HandleGetAutomationRequest();
+    }
+}
+
+void PluginController::SyncAutomationActivePreset()
+{
+    // The id the state broadcast reports as activePresetId, so "this preset" is the same
+    // preset to the engine and to the UI. Locked only on a change: this runs every idle tick,
+    // and the audio thread leaves MIDI queued for a block whenever it finds the lock held.
+    const std::string activeId = mActivePreset ? mActivePresetId : std::string{};
+
+    if (activeId != mAutomationSlots.GetActivePresetId())
+    {
+        std::lock_guard<std::mutex> lock(mDSPMutex);
+        mAutomationSlots.SetActivePresetId(activeId);
+    }
 }
 
 void PluginController::HandleSetAutomationValueRequest(const nlohmann::json& payload)

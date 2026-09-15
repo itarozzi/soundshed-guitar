@@ -404,6 +404,8 @@ void PluginController::OnIdle()
         }
     }
 
+    SyncAutomationActivePreset();
+
     // MIDI learn capture polling
     if (mAutomationSlots.IsMidiLearnArmed())
     {
@@ -417,10 +419,13 @@ void PluginController::OnIdle()
             const auto slotId = mAutomationSlots.GetMidiLearnSlot();
             auto captured = mAutomationSlots.PollMidiLearnCapture();
 
-            if (captured.has_value() && !slotId.empty())
+            // A slot removed while it listened (a per-preset mapping cleared mid-learn, say) has
+            // nothing to commit to: committing would recreate it as an addressless custom slot.
+            if (captured.has_value() && !slotId.empty() && mAutomationSlots.FindSlot(slotId))
             {
                 const auto* slot = mAutomationSlots.FindSlot(slotId);
                 const bool isDefault = slot && slot->isDefault;
+                const auto presetId = slot ? slot->presetId : std::string{};
                 const auto label = slot ? std::optional<std::string>(slot->label) : std::nullopt;
                 const auto address = slot ? std::optional<std::string>(slot->address) : std::nullopt;
                 const auto nodeSelector = slot ? std::optional<std::string>(slot->nodeSelector) : std::nullopt;
@@ -429,6 +434,10 @@ void PluginController::OnIdle()
                 if (isDefault)
                 {
                     mAutomationSlots.SetDefaultSlotOverrides(slotId, label, *captured, keyMaps);
+                }
+                else if (!presetId.empty())
+                {
+                    mAutomationSlots.SetPresetSlot(slotId, presetId, label, address, *captured);
                 }
                 else
                 {

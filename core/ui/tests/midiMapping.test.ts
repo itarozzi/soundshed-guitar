@@ -3,13 +3,16 @@ import { EffectGuids } from "../ts/effectGuids.js";
 import {
   buildMidiLearnMenuItems,
   countCustomSlots,
+  countPresetSlots,
   describeMidiMap,
+  findPresetSlotForAddress,
   findSlotForAddress,
   formatMidiChannel,
   nextCustomSlotId,
+  nextPresetSlotId,
   resolveMidiLearnTarget,
 } from "../ts/midiMapping.js";
-import type { MidiLearnTargetContext } from "../ts/midiMapping.js";
+import type { MidiLearnMenuState, MidiLearnTargetContext } from "../ts/midiMapping.js";
 import type { EffectTypeInfo } from "../ts/presetV2.js";
 import type { AutomationRegistryEntry, AutomationSlot, GraphNode } from "../ts/types.js";
 
@@ -196,7 +199,17 @@ describe("buildMidiLearnMenuItems", () => {
     ...slot("custom.3", "node.amp.gain", false),
     midiMap: { eventType: 0, channel: 0, controller: 7, mode: 0, sensitivity: 0.1, pickupRange: 0.1 },
   };
-  const menu = (state: Parameters<typeof buildMidiLearnMenuItems>[0]) => buildMidiLearnMenuItems(state)
+  const noMappings: MidiLearnMenuState = {
+    slot: undefined,
+    presetSlot: undefined,
+    presetId: null,
+    armedSlotId: null,
+    customSlotCount: 0,
+    maxCustomSlots: 16,
+    presetSlotCount: 0,
+    maxPresetSlots: 16,
+  };
+  const menu = (state: Partial<MidiLearnMenuState>) => buildMidiLearnMenuItems({ ...noMappings, ...state })
     .map((item) => `${item.action}${item.disabled ? " (disabled)" : ""}${item.hint ? `: ${item.hint}` : ""}`);
 
   it("offers only learn when the control has no MIDI mapping", () => {
@@ -217,6 +230,55 @@ describe("buildMidiLearnMenuItems", () => {
 
   it("disables learn on an undriven control when every custom slot is taken", () => {
     expect(menu({ slot: undefined, armedSlotId: null, customSlotCount: 16, maxCustomSlots: 16 })).toEqual(["learn (disabled): All 16 custom slots in use"]);
+  });
+
+  it("offers a per-preset learn only while a preset is active", () => {
+    expect(menu({ presetId: "presetA" })).toEqual(["learn", "learnPreset"]);
+    expect(menu({ presetId: null })).toEqual(["learn"]);
+  });
+
+  it("clears the active preset's own mapping before the global one", () => {
+    const presetMapped: AutomationSlot = {
+      ...slot("preset.1", "node.amp.gain", false),
+      presetId: "presetA",
+      midiMap: { eventType: 0, channel: 0, controller: 11, mode: 0, sensitivity: 0.1, pickupRange: 0.1 },
+    };
+    expect(menu({ slot: mapped, presetSlot: presetMapped, presetId: "presetA" }))
+      .toEqual(["learn", "learnPreset", "clear: CC 11 ch1 Abs · this preset"]);
+    expect(menu({ slot: mapped, presetSlot: undefined, presetId: "presetA" }))
+      .toEqual(["learn", "learnPreset", "clear: CC 7 ch1 Abs"]);
+    // While the preset's slot listens: cancel, and the preset's clear still first.
+    expect(menu({ slot: mapped, presetSlot: presetMapped, presetId: "presetA", armedSlotId: "preset.1" }))
+      .toEqual(["cancel: Listening…", "clear: CC 11 ch1 Abs · this preset"]);
+  });
+
+  it("disables the per-preset learn when the preset's slots are all taken", () => {
+    expect(menu({ presetId: "presetA", presetSlotCount: 16, maxPresetSlots: 16 }))
+      .toEqual(["learn", "learnPreset (disabled): All 16 preset slots in use"]);
+  });
+});
+
+describe("per-preset slots", () => {
+  const presetSlot = (slotId: string, presetId: string, address: string): AutomationSlot => ({ ...slot(slotId, address, false), presetId });
+  const slots = [
+    slot("default.inputLevel", "global.inputTrim", true),
+    slot("custom.1", "node.amp.gain", false),
+    presetSlot("preset.1", "presetA", "node.amp.gain"),
+    presetSlot("preset.7", "presetB", "node.amp.gain"),
+  ];
+
+  it("stay out of global lookups and the custom slot count", () => {
+    expect(findSlotForAddress(slots, "node.amp.gain")?.slotId).toBe("custom.1");
+    expect(findSlotForAddress([presetSlot("preset.1", "presetA", "node.amp.bass")], "node.amp.bass")).toBeUndefined();
+    expect(countCustomSlots(slots)).toBe(1);
+  });
+
+  it("are found and counted per preset, with ids of their own", () => {
+    expect(findPresetSlotForAddress(slots, "presetB", "node.amp.gain")?.slotId).toBe("preset.7");
+    expect(findPresetSlotForAddress(slots, "presetC", "node.amp.gain")).toBeUndefined();
+    expect(countPresetSlots(slots, "presetA")).toBe(1);
+    expect(nextPresetSlotId(slots)).toBe("preset.8");
+    expect(nextCustomSlotId(slots)).toBe("custom.2");
   });
 });
 

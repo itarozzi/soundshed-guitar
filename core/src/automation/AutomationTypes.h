@@ -81,6 +81,7 @@ struct AutomationSlot
     std::string address;      ///< ParamAddress: "global.inputTrim", "node.amp_nam.inputGain", "setlist.preset"
     std::string nodeSelector; ///< Optional selector for node.* addresses (empty = first)
     bool isDefault = false;   ///< Default slots can't be deleted/readdressed
+    std::string presetId;     ///< Set for a per-preset mapping: MIDI only, live only while that preset is active
 
     std::optional<MidiControlMap> midiMap;
     std::vector<KeyboardMap> keyMaps;
@@ -139,6 +140,10 @@ inline constexpr DefaultSlotDef kDefaultSlots[] = {
 
 /// Maximum number of custom slots (reserved in the DAW parameter layout).
 inline constexpr int kMaxCustomSlots = 16;
+
+/// Maximum number of per-preset MIDI mappings one preset can hold. Per-preset slots are not
+/// DAW parameters, so they do not count against kMaxCustomSlots.
+inline constexpr int kMaxPresetSlotsPerPreset = 16;
 
 /// Number of entries at the front of kDefaultSlots that belong to the DAW
 /// parameter layout as originally shipped.

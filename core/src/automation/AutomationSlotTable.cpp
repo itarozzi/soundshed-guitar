@@ -44,14 +44,47 @@ double DenormalizeNodeParam(const ParameterDef& def, double normalized)
 
     return std::clamp(native, std::min(def.minValue, def.maxValue), std::max(def.minValue, def.maxValue));
 }
+
+nlohmann::json MidiMapToJson(const MidiControlMap& map)
+{
+    nlohmann::json json = nlohmann::json::object();
+    json["eventType"] = static_cast<int>(map.eventType);
+    json["channel"] = map.channel;
+    json["controller"] = map.controller;
+    json["mode"] = static_cast<int>(map.mode);
+    json["sensitivity"] = map.sensitivity;
+    json["pickupRange"] = map.pickupRange;
+    return json;
+}
+
+MidiControlMap MidiMapFromJson(const nlohmann::json& json)
+{
+    MidiControlMap map;
+    map.eventType = static_cast<MidiControlMap::EventType>(json.value("eventType", 0));
+    map.channel = json.value("channel", 0);
+    map.controller = json.value("controller", 0);
+    map.mode = static_cast<MidiControlMap::Mode>(json.value("mode", 0));
+    map.sensitivity = json.value("sensitivity", 0.1f);
+    map.pickupRange = json.value("pickupRange", 0.1f);
+    return map;
+}
+
+/// Whether a mapping listens to this MIDI control. A NoteOn mapping also hears its key's
+/// release, which arrives as NoteOff.
+bool ListensTo(const MidiControlMap& map, MidiControlMap::EventType eventType, int channel, int controller)
+{
+    const bool typeMatches = map.eventType == eventType || (map.eventType == MidiControlMap::EventType::NoteOn &&
+                                                            eventType == MidiControlMap::EventType::NoteOff);
+    return typeMatches && map.controller == controller && (map.channel == -1 || map.channel == channel);
+}
 } // namespace
 
 // ── AutomationSlot copy helpers ──────────────────────────────────────────
 
 AutomationSlot::AutomationSlot(const AutomationSlot& other)
     : slotId(other.slotId), label(other.label), address(other.address), nodeSelector(other.nodeSelector),
-      isDefault(other.isDefault), midiMap(other.midiMap), keyMaps(other.keyMaps), value(other.value.load()),
-      lastSource(other.lastSource.load()), lastNormalized(other.lastNormalized.load()),
+      isDefault(other.isDefault), presetId(other.presetId), midiMap(other.midiMap), keyMaps(other.keyMaps),
+      value(other.value.load()), lastSource(other.lastSource.load()), lastNormalized(other.lastNormalized.load()),
       lastToggleGate(other.lastToggleGate.load()), pendingApply(other.pendingApply.load())
 {
 }
@@ -65,6 +98,7 @@ AutomationSlot& AutomationSlot::operator=(const AutomationSlot& other)
         address = other.address;
         nodeSelector = other.nodeSelector;
         isDefault = other.isDefault;
+        presetId = other.presetId;
         midiMap = other.midiMap;
         keyMaps = other.keyMaps;
         value.store(other.value.load());
@@ -325,14 +359,7 @@ nlohmann::json AutomationSlotTable::SaveToJson() const
 
         if (slot.midiMap)
         {
-            nlohmann::json mm = nlohmann::json::object();
-            mm["eventType"] = static_cast<int>(slot.midiMap->eventType);
-            mm["channel"] = slot.midiMap->channel;
-            mm["controller"] = slot.midiMap->controller;
-            mm["mode"] = static_cast<int>(slot.midiMap->mode);
-            mm["sensitivity"] = slot.midiMap->sensitivity;
-            mm["pickupRange"] = slot.midiMap->pickupRange;
-            o["midiMap"] = std::move(mm);
+            o["midiMap"] = MidiMapToJson(*slot.midiMap);
         }
 
         if (!slot.keyMaps.empty())
@@ -357,7 +384,7 @@ nlohmann::json AutomationSlotTable::SaveToJson() const
 
     for (const auto& slot : mSlots)
     {
-        if (slot.isDefault)
+        if (slot.isDefault || !slot.presetId.empty())
         {
             continue;
         }
@@ -374,14 +401,7 @@ nlohmann::json AutomationSlotTable::SaveToJson() const
 
         if (slot.midiMap)
         {
-            nlohmann::json mm = nlohmann::json::object();
-            mm["eventType"] = static_cast<int>(slot.midiMap->eventType);
-            mm["channel"] = slot.midiMap->channel;
-            mm["controller"] = slot.midiMap->controller;
-            mm["mode"] = static_cast<int>(slot.midiMap->mode);
-            mm["sensitivity"] = slot.midiMap->sensitivity;
-            mm["pickupRange"] = slot.midiMap->pickupRange;
-            s["midiMap"] = std::move(mm);
+            s["midiMap"] = MidiMapToJson(*slot.midiMap);
         }
 
         if (!slot.keyMaps.empty())
@@ -400,6 +420,36 @@ nlohmann::json AutomationSlotTable::SaveToJson() const
     }
 
     j["customSlots"] = std::move(customs);
+
+    // Per-preset MIDI mappings. Written only when there are some, so a document from before
+    // they existed saves back unchanged.
+    nlohmann::json presetSlots = nlohmann::json::array();
+
+    for (const auto& slot : mSlots)
+    {
+        if (slot.presetId.empty())
+        {
+            continue;
+        }
+
+        nlohmann::json s = nlohmann::json::object();
+        s["slotId"] = slot.slotId;
+        s["presetId"] = slot.presetId;
+        s["label"] = slot.label;
+        s["address"] = slot.address;
+
+        if (slot.midiMap)
+        {
+            s["midiMap"] = MidiMapToJson(*slot.midiMap);
+        }
+
+        presetSlots.push_back(std::move(s));
+    }
+
+    if (!presetSlots.empty())
+    {
+        j["presetSlots"] = std::move(presetSlots);
+    }
 
     return j;
 }
@@ -429,14 +479,7 @@ void AutomationSlotTable::LoadFromJson(const nlohmann::json& j)
 
             if (o.contains("midiMap") && o["midiMap"].is_object())
             {
-                MidiControlMap mm;
-                mm.eventType = static_cast<MidiControlMap::EventType>(o["midiMap"].value("eventType", 0));
-                mm.channel = o["midiMap"].value("channel", 0);
-                mm.controller = o["midiMap"].value("controller", 0);
-                mm.mode = static_cast<MidiControlMap::Mode>(o["midiMap"].value("mode", 0));
-                mm.sensitivity = o["midiMap"].value("sensitivity", 0.1f);
-                mm.pickupRange = o["midiMap"].value("pickupRange", 0.1f);
-                slot->midiMap = mm;
+                slot->midiMap = MidiMapFromJson(o["midiMap"]);
             }
 
             if (o.contains("keyMap") && o["keyMap"].is_array())
@@ -469,14 +512,7 @@ void AutomationSlotTable::LoadFromJson(const nlohmann::json& j)
 
             if (cs.contains("midiMap") && cs["midiMap"].is_object())
             {
-                MidiControlMap mm;
-                mm.eventType = static_cast<MidiControlMap::EventType>(cs["midiMap"].value("eventType", 0));
-                mm.channel = cs["midiMap"].value("channel", 0);
-                mm.controller = cs["midiMap"].value("controller", 0);
-                mm.mode = static_cast<MidiControlMap::Mode>(cs["midiMap"].value("mode", 0));
-                mm.sensitivity = cs["midiMap"].value("sensitivity", 0.1f);
-                mm.pickupRange = cs["midiMap"].value("pickupRange", 0.1f);
-                slot.midiMap = mm;
+                slot.midiMap = MidiMapFromJson(cs["midiMap"]);
             }
 
             if (cs.contains("keyMap") && cs["keyMap"].is_array())
@@ -492,6 +528,34 @@ void AutomationSlotTable::LoadFromJson(const nlohmann::json& j)
             }
 
             if (!slot.slotId.empty())
+            {
+                mSlots.push_back(std::move(slot));
+            }
+        }
+    }
+
+    // Per-preset MIDI mappings
+    if (j.contains("presetSlots") && j["presetSlots"].is_array())
+    {
+        for (const auto& ps : j["presetSlots"])
+        {
+            if (!ps.is_object())
+            {
+                continue;
+            }
+
+            AutomationSlot slot;
+            slot.slotId = ps.value("slotId", "");
+            slot.presetId = ps.value("presetId", "");
+            slot.label = ps.value("label", "");
+            slot.address = ps.value("address", "");
+
+            if (ps.contains("midiMap") && ps["midiMap"].is_object())
+            {
+                slot.midiMap = MidiMapFromJson(ps["midiMap"]);
+            }
+
+            if (!slot.slotId.empty() && !slot.presetId.empty() && !FindSlot(slot.slotId))
             {
                 mSlots.push_back(std::move(slot));
             }
@@ -576,7 +640,10 @@ std::vector<std::string> AutomationSlotTable::GetSlotIds() const
 
     for (const auto& s : mSlots)
     {
-        ids.push_back(s.slotId);
+        if (s.presetId.empty())
+        {
+            ids.push_back(s.slotId);
+        }
     }
 
     return ids;
@@ -599,18 +666,17 @@ nlohmann::json AutomationSlotTable::GetSlotsJson() const
         }
 
         sj["isDefault"] = s.isDefault;
+
+        if (!s.presetId.empty())
+        {
+            sj["presetId"] = s.presetId;
+        }
+
         sj["value"] = s.value.load();
 
         if (s.midiMap)
         {
-            nlohmann::json mm = nlohmann::json::object();
-            mm["eventType"] = static_cast<int>(s.midiMap->eventType);
-            mm["channel"] = s.midiMap->channel;
-            mm["controller"] = s.midiMap->controller;
-            mm["mode"] = static_cast<int>(s.midiMap->mode);
-            mm["sensitivity"] = s.midiMap->sensitivity;
-            mm["pickupRange"] = s.midiMap->pickupRange;
-            sj["midiMap"] = std::move(mm);
+            sj["midiMap"] = MidiMapToJson(*s.midiMap);
         }
 
         if (!s.keyMaps.empty())
@@ -646,9 +712,9 @@ bool AutomationSlotTable::SetCustomSlot(const std::string& slotId, const std::op
 {
     auto* slot = FindSlot(slotId);
 
-    if (slot && slot->isDefault)
+    if (slot && (slot->isDefault || !slot->presetId.empty()))
     {
-        return false; // Can't modify address on defaults
+        return false; // Defaults keep their address; per-preset slots go through SetPresetSlot
     }
 
     if (!slot)
@@ -658,7 +724,7 @@ bool AutomationSlotTable::SetCustomSlot(const std::string& slotId, const std::op
 
         for (const auto& s : mSlots)
         {
-            if (!s.isDefault)
+            if (!s.isDefault && s.presetId.empty())
             {
                 ++customCount;
             }
@@ -771,6 +837,67 @@ bool AutomationSlotTable::RemoveCustomSlot(const std::string& slotId)
     }
 
     return false;
+}
+
+bool AutomationSlotTable::SetPresetSlot(const std::string& slotId, const std::string& presetId,
+                                        const std::optional<std::string>& label,
+                                        const std::optional<std::string>& address,
+                                        const std::optional<MidiControlMap>& midiMap)
+{
+    auto* slot = FindSlot(slotId);
+
+    if (!slot)
+    {
+        if (slotId.empty() || presetId.empty() || CountPresetSlots(presetId) >= kMaxPresetSlotsPerPreset)
+        {
+            return false;
+        }
+
+        AutomationSlot newSlot;
+        newSlot.slotId = slotId;
+        newSlot.presetId = presetId;
+        mSlots.push_back(std::move(newSlot));
+        slot = &mSlots.back();
+    }
+    else if (slot->presetId.empty())
+    {
+        return false; // A default or custom slot does not become a per-preset one
+    }
+
+    if (label)
+    {
+        slot->label = *label;
+    }
+
+    if (address)
+    {
+        slot->address = *address;
+    }
+
+    if (midiMap)
+    {
+        slot->midiMap = *midiMap;
+    }
+
+    return true;
+}
+
+int AutomationSlotTable::RemovePresetSlots(const std::string& presetId)
+{
+    if (presetId.empty())
+    {
+        return 0;
+    }
+
+    return static_cast<int>(
+        std::erase_if(mSlots, [&presetId](const AutomationSlot& slot) { return slot.presetId == presetId; }));
+}
+
+int AutomationSlotTable::CountPresetSlots(const std::string& presetId) const
+{
+    return static_cast<int>(std::count_if(mSlots.begin(), mSlots.end(), [&presetId](const AutomationSlot& slot) {
+        return !presetId.empty() && slot.presetId == presetId;
+    }));
 }
 
 // ── Apply path ────────────────────────────────────────────────────────────
@@ -990,6 +1117,15 @@ void AutomationSlotTable::HandleMidi(const MidiEvent& ev)
         return;
     }
 
+    // A mapping made for the active preset takes its MIDI control over from any global mapping
+    // on the same control, so one pedal can do a different job in each preset.
+    const auto isLivePresetSlot = [this](const AutomationSlot& slot) {
+        return !slot.presetId.empty() && slot.presetId == mActivePresetId;
+    };
+    const bool presetOwnsControl = std::any_of(mSlots.begin(), mSlots.end(), [&](const AutomationSlot& slot) {
+        return isLivePresetSlot(slot) && slot.midiMap && ListensTo(*slot.midiMap, eventType, channel, controller);
+    });
+
     // Match against all slot MIDI maps
     for (auto& slot : mSlots)
     {
@@ -999,6 +1135,12 @@ void AutomationSlotTable::HandleMidi(const MidiEvent& ev)
         }
 
         const auto& mm = slot.midiMap.value();
+
+        if (slot.presetId.empty() ? presetOwnsControl && ListensTo(mm, eventType, channel, controller)
+                                  : !isLivePresetSlot(slot))
+        {
+            continue;
+        }
 
         if (mm.channel != -1 && mm.channel != channel)
         {

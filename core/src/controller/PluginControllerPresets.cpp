@@ -433,6 +433,7 @@ void PluginController::HandleDeletePresetRequest(const nlohmann::json& payload)
     }
 
     InvalidateResourceUsageIndex();
+    ForgetPresetAutomation(presetId);
     TouchSharedSyncState({"presetLibrary"});
 }
 

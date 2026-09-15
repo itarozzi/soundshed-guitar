@@ -7,12 +7,26 @@
  * custom one — and an effect parameter nothing drives yet gets a custom slot made
  * for it first. Either way the captured mapping lands in the slot table the panel
  * edits. `midiMapping.ts` decides which address an element drives.
+ *
+ * "MIDI Learn for this preset…" learns into a per-preset slot instead: live only while
+ * the active preset is selected, and taking its MIDI control over from a global mapping
+ * then, so one pedal can do a different job in each preset.
  */
 
-import { armMidiLearn, cancelMidiLearn, getArmedMidiLearnSlotId, onMidiLearnChange } from "./automationPanel.js";
+import { armMidiLearn, cancelMidiLearn, getArmedMidiLearnSlotId, getMaxPresetSlots, onMidiLearnChange, presetDisplayName } from "./automationPanel.js";
 import type { MidiLearnCapture } from "./automationPanel.js";
 import { postMessage } from "./bridge.js";
-import { buildMidiLearnMenuItems, countCustomSlots, describeMidiMap, findSlotForAddress, nextCustomSlotId, resolveMidiLearnTarget } from "./midiMapping.js";
+import {
+  buildMidiLearnMenuItems,
+  countCustomSlots,
+  countPresetSlots,
+  describeMidiMap,
+  findPresetSlotForAddress,
+  findSlotForAddress,
+  nextCustomSlotId,
+  nextPresetSlotId,
+  resolveMidiLearnTarget,
+} from "./midiMapping.js";
 import type { MidiLearnTarget } from "./midiMapping.js";
 import { showNotification } from "./notifications.js";
 import { BUILTIN_EFFECTS, EffectTypeRegistry } from "./presetV2.js";
@@ -28,7 +42,7 @@ let initialized = false;
 let menuElement: HTMLElement | null = null;
 let statusElement: HTMLElement | null = null;
 /** The learn this menu armed, while it waits for a MIDI event. */
-let listening: { slotId: string; label: string } | null = null;
+let listening: { slotId: string; label: string; presetName: string | null } | null = null;
 
 export function initializeMidiLearnMenu(): void {
   if (initialized) return;
@@ -108,11 +122,17 @@ function openMenu(target: MidiLearnTarget, x: number, y: number): void {
   const slots = uiState.automation?.slots ?? [];
   const maxCustomSlots = uiState.automation?.maxCustomSlots ?? 16;
   const slot = findSlotForAddress(slots, target.address);
+  const presetId = uiState.activePresetId || null;
+  const presetSlot = presetId ? findPresetSlotForAddress(slots, presetId, target.address) : undefined;
   const items = buildMidiLearnMenuItems({
     slot,
+    presetSlot,
+    presetId,
     armedSlotId: getArmedMidiLearnSlotId(),
     customSlotCount: countCustomSlots(slots),
     maxCustomSlots,
+    presetSlotCount: presetId ? countPresetSlots(slots, presetId) : 0,
+    maxPresetSlots: getMaxPresetSlots(),
   });
 
   const menu = document.createElement("div");
@@ -120,7 +140,7 @@ function openMenu(target: MidiLearnTarget, x: number, y: number): void {
   menu.setAttribute("role", "menu");
   menu.setAttribute("aria-label", "MIDI Learn");
   menu.innerHTML = `
-    <div class="midi-learn-menu-title">${escapeHtml(slot?.label || target.label)}</div>
+    <div class="midi-learn-menu-title">${escapeHtml(slot?.label || presetSlot?.label || target.label)}</div>
     ${items.map((item) => `
       <button class="midi-learn-menu-item" type="button" role="menuitem" data-action="${item.action}"${item.disabled ? " disabled" : ""}>
         <span>${escapeHtml(item.label)}</span>
@@ -135,7 +155,7 @@ function openMenu(target: MidiLearnTarget, x: number, y: number): void {
       return;
     }
     closeMenu();
-    runMenuAction(button.dataset.action, target, slot);
+    runMenuAction(button.dataset.action, target, slot, presetSlot, presetId);
   });
 
   // Measured in place, then pulled back inside the window if it would overhang.
@@ -152,13 +172,26 @@ function closeMenu(): void {
   menuElement = null;
 }
 
-function runMenuAction(action: string | undefined, target: MidiLearnTarget, slot: AutomationSlot | undefined): void {
+function runMenuAction(
+  action: string | undefined,
+  target: MidiLearnTarget,
+  slot: AutomationSlot | undefined,
+  presetSlot: AutomationSlot | undefined,
+  presetId: string | null,
+): void {
   if (action === "learn") {
-    startMidiLearn(target);
+    startMidiLearn(target, null);
+  } else if (action === "learnPreset" && presetId) {
+    startMidiLearn(target, presetId);
   } else if (action === "cancel") {
     cancelMidiLearn();
-  } else if (action === "clear" && slot) {
-    clearMidiMapping(slot);
+  } else if (action === "clear") {
+    // The active preset's own mapping goes first; the global one is left for the next clear.
+    if (presetSlot?.midiMap) {
+      clearPresetMapping(presetSlot);
+    } else if (slot) {
+      clearMidiMapping(slot);
+    }
   }
 }
 
@@ -172,26 +205,50 @@ function clearMidiMapping(slot: AutomationSlot): void {
   showNotification(`Cleared MIDI mapping for ${slot.label}`);
 }
 
-function startMidiLearn(target: MidiLearnTarget): void {
+/**
+ * Removes a per-preset mapping. A per-preset slot is nothing but its mapping — no DAW
+ * parameter, no keys — so the slot goes with it.
+ */
+function clearPresetMapping(slot: AutomationSlot): void {
+  // A slot removed while still listening would leave the engine a learn with nowhere to land.
+  if (getArmedMidiLearnSlotId() === slot.slotId) {
+    cancelMidiLearn();
+  }
+  postMessage({ type: "removeAutomationSlot", slotId: slot.slotId });
+  showNotification(`Cleared MIDI mapping for ${slot.label} in ${presetDisplayName(slot.presetId ?? "")}`);
+}
+
+/** Learns into the control's global slot, or with a `presetId` into that preset's own slot. */
+function startMidiLearn(target: MidiLearnTarget, presetId: string | null): void {
   const slots = uiState.automation?.slots ?? [];
-  const existing = findSlotForAddress(slots, target.address);
+  const existing = presetId
+    ? findPresetSlotForAddress(slots, presetId, target.address)
+    : findSlotForAddress(slots, target.address);
   let slotId = existing?.slotId;
 
-  if (!slotId) {
+  // The engine handles messages in order, so a slot created here exists by the time learn is armed on it.
+  if (!slotId && presetId) {
+    const maxPresetSlots = getMaxPresetSlots();
+    if (countPresetSlots(slots, presetId) >= maxPresetSlots) {
+      showNotification("MIDI Learn unavailable", `this preset already has ${maxPresetSlots} mappings`);
+      return;
+    }
+    slotId = nextPresetSlotId(slots);
+    postMessage({ type: "setAutomationSlot", slotId, label: target.label, address: target.address, presetId });
+  } else if (!slotId) {
     const maxCustomSlots = uiState.automation?.maxCustomSlots ?? 16;
     if (countCustomSlots(slots) >= maxCustomSlots) {
       showNotification("MIDI Learn unavailable", `all ${maxCustomSlots} custom slots are in use`);
       return;
     }
     slotId = nextCustomSlotId(slots);
-    // The engine handles messages in order, so the slot exists by the time learn is armed on it.
     postMessage({ type: "setAutomationSlot", slotId, label: target.label, address: target.address });
   }
 
   // Set before arming: arming notifies handleMidiLearnChange, which drops a learn it did not start.
-  listening = { slotId, label: existing?.label || target.label };
+  listening = { slotId, label: existing?.label || target.label, presetName: presetId ? presetDisplayName(presetId) : null };
   armMidiLearn(slotId);
-  showListeningStatus(listening.label);
+  showListeningStatus(listening);
 }
 
 function handleMidiLearnChange(armedSlotId: string | null, capture: MidiLearnCapture | null): void {
@@ -199,7 +256,8 @@ function handleMidiLearnChange(armedSlotId: string | null, capture: MidiLearnCap
     return;
   }
   if (capture?.slotId === listening.slotId) {
-    showNotification(`Mapped ${describeMidiMap(capture)} to ${listening.label}`);
+    const scope = listening.presetName ? ` for ${listening.presetName}` : "";
+    showNotification(`Mapped ${describeMidiMap(capture)} to ${listening.label}${scope}`);
   }
   if (armedSlotId !== listening.slotId) {
     // Captured, cancelled, or replaced by a learn armed from the MIDI panel.
@@ -230,7 +288,7 @@ function handleKeydown(event: KeyboardEvent): void {
   }
 }
 
-function showListeningStatus(label: string): void {
+function showListeningStatus(learn: { label: string; presetName: string | null }): void {
   if (!statusElement) {
     statusElement = document.createElement("div");
     statusElement.className = "midi-learn-status";
@@ -245,7 +303,7 @@ function showListeningStatus(label: string): void {
   }
   statusElement.innerHTML = `
     <span class="midi-learn-status-dot" aria-hidden="true"></span>
-    <span class="midi-learn-status-text">Move a MIDI control to map <strong>${escapeHtml(label)}</strong></span>
+    <span class="midi-learn-status-text">Move a MIDI control to map <strong>${escapeHtml(learn.label)}</strong>${learn.presetName ? ` for <strong>${escapeHtml(learn.presetName)}</strong>` : ""}</span>
     <button class="midi-learn-status-cancel" type="button">Cancel</button>
   `;
   statusElement.hidden = false;

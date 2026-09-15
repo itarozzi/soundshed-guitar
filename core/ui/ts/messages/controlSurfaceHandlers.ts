@@ -11,11 +11,13 @@ export function onAutomation(payload: IncomingPayload): void {
     slots?: AutomationSlot[];
     registry?: AutomationRegistryEntry[];
     maxCustomSlots?: number;
+    maxPresetSlots?: number;
   };
   applyAutomationState({
     slots: autoPayload.slots ?? [],
     registry: autoPayload.registry ?? [],
     maxCustomSlots: autoPayload.maxCustomSlots ?? 16,
+    ...(typeof autoPayload.maxPresetSlots === "number" ? { maxPresetSlots: autoPayload.maxPresetSlots } : {}),
   });
 }
 

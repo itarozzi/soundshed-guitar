@@ -40,7 +40,11 @@ export interface AutomationState {
   slots: AutomationSlot[];
   registry: AutomationRegistryEntry[];
   maxCustomSlots: number;
+  /** How many per-preset MIDI mappings one preset may hold. */
+  maxPresetSlots?: number;
 }
+
+let maxPresetSlots = 16;
 
 export function applyAutomationState(next: Partial<AutomationState>): void {
   uiState.automation = {
@@ -48,8 +52,22 @@ export function applyAutomationState(next: Partial<AutomationState>): void {
     registry: next.registry ?? uiState.automation?.registry ?? [],
     maxCustomSlots: next.maxCustomSlots ?? uiState.automation?.maxCustomSlots ?? 16,
   };
+  if (typeof next.maxPresetSlots === "number") {
+    maxPresetSlots = next.maxPresetSlots;
+  }
   renderAutomationPanel();
   renderKeyboardPanel();
+}
+
+export function getMaxPresetSlots(): number {
+  return maxPresetSlots;
+}
+
+/** A preset's name for display, or its id when the library has not loaded it. */
+export function presetDisplayName(presetId: string): string {
+  return uiState.presetCache.get(presetId)?.name
+    ?? uiState.presets.find((preset) => preset.id === presetId)?.name
+    ?? presetId;
 }
 
 // ── MIDI learn ────────────────────────────────────────────────────────────
@@ -256,7 +274,7 @@ function renderAutomationPanel(): void {
   html += "</div>";
 
   // Custom slots
-  const customSlots = state.slots.filter((s) => !s.isDefault);
+  const customSlots = state.slots.filter((s) => !s.isDefault && !s.presetId);
   html += `<div class="automation-section"><h3>Custom Slots (${customSlots.length}/${state.maxCustomSlots})</h3>`;
   for (const slot of customSlots) {
     html += renderSlotRow(slot, state.registry);
@@ -270,6 +288,16 @@ function renderAutomationPanel(): void {
   }
   html += "</div>";
 
+  // Per-preset MIDI mappings, made with "MIDI Learn for this preset…" on a control
+  const presetSlots = state.slots.filter((s) => s.presetId);
+  if (presetSlots.length > 0) {
+    html += '<div class="automation-section"><h3>Preset Mappings</h3>';
+    for (const slot of presetSlots) {
+      html += renderSlotRow(slot, state.registry);
+    }
+    html += "</div>";
+  }
+
   container.innerHTML = html;
   wireSlotEvents(container);
 }
@@ -277,6 +305,7 @@ function renderAutomationPanel(): void {
 function renderSlotRow(slot: AutomationSlot, registry: AutomationRegistryEntry[]): string {
   const entry = registry.find((e) => e.address === slot.address);
   const rangeText = entry ? `(${entry.min}..${entry.max}${entry.unit ? " " + entry.unit : ""})` : "";
+  const addressText = slot.presetId ? `${presetDisplayName(slot.presetId)} · ${slot.address}` : slot.address;
   const isLearn = pendingLearnSlotId === slot.slotId;
   const showTestButton = Boolean(entry?.isTrigger) || !slot.isDefault;
 
@@ -293,7 +322,7 @@ function renderSlotRow(slot: AutomationSlot, registry: AutomationRegistryEntry[]
   return `
     <div class="automation-slot-row" data-slot-id="${escapeHtml(slot.slotId)}">
       <span class="automation-slot-label">${escapeHtml(slot.label)}</span>
-      <span class="automation-slot-address" title="${escapeHtml(slot.address)}">${escapeHtml(slot.address)} ${escapeHtml(rangeText)}</span>
+      <span class="automation-slot-address" title="${escapeHtml(addressText)}">${escapeHtml(addressText)} ${escapeHtml(rangeText)}</span>
       <span class="automation-slot-midi">${escapeHtml(midiText)}${slot.midiMap ? ` <button class="automation-clear-btn automation-clear-midi" data-slot-id="${escapeHtml(slot.slotId)}" title="Clear MIDI mapping">${getXMarkSvg()}</button>` : ""}</span>
       <span class="automation-slot-key">${escapeHtml(keyText)}${(slot.keyMap && slot.keyMap.length > 0) ? ` <button class="automation-clear-btn automation-clear-key" data-slot-id="${escapeHtml(slot.slotId)}" title="Clear keyboard mapping">${getXMarkSvg()}</button>` : ""}</span>
       <div>
@@ -301,7 +330,7 @@ function renderSlotRow(slot: AutomationSlot, registry: AutomationRegistryEntry[]
           ${isLearn ? "Listening…" : "Learn"}
         </button>
         ${showTestButton ? `<button class="automation-test-btn" data-slot-id="${escapeHtml(slot.slotId)}" title="Fire this mapping now">Test</button>` : ""}
-        ${!slot.isDefault ? `<button class="automation-target-btn" data-slot-id="${escapeHtml(slot.slotId)}" title="Edit target parameter">${editingSlotId === slot.slotId ? "Close" : "Target"}</button>` : ""}
+        ${!slot.isDefault && !slot.presetId ? `<button class="automation-target-btn" data-slot-id="${escapeHtml(slot.slotId)}" title="Edit target parameter">${editingSlotId === slot.slotId ? "Close" : "Target"}</button>` : ""}
         ${!slot.isDefault ? `<button class="automation-remove-btn" data-slot-id="${escapeHtml(slot.slotId)}">${getXMarkSvg()}</button>` : ""}
       </div>
     </div>
@@ -554,7 +583,8 @@ function renderKeyboardPanel(): void {
     ? `<p class="midi-help">A slot is mapped to Space. The spacebar is reserved for your DAW's transport, so that mapping never fires — use Clear to remove it.</p>`
     : "";
 
-  for (const slot of state.slots) {
+  // Keys are global, so per-preset MIDI mappings take none.
+  for (const slot of state.slots.filter((s) => !s.presetId)) {
     const isKeyLearn = pendingKeyLearnSlotId === slot.slotId;
 
     let keyText = "—";

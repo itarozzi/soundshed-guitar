@@ -81,10 +81,35 @@ class AutomationSlotTable
                                  const std::optional<MidiControlMap>& midiMap,
                                  const std::optional<std::vector<KeyboardMap>>& keyMaps);
 
-    /// Remove a custom slot by ID. Returns false if not found or is default.
+    /// Remove a custom or per-preset slot by ID. Returns false if not found or is default.
     bool RemoveCustomSlot(const std::string& slotId);
 
-    /// Get the list of all slot IDs in order (defaults first, then custom).
+    /// Add or update a per-preset MIDI mapping. A new slot needs a presetId and room under
+    /// kMaxPresetSlotsPerPreset. Returns false for a slot that is not a per-preset one.
+    bool SetPresetSlot(const std::string& slotId, const std::string& presetId, const std::optional<std::string>& label,
+                       const std::optional<std::string>& address, const std::optional<MidiControlMap>& midiMap);
+
+    /// Remove every per-preset mapping a preset holds. Returns how many were removed.
+    int RemovePresetSlots(const std::string& presetId);
+
+    /// Number of per-preset mappings a preset holds.
+    [[nodiscard]] int CountPresetSlots(const std::string& presetId) const;
+
+    /// The preset whose per-preset mappings are live. Set it from the message thread under
+    /// mDSPMutex; HandleMidi reads it on the audio thread under the same lock, and the
+    /// message thread, its only writer, may read it without the lock.
+    void SetActivePresetId(const std::string& presetId)
+    {
+        mActivePresetId = presetId;
+    }
+
+    [[nodiscard]] const std::string& GetActivePresetId() const
+    {
+        return mActivePresetId;
+    }
+
+    /// Slot IDs that are DAW parameters, in order (defaults first, then custom). Per-preset
+    /// slots are left out: they are MIDI only.
     [[nodiscard]] std::vector<std::string> GetSlotIds() const;
 
     /// Apply a normalized value to a slot's target. Must be called under mDSPMutex.
@@ -175,6 +200,9 @@ class AutomationSlotTable
     // MIDI learn state
     std::optional<std::string> mMidiLearnSlotId;
     std::optional<MidiControlMap> mMidiLearnCapture;
+
+    // Per-preset mappings answer MIDI only while this preset is active
+    std::string mActivePresetId;
 
     // Callback fired after a node.* param apply succeeds
     std::function<void(const std::string&, const std::string&, double)> mOnNodeParamApplied;

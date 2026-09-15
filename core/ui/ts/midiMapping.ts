@@ -133,28 +133,47 @@ function resolveSetlistControl(element: Element, context: MidiLearnTargetContext
 }
 
 /**
- * The slot that already drives `address`. A default slot wins over a custom slot
+ * The slot that drives `address` in every preset. A default slot wins over a custom slot
  * pointed at the same address: it is the one the DAW exposes under a stable name.
  */
 export function findSlotForAddress(slots: readonly AutomationSlot[], address: string): AutomationSlot | undefined {
   return slots.find((slot) => slot.isDefault && slot.address === address)
-    ?? slots.find((slot) => slot.address === address);
+    ?? slots.find((slot) => !slot.presetId && slot.address === address);
+}
+
+/** The mapping `presetId` holds for `address` itself, live only while that preset is active. */
+export function findPresetSlotForAddress(slots: readonly AutomationSlot[], presetId: string, address: string): AutomationSlot | undefined {
+  return slots.find((slot) => slot.presetId === presetId && slot.address === address);
 }
 
 export function countCustomSlots(slots: readonly AutomationSlot[]): number {
-  return slots.filter((slot) => !slot.isDefault).length;
+  return slots.filter((slot) => !slot.isDefault && !slot.presetId).length;
 }
 
-/** A `custom.N` id no slot uses yet. */
-export function nextCustomSlotId(slots: readonly AutomationSlot[]): string {
+export function countPresetSlots(slots: readonly AutomationSlot[], presetId: string): number {
+  return slots.filter((slot) => slot.presetId === presetId).length;
+}
+
+function nextNumberedSlotId(slots: readonly AutomationSlot[], prefix: string): string {
+  const pattern = new RegExp(`^${prefix}\\.(\\d+)$`);
   let highest = 0;
   for (const slot of slots) {
-    const match = /^custom\.(\d+)$/.exec(slot.slotId);
+    const match = pattern.exec(slot.slotId);
     if (match) {
       highest = Math.max(highest, Number(match[1]));
     }
   }
-  return `custom.${highest + 1}`;
+  return `${prefix}.${highest + 1}`;
+}
+
+/** A `custom.N` id no slot uses yet. */
+export function nextCustomSlotId(slots: readonly AutomationSlot[]): string {
+  return nextNumberedSlotId(slots, "custom");
+}
+
+/** A `preset.N` id no slot uses yet. */
+export function nextPresetSlotId(slots: readonly AutomationSlot[]): string {
+  return nextNumberedSlotId(slots, "preset");
 }
 
 /**
@@ -174,7 +193,7 @@ export function describeMidiMap(map: Pick<AutomationMidiMap, "eventType" | "chan
   return map.mode === undefined ? text : `${text} ${MIDI_MODE_NAMES[map.mode] || "Abs"}`;
 }
 
-export type MidiLearnMenuAction = "learn" | "cancel" | "clear";
+export type MidiLearnMenuAction = "learn" | "learnPreset" | "cancel" | "clear";
 
 export interface MidiLearnMenuItem {
   action: MidiLearnMenuAction;
@@ -184,35 +203,55 @@ export interface MidiLearnMenuItem {
 }
 
 export interface MidiLearnMenuState {
-  /** The slot that drives the right-clicked control, if one does. */
+  /** The slot that drives the right-clicked control in every preset, if one does. */
   slot: AutomationSlot | undefined;
+  /** The active preset's own mapping for the control, if it has one. */
+  presetSlot: AutomationSlot | undefined;
+  /** The active preset; null when none is loaded, which leaves out the per-preset learn. */
+  presetId: string | null;
   armedSlotId: string | null;
   customSlotCount: number;
   maxCustomSlots: number;
+  /** How many per-preset mappings the active preset already holds. */
+  presetSlotCount: number;
+  maxPresetSlots: number;
 }
 
 /**
- * What the right-click menu offers: MIDI Learn (Cancel MIDI Learn while that slot is
- * listening), and Clear Mapping, naming the mapping it removes, when the slot has one.
+ * What the right-click menu offers: MIDI Learn and MIDI Learn for this preset (Cancel MIDI
+ * Learn instead, while either of the control's slots is listening), and Clear Mapping when
+ * there is a mapping to clear — the active preset's own first, then the global one.
  */
 export function buildMidiLearnMenuItems(state: MidiLearnMenuState): MidiLearnMenuItem[] {
-  const { slot, armedSlotId, customSlotCount, maxCustomSlots } = state;
+  const { slot, presetSlot, presetId } = state;
   const items: MidiLearnMenuItem[] = [];
+  const listening = [slot, presetSlot].some((candidate) => candidate !== undefined && candidate.slotId === state.armedSlotId);
 
-  if (slot && slot.slotId === armedSlotId) {
+  if (listening) {
     items.push({ action: "cancel", label: "Cancel MIDI Learn", hint: "Listening…", disabled: false });
   } else {
-    // A control no slot drives yet needs a free custom slot to learn into.
-    const noFreeSlot = !slot && customSlotCount >= maxCustomSlots;
+    // A control no slot drives yet needs a free slot to learn into.
+    const noCustomSlot = !slot && state.customSlotCount >= state.maxCustomSlots;
     items.push({
       action: "learn",
       label: "MIDI Learn…",
-      hint: noFreeSlot ? `All ${maxCustomSlots} custom slots in use` : "",
-      disabled: noFreeSlot,
+      hint: noCustomSlot ? `All ${state.maxCustomSlots} custom slots in use` : "",
+      disabled: noCustomSlot,
     });
+    if (presetId) {
+      const noPresetSlot = !presetSlot && state.presetSlotCount >= state.maxPresetSlots;
+      items.push({
+        action: "learnPreset",
+        label: "MIDI Learn for this preset…",
+        hint: noPresetSlot ? `All ${state.maxPresetSlots} preset slots in use` : "",
+        disabled: noPresetSlot,
+      });
+    }
   }
 
-  if (slot?.midiMap) {
+  if (presetSlot?.midiMap) {
+    items.push({ action: "clear", label: "Clear Mapping", hint: `${describeMidiMap(presetSlot.midiMap)} · this preset`, disabled: false });
+  } else if (slot?.midiMap) {
     items.push({ action: "clear", label: "Clear Mapping", hint: describeMidiMap(slot.midiMap), disabled: false });
   }
 

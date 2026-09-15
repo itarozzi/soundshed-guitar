@@ -755,6 +755,7 @@ export interface AutomationSlot {
   address: string;
   nodeSelector?: string;
   isDefault: boolean;
+  presetId?: string; // a per-preset MIDI mapping, live only while that preset is active
   value: number;
   midiMap?: AutomationMidiMap;
   keyMap?: AutomationKeyMap[];

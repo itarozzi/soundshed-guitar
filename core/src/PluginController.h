@@ -461,6 +461,10 @@ class PluginController
     void HandleSetAutomationValueRequest(const nlohmann::json& payload);
     void HandleArmMidiLearnRequest(const nlohmann::json& payload);
     void HandleCancelMidiLearnRequest();
+    /// Drops a deleted preset's per-preset MIDI mappings.
+    void ForgetPresetAutomation(const std::string& presetId);
+    /// Hands the automation table the active preset id when it has changed (idle tick).
+    void SyncAutomationActivePreset();
     void HandleGetThemeRequest();
     void HandleSetThemeRequest(const nlohmann::json& payload);
     void HandleGetSharedSyncStateRequest();
