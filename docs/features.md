@@ -83,6 +83,7 @@ All effects register via `EffectRegistry` (singleton factory). Effect type IDs, 
 | `phaser` | Phaser |
 | `tremolo` | Tremolo |
 | `auto_wah` | Auto-Wah |
+| `wah` | Wah |
 
 ### 2.6 Pitch
 

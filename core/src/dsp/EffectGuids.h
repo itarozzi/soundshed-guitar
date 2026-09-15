@@ -62,6 +62,7 @@ constexpr const char* kFlanger = "1a3f3793-7e80-4e3d-ab7b-3ce3ce032fe7";
 constexpr const char* kPhaser = "3aa9dc81-31c2-40d5-9b1b-b0b9d1295e9b";
 constexpr const char* kTremolo = "c9debb02-d7e7-43e3-8330-b387be46dcf4";
 constexpr const char* kAutoWah = "b06c6d84-01b3-4d0a-ad98-40eecb64438e";
+constexpr const char* kWah = "8ae7a185-8075-466f-a83b-72f8dfa50af0";
 constexpr const char* kAutoArp = "e4a7c9d0-3b52-4f16-8a9e-2c7f1d0e5b83";
 constexpr const char* kSpatial3D = "a3196960-a89b-4388-829e-cbf8d8dd91c3";
 

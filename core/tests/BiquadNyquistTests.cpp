@@ -27,6 +27,7 @@
 #include "dsp/effects/BuiltinAmpEffect.h"
 #include "dsp/effects/OptimizedNAMAmpEffect.h"
 #include "dsp/effects/SimpleCabEffect.h"
+#include "dsp/effects/WahEffect.h"
 
 namespace
 {
@@ -272,6 +273,30 @@ void TestBuiltinAmp()
 
     ReportIfClean(failuresBefore);
 }
+
+// The wah's sweep reaches 5 kHz, and its treble shelf sits at 2.5 kHz: both past Nyquist at the
+// lowest rates, where they have to be clamped.
+void TestWah()
+{
+    std::cout << "Test: wah filters stay stable at every sample rate\n";
+    const int failuresBefore = gFailures;
+
+    const ParamSet toeExtreme = {{"position", 1.0}, {"toeFreq", 5000.0}, {"q", 20.0},         {"toeQScale", 2.0},
+                                 {"treble", 12.0},  {"lowEnd", 1.0},     {"saturation", 1.0}, {"mix", 1.0}};
+    const ParamSet heelExtreme = {{"position", 0.0}, {"heelFreq", 150.0}, {"q", 20.0},     {"treble", -12.0},
+                                  {"lowEnd", 0.0},   {"saturation", 0.0}, {"level", 18.0}, {"mix", 1.0}};
+
+    for (const double sampleRate : kSampleRates)
+    {
+        WahEffect toe;
+        RunEffect("wah", toe, toeExtreme, "toe at 5 kHz, Q 40, treble +12 dB", sampleRate);
+
+        WahEffect heel;
+        RunEffect("wah", heel, heelExtreme, "heel at 150 Hz, Q 20, level +18 dB", sampleRate);
+    }
+
+    ReportIfClean(failuresBefore);
+}
 } // namespace
 
 int main()
@@ -281,6 +306,7 @@ int main()
     TestNamAmpToneStack();
     TestSimpleCab();
     TestBuiltinAmp();
+    TestWah();
 
     if (gFailures > 0)
     {

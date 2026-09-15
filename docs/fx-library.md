@@ -80,6 +80,7 @@ All UUID constants are defined in `core/src/dsp/EffectGuids.h`. The table below 
 | `kPhaser` | `3aa9dc81-31c2-40d5-9b1b-b0b9d1295e9b` | `phaser` |
 | `kTremolo` | `c9debb02-d7e7-43e3-8330-b387be46dcf4` | `tremolo` |
 | `kAutoWah` | `b06c6d84-01b3-4d0a-ad98-40eecb64438e` | `auto_wah` |
+| `kWah` | `8ae7a185-8075-466f-a83b-72f8dfa50af0` | `wah` |
 | `kSpatial3D` | `a3196960-a89b-4388-829e-cbf8d8dd91c3` | `spatial_3d` |
 | `kPitchShift` | `0c15f065-8335-4932-9d2f-366d436ec30a` | `pitch_shift` |
 | `kTranspose` | `9b89cc46-e05b-4f06-981e-1d74d1f628cf` | `transpose` |
@@ -139,7 +140,7 @@ EffectProcessor* processor = EffectRegistry::Create("amp_nam");
 | `drive` | Gain/clipping/saturation | Overdrive, distortion, fuzz |
 | `dynamics` | Dynamics processing | Noise gate, compressor, limiter |
 | `eq` | Equalization | Parametric EQ |
-| `modulation` | Modulation effects | Chorus, flanger, phaser, tremolo, auto-wah |
+| `modulation` | Modulation effects | Chorus, flanger, phaser, tremolo, auto-wah, wah |
 | `pitch` | Pitch manipulation | Pitch shift, transpose, octave |
 | `delay` | Time-based delay | Digital delay, doubler |
 | `reverb` | Reverberation | Room, chamber, spring, advanced, IR, ambient |
@@ -522,6 +523,91 @@ set, because effect presets are copied wholesale into a graph node rather than m
   `GetLatencySamples()`, so the dry path cannot comb against the wet one. Latency is a
   constant and never changes with parameters.
 - Drift mode is deterministic: the same `motionSeed` always replays the same trajectory.
+
+### Wah (`wah`)
+
+A conventional, foot-controlled wah: a resonant bandpass swept by **Pedal Position**. Map
+that parameter to an expression pedal, a MIDI CC or host automation (right-click the control
+for MIDI Learn). Every other parameter describes the pedal, so a factory preset is a *model*
+of a wah rather than a setting of one. The envelope-driven version is `auto_wah`.
+
+**Signal path, per channel**
+
+```
+in ─┬─ resonant bandpass (TPT state-variable filter) × peak gain ──┐
+    └─ one-pole lowpass at 300 Hz (non-resonant bleed) × Low End ──┴─ + ─ treble shelf at 2.5 kHz ─ × Level ─ mix
+```
+
+| Behaviour | How |
+|---|---|
+| Sweep | The centre frequency moves exponentially from Heel Freq to Toe Freq, so equal pedal travel is an equal musical interval. Taper warps travel as `position^(3^-taper)`: negative holds the sweep low until late in the travel, as the stock Cry Baby does (-0.25 puts mid-pedal near 750 Hz on a 450–1600 Hz sweep); positive gets there early. |
+| Resonance | Q moves geometrically from Q at the heel to Q × Toe Q Scale at the toe. Julius Smith's fit to a measured GCB-95 runs from Q 8 to Q 2. |
+| Peak gain | `2·√Q`, tilted by Toe Gain (dB, applied progressively along the travel). A unity-peak bandpass passes pink-noise power in proportion to 1/Q whatever its frequency, so pink noise — close to a guitar's long-term spectrum — holds a steady level across both the sweep and the Q knob. Where Q falls toward the toe, the heel is the taller peak: 6 dB on the GCB-95 curve, in line with Holters and Zölzer's measured 6–8 dB. |
+| Saturation | The filter's damping rises with the square of the resonant stage's own output, so a hot input flattens and widens the peak and adds odd harmonics, as a saturating inductor or a clipping transistor stage does. |
+| Pedal smoothing | Frequency, Q and gain glide in the log domain with the Response time constant. That removes the zipper noise of a 7-bit MIDI CC, and doubles as the lag of an optical (LDR) wah. Level, Mix, Low End and Treble smooth over a fixed 10 ms. |
+| Auto-Engage | For controllers without a toe switch. The wah fades in over 25 ms as soon as the pedal leaves the heel, and fades back to the dry signal once the pedal has rested at or below 4% travel for 400 ms, so a quick heel-toe rock never cuts out. A wah loaded with its pedal parked at the heel starts off. |
+
+The trapezoidal (topology-preserving) state-variable filter stays stable and free of
+artefacts while its coefficients change every sample, which a direct-form biquad does not.
+Centre frequencies are clamped to 0.45 × the sample rate. Latency is zero.
+
+**Parameters**
+
+| Parameter | Range | Default | Unit | Group |
+|-----------|-------|---------|------|-------|
+| `position` | 0–1 | 0.5 | heel → toe | Pedal |
+| `response` | 1–150 | 12 | ms | Pedal (advanced) |
+| `autoEngage` | 0/1 | 0 | toggle | Pedal |
+| `heelFreq` | 150–1000 | 440 | Hz | Voicing |
+| `toeFreq` | 600–5000 | 2000 | Hz | Voicing |
+| `taper` | -1…1 | -0.25 | — | Voicing (advanced) |
+| `q` | 0.5–20 | 8 | Q at the heel | Voicing |
+| `toeQScale` | 0.1–2 | 0.25 | × | Voicing (advanced) |
+| `toeGain` | -12…12 | 0 | dB | Voicing (advanced) |
+| `lowEnd` | 0–1 | 0.15 | — | Voicing |
+| `treble` | -12…12 | 0 | dB | Voicing |
+| `saturation` | 0–1 | 0.2 | — | Voicing (advanced) |
+| `level` | -12…18 | 0 | dB | Output |
+| `mix` | 0–1 | 1.0 | — | Output |
+
+The defaults are the Cry Baby GCB-95 voicing, which is also the preset a new node starts
+with. Read-only feedback: `currentFrequency`, `currentQ`, `engaged`.
+
+**Factory presets** set every voicing parameter plus `mix`, and deliberately leave out
+`position` and `autoEngage`. Those belong to the player's controller, so loading a voicing
+never moves the pedal or switches the wah off underfoot. The presets are voiced
+approximations of each pedal, not circuit captures; where a sweep range is marked estimated,
+no published figure was found.
+
+| Preset | Heel–toe (Hz) | Basis |
+|---|---|---|
+| Cry Baby GCB-95 | 440–2000 | Dunlop spec (350–450 Hz heel, 1.5–2.5 kHz toe); Smith's measured fit (Q 8 → 2); ElectroSmash's mid-pedal frequency for the taper |
+| Vox V847 | 450–1600 | ElectroSmash circuit analysis; medium-high Q, slight level drop |
+| Vox Clyde McCoy '67 | 420–1700 | Sharpest Q of the classics, ICAR taper, rounder bass (reviewer consensus); range estimated |
+| Thomas Organ Cry Baby '68 | 300–1450 | Estimated from the JH1D, which Dunlop bases on it; smooth, lower Q |
+| Cry Baby 535Q | 440–2200 | Dunlop spec, range 1; Q knob high; boost +6 dB |
+| Cry Baby 95Q | 390–2000 | Dunlop spec; boost +3 dB |
+| Jimi Hendrix JH1D | 300–1450 | Dunlop spec (290–310 Hz, 1.40–1.51 kHz, +16.5 dB at both ends); quick-ramping pot |
+| EVH95 Eddie Van Halen | 340–2100 | Dunlop spec (300–380 Hz, 1.9–2.3 kHz, +20 / +21 dB); high-Q inductor |
+| Slash SW95 | 320–1700 | Dunlop spec (270–370 Hz, 1.5–1.9 kHz); lush top, drives with its boost |
+| Dimebag Cry Baby From Hell | 295–1400 | Dunlop spec, range 5; Q high; boost +6 dB |
+| Kirk Hammett KH95 | 340–1600 | Dunlop spec (300–380 Hz, 1.4–1.8 kHz; +17 dB heel, +21 dB toe, hence Toe Gain +4.5) |
+| Cry Baby 105Q Bass | 180–1800 | Dunlop spec (+25 dB heel, +32 dB toe, hence Toe Gain +7.5); bass retained |
+| Morley Power Wah | 250–3200 | Optical: wide, low Q, 45 ms lag, no inductor saturation. Morley's own 25 Hz–4 kHz claim is trimmed |
+| Ibanez Weeping Demon | 380–2300 | A state-variable filter mixing bandpass and lowpass, so a flat low end (DAFx-15 analysis); range estimated |
+| Fulltone Clyde Deluxe · Jimi | 400–1650 | Fulltone manual's late-'60s Clyde mode; range estimated |
+| Fulltone Clyde Deluxe · Wacked | 280–1900 | Fulltone manual's Colorsound-like deep-bass mode; range estimated |
+| Real McCoy RMC3 | 420–1800 | Thomas brown inductor, ICAR taper, Low knob (Analog Man); range estimated |
+| Xotic XW-1 | 400–1900 | Xotic manual: '67–'68 Clyde basis, bias, bass and treble controls; range estimated |
+| Budda Bud-Wah | 400–1700 | Fasel-style inductor, mid honk, tamed top (reviews); range estimated |
+| Colorsound Wah | 300–2400 | Wide sweep, deep bass, long throw (reviews); range estimated |
+| Maestro Boomerang | 350–1500 | Reverse-log pot, low-mid hump (seller descriptions); range estimated |
+| Mission ReWah Pro | 330–2500 | Oversized inductor core: wider range, more bass, little saturation (review) |
+
+Sources: the Dunlop product manuals (jimdunlop.com/content/manuals); J. O. Smith's Faust
+`crybaby` model and his LAC 2008 paper; Holters and Zölzer, *Physical modelling of a wah-wah
+effect pedal*, DAFx-11; ElectroSmash's GCB-95 and V847 analyses; the DAFx-15 paper on the
+Ibanez Weeping Demon; and the Fulltone, Xotic and Real McCoy manuals and product pages.
 
 ### Pitch Shift (`pitch_shift`)
 Pitch shift effect using Signalsmith Stretch with stepped or free-form control.

@@ -47,6 +47,7 @@ set(TEST_SOURCES
     SynthSawEffectTests.cpp
     TestWavLoad.cpp
     TransposeBenchmark.cpp
+    WahEffectTests.cpp
 )
 
 if(GUITARFX_CORE_ENABLE_WASM_EFFECTS)

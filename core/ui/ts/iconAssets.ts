@@ -101,6 +101,7 @@ const effectIcons: Record<string, IconKey> = {
   [EffectGuids.kPhaser]:           "wave",
   [EffectGuids.kTremolo]:          "wave",
   [EffectGuids.kAutoWah]:          "mixer",
+  [EffectGuids.kWah]:              "mixer",
   [EffectGuids.kOctave]:           "note",
   [EffectGuids.kPitchShift]:       "note",
   [EffectGuids.kTranspose]:        "note",

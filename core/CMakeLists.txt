@@ -567,6 +567,7 @@ set(GUITARFX_CORE_SOURCES
     src/dsp/effects/PhaserEffect.h
     src/dsp/effects/TremoloEffect.h
     src/dsp/effects/AutoWahEffect.h
+    src/dsp/effects/WahEffect.h
     src/dsp/effects/OctaveEffect.h
     src/dsp/effects/PitchShiftEffect.h
     src/dsp/effects/HybridTransposeEffect.h

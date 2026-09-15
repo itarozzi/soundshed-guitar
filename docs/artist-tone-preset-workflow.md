@@ -94,7 +94,7 @@ Useful lessons from the first batches:
 - Hetfield’s clean and dirty processors are alternatives. Represent them as scenes, not serial amps.
 - Morello’s board belongs in the amp loop. Putting effects after a full amp NAM but before the cabinet only approximates that loop: the NAM already includes power-amp response.
 - Summers’ documented Walking on the Moon modulation is Electric Mistress flanging, not just generic chorus.
-- A manual wah or Whammy performance cannot be recreated by silently substituting an auto-wah or a fixed octave. Label fixed settings and omitted performance controls.
+- A manual wah or Whammy performance cannot be recreated by silently substituting an auto-wah or a fixed octave. For a wah, use the Wah effect with the nearest factory voicing and leave Pedal Position for the player to map, or fix it only for a documented cocked-wah tone. Label fixed settings and omitted performance controls.
 
 ## 5. Search and import Tone3000 through the app
 

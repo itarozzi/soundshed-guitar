@@ -408,6 +408,16 @@ int main()
             resources, GenerateSine(220.0, 0.18), GenerateSilence(), GenerateSine(880.0, 0.9), 0.18, 2.0e-2, true, 3);
 
         allPassed &= RunChannelIndependenceTest(
+            "Wah saturation ignores opposite channel level", "wah",
+            [](guitarfx::EffectProcessor& effect, const TestResources&) {
+                effect.SetParam("position", 0.0);
+                effect.SetParam("saturation", 1.0);
+                effect.SetParam("mix", 1.0);
+                return true;
+            },
+            resources, GenerateSine(450.0, 0.18), GenerateSilence(), GenerateSine(450.0, 0.9), 0.0, 1.0e-6, true, 2);
+
+        allPassed &= RunChannelIndependenceTest(
             "Delay ducking ignores opposite channel", "delay_digital",
             [](guitarfx::EffectProcessor& effect, const TestResources&) {
                 effect.SetParam("timeMs", 60.0);
