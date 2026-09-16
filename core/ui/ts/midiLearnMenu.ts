@@ -8,9 +8,10 @@
  * for it first. Either way the captured mapping lands in the slot table the panel
  * edits. `midiMapping.ts` decides which address an element drives.
  *
- * "MIDI Learn for this preset…" learns into a per-preset slot instead: live only while
- * the active preset is selected, and taking its MIDI control over from a global mapping
- * then, so one pedal can do a different job in each preset.
+ * "MIDI Learn for this preset…", offered on the signal chain's controls, learns into a
+ * per-preset slot instead: live only while the active preset is selected, and taking its
+ * MIDI control over from a global mapping then, so one pedal can do a different job in
+ * each preset.
  */
 
 import { armMidiLearn, cancelMidiLearn, getArmedMidiLearnSlotId, getMaxPresetSlots, onMidiLearnChange, presetDisplayName } from "./automationPanel.js";
@@ -125,6 +126,7 @@ function openMenu(target: MidiLearnTarget, x: number, y: number): void {
   const presetId = uiState.activePresetId || null;
   const presetSlot = presetId ? findPresetSlotForAddress(slots, presetId, target.address) : undefined;
   const items = buildMidiLearnMenuItems({
+    address: target.address,
     slot,
     presetSlot,
     presetId,

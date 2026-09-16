@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { EffectGuids } from "../ts/effectGuids.js";
 import {
+  allowsPresetMapping,
   buildMidiLearnMenuItems,
   countCustomSlots,
   countPresetSlots,
@@ -200,6 +201,7 @@ describe("buildMidiLearnMenuItems", () => {
     midiMap: { eventType: 0, channel: 0, controller: 7, mode: 0, sensitivity: 0.1, pickupRange: 0.1 },
   };
   const noMappings: MidiLearnMenuState = {
+    address: "node.amp.gain",
     slot: undefined,
     presetSlot: undefined,
     presetId: null,
@@ -235,6 +237,26 @@ describe("buildMidiLearnMenuItems", () => {
   it("offers a per-preset learn only while a preset is active", () => {
     expect(menu({ presetId: "presetA" })).toEqual(["learn", "learnPreset"]);
     expect(menu({ presetId: null })).toEqual(["learn"]);
+  });
+
+  it("offers a per-preset learn only on the signal chain's controls", () => {
+    expect(menu({ presetId: "presetA", address: "global.inputTrim" })).toEqual(["learn", "learnPreset"]);
+    expect(menu({ presetId: "presetA", address: "global.outputTrim" })).toEqual(["learn", "learnPreset"]);
+    expect(menu({ presetId: "presetA", address: "setlist.preset1" })).toEqual(["learn"]);
+    expect(menu({ presetId: "presetA", address: "setlist.bankUp" })).toEqual(["learn"]);
+    expect(menu({ presetId: "presetA", address: "setlist.bankSelect" })).toEqual(["learn"]);
+    expect(allowsPresetMapping("node.amp.gain")).toBe(true);
+    expect(allowsPresetMapping("global.transpose")).toBe(false);
+  });
+
+  it("still clears a per-preset mapping on a control that no longer offers one", () => {
+    const bankUpForPreset: AutomationSlot = {
+      ...slot("preset.2", "setlist.bankUp", false),
+      presetId: "presetA",
+      midiMap: { eventType: 0, channel: 0, controller: 20, mode: 0, sensitivity: 0.1, pickupRange: 0.1 },
+    };
+    expect(menu({ presetId: "presetA", address: "setlist.bankUp", presetSlot: bankUpForPreset }))
+      .toEqual(["learn", "clear: CC 20 ch1 Abs · this preset"]);
   });
 
   it("clears the active preset's own mapping before the global one", () => {

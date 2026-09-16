@@ -141,6 +141,15 @@ export function findSlotForAddress(slots: readonly AutomationSlot[], address: st
     ?? slots.find((slot) => !slot.presetId && slot.address === address);
 }
 
+/**
+ * Whether a control can have a mapping of its own in each preset: the signal chain's
+ * effect parameters and its input and output levels. The setlist pads and bank controls
+ * pick the bank and preset rather than shape the preset that is playing, so they are not.
+ */
+export function allowsPresetMapping(address: string): boolean {
+  return address.startsWith("node.") || [...GLOBAL_KNOB_ADDRESSES.values()].includes(address);
+}
+
 /** The mapping `presetId` holds for `address` itself, live only while that preset is active. */
 export function findPresetSlotForAddress(slots: readonly AutomationSlot[], presetId: string, address: string): AutomationSlot | undefined {
   return slots.find((slot) => slot.presetId === presetId && slot.address === address);
@@ -203,6 +212,8 @@ export interface MidiLearnMenuItem {
 }
 
 export interface MidiLearnMenuState {
+  /** The address the right-clicked control drives. */
+  address: string;
   /** The slot that drives the right-clicked control in every preset, if one does. */
   slot: AutomationSlot | undefined;
   /** The active preset's own mapping for the control, if it has one. */
@@ -218,9 +229,10 @@ export interface MidiLearnMenuState {
 }
 
 /**
- * What the right-click menu offers: MIDI Learn and MIDI Learn for this preset (Cancel MIDI
- * Learn instead, while either of the control's slots is listening), and Clear Mapping when
- * there is a mapping to clear — the active preset's own first, then the global one.
+ * What the right-click menu offers: MIDI Learn, and MIDI Learn for this preset on a signal
+ * chain control (Cancel MIDI Learn instead, while either of the control's slots is
+ * listening), and Clear Mapping when there is a mapping to clear — the active preset's own
+ * first, then the global one. A per-preset mapping on any other control can still be cleared.
  */
 export function buildMidiLearnMenuItems(state: MidiLearnMenuState): MidiLearnMenuItem[] {
   const { slot, presetSlot, presetId } = state;
@@ -238,7 +250,7 @@ export function buildMidiLearnMenuItems(state: MidiLearnMenuState): MidiLearnMen
       hint: noCustomSlot ? `All ${state.maxCustomSlots} custom slots in use` : "",
       disabled: noCustomSlot,
     });
-    if (presetId) {
+    if (presetId && allowsPresetMapping(state.address)) {
       const noPresetSlot = !presetSlot && state.presetSlotCount >= state.maxPresetSlots;
       items.push({
         action: "learnPreset",
