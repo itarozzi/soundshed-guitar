@@ -187,6 +187,16 @@
   display: flex;
 }
 
+/* A group heading belongs to the cards below it: pull it in from the panel gap
+   below and push it away from the previous group above. */
+.equipment-tab-panel > h2 {
+  margin: 0 0 -8px;
+}
+
+.equipment-tab-panel > h2:not(:first-child) {
+  margin-top: 16px;
+}
+
 .settings-help-copy {
   margin: 0;
   font-size: 12px;
@@ -311,12 +321,6 @@
 .equipment-library-filters select optgroup {
   background: var(--bg-input);
   color: var(--text-primary);
-}
-
-.settings-input-mode {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
 }
 
 .settings-unit {
@@ -680,22 +684,6 @@
 .riff-record-btn.recording {
   border-color: var(--status-error-border);
   color: var(--status-error-text);
-}
-
-/* ARM button — blinks when armed, waiting for input signal */
-.riff-arm-btn {
-  min-width: 60px;
-}
-
-@keyframes riff-arm-blink {
-  0%, 100% { opacity: 1; }
-  50%       { opacity: 0.25; }
-}
-
-.riff-arm-btn.armed {
-  border-color: var(--status-error-border);
-  color: var(--status-error-text);
-  animation: riff-arm-blink 1s ease-in-out infinite;
 }
 
 /* REC indicator badge — hidden by default, pulses red while recording is active */
