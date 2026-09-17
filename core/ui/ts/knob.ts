@@ -364,8 +364,9 @@ export class GenericKnob {
     this.knobElement.setAttribute("aria-valuenow", value.toString());
     this.knobElement.setAttribute("aria-valuetext", this.displayFormat(value));
 
-    const rotation = ((value - this.minValue) / (this.maxValue - this.minValue)) * 270 - 135;
-    const pct = (value - this.minValue) / (this.maxValue - this.minValue);
+    const span = this.maxValue - this.minValue;
+    const pct = span > 0 ? (value - this.minValue) / span : 0;
+    const rotation = pct * 270 - 135;
     this.knobElement.style.setProperty("--knob-pct", pct.toString());
     const indicator = this.knobElement.querySelector(".knob-indicator") as HTMLElement | null;
     if (indicator) {
@@ -385,5 +386,31 @@ export class GenericKnob {
 
   public getValue(): number {
     return this.currentValue;
+  }
+
+  /**
+   * Moves the knob's ends, for a range that follows another setting. A full
+   * sweep keeps the same drag distance, and the value is clamped into the new range.
+   */
+  public setRange(minValue: number, maxValue: number, stepValue?: number): void {
+    const oldSpan = this.maxValue - this.minValue;
+    const newSpan = maxValue - minValue;
+    if (oldSpan > 0 && newSpan > 0) {
+      this.sensitivity *= newSpan / oldSpan;
+    }
+
+    this.minValue = minValue;
+    this.maxValue = maxValue;
+    this.stepValue = deriveRangeStep(minValue, maxValue, stepValue);
+    this.knobElement.dataset.min = minValue.toString();
+    this.knobElement.dataset.max = maxValue.toString();
+    if (stepValue !== undefined) {
+      this.knobElement.dataset.step = stepValue.toString();
+    } else {
+      delete this.knobElement.dataset.step;
+    }
+    this.knobElement.setAttribute("aria-valuemin", minValue.toString());
+    this.knobElement.setAttribute("aria-valuemax", maxValue.toString());
+    this.setValue(this.currentValue);
   }
 }

@@ -1415,6 +1415,20 @@ bool MultiPresetMixer::SetNodeParamByType(const std::string& effectType, const s
     return true;
 }
 
+bool MultiPresetMixer::GetNodeAutomationRangeByType(const std::string& effectType, const std::string& paramId,
+                                                    ParamRange& range) const
+{
+    const auto found = FindFirstEnabledNodeOfType(effectType);
+
+    if (!found)
+    {
+        return false;
+    }
+
+    const auto* processor = GetNodeProcessor(found->first, found->second);
+    return processor && processor->GetAutomationRange(paramId, range);
+}
+
 std::string MultiPresetMixer::GetNodeConfig(const std::string& presetId, const std::string& nodeId,
                                             const std::string& key) const
 {

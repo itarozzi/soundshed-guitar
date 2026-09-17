@@ -624,15 +624,24 @@ pages; and for the Morley signature wahs, Morley's product copy and published re
 Morello's TBM95 shares the GCB-95's published specification, so the GCB-95 preset covers it.
 
 ### Pitch Shift (`pitch_shift`)
-Pitch shift effect using Signalsmith Stretch with stepped or free-form control.
+Pitch shift effect using Signalsmith Stretch, free or snapped to whole semitones, within a range an expression pedal sweeps.
 
 | Parameter | Range | Default | Unit |
 |-----------|-------|---------|------|
-| `semitones` | -1..+1 | 0.0 | — |
-| `minSemitones` | -12..+12 | -12.0 | st |
-| `maxSemitones` | -12..+12 | 12.0 | st |
+| `semitones` | -12..+12 | 0.0 | st |
 | `mix` | 0.0–1.0 | 1.0 | — |
-| `stepMode` | 0–1 | 1 | — |
+| `stepMode` (Snap to Semitone) | 0/1 toggle | 1 | — |
+| `minSemitones` (Range Min) | -12..+12 | -12.0 | st |
+| `maxSemitones` (Range Max) | -12..+12 | 12.0 | st |
+
+The shift applied is `semitones` held inside `minSemitones`..`maxSemitones`, rounded to a
+whole semitone while `stepMode` is on (rounding first, so the range wins). The bounds are read
+in either order. The node reports that range and step to automation
+(`EffectProcessor::GetAutomationRange`), so a MIDI CC, expression pedal or DAW lane mapped to
+`semitones` sweeps Range Min to Range Max, gliding when free and stepping when snapped. The
+params panel gives the Semitones knob the same range and step. At an applied shift of 0 st the
+effect is transparent and reports no latency, so a pedal range that includes 0 changes the
+reported latency as it passes through it.
 
 ### Transpose (`transpose`)
 High-quality transpose effect optimized for integer semitone steps using Signalsmith Stretch.

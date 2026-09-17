@@ -89,7 +89,7 @@ All effects register via `EffectRegistry` (singleton factory). Effect type IDs, 
 
 | Type ID | Name | Key Parameters |
 |---------|------|----------------|
-| `pitch_shift` | Pitch Shift | `semitones` (-1..+1 normalized), `minSemitones`/`maxSemitones` (-12..+12), `mix`, `stepMode` (0/1) — uses Signalsmith Stretch |
+| `pitch_shift` | Pitch Shift | `semitones` (-12..+12 st), `mix`, `stepMode` (snap to semitone, 0/1), `minSemitones`/`maxSemitones` (-12..+12, the range automation and an expression pedal sweep) — uses Signalsmith Stretch |
 | `transpose` | Transpose | `semitones` (-24..+12 st), `mix` — optimized for integer steps, uses Signalsmith Stretch |
 | `transpose_hybrid` | Transpose (Hybrid) | `semitones` (-15..0 st), `mix`, `transientAssist`, `transientHoldMs`, `brightness` — dual-band hybrid path with medium/deep-shift quality STFT sustain shifting, latency-aligned transient assist, and smoothed live reconfiguration |
 | `transpose_stft` | Transpose (STFT) | `semitones` (-12..+12 st), `mix` — STFT phase-vocoder alternative for A/B comparison |

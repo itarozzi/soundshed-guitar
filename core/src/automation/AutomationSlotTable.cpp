@@ -27,22 +27,22 @@ bool IsBypassNodeAddress(const std::string& address)
     return paramId == "bypassed" || paramId == "bypass" || paramId == "enabled";
 }
 
-/// Maps a slot's 0..1 value onto the range an effect declares for a parameter, snapped to
-/// the parameter's step, or to a whole index for an enum.
-double DenormalizeNodeParam(const ParameterDef& def, double normalized)
+/// Maps a slot's 0..1 value onto a parameter's range, snapped to the range's step, or to a
+/// whole index for an enum.
+double DenormalizeNodeParam(const ParamRange& range, bool isEnum, double normalized)
 {
-    double native = def.minValue + normalized * (def.maxValue - def.minValue);
+    double native = range.minValue + normalized * (range.maxValue - range.minValue);
 
-    if (def.step > 0.0)
+    if (range.step > 0.0)
     {
-        native = def.minValue + std::round((native - def.minValue) / def.step) * def.step;
+        native = range.minValue + std::round((native - range.minValue) / range.step) * range.step;
     }
-    else if (!def.labels.empty())
+    else if (isEnum)
     {
         native = std::round(native);
     }
 
-    return std::clamp(native, std::min(def.minValue, def.maxValue), std::max(def.minValue, def.maxValue));
+    return std::clamp(native, std::min(range.minValue, range.maxValue), std::max(range.minValue, range.maxValue));
 }
 
 nlohmann::json MidiMapToJson(const MidiControlMap& map)
@@ -957,12 +957,15 @@ bool AutomationSlotTable::ApplySlotLocked(AutomationSlot& slot)
 
             // Every source hands a slot a 0..1 value, but an effect takes its parameters in
             // native units. A parameter the effect does not declare has no range to map onto,
-            // so it keeps the 0..1 value.
+            // so it keeps the 0..1 value. The node may narrow the declared range with its own
+            // settings, as a pitch shift does to bound an expression pedal's sweep.
             double native = static_cast<double>(slot.value.load());
 
             if (const auto* def = mEffectRegistry ? mEffectRegistry->FindParameter(effectType, paramId) : nullptr)
             {
-                native = DenormalizeNodeParam(*def, native);
+                ParamRange range{def->minValue, def->maxValue, def->step};
+                mMixer->GetNodeAutomationRangeByType(effectType, paramId, range);
+                native = DenormalizeNodeParam(range, !def->labels.empty(), native);
             }
 
             const bool ok = mMixer->SetNodeParamByType(effectType, paramId, native);

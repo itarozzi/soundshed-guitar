@@ -3,6 +3,7 @@
 #include "dsp/EffectProcessor.h"
 #include "dsp/EffectRegistry.h"
 #include "dsp/EffectGuids.h"
+#include "dsp/FiniteCheck.h"
 #include "dsp/effects/SignalsmithLatency.h"
 #include "signalsmith-stretch.h"
 #include <algorithm>
@@ -13,6 +14,11 @@ namespace guitarfx
 {
 /**
  * Pitch-shift effect using Signalsmith Stretch with a direct semitone control.
+ *
+ * The shift applied is `semitones` held inside the node's own range (`minSemitones` to
+ * `maxSemitones`), rounded to a whole semitone while `stepMode` is on. Automation reads the
+ * same range through GetAutomationRange(), so an expression pedal sweeps exactly that
+ * interval: gliding when free, stepping when snapped.
  *
  * Latency contract (Signalsmith docs):
  *   - When shifting: report inputLatency() + outputLatency(); delay dry by that
@@ -130,15 +136,38 @@ class PitchShiftEffect : public EffectProcessor
 
     void SetParam(const std::string& key, double value) override
     {
+        if (!IsFinite(value))
+        {
+            return;
+        }
+
         if (key == "semitones")
         {
             mSemitones = std::clamp(value, kHardMinSemitones, kHardMaxSemitones);
-            ApplyTranspose();
+        }
+        else if (key == "minSemitones")
+        {
+            mMinSemitones = std::clamp(value, kHardMinSemitones, kHardMaxSemitones);
+        }
+        else if (key == "maxSemitones")
+        {
+            mMaxSemitones = std::clamp(value, kHardMinSemitones, kHardMaxSemitones);
+        }
+        else if (key == "stepMode")
+        {
+            mStepMode = value >= 0.5;
         }
         else if (key == "mix")
         {
             mMix = std::clamp(value, 0.0, 1.0);
+            return;
         }
+        else
+        {
+            return;
+        }
+
+        ApplyTranspose();
     }
 
     void SetConfig(const std::string&, const std::string&) override
@@ -152,12 +181,46 @@ class PitchShiftEffect : public EffectProcessor
             return mSemitones;
         }
 
+        if (key == "minSemitones")
+        {
+            return mMinSemitones;
+        }
+
+        if (key == "maxSemitones")
+        {
+            return mMaxSemitones;
+        }
+
+        if (key == "stepMode")
+        {
+            return mStepMode ? 1.0 : 0.0;
+        }
+
         if (key == "mix")
         {
             return mMix;
         }
 
         return 0.0;
+    }
+
+    [[nodiscard]] bool GetAutomationRange(const std::string& key, ParamRange& range) const override
+    {
+        if (key != "semitones")
+        {
+            return false;
+        }
+
+        range.minValue = LowerBound();
+        range.maxValue = UpperBound();
+        range.step = mStepMode ? 1.0 : 0.0;
+        return true;
+    }
+
+    /// The shift actually applied, after the range and the snap.
+    [[nodiscard]] double GetAppliedSemitones() const
+    {
+        return mAppliedSemitones;
     }
 
     [[nodiscard]] std::string GetType() const override
@@ -183,11 +246,27 @@ class PitchShiftEffect : public EffectProcessor
   private:
     [[nodiscard]] bool IsTransparent() const
     {
-        return std::abs(mSemitones) < 1.0e-9;
+        return std::abs(mAppliedSemitones) < 1.0e-9;
+    }
+
+    // The bounds are read in either order, so a preset loading them one at a time never
+    // clamps one against the other's previous value.
+    [[nodiscard]] double LowerBound() const
+    {
+        return std::min(mMinSemitones, mMaxSemitones);
+    }
+
+    [[nodiscard]] double UpperBound() const
+    {
+        return std::max(mMinSemitones, mMaxSemitones);
     }
 
     void ApplyTranspose()
     {
+        // Snap first and clamp after, so the range wins when a bound is not a whole semitone.
+        const double requested = mStepMode ? std::round(mSemitones) : mSemitones;
+        mAppliedSemitones = std::clamp(requested, LowerBound(), UpperBound());
+
         if (!mConfigured || mSampleRate <= 0.0)
         {
             return;
@@ -195,7 +274,7 @@ class PitchShiftEffect : public EffectProcessor
 
         // Tonality limit is normalised to sample rate (Signalsmith API contract).
         const float tonalityLimit = static_cast<float>(kTonalityLimitHz / mSampleRate);
-        mStretch.setTransposeSemitones(static_cast<float>(mSemitones), tonalityLimit);
+        mStretch.setTransposeSemitones(static_cast<float>(mAppliedSemitones), tonalityLimit);
     }
 
     void EnsureDryDelayCapacity()
@@ -243,6 +322,10 @@ class PitchShiftEffect : public EffectProcessor
     static constexpr double kHardMaxSemitones = 12.0;
 
     double mSemitones = 0.0;
+    double mMinSemitones = kHardMinSemitones;
+    double mMaxSemitones = kHardMaxSemitones;
+    bool mStepMode = true;
+    double mAppliedSemitones = 0.0;
     double mMix = 1.0;
     bool mConfigured = false;
 
@@ -262,10 +345,16 @@ inline void RegisterPitchShiftEffect()
     info.aliases = {"pitch_shift"};
     info.displayName = "Pitch Shift";
     info.category = "pitch";
-    info.description = "Pitch shift with a direct semitone control";
+    info.description = "Pitch shift, free or in whole semitones, within a range an expression pedal sweeps";
     info.requiresResource = false;
+    // semitones keeps its declared step of 1 for renderers that do not know about stepMode,
+    // which is on by default. The params panel and automation take the live range and step
+    // from the node instead.
     info.parameters = {{"semitones", "Semitones", 0.0, -12.0, 12.0, "st", "", false, 1.0},
-                       {"mix", "Mix", 1.0, 0.0, 1.0, "amount"}};
+                       {"mix", "Mix", 1.0, 0.0, 1.0, "amount"},
+                       {"stepMode", "Snap to Semitone", 1.0, 0.0, 1.0, "toggle"},
+                       {"minSemitones", "Range Min", -12.0, -12.0, 12.0, "st", "", false, 1.0},
+                       {"maxSemitones", "Range Max", 12.0, -12.0, 12.0, "st", "", false, 1.0}};
     EffectRegistry::Instance().Register(info.type, info, []() { return std::make_unique<PitchShiftEffect>(); });
 }
 } // namespace guitarfx

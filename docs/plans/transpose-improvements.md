@@ -103,7 +103,7 @@ Constant-latency-through-zero is **not** the chosen contract (transparent-at-zer
 2. **Inconsistent tonality limits.** `pitch_shift` uses 8 kHz, `transpose` uses 16 kHz for the same engine and preset. Unify (or make it deliberate and documented).
 3. **Range/contract drift.**
    - Docs mention -24/-36 ranges but the runtime global transpose is clamped to +/-12 (`PluginController.cpp`, `MultiPresetMixer.cpp`, `controls.ts`). Decide: expand the runtime clamp or narrow the effect/docs. **Do not expand past +/-12 until the live engine is solid.**
-   - `pitch_shift` has a `stepMode`/`minSemitones`/`maxSemitones` contract in UI/docs but the backend only supports `semitones` + `mix`. Restore backend support or remove from UI/docs.
+   - ~~`pitch_shift` has a `stepMode`/`minSemitones`/`maxSemitones` contract in UI/docs but the backend only supports `semitones` + `mix`.~~ **Fixed (2026-09):** backend support restored with `semitones` kept as direct semitones; the range bounds what automation sweeps.
 4. ~~**Pitch Shift "does not shift" (listening).**~~ **Not reproducible (2026-08):** the pitch-accuracy metric measures `pitch_shift` within +/-3 cents at every setting from -12 to +12, jitter 3-8 cents. The original listening call was almost certainly the PDC under-report misaligning the compensated renders.
 5. **STFT/Hybrid do not transpose at shallow settings.** Measured with the pitch-accuracy metric (snapshot `pitch-metric`, riff-01 @ 48 kHz):
 

@@ -12,6 +12,14 @@
 
 namespace guitarfx
 {
+/// The span a parameter is driven across, and the step it lands on (0 = continuous).
+struct ParamRange
+{
+    double minValue = 0.0;
+    double maxValue = 1.0;
+    double step = 0.0;
+};
+
 /**
  * Base interface for all effect processors.
  * Each effect type implements this interface.
@@ -71,6 +79,15 @@ class EffectProcessor
     [[nodiscard]] virtual std::string GetConfig(const std::string& /*key*/) const
     {
         return "";
+    }
+
+    /// Lets an instance's own settings narrow the range automation drives one of its
+    /// parameters across: a pitch shift held to the interval an expression pedal should sweep.
+    /// Returns false to use the range the effect type declares. Called on the audio thread,
+    /// so it must not allocate.
+    [[nodiscard]] virtual bool GetAutomationRange(const std::string& /*key*/, ParamRange& /*range*/) const
+    {
+        return false;
     }
 
     virtual void SetRuntimeConfigChangedCallback(RuntimeConfigChangedCallback /*callback*/)

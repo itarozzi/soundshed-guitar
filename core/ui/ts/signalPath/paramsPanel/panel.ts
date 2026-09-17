@@ -15,7 +15,7 @@ import { bindBlendEditorControls, computeBlendParamRange, denormalizeBlendValue,
 import type { BlendParamRange } from "../../signalPathBlend.js";
 import { uiState } from "../../state.js";
 import type { GraphNode, Preset } from "../../types.js";
-import { escapeHtml } from "../../utils.js";
+import { clampValue, escapeHtml } from "../../utils.js";
 import { bindAmp3dDockCollapse, bindAmp3dToggleButton, bindChain3dView, disposeChain3dView, renderAmp3dToggleButtonHtml, renderChain3dViewportHtml, setAmp3dImmersiveMode, shouldRenderChain3dView, splitAmp3dParamDefs } from "../amp3dBridge.js";
 import { shouldShowFullRigCabModelNote } from "../chainRules.js";
 import { bindEffectPresetsButton } from "../effectPresets.js";
@@ -32,6 +32,7 @@ import { applyCustomLayoutScaling, bindLayoutOverlayBypassToggles } from "./layo
 import { buildMixerInputControlsHtml } from "./mixerInput.js";
 import { bindBlendModeOverride, bindBypassButton, bindCustomEffectActionControls } from "./nodeActions.js";
 import { bindNodeParamControls, bindParamTabs, formatParamLabel, isToggleParam } from "./paramControls.js";
+import { isPitchShiftType, semitoneKnobRange } from "./pitchShiftRange.js";
 import { buildNodeResourceSelector, preloadResourceNavigationCaches } from "./resourceSelector.js";
 import { updateSpatialVisualization } from "./spatial.js";
 import { nodeParamKnobs, paramsPanelInteractions } from "./state.js";
@@ -99,25 +100,30 @@ export function showNodeParamsPanel(node: GraphNode, preset: Preset): void {
     paramDefs = [...blendParamDefs, ...nonBlendParams];
   }
   
+  const isPitchShift = isPitchShiftType(node.type);
+
   const renderParamControl = (paramDef: EffectTypeInfo["parameters"][number]): string => {
     const key = paramDef.key;
     const rawValue = node.params[key];
     const label = paramDef.name || formatParamLabel(key);
     const isBlendParam = blendParamRanges.has(key);
     const blendRange = blendParamRanges.get(key);
-    const min = blendRange?.min ?? paramDef.min ?? 0;
-    const max = blendRange?.max ?? paramDef.max ?? 1;
+    const pitchRange = isPitchShift && key === "semitones" ? semitoneKnobRange(node.params) : null;
+    const min = blendRange?.min ?? pitchRange?.min ?? paramDef.min ?? 0;
+    const max = blendRange?.max ?? pitchRange?.max ?? paramDef.max ?? 1;
     const unit = paramDef.unit || "amount";
-    const defaultValue = blendRange?.defaultValue ?? paramDef.default ?? 0;
+    // The engine holds a pitch shift inside its range, so the knob shows the held value.
+    const inPitchRange = (v: number): number => (pitchRange ? clampValue(v, pitchRange.min, pitchRange.max) : v);
+    const defaultValue = inPitchRange(blendRange?.defaultValue ?? paramDef.default ?? 0);
     const normalizedValue = typeof rawValue === "number"
       ? rawValue
       : (isBlendParam ? normalizeBlendValue(defaultValue, blendRange?.spec ?? null) : defaultValue);
-    const displayValue = isBlendParam
+    const displayValue = inPitchRange(isBlendParam
       ? denormalizeBlendValue(normalizedValue, blendRange?.spec ?? null)
-      : (typeof normalizedValue === "number" ? normalizedValue : defaultValue);
+      : (typeof normalizedValue === "number" ? normalizedValue : defaultValue));
     const value = typeof rawValue === "number" ? rawValue : (isBlendParam ? normalizedValue : defaultValue);
     const isToggle = isToggleParam(paramDef);
-    const step = typeof paramDef.step === "number" ? paramDef.step : undefined;
+    const step = pitchRange ? pitchRange.step : (typeof paramDef.step === "number" ? paramDef.step : undefined);
     const enumLabels = Array.isArray(paramDef.labels) ? paramDef.labels : [];
     const isEnum = unit === "enum" && enumLabels.length > 0;
 

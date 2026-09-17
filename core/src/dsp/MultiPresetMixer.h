@@ -363,6 +363,12 @@ class MultiPresetMixer
     [[nodiscard]] std::optional<std::pair<std::string, std::string>> FindFirstEnabledNodeOfType(
         const std::string& effectType) const;
 
+    /// Narrows `range` to what the node SetNodeParamByType would drive allows for `paramId`,
+    /// when that node's own settings constrain it (EffectProcessor::GetAutomationRange).
+    /// Returns whether they did; `range` is left alone otherwise.
+    bool GetNodeAutomationRangeByType(const std::string& effectType, const std::string& paramId,
+                                      ParamRange& range) const;
+
     /// A node's identity plus a snapshot of some of its parameters.
     struct NodeReadout
     {

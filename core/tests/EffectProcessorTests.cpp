@@ -2008,10 +2008,10 @@ bool TestPitchShiftLatencySpecific()
     effect->SetParam("semitones", 0.0);
     const int zeroShiftLatency = effect->GetLatencySamples();
 
-    effect->SetParam("semitones", 0.5);
+    effect->SetParam("semitones", 1.0);
     const int initialLatency = effect->GetLatencySamples();
 
-    effect->SetParam("semitones", -0.5);
+    effect->SetParam("semitones", -1.0);
     const int updatedLatency = effect->GetLatencySamples();
 
     // Signalsmith PDC must include both inputLatency and outputLatency halves.
@@ -2118,6 +2118,74 @@ bool TestPitchShiftLatencySpecific()
 
     return zeroShiftTransparent && reportsPositiveLatency && latencyRemainsStableAcrossPitchChanges && paramRetained &&
            transposeApplied;
+}
+
+// The shift applied is `semitones` held inside the node's range and, while snapped, on a whole
+// semitone; automation is handed that same range so a pedal sweeps exactly it.
+bool TestPitchShiftRangeAndSnap()
+{
+    std::cout << "\n--- PitchShiftEffect Range and Snap Tests ---\n";
+
+    auto effect = guitarfx::EffectRegistry::Instance().Create(guitarfx::EffectGuids::kPitchShift);
+    auto* pitch = dynamic_cast<guitarfx::PitchShiftEffect*>(effect.get());
+
+    if (!pitch)
+    {
+        std::cout << "  FAIL: Could not create pitch shift effect\n";
+        return false;
+    }
+
+    bool allPassed = true;
+    const auto check = [&allPassed](bool passed, const std::string& label, double actual) {
+        std::cout << "  " << std::left << std::setw(44) << (label + ":") << (passed ? "PASS" : "FAIL") << " (" << actual
+                  << ")\n";
+        allPassed &= passed;
+    };
+    const auto approxEqual = [](double a, double b) { return std::abs(a - b) < 1.0e-9; };
+
+    pitch->Prepare(kTestSampleRate, kTestBlockSize);
+
+    guitarfx::ParamRange range;
+    const bool reportsRange = pitch->GetAutomationRange("semitones", range);
+    check(reportsRange && approxEqual(range.minValue, -12.0) && approxEqual(range.maxValue, 12.0) &&
+              approxEqual(range.step, 1.0),
+          "Default range is -12..12 st, snapped", range.step);
+    check(!pitch->GetAutomationRange("mix", range), "Only semitones has a node range", 0.0);
+
+    pitch->SetParam("semitones", 2.4);
+    check(approxEqual(pitch->GetAppliedSemitones(), 2.0), "Snap on rounds to a whole semitone",
+          pitch->GetAppliedSemitones());
+
+    pitch->SetParam("stepMode", 0.0);
+    check(approxEqual(pitch->GetAppliedSemitones(), 2.4), "Snap off keeps the free value",
+          pitch->GetAppliedSemitones());
+    pitch->GetAutomationRange("semitones", range);
+    check(approxEqual(range.step, 0.0), "Snap off makes automation continuous", range.step);
+
+    pitch->SetParam("minSemitones", 0.0);
+    pitch->SetParam("maxSemitones", 7.0);
+    pitch->SetParam("semitones", 9.0);
+    check(approxEqual(pitch->GetAppliedSemitones(), 7.0), "Above the range holds at the max",
+          pitch->GetAppliedSemitones());
+    check(approxEqual(pitch->GetParam("semitones"), 9.0), "The setting itself is kept", pitch->GetParam("semitones"));
+
+    pitch->SetParam("semitones", -3.0);
+    check(approxEqual(pitch->GetAppliedSemitones(), 0.0), "Below the range holds at the min",
+          pitch->GetAppliedSemitones());
+    check(pitch->GetLatencySamples() == 0, "Held at 0 st is transparent", pitch->GetLatencySamples());
+
+    pitch->GetAutomationRange("semitones", range);
+    check(approxEqual(range.minValue, 0.0) && approxEqual(range.maxValue, 7.0), "Automation gets the node's range",
+          range.maxValue);
+
+    // A preset may apply the bounds in either order; crossed bounds still describe one range.
+    pitch->SetParam("minSemitones", 5.0);
+    pitch->SetParam("maxSemitones", -5.0);
+    pitch->GetAutomationRange("semitones", range);
+    check(approxEqual(range.minValue, -5.0) && approxEqual(range.maxValue, 5.0), "Crossed bounds read as one range",
+          range.minValue);
+
+    return allPassed;
 }
 } // anonymous namespace
 
@@ -2235,6 +2303,11 @@ int main()
     }
 
     if (!TestPitchShiftLatencySpecific())
+    {
+        return 1;
+    }
+
+    if (!TestPitchShiftRangeAndSnap())
     {
         return 1;
     }
