@@ -12,13 +12,20 @@
 * Fixed clicks and stale output from hosts that deliver larger audio blocks than they declare — oversized blocks are now split in the mixer and IR Reverb.
 * IR Reverb now caches resampled impulse responses and ignores redundant quality changes, so changing settings no longer causes audio dropouts.
 * IR normalization gain is now sample-rate compensated, so IR levels stay consistent whatever rate the host runs at.
-* Graphic EQ's Profile dropdown has been replaced by the effect Presets button. The profiles are now flat band layouts listed under Factory, differing only in how many bands they have and where they sit, so choosing one no longer imposes a voicing. A newly added Graphic EQ starts flat, and your own curves are saved alongside them as effect presets.
+* Graphic EQ's Profile dropdown has been replaced by the effect Presets dropdown. The profiles are now flat band layouts listed under Factory, differing only in how many bands they have and where they sit, so choosing one no longer imposes a voicing. A newly added Graphic EQ starts flat, and your own curves are saved alongside them as effect presets.
 * Graphic EQ gained a Reset button that returns every band to 0 dB without changing the selected profile.
 * The tuner now runs on a background thread, taking its work off the audio thread.
+* Fixed long convolution reverb IRs crackling at small buffer sizes. A multi-second IR now spreads its work evenly across audio callbacks instead of doing it in one burst. With a 4.7 s plate at 48 kHz and a 64-sample buffer, the slowest callback went from 142% of the available time to 54%.
+* Fixed filters misbehaving at low or unusual sample rates: the NAM amp's presence control at 8 kHz, the simple cab at 11.025 kHz, and the built-in amp at fractional rates. These fixed-frequency filters are now kept below Nyquist.
+* macOS and Linux: turning NAM auto input calibration off no longer leaves NAM amps playing at the wrong level. The Parametric EQ, Graphic EQ and Flanger also recover from an invalid sample in their input, instead of producing bad output until the effect is rebuilt. Optimised builds had been silently removing the checks for invalid values.
 
 ### Presets & Workflow
-* Effects now have a Presets button in their header, opening a small flyout with a single list of factory presets followed by your own saved settings. Save the current settings of any effect under a name and load them onto any other preset.
+* Effects now have a Presets dropdown in their header, opening a small flyout with a single list of factory presets followed by your own saved settings. Save the current settings of any effect under a name and load them onto any other preset.
 * Added back/forward buttons beside the preset selector to step through recently loaded presets (up to 10), for quick A/B comparison between tones.
+* Added **undo/redo and A/B** for the signal chain, in the footer (#43). Undo and redo cover nodes, wiring, parameters, bypass and node settings, and a knob drag counts as one step. Use Ctrl/Cmd+Z to undo, and Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y to redo. A and B hold two independent versions of the chain to compare, and the ⇄ button copies the live chain to the other slot. A change that keeps the chain's shape is applied without reloading the preset, so the sound isn't interrupted. Loading another preset or scene resets both slots to that preset.
+* Presets can be dragged onto a setlist pad to assign them, either from the library popover or from the loaded preset's name in the toolbar. If the pad already holds a different preset, you're asked before it's replaced.
+* Fixed replacing an effect with one from a different category, such as a delay with a reverb, which was being rejected without any message.
+* Hosted plugin state is now kept through chain edits, scene switches, Multi-Rig slots, plugin swaps and standalone restarts (#23).
 * Preset switching is now genuinely gapless: the outgoing preset crossfades into the incoming one over ~21 ms instead of being cut dead, and switching cost dropped from ~32 ms to ~11 ms through a NAM model cache and building signal graphs off the audio lock.
 * Delay and reverb tails now carry over a preset or scene switch. The old preset's input fades away and stays disconnected through its final release. Tail state survives silent gaps between repeats for the selected duration: two bars at the current tempo by default, configurable from Off to four bars under Settings → General → Preset Switching. Rapid switches release older tails early and cap the number of retiring chains.
 * Fixed Multi-Rig scene changes rebuilding under the audio lock, excessive retiring chains during rapid scene changes, and a shutdown deadlock involving retired hosted-plugin editors.
@@ -39,6 +46,15 @@
 * Tone3000 tone artwork is shown in the effect visualisation in place of the generic category image, and stored with the imported resource. Existing imports are backfilled as tone listings are fetched.
 * Fixed a crash when accessing files whose names contain non-ASCII characters such as an en dash.
 * Fixed loading of resources referenced by their normalized path.
+* Double-clicking a result in the Resource Library or Folder tab now selects it and closes the browser.
+* Fixed composite effects that take both an amp model and a cab IR, such as Supercharged Neural Amp. Choosing one used to overwrite the other, which then showed as a missing resource.
+* Tone Sharing search now runs on the server, so it searches all community presets rather than only the pages already loaded. A new tag filter narrows the results, and both apply as you page through them.
+
+### Practice & Jam
+* Added the **Practice Tool** to the Jam panel: a backing-track player for learning songs by ear. Open a WAV, AIFF or MP3 file, or drag one in, and change its speed (0.25x–2x) and pitch (±12 semitones) independently, along with volume and balance. Mark named loop sections on the stereo waveform, with song-section name suggestions and an undo for deleted loops. A four-band Backing Track EQ shapes the track without touching your guitar. Projects save the track, its loops, the fader settings and optionally the current preset, so you can pick up where you left off. The track is mixed in after your signal chain, and speed and pitch are processed on a background thread so your guitar signal is never held up. It can be hidden under Settings → Feature Toggles (credit: AriKuorikoski, #39).
+* Riff previews now loop seamlessly. The engine loops the clip itself with a crossfade at the join, instead of the UI requesting it again each time. Trim markers and repeat settings can be changed while the preview plays.
+* The standalone **metronome** has been rebuilt. It adds time signatures from 2/4 to 13/4, 3/8 to 12/8, and grouped 5/8 and 7/8, plus a per-beat accent pattern you edit by clicking the beats (accent, medium, normal or silent). You can also add subdivisions from eighths to 32nds, including triplets. It has sampled click kits and a live beat display, and the Space bar and the footer's TAP button tap the tempo.
+* The Jam player has a favourite button, so you can favourite the track that's playing without leaving the player (credit: belowm, #48).
 
 ### Effect Layouts
 * The layout button on an effect now opens a picker where you choose between the standard controls and any custom layout, and remember that choice as a rule scoped to every use of the effect, to amps/FX matching a keyword, or to a single preset. A master *Use Effect Layouts* switch turns the whole system off without discarding your rules, and layouts can be created, edited and named from the same popover. (Requires the Effect Layout Editor power feature.)
@@ -52,19 +68,28 @@
 * MIDI channels are now consistently displayed as 1–16 (or "any") throughout the UI.
 * Right-click a control to **MIDI Learn** it. This works on the IN and OUT knobs, every effect parameter in standard and custom layouts, and the setlist pads, bank arrows and editor slots. A bar shows while it's listening (Cancel or Escape stops it), and a message confirms the mapping it captured. The same menu has Clear Mapping, which removes the MIDI assignment but keeps the slot's keyboard and DAW automation.
 * **MIDI Learn for this preset** maps a control only while that preset is active, so one expression pedal can drive a wah in one preset and a volume in another. It's offered on effect parameters and the IN and OUT knobs, but not on setlist pads or bank controls, which pick what plays rather than shape how it sounds. Within that preset it overrides any global mapping on the same MIDI control, and controls the preset doesn't map still follow their global mapping. Per-preset mappings are listed under Preset Mappings in the MIDI & Automation panel, and each preset can have up to 16. They respond to MIDI only, aren't included when a preset is exported or shared, and are removed when the preset is deleted.
+* MIDI and DAW automation of effect parameters now covers each parameter's full range. Previously a CC swept a ±24 dB knob between only 0 and 1 dB, so existing automation of effect parameters on custom slots will now play back across the full range.
+* The loaded preset's name is sent to the MIDI controller as SysEx, which Soundshed Go controllers show on their display and other devices ignore. In a plugin, the name is sent while the editor window is open. You can turn this off in the MIDI & Automation panel's Mappings tab. To support it, the plugin now has a MIDI output in every format, and the standalone app lists MIDI output devices.
+* Automation slot values are now saved with the DAW project, and restoring them no longer triggers their actions.
 
 ### Settings & Storage
 * Settings, presets and library data are now kept in a single SQLite store, which multiple plugin instances and the standalone app can read and write at the same time without stepping on each other. Existing files are imported once on first launch and left in place untouched.
 * UI storage files (setlists, automation, preset folders/favourites/ratings) are now written atomically, so a crash or power loss mid-write can no longer truncate them.
+* All other files the app writes in full are now written atomically too, including presets, library indexes, layouts and extracted factory models. Plugin instances that start together on a fresh profile can no longer read a model while another instance is still extracting it. A factory model that an older version left incomplete is repaired on the next launch.
 * Clarified which settings belong where: NAM quality and editor size/zoom now belong to a plugin instance and are saved with the DAW project, shared preferences still sync between instances, and standalone-only settings (last preset, metronome, input mode, global FX) are no longer overwritten by a plugin instance.
 * The plugin editor window now reopens at the size you left it at. Each instance remembers its own size with the DAW project, so it survives closing and reopening the editor as well as reopening the project. Where the window sits on screen stays the host's to remember. A brand-new instance now opens at a size based on your display — up to 1600x1100 and never more than 80% of the screen — instead of a fixed 1200x900, which came up small on high-resolution or scaled displays.
 
 ### Performance
 * A preset or scene change now sends the UI a small state update instead of the entire app state including the resource library, which was around fifty times larger.
 * DSP performance and signal-level telemetry are suppressed while the UI is hidden, and the signal-level messages themselves are far more compact.
+* The audio thread does much less work in each block. It no longer allocates memory, works out the chain's processing order only when the chain changes, and updates level meters only as often as they're displayed. A light chain went from 6.65 µs to 2.03 µs per 64-sample block. The Reverb and Parametric EQ also cost less per sample.
 
 ### UI & Workflow
 * The control bar has an OUT meter beside the OUT knob, matching the IN meter on the other side, so you can see what is leaving the app as well as what is arriving. It reads the mix after master gain and auto-level, which means it follows the OUT knob and drops to silence when the output is muted. Both meters gained a held-peak readout in dB above the ladder — useful resolution the eight segments cannot show, and the only way to see how far past full scale a hot output actually goes.
+* Added a **compact layout** for small windows. The signal chain and the effect controls become two tabs, each using the full height, and picking a node switches to its controls. In short, wide windows the navigation moves to a rail down the left edge and the effect header fits on one line, so the knobs stay visible down to the 640x400 minimum window size. Layout Density (Settings → General → UI) is set to Auto, which picks a layout from the window size; choose Compact or Full to override it.
+* Effect artwork now fills its panel. Signal chain nodes without their own thumbnail show the same artwork, with the effect's icon on top. In narrow windows the artwork shrinks to a thumbnail beside the effect name, so it no longer pushes the controls down.
+* Fixed an empty notification that flashed on every state update and cleared any message already on screen.
+* The Help panel has been rewritten, and the startup screen shows only the app logo. NAM FX, Digital Delay, Doubler and the Advanced and Ambient reverbs have their own icons, and the footer uses icons for Setlist, Tuner and the other tools. Knob rings shade along their sweep in the dark and classic themes, and interface text now uses UK spelling throughout.
 
 ### Platform & Reliability
 * Linux: fixed signal-chain node reordering and drag-and-drop from the FX Library panel, and improved leftward reordering (#27).
@@ -74,6 +99,12 @@
 * Fixed text encoding for the plugin UI so non-ASCII characters display correctly (#13).
 * Hosted plugin loading now resolves bundle paths consistently across VST3, Audio Unit, LV2 and CLAP on every platform, so picking a file from inside a plugin bundle loads the plugin you intended.
 * Improved signal chain drag/drop compatibility checks, and fixed a node reordering case that could break the graph.
+* Fixed a crash when the UI sent a message with an unexpected value type. The message is now logged and ignored.
+* In a DAW, opening a project no longer marks it as modified. Hosts that snapshot plugin state for undo no longer record the plugin's restore as a new undo step, which used to wipe the host's redo. Signal chain undo now works with hosted plugins and keeps each plugin's current state, although undoing the deletion of a hosted plugin still can't bring its state back.
+* CLAP: parameter values a host sets while audio is stopped now take effect straight away, and latency changes are only reported when the host allows it. Both issues were found with clap-validator.
+* Windows: the CLAP plugin's UI no longer appears oversized and clipped on a scaled desktop, such as one set to 150% (#38).
+* Windows: fixed the installer's component checkboxes not toggling correctly. The installer also won't continue until at least one component is selected (#41).
+* Windows: the app's WebView2 data now lives in one folder, %LOCALAPPDATA%\Soundshed Guitar\WebView2, instead of a new temporary folder on every launch. Old folders are cleaned up in the background, and uninstalling removes both.
 
 ## 1.5.0 (July 25, 2026)
 
