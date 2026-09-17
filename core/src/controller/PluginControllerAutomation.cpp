@@ -367,10 +367,21 @@ void PluginController::ApplySetlistPresetByIndexDirect(int index)
     toStore["cursorIndex"] = index;
     SaveUiStorageJson("setlists.json", toStore);
 
-    // Change to the preset. A setlist step is a *switch*, not a Multi-Rig add: it must swap
-    // the mixer down to this one preset (gapless, via ApplyPreset's crossfade) rather than
-    // stacking another instance on top of whatever is already playing.
-    ApplyActivePresetById(presetId);
+    // A step onto the preset that is already playing on its own only moves the cursor.
+    // Reloading it would put the stored copy back over every edit not yet saved — a
+    // footswitch, a mapped key or a pad tapped twice silently undid the chain — and
+    // crossfade to a chain identical to the one playing.
+    const auto activeIds = mPresetMixer.GetActivePresetIds();
+    const bool alreadyPlaying =
+        mActivePreset && mActivePresetId == presetId && activeIds.size() == 1 && activeIds.front() == presetId;
+
+    // Otherwise change to the preset. A setlist step is a *switch*, not a Multi-Rig add: it
+    // must swap the mixer down to this one preset (gapless, via ApplyPreset's crossfade)
+    // rather than stacking another instance on top of whatever is already playing.
+    if (!alreadyPlaying)
+    {
+        ApplyActivePresetById(presetId);
+    }
 
     // Notify the UI that the setlist cursor changed so it can update its display
     // and load the preset into the main preset chooser.

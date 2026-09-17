@@ -192,8 +192,10 @@ function loadSelectedProject(): void {
   }
 
   // Fired first and left to run on its own: the preset load has its own
-  // unsaved-changes confirmation, and the track is restored either way.
-  if (project.presetId) {
+  // unsaved-changes confirmation, and the track is restored either way. A preset
+  // that is already loaded is left alone — the project records only which preset,
+  // so reloading it would just put the saved copy back over the edits made since.
+  if (project.presetId && project.presetId !== uiState.activePresetId) {
     requestPracticeToolPresetRecall(project.presetId);
   }
 

@@ -130,7 +130,9 @@ export async function enrichAttachment(attachment: Attachment): Promise<Attachme
 }
 
 export async function applyPresetFromLibrary(presetId: string): Promise<void> {
-  if (uiState.presetDirty && uiState.activePresetId && uiState.activePresetId !== presetId) {
+  // Loading the preset being edited reloads its saved copy, so it discards the edits just as
+  // surely as switching away does.
+  if (uiState.presetDirty && uiState.activePresetId) {
     const confirmDiscard = await showConfirm("Discard unsaved changes?", "Unsaved changes");
     if (!confirmDiscard) {
       return;

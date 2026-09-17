@@ -37,7 +37,10 @@ Define a flexible preset organization model with hierarchical folders and ordere
    up to `audio.presetSwitch.tailBars` bars at the current tempo (default 2, 0 = off). It
    never stacks another instance on top, which is the separate Multi-Rig "add preset to the
    mix" action. The backend performs the load and reports it with `presetLoaded`; the UI must
-   not issue its own `loadPreset` for the same step.
+   not issue its own `loadPreset` for the same step. A step onto the preset that is already
+   the only one playing loads nothing: the cursor moves and `setlistCursorChanged` is sent,
+   but no `presetLoaded` follows, so unsaved edits to that preset survive and the UI shows no
+   loading state for it (`isOnlyPlayingPreset` mirrors the backend's test).
 
 ## Import Behavior
 - **Default imports**: presets without folder paths remain unassigned and appear in `All Presets` until the user moves them into a folder.

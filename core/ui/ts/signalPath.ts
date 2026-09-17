@@ -11,23 +11,18 @@ import { escapeHtml } from "./utils.js";
 import { showNotification } from "./notifications.js";
 import { EffectTypeRegistry, getNodeEffectInfo } from "./presetV2.js";
 import { EffectGuids } from "./effectGuids.js";
-import { getBadgeIcon, renderIcon } from "./iconAssets.js";
+import { renderIcon } from "./iconAssets.js";
 import {
-  CATEGORY_METADATA,
   expandFxSelector,
   focusFxSelectorCategory,
-  getFxLibraryItems,
-  getOrderedFxCategories,
   sendAddSignalPathNode,
   sendAddSignalPathNodeOnEdge,
   type FxPointerDragPayload,
-  type FxLibraryItem,
   type SignalPathEdgeRef,
   type SignalPathNodeOptions,
 } from "./fxSelector.js";
-import { beginPointerDrag, getUiZoom, type PointerDragGesture } from "./pointerDrag.js";
+import { beginPointerDrag, type PointerDragGesture } from "./pointerDrag.js";
 import { resolveNodeDropAction, type NodeDropTarget } from "./signalPathDropTargets.js";
-import { getCustomLayout } from "./layoutRenderer.js";
 import { resolveLayoutForNode } from "./layoutPreferences.js";
 import { layoutDesigner } from "./layoutDesigner.js";
 import { createPresetScene, findPresetScene, normalizePresetScenes, removePresetScene, selectPresetScene } from "./presetScenes.js";
@@ -60,6 +55,7 @@ import { chain3dPanelActive, chain3dView, hideNodeParamsPanel } from "./signalPa
 import { buildMissingResourceTooltip, buildNodeLayoutMatchText, getMissingResourceEntries, getNodeArchitectureBadge, getNodeDisplayName, getNodeResourceDisplayName } from "./signalPath/nodeLabels.js";
 import { isProtectedSignalPathNode, isToggleableSignalPathNode, toggleSignalPathNodeBypass } from "./signalPath/bypass.js";
 import { updateSignalPathClipIndicators } from "./signalPath/telemetry.js";
+import { reanchorAddEffectDropdown, showAddEffectDropdown } from "./signalPath/addEffectDropdown.js";
 export { applySignalPathNodeBypassState, isToggleableSignalPathNode } from "./signalPath/bypass.js";
 export { applySpatialPositionUpdate, buildDefaultParamControlsHtml } from "./signalPath/paramsPanel.js";
 export { closeEffectPresetsFlyout, refreshEffectPresetsFlyout } from "./signalPath/effectPresets.js";
@@ -1463,156 +1459,39 @@ function bindAddButtonHandlers(): void {
     button.addEventListener("click", (e: Event) => {
       e.stopPropagation();
       const edge = parseEdgeFromDataset(button as HTMLElement);
-      showEffectSelectionDropdown(button as HTMLElement, edge);
+      showAddEffectDropdown(button as HTMLElement, (item) => addEffectFromDropdownItem(item, edge));
     });
   });
+
+  // The render that called this replaced every + button, including the one an open
+  // effect chooser hangs from.
+  reanchorAddEffectDropdown();
 }
 
-/**
- * Show a dropdown menu to select an effect to add.
- */
-function showEffectSelectionDropdown(buttonElement: HTMLElement, edge: EdgeRef | null): void {
-  // Remove any existing dropdown
-  const existing = document.querySelector(".effect-selection-dropdown");
-  if (existing) existing.remove();
-
-  const dropdown = document.createElement("div");
-  dropdown.className = "effect-selection-dropdown";
-
-  const dropdownItems = getFxLibraryItems({ excludeTypes: [EffectGuids.kMixer] });
-  const effectsByCategory = new Map<string, FxLibraryItem[]>();
-
-  dropdownItems.forEach((effect) => {
-    if (!effectsByCategory.has(effect.category)) {
-      effectsByCategory.set(effect.category, []);
-    }
-    effectsByCategory.get(effect.category)!.push(effect);
-  });
-
-  const categoryOrder = getOrderedFxCategories(dropdownItems);
-  
-  let dropdownHtml = '<div class="effect-dropdown-header">Add Effect</div>';
-  
-  categoryOrder.forEach((categoryId) => {
-    const effects = effectsByCategory.get(categoryId) ?? [];
-    if (effects.length > 0) {
-      const categoryInfo = CATEGORY_METADATA[categoryId];
-      const categoryColor = categoryInfo?.color || "var(--color-accent)";
-      dropdownHtml += `
-        <div class="effect-dropdown-category" style="--category-color: ${escapeHtml(categoryColor)}">
-          <div class="effect-dropdown-category-name">
-            ${categoryInfo?.name || categoryId}
-          </div>
-          ${effects.map((effect) => {
-              const thumb = effect.blendId
-                ? (getCustomLayout(effect.type, effect.blendId) ?? getCustomLayout(effect.type))?.thumbnailDataUrl
-                : (getCustomLayout(effect.type)?.thumbnailDataUrl ?? effect.thumbnailDataUrl);
-            const icon = thumb
-              ? `<img src="${thumb.replace(/"/g, '&quot;')}" alt="" aria-hidden="true" class="effect-dropdown-thumb" />`
-              : `<span class="effect-dropdown-icon">${effect.blendId ? getBadgeIcon("blend", "Custom blend") : getNodeIcon(effect.type)}</span>`;
-              return `
-              <div class="effect-dropdown-item"
-                data-effect-type="${effect.type}"
-                data-blend-id="${escapeHtml(effect.blendId ?? "")}"
-                data-blend-name="${escapeHtml(effect.blendId ? effect.displayName : "")}"
-                data-blend-category="${escapeHtml(effect.blendCategory ?? "") }"
-                data-effect-category="${escapeHtml(effect.category ?? "utility") }"
-                data-custom-effect-id="${escapeHtml(effect.customEffectId ?? "") }"
-                data-custom-effect-resource-type="${escapeHtml(effect.moduleResourceType ?? "") }"
-                data-custom-effect-resource-id="${escapeHtml(effect.moduleResourceId ?? "") }"
-                data-custom-effect-default-params="${escapeHtml(encodeURIComponent(JSON.stringify(effect.defaultParams ?? {})))}"
-                style="--category-color: ${escapeHtml(categoryColor)}">
-              ${icon}
-              <span class="effect-dropdown-name">${escapeHtml(effect.displayName)}</span>
-            </div>
-          `;
-          }).join('')}
-        </div>
-      `;
-    }
-  });
-  
-  dropdown.innerHTML = dropdownHtml;
-  document.body.appendChild(dropdown);
-
-  const positionDropdown = (): void => {
-    const buttonRect = buttonElement.getBoundingClientRect();
-    const margin = 8;
-    const uiZoom = getUiZoom();
-    const viewportWidth = window.innerWidth / uiZoom;
-    const viewportHeight = window.innerHeight / uiZoom;
-
-    dropdown.style.maxWidth = `${Math.min(300, viewportWidth - margin * 2)}px`;
-    dropdown.style.maxHeight = `${Math.min(500, viewportHeight - margin * 2)}px`;
-    const dropdownWidth = dropdown.offsetWidth;
-    const dropdownHeight = dropdown.offsetHeight;
-    const left = Math.max(
-      margin,
-      Math.min(buttonRect.left / uiZoom, viewportWidth - dropdownWidth - margin),
-    );
-    let top = buttonRect.bottom / uiZoom + 5;
-
-    if (top + dropdownHeight > viewportHeight - margin) {
-      top = Math.max(margin, buttonRect.top / uiZoom - dropdownHeight - 5);
-    }
-
-    dropdown.style.left = `${Math.round(left)}px`;
-    dropdown.style.top = `${Math.round(top)}px`;
-  };
-
-  const closeDropdown = (): void => {
-    window.removeEventListener("resize", positionDropdown);
-    window.removeEventListener("scroll", positionDropdown, true);
-    dropdown.remove();
-  };
-
-  positionDropdown();
-  window.addEventListener("resize", positionDropdown);
-  window.addEventListener("scroll", positionDropdown, true);
-
-  // Bind effect selection
-  const effectItems = dropdown.querySelectorAll(".effect-dropdown-item");
-  effectItems.forEach((item) => {
-    item.addEventListener("click", () => {
-      const effectType = (item as HTMLElement).dataset.effectType;
-      const blendId = (item as HTMLElement).dataset.blendId;
-      const blendName = (item as HTMLElement).dataset.blendName;
-      const blendCategory = (item as HTMLElement).dataset.blendCategory;
-      const customEffectId = (item as HTMLElement).dataset.customEffectId;
-      if (effectType) {
-        if (customEffectId) {
-          const payload: CustomEffectDragPayload = {
-            customEffectId,
-            baseEffectType: effectType,
-            name: item.querySelector(".effect-dropdown-name")?.textContent ?? "Custom Effect",
-            category: (item as HTMLElement).dataset.effectCategory ?? "utility",
-            moduleResourceType: (item as HTMLElement).dataset.customEffectResourceType ?? "",
-            moduleResourceId: (item as HTMLElement).dataset.customEffectResourceId ?? "",
-            defaultParams: parseCustomEffectDefaultParamsDataset((item as HTMLElement).dataset.customEffectDefaultParams),
-          };
-          sendAddEffectAtEdgeOrFallback(effectType, edge, edge?.from ?? "__input__", buildCustomEffectNodeOptions(payload));
-        } else {
-          sendAddEffectAtEdgeOrFallback(effectType, edge, edge?.from ?? "__input__", {
-            config: blendId ? { blendId } : undefined,
-            label: blendName || undefined,
-            category: blendCategory || undefined,
-          });
-        }
-        closeDropdown();
-      }
-    });
-  });
-
-  // Close dropdown when clicking outside
-  setTimeout(() => {
-    const closeHandler = (e: MouseEvent) => {
-      if (!dropdown.contains(e.target as Node)) {
-        closeDropdown();
-        document.removeEventListener("click", closeHandler);
-      }
+/** Adds the effect a chooser row describes at the insertion point its + button stands for. */
+function addEffectFromDropdownItem(item: HTMLElement, edge: EdgeRef | null): void {
+  const { effectType, blendId, blendName, blendCategory, customEffectId } = item.dataset;
+  if (!effectType) {
+    return;
+  }
+  if (customEffectId) {
+    const payload: CustomEffectDragPayload = {
+      customEffectId,
+      baseEffectType: effectType,
+      name: item.querySelector(".effect-dropdown-name")?.textContent ?? "Custom Effect",
+      category: item.dataset.effectCategory ?? "utility",
+      moduleResourceType: item.dataset.customEffectResourceType ?? "",
+      moduleResourceId: item.dataset.customEffectResourceId ?? "",
+      defaultParams: parseCustomEffectDefaultParamsDataset(item.dataset.customEffectDefaultParams),
     };
-    document.addEventListener("click", closeHandler);
-  }, 0);
+    sendAddEffectAtEdgeOrFallback(effectType, edge, edge?.from ?? "__input__", buildCustomEffectNodeOptions(payload));
+  } else {
+    sendAddEffectAtEdgeOrFallback(effectType, edge, edge?.from ?? "__input__", {
+      config: blendId ? { blendId } : undefined,
+      label: blendName || undefined,
+      category: blendCategory || undefined,
+    });
+  }
 }
 
 type ResourceGroupPayload = {

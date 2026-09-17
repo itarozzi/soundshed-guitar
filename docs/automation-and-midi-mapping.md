@@ -123,7 +123,7 @@ That's the entire default-slot definition. `isDefault=true` is just a flag the U
 
 Default-slot value semantics are inherited from the address's registry entry (`isStepped` / `isTrigger`):
 - **Bank = setlist.** A "bank" is a whole setlist; each setlist owns a unique optional `bank` number (see `preset-library-organization.md`).
-- `setlist.preset1..8` are triggers → fire on the 0→0.5+ rising edge; each selects the corresponding slot (0..7) of the **active setlist** and loads its preset (`ApplySetlistPresetByIndex`).
+- `setlist.preset1..8` are triggers → fire on the 0→0.5+ rising edge; each selects the corresponding slot (0..7) of the **active setlist** and loads its preset (`ApplySetlistPresetByIndex`). A slot holding the preset already playing on its own only moves the cursor: reloading it would replace unsaved edits with the stored copy.
 - `setlist.bankUp`/`bankDown` are triggers → fire on the rising edge; switch the active setlist to the next/previous one in UI list order, clamped at the first/last setlist. No preset is loaded on a bank change.
 - `setlist.bankSelect` is stepped (0..127) → selects the setlist whose `bank` number equals the value (a MIDI CC 0..127 picks the bank directly). No-op with a log entry if no setlist claims that bank number.
 - `global.inputTrim`/`outputTrim` are continuous dB.

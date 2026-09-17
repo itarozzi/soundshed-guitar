@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cstdlib>
 #include <cstdint>
 #include <array>
@@ -3401,6 +3402,149 @@ bool TestSetlistCursorSwitchesPresetWithoutStackingMixer()
     }
 }
 
+// Stepping onto the slot of the preset already playing must not reload it from the store:
+// that put the saved copy back over an effect just added, so the chain lost it the moment a
+// footswitch, mapped key or setlist pad named the same preset again.
+bool TestSetlistStepOntoPlayingPresetKeepsUnsavedEdits()
+{
+    try
+    {
+        const fs::path sandbox = fs::temp_directory_path() / "guitarfx-preset-management-tests" / "setlist-same";
+        std::error_code ec;
+        fs::remove_all(sandbox, ec);
+        fs::create_directories(sandbox, ec);
+        SetSettingsEnvRoot(sandbox);
+
+        const fs::path presetDir = sandbox / "Soundshed Guitar" / "data" / "v1" / "presets" / "user";
+        fs::create_directories(presetDir, ec);
+
+        for (const auto& [id, name] :
+             std::vector<std::pair<std::string, std::string>>{{"setlist-a", "Setlist A"}, {"setlist-b", "Setlist B"}})
+        {
+            auto preset = BuildPassthroughPreset(id, name);
+            guitarfx::NormalizePresetScenes(preset);
+
+            if (!guitarfx::PresetStorage::SaveToFile(preset, presetDir / (id + ".json")))
+            {
+                std::cerr << "Failed to write setlist preset fixture " << id << "\n";
+                return false;
+            }
+        }
+
+        TestHost host(sandbox);
+        guitarfx::PluginController controller(host);
+        controller.Initialize();
+
+        // Slots 0 and 1 hold the same preset, as a setlist that repeats a song's tone does.
+        nlohmann::json slots = nlohmann::json::array();
+        slots.push_back(nlohmann::json{{"presetId", "setlist-a"}});
+        slots.push_back(nlohmann::json{{"presetId", "setlist-a"}});
+        slots.push_back(nlohmann::json{{"presetId", "setlist-b"}});
+
+        nlohmann::json setlist;
+        setlist["id"] = "setlist-1";
+        setlist["name"] = "Set 1";
+        setlist["bank"] = 1;
+        setlist["slots"] = slots;
+
+        nlohmann::json setSetlists;
+        setSetlists["type"] = "setSetlists";
+        setSetlists["activeSetlistId"] = "setlist-1";
+        setSetlists["setlists"] = nlohmann::json::array({setlist});
+        controller.HandleUIMessage(setSetlists.dump());
+
+        const auto stepTo = [&](int index) {
+            controller.HandleUIMessage(nlohmann::json{{"type", "setSetlistCursor"}, {"cursorIndex", index}}.dump());
+        };
+        const auto countMessages = [&](const std::string& type) {
+            return std::count_if(host.sentMessages.begin(), host.sentMessages.end(), [&](const std::string& message) {
+                return message.find("\"type\":\"" + type + "\"") != std::string::npos;
+            });
+        };
+        const auto chainSize = [&]() {
+            const auto& active = controller.GetActivePreset();
+            return active ? ActiveEditGraph(*active).nodes.size() : std::size_t{0};
+        };
+
+        stepTo(0);
+        const std::size_t storedSize = chainSize();
+
+        if (!controller.GetActivePreset() || ActiveEditGraph(*controller.GetActivePreset()).edges.empty())
+        {
+            std::cerr << "Stepping to slot 0 did not load a chain to edit\n";
+            return false;
+        }
+
+        // Insert on the loaded chain's own first edge, as the UI's + button does.
+        const auto edge = ActiveEditGraph(*controller.GetActivePreset()).edges.front();
+        controller.HandleUIMessage(nlohmann::json{
+            {"type", "addSignalPathNode"},
+            {"effectType", guitarfx::EffectGuids::kGain},
+            {"edge", {{"from", edge.from}, {"to", edge.to}, {"fromPort", edge.fromPort}, {"toPort", edge.toPort}}}}
+                                       .dump());
+
+        if (chainSize() != storedSize + 1)
+        {
+            const auto error = FindLatestMessageOfType(host.sentMessages, "error");
+            std::cerr << "Adding an effect did not grow the chain (" << storedSize << " nodes"
+                      << (error ? ", " + error->value("detail", std::string{}) : std::string{}) << ")\n";
+            return false;
+        }
+
+        for (const int index : {0, 1})
+        {
+            const auto loadsBefore = countMessages("presetLoaded");
+            stepTo(index);
+
+            if (chainSize() != storedSize + 1)
+            {
+                std::cerr << "Stepping to slot " << index << " reloaded the playing preset and lost the added effect\n";
+                return false;
+            }
+
+            if (countMessages("presetLoaded") != loadsBefore)
+            {
+                std::cerr << "Stepping to slot " << index << " reported a preset load that did not happen\n";
+                return false;
+            }
+
+            const auto cursorMsg = FindLatestMessageOfType(host.sentMessages, "setlistCursorChanged");
+
+            if (!cursorMsg || cursorMsg->value("cursorIndex", -1) != index ||
+                cursorMsg->value("presetId", "") != "setlist-a" || controller.GetSetlistCursorIndex() != index)
+            {
+                std::cerr << "Stepping to slot " << index << " did not move the cursor\n";
+                return false;
+            }
+        }
+
+        // A different preset still switches, and coming back loads the stored copy.
+        stepTo(2);
+
+        if (!controller.GetActivePreset() || controller.GetActivePreset()->id != "setlist-b")
+        {
+            std::cerr << "Stepping to another preset's slot did not switch to it\n";
+            return false;
+        }
+
+        stepTo(0);
+
+        if (!controller.GetActivePreset() || controller.GetActivePreset()->id != "setlist-a" ||
+            chainSize() != storedSize)
+        {
+            std::cerr << "Returning to the preset did not load its stored copy\n";
+            return false;
+        }
+
+        return true;
+    }
+    catch (const std::exception& ex)
+    {
+        std::cerr << "Exception in TestSetlistStepOntoPlayingPresetKeepsUnsavedEdits: " << ex.what() << "\n";
+        return false;
+    }
+}
+
 // A Multi-Rig owns its output level: a dB gain on the summed preset mix, saved with the
 // mix and restored on load. The global output gain is a per-instance setting and stays
 // where the player left it, and loading a single preset starts the mix level over at 0 dB.
@@ -3749,6 +3893,7 @@ int main()
     run("Effect replacement survives later interactions", TestEffectReplacementSurvivesLaterInteractions());
     run("Reorder signal path node failures do not corrupt graph", TestReorderSignalPathNodeFailuresDoNotCorruptGraph());
     run("Setlist cursor switches preset without stacking mixer", TestSetlistCursorSwitchesPresetWithoutStackingMixer());
+    run("Setlist step onto playing preset keeps unsaved edits", TestSetlistStepOntoPlayingPresetKeepsUnsavedEdits());
     run("Multi-Rig round-trips its mix gain", TestCompositePresetRoundTripsMixGain());
     run("Preset switch broadcasts light state", TestPresetSwitchBroadcastsLightState());
 

@@ -6,6 +6,7 @@ import {
   clearActiveSetlistSlot,
   createSetlist,
   deleteActiveSetlist,
+  isOnlyPlayingPreset,
   updateActiveSetlistDetails,
 } from "./presets.js";
 import { clonePreset, getActivePresetForRender, uiState } from "./state.js";
@@ -283,10 +284,7 @@ function selectSetlistSlot(index: number): void {
     showNotification("No setlist selected", "Create or select a setlist first.");
     return;
   }
-  if (index < 0 || index >= setlist.slots.length) {
-    showNotification("Empty path", "Assign a preset to this setlist slot first.");
-    return;
-  }
+  // An index outside the setlist has no preset either.
   const presetId = setlist.slots[index]?.presetId ?? "";
   if (!presetId) {
     showNotification("Empty path", "Assign a preset to this setlist slot first.");
@@ -296,9 +294,11 @@ function selectSetlistSlot(index: number): void {
   uiState.setlistCursorIndex = index;
   // The backend switches the preset off this one message and reports it with "presetLoaded",
   // which re-renders the pads. Loading it from here as well rebuilt the whole DSP graph a
-  // second time and doubled the switch time.
+  // second time and doubled the switch time. A pad for the preset already playing loads nothing.
+  if (!isOnlyPlayingPreset(presetId)) {
+    uiState.presetLoadingId = presetId;
+  }
   postMessage({ type: "setSetlistCursor", cursorIndex: index });
-  uiState.presetLoadingId = presetId;
   renderPerformancePads();
 }
 

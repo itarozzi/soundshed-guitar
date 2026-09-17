@@ -25,7 +25,7 @@ export { applyPresetFromLibrary, bindLoadButtons, loadIRFromPath, loadModelFromP
 export { openPresetChooserForSelection, syncPresetLibraryFeatureVisibility } from "./presets/popover.js";
 export { applyPresetFavoritesFromBackend, applyPresetRatingsFromBackend, applyPresetRecentsFromAppSettings, recordRecentPreset } from "./presets/recents.js";
 export { closeSavePresetModal, createDefaultPreset, initializeSaveAsButton, initializeSavePresetModal, openSavePresetModal, refreshSavePresetModalPeakInfoIfOpen, saveCurrentPreset } from "./presets/saveModal.js";
-export { applySetlistCursorFromBackend, applySetlistsFromBackend, assignPresetToActiveSetlistSlot, clearActiveSetlistSlot, createSetlist, deleteActiveSetlist, setSetlistPanelVisible, updateActiveSetlistDetails } from "./presets/setlists.js";
+export { applySetlistCursorFromBackend, applySetlistsFromBackend, assignPresetToActiveSetlistSlot, clearActiveSetlistSlot, createSetlist, deleteActiveSetlist, isOnlyPlayingPreset, setSetlistPanelVisible, updateActiveSetlistDetails } from "./presets/setlists.js";
 
 export { handlePresetDataMessage, refreshPresetCacheEntryFromBackend, rejectPendingPresetRequest } from "./presets/fetch.js";
 export { cachePresetInMemory } from "./presets/cache.js";

@@ -121,6 +121,9 @@ export async function deleteCurrentPreset(): Promise<void> {
     uiState.filteredPresets = getFilteredPresets(presetSearchElement?.value ?? "");
     uiState.presetCache.delete(activePresetId);
 
+    // The deleted preset's unsaved changes went with it; loading the next one has nothing to confirm.
+    setPresetDirty(false);
+
     // Select first preset if available
     if (uiState.presets.length > 0) {
       uiState.activePresetId = uiState.presets[0].id;

@@ -49,7 +49,7 @@ export function applySetlistsFromBackend(setlists: Setlist[], activeSetlistId?: 
   renderSetlistPanel();
 }
 
-export function applySetlistCursorFromBackend(cursorIndex: number, _presetId?: string, activeSetlistId?: string): void {
+export function applySetlistCursorFromBackend(cursorIndex: number, presetId?: string, activeSetlistId?: string): void {
   if (typeof activeSetlistId === "string" && activeSetlistId && activeSetlistId !== uiState.activeSetlistId) {
     uiState.activeSetlistId = activeSetlistId;
   }
@@ -57,6 +57,20 @@ export function applySetlistCursorFromBackend(cursorIndex: number, _presetId?: s
   renderSetlistPanel();
   // The backend applies the slot's preset itself and reports it via "presetLoaded";
   // loading it again from here would race that swap and leave both presets in the mixer.
+  // A step onto the preset already playing loads nothing, so no "presetLoaded" follows to
+  // end the loading state; the cursor report is the last word.
+  if (presetId && uiState.presetLoadingId === presetId && uiState.activePresetId === presetId) {
+    uiState.presetLoadingId = null;
+    renderActivePreset();
+  }
+}
+
+/**
+ * Mirrors the backend: a setlist step onto the preset already playing on its own keeps it
+ * as it is, so no load follows and no loading state should be shown for it.
+ */
+export function isOnlyPlayingPreset(presetId: string): boolean {
+  return uiState.activePresetId === presetId && (uiState.mixer?.activePresetIds ?? []).every((id) => id === presetId);
 }
 
 export async function selectSetlistSlot(index: number): Promise<void> {
@@ -72,8 +86,11 @@ export async function selectSetlistSlot(index: number): Promise<void> {
   uiState.setlistCursorIndex = index;
   // "setSetlistCursor" is the single switch verb — the backend moves the cursor *and* swaps
   // the preset in, matching what a footswitch or MIDI program change does.
+  const reloads = !isOnlyPlayingPreset(presetId);
   postMessage({ type: "setSetlistCursor", cursorIndex: index });
-  uiState.presetLoadingId = presetId;
+  if (reloads) {
+    uiState.presetLoadingId = presetId;
+  }
   renderSetlistPanel();
   renderActivePreset();
 }
