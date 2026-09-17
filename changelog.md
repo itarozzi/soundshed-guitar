@@ -35,6 +35,7 @@
 * NAM models and IR files can be dragged from your file manager straight onto the app to import them, or dropped onto a NAM or IR Cab effect to load them into that node.
 * The resource browser now remembers a separate folder location and navigation list for each effect role, so browsing IR cabs doesn't lose your place in the NAM models.
 * Next/previous resource stepping now also walks Tone3000 search results, downloading and importing each model only when you reach it.
+* A Tone3000 tone's models are listed alphabetically in the resource browser and the Settings Tone3000 browser, with numbers in their natural order ("Gain 2" before "Gain 10"). Next/previous stepping and whole-tone imports follow the same order.
 * Tone3000 tone artwork is shown in the effect visualisation in place of the generic category image, and stored with the imported resource. Existing imports are backfilled as tone listings are fetched.
 * Fixed a crash when accessing files whose names contain non-ASCII characters such as an en dash.
 * Fixed loading of resources referenced by their normalized path.

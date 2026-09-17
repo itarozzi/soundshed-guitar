@@ -4,7 +4,7 @@ import { tone3000AuthenticatedFetch } from "./tone3000.js";
 import { buildBlendModelMappingsFromIds } from "./blendUtils.js";
 import { arrayBufferToBase64 } from "./utils.js";
 import type { Tone3000Architecture, Tone3000Model, Tone3000Tone } from "./tone3000ApiTypes.js";
-import { buildTone3000ModelsUrl, extractTone3000Models } from "./tone3000Api.js";
+import { buildTone3000ModelsUrl, extractTone3000Models, sortTone3000ModelsByName } from "./tone3000Api.js";
 
 interface JSZipObject {
   name: string;
@@ -83,6 +83,8 @@ export function backfillTone3000ResourceImages(tones: Tone3000Tone[]): void {
   }
 }
 
+/// Sorted by name here, so the resource browser, its next/prev stepping and the
+/// Settings browser all list a tone's models in the same order.
 export async function fetchTone3000Models(
   tone: Tone3000Tone,
   architecture?: Tone3000Architecture,
@@ -93,7 +95,7 @@ export async function fetchTone3000Models(
   }
 
   const data = await response.json();
-  return extractTone3000Models(data);
+  return sortTone3000ModelsByName(extractTone3000Models(data));
 }
 
 export async function importTone3000Models(

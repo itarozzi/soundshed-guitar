@@ -137,6 +137,16 @@ export function extractTone3000Models(payload: unknown): Tone3000Model[] {
   return [];
 }
 
+/**
+ * A tone's models in name order, so "Gain 2" comes before "Gain 10". Returns a
+ * new array; ties fall back to the model id so the order is stable.
+ */
+export function sortTone3000ModelsByName(models: readonly Tone3000Model[]): Tone3000Model[] {
+  return [...models].sort((a, b) =>
+    (a.name ?? "").localeCompare(b.name ?? "", undefined, { numeric: true, sensitivity: "base" })
+    || String(a.id).localeCompare(String(b.id), undefined, { numeric: true }));
+}
+
 export function buildTone3000ModelsUrl(
   toneId: string | number,
   page = 1,
