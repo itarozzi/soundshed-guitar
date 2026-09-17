@@ -1,3 +1,4 @@
+import type { EqSpectrumSource } from "./eqSpectrum.js";
 import { appendLog } from "./logging.js";
 import { setPresetDirty, uiState } from "./state.js";
 
@@ -99,6 +100,18 @@ export function setMasterGain(gain: number): void {
  */
 export function requestSignalDiagnosticsRoster(): void {
   postMessage({ type: "setSignalDiagnosticsEnabled", enabled: true });
+}
+
+/** Starts, moves or renews the backend's spectrum tap (see eqSpectrum.ts); null stops it. */
+export function sendSpectrumWatch(source: EqSpectrumSource | null): void {
+  postMessage(source
+    ? {
+      type: "setSpectrumWatch",
+      scope: source.scope,
+      nodeId: source.nodeId,
+      ...(source.presetId ? { presetId: source.presetId } : {}),
+    }
+    : { type: "setSpectrumWatch" });
 }
 
 /** The Multi-Rig's own level in dB, applied to the preset mix ahead of the global output stage. */

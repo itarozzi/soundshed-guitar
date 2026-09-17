@@ -791,7 +791,7 @@ const getPostChainEqNode = (): GraphNode | undefined =>
 
 // ── Global EQ ────────────────────────────────────────────────────────────────
 // Every control in the Global EQ modal is the shared EqPanel component
-// (ts/eqPanel.ts) — the band knobs, the draggable curve, the enable toggle.
+// (ts/eqPanel.ts) — band knobs, draggable curve, live spectrum, enable toggle.
 // What lives here is only what is specific to *this* EQ: its values are the
 // post-chain  node's params, and a change reaches the engine as a
 // global-chain param path. The Practice Tool's Backing Track EQ binds the same
@@ -830,6 +830,7 @@ function initializeEQControls(): void {
         toggle: document.getElementById('eq-modal-toggle') as HTMLInputElement | null,
         idPrefix: 'global_eq',
         onChanged: () => updateEQSectionState(),
+        spectrumSource: () => ({ scope: 'post', nodeId: getPostChainEqNode()?.id ?? 'global_eq' }),
       },
       {
         label: 'eq',

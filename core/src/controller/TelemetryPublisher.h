@@ -1,8 +1,8 @@
 #pragma once
 
-// TelemetryPublisher — the three metering feeds the UI reads continuously:
-// per-node signal diagnostics, DSP performance stats, and spatialiser puck
-// positions.
+// TelemetryPublisher — the metering feeds the UI reads continuously: per-node
+// signal diagnostics, DSP performance stats, spatialiser puck positions, and
+// the spectrum behind whichever EQ curve is on screen.
 //
 // These are the app's largest ongoing IPC cost — signal diagnostics alone is
 // ~6.7 KB at 20 Hz — and they exist only to drive on-screen meters. Everything
@@ -20,6 +20,7 @@
 #include <chrono>
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -35,7 +36,7 @@ class TelemetryPublisher
 
     TelemetryPublisher(IPluginHost& host, MultiPresetMixer& presetMixer, SendMessageFn sendMessage);
 
-    /// Drives all three feeds. Called once per idle tick (~60 Hz).
+    /// Drives every feed. Called once per idle tick (~60 Hz).
     void OnIdle();
 
     /// Suppresses every feed while false. Set from the UI's visibility message.
@@ -61,7 +62,22 @@ class TelemetryPublisher
     void RequestSignalDiagnostics();
     void RequestPerformanceStats();
 
+    /// Starts, moves or renews the spectrum feed for one node's input. `scope` and
+    /// `presetId` are as in the diagnostics roster. The watch lapses after
+    /// kSpectrumWatchLease unless renewed, which the UI does while the EQ is showing.
+    void WatchSpectrum(const std::string& scope, const std::string& presetId, const std::string& nodeId);
+    void StopSpectrum();
+
   private:
+    struct SpectrumWatch
+    {
+        std::string scope;
+        std::string presetId;
+        std::string nodeId;
+
+        bool operator==(const SpectrumWatch&) const = default;
+    };
+
     /// One node in the diagnostics roster.
     ///
     /// Everything here must be a property of the *node set*, not of the signal passing
@@ -86,6 +102,7 @@ class TelemetryPublisher
     void TrySendPendingPerformanceStats();
     void SendPerformanceStats();
     void SendSpatialPositions();
+    void SendSpectrum();
 
     IPluginHost& mHost;
     MultiPresetMixer& mPresetMixer;
@@ -98,6 +115,7 @@ class TelemetryPublisher
     int mPerformanceStatsCounter = 0;
     int mSignalDiagnosticsCounter = 0;
     int mSpatialPositionCounter = 0;
+    int mSpectrumCounter = 0;
 
     bool mPendingSignalDiagnostics = false;
     std::chrono::steady_clock::time_point mLastSignalDiagnosticsSentAt{};
@@ -111,5 +129,8 @@ class TelemetryPublisher
     /// Lets the spatial feed send one final "nothing here" frame when the last
     /// spatialiser leaves the chain, instead of the puck freezing where it was.
     bool mSpatialPositionsWereSent = false;
+
+    std::optional<SpectrumWatch> mSpectrumWatch;
+    std::chrono::steady_clock::time_point mSpectrumWatchExpiresAt{};
 };
 } // namespace guitarfx

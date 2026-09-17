@@ -133,6 +133,9 @@
   --eq-curve-handle-stroke: rgba(255, 255, 255, 0.9);
   --eq-curve-tooltip-bg: rgba(0, 0, 0, 0.82);
   --eq-curve-tooltip-text: #ffffff;
+  --eq-curve-spectrum-fill-top: rgba(170, 200, 232, 0.22);
+  --eq-curve-spectrum-fill-bottom: rgba(170, 200, 232, 0.03);
+  --eq-curve-spectrum-line: rgba(190, 214, 240, 0.36);
 
   --performance-plot-line: rgba(104, 184, 104, 0.95);
   --performance-plot-fill: rgba(104, 184, 104, 0.18);

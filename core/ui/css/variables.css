@@ -271,6 +271,9 @@
   --eq-curve-handle-stroke: rgba(255, 255, 255, 0.9);
   --eq-curve-tooltip-bg: rgba(0, 0, 0, 0.8);
   --eq-curve-tooltip-text: #ffffff;
+  --eq-curve-spectrum-fill-top: rgba(150, 196, 236, 0.24);
+  --eq-curve-spectrum-fill-bottom: rgba(150, 196, 236, 0.03);
+  --eq-curve-spectrum-line: rgba(176, 212, 244, 0.38);
 
   /* Waveform editors (Practice Tool loops, Riff Capture crop) — see
      ts/waveform/render.ts. Dark-theme values; each theme overrides them. */

@@ -5,8 +5,9 @@
  *   - the session log, an append-only text file next to the settings;
  *   - the debug snapshot, a one-shot dump of UI state plus backend state,
  *     scrubbed of anything sensitive and written to disk on request;
- *   - the live signal-diagnostics and performance meters, which are only
- *     forwarded from here — TelemetryPublisher owns their rate limits.
+ *   - the live signal-diagnostics and performance meters, and the spectrum
+ *     behind an EQ curve, which are only forwarded from here —
+ *     TelemetryPublisher owns their rate limits.
  */
 
 #include "PluginController.h"
@@ -133,5 +134,34 @@ void PluginController::HandleSetSignalDiagnosticsEnabledRequest(const nlohmann::
     (void)payload;
     mPresetMixer.SetSignalDiagnosticsEnabled(mTelemetry->IsUiVisible());
     mTelemetry->MarkRosterDirty();
+}
+
+void PluginController::HandleSetSpectrumWatchRequest(const nlohmann::json& payload)
+{
+    // No node, or a scope we do not know, is how the UI says it has stopped looking.
+    const std::string nodeId = payload.value("nodeId", std::string{});
+    const std::string scope = payload.value("scope", std::string{});
+
+    if (nodeId.empty() || (scope != "pre" && scope != "post" && scope != "preset"))
+    {
+        mTelemetry->StopSpectrum();
+        return;
+    }
+
+    // A preset node is looked up the way a parameter edit to it is: in the payload's preset,
+    // or else the active one.
+    std::string presetId;
+
+    if (scope == "preset")
+    {
+        presetId = payload.value("presetId", std::string{});
+
+        if (presetId.empty())
+        {
+            presetId = mActivePresetId;
+        }
+    }
+
+    mTelemetry->WatchSpectrum(scope, presetId, nodeId);
 }
 } // namespace guitarfx

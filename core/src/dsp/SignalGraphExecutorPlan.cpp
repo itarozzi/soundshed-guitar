@@ -168,6 +168,9 @@ void SignalGraphExecutor::BuildExecutionPlan()
     {
         ApplyTempoToProcessors();
     }
+
+    // Likewise a rebuilt node starts out untapped, which would silently end an EQ display.
+    ApplySpectrumWatch();
 }
 
 void SignalGraphExecutor::ProcessPlannedNode(PlannedNode& planned, int numSamples, bool diagnosticsEnabled,
@@ -263,6 +266,13 @@ void SignalGraphExecutor::ProcessPlannedNode(PlannedNode& planned, int numSample
     if (state->hasInput)
     {
         state->hasStereoSignal = incomingStereoSignal;
+
+        // An EQ display shows what arrives at the node, so the tap takes the input before the
+        // node processes it -- enabled or not, since a bypassed EQ still has a source to show.
+        if (auto* tap = state->spectrumTap.load(std::memory_order_acquire))
+        {
+            tap->Push(state->bufferLeft.data(), incomingStereoSignal ? state->bufferRight.data() : nullptr, numSamples);
+        }
     }
 
     // Time the node only when diagnostics are on, and publish into the node's own atomic

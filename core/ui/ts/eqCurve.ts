@@ -1,182 +1,8 @@
-export type EqBand = { freq: number; gainDb: number; q: number; shelfType?: 'low' | 'high' };
+import type { EqSpectrum } from "./eqSpectrum.js";
+import { EQ_CURVE_MAX_FREQ, EQ_CURVE_MIN_FREQ, bandMagnitude, drawEqCurve, eqCurveFreqToX, getEqCurveThemeColors, type EqBand } from "./eqPlot.js";
 
-function getEqCurveThemeColors(canvas: HTMLCanvasElement): {
-  grid: string;
-  response: string;
-  handleStroke: string;
-  tooltipBackground: string;
-  tooltipText: string;
-} {
-  const styles = window.getComputedStyle(canvas);
-  return {
-    grid: styles.getPropertyValue("--eq-curve-grid").trim() || "rgba(255,255,255,0.08)",
-    response: styles.getPropertyValue("--eq-curve-response").trim() || "rgba(72, 168, 224, 0.9)",
-    handleStroke: styles.getPropertyValue("--eq-curve-handle-stroke").trim() || "rgba(255, 255, 255, 0.9)",
-    tooltipBackground: styles.getPropertyValue("--eq-curve-tooltip-bg").trim() || "rgba(0, 0, 0, 0.8)",
-    tooltipText: styles.getPropertyValue("--eq-curve-tooltip-text").trim() || "#ffffff",
-  };
-}
-
-export function drawEqCurve(canvas: HTMLCanvasElement, bands: EqBand[]): void {
-  const ctx = canvas.getContext("2d");
-  if (!ctx) {
-    return;
-  }
-
-  const themeColors = getEqCurveThemeColors(canvas);
-
-  const width = canvas.width;
-  const height = canvas.height;
-
-  ctx.clearRect(0, 0, width, height);
-
-  const padding = 8;
-  const plotWidth = width - padding * 2;
-  const plotHeight = height - padding * 2;
-  const minDb = -18;
-  const maxDb = 18;
-  const minFreq = 20;
-  const maxFreq = 20000;
-  const sampleRate = 44100;
-
-  ctx.strokeStyle = themeColors.grid;
-  ctx.lineWidth = 1;
-  const gridLines = 4;
-  for (let i = 0; i <= gridLines; i += 1) {
-    const y = padding + (plotHeight * i) / gridLines;
-    ctx.beginPath();
-    ctx.moveTo(padding, y);
-    ctx.lineTo(width - padding, y);
-    ctx.stroke();
-  }
-
-  const freqMarkers = [20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000];
-  freqMarkers.forEach((freq) => {
-    const x = padding + plotWidth * (Math.log10(freq) - Math.log10(minFreq)) / (Math.log10(maxFreq) - Math.log10(minFreq));
-    ctx.beginPath();
-    ctx.moveTo(x, padding);
-    ctx.lineTo(x, height - padding);
-    ctx.stroke();
-  });
-
-  ctx.strokeStyle = themeColors.response;
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-
-  for (let i = 0; i <= plotWidth; i += 1) {
-    const freq = minFreq * Math.pow(10, (i / plotWidth) * (Math.log10(maxFreq) - Math.log10(minFreq)));
-    const magnitude = bands.reduce((acc, band) => acc * bandMagnitude(freq, band, sampleRate), 1.0);
-    const db = 20 * Math.log10(Math.max(1e-6, magnitude));
-    const clampedDb = Math.max(minDb, Math.min(maxDb, db));
-    const x = padding + i;
-    const y = padding + (maxDb - clampedDb) / (maxDb - minDb) * plotHeight;
-    if (i === 0) {
-      ctx.moveTo(x, y);
-    } else {
-      ctx.lineTo(x, y);
-    }
-  }
-  ctx.stroke();
-}
-
-function peakingMagnitude(freq: number, band: EqBand, sampleRate: number): number {
-  if (!band || band.gainDb === 0 || band.freq <= 0) {
-    return 1.0;
-  }
-
-  const w0 = 2 * Math.PI * band.freq / sampleRate;
-  const cosw0 = Math.cos(w0);
-  const sinw0 = Math.sin(w0);
-  const q = Math.max(0.1, band.q || 1.0);
-  const A = Math.pow(10, band.gainDb / 40);
-  const alpha = sinw0 / (2 * q);
-
-  const b0 = 1 + alpha * A;
-  const b1 = -2 * cosw0;
-  const b2 = 1 - alpha * A;
-  const a0 = 1 + alpha / A;
-  const a1 = -2 * cosw0;
-  const a2 = 1 - alpha / A;
-
-  const w = 2 * Math.PI * freq / sampleRate;
-  const cosw = Math.cos(w);
-  const sinw = Math.sin(w);
-  const cos2w = Math.cos(2 * w);
-  const sin2w = Math.sin(2 * w);
-
-  const numRe = b0 + b1 * cosw + b2 * cos2w;
-  const numIm = b1 * -sinw + b2 * -sin2w;
-  const denRe = a0 + a1 * cosw + a2 * cos2w;
-  const denIm = a1 * -sinw + a2 * -sin2w;
-
-  const numMag = Math.sqrt(numRe * numRe + numIm * numIm);
-  const denMag = Math.sqrt(denRe * denRe + denIm * denIm);
-  if (denMag <= 0) {
-    return 1.0;
-  }
-
-  return numMag / denMag;
-}
-
-// Generic normalised-biquad transfer function magnitude (denominator starts at 1)
-function biquadMagnitude(freq: number, b0: number, b1: number, b2: number, a1: number, a2: number, sampleRate: number): number {
-  const w = 2 * Math.PI * freq / sampleRate;
-  const cosw = Math.cos(w);
-  const sinw = Math.sin(w);
-  const cos2w = Math.cos(2 * w);
-  const sin2w = Math.sin(2 * w);
-  const numRe = b0 + b1 * cosw + b2 * cos2w;
-  const numIm = b1 * -sinw + b2 * -sin2w;
-  const denRe = 1 + a1 * cosw + a2 * cos2w;
-  const denIm = a1 * -sinw + a2 * -sin2w;
-  const numMag = Math.sqrt(numRe * numRe + numIm * numIm);
-  const denMag = Math.sqrt(denRe * denRe + denIm * denIm);
-  return denMag <= 0 ? 1.0 : numMag / denMag;
-}
-
-function lowShelfMagnitude(freq: number, band: EqBand, sampleRate: number): number {
-  if (!band || band.gainDb === 0 || band.freq <= 0) return 1.0;
-  const A = Math.pow(10, band.gainDb / 40);
-  const w0 = 2 * Math.PI * band.freq / sampleRate;
-  const cosw0 = Math.cos(w0);
-  const sinw0 = Math.sin(w0);
-  const q = Math.max(0.1, band.q ?? 0.707);
-  const alpha = sinw0 / (2 * q);
-  const sqrtA = Math.sqrt(A);
-  const a0 = (A + 1) + (A - 1) * cosw0 + 2 * sqrtA * alpha;
-  if (Math.abs(a0) < 1e-9) return 1.0;
-  const b0 = A * ((A + 1) - (A - 1) * cosw0 + 2 * sqrtA * alpha) / a0;
-  const b1 = 2 * A * ((A - 1) - (A + 1) * cosw0) / a0;
-  const b2 = A * ((A + 1) - (A - 1) * cosw0 - 2 * sqrtA * alpha) / a0;
-  const a1 = -2 * ((A - 1) + (A + 1) * cosw0) / a0;
-  const a2 = ((A + 1) + (A - 1) * cosw0 - 2 * sqrtA * alpha) / a0;
-  return biquadMagnitude(freq, b0, b1, b2, a1, a2, sampleRate);
-}
-
-function highShelfMagnitude(freq: number, band: EqBand, sampleRate: number): number {
-  if (!band || band.gainDb === 0 || band.freq <= 0) return 1.0;
-  const A = Math.pow(10, band.gainDb / 40);
-  const w0 = 2 * Math.PI * band.freq / sampleRate;
-  const cosw0 = Math.cos(w0);
-  const sinw0 = Math.sin(w0);
-  const q = Math.max(0.1, band.q ?? 0.707);
-  const alpha = sinw0 / (2 * q);
-  const sqrtA = Math.sqrt(A);
-  const a0 = (A + 1) - (A - 1) * cosw0 + 2 * sqrtA * alpha;
-  if (Math.abs(a0) < 1e-9) return 1.0;
-  const b0 = A * ((A + 1) + (A - 1) * cosw0 + 2 * sqrtA * alpha) / a0;
-  const b1 = -2 * A * ((A - 1) + (A + 1) * cosw0) / a0;
-  const b2 = A * ((A + 1) + (A - 1) * cosw0 - 2 * sqrtA * alpha) / a0;
-  const a1 = 2 * ((A - 1) - (A + 1) * cosw0) / a0;
-  const a2 = ((A + 1) - (A - 1) * cosw0 - 2 * sqrtA * alpha) / a0;
-  return biquadMagnitude(freq, b0, b1, b2, a1, a2, sampleRate);
-}
-
-function bandMagnitude(freq: number, band: EqBand, sampleRate: number): number {
-  if (band.shelfType === 'low') return lowShelfMagnitude(freq, band, sampleRate);
-  if (band.shelfType === 'high') return highShelfMagnitude(freq, band, sampleRate);
-  return peakingMagnitude(freq, band, sampleRate);
-}
+// The plot itself lives in eqPlot.ts; its entry point stays importable from here.
+export { drawEqCurve } from "./eqPlot.js";
 
 // ===== Shared 4-band parametric EQ constants =====
 
@@ -391,12 +217,13 @@ export class EqCurveInteraction {
   private dragHandle: HandleInfo | null = null;
   private isDragging = false;
   private destroyed = false;
+  private spectrum: EqSpectrum | null = null;
 
   private readonly HANDLE_RADIUS = 7;
   private readonly Q_HANDLE_RADIUS = 5;
   private readonly PADDING = 8;
-  private readonly MIN_FREQ = 20;
-  private readonly MAX_FREQ = 20000;
+  private readonly MIN_FREQ = EQ_CURVE_MIN_FREQ;
+  private readonly MAX_FREQ = EQ_CURVE_MAX_FREQ;
   private readonly MIN_DB = -18;
   private readonly MAX_DB = 18;
   private readonly SAMPLE_RATE = 44100;
@@ -451,6 +278,13 @@ export class EqCurveInteraction {
     this.draw();
   }
 
+  /** Shows the live spectrum behind the curve, or with null clears it. */
+  setSpectrum(spectrum: EqSpectrum | null): void {
+    if (spectrum === this.spectrum) return;
+    this.spectrum = spectrum;
+    this.draw();
+  }
+
   updateBands(bands: EqBandConfig[]): void {
     if (this.isDragging) return; // Don't overwrite bands during an active drag
     this.bands = bands.map(b => ({ ...b }));
@@ -471,7 +305,7 @@ export class EqCurveInteraction {
 
     // Draw base curve (clears canvas, draws grid + combined response)
     const eqBands: EqBand[] = this.bands.map(b => ({ freq: b.freq, gainDb: b.gainDb, q: b.q, shelfType: b.shelfType }));
-    drawEqCurve(this.canvas, eqBands);
+    drawEqCurve(this.canvas, eqBands, this.spectrum);
 
     // Draw per-band shaded fills and individual response curves
     this.drawBandOverlays(ctx);
@@ -493,9 +327,7 @@ export class EqCurveInteraction {
   }
 
   private freqToX(freq: number): number {
-    const logMin = Math.log10(this.MIN_FREQ);
-    const logMax = Math.log10(this.MAX_FREQ);
-    return this.PADDING + this.plotWidth * (Math.log10(freq) - logMin) / (logMax - logMin);
+    return eqCurveFreqToX(freq, this.PADDING, this.plotWidth);
   }
 
   private xToFreq(x: number): number {

@@ -2,6 +2,7 @@
 
 #include "presets/PresetTypes.h"
 #include "dsp/SignalTelemetry.h"
+#include "dsp/SpectrumTap.h"
 #include <map>
 #include <memory>
 #include <string>
@@ -161,6 +162,18 @@ class SignalGraphExecutor
 
     [[nodiscard]] std::vector<NodeSignalLevel> GetNodeSignalLevels() const;
 
+    // Spectrum of one node's input, drawn behind an EQ curve. At most one node per executor
+    // is tapped, and only while the UI is showing it. Message thread only.
+
+    /// Taps `nodeId`'s input, moving the tap off any other node. Returns false, and taps
+    /// nothing, when there is no such node. Cheap to repeat for the node already tapped.
+    bool WatchNodeSpectrum(const std::string& nodeId);
+    void ClearSpectrumWatch();
+
+    /// The tapped node's spectrum as of `now`. False when nothing is tapped.
+    bool ReadWatchedSpectrum(SpectrumTap::Bins& out,
+                             std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now());
+
     // Runtime control for intra-graph parallel processing.
     void SetParallelLevelsEnabled(bool enabled)
     {
@@ -212,6 +225,9 @@ class SignalGraphExecutor
         // std::isfinite to true, so the NaN went out as a time. One atomic rather than a time and a
         // flag, so a reader can never pair halves from two different blocks.
         std::atomic<double> processingTimeUs{kNodeDidNotRunUs};
+        /// The executor's spectrum tap while this is the watched node, else null. The tap
+        /// outlives every node that points at it; see mSpectrumTap.
+        std::atomic<SpectrumTap*> spectrumTap{nullptr};
     };
 
     /// One resolved incoming connection.
@@ -274,6 +290,9 @@ class SignalGraphExecutor
     [[nodiscard]] NodeState* FindNodeState(const std::string& id);
     [[nodiscard]] const NodeState* FindNodeState(const std::string& id) const;
     void ProcessPlannedNode(PlannedNode& planned, int numSamples, bool diagnosticsEnabled, bool collectLevels);
+    /// Points the watched node, and only that node, at mSpectrumTap. Rerun whenever node
+    /// states are created, since a new one starts out untapped.
+    void ApplySpectrumWatch();
     void StartWorkers(int count);
     void StopWorkers();
     void WorkerLoop();
@@ -366,6 +385,11 @@ class SignalGraphExecutor
     std::condition_variable mParallelCv;
     std::vector<std::thread> mWorkerThreads;
     bool mUseParallelLevels = false;
+
+    /// Created on the first watch and kept for the executor's lifetime, so the audio thread
+    /// can never be left holding a pointer to a freed tap.
+    std::unique_ptr<SpectrumTap> mSpectrumTap;
+    std::string mSpectrumWatchNodeId;
 
     // Temporary buffers for mixing
     std::vector<float> mTempLeftBuffer;

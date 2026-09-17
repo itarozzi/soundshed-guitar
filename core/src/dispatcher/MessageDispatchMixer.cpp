@@ -127,6 +127,12 @@ bool MessageDispatcher::DispatchMixerAndMonitoring(PluginController& c, const nl
         return true;
     }
 
+    if (type == "setSpectrumWatch")
+    {
+        c.HandleSetSpectrumWatchRequest(msg);
+        return true;
+    }
+
     if (type == "runSignalPathTest")
     {
         c.HandleSignalTestRequest(msg);

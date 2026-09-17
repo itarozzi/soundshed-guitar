@@ -532,6 +532,8 @@ set(GUITARFX_CORE_SOURCES
     src/dsp/RealtimeConvolver.h
     src/dsp/RealtimeConvolver.cpp
     src/dsp/SimdFFT.h
+    src/dsp/SpectrumTap.h
+    src/dsp/SpectrumTap.cpp
     src/dsp/BlockSincResampler.h
     src/dsp/IRTypes.h
     src/dsp/IRWavLoader.h

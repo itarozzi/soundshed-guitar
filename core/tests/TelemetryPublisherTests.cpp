@@ -17,6 +17,7 @@
 #include "controller/internal/ControllerUtils.h"
 #include "dsp/EffectRegistry.h"
 #include "dsp/MultiPresetMixer.h"
+#include "dsp/SpectrumTap.h"
 #include "dsp/effects/BuiltinEffects.h"
 #include "presets/PresetTypes.h"
 
@@ -325,6 +326,72 @@ bool TestRosterIsResentWhenNodeSetChanges()
 
     return ok;
 }
+
+/// Runs enough idle ticks for the spectrum feed's divider to fire at least twice.
+void TickSpectrumFeed(Fixture& fixture)
+{
+    for (int tick = 0; tick < 2 * (60 / kSpectrumRateHz); ++tick)
+    {
+        fixture.publisher.OnIdle();
+    }
+}
+
+/// The EQ spectrum feed goes out only for a watched node, only while the UI can see it,
+/// and stops when told to.
+bool TestSpectrumFeedFollowsTheWatch()
+{
+    std::cout << "\nSpectrum feed\n";
+    bool ok = true;
+
+    Fixture fixture;
+    fixture.ProcessBlock(false);
+    TickSpectrumFeed(fixture);
+    ok &= Report("Nothing is sent before a watch", fixture.OfType("sldS").empty());
+
+    fixture.publisher.WatchSpectrum("preset", "presetA", "gain");
+    fixture.ProcessBlock(false);
+    TickSpectrumFeed(fixture);
+    const auto frames = fixture.OfType("sldS");
+    ok &= Report("A watched node's spectrum is sent", !frames.empty(), std::to_string(frames.size()) + " frames");
+
+    if (!frames.empty())
+    {
+        const auto& frame = frames.back();
+        ok &= Report("The frame names the watched node", frame.value("scope", std::string{}) == "preset" &&
+                                                             frame.value("presetId", std::string{}) == "presetA" &&
+                                                             frame.value("id", std::string{}) == "gain");
+        ok &= Report("The frame carries every bin", frame["s"].size() == static_cast<std::size_t>(SpectrumTap::kBins),
+                     std::to_string(frame["s"].size()) + " bins");
+        ok &= Report("The frame carries its range", frame["r"].size() == 4 &&
+                                                        frame["r"][0].get<double>() == SpectrumTap::kMinFrequencyHz &&
+                                                        frame["r"][1].get<double>() == SpectrumTap::kMaxFrequencyHz);
+        bool wholeDb = true;
+
+        for (const auto& value : frame["s"])
+        {
+            wholeDb = wholeDb && value.is_number_integer();
+        }
+
+        ok &= Report("Bins go out as whole dB", wholeDb);
+    }
+
+    fixture.publisher.SetUiVisible(false);
+    auto before = fixture.OfType("sldS").size();
+    TickSpectrumFeed(fixture);
+    ok &= Report("Nothing is sent while the UI is hidden", fixture.OfType("sldS").size() == before);
+    fixture.publisher.SetUiVisible(true);
+
+    fixture.publisher.StopSpectrum();
+    before = fixture.OfType("sldS").size();
+    TickSpectrumFeed(fixture);
+    ok &= Report("Nothing is sent after the watch stops", fixture.OfType("sldS").size() == before);
+
+    fixture.publisher.WatchSpectrum("preset", "presetA", "no_such_node");
+    TickSpectrumFeed(fixture);
+    ok &= Report("Nothing is sent for a node that is not there", fixture.OfType("sldS").size() == before);
+
+    return ok;
+}
 } // namespace
 
 int main()
@@ -334,7 +401,7 @@ int main()
     bool allPassed = true;
 
     for (const auto& test : {TestRosterIsStableWhileChannelCountMoves, TestFrameNodeStrideMatchesRoster,
-                             TestRosterIsResentWhenNodeSetChanges})
+                             TestRosterIsResentWhenNodeSetChanges, TestSpectrumFeedFollowsTheWatch})
     {
         if (!test())
         {

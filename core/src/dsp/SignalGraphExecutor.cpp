@@ -223,6 +223,9 @@ SignalGraphExecutor& SignalGraphExecutor::operator=(SignalGraphExecutor&& other)
     mLastDspLoadPercent.store(other.mLastDspLoadPercent.load(std::memory_order_relaxed), std::memory_order_relaxed);
     mTempLeftBuffer = std::move(other.mTempLeftBuffer);
     mTempRightBuffer = std::move(other.mTempRightBuffer);
+    // After mNodeStates: our old node states, which pointed at our old tap, are gone before it is.
+    mSpectrumTap = std::move(other.mSpectrumTap);
+    mSpectrumWatchNodeId = std::move(other.mSpectrumWatchNodeId);
     mSignalDiagnosticsEnabled.store(other.mSignalDiagnosticsEnabled.load(std::memory_order_acquire),
                                     std::memory_order_release);
     mUseParallelLevels = other.mUseParallelLevels;
@@ -1327,6 +1330,71 @@ std::vector<SignalGraphExecutor::NodeSignalLevel> SignalGraphExecutor::GetNodeSi
     }
 
     return result;
+}
+
+bool SignalGraphExecutor::WatchNodeSpectrum(const std::string& nodeId)
+{
+    const NodeState* state = FindNodeState(nodeId);
+
+    if (!state)
+    {
+        ClearSpectrumWatch();
+        return false;
+    }
+
+    if (nodeId == mSpectrumWatchNodeId && state->spectrumTap.load(std::memory_order_acquire) == mSpectrumTap.get())
+    {
+        return true;
+    }
+
+    if (!mSpectrumTap)
+    {
+        mSpectrumTap = std::make_unique<SpectrumTap>();
+    }
+
+    const bool movedNode = nodeId != mSpectrumWatchNodeId;
+    mSpectrumWatchNodeId = nodeId;
+    ApplySpectrumWatch();
+
+    // Only once the old node has let go, so none of its samples land after the restart. A
+    // node merely rebuilt under the same id keeps its history.
+    if (movedNode)
+    {
+        mSpectrumTap->Restart();
+    }
+
+    return true;
+}
+
+void SignalGraphExecutor::ClearSpectrumWatch()
+{
+    if (mSpectrumWatchNodeId.empty())
+    {
+        return;
+    }
+
+    mSpectrumWatchNodeId.clear();
+    ApplySpectrumWatch();
+}
+
+bool SignalGraphExecutor::ReadWatchedSpectrum(SpectrumTap::Bins& out, std::chrono::steady_clock::time_point now)
+{
+    if (!mSpectrumTap || mSpectrumWatchNodeId.empty())
+    {
+        return false;
+    }
+
+    mSpectrumTap->Analyze(mSampleRate, out, now);
+    return true;
+}
+
+void SignalGraphExecutor::ApplySpectrumWatch()
+{
+    for (auto& [id, state] : mNodeStates)
+    {
+        const bool watched = !mSpectrumWatchNodeId.empty() && id == mSpectrumWatchNodeId;
+        state.spectrumTap.store(watched ? mSpectrumTap.get() : nullptr, std::memory_order_release);
+    }
 }
 
 void SignalGraphExecutor::SetNodeEnabled(const std::string& nodeId, bool enabled)

@@ -79,6 +79,90 @@ void TelemetryPublisher::OnIdle()
         mSpatialPositionCounter = 0;
         SendSpatialPositions();
     }
+
+    mSpectrumCounter++;
+
+    if (mSpectrumCounter >= 60 / kSpectrumRateHz)
+    {
+        mSpectrumCounter = 0;
+
+        if (mSpectrumWatch && std::chrono::steady_clock::now() >= mSpectrumWatchExpiresAt)
+        {
+            StopSpectrum();
+        }
+
+        if (uiVisible)
+        {
+            SendSpectrum();
+        }
+    }
+}
+
+void TelemetryPublisher::WatchSpectrum(const std::string& scope, const std::string& presetId, const std::string& nodeId)
+{
+    SpectrumWatch next{scope, presetId, nodeId};
+
+    // A renewal leaves the tap alone; only a different node needs the old one let go.
+    if (!mSpectrumWatch || *mSpectrumWatch != next)
+    {
+        mPresetMixer.ClearSpectrumTaps();
+        mSpectrumWatch = std::move(next);
+    }
+
+    mSpectrumWatchExpiresAt = std::chrono::steady_clock::now() + kSpectrumWatchLease;
+}
+
+void TelemetryPublisher::StopSpectrum()
+{
+    if (!mSpectrumWatch)
+    {
+        return;
+    }
+
+    mSpectrumWatch.reset();
+    mPresetMixer.ClearSpectrumTaps();
+}
+
+void TelemetryPublisher::SendSpectrum()
+{
+    if (!mSpectrumWatch)
+    {
+        return;
+    }
+
+    SpectrumTap::Bins bins{};
+
+    // Nothing is sent for a node that is not there. The UI fades out a spectrum that stops
+    // arriving, and a node that comes back under the same id is picked up again on its own.
+    if (!mPresetMixer.ReadNodeSpectrum(mSpectrumWatch->scope, mSpectrumWatch->presetId, mSpectrumWatch->nodeId, bins))
+    {
+        return;
+    }
+
+    // Whole dB, as the analyzer's bands are: a background fill cannot show finer.
+    nlohmann::json values = nlohmann::json::array();
+
+    for (const float value : bins)
+    {
+        values.push_back(static_cast<int>(std::lround(value)));
+    }
+
+    nlohmann::json msg;
+    msg["type"] = "sldS";
+    msg["scope"] = mSpectrumWatch->scope;
+    msg["id"] = mSpectrumWatch->nodeId;
+
+    if (!mSpectrumWatch->presetId.empty())
+    {
+        msg["presetId"] = mSpectrumWatch->presetId;
+    }
+
+    // [minFrequencyHz, maxFrequencyHz, floorDb, ceilingDb]. The bins are log-spaced across
+    // the frequency range, endpoints included.
+    msg["r"] = nlohmann::json::array(
+        {SpectrumTap::kMinFrequencyHz, SpectrumTap::kMaxFrequencyHz, SpectrumTap::kFloorDb, SpectrumTap::kCeilingDb});
+    msg["s"] = std::move(values);
+    Send(msg.dump());
 }
 
 void TelemetryPublisher::RequestSignalDiagnostics()

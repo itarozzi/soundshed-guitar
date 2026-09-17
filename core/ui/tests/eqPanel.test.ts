@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EQ_BAND_KEYS, EQ_BAND_RANGES, EQ_FREQ_DEFAULTS } from "../ts/eqCurve.js";
 import { EqPanel, type EqPanelBinding } from "../ts/eqPanel.js";
 
@@ -163,5 +163,46 @@ describe("EqPanel wiring", () => {
     expect(() => {
       new EqPanel({ bandsHost: null, canvas: null, idPrefix: "test" }, makeBinding().binding).render();
     }).not.toThrow();
+  });
+});
+
+describe("EqPanel spectrum", () => {
+  let sent: Array<{ type: string; scope?: string; nodeId?: string }>;
+
+  beforeEach(() => {
+    sent = [];
+    window.IPlugSendMsg = (payload: string) => {
+      sent.push(JSON.parse(payload) as { type: string });
+    };
+  });
+
+  afterEach(() => {
+    delete window.IPlugSendMsg;
+  });
+
+  it("taps its source's node while the curve is up, and lets go when destroyed", () => {
+    vi.useFakeTimers();
+    try {
+      const { bandsHost } = mountHost();
+      const canvas = document.createElement("canvas");
+      // jsdom has no IntersectionObserver, so the panel treats its curve as always on screen.
+      const panel = new EqPanel(
+        { bandsHost, canvas, idPrefix: "test", spectrumSource: () => ({ scope: "post", nodeId: "global_eq" }) },
+        makeBinding().binding,
+      );
+      expect(sent).toEqual([{ type: "setSpectrumWatch", scope: "post", nodeId: "global_eq" }]);
+
+      panel.destroy();
+      vi.advanceTimersByTime(1000);
+      expect(sent.at(-1)).toEqual({ type: "setSpectrumWatch" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("asks for nothing without a source", () => {
+    const { bandsHost } = mountHost();
+    new EqPanel({ bandsHost, canvas: document.createElement("canvas"), idPrefix: "test" }, makeBinding().binding);
+    expect(sent).toEqual([]);
   });
 });

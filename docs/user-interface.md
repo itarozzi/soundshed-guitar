@@ -82,6 +82,7 @@ The UI is a web-based single-page application (SPA) hosted in a native WebView. 
 | `sldRoster` | `{seq, nodes: [[scope, presetId, nodeId, nodeType, hasAnalyzer]], spectrogramRange, barkRange}` | Signal diagnostics roster: everything about the node set that does not change frame to frame. Sent only when the node set changes, and on `getSignalDiagnostics`. |
 | `sld` | `{seq, r, i, o, d}` | Signal level frame at 20 Hz. `r`/`i`/`o` are raw input, processed input and output; `d` holds one tuple per roster node, flattened in roster order. Every tuple is `[peakDbfs, rmsDbfs, clipCount, clipped, channelCount]`, the levels rounded to 0.1 dB; `headroomDb` is derived UI-side. `channelCount` (0 = the node did not run this block, 1 mono, 2 stereo) rides here rather than in the roster: it tracks the signal, so keeping it in the roster re-sent that whole message several times a second. Frames whose `seq` does not match the held roster are dropped. |
 | `sldA` | `{seq, id, t, l, s, b}` | Analyzer telemetry for one node — levels `l`, spectrogram bins `s` and bark bands `b` in whole dBFS. Sent separately from `sld` because it is an order of magnitude larger than a level tuple. |
+| `sldS` | `{scope, presetId?, id, r, s}` | Spectrum of one node's input, for the EQ curve backdrop, ~30 Hz while a `setSpectrumWatch` is held and the UI is visible. `s` is 128 whole-dB bins log-spaced across `r = [minHz, maxHz, floorDb, ceilingDb]` (20 Hz-20 kHz, -96-0 dB), both ends included, tilted +3 dB/octave about 1 kHz so pink noise reads flat. Nothing is sent for a node that is not there; the UI clears a spectrum that stops arriving. |
 | `spatialPosition` | `{nodes: [{scope, presetId?, nodeId, azimuth, elevation, distance, itdUs, ildDb, rateHz, moving}]}` | Live source position for every 3D Spatial node, ~20 Hz. Purely cosmetic: it keeps the spatial panner's puck in sync with what is being heard, and the widget falls back to the anchor position if it never arrives. Only sent while at least one such node exists. |
 | `metronomeState` | `{bpm, enabled, volumeDb, pan, clickType, clickTypes, beatPattern, timeSigNum, timeSigDen, grouping, subdivision, subdivisions}` | Metronome state. `beatPattern` is one character per beat — `H` accent, `M` medium, `L` normal, `S` silent — always exactly `timeSigNum` long. `grouping` is `"2+2+3"` for an odd meter, empty otherwise. `clickTypes` and `subdivisions` are the lists the pickers are built from. |
 | `metronomeBeat` | `{beatIndex, beatsPerBar, level}` | One per beat while the click runs and the UI is visible, for the beat display. `level` is `accent`/`medium`/`normal`/`silent`. Subdivision ticks are not sent. |
@@ -142,6 +143,7 @@ The UI is a web-based single-page application (SPA) hosted in a native WebView. 
 | `previewDemoAudio` | `{audio}` | Preview demo audio clip |
 | `renderDemoAudio` | `{audio? , takeId?, title?, suggestedName?, renderSampleRate?}` | Render selected demo audio to a WAV file using the current preset. `renderSampleRate` accepts `44100`, `48000`, `88200`, `96000`, `176400`, or `192000`; omit or pass `0` for the current device rate. The save-dialog filename appends the resolved rounded kHz rate before `.wav`. |
 | `stopDemoAudio` | `{}` | Stop demo audio playback |
+| `setSpectrumWatch` | `{scope, nodeId, presetId?}` or `{}` | Start, move or renew the spectrum tap on one node's input (`scope` is `pre`, `post` or `preset`; a preset node without `presetId` is looked up in the active preset). The watch lapses 5 s after the last renewal, so the UI re-sends it every 2 s while an EQ curve is on screen; `{}` stops it. See `core/ui/ts/eqSpectrum.ts`. |
 | `previewCapturedRiff` | `{startRatio, endRatio, repeat}` | Play the captured riff take. The whole take goes over once; the markers travel as a region and the engine loops it in place, so repeating costs no further messages. |
 | `setRiffPreviewRegion` | `{startRatio, endRatio, repeat}` | Retune the region/repeat of the preview already playing — for a marker dragged mid-playback. Debounced by the UI, since each one rebuilds the wrap crossfade behind the DSP lock. |
 | `importRemoteResource` | `{...}` | Import resource from remote |
@@ -351,6 +353,33 @@ writing a binding, not another panel.
 - **Dimming is the component's.** It toggles `is-eq-enabled` on its bands host
   whenever the flag changes, so a panel outside an `.eq-section` gets the
   disabled affordance without the host arranging for it.
+- **The live spectrum is the component's too.** Given a `spectrumSource`, the
+  panel draws the source node's *input* behind the curve while the curve is on
+  screen (an `IntersectionObserver` on the canvas), so the user sees where the
+  energy is before the EQ touches it. The Global EQ passes its post-chain node;
+  the Practice Tool passes none, having no graph node to tap.
+
+### EQ spectrum backdrop (`core/ui/ts/eqSpectrum.ts`, `core/ui/ts/eqPlot.ts`)
+
+Every EQ curve — the Global EQ, and a Parametric or Graphic EQ in the chain —
+shows a live spectrum of what is arriving at that EQ, on the same log frequency
+axis as its handles (`eqCurveFreqToX` is the one mapping for both).
+
+- **One watch for the whole UI.** The engine taps one node at a time.
+  `subscribeEqSpectrum` keeps a stack: the newest subscriber is the one served,
+  a displaced one is told it has nothing, and it gets the feed back when the
+  newer one goes, which is what the Global EQ modal over a node's panel needs.
+- **Only while visible, and never stuck on.** `EqSpectrumWatcher` subscribes
+  while its canvas is on screen. The watch is a 5 s lease renewed every 2 s, a
+  dropped subscription is released after 250 ms (so a panel rebuild does not
+  restart the tap), and a spectrum that stops arriving is cleared after 500 ms.
+- **Where it comes from.** `SpectrumTap` (`core/src/dsp/SpectrumTap.h`) copies
+  the node's input into a ring on the audio thread and nothing more; the FFT
+  (~6 Hz bins, whatever the host block size), log binning and attack/release
+  smoothing run on the message thread in `TelemetryPublisher`. It is separate
+  from the Signal Analyzer's spectrogram, which resolves no finer than the block
+  size. A node inside a composite being edited has no spectrum.
+
 
 ### Waveform range selection (`core/ui/ts/waveform/`)
 

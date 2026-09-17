@@ -17,11 +17,10 @@
     "css/modals/resource-browser.css": 1028,
     "css/controls.css": 1016,
     "css/themes/light.css": 1001,
-    "ts/controls.ts": 990,
+    "ts/controls.ts": 991,
     "ts/performancePads.ts": 965,
     "ts/amp3d/ampView.ts": 916,
     "ts/presetV2.ts": 890,
-    "ts/eqCurve.ts": 857,
     "css/layout-designer.css": 845
   }
 }

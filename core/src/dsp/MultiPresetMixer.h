@@ -18,6 +18,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <limits>
 #include <utility>
@@ -442,6 +443,17 @@ class MultiPresetMixer
     }
 
     [[nodiscard]] SignalDiagnosticsSnapshot GetSignalDiagnosticsSnapshot() const;
+
+    /// Spectrum of one node's input, for an EQ display. `scope` is "pre", "post" or "preset",
+    /// as in the diagnostics snapshot; `presetId` only matters for "preset", where empty means
+    /// the first live instance. The node is tapped on first read and stays tapped -- including
+    /// across a rebuild of its graph -- until ClearSpectrumTaps(). False when there is no such
+    /// node. Message thread only.
+    bool ReadNodeSpectrum(std::string_view scope, const std::string& presetId, const std::string& nodeId,
+                          SpectrumTap::Bins& out);
+
+    /// Detaches every spectrum tap, in every executor including retiring ones.
+    void ClearSpectrumTaps();
 
     // Tuner functionality
     void SetTunerEnabled(bool enabled);

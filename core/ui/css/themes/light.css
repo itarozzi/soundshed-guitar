@@ -89,6 +89,9 @@
   --eq-curve-handle-stroke: rgba(17, 19, 24, 0.82);
   --eq-curve-tooltip-bg: rgba(17, 19, 24, 0.92);
   --eq-curve-tooltip-text: #ffffff;
+  --eq-curve-spectrum-fill-top: rgba(58, 74, 96, 0.20);
+  --eq-curve-spectrum-fill-bottom: rgba(58, 74, 96, 0.03);
+  --eq-curve-spectrum-line: rgba(58, 74, 96, 0.34);
 
   --performance-plot-line: rgba(104, 136, 168, 0.96);
   --performance-plot-fill: rgba(104, 136, 168, 0.16);

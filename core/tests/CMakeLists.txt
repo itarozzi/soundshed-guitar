@@ -45,6 +45,7 @@ set(TEST_SOURCES
     SteadyStateProfiler.cpp
     TelemetryPublisherTests.cpp
     SignalGraphExecutorTests.cpp
+    SpectrumTapTests.cpp
     Spatial3DEffectTests.cpp
     StereoProcessingTests.cpp
     SynthSawEffectTests.cpp

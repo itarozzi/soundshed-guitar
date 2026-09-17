@@ -2642,6 +2642,47 @@ MultiPresetMixer::SignalDiagnosticsSnapshot MultiPresetMixer::GetSignalDiagnosti
     return snapshot;
 }
 
+bool MultiPresetMixer::ReadNodeSpectrum(std::string_view scope, const std::string& presetId, const std::string& nodeId,
+                                        SpectrumTap::Bins& out)
+{
+    SignalGraphExecutor* executor = nullptr;
+
+    if (scope == "pre")
+    {
+        executor = &mPreChainExecutor;
+    }
+    else if (scope == "post")
+    {
+        executor = &mPostChainExecutor;
+    }
+    else if (scope == "preset")
+    {
+        for (auto& inst : mInstances)
+        {
+            if (!inst->IsRetiring() && (presetId.empty() || inst->cfg.id == presetId))
+            {
+                executor = &inst->executor;
+                break;
+            }
+        }
+    }
+
+    // Watching again on every read is what carries the tap onto an executor built since the
+    // last one -- a preset swap or a global chain rebuild replaces the executor outright.
+    return executor && executor->WatchNodeSpectrum(nodeId) && executor->ReadWatchedSpectrum(out);
+}
+
+void MultiPresetMixer::ClearSpectrumTaps()
+{
+    mPreChainExecutor.ClearSpectrumWatch();
+    mPostChainExecutor.ClearSpectrumWatch();
+
+    for (auto& inst : mInstances)
+    {
+        inst->executor.ClearSpectrumWatch();
+    }
+}
+
 std::vector<std::string> MultiPresetMixer::GetActivePresetIds() const
 {
     std::vector<std::string> ids;

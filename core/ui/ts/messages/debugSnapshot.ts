@@ -12,7 +12,7 @@ import { getActivePresetForRender, uiState } from "../state.js";
 import type { Preset } from "../types.js";
 import type { IncomingPayload } from "./types.js";
 
-export const DEBUG_SNAPSHOT_SKIP_TYPES = new Set(["dspPerformance", "sld", "sldA", "sldRoster", "spatialPosition", "captureDebugSnapshot", "debugSnapshotWritten"]);
+export const DEBUG_SNAPSHOT_SKIP_TYPES = new Set(["dspPerformance", "sld", "sldA", "sldS", "sldRoster", "spatialPosition", "captureDebugSnapshot", "debugSnapshotWritten"]);
 
 let debugSnapshotTimer: number | null = null;
 

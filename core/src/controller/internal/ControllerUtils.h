@@ -52,6 +52,14 @@ inline constexpr int kSignalDiagnosticsRateHz = 20;
 /// be negligible.
 inline constexpr int kSpatialPositionRateHz = 20;
 
+/// The spectrum behind an EQ curve. Only sent while an EQ is on screen, and a spectrum
+/// visibly steps at the diagnostics feed's 20 Hz.
+inline constexpr int kSpectrumRateHz = 30;
+
+/// How long a spectrum watch lasts unless the UI renews it. Short, so a UI that reloads or
+/// forgets to stop does not leave a node tapped and a feed running.
+inline constexpr auto kSpectrumWatchLease = std::chrono::milliseconds(5000);
+
 /// A practice-tool progress readout does not need more than this.
 inline constexpr int kPracticeToolRateHz = 12;
 

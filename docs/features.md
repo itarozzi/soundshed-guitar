@@ -318,7 +318,7 @@ Visual node graph editor for building and editing effect chains.
 - **Bypass**: Per-node enable/disable toggle.
 - **Parameter editing**: Knobs and sliders update `params` via `updateSignalPathNodeParam` message (debounced 50 ms).
 - **Resource assignment**: Per-node resource picker for NAM models and IRs; supports browse-file and library lookup.
-- **EQ curve visualization** (`eqCurve.ts`): Interactive frequency-response curve for parametric EQ nodes with per-band drag handles.
+- **EQ curve visualization** (`eqCurve.ts`): Interactive frequency-response curve for parametric EQ nodes with per-band drag handles, drawn over a live spectrum of the EQ's input (Global EQ, Parametric EQ and Graphic EQ; `eqSpectrum.ts`, `eqPlot.ts`).
 - **Parallel paths**: Add a Splitter node to fan out; the Mixer is auto-inserted at the rejoin point.
 - **Custom layouts** (`layoutRenderer.ts`, `layoutDesigner.ts`, `layoutManager.ts`): Composite nodes (and some built-in effects) can have custom visual control surfaces stored in `data/v1/layouts/`.
 - **FX categories in browser**: Dynamics, Amplifiers, Cabinets, EQ, Modulation, Synth, Delay, Reverb, Utilities.

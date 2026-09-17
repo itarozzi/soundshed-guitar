@@ -1,6 +1,6 @@
 /**
- * The metering feeds: DSP performance, the signal diagnostics roster, and the
- * per-node analyzer frames.
+ * The metering feeds: DSP performance, the signal diagnostics roster, the
+ * per-node analyzer frames, and the spectrum behind an open EQ curve.
  *
  * These arrive far faster than the UI can paint, so they are coalesced and
  * flushed at a fixed rate rather than rendered on arrival.
@@ -8,6 +8,7 @@
 
 import { requestSignalDiagnosticsRoster } from "../bridge.js";
 import { recordDspLoadSample } from "../dspPerformance.js";
+import { applyEqSpectrumFrame } from "../eqSpectrum.js";
 import { refreshSavePresetModalPeakInfoIfOpen } from "../presets.js";
 import { handleUserInputCalibrationDiagnosticsUpdate } from "../settings.js";
 import { updateSelectedNodeAnalyzerPanel, updateSelectedNodeDspStatus, updateSelectedNodePeakMeter } from "../signalPath.js";
@@ -269,4 +270,10 @@ export function onSldA(payload: IncomingPayload): void {
   if (applySignalDiagnosticsAnalyzer(payload as unknown as SignalDiagnosticsAnalyzerFrame)) {
     queueTelemetryUiUpdate("signalDiagnostics");
   }
+}
+
+/** The spectrum behind an open EQ curve. Only the curve that asked for it redraws,
+ * and eqSpectrum.ts coalesces that itself rather than riding the diagnostics flush. */
+export function onSldS(payload: IncomingPayload): void {
+  applyEqSpectrumFrame(payload);
 }

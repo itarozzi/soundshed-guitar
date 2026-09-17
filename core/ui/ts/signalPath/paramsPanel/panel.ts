@@ -47,6 +47,8 @@ export function showNodeParamsPanel(node: GraphNode, preset: Preset): void {
     paramsPanelInteractions.eq.destroy();
     paramsPanelInteractions.eq = null;
   }
+  paramsPanelInteractions.eqSpectrum?.destroy();
+  paramsPanelInteractions.eqSpectrum = null;
   if (paramsPanelInteractions.spatial) {
     paramsPanelInteractions.spatial.destroy();
     paramsPanelInteractions.spatial = null;

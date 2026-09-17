@@ -2,7 +2,8 @@
  * EqPanel — the reusable four-band parametric EQ control surface.
  *
  * One EQ UI, however many EQs the app grows. It renders the band knobs, owns
- * the draggable curve, and wires the enable toggle; everything specific to a
+ * the draggable curve and the live spectrum behind it (`spectrumSource`), and
+ * wires the enable toggle; everything specific to a
  * *particular* EQ — where its parameter values live and how a change reaches
  * the engine — arrives as an `EqPanelBinding`. The Global EQ binds to the
  * post-chain `global_eq` graph node; the Practice Tool binds to its own
@@ -27,6 +28,7 @@ import {
   buildEqBandConfigsFromParams,
   eqBandChangeToParams,
 } from "./eqCurve.js";
+import { EqSpectrumWatcher, type EqSpectrum, type EqSpectrumSource } from "./eqSpectrum.js";
 import { GenericKnob } from "./knob.js";
 import { appendLog } from "./logging.js";
 
@@ -70,6 +72,12 @@ export interface EqPanelOptions {
    * "this EQ is doing something" badge, a section's enabled class.
    */
   onChanged?: () => void;
+  /**
+   * The graph node whose input the curve shows as a live spectrum, asked each
+   * time the curve comes into view. Omit it, or return null, for an EQ with no
+   * node to tap — the Practice Tool's backing-track EQ.
+   */
+  spectrumSource?: () => EqSpectrumSource | null;
 }
 
 /** dB range every band shares — ParametricEQEffect clamps to this, so showing
@@ -96,6 +104,7 @@ export class EqPanel {
   private readonly binding: EqPanelBinding;
   private bandKnobs: BandKnobs[] = [];
   private curve: EqCurveInteraction | null = null;
+  private spectrumWatcher: EqSpectrumWatcher | null = null;
   // Guards the feedback loop: writing a knob's value fires its own change
   // handler, which would write straight back to the binding mid-render.
   private syncing = false;
@@ -107,6 +116,7 @@ export class EqPanel {
     this.bindToggle();
     this.bindResetButton();
     this.render();
+    this.bindSpectrum();
   }
 
   /** Redraws knobs, curve and toggle from the binding. Safe to call as often
@@ -137,6 +147,8 @@ export class EqPanel {
   }
 
   destroy(): void {
+    this.spectrumWatcher?.destroy();
+    this.spectrumWatcher = null;
     this.curve?.destroy();
     this.curve = null;
   }
@@ -288,6 +300,26 @@ export class EqPanel {
       (bandIndex, freq, gainDb, q) => this.onCurveBandChanged(bandIndex, freq, gainDb, q, false),
       (bandIndex, freq, gainDb, q) => this.onCurveBandChanged(bandIndex, freq, gainDb, q, true)
     );
+    this.curve.setSpectrum(this.spectrumWatcher?.spectrum ?? null);
+  }
+
+  /** Keeps the source's spectrum behind the curve while the curve is on screen. */
+  private bindSpectrum(): void {
+    const { canvas, spectrumSource } = this.options;
+    if (!canvas || !spectrumSource) {
+      return;
+    }
+    this.spectrumWatcher = new EqSpectrumWatcher(canvas, spectrumSource, (spectrum) => this.showSpectrum(spectrum));
+  }
+
+  private showSpectrum(spectrum: EqSpectrum | null): void {
+    if (this.curve) {
+      this.curve.setSpectrum(spectrum);
+    } else if (spectrum) {
+      // The first frame can beat the host's own render after a modal opens;
+      // building the curve now is what puts the spectrum on screen.
+      this.renderCurve(this.binding.readParams());
+    }
   }
 
   private onCurveBandChanged(bandIndex: number, freq: number, gainDb: number, q: number, commit: boolean): void {
