@@ -11,10 +11,15 @@
  * there; and a hosted restore runs inside a scope that blocks writes to the
  * shared settings store, so reopening an old project cannot republish its
  * snapshot over settings the user has changed since.
+ *
+ * SerializeState answers on any thread, but builds only on the message thread,
+ * which owns nearly everything the blob is made of; HostStateRelay hands it
+ * requests from elsewhere.
  */
 
 #include "PluginController.h"
 
+#include "controller/HostStateRelay.h"
 #include "controller/internal/HostedPluginSupport.h"
 #include "controller/internal/SettingsKeys.h"
 #include "dsp/effects/NAMSlimmableSettings.h"
@@ -75,6 +80,9 @@ void PluginController::SetEditorWindowSize(int width, int height)
 
 void PluginController::NotifyHostStateChanged()
 {
+    // Even during a restore: the blob that answers off-thread requests has changed either way.
+    mHostStateRelay->MarkStale();
+
     // A restore replays the state the host has just handed over, and everything it applies
     // on the way (the preset, the NAM quality tier) would otherwise report itself as a change.
     // Hosts take that at its word: the project reads as modified the moment it opens, and a
@@ -90,13 +98,49 @@ void PluginController::NotifyHostStateChanged()
 
 std::string PluginController::SerializeState() const
 {
+    // Not every host asks for state on the message thread, and nearly everything the blob is
+    // built from belongs to it: the working copy and the slot cache change there without a
+    // lock, and a hosted plugin found under the DSP lock stays alive after it is released
+    // only there. So a call from any other thread is handed to the message thread, and
+    // answered with the last blob built there if it cannot start in time (see HostStateRelay).
+    if (!mHost.IsMessageThread())
+    {
+        return mHostStateRelay->BuildOnMessageThread([this] { return SerializeState(); });
+    }
+
+    auto state = BuildHostState(HostedPluginStateSource::Live);
+    mHostStateRelay->Remember(state);
+    return state;
+}
+
+void PluginController::RememberHostStateFromWorkingCopy() const
+{
+    try
+    {
+        mHostStateRelay->Remember(BuildHostState(HostedPluginStateSource::WorkingCopy));
+    }
+    catch (const std::exception&)
+    {
+        // Leave the previous blob in place. A save on the message thread builds its own
+        // either way.
+    }
+}
+
+std::string PluginController::BuildHostState(HostedPluginStateSource source) const
+{
+    const bool captureLive = source == HostedPluginStateSource::Live;
     nlohmann::json state = nlohmann::json::object();
     state["version"] = 1;
 
     if (mActivePreset)
     {
         Preset presetWithRuntimeState = *mActivePreset;
-        CaptureRuntimePluginStates(presetWithRuntimeState, mActivePresetId);
+
+        if (captureLive)
+        {
+            CaptureRuntimePluginStates(presetWithRuntimeState, mActivePresetId);
+        }
+
         state["preset"] = nlohmann::json::parse(PresetStorage::SerializeToJson(presetWithRuntimeState));
     }
 
@@ -161,7 +205,11 @@ std::string PluginController::SerializeState() const
 
         if (auto slotPreset = PresetStorage::DeserializeFromJson(cachedIt->second))
         {
-            CaptureMixerSlotHostedPluginState(*slotPreset, id);
+            if (captureLive)
+            {
+                CaptureMixerSlotHostedPluginState(*slotPreset, id);
+            }
+
             try
             {
                 presetData[id] = nlohmann::json::parse(PresetStorage::SerializeToJson(*slotPreset));
@@ -486,5 +534,13 @@ void PluginController::DeserializeState(const std::string& json)
     }
 
     mPendingStateBroadcast = true;
+
+    // The project just restored is the answer for a host that asks from another thread before
+    // anything changes, whether or not an editor is open to drive the idle refresh. Taken from
+    // the working copy: hosted plugins may not have applied their restored state yet.
+    if (mHost.IsMessageThread())
+    {
+        RememberHostStateFromWorkingCopy();
+    }
 }
 } // namespace guitarfx

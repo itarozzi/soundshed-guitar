@@ -18,6 +18,7 @@
 #include "controller/ControlSurfaceQueue.h"
 #include "controller/ControllerDisplayFeed.h"
 #include "controller/DemoPreviewService.h"
+#include "controller/HostStateRelay.h"
 #include "controller/MetronomeService.h"
 #include "controller/SignalTestService.h"
 #include "controller/TelemetryPublisher.h"
@@ -57,6 +58,7 @@ PluginController::PluginController(IPluginHost& host) : mHost(host)
     mDemoPreview = std::make_unique<DemoPreviewService>(mHost, mPresetMixer, mDSPMutex, mSignalTest->ActiveFlag(),
                                                         onError, sendToUI);
     mPracticeTool = std::make_unique<PracticeToolService>(mHost, mDSPMutex, onError, sendToUI);
+    mHostStateRelay = std::make_unique<HostStateRelay>(mHost);
 }
 
 PluginController::~PluginController()
@@ -245,6 +247,10 @@ void PluginController::Initialize()
     mSetlistCursorIndex = setlistsData.value("cursorIndex", 0);
 
     mNextSharedSyncPollAt = std::chrono::steady_clock::now();
+
+    // Something to answer a host that asks from another thread before the message thread
+    // has built anything (see SerializeState).
+    RememberHostStateFromWorkingCopy();
 }
 
 void PluginController::Prepare(double sampleRate, int blockSize)
@@ -477,12 +483,21 @@ void PluginController::OnIdle()
     {
         mPendingStateBroadcast = false;
         mPendingPresetStateBroadcast = false;
+        mHostStateRelay->MarkStale();
         BroadcastState(StateScope::Full);
     }
     else if (mPendingPresetStateBroadcast)
     {
         mPendingPresetStateBroadcast = false;
+        mHostStateRelay->MarkStale();
         BroadcastState(StateScope::PresetOnly);
+    }
+
+    // A change the UI has just been told about is one a host may ask for from another thread,
+    // at a moment the message thread cannot build it (see SerializeState).
+    if (mHostStateRelay->TakeRefreshDue(std::chrono::steady_clock::now()))
+    {
+        RememberHostStateFromWorkingCopy();
     }
 
     // Drain deferred node-param notifications (from MIDI/keyboard automation)

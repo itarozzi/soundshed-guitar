@@ -58,6 +58,7 @@ class SignalTestService;
 class TelemetryPublisher;
 class TunerService;
 class PracticeToolService;
+class HostStateRelay;
 
 /// How ApplySettingsToRuntime() treats settings a plugin instance owns rather than shares.
 enum class SettingsApplyMode
@@ -106,6 +107,9 @@ class PluginController
     bool ProcessAudio(float** inputs, float** outputs, int numSamples);
 
     // ── State serialization (for DAW save/restore) ─────────────────
+    /// Safe on any thread. The blob is only ever built on the message thread; a call from
+    /// anywhere else is handed to it, and answered with the last blob built there if it
+    /// cannot start in time (see HostStateRelay).
     [[nodiscard]] std::string SerializeState() const;
     void DeserializeState(const std::string& json);
 
@@ -530,6 +534,19 @@ class PluginController
      * in the middle of the host's own undo. Call this rather than mHost.NotifyStateChanged().
      */
     void NotifyHostStateChanged();
+    /// Where BuildHostState() takes hosted plugin state from.
+    enum class HostedPluginStateSource
+    {
+        Live,        ///< asked of each running plugin, as a save must
+        WorkingCopy, ///< as last captured into the working copy; no plugin is asked anything
+    };
+    /// The blob SerializeState() hands the host. Message thread only.
+    [[nodiscard]] std::string BuildHostState(HostedPluginStateSource source) const;
+    /// Rebuilds, from the working copy, the blob the host is answered with when the message
+    /// thread cannot build one (see HostStateRelay). Message thread only. A live capture would
+    /// pass each hosted plugin's audio through while it runs, and the working copy already
+    /// follows their changes. A build that throws leaves the previous blob in place.
+    void RememberHostStateFromWorkingCopy() const;
     void ApplyBlendDefinitions(Preset& preset);
     /**
      * A node's config as its running processor in mixer slot `presetId` reports it, or the
@@ -917,6 +934,7 @@ class PluginController
     std::unique_ptr<TunerService> mTuner;
     std::unique_ptr<DemoPreviewService> mDemoPreview;
     std::unique_ptr<PracticeToolService> mPracticeTool;
+    std::unique_ptr<HostStateRelay> mHostStateRelay;
     /// Idle-tick divider for the practice tool's transport updates.
     int mPracticeToolUpdateCounter = 0;
 

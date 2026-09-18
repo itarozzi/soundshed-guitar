@@ -468,6 +468,8 @@ set(GUITARFX_CORE_SOURCES
     src/controller/ControllerDisplayFeed.cpp
     src/controller/DemoPreviewService.h
     src/controller/DemoPreviewService.cpp
+    src/controller/HostStateRelay.h
+    src/controller/HostStateRelay.cpp
     src/controller/PracticeToolService.h
     src/controller/PracticeToolService.cpp
     src/controller/PracticeToolServiceRender.cpp

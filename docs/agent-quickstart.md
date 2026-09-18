@@ -77,6 +77,7 @@ Prefer adding to one of these over adding another member to the controller:
 | `DemoPreviewService`             | Demo audio preview mixed into the input                              |
 | `SignalTestService`              | Test-tone injection and the measurement it reports                   |
 | `TunerService`                   | Pitch readings handed from the audio thread to the UI                |
+| `HostStateRelay`                 | The DAW's state requests from other threads, handed to the message thread, with a fallback blob for when it cannot answer in time |
 
 What is left on `PluginController` itself is the shared core every area needs
 — the host, the mixer, the DSP lock, the active preset, app settings, the

@@ -75,6 +75,10 @@ Web-based SPA in a native WebView container.
 - Audio ↔ UI: Lock-free queues, atomic parameter updates
 - UI → Background: Task queue
 - Background → UI: Completion callbacks
+- Host → state: a DAW may ask for the plugin's state on any thread. `SerializeState` builds
+  it only on the message thread, which owns the working copy and keeps hosted plugins alive,
+  and hands a request from elsewhere over to it; if the message thread cannot start within a
+  second, the answer is the last state built there (`controller/HostStateRelay.h`).
 
 ## Performance Targets
 

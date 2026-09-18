@@ -70,6 +70,15 @@ class IPluginHost
     /// Run a function on the main/UI thread. Safe to call from the audio thread.
     virtual void RunOnMainThread(std::function<void()> fn) = 0;
 
+    /// True on the thread RunOnMainThread() runs functions on. The controller hands work
+    /// that belongs to that thread over to it when a host calls in from elsewhere (see
+    /// PluginController::SerializeState). A host that cannot tell answers true, which leaves
+    /// every call on the thread it arrived on.
+    [[nodiscard]] virtual bool IsMessageThread() const
+    {
+        return true;
+    }
+
     // ── Platform paths ─────────────────────────────────────────────
     /// Root directory for user data (~/.guitarfx/ or platform equivalent).
     [[nodiscard]] virtual std::filesystem::path GetUserDataPath() const = 0;

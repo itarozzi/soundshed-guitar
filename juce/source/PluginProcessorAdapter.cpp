@@ -555,6 +555,8 @@ void PluginProcessorAdapter::changeProgramName (int, const juce::String&) {}
 
 void PluginProcessorAdapter::getStateInformation (juce::MemoryBlock& destData)
 {
+    // Any thread: the controller builds on the message thread and hands requests from
+    // elsewhere over to it (see PluginController::SerializeState).
     const auto controllerState = mController.SerializeState();
     juce::MemoryOutputStream stream (destData, false);
     stream.write (controllerState.data(), controllerState.size());
@@ -889,6 +891,15 @@ void PluginProcessorAdapter::SaveFileAsync (
 void PluginProcessorAdapter::RunOnMainThread (std::function<void()> fn)
 {
     juce::MessageManager::callAsync (std::move (fn));
+}
+
+bool PluginProcessorAdapter::IsMessageThread() const
+{
+    // Without a message manager there is no loop to hand work to, so the caller keeps it.
+    // The controller relies on this for getStateInformation(), which JUCE's AAX, AU and LV2
+    // wrappers pass straight through from whatever thread the host asked on.
+    const auto* messageManager = juce::MessageManager::getInstanceWithoutCreating();
+    return messageManager == nullptr || messageManager->isThisTheMessageThread();
 }
 
 std::filesystem::path PluginProcessorAdapter::GetUserDataPath() const
