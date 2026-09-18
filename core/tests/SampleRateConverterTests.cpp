@@ -1,14 +1,17 @@
 #include "dsp/BlockSincResampler.h"
+#include "dsp/FiniteCheck.h"
 #include "dsp/effects/NAMOversampling.h"
 #include "dsp/effects/NAMSampleRate.h"
 #include "dsp/effects/NAMSlimmableSettings.h"
 
+#include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
 #include <limits>
 #include <new>
+#include <string>
 #include <vector>
 
 namespace
@@ -376,6 +379,151 @@ bool TestNamOversamplingProcessor()
     fractionalProcessor.Process(fractionalModel, input.data(), output.data(), blockSize);
     return gAllocationCount.load(std::memory_order_relaxed) == allocationsBeforeFractional;
 }
+
+/// Leaves freed heap blocks of the size WDL's buffers ask for with a small host block (4000
+/// bytes) full of NaN, so memory read before it is written shows up in Release as well. The
+/// Debug CRT does this by itself, filling each new block with 0xCD bytes. The writes go through
+/// a volatile pointer so the optimiser cannot drop them as dead.
+void FillFreedHeapBlocksWithNaN()
+{
+    constexpr std::size_t kBlockBytes = 4000;
+    constexpr int kBlockCount = 64;
+    void* blocks[kBlockCount] = {};
+
+    for (void*& block : blocks)
+    {
+        block = std::malloc(kBlockBytes);
+        volatile unsigned char* bytes = static_cast<unsigned char*>(block);
+
+        for (std::size_t index = 0; bytes && index < kBlockBytes; ++index)
+        {
+            bytes[index] = 0xff;
+        }
+    }
+
+    for (void* block : blocks)
+    {
+        std::free(block);
+    }
+}
+
+std::vector<NAM_SAMPLE> RenderThroughNamResampler(double hostRate, double modelRate, int factor, int phaseIndex,
+                                                  int blockSize, int totalFrames, int& latency)
+{
+    TrackingNamDSP model;
+    guitarfx::NamOversamplingProcessor processor;
+    FillFreedHeapBlocksWithNaN();
+    processor.Prepare(model, hostRate, modelRate, blockSize, factor, guitarfx::NamAntiAliasPhaseFromIndex(phaseIndex));
+    latency = processor.GetLatencySamples();
+
+    std::vector<NAM_SAMPLE> input(static_cast<std::size_t>(blockSize));
+    std::vector<NAM_SAMPLE> output(static_cast<std::size_t>(totalFrames), static_cast<NAM_SAMPLE>(0.0));
+
+    for (int start = 0; start + blockSize <= totalFrames; start += blockSize)
+    {
+        for (int index = 0; index < blockSize; ++index)
+        {
+            input[static_cast<std::size_t>(index)] =
+                static_cast<NAM_SAMPLE>(0.5 * std::sin(2.0 * kPi * 997.0 * (start + index) / hostRate));
+        }
+
+        processor.Process(model, input.data(), output.data() + start, blockSize);
+    }
+
+    return output;
+}
+
+/// At a fractional rate ratio the resampler takes its Lanczos fallback, and Reset() pre-rolls it
+/// with GetLatency() samples of silence. The pre-roll can be longer than the host block (117
+/// samples for a 44.1 kHz model at 48 kHz with 2x and a linear-phase filter), and it used to be
+/// read past the end of a one-block scratch buffer: uninitialised heap reached the model, which
+/// turned it into NaN. The fix is in core/cmake/GuitarfxAudioDSPTools.cmake. The resampler
+/// streams sample by sample, so small blocks must give what one large block gives, give or take
+/// the rounding of its read position, which depends on how much each block pushed.
+bool TestNamFractionalResamplerPreRoll()
+{
+    struct Case
+    {
+        const char* label;
+        double hostRate;
+        double modelRate;
+        int factor;
+        int phaseIndex;
+    };
+
+    constexpr Case kCases[] = {
+        {"44.1 kHz model at 48 kHz, 2x, linear short", 48000.0, 44100.0, 2, 1},
+        {"44.1 kHz model at 48 kHz, 2x, linear long", 48000.0, 44100.0, 2, 2},
+        {"44.1 kHz model at 48 kHz, oversampling off, linear short", 48000.0, 44100.0, 1, 1},
+        {"48 kHz model at 44.1 kHz, 2x, linear long", 44100.0, 48000.0, 2, 2},
+        // Minimum phase resets its filters on a huge sample, which hid the bad read as a dropout.
+        {"44.1 kHz model at 48 kHz, oversampling off, minimum phase", 48000.0, 44100.0, 1, 0},
+    };
+    constexpr int kSmallBlocks[] = {32, 64};
+    constexpr int kReferenceBlock = 512;
+    constexpr int kTotalFrames = 8 * kReferenceBlock;
+    constexpr double kBlockSizeTolerance = 1.0e-9;
+    bool allPassed = true;
+
+    const auto isClean = [](const std::vector<NAM_SAMPLE>& samples) {
+        return std::all_of(samples.begin(), samples.end(), [](NAM_SAMPLE sample) {
+            return guitarfx::IsFinite(sample) && std::abs(static_cast<double>(sample)) <= 1.0;
+        });
+    };
+
+    for (const Case& test : kCases)
+    {
+        int referenceLatency = 0;
+        const auto reference = RenderThroughNamResampler(test.hostRate, test.modelRate, test.factor, test.phaseIndex,
+                                                         kReferenceBlock, kTotalFrames, referenceLatency);
+        const auto peak = std::abs(*std::max_element(reference.begin(), reference.end(),
+                                                     [](auto a, auto b) { return std::abs(a) < std::abs(b); }));
+
+        // The case only tests the bug if its pre-roll outgrows every small block.
+        if (!isClean(reference) || peak < 0.25 || referenceLatency <= kSmallBlocks[std::size(kSmallBlocks) - 1])
+        {
+            std::cerr << test.label << ": the " << kReferenceBlock << "-sample reference is not usable (latency "
+                      << referenceLatency << ", peak " << peak << ")\n";
+            allPassed = false;
+            continue;
+        }
+
+        for (const int blockSize : kSmallBlocks)
+        {
+            int latency = 0;
+            const auto output = RenderThroughNamResampler(test.hostRate, test.modelRate, test.factor, test.phaseIndex,
+                                                          blockSize, kTotalFrames, latency);
+
+            const std::string where = std::string(test.label) + ", " + std::to_string(blockSize) + "-sample blocks";
+
+            // Checked first: /fp:fast breaks NaN compares, so a difference means nothing until then.
+            if (!isClean(output))
+            {
+                std::cerr << where << ": non-finite or out-of-range output\n";
+                allPassed = false;
+                continue;
+            }
+
+            double largestDifference = 0.0;
+
+            for (std::size_t index = 0; index < output.size(); ++index)
+            {
+                largestDifference =
+                    std::max(largestDifference, std::abs(static_cast<double>(output[index] - reference[index])));
+            }
+
+            std::cout << where << ": latency " << latency << ", largest difference " << largestDifference << "\n";
+
+            if (latency != referenceLatency || largestDifference > kBlockSizeTolerance)
+            {
+                std::cerr << where << ": differs from the " << kReferenceBlock << "-sample reference\n";
+                allPassed = false;
+            }
+        }
+    }
+
+    return allPassed;
+}
 } // namespace
 
 int main()
@@ -389,6 +537,7 @@ int main()
     const bool namPerProcessorOk = TestNamOversamplingIsPerProcessor();
     const bool namDryDelayOk = TestNamDryDelay();
     const bool namOversamplingProcessorOk = TestNamOversamplingProcessor();
+    const bool namFractionalPreRollOk = TestNamFractionalResamplerPreRoll();
 
     if (!roundTripOk)
     {
@@ -435,9 +584,14 @@ int main()
         std::cerr << "NAM oversampling processor test failed\n";
     }
 
+    if (!namFractionalPreRollOk)
+    {
+        std::cerr << "NAM fractional-ratio resampler pre-roll test failed\n";
+    }
+
     return (roundTripOk && fixedOutputOk && optimizedNamSampleRateParsingOk && namDefaultProcessingRateOk &&
             namOversamplingConfigurationOk && namQualitySanitizingOk && namPerProcessorOk && namDryDelayOk &&
-            namOversamplingProcessorOk)
+            namOversamplingProcessorOk && namFractionalPreRollOk)
                ? 0
                : 1;
 }

@@ -414,6 +414,8 @@ endif()
 
 # Stateful anti-aliasing resampler used by NAM-Oversampler.  Populate it as a
 # header-only source dependency rather than adding its standalone tools project.
+# The core builds against a copy with local fixes; when bumping the pin, check
+# them in cmake/GuitarfxAudioDSPTools.cmake.
 if(GUITARFX_CORE_FETCH_DEPS)
     include(FetchContent)
     FetchContent_Declare(nam_oversampler_audio_dsp_tools
@@ -771,8 +773,11 @@ if(DEFINED NeuralAmpModelerCore_SOURCE_DIR)
 endif()
 
 if(DEFINED nam_oversampler_audio_dsp_tools_SOURCE_DIR)
-    target_include_directories(SoundshedGuitarCore PUBLIC
-        "${nam_oversampler_audio_dsp_tools_SOURCE_DIR}")
+    # A generated copy of its resampler with local fixes, not the checkout itself; see the module.
+    include("${CMAKE_CURRENT_LIST_DIR}/cmake/GuitarfxAudioDSPTools.cmake")
+    guitarfx_prepare_audio_dsp_tools("${nam_oversampler_audio_dsp_tools_SOURCE_DIR}"
+                                     _guitarfx_audio_dsp_tools_include)
+    target_include_directories(SoundshedGuitarCore PUBLIC "${_guitarfx_audio_dsp_tools_include}")
 endif()
 
 # Signalsmith headers
