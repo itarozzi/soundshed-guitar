@@ -17,6 +17,7 @@ set(TEST_SOURCES
     GaplessSwitchingTests.cpp
     PresetRetirementTests.cpp
     DemoPreviewLoopTests.cpp
+    HostedPluginCaptureLockTests.cpp
     HostedPluginStateWorkflowTests.cpp
     IRConvolutionTests.cpp
     IRReverbQualityTests.cpp
@@ -45,6 +46,7 @@ set(TEST_SOURCES
     SteadyStateProfiler.cpp
     TelemetryPublisherTests.cpp
     SignalGraphExecutorTests.cpp
+    SignalPathNodeConfigLockTests.cpp
     SpectrumTapTests.cpp
     Spatial3DEffectTests.cpp
     StereoProcessingTests.cpp

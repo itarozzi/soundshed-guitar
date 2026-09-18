@@ -1452,6 +1452,15 @@ void SignalGraphExecutor::ApplyTempoToProcessors()
 
 void SignalGraphExecutor::SetNodeConfig(const std::string& nodeId, const std::string& key, const std::string& value)
 {
+    if (auto* processor = RecordNodeConfig(nodeId, key, value))
+    {
+        processor->SetConfig(key, value);
+    }
+}
+
+EffectProcessor* SignalGraphExecutor::RecordNodeConfig(const std::string& nodeId, const std::string& key,
+                                                       const std::string& value)
+{
     const bool transientCommand = key == "showPluginEditor" || key == "openPluginEditor";
 
     if (!transientCommand)
@@ -1462,12 +1471,7 @@ void SignalGraphExecutor::SetNodeConfig(const std::string& nodeId, const std::st
         }
     }
 
-    auto* state = FindNodeState(nodeId);
-
-    if (state && state->processor)
-    {
-        state->processor->SetConfig(key, value);
-    }
+    return GetNodeProcessor(nodeId);
 }
 
 std::string SignalGraphExecutor::GetNodeConfig(const std::string& nodeId, const std::string& key) const

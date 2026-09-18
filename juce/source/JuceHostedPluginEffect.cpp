@@ -755,6 +755,19 @@ namespace guitarfx
         if (!inputs || !outputs || numSamples <= 0)
             return;
 
+        // Never block the audio thread: when the message thread is mutating the
+        // hosted plugin (editor open/close, prepare, state restore, swap), pass
+        // the signal through instead of racing the plugin's process call.
+        // Taken before the first look at mPlugin or mWorkBuffer: config reaches
+        // this effect without the DSP lock, and a swap frees the old plugin and
+        // resizes the work buffer under this lock alone.
+        const juce::SpinLock::ScopedTryLockType processLock (mPluginProcessLock);
+        if (!processLock.isLocked())
+        {
+            Passthrough (inputs, outputs, numSamples);
+            return;
+        }
+
         if (!mPlugin || !mPrepared || numSamples > mWorkBuffer.getNumSamples())
         {
             Passthrough (inputs, outputs, numSamples);
@@ -766,16 +779,6 @@ namespace guitarfx
         // channel count to nullptr, which multi-bus plugins will read/write.
         if (mWorkBuffer.getNumChannels() < std::max (mPlugin->getTotalNumInputChannels(),
                                                      mPlugin->getTotalNumOutputChannels()))
-        {
-            Passthrough (inputs, outputs, numSamples);
-            return;
-        }
-
-        // Never block the audio thread: when the message thread is mutating the
-        // hosted plugin (editor open/close, prepare, state restore, swap), pass
-        // the signal through instead of racing the plugin's process call.
-        const juce::SpinLock::ScopedTryLockType processLock (mPluginProcessLock);
-        if (!processLock.isLocked())
         {
             Passthrough (inputs, outputs, numSamples);
             return;

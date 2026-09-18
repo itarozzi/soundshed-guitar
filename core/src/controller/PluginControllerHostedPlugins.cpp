@@ -533,7 +533,7 @@ void PluginController::CaptureRuntimePluginStates(Preset& preset, const std::str
     const auto captureRuntimeState = [&](const std::string& nodeId) -> std::string {
         if (!presetId.empty())
         {
-            if (auto state = mPresetMixer.GetNodeConfig(presetId, nodeId, kHostedPluginStateConfigKey); !state.empty())
+            if (auto state = ReadLiveNodeConfig(presetId, nodeId, kHostedPluginStateConfigKey); !state.empty())
             {
                 return state;
             }
@@ -543,8 +543,7 @@ void PluginController::CaptureRuntimePluginStates(Preset& preset, const std::str
         // save-as in flight, or a preset that has not been re-applied yet).
         if (!mActivePresetId.empty() && mActivePresetId != presetId)
         {
-            if (auto state = mPresetMixer.GetNodeConfig(mActivePresetId, nodeId, kHostedPluginStateConfigKey);
-                !state.empty())
+            if (auto state = ReadLiveNodeConfig(mActivePresetId, nodeId, kHostedPluginStateConfigKey); !state.empty())
             {
                 return state;
             }
@@ -769,7 +768,7 @@ void PluginController::CaptureLiveHostedPluginStateIntoActivePreset()
                 continue;
             }
 
-            auto state = mPresetMixer.GetNodeConfig(mActivePresetId, node.id, kHostedPluginStateConfigKey);
+            auto state = ReadLiveNodeConfig(mActivePresetId, node.id, kHostedPluginStateConfigKey);
 
             if (state.empty() || GetHostedPluginNodeState(node) == state)
             {
@@ -822,7 +821,7 @@ void PluginController::CaptureMixerSlotHostedPluginState(Preset& preset, const s
             continue;
         }
 
-        auto state = mPresetMixer.GetNodeConfig(presetId, node.id, kHostedPluginStateConfigKey);
+        auto state = ReadLiveNodeConfig(presetId, node.id, kHostedPluginStateConfigKey);
 
         if (state.empty())
         {

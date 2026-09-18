@@ -85,6 +85,12 @@ class SignalGraphExecutor
     void SetNodeEnabled(const std::string& nodeId, bool enabled);
     void SetNodeParam(const std::string& nodeId, const std::string& key, double value);
     void SetNodeConfig(const std::string& nodeId, const std::string& key, const std::string& value);
+
+    /// SetNodeConfig without the SetConfig call: records `value` in the graph (unless `key` is
+    /// a transient command) and returns the node's processor, or nullptr, for the caller to
+    /// apply it to. For a caller that must apply the value outside the lock it looked up under.
+    [[nodiscard]] EffectProcessor* RecordNodeConfig(const std::string& nodeId, const std::string& key,
+                                                    const std::string& value);
     void SetNodeConfigForType(const std::string& type, const std::string& key, const std::string& value);
 
     /**

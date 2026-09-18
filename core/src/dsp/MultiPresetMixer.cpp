@@ -1283,6 +1283,13 @@ void MultiPresetMixer::SetNodeConfig(const std::string& presetId, const std::str
     }
 }
 
+EffectProcessor* MultiPresetMixer::RecordNodeConfig(const std::string& presetId, const std::string& nodeId,
+                                                    const std::string& key, const std::string& value)
+{
+    auto* inst = FindInstance(presetId);
+    return inst ? inst->executor.RecordNodeConfig(nodeId, key, value) : nullptr;
+}
+
 void MultiPresetMixer::SetNodeConfigForType(const std::string& type, const std::string& key, const std::string& value)
 {
     for (auto& inst : mInstances)

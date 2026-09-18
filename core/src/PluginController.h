@@ -528,6 +528,18 @@ class PluginController
     void NotifyHostStateChanged();
     void ApplyBlendDefinitions(Preset& preset);
     /**
+     * A node's config as its running processor in mixer slot `presetId` reports it, or the
+     * slot graph's stored value when the node has no processor. Empty if there is no such slot.
+     *
+     * The slot lookup walks instances the audio thread erases as their fades finish, so it is
+     * made under mDSPMutex. A hosted plugin is then asked after the lock is released: it
+     * serialises its state under its own lock and can take a while, and holding the DSP lock
+     * across that would silence every slot. Anything else answers under the lock. mDSPMutex
+     * is not recursive, so never call this with it held.
+     */
+    [[nodiscard]] std::string ReadLiveNodeConfig(const std::string& presetId, const std::string& nodeId,
+                                                 const std::string& key) const;
+    /**
      * Fill in hosted plugin state across `preset`'s graphs: live state for the graph the DSP
      * is running, stored state from the working copy for the other scenes.
      *

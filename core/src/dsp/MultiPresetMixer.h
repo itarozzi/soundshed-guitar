@@ -342,6 +342,17 @@ class MultiPresetMixer
     void SetNodeParam(const std::string& presetId, const std::string& nodeId, const std::string& key, double value);
     void SetNodeConfig(const std::string& presetId, const std::string& nodeId, const std::string& key,
                        const std::string& value);
+
+    /// SetNodeConfig in two halves, for a value that must not be applied under the DSP lock
+    /// the lookup needs (a hosted plugin loads, restores state and opens its editor under its
+    /// own lock, and any of those can take seconds). Under the DSP lock: records `value` in
+    /// the slot's graph and returns the node's processor, or nullptr, without calling it.
+    /// The caller then calls SetConfig. The pointer stays valid on the message thread until
+    /// that thread next rebuilds or retires the slot: the audio thread only ever drops
+    /// instances that are already retiring, and a retired hosted processor is destroyed only
+    /// by CollectRetiredMainThread().
+    [[nodiscard]] EffectProcessor* RecordNodeConfig(const std::string& presetId, const std::string& nodeId,
+                                                    const std::string& key, const std::string& value);
     void SetNodeConfigForType(const std::string& type, const std::string& key, const std::string& value);
 
     /**

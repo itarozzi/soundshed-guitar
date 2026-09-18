@@ -28,6 +28,19 @@ using namespace guitarfx::controller_detail;
 
 namespace guitarfx
 {
+namespace
+{
+/// A hosted plugin is driven from the message thread without the DSP lock. It swaps the
+/// plugin, restores and captures state and opens its editor under its own process lock,
+/// which its Process() only try-locks. Holding the DSP lock across any of that would
+/// silence every slot for as long as a plugin load or a state chunk takes, and a plugin's
+/// modal dialog could re-enter code that takes the DSP lock again.
+bool IsHostedPluginProcessor(const EffectProcessor& processor)
+{
+    return EffectRegistry::Instance().Resolve(processor.GetType()) == EffectGuids::kPluginHost;
+}
+} // namespace
+
 void PluginController::HandleUpdateSignalPathNodeParamRequest(const nlohmann::json& payload)
 {
     // Updates a single DSP parameter on a graph node by nodeId/paramKey
@@ -111,6 +124,26 @@ void PluginController::HandleUpdateSignalPathNodeBypassRequest(const nlohmann::j
     mPendingStateBroadcast = true;
 }
 
+std::string PluginController::ReadLiveNodeConfig(const std::string& presetId, const std::string& nodeId,
+                                                 const std::string& key) const
+{
+    // The pointer outlives the lock: see MultiPresetMixer::RecordNodeConfig.
+    const EffectProcessor* hostedPlugin = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(mDSPMutex);
+        const auto* processor = mPresetMixer.GetNodeProcessor(presetId, nodeId);
+
+        if (!processor || !IsHostedPluginProcessor(*processor))
+        {
+            return mPresetMixer.GetNodeConfig(presetId, nodeId, key);
+        }
+
+        hostedPlugin = processor;
+    }
+
+    return hostedPlugin->GetConfig(key);
+}
+
 void PluginController::HandleUpdateSignalPathNodeConfigRequest(const nlohmann::json& payload)
 {
     const std::string nodeId = payload.value("nodeId", "");
@@ -131,13 +164,13 @@ void PluginController::HandleUpdateSignalPathNodeConfigRequest(const nlohmann::j
     {
         AppendSessionLog("Hosted plugin capture requested presetId=" + presetId + ", nodeId=" + nodeId);
         key = kHostedPluginStateConfigKey;
-        value = mPresetMixer.GetNodeConfig(presetId, nodeId, key);
+        value = ReadLiveNodeConfig(presetId, nodeId, key);
 
         if (value.empty() && !mActivePresetId.empty() && mActivePresetId != presetId)
         {
             // The UI can address the focused preset by an id the mixer slot does not answer
             // to yet. Prefer an answer over a spurious "capture failed".
-            value = mPresetMixer.GetNodeConfig(mActivePresetId, nodeId, key);
+            value = ReadLiveNodeConfig(mActivePresetId, nodeId, key);
         }
 
         if (value.empty())
@@ -152,7 +185,28 @@ void PluginController::HandleUpdateSignalPathNodeConfigRequest(const nlohmann::j
                          ", stateLength=" + std::to_string(value.size()) + ", stateHash=" + HashStringForLog(value));
     }
 
-    mPresetMixer.SetNodeConfig(presetId, nodeId, key, value);
+    // SetConfig can rebuild state Process() reads: a NAM amp re-prepares its model lanes and
+    // resampler for a new oversampling tier, so it has to be applied under the DSP lock too.
+    // A hosted plugin is the exception again, and is applied once the lock is released.
+    EffectProcessor* hostedPlugin = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(mDSPMutex);
+        auto* processor = mPresetMixer.RecordNodeConfig(presetId, nodeId, key, value);
+
+        if (processor && IsHostedPluginProcessor(*processor))
+        {
+            hostedPlugin = processor;
+        }
+        else if (processor)
+        {
+            processor->SetConfig(key, value);
+        }
+    }
+
+    if (hostedPlugin)
+    {
+        hostedPlugin->SetConfig(key, value);
+    }
 
     if (persist)
     {
