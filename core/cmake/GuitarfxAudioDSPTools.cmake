@@ -215,6 +215,171 @@ function(guitarfx_prepare_audio_dsp_tools source_dir out_include_dir)
     // Soundshed fix (core/cmake/GuitarfxAudioDSPTools.cmake): this filter's state was not cleared.
     std::fill(mMinimumPhaseState.begin(), mMinimumPhaseState.end(), BiquadState {});]=])
 
+    # The debug switches (NAM_RESAMPLER_PROFILE, NAM_MINPHASE_IIR_CLEAN_FUSED and the minimum-phase
+    # filter order and cutoff overrides) were read with std::getenv on every block: two or three
+    # calls per block per NAM lane on the default integer-ratio path. The Windows UCRT's getenv
+    # takes the CRT environment lock, so that was a lock on the audio thread. Reset() -- which
+    # never runs there: it is called from prepare, release and chain rebuilds, each of which also
+    # prewarms the model -- now reads them all into members, so a switch has to be set before a
+    # reset: the two flags take effect at that reset rather than mid-stream, and the filter
+    # overrides, as before, when the filters are next designed (in practice, a new resampler from
+    # NamOversamplingProcessor::Prepare()). Each switch keeps its old parsing. The design
+    # functions read members too, because the first block after a reset can run them lazily. The
+    # profiler's log directory is read there as well (TEMP, else TMP; the IIR path's profiler
+    # used to try TEMP only), so getenv is left nowhere but the reader. Regression test:
+    # TestNamResamplerReadsSwitchesAtReset in core/tests/NamResamplerResetTests.cpp.
+    set(_environment_reader [=[
+  // Soundshed fix (core/cmake/GuitarfxAudioDSPTools.cmake): the debug switches were read with
+  // std::getenv on every block, and the Windows UCRT's getenv takes a lock. Reset() reads them
+  // here instead, off the audio thread; the filter overrides apply when the filters are designed.
+  static bool IsEnvironmentSwitchOn(const char* v)
+  {
+    return v != nullptr && v[0] != '\0' && v[0] != '0' && v[0] != 'f' && v[0] != 'F'
+           && v[0] != 'n' && v[0] != 'N';
+  }
+
+  void ReadEnvironmentSwitches()
+  {
+    mEnvResamplerProfile = IsEnvironmentSwitchOn(std::getenv("NAM_RESAMPLER_PROFILE"));
+    mEnvCleanFusedFallback = IsEnvironmentSwitchOn(std::getenv("NAM_MINPHASE_IIR_CLEAN_FUSED"));
+
+    const char* downOrder = std::getenv("NAM_MINPHASE_DOWN_IIR_ORDER");
+    mEnvMinPhaseDownIIROrder = downOrder != nullptr ? std::atoi(downOrder) : 0;
+
+    const char* outputOrder = std::getenv("NAM_MINPHASE_OUTPUT_IIR_ORDER");
+    mEnvMinPhaseOutputIIROrder = outputOrder != nullptr ? std::atoi(outputOrder) : 0;
+
+    const char* cutoffBias = std::getenv("NAM_MINPHASE_OUTPUT_IIR_CUTOFF_BIAS");
+    mEnvMinPhaseOutputIIRCutoffBias = cutoffBias != nullptr ? std::atof(cutoffBias) : -1.0;
+
+    mProfileLogDirectory.clear();
+    if (mEnvResamplerProfile)
+    {
+      const char* tempDir = std::getenv("TEMP");
+      if (tempDir == nullptr || tempDir[0] == '\0')
+        tempDir = std::getenv("TMP");
+      if (tempDir != nullptr)
+        mProfileLogDirectory = tempDir;
+    }
+  }
+
+  bool mEnvResamplerProfile = false;
+  bool mEnvCleanFusedFallback = false;
+  int mEnvMinPhaseDownIIROrder = 0; // An order below 2 keeps the design's own.
+  int mEnvMinPhaseOutputIIROrder = 0;
+  double mEnvMinPhaseOutputIIRCutoffBias = -1.0; // A bias outside [0, 1] keeps the design's own.
+  std::string mProfileLogDirectory;
+
+]=])
+
+    _guitarfx_replace_once(_content "environment-switches-reader"
+        "  bool UseMinimumPhaseIIRCleanFusedFallback() const\n"
+        "${_environment_reader}  bool UseMinimumPhaseIIRCleanFusedFallback() const\n")
+
+    _guitarfx_replace_once(_content "environment-switches-read-at-reset"
+[=[
+void Reset(double inputSampleRate, int blockSize)
+  {
+]=]
+[=[
+void Reset(double inputSampleRate, int blockSize)
+  {
+    // Soundshed fix (core/cmake/GuitarfxAudioDSPTools.cmake): the debug switches are read here,
+    // off the audio thread, not on every block.
+    ReadEnvironmentSwitches();
+
+]=])
+
+    _guitarfx_replace_once(_content "environment-switches-clean-fused"
+[=[
+    const char* v = std::getenv("NAM_MINPHASE_IIR_CLEAN_FUSED");
+    return v != nullptr && v[0] != '\0' && v[0] != '0' && v[0] != 'f' && v[0] != 'F'
+           && v[0] != 'n' && v[0] != 'N';]=]
+[=[
+    // Soundshed fix (core/cmake/GuitarfxAudioDSPTools.cmake): read by Reset(), not per block.
+    return mEnvCleanFusedFallback;]=])
+
+    # The two per-block functions open with the same profile switch, so each search starts at
+    # the function's signature.
+    foreach(_per_block_function ProcessBlockRealtimeIIRHalfBand ProcessBlockLinearCascadedFIR)
+        _guitarfx_replace_once(_content "environment-switches-profile-${_per_block_function}"
+"  void ${_per_block_function}(T** inputs, T** outputs, int nFrames, BlockProcessFunc func)
+  {
+    const bool profile =
+      []()
+      {
+        const char* v = std::getenv(\"NAM_RESAMPLER_PROFILE\");
+        return v != nullptr && v[0] != '\\0' && v[0] != '0' && v[0] != 'f' && v[0] != 'F'
+               && v[0] != 'n' && v[0] != 'N';
+      }();"
+"  void ${_per_block_function}(T** inputs, T** outputs, int nFrames, BlockProcessFunc func)
+  {
+    // Soundshed fix (core/cmake/GuitarfxAudioDSPTools.cmake): read by Reset(), not per block.
+    const bool profile = mEnvResamplerProfile;")
+    endforeach()
+
+    _guitarfx_replace_once(_content "environment-switches-profile-log-realtime-iir"
+[=[
+          const char* tempDir = std::getenv("TEMP");
+          if (tempDir != nullptr && tempDir[0] != '\0')]=]
+[=[
+          // Soundshed fix (core/cmake/GuitarfxAudioDSPTools.cmake): read by Reset().
+          const char* tempDir = mProfileLogDirectory.c_str();
+          if (tempDir != nullptr && tempDir[0] != '\0')]=])
+
+    _guitarfx_replace_once(_content "environment-switches-profile-log-linear-cascaded-fir"
+[=[
+        const char* tempDir = std::getenv("TEMP");
+        if (tempDir == nullptr || tempDir[0] == '\0')
+          tempDir = std::getenv("TMP");]=]
+[=[
+        // Soundshed fix (core/cmake/GuitarfxAudioDSPTools.cmake): read by Reset().
+        const char* tempDir = mProfileLogDirectory.c_str();]=])
+
+    _guitarfx_replace_once(_content "environment-switches-down-iir-order"
+[=[
+    if (const char* envOrder = std::getenv("NAM_MINPHASE_DOWN_IIR_ORDER"))
+    {
+      const int parsed = std::atoi(envOrder);]=]
+[=[
+    // Soundshed fix (core/cmake/GuitarfxAudioDSPTools.cmake): read by Reset().
+    {
+      const int parsed = mEnvMinPhaseDownIIROrder;]=])
+
+    _guitarfx_replace_once(_content "environment-switches-output-iir-cutoff-bias"
+[=[
+    if (const char* envBias = std::getenv("NAM_MINPHASE_OUTPUT_IIR_CUTOFF_BIAS"))
+    {
+      const double parsed = std::atof(envBias);]=]
+[=[
+    // Soundshed fix (core/cmake/GuitarfxAudioDSPTools.cmake): read by Reset().
+    {
+      const double parsed = mEnvMinPhaseOutputIIRCutoffBias;]=])
+
+    _guitarfx_replace_once(_content "environment-switches-output-iir-order"
+[=[
+    if (const char* envOrder = std::getenv("NAM_MINPHASE_OUTPUT_IIR_ORDER"))
+    {
+      const int parsed = std::atoi(envOrder);]=]
+[=[
+    // Soundshed fix (core/cmake/GuitarfxAudioDSPTools.cmake): read by Reset().
+    {
+      const int parsed = mEnvMinPhaseOutputIIROrder;]=])
+
+    # A pin bump that reads a new switch, or reads one somewhere new, would otherwise bring the
+    # lock back without a word -- in a design function as much as a per-block one, since the
+    # first block can run those. The reader has to be the only place left that calls getenv.
+    string(REGEX MATCHALL "getenv[ \t]*\\(" _getenv_calls "${_content}")
+    string(REGEX MATCHALL "getenv[ \t]*\\(" _reader_getenv_calls "${_environment_reader}")
+    list(LENGTH _getenv_calls _getenv_count)
+    list(LENGTH _reader_getenv_calls _reader_getenv_count)
+    if(NOT _getenv_count EQUAL _reader_getenv_count)
+        message(FATAL_ERROR
+            "AudioDSPTools: ResamplingContainer.h calls getenv outside ReadEnvironmentSwitches(), "
+            "the reader core/cmake/GuitarfxAudioDSPTools.cmake adds (found ${_getenv_count} calls, "
+            "expected ${_reader_getenv_count}); read the variable there, in Reset(), instead.")
+    endif()
+
     # Written through a temporary so the header's timestamp only moves when its content does.
     file(WRITE "${_to}/ResamplingContainer.h.new" "${_content}")
     file(COPY_FILE "${_to}/ResamplingContainer.h.new" "${_to}/ResamplingContainer.h" ONLY_IF_DIFFERENT)
