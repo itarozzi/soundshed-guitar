@@ -19,6 +19,7 @@
 #include <thread>
 #include <vector>
 
+#include "NAM/activations.h"
 #include "NAM/dsp.h"
 #include "NAM/get_dsp.h"
 #include "dsp/effects/NAMOversampling.h"
@@ -163,6 +164,20 @@ void TestCacheHitProducesIdenticalOutput(const fs::path& modelPath)
     }
 }
 
+// Soundshed runs NAM with the core's fast tanh. The switch lives in GetModel so it lands
+// before any model captures its activation; this catches the switch being dropped.
+void TestFastTanhEnabled(const fs::path& modelPath)
+{
+    std::cout << "\n[models are built with the fast tanh]\n";
+    auto model = cache::GetModel(modelPath);
+    Check(model != nullptr, "model loads");
+
+    using Activation = ::nam::activations::Activation;
+    Check(Activation::using_fast_tanh, "GetModel switched the NAM core to fast tanh");
+    Check(Activation::get_activation(std::string("Tanh")) == Activation::get_activation(std::string("Fasttanh")),
+          "the Tanh activation resolves to Fasttanh");
+}
+
 void TestEditedFileInvalidates(const fs::path& modelPath)
 {
     std::cout << "\n[edited file invalidates its entry]\n";
@@ -299,6 +314,7 @@ int main()
     }
 
     TestCacheHitProducesIdenticalOutput(modelPath);
+    TestFastTanhEnabled(modelPath);
     TestEditedFileInvalidates(modelPath);
     TestMissingFileIsHandled();
     TestBudgetEvicts(modelPath);

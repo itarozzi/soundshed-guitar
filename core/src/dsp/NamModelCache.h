@@ -35,6 +35,9 @@ namespace nammodelcache
 /**
  * Construct a NAM model for `path`, reusing cached parse output when available.
  * Returns nullptr if the file cannot be read or parsed. Propagates no exceptions.
+ *
+ * Every production NAM model is built here, so the first call also switches the NAM
+ * core to its fast tanh approximation, before any model exists.
  */
 std::unique_ptr<::nam::DSP> GetModel(const std::filesystem::path& path);
 

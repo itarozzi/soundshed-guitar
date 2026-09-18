@@ -10,6 +10,7 @@
 #include <unordered_map>
 #include <utility>
 
+#include "NAM/activations.h"
 #include "NAM/dsp.h"
 #include "NAM/get_dsp.h"
 
@@ -134,10 +135,28 @@ void EvictToBudgetLocked(CacheState& state)
         ++state.evictions;
     }
 }
+
+// Switch the NAM core from std::tanh to its rational fast_tanh, once, before the first
+// model is built. WaveNet and ConvNet take their activation from the core's registry
+// when they are constructed, and that registry is a plain unordered_map, so it must not
+// change while SignalGraphExecutor builds models on other threads; the function-local
+// static makes concurrent first callers wait. LSTM reads the flag per sample instead.
+// Measured on the standard WaveNet: about 9% faster, output within 52-55 dB of
+// std::tanh (tools/nam-compression.mjs).
+void EnableFastTanhOnce()
+{
+    static const bool enabled = [] {
+        ::nam::activations::Activation::enable_fast_tanh();
+        return true;
+    }();
+    (void)enabled;
+}
 } // namespace
 
 std::unique_ptr<::nam::DSP> GetModel(const std::filesystem::path& path)
 {
+    EnableFastTanhOnce();
+
     std::uintmax_t fileSize = 0;
     std::int64_t writeTime = 0;
 
