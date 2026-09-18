@@ -73,9 +73,9 @@ Pinned revision:
 `63bdfc9db16cb45da8f1dcb3af4c572286753dde`
 
 Modified: Soundshed Guitar builds `dsp/ResamplingContainer/ResamplingContainer.h`
-with local fixes to how `Reset()` pre-rolls the resampler and to how its filters
-detect invalid samples, applied by `core/cmake/GuitarfxAudioDSPTools.cmake` and
-marked in the generated source.
+with local fixes to how `Reset()` pre-rolls and clears the resampler and to how
+its filters detect and recover from invalid samples, applied by
+`core/cmake/GuitarfxAudioDSPTools.cmake` and marked in the generated source.
 
 MIT License
 

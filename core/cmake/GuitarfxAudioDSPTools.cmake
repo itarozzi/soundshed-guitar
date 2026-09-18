@@ -140,6 +140,81 @@ function(guitarfx_prepare_audio_dsp_tools source_dir out_include_dir)
             "core/cmake/GuitarfxAudioDSPTools.cmake does not cover; replace it with guitarfx::IsFinite.")
     endif()
 
+    # An integer power-of-two ratio with minimum phase -- the default, e.g. a 48 kHz model at
+    # 48 kHz with 2x -- takes the realtime IIR half-band path, whose all-pass branches had no
+    # guard at all: one NaN block from the model or the input latched NaN in their state in every
+    # build, Debug included. With the host above the model's rate the output guard zeroed each
+    # sample instead, so the amp went silent for good. The guards work like the biquad stages' --
+    # a non-finite or huge sample restarts that stage's filters from silence -- with one test per
+    # sample on each stage's low-rate side: the interpolator tests its input, the only way a NaN
+    # can get into its stable all-pass state, and the decimator tests its output, which a NaN in
+    # either branch reaches. Regression test: the half-band cases in
+    # TestNamResamplerRecoversFromNaN, which every build fails without these.
+    _guitarfx_replace_once(_content "half-band-interpolator-guard"
+[=[
+        const float x = static_cast<float>(input[chan][n]);
+        const float even = ProcessIIRHalfBandInterpBranchA(stage, chan, x);]=]
+[=[
+        const double sample = static_cast<double>(input[chan][n]);
+        float x = static_cast<float>(sample);
+
+        // Soundshed fix (core/cmake/GuitarfxAudioDSPTools.cmake): the all-pass branches had no
+        // guard, so a non-finite input stayed in their state for good.
+        if (!guitarfx::IsFinite(sample) || std::abs(sample) > 1.0e12)
+        {
+          for (int resetSection = 0; resetSection < kIIRHalfBandSections; resetSection++)
+          {
+            mIIRInterpAState[IIRStateIndex(stage, chan, resetSection)] = {};
+            mIIRInterpBState[IIRStateIndex(stage, chan, resetSection)] = {};
+          }
+          x = 0.0f;
+        }
+
+        const float even = ProcessIIRHalfBandInterpBranchA(stage, chan, x);]=])
+
+    _guitarfx_replace_once(_content "half-band-decimator-guard"
+[=[
+        T y = static_cast<T>(0.5f * (even + odd));
+]=]
+[=[
+        T y = static_cast<T>(0.5f * (even + odd));
+
+        // Soundshed fix (core/cmake/GuitarfxAudioDSPTools.cmake): the all-pass branches had no
+        // guard, so a non-finite sample from the model stayed in their state for good.
+        if (!guitarfx::IsFinite(static_cast<double>(y)) || std::abs(static_cast<double>(y)) > 1.0e12)
+        {
+          for (int resetSection = 0; resetSection < kIIRHalfBandSections; resetSection++)
+          {
+            mIIRPolyDecimEvenState[IIRStateIndex(stage, chan, resetSection)] = {};
+            mIIRPolyDecimOddState[IIRStateIndex(stage, chan, resetSection)] = {};
+          }
+          y = T(0.0);
+        }
+]=])
+
+    # The guards sit in the only two functions that run the branches (each of the four branch
+    # functions is defined once and called once), so a pin bump that runs one from anywhere else
+    # would bring an unguarded path back without a word.
+    string(REGEX MATCHALL "ProcessIIRHalfBand[A-Za-z]+\\(" _branch_uses "${_content}")
+    list(LENGTH _branch_uses _branch_use_count)
+    if(NOT _branch_use_count EQUAL 8)
+        message(FATAL_ERROR
+            "AudioDSPTools: ResamplingContainer.h runs its IIR half-band all-pass branches from a "
+            "place the non-finite guards in core/cmake/GuitarfxAudioDSPTools.cmake do not cover "
+            "(expected 8 uses of ProcessIIRHalfBand*(, found ${_branch_use_count}); guard it too.")
+    endif()
+
+    # ClearBuffers(), which a Reset() with unchanged settings calls instead of rebuilding the
+    # filters, left out the fractional path's minimum-phase anti-alias filter state, so the reset
+    # played out the tail of the audio before it. Regression test:
+    # core/tests/NamResamplerResetTests.cpp.
+    _guitarfx_replace_once(_content "clear-minimum-phase-anti-alias-state"
+        "    std::fill(mMinPhaseOutputStrictIIRState.begin(), mMinPhaseOutputStrictIIRState.end(), BiquadState {});"
+[=[
+    std::fill(mMinPhaseOutputStrictIIRState.begin(), mMinPhaseOutputStrictIIRState.end(), BiquadState {});
+    // Soundshed fix (core/cmake/GuitarfxAudioDSPTools.cmake): this filter's state was not cleared.
+    std::fill(mMinimumPhaseState.begin(), mMinimumPhaseState.end(), BiquadState {});]=])
+
     # Written through a temporary so the header's timestamp only moves when its content does.
     file(WRITE "${_to}/ResamplingContainer.h.new" "${_content}")
     file(COPY_FILE "${_to}/ResamplingContainer.h.new" "${_to}/ResamplingContainer.h" ONLY_IF_DIFFERENT)

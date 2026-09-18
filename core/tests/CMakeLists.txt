@@ -33,6 +33,7 @@ set(TEST_SOURCES
     NamCalibrationProbe.cpp
     NamModelCacheTests.cpp
     NamQualityPolicyTests.cpp
+    NamResamplerResetTests.cpp
     NAMPerformanceBenchmark.cpp
     PluginPathUtilsTests.cpp
     PresetDSPLoadingTests.cpp

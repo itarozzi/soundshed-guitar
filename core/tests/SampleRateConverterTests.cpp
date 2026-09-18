@@ -587,12 +587,16 @@ std::vector<NAM_SAMPLE> RenderWithNaNBlock(double hostRate, double modelRate, in
 }
 
 /// The resampler's minimum-phase IIR stages reset themselves when a sample goes non-finite, so
-/// a NaN block from the model (or the input) costs a click, not the rest of the session. The
-/// guards used std::isfinite, which -ffast-math -- every non-MSVC Release build, Android's
-/// included -- folds to true, so there the NaN latched in the filter state and every later
-/// block came out NaN. The fix is in core/cmake/GuitarfxAudioDSPTools.cmake. Only a clang
-/// Release build (core/build-clangcl) can fail this; Debug and MSVC's /fp:fast keep
-/// std::isfinite.
+/// a NaN block from the model (or the input) costs a click, not the rest of the session. Two
+/// bugs, both fixed in core/cmake/GuitarfxAudioDSPTools.cmake:
+///  - The fractional-ratio stages' guards used std::isfinite, which -ffast-math -- every
+///    non-MSVC Release build, Android's included -- folds to true, so there the NaN latched in
+///    the filter state and every later block came out NaN. Only a clang Release build
+///    (core/build-clangcl) fails those cases; Debug and MSVC's /fp:fast keep std::isfinite.
+///  - The half-band all-pass stages that an integer power-of-two ratio uses (the default: a
+///    48 kHz model at 48 kHz, 2x) had no guard at all, so every build fails those cases.
+///    With the host above the model's rate, the output guard zeroed each NaN sample instead,
+///    so the amp went silent for good.
 bool TestNamResamplerRecoversFromNaN()
 {
     struct Case
@@ -608,6 +612,13 @@ bool TestNamResamplerRecoversFromNaN()
         {"44.1 kHz model at 48 kHz, oversampling off, NaN from the model", 48000.0, 44100.0, 1, true},
         {"44.1 kHz model at 48 kHz, 2x, NaN from the model", 48000.0, 44100.0, 2, true},
         {"44.1 kHz model at 48 kHz, oversampling off, NaN at the input", 48000.0, 44100.0, 1, false},
+        {"48 kHz model at 48 kHz, 2x, NaN from the model", 48000.0, 48000.0, 2, true},
+        {"48 kHz model at 48 kHz, 2x, NaN at the input", 48000.0, 48000.0, 2, false},
+        // Two half-band stages each way, so the NaN also meets a stage that feeds another.
+        {"48 kHz model at 48 kHz, 4x, NaN from the model", 48000.0, 48000.0, 4, true},
+        {"48 kHz model at 48 kHz, 4x, NaN at the input", 48000.0, 48000.0, 4, false},
+        {"48 kHz model at 96 kHz, 2x, NaN from the model", 96000.0, 48000.0, 2, true},
+        {"48 kHz model at 96 kHz, 2x, NaN at the input", 96000.0, 48000.0, 2, false},
     };
     constexpr int kNaNBlock = 8;
     constexpr int kTotalBlocks = 48;
