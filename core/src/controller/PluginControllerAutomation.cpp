@@ -321,7 +321,8 @@ void PluginController::SetMidiLogEnabled(bool enabled)
 void PluginController::ApplySetlistPresetByIndex(int index)
 {
     // Never with mDSPMutex held: the preset load takes it. Automation, which applies under it,
-    // parks its setlist steps for OnIdle instead (see the registry wiring in Initialize).
+    // parks its setlist steps for the message thread instead (see the registry wiring in
+    // Initialize, and DrainControlSurfaceRequests).
     //
     // The host's own program change can come from any thread: AU sets a factory preset, and LV2
     // restores a program preset, on whatever thread the host used. A preset load belongs to the
@@ -450,7 +451,8 @@ void PluginController::SelectSceneByIndex(int index)
     // Same threading contract as ApplySetlistPresetByIndex: reachable from the
     // audio thread via automation/MIDI apply (already holding mDSPMutex) or from
     // the UI thread. SelectSceneByIndexDirect ends up in ApplyPreset, which takes
-    // mDSPMutex itself, so defer to OnIdle when the lock is already held.
+    // mDSPMutex itself, so park it for the message thread when the lock is already held
+    // (see DrainControlSurfaceRequests).
     if (mDSPMutex.try_lock())
     {
         mDSPMutex.unlock();

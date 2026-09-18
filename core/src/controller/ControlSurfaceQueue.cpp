@@ -43,24 +43,28 @@ void ControlSurfaceQueue::RequestSetlistPreset(int index)
 {
     std::lock_guard<std::mutex> lock(mPendingMutex);
     mPending.setlistPresetIndex = index;
+    mHasPending.store(true, std::memory_order_release);
 }
 
 void ControlSurfaceQueue::AddSetlistBankDelta(int delta)
 {
     std::lock_guard<std::mutex> lock(mPendingMutex);
     mPending.setlistBankDelta = mPending.setlistBankDelta.value_or(0) + delta;
+    mHasPending.store(true, std::memory_order_release);
 }
 
 void ControlSurfaceQueue::RequestSetlistBankSelect(int bankNumber)
 {
     std::lock_guard<std::mutex> lock(mPendingMutex);
     mPending.setlistBankSelect = bankNumber;
+    mHasPending.store(true, std::memory_order_release);
 }
 
 void ControlSurfaceQueue::RequestScene(int index)
 {
     std::lock_guard<std::mutex> lock(mPendingMutex);
     mPending.sceneIndex = index;
+    mHasPending.store(true, std::memory_order_release);
 }
 
 ControlSurfaceQueue::PendingRequests ControlSurfaceQueue::TakePending()
@@ -68,6 +72,7 @@ ControlSurfaceQueue::PendingRequests ControlSurfaceQueue::TakePending()
     std::lock_guard<std::mutex> lock(mPendingMutex);
     PendingRequests taken = mPending;
     mPending = {};
+    mHasPending.store(false, std::memory_order_release);
     return taken;
 }
 

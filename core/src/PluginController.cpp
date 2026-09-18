@@ -151,7 +151,8 @@ void PluginController::Initialize()
     mAutomationSlots.SetMixer(&mPresetMixer);
     mAutomationSlots.SetEffectRegistry(&EffectRegistry::Instance());
     // A setlist step from automation arrives under mDSPMutex (MIDI on the audio thread, a DAW
-    // parameter, the UI), and loading its preset takes that lock, so it is parked for OnIdle.
+    // parameter, the UI), and loading its preset takes that lock, so it is parked for the message
+    // thread (see DrainControlSurfaceRequests).
     mAutomationSlots.InitializeRegistry(
         mPresetMixer, [this]() { return static_cast<double>(mSetlistCursorIndex.load(std::memory_order_relaxed)); },
         [this](int idx) { mControlSurface->RequestSetlistPreset(idx); }, [this](int steps) { SetlistBankUp(steps); },
@@ -533,31 +534,7 @@ void PluginController::OnIdle()
 
     mControlSurface->PublishMidiLog();
 
-    // Apply whatever the control surface parked for us. These all load presets,
-    // which needs the DSP lock the audio thread was holding when it asked.
-    {
-        const auto pending = mControlSurface->TakePending();
-
-        if (pending.setlistPresetIndex.has_value())
-        {
-            ApplySetlistPresetByIndexDirect(*pending.setlistPresetIndex);
-        }
-
-        if (pending.setlistBankDelta.has_value())
-        {
-            SetlistBankChangeDirect(*pending.setlistBankDelta);
-        }
-
-        if (pending.setlistBankSelect.has_value())
-        {
-            SelectSetlistBankDirect(*pending.setlistBankSelect);
-        }
-
-        if (pending.sceneIndex.has_value())
-        {
-            SelectSceneByIndexDirect(*pending.sceneIndex);
-        }
-    }
+    DrainControlSurfaceRequests();
 
     mSignalTest->OnIdle();
 
@@ -581,6 +558,43 @@ void PluginController::OnIdle()
             mPracticeToolUpdateCounter = 0;
             mPracticeTool->OnIdle();
         }
+    }
+}
+
+void PluginController::DrainControlSurfaceRequests()
+{
+    // Polled off the plugin's own timer, so the common case, nothing parked, costs an atomic load.
+    if (!mControlSurface->HasPending())
+    {
+        return;
+    }
+
+    // Anything the host queued earlier goes first, a restore especially: it would replace the
+    // preset a parked step or scene switch is about to change.
+    mHostStateRelay->ApplyQueued();
+
+    // These all load presets or rewrite the setlist, which needs the DSP lock the audio thread
+    // was holding when it asked.
+    const auto pending = mControlSurface->TakePending();
+
+    if (pending.setlistPresetIndex.has_value())
+    {
+        ApplySetlistPresetByIndexDirect(*pending.setlistPresetIndex);
+    }
+
+    if (pending.setlistBankDelta.has_value())
+    {
+        SetlistBankChangeDirect(*pending.setlistBankDelta);
+    }
+
+    if (pending.setlistBankSelect.has_value())
+    {
+        SelectSetlistBankDirect(*pending.setlistBankSelect);
+    }
+
+    if (pending.sceneIndex.has_value())
+    {
+        SelectSceneByIndexDirect(*pending.sceneIndex);
     }
 }
 

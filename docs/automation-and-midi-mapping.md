@@ -381,6 +381,7 @@ Apply is deferred to the audio thread's `ProcessAudio` prologue under `mDSPMutex
 - DAW and MIDI writes within a block: last writer wins per slot per block (matches JUCE host behavior).
 - Keyboard writes arrive as UI messages (same path as UI knob drags); a UI/keyboard write that conflicts with the most recent DAW/MIDI write within the last ~50 ms is dropped (UI is optimistic; the host wins if it just touched the slot — matches the existing "engine value is authoritative" rule in `docs/user-interface.md`).
 - The applied value is broadcast back to the UI via the periodic `BroadcastState` so UI knobs reflect DAW/MIDI activity.
+- Setlist steps, bank changes and scene switches cannot be applied there. They load a preset or rewrite `setlists.json`, and a preset load takes `mDSPMutex`. So they are parked in `ControlSurfaceQueue`, which keeps only the newest request of each kind but adds up bank steps. `PluginController::DrainControlSurfaceRequests` then applies them on the message thread, after any restore or program change the host queued earlier (`HostStateRelay::ApplyQueued`). The editor's idle tick calls it, and so does a 30 Hz timer on the JUCE adapter, so a footswitch still changes preset or scene when the editor is closed. `ControlSurfaceDrainTests` covers this.
 
 ## 7. Persistence & Migration
 

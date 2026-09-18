@@ -7,9 +7,11 @@
 // MIDI arrives in the audio callback, and a MIDI-mapped setlist or scene
 // change means loading a preset — which takes the DSP lock the audio thread is
 // already holding. Doing it inline would deadlock, so every such request is
-// parked here and drained by OnIdle instead. Only the newest request of each
-// kind survives: a footswitch held down produces one preset load, not a
-// hundred queued ones.
+// parked here and drained on the message thread instead: by OnIdle while an
+// editor drives it, and by PluginController::DrainControlSurfaceRequests(),
+// which the plugin runs off a timer of its own, when none does. Only the
+// newest request of each kind survives: a footswitch held down produces one
+// preset load, not a hundred queued ones.
 //
 // Realtime rules for the audio-thread side. EnqueueMidi() never allocates:
 // both vectors are reserved up front and capped, and events past the cap are
@@ -58,6 +60,14 @@ class ControlSurfaceQueue
     /// Message thread: takes everything parked, clearing it.
     [[nodiscard]] PendingRequests TakePending();
 
+    /// Any thread: whether anything is parked, without taking the lock, so a timer polling
+    /// for requests costs nothing while there are none. May briefly lag a request made on
+    /// another thread; the next poll sees it.
+    [[nodiscard]] bool HasPending() const
+    {
+        return mHasPending.load(std::memory_order_acquire);
+    }
+
     // ── MIDI ────────────────────────────────────────────────────────
 
     /// Audio thread: queues an event for application, and for the UI log when
@@ -98,6 +108,8 @@ class ControlSurfaceQueue
 
     std::mutex mPendingMutex;
     PendingRequests mPending;
+    /// Mirrors whether mPending holds anything. Written under mPendingMutex.
+    std::atomic<bool> mHasPending{false};
 
     /// Audio thread only — no mutex, and none needed.
     std::vector<MidiEvent> mMidiToApply;

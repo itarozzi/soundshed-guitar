@@ -161,5 +161,11 @@ private:
     std::size_t mClapSysExArenaUsed = 0;
    #endif
 
+    // Applies the setlist steps, bank changes and scene switches that MIDI and DAW automation
+    // park for the message thread. The editor's idle loop does too, but it only runs while the
+    // editor is open. Last, so it is stopped before anything its callback uses is destroyed.
+    static constexpr int kControlSurfaceDrainHz = 30;
+    juce::TimedCallback mControlSurfaceDrain { [this] { mController.DrainControlSurfaceRequests(); } };
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PluginProcessorAdapter)
 };

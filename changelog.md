@@ -66,6 +66,7 @@
 * Keyboard shortcuts mapped to automation slots now work whether or not the MIDI & Automation panel is open. Previously they only fired while that panel was visible, which made them unusable in practice.
 * The spacebar is never captured by keyboard mappings and always passes through to the host, so DAW transport keeps working while the plugin window has focus.
 * Added MIDI/automation slots for direct scene selection (Scene 1–4), so a footswitch can jump straight to a scene. Works with the plugin window closed.
+* Fixed setlist presets, bank changes and scene switches from a MIDI footswitch or DAW automation doing nothing in a plugin whose window was closed. They were held until the window was next opened, and now take effect straight away.
 * Existing DAW automation lanes no longer rebind to a different parameter after upgrading — the plugin's parameter layout is now append-only, so adding the new scene slots leaves earlier custom slots where they were.
 * The plugin now declares that it accepts MIDI input, so hosts offer MIDI routing to it (credit: diego).
 * MIDI channels are now consistently displayed as 1–16 (or "any") throughout the UI.

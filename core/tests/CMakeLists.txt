@@ -9,6 +9,7 @@ set(TEST_SOURCES
     AutomationSlotThreadTests.cpp
     BiquadNyquistTests.cpp
     BoundaryNodeGainTests.cpp
+    ControlSurfaceDrainTests.cpp
     ControllerDisplayFeedTests.cpp
     CustomEffectLibraryTests.cpp
     DefaultPresetIntegrityTests.cpp

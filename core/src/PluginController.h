@@ -125,6 +125,12 @@ class PluginController
     /// Called periodically from the host's idle/timer callback.
     void OnIdle();
 
+    /// Message thread: applies the setlist steps, bank changes and scene switches that MIDI and
+    /// DAW automation parked (see ControlSurfaceQueue), after anything the host queued before
+    /// them. OnIdle does this too, but only an open editor drives OnIdle, so the plugin also
+    /// calls this off a timer of its own. Returns at once when nothing is parked.
+    void DrainControlSurfaceRequests();
+
     /// Called when the WebView content has finished loading.
     void OnWebContentLoaded();
 
@@ -262,14 +268,16 @@ class PluginController
     /// Any thread, never with mDSPMutex held: the host's program change and the UI's. From a
     /// host's own thread (an AU factory preset, an LV2 program preset) it is handed to the
     /// message thread and waited for, as a restore is (see DeserializeState), and stays queued
-    /// if that does not start in time. Automation's setlist steps are parked for OnIdle instead.
+    /// if that does not start in time. Automation's setlist steps are parked for the message
+    /// thread instead (see DrainControlSurfaceRequests).
     void ApplySetlistPresetByIndex(int index);
     void SetlistBankUp(int steps);
     void SetlistBankDown(int steps);
     void SelectSetlistBank(int bankNumber);
     /// Select a scene of the active preset by 0-based index. Safe to call from the
-    /// audio thread (defers to OnIdle when the DSP lock is already held). Handled
-    /// entirely controller-side so MIDI scene changes work with the editor closed.
+    /// audio thread: when the DSP lock is already held it is parked for the message
+    /// thread, which applies it whether or not the editor is open (see
+    /// DrainControlSurfaceRequests).
     void SelectSceneByIndex(int index);
     /// 0-based index of the active preset's current scene, or -1 when unavailable.
     [[nodiscard]] int GetActiveSceneIndex() const;
