@@ -3,12 +3,113 @@
 #include "IPluginHost.h"
 
 #include <condition_variable>
+#include <cstdint>
+#include <deque>
 #include <exception>
 #include <optional>
+#include <thread>
 #include <utility>
 
 namespace guitarfx
 {
+/// Changes waiting for the message thread, in the order they were asked for. Changes run in
+/// that order, so one ticket number says how far the message thread has got.
+struct HostStateRelay::ChangeQueue
+{
+    struct Entry
+    {
+        std::uint64_t ticket = 0;
+        ChangeFn change;
+        AfterChangeFn after;
+        bool callerGaveUp = false;
+    };
+
+    std::mutex mutex;
+    std::condition_variable progressed;
+    std::deque<Entry> queued;
+    std::uint64_t lastQueued = 0;
+    std::uint64_t lastStarted = 0;
+    std::uint64_t lastFinished = 0;
+    std::thread::id applyingOn{}; ///< the thread inside Apply(); none when idle
+    bool shutDown = false;
+
+    /// Runs what is queued, oldest first, until nothing is left. Only the message thread runs
+    /// anything; called anywhere else, it leaves the queue for the message thread.
+    void Apply(IPluginHost& host)
+    {
+        {
+            const std::lock_guard<std::mutex> lock(mutex);
+
+            // Already inside Apply() (a change that reaches something which applies the queue):
+            // the outer call gets to whatever is queued behind it.
+            if (shutDown || applyingOn != std::thread::id{} || queued.empty())
+            {
+                return;
+            }
+
+            // Shutdown() cannot get past this lock, so the host is still alive here. A host that
+            // ran the task somewhere else has not moved it to the message thread.
+            if (!host.IsMessageThread())
+            {
+                return;
+            }
+
+            // From here Shutdown() waits for applyingOn to clear, so the host and whatever the
+            // changes capture stay alive until then.
+            applyingOn = std::this_thread::get_id();
+        }
+
+        for (;;)
+        {
+            Entry entry;
+            {
+                const std::lock_guard<std::mutex> lock(mutex);
+
+                if (shutDown || queued.empty())
+                {
+                    applyingOn = std::thread::id{};
+                    progressed.notify_all();
+                    return;
+                }
+
+                entry = std::move(queued.front());
+                queued.pop_front();
+                lastStarted = entry.ticket;
+            }
+
+            progressed.notify_all();
+
+            // Anything at all: nothing may escape into the host's message loop, and applyingOn
+            // has to clear or Shutdown() waits for ever.
+            try
+            {
+                entry.change();
+            }
+            catch (...)
+            {
+            }
+
+            {
+                const std::lock_guard<std::mutex> lock(mutex);
+                lastFinished = entry.ticket;
+            }
+
+            progressed.notify_all();
+
+            if (entry.after)
+            {
+                try
+                {
+                    entry.after(!entry.callerGaveUp);
+                }
+                catch (...)
+                {
+                }
+            }
+        }
+    }
+};
+
 namespace
 {
 /// One request from another thread, shared by the caller and the message thread's task so
@@ -32,8 +133,14 @@ struct Request
 
 HostStateRelay::HostStateRelay(IPluginHost& host, std::chrono::milliseconds offThreadWait,
                                std::chrono::milliseconds refreshInterval)
-    : mHost(host), mOffThreadWait(offThreadWait), mRefreshInterval(refreshInterval)
+    : mHost(host), mOffThreadWait(offThreadWait), mRefreshInterval(refreshInterval),
+      mChanges(std::make_shared<ChangeQueue>())
 {
+}
+
+HostStateRelay::~HostStateRelay()
+{
+    Shutdown();
 }
 
 std::string HostStateRelay::BuildOnMessageThread(BuildFn build) const
@@ -106,15 +213,19 @@ std::string HostStateRelay::BuildOnMessageThread(BuildFn build) const
 
 void HostStateRelay::Remember(std::string state)
 {
+    SetRemembered(std::move(state));
+    mStale.store(false, std::memory_order_release);
+    mRememberedAt = std::chrono::steady_clock::now();
+}
+
+void HostStateRelay::SetRemembered(std::string state)
+{
     auto remembered = std::make_shared<const std::string>(std::move(state));
     {
         const std::lock_guard<std::mutex> lock(mRememberedMutex);
         mRemembered.swap(remembered);
     }
     // The blob it replaced is freed here, outside the lock.
-
-    mStale.store(false, std::memory_order_release);
-    mRememberedAt = std::chrono::steady_clock::now();
 }
 
 std::string HostStateRelay::Remembered() const
@@ -144,5 +255,80 @@ bool HostStateRelay::TakeRefreshDue(std::chrono::steady_clock::time_point now)
     // retried on the next change rather than on every idle tick.
     mStale.store(false, std::memory_order_release);
     return true;
+}
+
+bool HostStateRelay::ApplyOnMessageThread(ChangeFn change, AfterChangeFn after, std::optional<std::string> pendingState)
+{
+    const auto queue = mChanges;
+    std::uint64_t ticket = 0;
+    {
+        const std::lock_guard<std::mutex> lock(queue->mutex);
+
+        if (queue->shutDown)
+        {
+            return false;
+        }
+
+        ticket = ++queue->lastQueued;
+        queue->queued.push_back({ticket, std::move(change), std::move(after), false});
+
+        // Under the queue's lock, so that of two restores queued at once from different
+        // threads, the one remembered is the one that will be applied last.
+        if (pendingState.has_value())
+        {
+            SetRemembered(std::move(*pendingState));
+        }
+    }
+
+    // The task holds the queue, not the relay, and touches the host only once Apply() has
+    // seen that Shutdown() has not been called.
+    mHost.RunOnMainThread([queue, &host = mHost] { queue->Apply(host); });
+
+    std::unique_lock<std::mutex> lock(queue->mutex);
+    const auto startedOrClosed = [&queue, ticket] { return queue->lastStarted >= ticket || queue->shutDown; };
+
+    if (!queue->progressed.wait_for(lock, mOffThreadWait, startedOrClosed) || queue->lastStarted < ticket)
+    {
+        // Left queued, or dropped by Shutdown(). Either way the caller goes, and the change is
+        // told so when it does run, so that it can let the host know then.
+        for (auto& entry : queue->queued)
+        {
+            if (entry.ticket == ticket)
+            {
+                entry.callerGaveUp = true;
+                break;
+            }
+        }
+
+        return false;
+    }
+
+    // Started: the message thread is working on it rather than blocked. It must not call into
+    // the host before `after`, when this thread has been let go (see the declaration).
+    queue->progressed.wait(lock, [&queue, ticket] { return queue->lastFinished >= ticket; });
+    return true;
+}
+
+void HostStateRelay::ApplyQueued()
+{
+    mChanges->Apply(mHost);
+}
+
+void HostStateRelay::Shutdown()
+{
+    std::deque<ChangeQueue::Entry> dropped;
+    {
+        std::unique_lock<std::mutex> lock(mChanges->mutex);
+        mChanges->shutDown = true;
+        dropped.swap(mChanges->queued);
+        mChanges->progressed.notify_all();
+
+        // A change running on another thread is using what the owner is about to tear down.
+        // One running on this thread is the caller's own concern.
+        mChanges->progressed.wait(lock, [this] {
+            return mChanges->applyingOn == std::thread::id{} || mChanges->applyingOn == std::this_thread::get_id();
+        });
+    }
+    // The dropped changes' captures are released here, outside the lock.
 }
 } // namespace guitarfx

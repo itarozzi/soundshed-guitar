@@ -11,6 +11,7 @@
 
 #include "controller/ControlSurfaceQueue.h"
 #include "controller/ControllerDisplayFeed.h"
+#include "controller/HostStateRelay.h"
 
 #include "controller/internal/HostedPluginSupport.h"
 #include "controller/internal/SettingsKeys.h"
@@ -298,25 +299,22 @@ void PluginController::SetMidiLogEnabled(bool enabled)
 
 void PluginController::ApplySetlistPresetByIndex(int index)
 {
-    // This method may be called from the audio thread (via automation/MIDI apply,
-    // already holding mDSPMutex) or from the UI thread (not holding the lock).
-    // ApplyActivePresetById needs to acquire mDSPMutex, so when we're already
-    // holding it we must defer the actual preset swap to OnIdle.
+    // Never with mDSPMutex held: the preset load takes it. Automation, which applies under it,
+    // parks its setlist steps for OnIdle instead (see the registry wiring in Initialize).
     //
-    // We detect this by trying to lock mDSPMutex non-blocking. If it fails,
-    // we're on the audio thread (or another locked context) and must defer.
+    // The host's own program change can come from any thread: AU sets a factory preset, and LV2
+    // restores a program preset, on whatever thread the host used. A preset load belongs to the
+    // message thread as much as a restore does, so it is handed over the same way.
+    if (!mHost.IsMessageThread())
+    {
+        (void)RunHostChangeOnMessageThread([this, index] { ApplySetlistPresetByIndexDirect(index); }, false,
+                                           std::nullopt);
+        return;
+    }
 
-    if (mDSPMutex.try_lock())
-    {
-        // We got the lock — not currently held, safe to proceed directly.
-        mDSPMutex.unlock();
-        ApplySetlistPresetByIndexDirect(index);
-    }
-    else
-    {
-        // Lock is held (audio thread under DSP lock) — defer to OnIdle.
-        mControlSurface->RequestSetlistPreset(index);
-    }
+    // After anything the host queued earlier, a restore especially, which would replace it.
+    mHostStateRelay->ApplyQueued();
+    ApplySetlistPresetByIndexDirect(index);
 }
 
 void PluginController::ApplySetlistPresetByIndexDirect(int index)

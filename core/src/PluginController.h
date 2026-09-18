@@ -109,9 +109,14 @@ class PluginController
     // ── State serialization (for DAW save/restore) ─────────────────
     /// Safe on any thread. The blob is only ever built on the message thread; a call from
     /// anywhere else is handed to it, and answered with the last blob built there if it
-    /// cannot start in time (see HostStateRelay).
+    /// cannot start in time (see HostStateRelay). On the message thread, a restore or program
+    /// change still queued from another thread is applied first.
     [[nodiscard]] std::string SerializeState() const;
-    void DeserializeState(const std::string& json);
+    /// Safe on any thread. The restore only ever runs on the message thread; a call from
+    /// anywhere else is handed to it and waited for. Returns false when the message thread did
+    /// not start on it in time: the restore then stays queued, saves are answered with `json`
+    /// until it lands, and the host hears IPluginHost::NotifyDeferredStateRestored() once it has.
+    bool DeserializeState(const std::string& json);
 
     // ── UI message handling ────────────────────────────────────────
     /// Handle an incoming JSON message from the WebView UI.
@@ -254,6 +259,10 @@ class PluginController
     /// into `out` and returns its length, or 0 when there is none. Never blocks or allocates;
     /// the adapter adds it to the block's MIDI output. See ControllerDisplayFeed.
     [[nodiscard]] std::size_t TakeControllerDisplaySysEx(std::span<std::uint8_t> out);
+    /// Any thread, never with mDSPMutex held: the host's program change and the UI's. From a
+    /// host's own thread (an AU factory preset, an LV2 program preset) it is handed to the
+    /// message thread and waited for, as a restore is (see DeserializeState), and stays queued
+    /// if that does not start in time. Automation's setlist steps are parked for OnIdle instead.
     void ApplySetlistPresetByIndex(int index);
     void SetlistBankUp(int steps);
     void SetlistBankDown(int steps);
@@ -268,10 +277,10 @@ class PluginController
     [[nodiscard]] int GetSetlistBankBase() const;
     [[nodiscard]] int GetSetlistBankNumber() const;
 
-    /// Index of the currently selected setlist slot (DAW "program").
+    /// Index of the currently selected setlist slot (DAW "program"). Any thread.
     [[nodiscard]] int GetSetlistCursorIndex() const
     {
-        return mSetlistCursorIndex;
+        return mSetlistCursorIndex.load(std::memory_order_relaxed);
     }
 
     /// Preset ID at the given active-setlist slot, or empty if out of range.
@@ -523,9 +532,30 @@ class PluginController
                                                     int resourceIndex = -1);
     /// Reads the chain's latency under mDSPMutex and tells the host after releasing it, so
     /// never call this with the lock held. A host can answer a latency change by asking for
-    /// state straight away (SerializeState), which takes the lock again.
+    /// state straight away (SerializeState), which takes the lock again. Held back while host
+    /// calls are held (see RunHostChangeOnMessageThread).
     void UpdateHostLatency();
     int mLastReportedLatency = -1; ///< Guards against redundant host latency notifications. mDSPMutex.
+    /**
+     * Runs `change` on the message thread for a host call made on another thread, through
+     * HostStateRelay::ApplyOnMessageThread, and returns whether it ran before this returned.
+     *
+     * The host thread waits while it runs and may hold a lock the host takes to hear from the
+     * plugin, so the message thread must not call into the host meanwhile: calls made during
+     * `change` (latency, state changed) are held and made once that thread has been let go.
+     * A restore (`isRestore`) that ran after its caller gave up also reports itself to the host
+     * then, through IPluginHost::NotifyDeferredStateRestored().
+     */
+    bool RunHostChangeOnMessageThread(std::function<void()> change, bool isRestore,
+                                      std::optional<std::string> pendingState);
+    /// Message thread: makes the host calls held back during a relayed change.
+    void ReleaseHeldHostCalls();
+    /// Message thread only. See RunHostChangeOnMessageThread.
+    bool mHostCallsHeld = false;
+    bool mHeldLatencyReport = false;
+    bool mHeldStateChange = false;
+    /// The restore itself, on the message thread. See DeserializeState.
+    void RestoreHostState(const std::string& json);
     /**
      * Tell the host that the state it would save has changed (marks the DAW project dirty).
      *
@@ -1006,7 +1036,8 @@ class PluginController
 
     // Automation
     AutomationSlotTable mAutomationSlots;
-    int mSetlistCursorIndex = 0;
+    /// Written on the message thread; a host reads it as its current program on any thread.
+    std::atomic<int> mSetlistCursorIndex{0};
     int mSetlistBankSize = 8;
 
     // Async resource folder browsing.

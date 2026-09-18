@@ -63,6 +63,10 @@ PluginController::PluginController(IPluginHost& host) : mHost(host)
 
 PluginController::~PluginController()
 {
+    // Before anything else goes: a restore or program change the host stopped waiting for can
+    // still be queued for the message thread, or running there.
+    mHostStateRelay->Shutdown();
+
     // Release retired hosted processors while their callbacks' controller services still exist.
     mPresetMixer.CollectRetiredMainThread();
 
@@ -146,9 +150,11 @@ void PluginController::Initialize()
     // Initialize automation system
     mAutomationSlots.SetMixer(&mPresetMixer);
     mAutomationSlots.SetEffectRegistry(&EffectRegistry::Instance());
+    // A setlist step from automation arrives under mDSPMutex (MIDI on the audio thread, a DAW
+    // parameter, the UI), and loading its preset takes that lock, so it is parked for OnIdle.
     mAutomationSlots.InitializeRegistry(
-        mPresetMixer, [this]() { return static_cast<double>(mSetlistCursorIndex); },
-        [this](int idx) { ApplySetlistPresetByIndex(idx); }, [this](int steps) { SetlistBankUp(steps); },
+        mPresetMixer, [this]() { return static_cast<double>(mSetlistCursorIndex.load(std::memory_order_relaxed)); },
+        [this](int idx) { mControlSurface->RequestSetlistPreset(idx); }, [this](int steps) { SetlistBankUp(steps); },
         [this](int steps) { SetlistBankDown(steps); }, [this]() { return GetSetlistLength(); },
         [this]() { return GetSetlistBankBase(); }, [this](int bankNumber) { SelectSetlistBank(bankNumber); },
         [this]() { return GetSetlistBankNumber(); }, [this](int index) { SelectSceneByIndex(index); },
@@ -393,6 +399,11 @@ void PluginController::HandleUIMessage(const std::string& jsonMessage)
 
 void PluginController::OnIdle()
 {
+    // A restore or program change from a host thread normally arrives as a task of its own.
+    // Applied here as well, ahead of everything below, so the idle refresh cannot replace the
+    // pending restore's blob with the working copy it is about to overwrite.
+    mHostStateRelay->ApplyQueued();
+
     mPresetMixer.CollectRetiredMainThread();
     PollSharedSyncState();
 
@@ -686,6 +697,13 @@ void PluginController::HandleGetAppInfoRequest()
 
 void PluginController::UpdateHostLatency()
 {
+    // A host thread is waiting on this change and may hold what the host needs to hear it.
+    if (mHost.IsMessageThread() && mHostCallsHeld)
+    {
+        mHeldLatencyReport = true;
+        return;
+    }
+
     int latency = 0;
     {
         std::lock_guard<std::mutex> lock(mDSPMutex);

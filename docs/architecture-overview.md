@@ -79,6 +79,12 @@ Web-based SPA in a native WebView container.
   it only on the message thread, which owns the working copy and keeps hosted plugins alive,
   and hands a request from elsewhere over to it; if the message thread cannot start within a
   second, the answer is the last state built there (`controller/HostStateRelay.h`).
+- Host → restore: `DeserializeState`, and a host's program change (`ApplySetlistPresetByIndex`),
+  are handed to the message thread the same way and waited for. One it cannot start within a
+  second stays queued and is applied in the order the host asked; saves answer with the state
+  being restored until then, and the host hears `NotifyDeferredStateRestored()` once it lands.
+  While a host thread waits, the controller holds back its own calls into the host (latency,
+  state changed) until that thread has been let go, since it may hold a lock the host needs.
 
 ## Performance Targets
 

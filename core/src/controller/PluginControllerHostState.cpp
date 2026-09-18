@@ -14,7 +14,8 @@
  *
  * SerializeState answers on any thread, but builds only on the message thread,
  * which owns nearly everything the blob is made of; HostStateRelay hands it
- * requests from elsewhere.
+ * requests from elsewhere. DeserializeState, which replaces most of it, goes the
+ * same way, and so does a host's program change (ApplySetlistPresetByIndex).
  */
 
 #include "PluginController.h"
@@ -93,7 +94,48 @@ void PluginController::NotifyHostStateChanged()
         return;
     }
 
+    if (mHost.IsMessageThread() && mHostCallsHeld)
+    {
+        mHeldStateChange = true;
+        return;
+    }
+
     mHost.NotifyStateChanged();
+}
+
+bool PluginController::RunHostChangeOnMessageThread(std::function<void()> change, bool isRestore,
+                                                    std::optional<std::string> pendingState)
+{
+    return mHostStateRelay->ApplyOnMessageThread(
+        [this, change = std::move(change)] {
+            mHostCallsHeld = true;
+            change();
+        },
+        [this, isRestore](bool callerWaited) {
+            ReleaseHeldHostCalls();
+
+            // A caller that was still waiting tells the host itself when it returns.
+            if (isRestore && !callerWaited)
+            {
+                mHost.NotifyDeferredStateRestored();
+            }
+        },
+        std::move(pendingState));
+}
+
+void PluginController::ReleaseHeldHostCalls()
+{
+    mHostCallsHeld = false;
+
+    if (std::exchange(mHeldLatencyReport, false))
+    {
+        UpdateHostLatency();
+    }
+
+    if (std::exchange(mHeldStateChange, false))
+    {
+        NotifyHostStateChanged();
+    }
 }
 
 std::string PluginController::SerializeState() const
@@ -107,6 +149,10 @@ std::string PluginController::SerializeState() const
     {
         return mHostStateRelay->BuildOnMessageThread([this] { return SerializeState(); });
     }
+
+    // A restore the host made from another thread before asking for this is part of the
+    // answer, even when the message thread has not got to it yet.
+    mHostStateRelay->ApplyQueued();
 
     auto state = BuildHostState(HostedPluginStateSource::Live);
     mHostStateRelay->Remember(state);
@@ -233,7 +279,36 @@ std::string PluginController::BuildHostState(HostedPluginStateSource source) con
     return state.dump();
 }
 
-void PluginController::DeserializeState(const std::string& json)
+bool PluginController::DeserializeState(const std::string& json)
+{
+    // The mirror of SerializeState. A restore replaces what the message thread owns (the working
+    // copy, settings, automation, the mixer's slots) and loads presets and plugins, which belong
+    // to it too, so a call from any other thread is handed to it. JUCE's AU, AAX and LV2
+    // wrappers restore on whatever thread the host used.
+    //
+    // Unlike a save there is nothing to answer with instead, so a restore the message thread
+    // does not start in time is left queued rather than dropped; it may be busy on the host's
+    // behalf, or blocked on this very thread. Until it lands, a save is answered with the state
+    // being restored, which is what the host will expect to get back.
+    if (!mHost.IsMessageThread())
+    {
+        std::optional<std::string> pendingState;
+
+        if (!mHost.IsStandalone() && nlohmann::json::parse(json, nullptr, false).is_object())
+        {
+            pendingState = json;
+        }
+
+        return RunHostChangeOnMessageThread([this, json] { RestoreHostState(json); }, true, std::move(pendingState));
+    }
+
+    // One the host made earlier from another thread goes first, or it would land on top of this.
+    mHostStateRelay->ApplyQueued();
+    RestoreHostState(json);
+    return true;
+}
+
+void PluginController::RestoreHostState(const std::string& json)
 {
     if (mHost.IsStandalone())
     {
@@ -538,9 +613,6 @@ void PluginController::DeserializeState(const std::string& json)
     // The project just restored is the answer for a host that asks from another thread before
     // anything changes, whether or not an editor is open to drive the idle refresh. Taken from
     // the working copy: hosted plugins may not have applied their restored state yet.
-    if (mHost.IsMessageThread())
-    {
-        RememberHostStateFromWorkingCopy();
-    }
+    RememberHostStateFromWorkingCopy();
 }
 } // namespace guitarfx

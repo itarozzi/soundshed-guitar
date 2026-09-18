@@ -527,6 +527,10 @@ bool PluginProcessorAdapter::producesMidi() const { return true; } // must match
 bool PluginProcessorAdapter::isMidiEffect() const { return false; }
 double PluginProcessorAdapter::getTailLengthSeconds() const { return 0.0; }
 
+// The program calls come on whatever thread the host uses: AU's factory presets, LV2's program
+// presets. The getters read the setlist from the document store, which locks itself, and the
+// cursor, which is atomic. setCurrentProgram loads a preset, so the controller hands it to the
+// message thread (see PluginController::ApplySetlistPresetByIndex).
 int PluginProcessorAdapter::getNumPrograms()
 {
     return std::max(1, mController.GetSetlistLength());
@@ -571,8 +575,24 @@ void PluginProcessorAdapter::setStateInformation (const void* data, int sizeInBy
     if (controllerState.empty())
         return;
 
-    mController.DeserializeState (controllerState);
+    // Any thread: the controller restores on the message thread and hands calls from elsewhere
+    // over to it (see PluginController::DeserializeState). If the message thread could not get
+    // to it in time, nothing has changed yet, and the host hears about it once it has instead
+    // (NotifyDeferredStateRestored).
+    if (mController.DeserializeState (controllerState))
+        notifyHostOfRestoredState();
+}
 
+void PluginProcessorAdapter::NotifyDeferredStateRestored()
+{
+    // VST3 misses out here. Its host re-read every parameter in setComponentState, which came
+    // too early, and the program change below does not reach it (see notifyHostOfRestoredState).
+    // Only a host breaking VST3's rule that state is set on the UI thread can land here.
+    notifyHostOfRestoredState();
+}
+
+void PluginProcessorAdapter::notifyHostOfRestoredState()
+{
     // The automation parameters' values are part of that state, so a restore changes what
     // they report, and the host has to be asked to read them again. JUCE turns a program
     // change into CLAP's values rescan; values that change on load without it are a bug to a

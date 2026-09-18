@@ -19,6 +19,7 @@ set(TEST_SOURCES
     DemoPreviewLoopTests.cpp
     HostedPluginCaptureLockTests.cpp
     HostedPluginStateWorkflowTests.cpp
+    HostRestoreThreadTests.cpp
     HostStateThreadTests.cpp
     IRConvolutionTests.cpp
     IRReverbQualityTests.cpp

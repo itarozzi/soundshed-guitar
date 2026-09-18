@@ -111,6 +111,7 @@ public:
     [[nodiscard]] int GetBlockSize() const override;
     void OpenAudioPreferences() override;
     void NotifyStateChanged() override;
+    void NotifyDeferredStateRestored() override;
     void NotifyLatencyChanged (int latencySamples) override;
     [[nodiscard]] double GetHostTempo() const override;
     [[nodiscard]] bool IsHostPlaying() const override;
@@ -128,6 +129,9 @@ private:
     [[nodiscard]] std::filesystem::path locateAssetsRoot() const;
     void ensureStandaloneProtocolHandlerRegistration();
     void applyPendingDAWParamChanges();
+    /// After a restore has been applied: tells the host that the parameters it reads back
+    /// may have changed.
+    void notifyHostOfRestoredState();
 
     // ── State ──────────────────────────────────────────────────────
     guitarfx::PluginController mController;

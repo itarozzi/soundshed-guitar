@@ -101,6 +101,13 @@ class IPluginHost
     {
     }
 
+    /// Message thread. A restore that PluginController::DeserializeState() returned from
+    /// before applying it has now been applied. Tell the host whatever it would have been told
+    /// when that call returned, such as that parameter values have changed.
+    virtual void NotifyDeferredStateRestored()
+    {
+    }
+
     /// Notify the host that algorithmic latency has changed (e.g. after loading an IR).
     /// Implementations should call the host's latency-reporting API (e.g. setLatencySamples).
     virtual void NotifyLatencyChanged(int /*latencySamples*/)
