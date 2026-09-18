@@ -381,6 +381,7 @@ class PluginController
     void HandleBrowseModelRequest();
     void HandleBrowseIRRequest();
     void HandleOpenAudioPreferencesRequest();
+    void HandleAudioDeviceRequest(const nlohmann::json& payload);
     void HandleTunerRequest(const nlohmann::json& payload);
     void HandleSetInputModeRequest(const nlohmann::json& payload);
     void HandleSetAmpCabStateRequest(const nlohmann::json& payload);

@@ -8,6 +8,7 @@
  */
 
 import { Features, isFeatureEnabled } from "./featureFlags.js";
+import { onAudioDeviceLevels, onAudioDeviceState } from "./messages/audioDeviceHandlers.js";
 import { onDemoAudioRenderFailed, onDemoAudioRenderSaved, onMetronomeBeat, onMetronomeState, onPracticeToolFileLoaded, onPracticeToolPlaybackEnded, onPracticeToolTransportState, onPreviewComplete, onPreviewStarted, onPreviewStopped, onRiffCaptureCanceled, onRiffCaptureProgress, onRiffCaptureStarted, onRiffCaptureStopped, onRiffSaved } from "./messages/captureHandlers.js";
 import { onAutomation, onMidiLearnCapture, onMidiLog } from "./messages/controlSurfaceHandlers.js";
 import { DEBUG_SNAPSHOT_SKIP_TYPES, onCaptureDebugSnapshot, onDebug, onDebugSnapshotWritten, scheduleUiDebugSnapshot } from "./messages/debugSnapshot.js";
@@ -82,6 +83,8 @@ const MESSAGE_HANDLERS: Record<string, MessageHandler> = {
   "presetArchiveSessionFailed": onPresetArchiveSessionFailed,
   "presetList": onPresetList,
   "appInfo": onAppInfo,
+  "audioDeviceState": onAudioDeviceState,
+  "audioDeviceLevels": onAudioDeviceLevels,
   "sharedSyncUpdated": onSharedSyncUpdated,
   "sharedSyncState": onSharedSyncState,
   "presetData": onPresetData,
@@ -144,7 +147,7 @@ export function handleIncomingMessage(message: string): void {
   const payload = JSON.parse(message) as Record<string, unknown>;
   const type = typeof payload.type === "string" ? payload.type : "";
   // Frequent diagnostics messages; avoid spamming console.
-  if (type !== "dspPerformance" && type !== "sld" && type !== "sldA" && type !== "sldS" && type !== "sldRoster" && type !== "spatialPosition") {
+  if (type !== "dspPerformance" && type !== "sld" && type !== "sldA" && type !== "sldS" && type !== "sldRoster" && type !== "spatialPosition" && type !== "audioDeviceLevels") {
     console.log("[JS] handleIncomingMessage received:", message.substring(0, 200));
     console.log("[JS] Parsed message type:", type);
   }

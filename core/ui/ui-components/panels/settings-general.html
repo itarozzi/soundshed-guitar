@@ -3,15 +3,79 @@
             <h2>Audio</h2>
             <div class="settings-section">
               <h3>Audio Device</h3>
-              <div class="settings-row settings-row-two" id="open-audio-preferences-row">
-                <label for="open-audio-preferences">Preferences</label>
-                <button id="open-audio-preferences" type="button">Open Audio Preferences</button>
+              <!-- Standalone only: filled in by ts/settings/audioDevice.ts from the engine's
+                   audioDeviceState snapshots. In a DAW the host owns the devices. -->
+              <div class="audio-device-settings" id="audio-device-settings" hidden>
+                <div class="audio-device-alert" id="audio-device-alert" role="alert" hidden>
+                  <span class="audio-device-alert-text" id="audio-device-alert-text"></span>
+                  <button type="button" class="secondary" id="audio-device-alert-action" hidden></button>
+                </div>
+                <div class="settings-row settings-row-two" id="audio-device-type-row">
+                  <label for="audio-device-type">Audio Driver</label>
+                  <select id="audio-device-type"></select>
+                </div>
+                <div class="settings-row settings-row-two" id="audio-device-input-row">
+                  <label for="audio-device-input">Input Device</label>
+                  <select id="audio-device-input"></select>
+                </div>
+                <div class="settings-row" id="audio-device-output-row">
+                  <label for="audio-device-output" id="audio-device-output-label">Output Device</label>
+                  <select id="audio-device-output"></select>
+                  <button type="button" class="secondary" id="audio-device-test">Test</button>
+                </div>
+                <div class="settings-row" id="audio-device-input-channels-row">
+                  <label for="audio-device-input-channels">Input Channels</label>
+                  <select id="audio-device-input-channels"></select>
+                  <div class="audio-device-meter" id="audio-device-input-meter" role="meter" aria-label="Input level" aria-valuemin="-60" aria-valuemax="0" aria-valuenow="-60">
+                    <div class="audio-device-meter-fill" id="audio-device-input-meter-fill"></div>
+                  </div>
+                </div>
+                <div class="settings-row settings-row-two" id="audio-device-output-channels-row">
+                  <label for="audio-device-output-channels">Output Channels</label>
+                  <select id="audio-device-output-channels"></select>
+                </div>
+                <div class="settings-row settings-row-two" id="audio-device-sample-rate-row">
+                  <label for="audio-device-sample-rate">Sample Rate</label>
+                  <select id="audio-device-sample-rate"></select>
+                </div>
+                <div class="settings-hint" id="audio-device-sample-rate-hint" hidden></div>
+                <div class="settings-row settings-row-two" id="audio-device-buffer-size-row">
+                  <label for="audio-device-buffer-size">Buffer Size</label>
+                  <select id="audio-device-buffer-size"></select>
+                </div>
+                <div class="settings-hint" id="audio-device-buffer-size-hint" hidden></div>
+                <div class="settings-hint" id="audio-device-latency"></div>
+                <div class="settings-row" id="audio-device-mute-row">
+                  <label for="audio-device-mute-input">Mute Input</label>
+                  <label class="toggle-switch">
+                    <input type="checkbox" id="audio-device-mute-input" />
+                    <span class="toggle-slider"></span>
+                  </label>
+                </div>
+                <div class="settings-hint" id="audio-device-mute-hint"></div>
+                <div class="settings-row settings-row-two" id="audio-device-driver-row">
+                  <label>Driver</label>
+                  <div class="audio-device-buttons">
+                    <button type="button" class="secondary" id="audio-device-control-panel">Control Panel</button>
+                    <button type="button" class="secondary" id="audio-device-reset">Reset Device</button>
+                  </div>
+                </div>
               </div>
-              <div class="settings-hint" id="open-audio-preferences-hint">Opens the native audio/MIDI device settings dialog for the standalone app.</div>
               <div class="settings-row">
                 <label for="run-signal-test">Signal Path Test</label>
                 <button id="run-signal-test" type="button">Run Signal Path Test</button>
               </div>
+            </div>
+
+            <div class="settings-section" id="midi-device-settings" hidden>
+              <h3>MIDI Devices</h3>
+              <div class="audio-device-midi-inputs" id="audio-device-midi-inputs"></div>
+              <div class="settings-hint" id="audio-device-midi-inputs-hint">Enabled inputs drive MIDI learn, automation and setlist switching.</div>
+              <div class="settings-row settings-row-two" id="audio-device-midi-output-row">
+                <label for="audio-device-midi-output">MIDI Output</label>
+                <select id="audio-device-midi-output"></select>
+              </div>
+              <div class="settings-hint" id="audio-device-midi-output-hint">Where the preset name goes for a controller's display.</div>
             </div>
 
             <div class="settings-section">

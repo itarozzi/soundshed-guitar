@@ -6,10 +6,10 @@
  * panel up once, and re-reading every control from the current app settings.
  */
 
-import { postMessage, setAppSetting } from "./bridge.js";
-import { appendLog } from "./logging.js";
+import { setAppSetting } from "./bridge.js";
 import { initDensitySelect, initThemeSelect, initZoomControls } from "./settings/appearance.js";
-import { apiKeyInput, clearButton, dspNominalLevelInput, dspOutputLimiterToggle, dspProtectionCeilingInput, factoryArchiveLoadingToggle, namAntiAliasPhaseSelect, namAutoInputCalibrationToggle, namInterfaceCalibrationLevelInput, namOversamplingSelect, namSlimmableSizeInput, openAudioPreferencesButton, openAudioPreferencesHint, openAudioPreferencesRow, presetSwitchTailSelect, saveButton, themeSelect, tone3000UseSoundshedApiToggle, updateCheckToggle } from "./settings/dom.js";
+import { initAudioDeviceSettings, syncAudioDeviceSettingsAvailability } from "./settings/audioDevice.js";
+import { apiKeyInput, clearButton, dspNominalLevelInput, dspOutputLimiterToggle, dspProtectionCeilingInput, factoryArchiveLoadingToggle, namAntiAliasPhaseSelect, namAutoInputCalibrationToggle, namInterfaceCalibrationLevelInput, namOversamplingSelect, namSlimmableSizeInput, presetSwitchTailSelect, saveButton, themeSelect, tone3000UseSoundshedApiToggle, updateCheckToggle } from "./settings/dom.js";
 import { initDiagnosticsToggle, initDspLevelTargetControls, initFactoryArchiveLoadingToggle, initPresetSwitchControls, initUpdateCheckToggle } from "./settings/dspSettings.js";
 import { initFeatureToggles, refreshFeatureToggleStates, syncFeatureVisibility } from "./settings/features.js";
 import { initUserInputCalibrationControls, refreshUserInputCalibrationView } from "./settings/inputCalibration.js";
@@ -44,10 +44,7 @@ export function initSettingsPanel(): void {
   settingsInitialized = true;
   saveButton?.addEventListener("click", () => void saveApiKey());
   clearButton?.addEventListener("click", () => void clearApiKey());
-  openAudioPreferencesButton?.addEventListener("click", () => {
-    postMessage({ type: "openAudioPreferences" });
-    appendLog("openAudioPreferences → requested");
-  });
+  initAudioDeviceSettings();
   initDiagnosticsToggle();
   initUserInputCalibrationControls();
   initFeatureToggles();
@@ -175,9 +172,7 @@ export function refreshSettingsView(): void {
   } else {
     updateTone3000ProxyHealthStatus("API health: disabled in direct mode.");
   }
-  const showAudioPreferences = Boolean(uiState.environment?.standalone);
-  openAudioPreferencesRow?.toggleAttribute("hidden", !showAudioPreferences);
-  openAudioPreferencesHint?.toggleAttribute("hidden", !showAudioPreferences);
+  syncAudioDeviceSettingsAvailability(Boolean(uiState.environment?.audioDeviceSettings));
   syncFeatureVisibility();
   updateSignalDiagnosticsView();
   updateCurrentVersionDisplay();

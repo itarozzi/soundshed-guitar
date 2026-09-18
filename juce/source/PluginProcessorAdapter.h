@@ -110,6 +110,8 @@ public:
     [[nodiscard]] double GetSampleRate() const override;
     [[nodiscard]] int GetBlockSize() const override;
     void OpenAudioPreferences() override;
+    [[nodiscard]] bool SupportsAudioDeviceSettings() const override;
+    void HandleAudioDeviceRequest (const std::string& requestJson) override;
     void NotifyStateChanged() override;
     void NotifyDeferredStateRestored() override;
     void NotifyLatencyChanged (int latencySamples) override;
@@ -121,6 +123,13 @@ public:
     void setWebMessageCallback (std::function<void (const juce::String&)> callback);
     void handleWebMessage (const juce::String& message);
     void sendMessageToUI (const juce::String& message);
+
+    // ── Standalone audio device settings ───────────────────────────
+    /// Where "audioDevice" requests go. The standalone app's window installs this once the
+    /// device manager exists and clears it before that goes away; plugin formats never do.
+    /// Message thread only, like the requests.
+    using AudioDeviceRequestHandler = std::function<void (const std::string& requestJson)>;
+    void setAudioDeviceRequestHandler (AudioDeviceRequestHandler handler);
 
     // ── Accessors ──────────────────────────────────────────────────
     [[nodiscard]] guitarfx::PluginController& getController() { return mController; }
@@ -138,6 +147,8 @@ private:
 
     std::function<void (const juce::String&)> mWebMessageCallback;
     std::mutex mWebMessageMutex;
+
+    AudioDeviceRequestHandler mAudioDeviceRequestHandler;
 
     std::filesystem::path mAssetRoot;
     std::unique_ptr<juce::FileChooser> mFileChooser;

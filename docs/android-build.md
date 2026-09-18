@@ -425,13 +425,14 @@ instead, 192 frames, and hands the value to the device two ways.
 As the holder's *preferred setup*, the default applies to any open that has no
 saved setup to restore. That includes the first run, where JUCE defers the open
 until the microphone permission is granted — long after the main window has
-been constructed. A saved setup wins over the default from then on; the audio
-settings dialog writes one, and so does a clean exit, so a size chosen in the
-dialog sticks across launches.
+been constructed. A saved setup wins over the default from then on; Settings →
+Audio Device writes one as soon as anything changes there, so a size chosen in
+the app sticks across launches even when Android kills it rather than letting
+it exit.
 
 The property is different: while it is set it is enforced whenever a device is
 open, saved setup or not, which is what makes tuning without a rebuild
-possible. Clear it to hand control back to the dialog:
+possible. Clear it to hand control back to the settings:
 
 ```bash
 adb shell setprop debug.soundshed.audio.buffer 384
@@ -447,6 +448,34 @@ frames-per-callback, so AAudio delivers one hardware burst per callback
 whatever is requested, and raising the value only adds jitter margin. And two
 bursts is Oboe's own recommendation for a low-latency stream — one playing,
 one being filled — so treat anything smaller as an experiment.
+
+### Audio settings
+
+JUCE's Audio/MIDI Settings dialog is a window JUCE draws itself, and on Android
+it cannot share the screen with the WebView the whole UI lives in. The app has
+its own controls instead, in Settings → Audio Device and MIDI Devices
+(`juce/source/StandaloneAudioSettings.cpp`; the protocol is in
+[user-interface.md](user-interface.md#audio-device)). Three things there matter
+on a phone in particular:
+
+- **Input mute.** JUCE's holder starts every mobile launch with the input muted
+  (its "Feedback Loop: Mute audio input" guard), and only saves the choice on
+  desktop, so without these settings the amp heard nothing until the dialog was
+  found. Now a device pair is muted only if it looks like a built-in microphone
+  playing into a built-in speaker (Oboe names them "… built-in microphone" and
+  "… built-in speaker"), and a mute set by hand is remembered for that pair.
+- **Record permission.** If it is refused the holder opens the device with no
+  input at all. The settings show an alert that asks again, and reopen the input
+  once it is granted, including when it is granted from the system settings
+  while the app keeps running. After two refusals Android stops asking, and only
+  the system settings can grant it.
+- **Saved at once.** JUCE writes the device setup on a clean exit; these
+  settings write it on every change.
+
+**Known limitation.** JUCE's Oboe driver reads the list of audio devices once,
+when the app starts (`OboeAudioIODeviceType::scanForDevices` is empty). A USB
+interface plugged in later is not listed until the app is restarted, so connect
+it before launching.
 
 ### Parallel DSP is off
 

@@ -1,5 +1,6 @@
 #include "PluginProcessorAdapter.h"
 #include "PluginEditor.h"
+#include "StandaloneAudioSettings.h"
 #include <juce_audio_devices/juce_audio_devices.h>
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_audio_utils/juce_audio_utils.h>
@@ -85,12 +86,12 @@ namespace
 // default applies to any open that has no saved setup to restore, which
 // includes the first run: there the open waits for the microphone permission
 // and happens long after MainWindow has been constructed. A saved setup wins
-// over the default from then on. The audio settings dialog writes one, and so
-// does a clean exit, so a size chosen in the dialog sticks across launches.
+// over the default from then on. Settings > Audio Device writes one as soon as
+// anything changes there, so a size chosen in the app sticks across launches.
 //
 // The property is different: while it is set it is enforced whenever a device
 // is open, saved setup or not, which is what makes tuning without a rebuild
-// possible. Clear it to hand control back to the dialog.
+// possible. Clear it to hand control back to the settings.
 //
 //     adb shell setprop debug.soundshed.audio.buffer 384
 //     adb shell am force-stop com.soundshed.guitar   (then relaunch)
@@ -125,7 +126,7 @@ namespace
     {
         // Only the property is enforced. Without it the device keeps whatever
         // it opened with: the default from the preferred setup, or a saved
-        // setup, which is how a size chosen in the audio settings dialog is
+        // setup, which is how a size chosen in Settings > Audio Device is
         // left alone rather than snapped back on the next change message.
         const auto requested = readRequestedBufferFrames();
 
@@ -208,6 +209,20 @@ public:
 
         mPluginHolder->startPlaying();
 
+        // The audio and MIDI device controls in the Settings panel. They stand in for
+        // JUCE's own dialog, which on Android cannot share the screen with the WebView.
+        if (auto* adapter = getAdapter())
+        {
+            mAudioSettings = std::make_unique<StandaloneAudioSettings> (*mPluginHolder, [adapter] (const juce::String& json) {
+                adapter->SendMessageToUI (json.toStdString());
+            });
+
+            adapter->setAudioDeviceRequestHandler ([this] (const std::string& requestJson) {
+                if (mAudioSettings != nullptr)
+                    mAudioSettings->handleRequest (requestJson);
+            });
+        }
+
 #if JUCE_ANDROID
         // The tuning override hangs off the device manager's change
         // notifications so it covers every open: the one the holder's
@@ -240,6 +255,11 @@ public:
 
     ~MainWindow() override
     {
+        if (auto* adapter = getAdapter())
+            adapter->setAudioDeviceRequestHandler (nullptr);
+
+        mAudioSettings = nullptr;
+
 #if JUCE_ANDROID
         if (mPluginHolder != nullptr)
             mPluginHolder->deviceManager.removeChangeListener (this);
@@ -299,10 +319,15 @@ private:
         bool maximized = false;
     };
 
+    PluginProcessorAdapter* getAdapter() const
+    {
+        return dynamic_cast<PluginProcessorAdapter*> (
+            mPluginHolder != nullptr ? mPluginHolder->processor.get() : nullptr);
+    }
+
     juce::File getWindowStateFile() const
     {
-        auto* adapter = dynamic_cast<PluginProcessorAdapter*> (
-            mPluginHolder != nullptr ? mPluginHolder->processor.get() : nullptr);
+        auto* adapter = getAdapter();
         if (adapter == nullptr)
             return {};
 
@@ -363,6 +388,9 @@ private:
     }
 
     std::unique_ptr<juce::StandalonePluginHolder> mPluginHolder;
+
+    // After the holder, so it goes first: it listens to the holder's device manager.
+    std::unique_ptr<StandaloneAudioSettings> mAudioSettings;
 
     juce::Rectangle<int> mLastNonMaximizedBounds { 0, 0, 1200, 900 };
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainWindow)

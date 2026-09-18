@@ -99,6 +99,8 @@ The UI is a web-based single-page application (SPA) hosted in a native WebView. 
 | `practiceToolFileLoaded` | `{path, title, durationSec, waveformPeaks}` | Practice Tool: backing-track file decoded and ready |
 | `practiceToolTransportState` | `{state, positionSec}` | Practice Tool: playback state/position, pushed periodically while loaded |
 | `practiceToolPlaybackEnded` | `{}` | Practice Tool: playback reached the end of the file (non-looping) |
+| `audioDeviceState` | `{available, error, state}` | Standalone: the whole audio/MIDI device setup, sent after every `audioDevice` request and every device manager change. `error` is the failed request's reason, else `""`. `available: false` (and no `state`) means a plugin format, where the host owns the devices. See [Audio Device](#audio-device) |
+| `audioDeviceLevels` | `{input, xruns}` | Standalone: raw device input level in dB (floor −100) and the driver's dropout count (−1 if it cannot count), at 15 Hz while a `watchLevels` lease is held |
 
 ### UI → Engine Messages
 
@@ -153,7 +155,8 @@ The UI is a web-based single-page application (SPA) hosted in a native WebView. 
 | `getGlobalChain` | `{}` | Request global chain state |
 | `getEffectCatalog` | `{}` | Request effect catalog |
 | `getPresetList` | `{}` | Request preset list from disk |
-| `openAudioPreferences` | `{}` | Open audio device settings |
+| `openAudioPreferences` | `{}` | Standalone: open JUCE's native Audio/MIDI Settings dialog. Kept for compatibility; the Settings panel uses `audioDevice` instead |
+| `audioDevice` | `{action, ...}` | Standalone: one audio/MIDI device request, answered with `audioDeviceState`. Actions: `getState {rescan?}`, `setDeviceType {deviceType}`, `setDevice {kind: "input"\|"output"\|"linked", name}` (`""` is no device), `setInputChannels {group}` / `setOutputChannels {group}` (group index, `-1` for none), `setSampleRate {sampleRate}`, `setBufferSize {bufferSize}`, `setInputMuted {muted}`, `playTestTone`, `showControlPanel`, `resetDevice`, `requestInputPermission`, `setMidiInputEnabled {identifier, enabled}`, `setMidiOutput {identifier}` (`""` is none), `watchLevels {enabled}` (a lease that lapses 5 s after the last renewal, so the UI renews it every 2 s while the controls are on screen) |
 | `browsePracticeToolFile` | `{}` | Practice Tool: open native file browser for a backing track |
 | `loadPracticeToolFile` | `{path}` | Practice Tool: load a backing track by native path |
 | `loadPracticeToolFileData` | `{fileName, data}` | Practice Tool: load a backing track from base64 bytes — used for a drag-and-drop, where WebView2 never exposes the real file path |
@@ -289,6 +292,44 @@ treated as a one-scene preset automatically.
 | **Settings** | Audio preferences, storage, theme |
 
 ## Settings → Audio
+
+### Audio Device
+
+The standalone app's audio and MIDI device controls (`core/ui/ts/settings/audioDevice.ts`,
+engine side `juce/source/StandaloneAudioSettings.cpp`). They replace JUCE's Audio/MIDI
+Settings dialog: that is a window JUCE draws itself, which on Android cannot share the screen
+with the WebView, and which elsewhere looks nothing like the app. The approach follows the
+tone3000 plugin's `StandaloneAudioSettings`: the engine owns every device decision and sends
+the whole setup back as one snapshot, and the UI keeps no device state of its own.
+
+The section shows only when `environment.audioDeviceSettings` is true (the standalone app).
+In a DAW the host owns the devices.
+
+**Same semantics as JUCE's dialog**, so a setup made in one reads back unchanged in the other:
+driver type; input and output device, or one "Device" for drivers such as ASIO that open both
+sides together; the active channels, picked in groups as wide as the plugin's main bus (stereo
+pairs), at most one group per side; sample rate and buffer size from the device's own lists
+(the shown value is what the device runs at); the driver's control panel, a device reset and
+the test tone; MIDI inputs and the MIDI output; and the holder's feedback-loop input mute.
+A list the device offers only one entry for is shown disabled, with a line saying who sets it
+(an ASIO driver's buffer size, Windows shared mode's sample rate).
+
+**What it does that the dialog did not:**
+- *Input mute, remembered per device pair.* JUCE keeps the mute only on desktop and starts a
+  phone muted on every launch. Here a pair seen for the first time is muted only if it looks
+  like a built-in microphone playing into speakers (device names containing "microphone" and
+  "speaker", on every platform); a mute set by hand sticks for that pair. On the first run
+  with this in place, a desktop keeps the mute its JUCE dialog last saved.
+- *Saves straight away.* JUCE writes the device setup on a clean exit, which a phone rarely
+  gives an app; every change here is written to the settings file at once.
+- *Android record permission.* If it was refused, an alert offers to ask again, and the input
+  side is reopened once it is granted — including when it is granted from the system settings
+  while the app keeps running.
+- *Latency and dropouts.* The driver's reported input and output latency, and its dropout
+  count while the section is on screen.
+
+Errors from a request appear in an alert at the top of the section, with a Reset Device
+button, and stay until the next request.
 
 ### User Input Calibration
 

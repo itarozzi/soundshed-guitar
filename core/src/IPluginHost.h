@@ -96,6 +96,20 @@ class IPluginHost
     {
     }
 
+    /// True where HandleAudioDeviceRequest() does something: the standalone app, whose
+    /// Settings panel then shows its own audio and MIDI device controls.
+    [[nodiscard]] virtual bool SupportsAudioDeviceSettings() const
+    {
+        return false;
+    }
+
+    /// One request from those controls: the JSON text of an "audioDevice" message, whose
+    /// "action" says what to do. The host answers with an "audioDeviceState" message.
+    /// Message thread. See docs/user-interface.md for the actions.
+    virtual void HandleAudioDeviceRequest(const std::string& /*requestJson*/)
+    {
+    }
+
     /// Notify host that plugin state has changed (marks DAW project dirty).
     virtual void NotifyStateChanged()
     {

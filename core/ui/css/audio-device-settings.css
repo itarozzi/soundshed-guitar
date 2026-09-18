@@ -1,0 +1,118 @@
+/* ── Settings > Audio Device and MIDI Devices ─────────────────────────────────
+ *
+ * The standalone app's own device controls (ts/settings/audioDevice.ts). The rows
+ * are ordinary .settings-row grids; this file adds the alert, the input meter, the
+ * MIDI input list and the Test button's playing state.
+ */
+
+/* Nothing to show until the engine's first snapshot arrives, bar the alert saying so. */
+.audio-device-settings[data-state="loading"] > :not(.audio-device-alert) {
+  display: none;
+}
+
+.audio-device-alert {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 8px 10px;
+  margin-bottom: 10px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-error);
+  background: var(--bg-tertiary);
+  font-size: 12px;
+  color: var(--text-primary);
+}
+
+.audio-device-alert-text {
+  flex: 1 1 200px;
+}
+
+.audio-device-alert button {
+  padding: 6px 12px;
+  border-radius: var(--radius-md);
+  border: none;
+  background: var(--color-primary);
+  color: #fff;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.audio-device-meter {
+  position: relative;
+  width: 96px;
+  height: 8px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--bg-input);
+  border: 1px solid var(--border-medium);
+}
+
+.audio-device-meter-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--color-success);
+  transition: width 60ms linear;
+}
+
+.audio-device-meter-fill.is-hot {
+  background: var(--color-accent);
+}
+
+.audio-device-meter-fill.is-clipping {
+  background: var(--color-error);
+}
+
+.settings-hint.is-warning {
+  color: var(--color-error);
+}
+
+.audio-device-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.audio-device-settings select:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+
+#audio-device-test.is-playing {
+  color: var(--color-success);
+}
+
+#audio-device-test:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* Device names are long, so a MIDI input gets the whole row, not the 120px label column. */
+.audio-device-midi-input {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: var(--text-primary);
+}
+
+.audio-device-midi-input label:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Touch screens: the compact layout stacks each label over its control, which leaves
+   the meter and the Test button on a line of their own. Keep them beside their select. */
+html[data-density="compact"] #audio-device-input-channels-row,
+html[data-density="compact"] #audio-device-output-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+html[data-density="compact"] #audio-device-input-channels-row > label,
+html[data-density="compact"] #audio-device-output-row > label {
+  grid-column: 1 / -1;
+}

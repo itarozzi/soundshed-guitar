@@ -562,6 +562,8 @@ export interface SignalPeakHold {
 
 export interface EnvironmentState {
   standalone: boolean;
+  /** The engine drives the audio devices itself: Settings shows its own device controls. */
+  audioDeviceSettings?: boolean;
   version?: string;
   os?: string;
   cpu?: string;

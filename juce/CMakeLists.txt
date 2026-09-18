@@ -389,6 +389,8 @@ set(SourceFiles
     "${CMAKE_CURRENT_SOURCE_DIR}/source/PluginEditor.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/source/PluginProcessorAdapter.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/source/PluginProcessorAdapter.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/source/StandaloneAudioSettings.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/source/StandaloneAudioSettings.cpp"
 )
 target_sources(SharedCode INTERFACE ${SourceFiles})
 

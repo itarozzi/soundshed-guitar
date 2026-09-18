@@ -114,6 +114,11 @@ export function sendSpectrumWatch(source: EqSpectrumSource | null): void {
     : { type: "setSpectrumWatch" });
 }
 
+/** One request to the standalone app's audio device settings (see settings/audioDevice.ts). */
+export function sendAudioDeviceRequest(action: string, args: Record<string, unknown> = {}): void {
+  postMessage({ type: "audioDevice", action, ...args });
+}
+
 /** The Multi-Rig's own level in dB, applied to the preset mix ahead of the global output stage. */
 export function setMixGainDb(gainDb: number): void {
   postMessage({ type: "setMixGain", gainDb });

@@ -468,7 +468,7 @@ Real-time performance and signal monitoring.
 
 Application configuration panel.
 
-- **Audio device preferences**: Open native audio device settings dialog (`openAudioPreferences` message).
+- **Audio device** (standalone): driver, devices, channels, sample rate, buffer size, input mute, test tone, driver control panel, MIDI inputs and output, drawn in the app's own UI rather than JUCE's native dialog (`audioDevice` message; see [user-interface.md](user-interface.md#audio-device)).
 - **Resource folders**: Configure search paths for NAM models and IR files.
 - **User input calibration**: Named calibration profiles apply one fixed gain before the chain to match a guitar/interface setup.
 - **Advanced DSP level targets**: Shared nominal operating level and output protection ceiling are configurable and apply immediately at runtime.

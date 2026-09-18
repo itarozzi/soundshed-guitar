@@ -216,6 +216,12 @@ bool MessageDispatcher::DispatchLibraryAndComposite(PluginController& c, const n
         return true;
     }
 
+    if (type == "audioDevice")
+    {
+        c.HandleAudioDeviceRequest(msg);
+        return true;
+    }
+
     if (type == "saveRiffTake")
     {
         c.HandleSaveRiffTakeRequest(msg);

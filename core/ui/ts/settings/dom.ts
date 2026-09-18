@@ -12,12 +12,6 @@ export const saveButton = document.getElementById("tone3000-api-key-save");
 
 export const clearButton = document.getElementById("tone3000-api-key-clear");
 
-export const openAudioPreferencesButton = document.getElementById("open-audio-preferences");
-
-export const openAudioPreferencesRow = document.getElementById("open-audio-preferences-row");
-
-export const openAudioPreferencesHint = document.getElementById("open-audio-preferences-hint");
-
 export const userInputCalibrationToolbarTrigger = document.getElementById("user-input-calibration-toolbar-trigger") as HTMLButtonElement | null;
 
 export const userInputCalibrationToolbarMenu = document.getElementById("user-input-calibration-toolbar-menu") as HTMLDivElement | null;

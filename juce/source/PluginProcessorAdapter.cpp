@@ -983,6 +983,28 @@ void PluginProcessorAdapter::OpenAudioPreferences()
     });
 }
 
+bool PluginProcessorAdapter::SupportsAudioDeviceSettings() const
+{
+    return mAudioDeviceRequestHandler != nullptr;
+}
+
+void PluginProcessorAdapter::HandleAudioDeviceRequest (const std::string& requestJson)
+{
+    if (mAudioDeviceRequestHandler)
+    {
+        mAudioDeviceRequestHandler (requestJson);
+        return;
+    }
+
+    // A plugin format: the host owns the devices. Say so, so the UI stops asking.
+    SendMessageToUI (R"({"type":"audioDeviceState","available":false})");
+}
+
+void PluginProcessorAdapter::setAudioDeviceRequestHandler (AudioDeviceRequestHandler handler)
+{
+    mAudioDeviceRequestHandler = std::move (handler);
+}
+
 void PluginProcessorAdapter::NotifyStateChanged()
 {
     updateHostDisplay (juce::AudioProcessor::ChangeDetails().withNonParameterStateChanged (true));

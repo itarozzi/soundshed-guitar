@@ -2,6 +2,7 @@
 
 set(TEST_SOURCES
     AtomicFileWriteTests.cpp
+    AudioDeviceRequestTests.cpp
     AutomationBypassEndToEndTests.cpp
     AutomationNodeParamRangeTests.cpp
     AutomationPresetMappingTests.cpp
