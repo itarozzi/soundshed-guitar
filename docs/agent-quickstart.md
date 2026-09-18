@@ -197,7 +197,10 @@ merging, and verification of both saved data and the audio path.
   the chain: `light` (framework overhead only), `baseline` (all-DSP, no model files),
   `namconv`, or `applive` (the chain a real session runs — NAM, IR cab, room reverb,
   delay, doubler). `--callers-of malloc` is the one that turns "the heap is busy" into
-  the line that allocates. It is not registered with ctest.
+  the line that allocates. ctest runs it too, labelled `benchmark`, but only as a smoke
+  check of the sampler: one half-second pass per mode on the `baseline` chain, failing
+  if a sampling pass captures nothing, with a 120 s timeout. What it prints there is
+  not a profile.
 - The signal-chain mutation stress test (~15 min concurrency fuzzer, random seed) is not
   registered with ctest by default. Run its executable directly, or reconfigure with
   `-DGUITARFX_TEST_STRESS=ON`. It writes `SignalChainMutationStressTest-last-trace.log`

@@ -222,12 +222,15 @@ ProfileReport RunProfile(const RunConfig& config, const std::optional<NamConvAss
 
 #if defined(_WIN32)
     HANDLE dspThreadHandle = nullptr;
+    ULONG_PTR dspStackLow = 0;
+    ULONG_PTR dspStackHigh = 0;
 #endif
 
     std::thread dspThread([&]() {
 #if defined(_WIN32)
         DuplicateHandle(GetCurrentProcess(), GetCurrentThread(), GetCurrentProcess(), &dspThreadHandle,
                         THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION, FALSE, 0);
+        GetCurrentThreadStackLimits(&dspStackLow, &dspStackHigh);
         SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
 #endif
         dspReady.store(true, std::memory_order_release);
@@ -274,7 +277,7 @@ ProfileReport RunProfile(const RunConfig& config, const std::optional<NamConvAss
 
     if (dspThreadHandle != nullptr && config.sampling)
     {
-        StackSampler sampler(dspThreadHandle, 200); // 5 kHz
+        StackSampler sampler(dspThreadHandle, dspStackLow, dspStackHigh, 200); // 5 kHz
         sampler.Start();
         dspThread.join();
         sampler.Stop();
@@ -602,7 +605,7 @@ int main(int argc, char* argv[])
     }
 
     std::cout << "profile=" << settings.profile << " sr=" << settings.sampleRate << " block=" << settings.blockSize
-              << " presets=" << settings.presetCount << " seconds=" << settings.seconds << "\n";
+              << " presets=" << settings.presetCount << " seconds=" << settings.seconds << std::endl;
 
     std::vector<bool> diagnosticsModes;
 
@@ -662,6 +665,7 @@ int main(int argc, char* argv[])
         report.sampleCount = sampled.sampleCount;
 
         PrintReport(label, report, settings.topCount);
+        std::cout.flush();
 
         if (!settings.csvPath.empty())
         {
@@ -679,10 +683,24 @@ int main(int argc, char* argv[])
                   << std::setprecision(1) << ((on - off) / on * 100.0) << "% of the diag-on block time)\n";
     }
 
+    int exitCode = 0;
+
 #if defined(_WIN32)
+
+    // ctest runs this as a smoke check of the sampler, so a sampling pass that caught
+    // nothing is a failure, not just an empty table.
+    for (const auto& [label, report] : reports)
+    {
+        if (report.sampleCount == 0)
+        {
+            std::cerr << label << ": the sampling pass captured no stacks\n";
+            exitCode = 1;
+        }
+    }
+
     SymCleanup(GetCurrentProcess());
     timeEndPeriod(1);
 #endif
 
-    return 0;
+    return exitCode;
 }

@@ -143,7 +143,17 @@ foreach(test_source IN LISTS TEST_SOURCES)
     endif()
 
     if(_register_test)
-        add_test(NAME ${test_name} COMMAND ${test_name})
+        if(test_name STREQUAL "SteadyStateProfiler")
+            # A profiler, not a test: under ctest it is a smoke check of its stack sampler,
+            # which fails if a sampling pass deadlocks or captures nothing. The baseline
+            # chain needs no model files, and one short pass per mode keeps it to seconds
+            # even in Debug; the timeout turns a hang back into a failure.
+            add_test(NAME ${test_name} COMMAND ${test_name}
+                --profile baseline --seconds 0.5 --repeats 1 --diagnostics both --top 5)
+            set_tests_properties(${test_name} PROPERTIES TIMEOUT 120)
+        else()
+            add_test(NAME ${test_name} COMMAND ${test_name})
+        endif()
 
         # Label slow benchmarks so `ctest -LE benchmark` can skip them
         if(test_name STREQUAL "NAMPerformanceBenchmark" OR test_name STREQUAL "DSPPerformanceTests" OR test_name STREQUAL "SignalChainThreadingBenchmark" OR test_name STREQUAL "SignalChainMutationStressTest" OR test_name STREQUAL "TransposeBenchmark" OR test_name STREQUAL "ResourceLoadBenchmark" OR test_name STREQUAL "SteadyStateProfiler")

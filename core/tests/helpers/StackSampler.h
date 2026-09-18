@@ -2,17 +2,25 @@
  * @file StackSampler.h
  * @brief In-process call-stack sampler for profiling a busy thread on Windows.
  *
- * Suspends a target thread on a timer and unwinds its stack, so a profile can be
- * taken without the elevation that ETW/WPR CPU sampling requires. Raw addresses are
- * collected while the thread is suspended and resolved to names only afterwards --
- * DbgHelp takes locks and allocates, and doing either against a thread you are
- * holding suspended deadlocks the moment that thread owns the same lock.
+ * Suspends a target thread on a timer, copies its registers and the live part of its
+ * stack, resumes it, and only then unwinds the copy -- so a profile can be taken
+ * without the elevation that ETW/WPR CPU sampling requires.
+ *
+ * Nothing that can take a lock may run while the target is suspended: the moment the
+ * target owns that lock, the sampler waits on a thread it is itself holding frozen, and
+ * both stop for good. That rules out DbgHelp and the heap, RtlLookupFunctionEntry (it
+ * can lock the function tables), and in a Debug build every standard container --
+ * iterator debugging funnels each container and iterator operation through one global
+ * lock (std::_Lockit), which the DSP thread takes constantly. A vector::push_back here
+ * is what hung the Debug profiler. So the suspended window is GetThreadContext and a
+ * memcpy, and names are resolved only after sampling stops.
  */
 
 #pragma once
 
 #include <atomic>
 #include <cstdint>
+#include <cstring>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -48,7 +56,11 @@ struct CallerBreakdown
 class StackSampler
 {
   public:
-    StackSampler(HANDLE targetThread, std::uint64_t intervalUs) : mTargetThread(targetThread), mIntervalUs(intervalUs)
+    /// @p stackLow and @p stackHigh bound the target's stack reservation; get them on the
+    /// target thread itself with GetCurrentThreadStackLimits.
+    StackSampler(HANDLE targetThread, ULONG_PTR stackLow, ULONG_PTR stackHigh, std::uint64_t intervalUs)
+        : mTargetThread(targetThread), mStackLow(stackLow), mStackHigh(stackHigh), mIntervalUs(intervalUs),
+          mStackCopy((stackHigh - stackLow) / sizeof(DWORD64))
     {
     }
 
@@ -133,68 +145,121 @@ class StackSampler
 
     void CaptureOnce(std::vector<DWORD64>& frames)
     {
+        DWORD64* const copy = mStackCopy.data();
+
         if (SuspendThread(mTargetThread) == static_cast<DWORD>(-1))
         {
             return;
         }
 
+        // Suspended: GetThreadContext and memcpy only (see the file comment). The context
+        // has to come first -- SuspendThread only requests the suspension, and
+        // GetThreadContext is what waits for the thread to actually stop.
         CONTEXT context{};
         context.ContextFlags = CONTEXT_FULL;
+        std::size_t copiedBytes = 0;
 
-        if (GetThreadContext(mTargetThread, &context) != 0)
+        if (GetThreadContext(mTargetThread, &context) != 0 && context.Rsp >= mStackLow && context.Rsp < mStackHigh &&
+            context.Rsp % sizeof(DWORD64) == 0)
         {
-            // Unwind with RtlVirtualUnwind rather than StackWalk64. StackWalk64 goes
-            // through DbgHelp, which allocates -- and allocating here deadlocks outright
-            // whenever the thread we just suspended happens to hold the heap lock. The
-            // Rtl* pair only reads the module's .pdata, so this loop never allocates.
-            for (int depth = 0; depth < kMaxStackDepth; ++depth)
-            {
-                if (context.Rip == 0)
-                {
-                    break;
-                }
-
-                frames.push_back(context.Rip);
-
-                DWORD64 imageBase = 0;
-                PRUNTIME_FUNCTION functionEntry = RtlLookupFunctionEntry(context.Rip, &imageBase, nullptr);
-
-                if (functionEntry == nullptr)
-                {
-                    // A leaf function has no unwind data: its return address is at RSP.
-                    if (context.Rsp == 0)
-                    {
-                        break;
-                    }
-
-                    const auto returnAddress = *reinterpret_cast<DWORD64*>(context.Rsp);
-                    context.Rip = returnAddress;
-                    context.Rsp += 8;
-                    continue;
-                }
-
-                const DWORD64 previousRsp = context.Rsp;
-                PVOID handlerData = nullptr;
-                DWORD64 establisherFrame = 0;
-                RtlVirtualUnwind(UNW_FLAG_NHANDLER, imageBase, context.Rip, functionEntry, &context, &handlerData,
-                                 &establisherFrame, nullptr);
-
-                // A frame that does not pop the stack means the unwind is not making
-                // progress; stop rather than spin on the same address.
-                if (context.Rsp <= previousRsp)
-                {
-                    break;
-                }
-            }
+            copiedBytes = static_cast<std::size_t>(mStackHigh - context.Rsp);
+            std::memcpy(copy, reinterpret_cast<const void*>(context.Rsp), copiedBytes);
         }
 
         ResumeThread(mTargetThread);
+
+        if (copiedBytes != 0)
+        {
+            UnwindCopy(context, copy, copiedBytes, frames);
+        }
+    }
+
+    /// Unwinds the stack copied at @p copy. The copy is only unwindable once it looks like
+    /// the stack it came from: saved frame pointers, and registers such as RBP, still point
+    /// into the original, which the running thread has since overwritten. So every value
+    /// that points into the copied range is moved to the same offset in the copy first. A
+    /// value that only looks like a stack address gets moved too, which is harmless: the
+    /// unwind reads saved registers and return addresses, and code addresses are never in
+    /// the stack's range.
+    void UnwindCopy(CONTEXT& context, DWORD64* copy, std::size_t copiedBytes, std::vector<DWORD64>& frames) const
+    {
+        const DWORD64 originalLow = context.Rsp;
+        const DWORD64 copyLow = reinterpret_cast<DWORD64>(copy);
+        const DWORD64 copyHigh = copyLow + copiedBytes;
+
+        const auto rebase = [&](DWORD64& value) {
+            if (value >= originalLow && value < mStackHigh)
+            {
+                value = value - originalLow + copyLow;
+            }
+        };
+
+        for (std::size_t slot = 0; slot < copiedBytes / sizeof(DWORD64); ++slot)
+        {
+            rebase(copy[slot]);
+        }
+
+        DWORD64* const registers[] = {&context.Rax, &context.Rcx, &context.Rdx, &context.Rbx,
+                                      &context.Rsp, &context.Rbp, &context.Rsi, &context.Rdi,
+                                      &context.R8,  &context.R9,  &context.R10, &context.R11,
+                                      &context.R12, &context.R13, &context.R14, &context.R15};
+
+        for (DWORD64* reg : registers)
+        {
+            rebase(*reg);
+        }
+
+        // Unwind with RtlVirtualUnwind rather than StackWalk64, which goes through DbgHelp.
+        for (int depth = 0; depth < kMaxStackDepth; ++depth)
+        {
+            if (context.Rip == 0)
+            {
+                break;
+            }
+
+            frames.push_back(context.Rip);
+
+            // Everything the unwind reads is at or above RSP, so once RSP leaves the copy
+            // the stack is either finished or corrupt; stop rather than read past the end.
+            if (context.Rsp < copyLow || context.Rsp + sizeof(DWORD64) > copyHigh)
+            {
+                break;
+            }
+
+            DWORD64 imageBase = 0;
+            PRUNTIME_FUNCTION functionEntry = RtlLookupFunctionEntry(context.Rip, &imageBase, nullptr);
+
+            if (functionEntry == nullptr)
+            {
+                // A leaf function has no unwind data: its return address is at RSP.
+                context.Rip = *reinterpret_cast<const DWORD64*>(context.Rsp);
+                context.Rsp += 8;
+                continue;
+            }
+
+            const DWORD64 previousRsp = context.Rsp;
+            PVOID handlerData = nullptr;
+            DWORD64 establisherFrame = 0;
+            RtlVirtualUnwind(UNW_FLAG_NHANDLER, imageBase, context.Rip, functionEntry, &context, &handlerData,
+                             &establisherFrame, nullptr);
+
+            // A frame that does not pop the stack means the unwind is not making
+            // progress; stop rather than spin on the same address.
+            if (context.Rsp <= previousRsp)
+            {
+                break;
+            }
+        }
     }
 
     HANDLE mTargetThread;
+    ULONG_PTR mStackLow;
+    ULONG_PTR mStackHigh;
     std::uint64_t mIntervalUs;
     std::atomic<bool> mRunning{false};
     std::thread mThread;
+    /// Sized for the whole stack reservation up front, so a capture never allocates.
+    std::vector<DWORD64> mStackCopy;
     std::vector<std::vector<DWORD64>> mStacks;
 };
 
