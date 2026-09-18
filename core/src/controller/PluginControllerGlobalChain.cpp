@@ -116,6 +116,7 @@ void PluginController::HandleSetGlobalChainParamRequest(const nlohmann::json& pa
     std::string path = payload.value("path", "");
     auto value = payload.value("value", nlohmann::json());
     bool persistGlobalFx = false;
+    bool latencyMayChange = false;
     {
         std::lock_guard<std::mutex> lock(mDSPMutex);
 
@@ -148,13 +149,13 @@ void PluginController::HandleSetGlobalChainParamRequest(const nlohmann::json& pa
         else if (path == "transpose.enabled")
         {
             mPresetMixer.SetGlobalTransposeEnabled(value.get<bool>());
-            UpdateHostLatency();
+            latencyMayChange = true;
             persistGlobalFx = true;
         }
         else if (path == "transpose.semitones")
         {
             mPresetMixer.SetGlobalTranspose(std::clamp(value.get<int>(), -12, 12));
-            UpdateHostLatency();
+            latencyMayChange = true;
             persistGlobalFx = true;
         }
         else if (path == "eq.enabled")
@@ -249,6 +250,11 @@ void PluginController::HandleSetGlobalChainParamRequest(const nlohmann::json& pa
             mPresetMixer.SetGlobalEQBandFrequency(3, value.get<double>());
             persistGlobalFx = true;
         }
+    }
+
+    if (latencyMayChange)
+    {
+        UpdateHostLatency();
     }
 
     if (persistGlobalFx)

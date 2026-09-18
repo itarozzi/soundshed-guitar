@@ -19,13 +19,37 @@ using namespace guitarfx::controller_detail;
 
 namespace guitarfx
 {
+std::vector<std::string> PluginController::SnapshotActivePresetIds() const
+{
+    std::lock_guard<std::mutex> lock(mDSPMutex);
+    return mPresetMixer.GetActivePresetIds();
+}
+
+std::vector<MultiPresetMixer::InstanceConfig> PluginController::SnapshotActivePresetConfigs() const
+{
+    std::vector<MultiPresetMixer::InstanceConfig> configs;
+    std::lock_guard<std::mutex> lock(mDSPMutex);
+
+    for (const auto& id : mPresetMixer.GetActivePresetIds())
+    {
+        if (auto cfg = mPresetMixer.GetPresetConfig(id))
+        {
+            configs.push_back(std::move(*cfg));
+        }
+    }
+
+    return configs;
+}
+
 void PluginController::ClearActivePresetMixerState()
 {
-    const auto activePresetIds = mPresetMixer.GetActivePresetIds();
-
-    for (const auto& presetId : activePresetIds)
     {
-        mPresetMixer.RemoveActivePreset(presetId);
+        std::lock_guard<std::mutex> lock(mDSPMutex);
+
+        for (const auto& presetId : mPresetMixer.GetActivePresetIds())
+        {
+            mPresetMixer.RemoveActivePreset(presetId);
+        }
     }
 
     mMixerPresetJsonCache.clear();
@@ -33,12 +57,32 @@ void PluginController::ClearActivePresetMixerState()
 
 bool PluginController::AddActivePreset(const Preset& preset, const std::string& presetId, const std::string& name)
 {
-    std::lock_guard<std::mutex> lock(mDSPMutex);
-    const bool added = mPresetMixer.AddActivePreset(preset, presetId, name);
+    {
+        std::lock_guard<std::mutex> lock(mDSPMutex);
+
+        if (mPresetMixer.GetPresetConfig(presetId))
+        {
+            return false;
+        }
+    }
+
+    // Built off the DSP lock and installed under it, as a preset switch is: building a slot
+    // creates its processors and loads their models, IRs and plugins, and every slot would
+    // be silent for as long as that took.
+    mPresetMixer.PreparePresetSwap(preset, presetId, name);
+    bool added = false;
+    {
+        std::lock_guard<std::mutex> lock(mDSPMutex);
+        added = mPresetMixer.CommitPresetAddition(presetId);
+
+        if (added)
+        {
+            AttachRuntimeConfigCallbacks(presetId, preset);
+        }
+    }
 
     if (added)
     {
-        AttachRuntimeConfigCallbacks(presetId, preset);
         try
         {
             mMixerPresetJsonCache[presetId] = PresetStorage::SerializeToJson(preset);
@@ -141,14 +185,7 @@ bool PluginController::ApplyActivePresetById(const std::string& presetId)
         nlohmann::json loaded;
         loaded["type"] = "presetLoaded";
         loaded["preset"] = SerializePresetForUi(*mActivePreset);
-        nlohmann::json activeIds = nlohmann::json::array();
-
-        for (const auto& id : mPresetMixer.GetActivePresetIds())
-        {
-            activeIds.push_back(id);
-        }
-
-        loaded["activePresetIds"] = activeIds;
+        loaded["activePresetIds"] = SnapshotActivePresetIds();
         loaded["sceneId"] = GetResolvedActiveSceneId();
         SendMessageToUI(loaded.dump());
     }
@@ -167,9 +204,12 @@ bool PluginController::ApplyActivePresetById(const std::string& presetId)
 
 void PluginController::RemoveActivePreset(const std::string& presetId)
 {
-    std::lock_guard<std::mutex> lock(mDSPMutex);
-    mPresetMixer.RemoveActivePreset(presetId);
-    mMixerPresetJsonCache.erase(presetId);
+    {
+        std::lock_guard<std::mutex> lock(mDSPMutex);
+        mPresetMixer.RemoveActivePreset(presetId);
+        mMixerPresetJsonCache.erase(presetId);
+    }
+
     UpdateHostLatency();
 }
 
@@ -218,13 +258,19 @@ bool PluginController::ReplaceActiveMixerPresetInPlace(const Preset& preset, con
 {
     UpdatePresetSwapTailBudget();
     mPresetMixer.PreparePresetSwap(preset, presetId, name);
+    bool replaced = false;
+    {
+        std::lock_guard<std::mutex> lock(mDSPMutex);
+        replaced = mPresetMixer.CommitPresetReplacement(presetId);
 
-    std::lock_guard<std::mutex> lock(mDSPMutex);
-    const bool replaced = mPresetMixer.CommitPresetReplacement(presetId);
+        if (replaced)
+        {
+            AttachRuntimeConfigCallbacks(presetId, preset);
+        }
+    }
 
     if (replaced)
     {
-        AttachRuntimeConfigCallbacks(presetId, preset);
         try
         {
             mMixerPresetJsonCache[presetId] = PresetStorage::SerializeToJson(preset);
@@ -238,23 +284,29 @@ bool PluginController::ReplaceActiveMixerPresetInPlace(const Preset& preset, con
     return replaced;
 }
 
+// The slot lookups behind these walk instances the audio thread erases, and Process() reads
+// what they write.
 void PluginController::SetActivePresetMix(const std::string& presetId, double value)
 {
+    std::lock_guard<std::mutex> lock(mDSPMutex);
     mPresetMixer.SetPresetMix(presetId, value);
 }
 
 void PluginController::SetActivePresetPan(const std::string& presetId, double pan)
 {
+    std::lock_guard<std::mutex> lock(mDSPMutex);
     mPresetMixer.SetPresetPan(presetId, pan);
 }
 
 void PluginController::SetActivePresetMute(const std::string& presetId, bool mute)
 {
+    std::lock_guard<std::mutex> lock(mDSPMutex);
     mPresetMixer.SetPresetMute(presetId, mute);
 }
 
 void PluginController::SetActivePresetSolo(const std::string& presetId, bool solo)
 {
+    std::lock_guard<std::mutex> lock(mDSPMutex);
     mPresetMixer.SetPresetSolo(presetId, solo);
 }
 

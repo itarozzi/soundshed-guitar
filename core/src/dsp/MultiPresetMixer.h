@@ -126,6 +126,11 @@ class MultiPresetMixer
     // Two-phase in-place replacement: PreparePresetSwap off the DSP lock, then this
     // commit under it. Mixer controls are read at commit time; other slots stay live.
     bool CommitPresetReplacement(const std::string& presetId);
+    // Two-phase AddActivePreset: PreparePresetSwap off the DSP lock, then this commit under
+    // it installs the staged instance as one more slot alongside the others, at full gain as
+    // AddActivePreset does. False, with the instance left staged, if it was not staged for
+    // presetId or a live slot already answers to that id.
+    bool CommitPresetAddition(const std::string& presetId);
 
     // Message thread only, without the DSP lock. Hosted processors (including composites)
     // must be destroyed here rather than on a reaper that may wait for their editor UI.
@@ -418,7 +423,14 @@ class MultiPresetMixer
     // Processing
     void Process(float** inputs, float** outputs, int numSamples);
 
-    // Queries
+    // Queries. A walk of the instance list races the audio thread erasing finished fade-outs
+    // at the end of Process(), so the caller holds the DSP lock. The periodic telemetry reads
+    // (GetPresetCount through GetTotalLatencySamples, GetSignalDiagnosticsSnapshot,
+    // ReadNodeSpectrum, ClearSpectrumTaps, ReadNodeParamsForType, SetSignalDiagnosticsEnabled)
+    // hold the erase off themselves instead, so the message thread can call them without it:
+    // taking the DSP lock 20-30 times a second would silence a block whenever one landed on an
+    // audio callback. Slots are added, retired and re-keyed under the DSP lock on the message
+    // thread, so from any other thread these still need it.
     [[nodiscard]] std::vector<std::string> GetActivePresetIds() const;
     [[nodiscard]] std::vector<std::string> GetPresetNodeTypes(const std::string& presetId) const;
     [[nodiscard]] std::optional<InstanceConfig> GetPresetConfig(const std::string& presetId) const;
@@ -577,6 +589,10 @@ class MultiPresetMixer
 
     [[nodiscard]] PresetInstance* FindInstance(const std::string& id);
     [[nodiscard]] const PresetInstance* FindInstance(const std::string& id) const;
+
+    /// Holds the audio thread's CollectFinishedFadeOuts() off mInstances, without the DSP
+    /// lock, for as long as it lives. Defined in MultiPresetMixer.cpp.
+    class InstanceReadScope;
     void AllocateBuffers(int maxBlockSize);
     void AllocateInstanceBuffers(PresetInstance& inst, int maxBlockSize);
     static void ComputePanGains(double pan, float& gL, float& gR);
@@ -602,7 +618,8 @@ class MultiPresetMixer
     /// Audio-thread retire: non-blocking and allocation-free. Returns false if the caller
     /// should keep the instance (already silent) and try again on the next block.
     [[nodiscard]] bool TryRetireInstanceRealtime(std::unique_ptr<PresetInstance>& inst);
-    /// Drop every finished fade-out. Audio thread, end of Process().
+    /// Drop every finished fade-out. Audio thread, end of Process(). Leaves them for the next
+    /// block while an InstanceReadScope is held.
     void CollectFinishedFadeOuts();
 
     // ---- Tail spill ----------------------------------------------------------------
@@ -630,7 +647,14 @@ class MultiPresetMixer
     // Held by pointer so the audio thread can drop a finished fade-out with a pointer move:
     // moving a PresetInstance by value moves its SignalGraphExecutor, whose move-assignment
     // joins worker threads — not something that can happen on the realtime path.
+    //
+    // Changed in two places only: by the message thread under the DSP lock, and by the audio
+    // thread's CollectFinishedFadeOuts() at the end of Process(). A walk needs the DSP lock,
+    // or, on the message thread, an InstanceReadScope.
     std::vector<std::unique_ptr<PresetInstance>> mInstances;
+    // InstanceReadScope's side of the handshake, and the audio thread's.
+    mutable std::atomic<int> mInstanceReaders{0};
+    std::atomic<bool> mErasingInstances{false};
 
     // Staged instance built off the DSP lock by PreparePresetSwap(); committed by CommitPresetSwap().
     std::unique_ptr<PresetInstance> mPendingInstance;

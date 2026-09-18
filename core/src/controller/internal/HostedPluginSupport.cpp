@@ -2,6 +2,7 @@
 #include "controller/internal/HostedPluginSupport.h"
 
 #include "dsp/EffectGuids.h"
+#include "dsp/EffectProcessor.h"
 #include "dsp/EffectRegistry.h"
 #include "presets/PresetStorage.h"
 #include "presets/PresetTypes.h"
@@ -68,6 +69,11 @@ std::string BuildHostedPluginStableId(std::string_view manufacturer, std::string
 bool IsHostedPluginNode(const GraphNode& node)
 {
     return EffectRegistry::Instance().Resolve(node.type) == EffectGuids::kPluginHost;
+}
+
+bool IsHostedPluginProcessor(const EffectProcessor& processor)
+{
+    return EffectRegistry::Instance().Resolve(processor.GetType()) == EffectGuids::kPluginHost;
 }
 
 /**

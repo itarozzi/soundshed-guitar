@@ -17,6 +17,7 @@
 
 namespace guitarfx
 {
+class EffectProcessor;
 struct GraphNode;
 struct SignalGraph;
 struct Preset;
@@ -42,6 +43,13 @@ inline constexpr const char* kHostedPluginStateLengthConfigKey = "pluginStateBas
 [[nodiscard]] std::string BuildHostedPluginStableId(std::string_view manufacturer, std::string_view name);
 
 [[nodiscard]] bool IsHostedPluginNode(const GraphNode& node);
+
+/// A hosted plugin is driven from the message thread without the DSP lock. It swaps the
+/// plugin, restores and captures state and opens its editor under its own process lock,
+/// which its Process() only try-locks. Holding the DSP lock across any of that would
+/// silence every slot for as long as a plugin load or a state chunk takes, and a plugin's
+/// modal dialog could re-enter code that takes the DSP lock again.
+[[nodiscard]] bool IsHostedPluginProcessor(const EffectProcessor& processor);
 
 /// Resource the node points at, as a comparable key ("res:"/"path:" prefixed).
 [[nodiscard]] std::string HostedPluginResourceKey(const GraphNode& node);

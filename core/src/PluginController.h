@@ -485,7 +485,6 @@ class PluginController
     void HandleSetGlobalChainRequest(const nlohmann::json& payload);
     void HandleSetNodeEnabledRequest(const nlohmann::json& payload);
     void HandleSetNodeParamRequest(const nlohmann::json& payload);
-    void HandleLoadNodeResourceRequest(const nlohmann::json& payload);
     void HandleSetTunerEnabledRequest(const nlohmann::json& payload);
     void HandleSetTunerReferenceRequest(const nlohmann::json& payload);
 
@@ -504,6 +503,8 @@ class PluginController
     };
     void BroadcastState(StateScope scope = StateScope::Full);
     void ApplyPreset(const Preset& preset);
+    /// Call with mDSPMutex held: the lookups walk instances the audio thread erases. Safe
+    /// for a hosted plugin too, whose SetRuntimeConfigChangedCallback only stores the callback.
     void AttachRuntimeConfigCallbacks(const std::string& presetId, const Preset& preset);
     void HandleRuntimeNodeConfigChanged(const std::string& presetId, const std::string& nodeId, const std::string& key,
                                         const std::string& value);
@@ -516,8 +517,11 @@ class PluginController
                                                  int resourceIndex = -1);
     void DiscardFailedHostedPluginResourceSelection(const std::string& nodeId, const ResourceRef& ref,
                                                     int resourceIndex = -1);
+    /// Reads the chain's latency under mDSPMutex and tells the host after releasing it, so
+    /// never call this with the lock held. A host can answer a latency change by asking for
+    /// state straight away (SerializeState), which takes the lock again.
     void UpdateHostLatency();
-    int mLastReportedLatency = -1; ///< Guards against redundant host latency notifications
+    int mLastReportedLatency = -1; ///< Guards against redundant host latency notifications. mDSPMutex.
     /**
      * Tell the host that the state it would save has changed (marks the DAW project dirty).
      *
@@ -536,9 +540,16 @@ class PluginController
      * serialises its state under its own lock and can take a while, and holding the DSP lock
      * across that would silence every slot. Anything else answers under the lock. mDSPMutex
      * is not recursive, so never call this with it held.
+     *
+     * Message thread only: that is the one thread on which the hosted plugin cannot be
+     * retired and destroyed between the lookup and the read.
      */
     [[nodiscard]] std::string ReadLiveNodeConfig(const std::string& presetId, const std::string& nodeId,
                                                  const std::string& key) const;
+    /// The live mixer slots' ids, or their whole configs, copied under mDSPMutex so the
+    /// caller can work through them without it. Never call these with the lock held.
+    [[nodiscard]] std::vector<std::string> SnapshotActivePresetIds() const;
+    [[nodiscard]] std::vector<MultiPresetMixer::InstanceConfig> SnapshotActivePresetConfigs() const;
     /**
      * Fill in hosted plugin state across `preset`'s graphs: live state for the graph the DSP
      * is running, stored state from the working copy for the other scenes.
@@ -662,7 +673,8 @@ class PluginController
 
     // NAM level-state normalization
     void ResetNamNodeLevelState(const std::string& nodeId);
-    /// Pushes mNamInterfaceCalibrationLevelDbu, or its absence, to one NAM node.
+    /// Pushes mNamInterfaceCalibrationLevelDbu, or its absence, to one NAM node. Call with
+    /// mDSPMutex held.
     void InjectNamInterfaceCalibration(const std::string& presetId, const std::string& nodeId);
     void ClearNamCalibrationParams(GraphNode& node) const;
 

@@ -28,19 +28,6 @@ using namespace guitarfx::controller_detail;
 
 namespace guitarfx
 {
-namespace
-{
-/// A hosted plugin is driven from the message thread without the DSP lock. It swaps the
-/// plugin, restores and captures state and opens its editor under its own process lock,
-/// which its Process() only try-locks. Holding the DSP lock across any of that would
-/// silence every slot for as long as a plugin load or a state chunk takes, and a plugin's
-/// modal dialog could re-enter code that takes the DSP lock again.
-bool IsHostedPluginProcessor(const EffectProcessor& processor)
-{
-    return EffectRegistry::Instance().Resolve(processor.GetType()) == EffectGuids::kPluginHost;
-}
-} // namespace
-
 void PluginController::HandleUpdateSignalPathNodeParamRequest(const nlohmann::json& payload)
 {
     // Updates a single DSP parameter on a graph node by nodeId/paramKey

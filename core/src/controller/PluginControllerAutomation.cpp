@@ -371,7 +371,7 @@ void PluginController::ApplySetlistPresetByIndexDirect(int index)
     // Reloading it would put the stored copy back over every edit not yet saved — a
     // footswitch, a mapped key or a pad tapped twice silently undid the chain — and
     // crossfade to a chain identical to the one playing.
-    const auto activeIds = mPresetMixer.GetActivePresetIds();
+    const auto activeIds = SnapshotActivePresetIds();
     const bool alreadyPlaying =
         mActivePreset && mActivePresetId == presetId && activeIds.size() == 1 && activeIds.front() == presetId;
 
@@ -484,14 +484,7 @@ void PluginController::SelectSceneByIndexDirect(int index)
     nlohmann::json loaded;
     loaded["type"] = "presetLoaded";
     loaded["preset"] = SerializePresetForUi(*mActivePreset);
-    nlohmann::json activeIds = nlohmann::json::array();
-
-    for (const auto& id : mPresetMixer.GetActivePresetIds())
-    {
-        activeIds.push_back(id);
-    }
-
-    loaded["activePresetIds"] = activeIds;
+    loaded["activePresetIds"] = SnapshotActivePresetIds();
     loaded["sceneId"] = GetResolvedActiveSceneId();
     SendMessageToUI(loaded.dump());
 }

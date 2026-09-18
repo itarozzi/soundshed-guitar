@@ -106,7 +106,7 @@ void PluginController::HandlePresetLoadRequest(const nlohmann::json& payload)
         // that slot in place. ApplyPreset()'s PreparePresetSwap()/CommitPresetSwap() swap
         // the *entire* mixer down to a single instance, which would silently drop every
         // other active mixer preset.
-        const auto activeMixerIds = mPresetMixer.GetActivePresetIds();
+        const auto activeMixerIds = SnapshotActivePresetIds();
         const bool isActiveMixerSlot =
             activeMixerIds.size() > 1 &&
             std::find(activeMixerIds.begin(), activeMixerIds.end(), mActivePresetId) != activeMixerIds.end();
@@ -128,14 +128,7 @@ void PluginController::HandlePresetLoadRequest(const nlohmann::json& payload)
             nlohmann::json loaded;
             loaded["type"] = "presetLoaded";
             loaded["preset"] = SerializePresetForUi(*mActivePreset);
-            nlohmann::json activeIds = nlohmann::json::array();
-
-            for (const auto& id : mPresetMixer.GetActivePresetIds())
-            {
-                activeIds.push_back(id);
-            }
-
-            loaded["activePresetIds"] = activeIds;
+            loaded["activePresetIds"] = SnapshotActivePresetIds();
             loaded["sceneId"] = GetResolvedActiveSceneId();
             SendMessageToUI(loaded.dump());
         }

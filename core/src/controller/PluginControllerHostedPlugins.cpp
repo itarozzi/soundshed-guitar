@@ -58,21 +58,42 @@ bool PluginController::ReportHostedPluginResourceLoadFailure(const std::string& 
         return false;
     }
 
-    auto* processor = mPresetMixer.GetNodeProcessor(presetId, nodeId);
-
-    if (!processor)
+    // The same split as ReadLiveNodeConfig: the lookup under the DSP lock, a hosted plugin
+    // asked once it is released, anything else under it. Not ReadLiveNodeConfig itself, which
+    // falls back to the graph's stored config: with no running processor there is no failure.
+    std::string lastError;
+    std::string lastErrorCode;
+    const EffectProcessor* hostedPlugin = nullptr;
     {
-        return false;
+        std::lock_guard<std::mutex> lock(mDSPMutex);
+        const auto* processor = mPresetMixer.GetNodeProcessor(presetId, nodeId);
+
+        if (!processor)
+        {
+            return false;
+        }
+
+        if (IsHostedPluginProcessor(*processor))
+        {
+            hostedPlugin = processor;
+        }
+        else
+        {
+            lastError = processor->GetConfig("lastError");
+            lastErrorCode = processor->GetConfig(kHostedPluginLastErrorCodeConfigKey);
+        }
     }
 
-    const std::string lastError = processor->GetConfig("lastError");
+    if (hostedPlugin)
+    {
+        lastError = hostedPlugin->GetConfig("lastError");
+        lastErrorCode = hostedPlugin->GetConfig(kHostedPluginLastErrorCodeConfigKey);
+    }
 
     if (lastError.empty())
     {
         return false;
     }
-
-    const std::string lastErrorCode = processor->GetConfig(kHostedPluginLastErrorCodeConfigKey);
 
     nlohmann::json message{{"type", "hostedPluginResourceLoadFailed"},
                            {"nodeId", nodeId},

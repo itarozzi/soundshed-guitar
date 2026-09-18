@@ -24,6 +24,7 @@ set(TEST_SOURCES
     PracticeToolCrossfadeTests.cpp
     MessageDispatchTypeErrorTests.cpp
     MetronomeServiceTests.cpp
+    MixerInstanceLockTests.cpp
     MultiPresetMixerTests.cpp
     NamCalibrationProbe.cpp
     NamModelCacheTests.cpp

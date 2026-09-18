@@ -139,15 +139,12 @@ std::string PluginController::SerializeState() const
     // outright when the project is opened on a machine that does not have the preset.
     nlohmann::json presetData = nlohmann::json::object();
 
-    for (const auto& id : mPresetMixer.GetActivePresetIds())
+    for (const auto& cfg : SnapshotActivePresetConfigs())
     {
+        const auto& id = cfg.id;
         activePresetIds.push_back(id);
-
-        if (const auto cfg = mPresetMixer.GetPresetConfig(id))
-        {
-            presetConfigs[id] = {
-                {"name", cfg->name}, {"mix", cfg->mix}, {"pan", cfg->pan}, {"mute", cfg->mute}, {"solo", cfg->solo}};
-        }
+        presetConfigs[id] = {
+            {"name", cfg.name}, {"mix", cfg.mix}, {"pan", cfg.pan}, {"mute", cfg.mute}, {"solo", cfg.solo}};
 
         // The focused slot already rides in state["preset"] with its runtime state folded in.
         if (mActivePreset && id == mActivePresetId)
@@ -368,9 +365,13 @@ void PluginController::DeserializeState(const std::string& json)
             }
 
             // Reset active presets before restoring mixer state
-            for (const auto& id : mPresetMixer.GetActivePresetIds())
             {
-                mPresetMixer.RemoveActivePreset(id);
+                std::lock_guard<std::mutex> lock(mDSPMutex);
+
+                for (const auto& id : mPresetMixer.GetActivePresetIds())
+                {
+                    mPresetMixer.RemoveActivePreset(id);
+                }
             }
 
             std::vector<std::string> activeIds;
@@ -409,15 +410,11 @@ void PluginController::DeserializeState(const std::string& json)
 
                 bool added = false;
 
+                // Through the controller's AddActivePreset, which builds each slot off the DSP
+                // lock and installs it under it, and attaches the runtime callbacks.
                 if (mActivePreset && (id == "p1" || id == mActivePresetId))
                 {
-                    added = mPresetMixer.AddActivePreset(*mActivePreset, id, name);
-
-                    if (added)
-                    {
-                        AttachRuntimeConfigCallbacks(id, *mActivePreset);
-                        mMixerPresetJsonCache[id] = PresetStorage::SerializeToJson(*mActivePreset);
-                    }
+                    added = AddActivePreset(*mActivePreset, id, name);
                 }
 
                 // The project's own copy of this slot wins over the machine's preset library:
@@ -426,12 +423,10 @@ void PluginController::DeserializeState(const std::string& json)
                 {
                     if (auto slotPreset = PresetStorage::DeserializeFromJson(presetData[id].dump()))
                     {
-                        added = mPresetMixer.AddActivePreset(*slotPreset, id, name);
+                        added = AddActivePreset(*slotPreset, id, name);
 
                         if (added)
                         {
-                            AttachRuntimeConfigCallbacks(id, *slotPreset);
-                            mMixerPresetJsonCache[id] = PresetStorage::SerializeToJson(*slotPreset);
                             AppendSessionLog("Mixer slot restored from host state id=" + id +
                                              ", state=" + SummarizeHostedPluginState(*slotPreset));
                         }
@@ -445,35 +440,29 @@ void PluginController::DeserializeState(const std::string& json)
 
                 if (!added && mActivePreset)
                 {
-                    added = mPresetMixer.AddActivePreset(*mActivePreset, id, name);
-
-                    if (added)
-                    {
-                        AttachRuntimeConfigCallbacks(id, *mActivePreset);
-                        mMixerPresetJsonCache[id] = PresetStorage::SerializeToJson(*mActivePreset);
-                    }
+                    added = AddActivePreset(*mActivePreset, id, name);
                 }
 
                 if (presetEntry.is_object())
                 {
                     if (presetEntry.contains("mix") && presetEntry["mix"].is_number())
                     {
-                        mPresetMixer.SetPresetMix(id, presetEntry["mix"].get<double>());
+                        SetActivePresetMix(id, presetEntry["mix"].get<double>());
                     }
 
                     if (presetEntry.contains("pan") && presetEntry["pan"].is_number())
                     {
-                        mPresetMixer.SetPresetPan(id, presetEntry["pan"].get<double>());
+                        SetActivePresetPan(id, presetEntry["pan"].get<double>());
                     }
 
                     if (presetEntry.contains("mute") && presetEntry["mute"].is_boolean())
                     {
-                        mPresetMixer.SetPresetMute(id, presetEntry["mute"].get<bool>());
+                        SetActivePresetMute(id, presetEntry["mute"].get<bool>());
                     }
 
                     if (presetEntry.contains("solo") && presetEntry["solo"].is_boolean())
                     {
-                        mPresetMixer.SetPresetSolo(id, presetEntry["solo"].get<bool>());
+                        SetActivePresetSolo(id, presetEntry["solo"].get<bool>());
                     }
                 }
             }

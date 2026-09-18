@@ -249,28 +249,30 @@ void PluginController::Initialize()
 
 void PluginController::Prepare(double sampleRate, int blockSize)
 {
-    std::lock_guard<std::mutex> lock(mDSPMutex);
-    mPresetMixer.Prepare(sampleRate, blockSize);
-
-    if (mPracticeTool)
     {
-        mPracticeTool->Prepare(sampleRate, blockSize);
+        std::lock_guard<std::mutex> lock(mDSPMutex);
+        mPresetMixer.Prepare(sampleRate, blockSize);
+
+        if (mPracticeTool)
+        {
+            mPracticeTool->Prepare(sampleRate, blockSize);
+        }
+
+        // A stream that has just started may be feeding a MIDI output the user has only now
+        // picked (the standalone restarts its callbacks when the output changes), or a
+        // controller that was power-cycled meanwhile. Its display may be blank either way.
+        mControllerDisplay->RequestRefresh();
+
+        if (mHost.IsStandalone())
+        {
+            mMetronome->ResetTransport();
+            mMetronome->RefreshClickSamples(sampleRate);
+        }
     }
 
     // Report initial latency to the host (e.g. IR cab partition size may be
     // known only after Prepare sets the sample rate).
     UpdateHostLatency();
-
-    // A stream that has just started may be feeding a MIDI output the user has only now
-    // picked (the standalone restarts its callbacks when the output changes), or a
-    // controller that was power-cycled meanwhile. Its display may be blank either way.
-    mControllerDisplay->RequestRefresh();
-
-    if (mHost.IsStandalone())
-    {
-        mMetronome->ResetTransport();
-        mMetronome->RefreshClickSamples(sampleRate);
-    }
 }
 
 void PluginController::Reset()
@@ -669,14 +671,19 @@ void PluginController::HandleGetAppInfoRequest()
 
 void PluginController::UpdateHostLatency()
 {
-    const int latency = mPresetMixer.GetTotalLatencySamples();
-
-    if (latency == mLastReportedLatency)
+    int latency = 0;
     {
-        return;
+        std::lock_guard<std::mutex> lock(mDSPMutex);
+        latency = mPresetMixer.GetTotalLatencySamples();
+
+        if (latency == mLastReportedLatency)
+        {
+            return;
+        }
+
+        mLastReportedLatency = latency;
     }
 
-    mLastReportedLatency = latency;
     mHost.NotifyLatencyChanged(latency);
 }
 } // namespace guitarfx

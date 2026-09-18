@@ -1138,22 +1138,15 @@ void PluginController::HandleSaveCompositePresetRequest(const nlohmann::json& pa
     cp.description = description;
     cp.mixGainDb = mPresetMixer.GetMixGainDb();
 
-    for (const auto& pid : mPresetMixer.GetActivePresetIds())
+    for (const auto& cfg : SnapshotActivePresetConfigs())
     {
-        const auto cfgOpt = mPresetMixer.GetPresetConfig(pid);
-
-        if (!cfgOpt)
-        {
-            continue;
-        }
-
         CompositePresetSlot slot;
-        slot.slotId = cfgOpt->id;
-        slot.presetId = pid;
-        slot.mix = cfgOpt->mix;
-        slot.pan = cfgOpt->pan;
-        slot.mute = cfgOpt->mute;
-        slot.solo = cfgOpt->solo;
+        slot.slotId = cfg.id;
+        slot.presetId = cfg.id;
+        slot.mix = cfg.mix;
+        slot.pan = cfg.pan;
+        slot.mute = cfg.mute;
+        slot.solo = cfg.solo;
         cp.slots.push_back(std::move(slot));
     }
 
@@ -1254,7 +1247,7 @@ void PluginController::HandleLoadCompositePresetRequest(const nlohmann::json& pa
     const auto& cp = *cpOpt;
 
     // Clear existing mixer slots
-    for (const auto& pid : mPresetMixer.GetActivePresetIds())
+    for (const auto& pid : SnapshotActivePresetIds())
     {
         RemoveActivePreset(pid);
     }

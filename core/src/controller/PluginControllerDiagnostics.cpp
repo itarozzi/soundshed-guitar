@@ -80,7 +80,7 @@ void PluginController::HandleDebugReportUiStateRequest(const nlohmann::json& pay
             {"activeSceneId", GetResolvedActiveSceneId()},
             {"uiReady", mUIReady},
             {"pendingStateBroadcast", mPendingStateBroadcast},
-            {"activePresetIds", mPresetMixer.GetActivePresetIds()},
+            {"activePresetIds", SnapshotActivePresetIds()},
         };
 
         if (payload.contains("snapshot"))

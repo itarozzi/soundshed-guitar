@@ -222,6 +222,38 @@ bool ShouldUseParallelPresetDispatch(bool multiThreadingEnabled, int activeCount
 }
 } // namespace
 
+/// The audio thread keeps processing while one of these lives, and leaves a finished fade-out
+/// in place until the next block, which costs nothing since it is no longer processed. Nests.
+/// Waits only while an erase is already under way, which is a few pointer moves.
+///
+/// The two sides are a store-then-load handshake (mInstanceReaders here, mErasingInstances in
+/// CollectFinishedFadeOuts), both sequentially consistent, so at least one always sees the other.
+class MultiPresetMixer::InstanceReadScope
+{
+  public:
+    explicit InstanceReadScope(const MultiPresetMixer& mixer) : mMixer(mixer)
+    {
+        mMixer.mInstanceReaders.fetch_add(1, std::memory_order_seq_cst);
+
+        // An erase that began before the audio thread could see this reader is let finish.
+        while (mMixer.mErasingInstances.load(std::memory_order_seq_cst))
+        {
+            std::this_thread::yield();
+        }
+    }
+
+    ~InstanceReadScope()
+    {
+        mMixer.mInstanceReaders.fetch_sub(1, std::memory_order_release);
+    }
+
+    InstanceReadScope(const InstanceReadScope&) = delete;
+    InstanceReadScope& operator=(const InstanceReadScope&) = delete;
+
+  private:
+    const MultiPresetMixer& mMixer;
+};
+
 bool MultiPresetMixer::AddActivePreset(const Preset& preset, const std::string& presetId, const std::string& name)
 {
     // Avoid duplicate IDs. Instances that are fading out after a swap do not count —
@@ -590,6 +622,18 @@ bool MultiPresetMixer::CommitPresetReplacement(const std::string& presetId)
         LimitRetiringInstances();
     }
 
+    return true;
+}
+
+bool MultiPresetMixer::CommitPresetAddition(const std::string& presetId)
+{
+    if (!mPendingInstance || mPendingInstance->cfg.id != presetId || FindInstance(presetId) != nullptr)
+    {
+        return false;
+    }
+
+    // No fade, as AddActivePreset: the slot joins a mix that is already playing.
+    mInstances.push_back(std::move(mPendingInstance));
     return true;
 }
 
@@ -1346,6 +1390,8 @@ std::vector<MultiPresetMixer::NodeReadout> MultiPresetMixer::ReadNodeParamsForTy
         return readouts;
     }
 
+    const InstanceReadScope readScope(*this);
+
     auto collect = [&](const SignalGraphExecutor& executor, const char* scope, const std::string& presetId) {
         for (const auto& nodeId : executor.FindNodesOfType(effectType, true))
         {
@@ -1662,20 +1708,37 @@ bool MultiPresetMixer::TryRetireInstanceRealtime(std::unique_ptr<PresetInstance>
 
 void MultiPresetMixer::CollectFinishedFadeOuts()
 {
-    for (auto it = mInstances.begin(); it != mInstances.end();)
+    // Tailing instances also read as retiring, but they are not finished: their fade
+    // counter is zero because they are holding a flat gain, not ramping.
+    const auto isFinished = [](const std::unique_ptr<PresetInstance>& inst) {
+        return inst->phase == InstancePhase::FadingOut && inst->fadeSamplesRemaining <= 0;
+    };
+
+    // Nearly every block has nothing to drop, and then there is nobody to hand-shake with.
+    if (std::none_of(mInstances.begin(), mInstances.end(), isFinished))
     {
-        // Tailing instances also read as retiring, but they are not finished: their fade
-        // counter is zero because they are holding a flat gain, not ramping.
-        if ((*it)->phase == InstancePhase::FadingOut && (*it)->fadeSamplesRemaining <= 0 &&
-            TryRetireInstanceRealtime(*it))
+        return;
+    }
+
+    // The other half of InstanceReadScope: announce the erase, then look for a reader.
+    mErasingInstances.store(true, std::memory_order_seq_cst);
+
+    if (mInstanceReaders.load(std::memory_order_seq_cst) == 0)
+    {
+        for (auto it = mInstances.begin(); it != mInstances.end();)
         {
-            it = mInstances.erase(it); // unique_ptr moves only — no executor moves, no joins
-        }
-        else
-        {
-            ++it;
+            if (isFinished(*it) && TryRetireInstanceRealtime(*it))
+            {
+                it = mInstances.erase(it); // unique_ptr moves only — no executor moves, no joins
+            }
+            else
+            {
+                ++it;
+            }
         }
     }
+
+    mErasingInstances.store(false, std::memory_order_release);
 }
 
 void MultiPresetMixer::StartTunerWorker()
@@ -2574,6 +2637,7 @@ void MultiPresetMixer::Process(float** inputs, float** outputs, int numSamples)
 
 void MultiPresetMixer::SetSignalDiagnosticsEnabled(bool enabled)
 {
+    const InstanceReadScope readScope(*this);
     mSignalDiagnosticsEnabled.store(enabled, std::memory_order_release);
     mPreChainExecutor.SetSignalDiagnosticsEnabled(enabled);
     mPostChainExecutor.SetSignalDiagnosticsEnabled(enabled);
@@ -2613,6 +2677,7 @@ MultiPresetMixer::SignalDiagnosticsSnapshot MultiPresetMixer::GetSignalDiagnosti
         return node;
     };
 
+    const InstanceReadScope readScope(*this);
     SignalDiagnosticsSnapshot snapshot;
     snapshot.rawInput = readLevels(mRawInputLevels);
     snapshot.input = readLevels(mInputLevels);
@@ -2652,6 +2717,7 @@ MultiPresetMixer::SignalDiagnosticsSnapshot MultiPresetMixer::GetSignalDiagnosti
 bool MultiPresetMixer::ReadNodeSpectrum(std::string_view scope, const std::string& presetId, const std::string& nodeId,
                                         SpectrumTap::Bins& out)
 {
+    const InstanceReadScope readScope(*this);
     SignalGraphExecutor* executor = nullptr;
 
     if (scope == "pre")
@@ -2681,6 +2747,7 @@ bool MultiPresetMixer::ReadNodeSpectrum(std::string_view scope, const std::strin
 
 void MultiPresetMixer::ClearSpectrumTaps()
 {
+    const InstanceReadScope readScope(*this);
     mPreChainExecutor.ClearSpectrumWatch();
     mPostChainExecutor.ClearSpectrumWatch();
 
@@ -2759,6 +2826,7 @@ const MultiPresetMixer::PresetInstance* MultiPresetMixer::FindInstance(const std
 
 size_t MultiPresetMixer::GetPresetCount() const
 {
+    const InstanceReadScope readScope(*this);
     size_t count = 0;
 
     for (const auto& inst : mInstances)
@@ -2774,6 +2842,7 @@ size_t MultiPresetMixer::GetPresetCount() const
 
 size_t MultiPresetMixer::GetRetiringPresetCount() const
 {
+    const InstanceReadScope readScope(*this);
     size_t count = 0;
 
     for (const auto& inst : mInstances)
@@ -2815,6 +2884,7 @@ void MultiPresetMixer::ComputePanGains(double pan, float& gL, float& gR)
 
 SignalGraphExecutor::DSPPerformanceStats MultiPresetMixer::GetPerformanceStats() const
 {
+    const InstanceReadScope readScope(*this);
     SignalGraphExecutor::DSPPerformanceStats aggregatedStats;
 
     // Node ids only distinguish nodes inside one executor, so every id is rewritten to
@@ -2860,6 +2930,7 @@ SignalGraphExecutor::DSPPerformanceStats MultiPresetMixer::GetPerformanceStats()
 
 int MultiPresetMixer::GetTotalLatencySamples() const
 {
+    const InstanceReadScope readScope(*this);
     const int preChain = mPreChainExecutor.GetTotalLatencySamples();
     const int postChain = mPostChainExecutor.GetTotalLatencySamples();
 

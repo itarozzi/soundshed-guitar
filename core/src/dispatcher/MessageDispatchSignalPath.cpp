@@ -83,12 +83,6 @@ bool MessageDispatcher::DispatchSignalPath(PluginController& c, const nlohmann::
         return true;
     }
 
-    if (type == "loadNodeResource")
-    {
-        c.HandleLoadNodeResourceRequest(msg);
-        return true;
-    }
-
     return false;
 }
 } // namespace guitarfx

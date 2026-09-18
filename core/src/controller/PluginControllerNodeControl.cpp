@@ -143,8 +143,10 @@ void PluginController::HandleSetNodeEnabledRequest(const nlohmann::json& payload
     std::string presetId = payload.value("presetId", fallbackId);
     std::string nodeId = payload.value("nodeId", "");
     bool enabled = payload.value("enabled", true);
-    std::lock_guard<std::mutex> lock(mDSPMutex);
-    mPresetMixer.SetNodeEnabled(presetId, nodeId, enabled);
+    {
+        std::lock_guard<std::mutex> lock(mDSPMutex);
+        mPresetMixer.SetNodeEnabled(presetId, nodeId, enabled);
+    }
     UpdateHostLatency();
 }
 
@@ -154,43 +156,10 @@ void PluginController::HandleSetNodeParamRequest(const nlohmann::json& payload)
     std::string nodeId = payload.value("nodeId", "");
     std::string key = payload.value("key", "");
     double value = payload.value("value", 0.0);
-    std::lock_guard<std::mutex> lock(mDSPMutex);
-    mPresetMixer.SetNodeParam(presetId, nodeId, key, value);
-    UpdateHostLatency();
-}
-
-void PluginController::HandleLoadNodeResourceRequest(const nlohmann::json& payload)
-{
-    std::string presetId = payload.value("presetId", "p1");
-    std::string nodeId = payload.value("nodeId", "");
-    ResourceRef ref;
-
-    if (payload.contains("resourceType"))
     {
-        ref.resourceType = payload["resourceType"].get<std::string>();
+        std::lock_guard<std::mutex> lock(mDSPMutex);
+        mPresetMixer.SetNodeParam(presetId, nodeId, key, value);
     }
-
-    if (payload.contains("resourceId"))
-    {
-        ref.resourceId = payload["resourceId"].get<std::string>();
-    }
-
-    if (payload.contains("filePath"))
-    {
-        ref.filePath = payload["filePath"].get<std::string>();
-    }
-
-    const bool loaded = mPresetMixer.LoadNodeResource(presetId, nodeId, ref);
-
-    if (!loaded && ReportHostedPluginResourceLoadFailure(nodeId, ref))
-    {
-        DiscardFailedHostedPluginResourceSelection(nodeId, ref);
-    }
-    else if (loaded)
-    {
-        NotifyHostedPluginResourceLoadCompleted(nodeId, ref);
-    }
-
     UpdateHostLatency();
 }
 
@@ -223,6 +192,7 @@ void PluginController::ResetNamNodeLevelState(const std::string& nodeId)
         const auto useCalibrationIt = node->params.find("useCalibration");
         const double useCalibrationValue =
             (useCalibrationIt != node->params.end() && useCalibrationIt->second <= 0.5) ? 0.0 : 1.0;
+        std::lock_guard<std::mutex> lock(mDSPMutex);
         mPresetMixer.SetNodeParam(mActivePresetId, nodeId, "useCalibration", useCalibrationValue);
 
         // Re-inject current interface calibration level for this NAM node.

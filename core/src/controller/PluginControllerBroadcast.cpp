@@ -145,11 +145,12 @@ void PluginController::BroadcastState(StateScope scope)
     }
 
     // Active preset IDs — UI reads "activePresetIds" as string array
+    const auto slotConfigs = SnapshotActivePresetConfigs();
     nlohmann::json activePresetIds = nlohmann::json::array();
 
-    for (const auto& id : mPresetMixer.GetActivePresetIds())
+    for (const auto& cfg : slotConfigs)
     {
-        activePresetIds.push_back(id);
+        activePresetIds.push_back(cfg.id);
     }
 
     state["activePresetIds"] = activePresetIds;
@@ -162,13 +163,10 @@ void PluginController::BroadcastState(StateScope scope)
     mixer["activePresetIds"] = activePresetIds;
     nlohmann::json presetConfigs = nlohmann::json::object();
 
-    for (const auto& id : mPresetMixer.GetActivePresetIds())
+    for (const auto& cfg : slotConfigs)
     {
-        if (const auto cfg = mPresetMixer.GetPresetConfig(id))
-        {
-            presetConfigs[id] = {
-                {"name", cfg->name}, {"mix", cfg->mix}, {"pan", cfg->pan}, {"mute", cfg->mute}, {"solo", cfg->solo}};
-        }
+        presetConfigs[cfg.id] = {
+            {"name", cfg.name}, {"mix", cfg.mix}, {"pan", cfg.pan}, {"mute", cfg.mute}, {"solo", cfg.solo}};
     }
 
     mixer["presets"] = std::move(presetConfigs);
@@ -176,8 +174,9 @@ void PluginController::BroadcastState(StateScope scope)
     // Full preset graphs so the UI can display the signal chain for every mixer slot.
     nlohmann::json presetGraphs = nlohmann::json::object();
 
-    for (const auto& id : mPresetMixer.GetActivePresetIds())
+    for (const auto& cfg : slotConfigs)
     {
+        const auto& id = cfg.id;
         auto it = mMixerPresetJsonCache.find(id);
 
         if (it != mMixerPresetJsonCache.end())
