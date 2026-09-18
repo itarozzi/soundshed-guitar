@@ -244,7 +244,7 @@ void PluginController::Initialize()
 
     if (!automationData.empty())
     {
-        mAutomationSlots.LoadFromJson(automationData);
+        ReplaceAutomationSlots(automationData, nullptr);
     }
 
     // Load setlist cursor/bankSize from setlists.json

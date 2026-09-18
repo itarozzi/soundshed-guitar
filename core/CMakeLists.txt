@@ -635,6 +635,7 @@ set(GUITARFX_CORE_SOURCES
     src/automation/ParamRegistry.cpp
     src/automation/AutomationSlotTable.h
     src/automation/AutomationSlotTable.cpp
+    src/automation/AutomationSlotTableJson.cpp
 )
 
 if(GUITARFX_CORE_ENABLE_WASM_EFFECTS)

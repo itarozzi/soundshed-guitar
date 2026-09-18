@@ -5,6 +5,15 @@
  *
  * Owns the default + custom slots, handles persistence (automation.json),
  * and provides the apply path that routes normalized values to targets.
+ *
+ * Threading. The message thread is the only one that changes which slots there are,
+ * and it does so under the controller's mDSPMutex, because the audio thread walks
+ * the slots under that lock (MIDI, DAW automation). A rebuild from JSON is built off
+ * the lock and swapped in under it (BuildSlotsFromJson, CommitSlots).
+ *
+ * A host reads its parameters on any thread, the audio thread included, so it never
+ * walks the slots: each DAW parameter reads a cell of its own that mirrors its slot's
+ * value (BindDawParameters, GetDawParameterValue).
  */
 
 #include "automation/AutomationTypes.h"
@@ -12,11 +21,13 @@
 
 #include <nlohmann/json.hpp>
 
+#include <cstddef>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace guitarfx
@@ -31,6 +42,9 @@ class AutomationSlotTable
     AutomationSlotTable();
     ~AutomationSlotTable();
 
+    AutomationSlotTable(const AutomationSlotTable&) = delete;
+    AutomationSlotTable& operator=(const AutomationSlotTable&) = delete;
+
     /// Initialize the param registry with global/setlist entries bound to the mixer.
     /// Called once at startup after the mixer is available.
     void InitializeRegistry(MultiPresetMixer& mixer, const std::function<double()>& getSetlistCursor,
@@ -43,8 +57,33 @@ class AutomationSlotTable
                             const std::function<void(int)>& selectSceneByIndex,
                             const std::function<int()>& getActiveSceneIndex);
 
-    /// Load custom slots + default overrides from automation.json JSON.
+    /// Load custom slots + default overrides from automation.json JSON. Replaces the slots in
+    /// place, so only where nothing else can be reading them; otherwise BuildSlotsFromJson and
+    /// CommitSlots.
     void LoadFromJson(const nlohmann::json& json);
+
+    /// Message thread: the slots automation.json `json` describes, built without touching the
+    /// table. Every value starts at 0; LoadValuesInto can fill them in before they go live.
+    [[nodiscard]] std::vector<AutomationSlot> BuildSlotsFromJson(const nlohmann::json& json) const;
+
+    /// Message thread, under mDSPMutex: makes `slots` the table's slots and brings every DAW
+    /// parameter's value up to date with them. The replaced slots are left in `slots`, to be
+    /// freed once the lock is released.
+    void CommitSlots(std::vector<AutomationSlot>& slots);
+
+    /// LoadValuesFromJson, for slots that are not live yet (see BuildSlotsFromJson).
+    static void LoadValuesInto(std::vector<AutomationSlot>& slots, const nlohmann::json& json);
+
+    /// Message thread, before any other thread reads a parameter: the slot behind each DAW
+    /// parameter, in parameter order. From then on every slot's value is mirrored into a cell
+    /// for its parameter. An id with no slot, such as a reserved placeholder, reads 0, as does
+    /// a parameter whose slot is removed. Only the first call counts: a host keeps the plugin's
+    /// parameters for as long as it has the plugin.
+    void BindDawParameters(const std::vector<std::string>& slotIds);
+
+    /// Any thread, without a lock: the value of DAW parameter `parameterIndex`, or 0 when there
+    /// is no such parameter.
+    [[nodiscard]] float GetDawParameterValue(int parameterIndex) const;
 
     /// Serialize to JSON for persistence.
     [[nodiscard]] nlohmann::json SaveToJson() const;
@@ -172,14 +211,26 @@ class AutomationSlotTable
     [[nodiscard]] std::optional<MidiControlMap> PollMidiLearnCapture();
 
   private:
-    /// Build default slots from kDefaultSlots.
-    void InitializeDefaultSlots();
+    /// The default slots, from kDefaultSlots, with no overrides.
+    static std::vector<AutomationSlot> MakeDefaultSlots();
 
     /// Apply a slot's value to its target address. Called under lock.
     bool ApplySlotLocked(AutomationSlot& slot);
 
+    /// Joins `slot` to its DAW parameter's cell, if it has one, and publishes its value there.
+    void AttachDawValue(AutomationSlot& slot);
+
+    /// A slot on its way out: its DAW parameter, if it has one, reads 0 from now on.
+    static void DetachDawValue(AutomationSlot& slot);
+
     ParamRegistry mRegistry;
     std::vector<AutomationSlot> mSlots;
+
+    /// One cell per DAW parameter, allocated once by BindDawParameters and never moved, so a
+    /// host thread can read one while the message thread replaces the slots.
+    std::unique_ptr<std::atomic<float>[]> mDawValues;
+    std::size_t mDawValueCount = 0;
+    std::unordered_map<std::string, std::atomic<float>*> mDawValueBySlotId; ///< message thread
     MultiPresetMixer* mMixer = nullptr;
     const EffectRegistry* mEffectRegistry = nullptr;
 

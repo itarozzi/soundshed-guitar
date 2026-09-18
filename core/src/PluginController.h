@@ -304,8 +304,17 @@ class PluginController
     /// Apply a normalized 0..1 value from the DAW host to a slot. Takes DSP lock.
     void ApplyAutomationFromDAW(const std::string& slotId, float normalized);
 
-    /// Get the current normalized 0..1 value of a slot (for DAW parameter readback).
-    [[nodiscard]] float GetAutomationSlotValue(const std::string& slotId) const;
+    /// Message thread, once, as the host adapter registers its parameters: the slot behind each
+    /// DAW parameter, in parameter order (see AutomationSlotTable::BindDawParameters).
+    void BindDawParameters(const std::vector<std::string>& slotIds);
+
+    /// Any thread, without a lock: the normalized 0..1 value of DAW parameter `parameterIndex`,
+    /// for the host to read back. Hosts read parameters on the audio thread as well, and while
+    /// the message thread is replacing the slots.
+    [[nodiscard]] float GetDawParameterValue(int parameterIndex) const
+    {
+        return mAutomationSlots.GetDawParameterValue(parameterIndex);
+    }
 
     // ── Parameter bridging ─────────────────────────────────────────
     // Global FX have no flat parameter mirror: GlobalSignalChainConfig on the mixer is
@@ -483,6 +492,10 @@ class PluginController
     void HandleCancelMidiLearnRequest();
     /// Drops a deleted preset's per-preset MIDI mappings.
     void ForgetPresetAutomation(const std::string& presetId);
+    /// Message thread, never with mDSPMutex held: replaces the automation slots with those
+    /// automation.json `automation` describes, their values taken from `values` if given (the
+    /// state a DAW saved) and 0 otherwise. Built off the DSP lock and swapped in under it.
+    void ReplaceAutomationSlots(const nlohmann::json& automation, const nlohmann::json* values);
     /// Hands the automation table the active preset id when it has changed (idle tick).
     void SyncAutomationActivePreset();
     /// Hands the controller-display feed the active preset's name (idle tick).

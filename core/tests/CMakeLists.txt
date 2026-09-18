@@ -6,6 +6,7 @@ set(TEST_SOURCES
     AutomationNodeParamRangeTests.cpp
     AutomationPresetMappingTests.cpp
     AutomationSlotMidiToggleTests.cpp
+    AutomationSlotThreadTests.cpp
     BiquadNyquistTests.cpp
     BoundaryNodeGainTests.cpp
     ControllerDisplayFeedTests.cpp

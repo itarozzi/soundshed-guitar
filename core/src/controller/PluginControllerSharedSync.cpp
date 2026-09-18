@@ -66,7 +66,7 @@ void PluginController::ReloadSharedSyncSourcesFromDisk()
 
     if (!automationData.empty())
     {
-        mAutomationSlots.LoadFromJson(automationData);
+        ReplaceAutomationSlots(automationData, nullptr);
     }
 
     const auto setlistsData = LoadUiStorageJson("setlists.json", nlohmann::json::object());

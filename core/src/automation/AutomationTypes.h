@@ -86,12 +86,17 @@ struct AutomationSlot
     std::optional<MidiControlMap> midiMap;
     std::vector<KeyboardMap> keyMaps;
 
-    // Runtime state (audio-thread accessible via atomics)
+    // Runtime state (audio-thread accessible via atomics). Write `value` through StoreValue()
+    // or SetValue(), never directly, so a DAW parameter's copy of it stays current.
     std::atomic<float> value{0.0f};
     std::atomic<int> lastSource{static_cast<int>(AutomationSource::UI)};
     std::atomic<float> lastNormalized{0.0f}; ///< For trigger edge detection
     std::atomic<bool> lastToggleGate{false}; ///< For MIDI toggle edge detection
     std::atomic<bool> pendingApply{false};
+
+    /// While the slot is in its table and is a DAW parameter: the table's cell that mirrors
+    /// `value` for the host to read on any thread (see AutomationSlotTable::BindDawParameters).
+    std::atomic<float>* dawValue = nullptr;
 
     AutomationSlot() = default;
     AutomationSlot(const AutomationSlot& other);
@@ -101,6 +106,9 @@ struct AutomationSlot
 
     /// Set value from a source; marks pending apply.
     void SetValue(float normalized, AutomationSource src);
+
+    /// Sets `value`, and the DAW parameter's copy of it.
+    void StoreValue(float normalized);
 
     /// Check if this slot has any input mapping (MIDI or keyboard).
     [[nodiscard]] bool HasInputMapping() const

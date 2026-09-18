@@ -159,7 +159,9 @@ public:
 
     [[nodiscard]] float getValue() const override
     {
-        return mOwner.mController.GetAutomationSlotValue(mParamID.toStdString());
+        // Any thread, the audio thread included (JUCE's VST3 wrapper compares against it while
+        // applying the host's automation), so it reads the parameter's own cell without a lock.
+        return mOwner.mController.GetDawParameterValue(mParameterIndex);
     }
 
     void setValue(float newValue) override
@@ -478,8 +480,10 @@ void PluginProcessorAdapter::registerAutomationParameters()
     }
 
     int paramIndex = 0;
+    std::vector<std::string> slotIdsByParameter;
     const auto addSlotParameter = [&](const juce::String& id, const juce::String& label) {
         addParameter(new AutomationSlotParameter(*this, paramIndex, id, label));
+        slotIdsByParameter.push_back(id.toStdString());
         ++paramIndex;
     };
     const auto addSlot = [&](const std::string& slotId) {
@@ -504,6 +508,9 @@ void PluginProcessorAdapter::registerAutomationParameters()
 
     for (std::size_t i = static_cast<std::size_t>(stableDefaultCount); i < defaultSlotIds.size(); ++i)
         addSlot(defaultSlotIds[i]);
+
+    // Before the host has the plugin, so before any thread can call getValue().
+    mController.BindDawParameters(slotIdsByParameter);
 }
 
 juce::AudioProcessorEditor* PluginProcessorAdapter::createEditor()

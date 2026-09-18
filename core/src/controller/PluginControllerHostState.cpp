@@ -591,17 +591,21 @@ void PluginController::RestoreHostState(const std::string& json)
             }
         }
 
+        const auto valuesIt = state.find("automationValues");
+        const nlohmann::json* values = valuesIt != state.end() && valuesIt->is_object() ? &*valuesIt : nullptr;
+
         if (state.contains("automation") && state["automation"].is_object())
         {
-            mAutomationSlots.LoadFromJson(state["automation"]);
+            // The values go into the rebuilt slots, which can include custom slots they belong
+            // to, before those go live: nothing sees them at 0 in between.
+            ReplaceAutomationSlots(state["automation"], values);
+        }
+        else if (values != nullptr)
+        {
+            mAutomationSlots.LoadValuesFromJson(*values);
         }
 
-        // After LoadFromJson, which can rebuild the custom slots these values belong to.
         // States written before values were saved have no key, and leave values alone.
-        if (state.contains("automationValues") && state["automationValues"].is_object())
-        {
-            mAutomationSlots.LoadValuesFromJson(state["automationValues"]);
-        }
     }
     catch (const std::exception&)
     {

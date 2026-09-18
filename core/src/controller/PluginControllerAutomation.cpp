@@ -247,10 +247,31 @@ void PluginController::ApplyAutomationFromDAW(const std::string& slotId, float n
     mAutomationSlots.ApplyAutomationLocked(slotId, normalized, AutomationSource::DAW);
 }
 
-float PluginController::GetAutomationSlotValue(const std::string& slotId) const
+void PluginController::BindDawParameters(const std::vector<std::string>& slotIds)
 {
-    const auto* slot = mAutomationSlots.FindSlot(slotId);
-    return slot ? slot->value.load() : 0.0f;
+    // Joins the live slots to their parameters' cells, which the audio thread writes through.
+    std::lock_guard<std::mutex> lock(mDSPMutex);
+    mAutomationSlots.BindDawParameters(slotIds);
+}
+
+void PluginController::ReplaceAutomationSlots(const nlohmann::json& automation, const nlohmann::json* values)
+{
+    // The audio thread walks the slots under mDSPMutex (MIDI, DAW automation), so they are
+    // swapped in under it, having been built, and given their values, off it. A host reads
+    // its parameters' own cells rather than the slots, and CommitSlots updates those.
+    auto slots = mAutomationSlots.BuildSlotsFromJson(automation);
+
+    if (values != nullptr)
+    {
+        AutomationSlotTable::LoadValuesInto(slots, *values);
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(mDSPMutex);
+        mAutomationSlots.CommitSlots(slots);
+    }
+
+    // `slots` now holds the ones replaced, freed here, after the lock.
 }
 
 void PluginController::HandleArmMidiLearnRequest(const nlohmann::json& payload)

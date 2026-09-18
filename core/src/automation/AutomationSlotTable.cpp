@@ -1,11 +1,12 @@
 /**
  * AutomationSlotTable.cpp — Manages all automation slots and the apply dispatch.
+ *
+ * Loading and saving the slots as JSON is in AutomationSlotTableJson.cpp.
  */
 
 #include "automation/AutomationSlotTable.h"
 #include "dsp/MultiPresetMixer.h"
 #include "dsp/EffectRegistry.h"
-#include "dsp/FiniteCheck.h"
 
 #include <algorithm>
 #include <cmath>
@@ -45,30 +46,6 @@ double DenormalizeNodeParam(const ParamRange& range, bool isEnum, double normali
     return std::clamp(native, std::min(range.minValue, range.maxValue), std::max(range.minValue, range.maxValue));
 }
 
-nlohmann::json MidiMapToJson(const MidiControlMap& map)
-{
-    nlohmann::json json = nlohmann::json::object();
-    json["eventType"] = static_cast<int>(map.eventType);
-    json["channel"] = map.channel;
-    json["controller"] = map.controller;
-    json["mode"] = static_cast<int>(map.mode);
-    json["sensitivity"] = map.sensitivity;
-    json["pickupRange"] = map.pickupRange;
-    return json;
-}
-
-MidiControlMap MidiMapFromJson(const nlohmann::json& json)
-{
-    MidiControlMap map;
-    map.eventType = static_cast<MidiControlMap::EventType>(json.value("eventType", 0));
-    map.channel = json.value("channel", 0);
-    map.controller = json.value("controller", 0);
-    map.mode = static_cast<MidiControlMap::Mode>(json.value("mode", 0));
-    map.sensitivity = json.value("sensitivity", 0.1f);
-    map.pickupRange = json.value("pickupRange", 0.1f);
-    return map;
-}
-
 /// Whether a mapping listens to this MIDI control. A NoteOn mapping also hears its key's
 /// release, which arrives as NoteOff.
 bool ListensTo(const MidiControlMap& map, MidiControlMap::EventType eventType, int channel, int controller)
@@ -80,6 +57,10 @@ bool ListensTo(const MidiControlMap& map, MidiControlMap::EventType eventType, i
 } // namespace
 
 // ── AutomationSlot copy helpers ──────────────────────────────────────────
+//
+// A copy is not in the table, so it does not take dawValue: the constructor leaves it unset and
+// assignment keeps the target's. A move does take it, which is what keeps a slot joined to its
+// DAW parameter as the vector reallocates or erases around it.
 
 AutomationSlot::AutomationSlot(const AutomationSlot& other)
     : slotId(other.slotId), label(other.label), address(other.address), nodeSelector(other.nodeSelector),
@@ -101,7 +82,7 @@ AutomationSlot& AutomationSlot::operator=(const AutomationSlot& other)
         presetId = other.presetId;
         midiMap = other.midiMap;
         keyMaps = other.keyMaps;
-        value.store(other.value.load());
+        StoreValue(other.value.load());
         lastSource.store(other.lastSource.load());
         lastNormalized.store(other.lastNormalized.load());
         lastToggleGate.store(other.lastToggleGate.load());
@@ -113,23 +94,27 @@ AutomationSlot& AutomationSlot::operator=(const AutomationSlot& other)
 
 void AutomationSlot::SetValue(float normalized, AutomationSource src)
 {
-    value.store(normalized);
+    StoreValue(normalized);
     lastSource.store(static_cast<int>(src));
     pendingApply.store(true);
 }
 
-// ── AutomationSlotTable ───────────────────────────────────────────────────
-
-AutomationSlotTable::AutomationSlotTable()
+void AutomationSlot::StoreValue(float normalized)
 {
-    InitializeDefaultSlots();
+    value.store(normalized);
+
+    if (dawValue)
+    {
+        dawValue->store(normalized, std::memory_order_relaxed);
+    }
 }
 
-AutomationSlotTable::~AutomationSlotTable() = default;
+// ── AutomationSlotTable ───────────────────────────────────────────────────
 
-void AutomationSlotTable::InitializeDefaultSlots()
+std::vector<AutomationSlot> AutomationSlotTable::MakeDefaultSlots()
 {
-    mSlots.clear();
+    std::vector<AutomationSlot> slots;
+    slots.reserve(std::size(kDefaultSlots));
 
     for (const auto& def : kDefaultSlots)
     {
@@ -138,9 +123,17 @@ void AutomationSlotTable::InitializeDefaultSlots()
         slot.address = def.address;
         slot.label = def.label;
         slot.isDefault = true;
-        mSlots.push_back(std::move(slot));
+        slots.push_back(std::move(slot));
     }
+
+    return slots;
 }
+
+AutomationSlotTable::AutomationSlotTable() : mSlots(MakeDefaultSlots())
+{
+}
+
+AutomationSlotTable::~AutomationSlotTable() = default;
 
 void AutomationSlotTable::InitializeRegistry(
     MultiPresetMixer& mixer, const std::function<double()>& getSetlistCursor,
@@ -323,285 +316,79 @@ void AutomationSlotTable::InitializeRegistry(
     }
 }
 
-// ── Serialization ─────────────────────────────────────────────────────────
-
-nlohmann::json AutomationSlotTable::SaveToJson() const
+void AutomationSlotTable::CommitSlots(std::vector<AutomationSlot>& slots)
 {
-    nlohmann::json j = nlohmann::json::object();
-    j["schemaVersion"] = 1;
+    mSlots.swap(slots);
 
-    // Default slot overrides (midiMap, keyMaps, label)
-    nlohmann::json overrides = nlohmann::json::object();
-
-    for (const auto& slot : mSlots)
-    {
-        if (!slot.isDefault)
-        {
-            continue;
-        }
-
-        if (!slot.midiMap && slot.keyMaps.empty() && slot.label.empty())
-        {
-            continue;
-        }
-
-        nlohmann::json o = nlohmann::json::object();
-
-        // Only store label if it differs from the default
-        for (const auto& def : kDefaultSlots)
-        {
-            if (def.slotId == slot.slotId && def.label != slot.label)
-            {
-                o["label"] = slot.label;
-                break;
-            }
-        }
-
-        if (slot.midiMap)
-        {
-            o["midiMap"] = MidiMapToJson(*slot.midiMap);
-        }
-
-        if (!slot.keyMaps.empty())
-        {
-            nlohmann::json km = nlohmann::json::array();
-
-            for (const auto& k : slot.keyMaps)
-            {
-                km.push_back({{"key", k.key}, {"mode", static_cast<int>(k.mode)}, {"value", k.value}});
-            }
-
-            o["keyMap"] = std::move(km);
-        }
-
-        overrides[slot.slotId] = std::move(o);
-    }
-
-    j["defaultSlotOverrides"] = std::move(overrides);
-
-    // Custom slots
-    nlohmann::json customs = nlohmann::json::array();
-
-    for (const auto& slot : mSlots)
-    {
-        if (slot.isDefault || !slot.presetId.empty())
-        {
-            continue;
-        }
-
-        nlohmann::json s = nlohmann::json::object();
-        s["slotId"] = slot.slotId;
-        s["label"] = slot.label;
-        s["address"] = slot.address;
-
-        if (!slot.nodeSelector.empty())
-        {
-            s["nodeSelector"] = slot.nodeSelector;
-        }
-
-        if (slot.midiMap)
-        {
-            s["midiMap"] = MidiMapToJson(*slot.midiMap);
-        }
-
-        if (!slot.keyMaps.empty())
-        {
-            nlohmann::json km = nlohmann::json::array();
-
-            for (const auto& k : slot.keyMaps)
-            {
-                km.push_back({{"key", k.key}, {"mode", static_cast<int>(k.mode)}, {"value", k.value}});
-            }
-
-            s["keyMap"] = std::move(km);
-        }
-
-        customs.push_back(std::move(s));
-    }
-
-    j["customSlots"] = std::move(customs);
-
-    // Per-preset MIDI mappings. Written only when there are some, so a document from before
-    // they existed saves back unchanged.
-    nlohmann::json presetSlots = nlohmann::json::array();
-
-    for (const auto& slot : mSlots)
-    {
-        if (slot.presetId.empty())
-        {
-            continue;
-        }
-
-        nlohmann::json s = nlohmann::json::object();
-        s["slotId"] = slot.slotId;
-        s["presetId"] = slot.presetId;
-        s["label"] = slot.label;
-        s["address"] = slot.address;
-
-        if (slot.midiMap)
-        {
-            s["midiMap"] = MidiMapToJson(*slot.midiMap);
-        }
-
-        presetSlots.push_back(std::move(s));
-    }
-
-    if (!presetSlots.empty())
-    {
-        j["presetSlots"] = std::move(presetSlots);
-    }
-
-    return j;
-}
-
-void AutomationSlotTable::LoadFromJson(const nlohmann::json& j)
-{
-    InitializeDefaultSlots();
-
-    // Load default slot overrides
-    if (j.contains("defaultSlotOverrides") && j["defaultSlotOverrides"].is_object())
-    {
-        for (auto it = j["defaultSlotOverrides"].begin(); it != j["defaultSlotOverrides"].end(); ++it)
-        {
-            const auto& slotId = it.key();
-            const auto& o = it.value();
-            auto* slot = FindSlot(slotId);
-
-            if (!slot || !slot->isDefault)
-            {
-                continue;
-            }
-
-            if (o.contains("label") && o["label"].is_string())
-            {
-                slot->label = o["label"].get<std::string>();
-            }
-
-            if (o.contains("midiMap") && o["midiMap"].is_object())
-            {
-                slot->midiMap = MidiMapFromJson(o["midiMap"]);
-            }
-
-            if (o.contains("keyMap") && o["keyMap"].is_array())
-            {
-                slot->keyMaps.clear();
-
-                for (const auto& k : o["keyMap"])
-                {
-                    KeyboardMap km;
-                    km.key = k.value("key", "");
-                    km.mode = static_cast<KeyboardMap::Mode>(k.value("mode", 0));
-                    km.value = k.value("value", 0.0f);
-                    slot->keyMaps.push_back(std::move(km));
-                }
-            }
-        }
-    }
-
-    // Load custom slots
-    if (j.contains("customSlots") && j["customSlots"].is_array())
-    {
-        for (const auto& cs : j["customSlots"])
-        {
-            AutomationSlot slot;
-            slot.slotId = cs.value("slotId", "");
-            slot.label = cs.value("label", "");
-            slot.address = cs.value("address", "");
-            slot.nodeSelector = cs.value("nodeSelector", "");
-            slot.isDefault = false;
-
-            if (cs.contains("midiMap") && cs["midiMap"].is_object())
-            {
-                slot.midiMap = MidiMapFromJson(cs["midiMap"]);
-            }
-
-            if (cs.contains("keyMap") && cs["keyMap"].is_array())
-            {
-                for (const auto& k : cs["keyMap"])
-                {
-                    KeyboardMap km;
-                    km.key = k.value("key", "");
-                    km.mode = static_cast<KeyboardMap::Mode>(k.value("mode", 0));
-                    km.value = k.value("value", 0.0f);
-                    slot.keyMaps.push_back(std::move(km));
-                }
-            }
-
-            if (!slot.slotId.empty())
-            {
-                mSlots.push_back(std::move(slot));
-            }
-        }
-    }
-
-    // Per-preset MIDI mappings
-    if (j.contains("presetSlots") && j["presetSlots"].is_array())
-    {
-        for (const auto& ps : j["presetSlots"])
-        {
-            if (!ps.is_object())
-            {
-                continue;
-            }
-
-            AutomationSlot slot;
-            slot.slotId = ps.value("slotId", "");
-            slot.presetId = ps.value("presetId", "");
-            slot.label = ps.value("label", "");
-            slot.address = ps.value("address", "");
-
-            if (ps.contains("midiMap") && ps["midiMap"].is_object())
-            {
-                slot.midiMap = MidiMapFromJson(ps["midiMap"]);
-            }
-
-            if (!slot.slotId.empty() && !slot.presetId.empty() && !FindSlot(slot.slotId))
-            {
-                mSlots.push_back(std::move(slot));
-            }
-        }
-    }
-}
-
-// ── Host state: slot values ──────────────────────────────────────────────
-
-nlohmann::json AutomationSlotTable::SaveValuesToJson() const
-{
-    // A json object is an ordered map, so the same values always dump to the same bytes.
-    // Hosts, and clap-validator's state tests, compare saved states byte for byte.
-    nlohmann::json values = nlohmann::json::object();
-
-    for (const auto& slot : mSlots)
-    {
-        values[slot.slotId] = slot.value.load();
-    }
-
-    return values;
-}
-
-void AutomationSlotTable::LoadValuesFromJson(const nlohmann::json& json)
-{
+    // Each new slot publishes its value, then a parameter whose slot has gone reads 0. In that
+    // order, and one store per cell, so a host reading meanwhile never sees a value in between.
     for (auto& slot : mSlots)
     {
-        float value = 0.0f;
+        AttachDawValue(slot);
+    }
 
-        if (const auto it = json.find(slot.slotId); it != json.end() && it->is_number())
+    for (auto& replaced : slots)
+    {
+        const bool claimed = std::any_of(mSlots.begin(), mSlots.end(), [&replaced](const AutomationSlot& slot) {
+            return slot.dawValue == replaced.dawValue;
+        });
+
+        if (!claimed)
         {
-            const auto stored = it->get<double>();
-
-            // std::clamp passes a NaN straight through, so a non-finite value is rejected
-            // before clamping rather than after.
-            if (IsFinite(stored))
-            {
-                value = static_cast<float>(std::clamp(stored, 0.0, 1.0));
-            }
+            DetachDawValue(replaced);
         }
 
-        slot.value.store(value);
-        // As if this value had been applied: a host re-sending it is then not a rising
-        // edge, and does not fire the trigger.
-        slot.lastNormalized.store(value);
-        slot.pendingApply.store(false);
+        // No longer in the table, though only freed later.
+        replaced.dawValue = nullptr;
+    }
+}
+
+// ── DAW parameters ───────────────────────────────────────────────────────
+
+void AutomationSlotTable::BindDawParameters(const std::vector<std::string>& slotIds)
+{
+    if (mDawValues)
+    {
+        return;
+    }
+
+    mDawValueCount = slotIds.size();
+    mDawValues = std::make_unique<std::atomic<float>[]>(mDawValueCount);
+
+    for (std::size_t i = 0; i < mDawValueCount; ++i)
+    {
+        mDawValueBySlotId.emplace(slotIds[i], &mDawValues[i]);
+    }
+
+    for (auto& slot : mSlots)
+    {
+        AttachDawValue(slot);
+    }
+}
+
+float AutomationSlotTable::GetDawParameterValue(int parameterIndex) const
+{
+    if (parameterIndex < 0 || static_cast<std::size_t>(parameterIndex) >= mDawValueCount)
+    {
+        return 0.0f;
+    }
+
+    return mDawValues[static_cast<std::size_t>(parameterIndex)].load(std::memory_order_relaxed);
+}
+
+void AutomationSlotTable::AttachDawValue(AutomationSlot& slot)
+{
+    const auto it = mDawValueBySlotId.find(slot.slotId);
+    slot.dawValue = it != mDawValueBySlotId.end() ? it->second : nullptr;
+    slot.StoreValue(slot.value.load());
+}
+
+void AutomationSlotTable::DetachDawValue(AutomationSlot& slot)
+{
+    if (slot.dawValue)
+    {
+        slot.dawValue->store(0.0f, std::memory_order_relaxed);
+        slot.dawValue = nullptr;
     }
 }
 
@@ -647,54 +434,6 @@ std::vector<std::string> AutomationSlotTable::GetSlotIds() const
     }
 
     return ids;
-}
-
-nlohmann::json AutomationSlotTable::GetSlotsJson() const
-{
-    nlohmann::json slots = nlohmann::json::array();
-
-    for (const auto& s : mSlots)
-    {
-        nlohmann::json sj = nlohmann::json::object();
-        sj["slotId"] = s.slotId;
-        sj["label"] = s.label;
-        sj["address"] = s.address;
-
-        if (!s.nodeSelector.empty())
-        {
-            sj["nodeSelector"] = s.nodeSelector;
-        }
-
-        sj["isDefault"] = s.isDefault;
-
-        if (!s.presetId.empty())
-        {
-            sj["presetId"] = s.presetId;
-        }
-
-        sj["value"] = s.value.load();
-
-        if (s.midiMap)
-        {
-            sj["midiMap"] = MidiMapToJson(*s.midiMap);
-        }
-
-        if (!s.keyMaps.empty())
-        {
-            nlohmann::json km = nlohmann::json::array();
-
-            for (const auto& k : s.keyMaps)
-            {
-                km.push_back({{"key", k.key}, {"mode", static_cast<int>(k.mode)}, {"value", k.value}});
-            }
-
-            sj["keyMap"] = std::move(km);
-        }
-
-        slots.push_back(std::move(sj));
-    }
-
-    return slots;
 }
 
 std::vector<ParamRegistryInfo> AutomationSlotTable::GetRegistryInfo() const
@@ -765,6 +504,7 @@ bool AutomationSlotTable::SetCustomSlot(const std::string& slotId, const std::op
         }
 
         mSlots.push_back(std::move(newSlot));
+        AttachDawValue(mSlots.back());
         return true;
     }
 
@@ -831,6 +571,7 @@ bool AutomationSlotTable::RemoveCustomSlot(const std::string& slotId)
     {
         if (it->slotId == slotId && !it->isDefault)
         {
+            DetachDawValue(*it);
             mSlots.erase(it);
             return true;
         }
@@ -858,6 +599,7 @@ bool AutomationSlotTable::SetPresetSlot(const std::string& slotId, const std::st
         newSlot.presetId = presetId;
         mSlots.push_back(std::move(newSlot));
         slot = &mSlots.back();
+        AttachDawValue(*slot);
     }
     else if (slot->presetId.empty())
     {
@@ -887,6 +629,14 @@ int AutomationSlotTable::RemovePresetSlots(const std::string& presetId)
     if (presetId.empty())
     {
         return 0;
+    }
+
+    for (auto& slot : mSlots)
+    {
+        if (slot.presetId == presetId)
+        {
+            DetachDawValue(slot);
+        }
     }
 
     return static_cast<int>(
@@ -1009,7 +759,7 @@ bool AutomationSlotTable::ApplySlotLocked(AutomationSlot& slot)
         // Reset both value and lastNormalized so the trigger can fire again
         // on the next rising edge. Without this, a sustained/high MIDI value
         // or repeated Test button presses would prevent retriggering.
-        slot.value.store(0.0f);
+        slot.StoreValue(0.0f);
         slot.lastNormalized.store(0.0f);
     }
     else
