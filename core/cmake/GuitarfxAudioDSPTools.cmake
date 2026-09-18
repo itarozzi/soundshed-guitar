@@ -67,6 +67,79 @@ function(guitarfx_prepare_audio_dsp_tools source_dir out_include_dir)
     }
 ]=])
 
+    # Each minimum-phase IIR stage resets itself when a sample goes non-finite or huge, and tests
+    # for that with std::isfinite. Release builds use fast math, and -ffast-math (every non-MSVC
+    # build: Android, macOS, Linux) folds std::isfinite to true while `NaN > 1e12` is false, so a
+    # NaN from the model or the input got past the check and latched in the filter state: every
+    # later sample came out NaN. Test with core/src/dsp/FiniteCheck.h instead; core/src is on the
+    # include path of everything that includes this header, as both are public include
+    # directories of SoundshedGuitarCore. The four guards read the same, so each search takes in
+    # enough of the reset after it to match exactly once. Regression test:
+    # TestNamResamplerRecoversFromNaN in core/tests/SampleRateConverterTests.cpp, which only a
+    # clang Release build (core/build-clangcl) can fail.
+    _guitarfx_replace_once(_content "finite-check-include"
+        "#include \"Dependencies/LanczosResampler.h\""
+[=[
+#include "Dependencies/LanczosResampler.h"
+
+// Soundshed fix (core/cmake/GuitarfxAudioDSPTools.cmake): std::isfinite folds to true under
+// -ffast-math, so the filters' NaN guards use guitarfx::IsFinite.
+#include "dsp/FiniteCheck.h"]=])
+
+    _guitarfx_replace_once(_content "finite-check-upsampler-input-guard"
+[=[
+            if (!std::isfinite(static_cast<double>(y)) || std::abs(static_cast<double>(y)) > 1.0e12)
+            {
+              for (size_t resetSection = 0; resetSection < numSections; resetSection++)
+                mUpsamplingInputIIRState[]=]
+[=[
+            if (!guitarfx::IsFinite(static_cast<double>(y)) || std::abs(static_cast<double>(y)) > 1.0e12)
+            {
+              for (size_t resetSection = 0; resetSection < numSections; resetSection++)
+                mUpsamplingInputIIRState[]=])
+
+    _guitarfx_replace_once(_content "finite-check-output-strict-guard"
+[=[
+      if (!std::isfinite(static_cast<double>(y)) || std::abs(static_cast<double>(y)) > 1.0e12)
+      {
+        for (size_t resetSection = 0; resetSection < numSections; resetSection++)
+          mMinPhaseOutputStrictIIRState[]=]
+[=[
+      if (!guitarfx::IsFinite(static_cast<double>(y)) || std::abs(static_cast<double>(y)) > 1.0e12)
+      {
+        for (size_t resetSection = 0; resetSection < numSections; resetSection++)
+          mMinPhaseOutputStrictIIRState[]=])
+
+    _guitarfx_replace_once(_content "finite-check-anti-alias-guard"
+[=[
+          if (!std::isfinite(static_cast<double>(y)) || std::abs(static_cast<double>(y)) > 1.0e12)
+          {
+            for (size_t resetSection = 0; resetSection < mMinimumPhaseSections.size(); resetSection++)]=]
+[=[
+          if (!guitarfx::IsFinite(static_cast<double>(y)) || std::abs(static_cast<double>(y)) > 1.0e12)
+          {
+            for (size_t resetSection = 0; resetSection < mMinimumPhaseSections.size(); resetSection++)]=])
+
+    _guitarfx_replace_once(_content "finite-check-fused-decimator-guard"
+[=[
+          if (!std::isfinite(static_cast<double>(y)) || std::abs(static_cast<double>(y)) > 1.0e12)
+          {
+            for (size_t resetSection = 0; resetSection < numSections; resetSection++)
+              mMinPhaseDownIIRState[]=]
+[=[
+          if (!guitarfx::IsFinite(static_cast<double>(y)) || std::abs(static_cast<double>(y)) > 1.0e12)
+          {
+            for (size_t resetSection = 0; resetSection < numSections; resetSection++)
+              mMinPhaseDownIIRState[]=])
+
+    # A pin bump that adds a guard would otherwise bring std::isfinite back without a word.
+    string(FIND "${_content}" "std::isfinite(" _unguarded)
+    if(NOT _unguarded EQUAL -1)
+        message(FATAL_ERROR
+            "AudioDSPTools: ResamplingContainer.h has a std::isfinite the fast-math fix in "
+            "core/cmake/GuitarfxAudioDSPTools.cmake does not cover; replace it with guitarfx::IsFinite.")
+    endif()
+
     # Written through a temporary so the header's timestamp only moves when its content does.
     file(WRITE "${_to}/ResamplingContainer.h.new" "${_content}")
     file(COPY_FILE "${_to}/ResamplingContainer.h.new" "${_to}/ResamplingContainer.h" ONLY_IF_DIFFERENT)

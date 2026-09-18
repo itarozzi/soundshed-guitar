@@ -524,6 +524,162 @@ bool TestNamFractionalResamplerPreRoll()
 
     return allPassed;
 }
+
+/// Passes audio straight through, except that its `nanCall`-th process() call returns NaN
+/// throughout: a model that blew up for one block.
+class NaNBurstNamDSP final : public ::nam::DSP
+{
+  public:
+    NaNBurstNamDSP(int nanCall, NAM_SAMPLE nan) : ::nam::DSP(1, 1, 48000.0), mNanCall(nanCall), mNan(nan)
+    {
+    }
+
+    void Reset(double, int) override
+    {
+    }
+
+    void process(NAM_SAMPLE** input, NAM_SAMPLE** output, int numFrames) override
+    {
+        if (mCalls++ == mNanCall)
+        {
+            std::fill_n(output[0], numFrames, mNan);
+        }
+        else
+        {
+            std::copy_n(input[0], numFrames, output[0]);
+        }
+    }
+
+  private:
+    int mNanCall;
+    NAM_SAMPLE mNan;
+    int mCalls = 0;
+};
+
+/// A sine through a minimum-phase NamOversamplingProcessor in 256-sample blocks. Unless
+/// `nanBlock` is negative, that block is NaN throughout, at the model's output or at the input.
+std::vector<NAM_SAMPLE> RenderWithNaNBlock(double hostRate, double modelRate, int factor, bool nanFromModel,
+                                           int nanBlock, NAM_SAMPLE nan, int totalBlocks)
+{
+    constexpr int kBlock = 256;
+    NaNBurstNamDSP model(nanFromModel ? nanBlock : -1, nan);
+    guitarfx::NamOversamplingProcessor processor;
+    processor.Prepare(model, hostRate, modelRate, kBlock, factor, dsp::EAntiAliasFilterPhase::MinimumPhaseCascadedFIR);
+
+    std::vector<NAM_SAMPLE> input(static_cast<std::size_t>(kBlock));
+    std::vector<NAM_SAMPLE> output(static_cast<std::size_t>(totalBlocks) * kBlock, static_cast<NAM_SAMPLE>(0.0));
+
+    for (int block = 0; block < totalBlocks; ++block)
+    {
+        for (int index = 0; index < kBlock; ++index)
+        {
+            const int frame = block * kBlock + index;
+            input[static_cast<std::size_t>(index)] =
+                !nanFromModel && block == nanBlock
+                    ? nan
+                    : static_cast<NAM_SAMPLE>(0.5 * std::sin(2.0 * kPi * 997.0 * frame / hostRate));
+        }
+
+        processor.Process(model, input.data(), output.data() + static_cast<std::size_t>(block) * kBlock, kBlock);
+    }
+
+    return output;
+}
+
+/// The resampler's minimum-phase IIR stages reset themselves when a sample goes non-finite, so
+/// a NaN block from the model (or the input) costs a click, not the rest of the session. The
+/// guards used std::isfinite, which -ffast-math -- every non-MSVC Release build, Android's
+/// included -- folds to true, so there the NaN latched in the filter state and every later
+/// block came out NaN. The fix is in core/cmake/GuitarfxAudioDSPTools.cmake. Only a clang
+/// Release build (core/build-clangcl) can fail this; Debug and MSVC's /fp:fast keep
+/// std::isfinite.
+bool TestNamResamplerRecoversFromNaN()
+{
+    struct Case
+    {
+        const char* label;
+        double hostRate;
+        double modelRate;
+        int factor;
+        bool nanFromModel;
+    };
+
+    constexpr Case kCases[] = {
+        {"44.1 kHz model at 48 kHz, oversampling off, NaN from the model", 48000.0, 44100.0, 1, true},
+        {"44.1 kHz model at 48 kHz, 2x, NaN from the model", 48000.0, 44100.0, 2, true},
+        {"44.1 kHz model at 48 kHz, oversampling off, NaN at the input", 48000.0, 44100.0, 1, false},
+    };
+    constexpr int kNaNBlock = 8;
+    constexpr int kTotalBlocks = 48;
+    // Compared from here on: well past the filters' ring-down after the NaN block.
+    constexpr std::size_t kSettledFrom = 32 * 256;
+    constexpr double kRecoveryTolerance = 1.0e-4;
+
+    // Made at run time: under -ffast-math a NaN constant may never reach the code under test.
+    const auto nan = static_cast<NAM_SAMPLE>(std::strtod("nan", nullptr));
+
+    if (guitarfx::IsFinite(nan))
+    {
+        std::cerr << "NaN recovery: strtod(\"nan\") did not give a NaN\n";
+        return false;
+    }
+
+    const auto isClean = [](NAM_SAMPLE sample) {
+        return guitarfx::IsFinite(sample) && std::abs(static_cast<double>(sample)) <= 1.0;
+    };
+
+    bool allPassed = true;
+
+    for (const Case& test : kCases)
+    {
+        const auto reference =
+            RenderWithNaNBlock(test.hostRate, test.modelRate, test.factor, test.nanFromModel, -1, nan, kTotalBlocks);
+        const auto output = RenderWithNaNBlock(test.hostRate, test.modelRate, test.factor, test.nanFromModel, kNaNBlock,
+                                               nan, kTotalBlocks);
+
+        if (!std::all_of(reference.begin(), reference.end(), isClean))
+        {
+            std::cerr << test.label << ": non-finite or out-of-range reference\n";
+            allPassed = false;
+            continue;
+        }
+
+        // Checked first: /fp:fast breaks NaN compares, so a difference means nothing until then.
+        const auto bad = std::count_if(output.begin(), output.end(), [&](NAM_SAMPLE s) { return !isClean(s); });
+
+        if (bad > 0)
+        {
+            const auto lastBad =
+                std::find_if(output.rbegin(), output.rend(), [&](NAM_SAMPLE s) { return !isClean(s); });
+            std::cerr << test.label << ": " << bad << " non-finite or out-of-range samples, the last at frame "
+                      << (output.rend() - lastBad - 1) << " of " << output.size() << "\n";
+            allPassed = false;
+            continue;
+        }
+
+        double referencePeak = 0.0;
+        double largestDifference = 0.0;
+
+        for (std::size_t index = kSettledFrom; index < output.size(); ++index)
+        {
+            referencePeak = std::max(referencePeak, std::abs(static_cast<double>(reference[index])));
+            largestDifference =
+                std::max(largestDifference, std::abs(static_cast<double>(output[index] - reference[index])));
+        }
+
+        std::cout << test.label << ": largest difference after the NaN block " << largestDifference << "\n";
+
+        // A dropout that never ends is finite too, so the signal has to be back, not just clean.
+        if (referencePeak < 0.25 || largestDifference > kRecoveryTolerance)
+        {
+            std::cerr << test.label << ": did not recover from the NaN block (reference peak " << referencePeak
+                      << ")\n";
+            allPassed = false;
+        }
+    }
+
+    return allPassed;
+}
 } // namespace
 
 int main()
@@ -538,6 +694,7 @@ int main()
     const bool namDryDelayOk = TestNamDryDelay();
     const bool namOversamplingProcessorOk = TestNamOversamplingProcessor();
     const bool namFractionalPreRollOk = TestNamFractionalResamplerPreRoll();
+    const bool namNaNRecoveryOk = TestNamResamplerRecoversFromNaN();
 
     if (!roundTripOk)
     {
@@ -589,9 +746,14 @@ int main()
         std::cerr << "NAM fractional-ratio resampler pre-roll test failed\n";
     }
 
+    if (!namNaNRecoveryOk)
+    {
+        std::cerr << "NAM resampler NaN recovery test failed\n";
+    }
+
     return (roundTripOk && fixedOutputOk && optimizedNamSampleRateParsingOk && namDefaultProcessingRateOk &&
             namOversamplingConfigurationOk && namQualitySanitizingOk && namPerProcessorOk && namDryDelayOk &&
-            namOversamplingProcessorOk && namFractionalPreRollOk)
+            namOversamplingProcessorOk && namFractionalPreRollOk && namNaNRecoveryOk)
                ? 0
                : 1;
 }
