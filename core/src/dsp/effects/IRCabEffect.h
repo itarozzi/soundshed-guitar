@@ -1896,7 +1896,7 @@ inline void RegisterIRCabEffect()
 {
     EffectTypeInfo info;
     info.type = EffectGuids::kCabIr;
-    info.aliases = {"cab_ir"};
+    info.aliases = {"cab_ir", "ir_cab"};
     info.displayName = "IR Cabinet";
     info.category = "cab";
     info.description = "Impulse response cabinet simulation";

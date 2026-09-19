@@ -13,6 +13,10 @@
  *    of that effect in serialized presets.
  *  - When adding a new effect, generate a fresh UUID (v4) and add it here.
  *  - Keep the readable legacy string as the first alias entry.
+ *  - List the effect and its aliases in core/protocol/effect-aliases.json.
+ *    EffectAliasParityTests holds the registry to that list, and the UI's
+ *    effectGuids.ts is held to it too, so a preset resolves to the same effect
+ *    whether the engine or the UI loads it.
  */
 namespace guitarfx
 {
@@ -20,6 +24,7 @@ namespace EffectGuids
 {
 // ── Amp models ────────────────────────────────────────────────────────
 constexpr const char* kAmpBuiltin = "1460a632-6690-4fef-ac6d-6432e3b983f8";
+// Retired: an alias of kAmpNamOptimized. Presets still store it, so it stays.
 constexpr const char* kAmpNam = "2eb53b40-6139-4696-8820-387ac56ffa91";
 constexpr const char* kAmpNamOptimized = "49ea214c-91e6-41f9-bd27-ad6eec0ae90a";
 constexpr const char* kAmpNamBlend = "8a22c0f8-413b-42c1-b9ba-d543cf011d9e";

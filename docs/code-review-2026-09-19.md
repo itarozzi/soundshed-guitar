@@ -141,7 +141,15 @@ The audit of the 13 native-only names removed ten: `importToneSharingPack`, `ope
 
 The new check also found drift, now fixed. Five UI handlers served types the engine no longer sends. The `riffLibraryState` reply was ignored. A failed pack-archive delete was never reported. And two sends built JSON by hand instead of going through the bridge.
 
-Still open: generated TypeScript unions and C++ identifiers, payload schemas, and effect-alias parity. The C++ aliases are registered in code a static check cannot read reliably, and the legacy `amp_nam` resolves to the optimized NAM amp in the engine but to the plain one's GUID in the UI.
+Effect-alias parity is done. `core/protocol/effect-aliases.json` lists every registered effect with the legacy ids that resolve to it. `EffectAliasParityTests` reads the engine's aliases from the registry after registration, since some are built at run time, and `tests/effectAliases.test.ts` holds the UI to the same list. Aligning them found three faults, now fixed:
+
+- The UI treated the retired `kAmpNam` as a separate type the engine's catalog never described. Every New Preset amp was created with it and showed no parameters. `kAmpNam` now resolves to the optimized amp, as it does in the engine. Stored nodes keep it, because custom layouts are keyed by the stored type. New presets use `kAmpNamOptimized`.
+- The engine did not know `ir_cab` or `delay_doubler`. The UI migrated them, but a preset the engine loads on its own, such as on a DAW restore, would have lost those nodes.
+- The UI had two alias tables that disagreed. `EffectTypeRegistry.resolve` did not know nine legacy ids, among them `wah`, `arp_auto` and `input_analyzer`. There is now one table.
+
+The JUCE plugin-host registration is outside the core, so only the UI side of it is checked.
+
+Still open: generated TypeScript unions and C++ identifiers, and payload schemas.
 
 ### P2 — The retired auto-level feature still exists throughout the stack
 

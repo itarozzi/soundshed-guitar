@@ -190,7 +190,7 @@ export function onEffectCatalog(payload: IncomingPayload): void {
         type,
         displayName,
         category,
-        catalogHidden: existing?.catalogHidden ?? (type === EffectGuids.kAmpNam || type === EffectGuids.kAmpNamBlend),
+        catalogHidden: existing?.catalogHidden ?? type === EffectGuids.kAmpNamBlend,
         requiresResource,
         resourceType,
         parameters,

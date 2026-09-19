@@ -6,7 +6,7 @@
  */
 
 import type { Preset, GraphNode, ResourceRef } from "./types.js";
-import { EffectGuids, resolveEffectType } from "./effectGuids.js";
+import { EffectGuids, migrateLegacyEffectType, resolveEffectType } from "./effectGuids.js";
 
 export interface ParameterDef {
   key: string;
@@ -39,8 +39,6 @@ export interface EffectTypeInfo {
   requiresResource: boolean;
   resourceType?: string;
   resourceFilterHint?: string[];
-  /** Legacy string IDs that map to this effect type. */
-  aliases?: string[];
   parameters: ParameterDef[];
   presets?: EffectPresetDefinition[];
   exposedResources?: Array<{
@@ -74,21 +72,14 @@ export const WASM_GUEST_DESCRIPTOR_CONFIG_KEY = "wasmGuestDescriptor";
  */
 class EffectRegistry {
   private types = new Map<string, EffectTypeInfo>();
-  private aliasMap = new Map<string, string>();
 
   register(type: string, info: EffectTypeInfo): void {
     this.types.set(type, info);
-    // Register any legacy aliases so Resolve() can find them
-    if (info.aliases) {
-      for (const alias of info.aliases) {
-        this.aliasMap.set(alias, type);
-      }
-    }
   }
 
-  /** Resolve a legacy alias string to its canonical UUID (or return unchanged). */
+  /** Resolve a legacy alias or retired type to the UUID it runs as (or return unchanged). */
   resolve(type: string): string {
-    return this.aliasMap.get(type) ?? type;
+    return resolveEffectType(type);
   }
 
   get(type: string): EffectTypeInfo | undefined {
@@ -300,9 +291,10 @@ export function getNodeEffectInfo(node: Pick<GraphNode, "type" | "config">): Eff
 }
 
 // ─── Effect stub registrations ─────────────────────────────────────────────────
-// These seed the EffectTypeRegistry with aliases and UI-only flags (catalogHidden).
+// These seed the EffectTypeRegistry with UI-only flags (catalogHidden).
 // All other metadata (displayName, category, requiresResource, parameters) is
-// provided authoritatively by the backend via the "effectCatalog" message.
+// provided authoritatively by the backend via the "effectCatalog" message. Legacy
+// IDs resolve through resolveEffectType, which mirrors the engine's aliases.
 //
 // Exception: "input" / "output" routing nodes are NOT registered effects in the
 // backend and retain their full definitions here.
@@ -310,60 +302,58 @@ export function getNodeEffectInfo(node: Pick<GraphNode, "type" | "config">): Eff
 
 interface EffectStub {
   type: string;
-  aliases?: string[];
   catalogHidden?: boolean;
 }
 
 const EFFECT_STUBS: EffectStub[] = [
   // Dynamics
-  { type: EffectGuids.kDynamicsGate,     aliases: ["dynamics_gate", "gate_noise"] },
-  { type: EffectGuids.kCompressorVca,    aliases: ["compressor_vca"] },
-  { type: EffectGuids.kCompressorOpto,   aliases: ["compressor_opto"] },
-  { type: EffectGuids.kLimiterBrickwall, aliases: ["limiter_brickwall"] },
+  { type: EffectGuids.kDynamicsGate },
+  { type: EffectGuids.kCompressorVca },
+  { type: EffectGuids.kCompressorOpto },
+  { type: EffectGuids.kLimiterBrickwall },
   // Drive
-  { type: EffectGuids.kOverdrive,        aliases: ["overdrive"] },
-  { type: EffectGuids.kDistortion,       aliases: ["distortion"] },
-  { type: EffectGuids.kFuzz,             aliases: ["fuzz"] },
+  { type: EffectGuids.kOverdrive },
+  { type: EffectGuids.kDistortion },
+  { type: EffectGuids.kFuzz },
   // Amp
-  { type: EffectGuids.kAmpBuiltin,       aliases: ["amp_builtin"] },
-  { type: EffectGuids.kAmpNam,           aliases: ["amp_nam"],          catalogHidden: true },
-  { type: EffectGuids.kAmpNamOptimized,  aliases: ["amp_nam_optimized"] },
-  { type: EffectGuids.kFxNam,            aliases: ["fx_nam"] },
-  { type: EffectGuids.kAmpNamBlend,      aliases: ["amp_nam_blend"],    catalogHidden: true },
+  { type: EffectGuids.kAmpBuiltin },
+  { type: EffectGuids.kAmpNamOptimized },
+  { type: EffectGuids.kFxNam },
+  { type: EffectGuids.kAmpNamBlend, catalogHidden: true },
   // Cabinet
-  { type: EffectGuids.kCabIr,            aliases: ["cab_ir", "ir_cab"] },
-  { type: EffectGuids.kCabSimple,        aliases: ["cab_simple"] },
+  { type: EffectGuids.kCabIr },
+  { type: EffectGuids.kCabSimple },
   // EQ
-  { type: EffectGuids.kEqParametric,     aliases: ["eq_parametric"] },
-  { type: EffectGuids.kEqGraphic,        aliases: ["eq_graphic"] },
+  { type: EffectGuids.kEqParametric },
+  { type: EffectGuids.kEqGraphic },
   // Utility
-  { type: EffectGuids.kGain,             aliases: ["gain"] },
-  { type: EffectGuids.kWasmHost,         aliases: ["wasm_host"] },
-  { type: EffectGuids.kSplitter,         aliases: ["splitter"] },
-  { type: EffectGuids.kMixer,            aliases: ["mixer"] },
+  { type: EffectGuids.kGain },
+  { type: EffectGuids.kWasmHost },
+  { type: EffectGuids.kSplitter },
+  { type: EffectGuids.kMixer },
   // Delay
-  { type: EffectGuids.kDelayDigital,     aliases: ["delay_digital"] },
-  { type: EffectGuids.kDelayDoubler,     aliases: ["delay_doubler"] },
+  { type: EffectGuids.kDelayDigital },
+  { type: EffectGuids.kDelayDoubler },
   // Reverb
-  { type: EffectGuids.kReverbRoom,       aliases: ["reverb_room"] },
-  { type: EffectGuids.kReverbChamber,    aliases: ["reverb_chamber"] },
-  { type: EffectGuids.kReverbSpring,     aliases: ["reverb_spring"] },
-  { type: EffectGuids.kReverbAdvanced,   aliases: ["reverb_advanced"] },
-  { type: EffectGuids.kReverbIr,         aliases: ["reverb_ir"] },
-  { type: EffectGuids.kReverbAmbient,    aliases: ["reverb_ambient"] },
+  { type: EffectGuids.kReverbRoom },
+  { type: EffectGuids.kReverbChamber },
+  { type: EffectGuids.kReverbSpring },
+  { type: EffectGuids.kReverbAdvanced },
+  { type: EffectGuids.kReverbIr },
+  { type: EffectGuids.kReverbAmbient },
   // Modulation
-  { type: EffectGuids.kChorus,           aliases: ["chorus"] },
-  { type: EffectGuids.kFlanger,          aliases: ["flanger"] },
-  { type: EffectGuids.kPhaser,           aliases: ["phaser"] },
-  { type: EffectGuids.kTremolo,          aliases: ["tremolo"] },
-  { type: EffectGuids.kAutoWah,          aliases: ["auto_wah"] },
+  { type: EffectGuids.kChorus },
+  { type: EffectGuids.kFlanger },
+  { type: EffectGuids.kPhaser },
+  { type: EffectGuids.kTremolo },
+  { type: EffectGuids.kAutoWah },
   // Pitch
-  { type: EffectGuids.kPitchShift,       aliases: ["pitch_shift"] },
-  { type: EffectGuids.kTranspose,        aliases: ["transpose"] },
-  { type: EffectGuids.kTransposeStft,    aliases: ["transpose_stft"] },
-  { type: EffectGuids.kOctave,           aliases: ["octave"] },
+  { type: EffectGuids.kPitchShift },
+  { type: EffectGuids.kTranspose },
+  { type: EffectGuids.kTransposeStft },
+  { type: EffectGuids.kOctave },
   // Synth
-  { type: EffectGuids.kSynthSaw,         aliases: ["synth_saw"] },
+  { type: EffectGuids.kSynthSaw },
 ];
 
 // Routing nodes — not registered in the backend, need full definitions here.
@@ -396,7 +386,6 @@ const ROUTING_NODE_EFFECTS: EffectTypeInfo[] = [
 EFFECT_STUBS.forEach(stub =>
   EffectTypeRegistry.register(stub.type, {
     type: stub.type,
-    aliases: stub.aliases,
     catalogHidden: stub.catalogHidden,
     displayName: "",
     category: "",
@@ -476,7 +465,7 @@ export function createEmptyPresetV2(): Preset {
         },
         {
           id: "amp_0",
-          type: EffectGuids.kAmpNam,
+          type: EffectGuids.kAmpNamOptimized,
           displayName: "Neural Amp",
           category: "amp",
           bypassed: false,
@@ -590,7 +579,7 @@ export function createSimplePresetV2(
   if (ampResource) {
     const ampNode: GraphNode = {
       id: `amp_${nodeId++}`,
-      type: EffectGuids.kAmpNam,
+      type: EffectGuids.kAmpNamOptimized,
       displayName: "Amp",
       category: "amp",
       bypassed: false,
@@ -646,12 +635,13 @@ export function createSimplePresetV2(
 
 /**
  * Migrate a preset's graph node types from legacy string IDs to canonical UUIDs.
- * Safe to call on presets that are already migrated — UUIDs pass through unchanged.
+ * Safe to call on presets that are already migrated — UUIDs pass through unchanged,
+ * retired ones included (see RETIRED_EFFECT_TYPES).
  */
 export function migratePresetNodeTypes(preset: Preset): Preset {
   if (!preset.graph?.nodes) return preset;
   for (const node of preset.graph.nodes) {
-    node.type = resolveEffectType(node.type);
+    node.type = migrateLegacyEffectType(node.type);
   }
   return preset;
 }

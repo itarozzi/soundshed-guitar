@@ -85,15 +85,13 @@ export function getLibraryResourceName(resourceType: string | undefined, resourc
 
 export function isNeuralModelNode(node: GraphNode): boolean {
   const resolvedType = EffectTypeRegistry.resolve(node.type);
-  return resolvedType === EffectGuids.kAmpNam
-    || resolvedType === EffectGuids.kAmpNamOptimized
+  return resolvedType === EffectGuids.kAmpNamOptimized
     || resolvedType === EffectGuids.kFxNam;
 }
 
 export function isNamOrCabIrNode(node: GraphNode): boolean {
   const resolvedType = EffectTypeRegistry.resolve(node.type);
-  return resolvedType === EffectGuids.kAmpNam
-    || resolvedType === EffectGuids.kAmpNamOptimized
+  return resolvedType === EffectGuids.kAmpNamOptimized
     || resolvedType === EffectGuids.kFxNam
     || resolvedType === EffectGuids.kCabIr;
 }
@@ -119,8 +117,7 @@ export /**
 function nodeAcceptsResourceType(node: GraphNode, resourceType: "nam" | "ir"): boolean {
   const resolvedType = EffectTypeRegistry.resolve(node.type);
   if (resourceType === "nam") {
-    return resolvedType === EffectGuids.kAmpNam
-      || resolvedType === EffectGuids.kAmpNamOptimized
+    return resolvedType === EffectGuids.kAmpNamOptimized
       || resolvedType === EffectGuids.kFxNam;
   }
   if (resourceType === "ir") {

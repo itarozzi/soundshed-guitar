@@ -16,7 +16,7 @@ export function resolveResourceBrowserTone3000CategoryFilter(
     return "pedal";
   }
 
-  if (resolvedType === EffectGuids.kAmpNam || resolvedType === EffectGuids.kAmpNamOptimized) {
+  if (resolvedType === EffectGuids.kAmpNamOptimized) {
     return hasCabIrInSameSignalPath(node.id, preset) ? "amp" : "full-rig";
   }
 

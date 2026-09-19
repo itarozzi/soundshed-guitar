@@ -43,7 +43,6 @@ export const RACK_TOTAL_U = 12;
 export const RACK_U_HEIGHT = 0.052;
 
 const DEFAULT_AMP_TYPES = [
-  EffectGuids.kAmpNam,
   EffectGuids.kAmpNamOptimized,
   EffectGuids.kAmpNamBlend,
   EffectGuids.kAmpBuiltin,

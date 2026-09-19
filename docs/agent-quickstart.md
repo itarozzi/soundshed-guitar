@@ -129,9 +129,15 @@ merging, and verification of both saved data and the audio path.
 ### Add a New Effect
 
 1. Implement EffectProcessor in core/src/dsp/effects/.
-2. Register it via EffectRegistry in BuiltinEffects.h.
-3. Define parameters (ranges, defaults) and category.
-4. Update docs/fx-library.md if behavior changes.
+2. Give it a fresh UUID in core/src/dsp/EffectGuids.h and the same constant in
+   core/ui/ts/effectGuids.ts (`check-protocol` compares the two), then register it
+   via EffectRegistry in BuiltinEffects.h.
+3. Add it to `core/protocol/effect-aliases.json` with any legacy ids, and put
+   those ids in the UI's `EFFECT_ALIAS_MAP`. `EffectAliasParityTests` holds the
+   engine's registered aliases to that list and `tests/effectAliases.test.ts`
+   holds the UI's, so a preset resolves to the same effect on both sides.
+4. Define parameters (ranges, defaults) and category.
+5. Update docs/fx-library.md if behavior changes.
 
 ### Add or Change a UI Message
 

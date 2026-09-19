@@ -82,7 +82,6 @@ const effectIcons: Record<string, IconKey> = {
 
   // Amps
   [EffectGuids.kAmpBuiltin]:       "amp",
-  [EffectGuids.kAmpNam]:           "amp",
   [EffectGuids.kAmpNamOptimized]:  "amp",
   [EffectGuids.kFxNam]:            "pedal",
   [EffectGuids.kAmpNamBlend]:      "blend",

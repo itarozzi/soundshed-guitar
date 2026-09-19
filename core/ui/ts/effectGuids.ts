@@ -11,6 +11,7 @@
 export const EffectGuids = {
   // Amp
   kAmpBuiltin:           "1460a632-6690-4fef-ac6d-6432e3b983f8",
+  // Retired: runs as kAmpNamOptimized (RETIRED_EFFECT_TYPES), still stored in presets.
   kAmpNam:               "2eb53b40-6139-4696-8820-387ac56ffa91",
   kAmpNamOptimized:      "49ea214c-91e6-41f9-bd27-ad6eec0ae90a",
   kAmpNamBlend:          "8a22c0f8-413b-42c1-b9ba-d543cf011d9e",
@@ -77,12 +78,15 @@ export const EffectGuids = {
 export type EffectGuid = typeof EffectGuids[keyof typeof EffectGuids];
 
 /**
- * Maps legacy string type IDs to their canonical UUID.
+ * Maps legacy string type IDs to the UUID of the effect they run as.
  * Used to migrate presets that were saved before the UUID migration.
+ *
+ * This and RETIRED_EFFECT_TYPES together are the engine's EffectTypeInfo::aliases:
+ * core/protocol/effect-aliases.json lists both sides, and a test holds each to it.
  */
 export const EFFECT_ALIAS_MAP: Record<string, string> = {
   amp_builtin:           EffectGuids.kAmpBuiltin,
-  amp_nam:               EffectGuids.kAmpNam,
+  amp_nam:               EffectGuids.kAmpNamOptimized,
   amp_nam_optimized:     EffectGuids.kAmpNamOptimized,
   amp_nam_blend:         EffectGuids.kAmpNamBlend,
   fx_nam:                EffectGuids.kFxNam,
@@ -133,10 +137,27 @@ export const EFFECT_ALIAS_MAP: Record<string, string> = {
 };
 
 /**
- * Resolves a legacy string type ID to its canonical UUID.
- * Returns the input unchanged if it is already a UUID or an unknown type
- * (e.g. "input", "output", or composite types).
+ * Shipped type UUIDs that now run as another effect. Unlike a legacy string ID, a
+ * node keeps its retired type as stored, since custom layouts and layout
+ * preferences are keyed by the stored type; only lookups resolve it.
+ */
+export const RETIRED_EFFECT_TYPES: Record<string, string> = {
+  [EffectGuids.kAmpNam]: EffectGuids.kAmpNamOptimized,
+};
+
+/**
+ * Resolves a legacy string type ID or a retired type UUID to the UUID of the
+ * effect it runs as. Returns the input unchanged if it is already a current UUID
+ * or an unknown type (e.g. "input", "output", or composite types).
  */
 export function resolveEffectType(type: string): string {
+  return EFFECT_ALIAS_MAP[type] ?? RETIRED_EFFECT_TYPES[type] ?? type;
+}
+
+/**
+ * The type a preset node is migrated to: a legacy string ID becomes its UUID, and
+ * any UUID, retired or not, is kept.
+ */
+export function migrateLegacyEffectType(type: string): string {
   return EFFECT_ALIAS_MAP[type] ?? type;
 }

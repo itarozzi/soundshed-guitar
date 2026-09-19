@@ -145,6 +145,7 @@ inline void RegisterDoublerEffect()
 {
     EffectTypeInfo info;
     info.type = EffectGuids::kDelayDoubler;
+    info.aliases = {"delay_doubler"};
     info.displayName = "Doubler";
     info.category = "delay";
     info.description = "Creates stereo width by mixing a delayed copy of the signal";

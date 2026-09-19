@@ -1,5 +1,5 @@
 import type { Attachment, AudioFxModelEntry, IrLibraryEntry, Preset, GraphNode } from "./types.js";
-import { EffectGuids } from "./effectGuids.js";
+import { EffectGuids, resolveEffectType } from "./effectGuids.js";
 import { getPresetSceneGraphs } from "./presetScenes.js";
 import { findResourceById } from "./utils.js";
 
@@ -71,7 +71,7 @@ function extractResourceIdsFromGraph(
   const ids: string[] = [];
   for (const graph of getPresetSceneGraphs(preset)) {
     for (const node of graph.nodes as GraphNode[]) {
-      if (node.type !== nodeType) {
+      if (resolveEffectType(node.type) !== nodeType) {
         continue;
       }
       if (Array.isArray(node.resources)) {
@@ -92,7 +92,7 @@ function extractResourceIdsFromGraph(
 export function buildAttachmentsFromPreset(preset: Preset): Attachment[] {
   // For v2 presets, extract from graph nodes
   if ((preset.graph?.nodes && preset.graph.nodes.length > 0) || (preset.scenes?.length ?? 0) > 0) {
-    const modelIds = extractResourceIdsFromGraph(preset, EffectGuids.kAmpNam, "nam");
+    const modelIds = extractResourceIdsFromGraph(preset, EffectGuids.kAmpNamOptimized, "nam");
     const irIds = extractResourceIdsFromGraph(preset, EffectGuids.kCabIr, "ir");
 
     // Use first model and IR found (for attachment compatibility)

@@ -159,7 +159,7 @@ export function getCatalogEffects(options?: { excludeTypes?: string[] }): Effect
   return EffectTypeRegistry.getAll().filter((effect) => {
     const resolvedType = EffectTypeRegistry.resolve(effect.type);
     if (effect.catalogHidden) return false;
-    if (resolvedType === EffectGuids.kAmpNam || resolvedType === EffectGuids.kAmpNamBlend) return false;
+    if (resolvedType === EffectGuids.kAmpNamBlend) return false;
     if (resolvedType === EffectGuids.kWasmHost && !isFeatureEnabled(Features.CustomEffects)) return false;
     if (experimentalEffectTypes.has(resolvedType) && !isFeatureEnabled(Features.ExperimentalEffects)) return false;
     return !excludedTypes.has(resolvedType);

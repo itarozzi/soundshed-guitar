@@ -17,6 +17,7 @@ set(TEST_SOURCES
     CustomEffectLibraryTests.cpp
     DefaultPresetIntegrityTests.cpp
     DSPPerformanceTests.cpp
+    EffectAliasParityTests.cpp
     EffectProcessorTests.cpp
     FastMathNanTests.cpp
     GaplessSwitchingTests.cpp
