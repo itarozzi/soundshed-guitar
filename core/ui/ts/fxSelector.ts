@@ -15,6 +15,7 @@ import { getCompositeEffectEntries } from "./compositeEffects.js";
 import { getCustomEffectLibrary } from "./customEffects.js";
 import { getCustomLayout } from "./layoutRenderer.js";
 import type { ResourceRef } from "./types.js";
+import { escapeHtml } from "./utils.js";
 
 // DOM Elements
 const fxSelectorPanel = document.getElementById("fx-selector-panel");
@@ -394,22 +395,24 @@ function renderFxItem(effect: FxLibraryItem, categoryColor: string): string {
     ? `<span class="fx-item-badge" title="Saved custom effect">Custom</span>`
     : "";
 
+  // Names and ids here come from blends, custom effects and imported archives, and a blend's
+  // name can be a Tone3000 title, so everything user-supplied is escaped.
   return `
-        <div class="fx-item" 
-          data-effect-type="${effect.type}" 
-          data-blend-id="${effect.blendId ?? ""}"
-          data-blend-category="${effect.blendCategory ?? ""}"
-          data-composite-id="${effect.compositeId ?? ""}"
-          data-custom-effect-id="${effect.customEffectId ?? ""}"
-          data-custom-effect-resource-type="${effect.moduleResourceType ?? ""}"
-          data-custom-effect-resource-id="${effect.moduleResourceId ?? ""}"
+        <div class="fx-item"
+          data-effect-type="${escapeHtml(effect.type)}"
+          data-blend-id="${escapeHtml(effect.blendId ?? "")}"
+          data-blend-category="${escapeHtml(effect.blendCategory ?? "")}"
+          data-composite-id="${escapeHtml(effect.compositeId ?? "")}"
+          data-custom-effect-id="${escapeHtml(effect.customEffectId ?? "")}"
+          data-custom-effect-resource-type="${escapeHtml(effect.moduleResourceType ?? "")}"
+          data-custom-effect-resource-id="${escapeHtml(effect.moduleResourceId ?? "")}"
           data-custom-effect-default-params="${effect.customEffectId ? encodeDatasetJson(effect.defaultParams ?? {}) : ""}"
-          data-effect-category="${effect.category}"
+          data-effect-category="${escapeHtml(effect.category)}"
           style="--category-color: ${categoryColor}">
       <div class="fx-item-icon">${(() => { const thumb = effect.blendId ? (getCustomLayout(effect.type, effect.blendId) ?? getCustomLayout(effect.type)) : getCustomLayout(effect.type); const url = thumb?.thumbnailDataUrl ?? effect.thumbnailDataUrl; return url ? `<img src="${url.replace(/"/g, '&quot;')}" alt="" aria-hidden="true" class="fx-item-thumb" />` : getFxEffectIcon(effect.type); })()}</div>
       <div class="fx-item-info">
-        <div class="fx-item-name">${effect.displayName}</div>
-        <div class="fx-item-type">${effect.category}</div>
+        <div class="fx-item-name">${escapeHtml(effect.displayName)}</div>
+        <div class="fx-item-type">${escapeHtml(effect.category)}</div>
       </div>
       ${resourceBadge}${blendBadge}${customEffectBadge}${compositeBadge}
     </div>

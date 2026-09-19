@@ -1,7 +1,7 @@
 import { uiState } from "./state.js";
 import { postMessage } from "./bridge.js";
 import { tone3000AuthenticatedFetch } from "./tone3000.js";
-import { buildBlendModelMappingsFromIds } from "./blendUtils.js";
+import { buildBlendModelMappingsFromNames } from "./blendUtils.js";
 import { arrayBufferToBase64 } from "./utils.js";
 import type { Tone3000Architecture, Tone3000Model, Tone3000Tone } from "./tone3000ApiTypes.js";
 import { buildTone3000ModelsUrl, extractTone3000Models, sortTone3000ModelsByName } from "./tone3000Api.js";
@@ -15,6 +15,8 @@ interface JSZipObject {
 export interface Tone3000ImportResult {
   importedResourceIds: string[];
   importedNamIds: string[];
+  /** Each imported NAM model's own name (the Tone3000 model, or its file in a zip). */
+  importedNamNames: Record<string, string>;
 }
 
 export function getTone3000ImageUrl(tone: Tone3000Tone): string | null {
@@ -111,6 +113,7 @@ export async function importTone3000Models(
 
   const importedResourceIds: string[] = [];
   const importedNamIds: string[] = [];
+  const importedNamNames: Record<string, string> = {};
 
   let completed = 0;
   const total = models.length;
@@ -136,6 +139,7 @@ export async function importTone3000Models(
       });
       importedResourceIds.push(...zipped.importedResourceIds);
       importedNamIds.push(...zipped.importedNamIds);
+      Object.assign(importedNamNames, zipped.importedNamNames);
     } else {
       const data = arrayBufferToBase64(buffer);
       const extension = resourceType === "ir" ? ".wav" : ".nam";
@@ -155,6 +159,7 @@ export async function importTone3000Models(
       importedResourceIds.push(resourceId);
       if (resourceType === "nam") {
         importedNamIds.push(resourceId);
+        importedNamNames[resourceId] = model.name ?? "";
       }
     }
 
@@ -165,16 +170,27 @@ export async function importTone3000Models(
   return {
     importedResourceIds,
     importedNamIds,
+    importedNamNames,
   };
 }
 
-export function createTone3000BlendDefinition(tone: Tone3000Tone, modelIds: string[]) {
+/**
+ * A blend of a tone's models, mapped by what each model's name says it was captured at
+ * ("G5" for gain 5). The names come from the import itself: the resource library has not
+ * heard about these models yet when the blend is made.
+ */
+export function createTone3000BlendDefinition(tone: Tone3000Tone, modelIds: string[], modelNames: Record<string, string> = {}) {
   const id = typeof crypto !== "undefined" && "randomUUID" in crypto
     ? crypto.randomUUID()
     : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const name = `${tone.title ?? tone.name ?? "Tone3000"} Blend`;
   const category = normalizeBlendCategory(tone.gear);
-  const modelMappings = buildBlendModelMappingsFromIds(modelIds, uiState.resourceLibrary);
+  const libraryNames = new Map((uiState.resourceLibrary.nam ?? []).map((resource) => [resource.id, resource.name]));
+  const modelMappings = buildBlendModelMappingsFromNames(modelIds.map((id) => ({
+    id,
+    name: modelNames[id] || libraryNames.get(id),
+    category,
+  })));
 
   return {
     id,
@@ -251,6 +267,7 @@ async function importZipBuffer(
   const entries = Object.values(zip.files) as JSZipObject[];
   const importedResourceIds: string[] = [];
   const importedNamIds: string[] = [];
+  const importedNamNames: Record<string, string> = {};
 
   for (const entry of entries) {
     if (entry.dir) {
@@ -284,6 +301,7 @@ async function importZipBuffer(
     importedResourceIds.push(resourceId);
     if (options.resourceType === "nam") {
       importedNamIds.push(resourceId);
+      importedNamNames[resourceId] = entry.name.split("/").pop() ?? "";
     }
   }
 
@@ -294,6 +312,7 @@ async function importZipBuffer(
   return {
     importedResourceIds,
     importedNamIds,
+    importedNamNames,
   };
 }
 

@@ -6,3 +6,13 @@
   border: 1px solid var(--modal-border);
   box-shadow: var(--shadow-xl);
 }
+
+.blend-test-note {
+  margin: 0 0 8px;
+  font-size: 11px;
+  color: var(--text-dark-muted);
+}
+
+.blend-test-note:empty {
+  display: none;
+}

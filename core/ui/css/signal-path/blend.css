@@ -285,3 +285,12 @@
   color: var(--text-dark-primary);
   cursor: pointer;
 }
+
+.blend-info-block.is-missing .blend-match-summary {
+  border-color: var(--status-error-border);
+  background: var(--status-error-bg);
+}
+
+.blend-info-block.is-missing .blend-match-name {
+  color: var(--color-error);
+}

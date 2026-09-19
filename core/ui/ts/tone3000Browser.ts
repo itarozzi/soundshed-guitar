@@ -196,7 +196,7 @@ export function initTone3000Browser(): void {
             showNotification("Blend creation failed", "No NAM models were imported.");
             return;
           }
-          const blend = createTone3000BlendDefinition(tone, blendIds);
+          const blend = createTone3000BlendDefinition(tone, blendIds, imported.importedNamNames);
           postMessage({
             type: "saveBlendDefinition",
             blend,

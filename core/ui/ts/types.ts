@@ -322,6 +322,9 @@ export interface BlendDefinition {
   parameters?: string[];
   toneGroupId?: string;
   toneGroupTitle?: string;
+  /** Registered from a bundled factory archive: it cannot be deleted, and saving an edit
+   * keeps the user's copy in its place. */
+  factory?: boolean;
 }
 
 export type BlendLibrary = BlendDefinition[];

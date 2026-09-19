@@ -6,6 +6,7 @@ import { showConfirm } from "./dialogs.js";
 import type { BlendDefinition, Preset } from "./types.js";
 import { EffectGuids } from "./effectGuids.js";
 import { escapeHtml } from "./utils.js";
+import { collectBlendModelIds } from "./blendUtils.js";
 
 const blendList = document.getElementById("blend-list");
 const blendSearchInput = document.getElementById("blend-search-input") as HTMLInputElement | null;
@@ -55,19 +56,24 @@ export function renderBlendList(): void {
 
   blendList.innerHTML = filtered
     .map((blend) => {
-      const modelCount = blend.models?.length ?? 0;
+      const modelCount = collectBlendModelIds(blend).length;
       const paramCount = blend.parameters?.length ?? 0;
       const mode = blend.blendMode ?? "interpolate";
+      // A factory blend comes back with its archive, so it offers no Delete. Saving an edit
+      // makes a copy of the user's own, which can be deleted to go back to the factory one.
+      const deleteButton = blend.factory
+        ? ""
+        : `<button class="blend-delete-btn advanced-action-btn danger" data-blend-id="${escapeHtml(blend.id)}" title="Delete">Delete</button>`;
       return `
         <div class="composite-list-item" data-blend-id="${escapeHtml(blend.id)}">
           <div class="composite-list-info">
             <span class="composite-list-name">${escapeHtml(blend.name || blend.id)}</span>
-            <span class="composite-list-meta">${escapeHtml(blend.category || "amp")} · ${modelCount} models · ${paramCount} params · ${escapeHtml(mode)}</span>
+            <span class="composite-list-meta">${blend.factory ? "Factory · " : ""}${escapeHtml(blend.category || "amp")} · ${modelCount} models · ${paramCount} params · ${escapeHtml(mode)}</span>
             ${blend.toneGroupTitle ? `<span class="composite-list-desc">${escapeHtml(blend.toneGroupTitle)}</span>` : ""}
           </div>
           <div class="composite-list-actions">
             <button class="blend-edit-btn advanced-action-btn" data-blend-id="${escapeHtml(blend.id)}" title="Edit">Edit</button>
-            <button class="blend-delete-btn advanced-action-btn danger" data-blend-id="${escapeHtml(blend.id)}" title="Delete">Delete</button>
+            ${deleteButton}
           </div>
         </div>
       `;

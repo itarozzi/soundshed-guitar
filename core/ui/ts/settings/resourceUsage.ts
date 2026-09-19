@@ -6,6 +6,7 @@
  * deletes what export would have left out.
  */
 
+import { collectBlendModelIds } from "../blendUtils.js";
 import { clonePreset, uiState } from "../state.js";
 import type { BlendDefinition, Preset, ResourceRef } from "../types.js";
 
@@ -65,7 +66,7 @@ export function collectPresetResourceRefs(preset: Preset, blendDefs: BlendDefini
   });
 
   blendDefs.forEach((blend) => {
-    (blend.models ?? []).forEach((modelId) => addRef("nam", modelId));
+    collectBlendModelIds(blend).forEach((modelId) => addRef("nam", modelId));
   });
 
   return refs;
@@ -90,11 +91,7 @@ export function buildUsedResourceSet(): Set<string> {
   });
 
   blends.forEach((blend) => {
-    (blend.models ?? []).forEach((modelId) => {
-      if (modelId) {
-        used.add(`nam:${modelId}`);
-      }
-    });
+    collectBlendModelIds(blend).forEach((modelId) => used.add(`nam:${modelId}`));
   });
 
   return used;

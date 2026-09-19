@@ -162,13 +162,25 @@ export function bindNodeParamControls(node: GraphNode, preset: Preset): void {
       const paramKey = input.dataset.paramKey;
       if (nodeId && paramKey) {
         const value = parseFloat(input.value);
-        node.params[paramKey] = value;
-        sendSignalPathNodeParamUpdate(nodeId, paramKey, value);
+        // A blend knob laid out as a slider shows its parameter's scale; the engine takes 0..1.
+        const blendSpec = input.dataset.blendParam === "true"
+          ? { min: parseFloat(input.dataset.blendSpecMin ?? "0"), max: parseFloat(input.dataset.blendSpecMax ?? "10") }
+          : null;
+        const sentValue = blendSpec ? normalizeBlendValue(value, blendSpec) : value;
+        node.params[paramKey] = sentValue;
+        sendSignalPathNodeParamUpdate(nodeId, paramKey, sentValue);
+
+        const sliderBlendState = blendSpec ? getBlendState(node) : null;
+        if (sliderBlendState) {
+          updateBlendMatchSummary(nodeParamsPanelElement, node, sliderBlendState);
+        }
 
         // Update associated value display
         const parentControl = input.closest(".custom-layout-control");
         const valueEl = parentControl?.querySelector(".node-param-value") as HTMLElement | null;
-        if (valueEl) {
+        if (blendSpec && valueEl) {
+          valueEl.textContent = value.toFixed(1);
+        } else if (valueEl) {
           const paramDef = getNodeEffectInfo(node)?.parameters.find((p) => p.key === paramKey);
           if (paramDef) {
             if (paramDef.unit === "dB" || paramDef.unit === "ms" || paramDef.unit === "Hz") {

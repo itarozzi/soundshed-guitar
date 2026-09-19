@@ -1,9 +1,13 @@
-import type { BlendModelMapping, ResourceLibrary } from "./types.js";
+import type { BlendDefinition, BlendLibrary, BlendMode, BlendModelMapping, ResourceLibrary } from "./types.js";
+import type { ParameterDef } from "./presetV2.js";
 
 /**
- * The blend-mappable amp parameters, in display order. Lives here rather than in
- * either editor because blendEditor and signalPathBlend both need it and import
- * each other — this module is the leaf they share.
+ * Blend definitions as the UI reads them. Lives here rather than in either editor because
+ * blendEditor, signalPathBlend and the params panel all need it and some import each other
+ * — this module is the leaf they share.
+ *
+ * The engine (MultiModelNAMAmpEffect, controller/internal/BlendSupport) decides which models
+ * play; selectBlendMix() mirrors that rule so what the UI says is playing is what is heard.
  */
 export type BlendParamSpec = {
   id: string;
@@ -26,6 +30,111 @@ export const BLEND_PARAM_SPECS: BlendParamSpec[] = [
   { id: "custom_b", label: "Custom B", min: 0, max: 10 },
   { id: "custom_c", label: "Custom C", min: 0, max: 10 },
 ];
+
+export function getBlendParamSpec(paramId: string): BlendParamSpec | null {
+  if (!paramId) {
+    return null;
+  }
+  return BLEND_PARAM_SPECS.find((spec) => spec.id === paramId) ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// Normalisation: knobs show a parameter's own scale, the engine takes 0..1
+// ---------------------------------------------------------------------------
+
+export function normalizeBlendValue(value: number, spec: Pick<BlendParamSpec, "min" | "max"> | null): number {
+  if (!spec) {
+    return value;
+  }
+  if (value < 0) {
+    return value / 10;
+  }
+  const clamped = Math.min(spec.max, Math.max(spec.min, value));
+  const range = spec.max - spec.min;
+  if (range <= 0) {
+    return 0;
+  }
+  return (clamped - spec.min) / range;
+}
+
+export function denormalizeBlendValue(value: number, spec: Pick<BlendParamSpec, "min" | "max"> | null): number {
+  if (!spec) {
+    return value;
+  }
+  if (value < 0) {
+    return value * 10;
+  }
+  return spec.min + value * (spec.max - spec.min);
+}
+
+/**
+ * A blend node's mapped knob. It is shown on its parameter's own scale (specMin..specMax)
+ * and stored, and sent to the engine, normalised to 0..1.
+ */
+export type BlendKnobBinding = {
+  specMin: number;
+  specMax: number;
+  blendMode: BlendMode;
+};
+
+/** A parameter as the params panel lays it out; `blend` is set on a blend node's mapped knobs. */
+export type BlendParamDef = ParameterDef & { blend?: BlendKnobBinding };
+
+/** The attributes that make a knob or slider a blend knob (see bindNodeParamControls). */
+export function blendKnobDataAttributes(binding: BlendKnobBinding): string {
+  return `data-blend-param="true" data-blend-spec-min="${binding.specMin}" data-blend-spec-max="${binding.specMax}" data-blend-mode="${binding.blendMode}"`;
+}
+
+// ---------------------------------------------------------------------------
+// Mappings
+// ---------------------------------------------------------------------------
+
+export function buildParameterMapFromLegacy(mapping: BlendModelMapping): Record<string, number> {
+  if (mapping.parameters) {
+    return mapping.parameters;
+  }
+  if (mapping.parameterId && typeof mapping.parameterValue === "number") {
+    return { [mapping.parameterId]: mapping.parameterValue };
+  }
+  return {};
+}
+
+/** Every model a definition names, each once: its mappings' first, then any only in `models`. */
+export function collectBlendModelIds(blend: Pick<BlendDefinition, "models" | "modelMappings">): string[] {
+  const ids: string[] = [];
+  const add = (id: string | undefined): void => {
+    if (id && !ids.includes(id)) {
+      ids.push(id);
+    }
+  };
+  (blend.modelMappings ?? []).forEach((mapping) => add(mapping.id));
+  (blend.models ?? []).forEach((id) => add(id));
+  return ids;
+}
+
+/**
+ * The parameters a knob is shown for: those at least one model was captured at, in the
+ * order the definition lists them. The engine ignores any other, so a knob for one would
+ * do nothing. With none, the node is played with its Blend sweep instead.
+ */
+export function mappedBlendParamIds(blend: BlendDefinition | undefined, mappings: BlendModelMapping[]): string[] {
+  const captured = new Set<string>();
+  mappings.forEach((mapping) => {
+    Object.entries(buildParameterMapFromLegacy(mapping)).forEach(([paramId, value]) => {
+      if (typeof value === "number") {
+        captured.add(paramId);
+      }
+    });
+  });
+
+  const ordered = (blend?.parameters ?? []).filter((paramId) => captured.has(paramId));
+  captured.forEach((paramId) => {
+    if (!ordered.includes(paramId)) {
+      ordered.push(paramId);
+    }
+  });
+  return ordered;
+}
 
 const PARAM_REGEX: Record<string, RegExp> = {
   gain: /(^|[^a-z0-9])g(?:ain)?\s*([-+]?\d{1,2})(?:\b|[^a-z0-9])/i,
@@ -84,11 +193,12 @@ export function inferBlendMappingFromName(name: string, category?: string): Part
   return null;
 }
 
-export function buildBlendModelMappingsFromIds(modelIds: string[], library: ResourceLibrary): BlendModelMapping[] {
-  const resources = library.nam ?? [];
-  return modelIds.map((id) => {
-    const match = resources.find((res) => res.id === id);
-    const auto = inferBlendMappingFromName(match?.name ?? "", match?.category);
+/** Mappings guessed from each model's name, such as "G5" for gain 5. */
+export function buildBlendModelMappingsFromNames(
+  models: Array<{ id: string; name?: string; category?: string }>,
+): BlendModelMapping[] {
+  return models.map(({ id, name, category }) => {
+    const auto = inferBlendMappingFromName(name ?? "", category);
     return {
       id,
       parameterId: auto?.parameterId,
@@ -96,4 +206,178 @@ export function buildBlendModelMappingsFromIds(modelIds: string[], library: Reso
       parameters: auto?.parameters,
     };
   });
+}
+
+export function buildBlendModelMappingsFromIds(modelIds: string[], library: ResourceLibrary): BlendModelMapping[] {
+  const resources = library.nam ?? [];
+  return buildBlendModelMappingsFromNames(modelIds.map((id) => {
+    const match = resources.find((res) => res.id === id);
+    return { id, name: match?.name, category: match?.category };
+  }));
+}
+
+/** An existing blend made from this tone group with exactly these models, if there is one. */
+export function findBlendForToneGroup(library: BlendLibrary, groupId: string, modelIds: string[]): BlendDefinition | undefined {
+  if (!groupId) {
+    return undefined;
+  }
+  const wanted = [...new Set(modelIds)].sort();
+  return library.find((blend) => {
+    if (blend.toneGroupId !== groupId) {
+      return false;
+    }
+    const ids = collectBlendModelIds(blend).sort();
+    return ids.length === wanted.length && ids.every((id, index) => id === wanted[index]);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Which models play (mirrors MultiModelNAMAmpEffect)
+// ---------------------------------------------------------------------------
+
+/** The engine leaves out a model asked for less than this share of the mix. */
+export const BLEND_MIN_AUDIBLE_WEIGHT = 0.02;
+
+/** Indices into the mappings, and each one's share of the mix. */
+export type BlendMix = {
+  primary: number;
+  primaryWeight: number;
+  secondary: number | null;
+  secondaryWeight: number;
+};
+
+function pruneMix(mix: BlendMix): BlendMix {
+  if (mix.secondary === null) {
+    return mix;
+  }
+  if (mix.secondaryWeight < BLEND_MIN_AUDIBLE_WEIGHT) {
+    return { primary: mix.primary, primaryWeight: 1, secondary: null, secondaryWeight: 0 };
+  }
+  if (mix.primaryWeight < BLEND_MIN_AUDIBLE_WEIGHT) {
+    return { primary: mix.secondary, primaryWeight: 1, secondary: null, secondaryWeight: 0 };
+  }
+  return mix;
+}
+
+/** Where each model sits on the Blend sweep, as BlendSupport.cpp places it. */
+function sweepPosition(mapping: BlendModelMapping, index: number, count: number): number {
+  if (typeof mapping.parameterValue === "number") {
+    return mapping.parameterValue;
+  }
+  const captured = mapping.parameterId ? mapping.parameters?.[mapping.parameterId] : undefined;
+  if (typeof captured === "number") {
+    return captured;
+  }
+  return count > 1 ? index / (count - 1) : 0;
+}
+
+/**
+ * The models the engine plays for these knob values. `target` holds the node's values for
+ * the mapped parameters (normalised 0..1); `blend` is the Blend sweep, used when none of
+ * them is set.
+ */
+export function selectBlendMix(
+  mappings: BlendModelMapping[],
+  target: Record<string, number>,
+  blend: number,
+  mode: BlendMode,
+): BlendMix | null {
+  if (!mappings.length) {
+    return null;
+  }
+  if (mappings.length === 1) {
+    return { primary: 0, primaryWeight: 1, secondary: null, secondaryWeight: 0 };
+  }
+
+  const maps = mappings.map(buildParameterMapFromLegacy);
+  const mapped = new Set(maps.flatMap((params) => Object.keys(params)));
+  const activeParams = Object.keys(target).filter((paramId) => mapped.has(paramId) && typeof target[paramId] === "number");
+
+  if (activeParams.length) {
+    const distances = maps.map((params) => {
+      let distance = 0;
+      let matched = false;
+      activeParams.forEach((paramId) => {
+        const value = params[paramId];
+        if (typeof value !== "number") {
+          distance += 4;
+          return;
+        }
+        distance += (value - target[paramId]) ** 2;
+        matched = true;
+      });
+      return matched ? distance : distance + 9;
+    });
+
+    const order = distances.map((_, index) => index).sort((a, b) => distances[a] - distances[b] || a - b);
+    const [best, second] = order;
+    if (mode === "snap") {
+      return { primary: best, primaryWeight: 1, secondary: null, secondaryWeight: 0 };
+    }
+    const eps = 1e-6;
+    const w1 = 1 / Math.max(distances[best], eps);
+    const w2 = 1 / Math.max(distances[second], eps);
+    const total = Math.max(w1 + w2, eps);
+    return pruneMix({ primary: best, primaryWeight: w1 / total, secondary: second, secondaryWeight: w2 / total });
+  }
+
+  const positions = mappings.map((mapping, index) => sweepPosition(mapping, index, mappings.length));
+  const order = positions.map((_, index) => index).sort((a, b) => positions[a] - positions[b] || a - b);
+  const min = positions[order[0]];
+  const max = positions[order[order.length - 1]];
+  const at = min + Math.min(1, Math.max(0, blend)) * (max - min);
+
+  if (at <= min) {
+    return { primary: order[0], primaryWeight: 1, secondary: null, secondaryWeight: 0 };
+  }
+  if (at >= max) {
+    return { primary: order[order.length - 1], primaryWeight: 1, secondary: null, secondaryWeight: 0 };
+  }
+
+  let upper = 1;
+  while (upper < order.length && positions[order[upper]] < at) {
+    upper += 1;
+  }
+  const lower = upper - 1;
+  const lowerValue = positions[order[lower]];
+  const upperValue = positions[order[upper]];
+
+  if (mode === "snap") {
+    const nearest = at - lowerValue <= upperValue - at ? order[lower] : order[upper];
+    return { primary: nearest, primaryWeight: 1, secondary: null, secondaryWeight: 0 };
+  }
+
+  const t = Math.min(1, Math.max(0, (at - lowerValue) / Math.max(upperValue - lowerValue, 1e-9)));
+  return pruneMix({ primary: order[lower], primaryWeight: 1 - t, secondary: order[upper], secondaryWeight: t });
+}
+
+export type BlendMatchSummary = {
+  name: string;
+  details: string;
+};
+
+/**
+ * What `mappings` play for these knob values, in words: the model, and the mix when two
+ * are heard. `nameOf` turns a model id into a display name.
+ */
+export function describeBlendMix(
+  mappings: BlendModelMapping[],
+  target: Record<string, number>,
+  blend: number,
+  mode: BlendMode,
+  nameOf: (modelId: string) => string,
+): BlendMatchSummary {
+  const mix = selectBlendMix(mappings, target, blend, mode);
+  if (!mix) {
+    return { name: "—", details: "" };
+  }
+
+  const primaryName = nameOf(mappings[mix.primary].id) || "—";
+  if (mix.secondary === null) {
+    return { name: primaryName, details: "" };
+  }
+
+  const secondaryName = nameOf(mappings[mix.secondary].id);
+  const p1 = Math.round(mix.primaryWeight * 100);
+  return { name: primaryName, details: `Mix: ${primaryName} ${p1}% / ${secondaryName} ${100 - p1}%` };
 }

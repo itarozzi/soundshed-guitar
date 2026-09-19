@@ -1,5 +1,5 @@
 import { uiState, getActivePresetForRender, getSignalPathPreset, setPresetDirty, isCompositeEditMode } from "./state.js";
-import { buildBlendModelMappingsFromIds } from "./blendUtils.js";
+import { buildBlendModelMappingsFromIds, findBlendForToneGroup } from "./blendUtils.js";
 import type {
   BlendModelMapping,
   GraphNode,
@@ -994,10 +994,7 @@ function renderNodeElement(node: GraphNode, options?: RenderNodeElementOptions):
     : "";
 
   // Small avatar over the node's top edge: layout thumbnail, else the custom-effect one, else the same artwork the visualization panel shows.
-  const blendId = (() => {
-    const params = node.params as Record<string, unknown> | undefined;
-    return typeof params?.blend === "string" ? params.blend : "";
-  })();
+  const blendId = node.config?.blendId ?? "";
   // Honour the user's layout preference so the avatar matches what the params
   // panel will actually render for this node.
   const nodeLayout = resolveLayoutForNode({
@@ -1029,9 +1026,9 @@ function renderNodeElement(node: GraphNode, options?: RenderNodeElementOptions):
       ${bypassButton}
       ${thumbUrl ? `<div class="node-icon"></div>` : `<div class="node-icon">${icon}</div>`}
       <div class="node-info">
-        <div class="node-name">${displayName}</div>
-        ${effectTypeName ? `<div class="node-type">${effectTypeName}</div>` : ""}
-        ${architectureBadge ? `<div class="node-architecture-badge" aria-label="Model architecture">${architectureBadge}</div>` : ""}
+        <div class="node-name">${escapeHtml(displayName)}</div>
+        ${effectTypeName ? `<div class="node-type">${escapeHtml(effectTypeName)}</div>` : ""}
+        ${architectureBadge ? `<div class="node-architecture-badge" aria-label="Model architecture">${escapeHtml(architectureBadge)}</div>` : ""}
       </div>
       <span class="node-clip-indicator clip-inactive" aria-hidden="true"></span>
       ${nodeBypassed ? '<div class="node-bypass-badge">OFF</div>' : ""}
@@ -1518,33 +1515,35 @@ function handleResourceGroupDrop(
     return;
   }
 
-  const modelMappings = payload.modelMappings?.length
-    ? payload.modelMappings
-    : buildBlendModelMappingsFromIds(payload.modelIds, uiState.resourceLibrary);
+  // The node is pointed at a blend of the dropped group. The blend it plays now is never
+  // rewritten: other presets may play it too, and it may carry mappings made in the editor.
+  // A blend already made from this group with the same models is reused, edits and all.
+  const existing = findBlendForToneGroup(uiState.blendLibrary ?? [], payload.groupId, payload.modelIds);
+  let blendId = existing?.id ?? "";
+  const blendName = existing?.name ?? payload.title;
 
-  const existingBlendId = targetNodeId
-    ? (getActivePresetForRender()?.graph?.nodes.find((n) => n.id === targetNodeId)?.config?.blendId ?? "")
-    : "";
+  if (!existing) {
+    blendId = typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const modelMappings = payload.modelMappings?.length
+      ? payload.modelMappings
+      : buildBlendModelMappingsFromIds(payload.modelIds, uiState.resourceLibrary);
 
-  const blendId = existingBlendId || (typeof crypto !== "undefined" && "randomUUID" in crypto
-    ? crypto.randomUUID()
-    : `${Date.now()}-${Math.random().toString(16).slice(2)}`);
-
-  const blendName = existingBlendId
-    ? (uiState.blendLibrary?.find((blend) => blend.id === existingBlendId)?.name ?? payload.title)
-    : payload.title;
-
-  postMessage({
-    type: "saveBlendDefinition",
-    blend: {
-      id: blendId,
-      name: blendName,
-      category: payload.category,
-      models: modelMappings.map((mapping: BlendModelMapping) => mapping.id),
-      modelMappings,
-      blendMode: "interpolate",
-    },
-  });
+    postMessage({
+      type: "saveBlendDefinition",
+      blend: {
+        id: blendId,
+        name: blendName,
+        category: payload.category,
+        models: modelMappings.map((mapping: BlendModelMapping) => mapping.id),
+        modelMappings,
+        blendMode: "interpolate",
+        toneGroupId: payload.groupId || undefined,
+        toneGroupTitle: payload.title || undefined,
+      },
+    });
+  }
 
   if (updateOnly && targetNodeId) {
     sendReplaceSignalPathNode(targetNodeId, EffectGuids.kAmpNamBlend, {

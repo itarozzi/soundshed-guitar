@@ -8,6 +8,7 @@ import type { GraphNode, Preset } from "../../types.js";
 import { toggleSignalPathNodeBypass } from "../bypass.js";
 import { sendSignalPathNodeConfigUpdate } from "../commands.js";
 import { promptSaveCurrentCustomEffect } from "../customEffectActions.js";
+import { requestNodeParamsRefresh } from "../render.js";
 import { nodeParamsPanelElement } from "../state.js";
 
 export function bindCustomEffectActionControls(node: GraphNode): void {
@@ -42,13 +43,16 @@ export function bindBlendModeOverride(node: GraphNode): void {
     return;
   }
   select.addEventListener("change", () => {
+    // The node's own choice, kept apart from the definition's blendMode so it survives the
+    // blend being applied again. "" follows the definition.
     const value = select.value;
-    node.config.blendMode = value;
-    sendSignalPathNodeConfigUpdate(node.id, "blendMode", value);
-    // Update the matched-model summary in place to reflect the new mode.
+    node.config.blendModeOverride = value;
+    sendSignalPathNodeConfigUpdate(node.id, "blendModeOverride", value);
+    // The knobs snap in the UI too, so they are redrawn for the new mode.
     const blendState = getBlendState(node);
     if (blendState) {
       updateBlendMatchSummary(nodeParamsPanelElement, node, blendState);
     }
+    requestNodeParamsRefresh();
   });
 }

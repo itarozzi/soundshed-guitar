@@ -13,9 +13,21 @@ import { GenericKnob } from "./controls.js";
 import {
   BLEND_PARAM_SPECS,
   buildBlendModelMappingsFromIds,
+  buildParameterMapFromLegacy,
+  collectBlendModelIds,
+  denormalizeBlendValue,
+  describeBlendMix,
+  getBlendParamSpec,
   inferParamValueFromName,
+  mappedBlendParamIds,
+  normalizeBlendValue,
   type BlendParamSpec,
 } from "./blendUtils.js";
+import { sendSignalPathNodeParamUpdate } from "./signalPath/commands.js";
+import { requestNodeParamsRefresh } from "./signalPath/render.js";
+
+/** The Test view's knob for the Blend sweep, shown when no model is captured at any setting. */
+const BLEND_SWEEP_PARAM = "blend";
 import { arrayBufferToBase64, buildArchiveFileName, generateResourceId, requestResourceData, sanitizeFilename } from "./archiveUtils.js";
 import { escapeHtml, sha256HexFromBase64, findResourceById } from "./utils.js";
 import { deduplicateResourcesByHashAndPath } from "./resourceDedup.js";
@@ -37,6 +49,8 @@ export class BlendEditorModal {
   private modelList = document.getElementById("blend-model-list");
   private addModelBtn = document.getElementById("blend-add-model-btn") as HTMLButtonElement | null;
   private saveBtn = document.getElementById("blend-editor-save") as HTMLButtonElement | null;
+  private applyBtn = document.getElementById("blend-editor-apply") as HTMLButtonElement | null;
+  private testNote = document.getElementById("blend-test-note") as HTMLElement | null;
   private cancelBtn = document.getElementById("blend-editor-cancel") as HTMLButtonElement | null;
   private closeBtn = document.getElementById("blend-editor-modal-close") as HTMLButtonElement | null;
   private paramList = document.getElementById("blend-parameter-list");
@@ -86,6 +100,7 @@ export class BlendEditorModal {
     this.cancelBtn?.addEventListener("click", () => this.close());
     this.addModelBtn?.addEventListener("click", () => this.addModelRow());
     this.saveBtn?.addEventListener("click", () => this.save());
+    this.applyBtn?.addEventListener("click", () => this.save(false));
     this.paramAddBtn?.addEventListener("click", () => this.addParameter());
     this.paramAutoBtn?.addEventListener("click", () => this.autoMapParameters());
     this.exportBtn?.addEventListener("click", () => void this.exportBlendArchive());
@@ -157,6 +172,9 @@ export class BlendEditorModal {
 
     this.modal.dataset.blendId = blendId;
     this.modal.dataset.nodeId = node.id;
+    this.setTestNote(
+      "These are the node's own knobs, so you hear the blend as last saved. Apply to hear your edits.",
+    );
 
     this.setActiveTab("settings");
 
@@ -196,6 +214,7 @@ export class BlendEditorModal {
 
     this.modal.dataset.blendId = blend.id;
     delete this.modal.dataset.nodeId;
+    this.setTestNote("Shows which models these settings pick. Open the blend from its node in the chain to hear it.");
 
     this.setActiveTab("settings");
     // Reset transient test state *before* rendering so renderModelList -> renderTestControls seeds fresh from mappings
@@ -213,6 +232,10 @@ export class BlendEditorModal {
   private close(): void {
     if (!this.modal) {
       return;
+    }
+    if (this.modal.dataset.nodeId) {
+      // The Test view moves the node's knobs; the params panel shows them where they are now.
+      requestNodeParamsRefresh();
     }
     this.modal.style.display = "none";
     delete this.modal.dataset.blendId;
@@ -260,7 +283,7 @@ export class BlendEditorModal {
     }
     this.paramList.innerHTML = this.activeParams
       .map((paramId) => {
-        const spec = getParamSpec(paramId);
+        const spec = getBlendParamSpec(paramId);
         const label = spec?.label ?? paramId;
         return `
           <span class="blend-param-chip" data-param-id="${paramId}">
@@ -367,7 +390,7 @@ export class BlendEditorModal {
     const resources = this.deps.getResourceLibrary().nam ?? [];
     const exportResources: Array<{ id: string; name: string; category: string; type: string; fileName: string; hash?: string }> = [];
 
-    for (const modelId of blend.models ?? []) {
+    for (const modelId of collectBlendModelIds(blend)) {
       const resource = resources.find((res) => res.id === modelId);
       if (!resource) {
         continue;
@@ -869,7 +892,7 @@ export class BlendEditorModal {
           if (inferred === null) {
             return;
           }
-          const spec = getParamSpec(paramId);
+          const spec = getBlendParamSpec(paramId);
           input.value = spec ? denormalizeValue(inferred, spec) : inferred.toFixed(2);
         });
       };
@@ -920,6 +943,36 @@ export class BlendEditorModal {
     this.updateMatchedModel();
   }
 
+  private setTestNote(text: string): void {
+    if (this.testNote) {
+      this.testNote.textContent = text;
+    }
+  }
+
+  /**
+   * The knobs the Test view shows: one per parameter some model is captured at, as the node
+   * shows them, or the Blend sweep when there are none.
+   */
+  private testParamIds(mappings: BlendModelMapping[]): string[] {
+    const mapped = mappedBlendParamIds({ parameters: this.activeParams } as BlendDefinition, mappings);
+    return mapped.length ? mapped : [BLEND_SWEEP_PARAM];
+  }
+
+  /** Opened from a node, the Test knobs are that node's knobs, so the blend is heard. */
+  private auditionOnNode(paramIds: string[]): void {
+    const node = this.getActiveNode();
+    if (!node) {
+      return;
+    }
+    paramIds.forEach((paramId) => {
+      const value = this.testParams[paramId];
+      if (typeof value === "number" && node.params[paramId] !== value) {
+        node.params[paramId] = value;
+        sendSignalPathNodeParamUpdate(node.id, paramId, value);
+      }
+    });
+  }
+
   private syncTestParams(node: GraphNode | null | undefined, mappings: BlendModelMapping[]): void {
     const specs = new Map(BLEND_PARAM_SPECS.map((spec) => [spec.id, spec]));
     const defaultNormalized = (paramId: string): number => {
@@ -941,11 +994,11 @@ export class BlendEditorModal {
         return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
       }
       const spec = specs.get(paramId);
-      return spec ? normalizeValue((spec.min + spec.max) / 2, spec) : 0.5;
+      return spec ? normalizeBlendValue((spec.min + spec.max) / 2, spec) : 0.5;
     };
 
     const nextParams: Record<string, number> = {};
-    this.activeParams.forEach((paramId) => {
+    this.testParamIds(mappings).forEach((paramId) => {
       const existing = this.testParams[paramId];
       nextParams[paramId] = typeof existing === "number" ? existing : defaultNormalized(paramId);
     });
@@ -959,15 +1012,17 @@ export class BlendEditorModal {
 
     this.syncTestParams(node, mappings);
     this.testKnobs.clear();
+    const testParamIds = this.testParamIds(mappings);
 
-    this.testControls.innerHTML = this.activeParams
+    this.testControls.innerHTML = testParamIds
       .map((paramId) => {
-        const spec = getParamSpec(paramId);
-        const label = spec?.label ?? paramId;
+        const isSweep = paramId === BLEND_SWEEP_PARAM;
+        const spec = getBlendParamSpec(paramId);
+        const label = isSweep ? "Blend" : spec?.label ?? paramId;
         const normalizedValue = this.testParams[paramId] ?? 0;
         const displayValue = spec ? Number.parseFloat(denormalizeValue(normalizedValue, spec)) : normalizedValue;
-        const min = spec?.min ?? -1;
-        const max = spec?.max ?? 1;
+        const min = isSweep ? 0 : spec?.min ?? -1;
+        const max = isSweep ? 1 : spec?.max ?? 1;
         return `
           <div class="knob-control">
             <span class="knob-label">${escapeHtml(label)}</span>
@@ -994,7 +1049,7 @@ export class BlendEditorModal {
       const paramId = knob.dataset.paramId ?? "";
       const min = knob.dataset.min ? parseFloat(knob.dataset.min) : -1;
       const max = knob.dataset.max ? parseFloat(knob.dataset.max) : 1;
-      const spec = getParamSpec(paramId);
+      const spec = getBlendParamSpec(paramId);
       const defaultValue: number = spec
         ? Number.parseFloat(denormalizeValue(this.testParams[paramId] ?? 0, spec))
         : Number(this.testParams[paramId] ?? 0);
@@ -1013,7 +1068,7 @@ export class BlendEditorModal {
         sensitivity,
         sendParameter: false,
         onValueChange: (value) => {
-          const normalized = spec ? normalizeValue(value, spec) : value;
+          const normalized = spec ? normalizeBlendValue(value, spec) : value;
           const blendMode = (this.modeSelect?.value ?? "interpolate") as BlendMode;
 
           if (blendMode === "snap") {
@@ -1030,7 +1085,7 @@ export class BlendEditorModal {
 
               this.activeParams.forEach((activeParamId) => {
                 const targetValue = this.testParams[activeParamId];
-                const targetSpec = getParamSpec(activeParamId);
+                const targetSpec = getBlendParamSpec(activeParamId);
                 const display = typeof targetValue === "number"
                   ? (targetSpec ? Number.parseFloat(denormalizeValue(targetValue, targetSpec)) : targetValue)
                   : 0;
@@ -1039,6 +1094,7 @@ export class BlendEditorModal {
 
               this.updateMatchedModel();
               this.updateTestMappedIndicators(mappings);
+              this.auditionOnNode(testParamIds);
               return;
             }
           }
@@ -1046,6 +1102,7 @@ export class BlendEditorModal {
           this.testParams[paramId] = normalized;
           this.updateMatchedModel();
           this.updateTestMappedIndicators(mappings);
+          this.auditionOnNode([paramId]);
         },
       });
 
@@ -1063,7 +1120,7 @@ export class BlendEditorModal {
     }
 
     const target: Record<string, number> = {};
-    this.activeParams.forEach((paramId) => {
+    this.testParamIds(mappings).forEach((paramId) => {
       const value = this.testParams[paramId];
       if (typeof value === "number") {
         target[paramId] = value;
@@ -1076,7 +1133,7 @@ export class BlendEditorModal {
       const paramId = knob.dataset.paramId ?? "";
       const min = knob.dataset.min ? parseFloat(knob.dataset.min) : -1;
       const max = knob.dataset.max ? parseFloat(knob.dataset.max) : 1;
-      const spec = getParamSpec(paramId);
+      const spec = getBlendParamSpec(paramId);
       const points = buildBlendMappedPoints(paramId, mappings, this.activeParams, target, spec);
       renderMappedPointElements(knob, points, min, max);
     });
@@ -1087,95 +1144,39 @@ export class BlendEditorModal {
       return;
     }
 
-    // Note: previously gated on nodeId/activeNode (from signal path open).
-    // Removed to fix regression: when "testing a blend" (even via openWithDefinition from lib),
-    // parameter changes must update the matched model in the Test UI based on current mappings + testParams.
-
+    // Computed from the mappings being edited and the Test knobs, whether or not the editor
+    // was opened from a node, by the same rule the engine uses.
+    const mappings: BlendModelMapping[] = this.collectCurrentMappings();
     const target: Record<string, number> = {};
-    this.activeParams.forEach((paramId) => {
+    this.testParamIds(mappings).forEach((paramId) => {
       const value = this.testParams[paramId];
-      if (typeof value === "number") {
+      if (typeof value === "number" && paramId !== BLEND_SWEEP_PARAM) {
         target[paramId] = value;
       }
     });
 
-    const mappings: BlendModelMapping[] = this.collectCurrentMappings();
-    if (!Object.keys(target).length || !mappings.length) {
-      this.matchName.textContent = "—";
-      if (this.matchDetails) this.matchDetails.textContent = "";
-      return;
-    }
+    // A node can override the blend's mode; opened from one, the Test view follows it.
+    const override = this.getActiveNode()?.config?.blendModeOverride;
+    const blendMode: BlendMode = override === "snap" || override === "interpolate"
+      ? override
+      : (this.modeSelect?.value ?? "interpolate") as BlendMode;
+    const library = this.deps.getResourceLibrary();
+    const summary = describeBlendMix(
+      mappings,
+      target,
+      this.testParams[BLEND_SWEEP_PARAM] ?? 0,
+      blendMode,
+      (modelId) => getLibraryResource(library, "nam", modelId)?.name ?? modelId,
+    );
 
-    const blendMode = (this.modeSelect?.value ?? "interpolate") as BlendMode;
-
-    let bestIndex = -1;
-    let secondIndex = -1;
-    let bestDistance = Number.POSITIVE_INFINITY;
-    let secondDistance = Number.POSITIVE_INFINITY;
-
-    mappings.forEach((mapping: BlendModelMapping, index: number) => {
-      const params = buildParameterMapFromLegacy(mapping);
-      let distance = 0;
-      let matched = false;
-      this.activeParams.forEach((paramId) => {
-        if (!(paramId in target)) {
-          return;
-        }
-        const mappedValue = params[paramId];
-        if (typeof mappedValue !== "number") {
-          distance += 4;
-          return;
-        }
-        const delta = mappedValue - target[paramId];
-        distance += delta * delta;
-        matched = true;
-      });
-      if (!matched) {
-        distance += 9;
-      }
-
-      if (distance < bestDistance) {
-        secondDistance = bestDistance;
-        secondIndex = bestIndex;
-        bestDistance = distance;
-        bestIndex = index;
-      } else if (distance < secondDistance) {
-        secondDistance = distance;
-        secondIndex = index;
-      }
-    });
-
-    if (bestIndex < 0) {
-      this.matchName.textContent = "—";
-      if (this.matchDetails) this.matchDetails.textContent = "";
-      return;
-    }
-
-    const bestMapping = mappings[bestIndex] as BlendModelMapping;
-    const bestResource = getLibraryResource(this.deps.getResourceLibrary(), "nam", bestMapping.id);
-    const bestName = bestResource?.name ?? bestMapping.id;
-    this.matchName.textContent = bestName || "—";
-
+    this.matchName.textContent = summary.name;
     if (this.matchDetails) {
-      const hasSecond = secondIndex >= 0 && secondIndex !== bestIndex;
-      if (blendMode === "interpolate" && hasSecond) {
-        const secondMapping = mappings[secondIndex] as BlendModelMapping;
-        const secondResource = getLibraryResource(this.deps.getResourceLibrary(), "nam", secondMapping.id);
-        const secondName = secondResource?.name ?? secondMapping.id;
-        const eps = 1e-6;
-        const w1 = 1 / Math.max(bestDistance, eps);
-        const w2 = 1 / Math.max(secondDistance, eps);
-        const denom = Math.max(w1 + w2, eps);
-        const p1 = Math.round((w1 / denom) * 100);
-        const p2 = 100 - p1;
-        this.matchDetails.textContent = `Mix: ${bestName} ${p1}% / ${secondName} ${p2}%`;
-      } else {
-        this.matchDetails.textContent = "";
-      }
+      this.matchDetails.textContent = summary.details;
     }
   }
 
-  private save(): void {
+  /** Saves the blend. Apply keeps the editor open, so an edit can be heard and tested. */
+  private save(close = true): void {
     if (!this.modal) {
       return;
     }
@@ -1208,8 +1209,8 @@ export class BlendEditorModal {
         if (Number.isNaN(numeric)) {
           return;
         }
-        const spec = getParamSpec(paramId);
-        parameters[paramId] = spec ? normalizeValue(numeric, spec) : numeric;
+        const spec = getBlendParamSpec(paramId);
+        parameters[paramId] = spec ? normalizeBlendValue(numeric, spec) : numeric;
       });
 
       const primaryParam = this.activeParams[0] ?? "";
@@ -1248,7 +1249,9 @@ export class BlendEditorModal {
       blend: blendPayload,
     });
 
-    this.close();
+    if (close) {
+      this.close();
+    }
   }
 
   private collectCurrentMappings(): BlendModelMapping[] {
@@ -1270,8 +1273,8 @@ export class BlendEditorModal {
         if (Number.isNaN(numeric)) {
           return;
         }
-        const spec = getParamSpec(paramId);
-        parameters[paramId] = spec ? normalizeValue(numeric, spec) : numeric;
+        const spec = getBlendParamSpec(paramId);
+        parameters[paramId] = spec ? normalizeBlendValue(numeric, spec) : numeric;
       });
       mappings.push({ id: modelId, parameters });
     });
@@ -1463,7 +1466,7 @@ function resolveActiveParams(blend: BlendLibrary[number] | undefined, mappings: 
 }
 
 function renderParamInput(paramId: string, parameters: Record<string, number>): string {
-  const spec = getParamSpec(paramId);
+  const spec = getBlendParamSpec(paramId);
   const label = spec?.label ?? paramId;
   const value = typeof parameters[paramId] === "number"
     ? (spec ? denormalizeValue(parameters[paramId], spec) : parameters[paramId].toFixed(2))
@@ -1475,16 +1478,6 @@ function renderParamInput(paramId: string, parameters: Record<string, number>): 
       <input class="blend-model-param-value" data-param-id="${paramId}" type="number" step="${step}" placeholder="Value" value="${escapeHtml(value)}" />
     </label>
   `;
-}
-
-function buildParameterMapFromLegacy(mapping: BlendModelMapping): Record<string, number> {
-  if (mapping.parameters) {
-    return mapping.parameters;
-  }
-  if (mapping.parameterId && typeof mapping.parameterValue === "number") {
-    return { [mapping.parameterId]: mapping.parameterValue };
-  }
-  return {};
 }
 
 function getLibraryResource(library: ResourceLibrary, resourceType: string, resourceId: string): LibraryResource | undefined {
@@ -1500,27 +1493,7 @@ function getLibraryResourceByHash(library: ResourceLibrary, resourceType: string
   return resources.find((res) => res.hash?.toLowerCase() === normalized);
 }
 
-function getParamSpec(parameterId: string): BlendParamSpec | null {
-  if (!parameterId) {
-    return null;
-  }
-  return BLEND_PARAM_SPECS.find((spec) => spec.id === parameterId) ?? null;
-}
-
-function normalizeValue(value: number, spec: BlendParamSpec): number {
-  if (value < 0) {
-    return value / 10;
-  }
-  const clamped = Math.min(spec.max, Math.max(spec.min, value));
-  const range = spec.max - spec.min;
-  if (range <= 0) {
-    return 0;
-  }
-  return (clamped - spec.min) / range;
-}
-
+/** A captured value as the editor shows it: on the parameter's own scale, to one decimal. */
 function denormalizeValue(value: number, spec: BlendParamSpec): string {
-  const range = spec.max - spec.min;
-  const raw = value < 0 ? value * 10 : spec.min + value * range;
-  return raw.toFixed(1);
+  return denormalizeBlendValue(value, spec).toFixed(1);
 }

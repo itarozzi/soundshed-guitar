@@ -5,7 +5,7 @@
  */
 
 import { uiState } from "./state.js";
-import { type ParameterDef } from "./presetV2.js";
+import { blendKnobDataAttributes, denormalizeBlendValue, type BlendParamDef } from "./blendUtils.js";
 import { renderIcon } from "./iconAssets.js";
 import { escapeHtml } from "./utils.js";
 import { ensureLayoutImagesLoaded } from "./layoutImages.js";
@@ -94,7 +94,7 @@ function getLayoutImageUrl(imageId: string): string | null {
 export function renderCustomLayout(
   node: GraphNode,
   layout: EffectLayout,
-  paramDefs: ParameterDef[],
+  paramDefs: BlendParamDef[],
   resourceControls: LayoutResourceControlDef[] = []
 ): string {
   const w = Math.round(layout.dimensions.width);
@@ -212,7 +212,7 @@ export function colorWithAlpha(hexColor: string, alpha: number): string {
 export function renderCustomLayoutPreviewLayers(
   node: GraphNode,
   layout: EffectLayout,
-  paramDefs: ParameterDef[],
+  paramDefs: BlendParamDef[],
   resourceControls: LayoutResourceControlDef[] = []
 ): string {
   const controls = renderControls(node, layout.controls, paramDefs, resourceControls);
@@ -348,7 +348,7 @@ function renderBackgrounds(backgrounds: LayoutBackground[]): string {
 function renderControls(
   node: GraphNode,
   controls: LayoutControl[],
-  paramDefs: ParameterDef[],
+  paramDefs: BlendParamDef[],
   resourceControls: LayoutResourceControlDef[]
 ): string {
   const resourceByKey = new Map(resourceControls.map((resource) => [resource.resourceControlKey, resource]));
@@ -378,7 +378,13 @@ function renderControls(
       const step = paramDef?.step;
       const labels = paramDef?.labels;
       const rawValue = key ? node.params[key] : undefined;
-      const value = typeof rawValue === "number" ? rawValue : defaultValue ?? 0;
+      // A blend node's mapped knob stores 0..1 but is drawn on its parameter's own scale, and
+      // the params panel binds it by these attributes (see bindNodeParamControls).
+      const blendBinding = paramDef?.blend;
+      const blendAttrs = blendBinding ? blendKnobDataAttributes(blendBinding) : "";
+      const value = typeof rawValue === "number"
+        ? (blendBinding ? denormalizeBlendValue(rawValue, { min: blendBinding.specMin, max: blendBinding.specMax }) : rawValue)
+        : defaultValue ?? 0;
       const displayValue = isResourceControl
         ? ""
         : formatParamValue(value, unit, labels);
@@ -544,6 +550,7 @@ function renderControls(
             ${step !== undefined ? `step="${step}"` : `step="0.01"`}
             value="${value}"
             ${isEnum ? `data-labels="${labels?.join("|") ?? ""}"` : ""}
+            ${blendAttrs}
           >
         `;
       } else {
@@ -568,6 +575,7 @@ function renderControls(
             data-unit="${unit || "amount"}"
             ${step !== undefined ? `data-step="${step}"` : ""}
             ${isEnum ? `data-labels="${labels?.join("|") ?? ""}"` : ""}
+            ${blendAttrs}
             ${customKnobAttr}
             style="${knobBg}"
           >

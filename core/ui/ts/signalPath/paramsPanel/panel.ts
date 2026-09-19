@@ -10,8 +10,8 @@ import { renderIcon } from "../../iconAssets.js";
 import { resolveLayoutForNode } from "../../layoutPreferences.js";
 import { formatParamValue, renderCustomLayout, renderCustomLayoutBackdrop } from "../../layoutRenderer.js";
 import { EffectTypeRegistry, getNodeEffectInfo } from "../../presetV2.js";
-import type { EffectTypeInfo } from "../../presetV2.js";
-import { bindBlendEditorControls, computeBlendParamRange, denormalizeBlendValue, getBlendState, normalizeBlendValue } from "../../signalPathBlend.js";
+import { blendKnobDataAttributes, type BlendParamDef } from "../../blendUtils.js";
+import { bindBlendEditorControls, computeBlendParamRange, denormalizeBlendValue, getBlendKnobBinding, getBlendState, normalizeBlendValue } from "../../signalPathBlend.js";
 import type { BlendParamRange } from "../../signalPathBlend.js";
 import { uiState } from "../../state.js";
 import type { GraphNode, Preset } from "../../types.js";
@@ -71,7 +71,7 @@ export function showNodeParamsPanel(node: GraphNode, preset: Preset): void {
   
   // Get parameter definitions from registry
   const typeInfo = getNodeEffectInfo(node);
-  let paramDefs = typeInfo?.parameters || [];
+  let paramDefs: BlendParamDef[] = typeInfo?.parameters || [];
   if (EffectTypeRegistry.resolve(node.type) === EffectGuids.kEqGraphic) {
     paramDefs = [];
   }
@@ -95,16 +95,21 @@ export function showNodeParamsPanel(node: GraphNode, preset: Preset): void {
         max: range?.max ?? 1,
         unit: "amount",
         step: 0.1,
+        blend: getBlendKnobBinding(paramId, blendState),
       };
     });
 
-    const nonBlendParams = paramDefs.filter((paramDef) => paramDef.key !== "blend");
+    // With no model captured at any setting there are no mapped knobs, and the Blend sweep
+    // is what picks the model, so it stays.
+    const nonBlendParams = blendParamDefs.length
+      ? paramDefs.filter((paramDef) => paramDef.key !== "blend")
+      : paramDefs;
     paramDefs = [...blendParamDefs, ...nonBlendParams];
   }
   
   const isPitchShift = isPitchShiftType(node.type);
 
-  const renderParamControl = (paramDef: EffectTypeInfo["parameters"][number]): string => {
+  const renderParamControl = (paramDef: BlendParamDef): string => {
     const key = paramDef.key;
     const rawValue = node.params[key];
     const label = paramDef.name || formatParamLabel(key);
@@ -182,7 +187,7 @@ export function showNodeParamsPanel(node: GraphNode, preset: Preset): void {
           data-unit="${unit}"
           ${step !== undefined ? `data-step="${step}"` : ""}
           ${isEnum ? `data-labels="${enumLabels.join("|")}"` : ""}
-          ${isBlendParam ? `data-blend-param="true" data-blend-spec-min="${blendRange?.spec?.min ?? 0}" data-blend-spec-max="${blendRange?.spec?.max ?? 10}" data-blend-mode="${blendState?.blendMode ?? "interpolate"}"` : ""}
+          ${paramDef.blend ? blendKnobDataAttributes(paramDef.blend) : ""}
         >
           ${isBlendParam ? `<div class="knob-mapped-points"></div>` : ""}
           <div class="knob-indicator"></div>
@@ -193,7 +198,7 @@ export function showNodeParamsPanel(node: GraphNode, preset: Preset): void {
     `;
   };
 
-  const buildParamControls = (defs: EffectTypeInfo["parameters"]): string => {
+  const buildParamControls = (defs: BlendParamDef[]): string => {
     const hasGroups = defs.some((paramDef) => typeof paramDef.group === "string" && paramDef.group.trim().length > 0);
     if (!hasGroups) {
       return defs.map(renderParamControl).join("");

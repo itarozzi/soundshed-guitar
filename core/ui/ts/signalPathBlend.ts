@@ -1,8 +1,9 @@
 /**
  * Blend effects handling for the signal path panel.
  *
- * Contains blend parameter specs, state derivation, indicator rendering,
- * and the blend-editor modal wiring extracted from signalPath.ts.
+ * Contains blend state derivation, indicator rendering, and the blend-editor modal wiring
+ * extracted from signalPath.ts. What a blend plays is decided in blendUtils.selectBlendMix,
+ * which mirrors the engine.
  */
 import { uiState } from "./state.js";
 import { EffectGuids } from "./effectGuids.js";
@@ -14,52 +15,29 @@ import type {
   GraphNode,
   LibraryResource,
 } from "./types.js";
-import { BLEND_PARAM_SPECS, buildBlendModelMappingsFromIds, type BlendParamSpec } from "./blendUtils.js";
+import {
+  buildBlendModelMappingsFromIds,
+  buildParameterMapFromLegacy,
+  denormalizeBlendValue,
+  describeBlendMix,
+  getBlendParamSpec,
+  mappedBlendParamIds,
+  type BlendKnobBinding,
+  type BlendMatchSummary,
+  type BlendParamSpec,
+} from "./blendUtils.js";
 import { BlendEditorModal } from "./blendEditor.js";
 import { escapeHtml, findResourceById } from "./utils.js";
 import { Features, isFeatureEnabled } from "./featureFlags.js";
 
-// ---------------------------------------------------------------------------
-// Blend parameter specs
-// ---------------------------------------------------------------------------
-
-export { BLEND_PARAM_SPECS, type BlendParamSpec } from "./blendUtils.js";
-
-function getBlendParamSpec(paramId: string): BlendParamSpec | null {
-  if (!paramId) {
-    return null;
-  }
-  return BLEND_PARAM_SPECS.find((spec) => spec.id === paramId) ?? null;
-}
-
-// ---------------------------------------------------------------------------
-// Normalisation helpers
-// ---------------------------------------------------------------------------
-
-export function normalizeBlendValue(value: number, spec: BlendParamSpec | null): number {
-  if (!spec) {
-    return value;
-  }
-  if (value < 0) {
-    return value / 10;
-  }
-  const clamped = Math.min(spec.max, Math.max(spec.min, value));
-  const range = spec.max - spec.min;
-  if (range <= 0) {
-    return 0;
-  }
-  return (clamped - spec.min) / range;
-}
-
-export function denormalizeBlendValue(value: number, spec: BlendParamSpec | null): number {
-  if (!spec) {
-    return value;
-  }
-  if (value < 0) {
-    return value * 10;
-  }
-  return spec.min + value * (spec.max - spec.min);
-}
+export {
+  BLEND_PARAM_SPECS,
+  buildParameterMapFromLegacy,
+  denormalizeBlendValue,
+  normalizeBlendValue,
+  type BlendMatchSummary,
+  type BlendParamSpec,
+} from "./blendUtils.js";
 
 // ---------------------------------------------------------------------------
 // Mapped-point helpers
@@ -183,35 +161,17 @@ function renderMappedPointElements(
 
 export type BlendState = {
   blend: BlendDefinition | undefined;
+  /** The node names a blend the library does not have: it plays dry. */
+  missing: boolean;
+  /** The mode in effect: the node's override, else the definition's. */
   blendMode: BlendMode;
+  definitionBlendMode: BlendMode;
+  /** The node's own choice of mode, or "" to follow the definition. */
+  blendModeOverride: BlendMode | "";
   mappings: BlendModelMapping[];
+  /** Parameters some model was captured at, each shown as a knob. Empty: Blend sweeps. */
   paramIds: string[];
 };
-
-export function buildParameterMapFromLegacy(mapping: BlendModelMapping): Record<string, number> {
-  if (mapping.parameters) {
-    return mapping.parameters;
-  }
-  if (mapping.parameterId && typeof mapping.parameterValue === "number") {
-    return { [mapping.parameterId]: mapping.parameterValue };
-  }
-  return {};
-}
-
-function resolveBlendActiveParams(blend: BlendDefinition | undefined, mappings: BlendModelMapping[]): string[] {
-  const params = new Set<string>();
-  if (blend?.parameters?.length) {
-    blend.parameters.forEach((param) => params.add(param));
-  }
-  mappings.forEach((mapping) => {
-    const map = buildParameterMapFromLegacy(mapping);
-    Object.keys(map).forEach((param) => params.add(param));
-  });
-  if (!params.size) {
-    params.add("gain");
-  }
-  return Array.from(params);
-}
 
 export type BlendParamRange = {
   min: number;
@@ -264,12 +224,16 @@ export function computeBlendParamRange(
   };
 }
 
+function asBlendMode(value: unknown): BlendMode | "" {
+  return value === "snap" || value === "interpolate" ? value : "";
+}
+
 export function getBlendState(node: GraphNode): BlendState | null {
   if (node.type !== EffectGuids.kAmpNamBlend) {
     return null;
   }
 
-  const blendId = (node as unknown as { config?: Record<string, string> }).config?.blendId;
+  const blendId = node.config?.blendId;
   if (!blendId) {
     return null;
   }
@@ -278,22 +242,59 @@ export function getBlendState(node: GraphNode): BlendState | null {
   const mappings = blend?.modelMappings?.length
     ? blend.modelMappings
     : buildBlendModelMappingsFromIds(blend?.models ?? [], uiState.resourceLibrary);
-  const paramIds = resolveBlendActiveParams(blend, mappings);
-  // Per-node override takes precedence over the blend definition's mode.
-  const configBlendMode = node.config?.blendMode as BlendMode | undefined;
-  const blendMode = (configBlendMode ?? blend?.blendMode ?? "interpolate") as BlendMode;
+  const definitionBlendMode = asBlendMode(blend?.blendMode) || "interpolate";
+  const blendModeOverride = asBlendMode(node.config?.blendModeOverride);
 
   return {
     blend,
-    blendMode,
+    missing: !blend,
+    blendMode: blendModeOverride || definitionBlendMode,
+    definitionBlendMode,
+    blendModeOverride,
     mappings,
-    paramIds,
+    paramIds: mappedBlendParamIds(blend, mappings),
+  };
+}
+
+/** How a mapped knob for `paramId` reads and writes its value. */
+export function getBlendKnobBinding(paramId: string, blendState: BlendState): BlendKnobBinding {
+  const spec = getBlendParamSpec(paramId);
+  return {
+    specMin: spec?.min ?? 0,
+    specMax: spec?.max ?? 10,
+    blendMode: blendState.blendMode,
   };
 }
 
 // ---------------------------------------------------------------------------
 // Blend param indicator rendering
 // ---------------------------------------------------------------------------
+
+/** The median of the values the models were captured at: where an unset knob is drawn,
+ * and where the engine starts it (BlendSupport.cpp). */
+function capturedMedian(paramId: string, mappings: BlendModelMapping[]): number | undefined {
+  const values = mappings
+    .map((mapping) => buildParameterMapFromLegacy(mapping)[paramId])
+    .filter((value): value is number => typeof value === "number")
+    .sort((a, b) => a - b);
+  if (!values.length) {
+    return undefined;
+  }
+  const mid = Math.floor(values.length / 2);
+  return values.length % 2 === 0 ? (values[mid - 1] + values[mid]) / 2 : values[mid];
+}
+
+function readBlendTarget(node: GraphNode, blendState: BlendState): Record<string, number> {
+  const target: Record<string, number> = {};
+  blendState.paramIds.forEach((paramId) => {
+    const value = node.params[paramId];
+    const resolved = typeof value === "number" ? value : capturedMedian(paramId, blendState.mappings);
+    if (typeof resolved === "number") {
+      target[paramId] = resolved;
+    }
+  });
+  return target;
+}
 
 export function updateBlendParamIndicators(
   panel: HTMLElement | null,
@@ -304,14 +305,7 @@ export function updateBlendParamIndicators(
     return;
   }
 
-  const target: Record<string, number> = {};
-  blendState.paramIds.forEach((paramId) => {
-    const value = node.params[paramId];
-    if (typeof value === "number") {
-      target[paramId] = value;
-    }
-  });
-
+  const target = readBlendTarget(node, blendState);
   const knobs = panel.querySelectorAll('.node-param-knob[data-blend-param="true"]');
   knobs.forEach((knobElement) => {
     const knob = knobElement as HTMLElement;
@@ -327,11 +321,6 @@ export function updateBlendParamIndicators(
 // Blend match summary (live view)
 // ---------------------------------------------------------------------------
 
-export type BlendMatchSummary = {
-  name: string;
-  details: string;
-};
-
 /**
  * Resolve a model id to a display name from the resource library.
  */
@@ -341,86 +330,12 @@ function resolveModelName(modelId: string): string {
   return resource?.name?.trim() || modelId;
 }
 
-/**
- * Compute the matched model summary for the live view, mirroring the
- * Test view's logic in blendEditor.updateMatchedModel. Reads normalised
- * param values from the node and matches them against the blend's mappings.
- */
-export function computeBlendMatchSummary(
-  node: GraphNode,
-  blendState: BlendState,
-): BlendMatchSummary {
-  const target: Record<string, number> = {};
-  blendState.paramIds.forEach((paramId) => {
-    const value = node.params[paramId];
-    if (typeof value === "number") {
-      target[paramId] = value;
-    }
-  });
-
-  const mappings = blendState.mappings;
-  if (!Object.keys(target).length || !mappings.length) {
-    return { name: "—", details: "" };
+export function computeBlendMatchSummary(node: GraphNode, blendState: BlendState): BlendMatchSummary {
+  if (blendState.missing) {
+    return { name: "Blend not found", details: "This node plays its input dry until it is given a blend." };
   }
-
-  let bestIndex = -1;
-  let secondIndex = -1;
-  let bestDistance = Number.POSITIVE_INFINITY;
-  let secondDistance = Number.POSITIVE_INFINITY;
-
-  mappings.forEach((mapping, index) => {
-    const params = buildParameterMapFromLegacy(mapping);
-    let distance = 0;
-    let matched = false;
-    blendState.paramIds.forEach((paramId) => {
-      if (!(paramId in target)) {
-        return;
-      }
-      const mappedValue = params[paramId];
-      if (typeof mappedValue !== "number") {
-        distance += 4;
-        return;
-      }
-      const delta = mappedValue - target[paramId];
-      distance += delta * delta;
-      matched = true;
-    });
-    if (!matched) {
-      distance += 9;
-    }
-
-    if (distance < bestDistance) {
-      secondDistance = bestDistance;
-      secondIndex = bestIndex;
-      bestDistance = distance;
-      bestIndex = index;
-    } else if (distance < secondDistance) {
-      secondDistance = distance;
-      secondIndex = index;
-    }
-  });
-
-  if (bestIndex < 0) {
-    return { name: "—", details: "" };
-  }
-
-  const bestMapping = mappings[bestIndex];
-  const bestName = resolveModelName(bestMapping.id);
-  const hasSecond = secondIndex >= 0 && secondIndex !== bestIndex;
-
-  if (blendState.blendMode === "interpolate" && hasSecond) {
-    const secondMapping = mappings[secondIndex];
-    const secondName = resolveModelName(secondMapping.id);
-    const eps = 1e-6;
-    const w1 = 1 / Math.max(bestDistance, eps);
-    const w2 = 1 / Math.max(secondDistance, eps);
-    const denom = Math.max(w1 + w2, eps);
-    const p1 = Math.round((w1 / denom) * 100);
-    const p2 = 100 - p1;
-    return { name: bestName || "—", details: `Mix: ${bestName} ${p1}% / ${secondName} ${p2}%` };
-  }
-
-  return { name: bestName || "—", details: "" };
+  const blend = typeof node.params.blend === "number" ? node.params.blend : 0;
+  return describeBlendMix(blendState.mappings, readBlendTarget(node, blendState), blend, blendState.blendMode, resolveModelName);
 }
 
 /**
@@ -497,7 +412,7 @@ export function openBlendEditorWithDefinition(blend: BlendDefinition): void {
 }
 
 export function bindBlendEditorControls(panel: HTMLElement | null, node: GraphNode): void {
-  const blendId = (node as unknown as { config?: Record<string, string> }).config?.blendId;
+  const blendId = node.config?.blendId;
   if (!blendId) {
     return;
   }
@@ -512,6 +427,8 @@ export function bindBlendEditorControls(panel: HTMLElement | null, node: GraphNo
 // Blend live-view info rendering (match summary + blend mode override)
 // ---------------------------------------------------------------------------
 
+const BLEND_MODE_LABELS: Record<BlendMode, string> = { interpolate: "Interpolate", snap: "Snap" };
+
 /**
  * Render the blend info block shown in the live effect panel: matched model
  * summary (same format as the Test view) plus a blend mode override control.
@@ -522,14 +439,15 @@ export function renderBlendInfoHtml(node: GraphNode, blendState: BlendState): st
   const summary = computeBlendMatchSummary(node, blendState);
   const blendName = escapeHtml(blendState.blend?.name ?? "");
   const modelCount = blendState.mappings.length;
-  const blendMode = blendState.blendMode;
   const nodeId = escapeHtml(node.id);
-  const editBlendButton = isFeatureEnabled(Features.BlendTools)
-    ? `<button class="blend-open-btn" data-node-id="${node.id}" type="button">Edit Blend</button>`
+  const editBlendButton = isFeatureEnabled(Features.BlendTools) && !blendState.missing
+    ? `<button class="blend-open-btn" data-node-id="${nodeId}" type="button">Edit Blend</button>`
     : "";
+  const option = (value: BlendMode | "", label: string): string =>
+    `<option value="${value}" ${blendState.blendModeOverride === value ? "selected" : ""}>${label}</option>`;
 
   return `
-    <div class="node-resource-selector blend-info-block" data-node-id="${node.id}">
+    <div class="node-resource-selector blend-info-block${blendState.missing ? " is-missing" : ""}" data-node-id="${nodeId}">
       <label>Blend</label>
       ${blendName ? `<div class="blend-info-name">${blendName}</div>` : ""}
       <div class="blend-match-summary">
@@ -538,9 +456,10 @@ export function renderBlendInfoHtml(node: GraphNode, blendState: BlendState): st
       </div>
       <div class="blend-info-controls">
         <label class="blend-mode-label" for="blend-mode-select-${nodeId}">Blend Mode</label>
-        <select id="blend-mode-select-${nodeId}" class="blend-mode-select" data-node-id="${node.id}">
-          <option value="interpolate" ${blendMode === "interpolate" ? "selected" : ""}>Interpolate</option>
-          <option value="snap" ${blendMode === "snap" ? "selected" : ""}>Snap</option>
+        <select id="blend-mode-select-${nodeId}" class="blend-mode-select" data-node-id="${nodeId}">
+          ${option("", `Blend default (${BLEND_MODE_LABELS[blendState.definitionBlendMode]})`)}
+          ${option("interpolate", BLEND_MODE_LABELS.interpolate)}
+          ${option("snap", BLEND_MODE_LABELS.snap)}
         </select>
         ${editBlendButton}
       </div>
@@ -548,4 +467,3 @@ export function renderBlendInfoHtml(node: GraphNode, blendState: BlendState): st
     </div>
   `;
 }
-
