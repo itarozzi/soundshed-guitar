@@ -163,6 +163,8 @@ Relevant locations:
 
 **Recommendation:** Pin each dependency to an immutable release tag or commit SHA and update them deliberately, ideally through automated dependency-update pull requests.
 
+**Status:** Done on 19 September 2026, except automated update pull requests. `signalsmith_linear`, `signalsmith_stretch`, `stftPitchShift` and `minimp3` are pinned to the commits both build trees were already using. `tools/check-dependency-pins.mjs` fails CI on any branch-name pin, and its `--upstream` flag reports pins with newer commits or tags. There is no update-PR automation: Dependabot does not read CMake FetchContent.
+
 ### P3 — Complexity gates currently preserve debt rather than drive it down
 
 The checks pass, but their accepted baselines contain:

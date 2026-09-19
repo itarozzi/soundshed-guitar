@@ -4,10 +4,11 @@ name: C++ structure
 # it needs no C++ toolchain, so it runs in seconds and can gate every push
 # rather than waiting on a platform build.
 #
-# It checks one thing: no source file grows past the size budget, and no file
-# already over it gets bigger. The controller was a single 15k-line translation
-# unit before it was split into core/src/controller/; this is what stops it
-# growing back.
+# It checks two things. No source file grows past the size budget, and no file
+# already over it gets bigger: the controller was a single 15k-line translation
+# unit before it was split into core/src/controller/, and this is what stops it
+# growing back. And every dependency the build fetches is pinned to a commit or a
+# release tag, so a clean build cannot change without a commit here.
 #
 # Not covered here: compiling. The platform build workflows do that.
 
@@ -21,6 +22,9 @@ on:
       - "juce/tests/**"
       - "tools/check-cpp-file-sizes.js"
       - "tools/cpp-file-size-allowlist.json"
+      - "core/CMakeLists.txt"
+      - "core/cmake/**"
+      - "tools/check-dependency-pins.mjs"
       - ".github/workflows/cpp-structure.yml"
   pull_request:
     paths:
@@ -31,6 +35,9 @@ on:
       - "juce/tests/**"
       - "tools/check-cpp-file-sizes.js"
       - "tools/cpp-file-size-allowlist.json"
+      - "core/CMakeLists.txt"
+      - "core/cmake/**"
+      - "tools/check-dependency-pins.mjs"
       - ".github/workflows/cpp-structure.yml"
   workflow_dispatch:
 
@@ -53,3 +60,6 @@ jobs:
 
       - name: File size budget
         run: node tools/check-cpp-file-sizes.js
+
+      - name: Dependency pins
+        run: node tools/check-dependency-pins.mjs

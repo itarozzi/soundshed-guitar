@@ -107,6 +107,12 @@ to a known-large file pass and the check only fires on real growth — but new
 files still have to come in under 800. CI runs this
 (`.github/workflows/cpp-structure.yml`). Re-pin deliberately with `--update`.
 
+**Fetched dependencies:** every `FetchContent_Declare` in `core/CMakeLists.txt` and
+`core/cmake/` must pin a commit SHA or a release tag; `node tools/check-dependency-pins.mjs`
+fails on a branch name, and CI runs it. To see which pins have newer upstream
+commits or tags, run it with `--upstream`. Bump a pin deliberately, then rebuild and
+run the tests.
+
 ## Common Agent Tasks
 
 ### Research and Create Artist Presets

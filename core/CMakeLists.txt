@@ -146,16 +146,18 @@ endif()
 if(NOT DEFINED signalsmith_linear_SOURCE_DIR AND GUITARFX_CORE_FETCH_DEPS)
     include(FetchContent)
     FetchContent_Declare(signalsmith_linear
+        # Pinned to main as of 2026-09-15; bump deliberately (tools/check-dependency-pins.mjs --upstream).
         GIT_REPOSITORY https://github.com/Signalsmith-Audio/linear.git
-        GIT_TAG main)
+        GIT_TAG 547f4a6c55b4243191a9180f39849d67cc66aa0d)
     FetchContent_MakeAvailable(signalsmith_linear)
 endif()
 
 if(NOT DEFINED signalsmith_stretch_SOURCE_DIR AND GUITARFX_CORE_FETCH_DEPS)
     include(FetchContent)
     FetchContent_Declare(signalsmith_stretch
+        # Pinned to main as of 2026-01-24.
         GIT_REPOSITORY https://github.com/Signalsmith-Audio/signalsmith-stretch.git
-        GIT_TAG main)
+        GIT_TAG 57b93f4e9206a089a45387eaa39bdc9f310d3308)
     FetchContent_MakeAvailable(signalsmith_stretch)
 endif()
 
@@ -163,8 +165,9 @@ if((NOT DEFINED stftpitchshift_SOURCE_DIR OR NOT EXISTS "${stftpitchshift_SOURCE
    AND GUITARFX_CORE_FETCH_DEPS)
     include(FetchContent)
     FetchContent_Declare(stftpitchshift
+        # Pinned to main as of 2025-09-13.
         GIT_REPOSITORY https://github.com/jurihock/stftPitchShift.git
-        GIT_TAG main)
+        GIT_TAG 1a4f21f6c300a785cce860e374fd63cb5e9ba154)
     FetchContent_MakeAvailable(stftpitchshift)
 endif()
 
@@ -255,8 +258,9 @@ endif()
 if(NOT TARGET guitarfx_minimp3)
     include(FetchContent)
     FetchContent_Declare(guitarfx_minimp3_src
+        # Pinned to master as of 2026-07-27.
         GIT_REPOSITORY https://github.com/lieff/minimp3.git
-        GIT_TAG master)
+        GIT_TAG ea99364f61c14656440e8d77e9c233ccf3124633)
 
     if(POLICY CMP0169)
         cmake_policy(PUSH)
