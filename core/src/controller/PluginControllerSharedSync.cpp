@@ -38,6 +38,7 @@ void PluginController::ReloadSharedSyncSourcesFromDisk()
         SaveAppSettings();
     }
 
+    const nlohmann::json previousBlends = mBlendLibrary;
     LoadResourceLibraries();
     LoadBlendLibrary();
     LoadCustomEffectLibrary();
@@ -74,6 +75,9 @@ void PluginController::ReloadSharedSyncSourcesFromDisk()
     mSetlistCursorIndex = setlistsData.value("cursorIndex", 0);
 
     InvalidateResourceUsageIndex();
+
+    // Another instance's edit to a blend is heard here too, not just on the next preset load.
+    RebuildSlotsForChangedBlends(previousBlends);
 }
 
 void PluginController::PollSharedSyncState()

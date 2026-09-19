@@ -10,6 +10,7 @@
 
 #include "PluginController.h"
 
+#include "controller/internal/BlendSupport.h"
 #include "controller/internal/ControllerUtils.h"
 #include "controller/internal/HostedPluginSupport.h"
 #include "controller/internal/NamResourceMetadata.h"
@@ -766,6 +767,20 @@ void PluginController::HandleDeleteLibraryResourceRequest(const nlohmann::json& 
         return;
     }
 
+    // Presets name only a blend node's blend, not its models, so a model a blend plays is
+    // checked against the blend library.
+    if (const auto firstUsingBlend = FindFirstBlendUsingResource(resourceType, resourceId))
+    {
+        SendMessageToUI(nlohmann::json{{"type", "resourceDeleteFailed"},
+                                       {"message", "Resource is in use"},
+                                       {"detail", "Used by blend: " + *firstUsingBlend},
+                                       {"resourceType", resourceType},
+                                       {"id", resourceId},
+                                       {"blendName", *firstUsingBlend}}
+                            .dump());
+        return;
+    }
+
     const auto settingsResourcesDir = GetEffectiveSettingsDirectory() / "resources" / "content";
     const auto isUnderDirectory = [](const std::filesystem::path& candidate, const std::filesystem::path& base) {
         std::error_code ec;
@@ -891,6 +906,28 @@ std::optional<std::string> PluginController::FindFirstPresetUsingResource(const 
     return std::nullopt;
 }
 
+std::optional<std::string> PluginController::FindFirstBlendUsingResource(const std::string& resourceType,
+                                                                         const std::string& resourceId) const
+{
+    if (resourceType != "nam" || !mBlendLibrary.is_array())
+    {
+        return std::nullopt;
+    }
+
+    for (const auto& blend : mBlendLibrary)
+    {
+        const auto modelIds = CollectBlendModelIds(blend);
+
+        if (std::find(modelIds.begin(), modelIds.end(), resourceId) != modelIds.end())
+        {
+            const std::string name = blend.value("name", "");
+            return name.empty() ? blend.value("id", "") : name;
+        }
+    }
+
+    return std::nullopt;
+}
+
 void PluginController::EnsureResourceUsageDiskIndex() const
 {
     if (mResourceUsageDiskIndexValid)
@@ -983,11 +1020,13 @@ void PluginController::HandleQueryResourceUsageRequest(const nlohmann::json& pay
     }
 
     const auto presetName = FindFirstPresetUsingResource(resourceType, resourceId);
+    const auto blendName = presetName ? std::nullopt : FindFirstBlendUsingResource(resourceType, resourceId);
     SendMessageToUI(nlohmann::json{{"type", "resourceUsageInfo"},
                                    {"resourceType", resourceType},
                                    {"id", resourceId},
-                                   {"inUse", presetName.has_value()},
-                                   {"presetName", presetName ? *presetName : ""}}
+                                   {"inUse", presetName.has_value() || blendName.has_value()},
+                                   {"presetName", presetName ? *presetName : ""},
+                                   {"blendName", blendName ? *blendName : ""}}
                         .dump());
 }
 
@@ -2102,15 +2141,9 @@ void PluginController::HandleCleanupResourceLibraryRequest(const nlohmann::json&
     {
         for (const auto& blend : mBlendLibrary)
         {
-            if (blend.is_object())
+            for (const auto& modelId : CollectBlendModelIds(blend))
             {
-                for (const auto& mid : blend.value("models", nlohmann::json::array()))
-                {
-                    if (mid.is_string())
-                    {
-                        usedKeys.insert(makeKey("nam", mid.get<std::string>()));
-                    }
-                }
+                usedKeys.insert(makeKey("nam", modelId));
             }
         }
     }

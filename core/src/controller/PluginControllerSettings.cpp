@@ -429,20 +429,30 @@ void PluginController::ApplyNamInterfaceCalibrationFromAppSettings()
 
     mNamInterfaceCalibrationLevelDbu = calLevel;
 
-    if (!mActivePresetId.empty() && mActivePreset)
+    // Every running mixer slot, not only the one being edited: each was built with the level
+    // in force at the time.
+    std::vector<std::pair<std::string, Preset>> slots;
+
+    for (const auto& slot : SnapshotActivePresetConfigs())
     {
-        const auto& graph = mActivePreset->graph;
-        std::lock_guard<std::mutex> lock(mDSPMutex);
-
-        for (const auto& node : graph.nodes)
+        if (mActivePreset && slot.id == mActivePresetId)
         {
-            if (!IsNamCalibratableEffectType(node.type))
-            {
-                continue;
-            }
-
-            InjectNamInterfaceCalibration(mActivePresetId, node.id);
+            slots.emplace_back(slot.id, *mActivePreset);
         }
+        else if (const auto cached = mMixerPresetJsonCache.find(slot.id); cached != mMixerPresetJsonCache.end())
+        {
+            if (auto preset = PresetStorage::DeserializeFromJson(cached->second))
+            {
+                slots.emplace_back(slot.id, std::move(*preset));
+            }
+        }
+    }
+
+    std::lock_guard<std::mutex> lock(mDSPMutex);
+
+    for (const auto& [slotId, preset] : slots)
+    {
+        InjectNamInterfaceCalibrationIntoSlot(slotId, preset);
     }
 }
 

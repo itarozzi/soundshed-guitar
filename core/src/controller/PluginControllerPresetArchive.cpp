@@ -12,6 +12,7 @@
 
 #include "util/Base64.h"
 
+#include "controller/internal/BlendSupport.h"
 #include "controller/internal/NamResourceMetadata.h"
 #include "controller/internal/PresetArchiveSupport.h"
 #include "presets/PresetStorage.h"
@@ -184,11 +185,7 @@ void PluginController::StartPresetArchiveSession(const std::string& archiveFileN
     }
 
     std::unordered_map<std::string, std::string> blendIdMap;
-
-    if (!mBlendLibrary.is_array())
-    {
-        mBlendLibrary = nlohmann::json::array();
-    }
+    mPresetArchiveSessionBlends = nlohmann::json::array();
 
     for (auto blend : parsed.blends)
     {
@@ -239,23 +236,12 @@ void PluginController::StartPresetArchiveSession(const std::string& archiveFileN
             }
         }
 
-        bool replaced = false;
-
-        for (auto& existing : mBlendLibrary)
-        {
-            if (existing.is_object() && existing.value("id", "") == scopedBlendId)
-            {
-                existing = blend;
-                replaced = true;
-                break;
-            }
-        }
-
-        if (!replaced)
-        {
-            mBlendLibrary.push_back(blend);
-        }
+        mPresetArchiveSessionBlends.push_back(std::move(blend));
     }
+
+    // Session blends play the session's own models, so they are never stored; see
+    // MergeTransientBlends().
+    MergeTransientBlends();
 
     std::unordered_map<std::string, std::string> presetIdMap;
     std::optional<Preset> firstPreset;
@@ -340,6 +326,7 @@ void PluginController::EndPresetArchiveSession(bool notifyUi)
     std::error_code ec;
     std::filesystem::remove_all(sessionRoot, ec);
 
+    mPresetArchiveSessionBlends = nlohmann::json::array();
     LoadResourceLibraries();
     LoadBlendLibrary();
     LoadFactoryPresetArchives();
@@ -472,7 +459,8 @@ void PluginController::HandleSavePresetArchiveRequest(const nlohmann::json& payl
 void PluginController::LoadFactoryPresetArchives()
 {
     mFactoryArchivePresets.clear();
-    mFactoryArchiveBlendIds.clear();
+    // The blends are re-registered below; MergeTransientBlends() swaps them into the library.
+    mFactoryArchiveBlends = nlohmann::json::array();
     mFactoryArchivePresetIds.clear();
     mTrackedFactoryArchivePresetIds.clear();
     mFactoryArchivePresetAliases.clear();
@@ -522,6 +510,7 @@ void PluginController::LoadFactoryPresetArchives()
     if (!IsFactoryPresetArchiveLoadingEnabled())
     {
         AppendSessionLog("Factory preset archive loading disabled by app setting");
+        MergeTransientBlends();
         return;
     }
 
@@ -558,6 +547,7 @@ void PluginController::LoadFactoryPresetArchives()
 
     if (!std::filesystem::exists(factoryDir))
     {
+        MergeTransientBlends();
         return;
     }
 
@@ -768,24 +758,8 @@ void PluginController::LoadFactoryPresetArchives()
                 }
             }
 
-            mFactoryArchiveBlendIds.insert(scopedBlendId);
-
-            bool replaced = false;
-
-            for (auto& existing : mBlendLibrary)
-            {
-                if (existing.is_object() && existing.value("id", "") == scopedBlendId)
-                {
-                    existing = blend;
-                    replaced = true;
-                    break;
-                }
-            }
-
-            if (!replaced)
-            {
-                mBlendLibrary.push_back(blend);
-            }
+            blend[kFactoryBlendFlag] = true;
+            mFactoryArchiveBlends.push_back(std::move(blend));
         }
 
         std::unordered_map<std::string, std::string> presetIdMapping;
@@ -853,6 +827,7 @@ void PluginController::LoadFactoryPresetArchives()
     }
 
     Store().Put(storage::ItemType::kDocument, kFactoryArchiveStateDocumentId, factoryArchiveState);
+    MergeTransientBlends();
     InvalidateResourceUsageIndex();
 }
 } // namespace guitarfx

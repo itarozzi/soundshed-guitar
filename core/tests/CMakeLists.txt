@@ -10,6 +10,7 @@ set(TEST_SOURCES
     AutomationSlotThreadTests.cpp
     BiquadNyquistTests.cpp
     BlendDefinitionWorkflowTests.cpp
+    BlendEffectTests.cpp
     BoundaryNodeGainTests.cpp
     ControlSurfaceDrainTests.cpp
     ControllerDisplayFeedTests.cpp

@@ -9,6 +9,7 @@
 
 #include "PluginController.h"
 
+#include "controller/internal/BlendSupport.h"
 #include "controller/internal/ControllerUtils.h"
 #include "dsp/EffectGuids.h"
 #include "dsp/EffectRegistry.h"
@@ -26,6 +27,9 @@
 
 #include <algorithm>
 #include <fstream>
+#include <initializer_list>
+#include <optional>
+#include <unordered_set>
 
 using namespace guitarfx::controller_detail;
 
@@ -33,7 +37,7 @@ namespace guitarfx
 {
 void PluginController::HandleSaveBlendDefinitionRequest(const nlohmann::json& payload)
 {
-    const nlohmann::json blend = payload.value("blend", nlohmann::json::object());
+    nlohmann::json blend = payload.value("blend", nlohmann::json::object());
 
     if (!blend.is_object())
     {
@@ -65,6 +69,23 @@ void PluginController::HandleSaveBlendDefinitionRequest(const nlohmann::json& pa
     if (!mBlendLibrary.is_array())
     {
         mBlendLibrary = nlohmann::json::array();
+    }
+
+    // A saved blend is the user's own. A saved edit of a factory blend is stored and kept in
+    // place of the archive's; an edit of a blend from the open preset archive lasts as long
+    // as the session, since its models do.
+    blend.erase(kFactoryBlendFlag);
+    mFactoryArchiveBlendIds.erase(id);
+
+    if (mPresetArchiveSessionBlendIds.contains(id))
+    {
+        for (auto& sessionBlend : mPresetArchiveSessionBlends)
+        {
+            if (sessionBlend.value("id", "") == id)
+            {
+                sessionBlend = blend;
+            }
+        }
     }
 
     nlohmann::json updated = nlohmann::json::array();
@@ -1066,6 +1087,31 @@ void PluginController::HandleDeleteBlendDefinitionRequest(const nlohmann::json& 
         return;
     }
 
+    if (mFactoryArchiveBlendIds.contains(id))
+    {
+        ReportErrorToUI("Blend delete failed", "Factory blends come with their preset archive and cannot be deleted");
+        return;
+    }
+
+    if (mPresetArchiveSessionBlendIds.contains(id))
+    {
+        ReportErrorToUI("Blend delete failed", "This blend belongs to the open preset archive");
+        return;
+    }
+
+    // Deleting a saved edit of a factory blend brings the archive's version back, so no preset
+    // loses its blend.
+    const bool restoresFactoryBlend = FindBlendDefinition(mFactoryArchiveBlends, id) != nullptr;
+
+    if (!restoresFactoryBlend)
+    {
+        if (const auto presetName = FindFirstPresetUsingBlend(id))
+        {
+            ReportErrorToUI("Blend delete failed", "Used by preset: " + *presetName);
+            return;
+        }
+    }
+
     if (!mBlendLibrary.is_array())
     {
         mBlendLibrary = nlohmann::json::array();
@@ -1093,6 +1139,13 @@ void PluginController::HandleDeleteBlendDefinitionRequest(const nlohmann::json& 
 
     mBlendLibrary = std::move(updated);
     SaveBlendLibrary();
+
+    if (restoresFactoryBlend)
+    {
+        MergeTransientBlends();
+        RebuildSlotsUsingBlend(id);
+    }
+
     BroadcastState();
 }
 
@@ -1480,171 +1533,25 @@ void PluginController::ApplyBlendDefinitions(Preset& preset)
         return;
     }
 
-    auto findBlend = [&](const std::string& id) -> nlohmann::json {
-        for (const auto& blend : mBlendLibrary)
-        {
-            if (blend.is_object() && blend.value("id", "") == id)
-            {
-                return blend;
-            }
-        }
+    ApplyBlendDefinitionsToGraph(preset.graph, mBlendLibrary);
 
-        return nlohmann::json::object();
-    };
-
-    for (auto& node : preset.graph.nodes)
+    // The scenes too: the UI draws the active scene's graph, and an edit copies it back over
+    // the top-level one, so a starting knob value seeded only there would be lost.
+    for (auto& scene : preset.scenes)
     {
-        if (node.type != EffectGuids::kAmpNamBlend)
-        {
-            continue;
-        }
-
-        const auto blendIt = node.config.find("blendId");
-
-        if (blendIt == node.config.end())
-        {
-            continue;
-        }
-
-        const std::string blendId = blendIt->second;
-
-        if (blendId.empty())
-        {
-            continue;
-        }
-
-        const nlohmann::json blend = findBlend(blendId);
-
-        if (!blend.is_object())
-        {
-            continue;
-        }
-
-        const auto mappingsJson = blend.value("modelMappings", nlohmann::json::array());
-        const auto modelsJson = blend.value("models", nlohmann::json::array());
-
-        if ((!mappingsJson.is_array() || mappingsJson.empty()) && (!modelsJson.is_array() || modelsJson.empty()))
-        {
-            continue;
-        }
-
-        node.resources.clear();
-
-        if (mappingsJson.is_array() && !mappingsJson.empty())
-        {
-            const std::size_t count = mappingsJson.size();
-
-            for (std::size_t i = 0; i < count; ++i)
-            {
-                const auto& mapping = mappingsJson[i];
-
-                if (!mapping.is_object())
-                {
-                    continue;
-                }
-
-                const std::string modelId = mapping.value("id", "");
-
-                if (modelId.empty())
-                {
-                    continue;
-                }
-
-                ResourceRef ref;
-                ref.resourceType = "nam";
-                ref.resourceId = modelId;
-
-                if (mapping.contains("parameters") && mapping["parameters"].is_object())
-                {
-                    for (const auto& [key, value] : mapping["parameters"].items())
-                    {
-                        if (value.is_number())
-                        {
-                            ref.parameters[key] = value.get<double>();
-                        }
-                    }
-                }
-
-                // The captured value of the primary parameter places the model on the blend
-                // sweep. The editor writes it twice, as parameterValue and in parameters.
-                const std::string parameterId = mapping.value("parameterId", "");
-                std::optional<double> capturedValue;
-
-                if (mapping.contains("parameterValue") && mapping["parameterValue"].is_number())
-                {
-                    capturedValue = mapping["parameterValue"].get<double>();
-                }
-                else if (const auto it = ref.parameters.find(parameterId); it != ref.parameters.end())
-                {
-                    capturedValue = it->second;
-                }
-
-                if (capturedValue)
-                {
-                    ref.parameterId = parameterId;
-                    ref.parameterValue = *capturedValue;
-
-                    if (ref.parameters.empty() && !parameterId.empty())
-                    {
-                        ref.parameters[parameterId] = *capturedValue;
-                    }
-                }
-                else
-                {
-                    // Nothing captured: the model keeps its list position on the sweep. It gets
-                    // no parameterId, because the effect reads a parameterId with a value as a
-                    // captured setting and would match knob positions against the list position.
-                    ref.parameterValue = count > 1 ? static_cast<double>(i) / static_cast<double>(count - 1) : 0.0;
-                }
-
-                node.resources.push_back(std::move(ref));
-            }
-        }
-        else if (modelsJson.is_array())
-        {
-            const std::size_t count = modelsJson.size();
-
-            for (std::size_t i = 0; i < count; ++i)
-            {
-                if (!modelsJson[i].is_string())
-                {
-                    continue;
-                }
-
-                ResourceRef ref;
-                ref.resourceType = "nam";
-                ref.resourceId = modelsJson[i].get<std::string>();
-                ref.parameterValue = (count > 1) ? static_cast<double>(i) / static_cast<double>(count - 1) : 0.0;
-                node.resources.push_back(std::move(ref));
-            }
-        }
-
-        const std::string blendMode = blend.value("blendMode", "interpolate");
-        node.config["blendMode"] = blendMode;
-
-        if (node.label.empty())
-        {
-            node.label = blend.value("name", "");
-        }
+        ApplyBlendDefinitionsToGraph(scene.graph, mBlendLibrary);
     }
 }
 
 void PluginController::RebuildSlotsUsingBlend(const std::string& blendId)
 {
-    const auto playsBlend = [&blendId](const Preset& preset) {
-        return std::any_of(preset.graph.nodes.begin(), preset.graph.nodes.end(), [&](const GraphNode& node) {
-            const auto it = node.config.find("blendId");
-            return node.type == EffectGuids::kAmpNamBlend && it != node.config.end() && it->second == blendId;
-        });
-    };
-
     const auto slots = SnapshotActivePresetConfigs();
 
     for (const auto& slot : slots)
     {
         if (mActivePreset && slot.id == mActivePresetId)
         {
-            if (!playsBlend(*mActivePreset))
+            if (!GraphPlaysBlend(mActivePreset->graph, blendId))
             {
                 continue;
             }
@@ -1678,7 +1585,7 @@ void PluginController::RebuildSlotsUsingBlend(const std::string& blendId)
 
         auto slotPreset = PresetStorage::DeserializeFromJson(cached->second);
 
-        if (!slotPreset || !playsBlend(*slotPreset))
+        if (!slotPreset || !GraphPlaysBlend(slotPreset->graph, blendId))
         {
             continue;
         }
@@ -1688,16 +1595,147 @@ void PluginController::RebuildSlotsUsingBlend(const std::string& blendId)
     }
 }
 
+void PluginController::RebuildSlotsForChangedBlends(const nlohmann::json& previousLibrary)
+{
+    std::unordered_set<std::string> ids;
+
+    for (const auto* library : std::initializer_list<const nlohmann::json*>{&previousLibrary, &mBlendLibrary})
+    {
+        if (library->is_array())
+        {
+            for (const auto& blend : *library)
+            {
+                if (blend.is_object())
+                {
+                    ids.insert(blend.value("id", ""));
+                }
+            }
+        }
+    }
+
+    for (const auto& id : ids)
+    {
+        const auto* before = FindBlendDefinition(previousLibrary, id);
+        const auto* after = FindBlendDefinition(mBlendLibrary, id);
+
+        if (!before || !after || *before != *after)
+        {
+            RebuildSlotsUsingBlend(id);
+        }
+    }
+}
+
+std::optional<std::string> PluginController::FindFirstPresetUsingBlend(const std::string& blendId) const
+{
+    const auto displayName = [](const Preset& preset) {
+        return !preset.name.empty() ? preset.name : (!preset.id.empty() ? preset.id : std::string{"Unnamed preset"});
+    };
+
+    if (mActivePreset && PresetUsesBlend(*mActivePreset, blendId))
+    {
+        return displayName(*mActivePreset);
+    }
+
+    for (const auto& [slotId, json] : mMixerPresetJsonCache)
+    {
+        if (const auto preset = PresetStorage::DeserializeFromJson(json); preset && PresetUsesBlend(*preset, blendId))
+        {
+            return displayName(*preset);
+        }
+    }
+
+    for (const auto& preset : LoadAllUserPresets())
+    {
+        if (PresetUsesBlend(preset, blendId))
+        {
+            return displayName(preset);
+        }
+    }
+
+    for (const auto& [presetId, preset] : mFactoryArchivePresets)
+    {
+        if (PresetUsesBlend(preset, blendId))
+        {
+            return displayName(preset);
+        }
+    }
+
+    return std::nullopt;
+}
+
 void PluginController::LoadBlendLibrary()
 {
     mBlendLibrary = nlohmann::json::array();
 
     for (const auto& item : Store().List(storage::ItemType::kBlend))
     {
-        if (auto parsed = item.Parse())
+        if (auto parsed = item.Parse(); parsed && parsed->is_object())
         {
             mBlendLibrary.push_back(std::move(*parsed));
         }
+    }
+
+    MergeTransientBlends();
+}
+
+void PluginController::MergeTransientBlends()
+{
+    // Drop the previous registrations first, so an archive switched off or a session ended
+    // takes its blends with it instead of leaving them to be saved as the user's.
+    nlohmann::json kept = nlohmann::json::array();
+
+    if (mBlendLibrary.is_array())
+    {
+        for (auto& blend : mBlendLibrary)
+        {
+            if (blend.is_object() && !blend.value(kFactoryBlendFlag, false) &&
+                !mPresetArchiveSessionBlendIds.contains(blend.value("id", "")))
+            {
+                kept.push_back(std::move(blend));
+            }
+        }
+    }
+
+    mBlendLibrary = std::move(kept);
+    mFactoryArchiveBlendIds.clear();
+    mPresetArchiveSessionBlendIds.clear();
+
+    for (const auto& blend : mFactoryArchiveBlends)
+    {
+        const std::string id = blend.value("id", "");
+
+        // A saved edit of a factory blend is the user's own copy, and wins over the archive's.
+        if (id.empty() || FindBlendDefinition(mBlendLibrary, id))
+        {
+            continue;
+        }
+
+        mBlendLibrary.push_back(blend);
+        mFactoryArchiveBlendIds.insert(id);
+    }
+
+    for (const auto& blend : mPresetArchiveSessionBlends)
+    {
+        const std::string id = blend.value("id", "");
+
+        if (id.empty())
+        {
+            continue;
+        }
+
+        auto existing = std::find_if(mBlendLibrary.begin(), mBlendLibrary.end(),
+                                     [&](const nlohmann::json& entry) { return entry.value("id", "") == id; });
+
+        if (existing != mBlendLibrary.end())
+        {
+            *existing = blend;
+        }
+        else
+        {
+            mBlendLibrary.push_back(blend);
+        }
+
+        mPresetArchiveSessionBlendIds.insert(id);
     }
 }
 
@@ -1708,8 +1746,9 @@ void PluginController::LoadCustomEffectLibrary()
 
 void PluginController::SaveBlendLibrary() const
 {
-    // Factory-archive blends re-register themselves from the archive on every
-    // launch, so they are deliberately not persisted here.
+    // Factory-archive blends re-register themselves from the archive on every launch, and
+    // a preset-archive session's blends point at models that go when the session does, so
+    // neither is persisted here.
     std::vector<storage::StoreItem> items;
 
     if (mBlendLibrary.is_array())
@@ -1718,7 +1757,7 @@ void PluginController::SaveBlendLibrary() const
         {
             const std::string id = blend.value("id", "");
 
-            if (id.empty() || mFactoryArchiveBlendIds.contains(id))
+            if (id.empty() || mFactoryArchiveBlendIds.contains(id) || mPresetArchiveSessionBlendIds.contains(id))
             {
                 continue;
             }

@@ -4,11 +4,15 @@
  *
  * A saved preset keeps only a blend node's blendId. The controller fills in the models from
  * the blend library when it builds the chain. These tests drive the controller the way the
- * UI does and check the three places that went wrong:
- *  - the blend sweep follows the positions the editor saved, rather than collapsing onto
- *    the first model, and a model with no captured value is not given an invented one;
+ * UI does and check that:
+ *  - with nothing captured, Blend sweeps the models; with settings captured, the mapped
+ *    knobs pick the models, a blank row is not given an invented setting, and an unset
+ *    knob starts at the median of the captured values, where the UI draws it;
+ *  - saving a blend rebuilds every playing slot that uses it, so the edit is heard, and a
+ *    snap override set on the node survives that;
+ *  - a value for a parameter no model was captured at changes nothing;
  *  - a preset added to the mixer as a second slot plays its blend's models, not dry input;
- *  - saving a blend rebuilds every playing slot that uses it, so the edit is heard.
+ *  - a model a blend plays, and a blend a preset plays, cannot be deleted.
  * The models are generated Linear NAMs, each a plain gain, so the output level says which
  * one is playing.
  */
@@ -322,6 +326,66 @@ std::string Describe(double value)
     return std::to_string(value).substr(0, 5);
 }
 
+void LoadPreset(PluginController& controller, const Preset& preset)
+{
+    controller.HandleUIMessage(
+        nlohmann::json{{"type", "loadPreset"}, {"presetId", preset.id}, {"preset", PresetJson(preset)}}.dump());
+}
+
+/// A knob turned in the params panel (sendSignalPathNodeParamUpdate).
+void SetNodeParam(PluginController& controller, const std::string& presetId, const std::string& nodeId,
+                  const std::string& key, double value)
+{
+    controller.HandleUIMessage(nlohmann::json{
+        {"type", "updateSignalPathNodeParam"},
+        {"presetId", presetId},
+        {"nodeId", nodeId},
+        {"paramKey", key},
+        {"value", value}}.dump());
+}
+
+/// A node setting changed in the params panel (sendSignalPathNodeConfigUpdate).
+void SetNodeConfig(PluginController& controller, const std::string& presetId, const std::string& nodeId,
+                   const std::string& key, const std::string& value)
+{
+    controller.HandleUIMessage(nlohmann::json{
+        {"type", "updateSignalPathNodeConfig"},
+        {"presetId", presetId},
+        {"nodeId", nodeId},
+        {"key", key},
+        {"value", value},
+        {"persist", true}}.dump());
+}
+
+/// The `detail` of the last message of `type`, or empty.
+std::string LastDetail(const TestHost& host, const std::string& type)
+{
+    for (auto it = host.messages.rbegin(); it != host.messages.rend(); ++it)
+    {
+        const auto message = nlohmann::json::parse(*it, nullptr, false);
+
+        if (!message.is_discarded() && message.value("type", "") == type)
+        {
+            return message.value("detail", "");
+        }
+    }
+
+    return {};
+}
+
+bool SawMessage(const TestHost& host, const std::string& type)
+{
+    return std::any_of(host.messages.begin(), host.messages.end(), [&](const std::string& text) {
+        const auto message = nlohmann::json::parse(text, nullptr, false);
+        return !message.is_discarded() && message.value("type", "") == type;
+    });
+}
+
+double Ratio(double over, double under)
+{
+    return under > 0.0 ? over / under : 0.0;
+}
+
 bool Run()
 {
     const fs::path sandbox = fs::temp_directory_path() / "guitarfx-blend-definition-tests";
@@ -332,7 +396,8 @@ bool Run()
 
     const fs::path quietPath = WriteLinearModel(sandbox, "linear-quiet", kQuietGain);
     const fs::path loudPath = WriteLinearModel(sandbox, "linear-loud", kLoudGain);
-    const double expectedRatio = static_cast<double>(kLoudGain) / kQuietGain;
+    const fs::path sparePath = WriteLinearModel(sandbox, "linear-spare", 0.4f);
+    const double loudOverQuiet = static_cast<double>(kLoudGain) / kQuietGain;
     bool passed = true;
 
     {
@@ -343,85 +408,141 @@ bool Run()
 
         const std::string quiet = RegisterModel(controller, host, quietPath, "Linear quiet");
         const std::string loud = RegisterModel(controller, host, loudPath, "Linear loud");
+        const std::string spare = RegisterModel(controller, host, sparePath, "Linear spare");
 
-        if (!Check(!quiet.empty() && !loud.empty(), "both models are in the resource library"))
+        if (!Check(!quiet.empty() && !loud.empty() && !spare.empty(), "the models are in the resource library"))
         {
             return false;
         }
 
-        // The sweep runs quiet (gain 0) to loud (gain 1). "partial" has a row the user left
+        SignalDriver driver(controller);
+
+        // ── With nothing captured, Blend sweeps the models in list order ────────
+        SaveBlend(controller, "listed", {EditorMapping(quiet, std::nullopt), EditorMapping(loud, std::nullopt)});
+        LoadPreset(controller, BuildPreset(kPresetId, {BlendNode("blend", "listed", 0.0)}));
+        driver.Settle();
+        const double sweepStart = driver.MeasureGain();
+        SetNodeParam(controller, kPresetId, "blend", "blend", 1.0);
+        driver.Settle();
+        const double sweepEnd = driver.MeasureGain();
+
+        passed = Check(Near(Ratio(sweepEnd, sweepStart), loudOverQuiet, 0.3),
+                       "sweep: with nothing captured, Blend runs from the first model to the last (x" +
+                           Describe(Ratio(sweepEnd, sweepStart)) + ", want x" + Describe(loudOverQuiet) + ")") &&
+                 passed;
+
+        // ── Captured settings reach the effect, and the knob starts where it is drawn ──
+        // "sweep" runs quiet (gain 0) to loud (gain 1). "partial" has a row the user left
         // blank, which the editor still saves with the primary parameter's id.
         SaveBlend(controller, "sweep", {EditorMapping(quiet, 0.0), EditorMapping(loud, 1.0)});
         SaveBlend(controller, "partial", {EditorMapping(quiet, 0.0), EditorMapping(loud, std::nullopt)});
+        LoadPreset(controller, BuildPreset(kPresetId, {BlendNode("blend", "sweep", 0.0),
+                                                       BlendNode("partial", "partial", 0.0, false)}));
 
-        controller.HandleUIMessage(nlohmann::json{
-            {"type", "loadPreset"},
-            {"presetId", kPresetId},
-            {"preset", PresetJson(BuildPreset(kPresetId, {BlendNode("blend", "sweep", 0.0),
-                                                          BlendNode("partial", "partial", 0.0, false)}))}}
-                                       .dump());
+        {
+            const auto& active = controller.GetActivePreset();
+            const auto* sweepNode = active ? active->graph.FindNode("blend") : nullptr;
+            const auto* partialNode = active ? active->graph.FindNode("partial") : nullptr;
+            const auto* quietRef = sweepNode ? FindRef(*sweepNode, quiet) : nullptr;
+            const auto* loudRef = sweepNode ? FindRef(*sweepNode, loud) : nullptr;
 
-        // ── The sweep positions reach the effect ────────────────────────────────
-        const auto& active = controller.GetActivePreset();
-        const auto* sweepNode = active ? active->graph.FindNode("blend") : nullptr;
-        const auto* partialNode = active ? active->graph.FindNode("partial") : nullptr;
-        const auto* quietRef = sweepNode ? FindRef(*sweepNode, quiet) : nullptr;
-        const auto* loudRef = sweepNode ? FindRef(*sweepNode, loud) : nullptr;
+            passed = Check(quietRef && loudRef && quietRef->parameterValue && loudRef->parameterValue &&
+                               Near(*quietRef->parameterValue, 0.0, 1e-9) && Near(*loudRef->parameterValue, 1.0, 1e-9),
+                           "mapping: each model keeps the setting the editor saved") &&
+                     passed;
 
-        passed = Check(quietRef && loudRef && quietRef->parameterValue && loudRef->parameterValue &&
-                           Near(*quietRef->parameterValue, 0.0, 1e-9) && Near(*loudRef->parameterValue, 1.0, 1e-9),
-                       "sweep: each model keeps the position the editor saved") &&
-                 passed;
+            const auto* blankRef = partialNode ? FindRef(*partialNode, loud) : nullptr;
+            passed = Check(blankRef && blankRef->parameters.empty() && blankRef->parameterId.empty() &&
+                               blankRef->parameterValue && Near(*blankRef->parameterValue, 1.0, 1e-9),
+                           "mapping: a row with no captured value sits at its list position, with no invented "
+                           "setting") &&
+                     passed;
 
-        const auto* blankRef = partialNode ? FindRef(*partialNode, loud) : nullptr;
-        passed = Check(blankRef && blankRef->parameters.empty() && blankRef->parameterId.empty() &&
-                           blankRef->parameterValue && Near(*blankRef->parameterValue, 1.0, 1e-9),
-                       "sweep: a row with no captured value sits at its list position, with no invented mapping") &&
-                 passed;
+            const bool seeded =
+                sweepNode && sweepNode->params.contains("gain") && Near(sweepNode->params.at("gain"), 0.5, 1e-9);
+            passed = Check(seeded, "seed: an unset Gain starts at the median of the captured values, where the "
+                                   "knob is drawn") &&
+                     passed;
+        }
 
-        SignalDriver driver(controller);
         driver.Settle();
-        const double atStart = driver.MeasureGain();
+        const double atMedian = driver.MeasureGain();
+        SetNodeParam(controller, kPresetId, "blend", "gain", 0.0);
+        driver.Settle();
+        const double atQuiet = driver.MeasureGain();
+        SetNodeParam(controller, kPresetId, "blend", "gain", 1.0);
+        driver.Settle();
+        const double atLoud = driver.MeasureGain();
 
-        controller.HandleUIMessage(nlohmann::json{{"type", "updateSignalPathNodeParam"},
-                                                  {"presetId", kPresetId},
-                                                  {"nodeId", "blend"},
-                                                  {"paramKey", "blend"},
-                                                  {"value", 1.0}}
-                                       .dump());
-        driver.Run(8);
-        const double atEnd = driver.MeasureGain();
-
-        passed =
-            Check(atStart > 0.0 && Near(atEnd / atStart, expectedRatio, 0.5),
-                  "sweep: turning Blend from 0 to 1 moves from the quiet model to the loud one (x" +
-                      Describe(atStart > 0.0 ? atEnd / atStart : 0.0) + ", want x" + Describe(expectedRatio) + ")") &&
-            passed;
+        const double halfway = (kQuietGain + kLoudGain) / 2.0 / kQuietGain;
+        passed = Check(Near(Ratio(atMedian, atQuiet), halfway, 0.15),
+                       "gain: the seeded knob plays halfway between the captures (x" +
+                           Describe(Ratio(atMedian, atQuiet)) + ", want x" + Describe(halfway) + ")") &&
+                 passed;
+        passed = Check(Near(Ratio(atLoud, atQuiet), loudOverQuiet, 0.3),
+                       "gain: turning Gain from 0 to 1 moves from the quiet model to the loud one (x" +
+                           Describe(Ratio(atLoud, atQuiet)) + ", want x" + Describe(loudOverQuiet) + ")") &&
+                 passed;
 
         // ── Saving the blend is heard in the one playing slot ───────────────────
         SaveBlend(controller, "sweep", {EditorMapping(quiet, 1.0), EditorMapping(loud, 0.0)});
         driver.Settle();
         const double afterSwap = driver.MeasureGain();
 
-        passed = Check(atEnd > 0.0 && Near(afterSwap / atEnd, 1.0 / expectedRatio, 0.1),
-                       "save: a reversed sweep is heard at once in the playing preset (x" +
-                           Describe(atEnd > 0.0 ? afterSwap / atEnd : 0.0) + ", want x" +
-                           Describe(1.0 / expectedRatio) + ")") &&
+        passed = Check(Near(Ratio(afterSwap, atLoud), 1.0 / loudOverQuiet, 0.05),
+                       "save: a reversed mapping is heard at once in the playing preset (x" +
+                           Describe(Ratio(afterSwap, atLoud)) + ", want x" + Describe(1.0 / loudOverQuiet) + ")") &&
+                 passed;
+
+        // ── The node's own blend mode survives the blend being applied again ────
+        // At gain 0.4 the loud model, now captured at 0, is the nearer.
+        SetNodeParam(controller, kPresetId, "blend", "gain", 0.4);
+        driver.Settle();
+        const double interpolated = driver.MeasureGain();
+        SetNodeConfig(controller, kPresetId, "blend", "blendModeOverride", "snap");
+        driver.Settle();
+        const double snapped = driver.MeasureGain();
+        SaveBlend(controller, "sweep", {EditorMapping(quiet, 1.0), EditorMapping(loud, 0.0)});
+        driver.Settle();
+        const double rebuilt = driver.MeasureGain();
+
+        passed = Check(Near(Ratio(snapped, atLoud), 1.0, 0.03) && Ratio(interpolated, atLoud) < 0.9,
+                       "override: snap on the node plays only the nearest model (x" + Describe(Ratio(snapped, atLoud)) +
+                           ", interpolated x" + Describe(Ratio(interpolated, atLoud)) + ")") &&
+                 passed;
+        passed = Check(Near(Ratio(rebuilt, snapped), 1.0, 0.03),
+                       "override: it survives the blend being saved and applied again (x" +
+                           Describe(Ratio(rebuilt, snapped)) + ")") &&
+                 passed;
+
+        // ── A parameter dropped from the blend no longer steers it ──────────────
+        SetNodeConfig(controller, kPresetId, "blend", "blendModeOverride", "");
+        driver.Settle();
+        const double beforeStale = driver.MeasureGain();
+        SetNodeParam(controller, kPresetId, "blend", "bass", 0.9);
+        driver.Settle();
+        const double afterStale = driver.MeasureGain();
+
+        passed = Check(Near(Ratio(afterStale, beforeStale), 1.0, 0.01),
+                       "stale: a value for a parameter no model was captured at changes nothing (x" +
+                           Describe(Ratio(afterStale, beforeStale)) + ")") &&
                  passed;
 
         // ── A second mixer slot plays its blend ─────────────────────────────────
-        controller.HandleUIMessage(
-            nlohmann::json{{"type", "addActivePreset"},
-                           {"presetId", kSlotPresetId},
-                           {"name", "Second slot"},
-                           {"preset", PresetJson(BuildPreset(kSlotPresetId, {BlendNode("blend", "sweep", 1.0)}))}}
-                .dump());
+        SetNodeParam(controller, kPresetId, "blend", "gain", 1.0);
+        Preset slotPreset = BuildPreset(kSlotPresetId, {BlendNode("blend", "sweep", 0.0)});
+        slotPreset.graph.FindNode("blend")->params["gain"] = 1.0;
+        controller.HandleUIMessage(nlohmann::json{
+            {"type", "addActivePreset"},
+            {"presetId", kSlotPresetId},
+            {"name", "Second slot"},
+            {"preset",
+             PresetJson(slotPreset)}}.dump());
 
         const auto* slotBlend = controller.GetMixer().GetNodeProcessor(kSlotPresetId, "blend");
-        passed =
-            Check(slotBlend && slotBlend->HasResource(), "mixer: a preset added as a second slot loads its blend's "
-                                                         "models") &&
-            passed;
+        passed = Check(slotBlend && slotBlend->HasResource(),
+                       "mixer: a preset added as a second slot loads its blend's models") &&
+                 passed;
 
         // ── Saving the blend is heard in every slot that plays it ───────────────
         driver.Settle();
@@ -430,15 +551,45 @@ bool Run()
         driver.Settle();
         const double bothLoud = driver.MeasureGain();
 
-        passed = Check(bothQuiet > 0.0 && Near(bothLoud / bothQuiet, expectedRatio, 0.5),
-                       "save: both mixer slots pick up the edit (x" +
-                           Describe(bothQuiet > 0.0 ? bothLoud / bothQuiet : 0.0) + ", want x" +
-                           Describe(expectedRatio) + ")") &&
+        passed = Check(Near(Ratio(bothLoud, bothQuiet), loudOverQuiet, 0.3),
+                       "save: both mixer slots pick up the edit (x" + Describe(Ratio(bothLoud, bothQuiet)) +
+                           ", want x" + Describe(loudOverQuiet) + ")") &&
                  passed;
 
         const auto activeIds = controller.GetMixer().GetActivePresetIds();
         passed = Check(activeIds.size() == 2,
                        "save: the mixer still has both slots (" + std::to_string(activeIds.size()) + ")") &&
+                 passed;
+
+        // ── Deleting what a blend still needs is refused ─────────────────────────
+        // A one-element brace list would make nlohmann build the element itself, not an array.
+        SaveBlend(controller, "spare", nlohmann::json::array({EditorMapping(spare, 0.0)}));
+        const auto deleteModel = [&]() {
+            controller.HandleUIMessage(nlohmann::json{
+                {"type", "deleteLibraryResource"},
+                {"resourceType", "nam"},
+                {"resourceId", spare}}.dump());
+        };
+
+        host.messages.clear();
+        deleteModel();
+        const std::string resourceRefusal = LastDetail(host, "resourceDeleteFailed");
+        passed = Check(resourceRefusal == "Used by blend: spare",
+                       "delete: a model only a blend plays is kept (\"" + resourceRefusal + "\")") &&
+                 passed;
+
+        host.messages.clear();
+        controller.HandleUIMessage(nlohmann::json{{"type", "deleteBlendDefinition"}, {"blendId", "sweep"}}.dump());
+        const std::string blendRefusal = LastDetail(host, "error");
+        passed = Check(blendRefusal.rfind("Used by preset:", 0) == 0,
+                       "delete: a blend a preset plays is kept (\"" + blendRefusal + "\")") &&
+                 passed;
+
+        host.messages.clear();
+        controller.HandleUIMessage(nlohmann::json{{"type", "deleteBlendDefinition"}, {"blendId", "spare"}}.dump());
+        deleteModel();
+        passed = Check(!SawMessage(host, "error") && SawMessage(host, "resourceRemoved"),
+                       "delete: an unused blend goes, and then so can its model") &&
                  passed;
     }
 

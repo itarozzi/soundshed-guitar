@@ -3,10 +3,19 @@
 /**
  * Multi-model NAM blend effect.
  *
- * Loads multiple NAM models and blends between them based on a normalized blend
- * parameter (0..1). Intended for mapping a physical parameter (gain/warp/etc.)
- * to discrete captures, using audio mixing (primary) with optional experimental
- * weight interpolation in the future.
+ * Loads several NAM models, captured at different settings of a real amp or pedal, and
+ * plays one or two of them at a time. Which, and how much of each, comes from either
+ *  - the settings each model was captured at (gain, bass, ...) matched against the node's
+ *    values for those parameters: the two nearest by squared distance, weighted by inverse
+ *    distance. Only parameters some model was captured at count; or
+ *  - when the node sets none of those, the `blend` sweep (0..1) across the models'
+ *    positions, crossfading the two either side.
+ * In snap mode only the nearest model plays.
+ *
+ * Changes are never cut. A model that comes into the mix fades in over kRampSeconds and
+ * one that leaves fades out. A model that has not been running first runs unheard for its
+ * prewarm length, so its receptive field holds the current input rather than whatever it
+ * last heard. Models out of the mix are not run at all.
  */
 
 #include "dsp/EffectProcessor.h"
@@ -28,24 +37,56 @@
 #include <memory>
 #include <limits>
 #include <optional>
+#include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace guitarfx
 {
+namespace detail
+{
+/// nam::DSP keeps PrewarmSamples() protected. Naming it through a derived class gives a
+/// pointer to the member, which can then be called on any model; this type is never built.
+struct NamPrewarmReader : ::nam::DSP
+{
+    [[nodiscard]] static int Read(::nam::DSP& model)
+    {
+        return (model.*(&NamPrewarmReader::PrewarmSamples))();
+    }
+};
+} // namespace detail
+
 class MultiModelNAMAmpEffect : public EffectProcessor
 {
   public:
+    /// How long a model takes to fade fully in or out of the mix.
+    static constexpr double kRampSeconds = 0.03;
+    /// How long a model that was not running plays unheard before it is faded in, so its
+    /// receptive field holds current input. Each model uses its own prewarm length where it
+    /// reports one; slimmable and container models report none, and get this floor.
+    static constexpr double kWarmupSeconds = 0.06;
+    /// Longest warm-up, however deep the model: past this a knob feels unresponsive.
+    static constexpr double kMaxWarmupSeconds = 0.25;
+    /// A model asked for less than this share of the mix is left out, so a knob sitting on a
+    /// captured setting runs one model rather than two.
+    static constexpr double kMinAudibleWeight = 0.02;
+    /// Models run at once while a fast sweep leaves several fading out.
+    static constexpr std::size_t kMaxRunningModels = 4;
+
     void Prepare(double sampleRate, int maxBlockSize) override
     {
         mSampleRate = sampleRate;
         mMaxBlockSize = maxBlockSize;
         mPrepared = true;
+        mRampStep = 1.0 / std::max(1.0, kRampSeconds * sampleRate);
 
         mInputBufferL.resize(static_cast<size_t>(maxBlockSize));
         mInputBufferR.resize(static_cast<size_t>(maxBlockSize));
         mDryBufferL.resize(static_cast<size_t>(maxBlockSize));
         mDryBufferR.resize(static_cast<size_t>(maxBlockSize));
+        mMixBufferL.resize(static_cast<size_t>(maxBlockSize));
+        mMixBufferR.resize(static_cast<size_t>(maxBlockSize));
 
         for (auto& model : mModels)
         {
@@ -53,6 +94,7 @@ class MultiModelNAMAmpEffect : public EffectProcessor
         }
 
         UpdateLatencyAlignment();
+        mStartFresh = true;
     }
 
     void Reset() override
@@ -68,6 +110,7 @@ class MultiModelNAMAmpEffect : public EffectProcessor
         std::fill(mDryBufferR.begin(), mDryBufferR.end(), 0.0f);
         mDryDelayLeft.Reset();
         mDryDelayRight.Reset();
+        mStartFresh = true;
     }
 
     void Process(float** inputs, float** outputs, int numSamples) override
@@ -76,6 +119,11 @@ class MultiModelNAMAmpEffect : public EffectProcessor
 
         // Clamp to allocated buffer size to prevent out-of-bounds writes
         numSamples = std::min(numSamples, mMaxBlockSize);
+
+        if (numSamples <= 0)
+        {
+            return;
+        }
 
         if (!inputs[0] && !inputs[1])
         {
@@ -106,92 +154,34 @@ class MultiModelNAMAmpEffect : public EffectProcessor
         {
             for (int i = 0; i < numSamples; ++i)
             {
-                const float outL = mInputBufferL[i];
-                const float outR = mInputBufferR[i];
-
                 if (outputs[0])
                 {
-                    outputs[0][i] = outL;
+                    outputs[0][i] = mInputBufferL[i];
                 }
 
                 if (outputs[1])
                 {
-                    outputs[1][i] = outR;
+                    outputs[1][i] = mInputBufferR[i];
                 }
             }
 
             return;
         }
 
-        const BlendSelection selection = SelectBlendModels();
-
-        const float inputGain = static_cast<float>(mInputGain);
-        const float outputGain = static_cast<float>(mOutputGain);
-        const float wetMix = static_cast<float>(mMix);
-        const float dryMix = 1.0f - wetMix;
+        const OutputRamp ramp = RenderBlend(numSamples, true);
 
         for (int i = 0; i < numSamples; ++i)
         {
-            mInputBufferL[i] *= inputGain;
-            mInputBufferR[i] *= inputGain;
-        }
-
-        mDryDelayLeft.Process(mDryBufferL.data(), numSamples);
-        mDryDelayRight.Process(mDryBufferR.data(), numSamples);
-
-        if (selection.upperIndex == selection.lowerIndex)
-        {
-            auto& model = mModels[selection.lowerIndex];
-
-            if (rtparallel::ShouldParallelizeStereoWork(numSamples))
-            {
-                const bool ran = rtparallel::DualLaneExecutor::Instance().Run(
-                    [&]() { ProcessModel(model, mInputBufferR.data(), model.outputBufferR.data(), numSamples, 1); },
-                    [&]() { ProcessModel(model, mInputBufferL.data(), model.outputBufferL.data(), numSamples, 0); });
-
-                if (!ran)
-                {
-                    ProcessModel(model, mInputBufferL.data(), model.outputBufferL.data(), numSamples, 0);
-                    ProcessModel(model, mInputBufferR.data(), model.outputBufferR.data(), numSamples, 1);
-                }
-            }
-            else
-            {
-                ProcessModel(model, mInputBufferL.data(), model.outputBufferL.data(), numSamples, 0);
-                ProcessModel(model, mInputBufferR.data(), model.outputBufferR.data(), numSamples, 1);
-            }
-
-            WriteOutputs(model.outputBufferL.data(), model.outputBufferR.data(), mDryBufferL.data(), mDryBufferR.data(),
-                         outputs, numSamples, outputGain, wetMix, dryMix);
-            return;
-        }
-
-        auto& modelA = mModels[selection.lowerIndex];
-        auto& modelB = mModels[selection.upperIndex];
-
-        ProcessModel(modelA, mInputBufferL.data(), modelA.outputBufferL.data(), numSamples, 0);
-        ProcessModel(modelA, mInputBufferR.data(), modelA.outputBufferR.data(), numSamples, 1);
-        ProcessModel(modelB, mInputBufferL.data(), modelB.outputBufferL.data(), numSamples, 0);
-        ProcessModel(modelB, mInputBufferR.data(), modelB.outputBufferR.data(), numSamples, 1);
-
-        const float weightA = static_cast<float>(selection.weightLower);
-        const float weightB = static_cast<float>(selection.weightUpper);
-
-        for (int i = 0; i < numSamples; ++i)
-        {
-            float mixedL = modelA.outputBufferL[i] * weightA + modelB.outputBufferL[i] * weightB;
-            float mixedR = modelA.outputBufferR[i] * weightA + modelB.outputBufferR[i] * weightB;
-            mixedL = mDryBufferL[i] * dryMix + mixedL * outputGain * wetMix;
-            mixedR = mDryBufferR[i] * dryMix + mixedR * outputGain * wetMix;
+            const float gain = ramp.At(i);
 
             if (outputs[0])
             {
-                outputs[0][i] = mixedL;
+                outputs[0][i] = mDryBufferL[i] * ramp.dryMix + mMixBufferL[i] * gain;
             }
 
             if (outputs[1])
             {
-                outputs[1][i] = mixedR;
+                outputs[1][i] = mDryBufferR[i] * ramp.dryMix + mMixBufferR[i] * gain;
             }
         }
     }
@@ -227,54 +217,15 @@ class MultiModelNAMAmpEffect : public EffectProcessor
 
         if (mModels.empty() || !mEnabled)
         {
-            for (int i = 0; i < numSamples; ++i)
-            {
-                output[i] = mInputBufferL[i];
-            }
-
+            std::copy_n(mInputBufferL.data(), numSamples, output);
             return;
         }
 
-        const BlendSelection selection = SelectBlendModels();
-
-        const float inputGain = static_cast<float>(mInputGain);
-        const float outputGain = static_cast<float>(mOutputGain);
-        const float wetMix = static_cast<float>(mMix);
-        const float dryMix = 1.0f - wetMix;
+        const OutputRamp ramp = RenderBlend(numSamples, false);
 
         for (int i = 0; i < numSamples; ++i)
         {
-            mInputBufferL[i] *= inputGain;
-        }
-
-        mDryDelayLeft.Process(mDryBufferL.data(), numSamples);
-
-        if (selection.upperIndex == selection.lowerIndex)
-        {
-            auto& model = mModels[selection.lowerIndex];
-            ProcessModel(model, mInputBufferL.data(), model.outputBufferL.data(), numSamples, 0);
-
-            for (int i = 0; i < numSamples; ++i)
-            {
-                output[i] = mDryBufferL[i] * dryMix + model.outputBufferL[i] * outputGain * wetMix;
-            }
-
-            return;
-        }
-
-        auto& modelA = mModels[selection.lowerIndex];
-        auto& modelB = mModels[selection.upperIndex];
-
-        ProcessModel(modelA, mInputBufferL.data(), modelA.outputBufferL.data(), numSamples, 0);
-        ProcessModel(modelB, mInputBufferL.data(), modelB.outputBufferL.data(), numSamples, 0);
-
-        const float weightA = static_cast<float>(selection.weightLower);
-        const float weightB = static_cast<float>(selection.weightUpper);
-
-        for (int i = 0; i < numSamples; ++i)
-        {
-            const float mixed = modelA.outputBufferL[i] * weightA + modelB.outputBufferL[i] * weightB;
-            output[i] = mDryBufferL[i] * dryMix + mixed * outputGain * wetMix;
+            output[i] = mDryBufferL[i] * ramp.dryMix + mMixBufferL[i] * ramp.At(i);
         }
     }
 
@@ -342,7 +293,13 @@ class MultiModelNAMAmpEffect : public EffectProcessor
         }
         else if (key == "blendMode")
         {
-            mSnapBlend = (value == "snap");
+            // The blend definition's mode.
+            mDefinitionSnap = (value == "snap");
+        }
+        else if (key == "blendModeOverride")
+        {
+            // This node's own choice, which wins over the definition's; empty follows it.
+            mBlendModeOverride = (value == "snap" || value == "interpolate") ? value : std::string{};
         }
         else if (key == "slimmableSize")
         {
@@ -430,7 +387,8 @@ class MultiModelNAMAmpEffect : public EffectProcessor
     bool LoadResources(const std::vector<ResourceRef>& refs, const std::vector<std::filesystem::path>& paths) override
     {
         mModels.clear();
-        mHasModelParameters = false;
+        mMappedParams.clear();
+        mStartFresh = true;
         UpdateLatencyAlignment();
 
         if (refs.empty() || paths.empty())
@@ -462,14 +420,14 @@ class MultiModelNAMAmpEffect : public EffectProcessor
                 instance.parameters[ref.parameterId] = *ref.parameterValue;
             }
 
-            if (!instance.parameters.empty())
-            {
-                mHasModelParameters = true;
-            }
-
             if (!LoadModelInstance(instance))
             {
                 continue;
+            }
+
+            for (const auto& [paramId, _] : instance.parameters)
+            {
+                mMappedParams.insert(paramId);
             }
 
             ResizeModelBuffers(instance, mMaxBlockSize);
@@ -479,6 +437,7 @@ class MultiModelNAMAmpEffect : public EffectProcessor
 
         if (mModels.empty())
         {
+            mMappedParams.clear();
             return false;
         }
 
@@ -510,6 +469,13 @@ class MultiModelNAMAmpEffect : public EffectProcessor
         return mLatencySamples;
     }
 
+    /// Models run by the last block, heard or warming up. For tests and diagnostics.
+    [[nodiscard]] std::size_t GetRunningModelCount() const
+    {
+        return static_cast<std::size_t>(
+            std::count_if(mModels.begin(), mModels.end(), [](const ModelInstance& model) { return model.running; }));
+    }
+
   private:
     struct ModelInstance
     {
@@ -535,6 +501,14 @@ class MultiModelNAMAmpEffect : public EffectProcessor
 
         std::optional<double> inputLevel;
         std::optional<double> outputLevel;
+
+        // Mixing state, audio thread only.
+        double desired = 0.0;    // share of the mix the selection asks for
+        double target = 0.0;     // share it is heading for this block
+        double gain = 0.0;       // share it has now
+        bool running = false;    // processed this block, heard or not
+        int warmupRemaining = 0; // samples left to run unheard before it may be faded in
+        int warmupSamples = 0;   // host samples it runs unheard when brought back
     };
 
     struct BlendSelection
@@ -543,6 +517,27 @@ class MultiModelNAMAmpEffect : public EffectProcessor
         std::size_t upperIndex = 0;
         double weightLower = 1.0;
         double weightUpper = 0.0;
+
+        [[nodiscard]] static BlendSelection Only(std::size_t index)
+        {
+            BlendSelection selection;
+            selection.lowerIndex = index;
+            selection.upperIndex = index;
+            return selection;
+        }
+    };
+
+    /// The wet gain across a block, ramped from the last block's so a gain change is smooth.
+    struct OutputRamp
+    {
+        float start = 1.0f;
+        float step = 0.0f;
+        float dryMix = 0.0f;
+
+        [[nodiscard]] float At(int sample) const
+        {
+            return start + step * static_cast<float>(sample + 1);
+        }
     };
 
     std::vector<ModelInstance> mModels;
@@ -550,6 +545,8 @@ class MultiModelNAMAmpEffect : public EffectProcessor
     std::vector<float> mInputBufferR;
     std::vector<float> mDryBufferL;
     std::vector<float> mDryBufferR;
+    std::vector<float> mMixBufferL;
+    std::vector<float> mMixBufferR;
 
     double mUserInputGain = 1.0;
     double mUserOutputGain = 1.0;
@@ -557,15 +554,25 @@ class MultiModelNAMAmpEffect : public EffectProcessor
     double mAutoOutputGain = 1.0;
     double mInputGain = 1.0;
     double mOutputGain = 1.0;
+    double mAppliedInputGain = 1.0;
+    double mAppliedOutputGain = 1.0;
     double mMix = 1.0;
     double mBlend = 0.0;
     std::map<std::string, double> mTargetParams;
-    bool mHasModelParameters = false;
+    /// Every parameter some model was captured at. A target for anything else says nothing
+    /// about which model to play, so selection ignores it.
+    std::set<std::string> mMappedParams;
     bool mUseCalibration = true;
     bool mEnabled = true;
     bool mPrepared = false;
+    bool mDefinitionSnap = false;
+    std::string mBlendModeOverride;
     std::string mParameterId;
     std::uint64_t mLevelTargetsRevision = 0;
+    double mRampStep = 1.0;
+    /// After a load, Prepare() or Reset(): the next block takes the selection at once, since
+    /// every model starts from a clean state and there is no earlier mix to fade from.
+    bool mStartFresh = true;
     // Per-node quality settings, delivered as node config by PluginController and
     // seeded on newly built nodes from SignalGraphExecutor's type defaults. These
     // are deliberately not process-global: separate plugin instances in one DAW
@@ -587,35 +594,11 @@ class MultiModelNAMAmpEffect : public EffectProcessor
         mOutputGain = mUserOutputGain * mAutoOutputGain;
     }
 
-    static bool ParseBool(const std::string& value)
-    {
-        return value == "1" || value == "true" || value == "True" || value == "TRUE";
-    }
-
     static std::optional<double> ParseDouble(const std::string& value)
     {
         try
         {
             return std::stod(value);
-        }
-        catch (...)
-        {
-            return std::nullopt;
-        }
-    }
-
-    static std::optional<double> ReadResourceMetadataDouble(const ResourceRef& ref, const std::string& key)
-    {
-        const auto it = ref.metadata.find(key);
-
-        if (it == ref.metadata.end())
-        {
-            return std::nullopt;
-        }
-
-        try
-        {
-            return std::stod(it->second);
         }
         catch (...)
         {
@@ -675,6 +658,14 @@ class MultiModelNAMAmpEffect : public EffectProcessor
                                           filterPhase);
         instance.oversamplingRight.Prepare(*instance.fallbackRight, mSampleRate, modelSampleRate, hostBlockSize, factor,
                                            filterPhase);
+
+        // The prewarm length is in samples at the model's own rate. Counting them at that rate
+        // overestimates when the model runs oversampled, which only errs toward a clean start.
+        const double expectedRate = GetInstanceExpectedSampleRate(instance);
+        const double prewarmSeconds =
+            expectedRate > 0.0 ? detail::NamPrewarmReader::Read(*instance.fallbackLeft) / expectedRate : 0.0;
+        const double warmupSeconds = std::clamp(prewarmSeconds, kWarmupSeconds, kMaxWarmupSeconds);
+        instance.warmupSamples = static_cast<int>(std::lround(warmupSeconds * mSampleRate));
     }
 
     void ResetModel(ModelInstance& instance, double sampleRate, int maxBlockSize)
@@ -720,24 +711,252 @@ class MultiModelNAMAmpEffect : public EffectProcessor
         std::fill_n(output, numSamples, 0.0f);
     }
 
-    void WriteOutputs(const float* left, const float* right, const float* dryLeft, const float* dryRight,
-                      float** outputs, int numSamples, float gain, float wetMix, float dryMix)
+    /// Runs the models in the mix into mMixBufferL (and R when `stereo`), with the input gain
+    /// already applied, and returns the wet gain to apply over the block.
+    OutputRamp RenderBlend(int numSamples, bool stereo)
     {
+        UpdateModelTargets();
+
+        const bool startFresh = std::exchange(mStartFresh, false);
+
+        if (startFresh)
+        {
+            mAppliedInputGain = mInputGain;
+            mAppliedOutputGain = mOutputGain;
+        }
+
+        // Input gain ramps across the block: calibration follows the selection, and a step
+        // into a NAM model is a click.
+        const double inputStep = (mInputGain - mAppliedInputGain) / numSamples;
+
         for (int i = 0; i < numSamples; ++i)
         {
-            const float outL = dryLeft[i] * dryMix + left[i] * gain * wetMix;
-            const float outR = dryRight[i] * dryMix + right[i] * gain * wetMix;
+            const auto gain = static_cast<float>(mAppliedInputGain + inputStep * (i + 1));
+            mInputBufferL[i] *= gain;
 
-            if (outputs[0])
+            if (stereo)
             {
-                outputs[0][i] = outL;
-            }
-
-            if (outputs[1])
-            {
-                outputs[1][i] = outR;
+                mInputBufferR[i] *= gain;
             }
         }
+
+        mAppliedInputGain = mInputGain;
+
+        mDryDelayLeft.Process(mDryBufferL.data(), numSamples);
+
+        if (stereo)
+        {
+            mDryDelayRight.Process(mDryBufferR.data(), numSamples);
+        }
+
+        const auto runLane = [this, numSamples](int channel) {
+            float* input = channel == 0 ? mInputBufferL.data() : mInputBufferR.data();
+
+            for (auto& model : mModels)
+            {
+                if (model.running)
+                {
+                    ProcessModel(model, input, channel == 0 ? model.outputBufferL.data() : model.outputBufferR.data(),
+                                 numSamples, channel);
+                }
+            }
+        };
+
+        // Each channel has its own model instances, so the two lanes share nothing.
+        const bool ranInParallel =
+            stereo && rtparallel::ShouldParallelizeStereoWork(numSamples) &&
+            rtparallel::DualLaneExecutor::Instance().Run([&]() { runLane(1); }, [&]() { runLane(0); });
+
+        if (!ranInParallel)
+        {
+            runLane(0);
+
+            if (stereo)
+            {
+                runLane(1);
+            }
+        }
+
+        std::fill_n(mMixBufferL.data(), numSamples, 0.0f);
+
+        if (stereo)
+        {
+            std::fill_n(mMixBufferR.data(), numSamples, 0.0f);
+        }
+
+        for (auto& model : mModels)
+        {
+            if (!model.running)
+            {
+                continue;
+            }
+
+            if (model.warmupRemaining > 0)
+            {
+                model.warmupRemaining = std::max(0, model.warmupRemaining - numSamples);
+                continue;
+            }
+
+            double gain = model.gain;
+
+            for (int i = 0; i < numSamples; ++i)
+            {
+                gain += std::clamp(model.target - gain, -mRampStep, mRampStep);
+                const auto g = static_cast<float>(gain);
+                mMixBufferL[i] += model.outputBufferL[i] * g;
+
+                if (stereo)
+                {
+                    mMixBufferR[i] += model.outputBufferR[i] * g;
+                }
+            }
+
+            model.gain = gain;
+        }
+
+        // A model out of the mix and fully faded stops running; bringing it back warms it up.
+        for (auto& model : mModels)
+        {
+            if (model.running && model.desired <= 0.0 && model.gain <= 0.0)
+            {
+                model.running = false;
+                model.warmupRemaining = 0;
+            }
+        }
+
+        const double wetMix = mMix;
+        const double outputStart = mAppliedOutputGain * wetMix;
+        const double outputEnd = mOutputGain * wetMix;
+        mAppliedOutputGain = mOutputGain;
+
+        OutputRamp ramp;
+        ramp.start = static_cast<float>(outputStart);
+        ramp.step = static_cast<float>((outputEnd - outputStart) / numSamples);
+        ramp.dryMix = static_cast<float>(1.0 - wetMix);
+        return ramp;
+    }
+
+    /// Turns the selection into each model's share of the mix. A model coming in starts
+    /// warming up; until one of the models asked for is ready, the current mix holds.
+    void UpdateModelTargets()
+    {
+        const BlendSelection selection = SelectBlendModels();
+
+        for (auto& model : mModels)
+        {
+            model.desired = 0.0;
+        }
+
+        double lower = selection.weightLower;
+        double upper = selection.upperIndex != selection.lowerIndex ? selection.weightUpper : 0.0;
+
+        if (upper < kMinAudibleWeight)
+        {
+            upper = 0.0;
+        }
+        else if (lower < kMinAudibleWeight)
+        {
+            lower = 0.0;
+        }
+
+        const double total = lower + upper;
+
+        if (total > 0.0)
+        {
+            mModels[selection.lowerIndex].desired = lower / total;
+
+            if (upper > 0.0)
+            {
+                mModels[selection.upperIndex].desired = upper / total;
+            }
+        }
+        else
+        {
+            mModels[selection.lowerIndex].desired = 1.0;
+        }
+
+        if (mStartFresh)
+        {
+            for (auto& model : mModels)
+            {
+                model.running = model.desired > 0.0;
+                model.gain = model.desired;
+                model.target = model.desired;
+                model.warmupRemaining = 0;
+            }
+
+            return;
+        }
+
+        for (auto& model : mModels)
+        {
+            if (model.desired > 0.0 && !model.running)
+            {
+                model.running = true;
+                model.gain = 0.0;
+                model.warmupRemaining = model.warmupSamples;
+            }
+        }
+
+        double readyShare = 0.0;
+
+        for (const auto& model : mModels)
+        {
+            if (model.running && model.warmupRemaining == 0)
+            {
+                readyShare += model.desired;
+            }
+        }
+
+        for (auto& model : mModels)
+        {
+            if (readyShare > 0.0)
+            {
+                model.target = model.running && model.warmupRemaining == 0 ? model.desired / readyShare : 0.0;
+            }
+            else
+            {
+                model.target = model.gain;
+            }
+        }
+
+        LimitRunningModels();
+    }
+
+    /// A fast sweep can leave several models fading out at once. Past kMaxRunningModels the
+    /// quietest of those is dropped, which is the least audible cut available.
+    void LimitRunningModels()
+    {
+        std::size_t running = GetRunningModelCount();
+
+        while (running > kMaxRunningModels)
+        {
+            ModelInstance* quietest = nullptr;
+
+            for (auto& model : mModels)
+            {
+                if (model.running && model.desired <= 0.0 && (!quietest || model.gain < quietest->gain))
+                {
+                    quietest = &model;
+                }
+            }
+
+            if (!quietest)
+            {
+                return;
+            }
+
+            quietest->running = false;
+            quietest->gain = 0.0;
+            quietest->target = 0.0;
+            quietest->warmupRemaining = 0;
+            --running;
+        }
+    }
+
+    [[nodiscard]] bool IsSnapMode() const
+    {
+        return mBlendModeOverride.empty() ? mDefinitionSnap : mBlendModeOverride == "snap";
     }
 
     BlendSelection SelectBlendModels() const
@@ -752,25 +971,15 @@ class MultiModelNAMAmpEffect : public EffectProcessor
 
     bool ShouldUseParamSelection() const
     {
-        return !mTargetParams.empty() && mHasModelParameters;
+        return std::any_of(mTargetParams.begin(), mTargetParams.end(),
+                           [this](const auto& target) { return mMappedParams.contains(target.first); });
     }
 
     BlendSelection SelectBlendModelsByParams() const
     {
-        BlendSelection selection;
-
-        if (mModels.empty())
+        if (mModels.size() < 2)
         {
-            return selection;
-        }
-
-        if (mModels.size() == 1)
-        {
-            selection.lowerIndex = 0;
-            selection.upperIndex = 0;
-            selection.weightLower = 1.0;
-            selection.weightUpper = 0.0;
-            return selection;
+            return BlendSelection::Only(0);
         }
 
         const auto distanceTo = [this](const ModelInstance& model) {
@@ -779,6 +988,13 @@ class MultiModelNAMAmpEffect : public EffectProcessor
 
             for (const auto& [paramId, targetValue] : mTargetParams)
             {
+                // A parameter no model was captured at, such as one since dropped from the
+                // blend, would add the same to every model and only flatten the weights.
+                if (!mMappedParams.contains(paramId))
+                {
+                    continue;
+                }
+
                 const auto it = model.parameters.find(paramId);
 
                 if (it == model.parameters.end())
@@ -831,13 +1047,9 @@ class MultiModelNAMAmpEffect : public EffectProcessor
             }
         }
 
-        if (mSnapBlend)
+        if (IsSnapMode())
         {
-            selection.lowerIndex = bestIndex;
-            selection.upperIndex = bestIndex;
-            selection.weightLower = 1.0;
-            selection.weightUpper = 0.0;
-            return selection;
+            return BlendSelection::Only(bestIndex);
         }
 
         const double eps = 1e-6;
@@ -845,6 +1057,7 @@ class MultiModelNAMAmpEffect : public EffectProcessor
         const double w2 = 1.0 / std::max(secondDist, eps);
         const double denom = std::max(w1 + w2, eps);
 
+        BlendSelection selection;
         selection.lowerIndex = bestIndex;
         selection.upperIndex = secondIndex;
         selection.weightLower = w1 / denom;
@@ -854,20 +1067,9 @@ class MultiModelNAMAmpEffect : public EffectProcessor
 
     BlendSelection SelectBlendModelsByBlend() const
     {
-        BlendSelection selection;
-
-        if (mModels.empty())
+        if (mModels.size() < 2)
         {
-            return selection;
-        }
-
-        if (mModels.size() == 1)
-        {
-            selection.lowerIndex = 0;
-            selection.upperIndex = 0;
-            selection.weightLower = 1.0;
-            selection.weightUpper = 0.0;
-            return selection;
+            return BlendSelection::Only(0);
         }
 
         const double minValue = mModels.front().parameterValue;
@@ -876,20 +1078,12 @@ class MultiModelNAMAmpEffect : public EffectProcessor
 
         if (target <= minValue)
         {
-            selection.lowerIndex = 0;
-            selection.upperIndex = 0;
-            selection.weightLower = 1.0;
-            selection.weightUpper = 0.0;
-            return selection;
+            return BlendSelection::Only(0);
         }
 
         if (target >= maxValue)
         {
-            selection.lowerIndex = mModels.size() - 1;
-            selection.upperIndex = mModels.size() - 1;
-            selection.weightLower = 1.0;
-            selection.weightUpper = 0.0;
-            return selection;
+            return BlendSelection::Only(mModels.size() - 1);
         }
 
         std::size_t upperIndex = 1;
@@ -904,21 +1098,17 @@ class MultiModelNAMAmpEffect : public EffectProcessor
         const double lowerValue = mModels[lowerIndex].parameterValue;
         const double upperValue = mModels[upperIndex].parameterValue;
 
-        if (mSnapBlend)
+        if (IsSnapMode())
         {
             const double lowerDist = std::abs(target - lowerValue);
             const double upperDist = std::abs(upperValue - target);
-            const std::size_t chosen = lowerDist <= upperDist ? lowerIndex : upperIndex;
-            selection.lowerIndex = chosen;
-            selection.upperIndex = chosen;
-            selection.weightLower = 1.0;
-            selection.weightUpper = 0.0;
-            return selection;
+            return BlendSelection::Only(lowerDist <= upperDist ? lowerIndex : upperIndex);
         }
 
         const double denom = std::max(upperValue - lowerValue, 1e-9);
         const double t = std::clamp((target - lowerValue) / denom, 0.0, 1.0);
 
+        BlendSelection selection;
         selection.lowerIndex = lowerIndex;
         selection.upperIndex = upperIndex;
         selection.weightLower = 1.0 - t;
@@ -1011,8 +1201,6 @@ class MultiModelNAMAmpEffect : public EffectProcessor
         mLevelTargetsRevision = revision;
     }
 
-    bool mSnapBlend = false;
-
     static double GetInstanceExpectedSampleRate(const ModelInstance& instance)
     {
         if (instance.fallbackLeft)
@@ -1042,6 +1230,7 @@ class MultiModelNAMAmpEffect : public EffectProcessor
         }
 
         UpdateLatencyAlignment();
+        mStartFresh = true;
     }
 
     void UpdateLatencyAlignment()

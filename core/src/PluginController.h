@@ -605,6 +605,12 @@ class PluginController
     /// Rebuilds every running mixer slot with a node playing `blendId`, so a saved edit to
     /// the blend is heard straight away.
     void RebuildSlotsUsingBlend(const std::string& blendId);
+    /// RebuildSlotsUsingBlend() for each blend that differs between `previousLibrary` and the
+    /// library now, including one that has gone.
+    void RebuildSlotsForChangedBlends(const nlohmann::json& previousLibrary);
+    /// The first preset (working copy, mixer slot, user or factory archive) with a node
+    /// playing `blendId`, in any scene.
+    [[nodiscard]] std::optional<std::string> FindFirstPresetUsingBlend(const std::string& blendId) const;
     /**
      * A node's config as its running processor in mixer slot `presetId` reports it, or the
      * slot graph's stored value when the node has no processor. Empty if there is no such slot.
@@ -737,6 +743,9 @@ class PluginController
     [[nodiscard]] std::optional<std::filesystem::path> ResolveResourceRef(const ResourceRef& ref) const;
     [[nodiscard]] std::optional<std::string> FindFirstPresetUsingResource(const std::string& resourceType,
                                                                           const std::string& resourceId) const;
+    /// The name of the first blend that plays the model, for a resource no preset uses directly.
+    [[nodiscard]] std::optional<std::string> FindFirstBlendUsingResource(const std::string& resourceType,
+                                                                         const std::string& resourceId) const;
     void EnsureResourceUsageDiskIndex() const;
     void InvalidateResourceUsageIndex();
     void AppendUserLibraryResource(const LibraryResource& resource);
@@ -769,7 +778,11 @@ class PluginController
     void LoadResourceLibraries();
     void CleanupResourceLibraryCategoriesOnStartup();
     void LoadFactoryPresetArchives();
+    /// The stored blends, then the factory-archive and preset-archive session blends.
     void LoadBlendLibrary();
+    /// Re-adds the factory-archive and session blends to mBlendLibrary, replacing any earlier
+    /// registration. A stored edit of a factory blend is kept instead of the archive's.
+    void MergeTransientBlends();
     void SaveBlendLibrary() const;
     void LoadCustomEffectLibrary();
     void SaveCustomEffectLibrary() const;
@@ -860,7 +873,12 @@ class PluginController
     ResourceLibrary mResourceLibrary;
     nlohmann::json mBlendLibrary = nlohmann::json::array();
     CustomEffectLibrary mCustomEffectLibrary;
+    /// The ids of the blends in mBlendLibrary that are served from mFactoryArchiveBlends and
+    /// mPresetArchiveSessionBlends. Neither kind is stored; see MergeTransientBlends().
     std::unordered_set<std::string> mFactoryArchiveBlendIds;
+    std::unordered_set<std::string> mPresetArchiveSessionBlendIds;
+    nlohmann::json mFactoryArchiveBlends = nlohmann::json::array();
+    nlohmann::json mPresetArchiveSessionBlends = nlohmann::json::array();
     std::unordered_set<std::string> mFactoryArchivePresetIds;
     std::unordered_set<std::string> mTrackedFactoryArchivePresetIds;
     std::unordered_map<std::string, std::string> mFactoryArchivePresetAliases;
