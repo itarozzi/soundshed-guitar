@@ -213,6 +213,7 @@ Relevant locations:
 - The native Debug build succeeded.
 - All 55 non-benchmark native tests passed.
 - The build emitted PCH-definition and numeric-conversion warnings around `NamResamplerResetTests`; these should be cleaned up so new warnings remain visible.
+  - Fixed on 19 September 2026. The SQLite build options are now private to `sqlite3.c`, so the core's precompiled header no longer carries them into every test. The resampler overlay makes its two float narrowings explicit, and six discarded `[[nodiscard]]` results in tests are now explicit. The Debug build of the core and its tests is warning-free.
 - The review was read-only; no application source changes were made as part of it.
 
 ## Review Caveat

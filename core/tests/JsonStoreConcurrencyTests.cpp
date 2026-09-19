@@ -175,7 +175,7 @@ bool TestBulkImportUnderLoad()
 
                 while (!stop)
                 {
-                    stores[static_cast<std::size_t>(i)]->List(ItemType::kResource);
+                    (void)stores[static_cast<std::size_t>(i)]->List(ItemType::kResource); // load, not a check
                     stores[static_cast<std::size_t>(i)]->Put(ItemType::kSetting, "inst-" + std::to_string(i), n++);
                 }
             });
@@ -693,9 +693,9 @@ bool TestNoCorruptionUnderSustainedContention()
                     store.Remove(ItemType::kPreset, "p" + std::to_string(i) + "-" + std::to_string(n - 4));
                     break;
 
-                default: // large reads while everyone else writes
-                    store.List(ItemType::kPreset);
-                    store.MaxUpdatedAt();
+                default:                                 // large reads while everyone else writes
+                    (void)store.List(ItemType::kPreset); // load, not a check
+                    (void)store.MaxUpdatedAt();
                     break;
                 }
 

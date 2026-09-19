@@ -2159,7 +2159,7 @@ bool TestPitchShiftRangeAndSnap()
     pitch->SetParam("stepMode", 0.0);
     check(approxEqual(pitch->GetAppliedSemitones(), 2.4), "Snap off keeps the free value",
           pitch->GetAppliedSemitones());
-    pitch->GetAutomationRange("semitones", range);
+    (void)pitch->GetAutomationRange("semitones", range); // the range itself is what is checked
     check(approxEqual(range.step, 0.0), "Snap off makes automation continuous", range.step);
 
     pitch->SetParam("minSemitones", 0.0);
@@ -2174,14 +2174,14 @@ bool TestPitchShiftRangeAndSnap()
           pitch->GetAppliedSemitones());
     check(pitch->GetLatencySamples() == 0, "Held at 0 st is transparent", pitch->GetLatencySamples());
 
-    pitch->GetAutomationRange("semitones", range);
+    (void)pitch->GetAutomationRange("semitones", range); // the range itself is what is checked
     check(approxEqual(range.minValue, 0.0) && approxEqual(range.maxValue, 7.0), "Automation gets the node's range",
           range.maxValue);
 
     // A preset may apply the bounds in either order; crossed bounds still describe one range.
     pitch->SetParam("minSemitones", 5.0);
     pitch->SetParam("maxSemitones", -5.0);
-    pitch->GetAutomationRange("semitones", range);
+    (void)pitch->GetAutomationRange("semitones", range); // the range itself is what is checked
     check(approxEqual(range.minValue, -5.0) && approxEqual(range.maxValue, 5.0), "Crossed bounds read as one range",
           range.minValue);
 

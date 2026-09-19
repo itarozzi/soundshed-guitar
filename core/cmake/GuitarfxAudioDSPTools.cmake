@@ -380,6 +380,36 @@ void Reset(double inputSampleRate, int blockSize)
             "expected ${_reader_getenv_count}); read the variable there, in Reset(), instead.")
     endif()
 
+    # The container is instantiated with T = double, but its Lanczos fallback takes float rates
+    # and its cascaded FIR stages run on float taps. Both narrow on purpose; say so, so the
+    # conversion warning it raised in every translation unit that instantiates it goes away.
+    _guitarfx_replace_once(_content "explicit-lanczos-rates"
+        "      mResampler1 = std::make_unique<LanczosResamplerType>(mInputSampleRate, mRenderingSampleRate);
+      mResampler2 =
+        mUseIntegerDownsampler ? nullptr : std::make_unique<LanczosResamplerType>(mRenderingSampleRate, mInputSampleRate);"
+        "      // Soundshed fix (core/cmake/GuitarfxAudioDSPTools.cmake): the resampler takes float rates.
+      mResampler1 = std::make_unique<LanczosResamplerType>(static_cast<float>(mInputSampleRate),
+                                                           static_cast<float>(mRenderingSampleRate));
+      mResampler2 = mUseIntegerDownsampler
+                      ? nullptr
+                      : std::make_unique<LanczosResamplerType>(static_cast<float>(mRenderingSampleRate),
+                                                               static_cast<float>(mInputSampleRate));")
+    _guitarfx_replace_once(_content "explicit-float-fir-taps"
+        "    std::vector<float> interpolationEdgeCoefficients(
+      interpolationEdgeCoefficientsT.begin(), interpolationEdgeCoefficientsT.end());
+    std::vector<float> decimationEdgeCoefficients(
+      decimationEdgeCoefficientsT.begin(), decimationEdgeCoefficientsT.end());
+    std::vector<float> innerCoefficients(innerCoefficientsT.begin(), innerCoefficientsT.end());"
+        "    // Soundshed fix (core/cmake/GuitarfxAudioDSPTools.cmake): the FIR stages run on float taps.
+    const auto toFloatTaps = [](const std::vector<T>& taps) {
+      std::vector<float> floatTaps(taps.size());
+      std::transform(taps.begin(), taps.end(), floatTaps.begin(), [](T tap) { return static_cast<float>(tap); });
+      return floatTaps;
+    };
+    std::vector<float> interpolationEdgeCoefficients = toFloatTaps(interpolationEdgeCoefficientsT);
+    std::vector<float> decimationEdgeCoefficients = toFloatTaps(decimationEdgeCoefficientsT);
+    std::vector<float> innerCoefficients = toFloatTaps(innerCoefficientsT);")
+
     # Written through a temporary so the header's timestamp only moves when its content does.
     file(WRITE "${_to}/ResamplingContainer.h.new" "${_content}")
     file(COPY_FILE "${_to}/ResamplingContainer.h.new" "${_to}/ResamplingContainer.h" ONLY_IF_DIFFERENT)

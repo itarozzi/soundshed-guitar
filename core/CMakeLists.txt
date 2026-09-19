@@ -237,7 +237,11 @@ if(NOT TARGET guitarfx_sqlite)
     # left at their defaults (JSON1 is built in and we rely on json_extract for
     # ad-hoc queries without ever adding columns); the rest is dead weight in a
     # plugin binary.
-    target_compile_definitions(guitarfx_sqlite PUBLIC
+    # PRIVATE: they configure sqlite3.c itself. Two also hide declarations in sqlite3.h
+    # (deprecated calls, load_extension) that the store never uses. As PUBLIC they reached the
+    # core's precompiled header, and every test that reuses it warned (C4651) once per define
+    # that its own compile lacked.
+    target_compile_definitions(guitarfx_sqlite PRIVATE
         SQLITE_THREADSAFE=1              # serialized: several plugin instances per process
         SQLITE_DEFAULT_MEMSTATUS=0
         SQLITE_DQS=0                     # reject double-quoted string literals
