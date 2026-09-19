@@ -831,7 +831,7 @@ class PluginController
     [[nodiscard]] std::string BuildRiffId() const;
     [[nodiscard]] std::string BuildTimestampUtcIso() const;
     [[nodiscard]] std::optional<nlohmann::json> FindRiffTakeById(const std::string& takeId) const;
-    void FinalizeRiffCaptureLocked(bool canceled);
+    void FinalizeRiffCapture(bool canceled);
     /// Audio thread, under the DSP lock. Only reached while a capture is armed or
     /// running — see ProcessAudioLocked. Defined in PluginControllerRiffs.cpp.
     void ProcessRiffCaptureBlock(float** inputs, int numSamples);
@@ -1060,7 +1060,9 @@ class PluginController
 
     mutable std::mutex mRiffLibraryMutex;
     nlohmann::json mRiffLibraryIndex = nlohmann::json::object();
-    RiffCaptureRuntime mRiffCapture;
+    /// Published under mDSPMutex. Active captures are mutated only while that lock
+    /// is held; completed captures are treated as immutable and replaced wholesale.
+    std::shared_ptr<RiffCaptureRuntime> mRiffCapture;
 
     // Resource preview state (for temp loading from Tone3000)
     struct PreviewState

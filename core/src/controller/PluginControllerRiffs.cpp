@@ -75,11 +75,15 @@ void PluginController::HandleSetRiffLibraryPathRequest(const nlohmann::json& pay
 
 void PluginController::HandleStartRiffCaptureRequest(const nlohmann::json& payload)
 {
-    std::lock_guard<std::mutex> lock(mDSPMutex);
-
-    if (mRiffCapture.active)
+    bool captureBusy = false;
     {
-        ReportErrorToUI("Riff Capture", "Capture is already running");
+        std::lock_guard<std::mutex> lock(mDSPMutex);
+        captureBusy = mRiffCapture && (mRiffCapture->active || mRiffCapture->armed);
+    }
+
+    if (captureBusy)
+    {
+        ReportErrorToUI("Riff Capture", "Capture or arm is already active");
         return;
     }
 
@@ -116,28 +120,53 @@ void PluginController::HandleStartRiffCaptureRequest(const nlohmann::json& paylo
                          std::llround(samplesPerBeat * static_cast<double>(config.timeSigNum * config.countInBars))))
             : 0;
 
-    mRiffCapture = RiffCaptureRuntime{};
-    mRiffCapture.active = true;
-    mRiffCapture.complete = false;
-    mRiffCapture.takeId = BuildRiffTakeId();
-    mRiffCapture.config = config;
-    mRiffCapture.left.assign(captureSamples, 0.0f);
-    mRiffCapture.right.assign(captureSamples, 0.0f);
-    mRiffCapture.writeIndex = 0;
-    mRiffCapture.targetSamples = captureSamples + countInSamples;
-    mRiffCapture.countInSamples = countInSamples;
-    mRiffCapture.sampleRate = sampleRate;
-    mRiffCapture.bitsPerSample = 16;
+    // Allocate potentially multi-megabyte capture buffers before taking the
+    // audio lock. The lock is only needed to publish the finished runtime.
+    auto capture = std::make_shared<RiffCaptureRuntime>();
+    capture->active = true;
+    capture->complete = false;
+    capture->takeId = BuildRiffTakeId();
+    capture->config = config;
+    capture->left.assign(captureSamples, 0.0f);
+    capture->right.assign(captureSamples, 0.0f);
+    capture->writeIndex = 0;
+    capture->targetSamples = captureSamples + countInSamples;
+    capture->countInSamples = countInSamples;
+    capture->sampleRate = sampleRate;
+    capture->bitsPerSample = 16;
     constexpr std::size_t kLivePeakBuckets = 256;
-    mRiffCapture.livePeaks.assign(kLivePeakBuckets, 0.0f);
-    mRiffCapture.livePeakBucketSize = std::max<std::size_t>(1, captureSamples / kLivePeakBuckets);
-    mRiffCapture.lastProgressSample = 0;
-    mRiffCapture.startedAt = std::chrono::steady_clock::now();
-    ActivateRiffGuidance(config, false);
+    capture->livePeaks.assign(kLivePeakBuckets, 0.0f);
+    capture->livePeakBucketSize =
+        std::max<std::size_t>(1, (captureSamples + kLivePeakBuckets - 1) / kLivePeakBuckets);
+    capture->lastProgressSample = 0;
+    capture->startedAt = std::chrono::steady_clock::now();
+
+    std::shared_ptr<RiffCaptureRuntime> retiredCapture;
+    bool installed = false;
+    {
+        std::lock_guard<std::mutex> lock(mDSPMutex);
+
+        if (!mRiffCapture || (!mRiffCapture->active && !mRiffCapture->armed))
+        {
+            retiredCapture = std::move(mRiffCapture);
+            mRiffCapture = capture;
+            ActivateRiffGuidance(config, false);
+            installed = true;
+        }
+    }
+
+    if (!installed)
+    {
+        ReportErrorToUI("Riff Capture", "Capture or arm is already active");
+        return;
+    }
+
+    // Keep destruction of the previous take's buffers off the audio lock.
+    retiredCapture.reset();
 
     nlohmann::json msg;
     msg["type"] = "riffCaptureStarted";
-    msg["takeId"] = mRiffCapture.takeId;
+    msg["takeId"] = capture->takeId;
     msg["bars"] = config.bars;
     msg["tempoBpm"] = config.tempoBpm;
     msg["timeSigNum"] = config.timeSigNum;
@@ -150,9 +179,13 @@ void PluginController::HandleStartRiffCaptureRequest(const nlohmann::json& paylo
 
 void PluginController::HandleArmRiffCaptureRequest(const nlohmann::json& payload)
 {
-    std::lock_guard<std::mutex> lock(mDSPMutex);
+    bool captureBusy = false;
+    {
+        std::lock_guard<std::mutex> lock(mDSPMutex);
+        captureBusy = mRiffCapture && (mRiffCapture->active || mRiffCapture->armed);
+    }
 
-    if (mRiffCapture.active || mRiffCapture.armed)
+    if (captureBusy)
     {
         ReportErrorToUI("Riff Capture", "Capture or arm is already active");
         return;
@@ -195,30 +228,52 @@ void PluginController::HandleArmRiffCaptureRequest(const nlohmann::json& payload
 
     constexpr std::size_t kLivePeakBuckets = 256;
 
-    mRiffCapture = RiffCaptureRuntime{};
-    mRiffCapture.armed = true;
-    mRiffCapture.active = false;
-    mRiffCapture.complete = false;
-    mRiffCapture.takeId = BuildRiffTakeId();
-    mRiffCapture.config = config;
-    mRiffCapture.left.assign(maxCaptureSamples, 0.0f);
-    mRiffCapture.right.assign(maxCaptureSamples, 0.0f);
-    mRiffCapture.writeIndex = 0;
-    mRiffCapture.targetSamples = maxCaptureSamples + countInSamples;
-    mRiffCapture.countInSamples = countInSamples;
-    mRiffCapture.sampleRate = sampleRate;
-    mRiffCapture.bitsPerSample = 16;
-    mRiffCapture.livePeaks.assign(kLivePeakBuckets, 0.0f);
-    mRiffCapture.livePeakBucketSize = std::max<std::size_t>(1, maxCaptureSamples / kLivePeakBuckets);
-    mRiffCapture.lastProgressSample = 0;
-    mRiffCapture.armPostCountInSamples = 0;
-    mRiffCapture.startedAt = std::chrono::steady_clock::now();
-    // Start click playing via guidance (count-in pattern), don't start recording yet
-    ActivateRiffGuidance(config, false);
+    auto capture = std::make_shared<RiffCaptureRuntime>();
+    capture->armed = true;
+    capture->active = false;
+    capture->complete = false;
+    capture->takeId = BuildRiffTakeId();
+    capture->config = config;
+    capture->left.assign(maxCaptureSamples, 0.0f);
+    capture->right.assign(maxCaptureSamples, 0.0f);
+    capture->writeIndex = 0;
+    capture->targetSamples = maxCaptureSamples + countInSamples;
+    capture->countInSamples = countInSamples;
+    capture->sampleRate = sampleRate;
+    capture->bitsPerSample = 16;
+    capture->livePeaks.assign(kLivePeakBuckets, 0.0f);
+    capture->livePeakBucketSize =
+        std::max<std::size_t>(1, (maxCaptureSamples + kLivePeakBuckets - 1) / kLivePeakBuckets);
+    capture->lastProgressSample = 0;
+    capture->armPostCountInSamples = 0;
+    capture->startedAt = std::chrono::steady_clock::now();
+
+    std::shared_ptr<RiffCaptureRuntime> retiredCapture;
+    bool installed = false;
+    {
+        std::lock_guard<std::mutex> lock(mDSPMutex);
+
+        if (!mRiffCapture || (!mRiffCapture->active && !mRiffCapture->armed))
+        {
+            retiredCapture = std::move(mRiffCapture);
+            mRiffCapture = capture;
+            // Start click playing via guidance (count-in pattern), don't start recording yet
+            ActivateRiffGuidance(config, false);
+            installed = true;
+        }
+    }
+
+    if (!installed)
+    {
+        ReportErrorToUI("Riff Capture", "Capture or arm is already active");
+        return;
+    }
+
+    retiredCapture.reset();
 
     nlohmann::json msg;
     msg["type"] = "riffCaptureArmed";
-    msg["takeId"] = mRiffCapture.takeId;
+    msg["takeId"] = capture->takeId;
     msg["tempoBpm"] = config.tempoBpm;
     msg["timeSigNum"] = config.timeSigNum;
     msg["timeSigDen"] = config.timeSigDen;
@@ -231,8 +286,7 @@ void PluginController::HandleArmRiffCaptureRequest(const nlohmann::json& payload
 void PluginController::HandleStopRiffCaptureRequest(const nlohmann::json& payload)
 {
     const bool canceled = payload.value("canceled", false);
-    std::lock_guard<std::mutex> lock(mDSPMutex);
-    FinalizeRiffCaptureLocked(canceled);
+    FinalizeRiffCapture(canceled);
 }
 
 void PluginController::HandleImportRiffWavRequest(const nlohmann::json& payload)
@@ -313,30 +367,33 @@ void PluginController::HandleImportRiffWavRequest(const nlohmann::json& payload)
     imported.startedAt = std::chrono::steady_clock::now();
     imported.endedAt = imported.startedAt;
 
-    RiffCaptureRuntime captureSnapshot;
+    auto captureSnapshot = std::make_shared<RiffCaptureRuntime>(std::move(imported));
+    const auto waveformPeaks = BuildWaveformPeaks(captureSnapshot->left, captureSnapshot->right, 256);
+    std::shared_ptr<RiffCaptureRuntime> retiredCapture;
     {
         std::lock_guard<std::mutex> lock(mDSPMutex);
-        mRiffCapture = std::move(imported);
-        captureSnapshot = mRiffCapture;
+        retiredCapture = std::move(mRiffCapture);
+        mRiffCapture = captureSnapshot;
     }
+    retiredCapture.reset();
 
     nlohmann::json msg;
     msg["type"] = "riffCaptureStopped";
-    msg["takeId"] = captureSnapshot.takeId;
-    msg["capturedSamples"] = captureSnapshot.left.size();
-    msg["sampleRate"] = captureSnapshot.sampleRate;
-    msg["hasAudio"] = !captureSnapshot.left.empty() && !captureSnapshot.right.empty();
-    msg["waveformPeaks"] = BuildWaveformPeaks(captureSnapshot.left, captureSnapshot.right, 256);
-    msg["bars"] = captureSnapshot.config.bars;
-    msg["tempoBpm"] = captureSnapshot.config.tempoBpm;
-    msg["timeSigNum"] = captureSnapshot.config.timeSigNum;
-    msg["timeSigDen"] = captureSnapshot.config.timeSigDen;
-    msg["metronomeClickEnabled"] = captureSnapshot.config.metronomeClickEnabled;
-    msg["patternType"] = captureSnapshot.config.patternType;
+    msg["takeId"] = captureSnapshot->takeId;
+    msg["capturedSamples"] = captureSnapshot->left.size();
+    msg["sampleRate"] = captureSnapshot->sampleRate;
+    msg["hasAudio"] = !captureSnapshot->left.empty() && !captureSnapshot->right.empty();
+    msg["waveformPeaks"] = waveformPeaks;
+    msg["bars"] = captureSnapshot->config.bars;
+    msg["tempoBpm"] = captureSnapshot->config.tempoBpm;
+    msg["timeSigNum"] = captureSnapshot->config.timeSigNum;
+    msg["timeSigDen"] = captureSnapshot->config.timeSigDen;
+    msg["metronomeClickEnabled"] = captureSnapshot->config.metronomeClickEnabled;
+    msg["patternType"] = captureSnapshot->config.patternType;
 
-    if (!captureSnapshot.config.patternId.empty())
+    if (!captureSnapshot->config.patternId.empty())
     {
-        msg["patternId"] = captureSnapshot.config.patternId;
+        msg["patternId"] = captureSnapshot->config.patternId;
     }
 
     msg["source"] = "import";
@@ -345,65 +402,88 @@ void PluginController::HandleImportRiffWavRequest(const nlohmann::json& payload)
 
 void PluginController::HandleTrimCapturedRiffRequest(const nlohmann::json& payload)
 {
-    RiffCaptureRuntime captureSnapshot;
+    std::shared_ptr<const RiffCaptureRuntime> sourceCapture;
     {
         std::lock_guard<std::mutex> lock(mDSPMutex);
 
-        if (!mRiffCapture.complete || mRiffCapture.left.empty() || mRiffCapture.right.empty())
+        if (mRiffCapture && mRiffCapture->complete && !mRiffCapture->left.empty() && !mRiffCapture->right.empty())
         {
-            ReportErrorToUI("Riff Library", "No captured take available to trim");
-            return;
+            sourceCapture = mRiffCapture;
         }
+    }
 
-        const std::size_t totalSamples = mRiffCapture.left.size();
-        const double startRatioRaw = payload.value("startRatio", 0.0);
-        const double endRatioRaw = payload.value("endRatio", 1.0);
-        const double startRatio = std::clamp(startRatioRaw, 0.0, 1.0);
-        const double endRatio = std::clamp(endRatioRaw, 0.0, 1.0);
+    if (!sourceCapture)
+    {
+        ReportErrorToUI("Riff Library", "No captured take available to trim");
+        return;
+    }
 
-        std::size_t startSample = static_cast<std::size_t>(std::floor(startRatio * static_cast<double>(totalSamples)));
-        std::size_t endSample = static_cast<std::size_t>(std::ceil(endRatio * static_cast<double>(totalSamples)));
-        startSample = std::min(startSample, totalSamples > 0 ? totalSamples - 1 : 0);
-        endSample = std::max(endSample, startSample + 1);
-        endSample = std::min(endSample, totalSamples);
+    const std::size_t totalSamples = sourceCapture->left.size();
+    const double startRatioRaw = payload.value("startRatio", 0.0);
+    const double endRatioRaw = payload.value("endRatio", 1.0);
+    const double startRatio = std::clamp(startRatioRaw, 0.0, 1.0);
+    const double endRatio = std::clamp(endRatioRaw, 0.0, 1.0);
 
-        if (startSample >= endSample)
+    std::size_t startSample = static_cast<std::size_t>(std::floor(startRatio * static_cast<double>(totalSamples)));
+    std::size_t endSample = static_cast<std::size_t>(std::ceil(endRatio * static_cast<double>(totalSamples)));
+    startSample = std::min(startSample, totalSamples > 0 ? totalSamples - 1 : 0);
+    endSample = std::max(endSample, startSample + 1);
+    endSample = std::min(endSample, totalSamples);
+
+    if (startSample >= endSample)
+    {
+        ReportErrorToUI("Riff Library", "Invalid trim markers");
+        return;
+    }
+
+    auto captureSnapshot = std::make_shared<RiffCaptureRuntime>();
+    captureSnapshot->complete = true;
+    captureSnapshot->takeId = sourceCapture->takeId;
+    captureSnapshot->config = sourceCapture->config;
+    captureSnapshot->left.assign(sourceCapture->left.begin() + startSample, sourceCapture->left.begin() + endSample);
+    captureSnapshot->right.assign(sourceCapture->right.begin() + startSample, sourceCapture->right.begin() + endSample);
+    captureSnapshot->writeIndex = captureSnapshot->left.size();
+    captureSnapshot->targetSamples = captureSnapshot->left.size();
+    captureSnapshot->sampleRate = sourceCapture->sampleRate;
+    captureSnapshot->bitsPerSample = sourceCapture->bitsPerSample;
+    captureSnapshot->startedAt = sourceCapture->startedAt;
+    captureSnapshot->endedAt = std::chrono::steady_clock::now();
+    const auto waveformPeaks = BuildWaveformPeaks(captureSnapshot->left, captureSnapshot->right, 256);
+
+    bool installed = false;
+    {
+        std::lock_guard<std::mutex> lock(mDSPMutex);
+
+        if (mRiffCapture == sourceCapture)
         {
-            ReportErrorToUI("Riff Library", "Invalid trim markers");
-            return;
+            mRiffCapture = captureSnapshot;
+            installed = true;
         }
+    }
 
-        std::vector<float> trimmedLeft(mRiffCapture.left.begin() + startSample, mRiffCapture.left.begin() + endSample);
-        std::vector<float> trimmedRight(mRiffCapture.right.begin() + startSample,
-                                        mRiffCapture.right.begin() + endSample);
-
-        mRiffCapture.left = std::move(trimmedLeft);
-        mRiffCapture.right = std::move(trimmedRight);
-        mRiffCapture.writeIndex = mRiffCapture.left.size();
-        mRiffCapture.targetSamples = mRiffCapture.left.size();
-        mRiffCapture.countInSamples = 0;
-        mRiffCapture.endedAt = std::chrono::steady_clock::now();
-
-        captureSnapshot = mRiffCapture;
+    if (!installed)
+    {
+        ReportErrorToUI("Riff Library", "Captured take changed while trimming; please try again");
+        return;
     }
 
     nlohmann::json msg;
     msg["type"] = "riffCaptureStopped";
-    msg["takeId"] = captureSnapshot.takeId;
-    msg["capturedSamples"] = captureSnapshot.left.size();
-    msg["sampleRate"] = captureSnapshot.sampleRate;
-    msg["hasAudio"] = !captureSnapshot.left.empty() && !captureSnapshot.right.empty();
-    msg["waveformPeaks"] = BuildWaveformPeaks(captureSnapshot.left, captureSnapshot.right, 256);
-    msg["bars"] = captureSnapshot.config.bars;
-    msg["metronomeClickEnabled"] = captureSnapshot.config.metronomeClickEnabled;
-    msg["tempoBpm"] = captureSnapshot.config.tempoBpm;
-    msg["timeSigNum"] = captureSnapshot.config.timeSigNum;
-    msg["timeSigDen"] = captureSnapshot.config.timeSigDen;
-    msg["patternType"] = captureSnapshot.config.patternType;
+    msg["takeId"] = captureSnapshot->takeId;
+    msg["capturedSamples"] = captureSnapshot->left.size();
+    msg["sampleRate"] = captureSnapshot->sampleRate;
+    msg["hasAudio"] = !captureSnapshot->left.empty() && !captureSnapshot->right.empty();
+    msg["waveformPeaks"] = waveformPeaks;
+    msg["bars"] = captureSnapshot->config.bars;
+    msg["metronomeClickEnabled"] = captureSnapshot->config.metronomeClickEnabled;
+    msg["tempoBpm"] = captureSnapshot->config.tempoBpm;
+    msg["timeSigNum"] = captureSnapshot->config.timeSigNum;
+    msg["timeSigDen"] = captureSnapshot->config.timeSigDen;
+    msg["patternType"] = captureSnapshot->config.patternType;
 
-    if (!captureSnapshot.config.patternId.empty())
+    if (!captureSnapshot->config.patternId.empty())
     {
-        msg["patternId"] = captureSnapshot.config.patternId;
+        msg["patternId"] = captureSnapshot->config.patternId;
     }
 
     msg["source"] = "trim";
@@ -503,30 +583,33 @@ void PluginController::HandleLoadRiffTakeForEditRequest(const nlohmann::json& pa
     imported.startedAt = std::chrono::steady_clock::now();
     imported.endedAt = imported.startedAt;
 
-    RiffCaptureRuntime captureSnapshot;
+    auto captureSnapshot = std::make_shared<RiffCaptureRuntime>(std::move(imported));
+    const auto waveformPeaks = BuildWaveformPeaks(captureSnapshot->left, captureSnapshot->right, 256);
+    std::shared_ptr<RiffCaptureRuntime> retiredCapture;
     {
         std::lock_guard<std::mutex> lock(mDSPMutex);
-        mRiffCapture = std::move(imported);
-        captureSnapshot = mRiffCapture;
+        retiredCapture = std::move(mRiffCapture);
+        mRiffCapture = captureSnapshot;
     }
+    retiredCapture.reset();
 
     nlohmann::json msg;
     msg["type"] = "riffCaptureStopped";
-    msg["takeId"] = captureSnapshot.takeId;
-    msg["capturedSamples"] = captureSnapshot.left.size();
-    msg["sampleRate"] = captureSnapshot.sampleRate;
-    msg["hasAudio"] = !captureSnapshot.left.empty() && !captureSnapshot.right.empty();
-    msg["waveformPeaks"] = BuildWaveformPeaks(captureSnapshot.left, captureSnapshot.right, 256);
-    msg["bars"] = captureSnapshot.config.bars;
-    msg["tempoBpm"] = captureSnapshot.config.tempoBpm;
-    msg["timeSigNum"] = captureSnapshot.config.timeSigNum;
-    msg["timeSigDen"] = captureSnapshot.config.timeSigDen;
-    msg["metronomeClickEnabled"] = captureSnapshot.config.metronomeClickEnabled;
-    msg["patternType"] = captureSnapshot.config.patternType;
+    msg["takeId"] = captureSnapshot->takeId;
+    msg["capturedSamples"] = captureSnapshot->left.size();
+    msg["sampleRate"] = captureSnapshot->sampleRate;
+    msg["hasAudio"] = !captureSnapshot->left.empty() && !captureSnapshot->right.empty();
+    msg["waveformPeaks"] = waveformPeaks;
+    msg["bars"] = captureSnapshot->config.bars;
+    msg["tempoBpm"] = captureSnapshot->config.tempoBpm;
+    msg["timeSigNum"] = captureSnapshot->config.timeSigNum;
+    msg["timeSigDen"] = captureSnapshot->config.timeSigDen;
+    msg["metronomeClickEnabled"] = captureSnapshot->config.metronomeClickEnabled;
+    msg["patternType"] = captureSnapshot->config.patternType;
 
-    if (!captureSnapshot.config.patternId.empty())
+    if (!captureSnapshot->config.patternId.empty())
     {
-        msg["patternId"] = captureSnapshot.config.patternId;
+        msg["patternId"] = captureSnapshot->config.patternId;
     }
 
     msg["source"] = "editLoad";
@@ -536,60 +619,63 @@ void PluginController::HandleLoadRiffTakeForEditRequest(const nlohmann::json& pa
 
 void PluginController::HandleSaveRiffTakeRequest(const nlohmann::json& payload)
 {
-    RiffCaptureRuntime capture;
+    std::shared_ptr<const RiffCaptureRuntime> capture;
     nlohmann::json updatedLibrary = nlohmann::json::object();
     {
         std::lock_guard<std::mutex> lock(mDSPMutex);
 
-        if (!mRiffCapture.complete || mRiffCapture.left.empty() || mRiffCapture.right.empty())
+        if (mRiffCapture && mRiffCapture->complete && !mRiffCapture->left.empty() && !mRiffCapture->right.empty())
         {
-            ReportErrorToUI("Riff Library", "No completed take to save");
-            return;
+            capture = mRiffCapture;
         }
-
-        capture = mRiffCapture;
     }
+
+    if (!capture)
+    {
+        ReportErrorToUI("Riff Library", "No completed take to save");
+        return;
+    }
+
+    RiffCaptureConfig config = capture->config;
 
     if (payload.contains("tempoBpm"))
     {
-        capture.config.tempoBpm =
-            ClampValue(payload.value("tempoBpm", capture.config.tempoBpm), kMetronomeMinBpm, kMetronomeMaxBpm);
+        config.tempoBpm = ClampValue(payload.value("tempoBpm", config.tempoBpm), kMetronomeMinBpm, kMetronomeMaxBpm);
     }
 
     if (payload.contains("timeSigNum"))
     {
-        capture.config.timeSigNum = std::max(1, payload.value("timeSigNum", capture.config.timeSigNum));
+        config.timeSigNum = std::max(1, payload.value("timeSigNum", config.timeSigNum));
     }
 
     if (payload.contains("timeSigDen"))
     {
-        capture.config.timeSigDen = std::max(1, payload.value("timeSigDen", capture.config.timeSigDen));
+        config.timeSigDen = std::max(1, payload.value("timeSigDen", config.timeSigDen));
     }
 
     if (payload.contains("bars"))
     {
-        capture.config.bars = std::max(1, payload.value("bars", capture.config.bars));
+        config.bars = std::max(1, payload.value("bars", config.bars));
     }
 
     if (payload.contains("metronomeClickEnabled"))
     {
-        capture.config.metronomeClickEnabled =
-            payload.value("metronomeClickEnabled", capture.config.metronomeClickEnabled);
+        config.metronomeClickEnabled = payload.value("metronomeClickEnabled", config.metronomeClickEnabled);
     }
 
     if (payload.contains("patternType") && payload["patternType"].is_string())
     {
-        capture.config.patternType = payload.value("patternType", capture.config.patternType);
+        config.patternType = payload.value("patternType", config.patternType);
     }
 
     if (payload.contains("patternId") && payload["patternId"].is_string())
     {
-        capture.config.patternId = payload.value("patternId", std::string{});
+        config.patternId = payload.value("patternId", std::string{});
     }
 
     if (payload.contains("presetId") && payload["presetId"].is_string())
     {
-        capture.config.presetId = payload.value("presetId", capture.config.presetId);
+        config.presetId = payload.value("presetId", config.presetId);
     }
 
     const std::string riffId =
@@ -598,50 +684,50 @@ void PluginController::HandleSaveRiffTakeRequest(const nlohmann::json& payload)
     const std::string safeTitle = util::SanitizeFilename(baseTitle.empty() ? "New Riff" : baseTitle);
     const auto libraryPath = ResolveRiffLibraryPath();
     const auto takesDir = libraryPath / "takes" / riffId;
-    const auto fileName = safeTitle + "_" + capture.takeId + ".wav";
+    const auto fileName = safeTitle + "_" + capture->takeId + ".wav";
     const auto wavPath = takesDir / fileName;
 
-    if (!util::WriteStereo16BitWav(wavPath, capture.left, capture.right,
-                                   static_cast<int>(std::llround(capture.sampleRate))))
+    if (!util::WriteStereo16BitWav(wavPath, capture->left, capture->right,
+                                   static_cast<int>(std::llround(capture->sampleRate))))
     {
         ReportErrorToUI("Riff Library", "Failed to write WAV file");
         return;
     }
 
     nlohmann::json takeJson;
-    takeJson["id"] = capture.takeId;
+    takeJson["id"] = capture->takeId;
     takeJson["filePath"] = util::PathToUtf8(wavPath);
     takeJson["durationSec"] =
-        capture.sampleRate > 0.0 ? static_cast<double>(capture.left.size()) / capture.sampleRate : 0.0;
-    takeJson["bars"] = capture.config.bars;
-    takeJson["tempoBpm"] = capture.config.tempoBpm;
-    takeJson["timeSigNum"] = capture.config.timeSigNum;
-    takeJson["timeSigDen"] = capture.config.timeSigDen;
-    takeJson["metronomeClickEnabled"] = capture.config.metronomeClickEnabled;
-    takeJson["patternType"] = capture.config.patternType;
+        capture->sampleRate > 0.0 ? static_cast<double>(capture->left.size()) / capture->sampleRate : 0.0;
+    takeJson["bars"] = config.bars;
+    takeJson["tempoBpm"] = config.tempoBpm;
+    takeJson["timeSigNum"] = config.timeSigNum;
+    takeJson["timeSigDen"] = config.timeSigDen;
+    takeJson["metronomeClickEnabled"] = config.metronomeClickEnabled;
+    takeJson["patternType"] = config.patternType;
 
-    if (!capture.config.patternId.empty())
+    if (!config.patternId.empty())
     {
-        takeJson["patternId"] = capture.config.patternId;
+        takeJson["patternId"] = config.patternId;
     }
 
-    if (!capture.config.beatPattern.empty())
+    if (!config.beatPattern.empty())
     {
-        takeJson["beatPattern"] = capture.config.beatPattern;
+        takeJson["beatPattern"] = config.beatPattern;
     }
 
-    if (!capture.config.presetId.empty())
+    if (!config.presetId.empty())
     {
-        takeJson["presetId"] = capture.config.presetId;
+        takeJson["presetId"] = config.presetId;
     }
 
-    if (!capture.config.presetName.empty())
+    if (!config.presetName.empty())
     {
-        takeJson["presetName"] = capture.config.presetName;
+        takeJson["presetName"] = config.presetName;
     }
 
-    takeJson["sampleRate"] = capture.sampleRate;
-    takeJson["bitsPerSample"] = capture.bitsPerSample;
+    takeJson["sampleRate"] = capture->sampleRate;
+    takeJson["bitsPerSample"] = capture->bitsPerSample;
     takeJson["createdAt"] = BuildTimestampUtcIso();
 
     {
@@ -719,7 +805,7 @@ void PluginController::HandleSaveRiffTakeRequest(const nlohmann::json& payload)
             }
 
             (*riffEntry)["takes"].push_back(takeJson);
-            (*riffEntry)["preferredTakeId"] = capture.takeId;
+            (*riffEntry)["preferredTakeId"] = capture->takeId;
         }
 
         SaveRiffLibraryIndex(mRiffLibraryIndex);
@@ -729,13 +815,17 @@ void PluginController::HandleSaveRiffTakeRequest(const nlohmann::json& payload)
 
     {
         std::lock_guard<std::mutex> lock(mDSPMutex);
-        mRiffCapture = RiffCaptureRuntime{};
+
+        if (mRiffCapture == capture)
+        {
+            mRiffCapture.reset();
+        }
     }
 
     nlohmann::json msg;
     msg["type"] = "riffSaved";
     msg["riffId"] = riffId;
-    msg["takeId"] = capture.takeId;
+    msg["takeId"] = capture->takeId;
     msg["path"] = util::PathToUtf8(wavPath);
     msg["library"] = updatedLibrary;
     SendMessageToUI(msg.dump());
@@ -985,17 +1075,20 @@ void PluginController::HandlePreviewRiffTakeRequest(const nlohmann::json& payloa
 
 void PluginController::HandlePreviewCapturedRiffRequest(const nlohmann::json& payload)
 {
-    RiffCaptureRuntime capture;
+    std::shared_ptr<const RiffCaptureRuntime> capture;
     {
         std::lock_guard<std::mutex> lock(mDSPMutex);
 
-        if (!mRiffCapture.complete || mRiffCapture.left.empty() || mRiffCapture.right.empty())
+        if (mRiffCapture && mRiffCapture->complete && !mRiffCapture->left.empty() && !mRiffCapture->right.empty())
         {
-            ReportErrorToUI("Riff preview", "No captured take available yet");
-            return;
+            capture = mRiffCapture;
         }
+    }
 
-        capture = mRiffCapture;
+    if (!capture)
+    {
+        ReportErrorToUI("Riff preview", "No captured take available yet");
+        return;
     }
 
     // The whole take goes over once; the trim markers travel as a region for
@@ -1003,7 +1096,7 @@ void PluginController::HandlePreviewCapturedRiffRequest(const nlohmann::json& pa
     // a retrigger — every cycle cost an engine->UI->engine round trip plus a
     // fresh multi-megabyte encode, and the gap between cycles was audible.
     const auto wavBytes =
-        util::EncodeStereo16BitWav(capture.left, capture.right, static_cast<int>(std::llround(capture.sampleRate)));
+        util::EncodeStereo16BitWav(capture->left, capture->right, static_cast<int>(std::llround(capture->sampleRate)));
 
     if (wavBytes.empty())
     {
@@ -1011,13 +1104,13 @@ void PluginController::HandlePreviewCapturedRiffRequest(const nlohmann::json& pa
         return;
     }
 
-    const double sampleRate = capture.sampleRate > 0.0 ? capture.sampleRate : 1.0;
-    const double totalSec = static_cast<double>(capture.left.size()) / sampleRate;
+    const double sampleRate = capture->sampleRate > 0.0 ? capture->sampleRate : 1.0;
+    const double totalSec = static_cast<double>(capture->left.size()) / sampleRate;
     const double startRatio = std::clamp(payload.value("startRatio", 0.0), 0.0, 1.0);
     const double endRatio = std::clamp(payload.value("endRatio", 1.0), 0.0, 1.0);
 
     nlohmann::json preview;
-    preview["audio"] = {{"id", capture.takeId.empty() ? std::string("captured-take") : capture.takeId},
+    preview["audio"] = {{"id", capture->takeId.empty() ? std::string("captured-take") : capture->takeId},
                         {"title", std::string("Captured Riff")},
                         {"data", util::EncodeBase64(wavBytes)},
                         {"contentType", "audio/wav"}};
@@ -1029,7 +1122,7 @@ void PluginController::HandlePreviewCapturedRiffRequest(const nlohmann::json& pa
     {
         {
             std::lock_guard<std::mutex> lock(mDSPMutex);
-            ActivateRiffGuidance(capture.config, true);
+            ActivateRiffGuidance(capture->config, true);
         }
         mDemoPreview->StartPreview(preview);
     }
@@ -1045,15 +1138,15 @@ void PluginController::HandleSetRiffPreviewRegionRequest(const nlohmann::json& p
         return;
     }
 
-    double totalSec = 0.0;
+    std::shared_ptr<const RiffCaptureRuntime> capture;
     {
         std::lock_guard<std::mutex> lock(mDSPMutex);
-
-        if (mRiffCapture.sampleRate > 0.0)
-        {
-            totalSec = static_cast<double>(mRiffCapture.left.size()) / mRiffCapture.sampleRate;
-        }
+        capture = mRiffCapture;
     }
+
+    const double totalSec = capture && capture->sampleRate > 0.0
+                                ? static_cast<double>(capture->left.size()) / capture->sampleRate
+                                : 0.0;
 
     if (totalSec <= 0.0)
     {
@@ -1241,73 +1334,72 @@ std::optional<nlohmann::json> PluginController::FindRiffTakeById(const std::stri
     return std::nullopt;
 }
 
-void PluginController::FinalizeRiffCaptureLocked(bool canceled)
+void PluginController::FinalizeRiffCapture(bool canceled)
 {
-    if (!mRiffCapture.active && !mRiffCapture.armed && !mRiffCapture.complete)
+    std::shared_ptr<RiffCaptureRuntime> capture;
+    bool sendCanceled = false;
     {
-        return;
+        std::lock_guard<std::mutex> lock(mDSPMutex);
+
+        if (!mRiffCapture || (!mRiffCapture->active && !mRiffCapture->armed && !mRiffCapture->complete))
+        {
+            return;
+        }
+
+        capture = mRiffCapture;
+
+        // If still armed (never triggered), cancel instead of producing empty audio.
+        if (canceled || (capture->armed && !capture->active))
+        {
+            mRiffCapture.reset();
+            DeactivateRiffGuidance(false);
+            sendCanceled = true;
+        }
+        else
+        {
+            const std::size_t written = std::min(capture->writeIndex, capture->targetSamples);
+            const std::size_t captured =
+                written > capture->countInSamples ? (written - capture->countInSamples) : 0;
+
+            // Shrinking only adjusts vector sizes; scanning the audio and building
+            // the UI payload happens after the realtime lock is released.
+            capture->left.resize(std::min(captured, capture->left.size()));
+            capture->right.resize(std::min(captured, capture->right.size()));
+            capture->active = false;
+            capture->armed = false;
+            capture->complete = captured > 0;
+            capture->endedAt = std::chrono::steady_clock::now();
+            DeactivateRiffGuidance(false);
+        }
     }
 
-    if (canceled)
+    if (sendCanceled)
     {
-        const std::string takeId = mRiffCapture.takeId;
-        mRiffCapture = RiffCaptureRuntime{};
-        DeactivateRiffGuidance(false);
         nlohmann::json msg;
         msg["type"] = "riffCaptureCanceled";
-        msg["takeId"] = takeId;
+        msg["takeId"] = capture->takeId;
         SendMessageToUI(msg.dump());
         return;
     }
 
-    // If still armed (never triggered), cancel instead of producing empty audio
-    if (mRiffCapture.armed && !mRiffCapture.active)
-    {
-        const std::string takeId = mRiffCapture.takeId;
-        mRiffCapture = RiffCaptureRuntime{};
-        DeactivateRiffGuidance(false);
-        nlohmann::json msg;
-        msg["type"] = "riffCaptureCanceled";
-        msg["takeId"] = takeId;
-        SendMessageToUI(msg.dump());
-        return;
-    }
-
-    const std::size_t written = std::min(mRiffCapture.writeIndex, mRiffCapture.targetSamples);
-    const std::size_t captured = written > mRiffCapture.countInSamples ? (written - mRiffCapture.countInSamples) : 0;
-
-    if (captured < mRiffCapture.left.size())
-    {
-        mRiffCapture.left.resize(captured);
-    }
-
-    if (captured < mRiffCapture.right.size())
-    {
-        mRiffCapture.right.resize(captured);
-    }
-
-    mRiffCapture.active = false;
-    mRiffCapture.armed = false;
-    mRiffCapture.complete = captured > 0;
-    mRiffCapture.endedAt = std::chrono::steady_clock::now();
-    DeactivateRiffGuidance(false);
+    const std::size_t captured = capture->left.size();
 
     // Compute bars from actual captured length
-    const double samplesPerBeat = mRiffCapture.sampleRate * (60.0 / std::max(1.0, mRiffCapture.config.tempoBpm)) *
-                                  (4.0 / static_cast<double>(std::max(1, mRiffCapture.config.timeSigDen)));
-    const double samplesPerBar = samplesPerBeat * static_cast<double>(std::max(1, mRiffCapture.config.timeSigNum));
+    const double samplesPerBeat = capture->sampleRate * (60.0 / std::max(1.0, capture->config.tempoBpm)) *
+                                  (4.0 / static_cast<double>(std::max(1, capture->config.timeSigDen)));
+    const double samplesPerBar = samplesPerBeat * static_cast<double>(std::max(1, capture->config.timeSigNum));
     const int computedBars =
         std::max(1, static_cast<int>(std::round(static_cast<double>(captured) / std::max(1.0, samplesPerBar))));
 
     nlohmann::json msg;
     msg["type"] = "riffCaptureStopped";
-    msg["takeId"] = mRiffCapture.takeId;
+    msg["takeId"] = capture->takeId;
     msg["bars"] = computedBars;
     msg["capturedSamples"] = captured;
-    msg["sampleRate"] = mRiffCapture.sampleRate;
+    msg["sampleRate"] = capture->sampleRate;
     msg["hasAudio"] = captured > 0;
-    msg["metronomeClickEnabled"] = mRiffCapture.config.metronomeClickEnabled;
-    msg["waveformPeaks"] = BuildWaveformPeaks(mRiffCapture.left, mRiffCapture.right, 256);
+    msg["metronomeClickEnabled"] = capture->config.metronomeClickEnabled;
+    msg["waveformPeaks"] = BuildWaveformPeaks(capture->left, capture->right, 256);
     SendMessageToUI(msg.dump());
 }
 
@@ -1323,19 +1415,56 @@ void PluginController::SendRiffLibraryStateToUI()
         msg["library"] = mRiffLibraryIndex;
     }
 
+    std::shared_ptr<const RiffCaptureRuntime> captureSnapshot;
+    RiffCaptureConfig captureConfig;
+    nlohmann::json waveformPeaks = nlohmann::json::array();
+    std::string takeId;
+    std::size_t capturedSamples = 0;
+    double sampleRate = 0.0;
+    bool active = false;
+    bool complete = false;
+    bool hasAudio = false;
+    bool mutableCapture = false;
+    {
+        std::lock_guard<std::mutex> lock(mDSPMutex);
+        captureSnapshot = mRiffCapture;
+
+        if (captureSnapshot)
+        {
+            active = captureSnapshot->active;
+            complete = captureSnapshot->complete;
+            mutableCapture = captureSnapshot->active || captureSnapshot->armed;
+            takeId = captureSnapshot->takeId;
+            captureConfig = captureSnapshot->config;
+            capturedSamples = captureSnapshot->left.size();
+            sampleRate = captureSnapshot->sampleRate;
+            hasAudio = !captureSnapshot->left.empty() && !captureSnapshot->right.empty();
+
+            if (mutableCapture)
+            {
+                waveformPeaks = captureSnapshot->livePeaks;
+            }
+        }
+    }
+
+    if (captureSnapshot && !mutableCapture)
+    {
+        waveformPeaks = BuildWaveformPeaks(captureSnapshot->left, captureSnapshot->right, 256);
+    }
+
     nlohmann::json capture;
-    capture["active"] = mRiffCapture.active;
-    capture["complete"] = mRiffCapture.complete;
-    capture["takeId"] = mRiffCapture.takeId;
-    capture["bars"] = mRiffCapture.config.bars;
-    capture["tempoBpm"] = mRiffCapture.config.tempoBpm;
-    capture["timeSigNum"] = mRiffCapture.config.timeSigNum;
-    capture["timeSigDen"] = mRiffCapture.config.timeSigDen;
-    capture["capturedSamples"] = mRiffCapture.left.size();
-    capture["sampleRate"] = mRiffCapture.sampleRate;
-    capture["hasAudio"] = !mRiffCapture.left.empty() && !mRiffCapture.right.empty();
-    capture["waveformPeaks"] = BuildWaveformPeaks(mRiffCapture.left, mRiffCapture.right, 256);
-    msg["capture"] = capture;
+    capture["active"] = active;
+    capture["complete"] = complete;
+    capture["takeId"] = takeId;
+    capture["bars"] = captureConfig.bars;
+    capture["tempoBpm"] = captureConfig.tempoBpm;
+    capture["timeSigNum"] = captureConfig.timeSigNum;
+    capture["timeSigDen"] = captureConfig.timeSigDen;
+    capture["capturedSamples"] = capturedSamples;
+    capture["sampleRate"] = sampleRate;
+    capture["hasAudio"] = hasAudio;
+    capture["waveformPeaks"] = waveformPeaks;
+    msg["capture"] = std::move(capture);
 
     SendMessageToUI(msg.dump());
 }
@@ -1344,29 +1473,35 @@ void PluginController::SendRiffLibraryStateToUI()
  * Audio thread, under the DSP lock, before the chain runs — so a take is the dry
  * input, not the processed output.
  *
- * Realtime-safe: the destination buffers were sized when the capture was armed and
- * nothing here allocates, locks or blocks. The UI messages it sends go through the
- * host's own queue.
+ * The destination buffers and waveform buckets are sized before capture starts.
+ * UI messages go through the host's own queue.
  *
  * Only called when a capture is armed or running (see ProcessAudioLocked), so the
  * steady-state cost of riff capture existing is one branch per block.
  */
 void PluginController::ProcessRiffCaptureBlock(float** inputs, int numSamples)
 {
+    if (!mRiffCapture)
+    {
+        return;
+    }
+
+    auto& capture = *mRiffCapture;
+
     // ARM mode: click is playing, waiting for input signal to trigger recording
-    if (mRiffCapture.armed && !mRiffCapture.active && !mRiffCapture.complete)
+    if (capture.armed && !capture.active && !capture.complete)
     {
         const bool hasInput = (inputs && inputs[0]);
         const float* inputR = (inputs && inputs[1]) ? inputs[1] : (inputs ? inputs[0] : nullptr);
 
-        if (!mRiffCapture.armCountInComplete)
+        if (!capture.armCountInComplete)
         {
             // Track count-in progress
-            mRiffCapture.armCountInIndex += static_cast<std::size_t>(numSamples);
+            capture.armCountInIndex += static_cast<std::size_t>(numSamples);
 
-            if (mRiffCapture.armCountInIndex >= mRiffCapture.countInSamples)
+            if (capture.armCountInIndex >= capture.countInSamples)
             {
-                mRiffCapture.armCountInComplete = true;
+                capture.armCountInComplete = true;
             }
         }
         else if (hasInput)
@@ -1376,30 +1511,30 @@ void PluginController::ProcessRiffCaptureBlock(float** inputs, int numSamples)
             {
                 const float level = std::max(std::abs(inputs[0][i]), std::abs(inputR[i]));
 
-                if (level >= mRiffCapture.armThreshold)
+                if (level >= capture.armThreshold)
                 {
                     // Compute bar phase at trigger for snapping the trim start to the bar boundary
-                    const double beatScaleTrig = 4.0 / static_cast<double>(std::max(1, mRiffCapture.config.timeSigDen));
+                    const double beatScaleTrig = 4.0 / static_cast<double>(std::max(1, capture.config.timeSigDen));
                     const double samplesPerBeatTrig =
-                        mRiffCapture.sampleRate * (60.0 / std::max(1.0, mRiffCapture.config.tempoBpm)) * beatScaleTrig;
+                        capture.sampleRate * (60.0 / std::max(1.0, capture.config.tempoBpm)) * beatScaleTrig;
                     const double samplesPerBarTrig =
-                        samplesPerBeatTrig * static_cast<double>(std::max(1, mRiffCapture.config.timeSigNum));
+                        samplesPerBeatTrig * static_cast<double>(std::max(1, capture.config.timeSigNum));
                     const std::size_t barSamples = static_cast<std::size_t>(std::max(1.0, samplesPerBarTrig));
-                    const std::size_t triggerOffset = mRiffCapture.armPostCountInSamples + static_cast<std::size_t>(i);
+                    const std::size_t triggerOffset = capture.armPostCountInSamples + static_cast<std::size_t>(i);
                     const std::size_t barAlignOffset = triggerOffset % barSamples;
 
                     // Trigger: start recording — audio from trigger point is captured
-                    mRiffCapture.armed = false;
-                    mRiffCapture.active = true;
-                    mRiffCapture.writeIndex = mRiffCapture.countInSamples; // already past count-in
-                    mRiffCapture.startedAt = std::chrono::steady_clock::now();
+                    capture.armed = false;
+                    capture.active = true;
+                    capture.writeIndex = capture.countInSamples; // already past count-in
+                    capture.startedAt = std::chrono::steady_clock::now();
                     nlohmann::json startMsg;
                     startMsg["type"] = "riffCaptureStarted";
-                    startMsg["takeId"] = mRiffCapture.takeId;
-                    startMsg["bars"] = mRiffCapture.config.bars;
-                    startMsg["tempoBpm"] = mRiffCapture.config.tempoBpm;
-                    startMsg["timeSigNum"] = mRiffCapture.config.timeSigNum;
-                    startMsg["timeSigDen"] = mRiffCapture.config.timeSigDen;
+                    startMsg["takeId"] = capture.takeId;
+                    startMsg["bars"] = capture.config.bars;
+                    startMsg["tempoBpm"] = capture.config.tempoBpm;
+                    startMsg["timeSigNum"] = capture.config.timeSigNum;
+                    startMsg["timeSigDen"] = capture.config.timeSigDen;
                     startMsg["countInBars"] = 0;
                     startMsg["barAlignOffsetSamples"] = barAlignOffset;
                     SendMessageToUI(startMsg.dump());
@@ -1408,85 +1543,85 @@ void PluginController::ProcessRiffCaptureBlock(float** inputs, int numSamples)
             }
 
             // Only track detection-phase samples when still waiting (no trigger this block)
-            if (mRiffCapture.armed)
+            if (capture.armed)
             {
-                mRiffCapture.armPostCountInSamples += static_cast<std::size_t>(numSamples);
+                capture.armPostCountInSamples += static_cast<std::size_t>(numSamples);
             }
         }
     }
 
-    if (mRiffCapture.active && !mRiffCapture.complete)
+    if (capture.active && !capture.complete)
     {
         const bool hasInputCh0 = (inputs && inputs[0]);
         const float* capInputR = (inputs && inputs[1]) ? inputs[1] : (hasInputCh0 ? inputs[0] : nullptr);
 
-        if (hasInputCh0 && mRiffCapture.writeIndex < mRiffCapture.targetSamples)
+        if (hasInputCh0 && capture.writeIndex < capture.targetSamples)
         {
-            const std::size_t countInSamples = mRiffCapture.countInSamples;
-            const std::size_t bucketSize = std::max<std::size_t>(1, mRiffCapture.livePeakBucketSize);
+            const std::size_t countInSamples = capture.countInSamples;
+            const std::size_t bucketSize = std::max<std::size_t>(1, capture.livePeakBucketSize);
 
-            for (int i = 0; i < numSamples && mRiffCapture.writeIndex < mRiffCapture.targetSamples; ++i)
+            for (int i = 0; i < numSamples && capture.writeIndex < capture.targetSamples; ++i)
             {
-                if (mRiffCapture.writeIndex >= countInSamples)
+                if (capture.writeIndex >= countInSamples)
                 {
-                    const std::size_t captureIndex = mRiffCapture.writeIndex - countInSamples;
+                    const std::size_t captureIndex = capture.writeIndex - countInSamples;
 
-                    if (captureIndex < mRiffCapture.left.size() && captureIndex < mRiffCapture.right.size())
+                    if (captureIndex < capture.left.size() && captureIndex < capture.right.size())
                     {
-                        mRiffCapture.left[captureIndex] = inputs[0][i];
-                        mRiffCapture.right[captureIndex] = capInputR[i];
+                        capture.left[captureIndex] = inputs[0][i];
+                        capture.right[captureIndex] = capInputR[i];
                         // Update live waveform peak bucket
                         const float peakVal = std::max(std::abs(inputs[0][i]), std::abs(capInputR[i]));
                         const std::size_t bucket = captureIndex / bucketSize;
 
-                        if (bucket < mRiffCapture.livePeaks.size())
+                        if (bucket < capture.livePeaks.size())
                         {
-                            mRiffCapture.livePeaks[bucket] = std::max(mRiffCapture.livePeaks[bucket], peakVal);
+                            capture.livePeaks[bucket] = std::max(capture.livePeaks[bucket], peakVal);
                         }
                     }
                 }
 
-                ++mRiffCapture.writeIndex;
+                ++capture.writeIndex;
             }
 
             // Send live progress every ~250 ms
             const std::size_t capturedSoFar =
-                mRiffCapture.writeIndex > countInSamples ? mRiffCapture.writeIndex - countInSamples : 0;
+                capture.writeIndex > countInSamples ? capture.writeIndex - countInSamples : 0;
             const std::size_t progressInterval =
-                std::max<std::size_t>(1, static_cast<std::size_t>(mRiffCapture.sampleRate * 0.25));
+                std::max<std::size_t>(1, static_cast<std::size_t>(capture.sampleRate * 0.25));
 
-            if (capturedSoFar > 0 && capturedSoFar >= mRiffCapture.lastProgressSample + progressInterval)
+            if (capturedSoFar > 0 && capturedSoFar >= capture.lastProgressSample + progressInterval)
             {
-                mRiffCapture.lastProgressSample = capturedSoFar;
+                capture.lastProgressSample = capturedSoFar;
                 nlohmann::json progressMsg;
                 progressMsg["type"] = "riffCaptureProgress";
                 progressMsg["capturedSamples"] = capturedSoFar;
-                progressMsg["waveformPeaks"] = mRiffCapture.livePeaks;
+                progressMsg["waveformPeaks"] = capture.livePeaks;
                 SendMessageToUI(progressMsg.dump());
             }
 
-            if (mRiffCapture.writeIndex >= mRiffCapture.targetSamples)
+            if (capture.writeIndex >= capture.targetSamples)
             {
-                const std::size_t capturedFinal = mRiffCapture.left.size();
-                mRiffCapture.complete = true;
-                mRiffCapture.active = false;
-                mRiffCapture.endedAt = std::chrono::steady_clock::now();
+                const std::size_t capturedFinal = capture.left.size();
+                capture.complete = true;
+                capture.active = false;
+                capture.endedAt = std::chrono::steady_clock::now();
                 DeactivateRiffGuidance(false);
-                const double samplesPerBeat = mRiffCapture.sampleRate *
-                                              (60.0 / std::max(1.0, mRiffCapture.config.tempoBpm)) *
-                                              (4.0 / static_cast<double>(std::max(1, mRiffCapture.config.timeSigDen)));
+                const double samplesPerBeat = capture.sampleRate *
+                                              (60.0 / std::max(1.0, capture.config.tempoBpm)) *
+                                              (4.0 / static_cast<double>(std::max(1, capture.config.timeSigDen)));
                 const double samplesPerBar =
-                    samplesPerBeat * static_cast<double>(std::max(1, mRiffCapture.config.timeSigNum));
+                    samplesPerBeat * static_cast<double>(std::max(1, capture.config.timeSigNum));
                 const int computedBars = std::max(
                     1, static_cast<int>(std::round(static_cast<double>(capturedFinal) / std::max(1.0, samplesPerBar))));
                 nlohmann::json msg;
                 msg["type"] = "riffCaptureStopped";
-                msg["takeId"] = mRiffCapture.takeId;
+                msg["takeId"] = capture.takeId;
                 msg["bars"] = computedBars;
                 msg["capturedSamples"] = capturedFinal;
-                msg["sampleRate"] = mRiffCapture.sampleRate;
+                msg["sampleRate"] = capture.sampleRate;
                 msg["hasAudio"] = capturedFinal > 0;
-                msg["waveformPeaks"] = BuildWaveformPeaks(mRiffCapture.left, mRiffCapture.right, 256);
+                msg["waveformPeaks"] = capture.livePeaks;
                 SendMessageToUI(msg.dump());
             }
         }

@@ -42,6 +42,8 @@
 #include "dsp/effects/BuiltinEffects.h"
 #include "presets/PresetStorage.h"
 #include "presets/PresetTypes.h"
+#include "util/Base64.h"
+#include "util/Wav.h"
 
 namespace fs = std::filesystem;
 using namespace guitarfx;
@@ -98,6 +100,7 @@ bool WaitForAdvance(const std::atomic<int>& counter, int from, int by, std::chro
 // ── Probe state ──────────────────────────────────────────────────────────────
 
 std::atomic<int> gAudioBlocks{0};      // blocks the audio thread has processed
+std::atomic<int> gAudioLockMisses{0};  // callbacks that lost the controller's try-lock
 std::atomic<bool> gAudioPaused{false}; // the audio thread stops calling ProcessAudio
 std::atomic<bool> gAudioParked{false}; // ... and has acknowledged it, between blocks
 std::thread::id gMessageThread;        // written before any probe is armed
@@ -524,6 +527,10 @@ class AudioThread
             {
                 gAudioBlocks.fetch_add(1, std::memory_order_acq_rel);
             }
+            else
+            {
+                gAudioLockMisses.fetch_add(1, std::memory_order_acq_rel);
+            }
 
             const auto resume = std::chrono::steady_clock::now() + 200us;
 
@@ -719,6 +726,43 @@ bool TestWalksUnderChurn(PluginController& controller, AudioThread& audio)
     return passed;
 }
 
+/// Trimming a captured take copies and scans a large audio buffer. That work must
+/// not sit under the controller's try-lock, where every concurrent callback would
+/// turn into a silent block.
+bool TestRiffTrimKeepsAudioRunning(PluginController& controller)
+{
+    constexpr std::size_t kFrames = 2'000'000;
+    {
+        const std::vector<float> left(kFrames, 0.1f);
+        const std::vector<float> right(kFrames, -0.1f);
+        const auto wavBytes = guitarfx::util::EncodeStereo16BitWav(left, right, static_cast<int>(kSampleRate));
+
+        Send(controller,
+             {{"type", "importRiffWav"},
+              {"data", guitarfx::util::EncodeBase64(wavBytes)},
+              {"tempoBpm", 120.0},
+              {"timeSigNum", 4},
+              {"timeSigDen", 4}});
+    }
+
+    const int blocksBefore = gAudioBlocks.load(std::memory_order_acquire);
+    const int missesBefore = gAudioLockMisses.load(std::memory_order_acquire);
+    Send(controller, {{"type", "trimCapturedRiff"}, {"startRatio", 0.05}, {"endRatio", 0.95}});
+    const int blocksDuringTrim = gAudioBlocks.load(std::memory_order_acquire) - blocksBefore;
+    const int missesDuringTrim = gAudioLockMisses.load(std::memory_order_acquire) - missesBefore;
+
+    bool passed = Check(blocksDuringTrim > 0,
+                        "riff trim: audio processed while the large buffers were copied and scanned (" +
+                            std::to_string(blocksDuringTrim) + " blocks)");
+    passed = Check(missesDuringTrim <= 2,
+                   "riff trim: only brief snapshot swaps contended with audio (" +
+                       std::to_string(missesDuringTrim) + " missed blocks)") &&
+             passed;
+
+    Send(controller, {{"type", "stopRiffCapture"}, {"canceled", true}});
+    return passed;
+}
+
 bool Run()
 {
     const fs::path sandbox = fs::temp_directory_path() / "guitarfx-mixer-instance-lock-tests";
@@ -750,6 +794,7 @@ bool Run()
             passed = TestSlotsBuiltOffLockAttachedUnderIt(controller) && passed;
             passed = TestWalksUnderChurn(controller, audio) && passed;
             passed = TestLoadFailureReport(controller, host, sandbox) && passed;
+            passed = TestRiffTrimKeepsAudioRunning(controller) && passed;
         }
     }
 

@@ -318,7 +318,7 @@ void PluginController::ProcessAudioLocked(float** inputs, float** outputs, int n
     // Riff capture runs ahead of the chain: it records the dry input. The guard is
     // here rather than inside so a session that is not capturing — every ordinary
     // block — costs one predicted branch and no call.
-    if (mRiffCapture.armed || mRiffCapture.active)
+    if (mRiffCapture && (mRiffCapture->armed || mRiffCapture->active))
     {
         ProcessRiffCaptureBlock(inputs, numSamples);
     }
