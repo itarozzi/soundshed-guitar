@@ -1465,8 +1465,6 @@ export async function importGeneratedPack(file: File, context: ArchiveImportCont
         inputTrim: genPreset.global?.inputTrim ?? 0,
         outputTrim: genPreset.global?.outputTrim ?? 0,
         masterVolume: 1,
-        autoLevelInput: false,
-        autoLevelOutput: false,
       },
       graph: {
         nodes: genPreset.graph.nodes.map((node) => ({

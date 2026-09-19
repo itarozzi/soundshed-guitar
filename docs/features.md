@@ -226,7 +226,7 @@ A blend is a set of NAM models captured at different settings of one amp or peda
 | `graph` | SignalGraph | Effect signal graph |
 | `embeddedResources` | EmbeddedResource[] | Portable base64-encoded resources |
 
-**GlobalSettings**: `inputTrim`, `outputTrim`, `outputVolume`, `autoLevelInput`, `autoLevelOutput`, `transpose` (semitones, -24..+12). The `autoLevel*` fields remain in the schema for compatibility, but current preset normalization forces the retired mixer-wide path off during normal loads.
+**GlobalSettings**: `inputTrim`, `outputTrim`, `outputVolume`, `transpose` (semitones, -24..+12). Older presets may still carry `autoLevelInput`/`autoLevelOutput` from the retired mixer-wide auto-level; they are ignored on load.
 
 ### 8.2 CRUD Operations
 

@@ -151,12 +151,6 @@ bool MessageDispatcher::DispatchMixerAndMonitoring(PluginController& c, const nl
         return true;
     }
 
-    if (type == "setAutoLevel")
-    {
-        c.HandleSetAutoLevelRequest(msg);
-        return true;
-    }
-
     if (type == "setMetronome")
     {
         c.HandleSetMetronomeRequest(msg);

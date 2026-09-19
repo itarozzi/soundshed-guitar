@@ -323,21 +323,4 @@ void PluginController::HandleSetAmpCabStateRequest(const nlohmann::json& payload
     message["cabEnabled"] = cabEnabled;
     SendMessageToUI(message.dump());
 }
-
-void PluginController::HandleSetAutoLevelRequest(const nlohmann::json& payload)
-{
-    (void)payload;
-
-    // Mixer-wide peak auto-leveling is retired in favor of model metadata plus
-    // explicit input/output controls. Keep the message for compatibility but
-    // force the legacy path off.
-    mPresetMixer.SetAutoLevelInput(false);
-    mPresetMixer.SetAutoLevelOutput(false);
-
-    nlohmann::json message;
-    message["type"] = "autoLevelChanged";
-    message["autoInput"] = false;
-    message["autoOutput"] = false;
-    SendMessageToUI(message.dump());
-}
 } // namespace guitarfx

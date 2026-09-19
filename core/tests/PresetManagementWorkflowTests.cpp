@@ -1565,8 +1565,6 @@ bool TestLoadPresetPreservesInstanceGlobalFxState()
     auto preset = BuildPassthroughPreset("p-level-load", "Level Load");
     preset.global.inputTrim = -9.5;
     preset.global.outputTrim = -4.0;
-    preset.global.autoLevelInput = true;
-    preset.global.autoLevelOutput = true;
 
     nlohmann::json message;
     message["type"] = "loadPreset";
@@ -1590,12 +1588,6 @@ bool TestLoadPresetPreservesInstanceGlobalFxState()
         return false;
     }
 
-    if (chain.autoLevelInput || chain.autoLevelOutput)
-    {
-        std::cerr << "Legacy mixer auto-level should be retired on preset load\n";
-        return false;
-    }
-
     const auto* gate = chain.preChainGraph.FindNode("global_gate");
 
     if (!gate || !gate->enabled || std::abs(gate->params.at("threshold") - (-52.0)) > 1e-9)
@@ -1610,12 +1602,6 @@ bool TestLoadPresetPreservesInstanceGlobalFxState()
     if (std::abs(rechecked.inputGain - (-3.25)) > 1e-9 || std::abs(rechecked.outputGain - (-1.5)) > 1e-9)
     {
         std::cerr << "Global chain config did not retain the preserved input/output levels\n";
-        return false;
-    }
-
-    if (active->global.autoLevelInput || active->global.autoLevelOutput)
-    {
-        std::cerr << "Active preset still carries retired mixer auto-level flags\n";
         return false;
     }
 
@@ -2198,8 +2184,6 @@ bool TestSavePresetDoesNotPersistGlobalFxSettings()
         nlohmann::json{{"type", "setGlobalChainParam"}, {"path", "input.gain"}, {"value", -7.0}}.dump());
     controller.HandleUIMessage(
         nlohmann::json{{"type", "setGlobalChainParam"}, {"path", "output.gain"}, {"value", -2.5}}.dump());
-    controller.HandleUIMessage(
-        nlohmann::json{{"type", "setAutoLevel"}, {"autoInput", true}, {"autoOutput", true}}.dump());
 
     const std::string saveId = "unit-test-level-save";
     controller.HandleUIMessage(nlohmann::json{
@@ -2220,7 +2204,7 @@ bool TestSavePresetDoesNotPersistGlobalFxSettings()
     }
 
     if (std::abs(fromFile->global.inputTrim) > 1e-9 || std::abs(fromFile->global.outputTrim) > 1e-9 ||
-        fromFile->global.autoLevelInput || fromFile->global.autoLevelOutput || fromFile->globalSignalChain.has_value())
+        fromFile->globalSignalChain.has_value())
     {
         std::cerr << "Saved preset should not persist global FX state\n";
         return false;

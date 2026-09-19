@@ -1,10 +1,9 @@
 import { appendLog } from "./logging.js";
-import { postMessage, sendGlobalChainParam, setMasterGain, setParameter } from "./bridge.js";
+import { sendGlobalChainParam, setMasterGain, setParameter } from "./bridge.js";
 import { updateAppSetting } from "./appSettingsStore.js";
 import { uiState } from "./state.js";
 import { setMixerMasterGain } from "./mixerStore.js";
-import { cachePreset } from "./presetLibraryStore.js";
-import type { GlobalSettings, GraphNode, SignalGraph } from "./types.js";
+import type { GraphNode, SignalGraph } from "./types.js";
 import { EffectGuids } from "./effectGuids.js";
 import { GenericKnob } from "./knob.js";
 import { EqPanel } from "./eqPanel.js";
@@ -422,7 +421,6 @@ export function initializeControls(): void {
 
   initializeDoublerControls();
   initializeInputOutputKnobs();
-  initializeAutoLevelControls();
   initializeGateControls();
   initializeEQControls();
   if (outputMuteToggle && outputMuteToggle.dataset.bound !== "true") {
@@ -517,7 +515,6 @@ export function syncControlsFromState(): void {
 
   syncDoublerControlsFromState();
   syncGateControlsFromState();
-  syncAutoLevelControlsFromState();
   syncEQControlsFromState();
   syncOutputMuteFromState();
 }
@@ -695,14 +692,6 @@ export function handleInputModeChanged(monoMode: boolean, inputChannel: number):
 // Amp and Cab power state
 let ampEnabled = true;
 let cabEnabled = true;
-
-let autoLevelInputEnabled = false;
-let autoLevelOutputEnabled = false;
-
-function updateAutoLevelKnobStates(): void {
-  setKnobControlDisabled("input-control", false);
-  setKnobControlDisabled("output-control", false);
-}
 
 function sendAmpCabStateToPlugin(): void {
   const message = JSON.stringify({
@@ -891,96 +880,3 @@ export function syncEQControlsFromState(): void {
 }
 
 export { initializeEQControls };
-
-
-function updateActivePresetGlobals(next: Partial<GlobalSettings>): void {
-  const activeId = uiState.activePresetId ?? "";
-  const preset = uiState.presetCache.get(activeId) as any;
-  if (!preset) return;
-
-  const current = (preset.globals ?? preset.global ?? {}) as Record<string, unknown>;
-  const merged = {
-    inputTrim: current.inputTrim ?? 0,
-    outputTrim: current.outputTrim ?? (current.outputVolume ?? 0),
-    masterVolume: current.masterVolume ?? current.outputVolume ?? 1,
-    autoLevelInput: current.autoLevelInput ?? false,
-    autoLevelOutput: current.autoLevelOutput ?? false,
-    transpose: current.transpose ?? 0,
-    ...next,
-  };
-
-  preset.globals = merged;
-  preset.global = merged;
-  cachePreset(preset, activeId);
-}
-
-function sendAutoLevelToPlugin(): void {
-  postMessage({
-    type: "setAutoLevel",
-    autoInput: autoLevelInputEnabled,
-    autoOutput: autoLevelOutputEnabled,
-  });
-  appendLog(`setAutoLevel → in:${autoLevelInputEnabled} out:${autoLevelOutputEnabled}`);
-}
-
-function initializeAutoLevelControls(): void {
-  const autoIn = document.getElementById("auto-level-input-toggle") as HTMLInputElement | null;
-  const autoOut = document.getElementById("auto-level-output-toggle") as HTMLInputElement | null;
-
-  // Mixer-wide peak auto-leveling is retired. Keep the legacy wiring inert so
-  // old state does not disable the manual input/output controls.
-  autoLevelInputEnabled = false;
-  autoLevelOutputEnabled = false;
-  if (autoIn) autoIn.checked = false;
-  if (autoOut) autoOut.checked = false;
-  updateAutoLevelKnobStates();
-
-  if (!autoIn && !autoOut) {
-    return;
-  }
-
-  const syncFromGlobals = (): void => {
-    autoLevelInputEnabled = false;
-    autoLevelOutputEnabled = false;
-    if (autoIn) autoIn.checked = false;
-    if (autoOut) autoOut.checked = false;
-    updateAutoLevelKnobStates();
-  };
-
-  syncFromGlobals();
-
-  if (autoIn) {
-    autoIn.addEventListener("change", () => {
-      autoLevelInputEnabled = autoIn.checked;
-      updateActivePresetGlobals({ autoLevelInput: autoLevelInputEnabled });
-      if (uiState.globalSignalChain) {
-        uiState.globalSignalChain.autoLevelInput = autoLevelInputEnabled;
-      }
-      sendAutoLevelToPlugin();
-      updateAutoLevelKnobStates();
-    });
-  }
-
-  if (autoOut) {
-    autoOut.addEventListener("change", () => {
-      autoLevelOutputEnabled = autoOut.checked;
-      updateActivePresetGlobals({ autoLevelOutput: autoLevelOutputEnabled });
-      if (uiState.globalSignalChain) {
-        uiState.globalSignalChain.autoLevelOutput = autoLevelOutputEnabled;
-      }
-      sendAutoLevelToPlugin();
-      updateAutoLevelKnobStates();
-    });
-  }
-}
-
-export function syncAutoLevelControlsFromState(): void {
-  autoLevelInputEnabled = false;
-  autoLevelOutputEnabled = false;
-
-  const autoIn = document.getElementById("auto-level-input-toggle") as HTMLInputElement | null;
-  const autoOut = document.getElementById("auto-level-output-toggle") as HTMLInputElement | null;
-  if (autoIn) autoIn.checked = false;
-  if (autoOut) autoOut.checked = false;
-  updateAutoLevelKnobStates();
-}

@@ -11,7 +11,7 @@ import { applyDensityAppSettings } from "../compactMode.js";
 import { renderCompositeList } from "../compositeEditor.js";
 import { handleCompositeLibrary } from "../compositeEffects.js";
 import type { CompositeEffectDefinition } from "../compositeTypes.js";
-import { applyStoredInputChannel, handleAmpCabStateChanged, handleInputModeChanged, syncAutoLevelControlsFromState, syncControlsFromState } from "../controls.js";
+import { applyStoredInputChannel, handleAmpCabStateChanged, handleInputModeChanged, syncControlsFromState } from "../controls.js";
 import { handleCustomEffectLibrary } from "../customEffects.js";
 import { applyStoredDemoAudioSelection, refreshDemoAudioSelectors } from "../demoAudio.js";
 import { refreshFxSelector } from "../fxSelector.js";
@@ -280,27 +280,6 @@ export function onAmpCabStateChanged(payload: IncomingPayload): void {
     statePayload.cabEnabled ?? true
   );
   appendLog(`Amp: ${statePayload.ampEnabled ? "ON" : "OFF"}, Cab: ${statePayload.cabEnabled ? "ON" : "OFF"}`);
-}
-
-export function onAutoLevelChanged(payload: IncomingPayload): void {
-  const autoPayload = payload as { autoInput?: boolean; autoOutput?: boolean };
-  const activeId = uiState.activePresetId ?? "";
-  const preset = uiState.presetCache.get(activeId) as any;
-  if (preset) {
-    const globals = preset.globals ?? preset.global ?? {};
-    const merged = {
-      inputTrim: globals.inputTrim ?? 0,
-      outputTrim: globals.outputTrim ?? 0,
-      masterVolume: globals.masterVolume ?? globals.outputVolume ?? 1,
-      autoLevelInput: autoPayload.autoInput ?? globals.autoLevelInput ?? false,
-      autoLevelOutput: autoPayload.autoOutput ?? globals.autoLevelOutput ?? false,
-      transpose: globals.transpose ?? 0,
-    };
-    preset.globals = merged;
-    preset.global = merged;
-    cachePreset(preset, activeId);
-  }
-  syncAutoLevelControlsFromState();
 }
 
 export function onUiSettingsChanged(payload: IncomingPayload): void {

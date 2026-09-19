@@ -137,8 +137,6 @@ export interface GlobalSettings {
   inputTrim: number;
   outputTrim: number;
   masterVolume: number;
-  autoLevelInput: boolean;
-  autoLevelOutput: boolean;
 }
 
 export interface UiSettings {
@@ -396,9 +394,7 @@ export interface GlobalSignalChainConfig {
   inputGain: number;      // dB
   monoMode: boolean;
   inputChannel: number;   // 0=left, 1=right
-  autoLevelInput: boolean;
   outputGain: number;     // dB (master volume)
-  autoLevelOutput: boolean;
   limiterEnabled: boolean;
   preChainGraph: SignalGraph;
   postChainGraph: SignalGraph;

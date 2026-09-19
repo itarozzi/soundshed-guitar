@@ -87,11 +87,7 @@ Some old level systems still exist in the data model or message flow for compati
 
 ### Mixer-Wide Auto Input And Auto Output
 
-The mixer still contains simple peak-based auto input and auto output stages, and the UI can still send the old `setAutoLevel` message.
-
-But the controller now forces both of those paths off.
-
-In simple terms: the legacy mixer-wide auto-level system still exists in code, but the product currently treats it as retired.
+Removed on 19 September 2026. The mixer's peak-based auto input and auto output stages, the `setAutoLevel` message and the preset and global-chain flags are gone. Older presets, saved chains and app settings may still carry `autoLevelInput`/`autoLevelOutput`: they are ignored on load, and stripped from app settings and from NAM node params by the existing migrations. The Output Protection Ceiling now only sets where the output limiter clips.
 
 ### Designed Peak Input
 

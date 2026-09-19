@@ -292,9 +292,7 @@ inline void to_json(nlohmann::json& j, const GlobalSignalChainConfig& c)
     j = nlohmann::json{{"inputGain", c.inputGain},
                        {"monoMode", c.monoMode},
                        {"inputChannel", c.inputChannel},
-                       {"autoLevelInput", c.autoLevelInput},
                        {"outputGain", c.outputGain},
-                       {"autoLevelOutput", c.autoLevelOutput},
                        {"limiterEnabled", c.limiterEnabled},
                        {"preChainGraph", SerializeSignalGraph(c.preChainGraph)},
                        {"postChainGraph", SerializeSignalGraph(c.postChainGraph)}};
@@ -305,9 +303,7 @@ inline void from_json(const nlohmann::json& j, GlobalSignalChainConfig& c)
     c.inputGain = j.value("inputGain", 0.0);
     c.monoMode = j.value("monoMode", false);
     c.inputChannel = j.value("inputChannel", 0);
-    c.autoLevelInput = j.value("autoLevelInput", false);
     c.outputGain = j.value("outputGain", 0.0);
-    c.autoLevelOutput = j.value("autoLevelOutput", false);
     c.limiterEnabled = j.value("limiterEnabled", false);
 
     if (j.contains("preChainGraph") && j["preChainGraph"].is_object())

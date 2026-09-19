@@ -19,7 +19,7 @@ import { onEffectPresets, onPresetArchiveSessionEnded, onPresetArchiveSessionFai
 import { onBlendExportFailed, onBlendExportSaved, onHostedPluginResourceLoadCompleted, onHostedPluginResourceLoadFailed, onIrLoaded, onLibraryExportFailed, onLibraryExportSaved, onModelLoaded, onNodeResourceBrowseCancelled, onResourceCleanupResult, onResourceData, onResourceDataFailed, onResourceDeleteFailed, onResourceFolderListing, onResourceFolderListingFailed, onResourceFolderMetadata, onResourceFolderPicked, onResourceImportFailed, onResourceImported, onResourceRemoved, onResourceUsageInfo, onToneSharingPackImportFailed, onToneSharingPackImported } from "./messages/resourceHandlers.js";
 import { onSharedSyncState, onSharedSyncUpdated } from "./messages/sharedSync.js";
 import { onGlobalSignalChainChanged, onSignalPathNodeBypassUpdated, onSignalPathNodeConfigUpdated, onSignalPathNodeParamUpdated, onSignalPathTestResult, onSpatialPosition } from "./messages/signalPathHandlers.js";
-import { onAmpCabStateChanged, onAppInfo, onAutoLevelChanged, onError, onInputModeChanged, onState, onTheme, onUiSettingsChanged } from "./messages/stateHandlers.js";
+import { onAmpCabStateChanged, onAppInfo, onError, onInputModeChanged, onState, onTheme, onUiSettingsChanged } from "./messages/stateHandlers.js";
 import { onDspPerformance, onSld, onSldA, onSldRoster, onSldS } from "./messages/telemetry.js";
 import { onTunerLiveModeChanged, onTunerReferenceChanged, onTunerStarted, onTunerStopped, onTunerUpdate } from "./messages/tunerHandlers.js";
 import type { MessageHandler } from "./messages/types.js";
@@ -108,7 +108,6 @@ const MESSAGE_HANDLERS: Record<string, MessageHandler> = {
   "debugSnapshotWritten": onDebugSnapshotWritten,
   "inputModeChanged": onInputModeChanged,
   "ampCabStateChanged": onAmpCabStateChanged,
-  "autoLevelChanged": onAutoLevelChanged,
   "uiSettingsChanged": onUiSettingsChanged,
   "dspPerformance": onDspPerformance,
   "sldRoster": onSldRoster,

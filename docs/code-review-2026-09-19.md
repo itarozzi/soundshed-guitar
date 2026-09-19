@@ -150,6 +150,8 @@ Relevant locations:
 
 **Recommendation:** Keep legacy fields only in deserialization or migration code, where they can be read and discarded. Remove the runtime flags, handlers, inert UI functions, and unreachable DSP processing.
 
+**Status:** Done on 19 September 2026. Gone: the mixer's peak auto input and auto output stages; the flags on the mixer, preset `GlobalSettings` and `GlobalSignalChainConfig`; the `setAutoLevel` message and its `autoLevelChanged` reply; and the UI's inert toggles. Legacy keys are still stripped where they are read (the app-settings migration, NAM node params, archive sanitising), and a stored global chain that still carries them is read with them ignored. `DSPPerformanceTests` lost its auto-level case; the limiter's ceiling tests remain.
+
 ### P2 — Several fetched dependencies are not reproducible
 
 `core/CMakeLists.txt` fetches three dependencies from `main` and one from `master`. A clean build can therefore change without a repository commit.

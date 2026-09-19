@@ -434,9 +434,7 @@ export function createEmptyPresetV2(): Preset {
     globals: {
       inputTrim: 0,
       outputTrim: 0,
-      masterVolume: 1,
-      autoLevelInput: false,
-      autoLevelOutput: false
+      masterVolume: 1
     },
     graph: {
       nodes: [

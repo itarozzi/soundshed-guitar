@@ -280,15 +280,11 @@ void PluginController::HandleSavePresetRequest(const nlohmann::json& payload)
         newPreset.description = presetDescription;
         newPreset.version = 2;
 
-        auto currentChain = mPresetMixer.GetGlobalChainConfig();
-        currentChain.autoLevelInput = false;
-        currentChain.autoLevelOutput = false;
+        const auto currentChain = mPresetMixer.GetGlobalChainConfig();
 
         newPreset.global.inputTrim = currentChain.inputGain;
         newPreset.global.outputTrim = currentChain.outputGain;
         newPreset.global.transpose = GetGlobalTransposeFromChainConfig(currentChain);
-        newPreset.global.autoLevelInput = false;
-        newPreset.global.autoLevelOutput = false;
 
         if (includeGlobalSignalChain)
         {
@@ -309,8 +305,6 @@ void PluginController::HandleSavePresetRequest(const nlohmann::json& payload)
             {
                 newPreset.globalSignalChain->inputGain = currentChain.inputGain;
                 newPreset.globalSignalChain->outputGain = currentChain.outputGain;
-                newPreset.globalSignalChain->autoLevelInput = false;
-                newPreset.globalSignalChain->autoLevelOutput = false;
             }
         }
         else
@@ -679,8 +673,6 @@ void PluginController::ApplyPreset(const Preset& preset)
 
     chainConfig.inputGain = inputGainDb;
     chainConfig.outputGain = outputGainDb;
-    chainConfig.autoLevelInput = false;
-    chainConfig.autoLevelOutput = false;
 
     if (mHost.IsStandalone())
     {
@@ -697,8 +689,6 @@ void PluginController::ApplyPreset(const Preset& preset)
 
     normalizedPreset.global.inputTrim = inputGainDb;
     normalizedPreset.global.outputTrim = outputGainDb;
-    normalizedPreset.global.autoLevelInput = false;
-    normalizedPreset.global.autoLevelOutput = false;
     normalizedPreset.globalSignalChain = chainConfig;
 
     const std::string initialSlotId = normalizedPreset.id.empty() ? "p1" : normalizedPreset.id;
@@ -731,8 +721,6 @@ void PluginController::ApplyPreset(const Preset& preset)
         // Install the global chains staged above. Construction already happened off the
         // lock; this is a pointer-level swap plus the scalar input/output settings.
         mPresetMixer.CommitGlobalChainSwap();
-        mPresetMixer.SetAutoLevelInput(false);
-        mPresetMixer.SetAutoLevelOutput(false);
 
         mActivePreset = normalizedPreset;
         mActivePresetJson = newPresetJson;

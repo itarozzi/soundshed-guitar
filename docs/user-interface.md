@@ -142,7 +142,6 @@ The UI is a web-based single-page application (SPA) hosted in a native WebView. 
 | `removeCompositePreset` | `{id}` | Delete a saved Multi-Rig preset |
 | `setInputMode` | `{mode}` | Set input mode (mono/stereo) |
 | `setAmpCabState` | `{...}` | Set amp/cab enable state |
-| `setAutoLevel` | `{...}` | Legacy compatibility message; controller forces mixer-wide auto-level back off |
 | `setMetronome` | `{bpm?, enabled?, volumeDb?, pan?, clickType?, clickConfig?, beatPattern?, timeSigNum?, timeSigDen?, grouping?, subdivision?}` | Update metronome settings. The engine normalises before storing: a grouping that does not add up to the bar is dropped, and a meter change re-seeds `beatPattern` unless the same message carries one. |
 | `tuner` | `{action}` | Start/stop/configure tuner |
 | `runSignalPathTest` | `{}` | Run signal path diagnostic |

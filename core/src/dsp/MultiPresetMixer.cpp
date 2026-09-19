@@ -16,11 +16,6 @@ namespace guitarfx
 {
 namespace
 {
-constexpr float kInputAutoLevelTargetPeak = 0.7f;
-constexpr float kInputAutoLevelMaxGain = 4.0f;
-constexpr float kAutoLevelAttackMix = 0.01f;
-constexpr float kAutoLevelReleaseMultiplier = 1.0001f;
-
 static inline void CpuRelax() noexcept
 {
 #if defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86))
@@ -213,15 +208,11 @@ MultiPresetMixer& MultiPresetMixer::operator=(MultiPresetMixer&& other) noexcept
     mMixGain = other.mMixGain;
     mMasterGain = other.mMasterGain;
     mLimiterEnabled = other.mLimiterEnabled;
-    mAutoLevelInput = other.mAutoLevelInput;
-    mAutoLevelOutput = other.mAutoLevelOutput;
     mUserInputCalibrationGainDb = other.mUserInputCalibrationGainDb;
     mUserInputCalibrationGainLinear = other.mUserInputCalibrationGainLinear;
     mMonoMode = other.mMonoMode;
     mInputChannel = other.mInputChannel;
     mHostControlledInput = other.mHostControlledInput;
-    mInputAutoLevelGain = other.mInputAutoLevelGain;
-    mOutputAutoLevelGain = other.mOutputAutoLevelGain;
     mTempInL = std::move(other.mTempInL);
     mTempInR = std::move(other.mTempInR);
     mPreChainOutL = std::move(other.mPreChainOutL);
@@ -394,8 +385,6 @@ void MultiPresetMixer::EnsureGlobalChainsUpToDate()
 
 void MultiPresetMixer::ApplyGlobalChainScalars(const GlobalSignalChainConfig& config)
 {
-    mAutoLevelInput = config.autoLevelInput;
-    mAutoLevelOutput = config.autoLevelOutput;
     mMonoMode = mHostControlledInput ? false : config.monoMode;
     mInputChannel = config.inputChannel;
     mLimiterEnabled = config.limiterEnabled;
@@ -1033,37 +1022,6 @@ void MultiPresetMixer::Process(float** inputs, float** outputs, int numSamples)
         }
     }
 
-    // Apply auto-level input gain (simple peak detection and normalization)
-    if (mAutoLevelInput && processInL && processInR)
-    {
-        // Find peak
-        float peak = 0.0f;
-
-        for (int i = 0; i < numSamples; ++i)
-        {
-            peak = std::max(peak, std::abs(processInL[i]));
-            peak = std::max(peak, std::abs(processInR[i]));
-        }
-
-        // Apply auto-level with smoothing
-        if (peak > 0.001f)
-        {
-            const float targetGain = kInputAutoLevelTargetPeak / peak;
-            const float limitedGain = std::min(targetGain, kInputAutoLevelMaxGain);
-            mInputAutoLevelGain =
-                mInputAutoLevelGain * (1.0f - kAutoLevelAttackMix) + limitedGain * kAutoLevelAttackMix;
-
-            for (int i = 0; i < numSamples; ++i)
-            {
-                mTempInL[static_cast<std::size_t>(i)] = processInL[i] * mInputAutoLevelGain;
-                mTempInR[static_cast<std::size_t>(i)] = processInR[i] * mInputAutoLevelGain;
-            }
-
-            processInL = mTempInL.data();
-            processInR = mTempInR.data();
-        }
-    }
-
     if (diagnosticsEnabled)
     {
         mTelemetry.Record(MixerTelemetry::Stage::Input, processInL, processInR, numSamples);
@@ -1418,7 +1376,7 @@ void MultiPresetMixer::Process(float** inputs, float** outputs, int numSamples)
     // in the preset mix above, so nothing is needed at this point.
 
     // ==========================================================================
-    // FINAL OUTPUT STAGE: Master gain, auto-level, limiter
+    // FINAL OUTPUT STAGE: Master gain, limiter
     // ==========================================================================
 
     // Apply master gain
@@ -1440,54 +1398,6 @@ void MultiPresetMixer::Process(float** inputs, float** outputs, int numSamples)
             {
                 outputs[1][i] *= master;
             }
-        }
-    }
-
-    // Apply auto-level output (simple peak limiting)
-    if (mAutoLevelOutput)
-    {
-        const float outputProtectionCeilingLinear = static_cast<float>(GetOutputProtectionCeilingLinear());
-        float peak = 0.0f;
-
-        for (int i = 0; i < numSamples; ++i)
-        {
-            if (outputs[0])
-            {
-                peak = std::max(peak, std::abs(outputs[0][i]));
-            }
-
-            if (outputs[1])
-            {
-                peak = std::max(peak, std::abs(outputs[1][i]));
-            }
-        }
-
-        if (peak > outputProtectionCeilingLinear)
-        {
-            const float attenuation = outputProtectionCeilingLinear / peak;
-            mOutputAutoLevelGain =
-                mOutputAutoLevelGain * (1.0f - kAutoLevelAttackMix) + attenuation * kAutoLevelAttackMix;
-
-            if (outputs[0])
-            {
-                for (int i = 0; i < numSamples; ++i)
-                {
-                    outputs[0][i] *= mOutputAutoLevelGain;
-                }
-            }
-
-            if (outputs[1])
-            {
-                for (int i = 0; i < numSamples; ++i)
-                {
-                    outputs[1][i] *= mOutputAutoLevelGain;
-                }
-            }
-        }
-        else
-        {
-            // Slowly release gain reduction
-            mOutputAutoLevelGain = std::min(1.0f, mOutputAutoLevelGain * kAutoLevelReleaseMultiplier);
         }
     }
 

@@ -38,7 +38,7 @@ class ResourceLibrary;
 /**
  * Central DSP manager that runs multiple presets in parallel and mixes their outputs.
  * Supports per-preset mix level, mute/solo, stereo panning, and per-preset global FX.
- * Also handles global input settings like auto-level and mono/stereo mode.
+ * Also handles the global input settings: mono/stereo mode, input channel and calibration gain.
  *
  * The parts with a lifetime of their own are separate classes it composes: PresetVoicePool
  * (preset instances from install to retirement, and the swap rules), GlobalChainEngine (the
@@ -212,27 +212,7 @@ class MultiPresetMixer
         return mMultiThreadedProcessingEnabled.load(std::memory_order_acquire);
     }
 
-    // Global input/output settings
-    void SetAutoLevelInput(bool enabled)
-    {
-        mAutoLevelInput = enabled;
-    }
-
-    void SetAutoLevelOutput(bool enabled)
-    {
-        mAutoLevelOutput = enabled;
-    }
-
-    [[nodiscard]] bool GetAutoLevelInput() const
-    {
-        return mAutoLevelInput;
-    }
-
-    [[nodiscard]] bool GetAutoLevelOutput() const
-    {
-        return mAutoLevelOutput;
-    }
-
+    // Global input settings
     void SetUserInputCalibrationGainDb(double dB);
 
     [[nodiscard]] double GetUserInputCalibrationGainDb() const
@@ -513,17 +493,11 @@ class MultiPresetMixer
     std::atomic<bool> mMultiThreadedProcessingEnabled{rtparallel::kParallelDspSupported};
 
     // Global settings
-    bool mAutoLevelInput = false;
-    bool mAutoLevelOutput = false;
     double mUserInputCalibrationGainDb = 0.0;
     float mUserInputCalibrationGainLinear = 1.0f;
     bool mMonoMode = false;
     int mInputChannel = 0;             // 0=left, 1=right (for mono mode)
     bool mHostControlledInput = false; // true when a DAW host owns the input config
-
-    // Auto-level gain state
-    float mInputAutoLevelGain = 1.0f;
-    float mOutputAutoLevelGain = 1.0f;
 
     // Temporary buffers for input processing
     std::vector<float> mTempInL, mTempInR;

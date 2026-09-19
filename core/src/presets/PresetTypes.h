@@ -147,12 +147,10 @@ struct PresetScene
  */
 struct GlobalSettings
 {
-    double inputTrim = 0.0;       // Input gain in dB
-    double outputTrim = 0.0;      // Output trim in dB
-    double outputVolume = 1.0;    // Output volume (0.0-1.0 linear)
-    bool autoLevelInput = false;  // Apply model-referenced input gain if available
-    bool autoLevelOutput = false; // Apply model-referenced output trim if available
-    int transpose = 0;            // Pitch shift in semitones (-36..+12)
+    double inputTrim = 0.0;    // Input gain in dB
+    double outputTrim = 0.0;   // Output trim in dB
+    double outputVolume = 1.0; // Output volume (0.0-1.0 linear)
+    int transpose = 0;         // Pitch shift in semitones (-36..+12)
 };
 
 /**
@@ -173,11 +171,9 @@ struct GlobalSignalChainConfig
     double inputGain = 0.0; // dB
     bool monoMode = false;
     int inputChannel = 0; // 0=left, 1=right (when mono)
-    bool autoLevelInput = false;
 
     // Output stage settings
     double outputGain = 0.0; // dB (master volume)
-    bool autoLevelOutput = false;
     bool limiterEnabled = false;
 
     /**
