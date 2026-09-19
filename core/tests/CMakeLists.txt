@@ -32,6 +32,7 @@ set(TEST_SOURCES
     MessageDispatchTypeErrorTests.cpp
     MetronomeServiceTests.cpp
     MixerInstanceLockTests.cpp
+    MixerTelemetryTests.cpp
     MultiPresetMixerTests.cpp
     NamCalibrationProbe.cpp
     NamModelCacheTests.cpp

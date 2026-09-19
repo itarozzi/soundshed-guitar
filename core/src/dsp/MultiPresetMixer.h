@@ -4,6 +4,7 @@
 #include "dsp/EffectProcessor.h"
 #include "dsp/SignalGraphExecutor.h"
 #include "dsp/SignalTelemetry.h"
+#include "dsp/MixerTelemetry.h"
 #include "dsp/effects/ParametricEQEffect.h"
 #include "dsp/RealtimeParallel.h"
 #include "dsp/TunerEngine.h"
@@ -49,33 +50,9 @@ class MultiPresetMixer
 
     using TunerResult = TunerEngine::Result;
 
-    struct SignalLevelStats
-    {
-        double peak = 0.0;
-        double rms = 0.0;
-        int clipCount = 0;
-    };
-
-    struct NodeSignalLevel
-    {
-        using AnalyzerTelemetry = guitarfx::AnalyzerTelemetry;
-
-        std::string scope; // pre, post, preset
-        std::string presetId;
-        std::string nodeId;
-        std::string nodeType;
-        int channelCount = 0;
-        SignalLevelStats levels;
-        std::optional<AnalyzerTelemetry> analyzer;
-    };
-
-    struct SignalDiagnosticsSnapshot
-    {
-        SignalLevelStats rawInput; // Before any gain/trim/mono processing
-        SignalLevelStats input;
-        SignalLevelStats output;
-        std::vector<NodeSignalLevel> nodes;
-    };
+    using SignalLevelStats = MixerTelemetry::LevelStats;
+    using NodeSignalLevel = MixerTelemetry::NodeSignalLevel;
+    using SignalDiagnosticsSnapshot = MixerTelemetry::Snapshot;
 
     using TunerCallback = TunerEngine::Callback;
 
@@ -444,7 +421,7 @@ class MultiPresetMixer
 
     [[nodiscard]] bool IsSignalDiagnosticsEnabled() const noexcept
     {
-        return mSignalDiagnosticsEnabled.load(std::memory_order_acquire);
+        return mTelemetry.IsEnabled();
     }
 
     /// Number of blocks received larger than the prepared block size. Any non-zero value
@@ -452,7 +429,7 @@ class MultiPresetMixer
     /// rather than truncated, but it is worth knowing about.
     [[nodiscard]] std::uint64_t GetOversizedBlockCount() const noexcept
     {
-        return mOversizedBlockCount.load(std::memory_order_relaxed);
+        return mTelemetry.GetOversizedBlockCount();
     }
 
     [[nodiscard]] SignalDiagnosticsSnapshot GetSignalDiagnosticsSnapshot() const;
@@ -715,21 +692,7 @@ class MultiPresetMixer
     // Stable heap address keeps the tuner's worker bound to its owner across mixer moves.
     std::unique_ptr<TunerEngine> mTuner;
 
-    struct AtomicLevelStats
-    {
-        std::atomic<double> peak{0.0};
-        std::atomic<double> rms{0.0};
-        std::atomic<int> clipCount{0};
-    };
-
-    // Counts blocks that arrived larger than the size we were prepared with (see Process).
-    // Non-zero means the host is not honouring the prepared block size.
-    std::atomic<std::uint64_t> mOversizedBlockCount{0};
-
-    std::atomic<bool> mSignalDiagnosticsEnabled{true};
-    AtomicLevelStats mRawInputLevels;
-    AtomicLevelStats mInputLevels;
-    AtomicLevelStats mOutputLevels;
+    MixerTelemetry mTelemetry;
 
     // ---- Parallel preset processing -----------------------------------------------
     static constexpr int kMaxParallelWorkers = 7;

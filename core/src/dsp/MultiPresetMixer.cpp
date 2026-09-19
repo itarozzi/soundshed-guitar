@@ -51,62 +51,6 @@ GraphNode* FindNodeByIdOrType(SignalGraph& graph, const std::string& id, const s
     return nullptr;
 }
 
-MultiPresetMixer::SignalLevelStats ComputeLevelStats(const float* left, const float* right, int numSamples)
-{
-    MultiPresetMixer::SignalLevelStats stats;
-
-    if (numSamples <= 0)
-    {
-        return stats;
-    }
-
-    double sumSquares = 0.0;
-    std::size_t sampleCount = 0;
-
-    if (left)
-    {
-        for (int i = 0; i < numSamples; ++i)
-        {
-            const float value = left[i];
-            const float absValue = std::abs(value);
-            stats.peak = std::max(stats.peak, static_cast<double>(absValue));
-            sumSquares += static_cast<double>(value) * static_cast<double>(value);
-
-            if (absValue > 1.0f)
-            {
-                stats.clipCount++;
-            }
-        }
-
-        sampleCount += static_cast<std::size_t>(numSamples);
-    }
-
-    if (right)
-    {
-        for (int i = 0; i < numSamples; ++i)
-        {
-            const float value = right[i];
-            const float absValue = std::abs(value);
-            stats.peak = std::max(stats.peak, static_cast<double>(absValue));
-            sumSquares += static_cast<double>(value) * static_cast<double>(value);
-
-            if (absValue > 1.0f)
-            {
-                stats.clipCount++;
-            }
-        }
-
-        sampleCount += static_cast<std::size_t>(numSamples);
-    }
-
-    if (sampleCount > 0)
-    {
-        stats.rms = std::sqrt(sumSquares / static_cast<double>(sampleCount));
-    }
-
-    return stats;
-}
-
 static inline void CpuRelax() noexcept
 {
 #if defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86))
@@ -269,7 +213,7 @@ bool MultiPresetMixer::AddActivePreset(const Preset& preset, const std::string& 
     inst->executor.SetResourceLibrary(mResourceLibrary);
     inst->executor.SeedNodeTypeConfigDefaults(mNodeTypeConfigDefaults);
     inst->executor.SetGraph(normalizedPreset.graph);
-    inst->executor.SetSignalDiagnosticsEnabled(mSignalDiagnosticsEnabled.load(std::memory_order_acquire));
+    inst->executor.SetSignalDiagnosticsEnabled(mTelemetry.IsEnabled());
     inst->executor.SetNamInputModeMono(mMonoMode);
     inst->complexityScore = EstimateGraphComplexityScore(inst->executor.GetNodeTypes());
     inst->canRingOut = GraphCanRingOut(inst->executor.GetNodeTypesDeep());
@@ -442,20 +386,7 @@ MultiPresetMixer& MultiPresetMixer::operator=(MultiPresetMixer&& other) noexcept
                                    std::memory_order_release);
     mTuner = std::move(other.mTuner);
 
-    mSignalDiagnosticsEnabled.store(other.mSignalDiagnosticsEnabled.load(std::memory_order_acquire),
-                                    std::memory_order_release);
-    mRawInputLevels.peak.store(other.mRawInputLevels.peak.load(std::memory_order_relaxed), std::memory_order_relaxed);
-    mRawInputLevels.rms.store(other.mRawInputLevels.rms.load(std::memory_order_relaxed), std::memory_order_relaxed);
-    mRawInputLevels.clipCount.store(other.mRawInputLevels.clipCount.load(std::memory_order_relaxed),
-                                    std::memory_order_relaxed);
-    mInputLevels.peak.store(other.mInputLevels.peak.load(std::memory_order_relaxed), std::memory_order_relaxed);
-    mInputLevels.rms.store(other.mInputLevels.rms.load(std::memory_order_relaxed), std::memory_order_relaxed);
-    mInputLevels.clipCount.store(other.mInputLevels.clipCount.load(std::memory_order_relaxed),
-                                 std::memory_order_relaxed);
-    mOutputLevels.peak.store(other.mOutputLevels.peak.load(std::memory_order_relaxed), std::memory_order_relaxed);
-    mOutputLevels.rms.store(other.mOutputLevels.rms.load(std::memory_order_relaxed), std::memory_order_relaxed);
-    mOutputLevels.clipCount.store(other.mOutputLevels.clipCount.load(std::memory_order_relaxed),
-                                  std::memory_order_relaxed);
+    mTelemetry.CopyFrom(other.mTelemetry);
 
     return *this;
 }
@@ -535,7 +466,7 @@ void MultiPresetMixer::PreparePresetSwap(const Preset& preset, const std::string
     inst->executor.SetResourceLibrary(mResourceLibrary);
     inst->executor.SeedNodeTypeConfigDefaults(mNodeTypeConfigDefaults);
     inst->executor.SetGraph(normalizedPreset.graph); // CreateProcessors + LoadResources here
-    inst->executor.SetSignalDiagnosticsEnabled(mSignalDiagnosticsEnabled.load(std::memory_order_acquire));
+    inst->executor.SetSignalDiagnosticsEnabled(mTelemetry.IsEnabled());
     inst->executor.SetNamInputModeMono(mMonoMode);
     inst->complexityScore = EstimateGraphComplexityScore(inst->executor.GetNodeTypes());
     inst->canRingOut = GraphCanRingOut(inst->executor.GetNodeTypesDeep());
@@ -856,7 +787,7 @@ void MultiPresetMixer::RebuildGlobalChains()
 
     mPreChainExecutor.SetGraph(preGraph);
     mPreChainExecutor.SetInputTrim(mGlobalChainConfig.inputGain);
-    mPreChainExecutor.SetSignalDiagnosticsEnabled(mSignalDiagnosticsEnabled.load(std::memory_order_acquire));
+    mPreChainExecutor.SetSignalDiagnosticsEnabled(mTelemetry.IsEnabled());
     mPreChainExecutor.Prepare(mSampleRate, mMaxBlockSize);
 
     mPostChainExecutor.SetResourceLibrary(mResourceLibrary);
@@ -870,7 +801,7 @@ void MultiPresetMixer::RebuildGlobalChains()
     }
 
     mPostChainExecutor.SetGraph(postGraph);
-    mPostChainExecutor.SetSignalDiagnosticsEnabled(mSignalDiagnosticsEnabled.load(std::memory_order_acquire));
+    mPostChainExecutor.SetSignalDiagnosticsEnabled(mTelemetry.IsEnabled());
     mPostChainExecutor.Prepare(mSampleRate, mMaxBlockSize);
 
     mMasterGain = std::pow(10.0, mGlobalChainConfig.outputGain / 20.0);
@@ -960,7 +891,7 @@ bool MultiPresetMixer::PrepareGlobalChainSwap(const GlobalSignalChainConfig& con
     }
 
     // Expensive part: runs on the caller's thread with no DSP lock held.
-    const bool diagnostics = mSignalDiagnosticsEnabled.load(std::memory_order_acquire);
+    const bool diagnostics = mTelemetry.IsEnabled();
 
     SignalGraphExecutor preChain;
     preChain.SetResourceLibrary(mResourceLibrary);
@@ -1883,10 +1814,10 @@ void MultiPresetMixer::Process(float** inputs, float** outputs, int numSamples)
     // them do. Clamping alone kept us inside our buffers at the cost of leaving the tail of
     // the caller's output buffer untouched -- and since hosts reuse those buffers, the
     // stale previous block plays through as a click. Split the work instead so the whole
-    // buffer is always written. mOversizedBlockCount makes it visible when this happens.
+    // buffer is always written. Telemetry counts these violations for the host.
     if (mPrepared && mMaxBlockSize > 0 && numSamples > mMaxBlockSize)
     {
-        mOversizedBlockCount.fetch_add(1, std::memory_order_relaxed);
+        mTelemetry.NoteOversizedBlock();
 
         int offset = 0;
 
@@ -1904,7 +1835,7 @@ void MultiPresetMixer::Process(float** inputs, float** outputs, int numSamples)
         return;
     }
 
-    const bool diagnosticsEnabled = mSignalDiagnosticsEnabled.load(std::memory_order_acquire);
+    const bool diagnosticsEnabled = mTelemetry.IsEnabled();
 
     // NOTE: Do NOT call EnsureGlobalChainsUpToDate() here.
     // Rebuilding global chains allocates memory which is unsafe on the audio thread.
@@ -1933,10 +1864,7 @@ void MultiPresetMixer::Process(float** inputs, float** outputs, int numSamples)
 
     if (diagnosticsEnabled)
     {
-        const auto rawStats = ComputeLevelStats(processInL, processInR, numSamples);
-        mRawInputLevels.peak.store(rawStats.peak, std::memory_order_relaxed);
-        mRawInputLevels.rms.store(rawStats.rms, std::memory_order_relaxed);
-        mRawInputLevels.clipCount.store(rawStats.clipCount, std::memory_order_relaxed);
+        mTelemetry.Record(MixerTelemetry::Stage::RawInput, processInL, processInR, numSamples);
     }
 
     if (mMonoMode && (processInL || processInR))
@@ -2031,10 +1959,7 @@ void MultiPresetMixer::Process(float** inputs, float** outputs, int numSamples)
 
     if (diagnosticsEnabled)
     {
-        const auto stats = ComputeLevelStats(processInL, processInR, numSamples);
-        mInputLevels.peak.store(stats.peak, std::memory_order_relaxed);
-        mInputLevels.rms.store(stats.rms, std::memory_order_relaxed);
-        mInputLevels.clipCount.store(stats.clipCount, std::memory_order_relaxed);
+        mTelemetry.Record(MixerTelemetry::Stage::Input, processInL, processInR, numSamples);
     }
 
     // Process tuner FIRST (before any processing, uses raw input for accurate pitch detection)
@@ -2496,11 +2421,8 @@ void MultiPresetMixer::Process(float** inputs, float** outputs, int numSamples)
 
     if (diagnosticsEnabled)
     {
-        const auto stats =
-            ComputeLevelStats(outputs ? outputs[0] : nullptr, outputs ? outputs[1] : nullptr, numSamples);
-        mOutputLevels.peak.store(stats.peak, std::memory_order_relaxed);
-        mOutputLevels.rms.store(stats.rms, std::memory_order_relaxed);
-        mOutputLevels.clipCount.store(stats.clipCount, std::memory_order_relaxed);
+        mTelemetry.Record(MixerTelemetry::Stage::Output, outputs ? outputs[0] : nullptr,
+                          outputs ? outputs[1] : nullptr, numSamples);
     }
 
     // Optional simple limiter (clip)
@@ -2531,7 +2453,7 @@ void MultiPresetMixer::Process(float** inputs, float** outputs, int numSamples)
 void MultiPresetMixer::SetSignalDiagnosticsEnabled(bool enabled)
 {
     const InstanceReadScope readScope(*this);
-    mSignalDiagnosticsEnabled.store(enabled, std::memory_order_release);
+    mTelemetry.SetEnabled(enabled);
     mPreChainExecutor.SetSignalDiagnosticsEnabled(enabled);
     mPostChainExecutor.SetSignalDiagnosticsEnabled(enabled);
 
@@ -2543,38 +2465,8 @@ void MultiPresetMixer::SetSignalDiagnosticsEnabled(bool enabled)
 
 MultiPresetMixer::SignalDiagnosticsSnapshot MultiPresetMixer::GetSignalDiagnosticsSnapshot() const
 {
-    const auto readLevels = [](const AtomicLevelStats& source) {
-        SignalLevelStats stats;
-        stats.peak = source.peak.load(std::memory_order_relaxed);
-        stats.rms = source.rms.load(std::memory_order_relaxed);
-        stats.clipCount = source.clipCount.load(std::memory_order_relaxed);
-
-        return stats;
-    };
-
-    // One executor reading becomes one snapshot node. The analyzer payload is the shared
-    // AnalyzerTelemetry, so it moves across whole rather than field by field.
-    const auto toSnapshotNode = [](const SignalGraphExecutor::NodeSignalLevel& entry, std::string_view scope,
-                                   const std::string& presetId) {
-        NodeSignalLevel node;
-        node.scope = scope;
-        node.presetId = presetId;
-        node.nodeId = entry.nodeId;
-        node.nodeType = entry.nodeType;
-        node.channelCount = entry.channelCount;
-        node.levels.peak = entry.peak;
-        node.levels.rms = entry.rms;
-        node.levels.clipCount = entry.clipCount;
-        node.analyzer = entry.analyzer;
-
-        return node;
-    };
-
     const InstanceReadScope readScope(*this);
-    SignalDiagnosticsSnapshot snapshot;
-    snapshot.rawInput = readLevels(mRawInputLevels);
-    snapshot.input = readLevels(mInputLevels);
-    snapshot.output = readLevels(mOutputLevels);
+    SignalDiagnosticsSnapshot snapshot = mTelemetry.GetSnapshot();
 
     const auto preLevels = mPreChainExecutor.GetNodeSignalLevels();
     const auto postLevels = mPostChainExecutor.GetNodeSignalLevels();
@@ -2583,7 +2475,7 @@ MultiPresetMixer::SignalDiagnosticsSnapshot MultiPresetMixer::GetSignalDiagnosti
 
     for (const auto& entry : preLevels)
     {
-        snapshot.nodes.push_back(toSnapshotNode(entry, "pre", {}));
+        snapshot.nodes.push_back(MixerTelemetry::ToSnapshotNode(entry, "pre", {}));
     }
 
     for (const auto& inst : mInstances)
@@ -2595,13 +2487,13 @@ MultiPresetMixer::SignalDiagnosticsSnapshot MultiPresetMixer::GetSignalDiagnosti
 
         for (const auto& entry : inst->executor.GetNodeSignalLevels())
         {
-            snapshot.nodes.push_back(toSnapshotNode(entry, "preset", inst->cfg.id));
+            snapshot.nodes.push_back(MixerTelemetry::ToSnapshotNode(entry, "preset", inst->cfg.id));
         }
     }
 
     for (const auto& entry : postLevels)
     {
-        snapshot.nodes.push_back(toSnapshotNode(entry, "post", {}));
+        snapshot.nodes.push_back(MixerTelemetry::ToSnapshotNode(entry, "post", {}));
     }
 
     return snapshot;
