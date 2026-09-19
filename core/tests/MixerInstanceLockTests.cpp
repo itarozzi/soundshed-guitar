@@ -35,6 +35,7 @@
 #endif
 
 #include "IPluginHost.h"
+#include "MixerInstanceLockSupport.h"
 #include "PluginController.h"
 #include "dsp/EffectGuids.h"
 #include "dsp/EffectProcessor.h"
@@ -42,11 +43,10 @@
 #include "dsp/effects/BuiltinEffects.h"
 #include "presets/PresetStorage.h"
 #include "presets/PresetTypes.h"
-#include "util/Base64.h"
-#include "util/Wav.h"
 
 namespace fs = std::filesystem;
 using namespace guitarfx;
+using namespace mixer_instance_lock_test;
 using namespace std::chrono_literals;
 
 namespace
@@ -67,35 +67,6 @@ constexpr auto kLockedWindow = 20ms;
 constexpr auto kAudioTimeout = 5s;
 // A swap's declick fade is 1024 samples, eight blocks here. The telemetry window outlasts it.
 constexpr int kBlocksPastFade = 16;
-
-bool Check(bool condition, const std::string& what)
-{
-    std::cout << (condition ? "[PASS] " : "[FAIL] ") << what << "\n";
-    return condition;
-}
-
-bool WaitUntil(const std::function<bool()>& condition, std::chrono::milliseconds timeout)
-{
-    const auto deadline = std::chrono::steady_clock::now() + timeout;
-
-    while (!condition())
-    {
-        if (std::chrono::steady_clock::now() >= deadline)
-        {
-            return false;
-        }
-
-        std::this_thread::sleep_for(100us);
-    }
-
-    return true;
-}
-
-/// Waits until `counter` has moved at least `by` past `from`, or the timeout passes.
-bool WaitForAdvance(const std::atomic<int>& counter, int from, int by, std::chrono::milliseconds timeout)
-{
-    return WaitUntil([&] { return counter.load(std::memory_order_acquire) - from >= by; }, timeout);
-}
 
 // ── Probe state ──────────────────────────────────────────────────────────────
 
@@ -726,43 +697,6 @@ bool TestWalksUnderChurn(PluginController& controller, AudioThread& audio)
     return passed;
 }
 
-/// Trimming a captured take copies and scans a large audio buffer. That work must
-/// not sit under the controller's try-lock, where every concurrent callback would
-/// turn into a silent block.
-bool TestRiffTrimKeepsAudioRunning(PluginController& controller)
-{
-    constexpr std::size_t kFrames = 2'000'000;
-    {
-        const std::vector<float> left(kFrames, 0.1f);
-        const std::vector<float> right(kFrames, -0.1f);
-        const auto wavBytes = guitarfx::util::EncodeStereo16BitWav(left, right, static_cast<int>(kSampleRate));
-
-        Send(controller,
-             {{"type", "importRiffWav"},
-              {"data", guitarfx::util::EncodeBase64(wavBytes)},
-              {"tempoBpm", 120.0},
-              {"timeSigNum", 4},
-              {"timeSigDen", 4}});
-    }
-
-    const int blocksBefore = gAudioBlocks.load(std::memory_order_acquire);
-    const int missesBefore = gAudioLockMisses.load(std::memory_order_acquire);
-    Send(controller, {{"type", "trimCapturedRiff"}, {"startRatio", 0.05}, {"endRatio", 0.95}});
-    const int blocksDuringTrim = gAudioBlocks.load(std::memory_order_acquire) - blocksBefore;
-    const int missesDuringTrim = gAudioLockMisses.load(std::memory_order_acquire) - missesBefore;
-
-    bool passed = Check(blocksDuringTrim > 0,
-                        "riff trim: audio processed while the large buffers were copied and scanned (" +
-                            std::to_string(blocksDuringTrim) + " blocks)");
-    passed = Check(missesDuringTrim <= 2,
-                   "riff trim: only brief snapshot swaps contended with audio (" +
-                       std::to_string(missesDuringTrim) + " missed blocks)") &&
-             passed;
-
-    Send(controller, {{"type", "stopRiffCapture"}, {"canceled", true}});
-    return passed;
-}
-
 bool Run()
 {
     const fs::path sandbox = fs::temp_directory_path() / "guitarfx-mixer-instance-lock-tests";
@@ -794,7 +728,7 @@ bool Run()
             passed = TestSlotsBuiltOffLockAttachedUnderIt(controller) && passed;
             passed = TestWalksUnderChurn(controller, audio) && passed;
             passed = TestLoadFailureReport(controller, host, sandbox) && passed;
-            passed = TestRiffTrimKeepsAudioRunning(controller) && passed;
+            passed = TestRiffTrimKeepsAudioRunning(controller, gAudioBlocks, gAudioLockMisses, kSampleRate) && passed;
         }
     }
 

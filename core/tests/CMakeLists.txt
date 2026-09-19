@@ -54,6 +54,7 @@ set(TEST_SOURCES
     SignalChainThreadingBenchmark.cpp
     SteadyStateProfiler.cpp
     TelemetryPublisherTests.cpp
+    TunerEngineTests.cpp
     SignalGraphExecutorTests.cpp
     SignalPathNodeConfigLockTests.cpp
     SpectrumTapTests.cpp
@@ -172,3 +173,6 @@ foreach(test_source IN LISTS TEST_SOURCES)
         endif()
     endif()
 endforeach()
+
+# Shared harness for the riff/audio-lock regression without growing the main test past its size budget.
+target_sources(MixerInstanceLockTests PRIVATE MixerInstanceLockSupport.cpp MixerInstanceLockSupport.h)

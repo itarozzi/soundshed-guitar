@@ -91,6 +91,8 @@ Relevant locations:
 
 The root controller should compose these services rather than expose every feature's private operations.
 
+**Status:** Tuner capture, analysis, callback dispatch, and worker lifetime have been extracted into `TunerEngine`. `MultiPresetMixer` retains its public tuner API as a thin delegate. Preset lifetime, global-chain processing, and telemetry remain to be extracted.
+
 ### P2 — Cross-language contracts have multiple manual sources of truth
 
 `MessageDispatcher.cpp` describes itself as the canonical message source, but the UI separately maintains a string-keyed handler table, while the outbound bridge accepts `unknown` payloads.

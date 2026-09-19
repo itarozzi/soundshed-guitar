@@ -6,6 +6,7 @@
 #include "dsp/SignalTelemetry.h"
 #include "dsp/effects/ParametricEQEffect.h"
 #include "dsp/RealtimeParallel.h"
+#include "dsp/TunerEngine.h"
 
 #include <algorithm>
 #include <array>
@@ -46,18 +47,7 @@ class MultiPresetMixer
         double pan = 0.0; // [-1.0, 1.0] equal-power pan
     };
 
-    // Tuner result data
-    struct TunerResult
-    {
-        std::string noteName;      // e.g., "E", "A#/Bb"
-        int octave = 0;            // Octave number (e.g., 2 for low E on guitar)
-        double frequency = 0.0;    // Detected frequency in Hz
-        double centOffset = 0.0;   // Cents deviation from perfect pitch (-50 to +50)
-        double confidence = 0.0;   // Detection confidence (0.0 to 1.0)
-        bool detected = false;     // Whether a valid pitch was detected
-        double debugRms = 0.0;     // Debug: RMS of input signal
-        double debugRawFreq = 0.0; // Debug: Raw detected frequency before note mapping
-    };
+    using TunerResult = TunerEngine::Result;
 
     struct SignalLevelStats
     {
@@ -87,9 +77,9 @@ class MultiPresetMixer
         std::vector<NodeSignalLevel> nodes;
     };
 
-    using TunerCallback = std::function<void(const TunerResult&)>;
+    using TunerCallback = TunerEngine::Callback;
 
-    MultiPresetMixer() = default;
+    MultiPresetMixer();
     ~MultiPresetMixer();
     MultiPresetMixer(const MultiPresetMixer&) = delete;
     MultiPresetMixer& operator=(const MultiPresetMixer&) = delete;
@@ -483,7 +473,7 @@ class MultiPresetMixer
 
     [[nodiscard]] bool IsTunerEnabled() const noexcept
     {
-        return mTunerEnabled;
+        return mTuner->IsEnabled();
     }
 
     void SetTunerCallback(TunerCallback callback);
@@ -491,17 +481,17 @@ class MultiPresetMixer
 
     [[nodiscard]] double GetTunerReferenceFrequency() const noexcept
     {
-        return mTunerReferenceFrequency;
+        return mTuner->GetReferenceFrequency();
     }
 
     void SetLiveTunerMode(bool enabled)
     {
-        mLiveTunerMode = enabled;
+        mTuner->SetLiveMode(enabled);
     }
 
     [[nodiscard]] bool IsLiveTunerMode() const noexcept
     {
-        return mLiveTunerMode;
+        return mTuner->IsLiveMode();
     }
 
   private:
@@ -632,14 +622,6 @@ class MultiPresetMixer
     void LimitRetiringInstances();
     /// The hold budget a new tail starts with, in samples.
     [[nodiscard]] int TailHoldSamples() const;
-    // Tuner processing (YIN-based pitch detection)
-    void ProcessTuner(float** inputs, int numSamples);
-    [[nodiscard]] double DetectPitch(const std::vector<double>& samples) const;
-    [[nodiscard]] TunerResult FrequencyToNote(double frequency, double referenceFrequency) const;
-    void StartTunerWorker();
-    void StopTunerWorker();
-    void TunerWorkerLoop();
-
     ResourceLibrary* mResourceLibrary = nullptr;
     // Per-instance node-type config (NAM quality), replayed onto every executor this
     // mixer builds — see SetNodeTypeConfigDefault().
@@ -730,27 +712,8 @@ class MultiPresetMixer
     std::optional<SignalGraphExecutor> mPendingPreChainExecutor;
     std::optional<SignalGraphExecutor> mPendingPostChainExecutor;
 
-    // Tuner state
-    bool mTunerEnabled = false;
-    bool mLiveTunerMode = true; // When true, audio passes through DSP while tuning; when false, output is silent
-    double mTunerReferenceFrequency = 440.0; // A4 reference pitch
-    TunerCallback mTunerCallback;
-    std::vector<double> mTunerBuffer;        // Circular buffer for pitch detection
-    std::vector<double> mTunerOrderedBuffer; // Pre-allocated scratch for linearised reads (audio thread, no alloc)
-    std::vector<double> mTunerAnalysisWriteBuffer; // Mailbox from audio thread to worker
-    std::vector<double> mTunerAnalysisReadBuffer;  // Worker-owned snapshot outside the audio thread
-    std::size_t mTunerBufferWriteIndex = 0;
-    std::size_t mTunerSampleCounter = 0;                      // For throttling callback rate
-    static constexpr std::size_t kTunerBufferSize = 4096;     // ~85ms at 48kHz for good low-frequency detection
-    static constexpr std::size_t kTunerUpdateInterval = 2048; // Update every ~42ms at 48kHz
-    std::mutex mTunerAnalysisMutex;
-    std::condition_variable mTunerAnalysisCv;
-    std::thread mTunerWorkerThread;
-    bool mTunerWorkerQuit = false;
-    bool mTunerAnalysisPending = false;
-    double mTunerAnalysisReferenceFrequency = 440.0;
-    std::uint64_t mTunerQueuedGeneration = 0;
-    std::atomic<std::uint64_t> mTunerAnalysisGeneration{0};
+    // Stable heap address keeps the tuner's worker bound to its owner across mixer moves.
+    std::unique_ptr<TunerEngine> mTuner;
 
     struct AtomicLevelStats
     {
