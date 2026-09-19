@@ -273,7 +273,7 @@
 .resource-browser-item-title,
 .resource-browser-modal .results-item-title {
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 200;
   color: var(--modal-text);
   white-space: nowrap;
   overflow: hidden;
@@ -600,7 +600,7 @@
 
 .resource-browser-tone-title {
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 100;
   color: var(--modal-text);
   white-space: nowrap;
   overflow: hidden;
