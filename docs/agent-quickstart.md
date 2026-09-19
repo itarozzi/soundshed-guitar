@@ -105,7 +105,11 @@ file is over 800 lines, or if one of the already-listed files grows past its
 pinned ceiling. Pins sit 20% above the file as last measured, so ordinary edits
 to a known-large file pass and the check only fires on real growth — but new
 files still have to come in under 800. CI runs this
-(`.github/workflows/cpp-structure.yml`). Re-pin deliberately with `--update`.
+(`.github/workflows/cpp-structure.yml`). The pins only ratchet down: `--update`
+lowers pins for files that shrank and never raises one, and a pin more than 5%
+looser than its file needs fails the check, so tighten it in the same change that
+shrank the file. To let a file grow, use `--repin`; the raised number is the
+review signal. The UI's `npm run check:sizes` works the same way.
 
 **Fetched dependencies:** every `FetchContent_Declare` in `core/CMakeLists.txt` and
 `core/cmake/` must pin a commit SHA or a release tag; `node tools/check-dependency-pins.mjs`

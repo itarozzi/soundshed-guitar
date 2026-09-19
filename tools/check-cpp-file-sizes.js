@@ -8,7 +8,15 @@
  * are listed explicitly below and the list is only ever allowed to shrink.
  *
  *   node tools/check-cpp-file-sizes.js            # verify
- *   node tools/check-cpp-file-sizes.js --update   # re-pin the allowlist
+ *   node tools/check-cpp-file-sizes.js --update   # tighten pins to what the files now need
+ *   node tools/check-cpp-file-sizes.js --repin    # re-pin everything, raising pins too
+ *
+ * The list only moves one way. `--update` lowers a pin when its file has shrunk and drops
+ * files that are gone or back under budget; it never raises one or adds a file. And a pin
+ * that sits more than STALE_SLACK above what `--update` would set fails the check, so a
+ * refactor that shrinks a file tightens its pin in the same change — otherwise the file
+ * could quietly grow back to its old size. `--repin` is the deliberate exception, for a
+ * file that has to grow; it shows up in review as a raised number.
  *
  * Two numbers, doing two different jobs:
  *
@@ -81,11 +89,24 @@ function measure() {
   return sizes;
 }
 
+/// How far a pin may sit above what --update would set before the check calls it stale.
+const STALE_SLACK = 0.05;
+
 function main() {
   const sizes = measure();
   const over = [...sizes.entries()].filter(([, lines]) => lines > BUDGET).sort((a, b) => b[1] - a[1]);
 
-  if (process.argv.includes('--update')) {
+  if (process.argv.includes('--update') && fs.existsSync(ALLOWLIST)) {
+    const previous = JSON.parse(fs.readFileSync(ALLOWLIST, 'utf8')).allowed;
+    const allowed = Object.fromEntries(
+      over.filter(([file]) => previous[file] !== undefined).map(([file, lines]) => [file, Math.min(previous[file], ceilingFor(lines))])
+    );
+    fs.writeFileSync(ALLOWLIST, `${JSON.stringify({ budget: BUDGET, headroom: HEADROOM, allowed }, null, 2)}\n`, 'utf8');
+    console.log(`[check-cpp-file-sizes] allowlist tightened: ${Object.keys(allowed).length} file(s) pinned over ${BUDGET} lines.`);
+    return;
+  }
+
+  if (process.argv.includes('--repin') || process.argv.includes('--update')) {
     const allowed = Object.fromEntries(over.map(([file, lines]) => [file, ceilingFor(lines)]));
     fs.writeFileSync(ALLOWLIST, `${JSON.stringify({ budget: BUDGET, headroom: HEADROOM, allowed }, null, 2)}\n`, 'utf8');
     console.log(
@@ -104,6 +125,7 @@ function main() {
   const { allowed } = JSON.parse(fs.readFileSync(ALLOWLIST, 'utf8'));
   const failures = [];
   const improvements = [];
+  const stale = [];
 
   for (const [file, lines] of over) {
     const ceiling = allowed[file];
@@ -116,23 +138,36 @@ function main() {
   for (const [file, ceiling] of Object.entries(allowed)) {
     const lines = sizes.get(file);
     if (lines === undefined) {
-      improvements.push(`${file} — gone (was ${ceiling})`);
+      stale.push(`${file} — gone, still pinned at ${ceiling}`);
       continue;
     }
     // Compare against what the pin *would* be, not the raw line count: with headroom
     // every file sits below its ceiling, so a plain `lines < ceiling` would report
     // every pinned file as improved on every run.
     const tightened = ceilingFor(lines);
-    if (tightened < ceiling) improvements.push(`${file} — ceiling ${ceiling} to ${tightened} (${lines} lines)`);
+    if (lines <= BUDGET) stale.push(`${file} — now ${lines} lines, under the budget, and still pinned`);
+    else if (ceiling > tightened * (1 + STALE_SLACK)) stale.push(`${file} — ${lines} lines needs a ceiling of ${tightened}, pinned at ${ceiling}`);
+    else if (tightened < ceiling) improvements.push(`${file} — ceiling ${ceiling} to ${tightened} (${lines} lines)`);
   }
 
   for (const note of improvements) console.log(`[check-cpp-file-sizes] improved: ${note}`);
 
+  if (stale.length > 0) {
+    console.error(`[check-cpp-file-sizes] FAIL — ${stale.length} pin(s) looser than the files need; a file could grow back unnoticed:`);
+    for (const note of stale) console.error(`  ${note}`);
+    console.error('\nTighten them: node tools/check-cpp-file-sizes.js --update');
+    process.exitCode = 1;
+  }
+
   if (failures.length > 0) {
     console.error(`[check-cpp-file-sizes] FAIL — ${failures.length} file(s) over budget:`);
     for (const failure of failures) console.error(`  ${failure}`);
-    console.error('\nSplit the file, or re-pin deliberately with: node tools/check-cpp-file-sizes.js --update');
+    console.error('\nSplit the file, or raise its pin deliberately with: node tools/check-cpp-file-sizes.js --repin');
     process.exitCode = 1;
+    return;
+  }
+
+  if (stale.length > 0) {
     return;
   }
 

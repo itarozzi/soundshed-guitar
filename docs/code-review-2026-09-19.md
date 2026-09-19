@@ -198,6 +198,8 @@ Relevant locations:
 - Require touched oversized files to shrink or extract a coherent unit.
 - Move non-template effect implementations and registration into `.cpp` files.
 
+**Status:** Partly done on 19 September 2026. Both size checks now ratchet. `--update` only lowers pins and drops files that have left the list, a pin more than 5% looser than its file needs fails the check, and raising one takes `--repin`. Six C++ pins and ten UI pins were tightened. Still open: requiring a touched oversized file to shrink, which needs the diff rather than the tree, and moving the 46 header-only effects into `.cpp` files.
+
 ## Recommended Order of Work
 
 1. Remove riff-buffer work from `mDSPMutex`.
