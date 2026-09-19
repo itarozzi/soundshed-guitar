@@ -18,6 +18,10 @@ If you only load a few files, use these:
 - Application controller and UI bridge: core/src/PluginController.cpp, core/src/UiBridge.cpp
   (the controller is split across core/src/controller/ — see "Where controller code lives" below)
 - DSP graph executor: core/src/dsp/SignalGraphExecutor.h
+- Mixer: core/src/dsp/MultiPresetMixer.h runs the per-block signal flow and composes
+  PresetVoicePool (preset instances from install to retirement, and the swap, tail and
+  crossfade rules), GlobalChainEngine (the global pre/post executors, rebuilt and
+  swapped), DspReaper (where retired chains are destroyed), TunerEngine and MixerTelemetry
 - Effect base and registry: core/src/dsp/EffectProcessor.h, core/src/dsp/EffectRegistry.h
 - Preset schema and storage: core/src/presets/PresetTypes.h
 - UI messages and state: core/ui/ts/messages.ts, core/ui/ts/state.ts

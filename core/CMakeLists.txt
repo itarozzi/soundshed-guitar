@@ -535,12 +535,20 @@ set(GUITARFX_CORE_SOURCES
     src/dsp/SignalGraphExecutorPlan.cpp
     src/dsp/MultiPresetMixer.h
     src/dsp/MultiPresetMixer.cpp
+    src/dsp/DspReaper.h
+    src/dsp/DspReaper.cpp
     src/dsp/GlobalChainEditor.h
     src/dsp/GlobalChainEditor.cpp
+    src/dsp/GlobalChainEngine.h
+    src/dsp/GlobalChainEngine.cpp
     src/dsp/MixerTelemetry.h
     src/dsp/MixerTelemetry.cpp
     src/dsp/TunerEngine.h
     src/dsp/TunerEngine.cpp
+    src/dsp/PresetInstance.h
+    src/dsp/PresetInstance.cpp
+    src/dsp/PresetVoicePool.h
+    src/dsp/PresetVoicePool.cpp
     src/dsp/RealtimeConvolver.h
     src/dsp/RealtimeConvolver.cpp
     src/dsp/SimdFFT.h

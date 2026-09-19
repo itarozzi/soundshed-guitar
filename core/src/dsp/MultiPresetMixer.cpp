@@ -129,52 +129,28 @@ bool ShouldUseParallelPresetDispatch(bool multiThreadingEnabled, int activeCount
 }
 } // namespace
 
-/// The audio thread keeps processing while one of these lives, and leaves a finished fade-out
-/// in place until the next block, which costs nothing since it is no longer processed. Nests.
-/// Waits only while an erase is already under way, which is a few pointer moves.
-///
-/// The two sides are a store-then-load handshake (mInstanceReaders here, mErasingInstances in
-/// CollectFinishedFadeOuts), both sequentially consistent, so at least one always sees the other.
-class MultiPresetMixer::InstanceReadScope
+ExecutorSetup MultiPresetMixer::MakeExecutorSetup() const
 {
-  public:
-    explicit InstanceReadScope(const MultiPresetMixer& mixer) : mMixer(mixer)
-    {
-        mMixer.mInstanceReaders.fetch_add(1, std::memory_order_seq_cst);
+    ExecutorSetup setup;
+    setup.resourceLibrary = mResourceLibrary;
+    setup.nodeTypeConfigDefaults = &mNodeTypeConfigDefaults;
+    setup.signalDiagnostics = mTelemetry.IsEnabled();
+    setup.prepared = mPrepared;
+    setup.sampleRate = mSampleRate;
+    setup.maxBlockSize = mMaxBlockSize;
+    return setup;
+}
 
-        // An erase that began before the audio thread could see this reader is let finish.
-        while (mMixer.mErasingInstances.load(std::memory_order_seq_cst))
-        {
-            std::this_thread::yield();
-        }
-    }
-
-    ~InstanceReadScope()
-    {
-        mMixer.mInstanceReaders.fetch_sub(1, std::memory_order_release);
-    }
-
-    InstanceReadScope(const InstanceReadScope&) = delete;
-    InstanceReadScope& operator=(const InstanceReadScope&) = delete;
-
-  private:
-    const MultiPresetMixer& mMixer;
-};
-
-bool MultiPresetMixer::AddActivePreset(const Preset& preset, const std::string& presetId, const std::string& name)
+GlobalChainEditor MultiPresetMixer::EditGlobalChain()
 {
-    // Avoid duplicate IDs. Instances that are fading out after a swap do not count —
-    // their ID may legitimately match the one being added back.
-    for (const auto& inst : mInstances)
-    {
-        if (!inst->IsRetiring() && inst->cfg.id == presetId)
-        {
-            return false;
-        }
-    }
+    return GlobalChainEditor(mGlobalChain.Config(), mGlobalChain.Pre(), mGlobalChain.Post());
+}
 
+std::unique_ptr<PresetInstance> MultiPresetMixer::BuildInstance(const Preset& preset, const std::string& id,
+                                                                const std::string& name) const
+{
     auto inst = std::make_unique<PresetInstance>();
-    inst->cfg.id = presetId;
+    inst->cfg.id = id;
     inst->cfg.name = name;
 
     Preset normalizedPreset = preset;
@@ -182,7 +158,7 @@ bool MultiPresetMixer::AddActivePreset(const Preset& preset, const std::string& 
 
     inst->executor.SetResourceLibrary(mResourceLibrary);
     inst->executor.SeedNodeTypeConfigDefaults(mNodeTypeConfigDefaults);
-    inst->executor.SetGraph(normalizedPreset.graph);
+    inst->executor.SetGraph(normalizedPreset.graph); // CreateProcessors + LoadResources here
     inst->executor.SetSignalDiagnosticsEnabled(mTelemetry.IsEnabled());
     inst->executor.SetNamInputModeMono(mMonoMode);
     inst->complexityScore = EstimateGraphComplexityScore(inst->executor.GetNodeTypes());
@@ -190,119 +166,24 @@ bool MultiPresetMixer::AddActivePreset(const Preset& preset, const std::string& 
 
     if (mPrepared)
     {
-        inst->executor.Prepare(mSampleRate, mMaxBlockSize);
-        AllocateInstanceBuffers(*inst, mMaxBlockSize);
+        inst->executor.Prepare(mSampleRate, mMaxBlockSize); // Effect Prepare() (NAM init, IR load) here
     }
 
     inst->ResizeBuffers(mMaxBlockSize);
+    return inst;
+}
 
-    mInstances.push_back(std::move(inst));
+bool MultiPresetMixer::AddActivePreset(const Preset& preset, const std::string& presetId, const std::string& name)
+{
+    // Avoid duplicate IDs. Instances that are fading out after a swap do not count —
+    // their ID may legitimately match the one being added back.
+    if (mVoices.Find(presetId) != nullptr)
+    {
+        return false;
+    }
+
+    mVoices.Install(BuildInstance(preset, presetId, name));
     return true;
-}
-
-void MultiPresetMixer::PresetInstance::ResizeBuffers(int maxBlockSize)
-{
-    const auto size = static_cast<size_t>(std::max(0, maxBlockSize));
-    outL.assign(size, 0.0f);
-    outR.assign(size, 0.0f);
-    tailInL.assign(size, 0.0f);
-    tailInR.assign(size, 0.0f);
-}
-
-float MultiPresetMixer::PresetInstance::CurrentFadeGain() const
-{
-    if (phase == InstancePhase::Tailing)
-    {
-        return tailGain;
-    }
-
-    if (phase == InstancePhase::Active || fadeTotalSamples <= 0)
-    {
-        return 1.0f;
-    }
-
-    const float fraction = static_cast<float>(fadeSamplesRemaining) / static_cast<float>(fadeTotalSamples);
-    return (phase == InstancePhase::FadingOut) ? fraction : (1.0f - fraction);
-}
-
-void MultiPresetMixer::PresetInstance::BeginTail(int inputFadeSamples, int holdSamples)
-{
-    // Hold whatever gain the instance is at rather than snapping to unity: an instance
-    // superseded halfway through its own fade-in must not get louder on its way out.
-    tailGain = CurrentFadeGain();
-    tailInput = true;
-    phase = InstancePhase::Tailing;
-    fadeTotalSamples = 0;
-    fadeSamplesRemaining = 0;
-    inputFadeTotalSamples = std::max(1, inputFadeSamples);
-    inputFadeSamplesRemaining = inputFadeTotalSamples;
-    tailSamplesRemaining = std::max(0, holdSamples);
-}
-
-void MultiPresetMixer::PresetInstance::FillTailInput(const float* inL, const float* inR, int numSamples)
-{
-    // Same ramp shape as the output crossfade, one block at a time: start where the last
-    // block ended and step down to where the next one starts.
-    const float total = static_cast<float>(std::max(1, inputFadeTotalSamples));
-    const float start = static_cast<float>(inputFadeSamplesRemaining) / total;
-    const float end = static_cast<float>(std::max(0, inputFadeSamplesRemaining - numSamples)) / total;
-    const float step = (end - start) / static_cast<float>(std::max(1, numSamples));
-
-    float gain = start;
-
-    for (int i = 0; i < numSamples; ++i, gain += step)
-    {
-        const auto index = static_cast<size_t>(i);
-        tailInL[index] = (inL != nullptr) ? inL[index] * gain : 0.0f;
-        tailInR[index] = (inR != nullptr) ? inR[index] * gain : 0.0f;
-    }
-}
-
-void MultiPresetMixer::PresetInstance::BeginFadeOut(int fadeSamples)
-{
-    // Resume the ramp from the gain we are actually at, so a switch landing mid-fade-in
-    // continues smoothly downward instead of jumping to unity first.
-    const float gain = CurrentFadeGain();
-    phase = InstancePhase::FadingOut;
-    fadeTotalSamples = std::max(1, fadeSamples);
-    fadeSamplesRemaining =
-        std::clamp(static_cast<int>(std::lround(gain * static_cast<double>(fadeTotalSamples))), 0, fadeTotalSamples);
-}
-
-void MultiPresetMixer::PresetInstance::GetFadeGains(int numSamples, float& startGain, float& endGain) const
-{
-    if (phase == InstancePhase::Tailing)
-    {
-        // Flat for the whole hold. The decay is happening inside the chain, not here.
-        startGain = tailGain;
-        endGain = tailGain;
-        return;
-    }
-
-    if (phase == InstancePhase::Active || fadeTotalSamples <= 0)
-    {
-        startGain = 1.0f;
-        endGain = 1.0f;
-        return;
-    }
-
-    const float total = static_cast<float>(fadeTotalSamples);
-    const int endRemaining = std::max(0, fadeSamplesRemaining - numSamples);
-    const float startFraction = static_cast<float>(fadeSamplesRemaining) / total;
-    const float endFraction = static_cast<float>(endRemaining) / total;
-
-    if (phase == InstancePhase::FadingOut)
-    {
-        // remaining/total: 1 -> 0
-        startGain = startFraction;
-        endGain = endFraction;
-    }
-    else
-    {
-        // 1 - remaining/total: 0 -> 1
-        startGain = 1.0f - startFraction;
-        endGain = 1.0f - endFraction;
-    }
 }
 
 MultiPresetMixer::MultiPresetMixer() : mTuner(std::make_unique<TunerEngine>())
@@ -321,15 +202,13 @@ MultiPresetMixer& MultiPresetMixer::operator=(MultiPresetMixer&& other) noexcept
         return *this;
     }
 
-    // The reaper thread and its retire queue stay with the object that owns them (as do the
+    // The reaper thread and its retire queues stay with the object that owns them (as do the
     // parallel worker threads); only the DSP state moves.
     mResourceLibrary = other.mResourceLibrary;
-    mInstances = std::move(other.mInstances);
+    mVoices.TakeStateFrom(other.mVoices);
     mSampleRate = other.mSampleRate;
     mMaxBlockSize = other.mMaxBlockSize;
     mPrepared = other.mPrepared;
-    mTailSpillSeconds = other.mTailSpillSeconds;
-    mTailReleaseSamples = other.mTailReleaseSamples;
     mMixGainDb = other.mMixGainDb;
     mMixGain = other.mMixGain;
     mMasterGain = other.mMasterGain;
@@ -349,11 +228,7 @@ MultiPresetMixer& MultiPresetMixer::operator=(MultiPresetMixer&& other) noexcept
     mPreChainOutR = std::move(other.mPreChainOutR);
     mPostChainOutL = std::move(other.mPostChainOutL);
     mPostChainOutR = std::move(other.mPostChainOutR);
-    mGlobalChainConfig = std::move(other.mGlobalChainConfig);
-    mPreChainExecutor = std::move(other.mPreChainExecutor);
-    mPostChainExecutor = std::move(other.mPostChainExecutor);
-    mGlobalChainNeedsRebuild.store(other.mGlobalChainNeedsRebuild.load(std::memory_order_acquire),
-                                   std::memory_order_release);
+    mGlobalChain.TakeStateFrom(other.mGlobalChain);
     mTuner = std::move(other.mTuner);
 
     mTelemetry.CopyFrom(other.mTelemetry);
@@ -370,86 +245,19 @@ void MultiPresetMixer::SetUserInputCalibrationGainDb(double dB)
 
 void MultiPresetMixer::RemoveActivePreset(const std::string& presetId)
 {
-    for (auto it = mInstances.begin(); it != mInstances.end(); ++it)
-    {
-        if (!(*it)->IsRetiring() && (*it)->cfg.id == presetId)
-        {
-            RetireInstance(std::move(*it));
-            mInstances.erase(it);
-            break;
-        }
-    }
+    mVoices.Remove(presetId);
 }
 
 bool MultiPresetMixer::RenameActivePreset(const std::string& oldId, const std::string& newId, const std::string& name)
 {
-    if (oldId.empty() || newId.empty())
-    {
-        return false;
-    }
-
-    if (oldId == newId)
-    {
-        if (auto* inst = FindInstance(newId))
-        {
-            inst->cfg.name = name;
-            return true;
-        }
-
-        return false;
-    }
-
-    // Refuse rather than produce two slots answering to the same id: FindInstance returns
-    // the first match, so a duplicate would silently route half the updates to the wrong
-    // chain. Retiring instances are excluded from both lookups, so an outgoing instance
-    // still carrying oldId does not block the rename.
-    if (FindInstance(newId) != nullptr)
-    {
-        return false;
-    }
-
-    auto* inst = FindInstance(oldId);
-
-    if (inst == nullptr)
-    {
-        return false;
-    }
-
-    inst->cfg.id = newId;
-    inst->cfg.name = name;
-    return true;
+    return mVoices.Rename(oldId, newId, name);
 }
 
 void MultiPresetMixer::PreparePresetSwap(const Preset& preset, const std::string& id, const std::string& name)
 {
-    // Build the new PresetInstance off the DSP lock. This includes effect processor
-    // creation and resource loading (e.g. NAM model loading from disk) which can take
-    // hundreds of milliseconds. The audio thread continues processing the current
-    // instance in mInstances untouched while this runs.
-    auto inst = std::make_unique<PresetInstance>();
-    inst->cfg.id = id;
-    inst->cfg.name = name;
-
-    Preset normalizedPreset = preset;
-    EnsurePresetBoundaryGainNodes(normalizedPreset);
-
-    inst->executor.SetResourceLibrary(mResourceLibrary);
-    inst->executor.SeedNodeTypeConfigDefaults(mNodeTypeConfigDefaults);
-    inst->executor.SetGraph(normalizedPreset.graph); // CreateProcessors + LoadResources here
-    inst->executor.SetSignalDiagnosticsEnabled(mTelemetry.IsEnabled());
-    inst->executor.SetNamInputModeMono(mMonoMode);
-    inst->complexityScore = EstimateGraphComplexityScore(inst->executor.GetNodeTypes());
-    inst->canRingOut = GraphCanRingOut(inst->executor.GetNodeTypesDeep());
-
-    if (mPrepared)
-    {
-        inst->executor.Prepare(mSampleRate, mMaxBlockSize); // Effect Prepare() (NAM init, IR load) here
-        AllocateInstanceBuffers(*inst, mMaxBlockSize);
-    }
-
-    inst->ResizeBuffers(mMaxBlockSize);
-
-    mPendingInstance = std::move(inst);
+    // Build the new instance off the DSP lock. The audio thread continues processing the
+    // current instances untouched while this runs.
+    mVoices.Stage(BuildInstance(preset, id, name));
 }
 
 bool MultiPresetMixer::ReplaceActivePresetInPlace(const Preset& preset, const std::string& presetId,
@@ -457,7 +265,7 @@ bool MultiPresetMixer::ReplaceActivePresetInPlace(const Preset& preset, const st
 {
     // Convenience for callers without concurrent audio. The controller uses the two
     // phases directly so preparation never holds its DSP lock.
-    if (!FindInstance(presetId))
+    if (!mVoices.Find(presetId))
     {
         return false;
     }
@@ -468,195 +276,32 @@ bool MultiPresetMixer::ReplaceActivePresetInPlace(const Preset& preset, const st
 
 bool MultiPresetMixer::CommitPresetReplacement(const std::string& presetId)
 {
-    auto existing =
-        std::find_if(mInstances.begin(), mInstances.end(), [&](const std::unique_ptr<PresetInstance>& candidate) {
-            return !candidate->IsRetiring() && candidate->cfg.id == presetId;
-        });
-
-    if (!mPendingInstance || mPendingInstance->cfg.id != presetId || existing == mInstances.end())
-    {
-        return false;
-    }
-
-    auto inst = std::move(mPendingInstance);
-    auto name = std::move(inst->cfg.name);
-    inst->cfg = (*existing)->cfg;
-    inst->cfg.name = std::move(name);
-
-    // Crossfade rather than cutting: leave the old slot in place, ramping down, and add
-    // the replacement alongside it ramping up. Lookups skip retiring instances, so the
-    // shared preset ID still resolves to the new slot from here on.
-    inst->phase = InstancePhase::FadingIn;
-    inst->fadeTotalSamples = kPresetFadeSamples;
-    inst->fadeSamplesRemaining = kPresetFadeSamples;
-
-    if ((*existing)->cfg.mute)
-    {
-        // Nothing to fade; retire it outright rather than running a silent chain.
-        RetireInstance(std::move(*existing));
-        *existing = std::move(inst);
-    }
-    else
-    {
-        auto& outgoing = **existing;
-        RetireSupersededInstance(outgoing);
-        mInstances.push_back(std::move(inst));
-        LimitTailingInstances();
-        LimitRetiringInstances();
-    }
-
-    return true;
+    return mVoices.CommitReplacement(presetId);
 }
 
 bool MultiPresetMixer::CommitPresetAddition(const std::string& presetId)
 {
-    if (!mPendingInstance || mPendingInstance->cfg.id != presetId || FindInstance(presetId) != nullptr)
-    {
-        return false;
-    }
-
-    // No fade, as AddActivePreset: the slot joins a mix that is already playing.
-    mInstances.push_back(std::move(mPendingInstance));
-    return true;
+    return mVoices.CommitAddition(presetId);
 }
 
 void MultiPresetMixer::SetPresetSwapTailSeconds(double seconds)
 {
-    mTailSpillSeconds = IsFinite(seconds) ? std::clamp(seconds, 0.0, kMaxPresetSwapTailSeconds) : 0.0;
-}
-
-int MultiPresetMixer::TailHoldSamples() const
-{
-    if (mTailSpillSeconds <= 0.0)
-    {
-        return 0;
-    }
-
-    return static_cast<int>(std::lround(mTailSpillSeconds * mSampleRate));
-}
-
-void MultiPresetMixer::RetireSupersededInstance(PresetInstance& inst)
-{
-    // A retiring instance must not influence the live solo decision either way.
-    inst.cfg.solo = false;
-
-    const int holdSamples = TailHoldSamples();
-
-    if (holdSamples > 0 && inst.canRingOut)
-    {
-        inst.BeginTail(kPresetFadeSamples, holdSamples);
-        return;
-    }
-
-    inst.BeginFadeOut(kPresetFadeSamples);
-}
-
-void MultiPresetMixer::LimitTailingInstances()
-{
-    std::size_t tailing = 0;
-
-    for (const auto& inst : mInstances)
-    {
-        if (inst->phase == InstancePhase::Tailing)
-        {
-            ++tailing;
-        }
-    }
-
-    // Oldest first — mInstances is in install order — so the tail that has had the longest
-    // to decay is the one asked to finish.
-    for (auto& inst : mInstances)
-    {
-        if (tailing <= kMaxTailingInstances)
-        {
-            break;
-        }
-
-        if (inst->phase == InstancePhase::Tailing)
-        {
-            inst->BeginFadeOut(mTailReleaseSamples);
-            --tailing;
-        }
-    }
-}
-
-void MultiPresetMixer::LimitRetiringInstances()
-{
-    auto retiring = GetRetiringPresetCount();
-
-    for (auto it = mInstances.begin(); it != mInstances.end() && retiring > kMaxFadingOutInstances;)
-    {
-        if ((*it)->IsRetiring())
-        {
-            RetireInstance(std::move(*it));
-            it = mInstances.erase(it);
-            --retiring;
-        }
-        else
-        {
-            ++it;
-        }
-    }
+    mVoices.SetTailSeconds(seconds);
 }
 
 void MultiPresetMixer::CommitPresetSwap()
 {
-    // Fast swap: install the pre-built instance and start fading the old ones out.
-    // Must be called while holding the DSP lock. Everything here is O(instances) pointer
-    // work — no allocation beyond the vector push, no resource loading, no destruction.
-    if (!mPendingInstance)
-    {
-        return;
-    }
-
-    // Retire everything currently live: ringing out if the tail spill is on, fading out
-    // otherwise. An instance already on its way out from an earlier switch is left alone
-    // so it carries on from where it is rather than jumping back to full gain, and a tail
-    // already ringing keeps the budget it started with.
-    for (auto it = mInstances.begin(); it != mInstances.end();)
-    {
-        auto& inst = **it;
-
-        if (inst.cfg.mute)
-        {
-            // Contributes nothing to fade out; retire it outright.
-            RetireInstance(std::move(*it));
-            it = mInstances.erase(it);
-            continue;
-        }
-
-        if (!inst.IsRetiring())
-        {
-            RetireSupersededInstance(inst);
-        }
-
-        ++it;
-    }
-
-    // Hold the tail budget first: a third tail starts its release rather than being cut.
-    LimitTailingInstances();
-
-    // Backstop on simultaneous retirees: switching faster than they can drain drops the
-    // oldest rather than stacking a full chain's CPU cost per switch. Oldest is also the
-    // one furthest through its ramp, or the tail that has had longest to decay, so it is
-    // the least likely to be heard going.
-    LimitRetiringInstances();
-
-    mPendingInstance->phase = InstancePhase::FadingIn;
-    mPendingInstance->fadeTotalSamples = kPresetFadeSamples;
-    mPendingInstance->fadeSamplesRemaining = kPresetFadeSamples;
-
-    mInstances.push_back(std::move(mPendingInstance));
-    mPendingInstance.reset();
-
     // A swap plays one preset on its own. The Multi-Rig mix level belongs to the mix that
     // just went away, so a lone preset must not keep playing through its trim.
-    SetMixGainDb(0.0);
+    if (mVoices.CommitSwap())
+    {
+        SetMixGainDb(0.0);
+    }
 }
 
 void MultiPresetMixer::SetPresetMix(const std::string& presetId, double value)
 {
-    if (auto* inst = FindInstance(presetId))
+    if (auto* inst = mVoices.Find(presetId))
     {
         inst->cfg.mix = std::clamp(value, 0.0, 1.0);
     }
@@ -664,7 +309,7 @@ void MultiPresetMixer::SetPresetMix(const std::string& presetId, double value)
 
 void MultiPresetMixer::SetPresetPan(const std::string& presetId, double pan)
 {
-    if (auto* inst = FindInstance(presetId))
+    if (auto* inst = mVoices.Find(presetId))
     {
         inst->cfg.pan = std::clamp(pan, -1.0, 1.0);
     }
@@ -672,7 +317,7 @@ void MultiPresetMixer::SetPresetPan(const std::string& presetId, double pan)
 
 void MultiPresetMixer::SetPresetMute(const std::string& presetId, bool mute)
 {
-    if (auto* inst = FindInstance(presetId))
+    if (auto* inst = mVoices.Find(presetId))
     {
         inst->cfg.mute = mute;
     }
@@ -680,7 +325,7 @@ void MultiPresetMixer::SetPresetMute(const std::string& presetId, bool mute)
 
 void MultiPresetMixer::SetPresetSolo(const std::string& presetId, bool solo)
 {
-    if (auto* inst = FindInstance(presetId))
+    if (auto* inst = mVoices.Find(presetId))
     {
         inst->cfg.solo = solo;
     }
@@ -721,7 +366,7 @@ void MultiPresetMixer::SetMultiThreadedProcessingEnabled(bool enabled)
 
 void MultiPresetMixer::SetInputTrim(double dB)
 {
-    for (auto& inst : mInstances)
+    for (auto& inst : mVoices.Instances())
     {
         inst->executor.SetInputTrim(dB);
     }
@@ -729,61 +374,17 @@ void MultiPresetMixer::SetInputTrim(double dB)
 
 void MultiPresetMixer::SetOutputTrim(double dB)
 {
-    for (auto& inst : mInstances)
+    for (auto& inst : mVoices.Instances())
     {
         inst->executor.SetOutputTrim(dB);
     }
 }
 
-void MultiPresetMixer::RebuildGlobalChains()
-{
-    if (!mPrepared)
-    {
-        return;
-    }
-
-    mPreChainExecutor.Reset();
-    mPostChainExecutor.Reset();
-
-    mPreChainExecutor.SetResourceLibrary(mResourceLibrary);
-    mPreChainExecutor.SeedNodeTypeConfigDefaults(mNodeTypeConfigDefaults);
-    auto preGraph = mGlobalChainConfig.BuildPreChainGraph();
-
-    if (preGraph.nodes.empty() && preGraph.edges.empty())
-    {
-        preGraph = GlobalSignalChainConfig::BuildDefaultPreChainGraph();
-        mGlobalChainConfig.preChainGraph = preGraph;
-    }
-
-    mPreChainExecutor.SetGraph(preGraph);
-    mPreChainExecutor.SetInputTrim(mGlobalChainConfig.inputGain);
-    mPreChainExecutor.SetSignalDiagnosticsEnabled(mTelemetry.IsEnabled());
-    mPreChainExecutor.Prepare(mSampleRate, mMaxBlockSize);
-
-    mPostChainExecutor.SetResourceLibrary(mResourceLibrary);
-    mPostChainExecutor.SeedNodeTypeConfigDefaults(mNodeTypeConfigDefaults);
-    auto postGraph = mGlobalChainConfig.BuildPostChainGraph();
-
-    if (postGraph.nodes.empty() && postGraph.edges.empty())
-    {
-        postGraph = GlobalSignalChainConfig::BuildDefaultPostChainGraph();
-        mGlobalChainConfig.postChainGraph = postGraph;
-    }
-
-    mPostChainExecutor.SetGraph(postGraph);
-    mPostChainExecutor.SetSignalDiagnosticsEnabled(mTelemetry.IsEnabled());
-    mPostChainExecutor.Prepare(mSampleRate, mMaxBlockSize);
-
-    mMasterGain = std::pow(10.0, mGlobalChainConfig.outputGain / 20.0);
-
-    mGlobalChainNeedsRebuild.store(false, std::memory_order_release);
-}
-
 void MultiPresetMixer::EnsureGlobalChainsUpToDate()
 {
-    if (mPrepared && mGlobalChainNeedsRebuild.load(std::memory_order_acquire))
+    if (mGlobalChain.EnsureUpToDate(MakeExecutorSetup()))
     {
-        RebuildGlobalChains();
+        mMasterGain = std::pow(10.0, mGlobalChain.Config().outputGain / 20.0);
     }
 }
 
@@ -799,7 +400,7 @@ void MultiPresetMixer::ApplyGlobalChainScalars(const GlobalSignalChainConfig& co
     mInputChannel = config.inputChannel;
     mLimiterEnabled = config.limiterEnabled;
     mMasterGain = std::pow(10.0, config.outputGain / 20.0);
-    mPreChainExecutor.SetInputTrim(config.inputGain);
+    mGlobalChain.Pre().SetInputTrim(config.inputGain);
 }
 
 void MultiPresetMixer::SetGlobalChainConfig(const GlobalSignalChainConfig& config)
@@ -807,21 +408,8 @@ void MultiPresetMixer::SetGlobalChainConfig(const GlobalSignalChainConfig& confi
     GlobalSignalChainConfig normalized = config;
     GlobalChainEditor::NormalizeConfig(normalized);
 
-    // Rebuilding tears down and recreates both global executors — construction, resource
-    // loading and allocation. Skip it entirely when the graphs are unchanged, which is the
-    // common case: global settings are per-instance state and do not come from presets, so
-    // most preset loads pass through a config identical to the one already running.
-    const bool graphsChanged = normalized.preChainGraph != mGlobalChainConfig.preChainGraph ||
-                               normalized.postChainGraph != mGlobalChainConfig.postChainGraph;
-
-    mGlobalChainConfig = std::move(normalized);
-    ApplyGlobalChainScalars(mGlobalChainConfig);
-
-    if (graphsChanged)
-    {
-        mGlobalChainNeedsRebuild.store(true, std::memory_order_release);
-    }
-
+    mGlobalChain.Adopt(std::move(normalized));
+    ApplyGlobalChainScalars(mGlobalChain.Config());
     EnsureGlobalChainsUpToDate();
 }
 
@@ -829,174 +417,107 @@ bool MultiPresetMixer::PrepareGlobalChainSwap(const GlobalSignalChainConfig& con
 {
     GlobalSignalChainConfig normalized = config;
     GlobalChainEditor::NormalizeConfig(normalized);
-
-    const bool graphsChanged = normalized.preChainGraph != mGlobalChainConfig.preChainGraph ||
-                               normalized.postChainGraph != mGlobalChainConfig.postChainGraph;
-    const bool rebuildNeeded = mPrepared && (graphsChanged || mGlobalChainNeedsRebuild.load(std::memory_order_acquire));
-
-    mPendingPreChainExecutor.reset();
-    mPendingPostChainExecutor.reset();
-    mPendingGlobalChainConfig = normalized;
-
-    if (!rebuildNeeded)
-    {
-        return false;
-    }
-
-    // Expensive part: runs on the caller's thread with no DSP lock held.
-    const bool diagnostics = mTelemetry.IsEnabled();
-
-    SignalGraphExecutor preChain;
-    preChain.SetResourceLibrary(mResourceLibrary);
-    preChain.SetGraph(normalized.preChainGraph);
-    preChain.SetInputTrim(normalized.inputGain);
-    preChain.SetSignalDiagnosticsEnabled(diagnostics);
-    preChain.Prepare(mSampleRate, mMaxBlockSize);
-
-    SignalGraphExecutor postChain;
-    postChain.SetResourceLibrary(mResourceLibrary);
-    postChain.SetGraph(normalized.postChainGraph);
-    postChain.SetSignalDiagnosticsEnabled(diagnostics);
-    postChain.Prepare(mSampleRate, mMaxBlockSize);
-
-    mPendingPreChainExecutor.emplace(std::move(preChain));
-    mPendingPostChainExecutor.emplace(std::move(postChain));
-    return true;
+    return mGlobalChain.PrepareSwap(std::move(normalized), MakeExecutorSetup());
 }
 
 void MultiPresetMixer::CommitGlobalChainSwap()
 {
-    if (!mPendingGlobalChainConfig.has_value())
-    {
-        return;
-    }
-
-    mGlobalChainConfig = std::move(*mPendingGlobalChainConfig);
-    mPendingGlobalChainConfig.reset();
-
-    if (mPendingPreChainExecutor.has_value() && mPendingPostChainExecutor.has_value())
-    {
-        // Hand the outgoing executors to the reaper rather than destroying them here: the
-        // audio thread try_locks the DSP mutex and outputs silence when it cannot take it,
-        // so freeing node state under that lock is an audible dropout.
-        //
-        // Residual: the move-assignment below stops any worker threads the outgoing executor
-        // owned, and SignalGraphExecutor's move does not transfer them, so that join happens
-        // under the caller's DSP lock. It is a wake-and-join of parked threads (bounded, tens
-        // of microseconds) and is zero for the linear default chains, which never start
-        // workers. Preset instances avoid this entirely by being held via unique_ptr.
-        {
-            std::lock_guard<std::mutex> lock(mRetireMutex);
-
-            for (auto* executor : {&mPreChainExecutor, &mPostChainExecutor})
-            {
-                auto& queue = executor->AnyNodeRequiresMainThreadLoad() ? mMainThreadRetireExecutors : mRetireExecutors;
-                queue.push_back(std::move(*executor));
-            }
-        }
-        mRetireCv.notify_one();
-
-        mPreChainExecutor = std::move(*mPendingPreChainExecutor);
-        mPostChainExecutor = std::move(*mPendingPostChainExecutor);
-        mGlobalChainNeedsRebuild.store(false, std::memory_order_release);
-    }
-
-    mPendingPreChainExecutor.reset();
-    mPendingPostChainExecutor.reset();
-
     // After the swap so the input trim lands on the executor that is now live.
-    ApplyGlobalChainScalars(mGlobalChainConfig);
+    if (mGlobalChain.CommitSwap())
+    {
+        ApplyGlobalChainScalars(mGlobalChain.Config());
+    }
 }
 
 void MultiPresetMixer::SetGlobalGateEnabled(bool enabled)
 {
-    GlobalChainEditor(mGlobalChainConfig, mPreChainExecutor, mPostChainExecutor).SetGateEnabled(enabled);
+    EditGlobalChain().SetGateEnabled(enabled);
 }
 
 void MultiPresetMixer::SetGlobalGateThreshold(double thresholdDb)
 {
-    GlobalChainEditor(mGlobalChainConfig, mPreChainExecutor, mPostChainExecutor).SetGateThreshold(thresholdDb);
+    EditGlobalChain().SetGateThreshold(thresholdDb);
 }
 
 void MultiPresetMixer::SetGlobalGateAttack(double attackMs)
 {
-    GlobalChainEditor(mGlobalChainConfig, mPreChainExecutor, mPostChainExecutor).SetGateAttack(attackMs);
+    EditGlobalChain().SetGateAttack(attackMs);
 }
 
 void MultiPresetMixer::SetGlobalGateHold(double holdMs)
 {
-    GlobalChainEditor(mGlobalChainConfig, mPreChainExecutor, mPostChainExecutor).SetGateHold(holdMs);
+    EditGlobalChain().SetGateHold(holdMs);
 }
 
 void MultiPresetMixer::SetGlobalGateRelease(double releaseMs)
 {
-    GlobalChainEditor(mGlobalChainConfig, mPreChainExecutor, mPostChainExecutor).SetGateRelease(releaseMs);
+    EditGlobalChain().SetGateRelease(releaseMs);
 }
 
 void MultiPresetMixer::SetGlobalTransposeEnabled(bool enabled)
 {
-    GlobalChainEditor(mGlobalChainConfig, mPreChainExecutor, mPostChainExecutor).SetTransposeEnabled(enabled);
+    EditGlobalChain().SetTransposeEnabled(enabled);
 }
 
 void MultiPresetMixer::SetGlobalTranspose(int semitones)
 {
-    GlobalChainEditor(mGlobalChainConfig, mPreChainExecutor, mPostChainExecutor).SetTranspose(semitones);
+    EditGlobalChain().SetTranspose(semitones);
 }
 
 void MultiPresetMixer::SetGlobalEQEnabled(bool enabled)
 {
-    GlobalChainEditor(mGlobalChainConfig, mPreChainExecutor, mPostChainExecutor).SetEQEnabled(enabled);
+    EditGlobalChain().SetEQEnabled(enabled);
 }
 
 void MultiPresetMixer::SetGlobalEQBandGain(int band, double dB)
 {
-    GlobalChainEditor(mGlobalChainConfig, mPreChainExecutor, mPostChainExecutor).SetEQBandGain(band, dB);
+    EditGlobalChain().SetEQBandGain(band, dB);
 }
 
 void MultiPresetMixer::SetGlobalEQBandFrequency(int band, double freq)
 {
-    GlobalChainEditor(mGlobalChainConfig, mPreChainExecutor, mPostChainExecutor).SetEQBandFrequency(band, freq);
+    EditGlobalChain().SetEQBandFrequency(band, freq);
 }
 
 void MultiPresetMixer::SetGlobalEQBandQ(int band, double q)
 {
-    GlobalChainEditor(mGlobalChainConfig, mPreChainExecutor, mPostChainExecutor).SetEQBandQ(band, q);
+    EditGlobalChain().SetEQBandQ(band, q);
 }
 
 void MultiPresetMixer::SetGlobalDoublerEnabled(bool enabled)
 {
-    GlobalChainEditor(mGlobalChainConfig, mPreChainExecutor, mPostChainExecutor).SetDoublerEnabled(enabled);
+    EditGlobalChain().SetDoublerEnabled(enabled);
 }
 
 void MultiPresetMixer::SetGlobalDoublerDelay(double delayMs)
 {
-    GlobalChainEditor(mGlobalChainConfig, mPreChainExecutor, mPostChainExecutor).SetDoublerDelay(delayMs);
+    EditGlobalChain().SetDoublerDelay(delayMs);
 }
 
 void MultiPresetMixer::SetGlobalDoublerMix(double mix)
 {
-    GlobalChainEditor(mGlobalChainConfig, mPreChainExecutor, mPostChainExecutor).SetDoublerMix(mix);
+    EditGlobalChain().SetDoublerMix(mix);
 }
 
 void MultiPresetMixer::SetGlobalDoublerDetune(double cents)
 {
-    GlobalChainEditor(mGlobalChainConfig, mPreChainExecutor, mPostChainExecutor).SetDoublerDetune(cents);
+    EditGlobalChain().SetDoublerDetune(cents);
 }
 
 void MultiPresetMixer::SetGlobalInputGain(double dB)
 {
-    GlobalChainEditor(mGlobalChainConfig, mPreChainExecutor, mPostChainExecutor).SetInputGain(dB);
+    EditGlobalChain().SetInputGain(dB);
 }
 
 void MultiPresetMixer::SetGlobalOutputGain(double dB)
 {
-    mMasterGain = GlobalChainEditor(mGlobalChainConfig, mPreChainExecutor, mPostChainExecutor).SetOutputGain(dB);
+    mMasterGain = EditGlobalChain().SetOutputGain(dB);
 }
 
 // Node-level control methods
 void MultiPresetMixer::SetNodeEnabled(const std::string& presetId, const std::string& nodeId, bool enabled)
 {
-    if (auto* inst = FindInstance(presetId))
+    if (auto* inst = mVoices.Find(presetId))
     {
         inst->executor.SetNodeEnabled(nodeId, enabled);
     }
@@ -1005,7 +526,7 @@ void MultiPresetMixer::SetNodeEnabled(const std::string& presetId, const std::st
 void MultiPresetMixer::SetNodeParam(const std::string& presetId, const std::string& nodeId, const std::string& key,
                                     double value)
 {
-    if (auto* inst = FindInstance(presetId))
+    if (auto* inst = mVoices.Find(presetId))
     {
         inst->executor.SetNodeParam(nodeId, key, value);
     }
@@ -1014,7 +535,7 @@ void MultiPresetMixer::SetNodeParam(const std::string& presetId, const std::stri
 void MultiPresetMixer::SetNodeConfig(const std::string& presetId, const std::string& nodeId, const std::string& key,
                                      const std::string& value)
 {
-    if (auto* inst = FindInstance(presetId))
+    if (auto* inst = mVoices.Find(presetId))
     {
         inst->executor.SetNodeConfig(nodeId, key, value);
     }
@@ -1023,19 +544,19 @@ void MultiPresetMixer::SetNodeConfig(const std::string& presetId, const std::str
 EffectProcessor* MultiPresetMixer::RecordNodeConfig(const std::string& presetId, const std::string& nodeId,
                                                     const std::string& key, const std::string& value)
 {
-    auto* inst = FindInstance(presetId);
+    auto* inst = mVoices.Find(presetId);
     return inst ? inst->executor.RecordNodeConfig(nodeId, key, value) : nullptr;
 }
 
 void MultiPresetMixer::SetNodeConfigForType(const std::string& type, const std::string& key, const std::string& value)
 {
-    for (auto& inst : mInstances)
+    for (auto& inst : mVoices.Instances())
     {
         inst->executor.SetNodeConfigForType(type, key, value);
     }
 
-    mPreChainExecutor.SetNodeConfigForType(type, key, value);
-    mPostChainExecutor.SetNodeConfigForType(type, key, value);
+    mGlobalChain.Pre().SetNodeConfigForType(type, key, value);
+    mGlobalChain.Post().SetNodeConfigForType(type, key, value);
 }
 
 void MultiPresetMixer::SetNodeTypeConfigDefault(const std::string& type, const std::string& key,
@@ -1043,19 +564,19 @@ void MultiPresetMixer::SetNodeTypeConfigDefault(const std::string& type, const s
 {
     mNodeTypeConfigDefaults[type][key] = value;
 
-    for (auto& inst : mInstances)
+    for (auto& inst : mVoices.Instances())
     {
         inst->executor.SetNodeTypeConfigDefault(type, key, value);
     }
 
-    mPreChainExecutor.SetNodeTypeConfigDefault(type, key, value);
-    mPostChainExecutor.SetNodeTypeConfigDefault(type, key, value);
+    mGlobalChain.Pre().SetNodeTypeConfigDefault(type, key, value);
+    mGlobalChain.Post().SetNodeTypeConfigDefault(type, key, value);
 }
 
 std::optional<std::pair<std::string, std::string>> MultiPresetMixer::FindFirstEnabledNodeOfType(
     const std::string& effectType) const
 {
-    for (const auto& inst : mInstances)
+    for (const auto& inst : mVoices.Instances())
     {
         if (inst->IsRetiring())
         {
@@ -1083,7 +604,7 @@ std::vector<MultiPresetMixer::NodeReadout> MultiPresetMixer::ReadNodeParamsForTy
         return readouts;
     }
 
-    const InstanceReadScope readScope(*this);
+    const PresetVoicePool::ReadScope readScope(mVoices);
 
     auto collect = [&](const SignalGraphExecutor& executor, const char* scope, const std::string& presetId) {
         for (const auto& nodeId : executor.FindNodesOfType(effectType, true))
@@ -1110,9 +631,9 @@ std::vector<MultiPresetMixer::NodeReadout> MultiPresetMixer::ReadNodeParamsForTy
         }
     };
 
-    collect(mPreChainExecutor, "pre", std::string{});
+    collect(mGlobalChain.Pre(), "pre", std::string{});
 
-    for (const auto& inst : mInstances)
+    for (const auto& inst : mVoices.Instances())
     {
         if (!inst->IsRetiring())
         {
@@ -1120,7 +641,7 @@ std::vector<MultiPresetMixer::NodeReadout> MultiPresetMixer::ReadNodeParamsForTy
         }
     }
 
-    collect(mPostChainExecutor, "post", std::string{});
+    collect(mGlobalChain.Post(), "post", std::string{});
 
     return readouts;
 }
@@ -1129,7 +650,7 @@ bool MultiPresetMixer::SetNodeEnabledByType(const std::string& effectType, bool 
 {
     bool updated = false;
 
-    for (const auto& inst : mInstances)
+    for (const auto& inst : mVoices.Instances())
     {
         if (inst->IsRetiring())
         {
@@ -1178,7 +699,7 @@ bool MultiPresetMixer::GetNodeAutomationRangeByType(const std::string& effectTyp
 std::string MultiPresetMixer::GetNodeConfig(const std::string& presetId, const std::string& nodeId,
                                             const std::string& key) const
 {
-    if (const auto* inst = FindInstance(presetId))
+    if (const auto* inst = mVoices.Find(presetId))
     {
         return inst->executor.GetNodeConfig(nodeId, key);
     }
@@ -1188,7 +709,7 @@ std::string MultiPresetMixer::GetNodeConfig(const std::string& presetId, const s
 
 EffectProcessor* MultiPresetMixer::GetNodeProcessor(const std::string& presetId, const std::string& nodeId)
 {
-    if (auto* inst = FindInstance(presetId))
+    if (auto* inst = mVoices.Find(presetId))
     {
         return inst->executor.GetNodeProcessor(nodeId);
     }
@@ -1198,7 +719,7 @@ EffectProcessor* MultiPresetMixer::GetNodeProcessor(const std::string& presetId,
 
 const EffectProcessor* MultiPresetMixer::GetNodeProcessor(const std::string& presetId, const std::string& nodeId) const
 {
-    if (const auto* inst = FindInstance(presetId))
+    if (const auto* inst = mVoices.Find(presetId))
     {
         return inst->executor.GetNodeProcessor(nodeId);
     }
@@ -1208,18 +729,18 @@ const EffectProcessor* MultiPresetMixer::GetNodeProcessor(const std::string& pre
 
 void MultiPresetMixer::SetTempo(double bpm)
 {
-    for (auto& inst : mInstances)
+    for (auto& inst : mVoices.Instances())
     {
         inst->executor.SetTempo(bpm);
     }
 
-    mPreChainExecutor.SetTempo(bpm);
-    mPostChainExecutor.SetTempo(bpm);
+    mGlobalChain.Pre().SetTempo(bpm);
+    mGlobalChain.Post().SetTempo(bpm);
 }
 
 bool MultiPresetMixer::LoadNodeResource(const std::string& presetId, const std::string& nodeId, const ResourceRef& ref)
 {
-    if (auto* inst = FindInstance(presetId))
+    if (auto* inst = mVoices.Find(presetId))
     {
         return inst->executor.LoadNodeResource(nodeId, ref);
     }
@@ -1236,203 +757,12 @@ MultiPresetMixer::~MultiPresetMixer()
     // Stop tuner callbacks before any other mixer state begins tearing down.
     mTuner.reset();
     StopWorkers();
-    StopReaper();
-}
-
-// ---------------------------------------------------------------------------
-// Deferred destruction (reaper)
-// ---------------------------------------------------------------------------
-
-void MultiPresetMixer::StartReaper()
-{
-    if (mReaperThread.joinable())
-    {
-        return;
-    }
-
-    {
-        std::lock_guard<std::mutex> lock(mRetireMutex);
-        mReaperQuit = false;
-        // Reserve up front so the audio thread's retire path never reallocates.
-        mRetireQueue.reserve(kRetireQueueCapacity);
-        mRetireExecutors.reserve(kRetireQueueCapacity);
-        mMainThreadRetireQueue.reserve(kRetireQueueCapacity);
-        mMainThreadRetireExecutors.reserve(kRetireQueueCapacity);
-    }
-
-    mReaperThread = std::thread([this] { ReaperLoop(); });
-}
-
-void MultiPresetMixer::StopReaper()
-{
-    if (!mReaperThread.joinable())
-    {
-        return;
-    }
-
-    {
-        std::lock_guard<std::mutex> lock(mRetireMutex);
-        mReaperQuit = true;
-    }
-    mRetireCv.notify_all();
-    mReaperThread.join();
-
-    // Destroy anything still queued now that the worker is gone.
-    {
-        std::lock_guard<std::mutex> lock(mRetireMutex);
-        mRetireQueue.clear();
-        mRetireExecutors.clear();
-    }
-    CollectRetiredMainThread();
+    mReaper.Stop();
 }
 
 void MultiPresetMixer::CollectRetiredMainThread()
 {
-    std::vector<std::unique_ptr<PresetInstance>> instances;
-    std::vector<SignalGraphExecutor> executors;
-    {
-        std::lock_guard<std::mutex> lock(mRetireMutex);
-        instances.reserve(mMainThreadRetireQueue.size());
-
-        for (auto& inst : mMainThreadRetireQueue)
-        {
-            instances.push_back(std::move(inst));
-        }
-
-        mMainThreadRetireQueue.clear(); // Keep capacity for audio-thread retirement.
-        executors.reserve(mMainThreadRetireExecutors.size());
-
-        for (auto& executor : mMainThreadRetireExecutors)
-        {
-            executors.push_back(std::move(executor));
-        }
-
-        mMainThreadRetireExecutors.clear();
-    }
-    // Hosted editor/plugin destruction is on the message thread, outside both locks.
-}
-
-void MultiPresetMixer::ReaperLoop()
-{
-    while (true)
-    {
-        std::vector<std::unique_ptr<PresetInstance>> instances;
-        std::vector<SignalGraphExecutor> executors;
-
-        {
-            std::unique_lock<std::mutex> lock(mRetireMutex);
-            // Poll rather than relying solely on notification: the audio thread retires
-            // finished fade-outs without signalling the condition variable (notify_one is
-            // not something we want on the realtime path), so a periodic wake is needed.
-            mRetireCv.wait_for(lock, std::chrono::milliseconds(250),
-                               [this] { return mReaperQuit || !mRetireQueue.empty() || !mRetireExecutors.empty(); });
-
-            if (mReaperQuit)
-            {
-                return;
-            }
-
-            // Move the work out and clear in place — clear() keeps the reserved capacity the
-            // audio thread's allocation-free retire path depends on. Destruction of the moved
-            // elements happens below, outside the lock, so a producer never waits on it.
-            instances.reserve(mRetireQueue.size());
-
-            for (auto& inst : mRetireQueue)
-            {
-                instances.push_back(std::move(inst));
-            }
-
-            mRetireQueue.clear();
-
-            executors.reserve(mRetireExecutors.size());
-
-            for (auto& exec : mRetireExecutors)
-            {
-                executors.push_back(std::move(exec));
-            }
-
-            mRetireExecutors.clear();
-        }
-
-        // instances/executors destruct here, off both the audio and message threads.
-    }
-}
-
-void MultiPresetMixer::RetireInstance(std::unique_ptr<PresetInstance> inst)
-{
-    if (!inst)
-    {
-        return;
-    }
-
-    StartReaper();
-    {
-        std::lock_guard<std::mutex> lock(mRetireMutex);
-        auto& queue = inst->executor.AnyNodeRequiresMainThreadLoad() ? mMainThreadRetireQueue : mRetireQueue;
-        queue.push_back(std::move(inst));
-    }
-    mRetireCv.notify_one();
-}
-
-bool MultiPresetMixer::TryRetireInstanceRealtime(std::unique_ptr<PresetInstance>& inst)
-{
-    // Audio thread: never block, never allocate. If the reaper happens to be draining the
-    // queue, or the queue is at capacity, leave the instance in place — it is fully faded
-    // out by this point, so carrying it for another block costs a silent chain and nothing
-    // audible. The next block tries again.
-    std::unique_lock<std::mutex> lock(mRetireMutex, std::try_to_lock);
-
-    if (!lock.owns_lock())
-    {
-        return false;
-    }
-
-    // Re-evaluate after live graph/config edits too. This query only walks processors;
-    // it allocates nothing, and composites propagate their inner thread affinity.
-    auto& queue = inst->executor.AnyNodeRequiresMainThreadLoad() ? mMainThreadRetireQueue : mRetireQueue;
-
-    if (queue.size() >= queue.capacity())
-    {
-        return false;
-    }
-
-    queue.push_back(std::move(inst));
-    return true;
-}
-
-void MultiPresetMixer::CollectFinishedFadeOuts()
-{
-    // Tailing instances also read as retiring, but they are not finished: their fade
-    // counter is zero because they are holding a flat gain, not ramping.
-    const auto isFinished = [](const std::unique_ptr<PresetInstance>& inst) {
-        return inst->phase == InstancePhase::FadingOut && inst->fadeSamplesRemaining <= 0;
-    };
-
-    // Nearly every block has nothing to drop, and then there is nobody to hand-shake with.
-    if (std::none_of(mInstances.begin(), mInstances.end(), isFinished))
-    {
-        return;
-    }
-
-    // The other half of InstanceReadScope: announce the erase, then look for a reader.
-    mErasingInstances.store(true, std::memory_order_seq_cst);
-
-    if (mInstanceReaders.load(std::memory_order_seq_cst) == 0)
-    {
-        for (auto it = mInstances.begin(); it != mInstances.end();)
-        {
-            if (isFinished(*it) && TryRetireInstanceRealtime(*it))
-            {
-                it = mInstances.erase(it); // unique_ptr moves only — no executor moves, no joins
-            }
-            else
-            {
-                ++it;
-            }
-        }
-    }
-
-    mErasingInstances.store(false, std::memory_order_release);
+    mReaper.CollectMainThread();
 }
 
 void MultiPresetMixer::StartWorkers(int count)
@@ -1525,13 +855,11 @@ void MultiPresetMixer::Prepare(double sampleRate, int maxBlockSize)
     mMaxBlockSize = maxBlockSize;
     mPrepared = true;
 
-    // Tail spill windows follow the sample rate; the hold itself is resolved per swap from
-    // whatever length the caller last set.
-    mTailReleaseSamples = std::max(1, static_cast<int>(std::lround(kTailReleaseSeconds * sampleRate)));
+    mVoices.Prepare(sampleRate);
 
     // Bring the reaper up before any swap can happen, so retiring never has to spawn a
     // thread while the DSP lock is held.
-    StartReaper();
+    mReaper.Start();
 
     // Allocate global temp buffers
     mTempInL.resize(static_cast<size_t>(maxBlockSize), 0.0f);
@@ -1543,15 +871,14 @@ void MultiPresetMixer::Prepare(double sampleRate, int maxBlockSize)
     mTuner->Prepare(sampleRate);
 
     // Build and prepare global signal chains based on current config
-    mGlobalChainNeedsRebuild.store(true, std::memory_order_release);
+    mGlobalChain.MarkNeedsRebuild();
     EnsureGlobalChainsUpToDate();
 
     AllocateBuffers(maxBlockSize);
 
-    for (auto& inst : mInstances)
+    for (auto& inst : mVoices.Instances())
     {
         inst->executor.Prepare(sampleRate, maxBlockSize);
-        AllocateInstanceBuffers(*inst, maxBlockSize);
     }
 
     // Start worker threads for parallel preset processing.
@@ -1574,10 +901,10 @@ void MultiPresetMixer::Prepare(double sampleRate, int maxBlockSize)
 
 void MultiPresetMixer::Reset()
 {
-    mPreChainExecutor.Reset();
-    mPostChainExecutor.Reset();
+    mGlobalChain.Pre().Reset();
+    mGlobalChain.Post().Reset();
 
-    for (auto& inst : mInstances)
+    for (auto& inst : mVoices.Instances())
     {
         inst->executor.Reset();
     }
@@ -1622,7 +949,7 @@ void MultiPresetMixer::Process(float** inputs, float** outputs, int numSamples)
     // The chains are rebuilt from Prepare() and SetGlobalChainConfig() on the UI/main thread.
 
     // Safety check: ensure we're prepared before processing
-    if (!mPrepared || mInstances.empty())
+    if (!mPrepared || mVoices.Instances().empty())
     {
         // Output silence if not ready
         if (outputs[0])
@@ -1766,15 +1093,15 @@ void MultiPresetMixer::Process(float** inputs, float** outputs, int numSamples)
     }
 
     const bool namInputModeMono = mMonoMode;
-    mPreChainExecutor.SetNamInputModeMono(namInputModeMono);
-    mPostChainExecutor.SetNamInputModeMono(namInputModeMono);
+    mGlobalChain.Pre().SetNamInputModeMono(namInputModeMono);
+    mGlobalChain.Post().SetNamInputModeMono(namInputModeMono);
 
     // ==========================================================================
     // GLOBAL PRE-CHAIN: Input → Noise Gate → Transpose
     // ==========================================================================
     float* preChainInputs[2] = {processInL, processInR};
     float* preChainOutputs[2] = {mPreChainOutL.data(), mPreChainOutR.data()};
-    mPreChainExecutor.Process(preChainInputs, preChainOutputs, numSamples);
+    mGlobalChain.Pre().Process(preChainInputs, preChainOutputs, numSamples);
 
     // ==========================================================================
     // PRESET PROCESSING: Process each active preset and mix
@@ -1784,7 +1111,7 @@ void MultiPresetMixer::Process(float** inputs, float** outputs, int numSamples)
     // decision — they are on their way out and must stay audible for the whole ramp.
     bool anySolo = false;
 
-    for (const auto& inst : mInstances)
+    for (const auto& inst : mVoices.Instances())
     {
         if (!inst->IsRetiring() && inst->cfg.solo)
         {
@@ -1896,7 +1223,7 @@ void MultiPresetMixer::Process(float** inputs, float** outputs, int numSamples)
     // along once the live set has earned the fan-out on its own.
     int liveCount = 0;
 
-    for (const auto& inst : mInstances)
+    for (const auto& inst : mVoices.Instances())
     {
         if (!inst->IsRetiring() && isAudible(*inst))
         {
@@ -1908,7 +1235,7 @@ void MultiPresetMixer::Process(float** inputs, float** outputs, int numSamples)
 
     if (liveCount >= 2)
     {
-        for (const auto& inst : mInstances)
+        for (const auto& inst : mVoices.Instances())
         {
             if (inst->IsRetiring() || !isAudible(*inst))
             {
@@ -1924,7 +1251,7 @@ void MultiPresetMixer::Process(float** inputs, float** outputs, int numSamples)
                                         totalWorkUnits, !mWorkerThreads.empty());
 
     // Avoid nested parallelism: if mixer-level fan-out is active, run each preset graph serially.
-    for (auto& inst : mInstances)
+    for (auto& inst : mVoices.Instances())
     {
         inst->executor.SetNamInputModeMono(namInputModeMono);
         inst->executor.SetParallelLevelsEnabled(!useParallel);
@@ -1935,7 +1262,7 @@ void MultiPresetMixer::Process(float** inputs, float** outputs, int numSamples)
         // Pack work items (up to kMaxWorkItems); any extras fall through to serial below.
         int wi = 0;
 
-        for (auto& instPtr : mInstances)
+        for (auto& instPtr : mVoices.Instances())
         {
             auto& inst = *instPtr;
 
@@ -2024,7 +1351,7 @@ void MultiPresetMixer::Process(float** inputs, float** outputs, int numSamples)
     else
     {
         // Serial path: single active preset or no worker threads available.
-        for (auto& instPtr : mInstances)
+        for (auto& instPtr : mVoices.Instances())
         {
             auto& inst = *instPtr;
 
@@ -2042,44 +1369,9 @@ void MultiPresetMixer::Process(float** inputs, float** outputs, int numSamples)
     }
 
     // Advance swap ramps once per block, after every mix site, then drop any instance that
-    // has finished fading out. Instances excluded from the mix above still advance so a
-    // muted fade-out cannot get stuck holding its resources forever.
-    for (auto& inst : mInstances)
-    {
-        if (inst->phase == InstancePhase::Active)
-        {
-            continue;
-        }
-
-        if (inst->tailInput)
-        {
-            inst->inputFadeSamplesRemaining = std::max(0, inst->inputFadeSamplesRemaining - numSamples);
-        }
-
-        if (inst->phase == InstancePhase::Tailing)
-        {
-            inst->tailSamplesRemaining = std::max(0, inst->tailSamplesRemaining - numSamples);
-
-            // Output silence cannot prove a delay line is empty: repeats and predelays
-            // can be arbitrarily far apart. Keep state until the configured budget ends.
-            if (inst->tailSamplesRemaining == 0)
-            {
-                inst->BeginFadeOut(mTailReleaseSamples);
-            }
-
-            continue;
-        }
-
-        inst->fadeSamplesRemaining = std::max(0, inst->fadeSamplesRemaining - numSamples);
-
-        if (inst->fadeSamplesRemaining == 0 && inst->phase == InstancePhase::FadingIn)
-        {
-            inst->phase = InstancePhase::Active;
-            inst->fadeTotalSamples = 0;
-        }
-    }
-
-    CollectFinishedFadeOuts();
+    // has finished fading out.
+    mVoices.AdvanceRamps(numSamples);
+    mVoices.CollectFinishedFadeOuts();
 
     // ==========================================================================
     // MIX GAIN: the Multi-Rig's own level, applied to the summed preset mix ahead
@@ -2107,7 +1399,7 @@ void MultiPresetMixer::Process(float** inputs, float** outputs, int numSamples)
     // GLOBAL POST-CHAIN: EQ → Doubler
     // ==========================================================================
     float* postChainOutputs[2] = {mPostChainOutL.data(), mPostChainOutR.data()};
-    mPostChainExecutor.Process(outputs, postChainOutputs, numSamples);
+    mGlobalChain.Post().Process(outputs, postChainOutputs, numSamples);
 
     // Copy post-chain output back to main outputs
     if (outputs[0])
@@ -2232,12 +1524,12 @@ void MultiPresetMixer::Process(float** inputs, float** outputs, int numSamples)
 
 void MultiPresetMixer::SetSignalDiagnosticsEnabled(bool enabled)
 {
-    const InstanceReadScope readScope(*this);
+    const PresetVoicePool::ReadScope readScope(mVoices);
     mTelemetry.SetEnabled(enabled);
-    mPreChainExecutor.SetSignalDiagnosticsEnabled(enabled);
-    mPostChainExecutor.SetSignalDiagnosticsEnabled(enabled);
+    mGlobalChain.Pre().SetSignalDiagnosticsEnabled(enabled);
+    mGlobalChain.Post().SetSignalDiagnosticsEnabled(enabled);
 
-    for (auto& inst : mInstances)
+    for (auto& inst : mVoices.Instances())
     {
         inst->executor.SetSignalDiagnosticsEnabled(enabled);
     }
@@ -2245,20 +1537,20 @@ void MultiPresetMixer::SetSignalDiagnosticsEnabled(bool enabled)
 
 MultiPresetMixer::SignalDiagnosticsSnapshot MultiPresetMixer::GetSignalDiagnosticsSnapshot() const
 {
-    const InstanceReadScope readScope(*this);
+    const PresetVoicePool::ReadScope readScope(mVoices);
     SignalDiagnosticsSnapshot snapshot = mTelemetry.GetSnapshot();
 
-    const auto preLevels = mPreChainExecutor.GetNodeSignalLevels();
-    const auto postLevels = mPostChainExecutor.GetNodeSignalLevels();
+    const auto preLevels = mGlobalChain.Pre().GetNodeSignalLevels();
+    const auto postLevels = mGlobalChain.Post().GetNodeSignalLevels();
 
-    snapshot.nodes.reserve(preLevels.size() + postLevels.size() + mInstances.size() * 8);
+    snapshot.nodes.reserve(preLevels.size() + postLevels.size() + mVoices.Instances().size() * 8);
 
     for (const auto& entry : preLevels)
     {
         snapshot.nodes.push_back(MixerTelemetry::ToSnapshotNode(entry, "pre", {}));
     }
 
-    for (const auto& inst : mInstances)
+    for (const auto& inst : mVoices.Instances())
     {
         if (inst->IsRetiring())
         {
@@ -2282,20 +1574,20 @@ MultiPresetMixer::SignalDiagnosticsSnapshot MultiPresetMixer::GetSignalDiagnosti
 bool MultiPresetMixer::ReadNodeSpectrum(std::string_view scope, const std::string& presetId, const std::string& nodeId,
                                         SpectrumTap::Bins& out)
 {
-    const InstanceReadScope readScope(*this);
+    const PresetVoicePool::ReadScope readScope(mVoices);
     SignalGraphExecutor* executor = nullptr;
 
     if (scope == "pre")
     {
-        executor = &mPreChainExecutor;
+        executor = &mGlobalChain.Pre();
     }
     else if (scope == "post")
     {
-        executor = &mPostChainExecutor;
+        executor = &mGlobalChain.Post();
     }
     else if (scope == "preset")
     {
-        for (auto& inst : mInstances)
+        for (auto& inst : mVoices.Instances())
         {
             if (!inst->IsRetiring() && (presetId.empty() || inst->cfg.id == presetId))
             {
@@ -2312,11 +1604,11 @@ bool MultiPresetMixer::ReadNodeSpectrum(std::string_view scope, const std::strin
 
 void MultiPresetMixer::ClearSpectrumTaps()
 {
-    const InstanceReadScope readScope(*this);
-    mPreChainExecutor.ClearSpectrumWatch();
-    mPostChainExecutor.ClearSpectrumWatch();
+    const PresetVoicePool::ReadScope readScope(mVoices);
+    mGlobalChain.Pre().ClearSpectrumWatch();
+    mGlobalChain.Post().ClearSpectrumWatch();
 
-    for (auto& inst : mInstances)
+    for (auto& inst : mVoices.Instances())
     {
         inst->executor.ClearSpectrumWatch();
     }
@@ -2325,9 +1617,9 @@ void MultiPresetMixer::ClearSpectrumTaps()
 std::vector<std::string> MultiPresetMixer::GetActivePresetIds() const
 {
     std::vector<std::string> ids;
-    ids.reserve(mInstances.size());
+    ids.reserve(mVoices.Instances().size());
 
-    for (const auto& inst : mInstances)
+    for (const auto& inst : mVoices.Instances())
     {
         if (!inst->IsRetiring())
         {
@@ -2340,7 +1632,7 @@ std::vector<std::string> MultiPresetMixer::GetActivePresetIds() const
 
 std::vector<std::string> MultiPresetMixer::GetPresetNodeTypes(const std::string& presetId) const
 {
-    const auto* inst = FindInstance(presetId);
+    const auto* inst = mVoices.Find(presetId);
 
     if (!inst)
     {
@@ -2352,7 +1644,7 @@ std::vector<std::string> MultiPresetMixer::GetPresetNodeTypes(const std::string&
 
 std::optional<MultiPresetMixer::InstanceConfig> MultiPresetMixer::GetPresetConfig(const std::string& presetId) const
 {
-    if (const auto* inst = FindInstance(presetId))
+    if (const auto* inst = mVoices.Find(presetId))
     {
         return inst->cfg;
     }
@@ -2360,81 +1652,22 @@ std::optional<MultiPresetMixer::InstanceConfig> MultiPresetMixer::GetPresetConfi
     return std::nullopt;
 }
 
-MultiPresetMixer::PresetInstance* MultiPresetMixer::FindInstance(const std::string& id)
-{
-    // Retiring instances are invisible to lookups. Their ID often matches the incoming
-    // one (a scene switch reuses the preset ID), so returning one would route parameter
-    // updates into the chain that is on its way out.
-    for (auto& inst : mInstances)
-    {
-        if (!inst->IsRetiring() && inst->cfg.id == id)
-        {
-            return inst.get();
-        }
-    }
-
-    return nullptr;
-}
-
-const MultiPresetMixer::PresetInstance* MultiPresetMixer::FindInstance(const std::string& id) const
-{
-    for (const auto& inst : mInstances)
-    {
-        if (!inst->IsRetiring() && inst->cfg.id == id)
-        {
-            return inst.get();
-        }
-    }
-
-    return nullptr;
-}
-
 size_t MultiPresetMixer::GetPresetCount() const
 {
-    const InstanceReadScope readScope(*this);
-    size_t count = 0;
-
-    for (const auto& inst : mInstances)
-    {
-        if (!inst->IsRetiring())
-        {
-            ++count;
-        }
-    }
-
-    return count;
+    return mVoices.LiveCount();
 }
 
 size_t MultiPresetMixer::GetRetiringPresetCount() const
 {
-    const InstanceReadScope readScope(*this);
-    size_t count = 0;
-
-    for (const auto& inst : mInstances)
-    {
-        if (inst->IsRetiring())
-        {
-            ++count;
-        }
-    }
-
-    return count;
+    return mVoices.RetiringCount();
 }
 
 void MultiPresetMixer::AllocateBuffers(int maxBlockSize)
 {
-    for (auto& inst : mInstances)
+    for (auto& inst : mVoices.Instances())
     {
         inst->ResizeBuffers(maxBlockSize);
-        AllocateInstanceBuffers(*inst, maxBlockSize);
     }
-}
-
-void MultiPresetMixer::AllocateInstanceBuffers(PresetInstance& inst, int maxBlockSize)
-{
-    // Output buffers only - gate/pitch/doubler are now signal chain nodes
-    (void)inst; // Nothing to allocate per-instance anymore
-    (void)maxBlockSize;
 }
 
 void MultiPresetMixer::ComputePanGains(double pan, float& gL, float& gR)
@@ -2449,7 +1682,7 @@ void MultiPresetMixer::ComputePanGains(double pan, float& gL, float& gR)
 
 SignalGraphExecutor::DSPPerformanceStats MultiPresetMixer::GetPerformanceStats() const
 {
-    const InstanceReadScope readScope(*this);
+    const PresetVoicePool::ReadScope readScope(mVoices);
     SignalGraphExecutor::DSPPerformanceStats aggregatedStats;
 
     // Node ids only distinguish nodes inside one executor, so every id is rewritten to
@@ -2473,9 +1706,9 @@ SignalGraphExecutor::DSPPerformanceStats MultiPresetMixer::GetPerformanceStats()
         }
     };
 
-    mergeStats(mPreChainExecutor.GetPerformanceStats(), "pre::");
+    mergeStats(mGlobalChain.Pre().GetPerformanceStats(), "pre::");
 
-    for (const auto& instance : mInstances)
+    for (const auto& instance : mVoices.Instances())
     {
         if (!instance->IsRetiring())
         {
@@ -2483,7 +1716,7 @@ SignalGraphExecutor::DSPPerformanceStats MultiPresetMixer::GetPerformanceStats()
         }
     }
 
-    mergeStats(mPostChainExecutor.GetPerformanceStats(), "post::");
+    mergeStats(mGlobalChain.Post().GetPerformanceStats(), "post::");
 
     if (aggregatedStats.realTimeUs > 0.0)
     {
@@ -2495,13 +1728,13 @@ SignalGraphExecutor::DSPPerformanceStats MultiPresetMixer::GetPerformanceStats()
 
 int MultiPresetMixer::GetTotalLatencySamples() const
 {
-    const InstanceReadScope readScope(*this);
-    const int preChain = mPreChainExecutor.GetTotalLatencySamples();
-    const int postChain = mPostChainExecutor.GetTotalLatencySamples();
+    const PresetVoicePool::ReadScope readScope(mVoices);
+    const int preChain = mGlobalChain.Pre().GetTotalLatencySamples();
+    const int postChain = mGlobalChain.Post().GetTotalLatencySamples();
 
     int instanceMax = 0;
 
-    for (const auto& inst : mInstances)
+    for (const auto& inst : mVoices.Instances())
     {
         // A fading-out instance's latency must not leak into the reported figure: it is
         // about to disappear, and reporting it would make the host renegotiate PDC twice.

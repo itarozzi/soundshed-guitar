@@ -1,7 +1,11 @@
 #pragma once
 
 #include "presets/PresetTypes.h"
+#include "dsp/DspReaper.h"
 #include "dsp/EffectProcessor.h"
+#include "dsp/GlobalChainEngine.h"
+#include "dsp/PresetInstance.h"
+#include "dsp/PresetVoicePool.h"
 #include "dsp/SignalGraphExecutor.h"
 #include "dsp/SignalTelemetry.h"
 #include "dsp/MixerTelemetry.h"
@@ -28,25 +32,24 @@
 
 namespace guitarfx
 {
+class GlobalChainEditor;
 class ResourceLibrary;
 
 /**
  * Central DSP manager that runs multiple presets in parallel and mixes their outputs.
  * Supports per-preset mix level, mute/solo, stereo panning, and per-preset global FX.
  * Also handles global input settings like auto-level and mono/stereo mode.
+ *
+ * The parts with a lifetime of their own are separate classes it composes: PresetVoicePool
+ * (preset instances from install to retirement, and the swap rules), GlobalChainEngine (the
+ * global pre/post executors, rebuilt and swapped), DspReaper (where retired chains are
+ * destroyed), TunerEngine and MixerTelemetry. What is left here is the per-block signal
+ * flow, the mixer's scalar settings, and the routing of node edits to the right executor.
  */
 class MultiPresetMixer
 {
   public:
-    struct InstanceConfig
-    {
-        std::string id;   // Stable preset instance ID (e.g., "p1")
-        std::string name; // Display name
-        double mix = 1.0; // Linear gain [0.0, 1.0]
-        bool mute = false;
-        bool solo = false;
-        double pan = 0.0; // [-1.0, 1.0] equal-power pan
-    };
+    using InstanceConfig = PresetInstanceConfig;
 
     using TunerResult = TunerEngine::Result;
 
@@ -134,12 +137,12 @@ class MultiPresetMixer
 
     [[nodiscard]] double GetPresetSwapTailSeconds() const noexcept
     {
-        return mTailSpillSeconds;
+        return mVoices.GetTailSeconds();
     }
 
     // Ceiling on the above. A runaway feedback delay never decays on its own, so the hold
     // is what stops one ringing under the next three songs.
-    static constexpr double kMaxPresetSwapTailSeconds = 20.0;
+    static constexpr double kMaxPresetSwapTailSeconds = PresetVoicePool::kMaxTailSeconds;
 
     // Global chain swap, same two-phase pattern as the preset swap above.
     // PrepareGlobalChainSwap normalizes the config and — only if it actually differs from the
@@ -189,7 +192,7 @@ class MultiPresetMixer
     void SetLimiterEnabled(bool enabled)
     {
         mLimiterEnabled = enabled;
-        mGlobalChainConfig.limiterEnabled = enabled;
+        mGlobalChain.Config().limiterEnabled = enabled;
     }
 
     [[nodiscard]] double GetMasterGain() const
@@ -283,7 +286,7 @@ class MultiPresetMixer
 
     [[nodiscard]] const GlobalSignalChainConfig& GetGlobalChainConfig() const
     {
-        return mGlobalChainConfig;
+        return mGlobalChain.Config();
     }
 
     // Global pre-chain controls (noise gate, transpose)
@@ -472,185 +475,37 @@ class MultiPresetMixer
     }
 
   private:
-    /// Where an instance is in its lifecycle. Retiring instances stay in mInstances so the
-    /// existing dispatch/mix paths process them unchanged, but they are hidden from every
-    /// lookup and query so callers only ever see the live set.
-    enum class InstancePhase
-    {
-        Active,    ///< Normal: full gain.
-        FadingIn,  ///< Just installed, ramping 0 -> 1.
-        Tailing,   ///< Superseded, input ramped to zero, output held while the tail rings out.
-        FadingOut, ///< On its way out, ramping to 0; retired to the reaper when the ramp ends.
-    };
+    /// A new instance for `preset`, built and prepared, ready to install or stage. Does the
+    /// expensive work — effect creation, resource loading (a NAM model from disk can take
+    /// hundreds of milliseconds), Prepare() — so a caller that can hold the DSP lock around
+    /// the result calls this without it.
+    [[nodiscard]] std::unique_ptr<PresetInstance> BuildInstance(const Preset& preset, const std::string& id,
+                                                                const std::string& name) const;
+    /// What every executor this mixer builds starts from.
+    [[nodiscard]] ExecutorSetup MakeExecutorSetup() const;
+    /// The edit rules for the live global chain. Defined in MultiPresetMixer.cpp.
+    [[nodiscard]] GlobalChainEditor EditGlobalChain();
 
-    struct PresetInstance
-    {
-        InstanceConfig cfg;
-        SignalGraphExecutor executor;
-        std::vector<float> outL;
-        std::vector<float> outR;
-        /// The ramped-to-zero input a tailing instance is fed, in place of the shared
-        /// pre-chain output every live instance reads. Per instance rather than one shared
-        /// buffer because several may be tailing from different ramp positions at once,
-        /// and the parallel dispatch runs them on different threads.
-        std::vector<float> tailInL;
-        std::vector<float> tailInR;
-        int complexityScore = 1;
-        /// Whether this graph has anything that could still sound once its input is cut —
-        /// a delay, a reverb, or an opaque plugin/WASM node that might be either. Decided
-        /// once when the instance is built; a graph with none of them is cut on the declick
-        /// ramp as before rather than being run on in the hope that it decays.
-        bool canRingOut = false;
-
-        InstancePhase phase = InstancePhase::Active;
-        int fadeSamplesRemaining = 0;
-        int fadeTotalSamples = 0;
-
-        // Input remains disconnected during the release too, even though phase is FadingOut.
-        bool tailInput = false;
-        /// Output gain held flat for the whole tail. Frozen at whatever the instance was
-        /// at when the tail began, so an instance superseded mid-fade-in does not step up
-        /// to unity on its way out.
-        float tailGain = 1.0f;
-        /// Input ramp 1 -> 0, so nothing new enters the chain but its state decays smoothly
-        /// rather than being cut.
-        int inputFadeSamplesRemaining = 0;
-        int inputFadeTotalSamples = 0;
-        /// What is left of the hold budget.
-        int tailSamplesRemaining = 0;
-
-        /// Sizes the per-block buffers. Not on the audio thread.
-        void ResizeBuffers(int maxBlockSize);
-
-        /// Gain multiplier at the start of a block of numSamples, and at its end.
-        /// Linear (equal-gain) ramp: the outgoing and incoming chains carry the same source
-        /// and are strongly correlated, so equal-power would overshoot by up to 3 dB.
-        void GetFadeGains(int numSamples, float& startGain, float& endGain) const;
-
-        /// The instance's current fade multiplier.
-        [[nodiscard]] float CurrentFadeGain() const;
-
-        /// Switch to fading out over `fadeSamples`, starting from whatever gain the instance
-        /// is at right now. Switching again while an instance is still fading in must not
-        /// snap it back to full gain — that step is exactly the click being designed out.
-        void BeginFadeOut(int fadeSamples);
-
-        /// Switch to ringing out: hold the current output gain for up to `holdSamples`
-        /// while the input ramps away over `inputFadeSamples`.
-        void BeginTail(int inputFadeSamples, int holdSamples);
-
-        /// Writes this block's ramped-down input into tailInL/tailInR. Audio thread.
-        void FillTailInput(const float* inL, const float* inR, int numSamples);
-
-        [[nodiscard]] bool IsRetiring() const
-        {
-            return phase == InstancePhase::FadingOut || phase == InstancePhase::Tailing;
-        }
-
-        PresetInstance() = default;
-        PresetInstance(PresetInstance&&) noexcept = default;
-        PresetInstance& operator=(PresetInstance&&) noexcept = default;
-        PresetInstance(const PresetInstance&) = delete;
-        PresetInstance& operator=(const PresetInstance&) = delete;
-    };
-
-    [[nodiscard]] PresetInstance* FindInstance(const std::string& id);
-    [[nodiscard]] const PresetInstance* FindInstance(const std::string& id) const;
-
-    /// Holds the audio thread's CollectFinishedFadeOuts() off mInstances, without the DSP
-    /// lock, for as long as it lives. Defined in MultiPresetMixer.cpp.
-    class InstanceReadScope;
     void AllocateBuffers(int maxBlockSize);
-    void AllocateInstanceBuffers(PresetInstance& inst, int maxBlockSize);
     static void ComputePanGains(double pan, float& gL, float& gR);
-    void RebuildGlobalChains();
     void EnsureGlobalChainsUpToDate();
     /// Apply the non-graph parts of the global config (mono/auto-level/limiter/master gain).
     void ApplyGlobalChainScalars(const GlobalSignalChainConfig& config);
 
-    // ---- Deferred destruction ------------------------------------------------------
-    // Destroying an instance frees NAM models, convolver partition tables and node buffers.
-    // Doing that on the message thread while holding the DSP lock stalls the audio thread
-    // (which try_locks and outputs silence on failure), so retired instances are moved onto
-    // a queue and destroyed on a background reaper thread instead. Moving is cheap and
-    // allocation-free as long as the queue has spare capacity, which lets the audio thread
-    // retire finished fade-outs itself via a try_lock.
-    void StartReaper();
-    void StopReaper();
-    void ReaperLoop();
-    /// Message-thread retire: always succeeds, may allocate, wakes the reaper.
-    void RetireInstance(std::unique_ptr<PresetInstance> inst);
-    /// Audio-thread retire: non-blocking and allocation-free. Returns false if the caller
-    /// should keep the instance (already silent) and try again on the next block.
-    [[nodiscard]] bool TryRetireInstanceRealtime(std::unique_ptr<PresetInstance>& inst);
-    /// Drop every finished fade-out. Audio thread, end of Process(). Leaves them for the next
-    /// block while an InstanceReadScope is held.
-    void CollectFinishedFadeOuts();
-
-    // ---- Tail spill ----------------------------------------------------------------
-    /// Retires a superseded instance the way the current settings say to: ringing out when
-    /// the tail spill is on and its graph can ring, plain declick fade otherwise.
-    void RetireSupersededInstance(PresetInstance& inst);
-    /// Pushes the oldest tails into their release once more than kMaxTailingInstances are
-    /// ringing at once, so a run of fast switches cannot stack full chains without bound.
-    void LimitTailingInstances();
-    void LimitRetiringInstances();
-    /// The hold budget a new tail starts with, in samples.
-    [[nodiscard]] int TailHoldSamples() const;
     ResourceLibrary* mResourceLibrary = nullptr;
     // Per-instance node-type config (NAM quality), replayed onto every executor this
     // mixer builds — see SetNodeTypeConfigDefault().
     std::map<std::string, std::map<std::string, std::string>> mNodeTypeConfigDefaults;
-    // Held by pointer so the audio thread can drop a finished fade-out with a pointer move:
-    // moving a PresetInstance by value moves its SignalGraphExecutor, whose move-assignment
-    // joins worker threads — not something that can happen on the realtime path.
-    //
-    // Changed in two places only: by the message thread under the DSP lock, and by the audio
-    // thread's CollectFinishedFadeOuts() at the end of Process(). A walk needs the DSP lock,
-    // or, on the message thread, an InstanceReadScope.
-    std::vector<std::unique_ptr<PresetInstance>> mInstances;
-    // InstanceReadScope's side of the handshake, and the audio thread's.
-    mutable std::atomic<int> mInstanceReaders{0};
-    std::atomic<bool> mErasingInstances{false};
 
-    // Staged instance built off the DSP lock by PreparePresetSwap(); committed by CommitPresetSwap().
-    std::unique_ptr<PresetInstance> mPendingInstance;
-
-    // Crossfade length for a preset swap, in samples (~21 ms at 48 kHz). This is a declick
-    // ramp, not a musical crossfade; a user-configurable fade time arrives with the switching
-    // settings in a later phase.
-    static constexpr int kPresetFadeSamples = 1024;
-    // Upper bound on simultaneously fading-out instances. Rapid successive switches
-    // hard-drop the oldest rather than stacking unbounded CPU cost.
-    static constexpr std::size_t kMaxFadingOutInstances = 3;
-
-    // ── Tail spill tuning ────────────────────────────────────────────────────────────
-    // How many outgoing presets may ring at once. A ringing instance is a whole chain still
-    // being processed on the audio thread, so this is a CPU budget before it is a musical
-    // choice. One tail holds; older tails release, with at most three retirees in total.
-    static constexpr std::size_t kMaxTailingInstances = 1;
-    // Release once the hold runs out. Long enough that cutting a still-loud feedback delay
-    // reads as an ending rather than a chop — the 21 ms declick would be audible there.
-    static constexpr double kTailReleaseSeconds = 0.25;
-
-    // Retired instances awaiting destruction on the reaper thread.
-    std::vector<std::unique_ptr<PresetInstance>> mRetireQueue;
-    std::vector<SignalGraphExecutor> mRetireExecutors;
-    std::vector<std::unique_ptr<PresetInstance>> mMainThreadRetireQueue;
-    std::vector<SignalGraphExecutor> mMainThreadRetireExecutors;
-    std::mutex mRetireMutex;
-    std::condition_variable mRetireCv;
-    std::thread mReaperThread;
-    bool mReaperQuit = false;
-    static constexpr std::size_t kRetireQueueCapacity = 16;
+    // Declared ahead of the voice pool and the global chain, which retire into it, so it is
+    // constructed before and destroyed after both. The destructor stops it explicitly first.
+    DspReaper mReaper;
+    PresetVoicePool mVoices{mReaper};
+    GlobalChainEngine mGlobalChain{mReaper};
 
     double mSampleRate = 44100.0;
     int mMaxBlockSize = 512;
     bool mPrepared = false;
-    // Tail spill: off until somebody sets a length. Prepare() resolves the release
-    // sample count from the duration above, so it follows the sample rate.
-    double mTailSpillSeconds = 0.0;
-    int mTailReleaseSamples = kPresetFadeSamples;
     double mMixGainDb = 0.0;
     double mMixGain = 1.0;
     double mMasterGain = 1.0;
@@ -674,18 +529,6 @@ class MultiPresetMixer
     std::vector<float> mTempInL, mTempInR;
     std::vector<float> mPreChainOutL, mPreChainOutR;
     std::vector<float> mPostChainOutL, mPostChainOutR;
-
-    // Global signal chain configuration and executors
-    GlobalSignalChainConfig mGlobalChainConfig;
-    SignalGraphExecutor mPreChainExecutor;  // input → gate → transpose
-    SignalGraphExecutor mPostChainExecutor; // eq → doubler → output
-    std::atomic<bool> mGlobalChainNeedsRebuild{true};
-
-    // Staged global chain built off the DSP lock by PrepareGlobalChainSwap(). The two
-    // executor slots stay empty when the graphs were unchanged and only scalars need applying.
-    std::optional<GlobalSignalChainConfig> mPendingGlobalChainConfig;
-    std::optional<SignalGraphExecutor> mPendingPreChainExecutor;
-    std::optional<SignalGraphExecutor> mPendingPostChainExecutor;
 
     // Stable heap address keeps the tuner's worker bound to its owner across mixer moves.
     std::unique_ptr<TunerEngine> mTuner;

@@ -93,7 +93,9 @@ Relevant locations:
 
 The root controller should compose these services rather than expose every feature's private operations.
 
-**Status:** Tuner capture, analysis, callback dispatch, and worker lifetime have been extracted into `TunerEngine`. Level measurement, diagnostics snapshots, enablement, and oversized-block counts now belong to `MixerTelemetry`. Global-chain normalization and control edits now live in `GlobalChainEditor`, with `MultiPresetMixer` retaining its public API. Preset lifetime and global-chain executor ownership, staging, and retirement remain to be extracted.
+**Status:** Tuner capture, analysis, callback dispatch, and worker lifetime have been extracted into `TunerEngine`. Level measurement, diagnostics snapshots, enablement, and oversized-block counts now belong to `MixerTelemetry`. Global-chain normalization and control edits now live in `GlobalChainEditor`, with `MultiPresetMixer` retaining its public API. Preset lifetime is now `PresetVoicePool` (with `PresetInstance` as its own unit): installation, staged swap, replace and add commits, the tail spill and retiree caps, ramp advance, and the audio thread's end-of-block collect with its read-scope handshake. Global-chain executor ownership, rebuild, staging, and swap are `GlobalChainEngine`. Retirement is `DspReaper`, shared by both. `MultiPresetMixer.cpp` is down to 1,766 lines and its header to 564; what remains is the per-block signal flow, the scalar settings, and node-edit routing. There is one intended behaviour change: a staged global-chain swap now seeds this instance's node-type config defaults (NAM quality), as an in-place rebuild always did.
+
+Controller services that register their own message handlers are still to do.
 
 ### P2 — Cross-language contracts have multiple manual sources of truth
 

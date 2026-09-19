@@ -21,6 +21,7 @@ set(TEST_SOURCES
     FastMathNanTests.cpp
     GaplessSwitchingTests.cpp
     GlobalChainEditorTests.cpp
+    GlobalChainEngineTests.cpp
     PresetRetirementTests.cpp
     DemoPreviewLoopTests.cpp
     HostedPluginCaptureLockTests.cpp
@@ -44,6 +45,7 @@ set(TEST_SOURCES
     PresetDSPLoadingTests.cpp
     PresetManagementWorkflowTests.cpp
     PresetStorageTests.cpp
+    PresetVoicePoolTests.cpp
     JsonStoreConcurrencyTests.cpp
     JsonStoreTests.cpp
     ResourceLibraryDeleteWorkflowTests.cpp
