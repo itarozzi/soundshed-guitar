@@ -66,10 +66,15 @@ bool PluginController::AddActivePreset(const Preset& preset, const std::string& 
         }
     }
 
+    // A stored preset names each blend node's blend but not its models, and a slot built
+    // without them plays the node dry.
+    Preset slotPreset = preset;
+    ApplyBlendDefinitions(slotPreset);
+
     // Built off the DSP lock and installed under it, as a preset switch is: building a slot
     // creates its processors and loads their models, IRs and plugins, and every slot would
     // be silent for as long as that took.
-    mPresetMixer.PreparePresetSwap(preset, presetId, name);
+    mPresetMixer.PreparePresetSwap(slotPreset, presetId, name);
     bool added = false;
     {
         std::lock_guard<std::mutex> lock(mDSPMutex);
@@ -77,7 +82,8 @@ bool PluginController::AddActivePreset(const Preset& preset, const std::string& 
 
         if (added)
         {
-            AttachRuntimeConfigCallbacks(presetId, preset);
+            AttachRuntimeConfigCallbacks(presetId, slotPreset);
+            InjectNamInterfaceCalibrationIntoSlot(presetId, slotPreset);
         }
     }
 
@@ -257,7 +263,12 @@ bool PluginController::ReplaceActiveMixerPresetInPlace(const Preset& preset, con
                                                        const std::string& name)
 {
     UpdatePresetSwapTailBudget();
-    mPresetMixer.PreparePresetSwap(preset, presetId, name);
+
+    // As AddActivePreset: the blend nodes' models come from the blend library.
+    Preset slotPreset = preset;
+    ApplyBlendDefinitions(slotPreset);
+
+    mPresetMixer.PreparePresetSwap(slotPreset, presetId, name);
     bool replaced = false;
     {
         std::lock_guard<std::mutex> lock(mDSPMutex);
@@ -265,7 +276,8 @@ bool PluginController::ReplaceActiveMixerPresetInPlace(const Preset& preset, con
 
         if (replaced)
         {
-            AttachRuntimeConfigCallbacks(presetId, preset);
+            AttachRuntimeConfigCallbacks(presetId, slotPreset);
+            InjectNamInterfaceCalibrationIntoSlot(presetId, slotPreset);
         }
     }
 

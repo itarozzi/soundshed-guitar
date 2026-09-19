@@ -758,17 +758,8 @@ void PluginController::ApplyPreset(const Preset& preset)
 
         // Apply global interface calibration level to all calibratable NAM
         // effect nodes (overrides preset params; calibrationInputLevel is not
-        // stored in preset data). We inject even when a model is not currently
-        // resolved so the value is already present once the model loads.
-        for (const auto& node : normalizedPreset.graph.nodes)
-        {
-            if (!IsNamCalibratableEffectType(node.type))
-            {
-                continue;
-            }
-
-            InjectNamInterfaceCalibration(initialSlotId, node.id);
-        }
+        // stored in preset data).
+        InjectNamInterfaceCalibrationIntoSlot(initialSlotId, normalizedPreset);
     }
 
     NotifyHostStateChanged();

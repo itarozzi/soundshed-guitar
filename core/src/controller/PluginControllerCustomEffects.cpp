@@ -81,6 +81,7 @@ void PluginController::HandleSaveBlendDefinitionRequest(const nlohmann::json& pa
     mBlendLibrary = std::move(updated);
 
     SaveBlendLibrary();
+    RebuildSlotsUsingBlend(id);
     BroadcastState();
 }
 
@@ -1552,21 +1553,6 @@ void PluginController::ApplyBlendDefinitions(Preset& preset)
                 ResourceRef ref;
                 ref.resourceType = "nam";
                 ref.resourceId = modelId;
-                const std::string parameterId = mapping.value("parameterId", "");
-
-                if (!parameterId.empty())
-                {
-                    ref.parameterId = parameterId;
-                }
-
-                if (mapping.contains("parameterValue") && mapping["parameterValue"].is_number())
-                {
-                    ref.parameterValue = mapping["parameterValue"].get<double>();
-                }
-                else if (count > 1)
-                {
-                    ref.parameterValue = static_cast<double>(i) / static_cast<double>(count - 1);
-                }
 
                 if (mapping.contains("parameters") && mapping["parameters"].is_object())
                 {
@@ -1579,13 +1565,36 @@ void PluginController::ApplyBlendDefinitions(Preset& preset)
                     }
                 }
 
-                if (ref.parameters.empty() && !ref.parameterId.empty() && ref.parameterValue.has_value())
+                // The captured value of the primary parameter places the model on the blend
+                // sweep. The editor writes it twice, as parameterValue and in parameters.
+                const std::string parameterId = mapping.value("parameterId", "");
+                std::optional<double> capturedValue;
+
+                if (mapping.contains("parameterValue") && mapping["parameterValue"].is_number())
                 {
-                    ref.parameters[ref.parameterId] = *ref.parameterValue;
+                    capturedValue = mapping["parameterValue"].get<double>();
+                }
+                else if (const auto it = ref.parameters.find(parameterId); it != ref.parameters.end())
+                {
+                    capturedValue = it->second;
+                }
+
+                if (capturedValue)
+                {
+                    ref.parameterId = parameterId;
+                    ref.parameterValue = *capturedValue;
+
+                    if (ref.parameters.empty() && !parameterId.empty())
+                    {
+                        ref.parameters[parameterId] = *capturedValue;
+                    }
                 }
                 else
                 {
-                    ref.parameterValue = 0.0;
+                    // Nothing captured: the model keeps its list position on the sweep. It gets
+                    // no parameterId, because the effect reads a parameterId with a value as a
+                    // captured setting and would match knob positions against the list position.
+                    ref.parameterValue = count > 1 ? static_cast<double>(i) / static_cast<double>(count - 1) : 0.0;
                 }
 
                 node.resources.push_back(std::move(ref));
@@ -1617,6 +1626,65 @@ void PluginController::ApplyBlendDefinitions(Preset& preset)
         {
             node.label = blend.value("name", "");
         }
+    }
+}
+
+void PluginController::RebuildSlotsUsingBlend(const std::string& blendId)
+{
+    const auto playsBlend = [&blendId](const Preset& preset) {
+        return std::any_of(preset.graph.nodes.begin(), preset.graph.nodes.end(), [&](const GraphNode& node) {
+            const auto it = node.config.find("blendId");
+            return node.type == EffectGuids::kAmpNamBlend && it != node.config.end() && it->second == blendId;
+        });
+    };
+
+    const auto slots = SnapshotActivePresetConfigs();
+
+    for (const auto& slot : slots)
+    {
+        if (mActivePreset && slot.id == mActivePresetId)
+        {
+            if (!playsBlend(*mActivePreset))
+            {
+                continue;
+            }
+
+            // Rebuilt as a chain edit rebuilds it, so first bank the hosted plugins' live
+            // state: the new slot starts them from what the preset holds.
+            CaptureLiveHostedPluginStateIntoActivePreset();
+
+            if (slots.size() == 1)
+            {
+                ApplyPreset(*mActivePreset);
+            }
+            else
+            {
+                // ApplyPreset() would swap the whole mixer down to this one slot.
+                ApplyBlendDefinitions(*mActivePreset);
+                mActivePresetJson = PresetStorage::SerializeToJson(*mActivePreset);
+                ReplaceActiveMixerPresetInPlace(*mActivePreset, slot.id, slot.name);
+            }
+
+            mPendingStateBroadcast = true;
+            continue;
+        }
+
+        const auto cached = mMixerPresetJsonCache.find(slot.id);
+
+        if (cached == mMixerPresetJsonCache.end())
+        {
+            continue;
+        }
+
+        auto slotPreset = PresetStorage::DeserializeFromJson(cached->second);
+
+        if (!slotPreset || !playsBlend(*slotPreset))
+        {
+            continue;
+        }
+
+        CaptureMixerSlotHostedPluginState(*slotPreset, slot.id);
+        ReplaceActiveMixerPresetInPlace(*slotPreset, slot.id, slot.name);
     }
 }
 

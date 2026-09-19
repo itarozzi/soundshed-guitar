@@ -216,6 +216,19 @@ void PluginController::InjectNamInterfaceCalibration(const std::string& presetId
                               mNamInterfaceCalibrationLevelDbu ? 1.0 : 0.0);
 }
 
+void PluginController::InjectNamInterfaceCalibrationIntoSlot(const std::string& presetId, const Preset& preset)
+{
+    // Injected even into a node whose model is not resolved yet, so the level is already in
+    // place when one loads.
+    for (const auto& node : preset.graph.nodes)
+    {
+        if (IsNamCalibratableEffectType(node.type))
+        {
+            InjectNamInterfaceCalibration(presetId, node.id);
+        }
+    }
+}
+
 void PluginController::ClearNamCalibrationParams(GraphNode& node) const
 {
     node.params.erase("calibrationInputLevel");

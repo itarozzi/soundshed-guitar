@@ -599,7 +599,12 @@ class PluginController
     /// pass each hosted plugin's audio through while it runs, and the working copy already
     /// follows their changes. A build that throws leaves the previous blob in place.
     void RememberHostStateFromWorkingCopy() const;
+    /// Fills each blend node's models in from the blend library. A saved preset carries only
+    /// the node's blendId, so every chain build has to run this first.
     void ApplyBlendDefinitions(Preset& preset);
+    /// Rebuilds every running mixer slot with a node playing `blendId`, so a saved edit to
+    /// the blend is heard straight away.
+    void RebuildSlotsUsingBlend(const std::string& blendId);
     /**
      * A node's config as its running processor in mixer slot `presetId` reports it, or the
      * slot graph's stored value when the node has no processor. Empty if there is no such slot.
@@ -745,6 +750,9 @@ class PluginController
     /// Pushes mNamInterfaceCalibrationLevelDbu, or its absence, to one NAM node. Call with
     /// mDSPMutex held.
     void InjectNamInterfaceCalibration(const std::string& presetId, const std::string& nodeId);
+    /// InjectNamInterfaceCalibration() for every calibratable NAM node of a slot just built
+    /// from `preset`. Call with mDSPMutex held.
+    void InjectNamInterfaceCalibrationIntoSlot(const std::string& presetId, const Preset& preset);
     void ClearNamCalibrationParams(GraphNode& node) const;
 
     // Settings persistence
