@@ -139,6 +139,12 @@ merging, and verification of both saved data and the audio path.
    in core/src/PluginController.h).
 3. Keep messages backward compatible and validate payloads.
 4. Update docs/user-interface.md for the protocol contract.
+5. Run `node tools/check-protocol.mjs` (part of `npm run verify`, and in CI). It reads
+   what both sides send, route and handle, and fails when they disagree with each
+   other or with `core/protocol/ui-messages.json` — a UI send nothing routes, a route
+   nothing sends, a reply nothing handles, an undocumented type, or an effect GUID that
+   differs between `EffectGuids.h` and `effectGuids.ts`. Adding a message means adding
+   it to the manifest (`--update` re-pins from the code; review the diff).
 
 ### Load a Resource (NAM or IR)
 

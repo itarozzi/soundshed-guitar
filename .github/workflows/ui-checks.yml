@@ -14,10 +14,14 @@ on:
   push:
     paths:
       - "core/ui/**"
+      - "core/protocol/**"
+      - "tools/check-protocol.mjs"
       - ".github/workflows/ui-checks.yml"
   pull_request:
     paths:
       - "core/ui/**"
+      - "core/protocol/**"
+      - "tools/check-protocol.mjs"
       - ".github/workflows/ui-checks.yml"
   workflow_dispatch:
 
@@ -61,6 +65,9 @@ jobs:
 
       - name: uiState write ownership
         run: npm run check:state-writes
+
+      - name: UI/engine protocol
+        run: npm run check:protocol
 
       - name: File size budget
         run: npm run check:sizes

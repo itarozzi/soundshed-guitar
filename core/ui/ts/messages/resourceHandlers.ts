@@ -135,6 +135,16 @@ export function onNodeResourceBrowseCancelled(payload: IncomingPayload): void {
   });
 }
 
+/**
+ * The engine could not delete an installed pack's archive. The pack is already gone from
+ * the installed list, so this only says its files were left behind.
+ */
+export function onToneSharingPackDeleteFailed(payload: IncomingPayload): void {
+  const message = (payload as { message?: string }).message ?? "";
+  appendLog(`tone sharing pack delete failed ← ${message}`);
+  showNotification("Pack files not deleted", message);
+}
+
 export function onResourceData(payload: IncomingPayload): void {
   handleResourceDataMessage(payload as { requestId: string; data?: string; fileName?: string; message?: string });
 }

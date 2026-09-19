@@ -1,5 +1,5 @@
 import { appendLog } from "./logging.js";
-import { sendGlobalChainParam, setMasterGain, setParameter } from "./bridge.js";
+import { postMessage, sendGlobalChainParam, setMasterGain, setParameter } from "./bridge.js";
 import { updateAppSetting } from "./appSettingsStore.js";
 import { uiState } from "./state.js";
 import { setMixerMasterGain } from "./mixerStore.js";
@@ -579,17 +579,11 @@ function sendInputModeToPlugin(): void {
   if (!isStandaloneUi()) {
     return;
   }
-  const message = JSON.stringify({
+  postMessage({
     type: "setInputMode",
     monoMode: currentMonoMode,
     inputChannel: currentInputChannel,
   });
-  
-  // Use the legacy bridge function name when available.
-  if (typeof (window as any).IPlugSendMsg === "function") {
-    (window as any).IPlugSendMsg(message);
-  }
-  
   appendLog(`Input mode: ${currentMonoMode ? "Mono" : "Stereo"}, Channel: ${currentInputChannel + 1}`);
 }
 
@@ -694,16 +688,11 @@ let ampEnabled = true;
 let cabEnabled = true;
 
 function sendAmpCabStateToPlugin(): void {
-  const message = JSON.stringify({
+  postMessage({
     type: "setAmpCabState",
     ampEnabled: ampEnabled,
     cabEnabled: cabEnabled,
   });
-  
-  if (typeof (window as any).IPlugSendMsg === "function") {
-    (window as any).IPlugSendMsg(message);
-  }
-  
   appendLog(`Amp: ${ampEnabled ? "ON" : "OFF"}, Cab: ${cabEnabled ? "ON" : "OFF"}`);
 }
 

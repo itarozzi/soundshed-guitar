@@ -8,7 +8,8 @@ name: C++ structure
 # already over it gets bigger: the controller was a single 15k-line translation
 # unit before it was split into core/src/controller/, and this is what stops it
 # growing back. And every dependency the build fetches is pinned to a commit or a
-# release tag, so a clean build cannot change without a commit here.
+# release tag, so a clean build cannot change without a commit here. The UI/engine
+# message protocol is checked here too, since a route can change on either side.
 #
 # Not covered here: compiling. The platform build workflows do that.
 
@@ -25,6 +26,8 @@ on:
       - "core/CMakeLists.txt"
       - "core/cmake/**"
       - "tools/check-dependency-pins.mjs"
+      - "core/protocol/**"
+      - "tools/check-protocol.mjs"
       - ".github/workflows/cpp-structure.yml"
   pull_request:
     paths:
@@ -38,6 +41,8 @@ on:
       - "core/CMakeLists.txt"
       - "core/cmake/**"
       - "tools/check-dependency-pins.mjs"
+      - "core/protocol/**"
+      - "tools/check-protocol.mjs"
       - ".github/workflows/cpp-structure.yml"
   workflow_dispatch:
 
@@ -63,3 +68,6 @@ jobs:
 
       - name: Dependency pins
         run: node tools/check-dependency-pins.mjs
+
+      - name: UI/engine protocol
+        run: node tools/check-protocol.mjs

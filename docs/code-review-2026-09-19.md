@@ -135,6 +135,14 @@ Relevant locations:
 - Effect GUID and alias constants.
 - Protocol documentation or automated parity tests.
 
+**Status:** Partly done on 19 September 2026. `core/protocol/ui-messages.json` lists every message type in both directions. `tools/check-protocol.mjs` runs in `npm run verify` and both structural CI workflows. It reads what each side sends, routes and handles, and fails when the two sides disagree with each other or with the manifest. It also fails on an undocumented type, beyond a pinned backlog of 131 that may only shrink, and on any difference between `EffectGuids.h` and `effectGuids.ts`.
+
+The audit of the 13 native-only names removed ten: `importToneSharingPack`, `openAudioPreferences` (with the JUCE dialog hook behind it), `removeLocalLibraryResource` (which skipped the in-use check), `removePreset`, `setGlobalChain`, `setLimiterEnabled`, `setNodeEnabled`, `setNodeParam`, `setTunerEnabled` and `setTunerReference`. Three are kept and documented: `getPerformanceStats` and `getSignalDiagnostics` as diagnostic pulls the lock tests use, and `splitSignalPathEdge` as an engine capability the UI does not expose yet.
+
+The new check also found drift, now fixed. Five UI handlers served types the engine no longer sends. The `riffLibraryState` reply was ignored. A failed pack-archive delete was never reported. And two sends built JSON by hand instead of going through the bridge.
+
+Still open: generated TypeScript unions and C++ identifiers, payload schemas, and effect-alias parity. The C++ aliases are registered in code a static check cannot read reliably, and the legacy `amp_nam` resolves to the optimized NAM amp in the engine but to the plain one's GUID in the UI.
+
 ### P2 — The retired auto-level feature still exists throughout the stack
 
 The UI explicitly says mixer-wide auto-level is retired, and current templates contain no corresponding controls. The native handler always forces the feature off.

@@ -180,12 +180,6 @@ window.SoundshedDebug = {
   },
 };
 
-export function onDebug(payload: IncomingPayload): void {
-  const msg = (payload as { message?: string }).message ?? "";
-  console.log("[C++]", msg);
-  appendLog(`[C++] ${msg}`);
-}
-
 export function onCaptureDebugSnapshot(payload: IncomingPayload): void {
   const source = typeof (payload as { source?: string }).source === "string"
     ? (payload as { source?: string }).source as string

@@ -9,17 +9,17 @@
 
 import { Features, isFeatureEnabled } from "./featureFlags.js";
 import { onAudioDeviceLevels, onAudioDeviceState } from "./messages/audioDeviceHandlers.js";
-import { onDemoAudioRenderFailed, onDemoAudioRenderSaved, onMetronomeBeat, onMetronomeState, onPracticeToolFileLoaded, onPracticeToolPlaybackEnded, onPracticeToolTransportState, onPreviewComplete, onPreviewStarted, onPreviewStopped, onRiffCaptureCanceled, onRiffCaptureProgress, onRiffCaptureStarted, onRiffCaptureStopped, onRiffSaved } from "./messages/captureHandlers.js";
+import { onDemoAudioRenderFailed, onDemoAudioRenderSaved, onMetronomeBeat, onPracticeToolFileLoaded, onPracticeToolPlaybackEnded, onPracticeToolTransportState, onPreviewComplete, onPreviewStarted, onPreviewStopped, onRiffCaptureCanceled, onRiffCaptureProgress, onRiffCaptureStarted, onRiffCaptureStopped, onRiffLibraryState, onRiffSaved } from "./messages/captureHandlers.js";
 import { onAutomation, onMidiLearnCapture, onMidiLog } from "./messages/controlSurfaceHandlers.js";
-import { DEBUG_SNAPSHOT_SKIP_TYPES, onCaptureDebugSnapshot, onDebug, onDebugSnapshotWritten, scheduleUiDebugSnapshot } from "./messages/debugSnapshot.js";
+import { DEBUG_SNAPSHOT_SKIP_TYPES, onCaptureDebugSnapshot, onDebugSnapshotWritten, scheduleUiDebugSnapshot } from "./messages/debugSnapshot.js";
 import { onCompositeDefinitionAdded, onCompositeDefinitionRemoved, onCompositeEditModeExited, onCompositeEditState, onCompositeLibrary, onCompositePresetList, onCompositePresetLoaded, onCompositePresetSaved, onCustomEffectLibrary, onCustomEffectSaved, onEffectCatalog, onGeneratedCustomEffectBundleExportFailed, onGeneratedCustomEffectBundleExportSaved } from "./messages/effectHandlers.js";
 import { onLayoutExportFailed, onLayoutExportSaved, onLayoutImageSelected, onLayoutImagesLoaded, onLayoutLibraryLoaded, onLayoutSaved } from "./messages/layoutHandlers.js";
 import { onNavigateToToneSharingDeepLink } from "./messages/mixerHandlers.js";
 import { onEffectPresets, onPresetArchiveSessionEnded, onPresetArchiveSessionFailed, onPresetArchiveSessionStarted, onPresetData, onPresetExportFailed, onPresetExportSaved, onPresetFavorites, onPresetFolders, onPresetList, onPresetLoaded, onPresetRatings, onPresetSaved, onSetlistCursorChanged, onSetlists } from "./messages/presetHandlers.js";
-import { onBlendExportFailed, onBlendExportSaved, onHostedPluginResourceLoadCompleted, onHostedPluginResourceLoadFailed, onIrLoaded, onLibraryExportFailed, onLibraryExportSaved, onModelLoaded, onNodeResourceBrowseCancelled, onResourceCleanupResult, onResourceData, onResourceDataFailed, onResourceDeleteFailed, onResourceFolderListing, onResourceFolderListingFailed, onResourceFolderMetadata, onResourceFolderPicked, onResourceImportFailed, onResourceImported, onResourceRemoved, onResourceUsageInfo } from "./messages/resourceHandlers.js";
+import { onBlendExportFailed, onBlendExportSaved, onHostedPluginResourceLoadCompleted, onHostedPluginResourceLoadFailed, onIrLoaded, onLibraryExportFailed, onLibraryExportSaved, onModelLoaded, onNodeResourceBrowseCancelled, onResourceCleanupResult, onResourceData, onResourceDataFailed, onResourceDeleteFailed, onResourceFolderListing, onResourceFolderListingFailed, onResourceFolderMetadata, onResourceFolderPicked, onResourceImported, onResourceImportFailed, onResourceRemoved, onResourceUsageInfo, onToneSharingPackDeleteFailed } from "./messages/resourceHandlers.js";
 import { onSharedSyncState, onSharedSyncUpdated } from "./messages/sharedSync.js";
-import { onGlobalSignalChainChanged, onSignalPathNodeBypassUpdated, onSignalPathNodeConfigUpdated, onSignalPathNodeParamUpdated, onSignalPathTestResult, onSpatialPosition } from "./messages/signalPathHandlers.js";
-import { onAmpCabStateChanged, onAppInfo, onError, onInputModeChanged, onState, onTheme, onUiSettingsChanged } from "./messages/stateHandlers.js";
+import { onGlobalSignalChainChanged, onSignalPathNodeConfigUpdated, onSignalPathNodeParamUpdated, onSignalPathTestResult, onSpatialPosition } from "./messages/signalPathHandlers.js";
+import { onAmpCabStateChanged, onAppInfo, onError, onInputModeChanged, onState, onTheme } from "./messages/stateHandlers.js";
 import { onDspPerformance, onSld, onSldA, onSldRoster, onSldS } from "./messages/telemetry.js";
 import { onTunerLiveModeChanged, onTunerReferenceChanged, onTunerStarted, onTunerStopped, onTunerUpdate } from "./messages/tunerHandlers.js";
 import type { MessageHandler } from "./messages/types.js";
@@ -34,13 +34,13 @@ export { handleMixerStateMessage } from "./messages/mixerHandlers.js";
  */
 const MESSAGE_HANDLERS: Record<string, MessageHandler> = {
   "state": onState,
-  "metronomeState": onMetronomeState,
   "metronomeBeat": onMetronomeBeat,
   "riffCaptureProgress": onRiffCaptureProgress,
   "riffCaptureStarted": onRiffCaptureStarted,
   "riffCaptureStopped": onRiffCaptureStopped,
   "riffCaptureCanceled": onRiffCaptureCanceled,
   "riffSaved": onRiffSaved,
+  "riffLibraryState": onRiffLibraryState,
   "practiceToolFileLoaded": onPracticeToolFileLoaded,
   "practiceToolTransportState": onPracticeToolTransportState,
   "practiceToolPlaybackEnded": onPracticeToolPlaybackEnded,
@@ -58,6 +58,7 @@ const MESSAGE_HANDLERS: Record<string, MessageHandler> = {
   "resourceImported": onResourceImported,
   "resourceImportFailed": onResourceImportFailed,
   "resourceRemoved": onResourceRemoved,
+  "toneSharingPackDeleteFailed": onToneSharingPackDeleteFailed,
   "resourceDeleteFailed": onResourceDeleteFailed,
   "resourceUsageInfo": onResourceUsageInfo,
   "resourceFolderPicked": onResourceFolderPicked,
@@ -101,12 +102,10 @@ const MESSAGE_HANDLERS: Record<string, MessageHandler> = {
   "tunerStopped": onTunerStopped,
   "tunerReferenceChanged": onTunerReferenceChanged,
   "tunerLiveModeChanged": onTunerLiveModeChanged,
-  "debug": onDebug,
   "captureDebugSnapshot": onCaptureDebugSnapshot,
   "debugSnapshotWritten": onDebugSnapshotWritten,
   "inputModeChanged": onInputModeChanged,
   "ampCabStateChanged": onAmpCabStateChanged,
-  "uiSettingsChanged": onUiSettingsChanged,
   "dspPerformance": onDspPerformance,
   "sldRoster": onSldRoster,
   "sld": onSld,
@@ -115,8 +114,6 @@ const MESSAGE_HANDLERS: Record<string, MessageHandler> = {
   "spatialPosition": onSpatialPosition,
   "signalPathNodeConfigUpdated": onSignalPathNodeConfigUpdated,
   "signalPathNodeParamUpdated": onSignalPathNodeParamUpdated,
-  "signalPathNodeBypassUpdated": onSignalPathNodeBypassUpdated,
-  "globalSignalChainChanged": onGlobalSignalChainChanged,
   "globalChain": onGlobalSignalChainChanged,
   "layoutLibraryLoaded": onLayoutLibraryLoaded,
   "layoutSaved": onLayoutSaved,

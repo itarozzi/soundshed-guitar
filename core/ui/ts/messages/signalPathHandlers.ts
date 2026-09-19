@@ -135,20 +135,6 @@ export function onSignalPathNodeParamUpdated(payload: IncomingPayload): void {
   }
 }
 
-export function onSignalPathNodeBypassUpdated(payload: IncomingPayload): void {
-  const update = payload as { nodeId?: string; bypassed?: boolean };
-  if (typeof update.nodeId === "string" && typeof update.bypassed === "boolean") {
-    const preset = getActivePresetForRender();
-    const node = preset?.graph?.nodes?.find((n) => n.id === update.nodeId);
-    if (node) {
-      (node as unknown as { bypassed?: boolean }).bypassed = update.bypassed;
-      (node as unknown as { enabled?: boolean }).enabled = !update.bypassed;
-    }
-    refreshSelectedNodeParams();
-    renderActivePreset();
-  }
-}
-
 export function onGlobalSignalChainChanged(payload: IncomingPayload): void {
   const chainPayload = payload as { config?: GlobalSignalChainConfig; globalSignalChain?: GlobalSignalChainConfig };
   const chainConfig = chainPayload.config ?? chainPayload.globalSignalChain;

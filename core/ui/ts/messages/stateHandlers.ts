@@ -282,11 +282,3 @@ export function onAmpCabStateChanged(payload: IncomingPayload): void {
   appendLog(`Amp: ${statePayload.ampEnabled ? "ON" : "OFF"}, Cab: ${statePayload.cabEnabled ? "ON" : "OFF"}`);
 }
 
-export function onUiSettingsChanged(payload: IncomingPayload): void {
-  const uiSettings = (payload as { settings?: UiSettings }).settings;
-  if (uiSettings) {
-    uiState.uiSettings = uiSettings;
-    applyUiSettings(uiSettings);
-    applyPresetRecentsFromAppSettings();
-  }
-}

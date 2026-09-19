@@ -6,17 +6,13 @@
 import { getRiffLibrary } from "../bridge.js";
 import { onDemoAudioStarted, onDemoAudioStopped, previewSelectedDemoAudio, refreshDemoAudioSelectors, syncDemoAudioSelectionFromPreview } from "../demoAudio.js";
 import { appendLog } from "../logging.js";
-import { applyMetronomeBeat, applyMetronomeState } from "../metronome.js";
+import { applyMetronomeBeat } from "../metronome.js";
 import { showNotification } from "../notifications.js";
 import { applyPracticeToolFileLoaded, applyPracticeToolPlaybackEnded, applyPracticeToolTransportState } from "../practiceTool.js";
 import { applyRiffCaptureProgress, applyRiffCaptureState, applyRiffLibraryState, handleCapturedPreviewComplete, handleRiffPreviewPlayback, handleSavedRiffPreviewComplete } from "../riffLibrary.js";
 import { uiState } from "../state.js";
 import type { RiffLibrary } from "../types.js";
 import type { IncomingPayload } from "./types.js";
-
-export function onMetronomeState(payload: IncomingPayload): void {
-  applyMetronomeState(payload as Record<string, unknown>);
-}
 
 export function onMetronomeBeat(payload: IncomingPayload): void {
   const beat = payload as { beatIndex?: number; beatsPerBar?: number; level?: string };
@@ -93,6 +89,15 @@ export function onRiffCaptureCanceled(payload: IncomingPayload): void {
   appendLog(`riff capture cancelled ← ${(payload as { takeId?: string }).takeId ?? "take"}`);
   applyRiffCaptureState({ active: false, complete: false, takeId: "", capturedSamples: 0, sampleRate: 0, hasAudio: false, waveformPeaks: [] });
   showNotification("Riff capture cancelled");
+}
+
+/** The reply to "getRiffLibrary": the library as the engine now has it on disk. */
+export function onRiffLibraryState(payload: IncomingPayload): void {
+  const riffLibrary = (payload as { library?: RiffLibrary }).library;
+  if (riffLibrary) {
+    applyRiffLibraryState(riffLibrary);
+    refreshDemoAudioSelectors();
+  }
 }
 
 export function onRiffSaved(payload: IncomingPayload): void {
