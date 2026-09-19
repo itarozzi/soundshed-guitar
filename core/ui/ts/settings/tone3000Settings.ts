@@ -4,10 +4,9 @@
  */
 
 import { getApiBaseUrl } from "../apiConfig.js";
-import { setAppSetting } from "../bridge.js";
+import { updateAppSetting } from "../appSettingsStore.js";
 import { appendLog } from "../logging.js";
 import { showNotification } from "../notifications.js";
-import { uiState } from "../state.js";
 import { handleAppSettingUpdate, saveTone3000ApiKey } from "../tone3000.js";
 import { getTone3000ApiClientConfig } from "../tone3000Api.js";
 import { apiKeyInput, saveButton, tone3000ApiKeyRow, tone3000ApiModeStatus, tone3000ProxyHealthCheckButton, tone3000ProxyHealthRow, tone3000ProxyHealthStatus, tone3000ProxyInfoHint, tone3000UseSoundshedApiToggle } from "./dom.js";
@@ -22,8 +21,7 @@ export function initTone3000UseSoundshedApiToggle(): void {
   toggle.dataset.bound = "true";
   toggle.addEventListener("change", () => {
     const enabled = Boolean(toggle.checked);
-    uiState.appSettings[TONE3000_USE_SOUNDSHED_API_SETTING] = enabled;
-    setAppSetting(TONE3000_USE_SOUNDSHED_API_SETTING, enabled);
+    updateAppSetting(TONE3000_USE_SOUNDSHED_API_SETTING, enabled);
     void handleAppSettingUpdate(TONE3000_USE_SOUNDSHED_API_SETTING, enabled);
     applyTone3000ModeVisibility(enabled);
     updateTone3000ApiModeStatus();
@@ -136,8 +134,7 @@ export async function saveApiKey(): Promise<void> {
 
     // Authentication failed: roll back to the previously stored key so an invalid key
     // is not retained or used for subsequent requests.
-    uiState.appSettings[API_KEY_SETTING] = rollbackKey;
-    setAppSetting(API_KEY_SETTING, rollbackKey);
+    updateAppSetting(API_KEY_SETTING, rollbackKey);
     await handleAppSettingUpdate(API_KEY_SETTING, rollbackKey);
     if (apiKeyInput) {
       apiKeyInput.placeholder = rollbackKey ? "API key stored" : "Enter your Tone3000 API key";
@@ -154,8 +151,7 @@ export async function saveApiKey(): Promise<void> {
 }
 
 export async function clearApiKey(): Promise<void> {
-  uiState.appSettings[API_KEY_SETTING] = null;
-  setAppSetting(API_KEY_SETTING, null);
+  updateAppSetting(API_KEY_SETTING, null);
   if (apiKeyInput) {
     apiKeyInput.value = "";
   }

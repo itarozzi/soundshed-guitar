@@ -1,4 +1,5 @@
 import { uiState, getActivePresetForRender, getSignalPathPreset, setPresetDirty, isCompositeEditMode } from "./state.js";
+import { setActivePresetSceneId } from "./presetLibraryStore.js";
 import { buildBlendModelMappingsFromIds, findBlendForToneGroup } from "./blendUtils.js";
 import type {
   BlendModelMapping,
@@ -660,7 +661,7 @@ function renderSignalPathBarContent(): void {
 
   if (sceneToolbarHost) {
     const activeSceneId = normalizePresetScenes(editablePreset, uiState.activePresetSceneId ?? undefined);
-    uiState.activePresetSceneId = activeSceneId;
+    setActivePresetSceneId(activeSceneId);
     const sceneMarkup = buildPresetScenePanelMarkup(editablePreset, activeSceneId ?? "");
     sceneToolbarHost.innerHTML = sceneMarkup;
     toolbarRow?.classList.toggle("scene-toolbar-empty", !sceneMarkup);
@@ -1340,7 +1341,7 @@ function addSceneFromToolbar(): void {
 
   const editablePreset = getEditableSignalPathPreset(activePreset);
   const newScene = createPresetScene(editablePreset, uiState.activePresetSceneId ?? undefined);
-  uiState.activePresetSceneId = newScene.id;
+  setActivePresetSceneId(newScene.id);
   setPresetDirty(true);
   pushScenePresetToBackend(editablePreset);
   renderSignalPathBar();
@@ -1354,7 +1355,7 @@ function bindPresetScenePanel(panel: HTMLElement, renderedPreset: Preset): void 
         return;
       }
       const editablePreset = getEditableSignalPathPreset(renderedPreset);
-      uiState.activePresetSceneId = selectPresetScene(editablePreset, nextSceneId);
+      setActivePresetSceneId(selectPresetScene(editablePreset, nextSceneId));
       pushScenePresetToBackend(editablePreset);
       renderSignalPathBar();
     });
@@ -1384,7 +1385,7 @@ function bindPresetScenePanel(panel: HTMLElement, renderedPreset: Preset): void 
       return;
     }
     const nextSceneId = removePresetScene(editablePreset, uiState.activePresetSceneId ?? "");
-    uiState.activePresetSceneId = nextSceneId;
+    setActivePresetSceneId(nextSceneId);
     setPresetDirty(true);
     pushScenePresetToBackend(editablePreset);
     renderSignalPathBar();

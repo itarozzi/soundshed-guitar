@@ -1,6 +1,6 @@
 import { uiState } from "./state.js";
 import { appendLog } from "./logging.js";
-import { setAppSetting } from "./bridge.js";
+import { updateAppSetting } from "./appSettingsStore.js";
 import type { AppSettingValue, Tone3000Session } from "./types.js";
 import type { Tone3000ApiSession, Tone3000Architecture } from "./tone3000ApiTypes.js";
 import {
@@ -338,8 +338,7 @@ export async function saveTone3000ApiKey(apiKey: string): Promise<boolean> {
     return false;
   }
 
-  uiState.appSettings[TONE3000_API_KEY_SETTING] = normalized;
-  setAppSetting(TONE3000_API_KEY_SETTING, normalized);
+  updateAppSetting(TONE3000_API_KEY_SETTING, normalized);
   if (isProxyModeActive()) {
     return true;
   }

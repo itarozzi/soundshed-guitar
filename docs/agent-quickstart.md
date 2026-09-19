@@ -145,8 +145,8 @@ merging, and verification of both saved data and the audio path.
   leaves out (WASM effects, plugin hosting, ASIO).
 - UI build: cd core/ui && npm run build
 - **UI checks (run this before any UI change is done): cd core/ui && npm run verify**
-  Runs typecheck, eslint, vitest, the import-cycle gate, the file-size budget and
-  the stylesheet-reachability check. The same set runs in CI
+  Runs typecheck, eslint, vitest, the import-cycle gate, the uiState write-ownership
+  gate, the file-size budget and the stylesheet-reachability check. The same set runs in CI
   (`.github/workflows/ui-checks.yml`).
 - UI boot check: `node tools/agent-ui-debug/smoke-test.mjs` — builds the UI, syncs
   it into the Standalone artefact, launches the app and asserts it booted clean.
@@ -270,10 +270,21 @@ keep that tractable:
   (`requestNodeParamsPanel`) and `toneSharingPanel/refresh.ts`
   (`requestBrowseReload`) are registered once by the module that owns the work;
   `presets/history.ts`'s `stepPresetHistory` takes the loader as an argument.
+- **Write shared state through its owner.** `uiState` is readable anywhere, but a
+  migrated slice has one module with commands to change it:
+  `appSettingsStore.ts` (`updateAppSetting` records a setting *and* sends it),
+  `presetLibraryStore.ts` (the preset list, cache, filtered view, active and
+  loading ids, active scene) and `mixerStore.ts`. Add to one of those rather than
+  assigning into `uiState` from a feature module.
 
 `npm run check:cycles -- --list` prints any import cycles. The baseline in
 `scripts/cycles-baseline.json` is empty and compared module by module, so any new
 cycle fails — inside a feature as well as between two.
+
+`npm run check:state-writes` pins which modules write each top-level `uiState`
+field (`scripts/state-writers-baseline.json`) and fails when a module starts
+writing one it is not pinned for; `-- --where <field>` lists the write sites. Move
+writes behind an owner, then tighten the pin with `-- --update`.
 
 ### Stylesheets
 

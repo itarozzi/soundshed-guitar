@@ -13,6 +13,7 @@ import { requestPresetFromBackend } from "../presets/fetch.js";
 import { stripLegacyGlobals } from "../presets/sanitize.js";
 import { normalizePresetScenes } from "../presetScenes.js";
 import { clonePreset, setActivePresetDraft, setActivePresetIsNew, setActivePresetSnapshot, setPresetDirty, uiState } from "../state.js";
+import { cachePreset, resetLibrary, setActivePresetId, setActivePresetSceneId, setPresetLoadingId } from "../presetLibraryStore.js";
 import type { Attachment, GlobalSignalChainConfig, Preset } from "../types.js";
 import { arrayBufferToBase64, isRemoteUrl, resolveAttachmentUrl } from "../utils.js";
 import { recordPresetInHistory } from "./history.js";
@@ -73,18 +74,18 @@ export async function loadPresetMetadata(presetId: string): Promise<Preset> {
     }
     const backendPreset = await requestPresetFromBackend(presetId);
     const resolved = stripLegacyGlobals(backendPreset);
-    uiState.presetCache.set(resolved.id, resolved);
+    cachePreset(resolved);
     return clonePreset(resolved) as Preset;
   }
 
   const localPreset = uiState.presets.find((preset) => preset.id === presetId);
   if (localPreset) {
     const cleaned = stripLegacyGlobals(localPreset);
-    uiState.presetCache.set(localPreset.id, cleaned);
+    cachePreset(cleaned, localPreset.id);
     if (!hasGraphNodes(cleaned)) {
       const backendPreset = await requestPresetFromBackend(presetId);
       const resolved = stripLegacyGlobals(backendPreset);
-      uiState.presetCache.set(resolved.id, resolved);
+      cachePreset(resolved);
       return clonePreset(resolved) as Preset;
     }
     return clonePreset(cleaned) as Preset;
@@ -107,7 +108,7 @@ export async function loadPresetMetadata(presetId: string): Promise<Preset> {
   }
 
   const cleaned = stripLegacyGlobals(preset as Preset);
-  uiState.presetCache.set(cleaned.id, cleaned);
+  cachePreset(cleaned);
   return clonePreset(cleaned) as Preset;
 }
 
@@ -155,13 +156,13 @@ export async function applyPresetFromLibrary(presetId: string): Promise<void> {
       ...(hasGlobalChain && resolvedChain ? { globalSignalChain: resolvedChain } : {}),
     };
     const sceneId = normalizePresetScenes(presetPayload, uiState.activePresetSceneId ?? undefined);
-    uiState.activePresetSceneId = sceneId;
+    setActivePresetSceneId(sceneId);
 
     if (hasGlobalChain && resolvedChain) {
       uiState.globalSignalChain = resolvedChain;
     }
-    uiState.presetCache.set(presetPayload.id, clonePreset(presetPayload));
-    uiState.activePresetId = presetPayload.id;
+    cachePreset(clonePreset(presetPayload));
+    setActivePresetId(presetPayload.id);
     setActivePresetIsNew(false);
     setActivePresetSnapshot(presetPayload);
     setActivePresetDraft(presetPayload);
@@ -170,7 +171,7 @@ export async function applyPresetFromLibrary(presetId: string): Promise<void> {
     updatePresetDropdownSelection();
     // Set loading state BEFORE rendering so all render functions (list, details,
     // signal path bar) see it and bake the loading class/overlay into their output.
-    uiState.presetLoadingId = presetPayload.id;
+    setPresetLoadingId(presetPayload.id);
     requestPresetUIRender(clonePreset(presetPayload));
     updatePresetActionButtons();
     postMessage({
@@ -180,7 +181,7 @@ export async function applyPresetFromLibrary(presetId: string): Promise<void> {
     });
     recordPresetInHistory(presetPayload.id);
   } catch (error) {
-    uiState.presetLoadingId = null;
+    setPresetLoadingId(null);
     console.error("Failed to apply preset", error);
     showNotification("Failed to apply preset", error instanceof Error ? error.message : "Unknown error");
   }
@@ -200,20 +201,12 @@ export async function loadPresetIndex(): Promise<void> {
     const data = await response.json();
     const presets = Array.isArray(data) ? data : data.presets ?? [];
     const basePresets = presets.length ? presets : getDefaultPresets();
-    uiState.presets = [...basePresets];
-    uiState.filteredPresets = uiState.presets.slice();
-    uiState.presets.forEach((preset) => {
-      uiState.presetCache.set(preset.id, preset);
-    });
+    resetLibrary(basePresets);
     requestPresetUIRender(uiState.presetCache.get(uiState.activePresetId ?? "") ?? null);
   } catch (error) {
     console.error("Failed to load preset index", error);
     const basePresets = getDefaultPresets();
-    uiState.presets = [...basePresets];
-    uiState.filteredPresets = uiState.presets.slice();
-    uiState.presets.forEach((preset) => {
-      uiState.presetCache.set(preset.id, preset);
-    });
+    resetLibrary(basePresets);
     requestPresetUIRender(uiState.presetCache.get(uiState.activePresetId ?? "") ?? null);
   }
 }

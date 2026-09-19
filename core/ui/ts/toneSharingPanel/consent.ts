@@ -3,7 +3,7 @@
  * agreed to, what the local copy says, and the modal that asks.
  */
 
-import { setAppSetting } from "../bridge.js";
+import { updateAppSetting } from "../appSettingsStore.js";
 import { uiState } from "../state.js";
 import { apiFetch } from "./api.js";
 import { element } from "./dom.js";
@@ -33,8 +33,7 @@ export function persistLocalPublishConsent(status: ShareConsentStatus): void {
     acceptedAt: status.acceptedAt ?? new Date().toISOString(),
     userId: toneSharingState.user?.id ?? "",
   };
-  uiState.appSettings[storageKeys.publishConsent] = value;
-  setAppSetting(storageKeys.publishConsent, value);
+  updateAppSetting(storageKeys.publishConsent, value);
 }
 
 let shareConsentResolve: ((value: boolean) => void) | null = null;

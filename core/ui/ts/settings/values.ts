@@ -6,8 +6,7 @@
  * into the engine.
  */
 
-import { setAppSetting } from "../bridge.js";
-import { uiState } from "../state.js";
+import { getAppSetting, updateAppSetting } from "../appSettingsStore.js";
 import type { AppSettingValue } from "../types.js";
 
 export function sanitizeNumericSetting(value: number, min: number, max: number, fallback: number): number {
@@ -38,8 +37,7 @@ export function bindImmediateNumericSetting(
     }
 
     const sanitized = sanitizeNumericSetting(parsed, min, max, fallback);
-    uiState.appSettings[key] = sanitized;
-    setAppSetting(key, sanitized);
+    updateAppSetting(key, sanitized);
 
     if (normalizeText) {
       input.value = sanitized.toFixed(1);
@@ -67,8 +65,7 @@ export function bindIndexSelectSetting(
     const sanitized = Math.round(
       sanitizeNumericSetting(Number.parseInt(select.value, 10), min, max, fallback),
     );
-    uiState.appSettings[key] = sanitized;
-    setAppSetting(key, sanitized);
+    updateAppSetting(key, sanitized);
     select.value = String(sanitized);
   });
 }
@@ -88,5 +85,5 @@ export function restoreIndexSelectSetting(
 }
 
 export function getSettingValue(key: string): AppSettingValue {
-  return uiState.appSettings?.[key] ?? null;
+  return getAppSetting(key);
 }

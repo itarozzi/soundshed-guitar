@@ -13,6 +13,7 @@ import { getRecentPresets, loadFavoritePresetIds } from "../presets/favorites.js
 import { collectPresetIds, findFolderById, isVirtualPresetFolderId } from "../presets/folders.js";
 import { PRESET_FOLDER_ALL_ID, PRESET_FOLDER_FAVORITES_ID, PRESET_FOLDER_RECENTS_ID, sortPresetsAlphabetically } from "../presets/sorting.js";
 import { getActivePresetForRender, uiState } from "../state.js";
+import { setFilteredPresets } from "../presetLibraryStore.js";
 import type { Preset } from "../types.js";
 import { renderMixerPanel } from "../views.js";
 import { presetChooserLabel } from "./dom.js";
@@ -69,7 +70,7 @@ export function renderActivePreset(): void {
 }
 
 export function filterPresets(query: string): void {
-  uiState.filteredPresets = getFilteredPresets(query);
+  setFilteredPresets(getFilteredPresets(query));
   requestPresetUIRender(uiState.presetCache.get(uiState.activePresetId ?? "") ?? null);
 }
 

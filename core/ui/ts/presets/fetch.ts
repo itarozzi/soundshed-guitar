@@ -1,6 +1,7 @@
 import type { Preset } from "../types.js";
 import { postMessage } from "../bridge.js";
-import { clonePreset, uiState } from "../state.js";
+import { clonePreset } from "../state.js";
+import { cachePreset, upsertLibraryPreset } from "../presetLibraryStore.js";
 const PRESET_REQUEST_TIMEOUT_MS = 5000;
 const pendingPresetRequests = new Map<string, {
   presetId: string;
@@ -54,13 +55,8 @@ export function handlePresetDataMessage(preset: Preset, requestId?: string): voi
     }
     pending.resolve(preset);
   }
-  uiState.presetCache.set(preset.id, clonePreset(preset));
-  const index = uiState.presets.findIndex((p) => p.id === preset.id);
-  if (index >= 0) {
-    uiState.presets[index] = clonePreset(preset);
-  } else {
-    uiState.presets.push(clonePreset(preset));
-  }
+  cachePreset(clonePreset(preset));
+  upsertLibraryPreset(clonePreset(preset));
 }
 
 export function rejectPendingPresetRequest(requestId: string | undefined, message: string, detail?: string): void {

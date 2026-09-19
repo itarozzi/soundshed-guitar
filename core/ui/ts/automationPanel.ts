@@ -7,7 +7,8 @@
  *  - MIDI Log: real-time diagnostic log of incoming MIDI events
  */
 
-import { postMessage, setAppSetting } from "./bridge.js";
+import { postMessage } from "./bridge.js";
+import { updateAppSetting } from "./appSettingsStore.js";
 import { uiState } from "./state.js";
 import type { AutomationSlot, AutomationRegistryEntry } from "./types.js";
 import { EffectTypeRegistry } from "./presetV2.js";
@@ -263,11 +264,7 @@ function wireControllerDisplayToggle(): void {
 
   syncControllerDisplayToggle();
   toggle.addEventListener("change", () => {
-    if (!uiState.appSettings) {
-      uiState.appSettings = {};
-    }
-    uiState.appSettings[CONTROLLER_DISPLAY_PRESET_NAME_SETTING] = toggle.checked;
-    setAppSetting(CONTROLLER_DISPLAY_PRESET_NAME_SETTING, toggle.checked);
+    updateAppSetting(CONTROLLER_DISPLAY_PRESET_NAME_SETTING, toggle.checked);
     // blurActive() only releases buttons; a focused checkbox would hold keys the
     // keyboard mappings are listening for.
     toggle.blur();

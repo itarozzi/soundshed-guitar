@@ -6,7 +6,7 @@
  * panel up once, and re-reading every control from the current app settings.
  */
 
-import { setAppSetting } from "./bridge.js";
+import { updateAppSetting } from "./appSettingsStore.js";
 import { initDensitySelect, initThemeSelect, initZoomControls } from "./settings/appearance.js";
 import { initAudioDeviceSettings, syncAudioDeviceSettingsAvailability } from "./settings/audioDevice.js";
 import { apiKeyInput, clearButton, dspNominalLevelInput, dspOutputLimiterToggle, dspProtectionCeilingInput, factoryArchiveLoadingToggle, namAntiAliasPhaseSelect, namAutoInputCalibrationToggle, namInterfaceCalibrationLevelInput, namOversamplingSelect, namSlimmableSizeInput, presetSwitchTailSelect, saveButton, themeSelect, tone3000UseSoundshedApiToggle, updateCheckToggle } from "./settings/dom.js";
@@ -72,8 +72,7 @@ export function refreshSettingsView(): void {
   const storedApiKey = typeof stored === "string" ? stored.trim() : "";
   const storedProxyMode = getSettingValue(TONE3000_USE_SOUNDSHED_API_SETTING);
   if (storedProxyMode === null && !storedApiKey) {
-    uiState.appSettings[TONE3000_USE_SOUNDSHED_API_SETTING] = true;
-    setAppSetting(TONE3000_USE_SOUNDSHED_API_SETTING, true);
+    updateAppSetting(TONE3000_USE_SOUNDSHED_API_SETTING, true);
     void handleAppSettingUpdate(TONE3000_USE_SOUNDSHED_API_SETTING, true);
   }
 

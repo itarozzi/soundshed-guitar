@@ -8,7 +8,7 @@
  * feature free of import cycles.
  */
 
-import { setAppSetting } from "../bridge.js";
+import { updateAppSetting } from "../appSettingsStore.js";
 import { uiState } from "../state.js";
 import type { AppSettingValue, JamPlayerState, JamState, JamVideoSummary } from "../types.js";
 import { Features, isFeatureEnabled } from "../featureFlags.js";
@@ -162,8 +162,7 @@ export function persistFavorites(): void {
     channelTitle: favorite.channelTitle,
     thumbnailUrl: favorite.thumbnailUrl,
   }));
-  uiState.appSettings[FAVORITES_SETTING] = payload as unknown as AppSettingValue;
-  setAppSetting(FAVORITES_SETTING, payload);
+  updateAppSetting(FAVORITES_SETTING, payload as unknown as AppSettingValue);
 }
 
 export function persistSearchCache(query: string, results: JamVideoSummary[]): void {
@@ -182,8 +181,7 @@ export function persistSearchCache(query: string, results: JamVideoSummary[]): v
       thumbnailUrl: result.thumbnailUrl,
     })),
   };
-  uiState.appSettings[SEARCH_CACHE_SETTING] = payload as unknown as AppSettingValue;
-  setAppSetting(SEARCH_CACHE_SETTING, payload);
+  updateAppSetting(SEARCH_CACHE_SETTING, payload as unknown as AppSettingValue);
 }
 
 export function getCachedSearch(query: string): JamSearchCache | null {
@@ -208,8 +206,7 @@ export function persistPlayerUi(): void {
     y: Math.round(jam.player.y),
     width: jam.player.width,
   };
-  uiState.appSettings[PLAYER_UI_SETTING] = payload as unknown as AppSettingValue;
-  setAppSetting(PLAYER_UI_SETTING, payload);
+  updateAppSetting(PLAYER_UI_SETTING, payload as unknown as AppSettingValue);
 }
 
 export function isFavorite(videoId: string): boolean {

@@ -59,6 +59,9 @@ jobs:
       - name: Import cycles
         run: npm run check:cycles
 
+      - name: uiState write ownership
+        run: npm run check:state-writes
+
       - name: File size budget
         run: npm run check:sizes
 

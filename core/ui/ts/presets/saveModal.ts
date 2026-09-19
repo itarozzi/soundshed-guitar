@@ -15,6 +15,7 @@ import { normalizePresetScenes } from "../presetScenes.js";
 import { STANDARD_TAGS, renderTagChips } from "../presetTags.js";
 import { createEmptyPresetV2, generateUserPresetId } from "../presetV2.js";
 import { clonePreset, getActivePresetForRender, setActivePresetDraft, setActivePresetIsNew, setActivePresetSnapshot, setPresetDirty, uiState } from "../state.js";
+import { cachePreset, putLibraryPresetFirst, replaceLibraryPreset, setActivePresetId, setActivePresetSceneId, showAllLibraryPresets } from "../presetLibraryStore.js";
 import type { Preset } from "../types.js";
 import { movePresetToFolder, populatePresetFolderSelect } from "./folderControls.js";
 import { initPresetModalAdvancedActions, initPresetModalTabs, setPresetModalActiveTab, updatePresetModalJson, updatePresetModalReport } from "./inspectModal.js";
@@ -129,17 +130,17 @@ export function closeSavePresetModal(): void {
 
 export function createDefaultPreset(): void {
   const newPreset = createEmptyPresetV2();
-  uiState.activePresetSceneId = normalizePresetScenes(newPreset);
+  setActivePresetSceneId(normalizePresetScenes(newPreset));
   const activeFolderId = uiState.activePresetFolderId ?? PRESET_FOLDER_ALL_ID;
   const selectedFolderId = isVirtualPresetFolderId(activeFolderId) ? PRESET_FOLDER_ALL_ID : activeFolderId;
 
-  uiState.presets.unshift(newPreset);
-  uiState.filteredPresets = uiState.presets.slice();
-  uiState.presetCache.set(newPreset.id, newPreset);
+  putLibraryPresetFirst(newPreset);
+  showAllLibraryPresets();
+  cachePreset(newPreset);
   if (selectedFolderId) {
     movePresetToFolder(newPreset.id, selectedFolderId);
   }
-  uiState.activePresetId = newPreset.id;
+  setActivePresetId(newPreset.id);
   setActivePresetIsNew(true);
   setActivePresetSnapshot(newPreset);
   setActivePresetDraft(newPreset);
@@ -215,7 +216,7 @@ export function saveCurrentPreset(): void {
         updatedPreset.designedPeakInputDbfs = Math.round(stagedDesignedPeak * 10) / 10;
       }
       const sceneId = normalizePresetScenes(updatedPreset, uiState.activePresetSceneId ?? undefined);
-      uiState.activePresetSceneId = sceneId;
+      setActivePresetSceneId(sceneId);
       delete (updatedPreset as Record<string, unknown>).globalSignalChain;
 
       cachePresetInMemory(updatedPreset);
@@ -233,12 +234,9 @@ export function saveCurrentPreset(): void {
       };
       appendLog(`save preset → ${updatedPreset.name} (${summarizePresetForSaveLog(updatedPreset)})`);
       postMessage(savePayload);
-      uiState.presetCache.set(editingPresetId, updatedPreset);
-      const index = uiState.presets.findIndex((p) => p.id === editingPresetId);
-      if (index >= 0) {
-        uiState.presets[index] = updatedPreset;
-      }
-      uiState.filteredPresets = uiState.presets.slice();
+      cachePreset(updatedPreset, editingPresetId);
+      replaceLibraryPreset(updatedPreset, editingPresetId);
+      showAllLibraryPresets();
       populatePresetDropdown();
       requestPresetUIRender(clonePreset(updatedPreset));
       movePresetToFolder(editingPresetId, selectedFolderId);
@@ -270,7 +268,7 @@ export function saveCurrentPreset(): void {
     newPreset.designedPeakInputDbfs = Math.round(stagedDesignedPeak * 10) / 10;
   }
   const sceneId = normalizePresetScenes(newPreset, uiState.activePresetSceneId ?? undefined);
-  uiState.activePresetSceneId = sceneId;
+  setActivePresetSceneId(sceneId);
   delete (newPreset as Record<string, unknown>).globalSignalChain;
 
   cachePresetInMemory(newPreset);
@@ -289,12 +287,12 @@ export function saveCurrentPreset(): void {
   };
   appendLog(`save preset → ${newPreset.name} (${summarizePresetForSaveLog(newPreset)})`);
   postMessage(savePayload);
-  uiState.filteredPresets = uiState.presets.slice();
-  uiState.presetCache.set(newPreset.id, newPreset);
+  showAllLibraryPresets();
+  cachePreset(newPreset);
   if (selectedFolderId) {
     movePresetToFolder(newPreset.id, selectedFolderId);
   }
-  uiState.activePresetId = newPreset.id;
+  setActivePresetId(newPreset.id);
   populatePresetDropdown();
   requestPresetUIRender(clonePreset(newPreset));
   closeSavePresetModal();

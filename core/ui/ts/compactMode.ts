@@ -25,7 +25,7 @@
  * choice persists as an app setting so it survives a restart.
  */
 
-import { setAppSetting } from "./bridge.js";
+import { updateAppSetting } from "./appSettingsStore.js";
 
 export type Density = "compact" | "full";
 
@@ -186,7 +186,7 @@ export function applyDensityPreference(next: DensityPreference): void {
 /** Apply a preference the user just chose, and remember it. */
 export function setDensityPreference(next: DensityPreference): void {
   applyDensityPreference(next);
-  setAppSetting(DENSITY_SETTING, next);
+  updateAppSetting(DENSITY_SETTING, next);
 }
 
 /** Pick the stored preference out of an app-settings blob, if it carries one. */

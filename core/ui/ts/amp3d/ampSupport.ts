@@ -6,7 +6,7 @@
  * page load. three.js is only fetched by the dynamic import in signalPath.ts.
  */
 
-import { setAppSetting } from "../bridge.js";
+import { updateAppSetting } from "../appSettingsStore.js";
 import { uiState } from "../state.js";
 
 /** Canonical preference for the full signal-chain 3D stage. */
@@ -57,11 +57,7 @@ export function isSignalChain3dEnabled(): boolean {
   }
   const legacy = readSettingFlag(NEURAL_AMP_3D_SETTING);
   if (legacy !== undefined) {
-    if (!uiState.appSettings) {
-      uiState.appSettings = {};
-    }
-    uiState.appSettings[SIGNAL_CHAIN_3D_SETTING] = legacy;
-    setAppSetting(SIGNAL_CHAIN_3D_SETTING, legacy);
+    updateAppSetting(SIGNAL_CHAIN_3D_SETTING, legacy);
     return legacy;
   }
   return false;
@@ -73,11 +69,7 @@ export function isNeuralAmp3dViewEnabled(): boolean {
 }
 
 export function setSignalChain3dEnabled(enabled: boolean): void {
-  if (!uiState.appSettings) {
-    uiState.appSettings = {};
-  }
-  uiState.appSettings[SIGNAL_CHAIN_3D_SETTING] = enabled;
-  setAppSetting(SIGNAL_CHAIN_3D_SETTING, enabled);
+  updateAppSetting(SIGNAL_CHAIN_3D_SETTING, enabled);
 }
 
 /** @deprecated Use setSignalChain3dEnabled. */

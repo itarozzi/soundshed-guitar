@@ -3,12 +3,11 @@
  * the recently-played list — applied back into UI state.
  */
 
-import { setAppSetting } from "../bridge.js";
+import { updateAppSetting } from "../appSettingsStore.js";
 import { presetSearchElement } from "../presets/dom.js";
 import { normalizeRecentPresetIds, setFavoriteToggleState, trackRecentPreset } from "../presets/favorites.js";
 import { PRESET_FOLDER_RECENTS_ID } from "../presets/sorting.js";
 import { uiState } from "../state.js";
-import type { AppSettingValue } from "../types.js";
 import { updateUiSettings } from "../windowSettings.js";
 import { filterPresets } from "./filter.js";
 import { renderPresetUI } from "./library.js";
@@ -30,8 +29,8 @@ export function applyPresetRecentsFromAppSettings(): void {
   };
   if (!uiRecents.length && legacyRecents.length) {
     updateUiSettings({ presetRecents: normalized });
-    uiState.appSettings[PRESET_RECENTS_SETTING] = normalized as unknown as AppSettingValue;
-    setAppSetting(PRESET_RECENTS_SETTING, null);
+    // The list now lives in UI settings; clear the legacy copy here and in the engine alike.
+    updateAppSetting(PRESET_RECENTS_SETTING, null);
   }
   if (uiState.activePresetFolderId === PRESET_FOLDER_RECENTS_ID) {
     filterPresets(presetSearchElement?.value ?? "");

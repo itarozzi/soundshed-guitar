@@ -4,7 +4,7 @@ import type {
   LibraryResource,
   ResourceRef,
 } from "../types.js";
-import { setAppSetting } from "../bridge.js";
+import { updateAppSetting } from "../appSettingsStore.js";
 import { escapeHtml } from "../utils.js";
 import { getNodeEffectInfo } from "../presetV2.js";
 import { renderIcon } from "../iconAssets.js";
@@ -257,8 +257,7 @@ export function getHostedPluginFavoriteIds(resources?: LibraryResource[]): Set<s
 
 export function persistHostedPluginFavoriteIds(favoriteIds: Set<string>): void {
   const payload = Array.from(favoriteIds).sort((a, b) => HOSTED_PLUGIN_NAME_COLLATOR.compare(a, b));
-  uiState.appSettings[HOSTED_PLUGIN_FAVORITES_SETTING] = payload;
-  setAppSetting(HOSTED_PLUGIN_FAVORITES_SETTING, payload);
+  updateAppSetting(HOSTED_PLUGIN_FAVORITES_SETTING, payload);
 }
 
 export function toggleHostedPluginFavorite(resourceId: string): void {

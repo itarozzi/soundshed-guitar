@@ -5,6 +5,7 @@
 
 import { applyAutomationState } from "../automationPanel.js";
 import { renderBlendList } from "../blendManager.js";
+import { replaceAppSettings } from "../appSettingsStore.js";
 import { requestGlobalChainState } from "../bridge.js";
 import { applyDensityAppSettings } from "../compactMode.js";
 import { renderCompositeList } from "../compositeEditor.js";
@@ -28,6 +29,8 @@ import { migratePresetNodeTypes } from "../presetV2.js";
 import { applyRiffLibraryState } from "../riffLibrary.js";
 import { refreshSettingsView } from "../settings.js";
 import { clonePreset, setActivePresetDraft, setActivePresetIsNew, setActivePresetSnapshot, setPresetDirty, uiState } from "../state.js";
+import { replaceMixerState } from "../mixerStore.js";
+import { cachePreset, putLibraryPresetFirst, setActivePresetId, setActivePresetSceneId, setPresetLoadingId, showAllLibraryPresets } from "../presetLibraryStore.js";
 import { themeSwitcher } from "../theme-switcher.js";
 import { applyToneSharingAppSettings } from "../toneSharingPanel.js";
 import type { AppSettings, AutomationSlot, BlendLibrary, CustomEffectLibrary, GlobalSignalChainConfig, MixerPresetState, MixerState, Preset, PresetArchiveSessionState, ResourceLibrary, RiffLibrary, UiSettings, UiViewState } from "../types.js";
@@ -38,8 +41,8 @@ import { normalizeGlobalSignalChain, normalizePresetResources, presetSignature }
 import type { IncomingPayload } from "./types.js";
 
 export function onState(payload: IncomingPayload): void {
-  uiState.activePresetId = (payload as { activePresetId?: string }).activePresetId ?? null;
-  uiState.activePresetSceneId = (payload as { activeSceneId?: string }).activeSceneId ?? uiState.activePresetSceneId ?? null;
+  setActivePresetId((payload as { activePresetId?: string }).activePresetId ?? null);
+  setActivePresetSceneId((payload as { activeSceneId?: string }).activeSceneId ?? uiState.activePresetSceneId ?? null);
   const parameters = (payload as { parameters?: Record<string, unknown> }).parameters;
   if (parameters) {
     uiState.parameters = {
@@ -85,7 +88,7 @@ export function onState(payload: IncomingPayload): void {
   }
   const appSettings = (payload as { appSettings?: Record<string, unknown> }).appSettings;
   if (appSettings) {
-    uiState.appSettings = appSettings as AppSettings;
+    replaceAppSettings(appSettings as AppSettings);
     applyDensityAppSettings(appSettings);
     applyStoredDemoAudioSelection();
     applyToneSharingAppSettings(appSettings);
@@ -162,12 +165,12 @@ export function onState(payload: IncomingPayload): void {
       if (!resolvedPresets[id]) ensurePreset(id);
     });
 
-    uiState.mixer = {
+    replaceMixerState({
       activePresetIds,
       presets: resolvedPresets,
       masterGain: typeof mixer.masterGain === "number" ? mixer.masterGain : uiState.mixer?.masterGain ?? 1.0,
       mixGainDb: typeof mixer.mixGainDb === "number" ? mixer.mixGainDb : uiState.mixer?.mixGainDb ?? 0,
-    };
+    });
 
     // Populate presetCache with full graph data for each mixer slot.
     // The C++ includes these so the UI can display signal chains even for
@@ -183,7 +186,7 @@ export function onState(payload: IncomingPayload): void {
             migratePresetNodeTypes(p);
             normalizePresetResources(p);
             normalizePresetScenes(p);
-            uiState.presetCache.set(slotId, p);
+            cachePreset(p, slotId);
           }
         }
       }
@@ -195,7 +198,7 @@ export function onState(payload: IncomingPayload): void {
   if (preset) {
     if (!shouldIgnoreStatePreset(preset)) {
       normalizePresetResources(preset);
-      uiState.activePresetSceneId = normalizePresetScenes(preset, uiState.activePresetSceneId ?? undefined);
+      setActivePresetSceneId(normalizePresetScenes(preset, uiState.activePresetSceneId ?? undefined));
       const preserveNewDraft = Boolean(uiState.activePresetIsNew && uiState.activePresetId === preset.id);
       setActivePresetIsNew(preserveNewDraft);
       const snapshot = uiState.activePresetSnapshot;
@@ -203,10 +206,10 @@ export function onState(payload: IncomingPayload): void {
       if (isNewPreset) {
         setActivePresetSnapshot(preset);
         setPresetDirty(false);
-        uiState.presetCache.set(preset.id, clonePreset(preset));
+        cachePreset(clonePreset(preset));
         if (!uiState.presets.some((p) => p.id === preset.id)) {
-          uiState.presets = [clonePreset(preset), ...uiState.presets];
-          uiState.filteredPresets = uiState.presets.slice();
+          putLibraryPresetFirst(clonePreset(preset));
+          showAllLibraryPresets();
           populatePresetDropdown();
         }
       } else {
@@ -238,7 +241,7 @@ export function onError(payload: IncomingPayload): void {
   if (uiState.presetLoadingId) {
     // A backend-driven load (e.g. a setlist step onto a missing preset) failed, so the
     // "presetLoaded" that would clear the loading state is never coming.
-    uiState.presetLoadingId = null;
+    setPresetLoadingId(null);
     renderActivePreset();
   }
 }
@@ -295,7 +298,7 @@ export function onAutoLevelChanged(payload: IncomingPayload): void {
     };
     preset.globals = merged;
     preset.global = merged;
-    uiState.presetCache.set(activeId, preset);
+    cachePreset(preset, activeId);
   }
   syncAutoLevelControlsFromState();
 }

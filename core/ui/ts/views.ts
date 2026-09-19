@@ -1,5 +1,7 @@
 import { renderDemoAudioControls, bindDemoAudioControls } from "./demoAudio.js";
 import { uiState, setFocusedMixerPresetId } from "./state.js";
+import { addMixerSlot, removeMixerSlot, setMixerMixGainDb, updateMixerSlot } from "./mixerStore.js";
+import { cachePreset } from "./presetLibraryStore.js";
 import { addActivePreset, removeActivePreset, setPresetMix, setPresetPan, setPresetMute, setPresetSolo, setMixGainDb, focusMixerPreset } from "./bridge.js";
 import { escapeHtml, idAccentColor } from "./utils.js";
 import { updateSignalPathClipIndicators, renderSignalPathBar } from "./signalPath.js";
@@ -175,7 +177,7 @@ function bindMixerControls(container: HTMLElement): void {
       const raw = parseFloat(masterGainSlider.value);
       const val = isFinite(raw) ? raw : 0.0;
       setMixGainDb(val);
-      if (uiState.mixer) uiState.mixer.mixGainDb = val;
+      setMixerMixGainDb(val);
       const label = masterGainSlider.parentElement?.querySelector("span");
       if (label) label.textContent = `Mix Out ${formatGainDb(val)}`;
     });
@@ -218,10 +220,7 @@ function bindMixerControls(container: HTMLElement): void {
     if (removeBtn) {
       removeBtn.addEventListener("click", () => {
         removeActivePreset(pid);
-        if (uiState.mixer) {
-          uiState.mixer.activePresetIds = uiState.mixer.activePresetIds.filter((id) => id !== pid);
-          delete uiState.mixer.presets[pid];
-        }
+        removeMixerSlot(pid);
         if (uiState.focusedMixerPresetId === pid) {
           uiState.focusedMixerPresetId = uiState.mixer?.activePresetIds[0] ?? null;
         }
@@ -234,21 +233,21 @@ function bindMixerControls(container: HTMLElement): void {
       mixEl.addEventListener("input", () => {
         const v = parseFloat(mixEl.value);
         setPresetMix(pid, isFinite(v) ? v : 1.0);
-        if (uiState.mixer?.presets[pid]) uiState.mixer.presets[pid].mix = isFinite(v) ? v : 1.0;
+        updateMixerSlot(pid, { mix: isFinite(v) ? v : 1.0 });
       });
     }
     if (panEl) {
       panEl.addEventListener("input", () => {
         const v = parseFloat(panEl.value);
         setPresetPan(pid, isFinite(v) ? v : 0.0);
-        if (uiState.mixer?.presets[pid]) uiState.mixer.presets[pid].pan = isFinite(v) ? v : 0.0;
+        updateMixerSlot(pid, { pan: isFinite(v) ? v : 0.0 });
       });
     }
     if (muteEl) {
       muteEl.addEventListener("change", () => {
         const v = Boolean(muteEl.checked);
         setPresetMute(pid, v);
-        if (uiState.mixer?.presets[pid]) uiState.mixer.presets[pid].mute = v;
+        updateMixerSlot(pid, { mute: v });
         renderSignalPathBar(); // refresh tab indicators
       });
     }
@@ -256,7 +255,7 @@ function bindMixerControls(container: HTMLElement): void {
       soloEl.addEventListener("change", () => {
         const v = Boolean(soloEl.checked);
         setPresetSolo(pid, v);
-        if (uiState.mixer?.presets[pid]) uiState.mixer.presets[pid].solo = v;
+        updateMixerSlot(pid, { solo: v });
         renderSignalPathBar(); // refresh tab indicators
       });
     }
@@ -486,10 +485,7 @@ export function renderPresetList(
         uiState.activeCompositePresetId = null;
         if (alreadyIn) {
           removeActivePreset(pid);
-          if (uiState.mixer) {
-            uiState.mixer.activePresetIds = uiState.mixer.activePresetIds.filter((id) => id !== pid);
-            delete uiState.mixer.presets[pid];
-          }
+          removeMixerSlot(pid);
           addBtn.textContent = "+ Mixer";
           addBtn.classList.remove("in-mixer");
           addBtn.title = "Add to mixer";
@@ -502,17 +498,11 @@ export function renderPresetList(
           if (!cachedPreset?.graph?.nodes?.length) {
             const fromList = uiState.presets.find((p) => p.id === pid);
             if (fromList?.graph?.nodes?.length) {
-              uiState.presetCache.set(pid, fromList);
+              cachePreset(fromList, pid);
             }
           }
           addActivePreset(pid);
-          if (uiState.mixer) {
-            uiState.mixer.activePresetIds.push(pid);
-            if (!uiState.mixer.presets[pid]) {
-              const fromList = uiState.presets.find((p) => p.id === pid);
-              uiState.mixer.presets[pid] = { id: pid, name: fromList?.name ?? pid, mix: 1.0, pan: 0.0, mute: false, solo: false };
-            }
-          }
+          addMixerSlot(pid, uiState.presets.find((p) => p.id === pid)?.name ?? pid);
           addBtn.innerHTML = `${getCheckmarkSvg()} In Mixer`;
           addBtn.classList.add("in-mixer");
           addBtn.title = "Remove from mixer";

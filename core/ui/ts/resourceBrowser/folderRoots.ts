@@ -9,7 +9,7 @@
  * here rather than state.
  */
 
-import { setAppSetting } from "../bridge.js";
+import { updateAppSetting } from "../appSettingsStore.js";
 import { uiState } from "../state.js";
 import type { AppSettingValue } from "../types.js";
 import { FOLDER_ACTIVE_ROOT_SETTING, FOLDER_LAST_LOCATIONS_SETTING, FOLDER_ROOTS_SETTING } from "./settings.js";
@@ -30,10 +30,8 @@ export function getFolderRoots(): FolderRoot[] {
 }
 
 export function setFolderRoots(roots: FolderRoot[]): void {
-  if (!uiState.appSettings) uiState.appSettings = {};
   const serialized = roots as unknown as AppSettingValue;
-  uiState.appSettings[FOLDER_ROOTS_SETTING] = serialized;
-  setAppSetting(FOLDER_ROOTS_SETTING, serialized);
+  updateAppSetting(FOLDER_ROOTS_SETTING, serialized);
 }
 
 export function getActiveRootId(): string {
@@ -42,9 +40,7 @@ export function getActiveRootId(): string {
 }
 
 export function setActiveRootId(id: string): void {
-  if (!uiState.appSettings) uiState.appSettings = {};
-  uiState.appSettings[FOLDER_ACTIVE_ROOT_SETTING] = id;
-  setAppSetting(FOLDER_ACTIVE_ROOT_SETTING, id);
+  updateAppSetting(FOLDER_ACTIVE_ROOT_SETTING, id);
 }
 
 export function getActiveRoot(): FolderRoot | null {
@@ -68,10 +64,8 @@ export function getFolderLastLocations(): Record<string, FolderLocation> {
 }
 
 export function setFolderLastLocations(locations: Record<string, FolderLocation>): void {
-  if (!uiState.appSettings) uiState.appSettings = {};
   const serialized = locations as unknown as AppSettingValue;
-  uiState.appSettings[FOLDER_LAST_LOCATIONS_SETTING] = serialized;
-  setAppSetting(FOLDER_LAST_LOCATIONS_SETTING, serialized);
+  updateAppSetting(FOLDER_LAST_LOCATIONS_SETTING, serialized);
 }
 
 /// Records where this effect role was last browsing, so the next IR Cab (or

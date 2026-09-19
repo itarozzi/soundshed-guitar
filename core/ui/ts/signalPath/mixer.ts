@@ -1,4 +1,6 @@
 import { uiState, clonePreset, setActivePresetDraft, setFocusedMixerPresetId, isCompositeEditMode } from "../state.js";
+import { removeMixerSlot, setMixerMixGainDb, updateMixerSlot } from "../mixerStore.js";
+import { setActivePresetId, setActivePresetSceneId } from "../presetLibraryStore.js";
 import type {
   Preset,
 } from "../types.js";
@@ -85,7 +87,7 @@ export function renderMixerPresetTabs(): void {
       const pid = btn.dataset.presetId ?? "";
       if (pid) {
         setMixTabActive(false);
-        uiState.activePresetId = pid;
+        setActivePresetId(pid);
         setFocusedMixerPresetId(pid);
         focusMixerPreset(pid);
         document.dispatchEvent(new CustomEvent("mixerPresetTabSelected", {
@@ -103,10 +105,7 @@ export function renderMixerPresetTabs(): void {
       const pid = closeEl.dataset.closePresetId ?? "";
       if (!pid) return;
       removeActivePreset(pid);
-      if (uiState.mixer) {
-        uiState.mixer.activePresetIds = uiState.mixer.activePresetIds.filter((id) => id !== pid);
-        delete uiState.mixer.presets[pid];
-      }
+      removeMixerSlot(pid);
       if (uiState.focusedMixerPresetId === pid) {
         uiState.focusedMixerPresetId = uiState.mixer?.activePresetIds[0] ?? null;
       }
@@ -138,18 +137,18 @@ export function getEditableSignalPathPreset(sourcePreset: Preset): Preset {
   }
 
   const draft = clonePreset(sourcePreset);
-  uiState.activePresetId = sourcePreset.id;
+  setActivePresetId(sourcePreset.id);
   setFocusedMixerPresetId(sourcePreset.id);
   focusMixerPreset(sourcePreset.id);
-  uiState.activePresetSceneId = normalizePresetScenes(draft, uiState.activePresetSceneId ?? undefined);
+  setActivePresetSceneId(normalizePresetScenes(draft, uiState.activePresetSceneId ?? undefined));
   setActivePresetDraft(draft);
   return uiState.activePresetDraft ?? draft;
 }
 
 export function pushScenePresetToBackend(preset: Preset): void {
   const sceneId = normalizePresetScenes(preset, uiState.activePresetSceneId ?? undefined);
-  uiState.activePresetSceneId = sceneId;
-  uiState.activePresetId = preset.id;
+  setActivePresetSceneId(sceneId);
+  setActivePresetId(preset.id);
   setFocusedMixerPresetId(preset.id);
   setActivePresetDraft(preset);
   postMessage({
@@ -318,7 +317,7 @@ export function bindInlineMixerControls(panel: HTMLElement): void {
     muteToggle?.addEventListener("change", () => {
       const nowMuted = muteToggle.checked;
       setPresetMute(pid, nowMuted);
-      if (uiState.mixer?.presets[pid]) uiState.mixer.presets[pid].mute = nowMuted;
+      updateMixerSlot(pid, { mute: nowMuted });
       renderMixerPresetTabs(); // refresh M/S indicators in tabs
     });
 
@@ -326,7 +325,7 @@ export function bindInlineMixerControls(panel: HTMLElement): void {
     soloToggle?.addEventListener("change", () => {
       const nowSolo = soloToggle.checked;
       setPresetSolo(pid, nowSolo);
-      if (uiState.mixer?.presets[pid]) uiState.mixer.presets[pid].solo = nowSolo;
+      updateMixerSlot(pid, { solo: nowSolo });
       renderMixerPresetTabs();
     });
   });
@@ -345,7 +344,7 @@ export function bindInlineMixerControls(panel: HTMLElement): void {
       sendParameter: false,
       onValueChange: (v) => {
         setMixGainDb(v);
-        if (uiState.mixer) uiState.mixer.mixGainDb = v;
+        setMixerMixGainDb(v);
       },
     });
   }

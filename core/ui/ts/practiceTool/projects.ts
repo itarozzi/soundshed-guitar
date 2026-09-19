@@ -15,7 +15,7 @@
  * registered implementations, the same seam pattern as `signalPath/render.ts`.
  */
 
-import { setAppSetting } from "../bridge.js";
+import { updateAppSetting } from "../appSettingsStore.js";
 import { uiState } from "../state.js";
 import type { AppSettingValue, PracticeToolLoopRegion, PracticeToolProject } from "../types.js";
 import { sanitizePracticeToolEq } from "./eq.js";
@@ -112,8 +112,7 @@ export function persistLoopsForCurrentFile(): void {
   } else {
     delete map[fingerprint];
   }
-  uiState.appSettings[LOOPS_SETTING_KEY] = map as unknown as AppSettingValue;
-  setAppSetting(LOOPS_SETTING_KEY, map);
+  updateAppSetting(LOOPS_SETTING_KEY, map as unknown as AppSettingValue);
 }
 
 // ── Projects ─────────────────────────────────────────────────────────────────
@@ -186,8 +185,7 @@ export function readPracticeToolProjects(): PracticeToolProject[] {
 
 function writePracticeToolProjects(projects: PracticeToolProject[]): void {
   const payload = projects as unknown as AppSettingValue;
-  uiState.appSettings[PROJECTS_SETTING_KEY] = payload;
-  setAppSetting(PROJECTS_SETTING_KEY, projects);
+  updateAppSetting(PROJECTS_SETTING_KEY, payload);
 }
 
 export function findPracticeToolProject(projectId: string): PracticeToolProject | null {

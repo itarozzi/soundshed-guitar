@@ -7,7 +7,8 @@
  * - Tone3000 tab (browse and preview remote items)
  * - Preview/temporary loading before import
  */
-import { postMessage, setAppSetting } from "./bridge.js";
+import { postMessage } from "./bridge.js";
+import { updateAppSetting } from "./appSettingsStore.js";
 import { showConfirm } from "./dialogs.js";
 import { FEATURE_FLAGS_CHANGED_EVENT, Features, isFeatureEnabled } from "./featureFlags.js";
 import { getPlaySvg } from "./iconAssets.js";
@@ -1117,10 +1118,7 @@ export class ResourceBrowserModal {
   }
 
   private setResourceFavorite(resourceId: string, isFavorite: boolean): void {
-    if (!uiState.appSettings) {
-      uiState.appSettings = {};
-    }
-    const raw = uiState.appSettings[RESOURCE_FAVORITES_SETTING];
+    const raw = uiState.appSettings?.[RESOURCE_FAVORITES_SETTING];
     let favorites: string[] = Array.isArray(raw) ? (raw.filter((val): val is string => typeof val === "string")) : [];
 
     const alreadyFavorite = favorites.includes(resourceId);
@@ -1130,8 +1128,7 @@ export class ResourceBrowserModal {
       favorites = favorites.filter((id) => id !== resourceId);
     }
 
-    uiState.appSettings[RESOURCE_FAVORITES_SETTING] = favorites;
-    setAppSetting(RESOURCE_FAVORITES_SETTING, favorites);
+    updateAppSetting(RESOURCE_FAVORITES_SETTING, favorites);
   }
 
   private toggleResourceFavorite(resourceId: string): void {

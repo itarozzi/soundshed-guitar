@@ -1,0 +1,192 @@
+{
+  "activeCompositePresetId": [
+    "multiPresetMixer.ts",
+    "signalPath/mixer.ts",
+    "views.ts"
+  ],
+  "activePresetDraft": [
+    "state.ts"
+  ],
+  "activePresetFolderId": [
+    "presets/folderControls.ts",
+    "presets/folders.ts",
+    "toneSharingPanel/installedPacks.ts"
+  ],
+  "activePresetId": [
+    "presetLibraryStore.ts",
+    "state.ts"
+  ],
+  "activePresetIsNew": [
+    "state.ts"
+  ],
+  "activePresetSceneId": [
+    "presetLibraryStore.ts",
+    "state.ts"
+  ],
+  "activePresetSnapshot": [
+    "signalPath/history.ts",
+    "state.ts"
+  ],
+  "activeSetlistId": [
+    "performancePads.ts",
+    "presets/setlists.ts"
+  ],
+  "appSettings": [
+    "appSettingsStore.ts"
+  ],
+  "automation": [
+    "automationPanel.ts"
+  ],
+  "availableUpdate": [
+    "updateCheck.ts"
+  ],
+  "blendLibrary": [
+    "messages/sharedSync.ts",
+    "messages/stateHandlers.ts"
+  ],
+  "compositeEditDefinition": [
+    "state.ts"
+  ],
+  "compositeEditMode": [
+    "state.ts"
+  ],
+  "compositeEditPreset": [
+    "state.ts"
+  ],
+  "compositeLibrary": [
+    "compositeEffects.ts"
+  ],
+  "compositePresets": [
+    "multiPresetMixer.ts"
+  ],
+  "customEffectLibrary": [
+    "customEffects.ts"
+  ],
+  "demoAudioRepeat": [
+    "demoAudio.ts"
+  ],
+  "demoAudioSelectedId": [
+    "demoAudio.ts"
+  ],
+  "dspLoadHistoryPercent": [
+    "dspPerformance.ts"
+  ],
+  "dspPerformance": [
+    "messages/telemetry.ts"
+  ],
+  "effectPresets": [
+    "messages/presetHandlers.ts"
+  ],
+  "environment": [
+    "metronome.ts"
+  ],
+  "filteredPresets": [
+    "presetLibraryStore.ts"
+  ],
+  "focusedMixerPresetId": [
+    "signalPath/mixer.ts",
+    "state.ts",
+    "views.ts"
+  ],
+  "globalSignalChain": [
+    "controls.ts",
+    "messages/signalPathHandlers.ts",
+    "messages/stateHandlers.ts",
+    "presets/load.ts"
+  ],
+  "jam": [
+    "jam/state.ts"
+  ],
+  "layoutLibrary": [
+    "layoutDesigner/layoutStore.ts",
+    "messages/layoutHandlers.ts"
+  ],
+  "logs": [
+    "logging.ts"
+  ],
+  "metronome": [
+    "metronome.ts"
+  ],
+  "missingNodeResources": [
+    "messages/stateHandlers.ts"
+  ],
+  "mixer": [
+    "mixerStore.ts"
+  ],
+  "parameters": [
+    "messages/presetHandlers.ts",
+    "messages/stateHandlers.ts"
+  ],
+  "practiceTool": [
+    "practiceTool.ts"
+  ],
+  "presetArchiveSession": [
+    "presets/sanitize.ts"
+  ],
+  "presetCache": [
+    "presetLibraryStore.ts"
+  ],
+  "presetDirty": [
+    "state.ts"
+  ],
+  "presetFavorites": [
+    "presets/favorites.ts",
+    "presets/recents.ts",
+    "toneSharingPanel/installedPacks.ts"
+  ],
+  "presetFolders": [
+    "presets/folderArchive.ts",
+    "presets/folderControls.ts",
+    "presets/folders.ts",
+    "toneSharingPanel/installedPacks.ts"
+  ],
+  "presetLoadingId": [
+    "presetLibraryStore.ts"
+  ],
+  "presetRatings": [
+    "presets/favorites.ts",
+    "presets/recents.ts",
+    "toneSharingPanel/installedPacks.ts"
+  ],
+  "presets": [
+    "presetLibraryStore.ts"
+  ],
+  "resourceLibrary": [
+    "messages/normalize.ts",
+    "messages/sharedSync.ts",
+    "messages/stateHandlers.ts"
+  ],
+  "riffCapture": [
+    "riffLibrary.ts"
+  ],
+  "riffLibrary": [
+    "riffLibrary.ts"
+  ],
+  "setlistCursorIndex": [
+    "performancePads.ts",
+    "presets/setlists.ts"
+  ],
+  "setlists": [
+    "presets/setlists.ts"
+  ],
+  "signalDiagnostics": [
+    "messages/telemetry.ts"
+  ],
+  "signalPeakHold": [
+    "views.ts"
+  ],
+  "signalTest": [
+    "messages/signalPathHandlers.ts",
+    "messages/stateHandlers.ts"
+  ],
+  "tone3000Session": [
+    "tone3000.ts"
+  ],
+  "uiSettings": [
+    "messages/sharedSync.ts",
+    "messages/stateHandlers.ts",
+    "presets/favorites.ts",
+    "presets/recents.ts",
+    "settings/appearance.ts"
+  ]
+}

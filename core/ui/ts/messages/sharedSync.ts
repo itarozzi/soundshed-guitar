@@ -4,6 +4,7 @@
  */
 
 import { renderBlendList } from "../blendManager.js";
+import { replaceAppSettings } from "../appSettingsStore.js";
 import { postMessage } from "../bridge.js";
 import { applyDensityAppSettings } from "../compactMode.js";
 import { applyStoredInputChannel } from "../controls.js";
@@ -67,7 +68,7 @@ export function onSharedSyncState(payload: IncomingPayload): void {
   };
 
   if (sharedPayload.appSettings) {
-    uiState.appSettings = sharedPayload.appSettings as AppSettings;
+    replaceAppSettings(sharedPayload.appSettings as AppSettings);
     applyDensityAppSettings(sharedPayload.appSettings);
     applyStoredDemoAudioSelection();
     applyToneSharingAppSettings(sharedPayload.appSettings);

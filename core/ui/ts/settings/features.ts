@@ -3,11 +3,10 @@
  * one of them changes.
  */
 
-import { setAppSetting } from "../bridge.js";
+import { updateAppSetting } from "../appSettingsStore.js";
 import { FEATURE_DEFINITIONS, FEATURE_FLAGS_CHANGED_EVENT, FEATURE_GROUPS, Features, areAdvancedLibraryFeaturesEnabled, getFeatureSettingKey, isFeatureEnabled, isJamExperienceEnabled } from "../featureFlags.js";
 import type { FeatureId } from "../featureFlags.js";
 import { updateSelectedNodePeakMeter } from "../signalPath.js";
-import { uiState } from "../state.js";
 import { escapeHtml } from "../utils.js";
 import { advancedTabButton, blendsTabButton, blendsTabPanel, compositeTabButton, compositeTabPanel, equipmentLibraryTabButton, equipmentTabButtons, factoryArchiveLoadingRow, factoryArchiveLoadingToggle, factoryArchiveSettingsSection, featureGroupsContainer, footerRiffRecordButton, jamFloatingPlayerRoot, jamPanel, jamPanelButton, jamPlayerDock, layoutsTabButton, layoutsTabPanel, libraryTabButtons, libraryToolsHeading, libraryToolsSection, resourceLibraryTabButton, sharingPanel, sharingPanelButton, tone3000SettingsHeading, tone3000SettingsSection, tone3000TabButton } from "./dom.js";
 import { updateResourceCleanupVisibility } from "./libraryCleanup.js";
@@ -67,8 +66,7 @@ export function initFeatureToggles(): void {
 
     const enabled = Boolean(target.checked);
     const key = getFeatureSettingKey(featureId);
-    uiState.appSettings[key] = enabled;
-    setAppSetting(key, enabled);
+    updateAppSetting(key, enabled);
     syncFeatureVisibility();
     renderLibraryView();
     updateSelectedNodePeakMeter();

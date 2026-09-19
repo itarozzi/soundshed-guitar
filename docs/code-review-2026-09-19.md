@@ -67,7 +67,7 @@ Relevant locations:
 
 **Status:** The two cross-feature import cycles were removed on 19 September 2026, and persisted navigation view state is now feature-owned. The four cycles left inside features (two in `presets/`, the signal-path params panel, and tone sharing's browse feed) have since been broken too, by registered redraw hooks (`requestPresetUIRender`, `requestNodeParamsPanel`, `requestBrowseReload`), an injected loader for preset history, and leaf modules for preset filtering and toolbar state. `check-cycles` now compares module by module against an empty baseline, so any new cycle fails, inside a feature or between two.
 
-The broader `uiState` migration still needs work.
+`uiState` writes are now pinned per field by `scripts/check-state-writes.js`, which runs in `npm run verify` and CI and fails when a module starts writing a field it is not pinned for. Three slices have a single owner with commands. `appSettingsStore.ts` owns app settings, which had 23 writer modules; its `updateAppSetting` records a value and sends it to the engine in one call, and three modules that previously sent without recording now do both. `presetLibraryStore.ts` owns the preset list, cache, filtered view, active and loading ids, and active scene, which had up to 13 writer modules per field. `mixerStore.ts` owns the Multi-Rig mixer, which had 6. Still open: the other fields keep their current writers (84 field–module write pairs across 53 fields, pinned), including preset folders, favourites and ratings, the global chain, UI settings, and composite edit state. Reads still go directly to `uiState`.
 
 ### P2 — `PluginController` and `MultiPresetMixer` remain god objects
 

@@ -13,6 +13,8 @@ import { normalizePresetScenes } from "../presetScenes.js";
 import { migratePresetNodeTypes } from "../presetV2.js";
 import { refreshEffectPresetsFlyout, refreshSelectedNodeParams } from "../signalPath.js";
 import { clonePreset, setActivePresetDraft, setActivePresetIsNew, setActivePresetSnapshot, setPresetDirty, uiState } from "../state.js";
+import { setMixerSlots } from "../mixerStore.js";
+import { cachePreset, putLibraryPresetFirst, setActivePresetId, setActivePresetSceneId, setLibraryPresets, setPresetLoadingId, showAllLibraryPresets } from "../presetLibraryStore.js";
 import type { Preset, PresetFolder, Setlist, StoredEffectPreset } from "../types.js";
 import { markIgnoreNextStatePreset } from "./echoGuard.js";
 import { normalizePresetResources } from "./normalize.js";
@@ -24,15 +26,15 @@ export function onPresetLoaded(payload: IncomingPayload): void {
   if (preset) {
     // Clear loading state before re-rendering — the re-render below removes
     // all loading classes and overlays baked into the DOM by the render functions.
-    uiState.presetLoadingId = null;
+    setPresetLoadingId(null);
     migratePresetNodeTypes(preset);
     normalizePresetResources(preset);
     const preserveNewDraft = Boolean(uiState.activePresetIsNew && uiState.activePresetId === preset.id);
-    uiState.activePresetSceneId = normalizePresetScenes(preset, (payload as { sceneId?: string }).sceneId ?? uiState.activePresetSceneId ?? undefined);
+    setActivePresetSceneId(normalizePresetScenes(preset, (payload as { sceneId?: string }).sceneId ?? uiState.activePresetSceneId ?? undefined));
     recordRecentPreset(preset.id);
-    uiState.activePresetId = preset.id;
+    setActivePresetId(preset.id);
     setActivePresetIsNew(preserveNewDraft);
-    uiState.presetCache.set(preset.id, clonePreset(preset));
+    cachePreset(clonePreset(preset));
     setActivePresetSnapshot(preset);
     setActivePresetDraft(preset);
     setPresetDirty(false);
@@ -40,13 +42,7 @@ export function onPresetLoaded(payload: IncomingPayload): void {
   }
   const activePresetIds = (payload as { activePresetIds?: string[] }).activePresetIds;
   if (Array.isArray(activePresetIds)) {
-    uiState.mixer = uiState.mixer ?? { activePresetIds: [], presets: {}, masterGain: 1.0, mixGainDb: 0 };
-    uiState.mixer.activePresetIds = activePresetIds.slice();
-    activePresetIds.forEach((id) => {
-      if (!uiState.mixer!.presets[id]) {
-        uiState.mixer!.presets[id] = { id, mix: 1.0, pan: 0.0, mute: false, solo: false };
-      }
-    });
+    setMixerSlots(activePresetIds);
     reconcileActiveCompositePreset(); // a setlist step or program change reports the new mixer here, not via "state"
   }
   const parameters = (payload as { parameters?: Record<string, unknown> }).parameters;
@@ -58,7 +54,7 @@ export function onPresetLoaded(payload: IncomingPayload): void {
     };
   }
   if (preset) {
-    uiState.presetCache.set(preset.id, clonePreset(preset));
+    cachePreset(clonePreset(preset));
     setActivePresetSnapshot(preset);
     setActivePresetDraft(preset);
     setPresetDirty(false);
@@ -87,17 +83,17 @@ export function onPresetSaved(payload: IncomingPayload): void {
   );
   if (savedPreset) {
     normalizePresetResources(savedPreset);
-    uiState.activePresetSceneId = normalizePresetScenes(savedPreset, (payload as { sceneId?: string }).sceneId ?? uiState.activePresetSceneId ?? undefined);
+    setActivePresetSceneId(normalizePresetScenes(savedPreset, (payload as { sceneId?: string }).sceneId ?? uiState.activePresetSceneId ?? undefined));
     cachePresetInMemory(savedPreset);
-    uiState.activePresetId = savedPreset.id;
+    setActivePresetId(savedPreset.id);
     setActivePresetIsNew(false);
-    uiState.presetCache.set(savedPreset.id, clonePreset(savedPreset));
+    cachePreset(clonePreset(savedPreset));
     setActivePresetSnapshot(savedPreset);
     setActivePresetDraft(savedPreset);
     setPresetDirty(false);
     if (!uiState.presets.some((p) => p.id === savedPreset.id)) {
-      uiState.presets.unshift(clonePreset(savedPreset));
-      uiState.filteredPresets = uiState.presets.slice();
+      putLibraryPresetFirst(clonePreset(savedPreset));
+      showAllLibraryPresets();
       populatePresetDropdown();
     }
     renderActivePreset();
@@ -147,11 +143,10 @@ export function onPresetList(payload: IncomingPayload): void {
             category: incomingCategory,
           }
         : { id: p.id, name: p.name, category: incomingCategory } as Preset;
-      uiState.presetCache.set(p.id, nextPreset);
+      cachePreset(nextPreset, p.id);
       nextPresets.push(nextPreset);
     }
-    uiState.presets = nextPresets;
-    uiState.filteredPresets = nextPresets.slice();
+    setLibraryPresets(nextPresets);
     populatePresetDropdown();
     renderActivePreset();
 

@@ -2,7 +2,8 @@ import { DEMO_AUDIO_SAMPLES, getActivePresetForRender, uiState } from "./state.j
 import { arrayBufferToBase64, parseWavMetadata, resolveDemoSamplePath } from "./utils.js";
 import { appendLog } from "./logging.js";
 import { showNotification } from "./notifications.js";
-import { postMessage, renderDemoAudio, requestCaptureDebugSnapshot, setAppSetting } from "./bridge.js";
+import { postMessage, renderDemoAudio, requestCaptureDebugSnapshot } from "./bridge.js";
+import { updateAppSetting } from "./appSettingsStore.js";
 import { sanitizeFilename } from "./archiveUtils.js";
 import type { DemoSample } from "./types.js";
 import { Features, isFeatureEnabled } from "./featureFlags.js";
@@ -128,8 +129,7 @@ function renderDemoRenderSampleRateOptions(): string {
 
 function persistDemoRenderSampleRate(sampleRate: number): void {
   const normalized = normalizeDemoRenderSampleRate(sampleRate);
-  uiState.appSettings[DEMO_AUDIO_RENDER_SAMPLE_RATE_SETTING] = normalized;
-  setAppSetting(DEMO_AUDIO_RENDER_SAMPLE_RATE_SETTING, normalized);
+  updateAppSetting(DEMO_AUDIO_RENDER_SAMPLE_RATE_SETTING, normalized);
 }
 
 function refreshDemoRenderSampleRateSelectors(): void {
@@ -146,8 +146,7 @@ function refreshDemoRenderSampleRateSelectors(): void {
 }
 
 function persistDemoAudioSelection(selectedId: string | null): void {
-  uiState.appSettings[DEMO_AUDIO_SELECTED_ID_SETTING] = selectedId;
-  setAppSetting(DEMO_AUDIO_SELECTED_ID_SETTING, selectedId);
+  updateAppSetting(DEMO_AUDIO_SELECTED_ID_SETTING, selectedId);
 }
 
 function getStoredDemoAudioSelectionId(): string | null {

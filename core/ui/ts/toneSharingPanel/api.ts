@@ -6,7 +6,7 @@
  * that has to notice the server handing back a rotated session.
  */
 
-import { setAppSetting } from "../bridge.js";
+import { updateAppSetting } from "../appSettingsStore.js";
 import { storageKeys, toneSharingState } from "./state.js";
 
 export function getApiOrigin(): string {
@@ -26,11 +26,7 @@ export function normalizeSettingString(value: unknown): string {
 }
 
 export function persistToneSharingSession(value: string): void {
-  if (value) {
-    setAppSetting(storageKeys.sessionId, value);
-    return;
-  }
-  setAppSetting(storageKeys.sessionId, null);
+  updateAppSetting(storageKeys.sessionId, value || null);
 }
 
 export function updateToneSharingSession(sessionId: unknown): void {

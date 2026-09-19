@@ -24,7 +24,7 @@
  * turned back on.
  */
 
-import { setAppSetting } from "./bridge.js";
+import { updateAppSetting } from "./appSettingsStore.js";
 import { uiState } from "./state.js";
 import { layoutLookupKey } from "./layoutTypes.js";
 import type { EffectLayout, LayoutLibraryEntry } from "./layoutTypes.js";
@@ -97,11 +97,7 @@ export function areEffectLayoutsEnabled(): boolean {
  * back on restores every previous choice.
  */
 export function setEffectLayoutsEnabled(enabled: boolean): void {
-  if (!uiState.appSettings) {
-    uiState.appSettings = {};
-  }
-  uiState.appSettings[LAYOUT_ENABLED_SETTING] = enabled;
-  setAppSetting(LAYOUT_ENABLED_SETTING, enabled);
+  updateAppSetting(LAYOUT_ENABLED_SETTING, enabled);
   window.dispatchEvent(new CustomEvent(LAYOUT_PREFERENCES_CHANGED_EVENT));
 }
 
@@ -150,9 +146,6 @@ export function getLayoutPreferenceRules(): LayoutPreferenceRule[] {
 }
 
 function persistRules(rules: LayoutPreferenceRule[]): void {
-  if (!uiState.appSettings) {
-    uiState.appSettings = {};
-  }
   const serialized = rules.map((rule) => {
     const entry: Record<string, string> = {
       id: rule.id,
@@ -166,8 +159,7 @@ function persistRules(rules: LayoutPreferenceRule[]): void {
     entry.createdAt = rule.createdAt ?? new Date().toISOString();
     return entry;
   });
-  uiState.appSettings[LAYOUT_PREFERENCES_SETTING] = serialized;
-  setAppSetting(LAYOUT_PREFERENCES_SETTING, serialized);
+  updateAppSetting(LAYOUT_PREFERENCES_SETTING, serialized);
   window.dispatchEvent(new CustomEvent(LAYOUT_PREFERENCES_CHANGED_EVENT));
 }
 

@@ -1,4 +1,5 @@
-import { setAppSetting, postMessage } from "./bridge.js";
+import { updateAppSetting } from "./appSettingsStore.js";
+import { postMessage } from "./bridge.js";
 import { showNotification } from "./notifications.js";
 import { showConfirm } from "./dialogs.js";
 import {
@@ -10,6 +11,7 @@ import {
   updateActiveSetlistDetails,
 } from "./presets.js";
 import { clonePreset, getActivePresetForRender, uiState } from "./state.js";
+import { setPresetLoadingId } from "./presetLibraryStore.js";
 import { EffectTypeRegistry } from "./presetV2.js";
 import { FEATURE_FLAGS_CHANGED_EVENT, Features, isFeatureEnabled } from "./featureFlags.js";
 import type { AppSettingValue, GraphNode, Preset, Setlist } from "./types.js";
@@ -98,11 +100,7 @@ function normalizeAssignments(value: unknown): PerformancePadAssignments {
 }
 
 function writeSetting(key: string, value: AppSettingValue): void {
-  uiState.appSettings = {
-    ...uiState.appSettings,
-    [key]: value,
-  };
-  setAppSetting(key, value);
+  updateAppSetting(key, value);
 }
 
 function persistMode(): void {
@@ -296,7 +294,7 @@ function selectSetlistSlot(index: number): void {
   // which re-renders the pads. Loading it from here as well rebuilt the whole DSP graph a
   // second time and doubled the switch time. A pad for the preset already playing loads nothing.
   if (!isOnlyPlayingPreset(presetId)) {
-    uiState.presetLoadingId = presetId;
+    setPresetLoadingId(presetId);
   }
   postMessage({ type: "setSetlistCursor", cursorIndex: index });
   renderPerformancePads();

@@ -16,6 +16,7 @@ import { renderPresetUI } from "./presets/library.js";
 import { loadPresetIndex } from "./presets/load.js";
 import { ensureSetlists, renderSetlistPanel } from "./presets/setlists.js";
 import { uiState } from "./state.js";
+import { resetLibrary, setFilteredPresets } from "./presetLibraryStore.js";
 
 export { deleteCurrentPreset, deletePresetFromBackend, initializePresetActionButtons, openEditPresetModal, saveOverwriteCurrentPreset } from "./presets/actions.js";
 export { initializePresetControls, selectNextPreset, selectPreviousPreset } from "./presets/controls.js";
@@ -42,9 +43,7 @@ export async function initializePresets(): Promise<void> {
     await loadPresetIndex();
   } else {
     const basePresets = getDefaultPresets();
-    uiState.presets = [...basePresets];
-    uiState.filteredPresets = uiState.presets.slice();
-    uiState.presets.forEach((preset) => uiState.presetCache.set(preset.id, preset));
+    resetLibrary(basePresets);
     renderPresetUI(uiState.presetCache.get(uiState.activePresetId ?? "") ?? null);
   }
 
@@ -58,7 +57,7 @@ export async function initializePresets(): Promise<void> {
 
   ensurePresetFolders(false);  // Don't persist — backend response will arrive with saved data
   ensureSetlists();
-  uiState.filteredPresets = getFilteredPresets(presetSearchElement?.value ?? "");
+  setFilteredPresets(getFilteredPresets(presetSearchElement?.value ?? ""));
   renderPresetUI(uiState.presetCache.get(uiState.activePresetId ?? "") ?? null);
   renderSetlistPanel();
   updatePresetDropdownSelection();

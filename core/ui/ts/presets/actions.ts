@@ -18,6 +18,7 @@ import { loadFavoritePresetIds, saveFavoritePresetIds } from "../presets/favorit
 import { persistPresetFolders, removePresetFromFolders } from "../presets/folders.js";
 import { requestPresetUIRender, setPresetLibraryRefresher } from "../presets/refresh.js";
 import { clonePreset, getActivePresetForRender, setActivePresetDraft, setActivePresetIsNew, setActivePresetSnapshot, setPresetDirty, uiState } from "../state.js";
+import { cachePreset, removeLibraryPresets, replaceLibraryPreset, setActivePresetId, setFilteredPresets } from "../presetLibraryStore.js";
 import { isToneSharingSignedIn, openToneSharingPublishPresetModal, openToneSharingSignInModal } from "../toneSharingPanel.js";
 import type { Preset } from "../types.js";
 import { populatePresetFolderSelect } from "./folderControls.js";
@@ -81,28 +82,25 @@ export async function deleteCurrentPreset(): Promise<void> {
 
   if (deletePresetFromBackend(activePresetId)) {
     // Remove from UI state
-    const index = uiState.presets.findIndex((p) => p.id === activePresetId);
-    if (index >= 0) {
-      uiState.presets.splice(index, 1);
-    }
+    removeLibraryPresets([activePresetId]);
     removePresetFromFolders(uiState.presetFolders ?? [], activePresetId);
     persistPresetFolders();
     const favorites = loadFavoritePresetIds();
     if (favorites.delete(activePresetId)) {
       saveFavoritePresetIds(favorites);
     }
-    uiState.filteredPresets = getFilteredPresets(presetSearchElement?.value ?? "");
-    uiState.presetCache.delete(activePresetId);
+    setFilteredPresets(getFilteredPresets(presetSearchElement?.value ?? ""));
 
     // The deleted preset's unsaved changes went with it; loading the next one has nothing to confirm.
     setPresetDirty(false);
 
     // Select first preset if available
     if (uiState.presets.length > 0) {
-      uiState.activePresetId = uiState.presets[0].id;
-      void applyPresetFromLibrary(uiState.activePresetId);
+      const nextPresetId = uiState.presets[0].id;
+      setActivePresetId(nextPresetId);
+      void applyPresetFromLibrary(nextPresetId);
     } else {
-      uiState.activePresetId = null;
+      setActivePresetId(null);
     }
 
     populatePresetDropdown();
@@ -162,11 +160,8 @@ export function saveOverwriteCurrentPreset(): void {
   postMessage(savePayload);
 
   // Update cache
-  uiState.presetCache.set(activePresetId, updatedPreset);
-  const index = uiState.presets.findIndex((p) => p.id === activePresetId);
-  if (index >= 0) {
-    uiState.presets[index] = updatedPreset;
-  }
+  cachePreset(updatedPreset, activePresetId);
+  replaceLibraryPreset(updatedPreset, activePresetId);
 
   setActivePresetIsNew(false);
   setActivePresetSnapshot(updatedPreset);
@@ -226,7 +221,7 @@ export function openEditPresetModal(): void {
 // Supply the real redraw to the modules that can only request one — see
 // presets/refresh.ts for why the indirection exists.
 setPresetLibraryRefresher((activePreset) => {
-  uiState.filteredPresets = getFilteredPresets(presetSearchElement?.value ?? "");
+  setFilteredPresets(getFilteredPresets(presetSearchElement?.value ?? ""));
   populatePresetDropdown();
   if (activePreset) {
     requestPresetUIRender(clonePreset(activePreset));

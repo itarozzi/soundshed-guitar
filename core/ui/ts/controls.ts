@@ -1,6 +1,9 @@
 import { appendLog } from "./logging.js";
-import { postMessage, sendGlobalChainParam, setAppSetting, setMasterGain, setParameter } from "./bridge.js";
+import { postMessage, sendGlobalChainParam, setMasterGain, setParameter } from "./bridge.js";
+import { updateAppSetting } from "./appSettingsStore.js";
 import { uiState } from "./state.js";
+import { setMixerMasterGain } from "./mixerStore.js";
+import { cachePreset } from "./presetLibraryStore.js";
 import type { GlobalSettings, GraphNode, SignalGraph } from "./types.js";
 import { EffectGuids } from "./effectGuids.js";
 import { GenericKnob } from "./knob.js";
@@ -125,9 +128,7 @@ function preserveMuteWhileAdjustingOutput(outputGainDb: number): void {
 
   lastNonMutedMasterGain = Math.pow(10.0, outputGainDb / 20.0);
   setMasterGain(0.0);
-  if (uiState.mixer) {
-    uiState.mixer.masterGain = 0.0;
-  }
+  setMixerMasterGain(0.0);
   updateOutputMuteToggleState();
 }
 
@@ -138,17 +139,13 @@ function toggleOutputMute(): void {
       lastNonMutedMasterGain = currentMasterGain;
     }
     setMasterGain(0.0);
-    if (uiState.mixer) {
-      uiState.mixer.masterGain = 0.0;
-    }
+    setMixerMasterGain(0.0);
     outputMuted = true;
     appendLog("output muted");
   } else {
     const restoreGain = lastNonMutedMasterGain > 1.0e-4 ? lastNonMutedMasterGain : 1.0;
     setMasterGain(restoreGain);
-    if (uiState.mixer) {
-      uiState.mixer.masterGain = restoreGain;
-    }
+    setMixerMasterGain(restoreGain);
     outputMuted = false;
     appendLog(`output unmuted → ${restoreGain.toFixed(3)}`);
   }
@@ -554,13 +551,11 @@ function getStoredMonoMode(): boolean | null {
 }
 
 function persistInputChannel(channel: number): void {
-  uiState.appSettings[INPUT_CHANNEL_SETTING] = channel;
-  setAppSetting(INPUT_CHANNEL_SETTING, channel);
+  updateAppSetting(INPUT_CHANNEL_SETTING, channel);
 }
 
 function persistMonoMode(mono: boolean): void {
-  uiState.appSettings[MONO_MODE_SETTING] = mono;
-  setAppSetting(MONO_MODE_SETTING, mono);
+  updateAppSetting(MONO_MODE_SETTING, mono);
 }
 
 export function applyStoredInputChannel(): void {
@@ -916,7 +911,7 @@ function updateActivePresetGlobals(next: Partial<GlobalSettings>): void {
 
   preset.globals = merged;
   preset.global = merged;
-  uiState.presetCache.set(activeId, preset);
+  cachePreset(preset, activeId);
 }
 
 function sendAutoLevelToPlugin(): void {

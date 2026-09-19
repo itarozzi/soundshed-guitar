@@ -1,5 +1,6 @@
 import { uiState } from "./state.js";
-import { setAppSetting, requestAppInfo } from "./bridge.js";
+import { requestAppInfo } from "./bridge.js";
+import { updateAppSetting } from "./appSettingsStore.js";
 import { appendLog } from "./logging.js";
 import { showNotification } from "./notifications.js";
 import { getApiBaseUrl } from "./apiConfig.js";
@@ -21,8 +22,7 @@ export function triggerUpdateCheck(): void {
   let instanceId = uiState.appSettings[INSTANCE_ID_SETTING] as string | undefined;
   if (!instanceId) {
     instanceId = crypto.randomUUID();
-    uiState.appSettings[INSTANCE_ID_SETTING] = instanceId;
-    setAppSetting(INSTANCE_ID_SETTING, instanceId);
+    updateAppSetting(INSTANCE_ID_SETTING, instanceId);
   }
 
   const rawEnabled = uiState.appSettings[UPDATE_CHECK_ENABLED_SETTING];

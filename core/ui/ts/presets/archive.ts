@@ -1,6 +1,7 @@
 import { appendLog } from "../logging.js";
 import { showNotification } from "../notifications.js";
 import { clonePreset, uiState } from "../state.js";
+import { cachePreset, putLibraryPresetFirst, setActivePresetId } from "../presetLibraryStore.js";
 import { arrayBufferToBase64, sha256HexFromBase64 } from "../utils.js";
 import { buildArchiveFileNameWithHash, generateResourceId, requestResourceData, sanitizeFilename } from "../archiveUtils.js";
 import type { BlendDefinition, Preset, ResourceRef, SignalGraph, ToneSharingOriginMetadata } from "../types.js";
@@ -1319,8 +1320,8 @@ export async function importPresetArchive(
       });
 
       cachePresetInMemory(importedPreset);
-      uiState.presets = [importedPreset, ...uiState.presets.filter((preset) => preset.id !== importedPreset.id)];
-      uiState.presetCache.set(importedPreset.id, importedPreset);
+      putLibraryPresetFirst(importedPreset);
+      cachePreset(importedPreset);
     }
     importedPresets.push(importedPreset);
   }
@@ -1335,7 +1336,7 @@ export async function importPresetArchive(
   }
 
   const latestPreset = importedPresets[importedPresets.length - 1];
-  uiState.activePresetId = latestPreset.id;
+  setActivePresetId(latestPreset.id);
   const importedPresetIds = importedPresets.map((preset) => preset.id);
   const topLevelFolderName = options.topLevelFolderName?.trim();
   
@@ -1501,8 +1502,8 @@ export async function importGeneratedPack(file: File, context: ArchiveImportCont
     });
 
     cachePresetInMemory(appPreset);
-    uiState.presets = [appPreset, ...uiState.presets.filter((preset) => preset.id !== appPreset.id)];
-    uiState.presetCache.set(importedId, appPreset);
+    putLibraryPresetFirst(appPreset);
+    cachePreset(appPreset, importedId);
     importedPresets.push(appPreset);
   }
 
@@ -1512,7 +1513,7 @@ export async function importGeneratedPack(file: File, context: ArchiveImportCont
   }
 
   const latestPreset = importedPresets[0];
-  uiState.activePresetId = latestPreset.id;
+  setActivePresetId(latestPreset.id);
   assignImportedPresetsToTopLevelFolder(
     context.titleHint?.trim() || manifest.packId?.trim() || file.name.replace(/\.zip$/i, ""),
     importedPresets.map((preset) => preset.id),

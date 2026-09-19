@@ -7,9 +7,11 @@
  * or resources still referenced elsewhere, have to survive it.
  */
 
-import { postMessage, setAppSetting } from "../bridge.js";
+import { updateAppSetting } from "../appSettingsStore.js";
+import { postMessage } from "../bridge.js";
 import { clonePreset, uiState } from "../state.js";
-import type { Preset, PresetFolder } from "../types.js";
+import { removeLibraryPresets, setActivePresetId } from "../presetLibraryStore.js";
+import type { AppSettingValue, Preset, PresetFolder } from "../types.js";
 import { escapeHtml } from "../utils.js";
 import { renderToneIconButton } from "./actionButtons.js";
 import { element } from "./dom.js";
@@ -74,7 +76,7 @@ export function normalizeInstalledPackMetadata(raw: unknown): InstalledPackMetad
 }
 
 export function persistInstalledPacks(): void {
-  setAppSetting(storageKeys.installedPacks, toneSharingState.installedPacks);
+  updateAppSetting(storageKeys.installedPacks, toneSharingState.installedPacks as unknown as AppSettingValue);
 }
 
 export function reconcileInstalledPacksWithPresetLibrary(persist = false): boolean {
@@ -360,11 +362,7 @@ export async function deleteInstalledPackById(id: string, planned?: InstalledPac
 
   if (presetIds.length > 0) {
     const toRemove = new Set(presetIds);
-    uiState.presets = uiState.presets.filter((preset) => !toRemove.has(preset.id));
-    uiState.filteredPresets = uiState.filteredPresets.filter((preset) => !toRemove.has(preset.id));
-    presetIds.forEach((presetId) => {
-      uiState.presetCache.delete(presetId);
-    });
+    removeLibraryPresets(toRemove);
 
     if (Array.isArray(uiState.presetFolders)) {
       uiState.presetFolders.forEach((folder) => removePresetIdsFromFolders(folder, toRemove));
@@ -403,10 +401,10 @@ export async function deleteInstalledPackById(id: string, planned?: InstalledPac
     if (uiState.activePresetId && toRemove.has(uiState.activePresetId)) {
       const nextPreset = uiState.presets[0] ?? null;
       if (nextPreset) {
-        uiState.activePresetId = nextPreset.id;
+        setActivePresetId(nextPreset.id);
         postMessage({ type: "loadPreset", preset: clonePreset(nextPreset), presetId: nextPreset.id });
       } else {
-        uiState.activePresetId = null;
+        setActivePresetId(null);
       }
     }
 

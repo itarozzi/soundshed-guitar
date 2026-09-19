@@ -8,6 +8,7 @@ import { postMessage } from "../bridge.js";
 import { showConfirm } from "../dialogs.js";
 import { showNotification } from "../notifications.js";
 import { setPresetDirty, uiState } from "../state.js";
+import { setPresetLoadingId } from "../presetLibraryStore.js";
 import type { Setlist } from "../types.js";
 import { setlistCollapsible, setlistEditorHeader, setlistListElement, setlistPanel, setlistSlotsElement, setlistToggle } from "./dom.js";
 import { renderActivePreset } from "./filter.js";
@@ -60,7 +61,7 @@ export function applySetlistCursorFromBackend(cursorIndex: number, presetId?: st
   // A step onto the preset already playing loads nothing, so no "presetLoaded" follows to
   // end the loading state; the cursor report is the last word.
   if (presetId && uiState.presetLoadingId === presetId && uiState.activePresetId === presetId) {
-    uiState.presetLoadingId = null;
+    setPresetLoadingId(null);
     renderActivePreset();
   }
 }
@@ -89,7 +90,7 @@ export async function selectSetlistSlot(index: number): Promise<void> {
   const reloads = !isOnlyPlayingPreset(presetId);
   postMessage({ type: "setSetlistCursor", cursorIndex: index });
   if (reloads) {
-    uiState.presetLoadingId = presetId;
+    setPresetLoadingId(presetId);
   }
   renderSetlistPanel();
   renderActivePreset();

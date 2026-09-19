@@ -7,7 +7,8 @@
  * the stored profiles.
  */
 
-import { postMessage, setAppSetting } from "../bridge.js";
+import { postMessage } from "../bridge.js";
+import { updateAppSetting } from "../appSettingsStore.js";
 import { showConfirm } from "../dialogs.js";
 import { showNotification } from "../notifications.js";
 import { uiState } from "../state.js";
@@ -105,10 +106,8 @@ export function serializeUserInputCalibrationProfiles(profiles: UserInputCalibra
 
 export function persistUserInputCalibrationState(profiles: UserInputCalibrationProfile[], activeProfileId: string | null): void {
   const serializedProfiles = serializeUserInputCalibrationProfiles(profiles);
-  uiState.appSettings[USER_INPUT_CALIBRATION_PROFILES_SETTING] = serializedProfiles;
-  uiState.appSettings[USER_INPUT_CALIBRATION_ACTIVE_PROFILE_SETTING] = activeProfileId;
-  setAppSetting(USER_INPUT_CALIBRATION_PROFILES_SETTING, serializedProfiles);
-  setAppSetting(USER_INPUT_CALIBRATION_ACTIVE_PROFILE_SETTING, activeProfileId);
+  updateAppSetting(USER_INPUT_CALIBRATION_PROFILES_SETTING, serializedProfiles);
+  updateAppSetting(USER_INPUT_CALIBRATION_ACTIVE_PROFILE_SETTING, activeProfileId);
   refreshUserInputCalibrationView();
 }
 
@@ -351,8 +350,7 @@ export function saveUserInputCalibrationProfile(): void {
 }
 
 export function applyUserInputCalibrationProfileSelection(activeProfileId: string | null): void {
-  uiState.appSettings[USER_INPUT_CALIBRATION_ACTIVE_PROFILE_SETTING] = activeProfileId;
-  setAppSetting(USER_INPUT_CALIBRATION_ACTIVE_PROFILE_SETTING, activeProfileId);
+  updateAppSetting(USER_INPUT_CALIBRATION_ACTIVE_PROFILE_SETTING, activeProfileId);
   refreshUserInputCalibrationView();
 }
 

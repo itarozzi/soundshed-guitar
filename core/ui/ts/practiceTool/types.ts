@@ -51,7 +51,7 @@ export interface PracticeToolState {
  * A saved Practice Tool project: the backing track that was loaded, the loops
  * defined on it, the fader settings, and — if the user opted in at save time —
  * the tone preset that was selected. Purely client-side, stored via
- * `setAppSetting` under `practiceTool.projects`; the engine knows nothing of it.
+ * `updateAppSetting` under `practiceTool.projects`; the engine knows nothing of it.
  */
 export interface PracticeToolProject {
   id: string;

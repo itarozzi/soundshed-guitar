@@ -3,7 +3,7 @@
  * shared item.
  */
 
-import { uiState } from "../state.js";
+import { mergeMixerState } from "../mixerStore.js";
 import { handleToneSharingDeepLink } from "../toneSharingPanel.js";
 import type { IncomingPayload } from "./types.js";
 
@@ -17,30 +17,15 @@ export function onNavigateToToneSharingDeepLink(payload: IncomingPayload): void 
 // Optional: handle full mixer state sync from plugin
 export function handleMixerStateMessage(message: Record<string, unknown>): void {
   const mixer = message as { activePresetIds?: string[]; presets?: Record<string, unknown>; masterGain?: number; mixGainDb?: number };
-  uiState.mixer = uiState.mixer ?? { activePresetIds: [], presets: {}, masterGain: 1.0, mixGainDb: 0 };
-  if (Array.isArray(mixer.activePresetIds)) {
-    uiState.mixer.activePresetIds = mixer.activePresetIds.slice();
-  }
-  if (typeof mixer.masterGain === "number") {
-    uiState.mixer.masterGain = mixer.masterGain as number;
-  }
-  if (typeof mixer.mixGainDb === "number") {
-    uiState.mixer.mixGainDb = mixer.mixGainDb;
-  }
-  // Merge per-preset states if provided
-  if (mixer.presets && typeof mixer.presets === "object") {
-    for (const [pid, st] of Object.entries(mixer.presets)) {
-      const ps = st as { mix?: number; pan?: number; mute?: boolean; solo?: boolean };
-      const cur = uiState.mixer.presets[pid] || { id: pid, mix: 1.0, pan: 0.0, mute: false, solo: false };
-      uiState.mixer.presets[pid] = {
-        id: pid,
-        mix: typeof ps.mix === "number" ? ps.mix : cur.mix,
-        pan: typeof ps.pan === "number" ? ps.pan : cur.pan,
-        mute: typeof ps.mute === "boolean" ? ps.mute : cur.mute,
-        solo: typeof ps.solo === "boolean" ? ps.solo : cur.solo,
-      };
-    }
-  }
+  mergeMixerState({
+    activePresetIds: Array.isArray(mixer.activePresetIds) ? mixer.activePresetIds : undefined,
+    masterGain: mixer.masterGain,
+    mixGainDb: mixer.mixGainDb,
+    // Per-preset states, merged over what each slot already has.
+    presets: mixer.presets && typeof mixer.presets === "object"
+      ? (mixer.presets as Record<string, { mix?: number; pan?: number; mute?: boolean; solo?: boolean }>)
+      : undefined,
+  });
 }
 
 /**

@@ -3,9 +3,11 @@
  * and the toggles that sit alongside them.
  */
 
-import { postMessage, setAppSetting } from "../bridge.js";
+import { postMessage } from "../bridge.js";
+import { updateAppSetting } from "../appSettingsStore.js";
 import { showNotification } from "../notifications.js";
 import { clonePreset, uiState } from "../state.js";
+import { cachePreset } from "../presetLibraryStore.js";
 import type { Preset } from "../types.js";
 import { dspNominalLevelInput, dspOutputLimiterToggle, dspProtectionCeilingInput, factoryArchiveLoadingToggle, namAntiAliasPhaseSelect, namAutoInputCalibrationToggle, namInterfaceCalibrationLevelInput, namOversamplingSelect, namSlimmableSizeInput, presetSwitchTailSelect, updateCheckToggle } from "./dom.js";
 import { DSP_NOMINAL_LEVEL_DEFAULT, DSP_NOMINAL_LEVEL_MAX, DSP_NOMINAL_LEVEL_MIN, DSP_NOMINAL_LEVEL_SETTING, DSP_OUTPUT_LIMITER_SETTING, DSP_PROTECTION_CEILING_DEFAULT, DSP_PROTECTION_CEILING_MAX, DSP_PROTECTION_CEILING_MIN, DSP_PROTECTION_CEILING_SETTING, FACTORY_ARCHIVE_LOADING_SETTING, NAM_ANTI_ALIAS_PHASE_DEFAULT, NAM_ANTI_ALIAS_PHASE_MAX, NAM_ANTI_ALIAS_PHASE_MIN, NAM_ANTI_ALIAS_PHASE_SETTING, NAM_AUTO_INPUT_CALIBRATION_SETTING, NAM_INTERFACE_CALIBRATION_LEVEL_DEFAULT, NAM_INTERFACE_CALIBRATION_LEVEL_MAX, NAM_INTERFACE_CALIBRATION_LEVEL_MIN, NAM_INTERFACE_CALIBRATION_LEVEL_SETTING, NAM_OVERSAMPLING_DEFAULT, NAM_OVERSAMPLING_MAX, NAM_OVERSAMPLING_MIN, NAM_OVERSAMPLING_SETTING, NAM_SLIMMABLE_SIZE_DEFAULT, NAM_SLIMMABLE_SIZE_MAX, NAM_SLIMMABLE_SIZE_MIN, NAM_SLIMMABLE_SIZE_SETTING, PRESET_SWITCH_TAIL_DEFAULT, PRESET_SWITCH_TAIL_MAX, PRESET_SWITCH_TAIL_MIN, PRESET_SWITCH_TAIL_SETTING, UPDATE_CHECK_ENABLED_SETTING } from "./keys.js";
@@ -21,8 +23,7 @@ export function initUpdateCheckToggle(): void {
   toggle.dataset.bound = "true";
   toggle.addEventListener("change", () => {
     const enabled = Boolean(toggle.checked);
-    uiState.appSettings[UPDATE_CHECK_ENABLED_SETTING] = enabled;
-    setAppSetting(UPDATE_CHECK_ENABLED_SETTING, enabled);
+    updateAppSetting(UPDATE_CHECK_ENABLED_SETTING, enabled);
   });
 }
 
@@ -32,8 +33,7 @@ export function initFactoryArchiveLoadingToggle(): void {
   toggle.dataset.bound = "true";
   toggle.addEventListener("change", () => {
     const enabled = Boolean(toggle.checked);
-    uiState.appSettings[FACTORY_ARCHIVE_LOADING_SETTING] = enabled;
-    setAppSetting(FACTORY_ARCHIVE_LOADING_SETTING, enabled);
+    updateAppSetting(FACTORY_ARCHIVE_LOADING_SETTING, enabled);
   });
 }
 
@@ -106,8 +106,7 @@ export function initDspLevelTargetControls(): void {
     autoCalibrationToggle.dataset.bound = "true";
     autoCalibrationToggle.addEventListener("change", () => {
       const enabled = Boolean(autoCalibrationToggle.checked);
-      uiState.appSettings[NAM_AUTO_INPUT_CALIBRATION_SETTING] = enabled;
-      setAppSetting(NAM_AUTO_INPUT_CALIBRATION_SETTING, enabled);
+      updateAppSetting(NAM_AUTO_INPUT_CALIBRATION_SETTING, enabled);
     });
   }
 
@@ -116,8 +115,7 @@ export function initDspLevelTargetControls(): void {
     limiterToggle.dataset.bound = "true";
     limiterToggle.addEventListener("change", () => {
       const enabled = Boolean(limiterToggle.checked);
-      uiState.appSettings[DSP_OUTPUT_LIMITER_SETTING] = enabled;
-      setAppSetting(DSP_OUTPUT_LIMITER_SETTING, enabled);
+      updateAppSetting(DSP_OUTPUT_LIMITER_SETTING, enabled);
     });
   }
 
@@ -146,7 +144,7 @@ export function initDiagnosticsToggle(): void {
       );
       preset.designedPeakInputDbfs = Math.round(peakDbfs * 10) / 10;
       delete (preset as Record<string, unknown>).globalSignalChain;
-      uiState.presetCache.set(activeId, preset);
+      cachePreset(preset, activeId);
       postMessage({
         type: "savePreset",
         presetId: preset.id,
