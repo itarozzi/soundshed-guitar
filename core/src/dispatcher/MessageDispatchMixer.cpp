@@ -44,7 +44,7 @@ bool MessageDispatcher::DispatchMixerAndMonitoring(PluginController& c, const nl
         return true;
     }
 
-    if (type == "removeActivePreset" || type == "removePreset")
+    if (type == "removeActivePreset")
     {
         std::string presetId = msg.value("presetId", "");
 
@@ -111,13 +111,6 @@ bool MessageDispatcher::DispatchMixerAndMonitoring(PluginController& c, const nl
     if (type == "setMixGain")
     {
         c.SetMixGainDb(msg.value("gainDb", 0.0));
-        return true;
-    }
-
-    if (type == "setLimiterEnabled")
-    {
-        bool enabled = msg.value("enabled", false);
-        c.SetLimiterEnabled(enabled);
         return true;
     }
 

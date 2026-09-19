@@ -83,7 +83,7 @@ The UI is a web-based single-page application (SPA) hosted in a native WebView. 
 | `globalChain` | `{config}` | Global signal chain configuration |
 | `effectCatalog` | `{effects: [...]}` | Available effect types |
 | `dspPerformance` | `{stats: {totalProcessingTimeUs, realTimeUs, dspLoadPercent, totalLatencySamples, nodeProcessingTimesUs, nodeLatencySamples}, sampleRate, blockSize}` | DSP timing at 5 Hz, for the performance panel and the per-node readouts. Both node maps are keyed `<scope>::<nodeId>` — `pre::`, `post::`, or the preset id — since a bare node id only identifies a node within one executor. A node missing from `nodeProcessingTimesUs` did not run last block; the UI blanks it rather than showing a zero. |
-| `sldRoster` | `{seq, nodes: [[scope, presetId, nodeId, nodeType, hasAnalyzer]], spectrogramRange, barkRange}` | Signal diagnostics roster: everything about the node set that does not change frame to frame. Sent only when the node set changes, and on `getSignalDiagnostics`. |
+| `sldRoster` | `{seq, nodes: [[scope, presetId, nodeId, nodeType, hasAnalyzer]], spectrogramRange, barkRange}` | Signal diagnostics roster: everything about the node set that does not change frame to frame. Sent only when the node set changes, and after `getSignalDiagnostics`. |
 | `sld` | `{seq, r, i, o, d}` | Signal level frame at 20 Hz. `r`/`i`/`o` are raw input, processed input and output; `d` holds one tuple per roster node, flattened in roster order. Every tuple is `[peakDbfs, rmsDbfs, clipCount, clipped, channelCount]`, the levels rounded to 0.1 dB; `headroomDb` is derived UI-side. `channelCount` (0 = the node did not run this block, 1 mono, 2 stereo) rides here rather than in the roster: it tracks the signal, so keeping it in the roster re-sent that whole message several times a second. Frames whose `seq` does not match the held roster are dropped. |
 | `sldA` | `{seq, id, t, l, s, b}` | Analyzer telemetry for one node — levels `l`, spectrogram bins `s` and bark bands `b` in whole dBFS. Sent separately from `sld` because it is an order of magnitude larger than a level tuple. |
 | `sldS` | `{scope, presetId?, id, r, s}` | Spectrum of one node's input, for the EQ curve backdrop, ~30 Hz while a `setSpectrumWatch` is held and the UI is visible. `s` is 128 whole-dB bins log-spaced across `r = [minHz, maxHz, floorDb, ceilingDb]` (20 Hz-20 kHz, -96-0 dB), both ends included, tilted +3 dB/octave about 1 kHz so pink noise reads flat. Nothing is sent for a node that is not there; the UI clears a spectrum that stops arriving. |
@@ -135,7 +135,6 @@ The UI is a web-based single-page application (SPA) hosted in a native WebView. 
 | `setPresetSolo` | `{presetId, solo}` | Solo mixer preset |
 | `setMasterGain` | `{gain}` | Set the mixer's linear master multiplier directly. Only the output mute uses this (0 to mute, the previous value to restore); level changes go through `setGlobalChainParam` with path `output.gain`, since the engine derives the multiplier from that setting and re-derives it on every chain rebuild |
 | `setMixGain` | `{gainDb}` | The Multi-Rig's own level in dB, applied to the summed preset mix ahead of the global post-chain and output stage. Independent of `output.gain`; reported back as `mixer.mixGainDb`, saved with a Multi-Rig, and reset to 0 dB when a single preset is loaded |
-| `setLimiterEnabled` | `{enabled}` | Enable/disable the output limiter. Still accepted, as is `setGlobalChainParam` with path `limiter.enabled`; the UI now drives it through the `audio.dsp.outputLimiterEnabled` app setting instead, since the limiter is global rather than per-mix |
 | `saveCompositePreset` | `{name, description?, tags?, id?}` | Save the current mixer (slots, levels, mix gain) as a Multi-Rig preset; with `id`, update that one in place |
 | `loadCompositePreset` | `{id}` | Replace the mixer with a saved Multi-Rig's slots, levels and mix gain. The instance's output gain is left alone, as with any preset load |
 | `getCompositePresetList` | `{}` | Request `compositePresetList` |
@@ -162,7 +161,6 @@ The UI is a web-based single-page application (SPA) hosted in a native WebView. 
 | `getGlobalChain` | `{}` | Request global chain state |
 | `getEffectCatalog` | `{}` | Request effect catalog |
 | `getPresetList` | `{}` | Request preset list from disk |
-| `openAudioPreferences` | `{}` | Standalone: open JUCE's native Audio/MIDI Settings dialog. Kept for compatibility; the Settings panel uses `audioDevice` instead |
 | `audioDevice` | `{action, ...}` | Standalone: one audio/MIDI device request, answered with `audioDeviceState`. Actions: `getState {rescan?}`, `setDeviceType {deviceType}`, `setDevice {kind: "input"\|"output"\|"linked", name}` (`""` is no device), `setInputChannels {group}` / `setOutputChannels {group}` (group index, `-1` for none), `setSampleRate {sampleRate}`, `setBufferSize {bufferSize}`, `setInputMuted {muted}`, `playTestTone`, `showControlPanel`, `resetDevice`, `requestInputPermission`, `setMidiInputEnabled {identifier, enabled}`, `setMidiOutput {identifier}` (`""` is none), `watchLevels {enabled}` (a lease that lapses 5 s after the last renewal, so the UI renews it every 2 s while the controls are on screen) |
 | `browsePracticeToolFile` | `{}` | Practice Tool: open native file browser for a backing track |
 | `loadPracticeToolFile` | `{path}` | Practice Tool: load a backing track by native path |
@@ -176,6 +174,16 @@ The UI is a web-based single-page application (SPA) hosted in a native WebView. 
 | `setPracticeToolLoopRegion` | `{startSec, endSec}` or `{}` | Practice Tool: set (or, with bounds omitted, clear) the active loop region. Sent only when the UI activates/deactivates a loop — the engine has no concept of the loop library itself |
 | `setPracticeToolLooping` | `{enabled}` | Practice Tool: enable/disable looping of the active region |
 | `setPracticeToolEq` | `{enabled?, params?}` | Practice Tool: backing-track EQ. Both fields optional and applied independently — the toggle alone, one band's `{lowGain, lowFreq, lowQ}` mid-drag, or the whole curve on a project recall. `params` keys are `ParametricEQEffect`'s own (`lowGain`/`lowFreq`/`lowQ`, `lowMid*`, `highMid*`, `high*`); unknown keys are ignored and every value is clamped by the effect |
+
+The engine also answers a few requests the UI itself never sends:
+
+| Type | Payload | Description |
+|------|---------|-------------|
+| `getPerformanceStats` | `{}` | Publish a `dspPerformance` frame now rather than on the next tick. A pull for tests and scripted debugging; the UI takes the pushed feed |
+| `getSignalDiagnostics` | `{}` | Publish the next signal-level frame with its `sldRoster`, for a client that has no roster yet. Tests and scripted debugging only |
+| `splitSignalPathEdge` | `{edge: {from, to, fromPort, toPort}}` | Insert a splitter/mixer pair on one edge of the edited graph, making two parallel lanes. The engine supports it; the UI has no gesture for it yet, though it can show and collapse (`collapseSignalPathSplit`) a split a preset already has |
+
+Retired on 19 September 2026, and now ignored: `setAutoLevel` (mixer-wide auto-level), `openAudioPreferences` (JUCE's audio dialog; use `audioDevice`), `setLimiterEnabled` (use the `audio.dsp.outputLimiterEnabled` app setting), `setGlobalChain` (use `setGlobalChainParam`), `setNodeEnabled`/`setNodeParam` (use `updateSignalPathNodeBypass`/`updateSignalPathNodeParam`), `setTunerEnabled`/`setTunerReference` (use `tuner`), `removePreset` (use `removeActivePreset`), `removeLocalLibraryResource` (use `deleteLibraryResource`, which also checks the resource is unused) and `importToneSharingPack` (packs are imported in the UI).
 
 ## State Object
 

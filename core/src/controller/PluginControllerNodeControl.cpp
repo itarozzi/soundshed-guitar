@@ -137,32 +137,6 @@ void PluginController::HandleLoadIRRequest(const nlohmann::json& payload)
     }
 }
 
-void PluginController::HandleSetNodeEnabledRequest(const nlohmann::json& payload)
-{
-    const std::string fallbackId = mActivePresetId.empty() ? "p1" : mActivePresetId;
-    std::string presetId = payload.value("presetId", fallbackId);
-    std::string nodeId = payload.value("nodeId", "");
-    bool enabled = payload.value("enabled", true);
-    {
-        std::lock_guard<std::mutex> lock(mDSPMutex);
-        mPresetMixer.SetNodeEnabled(presetId, nodeId, enabled);
-    }
-    UpdateHostLatency();
-}
-
-void PluginController::HandleSetNodeParamRequest(const nlohmann::json& payload)
-{
-    std::string presetId = payload.value("presetId", "p1");
-    std::string nodeId = payload.value("nodeId", "");
-    std::string key = payload.value("key", "");
-    double value = payload.value("value", 0.0);
-    {
-        std::lock_guard<std::mutex> lock(mDSPMutex);
-        mPresetMixer.SetNodeParam(presetId, nodeId, key, value);
-    }
-    UpdateHostLatency();
-}
-
 void PluginController::ResetNamNodeLevelState(const std::string& nodeId)
 {
     if (nodeId.empty() || !mActivePreset)

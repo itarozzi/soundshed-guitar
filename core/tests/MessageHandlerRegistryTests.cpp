@@ -2,9 +2,8 @@
  * MessageHandlerRegistryTests.cpp — services that answer their own UI messages.
  *
  * The registry's own rules (one owner per message type), and the Practice Tool's and
- * the tuner's registrations: every message they used to reach through a
- * PluginController::Handle* method is registered, and those methods' payload checks and
- * replies still happen.
+ * the tuner's registrations: every message they answer is registered, and the payload
+ * checks and replies their old PluginController::Handle* methods made still happen.
  * That registered handlers run inside the dispatcher's JSON-error guard is covered by
  * MessageDispatchTypeErrorTests.
  */
@@ -159,8 +158,7 @@ void TestTunerRegistrations()
 
     MessageHandlerRegistry registry;
     tuner.RegisterMessageHandlers(registry);
-    Check(registry.Types() == std::vector<std::string>{"setTunerEnabled", "setTunerReference", "tuner"},
-          "the tuner registers its three messages");
+    Check(registry.Types() == std::vector<std::string>{"tuner"}, "the tuner registers its one message");
 
     registry.Dispatch("tuner", nlohmann::json{{"action", "start"}, {"liveMode", false}, {"referenceFrequency", 442.0}});
     Check(tuner.IsActive() && mixer.IsTunerEnabled() && !mixer.IsLiveTunerMode(),
@@ -174,8 +172,10 @@ void TestTunerRegistrations()
     Check(!tuner.IsActive() && !mixer.IsTunerEnabled(), "stopping turns it off");
     Check(sent.size() == 2 && sent.back() == nlohmann::json{{"type", "tunerStopped"}}, "a stop carries no fields");
 
-    registry.Dispatch("setTunerEnabled", nlohmann::json{{"enabled", true}});
-    Check(tuner.IsActive() && mixer.IsTunerEnabled() && sent.size() == 2, "setTunerEnabled switches without a reply");
+    registry.Dispatch("tuner", nlohmann::json{{"enabled", true}});
+    Check(tuner.IsActive() && mixer.IsTunerEnabled() && sent.size() == 3 &&
+              sent.back().value("type", "") == "tunerStarted",
+          "a bare {enabled} switches it and replies");
 }
 } // namespace
 

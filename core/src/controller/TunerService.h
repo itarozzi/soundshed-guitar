@@ -45,7 +45,7 @@ class TunerService
 
     TunerService(SendMessageFn sendMessage, MultiPresetMixer& mixer, std::mutex& dspMutex);
 
-    /// Registers "tuner", "setTunerEnabled" and "setTunerReference" with the dispatcher.
+    /// Registers "tuner" with the dispatcher.
     void RegisterMessageHandlers(MessageHandlerRegistry& registry);
 
     /// Audio thread: records the latest reading, replacing any not yet published.

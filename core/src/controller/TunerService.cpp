@@ -17,19 +17,6 @@ TunerService::TunerService(SendMessageFn sendMessage, MultiPresetMixer& mixer, s
 void TunerService::RegisterMessageHandlers(MessageHandlerRegistry& registry)
 {
     registry.Register("tuner", [this](const nlohmann::json& payload) { HandleTunerRequest(payload); });
-
-    registry.Register("setTunerEnabled", [this](const nlohmann::json& payload) {
-        bool enabled = payload.value("enabled", false);
-        SetActive(enabled);
-        std::lock_guard<std::mutex> lock(mDSPMutex);
-        mMixer.SetTunerEnabled(enabled);
-    });
-
-    registry.Register("setTunerReference", [this](const nlohmann::json& payload) {
-        double freq = payload.value("frequency", 440.0);
-        std::lock_guard<std::mutex> lock(mDSPMutex);
-        mMixer.SetTunerReferenceFrequency(freq);
-    });
 }
 
 void TunerService::HandleTunerRequest(const nlohmann::json& payload)

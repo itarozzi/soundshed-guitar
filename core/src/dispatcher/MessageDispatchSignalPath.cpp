@@ -71,18 +71,6 @@ bool MessageDispatcher::DispatchSignalPath(PluginController& c, const nlohmann::
         return true;
     }
 
-    if (type == "setNodeEnabled")
-    {
-        c.HandleSetNodeEnabledRequest(msg);
-        return true;
-    }
-
-    if (type == "setNodeParam")
-    {
-        c.HandleSetNodeParamRequest(msg);
-        return true;
-    }
-
     return false;
 }
 } // namespace guitarfx

@@ -18,12 +18,6 @@ bool MessageDispatcher::DispatchLibraryAndComposite(PluginController& c, const n
         return true;
     }
 
-    if (type == "removeLocalLibraryResource")
-    {
-        c.HandleRemoveLocalLibraryResourceRequest(msg);
-        return true;
-    }
-
     if (type == "deleteLibraryResource")
     {
         c.HandleDeleteLibraryResourceRequest(msg);
@@ -45,12 +39,6 @@ bool MessageDispatcher::DispatchLibraryAndComposite(PluginController& c, const n
     if (type == "browseLibraryResourcePath")
     {
         c.HandleBrowseLibraryResourcePathRequest(msg);
-        return true;
-    }
-
-    if (type == "importToneSharingPack")
-    {
-        c.HandleImportToneSharingPackRequest(msg);
         return true;
     }
 
@@ -207,12 +195,6 @@ bool MessageDispatcher::DispatchLibraryAndComposite(PluginController& c, const n
     if (type == "exitCompositeEditMode")
     {
         c.HandleExitCompositeEditModeRequest(msg);
-        return true;
-    }
-
-    if (type == "openAudioPreferences")
-    {
-        c.HandleOpenAudioPreferencesRequest();
         return true;
     }
 

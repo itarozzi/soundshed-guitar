@@ -109,7 +109,6 @@ public:
     [[nodiscard]] std::filesystem::path GetBundledAssetsPath() const override;
     [[nodiscard]] double GetSampleRate() const override;
     [[nodiscard]] int GetBlockSize() const override;
-    void OpenAudioPreferences() override;
     [[nodiscard]] bool SupportsAudioDeviceSettings() const override;
     void HandleAudioDeviceRequest (const std::string& requestJson) override;
     void NotifyStateChanged() override;

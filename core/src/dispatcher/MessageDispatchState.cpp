@@ -46,12 +46,6 @@ bool MessageDispatcher::DispatchStateAndLists(PluginController& c, const nlohman
         return true;
     }
 
-    if (type == "setGlobalChain")
-    {
-        c.HandleSetGlobalChainRequest(msg);
-        return true;
-    }
-
     if (type == "getEffectCatalog")
     {
         c.HandleGetEffectCatalogRequest();

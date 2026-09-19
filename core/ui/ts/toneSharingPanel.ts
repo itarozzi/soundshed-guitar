@@ -30,7 +30,7 @@ import { bindTopControls } from "./toneSharingPanel/topBindings.js";
 import type { InstalledPackMetadata } from "./toneSharingPanel/types.js";
 
 export { openToneSharingSignInModal } from "./toneSharingPanel/account.js";
-export { registerInstalledToneSharingPack, registerInstalledToneSharingPackFromImport } from "./toneSharingPanel/installedPacks.js";
+export { registerInstalledToneSharingPack } from "./toneSharingPanel/installedPacks.js";
 export { isToneSharingSignedIn, syncToneSharingFavoriteForPreset, syncToneSharingRatingForPreset } from "./toneSharingPanel/presetLinks.js";
 export { openToneSharingPublishPresetModal } from "./toneSharingPanel/publish.js";
 export { handleToneSharingDeepLink } from "./toneSharingPanel/shareLinks.js";

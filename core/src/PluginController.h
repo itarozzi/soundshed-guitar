@@ -381,7 +381,6 @@ class PluginController
     void HandleGetPresetByIdRequest(const nlohmann::json& payload);
     void HandleBrowseModelRequest();
     void HandleBrowseIRRequest();
-    void HandleOpenAudioPreferencesRequest();
     void HandleAudioDeviceRequest(const nlohmann::json& payload);
     void HandleSetInputModeRequest(const nlohmann::json& payload);
     void HandleSetAmpCabStateRequest(const nlohmann::json& payload);
@@ -400,14 +399,12 @@ class PluginController
     void HandleDeleteSignalPathNodeRequest(const nlohmann::json& payload);
     void HandleImportRemoteResourceRequest(const nlohmann::json& payload);
     void HandleSaveLocalLibraryResourceRequest(const nlohmann::json& payload);
-    void HandleRemoveLocalLibraryResourceRequest(const nlohmann::json& payload);
     void HandleDeleteLibraryResourceRequest(const nlohmann::json& payload);
     void HandleQueryResourceUsageRequest(const nlohmann::json& payload);
     void HandleUpdateLibraryResourceRequest(const nlohmann::json& payload);
     void HandleBrowseLibraryResourcePathRequest(const nlohmann::json& payload);
     void HandleBrowseResourceFolderRequest();
     void HandleListResourceFolderRequest(const nlohmann::json& payload);
-    void HandleImportToneSharingPackRequest(const nlohmann::json& payload);
     void HandleDeleteImportedToneSharingPackRequest(const nlohmann::json& payload);
     void HandlePreviewRemoteResourceRequest(const nlohmann::json& payload);
     void HandleCancelPreviewResourceRequest(const nlohmann::json& payload);
@@ -502,9 +499,6 @@ class PluginController
                                                                           std::string& error, bool allowCreate = true);
     void HandleGetAppInfoRequest();
     void HandleGetGlobalChainRequest();
-    void HandleSetGlobalChainRequest(const nlohmann::json& payload);
-    void HandleSetNodeEnabledRequest(const nlohmann::json& payload);
-    void HandleSetNodeParamRequest(const nlohmann::json& payload);
 
     // ── Internal helpers ───────────────────────────────────────────
     /// How much of the app state a broadcast carries.

@@ -34,11 +34,6 @@
     #include <wrl/client.h>
 #endif
 
-namespace juce
-{
-    void JUCE_CALLTYPE juce_showStandaloneAudioSettingsDialog();
-}
-
 namespace
 {
 #ifdef _WIN32
@@ -963,24 +958,6 @@ double PluginProcessorAdapter::GetSampleRate() const
 int PluginProcessorAdapter::GetBlockSize() const
 {
     return juce::AudioProcessor::getBlockSize();
-}
-
-void PluginProcessorAdapter::OpenAudioPreferences()
-{
-    if (wrapperType != wrapperType_Standalone)
-    {
-        return;
-    }
-
-    if (juce::MessageManager::getInstance()->isThisTheMessageThread())
-    {
-        juce::juce_showStandaloneAudioSettingsDialog();
-        return;
-    }
-
-    juce::MessageManager::callAsync ([]() {
-        juce::juce_showStandaloneAudioSettingsDialog();
-    });
 }
 
 bool PluginProcessorAdapter::SupportsAudioDeviceSettings() const

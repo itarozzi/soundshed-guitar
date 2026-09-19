@@ -116,8 +116,8 @@ void PluginController::HandleDebugReportUiStateRequest(const nlohmann::json& pay
 
 void PluginController::HandleGetSignalDiagnosticsRequest()
 {
-    // The UI only asks for this on startup or after a reload, when it has no roster to
-    // resolve frames against, so always re-send the roster alongside the next frame.
+    // A pull for tests and scripted debugging; the UI takes the pushed feed. Whoever asks
+    // may hold no roster to resolve frames against, so re-send it alongside the next frame.
     mTelemetry->MarkRosterDirty();
     mTelemetry->RequestSignalDiagnostics();
 }

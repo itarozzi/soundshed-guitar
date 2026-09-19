@@ -680,56 +680,6 @@ void PluginController::HandleSaveLocalLibraryResourceRequest(const nlohmann::jso
     SendMessageToUI(msg.dump());
 }
 
-void PluginController::HandleRemoveLocalLibraryResourceRequest(const nlohmann::json& payload)
-{
-    const std::string resourceType = payload.value("resourceType", "");
-    std::string resourceId = payload.value("resourceId", "");
-    const std::string filePath = payload.value("filePath", "");
-
-    if (resourceType.empty())
-    {
-        return;
-    }
-
-    // Resolve the id by file path when only a path was provided (e.g. folder browser).
-    if (resourceId.empty() && !filePath.empty())
-    {
-        const auto normalize = [](std::string value) {
-            std::replace(value.begin(), value.end(), '\\', '/');
-            std::transform(value.begin(), value.end(), value.begin(),
-                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-            return value;
-        };
-        const std::string target = normalize(filePath);
-
-        for (const auto& resource : mResourceLibrary.GetAllResources())
-        {
-            if (resource.type != resourceType)
-            {
-                continue;
-            }
-
-            if (normalize(resource.filePath.string()) == target)
-            {
-                resourceId = resource.id;
-                break;
-            }
-        }
-    }
-
-    if (resourceId.empty() || !mResourceLibrary.HasResource(resourceType, resourceId))
-    {
-        return;
-    }
-
-    RemoveUserLibraryResource(resourceType, resourceId);
-    BroadcastState();
-    TouchSharedSyncState({"resourceLibrary"});
-
-    SendMessageToUI(
-        nlohmann::json{{"type", "resourceRemoved"}, {"resourceType", resourceType}, {"id", resourceId}}.dump());
-}
-
 void PluginController::HandleDeleteLibraryResourceRequest(const nlohmann::json& payload)
 {
     const std::string resourceType = payload.value("resourceType", "");
@@ -1714,66 +1664,6 @@ void PluginController::ScanResourceFolderWorker(std::string requestPath,
     }
 
     flushBatch();
-}
-
-void PluginController::HandleImportToneSharingPackRequest(const nlohmann::json& payload)
-{
-    const std::string packId = payload.value("packId", "");
-    const std::string data = payload.value("data", "");
-    std::string fileName = payload.value("fileName", "");
-
-    if (data.empty())
-    {
-        SendMessageToUI(
-            nlohmann::json{{"type", "toneSharingPackImportFailed"}, {"message", "Missing pack data"}}.dump());
-        return;
-    }
-
-    if (fileName.empty())
-    {
-        fileName = packId.empty() ? "tone-sharing-pack.zip" : ("tone-sharing-pack-" + packId + ".zip");
-    }
-
-    fileName = util::SanitizeFilename(fileName);
-
-    if (fileName.find('.') == std::string::npos)
-    {
-        fileName += ".zip";
-    }
-
-    const std::vector<std::uint8_t> bytes = util::DecodeBase64(data);
-
-    if (bytes.empty())
-    {
-        SendMessageToUI(
-            nlohmann::json{{"type", "toneSharingPackImportFailed"}, {"message", "Invalid pack payload"}}.dump());
-        return;
-    }
-
-    const auto settingsDir = mFileSystem.ResolveSettingsDirectory();
-    const auto importsDir = settingsDir / "imports" / "tone-sharing";
-    [[maybe_unused]] const auto ensuredImportsDir = mFileSystem.EnsureDirectory(importsDir);
-
-    auto targetPath = importsDir / fileName;
-
-    if (!WriteFile(targetPath, bytes))
-    {
-        SendMessageToUI(
-            nlohmann::json{{"type", "toneSharingPackImportFailed"}, {"message", "Failed to write imported pack"}}
-                .dump());
-        return;
-    }
-
-    nlohmann::json result;
-    result["type"] = "toneSharingPackImported";
-    result["packId"] = packId;
-    result["fileName"] = fileName;
-    result["path"] = targetPath.generic_string();
-    result["byteSize"] = bytes.size();
-    SendMessageToUI(result.dump());
-
-    AppendSessionLog("Imported tone sharing pack " + (packId.empty() ? std::string{"(unknown)"} : packId) + " -> " +
-                     targetPath.generic_string());
 }
 
 void PluginController::HandleDeleteImportedToneSharingPackRequest(const nlohmann::json& payload)

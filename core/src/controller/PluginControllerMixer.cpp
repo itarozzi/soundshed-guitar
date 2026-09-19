@@ -331,9 +331,4 @@ void PluginController::SetMixGainDb(double dB)
 {
     mPresetMixer.SetMixGainDb(dB);
 }
-
-void PluginController::SetLimiterEnabled(bool enabled)
-{
-    mPresetMixer.SetLimiterEnabled(enabled);
-}
 } // namespace guitarfx

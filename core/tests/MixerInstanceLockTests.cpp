@@ -591,8 +591,12 @@ bool TestLatencyReadLockedNotifiedUnlocked(PluginController& controller)
         passed = CheckWindow(what + " host notification", notifies, "arrived under the DSP lock") && passed;
     };
 
-    trigger("setNodeEnabled", [&] {
-        Send(controller, {{"type", "setNodeEnabled"}, {"presetId", kPresetId}, {"nodeId", "probe"}, {"enabled", true}});
+    trigger("lowLatency param", [&] {
+        Send(controller, {{"type", "updateSignalPathNodeParam"},
+                          {"presetId", kPresetId},
+                          {"nodeId", "probe"},
+                          {"paramKey", "lowLatency"},
+                          {"value", 1.0}});
     });
     trigger("offline render on", [&] { controller.SetOfflineRendering(true); });
     trigger("offline render off", [&] { controller.SetOfflineRendering(false); });

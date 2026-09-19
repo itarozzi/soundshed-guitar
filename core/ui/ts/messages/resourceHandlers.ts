@@ -9,7 +9,6 @@ import { showNotification } from "../notifications.js";
 import { renderActivePreset } from "../presets.js";
 import { refreshSettingsView } from "../settings.js";
 import { handleHostedPluginResourceLoadCompleted, handleHostedPluginResourceLoadFailed, handleNodeResourceBrowseCancelled } from "../signalPath.js";
-import { registerInstalledToneSharingPackFromImport } from "../toneSharingPanel.js";
 import { removeResourceFromUiState, upsertImportedResourceInUiState } from "./normalize.js";
 import type { IncomingPayload } from "./types.js";
 
@@ -134,20 +133,6 @@ export function onNodeResourceBrowseCancelled(payload: IncomingPayload): void {
     nodeId?: string;
     resourceType?: string;
   });
-}
-
-export function onToneSharingPackImported(payload: IncomingPayload): void {
-  const info = payload as { fileName?: string; path?: string; byteSize?: number };
-  const detail = info.path ?? info.fileName ?? "";
-  appendLog(`tone sharing pack imported ← ${detail}`);
-  registerInstalledToneSharingPackFromImport(info);
-  showNotification("Pack imported", detail);
-}
-
-export function onToneSharingPackImportFailed(payload: IncomingPayload): void {
-  const info = payload as { message?: string };
-  appendLog(`tone sharing pack import failed ← ${info.message ?? "unknown"}`);
-  showNotification("Pack import failed", info.message ?? "");
 }
 
 export function onResourceData(payload: IncomingPayload): void {

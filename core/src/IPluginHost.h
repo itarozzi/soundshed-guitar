@@ -91,11 +91,6 @@ class IPluginHost
     [[nodiscard]] virtual int GetBlockSize() const = 0;
 
     // ── Host-specific features ─────────────────────────────────────
-    /// Open the standalone app audio/MIDI preferences (no-op in plugin formats).
-    virtual void OpenAudioPreferences()
-    {
-    }
-
     /// True where HandleAudioDeviceRequest() does something: the standalone app, whose
     /// Settings panel then shows its own audio and MIDI device controls.
     [[nodiscard]] virtual bool SupportsAudioDeviceSettings() const

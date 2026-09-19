@@ -642,11 +642,6 @@ void PluginController::HandleStateRequest()
     mPendingStateBroadcast = true;
 }
 
-void PluginController::HandleOpenAudioPreferencesRequest()
-{
-    mHost.OpenAudioPreferences();
-}
-
 void PluginController::HandleAudioDeviceRequest(const nlohmann::json& payload)
 {
     // The devices belong to the host framework, so the whole request goes to it.

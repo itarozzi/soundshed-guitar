@@ -518,15 +518,6 @@ private:
     std::unique_ptr<MainWindow> mMainWindow;
 };
 
-namespace juce
-{
-    void JUCE_CALLTYPE juce_showStandaloneAudioSettingsDialog()
-    {
-        if (auto* holder = StandalonePluginHolder::getInstance())
-            holder->showAudioSettingsDialog();
-    }
-}
-
 //==============================================================================
 #if JUCE_ANDROID
 

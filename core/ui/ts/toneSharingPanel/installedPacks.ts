@@ -134,31 +134,6 @@ export function registerInstalledToneSharingPack(entry: InstalledPackMetadata): 
   }
 }
 
-export function registerInstalledToneSharingPackFromImport(info: {
-  packId?: string;
-  fileName?: string;
-  path?: string;
-}): void {
-  const packId = info.packId?.trim() ?? "";
-  const fileName = info.fileName?.trim() || (packId ? `tone-sharing-pack-${packId}.zip` : "tone-sharing-pack.zip");
-  const generatedId = packId
-    ? `tone-sharing-api:${packId}`
-    : `tone-sharing-api:${fileName.toLowerCase()}`;
-
-  registerInstalledToneSharingPack({
-    id: generatedId,
-    title: fileName.replace(/\.zip$/i, ""),
-    source: "toneSharingApi",
-    importedAt: new Date().toISOString(),
-    packId: packId || undefined,
-    archivePath: info.path?.trim() || undefined,
-    archiveFileName: fileName,
-    presetIds: [],
-    presetSignatures: {},
-    resources: [],
-  });
-}
-
 export function formatInstalledSource(source: InstalledPackSource): string {
   if (source === "toneSharingApi") {
     return "Tone Sharing";

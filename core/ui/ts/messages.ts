@@ -16,7 +16,7 @@ import { onCompositeDefinitionAdded, onCompositeDefinitionRemoved, onCompositeEd
 import { onLayoutExportFailed, onLayoutExportSaved, onLayoutImageSelected, onLayoutImagesLoaded, onLayoutLibraryLoaded, onLayoutSaved } from "./messages/layoutHandlers.js";
 import { onNavigateToToneSharingDeepLink } from "./messages/mixerHandlers.js";
 import { onEffectPresets, onPresetArchiveSessionEnded, onPresetArchiveSessionFailed, onPresetArchiveSessionStarted, onPresetData, onPresetExportFailed, onPresetExportSaved, onPresetFavorites, onPresetFolders, onPresetList, onPresetLoaded, onPresetRatings, onPresetSaved, onSetlistCursorChanged, onSetlists } from "./messages/presetHandlers.js";
-import { onBlendExportFailed, onBlendExportSaved, onHostedPluginResourceLoadCompleted, onHostedPluginResourceLoadFailed, onIrLoaded, onLibraryExportFailed, onLibraryExportSaved, onModelLoaded, onNodeResourceBrowseCancelled, onResourceCleanupResult, onResourceData, onResourceDataFailed, onResourceDeleteFailed, onResourceFolderListing, onResourceFolderListingFailed, onResourceFolderMetadata, onResourceFolderPicked, onResourceImportFailed, onResourceImported, onResourceRemoved, onResourceUsageInfo, onToneSharingPackImportFailed, onToneSharingPackImported } from "./messages/resourceHandlers.js";
+import { onBlendExportFailed, onBlendExportSaved, onHostedPluginResourceLoadCompleted, onHostedPluginResourceLoadFailed, onIrLoaded, onLibraryExportFailed, onLibraryExportSaved, onModelLoaded, onNodeResourceBrowseCancelled, onResourceCleanupResult, onResourceData, onResourceDataFailed, onResourceDeleteFailed, onResourceFolderListing, onResourceFolderListingFailed, onResourceFolderMetadata, onResourceFolderPicked, onResourceImportFailed, onResourceImported, onResourceRemoved, onResourceUsageInfo } from "./messages/resourceHandlers.js";
 import { onSharedSyncState, onSharedSyncUpdated } from "./messages/sharedSync.js";
 import { onGlobalSignalChainChanged, onSignalPathNodeBypassUpdated, onSignalPathNodeConfigUpdated, onSignalPathNodeParamUpdated, onSignalPathTestResult, onSpatialPosition } from "./messages/signalPathHandlers.js";
 import { onAmpCabStateChanged, onAppInfo, onError, onInputModeChanged, onState, onTheme, onUiSettingsChanged } from "./messages/stateHandlers.js";
@@ -67,8 +67,6 @@ const MESSAGE_HANDLERS: Record<string, MessageHandler> = {
   "hostedPluginResourceLoadFailed": onHostedPluginResourceLoadFailed,
   "hostedPluginResourceLoadCompleted": onHostedPluginResourceLoadCompleted,
   "nodeResourceBrowseCancelled": onNodeResourceBrowseCancelled,
-  "toneSharingPackImported": onToneSharingPackImported,
-  "toneSharingPackImportFailed": onToneSharingPackImportFailed,
   "resourceData": onResourceData,
   "resourceDataFailed": onResourceDataFailed,
   "blendExportSaved": onBlendExportSaved,

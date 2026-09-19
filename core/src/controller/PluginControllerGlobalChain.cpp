@@ -23,26 +23,6 @@ void PluginController::HandleGetGlobalChainRequest()
     SendGlobalChainStateToUI();
 }
 
-void PluginController::HandleSetGlobalChainRequest(const nlohmann::json& payload)
-{
-    // Full global chain config replacement
-    if (payload.contains("config"))
-    {
-        auto config = payload["config"].get<GlobalSignalChainConfig>();
-
-        // Build off the lock, install under it — see PrepareGlobalChainSwap().
-        mPresetMixer.PrepareGlobalChainSwap(config);
-
-        {
-            std::lock_guard<std::mutex> dspLock(mDSPMutex);
-            mPresetMixer.CommitGlobalChainSwap();
-        }
-        PersistGlobalFxSettingsToAppSettings();
-    }
-
-    SendGlobalChainStateToUI();
-}
-
 void PluginController::HandleSetParameterRequest(const nlohmann::json& payload)
 {
     // Named alias for the global-chain paths, kept because "setParameter" is the
@@ -263,7 +243,7 @@ void PluginController::HandleSetGlobalChainParamRequest(const nlohmann::json& pa
     }
 
     // No echo: the UI already owns the values it sent.
-    // Full state is pushed via HandleGetGlobalChainRequest / HandleSetGlobalChainRequest.
+    // Full state is pushed via HandleGetGlobalChainRequest.
 }
 
 void PluginController::HandleSetInputModeRequest(const nlohmann::json& payload)
