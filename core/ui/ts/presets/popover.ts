@@ -11,9 +11,10 @@ import { FEATURE_FLAGS_CHANGED_EVENT, Features, isFeatureEnabled } from "../feat
 import { presetSearchElement } from "../presets/dom.js";
 import { setFavoriteToggleState } from "../presets/favorites.js";
 import { clonePreset, uiState } from "../state.js";
-import { updatePresetActionButtons } from "./actions.js";
 import { presetChooserLabel, presetControlBar, presetExtraActionsBtn, presetExtraActionsMenu, presetLibraryMultiRigPanel, presetLibraryMultiRigTab, presetLibraryPopover, presetLibraryPresetsPanel, presetLibraryPresetsTab, presetLibraryTabs } from "./dom.js";
-import { filterPresets, renderPresetUI, updatePresetDropdownSelection } from "./library.js";
+import { filterPresets, updatePresetDropdownSelection } from "./filter.js";
+import { requestPresetUIRender } from "./refresh.js";
+import { updatePresetActionButtons } from "./toolbar.js";
 import { setSetlistPanelVisible } from "./setlists.js";
 
 export function syncPresetHeaderPopoverLayer(): void {
@@ -190,6 +191,6 @@ document.addEventListener("mixerPresetTabSelected", (event) => {
   uiState.activePresetId = presetId;
   setFavoriteToggleState(presetId);
   updatePresetDropdownSelection();
-  renderPresetUI(clonePreset(preset));
+  requestPresetUIRender(clonePreset(preset));
   updatePresetActionButtons();
 });

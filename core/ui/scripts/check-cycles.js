@@ -7,10 +7,12 @@
  * at import time and the WebView shows a blank window. `tsc` cannot see this,
  * so the cycle set is pinned to a baseline here instead.
  *
- * The gate compares *feature-level* strongly-connected components: a module
- * path is collapsed to its first path segment, so splitting `signalPath.ts`
- * into `signalPath/mixer.ts` etc. does not trip the check, while genuinely new
- * entanglement between two features does.
+ * The gate compares *module-level* strongly-connected components. The baseline
+ * is empty — every cycle was broken in September 2026 — so any import cycle,
+ * across features or inside one, fails. A module that needs its feature redrawn
+ * requests it through a registered hook instead (signalPath/render.ts,
+ * presets/refresh.ts, toneSharingPanel/refresh.ts). Should a tangle ever have to
+ * be accepted, --update pins it, and from then on it may shrink but not grow.
  *
  *   node scripts/check-cycles.js            # verify against the baseline
  *   node scripts/check-cycles.js --update   # re-pin the baseline (deliberate)
@@ -118,7 +120,7 @@ function stronglyConnectedComponents(graph) {
   return components.sort((a, b) => a[0].localeCompare(b[0]));
 }
 
-/** Collapse an SCC to its distinct feature buckets, for the gate. */
+/** Collapse SCCs to their distinct feature buckets, to say which features a failure ties together. */
 function featureGroups(components) {
   return components
     .map((members) => [...new Set(members.map(feature))].sort())
@@ -131,7 +133,6 @@ function main() {
   const args = process.argv.slice(2);
   const graph = buildGraph();
   const components = stronglyConnectedComponents(graph);
-  const groups = featureGroups(components);
 
   if (args.includes('--list')) {
     console.log(`${graph.size} modules scanned.`);
@@ -143,9 +144,9 @@ function main() {
   }
 
   if (args.includes('--update')) {
-    fs.writeFileSync(BASELINE, `${JSON.stringify({ featureGroups: groups }, null, 2)}\n`, 'utf8');
-    console.log(`[check-cycles] baseline re-pinned: ${groups.length} entangled feature group(s).`);
-    for (const group of groups) console.log(`  ${group}`);
+    fs.writeFileSync(BASELINE, `${JSON.stringify({ moduleTangles: components }, null, 2)}\n`, 'utf8');
+    console.log(`[check-cycles] baseline re-pinned: ${components.length} import cycle(s).`);
+    for (const members of components) console.log(`  ${members.join(' + ')}`);
     return;
   }
 
@@ -155,46 +156,50 @@ function main() {
     return;
   }
 
-  const expected = JSON.parse(fs.readFileSync(BASELINE, 'utf8')).featureGroups;
-  const baselineSets = expected.map((group) => new Set(group.split(' + ')));
+  const expected = JSON.parse(fs.readFileSync(BASELINE, 'utf8')).moduleTangles ?? [];
+  const baselineSets = expected.map((members) => new Set(members));
 
-  // A tangle is acceptable when it is a subset of one the baseline already
+  // A cycle is acceptable when it is a subset of one the baseline already
   // accepted: unchanged, or smaller because a module was untangled. Anything
-  // that grows a tangle, or forms a fresh one, is a regression.
+  // that grows a cycle, or forms a fresh one, is a regression.
   const failures = [];
-  for (const group of groups) {
-    const current = group.split(' + ');
-    const covering = baselineSets.find((known) => current.every((feature) => known.has(feature)));
+  for (const current of components) {
+    const covering = baselineSets.find((known) => current.every((member) => known.has(member)));
     if (!covering) {
       const nearest = baselineSets
-        .map((known) => ({ known, extra: current.filter((f) => !known.has(f)) }))
+        .map((known) => ({ known, extra: current.filter((m) => !known.has(m)) }))
         .sort((a, b) => a.extra.length - b.extra.length)[0];
-      failures.push({ group, newcomers: nearest ? nearest.extra : current });
+      failures.push({ current, newcomers: nearest ? nearest.extra : current });
     }
   }
 
   if (failures.length > 0) {
-    console.error(`[check-cycles] FAIL — ${failures.length} import tangle(s) grew or appeared:`);
-    for (const { group, newcomers } of failures) {
+    console.error(`[check-cycles] FAIL — ${failures.length} import cycle(s) grew or appeared:`);
+    for (const { current, newcomers } of failures) {
       console.error(`  newly entangled: ${newcomers.join(', ')}`);
-      console.error(`  full group:      ${group}`);
+      console.error(`  full cycle:      ${current.join(' + ')}`);
     }
-    console.error('\nBreak the cycle, or re-pin deliberately with: npm run check:cycles -- --update');
+    const crossFeature = featureGroups(failures.map((failure) => failure.current));
+    if (crossFeature.length > 0) console.error(`  across features: ${crossFeature.join('; ')}`);
+    console.error(
+      '\nBreak the cycle — have the lower module request the work through a registered hook, or pass ' +
+        'the callback in — or re-pin deliberately with: npm run check:cycles -- --update'
+    );
     process.exitCode = 1;
     return;
   }
 
-  const baselineSize = expected.reduce((total, group) => total + group.split(' + ').length, 0);
-  const currentSize = groups.reduce((total, group) => total + group.split(' + ').length, 0);
+  const baselineSize = expected.reduce((total, members) => total + members.length, 0);
+  const currentSize = components.reduce((total, members) => total + members.length, 0);
 
   console.log(
-    `[check-cycles] OK — ${currentSize} feature(s) in ${groups.length} tangle(s), ` +
-      `none new (${components.length} module-level tangle(s) across ${graph.size} modules).`
+    `[check-cycles] OK — ${currentSize} module(s) in ${components.length} import cycle(s), none new ` +
+      `(${graph.size} modules scanned).`
   );
 
   if (currentSize < baselineSize) {
     console.log(
-      `Improvement: ${baselineSize - currentSize} feature(s) untangled since the baseline. ` +
+      `Improvement: ${baselineSize - currentSize} module(s) untangled since the baseline. ` +
         'Tighten it with: npm run check:cycles -- --update'
     );
   }

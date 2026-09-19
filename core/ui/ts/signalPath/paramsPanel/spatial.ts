@@ -10,8 +10,8 @@ import type { SpatialLiveState, SpatialPosition } from "../../spatialPanner.js";
 import { getActivePresetForRender } from "../../state.js";
 import type { GraphNode } from "../../types.js";
 import { sendSignalPathNodeParamUpdate } from "../commands.js";
+import { requestNodeParamsPanel } from "../render.js";
 import { nodeParamsPanelElement } from "../state.js";
-import { showNodeParamsPanel } from "./panel.js";
 import { nodeParamKnobs, paramsPanelInteractions } from "./state.js";
 
 export const SPATIAL_PARAM_KEYS: ReadonlyArray<keyof SpatialPosition> = ["azimuth", "elevation", "distance"];
@@ -61,7 +61,7 @@ export function updateSpatialVisualization(node: GraphNode): void {
     }
     if (rebuildPanel) {
       const preset = getActivePresetForRender();
-      if (preset) showNodeParamsPanel(node, preset);
+      if (preset) requestNodeParamsPanel(node, preset);
     }
   };
 

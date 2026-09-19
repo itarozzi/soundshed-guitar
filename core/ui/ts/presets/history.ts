@@ -3,12 +3,14 @@
  *
  * Stepping through the history re-applies a preset, which would itself record a
  * new entry — hence the replay flag that suppresses it.
+ *
+ * The loader is passed in rather than imported: load.ts records every load here,
+ * so importing it back would put the two modules in an import cycle.
  */
 
 import { uiState } from "../state.js";
 import { presetRedoBtn, presetUndoBtn } from "./dom.js";
-import { updatePresetDropdownSelection } from "./library.js";
-import { applyPresetFromLibrary } from "./load.js";
+import { updatePresetDropdownSelection } from "./filter.js";
 
 // ── Preset navigation history ────────────────────────────────────────────────
 // Tracks which presets were loaded, so the user can step back to the one they
@@ -55,7 +57,7 @@ export function updatePresetHistoryButtons(): void {
   }
 }
 
-export async function stepPresetHistory(offset: -1 | 1): Promise<void> {
+export async function stepPresetHistory(offset: -1 | 1, applyPreset: (presetId: string) => Promise<void>): Promise<void> {
   const targetIndex = presetHistoryIndex + offset;
   if (targetIndex < 0 || targetIndex >= presetHistory.length) {
     return;
@@ -67,7 +69,7 @@ export async function stepPresetHistory(offset: -1 | 1): Promise<void> {
 
   replayingPresetHistory = true;
   try {
-    await applyPresetFromLibrary(targetId);
+    await applyPreset(targetId);
   } finally {
     replayingPresetHistory = false;
   }

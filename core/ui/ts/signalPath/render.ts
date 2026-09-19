@@ -11,6 +11,8 @@
  * once, at module load.
  */
 
+import type { GraphNode, Preset } from "../types.js";
+
 let render: (() => void) | null = null;
 
 /** Called once by signalPath.ts to supply the real renderer. */
@@ -37,4 +39,21 @@ export function setNodeParamsRefresher(fn: () => void): void {
  */
 export function requestNodeParamsRefresh(): void {
   refreshParams?.();
+}
+
+let showParams: ((node: GraphNode, preset: Preset) => void) | null = null;
+
+/** Called once by paramsPanel/panel.ts to supply the real panel renderer. */
+export function setNodeParamsPanelRenderer(fn: (node: GraphNode, preset: Preset) => void): void {
+  showParams = fn;
+}
+
+/**
+ * Redraws the parameters panel for a given node. The control kinds the panel
+ * dispatches to — EQ, spatial, generic knobs, the 3D amp — redraw it after an
+ * edit that changes which controls apply, and would otherwise import the panel
+ * that imports them.
+ */
+export function requestNodeParamsPanel(node: GraphNode, preset: Preset): void {
+  showParams?.(node, preset);
 }

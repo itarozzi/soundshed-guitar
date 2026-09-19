@@ -15,9 +15,10 @@ import { normalizePresetScenes } from "../presetScenes.js";
 import { clonePreset, setActivePresetDraft, setActivePresetIsNew, setActivePresetSnapshot, setPresetDirty, uiState } from "../state.js";
 import type { Attachment, GlobalSignalChainConfig, Preset } from "../types.js";
 import { arrayBufferToBase64, isRemoteUrl, resolveAttachmentUrl } from "../utils.js";
-import { updatePresetActionButtons } from "./actions.js";
 import { recordPresetInHistory } from "./history.js";
-import { renderPresetUI, updatePresetDropdownSelection } from "./library.js";
+import { updatePresetDropdownSelection } from "./filter.js";
+import { requestPresetUIRender } from "./refresh.js";
+import { updatePresetActionButtons } from "./toolbar.js";
 import { hasGraphNodes } from "./validate.js";
 
 export function bindLoadButtons(): void {
@@ -170,7 +171,7 @@ export async function applyPresetFromLibrary(presetId: string): Promise<void> {
     // Set loading state BEFORE rendering so all render functions (list, details,
     // signal path bar) see it and bake the loading class/overlay into their output.
     uiState.presetLoadingId = presetPayload.id;
-    renderPresetUI(clonePreset(presetPayload));
+    requestPresetUIRender(clonePreset(presetPayload));
     updatePresetActionButtons();
     postMessage({
       type: "loadPreset",
@@ -204,7 +205,7 @@ export async function loadPresetIndex(): Promise<void> {
     uiState.presets.forEach((preset) => {
       uiState.presetCache.set(preset.id, preset);
     });
-    renderPresetUI(uiState.presetCache.get(uiState.activePresetId ?? "") ?? null);
+    requestPresetUIRender(uiState.presetCache.get(uiState.activePresetId ?? "") ?? null);
   } catch (error) {
     console.error("Failed to load preset index", error);
     const basePresets = getDefaultPresets();
@@ -213,6 +214,6 @@ export async function loadPresetIndex(): Promise<void> {
     uiState.presets.forEach((preset) => {
       uiState.presetCache.set(preset.id, preset);
     });
-    renderPresetUI(uiState.presetCache.get(uiState.activePresetId ?? "") ?? null);
+    requestPresetUIRender(uiState.presetCache.get(uiState.activePresetId ?? "") ?? null);
   }
 }

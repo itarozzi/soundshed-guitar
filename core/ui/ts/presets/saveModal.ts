@@ -8,7 +8,7 @@ import { buildAttachmentsFromPreset } from "../dataLibraries.js";
 import { appendLog } from "../logging.js";
 import { showNotification } from "../notifications.js";
 import { cachePresetInMemory } from "../presets/cache.js";
-import { PRESET_FOLDER_ALL_ID } from "../presets/folderArchive.js";
+import { PRESET_FOLDER_ALL_ID } from "./sorting.js";
 import { findFolderForPreset, isVirtualPresetFolderId } from "../presets/folders.js";
 import { stripLegacyGlobals } from "../presets/sanitize.js";
 import { normalizePresetScenes } from "../presetScenes.js";
@@ -16,10 +16,11 @@ import { STANDARD_TAGS, renderTagChips } from "../presetTags.js";
 import { createEmptyPresetV2, generateUserPresetId } from "../presetV2.js";
 import { clonePreset, getActivePresetForRender, setActivePresetDraft, setActivePresetIsNew, setActivePresetSnapshot, setPresetDirty, uiState } from "../state.js";
 import type { Preset } from "../types.js";
-import { updatePresetActionButtons } from "./actions.js";
 import { movePresetToFolder, populatePresetFolderSelect } from "./folderControls.js";
 import { initPresetModalAdvancedActions, initPresetModalTabs, setPresetModalActiveTab, updatePresetModalJson, updatePresetModalReport } from "./inspectModal.js";
-import { populatePresetDropdown, renderPresetUI } from "./library.js";
+import { populatePresetDropdown } from "./filter.js";
+import { requestPresetUIRender } from "./refresh.js";
+import { updatePresetActionButtons } from "./toolbar.js";
 import { stripGlobalSignalChainForSave, summarizePresetForSaveLog } from "./validate.js";
 
 // Save preset modal helpers
@@ -46,10 +47,6 @@ export function configureSavePresetModalLabels(mode: SavePresetModalMode): void 
   if (confirmBtn) {
     confirmBtn.textContent = confirmText;
   }
-}
-
-export function isActivePresetNewDraft(): boolean {
-  return Boolean(uiState.activePresetIsNew && uiState.activePresetId);
 }
 
 export function populateSavePresetModalFields(preset: Preset | null): void {
@@ -148,7 +145,7 @@ export function createDefaultPreset(): void {
   setActivePresetDraft(newPreset);
   setPresetDirty(false);
   populatePresetDropdown();
-  renderPresetUI(clonePreset(newPreset));
+  requestPresetUIRender(clonePreset(newPreset));
   showNotification("Preset created", newPreset.name);
   updatePresetActionButtons();
   postMessage({
@@ -243,7 +240,7 @@ export function saveCurrentPreset(): void {
       }
       uiState.filteredPresets = uiState.presets.slice();
       populatePresetDropdown();
-      renderPresetUI(clonePreset(updatedPreset));
+      requestPresetUIRender(clonePreset(updatedPreset));
       movePresetToFolder(editingPresetId, selectedFolderId);
       closeSavePresetModal();
       showNotification("Preset updated", name);
@@ -299,7 +296,7 @@ export function saveCurrentPreset(): void {
   }
   uiState.activePresetId = newPreset.id;
   populatePresetDropdown();
-  renderPresetUI(clonePreset(newPreset));
+  requestPresetUIRender(clonePreset(newPreset));
   closeSavePresetModal();
   showNotification("Preset saved", newPreset.name);
   setActivePresetIsNew(false);

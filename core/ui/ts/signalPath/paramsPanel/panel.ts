@@ -35,6 +35,7 @@ import { bindNodeParamControls, bindParamTabs, formatParamLabel, isToggleParam }
 import { isPitchShiftType, semitoneKnobRange } from "./pitchShiftRange.js";
 import { buildNodeResourceSelector, preloadResourceNavigationCaches } from "./resourceSelector.js";
 import { updateSpatialVisualization } from "./spatial.js";
+import { setNodeParamsPanelRenderer } from "../render.js";
 import { nodeParamKnobs, paramsPanelInteractions } from "./state.js";
 
 export function showNodeParamsPanel(node: GraphNode, preset: Preset): void {
@@ -557,3 +558,5 @@ export function showNodeParamsPanel(node: GraphNode, preset: Preset): void {
   updateSelectedNodeDspStatus();
   updateSelectedNodeAnalyzerPanel();
 }
+
+setNodeParamsPanelRenderer(showNodeParamsPanel);

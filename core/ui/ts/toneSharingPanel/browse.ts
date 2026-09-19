@@ -3,13 +3,13 @@
  * happen once an install has changed what "installed" means.
  */
 
-import { uiState } from "../state.js";
 import { renderAiSearchView } from "./aiSearch.js";
 import { apiFetch, isToneSharingAdmin } from "./api.js";
 import { element, setUploadStatus } from "./dom.js";
 import { applyFeaturedLayout, buildSingleRow, loadStandardBrowsePage, renderFeedRows, resetBrowseCollections, updateActiveSharedFilter, updateBrowseFooter, updateCommunityPresetSearchUi, updateFeaturedMoreLink } from "./feed.js";
 import { renderInstalledPacks } from "./installedPacks.js";
 import { clearPackDetail, viewPack } from "./packDetail.js";
+import { setBrowseLoaders } from "./refresh.js";
 import { browseState, isAiToneSearchEnabled, toneSharingState } from "./state.js";
 import type { ToneSharingItem, ToneSharingPack, ToneSharingRow } from "./types.js";
 
@@ -141,10 +141,6 @@ export async function loadMine(): Promise<void> {
   }
 }
 
-export function hasInstallStateChanged(beforeInstalledSnapshot: string, beforePresetCount: number): boolean {
-  return beforePresetCount !== uiState.presets.length || beforeInstalledSnapshot !== JSON.stringify(toneSharingState.installedPacks);
-}
-
 export async function refreshBrowseResultsAfterInstall(): Promise<void> {
   try {
     if (browseState.mode === "featured" || browseState.mode === "items" || browseState.mode === "packs") {
@@ -165,3 +161,5 @@ export async function refreshBrowseResultsAfterInstall(): Promise<void> {
   } catch {
   }
 }
+
+setBrowseLoaders({ reload: loadBrowse, refreshAfterInstall: refreshBrowseResultsAfterInstall });

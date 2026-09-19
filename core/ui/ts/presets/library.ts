@@ -1,67 +1,23 @@
 /**
- * The preset list as the user sees it: the tag filter, the filtered set, the
- * dropdown, and the library rows.
+ * The preset list as the user sees it: the library rows, the details pane and
+ * the tag filter bar. The filtered set and the chooser label are in filter.ts.
  */
 
 import { bindDemoAudioControls } from "../demoAudio.js";
 import { switchMainPanel } from "../navigation.js";
 import { getPresetRating, getRecentPresets, loadFavoritePresetIds, setPresetRating } from "../presets/favorites.js";
-import { PRESET_FOLDER_ALL_ID } from "../presets/folderArchive.js";
-import { collectPresetIds, findFolderById, getPresetFolderPath, isVirtualPresetFolderId, sortPresetFoldersAlphabetically } from "../presets/folders.js";
-import { PRESET_FOLDER_FAVORITES_ID, PRESET_FOLDER_RECENTS_ID, sortPresetsAlphabetically } from "../presets/sorting.js";
+import { getPresetFolderPath, sortPresetFoldersAlphabetically } from "../presets/folders.js";
+import { PRESET_FOLDER_ALL_ID, PRESET_FOLDER_FAVORITES_ID, PRESET_FOLDER_RECENTS_ID, sortPresetsAlphabetically } from "../presets/sorting.js";
 import { renderSignalPathBar } from "../signalPath.js";
-import { getActivePresetForRender, uiState } from "../state.js";
+import { uiState } from "../state.js";
 import type { Preset } from "../types.js";
-import { renderMixerPanel, renderPresetDetails, renderPresetList } from "../views.js";
-import { updatePresetFolderExportButtons } from "./actions.js";
-import { presetChooserLabel } from "./dom.js";
+import { renderPresetDetails, renderPresetList } from "../views.js";
+import { activeTagFilters, filterPresets } from "./filter.js";
 import { movePresetFolder, setActivePresetFolder, syncPresetFolderToolbarState } from "./folderControls.js";
 import { applyPresetFromLibrary, bindLoadButtons, requestSignalPathTest } from "./load.js";
 import { closePresetLibraryPopover, takePresetChooserOverride } from "./popover.js";
-
-export const activeTagFilters = new Set<string>();
-
-export function getFilteredPresets(query: string): Preset[] {
-  const normalized = query.trim().toLowerCase();
-  const activeFolderId = uiState.activePresetFolderId ?? PRESET_FOLDER_ALL_ID;
-  const preserveOrder = activeFolderId === PRESET_FOLDER_RECENTS_ID;
-  let basePresets = uiState.presets.slice();
-
-  if (activeFolderId === PRESET_FOLDER_FAVORITES_ID) {
-    const favorites = loadFavoritePresetIds();
-    basePresets = basePresets.filter((preset) => favorites.has(preset.id));
-  }
-
-  if (activeFolderId === PRESET_FOLDER_RECENTS_ID) {
-    basePresets = getRecentPresets();
-  }
-
-  if (!isVirtualPresetFolderId(activeFolderId)) {
-    const folder = findFolderById(uiState.presetFolders ?? [], activeFolderId);
-    if (folder) {
-      const allowedIds = collectPresetIds(folder);
-      basePresets = basePresets.filter((preset) => allowedIds.has(preset.id));
-    }
-  }
-
-  if (activeTagFilters.size > 0) {
-    basePresets = basePresets.filter((preset) => {
-      const presetTags = preset.tags ?? [];
-      return Array.from(activeTagFilters).every((tag) => presetTags.includes(tag));
-    });
-  }
-
-  if (!normalized) {
-    return preserveOrder ? basePresets : sortPresetsAlphabetically(basePresets);
-  }
-
-  const filteredPresets = basePresets.filter((preset) => {
-    const tokens = [preset.name, preset.category, preset.description];
-    return tokens.some((token) => token && token.toLowerCase().includes(normalized));
-  });
-
-  return preserveOrder ? filteredPresets : sortPresetsAlphabetically(filteredPresets);
-}
+import { setPresetUIRenderer } from "./refresh.js";
+import { updatePresetFolderExportButtons } from "./toolbar.js";
 
 export function renderPresetUI(preset: Preset | null): void {
   syncPresetFolderToolbarState();
@@ -114,17 +70,6 @@ export function renderPresetUI(preset: Preset | null): void {
   updatePresetFolderExportButtons();
 }
 
-export function renderActivePreset(): void {
-  const active = getActivePresetForRender();
-  renderPresetUI(active);
-  renderMixerPanel();
-}
-
-export function filterPresets(query: string): void {
-  uiState.filteredPresets = getFilteredPresets(query);
-  renderPresetUI(uiState.presetCache.get(uiState.activePresetId ?? "") ?? null);
-}
-
 export function initializePresetTagFilterBar(): void {
   const bar = document.getElementById("preset-tag-filter-bar");
   if (!bar) return;
@@ -145,12 +90,6 @@ export function initializePresetTagFilterBar(): void {
   });
 }
 
-export function populatePresetDropdown(): void {
-  updatePresetDropdownSelection();
-}
-
-export function updatePresetDropdownSelection(): void {
-  if (!presetChooserLabel) return;
-  const preset = uiState.presetCache.get(uiState.activePresetId ?? "") ?? null;
-  presetChooserLabel.textContent = preset?.name ?? "Select Preset";
-}
+// Supply the real redraw to the modules that can only request one — see
+// presets/refresh.ts for why the indirection exists.
+setPresetUIRenderer(renderPresetUI);

@@ -28,8 +28,8 @@ import {
 import { sendSignalPathNodeParamUpdate } from "./commands.js";
 import { getNodeCategory } from "./nodeTypes.js";
 import { nodeUsesFullRigNamCategory } from "./chainRules.js";
-import { formatParamLabel, isToggleParam, showNodeParamsPanel } from "./paramsPanel.js";
-import { requestNodeParamsRefresh, requestSignalPathRender } from "./render.js";
+import { formatParamLabel, isToggleParam } from "../parameterControlMarkup.js";
+import { requestNodeParamsPanel, requestNodeParamsRefresh, requestSignalPathRender } from "./render.js";
 import { getNodeResourceSummary } from "./nodeLabels.js";
 import { toggleSignalPathNodeBypass } from "./bypass.js";
 
@@ -185,7 +185,7 @@ export function buildChain3dViewOptions(preset: Preset, selectedId: string | nul
       }
       setSelectedNodeId(target.id);
       requestSignalPathRender();
-      showNodeParamsPanel(target, preset);
+      requestNodeParamsPanel(target, preset);
     },
     onParamChange: (nodeId, key, value) => {
       if (!preset.graph) return;

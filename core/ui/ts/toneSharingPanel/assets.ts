@@ -6,9 +6,9 @@
 import { uiState } from "../state.js";
 import { apiFetch, buildApiUrl, parseApiErrorMessage } from "./api.js";
 import { buildPackArchiveFromDetails } from "./archive.js";
-import { hasInstallStateChanged, refreshBrowseResultsAfterInstall } from "./browse.js";
 import { resolveCreatorProfileHandle } from "./format.js";
 import { getToneSharingHostActions } from "./hostActions.js";
+import { requestBrowseRefreshAfterInstall } from "./refresh.js";
 import { toneSharingState } from "./state.js";
 import type { ToneSharingItem, ToneSharingPack, ToneSharingPackDetails } from "./types.js";
 
@@ -22,6 +22,10 @@ export async function moderateTarget(kind: "item" | "pack", id: string, action: 
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ action, notes: notes || undefined }),
   });
+}
+
+function hasInstallStateChanged(beforeInstalledSnapshot: string, beforePresetCount: number): boolean {
+  return beforePresetCount !== uiState.presets.length || beforeInstalledSnapshot !== JSON.stringify(toneSharingState.installedPacks);
 }
 
 export async function downloadAsset(kind: "item" | "pack", id: string): Promise<void> {
@@ -72,7 +76,7 @@ export async function downloadAsset(kind: "item" | "pack", id: string): Promise<
     });
 
     if (hasInstallStateChanged(installedSnapshotBefore, presetCountBefore)) {
-      await refreshBrowseResultsAfterInstall();
+      await requestBrowseRefreshAfterInstall();
     }
     return;
   }
@@ -103,7 +107,7 @@ export async function downloadAsset(kind: "item" | "pack", id: string): Promise<
   }
 
   if (hasInstallStateChanged(installedSnapshotBefore, presetCountBefore)) {
-    await refreshBrowseResultsAfterInstall();
+    await requestBrowseRefreshAfterInstall();
   }
 }
 

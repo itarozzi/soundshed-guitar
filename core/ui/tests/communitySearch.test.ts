@@ -15,7 +15,7 @@ function harness(apiFetch = vi.fn().mockResolvedValue({ items: [] })) {
     browseState: { mode: "items", activeSharedTarget: null, featuredHiddenPresetCount: 0, searchQuery: "", tagFilter: "", requestVersion: 0 },
     browseCollections: { page: 1, pageSize: 36, items: [], packs: [], hasMore: false, loadingMore: false },
     renderStandardBrowseCollection: vi.fn(), updateBrowseFooter: vi.fn(),
-    element: () => ({ innerHTML: "" }), loadBrowse: vi.fn(), setTimeout, clearTimeout,
+    element: () => ({ innerHTML: "" }), requestBrowseReload: vi.fn(), setTimeout, clearTimeout,
   };
   const script = ts.transpileModule(handlers, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
   const actions = runInNewContext(script + '\n({loadStandardBrowsePage, scheduleCommunitySearch, resetBrowseCollections})', context);
@@ -73,12 +73,12 @@ describe("community search requests", () => {
     await vi.advanceTimersByTimeAsync(150);
     actions.scheduleCommunitySearch();
     await vi.advanceTimersByTimeAsync(249);
-    expect(context.loadBrowse).not.toHaveBeenCalled();
+    expect(context.requestBrowseReload).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1);
-    expect(context.loadBrowse).toHaveBeenCalledTimes(1);
+    expect(context.requestBrowseReload).toHaveBeenCalledTimes(1);
     actions.scheduleCommunitySearch();
     actions.resetBrowseCollections();
     await vi.advanceTimersByTimeAsync(300);
-    expect(context.loadBrowse).toHaveBeenCalledTimes(1);
+    expect(context.requestBrowseReload).toHaveBeenCalledTimes(1);
   });
 });

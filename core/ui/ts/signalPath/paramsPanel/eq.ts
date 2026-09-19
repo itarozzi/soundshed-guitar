@@ -11,8 +11,8 @@ import { EffectTypeRegistry, getNodeEffectInfo } from "../../presetV2.js";
 import { getActivePresetForRender, uiState } from "../../state.js";
 import type { GraphNode, Preset } from "../../types.js";
 import { sendSignalPathNodeParamUpdate } from "../commands.js";
+import { requestNodeParamsPanel } from "../render.js";
 import { nodeParamsPanelElement } from "../state.js";
-import { showNodeParamsPanel } from "./panel.js";
 import { nodeParamKnobs, paramsPanelInteractions } from "./state.js";
 
 /** A node of the active preset, addressed the way its param edits are. A node
@@ -124,7 +124,7 @@ export function updateEqVisualization(node: GraphNode): void {
         }
 
         if (preset) {
-          showNodeParamsPanel(node, preset);
+          requestNodeParamsPanel(node, preset);
         }
       }
     );
@@ -143,7 +143,7 @@ export function bindGraphicEqControls(node: GraphNode, preset: Preset): void {  
       sendSignalPathNodeParamUpdate(node.id, key, value);
     });
     if (rerender) {
-      showNodeParamsPanel(node, preset);
+      requestNodeParamsPanel(node, preset);
     } else {
       updateEqVisualization(node);
     }
@@ -186,7 +186,7 @@ export function bindGraphicEqControls(node: GraphNode, preset: Preset): void {  
       }
     });
     input.addEventListener("change", () => {
-      if (input.classList.contains("graphic-eq-frequency")) showNodeParamsPanel(node, preset);
+      if (input.classList.contains("graphic-eq-frequency")) requestNodeParamsPanel(node, preset);
     });
   });
 

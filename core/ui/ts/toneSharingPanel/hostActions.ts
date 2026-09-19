@@ -8,7 +8,7 @@ import type {
   importPackWithConfirmation,
   importPresetArchive,
 } from "../presets/archive.js";
-import type { populatePresetDropdown, renderActivePreset } from "../presets/library.js";
+import type { populatePresetDropdown, renderActivePreset } from "../presets/filter.js";
 import type { switchMainPanel } from "../navigation.js";
 
 export interface ToneSharingHostActions {

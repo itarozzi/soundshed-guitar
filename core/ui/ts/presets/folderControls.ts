@@ -9,13 +9,12 @@ import { generateResourceId } from "../archiveUtils.js";
 import { showNotification } from "../notifications.js";
 import { presetSearchElement } from "../presets/dom.js";
 import { toggleFavoritePreset } from "../presets/favorites.js";
-import { PRESET_FOLDER_ALL_ID } from "../presets/folderArchive.js";
 import { ensurePresetFolders, findFolderById, findFolderWithParent, isDescendantFolder, isVirtualPresetFolderId, persistPresetFolders, removePresetFromFolders, sortPresetFoldersAlphabetically } from "../presets/folders.js";
-import { PRESET_FOLDER_FAVORITES_ID, PRESET_FOLDER_RECENTS_ID } from "../presets/sorting.js";
+import { PRESET_FOLDER_ALL_ID, PRESET_FOLDER_FAVORITES_ID, PRESET_FOLDER_RECENTS_ID } from "../presets/sorting.js";
 import { uiState } from "../state.js";
 import type { PresetFolder } from "../types.js";
 import { presetFolderDeleteButton, presetFolderRenameButton } from "./dom.js";
-import { filterPresets } from "./library.js";
+import { filterPresets } from "./filter.js";
 
 export function populatePresetFolderSelect(select: HTMLSelectElement | null, selectedId?: string | null): void {
   if (!select) return;

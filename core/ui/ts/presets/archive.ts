@@ -9,17 +9,13 @@ import { postMessage } from "../bridge.js";
 import { showConfirm } from "../dialogs.js";
 import { registerInstalledToneSharingPack } from "../toneSharingPanel.js";
 import type { InstalledPackMetadata } from "../toneSharingPanel.js";
-import {
-  downloadTone3000ResourceByReference,
-  isTone3000AuthReady,
-  isTone3000ProxyModeEnabled,
-  saveTone3000ApiKey,
-} from "../tone3000.js";
+import { downloadTone3000ResourceByReference, isTone3000AuthReady, isTone3000ProxyModeEnabled, saveTone3000ApiKey } from "../tone3000.js";
 import { switchMainPanel } from "../navigation.js";
 import { activateLibraryTab } from "../settings.js";
 import { getLibraryResource, getLibraryResourceByHash } from "../resourceLibrary.js";
 import type { ArchiveImportContext, ArchiveImportOptions, GeneratorPackManifest, GeneratorPresetV2, GeneratorResourceIndex, ImportPackContext, ImportPackSource, ImportPackSummary, ImportPackWithConfirmationOptions, PresetArchive, PresetArchiveFolder, PresetArchiveResource, PresetCollectionArchive, Tone3000ResourceRef } from "./archiveTypes.js";
-import { PRESET_FOLDER_ALL_ID, applyImportedPresetFolders, assignImportedPresetsToTopLevelFolder, buildArchivePresetFoldersForExport, getPresetFolderExportName, getPresetsForFolderId } from "./folderArchive.js";
+import { applyImportedPresetFolders, assignImportedPresetsToTopLevelFolder, buildArchivePresetFoldersForExport, getPresetFolderExportName, getPresetsForFolderId } from "./folderArchive.js";
+import { PRESET_FOLDER_ALL_ID } from "./sorting.js";
 import { sanitizePresetForArchive, getPresetArchiveSessionState } from "./sanitize.js";
 import { requestPresetFromBackend } from "./fetch.js";
 import { requestPresetLibraryRefresh } from "./refresh.js";

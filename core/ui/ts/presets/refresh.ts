@@ -1,21 +1,22 @@
 /**
  * Indirection for "the preset library changed, redraw it".
  *
- * The renderers live in presets.ts, because they need the dropdown, the
+ * The renderers live in library.ts, because they need the dropdown, the
  * library list and the active-preset UI. Archive import finishes by asking for
- * that redraw — but importing presets.ts from presets/archive.ts (which
- * presets.ts itself imports) would create an import cycle between the two.
+ * that redraw, and so do load, save, the popover and the folder and setlist
+ * controls after they change something — but library.ts imports several of
+ * those to bind its rows, so importing it back would tie them into a cycle.
  *
- * So the seam states the relationship as it is: archive *requests* a refresh,
- * it does not own the rendering. presets.ts registers the implementation once,
- * at module load. Same pattern as signalPath/render.ts.
+ * So the seam states the relationship as it is: those modules *request* a
+ * redraw, they do not own the rendering. library.ts and actions.ts register the
+ * implementations once, at module load. Same pattern as signalPath/render.ts.
  */
 
 import type { Preset } from "../types.js";
 
 let refresh: ((activePreset: Preset | null) => void) | null = null;
 
-/** Called once by presets.ts to supply the real refresh. */
+/** Called once by actions.ts to supply the real refresh. */
 export function setPresetLibraryRefresher(fn: (activePreset: Preset | null) => void): void {
   refresh = fn;
 }
@@ -26,4 +27,19 @@ export function setPresetLibraryRefresher(fn: (activePreset: Preset | null) => v
  */
 export function requestPresetLibraryRefresh(activePreset: Preset | null = null): void {
   refresh?.(activePreset);
+}
+
+let renderUi: ((preset: Preset | null) => void) | null = null;
+
+/** Called once by library.ts to supply the real renderer. */
+export function setPresetUIRenderer(fn: (preset: Preset | null) => void): void {
+  renderUi = fn;
+}
+
+/**
+ * Redraws the library rows, the details pane for `preset` and the signal path
+ * bar. Unlike requestPresetLibraryRefresh it does not refilter first.
+ */
+export function requestPresetUIRender(preset: Preset | null): void {
+  renderUi?.(preset);
 }

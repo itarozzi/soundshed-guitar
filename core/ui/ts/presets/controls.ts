@@ -8,14 +8,14 @@ import { showNotification } from "../notifications.js";
 import { exportSelectedPresetCollectionArchive } from "../presets/archive.js";
 import { presetFavoriteToggle, presetSearchElement } from "../presets/dom.js";
 import { toggleFavoritePreset } from "../presets/favorites.js";
-import { PRESET_FOLDER_ALL_ID } from "../presets/folderArchive.js";
+import { PRESET_FOLDER_ALL_ID } from "./sorting.js";
 import { isVirtualPresetFolderId } from "../presets/folders.js";
 import { uiState } from "../state.js";
 import { nextPresetBtn, presetExportFolderButton, presetExtraActionsBtn, presetExtraActionsMenu, presetFolderAddButton, presetFolderDeleteButton, presetFolderNameInput, presetFolderRenameButton, presetLibraryCloseButton, presetLibraryPopover, presetRedoBtn, presetSelector, presetUndoBtn, prevPresetBtn, randomPresetBtn, setlistAddButton, setlistBankInput, setlistCollapsible, setlistNameInput, setlistToggle } from "./dom.js";
 import { initializePresetDrag } from "./drag.js";
 import { createFolder, deleteFolderById, getCurrentRealPresetFolder, renameFolder, syncPresetFolderToolbarState } from "./folderControls.js";
 import { stepPresetHistory } from "./history.js";
-import { filterPresets, updatePresetDropdownSelection } from "./library.js";
+import { filterPresets, updatePresetDropdownSelection } from "./filter.js";
 import { applyPresetFromLibrary } from "./load.js";
 import { closePresetExtraActionsMenu, closePresetLibraryPopover, syncPresetLibraryFeatureVisibility, togglePresetLibraryPopover } from "./popover.js";
 import { createSetlist, renderSetlistPanel, setSetlistExpanded } from "./setlists.js";
@@ -135,11 +135,11 @@ export function initializePresetControls(): void {
   }
 
   presetUndoBtn?.addEventListener("click", () => {
-    void stepPresetHistory(-1);
+    void stepPresetHistory(-1, applyPresetFromLibrary);
   });
 
   presetRedoBtn?.addEventListener("click", () => {
-    void stepPresetHistory(1);
+    void stepPresetHistory(1, applyPresetFromLibrary);
   });
 
   if (randomPresetBtn) {

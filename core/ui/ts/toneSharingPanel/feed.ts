@@ -10,11 +10,11 @@
 import { escapeHtml, idAccentColor } from "../utils.js";
 import { renderToneIconButton } from "./actionButtons.js";
 import { apiFetch } from "./api.js";
-import { loadBrowse } from "./browse.js";
 import { element } from "./dom.js";
 import { buildModerationBadge, formatCompactMetric, getToneSharingDisplayTags, resolveCreatorAvatarUrl, resolveCreatorProfileHandle, resolveToneSharingDownloadCount } from "./format.js";
 import { observePackThumbnails } from "./images.js";
 import { buildInstalledToneSharingLookup } from "./presetLinks.js";
+import { requestBrowseReload } from "./refresh.js";
 import { FEATURED_PRESET_MAX, SHOW_TONE_SHARING_STATS, browseCollections, browseState, previewState } from "./state.js";
 import type { ToneSharingItem, ToneSharingPack, ToneSharingRow } from "./types.js";
 
@@ -422,6 +422,6 @@ export function scheduleCommunitySearch(delay = 250): void {
   updateBrowseFooter();
   communitySearchTimer = setTimeout(() => {
     if (version !== browseState.requestVersion || browseState.mode !== "items" || browseState.activeSharedTarget !== null) return;
-    void loadBrowse();
+    void requestBrowseReload();
   }, delay);
 }

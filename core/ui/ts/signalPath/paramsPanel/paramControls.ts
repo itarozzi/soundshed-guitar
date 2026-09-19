@@ -9,9 +9,9 @@ import { BLEND_MAPPING_EPS, buildParameterMapFromLegacy, getBlendState, normaliz
 import type { BlendParamSpec } from "../../signalPathBlend.js";
 import type { BlendMode, BlendModelMapping, GraphNode, Preset } from "../../types.js";
 import { sendSignalPathNodeParamUpdate } from "../commands.js";
+import { requestNodeParamsPanel } from "../render.js";
 import { nodeParamsPanelElement } from "../state.js";
 import { updateEqVisualization } from "./eq.js";
-import { showNodeParamsPanel } from "./panel.js";
 import { isPitchShiftRangeSetting, isPitchShiftType, reconcilePitchShiftParams, semitoneKnobRange } from "./pitchShiftRange.js";
 import { updateSpatialVisualization } from "./spatial.js";
 import { nodeParamKnobs } from "./state.js";
@@ -301,7 +301,7 @@ export function bindNodeParamControls(node: GraphNode, preset: Preset): void {
               }
             });
             if (updated) {
-              showNodeParamsPanel(node, preset);
+              requestNodeParamsPanel(node, preset);
             }
             return;
           }

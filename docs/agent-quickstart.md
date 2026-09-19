@@ -265,10 +265,15 @@ keep that tractable:
 - **Mark type-only imports as `import type`.** `verbatimModuleSyntax` is on, so
   those are erased and cannot create a runtime cycle — which is why the cycle
   checker ignores them.
+- **A lower module that needs a higher one gets a hook or a callback, not an
+  import.** `presets/refresh.ts` (`requestPresetUIRender`), `signalPath/render.ts`
+  (`requestNodeParamsPanel`) and `toneSharingPanel/refresh.ts`
+  (`requestBrowseReload`) are registered once by the module that owns the work;
+  `presets/history.ts`'s `stepPresetHistory` takes the loader as an argument.
 
-`npm run check:cycles -- --list` prints the current tangles. The baseline in
-`scripts/cycles-baseline.json` is compared at feature level, so splitting a file
-into a directory does not trip it, but entangling two features does.
+`npm run check:cycles -- --list` prints any import cycles. The baseline in
+`scripts/cycles-baseline.json` is empty and compared module by module, so any new
+cycle fails — inside a feature as well as between two.
 
 ### Stylesheets
 

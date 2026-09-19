@@ -1,6 +1,9 @@
 import type { Preset } from "../types.js";
 export const presetNameCollator = new Intl.Collator(undefined, { sensitivity: "base", numeric: true });
 
+/** The "All presets" pseudo-folder: every preset, in no folder of its own. */
+export const PRESET_FOLDER_ALL_ID = "__all__";
+
 export const PRESET_FOLDER_FAVORITES_ID = "__favorites__";
 
 export const PRESET_FOLDER_RECENTS_ID = "__recents__";

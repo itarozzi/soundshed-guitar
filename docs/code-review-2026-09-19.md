@@ -65,7 +65,9 @@ Relevant locations:
 - Inject navigation and archive operations as callbacks instead of importing peer features.
 - Require the cycle baseline to shrink on relevant changes rather than merely preventing new feature groups.
 
-**Status:** The two cross-feature import cycles were removed on 19 September 2026, and the baseline now rejects any new cross-feature cycle. Persisted navigation view state is now feature-owned; the remaining within-feature cycles and broader `uiState` migration still need work.
+**Status:** The two cross-feature import cycles were removed on 19 September 2026, and persisted navigation view state is now feature-owned. The four cycles left inside features (two in `presets/`, the signal-path params panel, and tone sharing's browse feed) have since been broken too, by registered redraw hooks (`requestPresetUIRender`, `requestNodeParamsPanel`, `requestBrowseReload`), an injected loader for preset history, and leaf modules for preset filtering and toolbar state. `check-cycles` now compares module by module against an empty baseline, so any new cycle fails, inside a feature or between two.
+
+The broader `uiState` migration still needs work.
 
 ### P2 — `PluginController` and `MultiPresetMixer` remain god objects
 

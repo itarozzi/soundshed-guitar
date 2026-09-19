@@ -1,8 +1,7 @@
 import { uiState } from "../state.js";
 import type { PresetFolder } from "../types.js";
 import { postMessage } from "../bridge.js";
-import { PRESET_FOLDER_ALL_ID } from "./folderArchive.js";
-import { PRESET_FOLDER_FAVORITES_ID, PRESET_FOLDER_RECENTS_ID } from "./sorting.js";
+import { PRESET_FOLDER_ALL_ID, PRESET_FOLDER_FAVORITES_ID, PRESET_FOLDER_RECENTS_ID } from "./sorting.js";
 import { presetNameCollator } from "./sorting.js";
 
 export function normalizeFolderName(name: string): string {

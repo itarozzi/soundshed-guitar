@@ -3,13 +3,11 @@ import { generateResourceId } from "../archiveUtils.js";
 import type { Preset, PresetFolder } from "../types.js";
 import type { PresetArchiveFolder } from "./archiveTypes.js";
 import { findFolderByNameInList, persistPresetFolders, removePresetFromFolders } from "./folders.js";
-import { PRESET_FOLDER_FAVORITES_ID, PRESET_FOLDER_RECENTS_ID, sortPresetsAlphabetically } from "./sorting.js";
+import { PRESET_FOLDER_ALL_ID, PRESET_FOLDER_FAVORITES_ID, PRESET_FOLDER_RECENTS_ID, sortPresetsAlphabetically } from "./sorting.js";
 import { findFolderById } from "./folders.js";
 import { collectPresetIds } from "./folders.js";
 import { getRecentPresets, loadFavoritePresetIds } from "./favorites.js";
 import { isVirtualPresetFolderId } from "./folders.js";
-
-export const PRESET_FOLDER_ALL_ID = "__all__";
 
 export function buildArchivePresetFolder(folder: PresetFolder, allowedPresetIds: Set<string>): PresetArchiveFolder | null {
   const presetIds = (folder.presetIds ?? []).filter((presetId) => allowedPresetIds.has(presetId));

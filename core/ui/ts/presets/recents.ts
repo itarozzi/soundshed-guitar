@@ -10,7 +10,8 @@ import { PRESET_FOLDER_RECENTS_ID } from "../presets/sorting.js";
 import { uiState } from "../state.js";
 import type { AppSettingValue } from "../types.js";
 import { updateUiSettings } from "../windowSettings.js";
-import { filterPresets, renderPresetUI } from "./library.js";
+import { filterPresets } from "./filter.js";
+import { renderPresetUI } from "./library.js";
 
 export const PRESET_RECENTS_SETTING = "presets.recents";
 

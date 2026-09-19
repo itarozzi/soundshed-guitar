@@ -11,19 +11,22 @@ import { REMOTE_BASE_URL, getDefaultPresets, initializeDataLibraries } from "./d
 import { presetSearchElement } from "./presets/dom.js";
 import { setFavoriteToggleState } from "./presets/favorites.js";
 import { ensurePresetFolders } from "./presets/folders.js";
-import { getFilteredPresets, populatePresetDropdown, renderPresetUI, updatePresetDropdownSelection } from "./presets/library.js";
+import { getFilteredPresets, populatePresetDropdown, updatePresetDropdownSelection } from "./presets/filter.js";
+import { renderPresetUI } from "./presets/library.js";
 import { loadPresetIndex } from "./presets/load.js";
 import { ensureSetlists, renderSetlistPanel } from "./presets/setlists.js";
 import { uiState } from "./state.js";
 
-export { deleteCurrentPreset, deletePresetFromBackend, initializePresetActionButtons, isUserPreset, openEditPresetModal, saveOverwriteCurrentPreset, updatePresetActionButtons } from "./presets/actions.js";
+export { deleteCurrentPreset, deletePresetFromBackend, initializePresetActionButtons, openEditPresetModal, saveOverwriteCurrentPreset } from "./presets/actions.js";
 export { initializePresetControls, selectNextPreset, selectPreviousPreset } from "./presets/controls.js";
 export { registerPresetDropZone } from "./presets/drag.js";
 export { applyPresetFoldersFromBackend } from "./presets/folderControls.js";
-export { filterPresets, initializePresetTagFilterBar, populatePresetDropdown, renderActivePreset, updatePresetDropdownSelection } from "./presets/library.js";
+export { filterPresets, populatePresetDropdown, renderActivePreset, updatePresetDropdownSelection } from "./presets/filter.js";
+export { initializePresetTagFilterBar } from "./presets/library.js";
 export { applyPresetFromLibrary, bindLoadButtons, loadIRFromPath, loadModelFromPath, loadPresetIndex, requestSignalPathTest } from "./presets/load.js";
 export { openPresetChooserForSelection, syncPresetLibraryFeatureVisibility } from "./presets/popover.js";
 export { applyPresetFavoritesFromBackend, applyPresetRatingsFromBackend, applyPresetRecentsFromAppSettings, recordRecentPreset } from "./presets/recents.js";
+export { isUserPreset, updatePresetActionButtons } from "./presets/toolbar.js";
 export { closeSavePresetModal, createDefaultPreset, initializeSaveAsButton, initializeSavePresetModal, openSavePresetModal, refreshSavePresetModalPeakInfoIfOpen, saveCurrentPreset } from "./presets/saveModal.js";
 export { applySetlistCursorFromBackend, applySetlistsFromBackend, assignPresetToActiveSetlistSlot, clearActiveSetlistSlot, createSetlist, deleteActiveSetlist, isOnlyPlayingPreset, setSetlistPanelVisible, updateActiveSetlistDetails } from "./presets/setlists.js";
 

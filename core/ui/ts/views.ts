@@ -12,14 +12,12 @@ import { nodeDspLatencySamples, nodeDspProcessingSharePercent, nodeDspProcessing
 import type { DSPPerformanceStats, GraphEdge, GraphNode, Preset, PresetFolder, SignalGraph, SignalLevelDiagnostics, SignalLevelNodeMetrics, SignalPeakHoldEntry } from "./types.js";
 import { Features, isFeatureEnabled } from "./featureFlags.js";
 import { createVuMeter } from "./vuMeter.js";
+import { PRESET_FOLDER_ALL_ID, PRESET_FOLDER_FAVORITES_ID, PRESET_FOLDER_RECENTS_ID } from "./presets/sorting.js";
 
 const presetListElement = document.getElementById("preset-list");
 const presetDetailsElement = document.getElementById("preset-details");
 const presetFolderTreeElement = document.getElementById("preset-folder-tree");
 
-const PRESET_FOLDER_ALL_ID = "__all__";
-const PRESET_FOLDER_FAVORITES_ID = "__favorites__";
-const PRESET_FOLDER_RECENTS_ID = "__recents__";
 
 interface RenderHooks {
   onPresetSelected: (presetId: string) => Promise<void> | void;

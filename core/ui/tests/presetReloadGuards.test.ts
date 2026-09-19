@@ -10,11 +10,10 @@ vi.mock("../ts/notifications.js", () => ({ clearNotification: vi.fn(), showNotif
 vi.mock("../ts/logging.js", () => ({ appendLog: vi.fn() }));
 vi.mock("../ts/dataLibraries.js", () => ({ REMOTE_BASE_URL: "", getDefaultPresets: () => [] }));
 vi.mock("../ts/presets/favorites.js", () => ({ setFavoriteToggleState: vi.fn() }));
-vi.mock("../ts/presets/actions.js", () => ({ updatePresetActionButtons: vi.fn() }));
+vi.mock("../ts/presets/toolbar.js", () => ({ updatePresetActionButtons: vi.fn() }));
 vi.mock("../ts/presets/history.js", () => ({ recordPresetInHistory: vi.fn() }));
-vi.mock("../ts/presets/library.js", () => ({
+vi.mock("../ts/presets/filter.js", () => ({
   renderActivePreset: vi.fn(),
-  renderPresetUI: vi.fn(),
   updatePresetDropdownSelection: vi.fn(),
 }));
 

@@ -10,7 +10,7 @@ import { showNotification } from "../notifications.js";
 import { setPresetDirty, uiState } from "../state.js";
 import type { Setlist } from "../types.js";
 import { setlistCollapsible, setlistEditorHeader, setlistListElement, setlistPanel, setlistSlotsElement, setlistToggle } from "./dom.js";
-import { renderActivePreset } from "./library.js";
+import { renderActivePreset } from "./filter.js";
 
 export function normalizeSetlistName(name: string): string {
   return name.trim();
