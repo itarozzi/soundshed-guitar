@@ -3,7 +3,7 @@
   "headroom": 1.2,
   "allowed": {
     "core/tests/PresetManagementWorkflowTests.cpp": 4110,
-    "core/src/dsp/MultiPresetMixer.cpp": 3304,
+    "core/src/dsp/MultiPresetMixer.cpp": 3040,
     "core/src/controller/PluginControllerResources.cpp": 2825,
     "core/tests/EffectProcessorTests.cpp": 2729,
     "core/tests/IRConvolutionTests.cpp": 2565,

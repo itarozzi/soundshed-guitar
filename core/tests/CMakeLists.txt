@@ -20,6 +20,7 @@ set(TEST_SOURCES
     EffectProcessorTests.cpp
     FastMathNanTests.cpp
     GaplessSwitchingTests.cpp
+    GlobalChainEditorTests.cpp
     PresetRetirementTests.cpp
     DemoPreviewLoopTests.cpp
     HostedPluginCaptureLockTests.cpp

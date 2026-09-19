@@ -91,7 +91,7 @@ Relevant locations:
 
 The root controller should compose these services rather than expose every feature's private operations.
 
-**Status:** Tuner capture, analysis, callback dispatch, and worker lifetime have been extracted into `TunerEngine`. Level measurement, diagnostics snapshots, enablement, and oversized-block counts now belong to `MixerTelemetry`. `MultiPresetMixer` retains its public APIs while composing those services. Preset lifetime and global-chain processing remain to be extracted.
+**Status:** Tuner capture, analysis, callback dispatch, and worker lifetime have been extracted into `TunerEngine`. Level measurement, diagnostics snapshots, enablement, and oversized-block counts now belong to `MixerTelemetry`. Global-chain normalization and control edits now live in `GlobalChainEditor`, with `MultiPresetMixer` retaining its public API. Preset lifetime and global-chain executor ownership, staging, and retirement remain to be extracted.
 
 ### P2 — Cross-language contracts have multiple manual sources of truth
 

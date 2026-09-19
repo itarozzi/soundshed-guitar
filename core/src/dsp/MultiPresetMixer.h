@@ -565,8 +565,6 @@ class MultiPresetMixer
     static void ComputePanGains(double pan, float& gL, float& gR);
     void RebuildGlobalChains();
     void EnsureGlobalChainsUpToDate();
-    /// Fill in a config's pre/post graphs where they are missing or malformed.
-    static void NormalizeGlobalChainConfig(GlobalSignalChainConfig& config);
     /// Apply the non-graph parts of the global config (mono/auto-level/limiter/master gain).
     void ApplyGlobalChainScalars(const GlobalSignalChainConfig& config);
 
