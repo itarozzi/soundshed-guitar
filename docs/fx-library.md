@@ -237,6 +237,55 @@ host rate differs from the model's native rate — the same mismatch the old
 a 44.1 kHz host driving a 48 kHz model. When the host and model rates match,
 Off allocates no resampler at all and calls `model.process()` directly.
 
+### NAM Blend (`amp_nam_blend`)
+Plays a set of NAM models captured at different settings of one amp or pedal, and
+picks and mixes them from the node's knobs. The set is a blend definition in the blend
+library (see [features.md §7](features.md) and [data-models.md](data-models.md)); a
+node names it with `config.blendId`, and the controller fills the node's resources in
+from the definition every time it builds a chain (`ApplyBlendDefinitions`,
+`controller/internal/BlendSupport.cpp`). Presets never store the models themselves.
+
+| Parameter | Range | Default | Unit |
+|-----------|-------|---------|------|
+| `blend` | 0..1 | 0.0 | amount |
+| `inputGain` | -24..+24 | 0.0 | dB |
+| `outputGain` | -24..+24 | 0.0 | dB |
+| `mix` (Advanced) | 0..1 | 1.0 | amount |
+| `useCalibration` (Advanced) | toggle | 1 | |
+| any captured parameter (`gain`, `bass`, …) | 0..1 | median of the captures | normalised |
+
+| Config | Meaning |
+|--------|---------|
+| `blendId` | The blend definition the node plays |
+| `blendMode` | The definition's mode, `interpolate` or `snap`; rewritten from the definition on every build |
+| `blendModeOverride` | The node's own mode, which wins; empty follows `blendMode` |
+
+**Which models play.** Each model carries the settings it was captured at, normalised
+to 0..1 (`ResourceRef.parameters`). When the node has a value for any of those
+parameters, the engine takes the two models nearest by squared distance over the
+parameters some model was captured at (a missing value costs 4) and weights them by
+inverse distance. A value for a parameter no model was captured at is ignored, so a
+parameter dropped from the blend does not flatten the mix. When the node sets none of
+them, the `blend` sweep crossfades the two models either side of its position, each
+model sitting at its captured primary value or, with none, at its place in the list.
+In snap mode only the nearest plays. A model asked for less than 2% of the mix is
+left out, so a knob on a captured setting runs one model. The UI mirrors this rule in
+`blendUtils.selectBlendMix()` for the "matched model" readout.
+
+**Mixing.** Changes are never cut. A model coming into the mix fades in over 30 ms and
+one leaving fades out; input and output gain changes ramp across a block. A model that
+was not running first runs unheard for its prewarm length (the NAM model's own figure
+at its native rate, at least 60 ms and at most 250 ms), so it is not heard with stale
+history; until one of the models asked for is ready, the current mix holds. Models out
+of the mix are not run, and at most four run at once during a fast sweep. In stereo,
+left and right run on two threads (`rtparallel::DualLaneExecutor`).
+
+**CPU.** One model when a knob sits on a captured setting or in snap mode, two while
+crossfading, briefly up to four during fast sweeps. Oversampling and slimmable size
+follow the per-instance NAM quality above.
+
+**Resource**: NAM model files (`.nam`), one per capture.
+
 ### IR Cabinet (`cab_ir`)
 Impulse response convolution for cabinet simulation.
 

@@ -76,6 +76,10 @@ The UI is a web-based single-page application (SPA) hosted in a native WebView. 
 | `nodeResourceBrowseCancelled` | `{nodeId, resourceType, resourceIndex?, exposedResourceId?}` | Node resource browse dialog dismissed without a selection |
 | `resourceImported` | `{...}` | Remote resource imported |
 | `resourceImportFailed` | `{message}` | Remote resource import failed |
+| `resourceDeleteFailed` | `{message, detail, resourceType?, id?, presetName?, blendName?}` | A resource delete was refused. `detail` names what still uses it: `Used by preset: …`, or for a model only a blend plays, `Used by blend: …` |
+| `resourceUsageInfo` | `{resourceType, id, inUse, presetName, blendName}` | Answer to `queryResourceUsage`. `inUse` counts a model a blend plays, since presets store only a blend node's `blendId` |
+| `blendExportSaved` | `{path}` | A blend `.namz` archive was written |
+| `blendExportFailed` | `{message}` | A blend archive export failed or was cancelled |
 | `globalChain` | `{config}` | Global signal chain configuration |
 | `effectCatalog` | `{effects: [...]}` | Available effect types |
 | `dspPerformance` | `{stats: {totalProcessingTimeUs, realTimeUs, dspLoadPercent, totalLatencySamples, nodeProcessingTimesUs, nodeLatencySamples}, sampleRate, blockSize}` | DSP timing at 5 Hz, for the performance panel and the per-node readouts. Both node maps are keyed `<scope>::<nodeId>` — `pre::`, `post::`, or the preset id — since a bare node id only identifies a node within one executor. A node missing from `nodeProcessingTimesUs` did not run last block; the UI blanks it rather than showing a zero. |
@@ -149,6 +153,10 @@ The UI is a web-based single-page application (SPA) hosted in a native WebView. 
 | `previewCapturedRiff` | `{startRatio, endRatio, repeat}` | Play the captured riff take. The whole take goes over once; the markers travel as a region and the engine loops it in place, so repeating costs no further messages. |
 | `setRiffPreviewRegion` | `{startRatio, endRatio, repeat}` | Retune the region/repeat of the preview already playing — for a marker dragged mid-playback. Debounced by the UI, since each one rebuilds the wrap crossfade behind the DSP lock. |
 | `importRemoteResource` | `{...}` | Import resource from remote |
+| `updateSignalPathNodeConfig` | `{nodeId, key, value, persist?, capture?, presetId?}` | Set one node config value on the running node and, with `persist` (default), in the working preset. A blend node's per-node mode is `blendModeOverride` (`snap`, `interpolate`, or `""` to follow its blend) |
+| `saveBlendDefinition` | `{blend}` | Add or replace a blend definition (see [data-models.md](data-models.md#blenddefinition)). Every running mixer slot with a node playing it is rebuilt, so the edit is heard. A saved edit of a factory blend is stored as the user's own copy |
+| `deleteBlendDefinition` | `{blendId}` | Delete a blend. Refused with an `error` for a factory blend, a blend from an open preset archive, or one a preset plays (working copy, mixer slots, user or factory-archive presets). Deleting the user's copy of a factory blend brings the factory one back |
+| `saveBlendArchive` | `{data, fileName}` | Save a base64 `.namz` blend archive through a save dialog; answered with `blendExportSaved` or `blendExportFailed` |
 | `setSetting` | `{key, value}` | Persist and apply an app setting |
 | `setUserInputCalibrationTrainingActive` | `{active}` | Temporarily bypass the active calibration profile while training |
 | `setGlobalChainParam` | `{param, value}` | Set global chain parameter |

@@ -192,17 +192,20 @@ A composite bundles multiple effects into a single reusable node with a simplifi
 
 ## 7. Blend Editor (Multi-Model NAM)
 
-**Key files:** `core/ui/ts/blendEditor.ts`, `core/ui/ts/blendManager.ts`, `core/ui/ts/blendUtils.ts`, `core/src/dsp/effects/MultiModelNAMAmpEffect.h`
+**Key files:** `core/ui/ts/blendEditor.ts`, `core/ui/ts/blendManager.ts`, `core/ui/ts/blendUtils.ts`, `core/ui/ts/signalPathBlend.ts`, `core/src/controller/internal/BlendSupport.cpp`, `core/src/dsp/effects/MultiModelNAMAmpEffect.h`
 
-Blending maps multiple NAM models to a set of physical parameters, enabling smooth transitions between captures taken at different amp/pedal settings.
+A blend is a set of NAM models captured at different settings of one amp or pedal (gain 2, 5 and 8, say), played by an `amp_nam_blend` node. The node shows a knob for each setting the models were captured at, and plays the capture nearest the knobs, crossfading between the two nearest. See [fx-library.md](fx-library.md) for how the engine picks and mixes models.
 
-- **BlendDefinition** fields: `id`, `name`, `category`, `models` (NAM IDs), `blendMode` (`snap` | `interpolate`), `modelMappings` (per-model parameter values), `parameters` (active control list: gain, drive, treble, bass, middle, presence, tone, level, etc.).
-- **Blend modes**: `snap` = discrete model switching; `interpolate` = smooth crossfade between adjacent models.
-- **Auto-map**: Regex-based extraction of parameter values from model file names.
-- **Blend editor UI**: Three tabs — Settings (name, mode, model list, parameter selection), Test (live knob preview), Model Browser (searchable).
-- **Safety**: Blends in use by presets are protected from deletion.
-- **Storage**: `data/v1/blends/library.json`.
-- **DSP**: `MultiModelNAMAmpEffect` processes N models in parallel and crossfades outputs. Uses piecewise linear interpolation between adjacent model positions. See TODO.md for planned `amp_nam_blend` graph node type.
+- **BlendDefinition** fields: `id`, `name`, `category`, `models` (NAM IDs), `blendMode` (`snap` | `interpolate`), `modelMappings` (per model, the normalised 0..1 settings it was captured at), `parameters` (the parameters the editor shows: gain, drive, treble, bass, middle, presence, tone, level, …), `toneGroupId`/`toneGroupTitle` (the tone group it was made from). The schema is in [data-models.md](data-models.md).
+- **Knobs**: one per parameter at least one model was captured at. A blend with nothing captured shows the **Blend** sweep instead, across its models in list order. A new node's knobs start at the median of the captured values, where they are drawn.
+- **Blend modes**: `snap` plays only the nearest capture; `interpolate` mixes the two nearest. A node can override its blend's mode (**Blend Mode** in the params panel; "Blend default" follows the blend).
+- **Auto-map**: Regex-based extraction of parameter values from model names ("G5" is gain 5). Tone3000 blends are mapped from each model's own name as it is imported.
+- **Blend editor UI**: Settings (name, mode, model list, parameter selection) and Test. Opened from a node, the Test knobs are that node's knobs, so you hear the blend; **Apply** saves without closing. Opened from the library, Test only shows which models the settings pick.
+- **Saving**: every running mixer slot that plays the blend is rebuilt at once, so the edit is heard. Edits from another instance are picked up the same way.
+- **Making blends**: from a tone group in the library, from a Tone3000 tone, or by dropping a tone group on the chain. Dropping a group on a blend node points it at a blend of that group (reusing one already made from the same models); it never rewrites the node's current blend.
+- **Safety**: a blend a preset plays cannot be deleted, nor a model a blend plays. A node whose blend is missing plays dry and says so.
+- **Factory blends**: blends from a bundled factory archive cannot be deleted. Saving an edit to one keeps your copy in its place; deleting the copy brings the factory version back.
+- **Storage**: the document store (`storage::ItemType::kBlend`). Factory-archive and preset-archive session blends are never stored.
 
 ---
 

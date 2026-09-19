@@ -113,8 +113,45 @@ field remains for backward compatibility and mirrors the currently active scene 
 | `resourceId` | string | Library resource ID |
 | `filePath` | string | Direct file path |
 | `embeddedId` | string | Embedded resource reference |
+| `parameterId` | string | Blend models only: the primary parameter the model was captured at |
+| `parameterValue` | float | Blend models only: its position on the Blend sweep |
+| `parameters` | map[string, float] | Blend models only: every setting it was captured at, normalised 0..1 |
 
 **Resolution priority**: library → embedded → filePath
+
+A blend node's resources are not stored with the preset: the controller builds them
+from the node's blend definition whenever it builds the chain.
+
+## BlendDefinition
+
+The blend library holds these (document store, `storage::ItemType::kBlend`). An
+`amp_nam_blend` node names one with `config.blendId`.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `id` | string | Yes | Unique id |
+| `name` | string | Yes | Display name |
+| `category` | string | No | `pedal`, `preamp`, `amp`, `full-rig` or `cab` |
+| `models` | string[] | Yes | NAM resource ids |
+| `modelMappings` | BlendModelMapping[] | No | Per model, what it was captured at; wins over `models` |
+| `blendMode` | string | No | `interpolate` (default) or `snap` |
+| `parameters` | string[] | No | The parameters the editor shows, in order |
+| `toneGroupId` / `toneGroupTitle` | string | No | The tone group it was made from |
+| `factory` | bool | No | Set on blends registered from a factory archive; never stored |
+
+**BlendModelMapping**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | string | NAM resource id |
+| `parameterId` | string | The primary parameter (the editor writes the first shown) |
+| `parameterValue` | float | The primary parameter's captured value, normalised 0..1 |
+| `parameters` | map[string, float] | Every captured value, normalised 0..1 |
+
+A model with no captured value keeps its list position on the Blend sweep and is given
+no `parameterId`. Node config for a blend node: `blendId`, `blendMode` (rewritten from
+the definition on every build) and `blendModeOverride` (the node's own mode; empty
+follows the definition).
 
 ## EmbeddedResource
 

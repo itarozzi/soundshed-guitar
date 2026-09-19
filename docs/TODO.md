@@ -33,56 +33,11 @@ This document tracks outstanding tasks and improvements for the GuitarFX project
 
 ### Multi-Model NAM Blend Effect (`amp_nam_blend`)
 
-**Goal**: Map arbitrary physical parameters to multiple captured NAM models, enabling smooth transitions between models captured at different amp/pedal settings. The blend control represents any parameter that varies across captures—Gain is the most common, but could also be Warp, Tone, Drive, or any unique pedal/amp control.
+Shipped: see [features.md §7](features.md) and [fx-library.md](fx-library.md). Still open:
 
-**Use Cases**:
-- **Amp Gain**: Models captured at gain=1, 5, 10 → blend control sweeps gain range
-- **Pedal Effect Parameter**: Models captured with "Warp" at 0%, 50%, 100% → blend recreates the warp sweep
-- **Tone Stack**: Models captured with Treble at 0, 5, 10 → blend morphs between EQ settings
-- **Multi-dimensional** (future): Map 2+ parameters (e.g., Gain × Tone grid) to 2D blend surface
-
-**Technical Approach**: Audio mixing (primary) + weight interpolation (experimental)
-- Hold 2+ NAM model instances simultaneously
-- Process each active model in parallel
-- Crossfade outputs based on blend parameter position
-- Use piecewise linear interpolation between adjacent models
-- Blend parameter is abstract—maps to whatever physical parameter was varied during capture
-
-**Experimental Path**: Weight interpolation
-- Keep as optional R&D path behind a feature flag
-- Only valid when model architectures match exactly
-- Not real-time safe for live modulation; precompute offline if used
-
-**Why Audio Mixing over Weight Interpolation** (for initial implementation):
-- Weight interpolation requires exact architecture match between models
-- Non-linear activations make interpolated weights produce unpredictable audio
-- Weight updates are not real-time safe (memory allocation, copying)
-- Audio mixing works with any model architectures and uses proven patterns
-
-**Implementation Steps**:
-1. Extend `ResourceRef` in [PresetTypes.h](../core/src/presets/PresetTypes.h) to support multiple resources per node
-2. Create `MultiModelNAMAmpEffect` in [dsp/effects/](../core/src/dsp/effects/) holding multiple `nam::DSP` instances (use optimized NAM processing where possible)
-3. Implement parameter-mapped blending: map blend control to model indices with piecewise interpolation
-4. Register effect in [BuiltinEffects.h](../core/src/dsp/effects/BuiltinEffects.h) as `amp_nam_blend`
-5. Add UI support in [presetV2.ts](../core/ui/ts/presetV2.ts) and [fxSelector.ts](../core/ui/ts/fxSelector.ts)
-6. Optimize: skip inactive model when blend is at 0.0 or 1.0
-
-**Parameters**:
-- `blend` (0.0–1.0): Controls crossfade position between models; represents the mapped physical parameter
-- `blendLabel` (string, optional): Display name for the blend control (e.g., "Gain", "Warp", "Drive")
-- `inputGain` (-24 to +24 dB): Input level before processing
-- `outputGain` (-24 to +24 dB): Output level after processing
-
-**Model Metadata** (per-resource):
-- `parameterValue`: The physical parameter value this model was captured at (e.g., 5.0 for gain=5)
-- `parameterId`: Identifier for the mapped parameter (e.g., "gain", "warp", "drive")—used to group compatible models
-- Models with matching `parameterId` are ordered by `parameterValue` to enable correct interpolation
-
-**Considerations**:
-- CPU cost: Running 2 models doubles CPU usage during blend; use optimized NAM internally (~2x speedup)
-- Model count: Start with 2-model blending, extensible to N models for finer parameter resolution
-- Latency: Models should ideally be from the same architecture family for consistent latency
-- Parameter semantics: Blend is unit-less (0–1); UI can optionally display mapped parameter range (e.g., "Gain: 1–10")
+- **Weight interpolation** (R&D, behind a flag if ever): morph the weights of two captures of one architecture instead of mixing their outputs. Only valid for identical architectures, not real-time safe to update live, and nonlinear activations make the result unpredictable, so output mixing stays the default.
+- **2-D surfaces**: the engine already matches several captured parameters at once (nearest two by distance), but a Gain × Tone grid would crossfade better with bilinear weights over the four surrounding captures.
+- **Per-capture level matching** for models without calibration metadata, so a crossfade does not also change the level.
 
 
 # Facotry Presets general notes
