@@ -4,12 +4,12 @@
  */
 
 import { postMessage } from "../bridge.js";
-import { importPresetArchive } from "../presets.js";
 import { uiState } from "../state.js";
 import { syncFeedPreviewButton } from "./actionButtons.js";
 import { apiFetch, buildApiUrl } from "./api.js";
 import { element } from "./dom.js";
 import { resolveCreatorProfileHandle } from "./format.js";
+import { getToneSharingHostActions } from "./hostActions.js";
 import { previewState, toneSharingState } from "./state.js";
 import type { ToneSharingItem } from "./types.js";
 
@@ -91,7 +91,7 @@ export async function previewPreset(itemId: string, itemTitle: string): Promise<
   }
 
   const importFile = new File([blob], fileName, { type: blob.type || "application/octet-stream" });
-  const importedPresets = await importPresetArchive(importFile, {
+  const importedPresets = await getToneSharingHostActions().importPresetArchive(importFile, {
     source: "toneSharingApi",
     itemId,
     creatorId: itemMeta?.creatorUserId ?? undefined,

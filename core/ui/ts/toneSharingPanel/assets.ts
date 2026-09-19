@@ -3,12 +3,12 @@
  * the moderation verdicts an admin can issue.
  */
 
-import { importPackWithConfirmation, importPresetArchive } from "../presets.js";
 import { uiState } from "../state.js";
 import { apiFetch, buildApiUrl, parseApiErrorMessage } from "./api.js";
 import { buildPackArchiveFromDetails } from "./archive.js";
 import { hasInstallStateChanged, refreshBrowseResultsAfterInstall } from "./browse.js";
 import { resolveCreatorProfileHandle } from "./format.js";
+import { getToneSharingHostActions } from "./hostActions.js";
 import { toneSharingState } from "./state.js";
 import type { ToneSharingItem, ToneSharingPack, ToneSharingPackDetails } from "./types.js";
 
@@ -63,7 +63,7 @@ export async function downloadAsset(kind: "item" | "pack", id: string): Promise<
     }
 
     const importFile = new File([importBlob], importFileName, { type: importBlob.type || "application/zip" });
-    await importPackWithConfirmation(importFile, {
+    await getToneSharingHostActions().importPackWithConfirmation(importFile, {
       source: "toneSharingApi",
       packId: id,
       creatorId: packMeta?.creatorUserId ?? undefined,
@@ -90,7 +90,7 @@ export async function downloadAsset(kind: "item" | "pack", id: string): Promise<
   // Import the preset (and bundled resources) directly with the preset-archive
   // pipeline so failures propagate to the caller with a clear status message.
   const importFile = new File([blob], fileName, { type: blob.type || "application/octet-stream" });
-  const importedPresets = await importPresetArchive(importFile, {
+  const importedPresets = await getToneSharingHostActions().importPresetArchive(importFile, {
     source: "toneSharingApi",
     itemId: id,
     creatorId: itemMeta?.creatorUserId ?? undefined,

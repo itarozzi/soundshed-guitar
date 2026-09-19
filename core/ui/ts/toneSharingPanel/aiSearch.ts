@@ -4,7 +4,7 @@
  */
 
 import { Features, isFeatureEnabled } from "../featureFlags.js";
-import { switchMainPanel } from "../navigation.js";
+import { getToneSharingHostActions } from "./hostActions.js";
 import { activateEquipmentTab, activateLibraryTab } from "../settings.js";
 import { setTone3000Search } from "../tone3000Browser.js";
 import { escapeHtml } from "../utils.js";
@@ -120,7 +120,7 @@ export function renderAiSearchView(): void {
       const query = btn.dataset.t3kQuery ?? "";
       const category = btn.dataset.t3kCategory ?? "";
       if (!query) return;
-      switchMainPanel("settings");
+      getToneSharingHostActions().switchMainPanel("settings");
       activateEquipmentTab("library");
       if (isFeatureEnabled(Features.Tone3000)) {
         activateLibraryTab("tone3000");

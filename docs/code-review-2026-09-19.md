@@ -65,6 +65,8 @@ Relevant locations:
 - Inject navigation and archive operations as callbacks instead of importing peer features.
 - Require the cycle baseline to shrink on relevant changes rather than merely preventing new feature groups.
 
+**Status:** The two cross-feature import cycles were removed on 19 September 2026, and the baseline now rejects any new cross-feature cycle. Persisted navigation view state is now feature-owned; the remaining within-feature cycles and broader `uiState` migration still need work.
+
 ### P2 — `PluginController` and `MultiPresetMixer` remain god objects
 
 Splitting `PluginController` across translation units has improved navigation, but it has not established ownership boundaries. At review time, its header exposed approximately 138 handlers and 91 state fields through one class.

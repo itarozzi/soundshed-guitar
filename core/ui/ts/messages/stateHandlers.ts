@@ -19,6 +19,7 @@ import { appendLog } from "../logging.js";
 import { applyEnvironmentState, applyMetronomeState } from "../metronome.js";
 import { reconcileActiveCompositePreset } from "../multiPresetMixer.js";
 import { applyUiViewState } from "../navigation.js";
+import { replaceNavigationViewState } from "../navigationState.js";
 import { showNotification } from "../notifications.js";
 import { applyPerformancePadAppSettings, refreshPerformancePads } from "../performancePads.js";
 import { applyPresetArchiveSessionState, applyPresetRecentsFromAppSettings, populatePresetDropdown, rejectPendingPresetRequest, renderActivePreset, updatePresetActionButtons, updatePresetDropdownSelection } from "../presets.js";
@@ -107,7 +108,7 @@ export function onState(payload: IncomingPayload): void {
   }
   const uiViewState = (payload as { uiViewState?: UiViewState }).uiViewState;
   if (uiViewState) {
-    uiState.uiViewState = uiViewState;
+    replaceNavigationViewState(uiViewState);
     applyUiViewState(uiViewState);
   }
   const environment = (payload as { environment?: { standalone?: boolean; audioDeviceSettings?: boolean; version?: string; os?: string; cpu?: string } }).environment;

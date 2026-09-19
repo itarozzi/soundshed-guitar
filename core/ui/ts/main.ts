@@ -8,6 +8,10 @@ import {
   initializePresetTagFilterBar,
   handleDroppedPresetPack,
   renderActivePreset,
+  populatePresetDropdown,
+  importPackWithConfirmation,
+  importPresetArchive,
+  buildToneSharingPresetArchiveBlobs,
   requestSignalPathTest,
   applyPresetFromLibrary,
 } from "./presets.js";
@@ -44,6 +48,7 @@ import { FEATURE_FLAGS_CHANGED_EVENT } from "./featureFlags.js";
 import { initAlpineStores, startAlpine } from "./alpine.js";
 import { initializePerformancePads } from "./performancePads.js";
 import { initializeSetlistPadPresetDrop } from "./setlistPadDrop.js";
+import { configureToneSharingHostActions } from "./toneSharingPanel/hostActions.js";
 const eqModal = document.getElementById("eq-modal");
 const eqModalCloseBtn = document.getElementById("eq-modal-close");
 
@@ -169,6 +174,15 @@ function initFooterActionsPopup(): void {
 
 
 async function bootstrap(): Promise<void> {
+  configureToneSharingHostActions({
+    buildToneSharingPresetArchiveBlobs,
+    importPackWithConfirmation,
+    importPresetArchive,
+    populatePresetDropdown,
+    renderActivePreset,
+    switchMainPanel,
+  });
+
   // Before anything measures or lays out: the pre-paint script in
   // index.template.html has already set a density from the raw viewport, and this
   // takes ownership of it so zoom and the stored preference are accounted for.

@@ -3,7 +3,7 @@
  * the panel onto the target a link arrived with.
  */
 
-import { switchMainPanel } from "../navigation.js";
+import { getToneSharingHostActions } from "./hostActions.js";
 import { copyTextToClipboard } from "../utils.js";
 import { getApiOrigin } from "./api.js";
 import { loadBrowse } from "./browse.js";
@@ -78,7 +78,7 @@ export async function openSharedTargetFromLocation(): Promise<void> {
 
   browseState.activeSharedTarget = target;
   updateActiveSharedFilter();
-  switchMainPanel("sharing");
+  getToneSharingHostActions().switchMainPanel("sharing");
   browseState.mode = target.kind === "pack" ? "packs" : "items";
   await loadBrowse();
 }
@@ -98,7 +98,7 @@ export function handleToneSharingDeepLink(deepLinkQuery: string): void {
     try {
       browseState.activeSharedTarget = itemId ? { kind: "item", id: itemId } : { kind: "pack", id: packId ?? "" };
       updateActiveSharedFilter();
-      switchMainPanel("sharing");
+      getToneSharingHostActions().switchMainPanel("sharing");
       browseState.mode = itemId ? "items" : "packs";
       await loadBrowse();
     } catch (error) {

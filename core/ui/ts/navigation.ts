@@ -1,4 +1,4 @@
-import { uiState } from "./state.js";
+import { getNavigationViewState, mergeNavigationViewState } from "./navigationState.js";
 import { postMessage } from "./bridge.js";
 import { isCompact } from "./compactMode.js";
 import { applyCompactStage, isCompactStage, setCompactStage, setCompactStageDetailLabel } from "./compactStage.js";
@@ -30,27 +30,11 @@ const sendDelayMs = 200;
 let applyingViewState = false;
 let playViewMode: "visualizer" | "pads" = "visualizer";
 
-function mergeViewState(base: UiViewState, update: UiViewState): UiViewState {
-  const settings = {
-    ...base.settings,
-    ...update.settings,
-  };
-  return {
-    ...base,
-    ...update,
-    settings,
-  };
-}
-
 function updateUiViewState(update: UiViewState): void {
-  const current = uiState.uiViewState ?? {};
-  const next = mergeViewState(current, update);
-
-  if (JSON.stringify(current) === JSON.stringify(next)) {
+  if (!mergeNavigationViewState(update)) {
     return;
   }
 
-  uiState.uiViewState = next;
   if (applyingViewState) {
     return;
   }
@@ -61,7 +45,7 @@ function updateUiViewState(update: UiViewState): void {
   pendingSend = true;
   window.setTimeout(() => {
     pendingSend = false;
-    postMessage({ type: "uiViewStateChanged", viewState: uiState.uiViewState });
+    postMessage({ type: "uiViewStateChanged", viewState: getNavigationViewState() });
   }, sendDelayMs);
 }
 
@@ -91,7 +75,7 @@ function applyPlayViewMode(mode: "visualizer" | "pads", persistState = true): vo
 }
 
 function togglePlayViewMode(): void {
-  if (uiState.uiViewState?.mainPanel !== "visualizer") {
+  if (getNavigationViewState().mainPanel !== "visualizer") {
     switchMainPanel("visualizer");
   }
   applyPlayViewMode(playViewMode === "pads" ? "visualizer" : "pads");
@@ -438,9 +422,8 @@ export function applyUiViewState(state?: UiViewState): void {
   if (!state) {
     return;
   }
-  const current = uiState.uiViewState ?? {};
-  const next = mergeViewState(current, state);
-  uiState.uiViewState = next;
+  mergeNavigationViewState(state);
+  const next = getNavigationViewState();
 
   applyingViewState = true;
   if (next.mainPanel) {

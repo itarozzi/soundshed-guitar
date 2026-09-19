@@ -8,12 +8,12 @@
  */
 
 import { postMessage, setAppSetting } from "../bridge.js";
-import { populatePresetDropdown, renderActivePreset } from "../presets.js";
 import { clonePreset, uiState } from "../state.js";
 import type { Preset, PresetFolder } from "../types.js";
 import { escapeHtml } from "../utils.js";
 import { renderToneIconButton } from "./actionButtons.js";
 import { element } from "./dom.js";
+import { getToneSharingHostActions } from "./hostActions.js";
 import { clearPackDetail } from "./packDetail.js";
 import { browseState, storageKeys, toneSharingState } from "./state.js";
 import type { InstalledPackDeletionPlan, InstalledPackMetadata, InstalledPackSource } from "./types.js";
@@ -410,8 +410,8 @@ export async function deleteInstalledPackById(id: string, planned?: InstalledPac
       }
     }
 
-    populatePresetDropdown();
-    renderActivePreset();
+    getToneSharingHostActions().populatePresetDropdown();
+    getToneSharingHostActions().renderActivePreset();
   }
 
   if (resourceEntries.length > 0) {

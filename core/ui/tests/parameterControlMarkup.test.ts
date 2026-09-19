@@ -1,0 +1,17 @@
+import { describe, expect, it } from "vitest";
+import { buildDefaultParamControlsHtml } from "../ts/parameterControlMarkup.js";
+
+describe("default parameter control markup", () => {
+  it("renders grouped knob and toggle previews without a live signal-path panel", () => {
+    const html = buildDefaultParamControlsHtml([
+      { key: "output_level", name: "", default: -3, min: -12, max: 12, unit: "dB", group: "Main" },
+      { key: "enabled", name: "Enabled", default: 1, min: 0, max: 1, unit: "toggle", group: "Main" },
+    ], "designer-preview");
+
+    expect(html).toContain("node-param-group-title\">Main");
+    expect(html).toContain('data-node-id="designer-preview"');
+    expect(html).toContain("Output Level");
+    expect(html).toContain("-3.0dB");
+    expect(html).toContain('data-param-key="enabled" checked disabled');
+  });
+});

@@ -230,16 +230,6 @@ export const uiState: UiState = {
     mixGainDb: 0,
   },
   uiSettings: { zoom: 1 },
-  uiViewState: {
-    mainPanel: "visualizer",
-    playView: "visualizer",
-    presetTab: "details",
-    settings: {
-      equipmentTab: "settings",
-      libraryTab: "tone3000",
-      advancedTab: "composites",
-    },
-  },
   dspPerformance: undefined,
   dspLoadHistoryPercent: [],
   globalSignalChain: { ...DEFAULT_GLOBAL_SIGNAL_CHAIN },

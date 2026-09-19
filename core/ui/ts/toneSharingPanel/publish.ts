@@ -4,12 +4,12 @@
  */
 
 import { showNotification } from "../notifications.js";
-import { buildToneSharingPresetArchiveBlobs } from "../presets.js";
 import { clonePreset, uiState } from "../state.js";
 import { apiFetch, buildApiUrl } from "./api.js";
 import { loadBrowse, loadMine } from "./browse.js";
 import { ensurePublishConsent } from "./consent.js";
 import { element, setUploadStatus } from "./dom.js";
+import { getToneSharingHostActions } from "./hostActions.js";
 import { addItemToExistingPack, loadMyDraftPacksForSelect, openPackModal } from "./packEditor.js";
 import { getPresetToneSharingOrigin } from "./presetLinks.js";
 import { copyToneSharingShareLink } from "./shareLinks.js";
@@ -177,7 +177,7 @@ export async function uploadAndPublishItem(): Promise<void> {
   let publicPayload: Blob;
   let privatePayload: Blob;
   try {
-    const archiveBlobs = await buildToneSharingPresetArchiveBlobs(clonePreset(activePreset));
+    const archiveBlobs = await getToneSharingHostActions().buildToneSharingPresetArchiveBlobs(clonePreset(activePreset));
     publicPayload = archiveBlobs.publicBlob;
     privatePayload = archiveBlobs.privateBlob;
   } catch (error) {

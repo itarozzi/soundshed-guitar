@@ -20,7 +20,7 @@ import type { EffectLayout, LayoutBackground, LayoutControl, LayoutImageRef, Lay
 import { showNotification } from "./notifications.js";
 import { EffectTypeRegistry } from "./presetV2.js";
 import type { ParameterDef } from "./presetV2.js";
-import { buildDefaultParamControlsHtml } from "./signalPath.js";
+import { buildDefaultParamControlsHtml } from "./parameterControlMarkup.js";
 import { uiState } from "./state.js";
 import type { GraphNode } from "./types.js";
 

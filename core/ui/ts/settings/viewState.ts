@@ -4,29 +4,19 @@
  */
 
 import { postMessage } from "../bridge.js";
-import { uiState } from "../state.js";
+import { getNavigationViewState, mergeNavigationViewState } from "../navigationState.js";
 
 let suppressViewStateUpdates = false;
 
 export function updateSettingsViewState(update: { equipmentTab?: string; libraryTab?: string; advancedTab?: string }): void {
-  const current = uiState.uiViewState ?? {};
-  const next = {
-    ...current,
-    settings: {
-      ...(current.settings ?? {}),
-      ...update,
-    },
-  };
-
-  if (JSON.stringify(current) === JSON.stringify(next)) {
+  if (!mergeNavigationViewState({ settings: update })) {
     return;
   }
 
-  uiState.uiViewState = next;
   if (suppressViewStateUpdates) {
     return;
   }
-  postMessage({ type: "uiViewStateChanged", viewState: next });
+  postMessage({ type: "uiViewStateChanged", viewState: getNavigationViewState() });
 }
 
 export function setSettingsViewStateSuppressed(suppressed: boolean): void {

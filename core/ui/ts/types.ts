@@ -698,7 +698,6 @@ export interface UiState {
   jam?: JamState;
   mixer?: MixerState;
   uiSettings?: UiSettings;
-  uiViewState?: UiViewState;
   dspPerformance?: DSPPerformanceStats;
   /** Rolling DSP load percentages for the performance plot, oldest first. Only the load
    *  is kept: retaining whole frames pinned a node map per point for a line that reads
