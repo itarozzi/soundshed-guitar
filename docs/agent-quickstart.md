@@ -42,7 +42,7 @@ instead of scrolling one enormous one:
 | `controller/PluginControllerDiagnostics.cpp`    | Session log, debug snapshots, diagnostics and performance feeds |
 | `controller/PluginControllerGlobalChain.cpp`    | Global signal chain, `setParameter` aliases, input stage |
 | `controller/PluginControllerNodeControl.cpp`    | Live node control: enable, param, resource; model/IR loading |
-| `controller/PluginControllerTuner.cpp`          | Tuner control and the signal-path test tone |
+| `controller/PluginControllerTuner.cpp`          | The signal-path test tone (the tuner answers its own messages) |
 | `controller/PluginControllerPresets.cpp`        | Preset load/save/apply, folders, favourites, setlists |
 | `controller/PluginControllerSignalPath.cpp`     | Node graph shape: add, remove, reorder; composite edit target |
 | `controller/PluginControllerResources.cpp`      | Resource library: import, edit, delete, usage index   |
@@ -56,7 +56,7 @@ instead of scrolling one enormous one:
 | `controller/PluginControllerAutomation.cpp`     | Automation slots, MIDI learn, setlist/scene switching |
 | `controller/PluginControllerMixer.cpp`          | Mixer slots and levels                                |
 | `controller/PluginControllerMetronome.cpp`      | Click track                                           |
-| `controller/PluginControllerDemo.cpp`           | Demo render and practice-tool transport               |
+| `controller/PluginControllerDemo.cpp`           | Demo preview and offline render                       |
 | `controller/PluginControllerEffectPresets.cpp`  | Per-effect user parameter presets                     |
 
 Free functions shared between those files live in `core/src/controller/internal/`
@@ -77,16 +77,24 @@ Prefer adding to one of these over adding another member to the controller:
 | `MetronomeService`               | Click track and riff-capture guidance click — one engine, guidance overrides it. Meter/accents/subdivision are resolved into an immutable bar plan (`MetronomeSupport.h`); the sounds come from `MetronomeClickLibrary` |
 | `TelemetryPublisher`             | The three metering feeds, their rate limits and the diagnostics roster |
 | `ControlSurfaceQueue`            | MIDI in, and setlist/scene requests parked for the message thread     |
-| `PracticeToolService`            | Backing-track playback with tempo/pitch shift and its own EQ — split across `PracticeToolService.cpp` (lifecycle, loading, transport, audio-thread mix) and `PracticeToolServiceRender.cpp` (the background render thread) |
+| `PracticeToolService`            | Backing-track playback with tempo/pitch shift and its own EQ — split across `PracticeToolService.cpp` (lifecycle, loading, transport, audio-thread mix), `PracticeToolServiceRender.cpp` (the background render thread) and `PracticeToolServiceMessages.cpp` (its twelve UI messages) |
 | `DemoPreviewService`             | Demo audio preview mixed into the input                              |
 | `SignalTestService`              | Test-tone injection and the measurement it reports                   |
-| `TunerService`                   | Pitch readings handed from the audio thread to the UI                |
+| `TunerService`                   | Pitch readings handed from the audio thread to the UI, and the tuner's own messages (on/off, live monitoring, reference pitch) |
 | `HostStateRelay`                 | The DAW's saves, restores and program changes from other threads, handed to the message thread: a fallback blob for a save it cannot answer in time, and a queue for restores it cannot start in time |
 
 What is left on `PluginController` itself is the shared core every area needs
 — the host, the mixer, the DSP lock, the active preset, app settings, the
 document store — plus the message handlers, which are declarations in the
 header and definitions in the files above.
+
+**A service that owns a feature outright answers its own messages.** It gets a
+`RegisterMessageHandlers(MessageHandlerRegistry&)` and registers each message type
+with a handler when the controller constructs it (`PracticeToolService` and
+`TunerService` do). `MessageDispatcher` tries that registry before its own routes,
+inside the same JSON-error guard, and a type can have only one owner. The controller
+then needs no `Handle*` forwarding method for it. Prefer this for a new message
+whose handler only needs what the service already holds.
 
 **Adding a controller method:** declare it in `PluginController.h`, define it in
 whichever file above owns that feature. A new file needs registering in
@@ -118,7 +126,9 @@ merging, and verification of both saved data and the audio path.
 ### Add or Change a UI Message
 
 1. Update types and handler in core/ui/ts/messages.ts.
-2. Route it in core/src/dispatcher/MessageDispatch*.cpp, then implement the
+2. If a controller service owns the feature, register the handler in its
+   `RegisterMessageHandlers()` (see "Services the controller owns"). Otherwise
+   route it in core/src/dispatcher/MessageDispatch*.cpp, then implement the
    handler in the matching core/src/controller/PluginController*.cpp (declare it
    in core/src/PluginController.h).
 3. Keep messages backward compatible and validate payloads.

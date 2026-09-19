@@ -452,6 +452,8 @@ set(GUITARFX_CORE_SOURCES
     src/PluginController.cpp
     src/MessageDispatcher.h
     src/MessageDispatcher.cpp
+    src/MessageHandlerRegistry.h
+    src/MessageHandlerRegistry.cpp
     src/IPluginHost.h
     src/UiBridge.h
     src/UiBridge.cpp
@@ -463,7 +465,6 @@ set(GUITARFX_CORE_SOURCES
     src/dispatcher/MessageDispatchMixer.cpp
     src/dispatcher/MessageDispatchLibraryComposite.cpp
     src/dispatcher/MessageDispatchAutomation.cpp
-    src/dispatcher/MessageDispatchPracticeTool.cpp
     src/controller/ControlSurfaceQueue.h
     src/controller/ControlSurfaceQueue.cpp
     src/controller/ControllerDisplayFeed.h
@@ -475,6 +476,7 @@ set(GUITARFX_CORE_SOURCES
     src/controller/PracticeToolService.h
     src/controller/PracticeToolService.cpp
     src/controller/PracticeToolServiceRender.cpp
+    src/controller/PracticeToolServiceMessages.cpp
     src/controller/MetronomeService.h
     src/controller/MetronomeService.cpp
     src/controller/MetronomeClickLibrary.h

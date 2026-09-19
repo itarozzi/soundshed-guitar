@@ -54,10 +54,12 @@ PluginController::PluginController(IPluginHost& host) : mHost(host)
     mMetronome = std::make_unique<MetronomeService>(mHost, mAppSettings, mResourceRoot, sendToUI);
     mTelemetry = std::make_unique<TelemetryPublisher>(mHost, mPresetMixer, sendToUI);
     mSignalTest = std::make_unique<SignalTestService>(sendToUI);
-    mTuner = std::make_unique<TunerService>(sendToUI);
+    mTuner = std::make_unique<TunerService>(sendToUI, mPresetMixer, mDSPMutex);
+    mTuner->RegisterMessageHandlers(mMessageHandlers);
     mDemoPreview = std::make_unique<DemoPreviewService>(mHost, mPresetMixer, mDSPMutex, mSignalTest->ActiveFlag(),
                                                         onError, sendToUI);
     mPracticeTool = std::make_unique<PracticeToolService>(mHost, mDSPMutex, onError, sendToUI);
+    mPracticeTool->RegisterMessageHandlers(mMessageHandlers);
     mHostStateRelay = std::make_unique<HostStateRelay>(mHost);
 }
 

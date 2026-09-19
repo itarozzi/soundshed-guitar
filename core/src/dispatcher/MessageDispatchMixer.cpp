@@ -139,24 +139,6 @@ bool MessageDispatcher::DispatchMixerAndMonitoring(PluginController& c, const nl
         return true;
     }
 
-    if (type == "tuner")
-    {
-        c.HandleTunerRequest(msg);
-        return true;
-    }
-
-    if (type == "setTunerEnabled")
-    {
-        c.HandleSetTunerEnabledRequest(msg);
-        return true;
-    }
-
-    if (type == "setTunerReference")
-    {
-        c.HandleSetTunerReferenceRequest(msg);
-        return true;
-    }
-
     if (type == "setInputMode")
     {
         c.HandleSetInputModeRequest(msg);

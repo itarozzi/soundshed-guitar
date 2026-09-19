@@ -139,6 +139,8 @@ int main()
         R"([1,2,3])",
         // A throw deep in a handler: past its slotId check, before it touches the table.
         R"({"type":"setAutomationSlot","slotId":"custom.typeError","midiMap":{"channel":"one"}})",
+        // A handler a service registered for itself (MessageHandlerRegistry) is under the same guard.
+        R"({"type":"setPracticeToolTransport","action":5})",
     };
 
     for (const char* message : malformed)

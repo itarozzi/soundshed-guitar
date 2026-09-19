@@ -32,6 +32,7 @@ set(TEST_SOURCES
     IRReverbQualityTests.cpp
     PracticeToolCrossfadeTests.cpp
     MessageDispatchTypeErrorTests.cpp
+    MessageHandlerRegistryTests.cpp
     MetronomeServiceTests.cpp
     MixerInstanceLockTests.cpp
     MixerTelemetryTests.cpp

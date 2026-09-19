@@ -11,14 +11,23 @@
 //
 // The mutex is held for a handful of assignments and never while allocating,
 // so the audio thread's worst case is one uncontended lock per detection.
+//
+// It also answers the tuner's UI messages itself (RegisterMessageHandlers): turning
+// the mixer's tuner on and off, live-vs-muted monitoring and the reference pitch,
+// each set under the DSP lock and acknowledged to the UI.
 
 #include <atomic>
 #include <functional>
 #include <mutex>
 #include <string>
 
+#include <nlohmann/json.hpp>
+
 namespace guitarfx
 {
+class MessageHandlerRegistry;
+class MultiPresetMixer;
+
 class TunerService
 {
   public:
@@ -34,7 +43,10 @@ class TunerService
 
     using SendMessageFn = std::function<void(const std::string&)>;
 
-    explicit TunerService(SendMessageFn sendMessage);
+    TunerService(SendMessageFn sendMessage, MultiPresetMixer& mixer, std::mutex& dspMutex);
+
+    /// Registers "tuner", "setTunerEnabled" and "setTunerReference" with the dispatcher.
+    void RegisterMessageHandlers(MessageHandlerRegistry& registry);
 
     /// Audio thread: records the latest reading, replacing any not yet published.
     void PostReading(const Reading& reading);
@@ -53,7 +65,12 @@ class TunerService
     }
 
   private:
+    /// "tuner": start, stop, setLiveMode, setReference, or a bare {enabled}.
+    void HandleTunerRequest(const nlohmann::json& payload);
+
     SendMessageFn mSendMessage;
+    MultiPresetMixer& mMixer;
+    std::mutex& mDSPMutex;
 
     std::atomic<bool> mActive{false};
     std::atomic<bool> mPending{false};

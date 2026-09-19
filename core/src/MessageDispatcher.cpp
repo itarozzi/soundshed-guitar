@@ -46,6 +46,12 @@ void MessageDispatcher::Dispatch(PluginController& c, const std::string& jsonMes
 
 void MessageDispatcher::DispatchByType(PluginController& c, const nlohmann::json& msg, const std::string& type)
 {
+    // Messages a service registered for itself come first; see MessageHandlerRegistry.
+    if (c.mMessageHandlers.Dispatch(type, msg))
+    {
+        return;
+    }
+
     if (DispatchStateAndLists(c, msg, type))
     {
         return;
@@ -82,11 +88,6 @@ void MessageDispatcher::DispatchByType(PluginController& c, const nlohmann::json
     }
 
     if (DispatchAutomation(c, msg, type))
-    {
-        return;
-    }
-
-    if (DispatchPracticeTool(c, msg, type))
     {
         return;
     }

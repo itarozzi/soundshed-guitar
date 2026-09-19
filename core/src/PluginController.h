@@ -13,6 +13,7 @@
  */
 
 #include "IPluginHost.h"
+#include "MessageHandlerRegistry.h"
 #include "automation/AutomationSlotTable.h"
 #include "dsp/MultiPresetMixer.h"
 #include "dsp/effects/CompositeEffectProcessor.h"
@@ -382,7 +383,6 @@ class PluginController
     void HandleBrowseIRRequest();
     void HandleOpenAudioPreferencesRequest();
     void HandleAudioDeviceRequest(const nlohmann::json& payload);
-    void HandleTunerRequest(const nlohmann::json& payload);
     void HandleSetInputModeRequest(const nlohmann::json& payload);
     void HandleSetAmpCabStateRequest(const nlohmann::json& payload);
     void HandleSetAutoLevelRequest(const nlohmann::json& payload);
@@ -452,20 +452,6 @@ class PluginController
     void HandlePreviewCapturedRiffRequest(const nlohmann::json& payload);
     void HandleSetRiffPreviewRegionRequest(const nlohmann::json& payload);
 
-    // Practice Tool (Jam panel backing-track player)
-    void HandleBrowsePracticeToolFileRequest();
-    void HandleLoadPracticeToolFileRequest(const nlohmann::json& payload);
-    void HandleLoadPracticeToolFileDataRequest(const nlohmann::json& payload);
-    void HandleSetPracticeToolTransportRequest(const nlohmann::json& payload);
-    void HandleSeekPracticeToolFileRequest(const nlohmann::json& payload);
-    void HandleSetPracticeToolSpeedRequest(const nlohmann::json& payload);
-    void HandleSetPracticeToolPitchRequest(const nlohmann::json& payload);
-    void HandleSetPracticeToolGainRequest(const nlohmann::json& payload);
-    void HandleSetPracticeToolBalanceRequest(const nlohmann::json& payload);
-    void HandleSetPracticeToolLoopRegionRequest(const nlohmann::json& payload);
-    void HandleSetPracticeToolLoopingRequest(const nlohmann::json& payload);
-    void HandleSetPracticeToolEqRequest(const nlohmann::json& payload);
-
     // Composite presets (Multi-Rig)
     void HandleSaveCompositePresetRequest(const nlohmann::json& payload);
     void HandleLoadCompositePresetRequest(const nlohmann::json& payload);
@@ -520,8 +506,6 @@ class PluginController
     void HandleSetGlobalChainRequest(const nlohmann::json& payload);
     void HandleSetNodeEnabledRequest(const nlohmann::json& payload);
     void HandleSetNodeParamRequest(const nlohmann::json& payload);
-    void HandleSetTunerEnabledRequest(const nlohmann::json& payload);
-    void HandleSetTunerReferenceRequest(const nlohmann::json& payload);
 
     // ── Internal helpers ───────────────────────────────────────────
     /// How much of the app state a broadcast carries.
@@ -1003,6 +987,11 @@ class PluginController
     [[nodiscard]] double GetEffectiveTempoBpm() const;
     void ActivateRiffGuidance(const RiffCaptureConfig& config, bool forPreview);
     void DeactivateRiffGuidance(bool previewOnly = false);
+
+    // UI messages a service answers itself (the Practice Tool's, for one), registered by the
+    // service as it is constructed. MessageDispatcher tries these before its own routes, so a
+    // feature owned outright by a service needs no Handle* forwarding method here.
+    MessageHandlerRegistry mMessageHandlers;
 
     std::unique_ptr<ControlSurfaceQueue> mControlSurface;
     std::unique_ptr<ControllerDisplayFeed> mControllerDisplay;

@@ -68,6 +68,8 @@
 
 namespace guitarfx
 {
+class MessageHandlerRegistry;
+
 class PracticeToolService
 {
   public:
@@ -148,6 +150,11 @@ class PracticeToolService
 
     [[nodiscard]] bool IsLoaded() const;
 
+    /// Registers the Practice Tool's UI messages ("browsePracticeToolFile", "loadPracticeToolFile",
+    /// "setPracticeTool*"...) with the dispatcher, so they reach this service without a forwarding
+    /// method on PluginController. Defined in PracticeToolServiceMessages.cpp.
+    void RegisterMessageHandlers(MessageHandlerRegistry& registry);
+
   private:
     // Grants the unit test (PracticeToolCrossfadeTests.cpp) direct access
     // to ReadSourceWindow()/BeginCrossfade() and the private TrackBuffer type
@@ -155,6 +162,9 @@ class PracticeToolService
     // with a synthetic buffer, without needing real file I/O or the
     // background render thread running.
     friend struct PracticeToolServiceTestAccess;
+
+    /// "loadPracticeToolFile", and where a browsed file lands: a path to load, or an error.
+    void HandleLoadFileRequest(const nlohmann::json& payload);
 
     struct StereoFrame
     {
