@@ -132,6 +132,38 @@ function resolveSetlistControl(element: Element, context: MidiLearnTargetContext
   return null;
 }
 
+/** An address the automation target picker offers, and the optgroup it sits in. */
+export interface AutomationTargetOption {
+  address: string;
+  label: string;
+  group: string;
+}
+
+/** The optgroup holding an address the catalog itself does not offer. */
+export const CURRENT_TARGET_GROUP = "Current";
+
+/**
+ * `options` with the slot's own address guaranteed to be among them. A slot can point
+ * at an address the picker never builds — "MIDI Learn…" on a blend node's parameter
+ * maps a catalog-hidden effect type — and a <select> with no matching <option> selects
+ * its first one instead, so opening that slot's editor and pressing Apply would
+ * silently repoint the slot at an unrelated parameter. Carrying the address in an
+ * option of its own keeps it both selectable and selected.
+ *
+ * A slot pointed at nothing (a freshly added one, address "") has nothing to keep, and
+ * is left to pick from the catalog as it always has.
+ */
+export function withCurrentTargetOption(
+  options: readonly AutomationTargetOption[],
+  address: string,
+  label: string,
+): AutomationTargetOption[] {
+  if (!address || options.some((option) => option.address === address)) {
+    return [...options];
+  }
+  return [{ address, label, group: CURRENT_TARGET_GROUP }, ...options];
+}
+
 /**
  * The slot that drives `address` in every preset. A default slot wins over a custom slot
  * pointed at the same address: it is the one the DAW exposes under a stable name.

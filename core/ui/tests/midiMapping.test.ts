@@ -5,6 +5,7 @@ import {
   buildMidiLearnMenuItems,
   countCustomSlots,
   countPresetSlots,
+  CURRENT_TARGET_GROUP,
   describeMidiMap,
   findPresetSlotForAddress,
   findSlotForAddress,
@@ -12,8 +13,10 @@ import {
   nextCustomSlotId,
   nextPresetSlotId,
   resolveMidiLearnTarget,
+  withCurrentTargetOption,
 } from "../ts/midiMapping.js";
-import type { MidiLearnMenuState, MidiLearnTargetContext } from "../ts/midiMapping.js";
+import type { AutomationTargetOption, MidiLearnMenuState, MidiLearnTargetContext } from "../ts/midiMapping.js";
+import { EffectTypeRegistry } from "../ts/presetV2.js";
 import type { EffectTypeInfo } from "../ts/presetV2.js";
 import type { AutomationRegistryEntry, AutomationSlot, GraphNode } from "../ts/types.js";
 
@@ -341,5 +344,35 @@ describe("describeMidiMap", () => {
     expect(describeMidiMap({ eventType: 0, channel: 0, controller: 7, mode: 0 })).toBe("CC 7 ch1 Abs");
     expect(describeMidiMap({ eventType: 2, channel: 9, controller: 60 })).toBe("NoteOn 60 ch10");
     expect(formatMidiChannel(-1)).toBe("any");
+  });
+});
+
+describe("target picker options", () => {
+  const catalog: AutomationTargetOption[] = [
+    { address: "global.inputTrim", label: "Input Trim", group: "Global" },
+    { address: `node.${AMP_TYPE}.gain`, label: "Amp: Gain", group: "amp" },
+  ];
+  // "MIDI Learn…" on a blend node's parameter points a custom slot at this address,
+  // but the picker never builds an option for it.
+  const blendAddress = `node.${EffectGuids.kAmpNamBlend}.blend`;
+
+  it("is built from a catalog the blend type is hidden from", () => {
+    expect(EffectTypeRegistry.get(EffectGuids.kAmpNamBlend)?.catalogHidden).toBe(true);
+  });
+
+  it("carries an address the catalog leaves out, so Apply cannot retarget the slot", () => {
+    const options = withCurrentTargetOption(catalog, blendAddress, "NAM Blend: Blend");
+    // A <select> with no option matching the slot's address selects its first one, and
+    // Apply then posts that address — the option has to be there, and has to be first.
+    expect(options[0]).toEqual({ address: blendAddress, label: "NAM Blend: Blend", group: CURRENT_TARGET_GROUP });
+    expect(options.slice(1)).toEqual(catalog);
+  });
+
+  it("leaves the catalog alone when it already offers the slot's address", () => {
+    expect(withCurrentTargetOption(catalog, `node.${AMP_TYPE}.gain`, "Amp: Gain")).toEqual(catalog);
+  });
+
+  it("leaves a freshly added slot, pointed at nothing, picking from the catalog", () => {
+    expect(withCurrentTargetOption(catalog, "", "Custom")).toEqual(catalog);
   });
 });

@@ -13,7 +13,8 @@ import { uiState } from "./state.js";
 import type { AutomationSlot, AutomationRegistryEntry } from "./types.js";
 import { BUILTIN_EFFECTS, EffectTypeRegistry } from "./presetV2.js";
 import { getXMarkSvg } from "./iconAssets.js";
-import { describeMidiMap, formatMidiChannel } from "./midiMapping.js";
+import { describeMidiMap, formatMidiChannel, withCurrentTargetOption } from "./midiMapping.js";
+import type { AutomationTargetOption } from "./midiMapping.js";
 import { escapeHtml } from "./utils.js";
 
 let modalInitialized = false;
@@ -455,14 +456,8 @@ function wireSlotEvents(container: HTMLElement): void {
 
 // ── Target picker (custom slot address selector) ───────────────────────────
 
-interface TargetOption {
-  address: string;
-  label: string;
-  group: string;
-}
-
-function buildTargetOptions(registry: AutomationRegistryEntry[]): TargetOption[] {
-  const opts: TargetOption[] = [];
+function buildTargetOptions(registry: AutomationRegistryEntry[]): AutomationTargetOption[] {
+  const opts: AutomationTargetOption[] = [];
 
   for (const e of registry) {
     let group = "Other";
@@ -530,7 +525,8 @@ function isBypassAddress(address: string): boolean {
 }
 
 function renderTargetEditor(slot: AutomationSlot, registry: AutomationRegistryEntry[]): string {
-  const options = buildTargetOptions(registry);
+  const derivedLabel = deriveLabel(slot.address, registry);
+  const options = withCurrentTargetOption(buildTargetOptions(registry), slot.address, derivedLabel);
 
   const groups: string[] = [];
   const seen = new Set<string>();
@@ -552,7 +548,7 @@ function renderTargetEditor(slot: AutomationSlot, registry: AutomationRegistryEn
     optgroups += `<optgroup label="${escapeHtml(g)}">${inner}</optgroup>`;
   }
 
-  const labelValue = slot.label || deriveLabel(slot.address, registry);
+  const labelValue = slot.label || derivedLabel;
 
   return `
     <div class="automation-target-editor" data-slot-id="${escapeHtml(slot.slotId)}">
