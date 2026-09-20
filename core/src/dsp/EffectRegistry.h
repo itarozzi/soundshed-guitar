@@ -29,6 +29,10 @@ struct ParameterDef
     bool advanced = false;
     double step = 0.0;               // Step size for integer/discrete params (0 = continuous)
     std::vector<std::string> labels; // Enum labels for discrete params (e.g. {"Off","On"})
+    // Older spellings of `id` that a stored node may still carry. CanonicalizeNodeParams
+    // folds them onto `id`, so one parameter never occupies two keys in a node's param map
+    // and the order the executor happens to apply them in cannot decide which value wins.
+    std::vector<std::string> aliases;
 };
 
 /**

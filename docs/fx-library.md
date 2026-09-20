@@ -336,9 +336,28 @@ Input noise reduction.
 
 | Parameter | Range | Default | Unit |
 |-----------|-------|---------|------|
-| `thresholdDb` | -80..0 | -60 | dB |
-| `attackMs` | 0.1–50 | 1.0 | ms |
-| `releaseMs` | 1–500 | 50 | ms |
+| `threshold` | -80..0 | -60 | dB |
+| `attack` | 0.1–50 | 1.0 | ms |
+| `hold` | 0–500 | 50 | ms |
+| `release` | 1–500 | 50 | ms |
+| `hysteresis` | 0–24 | 4.0 | dB |
+| `range` | -90..0 | -80 | dB |
+| `stereoLink` | 0–1 | 1 | Independent / Linked |
+
+`thresholdDb`, `attackMs`, `holdMs` and `releaseMs` are accepted as legacy spellings and are
+declared as `ParameterDef::aliases`, so `CanonicalizeNodeParams` folds them onto the ids above
+when a stored node is loaded. Presets shipped before this change carry the suffixed names.
+
+**Attack and release shape the applied gain, not the detector.** The detector runs fast and at
+a fixed rate so the gate sees a pick attack the moment it arrives; the user's times control how
+the gain ramps between `range` and unity. This is what keeps the close from clicking — the gate
+sits in front of the amp, so a gain step at the threshold level would be amplified with the rest
+of the signal.
+
+`hysteresis` is how far below `threshold` the level has to fall before the gate may close, which
+stops a decaying note chattering it open and shut. `range` is the attenuation when closed rather
+than a full mute. `stereoLink` keys one detector off the louder channel so a stereo signal cannot
+half-close; turning it off gates each channel on its own level.
 
 ### Parametric EQ (`eq_parametric`)
 4-band parametric equalizer (low/high shelves + 2 parametric mids).

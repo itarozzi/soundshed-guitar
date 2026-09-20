@@ -318,11 +318,30 @@ constexpr const char* kNodeTypeSplitter = EffectGuids::kSplitter;
 constexpr const char* kNodeTypeMixer = EffectGuids::kMixer;
 constexpr const char* kNodeTypeCompositePrefix = "composite:";
 
+// The one parameter the Input and Output boundary nodes carry: a trim in dB, summed with
+// the global trim by SignalGraphExecutor. Routing nodes are not EffectRegistry types, so
+// nothing else declares a range for it — anything mapping a normalized value onto the
+// trim (automation) takes it from here. The UI draws the same knob from the matching
+// definition in `ROUTING_NODE_EFFECTS` (core/ui/ts/presetV2.ts); keep the two in step.
+constexpr const char* kBoundaryGainParam = "gainDb";
+constexpr double kBoundaryGainMinDb = -24.0;
+constexpr double kBoundaryGainMaxDb = 24.0;
+
 /**
  * Ensure preset graph has canonical input/output boundary nodes
  * with built-in gain parameters.
  */
 void EnsurePresetBoundaryGainNodes(SignalGraph& graph);
+
+/**
+ * Folds any legacy parameter spellings a stored node carries onto the id its effect type
+ * declares (see ParameterDef::aliases), so the node holds one key per parameter.
+ *
+ * Two spellings of one parameter in the same map is not a harmless duplicate: node params
+ * are applied to the processor in map order, so whichever key sorts later wins regardless
+ * of which one the user actually set.
+ */
+void CanonicalizeNodeParams(GraphNode& node);
 
 void NormalizePresetScenes(Preset& preset);
 [[nodiscard]] PresetScene* FindPresetScene(Preset& preset, const std::string& sceneId);

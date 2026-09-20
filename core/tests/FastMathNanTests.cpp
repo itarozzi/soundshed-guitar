@@ -45,6 +45,7 @@
 #include "dsp/effects/BuiltinEffects.h"
 #include "dsp/effects/FlangerEffect.h"
 #include "dsp/effects/GraphicEQEffect.h"
+#include "dsp/effects/NoiseGateEffect.h"
 #include "dsp/effects/ParametricEQEffect.h"
 #include "presets/PresetStorage.h"
 #include "presets/PresetTypes.h"
@@ -670,9 +671,17 @@ bool TestRecursiveEffectsRecoverFromNonFiniteInput()
     flanger.SetParam("feedback", 0.7);
     flanger.SetParam("mix", 0.5);
 
+    // The gate's detector, gain and sidechain filter are all one-pole state. A NaN in any of
+    // them compares false against every threshold, so the gate would sit shut for good rather
+    // than merely emit a bad sample -- silence, with nothing in the UI to say why.
+    NoiseGateEffect gate;
+    gate.Prepare(kSampleRate, kBlock);
+    gate.SetParam("threshold", -40.0);
+
     bool passed = ExpectRecoversFromNonFiniteInput("parametric EQ", parametric);
     passed = ExpectRecoversFromNonFiniteInput("graphic EQ", graphic) && passed;
     passed = ExpectRecoversFromNonFiniteInput("flanger", flanger) && passed;
+    passed = ExpectRecoversFromNonFiniteInput("noise gate", gate) && passed;
     return passed;
 }
 

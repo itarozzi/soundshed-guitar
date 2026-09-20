@@ -253,6 +253,14 @@ void SignalGraphExecutor::SetGraph(const SignalGraph& graph)
     mExecutionLevelScores.clear();
     mIncomingEdgeCount.clear();
 
+    // CreateProcessors applies node params in map order, so a node carrying one parameter
+    // under two spellings would let the key that sorts later decide the value. Fold them
+    // here rather than trusting every producer of a graph to have done it.
+    for (auto& node : mGraph.nodes)
+    {
+        CanonicalizeNodeParams(node);
+    }
+
     // Add implicit input/output nodes if they're referenced in edges but not in nodes
     bool hasInputNode = false;
     bool hasOutputNode = false;

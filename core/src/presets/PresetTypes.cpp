@@ -27,6 +27,10 @@ void ApplyDefaultParamsFromRegistry(GraphNode& node)
         return;
     }
 
+    // Fold legacy spellings first: seeding a default under the canonical id while the node
+    // still holds the same parameter under an old one is how a node ends up carrying both.
+    CanonicalizeNodeParams(node);
+
     for (const auto& param : info->parameters)
     {
         if (node.params.find(param.id) == node.params.end())
@@ -79,6 +83,44 @@ GraphNode* EnsureBoundaryNode(SignalGraph& graph, const std::string& nodeId, con
     return &graph.nodes.back();
 }
 } // namespace
+
+void CanonicalizeNodeParams(GraphNode& node)
+{
+    const auto info = EffectRegistry::Instance().GetTypeInfo(node.type);
+
+    if (!info.has_value())
+    {
+        return;
+    }
+
+    for (const auto& param : info->parameters)
+    {
+        bool haveValue = node.params.find(param.id) != node.params.end();
+
+        for (const auto& alias : param.aliases)
+        {
+            const auto stored = node.params.find(alias);
+
+            if (stored == node.params.end())
+            {
+                continue;
+            }
+
+            // The canonical key is what every live writer uses, so when both are present it
+            // holds the value the user set and the alias is whatever an older preset -- or a
+            // stale registry default seeded under the old id -- left behind. Either way the
+            // alias key goes, so only one of them can reach the processor.
+            const double value = stored->second;
+            node.params.erase(stored);
+
+            if (!haveValue)
+            {
+                node.params[param.id] = value;
+                haveValue = true;
+            }
+        }
+    }
+}
 
 void EnsurePresetBoundaryGainNodes(SignalGraph& graph)
 {

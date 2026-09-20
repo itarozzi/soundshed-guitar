@@ -393,6 +393,10 @@ int main()
                 effect.SetParam("attackMs", 0.1);
                 effect.SetParam("holdMs", 0.0);
                 effect.SetParam("releaseMs", 5.0);
+                // The gate links its detector across channels by default, so that the loudest
+                // channel decides for both and a stereo image cannot half-close. This case is
+                // about the other mode, where each channel gates on its own level.
+                effect.SetParam("stereoLink", 0.0);
                 return true;
             },
             resources, GeneratePulsedSine(220.0, 0.002, 1, 1), GenerateSilence(), GeneratePulsedSine(880.0, 0.4, 1, 1),
