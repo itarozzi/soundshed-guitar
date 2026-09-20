@@ -472,7 +472,8 @@ Long, diffuse late reverb with soft early reflections, slow modulation, and a wi
 | `outputGain` | -18..+12 | 0.0 | dB |
 
 ### Simple Cabinet (`cab_simple`)
-Filter-based cabinet simulation (no IR required).
+Lightweight 4x12-style cabinet voicing with a low resonance and speaker roll-off (no IR required).
+Use an IR cabinet when a particular speaker and microphone response is needed.
 
 | Parameter | Range | Default | Unit |
 |-----------|-------|---------|------|

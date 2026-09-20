@@ -1,9 +1,10 @@
 #pragma once
 
 #include "dsp/BiquadFrequency.h"
+#include "dsp/EffectGuids.h"
 #include "dsp/EffectProcessor.h"
 #include "dsp/EffectRegistry.h"
-#include "dsp/EffectGuids.h"
+#include <algorithm>
 #include <array>
 #include <cmath>
 
@@ -11,18 +12,24 @@ namespace guitarfx
 {
 namespace
 {
-constexpr double kPi = 3.14159265358979323846;
+constexpr double kSimpleCabPi = 3.14159265358979323846;
 }
 
 /**
- * Simple cabinet simulation using cascaded biquad filters.
- * No IR required - provides a lightweight alternative to convolution.
+ * Lightweight, filter-based 4x12 cabinet voicing. A broad low resonance and
+ * sixth-order treble roll-off approximate the envelope of a close-miked cab;
+ * an IR remains the option for a particular speaker and microphone's notches.
  */
 class SimpleCabEffect : public EffectProcessor
 {
   public:
-    void Prepare(double sampleRate, int /*maxBlockSize*/) override
+    void Prepare(double sampleRate, int maxBlockSize) override
     {
+        if (!ValidatePrepare(sampleRate, maxBlockSize))
+        {
+            return;
+        }
+
         mSampleRate = sampleRate;
         UpdateCoefficients();
         Reset();
@@ -30,65 +37,57 @@ class SimpleCabEffect : public EffectProcessor
 
     void Reset() override
     {
-        for (int ch = 0; ch < 2; ++ch)
+        for (auto& filter : mFilters)
         {
-            mHPState1[ch] = mHPState2[ch] = 0.0;
-            mLPState1[ch] = mLPState2[ch] = 0.0;
-            mPeakState1[ch] = mPeakState2[ch] = 0.0;
+            filter.s1.fill(0.0);
+            filter.s2.fill(0.0);
+            filter.current = filter.target;
         }
+        mCurrentMix = mMix;
+        mRampSamplesRemaining = 0;
     }
 
     void Process(float** inputs, float** outputs, int numSamples) override
     {
+        if (!inputs || !outputs || numSamples <= 0)
+        {
+            return;
+        }
+
         if (!mEnabled)
         {
-            // Bypass
-            if (outputs[0] && inputs[0])
-            {
-                std::copy_n(inputs[0], numSamples, outputs[0]);
-            }
-
-            if (outputs[1] && inputs[1])
-            {
-                std::copy_n(inputs[1], numSamples, outputs[1]);
-            }
-
+            CopyStereoInputToOutput(inputs, outputs, numSamples);
             return;
         }
 
         for (int i = 0; i < numSamples; ++i)
         {
+            AdvanceRamp();
             for (int ch = 0; ch < 2; ++ch)
             {
-                float* in = (ch == 0) ? inputs[0] : inputs[1];
-                float* out = (ch == 0) ? outputs[0] : outputs[1];
-
-                if (!in || !out)
+                if (!inputs[ch] || !outputs[ch])
                 {
                     continue;
                 }
 
-                double sample = static_cast<double>(in[i]);
-
-                // High-pass (removes sub-bass)
-                double hp = ProcessBiquad(sample, mHPB0, mHPB1, mHPB2, mHPA1, mHPA2, mHPState1[ch], mHPState2[ch]);
-
-                // Low-pass (rolls off highs)
-                double lp = ProcessBiquad(hp, mLPB0, mLPB1, mLPB2, mLPA1, mLPA2, mLPState1[ch], mLPState2[ch]);
-
-                // Presence peak (speaker resonance)
-                double filtered =
-                    ProcessBiquad(lp, mPeakB0, mPeakB1, mPeakB2, mPeakA1, mPeakA2, mPeakState1[ch], mPeakState2[ch]);
-
-                // Mix dry/wet
-                double mixed = sample * (1.0 - mMix) + filtered * mMix;
-                out[i] = static_cast<float>(mixed);
+                const double dry = static_cast<double>(inputs[ch][i]);
+                double wet = dry;
+                for (auto& filter : mFilters)
+                {
+                    wet = filter.Process(wet, ch);
+                }
+                outputs[ch][i] = static_cast<float>(dry * (1.0 - mCurrentMix) + wet * mCurrentMix);
             }
         }
     }
 
     void SetParam(const std::string& key, double value) override
     {
+        if (!std::isfinite(value))
+        {
+            return;
+        }
+
         if (key == "bass")
         {
             mBass = std::clamp(value, 0.0, 1.0);
@@ -107,6 +106,7 @@ class SimpleCabEffect : public EffectProcessor
         else if (key == "mix")
         {
             mMix = std::clamp(value, 0.0, 1.0);
+            BeginRamp();
         }
         else if (key == "enabled")
         {
@@ -124,27 +124,22 @@ class SimpleCabEffect : public EffectProcessor
         {
             return mBass;
         }
-
         if (key == "presence")
         {
             return mPresence;
         }
-
         if (key == "brightness")
         {
             return mBrightness;
         }
-
         if (key == "mix")
         {
             return mMix;
         }
-
         if (key == "enabled")
         {
             return mEnabled ? 1.0 : 0.0;
         }
-
         return 0.0;
     }
 
@@ -159,13 +154,65 @@ class SimpleCabEffect : public EffectProcessor
     }
 
   private:
-    static double ProcessBiquad(double input, double b0, double b1, double b2, double a1, double a2, double& s1,
-                                double& s2)
+    struct Coefficients
     {
-        const double output = b0 * input + s1;
-        s1 = b1 * input - a1 * output + s2;
-        s2 = b2 * input - a2 * output;
-        return output;
+        double b0 = 0.0, b1 = 0.0, b2 = 0.0, a1 = 0.0, a2 = 0.0;
+    };
+
+    struct Biquad
+    {
+        Coefficients current, target, step;
+        std::array<double, 2> s1 = {}, s2 = {};
+
+        double Process(double input, int channel)
+        {
+            const double output = current.b0 * input + s1[channel];
+            s1[channel] = current.b1 * input - current.a1 * output + s2[channel];
+            s2[channel] = current.b2 * input - current.a2 * output;
+            return output;
+        }
+    };
+
+    enum FilterIndex
+    {
+        kHighPass,
+        kLowResonance,
+        kPresence,
+        kLowPass1,
+        kLowPass2,
+        kLowPass3,
+        kFilterCount
+    };
+
+    static Coefficients HighPass(double freq, double Q, double sampleRate)
+    {
+        const double w0 = 2.0 * kSimpleCabPi * ClampBiquadFrequency(freq, sampleRate) / sampleRate;
+        const double cosine = std::cos(w0);
+        const double alpha = std::sin(w0) / (2.0 * Q);
+        const double invA0 = 1.0 / (1.0 + alpha);
+        return {(1.0 + cosine) * 0.5 * invA0, -(1.0 + cosine) * invA0,
+                (1.0 + cosine) * 0.5 * invA0, -2.0 * cosine * invA0, (1.0 - alpha) * invA0};
+    }
+
+    static Coefficients LowPass(double freq, double Q, double sampleRate)
+    {
+        const double w0 = 2.0 * kSimpleCabPi * ClampBiquadFrequency(freq, sampleRate) / sampleRate;
+        const double cosine = std::cos(w0);
+        const double alpha = std::sin(w0) / (2.0 * Q);
+        const double invA0 = 1.0 / (1.0 + alpha);
+        return {(1.0 - cosine) * 0.5 * invA0, (1.0 - cosine) * invA0,
+                (1.0 - cosine) * 0.5 * invA0, -2.0 * cosine * invA0, (1.0 - alpha) * invA0};
+    }
+
+    static Coefficients PeakingEQ(double freq, double Q, double gainDb, double sampleRate)
+    {
+        const double A = std::pow(10.0, gainDb / 40.0);
+        const double w0 = 2.0 * kSimpleCabPi * ClampBiquadFrequency(freq, sampleRate) / sampleRate;
+        const double cosine = std::cos(w0);
+        const double alpha = std::sin(w0) / (2.0 * Q);
+        const double invA0 = 1.0 / (1.0 + alpha / A);
+        return {(1.0 + alpha * A) * invA0, -2.0 * cosine * invA0,
+                (1.0 - alpha * A) * invA0, -2.0 * cosine * invA0, (1.0 - alpha / A) * invA0};
     }
 
     void UpdateCoefficients()
@@ -175,83 +222,74 @@ class SimpleCabEffect : public EffectProcessor
             return;
         }
 
-        // High-pass: 60-120 Hz depending on bass
-        const double hpFreq = 60.0 + (1.0 - mBass) * 80.0;
-        ComputeHighPass(hpFreq, 0.707, mHPB0, mHPB1, mHPB2, mHPA1, mHPA2);
+        // Bass changes the depth and size of the broad 4x12 low resonance.
+        mFilters[kHighPass].target = HighPass(90.0 - mBass * 50.0, 0.707, mSampleRate);
+        mFilters[kLowResonance].target = PeakingEQ(140.0, 0.6, 6.0 + mBass * 8.0, mSampleRate);
 
-        // Low-pass: 4-8 kHz depending on brightness
-        const double lpFreq = 4000.0 + mBrightness * 4000.0;
-        ComputeLowPass(lpFreq, 0.707, mLPB0, mLPB1, mLPB2, mLPA1, mLPA2);
+        const double presenceFreq = 2000.0 + mPresence * 1500.0;
+        mFilters[kPresence].target = PeakingEQ(presenceFreq, 1.5, -1.0 + mPresence * 9.0, mSampleRate);
 
-        // Presence peak: 2-3.5 kHz
-        const double peakFreq = 2000.0 + mPresence * 1500.0;
-        const double peakGain = 2.0 + mPresence * 4.0;
-        ComputePeakingEQ(peakFreq, 1.5, peakGain, mPeakB0, mPeakB1, mPeakB2, mPeakA1, mPeakA2);
+        // Three Butterworth sections give a smooth sixth-order speaker roll-off.
+        const double lowPassFreq = 4200.0 + mBrightness * 2100.0;
+        mFilters[kLowPass1].target = LowPass(lowPassFreq, 0.5176380902, mSampleRate);
+        mFilters[kLowPass2].target = LowPass(lowPassFreq, 0.7071067812, mSampleRate);
+        mFilters[kLowPass3].target = LowPass(lowPassFreq, 1.9318516526, mSampleRate);
+        BeginRamp();
     }
 
-    void ComputeHighPass(double freq, double Q, double& b0, double& b1, double& b2, double& a1, double& a2)
+    void BeginRamp()
     {
-        const double w0 = 2.0 * kPi * ClampBiquadFrequency(freq, mSampleRate) / mSampleRate;
-        const double cosw0 = std::cos(w0);
-        const double sinw0 = std::sin(w0);
-        const double alpha = sinw0 / (2.0 * Q);
-
-        const double a0 = 1.0 + alpha;
-        b0 = (1.0 + cosw0) / 2.0 / a0;
-        b1 = -(1.0 + cosw0) / a0;
-        b2 = (1.0 + cosw0) / 2.0 / a0;
-        a1 = (-2.0 * cosw0) / a0;
-        a2 = (1.0 - alpha) / a0;
+        const int samples = std::max(1, static_cast<int>(std::lround(mSampleRate * 0.015)));
+        mRampSamplesRemaining = samples;
+        for (auto& filter : mFilters)
+        {
+            const auto& from = filter.current;
+            const auto& to = filter.target;
+            filter.step = {(to.b0 - from.b0) / samples, (to.b1 - from.b1) / samples,
+                           (to.b2 - from.b2) / samples, (to.a1 - from.a1) / samples,
+                           (to.a2 - from.a2) / samples};
+        }
+        mMixStep = (mMix - mCurrentMix) / samples;
     }
 
-    void ComputeLowPass(double freq, double Q, double& b0, double& b1, double& b2, double& a1, double& a2)
+    void AdvanceRamp()
     {
-        const double w0 = 2.0 * kPi * ClampBiquadFrequency(freq, mSampleRate) / mSampleRate;
-        const double cosw0 = std::cos(w0);
-        const double sinw0 = std::sin(w0);
-        const double alpha = sinw0 / (2.0 * Q);
+        if (mRampSamplesRemaining <= 0)
+        {
+            return;
+        }
 
-        const double a0 = 1.0 + alpha;
-        b0 = (1.0 - cosw0) / 2.0 / a0;
-        b1 = (1.0 - cosw0) / a0;
-        b2 = (1.0 - cosw0) / 2.0 / a0;
-        a1 = (-2.0 * cosw0) / a0;
-        a2 = (1.0 - alpha) / a0;
+        if (--mRampSamplesRemaining == 0)
+        {
+            for (auto& filter : mFilters)
+            {
+                filter.current = filter.target;
+            }
+            mCurrentMix = mMix;
+            return;
+        }
+
+        for (auto& filter : mFilters)
+        {
+            auto& c = filter.current;
+            const auto& step = filter.step;
+            c.b0 += step.b0;
+            c.b1 += step.b1;
+            c.b2 += step.b2;
+            c.a1 += step.a1;
+            c.a2 += step.a2;
+        }
+        mCurrentMix += mMixStep;
     }
 
-    void ComputePeakingEQ(double freq, double Q, double gainDb, double& b0, double& b1, double& b2, double& a1,
-                          double& a2)
-    {
-        const double A = std::pow(10.0, gainDb / 40.0);
-        const double w0 = 2.0 * kPi * ClampBiquadFrequency(freq, mSampleRate) / mSampleRate;
-        const double cosw0 = std::cos(w0);
-        const double sinw0 = std::sin(w0);
-        const double alpha = sinw0 / (2.0 * Q);
-
-        const double a0 = 1.0 + alpha / A;
-        b0 = (1.0 + alpha * A) / a0;
-        b1 = (-2.0 * cosw0) / a0;
-        b2 = (1.0 - alpha * A) / a0;
-        a1 = (-2.0 * cosw0) / a0;
-        a2 = (1.0 - alpha / A) / a0;
-    }
-
-    // Parameters
     double mBass = 0.5;
     double mPresence = 0.5;
     double mBrightness = 0.5;
     double mMix = 1.0;
-    bool mEnabled = true;
-
-    // Filter coefficients
-    double mHPB0 = 0, mHPB1 = 0, mHPB2 = 0, mHPA1 = 0, mHPA2 = 0;
-    double mLPB0 = 0, mLPB1 = 0, mLPB2 = 0, mLPA1 = 0, mLPA2 = 0;
-    double mPeakB0 = 0, mPeakB1 = 0, mPeakB2 = 0, mPeakA1 = 0, mPeakA2 = 0;
-
-    // Filter state (per channel)
-    std::array<double, 2> mHPState1 = {}, mHPState2 = {};
-    std::array<double, 2> mLPState1 = {}, mLPState2 = {};
-    std::array<double, 2> mPeakState1 = {}, mPeakState2 = {};
+    double mCurrentMix = 1.0;
+    double mMixStep = 0.0;
+    int mRampSamplesRemaining = 0;
+    std::array<Biquad, kFilterCount> mFilters = {};
 };
 
 inline void RegisterSimpleCabEffect()
@@ -261,7 +299,7 @@ inline void RegisterSimpleCabEffect()
     info.aliases = {"cab_simple"};
     info.displayName = "Simple Cabinet";
     info.category = "cab";
-    info.description = "Filter-based cabinet simulation (no IR required)";
+    info.description = "Lightweight 4x12-style cabinet voicing (no IR required)";
     info.requiresResource = false;
     info.parameters = {{"bass", "Bass", 0.5, 0.0, 1.0, "amount"},
                        {"presence", "Presence", 0.5, 0.0, 1.0, "amount"},

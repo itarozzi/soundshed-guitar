@@ -65,6 +65,7 @@ set(TEST_SOURCES
     TunerEngineTests.cpp
     SignalGraphExecutorTests.cpp
     SignalPathNodeConfigLockTests.cpp
+    SimpleCabEffectTests.cpp
     SpectrumTapTests.cpp
     Spatial3DEffectTests.cpp
     StereoProcessingTests.cpp
