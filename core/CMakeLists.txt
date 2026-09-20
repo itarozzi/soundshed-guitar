@@ -598,6 +598,7 @@ set(GUITARFX_CORE_SOURCES
     src/dsp/effects/DistortionEffect.h
     src/dsp/effects/FuzzEffect.h
     src/dsp/effects/BuiltinAmpEffect.h
+    src/dsp/effects/BuiltinAmpOversampling.h
     src/dsp/effects/ChorusEffect.h
     src/dsp/effects/FlangerEffect.h
     src/dsp/effects/PhaserEffect.h
