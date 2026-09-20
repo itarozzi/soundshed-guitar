@@ -20,6 +20,7 @@
 #include "controller/DemoPreviewService.h"
 #include "controller/HostStateRelay.h"
 #include "controller/MetronomeService.h"
+#include "controller/ResourceFolderScanner.h"
 #include "controller/SignalTestService.h"
 #include "controller/TelemetryPublisher.h"
 #include "controller/TunerService.h"
@@ -54,6 +55,8 @@ PluginController::PluginController(IPluginHost& host) : mHost(host)
     mMetronome = std::make_unique<MetronomeService>(mHost, mAppSettings, mResourceRoot, sendToUI);
     mTelemetry = std::make_unique<TelemetryPublisher>(mHost, mPresetMixer, sendToUI);
     mSignalTest = std::make_unique<SignalTestService>(sendToUI);
+    mResourceFolderScanner = std::make_unique<ResourceFolderScanner>(sendToUI, mResourceLibrary);
+    mResourceFolderScanner->RegisterMessageHandlers(mMessageHandlers);
     mTuner = std::make_unique<TunerService>(sendToUI, mPresetMixer, mDSPMutex);
     mTuner->RegisterMessageHandlers(mMessageHandlers);
     mDemoPreview = std::make_unique<DemoPreviewService>(mHost, mPresetMixer, mDSPMutex, mSignalTest->ActiveFlag(),
@@ -78,15 +81,11 @@ PluginController::~PluginController()
         std::filesystem::remove_all(mPresetArchiveSession->rootPath, ec);
     }
 
-    // Supersede any in-flight folder scans so detached workers bail out
-    // promptly, then wait until every outstanding worker has finished before
-    // our members are destroyed (workers call SendMessageToUI through mHost and
-    // read mFolderScanGeneration, so they must not outlive us).
-    mFolderScanGeneration.fetch_add(1, std::memory_order_relaxed);
-    {
-        std::unique_lock<std::mutex> lock(mFolderScanDoneMutex);
-        mFolderScanDoneCv.wait(lock, [this]() { return mActiveFolderScans.load(std::memory_order_relaxed) == 0; });
-    }
+    // Supersede any in-flight folder scans and wait for their detached workers here,
+    // rather than leaving it to the scanner's own destructor: the workers publish through
+    // SendMessageToUI, so they must stop while the members it reaches into are still
+    // alive, not part-way through member teardown.
+    mResourceFolderScanner->Shutdown();
 
     // Close after the workers are done, since they can still write through it.
     // This checkpoints the WAL so the -wal file does not grow across sessions.

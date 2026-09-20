@@ -82,6 +82,7 @@ Prefer adding to one of these over adding another member to the controller:
 | `SignalTestService`              | Test-tone injection and the measurement it reports                   |
 | `TunerService`                   | Pitch readings handed from the audio thread to the UI, and the tuner's own messages (on/off, live monitoring, reference pitch) |
 | `HostStateRelay`                 | The DAW's saves, restores and program changes from other threads, handed to the message thread: a fallback blob for a save it cannot answer in time, and a queue for restores it cannot start in time |
+| `ResourceFolderScanner`          | The resource browser's folder listing, on detached workers so a slow drive never stalls the message thread. A generation counter supersedes in-flight scans; `Shutdown()` (called from `~PluginController`, not left to member teardown) waits for the last worker |
 
 What is left on `PluginController` itself is the shared core every area needs
 — the host, the mixer, the DSP lock, the active preset, app settings, the
@@ -90,8 +91,8 @@ header and definitions in the files above.
 
 **A service that owns a feature outright answers its own messages.** It gets a
 `RegisterMessageHandlers(MessageHandlerRegistry&)` and registers each message type
-with a handler when the controller constructs it (`PracticeToolService` and
-`TunerService` do). `MessageDispatcher` tries that registry before its own routes,
+with a handler when the controller constructs it (`PracticeToolService`, `TunerService`
+and `ResourceFolderScanner` do). `MessageDispatcher` tries that registry before its own routes,
 inside the same JSON-error guard, and a type can have only one owner. The controller
 then needs no `Handle*` forwarding method for it. Prefer this for a new message
 whose handler only needs what the service already holds.

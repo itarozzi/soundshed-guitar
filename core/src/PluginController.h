@@ -34,7 +34,6 @@
 #include <array>
 #include <atomic>
 #include <chrono>
-#include <condition_variable>
 #include <cstdint>
 #include <filesystem>
 #include <map>
@@ -43,7 +42,6 @@
 #include <optional>
 #include <span>
 #include <string>
-#include <thread>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -56,6 +54,7 @@ class ControllerDisplayFeed;
 class DemoPreviewService;
 class MetronomeService;
 class SignalTestService;
+class ResourceFolderScanner;
 class TelemetryPublisher;
 class TunerService;
 class PracticeToolService;
@@ -404,7 +403,6 @@ class PluginController
     void HandleUpdateLibraryResourceRequest(const nlohmann::json& payload);
     void HandleBrowseLibraryResourcePathRequest(const nlohmann::json& payload);
     void HandleBrowseResourceFolderRequest();
-    void HandleListResourceFolderRequest(const nlohmann::json& payload);
     void HandleDeleteImportedToneSharingPackRequest(const nlohmann::json& payload);
     void HandlePreviewRemoteResourceRequest(const nlohmann::json& payload);
     void HandleCancelPreviewResourceRequest(const nlohmann::json& payload);
@@ -990,6 +988,9 @@ class PluginController
     std::unique_ptr<ControllerDisplayFeed> mControllerDisplay;
     std::unique_ptr<MetronomeService> mMetronome;
     std::unique_ptr<SignalTestService> mSignalTest;
+    /// Answers "listResourceFolder" itself. Shut down explicitly in the destructor, ahead of
+    /// the members its detached workers publish through.
+    std::unique_ptr<ResourceFolderScanner> mResourceFolderScanner;
     std::unique_ptr<TelemetryPublisher> mTelemetry;
     std::unique_ptr<TunerService> mTuner;
     std::unique_ptr<DemoPreviewService> mDemoPreview;
@@ -1071,26 +1072,5 @@ class PluginController
     /// Written on the message thread; a host reads it as its current program on any thread.
     std::atomic<int> mSetlistCursorIndex{0};
     int mSetlistBankSize = 8;
-
-    // Async resource folder browsing.
-    // The folder scan opens and parses metadata for every NAM/IR file in a
-    // directory, which is too slow to run on the UI/message thread. It runs on
-    // a detached background worker instead. The generation counter lets a newer
-    // request supersede an in-flight scan (stale results are dropped and the
-    // worker bails out early once it observes a newer generation).
-    //
-    // Crucially, the message-thread request handler performs *no* filesystem
-    // work and never blocks: it only snapshots cheap (filePath, id) strings and
-    // spawns the worker. All path validation/normalization (which can touch a
-    // slow or disconnected drive) happens on the worker. Workers are detached
-    // rather than joined on the message thread; teardown waits on a condition
-    // variable until every outstanding worker has finished.
-    void ScanResourceFolderWorker(std::string requestPath,
-                                  std::vector<std::pair<std::string, std::string>> libraryPaths,
-                                  std::uint64_t generation);
-    std::atomic<std::uint64_t> mFolderScanGeneration{0};
-    std::atomic<int> mActiveFolderScans{0};
-    std::mutex mFolderScanDoneMutex;
-    std::condition_variable mFolderScanDoneCv;
 };
 } // namespace guitarfx

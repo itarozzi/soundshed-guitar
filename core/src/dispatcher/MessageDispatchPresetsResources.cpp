@@ -72,12 +72,6 @@ bool MessageDispatcher::DispatchPresetsAndResources(PluginController& c, const n
         return true;
     }
 
-    if (type == "listResourceFolder")
-    {
-        c.HandleListResourceFolderRequest(msg);
-        return true;
-    }
-
     return false;
 }
 } // namespace guitarfx

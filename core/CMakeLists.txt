@@ -495,6 +495,8 @@ set(GUITARFX_CORE_SOURCES
     src/controller/TunerService.cpp
     src/controller/TelemetryPublisher.h
     src/controller/TelemetryPublisher.cpp
+    src/controller/ResourceFolderScanner.h
+    src/controller/ResourceFolderScanner.cpp
     src/controller/PluginControllerMetronome.cpp
     src/controller/PluginControllerHostState.cpp
     src/controller/PluginControllerStorage.cpp
