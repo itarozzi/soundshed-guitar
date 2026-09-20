@@ -11,7 +11,7 @@ import { postMessage } from "./bridge.js";
 import { updateAppSetting } from "./appSettingsStore.js";
 import { uiState } from "./state.js";
 import type { AutomationSlot, AutomationRegistryEntry } from "./types.js";
-import { EffectTypeRegistry } from "./presetV2.js";
+import { BUILTIN_EFFECTS, EffectTypeRegistry } from "./presetV2.js";
 import { getXMarkSvg } from "./iconAssets.js";
 import { describeMidiMap, formatMidiChannel } from "./midiMapping.js";
 import { escapeHtml } from "./utils.js";
@@ -469,6 +469,20 @@ function buildTargetOptions(registry: AutomationRegistryEntry[]): TargetOption[]
     if (e.address.startsWith("global.")) group = "Global";
     else if (e.address.startsWith("setlist.")) group = "Setlist";
     opts.push({ address: e.address, label: e.label, group });
+  }
+
+  // The chain's Input and Output nodes are hidden from the effect catalog, but their trim
+  // is a node address like any other and "MIDI Learn…" on the knob points a slot at it —
+  // which the picker has to be able to show, or editing that slot's target would silently
+  // retarget it. Their gain is all they have; there is no bypassing a boundary node.
+  for (const routing of BUILTIN_EFFECTS) {
+    for (const param of routing.parameters) {
+      opts.push({
+        address: `node.${routing.type}.${param.key}`,
+        label: `${routing.displayName || routing.type}: ${param.name || param.key}`,
+        group: "Signal Chain",
+      });
+    }
   }
 
   const effects = EffectTypeRegistry.getAll()

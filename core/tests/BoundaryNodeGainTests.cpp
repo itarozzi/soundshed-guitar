@@ -7,6 +7,9 @@
  * so a failure names the layer that dropped the gain. A unity gain effect sits between
  * the boundary nodes and has its own gain moved the same way as a control: if that one
  * moves and the boundary nodes do not, the fault is theirs alone.
+ *
+ * A fourth pass drives the same two gains from an automation slot — MIDI Learn's target —
+ * which has its own way to lose them: a range to map the slot's 0..1 value onto.
  */
 
 #include <cmath>
@@ -21,6 +24,8 @@
 
 #include "IPluginHost.h"
 #include "PluginController.h"
+#include "automation/AutomationSlotTable.h"
+#include "dsp/EffectRegistry.h"
 #include "dsp/MultiPresetMixer.h"
 #include "dsp/SignalGraphExecutor.h"
 #include "dsp/effects/BuiltinEffects.h"
@@ -297,6 +302,77 @@ bool TestMixer()
     });
 }
 
+/// A MIDI or DAW mapping on a boundary node's gain has to land in dB. The Input and Output
+/// nodes are routing, not effects, so the EffectRegistry declares no range for their gainDb;
+/// without the one PresetTypes.h holds, a slot's 0..1 value reaches the node as 0..1 dB and
+/// the pedal does nothing audible wherever it sits.
+bool TestAutomation()
+{
+    MultiPresetMixer mixer;
+    mixer.Prepare(kSampleRate, kBlock);
+    mixer.AddActivePreset(BuildPreset(0.0, 0.0), kPresetId, "Boundary gain");
+
+    AutomationSlotTable table;
+    table.InitializeRegistry(
+        mixer, []() { return 0.0; }, [](int) {}, [](int) {}, [](int) {}, []() { return 0; }, []() { return 0; },
+        [](int) {}, []() { return 0; }, [](int) {}, []() { return -1; });
+    table.SetMixer(&mixer);
+    table.SetEffectRegistry(&EffectRegistry::Instance());
+
+    MidiControlMap pedal;
+    pedal.eventType = MidiControlMap::EventType::CC;
+    pedal.channel = 0;
+    pedal.controller = 7;
+    pedal.mode = MidiControlMap::Mode::Absolute;
+
+    const bool learned =
+        table.SetCustomSlot("custom.inputGain", std::optional<std::string>("Input: Gain"),
+                            std::optional<std::string>("node.input.gainDb"), std::nullopt,
+                            std::optional<MidiControlMap>(pedal), std::nullopt) &&
+        table.SetCustomSlot("custom.outputGain", std::optional<std::string>("Output: Gain"),
+                            std::optional<std::string>("node.output.gainDb"), std::nullopt, std::nullopt, std::nullopt);
+
+    if (!learned)
+    {
+        std::cout << "[FAIL] automation: could not point slots at the boundary node gains\n";
+        return false;
+    }
+
+    SineRig rig([&](float** in, float** out, int n) {
+        mixer.Process(in, out, n);
+        return true;
+    });
+    const double reference = rig.Run(kSettleBlocks, kMeasureBlocks);
+
+    if (!ExpectSignal(reference, "automation"))
+    {
+        return false;
+    }
+
+    const auto stepDb = [&] { return ToDb(rig.Run(kStepBlocks, kMeasureBlocks) / reference); };
+    // Where a slot has to sit for the node to read `db`.
+    const auto normalizedFor = [](double db) {
+        return static_cast<float>((db - kBoundaryGainMinDb) / (kBoundaryGainMaxDb - kBoundaryGainMinDb));
+    };
+
+    bool passed = true;
+
+    table.ApplyAutomationLocked("custom.outputGain", normalizedFor(-12.0), AutomationSource::DAW);
+    passed = Expect(stepDb(), -12.0, "automation: a DAW value on the output node gain") && passed;
+    table.ApplyAutomationLocked("custom.outputGain", normalizedFor(0.0), AutomationSource::DAW);
+
+    table.ApplyAutomationLocked("custom.inputGain", normalizedFor(6.0), AutomationSource::DAW);
+    passed = Expect(stepDb(), 6.0, "automation: a DAW value on the input node gain") && passed;
+
+    // The same slot over MIDI: a heel-down expression pedal reaches the bottom of the range.
+    table.HandleMidi(MidiEvent{0xB0, 7, 0, 0});
+    passed = Expect(stepDb(), kBoundaryGainMinDb, "automation: CC 0 on the input node gain") && passed;
+
+    table.HandleMidi(MidiEvent{0xB0, 7, 127, 0});
+    passed = Expect(stepDb(), kBoundaryGainMaxDb, "automation: CC 127 on the input node gain") && passed;
+    return passed;
+}
+
 void LoadPreset(PluginController& controller, const Preset& preset)
 {
     controller.HandleUIMessage(nlohmann::json{{"type", "loadPreset"},
@@ -370,6 +446,7 @@ int main()
 
     bool passed = TestExecutor();
     passed = TestMixer() && passed;
+    passed = TestAutomation() && passed;
     passed = TestController() && passed;
     return passed ? 0 : 1;
 }

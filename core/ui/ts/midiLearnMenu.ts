@@ -1,6 +1,7 @@
 /**
  * Right-click → "MIDI Learn…" on the controls a MIDI mapping can drive: the input
- * and output level knobs, effect parameters, and the setlist pads and bank controls.
+ * and output level knobs, effect parameters — the chain's Input and Output node gains
+ * included — and the setlist pads and bank controls.
  *
  * It is the MIDI panel's Learn button, reached from the control. The learn is armed
  * on the slot that already drives the control's address — a default slot, or a
@@ -30,8 +31,7 @@ import {
 } from "./midiMapping.js";
 import type { MidiLearnTarget } from "./midiMapping.js";
 import { showNotification } from "./notifications.js";
-import { BUILTIN_EFFECTS, EffectTypeRegistry } from "./presetV2.js";
-import type { EffectTypeInfo } from "./presetV2.js";
+import { EffectTypeRegistry } from "./presetV2.js";
 import { getActivePresetForRender, uiState } from "./state.js";
 import type { AutomationSlot, GraphNode } from "./types.js";
 import { escapeHtml } from "./utils.js";
@@ -80,7 +80,10 @@ function handleContextMenu(event: MouseEvent): void {
   const target = resolveMidiLearnTarget(event.target instanceof Element ? event.target : null, {
     registry: automation.registry,
     findNode: findPlayingNode,
-    getEffectInfo: findEngineEffectInfo,
+    // The chain's Input and Output routing nodes are defined only here (ROUTING_NODE_EFFECTS),
+    // but the engine maps their gain onto the same dB range the knob draws, so they are
+    // learnable like any other node parameter.
+    getEffectInfo: (type) => EffectTypeRegistry.get(type),
   });
   if (!target) {
     return;
@@ -88,16 +91,6 @@ function handleContextMenu(event: MouseEvent): void {
 
   event.preventDefault();
   openMenu(target, event.clientX, event.clientY);
-}
-
-/**
- * An effect type the engine registers. The chain's Input and Output routing nodes
- * (BUILTIN_EFFECTS) are defined only in the UI: the engine has no range for their
- * gain, so a learned MIDI value would reach it as a raw 0..1.
- */
-function findEngineEffectInfo(type: string): EffectTypeInfo | undefined {
-  const info = EffectTypeRegistry.get(type);
-  return info && !BUILTIN_EFFECTS.some((routing) => routing.type === info.type) ? info : undefined;
 }
 
 /**

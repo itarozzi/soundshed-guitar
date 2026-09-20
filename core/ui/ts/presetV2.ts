@@ -356,7 +356,7 @@ const EFFECT_STUBS: EffectStub[] = [
   { type: EffectGuids.kSynthSaw },
 ];
 
-// Routing nodes — not registered in the backend, need full definitions here.
+// Routing nodes — not registered in the backend, need full definitions here. The engine declares the gain range a second time, as kBoundaryGainMinDb/kBoundaryGainMaxDb in presets/PresetTypes.h, which is what automation maps a MIDI or DAW value onto; move one and move the other.
 const ROUTING_NODE_EFFECTS: EffectTypeInfo[] = [
   {
     type: "input",

@@ -57,6 +57,21 @@ const effects = new Map<string, EffectTypeInfo>([
     requiresResource: false,
     parameters: [{ key: "mix", name: "Mix", default: 1, min: 0, max: 1, unit: "amount" }],
   } as EffectTypeInfo],
+  // The chain's boundary nodes, as ROUTING_NODE_EFFECTS declares them.
+  ["input", {
+    type: "input",
+    displayName: "Input",
+    category: "utility",
+    requiresResource: false,
+    parameters: [{ key: "gainDb", name: "Gain", default: 0, min: -24, max: 24, unit: "dB" }],
+  } as EffectTypeInfo],
+  ["output", {
+    type: "output",
+    displayName: "Output",
+    category: "utility",
+    requiresResource: false,
+    parameters: [{ key: "gainDb", name: "Gain", default: 0, min: -24, max: 24, unit: "dB" }],
+  } as EffectTypeInfo],
 ]);
 
 const aliases = new Map([["amp_legacy", AMP_TYPE]]);
@@ -64,6 +79,8 @@ const aliases = new Map([["amp_legacy", AMP_TYPE]]);
 const nodes = new Map<string, GraphNode>([
   ["amp1", { id: "amp1", type: "amp_legacy", params: {} } as GraphNode],
   ["plugin1", { id: "plugin1", type: EffectGuids.kPluginHost, params: {} } as GraphNode],
+  ["__input__", { id: "__input__", type: "input", params: {} } as GraphNode],
+  ["__output__", { id: "__output__", type: "output", params: {} } as GraphNode],
 ]);
 
 const context: MidiLearnTargetContext = {
@@ -114,6 +131,21 @@ describe("resolveMidiLearnTarget", () => {
     expect(resolveAt("#gain-knob")).toEqual({ address: `node.${AMP_TYPE}.gain`, label: "Amp: Gain" });
     expect(resolveAt("#gain-label")?.address).toBe(`node.${AMP_TYPE}.gain`);
     expect(resolveAt("#bright-slider")).toEqual({ address: `node.${AMP_TYPE}.bright`, label: "Amp: Bright" });
+  });
+
+  it("maps the chain's Input and Output node gains, which a preset can map for itself", () => {
+    document.body.innerHTML = `
+      <div class="node-param-group">
+        <span class="node-param-label" id="in-gain-label">Gain</span>
+        <div class="knob node-param-knob" id="in-gain" data-node-id="__input__" data-param-key="gainDb"></div>
+      </div>
+      <div class="knob node-param-knob" id="out-gain" data-node-id="__output__" data-param-key="gainDb"></div>
+    `;
+    expect(resolveAt("#in-gain")).toEqual({ address: "node.input.gainDb", label: "Input: Gain" });
+    expect(resolveAt("#in-gain-label")?.address).toBe("node.input.gainDb");
+    expect(resolveAt("#out-gain")).toEqual({ address: "node.output.gainDb", label: "Output: Gain" });
+    expect(allowsPresetMapping("node.input.gainDb")).toBe(true);
+    expect(allowsPresetMapping("node.output.gainDb")).toBe(true);
   });
 
   it("does not guess which control a shared group's label belongs to", () => {

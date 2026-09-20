@@ -7,6 +7,7 @@
 #include "automation/AutomationSlotTable.h"
 #include "dsp/MultiPresetMixer.h"
 #include "dsp/EffectRegistry.h"
+#include "presets/PresetTypes.h"
 
 #include <algorithm>
 #include <cmath>
@@ -26,6 +27,14 @@ bool IsBypassNodeAddress(const std::string& address)
     }
 
     return paramId == "bypassed" || paramId == "bypass" || paramId == "enabled";
+}
+
+/// Whether `node.input.gainDb` / `node.output.gainDb` — the chain's Input and Output nodes.
+/// They are routing, not effects, so the EffectRegistry declares nothing for them and the
+/// range for their one parameter comes from PresetTypes.h instead.
+bool IsBoundaryGainNodeParam(const std::string& effectType, const std::string& paramId)
+{
+    return paramId == kBoundaryGainParam && (effectType == kNodeTypeInput || effectType == kNodeTypeOutput);
 }
 
 /// Maps a slot's 0..1 value onto a parameter's range, snapped to the range's step, or to a
@@ -716,6 +725,10 @@ bool AutomationSlotTable::ApplySlotLocked(AutomationSlot& slot)
                 ParamRange range{def->minValue, def->maxValue, def->step};
                 mMixer->GetNodeAutomationRangeByType(effectType, paramId, range);
                 native = DenormalizeNodeParam(range, !def->labels.empty(), native);
+            }
+            else if (IsBoundaryGainNodeParam(effectType, paramId))
+            {
+                native = DenormalizeNodeParam({kBoundaryGainMinDb, kBoundaryGainMaxDb, 0.0}, false, native);
             }
 
             const bool ok = mMixer->SetNodeParamByType(effectType, paramId, native);
