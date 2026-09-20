@@ -8,6 +8,7 @@
  * on, and only then reports the resource id back.
  */
 
+import { postMessage } from "../bridge.js";
 import { showNotification } from "../notifications.js";
 import { uiState } from "../state.js";
 import type { Tone3000Architecture, Tone3000Model, Tone3000Tone } from "../tone3000ApiTypes.js";
@@ -19,6 +20,43 @@ import { arrayBufferToBase64, findResourceById } from "../utils.js";
 import { sanitizeFilename } from "./helpers.js";
 import { DEFAULT_RESOURCE_CONTEXT_KEY } from "./settings.js";
 import type { NavigationCacheOptions, ResourceBrowserOptions, ResourceNavigationResult, ResourceType, Tone3000NavigationState } from "./types.js";
+
+let nextImportRequestId = 0;
+
+function importRemoteResource(payload: Record<string, unknown>): Promise<void> {
+  const requestId = `tone3000-import-${++nextImportRequestId}`;
+  return new Promise((resolve, reject) => {
+    const cleanup = (): void => {
+      clearTimeout(timeout);
+      document.removeEventListener("resource-browser:resource-imported", onImported);
+      document.removeEventListener("resource-browser:resource-import-failed", onFailed);
+    };
+    const onImported = (event: Event): void => {
+      const detail = (event as CustomEvent<{ requestId?: string }>).detail;
+      if (detail?.requestId !== requestId) return;
+      cleanup();
+      resolve();
+    };
+    const onFailed = (event: Event): void => {
+      const detail = (event as CustomEvent<{ requestId?: string; message?: string }>).detail;
+      if (detail?.requestId !== requestId) return;
+      cleanup();
+      reject(new Error(detail.message || "Resource import failed"));
+    };
+    const timeout = setTimeout(() => {
+      cleanup();
+      reject(new Error("Timed out waiting for resource import"));
+    }, 120_000);
+    document.addEventListener("resource-browser:resource-imported", onImported);
+    document.addEventListener("resource-browser:resource-import-failed", onFailed);
+    try {
+      postMessage({ ...payload, type: "importRemoteResource", requestId });
+    } catch (error) {
+      cleanup();
+      reject(error instanceof Error ? error : new Error(String(error)));
+    }
+  });
+}
 
 /**
  * What the navigator needs from the Tone3000 tab: the result set the user was
@@ -85,8 +123,7 @@ export class Tone3000Navigator {
         const fileName = sanitizeFilename(entry.name.split("/").pop() ?? modelName);
         const resourceId = `tone3000:${modelId}:${sanitizeFilename(entry.name)}`;
         
-        postMessage({
-          type: "importRemoteResource",
+        await importRemoteResource({
           provider: "tone3000",
           resourceType,
           resourceId,
@@ -133,8 +170,7 @@ export class Tone3000Navigator {
       const fileName = `${sanitizeFilename(modelName)}${extension}`;
       const resourceId = `tone3000:${modelId}`;
       
-      postMessage({
-        type: "importRemoteResource",
+      await importRemoteResource({
         provider: "tone3000",
         resourceType,
         resourceId,

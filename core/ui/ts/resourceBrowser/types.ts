@@ -104,6 +104,7 @@ export interface ResourceImportedDetail {
   id?: string;
   resourceType?: string;
   filePath?: string;
+  requestId?: string;
 }
 
 export interface ResourceNavigationResult {

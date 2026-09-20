@@ -1895,11 +1895,6 @@ export class ResourceBrowserModal {
       return;
     }
     
-    // Keep current preview active while import is in progress to avoid reverting audio.
-    if (this.previewState?.active) {
-      this.cancelPreview(false);
-    }
-    
     if (!isTone3000AuthReady()) {
       showNotification("Import failed", "No Tone3000 session");
       return;

@@ -49,24 +49,32 @@ export function onIrLoaded(payload: IncomingPayload): void {
 }
 
 export function onResourceImported(payload: IncomingPayload): void {
-  const info = payload as { id?: string; name?: string; resourceType?: string; filePath?: string };
+  const info = payload as { id?: string; name?: string; resourceType?: string; filePath?: string; requestId?: string };
   upsertImportedResourceInUiState(info);
   appendLog(`resource imported ← ${info.name ?? "unknown"}`);
-  showNotification("Resource imported", info.name ?? info.filePath ?? "");
+  if (!info.requestId) {
+    showNotification("Resource imported", info.name ?? info.filePath ?? "");
+  }
   document.dispatchEvent(new CustomEvent("resource-browser:resource-imported", {
     detail: {
       id: info.id ?? "",
       name: info.name ?? "",
       resourceType: info.resourceType ?? "",
       filePath: info.filePath ?? "",
+      requestId: info.requestId ?? "",
     },
   }));
 }
 
 export function onResourceImportFailed(payload: IncomingPayload): void {
-  const info = payload as { message?: string; detail?: string };
+  const info = payload as { message?: string; detail?: string; requestId?: string };
   appendLog(`resource import failed ← ${info.message ?? "unknown"}`);
-  showNotification(info.message ?? "Import failed", info.detail ?? "");
+  if (!info.requestId) {
+    showNotification(info.message ?? "Import failed", info.detail ?? "");
+  }
+  document.dispatchEvent(new CustomEvent("resource-browser:resource-import-failed", {
+    detail: { requestId: info.requestId ?? "", message: info.detail ?? info.message ?? "Import failed" },
+  }));
 }
 
 export function onResourceRemoved(payload: IncomingPayload): void {

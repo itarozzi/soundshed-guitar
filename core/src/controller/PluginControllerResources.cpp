@@ -35,6 +35,7 @@ void PluginController::HandleImportRemoteResourceRequest(const nlohmann::json& p
 {
     const std::string resourceType = payload.value("resourceType", "");
     const std::string resourceId = payload.value("resourceId", "");
+    const std::string requestId = payload.value("requestId", "");
     const std::string name = payload.value("name", resourceId);
     const std::string description = payload.value("description", "");
     const std::string category = payload.value("category", "");
@@ -50,7 +51,7 @@ void PluginController::HandleImportRemoteResourceRequest(const nlohmann::json& p
     {
         ReportErrorToUI("Import failed", "Missing resource metadata");
         SendMessageToUI(nlohmann::json{
-            {"type", "resourceImportFailed"}, {"message", "Import failed"}, {"detail", "Missing resource metadata"}}
+            {"type", "resourceImportFailed"}, {"requestId", requestId}, {"message", "Import failed"}, {"detail", "Missing resource metadata"}}
                             .dump());
         return;
     }
@@ -82,7 +83,7 @@ void PluginController::HandleImportRemoteResourceRequest(const nlohmann::json& p
     {
         ReportErrorToUI("Import failed", "Invalid base64 payload");
         SendMessageToUI(nlohmann::json{
-            {"type", "resourceImportFailed"}, {"message", "Import failed"}, {"detail", "Invalid base64 payload"}}
+            {"type", "resourceImportFailed"}, {"requestId", requestId}, {"message", "Import failed"}, {"detail", "Invalid base64 payload"}}
                             .dump());
         return;
     }
@@ -91,7 +92,7 @@ void PluginController::HandleImportRemoteResourceRequest(const nlohmann::json& p
     {
         ReportErrorToUI("Import failed", "Failed to write file");
         SendMessageToUI(nlohmann::json{
-            {"type", "resourceImportFailed"}, {"message", "Import failed"}, {"detail", "Failed to write file"}}
+            {"type", "resourceImportFailed"}, {"requestId", requestId}, {"message", "Import failed"}, {"detail", "Failed to write file"}}
                             .dump());
         return;
     }
@@ -157,6 +158,7 @@ void PluginController::HandleImportRemoteResourceRequest(const nlohmann::json& p
 
     nlohmann::json msg;
     msg["type"] = "resourceImported";
+    msg["requestId"] = requestId;
     msg["resourceType"] = resourceType;
     msg["id"] = resourceId;
     msg["name"] = name;
