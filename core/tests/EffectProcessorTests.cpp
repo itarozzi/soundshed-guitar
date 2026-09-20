@@ -1519,8 +1519,9 @@ bool TestTransposeLatencySpecific()
     const int deepShiftLatency = effect->GetLatencySamples();
 
     // Signalsmith PDC must include both inputLatency and outputLatency halves.
-    // presetCheaper @ 48k with splitComputation=false is ~4800 samples total.
-    const int expectedMinTotalLatency = static_cast<int>(kTestSampleRate * 0.08); // ~80 ms floor
+    // Latency is exactly the configured block, so ConfigureSignalsmithLive's
+    // 0.08s block @ 48k is 3840 samples.
+    const int expectedMinTotalLatency = static_cast<int>(kTestSampleRate * 0.08); // 80 ms floor
 
     const bool zeroShiftTransparent = zeroShiftLatency == 0;
     const bool lowShiftReportsLatency = lowShiftLatency >= expectedMinTotalLatency;
@@ -1542,6 +1543,127 @@ bool TestTransposeLatencySpecific()
 
     return zeroShiftTransparent && lowShiftReportsLatency && slightDownTuneKeepsLatencyProfile &&
            deepShiftKeepsLatencyProfile;
+}
+
+// The 0 st bypass leaves Stretch unfed, and the dry delay used to be written
+// only while it was about to be read. Both left stale audio in a buffer that a
+// later parameter move then played back: measured with a frequency sweep, the
+// first 80 ms after re-engaging came from ~2 s earlier. Feeding silence into a
+// re-engaged shift, or into a dry path that was last used minutes ago, must
+// produce silence.
+bool TestTransposeStaleBufferSpecific()
+{
+    std::cout << "\n--- TransposeEffect Stale-Buffer Tests ---\n";
+
+    auto& registry = guitarfx::EffectRegistry::Instance();
+
+    std::vector<float> loud(static_cast<size_t>(kTestBlockSize), 0.0f);
+    GenerateSineWave(loud, 220.0, 0.5);
+    const std::vector<float> silence(static_cast<size_t>(kTestBlockSize), 0.0f);
+
+    std::vector<float> outL(static_cast<size_t>(kTestBlockSize), 0.0f);
+    std::vector<float> outR(static_cast<size_t>(kTestBlockSize), 0.0f);
+    float* outputs[2] = {outL.data(), outR.data()};
+
+    // Drives `blocks` blocks of `source` through the effect and returns the
+    // largest absolute output sample seen.
+    const auto drive = [&](guitarfx::EffectProcessor& effect, const std::vector<float>& source, int blocks) {
+        std::vector<float> l = source;
+        std::vector<float> r = source;
+        float* inputs[2] = {l.data(), r.data()};
+        double peak = 0.0;
+
+        for (int b = 0; b < blocks; ++b)
+        {
+            std::fill(outL.begin(), outL.end(), 0.0f);
+            std::fill(outR.begin(), outR.end(), 0.0f);
+            effect.Process(inputs, outputs, kTestBlockSize);
+
+            for (int i = 0; i < kTestBlockSize; ++i)
+            {
+                peak = std::max(peak, static_cast<double>(std::fabs(outL[static_cast<size_t>(i)])));
+            }
+        }
+
+        return peak;
+    };
+
+    constexpr double kSilenceFloor = 1.0e-3;
+
+    // Re-engaging the shift must not replay what Stretch held from last time.
+    bool reEngageClean = false;
+    {
+        auto effect = registry.Create(guitarfx::EffectGuids::kTranspose);
+
+        if (!effect)
+        {
+            std::cout << "  FAIL: Could not create transpose effect\n";
+            return false;
+        }
+
+        effect->Prepare(kTestSampleRate, kTestBlockSize);
+        effect->SetParam("mix", 1.0);
+
+        effect->SetParam("semitones", -5.0);
+        const double loudPeak = drive(*effect, loud, 90); // ~1s of loud audio through the shift
+
+        if (loudPeak < 0.05)
+        {
+            // Nothing was in the buffers to go stale, so the check below would
+            // pass for the wrong reason.
+            std::cout << "  FAIL: shift produced no output to go stale (peak=" << loudPeak << ")\n";
+            return false;
+        }
+
+        effect->SetParam("semitones", 0.0);
+        drive(*effect, silence, 45); // transparent: Stretch goes unfed
+
+        effect->SetParam("semitones", -5.0);
+        const double peak = drive(*effect, silence, 20); // silent input, shift back on
+        reEngageClean = peak < kSilenceFloor;
+
+        std::cout << "  " << std::left << std::setw(44)
+                  << "re-engaged shift of silence is silent:" << (reEngageClean ? "PASS" : "FAIL") << " (peak=" << peak
+                  << ")\n";
+    }
+
+    // The dry delay must hold real history, not whatever was in it the last
+    // time the mix was turned down.
+    bool dryHistoryClean = false;
+    {
+        auto effect = registry.Create(guitarfx::EffectGuids::kTranspose);
+
+        if (!effect)
+        {
+            std::cout << "  FAIL: Could not create transpose effect\n";
+            return false;
+        }
+
+        effect->Prepare(kTestSampleRate, kTestBlockSize);
+        effect->SetParam("semitones", -5.0);
+
+        effect->SetParam("mix", 0.5);
+        const double loudPeak = drive(*effect, loud, 45); // dry path in use, filling with loud audio
+
+        if (loudPeak < 0.05)
+        {
+            std::cout << "  FAIL: dry path produced no output to go stale (peak=" << loudPeak << ")\n";
+            return false;
+        }
+
+        effect->SetParam("mix", 1.0);
+        drive(*effect, silence, 90); // fully wet for a while, on silence
+
+        effect->SetParam("mix", 0.0);
+        const double peak = drive(*effect, silence, 20); // fully dry again
+        dryHistoryClean = peak < kSilenceFloor;
+
+        std::cout << "  " << std::left << std::setw(44)
+                  << "dry path of silence is silent:" << (dryHistoryClean ? "PASS" : "FAIL") << " (peak=" << peak
+                  << ")\n";
+    }
+
+    return reEngageClean && dryHistoryClean;
 }
 
 bool TestHybridTransposeSpecific()
@@ -2288,6 +2410,11 @@ int main()
     }
 
     if (!TestTransposeLatencySpecific())
+    {
+        return 1;
+    }
+
+    if (!TestTransposeStaleBufferSpecific())
     {
         return 1;
     }

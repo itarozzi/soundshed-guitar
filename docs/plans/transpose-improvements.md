@@ -30,12 +30,12 @@ Displacement for a linear spectrum resample is `f0 * (1 - 2^(st/12)) * N / sr`. 
 
 ## Current State
 
-Global pre-chain node `global_transpose` (`EffectGuids::kTranspose`) is still **Signalsmith** (`TransposeEffect`, `presetCheaper(2, sr, false)`). Mixer/UI clamp +/-12. 0 st bypasses Stretch and reports 0 latency. STFT and hybrid are experimental-flag gated in the FX catalog.
+Global pre-chain node `global_transpose` (`EffectGuids::kTranspose`) is still **Signalsmith**, now via the shared `ConfigureSignalsmithLive()` policy (`core/src/dsp/effects/SignalsmithSupport.h`) rather than `presetCheaper`. Mixer/UI clamp +/-12. 0 st bypasses Stretch and reports 0 latency. STFT and hybrid are experimental-flag gated in the FX catalog.
 
 | Effect | Engine | Range (st) | Latency @48 kHz (measured) | Notes |
 |---|---|---|---|---|
-| `pitch_shift` | Signalsmith `presetCheaper(2, sr, false)` | -12..+12 (continuous) | ~4800 samples (~100 ms) when shifting | Tonality limit 8 kHz |
-| `transpose` | same | -36..+12 (integer); global clamp +/-12 | ~100 ms when shifting | Tonality limit 16 kHz; **this is the live global path today** |
+| `pitch_shift` | Signalsmith `ConfigureSignalsmithLive` (3840/960) | -12..+12 (continuous) | 3840 samples (80 ms) when shifting | Tonality limit 8 kHz |
+| `transpose` | same | -36..+12 (integer); global clamp +/-12 | 80 ms when shifting | Tonality limit 16 kHz; **this is the live global path today** |
 | `transpose_stft` | STFT phase vocoder (`stftPitchShift`) | -12..+12 | LL ~6.7-14 ms; poly ~13-26 ms | Profiles by `abs(st)` + mode; experimental |
 | `transpose_hybrid` | Dual-band **dual STFT** (900 Hz split) + dry transient assist | -15..0 | ~7-29 ms; **~2.1-2.5 ms/block** | Auto poly STFT at >=4 st depth; experimental; research only |
 
@@ -81,7 +81,8 @@ Also relevant:
 
 - After `reset()`, processing time is `inputLatency()` samples **before** the first real input -> pre-roll until the stream aligns.
 - `outputLatency()` includes an optional **split-computation** hop: when `splitComputation` is true, one extra `intervalSamples` of output latency smooths CPU spikes.
-- `presetCheaper` defaults `splitComputation=true`; we pass **`false`** intentionally for lower latency.
+- `splitComputation` adds one `intervalSamples` of output latency to smooth CPU; we keep it **off**. Measured, it is not a small effect: at 64-sample buffers it takes the worst-case block from 248 us to 32 us. Revisit if small-buffer dropouts ever outrank latency.
+- **Total latency is exactly `blockSamples`** (`analysisLatency` and `synthesisLatency` are each `block/2` with the symmetric window Stretch uses). Block is therefore the latency knob and `block/interval` the quality knob -- they are independent, and `presetCheaper` moved both the wrong way at once. See the measurement table in `SignalsmithSupport.h`.
 - Tonality limit is a **fraction of sample rate**: `setTransposeSemitones(st, hz / sampleRate)` -- our usage form is correct.
 - For offline fixed-length renders: optional `seek` at start + silence pad + `flush` at end. Live/stream use does not require this; the benchmark deliberately measures stream warm-up latency.
 
@@ -100,7 +101,11 @@ Constant-latency-through-zero is **not** the chosen contract (transparent-at-zer
 ## Known Defects
 
 1. ~~**Signalsmith latency under-report.**~~ **Fixed (2026-07):** report `inputLatency() + outputLatency()`; 0 st reports 0. Same pattern applied to `octave` and `arp_auto`. Dry/wet mix for `pitch_shift` / `transpose` / `octave` uses a latency-aligned dry delay.
-2. **Inconsistent tonality limits.** `pitch_shift` uses 8 kHz, `transpose` uses 16 kHz for the same engine and preset. Unify (or make it deliberate and documented).
+2. **Inconsistent tonality limits.** `pitch_shift` uses 8 kHz, `transpose` uses 16 kHz for the same engine and preset. Unify (or make it deliberate and documented). Note 16 kHz is effectively *no* limit: `setTransposeFactor` divides it by `sqrt(multiplier)`, so at -12 st it lands past Nyquist.
+
+2a. ~~**Stale buffers replayed on re-engage and on Mix turn-down.**~~ **Fixed (2026-09):** the 0 st bypass never fed Stretch and never reset it, so re-engaging replayed the audio from whenever the shift was last on -- measured with a frequency sweep, the first 80 ms came from ~2 s earlier. The dry delay had the same shape of bug: it was only written while `mix < 1`. Now the history is recorded unconditionally (bypass included) and re-engaging does `reset()` + `seek(seekLength())`, the start-of-playback recipe from the docs, which is correct from the first block (+9 ms error vs +374 ms for `reset()` alone). Shared in `SignalsmithSupport.h`; regression test `TestTransposeStaleBufferSpecific`.
+
+2b. **AutoArp mis-drives Stretch (open).** Two problems, both structural: (a) steps at 0 st take a dry copy while other steps go through a 80 ms engine, so one arp cycle mixes two latencies and the rhythm is mangled -- and Stretch goes unfed on every 0 st step, which is defect 2a firing several times a second; (b) the gate envelope and phase run on the *output* timeline while `setTransposeSemitones` lands on the input side, so each note carries the previous step's pitch for its first `outputLatency()` (~40 ms, ~1/3 of a 1/16 note at 120 bpm). The docs are explicit that automation must be fed from the processing time, `outputLatency()` ahead of the output. Fix: run the pitch clock ahead of the gate clock, and route 0 st steps through Stretch rather than around it.
 3. **Range/contract drift.**
    - Docs mention -24/-36 ranges but the runtime global transpose is clamped to +/-12 (`PluginController.cpp`, `MultiPresetMixer.cpp`, `controls.ts`). Decide: expand the runtime clamp or narrow the effect/docs. **Do not expand past +/-12 until the live engine is solid.**
    - ~~`pitch_shift` has a `stepMode`/`minSemitones`/`maxSemitones` contract in UI/docs but the backend only supports `semitones` + `mix`.~~ **Fixed (2026-09):** backend support restored with `semitones` kept as direct semitones; the range bounds what automation sweeps.
@@ -161,7 +166,7 @@ Listening only after gates: mono riff, chords, bass open-string + riff, guitar a
 ## Latency Improvements
 
 1. ~~**Honest Signalsmith PDC + dry align.**~~ Done (defect #1).
-2. **Semitone-aware Signalsmith configuration.** Replace fixed `presetCheaper(2, sr, false)` with manual `configure(block, interval)` scaled by shift depth -- small shifts (+/-1-3 st) can target ~10 ms total. Scope as **shallow-shift / HQ mode**, not the live -12 path. After every reconfigure, re-query `SignalsmithTotalLatencySamples()` (never hardcode 2400/4800). Keep `splitComputation=false` unless block peaks force it.
+2. ~~**Semitone-aware Signalsmith configuration.**~~ **Partly done (2026-09):** `presetCheaper(2, sr, false)` replaced by `ConfigureSignalsmithLive()` -- a single `configure(block=0.08s, interval=0.02s)` for every Signalsmith node. 100 ms -> 80 ms with *better* measured tone, because the overlap ratio went from 2.5x to 4x at the same time. **Not** semitone-aware: measured across -12/-7/-5/-2/+7, one ratio-4 config at 80 ms is within noise of the old one on pitch error and better on purity everywhere, so depth-scaling buys nothing until something needs below 60 ms -- and below 60 ms this engine degrades sharply (50 ms -> 9 cents, 40 ms -> 11 cents) rather than gracefully. The "+/-1-3 st at ~10 ms" idea is dead for Signalsmith. Still true: re-query `SignalsmithTotalLatencySamples()` after any reconfigure, never hardcode.
 3. **Sample-rate-aware STFT profiles.** Scale analysis/synthesis windows with sample rate so 96 kHz does not silently lose resolution.
 4. **Time-domain lows for deep drop** (see live -12 path). Not a shallow-only SOLA experiment: this is the likely way to hit <=8-10 ms on bass.
 

@@ -40,7 +40,7 @@
 //   - Render thread: exists but parks on a condition_variable, waking on a
 //     200ms timeout while no file is loaded. It does not spin.
 //   - signalsmith-stretch is left unconfigured (and so unallocated) until a
-//     file is actually loaded; presetCheaper() is deliberately called after
+//     file is actually loaded; presetDefault() is deliberately called after
 //     the no-buffer early-continue in RenderThreadLoop().
 // The one unconditional cost is mOutputRing: ~1MiB at 48kHz (2MiB at
 // 96kHz), allocated in Prepare() whether or not a track is ever loaded,

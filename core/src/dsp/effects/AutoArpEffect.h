@@ -3,7 +3,7 @@
 #include "dsp/EffectProcessor.h"
 #include "dsp/EffectRegistry.h"
 #include "dsp/EffectGuids.h"
-#include "dsp/effects/SignalsmithLatency.h"
+#include "dsp/effects/SignalsmithSupport.h"
 #include "signalsmith-stretch.h"
 #include <algorithm>
 #include <cmath>
@@ -49,7 +49,7 @@ class AutoArpEffect : public EffectProcessor
         mWetR.assign(buf, 0.0f);
         mZero.assign(buf, 0.0f);
 
-        mStretch.presetCheaper(2, static_cast<float>(sampleRate), false);
+        ConfigureSignalsmithLive(mStretch, 2, sampleRate);
         mConfigured = true;
         mRng.seed(std::random_device{}());
 

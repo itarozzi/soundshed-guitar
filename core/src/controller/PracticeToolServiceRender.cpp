@@ -303,9 +303,15 @@ void PracticeToolService::RenderThreadLoop()
         {
             // Engine (re)initialization on startup / sample-rate change —
             // NOT a loop-wrap or seek, so calling reset() here is fine (and
-            // necessary: presetCheaper() requires it, same as
+            // necessary: configuring requires it, same as
             // PitchShiftEffect::Prepare()).
-            mStretch.presetCheaper(2, static_cast<float>(sr), false);
+            //
+            // presetDefault, not the low-latency config the live effects use:
+            // this thread renders ~1.5s ahead into a ring, so Stretch's latency
+            // costs nothing but time-to-first-audio, and the wider window is
+            // measurably cleaner (1.9 vs 3.0 cents mean pitch error, -0.3 vs
+            // -1.3 dB harmonic purity across the guitar range).
+            mStretch.presetDefault(2, static_cast<float>(sr), false);
             mStretch.reset();
             configuredSampleRate = sr;
             mStretchConfigured = true;

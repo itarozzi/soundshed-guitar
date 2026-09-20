@@ -3,7 +3,7 @@
 #include "dsp/EffectProcessor.h"
 #include "dsp/EffectRegistry.h"
 #include "dsp/EffectGuids.h"
-#include "dsp/effects/SignalsmithLatency.h"
+#include "dsp/effects/SignalsmithSupport.h"
 #include "signalsmith-stretch.h"
 #include <algorithm>
 #include <cmath>
@@ -13,6 +13,12 @@ namespace guitarfx
 {
 /**
  * Octaveeffect with octave up/down blend.
+ *
+ * Transparent (mix 0, or neither octave dialled in) bypasses both stretchers and
+ * reports 0 latency, so the bypass keeps feeding the dry history: re-engaging
+ * seeks the stretchers onto real audio rather than replaying whatever they were
+ * left holding. See SignalsmithSupport.h for the configuration policy and the
+ * measurements behind both.
  */
 class OctaveEffect : public EffectProcessor
 {
@@ -29,13 +35,13 @@ class OctaveEffect : public EffectProcessor
         mWetDownR.assign(bufferSize, 0.0f);
         mZero.assign(bufferSize, 0.0f);
 
-        // splitComputation=false: avoid the extra interval of output latency.
-        mUpStretch.presetCheaper(2, static_cast<float>(sampleRate), false);
-        mDownStretch.presetCheaper(2, static_cast<float>(sampleRate), false);
+        ConfigureSignalsmithLive(mUpStretch, 2, sampleRate);
+        ConfigureSignalsmithLive(mDownStretch, 2, sampleRate);
         mConfigured = true;
         ApplyStretchSettings();
         UpdateToneCoefficient();
-        EnsureDryDelayCapacity();
+        mDry.Prepare(SignalsmithTotalLatencySamples(mUpStretch, mDownStretch),
+                     std::max(mUpStretch.seekLength(), mDownStretch.seekLength()), maxBlockSize);
         Reset();
     }
 
@@ -49,9 +55,10 @@ class OctaveEffect : public EffectProcessor
 
         mToneStateL = 0.0f;
         mToneStateR = 0.0f;
-        std::fill(mDryDelayL.begin(), mDryDelayL.end(), 0.0f);
-        std::fill(mDryDelayR.begin(), mDryDelayR.end(), 0.0f);
-        mDryWritePos = 0;
+        mDry.Reset();
+        // Nothing has been fed yet, so the next wet block re-seeks both
+        // stretchers onto whatever history has accumulated by then.
+        mNeedsEngage = true;
     }
 
     void Process(float** inputs, float** outputs, int numSamples) override
@@ -74,12 +81,6 @@ class OctaveEffect : public EffectProcessor
             return;
         }
 
-        if (IsTransparent())
-        {
-            CopyDry(inputs, outputs, numSamples);
-            return;
-        }
-
         if (static_cast<size_t>(numSamples) > mWetUpL.size())
         {
             mWetUpL.resize(static_cast<size_t>(numSamples), 0.0f);
@@ -91,6 +92,28 @@ class OctaveEffect : public EffectProcessor
 
         float* leftInput = inputs[0] ? inputs[0] : mZero.data();
         float* rightInput = inputs[1] ? inputs[1] : leftInput;
+
+        if (IsTransparent())
+        {
+            // The stretchers are idle but the history is not: it is what
+            // re-engaging seeks onto, so keep recording the input.
+            for (int i = 0; i < numSamples; ++i)
+            {
+                mDry.Push(leftInput[i], rightInput[i]);
+            }
+
+            CopyDry(inputs, outputs, numSamples);
+            mNeedsEngage = true;
+            return;
+        }
+
+        if (mNeedsEngage)
+        {
+            EngageSignalsmith(mUpStretch, mDry);
+            EngageSignalsmith(mDownStretch, mDry);
+            mNeedsEngage = false;
+        }
+
         float* inputPtrs[2] = {leftInput, rightInput};
         float* upPtrs[2] = {mWetUpL.data(), mWetUpR.data()};
         float* downPtrs[2] = {mWetDownL.data(), mWetDownR.data()};
@@ -100,24 +123,16 @@ class OctaveEffect : public EffectProcessor
 
         const float dryMix = 1.0f - mMix;
         const float wetMix = mMix;
-        const bool needDry = dryMix > 0.0f;
-
-        if (needDry)
-        {
-            EnsureDryDelayCapacity();
-        }
 
         const int latency = SignalsmithTotalLatencySamples(mUpStretch, mDownStretch);
 
         for (int i = 0; i < numSamples; ++i)
         {
+            // Unconditional: the history has to stay current for a later Mix
+            // turn-down or re-engage, not just for this block's blend.
             float dryL = leftInput[i];
             float dryR = rightInput[i];
-
-            if (needDry)
-            {
-                PushAndReadDry(leftInput[i], rightInput[i], latency, dryL, dryR);
-            }
+            mDry.PushAndRead(leftInput[i], rightInput[i], latency, dryL, dryR);
 
             float wetL = mWetUpL[static_cast<size_t>(i)] * mOctaveUp + mWetDownL[static_cast<size_t>(i)] * mOctaveDown;
             float wetR = mWetUpR[static_cast<size_t>(i)] * mOctaveUp + mWetDownR[static_cast<size_t>(i)] * mOctaveDown;
@@ -217,45 +232,6 @@ class OctaveEffect : public EffectProcessor
         return mMix <= 0.0f || (mOctaveUp <= 0.0f && mOctaveDown <= 0.0f);
     }
 
-    void EnsureDryDelayCapacity()
-    {
-        if (!mConfigured)
-        {
-            return;
-        }
-
-        const int latency = SignalsmithTotalLatencySamples(mUpStretch, mDownStretch);
-        const size_t needed = static_cast<size_t>(std::max(latency, 0) + std::max(mMaxBlockSize, 1) + 8);
-
-        if (mDryDelayL.size() < needed)
-        {
-            mDryDelayL.assign(needed, 0.0f);
-            mDryDelayR.assign(needed, 0.0f);
-            mDryWritePos = 0;
-        }
-    }
-
-    void PushAndReadDry(float inL, float inR, int latency, float& outL, float& outR)
-    {
-        if (mDryDelayL.empty() || latency <= 0)
-        {
-            outL = inL;
-            outR = inR;
-            return;
-        }
-
-        const size_t size = mDryDelayL.size();
-        mDryDelayL[mDryWritePos] = inL;
-        mDryDelayR[mDryWritePos] = inR;
-
-        const size_t delay = static_cast<size_t>(std::min(latency, static_cast<int>(size) - 1));
-        const size_t readPos = (mDryWritePos + size - delay) % size;
-        outL = mDryDelayL[readPos];
-        outR = mDryDelayR[readPos];
-
-        mDryWritePos = (mDryWritePos + 1) % size;
-    }
-
     void CopyDry(float** inputs, float** outputs, int numSamples)
     {
         for (int ch = 0; ch < 2; ++ch)
@@ -310,6 +286,7 @@ class OctaveEffect : public EffectProcessor
     double mSampleRate = 48000.0;
     int mMaxBlockSize = 0;
     bool mConfigured = false;
+    bool mNeedsEngage = true;
 
     float mOctaveUp = 0.6f;
     float mOctaveDown = 0.6f;
@@ -322,14 +299,12 @@ class OctaveEffect : public EffectProcessor
 
     signalsmith::stretch::SignalsmithStretch<float> mUpStretch;
     signalsmith::stretch::SignalsmithStretch<float> mDownStretch;
+    SignalsmithDryHistory mDry;
     std::vector<float> mWetUpL;
     std::vector<float> mWetUpR;
     std::vector<float> mWetDownL;
     std::vector<float> mWetDownR;
     std::vector<float> mZero;
-    std::vector<float> mDryDelayL;
-    std::vector<float> mDryDelayR;
-    size_t mDryWritePos = 0;
 };
 
 inline void RegisterOctaveEffect()
