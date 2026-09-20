@@ -84,6 +84,10 @@ class SpringReverbEffect : public EffectProcessor
             mTankWriteR[index] = 0;
             mTankLowpassStateL[index] = 0.0f;
             mTankLowpassStateR[index] = 0.0f;
+            mTankDcPrevL[index] = 0.0f;
+            mTankDcPrevR[index] = 0.0f;
+            mTankDcStateL[index] = 0.0f;
+            mTankDcStateR[index] = 0.0f;
         }
 
         for (size_t index = 0; index < kDispersionCount; ++index)
@@ -195,12 +199,20 @@ class SpringReverbEffect : public EffectProcessor
                 mTankLowpassStateR[tankIndex] =
                     FlushNearZero(mTankLowpassStateR[tankIndex] + (delayedR - mTankLowpassStateR[tankIndex]) * mDamp);
 
-                const float filteredL = mTankLowpassStateL[tankIndex];
-                const float filteredR = mTankLowpassStateR[tankIndex];
+                // Block DC in the loop. The saturator below sits inside this feedback path, and a
+                // nonlinearity fed asymmetric tank ringing pumps low frequency back round with it —
+                // measured 13 dB above mid in the 20-120 Hz band once Drive was up.
+                const float filteredL = ProcessTankDcBlock(mTankLowpassStateL[tankIndex], mTankDcPrevL[tankIndex],
+                                                           mTankDcStateL[tankIndex]);
+                const float filteredR = ProcessTankDcBlock(mTankLowpassStateR[tankIndex], mTankDcPrevR[tankIndex],
+                                                           mTankDcStateR[tankIndex]);
 
-                const float feedbackL = filteredL * (mFeedback * (0.54f - 0.04f * static_cast<float>(tankIndex))) +
+                // Self-feedback plus a little cross-coupling. The pair decays at (self + cross), so
+                // the old 0.54 ceiling capped the tank at ~0.65 s — a real spring tank rings for
+                // 1.5-3 s, and that is most of what makes it sound like one.
+                const float feedbackL = filteredL * (mFeedback * (0.90f - 0.04f * static_cast<float>(tankIndex))) +
                                         filteredR * (0.030f + 0.008f * static_cast<float>(tankIndex));
-                const float feedbackR = filteredR * (mFeedback * (0.54f - 0.04f * static_cast<float>(tankIndex))) +
+                const float feedbackR = filteredR * (mFeedback * (0.90f - 0.04f * static_cast<float>(tankIndex))) +
                                         filteredL * (0.030f + 0.008f * static_cast<float>(tankIndex));
 
                 const float injectL = exciteL * (0.48f - 0.08f * static_cast<float>(tankIndex));
@@ -209,9 +221,9 @@ class SpringReverbEffect : public EffectProcessor
                 const float tankInputL = injectL + feedbackL;
                 const float tankInputR = injectR + feedbackR;
                 mTankDelayL[tankIndex][mTankWriteL[tankIndex]] =
-                    FlushNearZero(ApplyDrive(tankInputL, driveAmount * 0.28f));
+                    FlushNearZero(ApplySaturation(tankInputL, driveAmount * 0.28f));
                 mTankDelayR[tankIndex][mTankWriteR[tankIndex]] =
-                    FlushNearZero(ApplyDrive(tankInputR, driveAmount * 0.28f));
+                    FlushNearZero(ApplySaturation(tankInputR, driveAmount * 0.28f));
 
                 if (++mTankWriteL[tankIndex] >= mTankDelayL[tankIndex].size())
                 {
@@ -343,6 +355,16 @@ class SpringReverbEffect : public EffectProcessor
     // 3 stages produced audible isolated echoes on staccato input.
     static constexpr std::array<double, kDispersionCount> kDispersionDelayMsL = {1.3, 2.1, 3.1, 3.4, 4.6, 5.2};
     static constexpr std::array<double, kDispersionCount> kDispersionDelayMsR = {1.5, 2.4, 3.4, 3.7, 4.9, 5.6};
+    // An Accutronics tank rings for roughly 1.5-3 s; that ring is most of what makes it a spring.
+    static constexpr double kRt60MinS = 0.5;
+    static constexpr double kRt60MaxS = 3.0;
+    // Means of the per-tank (0.90 - 0.04·i) self and (0.030 + 0.008·i) cross coefficients below.
+    static constexpr double kMeanTankSelf = 0.86;
+    static constexpr double kMeanTankCross = 0.038;
+    // Holds the worst tank (self 0.90, cross 0.030) below unity so the tank cannot self-oscillate.
+    static constexpr double kMaxTankFeedback = 1.02;
+    // Corner of the one-pole DC block inside the tank loop.
+    static constexpr double kTankDcHz = 30.0;
 
     size_t DelayMsToSamples(double ms) const
     {
@@ -384,7 +406,10 @@ class SpringReverbEffect : public EffectProcessor
     {
         const float delayed = ReadFromDelayFractional(buffer, writePos, delaySamples);
         const float output = delayed - input * gain;
-        buffer[writePos] = input + delayed * gain;
+        // The delay line is fed the allpass OUTPUT. Feeding back the delay read instead gives
+        // ((1+g²)z^-M - g)/(1 - g·z^-M), which across this six-stage dispersion chain is +10 to
+        // +30 dB with 20 dB of comb ripple rather than the flat phase smear it is here for.
+        buffer[writePos] = input + output * gain;
 
         if (++writePos >= buffer.size())
         {
@@ -427,6 +452,21 @@ class SpringReverbEffect : public EffectProcessor
         }
 
         return FastTanh(sample * drive) / norm;
+    }
+
+    // Same curve, normalised so the small-signal gain stays at 1 instead of rising to drive/tanh(drive).
+    // ApplyDrive() normalises by peak, which suits the input stage — there the extra gain is the point —
+    // but inside the tank loop it multiplies the feedback: at drive=1 it took the loop gain to 1.07
+    // and the tank self-oscillated.
+    static float ApplySaturation(float sample, float amount)
+    {
+        if (amount <= 0.0f)
+        {
+            return sample;
+        }
+
+        const float drive = 1.0f + amount * 6.0f;
+        return FastTanh(sample * drive) / drive;
     }
 
     static void CopyInputToOutput(float** inputs, float** outputs, int numSamples)
@@ -484,7 +524,17 @@ class SpringReverbEffect : public EffectProcessor
     {
         const float output = mInputHpAlpha * (prevOut + input - prevIn);
         prevIn = input;
-        prevOut = output;
+        // Flushed: the pole sits above 0.99, so once the input goes quiet the state decays into
+        // denormal range and stays there, and denormal arithmetic on the audio thread is slow.
+        prevOut = FlushNearZero(output);
+        return output;
+    }
+
+    float ProcessTankDcBlock(float input, float& prevIn, float& prevOut) const
+    {
+        const float output = mTankDcAlpha * (prevOut + input - prevIn);
+        prevIn = input;
+        prevOut = FlushNearZero(output);
         return output;
     }
 
@@ -497,16 +547,39 @@ class SpringReverbEffect : public EffectProcessor
             mInputDelaySamples = std::min(mInputDelaySamples, mInputDelayL.size() - 1);
         }
 
-        mFeedbackTarget = static_cast<float>(std::clamp(0.50 + mDecay * 0.24, 0.42, 0.74));
-        mDampTarget = static_cast<float>(std::clamp(0.10 + mTone * 0.24, 0.08, 0.38));
-        mBrightnessTarget = static_cast<float>(std::clamp(0.06 + mTone * 0.22, 0.06, 0.28));
         mTensionScaleTarget =
             static_cast<float>(std::clamp(0.88 + mTone * 0.30 - mDrive * 0.05, 0.82, kMaxTensionScale));
+
+        // Feedback derived from the RT60 Decay is asking for. Each tank decays at roughly
+        // (self-feedback + cross-coupling), so the target loop gain is solved back through the
+        // mean of those coefficients. Deriving it keeps the knob even in time — RT60 goes as
+        // 1/-log10(g), so a gain that tracks the knob linearly bunches up at the top.
+        double meanTankMs = 0.0;
+
+        for (size_t index = 0; index < kTankCount; ++index)
+        {
+            meanTankMs += kTankDelayMsL[index] + kTankDelayMsR[index];
+        }
+
+        meanTankMs *= mTensionScaleTarget / (2.0 * static_cast<double>(kTankCount));
+
+        const double rt60S = kRt60MinS * std::pow(kRt60MaxS / kRt60MinS, std::clamp(mDecay, 0.0, 1.0));
+        const double loopGain = std::pow(10.0, -3.0 * (meanTankMs * 0.001) / rt60S);
+        mFeedbackTarget =
+            static_cast<float>(std::clamp((loopGain - kMeanTankCross) / kMeanTankSelf, 0.20, kMaxTankFeedback));
+        // Cutoff of the one-pole inside each tank. The old 0.08-0.38 span put it near 1.7 kHz,
+        // which with the longer tail above left the tail 40 dB down at 4-10 kHz — a spring tank
+        // is metallic, and that brightness has to survive the decay.
+        mDampTarget = static_cast<float>(std::clamp(0.22 + mTone * 0.42, 0.18, 0.66));
+        mBrightnessTarget = static_cast<float>(std::clamp(0.06 + mTone * 0.22, 0.06, 0.28));
 
         const double hpHz = std::clamp(130.0 + mTone * 220.0, 120.0, 380.0);
         const double dt = 1.0 / std::max(1.0, mSampleRate);
         const double rc = 1.0 / (2.0 * 3.14159265358979323846 * hpHz);
         mInputHpAlpha = static_cast<float>(rc / (rc + dt));
+
+        const double tankDcRc = 1.0 / (2.0 * 3.14159265358979323846 * kTankDcHz);
+        mTankDcAlpha = static_cast<float>(tankDcRc / (tankDcRc + dt));
 
         const double dripCenter1 = 1100.0 + mTone * 1700.0;
         const double dripCenter2 = std::clamp(dripCenter1 * 1.85, 2000.0, 6200.0);
@@ -535,6 +608,10 @@ class SpringReverbEffect : public EffectProcessor
     std::array<size_t, kTankCount> mTankWriteR{};
     std::array<float, kTankCount> mTankLowpassStateL{};
     std::array<float, kTankCount> mTankLowpassStateR{};
+    std::array<float, kTankCount> mTankDcPrevL{};
+    std::array<float, kTankCount> mTankDcPrevR{};
+    std::array<float, kTankCount> mTankDcStateL{};
+    std::array<float, kTankCount> mTankDcStateR{};
 
     std::array<std::vector<float>, kDispersionCount> mDispersionDelayL;
     std::array<std::vector<float>, kDispersionCount> mDispersionDelayR;
@@ -562,6 +639,7 @@ class SpringReverbEffect : public EffectProcessor
     float mWetToneStateR = 0.0f;
 
     float mInputHpAlpha = 0.95f;
+    float mTankDcAlpha = 0.996f;
     float mInputHpPrevL = 0.0f;
     float mInputHpPrevR = 0.0f;
     float mInputHpStateL = 0.0f;

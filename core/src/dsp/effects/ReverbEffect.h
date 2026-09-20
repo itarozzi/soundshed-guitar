@@ -131,7 +131,8 @@ class ReverbEffect : public EffectProcessor
         mHpPrevOutL = 0.0f;
         mHpPrevOutR = 0.0f;
         mDuckEnv = 0.0f;
-        mModPhase = 0.0;
+        mLfoSin = 0.0f;
+        mLfoCos = 1.0f;
         mSpringBpS1 = {};
         mSpringBpS2 = {};
         mSpringBp2S1 = {};
@@ -160,7 +161,9 @@ class ReverbEffect : public EffectProcessor
             return;
         }
 
-        if (!mEnabled || mMix <= 0.0)
+        // mMixSmoothed is checked alongside the target so a move to zero still rides its ramp out
+        // instead of cutting the wet signal on the block it lands.
+        if (!mEnabled || (mMix <= 0.0 && mMixSmoothed <= 1.0e-4f))
         {
             if (outputs[0])
             {
@@ -221,10 +224,13 @@ class ReverbEffect : public EffectProcessor
             mDuckEnv += (inputLevel - mDuckEnv) * duckCoeff;
             const float duckGain = 1.0f - duckAmount * std::clamp(mDuckEnv * 1.4f, 0.0f, 1.0f);
 
+            // A fixed spread into the tank, so the two sides stay decorrelated whatever Width is
+            // set to. Width itself is applied once, on the wet output below — scaling here as well
+            // squared the control and let it reach 1.44 of the side signal.
             const float monoIn = 0.5f * (inL + inR);
             const float sideIn = 0.5f * (inL - inR);
-            const float shapedL = monoIn + sideIn * width;
-            const float shapedR = monoIn - sideIn * width;
+            const float shapedL = monoIn + sideIn * kTankInputSpread;
+            const float shapedR = monoIn - sideIn * kTankInputSpread;
 
             mPreDelayL[mPreDelayWrite] = shapedL;
             mPreDelayR[mPreDelayWrite] = shapedR;
@@ -248,17 +254,12 @@ class ReverbEffect : public EffectProcessor
                 mPreDelayWrite = 0;
             }
 
-            // Compute LFO sin/cos once via fast polynomial; derive per-voice values via angle-addition
-            // identity sin(φ+δ) = sinφ·cosδ + cosφ·sinδ — eliminates kCombCount+kAllpassCount sin() calls.
-            const float phaseF = static_cast<float>(mModPhase > kPi ? mModPhase - kTwoPi : mModPhase);
-            const float mod = FastSin(phaseF);
-            const float cosPhase = FastCos(phaseF);
-            mModPhase += mModPhaseInc;
-
-            if (mModPhase >= kTwoPi)
-            {
-                mModPhase -= kTwoPi;
-            }
+            // The LFO is a rotating unit phasor, so sin and cos of the phase are already in hand;
+            // per-voice values come from the angle-addition identity sin(φ+δ) = sinφ·cosδ + cosφ·sinδ,
+            // which keeps kCombCount+kAllpassCount sin() calls out of the loops below.
+            const float mod = mLfoSin;
+            const float cosPhase = mLfoCos;
+            AdvanceLfo();
 
             const float combModDepth = mModDepthInternal;
             const float allpassModDepth = mModDepthInternal * 0.6f;
@@ -275,8 +276,9 @@ class ReverbEffect : public EffectProcessor
 
             for (size_t c = 0; c < kCombCount; ++c)
             {
-                const float sinPhiC = mod * mCombPrecompCosOffsets[c] + cosPhase * mCombPrecompSinOffsets[c];
-                const float combPhase = mod + sinPhiC;
+                // sin(φ+δ) alone. Summing sinφ onto it collapses to 2·cos(δ/2)·sin(φ+δ/2), which
+                // leaves each voice a different depth — offsets near π barely move at all.
+                const float combPhase = mod * mCombPrecompCosOffsets[c] + cosPhase * mCombPrecompSinOffsets[c];
                 const float combScaleL = std::max(0.85f, 1.0f + combPhase * combModDepth);
                 const float combScaleR = std::max(0.85f, 1.0f - combPhase * combModDepth);
                 const float dL = std::clamp(mBaseCombSamplesL[c] * mSizeScaleCurrent * combScaleL, 1.0f,
@@ -327,8 +329,7 @@ class ReverbEffect : public EffectProcessor
 
             for (size_t a = 0; a < kAllpassCount; ++a)
             {
-                const float sinPhiA = mod * mAllpassPrecompCosOffsets[a] + cosPhase * mAllpassPrecompSinOffsets[a];
-                const float allpassPhase = mod + sinPhiA;
+                const float allpassPhase = mod * mAllpassPrecompCosOffsets[a] + cosPhase * mAllpassPrecompSinOffsets[a];
                 const float allpassScaleL = std::max(0.9f, 1.0f + allpassPhase * allpassModDepth);
                 const float allpassScaleR = std::max(0.9f, 1.0f - allpassPhase * allpassModDepth);
                 const float dL = std::clamp(mBaseAllpassSamplesL[a] * mSizeScaleCurrent * allpassScaleL, 1.0f,
@@ -344,8 +345,12 @@ class ReverbEffect : public EffectProcessor
                 wetL = delayedL - inputAPF_L * mDiffusionGain;
                 wetR = delayedR - inputAPF_R * mDiffusionGain;
 
-                mAllpassBufferL[a][mAllpassWriteL[a]] = inputAPF_L + delayedL * mDiffusionGain;
-                mAllpassBufferR[a][mAllpassWriteR[a]] = inputAPF_R + delayedR * mDiffusionGain;
+                // The delay line is fed the allpass OUTPUT, not the delay read. Feeding back the
+                // read instead gives ((1+g²)z^-M - g)/(1 - g·z^-M), which is a resonant comb with
+                // up to 43 dB of ripple across a four-stage chain rather than a flat diffuser —
+                // it makes Diffusion act as a volume control.
+                mAllpassBufferL[a][mAllpassWriteL[a]] = inputAPF_L + wetL * mDiffusionGain;
+                mAllpassBufferR[a][mAllpassWriteR[a]] = inputAPF_R + wetR * mDiffusionGain;
 
                 if (++mAllpassWriteL[a] >= mAllpassBufferL[a].size())
                 {
@@ -632,10 +637,11 @@ class ReverbEffect : public EffectProcessor
     static constexpr size_t kCombCount = 8;
     static constexpr size_t kAllpassCount = 4;
     static constexpr size_t kEarlyTapCount = 4;
+    static constexpr float kTankInputSpread = 0.5f;
+    static constexpr double kAdvancedRt60Reach = 2.5;
     static constexpr double kMaxPreDelayMs = 220.0;
     static constexpr double kMaxTapMs = 46.0;
     static constexpr double kTwoPi = 6.2831853071795864769;
-    static constexpr double kPi = kTwoPi * 0.5;
     static constexpr std::array<double, kCombCount> kCombModPhaseOffsets = {0.0,  0.73, 1.41, 2.19,
                                                                             2.94, 3.67, 4.28, 5.11};
     static constexpr std::array<double, kAllpassCount> kAllpassModPhaseOffsets = {0.37, 1.83, 3.12, 4.71};
@@ -656,8 +662,11 @@ class ReverbEffect : public EffectProcessor
         double earlyMixBias = 0.35;
         double sizeBase = 0.58;
         double sizeRange = 1.0;
-        double feedbackBase = 0.48;
-        double feedbackRange = 0.28;
+        // Decay is specified as the RT60 the control's ends should reach, not as a feedback gain.
+        // RT60 goes as 1/-log10(g), so a gain that moves linearly with the knob crams most of the
+        // useful time into the last quarter of its travel.
+        double rt60MinS = 0.25;
+        double rt60MaxS = 2.2;
         double earlyBaseGain = 0.4;
         double earlyTapScale = 1.0;
         double earlyMixMin = 0.06;
@@ -683,8 +692,8 @@ class ReverbEffect : public EffectProcessor
                     0.26,
                     0.50,
                     0.86,
-                    0.46,
-                    0.24,
+                    0.50,
+                    3.50,
                     0.26,
                     0.74,
                     0.08,
@@ -704,8 +713,8 @@ class ReverbEffect : public EffectProcessor
                     0.18,
                     0.46,
                     0.70,
-                    0.44,
-                    0.20,
+                    0.40,
+                    2.50,
                     0.38,
                     0.90,
                     0.08,
@@ -726,8 +735,8 @@ class ReverbEffect : public EffectProcessor
                     0.40,
                     0.58,
                     0.96,
-                    0.50,
-                    0.28,
+                    0.25,
+                    2.20,
                     0.42,
                     1.00,
                     0.12,
@@ -880,8 +889,27 @@ class ReverbEffect : public EffectProcessor
         mPreDelaySamples = DelayMsToSamples(mPreDelayMs);
         mPreDelaySamples = std::min(mPreDelaySamples, mPreDelayL.empty() ? size_t(1) : mPreDelayL.size() - 1);
 
-        mFeedbackTarget = static_cast<float>(
-            std::clamp(profile.feedbackBase + (mDecay * profile.decayBias) * profile.feedbackRange, 0.3, 0.985));
+        // Feedback derived from the RT60 the Decay control is asking for, so the knob is even in
+        // time rather than in gain, and so changing Size scales the room without also stretching
+        // the tail. decayBias shifts where a mode sits within its own range.
+        double meanCombMs = 0.0;
+
+        for (size_t i = 0; i < kCombCount; ++i)
+        {
+            meanCombMs += profile.combMsL[i] + profile.combMsR[i];
+        }
+
+        meanCombMs *= mSizeScaleTarget / (2.0 * static_cast<double>(kCombCount));
+
+        // decayBias curves the knob rather than scaling it — scaling clamped at 1.0, which left
+        // Chamber (bias 1.1) with a dead zone over the last tenth of its travel.
+        const double decayPosition = std::pow(std::clamp(mDecay, 0.0, 1.0), 1.0 / profile.decayBias);
+        // Advanced is the full-control mode, so it reaches well past the fixed modes' range and
+        // can hold a hall-length tail rather than topping out where Room does.
+        const double rt60Max = profile.rt60MaxS * (mMode == Mode::Advanced ? kAdvancedRt60Reach : 1.0);
+        const double rt60S = profile.rt60MinS * std::pow(rt60Max / profile.rt60MinS, decayPosition);
+        mFeedbackTarget =
+            static_cast<float>(std::clamp(std::pow(10.0, -3.0 * (meanCombMs * 0.001) / rt60S), 0.3, 0.985));
 
         const double dampBase =
             std::clamp(0.02 + (mDamping * 0.62) + (1.0 - mTone) * 0.26 + profile.dampBias * 0.08, 0.02, 0.96);
@@ -892,7 +920,9 @@ class ReverbEffect : public EffectProcessor
         mCombGain = 1.0f / static_cast<float>(kCombCount);
 
         const double modBias = std::clamp(profile.modulationBias + mModDepth * 0.8, 0.0, 1.5);
-        mModPhaseInc = kTwoPi * std::clamp(mModRateHz, 0.02, 8.0) / std::max(1.0, mSampleRate);
+        const double modInc = kTwoPi * std::clamp(mModRateHz, 0.02, 8.0) / std::max(1.0, mSampleRate);
+        mLfoRotSin = static_cast<float>(std::sin(modInc));
+        mLfoRotCos = static_cast<float>(std::cos(modInc));
         // mModDepth keeps the user-facing 0–1 value; mModDepthInternal holds the audio-rate scale.
         mModDepthInternal = static_cast<float>(std::clamp(0.0002 + mModDepth * 0.004 * modBias, 0.0, 0.02));
 
@@ -962,20 +992,22 @@ class ReverbEffect : public EffectProcessor
         switch (mode)
         {
         case Mode::Chamber:
-            mDecay = 0.42;
-            mSize = 0.38;
+            // Parameters the type registers below must match their registered defaults, or the
+            // factory sound depends on whether a node was seeded from the registry or not.
+            mDecay = 0.6;
+            mSize = 0.56;
             mDamping = 0.66;
             mDiffusion = 0.7;
-            mPreDelayMs = 12.0;
+            mPreDelayMs = 15.0;
             mLowCutHz = 140.0;
             mHighCutHz = 7600.0;
-            mTone = 0.42;
+            mTone = 0.52;
             mWidth = 0.84;
             mModRateHz = 0.26;
             mModDepth = 0.18;
             mDucking = 0.1;
             mDrive = 0.0;
-            mMix = 0.16;
+            mMix = 0.24;
             break;
         case Mode::Spring:
             mDecay = 0.34;
@@ -994,20 +1026,20 @@ class ReverbEffect : public EffectProcessor
             mMix = 0.14;
             break;
         case Mode::Advanced:
-            mDecay = 0.4;
-            mSize = 0.4;
-            mDamping = 0.66;
-            mDiffusion = 0.74;
-            mPreDelayMs = 12.0;
+            mDecay = 0.64;
+            mSize = 0.55;
+            mDamping = 0.46;
+            mDiffusion = 0.7;
+            mPreDelayMs = 16.0;
             mLowCutHz = 140.0;
-            mHighCutHz = 7600.0;
-            mTone = 0.42;
-            mWidth = 0.88;
-            mModRateHz = 0.28;
-            mModDepth = 0.26;
+            mHighCutHz = 12000.0;
+            mTone = 0.62;
+            mWidth = 1.0;
+            mModRateHz = 0.45;
+            mModDepth = 0.18;
             mDucking = 0.08;
             mDrive = 0.0;
-            mMix = 0.16;
+            mMix = 0.24;
             break;
         case Mode::Room:
         default:
@@ -1029,18 +1061,19 @@ class ReverbEffect : public EffectProcessor
         }
     }
 
-    // 5th-order minimax polynomial sin approximation for x in [-π, π], max error ≈ 1.6e-5.
-    static float FastSin(float x) noexcept
+    // Advances the LFO by one sample as a rotation of the unit phasor (sin, cos). There is no
+    // phase accumulator and so no wrap: a polynomial sin() evaluated over a wrapped [-π, π]
+    // phase steps discontinuously at ±π, which moves every delay length at once and ticks
+    // audibly once per LFO cycle. Two mul-adds per sample, against ~8 ns for a sin/cos pair.
+    void AdvanceLfo() noexcept
     {
-        const float x2 = x * x;
-        return x * (1.0f + x2 * (-0.16666667f + x2 * 0.00833333f));
-    }
-
-    // 4th-order polynomial cos approximation for x in [-π, π], max error ≈ 5e-5.
-    static float FastCos(float x) noexcept
-    {
-        const float x2 = x * x;
-        return 1.0f + x2 * (-0.5f + x2 * 0.04166667f);
+        const float s = mLfoSin * mLfoRotCos + mLfoCos * mLfoRotSin;
+        const float c = mLfoCos * mLfoRotCos - mLfoSin * mLfoRotSin;
+        // One Newton step back onto the unit circle. Without it the magnitude creeps over the
+        // hours a session runs, because at the lowest mod rates cos(increment) rounds to 1.0f.
+        const float correction = 1.5f - 0.5f * (s * s + c * c);
+        mLfoSin = s * correction;
+        mLfoCos = c * correction;
     }
 
     // Padé [2/2] rational tanh approximation, error < 0.5% for |x| ≤ 3.5, clips at ±5.5.
@@ -1127,8 +1160,11 @@ class ReverbEffect : public EffectProcessor
     float mDuckAttackCoeff = 0.03f;
     float mDuckReleaseCoeff = 0.002f;
 
-    double mModPhase = 0.0;
-    double mModPhaseInc = 0.0;
+    // LFO held as a rotating unit phasor rather than a wrapped phase accumulator.
+    float mLfoSin = 0.0f;
+    float mLfoCos = 1.0f;
+    float mLfoRotSin = 0.0f;
+    float mLfoRotCos = 1.0f;
 
     double mDecay = 0.5;
     double mSize = 0.5;

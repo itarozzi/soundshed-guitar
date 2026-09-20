@@ -109,7 +109,12 @@ class AmbientReverbEffect : public EffectProcessor
 
         mWetToneStateL = 0.0f;
         mWetToneStateR = 0.0f;
-        mModPhase = 0.0;
+        mInputHpPrevL = 0.0f;
+        mInputHpPrevR = 0.0f;
+        mInputHpStateL = 0.0f;
+        mInputHpStateR = 0.0f;
+        mLfoSin = 0.0f;
+        mLfoCos = 1.0f;
     }
 
     void Process(float** inputs, float** outputs, int numSamples) override
@@ -150,8 +155,14 @@ class AmbientReverbEffect : public EffectProcessor
             const float wetMix = mMixSmoothed;
             const float dryMix = 1.0f - wetMix;
 
-            const float monoIn = 0.5f * (inL + inR);
-            const float sideIn = 0.5f * (inL - inR);
+            // Highpass the reverb feed. The comb loop runs to 0.95 feedback around a lowpass with
+            // unity DC gain, so without this any DC or sub-bass entering the tank accumulates —
+            // it measured louder in the 20-120 Hz band than at mid.
+            const float hpL = ProcessInputHighpass(inL, mInputHpPrevL, mInputHpStateL);
+            const float hpR = ProcessInputHighpass(inR, mInputHpPrevR, mInputHpStateR);
+
+            const float monoIn = 0.5f * (hpL + hpR);
+            const float sideIn = 0.5f * (hpL - hpR);
             const float wetInL = monoIn + sideIn * 0.3f;
             const float wetInR = monoIn - sideIn * 0.3f;
 
@@ -168,8 +179,11 @@ class AmbientReverbEffect : public EffectProcessor
             {
                 earlyL += ReadFromDelay(mPreDelayL, mPreDelayWrite, mPreDelaySamples + mEarlyTapSamples[tap]) *
                           kEarlyTapGains[tap];
+                // The mirror pattern reverses the tap TIMES, so it has to reverse the gains with
+                // them. Pairing reversed times with forward gains made the right channel's latest
+                // reflection its loudest — early reflections that swelled instead of decaying.
                 earlyR += ReadFromDelay(mPreDelayR, mPreDelayWrite, mPreDelaySamples + mEarlyTapMirrorSamples[tap]) *
-                          kEarlyTapGains[tap];
+                          kEarlyTapGains[kEarlyTapCount - 1 - tap];
             }
 
             if (++mPreDelayWrite >= mPreDelayL.size())
@@ -177,17 +191,12 @@ class AmbientReverbEffect : public EffectProcessor
                 mPreDelayWrite = 0;
             }
 
-            // Compute LFO sin/cos once per sample via fast polynomial; then derive per-comb
-            // sin(phase+offset) using the angle-addition identity instead of N separate sin() calls.
-            const float phaseF = static_cast<float>(mModPhase > kPi ? mModPhase - kTwoPi : mModPhase);
-            const float sinPhi = FastSin(phaseF);
-            const float cosPhi = FastCos(phaseF);
-            mModPhase += mModPhaseInc;
-
-            if (mModPhase >= kTwoPi)
-            {
-                mModPhase -= kTwoPi;
-            }
+            // The LFO is a rotating unit phasor, so sin and cos of the phase are already in hand;
+            // per-comb sin(phase+offset) then comes from the angle-addition identity rather than
+            // N separate sin() calls.
+            const float sinPhi = mLfoSin;
+            const float cosPhi = mLfoCos;
+            AdvanceLfo();
 
             const float feedL = preL + earlyL * 0.24f + preR * 0.08f;
             const float feedR = preR + earlyR * 0.24f + preL * 0.08f;
@@ -197,11 +206,12 @@ class AmbientReverbEffect : public EffectProcessor
 
             for (size_t combIndex = 0; combIndex < kCombCount; ++combIndex)
             {
-                // Additive modulation: sin(φ) + sin(φ+offset) via angle-addition identity.
-                // Previously `sinPhi * sin(phase+offset)` caused ring-modulation artifact at 2× LFO.
-                const float sinPhiOffset =
+                // sin(φ+offset) via the angle-addition identity — a phase-shifted LFO per comb.
+                // (`sinPhi * sin(φ+offset)` ring-modulated at 2× the LFO rate; summing sinPhi onto
+                // it instead collapses to 2·cos(δ/2)·sin(φ+δ/2), which left the six combs with
+                // depths spanning 14:1 — the last of them barely moved.)
+                const float phase =
                     sinPhi * mCombPrecompCosOffsets[combIndex] + cosPhi * mCombPrecompSinOffsets[combIndex];
-                const float phase = sinPhi + sinPhiOffset;
                 const float modSamples = mModDepthSamples * phase * (0.6f + 0.07f * static_cast<float>(combIndex));
 
                 const float delayL = std::clamp(DelayMsToSamplesFloat(kCombMsL[combIndex] * mSizeScale) + modSamples,
@@ -417,7 +427,9 @@ class AmbientReverbEffect : public EffectProcessor
     static constexpr std::array<double, kEarlyTapCount> kEarlyTapMs = {7.0, 13.0, 21.0, 34.0, 49.0};
     static constexpr std::array<float, kEarlyTapCount> kEarlyTapGains = {0.24f, 0.18f, 0.14f, 0.10f, 0.07f};
     static constexpr std::array<double, kCombCount> kCombModPhaseOffsets = {0.0, 0.9, 1.7, 2.6, 3.8, 4.9};
-    static constexpr double kPi = kTwoPi * 0.5;
+    static constexpr double kFeedHighpassHz = 70.0;
+    static constexpr double kRt60MinS = 0.8;
+    static constexpr double kRt60MaxS = 20.0;
 
     size_t DelayMsToSamples(double ms) const
     {
@@ -459,7 +471,10 @@ class AmbientReverbEffect : public EffectProcessor
     {
         const float delayed = ReadFromDelayFractional(buffer, writePos, delaySamples);
         const float output = delayed - input * gain;
-        buffer[writePos] = input + delayed * gain;
+        // The delay line is fed the allpass OUTPUT. Feeding back the delay read instead gives
+        // ((1+g²)z^-M - g)/(1 - g·z^-M) — a resonant comb, not a flat diffuser, so the chain
+        // adds tens of dB of gain and ripple and Diffusion turns into a volume control.
+        buffer[writePos] = input + output * gain;
 
         if (++writePos >= buffer.size())
         {
@@ -489,18 +504,29 @@ class AmbientReverbEffect : public EffectProcessor
         }
     }
 
-    // 5th-order minimax polynomial sin approximation for x in [-π, π], max error ≈ 1.6e-5.
-    static float FastSin(float x) noexcept
+    // Advances the LFO by one sample as a rotation of the unit phasor (sin, cos). There is no
+    // phase accumulator and so no wrap: a polynomial sin() evaluated over a wrapped [-π, π]
+    // phase steps discontinuously at ±π, which moves every comb delay at once and ticks audibly
+    // once per LFO cycle.
+    void AdvanceLfo() noexcept
     {
-        const float x2 = x * x;
-        return x * (1.0f + x2 * (-0.16666667f + x2 * 0.00833333f));
+        const float s = mLfoSin * mLfoRotCos + mLfoCos * mLfoRotSin;
+        const float c = mLfoCos * mLfoRotCos - mLfoSin * mLfoRotSin;
+        // One Newton step back onto the unit circle. Without it the magnitude creeps over the
+        // hours a session runs, because at the lowest mod rates cos(increment) rounds to 1.0f.
+        const float correction = 1.5f - 0.5f * (s * s + c * c);
+        mLfoSin = s * correction;
+        mLfoCos = c * correction;
     }
 
-    // 4th-order polynomial cos approximation for x in [-π, π], max error ≈ 5e-5.
-    static float FastCos(float x) noexcept
+    float ProcessInputHighpass(float input, float& prevIn, float& prevOut) const
     {
-        const float x2 = x * x;
-        return 1.0f + x2 * (-0.5f + x2 * 0.04166667f);
+        const float output = mInputHpAlpha * (prevOut + input - prevIn);
+        prevIn = input;
+        // Flushed: the pole sits above 0.99, so once the input goes quiet the state decays into
+        // denormal range and stays there, and denormal arithmetic on the audio thread is slow.
+        prevOut = FlushNearZero(output);
+        return output;
     }
 
     static float FlushNearZero(float x) noexcept
@@ -511,12 +537,33 @@ class AmbientReverbEffect : public EffectProcessor
     void UpdateParameters()
     {
         mPreDelaySamples = DelayMsToSamples(mPreDelayMs);
-        mFeedbackTarget = static_cast<float>(std::clamp(0.72 + mDecay * 0.20 + mSpace * 0.03, 0.68, 0.95));
+        mSizeScaleTarget = static_cast<float>(0.95 + mSpace * 1.55);
+        // Feedback derived from the RT60 Decay is asking for. A gain that moves linearly with the
+        // knob is very uneven in time (RT60 goes as 1/-log10(g)), and the old floor of 0.68 meant
+        // decay=0 still ran past 3.5 s — the control could not reach a short tail at all. Space
+        // now sets size and density only; it no longer stretches the tail behind the Decay knob.
+        double meanCombMs = 0.0;
+
+        for (size_t index = 0; index < kCombCount; ++index)
+        {
+            meanCombMs += kCombMsL[index] + kCombMsR[index];
+        }
+
+        meanCombMs *= mSizeScaleTarget / (2.0 * static_cast<double>(kCombCount));
+
+        const double rt60S = kRt60MinS * std::pow(kRt60MaxS / kRt60MinS, std::clamp(mDecay, 0.0, 1.0));
+        mFeedbackTarget =
+            static_cast<float>(std::clamp(std::pow(10.0, -3.0 * (meanCombMs * 0.001) / rt60S), 0.3, 0.96));
         mDampTarget = static_cast<float>(std::clamp(0.86 - mTone * 0.64, 0.16, 0.88));
         mDiffusionTarget = static_cast<float>(std::clamp(0.48 + mDiffusionAmount * 0.40, 0.38, 0.92));
         mToneCoeffTarget = static_cast<float>(std::clamp(0.05 + mTone * 0.28, 0.05, 0.33));
-        mSizeScaleTarget = static_cast<float>(0.95 + mSpace * 1.55);
-        mModPhaseInc = kTwoPi * std::clamp(mModRateHz, 0.02, 2.0) / std::max(1.0, mSampleRate);
+        const double modInc = kTwoPi * std::clamp(mModRateHz, 0.02, 2.0) / std::max(1.0, mSampleRate);
+        mLfoRotSin = static_cast<float>(std::sin(modInc));
+        mLfoRotCos = static_cast<float>(std::cos(modInc));
+
+        const double dt = 1.0 / std::max(1.0, mSampleRate);
+        const double rc = 1.0 / (2.0 * 3.14159265358979323846 * kFeedHighpassHz);
+        mInputHpAlpha = static_cast<float>(rc / (rc + dt));
         mModDepthSamples = DelayMsToSamplesFloat(0.08 + mModDepth * (1.2 + mSpace * 1.8));
         mOutputGainTarget = static_cast<float>(std::pow(10.0, mOutputGainDb / 20.0));
     }
@@ -541,9 +588,9 @@ class AmbientReverbEffect : public EffectProcessor
     std::array<size_t, kEarlyTapCount> mEarlyTapSamples{};
     std::array<size_t, kEarlyTapCount> mEarlyTapMirrorSamples{};
 
-    double mDecay = 0.70;
+    double mDecay = 0.50;
     double mSpace = 0.72;
-    double mDiffusionAmount = 0.84;
+    double mDiffusionAmount = 0.4;
     double mPreDelayMs = 26.0;
     double mTone = 0.42;
     double mWidth = 1.08;
@@ -571,8 +618,18 @@ class AmbientReverbEffect : public EffectProcessor
     float mSizeSmoothCoeff = 0.0f;
     float mWetToneStateL = 0.0f;
     float mWetToneStateR = 0.0f;
-    double mModPhase = 0.0;
-    double mModPhaseInc = 0.0;
+    // LFO held as a rotating unit phasor rather than a wrapped phase accumulator.
+    float mLfoSin = 0.0f;
+    float mLfoCos = 1.0f;
+    float mLfoRotSin = 0.0f;
+    float mLfoRotCos = 1.0f;
+
+    // Highpass on the reverb feed — keeps DC and sub-bass out of the comb loop.
+    float mInputHpAlpha = 0.995f;
+    float mInputHpPrevL = 0.0f;
+    float mInputHpPrevR = 0.0f;
+    float mInputHpStateL = 0.0f;
+    float mInputHpStateR = 0.0f;
 
     // Precomputed sin/cos of per-comb LFO phase offsets — avoids kCombCount sin() calls per sample.
     std::array<float, kCombCount> mCombPrecompSinOffsets{};
@@ -588,9 +645,9 @@ inline void RegisterAmbientReverbEffect()
     info.category = "reverb";
     info.description = "Long, diffuse reverb with slow modulation and wide stereo bloom";
     info.requiresResource = false;
-    info.parameters = {{"decay", "Decay", 0.70, 0.0, 1.0, "", "space"},
+    info.parameters = {{"decay", "Decay", 0.50, 0.0, 1.0, "", "space"},
                        {"space", "Space", 0.72, 0.0, 1.0, "", "space"},
-                       {"diffusion", "Diffusion", 0.4, 0.0, 1.0, "", "space"},
+                       {"diffusion", "Diffusion", 0.40, 0.0, 1.0, "", "space"},
                        {"preDelay", "Pre-Delay", 26.0, 0.0, 200.0, "ms", "space"},
                        {"tone", "Tone", 0.42, 0.0, 1.0, "", "tone"},
                        {"width", "Width", 1.08, 0.0, 1.25, "", "tone"},
