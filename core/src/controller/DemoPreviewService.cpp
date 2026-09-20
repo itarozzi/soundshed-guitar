@@ -112,6 +112,11 @@ void DemoPreviewService::MixIntoInput(float** inputs, int numSamples)
         return;
     }
 
+    if (!inputs || !inputs[0] || numSamples <= 0)
+    {
+        return;
+    }
+
     auto buf = std::atomic_load_explicit(&mDemoAudioBuffer, std::memory_order_acquire);
 
     if (!buf || buf->channels < 1)
@@ -128,6 +133,33 @@ void DemoPreviewService::MixIntoInput(float** inputs, int numSamples)
     const bool looping = region && region->looping;
     const size_t regionEnd = region ? std::min(region->endFrame, totalSamples) : totalSamples;
 
+    // On a mono bus the host hands us a null right pointer — see how
+    // PluginProcessorAdapter::processBlock builds `inputs` — so every write here
+    // has to survive one. Fold the clip down rather than drop its right channel,
+    // or a riff panned right would preview as silence; when the clip is itself
+    // mono `ch1` aliases `ch0`, which makes the average exact and leaves the
+    // level alone. The branch is hoisted out of the per-sample loop.
+    float* const left = inputs[0];
+    float* const right = inputs[1];
+
+    const auto mixRun = [left, right](int at, const float* l, const float* r, size_t count) {
+        if (right)
+        {
+            for (size_t n = 0; n < count; ++n)
+            {
+                left[at + static_cast<int>(n)] += l[n];
+                right[at + static_cast<int>(n)] += r[n];
+            }
+
+            return;
+        }
+
+        for (size_t n = 0; n < count; ++n)
+        {
+            left[at + static_cast<int>(n)] += 0.5f * (l[n] + r[n]);
+        }
+    };
+
     int i = 0;
 
     while (i < numSamples)
@@ -138,11 +170,7 @@ void DemoPreviewService::MixIntoInput(float** inputs, int numSamples)
         {
             const size_t take = std::min(region->carryL.size() - mCarryPos, static_cast<size_t>(numSamples - i));
 
-            for (size_t n = 0; n < take; ++n)
-            {
-                inputs[0][i + static_cast<int>(n)] += region->carryL[mCarryPos + n];
-                inputs[1][i + static_cast<int>(n)] += region->carryR[mCarryPos + n];
-            }
+            mixRun(i, region->carryL.data() + mCarryPos, region->carryR.data() + mCarryPos, take);
 
             mCarryPos += take;
             i += static_cast<int>(take);
@@ -168,11 +196,7 @@ void DemoPreviewService::MixIntoInput(float** inputs, int numSamples)
 
         const size_t run = std::min(regionEnd - cursor, static_cast<size_t>(numSamples - i));
 
-        for (size_t n = 0; n < run; ++n)
-        {
-            inputs[0][i + static_cast<int>(n)] += ch0[cursor + n];
-            inputs[1][i + static_cast<int>(n)] += ch1[cursor + n];
-        }
+        mixRun(i, ch0.data() + cursor, ch1.data() + cursor, run);
 
         cursor += run;
         i += static_cast<int>(run);

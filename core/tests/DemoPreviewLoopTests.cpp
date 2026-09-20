@@ -314,6 +314,82 @@ bool TestVeryShortLoopStaysInBounds()
 
     return fadeClamped && produced;
 }
+
+/// Same as Render, but with the right pointer null — how PluginProcessorAdapter
+/// builds `inputs` when the host bus is mono.
+std::vector<float> RenderMonoInput(DemoPreviewService& svc, int blockSize, int blocks)
+{
+    std::vector<float> out;
+    std::vector<float> l(static_cast<std::size_t>(blockSize));
+
+    for (int b = 0; b < blocks; ++b)
+    {
+        std::fill(l.begin(), l.end(), 0.0f);
+        float* channels[2] = {l.data(), nullptr};
+        svc.MixIntoInput(channels, blockSize);
+        out.insert(out.end(), l.begin(), l.end());
+    }
+
+    return out;
+}
+
+/// Regression: a mono track in a DAW (Cubase, on a mono audio track) gives the
+/// plugin one input channel, so `inputs[1]` is null. The mix used to write it
+/// unconditionally and took the host down on the first block of a preview.
+bool TestMonoInputBusFoldsInsteadOfCrashing()
+{
+    std::cout << "\nA mono input bus folds the clip instead of crashing\n";
+
+    // Left and right hold different constants, so a fold is distinguishable
+    // both from dropping the right channel and from summing without halving.
+    const std::size_t total = 24000;
+    const std::size_t start = 4800;
+    const std::size_t end = 9600;
+    const std::vector<float> left(total, 0.2f);
+    const std::vector<float> right(total, 0.6f);
+
+    Fixture oneShot;
+    DemoPreviewServiceTestAccess::Seat(*oneShot.svc, left, right, kSampleRate,
+                                       static_cast<double>(start) / kSampleRate,
+                                       static_cast<double>(end) / kSampleRate, false);
+
+    // Whole region in one render, well short of its end.
+    const auto folded = RenderMonoInput(*oneShot.svc, 512, 8);
+    bool foldedCorrectly = !folded.empty();
+
+    for (const float sample : folded)
+    {
+        if (std::abs(sample - 0.4f) > 1e-6f)
+        {
+            foldedCorrectly = false;
+            break;
+        }
+    }
+
+    // The wrap crossfade writes through the same path, so a loop has to survive
+    // a null right pointer too — several times over.
+    Fixture looped;
+    DemoPreviewServiceTestAccess::Seat(*looped.svc, MakeRamp(total, start, end), MakeRamp(total, start, end),
+                                       kSampleRate, static_cast<double>(start) / kSampleRate,
+                                       static_cast<double>(end) / kSampleRate, true);
+
+    const auto wrapped = RenderMonoInput(*looped.svc, 512, 100);
+    bool wrapStayedSane = wrapped.size() == 512 * 100;
+
+    for (const float sample : wrapped)
+    {
+        if (!std::isfinite(sample) || std::abs(sample) > 2.0f)
+        {
+            wrapStayedSane = false;
+            break;
+        }
+    }
+
+    Report("One-shot folds L and R to mono:", foldedCorrectly);
+    Report("Looping wrap survives a null right channel:", wrapStayedSane);
+
+    return foldedCorrectly && wrapStayedSane;
+}
 } // namespace
 
 int main()
@@ -336,6 +412,11 @@ int main()
     }
 
     if (!TestVeryShortLoopStaysInBounds())
+    {
+        allPassed = false;
+    }
+
+    if (!TestMonoInputBusFoldsInsteadOfCrashing())
     {
         allPassed = false;
     }
