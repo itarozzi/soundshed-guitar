@@ -114,7 +114,8 @@
 }
 
 .control-bar.has-open-popover,
-.control-bar.has-open-calibration {
+.control-bar.has-open-calibration,
+.control-bar.has-open-gate-settings {
   z-index: var(--z-popover, 900);
 }
 
@@ -231,7 +232,8 @@
 
 /* Open control-bar menus must extend over the signal path; retain clipping when collapsed. */
 .control-bar.has-open-popover:not(.is-collapsed) .control-bar-body,
-.control-bar.has-open-calibration:not(.is-collapsed) .control-bar-body {
+.control-bar.has-open-calibration:not(.is-collapsed) .control-bar-body,
+.control-bar.has-open-gate-settings:not(.is-collapsed) .control-bar-body {
   overflow: visible;
 }
 

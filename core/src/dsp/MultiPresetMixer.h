@@ -275,6 +275,9 @@ class MultiPresetMixer
     void SetGlobalGateAttack(double attackMs);
     void SetGlobalGateHold(double holdMs);
     void SetGlobalGateRelease(double releaseMs);
+    void SetGlobalGateHysteresis(double hysteresisDb);
+    void SetGlobalGateRange(double rangeDb);
+    void SetGlobalGateStereoLink(bool linked);
     void SetGlobalTransposeEnabled(bool enabled);
     void SetGlobalTranspose(int semitones);
 

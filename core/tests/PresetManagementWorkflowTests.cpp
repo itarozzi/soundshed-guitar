@@ -1690,6 +1690,18 @@ bool TestStandalonePersistsGlobalFxSettingsBetweenLaunches()
         controller.HandleUIMessage(
             nlohmann::json{{"type", "setGlobalChainParam"}, {"path", "gate.threshold"}, {"value", -48.0}}.dump());
         controller.HandleUIMessage(
+            nlohmann::json{{"type", "setGlobalChainParam"}, {"path", "gate.attack"}, {"value", 2.5}}.dump());
+        controller.HandleUIMessage(
+            nlohmann::json{{"type", "setGlobalChainParam"}, {"path", "gate.hold"}, {"value", 120.0}}.dump());
+        controller.HandleUIMessage(
+            nlohmann::json{{"type", "setGlobalChainParam"}, {"path", "gate.release"}, {"value", 180.0}}.dump());
+        controller.HandleUIMessage(
+            nlohmann::json{{"type", "setGlobalChainParam"}, {"path", "gate.hysteresis"}, {"value", 9.0}}.dump());
+        controller.HandleUIMessage(
+            nlohmann::json{{"type", "setGlobalChainParam"}, {"path", "gate.range"}, {"value", -42.0}}.dump());
+        controller.HandleUIMessage(
+            nlohmann::json{{"type", "setGlobalChainParam"}, {"path", "gate.stereoLink"}, {"value", false}}.dump());
+        controller.HandleUIMessage(
             nlohmann::json{{"type", "setGlobalChainParam"}, {"path", "transpose.enabled"}, {"value", true}}.dump());
         controller.HandleUIMessage(
             nlohmann::json{{"type", "setGlobalChainParam"}, {"path", "transpose.semitones"}, {"value", 5}}.dump());
@@ -1743,6 +1755,18 @@ bool TestStandalonePersistsGlobalFxSettingsBetweenLaunches()
     if (!gate || !gate->enabled || std::abs(gate->params.at("threshold") - (-48.0)) > 1e-9)
     {
         std::cerr << "Standalone global gate settings were not restored\n";
+        return false;
+    }
+
+    // Everything the gate's settings flyout can set goes out on the same route as the
+    // control bar's threshold and lands in the same blob. A path the router does not
+    // know is dropped in silence, so each one is checked here rather than assumed.
+    if (std::abs(gate->params.at("attack") - 2.5) > 1e-9 || std::abs(gate->params.at("hold") - 120.0) > 1e-9 ||
+        std::abs(gate->params.at("release") - 180.0) > 1e-9 ||
+        std::abs(gate->params.at("hysteresis") - 9.0) > 1e-9 || std::abs(gate->params.at("range") - (-42.0)) > 1e-9 ||
+        gate->params.at("stereoLink") >= 0.5)
+    {
+        std::cerr << "Standalone global gate shaping parameters were not restored\n";
         return false;
     }
 

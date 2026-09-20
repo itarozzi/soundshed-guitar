@@ -55,7 +55,7 @@
           </div>
         </div>
 
-        <div class="control-stack control-stack-knob">
+        <div class="control-stack control-stack-knob gate-control-stack">
           <div class="toggle-control mini-toggle-control">
             <span class="toggle-label">GATE</span>
             <label class="toggle-switch">
@@ -63,12 +63,35 @@
               <span class="toggle-slider"></span>
             </label>
           </div>
-          <div class="knob-control" id="gate-threshold-control" title="Gate Threshold">
+          <div class="knob-control has-flyout-trigger" id="gate-threshold-control" title="Gate Threshold">
             <div class="knob" data-param="gate_threshold" data-value="-60">
               <div class="knob-indicator"></div>
             </div>
-            <span class="knob-value" id="gate-threshold-value">-60 dB</span>
+            <div class="knob-value-row">
+              <span class="knob-value" id="gate-threshold-value">-60 dB</span>
+              <button
+                id="gate-settings-trigger"
+                class="gate-settings-trigger"
+                type="button"
+                aria-label="Noise gate settings"
+                aria-haspopup="dialog"
+                aria-expanded="false"
+                aria-controls="gate-settings-flyout"
+                title="Noise gate settings"
+              >
+                <svg viewBox="0 0 16 16" aria-hidden="true">
+                  <path d="M3.5 5.75 8 10.25l4.5-4.5" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+              </button>
+            </div>
           </div>
+          <div
+            id="gate-settings-flyout"
+            class="gate-settings-flyout"
+            role="dialog"
+            aria-label="Noise gate settings"
+            hidden
+          ></div>
         </div>
 
         <div class="control-stack control-stack-knob transpose-control-stack">

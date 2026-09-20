@@ -1,0 +1,176 @@
+/* Global noise gate: the flyout trigger beside the threshold readout, and the
+   settings panel it opens. The panel is built by ts/gateSettings.ts from the
+   engine's parameter definitions, so the rows here are a three-column grid
+   rather than a fixed layout — label, control, value, whatever the gate has. */
+
+/* The knob's readout and the chevron share a row under the knob. */
+.knob-value-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* The threshold knob dims when the gate is off, but the way into the settings
+   must not: the panel is where the gate gets set up before it is switched on.
+   Opacity on the shared .knob-control would take the button down with it, so
+   this stack dims its own parts instead. */
+.knob-control.has-flyout-trigger.disabled {
+  opacity: 1;
+}
+
+.knob-control.has-flyout-trigger.disabled .knob,
+.knob-control.has-flyout-trigger.disabled .knob-value {
+  opacity: 0.45;
+}
+
+.gate-control-stack {
+  position: relative;
+}
+
+.gate-settings-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 14px;
+  padding: 0;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-pill);
+  background: var(--bg-elevated, rgba(20, 22, 28, 0.94));
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.gate-settings-trigger:hover {
+  background: var(--overlay-light);
+  border-color: var(--accent-primary);
+  color: var(--text-primary);
+}
+
+.gate-settings-trigger:focus-visible {
+  outline: 2px solid var(--accent-primary, #50b878);
+  outline-offset: 2px;
+}
+
+.gate-settings-trigger svg {
+  width: 10px;
+  height: 10px;
+  transition: transform 140ms ease;
+}
+
+.gate-settings-trigger[aria-expanded="true"] svg {
+  transform: rotate(180deg);
+}
+
+.gate-settings-flyout {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: min(260px, calc(100vw - 16px));
+  max-width: calc(100vw - 16px);
+  padding: 10px;
+  border-radius: var(--radius-2xl);
+  border: 1px solid var(--border-light);
+  background: var(--bg-elevated, rgba(16, 18, 24, 0.98));
+  box-shadow: 0 18px 36px rgba(0, 0, 0, 0.42);
+  z-index: var(--z-dropdown, 120);
+}
+
+.gate-settings-flyout[hidden] {
+  display: none;
+}
+
+.gate-settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border-dark);
+}
+
+.gate-settings-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.gate-settings-section-title {
+  margin-top: 2px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+.gate-settings-params {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* Label | control | value. The control column is the knob's own 38px so a
+   toggle in the same column lines up under the knobs above it. */
+.gate-param-row {
+  display: grid;
+  grid-template-columns: 1fr 38px 56px;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+}
+
+.gate-param-row .knob {
+  width: 30px;
+  height: 30px;
+  justify-self: center;
+}
+
+.gate-param-row.is-switch .toggle-switch {
+  justify-self: center;
+}
+
+.gate-param-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gate-param-value {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.gate-settings-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 6px;
+  border-top: 1px solid var(--border-dark);
+}
+
+.gate-settings-reset {
+  padding: 4px 10px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.gate-settings-reset:hover {
+  background: var(--overlay-light);
+  border-color: var(--accent-primary);
+  color: var(--text-primary);
+}

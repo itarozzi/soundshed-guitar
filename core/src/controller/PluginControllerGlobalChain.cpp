@@ -126,6 +126,23 @@ void PluginController::HandleSetGlobalChainParamRequest(const nlohmann::json& pa
             mPresetMixer.SetGlobalGateRelease(value.get<double>());
             persistGlobalFx = true;
         }
+        else if (path == "gate.hysteresis")
+        {
+            mPresetMixer.SetGlobalGateHysteresis(value.get<double>());
+            persistGlobalFx = true;
+        }
+        else if (path == "gate.range")
+        {
+            mPresetMixer.SetGlobalGateRange(value.get<double>());
+            persistGlobalFx = true;
+        }
+        else if (path == "gate.stereoLink")
+        {
+            // The UI sends this one as a boolean, but a host restoring state or a
+            // script replaying a stored value sends the number the node holds.
+            mPresetMixer.SetGlobalGateStereoLink(value.is_number() ? value.get<double>() >= 0.5 : value.get<bool>());
+            persistGlobalFx = true;
+        }
         else if (path == "transpose.enabled")
         {
             mPresetMixer.SetGlobalTransposeEnabled(value.get<bool>());

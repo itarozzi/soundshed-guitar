@@ -443,6 +443,21 @@ void MultiPresetMixer::SetGlobalGateRelease(double releaseMs)
     EditGlobalChain().SetGateRelease(releaseMs);
 }
 
+void MultiPresetMixer::SetGlobalGateHysteresis(double hysteresisDb)
+{
+    EditGlobalChain().SetGateHysteresis(hysteresisDb);
+}
+
+void MultiPresetMixer::SetGlobalGateRange(double rangeDb)
+{
+    EditGlobalChain().SetGateRange(rangeDb);
+}
+
+void MultiPresetMixer::SetGlobalGateStereoLink(bool linked)
+{
+    EditGlobalChain().SetGateStereoLink(linked);
+}
+
 void MultiPresetMixer::SetGlobalTransposeEnabled(bool enabled)
 {
     EditGlobalChain().SetTransposeEnabled(enabled);

@@ -347,6 +347,16 @@ Input noise reduction.
 `thresholdDb`, `attackMs`, `holdMs` and `releaseMs` are accepted as legacy spellings and are
 declared as `ParameterDef::aliases`, so `CanonicalizeNodeParams` folds them onto the ids above
 when a stored node is loaded. Presets shipped before this change carry the suffixed names.
+`GlobalChainEditor::NormalizeConfig` folds the global chain's own config too, not just the
+executor's copy of the graph: the config is what the UI is sent and what the settings blob is
+written from, so a panel reading `attack` out of a node holding only `attackMs` would show a
+default instead of the setting and then write that default back over it.
+
+**The global gate is edited from the control bar.** The GATE toggle and threshold knob are the
+whole of it on the bar; the chevron beside the dB readout opens a flyout with every parameter
+above, `advanced` ones under their own heading. `ts/gateSettings.ts` builds that panel from the
+effect catalogue rather than a list of its own, so a parameter added here appears there with its
+range, unit and grouping; each change goes out as a `gate.<id>` `setGlobalChainParam`.
 
 **Attack and release shape the applied gain, not the detector.** The detector runs fast and at
 a fixed rate so the gate sees a pick attack the moment it arrives; the user's times control how

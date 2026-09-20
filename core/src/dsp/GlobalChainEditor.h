@@ -22,6 +22,9 @@ class GlobalChainEditor
     void SetGateAttack(double attackMs);
     void SetGateHold(double holdMs);
     void SetGateRelease(double releaseMs);
+    void SetGateHysteresis(double hysteresisDb);
+    void SetGateRange(double rangeDb);
+    void SetGateStereoLink(bool linked);
     void SetTransposeEnabled(bool enabled);
     void SetTranspose(int semitones);
     void SetEQEnabled(bool enabled);
@@ -36,6 +39,11 @@ class GlobalChainEditor
     [[nodiscard]] double SetOutputGain(double dB);
 
   private:
+    /// Writes one parameter onto the global gate node and the live pre-chain executor.
+    /// Every SetGate* value setter is this call: the node is the copy the config is
+    /// serialized from, so the two have to move together or a restart loses the edit.
+    void SetGateParam(const char* key, double value);
+
     [[nodiscard]] GraphNode* FindPreNode(const char* id, const char* type);
     [[nodiscard]] GraphNode* FindPostNode(const char* id, const char* type);
 

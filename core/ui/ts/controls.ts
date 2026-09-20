@@ -7,6 +7,7 @@ import type { GraphNode, SignalGraph } from "./types.js";
 import { EffectGuids } from "./effectGuids.js";
 import { GenericKnob } from "./knob.js";
 import { EqPanel } from "./eqPanel.js";
+import { initializeGateControls, syncGateControlsFromState } from "./gateSettings.js";
 import { clampValue, countStepDecimals, deriveRangeStep } from "./utils.js";
 
 // The knob widget moved to ./knob.js so the EQ panel component (and anything
@@ -174,10 +175,6 @@ function setKnobControlDisabled(controlId: string, disabled: boolean): void {
   control.classList.toggle("disabled", disabled);
 }
 
-function updateGateThresholdEnabled(enabled: boolean): void {
-  setKnobControlDisabled("gate-threshold-control", !enabled);
-}
-
 function updateDelayEnabled(enabled: boolean): void {
   setKnobControlDisabled("delay-control", !enabled);
 }
@@ -317,78 +314,6 @@ function initializeInputOutputKnobs(): void {
       },
     });
     knobInstances.set("transpose", transposeKnobInstance);
-  }
-}
-
-function initializeGateControls(): void {
-  const gateToggle = document.getElementById("gate-toggle") as HTMLInputElement | null;
-
-  if (gateToggle) {
-    gateToggle.addEventListener("change", () => {
-      const enabled = gateToggle.checked;
-      sendGlobalChainParam("gate.enabled", enabled);
-      const gateNode = getPreChainGateNode();
-      if (gateNode) {
-        gateNode.bypassed = !gateToggle.checked;
-      }
-      appendLog(`preChainGraph.global_gate.enabled → ${enabled}`);
-      updateGateThresholdEnabled(gateToggle.checked);
-    });
-  }
-
-  // Initialize Gate Threshold knob
-  const thresholdKnob = document.querySelector('.knob[data-param="gate_threshold"]') as HTMLElement | null;
-  if (thresholdKnob) {
-    const thresholdKnobInstance = new GenericKnob({
-      knobElement: thresholdKnob,
-      paramId: "gate_threshold",
-      minValue: -80.0,
-      maxValue: -20.0,
-      defaultValue: -60.0,
-      displayFormat: (value) => `${value.toFixed(0)} dB`,
-      valueDisplayId: "gate-threshold-value",
-      sensitivity: 0.5,
-      sendParameter: false,
-      onValueCommit: (value) => {
-        sendGlobalChainParam("gate.threshold", value);
-        const gateNode = getPreChainGateNode();
-        if (gateNode) {
-          gateNode.params.threshold = value;
-        }
-      },
-    });
-    knobInstances.set("gate_threshold", thresholdKnobInstance);
-  }
-
-  updateGateThresholdEnabled(gateToggle?.checked ?? true);
-}
-
-export function syncGateControlsFromState(): void {
-  const paramValues: Record<string, number> = {};
-  if (Array.isArray(uiState.parameters.values)) {
-    uiState.parameters.values.forEach((param) => {
-      if (typeof param.value === "number") {
-        paramValues[param.id] = param.value;
-      }
-    });
-  }
-
-  const gateToggle = document.getElementById("gate-toggle") as HTMLInputElement | null;
-  const gateNode = getPreChainGateNode();
-  if (gateToggle && gateNode) {
-    gateToggle.checked = !gateNode.bypassed;
-    updateGateThresholdEnabled(gateToggle.checked);
-  } else if (gateToggle && typeof paramValues.gate_enabled === "number") {
-    gateToggle.checked = paramValues.gate_enabled > 0.5;
-    updateGateThresholdEnabled(gateToggle.checked);
-  }
-
-  // Sync threshold knob
-  const thresholdKnobInstance = knobInstances.get("gate_threshold");
-  if (thresholdKnobInstance && gateNode && typeof gateNode.params.threshold === "number") {
-    thresholdKnobInstance.setValue(gateNode.params.threshold);
-  } else if (thresholdKnobInstance && typeof paramValues.gate_threshold === "number") {
-    thresholdKnobInstance.setValue(paramValues.gate_threshold);
   }
 }
 
@@ -749,9 +674,6 @@ const findGraphNode = (graph: SignalGraph | undefined, id: string, type: string)
   }
   return graph.nodes.find((node) => node.type === type);
 };
-
-const getPreChainGateNode = (): GraphNode | undefined =>
-  findGraphNode(uiState.globalSignalChain?.preChainGraph, "global_gate", EffectGuids.kDynamicsGate);
 
 const getPreChainTransposeNode = (): GraphNode | undefined =>
   findGraphNode(uiState.globalSignalChain?.preChainGraph, "global_transpose", EffectGuids.kTranspose);

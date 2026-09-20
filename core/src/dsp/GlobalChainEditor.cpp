@@ -54,6 +54,21 @@ void GlobalChainEditor::NormalizeConfig(GlobalSignalChainConfig& config)
     {
         config.postChainGraph = GlobalSignalChainConfig::BuildDefaultPostChainGraph();
     }
+
+    // The executor folds older parameter spellings on its own copy of the graph, which
+    // leaves this one -- the config the UI is sent and the settings blob is written from
+    // -- still holding "attackMs" where the registry says "attack". Anything reading a
+    // value back out of the config then misses what the engine is actually running, so
+    // fold them here too, on the copy everything but the audio thread reads.
+    for (auto& node : config.preChainGraph.nodes)
+    {
+        CanonicalizeNodeParams(node);
+    }
+
+    for (auto& node : config.postChainGraph.nodes)
+    {
+        CanonicalizeNodeParams(node);
+    }
 }
 
 GraphNode* GlobalChainEditor::FindPreNode(const char* id, const char* type)
@@ -83,40 +98,50 @@ void GlobalChainEditor::SetGateEnabled(bool enabled)
     }
 }
 
-void GlobalChainEditor::SetGateThreshold(double thresholdDb)
+void GlobalChainEditor::SetGateParam(const char* key, double value)
 {
     if (auto* node = FindPreNode("global_gate", EffectGuids::kDynamicsGate))
     {
-        node->params["threshold"] = thresholdDb;
-        mPre.SetNodeParam(node->id, "threshold", thresholdDb);
+        node->params[key] = value;
+        mPre.SetNodeParam(node->id, key, value);
     }
+}
+
+void GlobalChainEditor::SetGateThreshold(double thresholdDb)
+{
+    SetGateParam("threshold", thresholdDb);
 }
 
 void GlobalChainEditor::SetGateAttack(double attackMs)
 {
-    if (auto* node = FindPreNode("global_gate", EffectGuids::kDynamicsGate))
-    {
-        node->params["attack"] = attackMs;
-        mPre.SetNodeParam(node->id, "attack", attackMs);
-    }
+    SetGateParam("attack", attackMs);
 }
 
 void GlobalChainEditor::SetGateHold(double holdMs)
 {
-    if (auto* node = FindPreNode("global_gate", EffectGuids::kDynamicsGate))
-    {
-        node->params["hold"] = holdMs;
-        mPre.SetNodeParam(node->id, "hold", holdMs);
-    }
+    SetGateParam("hold", holdMs);
 }
 
 void GlobalChainEditor::SetGateRelease(double releaseMs)
 {
-    if (auto* node = FindPreNode("global_gate", EffectGuids::kDynamicsGate))
-    {
-        node->params["release"] = releaseMs;
-        mPre.SetNodeParam(node->id, "release", releaseMs);
-    }
+    SetGateParam("release", releaseMs);
+}
+
+void GlobalChainEditor::SetGateHysteresis(double hysteresisDb)
+{
+    SetGateParam("hysteresis", hysteresisDb);
+}
+
+void GlobalChainEditor::SetGateRange(double rangeDb)
+{
+    SetGateParam("range", rangeDb);
+}
+
+void GlobalChainEditor::SetGateStereoLink(bool linked)
+{
+    // Stored as a number because that is what a graph node's param map holds; the
+    // effect reads it back with the same >= 0.5 test the registry's labels imply.
+    SetGateParam("stereoLink", linked ? 1.0 : 0.0);
 }
 
 void GlobalChainEditor::SetTransposeEnabled(bool enabled)
