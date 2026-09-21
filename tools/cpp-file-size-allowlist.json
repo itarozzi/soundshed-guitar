@@ -4,7 +4,7 @@
   "allowed": {
     "core/tests/PresetManagementWorkflowTests.cpp": 4110,
     "core/tests/EffectProcessorTests.cpp": 2729,
-    "core/src/controller/PluginControllerResources.cpp": 2728,
+    "core/src/controller/PluginControllerResources.cpp": 2277,
     "core/tests/IRConvolutionTests.cpp": 2565,
     "core/src/dsp/effects/IRCabEffect.h": 2358,
     "core/src/controller/PluginControllerCustomEffects.cpp": 2070,

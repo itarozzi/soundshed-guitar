@@ -1,19 +1,24 @@
 #pragma once
 
-#include "dsp/BiquadFrequency.h"
+#include "dsp/EffectParamSpec.h"
 #include "dsp/EffectProcessor.h"
 #include "dsp/EffectRegistry.h"
 #include "dsp/EffectGuids.h"
+#include "dsp/effects/BuiltinAmpFilters.h"
 #include "dsp/effects/BuiltinAmpOversampling.h"
+#include "dsp/effects/BuiltinAmpVoicing.h"
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
 
 namespace guitarfx
 {
 /**
  * Built-in amp head. The whole nonlinear path runs at up to 4x with an
  * anti-aliasing half-band decimator; cabinet filtering belongs downstream.
+ * What it sounds like (parameters, clipper knees, drive law, level table)
+ * is in BuiltinAmpVoicing.h, and its linear filters in BuiltinAmpFilters.h.
  */
 class BuiltinAmpEffect : public EffectProcessor
 {
@@ -24,6 +29,7 @@ class BuiltinAmpEffect : public EffectProcessor
         mMaxBlockSize = maxBlockSize;
         mOversamplingFactor = sampleRate < 88200.0 ? 4 : (sampleRate < 176400.0 ? 2 : 1);
         mDspSampleRate = sampleRate * mOversamplingFactor;
+
         for (auto* bank : {&mUpFirst, &mDownFirst, &mUpSecond, &mDownSecond})
         {
             for (auto& filter : *bank)
@@ -58,27 +64,18 @@ class BuiltinAmpEffect : public EffectProcessor
                 filter.Reset();
             }
         }
+
         for (auto& filter : mStageFilters)
         {
             filter.Reset();
         }
 
-        for (int ch = 0; ch < 2; ++ch)
+        for (auto& filter : mFilters)
         {
-            mLowS1[ch] = mLowS2[ch] = 0.0;
-            mMidS1[ch] = mMidS2[ch] = 0.0;
-            mContourS1[ch] = mContourS2[ch] = 0.0;
-            mTrebleS1[ch] = mTrebleS2[ch] = 0.0;
-            mPresenceS1[ch] = mPresenceS2[ch] = 0.0;
-            mVoicingS1[ch] = mVoicingS2[ch] = 0.0;
-            mPreHPS1[ch] = mPreHPS2[ch] = 0.0;
-            mPreEmphS1[ch] = mPreEmphS2[ch] = 0.0;
-            mDepthS1[ch] = mDepthS2[ch] = 0.0;
-            mResonanceS1[ch] = mResonanceS2[ch] = 0.0;
-            mDampingS1[ch] = mDampingS2[ch] = 0.0;
-            mPostHPS1[ch] = mPostHPS2[ch] = 0.0;
-            mSagEnv[ch] = 0.0f;
+            filter.Reset();
         }
+
+        mSagEnv.fill(0.0f);
 
         mVoiceSmoothed = mVoice;
         mGainSmoothed = mGain;
@@ -137,98 +134,95 @@ class BuiltinAmpEffect : public EffectProcessor
 
     void SetParam(const std::string& key, double value) override
     {
-        if (key == "voice")
+        using namespace builtin_amp;
+
+        const std::size_t index = FindParam(key);
+
+        if (index == kParamCount)
         {
-            mVoice = static_cast<float>(std::clamp(value, 0.0, 1.0));
+            return;
         }
-        else if (key == "gain")
+
+        value = NormaliseParamValue(kParams[index], value);
+
+        switch (index)
         {
-            mGain = static_cast<float>(std::clamp(value, 0.0, 1.0));
-        }
-        else if (key == "character")
-        {
-            mCharacter = static_cast<float>(std::clamp(value, 0.0, 1.0));
+        case kVoice:
+            mVoice = static_cast<float>(value);
+            break;
+        case kGain:
+            mGain = static_cast<float>(value);
+            break;
+        case kCharacter:
+            mCharacter = static_cast<float>(value);
             UpdateStageFilters();
             UpdatePreFilters();
             UpdatePreEmphasis();
             UpdateVoicingFilter();
-        }
-        else if (key == "bright")
-        {
+            break;
+        case kBright:
             mBright = (value >= 0.5) ? 1.0f : 0.0f;
             UpdatePreEmphasis();
-        }
-        else if (key == "preEmphasis")
-        {
-            mPreEmphasis = static_cast<float>(std::clamp(value, 0.0, 1.0));
+            break;
+        case kPreEmphasis:
+            mPreEmphasis = static_cast<float>(value);
             UpdatePreEmphasis();
-        }
-        else if (key == "bass")
-        {
-            mBass = std::clamp(value, 0.0, 1.0);
+            break;
+        case kStageCount:
+            // Already rounded into range, unless it was NaN.
+            mStageCount = std::clamp(static_cast<int>(value), 1, kMaxStages);
+            break;
+        case kStageGain:
+            mStageGainDb = value;
+            mStageGainLinear = DbToLinear(value);
+            break;
+        case kBass:
+            mBass = value;
             UpdateToneStack();
-        }
-        else if (key == "middle")
-        {
-            mMiddle = std::clamp(value, 0.0, 1.0);
+            break;
+        case kMiddle:
+            mMiddle = value;
             UpdateToneStack();
-        }
-        else if (key == "treble")
-        {
-            mTreble = std::clamp(value, 0.0, 1.0);
+            break;
+        case kTreble:
+            mTreble = value;
             UpdateToneStack();
-        }
-        else if (key == "contour")
-        {
-            mContour = std::clamp(value, 0.0, 1.0);
+            break;
+        case kContour:
+            mContour = value;
             UpdateToneStack();
-        }
-        else if (key == "presence")
-        {
-            mPresence = std::clamp(value, 0.0, 1.0);
+            break;
+        case kPresence:
+            mPresence = value;
             UpdateToneStack();
-        }
-        else if (key == "output")
-        {
-            mOutputDb = std::clamp(value, -24.0, 24.0);
-            mOutputGainTarget = DbToLinear(mOutputDb);
-        }
-        else if (key == "stageCount")
-        {
-            const int count = static_cast<int>(std::round(value));
-            mStageCount = std::clamp(count, 1, kMaxStages);
-        }
-        else if (key == "stageGain" || key == "stage1Gain" || key == "stage2Gain" || key == "stage3Gain" ||
-                 key == "stage4Gain" || key == "stage5Gain" || key == "stage6Gain")
-        {
-            SetStageGain(value);
-        }
-        else if (key == "powerDrive")
-        {
-            mPowerDrive = static_cast<float>(std::clamp(value, 0.0, 1.0));
-        }
-        else if (key == "sag")
-        {
-            mSag = static_cast<float>(std::clamp(value, 0.0, 1.0));
-        }
-        else if (key == "bias")
-        {
-            mBias = static_cast<float>(std::clamp(value, -1.0, 1.0));
-        }
-        else if (key == "depth")
-        {
-            mDepth = static_cast<float>(std::clamp(value, 0.0, 1.0));
+            break;
+        case kOutput:
+            mOutputDb = value;
+            mOutputGainTarget = DbToLinear(value);
+            break;
+        case kPowerDrive:
+            mPowerDrive = static_cast<float>(value);
+            break;
+        case kSag:
+            mSag = static_cast<float>(value);
+            break;
+        case kBias:
+            mBias = static_cast<float>(value);
+            break;
+        case kDepth:
+            mDepth = static_cast<float>(value);
             UpdateSpeakerFilters();
-        }
-        else if (key == "resonance")
-        {
-            mResonance = static_cast<float>(std::clamp(value, 0.0, 1.0));
+            break;
+        case kResonance:
+            mResonance = static_cast<float>(value);
             UpdateSpeakerFilters();
-        }
-        else if (key == "damping")
-        {
-            mDamping = static_cast<float>(std::clamp(value, 0.0, 1.0));
+            break;
+        case kDamping:
+            mDamping = static_cast<float>(value);
             UpdateSpeakerFilters();
+            break;
+        default:
+            break;
         }
     }
 
@@ -238,103 +232,51 @@ class BuiltinAmpEffect : public EffectProcessor
 
     [[nodiscard]] double GetParam(const std::string& key) const override
     {
-        if (key == "voice")
+        using namespace builtin_amp;
+
+        switch (FindParam(key))
         {
+        case kVoice:
             return mVoice;
-        }
-
-        if (key == "gain")
-        {
+        case kGain:
             return mGain;
-        }
-
-        if (key == "character")
-        {
+        case kCharacter:
             return mCharacter;
-        }
-
-        if (key == "bright")
-        {
+        case kBright:
             return mBright;
-        }
-
-        if (key == "preEmphasis")
-        {
+        case kPreEmphasis:
             return mPreEmphasis;
-        }
-
-        if (key == "bass")
-        {
-            return mBass;
-        }
-
-        if (key == "middle")
-        {
-            return mMiddle;
-        }
-
-        if (key == "treble")
-        {
-            return mTreble;
-        }
-
-        if (key == "contour")
-        {
-            return mContour;
-        }
-
-        if (key == "presence")
-        {
-            return mPresence;
-        }
-
-        if (key == "output")
-        {
-            return mOutputDb;
-        }
-
-        if (key == "stageCount")
-        {
+        case kStageCount:
             return mStageCount;
-        }
-
-        if (key == "stageGain" || key == "stage1Gain" || key == "stage2Gain" || key == "stage3Gain" ||
-            key == "stage4Gain" || key == "stage5Gain" || key == "stage6Gain")
-        {
+        case kStageGain:
             return mStageGainDb;
-        }
-
-        if (key == "powerDrive")
-        {
+        case kBass:
+            return mBass;
+        case kMiddle:
+            return mMiddle;
+        case kTreble:
+            return mTreble;
+        case kContour:
+            return mContour;
+        case kPresence:
+            return mPresence;
+        case kOutput:
+            return mOutputDb;
+        case kPowerDrive:
             return mPowerDrive;
-        }
-
-        if (key == "sag")
-        {
+        case kSag:
             return mSag;
-        }
-
-        if (key == "bias")
-        {
+        case kBias:
             return mBias;
-        }
-
-        if (key == "depth")
-        {
+        case kDepth:
             return mDepth;
-        }
-
-        if (key == "resonance")
-        {
+        case kResonance:
             return mResonance;
-        }
-
-        if (key == "damping")
-        {
+        case kDamping:
             return mDamping;
+        default:
+            return 0.0;
         }
-
-        return 0.0;
     }
 
     [[nodiscard]] std::string GetType() const override
@@ -347,47 +289,26 @@ class BuiltinAmpEffect : public EffectProcessor
         return "amp";
     }
 
-    /**
-     * The output trim that keeps Gain and Preamp Stages from being volume
-     * controls, in dB (see kHeardLevelDb). Public so the level table can be
-     * re-measured with the makeup taken back out:
-     * BuiltinAmpEffectTests --measure-levels.
-     */
-    [[nodiscard]] static float LevelMakeupDb(float gain, float voice, int stages)
-    {
-        const float clean = HeardLevelDb(0, kDefaultStages, kDefaultGain) - HeardLevelDb(0, stages, gain);
-        const float drive = HeardLevelDb(1, kDefaultStages, kDefaultGain) - HeardLevelDb(1, stages, gain);
-        return clean + voice * (drive - clean);
-    }
-
   private:
-    static constexpr double kPi = 3.14159265358979323846;
-    static constexpr int kMaxStages = 4;
+    static constexpr int kMaxStages = builtin_amp::kMaxStages;
 
-    // Interstage coupling at the default Character. The corners tighten
-    // monotonically down the chain so the most saturated stages see the least
-    // low end, which is what keeps a palm-muted low string defined instead of
-    // intermodulating. They have to stay this low, and stay in order: these are
-    // one-poles in series, so a corner up near 180 Hz partway down the chain
-    // costs a low E most of its fundamental before the tone stack ever sees it,
-    // and a stage that is looser than the one before it takes harmonics back
-    // out instead of adding them. Character scales the whole set together, so
-    // the order holds at every setting.
-    static constexpr double kStageHighPass[kMaxStages] = {38.0, 70.0, 100.0, 120.0};
-    static constexpr double kStageLowPass[kMaxStages] = {12000.0, 9000.0, 7000.0, 6000.0};
-
-    // Clipper operating points, before Character scales how far off centre
-    // they sit. Stage one has a clean and a drive leg, crossfaded by voice.
-    enum ClipIndex
+    // The fixed-shape filters, in the order the signal meets them.
+    enum Filter
     {
-        kClipClean,
-        kClipDrive,
-        kClipStage2,
-        kClipStage3,
-        kClipStage4,
-        kClipCount
+        kPreHighPass,
+        kPreEmphasisShelf,
+        kBassShelf,
+        kMiddlePeak,
+        kContourPeak,
+        kTrebleShelf,
+        kVoicingPeak,
+        kPresencePeak,
+        kDepthShelf,
+        kResonancePeak,
+        kDampingShelf,
+        kPostHighPass,
+        kFilterCount
     };
-    static constexpr float kClipBias[kClipCount] = {0.07f, 0.15f, -0.10f, 0.12f, -0.06f};
 
     // Every piece of per-channel state; the same list Reset() clears. If a
     // new filter or envelope is added to one, add it here too, or the right
@@ -399,25 +320,24 @@ class BuiltinAmpEffect : public EffectProcessor
         {
             (*bank)[to] = (*bank)[from];
         }
+
         for (auto& filter : mStageFilters)
         {
             filter.CopyChannel(from, to);
         }
-        for (auto* state : {&mLowS1, &mLowS2, &mMidS1, &mMidS2, &mContourS1, &mContourS2, &mTrebleS1, &mTrebleS2,
-                            &mPresenceS1, &mPresenceS2, &mVoicingS1, &mVoicingS2, &mPreHPS1, &mPreHPS2,
-                            &mPreEmphS1, &mPreEmphS2, &mDepthS1, &mDepthS2, &mResonanceS1, &mResonanceS2,
-                            &mDampingS1, &mDampingS2, &mPostHPS1, &mPostHPS2})
+
+        for (auto& filter : mFilters)
         {
-            (*state)[to] = (*state)[from];
+            filter.CopyChannel(from, to);
         }
+
         mSagEnv[to] = mSagEnv[from];
     }
 
     // The processing loop for one channel (ProcessMono) or two (Process).
     // Controls and voicing are shared and advance once per sample either way,
     // so a mono block and a stereo block leave them in the same place.
-    template <int Channels>
-    void Render(const float* const* inputs, float* const* outputs, int numSamples)
+    template <int Channels> void Render(const float* const* inputs, float* const* outputs, int numSamples)
     {
         const int stageCount = std::clamp(mStageCount, 1, kMaxStages);
         const float smoothStep = 1.0f - mControlSmoothCoef;
@@ -426,10 +346,12 @@ class BuiltinAmpEffect : public EffectProcessor
         {
             float highInput[Channels][4] = {};
             float highOutput[Channels][4] = {};
+
             for (int ch = 0; ch < Channels; ++ch)
             {
                 const float* in = inputs[ch];
                 const float sample = in ? in[i] : 0.0f;
+
                 if (mOversamplingFactor == 1)
                 {
                     highInput[ch][0] = sample;
@@ -438,6 +360,7 @@ class BuiltinAmpEffect : public EffectProcessor
                 {
                     float firstEven = 0.0f, firstOdd = 0.0f;
                     mUpFirst[ch].Upsample(sample, firstEven, firstOdd);
+
                     if (mOversamplingFactor == 2)
                     {
                         highInput[ch][0] = firstEven;
@@ -480,7 +403,9 @@ class BuiltinAmpEffect : public EffectProcessor
                 {
                     continue;
                 }
+
                 float output = highOutput[ch][0];
+
                 if (mOversamplingFactor == 2)
                 {
                     output = mDownFirst[ch].Downsample(highOutput[ch][0], highOutput[ch][1]);
@@ -491,166 +416,10 @@ class BuiltinAmpEffect : public EffectProcessor
                     const float second = mDownSecond[ch].Downsample(highOutput[ch][2], highOutput[ch][3]);
                     output = mDownFirst[ch].Downsample(first, second);
                 }
+
                 outputs[ch][i] = output;
             }
         }
-    }
-
-    struct Coefficients
-    {
-        double b0 = 1.0, b1 = 0.0, b2 = 0.0, a1 = 0.0, a2 = 0.0;
-    };
-
-    struct StageFilter
-    {
-        // Sets where the corners are heading; Advance glides there so a
-        // Character sweep never steps the interstage coupling mid-note.
-        void SetCorners(double sampleRate, double highPassHz, double lowPassHz)
-        {
-            const double hp = std::min(highPassHz, sampleRate * 0.45);
-            const double lp = std::min(lowPassHz, sampleRate * 0.45);
-            hpTarget = static_cast<float>(std::exp(-2.0 * kPi * hp / sampleRate));
-            lpTarget = static_cast<float>(1.0 - std::exp(-2.0 * kPi * lp / sampleRate));
-        }
-
-        void Advance(float step)
-        {
-            hpCoefficient += step * (hpTarget - hpCoefficient);
-            lpStep += step * (lpTarget - lpStep);
-        }
-
-        void Reset()
-        {
-            hpCoefficient = hpTarget;
-            lpStep = lpTarget;
-            previousInput.fill(0.0f);
-            previousHighPass.fill(0.0f);
-            previousLowPass.fill(0.0f);
-        }
-
-        void CopyChannel(int from, int to)
-        {
-            previousInput[to] = previousInput[from];
-            previousHighPass[to] = previousHighPass[from];
-            previousLowPass[to] = previousLowPass[from];
-        }
-
-        float Process(float sample, int channel)
-        {
-            const float highPassed = hpCoefficient * (previousHighPass[channel] + sample - previousInput[channel]);
-            previousInput[channel] = sample;
-            previousHighPass[channel] = highPassed;
-            previousLowPass[channel] += lpStep * (highPassed - previousLowPass[channel]);
-            return previousLowPass[channel];
-        }
-
-        float hpCoefficient = 0.0f;
-        float lpStep = 1.0f;
-        float hpTarget = 0.0f;
-        float lpTarget = 1.0f;
-        std::array<float, 2> previousInput = {};
-        std::array<float, 2> previousHighPass = {};
-        std::array<float, 2> previousLowPass = {};
-    };
-
-    // The three clipper knees Character morphs between. All have unit slope at
-    // zero and saturate at ±1, so the blend changes the shape of the knee and
-    // the harmonic balance, not the small-signal gain.
-    //
-    // Soft never quite arrives: it is already compressing at a tenth of full
-    // scale and still rising at ten times it, the spongy, singing knee of a
-    // fuzz or an old cascaded preamp. It is x / (1 + |x|) with the corner at
-    // zero rounded off, because that corner is a curvature step every cycle
-    // crosses and it buzzes. Hard is close to linear to about half of full
-    // scale and then locks flat at 1.875, a sharper edge with more upper-order
-    // content. It is a quintic that arrives with zero slope and zero
-    // curvature: a cubic that only matched the slope left a curvature step at
-    // the corner, whose harmonics fall off slowly enough to fold back. tanh
-    // sits between the two and is exactly the old voicing.
-    static constexpr float kSoftRound = 0.3f;
-    static constexpr float kHardKnee = 1.875f;
-    static constexpr float kHardCubic = 2.0f / (3.0f * kHardKnee * kHardKnee);
-    static constexpr float kHardQuintic = 0.2f / (kHardKnee * kHardKnee * kHardKnee * kHardKnee);
-
-    static float SoftKneeShape(float x)
-    {
-        const float r = std::sqrt(x * x + kSoftRound * kSoftRound);
-        return x / (1.0f - kSoftRound + r);
-    }
-
-    static float SoftKneeSlope(float x)
-    {
-        const float r = std::sqrt(x * x + kSoftRound * kSoftRound);
-        const float d = 1.0f - kSoftRound + r;
-        return (d - x * x / r) / (d * d);
-    }
-
-    static float HardKneeShape(float x)
-    {
-        const float c = std::clamp(x, -kHardKnee, kHardKnee);
-        const float c2 = c * c;
-        return c * (1.0f - c2 * (kHardCubic - kHardQuintic * c2));
-    }
-
-    static float HardKneeSlope(float x)
-    {
-        if (std::abs(x) >= kHardKnee)
-        {
-            return 0.0f;
-        }
-        const float x2 = x * x;
-        return 1.0f - x2 * (3.0f * kHardCubic - 5.0f * kHardQuintic * x2);
-    }
-
-    // At most two knees are ever live, and the weights only change with
-    // Character, so these branches predict perfectly and the default costs the
-    // one tanh it always did.
-    float Shape(float x) const
-    {
-        if (mKneeTanh == 1.0f)
-        {
-            return std::tanh(x);
-        }
-        float y = 0.0f;
-        if (mKneeTanh > 0.0f)
-        {
-            y += mKneeTanh * std::tanh(x);
-        }
-        if (mKneeSoft > 0.0f)
-        {
-            y += mKneeSoft * SoftKneeShape(x);
-        }
-        if (mKneeHard > 0.0f)
-        {
-            y += mKneeHard * HardKneeShape(x);
-        }
-        return y;
-    }
-
-    float ShapeSlope(float x) const
-    {
-        float slope = 0.0f;
-        if (mKneeTanh > 0.0f)
-        {
-            const float t = std::tanh(x);
-            slope += mKneeTanh * (1.0f - t * t);
-        }
-        if (mKneeSoft > 0.0f)
-        {
-            slope += mKneeSoft * SoftKneeSlope(x);
-        }
-        if (mKneeHard > 0.0f)
-        {
-            slope += mKneeHard * HardKneeSlope(x);
-        }
-        return slope;
-    }
-
-    // One biased stage: the offset keeps silence at zero and the slope keeps
-    // the small-signal gain at one, whatever knee and bias Character picked.
-    float BiasedClip(float x, int index) const
-    {
-        return (Shape(x + mClipBias[index]) - mClipOffset[index]) * mClipInvSlope[index];
     }
 
     /**
@@ -664,46 +433,18 @@ class BuiltinAmpEffect : public EffectProcessor
         // glides settle exactly on their targets, so a static setting costs a
         // handful of compares here, not tanh and exp2 every sample.
         const bool kneeMoved = mVoicingStale || mCharacterSmoothed != mVoicedCharacter;
+
         if (kneeMoved)
         {
             mVoicedCharacter = mCharacterSmoothed;
-            const float character = mCharacterSmoothed;
-            if (character <= 0.5f)
-            {
-                mKneeSoft = 1.0f - 2.0f * character;
-                mKneeTanh = 2.0f * character;
-                mKneeHard = 0.0f;
-            }
-            else
-            {
-                mKneeSoft = 0.0f;
-                mKneeTanh = 2.0f - 2.0f * character;
-                mKneeHard = 2.0f * character - 1.0f;
-            }
-
-            // Vintage stages sit further off centre, which is where the even
-            // harmonics and the wooly, octave-leaning fuzz come from. Modern
-            // ones are close to symmetric, so the spectrum is odd-order and
-            // tight. Exactly 1.0 at the default.
-            const float offCentre = 0.5f - character;
-            const float biasScale = 1.0f + 2.2f * offCentre + 1.2f * offCentre * offCentre;
-            for (int i = 0; i < kClipCount; ++i)
-            {
-                const float bias = kClipBias[i] * biasScale;
-                mClipBias[i] = bias;
-                mClipOffset[i] = Shape(bias);
-                mClipInvSlope[i] = 1.0f / std::max(ShapeSlope(bias), 0.1f);
-            }
+            mClippers.SetCharacter(mCharacterSmoothed);
         }
 
         if (kneeMoved || mPowerDriveSmoothed != mVoicedPowerDrive || mBiasSmoothed != mVoicedBias)
         {
             mVoicedPowerDrive = mPowerDriveSmoothed;
             mVoicedBias = mBiasSmoothed;
-            mPowerGain = 1.0f + 3.0f * mPowerDriveSmoothed;
-            mPowerBias = 0.08f * mBiasSmoothed;
-            mPowerOffset = Shape(mPowerGain * mPowerBias);
-            mPowerInvScale = 1.0f / std::max(Shape(mPowerGain), 0.1f);
+            mClippers.SetPowerStage(mPowerDriveSmoothed, mBiasSmoothed);
         }
 
         if (mVoicingStale || mGainSmoothed != mVoicedGain || mVoiceSmoothed != mVoicedVoice ||
@@ -712,8 +453,9 @@ class BuiltinAmpEffect : public EffectProcessor
             mVoicedGain = mGainSmoothed;
             mVoicedVoice = mVoiceSmoothed;
             mVoicedStages = stageCount;
-            mLevelMakeup = LevelMakeup(mGainSmoothed, mVoiceSmoothed, stageCount);
+            mLevelMakeup = builtin_amp::LevelMakeup(mGainSmoothed, mVoiceSmoothed, stageCount);
         }
+
         mVoicingStale = false;
     }
 
@@ -722,81 +464,62 @@ class BuiltinAmpEffect : public EffectProcessor
     static void Glide(float& value, float target, float step)
     {
         value += step * (target - value);
+
         if (std::abs(target - value) < 1.0e-6f)
         {
             value = target;
         }
     }
 
-    /**
-     * Drive law for one gain stage. A linear law spends the whole sweep getting
-     * to crunch and never reaches a saturated high-gain cascade, because each
-     * tanh bounds its own output and the next stage only sees a couple of times
-     * that. The quartic term is the top of a log-taper pot: it barely moves
-     * below about 0.6 and then opens the stage up by the ~15 dB that an
-     * American high-gain preamp needs. Scaling it by the voice blend keeps the
-     * clean channel exactly where it was.
-     */
-    static float StageDrive(float gain, float voice, float base, float linear, float top)
-    {
-        const float squared = gain * gain;
-        return base + linear * gain + top * voice * squared * squared;
-    }
-
     float ProcessAmpSample(float sample, int ch, int stageCount)
     {
-        double signal = ProcessBiquad(sample, mPreHPB0, mPreHPB1, mPreHPB2, mPreHPA1, mPreHPA2,
-                                      mPreHPS1[ch], mPreHPS2[ch]);
-        signal = ProcessBiquad(signal, mPreEmphB0, mPreEmphB1, mPreEmphB2, mPreEmphA1, mPreEmphA2,
-                               mPreEmphS1[ch], mPreEmphS2[ch]);
+        using namespace builtin_amp;
+
+        double signal = mFilters[kPreHighPass].Process(sample, ch);
+        signal = mFilters[kPreEmphasisShelf].Process(signal, ch);
 
         const float gain = mGainSmoothed;
         const float voice = mVoiceSmoothed;
         const float input = static_cast<float>(signal) * mStageGainSmoothed;
-        const float clean = BiasedClip(input * (2.0f + 2.5f * gain), kClipClean);
-        const float drive = BiasedClip(input * StageDrive(gain, 1.0f, 5.0f, 9.0f, 55.0f), kClipDrive);
+        const float clean = mClippers.Clip(input * (2.0f + 2.5f * gain), kClipClean);
+        const float drive = mClippers.Clip(input * StageDrive(gain, 1.0f, 5.0f, 9.0f, 55.0f), kClipDrive);
         float stage = (clean + (drive - clean) * voice) * 0.9f;
         stage = mStageFilters[0].Process(stage, ch);
 
         if (stageCount >= 2)
         {
-            stage = BiasedClip(stage * StageDrive(gain, voice, 1.1f, 1.5f, 7.0f), kClipStage2) * 0.85f;
+            stage = mClippers.Clip(stage * StageDrive(gain, voice, 1.1f, 1.5f, 7.0f), kClipStage2) * 0.85f;
             stage = mStageFilters[1].Process(stage, ch);
         }
 
-        signal = ProcessBiquad(stage, mLowB0, mLowB1, mLowB2, mLowA1, mLowA2, mLowS1[ch], mLowS2[ch]);
-        signal = ProcessBiquad(signal, mMidB0, mMidB1, mMidB2, mMidA1, mMidA2, mMidS1[ch], mMidS2[ch]);
-        signal = ProcessBiquad(signal, mContourB0, mContourB1, mContourB2, mContourA1, mContourA2,
-                               mContourS1[ch], mContourS2[ch]);
-        signal = ProcessBiquad(signal, mTrebleB0, mTrebleB1, mTrebleB2, mTrebleA1, mTrebleA2,
-                               mTrebleS1[ch], mTrebleS2[ch]);
+        signal = mFilters[kBassShelf].Process(stage, ch);
+        signal = mFilters[kMiddlePeak].Process(signal, ch);
+        signal = mFilters[kContourPeak].Process(signal, ch);
+        signal = mFilters[kTrebleShelf].Process(signal, ch);
 
         stage = static_cast<float>(signal);
+
         if (stageCount >= 3)
         {
-            stage = BiasedClip(stage * StageDrive(gain, voice, 1.6f, 1.2f, 8.0f), kClipStage3) * 0.8f;
+            stage = mClippers.Clip(stage * StageDrive(gain, voice, 1.6f, 1.2f, 8.0f), kClipStage3) * 0.8f;
             stage = mStageFilters[2].Process(stage, ch);
         }
+
         if (stageCount >= 4)
         {
-            stage = BiasedClip(stage * StageDrive(gain, voice, 1.35f, 0.8f, 6.0f), kClipStage4) * 0.8f;
+            stage = mClippers.Clip(stage * StageDrive(gain, voice, 1.35f, 0.8f, 6.0f), kClipStage4) * 0.8f;
             stage = mStageFilters[3].Process(stage, ch);
         }
 
-        signal = ProcessBiquad(stage, mVoicingB0, mVoicingB1, mVoicingB2, mVoicingA1, mVoicingA2, mVoicingS1[ch],
-                               mVoicingS2[ch]);
+        signal = mFilters[kVoicingPeak].Process(stage, ch);
 
         // Frequency-dependent power-stage drive: these controls shape the
         // distortion as well as the level. The external IR supplies cabinet
         // and microphone tone.
-        signal = ProcessBiquad(signal, mPresenceB0, mPresenceB1, mPresenceB2, mPresenceA1, mPresenceA2,
-                               mPresenceS1[ch], mPresenceS2[ch]);
-        signal = ProcessBiquad(signal, mDepthB0, mDepthB1, mDepthB2, mDepthA1, mDepthA2,
-                               mDepthS1[ch], mDepthS2[ch]);
-        signal = ProcessBiquad(signal, mResonanceB0, mResonanceB1, mResonanceB2, mResonanceA1, mResonanceA2,
-                               mResonanceS1[ch], mResonanceS2[ch]);
-        signal = ProcessBiquad(signal, mDampingB0, mDampingB1, mDampingB2, mDampingA1, mDampingA2,
-                               mDampingS1[ch], mDampingS2[ch]);
+        signal = mFilters[kPresencePeak].Process(signal, ch);
+        signal = mFilters[kDepthShelf].Process(signal, ch);
+        signal = mFilters[kResonancePeak].Process(signal, ch);
+        signal = mFilters[kDampingShelf].Process(signal, ch);
 
         float powerInput = static_cast<float>(signal);
         const float detector = std::abs(powerInput);
@@ -806,21 +529,10 @@ class BuiltinAmpEffect : public EffectProcessor
         powerInput *= headroom;
 
         const float driveAmount = mPowerDriveSmoothed;
-        const float clipped =
-            headroom * (Shape(mPowerGain * (powerInput / headroom + mPowerBias)) - mPowerOffset) * mPowerInvScale;
+        const float clipped = mClippers.PowerClip(powerInput, headroom);
         const float powered = powerInput + driveAmount * (clipped - powerInput);
-        signal = ProcessBiquad(powered, mPostHPB0, mPostHPB1, mPostHPB2, mPostHPA1, mPostHPA2,
-                               mPostHPS1[ch], mPostHPS2[ch]);
+        signal = mFilters[kPostHighPass].Process(powered, ch);
         return static_cast<float>(signal) * mOutputGainSmoothed * mLevelMakeup;
-    }
-
-    static double ProcessBiquad(double input, double b0, double b1, double b2, double a1, double a2, double& s1,
-                                double& s2)
-    {
-        const double output = b0 * input + s1;
-        s1 = b1 * input - a1 * output + s2;
-        s2 = b2 * input - a2 * output;
-        return output;
     }
 
     static float DbToLinear(double db)
@@ -828,43 +540,13 @@ class BuiltinAmpEffect : public EffectProcessor
         return static_cast<float>(std::pow(10.0, db * 0.05));
     }
 
-    void SetStageGain(double value)
-    {
-        const double clamped = std::clamp(value, -24.0, 24.0);
-        mStageGainDb = clamped;
-        mStageGainLinear = DbToLinear(clamped);
-    }
-
-    static void Approach(double& current, double target, double step)
-    {
-        current += step * (target - current);
-    }
-
-    static void SmoothCoefficients(double& b0, double& b1, double& b2, double& a1, double& a2,
-                                   const Coefficients& target, double step)
-    {
-        Approach(b0, target.b0, step);
-        Approach(b1, target.b1, step);
-        Approach(b2, target.b2, step);
-        Approach(a1, target.a1, step);
-        Approach(a2, target.a2, step);
-    }
-
     void AdvanceFilters(double step)
     {
-        SmoothCoefficients(mPreHPB0, mPreHPB1, mPreHPB2, mPreHPA1, mPreHPA2, mPreHPTarget, step);
-        SmoothCoefficients(mPreEmphB0, mPreEmphB1, mPreEmphB2, mPreEmphA1, mPreEmphA2, mPreEmphTarget, step);
-        SmoothCoefficients(mLowB0, mLowB1, mLowB2, mLowA1, mLowA2, mLowTarget, step);
-        SmoothCoefficients(mMidB0, mMidB1, mMidB2, mMidA1, mMidA2, mMidTarget, step);
-        SmoothCoefficients(mContourB0, mContourB1, mContourB2, mContourA1, mContourA2, mContourTarget, step);
-        SmoothCoefficients(mTrebleB0, mTrebleB1, mTrebleB2, mTrebleA1, mTrebleA2, mTrebleTarget, step);
-        SmoothCoefficients(mPresenceB0, mPresenceB1, mPresenceB2, mPresenceA1, mPresenceA2, mPresenceTarget, step);
-        SmoothCoefficients(mVoicingB0, mVoicingB1, mVoicingB2, mVoicingA1, mVoicingA2, mVoicingTarget, step);
-        SmoothCoefficients(mDepthB0, mDepthB1, mDepthB2, mDepthA1, mDepthA2, mDepthTarget, step);
-        SmoothCoefficients(mResonanceB0, mResonanceB1, mResonanceB2, mResonanceA1, mResonanceA2,
-                           mResonanceTarget, step);
-        SmoothCoefficients(mDampingB0, mDampingB1, mDampingB2, mDampingA1, mDampingA2, mDampingTarget, step);
-        SmoothCoefficients(mPostHPB0, mPostHPB1, mPostHPB2, mPostHPA1, mPostHPA2, mPostHPTarget, step);
+        for (auto& filter : mFilters)
+        {
+            filter.Advance(step);
+        }
+
         for (auto& filter : mStageFilters)
         {
             filter.Advance(static_cast<float>(step));
@@ -884,10 +566,11 @@ class BuiltinAmpEffect : public EffectProcessor
         const double character = mCharacter;
         const double highPassScale = 0.5 + 1.2 * character - 0.4 * character * character;
         const double lowPassScale = 0.55 + 1.15 * character - 0.5 * character * character;
+
         for (int stage = 0; stage < kMaxStages; ++stage)
         {
-            mStageFilters[stage].SetCorners(mDspSampleRate, kStageHighPass[stage] * highPassScale,
-                                            kStageLowPass[stage] * lowPassScale);
+            mStageFilters[stage].SetCorners(mDspSampleRate, builtin_amp::kStageHighPass[stage] * highPassScale,
+                                            builtin_amp::kStageLowPass[stage] * lowPassScale);
         }
     }
 
@@ -904,58 +587,7 @@ class BuiltinAmpEffect : public EffectProcessor
         }
 
         const double gainDb = (static_cast<double>(mCharacter) - 0.5) * 8.0;
-        ComputePeakingEQ(1800.0, 0.8, gainDb, mVoicingTarget.b0, mVoicingTarget.b1, mVoicingTarget.b2,
-                         mVoicingTarget.a1, mVoicingTarget.a2);
-    }
-
-    /**
-     * Gain and Preamp Stages have to change how hard the stages are pushed,
-     * not how loud the amp is. Driving a cascade harder raises its small-signal
-     * gain long before it saturates, so without this the top of the gain
-     * control was 7 to 17 dB louder than the bottom and every comparison was
-     * really a loudness comparison.
-     *
-     * This is the heard level of the amp at a nominal input (0.1 peak: a
-     * single A3, an E2+B2 power chord and an E5, averaged), measured through a
-     * generic cab band (2nd-order 90 Hz high pass, 4.5 kHz low pass) and the
-     * BS.1770 K-weighting shelf, by [voice][stages - 1] at gain 0, 0.25, 0.5,
-     * 0.75 and 1, averaged over Character, which moves it by well under 1 dB.
-     * The makeup is the inverse, so the stages are driven exactly as hard as
-     * before and only the final level is trimmed. It is static on purpose: a
-     * level follower would flatten the playing dynamics the amp is meant to
-     * keep.
-     *
-     * The reference is each voice at the default gain and stage count, so a
-     * default preset is exactly as loud as it was, and Clean stays quieter than
-     * Drive the way two channels at the same settings would. Re-measure this if
-     * the voicing changes (BuiltinAmpEffectTests --measure-levels prints a
-     * replacement); TestLevelTracksGain fails when it goes stale.
-     */
-    static constexpr float kDefaultGain = 0.45f;
-    static constexpr int kDefaultStages = 2;
-    static constexpr float kHeardLevelDb[2][kMaxStages][5] = {
-        {{-19.73f, -17.43f, -15.66f, -14.23f, -13.04f},
-         {-21.02f, -16.31f, -12.84f, -10.23f, -8.28f},
-         {-20.04f, -14.03f, -9.84f, -7.04f, -5.26f},
-         {-20.93f, -14.16f, -9.76f, -7.13f, -5.62f}},
-        {{-11.89f, -8.81f, -5.36f, -2.50f, -1.24f},
-         {-13.57f, -8.71f, -4.52f, -2.37f, -1.78f},
-         {-12.84f, -7.45f, -3.52f, -1.87f, -1.44f},
-         {-14.17f, -8.62f, -4.78f, -3.13f, -2.46f}}};
-
-    static float HeardLevelDb(int voice, int stages, float gain)
-    {
-        const float position = std::clamp(gain, 0.0f, 1.0f) * 4.0f;
-        const int index = std::min(static_cast<int>(position), 3);
-        const float fraction = position - static_cast<float>(index);
-        const auto& row = kHeardLevelDb[voice][stages - 1];
-        return row[index] + fraction * (row[index + 1] - row[index]);
-    }
-
-    static float LevelMakeup(float gain, float voice, int stages)
-    {
-        constexpr float dbToLog2 = 0.166096405f; // 1 / (20 log10 2)
-        return std::exp2(LevelMakeupDb(gain, voice, stages) * dbToLog2);
+        mFilters[kVoicingPeak].target = builtin_amp::DesignPeaking(1800.0, 0.8, gainDb, mDspSampleRate);
     }
 
     void UpdateSmoothing()
@@ -989,6 +621,8 @@ class BuiltinAmpEffect : public EffectProcessor
 
     void UpdateToneStack()
     {
+        using namespace builtin_amp;
+
         if (mSampleRate <= 0.0)
         {
             return;
@@ -1000,16 +634,11 @@ class BuiltinAmpEffect : public EffectProcessor
         const double contourGain = -12.0 * mContour;
         const double presenceGain = (mPresence - 0.5) * 12.0;
 
-        ComputeLowShelf(120.0, 0.8, bassGain, mLowTarget.b0, mLowTarget.b1, mLowTarget.b2, mLowTarget.a1,
-                        mLowTarget.a2);
-        ComputePeakingEQ(750.0, 0.9, midGain, mMidTarget.b0, mMidTarget.b1, mMidTarget.b2, mMidTarget.a1,
-                         mMidTarget.a2);
-        ComputePeakingEQ(600.0, 0.7, contourGain, mContourTarget.b0, mContourTarget.b1, mContourTarget.b2,
-                         mContourTarget.a1, mContourTarget.a2);
-        ComputeHighShelf(3500.0, 0.9, trebleGain, mTrebleTarget.b0, mTrebleTarget.b1, mTrebleTarget.b2,
-                         mTrebleTarget.a1, mTrebleTarget.a2);
-        ComputePeakingEQ(4000.0, 1.2, presenceGain, mPresenceTarget.b0, mPresenceTarget.b1, mPresenceTarget.b2,
-                         mPresenceTarget.a1, mPresenceTarget.a2);
+        mFilters[kBassShelf].target = DesignLowShelf(120.0, 0.8, bassGain, mDspSampleRate);
+        mFilters[kMiddlePeak].target = DesignPeaking(750.0, 0.9, midGain, mDspSampleRate);
+        mFilters[kContourPeak].target = DesignPeaking(600.0, 0.7, contourGain, mDspSampleRate);
+        mFilters[kTrebleShelf].target = DesignHighShelf(3500.0, 0.9, trebleGain, mDspSampleRate);
+        mFilters[kPresencePeak].target = DesignPeaking(4000.0, 1.2, presenceGain, mDspSampleRate);
     }
 
     void UpdatePreFilters()
@@ -1024,8 +653,7 @@ class BuiltinAmpEffect : public EffectProcessor
         // 60 Hz at the default Character.
         const double character = mCharacter;
         const double scale = 0.75 + 0.25 * character + 0.5 * character * character;
-        ComputeHighPass(60.0 * scale, 0.707, mPreHPTarget.b0, mPreHPTarget.b1, mPreHPTarget.b2, mPreHPTarget.a1,
-                        mPreHPTarget.a2);
+        mFilters[kPreHighPass].target = builtin_amp::DesignHighPass(60.0 * scale, 0.707, mDspSampleRate);
     }
 
     void UpdatePreEmphasis()
@@ -1044,12 +672,13 @@ class BuiltinAmpEffect : public EffectProcessor
         const double characterTilt = (static_cast<double>(mCharacter) - 0.5) * 8.0;
         const double gainDb = brightBoost + emphasisBoost + characterTilt;
 
-        ComputeHighShelf(2500.0, 0.8, gainDb, mPreEmphTarget.b0, mPreEmphTarget.b1, mPreEmphTarget.b2,
-                         mPreEmphTarget.a1, mPreEmphTarget.a2);
+        mFilters[kPreEmphasisShelf].target = builtin_amp::DesignHighShelf(2500.0, 0.8, gainDb, mDspSampleRate);
     }
 
     void UpdateSpeakerFilters()
     {
+        using namespace builtin_amp;
+
         if (mSampleRate <= 0.0)
         {
             return;
@@ -1059,12 +688,9 @@ class BuiltinAmpEffect : public EffectProcessor
         const double resonanceGain = static_cast<double>(mResonance) * 6.0;
         const double dampingGain = static_cast<double>(mDamping) * -6.0;
 
-        ComputeLowShelf(120.0, 0.9, depthGain, mDepthTarget.b0, mDepthTarget.b1, mDepthTarget.b2,
-                        mDepthTarget.a1, mDepthTarget.a2);
-        ComputePeakingEQ(120.0, 1.0, resonanceGain, mResonanceTarget.b0, mResonanceTarget.b1,
-                         mResonanceTarget.b2, mResonanceTarget.a1, mResonanceTarget.a2);
-        ComputeHighShelf(3500.0, 0.9, dampingGain, mDampingTarget.b0, mDampingTarget.b1, mDampingTarget.b2,
-                         mDampingTarget.a1, mDampingTarget.a2);
+        mFilters[kDepthShelf].target = DesignLowShelf(120.0, 0.9, depthGain, mDspSampleRate);
+        mFilters[kResonancePeak].target = DesignPeaking(120.0, 1.0, resonanceGain, mDspSampleRate);
+        mFilters[kDampingShelf].target = DesignHighShelf(3500.0, 0.9, dampingGain, mDspSampleRate);
     }
 
     void UpdatePostFilters()
@@ -1074,76 +700,7 @@ class BuiltinAmpEffect : public EffectProcessor
             return;
         }
 
-        ComputeHighPass(25.0, 0.707, mPostHPTarget.b0, mPostHPTarget.b1, mPostHPTarget.b2,
-                        mPostHPTarget.a1, mPostHPTarget.a2);
-    }
-
-    void ComputeHighPass(double freq, double Q, double& b0, double& b1, double& b2, double& a1, double& a2)
-    {
-        const double w0 = 2.0 * kPi * ClampBiquadFrequency(freq, mDspSampleRate) / mDspSampleRate;
-        const double cosw0 = std::cos(w0);
-        const double sinw0 = std::sin(w0);
-        const double alpha = sinw0 / (2.0 * Q);
-
-        const double a0 = 1.0 + alpha;
-        b0 = (1.0 + cosw0) / 2.0 / a0;
-        b1 = -(1.0 + cosw0) / a0;
-        b2 = (1.0 + cosw0) / 2.0 / a0;
-        a1 = (-2.0 * cosw0) / a0;
-        a2 = (1.0 - alpha) / a0;
-    }
-
-    void ComputeLowShelf(double freq, double slope, double gainDb, double& b0, double& b1, double& b2, double& a1,
-                         double& a2)
-    {
-        const double A = std::pow(10.0, gainDb / 40.0);
-        const double w0 = 2.0 * kPi * ClampBiquadFrequency(freq, mDspSampleRate) / mDspSampleRate;
-        const double cosw0 = std::cos(w0);
-        const double sinw0 = std::sin(w0);
-        const double sqrtA = std::sqrt(A);
-        const double alpha = sinw0 / 2.0 * std::sqrt((A + 1.0 / A) * (1.0 / slope - 1.0) + 2.0);
-
-        const double a0 = (A + 1.0) + (A - 1.0) * cosw0 + 2.0 * sqrtA * alpha;
-        b0 = A * ((A + 1.0) - (A - 1.0) * cosw0 + 2.0 * sqrtA * alpha) / a0;
-        b1 = 2.0 * A * ((A - 1.0) - (A + 1.0) * cosw0) / a0;
-        b2 = A * ((A + 1.0) - (A - 1.0) * cosw0 - 2.0 * sqrtA * alpha) / a0;
-        a1 = -2.0 * ((A - 1.0) + (A + 1.0) * cosw0) / a0;
-        a2 = ((A + 1.0) + (A - 1.0) * cosw0 - 2.0 * sqrtA * alpha) / a0;
-    }
-
-    void ComputeHighShelf(double freq, double slope, double gainDb, double& b0, double& b1, double& b2, double& a1,
-                          double& a2)
-    {
-        const double A = std::pow(10.0, gainDb / 40.0);
-        const double w0 = 2.0 * kPi * ClampBiquadFrequency(freq, mDspSampleRate) / mDspSampleRate;
-        const double cosw0 = std::cos(w0);
-        const double sinw0 = std::sin(w0);
-        const double sqrtA = std::sqrt(A);
-        const double alpha = sinw0 / 2.0 * std::sqrt((A + 1.0 / A) * (1.0 / slope - 1.0) + 2.0);
-
-        const double a0 = (A + 1.0) - (A - 1.0) * cosw0 + 2.0 * sqrtA * alpha;
-        b0 = A * ((A + 1.0) + (A - 1.0) * cosw0 + 2.0 * sqrtA * alpha) / a0;
-        b1 = -2.0 * A * ((A - 1.0) + (A + 1.0) * cosw0) / a0;
-        b2 = A * ((A + 1.0) + (A - 1.0) * cosw0 - 2.0 * sqrtA * alpha) / a0;
-        a1 = 2.0 * ((A - 1.0) - (A + 1.0) * cosw0) / a0;
-        a2 = ((A + 1.0) - (A - 1.0) * cosw0 - 2.0 * sqrtA * alpha) / a0;
-    }
-
-    void ComputePeakingEQ(double freq, double Q, double gainDb, double& b0, double& b1, double& b2, double& a1,
-                          double& a2)
-    {
-        const double A = std::pow(10.0, gainDb / 40.0);
-        const double w0 = 2.0 * kPi * ClampBiquadFrequency(freq, mDspSampleRate) / mDspSampleRate;
-        const double cosw0 = std::cos(w0);
-        const double sinw0 = std::sin(w0);
-        const double alpha = sinw0 / (2.0 * Q);
-
-        const double a0 = 1.0 + alpha / A;
-        b0 = (1.0 + alpha * A) / a0;
-        b1 = (-2.0 * cosw0) / a0;
-        b2 = (1.0 - alpha * A) / a0;
-        a1 = (-2.0 * cosw0) / a0;
-        a2 = (1.0 - alpha / A) / a0;
+        mFilters[kPostHighPass].target = builtin_amp::DesignHighPass(25.0, 0.707, mDspSampleRate);
     }
 
     double mSampleRate = 44100.0;
@@ -1151,14 +708,15 @@ class BuiltinAmpEffect : public EffectProcessor
     int mMaxBlockSize = 0;
     int mOversamplingFactor = 1;
     std::array<BuiltinAmpHalfband2x, 2> mUpFirst = {}, mDownFirst = {}, mUpSecond = {}, mDownSecond = {};
-    std::array<StageFilter, kMaxStages> mStageFilters = {};
+    std::array<builtin_amp::StageFilter, kMaxStages> mStageFilters = {};
+    std::array<builtin_amp::GlidingBiquad, kFilterCount> mFilters = {};
 
     float mVoice = 0.0f;
     float mVoiceSmoothed = 0.0f;
     float mControlSmoothCoef = 0.0f;
     double mFilterSmoothCoef = 0.0;
-    float mGain = kDefaultGain;
-    float mGainSmoothed = kDefaultGain;
+    float mGain = builtin_amp::kDefaultGain;
+    float mGainSmoothed = builtin_amp::kDefaultGain;
     double mBass = 0.5;
     double mMiddle = 0.5;
     double mTreble = 0.5;
@@ -1167,7 +725,7 @@ class BuiltinAmpEffect : public EffectProcessor
     double mOutputDb = 0.0;
     float mOutputGainTarget = 1.0f;
     float mOutputGainSmoothed = 1.0f;
-    int mStageCount = kDefaultStages;
+    int mStageCount = builtin_amp::kDefaultStages;
     double mStageGainDb = 0.0;
     float mStageGainLinear = 1.0f;
     float mStageGainSmoothed = 1.0f;
@@ -1189,52 +747,13 @@ class BuiltinAmpEffect : public EffectProcessor
     float mVoicedGain = 0.0f;
     float mVoicedVoice = 0.0f;
     int mVoicedStages = 0;
-    float mKneeSoft = 0.0f;
-    float mKneeTanh = 1.0f;
-    float mKneeHard = 0.0f;
-    std::array<float, kClipCount> mClipBias = {};
-    std::array<float, kClipCount> mClipOffset = {};
-    std::array<float, kClipCount> mClipInvSlope = {1.0f, 1.0f, 1.0f, 1.0f, 1.0f};
-    float mPowerGain = 1.0f;
-    float mPowerBias = 0.0f;
-    float mPowerOffset = 0.0f;
-    float mPowerInvScale = 1.0f;
+    builtin_amp::Clippers mClippers;
     float mLevelMakeup = 1.0f;
     float mDepth = 0.4f;
     float mResonance = 0.4f;
     float mDamping = 0.5f;
     float mSagAttackCoef = 0.0f;
     float mSagReleaseCoef = 0.0f;
-
-    Coefficients mPreHPTarget, mPreEmphTarget, mLowTarget, mMidTarget, mContourTarget, mTrebleTarget;
-    Coefficients mPresenceTarget, mDepthTarget, mResonanceTarget, mDampingTarget, mPostHPTarget, mVoicingTarget;
-
-    double mPreHPB0 = 1.0, mPreHPB1 = 0.0, mPreHPB2 = 0.0, mPreHPA1 = 0.0, mPreHPA2 = 0.0;
-    double mPreEmphB0 = 1.0, mPreEmphB1 = 0.0, mPreEmphB2 = 0.0, mPreEmphA1 = 0.0, mPreEmphA2 = 0.0;
-    double mDepthB0 = 1.0, mDepthB1 = 0.0, mDepthB2 = 0.0, mDepthA1 = 0.0, mDepthA2 = 0.0;
-    double mResonanceB0 = 1.0, mResonanceB1 = 0.0, mResonanceB2 = 0.0, mResonanceA1 = 0.0, mResonanceA2 = 0.0;
-    double mDampingB0 = 1.0, mDampingB1 = 0.0, mDampingB2 = 0.0, mDampingA1 = 0.0, mDampingA2 = 0.0;
-    double mPostHPB0 = 1.0, mPostHPB1 = 0.0, mPostHPB2 = 0.0, mPostHPA1 = 0.0, mPostHPA2 = 0.0;
-
-    double mLowB0 = 1.0, mLowB1 = 0.0, mLowB2 = 0.0, mLowA1 = 0.0, mLowA2 = 0.0;
-    double mMidB0 = 1.0, mMidB1 = 0.0, mMidB2 = 0.0, mMidA1 = 0.0, mMidA2 = 0.0;
-    double mContourB0 = 1.0, mContourB1 = 0.0, mContourB2 = 0.0, mContourA1 = 0.0, mContourA2 = 0.0;
-    double mTrebleB0 = 1.0, mTrebleB1 = 0.0, mTrebleB2 = 0.0, mTrebleA1 = 0.0, mTrebleA2 = 0.0;
-    double mPresenceB0 = 1.0, mPresenceB1 = 0.0, mPresenceB2 = 0.0, mPresenceA1 = 0.0, mPresenceA2 = 0.0;
-    double mVoicingB0 = 1.0, mVoicingB1 = 0.0, mVoicingB2 = 0.0, mVoicingA1 = 0.0, mVoicingA2 = 0.0;
-
-    std::array<double, 2> mLowS1 = {}, mLowS2 = {};
-    std::array<double, 2> mMidS1 = {}, mMidS2 = {};
-    std::array<double, 2> mContourS1 = {}, mContourS2 = {};
-    std::array<double, 2> mTrebleS1 = {}, mTrebleS2 = {};
-    std::array<double, 2> mPresenceS1 = {}, mPresenceS2 = {};
-    std::array<double, 2> mVoicingS1 = {}, mVoicingS2 = {};
-    std::array<double, 2> mPreHPS1 = {}, mPreHPS2 = {};
-    std::array<double, 2> mPreEmphS1 = {}, mPreEmphS2 = {};
-    std::array<double, 2> mDepthS1 = {}, mDepthS2 = {};
-    std::array<double, 2> mResonanceS1 = {}, mResonanceS2 = {};
-    std::array<double, 2> mDampingS1 = {}, mDampingS2 = {};
-    std::array<double, 2> mPostHPS1 = {}, mPostHPS2 = {};
     std::array<float, 2> mSagEnv = {0.0f, 0.0f};
 };
 
@@ -1247,25 +766,7 @@ inline void RegisterBuiltinAmpEffect()
     info.category = "amp";
     info.description = "High-gain amp head for use with a separate cabinet or IR";
     info.requiresResource = false;
-    info.parameters = {{"voice", "Voice", 0.0, 0.0, 1.0, "toggle", "Input"},
-                       {"gain", "Gain", 0.45, 0.0, 1.0, "amount", "Input"},
-                       {"character", "Character", 0.5, 0.0, 1.0, "amount", "Input"},
-                       {"bright", "Bright", 0.0, 0.0, 1.0, "toggle", "Input"},
-                       {"preEmphasis", "Pre Emphasis", 0.0, 0.0, 1.0, "amount", "Input", true},
-                       {"stageCount", "Preamp Stages", 2.0, 1.0, 4.0, "amount", "Input", false, 1.0},
-                       {"stageGain", "Input Trim", 0.0, -24.0, 24.0, "dB", "Input"},
-                       {"bass", "Bass", 0.5, 0.0, 1.0, "amount", "Tone"},
-                       {"middle", "Middle", 0.5, 0.0, 1.0, "amount", "Tone"},
-                       {"treble", "Treble", 0.5, 0.0, 1.0, "amount", "Tone"},
-                       {"contour", "Contour", 0.2, 0.0, 1.0, "amount", "Tone"},
-                       {"presence", "Presence", 0.5, 0.0, 1.0, "amount", "Tone"},
-                       {"output", "Output", 0.0, -24.0, 24.0, "dB", "Output"},
-                       {"powerDrive", "Power Drive", 0.0, 0.0, 1.0, "amount", "Power", true},
-                       {"sag", "Sag", 0.0, 0.0, 1.0, "amount", "Power", true},
-                       {"bias", "Bias", 0.0, -1.0, 1.0, "amount", "Power", true},
-                       {"depth", "Depth", 0.4, 0.0, 1.0, "amount", "Power", true},
-                       {"resonance", "Resonance", 0.4, 0.0, 1.0, "amount", "Power", true},
-                       {"damping", "Damping", 0.5, 0.0, 1.0, "amount", "Power", true}};
+    info.parameters = BuildParameterDefs(builtin_amp::kParams);
 
     EffectRegistry::Instance().Register(info.type, info, []() { return std::make_unique<BuiltinAmpEffect>(); });
 }

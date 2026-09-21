@@ -609,6 +609,8 @@ set(GUITARFX_CORE_SOURCES
     src/dsp/effects/FuzzEffect.h
     src/dsp/effects/BuiltinAmpEffect.h
     src/dsp/effects/BuiltinAmpOversampling.h
+    src/dsp/effects/BuiltinAmpFilters.h
+    src/dsp/effects/BuiltinAmpVoicing.h
     src/dsp/effects/ChorusEffect.h
     src/dsp/effects/FlangerEffect.h
     src/dsp/effects/PhaserEffect.h

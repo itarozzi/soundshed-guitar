@@ -1,5 +1,6 @@
 #include "dsp/effects/BuiltinAmpEffect.h"
 #include "dsp/effects/BuiltinAmpOversampling.h"
+#include "dsp/effects/BuiltinAmpVoicing.h"
 
 #include <algorithm>
 #include <cmath>
@@ -585,12 +586,12 @@ void TestAliasingAndPower()
 }
 } // namespace
 
-// Prints kHeardLevelDb for BuiltinAmpEffect.h. The table has to describe the
+// Prints kHeardLevelDb for BuiltinAmpVoicing.h. The table has to describe the
 // amp's own voicing, so measure it with the makeup taken back out: each cell
 // is the heard level divided by the makeup the amp applied there.
 void MeasureLevelTable()
 {
-    std::cout << "    static constexpr float kHeardLevelDb[2][kMaxStages][5] = {\n";
+    std::cout << "inline constexpr float kHeardLevelDb[2][kMaxStages][5] = {\n";
     for (int voice = 0; voice <= 1; ++voice)
     {
         std::cout << "        {";
@@ -601,8 +602,8 @@ void MeasureLevelTable()
             {
                 const double gain = step * 0.25;
                 double sum = 0.0;
-                const float makeupDb = guitarfx::BuiltinAmpEffect::LevelMakeupDb(
-                    static_cast<float>(gain), static_cast<float>(voice), stages);
+                const float makeupDb =
+                    guitarfx::builtin_amp::LevelMakeupDb(static_cast<float>(gain), static_cast<float>(voice), stages);
                 for (const double character : {0.0, 0.25, 0.5, 0.75, 1.0})
                 {
                     sum += HeardLevel({gain, static_cast<double>(voice), character, stages}) - makeupDb;
