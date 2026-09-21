@@ -678,10 +678,30 @@ bool TestRecursiveEffectsRecoverFromNonFiniteInput()
     gate.Prepare(kSampleRate, kBlock);
     gate.SetParam("threshold", -40.0);
 
+    // The character delays' compander, idle gates and ducking follow the input. A NaN in any
+    // detector stays there, and on the analog delay it left the repeats silent for good: the
+    // line's own guard caught each NaN by writing zero. That showed in the IEEE build and not
+    // under /fp:fast, which happened to compare its way out. Wet only, with a short Time and
+    // some Feedback, so the check hears the repeats — at the default Mix a silenced repeat
+    // path hides behind the dry signal and passes.
+    AnalogDelayEffect analogDelay;
+    analogDelay.Prepare(kSampleRate, kBlock);
+    analogDelay.SetParam("mix", 1.0);
+    analogDelay.SetParam("time", 50.0);
+    analogDelay.SetParam("feedback", 0.5);
+
+    TapeDelayEffect tapeDelay;
+    tapeDelay.Prepare(kSampleRate, kBlock);
+    tapeDelay.SetParam("mix", 1.0);
+    tapeDelay.SetParam("time", 50.0);
+    tapeDelay.SetParam("feedback", 0.5);
+
     bool passed = ExpectRecoversFromNonFiniteInput("parametric EQ", parametric);
     passed = ExpectRecoversFromNonFiniteInput("graphic EQ", graphic) && passed;
     passed = ExpectRecoversFromNonFiniteInput("flanger", flanger) && passed;
     passed = ExpectRecoversFromNonFiniteInput("noise gate", gate) && passed;
+    passed = ExpectRecoversFromNonFiniteInput("analog delay", analogDelay) && passed;
+    passed = ExpectRecoversFromNonFiniteInput("tape delay", tapeDelay) && passed;
     return passed;
 }
 

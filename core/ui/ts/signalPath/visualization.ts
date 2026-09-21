@@ -35,6 +35,8 @@ export const EFFECT_VISUAL_EQUIPMENT_IMAGES: Record<string, string> = {
 export const EFFECT_VISUAL_EQUIPMENT_IMAGES_BY_TYPE: Record<string, string> = {
   [EffectGuids.kPluginHost]:"../images/equipment/fx/studio-rack-multifx.png",
   [EffectGuids.kDelayDigital]: "../images/equipment/fx/studio-rack-delay.png",
+  [EffectGuids.kDelayTape]: "../images/equipment/fx/studio-rack-delay.png",
+  [EffectGuids.kDelayAnalog]: "../images/equipment/fx/studio-rack-delay.png",
   [EffectGuids.kDelayDoubler]: "../images/equipment/fx/studio-rack-delay.png",
   [EffectGuids.kFxNam]: "../images/equipment/pedals/colourful-pedal2.png",
   fx_nam: "../images/equipment/pedals/colourful-pedal2.png",

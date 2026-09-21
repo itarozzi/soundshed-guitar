@@ -8,6 +8,8 @@
 #include "dsp/effects/ParametricEQEffect.h"
 #include "dsp/effects/GraphicEQEffect.h"
 #include "dsp/effects/DelayEffect.h"
+#include "dsp/effects/TapeDelayEffect.h"
+#include "dsp/effects/AnalogDelayEffect.h"
 #include "dsp/effects/DoublerEffect.h"
 #include "dsp/effects/HybridTransposeEffect.h"
 #include "dsp/effects/PitchShiftEffect.h"
@@ -119,6 +121,8 @@ inline void RegisterAllEffects()
 
     // Time-based effects
     RegisterDelayEffect();
+    RegisterTapeDelayEffect();
+    RegisterAnalogDelayEffect();
     RegisterDoublerEffect();
     RegisterReverbEffect();
     RegisterSpringReverbEffect();

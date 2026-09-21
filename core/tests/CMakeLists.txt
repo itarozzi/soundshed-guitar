@@ -18,6 +18,7 @@ set(TEST_SOURCES
     ControllerDisplayFeedTests.cpp
     CustomEffectLibraryTests.cpp
     DefaultPresetIntegrityTests.cpp
+    DelayCharacterTests.cpp
     DSPPerformanceTests.cpp
     EffectAliasParityTests.cpp
     EffectProcessorTests.cpp

@@ -107,6 +107,8 @@ const effectIcons: Record<string, IconKey> = {
 
   // Delay
   [EffectGuids.kDelayDigital]:     "delay",
+  [EffectGuids.kDelayTape]:        "delay",
+  [EffectGuids.kDelayAnalog]:      "delay",
   [EffectGuids.kDelayDoubler]:     "doubler",
 
   // Reverb

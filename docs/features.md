@@ -100,6 +100,8 @@ All effects register via `EffectRegistry` (singleton factory). Effect type IDs, 
 | Type ID | Name | Key Parameters |
 |---------|------|----------------|
 | `delay_digital` | Digital Delay | `timeMs` (1–2000), `feedback` (0–0.95), `mix` (0–1) |
+| `delay_tape` | Tape Echo | `time` (20–1500 ms), `glide`, `feedback` (0–1.10), `headMode`, `wow`, `flutter`, `age`, `saturation`, `mix` — time changes bend pitch; one to three playback heads |
+| `delay_analog` | Analog Delay | `time` (20–800 ms), `feedback` (0–1.15), `stages`, `tone`, `compander`, `saturation`, `modRate`/`modDepth`, `mix` — bandwidth follows the BBD clock, so repeats darken as Time rises |
 | `delay_doubler` | Stereo Doubler | `time` (0–100 ms), `mix` (0–1) |
 
 ### 2.8 Reverb (Algorithmic Family)

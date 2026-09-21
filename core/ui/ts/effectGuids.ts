@@ -39,6 +39,8 @@ export const EffectGuids = {
   // Delay
   kDelayDigital:         "673d3e7a-e9ef-4c5d-a4c4-619dff3355ed",
   kDelayDoubler:         "778aaef4-40e3-4efa-8782-6a8bfa1d1661",
+  kDelayTape:            "c46cecdc-d800-416e-a9cf-b9a13bd3ab35",
+  kDelayAnalog:          "5c3965fc-cf52-4d14-9e5a-8a7120a9aae4",
 
   // Reverb
   kReverbRoom:           "7467cbf1-6c7f-4f07-b5dd-a303d25b475c",
@@ -105,6 +107,8 @@ export const EFFECT_ALIAS_MAP: Record<string, string> = {
   eq_graphic:            EffectGuids.kEqGraphic,
   delay_digital:         EffectGuids.kDelayDigital,
   delay_doubler:         EffectGuids.kDelayDoubler,
+  delay_tape:            EffectGuids.kDelayTape,
+  delay_analog:          EffectGuids.kDelayAnalog,
   reverb_room:           EffectGuids.kReverbRoom,
   reverb_chamber:        EffectGuids.kReverbChamber,
   reverb_spring:         EffectGuids.kReverbSpring,

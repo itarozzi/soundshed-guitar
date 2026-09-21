@@ -43,6 +43,7 @@
     "core/src/storage/JsonStore.cpp": 1036,
     "core/tests/JsonStoreConcurrencyTests.cpp": 1019,
     "core/src/controller/PluginControllerPresetArchive.cpp": 1001,
-    "core/src/dsp/effects/InputAnalyzerEffect.h": 968
+    "core/src/dsp/effects/InputAnalyzerEffect.h": 968,
+    "core/tests/FastMathNanTests.cpp": 968
   }
 }

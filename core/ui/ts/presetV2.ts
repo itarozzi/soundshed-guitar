@@ -333,6 +333,8 @@ const EFFECT_STUBS: EffectStub[] = [
   { type: EffectGuids.kMixer },
   // Delay
   { type: EffectGuids.kDelayDigital },
+  { type: EffectGuids.kDelayTape },
+  { type: EffectGuids.kDelayAnalog },
   { type: EffectGuids.kDelayDoubler },
   // Reverb
   { type: EffectGuids.kReverbRoom },

@@ -69,6 +69,8 @@ All UUID constants are defined in `core/src/dsp/EffectGuids.h`. The table below 
 | `kEqGraphic` | `ef8240ba-c973-4e09-ab65-4faf56a8ecbf` | `eq_graphic` |
 | `kDelayDigital` | `673d3e7a-e9ef-4c5d-a4c4-619dff3355ed` | `delay_digital` |
 | `kDelayDoubler` | `778aaef4-40e3-4efa-8782-6a8bfa1d1661` | `delay_doubler` |
+| `kDelayTape` | `c46cecdc-d800-416e-a9cf-b9a13bd3ab35` | `delay_tape` |
+| `kDelayAnalog` | `5c3965fc-cf52-4d14-9e5a-8a7120a9aae4` | `delay_analog` |
 | `kReverbRoom` | `7467cbf1-6c7f-4f07-b5dd-a303d25b475c` | `reverb_room` |
 | `kReverbChamber` | `4ef25e86-9763-40bc-aca6-636b542df60b` | `reverb_chamber` |
 | `kReverbSpring` | `0df83b32-23d0-4530-a50e-e0824a5ccf01` | `reverb_spring` |
@@ -142,7 +144,7 @@ EffectProcessor* processor = EffectRegistry::Create("amp_nam");
 | `eq` | Equalization | Parametric EQ |
 | `modulation` | Modulation effects | Chorus, flanger, phaser, tremolo, auto-wah, wah |
 | `pitch` | Pitch manipulation | Pitch shift, transpose, octave |
-| `delay` | Time-based delay | Digital delay, doubler |
+| `delay` | Time-based delay | Digital delay, tape echo, analog (BBD) delay, doubler |
 | `reverb` | Reverberation | Room, chamber, spring, advanced, IR, ambient |
 | `utility` | Utility processing | Gain, splitter, mixer, signal analyzer |
 | `synth` | Synthesized tones | Synth saw |
@@ -400,6 +402,92 @@ Clean digital delay.
 | `timeMs` | 1–2000 | 300 | ms |
 | `feedback` | 0.0–0.95 | 0.3 | — |
 | `mix` | 0.0–1.0 | 0.3 | — |
+
+### Tape Echo (`delay_tape`)
+
+`core/src/dsp/effects/TapeDelayEffect.h`. A tape echo: an Echoplex EP-3's single head, or a
+three-head machine's fixed ones. What makes it tape is that the delay time moves:
+
+- **Wow and flutter** are a *speed* error (`TapeTransport.h`), so they are specified as pitch
+  deviation and the time swing follows from it. At full depth wow is about 31 cents and
+  flutter about 16, and the swing is the same at a 60 ms delay as at 1200 ms.
+- **Time changes glide** the read head over `glide`, bending the pitch of what is already on
+  the tape. The glide is capped between half and one-and-a-half speed, so it dives at most an
+  octave and never plays backwards. `glide` 0 is instant, like the digital delay.
+- **Repeats darken and thicken pass by pass**, because the playback EQ (head bump, high/low
+  cut, and `age`'s extra HF loss) sits inside the feedback loop.
+
+`time` is the longest head (head 3). Heads 1 and 2 sit at 0.317 and 0.633 of it — an
+approximation of a Space Echo's spacing, not taken from a service manual. The multi-head modes
+feed back the sum of their heads, which is what builds their patterns.
+
+| Parameter | Range | Default | Unit | Group |
+|-----------|-------|---------|------|-------|
+| `time` | 20–1500 | 400 | ms | Time |
+| `syncMode` | Free / Tempo | Free | enum | Time |
+| `syncDivision` | 1/1–1/32T | 1/4 | enum | Time |
+| `glide` | 0–2000 | 120 | ms (time to settle) | Time |
+| `feedback` | 0.0–1.10 | 0.35 | — | Time |
+| `headMode` | Head 3, Head 2, Head 1, 1+2, 2+3, 1+3, 1+2+3 | Head 3 | enum | Heads |
+| `wow` | 0.0–1.0 | 0.25 | — | Tape |
+| `flutter` | 0.0–1.0 | 0.25 | — | Tape |
+| `age` | 0.0–1.0 | 0.35 | — | Tape |
+| `saturation` | 0.0–1.0 | 0.30 | — | Tape |
+| `highCut` | 500–16000 | 5000 | Hz | Tape (advanced) |
+| `lowCut` | 20–800 | 90 | Hz | Tape (advanced) |
+| `headBump` | 0.0–1.0 | 0.35 | — | Tape (advanced) |
+| `mix` | 0.0–1.0 | 0.30 | — | Output |
+| `level` | -12–+12 | 0 | dB (repeats only) | Output |
+| `spread` | 0–50 | 0 | ms | Output (advanced) |
+| `ducking` | 0.0–1.0 | 0 | — | Output (advanced) |
+
+- `age` lowers `highCut` toward 35% of itself, adds occasional dropouts and adds hiss. Hiss is
+  gated on the input, so a worn tape nobody is playing into is silent.
+- `feedback` above 1 self-oscillates, bounded by the saturator and the record-path rail; more
+  feedback, louder runaway. The head bump is a boost inside the loop, so the feedback tap is
+  divided by the playback EQ's measured peak — below 1 the loop always decays.
+- Factory presets: Echoplex EP-3 (default), Slapback, Three Heads, Worn Tape, Dub.
+
+### Analog Delay (`delay_analog`)
+
+`core/src/dsp/effects/AnalogDelayEffect.h`. A bucket-brigade delay. A BBD's delay is
+`stages / (2 × clock)`, so on a real pedal the Time knob is the clock — and the device's own
+Nyquist, `clock / 2`, moves with it. The reconstruction filter tracks the clock, so **repeats
+lose bandwidth as Time rises**, and fewer stages at the same Time lose more. Measured at 4096
+stages: 7.4 kHz at 50 ms, 2.3 kHz at 300 ms, 1.2 kHz at 600 ms; 1024 stages at 300 ms, 670 Hz.
+
+Not modelled: the line runs at host rate rather than being resampled to the clock, so there is
+no clock aliasing or whine. The reconstruction filter adds about 0.19 ms of its own lag, as a
+real pedal's does.
+
+| Parameter | Range | Default | Unit | Group |
+|-----------|-------|---------|------|-------|
+| `time` | 20–800 | 320 | ms | Time |
+| `syncMode` | Free / Tempo | Free | enum | Time |
+| `syncDivision` | 1/1–1/32T | 1/4 | enum | Time |
+| `glide` | 0–500 | 40 | ms (time to settle) | Time (advanced) |
+| `feedback` | 0.0–1.15 | 0.35 | — | Time |
+| `stages` | 1024 (MN3007), 2048 (MN3008), 3328 (MN3011), 4096 (MN3005) | 4096 | enum | BBD |
+| `tone` | 0.0–1.0 | 0.5 | — (0.8–8 kHz) | BBD |
+| `compander` | 0.0–1.0 | 0.7 | — | BBD |
+| `saturation` | 0.0–1.0 | 0.35 | — | BBD |
+| `noise` | 0.0–1.0 | 0.2 | — | BBD (advanced) |
+| `modRate` | 0–8 | 0.4 | Hz | Modulation |
+| `modDepth` | 0–12 | 0 | ms | Modulation |
+| `mix` | 0.0–1.0 | 0.3 | — | Output |
+| `level` | -12–+12 | 0 | dB (repeats only) | Output |
+| `spread` | 0–50 | 0 | ms | Output (advanced) |
+| `ducking` | 0.0–1.0 | 0 | — | Output (advanced) |
+
+- `compander` is an NE571-style pair (`Compander.h`): transparent on a steady signal from
+  -46 to 0 dBFS at any amount, but its release makes repeats breathe and the noise floor pump
+  after a note, and it lowers the idle noise floor by about 20 dB. The repeats are fed back in
+  the compressed domain, before the expander, which keeps the compander out of the loop's gain.
+- The BBD noise floor is gated on the input, so an idle delay is silent.
+- `feedback` above 1 self-oscillates; more feedback, louder runaway. With `saturation` at 0
+  only the device rail bounds it, and a runaway at 1.15 reaches about +6 dBFS.
+- `clockHz` can be read with `GetParam` for the resolved BBD clock.
+- Factory presets: DM-2 (default), Memory Man, Short Analog, Clean Analog, Runaway.
 
 ### Algorithmic Reverbs
 Room, chamber, and advanced reverb share a common algorithmic engine. Spring and ambient use dedicated processors because their topology and voicing diverge more strongly from the shared room/chamber design:

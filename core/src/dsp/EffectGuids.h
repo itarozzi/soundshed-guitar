@@ -52,6 +52,8 @@ constexpr const char* kEqGraphic = "ef8240ba-c973-4e09-ab65-4faf56a8ecbf";
 // ── Delay ─────────────────────────────────────────────────────────────
 constexpr const char* kDelayDigital = "673d3e7a-e9ef-4c5d-a4c4-619dff3355ed";
 constexpr const char* kDelayDoubler = "778aaef4-40e3-4efa-8782-6a8bfa1d1661";
+constexpr const char* kDelayTape = "c46cecdc-d800-416e-a9cf-b9a13bd3ab35";
+constexpr const char* kDelayAnalog = "5c3965fc-cf52-4d14-9e5a-8a7120a9aae4";
 
 // ── Reverb ────────────────────────────────────────────────────────────
 constexpr const char* kReverbRoom = "7467cbf1-6c7f-4f07-b5dd-a303d25b475c";
