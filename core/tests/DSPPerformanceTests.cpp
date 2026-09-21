@@ -120,13 +120,38 @@ TestResult TestDSPPerformanceStatsPopulation()
         std::vector<float> outputL(kBlock, 0.0f);
         std::vector<float> outputR(kBlock, 0.0f);
 
-        // Process multiple blocks to accumulate timing data
+        // Process several blocks, checking after each one that the gain node published a time.
+        // Every block first resets each node's slot to "did not run", and GetPerformanceStats()
+        // leaves those nodes out, so an entry present after a block was written by that block.
+        // A zero time is a real reading, not missing data: it is one clock measurement of the
+        // last block, and a unity-gain pass over 512 samples can finish inside a single tick of
+        // high_resolution_clock (~100 ns QPC). The block total checked below spans the whole
+        // graph and is what shows the clock actually advanced.
         float* inputs[2] = {inputL.data(), inputR.data()};
         float* outputs[2] = {outputL.data(), outputR.data()};
+        double gainProcessingTime = -1.0;
 
         for (int i = 0; i < 10; ++i)
         {
             executor.Process(inputs, outputs, kBlock);
+
+            const auto blockStats = executor.GetPerformanceStats();
+            const auto gainTiming = blockStats.nodeProcessingTimesUs.find("gain");
+
+            if (gainTiming == blockStats.nodeProcessingTimesUs.end())
+            {
+                result.message = "No timing data found for 'gain' node after block " + std::to_string(i);
+                return result;
+            }
+
+            if (!(gainTiming->second >= 0.0))
+            {
+                result.message = "Gain node processing time is negative after block " + std::to_string(i) + ": " +
+                                 std::to_string(gainTiming->second);
+                return result;
+            }
+
+            gainProcessingTime = gainTiming->second;
         }
 
         // Get updated stats
@@ -162,33 +187,6 @@ TestResult TestDSPPerformanceStatsPopulation()
         if (updatedStats.nodeProcessingTimesUs.empty())
         {
             result.message = "nodeProcessingTimesUs is empty after processing";
-            return result;
-        }
-
-        // Verify we have timing data for our nodes
-        bool hasGainTiming = false;
-        double gainProcessingTime = 0.0;
-
-        for (const auto& [nodeId, timeUs] : updatedStats.nodeProcessingTimesUs)
-        {
-            if (nodeId == "gain" && timeUs >= 0.0)
-            {
-                hasGainTiming = true;
-                gainProcessingTime = timeUs;
-                break;
-            }
-        }
-
-        if (!hasGainTiming)
-        {
-            result.message = "No timing data found for 'gain' node";
-            return result;
-        }
-
-        // Explicitly check that node processing time is positive (non-zero performance)
-        if (gainProcessingTime <= 0.0)
-        {
-            result.message = "Gain node processing time is not positive: " + std::to_string(gainProcessingTime);
             return result;
         }
 
