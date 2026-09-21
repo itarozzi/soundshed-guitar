@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -138,6 +139,18 @@ class EffectProcessor
     [[nodiscard]] virtual int GetLatencySamples() const
     {
         return 0;
+    }
+
+    /// The small-signal magnitude response, in dB, at each of `frequenciesHz`, for effects
+    /// that are linear and time-invariant at low level (a cabinet voicing, a fixed filter).
+    /// It comes from the effect's current parameters, not its audio state, so the UI can
+    /// draw the curve the engine will apply without keeping a second copy of the design,
+    /// and an impulse through the effect is a faithful IR of it. Returns false when the
+    /// effect has no such response, or the spans differ in length.
+    [[nodiscard]] virtual bool GetFrequencyResponse(std::span<const double> /*frequenciesHz*/,
+                                                    std::span<double> /*magnitudesDb*/) const
+    {
+        return false;
     }
 
     // Bypass

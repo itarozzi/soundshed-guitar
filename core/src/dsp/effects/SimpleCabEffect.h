@@ -1,28 +1,42 @@
 #pragma once
 
-#include "dsp/BiquadFrequency.h"
+#include "dsp/BiquadDesign.h"
 #include "dsp/EffectGuids.h"
+#include "dsp/EffectParamSpec.h"
 #include "dsp/EffectProcessor.h"
 #include "dsp/EffectRegistry.h"
+#include "dsp/FiniteCheck.h"
+#include "dsp/LinearRamp.h"
+#include "dsp/effects/SimpleCabVoicing.h"
+#include "dsp/effects/SpeakerDrive.h"
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
+#include <initializer_list>
+#include <span>
+#include <utility>
+#include <vector>
 
 namespace guitarfx
 {
-namespace
-{
-constexpr double kSimpleCabPi = 3.14159265358979323846;
-}
-
 /**
- * Lightweight, filter-based 4x12 cabinet voicing. A broad low resonance and
- * sixth-order treble roll-off approximate the envelope of a close-miked cab;
- * an IR remains the option for a particular speaker and microphone's notches.
+ * Lightweight, filter-based guitar cabinet: no IR required.
+ *
+ * Five cabinet types, a mic with type, position and distance, an optional second mic to
+ * blend against it, speaker drive, stereo spread and level. What those controls do to the
+ * sound is SimpleCabVoicing.h's business; this class runs the designs it produces and keeps
+ * parameter changes smooth. An IR remains the option for one particular speaker and mic's
+ * exact notches.
  */
 class SimpleCabEffect : public EffectProcessor
 {
   public:
+    SimpleCabEffect()
+    {
+        Configure(mSampleRate);
+    }
+
     void Prepare(double sampleRate, int maxBlockSize) override
     {
         if (!ValidatePrepare(sampleRate, maxBlockSize))
@@ -30,21 +44,21 @@ class SimpleCabEffect : public EffectProcessor
             return;
         }
 
-        mSampleRate = sampleRate;
-        UpdateCoefficients();
-        Reset();
+        mMaxBlockSize = maxBlockSize;
+        Configure(sampleRate);
     }
 
     void Reset() override
     {
-        for (auto& filter : mFilters)
+        for (auto& channel : mChannels)
         {
-            filter.s1.fill(0.0);
-            filter.s2.fill(0.0);
-            filter.current = filter.target;
+            ResetChannel(channel);
         }
-        mCurrentMix = mMix;
+
+        ForEachRamp([](auto& ramp) { ramp.Finish(); });
         mRampSamplesRemaining = 0;
+        mStereo = mStereoTarget;
+        mDrive.Reset();
     }
 
     void Process(float** inputs, float** outputs, int numSamples) override
@@ -63,6 +77,7 @@ class SimpleCabEffect : public EffectProcessor
         for (int i = 0; i < numSamples; ++i)
         {
             AdvanceRamp();
+
             for (int ch = 0; ch < 2; ++ch)
             {
                 if (!inputs[ch] || !outputs[ch])
@@ -70,48 +85,51 @@ class SimpleCabEffect : public EffectProcessor
                     continue;
                 }
 
-                const double dry = static_cast<double>(inputs[ch][i]);
-                double wet = dry;
-                for (auto& filter : mFilters)
-                {
-                    wet = filter.Process(wet, ch);
-                }
-                outputs[ch][i] = static_cast<float>(dry * (1.0 - mCurrentMix) + wet * mCurrentMix);
+                outputs[ch][i] = static_cast<float>(ProcessSample(static_cast<double>(inputs[ch][i]), ch));
             }
+
+            mDrive.AdvanceSample();
+            mWritePosition = (mWritePosition + 1) & mHistoryMask;
         }
     }
 
     void SetParam(const std::string& key, double value) override
     {
-        if (!std::isfinite(value))
+        if (!IsFinite(value))
         {
             return;
         }
 
-        if (key == "bass")
-        {
-            mBass = std::clamp(value, 0.0, 1.0);
-            UpdateCoefficients();
-        }
-        else if (key == "presence")
-        {
-            mPresence = std::clamp(value, 0.0, 1.0);
-            UpdateCoefficients();
-        }
-        else if (key == "brightness")
-        {
-            mBrightness = std::clamp(value, 0.0, 1.0);
-            UpdateCoefficients();
-        }
-        else if (key == "mix")
-        {
-            mMix = std::clamp(value, 0.0, 1.0);
-            BeginRamp();
-        }
-        else if (key == "enabled")
+        if (key == "enabled")
         {
             mEnabled = value > 0.5;
+            return;
         }
+
+        const std::size_t index = FindParamSpec(simple_cab::kParams, key);
+
+        if (index == simple_cab::kParamCount)
+        {
+            return;
+        }
+
+        const double normalised = NormaliseParamValue(simple_cab::kParams[index], value);
+
+        if (mValues[index] == normalised)
+        {
+            return;
+        }
+
+        mValues[index] = normalised;
+
+        if (index == simple_cab::kSpeakerDrive)
+        {
+            // Level-dependent, so not part of the linear design: nothing to redesign.
+            mDrive.SetDrive(normalised);
+            return;
+        }
+
+        UpdateDesign();
     }
 
     void SetConfig(const std::string&, const std::string&) override
@@ -120,27 +138,38 @@ class SimpleCabEffect : public EffectProcessor
 
     [[nodiscard]] double GetParam(const std::string& key) const override
     {
-        if (key == "bass")
-        {
-            return mBass;
-        }
-        if (key == "presence")
-        {
-            return mPresence;
-        }
-        if (key == "brightness")
-        {
-            return mBrightness;
-        }
-        if (key == "mix")
-        {
-            return mMix;
-        }
         if (key == "enabled")
         {
             return mEnabled ? 1.0 : 0.0;
         }
-        return 0.0;
+
+        const std::size_t index = FindParamSpec(simple_cab::kParams, key);
+        return index == simple_cab::kParamCount ? 0.0 : mValues[index];
+    }
+
+    /// Spread voices the two sides differently, so a mono input comes out stereo. Stays
+    /// true until a ramp back to identical sides has finished.
+    [[nodiscard]] bool ProducesStereoOutput() const override
+    {
+        return mStereo;
+    }
+
+    [[nodiscard]] bool GetFrequencyResponse(std::span<const double> frequenciesHz,
+                                            std::span<double> magnitudesDb) const override
+    {
+        if (frequenciesHz.size() != magnitudesDb.size())
+        {
+            return false;
+        }
+
+        const simple_cab::Design design = mVoicer.Build(simple_cab::ToSettings(mValues));
+
+        for (std::size_t i = 0; i < frequenciesHz.size(); ++i)
+        {
+            magnitudesDb[i] = mVoicer.MagnitudeDb(design, frequenciesHz[i]);
+        }
+
+        return true;
     }
 
     [[nodiscard]] std::string GetType() const override
@@ -154,106 +183,172 @@ class SimpleCabEffect : public EffectProcessor
     }
 
   private:
-    struct Coefficients
-    {
-        double b0 = 0.0, b1 = 0.0, b2 = 0.0, a1 = 0.0, a2 = 0.0;
-    };
+    /// Coefficient, gain and mix changes glide over this long.
+    static constexpr double kRampSeconds = 0.015;
+    /// Delay taps slide at most this many samples per sample: a mic move bends the pitch by
+    /// up to 5% while it travels rather than clicking.
+    static constexpr double kMaxDelaySlew = 0.05;
+    /// Speaker drive's excursion band reaches a little above the cabinet's resonance.
+    static constexpr double kExcursionCornerRatio = 1.5;
 
-    struct Biquad
+    /// A mic tap's delay, sliding towards its target at a bounded rate.
+    struct SlewedDelay
     {
-        Coefficients current, target, step;
-        std::array<double, 2> s1 = {}, s2 = {};
+        double current = 0.0;
+        double target = 0.0;
 
-        double Process(double input, int channel)
+        void Advance() noexcept
         {
-            const double output = current.b0 * input + s1[channel];
-            s1[channel] = current.b1 * input - current.a1 * output + s2[channel];
-            s2[channel] = current.b2 * input - current.a2 * output;
-            return output;
+            current += std::clamp(target - current, -kMaxDelaySlew, kMaxDelaySlew);
         }
     };
 
-    enum FilterIndex
+    struct MicRuntime
     {
-        kHighPass,
-        kLowResonance,
-        kPresence,
-        kLowPass1,
-        kLowPass2,
-        kLowPass3,
-        kFilterCount
+        std::array<biquad::Ramp, simple_cab::kMicSectionCount> sections;
+        std::array<biquad::State, simple_cab::kMicSectionCount> state;
+        LinearRamp<double> gain;
+        LinearRamp<double> reflectionGain;
+        SlewedDelay direct;
+        SlewedDelay reflection;
+        double reflectionPole = 0.0;
+        double bounce = 0.0; ///< the reflection's one-pole low-pass state
     };
 
-    static Coefficients HighPass(double freq, double Q, double sampleRate)
+    struct ChannelRuntime
     {
-        const double w0 = 2.0 * kSimpleCabPi * ClampBiquadFrequency(freq, sampleRate) / sampleRate;
-        const double cosine = std::cos(w0);
-        const double alpha = std::sin(w0) / (2.0 * Q);
-        const double invA0 = 1.0 / (1.0 + alpha);
-        return {(1.0 + cosine) * 0.5 * invA0, -(1.0 + cosine) * invA0,
-                (1.0 + cosine) * 0.5 * invA0, -2.0 * cosine * invA0, (1.0 - alpha) * invA0};
-    }
+        std::array<biquad::Ramp, simple_cab::kCabinetSectionCount> cabinet;
+        std::array<biquad::State, simple_cab::kCabinetSectionCount> cabinetState;
+        std::array<MicRuntime, simple_cab::kMicCount> mics;
+        /// Recent cabinet output, which the mic taps read behind.
+        std::vector<double> history;
+    };
 
-    static Coefficients LowPass(double freq, double Q, double sampleRate)
+    /// Everything that depends on the sample rate. The constructor runs it too, so an
+    /// instance is usable before Prepare().
+    void Configure(double sampleRate)
     {
-        const double w0 = 2.0 * kSimpleCabPi * ClampBiquadFrequency(freq, sampleRate) / sampleRate;
-        const double cosine = std::cos(w0);
-        const double alpha = std::sin(w0) / (2.0 * Q);
-        const double invA0 = 1.0 / (1.0 + alpha);
-        return {(1.0 - cosine) * 0.5 * invA0, (1.0 - cosine) * invA0,
-                (1.0 - cosine) * 0.5 * invA0, -2.0 * cosine * invA0, (1.0 - alpha) * invA0};
-    }
+        mSampleRate = sampleRate;
+        mVoicer.Prepare(sampleRate);
+        mDrive.Prepare(sampleRate);
+        mRampSamples = std::max(1, static_cast<int>(std::lround(sampleRate * kRampSeconds)));
 
-    static Coefficients PeakingEQ(double freq, double Q, double gainDb, double sampleRate)
-    {
-        const double A = std::pow(10.0, gainDb / 40.0);
-        const double w0 = 2.0 * kSimpleCabPi * ClampBiquadFrequency(freq, sampleRate) / sampleRate;
-        const double cosine = std::cos(w0);
-        const double alpha = std::sin(w0) / (2.0 * Q);
-        const double invA0 = 1.0 / (1.0 + alpha / A);
-        return {(1.0 + alpha * A) * invA0, -2.0 * cosine * invA0,
-                (1.0 - alpha * A) * invA0, -2.0 * cosine * invA0, (1.0 - alpha / A) * invA0};
-    }
+        // Interpolation reads one sample past the longest delay.
+        const auto needed = static_cast<unsigned>(std::ceil(simple_cab::kMaxMicDelaySeconds * sampleRate)) + 2u;
+        const unsigned size = std::bit_ceil(needed);
+        mHistoryMask = static_cast<int>(size - 1);
+        mWritePosition = 0;
 
-    void UpdateCoefficients()
-    {
-        if (mSampleRate <= 0.0)
+        for (auto& channel : mChannels)
         {
-            return;
+            channel.history.assign(size, 0.0);
         }
 
-        // Bass changes the depth and size of the broad 4x12 low resonance.
-        mFilters[kHighPass].target = HighPass(90.0 - mBass * 50.0, 0.707, mSampleRate);
-        mFilters[kLowResonance].target = PeakingEQ(140.0, 0.6, 6.0 + mBass * 8.0, mSampleRate);
+        UpdateDesign();
+        Reset();
 
-        const double presenceFreq = 2000.0 + mPresence * 1500.0;
-        mFilters[kPresence].target = PeakingEQ(presenceFreq, 1.5, -1.0 + mPresence * 9.0, mSampleRate);
-
-        // Three Butterworth sections give a smooth sixth-order speaker roll-off.
-        const double lowPassFreq = 4200.0 + mBrightness * 2100.0;
-        mFilters[kLowPass1].target = LowPass(lowPassFreq, 0.5176380902, mSampleRate);
-        mFilters[kLowPass2].target = LowPass(lowPassFreq, 0.7071067812, mSampleRate);
-        mFilters[kLowPass3].target = LowPass(lowPassFreq, 1.9318516526, mSampleRate);
-        BeginRamp();
-    }
-
-    void BeginRamp()
-    {
-        const int samples = std::max(1, static_cast<int>(std::lround(mSampleRate * 0.015)));
-        mRampSamplesRemaining = samples;
-        for (auto& filter : mFilters)
+        for (auto& channel : mChannels)
         {
-            const auto& from = filter.current;
-            const auto& to = filter.target;
-            filter.step = {(to.b0 - from.b0) / samples, (to.b1 - from.b1) / samples,
-                           (to.b2 - from.b2) / samples, (to.a1 - from.a1) / samples,
-                           (to.a2 - from.a2) / samples};
+            for (auto& mic : channel.mics)
+            {
+                mic.direct.current = mic.direct.target;
+                mic.reflection.current = mic.reflection.target;
+            }
         }
-        mMixStep = (mMix - mCurrentMix) / samples;
     }
 
-    void AdvanceRamp()
+    /// Rebuilds the design from the parameter values and glides towards it.
+    void UpdateDesign() noexcept
     {
+        const simple_cab::Settings settings = simple_cab::ToSettings(mValues);
+        const simple_cab::Design design = mVoicer.Build(settings);
+        mDrive.SetExcursionCornerHz(simple_cab::ResonanceHz(settings) * kExcursionCornerRatio);
+
+        for (int ch = 0; ch < 2; ++ch)
+        {
+            ChannelRuntime& channel = mChannels[ch];
+            const simple_cab::ChannelDesign& target = design.channels[ch];
+
+            for (int s = 0; s < simple_cab::kCabinetSectionCount; ++s)
+            {
+                channel.cabinet[s].target = target.cabinet[s];
+            }
+
+            for (int m = 0; m < simple_cab::kMicCount; ++m)
+            {
+                MicRuntime& mic = channel.mics[m];
+                const simple_cab::MicDesign& micTarget = target.mics[m];
+
+                // A mic fading in starts clean rather than from state left when it went
+                // quiet, and its taps start where they belong instead of sliding there.
+                if (!IsMicAudible(mic) && micTarget.gain != 0.0)
+                {
+                    ResetMic(mic);
+                    mic.direct.current = micTarget.directDelaySamples;
+                    mic.reflection.current = micTarget.reflectionDelaySamples;
+                }
+
+                for (int s = 0; s < simple_cab::kMicSectionCount; ++s)
+                {
+                    mic.sections[s].target = micTarget.sections[s];
+                }
+
+                mic.gain.target = micTarget.gain;
+                mic.reflectionGain.target = micTarget.reflectionGain;
+                mic.direct.target = micTarget.directDelaySamples;
+                mic.reflection.target = micTarget.reflectionDelaySamples;
+                mic.reflectionPole = micTarget.reflectionPole;
+            }
+        }
+
+        mWetGain.target = design.wetGain;
+        mOutputGain.target = design.outputGain;
+        mMix.target = design.mix;
+        mStereoTarget = design.stereo;
+        mStereo = mStereo || design.stereo;
+
+        mRampSamplesRemaining = mRampSamples;
+        ForEachRamp([this](auto& ramp) { ramp.Begin(mRampSamples); });
+    }
+
+    /// Applies `fn` to every ramp: coefficients, gains and mix, both channels.
+    template <typename Fn> void ForEachRamp(Fn&& fn)
+    {
+        for (auto& channel : mChannels)
+        {
+            for (auto& ramp : channel.cabinet)
+            {
+                fn(ramp);
+            }
+
+            for (auto& mic : channel.mics)
+            {
+                for (auto& ramp : mic.sections)
+                {
+                    fn(ramp);
+                }
+
+                fn(mic.gain);
+                fn(mic.reflectionGain);
+            }
+        }
+
+        fn(mWetGain);
+        fn(mOutputGain);
+        fn(mMix);
+    }
+
+    void AdvanceRamp() noexcept
+    {
+        for (auto& channel : mChannels)
+        {
+            for (auto& mic : channel.mics)
+            {
+                mic.direct.Advance();
+                mic.reflection.Advance();
+            }
+        }
+
         if (mRampSamplesRemaining <= 0)
         {
             return;
@@ -261,36 +356,179 @@ class SimpleCabEffect : public EffectProcessor
 
         if (--mRampSamplesRemaining == 0)
         {
-            for (auto& filter : mFilters)
-            {
-                filter.current = filter.target;
-            }
-            mCurrentMix = mMix;
+            ForEachRamp([](auto& ramp) { ramp.Finish(); });
+            mStereo = mStereoTarget;
             return;
         }
 
-        for (auto& filter : mFilters)
-        {
-            auto& c = filter.current;
-            const auto& step = filter.step;
-            c.b0 += step.b0;
-            c.b1 += step.b1;
-            c.b2 += step.b2;
-            c.a1 += step.a1;
-            c.a2 += step.a2;
-        }
-        mCurrentMix += mMixStep;
+        ForEachRamp([](auto& ramp) { ramp.Advance(); });
     }
 
-    double mBass = 0.5;
-    double mPresence = 0.5;
-    double mBrightness = 0.5;
-    double mMix = 1.0;
-    double mCurrentMix = 1.0;
-    double mMixStep = 0.0;
+    [[nodiscard]] static bool IsMicAudible(const MicRuntime& mic) noexcept
+    {
+        return mic.gain.current != 0.0 || mic.gain.target != 0.0;
+    }
+
+    static void ResetMic(MicRuntime& mic) noexcept
+    {
+        for (auto& state : mic.state)
+        {
+            state.Reset();
+        }
+
+        mic.bounce = 0.0;
+    }
+
+    /// The cabinet output `delaySamples` ago, linearly interpolated.
+    [[nodiscard]] double ReadHistory(const ChannelRuntime& channel, double delaySamples) const noexcept
+    {
+        const int whole = static_cast<int>(delaySamples);
+        const double fraction = delaySamples - whole;
+        const double newer = channel.history[(mWritePosition - whole) & mHistoryMask];
+        const double older = channel.history[(mWritePosition - whole - 1) & mHistoryMask];
+        return newer + fraction * (older - newer);
+    }
+
+    [[nodiscard]] double ProcessSample(double dry, int ch) noexcept
+    {
+        // A NaN or infinity would stay in every filter's memory and silence the cab until the
+        // node was rebuilt, so it plays as silence. IsFinite, because the fast-math builds
+        // fold std::isfinite away.
+        if (!IsFinite(dry))
+        {
+            dry = 0.0;
+        }
+
+        ChannelRuntime& channel = mChannels[ch];
+        double cabinet = mDrive.Process(dry, ch);
+
+        for (int s = 0; s < simple_cab::kCabinetSectionCount; ++s)
+        {
+            cabinet = channel.cabinetState[s].Process(channel.cabinet[s].current, cabinet);
+        }
+
+        channel.history[mWritePosition] = cabinet;
+        double wet = 0.0;
+
+        for (auto& mic : channel.mics)
+        {
+            if (!IsMicAudible(mic))
+            {
+                continue;
+            }
+
+            // The nearer mic reads the cabinet straight; only a mic behind it reads history.
+            double taps = mic.direct.current == 0.0 ? cabinet : ReadHistory(channel, mic.direct.current);
+
+            if (mic.reflectionGain.current > 0.0)
+            {
+                const double bounce = ReadHistory(channel, mic.reflection.current);
+                mic.bounce = bounce + mic.reflectionPole * (mic.bounce - bounce);
+                taps += mic.reflectionGain.current * mic.bounce;
+            }
+
+            for (int s = 0; s < simple_cab::kMicSectionCount; ++s)
+            {
+                taps = mic.state[s].Process(mic.sections[s].current, taps);
+            }
+
+            wet += mic.gain.current * taps;
+        }
+
+        const double mix = mMix.current;
+        const double output = mOutputGain.current * ((1.0 - mix) * dry + mix * mWetGain.current * wet);
+
+        // Belt and braces for anything that still overflows: start the channel afresh.
+        if (!IsFinite(output))
+        {
+            ResetChannel(channel);
+            return 0.0;
+        }
+
+        return output;
+    }
+
+    void ResetChannel(ChannelRuntime& channel) noexcept
+    {
+        for (auto& state : channel.cabinetState)
+        {
+            state.Reset();
+        }
+
+        for (auto& mic : channel.mics)
+        {
+            ResetMic(mic);
+        }
+
+        std::fill(channel.history.begin(), channel.history.end(), 0.0);
+    }
+
+    simple_cab::ParamValues mValues = simple_cab::kDefaultValues;
+    simple_cab::Voicer mVoicer;
+    SpeakerDrive mDrive;
+    std::array<ChannelRuntime, 2> mChannels;
+    LinearRamp<double> mWetGain;
+    LinearRamp<double> mOutputGain;
+    LinearRamp<double> mMix;
+    int mRampSamples = 1;
     int mRampSamplesRemaining = 0;
-    std::array<Biquad, kFilterCount> mFilters = {};
+    int mWritePosition = 0;
+    int mHistoryMask = 0;
+    bool mStereo = false;
+    bool mStereoTarget = false;
 };
+
+namespace simple_cab
+{
+/// A factory preset: the defaults with `overrides` applied. It sets every voicing control,
+/// so choosing one never leaves the last preset's spread or second mic behind, but not
+/// Output: the level the player has set stays theirs.
+[[nodiscard]] inline EffectPresetDefinition MakeFactoryPreset(const char* id, const char* name, bool isDefault,
+                                                              std::initializer_list<std::pair<Param, double>> overrides)
+{
+    ParamValues values = kDefaultValues;
+
+    for (const auto& [param, value] : overrides)
+    {
+        values[param] = NormaliseParamValue(kParams[param], value);
+    }
+
+    EffectPresetDefinition preset;
+    preset.id = id;
+    preset.displayName = name;
+    preset.isFactory = true;
+    preset.isDefault = isDefault;
+
+    for (int i = 0; i < kParamCount; ++i)
+    {
+        if (i == kOutputGain)
+        {
+            continue;
+        }
+
+        preset.parameters[kParams[i].id] = values[i];
+        preset.parameterOrder.emplace_back(kParams[i].id);
+    }
+
+    return preset;
+}
+
+[[nodiscard]] inline std::vector<EffectPresetDefinition> FactoryPresets()
+{
+    return {
+        MakeFactoryPreset("closed-4x12", "Closed 4x12", true, {}),
+        MakeFactoryPreset("open-1x12-combo", "Open 1x12 Combo", false, {{kCabinet, 1.0}, {kMicPosition, 0.35}}),
+        MakeFactoryPreset("ribbon-2x12", "Ribbon 2x12", false,
+                          {{kCabinet, 2.0}, {kMicType, 1.0}, {kMicPosition, 0.45}}),
+        MakeFactoryPreset("dual-mic-4x12", "Dual Mic 4x12", false,
+                          {{kMic2Blend, 0.35}, {kMic2Type, 1.0}, {kMic2Position, 0.6}, {kMic2Distance, 0.15}}),
+        MakeFactoryPreset("tweed-4x10-room", "Tweed 4x10 Room", false,
+                          {{kCabinet, 4.0}, {kMicType, 2.0}, {kMicDistance, 0.6}}),
+        MakeFactoryPreset("wide-2x12", "Wide 2x12", false, {{kCabinet, 3.0}, {kSpread, 0.7}}),
+        MakeFactoryPreset("cranked-4x12", "Cranked 4x12", false, {{kSpeakerDrive, 0.6}, {kAutoLevel, 1.0}}),
+    };
+}
+} // namespace simple_cab
 
 inline void RegisterSimpleCabEffect()
 {
@@ -299,12 +537,11 @@ inline void RegisterSimpleCabEffect()
     info.aliases = {"cab_simple"};
     info.displayName = "Simple Cabinet";
     info.category = "cab";
-    info.description = "Lightweight 4x12-style cabinet voicing (no IR required)";
+    info.description = "Lightweight cabinet with five cab types, mic type, position and distance, a second mic, "
+                       "speaker drive and stereo spread (no IR required)";
     info.requiresResource = false;
-    info.parameters = {{"bass", "Bass", 0.5, 0.0, 1.0, "amount"},
-                       {"presence", "Presence", 0.5, 0.0, 1.0, "amount"},
-                       {"brightness", "Brightness", 0.5, 0.0, 1.0, "amount"},
-                       {"mix", "Mix", 1.0, 0.0, 1.0, "amount"}};
+    info.parameters = BuildParameterDefs(simple_cab::kParams);
+    info.presets = simple_cab::FactoryPresets();
 
     EffectRegistry::Instance().Register(info.type, info, []() { return std::make_unique<SimpleCabEffect>(); });
 }

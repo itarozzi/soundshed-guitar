@@ -17,6 +17,9 @@
 ## DSP Graph Essentials
 - Graph runner: core/src/dsp/SignalGraphExecutor.h with nodes of type amp_nam, cab_ir, eq_parametric, delay_digital, reverb_room, dynamics_gate, etc.
 - Effects live in core/src/dsp/effects/; new effects implement EffectProcessor and register via EffectRegistry.
+- Shared DSP building blocks: core/src/dsp/BiquadDesign.h (RBJ filter designs, responses, state, ramps),
+  EffectParamSpec.h (constexpr parameter tables), LinearRamp.h (click-free parameter glides). Reuse them
+  rather than adding another private copy.
 - Validate parameter ranges and resource presence; fail fast with clear errors instead of silent defaults.
 - Full spec: docs/signal-chain.md, docs/fx-library.md
 

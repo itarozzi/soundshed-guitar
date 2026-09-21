@@ -472,6 +472,12 @@ class PluginController
     void BroadcastEffectPresets();
     void HandleSetSetlistsRequest(const nlohmann::json& payload);
 
+    // Effect analysis (controller/PluginControllerEffectAnalysis.cpp): an effect's response
+    // curve, exporting it as an IR, and matching the Simple Cabinet to a library IR.
+    void HandleGetEffectResponseRequest(const nlohmann::json& payload);
+    void HandleExportEffectAsIrRequest(const nlohmann::json& payload);
+    void HandleMatchSimpleCabToIrRequest(const nlohmann::json& payload);
+
     // Automation & MIDI mapping (handler methods — called by MessageDispatcher)
     void HandleGetAutomationRequest();
     void HandleSetAutomationSlotRequest(const nlohmann::json& payload);
@@ -495,6 +501,10 @@ class PluginController
 
     [[nodiscard]] std::optional<LibraryResource> SaveLocalLibraryResource(const nlohmann::json& payload,
                                                                           std::string& error, bool allowCreate = true);
+    /// Tells the UI the outcome of a SaveLocalLibraryResource call: the refreshed state and
+    /// `resourceImported`, or an error and `resourceImportFailed`. `requestId` is echoed when set.
+    void AnnounceSavedLocalResource(const LibraryResource& saved, const std::string& requestId = {});
+    void AnnounceLocalResourceSaveFailure(const std::string& error, const std::string& requestId = {});
     void HandleGetAppInfoRequest();
     void HandleGetGlobalChainRequest();
 

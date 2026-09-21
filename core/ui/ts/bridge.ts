@@ -114,6 +114,34 @@ export function sendSpectrumWatch(source: EqSpectrumSource | null): void {
     : { type: "setSpectrumWatch" });
 }
 
+/** Asks for an effect's response curve with these parameters; answered by "effectResponse"
+ * with the same requestId (see effectResponse.ts). */
+export function sendEffectResponseRequest(
+  requestId: string,
+  effectType: string,
+  params: Record<string, number>,
+  points: number,
+): void {
+  postMessage({ type: "getEffectResponse", requestId, effectType, params, points });
+}
+
+/** Renders an effect with these parameters as an IR into the library; answered by
+ * "resourceImported" or "resourceImportFailed" carrying the same requestId. */
+export function sendExportEffectAsIr(
+  requestId: string,
+  effectType: string,
+  params: Record<string, number>,
+  name: string,
+): void {
+  postMessage({ type: "exportEffectAsIr", requestId, effectType, params, name });
+}
+
+/** Asks for the Simple Cabinet settings that best match a library IR; answered by
+ * "simpleCabIrMatch" with the same requestId. */
+export function sendMatchSimpleCabToIr(requestId: string, resourceId: string): void {
+  postMessage({ type: "matchSimpleCabToIr", requestId, resourceId });
+}
+
 /** One request to the standalone app's audio device settings (see settings/audioDevice.ts). */
 export function sendAudioDeviceRequest(action: string, args: Record<string, unknown> = {}): void {
   postMessage({ type: "audioDevice", action, ...args });

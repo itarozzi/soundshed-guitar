@@ -1,7 +1,9 @@
 /**
- * The static EQ plot: the frequency axis, the grid, the live spectrum behind
- * the curve, and the combined response of the bands. EqCurveInteraction
- * (eqCurve.ts) draws its handles on top of this; the graphic EQ draws only this.
+ * The static response plot: the frequency axis, the grid, the live spectrum
+ * behind the curve, and the curve. An EQ draws the combined response of its
+ * bands (drawEqCurve); the Simple Cabinet draws the response the engine reports
+ * for it (drawResponsePlot). EqCurveInteraction (eqCurve.ts) draws its handles
+ * on top of this; the graphic EQ draws only this.
  */
 import type { EqSpectrum } from "./eqSpectrum.js";
 
@@ -174,13 +176,26 @@ function drawSpectrum(
   ctx.restore();
 }
 
-/** Draws the grid, the live spectrum when there is one, and the combined
- * response, on the standard log axis unless given another. */
-export function drawEqCurve(
+/** How a response plot is framed. The defaults are the EQ curve's. */
+export interface ResponsePlotOptions {
+  /** Live spectrum drawn behind the curve. */
+  spectrum?: EqSpectrum | null;
+  /** Frequency axis; the standard log axis when omitted. */
+  axis?: EqFrequencyAxis | null;
+  /** Level at the bottom and top of the plot, in dB. */
+  minDb?: number;
+  maxDb?: number;
+  /** A horizontal grid line at every multiple of this. */
+  gridStepDb?: number;
+}
+
+/** Draws the grid, the live spectrum when there is one, and the curve that
+ * `magnitudeDbAt` traces. The EQ curve and the cabinet response both draw
+ * through this, so every plot shares one axis, grid and spectrum backdrop. */
+export function drawResponsePlot(
   canvas: HTMLCanvasElement,
-  bands: EqBand[],
-  spectrum: EqSpectrum | null = null,
-  axisOverride: EqFrequencyAxis | null = null,
+  magnitudeDbAt: (freq: number) => number,
+  options: ResponsePlotOptions = {},
 ): void {
   const ctx = canvas.getContext("2d");
   if (!ctx) {
@@ -197,16 +212,16 @@ export function drawEqCurve(
   const padding = 8;
   const plotWidth = width - padding * 2;
   const plotHeight = height - padding * 2;
-  const minDb = -18;
-  const maxDb = 18;
-  const sampleRate = 44100;
-  const axis = axisOverride ?? logFrequencyAxis(padding, plotWidth);
+  const minDb = options.minDb ?? -18;
+  const maxDb = options.maxDb ?? 18;
+  const gridStepDb = options.gridStepDb ?? 9;
+  const axis = options.axis ?? logFrequencyAxis(padding, plotWidth);
+  const dbToY = (db: number): number => padding + (maxDb - db) / (maxDb - minDb) * plotHeight;
 
   ctx.strokeStyle = themeColors.grid;
   ctx.lineWidth = 1;
-  const gridLines = 4;
-  for (let i = 0; i <= gridLines; i += 1) {
-    const y = padding + (plotHeight * i) / gridLines;
+  for (let db = Math.ceil(minDb / gridStepDb) * gridStepDb; db <= maxDb; db += gridStepDb) {
+    const y = dbToY(db);
     ctx.beginPath();
     ctx.moveTo(padding, y);
     ctx.lineTo(width - padding, y);
@@ -225,29 +240,49 @@ export function drawEqCurve(
     ctx.stroke();
   });
 
-  if (spectrum) {
-    drawSpectrum(ctx, spectrum, axis, padding, plotWidth, plotHeight, themeColors);
+  if (options.spectrum) {
+    drawSpectrum(ctx, options.spectrum, axis, padding, plotWidth, plotHeight, themeColors);
   }
 
   ctx.strokeStyle = themeColors.response;
   ctx.lineWidth = 2;
   ctx.beginPath();
 
+  // A frequency with no value (NaN) leaves a gap: nothing is drawn where nothing is known.
+  let penDown = false;
   for (let i = 0; i <= plotWidth; i += 1) {
     // Kept inside the audio band: an anchored axis can run past 20 Hz-20 kHz at the edges.
     const freq = Math.max(10, Math.min(21000, axis.toFreq(padding + i)));
-    const magnitude = bands.reduce((acc, band) => acc * bandMagnitude(freq, band, sampleRate), 1.0);
-    const db = 20 * Math.log10(Math.max(1e-6, magnitude));
-    const clampedDb = Math.max(minDb, Math.min(maxDb, db));
+    const db = magnitudeDbAt(freq);
+    if (!Number.isFinite(db)) {
+      penDown = false;
+      continue;
+    }
     const x = padding + i;
-    const y = padding + (maxDb - clampedDb) / (maxDb - minDb) * plotHeight;
-    if (i === 0) {
-      ctx.moveTo(x, y);
-    } else {
+    const y = dbToY(Math.max(minDb, Math.min(maxDb, db)));
+    if (penDown) {
       ctx.lineTo(x, y);
+    } else {
+      ctx.moveTo(x, y);
+      penDown = true;
     }
   }
   ctx.stroke();
+}
+
+/** Draws an EQ's combined band response over the grid and the live spectrum,
+ * on the standard log axis unless given another. */
+export function drawEqCurve(
+  canvas: HTMLCanvasElement,
+  bands: EqBand[],
+  spectrum: EqSpectrum | null = null,
+  axisOverride: EqFrequencyAxis | null = null,
+): void {
+  const sampleRate = 44100;
+  drawResponsePlot(canvas, (freq) => {
+    const magnitude = bands.reduce((acc, band) => acc * bandMagnitude(freq, band, sampleRate), 1.0);
+    return 20 * Math.log10(Math.max(1e-6, magnitude));
+  }, { spectrum, axis: axisOverride });
 }
 
 function peakingMagnitude(freq: number, band: EqBand, sampleRate: number): number {

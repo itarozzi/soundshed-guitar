@@ -1,6 +1,7 @@
 #pragma once
 
 #include "dsp/EffectGuids.h"
+#include "dsp/EffectParamSpec.h"
 #include "dsp/EffectProcessor.h"
 #include "dsp/EffectRegistry.h"
 #include "dsp/FiniteCheck.h"
@@ -70,23 +71,10 @@ enum Param : std::size_t
     kParamCount
 };
 
-struct ParamSpec
-{
-    const char* id;
-    const char* displayName;
-    double defaultValue;
-    double minValue;
-    double maxValue;
-    const char* unit;
-    const char* group;
-    bool advanced;
-    double step;
-};
-
 /// The one place parameter ranges live: registration and SetParam's clamping both read it.
 /// Entries are in `Param` order. The voicing defaults are the Cry Baby GCB-95 preset's, so a
 /// wah built straight from the registry sounds like a new node does.
-inline constexpr std::array<ParamSpec, kParamCount> kParams = {{
+inline constexpr std::array<EffectParamSpec, kParamCount> kParams = {{
     {"position", "Pedal Position", 0.5, 0.0, 1.0, "amount", "Pedal", false, 0.0},
     {"response", "Response", 12.0, 1.0, 150.0, "ms", "Pedal", true, 0.0},
     {"autoEngage", "Auto-Engage", 0.0, 0.0, 1.0, "toggle", "Pedal", false, 1.0},
@@ -105,15 +93,7 @@ inline constexpr std::array<ParamSpec, kParamCount> kParams = {{
 
 [[nodiscard]] inline std::size_t FindParam(const std::string& key)
 {
-    for (std::size_t index = 0; index < kParamCount; ++index)
-    {
-        if (key == kParams[index].id)
-        {
-            return index;
-        }
-    }
-
-    return kParamCount;
+    return FindParamSpec(kParams, key);
 }
 
 [[nodiscard]] inline float FlushDenormal(float value)
@@ -622,20 +602,7 @@ inline void RegisterWahEffect()
                        "factory presets voice classic and boutique wahs.";
     info.requiresResource = false;
     info.presets = wah::FactoryPresets();
-
-    for (const auto& spec : wah::kParams)
-    {
-        info.parameters.push_back({spec.id,
-                                   spec.displayName,
-                                   spec.defaultValue,
-                                   spec.minValue,
-                                   spec.maxValue,
-                                   spec.unit,
-                                   spec.group,
-                                   spec.advanced,
-                                   spec.step,
-                                   {}});
-    }
+    info.parameters = BuildParameterDefs(wah::kParams);
 
     EffectRegistry::Instance().Register(info.type, info, []() { return std::make_unique<WahEffect>(); });
 }

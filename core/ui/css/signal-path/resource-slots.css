@@ -398,7 +398,10 @@
   outline-offset: 2px;
 }
 
-.graphic-eq-reset-btn {
+/* Small toolbar buttons under a response plot: the graphic EQ's Reset, the
+   Simple Cabinet's Match and Export. */
+.graphic-eq-reset-btn,
+.cab-response-tools button {
   flex: 0 0 auto;
   padding: 6px 12px;
   border: 1px solid var(--border-medium);
@@ -412,14 +415,53 @@
   transition: border-color 0.15s ease, color 0.15s ease;
 }
 
-.graphic-eq-reset-btn:hover {
+.graphic-eq-reset-btn:hover,
+.cab-response-tools button:hover:not(:disabled) {
   border-color: var(--accent-primary);
   color: var(--text-primary);
 }
 
-.graphic-eq-reset-btn:focus-visible {
+.graphic-eq-reset-btn:focus-visible,
+.cab-response-tools button:focus-visible,
+.cab-response-ir-select:focus-visible {
   outline: 2px solid var(--accent-primary);
   outline-offset: 2px;
+}
+
+.cab-response-tools button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* The Simple Cabinet's response plot and its IR tools. */
+.cab-response {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cab-response-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.cab-response-ir-select {
+  flex: 1 1 180px;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 11px;
+}
+
+.cab-response-status {
+  color: var(--text-secondary);
+  font-size: 11px;
 }
 
 .graphic-eq-bands {

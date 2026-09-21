@@ -6,37 +6,14 @@
 import { EffectGuids } from "../../effectGuids.js";
 import { EqCurveInteraction, GRAPHIC_EQ_FREQUENCIES, buildEqBandConfigsFromParams, buildGraphicEqBandConfigs, clampGraphicEqFrequency, drawEqCurve, eqBandChangeToParams } from "../../eqCurve.js";
 import { anchoredFrequencyAxis, type EqFrequencyAxis } from "../../eqPlot.js";
-import { EqSpectrumWatcher, type EqSpectrumListener, type EqSpectrumSource } from "../../eqSpectrum.js";
 import { EffectTypeRegistry, getNodeEffectInfo } from "../../presetV2.js";
-import { getActivePresetForRender, uiState } from "../../state.js";
+import { getActivePresetForRender } from "../../state.js";
 import type { GraphNode, Preset } from "../../types.js";
 import { sendSignalPathNodeParamUpdate } from "../commands.js";
 import { requestNodeParamsPanel } from "../render.js";
 import { nodeParamsPanelElement } from "../state.js";
+import { ensureNodeSpectrumWatcher, fitCanvasToLayout } from "./nodeSpectrum.js";
 import { nodeParamKnobs, paramsPanelInteractions } from "./state.js";
-
-/** A node of the active preset, addressed the way its param edits are. A node
- * inside a composite being edited is not in any running graph, so it has none. */
-function nodeSpectrumSource(nodeId: string): EqSpectrumSource | null {
-  if (uiState.compositeEditMode) {
-    return null;
-  }
-  const presetId = uiState.activePresetId ?? undefined;
-  return { scope: "preset", nodeId, ...(presetId ? { presetId } : {}) };
-}
-
-/** The watcher for this panel's curve canvas, created on first use. The panel
- * tears it down with the curve whenever it rebuilds. */
-function ensureSpectrumWatcher(canvas: HTMLCanvasElement, nodeId: string, onSpectrum: EqSpectrumListener): EqSpectrumWatcher {
-  const existing = paramsPanelInteractions.eqSpectrum;
-  if (existing?.element === canvas) {
-    return existing;
-  }
-  existing?.destroy();
-  const watcher = new EqSpectrumWatcher(canvas, () => nodeSpectrumSource(nodeId), onSpectrum);
-  paramsPanelInteractions.eqSpectrum = watcher;
-  return watcher;
-}
 
 /**
  * The graphic EQ's sliders are spaced evenly, not by frequency, so its plot is
@@ -76,19 +53,14 @@ export function updateEqVisualization(node: GraphNode): void {
     return;
   }
 
-  const width = Math.max(1, canvas.clientWidth);
-  const height = Math.max(1, canvas.clientHeight);
-  if (canvas.width !== width || canvas.height !== height) {
-    canvas.width = width;
-    canvas.height = height;
-  }
+  fitCanvasToLayout(canvas);
 
   const bandConfigs = isGraphicEqNode
     ? buildGraphicEqBandConfigs(node.params ?? {})
     : buildEqBandConfigsFromParams(node.params ?? {});
 
   if (isGraphicEqNode) {
-    const watcher = ensureSpectrumWatcher(canvas, node.id, (spectrum) => {
+    const watcher = ensureNodeSpectrumWatcher(canvas, node.id, (spectrum) => {
       drawEqCurve(canvas, buildGraphicEqBandConfigs(node.params ?? {}), spectrum, graphicEqSliderAxis(canvas, node));
     });
     drawEqCurve(canvas, bandConfigs, watcher.spectrum, graphicEqSliderAxis(canvas, node));
@@ -128,7 +100,7 @@ export function updateEqVisualization(node: GraphNode): void {
         }
       }
     );
-    const watcher = ensureSpectrumWatcher(canvas, node.id, (spectrum) => paramsPanelInteractions.eq?.setSpectrum(spectrum));
+    const watcher = ensureNodeSpectrumWatcher(canvas, node.id, (spectrum) => paramsPanelInteractions.eq?.setSpectrum(spectrum));
     paramsPanelInteractions.eq.setSpectrum(watcher.spectrum);
   }
 }

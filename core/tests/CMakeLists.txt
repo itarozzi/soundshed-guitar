@@ -8,6 +8,7 @@ set(TEST_SOURCES
     AutomationPresetMappingTests.cpp
     AutomationSlotMidiToggleTests.cpp
     AutomationSlotThreadTests.cpp
+    BiquadDesignTests.cpp
     BiquadNyquistTests.cpp
     BuiltinAmpEffectTests.cpp
     BlendDefinitionWorkflowTests.cpp

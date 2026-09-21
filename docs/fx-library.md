@@ -295,9 +295,14 @@ Impulse response convolution for cabinet simulation.
 | `outputGain` | -24..+24 | 0.0 | dB |
 | `quality` | 0–3 | 1 | — |
 
+| `speakerDrive` | 0.0–1.0 | 0.0 | — |
 Quality levels: 0=Economy, 1=Standard, 2=High, 3=Full
 
 **Resource**: Audio file (`.wav`)
+
+Speaker Drive is the Simple Cabinet's level-dependent speaker stage (`SpeakerDrive.h`) in front
+of the convolution: what an IR, being a linear snapshot, cannot capture. It bends only what
+reaches the IR; the dry mix stays clean. At 0 it is exactly transparent.
 
 ### Plugin Host (`plugin_host`)
 JUCE-only utility effect that hosts an external plugin supported by JUCE's plugin hosting APIs. It is registered by the JUCE adapter, so core-only builds do not expose this effect type.
@@ -482,15 +487,47 @@ Long, diffuse late reverb with soft early reflections, slow modulation, and a wi
 | `outputGain` | -18..+12 | 0.0 | dB |
 
 ### Simple Cabinet (`cab_simple`)
-Lightweight 4x12-style cabinet voicing with a low resonance and speaker roll-off (no IR required).
-Use an IR cabinet when a particular speaker and microphone response is needed.
+Filter-based cabinet with no IR required: five cabinet types, a mic with type, position and
+distance, an optional second mic, speaker drive and stereo spread. Use an IR cabinet when one
+particular speaker and microphone's exact notches matter; the Simple Cab reaches their broad
+shape, and can be matched to an IR from the library (below).
 
-| Parameter | Range | Default | Unit |
-|-----------|-------|---------|------|
-| `bass` | 0.0–1.0 | 0.5 | — |
-| `presence` | 0.0–1.0 | 0.5 | — |
-| `brightness` | 0.0–1.0 | 0.5 | — |
-| `mix` | 0.0–1.0 | 1.0 | — |
+The voicing is a pure model (`SimpleCabVoicing.h`) that the effect runs and everything else
+asks: the panel's response curve, Auto Level, IR export and IR matching all use the same
+response, so none of them can disagree with what is heard. The defaults are the original 4x12
+voicing exactly, so presets saved before these controls existed sound the same.
+
+| Parameter | Range | Default | Unit | Notes |
+|-----------|-------|---------|------|-------|
+| `cabinet` | 0–4 | 0 | enum | 4x12 Closed, 1x12 Open, 2x12 Open, 2x12 Closed, 4x10 Open. Types are level-matched at their default settings |
+| `size` | 0.0–1.0 | 0.5 | — | Moves the low resonance and low cut together, ±half an octave; higher is a bigger box |
+| `bass` | 0.0–1.0 | 0.5 | — | Height of the low resonance, and depth of the low cut |
+| `mids` | 0.0–1.0 | 0.5 | — | ±6 dB bell at the cabinet's low-mid frequency (450–700 Hz) |
+| `presence` | 0.0–1.0 | 0.5 | — | Upper-mid peak, 2–4.5 kHz depending on cabinet |
+| `brightness` | 0.0–1.0 | 0.5 | — | Speaker roll-off frequency (sixth order) |
+| `micType` | 0–2 | 0 | enum | Dynamic (the reference), Ribbon (dark top, more proximity bass), Condenser (extended top) |
+| `micPosition` | 0.0–1.0 | 0.5 | — | 0 = dust-cap centre (bright, hard presence), 0.5 = cap edge, 1 = cone edge (dark, fuller low mids) |
+| `micDistance` | 0.0–1.0 | 0.0 | — | 0 to 1 m (quadratic). Loses the close-up bass boost and adds the floor bounce's comb |
+| `speakerDrive` | 0.0–1.0 | 0.0 | — | Level-dependent cone excursion and voice-coil compression (`SpeakerDrive.h`); transparent at 0 and at low level |
+| `outputGain` | -24..+24 | 0.0 | dB | |
+| `autoLevel` | 0/1 | 0 | toggle | Holds loudness to the default voicing's, so tone moves don't change level |
+| `mic2Blend` | 0.0–1.0 | 0.0 | blend | Mic 1 (A) to mic 2 (B). Mic 2 costs nothing until blended in (advanced) |
+| `mic2Type` | 0–2 | 1 | enum | Advanced |
+| `mic2Position` | 0.0–1.0 | 0.5 | — | Advanced |
+| `mic2Distance` | 0.0–1.0 | 0.0 | — | Advanced. The time between the two mics is part of the blend's sound |
+| `mic2Polarity` | 0/1 | 0 | toggle | Inverts mic 2 (advanced) |
+| `spread` | 0.0–1.0 | 0.0 | — | Voices the two sides like two speakers of one cab, so a mono input comes out stereo (advanced) |
+| `mix` | 0.0–1.0 | 1.0 | — | Dry blend, kept for older presets (advanced). The dry signal is not time-aligned with the cabinet's, so a partial mix combs: at 50% there is a ~15 dB notch around 3.5 kHz, which the response curve shows. Blend a second mic instead |
+
+**Panel tools.** The params panel draws the response curve the engine reports
+(`getEffectResponse`) over the live spectrum of the cab's input, and offers **Export as IR**
+(`exportEffectAsIr`: a 48 kHz IR into the library, mono unless spread makes the sides differ;
+Speaker Drive, being level-dependent, is not captured) and **Match** (`matchSimpleCabToIr`:
+tries every cabinet and mic type and searches the tone controls for the closest 1/6-octave
+shape to a library IR, keeping the node's Output, Auto Level and Speaker Drive).
+
+Seven factory presets ship with it; the first, **Closed 4x12**, is the defaults and starts new
+nodes. Presets set every control except Output.
 
 ### VCA Compressor (`compressor_vca`)
 Clean, precise VCA-style compressor.

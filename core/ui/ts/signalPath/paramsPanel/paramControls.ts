@@ -11,10 +11,9 @@ import type { BlendMode, BlendModelMapping, GraphNode, Preset } from "../../type
 import { sendSignalPathNodeParamUpdate } from "../commands.js";
 import { requestNodeParamsPanel } from "../render.js";
 import { nodeParamsPanelElement } from "../state.js";
-import { updateEqVisualization } from "./eq.js";
 import { isPitchShiftRangeSetting, isPitchShiftType, reconcilePitchShiftParams, semitoneKnobRange } from "./pitchShiftRange.js";
-import { updateSpatialVisualization } from "./spatial.js";
 import { nodeParamKnobs } from "./state.js";
+import { refreshNodeVisualizations } from "./visualizations.js";
 
 export { buildDefaultParamControlsHtml, formatParamLabel, isToggleParam } from "../../parameterControlMarkup.js";
 
@@ -104,6 +103,7 @@ export function bindNodeParamControls(node: GraphNode, preset: Preset): void {
             }
           }
         }
+        refreshNodeVisualizations(node);
       }
     });
   });
@@ -125,6 +125,7 @@ export function bindNodeParamControls(node: GraphNode, preset: Preset): void {
         if (valueEl) {
           valueEl.textContent = value <= 0.01 ? "A" : value >= 0.99 ? "B" : `${Math.round(value * 100)}%`;
         }
+        refreshNodeVisualizations(node);
       }
     });
   });
@@ -152,8 +153,8 @@ export function bindNodeParamControls(node: GraphNode, preset: Preset): void {
         if (muteLabel) {
           muteLabel.textContent = input.checked ? "Muted" : "Active";
         }
-        
-        updateEqVisualization(node);
+
+        refreshNodeVisualizations(node);
       }
     });
   });
@@ -311,8 +312,7 @@ export function bindNodeParamControls(node: GraphNode, preset: Preset): void {
         sendSignalPathNodeParamUpdate(nodeId, paramKey, normalizedValue);
         syncPitchShiftRange(node, nodeId, paramKey);
 
-        updateEqVisualization(node);
-        updateSpatialVisualization(node);
+        refreshNodeVisualizations(node);
 
         if (isBlendParam && blendState) {
           updateBlendParamIndicators(nodeParamsPanelElement, node, blendState);

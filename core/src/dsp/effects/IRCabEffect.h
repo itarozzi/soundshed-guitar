@@ -1,5 +1,6 @@
 #pragma once
 
+#include "dsp/BiquadDesign.h"
 #include "dsp/EffectProcessor.h"
 #include "dsp/EffectRegistry.h"
 #include "dsp/EffectGuids.h"
@@ -7,6 +8,7 @@
 #include "dsp/RealtimeConvolver.h"
 #include "dsp/IRTypes.h"
 #include "dsp/IRWavLoader.h"
+#include "dsp/effects/SpeakerDrive.h"
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -41,6 +43,7 @@ class IRCabEffect : public EffectProcessor
         UpdateAirCoefficients();
         UpdateCabFilterCoefficients();
         UpdateMicCoefficients();
+        mSpeakerDrive.Prepare(sampleRate);
 
         mInputBufferL.resize(static_cast<size_t>(maxBlockSize));
         mInputBufferR.resize(static_cast<size_t>(maxBlockSize));
@@ -80,6 +83,7 @@ class IRCabEffect : public EffectProcessor
         ResetAirState();
         ResetCabFilterState();
         ResetMicPositionState();
+        mSpeakerDrive.Reset();
         mResourceTransitionSamplesRemaining = 0;
         mPrevHasSlotA = false;
         mPrevHasSlotB = false;
@@ -187,6 +191,18 @@ class IRCabEffect : public EffectProcessor
         {
             mInputBufferL[i] = inputs[0] ? inputs[0][i] : 0.0f;
             mInputBufferR[i] = inputs[1] ? inputs[1][i] : (inputs[0] ? inputs[0][i] : 0.0f);
+        }
+
+        // Speaker drive bends what reaches the IR, as a pushed speaker would; the dry path
+        // mixed in later stays clean.
+        if (mSpeakerDrive.IsActive())
+        {
+            for (int i = 0; i < numSamples; ++i)
+            {
+                mInputBufferL[i] = static_cast<float>(mSpeakerDrive.Process(mInputBufferL[i], 0));
+                mInputBufferR[i] = static_cast<float>(mSpeakerDrive.Process(mInputBufferR[i], 1));
+                mSpeakerDrive.AdvanceSample();
+            }
         }
 
         // Process through convolvers
@@ -642,6 +658,10 @@ class IRCabEffect : public EffectProcessor
             mAir = std::clamp(value, 0.0, 1.0);
             UpdateAirCoefficients();
         }
+        else if (key == "speakerDrive")
+        {
+            mSpeakerDrive.SetDrive(value);
+        }
         else if (key == "airMode")
         {
             const int mode = static_cast<int>(std::clamp(value, 0.0, 2.0));
@@ -769,6 +789,11 @@ class IRCabEffect : public EffectProcessor
         if (key == "air")
         {
             return mAir;
+        }
+
+        if (key == "speakerDrive")
+        {
+            return mSpeakerDrive.GetDrive();
         }
 
         if (key == "airMode")
@@ -1569,39 +1594,30 @@ class IRCabEffect : public EffectProcessor
         return output;
     }
 
+    // The filter designs come from BiquadDesign.h, which also keeps them stable when a host
+    // runs below twice their frequency. These unpack a design into the member quintuples
+    // the processing code reads.
+
+    static void Unpack(const BiquadCoefficients& c, double& b0, double& b1, double& b2, double& a1, double& a2)
+    {
+        b0 = c.b0;
+        b1 = c.b1;
+        b2 = c.b2;
+        a1 = c.a1;
+        a2 = c.a2;
+    }
+
     void ComputeHighShelf(double freq, double slope, double gainDb, double& b0, double& b1, double& b2, double& a1,
                           double& a2)
     {
-        const double A = std::pow(10.0, gainDb / 40.0);
-        const double w0 = 2.0 * kPi * freq / mSampleRate;
-        const double cosw0 = std::cos(w0);
-        const double sinw0 = std::sin(w0);
-        const double sqrtA = std::sqrt(A);
-        const double alpha = sinw0 / 2.0 * std::sqrt((A + 1.0 / A) * (1.0 / slope - 1.0) + 2.0);
-
-        const double a0 = (A + 1.0) - (A - 1.0) * cosw0 + 2.0 * sqrtA * alpha;
-        b0 = A * ((A + 1.0) + (A - 1.0) * cosw0 + 2.0 * sqrtA * alpha) / a0;
-        b1 = -2.0 * A * ((A - 1.0) + (A + 1.0) * cosw0) / a0;
-        b2 = A * ((A + 1.0) + (A - 1.0) * cosw0 - 2.0 * sqrtA * alpha) / a0;
-        a1 = 2.0 * ((A - 1.0) - (A + 1.0) * cosw0) / a0;
-        a2 = ((A + 1.0) - (A - 1.0) * cosw0 - 2.0 * sqrtA * alpha) / a0;
+        Unpack(biquad::HighShelf(freq, biquad::ShelfQFromSlope(slope, gainDb), gainDb, mSampleRate), b0, b1, b2, a1,
+               a2);
     }
 
     void ComputePeakingEQ(double freq, double Q, double gainDb, double& b0, double& b1, double& b2, double& a1,
                           double& a2)
     {
-        const double A = std::pow(10.0, gainDb / 40.0);
-        const double w0 = 2.0 * kPi * freq / mSampleRate;
-        const double cosw0 = std::cos(w0);
-        const double sinw0 = std::sin(w0);
-        const double alpha = sinw0 / (2.0 * Q);
-
-        const double a0 = 1.0 + alpha / A;
-        b0 = (1.0 + alpha * A) / a0;
-        b1 = (-2.0 * cosw0) / a0;
-        b2 = (1.0 - alpha * A) / a0;
-        a1 = (-2.0 * cosw0) / a0;
-        a2 = (1.0 - alpha / A) / a0;
+        Unpack(biquad::Peaking(freq, Q, gainDb, mSampleRate), b0, b1, b2, a1, a2);
     }
 
     void UpdateAirCoefficients()
@@ -1648,34 +1664,12 @@ class IRCabEffect : public EffectProcessor
 
     void ComputeHighPass(double freq, double& b0, double& b1, double& b2, double& a1, double& a2)
     {
-        const double w0 = 2.0 * kPi * freq / mSampleRate;
-        const double cosw0 = std::cos(w0);
-        const double sinw0 = std::sin(w0);
-        const double q = 0.70710678;
-        const double alpha = sinw0 / (2.0 * q);
-
-        const double a0 = 1.0 + alpha;
-        b0 = ((1.0 + cosw0) / 2.0) / a0;
-        b1 = (-(1.0 + cosw0)) / a0;
-        b2 = ((1.0 + cosw0) / 2.0) / a0;
-        a1 = (-2.0 * cosw0) / a0;
-        a2 = (1.0 - alpha) / a0;
+        Unpack(biquad::HighPass(freq, biquad::kButterworthQ, mSampleRate), b0, b1, b2, a1, a2);
     }
 
     void ComputeLowPass(double freq, double& b0, double& b1, double& b2, double& a1, double& a2)
     {
-        const double w0 = 2.0 * kPi * freq / mSampleRate;
-        const double cosw0 = std::cos(w0);
-        const double sinw0 = std::sin(w0);
-        const double q = 0.70710678;
-        const double alpha = sinw0 / (2.0 * q);
-
-        const double a0 = 1.0 + alpha;
-        b0 = ((1.0 - cosw0) / 2.0) / a0;
-        b1 = (1.0 - cosw0) / a0;
-        b2 = ((1.0 - cosw0) / 2.0) / a0;
-        a1 = (-2.0 * cosw0) / a0;
-        a2 = (1.0 - alpha) / a0;
+        Unpack(biquad::LowPass(freq, biquad::kButterworthQ, mSampleRate), b0, b1, b2, a1, a2);
     }
 
     void UpdateCabFilterCoefficients()
@@ -1858,6 +1852,7 @@ class IRCabEffect : public EffectProcessor
     double mAir = 0.0;
     AirMode mAirMode = AirMode::OptionA_Shelf;
     bool mAirActive = false;
+    SpeakerDrive mSpeakerDrive;
 
     // Air filter coefficients
     double mAirShelfB0 = 0, mAirShelfB1 = 0, mAirShelfB2 = 0, mAirShelfA1 = 0, mAirShelfA2 = 0;
@@ -1934,6 +1929,7 @@ inline void RegisterIRCabEffect()
                        {"lowCutHz", "Low Cut", 20.0, 20.0, 1000.0, "Hz", "Tone"},
                        {"highCutHz", "High Cut", 20000.0, 1000.0, 20000.0, "Hz", "Tone"},
                        {"air", "Air", 0.0, 0.0, 1.0, "amount", "Tone"},
+                       {"speakerDrive", "Speaker Drive", 0.0, 0.0, 1.0, "amount", "Tone"},
                        {"airMode", "Air Mode", 0.0, 0.0, 2.0, "enum", "Tone", true, 1.0, {"Shelf", "Presence", "Both"}},
                        {"micEmulation", "Mic Emulation", 0.0, 0.0, 1.0, "toggle", "Tone", true},
                        {"lrSplit", "L/R Split", 0.0, 0.0, 1.0, "toggle", "IR A", true},

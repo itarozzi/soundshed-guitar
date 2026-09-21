@@ -137,8 +137,15 @@ merging, and verification of both saved data and the audio path.
    those ids in the UI's `EFFECT_ALIAS_MAP`. `EffectAliasParityTests` holds the
    engine's registered aliases to that list and `tests/effectAliases.test.ts`
    holds the UI's, so a preset resolves to the same effect on both sides.
-4. Define parameters (ranges, defaults) and category.
-5. Update docs/fx-library.md if behavior changes.
+4. Define parameters (ranges, defaults) and category, as a `constexpr std::array<EffectParamSpec, N>`
+   (`core/src/dsp/EffectParamSpec.h`): the one place the ranges live. `BuildParameterDefs` registers
+   them, and `FindParamSpec`/`NormaliseParamValue` serve SetParam and GetParam without allocating
+   (see WahEffect, SimpleCabEffect).
+5. Design filters with `core/src/dsp/BiquadDesign.h` (RBJ designs clamped below Nyquist, their
+   responses, TDF-II state, coefficient ramps) rather than another copy of the cookbook. An effect
+   with a fixed, linear response should override `GetFrequencyResponse`: the engine can then answer
+   `getEffectResponse` for its curve and render it as an IR (`core/src/dsp/EffectAnalysis.h`).
+6. Update docs/fx-library.md if behavior changes.
 
 ### Add or Change a UI Message
 

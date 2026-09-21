@@ -300,18 +300,32 @@ std::vector<std::vector<float>> ConvertToSampleRate(const DecodedWav& wav, doubl
 std::vector<std::uint8_t> EncodeStereo16BitWav(const std::vector<float>& left, const std::vector<float>& right,
                                                int sampleRate)
 {
-    if (left.empty() || right.empty() || left.size() != right.size() || sampleRate <= 0)
+    const std::vector<float>* channels[] = {&left, &right};
+    return Encode16BitWav(channels, sampleRate);
+}
+
+std::vector<std::uint8_t> Encode16BitWav(std::span<const std::vector<float>* const> channels, int sampleRate)
+{
+    if (channels.empty() || channels.size() > 8 || sampleRate <= 0)
     {
         return {};
     }
 
-    constexpr std::uint16_t kChannels = 2;
+    for (const auto* channel : channels)
+    {
+        if (!channel || channel->empty() || channel->size() != channels.front()->size())
+        {
+            return {};
+        }
+    }
+
+    const auto channelCount = static_cast<std::uint16_t>(channels.size());
     constexpr std::uint16_t kBitsPerSample = 16;
-    constexpr std::uint16_t kBlockAlign = kChannels * (kBitsPerSample / 8);
+    const std::uint16_t blockAlign = channelCount * (kBitsPerSample / 8);
     constexpr std::uint32_t kHeaderSize = 44u;
 
-    const auto frameCount = static_cast<std::uint32_t>(left.size());
-    const std::uint32_t dataSize = frameCount * kBlockAlign;
+    const auto frameCount = static_cast<std::uint32_t>(channels.front()->size());
+    const std::uint32_t dataSize = frameCount * blockAlign;
 
     std::vector<std::uint8_t> bytes;
     bytes.reserve(static_cast<std::size_t>(kHeaderSize + dataSize));
@@ -336,10 +350,10 @@ std::vector<std::uint8_t> EncodeStereo16BitWav(const std::vector<float>& left, c
     pushChars("fmt ", 4);
     pushU32(16u);
     pushU16(kWavFormatPcm);
-    pushU16(kChannels);
+    pushU16(channelCount);
     pushU32(static_cast<std::uint32_t>(sampleRate));
-    pushU32(static_cast<std::uint32_t>(sampleRate) * kBlockAlign);
-    pushU16(kBlockAlign);
+    pushU32(static_cast<std::uint32_t>(sampleRate) * blockAlign);
+    pushU16(blockAlign);
     pushU16(kBitsPerSample);
     pushChars("data", 4);
     pushU32(dataSize);
@@ -349,10 +363,12 @@ std::vector<std::uint8_t> EncodeStereo16BitWav(const std::vector<float>& left, c
         pushU16(static_cast<std::uint16_t>(static_cast<std::int16_t>(std::lround(clamped * 32767.0f))));
     };
 
-    for (std::size_t i = 0; i < left.size(); ++i)
+    for (std::uint32_t frame = 0; frame < frameCount; ++frame)
     {
-        pushSample(left[i]);
-        pushSample(right[i]);
+        for (const auto* channel : channels)
+        {
+            pushSample((*channel)[frame]);
+        }
     }
 
     return bytes;

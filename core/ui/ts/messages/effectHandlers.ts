@@ -10,6 +10,7 @@ import { handleCompositeDefinitionAdded, handleCompositeDefinitionRemoved, handl
 import type { CompositeEffectDefinition } from "../compositeTypes.js";
 import { handleCustomEffectLibrary } from "../customEffects.js";
 import { EffectGuids } from "../effectGuids.js";
+import { applyEffectResponse, applySimpleCabIrMatch } from "../effectResponse.js";
 import { resolveExposedResourceSlot } from "../exposedResourceSlots.js";
 import { refreshFxSelector } from "../fxSelector.js";
 import { appendLog } from "../logging.js";
@@ -53,6 +54,16 @@ export function onGeneratedCustomEffectBundleExportSaved(payload: IncomingPayloa
 export function onGeneratedCustomEffectBundleExportFailed(payload: IncomingPayload): void {
   const exportPayload = payload as { message?: string };
   showNotification("Custom Effect bundle export failed", exportPayload.message ?? "");
+}
+
+/** An effect's response curve, answering getEffectResponse (see effectResponse.ts). */
+export function onEffectResponse(payload: IncomingPayload): void {
+  applyEffectResponse(payload);
+}
+
+/** The Simple Cabinet settings matched to a library IR, answering matchSimpleCabToIr. */
+export function onSimpleCabIrMatch(payload: IncomingPayload): void {
+  applySimpleCabIrMatch(payload);
 }
 
 export function onEffectCatalog(payload: IncomingPayload): void {

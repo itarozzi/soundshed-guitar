@@ -637,10 +637,7 @@ void PluginController::HandleSaveLocalLibraryResourceRequest(const nlohmann::jso
 
     if (!saved)
     {
-        ReportErrorToUI("Local resource save failed", error);
-        SendMessageToUI(nlohmann::json{
-            {"type", "resourceImportFailed"}, {"message", "Local resource save failed"}, {"detail", error}}
-                            .dump());
+        AnnounceLocalResourceSaveFailure(error);
         return;
     }
 
@@ -664,20 +661,45 @@ void PluginController::HandleSaveLocalLibraryResourceRequest(const nlohmann::jso
         HandleUpdateNodeResourceRequest(updatePayload);
     }
 
-    if (!mResourceLibrary.HasResource(saved->type, saved->id))
+    AnnounceSavedLocalResource(*saved);
+}
+
+void PluginController::AnnounceSavedLocalResource(const LibraryResource& saved, const std::string& requestId)
+{
+    BroadcastState();
+
+    if (!mResourceLibrary.HasResource(saved.type, saved.id))
     {
-        BroadcastState();
         return;
     }
 
-    BroadcastState();
     TouchSharedSyncState({"resourceLibrary"});
     nlohmann::json msg;
     msg["type"] = "resourceImported";
-    msg["resourceType"] = saved->type;
-    msg["id"] = saved->id;
-    msg["name"] = saved->name;
-    msg["filePath"] = util::PathToUtf8(saved->filePath);
+
+    if (!requestId.empty())
+    {
+        msg["requestId"] = requestId;
+    }
+
+    msg["resourceType"] = saved.type;
+    msg["id"] = saved.id;
+    msg["name"] = saved.name;
+    msg["filePath"] = util::PathToUtf8(saved.filePath);
+    SendMessageToUI(msg.dump());
+}
+
+void PluginController::AnnounceLocalResourceSaveFailure(const std::string& error, const std::string& requestId)
+{
+    ReportErrorToUI("Local resource save failed", error);
+    nlohmann::json msg = {
+        {"type", "resourceImportFailed"}, {"message", "Local resource save failed"}, {"detail", error}};
+
+    if (!requestId.empty())
+    {
+        msg["requestId"] = requestId;
+    }
+
     SendMessageToUI(msg.dump());
 }
 

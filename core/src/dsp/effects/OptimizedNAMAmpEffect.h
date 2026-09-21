@@ -8,7 +8,7 @@
  * runtime resampling around the core model.
  */
 
-#include "dsp/BiquadFrequency.h"
+#include "dsp/BiquadDesign.h"
 #include "dsp/EffectProcessor.h"
 #include "dsp/LevelTargets.h"
 #include "dsp/EffectRegistry.h"
@@ -43,94 +43,42 @@ void ForceFactoryRegistration();
 
 namespace guitarfx
 {
-// Simple biquad filter (Transposed Direct Form II) for amp tone stack.
-// Coefficients use Audio EQ Cookbook formulas (RBJ).
+// One section of the amp tone stack, in transposed direct form II. The designs come from
+// BiquadDesign.h; the shelves use slope S = 1, which is Q = 1/sqrt(2).
 struct AmpToneBiquad
 {
-    double b0 = 1.0, b1 = 0.0, b2 = 0.0;
-    double a1 = 0.0, a2 = 0.0;
-    double s1 = 0.0, s2 = 0.0;
+    BiquadCoefficients coefficients;
+    biquad::State state;
 
     void Reset()
     {
-        s1 = s2 = 0.0;
+        state.Reset();
     }
 
     float Process(float x)
     {
-        double y = b0 * x + s1;
-        s1 = b1 * x - a1 * y + s2;
-        s2 = b2 * x - a2 * y;
-        return static_cast<float>(y);
+        return static_cast<float>(state.Process(coefficients, x));
     }
 
-    // Low-shelving filter (slope S=1)
     void SetLowShelf(double freqHz, double gainDb, double sampleRate)
     {
-        static constexpr double kPi = 3.14159265358979323846;
-        const double A = std::pow(10.0, gainDb / 40.0);
-        const double w0 = 2.0 * kPi * ClampBiquadFrequency(freqHz, sampleRate) / sampleRate;
-        const double cosw = std::cos(w0);
-        const double sinw = std::sin(w0);
-        const double sqA = std::sqrt(A);
-        // alpha for S=1: sin(w0)/2 * sqrt(2) = sin(w0)/sqrt(2)
-        const double alpha = sinw / std::sqrt(2.0);
-        const double a0 = (A + 1) + (A - 1) * cosw + 2 * sqA * alpha;
-        b0 = A * ((A + 1) - (A - 1) * cosw + 2 * sqA * alpha) / a0;
-        b1 = 2 * A * ((A - 1) - (A + 1) * cosw) / a0;
-        b2 = A * ((A + 1) - (A - 1) * cosw - 2 * sqA * alpha) / a0;
-        a1 = -2 * ((A - 1) + (A + 1) * cosw) / a0;
-        a2 = ((A + 1) + (A - 1) * cosw - 2 * sqA * alpha) / a0;
+        coefficients = biquad::LowShelf(freqHz, biquad::kButterworthQ, gainDb, sampleRate);
     }
 
-    // High-shelving filter (slope S=1)
     void SetHighShelf(double freqHz, double gainDb, double sampleRate)
     {
-        static constexpr double kPi = 3.14159265358979323846;
-        const double A = std::pow(10.0, gainDb / 40.0);
-        const double w0 = 2.0 * kPi * ClampBiquadFrequency(freqHz, sampleRate) / sampleRate;
-        const double cosw = std::cos(w0);
-        const double sinw = std::sin(w0);
-        const double sqA = std::sqrt(A);
-        const double alpha = sinw / std::sqrt(2.0);
-        const double a0 = (A + 1) - (A - 1) * cosw + 2 * sqA * alpha;
-        b0 = A * ((A + 1) + (A - 1) * cosw + 2 * sqA * alpha) / a0;
-        b1 = -2 * A * ((A - 1) + (A + 1) * cosw) / a0;
-        b2 = A * ((A + 1) + (A - 1) * cosw - 2 * sqA * alpha) / a0;
-        a1 = 2 * ((A - 1) - (A + 1) * cosw) / a0;
-        a2 = ((A + 1) - (A - 1) * cosw - 2 * sqA * alpha) / a0;
+        coefficients = biquad::HighShelf(freqHz, biquad::kButterworthQ, gainDb, sampleRate);
     }
 
-    // Peaking (bell) EQ
     void SetPeaking(double freqHz, double gainDb, double Q, double sampleRate)
     {
-        static constexpr double kPi = 3.14159265358979323846;
-        const double A = std::pow(10.0, gainDb / 40.0);
-        const double w0 = 2.0 * kPi * ClampBiquadFrequency(freqHz, sampleRate) / sampleRate;
-        const double cosw = std::cos(w0);
-        const double alpha = std::sin(w0) / (2.0 * Q);
-        const double a0 = 1.0 + alpha / A;
-        b0 = (1.0 + alpha * A) / a0;
-        b1 = (-2.0 * cosw) / a0;
-        b2 = (1.0 - alpha * A) / a0;
-        a1 = (-2.0 * cosw) / a0;
-        a2 = (1.0 - alpha / A) / a0;
+        coefficients = biquad::Peaking(freqHz, Q, gainDb, sampleRate);
     }
 
     // High-pass filter used for the post-model DC blocker.
     void SetHighPass(double freqHz, double Q, double sampleRate)
     {
-        static constexpr double kPi = 3.14159265358979323846;
-        const double w0 = 2.0 * kPi * ClampBiquadFrequency(freqHz, sampleRate) / sampleRate;
-        const double cosw = std::cos(w0);
-        const double sinw = std::sin(w0);
-        const double alpha = sinw / (2.0 * Q);
-        const double a0 = 1.0 + alpha;
-        b0 = (1.0 + cosw) * 0.5 / a0;
-        b1 = -(1.0 + cosw) / a0;
-        b2 = (1.0 + cosw) * 0.5 / a0;
-        a1 = (-2.0 * cosw) / a0;
-        a2 = (1.0 - alpha) / a0;
+        coefficients = biquad::HighPass(freqHz, Q, sampleRate);
     }
 };
 

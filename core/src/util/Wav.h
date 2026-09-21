@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <optional>
+#include <span>
 #include <vector>
 
 namespace guitarfx
@@ -30,6 +31,11 @@ struct DecodedWav
 /// length, or the sample rate is not positive.
 [[nodiscard]] std::vector<std::uint8_t> EncodeStereo16BitWav(const std::vector<float>& left,
                                                              const std::vector<float>& right, int sampleRate);
+
+/// EncodeStereo16BitWav for any number of channels from 1 to 8, interleaved in the order
+/// given. Same clamping and the same empty result for empty or mismatched channels.
+[[nodiscard]] std::vector<std::uint8_t> Encode16BitWav(std::span<const std::vector<float>* const> channels,
+                                                       int sampleRate);
 
 /// Writes the bytes produced by EncodeStereo16BitWav to disk, creating parent
 /// directories as needed. Returns false on invalid input or any I/O failure.

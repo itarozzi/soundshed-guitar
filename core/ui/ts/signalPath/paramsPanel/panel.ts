@@ -26,7 +26,8 @@ import { bindEquipmentImageFallback, bindResourceControls } from "../resourceCon
 import { analyzerSpectrogramHistoryByNode, getSelectedNodeDspStatusNodeId, nodeParamsPanelElement, setLastSelectedNode, setSelectedNodeDspStatusNodeId } from "../state.js";
 import { bindSelectedNodeDspStatusToggle, isDspStatusVisible, resetDspStatusAverages, updateSelectedNodeAnalyzerPanel, updateSelectedNodeDspStatus, updateSelectedNodePeakMeter } from "../telemetry.js";
 import { getEffectVisualizationEquipmentImage, getEffectVisualizationStockImage, updateEffectVisualization } from "../visualization.js";
-import { bindGraphicEqControls, updateEqVisualization } from "./eq.js";
+import { bindCabResponseControls, buildCabResponseSectionHtml } from "./cabResponse.js";
+import { bindGraphicEqControls } from "./eq.js";
 import { bindHostedPluginActionControls, bindHostedPluginListControls } from "./hostedPlugins.js";
 import { applyCustomLayoutScaling, bindLayoutOverlayBypassToggles } from "./layoutOverlay.js";
 import { buildMixerInputControlsHtml } from "./mixerInput.js";
@@ -34,9 +35,9 @@ import { bindBlendModeOverride, bindBypassButton, bindCustomEffectActionControls
 import { bindNodeParamControls, bindParamTabs, formatParamLabel, isToggleParam } from "./paramControls.js";
 import { isPitchShiftType, semitoneKnobRange } from "./pitchShiftRange.js";
 import { buildNodeResourceSelector, preloadResourceNavigationCaches } from "./resourceSelector.js";
-import { updateSpatialVisualization } from "./spatial.js";
 import { setNodeParamsPanelRenderer } from "../render.js";
 import { nodeParamKnobs, paramsPanelInteractions } from "./state.js";
+import { refreshNodeVisualizations } from "./visualizations.js";
 
 export function showNodeParamsPanel(node: GraphNode, preset: Preset): void {
   if (!nodeParamsPanelElement) {
@@ -287,6 +288,7 @@ export function showNodeParamsPanel(node: GraphNode, preset: Preset): void {
     </section>
   ` : "";
 
+  const cabResponseSection = buildCabResponseSectionHtml(node);
   const mixerInputControls = buildMixerInputControlsHtml(node, preset);
 
   preloadResourceNavigationCaches(node, preset, typeInfo);
@@ -406,6 +408,7 @@ export function showNodeParamsPanel(node: GraphNode, preset: Preset): void {
     ${eqVisualizer}
     ${spatialVisualizer}
     ${graphicEqControls}
+    ${cabResponseSection}
     ${mixerInputControls}
     <div class="default-effect-section default-effect-section-controls default-effect-section-custom-layout">
       ${cabIrResourceSelectors}
@@ -453,6 +456,7 @@ export function showNodeParamsPanel(node: GraphNode, preset: Preset): void {
       ${eqVisualizer}
       ${spatialVisualizer}
       ${graphicEqControls}
+      ${cabResponseSection}
       ${mixerInputControls}
       <div class="default-effect-section default-effect-section-controls">
         ${cabIrResourceSelectors}
@@ -522,17 +526,13 @@ export function showNodeParamsPanel(node: GraphNode, preset: Preset): void {
     </div>
   `;
 
-  if (isEqNode) {
-    updateEqVisualization(node);
-  }
-  if (isSpatialNode) {
-    updateSpatialVisualization(node);
-  }
+  refreshNodeVisualizations(node);
 
   // Bind controls
   bindNodeParamControls(node, preset);
   bindEffectPresetsButton(node);
   bindGraphicEqControls(node, preset);
+  bindCabResponseControls(node, preset);
   bindLayoutOverlayBypassToggles(node, preset);
   bindResourceControls(node, preset);
   bindEquipmentImageFallback();

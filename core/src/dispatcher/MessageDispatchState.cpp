@@ -137,6 +137,24 @@ bool MessageDispatcher::DispatchStateAndLists(PluginController& c, const nlohman
         return true;
     }
 
+    if (type == "getEffectResponse")
+    {
+        c.HandleGetEffectResponseRequest(msg);
+        return true;
+    }
+
+    if (type == "exportEffectAsIr")
+    {
+        c.HandleExportEffectAsIrRequest(msg);
+        return true;
+    }
+
+    if (type == "matchSimpleCabToIr")
+    {
+        c.HandleMatchSimpleCabToIrRequest(msg);
+        return true;
+    }
+
     if (type == "getTheme")
     {
         c.HandleGetThemeRequest();

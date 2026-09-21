@@ -237,16 +237,35 @@ void TestSimpleCab()
     std::cout << "Test: simple cab filters stay stable at every sample rate\n";
     const int failuresBefore = gFailures;
 
-    const ParamSet brightest = {{"bass", 1.0}, {"presence", 1.0}, {"brightness", 1.0}, {"mix", 1.0}};
-    const ParamSet darkest = {{"bass", 0.0}, {"presence", 0.0}, {"brightness", 0.0}, {"mix", 1.0}};
+    // The brightest and darkest corners of the cabinets that bound the voicing table — the
+    // original 4x12, the 1x12 with the narrowest resonance and the 4x10 with the highest
+    // roll-off — each with a different mic type, a second mic, spread and distance, so every
+    // section is pushed as far towards Nyquist as the voicing takes it.
+    constexpr std::pair<double, double> kCabinetAndMic[] = {{0.0, 0.0}, {1.0, 1.0}, {4.0, 2.0}};
 
-    for (const double sampleRate : kSampleRates)
+    for (const auto& [cab, micType] : kCabinetAndMic)
     {
-        SimpleCabEffect bright;
-        RunEffect("simple cab", bright, brightest, "tone controls at maximum", sampleRate);
+        const double otherMicType = std::fmod(micType + 1.0, 3.0);
+        const ParamSet brightest = {{"cabinet", cab},    {"micType", micType},
+                                    {"bass", 1.0},       {"presence", 1.0},
+                                    {"brightness", 1.0}, {"mids", 1.0},
+                                    {"size", 0.0},       {"micPosition", 0.0},
+                                    {"mic2Blend", 0.5},  {"mic2Type", otherMicType},
+                                    {"spread", 1.0},     {"mix", 1.0}};
+        const ParamSet darkest = {{"cabinet", cab},   {"micType", micType},       {"bass", 0.0},
+                                  {"presence", 0.0},  {"brightness", 0.0},        {"mids", 0.0},
+                                  {"size", 1.0},      {"micPosition", 1.0},       {"micDistance", 1.0},
+                                  {"mic2Blend", 1.0}, {"mic2Type", otherMicType}, {"mic2Distance", 0.3},
+                                  {"mix", 1.0}};
 
-        SimpleCabEffect dark;
-        RunEffect("simple cab", dark, darkest, "tone controls at minimum", sampleRate);
+        for (const double sampleRate : kSampleRates)
+        {
+            SimpleCabEffect bright;
+            RunEffect("simple cab", bright, brightest, "tone controls at maximum", sampleRate);
+
+            SimpleCabEffect dark;
+            RunEffect("simple cab", dark, darkest, "tone controls at minimum", sampleRate);
+        }
     }
 
     ReportIfClean(failuresBefore);

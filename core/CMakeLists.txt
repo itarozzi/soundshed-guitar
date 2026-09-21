@@ -513,6 +513,7 @@ set(GUITARFX_CORE_SOURCES
     src/controller/PluginControllerHostedPlugins.cpp
     src/controller/PluginControllerBroadcast.cpp
     src/controller/PluginControllerEffectPresets.cpp
+    src/controller/PluginControllerEffectAnalysis.cpp
     src/controller/PluginControllerSignalPath.cpp
     src/controller/PluginControllerResources.cpp
     src/controller/PluginControllerCustomEffects.cpp
@@ -542,6 +543,9 @@ set(GUITARFX_CORE_SOURCES
     src/dsp/EffectProcessor.h
     src/dsp/EffectRegistry.h
     src/dsp/EffectRegistry.cpp
+    src/dsp/EffectParamSpec.h
+    src/dsp/EffectAnalysis.h
+    src/dsp/EffectAnalysis.cpp
     src/dsp/SignalGraphExecutor.h
     src/dsp/SignalGraphExecutor.cpp
     src/dsp/SignalGraphExecutorPlan.cpp
@@ -571,6 +575,9 @@ set(GUITARFX_CORE_SOURCES
     src/dsp/IRWavLoader.h
     src/dsp/NAMFactoryForce.cpp
     src/dsp/BiquadFrequency.h
+    src/dsp/BiquadDesign.h
+    src/dsp/LinearRamp.h
+    src/dsp/ImpulseResponseAnalysis.h
     src/dsp/NamModelCache.h
     src/dsp/NamModelCache.cpp
 
@@ -594,6 +601,9 @@ set(GUITARFX_CORE_SOURCES
     src/dsp/effects/IRCabEffect.h
     src/dsp/effects/IRReverbEffect.h
     src/dsp/effects/SimpleCabEffect.h
+    src/dsp/effects/SimpleCabVoicing.h
+    src/dsp/effects/SimpleCabMatch.h
+    src/dsp/effects/SpeakerDrive.h
     src/dsp/effects/OverdriveEffect.h
     src/dsp/effects/DistortionEffect.h
     src/dsp/effects/FuzzEffect.h

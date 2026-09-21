@@ -1473,6 +1473,49 @@ bool TestHighCutAttenuatesHighFrequency()
     }
 }
 
+// Speaker drive sits in front of the IR: quiet playing passes untouched, a loud low note is
+// compressed, and the dry mix never sees it.
+bool TestSpeakerDriveCompressesLoudLows()
+{
+    std::cout << "Test: Speaker drive compresses loud lows and leaves quiet ones... ";
+
+    try
+    {
+        const auto levelDb = [](double amplitude, double drive) {
+            std::vector<double> signal(48000);
+
+            for (std::size_t i = 0; i < signal.size(); ++i)
+            {
+                signal[i] = amplitude * std::sin(2.0 * M_PI * 100.0 * static_cast<double>(i) / kSampleRate);
+            }
+
+            IRConvolutionTester tester;
+            tester.SetDualImpulse({1.0f}, {1.0f}, 0.0);
+            tester.SetCabParam("speakerDrive", drive);
+            const double inputRms = ComputeRmsFrom(signal, 24000);
+            tester.Convolve(signal);
+            return 20.0 * std::log10(ComputeRmsFrom(signal, 24000) / inputRms);
+        };
+
+        const double quietChange = levelDb(0.003, 1.0) - levelDb(0.003, 0.0);
+        const double loudChange = levelDb(0.5, 1.0) - levelDb(0.5, 0.0);
+
+        if (std::abs(quietChange) > 0.5 || loudChange > -1.5)
+        {
+            std::cout << "FAILED (quiet change " << quietChange << " dB, loud change " << loudChange << " dB)\n";
+            return false;
+        }
+
+        std::cout << "OK\n";
+        return true;
+    }
+    catch (const std::exception& e)
+    {
+        std::cout << "FAILED - Exception: " << e.what() << "\n";
+        return false;
+    }
+}
+
 bool TestCabIR192kHzLevelMatches48kHz()
 {
     std::cout << "Test: IR cab 192kHz level matches 48kHz... ";
@@ -2111,6 +2154,7 @@ int main()
     runTest(TestDualIRBlendEndpoints);
     runTest(TestL2NormEqualizesIRLevels);
     runTest(TestHighCutAttenuatesHighFrequency);
+    runTest(TestSpeakerDriveCompressesLoudLows);
     runTest(TestCabIR192kHzLevelMatches48kHz);
     runTest(TestDemoRenderCabIRRateEquivalence);
 
