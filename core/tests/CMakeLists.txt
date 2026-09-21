@@ -47,6 +47,7 @@ set(TEST_SOURCES
     NamResamplerResetTests.cpp
     NAMPerformanceBenchmark.cpp
     NoiseGateTests.cpp
+    PitchTrackerTests.cpp
     PluginPathUtilsTests.cpp
     PresetDSPLoadingTests.cpp
     PresetManagementWorkflowTests.cpp

@@ -49,6 +49,11 @@ constexpr double kPhaseLockSnap = 1.0e-7;
 
 /// A DC offset on the input would otherwise come out as a tone at the carrier frequency.
 constexpr double kDcBlockHz = 10.0;
+/// The ring-modulated signal's own high-pass, a second-order Butterworth. Tracking at Interval 0
+/// puts the carrier on the note's fundamental, and a tone multiplied by its own frequency has a
+/// DC term up to 0.7 of the signal; a partial landing on a fixed carrier does the same. 20 Hz
+/// leaves 80 Hz within 0.02 dB.
+constexpr double kWetHighPassHz = 20.0;
 /// Tone sweeps the output low-pass exponentially between these. The top is clamped to 0.49 of
 /// the sample rate, which leaves the audio band flat at 44.1 kHz and above.
 constexpr double kToneMinHz = 400.0;
@@ -72,6 +77,10 @@ enum Param : std::size_t
 {
     kFrequency,
     kWaveform,
+    kMode,
+    kInterval,
+    kFine,
+    kGlide,
     kLfoDepth,
     kLfoRate,
     kLfoShape,
@@ -91,6 +100,14 @@ enum class Waveform : int
     Square
 };
 
+/// Fixed runs the carrier at Frequency. Tracking runs it at the pitch being played, moved by
+/// Interval and Fine, with Frequency as the fallback until a first note is found.
+enum class CarrierMode : int
+{
+    Fixed,
+    Tracking
+};
+
 enum class LfoShape : int
 {
     Sine,
@@ -100,12 +117,17 @@ enum class LfoShape : int
 };
 
 inline constexpr const char* kWaveformLabels[] = {"Sine", "Triangle", "Square"};
+inline constexpr const char* kModeLabels[] = {"Fixed", "Tracking"};
 inline constexpr const char* kLfoShapeLabels[] = {"Sine", "Triangle", "Square", "Random"};
 
 /// In `Param` order, which is also the order the UI lays the controls out in.
 inline constexpr std::array<EffectParamSpec, kParamCount> kParams = {{
     {"frequency", "Frequency", 440.0, 1.0, 2000.0, "Hz", "Carrier", false, 0.0, {}},
     {"waveform", "Waveform", 0.0, 0.0, 2.0, "enum", "Carrier", false, 1.0, kWaveformLabels},
+    {"mode", "Mode", 0.0, 0.0, 1.0, "enum", "Carrier", false, 1.0, kModeLabels},
+    {"interval", "Interval", 0.0, -24.0, 24.0, "st", "Tracking", false, 1.0, {}},
+    {"fine", "Fine", 0.0, -50.0, 50.0, "cents", "Tracking", true, 0.0, {}},
+    {"glide", "Glide", 15.0, 0.0, 200.0, "ms", "Tracking", true, 0.0, {}},
     {"lfoDepth", "LFO Depth", 0.0, 0.0, 3.0, "oct", "LFO", false, 0.0, {}},
     {"lfoRate", "LFO Rate", 1.0, 0.05, 20.0, "Hz", "LFO", false, 0.0, {}},
     {"lfoShape", "LFO Shape", 0.0, 0.0, 3.0, "enum", "LFO", false, 1.0, kLfoShapeLabels},
@@ -118,6 +140,7 @@ inline constexpr std::array<EffectParamSpec, kParamCount> kParams = {{
 }};
 
 static_assert(kParams[kWaveform].maxValue == static_cast<double>(std::size(kWaveformLabels) - 1));
+static_assert(kParams[kMode].maxValue == static_cast<double>(std::size(kModeLabels) - 1));
 static_assert(kParams[kLfoShape].maxValue == static_cast<double>(std::size(kLfoShapeLabels) - 1));
 static_assert(kParams[kSyncDivision].maxValue == static_cast<double>(std::size(tempo_sync::kDivisionLabelNames) - 1));
 
@@ -262,7 +285,13 @@ inline constexpr ParamValues kDefaultValues = DefaultParamValues(kParams);
 /**
  * How a factory preset sets up the effect. A preset is a whole sound, so it sets every
  * parameter except the tempo division, and turns Sync off because each names its own LFO rate.
- * The first is the defaults, which is also what a new node starts with.
+ * Glide is left at its default. The first is the defaults, which is also what a new node
+ * starts with.
+ *
+ * The tracking presets use intervals whose products stay harmonic. At Interval 0 every partial
+ * k F lands on (k +/- 1) F, the harmonics of the note. A just fifth (7 semitones and 2 cents is
+ * 3:2) puts them on odd multiples of F/2, an octave below. An octave keeps the note's own
+ * harmonics and shimmers above them.
  */
 struct Voicing
 {
@@ -270,6 +299,9 @@ struct Voicing
     const char* displayName;
     double frequency;
     Waveform waveform;
+    CarrierMode mode;
+    double interval;
+    double fine;
     double lfoDepth;
     double lfoRate;
     LfoShape lfoShape;
@@ -281,14 +313,17 @@ struct Voicing
 constexpr const char* kDefaultPresetId = "classic-ring";
 
 // clang-format off
-inline constexpr std::array<Voicing, 6> kFactoryVoicings = {{
-    //  id                  display name        freq   waveform            depth rate  LFO shape           tone  spread mix
-    {kDefaultPresetId,      "Classic Ring",     440.0, Waveform::Sine,     0.0,  1.0,  LfoShape::Sine,     1.0,  0.0,   1.0},
-    {"robot-voice",         "Robot Voice",      30.0,  Waveform::Sine,     0.0,  1.0,  LfoShape::Sine,     0.85, 0.0,   1.0},
-    {"bell-tones",          "Bell Tones",       740.0, Waveform::Sine,     0.0,  1.0,  LfoShape::Sine,     0.8,  0.0,   0.7},
-    {"sci-fi-sweep",        "Sci-Fi Sweep",     500.0, Waveform::Sine,     1.5,  0.25, LfoShape::Sine,     0.9,  0.0,   1.0},
-    {"computer-chatter",    "Computer Chatter", 900.0, Waveform::Square,   1.0,  8.0,  LfoShape::Random,   0.6,  0.0,   0.9},
-    {"stereo-warble",       "Stereo Warble",    280.0, Waveform::Triangle, 0.3,  3.0,  LfoShape::Triangle, 0.9,  1.0,   0.8},
+inline constexpr std::array<Voicing, 9> kFactoryVoicings = {{
+    //  id                  display name        freq   waveform            mode                   int   fine depth rate  LFO shape           tone  spread mix
+    {kDefaultPresetId,      "Classic Ring",     440.0, Waveform::Sine,     CarrierMode::Fixed,    0.0,  0.0, 0.0,  1.0,  LfoShape::Sine,     1.0,  0.0,   1.0},
+    {"robot-voice",         "Robot Voice",      30.0,  Waveform::Sine,     CarrierMode::Fixed,    0.0,  0.0, 0.0,  1.0,  LfoShape::Sine,     0.85, 0.0,   1.0},
+    {"bell-tones",          "Bell Tones",       740.0, Waveform::Sine,     CarrierMode::Fixed,    0.0,  0.0, 0.0,  1.0,  LfoShape::Sine,     0.8,  0.0,   0.7},
+    {"sci-fi-sweep",        "Sci-Fi Sweep",     500.0, Waveform::Sine,     CarrierMode::Fixed,    0.0,  0.0, 1.5,  0.25, LfoShape::Sine,     0.9,  0.0,   1.0},
+    {"computer-chatter",    "Computer Chatter", 900.0, Waveform::Square,   CarrierMode::Fixed,    0.0,  0.0, 1.0,  8.0,  LfoShape::Random,   0.6,  0.0,   0.9},
+    {"stereo-warble",       "Stereo Warble",    280.0, Waveform::Triangle, CarrierMode::Fixed,    0.0,  0.0, 0.3,  3.0,  LfoShape::Triangle, 0.9,  1.0,   0.8},
+    {"harmonic-ring",       "Harmonic Ring",    440.0, Waveform::Sine,     CarrierMode::Tracking, 0.0,  0.0, 0.0,  1.0,  LfoShape::Sine,     0.9,  0.0,   0.8},
+    {"sub-octave-ring",     "Sub-Octave Ring",  440.0, Waveform::Sine,     CarrierMode::Tracking, 7.0,  2.0, 0.0,  1.0,  LfoShape::Sine,     0.7,  0.0,   0.8},
+    {"octave-shimmer",      "Octave Shimmer",   440.0, Waveform::Sine,     CarrierMode::Tracking, 12.0, 0.0, 0.0,  1.0,  LfoShape::Sine,     0.8,  0.0,   0.5},
 }};
 // clang-format on
 
@@ -301,6 +336,10 @@ inline constexpr std::array<Voicing, 6> kFactoryVoicings = {{
     preset.isDefault = (preset.id == kDefaultPresetId);
     preset.parameters = {{"frequency", voicing.frequency},
                          {"waveform", static_cast<double>(voicing.waveform)},
+                         {"mode", static_cast<double>(voicing.mode)},
+                         {"interval", voicing.interval},
+                         {"fine", voicing.fine},
+                         {"glide", kParams[kGlide].defaultValue},
                          {"lfoDepth", voicing.lfoDepth},
                          {"lfoRate", voicing.lfoRate},
                          {"lfoShape", static_cast<double>(voicing.lfoShape)},
@@ -309,8 +348,8 @@ inline constexpr std::array<Voicing, 6> kFactoryVoicings = {{
                          {"spread", voicing.spread},
                          {"level", 0.0},
                          {"mix", voicing.mix}};
-    preset.parameterOrder = {"frequency", "waveform", "lfoDepth", "lfoRate", "lfoShape",
-                             "syncMode",  "tone",     "spread",   "level",   "mix"};
+    preset.parameterOrder = {"frequency", "waveform", "mode",     "interval", "fine",   "glide", "lfoDepth",
+                             "lfoRate",   "lfoShape", "syncMode", "tone",     "spread", "level", "mix"};
     return preset;
 }
 

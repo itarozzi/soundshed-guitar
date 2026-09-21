@@ -5,6 +5,7 @@
 #include "dsp/EffectProcessor.h"
 #include "dsp/EffectRegistry.h"
 #include "dsp/FiniteCheck.h"
+#include "dsp/PitchTracker.h"
 #include "dsp/effects/RingModSupport.h"
 #include "dsp/effects/TempoSync.h"
 
@@ -25,12 +26,19 @@ namespace guitarfx
  * old ones rather than at a fixed ratio, a note or chord comes out as a clangorous, bell-like
  * or robotic cluster. Mix below 1 puts the dry signal back, which is amplitude modulation.
  *
- *   in -+- DC block - x carrier - tone low-pass - x Level -+
- *       +--------------------------------------------------+- mix - out
+ *   in -+- DC block - x carrier - 20 Hz high-pass - tone low-pass - x Level -+
+ *       |                  ^                                               |
+ *       +- pitch tracker --+ (Tracking mode)                               |
+ *       +------------------------------------------------------------------+- mix - out
  *
  * - Frequency sets the carrier. An LFO can sweep it by up to three octaves either way, as the
  *   classic analogue ring modulators do; the sweep is in octaves, so it sounds even around any
  *   setting, and its rate can follow the host tempo.
+ * - Tracking mode runs the carrier at the pitch being played (PitchTracker), moved by Interval
+ *   and Fine, so the sidebands keep the same relation to every note: at Interval 0 they are the
+ *   note's own harmonics. The carrier glides to each new pitch over Glide, holds the last note
+ *   through silence and chords, and sits at Frequency until a first note is found. The LFO
+ *   still sweeps around it.
  * - The triangle and square carriers are band-limited (polynomial BLAMP and BLEP).
  * - Each carrier is scaled to unity RMS, so the effect is level-matched with its bypass and
  *   between waveforms.
@@ -44,6 +52,7 @@ class RingModEffect : public EffectProcessor
     RingModEffect()
     {
         mToneLog = std::log2(ring_mod::ToneCutoffHz(mValues[ring_mod::kTone]));
+        mTracker.Prepare(mSampleRate);
         UpdateRateCoefficients();
         Reset();
     }
@@ -57,12 +66,14 @@ class RingModEffect : public EffectProcessor
 
         mSampleRate = sampleRate;
         mMaxBlockSize = maxBlockSize;
+        mTracker.Prepare(sampleRate);
         UpdateRateCoefficients();
         Reset();
     }
 
     void Reset() override
     {
+        mTracker.Reset();
         mChannels = {};
         mCarrierPhase = {};
         mCarrierDt = {};
@@ -187,6 +198,11 @@ class RingModEffect : public EffectProcessor
             return mCarrierHz;
         }
 
+        if (key == "trackedFrequency")
+        {
+            return mTracker.FrequencyHz();
+        }
+
         return 0.0;
     }
 
@@ -204,8 +220,16 @@ class RingModEffect : public EffectProcessor
     struct ChannelState
     {
         float dc = 0.0f;  ///< DC blocker's one-pole low-pass state
+        float hp1 = 0.0f; ///< wet high-pass integrator states
+        float hp2 = 0.0f;
         float ic1 = 0.0f; ///< tone filter's integrator states
         float ic2 = 0.0f;
+
+        [[nodiscard]] bool IsFinite() const
+        {
+            return guitarfx::IsFinite(dc) && guitarfx::IsFinite(hp1) && guitarfx::IsFinite(hp2) &&
+                   guitarfx::IsFinite(ic1) && guitarfx::IsFinite(ic2);
+        }
     };
 
     [[nodiscard]] static float Approach(float current, float target, float coefficient)
@@ -246,6 +270,11 @@ class RingModEffect : public EffectProcessor
 
         const double g = std::tan(kPi * kDcBlockHz / mSampleRate);
         mDcG = static_cast<float>(g / (1.0 + g));
+
+        const auto highG = static_cast<float>(std::tan(kPi * kWetHighPassHz / mSampleRate));
+        mHighA1 = 1.0f / (1.0f + highG * (highG + kButterworthDamping));
+        mHighA2 = highG * mHighA1;
+        mHighA3 = highG * mHighA2;
         UpdateToneCoefficients();
     }
 
@@ -292,6 +321,20 @@ class RingModEffect : public EffectProcessor
         mTargetMix = static_cast<float>(mValues[kMix]);
         mLfoShape = static_cast<LfoShape>(static_cast<int>(mValues[kLfoShape]));
         mLfoIncrement = EffectiveLfoRateHz() / mSampleRate;
+
+        // The tracker only listens in Tracking mode. Entering it starts from a clean history, so
+        // a note from before the switch cannot be picked up.
+        const bool tracking = static_cast<CarrierMode>(static_cast<int>(mValues[kMode])) == CarrierMode::Tracking;
+
+        if (tracking && !mTracking)
+        {
+            mTracker.Reset();
+        }
+
+        mTracking = tracking;
+        mTrackOffset = (mValues[kInterval] + mValues[kFine] / 100.0) / 12.0;
+        mTrackGlideMs = mValues[kGlide];
+        mTrackGlide = mTrackGlideMs > 0.0 ? SmoothingCoefficient(mTrackGlideMs, kControlInterval) : 1.0;
 
         if (const auto waveform = static_cast<Waveform>(static_cast<int>(mValues[kWaveform])); waveform != mWaveform)
         {
@@ -372,7 +415,22 @@ class RingModEffect : public EffectProcessor
         const double controlGlide = TickCoefficient(mControlGlide, kControlSmoothingMs, samples);
         const double previousSpread = mSpread;
 
-        mPitch = Glide(mPitch, mTargetPitch, TickCoefficient(mPitchGlide, kFrequencyGlideMs, samples), 1.0e-6);
+        // Tracking follows the latest accepted pitch, read every control tick so the carrier keeps
+        // up however large the host's blocks are; until a first note, it stays on Frequency.
+        double targetPitch = mTargetPitch;
+        double pitchGlide = TickCoefficient(mPitchGlide, kFrequencyGlideMs, samples);
+
+        if (mTracking)
+        {
+            pitchGlide = mTrackGlideMs > 0.0 ? TickCoefficient(mTrackGlide, mTrackGlideMs, samples) : 1.0;
+
+            if (const double tracked = mTracker.FrequencyHz(); tracked > 0.0)
+            {
+                targetPitch = std::log2(tracked) + mTrackOffset;
+            }
+        }
+
+        mPitch = Glide(mPitch, targetPitch, pitchGlide, 1.0e-6);
         mDepth = Glide(mDepth, mTargetDepth, controlGlide, 1.0e-6);
         mSpread = Glide(mSpread, mTargetSpread, controlGlide, 1.0e-6);
 
@@ -453,8 +511,16 @@ class RingModEffect : public EffectProcessor
         state.dc = ring_mod::FlushDenormal(low + v);
         const float ring = (input - low) * carrier;
 
-        // Tone: a Butterworth low-pass, as a trapezoidal state-variable filter.
-        const float v3 = ring - state.ic2;
+        // The wet high-pass: a Butterworth trapezoidal state-variable filter's high output.
+        const float h3 = ring - state.hp2;
+        const float h1 = mHighA1 * state.hp1 + mHighA2 * h3;
+        const float h2 = state.hp2 + mHighA2 * state.hp1 + mHighA3 * h3;
+        state.hp1 = ring_mod::FlushDenormal(2.0f * h1 - state.hp1);
+        state.hp2 = ring_mod::FlushDenormal(2.0f * h2 - state.hp2);
+        const float high = ring - ring_mod::kButterworthDamping * h1 - h2;
+
+        // Tone: a Butterworth low-pass, the same filter's low output.
+        const float v3 = high - state.ic2;
         const float v1 = mToneA1 * state.ic1 + mToneA2 * v3;
         const float v2 = state.ic2 + mToneA2 * state.ic1 + mToneA3 * v3;
         state.ic1 = ring_mod::FlushDenormal(2.0f * v1 - state.ic1);
@@ -521,6 +587,11 @@ class RingModEffect : public EffectProcessor
                         outR[i] = right;
                     }
                 }
+
+                if (mTracking)
+                {
+                    mTracker.Push(stereo ? 0.5f * (inL[i] + inR[i]) : inL[i]);
+                }
             }
 
             // Land exactly on the ramps' targets, however the steps rounded.
@@ -537,7 +608,7 @@ class RingModEffect : public EffectProcessor
         // on the next block instead of emitting NaN until the preset is reloaded.
         for (auto& channel : mChannels)
         {
-            if (!IsFinite(channel.dc) || !IsFinite(channel.ic1) || !IsFinite(channel.ic2))
+            if (!channel.IsFinite())
             {
                 channel = {};
             }
@@ -566,8 +637,8 @@ class RingModEffect : public EffectProcessor
     int mFadeRemaining = 0;
     int mFadeSamples = 1;
 
-    double mTargetPitch = 0.0; ///< log2 of the carrier frequency
-    double mPitch = 0.0;
+    double mTargetPitch = 0.0; ///< log2 of Frequency; Tracking replaces it once a note is found
+    double mPitch = 0.0;       ///< log2 of the carrier frequency, before the LFO
     double mTargetDepth = 0.0;
     double mDepth = 0.0;
     double mTargetSpread = 0.0;
@@ -587,9 +658,18 @@ class RingModEffect : public EffectProcessor
     float mSampleSmoothing = 1.0f;
     double mMaxCarrierHz = ring_mod::kMaxCarrierHz;
     float mDcG = 0.0f;
+    float mHighA1 = 1.0f;
+    float mHighA2 = 0.0f;
+    float mHighA3 = 0.0f;
     float mToneA1 = 1.0f;
     float mToneA2 = 0.0f;
     float mToneA3 = 0.0f;
+
+    PitchTracker mTracker;
+    bool mTracking = false;
+    double mTrackOffset = 0.0; ///< Interval and Fine, in octaves
+    double mTrackGlideMs = 0.0;
+    double mTrackGlide = 1.0;
 };
 
 inline void RegisterRingModEffect()
@@ -600,7 +680,8 @@ inline void RegisterRingModEffect()
     info.displayName = "Ring Modulator";
     info.category = "modulation";
     info.description = "Multiplies the signal by a carrier oscillator for metallic, bell-like and robotic tones. "
-                       "An LFO can sweep the carrier; Mix below 1 gives amplitude modulation.";
+                       "Tracking mode follows the notes you play; an LFO can sweep the carrier; Mix below 1 gives "
+                       "amplitude modulation.";
     info.requiresResource = false;
     info.requiresTempo = true;
     info.presets = ring_mod::FactoryPresets();

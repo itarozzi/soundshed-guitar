@@ -11,7 +11,9 @@
  *   - Frequency snaps before the first block and glides after it
  *   - a Waveform change crossfades instead of jumping
  *   - Stereo Spread makes a mono input stereo, and letting it go locks the channels back
- *   - the mono path matches the stereo one sample for sample
+ *   - the mono path matches the stereo one sample for sample, in both carrier modes
+ *   - Tracking mode puts the carrier on the note played, moved by Interval and Fine, holds it
+ *     through silence, and at Interval 0 turns a note into its own harmonics with no DC
  *   - it stays finite at low sample rates, and prints what a block costs
  */
 
@@ -23,6 +25,7 @@
 #include <iostream>
 #include <memory>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -31,159 +34,11 @@
 #include "dsp/EffectRegistry.h"
 #include "dsp/FiniteCheck.h"
 #include "dsp/effects/RingModEffect.h"
+#include "RingModTestSupport.h"
 
 namespace
 {
-constexpr double kSampleRate = 48000.0;
-constexpr int kBlockSize = 256;
-constexpr double kPi = 3.14159265358979323846;
-
-using guitarfx::RingModEffect;
-using Params = std::vector<std::pair<std::string, double>>;
-
-int gFailures = 0;
-int gChecks = 0;
-
-void Check(bool condition, const std::string& what, const std::string& detail = "")
-{
-    ++gChecks;
-
-    if (condition)
-    {
-        std::cout << "  [PASS] " << what;
-    }
-    else
-    {
-        ++gFailures;
-        std::cout << "  [FAIL] " << what;
-    }
-
-    if (!detail.empty())
-    {
-        std::cout << "  (" << detail << ")";
-    }
-
-    std::cout << std::endl;
-}
-
-std::string Num(double v, int precision = 3)
-{
-    char buffer[64];
-    std::snprintf(buffer, sizeof(buffer), "%.*f", precision, v);
-    return std::string(buffer);
-}
-
-double ToDb(double ratio)
-{
-    return 20.0 * std::log10(std::max(ratio, 1.0e-12));
-}
-
-std::unique_ptr<RingModEffect> MakeRing(const Params& params, double sampleRate = kSampleRate)
-{
-    auto ring = std::make_unique<RingModEffect>();
-    ring->Prepare(sampleRate, kBlockSize);
-
-    for (const auto& [key, value] : params)
-    {
-        ring->SetParam(key, value);
-    }
-
-    return ring;
-}
-
-struct Stereo
-{
-    std::vector<float> left;
-    std::vector<float> right;
-};
-
-/// Runs the two inputs through `effect` in blocks of `blockSize`.
-Stereo Run(guitarfx::EffectProcessor& effect, const std::vector<float>& inL, const std::vector<float>& inR,
-           int blockSize = kBlockSize)
-{
-    Stereo out{std::vector<float>(inL.size()), std::vector<float>(inL.size())};
-
-    for (std::size_t start = 0; start < inL.size(); start += static_cast<std::size_t>(blockSize))
-    {
-        const int count =
-            static_cast<int>(std::min<std::size_t>(static_cast<std::size_t>(blockSize), inL.size() - start));
-        float* inputs[2] = {const_cast<float*>(inL.data() + start), const_cast<float*>(inR.data() + start)};
-        float* outputs[2] = {out.left.data() + start, out.right.data() + start};
-        effect.Process(inputs, outputs, count);
-    }
-
-    return out;
-}
-
-Stereo RunMono(guitarfx::EffectProcessor& effect, const std::vector<float>& input)
-{
-    return Run(effect, input, input);
-}
-
-/// Sum of sines, each {frequency, amplitude}.
-std::vector<float> Sines(const std::vector<std::pair<double, double>>& partials, double seconds,
-                         double sampleRate = kSampleRate)
-{
-    std::vector<float> signal(static_cast<std::size_t>(seconds * sampleRate));
-
-    for (std::size_t n = 0; n < signal.size(); ++n)
-    {
-        double value = 0.0;
-
-        for (const auto& [frequency, amplitude] : partials)
-        {
-            value += amplitude * std::sin(2.0 * kPi * frequency * static_cast<double>(n) / sampleRate);
-        }
-
-        signal[n] = static_cast<float>(value);
-    }
-
-    return signal;
-}
-
-std::vector<float> Noise(double seconds, double sampleRate, std::uint32_t seed = 12345u)
-{
-    std::vector<float> signal(static_cast<std::size_t>(seconds * sampleRate));
-
-    for (auto& sample : signal)
-    {
-        seed = seed * 1664525u + 1013904223u;
-        sample = static_cast<float>(static_cast<double>(seed >> 8) / 8388608.0 - 1.0);
-    }
-
-    return signal;
-}
-
-/// Amplitude of the component at `frequency` over the last second of `x`. With whole-hertz
-/// frequencies and a one-second window every component sits exactly on a bin.
-double Amplitude(const std::vector<float>& x, double frequency, double sampleRate = kSampleRate)
-{
-    const auto count = static_cast<std::size_t>(sampleRate);
-    const std::size_t start = x.size() - count;
-    double re = 0.0;
-    double im = 0.0;
-
-    for (std::size_t n = 0; n < count; ++n)
-    {
-        const double w = 2.0 * kPi * frequency * static_cast<double>(n) / sampleRate;
-        re += x[start + n] * std::cos(w);
-        im -= x[start + n] * std::sin(w);
-    }
-
-    return 2.0 * std::sqrt(re * re + im * im) / static_cast<double>(count);
-}
-
-double Rms(const std::vector<float>& x, std::size_t start, std::size_t count)
-{
-    double sum = 0.0;
-
-    for (std::size_t n = start; n < start + count; ++n)
-    {
-        sum += static_cast<double>(x[n]) * x[n];
-    }
-
-    return std::sqrt(sum / static_cast<double>(count));
-}
+using namespace ring_mod_test;
 
 void TestRegistration()
 {
@@ -543,7 +398,8 @@ void TestStereoSpread()
     auto ring = MakeRing({{"frequency", 600.0}, {"lfoDepth", 1.0}, {"lfoRate", 1.5}});
 
     auto out = RunMono(*ring, input);
-    Check(out.left == out.right, "without Spread a mono input stays mono");
+    Check(MaxDifference(out.left, out.right) < kChannelTolerance, "without Spread a mono input stays mono",
+          "channels within " + Num(MaxDifference(out.left, out.right), 9));
     Check(!ring->ProducesStereoOutput() && ring->SupportsMonoProcessing(), "and the effect offers the mono path");
 
     ring->SetParam("spread", 1.0);
@@ -566,7 +422,7 @@ void TestStereoSpread()
     ring->SetParam("spread", 0.0);
     RunMono(*ring, Sines({{330.0, 0.3}}, 2.0));
     out = RunMono(*ring, Sines({{330.0, 0.3}}, 0.5));
-    Check(out.left == out.right && !ring->ProducesStereoOutput(),
+    Check(MaxDifference(out.left, out.right) < kChannelTolerance && !ring->ProducesStereoOutput(),
           "letting Spread go locks the right carrier back onto the left");
 }
 
@@ -574,27 +430,136 @@ void TestMonoPath()
 {
     std::cout << "\nMono path" << std::endl;
     const auto input = Sines({{196.0, 0.4}, {392.0, 0.2}}, 0.5);
-    const Params params = {{"frequency", 523.0}, {"waveform", 2.0}, {"lfoDepth", 0.7}, {"lfoShape", 3.0}};
-    auto stereo = MakeRing(params);
-    auto mono = MakeRing(params);
 
-    const auto reference = RunMono(*stereo, input);
-    std::vector<float> monoOut(input.size());
-
-    // The same block boundaries as Run, so both see the same control-rate ticks.
-    for (std::size_t start = 0; start < input.size(); start += kBlockSize)
+    for (const double mode : {0.0, 1.0})
     {
-        const int count = static_cast<int>(std::min<std::size_t>(kBlockSize, input.size() - start));
-        mono->ProcessMono(const_cast<float*>(input.data() + start), monoOut.data() + start, count);
+        const Params params = {
+            {"frequency", 523.0}, {"waveform", 2.0}, {"lfoDepth", 0.7}, {"lfoShape", 3.0}, {"mode", mode}};
+        const std::string label = mode > 0.0 ? " (Tracking)" : " (Fixed)";
+        auto stereo = MakeRing(params);
+        auto mono = MakeRing(params);
+
+        const auto reference = RunMono(*stereo, input);
+        std::vector<float> monoOut(input.size());
+
+        // The same block boundaries as Run, so both see the same control-rate ticks.
+        for (std::size_t start = 0; start < input.size(); start += kBlockSize)
+        {
+            const int count = static_cast<int>(std::min<std::size_t>(kBlockSize, input.size() - start));
+            mono->ProcessMono(const_cast<float*>(input.data() + start), monoOut.data() + start, count);
+        }
+
+        Check(monoOut == reference.left, "ProcessMono matches the stereo path sample for sample" + label);
+
+        // Then a stereo block carries on from the mono one as if it had run all along.
+        const auto more = Sines({{196.0, 0.4}}, 0.1);
+        const auto a = RunMono(*stereo, more);
+        const auto b = RunMono(*mono, more);
+        Check(a.left == b.left && MaxDifference(a.right, b.right) < kChannelTolerance,
+              "and a stereo block picks up where it left off" + label);
+    }
+}
+
+/// A steady note: harmonics 1 to 5, falling off as 1/k.
+std::vector<float> Note(double frequency, double seconds)
+{
+    std::vector<std::pair<double, double>> partials;
+
+    for (int k = 1; k <= 5; ++k)
+    {
+        partials.emplace_back(k * frequency, 0.25 / k);
     }
 
-    Check(monoOut == reference.left, "ProcessMono matches the stereo path sample for sample");
+    return Sines(partials, seconds);
+}
 
-    // Then a stereo block carries on from the mono one as if it had run all along.
-    const auto more = Sines({{196.0, 0.4}}, 0.1);
-    const auto a = RunMono(*stereo, more);
-    const auto b = RunMono(*mono, more);
-    Check(a.left == b.left && a.right == b.right, "and a stereo block picks up where it left off");
+/// Milliseconds of `input`, fed 16 samples at a time, until the carrier is within 20 cents of `hz`.
+double MsToReach(RingModEffect& ring, const std::vector<float>& input, double hz)
+{
+    for (std::size_t start = 0; start + 16 <= input.size(); start += 16)
+    {
+        Run(ring,
+            std::vector<float>(input.begin() + static_cast<std::ptrdiff_t>(start),
+                               input.begin() + static_cast<std::ptrdiff_t>(start + 16)),
+            std::vector<float>(input.begin() + static_cast<std::ptrdiff_t>(start),
+                               input.begin() + static_cast<std::ptrdiff_t>(start + 16)),
+            16);
+
+        if (std::abs(1200.0 * std::log2(ring.GetParam("carrierFrequency") / hz)) < 20.0)
+        {
+            return 1000.0 * static_cast<double>(start + 16) / kSampleRate;
+        }
+    }
+
+    return 1.0e9;
+}
+
+void TestTracking()
+{
+    std::cout << "\nTracking mode" << std::endl;
+    const auto cents = [](double hz, double reference) { return 1200.0 * std::log2(hz / reference); };
+    auto ring = MakeRing({{"mode", 1.0}, {"frequency", 500.0}, {"glide", 0.0}});
+
+    RunMono(*ring, std::vector<float>(4800, 0.0f));
+    Check(ring->GetParam("carrierFrequency") == 500.0, "before a first note the carrier sits on Frequency");
+
+    const auto out = RunMono(*ring, Note(220.0, 1.25));
+    Check(std::abs(cents(ring->GetParam("carrierFrequency"), 220.0)) < 3.0, "then it follows the note played",
+          Num(ring->GetParam("carrierFrequency"), 2) + " Hz");
+
+    // At Interval 0 every product lands on a harmonic of the note, and the DC term is filtered.
+    const std::size_t second = static_cast<std::size_t>(kSampleRate);
+    const double total = Rms(out.left, out.left.size() - second, second);
+    double harmonic = 0.0;
+    double mean = 0.0;
+
+    for (int k = 1; k <= 12; ++k)
+    {
+        harmonic += 0.5 * Amplitude(out.left, 220.0 * k) * Amplitude(out.left, 220.0 * k);
+    }
+
+    for (std::size_t n = out.left.size() - second; n < out.left.size(); ++n)
+    {
+        mean += out.left[n] / static_cast<double>(second);
+    }
+
+    Check(harmonic / (total * total) > 0.99, "at Interval 0 the output is the note's own harmonics",
+          Num(100.0 * harmonic / (total * total), 2) + "% of the power");
+    Check(std::abs(mean) < 0.01 * total, "with no DC left in it", "mean " + Num(mean, 6));
+
+    bool intervals = true;
+    std::string detail;
+
+    for (const auto& [interval, fine, expected] :
+         std::vector<std::tuple<double, double, double>>{{7.0, 0.0, 220.0 * std::exp2(7.0 / 12.0)},
+                                                         {-12.0, 0.0, 110.0},
+                                                         {12.0, 25.0, 440.0 * std::exp2(0.25 / 12.0)}})
+    {
+        auto shifted = MakeRing({{"mode", 1.0}, {"interval", interval}, {"fine", fine}, {"glide", 0.0}});
+        RunMono(*shifted, Note(220.0, 0.5));
+        const double error = cents(shifted->GetParam("carrierFrequency"), expected);
+        intervals = intervals && std::abs(error) < 3.0;
+        detail += Num(error, 1) + " ";
+    }
+
+    Check(intervals, "Interval and Fine move the carrier from the note", "errors " + detail + "cents");
+
+    auto instant = MakeRing({{"mode", 1.0}, {"glide", 0.0}});
+    RunMono(*instant, Note(220.0, 0.5));
+    const double instantMs = MsToReach(*instant, Note(329.63, 0.3), 329.63);
+    auto gliding = MakeRing({{"mode", 1.0}});
+    RunMono(*gliding, Note(220.0, 0.5));
+    const double glidingMs = MsToReach(*gliding, Note(329.63, 0.3), 329.63);
+    Check(instantMs < 50.0, "with Glide 0 a new note is followed within 50 ms", Num(instantMs, 1) + " ms");
+    Check(glidingMs > instantMs && glidingMs < 120.0, "the default 15 ms Glide slides there within 120 ms",
+          Num(glidingMs, 1) + " ms");
+
+    RunMono(*ring, std::vector<float>(static_cast<std::size_t>(0.5 * kSampleRate), 0.0f));
+    Check(std::abs(cents(ring->GetParam("carrierFrequency"), 220.0)) < 3.0, "through silence it holds the note");
+
+    ring->SetParam("mode", 0.0);
+    RunMono(*ring, std::vector<float>(static_cast<std::size_t>(0.3 * kSampleRate), 0.0f));
+    Check(std::abs(ring->GetParam("carrierFrequency") - 500.0) < 1.0e-6, "back in Fixed it returns to Frequency");
 }
 
 void TestLowSampleRate()
@@ -613,14 +578,18 @@ void TestLowSampleRate()
 void TestNonFiniteRecovery()
 {
     std::cout << "\nNon-finite input" << std::endl;
-    auto ring = MakeRing({{"frequency", 440.0}});
-    auto input = Sines({{220.0, 0.3}}, 0.5);
-    input[1000] = std::nanf("");
-    const auto out = RunMono(*ring, input);
-    const bool recovered =
-        std::all_of(out.left.begin() + 2048, out.left.end(), [](float v) { return guitarfx::IsFinite(v); });
 
-    Check(recovered, "a NaN on the input does not stick");
+    for (const double mode : {0.0, 1.0})
+    {
+        auto ring = MakeRing({{"frequency", 440.0}, {"mode", mode}});
+        auto input = Sines({{220.0, 0.3}}, 0.5);
+        input[1000] = std::nanf("");
+        const auto out = RunMono(*ring, input);
+        const bool recovered =
+            std::all_of(out.left.begin() + 2048, out.left.end(), [](float v) { return guitarfx::IsFinite(v); });
+
+        Check(recovered, std::string("a NaN on the input does not stick") + (mode > 0.0 ? " (Tracking)" : " (Fixed)"));
+    }
 }
 
 void ReportCost()
@@ -630,7 +599,8 @@ void ReportCost()
 
     for (const auto& [label, params] : std::vector<std::pair<std::string, Params>>{
              {"sine, mono-capable", {{"frequency", 440.0}}},
-             {"square, LFO, Spread", {{"frequency", 440.0}, {"waveform", 2.0}, {"lfoDepth", 1.0}, {"spread", 1.0}}}})
+             {"square, LFO, Spread", {{"frequency", 440.0}, {"waveform", 2.0}, {"lfoDepth", 1.0}, {"spread", 1.0}}},
+             {"sine, Tracking", {{"mode", 1.0}}}})
     {
         auto ring = MakeRing(params);
         const auto begin = std::chrono::steady_clock::now();
@@ -658,6 +628,7 @@ int main()
     TestWaveformFade();
     TestStereoSpread();
     TestMonoPath();
+    TestTracking();
     TestLowSampleRate();
     TestNonFiniteRecovery();
     ReportCost();

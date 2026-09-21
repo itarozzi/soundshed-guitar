@@ -834,19 +834,26 @@ Multiplies the signal by a carrier oscillator. With a sine carrier at Fc, every 
 the input becomes the pair F − Fc and F + Fc, and neither F nor Fc is left in the output.
 Because the new partials sit a fixed *distance* from the old ones rather than at a fixed ratio,
 notes and chords turn into metallic, bell-like or robotic clusters. Mix below 1 brings the dry
-signal back, which makes it amplitude modulation. `RingModEffect.h` has the processing, and
-`RingModSupport.h` the parameter table, oscillators and presets.
+signal back, which makes it amplitude modulation. In Tracking mode the carrier follows the note
+being played, so the sidebands keep the same musical relation to every note. `RingModEffect.h`
+has the processing, `RingModSupport.h` the parameter table, oscillators and presets, and
+`dsp/PitchTracker.h` the pitch tracker.
 
 **Signal path, per channel**
 
 ```
-in ─┬─ DC block (10 Hz) ─ × carrier ─ tone low-pass ─ × Level ──┐
-    └────────────────────────────────────────────────────────────┴─ mix ─ out
+in ─┬─ DC block (10 Hz) ─ × carrier ─ high-pass (20 Hz) ─ tone low-pass ─ × Level ──┐
+    │                         ▲                                                     │
+    ├─ pitch tracker ─────────┘ (Tracking mode)                                     │
+    └───────────────────────────────────────────────────────────────────────────────┴─ mix ─ out
 ```
 
 | Behaviour | How |
 |---|---|
 | Carrier | Sine, triangle or square, phase-aligned so a Waveform change crossfades over 10 ms without cancelling. Each is scaled to unity RMS (sine ×√2, triangle ×√3), so the effect matches its bypass level and the waveforms match each other (measured within 0.1 dB). The cost is crest factor: a sine carrier's output can peak 3 dB above the input's, a triangle's 4.8 dB. |
+| Tracking | Mode = Tracking runs the carrier at the pitch being played, moved by Interval (semitones) and Fine (cents), and glides to each new note over Glide (0–200 ms, in the log domain). Intervals whose products stay harmonic are the musical ones. At 0, every partial kF lands on (k ± 1)F, the note's own harmonics (measured: 100% of the output power). A just fifth (7 semitones and 2 cents is 3:2) puts them on odd multiples of F/2, an octave below. The carrier holds the last note through silence and chords, sits at Frequency until a first note is found, and the LFO still sweeps around it. The tracker only listens in Tracking mode, and restarts from a clean history on entering it. |
+| Pitch tracker | YIN (de Cheveigné and Kawahara) run every 5 ms on a copy of the mono input, low-passed at 2 kHz and decimated to about 12 kHz, then refined at the full rate by normalised cross-correlation over the few lags around the estimate. The range is 45 Hz to 1.5 kHz. Steady tones read within 0.7 cents at 22.05–192 kHz. On the DI guitar demo it agrees with brute-force full-rate YIN within 10 cents on every frame both find a pitch, with no octave errors. A note change is followed in 15–40 ms. A jump of over a semitone must repeat on two detections before it is accepted, so a single stray octave is ignored, while bends and vibrato are followed directly. The correlation refinement keeps a decaying note's pitch from reading sharp. Frames where a note is dying away, and signals below −55 dBFS, are skipped, so the pitch that is held is read right: within 2.9 cents after an abrupt stop or a 5–40 ms release. |
+| Output high-pass | A second-order Butterworth at 20 Hz on the ring-modulated signal. A partial landing on the carrier frequency multiplies to DC, which in Tracking at Interval 0 is up to 0.7 of the signal. At 80 Hz it is down 0.02 dB. |
 | Band-limiting | The square's edges get a two-sample polynomial BLEP and the triangle's corners a BLAMP. At a 2.9 kHz carrier (48 kHz), the harmonics that fold back below 10 kHz, where they would land as inharmonic tones, drop from −17.8 to −59.2 dB for the square and from −43.6 to −83.9 dB for the triangle. What the BLEP leaves sits within a few kHz of Nyquist, which Tone removes. The carrier is held to at most 8 kHz and a quarter of the sample rate. |
 | LFO | Sweeps the carrier by up to ±3 octaves (in octaves, so the sweep sounds even around any Frequency). The shapes are sine, triangle, square, and Random, which holds a new value each cycle. The output is slewed over 1 ms, so the square and Random shapes slide rather than step. The rate is free (0.05–20 Hz) or synced to the host tempo. |
 | Smoothing | Frequency glides in the log domain over 20 ms, so a MIDI CC does not zipper the sidebands. LFO Depth, Tone, Spread, Level and Mix smooth over 10 ms. Values set before the first block (a preset loading) apply straight away rather than gliding in from the defaults. |
@@ -856,9 +863,10 @@ in ─┬─ DC block (10 Hz) ─ × carrier ─ tone low-pass ─ × Level ─�
 The carrier and LFO are computed every 16 samples and the carrier's phase increment ramps
 linearly between updates. A DC offset on the input would otherwise come out as a tone at the
 carrier frequency, which is why the DC block is there. A non-finite input sample clears the
-filter state at the end of its block. Latency is zero. A 64-sample stereo block at 48 kHz costs
-about 1.1–1.3 µs in an optimised build (MSVC `/fp:fast` and clang `-ffast-math` alike), under
-0.1% of the block's deadline.
+filter state at the end of its block, and resets the pitch tracker. Latency is zero. A
+64-sample stereo block at 48 kHz costs about 1.5 µs in an optimised build, and about 3.2 µs in
+Tracking mode (MSVC `/fp:fast` and clang `-ffast-math` alike), under 0.3% of the block's
+deadline. A block that runs a pitch detection costs 8–16 µs at the 99th percentile.
 
 **Parameters**
 
@@ -866,6 +874,10 @@ about 1.1–1.3 µs in an optimised build (MSVC `/fp:fast` and clang `-ffast-mat
 |-----------|-------|---------|------|-------|
 | `frequency` | 1–2000 | 440 | Hz | Carrier |
 | `waveform` | Sine / Triangle / Square | Sine | enum | Carrier |
+| `mode` | Fixed / Tracking | Fixed | enum | Carrier |
+| `interval` | -24…24 | 0 | semitones, whole | Tracking |
+| `fine` | -50…50 | 0 | cents | Tracking (advanced) |
+| `glide` | 0–200 | 15 | ms | Tracking (advanced) |
 | `lfoDepth` | 0–3 | 0 | octaves either way | LFO |
 | `lfoRate` | 0.05–20 | 1 | Hz | LFO |
 | `lfoShape` | Sine / Triangle / Square / Random | Sine | enum | LFO |
@@ -877,11 +889,14 @@ about 1.1–1.3 µs in an optimised build (MSVC `/fp:fast` and clang `-ffast-mat
 | `mix` | 0–1 | 1 | — | Output |
 
 The knob is linear, so the growl region below about 100 Hz sits in the first few percent of its
-travel; double-click the value to type one. Read-only feedback: `carrierFrequency` (the left
-carrier, LFO included) and `effectiveRate` (the LFO rate, after tempo sync).
+travel; double-click the value to type one. In Tracking mode Frequency is only the fallback
+before a first note. Read-only feedback: `carrierFrequency` (the left carrier, LFO included),
+`trackedFrequency` (the pitch the tracker holds, 0 before a first note) and `effectiveRate`
+(the LFO rate, after tempo sync).
 
 **Factory presets** set every parameter except `syncDivision`, with Sync off, since each names
-its own LFO rate. The first holds the defaults, and it is what a new node starts with.
+its own LFO rate, and Glide at its default. The first holds the defaults, and it is what a new
+node starts with.
 
 | Preset | Carrier | LFO | Notes |
 |---|---|---|---|
@@ -891,6 +906,9 @@ its own LFO rate. The first holds the defaults, and it is what a new node starts
 | Sci-Fi Sweep | 500 Hz sine | Sine, 0.25 Hz, ±1.5 oct | A slow, wide sweep |
 | Computer Chatter | 900 Hz square | Random, 8 Hz, ±1 oct | Tone 0.6 tames the square's buzz |
 | Stereo Warble | 280 Hz triangle | Triangle, 3 Hz, ±0.3 oct | Full Spread |
+| Harmonic Ring | Tracking, Interval 0 | — | The note's own harmonics, octave-up heavy; Tone 0.9, Mix 0.8 |
+| Sub-Octave Ring | Tracking, a just fifth (7 st + 2 cents) | — | Odd harmonics of half the note; Tone 0.7, Mix 0.8 |
+| Octave Shimmer | Tracking, +12 st | — | Mix 0.5 keeps the note under the shimmer |
 
 ### Pitch Shift (`pitch_shift`)
 Pitch shift effect using Signalsmith Stretch, free or snapped to whole semitones, within a range an expression pedal sweeps.
