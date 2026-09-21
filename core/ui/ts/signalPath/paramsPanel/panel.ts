@@ -16,7 +16,6 @@ import type { BlendParamRange } from "../../signalPathBlend.js";
 import { uiState } from "../../state.js";
 import type { GraphNode, Preset } from "../../types.js";
 import { clampValue, escapeHtml } from "../../utils.js";
-import { bindAmp3dDockCollapse, bindAmp3dToggleButton, bindChain3dView, disposeChain3dView, renderAmp3dToggleButtonHtml, renderChain3dViewportHtml, setAmp3dImmersiveMode, shouldRenderChain3dView, splitAmp3dParamDefs } from "../amp3dBridge.js";
 import { shouldShowFullRigCabModelNote } from "../chainRules.js";
 import { bindEffectPresetsButton } from "../effectPresets.js";
 import { bindLayoutSwitchButton, renderLayoutSwitchButtonHtml } from "../layoutSwitch.js";
@@ -343,9 +342,6 @@ export function showNodeParamsPanel(node: GraphNode, preset: Preset): void {
     : "";
   const equipmentImage = getEffectVisualizationEquipmentImage(node);
   const layoutSwitchButton = renderLayoutSwitchButtonHtml(node, shellBlendId, Boolean(customLayout));
-  const amp3dToggleButton = renderAmp3dToggleButtonHtml(node);
-    const useAmp3dView = shouldRenderChain3dView(Boolean(customLayoutHtml));
-  const amp3dSplit = useAmp3dView ? splitAmp3dParamDefs(paramDefs) : null;
   const isInputAnalyzerNode = EffectTypeRegistry.resolve(node.type) === EffectGuids.kInputAnalyzer;
   if (isInputAnalyzerNode) {
     analyzerSpectrogramHistoryByNode.delete(node.id);
@@ -378,9 +374,7 @@ export function showNodeParamsPanel(node: GraphNode, preset: Preset): void {
       </div>
     </section>
   ` : "";
-  // The 3D amp is its own product shot, so the static equipment image is
-  // dropped and the viewport takes the full shell width.
-  const showEquipmentImage = Boolean(equipmentImage) && !amp3dSplit && !hasCustomLayoutPresentation;
+  const showEquipmentImage = Boolean(equipmentImage) && !hasCustomLayoutPresentation;
   // Capture artwork is remote, so keep the stock image as a fallback for when it
   // cannot be fetched (offline, or the author removed it).
   const stockEquipmentImage = getEffectVisualizationStockImage(node);
@@ -392,15 +386,7 @@ export function showNodeParamsPanel(node: GraphNode, preset: Preset): void {
       <img class="default-effect-shell-equipment-image" src="${escapeHtml(equipmentImage)}" alt="" loading="lazy" decoding="async"${equipmentImageFallbackAttr} />
     </aside>
   ` : "";
-  const shellMainContent = amp3dSplit ? `
-    ${fullRigCabModelNote}
-    ${renderChain3dViewportHtml(
-      node,
-      resourceSelector,
-      amp3dSplit.extraDefs.length ? buildParamControls(amp3dSplit.extraDefs) : "",
-    )}
-    ${customEffectActions}
-  ` : customLayoutHtml ? `
+  const shellMainContent = customLayoutHtml ? `
     ${fullRigCabModelNote}
     ${layoutIncludesResourceControls || placeCabIrResourcesInControls ? "" : resourceSelector}
     ${customEffectActions}
@@ -513,7 +499,6 @@ export function showNodeParamsPanel(node: GraphNode, preset: Preset): void {
               aria-label="${shellBypassTitle}"
             ><span class="default-effect-shell-toggle-track" aria-hidden="true"></span><span class="default-effect-shell-toggle-label">${shellStatusLabel}</span></button>
             ${layoutSwitchButton}
-            ${amp3dToggleButton}
           </div>
         </div>
         <div class="default-effect-shell-content${showEquipmentImage ? " has-equipment-image" : ""}">
@@ -544,14 +529,6 @@ export function showNodeParamsPanel(node: GraphNode, preset: Preset): void {
   bindBypassButton(node, preset);
   bindSelectedNodeDspStatusToggle();
   bindLayoutSwitchButton(node, preset);
-  bindAmp3dToggleButton();
-  setAmp3dImmersiveMode(Boolean(amp3dSplit));
-  if (amp3dSplit) {
-      bindChain3dView(node, preset);
-    bindAmp3dDockCollapse();
-  } else {
-      disposeChain3dView();
-  }
   bindParamTabs();
   applyCustomLayoutScaling(nodeParamsPanelElement);
   updateSelectedNodePeakMeter();

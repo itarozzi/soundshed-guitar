@@ -61,19 +61,6 @@
   </script>
   <script src="build-flags.js"></script>
   <script src="dist/alpine.min.js"></script>
-  <!--
-    Module specifiers for the vendored three.js build. three.js is only fetched by
-    the dynamic import in dist/amp3d, which is currently unreachable: the 3D chain
-    stage is disabled behind CHAIN_3D_VIEW_ENABLED in ts/signalPath/amp3dBridge.ts.
-  -->
-  <script type="importmap">
-    {
-      "imports": {
-        "three": "./dist/vendor/three/three.module.min.js",
-        "three/examples/jsm/": "./dist/vendor/three/examples/jsm/"
-      }
-    }
-  </script>
   <style>
     html[data-jam-enabled="false"] [data-panel="jam"],
     html[data-jam-enabled="false"] #panel-jam,
@@ -93,7 +80,6 @@
   <link rel="stylesheet" href="css/footer-chain-history.css" />
   <link rel="stylesheet" href="css/amp.css" />
   <link rel="stylesheet" href="css/effects.css" />
-  <link rel="stylesheet" href="css/amp3d.css" />
   <!-- Signal path. Order matters: these are the parts of the original
        stylesheet, in source order. Reordering changes the cascade. -->
   <link rel="stylesheet" href="css/signal-path/bar.css" />

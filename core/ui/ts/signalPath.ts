@@ -26,6 +26,7 @@ import { beginPointerDrag, type PointerDragGesture } from "./pointerDrag.js";
 import { resolveNodeDropAction, type NodeDropTarget } from "./signalPathDropTargets.js";
 import { resolveLayoutForNode } from "./layoutPreferences.js";
 import { layoutDesigner } from "./layoutDesigner.js";
+import { closeLayoutPicker } from "./layoutPicker.js";
 import { createPresetScene, findPresetScene, normalizePresetScenes, removePresetScene, selectPresetScene } from "./presetScenes.js";
 import { isNodeBypassed } from "./graphNodes.js";
 import {
@@ -52,7 +53,6 @@ import { SIGNAL_PATH_FULL_HEIGHT, scheduleSignalPathLayoutAdapt } from "./signal
 import type { EdgeRef } from "./signalPath/graph.js";
 import { buildGraphMaps, normalizeEdge, parseEdgeFromDataset, pickPrimaryOutgoingEdge, sortEdgesByPort } from "./signalPath/graph.js";
 import { showNodeParamsPanel } from "./signalPath/paramsPanel.js";
-import { chain3dPanelActive, chain3dView, hideNodeParamsPanel } from "./signalPath/amp3dBridge.js";
 import { buildMissingResourceTooltip, buildNodeLayoutMatchText, getMissingResourceEntries, getNodeArchitectureBadge, getNodeDisplayName, getNodeResourceDisplayName } from "./signalPath/nodeLabels.js";
 import { isProtectedSignalPathNode, isToggleableSignalPathNode, toggleSignalPathNodeBypass } from "./signalPath/bypass.js";
 import { updateSignalPathClipIndicators } from "./signalPath/telemetry.js";
@@ -74,18 +74,10 @@ layoutDesigner.onClose(() => {
   renderSignalPathBar();
 });
 
-// ── Signal-chain 3D stage ────────────────────────────────────────────────────
-// One immersive WebGL stage for the whole graph. Neural FX uses a generic pedal
-// + dock model chooser; amps/cabs cluster; everything else is a rack unit.
-
-// ── Standard / custom layout switching ──────────────────────────────────────
-
-// Lighting presets are theme-specific, so re-render while the 3D stage is on.
-window.addEventListener("themeChanged", () => {
-  if (chain3dView || chain3dPanelActive) {
-    refreshSelectedNodeParams();
-  }
-});
+function hideNodeParamsPanel(): void {
+  nodeParamsPanelElement?.classList.remove("visible");
+  closeLayoutPicker();
+}
 
 function updateLastSelectedNode(node: GraphNode): void {
   setLastSelectedNode(node.type || null, getNodeCategory(node) || null);
@@ -1103,8 +1095,6 @@ function bindNodeClickHandlers(preset: Preset): void {
     // Compact shows the chain and the params panel one at a time, so picking a
     // node here has to bring its controls forward or the tap looks like a no-op.
     revealCompactNodeDetail();
-      // Always animate the 3D stage to the selected unit (amp head / cab / rack).
-      chain3dView?.focusNode(node.id, false);
 
       nodeElements.forEach((n) => n.classList.remove("selected"));
       el.classList.add("selected");

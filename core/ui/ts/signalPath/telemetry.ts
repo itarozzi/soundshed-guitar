@@ -96,8 +96,6 @@ export function updateSelectedNodePeakMeter(): void {
   }
 
   rail.title = `Node peak: ${metrics.peakDbfs.toFixed(1)} dBFS · Headroom: ${metrics.headroomDb.toFixed(1)} dB`;
-  // Keep the 3D amp glow in step with the same diagnostics stream as the meter.
-  // Prefer the DSP-status peak average when available (updated just after this).
 }
 
 export function formatDspStatusDb(value: number | null | undefined): string {
@@ -161,9 +159,6 @@ export function updateSelectedNodeDspStatus(): void {
   const status = nodeParamsPanelElement?.querySelector<HTMLElement>(".effect-dsp-status");
   const diagnostics = getSelectedNodeDiagnosticsEntry();
   const metrics = diagnostics?.levels;
-  // Always keep the peak average warm so the 3D amp glow can use it even when
-  // the DSP status panel is hidden.
-  addDspStatusSample("peak", metrics?.peakDbfs ?? null);
 
   if (!status || !selectedNodeDspStatusVisible) {
     return;
@@ -172,7 +167,7 @@ export function updateSelectedNodeDspStatus(): void {
   const timeUs = getSelectedNodeDspStatusTimeUs(diagnostics);
   const latencySamples = getSelectedNodeDspStatusLatencySamples(diagnostics);
   const values: Record<string, string> = {
-    peak: formatDspStatusDb(selectedNodeDspStatusAverages.get("peak") ?? null),
+    peak: formatDspStatusDb(addDspStatusSample("peak", metrics?.peakDbfs ?? null)),
     rms: formatDspStatusDb(addDspStatusSample("rms", metrics?.rmsDbfs ?? null)),
     headroom: formatDspStatusHeadroom(addDspStatusSample("headroom", metrics?.headroomDb ?? null)),
     processing: formatDspStatusTime(addDspStatusSample("processing", timeUs)),

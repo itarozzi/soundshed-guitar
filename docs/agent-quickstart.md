@@ -287,7 +287,7 @@ keep that tractable:
 - **A feature directory, behind the original module path.** A large feature lives
   in `ts/<feature>/`, and `ts/<feature>.ts` stays as the public facade that
   re-exports it. Importers keep using `./<feature>.js` and never learn about the
-  split. `ts/signalPath/`, `ts/presets/` and `ts/amp3d/` all follow this.
+  split. `ts/signalPath/` and `ts/presets/` both follow this.
 - **No top-level DOM access in a feature module.** DOM roots shared across a
   feature go in one `state.ts` (see `ts/signalPath/state.ts`), which also owns any
   mutable state, exposed through accessors. `export let` cannot be assigned by an

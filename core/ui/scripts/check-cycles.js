@@ -37,7 +37,7 @@ function listSources(dir, acc = []) {
   return acc;
 }
 
-/** Module id relative to ts/, without extension: "signalPath", "amp3d/ampView". */
+/** Module id relative to ts/, without extension: "signalPath", "signalPath/render". */
 function moduleId(file) {
   return toPosix(path.relative(TS_DIR, file)).replace(/\.ts$/, '');
 }

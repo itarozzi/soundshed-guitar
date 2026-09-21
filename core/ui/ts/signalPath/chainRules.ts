@@ -111,7 +111,7 @@ export function hasFullRigNamInSameSignalPath(nodeId: string, preset: Preset): b
   return false;
 }
 
-export function nodeUsesFullRigNamCategory(node: GraphNode): boolean {
+function nodeUsesFullRigNamCategory(node: GraphNode): boolean {
   const resolvedType = EffectTypeRegistry.resolve(node.type);
   const isNamEffect = resolvedType === EffectGuids.kAmpNamOptimized
     || resolvedType === EffectGuids.kFxNam

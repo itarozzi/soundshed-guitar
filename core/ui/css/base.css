@@ -15,31 +15,6 @@
   src: url('./fonts/Inter-Italic-VariableFont_opsz,wght.ttf') format('truetype');
 }
 
-/* Condensed industrial face for 3D amp panel silkscreen labels (canvas). */
-@font-face {
-  font-family: 'AmpPanel';
-  font-style: normal;
-  font-weight: 500;
-  font-display: swap;
-  src: url('./fonts/BarlowCondensed-Medium.ttf') format('truetype');
-}
-
-@font-face {
-  font-family: 'AmpPanel';
-  font-style: normal;
-  font-weight: 600;
-  font-display: swap;
-  src: url('./fonts/BarlowCondensed-SemiBold.ttf') format('truetype');
-}
-
-@font-face {
-  font-family: 'AmpPanel';
-  font-style: normal;
-  font-weight: 700;
-  font-display: swap;
-  src: url('./fonts/BarlowCondensed-Bold.ttf') format('truetype');
-}
-
 * {
   box-sizing: border-box;
 }

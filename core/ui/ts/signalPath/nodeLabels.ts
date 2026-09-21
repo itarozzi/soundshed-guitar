@@ -36,7 +36,7 @@ export function getNodeResourceDisplayName(node: GraphNode, index = 0, overrideR
   return libraryName || resource.id;
 }
 
-export function getNodeResourceSummary(node: GraphNode): string {
+function getNodeResourceSummary(node: GraphNode): string {
   const anyNode = node as unknown as { resources?: unknown };
   if (Array.isArray(anyNode.resources)) {
     const names = anyNode.resources

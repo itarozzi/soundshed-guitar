@@ -50,7 +50,7 @@ export function setNodeParamsPanelRenderer(fn: (node: GraphNode, preset: Preset)
 
 /**
  * Redraws the parameters panel for a given node. The control kinds the panel
- * dispatches to — EQ, spatial, generic knobs, the 3D amp — redraw it after an
+ * dispatches to — EQ, spatial, generic knobs — redraw it after an
  * edit that changes which controls apply, and would otherwise import the panel
  * that imports them.
  */
