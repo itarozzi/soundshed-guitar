@@ -88,7 +88,23 @@
   transform: none;
 }
 
-/* Device names are long, so a MIDI input gets the whole row, not the 120px label column. */
+/* Device names are long, so a MIDI input gets the whole row, not the 120px label column —
+   which leaves the list needing a heading of its own, styled as a row label would be. */
+.audio-device-midi-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+}
+
+/* Where a port would be, when there is none. */
+.audio-device-midi-empty {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
 .audio-device-midi-input {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

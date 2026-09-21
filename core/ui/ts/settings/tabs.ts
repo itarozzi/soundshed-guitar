@@ -51,7 +51,7 @@ export function isEquipmentTabEnabled(tabId: string): boolean {
 }
 
 export function resolveEquipmentTabId(preferredTabId: string): string {
-  const orderedTabs = ["settings", "library", "features", "performance", "help"];
+  const orderedTabs = ["settings", "audio-midi", "library", "features", "performance", "help"];
   if (isEquipmentTabEnabled(preferredTabId)) {
     return preferredTabId;
   }

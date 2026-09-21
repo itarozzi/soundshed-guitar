@@ -285,7 +285,7 @@ struct MidiControlMap {
 
 ### MIDI device plumbing
 
-Standalone: JUCE's `AudioDeviceManager` lists the MIDI inputs once `acceptsMidi()=true`, and Settings → MIDI Devices enables and disables them (`juce/source/StandaloneAudioSettings.cpp`; on Android and iOS the holder also opens new ones automatically); the `MidiBuffer` arrives in `processBlock`. Plugin builds receive MIDI from the host track via the same `MidiBuffer`.
+Standalone: JUCE's `AudioDeviceManager` lists the MIDI inputs once `acceptsMidi()=true`, and Settings → Audio & MIDI → MIDI Devices enables and disables them (`juce/source/StandaloneAudioSettings.cpp`; on Android and iOS the holder also opens new ones automatically); the `MidiBuffer` arrives in `processBlock`. Plugin builds receive MIDI from the host track via the same `MidiBuffer`.
 
 The same section offers a MIDI output because `producesMidi()` is true (`NEEDS_MIDI_OUTPUT` in `juce/CMakeLists.txt` — the two must agree). The standalone sends whatever `processBlock` leaves in the buffer to the output chosen there. Every incoming message is cleared before that, including while the host bypasses the plugin (`processBlockBypassed`), so nothing is echoed back to the controller.
 
@@ -303,7 +303,7 @@ F0 7D 53 47 07 00 <name, up to 32 ASCII bytes> F7
 
 Where it goes:
 
-- **Standalone** — the MIDI output chosen in Settings → MIDI Devices. Nothing is sent until one is chosen.
+- **Standalone** — the MIDI output chosen in Settings → Audio & MIDI → MIDI Devices. Nothing is sent until one is chosen.
 - **VST3, AU, AAX, LV2** — the plugin's MIDI output, wherever the host routes it.
 - **CLAP** — the wrapper forwards only two- and three-byte messages on its own, so the adapter implements clap-juce-extensions' `addOutboundEventsToQueue` and pushes SysEx as `CLAP_EVENT_MIDI_SYSEX`. The event points at its bytes and the host reads them after `process()` returns, so they are copied into an arena on the adapter that lasts until the next `process()` call.
 

@@ -348,9 +348,11 @@ function renderMidi(state: AudioDeviceState): void {
         return row;
       }));
       if (state.midiInputs.length === 0) {
+        // Sits where a port would, under the heading the markup keeps: the answer to
+        // "which MIDI inputs?" is None, rather than the section looking unfinished.
         const empty = document.createElement("div");
-        empty.className = "settings-hint";
-        empty.textContent = "No MIDI inputs found.";
+        empty.className = "audio-device-midi-empty";
+        empty.textContent = "None";
         list.append(empty);
       }
       list.dataset.ports = signature;

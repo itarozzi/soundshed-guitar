@@ -7,7 +7,7 @@ import type { AudioDeviceState } from "../ts/settings/audioDevice.js";
 type AudioDevice = typeof AudioDeviceModule;
 type Sent = { type: string; action?: string; [key: string]: unknown };
 
-const GENERAL_PANEL = readFileSync(join(__dirname, "..", "ui-components", "panels", "settings-general.html"), "utf8");
+const AUDIO_MIDI_PANEL = readFileSync(join(__dirname, "..", "ui-components", "panels", "settings-audio-midi.html"), "utf8");
 
 let audioDevice: AudioDevice;
 let sent: Sent[];
@@ -64,7 +64,7 @@ function change(id: string, value: string): void {
 
 beforeEach(async () => {
   vi.useFakeTimers();
-  document.body.innerHTML = GENERAL_PANEL;
+  document.body.innerHTML = AUDIO_MIDI_PANEL;
   sent = [];
   observed = [];
   window.IPlugSendMsg = (payload: string) => {
@@ -170,6 +170,22 @@ describe("the controls", () => {
     expect(document.getElementById("audio-device-control-panel")!.hidden).toBe(true);
     expect((document.getElementById("audio-device-midi-input-0") as HTMLInputElement).checked).toBe(true);
     expect(document.getElementById("midi-device-settings")!.hidden).toBe(false);
+  });
+
+  it("answers None under the MIDI Inputs heading when there is no input port", () => {
+    audioDevice.syncAudioDeviceSettingsAvailability(true);
+    audioDevice.showAudioDeviceState(state({ midiInputs: [] }));
+
+    // The heading is markup, not rendered, so it stays whatever the engine reports.
+    expect(document.querySelector(".audio-device-midi-label")!.textContent).toBe("MIDI Inputs");
+    expect(document.getElementById("audio-device-midi-inputs")!.textContent).toBe("None");
+    expect(document.getElementById("audio-device-midi-input-0")).toBeNull();
+    expect(document.getElementById("midi-device-settings")!.hidden).toBe(false);
+
+    // And a port arriving later replaces it.
+    audioDevice.showAudioDeviceState(state());
+    expect(document.querySelector(".audio-device-midi-empty")).toBeNull();
+    expect((document.getElementById("audio-device-midi-input-0") as HTMLInputElement).checked).toBe(true);
   });
 
   it("show one device picker for a driver that opens both sides together", () => {

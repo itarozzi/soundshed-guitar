@@ -313,7 +313,15 @@ treated as a one-scene preset automatically.
 | **Resource Browser** | NAM model and IR selection |
 | **Settings** | Audio preferences, storage, theme |
 
-## Settings → Audio
+## Settings → Audio & MIDI
+
+The Settings panel's own tab strip (`core/ui/ts/settings/tabs.ts`, markup in
+`ui-components/panels/settings-panel.html`): General, **Audio & MIDI**, DSP Performance,
+Features, Library, Help. Audio & MIDI holds the two device sections below and nothing else;
+the engine-side settings that used to sit beside them — Preset Switching, Advanced DSP Level
+Targets — stayed in General under its *DSP* heading. Each tab is one partial under
+`ui-components/panels/`, and its id is `equipment-tab-<tabId>`; a new one needs the button,
+the partial's include, and the tab id in `resolveEquipmentTabId()`.
 
 ### Audio Device
 
@@ -333,6 +341,9 @@ sides together; the active channels, picked in groups as wide as the plugin's ma
 pairs), at most one group per side; sample rate and buffer size from the device's own lists
 (the shown value is what the device runs at); the driver's control panel, a device reset and
 the test tone; MIDI inputs and the MIDI output; and the holder's feedback-loop input mute.
+The MIDI inputs are one full-width row per port (names are long), so the list has a
+*MIDI Inputs* heading of its own above it; with no port it still shows, over the word
+**None**, so the section never looks as if inputs were left out.
 A list the device offers only one entry for is shown disabled, with a line saying who sets it
 (an ASIO driver's buffer size, Windows shared mode's sample rate).
 
