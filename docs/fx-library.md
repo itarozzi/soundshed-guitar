@@ -81,6 +81,7 @@ All UUID constants are defined in `core/src/dsp/EffectGuids.h`. The table below 
 | `kFlanger` | `1a3f3793-7e80-4e3d-ab7b-3ce3ce032fe7` | `flanger` |
 | `kPhaser` | `3aa9dc81-31c2-40d5-9b1b-b0b9d1295e9b` | `phaser` |
 | `kTremolo` | `c9debb02-d7e7-43e3-8330-b387be46dcf4` | `tremolo` |
+| `kRingMod` | `c13068c1-9c50-4c7c-be9e-eef808990651` | `ring_mod` |
 | `kAutoWah` | `b06c6d84-01b3-4d0a-ad98-40eecb64438e` | `auto_wah` |
 | `kWah` | `8ae7a185-8075-466f-a83b-72f8dfa50af0` | `wah` |
 | `kSpatial3D` | `a3196960-a89b-4388-829e-cbf8d8dd91c3` | `spatial_3d` |
@@ -142,7 +143,7 @@ EffectProcessor* processor = EffectRegistry::Create("amp_nam");
 | `drive` | Gain/clipping/saturation | Overdrive, distortion, fuzz |
 | `dynamics` | Dynamics processing | Noise gate, compressor, limiter |
 | `eq` | Equalization | Parametric EQ |
-| `modulation` | Modulation effects | Chorus, flanger, phaser, tremolo, auto-wah, wah |
+| `modulation` | Modulation effects | Chorus, flanger, phaser, tremolo, ring modulator, auto-wah, wah |
 | `pitch` | Pitch manipulation | Pitch shift, transpose, octave |
 | `delay` | Time-based delay | Digital delay, tape echo, analog (BBD) delay, doubler |
 | `reverb` | Reverberation | Room, chamber, spring, advanced, IR, ambient |
@@ -826,6 +827,70 @@ effect pedal*, DAFx-11; ElectroSmash's GCB-95 and V847 analyses; the DAFx-15 pap
 Ibanez Weeping Demon; the Fulltone, Xotic, Real McCoy and Vox Big Bad Wah manuals and product
 pages; and for the Morley signature wahs, Morley's product copy and published reviews. Tom
 Morello's TBM95 shares the GCB-95's published specification, so the GCB-95 preset covers it.
+
+### Ring Modulator (`ring_mod`)
+
+Multiplies the signal by a carrier oscillator. With a sine carrier at Fc, every frequency F in
+the input becomes the pair F − Fc and F + Fc, and neither F nor Fc is left in the output.
+Because the new partials sit a fixed *distance* from the old ones rather than at a fixed ratio,
+notes and chords turn into metallic, bell-like or robotic clusters. Mix below 1 brings the dry
+signal back, which makes it amplitude modulation. `RingModEffect.h` has the processing, and
+`RingModSupport.h` the parameter table, oscillators and presets.
+
+**Signal path, per channel**
+
+```
+in ─┬─ DC block (10 Hz) ─ × carrier ─ tone low-pass ─ × Level ──┐
+    └────────────────────────────────────────────────────────────┴─ mix ─ out
+```
+
+| Behaviour | How |
+|---|---|
+| Carrier | Sine, triangle or square, phase-aligned so a Waveform change crossfades over 10 ms without cancelling. Each is scaled to unity RMS (sine ×√2, triangle ×√3), so the effect matches its bypass level and the waveforms match each other (measured within 0.1 dB). The cost is crest factor: a sine carrier's output can peak 3 dB above the input's, a triangle's 4.8 dB. |
+| Band-limiting | The square's edges get a two-sample polynomial BLEP and the triangle's corners a BLAMP. At a 2.9 kHz carrier (48 kHz), the harmonics that fold back below 10 kHz, where they would land as inharmonic tones, drop from −17.8 to −59.2 dB for the square and from −43.6 to −83.9 dB for the triangle. What the BLEP leaves sits within a few kHz of Nyquist, which Tone removes. The carrier is held to at most 8 kHz and a quarter of the sample rate. |
+| LFO | Sweeps the carrier by up to ±3 octaves (in octaves, so the sweep sounds even around any Frequency). The shapes are sine, triangle, square, and Random, which holds a new value each cycle. The output is slewed over 1 ms, so the square and Random shapes slide rather than step. The rate is free (0.05–20 Hz) or synced to the host tempo. |
+| Smoothing | Frequency glides in the log domain over 20 ms, so a MIDI CC does not zipper the sidebands. LFO Depth, Tone, Spread, Level and Mix smooth over 10 ms. Values set before the first block (a preset loading) apply straight away rather than gliding in from the defaults. |
+| Tone | A Butterworth low-pass on the wet signal, from 400 Hz at 0 to 24 kHz at 1 (clamped to 0.49 × the sample rate, so fully open is flat across the audio band). |
+| Stereo Spread | Runs the right channel's LFO up to half a cycle ahead of the left's, and its carrier up to a quarter of a cycle ahead, so a mono input comes out stereo at about the same level on each side. When Spread returns to zero, the right carrier is phase-locked back onto the left over about a second, as a brief detune of at most 10 Hz rather than a jump. After that the effect offers the executor its mono path again. |
+
+The carrier and LFO are computed every 16 samples and the carrier's phase increment ramps
+linearly between updates. A DC offset on the input would otherwise come out as a tone at the
+carrier frequency, which is why the DC block is there. A non-finite input sample clears the
+filter state at the end of its block. Latency is zero. A 64-sample stereo block at 48 kHz costs
+about 1.1–1.3 µs in an optimised build (MSVC `/fp:fast` and clang `-ffast-math` alike), under
+0.1% of the block's deadline.
+
+**Parameters**
+
+| Parameter | Range | Default | Unit | Group |
+|-----------|-------|---------|------|-------|
+| `frequency` | 1–2000 | 440 | Hz | Carrier |
+| `waveform` | Sine / Triangle / Square | Sine | enum | Carrier |
+| `lfoDepth` | 0–3 | 0 | octaves either way | LFO |
+| `lfoRate` | 0.05–20 | 1 | Hz | LFO |
+| `lfoShape` | Sine / Triangle / Square / Random | Sine | enum | LFO |
+| `syncMode` | Free / Tempo | Free | enum | LFO |
+| `syncDivision` | 1/1 … 1/32T | 1/4 | enum | LFO |
+| `tone` | 0–1 | 1 | — | Output |
+| `spread` | 0–1 | 0 | — | Output (advanced) |
+| `level` | -12…12 | 0 | dB (wet) | Output |
+| `mix` | 0–1 | 1 | — | Output |
+
+The knob is linear, so the growl region below about 100 Hz sits in the first few percent of its
+travel; double-click the value to type one. Read-only feedback: `carrierFrequency` (the left
+carrier, LFO included) and `effectiveRate` (the LFO rate, after tempo sync).
+
+**Factory presets** set every parameter except `syncDivision`, with Sync off, since each names
+its own LFO rate. The first holds the defaults, and it is what a new node starts with.
+
+| Preset | Carrier | LFO | Notes |
+|---|---|---|---|
+| Classic Ring | 440 Hz sine | — | The defaults |
+| Robot Voice | 30 Hz sine | — | The low-frequency growl of the classic TV robot voices |
+| Bell Tones | 740 Hz sine | — | Tone 0.8, Mix 0.7: some dry note under the bells |
+| Sci-Fi Sweep | 500 Hz sine | Sine, 0.25 Hz, ±1.5 oct | A slow, wide sweep |
+| Computer Chatter | 900 Hz square | Random, 8 Hz, ±1 oct | Tone 0.6 tames the square's buzz |
+| Stereo Warble | 280 Hz triangle | Triangle, 3 Hz, ±0.3 oct | Full Spread |
 
 ### Pitch Shift (`pitch_shift`)
 Pitch shift effect using Signalsmith Stretch, free or snapped to whole semitones, within a range an expression pedal sweeps.

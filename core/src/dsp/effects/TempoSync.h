@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -31,6 +32,12 @@ inline constexpr std::array<double, 15> kDivisionBeats = {
     0.125,     // 1/32
     1.0 / 12.0 // 1/32T
 };
+
+/// The Sync and Division labels as constants, for an effect's constexpr EffectParamSpec table.
+inline constexpr const char* kSyncModeLabelNames[] = {"Free", "Tempo"};
+inline constexpr const char* kDivisionLabelNames[] = {"1/1",  "1/2",  "1/2D", "1/2T",  "1/4",   "1/4D", "1/4T", "1/8",
+                                                      "1/8D", "1/8T", "1/16", "1/16D", "1/16T", "1/32", "1/32T"};
+static_assert(std::size(kDivisionLabelNames) == kDivisionBeats.size(), "one label per division");
 
 inline double ClampBpm(double bpm)
 {
@@ -68,12 +75,11 @@ inline double DivisionDelayMs(double bpm, int divisionIndex)
 
 inline std::vector<std::string> SyncModeLabels()
 {
-    return {"Free", "Tempo"};
+    return {std::begin(kSyncModeLabelNames), std::end(kSyncModeLabelNames)};
 }
 
 inline std::vector<std::string> DivisionLabels()
 {
-    return {"1/1",  "1/2",  "1/2D", "1/2T",  "1/4",   "1/4D", "1/4T", "1/8",
-            "1/8D", "1/8T", "1/16", "1/16D", "1/16T", "1/32", "1/32T"};
+    return {std::begin(kDivisionLabelNames), std::end(kDivisionLabelNames)};
 }
 } // namespace guitarfx::tempo_sync

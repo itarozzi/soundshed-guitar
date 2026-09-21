@@ -82,6 +82,7 @@ All effects register via `EffectRegistry` (singleton factory). Effect type IDs, 
 | `flanger` | Flanger |
 | `phaser` | Phaser |
 | `tremolo` | Tremolo |
+| `ring_mod` | Ring Modulator |
 | `auto_wah` | Auto-Wah |
 | `wah` | Wah |
 

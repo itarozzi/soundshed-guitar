@@ -696,12 +696,18 @@ bool TestRecursiveEffectsRecoverFromNonFiniteInput()
     tapeDelay.SetParam("time", 50.0);
     tapeDelay.SetParam("feedback", 0.5);
 
+    // The ring modulator's DC blocker and tone filter hold state. Wet only, as above.
+    RingModEffect ringMod;
+    ringMod.Prepare(kSampleRate, kBlock);
+    ringMod.SetParam("mix", 1.0);
+
     bool passed = ExpectRecoversFromNonFiniteInput("parametric EQ", parametric);
     passed = ExpectRecoversFromNonFiniteInput("graphic EQ", graphic) && passed;
     passed = ExpectRecoversFromNonFiniteInput("flanger", flanger) && passed;
     passed = ExpectRecoversFromNonFiniteInput("noise gate", gate) && passed;
     passed = ExpectRecoversFromNonFiniteInput("analog delay", analogDelay) && passed;
     passed = ExpectRecoversFromNonFiniteInput("tape delay", tapeDelay) && passed;
+    passed = ExpectRecoversFromNonFiniteInput("ring modulator", ringMod) && passed;
     return passed;
 }
 

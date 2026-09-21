@@ -58,6 +58,7 @@ set(TEST_SOURCES
     ResourcePreviewWorkflowTests.cpp
     RealtimeConvolverTests.cpp
     ResourceLoadBenchmark.cpp
+    RingModEffectTests.cpp
     SampleRateConverterTests.cpp
     StorageMigrationTests.cpp
     SignalChainMutationStressTest.cpp

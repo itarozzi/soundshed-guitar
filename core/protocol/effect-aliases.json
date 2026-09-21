@@ -128,6 +128,10 @@
       "guid": "c9debb02-d7e7-43e3-8330-b387be46dcf4",
       "aliases": ["tremolo"]
     },
+    "kRingMod": {
+      "guid": "c13068c1-9c50-4c7c-be9e-eef808990651",
+      "aliases": ["ring_mod"]
+    },
     "kAutoWah": {
       "guid": "b06c6d84-01b3-4d0a-ad98-40eecb64438e",
       "aliases": ["auto_wah"]
