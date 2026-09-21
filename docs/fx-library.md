@@ -293,16 +293,16 @@ Impulse response convolution for cabinet simulation.
 |-----------|-------|---------|------|
 | `mix` | 0.0–1.0 | 1.0 | — |
 | `outputGain` | -24..+24 | 0.0 | dB |
+| `speakerDrive` | 0.0–1.0 | 0.0 | — |
 | `quality` | 0–3 | 1 | — |
 
-| `speakerDrive` | 0.0–1.0 | 0.0 | — |
 Quality levels: 0=Economy, 1=Standard, 2=High, 3=Full
-
-**Resource**: Audio file (`.wav`)
 
 Speaker Drive is the Simple Cabinet's level-dependent speaker stage (`SpeakerDrive.h`) in front
 of the convolution: what an IR, being a linear snapshot, cannot capture. It bends only what
 reaches the IR; the dry mix stays clean. At 0 it is exactly transparent.
+
+**Resource**: Audio file (`.wav`)
 
 ### Plugin Host (`plugin_host`)
 JUCE-only utility effect that hosts an external plugin supported by JUCE's plugin hosting APIs. It is registered by the JUCE adapter, so core-only builds do not expose this effect type.
