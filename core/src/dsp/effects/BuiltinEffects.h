@@ -33,6 +33,7 @@
 #include "dsp/effects/Spatial3DEffect.h"
 #include "dsp/effects/OctaveEffect.h"
 #include "dsp/effects/SynthSawEffect.h"
+#include "dsp/effects/GuitarToMidiEffect.h"
 #include "dsp/effects/AutoArpEffect.h"
 #include "dsp/effects/LimiterEffect.h"
 #include "dsp/effects/OptimizedNAMAmpEffect.h"
@@ -148,6 +149,7 @@ inline void RegisterAllEffects()
 
     // Synth effects
     RegisterSynthSawEffect();
+    RegisterGuitarToMidiEffect(); // experimental: the UI lists it behind Experimental Effects
 
     // Note: Composite effects are registered dynamically by CompositeEffectLibrary
     // after loading definitions from disk. They are not part of static registration.

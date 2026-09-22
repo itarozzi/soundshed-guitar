@@ -155,7 +155,7 @@ function encodeDatasetJson(value: unknown): string {
 
 export function getCatalogEffects(options?: { excludeTypes?: string[] }): EffectTypeInfo[] {
   const excludedTypes = new Set([EffectGuids.kMixer, ...(options?.excludeTypes ?? [])]);
-  const experimentalEffectTypes = new Set<string>([EffectGuids.kTransposeStft, EffectGuids.kTransposeHybrid]);
+  const experimentalEffectTypes = new Set<string>([EffectGuids.kTransposeStft, EffectGuids.kTransposeHybrid, EffectGuids.kGuitarToMidi]);
   return EffectTypeRegistry.getAll().filter((effect) => {
     const resolvedType = EffectTypeRegistry.resolve(effect.type);
     if (effect.catalogHidden) return false;

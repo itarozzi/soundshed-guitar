@@ -28,6 +28,7 @@ set(TEST_SOURCES
     GaplessSwitchingTests.cpp
     GlobalChainEditorTests.cpp
     GlobalChainEngineTests.cpp
+    GuitarToMidiEffectTests.cpp
     PresetRetirementTests.cpp
     DemoPreviewLoopTests.cpp
     HostedPluginCaptureLockTests.cpp
@@ -49,6 +50,8 @@ set(TEST_SOURCES
     NamResamplerResetTests.cpp
     NAMPerformanceBenchmark.cpp
     NoiseGateTests.cpp
+    NotePlayerTests.cpp
+    NoteTrackerTests.cpp
     PitchTrackerTests.cpp
     PluginPathUtilsTests.cpp
     PresetDSPLoadingTests.cpp

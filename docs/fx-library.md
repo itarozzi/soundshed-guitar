@@ -91,6 +91,7 @@ All UUID constants are defined in `core/src/dsp/EffectGuids.h`. The table below 
 | `kOctave` | `2e4d5380-5a79-412f-bfc0-bf84ef74d561` | `octave` |
 | `kGain` | `0bcd895e-5d36-4247-a351-6bed1fcb37a8` | `gain` |
 | `kSynthSaw` | `608e846e-0e60-4064-9c83-37c0df573c38` | `synth_saw` |
+| `kGuitarToMidi` | `c2b0fdc1-ba9a-411c-8d19-4f6eeab86e33` | `guitar_to_midi` |
 | `kSplitter` | `f5f2541b-fcea-4cfd-9e62-eeddf583ef4e` | `splitter` |
 | `kMixer` | `d7d1e40f-9c79-4582-9a82-d5fa5bbbfb97` | `mixer` |
 | `kInputAnalyzer` | `2ea17ea3-8f2a-4eea-8e14-babf0d8be5a6` | `input_analyzer` |
@@ -170,7 +171,7 @@ Log-taper parameters: `ring_mod` `frequency`; `delay_digital` `highCut` and `low
 | `delay` | Time-based delay | Digital delay, tape echo, analog (BBD) delay, doubler |
 | `reverb` | Reverberation | Room, chamber, spring, advanced, IR, ambient |
 | `utility` | Utility processing | Gain, splitter, mixer, signal analyzer |
-| `synth` | Synthesized tones | Synth saw |
+| `synth` | Synthesized tones, and notes for them | Synth saw, Guitar to MIDI (experimental) |
 
 ## Effect Processor Interface
 
@@ -359,7 +360,7 @@ JUCE-only utility effect that hosts an external plugin supported by JUCE's plugi
   previous session (`RestoreStandaloneHostedPluginState`) — so unsaved *graph* edits are still
   discarded, while the opaque plugin state, which has no other home, survives a restart.
 
-**Runtime notes**: The current signal graph routes stereo audio only. Hosted plugins may accept or produce MIDI at the JUCE level, but MIDI events are not yet routed between graph nodes.
+**Runtime notes**: The signal graph routes stereo audio, and notes from a Guitar to MIDI node to every Plugin Host downstream of it (see *Guitar to MIDI*); nothing else reaches a hosted plugin as MIDI, and MIDI a plugin produces goes nowhere. A plugin with no audio input (an instrument) is handed a silent buffer rather than the node's input, so its output is only its own; Mix then blends it with that input.
 
 ### Noise Gate (`dynamics_gate`)
 Input noise reduction.
@@ -1053,6 +1054,62 @@ three more features, each of which used to run a brute-force YIN of its own.
 | Synth Voice (`synth_saw`) | The mono input feeds the tracker, and its accepted pitch is what the oscillator glides to over Glide. After an onset (the input envelope rising by 15% in a sample) the glide runs four times faster until two confident detections, about 10 ms. While the tracker finds no pitch (silence, noise, a note dying away) the oscillator goes, over Glide, to the pitch the tracker holds: the note's own from before it began to stop. It used to keep the last estimate it was given, which may already have heard the start of the silence, and a low note's tail could settle over 30 cents out (13 cents at the default Glide); wherever the stop falls it now settles within 1.5 cents. It sounds only while the envelope is above Gate. Notes from 45 Hz to 2 kHz. At 48 kHz in 64-sample blocks it costs 2.7 µs per block on average and 12 µs at the 99th percentile, and a note change reaches the oscillator in 13–60 ms. The old detector cost 50 and 130 µs (2.2 ms at 192 kHz, against that block's 333 µs deadline), took up to 83 ms, and stopped at 50 Hz. |
 | Auto Arpeggiator pitch trigger (`arp_auto`) | The left input feeds the tracker. Every 2048 samples at 48 kHz (43 ms at any rate) the frame's pitch is smoothed (0.6 of the new, 0.4 of the old; ×0.8 for a frame without one) and compared with Pitch: two frames past it turn the arp on, restarting the pattern on the beat, and five short of it turn it off. A frame's pitch comes from its latest detection that found one, and none when the frame is quieter than RMS 0.003. The old detector took the first period under its threshold rather than the bottom of the dip, in whole samples, so it read up to 190 cents sharp and a note a semitone below the threshold tripped it. It found no pitch at all at 96 kHz and above, and cost a burst of about 340 µs in one block of every 32. On the DI demo the on/off state matches the old one in 98–99.9% of blocks in Above mode. In Below mode the arp now drops out in long gaps between notes, as a full-rate YIN reference does, where the old one mostly stayed on. |
 | Tuner (`TunerEngine`) | Runs the tracker on the audio thread (about 2.4 µs per 64-sample block) and averages its detections over each reading, 2048 samples at 48 kHz (43 ms at any rate). A worker thread names the note against the reference pitch and reports it, as before. A new note restarts the average. Averaged, the 5 ms detections read a held note with a third to a tenth of the scatter of the single 85 ms window the tuner used to analyse. So the tuner needs no longer window of its own, and the UI still averages six readings. With white noise 20 dB below an A2, readings scatter by 0.3 cents, where they scattered by 2.6 and sat 1.7 cents sharp. On the DI demo's held notes, 99% of readings are within 10 cents of full-rate YIN, against 75% before, and none is more than 50 cents out, against 24% before. Notes above about 1.1 kHz no longer read an octave low, and 176.4 and 192 kHz work. The worker no longer spends 2.3 ms on YIN every 43 ms. |
+
+### Guitar to MIDI (`guitar_to_midi`)
+**Experimental**: listed only with Settings → Experimental Effects on. Turns single notes into
+MIDI for a virtual instrument in a Plugin Host downstream of it in the same chain. It makes no
+sound of its own: Guitar Thru passes the guitar on or mutes it.
+
+| Parameter | Range | Default | Unit |
+|-----------|-------|---------|------|
+| `mode` | Notes / Notes + Bend | Notes + Bend | enum |
+| `bendRange` | 2 / 12 / 24 / 48 semitones | 2 | enum |
+| `channel` | 1..16 | 1 | — |
+| `transpose` | -24..+24 | 0 | st |
+| `threshold` | -60..-20 | -50 | dB |
+| `dynamics` | 0.0–1.0 | 0.7 | — |
+| `lowestNote` | E2 / D2 / B1 / F#1 | D2 | enum |
+| `thru` (Guitar Thru) | 0/1 toggle | 1 | — |
+
+**Notes** come from `dsp/NoteTracker.h`, which sits on the shared pitch tracker and decides
+where notes start, move and stop:
+
+- A pick is found by the power above 4 kHz jumping 6 dB over its 50 ms average, which catches
+  a re-pick of a note that is still ringing. The note starts at the first pitch the tracker has
+  accepted; over a ringing note, only once two detections agree, since a window straddling two
+  notes reads between them, and for the same pitch only once most of the window is past the pick.
+- Velocity is the pick's peak between Threshold (1) and -6 dBFS (127), blended by Dynamics with a
+  fixed 100.
+- A move of over a semitone without a pick (a hammer-on, pull-off or slide) is legato: the new
+  note starts, then the old one stops, at the same sample. An octave has to hold for three
+  detections, since a power chord or a strong second harmonic can flip the tracker by an octave.
+- The note stops when it is muted (20 dB under its own level, after its first 50 ms), when the
+  level stays 6 dB under Threshold, or after 100 ms with no pitch.
+
+In **Notes** mode pitches are rounded, and a bend has to pass the next note by 0.2 semitones
+before it moves there, legato. In **Notes + Bend** mode the note holds and pitch bend follows the
+guitar, its tuning included; a bend that runs 0.3 semitones past Bend Range moves to the nearest
+note and bends on from there. Bend Range must match the instrument's (most default to 2), or the
+pitch comes out wrong. Changing channel, transpose, mode or bend range mid-note ends the note and
+starts it again under the new setting.
+
+**Lowest Note** narrows the pitch tracker's range (`PitchTracker::SetLowestFrequency`, which the
+other trackers leave at 45 Hz), and with it the window: 13 ms at E2 against 22 ms at the full
+range. On synthetic lines at 44.1–192 kHz and the drop-D default, a note starts 15–20 ms after
+the pick at the median and within 30 ms at worst; the full range adds about 5 ms and some octave
+errors. Threshold cannot usefully go below about -52 dBFS: the tracker reads nothing under
+-55 dBFS RMS.
+
+**Routing**: the notes reach every Plugin Host downstream, however many nodes lie between, and
+none on a parallel branch that does not pass through this node; they stop at a composite's
+edge. Several Guitar to MIDI nodes can feed one instrument, each on its own channel. The Plugin
+Host's note player (`NotePlayer` in `dsp/NoteEvents.h`) reconciles what it has sent with the
+note each source holds at the end of every block, so nothing hangs when a source is bypassed or
+removed, a block is dropped while the plugin is busy, or the plugin is reset or replaced; a
+source brought back from bypass starts afresh rather than replaying the note it had.
+
+It is monophonic: a chord comes out as one of its notes, not always the same one. MIDI goes
+only to hosted plugins: it is not sent out of the app or to a DAW.
 
 ### Pitch Shift (`pitch_shift`)
 Pitch shift effect using Signalsmith Stretch, free or snapped to whole semitones, within a range an expression pedal sweeps.

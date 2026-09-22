@@ -904,6 +904,8 @@ void SignalGraphExecutor::Process(float** inputs, float** outputs, int numSample
         std::fill(state.bufferRight.begin(), state.bufferRight.begin() + numSamples, 0.0f);
         state.hasInput = false;
         state.hasStereoSignal = false;
+        state.notesLastBlock = state.notesThisBlock;
+        state.notesThisBlock = false;
 
         if (diagnosticsEnabled)
         {

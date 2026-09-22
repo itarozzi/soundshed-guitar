@@ -3,11 +3,13 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 
 #include "dsp/EffectProcessor.h"
+#include "dsp/NoteEvents.h"
 
 #include <atomic>
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -48,6 +50,11 @@ namespace guitarfx
         [[nodiscard]] std::string GetCategory() const override { return "utility"; }
         [[nodiscard]] bool ProducesStereoOutput() const override { return true; }
 
+        // A hosted instrument plays the notes of any Guitar to MIDI node upstream of it; an
+        // effect that ignores MIDI ignores them. With no note source upstream nothing is sent.
+        [[nodiscard]] bool AcceptsNoteInput() const override { return true; }
+        void SetNoteInput (std::span<const NoteBlock* const> sources) override { mNoteSources = sources; }
+
 #if defined(GUITARFX_ENABLE_PLUGIN_HOST_TEST_API)
         [[nodiscard]] juce::AudioPluginInstance* GetHostedPluginForTesting() const { return mPlugin.get(); }
         [[nodiscard]] bool IsPluginEditorOpenForTesting() const { return mEditorWindow != nullptr; }
@@ -66,6 +73,7 @@ namespace guitarfx
         void PrepareLoadedPlugin();
         void UpdateWorkBufferForPlugin();
         void CopyInputToWorkBuffer (float** inputs, int numSamples);
+        void FillMidiFromNotes (std::span<const NoteBlock* const> sources, int numSamples);
         void CopyWorkBufferToOutputs (float** inputs, float** outputs, int numSamples);
         void Passthrough (float** inputs, float** outputs, int numSamples) const;
         void ApplyPluginStateBase64 (const std::string& value);
@@ -93,6 +101,12 @@ namespace guitarfx
         juce::AudioPluginFormatManager mFormatManager;
         juce::AudioBuffer<float> mWorkBuffer;
         juce::MidiBuffer mMidiBuffer;
+        // Notes for the hosted plugin (dsp/NoteEvents.h). The sources are this block's, set by the
+        // executor just before Process() and dropped by it. The player is the audio thread's; the
+        // message thread only touches it under mPluginProcessLock, while the plugin is swapped or
+        // prepared, which is when the plugin's own voices are reset too.
+        std::span<const NoteBlock* const> mNoteSources;
+        NotePlayer mNotePlayer;
         // Guards the hosted plugin against concurrent access: the audio thread
         // try-locks (falling back to passthrough), while the message thread holds
         // the lock during editor create/destroy, prepareToPlay, state restore and

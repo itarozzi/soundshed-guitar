@@ -13,6 +13,8 @@
 
 namespace guitarfx
 {
+struct NoteBlock;
+
 /// The span a parameter is driven across, and the step it lands on (0 = continuous).
 struct ParamRange
 {
@@ -151,6 +153,32 @@ class EffectProcessor
                                                     std::span<double> /*magnitudesDb*/) const
     {
         return false;
+    }
+
+    // Notes (dsp/NoteEvents.h). A node that makes notes from its input exposes them here, and
+    // the executor hands them to every node downstream of it that plays notes (see
+    // SignalGraphExecutor, "Note routing"). Everything else ignores both.
+
+    /// The notes this node made in the block it last processed, or nullptr for a node that makes
+    /// none. The block is the node's own and must stay at this address. A source the executor
+    /// skipped for a block (bypassed, or cut off from the input) is Reset() before it next runs,
+    /// on the audio thread, so its Reset() must not allocate.
+    [[nodiscard]] virtual const NoteBlock* GetNoteOutput() const
+    {
+        return nullptr;
+    }
+
+    /// True for a node that plays notes: the executor then calls SetNoteInput() before every
+    /// Process() it makes.
+    [[nodiscard]] virtual bool AcceptsNoteInput() const
+    {
+        return false;
+    }
+
+    /// This block's notes from the sources upstream that ran this block, which may be none. The
+    /// span and the blocks are valid only until Process() returns.
+    virtual void SetNoteInput(std::span<const NoteBlock* const> /*sources*/)
+    {
     }
 
     // Bypass

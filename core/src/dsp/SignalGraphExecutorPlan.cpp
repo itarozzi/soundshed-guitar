@@ -76,6 +76,12 @@ void SignalGraphExecutor::BuildExecutionPlan()
             planned.mixer = dynamic_cast<MixerEffect*>(state.processor.get());
         }
 
+        if (state.processor)
+        {
+            planned.noteOutput = state.processor->GetNoteOutput();
+            planned.acceptsNotes = state.processor->AcceptsNoteInput();
+        }
+
         // Resolved here rather than in SetTempo(), which the host callback drives once
         // per block: GetTypeInfo() returns EffectTypeInfo by value, and that is a deep
         // copy of every parameter and preset definition the type declares.
@@ -124,6 +130,8 @@ void SignalGraphExecutor::BuildExecutionPlan()
         planned.accumulateInputs = planned.isMixer || planned.incoming.size() > 1;
     }
 
+    ResolveNoteRouting();
+
     // The input node Process() copies into is the first by id order that is input-typed
     // or literally named "__input__" — matching what the old scan settled on.
     for (auto& [id, state] : mNodeStates)
@@ -171,6 +179,81 @@ void SignalGraphExecutor::BuildExecutionPlan()
 
     // Likewise a rebuilt node starts out untapped, which would silently end an EQ display.
     ApplySpectrumWatch();
+}
+
+void SignalGraphExecutor::ResolveNoteRouting()
+{
+    std::map<const NodeState*, std::size_t> planIndexByState;
+
+    for (std::size_t index = 0; index < mPlan.size(); ++index)
+    {
+        planIndexByState[mPlan[index].state] = index;
+    }
+
+    for (auto& player : mPlan)
+    {
+        if (!player.acceptsNotes)
+        {
+            continue;
+        }
+
+        // Everything upstream, walking the incoming edges back to the input.
+        std::vector<bool> seen(mPlan.size(), false);
+        std::vector<std::size_t> pending;
+        std::vector<std::size_t> sources;
+
+        const auto visitIncoming = [&](const PlannedNode& node) {
+            for (const PlannedEdge& edge : node.incoming)
+            {
+                const auto it = planIndexByState.find(edge.source);
+
+                if (it != planIndexByState.end() && !seen[it->second])
+                {
+                    seen[it->second] = true;
+                    pending.push_back(it->second);
+                }
+            }
+        };
+
+        visitIncoming(player);
+
+        while (!pending.empty())
+        {
+            const std::size_t index = pending.back();
+            pending.pop_back();
+
+            if (mPlan[index].noteOutput)
+            {
+                sources.push_back(index);
+            }
+
+            visitIncoming(mPlan[index]);
+        }
+
+        std::sort(sources.begin(), sources.end());
+
+        for (const std::size_t index : sources)
+        {
+            player.noteSources.push_back(&mPlan[index]);
+        }
+
+        player.liveNotes.reserve(player.noteSources.size());
+    }
+}
+
+void SignalGraphExecutor::HandNotesTo(PlannedNode& planned)
+{
+    planned.liveNotes.clear();
+
+    for (const PlannedNode* source : planned.noteSources)
+    {
+        if (source->state->notesThisBlock)
+        {
+            planned.liveNotes.push_back(source->noteOutput);
+        }
+    }
+
+    planned.state->processor->SetNoteInput(planned.liveNotes);
 }
 
 void SignalGraphExecutor::ProcessPlannedNode(PlannedNode& planned, int numSamples, bool diagnosticsEnabled,
@@ -296,6 +379,25 @@ void SignalGraphExecutor::ProcessPlannedNode(PlannedNode& planned, int numSample
         state->processingTimeUs.store(nodeDuration.count(), std::memory_order_relaxed);
     };
 
+    // Note routing, for a node about to run. A source that did not run last block starts afresh,
+    // since what it was tracking then is long gone; a player hears the sources that ran this block.
+    const auto routeNotes = [&]() {
+        if (planned.noteOutput)
+        {
+            if (!state->notesLastBlock)
+            {
+                state->processor->Reset();
+            }
+
+            state->notesThisBlock = true;
+        }
+
+        if (planned.acceptsNotes)
+        {
+            HandNotesTo(planned);
+        }
+    };
+
     if (state->processor && state->hasInput)
     {
         const bool forceNamMonoByInputMode = mNamInputModeMono && planned.isNam;
@@ -336,6 +438,7 @@ void SignalGraphExecutor::ProcessPlannedNode(PlannedNode& planned, int numSample
         }
         else if (state->processor->IsEnabled() && nodeCanMono)
         {
+            routeNotes();
             processTimed(
                 [&]() { state->processor->ProcessMono(state->bufferLeft.data(), tempLeft.data(), numSamples); });
             std::copy(tempLeft.begin(), tempLeft.begin() + numSamples, state->bufferLeft.begin());
@@ -346,6 +449,7 @@ void SignalGraphExecutor::ProcessPlannedNode(PlannedNode& planned, int numSample
         {
             float* inPtrs[2] = {state->bufferLeft.data(), state->bufferRight.data()};
             float* outPtrs[2] = {tempLeft.data(), tempRight.data()};
+            routeNotes();
             processTimed([&]() { state->processor->Process(inPtrs, outPtrs, numSamples); });
             std::copy(tempLeft.begin(), tempLeft.begin() + numSamples, state->bufferLeft.begin());
             std::copy(tempRight.begin(), tempRight.begin() + numSamples, state->bufferRight.begin());

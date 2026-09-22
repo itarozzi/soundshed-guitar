@@ -58,33 +58,75 @@ namespace guitarfx
  * Both histories are mirrored rings: every sample is written twice, a ring's length apart, so
  * the newest samples are always one contiguous run and the difference loops vectorise.
  *
- * Prepare() allocates; Process() and Push() do not, and neither locks.
+ * SetLowestFrequency() narrows the range from the bottom. The window is two of the longest period
+ * the tracker looks for, so an instrument that never goes below a standard guitar's low E is
+ * tracked over a window 58% as long and picks a new note up that much sooner. It is opt-in: left
+ * alone, the tracker covers 45 Hz up as it always has.
+ *
+ * Prepare() allocates; Process(), Push() and SetLowestFrequency() do not, and none of them locks.
  */
 class PitchTracker
 {
   public:
     static constexpr double kMinHz = 45.0;
     static constexpr double kMaxHz = 2000.0;
+    /// The highest SetLowestFrequency() goes: an octave and a half above a guitar's top string, and
+    /// still two octaves below kMaxHz, so the lag range never closes up.
+    static constexpr double kMaxLowestHz = 500.0;
 
     void Prepare(double sampleRate)
     {
         mSampleRate = sampleRate > 0.0 ? sampleRate : 48000.0;
         mDecimation = std::max(1, static_cast<int>(std::lround(mSampleRate / kDecimatedRate)));
         mDecimatedRate = mSampleRate / mDecimation;
-        mMaxLag = static_cast<int>(std::ceil(mDecimatedRate / kMinHz)) + 1;
         mMinLag = std::max(2, static_cast<int>(std::floor(mDecimatedRate / kMaxHz)));
-        mHalf = mMaxLag;
-        mWindowSize = mHalf + mMaxLag + 2;
         mHop = std::max(1, static_cast<int>(std::lround(kHopSeconds * mDecimatedRate)));
         mRefineReach = std::min(mDecimation / 2 + 2, (kMaxRefineLags - 3) / 2);
 
-        mDecimated.Assign(mWindowSize);
-        mFull.Assign(mHalf * mDecimation + (mMaxLag + 2) * mDecimation + mRefineReach + 2);
-        mNormalised.assign(static_cast<std::size_t>(mMaxLag + 2), 1.0f);
+        // Sized for the full range whatever the lowest frequency is now, so that narrowing or
+        // widening it later never allocates.
+        const int longestLag = LongestLag(kMinHz);
+        mDecimated.Assign(2 * longestLag + 2);
+        mFull.Assign(longestLag * mDecimation + (longestLag + 2) * mDecimation + mRefineReach + 2);
+        mNormalised.assign(static_cast<std::size_t>(longestLag + 2), 1.0f);
 
         mLowPass[0] = biquad::LowPass(kLowPassHz, biquad::ButterworthSectionQ(4, 0), mSampleRate);
         mLowPass[1] = biquad::LowPass(kLowPassHz, biquad::ButterworthSectionQ(4, 1), mSampleRate);
+        ApplyLowestFrequency();
         Reset();
+    }
+
+    /// Tracks pitches from `hz` up rather than from kMinHz, over a window sized to match. A tone
+    /// below it reads as no pitch, or as its octave. A change resets the tracker; setting the
+    /// value it already has does nothing.
+    void SetLowestFrequency(double hz)
+    {
+        const double lowest = IsFinite(hz) ? std::clamp(hz, kMinHz, kMaxLowestHz) : kMinHz;
+
+        if (lowest == mLowestHz)
+        {
+            return;
+        }
+
+        mLowestHz = lowest;
+
+        if (!mNormalised.empty())
+        {
+            ApplyLowestFrequency();
+            Reset();
+        }
+    }
+
+    [[nodiscard]] double LowestFrequencyHz() const
+    {
+        return mLowestHz;
+    }
+
+    /// How much of the newest audio a detection judges, in seconds: the longest period tracked.
+    /// A note is only read reliably once it fills most of this.
+    [[nodiscard]] double HalfWindowSeconds() const
+    {
+        return mDecimatedRate > 0.0 ? mHalf / mDecimatedRate : 0.0;
     }
 
     void Reset()
@@ -234,6 +276,20 @@ class PitchTracker
     [[nodiscard]] static double Semitones(double from, double to)
     {
         return 12.0 * std::log2(to / from);
+    }
+
+    /// The longest lag, in decimated samples, the lag search needs to reach a period of `hz`.
+    [[nodiscard]] int LongestLag(double hz) const
+    {
+        return static_cast<int>(std::ceil(mDecimatedRate / hz)) + 1;
+    }
+
+    /// The lag range and window for mLowestHz, within what Prepare() allocated.
+    void ApplyLowestFrequency()
+    {
+        mMaxLag = LongestLag(mLowestHz);
+        mHalf = mMaxLag;
+        mWindowSize = mHalf + mMaxLag + 2;
     }
 
     /// The sum of squared differences between `count` samples at `a` and at `b`.
@@ -386,7 +442,7 @@ class PitchTracker
         // Step 4: interpolate the decimated lag, then refine it at the full rate.
         const double frequency = mSampleRate / RefinePeriod(coarse * mDecimation);
 
-        if (!(frequency >= kMinHz && frequency <= kMaxHz))
+        if (!(frequency >= mLowestHz && frequency <= kMaxHz))
         {
             Hold();
             return;
@@ -538,6 +594,7 @@ class PitchTracker
     double mSampleRate = 48000.0;
     int mDecimation = 4;
     double mDecimatedRate = 12000.0;
+    double mLowestHz = kMinHz;
     int mMaxLag = 0;
     int mMinLag = 2;
     int mHalf = 0;

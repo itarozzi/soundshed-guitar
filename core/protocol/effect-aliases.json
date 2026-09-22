@@ -186,6 +186,10 @@
       "guid": "608e846e-0e60-4064-9c83-37c0df573c38",
       "aliases": ["synth_saw"]
     },
+    "kGuitarToMidi": {
+      "guid": "c2b0fdc1-ba9a-411c-8d19-4f6eeab86e33",
+      "aliases": ["guitar_to_midi"]
+    },
     "kSplitter": {
       "guid": "f5f2541b-fcea-4cfd-9e62-eeddf583ef4e",
       "aliases": ["splitter"]

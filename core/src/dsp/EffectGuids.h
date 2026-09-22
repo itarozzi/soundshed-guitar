@@ -91,5 +91,6 @@ constexpr const char* kInputAnalyzer = "2ea17ea3-8f2a-4eea-8e14-babf0d8be5a6";
 
 // ── Synth ─────────────────────────────────────────────────────────────
 constexpr const char* kSynthSaw = "608e846e-0e60-4064-9c83-37c0df573c38";
+constexpr const char* kGuitarToMidi = "c2b0fdc1-ba9a-411c-8d19-4f6eeab86e33";
 } // namespace EffectGuids
 } // namespace guitarfx

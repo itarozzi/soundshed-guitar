@@ -15,6 +15,7 @@
 #include <iostream>
 #include <sstream>
 #include <system_error>
+#include <utility>
 
 namespace guitarfx
 {
@@ -727,6 +728,8 @@ namespace guitarfx
         mSampleRate = sampleRate;
         mMaxBlockSize = maxBlockSize;
         mPrepared = true;
+        // Room for a full block of notes, so filling it never allocates on the audio thread.
+        mMidiBuffer.ensureSize (static_cast<size_t> (NotePlayer::kMaxMessages) * 16);
         UpdateWorkBufferForPlugin();
         AppendHostedPluginTrace ("Prepare sampleRate=" + std::to_string (sampleRate)
                                  + ", blockSize=" + std::to_string (maxBlockSize)
@@ -747,11 +750,17 @@ namespace guitarfx
 
             AppendHostedPluginTrace ("Reset plugin=" + FromJuceString (mPlugin->getName()));
             mPlugin->reset();
+            // Not every instrument stops its voices on reset(), so turn off what was sent.
+            mNotePlayer.ReleaseAllNext();
         }
     }
 
     void JuceHostedPluginEffect::Process (float** inputs, float** outputs, int numSamples)
     {
+        // This block's note sources, taken so that no path out of here leaves them behind for a
+        // block they do not belong to.
+        const auto noteSources = std::exchange (mNoteSources, {});
+
         if (!inputs || !outputs || numSamples <= 0)
             return;
 
@@ -786,6 +795,7 @@ namespace guitarfx
 
         CopyInputToWorkBuffer (inputs, numSamples);
         mMidiBuffer.clear();
+        FillMidiFromNotes (noteSources, numSamples);
 
         // Expose only numSamples frames to the plugin. mWorkBuffer is sized to the
         // maximum block declared at prepareToPlay; when the host delivers a smaller
@@ -796,8 +806,21 @@ namespace guitarfx
                                             mWorkBuffer.getNumChannels(),
                                             numSamples);
         mPlugin->processBlock (blockView, mMidiBuffer);
+        mNotePlayer.Commit();
 
         CopyWorkBufferToOutputs (inputs, outputs, numSamples);
+    }
+
+    void JuceHostedPluginEffect::FillMidiFromNotes (std::span<const NoteBlock* const> sources, int numSamples)
+    {
+        // Built every block, sources or not: with none, anything still sounding is turned off.
+        // Until something has been sent it comes to nothing, so a Plugin Host with no note source
+        // upstream passes its plugin an empty buffer, as it always has.
+        for (const auto& message : mNotePlayer.Build (sources, numSamples))
+        {
+            const juce::uint8 bytes[3] { message.status, message.data1, message.data2 };
+            mMidiBuffer.addEvent (bytes, 3, message.sampleOffset);
+        }
     }
 
     void JuceHostedPluginEffect::SetParam (const std::string& key, double value)
@@ -1128,6 +1151,8 @@ namespace guitarfx
         {
             const juce::SpinLock::ScopedLockType lock (mPluginProcessLock);
             mPlugin = std::move (instance);
+            // A new instance has nothing sounding; a note still held upstream starts on it.
+            mNotePlayer.Forget();
         }
         AttachHostedPluginListeners();
         mLastError.clear();
@@ -1254,6 +1279,8 @@ namespace guitarfx
             // silently passes audio through unprocessed.
             mPlugin->suspendProcessing (false);
             UpdateWorkBufferForPlugin();
+            // prepareToPlay usually stops an instrument's voices, but it need not.
+            mNotePlayer.ReleaseAllNext();
         }
         ApplyPendingPluginState();
     }
@@ -1279,10 +1306,13 @@ namespace guitarfx
     {
         const float inputGain = DbToLinear (mInputGainDb);
         const int totalChannels = mWorkBuffer.getNumChannels();
+        // An instrument has no audio input; what it finds in the buffer is its output, which a
+        // plugin that mixes its voices in would otherwise add to the guitar.
+        const bool takesAudio = mPlugin && mPlugin->getTotalNumInputChannels() > 0;
         for (int ch = 0; ch < totalChannels; ++ch)
         {
             auto* dest = mWorkBuffer.getWritePointer (ch);
-            const float* source = ch < 2 ? inputs[ch] : nullptr;
+            const float* source = (takesAudio && ch < 2) ? inputs[ch] : nullptr;
             if (source)
             {
                 for (int i = 0; i < numSamples; ++i)
@@ -1505,6 +1535,7 @@ namespace guitarfx
         {
             const juce::SpinLock::ScopedLockType lock (mPluginProcessLock);
             mPlugin = std::move (plugin);
+            mNotePlayer.Forget();
         }
         AttachHostedPluginListeners();
     }

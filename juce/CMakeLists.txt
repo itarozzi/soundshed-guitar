@@ -632,6 +632,48 @@ if(WIN32)
 
     add_test(NAME HostedPluginStateCaptureTests COMMAND HostedPluginStateCaptureTests)
 
+    # Notes from a Guitar to MIDI node into a hosted instrument, against a stub instrument.
+    add_executable(HostedPluginNoteInputTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/HostedPluginNoteInputTests.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/source/JuceHostedPluginEffect.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/source/JuceHostedPluginEffect.h"
+    )
+
+    target_include_directories(HostedPluginNoteInputTests
+        PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/source"
+    )
+
+    target_compile_definitions(HostedPluginNoteInputTests
+        PRIVATE
+            JUCE_PLUGINHOST_VST3=1
+            JUCE_VST3_CAN_REPLACE_VST2=0
+            GUITARFX_ENABLE_PLUGIN_HOST_TEST_API=1
+            _CRT_SECURE_NO_WARNINGS
+    )
+
+    target_link_libraries(HostedPluginNoteInputTests
+        PRIVATE
+            SoundshedGuitarCore
+            nlohmann_json::nlohmann_json
+            juce_audio_utils
+            juce_audio_processors
+            juce_dsp
+            juce_gui_basics
+            juce_gui_extra
+            juce::juce_recommended_config_flags
+            juce::juce_recommended_lto_flags
+            juce::juce_recommended_warning_flags
+    )
+
+    set_target_properties(HostedPluginNoteInputTests PROPERTIES
+        CXX_STANDARD 20
+        CXX_STANDARD_REQUIRED ON
+        FOLDER "GuitarFX/Tests"
+    )
+
+    add_test(NAME HostedPluginNoteInputTests COMMAND HostedPluginNoteInputTests)
+
     add_executable(HostedPluginBatchScanTests
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/HostedPluginBatchScanTests.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/source/JuceHostedPluginEffect.cpp"

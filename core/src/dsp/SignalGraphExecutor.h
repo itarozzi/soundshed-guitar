@@ -22,9 +22,19 @@ namespace guitarfx
 class EffectProcessor;
 class MixerEffect;
 class ResourceLibrary;
+struct NoteBlock;
 
 /**
  * Executes a signal graph by processing audio through nodes in topological order.
+ *
+ * Note routing: a node that makes notes (EffectProcessor::GetNoteOutput(), Guitar to MIDI) feeds
+ * every node downstream of it that plays them (AcceptsNoteInput(), the Plugin Host), however
+ * many nodes lie between. Downstream means reachable along the graph's edges, so a player in a
+ * parallel branch that does not pass through the source hears nothing from it; and since a
+ * source always sits in an earlier level than its players, it has finished its block before any
+ * of them start theirs, parallel levels included. A player is handed the sources that ran this
+ * block and only those: a bypassed source, or one with no input, counts as holding nothing, which
+ * is how the player knows to let its notes go. Routing stops at a composite's edge.
  */
 class SignalGraphExecutor
 {
@@ -234,6 +244,11 @@ class SignalGraphExecutor
         /// The executor's spectrum tap while this is the watched node, else null. The tap
         /// outlives every node that points at it; see mSpectrumTap.
         std::atomic<SpectrumTap*> spectrumTap{nullptr};
+        /// For a note source: whether it ran this block, and whether it ran the one before.
+        /// Written by whichever thread runs the node; read by its players, which always run in a
+        /// later level, after the level barrier.
+        bool notesThisBlock = false;
+        bool notesLastBlock = false;
     };
 
     /// One resolved incoming connection.
@@ -266,6 +281,13 @@ class SignalGraphExecutor
         bool isNam = false;
         /// Mixer, or more than one incoming edge: inputs sum rather than overwrite.
         bool accumulateInputs = false;
+        /// Note routing (see the class comment). The notes this node makes, if it makes any...
+        const NoteBlock* noteOutput = nullptr;
+        /// ...and, for a node that plays notes, the sources upstream of it, in plan order, with
+        /// room reserved to collect those that ran this block without allocating.
+        bool acceptsNotes = false;
+        std::vector<const PlannedNode*> noteSources;
+        std::vector<const NoteBlock*> liveNotes;
     };
 
     /// Memoises 10^(dB/20). The trim almost never changes, but std::pow was being
@@ -289,6 +311,10 @@ class SignalGraphExecutor
     void BuildExecutionOrder();
     void BuildExecutionLevels();
     void BuildExecutionPlan();
+    /// Finds each note player's upstream note sources, once the plan's edges are resolved.
+    void ResolveNoteRouting();
+    /// Hands `planned`, a note player about to run, the sources that ran this block.
+    static void HandNotesTo(PlannedNode& planned);
     /// Pushes mAppliedTempoBpm to every processor in mTempoAwareProcessors.
     void ApplyTempoToProcessors();
     void CreateProcessors();

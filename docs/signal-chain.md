@@ -128,6 +128,21 @@ returning `true` (checked in `SignalGraphExecutor.cpp`). Any effect that creates
 mono source — the 3D Spatial panner in particular — must return `true` there, or the image is
 collapsed by a later node.
 
+### Note Routing
+Besides audio, the graph carries notes from nodes that make them to nodes that play them
+(`EffectProcessor::GetNoteOutput()` and `AcceptsNoteInput()`; `dsp/NoteEvents.h`). Today that is
+Guitar to MIDI into the Plugin Host. When the plan is built, each player is given every note
+source upstream of it: reachable backwards along its incoming edges, however many nodes lie
+between. A source on a parallel branch that does not pass through the player is not one of
+them, and routing stops at a composite's edge. A source always sits in an earlier level than
+its players, so it has finished its block before they start theirs, parallel levels included.
+
+Each block a player is handed the sources that ran that block (`SetNoteInput()`, just before
+`Process()`). A bypassed source, or one with no input, is not among them, and the player takes
+that to mean the source holds nothing and lets its notes go. A source that did not run the
+block before is `Reset()` before it runs again, so it starts afresh rather than replaying a
+note it was holding when it was bypassed.
+
 ### Implicit I/O Nodes
 If edges reference `__input__` or `__output__` but those nodes are missing, the executor inserts implicit input/output nodes during `SetGraph()`.
 

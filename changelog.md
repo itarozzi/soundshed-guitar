@@ -11,6 +11,9 @@ A big update: five new effects, fifteen classic drive pedals, a Practice Tool fo
 * **3D Spatial**: place your guitar anywhere around you on headphones, or set it moving with seven motion modes, optionally in time with the song.
 * **Ring Modulator**: metallic, bell-like and robotic tones. Tracking mode follows the notes you play so the effect stays in tune with you, and an LFO sweep can sync to tempo.
 
+### Experimental
+* **Guitar to MIDI** (turn on Settings → Experimental Effects to find it): play a virtual instrument from your guitar. Put it anywhere before a Plugin Host holding an instrument plugin, and the single notes you play are played on it, as hard as you picked them, with hammer-ons played legato and bends and vibrato followed. It plays one note at a time, so chords come out as one of their notes.
+
 ### Better Tone
 * **Heavy American** amp: much more gain on tap, a new Character control running from vintage fuzz to tight modern high gain, and a steady volume as you turn the gain up.
 * **Overdrive, Distortion and Fuzz** now cover fifteen classic pedals, from the TS-808 and Klon to the RAT, Big Muff and Fuzz Face. They sound smoother at high gain, clean up when you play softly, and no longer jump in volume when you switch them on. Your existing presets stay as loud as they were.
