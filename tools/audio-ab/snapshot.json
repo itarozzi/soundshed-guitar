@@ -1,0 +1,112 @@
+{
+  "$comment": "What core/tests/AudioSnapshot renders. Resource paths are relative to core/tests/testdata/assets. Node types are aliases (core/protocol/effect-aliases.json), so one definition serves every revision; a node gets the params a freshly added node gets unless it sets freshParams: false, then its own params on top. Without edges, nodes run in series between __input__ and __output__. See tools/audio-ab/README.md.",
+  "signals": ["di", "sweep", "impulse", "silence"],
+  "resources": {
+    "nam-clean": "amps/Guitar/A2/[AMP] MESA.MKVII-90W-CH1-CLN Factory Bright Clean - BLEND #1.nam",
+    "nam-drive": "amps/Guitar/TimR/JCM800 2203 1985/JCM800 Hi P6 B8 M4 T7 G6.nam",
+    "ir": "ir/421 1960.wav"
+  },
+  "effectResources": {
+    "nam": "nam-clean",
+    "ir": "ir"
+  },
+  "chains": [
+    {
+      "id": "new-preset",
+      "name": "New Preset with an amp model",
+      "description": "The New Preset template (createEmptyPresetV2 in core/ui/ts/presetV2.ts) exactly as the UI sends it, with a model loaded into the Neural Amp. The gate, Neural FX and IR Cab are bypassed.",
+      "nodes": [
+        { "type": "dynamics_gate", "enabled": false, "freshParams": false, "params": { "threshold": -40, "attack": 0.5, "hold": 50, "release": 100 } },
+        { "type": "fx_nam", "enabled": false, "freshParams": false, "params": { "inputGain": 0, "outputGain": 0, "useCalibration": 1 } },
+        { "type": "amp_nam_optimized", "resource": "nam-drive", "freshParams": false, "params": { "inputGain": 0, "outputGain": 0, "useCalibration": 1 } },
+        { "type": "cab_ir", "enabled": false, "resource": "ir", "freshParams": false, "params": { "mix": 1, "outputGain": 0, "quality": 1 } }
+      ]
+    },
+    {
+      "id": "amp-cab",
+      "name": "New Preset with an amp and a cab",
+      "description": "The same template with the IR Cab switched on: the first thing most players do with a new preset.",
+      "nodes": [
+        { "type": "dynamics_gate", "enabled": false, "freshParams": false, "params": { "threshold": -40, "attack": 0.5, "hold": 50, "release": 100 } },
+        { "type": "fx_nam", "enabled": false, "freshParams": false, "params": { "inputGain": 0, "outputGain": 0, "useCalibration": 1 } },
+        { "type": "amp_nam_optimized", "resource": "nam-drive", "freshParams": false, "params": { "inputGain": 0, "outputGain": 0, "useCalibration": 1 } },
+        { "type": "cab_ir", "resource": "ir", "freshParams": false, "params": { "mix": 1, "outputGain": 0, "quality": 1 } }
+      ]
+    },
+    {
+      "id": "clean-amp-cab",
+      "name": "Calibrated clean amp and cab",
+      "description": "A clean model that carries input/output level metadata, so the controller's NAM calibration and auto-gain are both in play, into an IR cab. Fresh-node params throughout.",
+      "nodes": [
+        { "type": "amp_nam_optimized", "resource": "nam-clean" },
+        { "type": "cab_ir", "resource": "ir" }
+      ]
+    },
+    {
+      "id": "pedalboard",
+      "name": "Full pedalboard",
+      "description": "A typical rig in series, every node as freshly added: gate, compressor, overdrive, amp, cab, EQ, chorus, delay, reverb.",
+      "nodes": [
+        { "type": "dynamics_gate" },
+        { "type": "compressor_vca" },
+        { "type": "overdrive" },
+        { "type": "amp_nam_optimized", "resource": "nam-drive" },
+        { "type": "cab_ir", "resource": "ir" },
+        { "type": "eq_parametric" },
+        { "type": "chorus" },
+        { "type": "delay_digital" },
+        { "type": "reverb_room" }
+      ]
+    },
+    {
+      "id": "pedalboard-global-fx",
+      "name": "Full pedalboard, Global FX on",
+      "description": "The same pedalboard with every Global FX node switched on at its defaults: gate and transpose before the preset, EQ and doubler after it.",
+      "globalChain": { "gate": true, "transpose": true, "eq": true, "doubler": true },
+      "nodes": [
+        { "type": "dynamics_gate" },
+        { "type": "compressor_vca" },
+        { "type": "overdrive" },
+        { "type": "amp_nam_optimized", "resource": "nam-drive" },
+        { "type": "cab_ir", "resource": "ir" },
+        { "type": "eq_parametric" },
+        { "type": "chorus" },
+        { "type": "delay_digital" },
+        { "type": "reverb_room" }
+      ]
+    },
+    {
+      "id": "wet-dry",
+      "name": "Wet/dry parallel rig",
+      "description": "Amp and cab into a splitter: a dry path, and a delay and reverb wet path, summed by a mixer node. Exercises parallel branches, their latency alignment and the mixer.",
+      "nodes": [
+        { "id": "amp", "type": "amp_nam_optimized", "resource": "nam-drive" },
+        { "id": "cab", "type": "cab_ir", "resource": "ir" },
+        { "id": "split", "type": "splitter" },
+        { "id": "delay", "type": "delay_digital" },
+        { "id": "reverb", "type": "reverb_room" },
+        { "id": "mix", "type": "mixer" }
+      ],
+      "edges": [
+        { "from": "__input__", "to": "amp" },
+        { "from": "amp", "to": "cab" },
+        { "from": "cab", "to": "split" },
+        { "from": "split", "to": "mix", "toPort": 0 },
+        { "from": "split", "to": "delay" },
+        { "from": "delay", "to": "reverb" },
+        { "from": "reverb", "to": "mix", "toPort": 1 },
+        { "from": "mix", "to": "__output__" }
+      ]
+    },
+    {
+      "id": "builtin-rig",
+      "name": "Built-in amp rig",
+      "description": "The built-in amp into the simple cab and a spring reverb. Needs no model or IR files, so it isolates the engine's own amp modelling.",
+      "nodes": [
+        { "type": "amp_builtin" },
+        { "type": "cab_simple" },
+        { "type": "reverb_spring" }
+      ]
+    }
+  ]
+}

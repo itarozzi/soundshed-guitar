@@ -204,6 +204,13 @@ merging, and verification of both saved data and the audio path.
   The first run downloads the pinned validators into `juce/builds/tools/`; pluginval's
   logs go to `juce/builds/validation/`. CI runs it in `build-windows.yml` (x64 legs)
   and `build-macos.yml`.
+- **Did the sound change between versions?** `node tools/audio-ab/audio-ab.mjs <base> [<target>]`
+  (target defaults to the working tree, so `... HEAD` shows what uncommitted changes do and
+  `... 1.5.0` compares against the public release). It builds `core/tests/AudioSnapshot` in
+  Release for each revision in a worktree of its own, renders every effect alone at its fresh-node
+  defaults and the chains in `tools/audio-ab/snapshot.json` through a headless `PluginController`
+  at default settings, and reports each as identical / rounding / inaudible / slight / audible /
+  broken, with A/B/difference players in `report.html`. See `tools/audio-ab/README.md`.
 - **NaN, infinity or float comparisons: test in Release, and on clang.** Release and
   RelWithDebInfo build with `/fp:fast` (MSVC) or `-ffast-math` (clang, so Android); Debug has
   neither, so a Debug pass proves nothing. MSVC Release breaks NaN comparisons; clang goes further

@@ -189,3 +189,6 @@ endforeach()
 
 # Shared harness for the riff/audio-lock regression without growing the main test past its size budget.
 target_sources(MixerInstanceLockTests PRIVATE MixerInstanceLockSupport.cpp MixerInstanceLockSupport.h)
+
+# The default-settings audio snapshot tools/audio-ab compares between versions. Built, not registered.
+include(AudioSnapshot.cmake)
