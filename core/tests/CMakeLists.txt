@@ -19,6 +19,8 @@ set(TEST_SOURCES
     CustomEffectLibraryTests.cpp
     DefaultPresetIntegrityTests.cpp
     DelayCharacterTests.cpp
+    DriveLegacyMigrationTests.cpp
+    DrivePedalTests.cpp
     DSPPerformanceTests.cpp
     EffectAliasParityTests.cpp
     EffectProcessorTests.cpp

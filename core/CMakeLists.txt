@@ -576,6 +576,7 @@ set(GUITARFX_CORE_SOURCES
     src/dsp/NAMFactoryForce.cpp
     src/dsp/BiquadFrequency.h
     src/dsp/BiquadDesign.h
+    src/dsp/HalfBandIir.h
     src/dsp/LinearRamp.h
     src/dsp/ImpulseResponseAnalysis.h
     src/dsp/NamModelCache.h
@@ -604,6 +605,9 @@ set(GUITARFX_CORE_SOURCES
     src/dsp/effects/SimpleCabVoicing.h
     src/dsp/effects/SimpleCabMatch.h
     src/dsp/effects/SpeakerDrive.h
+    src/dsp/effects/DriveStages.h
+    src/dsp/effects/DrivePedal.h
+    src/dsp/effects/DriveLegacyMigration.h
     src/dsp/effects/OverdriveEffect.h
     src/dsp/effects/DistortionEffect.h
     src/dsp/effects/FuzzEffect.h

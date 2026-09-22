@@ -343,6 +343,17 @@ void EnsurePresetBoundaryGainNodes(SignalGraph& graph);
  */
 void CanonicalizeNodeParams(GraphNode& node);
 
+/**
+ * Brings a stored node's params up to date with its effect's current design, where that
+ * design changed what a stored value means. Every preset, composite and global chain node is
+ * read through here, so an old preset sounds as it did. A node written since needs nothing
+ * and is left alone, and so is one already brought up to date.
+ *
+ * Today that is the drive pedals: a node from before their Model switch is put on the first
+ * model with the Level that keeps it as loud as it was (see DriveLegacyMigration.h).
+ */
+void MigrateLegacyNodeParams(GraphNode& node);
+
 void NormalizePresetScenes(Preset& preset);
 [[nodiscard]] PresetScene* FindPresetScene(Preset& preset, const std::string& sceneId);
 [[nodiscard]] const PresetScene* FindPresetScene(const Preset& preset, const std::string& sceneId);

@@ -199,6 +199,7 @@ inline GraphNode DeserializeNode(const nlohmann::json& json)
         node.resources.push_back(DeserializeResourceRef(json["resource"]));
     }
 
+    MigrateLegacyNodeParams(node);
     return node;
 }
 

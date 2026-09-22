@@ -11,6 +11,7 @@
 #include <cmath>
 #include <algorithm>
 #include <array>
+#include <complex>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -244,7 +245,9 @@ DriveMetrics MeasureDriveMetrics(const std::vector<float>& buffer)
     return metrics;
 }
 
-std::vector<float> RenderDriveEffect(const std::string& effectType, double inputAmplitude, int blocksToProcess = 6)
+/// A 220 Hz tone through an effect's defaults: the last block, or with `wholeRender` all of it.
+std::vector<float> RenderDriveEffect(const std::string& effectType, double inputAmplitude, int blocksToProcess = 6,
+                                     bool wholeRender = false)
 {
     auto effect = guitarfx::EffectRegistry::Instance().Create(effectType);
 
@@ -264,6 +267,7 @@ std::vector<float> RenderDriveEffect(const std::string& effectType, double input
     std::vector<float> outputR(kTestBlockSize, 0.0f);
     float* inputs[2] = {inputL.data(), inputR.data()};
     float* outputs[2] = {outputL.data(), outputR.data()};
+    std::vector<float> rendered;
 
     for (int block = 0; block < blocksToProcess; ++block)
     {
@@ -279,9 +283,14 @@ std::vector<float> RenderDriveEffect(const std::string& effectType, double input
         }
 
         effect->Process(inputs, outputs, kTestBlockSize);
+
+        if (wholeRender)
+        {
+            rendered.insert(rendered.end(), outputL.begin(), outputL.end());
+        }
     }
 
-    return outputL;
+    return wholeRender ? rendered : outputL;
 }
 
 double NormalizedDifference(const std::vector<float>& a, const std::vector<float>& b)
@@ -1065,14 +1074,44 @@ bool TestTempoSyncSpecific()
     return failed == 0;
 }
 
+/// The second harmonic of a steady 220 Hz tone through an effect's defaults, in dB re the
+/// fundamental. Measured over 8192 samples after the start-up has settled, Hann-windowed.
+double SecondHarmonicDb(const std::string& effectType, double inputAmplitude)
+{
+    constexpr int kBlocks = 24;
+    constexpr std::size_t kAnalysed = 8192;
+    const auto rendered = RenderDriveEffect(effectType, inputAmplitude, kBlocks, true);
+
+    if (rendered.size() < kAnalysed)
+    {
+        return 0.0;
+    }
+
+    const std::size_t offset = rendered.size() - kAnalysed;
+    std::complex<double> fundamental = 0.0;
+    std::complex<double> second = 0.0;
+
+    for (std::size_t i = 0; i < kAnalysed; ++i)
+    {
+        const double window = 0.5 - 0.5 * std::cos(2.0 * kPi * static_cast<double>(i) / (kAnalysed - 1));
+        const double t = static_cast<double>(offset + i) / kTestSampleRate;
+        const double sample = rendered[offset + i] * window;
+        fundamental += sample * std::polar(1.0, -2.0 * kPi * 220.0 * t);
+        second += sample * std::polar(1.0, -2.0 * kPi * 440.0 * t);
+    }
+
+    return 20.0 * std::log10(std::abs(second) / std::max(std::abs(fundamental), 1.0e-30) + 1.0e-30);
+}
+
 bool TestDriveEffectCharacter()
 {
     std::cout << "\n--- Drive Effect Character Tests ---\n";
 
+    // The registry defaults: a TS-808, a RAT and a Fuzz Face.
     const auto overdrive = RenderDriveEffect(guitarfx::EffectGuids::kOverdrive, 0.25);
     const auto distortion = RenderDriveEffect(guitarfx::EffectGuids::kDistortion, 0.25);
     const auto fuzz = RenderDriveEffect(guitarfx::EffectGuids::kFuzz, 0.25);
-    const auto fuzzCleanup = RenderDriveEffect(guitarfx::EffectGuids::kFuzz, 0.08);
+    const auto fuzzCleanup = RenderDriveEffect(guitarfx::EffectGuids::kFuzz, 0.004);
 
     if (overdrive.empty() || distortion.empty() || fuzz.empty() || fuzzCleanup.empty())
     {
@@ -1089,10 +1128,17 @@ bool TestDriveEffectCharacter()
     const double odVsFuzz = NormalizedDifference(overdrive, fuzz);
     const double distVsFuzz = NormalizedDifference(distortion, fuzz);
 
+    // Asymmetric clipping shows as even harmonics. It must not show as DC: a real fuzz's
+    // coupling capacitors block it, and DC shifts the next stage's operating point.
+    const double fuzzSecondDb = SecondHarmonicDb(guitarfx::EffectGuids::kFuzz, 0.25);
+    const double distortionSecondDb = SecondHarmonicDb(guitarfx::EffectGuids::kDistortion, 0.25);
+
     const bool distinctOk = odVsDist > 0.08 && odVsFuzz > 0.08 && distVsFuzz > 0.08;
     const bool distortionCompressed = distortionMetrics.crestFactor + 0.05 < overdriveMetrics.crestFactor;
-    const bool fuzzAsymmetric = std::abs(fuzzMetrics.mean) > std::abs(distortionMetrics.mean) + 0.005;
-    const bool fuzzCleansUp = fuzzCleanupMetrics.rms < fuzzMetrics.rms * 0.75;
+    const bool fuzzAsymmetric = fuzzSecondDb > distortionSecondDb + 20.0;
+    // Played softly, a Fuzz Face stops clipping: its waveform goes back toward a sine's crest
+    // factor (1.41) from a squared-off one.
+    const bool fuzzCleansUp = fuzzCleanupMetrics.crestFactor > fuzzMetrics.crestFactor + 0.15;
     const bool protectedOutput =
         overdriveMetrics.peak <= 1.01 && distortionMetrics.peak <= 1.01 && fuzzMetrics.peak <= 1.01;
 
@@ -1102,10 +1148,11 @@ bool TestDriveEffectCharacter()
     std::cout << "  Distortion is more compressed than OD:       " << (distortionCompressed ? "PASS" : "FAIL")
               << " (OD crest=" << overdriveMetrics.crestFactor << ", DIST crest=" << distortionMetrics.crestFactor
               << ")\n";
-    std::cout << "  Fuzz shows more asymmetry than distortion:   " << (fuzzAsymmetric ? "PASS" : "FAIL")
-              << " (FUZZ mean=" << fuzzMetrics.mean << ", DIST mean=" << distortionMetrics.mean << ")\n";
+    std::cout << "  Fuzz has more even harmonics than distortion: " << (fuzzAsymmetric ? "PASS" : "FAIL")
+              << " (FUZZ H2=" << fuzzSecondDb << " dB, DIST H2=" << distortionSecondDb << " dB)\n";
     std::cout << "  Fuzz cleans up at lower input level:         " << (fuzzCleansUp ? "PASS" : "FAIL")
-              << " (low RMS=" << fuzzCleanupMetrics.rms << ", high RMS=" << fuzzMetrics.rms << ")\n";
+              << " (quiet crest=" << fuzzCleanupMetrics.crestFactor << ", loud crest=" << fuzzMetrics.crestFactor
+              << ")\n";
     std::cout << "  Drive outputs stay near clip ceiling:        " << (protectedOutput ? "PASS" : "FAIL")
               << " (OD peak=" << overdriveMetrics.peak << ", DIST peak=" << distortionMetrics.peak
               << ", FUZZ peak=" << fuzzMetrics.peak << ")\n";

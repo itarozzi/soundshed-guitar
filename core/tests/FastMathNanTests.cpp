@@ -701,6 +701,19 @@ bool TestRecursiveEffectsRecoverFromNonFiniteInput()
     ringMod.Prepare(kSampleRate, kBlock);
     ringMod.SetParam("mix", 1.0);
 
+    // The drive pedals hold one-poles, half-band allpasses and antialiasing memory, all
+    // recursive. Wet only, and a model per family whose stages are biased (Fuzz-Tone) or cascaded.
+    OverdriveEffect overdrive;
+    overdrive.Prepare(kSampleRate, kBlock);
+
+    DistortionEffect distortion;
+    distortion.Prepare(kSampleRate, kBlock);
+    distortion.SetParam("model", 3.0);
+
+    FuzzEffect fuzz;
+    fuzz.Prepare(kSampleRate, kBlock);
+    fuzz.SetParam("model", 3.0);
+
     bool passed = ExpectRecoversFromNonFiniteInput("parametric EQ", parametric);
     passed = ExpectRecoversFromNonFiniteInput("graphic EQ", graphic) && passed;
     passed = ExpectRecoversFromNonFiniteInput("flanger", flanger) && passed;
@@ -708,6 +721,9 @@ bool TestRecursiveEffectsRecoverFromNonFiniteInput()
     passed = ExpectRecoversFromNonFiniteInput("analog delay", analogDelay) && passed;
     passed = ExpectRecoversFromNonFiniteInput("tape delay", tapeDelay) && passed;
     passed = ExpectRecoversFromNonFiniteInput("ring modulator", ringMod) && passed;
+    passed = ExpectRecoversFromNonFiniteInput("overdrive", overdrive) && passed;
+    passed = ExpectRecoversFromNonFiniteInput("distortion (Metal Zone)", distortion) && passed;
+    passed = ExpectRecoversFromNonFiniteInput("fuzz (Fuzz-Tone)", fuzz) && passed;
     return passed;
 }
 

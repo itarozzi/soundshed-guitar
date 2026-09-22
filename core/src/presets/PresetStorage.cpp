@@ -275,6 +275,7 @@ GraphNode DeserializeGraphNode(const nlohmann::json& json, const std::optional<s
         }
     }
 
+    MigrateLegacyNodeParams(node);
     return node;
 }
 

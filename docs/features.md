@@ -61,11 +61,14 @@ All effects register via `EffectRegistry` (singleton factory). Effect type IDs, 
 
 ### 2.3 Distortion / Saturation
 
-| Type ID | Description |
-|---------|-------------|
-| `distortion` | Hard clip distortion |
-| `overdrive` | Soft saturation overdrive |
-| `fuzz` | Fuzz effect |
+Each is a family of classic circuits behind a Model switch, oversampled and antialiased, with
+Level calibrated so the pedal matches bypass loudness. See the FX library's Drive Pedals section.
+
+| Type ID | Models | Character controls |
+|---------|--------|--------------------|
+| `overdrive` | TS-808, Centaur, Bluesbreaker, Timmy, Fulldrive, LPB-1 boost | `bass`, `clipping` |
+| `distortion` | RAT, DS-1, Distortion+, Metal Zone | `tight`, `clipping`, `low` / `mid` / `midFreq` / `high` EQ |
+| `fuzz` | Fuzz Face, Big Muff, Tone Bender, Fuzz-Tone, Super-Fuzz | `bias`, `bass` |
 
 ### 2.4 Equalization
 

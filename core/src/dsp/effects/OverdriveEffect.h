@@ -1,210 +1,261 @@
 #pragma once
 
-#include "dsp/effects/DriveOutputLimiter.h"
-#include "dsp/EffectProcessor.h"
-#include "dsp/EffectRegistry.h"
 #include "dsp/EffectGuids.h"
-#include <atomic>
+#include "dsp/EffectParamSpec.h"
+#include "dsp/EffectRegistry.h"
+#include "dsp/effects/DrivePedal.h"
+#include "dsp/effects/DriveStages.h"
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <cstddef>
+#include <memory>
 
 namespace guitarfx
 {
-/**
- * Overdrive pedalstyle soft clipper with tone control.
- */
-class OverdriveEffect : public EffectProcessor
+namespace overdrive
 {
-  public:
-    void Prepare(double sampleRate, int maxBlockSize) override
+enum Param : std::size_t
+{
+    kModel,
+    kDrive,
+    kTone,
+    kBass,
+    kClipping,
+    kLevel,
+    kMix,
+    kParamCount
+};
+
+/// Index order is stored in presets: append new models, never reorder.
+enum class Model
+{
+    TubeScreamer,
+    Centaur,
+    Bluesbreaker,
+    Timmy,
+    Fulldrive,
+    Lpb1,
+    Count
+};
+
+inline constexpr const char* kModelLabels[] = {"TS-808", "Centaur", "Bluesbreaker", "Timmy", "Fulldrive", "LPB-1"};
+static_assert(std::size(kModelLabels) == static_cast<std::size_t>(Model::Count));
+
+inline constexpr std::array<EffectParamSpec, kParamCount> kParams = {{
+    {"model", "Model", 0.0, 0.0, 5.0, "enum", "Pedal", false, 1.0, kModelLabels},
+    {"drive", "Drive", 0.5, 0.0, 1.0, "amount", "Pedal", false, 0.0},
+    {"tone", "Tone", 0.5, 0.0, 1.0, "amount", "Pedal", false, 0.0},
+    {"bass", "Bass", 0.5, 0.0, 1.0, "amount", "Voicing", false, 0.0},
+    {"clipping", "Clipping", 0.0, 0.0, 6.0, "enum", "Voicing", false, 1.0, drive::kClipChoiceLabels},
+    {"level", "Level", 0.0, -24.0, 24.0, "dB", "Output", false, 0.0},
+    {"mix", "Mix", 1.0, 0.0, 1.0, "amount", "Output", false, 0.0},
+}};
+
+/// How a model's Tone knob works. Each is a one-pole split at a corner, `low x LP + high x HP`.
+enum class ToneStyle
+{
+    TubeScreamer, ///< fixed 723 Hz low-pass with the treble blended back in, cut to boost
+    Shelf,        ///< a treble shelf, cut to boost, flat at noon (the Centaur's Treble)
+    Tilt,         ///< lows and highs see-saw about the corner, flat at noon
+    LowPass       ///< a treble roll-off that sweeps from the corner up by `toneRange`
+};
+
+/**
+ * One classic overdrive, as the handful of things that make it sound like itself.
+ *
+ * All of them are one topology: a clean path, plus a gain path that high-passes, amplifies,
+ * low-passes and clips. What differs is where the diodes sit and the values around them:
+ *
+ *     y = clean x + dirty clip( LP( G HP(x) ) )
+ *
+ * - TS-808: op-amp gain 1 + (51k + 500k Drive) / 4.7k. The 4.7k to ground goes through
+ *   47 nF, so only the mids and highs above 720 Hz are amplified into the 1N914 pair across
+ *   the feedback loop, and the dry signal sums at unity: the bass stays clean and the pedal
+ *   never squares off. 51 pF across the feedback resistor rolls the gain path off at 5.7 kHz
+ *   at full drive. The tone stage is a fixed 723 Hz low-pass (1k and 220 nF) with the treble
+ *   blended back by the Tone pot.
+ * - Centaur: clean and clipped paths summed, the clean one turned down as gain rises (the
+ *   dual-gang gain pot). Germanium diodes to ground clip the gain path, which is focused on
+ *   the upper mids; the Treble control is a shelf.
+ * - Bluesbreaker: the TS layout with the bass left in (150 Hz) and a lower gain range: the
+ *   original "amp in a box" overdrive, with a tilt tone control.
+ * - Timmy: no clean path; silicon diodes to ground after a low-gain stage whose bass cut is
+ *   low, so it stays flat and transparent. Its Treble is a cut-only roll-off.
+ * - Fulldrive: a TS with more gain and the bass corner halved ("flat mids"), and a treble
+ *   roll-off in place of the TS tone stage.
+ * - LPB-1: one transistor, up to +24 dB of full-range boost. It only clips, asymmetrically,
+ *   when pushed near its 9 V supply. Drive is the boost; there is no makeup.
+ */
+struct Voicing
+{
+    double minGainDb;
+    double maxGainDb;
+    double gainHighPassHz; ///< the Bass knob moves this two octaves either way
+    double lowPassAtMinGainHz;
+    double lowPassAtMaxGainHz;
+    double cleanAtMinDrive;
+    double cleanAtMaxDrive;
+    double dirty;
+    drive::ClipCurve stockClip;
+    double clipLevelExponent; ///< see ClipLevelCompensation
+    ToneStyle tone;
+    double toneHz;
+    double toneRange; ///< Shelf and Tilt: dB either way; LowPass: the sweep's frequency ratio
+    drive::TrimTable trimDb;
+};
+
+// clang-format off
+// *INDENT-OFF*
+inline constexpr std::array<Voicing, static_cast<std::size_t>(Model::Count)> kVoicings = {{
+    // TS-808
+    {20.7, 41.4, 720.0,  61000.0, 5660.0, 1.0, 1.0,  1.0, {0.55, 0.55, drive::Knee::Soft, drive::Knee::Soft}, 0.73,
+     ToneStyle::TubeScreamer, 723.0, 0.0, {-2.4, -2.7, -2.9, -3.1, -3.2, -3.3, -3.4, -3.5, -3.5}},
+    // Centaur
+    {4.0,  42.0, 480.0,  16000.0, 4500.0, 1.0, 0.35, 1.2, {0.32, 0.32, drive::Knee::Gradual, drive::Knee::Gradual}, 0.69,
+     ToneStyle::Shelf, 1100.0, 10.0, {-4.6, -4.9, -5.1, -5.2, -5.3, -5.2, -5.1, -4.9, -4.7}},
+    // Bluesbreaker
+    {6.0,  34.0, 150.0,  20000.0, 7000.0, 1.0, 1.0,  1.0, {0.6, 0.6, drive::Knee::Soft, drive::Knee::Soft}, 0.58,
+     ToneStyle::Tilt, 900.0, 7.0, {-6.3, -7.1, -7.7, -8.3, -8.7, -9.0, -9.3, -9.4, -9.5}},
+    // Timmy
+    {0.0,  34.0, 90.0,   20000.0, 8000.0, 0.0, 0.0,  1.0, {0.6, 0.6, drive::Knee::Soft, drive::Knee::Soft}, 0.66,
+     ToneStyle::LowPass, 700.0, 30.0, {4.0, 1.4, -0.8, -2.4, -3.5, -4.4, -5.0, -5.3, -5.6}},
+    // Fulldrive
+    {20.0, 46.0, 350.0,  30000.0, 6000.0, 1.0, 1.0,  1.0, {0.6, 0.6, drive::Knee::Soft, drive::Knee::Soft}, 0.77,
+     ToneStyle::LowPass, 900.0, 14.0, {-7.0, -7.3, -7.5, -7.7, -7.8, -7.9, -8.0, -8.0, -8.0}},
+    // LPB-1
+    {0.0,  24.0, 25.0,   60000.0, 60000.0, 0.0, 0.0, 1.0, {4.0, 3.2, drive::Knee::Soft, drive::Knee::Soft}, 0.46,
+     ToneStyle::Tilt, 1000.0, 6.0, {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0}},
+}};
+// *INDENT-ON*
+// clang-format on
+
+inline constexpr double kInputHighPassHz = 20.0;
+inline constexpr double kDcBlockHz = 8.0;
+
+struct Traits
+{
+    static constexpr const char* kTypeName = "overdrive";
+    static constexpr const auto& kParams = overdrive::kParams;
+    static constexpr std::size_t kLevel = overdrive::kLevel;
+    static constexpr std::size_t kMix = overdrive::kMix;
+
+    struct Coefficients
     {
-        if (!ValidatePrepare(sampleRate, maxBlockSize))
+        double inputHighPass = 0.0;
+        double gainHighPass = 0.0;
+        double gainLowPass = 1.0;
+        double gain = 1.0;
+        double clean = 1.0;
+        double dirty = 1.0;
+        drive::ClipCurve clip;
+        double toneCoefficient = 0.0;
+        double toneLow = 1.0;
+        double toneHigh = 1.0;
+        double dcBlock = 0.0;
+        double trim = 1.0;
+    };
+
+    struct State
+    {
+        drive::OnePole input;
+        drive::OnePole gainHighPass;
+        drive::OnePole gainLowPass;
+        drive::OnePole tone;
+        drive::OnePole dcBlock;
+        drive::AntialiasMemory clip;
+
+        void Reset() noexcept
         {
-            return;
+            *this = State{};
+        }
+    };
+
+    static void Design(Coefficients& c, const std::array<double, kParamCount>& values, double rate, double osRate)
+    {
+        const auto modelIndex = static_cast<std::size_t>(
+            std::clamp(static_cast<int>(values[kModel]), 0, static_cast<int>(Model::Count) - 1));
+        const Voicing& v = kVoicings[modelIndex];
+        const double amount = values[kDrive];
+        const double tone = values[kTone];
+
+        c.inputHighPass = drive::OnePoleCoefficient(kInputHighPassHz, rate);
+        c.gain = drive::TaperedGain(v.minGainDb, v.maxGainDb, amount);
+        c.gainHighPass = drive::OnePoleCoefficient(v.gainHighPassHz * drive::KnobOctaves(values[kBass], -2.0), osRate);
+        // The feedback capacitor's corner moves inversely with the feedback resistance, so it
+        // is geometric in the gain.
+        const double lowPassHz = v.lowPassAtMinGainHz * std::pow(v.lowPassAtMaxGainHz / v.lowPassAtMinGainHz, amount);
+        c.gainLowPass = drive::OnePoleCoefficient(lowPassHz, osRate);
+        c.clean = v.cleanAtMinDrive + (v.cleanAtMaxDrive - v.cleanAtMinDrive) * amount;
+        c.dirty = v.dirty;
+
+        const auto choice = static_cast<drive::ClipChoice>(
+            std::clamp(static_cast<int>(values[kClipping]), 0, static_cast<int>(drive::ClipChoice::Count) - 1));
+        c.clip = drive::ClipFor(choice, v.stockClip);
+
+        double toneHz = v.toneHz;
+        c.toneLow = 1.0;
+
+        switch (v.tone)
+        {
+        case ToneStyle::TubeScreamer:
+            // About 10 dB of treble cut at noon, a slight lift fully up.
+            c.toneHigh = 0.03 + 1.2 * tone * tone;
+            break;
+
+        case ToneStyle::Shelf:
+            c.toneHigh = drive::DbToGain((tone - 0.5) * 2.0 * v.toneRange);
+            break;
+
+        case ToneStyle::Tilt:
+            c.toneLow = drive::DbToGain(-(tone - 0.5) * v.toneRange);
+            c.toneHigh = drive::DbToGain((tone - 0.5) * v.toneRange);
+            break;
+
+        case ToneStyle::LowPass:
+            toneHz = v.toneHz * std::pow(v.toneRange, tone);
+            c.toneHigh = 0.0;
+            break;
         }
 
-        mSampleRate = sampleRate;
-        mMaxBlockSize = maxBlockSize;
-        UpdateInputFilterCoefficient();
-        UpdateToneCoefficient();
-        Reset();
+        c.toneCoefficient = drive::OnePoleCoefficient(toneHz, rate);
+        c.dcBlock = drive::OnePoleCoefficient(kDcBlockHz, rate);
+        c.trim = drive::DbToGain(drive::InterpolateTrimDb(v.trimDb, amount)) *
+                 drive::ClipLevelCompensation(v.stockClip, c.clip, v.clipLevelExponent);
     }
 
-    void Reset() override
+    static double Pre(const Coefficients& c, State& s, double volts) noexcept
     {
-        mToneStateL = 0.0f;
-        mToneStateR = 0.0f;
-        mInputLowStateL = 0.0f;
-        mInputLowStateR = 0.0f;
+        return s.input.HighPass(c.inputHighPass, volts);
     }
 
-    void Process(float** inputs, float** outputs, int numSamples) override
+    static double Shape(const Coefficients& c, State& s, double x) noexcept
     {
-        const float drive = mDrive.load(std::memory_order_relaxed);
-        const float tone = mTone.load(std::memory_order_relaxed);
-        const float levelDb = mLevelDb.load(std::memory_order_relaxed);
-        const float mix = mMix.load(std::memory_order_relaxed);
-        const float toneCoef = mToneCoef.load(std::memory_order_relaxed);
-
-        const float driveGain = 1.0f + 9.0f * drive;
-        const float levelGain = static_cast<float>(std::pow(10.0, levelDb * 0.05));
-        const float bodyRestore = 0.18f - 0.05f * drive;
-        const float lowTighten = 0.82f + 0.10f * drive;
-
-        for (int i = 0; i < numSamples; ++i)
-        {
-            const float inL = inputs[0] ? inputs[0][i] : 0.0f;
-            const float inR = inputs[1] ? inputs[1][i] : 0.0f;
-
-            const float lowL = ApplyOnePole(inL, mInputLowStateL, mInputLowCoef);
-            const float lowR = ApplyOnePole(inR, mInputLowStateR, mInputLowCoef);
-
-            const float shapedInL = (inL - lowL * lowTighten + 0.12f * inL) * driveGain;
-            const float shapedInR = (inR - lowR * lowTighten + 0.12f * inR) * driveGain;
-
-            float wetL = ShapeOverdrive(shapedInL) + lowL * bodyRestore;
-            float wetR = ShapeOverdrive(shapedInR) + lowR * bodyRestore;
-
-            wetL = ApplyTone(wetL, mToneStateL, toneCoef, tone);
-            wetR = ApplyTone(wetR, mToneStateR, toneCoef, tone);
-
-            wetL *= levelGain;
-            wetR *= levelGain;
-
-            const float outL = drive_output_limiter::SoftClipNearCeiling(inL * (1.0f - mix) + wetL * mix);
-            const float outR = drive_output_limiter::SoftClipNearCeiling(inR * (1.0f - mix) + wetR * mix);
-
-            if (outputs[0])
-            {
-                outputs[0][i] = outL;
-            }
-
-            if (outputs[1])
-            {
-                outputs[1][i] = outR;
-            }
-        }
+        const double driven = s.gainLowPass.LowPass(c.gainLowPass, s.gainHighPass.HighPass(c.gainHighPass, x) * c.gain);
+        return c.clean * x + c.dirty * c.clip.Antialiased(driven, s.clip);
     }
 
-    void SetParam(const std::string& key, double value) override
+    static double Post(const Coefficients& c, State& s, double y) noexcept
     {
-        if (key == "drive")
-        {
-            mDrive.store(static_cast<float>(std::clamp(value, 0.0, 1.0)), std::memory_order_relaxed);
-        }
-        else if (key == "tone")
-        {
-            mTone.store(static_cast<float>(std::clamp(value, 0.0, 1.0)), std::memory_order_relaxed);
-            UpdateToneCoefficient();
-        }
-        else if (key == "level")
-        {
-            mLevelDb.store(static_cast<float>(std::clamp(value, -12.0, 12.0)), std::memory_order_relaxed);
-        }
-        else if (key == "mix")
-        {
-            mMix.store(static_cast<float>(std::clamp(value, 0.0, 1.0)), std::memory_order_relaxed);
-        }
+        const double low = s.tone.LowPass(c.toneCoefficient, y);
+        const double toned = low * c.toneLow + (y - low) * c.toneHigh;
+        return s.dcBlock.HighPass(c.dcBlock, toned) * c.trim;
     }
+};
+} // namespace overdrive
 
-    void SetConfig(const std::string&, const std::string&) override
-    {
-    }
-
-    [[nodiscard]] double GetParam(const std::string& key) const override
-    {
-        if (key == "drive")
-        {
-            return mDrive.load(std::memory_order_relaxed);
-        }
-
-        if (key == "tone")
-        {
-            return mTone.load(std::memory_order_relaxed);
-        }
-
-        if (key == "level")
-        {
-            return mLevelDb.load(std::memory_order_relaxed);
-        }
-
-        if (key == "mix")
-        {
-            return mMix.load(std::memory_order_relaxed);
-        }
-
-        return 0.0;
-    }
-
-    [[nodiscard]] std::string GetType() const override
-    {
-        return "overdrive";
-    }
-
-    [[nodiscard]] std::string GetCategory() const override
-    {
-        return "drive";
-    }
-
-  private:
-    static constexpr double kPi = 3.14159265358979323846;
-
-    void UpdateToneCoefficient()
-    {
-        const float t = mTone.load(std::memory_order_relaxed);
-        const float minHz = 650.0f;
-        const float maxHz = 3600.0f;
-        const float cutoff = minHz + (maxHz - minHz) * t;
-        const float x = static_cast<float>(2.0 * kPi * cutoff / std::max(1.0, mSampleRate));
-        mToneCoef.store(1.0f - std::exp(-x), std::memory_order_relaxed);
-    }
-
-    void UpdateInputFilterCoefficient()
-    {
-        const float cutoff = 180.0f;
-        const float x = static_cast<float>(2.0 * kPi * cutoff / std::max(1.0, mSampleRate));
-        mInputLowCoef = 1.0f - std::exp(-x);
-    }
-
-    static float ApplyOnePole(float input, float& state, float coefficient)
-    {
-        state += coefficient * (input - state);
-        return state;
-    }
-
-    static float ApplyTone(float input, float& state, float toneCoef, float tone)
-    {
-        const float dark = ApplyOnePole(input, state, toneCoef);
-
-        if (tone <= 0.5f)
-        {
-            const float blend = tone * 2.0f;
-            return dark + (input - dark) * blend;
-        }
-
-        const float presence = input + (input - dark) * 0.45f;
-        const float blend = (tone - 0.5f) * 2.0f;
-        return input + (presence - input) * blend;
-    }
-
-    static float ShapeOverdrive(float input)
-    {
-        const float asym = input >= 0.0f ? std::tanh(input * 1.25f) : std::tanh(input * 0.9f);
-        const float rounded = input / (1.0f + std::abs(input));
-        return 0.75f * asym + 0.25f * rounded;
-    }
-
-    std::atomic<float> mDrive{0.5f};
-    std::atomic<float> mTone{0.5f};
-    std::atomic<float> mLevelDb{0.0f};
-    std::atomic<float> mMix{1.0f};
-
-    std::atomic<float> mToneCoef{0.0f};
-    float mToneStateL = 0.0f;
-    float mToneStateR = 0.0f;
-    float mInputLowStateL = 0.0f;
-    float mInputLowStateR = 0.0f;
-    float mInputLowCoef = 0.0f;
+/**
+ * Overdrive pedal with six classic circuits behind its Model switch. See overdrive::Voicing
+ * for what each one models.
+ *
+ * Drive, Tone and Level are the pedal's own knobs. Bass moves the gain path's bass cut two
+ * octaves either way, so noon is the stock pedal. Clipping swaps the diodes where they sit:
+ * silicon, the SD-1's asymmetric pair, LEDs, germanium, MOSFETs, or none (the Fulldrive's
+ * "comp cut"). Level is calibrated so the pedal at default drive is about as loud as bypass
+ * for a guitar at the nominal operating level (the LPB-1 excepted: boosting is its job).
+ */
+class OverdriveEffect : public drive::DrivePedal<overdrive::Traits>
+{
 };
 
 inline void RegisterOverdriveEffect()
@@ -214,12 +265,9 @@ inline void RegisterOverdriveEffect()
     info.aliases = {"overdrive"};
     info.displayName = "Overdrive";
     info.category = "drive";
-    info.description = "Soft clipping overdrive";
+    info.description = "Classic overdrives: TS-808, Centaur, Bluesbreaker, Timmy, Fulldrive and LPB-1 boost";
     info.requiresResource = false;
-    info.parameters = {{"drive", "Drive", 0.5, 0.0, 1.0, "amount"},
-                       {"tone", "Tone", 0.5, 0.0, 1.0, "amount"},
-                       {"level", "Level", 0.0, -12.0, 12.0, "dB"},
-                       {"mix", "Mix", 1.0, 0.0, 1.0, "amount"}};
+    info.parameters = BuildParameterDefs(overdrive::kParams);
 
     EffectRegistry::Instance().Register(info.type, info, []() { return std::make_unique<OverdriveEffect>(); });
 }

@@ -640,6 +640,106 @@ shape to a library IR, keeping the node's Output, Auto Level and Speaker Drive).
 Seven factory presets ship with it; the first, **Closed 4x12**, is the defaults and starts new
 nodes. Presets set every control except Output.
 
+### Drive Pedals (`overdrive`, `distortion`, `fuzz`)
+Three effects, each a family of classic circuits behind a **Model** switch: the overdrives,
+distortions and fuzzes from [The 25 Most Important Guitar Pedals](https://joshuaheathscott.substack.com/p/the-25-most-important-guitar-pedals).
+Each model is built from the original's topology and component values: where its gain goes in
+frequency, where its diodes or transistors sit, and its tone circuit. The model tables are in
+`OverdriveEffect.h`, `DistortionEffect.h` and `FuzzEffect.h`. They share one chassis
+(`DrivePedal.h`), a set of analog stages (`DriveStages.h`) and an oversampler (`HalfBandIir.h`).
+
+What all three share:
+
+- **They work in volts.** A signal at the nominal operating level (Settings) stands for a
+  humbucker strummed firmly, 0.25 V RMS, so each model clips where the hardware does. Soft
+  playing or the guitar's volume rolled back cleans the overdrives up.
+- **Level is calibrated.** With Level at 0 dB, every model at every Drive setting is as loud
+  as bypass (K-weighted) for a guitar at the nominal level, so switching a pedal on changes
+  the tone, not the volume. To push an amp, raise Level, as you would on a real pedal. The
+  LPB-1 is the exception: it is a boost, and Drive is how much.
+- **Oversampled and antialiased.** The clipping runs near 384 kHz: 8x at 44.1 or 48 kHz, 4x
+  at 88.2 or 96, 2x above. Every clipping curve has a closed-form integral, and is
+  antialiased with it (ADAA). On a 1.3 kHz note at full drive, audible aliasing is at least
+  60 dB below the signal on every model, and past 78 dB on most. The half-bands are
+  minimum-phase IIR, about 5 samples of delay, so the pedals report no latency.
+- **No DC.** The outputs are AC-coupled like the hardware's, so asymmetric clipping comes out
+  as even harmonics and never as an offset that thumps or biases the next stage.
+- **Click-free.** Knobs glide over 25 ms. Model and Clipping change the circuit outright, so
+  the wet signal fades out over 8 ms, the change lands in silence and it fades back in.
+  **Mix** blends in phase: the dry signal takes the same filter round trip as the wet one.
+- **Cost.** A mono path; 9–31 µs per 64-sample block at 48 kHz depending on the model,
+  about 1–2% of a 64-sample deadline.
+
+**Overdrive** — `drive`, `tone`, `level` as on the pedal; `bass` moves the bass cut ahead of
+the clipping two octaves either way; `clipping` swaps the diodes.
+
+| Model | Circuit |
+|-------|---------|
+| TS-808 | Tube Screamer. Only mids above 720 Hz reach the 1N914s in the op-amp's feedback, and the clean signal sums on top; 21–41 dB of gain; fixed 723 Hz tone stage. The mid hump |
+| Centaur | Klon. Clean and clipped paths summed, the clean turned down as gain rises; germanium diodes to ground; Tone is the Treble shelf |
+| Bluesbreaker | Marshall's "amp in a box": the TS layout with the bass left in and less gain; tilt tone |
+| Timmy | Transparent: a low-gain stage into silicon diodes to ground, flat mids; Tone is the cut-only Treble |
+| Fulldrive | A TS with more gain and fuller bass ("flat mids"); a treble roll-off tone |
+| LPB-1 | One transistor, up to +24 dB of full-range boost. Clips only when pushed near its 9 V supply |
+
+**Distortion** — `drive`, `tone` (the RAT's Filter, bright clockwise), `level`; `tight` sets
+how much bass reaches the gain stage (clockwise is tighter); `clipping`; and a three-band EQ,
+`low` (±15 dB shelf at 100 Hz), `mid` (±15 dB bell at `midFreq`, 200–5000 Hz) and `high`
+(±15 dB shelf at 5 kHz), flat at 0 dB on every model and the Metal Zone's own controls.
+
+| Model | Circuit |
+|-------|---------|
+| RAT | LM308 gain stage with two RC legs: up to 45 dB in the mids and 67 dB above 1.5 kHz, pulled back by the op-amp's bandwidth; 1N914s to ground; the Filter |
+| DS-1 | Transistor booster, op-amp, silicon diodes to ground, and a low-pass/high-pass blend tone stack that scoops the mids at noon |
+| Distortion+ | A 741 with one 720 Hz leg under a 1M pot, germanium diodes to ground; raspy and bright. No tone control |
+| Metal Zone | Mid pre-emphasis, a soft first clipping stage into a hard second, a steep roll-off, and the parametric EQ |
+
+**Fuzz** — `drive` (labelled Fuzz), `tone`, `level`; `bias` moves the drive transistor's
+operating point (below noon it starves, gating and sputtering like a dying battery; above,
+it runs hot and compressed); `bass` sets how much low end reaches the circuit.
+
+| Model | Circuit |
+|-------|---------|
+| Fuzz Face | Two germanium transistors: round on one side, clipped on the other, full bass, and the low input impedance softening the pickup. Cleans up as the signal falls |
+| Big Muff | Input booster (Sustain), two clipping stages with diodes in their feedback, and the 408 Hz / 1.8 kHz tone stack that scoops the mids by about 9 dB at noon. Bias leans the booster, trading odd harmonics for even |
+| Tone Bender | MkII: a third germanium stage ahead of a Fuzz Face pair; more gain, tighter bass, more compression |
+| Fuzz-Tone | Maestro FZ-1: germanium on a 1.5 V supply, biased near cutoff. Brassy, thin, and gated as notes decay |
+| Super-Fuzz | Preamp, full-wave rectifier (the octave up) and a hard stage. Tone is the scoop switch, from none to full; Bias trades the fundamental for the octave |
+
+Where a pedal never had a tone control, Tone is a tilt about 800–1000 Hz that is flat at noon.
+Model indices are stored in presets, so new models are appended, never inserted.
+
+| Parameter | Range | Default | Unit | Effects |
+|-----------|-------|---------|------|---------|
+| `model` | 0–5 / 0–3 / 0–4 | 0 | enum | all |
+| `drive` | 0.0–1.0 | 0.5 / 0.6 / 0.7 | — | all; gain tapers like an audio pot, even in dB |
+| `tone` | 0.0–1.0 | 0.5 | — | all |
+| `bass` | 0.0–1.0 | 0.5 | — | overdrive, fuzz |
+| `tight` | 0.0–1.0 | 0.5 | — | distortion |
+| `clipping` | 0–6 | 0 | enum | overdrive, distortion: Stock, Silicon, Asymmetric, LED, Germanium, MOSFET, Open. The level change each brings is mostly undone, so it changes character rather than volume |
+| `bias` | 0.0–1.0 | 0.5 | — | fuzz |
+| `low` / `mid` / `high` | -15..+15 | 0.0 | dB | distortion |
+| `midFreq` | 200–5000 | 800 | Hz | distortion; log taper, so noon is about 1 kHz |
+| `level` | -24..+24 | 0.0 | dB | all |
+| `mix` | 0.0–1.0 | 1.0 | — | all |
+
+**Older presets keep their loudness.** The earlier pedals came out 13–25 dB above bypass at
+Level 0 dB, and presets set Level against that. A stored drive node with no `model` key can
+only come from before the Model switch (a node created since carries every parameter), so
+reading one (a preset, a composite's inner graph, the global chain) migrates it
+(`MigrateLegacyNodeParams`, `DriveLegacyMigration.h`): it gets the first model of its family
+(TS-808, RAT, Fuzz Face) explicitly, its Drive, Tone and Mix unchanged, and the Level at which
+that model is as loud as the old pedal was at its Drive, Tone and Level. The Level comes from a
+table measured against the old pedals, which `DriveLegacyMigrationTests` keeps verbatim
+(`helpers/LegacyDrivePedals.h`) and checks against, factory content included; `--calibrate`
+re-derives the table if a first model's voicing changes. A migrated node is saved with its
+model the next time its preset is, and is not migrated again.
+
+**Recalibrating.** A change to a model's voicing changes its loudness, and so its trim table
+(`trimDb`, nine drive points) and its `clipLevelExponent`. `DrivePedalTests` holds every model
+to within 1 dB of bypass on a plucked-string guitar phrase; `DrivePedalTests --calibrate` prints
+the correction to add to each trim entry and the refitted exponent.
+
 ### VCA Compressor (`compressor_vca`)
 Clean, precise VCA-style compressor.
 
