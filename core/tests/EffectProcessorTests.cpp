@@ -1074,33 +1074,59 @@ bool TestTempoSyncSpecific()
     return failed == 0;
 }
 
-/// The second harmonic of a steady 220 Hz tone through an effect's defaults, in dB re the
-/// fundamental. Measured over 8192 samples after the start-up has settled, Hann-windowed.
-double SecondHarmonicDb(const std::string& effectType, double inputAmplitude)
+/// The harmonics of a steady 220 Hz tone through an effect's defaults, as amplitudes with the
+/// fundamental at index 1. Measured over 8192 samples after the start-up has settled,
+/// Hann-windowed.
+std::array<double, 9> HarmonicAmplitudes(const std::string& effectType, double inputAmplitude)
 {
     constexpr int kBlocks = 24;
     constexpr std::size_t kAnalysed = 8192;
     const auto rendered = RenderDriveEffect(effectType, inputAmplitude, kBlocks, true);
 
+    std::array<double, 9> amplitudes{};
+
     if (rendered.size() < kAnalysed)
     {
-        return 0.0;
+        return amplitudes;
     }
 
     const std::size_t offset = rendered.size() - kAnalysed;
-    std::complex<double> fundamental = 0.0;
-    std::complex<double> second = 0.0;
 
-    for (std::size_t i = 0; i < kAnalysed; ++i)
+    for (std::size_t harmonic = 1; harmonic < amplitudes.size(); ++harmonic)
     {
-        const double window = 0.5 - 0.5 * std::cos(2.0 * kPi * static_cast<double>(i) / (kAnalysed - 1));
-        const double t = static_cast<double>(offset + i) / kTestSampleRate;
-        const double sample = rendered[offset + i] * window;
-        fundamental += sample * std::polar(1.0, -2.0 * kPi * 220.0 * t);
-        second += sample * std::polar(1.0, -2.0 * kPi * 440.0 * t);
+        std::complex<double> sum = 0.0;
+
+        for (std::size_t i = 0; i < kAnalysed; ++i)
+        {
+            const double window = 0.5 - 0.5 * std::cos(2.0 * kPi * static_cast<double>(i) / (kAnalysed - 1));
+            const double t = static_cast<double>(offset + i) / kTestSampleRate;
+            sum +=
+                rendered[offset + i] * window * std::polar(1.0, -2.0 * kPi * 220.0 * static_cast<double>(harmonic) * t);
+        }
+
+        amplitudes[harmonic] = std::abs(sum);
     }
 
-    return 20.0 * std::log10(std::abs(second) / std::max(std::abs(fundamental), 1.0e-30) + 1.0e-30);
+    return amplitudes;
+}
+
+/// One harmonic, in dB re the fundamental.
+double HarmonicDb(const std::array<double, 9>& amplitudes, std::size_t harmonic)
+{
+    return 20.0 * std::log10(amplitudes[harmonic] / std::max(amplitudes[1], 1.0e-30) + 1.0e-30);
+}
+
+/// Everything above the fundamental, in dB re it.
+double DistortionDb(const std::array<double, 9>& amplitudes)
+{
+    double power = 0.0;
+
+    for (std::size_t harmonic = 2; harmonic < amplitudes.size(); ++harmonic)
+    {
+        power += amplitudes[harmonic] * amplitudes[harmonic];
+    }
+
+    return 10.0 * std::log10(power / std::max(amplitudes[1] * amplitudes[1], 1.0e-30) + 1.0e-30);
 }
 
 bool TestDriveEffectCharacter()
@@ -1111,9 +1137,8 @@ bool TestDriveEffectCharacter()
     const auto overdrive = RenderDriveEffect(guitarfx::EffectGuids::kOverdrive, 0.25);
     const auto distortion = RenderDriveEffect(guitarfx::EffectGuids::kDistortion, 0.25);
     const auto fuzz = RenderDriveEffect(guitarfx::EffectGuids::kFuzz, 0.25);
-    const auto fuzzCleanup = RenderDriveEffect(guitarfx::EffectGuids::kFuzz, 0.004);
 
-    if (overdrive.empty() || distortion.empty() || fuzz.empty() || fuzzCleanup.empty())
+    if (overdrive.empty() || distortion.empty() || fuzz.empty())
     {
         std::cout << "  FAIL: Could not render one or more drive effects\n";
         return false;
@@ -1122,7 +1147,6 @@ bool TestDriveEffectCharacter()
     const DriveMetrics overdriveMetrics = MeasureDriveMetrics(overdrive);
     const DriveMetrics distortionMetrics = MeasureDriveMetrics(distortion);
     const DriveMetrics fuzzMetrics = MeasureDriveMetrics(fuzz);
-    const DriveMetrics fuzzCleanupMetrics = MeasureDriveMetrics(fuzzCleanup);
 
     const double odVsDist = NormalizedDifference(overdrive, distortion);
     const double odVsFuzz = NormalizedDifference(overdrive, fuzz);
@@ -1130,15 +1154,21 @@ bool TestDriveEffectCharacter()
 
     // Asymmetric clipping shows as even harmonics. It must not show as DC: a real fuzz's
     // coupling capacitors block it, and DC shifts the next stage's operating point.
-    const double fuzzSecondDb = SecondHarmonicDb(guitarfx::EffectGuids::kFuzz, 0.25);
-    const double distortionSecondDb = SecondHarmonicDb(guitarfx::EffectGuids::kDistortion, 0.25);
+    const auto loudFuzz = HarmonicAmplitudes(guitarfx::EffectGuids::kFuzz, 0.25);
+    const auto quietFuzz = HarmonicAmplitudes(guitarfx::EffectGuids::kFuzz, 0.004);
+    const double fuzzSecondDb = HarmonicDb(loudFuzz, 2);
+    const double distortionSecondDb = HarmonicDb(HarmonicAmplitudes(guitarfx::EffectGuids::kDistortion, 0.25), 2);
 
     const bool distinctOk = odVsDist > 0.08 && odVsFuzz > 0.08 && distVsFuzz > 0.08;
     const bool distortionCompressed = distortionMetrics.crestFactor + 0.05 < overdriveMetrics.crestFactor;
-    const bool fuzzAsymmetric = fuzzSecondDb > distortionSecondDb + 20.0;
-    // Played softly, a Fuzz Face stops clipping: its waveform goes back toward a sine's crest
-    // factor (1.41) from a squared-off one.
-    const bool fuzzCleansUp = fuzzCleanupMetrics.crestFactor > fuzzMetrics.crestFactor + 0.15;
+    // The RAT has even harmonics too, from its uneven op-amp rails, but a Fuzz Face's 2nd
+    // comes within a few dB of the fundamental. NAM captures of the pedals at the nominal
+    // level: -4 dB for a Fuzz Face, -15.5 dB for a RAT.
+    const bool fuzzAsymmetric = fuzzSecondDb > distortionSecondDb + 6.0;
+    // Played softly, a Fuzz Face stops clipping, and its harmonics fall well away.
+    const double quietFuzzDb = DistortionDb(quietFuzz);
+    const double loudFuzzDb = DistortionDb(loudFuzz);
+    const bool fuzzCleansUp = quietFuzzDb < loudFuzzDb - 10.0;
     const bool protectedOutput =
         overdriveMetrics.peak <= 1.01 && distortionMetrics.peak <= 1.01 && fuzzMetrics.peak <= 1.01;
 
@@ -1151,8 +1181,7 @@ bool TestDriveEffectCharacter()
     std::cout << "  Fuzz has more even harmonics than distortion: " << (fuzzAsymmetric ? "PASS" : "FAIL")
               << " (FUZZ H2=" << fuzzSecondDb << " dB, DIST H2=" << distortionSecondDb << " dB)\n";
     std::cout << "  Fuzz cleans up at lower input level:         " << (fuzzCleansUp ? "PASS" : "FAIL")
-              << " (quiet crest=" << fuzzCleanupMetrics.crestFactor << ", loud crest=" << fuzzMetrics.crestFactor
-              << ")\n";
+              << " (harmonics quiet=" << quietFuzzDb << " dB, loud=" << loudFuzzDb << " dB)\n";
     std::cout << "  Drive outputs stay near clip ceiling:        " << (protectedOutput ? "PASS" : "FAIL")
               << " (OD peak=" << overdriveMetrics.peak << ", DIST peak=" << distortionMetrics.peak
               << ", FUZZ peak=" << fuzzMetrics.peak << ")\n";

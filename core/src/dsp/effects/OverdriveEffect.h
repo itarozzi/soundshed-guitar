@@ -67,7 +67,10 @@ enum class ToneStyle
  * All of them are one topology: a clean path, plus a gain path that high-passes, amplifies,
  * low-passes and clips. What differs is where the diodes sit and the values around them:
  *
- *     y = clean x + dirty clip( LP( G HP(x) ) )
+ *     y = clean x + dirty LP( clip( LP( G HP(x) ) ) )
+ *
+ * The gain path is an op-amp stage (drive::ProcessOpAmpStage); where it reaches its rails
+ * before the diodes, as the Centaur does, the rails and the stage's own feedback shape it too.
  *
  * - TS-808: op-amp gain 1 + (51k + 500k Drive) / 4.7k. The 4.7k to ground goes through
  *   47 nF, so only the mids and highs above 720 Hz are amplified into the 1N914 pair across
@@ -76,8 +79,12 @@ enum class ToneStyle
  *   at full drive. The tone stage is a fixed 723 Hz low-pass (1k and 220 nF) with the treble
  *   blended back by the Tone pot.
  * - Centaur: clean and clipped paths summed, the clean one turned down as gain rises (the
- *   dual-gang gain pot). Germanium diodes to ground clip the gain path, which is focused on
- *   the upper mids; the Treble control is a shelf.
+ *   dual-gang gain pot). The gain climbs steeply early in the pot's travel, from well below
+ *   the diodes at 0, where the pedal is a clean boost, to about 25 dB. Germanium diodes to
+ *   ground clip the gain path, which is focused on the upper mids and rolled off at 1.6 kHz
+ *   after the diodes; the Treble control is a shelf, a little under flat at noon. At high
+ *   gain the op-amp reaches its 9 V rails, which sit unevenly about its bias: even harmonics.
+ *   Fitted to five captures of a Behringer Centaur, Gain 0 to 10 at Treble noon.
  * - Bluesbreaker: the TS layout with the bass left in (150 Hz) and a lower gain range: the
  *   original "amp in a box" overdrive, with a tilt tone control.
  * - Timmy: no clean path; silicon diodes to ground after a low-gain stage whose bass cut is
@@ -91,17 +98,22 @@ struct Voicing
 {
     double minGainDb;
     double maxGainDb;
+    double gainTaper;      ///< the gain pot's law: dB across its travel go as amount^gainTaper
     double gainHighPassHz; ///< the Bass knob moves this two octaves either way
     double lowPassAtMinGainHz;
     double lowPassAtMaxGainHz;
     double cleanAtMinDrive;
     double cleanAtMaxDrive;
     double dirty;
+    double railPositive; ///< where the gain stage's op-amp pins, volts from its bias (0: never)
+    double railNegative;
+    double dirtyLowPassHz; ///< after the diodes, on the gain path only (0: none)
     drive::ClipCurve stockClip;
     double clipLevelExponent; ///< see ClipLevelCompensation
     ToneStyle tone;
     double toneHz;
-    double toneRange; ///< Shelf and Tilt: dB either way; LowPass: the sweep's frequency ratio
+    double toneRange;  ///< Shelf and Tilt: dB either way; LowPass: the sweep's frequency ratio
+    double toneNoonDb; ///< Shelf: where it sits at noon
     drive::TrimTable trimDb;
 };
 
@@ -109,23 +121,23 @@ struct Voicing
 // *INDENT-OFF*
 inline constexpr std::array<Voicing, static_cast<std::size_t>(Model::Count)> kVoicings = {{
     // TS-808
-    {20.7, 41.4, 720.0,  61000.0, 5660.0, 1.0, 1.0,  1.0, {0.55, 0.55, drive::Knee::Soft, drive::Knee::Soft}, 0.73,
-     ToneStyle::TubeScreamer, 723.0, 0.0, {-2.4, -2.7, -2.9, -3.1, -3.2, -3.3, -3.4, -3.5, -3.5}},
+    {20.7, 41.4, 1.0, 720.0,  61000.0, 5660.0, 1.0, 1.0,  1.0, 0.0, 0.0, 0.0, {0.55, 0.55, drive::Knee::Soft, drive::Knee::Soft}, 0.73,
+     ToneStyle::TubeScreamer, 723.0, 0.0, 0.0, {-2.4, -2.7, -2.9, -3.1, -3.2, -3.3, -3.4, -3.5, -3.5}},
     // Centaur
-    {4.0,  42.0, 480.0,  16000.0, 4500.0, 1.0, 0.35, 1.2, {0.32, 0.32, drive::Knee::Gradual, drive::Knee::Gradual}, 0.69,
-     ToneStyle::Shelf, 1100.0, 10.0, {-4.6, -4.9, -5.1, -5.2, -5.3, -5.2, -5.1, -4.9, -4.7}},
+    {-18.0, 25.0, 0.3, 320.0,  4000.0, 2800.0, 1.0, 0.33, 2.8, 4.2, 3.6, 1600.0, {0.32, 0.32, drive::Knee::Gradual, drive::Knee::Gradual}, 0.63,
+     ToneStyle::Shelf, 1100.0, 10.0, -2.5, {0.7, -4.0, -5.0, -5.4, -5.7, -5.8, -5.8, -5.7, -5.6}},
     // Bluesbreaker
-    {6.0,  34.0, 150.0,  20000.0, 7000.0, 1.0, 1.0,  1.0, {0.6, 0.6, drive::Knee::Soft, drive::Knee::Soft}, 0.58,
-     ToneStyle::Tilt, 900.0, 7.0, {-6.3, -7.1, -7.7, -8.3, -8.7, -9.0, -9.3, -9.4, -9.5}},
+    {6.0,  34.0, 1.0, 150.0,  20000.0, 7000.0, 1.0, 1.0,  1.0, 0.0, 0.0, 0.0, {0.6, 0.6, drive::Knee::Soft, drive::Knee::Soft}, 0.58,
+     ToneStyle::Tilt, 900.0, 7.0, 0.0, {-6.3, -7.1, -7.7, -8.3, -8.7, -9.0, -9.3, -9.4, -9.5}},
     // Timmy
-    {0.0,  34.0, 90.0,   20000.0, 8000.0, 0.0, 0.0,  1.0, {0.6, 0.6, drive::Knee::Soft, drive::Knee::Soft}, 0.66,
-     ToneStyle::LowPass, 700.0, 30.0, {4.0, 1.4, -0.8, -2.4, -3.5, -4.4, -5.0, -5.3, -5.6}},
+    {0.0,  34.0, 1.0, 90.0,   20000.0, 8000.0, 0.0, 0.0,  1.0, 0.0, 0.0, 0.0, {0.6, 0.6, drive::Knee::Soft, drive::Knee::Soft}, 0.66,
+     ToneStyle::LowPass, 700.0, 30.0, 0.0, {4.0, 1.4, -0.8, -2.4, -3.5, -4.4, -5.0, -5.3, -5.6}},
     // Fulldrive
-    {20.0, 46.0, 350.0,  30000.0, 6000.0, 1.0, 1.0,  1.0, {0.6, 0.6, drive::Knee::Soft, drive::Knee::Soft}, 0.77,
-     ToneStyle::LowPass, 900.0, 14.0, {-7.0, -7.3, -7.5, -7.7, -7.8, -7.9, -8.0, -8.0, -8.0}},
+    {20.0, 46.0, 1.0, 350.0, 30000.0, 6000.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, {0.6, 0.6, drive::Knee::Soft, drive::Knee::Soft}, 0.77,
+     ToneStyle::LowPass, 900.0, 14.0, 0.0, {-7.0, -7.3, -7.5, -7.7, -7.8, -7.9, -8.0, -8.0, -8.0}},
     // LPB-1
-    {0.0,  24.0, 25.0,   60000.0, 60000.0, 0.0, 0.0, 1.0, {4.0, 3.2, drive::Knee::Soft, drive::Knee::Soft}, 0.46,
-     ToneStyle::Tilt, 1000.0, 6.0, {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0}},
+    {0.0, 24.0, 1.0, 25.0, 60000.0, 60000.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, {4.0, 3.2, drive::Knee::Soft, drive::Knee::Soft}, 0.46,
+     ToneStyle::Tilt, 1000.0, 6.0, 0.0, {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0}},
 }};
 // *INDENT-ON*
 // clang-format on
@@ -143,9 +155,9 @@ struct Traits
     struct Coefficients
     {
         double inputHighPass = 0.0;
-        double gainHighPass = 0.0;
-        double gainLowPass = 1.0;
-        double gain = 1.0;
+        drive::OpAmpStageCoefficients gainStage;
+        bool hasDirtyLowPass = false;
+        double dirtyLowPass = 1.0;
         double clean = 1.0;
         double dirty = 1.0;
         drive::ClipCurve clip;
@@ -159,8 +171,8 @@ struct Traits
     struct State
     {
         drive::OnePole input;
-        drive::OnePole gainHighPass;
-        drive::OnePole gainLowPass;
+        drive::OpAmpStageState gainStage;
+        drive::OnePole dirtyLowPass;
         drive::OnePole tone;
         drive::OnePole dcBlock;
         drive::AntialiasMemory clip;
@@ -180,12 +192,22 @@ struct Traits
         const double tone = values[kTone];
 
         c.inputHighPass = drive::OnePoleCoefficient(kInputHighPassHz, rate);
-        c.gain = drive::TaperedGain(v.minGainDb, v.maxGainDb, amount);
-        c.gainHighPass = drive::OnePoleCoefficient(v.gainHighPassHz * drive::KnobOctaves(values[kBass], -2.0), osRate);
+        // The gain stage: its leg's corner (the Bass knob moves it), the gain the pot gives
+        // along its law, the feedback capacitor, and the op-amp's rails where it reaches them.
+        drive::OpAmpStageCoefficients& stage = c.gainStage;
+        const double gainDb = v.minGainDb + (v.maxGainDb - v.minGainDb) * std::pow(amount, v.gainTaper);
+        stage.legs[0] = {drive::OnePoleCoefficient(v.gainHighPassHz * drive::KnobOctaves(values[kBass], -2.0), osRate),
+                         drive::DbToGain(gainDb)};
+        stage.unity = false;
         // The feedback capacitor's corner moves inversely with the feedback resistance, so it
         // is geometric in the gain.
         const double lowPassHz = v.lowPassAtMinGainHz * std::pow(v.lowPassAtMaxGainHz / v.lowPassAtMinGainHz, amount);
-        c.gainLowPass = drive::OnePoleCoefficient(lowPassHz, osRate);
+        stage.feedback = drive::OnePoleCoefficient(lowPassHz, osRate);
+        stage.hasRails = v.railPositive > 0.0;
+        stage.railPull = drive::OnePoleCoefficient(drive::kRailPullHz, osRate);
+        stage.rails = {v.railPositive, v.railNegative, drive::Knee::Hard, drive::Knee::Hard};
+        c.hasDirtyLowPass = v.dirtyLowPassHz > 0.0;
+        c.dirtyLowPass = drive::OnePoleCoefficient(c.hasDirtyLowPass ? v.dirtyLowPassHz : osRate, osRate);
         c.clean = v.cleanAtMinDrive + (v.cleanAtMaxDrive - v.cleanAtMinDrive) * amount;
         c.dirty = v.dirty;
 
@@ -204,7 +226,7 @@ struct Traits
             break;
 
         case ToneStyle::Shelf:
-            c.toneHigh = drive::DbToGain((tone - 0.5) * 2.0 * v.toneRange);
+            c.toneHigh = drive::DbToGain(v.toneNoonDb + (tone - 0.5) * 2.0 * v.toneRange);
             break;
 
         case ToneStyle::Tilt:
@@ -231,8 +253,9 @@ struct Traits
 
     static double Shape(const Coefficients& c, State& s, double x) noexcept
     {
-        const double driven = s.gainLowPass.LowPass(c.gainLowPass, s.gainHighPass.HighPass(c.gainHighPass, x) * c.gain);
-        return c.clean * x + c.dirty * c.clip.Antialiased(driven, s.clip);
+        const double driven = drive::ProcessOpAmpStage(c.gainStage, s.gainStage, x);
+        const double clipped = c.clip.Antialiased(driven, s.clip);
+        return c.clean * x + c.dirty * (c.hasDirtyLowPass ? s.dirtyLowPass.LowPass(c.dirtyLowPass, clipped) : clipped);
     }
 
     static double Post(const Coefficients& c, State& s, double y) noexcept

@@ -91,6 +91,13 @@ struct OnePole
         return input - LowPass(coefficient, input);
     }
 
+    /// The low-pass output is `coefficient x input + Offset(coefficient)`: what the next
+    /// sample would give, for solving a network, without moving the state.
+    [[nodiscard]] double Offset(double coefficient) const noexcept
+    {
+        return (1.0 - coefficient) * state;
+    }
+
     void Reset() noexcept
     {
         state = 0.0;
@@ -246,6 +253,132 @@ struct ClipCurve
     memory.input = x;
     memory.integral = area;
     return output;
+}
+
+/// One RC leg from an op-amp's inverting input to ground: its corner, as a one-pole
+/// coefficient, and the gain it gives above that corner. Gain 0: no leg.
+struct OpAmpLeg
+{
+    double coefficient = 0.0;
+    double gain = 0.0;
+};
+
+/// How quickly an op-amp stage's inverting input follows its pull toward a rail. The pull's
+/// average is what moves where the stage switches; following it sample by sample instead puts
+/// the switching instants on the sample grid (measured: a full-gain RAT's 1.3 kHz note aliased
+/// at -42 dB, against -95 with this).
+inline constexpr double kRailPullHz = 300.0;
+
+struct OpAmpStageCoefficients
+{
+    std::array<OpAmpLeg, 2> legs{};
+    bool unity = true;     ///< non-inverting: the input is part of the output
+    double feedback = 1.0; ///< the capacitor across the feedback resistance, as a one-pole
+    bool hasBandwidth = false;
+    double bandwidth = 1.0; ///< closed-loop bandwidth, as a one-pole
+    bool hasRails = false;
+    ClipCurve rails{4.2, 4.2, Knee::Hard, Knee::Hard};
+    double railPull = 1.0; ///< kRailPullHz, as a one-pole at the stage's rate
+};
+
+struct OpAmpStageState
+{
+    std::array<OnePole, 2> legs;
+    OnePole feedback;
+    OnePole bandwidth;
+    AntialiasMemory rails;
+    OnePole railPull;
+    double previousOutput = 0.0;
+};
+
+/// How much of the straight line from `from` to `to` lies beyond `threshold`, on the side
+/// `above` says: 0 to 1.
+[[nodiscard]] inline double FractionBeyond(double from, double to, double threshold, bool above) noexcept
+{
+    const double a = above ? from - threshold : threshold - from;
+    const double b = above ? to - threshold : threshold - to;
+
+    if (a <= 0.0 && b <= 0.0)
+    {
+        return 0.0;
+    }
+
+    if (a >= 0.0 && b >= 0.0)
+    {
+        return 1.0;
+    }
+
+    return std::max(a, b) / std::fabs(b - a);
+}
+
+/**
+ * An op-amp gain stage: up to two RC legs to ground under the feedback resistance, a
+ * capacitor across it, then the op-amp's bandwidth and rails.
+ *
+ * Within the rails the inverting input follows the input and the stage is its linear
+ * response. Once the output is pinned at a rail, the inverting input sits wherever the
+ * feedback divider puts it, and the legs' capacitors charge from there instead. So a stage
+ * driven hard does more than square off its linear output: its capacitors carry the output's
+ * average back to the inverting input, and where it switches follows. With the two rails
+ * unequal it settles switching off-centre, the uneven duty cycle a RAT gets its even
+ * harmonics from, whatever the level.
+ *
+ * The output reaches a rail between samples, not on one, so the inverting input moves over
+ * only by the share of the sample the output spent past it, and follows that pull smoothed
+ * (kRailPullHz). Moving it whole, sample by sample, would snap the stage's switching to the
+ * sample grid, and alias as a plain clipper does.
+ */
+[[nodiscard]] inline double ProcessOpAmpStage(const OpAmpStageCoefficients& c, OpAmpStageState& s, double x) noexcept
+{
+    // Every leg's high-pass is (1 - a) v - offset, so the output is linear in the inverting
+    // input: unity v + af (k v - b) + bf.
+    double k = 0.0;
+    double b = 0.0;
+
+    for (std::size_t index = 0; index < c.legs.size(); ++index)
+    {
+        if (c.legs[index].gain != 0.0)
+        {
+            k += c.legs[index].gain * (1.0 - c.legs[index].coefficient);
+            b += c.legs[index].gain * s.legs[index].Offset(c.legs[index].coefficient);
+        }
+    }
+
+    const double unity = c.unity ? 1.0 : 0.0;
+    const double af = c.feedback;
+    const double bf = s.feedback.Offset(af);
+    const double linear = unity * x + af * (k * x - b) + bf;
+    const double output = c.hasBandwidth ? s.bandwidth.LowPass(c.bandwidth, linear) : linear;
+    double inverting = x;
+
+    if (c.hasRails)
+    {
+        const double slope = unity + af * k;
+        const double high = FractionBeyond(s.previousOutput, output, c.rails.positive, true);
+        const double low = FractionBeyond(s.previousOutput, output, -c.rails.negative, false);
+        s.previousOutput = output;
+
+        if (slope > 1.0e-9)
+        {
+            // Where the inverting input sits for the output to hold at each rail.
+            const double atHigh = (c.rails.positive - bf + af * b) / slope;
+            const double atLow = (-c.rails.negative - bf + af * b) / slope;
+            inverting = x + s.railPull.LowPass(c.railPull, high * (atHigh - x) + low * (atLow - x));
+        }
+    }
+
+    double legs = 0.0;
+
+    for (std::size_t index = 0; index < c.legs.size(); ++index)
+    {
+        if (c.legs[index].gain != 0.0)
+        {
+            legs += c.legs[index].gain * s.legs[index].HighPass(c.legs[index].coefficient, inverting);
+        }
+    }
+
+    s.feedback.LowPass(af, legs);
+    return c.hasRails ? c.rails.Antialiased(output, s.rails) : output;
 }
 
 /// The Clipping switch every overdrive and distortion model offers. Index order is stored in

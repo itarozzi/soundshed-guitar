@@ -76,9 +76,12 @@ enum class ToneStyle
 
 /**
  * - Fuzz Face: two germanium transistors, direct-coupled with shunt feedback. Round on one
- *   side and clipped on the other, so strong even harmonics; full bass, and the low input
- *   impedance loads the pickup, softening its top. Biased right, it cleans up as the signal
- *   falls, the way it does on the guitar's volume knob.
+ *   side and clipped hard on the other; full bass, and the low input impedance loads the
+ *   pickup, softening its top. Biased right, it cleans up as the signal falls, the way it does
+ *   on the guitar's volume knob. The feedback carries the output's average back to the first
+ *   transistor (`biasFeedback`), so the harder it clips unevenly the further its switching
+ *   point moves: the duty cycle falls from half toward a quarter as the signal rises, and the
+ *   2nd harmonic comes to within a few dB of the fundamental, as in captures of the pedal.
  * - Big Muff: an input booster, then two clipping stages with diodes in their feedback,
  *   each high-passed by its coupling capacitor and rolled off by its Miller capacitance, then
  *   the famous tone stack: 39k/10 nF low-pass (408 Hz) blended with 4 nF/22k high-pass. At
@@ -101,6 +104,7 @@ struct Voicing
     std::size_t stageCount;
     std::size_t biasStage;
     double biasRange;
+    double biasFeedback; ///< how much of the output's average returns to the first stage's input
     double inputHighPassHz;
     double pickupLoadHz; ///< 0: none
     double octave;       ///< fraction of the rectified octave-up after the first stage
@@ -117,30 +121,30 @@ struct Voicing
 // *INDENT-OFF*
 inline constexpr std::array<Voicing, static_cast<std::size_t>(Model::Count)> kVoicings = {{
     // Fuzz Face
-    {{{{5.0,   7.0,  true,  16.0, {1.5, 1.5, drive::Knee::Soft, drive::Knee::Soft}, 0.0,   0.0},
-       {5.0,   7.0,  true,  16.0, {1.0, 0.7, drive::Knee::Gradual, drive::Knee::Hard}, 0.0,   9000.0},
+    {{{{5.0,   10.0, true,  16.0, {1.5, 1.5, drive::Knee::Soft, drive::Knee::Soft}, 0.0,   0.0},
+       {5.0,   10.0, true,  16.0, {1.4, 0.35, drive::Knee::Gradual, drive::Knee::Hard}, 0.0,  9000.0},
        {0.0,   0.0,  false, 0.0,  {1.0, 1.0, drive::Knee::Soft, drive::Knee::Soft}, 0.0,   0.0}}},
-     2, 1, 1.1, 40.0, 6000.0, 0.0, ToneStyle::Tilt, 800.0, 800.0, 0.0, 0.0, 30.0, {-5.6, -6.8, -7.7, -8.4, -8.8, -9.2, -9.4, -9.6, -9.7}},
+     2, 1, 1.5, 2.0, 40.0, 6000.0, 0.0, ToneStyle::Tilt, 800.0, 800.0, 0.0, 0.0, 30.0, {-6.2, -6.9, -7.4, -7.8, -8.1, -8.3, -8.5, -8.6, -8.7}},
     // Big Muff
     {{{{30.0,  -12.0, true, 36.0, {2.5, 2.5, drive::Knee::Soft, drive::Knee::Soft}, 0.0,   0.0},
        {150.0, 24.0, false, 0.0,  {0.6, 0.6, drive::Knee::Soft, drive::Knee::Soft}, 0.0,   5000.0},
        {150.0, 24.0, false, 0.0,  {0.6, 0.6, drive::Knee::Soft, drive::Knee::Soft}, 0.0,   5000.0}}},
-     3, 0, 2.0, 60.0, 0.0, 0.0, ToneStyle::Blend, 408.0, 1800.0, 0.0, 0.0, 20.0, {3.8, 3.6, 3.5, 3.4, 3.4, 3.4, 3.4, 3.4, 3.4}},
+     3, 0, 2.0, 0.0, 60.0, 0.0, 0.0, ToneStyle::Blend, 408.0, 1800.0, 0.0, 0.0, 20.0, {3.8, 3.6, 3.5, 3.4, 3.4, 3.4, 3.4, 3.4, 3.4}},
     // Tone Bender MkII
     {{{{10.0,  20.0, false, 0.0,  {1.2, 0.9, drive::Knee::Gradual, drive::Knee::Soft}, -0.1,  0.0},
        {80.0,  6.0,  true,  28.0, {0.9, 0.6, drive::Knee::Gradual, drive::Knee::Hard}, 0.0,   7000.0},
        {0.0,   0.0,  false, 0.0,  {1.0, 1.0, drive::Knee::Soft, drive::Knee::Soft}, 0.0,   0.0}}},
-     2, 1, 0.9, 100.0, 8000.0, 0.0, ToneStyle::Tilt, 800.0, 800.0, 0.0, 0.0, 30.0, {-6.8, -7.3, -7.7, -8.0, -8.2, -8.3, -8.4, -8.5, -8.5}},
+     2, 1, 0.9, 0.0, 100.0, 8000.0, 0.0, ToneStyle::Tilt, 800.0, 800.0, 0.0, 0.0, 30.0, {-6.8, -7.3, -7.7, -8.0, -8.2, -8.3, -8.4, -8.5, -8.5}},
     // Fuzz-Tone
     {{{{5.0,   10.0, true,  24.0, {0.5, 0.35, drive::Knee::Soft, drive::Knee::Hard}, -0.4, 10000.0},
        {200.0, 24.0, false, 0.0,  {0.5, 0.35, drive::Knee::Soft, drive::Knee::Hard}, -0.4, 6000.0},
        {0.0,   0.0,  false, 0.0,  {1.0, 1.0, drive::Knee::Soft, drive::Knee::Soft},  0.0,  0.0}}},
-     2, 0, 0.35, 250.0, 0.0, 0.0, ToneStyle::Tilt, 1000.0, 1000.0, 1300.0, 7.0, 60.0, {-6.4, -6.6, -6.8, -6.9, -7.0, -7.0, -7.1, -7.1, -7.1}},
+     2, 0, 0.35, 0.0, 250.0, 0.0, 0.0, ToneStyle::Tilt, 1000.0, 1000.0, 1300.0, 7.0, 60.0, {-6.4, -6.6, -6.8, -6.9, -7.0, -7.0, -7.1, -7.1, -7.1}},
     // Super-Fuzz
     {{{{10.0,  14.0, true,  26.0, {1.0, 1.0, drive::Knee::Soft, drive::Knee::Soft}, 0.0,   7000.0},
        {60.0,  20.0, false, 0.0,  {0.6, 0.6, drive::Knee::Soft, drive::Knee::Soft}, 0.0,   6000.0},
        {0.0,   0.0,  false, 0.0,  {1.0, 1.0, drive::Knee::Soft, drive::Knee::Soft}, 0.0,   0.0}}},
-     2, 0, 0.3, 80.0, 0.0, 0.75, ToneStyle::Scoop, 800.0, 800.0, 0.0, 0.0, 20.0, {-1.7, -1.7, -1.7, -1.8, -1.8, -1.9, -2.0, -2.0, -2.0}},
+     2, 0, 0.3, 0.0, 80.0, 0.0, 0.75, ToneStyle::Scoop, 800.0, 800.0, 0.0, 0.0, 20.0, {-1.7, -1.7, -1.7, -1.8, -1.8, -1.9, -2.0, -2.0, -2.0}},
 }};
 // *INDENT-ON*
 // clang-format on
@@ -148,6 +152,10 @@ inline constexpr std::array<Voicing, static_cast<std::size_t>(Model::Count)> kVo
 /// Softens the rectifier's corner at zero, as the germanium diodes' own knee does, so the
 /// octave does not spray harmonics past what the oversampling can hold.
 inline constexpr double kRectifierKneeVolts = 0.05;
+
+/// How slowly a DC-coupled fuzz's operating point follows its output's average: the corner of
+/// the capacitor that holds it (a Fuzz Face's 20 uF emitter bypass across its 1k).
+inline constexpr double kBiasFeedbackHz = 8.0;
 
 /// Deepest the Super-Fuzz scoop goes, at Tone fully up.
 inline constexpr double kScoopDepthDb = 24.0;
@@ -178,6 +186,8 @@ struct Traits
         std::array<StageCoefficients, kMaxStages> stages;
         std::size_t stageCount = 1;
         double octave = 0.0;
+        double biasFeedback = 0.0;
+        double biasFeedbackCorner = 0.0;
         double toneLow = 0.0;
         double toneLowGain = 1.0;
         double toneHigh = 0.0;
@@ -199,6 +209,8 @@ struct Traits
         drive::OnePole dcBlock;
         std::array<drive::AntialiasMemory, kMaxStages> curve;
         drive::AntialiasMemory rectifier;
+        drive::OnePole biasFeedback;
+        double biasShift = 0.0;
 
         void Reset() noexcept
         {
@@ -219,6 +231,8 @@ struct Traits
         c.pickupLoad = drive::OnePoleCoefficient(c.hasPickupLoad ? v.pickupLoadHz : rate, rate);
         c.stageCount = v.stageCount;
         c.octave = v.octave;
+        c.biasFeedback = v.biasFeedback;
+        c.biasFeedbackCorner = drive::OnePoleCoefficient(kBiasFeedbackHz, osRate);
 
         for (std::size_t index = 0; index < kMaxStages; ++index)
         {
@@ -281,6 +295,11 @@ struct Traits
                 x = s.coupling[index].HighPass(stage.coupling, x);
             }
 
+            if (index == 0)
+            {
+                x -= c.biasFeedback * s.biasShift;
+            }
+
             x = stage.curve.Antialiased(x * stage.gain, s.curve[index], stage.bias);
 
             if (stage.hasLowPass)
@@ -292,6 +311,11 @@ struct Traits
             {
                 x += (drive::RectifyAntialiased(x, kRectifierKneeVolts, s.rectifier) - x) * c.octave;
             }
+        }
+
+        if (c.biasFeedback > 0.0)
+        {
+            s.biasShift = s.biasFeedback.LowPass(c.biasFeedbackCorner, x);
         }
 
         return x;

@@ -68,6 +68,10 @@ inline constexpr double kMidQ = 0.9;
 inline constexpr double kInputHighPassHz = 20.0;
 inline constexpr double kDcBlockHz = 8.0;
 
+/// The capacitor between a booster and the op-amp after it. It re-centres what the booster
+/// clipped unevenly, so the op-amp switches where the booster's waveform crosses its average.
+inline constexpr double kBoostCouplingHz = 5.0;
+
 /// Unity-gain bandwidth of the op-amps: LM308 (RAT, with its 30 pF compensation) and 741
 /// (Distortion+) alike. Closed-loop bandwidth is this over the gain, which is what keeps a
 /// RAT at full distortion from turning to fizz.
@@ -87,12 +91,19 @@ inline constexpr double kOpAmpGbwHz = 1.0e6;
  *
  * - RAT: two legs, 47R + 2.2 uF (1.5 kHz) and 560R + 4.7 uF (60 Hz), under a 100k Distortion
  *   pot: up to 45 dB through the mids and 67 dB above 1.5 kHz, but the LM308's bandwidth
- *   pulls the top back down. 1N914s to ground, then the Filter: 1.5k plus 100k against
+ *   pulls the top back down. The LM308 swings further one way than the other on 9 V, and the
+ *   legs' capacitors hold its output's average against the input, so once it rails it
+ *   switches off-centre: a steady 45% duty cycle and a 2nd harmonic 15 dB down at any level,
+ *   as a capture of the pedal shows. 1N914s to ground, then the Filter: 1.5k plus 100k against
  *   3.3 nF, 32 kHz down to 475 Hz.
  * - DS-1: a transistor booster ahead of the op-amp, silicon diodes to ground, and a passive
- *   tone stack that blends a 234 Hz low-pass with a 1.06 kHz high-pass: scooped at noon.
+ *   tone stack that blends a 234 Hz low-pass with a 1.06 kHz high-pass: scooped at noon. The
+ *   booster sits off the centre of its curve and saturates unevenly, and its coupling
+ *   capacitor re-centres what it passes on, so the 2nd harmonic grows with the level, from
+ *   40 dB down played softly to about 20 dB down played hard.
  * - Distortion+: one leg, 4.7k + 47 nF (720 Hz), under a 1M pot; a 741 whose bandwidth
- *   falls with gain; germanium diodes to ground and a 16 kHz roll-off. No tone control.
+ *   falls with gain, and whose rails are as uneven as the RAT's; germanium diodes to ground
+ *   and a 16 kHz roll-off. No tone control.
  * - Metal Zone: a mid-forward pre-emphasis, a first stage clipping softly in the op-amp's
  *   feedback, a second driving hard into diodes, and a steep roll-off after. The shared
  *   Low / Mid / Mid Freq / High EQ is its EQ section.
@@ -112,6 +123,7 @@ struct Voicing
     double boostDb;         ///< fixed booster ahead of the op-amp (0 dB: none)
     double boostPerDriveDb; ///< and how much of Drive it takes (the Metal Zone's first stage)
     drive::ClipCurve boostClip;
+    double boostBias;    ///< the booster's operating point, volts off its curve's centre
     double drivePotOhms; ///< the gain pot, audio taper
     double leg1Ohms;
     double leg1Farads;
@@ -119,7 +131,8 @@ struct Voicing
     double leg2Farads;
     double feedbackFarads; ///< across the gain pot (0: none)
     bool limitBandwidth;   ///< apply kOpAmpGbwHz
-    double railVolts;
+    double railPositive;   ///< where the op-amp's output pins, volts either side of its bias
+    double railNegative;
     drive::ClipCurve stockClip;
     double clipLevelExponent; ///< see ClipLevelCompensation
     double stage2Gain;        ///< Metal Zone's second stage (0: none)
@@ -137,16 +150,16 @@ struct Voicing
 // *INDENT-OFF*
 inline constexpr std::array<Voicing, static_cast<std::size_t>(Model::Count)> kVoicings = {{
     // RAT
-    {0.0,  0.0,  {10.0, 10.0, drive::Knee::Soft, drive::Knee::Soft}, 100.0e3, 47.0,  2.2e-6,  560.0, 4.7e-6, 100.0e-12, true,  4.2,
-     {0.6, 0.6, drive::Knee::Soft, drive::Knee::Soft}, 0.97, 0.0, 60000.0, 0.0, 1000.0, ToneStyle::LowPass, 0.0, 0.0, false, {5.6, -2.4, -3.3, -3.6, -3.8, -3.9, -4.1, -4.2, -4.3}},
+    {0.0,  0.0,  {10.0, 10.0, drive::Knee::Soft, drive::Knee::Soft}, 0.0, 100.0e3, 47.0,  2.2e-6,  560.0, 4.7e-6, 100.0e-12, true,  4.8, 3.7,
+     {0.6, 0.6, drive::Knee::Soft, drive::Knee::Soft}, 0.97, 0.0, 60000.0, 0.0, 1000.0, ToneStyle::LowPass, 0.0, 0.0, false, {5.6, -2.3, -3.2, -3.5, -3.7, -3.8, -4.0, -4.0, -4.1}},
     // DS-1
-    {14.0, 0.0,  {3.0, 3.0, drive::Knee::Soft, drive::Knee::Soft},   100.0e3, 4.7e3, 0.47e-6, 0.0,   0.0,    250.0e-12, false, 4.2,
-     {0.6, 0.6, drive::Knee::Soft, drive::Knee::Soft}, 0.84, 0.0, 60000.0, 0.0, 1000.0, ToneStyle::Blend, 234.0, 1063.0, false, {4.0, 3.6, 3.0, 2.5, 1.9, 1.4, 1.0, 0.7, 0.6}},
+    {14.0, 0.0,  {2.4, 3.6, drive::Knee::Soft, drive::Knee::Soft},   0.4, 100.0e3, 4.7e3, 0.47e-6, 0.0,   0.0,    250.0e-12, false, 3.6, 4.8,
+     {0.6, 0.6, drive::Knee::Soft, drive::Knee::Soft}, 0.83, 0.0, 60000.0, 0.0, 1000.0, ToneStyle::Blend, 234.0, 1063.0, false, {4.1, 3.7, 3.2, 2.5, 1.9, 1.3, 0.8, 0.2, -0.3}},
     // Distortion+
-    {0.0,  0.0,  {10.0, 10.0, drive::Knee::Soft, drive::Knee::Soft}, 1.0e6,   4.7e3, 47.0e-9, 0.0,   0.0,    0.0,       true,  3.5,
-     {0.35, 0.35, drive::Knee::Gradual, drive::Knee::Gradual}, 0.88, 0.0, 16000.0, 0.0, 1000.0, ToneStyle::Tilt, 1000.0, 1000.0, false, {5.2, 2.0, 0.1, -0.9, -1.6, -2.0, -2.2, -2.3, -2.3}},
+    {0.0,  0.0,  {10.0, 10.0, drive::Knee::Soft, drive::Knee::Soft}, 0.0, 1.0e6,   4.7e3, 47.0e-9, 0.0,   0.0,    0.0,       true,  4.0, 3.1,
+     {0.35, 0.35, drive::Knee::Gradual, drive::Knee::Gradual}, 0.90, 0.0, 16000.0, 0.0, 1000.0, ToneStyle::Tilt, 1000.0, 1000.0, false, {5.2, 2.0, 0.1, -0.9, -1.6, -2.0, -2.2, -2.3, -2.3}},
     // Metal Zone
-    {10.0, 30.0, {0.6, 0.6, drive::Knee::Soft, drive::Knee::Soft}, 0.0, 1.0e3, 0.53e-6, 0.0,   0.0,    0.0,       false, 4.2,
+    {10.0, 30.0, {0.6, 0.6, drive::Knee::Soft, drive::Knee::Soft}, 0.0, 0.0, 1.0e3, 0.53e-6, 0.0,   0.0,    0.0,       false, 4.2, 4.2,
      {0.6, 0.6, drive::Knee::Soft, drive::Knee::Soft}, 0.06, 8.0, 9000.0, 9.0, 1200.0, ToneStyle::Tilt, 1000.0, 1000.0, true, {-5.9, -5.9, -5.9, -5.9, -5.9, -5.9, -5.9, -5.9, -5.9}},
 }};
 // *INDENT-ON*
@@ -169,13 +182,9 @@ struct Traits
         bool hasBoost = false;
         double boost = 1.0;
         drive::ClipCurve boostClip{10.0, 10.0, drive::Knee::Soft, drive::Knee::Soft};
-        double leg1 = 0.0;
-        double leg1Gain = 0.0;
-        double leg2 = 0.0;
-        double leg2Gain = 0.0;
-        double feedbackLowPass = 1.0;
-        double bandwidth = 1.0;
-        drive::ClipCurve rails{4.2, 4.2, drive::Knee::Hard, drive::Knee::Hard};
+        double boostBias = 0.0;
+        double boostCoupling = 0.0;
+        drive::OpAmpStageCoefficients opAmp;
         drive::ClipCurve clip;
         double stage2Gain = 0.0;
         drive::ClipCurve stage2Clip{0.6, 0.6, drive::Knee::Soft, drive::Knee::Soft};
@@ -196,10 +205,7 @@ struct Traits
     {
         drive::OnePole input;
         biquad::State preEmphasis;
-        drive::OnePole leg1;
-        drive::OnePole leg2;
-        drive::OnePole feedback;
-        drive::OnePole bandwidth;
+        drive::OpAmpStageState opAmp;
         drive::OnePole postLowPass;
         drive::OnePole toneLow;
         drive::OnePole toneHigh;
@@ -208,8 +214,8 @@ struct Traits
         biquad::State eqMid;
         biquad::State eqHigh;
         drive::OnePole dcBlock;
+        drive::OnePole boostCoupling;
         drive::AntialiasMemory boostClip;
-        drive::AntialiasMemory rails;
         drive::AntialiasMemory clip;
         drive::AntialiasMemory stage2Clip;
 
@@ -234,24 +240,32 @@ struct Traits
         c.hasBoost = v.boostDb != 0.0 || v.boostPerDriveDb != 0.0;
         c.boost = drive::DbToGain(v.boostDb + v.boostPerDriveDb * amount);
         c.boostClip = v.boostClip;
+        c.boostBias = v.boostBias;
+        c.boostCoupling = drive::OnePoleCoefficient(kBoostCouplingHz, osRate);
 
         // The gain pot sets how hard the legs pull; the Metal Zone's second stage is fixed.
         const double feedbackOhms =
             v.drivePotOhms > 0.0 ? drive::AudioTaperOhms(v.drivePotOhms, amount) : kMetalZoneStageOhms;
-        c.leg1 = drive::OnePoleCoefficient(drive::RcHz(v.leg1Ohms, v.leg1Farads) * tight, osRate);
-        c.leg1Gain = feedbackOhms / v.leg1Ohms;
-        c.leg2 =
-            v.leg2Ohms > 0.0 ? drive::OnePoleCoefficient(drive::RcHz(v.leg2Ohms, v.leg2Farads) * tight, osRate) : 0.0;
-        c.leg2Gain = v.leg2Ohms > 0.0 ? feedbackOhms / v.leg2Ohms : 0.0;
-        c.feedbackLowPass = v.feedbackFarads > 0.0
-                                ? drive::OnePoleCoefficient(drive::RcHz(feedbackOhms, v.feedbackFarads), osRate)
-                                : drive::OnePoleCoefficient(osRate, osRate);
+        drive::OpAmpStageCoefficients& opAmp = c.opAmp;
+        opAmp.legs[0] = {drive::OnePoleCoefficient(drive::RcHz(v.leg1Ohms, v.leg1Farads) * tight, osRate),
+                         feedbackOhms / v.leg1Ohms};
+        opAmp.legs[1] =
+            v.leg2Ohms > 0.0
+                ? drive::OpAmpLeg{drive::OnePoleCoefficient(drive::RcHz(v.leg2Ohms, v.leg2Farads) * tight, osRate),
+                                  feedbackOhms / v.leg2Ohms}
+                : drive::OpAmpLeg{};
+        opAmp.feedback = v.feedbackFarads > 0.0
+                             ? drive::OnePoleCoefficient(drive::RcHz(feedbackOhms, v.feedbackFarads), osRate)
+                             : drive::OnePoleCoefficient(osRate, osRate);
 
         // Closed-loop bandwidth: the unity-gain bandwidth over the highest gain the legs reach.
         const double legConductance = 1.0 / v.leg1Ohms + (v.leg2Ohms > 0.0 ? 1.0 / v.leg2Ohms : 0.0);
         const double peakGain = 1.0 + feedbackOhms * legConductance;
-        c.bandwidth = drive::OnePoleCoefficient(v.limitBandwidth ? kOpAmpGbwHz / peakGain : osRate, osRate);
-        c.rails = {v.railVolts, v.railVolts, drive::Knee::Hard, drive::Knee::Hard};
+        opAmp.hasBandwidth = true;
+        opAmp.bandwidth = drive::OnePoleCoefficient(v.limitBandwidth ? kOpAmpGbwHz / peakGain : osRate, osRate);
+        opAmp.hasRails = true;
+        opAmp.railPull = drive::OnePoleCoefficient(drive::kRailPullHz, osRate);
+        opAmp.rails = {v.railPositive, v.railNegative, drive::Knee::Hard, drive::Knee::Hard};
 
         const auto choice = static_cast<drive::ClipChoice>(
             std::clamp(static_cast<int>(values[kClipping]), 0, static_cast<int>(drive::ClipChoice::Count) - 1));
@@ -303,16 +317,11 @@ struct Traits
 
     static double Shape(const Coefficients& c, State& s, double x) noexcept
     {
-        const double boosted = c.hasBoost ? c.boostClip.Antialiased(x * c.boost, s.boostClip) : x;
-        double legs = c.leg1Gain * s.leg1.HighPass(c.leg1, boosted);
-
-        if (c.leg2Gain > 0.0)
-        {
-            legs += c.leg2Gain * s.leg2.HighPass(c.leg2, boosted);
-        }
-
-        double o = boosted + s.feedback.LowPass(c.feedbackLowPass, legs);
-        o = c.rails.Antialiased(s.bandwidth.LowPass(c.bandwidth, o), s.rails);
+        const double boosted =
+            c.hasBoost ? s.boostCoupling.HighPass(c.boostCoupling,
+                                                  c.boostClip.Antialiased(x * c.boost, s.boostClip, c.boostBias))
+                       : x;
+        double o = drive::ProcessOpAmpStage(c.opAmp, s.opAmp, boosted);
         o = c.clip.Antialiased(o, s.clip);
 
         if (c.stage2Gain > 0.0)

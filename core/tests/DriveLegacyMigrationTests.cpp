@@ -10,8 +10,9 @@
  *   - the factory composite and the factory preset pack's settings come out as loud as before
  *   - off the table's grid points, interpolation still lands within a dB
  *
- * `DriveLegacyMigrationTests --calibrate` re-derives the tables, for when a new pedal's voicing
- * changes: it prints each table's initialiser, found by bisection on the new Level.
+ * `DriveLegacyMigrationTests --calibrate [Overdrive|Distortion|Fuzz]` re-derives the tables, for
+ * when a first model's voicing changes: it prints each table's initialiser (or the one family's),
+ * found by bisection on the new Level.
  */
 
 #include <algorithm>
@@ -250,13 +251,19 @@ void TestBetweenGridPoints()
 }
 
 /// Prints each table's initialiser: for every grid point, the new Level (bisected to 0.01 dB)
-/// at which the new pedal's first model matches the old pedal's loudness.
-void PrintTables()
+/// at which the new pedal's first model matches the old pedal's loudness. `only` names one
+/// family (Overdrive, Distortion, Fuzz) to print alone; empty prints all three.
+void PrintTables(const std::string& only)
 {
     const auto phrase = GuitarPhrase();
 
     for (const auto& family : Families())
     {
+        if (!only.empty() && only != family.name)
+        {
+            continue;
+        }
+
         std::cout << "// " << family.name << std::endl;
 
         for (std::size_t d = 0; d < legacy::kDriveSteps; ++d)
@@ -319,7 +326,7 @@ int main(int argc, char** argv)
 
     if (argc > 1 && std::string(argv[1]) == "--calibrate")
     {
-        PrintTables();
+        PrintTables(argc > 2 ? argv[2] : "");
         return 0;
     }
 

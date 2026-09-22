@@ -664,6 +664,16 @@ What all three share:
   minimum-phase IIR, about 5 samples of delay, so the pedals report no latency.
 - **No DC.** The outputs are AC-coupled like the hardware's, so asymmetric clipping comes out
   as even harmonics and never as an offset that thumps or biases the next stage.
+- **Even harmonics where the hardware makes them.** Op-amp gain stages are solved as the
+  feedback loops they are (`ProcessOpAmpStage`): once the output reaches a rail, the gain legs'
+  capacitors hold the output's average against the input, so rails that sit unevenly about the
+  bias make the stage switch off-centre. That is where the RAT's and Distortion+'s even
+  harmonics come from, and the Centaur's at high gain. The DS-1's come from its booster
+  transistor running off-centre, and the Fuzz Face's from its DC feedback. Each was fitted to
+  NAM captures of the pedal: the RAT holds a 45% duty cycle and a 2nd harmonic 15 dB down at
+  every level, as its capture does, and the Fuzz Face's 2nd harmonic comes to within about 4 dB
+  of the fundamental at the nominal level, as a capture's does. The TS-808's stays symmetric, as a TS9 capture's (50 dB
+  down) says it should.
 - **Click-free.** Knobs glide over 25 ms. Model and Clipping change the circuit outright, so
   the wet signal fades out over 8 ms, the change lands in silence and it fades back in.
   **Mix** blends in phase: the dry signal takes the same filter round trip as the wet one.
@@ -676,7 +686,7 @@ the clipping two octaves either way; `clipping` swaps the diodes.
 | Model | Circuit |
 |-------|---------|
 | TS-808 | Tube Screamer. Only mids above 720 Hz reach the 1N914s in the op-amp's feedback, and the clean signal sums on top; 21–41 dB of gain; fixed 723 Hz tone stage. The mid hump |
-| Centaur | Klon. Clean and clipped paths summed, the clean turned down as gain rises; germanium diodes to ground; Tone is the Treble shelf |
+| Centaur | Klon. Clean and clipped paths summed, the clean turned down as gain rises; the gain climbs steeply early in the knob's travel from a clean boost at 0; germanium diodes to ground, rolled off at 1.6 kHz; Tone is the Treble shelf. Fitted to captures of a Behringer Centaur at five gain settings |
 | Bluesbreaker | Marshall's "amp in a box": the TS layout with the bass left in and less gain; tilt tone |
 | Timmy | Transparent: a low-gain stage into silicon diodes to ground, flat mids; Tone is the cut-only Treble |
 | Fulldrive | A TS with more gain and fuller bass ("flat mids"); a treble roll-off tone |
@@ -689,8 +699,8 @@ how much bass reaches the gain stage (clockwise is tighter); `clipping`; and a t
 
 | Model | Circuit |
 |-------|---------|
-| RAT | LM308 gain stage with two RC legs: up to 45 dB in the mids and 67 dB above 1.5 kHz, pulled back by the op-amp's bandwidth; 1N914s to ground; the Filter |
-| DS-1 | Transistor booster, op-amp, silicon diodes to ground, and a low-pass/high-pass blend tone stack that scoops the mids at noon |
+| RAT | LM308 gain stage with two RC legs: up to 45 dB in the mids and 67 dB above 1.5 kHz, pulled back by the op-amp's bandwidth; 1N914s to ground; the Filter. Its uneven rails give it a steady 2nd harmonic |
+| DS-1 | Transistor booster, op-amp, silicon diodes to ground, and a low-pass/high-pass blend tone stack that scoops the mids at noon. The booster saturates unevenly, so even harmonics grow as you play harder |
 | Distortion+ | A 741 with one 720 Hz leg under a 1M pot, germanium diodes to ground; raspy and bright. No tone control |
 | Metal Zone | Mid pre-emphasis, a soft first clipping stage into a hard second, a steep roll-off, and the parametric EQ |
 
@@ -700,7 +710,7 @@ it runs hot and compressed); `bass` sets how much low end reaches the circuit.
 
 | Model | Circuit |
 |-------|---------|
-| Fuzz Face | Two germanium transistors: round on one side, clipped on the other, full bass, and the low input impedance softening the pickup. Cleans up as the signal falls |
+| Fuzz Face | Two germanium transistors: round on one side, clipped on the other, full bass, and the low input impedance softening the pickup. Its DC feedback moves the switching point as it clips, so the 2nd harmonic nears the fundamental. Cleans up as the signal falls |
 | Big Muff | Input booster (Sustain), two clipping stages with diodes in their feedback, and the 408 Hz / 1.8 kHz tone stack that scoops the mids by about 9 dB at noon. Bias leans the booster, trading odd harmonics for even |
 | Tone Bender | MkII: a third germanium stage ahead of a Fuzz Face pair; more gain, tighter bass, more compression |
 | Fuzz-Tone | Maestro FZ-1: germanium on a 1.5 V supply, biased near cutoff. Brassy, thin, and gated as notes decay |
@@ -712,7 +722,7 @@ Model indices are stored in presets, so new models are appended, never inserted.
 | Parameter | Range | Default | Unit | Effects |
 |-----------|-------|---------|------|---------|
 | `model` | 0–5 / 0–3 / 0–4 | 0 | enum | all |
-| `drive` | 0.0–1.0 | 0.5 / 0.6 / 0.7 | — | all; gain tapers like an audio pot, even in dB |
+| `drive` | 0.0–1.0 | 0.5 / 0.6 / 0.7 | — | all; gain tapers like an audio pot, even in dB (the Centaur's climbs steeply early, as its linear gain pot does) |
 | `tone` | 0.0–1.0 | 0.5 | — | all |
 | `bass` | 0.0–1.0 | 0.5 | — | overdrive, fuzz |
 | `tight` | 0.0–1.0 | 0.5 | — | distortion |
