@@ -27,6 +27,17 @@ using namespace guitarfx::controller_detail;
 
 namespace guitarfx
 {
+namespace
+{
+/// Serialises a listing or metadata batch. Its strings should all be UTF-8 already, but
+/// they come from what is on disk, and one that is not must cost a U+FFFD, not the scan:
+/// plain dump() throws, and the whole folder would be reported as unreadable.
+std::string DumpForUi(const nlohmann::json& message)
+{
+    return message.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
+}
+} // namespace
+
 ResourceFolderScanner::ResourceFolderScanner(SendMessageFn sendMessage, ResourceLibrary& resourceLibrary)
     : mSendMessage(std::move(sendMessage)), mResourceLibrary(resourceLibrary)
 {
@@ -149,7 +160,9 @@ void ResourceFolderScanner::ScanWorker(std::string requestPath,
     };
 
     const auto classify = [](const std::filesystem::path& p) -> std::string {
-        std::string ext = p.extension().string();
+        // Not extension().string(): that converts to the ANSI code page and throws for a
+        // name it cannot hold, and "Notes v1.2 <Hebrew>" has the extension ".2 <Hebrew>".
+        std::string ext = util::PathToUtf8(p.extension());
         std::transform(ext.begin(), ext.end(), ext.begin(),
                        [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 
@@ -360,7 +373,7 @@ void ResourceFolderScanner::ScanWorker(std::string requestPath,
         return;
     }
 
-    mSendMessage(msg.dump());
+    mSendMessage(DumpForUi(msg));
 
     // ── Phase 2: parse per-file metadata and stream it back in batches ──
     // This is the expensive part (each file is opened/parsed). It runs after the
@@ -380,7 +393,8 @@ void ResourceFolderScanner::ScanWorker(std::string requestPath,
             return false;
         }
 
-        mSendMessage(nlohmann::json{{"type", "resourceFolderMetadata"}, {"path", folderPath}, {"items", batch}}.dump());
+        mSendMessage(
+            DumpForUi(nlohmann::json{{"type", "resourceFolderMetadata"}, {"path", folderPath}, {"items", batch}}));
         batch = nlohmann::json::array();
         return true;
     };

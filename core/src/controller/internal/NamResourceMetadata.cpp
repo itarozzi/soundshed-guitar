@@ -2,12 +2,14 @@
 
 #include "dsp/EffectGuids.h"
 #include "resources/ResourceLibrary.h"
+#include "util/Utf8.h"
 
 #include <algorithm>
 #include <cctype>
 #include <cstdint>
 #include <fstream>
 #include <string_view>
+#include <system_error>
 #include <vector>
 
 #include <nlohmann/json.hpp>
@@ -34,14 +36,57 @@ bool IsNamCalibratableEffectType(const std::string& type)
            type == guitarfx::EffectGuids::kFxNam || type == "fx_nam";
 }
 
+namespace
+{
+/// Index of the quote that closes the JSON string literal opening at sv[open], or npos if
+/// the header ends first. A backslash escapes the byte after it, so \" does not close it.
+std::size_t FindStringLiteralEnd(std::string_view sv, std::size_t open)
+{
+    for (std::size_t i = open + 1; i < sv.size(); ++i)
+    {
+        if (sv[i] == '\\')
+        {
+            ++i;
+        }
+        else if (sv[i] == '"')
+        {
+            return i;
+        }
+    }
+
+    return std::string_view::npos;
+}
+
+/// The value of a JSON string literal (quotes included) with its escapes decoded. The
+/// header is read raw off disk, so it is not trusted to be UTF-8: a file written in a
+/// legacy code page has its stray bytes replaced with U+FFFD, and a literal the parser
+/// still rejects (a bad escape, a raw control character) comes back as written. Either
+/// way the result is valid UTF-8, which is what lets it go into a JSON message or the
+/// library without dump() throwing.
+std::string DecodeJsonStringLiteral(std::string_view literal)
+{
+    const std::string utf8 = util::ReplaceInvalidUtf8(literal);
+
+    try
+    {
+        return nlohmann::json::parse(utf8).get<std::string>();
+    }
+    catch (const nlohmann::json::exception&)
+    {
+        return utf8.substr(1, utf8.size() - 2);
+    }
+}
+} // namespace
+
 /// Extracts all recognised metadata fields from a NAM model file header.
 /// NAM .nam files are a JSON header followed by binary weights; we read the
 /// first 64 KB and use targeted string searches to avoid a full JSON parse.
 NamFileMetadata TryExtractNamMetadata(const std::filesystem::path& namFilePath)
 {
     NamFileMetadata result;
+    std::error_code ec;
 
-    if (!std::filesystem::exists(namFilePath))
+    if (!std::filesystem::exists(namFilePath, ec) || ec)
     {
         return result;
     }
@@ -67,7 +112,7 @@ NamFileMetadata TryExtractNamMetadata(const std::filesystem::path& namFilePath)
 
         const std::string_view content(buf.data(), len);
 
-        // Extract a JSON string value: find "key" : "value" and return value.
+        // Extract a JSON string value: find "key" : "value" and return value, decoded.
         const auto extractStr = [](const std::string_view sv, const std::string_view key) -> std::string {
             const auto needle = std::string("\"").append(key).append("\"");
             const auto kp = sv.find(needle);
@@ -96,15 +141,14 @@ NamFileMetadata TryExtractNamMetadata(const std::filesystem::path& namFilePath)
                 return {};
             }
 
-            ++p;
-            const auto eq = sv.find('"', p);
+            const auto eq = FindStringLiteralEnd(sv, p);
 
             if (eq == std::string_view::npos)
             {
                 return {};
             }
 
-            return std::string(sv.substr(p, eq - p));
+            return DecodeJsonStringLiteral(sv.substr(p, eq - p + 1));
         };
 
         // Extract a JSON number value: find "key" : number and return as string.

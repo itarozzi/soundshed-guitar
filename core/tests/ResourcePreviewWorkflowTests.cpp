@@ -2,7 +2,9 @@
 #include <chrono>
 #include <condition_variable>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <map>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -623,6 +625,90 @@ bool TestFolderEnumerationPreservesUtf8Filename()
     std::cerr << "UTF-8 NAM filename was not returned by folder enumeration\n";
     return false;
 }
+
+void WriteBytes(const fs::path& path, const std::string& bytes)
+{
+    std::ofstream out(path, std::ios::binary);
+    out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+}
+
+/// A .nam header is read raw off disk, and one written in a legacy code page used to put
+/// bytes into the metadata batch that the JSON serialiser rejects. The scan then failed as a
+/// whole and the browser dropped a listing it was already showing, so one file hid the
+/// folder. Also covers a JSON escape in a name, and a file with no extension whose last dot is
+/// followed by text no ANSI code page holds, which failed the listing when classified.
+bool TestFolderListingSurvivesUnreadableNamMetadata()
+{
+    const fs::path folder = fs::temp_directory_path() / "guitarfx-folder-metadata-tests";
+    std::error_code ec;
+    fs::remove_all(folder, ec);
+    fs::create_directories(folder, ec);
+
+    // 0xE9 is Latin-1's é: not UTF-8 on its own.
+    WriteBytes(folder / "Latin1 metadata.nam",
+               "{\"version\": \"0.5.4\", \"metadata\": {\"name\": \"Caf\xE9 Fuzz\", \"gear_type\": \"pedal\"}, "
+               "\"architecture\": \"WaveNet\", \"config\": {}, \"weights\": []}");
+    WriteBytes(folder / "Escaped metadata.nam",
+               "{\"version\": \"0.5.4\", \"metadata\": {\"name\": \"The \\\"Best\\\" Caf\\u00e9\", "
+               "\"modeled_by\": \"A \\\\ B\"}, \"architecture\": \"WaveNet\", \"config\": {}, \"weights\": []}");
+    // "Notes v1.2 פדל": its "extension" is ".2 פדל".
+    WriteBytes(folder / guitarfx::util::PathFromUtf8("Notes v1.2 \xD7\xA4\xD7\x93\xD7\x9C"), "not a capture");
+
+    TestHost host(fs::temp_directory_path() / "guitarfx-folder-metadata-host");
+    guitarfx::PluginController controller(host);
+
+    nlohmann::json request;
+    request["type"] = "listResourceFolder";
+    request["path"] = guitarfx::util::PathToUtf8(folder);
+    controller.HandleUIMessage(request.dump());
+
+    const bool gotMetadata = host.WaitForMessageType("resourceFolderMetadata", std::chrono::seconds(5));
+
+    if (const auto failed = host.LastMessageOfType("resourceFolderListingFailed"))
+    {
+        std::cerr << "Folder scan failed: " << failed->value("message", "") << "\n";
+        return false;
+    }
+
+    const auto listing = host.LastMessageOfType("resourceFolderListing");
+    const auto metadata = host.LastMessageOfType("resourceFolderMetadata");
+
+    if (!gotMetadata || !listing || !metadata)
+    {
+        std::cerr << "Folder scan did not deliver a listing and its metadata\n";
+        return false;
+    }
+
+    if ((*listing)["files"].size() != 2)
+    {
+        std::cerr << "Expected the two captures in the listing, got " << (*listing)["files"].dump() << "\n";
+        return false;
+    }
+
+    std::map<std::string, nlohmann::json> metadataByName;
+
+    for (const auto& item : (*metadata)["items"])
+    {
+        metadataByName[guitarfx::util::PathToUtf8(guitarfx::util::PathFromUtf8(item.value("path", "")).filename())] =
+            item.value("metadata", nlohmann::json::object());
+    }
+
+    // The undecodable byte becomes U+FFFD; the rest of the name survives.
+    const std::string latin1Name = metadataByName["Latin1 metadata.nam"].value("namName", "");
+    // Escapes are decoded rather than shown as written or cut short at the escaped quote.
+    const std::string escapedName = metadataByName["Escaped metadata.nam"].value("namName", "");
+    const std::string escapedAuthor = metadataByName["Escaped metadata.nam"].value("modeledBy", "");
+
+    const bool ok =
+        latin1Name == "Caf\xEF\xBF\xBD Fuzz" && escapedName == "The \"Best\" Caf\xC3\xA9" && escapedAuthor == "A \\ B";
+
+    if (!ok)
+    {
+        std::cerr << "Unexpected metadata: " << metadata->dump() << "\n";
+    }
+
+    return ok;
+}
 } // namespace
 
 int main()
@@ -651,6 +737,7 @@ int main()
     run("Preview missing nodeId is no-op", TestPreviewMissingNodeIdNoMutation());
     run("Cancel without preview is no-op", TestCancelWithoutActivePreviewNoMutation());
     run("Folder enumeration preserves UTF-8 filename", TestFolderEnumerationPreservesUtf8Filename());
+    run("Folder listing survives unreadable NAM metadata", TestFolderListingSurvivesUnreadableNamMetadata());
 
     std::cout << "\nResource preview workflow tests: " << passed << " passed, " << failed << " failed\n";
     return failed == 0 ? 0 : 1;
