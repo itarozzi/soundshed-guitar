@@ -1,5 +1,7 @@
 #pragma once
 
+#include "dsp/PitchTracker.h"
+
 #include <atomic>
 #include <condition_variable>
 #include <cstddef>
@@ -8,11 +10,18 @@
 #include <mutex>
 #include <string>
 #include <thread>
-#include <vector>
 
 namespace guitarfx
 {
-/// Captures the raw input on the audio thread and analyzes pitch on a worker thread.
+/// Tracks the raw input's pitch on the audio thread and reports it from a worker thread.
+///
+/// Process() runs the shared PitchTracker (a detection every 5 ms) and, once per reading, averages
+/// that reading's detections and hands the result to the worker, which names the note against the
+/// reference pitch and calls the callback. A reading comes every 2048 samples at 48 kHz (about
+/// 43 ms at any rate). Averaging the 5 ms detections over it reads a held note with a third to a
+/// tenth of the scatter of the single 85 ms YIN window it replaces, so the tuner needs no longer
+/// window of its own.
+///
 /// Control methods are called under the mixer's DSP lock; Process() never allocates or waits.
 class TunerEngine
 {
@@ -47,13 +56,22 @@ class TunerEngine
     void Process(const float* input, int numSamples);
 
   private:
-    static constexpr std::size_t kBufferSize = 4096;
-    static constexpr std::size_t kUpdateInterval = 2048;
+    /// One reading's worth of tracking, handed from the audio thread to the worker.
+    struct Reading
+    {
+        double frequency = 0.0;    ///< the mean of the reading's detections, 0 when none found a pitch
+        double rawFrequency = 0.0; ///< the latest of those detections' own estimates
+        double rms = 0.0;
+    };
+
+    static constexpr double kReadingSeconds = 2048.0 / 48000.0;
 
     void StartWorker();
     void StopWorker();
     void WorkerLoop();
-    [[nodiscard]] double DetectPitch(const std::vector<double>& samples) const;
+    void ResetReading();
+    void AddDetection();
+    void QueueReading();
     [[nodiscard]] static Result FrequencyToNote(double frequency, double referenceFrequency);
 
     double mSampleRate = 44100.0;
@@ -61,17 +79,24 @@ class TunerEngine
     bool mLiveMode = true;
     double mReferenceFrequency = 440.0;
     Callback mCallback;
-    std::vector<double> mBuffer;
-    std::vector<double> mOrderedBuffer;
-    std::vector<double> mAnalysisWriteBuffer;
-    std::vector<double> mAnalysisReadBuffer;
-    std::size_t mBufferWriteIndex = 0;
+
+    // Audio thread
+    PitchTracker mTracker;
+    std::uint64_t mDetectionsSeen = 0;
+    std::size_t mReadingLength = 2048;
     std::size_t mSampleCounter = 0;
+    double mReadingEnergy = 0.0;
+    double mFrequencySum = 0.0;
+    int mFrequencyCount = 0;
+    double mRawFrequency = 0.0;
+
+    // Handoff to the worker, under mAnalysisMutex
     std::mutex mAnalysisMutex;
     std::condition_variable mAnalysisCv;
     std::thread mWorkerThread;
     bool mWorkerQuit = false;
     bool mAnalysisPending = false;
+    Reading mPendingReading;
     double mAnalysisReferenceFrequency = 440.0;
     std::uint64_t mQueuedGeneration = 0;
     std::atomic<std::uint64_t> mAnalysisGeneration{0};

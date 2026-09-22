@@ -21,9 +21,10 @@ TunerEngine::~TunerEngine()
 void TunerEngine::Prepare(double sampleRate)
 {
     mSampleRate = sampleRate;
-    mOrderedBuffer.resize(kBufferSize, 0.0);
-    mAnalysisWriteBuffer.resize(kBufferSize, 0.0);
-    mAnalysisReadBuffer.resize(kBufferSize, 0.0);
+    mTracker.Prepare(sampleRate);
+    mReadingLength = static_cast<std::size_t>(std::max(1L, std::lround(sampleRate * kReadingSeconds)));
+    mDetectionsSeen = 0;
+    ResetReading();
 }
 
 void TunerEngine::StartWorker()
@@ -62,6 +63,7 @@ void TunerEngine::WorkerLoop()
 {
     while (true)
     {
+        Reading reading;
         double referenceFrequency = 440.0;
         std::uint64_t queuedGeneration = 0;
         Callback callback;
@@ -75,29 +77,21 @@ void TunerEngine::WorkerLoop()
                 return;
             }
 
-            std::swap(mAnalysisReadBuffer, mAnalysisWriteBuffer);
+            reading = mPendingReading;
             referenceFrequency = mAnalysisReferenceFrequency;
             queuedGeneration = mQueuedGeneration;
             mAnalysisPending = false;
             callback = mCallback;
         }
 
-        if (!callback || mAnalysisReadBuffer.empty())
+        if (!callback)
         {
             continue;
         }
 
-        double sumSq = 0.0;
-        for (const auto sample : mAnalysisReadBuffer)
-        {
-            sumSq += sample * sample;
-        }
-
-        const double rms = std::sqrt(sumSq / static_cast<double>(mAnalysisReadBuffer.size()));
-        const double frequency = DetectPitch(mAnalysisReadBuffer);
-        Result result = FrequencyToNote(frequency, referenceFrequency);
-        result.debugRms = rms;
-        result.debugRawFreq = frequency;
+        Result result = FrequencyToNote(reading.frequency, referenceFrequency);
+        result.debugRms = reading.rms;
+        result.debugRawFreq = reading.rawFrequency;
 
         if (queuedGeneration != mAnalysisGeneration.load(std::memory_order_acquire))
         {
@@ -116,13 +110,9 @@ void TunerEngine::SetEnabled(bool enabled)
     if (enabled)
     {
         StartWorker();
-        mBuffer.resize(kBufferSize, 0.0);
-        std::fill(mBuffer.begin(), mBuffer.end(), 0.0);
-        mOrderedBuffer.resize(kBufferSize, 0.0);
-        mAnalysisWriteBuffer.resize(kBufferSize, 0.0);
-        mAnalysisReadBuffer.resize(kBufferSize, 0.0);
-        mBufferWriteIndex = 0;
-        mSampleCounter = 0;
+        mTracker.Reset();
+        mDetectionsSeen = 0;
+        ResetReading();
     }
 
     std::lock_guard<std::mutex> lock(mAnalysisMutex);
@@ -142,6 +132,15 @@ void TunerEngine::SetReferenceFrequency(double frequency)
     mReferenceFrequency = std::clamp(frequency, 400.0, 480.0);
 }
 
+void TunerEngine::ResetReading()
+{
+    mSampleCounter = 0;
+    mReadingEnergy = 0.0;
+    mFrequencySum = 0.0;
+    mFrequencyCount = 0;
+    mRawFrequency = 0.0;
+}
+
 void TunerEngine::Process(const float* input, int numSamples)
 {
     if (!mEnabled || !input)
@@ -149,149 +148,72 @@ void TunerEngine::Process(const float* input, int numSamples)
         return;
     }
 
-    // Do not allocate on the audio thread if the control thread has not provisioned buffers.
-    if (mBuffer.size() != kBufferSize || mOrderedBuffer.size() != kBufferSize)
-    {
-        return;
-    }
-
     for (int i = 0; i < numSamples; ++i)
     {
-        mBuffer[mBufferWriteIndex] = static_cast<double>(input[i]);
-        mBufferWriteIndex = (mBufferWriteIndex + 1) % kBufferSize;
-        ++mSampleCounter;
-    }
+        const float sample = input[i];
+        mTracker.Push(sample);
+        mReadingEnergy += static_cast<double>(sample) * static_cast<double>(sample);
 
-    if (mSampleCounter >= kUpdateInterval)
-    {
-        mSampleCounter = 0;
-
-        for (std::size_t i = 0; i < kBufferSize; ++i)
+        if (mTracker.DetectionCount() != mDetectionsSeen)
         {
-            mOrderedBuffer[i] = mBuffer[(mBufferWriteIndex + i) % kBufferSize];
+            mDetectionsSeen = mTracker.DetectionCount();
+            AddDetection();
         }
 
-        bool queuedForAnalysis = false;
+        if (++mSampleCounter >= mReadingLength)
         {
-            std::unique_lock<std::mutex> lock(mAnalysisMutex, std::try_to_lock);
-            if (lock.owns_lock() && mAnalysisWriteBuffer.size() == kBufferSize)
-            {
-                std::copy(mOrderedBuffer.begin(), mOrderedBuffer.end(), mAnalysisWriteBuffer.begin());
-                mAnalysisReferenceFrequency = mReferenceFrequency;
-                mQueuedGeneration = mAnalysisGeneration.load(std::memory_order_acquire);
-                mAnalysisPending = true;
-                queuedForAnalysis = true;
-            }
-        }
-
-        if (queuedForAnalysis)
-        {
-            mAnalysisCv.notify_one();
+            QueueReading();
         }
     }
 }
 
-double TunerEngine::DetectPitch(const std::vector<double>& samples) const
+void TunerEngine::AddDetection()
 {
-    // Autocorrelation-based pitch detection (YIN-inspired algorithm).
-    const std::size_t n = samples.size();
-    if (n < 2)
+    const double frequency = mTracker.FrequencyHz();
+
+    if (!mTracker.HasPitch() || !(frequency > 0.0))
     {
-        return 0.0;
+        return;
     }
 
-    double sumSquares = 0.0;
-    for (const auto& sample : samples)
+    // The tracker has accepted a different note: the reading describes only the new one.
+    if (mFrequencyCount > 0 && std::abs(12.0 * std::log2(frequency * mFrequencyCount / mFrequencySum)) > 1.0)
     {
-        sumSquares += sample * sample;
+        mFrequencySum = 0.0;
+        mFrequencyCount = 0;
     }
 
-    const double rms = std::sqrt(sumSquares / static_cast<double>(n));
-    if (rms < 0.003)
-    {
-        return 0.0;
-    }
+    mFrequencySum += frequency;
+    ++mFrequencyCount;
+    mRawFrequency = mTracker.RawFrequencyHz();
+}
 
-    // Search from 50Hz (low tunings) to 1500Hz (F#6).
-    const int minPeriod = static_cast<int>(mSampleRate / 1500.0);
-    const int maxPeriod = static_cast<int>(mSampleRate / 50.0);
-    if (maxPeriod >= static_cast<int>(n / 2) || minPeriod < 2)
-    {
-        return 0.0;
-    }
+void TunerEngine::QueueReading()
+{
+    Reading reading;
+    reading.frequency = mFrequencyCount > 0 ? mFrequencySum / mFrequencyCount : 0.0;
+    reading.rawFrequency = mFrequencyCount > 0 ? mRawFrequency : 0.0;
+    reading.rms = std::sqrt(mReadingEnergy / static_cast<double>(mSampleCounter));
+    ResetReading();
 
-    std::vector<double> diff(static_cast<std::size_t>(maxPeriod) + 1, 0.0);
-    for (int tau = minPeriod; tau <= maxPeriod; ++tau)
+    bool queuedForAnalysis = false;
     {
-        double sum = 0.0;
-        for (std::size_t i = 0; i < n - static_cast<std::size_t>(tau); ++i)
+        std::unique_lock<std::mutex> lock(mAnalysisMutex, std::try_to_lock);
+
+        if (lock.owns_lock())
         {
-            const double delta = samples[i] - samples[i + tau];
-            sum += delta * delta;
-        }
-        diff[static_cast<std::size_t>(tau)] = sum;
-    }
-
-    std::vector<double> cmndf(static_cast<std::size_t>(maxPeriod) + 1, 1.0);
-    double runningSum = 0.0;
-    for (int tau = minPeriod; tau <= maxPeriod; ++tau)
-    {
-        runningSum += diff[static_cast<std::size_t>(tau)];
-        if (runningSum > 0.0)
-        {
-            cmndf[static_cast<std::size_t>(tau)] =
-                diff[static_cast<std::size_t>(tau)] * static_cast<double>(tau) / runningSum;
+            mPendingReading = reading;
+            mAnalysisReferenceFrequency = mReferenceFrequency;
+            mQueuedGeneration = mAnalysisGeneration.load(std::memory_order_acquire);
+            mAnalysisPending = true;
+            queuedForAnalysis = true;
         }
     }
 
-    constexpr double threshold = 0.15;
-    int bestPeriod = -1;
-    for (int tau = minPeriod; tau < maxPeriod; ++tau)
+    if (queuedForAnalysis)
     {
-        if (cmndf[static_cast<std::size_t>(tau)] < threshold)
-        {
-            while (tau + 1 <= maxPeriod &&
-                   cmndf[static_cast<std::size_t>(tau + 1)] < cmndf[static_cast<std::size_t>(tau)])
-            {
-                ++tau;
-            }
-            bestPeriod = tau;
-            break;
-        }
+        mAnalysisCv.notify_one();
     }
-
-    if (bestPeriod < 0)
-    {
-        double minVal = cmndf[static_cast<std::size_t>(minPeriod)];
-        bestPeriod = minPeriod;
-        for (int tau = minPeriod + 1; tau <= maxPeriod; ++tau)
-        {
-            if (cmndf[static_cast<std::size_t>(tau)] < minVal)
-            {
-                minVal = cmndf[static_cast<std::size_t>(tau)];
-                bestPeriod = tau;
-            }
-        }
-        if (minVal > 0.5)
-        {
-            return 0.0;
-        }
-    }
-
-    double period = static_cast<double>(bestPeriod);
-    if (bestPeriod > minPeriod && bestPeriod < maxPeriod)
-    {
-        const double s0 = cmndf[static_cast<std::size_t>(bestPeriod - 1)];
-        const double s1 = cmndf[static_cast<std::size_t>(bestPeriod)];
-        const double s2 = cmndf[static_cast<std::size_t>(bestPeriod + 1)];
-        const double denom = 2.0 * (2.0 * s1 - s0 - s2);
-        if (std::abs(denom) > 1e-10)
-        {
-            period += (s2 - s0) / denom;
-        }
-    }
-
-    return mSampleRate / period;
 }
 
 TunerEngine::Result TunerEngine::FrequencyToNote(double frequency, double referenceFrequency)

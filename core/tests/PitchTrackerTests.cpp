@@ -3,7 +3,8 @@
  * @brief Tests for the real-time pitch tracker (dsp/PitchTracker.h).
  *
  *   - sines, sawtooths and plucked tones with a strong second harmonic, 46 Hz to 1.48 kHz, read
- *     within a few cents at 22.05 to 192 kHz
+ *     within a few cents at 22.05 to 192 kHz; up to 2 kHz too, and nothing above rather than
+ *     an octave low
  *   - a note change is followed within 50 ms, vibrato is followed continuously, and the last
  *     pitch is held through silence
  *   - white noise never produces a pitch, and a NaN on the input does not stick
@@ -156,6 +157,37 @@ void TestAccuracy()
     }
 
     Check(otherRates, "and at 22.05, 32, 88.2 and 192 kHz");
+
+    // Up to 2 kHz, where a guitar's natural harmonics reach; above it, nothing rather than the
+    // subharmonic an octave down that the first dip inside the range would give.
+    double worstHigh = 0.0;
+    bool nothingAbove = true;
+
+    for (const double sampleRate : {44100.0, 48000.0, 96000.0})
+    {
+        for (const Kind kind : {Kind::Sine, Kind::Saw, Kind::Pluck})
+        {
+            for (const double frequency : {1568.0, 1648.0, 1760.0, 1975.5, 2200.0})
+            {
+                PitchTracker tracker;
+                tracker.Prepare(sampleRate);
+                const auto tone = Tone(frequency, 0.4, sampleRate, kind);
+                tracker.Process(tone.data(), static_cast<int>(tone.size()));
+
+                if (frequency > PitchTracker::kMaxHz)
+                {
+                    nothingAbove = nothingAbove && tracker.FrequencyHz() == 0.0;
+                    continue;
+                }
+
+                worstHigh = std::max(
+                    worstHigh, tracker.FrequencyHz() > 0.0 ? std::abs(Cents(tracker.FrequencyHz(), frequency)) : 1.0e9);
+            }
+        }
+    }
+
+    Check(worstHigh < 3.0 && nothingAbove, "1.57 to 1.98 kHz within 3 cents, and 2.2 kHz not an octave low",
+          "worst " + Num(worstHigh) + " cents");
 }
 
 /// Samples from the start of `second` until the tracker reads it within 20 cents.

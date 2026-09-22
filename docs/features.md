@@ -374,6 +374,9 @@ Real-time chromatic guitar tuner driven by DSP pitch detection.
 - Reference frequency adjustment (default A=440 Hz).
 - Start/stop via UI button or `tuner` message (`{action: "start"|"stop"}`).
 - Engine sends `tunerUpdate` messages with `{note, cents, frequency}` during active tuning.
+- Pitch comes from the shared `dsp/PitchTracker.h` (45 Hz–2 kHz, any sample rate), run on the
+  audio thread and averaged over each reading of about 43 ms; see "Pitch tracking in Synth
+  Voice, the Auto Arpeggiator and the tuner" in `docs/fx-library.md`.
 
 ---
 

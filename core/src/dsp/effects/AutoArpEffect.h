@@ -3,10 +3,12 @@
 #include "dsp/EffectProcessor.h"
 #include "dsp/EffectRegistry.h"
 #include "dsp/EffectGuids.h"
+#include "dsp/PitchTracker.h"
 #include "dsp/effects/SignalsmithSupport.h"
 #include "signalsmith-stretch.h"
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <random>
 #include <vector>
 
@@ -30,6 +32,16 @@ namespace guitarfx
  *  - Gate envelope is applied per-sample to control note length and attack,
  *    independent of which DSP path is active.
  *  - Wet/dry mix controls blend between gated-wet and always-on-dry.
+ *
+ * Pitch trigger (Above/Below a threshold): the left input feeds the shared
+ * PitchTracker (dsp/PitchTracker.h), and every analysis frame of 2048 samples at
+ * 48 kHz (about 43 ms at any rate) the frame's pitch is smoothed and debounced
+ * into the arp's on/off state. The pitch used to come from a brute-force YIN run
+ * over each 2048-sample frame on the audio thread: a burst of about 340 us in one
+ * 64-sample block of every 32, read up to 190 cents sharp (it took the first whole-
+ * sample period under its threshold, not the bottom of the dip, so a note a
+ * semitone below the threshold tripped it), and no pitch at all at 96 kHz and
+ * above, where the longest period no longer fit the frame.
  */
 class AutoArpEffect : public EffectProcessor
 {
@@ -53,8 +65,8 @@ class AutoArpEffect : public EffectProcessor
         mConfigured = true;
         mRng.seed(std::random_device{}());
 
-        mPitchBuf.assign(static_cast<size_t>(kPitchBufSize), 0.0f);
-        mPitchFillPos = 0;
+        mTracker.Prepare(sampleRate);
+        mPitchFrameLength = std::max(1, static_cast<int>(std::lround(sampleRate * kPitchFrameSeconds)));
         mDetectedHz = 0.0;
         mArpActive = true;
 
@@ -85,12 +97,7 @@ class AutoArpEffect : public EffectProcessor
         mSmoothedHz = 0.0;
         mTriggerVote = 0;
         mArpActive = (mPitchMode == 0);
-        mPitchFillPos = 0;
-
-        if (!mPitchBuf.empty())
-        {
-            std::fill(mPitchBuf.begin(), mPitchBuf.end(), 0.0f);
-        }
+        ResetPitchGate();
     }
 
     void Process(float** inputs, float** outputs, int numSamples) override
@@ -102,64 +109,21 @@ class AutoArpEffect : public EffectProcessor
 
         numSamples = std::min(numSamples, mMaxBlockSize);
 
-        // Pitch-mode gating — fill analysis buffer, evaluate trigger condition.
+        // Pitch-mode gating — track the pitch, evaluate the trigger condition once per frame.
         if (mPitchMode != 0 && inputs[0])
         {
-            const int toCopy = std::min(numSamples, kPitchBufSize - mPitchFillPos);
-            std::copy(inputs[0], inputs[0] + toCopy, mPitchBuf.data() + mPitchFillPos);
-            mPitchFillPos += toCopy;
-
-            if (mPitchFillPos >= kPitchBufSize)
+            // Turned on (again): start from an empty history rather than whatever was playing then.
+            if (!mPitchGateRunning)
             {
-                mDetectedHz = EstimatePitch();
-                mPitchFillPos = 0;
-
-                // EMA smoothing — update only when a confident pitch is detected;
-                // during silence let the smoothed value decay gently.
-                if (mDetectedHz > 0.0)
-                {
-                    mSmoothedHz = kPitchEmaAlpha * mDetectedHz + (1.0 - kPitchEmaAlpha) * mSmoothedHz;
-                }
-                else
-                {
-                    mSmoothedHz *= 0.80; // decay toward zero on silence
-                }
-
-                const bool conditionMet = (mPitchMode == 1) ? (mSmoothedHz > mPitchThreshold)
-                                                            : (mSmoothedHz > 20.0 && mSmoothedHz < mPitchThreshold);
-
-                // Asymmetric debounce: fewer windows needed to activate than to release,
-                // so the arp latches on quickly but doesn't drop out on brief dips.
-                if (conditionMet)
-                {
-                    mTriggerVote = std::max(0, mTriggerVote) + 1;
-
-                    if (mTriggerVote >= kActivateFrames && !mArpActive)
-                    {
-                        // Reset to beat-start on fresh activation.
-                        mPhase = 0.0;
-                        mCurrentStep = 0;
-
-                        if (!mStepSemitones.empty())
-                        {
-                            mCurrentSemitones = mStepSemitones[0];
-                            ApplyStretchSemitones(mCurrentSemitones);
-                        }
-
-                        mStretch.reset();
-                        mArpActive = true;
-                    }
-                }
-                else
-                {
-                    mTriggerVote = std::min(0, mTriggerVote) - 1;
-
-                    if (mTriggerVote <= -kDeactivateFrames)
-                    {
-                        mArpActive = false;
-                    }
-                }
+                ResetPitchGate();
+                mPitchGateRunning = true;
             }
+
+            UpdatePitchGate(inputs[0], numSamples);
+        }
+        else
+        {
+            mPitchGateRunning = false;
         }
 
         // When pitch-gated off, pass through dry audio unchanged.
@@ -463,10 +427,13 @@ class AutoArpEffect : public EffectProcessor
     static constexpr int kMaxCustomSteps = 8;
     static constexpr int kPatternCustom = 4;
     static constexpr int kPatternRandom = 5;
-    static constexpr int kPitchBufSize = 2048;    // ~46ms analysis window at 44.1kHz
-    static constexpr int kActivateFrames = 2;     // consecutive on-windows needed to activate
-    static constexpr int kDeactivateFrames = 5;   // consecutive off-windows needed to deactivate
-    static constexpr double kPitchEmaAlpha = 0.6; // EMA weight for new pitch measurement
+    /// The trigger is judged once per frame of this length: 2048 samples at 48 kHz, the window the old
+    /// detector analysed in one go, so the debounce and smoothing below keep their timing.
+    static constexpr double kPitchFrameSeconds = 2048.0 / 48000.0;
+    static constexpr double kSilenceRmsSquared = 9.0e-6; // a frame under RMS 0.003 has no pitch
+    static constexpr int kActivateFrames = 2;            // consecutive on-windows needed to activate
+    static constexpr int kDeactivateFrames = 5;          // consecutive off-windows needed to deactivate
+    static constexpr double kPitchEmaAlpha = 0.6;        // EMA weight for new pitch measurement
 
     // Base patterns: [pattern][step], -1 terminates the list
     static constexpr int kPatternTable[5][9] = {
@@ -593,73 +560,97 @@ class AutoArpEffect : public EffectProcessor
         }
     }
 
-    // YIN-inspired autocorrelation pitch detector operating on mPitchBuf.
-    // Returns detected fundamental in Hz, or 0.0 if no clear pitch is found.
-    // No dynamic allocation; operates entirely on pre-allocated mPitchBuf.
-    [[nodiscard]] double EstimatePitch() const
+    void ResetPitchGate()
     {
-        const int n = kPitchBufSize;
-        const int minPeriod = static_cast<int>(mSampleRate / 1300.0); // ~1300 Hz max
-        const int maxPeriod = static_cast<int>(mSampleRate / 50.0);   // ~50 Hz min
+        mTracker.Reset();
+        mDetectionsSeen = 0;
+        mFrameSamples = 0;
+        mFrameEnergy = 0.0;
+        mFramePitchHz = 0.0;
+    }
 
-        if (minPeriod < 2 || maxPeriod >= n / 2)
+    // Feeds the pitch tracker and, at the end of each frame, updates the trigger with the frame's
+    // pitch: the tracker's accepted pitch from its latest detection in the frame that found one, or
+    // none when no detection did or the frame is quieter than RMS 0.003. No allocation, no locks.
+    void UpdatePitchGate(const float* input, int numSamples)
+    {
+        for (int i = 0; i < numSamples; ++i)
         {
-            return 0.0;
-        }
+            const float x = input[i];
+            mTracker.Push(x);
+            mFrameEnergy += static_cast<double>(x) * static_cast<double>(x);
 
-        // Silence check: skip if RMS² is below noise floor
-        double sumSq = 0.0;
-
-        for (int i = 0; i < n; ++i)
-        {
-            const double s = static_cast<double>(mPitchBuf[static_cast<size_t>(i)]);
-            sumSq += s * s;
-        }
-
-        if (sumSq / n < 9.0e-6) // RMS < 0.003
-        {
-            return 0.0;
-        }
-
-        // Cumulative mean normalised difference function (YIN steps 2–4)
-        double runningSum = 0.0;
-        double bestCmndf = std::numeric_limits<double>::max();
-        int bestTau = -1;
-
-        for (int tau = minPeriod; tau <= maxPeriod; ++tau)
-        {
-            double sum = 0.0;
-
-            for (int i = 0; i < n - tau; ++i)
+            if (mTracker.DetectionCount() != mDetectionsSeen)
             {
-                const double delta = static_cast<double>(mPitchBuf[static_cast<size_t>(i)]) -
-                                     static_cast<double>(mPitchBuf[static_cast<size_t>(i + tau)]);
-                sum += delta * delta;
+                mDetectionsSeen = mTracker.DetectionCount();
+
+                if (mTracker.HasPitch() && mTracker.FrequencyHz() > 0.0)
+                {
+                    mFramePitchHz = mTracker.FrequencyHz();
+                }
             }
 
-            runningSum += sum;
-            const double cmndf = (runningSum > 0.0) ? (sum * static_cast<double>(tau) / runningSum) : 1.0;
-
-            if (cmndf < 0.15) // First clear minimum wins (YIN step 5)
+            if (++mFrameSamples >= mPitchFrameLength)
             {
-                bestTau = tau;
-                bestCmndf = cmndf;
-                break;
-            }
-
-            if (cmndf < bestCmndf)
-            {
-                bestCmndf = cmndf;
-                bestTau = tau;
+                const bool audible = mFrameEnergy >= kSilenceRmsSquared * static_cast<double>(mFrameSamples);
+                UpdateTrigger(audible ? mFramePitchHz : 0.0);
+                mFrameSamples = 0;
+                mFrameEnergy = 0.0;
+                mFramePitchHz = 0.0;
             }
         }
+    }
 
-        if (bestTau <= 0 || bestCmndf > 0.5)
+    // One frame's pitch (0 for none) into the smoothed pitch and the debounced on/off state.
+    void UpdateTrigger(double frameHz)
+    {
+        mDetectedHz = frameHz;
+
+        // EMA smoothing — update only when a confident pitch is detected;
+        // during silence let the smoothed value decay gently.
+        if (mDetectedHz > 0.0)
         {
-            return 0.0;
+            mSmoothedHz = kPitchEmaAlpha * mDetectedHz + (1.0 - kPitchEmaAlpha) * mSmoothedHz;
+        }
+        else
+        {
+            mSmoothedHz *= 0.80; // decay toward zero on silence
         }
 
-        return mSampleRate / static_cast<double>(bestTau);
+        const bool conditionMet =
+            (mPitchMode == 1) ? (mSmoothedHz > mPitchThreshold) : (mSmoothedHz > 20.0 && mSmoothedHz < mPitchThreshold);
+
+        // Asymmetric debounce: fewer windows needed to activate than to release,
+        // so the arp latches on quickly but doesn't drop out on brief dips.
+        if (conditionMet)
+        {
+            mTriggerVote = std::max(0, mTriggerVote) + 1;
+
+            if (mTriggerVote >= kActivateFrames && !mArpActive)
+            {
+                // Reset to beat-start on fresh activation.
+                mPhase = 0.0;
+                mCurrentStep = 0;
+
+                if (!mStepSemitones.empty())
+                {
+                    mCurrentSemitones = mStepSemitones[0];
+                    ApplyStretchSemitones(mCurrentSemitones);
+                }
+
+                mStretch.reset();
+                mArpActive = true;
+            }
+        }
+        else
+        {
+            mTriggerVote = std::min(0, mTriggerVote) - 1;
+
+            if (mTriggerVote <= -kDeactivateFrames)
+            {
+                mArpActive = false;
+            }
+        }
     }
 
     // Apply semitone transposition to the Signalsmith Stretch instance.
@@ -706,12 +697,17 @@ class AutoArpEffect : public EffectProcessor
     std::vector<float> mWetR;
     std::vector<float> mZero;
     // Pitch detection state
-    double mDetectedHz = 0.0;     // most recently detected fundamental (Hz)
-    double mSmoothedHz = 0.0;     // EMA-smoothed fundamental used for threshold comparison
-    int mTriggerVote = 0;         // debounce counter (>0 = consecutive on-frames, <0 = off-frames)
-    bool mArpActive = true;       // current pitch-gate state
-    int mPitchFillPos = 0;        // write cursor into mPitchBuf
-    std::vector<float> mPitchBuf; // pre-allocated analysis window
+    PitchTracker mTracker;
+    std::uint64_t mDetectionsSeen = 0;
+    bool mPitchGateRunning = false; // the tracker is being fed (a pitch trigger mode is on)
+    int mPitchFrameLength = 2048;   // samples per trigger evaluation
+    int mFrameSamples = 0;          // samples into the current frame
+    double mFrameEnergy = 0.0;      // sum of squares over the current frame
+    double mFramePitchHz = 0.0;     // the current frame's pitch so far, 0 for none
+    double mDetectedHz = 0.0;       // the last frame's pitch (Hz)
+    double mSmoothedHz = 0.0;       // EMA-smoothed fundamental used for threshold comparison
+    int mTriggerVote = 0;           // debounce counter (>0 = consecutive on-frames, <0 = off-frames)
+    bool mArpActive = true;         // current pitch-gate state
 };
 
 // ── Registration ──────────────────────────────────────────────────────────

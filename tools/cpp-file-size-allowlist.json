@@ -20,7 +20,6 @@
     "core/src/dsp/effects/MultiModelNAMAmpEffect.h": 1277,
     "core/src/dsp/effects/ReverbEffect.h": 1494,
     "core/tests/SignalGraphExecutorTests.cpp": 1398,
-    "core/src/dsp/effects/SynthSawEffect.h": 1420,
     "juce/source/PluginProcessorAdapter.cpp": 1227,
     "core/tests/Spatial3DEffectTests.cpp": 1341,
     "core/src/PluginController.h": 1132,

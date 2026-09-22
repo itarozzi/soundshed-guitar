@@ -3,10 +3,10 @@
 #include "dsp/EffectProcessor.h"
 #include "dsp/EffectRegistry.h"
 #include "dsp/EffectGuids.h"
+#include "dsp/PitchTracker.h"
 #include <algorithm>
-#include <array>
 #include <cmath>
-#include <vector>
+#include <cstdint>
 
 namespace guitarfx
 {
@@ -22,69 +22,30 @@ namespace guitarfx
  *
  * KEY ALGORITHMS:
  *
- * 1. YIN PITCH DETECTION (de Cheveigné & Kawahara, 2002)
- *    ------------------------------------------------
- *    YIN is an autocorrelation-based pitch detection algorithm known for its
- *    accuracy and robustness. It works by finding the fundamental period (tau)
- *    where the signal most closely matches a time-shifted version of itself.
+ * 1. PITCH TRACKING
+ *    --------------
+ *    The shared real-time tracker, dsp/PitchTracker.h: YIN on a copy of the mono
+ *    input low-passed at 2 kHz and decimated to about 12 kHz, refined at the full
+ *    rate, every 5 ms, from 45 Hz to 1.5 kHz. Its accepted pitch already rejects
+ *    outliers (a jump of over a semitone must repeat on two detections before it is
+ *    taken), and it holds the last pitch through silence and a note's dying tail.
  *
- *    The algorithm has 6 steps:
- *      Step 1: Difference Function d(tau) - measures how different the signal
- *              is from a tau-shifted version: d(tau) = sum((x[j] - x[j+tau])^2)
+ *    This effect used to run a brute-force full-rate YIN of its own every 3 ms on
+ *    the audio thread, with a median filter and octave correction on top. Measured
+ *    at 48 kHz in 64-sample blocks, that cost 50 us per block on average and 130 us
+ *    at the 99th percentile on the DI demo (220 us on noise, rising with the square
+ *    of the sample rate); the tracker costs 3 us and 12 us, gets the oscillator to a
+ *    new note in 13-60 ms where the old one took up to 83 ms, reads steady tones
+ *    within a cent, and reaches down to 45 Hz where the old one stopped at 50.
  *
- *      Step 2: Cumulative Mean Normalized Difference (CMND) - normalizes d(tau)
- *              to remove the bias toward tau=0: d'(tau) = d(tau) / ((1/tau) * sum(d[1..tau]))
- *              This makes the algorithm independent of signal amplitude.
+ * 2. ONSET DETECTION
+ *    ---------------
+ *    Guitar notes have transient attacks. The onset detector monitors the envelope
+ *    follower and triggers when the level rises significantly (a new note). Until
+ *    the tracker has confirmed a pitch for about 10 ms after it, the glide runs four
+ *    times faster, so a new note is reached quickly and a held one still glides.
  *
- *      Step 3: Absolute Threshold - find the first tau where d'(tau) < threshold.
- *              Lower thresholds (0.10) are more selective but may miss pitches;
- *              higher thresholds (0.20) catch more pitches but may have errors.
- *
- *      Step 4: Parabolic Interpolation - refines the tau estimate to sub-sample
- *              precision by fitting a parabola through 3 points around the minimum.
- *              This improves frequency accuracy from ~1% to <0.1%.
- *
- *    Reference: http://audition.ens.fr/adc/pdf/2002_JASA_YIN.pdf
- *
- * 2. ADAPTIVE WINDOW SIZING
- *    -----------------------
- *    YIN requires a window containing at least 2 full periods of the signal.
- *    For low frequencies (82 Hz = low E), this needs ~2400 samples at 48kHz.
- *    For high frequencies (1000+ Hz), we only need ~100 samples.
- *
- *    Using a fixed large window for all frequencies wastes CPU and adds latency.
- *    This implementation adapts the window size based on the currently tracked
- *    frequency, using 2.5x the expected period length (halfSize >= 1.25 periods).
- *
- *    Benefits:
- *    - Faster response time for higher pitches
- *    - Reduced CPU usage when tracking known frequencies
- *    - Lower latency during stable tracking
- *
- * 3. ONSET DETECTION & MEDIAN FILTERING
- *    -----------------------------------
- *    Guitar notes have transient attacks that can confuse pitch detection.
- *    The onset detector monitors the envelope follower and triggers when
- *    the level rises significantly (new note attack). This:
- *    - Resets the median filter for fast response to new pitches
- *    - Temporarily increases frequency smoothing rate
- *    - Resets the "stable frame count" for pitch locking
- *
- *    A 5-sample median filter removes outliers and octave errors by selecting
- *    the middle value from recent pitch estimates. This smooths jitter without
- *    the lag of a moving average filter.
- *
- * 4. OCTAVE ERROR CORRECTION
- *    ------------------------
- *    YIN can sometimes detect harmonics (2x, 3x) or subharmonics (0.5x) instead
- *    of the fundamental. This is especially common with distorted guitar.
- *
- *    When an octave jump is detected (frequency ratio ~2.0 or ~0.5 vs previous),
- *    we check if the YIN value at the expected frequency is actually better.
- *    If so, we correct to that frequency. This prevents "octave jumping" during
- *    sustained notes while still allowing legitimate octave changes.
- *
- * 5. POLYBLEP ANTI-ALIASING
+ * 3. POLYBLEP ANTI-ALIASING
  *    ----------------------
  *    Naive sawtooth generation creates aliasing (harsh digital artifacts) because
  *    the sharp discontinuity contains infinite harmonics that fold back below Nyquist.
@@ -97,13 +58,12 @@ namespace guitarfx
  *    the discontinuity, blending the sharp edge into a smooth transition.
  *
  * SIGNAL FLOW:
- *   Input -> Envelope Follower -> Onset Detection -> Pitch Detection -> Median Filter
- *                                                           |
- *                                                           v
- *   Sawtooth Oscillator <- Frequency Smoothing <- Octave Correction
- *                |
- *                v
- *   PolyBLEP Anti-aliasing -> Envelope Shaping -> Dry/Wet Mix -> Output
+ *   Input -> Envelope Follower -> Onset Detection
+ *     |                                  |
+ *     +-> Pitch Tracker -----------> Glide (faster after an onset)
+ *                                        |
+ *                                        v
+ *   Sawtooth Oscillator -> PolyBLEP Anti-aliasing -> Envelope Shaping -> Dry/Wet Mix -> Output
  *
  * PARAMETERS:
  *   - mix: Blend between original (dry) and synthesized (wet) signal
@@ -129,52 +89,7 @@ class SynthSawEffect : public EffectProcessor
     {
         mSampleRate = sampleRate;
         mMaxBlockSize = maxBlockSize;
-
-        // ========================================================================
-        // BUFFER SIZING FOR YIN ALGORITHM
-        // ========================================================================
-        // YIN's difference function compares x[j] with x[j+tau] for j in [0, halfSize).
-        // This means we need: windowSize >= halfSize + maxTau.
-        // Since maxTau = sampleRate/minFreq (period of lowest frequency), and we want
-        // halfSize >= maxTau for best accuracy, we need windowSize >= 2 * maxTau.
-        //
-        // At 48000 Hz with minFreq=50 Hz:
-        //   - period = 48000/50 = 960 samples
-        //   - minimum window = 2 * 960 = 1920 samples
-        //   - we use 2.5x for extra margin = 2400 samples
-        //
-        // This 2.5x factor ensures we have enough "lookahead" samples for the
-        // autocorrelation to find a clean minimum even with slight frequency drift.
-        // ========================================================================
-        mMaxYinBufferSize = static_cast<size_t>(2.5 * mSampleRate / kMinFrequency);
-        mYinBuffer.assign(mMaxYinBufferSize, 0.0f);
-        mYinDiff.assign(mMaxYinBufferSize / 2, 0.0f);
-        mYinCumulative.assign(mMaxYinBufferSize / 2, 0.0f);
-
-        // Larger input buffer for pitch history
-        mInputBuffer.assign(mMaxYinBufferSize * 2, 0.0f);
-        mInputWritePos = 0;
-        mSamplesCollected = 0;
-
-        // Initialize adaptive window to max size
-        mCurrentWindowSize = mMaxYinBufferSize;
-
-        // ========================================================================
-        // HOP SIZE - How often we run pitch detection
-        // ========================================================================
-        // Running YIN every sample would be wasteful. Instead, we "hop" forward
-        // by a fixed number of samples between each detection.
-        //
-        // ~3ms hop = 144 samples at 48kHz = ~333 pitch updates per second.
-        // This is fast enough for guitar pitch bends and vibrato while keeping
-        // CPU usage reasonable. The minimum of 32 samples prevents excessive
-        // CPU use at very low sample rates.
-        //
-        // Trade-off: Smaller hop = faster tracking but higher CPU
-        //            Larger hop = lower CPU but may miss fast pitch changes
-        // ========================================================================
-        mHopSize = static_cast<size_t>(mSampleRate * 0.003);
-        mHopSize = std::max(mHopSize, size_t(32));
+        mTracker.Prepare(sampleRate);
 
         UpdateEnvelopeCoefs();
         UpdateGlideCoef();
@@ -187,19 +102,13 @@ class SynthSawEffect : public EffectProcessor
         mOscPhase2 = 0.0;
         mCurrentFreq = 0.0;
         mTargetFreq = 0.0;
-        mSmoothedFreq = 0.0;
         mEnvelopeLevel = 0.0f;
         mPitchConfidence = 0.0f;
-        mInputWritePos = 0;
-        mSamplesCollected = 0;
-        mCurrentWindowSize = mMaxYinBufferSize;
         mPrevEnvelopeLevel = 0.0f;
         mOnsetDetected = false;
         mStableFrameCount = 0;
-        std::fill(mInputBuffer.begin(), mInputBuffer.end(), 0.0f);
-        std::fill(mYinBuffer.begin(), mYinBuffer.end(), 0.0f);
-        std::fill(mMedianBuffer.begin(), mMedianBuffer.end(), 0.0);
-        mMedianIndex = 0;
+        mTracker.Reset();
+        mDetectionsSeen = 0;
     }
 
     void Process(float** inputs, float** outputs, int numSamples) override
@@ -215,11 +124,7 @@ class SynthSawEffect : public EffectProcessor
             const float inL = inputs[0] ? inputs[0][i] : 0.0f;
             const float inR = inputs[1] ? inputs[1][i] : 0.0f;
             const float mono = 0.5f * (inL + inR);
-
-            // Add to input buffer for pitch detection
-            mInputBuffer[mInputWritePos] = mono;
-            mInputWritePos = (mInputWritePos + 1) % mInputBuffer.size();
-            mSamplesCollected++;
+            mTracker.Push(mono);
 
             // Envelope follower on input signal
             const float absInput = std::abs(mono);
@@ -236,17 +141,13 @@ class SynthSawEffect : public EffectProcessor
             // ======================================================================
             // ONSET DETECTION - Detecting new note attacks
             // ======================================================================
-            // When a new note is played, we want to:
-            //   1. Respond quickly to the new pitch (reset median filter)
-            //   2. Allow larger frequency jumps without octave correction
-            //   3. Use faster frequency smoothing temporarily
+            // When a new note is played, the glide runs faster until the tracker
+            // has confirmed a pitch for a few detections, so the new note is
+            // reached quickly.
             //
             // We detect onsets by monitoring the envelope's rate of change.
             // If the envelope rises by more than 15% of its current value within
             // one sample period, we consider it a new note attack.
-            //
-            // The median filter is reset because it may contain the old note's
-            // frequency, which would slow down tracking to the new pitch.
             // ======================================================================
             const float envelopeDelta = mEnvelopeLevel - mPrevEnvelopeLevel;
 
@@ -254,18 +155,14 @@ class SynthSawEffect : public EffectProcessor
             {
                 mOnsetDetected = true;
                 mStableFrameCount = 0;
-                // Reset median filter to allow fast tracking of new note
-                std::fill(mMedianBuffer.begin(), mMedianBuffer.end(), 0.0);
-                mMedianIndex = 0;
             }
 
             mPrevEnvelopeLevel = mEnvelopeLevel;
 
-            // Run pitch detection every hop size samples
-            if (mSamplesCollected >= mHopSize)
+            if (mTracker.DetectionCount() != mDetectionsSeen)
             {
-                mSamplesCollected = 0;
-                DetectPitchAdaptive();
+                mDetectionsSeen = mTracker.DetectionCount();
+                OnPitchDetection();
             }
 
             // Frequency smoothing with adaptive rate
@@ -277,16 +174,16 @@ class SynthSawEffect : public EffectProcessor
                 freqSmoothCoef = std::min(1.0, mGlideCoef * 4.0);
             }
 
-            if (mSmoothedFreq > 0.0 && mPitchConfidence > kConfidenceThreshold)
+            if (mTargetFreq > 0.0 && mPitchConfidence > kConfidenceThreshold)
             {
-                const double freqDiff = mSmoothedFreq - mCurrentFreq;
+                const double freqDiff = mTargetFreq - mCurrentFreq;
 
                 // Jump immediately if large pitch change (new note)
-                const double semitoneRatio = mSmoothedFreq / std::max(1.0, mCurrentFreq);
+                const double semitoneRatio = mTargetFreq / std::max(1.0, mCurrentFreq);
 
                 if (semitoneRatio > 1.5 || semitoneRatio < 0.67)
                 {
-                    mCurrentFreq = mSmoothedFreq;
+                    mCurrentFreq = mTargetFreq;
                     mOscPhase = 0.0;  // Reset phase on new note
                     mOscPhase2 = 0.0; // Reset 2nd voice phase on new note
                 }
@@ -317,7 +214,7 @@ class SynthSawEffect : public EffectProcessor
             // ======================================================================
             float synthOut = 0.0f;
 
-            if (mCurrentFreq > kMinFrequency && mEnvelopeLevel > kGateThreshold)
+            if (mCurrentFreq >= PitchTracker::kMinHz && mEnvelopeLevel > kGateThreshold)
             {
                 // Apply octave shift: 2^octaveShift multiplies frequency
                 // octaveShift=1 doubles freq, octaveShift=-1 halves it
@@ -329,8 +226,8 @@ class SynthSawEffect : public EffectProcessor
 
                 // Clamp frequency to reasonable range to avoid aliasing at high freq
                 // and subsonic rumble at low freq
-                // Note: kMinOutputFrequency (20 Hz) is lower than kMinFrequency (50 Hz)
-                // to allow octave-down shifting from detected pitches
+                // Note: kMinOutputFrequency (20 Hz) is lower than the tracker's lowest
+                // pitch (45 Hz) to allow octave-down shifting from detected pitches
                 freq = std::clamp(freq, kMinOutputFrequency, kMaxFrequency);
 
                 // Phase accumulator: increments by (freq/sampleRate) each sample
@@ -571,17 +468,13 @@ class SynthSawEffect : public EffectProcessor
 
   private:
     static constexpr double kPi = 3.14159265358979323846;
-    static constexpr double kMinFrequency = 50.0;       // ~G1 - minimum for pitch detection
     static constexpr double kMinOutputFrequency = 20.0; // ~E0 - minimum for synth output (allows -2 octave shift)
     static constexpr double kMaxFrequency = 2000.0;     // ~B6
     static constexpr float kConfidenceThreshold = 0.7f;
-    static constexpr float kOnsetThreshold = 0.15f;   // Envelope rise threshold for onset
-    static constexpr size_t kStableFramesForLock = 3; // Frames needed for stable pitch
-    static constexpr size_t kMedianFilterSize = 5;    // Median filter for outlier rejection
-
-    // YIN algorithm thresholds
-    static constexpr float kYinThreshold = 0.10f;     // Lower = more selective
-    static constexpr float kYinThresholdHigh = 0.20f; // Relaxed threshold for tracking
+    static constexpr float kOnsetThreshold = 0.15f; // Envelope rise threshold for onset
+    /// Confident detections, 5 ms apart, before the glide slows back down after an onset: about the
+    /// 10 ms the old detector's three 3 ms frames took.
+    static constexpr size_t kStableFramesForLock = 2;
 
     /**
      * PolyBLEP (Polynomial Bandlimited Step) Anti-Aliasing
@@ -688,402 +581,27 @@ class SynthSawEffect : public EffectProcessor
     }
 
     /**
-     * Compute adaptive window size based on expected frequency.
-     * Smaller windows = faster response for higher pitches.
+     * A new estimate from the tracker, every 5 ms. Its accepted pitch is the glide's target: a jump of
+     * over a semitone has already been confirmed on two detections, so a stray octave never reaches
+     * the oscillator. While the tracker finds no pitch (silence, noise, a note dying away) the target
+     * holds and the glide stops, as it always has.
      */
-    size_t ComputeAdaptiveWindowSize(double expectedFreq) const
+    void OnPitchDetection()
     {
-        if (expectedFreq <= 0.0)
+        if (!mTracker.HasPitch())
         {
-            return mMaxYinBufferSize;
-        }
-
-        // Need at least 2.5 periods for YIN (halfSize must be >= period)
-        size_t minSamples = static_cast<size_t>(2.5 * mSampleRate / expectedFreq);
-
-        // Clamp to valid range
-        minSamples = std::max(minSamples, size_t(512));
-        minSamples = std::min(minSamples, mMaxYinBufferSize);
-
-        return minSamples;
-    }
-
-    /**
-     * Median filter to reject pitch outliers and octave errors.
-     */
-    double MedianFilter(double newFreq)
-    {
-        mMedianBuffer[mMedianIndex] = newFreq;
-        mMedianIndex = (mMedianIndex + 1) % kMedianFilterSize;
-
-        // Copy and sort
-        std::array<double, kMedianFilterSize> sorted = mMedianBuffer;
-        std::sort(sorted.begin(), sorted.end());
-
-        return sorted[kMedianFilterSize / 2];
-    }
-
-    /**
-     * ========================================================================
-     * YIN PITCH DETECTION WITH ADAPTIVE WINDOWING
-     * ========================================================================
-     *
-     * This is the core pitch detection algorithm. It implements the YIN method
-     * (de Cheveigné & Kawahara, 2002) with several enhancements:
-     *
-     * STANDARD YIN STEPS:
-     *   1. Difference Function - autocorrelation-like measure
-     *   2. Cumulative Mean Normalized Difference (CMND) - removes amplitude bias
-     *   3. Absolute Threshold - find first minimum below threshold
-     *   4. Parabolic Interpolation - sub-sample accuracy refinement
-     *
-     * OUR ENHANCEMENTS:
-     *   - Adaptive window sizing based on tracked frequency
-     *   - Two-stage threshold (strict for initial detection, relaxed for tracking)
-     *   - Octave error correction by comparing with previous frequency
-     *   - Median filtering for outlier rejection
-     *
-     * MATHEMATICAL BACKGROUND:
-     *
-     * The difference function d(tau) measures dissimilarity at lag tau:
-     *   d(tau) = Σ (x[j] - x[j+tau])²  for j ∈ [0, W/2)
-     *
-     * For a periodic signal with period T, d(tau) has minima at tau = T, 2T, 3T...
-     * The fundamental is at the first minimum (tau = T), but harmonics can create
-     * local minima at tau = T/2, T/3... which causes octave errors.
-     *
-     * The CMND normalization prevents d(0)=0 from always being selected:
-     *   d'(tau) = d(tau) / [(1/tau) * Σ d(k) for k ∈ [1,tau]]
-     *
-     * This makes d'(tau) ≈ 1.0 for non-periodic signals and << 1.0 at the
-     * true period, regardless of signal amplitude.
-     *
-     * ========================================================================
-     */
-    void DetectPitchAdaptive()
-    {
-        // ----------------------------------------------------------------------
-        // ADAPTIVE WINDOW SIZING
-        // ----------------------------------------------------------------------
-        // When we're already tracking a pitch, we can use a smaller window
-        // (2.5x the expected period) for faster response. When searching for
-        // a new pitch, we use the maximum window to catch low frequencies.
-        // ----------------------------------------------------------------------
-        if (mTargetFreq > kMinFrequency && mStableFrameCount > 0)
-        {
-            mCurrentWindowSize = ComputeAdaptiveWindowSize(mTargetFreq);
-        }
-        else
-        {
-            // Use larger window when no pitch is known
-            mCurrentWindowSize = mMaxYinBufferSize;
-        }
-
-        const size_t windowSize = mCurrentWindowSize;
-        const size_t halfSize = windowSize / 2;
-
-        // Copy recent samples to YIN buffer (unwrap circular buffer)
-        for (size_t i = 0; i < windowSize; ++i)
-        {
-            size_t idx = (mInputWritePos + mInputBuffer.size() - windowSize + i) % mInputBuffer.size();
-            mYinBuffer[i] = mInputBuffer[idx];
-        }
-
-        // Check if we have enough signal
-        float maxAbs = 0.0f;
-
-        for (size_t i = 0; i < windowSize; ++i)
-        {
-            maxAbs = std::max(maxAbs, std::abs(mYinBuffer[i]));
-        }
-
-        if (maxAbs < kGateThreshold)
-        {
-            // Too quiet, skip detection
             mPitchConfidence = 0.0f;
+            mStableFrameCount = 0;
             return;
         }
 
-        // ----------------------------------------------------------------------
-        // STEP 1: DIFFERENCE FUNCTION d(tau)
-        // ----------------------------------------------------------------------
-        // For each lag tau, compute how different the signal is from itself
-        // shifted by tau samples. The formula is:
-        //   d(tau) = Σ (x[j] - x[j+tau])²  for j ∈ [0, halfSize)
-        //
-        // Intuition:
-        //   - For a perfectly periodic signal with period T:
-        //     d(T) = 0 because x[j] = x[j+T] for all j
-        //   - For noise or non-periodic signals:
-        //     d(tau) stays high for all tau
-        //
-        // We compute this for all tau values from 0 to halfSize-1.
-        // The frequency limits will be enforced in the search step.
-        // ----------------------------------------------------------------------
-        for (size_t tau = 0; tau < halfSize; ++tau)
+        mTargetFreq = mTracker.FrequencyHz();
+        mPitchConfidence = mTracker.Confidence();
+
+        if (mPitchConfidence > kConfidenceThreshold)
         {
-            float sum = 0.0f;
-
-            for (size_t j = 0; j < halfSize; ++j)
-            {
-                const float diff = mYinBuffer[j] - mYinBuffer[j + tau];
-                sum += diff * diff;
-            }
-
-            mYinDiff[tau] = sum;
-        }
-
-        // ----------------------------------------------------------------------
-        // STEP 2: CUMULATIVE MEAN NORMALIZED DIFFERENCE (CMND)
-        // ----------------------------------------------------------------------
-        // The raw difference function has a problem: d(0) = 0 always, because
-        // any signal matches itself perfectly at zero lag. This would make
-        // tau=0 always look like the best "period", which is wrong.
-        //
-        // The CMND normalization fixes this:
-        //   d'(tau) = d(tau) / [(1/tau) * Σ d(k) for k ∈ [1,tau]]
-        //           = d(tau) * tau / Σ d(k)
-        //
-        // This divides d(tau) by the average of all previous d values.
-        // At the true period, d(tau) is small while the average is moderate,
-        // giving d'(tau) << 1. At tau=0 or random tau, d'(tau) ≈ 1.
-        //
-        // We set d'(0) = 1.0 by convention (undefined by the formula).
-        // The epsilon check (1e-10) prevents division by zero for silence.
-        // ----------------------------------------------------------------------
-        mYinCumulative[0] = 1.0f;
-        float runningSum = 0.0f;
-
-        for (size_t tau = 1; tau < halfSize; ++tau)
-        {
-            runningSum += mYinDiff[tau];
-
-            if (runningSum > 1e-10f)
-            {
-                mYinCumulative[tau] = mYinDiff[tau] * static_cast<float>(tau) / runningSum;
-            }
-            else
-            {
-                mYinCumulative[tau] = 1.0f; // Treat silence as "no pitch detected"
-            }
-        }
-
-        // ----------------------------------------------------------------------
-        // STEP 3: ABSOLUTE THRESHOLD SEARCH
-        // ----------------------------------------------------------------------
-        // We search for the first tau where d'(tau) falls below a threshold.
-        // This "first" criterion helps avoid octave errors - the fundamental
-        // period T appears before its multiples 2T, 3T, etc.
-        //
-        // THRESHOLD STRATEGY:
-        //   - kYinThreshold (0.10): Strict threshold for initial detection.
-        //     Only very clear pitches pass, reducing false positives.
-        //   - kYinThresholdHigh (0.20): Relaxed threshold when already tracking.
-        //     Allows tracking through slight pitch variations and noise.
-        //
-        // FREQUENCY RANGE ENFORCEMENT:
-        //   tau = sampleRate / frequency, so:
-        //   - minTau = sampleRate / maxFreq (highest pitch we want to detect)
-        //   - maxTau = sampleRate / minFreq (lowest pitch we want to detect)
-        //
-        // SEARCH ALGORITHM:
-        //   1. Find first tau where d'(tau) < threshold
-        //   2. Continue to find the local minimum (keep going while decreasing)
-        //   3. Stop at the local minimum - this is our period estimate
-        //
-        // We always do a full search (no "nearby search" optimization) to ensure
-        // we detect octave jumps when playing new notes.
-        // ----------------------------------------------------------------------
-        const float threshold = (mStableFrameCount > 0) ? kYinThresholdHigh : kYinThreshold;
-
-        // Convert frequency limits to tau (period) limits
-        // tau = sampleRate / freq, so higher freq = smaller tau
-        const size_t minTau = std::max(size_t(2), static_cast<size_t>(mSampleRate / kMaxFrequency));
-        const size_t maxTau = std::min(halfSize - 1, static_cast<size_t>(mSampleRate / kMinFrequency));
-
-        size_t tauEstimate = 0;
-        float minCmnd = 1.0f;
-
-        // Search from minTau (high freq) to maxTau (low freq)
-        // Stop at the first local minimum below threshold
-        for (size_t tau = minTau; tau <= maxTau; ++tau)
-        {
-            if (mYinCumulative[tau] < threshold)
-            {
-                // Found a candidate - now find the exact local minimum
-                // by continuing while the function is still decreasing
-                while (tau + 1 <= maxTau && mYinCumulative[tau + 1] < mYinCumulative[tau])
-                {
-                    ++tau;
-                }
-
-                tauEstimate = tau;
-                minCmnd = mYinCumulative[tau];
-                break; // Stop at first valid minimum (fundamental, not harmonic)
-            }
-        }
-
-        // ----------------------------------------------------------------------
-        // STEP 4: PARABOLIC INTERPOLATION
-        // ----------------------------------------------------------------------
-        // The discrete tau estimate is only accurate to ±0.5 samples, which
-        // translates to ~1% frequency error at low frequencies. Parabolic
-        // interpolation improves this to ~0.1% by fitting a parabola through
-        // three points and finding the true minimum.
-        //
-        // Given three consecutive d'(tau) values: s0, s1, s2 at tau-1, tau, tau+1,
-        // the parabola through them has its minimum at:
-        //   delta = (s2 - s0) / (2 * (2*s1 - s0 - s2))
-        //   refinedTau = tau + delta
-        //
-        // The denominator (2*s1 - s0 - s2) measures the "curvature" of the parabola.
-        // If it's near zero (flat), we skip interpolation and use the integer tau.
-        //
-        // CONFIDENCE CALCULATION:
-        // We use the CMND value as an inverse confidence measure:
-        //   confidence = 1 - min(1, d'(tau))
-        // A CMND of 0.05 gives confidence 0.95, while 0.5 gives confidence 0.5.
-        // ----------------------------------------------------------------------
-        double detectedFreq = 0.0;
-        float confidence = 0.0f;
-
-        if (tauEstimate > 1 && tauEstimate < halfSize - 1)
-        {
-            // Get three consecutive CMND values for parabolic fit
-            const float s0 = mYinCumulative[tauEstimate - 1];
-            const float s1 = mYinCumulative[tauEstimate]; // Should be the minimum
-            const float s2 = mYinCumulative[tauEstimate + 1];
-
-            // Parabolic interpolation formula: delta = (s2 - s0) / (2 * (2*s1 - s0 - s2))
-            const float denom = 2.0f * s1 - s0 - s2; // Denominator = curvature
-
-            if (std::abs(denom) > 1e-10f) // Avoid division by zero for flat regions
-            {
-                const float delta = (s2 - s0) / (2.0f * denom);
-                // Clamp delta to [-1, 1] to prevent wild extrapolation
-                const float refinedTau = static_cast<float>(tauEstimate) + std::clamp(delta, -1.0f, 1.0f);
-
-                if (refinedTau > 0.0f)
-                {
-                    // frequency = sampleRate / period
-                    detectedFreq = mSampleRate / refinedTau;
-                    // Confidence: lower CMND = higher confidence (clearer pitch)
-                    confidence = 1.0f - std::min(1.0f, minCmnd);
-                }
-            }
-            else
-            {
-                // Flat region - use integer tau without interpolation
-                detectedFreq = mSampleRate / static_cast<double>(tauEstimate);
-                confidence = 1.0f - std::min(1.0f, minCmnd);
-            }
-        }
-
-        // Validate frequency range
-        if (detectedFreq < kMinFrequency || detectedFreq > kMaxFrequency)
-        {
-            detectedFreq = 0.0;
-            confidence = 0.0f;
-        }
-
-        // ----------------------------------------------------------------------
-        // OCTAVE ERROR CORRECTION
-        // ----------------------------------------------------------------------
-        // YIN can sometimes detect harmonics instead of the fundamental:
-        //   - Detecting 2x the true frequency (jumped up an octave)
-        //   - Detecting 0.5x the true frequency (jumped down an octave)
-        //
-        // This happens because harmonics also create minima in the CMND.
-        // For example, a 110 Hz note has strong energy at 220 Hz (2nd harmonic),
-        // which can look like a period of T/2 in the autocorrelation.
-        //
-        // CORRECTION STRATEGY:
-        // When we detect a frequency that's ~2x or ~0.5x the previous frequency,
-        // we check if the CMND value at the expected frequency is actually better.
-        // If so, we correct to that frequency instead.
-        //
-        // CONDITIONS FOR CORRECTION:
-        //   1. We're already tracking a pitch (stableFrameCount > 2)
-        //   2. The new detection isn't extremely confident (minCmnd > 0.05)
-        //   3. The frequency ratio is close to 2.0 or 0.5 (within ±5%)
-        //   4. The corrected frequency has better (lower) CMND value
-        //
-        // We DON'T correct when:
-        //   - The detection is very confident (likely a real octave jump)
-        //   - We're in onset mode (new note being played)
-        //   - The ratio isn't close to an octave (legitimate interval change)
-        // ----------------------------------------------------------------------
-        if (detectedFreq > 0.0 && mTargetFreq > kMinFrequency && mStableFrameCount > 2 && minCmnd > 0.05f)
-        {
-            const double ratio = detectedFreq / mTargetFreq;
-
-            // Check for octave jump up (detected 2x expected)
-            if (ratio > 1.9 && ratio < 2.1)
-            {
-                // Likely jumped up an octave - check if half frequency has better YIN
-                const double halfFreq = detectedFreq / 2.0;
-
-                if (halfFreq >= kMinFrequency)
-                {
-                    const size_t halfTau = static_cast<size_t>(mSampleRate / halfFreq);
-
-                    if (halfTau < halfSize)
-                    {
-                        // Only correct if half-freq YIN is significantly better
-                        const float halfCmnd = mYinCumulative[halfTau];
-
-                        if (halfCmnd < minCmnd * 0.8f && halfCmnd < kYinThresholdHigh)
-                        {
-                            detectedFreq = halfFreq;
-                            confidence = 1.0f - halfCmnd;
-                        }
-                    }
-                }
-            }
-            // Check for octave jump down (detected 0.5x expected)
-            else if (ratio > 0.45 && ratio < 0.55)
-            {
-                // Likely jumped down an octave - check if double frequency has better YIN
-                const double doubleFreq = detectedFreq * 2.0;
-
-                if (doubleFreq <= kMaxFrequency)
-                {
-                    const size_t doubleTau = static_cast<size_t>(mSampleRate / doubleFreq);
-
-                    if (doubleTau >= minTau && doubleTau < halfSize)
-                    {
-                        const float doubleCmnd = mYinCumulative[doubleTau];
-
-                        if (doubleCmnd < minCmnd * 0.8f && doubleCmnd < kYinThresholdHigh)
-                        {
-                            detectedFreq = doubleFreq;
-                            confidence = 1.0f - doubleCmnd;
-                        }
-                    }
-                }
-            }
-        }
-
-        // Apply median filter
-        if (detectedFreq > 0.0 && confidence > kConfidenceThreshold)
-        {
-            mTargetFreq = detectedFreq;
-            mSmoothedFreq = MedianFilter(detectedFreq);
-            mPitchConfidence = confidence;
-            mStableFrameCount++;
+            ++mStableFrameCount;
             mOnsetDetected = false;
-        }
-        else if (confidence > 0.5f && detectedFreq > 0.0)
-        {
-            // Lower confidence - use but don't update stable count
-            mTargetFreq = detectedFreq;
-            mSmoothedFreq = MedianFilter(detectedFreq);
-            mPitchConfidence = confidence;
-        }
-        else
-        {
-            mPitchConfidence = confidence;
-            mStableFrameCount = 0;
         }
     }
 
@@ -1107,8 +625,7 @@ class SynthSawEffect : public EffectProcessor
     double mOscPhase = 0.0;
     double mOscPhase2 = 0.0; // 2nd voice oscillator phase
     double mCurrentFreq = 0.0;
-    double mTargetFreq = 0.0;
-    double mSmoothedFreq = 0.0;
+    double mTargetFreq = 0.0; ///< the tracker's accepted pitch, which the glide heads for
     double mGlideCoef = 0.1;
 
     // 2nd voice parameters
@@ -1122,25 +639,11 @@ class SynthSawEffect : public EffectProcessor
     double mPulseWidth2 = 0.5; // Square duty cycle voice 2 [0.1, 0.9]
 
     // Pitch detection state
+    PitchTracker mTracker;
+    std::uint64_t mDetectionsSeen = 0;
     float mPitchConfidence = 0.0f;
-    size_t mMaxYinBufferSize = 2048;
-    size_t mCurrentWindowSize = 2048;
-    size_t mHopSize = 128;
     size_t mStableFrameCount = 0;
     bool mOnsetDetected = false;
-
-    std::vector<float> mYinBuffer;
-    std::vector<float> mYinDiff;
-    std::vector<float> mYinCumulative;
-
-    // Median filter for pitch smoothing
-    std::array<double, kMedianFilterSize> mMedianBuffer = {0.0};
-    size_t mMedianIndex = 0;
-
-    // Input circular buffer
-    std::vector<float> mInputBuffer;
-    size_t mInputWritePos = 0;
-    size_t mSamplesCollected = 0;
 };
 
 inline void RegisterSynthSawEffect()

@@ -7,10 +7,15 @@
  * 2. Track pitch changes quickly
  * 3. Handle edge cases (silence, noise, out-of-range frequencies)
  * 4. Generate sawtooth output at the correct frequency
+ * 5. Keep what moving onto the shared PitchTracker changed: note changes in 64-sample blocks,
+ *    45-50 Hz notes, 96 and 192 kHz, the pitch held through a release, and the glide
  */
 
+#include <algorithm>
 #include <cmath>
 #include <iostream>
+#include <numeric>
+#include <utility>
 #include <vector>
 #include <string>
 #include <sstream>
@@ -492,8 +497,15 @@ TestResult TestOctaveShiftValue(guitarfx::SynthSawEffect& effect, double octaveS
     double phase = 0.0;
     double phaseInc = 2.0 * kPi * kTargetFreq / kTestSampleRate;
 
-    // Process to lock pitch - more blocks for stability
-    for (int block = 0; block < 40; ++block)
+    // Process to lock pitch - more blocks for stability. The output is judged over the last 8
+    // blocks: two octaves down one 512-sample block is less than a period of the 82 Hz output, so
+    // its zero-crossing count reads 47 or 94 Hz depending only on where the phase falls.
+    constexpr int kBlocks = 40;
+    constexpr int kJudgedBlocks = 8;
+    std::vector<float> judged;
+    judged.reserve(static_cast<size_t>(kJudgedBlocks * kTestBlockSize));
+
+    for (int block = 0; block < kBlocks; ++block)
     {
         for (int i = 0; i < kTestBlockSize; ++i)
         {
@@ -503,13 +515,18 @@ TestResult TestOctaveShiftValue(guitarfx::SynthSawEffect& effect, double octaveS
         }
 
         effect.Process(inputs, outputs, kTestBlockSize);
+
+        if (block >= kBlocks - kJudgedBlocks)
+        {
+            judged.insert(judged.end(), outputL.begin(), outputL.end());
+        }
     }
 
     // Calculate expected output frequency: input * 2^octaveShift
     double expectedOutputFreq = kTargetFreq * std::pow(2.0, octaveShift);
 
     // Analyze output frequency using zero-crossing
-    double outputFreq = EstimateOutputFrequency(outputL, kTestSampleRate);
+    double outputFreq = EstimateOutputFrequency(judged, kTestSampleRate);
 
     // Also check detected frequency
     double detectedFreq = effect.GetDetectedFrequency();
@@ -854,6 +871,170 @@ TestResult TestWaveShapeParamReadback(guitarfx::SynthSawEffect& effect)
     result.message = allOk ? "PASS (all shapes + clamp verified)" : "FAIL " + msg.str();
     return result;
 }
+
+// ============================================================================
+// PITCH TRACKER (dsp/PitchTracker.h) - what moving onto it changed
+// ============================================================================
+
+/// A plucked note, harmonics decaying faster the higher they are, starting at `start` of `x`.
+void AddPluck(std::vector<float>& x, std::size_t start, double freq, double sampleRate, double releaseMs = -1.0)
+{
+    for (std::size_t n = start; n < x.size(); ++n)
+    {
+        const double t = static_cast<double>(n - start) / sampleRate;
+        double v = 0.0;
+
+        for (int k = 1; k <= 6 && k * freq < 0.45 * sampleRate; ++k)
+        {
+            v += std::exp(-1.2 * k * t) * std::sin(2.0 * kPi * k * freq * t + 0.4 * k) / k;
+        }
+
+        const double tail = x.size() - n; // the release, if any, ends the note
+        const double gain = releaseMs < 0.0 ? 1.0 : std::min(1.0, tail / (releaseMs * 0.001 * sampleRate));
+        x[n] = static_cast<float>(0.3 * v * gain);
+    }
+}
+
+/// Runs `x` through `effect` in 64-sample blocks; `probe` sees the effect after each block.
+template <typename Probe> void Run64(guitarfx::SynthSawEffect& effect, const std::vector<float>& x, Probe&& probe)
+{
+    std::vector<float> outL(64), outR(64);
+
+    for (std::size_t start = 0; start + 64 <= x.size(); start += 64)
+    {
+        float* in[2] = {const_cast<float*>(x.data() + start), const_cast<float*>(x.data() + start)};
+        float* out[2] = {outL.data(), outR.data()};
+        effect.Process(in, out, 64);
+        probe(start + 64);
+    }
+}
+
+void Report(bool ok, const std::string& what, const std::string& detail, int& passed, int& failed)
+{
+    std::cout << "  " << what << ": " << (ok ? "PASS" : "FAIL") << " (" << detail << ")\n";
+    ok ? ++passed : ++failed;
+}
+
+void TestPitchTrackerMigration(int& passed, int& failed)
+{
+    std::cout << "--- Pitch Tracker Tests ---\n";
+    constexpr double sr = kTestSampleRate;
+
+    // Note changes in 64-sample blocks. The old detector took up to 83 ms: its window, anchored at
+    // the oldest samples, still held the old note.
+    double slowest = 0.0;
+    const std::pair<double, double> changes[] = {
+        {110.0, 164.81}, {82.41, 329.63}, {659.26, 82.41}, {1318.5, 110.0}, {196.0, 207.65}};
+
+    for (const auto& change : changes)
+    {
+        guitarfx::SynthSawEffect effect;
+        effect.Prepare(sr, 64);
+        std::vector<float> x(static_cast<std::size_t>(0.8 * sr));
+        const std::size_t split = static_cast<std::size_t>(0.5 * sr);
+        AddPluck(x, 0, change.first, sr);
+        AddPluck(x, split, change.second, sr);
+        double ms = 1.0e9;
+        Run64(effect, x, [&](std::size_t end) {
+            if (end > split && ms > 1.0e8 &&
+                std::abs(FrequencyErrorCents(effect.GetDetectedFrequency(), change.second)) < 30.0)
+            {
+                ms = 1000.0 * static_cast<double>(end - split) / sr;
+            }
+        });
+        slowest = std::max(slowest, ms);
+    }
+
+    Report(slowest < 60.0, "Note changes followed within 60 ms", "slowest " + std::to_string(slowest) + " ms", passed,
+           failed);
+
+    // The tracker reaches down to 45 Hz (F#1 on an eight-string); the old detector stopped at 50.
+    // It also costs the same at any rate, where the brute-force one grew with its square.
+    const std::pair<double, double> tones[] = {{46.25, sr}, {110.0, 96000.0}, {110.0, 192000.0}};
+
+    for (const auto& [freq, rate] : tones)
+    {
+        guitarfx::SynthSawEffect effect;
+        effect.Prepare(rate, 64);
+        std::vector<float> x(static_cast<std::size_t>(0.4 * rate));
+        AddPluck(x, 0, freq, rate);
+        Run64(effect, x, [](std::size_t) {});
+        const double error = FrequencyErrorCents(effect.GetDetectedFrequency(), freq);
+        Report(std::abs(error) < 15.0,
+               std::to_string(freq).substr(0, 5) + " Hz at " + std::to_string(rate / 1000.0).substr(0, 5) + " kHz",
+               std::to_string(error) + " cents", passed, failed);
+    }
+
+    // The synth's tail, while the envelope releases, keeps the note's pitch: the tracker skips a
+    // note dying away rather than reading it sharp.
+    double worstTail = 0.0;
+
+    for (const double freq : {82.41, 196.0, 659.26})
+    {
+        guitarfx::SynthSawEffect effect;
+        effect.Prepare(sr, 64);
+        std::vector<float> x(static_cast<std::size_t>(0.5 * sr));
+        AddPluck(x, 0, freq, sr, 20.0);
+        x.resize(x.size() + static_cast<std::size_t>(0.2 * sr), 0.0f);
+        Run64(effect, x, [&](std::size_t end) {
+            if (end > static_cast<std::size_t>(0.3 * sr) && effect.GetDetectedFrequency() > 0.0)
+            {
+                worstTail = std::max(worstTail, std::abs(FrequencyErrorCents(effect.GetDetectedFrequency(), freq)));
+            }
+        });
+    }
+
+    Report(worstTail < 5.0, "Pitch held through a note's release", "worst " + std::to_string(worstTail) + " cents",
+           passed, failed);
+
+    // Glide still glides: 200 ms from A3 up a whole tone is part way after 100 ms, there after 1 s.
+    {
+        guitarfx::SynthSawEffect effect;
+        effect.Prepare(sr, 64);
+        effect.SetParam("glide", 200.0);
+        std::vector<float> x(static_cast<std::size_t>(1.6 * sr));
+        const std::size_t split = static_cast<std::size_t>(0.5 * sr);
+        double phase = 0.0;
+
+        for (std::size_t n = 0; n < x.size(); ++n)
+        {
+            phase += 2.0 * kPi * (n < split ? 220.0 : 246.94) / sr;
+            x[n] = static_cast<float>(0.3 * std::sin(phase));
+        }
+
+        double atStep = 0.0, midway = 0.0;
+        Run64(effect, x, [&](std::size_t end) {
+            atStep = end <= split ? effect.GetDetectedFrequency() : atStep;
+            midway = end <= split + static_cast<std::size_t>(0.1 * sr) ? effect.GetDetectedFrequency() : midway;
+        });
+        const double moved = FrequencyErrorCents(midway, atStep);
+        const double settled = FrequencyErrorCents(effect.GetDetectedFrequency(), 246.94);
+        Report(moved > 20.0 && moved < 180.0 && std::abs(settled) < 5.0, "200 ms glide over a whole tone",
+               "moved " + std::to_string(moved) + " of 200 cents in 100 ms, " + std::to_string(settled) + " at 1.1 s",
+               passed, failed);
+    }
+
+    // Informational: the cost of a 64-sample block on a plucked note.
+    {
+        guitarfx::SynthSawEffect effect;
+        effect.Prepare(sr, 64);
+        std::vector<float> x(static_cast<std::size_t>(3.0 * sr));
+        AddPluck(x, 0, 82.41, sr);
+        std::vector<double> us;
+        auto last = std::chrono::steady_clock::now();
+        Run64(effect, x, [&](std::size_t) {
+            const auto now = std::chrono::steady_clock::now();
+            us.push_back(std::chrono::duration<double, std::micro>(now - last).count());
+            last = now;
+        });
+        std::sort(us.begin(), us.end());
+        std::cout << "  Cost per 64-sample block: mean "
+                  << std::accumulate(us.begin(), us.end(), 0.0) / static_cast<double>(us.size()) << " us, p99 "
+                  << us[us.size() * 99 / 100] << " us (informational)\n";
+    }
+
+    std::cout << "\n";
+}
 } // anonymous namespace
 
 int main()
@@ -1079,6 +1260,8 @@ int main()
         }
     }
     std::cout << "\n";
+
+    TestPitchTrackerMigration(passed, failed);
 
     // Summary
     std::cout << "========================================\n";

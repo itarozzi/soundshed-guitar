@@ -20,7 +20,9 @@
 * IR normalization gain is now sample-rate compensated, so IR levels stay consistent whatever rate the host runs at.
 * Graphic EQ's Profile dropdown has been replaced by the effect Presets dropdown. The profiles are now flat band layouts listed under Factory, differing only in how many bands they have and where they sit, so choosing one no longer imposes a voicing. A newly added Graphic EQ starts flat, and your own curves are saved alongside them as effect presets.
 * Graphic EQ gained a Reset button that returns every band to 0 dB without changing the selected profile.
-* The tuner now runs on a background thread, taking its work off the audio thread.
+* **Synth Voice** follows your playing more closely: it reaches a new note up to twice as fast, tracks notes down to 45 Hz (low F# on an eight-string), and uses a small fraction of the CPU it did, so it no longer crackles at small buffers or high sample rates.
+* The **Auto Arpeggiator**'s pitch trigger now switches at the pitch you set, where it used to fire a semitone or two below it, and works at 88.2 kHz and above.
+* The tuner gives steadier readings, reads notes above about 1 kHz in the right octave, and works at 176.4 and 192 kHz.
 * Fixed long convolution reverb IRs crackling at small buffer sizes. A multi-second IR now spreads its work evenly across audio callbacks instead of doing it in one burst. With a 4.7 s plate at 48 kHz and a 64-sample buffer, the slowest callback went from 142% of the available time to 54%.
 * Fixed filters misbehaving at low or unusual sample rates: the NAM amp's presence control at 8 kHz, the simple cab at 11.025 kHz, and the built-in amp at fractional rates. These fixed-frequency filters are now kept below Nyquist.
 * macOS and Linux: turning NAM auto input calibration off no longer leaves NAM amps playing at the wrong level. The Parametric EQ, Graphic EQ and Flanger also recover from an invalid sample in their input, instead of producing bad output until the effect is rebuilt. Optimised builds had been silently removing the checks for invalid values.

@@ -590,6 +590,148 @@ bool TestAutoArpSpecific()
         allOk ? ++passed : ++failed;
     }
 
+    // Test 7: Pitch trigger. With every step at 0 st, a 5% gate and full mix, an active arp silences
+    // most of each step while an inactive one passes its input through untouched, so each block shows
+    // which it is. The trigger is judged every 2048 samples at 48 kHz (43 ms at any rate): on after
+    // two frames past the threshold, off after five short of it. So it keeps that timing at 44.1 and
+    // 96 kHz (where the old whole-frame detector found no pitch at all) and for any block size.
+    {
+        struct Note
+        {
+            double hz; // 0 for silence
+            double seconds;
+        };
+
+        // Per block: 1 when the arp changed the signal, 0 when it passed it through, -1 on silence.
+        auto run = [](double sampleRate, int block, int mode, const std::vector<Note>& notes) {
+            guitarfx::AutoArpEffect e;
+            e.Prepare(sampleRate, block);
+            const std::pair<const char*, double> params[] = {{"pattern", 4.0},
+                                                             {"numSteps", 2.0},
+                                                             {"step0", 0.0},
+                                                             {"step1", 0.0},
+                                                             {"gate", 0.05},
+                                                             {"attack", 0.0},
+                                                             {"release", 0.0},
+                                                             {"mix", 1.0},
+                                                             {"stepRate", 3.0},
+                                                             {"bpm", 300.0},
+                                                             {"pitchMode", static_cast<double>(mode)},
+                                                             {"pitchThreshold", 330.0}};
+
+            for (const auto& [key, value] : params)
+            {
+                e.SetParam(key, value);
+            }
+
+            std::vector<float> x;
+
+            for (const auto& note : notes)
+            {
+                const auto count = static_cast<size_t>(note.seconds * sampleRate);
+
+                for (size_t n = 0; n < count; ++n)
+                {
+                    double v = 0.0;
+
+                    for (int k = 1; k <= 4 && note.hz > 0.0; ++k)
+                    {
+                        v += std::sin(2.0 * kPi * k * note.hz * static_cast<double>(n) / sampleRate) / k;
+                    }
+
+                    x.push_back(static_cast<float>(0.15 * v));
+                }
+            }
+
+            std::vector<int> states;
+            std::vector<float> outL(static_cast<size_t>(block)), outR(static_cast<size_t>(block));
+
+            for (size_t start = 0; start + static_cast<size_t>(block) <= x.size(); start += static_cast<size_t>(block))
+            {
+                float* in[2] = {x.data() + start, x.data() + start};
+                float* out[2] = {outL.data(), outR.data()};
+                e.Process(in, out, block);
+                int state = -1;
+
+                for (int i = 0; i < block; ++i)
+                {
+                    const float input = x[start + static_cast<size_t>(i)];
+                    state = std::abs(input) < 1e-6f ? state : std::max(state, 0);
+                    state = std::abs(outL[static_cast<size_t>(i)] - input) > 1e-6f ? 1 : state;
+                }
+
+                states.push_back(state);
+            }
+
+            return states;
+        };
+
+        // Milliseconds from `seconds` until the first block in state `want`, or -1. The open 5% of a
+        // 25 ms step can span a whole block, so "off" needs a full step of untouched blocks.
+        auto after = [](const std::vector<int>& states, double seconds, double sampleRate, int block, int want) {
+            const auto first = static_cast<size_t>(seconds * sampleRate / block);
+            const size_t span = want == 1 ? 1 : static_cast<size_t>(std::ceil(0.025 * sampleRate / block)) + 1;
+
+            for (size_t b = first; b + span <= states.size(); ++b)
+            {
+                if (std::all_of(states.begin() + static_cast<std::ptrdiff_t>(b),
+                                states.begin() + static_cast<std::ptrdiff_t>(b + span),
+                                [want](int s) { return s == want; }))
+                {
+                    return 1000.0 * ((b + 1) * static_cast<double>(block) / sampleRate - seconds);
+                }
+            }
+
+            return -1.0;
+        };
+
+        bool timingOk = true;
+        std::string worst;
+
+        for (const double sampleRate : {44100.0, 48000.0, 96000.0})
+        {
+            for (const int block : {64, 100, 512})
+            {
+                // Above 330 Hz: on for A4, off for G3; Below: the other way round.
+                const auto above = run(sampleRate, block, 1, {{0.0, 0.3}, {440.0, 1.0}, {196.0, 1.0}});
+                const auto below = run(sampleRate, block, 2, {{0.0, 0.3}, {196.0, 1.0}, {440.0, 1.0}});
+                const double timings[] = {
+                    after(above, 0.3, sampleRate, block, 1), after(above, 1.3, sampleRate, block, 0),
+                    after(below, 0.3, sampleRate, block, 1), after(below, 1.3, sampleRate, block, 0)};
+                const bool ok = timings[0] > 60.0 && timings[0] < 200.0 && timings[1] > 150.0 && timings[1] < 320.0 &&
+                                timings[2] > 40.0 && timings[2] < 200.0 && timings[3] > 150.0 && timings[3] < 320.0;
+
+                if (!ok && worst.empty())
+                {
+                    worst = std::to_string(sampleRate) + " Hz, block " + std::to_string(block) + ": " +
+                            std::to_string(timings[0]) + "/" + std::to_string(timings[1]) + "/" +
+                            std::to_string(timings[2]) + "/" + std::to_string(timings[3]) + " ms";
+                }
+
+                timingOk = timingOk && ok;
+            }
+        }
+
+        std::cout << "  Pitch trigger on/off timing, 44.1-96 kHz:     " << (timingOk ? "PASS" : "FAIL " + worst)
+                  << "\n";
+        timingOk ? ++passed : ++failed;
+
+        // The arp lets go during silence: a low note 0.6 s after a high one plays dry at once.
+        const auto rest = run(48000.0, 64, 1, {{0.0, 0.3}, {440.0, 1.0}, {0.0, 0.6}, {196.0, 0.3}});
+        const bool released = after(rest, 1.9, 48000.0, 64, 0) >= 0.0 && after(rest, 1.9, 48000.0, 64, 1) < 0.0;
+        std::cout << "  Pitch trigger lets go in silence:            " << (released ? "PASS" : "FAIL") << "\n";
+        released ? ++passed : ++failed;
+
+        // The threshold is where it says: the old detector read a semitone or two sharp, so D#4
+        // tripped an E4 threshold. A semitone below never turns the arp on; a semitone above does.
+        // (A freshly prepared arp starts on and lets go after five quiet frames, hence the lead-in.)
+        const auto under = run(48000.0, 64, 1, {{0.0, 0.4}, {311.13, 1.0}});
+        const auto over = run(48000.0, 64, 1, {{0.0, 0.4}, {349.23, 1.0}});
+        const bool sharp = after(under, 0.4, 48000.0, 64, 1) < 0.0 && after(over, 0.4, 48000.0, 64, 1) > 0.0;
+        std::cout << "  Pitch threshold honoured to a semitone:      " << (sharp ? "PASS" : "FAIL") << "\n";
+        sharp ? ++passed : ++failed;
+    }
+
     std::cout << "AutoArp specific: " << passed << "/" << (passed + failed) << " passed.\n";
     return failed == 0;
 }

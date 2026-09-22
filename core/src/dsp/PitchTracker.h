@@ -26,18 +26,21 @@ namespace guitarfx
  * at the full sample rate.
  *
  * A guitar's fundamental lies between about 45 Hz (a low-tuned seven- or eight-string) and
- * 1.5 kHz (the 24th fret of the high E), so the tracker low-passes the input at 2 kHz and keeps
- * every Dth sample, for a rate near 12 kHz. YIN (de Cheveigne and Kawahara, 2002) then works on
- * a lag range and window a quarter as long as at 48 kHz, a sixteenth of the multiply-adds, and
- * the low-pass has already removed the upper harmonics that pull YIN an octave high. The
- * decimated lag is refined by evaluating the full-rate difference function at the few lags
- * around it and interpolating, which puts a steady tone within a cent across the range.
+ * 1.5 kHz (the 24th fret of the high E), and its natural harmonics reach 2 kHz (the high E's
+ * third- and fourth-fret harmonics), so the tracker covers 45 Hz to 2 kHz. It low-passes the
+ * input at 2 kHz and keeps every Dth sample, for a rate near 12 kHz. YIN (de Cheveigne and
+ * Kawahara, 2002) then works on a lag range and window a quarter as long as at 48 kHz, a
+ * sixteenth of the multiply-adds, and the low-pass has already removed the upper harmonics that
+ * pull YIN an octave high. The decimated lag is refined by evaluating the full-rate difference
+ * function at the few lags around it and interpolating, which puts a steady tone within a cent
+ * across the range.
  *
  * - A detection runs every 5 ms, over the newest 2 x the longest period (about 45 ms). The
  *   difference function is anchored at the newest sample, so a high note is judged on the most
  *   recent audio. The lag search stops just past the first dip, so it costs least on high notes.
  * - A lag is accepted at the first dip of the normalised difference function below 0.2, the
- *   usual YIN rule, which favours the fundamental over its subharmonics.
+ *   usual YIN rule, which favours the fundamental over its subharmonics. A first dip above
+ *   2 kHz finds nothing, rather than its subharmonic an octave down.
  * - An estimate within a semitone of the current pitch is taken straight away, so bends and
  *   vibrato are followed. A bigger jump, including a first note, must be seen on two successive
  *   detections before it is accepted, which throws out a single stray octave.
@@ -53,7 +56,7 @@ class PitchTracker
 {
   public:
     static constexpr double kMinHz = 45.0;
-    static constexpr double kMaxHz = 1500.0;
+    static constexpr double kMaxHz = 2000.0;
 
     void Prepare(double sampleRate)
     {
@@ -336,8 +339,16 @@ class PitchTracker
                 break;
             }
 
-            if (tau >= minLag && tau <= maxLag && normalised[tau] < kDipThreshold)
+            if (normalised[tau] < kDipThreshold && tau <= maxLag)
             {
+                // A first dip above the range is a pitch the tracker cannot follow; the dips after
+                // it are that pitch's subharmonics, not the pitch.
+                if (tau < minLag)
+                {
+                    mConfidence = 0.0f;
+                    return;
+                }
+
                 lag = tau;
             }
         }
