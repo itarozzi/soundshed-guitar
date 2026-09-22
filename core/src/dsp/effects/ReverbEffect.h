@@ -1247,6 +1247,8 @@ inline void RegisterReverbEffect()
         auto param = [](const std::string& id, const std::string& name, double def, double min, double max,
                         const std::string& unit, const std::string& group = "",
                         bool advanced = false) { return ParameterDef{id, name, def, min, max, unit, group, advanced}; };
+        // For the cut filters, whose ranges span decades.
+        auto logParam = [&param](auto&&... args) { return WithLogTaper(param(std::forward<decltype(args)>(args)...)); };
 
         switch (mode)
         {
@@ -1283,8 +1285,8 @@ inline void RegisterReverbEffect()
                                param("tone", "Tone", 0.62, 0.0, 1.0, "amount", "Common"),
                                param("width", "Width", 1.0, 0.0, 1.2, "amount", "Common"),
                                param("diffusion", "Diffusion", 0.7, 0.0, 1.0, "amount", "Advanced", true),
-                               param("lowCut", "Low Cut", 140.0, 20.0, 1200.0, "Hz", "Advanced", true),
-                               param("highCut", "High Cut", 12000.0, 1000.0, 20000.0, "Hz", "Advanced", true),
+                               logParam("lowCut", "Low Cut", 140.0, 20.0, 1200.0, "Hz", "Advanced", true),
+                               logParam("highCut", "High Cut", 12000.0, 1000.0, 20000.0, "Hz", "Advanced", true),
                                param("modRate", "Mod Rate", 0.45, 0.02, 8.0, "Hz", "Advanced", true),
                                param("modDepth", "Mod Depth", 0.18, 0.0, 1.0, "amount", "Advanced", true),
                                param("ducking", "Ducking", 0.08, 0.0, 1.0, "amount", "Advanced", true),

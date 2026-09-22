@@ -134,6 +134,28 @@ EffectProcessor* processor = EffectRegistry::Create("amp_nam");
 - `GetTypesByCategory(category)` — Filter by category
 - `GetTypeInfo(typeId)` — Get metadata for specific type
 
+### Parameter tapers
+A parameter's taper (`ParameterDef::taper`, `core/src/dsp/ParamTaper.h`) decides how control
+travel maps onto its range. It is linear unless the effect declares otherwise. A **log** taper
+spaces the range by ratio, so each stretch of travel covers the same number of octaves: on the
+ring modulator's 1–2000 Hz Frequency, 1–100 Hz takes 60% of the sweep instead of 5%, and half
+travel is the geometric mean, 44.7 Hz. It applies everywhere a 0..1 position meets the range:
+the knob's drag, wheel and indicator (`core/ui/ts/paramTaper.ts`), a custom layout's slider,
+and MIDI and DAW automation of a `node.*` slot (`AutomationSlotTable`). Values are stored and
+sent in native units either way, so declaring a taper changes no preset; it does change where
+existing automation lands.
+
+Declare it with `LogTaper({...})` on an `EffectParamSpec`, which fails the build if the range is
+not positive and increasing, or `WithLogTaper({...})` on an inline `ParameterDef`, which
+`AutomationNodeParamRangeTests` checks for every registered effect. The effect catalog sends
+`"taper": "log"` only for a tapered parameter, so an older UI sees the catalog it always did. A
+composite's exposed parameter with `"curve": "log"` gets the log taper; `"exp"` stays linear.
+Over a range it cannot map (a node narrowing it, a composite declaring one), a log taper falls
+back to linear on both sides.
+
+Log-taper parameters: `ring_mod` `frequency`; `delay_digital` `highCut` and `lowCut`; `cab_ir`
+`lowCutHz` and `highCutHz`; `reverb_advanced` `lowCut` and `highCut`.
+
 ## Effect Categories
 
 | Category | Description | Examples |
@@ -551,8 +573,8 @@ Advanced controls:
 | Parameter | Range | Default | Unit |
 |-----------|-------|---------|------|
 | `diffusion` | 0.0–1.0 | 0.74 | — |
-| `lowCut` | 20–1200 | 140 | Hz |
-| `highCut` | 1000–20000 | 7600 | Hz |
+| `lowCut` | 20–1200 | 140 | Hz, log taper |
+| `highCut` | 1000–20000 | 7600 | Hz, log taper |
 | `modRate` | 0.02–8.0 | 0.28 | Hz |
 | `modDepth` | 0.0–1.0 | 0.26 | — |
 | `ducking` | 0.0–1.0 | 0.08 | — |
@@ -872,7 +894,7 @@ deadline. A block that runs a pitch detection costs 8–16 µs at the 99th perce
 
 | Parameter | Range | Default | Unit | Group |
 |-----------|-------|---------|------|-------|
-| `frequency` | 1–2000 | 440 | Hz | Carrier |
+| `frequency` | 1–2000 | 440 | Hz, log taper | Carrier |
 | `waveform` | Sine / Triangle / Square | Sine | enum | Carrier |
 | `mode` | Fixed / Tracking | Fixed | enum | Carrier |
 | `interval` | -24…24 | 0 | semitones, whole | Tracking |
@@ -888,8 +910,9 @@ deadline. A block that runs a pitch detection costs 8–16 µs at the 99th perce
 | `level` | -12…12 | 0 | dB (wet) | Output |
 | `mix` | 0–1 | 1 | — | Output |
 
-The knob is linear, so the growl region below about 100 Hz sits in the first few percent of its
-travel; double-click the value to type one. In Tracking mode Frequency is only the fallback
+Frequency is on a log taper (see [Parameter tapers](#parameter-tapers)): the growl region below
+100 Hz takes the first 60% of the knob's travel, and an expression pedal mapped to it sweeps the
+same way. Double-click the value to type an exact one. In Tracking mode Frequency is only the fallback
 before a first note. Read-only feedback: `carrierFrequency` (the left carrier, LFO included),
 `trackedFrequency` (the pitch the tracker holds, 0 before a first note) and `effectiveRate`
 (the LFO rate, after tempo sync).

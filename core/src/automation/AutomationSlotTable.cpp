@@ -37,11 +37,13 @@ bool IsBoundaryGainNodeParam(const std::string& effectType, const std::string& p
     return paramId == kBoundaryGainParam && (effectType == kNodeTypeInput || effectType == kNodeTypeOutput);
 }
 
-/// Maps a slot's 0..1 value onto a parameter's range, snapped to the range's step, or to a
-/// whole index for an enum.
-double DenormalizeNodeParam(const ParamRange& range, bool isEnum, double normalized)
+/// Maps a slot's 0..1 value onto a parameter's range along its taper, snapped to the range's
+/// step, or to a whole index for an enum. A log taper sweeps a frequency by octaves, so an
+/// expression pedal spends its travel evenly across the range as it is heard.
+double DenormalizeNodeParam(const ParamRange& range, bool isEnum, double normalized,
+                            ParamTaper taper = ParamTaper::Linear)
 {
-    double native = range.minValue + normalized * (range.maxValue - range.minValue);
+    double native = TaperPositionToValue(taper, range.minValue, range.maxValue, normalized);
 
     if (range.step > 0.0)
     {
@@ -717,14 +719,15 @@ bool AutomationSlotTable::ApplySlotLocked(AutomationSlot& slot)
             // Every source hands a slot a 0..1 value, but an effect takes its parameters in
             // native units. A parameter the effect does not declare has no range to map onto,
             // so it keeps the 0..1 value. The node may narrow the declared range with its own
-            // settings, as a pitch shift does to bound an expression pedal's sweep.
+            // settings, as a pitch shift does to bound an expression pedal's sweep; the declared
+            // taper then applies across the narrowed range.
             double native = static_cast<double>(slot.value.load());
 
             if (const auto* def = mEffectRegistry ? mEffectRegistry->FindParameter(effectType, paramId) : nullptr)
             {
                 ParamRange range{def->minValue, def->maxValue, def->step};
                 mMixer->GetNodeAutomationRangeByType(effectType, paramId, range);
-                native = DenormalizeNodeParam(range, !def->labels.empty(), native);
+                native = DenormalizeNodeParam(range, !def->labels.empty(), native, def->taper);
             }
             else if (IsBoundaryGainNodeParam(effectType, paramId))
             {

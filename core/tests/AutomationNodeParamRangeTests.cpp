@@ -9,16 +9,23 @@
  *
  * A node can narrow that range with its own settings: an expression pedal on a pitch shift
  * sweeps the node's Range Min..Range Max, in whole semitones only while it snaps.
+ *
+ * A parameter on a log taper is swept by ratio instead: a pedal on the ring modulator's
+ * 1-2000 Hz Frequency reaches 44.7 Hz, the geometric mean, at half travel, not 1000 Hz.
  */
 
 #include <cmath>
 #include <iostream>
+#include <limits>
 #include <optional>
 #include <string>
+#include <utility>
 
 #include "automation/AutomationSlotTable.h"
+#include "dsp/EffectGuids.h"
 #include "dsp/EffectRegistry.h"
 #include "dsp/MultiPresetMixer.h"
+#include "dsp/ParamTaper.h"
 #include "dsp/effects/BuiltinEffects.h"
 #include "presets/PresetTypes.h"
 #include "resources/ResourceLibrary.h"
@@ -58,15 +65,89 @@ Preset MakeRangePreset()
     pitch.params["minSemitones"] = kPitchRangeMin;
     pitch.params["maxSemitones"] = kPitchRangeMax;
     pitch.params["stepMode"] = 1.0;
+    GraphNode ring{"r1", "ring_mod", "modulation", "Ring Mod", true};
+    ring.params["frequency"] = 440.0;
     GraphNode out{"out", kNodeTypeOutput, "", "Output", true};
 
-    preset.graph.nodes = {in, gain, pitch, out};
+    preset.graph.nodes = {in, gain, pitch, ring, out};
     preset.graph.edges = {
         GraphEdge{"in", "g1", 0, 0, 1.0},
         GraphEdge{"g1", "p1", 0, 0, 1.0},
-        GraphEdge{"p1", "out", 0, 0, 1.0},
+        GraphEdge{"p1", "r1", 0, 0, 1.0},
+        GraphEdge{"r1", "out", 0, 0, 1.0},
     };
     return preset;
+}
+
+/// The taper arithmetic on its own: exact ends, an inverse that round-trips, and a fallback
+/// to linear for a range a log taper cannot map, rather than a NaN.
+bool TestTaperMaths()
+{
+    bool passed = true;
+    const auto logTaper = ParamTaper::Log;
+    const auto linearTaper = ParamTaper::Linear;
+
+    passed &= Expect(TaperPositionToValue(logTaper, 20.0, 20000.0, 0.0) == 20.0 &&
+                         TaperPositionToValue(logTaper, 20.0, 20000.0, 1.0) == 20000.0,
+                     "A log taper should land exactly on both ends");
+    passed &= Expect(std::abs(TaperPositionToValue(logTaper, 20.0, 20000.0, 1.0 / 3.0) - 200.0) < 1e-9,
+                     "A third of the way along 20 Hz..20 kHz should be one decade up, 200 Hz");
+    passed &= Expect(std::abs(TaperPositionToValue(linearTaper, 20.0, 20000.0, 0.5) - 10010.0) < 1e-9,
+                     "A linear taper should be unchanged");
+
+    for (const double position : {0.0, 0.1, 0.25, 0.5, 0.9, 1.0})
+    {
+        const double value = TaperPositionToValue(logTaper, 1.0, 2000.0, position);
+        passed &= Expect(std::abs(TaperValueToPosition(logTaper, 1.0, 2000.0, value) - position) < 1e-12,
+                         "Value to position should invert position to value at " + std::to_string(position));
+    }
+
+    passed &= Expect(TaperPositionToValue(logTaper, 0.0, 1.0, 0.5) == 0.5 &&
+                         TaperPositionToValue(logTaper, -12.0, 12.0, 0.5) == 0.0,
+                     "A log taper over a range that is not positive should fall back to linear");
+    passed &= Expect(TaperPositionToValue(logTaper, 1.0, 2000.0, 1.5) == 2000.0 &&
+                         TaperPositionToValue(logTaper, 1.0, 2000.0, -0.5) == 1.0,
+                     "A position outside 0..1 should clamp to the range");
+    passed &= Expect(TaperPositionToValue(logTaper, 1.0, 2000.0, std::numeric_limits<double>::quiet_NaN()) == 1.0,
+                     "A non-finite position should read as the bottom of the range");
+    passed &= Expect(ParseParamTaper("log") == logTaper && ParseParamTaper("linear") == linearTaper &&
+                         !ParseParamTaper("exp").has_value(),
+                     "Taper names should parse, and an unknown one should not");
+    return passed;
+}
+
+/// Every log taper the registry declares must have a range it can map, and the wide frequency
+/// controls the taper was made for must be on it.
+bool TestRegisteredTapers()
+{
+    bool passed = true;
+    const auto& registry = EffectRegistry::Instance();
+
+    for (const auto& info : registry.GetAllTypes())
+    {
+        for (const auto& param : info.parameters)
+        {
+            passed &= Expect(IsTaperRangeValid(param.taper, param.minValue, param.maxValue),
+                             info.type + "." + param.id + " declares a log taper over a range it cannot map");
+        }
+    }
+
+    const std::pair<const char*, const char*> expectedLog[] = {
+        {EffectGuids::kRingMod, "frequency"},     {EffectGuids::kDelayDigital, "highCut"},
+        {EffectGuids::kDelayDigital, "lowCut"},   {EffectGuids::kCabIr, "lowCutHz"},
+        {EffectGuids::kCabIr, "highCutHz"},       {EffectGuids::kReverbAdvanced, "lowCut"},
+        {EffectGuids::kReverbAdvanced, "highCut"}};
+
+    for (const auto& [type, paramId] : expectedLog)
+    {
+        const auto* def = registry.FindParameter(type, paramId);
+        passed &= Expect(def && def->taper == ParamTaper::Log,
+                         std::string(type) + "." + paramId + " should be on a log taper");
+    }
+
+    const auto* mix = registry.FindParameter(EffectGuids::kRingMod, "mix");
+    passed &= Expect(mix && mix->taper == ParamTaper::Linear, "An undeclared taper should be linear");
+    return passed;
 }
 
 bool ExpectParam(const MultiPresetMixer& mixer, const std::string& type, const std::string& paramId, double expected,
@@ -196,6 +277,46 @@ int main()
     mixer.SetNodeParam(preset.id, "p1", "maxSemitones", 12.0);
     table.HandleMidi(MidiEvent{0xB0, 11, 0, 0});
     allPassed &= ExpectSemitones(mixer, -12.0, "A widened range should reach its new min");
+
+    // A pedal on a log-taper parameter sweeps it by ratio: every stretch of travel covers the
+    // same number of octaves, so the 1-100 Hz growl region gets 60% of it, not 5%.
+    const auto* frequency = EffectRegistry::Instance().FindParameter("ring_mod", "frequency");
+
+    if (!frequency || frequency->taper != ParamTaper::Log)
+    {
+        std::cerr << "The ring modulator must declare frequency on a log taper" << std::endl;
+        return 1;
+    }
+
+    MidiControlMap ringMap = midiMap;
+    ringMap.controller = 12;
+
+    const bool ringCreated = table.SetCustomSlot("custom.ring", std::optional<std::string>("Carrier"),
+                                                 std::optional<std::string>("node.ring_mod.frequency"), std::nullopt,
+                                                 std::optional<MidiControlMap>(ringMap), std::nullopt);
+    allPassed &= Expect(ringCreated, "Failed to create the ring modulator slot");
+
+    const auto hzAt = [frequency](double normalized) {
+        return frequency->minValue * std::pow(frequency->maxValue / frequency->minValue, normalized);
+    };
+
+    table.HandleMidi(MidiEvent{0xB0, 12, 0, 0});
+    allPassed &= ExpectParam(mixer, "ring_mod", "frequency", frequency->minValue, "CC 0 should reach 1 Hz");
+
+    table.HandleMidi(MidiEvent{0xB0, 12, 127, 0});
+    allPassed &= ExpectParam(mixer, "ring_mod", "frequency", frequency->maxValue, "CC 127 should reach 2 kHz");
+
+    table.HandleMidi(MidiEvent{0xB0, 12, 64, 0});
+    allPassed &= ExpectParam(mixer, "ring_mod", "frequency", hzAt(64.0 / 127.0), "CC 64 should land mid-way by ratio");
+    allPassed &= Expect(notifiedValue.has_value() && std::abs(*notifiedValue - hzAt(64.0 / 127.0)) < kToleranceDb,
+                        "The frequency notification should carry Hz");
+
+    table.ApplyAutomationLocked("custom.ring", 0.5f, AutomationSource::DAW);
+    allPassed &= ExpectParam(mixer, "ring_mod", "frequency", std::sqrt(frequency->minValue * frequency->maxValue),
+                             "A DAW value of 0.5 should land on the geometric mean, 44.7 Hz");
+
+    allPassed &= TestTaperMaths();
+    allPassed &= TestRegisteredTapers();
 
     if (allPassed)
     {

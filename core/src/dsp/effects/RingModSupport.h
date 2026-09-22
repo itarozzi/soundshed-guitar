@@ -122,7 +122,7 @@ inline constexpr const char* kLfoShapeLabels[] = {"Sine", "Triangle", "Square", 
 
 /// In `Param` order, which is also the order the UI lays the controls out in.
 inline constexpr std::array<EffectParamSpec, kParamCount> kParams = {{
-    {"frequency", "Frequency", 440.0, 1.0, 2000.0, "Hz", "Carrier", false, 0.0, {}},
+    LogTaper({"frequency", "Frequency", 440.0, 1.0, 2000.0, "Hz", "Carrier", false, 0.0, {}}),
     {"waveform", "Waveform", 0.0, 0.0, 2.0, "enum", "Carrier", false, 1.0, kWaveformLabels},
     {"mode", "Mode", 0.0, 0.0, 1.0, "enum", "Carrier", false, 1.0, kModeLabels},
     {"interval", "Interval", 0.0, -24.0, 24.0, "st", "Tracking", false, 1.0, {}},

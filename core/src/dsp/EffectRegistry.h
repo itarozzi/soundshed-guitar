@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "dsp/ParamTaper.h"
 #include "presets/PresetTypes.h"
 
 namespace guitarfx
@@ -33,7 +34,18 @@ struct ParameterDef
     // folds them onto `id`, so one parameter never occupies two keys in a node's param map
     // and the order the executor happens to apply them in cannot decide which value wins.
     std::vector<std::string> aliases;
+    // How a knob, a MIDI controller or a DAW lane travels across min..max. Last, so the
+    // positional initialisers effects use keep meaning what they did; absent means linear.
+    ParamTaper taper = ParamTaper::Linear;
 };
+
+/// `def` on a log taper, for an effect that declares its parameters inline. The range must be
+/// positive and increasing; AutomationNodeParamRangeTests holds every registered one to that.
+[[nodiscard]] inline ParameterDef WithLogTaper(ParameterDef def)
+{
+    def.taper = ParamTaper::Log;
+    return def;
+}
 
 /**
  * A reusable parameter template supplied by an effect type.

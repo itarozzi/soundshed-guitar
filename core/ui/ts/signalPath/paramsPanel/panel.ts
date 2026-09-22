@@ -9,6 +9,7 @@ import { isNodeBypassed } from "../../graphNodes.js";
 import { renderIcon } from "../../iconAssets.js";
 import { resolveLayoutForNode } from "../../layoutPreferences.js";
 import { formatParamValue, renderCustomLayout, renderCustomLayoutBackdrop } from "../../layoutRenderer.js";
+import { effectiveTaper } from "../../paramTaper.js";
 import { EffectTypeRegistry, getNodeEffectInfo } from "../../presetV2.js";
 import { blendKnobDataAttributes, type BlendParamDef } from "../../blendUtils.js";
 import { bindBlendEditorControls, computeBlendParamRange, denormalizeBlendValue, getBlendKnobBinding, getBlendState, normalizeBlendValue } from "../../signalPathBlend.js";
@@ -134,6 +135,9 @@ export function showNodeParamsPanel(node: GraphNode, preset: Preset): void {
     const step = pitchRange ? pitchRange.step : (typeof paramDef.step === "number" ? paramDef.step : undefined);
     const enumLabels = Array.isArray(paramDef.labels) ? paramDef.labels : [];
     const isEnum = unit === "enum" && enumLabels.length > 0;
+    // A blend knob shows its blend spec's scale, and a pitch shift's the node's own range;
+    // neither is the range the taper was declared over.
+    const taper = isBlendParam || pitchRange ? "linear" : effectiveTaper(paramDef.taper, min, max);
 
     if (isToggle) {
       const checked = value >= 0.5;
@@ -188,12 +192,13 @@ export function showNodeParamsPanel(node: GraphNode, preset: Preset): void {
           data-unit="${unit}"
           ${step !== undefined ? `data-step="${step}"` : ""}
           ${isEnum ? `data-labels="${enumLabels.join("|")}"` : ""}
+          ${taper === "log" ? `data-taper="log"` : ""}
           ${paramDef.blend ? blendKnobDataAttributes(paramDef.blend) : ""}
         >
           ${isBlendParam ? `<div class="knob-mapped-points"></div>` : ""}
           <div class="knob-indicator"></div>
         </div>
-        <span class="node-param-value">${formatParamValue(displayValue, unit, enumLabels)}</span>
+        <span class="node-param-value">${formatParamValue(displayValue, unit, enumLabels, taper)}</span>
        
       </div>
     `;

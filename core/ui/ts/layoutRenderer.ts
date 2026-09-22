@@ -7,6 +7,7 @@
 import { uiState } from "./state.js";
 import { blendKnobDataAttributes, denormalizeBlendValue, type BlendParamDef } from "./blendUtils.js";
 import { renderIcon } from "./iconAssets.js";
+import { effectiveTaper, formatTaperedValue, valueToTaperPosition, type ParamTaper } from "./paramTaper.js";
 import { escapeHtml } from "./utils.js";
 import { ensureLayoutImagesLoaded } from "./layoutImages.js";
 import { resourceBrowserModal } from "./resourceBrowser.js";
@@ -385,9 +386,11 @@ function renderControls(
       const value = typeof rawValue === "number"
         ? (blendBinding ? denormalizeBlendValue(rawValue, { min: blendBinding.specMin, max: blendBinding.specMax }) : rawValue)
         : defaultValue ?? 0;
+      // A blend knob is drawn on its blend spec's scale, which has no taper of its own.
+      const taper = blendBinding ? "linear" : effectiveTaper(paramDef?.taper, min ?? 0, max ?? 1);
       const displayValue = isResourceControl
         ? ""
-        : formatParamValue(value, unit, labels);
+        : formatParamValue(value, unit, labels, taper);
       const label = control.labelOverride
         || (isResourceControl ? resourceDef?.displayName : paramDef?.name)
         || control.paramKey;
@@ -535,6 +538,26 @@ function renderControls(
             <span class="toggle-slider"></span>
           </label>
         `;
+      } else if (control.type === "slider" && taper === "log") {
+        // A log-taper slider runs over its travel, 0..1; bindNodeParamControls maps it back
+        // through data-min/data-max. Unstepped, so a drag is as smooth as a knob's.
+        controlHtml += `
+          <input
+            type="range"
+            class="custom-layout-slider node-param-slider"
+            data-node-id="${node.id}"
+            data-param-key="${key}"
+            data-value="${value}"
+            data-default="${defaultValue ?? 0}"
+            data-min="${min ?? 0}"
+            data-max="${max ?? 1}"
+            data-taper="log"
+            min="0"
+            max="1"
+            step="any"
+            value="${valueToTaperPosition(value, min ?? 0, max ?? 1, taper)}"
+          >
+        `;
       } else if (control.type === "slider") {
         // Slider
         controlHtml += `
@@ -575,6 +598,7 @@ function renderControls(
             data-unit="${unit || "amount"}"
             ${step !== undefined ? `data-step="${step}"` : ""}
             ${isEnum ? `data-labels="${labels?.join("|") ?? ""}"` : ""}
+            ${taper === "log" ? `data-taper="log"` : ""}
             ${blendAttrs}
             ${customKnobAttr}
             style="${knobBg}"
@@ -625,14 +649,18 @@ function renderTextLabels(labels: LayoutTextLabel[]): string {
  * Format a parameter value for display.
  * Returns just the number for generic "amount" units to keep labels compact.
  * Exported so the signal-path renderer and designer preview share identical formatting.
+ * A log-taper value, which can run from 1.25 to 18,000, is shown to about three figures.
  */
-export function formatParamValue(value: number, unit?: string, labels?: string[]): string {
+export function formatParamValue(value: number, unit?: string, labels?: string[], taper?: ParamTaper): string {
   if (unit === "toggle") {
     return value >= 0.5 ? "On" : "Off";
   }
   if (unit === "enum" && Array.isArray(labels)) {
     const index = Math.round(value);
     return labels[index] ?? `${index}`;
+  }
+  if (taper === "log") {
+    return formatTaperedValue(value, unit);
   }
   if (unit === "dB" || unit === "ms" || unit === "Hz") {
     return `${value.toFixed(1)}${unit}`;

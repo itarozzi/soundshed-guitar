@@ -10,7 +10,11 @@
 
 import { appendLog } from "./logging.js";
 import { setParameter } from "./bridge.js";
+import { effectiveTaper, taperPositionToValue, valueToTaperPosition, type ParamTaper } from "./paramTaper.js";
 import { clampValue, countStepDecimals, deriveRangeStep } from "./utils.js";
+
+/** A wheel notch on a tapered knob moves this share of its travel: 100 notches end to end. */
+const TAPER_WHEEL_NOTCH = 0.01;
 
 export interface KnobConfig {
   knobElement: HTMLElement;
@@ -24,6 +28,12 @@ export interface KnobConfig {
   labelElement?: HTMLElement | null;
   sensitivity?: number;
   stepValue?: number;
+  /**
+   * How the knob travels across min..max; absent means linear. On a log taper a drag or a
+   * wheel notch moves an equal share of the travel, which is an equal ratio of the value,
+   * and a full sweep takes the same drag as it would on a linear one.
+   */
+  taper?: ParamTaper;
   onValueChange?: (value: number) => void;
   onValueCommit?: (value: number) => void;
   sendParameter?: boolean;
@@ -42,6 +52,10 @@ export class GenericKnob {
   private editableValueElement: HTMLElement | null;
   private sensitivity: number;
   private stepValue: number;
+  private explicitStep: number | undefined;
+  private declaredTaper: ParamTaper | undefined;
+  /** The declared taper as it applies to the current range (see effectiveTaper). */
+  private taper: ParamTaper;
   private onValueChange?: (value: number) => void;
   private onValueCommit?: (value: number) => void;
   private sendParameter: boolean;
@@ -61,6 +75,9 @@ export class GenericKnob {
     this.displayFormat = config.displayFormat;
     this.sensitivity = config.sensitivity ?? 0.5;
     this.stepValue = deriveRangeStep(this.minValue, this.maxValue, config.stepValue);
+    this.explicitStep = Number.isFinite(config.stepValue) && (config.stepValue ?? 0) > 0 ? config.stepValue : undefined;
+    this.declaredTaper = config.taper;
+    this.taper = effectiveTaper(this.declaredTaper, this.minValue, this.maxValue);
     this.onValueChange = config.onValueChange;
     this.onValueCommit = config.onValueCommit;
     this.sendParameter = config.sendParameter ?? true;
@@ -196,9 +213,7 @@ export class GenericKnob {
     if (!this.isDragging) return;
     if (this.activePointerId != null && (e.pointerId ?? null) !== this.activePointerId) return;
 
-    const deltaY = this.startY - e.clientY;
-    let newValue = this.startValue + deltaY * this.sensitivity;
-    newValue = clampValue(newValue, this.minValue, this.maxValue);
+    const newValue = this.dragValue(this.startY - e.clientY);
 
     this.currentValue = newValue;
     this.knobElement.dataset.value = newValue.toString();
@@ -206,6 +221,36 @@ export class GenericKnob {
 
     this.emitLiveValue(this.currentValue);
     // No need to preventDefault on every move for pointer (capture handles delivery)
+  }
+
+  /** The value `deltaY` pixels of upward drag from where the drag started. */
+  private dragValue(deltaY: number): number {
+    if (this.taper === "linear") {
+      return clampValue(this.startValue + deltaY * this.sensitivity, this.minValue, this.maxValue);
+    }
+
+    // Through the taper, at the rate that sweeps a linear knob end to end, so the whole
+    // travel is the same drag either way. effectiveTaper guarantees a positive span here.
+    const span = this.maxValue - this.minValue;
+    const startPosition = valueToTaperPosition(this.startValue, this.minValue, this.maxValue, this.taper);
+    const position = startPosition + (deltaY * this.sensitivity) / span;
+    return taperPositionToValue(position, this.minValue, this.maxValue, this.taper);
+  }
+
+  /** The value one wheel notch up (1) or down (-1) from the current one. */
+  private wheelValue(direction: 1 | -1): number {
+    if (this.taper === "linear") {
+      return this.currentValue + direction * this.stepValue;
+    }
+
+    const position = valueToTaperPosition(this.currentValue, this.minValue, this.maxValue, this.taper);
+    const next = taperPositionToValue(position + direction * TAPER_WHEEL_NOTCH, this.minValue, this.maxValue, this.taper);
+    // Low on a log taper a notch can be smaller than a declared step, which the caller's
+    // snap would then undo; move at least one step.
+    if (this.explicitStep !== undefined && Math.abs(next - this.currentValue) < this.explicitStep) {
+      return this.currentValue + direction * this.explicitStep;
+    }
+    return next;
   }
 
   private onPointerUp(e: PointerEvent): void {
@@ -234,9 +279,7 @@ export class GenericKnob {
   private onMouseMove(e: MouseEvent): void {
     if (!this.isDragging) return;
 
-    const deltaY = this.startY - e.clientY;
-    let newValue = this.startValue + deltaY * this.sensitivity;
-    newValue = clampValue(newValue, this.minValue, this.maxValue);
+    const newValue = this.dragValue(this.startY - e.clientY);
 
     this.currentValue = newValue;
     this.knobElement.dataset.value = newValue.toString();
@@ -259,8 +302,7 @@ export class GenericKnob {
 
     e.preventDefault();
     this.knobElement.focus();
-    const delta = e.deltaY < 0 ? this.stepValue : -this.stepValue;
-    this.applyValue(this.currentValue + delta, true);
+    this.applyValue(this.wheelValue(e.deltaY < 0 ? 1 : -1), true);
   }
 
   private onValueDoubleClick(e: MouseEvent): void {
@@ -279,7 +321,9 @@ export class GenericKnob {
     input.className = "knob-inline-editor";
     input.min = this.minValue.toString();
     input.max = this.maxValue.toString();
-    input.step = this.stepValue.toString();
+    // A derived step on a log taper spans a whole low decade (19.99 on 1-2000 Hz), so leave
+    // the typed value free rather than flag every exact entry as off-step.
+    input.step = this.taper === "log" && this.explicitStep === undefined ? "any" : this.stepValue.toString();
     input.value = this.currentValue.toFixed(countStepDecimals(this.stepValue));
 
     this.inlineEditor = input;
@@ -365,7 +409,9 @@ export class GenericKnob {
     this.knobElement.setAttribute("aria-valuetext", this.displayFormat(value));
 
     const span = this.maxValue - this.minValue;
-    const pct = span > 0 ? (value - this.minValue) / span : 0;
+    const pct = this.taper === "linear"
+      ? (span > 0 ? (value - this.minValue) / span : 0)
+      : valueToTaperPosition(value, this.minValue, this.maxValue, this.taper);
     const rotation = pct * 270 - 135;
     this.knobElement.style.setProperty("--knob-pct", pct.toString());
     const indicator = this.knobElement.querySelector(".knob-indicator") as HTMLElement | null;
@@ -402,6 +448,8 @@ export class GenericKnob {
     this.minValue = minValue;
     this.maxValue = maxValue;
     this.stepValue = deriveRangeStep(minValue, maxValue, stepValue);
+    this.explicitStep = Number.isFinite(stepValue) && (stepValue ?? 0) > 0 ? stepValue : undefined;
+    this.taper = effectiveTaper(this.declaredTaper, minValue, maxValue);
     this.knobElement.dataset.min = minValue.toString();
     this.knobElement.dataset.max = maxValue.toString();
     if (stepValue !== undefined) {

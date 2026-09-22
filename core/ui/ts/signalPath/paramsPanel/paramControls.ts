@@ -4,6 +4,7 @@
  */
 
 import { GenericKnob, enhanceRangeInput } from "../../controls.js";
+import { formatTaperedValue, parseParamTaper, taperPositionToValue } from "../../paramTaper.js";
 import { getNodeEffectInfo } from "../../presetV2.js";
 import { BLEND_MAPPING_EPS, buildParameterMapFromLegacy, getBlendState, normalizeBlendValue, updateBlendMatchSummary, updateBlendParamIndicators } from "../../signalPathBlend.js";
 import type { BlendParamSpec } from "../../signalPathBlend.js";
@@ -72,7 +73,16 @@ export function bindNodeParamControls(node: GraphNode, preset: Preset): void {
       const nodeId = input.dataset.nodeId;
       const paramKey = input.dataset.paramKey;
       if (nodeId && paramKey) {
-        const value = parseFloat(input.value);
+        // A log-taper slider runs over its travel, 0..1, with the range in data-min/data-max.
+        const sliderTaper = parseParamTaper(input.dataset.taper);
+        const value = sliderTaper === "log"
+          ? taperPositionToValue(
+            parseFloat(input.value),
+            parseFloat(input.dataset.min ?? "0"),
+            parseFloat(input.dataset.max ?? "1"),
+            sliderTaper,
+          )
+          : parseFloat(input.value);
         // A blend knob laid out as a slider shows its parameter's scale; the engine takes 0..1.
         const blendSpec = input.dataset.blendParam === "true"
           ? { min: parseFloat(input.dataset.blendSpecMin ?? "0"), max: parseFloat(input.dataset.blendSpecMax ?? "10") }
@@ -94,7 +104,9 @@ export function bindNodeParamControls(node: GraphNode, preset: Preset): void {
         } else if (valueEl) {
           const paramDef = getNodeEffectInfo(node)?.parameters.find((p) => p.key === paramKey);
           if (paramDef) {
-            if (paramDef.unit === "dB" || paramDef.unit === "ms" || paramDef.unit === "Hz") {
+            if (sliderTaper === "log") {
+              valueEl.textContent = formatTaperedValue(value, paramDef.unit);
+            } else if (paramDef.unit === "dB" || paramDef.unit === "ms" || paramDef.unit === "Hz") {
               valueEl.textContent = `${value.toFixed(1)}${paramDef.unit}`;
             } else if (paramDef.unit === "enum" && Array.isArray(paramDef.labels)) {
               valueEl.textContent = paramDef.labels[Math.round(value)] ?? `${Math.round(value)}`;
@@ -230,6 +242,7 @@ export function bindNodeParamControls(node: GraphNode, preset: Preset): void {
     const labels = (knob.dataset.labels || "").split("|").filter(Boolean);
     const isEnum = unit === "enum" && labels.length > 0;
     const isBlendParam = knob.dataset.blendParam === "true";
+    const taper = parseParamTaper(knob.dataset.taper);
     const blendSpecMin = knob.dataset.blendSpecMin ? parseFloat(knob.dataset.blendSpecMin) : 0;
     const blendSpecMax = knob.dataset.blendSpecMax ? parseFloat(knob.dataset.blendSpecMax) : 10;
     const blendMode = (knob.dataset.blendMode ?? "interpolate") as BlendMode;
@@ -263,6 +276,9 @@ export function bindNodeParamControls(node: GraphNode, preset: Preset): void {
           ? `L${Math.abs(rawValue * 100).toFixed(0)}`
           : `R${(rawValue * 100).toFixed(0)}`;
       }
+      if (taper === "log") {
+        return formatTaperedValue(rawValue, unit);
+      }
       return `${rawValue.toFixed(2)}${unit === "amount" ? "" : unit}`;
     };
 
@@ -277,6 +293,7 @@ export function bindNodeParamControls(node: GraphNode, preset: Preset): void {
       labelElement: knob.parentElement?.querySelector(".node-param-label, .custom-control-label") as HTMLElement | null,
       sensitivity,
       stepValue: step,
+      taper,
       sendParameter: false,
       onValueChange: (value) => {
         if (!nodeId || !paramKey) return;

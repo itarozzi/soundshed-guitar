@@ -29,6 +29,7 @@
 #include <utility>
 #include <vector>
 
+#include "controller/internal/ControllerUtils.h"
 #include "dsp/EffectGuids.h"
 #include "dsp/EffectProcessor.h"
 #include "dsp/EffectRegistry.h"
@@ -66,6 +67,18 @@ void TestRegistration()
     }
 
     Check(ordered, "parameters are declared in table order", std::to_string(info->parameters.size()) + " params");
+
+    // Frequency spans three decades, so its knob travels by ratio, and the catalog says so.
+    // Only a tapered parameter carries the field, so an older UI's catalog is unchanged.
+    const auto& frequency = info->parameters[guitarfx::ring_mod::kFrequency];
+    const auto frequencyJson = guitarfx::controller_detail::SerializeEffectParameter(frequency);
+    const auto mixJson =
+        guitarfx::controller_detail::SerializeEffectParameter(info->parameters[guitarfx::ring_mod::kMix]);
+    Check(frequency.taper == guitarfx::ParamTaper::Log, "Frequency is on a log taper");
+    Check(frequencyJson.value("taper", "") == "log", "the catalog sends it as taper: log", frequencyJson.dump());
+    Check(!mixJson.contains("taper"), "a linear parameter sends no taper", mixJson.dump());
+    Check(std::abs(guitarfx::TaperPositionToValue(frequency.taper, 1.0, 2000.0, 0.5) - std::sqrt(2000.0)) < 1e-9,
+          "half its travel is the range's geometric mean, 44.7 Hz");
 
     RingModEffect ring;
     ring.SetParam("frequency", 99999.0);

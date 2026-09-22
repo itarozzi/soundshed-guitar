@@ -140,7 +140,8 @@ merging, and verification of both saved data and the audio path.
 4. Define parameters (ranges, defaults) and category, as a `constexpr std::array<EffectParamSpec, N>`
    (`core/src/dsp/EffectParamSpec.h`): the one place the ranges live. `BuildParameterDefs` registers
    them, and `FindParamSpec`/`NormaliseParamValue` serve SetParam and GetParam without allocating
-   (see WahEffect, SimpleCabEffect).
+   (see WahEffect, SimpleCabEffect). A range spanning decades, a frequency most often, wants
+   `LogTaper({...})` so the knob and automation move by ratio (docs/fx-library.md, Parameter tapers).
 5. Design filters with `core/src/dsp/BiquadDesign.h` (RBJ designs clamped below Nyquist, their
    responses, TDF-II state, coefficient ramps) rather than another copy of the cookbook. An effect
    with a fixed, linear response should override `GetFrequencyResponse`: the engine can then answer

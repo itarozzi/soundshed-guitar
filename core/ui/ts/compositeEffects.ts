@@ -231,6 +231,8 @@ function registerCompositeEffectType(def: CompositeEffectDefinition): void {
       min: ep.minValue ?? 0,
       max: ep.maxValue ?? 1,
       unit: ep.unit ?? "",
+      // As the engine registers it: a "log" curve is the log taper, "exp" stays linear.
+      taper: ep.curve === "log" ? "log" as const : undefined,
     })),
     exposedResources: (def.exposedResources ?? []).map((er, declarationIndex) => ({
       resourceId: er.resourceId,

@@ -32,7 +32,22 @@ struct EffectParamSpec
     bool advanced = false;
     double step = 0.0;                        ///< 0 = continuous
     std::span<const char* const> labels = {}; ///< an enum's choices, in value order
+    ParamTaper taper = ParamTaper::Linear;    ///< set with LogTaper(), which checks the range
 };
+
+/// `spec` on a log taper, for a range that spans decades, a frequency most often: equal
+/// travel then moves the value by an equal ratio. Compile-time only, so a range a log taper
+/// cannot map (not positive and increasing) fails the build rather than a knob.
+[[nodiscard]] consteval EffectParamSpec LogTaper(EffectParamSpec spec)
+{
+    if (!IsTaperRangeValid(ParamTaper::Log, spec.minValue, spec.maxValue))
+    {
+        throw "a log taper needs 0 < minValue < maxValue";
+    }
+
+    spec.taper = ParamTaper::Log;
+    return spec;
+}
 
 /// The index of `key` in `specs`, or N when it is not one of them.
 template <std::size_t N>
@@ -96,6 +111,7 @@ template <std::size_t N>
         def.advanced = spec.advanced;
         def.step = spec.step;
         def.labels.assign(spec.labels.begin(), spec.labels.end());
+        def.taper = spec.taper;
         defs.push_back(std::move(def));
     }
 

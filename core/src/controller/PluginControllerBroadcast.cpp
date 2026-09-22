@@ -429,35 +429,7 @@ void PluginController::SendEffectCatalogToUI()
 
         for (const auto& p : info.parameters)
         {
-            nlohmann::json param;
-            param["key"] = p.id;
-            param["name"] = p.displayName;
-            param["min"] = p.minValue;
-            param["max"] = p.maxValue;
-            param["default"] = p.defaultValue;
-            param["unit"] = p.unit;
-
-            if (!p.group.empty())
-            {
-                param["group"] = p.group;
-            }
-
-            if (p.advanced)
-            {
-                param["advanced"] = true;
-            }
-
-            if (p.step != 0.0)
-            {
-                param["step"] = p.step;
-            }
-
-            if (!p.labels.empty())
-            {
-                param["labels"] = p.labels;
-            }
-
-            params.push_back(param);
+            params.push_back(SerializeEffectParameter(p));
         }
 
         entry["parameters"] = params;

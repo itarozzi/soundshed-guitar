@@ -6,6 +6,7 @@
  */
 
 import type { Preset, GraphNode, ResourceRef } from "./types.js";
+import type { ParamTaper } from "./paramTaper.js";
 import { EffectGuids, migrateLegacyEffectType, resolveEffectType } from "./effectGuids.js";
 
 export interface ParameterDef {
@@ -19,6 +20,8 @@ export interface ParameterDef {
   labels?: string[];
   group?: string;
   advanced?: boolean;
+  /** How a knob travels across min..max; absent means linear. See paramTaper.ts. */
+  taper?: ParamTaper;
 }
 
 export interface EffectPresetDefinition {

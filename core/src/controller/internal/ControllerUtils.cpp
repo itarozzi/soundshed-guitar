@@ -1,6 +1,7 @@
 #include "controller/internal/ControllerUtils.h"
 
 #include "IPluginHost.h"
+#include "dsp/EffectRegistry.h"
 #include "dsp/FiniteCheck.h"
 #include "presets/PresetTypes.h"
 #include "presets/PresetTypesJson.h"
@@ -207,6 +208,45 @@ const guitarfx::GraphNode* FindNodeByIdOrType(const guitarfx::SignalGraph& graph
     }
 
     return nullptr;
+}
+
+nlohmann::json SerializeEffectParameter(const ParameterDef& param)
+{
+    nlohmann::json json;
+    json["key"] = param.id;
+    json["name"] = param.displayName;
+    json["min"] = param.minValue;
+    json["max"] = param.maxValue;
+    json["default"] = param.defaultValue;
+    json["unit"] = param.unit;
+
+    if (!param.group.empty())
+    {
+        json["group"] = param.group;
+    }
+
+    if (param.advanced)
+    {
+        json["advanced"] = true;
+    }
+
+    if (param.step != 0.0)
+    {
+        json["step"] = param.step;
+    }
+
+    if (!param.labels.empty())
+    {
+        json["labels"] = param.labels;
+    }
+
+    // As declared: the UI makes the same fallback to linear for a range a log taper cannot map.
+    if (param.taper != ParamTaper::Linear)
+    {
+        json["taper"] = ParamTaperName(param.taper);
+    }
+
+    return json;
 }
 
 int GetGlobalTransposeFromChainConfig(const guitarfx::GlobalSignalChainConfig& config)

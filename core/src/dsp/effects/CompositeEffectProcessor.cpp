@@ -255,10 +255,13 @@ void CompositeEffectLibrary::RegisterDefinition(const CompositeEffectDefinition&
     info.description = def.description;
     info.requiresResource = false;
 
-    // Build parameter definitions from exposed parameters
+    // Build parameter definitions from exposed parameters. A "log" curve is the log taper; an
+    // "exp" one has no taper of its own yet, so it stays linear, as every curve was before.
     for (const auto& ep : def.exposedParams)
     {
-        info.parameters.push_back({ep.paramId, ep.displayName, ep.defaultValue, ep.minValue, ep.maxValue, ep.unit});
+        ParameterDef param{ep.paramId, ep.displayName, ep.defaultValue, ep.minValue, ep.maxValue, ep.unit};
+        param.taper = ParseParamTaper(ep.curve).value_or(ParamTaper::Linear);
+        info.parameters.push_back(std::move(param));
     }
 
     // Capture definition by value for the factory lambda

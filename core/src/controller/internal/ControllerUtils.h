@@ -23,6 +23,7 @@ namespace guitarfx
 class FileSystem;
 enum class BrowseFileType;
 struct GraphNode;
+struct ParameterDef;
 struct SignalGraph;
 struct GlobalSignalChainConfig;
 } // namespace guitarfx
@@ -119,6 +120,10 @@ void SaveJsonFile(const FileSystem& fileSystem, const std::filesystem::path& pat
 
 [[nodiscard]] const GraphNode* FindNodeByIdOrType(const SignalGraph& graph, const std::string& id,
                                                   const std::string& type);
+
+/// One parameter as the effect catalog sends it to the UI. Optional fields are left out at
+/// their defaults, so an older UI sees no change; no `taper` means linear.
+[[nodiscard]] nlohmann::json SerializeEffectParameter(const ParameterDef& param);
 
 [[nodiscard]] int GetGlobalTransposeFromChainConfig(const GlobalSignalChainConfig& config);
 [[nodiscard]] nlohmann::json SerializeGlobalFxSettings(const GlobalSignalChainConfig& config);

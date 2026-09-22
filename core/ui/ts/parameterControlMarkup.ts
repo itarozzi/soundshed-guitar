@@ -4,6 +4,7 @@
  */
 
 import { formatParamValue } from "./layoutRenderer.js";
+import { effectiveTaper } from "./paramTaper.js";
 import type { ParameterDef } from "./presetV2.js";
 
 export function formatParamLabel(key: string): string {
@@ -30,6 +31,7 @@ export function buildDefaultParamControlsHtml(paramDefs: ParameterDef[], nodeId 
     const isToggle = isToggleParam(p);
     const isEnum = unit === "enum" && Array.isArray(p.labels) && p.labels.length > 0;
     const enumLabels = Array.isArray(p.labels) ? p.labels : [];
+    const taper = effectiveTaper(p.taper, min, max);
 
     if (isToggle) {
       const checked = value >= 0.5;
@@ -57,10 +59,11 @@ export function buildDefaultParamControlsHtml(paramDefs: ParameterDef[], nodeId 
           data-unit="${unit}"
           ${p.step !== undefined ? `data-step="${p.step}"` : ""}
           ${isEnum ? `data-labels="${enumLabels.join("|")}"` : ""}
+          ${taper === "log" ? `data-taper="log"` : ""}
         >
           <div class="knob-indicator"></div>
         </div>
-        <span class="node-param-value">${formatParamValue(value, unit, enumLabels)}</span>
+        <span class="node-param-value">${formatParamValue(value, unit, enumLabels, taper)}</span>
       </div>`;
   };
 
