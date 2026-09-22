@@ -117,6 +117,14 @@ export function getEffectVisualizationEquipmentImage(node: GraphNode): string {
   return getNodeResourceArtworkImage(node) || getEffectVisualizationStockImage(node);
 }
 
+/** Switch to the Play panel, where the visualization lives, if another panel is up. */
+export function showVisualizerPanel(): void {
+  const visualizerButton = document.querySelector<HTMLElement>('.icon-bar .icon-btn[data-panel="visualizer"]');
+  if (visualizerButton && !visualizerButton.classList.contains("active")) {
+    visualizerButton.click();
+  }
+}
+
 export function updateEffectVisualization(node?: GraphNode): void {
   if (!effectVisualizationElement) {
     return;

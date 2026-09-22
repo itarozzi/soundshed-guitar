@@ -44,7 +44,8 @@ import {
 } from "./signalPath/state.js";
 import { sendCollapseParallelSplit, sendMoveSignalPathNodeToEdge, sendReplaceSignalPathNode, sendSignalPathNodeDelete, sendSignalPathNodeReorder } from "./signalPath/commands.js";
 import { getSelectedSignalPathNode } from "./signalPath/nodeResources.js";
-import { getEffectVisualizationEquipmentImage, updateEffectVisualization } from "./signalPath/visualization.js";
+import { getEffectVisualizationEquipmentImage, showVisualizerPanel, updateEffectVisualization } from "./signalPath/visualization.js";
+import { expectAddedNode, forgetExpectedAddedNode, takeAddedNode } from "./signalPath/addedNode.js";
 import { getCategoryClass, getNodeCategory, getNodeIcon, handleNamIrFileDrop, inferResourceTypeFromFile, isNamOrCabIrNode, nodeAcceptsResourceType } from "./signalPath/nodeTypes.js";
 import { getEditableSignalPathPreset, pushScenePresetToBackend, removeInlineMixer, renderInlineMixer, renderMixerPresetTabs } from "./signalPath/mixer.js";
 import { isMixTabActive } from "./signalPath/state.js";
@@ -364,13 +365,7 @@ function applyOptimisticNodeReplacement(
   updateLastSelectedNode(targetNode);
   renderSignalPathBar();
   showNodeParamsPanel(targetNode, preset);
-
-  const visualizerButton = document.querySelector(
-    '.icon-bar .icon-btn[data-panel="visualizer"]',
-  ) as HTMLElement | null;
-  if (visualizerButton && !visualizerButton.classList.contains("active")) {
-    visualizerButton.click();
-  }
+  showVisualizerPanel();
 }
 
 function selectNodeForPreset(preset: Preset, presetChanged: boolean): void {
@@ -379,6 +374,16 @@ function selectNodeForPreset(preset: Preset, presetChanged: boolean): void {
     setSelectedNodeId(null);
     hideNodeParamsPanel();
     updateEffectVisualization();
+    return;
+  }
+
+  // An effect the user just added is the one they want to work on.
+  const addedNode = takeAddedNode(preset);
+  if (addedNode) {
+    setSelectedNodeId(addedNode.id);
+    showNodeParamsPanel(addedNode, preset);
+    revealCompactNodeDetail();
+    showVisualizerPanel();
     return;
   }
 
@@ -934,6 +939,7 @@ function sendAddEffectAtEdgeOrFallback(
   fallbackInsertAfter: string,
   options?: SignalPathNodeOptions,
 ): void {
+  expectAddedNode(getSignalPathPreset());
   if (edge) {
     sendAddSignalPathNodeOnEdge(effectType, edge, options);
   } else {
@@ -1090,6 +1096,7 @@ function bindNodeClickHandlers(preset: Preset): void {
   };
 
   const selectNodeElement = (node: GraphNode, el: HTMLElement, focusElement: boolean): void => {
+    forgetExpectedAddedNode();
     setSelectedNodeId(node.id);
     showNodeParamsPanel(node, preset);
     // Compact shows the chain and the params panel one at a time, so picking a
@@ -1101,13 +1108,7 @@ function bindNodeClickHandlers(preset: Preset): void {
       if (focusElement) {
         el.focus();
       }
-
-      const visualizerButton = document.querySelector(
-        '.icon-bar .icon-btn[data-panel="visualizer"]',
-      ) as HTMLElement | null;
-      if (visualizerButton && !visualizerButton.classList.contains("active")) {
-        visualizerButton.click();
-      }
+      showVisualizerPanel();
     };
 
   // Bind + button click handlers
@@ -1563,7 +1564,6 @@ function handleResourceGroupDrop(
 }
 
 // ── Signal path mode gesture ──
-
 
 /**
  * Returns a global file-drop handler for NAM/IR resource files.

@@ -103,6 +103,7 @@
 * Effect artwork now fills its panel. Signal chain nodes without their own thumbnail show the same artwork, with the effect's icon on top. In narrow windows the artwork shrinks to a thumbnail beside the effect name, so it no longer pushes the controls down.
 * Fixed an empty notification that flashed on every state update and cleared any message already on screen.
 * The Help panel has been rewritten, and the startup screen shows only the app logo. NAM FX, Digital Delay, Doubler and the Advanced and Ambient reverbs have their own icons, and the footer uses icons for Setlist, Tuner and the other tools. Knob rings shade along their sweep in the dark and classic themes, and interface text now uses UK spelling throughout.
+* Adding an effect to the signal chain now selects it, so its controls and visualisation come up straight away, whether it came from the + button, a drag from the FX Library or a tone group dropped on the chain. In the compact layout it also switches to the effect's controls, as picking a node does.
 
 ### Platform & Reliability
 * Linux: fixed signal-chain node reordering and drag-and-drop from the FX Library panel, and improved leftward reordering (#27).
