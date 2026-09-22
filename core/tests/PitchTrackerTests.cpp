@@ -5,8 +5,10 @@
  *   - sines, sawtooths and plucked tones with a strong second harmonic, 46 Hz to 1.48 kHz, read
  *     within a few cents at 22.05 to 192 kHz; up to 2 kHz too, and nothing above rather than
  *     an octave low
- *   - a note change is followed within 50 ms, vibrato is followed continuously, and the last
- *     pitch is held through silence
+ *   - steady sawtooths and plucks from 46 to 110 Hz find their pitch on nearly every detection,
+ *     though a quarter of the window is shorter than their period
+ *   - a note change is followed within 50 ms, vibrato is followed continuously, and a note's
+ *     pitch is held through silence however the stop falls between two detections
  *   - white noise never produces a pitch, and a NaN on the input does not stick
  *   - on the DI guitar recording, the decimated tracker agrees with brute-force full-rate YIN
  *     frame by frame
@@ -190,6 +192,67 @@ void TestAccuracy()
           "worst " + Num(worstHigh) + " cents");
 }
 
+/// Of the detections from 0.1 s into `tone`, the percentage that found a pitch.
+double FoundPercent(const std::vector<float>& tone, double sampleRate)
+{
+    PitchTracker tracker;
+    tracker.Prepare(sampleRate);
+    std::uint64_t seen = 0;
+    int detections = 0;
+    int found = 0;
+
+    for (std::size_t n = 0; n < tone.size(); ++n)
+    {
+        tracker.Push(tone[n]);
+
+        if (tracker.DetectionCount() != seen)
+        {
+            seen = tracker.DetectionCount();
+
+            if (n >= static_cast<std::size_t>(0.1 * sampleRate))
+            {
+                ++detections;
+                found += tracker.HasPitch() ? 1 : 0;
+            }
+        }
+    }
+
+    return detections > 0 ? 100.0 * found / detections : 0.0;
+}
+
+void TestLowNotes()
+{
+    std::cout << "\nLow notes" << std::endl;
+
+    // Below about 90 Hz the newest quarter of the window, which judges whether a note is stopping,
+    // is shorter than a period. A sawtooth's or a pluck's power is uneven across its period, and
+    // judged against the window's mean power a steady 46 Hz tone read as stopping on a quarter
+    // of its detections.
+    double worst = 100.0;
+    std::string where;
+
+    for (const double sampleRate : {44100.0, 48000.0, 96000.0})
+    {
+        for (const Kind kind : {Kind::Saw, Kind::Pluck})
+        {
+            for (const double frequency : {46.2, 55.0, 65.41, 82.41, 110.0})
+            {
+                const double found = FoundPercent(Tone(frequency, 0.6, sampleRate, kind), sampleRate);
+
+                if (found < worst)
+                {
+                    worst = found;
+                    where = std::string(kind == Kind::Saw ? "saw " : "pluck ") + Num(frequency, 1) + " Hz at " +
+                            Num(sampleRate, 0);
+                }
+            }
+        }
+    }
+
+    Check(worst >= 95.0, "sawtooths and plucks from 46 to 110 Hz find their pitch on at least 95% of detections",
+          "worst " + Num(worst, 1) + "%" + (where.empty() ? "" : ", " + where));
+}
+
 /// Samples from the start of `second` until the tracker reads it within 20 cents.
 int SamplesToFollow(PitchTracker& tracker, const std::vector<float>& second, double frequency)
 {
@@ -255,32 +318,53 @@ void TestResponse()
           Num(lowest, 1) + " to " + Num(highest, 1) + " cents");
 
     // A note stopping, abruptly or over a release, then silence: the pitch is held, and held
-    // right, rather than read off the window as the note dies away.
+    // right, rather than read off the window as the note dies away. 0.3 s is a detection at
+    // 48 kHz, so the stop is moved across the 5 ms to the next: a window ending in even half a
+    // millisecond of silence reads a low note several cents out, and a stop just after a
+    // detection leaves one such estimate accepted before the next sees the note stopping.
     double worstHeld = 0.0;
+    std::string whereHeld;
     bool quiet = true;
 
-    for (const double frequency : {82.41, 146.83, 329.63, 659.26})
+    for (const Kind kind : {Kind::Saw, Kind::Pluck})
     {
-        for (const double releaseMs : {0.0, 5.0, 10.0, 20.0, 40.0})
+        for (const double frequency : {46.2, 65.41, 82.41, 146.83, 329.63, 659.26})
         {
-            PitchTracker held;
-            held.Prepare(kSampleRate);
-            auto note = Tone(frequency, 0.7, kSampleRate, Kind::Pluck);
+            const auto tone = Tone(frequency, 0.7, kSampleRate, kind);
 
-            for (std::size_t n = static_cast<std::size_t>(0.3 * kSampleRate); n < note.size(); ++n)
+            for (const double releaseMs : {0.0, 5.0, 10.0, 20.0, 40.0})
             {
-                const double t = static_cast<double>(n) / kSampleRate - 0.3;
-                note[n] *= releaseMs > 0.0 ? static_cast<float>(std::exp(-1000.0 * t / releaseMs)) : 0.0f;
-            }
+                for (const double offsetMs : {0.0, 1.0, 2.0, 3.0, 4.0})
+                {
+                    PitchTracker held;
+                    held.Prepare(kSampleRate);
+                    auto note = tone;
+                    const double stop = 0.3 + offsetMs / 1000.0;
 
-            held.Process(note.data(), static_cast<int>(note.size()));
-            worstHeld = std::max(worstHeld, std::abs(Cents(held.FrequencyHz(), frequency)));
-            quiet = quiet && !held.HasPitch();
+                    for (auto n = static_cast<std::size_t>(stop * kSampleRate); n < note.size(); ++n)
+                    {
+                        const double t = static_cast<double>(n) / kSampleRate - stop;
+                        note[n] *= releaseMs > 0.0 ? static_cast<float>(std::exp(-1000.0 * t / releaseMs)) : 0.0f;
+                    }
+
+                    held.Process(note.data(), static_cast<int>(note.size()));
+                    const double error = std::abs(Cents(held.FrequencyHz(), frequency));
+                    quiet = quiet && !held.HasPitch();
+
+                    if (!(error <= worstHeld))
+                    {
+                        worstHeld = error;
+                        whereHeld = std::string(kind == Kind::Saw ? "saw " : "pluck ") + Num(frequency, 1) + " Hz, " +
+                                    Num(releaseMs, 0) + " ms release, " + Num(offsetMs, 0) + " ms after a detection";
+                    }
+                }
+            }
         }
     }
 
-    Check(worstHeld < 4.0 && quiet, "after a note stops, abruptly or over a 5-40 ms release, its pitch is held",
-          "worst " + Num(worstHeld) + " cents");
+    Check(worstHeld < 4.0 && quiet,
+          "after a note stops, abruptly or over a 5-40 ms release, anywhere between detections, its pitch is held",
+          "worst " + Num(worstHeld) + " cents, " + whereHeld);
 }
 
 void TestRejection()
@@ -448,8 +532,9 @@ void TestRealGuitar()
     }
 
     // The tracker deliberately skips frames where a note is dying away (the newest quarter of the
-    // window under a quarter of its power), which YIN would read sharp; this staccato recording
-    // has a good many. It should never report a pitch YIN does not see.
+    // window under half the power of the same span a whole number of periods earlier), which YIN
+    // would read out; this staccato recording has a good many, and the fall after a pick attack
+    // counts too. It should never report a pitch YIN does not see.
     const double agreement = both > 0 ? 100.0 * within10 / both : 0.0;
     Check(both > compared / 5, "the recording has plenty of pitched frames to compare",
           std::to_string(both) + " of " + std::to_string(compared));
@@ -483,6 +568,7 @@ int main()
     std::cout << "=== PitchTrackerTests ===" << std::endl;
 
     TestAccuracy();
+    TestLowNotes();
     TestResponse();
     TestRejection();
     TestRealGuitar();

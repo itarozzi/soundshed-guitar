@@ -987,6 +987,41 @@ void TestPitchTrackerMigration(int& passed, int& failed)
     Report(worstTail < 5.0, "Pitch held through a note's release", "worst " + std::to_string(worstTail) + " cents",
            passed, failed);
 
+    // Wherever a note stops between two of the tracker's detections, 5 ms apart, the tail settles
+    // on its pitch. The last estimate before the stop may already have heard a little of the
+    // silence, which on a low note reads cents out: the tracker holds the estimate before it, and
+    // the oscillator goes there too, where it used to keep the last one it was given.
+    double worstSettled = 0.0;
+    std::string whereSettled;
+
+    for (const double freq : {46.25, 65.41, 82.41, 146.83})
+    {
+        for (const double releaseMs : {-1.0, 10.0})
+        {
+            for (int offset = 0; offset < 10; ++offset)
+            {
+                guitarfx::SynthSawEffect effect;
+                effect.Prepare(sr, 64);
+                std::vector<float> x(static_cast<std::size_t>((0.3 + 0.0005 * offset) * sr));
+                AddPluck(x, 0, freq, sr, releaseMs);
+                x.resize(x.size() + static_cast<std::size_t>(0.3 * sr), 0.0f);
+                Run64(effect, x, [](std::size_t) {});
+                const double error = std::abs(FrequencyErrorCents(effect.GetDetectedFrequency(), freq));
+
+                if (error > worstSettled)
+                {
+                    worstSettled = error;
+                    whereSettled = std::to_string(freq).substr(0, 5) + " Hz, " +
+                                   (releaseMs < 0.0 ? std::string("abrupt") : "10 ms release") + ", stop +" +
+                                   std::to_string(0.5 * offset).substr(0, 3) + " ms";
+                }
+            }
+        }
+    }
+
+    Report(worstSettled < 3.0, "A stopped note's tail settles on its pitch, wherever the stop falls",
+           "worst " + std::to_string(worstSettled) + " cents, " + whereSettled, passed, failed);
+
     // Glide still glides: 200 ms from A3 up a whole tone is part way after 100 ms, there after 1 s.
     {
         guitarfx::SynthSawEffect effect;

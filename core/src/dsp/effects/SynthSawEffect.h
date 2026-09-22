@@ -107,6 +107,7 @@ class SynthSawEffect : public EffectProcessor
         mPrevEnvelopeLevel = 0.0f;
         mOnsetDetected = false;
         mStableFrameCount = 0;
+        mTargetHeld = false;
         mTracker.Reset();
         mDetectionsSeen = 0;
     }
@@ -168,13 +169,13 @@ class SynthSawEffect : public EffectProcessor
             // Frequency smoothing with adaptive rate
             double freqSmoothCoef = mGlideCoef;
 
-            if (mOnsetDetected || mStableFrameCount < kStableFramesForLock)
+            if (!mTargetHeld && (mOnsetDetected || mStableFrameCount < kStableFramesForLock))
             {
                 // Faster response during onset or unstable periods
                 freqSmoothCoef = std::min(1.0, mGlideCoef * 4.0);
             }
 
-            if (mTargetFreq > 0.0 && mPitchConfidence > kConfidenceThreshold)
+            if (mTargetFreq > 0.0 && (mTargetHeld || mPitchConfidence > kConfidenceThreshold))
             {
                 const double freqDiff = mTargetFreq - mCurrentFreq;
 
@@ -584,7 +585,9 @@ class SynthSawEffect : public EffectProcessor
      * A new estimate from the tracker, every 5 ms. Its accepted pitch is the glide's target: a jump of
      * over a semitone has already been confirmed on two detections, so a stray octave never reaches
      * the oscillator. While the tracker finds no pitch (silence, noise, a note dying away) the target
-     * holds and the glide stops, as it always has.
+     * is the pitch it holds, the note's own from before it began to stop, and the glide goes on to it
+     * at the Glide time. The last estimate it accepted may already have heard the start of the
+     * silence, which on a low note reads several cents out, and the tail would otherwise keep it.
      */
     void OnPitchDetection()
     {
@@ -592,11 +595,19 @@ class SynthSawEffect : public EffectProcessor
         {
             mPitchConfidence = 0.0f;
             mStableFrameCount = 0;
+
+            if (const double held = mTracker.FrequencyHz(); held > 0.0)
+            {
+                mTargetFreq = held;
+                mTargetHeld = true;
+            }
+
             return;
         }
 
         mTargetFreq = mTracker.FrequencyHz();
         mPitchConfidence = mTracker.Confidence();
+        mTargetHeld = false;
 
         if (mPitchConfidence > kConfidenceThreshold)
         {
@@ -626,6 +637,7 @@ class SynthSawEffect : public EffectProcessor
     double mOscPhase2 = 0.0; // 2nd voice oscillator phase
     double mCurrentFreq = 0.0;
     double mTargetFreq = 0.0; ///< the tracker's accepted pitch, which the glide heads for
+    bool mTargetHeld = false; ///< the target is the pitch the tracker holds while it finds none
     double mGlideCoef = 0.1;
 
     // 2nd voice parameters

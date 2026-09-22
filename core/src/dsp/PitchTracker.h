@@ -44,8 +44,16 @@ namespace guitarfx
  * - An estimate within a semitone of the current pitch is taken straight away, so bends and
  *   vibrato are followed. A bigger jump, including a first note, must be seen on two successive
  *   detections before it is accepted, which throws out a single stray octave.
- * - Below -55 dBFS, or when nothing periodic is found, the last pitch is held. So it is while a
- *   note is stopping, when the window is part silence and YIN would read the held pitch wrong.
+ * - Below -55 dBFS, or when nothing periodic is found, a pitch is held. So it is while a note is
+ *   stopping: when the newest quarter of the window has under half the power of the same span a
+ *   whole number of periods earlier. For a steady note the two spans hold the same part of the
+ *   waveform, so they match whatever its shape, even where the quarter is shorter than a period
+ *   (below about 90 Hz).
+ * - The pitch held is the newest estimate from before the note began to stop. Even half a
+ *   millisecond of silence at the end of the window puts YIN several cents out on a low note, far
+ *   too little to see in the level, so when a detection finds no pitch the newest estimate is
+ *   dropped, and so is any made on a falling level or within a half-window of the last detection
+ *   that found none: at most three back, and never past a note change.
  *
  * Both histories are mirrored rings: every sample is written twice, a ring's length apart, so
  * the newest samples are always one contiguous run and the difference loops vectorise.
@@ -94,6 +102,8 @@ class PitchTracker
         mCandidate = 0.0;
         mCandidateHits = 0;
         mDetections = 0;
+        mKeptCount = 0;
+        mSinceHold = mHalf;
     }
 
     void Process(const float* input, int numSamples)
@@ -135,8 +145,8 @@ class PitchTracker
         }
     }
 
-    /// The pitch being tracked, in Hz: the last one accepted, held through silence. 0 until the
-    /// first note has been accepted.
+    /// The pitch being tracked, in Hz: the latest estimate accepted, or while detections find none,
+    /// the newest one made before the note began to stop. 0 until the first note has been accepted.
     [[nodiscard]] double FrequencyHz() const
     {
         return mFrequency;
@@ -172,8 +182,13 @@ class PitchTracker
     static constexpr double kHopSeconds = 0.005;
     static constexpr float kDipThreshold = 0.2f;
     static constexpr float kGateRms = 0.0017783f; ///< -55 dBFS
-    /// The newest quarter of the window below this fraction of its mean power means a note stopping.
-    static constexpr float kStoppingPowerRatio = 0.25f;
+    /// The newest quarter of the window below this fraction of the power of the same span a whole
+    /// number of periods earlier means a note stopping.
+    static constexpr float kStoppingPowerRatio = 0.5f;
+    /// An estimate made with that ratio below this was made on a falling level, and is not held.
+    static constexpr float kSteadyPowerRatio = 0.9f;
+    /// The accepted estimates kept for the held pitch to go back through.
+    static constexpr int kKeptEstimates = 4;
     static constexpr double kContinuousSemitones = 1.0;
     static constexpr double kCandidateSemitones = 0.5;
     static constexpr int kConfirmations = 2;
@@ -279,6 +294,7 @@ class PitchTracker
         ++mDetections;
         mDetected = false;
         mRawFrequency = 0.0;
+        mSinceHold = std::min(mSinceHold + mHop, mHalf);
 
         // A non-finite input leaves the low-pass state poisoned; start again rather than hold it.
         if (!IsFinite(mFilter[0].s1) || !IsFinite(mFilter[0].s2) || !IsFinite(mFilter[1].s1) ||
@@ -299,18 +315,7 @@ class PitchTracker
         if (!(energy > kGateRms * kGateRms * static_cast<float>(half)))
         {
             mConfidence = 0.0f;
-            return;
-        }
-
-        // A note that has just stopped leaves the newest part of the window near silent, and YIN
-        // run over that reads several cents out. It would then be the estimate that is held, so
-        // skip it. A ringing note's own decay is well under 1 dB across the quarter.
-        const int quarter = std::max(1, half / 4);
-        const float tail = Energy(recent + (half - quarter), quarter);
-
-        if (tail * static_cast<float>(half) < kStoppingPowerRatio * energy * static_cast<float>(quarter))
-        {
-            mConfidence = 0.0f;
+            Hold();
             return;
         }
 
@@ -346,6 +351,7 @@ class PitchTracker
                 if (tau < minLag)
                 {
                     mConfidence = 0.0f;
+                    Hold();
                     return;
                 }
 
@@ -356,23 +362,100 @@ class PitchTracker
         if (lag == 0)
         {
             mConfidence = 0.0f;
+            Hold();
             return;
         }
 
         mConfidence = 1.0f - normalised[lag];
+        const double coarse = lag + ParabolicOffset(normalised[lag - 1], normalised[lag], normalised[lag + 1]);
+
+        // A note that has just stopped leaves the newest part of the window near silent, and YIN
+        // run over that reads several cents out, so skip it. Against the window's mean power, as
+        // it was once judged, a quarter shorter than a period (below about 90 Hz) read as stopping
+        // or not by where in the cycle it fell: a steady low sawtooth or pluck lost up to a
+        // quarter of its detections.
+        const float level = LevelChange(recent + half, coarse);
+
+        if (!(level >= kStoppingPowerRatio))
+        {
+            mConfidence = 0.0f;
+            Hold();
+            return;
+        }
 
         // Step 4: interpolate the decimated lag, then refine it at the full rate.
-        const double coarse = lag + ParabolicOffset(normalised[lag - 1], normalised[lag], normalised[lag + 1]);
         const double frequency = mSampleRate / RefinePeriod(coarse * mDecimation);
 
         if (!(frequency >= kMinHz && frequency <= kMaxHz))
         {
+            Hold();
             return;
         }
 
         mRawFrequency = frequency;
         mDetected = true;
-        Accept(frequency);
+        Accept(frequency, mSinceHold < mHalf ? 0.0f : level);
+    }
+
+    /// The power of the newest quarter of the half-window that ends at `end`, over that of the
+    /// same span the fewest whole periods of `period` (in decimated samples) earlier that clear it.
+    /// For a steady tone the two hold the same part of the waveform, so this is near 1 whatever
+    /// its shape; it falls as a note stops.
+    [[nodiscard]] float LevelChange(const float* end, double period) const
+    {
+        const int quarter = std::max(1, mHalf / 4);
+        const double periods = std::ceil(quarter / period);
+        const int shift = std::min(static_cast<int>(std::lround(periods * period)), mWindowSize - quarter);
+        const float newest = Energy(end - quarter, quarter);
+        const float earlier = Energy(end - quarter - shift, quarter);
+
+        if (!(earlier > 0.0f))
+        {
+            return newest > 0.0f ? 1.0f : 0.0f;
+        }
+
+        return newest / earlier;
+    }
+
+    /// A detection found no pitch, so the note may have stopped: go back to the newest estimate
+    /// that can be trusted. The newest accepted one may already have had the start of the silence
+    /// at the end of its window, so it is dropped, and so is any made on a falling level, back to
+    /// the oldest kept. So is any made within a half-window of a detection that found none: its
+    /// window may still hold that silence, and once the newest quarter and the one it is compared
+    /// with are both past the note, the level no longer shows it. A note change clears what is
+    /// kept, so this never goes back to a previous note.
+    void Hold()
+    {
+        mSinceHold = 0;
+
+        if (mKeptCount < 2)
+        {
+            return;
+        }
+
+        --mKeptCount;
+
+        while (mKeptCount > 1 && mKept[static_cast<std::size_t>(mKeptCount - 1)].level < kSteadyPowerRatio)
+        {
+            --mKeptCount;
+        }
+
+        mKept[0] = mKept[static_cast<std::size_t>(mKeptCount - 1)];
+        mKeptCount = 1;
+        mFrequency = mKept[0].frequency;
+    }
+
+    /// Keeps an accepted estimate for Hold(), dropping the oldest when full.
+    void Keep(double frequency, float level)
+    {
+        if (mKeptCount == kKeptEstimates)
+        {
+            std::copy(mKept.begin() + 1, mKept.end(), mKept.begin());
+            --mKeptCount;
+        }
+
+        mKept[static_cast<std::size_t>(mKeptCount)] = {frequency, level};
+        ++mKeptCount;
     }
 
     /// The full-rate lag with the highest normalised cross-correlation within about a decimated
@@ -420,13 +503,15 @@ class PitchTracker
         return first + best + offset;
     }
 
-    /// The note-change check: small moves are followed, big ones must repeat.
-    void Accept(double frequency)
+    /// The note-change check: small moves are followed, big ones must repeat. `level` is
+    /// LevelChange() for the estimate, or 0 if it is not to be held.
+    void Accept(double frequency, float level)
     {
         if (mFrequency > 0.0 && std::abs(Semitones(mFrequency, frequency)) <= kContinuousSemitones)
         {
             mFrequency = frequency;
             mCandidateHits = 0;
+            Keep(frequency, level);
             return;
         }
 
@@ -445,6 +530,8 @@ class PitchTracker
         {
             mFrequency = frequency;
             mCandidateHits = 0;
+            mKeptCount = 0;
+            Keep(frequency, level);
         }
     }
 
@@ -474,5 +561,15 @@ class PitchTracker
     double mCandidate = 0.0;
     int mCandidateHits = 0;
     std::uint64_t mDetections = 0;
+
+    struct KeptEstimate
+    {
+        double frequency = 0.0;
+        float level = 0.0f; ///< LevelChange() when it was made, or 0 if it is not to be held
+    };
+
+    std::array<KeptEstimate, kKeptEstimates> mKept{}; ///< the current note's latest, oldest first
+    int mKeptCount = 0;
+    int mSinceHold = 0; ///< decimated samples since a detection found no pitch, up to a half-window
 };
 } // namespace guitarfx
