@@ -101,12 +101,17 @@ inline constexpr double kOpAmpGbwHz = 1.0e6;
  *   booster sits off the centre of its curve and saturates unevenly, and its coupling
  *   capacitor re-centres what it passes on, so the 2nd harmonic grows with the level, from
  *   40 dB down played softly to about 20 dB down played hard.
- * - Distortion+: one leg, 4.7k + 47 nF (720 Hz), under a 1M pot; a 741 whose bandwidth
- *   falls with gain, and whose rails are as uneven as the RAT's; germanium diodes to ground
- *   and a 16 kHz roll-off. No tone control.
- * - Metal Zone: a mid-forward pre-emphasis, a first stage clipping softly in the op-amp's
- *   feedback, a second driving hard into diodes, and a steep roll-off after. The shared
- *   Low / Mid / Mid Freq / High EQ is its EQ section.
+ * - Distortion+: one leg under the Distortion pot, into a 741 whose bandwidth falls with gain;
+ *   germanium diodes to ground and a roll-off at 10.5 kHz. No tone control. Fitted to eight
+ *   captures of two MXR units: the knob spans about 31 dB (a 167k pot over 4.7k + 250 nF,
+ *   135 Hz), not the 47 dB of the schematic's 1M, and the 741's rails sit very unevenly
+ *   (+4.25/-2.5 V) on 9 V, so it switches at about a 40% duty cycle with the 2nd harmonic
+ *   10 dB down, as the captures do.
+ * - Metal Zone: an 870 Hz pre-emphasis, a first stage clipping softly in the op-amp's
+ *   feedback, then a second stage whose gain Dist also sets (the MT-2's dual-gang Dist pot)
+ *   driving into diodes, and a steep roll-off at 9.3 kHz. The shared Low / Mid / Mid Freq /
+ *   High EQ is its EQ section. Fitted to five captures of two MT-2s with the EQ at noon:
+ *   nearly clean at Dist 0, saturated by 5, and a 2nd harmonic about 23 dB down.
  *
  * Tight moves the bass corner feeding the gain two octaves either way (up is tighter).
  * Where a pedal has no tone control, Tone is a tilt that is flat at noon.
@@ -142,7 +147,7 @@ struct Voicing
     ToneStyle tone;
     double toneLowHz;
     double toneHighHz;
-    bool steepRollOff; ///< a second-order low-pass after the tone (Metal Zone)
+    double rollOffHz; ///< a second-order low-pass after the tone (Metal Zone); 0: none
     drive::TrimTable trimDb;
 };
 
@@ -151,22 +156,19 @@ struct Voicing
 inline constexpr std::array<Voicing, static_cast<std::size_t>(Model::Count)> kVoicings = {{
     // RAT
     {0.0,  0.0,  {10.0, 10.0, drive::Knee::Soft, drive::Knee::Soft}, 0.0, 100.0e3, 47.0,  2.2e-6,  560.0, 4.7e-6, 100.0e-12, true,  4.8, 3.7,
-     {0.6, 0.6, drive::Knee::Soft, drive::Knee::Soft}, 0.97, 0.0, 60000.0, 0.0, 1000.0, ToneStyle::LowPass, 0.0, 0.0, false, {5.6, -2.3, -3.2, -3.5, -3.7, -3.8, -4.0, -4.0, -4.1}},
+     {0.6, 0.6, drive::Knee::Soft, drive::Knee::Soft}, 0.97, 0.0, 60000.0, 0.0, 1000.0, ToneStyle::LowPass, 0.0, 0.0, 0.0, {5.6, -2.3, -3.2, -3.5, -3.7, -3.8, -4.0, -4.0, -4.1}},
     // DS-1
     {14.0, 0.0,  {2.4, 3.6, drive::Knee::Soft, drive::Knee::Soft},   0.4, 100.0e3, 4.7e3, 0.47e-6, 0.0,   0.0,    250.0e-12, false, 3.6, 4.8,
-     {0.6, 0.6, drive::Knee::Soft, drive::Knee::Soft}, 0.83, 0.0, 60000.0, 0.0, 1000.0, ToneStyle::Blend, 234.0, 1063.0, false, {4.1, 3.7, 3.2, 2.5, 1.9, 1.3, 0.8, 0.2, -0.3}},
+     {0.6, 0.6, drive::Knee::Soft, drive::Knee::Soft}, 0.83, 0.0, 60000.0, 0.0, 1000.0, ToneStyle::Blend, 234.0, 1063.0, 0.0, {4.1, 3.7, 3.2, 2.5, 1.9, 1.3, 0.8, 0.2, -0.3}},
     // Distortion+
-    {0.0,  0.0,  {10.0, 10.0, drive::Knee::Soft, drive::Knee::Soft}, 0.0, 1.0e6,   4.7e3, 47.0e-9, 0.0,   0.0,    0.0,       true,  4.0, 3.1,
-     {0.35, 0.35, drive::Knee::Gradual, drive::Knee::Gradual}, 0.90, 0.0, 16000.0, 0.0, 1000.0, ToneStyle::Tilt, 1000.0, 1000.0, false, {5.2, 2.0, 0.1, -0.9, -1.6, -2.0, -2.2, -2.3, -2.3}},
+    {0.0,  0.0,  {10.0, 10.0, drive::Knee::Soft, drive::Knee::Soft}, 0.0, 167.0e3, 4.7e3, 250.0e-9, 0.0,  0.0,    0.0,       true,  4.25, 2.5,
+     {0.35, 0.35, drive::Knee::Gradual, drive::Knee::Gradual}, 0.71, 0.0, 10500.0, 0.0, 1000.0, ToneStyle::Tilt, 1100.0, 1100.0, 0.0, {5.4, 4.4, 3.2, 1.9, 0.8, -0.1, -0.8, -1.3, -1.6}},
     // Metal Zone
-    {10.0, 30.0, {0.6, 0.6, drive::Knee::Soft, drive::Knee::Soft}, 0.0, 0.0, 1.0e3, 0.53e-6, 0.0,   0.0,    0.0,       false, 4.2, 4.2,
-     {0.6, 0.6, drive::Knee::Soft, drive::Knee::Soft}, 0.06, 8.0, 9000.0, 9.0, 1200.0, ToneStyle::Tilt, 1000.0, 1000.0, true, {-5.9, -5.9, -5.9, -5.9, -5.9, -5.9, -5.9, -5.9, -5.9}},
+    {0.0,  10.0, {0.6, 0.6, drive::Knee::Soft, drive::Knee::Soft}, 0.0, 77.0e3,  1.0e3, 3.7e-6, 0.0,  0.0,    0.0,       false, 4.25, 5.0,
+     {0.6, 0.6, drive::Knee::Soft, drive::Knee::Soft}, 0.22, 0.5, 17800.0, 7.2, 870.0, ToneStyle::Tilt, 1000.0, 1000.0, 9300.0, {2.4, -0.1, -1.9, -3.0, -3.6, -3.9, -4.0, -4.1, -4.1}},
 }};
 // *INDENT-ON*
 // clang-format on
-
-/// The fixed op-amp gain of the Metal Zone's second stage, through its RC leg.
-inline constexpr double kMetalZoneStageOhms = 10.0e3;
 
 struct Traits
 {
@@ -243,9 +245,8 @@ struct Traits
         c.boostBias = v.boostBias;
         c.boostCoupling = drive::OnePoleCoefficient(kBoostCouplingHz, osRate);
 
-        // The gain pot sets how hard the legs pull; the Metal Zone's second stage is fixed.
-        const double feedbackOhms =
-            v.drivePotOhms > 0.0 ? drive::AudioTaperOhms(v.drivePotOhms, amount) : kMetalZoneStageOhms;
+        // The gain pot sets how hard the legs pull.
+        const double feedbackOhms = drive::AudioTaperOhms(v.drivePotOhms, amount);
         drive::OpAmpStageCoefficients& opAmp = c.opAmp;
         opAmp.legs[0] = {drive::OnePoleCoefficient(drive::RcHz(v.leg1Ohms, v.leg1Farads) * tight, osRate),
                          feedbackOhms / v.leg1Ohms};
@@ -301,7 +302,8 @@ struct Traits
             break;
         }
 
-        c.rollOff = v.steepRollOff ? biquad::LowPass(6500.0, biquad::kButterworthQ, rate) : BiquadCoefficients{};
+        c.rollOff =
+            v.rollOffHz > 0.0 ? biquad::LowPass(v.rollOffHz, biquad::kButterworthQ, rate) : BiquadCoefficients{};
         c.eqLow = biquad::LowShelf(kLowShelfHz, biquad::kButterworthQ, values[kLow], rate);
         c.eqMid = biquad::Peaking(values[kMidFreq], kMidQ, values[kMid], rate);
         c.eqHigh = biquad::HighShelf(kHighShelfHz, biquad::kButterworthQ, values[kHigh], rate);

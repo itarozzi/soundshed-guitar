@@ -85,8 +85,10 @@ enum class ToneStyle
  *   after the diodes; the Treble control is a shelf, a little under flat at noon. At high
  *   gain the op-amp reaches its 9 V rails, which sit unevenly about its bias: even harmonics.
  *   Fitted to five captures of a Behringer Centaur, Gain 0 to 10 at Treble noon.
- * - Bluesbreaker: the TS layout with the bass left in (150 Hz) and a lower gain range: the
- *   original "amp in a box" overdrive, with a tilt tone control.
+ * - Bluesbreaker: the TS layout with the bass left in (46 Hz) and a lower gain range: the
+ *   original "amp in a box" overdrive. Its clipped path is rolled off at 1.75 kHz after the
+ *   diodes, and the tone control is a gentle tilt about 630 Hz. Symmetric: captures of an
+ *   original and a reissue put their 2nd harmonic 50 dB down or more. Fitted to both.
  * - Timmy: no clean path; silicon diodes to ground after a low-gain stage whose bass cut is
  *   low, so it stays flat and transparent. Its Treble is a cut-only roll-off.
  * - Fulldrive: a TS with more gain and the bass corner halved ("flat mids"), and a treble
@@ -127,8 +129,8 @@ inline constexpr std::array<Voicing, static_cast<std::size_t>(Model::Count)> kVo
     {-18.0, 25.0, 0.3, 320.0,  4000.0, 2800.0, 1.0, 0.33, 2.8, 4.2, 3.6, 1600.0, {0.32, 0.32, drive::Knee::Gradual, drive::Knee::Gradual}, 0.63,
      ToneStyle::Shelf, 1100.0, 10.0, -2.5, {0.7, -4.0, -5.0, -5.4, -5.7, -5.8, -5.8, -5.7, -5.6}},
     // Bluesbreaker
-    {6.0,  34.0, 1.0, 150.0,  20000.0, 7000.0, 1.0, 1.0,  1.0, 0.0, 0.0, 0.0, {0.6, 0.6, drive::Knee::Soft, drive::Knee::Soft}, 0.58,
-     ToneStyle::Tilt, 900.0, 7.0, 0.0, {-6.3, -7.1, -7.7, -8.3, -8.7, -9.0, -9.3, -9.4, -9.5}},
+    {6.0,  34.0, 1.0, 46.0,   20000.0, 11900.0, 1.0, 1.0, 1.0, 0.0, 0.0, 1750.0, {0.6, 0.6, drive::Knee::Soft, drive::Knee::Soft}, 0.55,
+     ToneStyle::Tilt, 630.0, 5.7, 0.0, {-4.0, -4.6, -5.2, -5.7, -6.1, -6.4, -6.6, -6.7, -6.8}},
     // Timmy
     {0.0,  34.0, 1.0, 90.0,   20000.0, 8000.0, 0.0, 0.0,  1.0, 0.0, 0.0, 0.0, {0.6, 0.6, drive::Knee::Soft, drive::Knee::Soft}, 0.66,
      ToneStyle::LowPass, 700.0, 30.0, 0.0, {4.0, 1.4, -0.8, -2.4, -3.5, -4.4, -5.0, -5.3, -5.6}},

@@ -688,7 +688,7 @@ the clipping two octaves either way; `clipping` swaps the diodes.
 |-------|---------|
 | TS-808 | Tube Screamer. Only mids above 720 Hz reach the 1N914s in the op-amp's feedback, and the clean signal sums on top; 21–41 dB of gain; fixed 723 Hz tone stage. The mid hump |
 | Centaur | Klon. Clean and clipped paths summed, the clean turned down as gain rises; the gain climbs steeply early in the knob's travel from a clean boost at 0; germanium diodes to ground, rolled off at 1.6 kHz; Tone is the Treble shelf. Fitted to captures of a Behringer Centaur at five gain settings |
-| Bluesbreaker | Marshall's "amp in a box": the TS layout with the bass left in and less gain; tilt tone |
+| Bluesbreaker | Marshall's "amp in a box": the TS layout with the bass left in and less gain, its clipped path rolled off at 1.75 kHz; a gentle tilt tone. Symmetric, as captures of an original and a reissue are |
 | Timmy | Transparent: a low-gain stage into silicon diodes to ground, flat mids; Tone is the cut-only Treble |
 | Fulldrive | A TS with more gain and fuller bass ("flat mids"); a treble roll-off tone |
 | LPB-1 | One transistor, up to +24 dB of full-range boost. Clips only when pushed near its 9 V supply |
@@ -702,8 +702,8 @@ how much bass reaches the gain stage (clockwise is tighter); `clipping`; and a t
 |-------|---------|
 | RAT | LM308 gain stage with two RC legs: up to 45 dB in the mids and 67 dB above 1.5 kHz, pulled back by the op-amp's bandwidth; 1N914s to ground; the Filter. Its uneven rails give it a steady 2nd harmonic |
 | DS-1 | Transistor booster, op-amp, silicon diodes to ground, and a low-pass/high-pass blend tone stack that scoops the mids at noon. The booster saturates unevenly, so even harmonics grow as you play harder |
-| Distortion+ | A 741 with one 720 Hz leg under a 1M pot, germanium diodes to ground; raspy and bright. No tone control |
-| Metal Zone | Mid pre-emphasis, a soft first clipping stage into a hard second, a steep roll-off, and the parametric EQ |
+| Distortion+ | A 741 gain stage into germanium diodes to ground; raspy. Its rails sit very unevenly on 9 V, so it switches off-centre with a strong 2nd harmonic. No tone control. Fitted to two MXR units, Distortion 0–10 |
+| Metal Zone | Mid pre-emphasis, a soft first clipping stage, then a second stage whose gain Dist also sets (the dual-gang pot), a steep roll-off, and the parametric EQ. Nearly clean at Dist 0, saturated by noon. Fitted to two MT-2s with the EQ at noon |
 
 **Fuzz** — `drive` (labelled Fuzz), `tone`, `level`; `bias` moves the drive transistor's
 operating point (below noon it starves, gating and sputtering like a dying battery; above,
