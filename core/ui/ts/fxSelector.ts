@@ -212,21 +212,9 @@ export function initFxSelector(): void {
 
   ensureEffectCatalogHydrated("init");
 
-  // In Alpine mode, route declarative category clicks back into TS state.
-  try {
-    const Alpine = (window as any).Alpine;
-    const fxStore = Alpine && Alpine.store && Alpine.store("fxSelector");
-    if (fxStore) {
-      fxStore.selectCategory = (id: string) => selectCategory(id);
-    }
-  } catch {
-    // Non-fatal when Alpine is not ready.
-  }
-
   // Initial render
   renderCategories();
   renderEffectsList();
-  pushToAlpineStore();
 }
 
 /**
@@ -257,6 +245,13 @@ function renderCategories(): void {
     ...compositeItems,
   ]);
 
+  if (orderedCategories.length === 0) {
+    ensureEffectCatalogHydrated("empty");
+  } else if (!orderedCategories.includes(activeCategory)) {
+    // The category that was open has nothing in it now; open the first one that has.
+    activeCategory = orderedCategories[0];
+  }
+
   const categoriesHtml = orderedCategories.map((categoryId) => {
     const meta = CATEGORY_METADATA[categoryId] ?? { name: categoryId, color: "#606060" };
     const effects = allEffects.filter((e) => e.category === categoryId);
@@ -268,10 +263,10 @@ function renderCategories(): void {
 
     return `
       <div class="fx-category ${activeClass}" 
-           data-category="${categoryId}"
-           style="--category-color: ${meta.color}">
+           data-category="${escapeHtml(categoryId)}"
+           style="--category-color: ${escapeHtml(meta.color)}">
         ${getFxCategoryIcon(categoryId)}
-        <span class="fx-category-name">${meta.name}</span>
+        <span class="fx-category-name">${escapeHtml(meta.name)}</span>
         <span class="fx-category-count">${totalCount}</span>
       </div>
     `;
@@ -289,8 +284,6 @@ function renderCategories(): void {
       }
     });
   });
-
-  pushToAlpineStore();
 }
 
 /**
@@ -366,7 +359,6 @@ export function renderEffectsList(): void {
   // Bind drag handlers to FX items
   bindFxItemDragHandlers();
 
-  pushToAlpineStore();
 }
 
 /**
@@ -397,10 +389,10 @@ function renderFxItem(effect: FxLibraryItem, categoryColor: string): string {
           data-custom-effect-id="${escapeHtml(effect.customEffectId ?? "")}"
           data-custom-effect-resource-type="${escapeHtml(effect.moduleResourceType ?? "")}"
           data-custom-effect-resource-id="${escapeHtml(effect.moduleResourceId ?? "")}"
-          data-custom-effect-default-params="${effect.customEffectId ? encodeDatasetJson(effect.defaultParams ?? {}) : ""}"
+          data-custom-effect-default-params="${escapeHtml(effect.customEffectId ? encodeDatasetJson(effect.defaultParams ?? {}) : "")}"
           data-effect-category="${escapeHtml(effect.category)}"
-          style="--category-color: ${categoryColor}">
-      <div class="fx-item-icon">${(() => { const thumb = effect.blendId ? (getCustomLayout(effect.type, effect.blendId) ?? getCustomLayout(effect.type)) : getCustomLayout(effect.type); const url = thumb?.thumbnailDataUrl ?? effect.thumbnailDataUrl; return url ? `<img src="${url.replace(/"/g, '&quot;')}" alt="" aria-hidden="true" class="fx-item-thumb" />` : getFxEffectIcon(effect.type); })()}</div>
+          style="--category-color: ${escapeHtml(categoryColor)}">
+      <div class="fx-item-icon">${(() => { const thumb = effect.blendId ? (getCustomLayout(effect.type, effect.blendId) ?? getCustomLayout(effect.type)) : getCustomLayout(effect.type); const url = thumb?.thumbnailDataUrl ?? effect.thumbnailDataUrl; return url ? `<img src="${escapeHtml(url)}" alt="" aria-hidden="true" class="fx-item-thumb" />` : getFxEffectIcon(effect.type); })()}</div>
       <div class="fx-item-info">
         <div class="fx-item-name">${escapeHtml(effect.displayName)}</div>
         <div class="fx-item-type">${escapeHtml(effect.category)}</div>
@@ -532,111 +524,6 @@ export function refreshFxSelector(): void {
   ensureEffectCatalogHydrated("refresh");
   renderCategories();
   renderEffectsList();
-}
-
-// Bridge to Alpine store: compute and push reactive data
-function pushToAlpineStore(): void {
-  try {
-    const Alpine = (window as any).Alpine;
-    const fxStore = Alpine && Alpine.store && Alpine.store('fxSelector');
-    if (!fxStore || typeof fxStore.updateFromTs !== 'function') return;
-
-    const allEffects = getCatalogEffects();
-    const blendItems = getBlendFxItems();
-    const customEffectItems = getCustomEffectFxItems();
-    const compositeItems = getCompositeFxItems();
-
-    const orderedCategories = getOrderedFxCategories([
-      ...allEffects,
-      ...blendItems,
-      ...customEffectItems,
-      ...compositeItems,
-    ]);
-
-    if (orderedCategories.length === 0) {
-      ensureEffectCatalogHydrated("alpine-empty");
-    }
-
-    if (orderedCategories.length > 0 && !orderedCategories.includes(activeCategory)) {
-      activeCategory = orderedCategories[0];
-    }
-
-    const catData = orderedCategories.map((categoryId) => {
-      const meta = CATEGORY_METADATA[categoryId] ?? { name: categoryId, color: "#606060" };
-      const effects = allEffects.filter((e) => e.category === categoryId);
-      const blends = blendItems.filter((b) => b.category === categoryId);
-      const customs = customEffectItems.filter((c) => c.category === categoryId);
-      const comps = compositeItems.filter((c) => c.category === categoryId);
-      const count = effects.length + blends.length + customs.length + comps.length;
-      return {
-        id: categoryId,
-        name: meta.name,
-        color: meta.color,
-        count,
-        iconHtml: '', // can enhance with renderIcon later
-      };
-    });
-
-    const matchesSearch = (item: FxLibraryItem): boolean => [
-      item.displayName,
-      item.type,
-      item.category,
-      item.description ?? "",
-    ].join(" ").toLowerCase().includes(searchFilter);
-
-    const visibleEffects = searchFilter
-      ? allEffects.filter((e) => matchesSearch(e))
-      : allEffects.filter((e) => e.category === activeCategory);
-    const visibleBlends = searchFilter
-      ? blendItems.filter((b) => matchesSearch(b))
-      : blendItems.filter((b) => b.category === activeCategory);
-    const visibleCustoms = searchFilter
-      ? customEffectItems.filter((c) => matchesSearch(c))
-      : customEffectItems.filter((c) => c.category === activeCategory);
-    const visibleComposites = searchFilter
-      ? compositeItems.filter((c) => matchesSearch(c))
-      : compositeItems.filter((c) => c.category === activeCategory);
-
-    const toAlpineItem = (item: FxLibraryItem) => ({
-      id: [
-        item.type,
-        item.blendId ?? "",
-        item.customEffectId ?? "",
-        item.compositeId ?? "",
-        item.moduleResourceId ?? "",
-        item.displayName ?? "",
-      ].join("::"),
-      type: item.type,
-      displayName: item.displayName || (item as any).name || (item as any).title || "",
-      category: item.category,
-      categoryColor: searchFilter
-        ? CATEGORY_METADATA[item.category]?.color || "#808080"
-        : CATEGORY_METADATA[activeCategory]?.color || "#808080",
-      blendId: item.blendId ?? "",
-      blendCategory: item.blendCategory ?? "",
-      compositeId: item.compositeId ?? "",
-      customEffectId: item.customEffectId ?? "",
-      moduleResourceType: item.moduleResourceType ?? "",
-      moduleResourceId: item.moduleResourceId ?? "",
-      customEffectDefaultParams: item.customEffectId ? encodeDatasetJson(item.defaultParams ?? {}) : "",
-      requiresResource: !!item.requiresResource && !item.customEffectId,
-      resourceType: item.resourceType ?? "",
-    });
-
-    const effData = [
-      ...visibleEffects.map(toAlpineItem),
-      ...visibleBlends.map(toAlpineItem),
-      ...visibleCustoms.map(toAlpineItem),
-      ...visibleComposites.map(toAlpineItem),
-    ];
-
-    const currentActive = activeCategory || "amp";
-    const currentSearch = searchFilter || "";
-
-    fxStore.updateFromTs(catData, effData, currentActive, currentSearch);
-  } catch (e) {
-    console.error("[fxSelector] Failed to push data to Alpine store", e);
-  }
 }
 
 /**

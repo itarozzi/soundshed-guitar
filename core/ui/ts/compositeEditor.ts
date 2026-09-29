@@ -131,16 +131,16 @@ export function renderCompositeList(): void {
   compositeList.innerHTML = filtered
     .map(
       (def) => `
-    <div class="composite-list-item" data-composite-id="${def.id}">
+    <div class="composite-list-item" data-composite-id="${escapeHtml(def.id)}">
       <div class="composite-list-info">
         <span class="composite-list-name">${escapeHtml(def.name)}</span>
         <span class="composite-list-meta">${escapeHtml(def.category)} · ${def.innerGraph.nodes.filter((n) => n.type !== "input" && n.type !== "output").length} effects · ${def.exposedParams.length} params</span>
         ${def.description ? `<span class="composite-list-desc">${escapeHtml(def.description)}</span>` : ""}
       </div>
       <div class="composite-list-actions">
-        <button class="composite-edit-btn advanced-action-btn" data-composite-id="${def.id}" title="Edit">Edit</button>
-        <button class="composite-clone-btn advanced-action-btn" data-composite-id="${def.id}" title="Clone as new">Clone</button>
-        <button class="composite-delete-btn advanced-action-btn danger" data-composite-id="${def.id}" title="Delete">Delete</button>
+        <button class="composite-edit-btn advanced-action-btn" data-composite-id="${escapeHtml(def.id)}" title="Edit">Edit</button>
+        <button class="composite-clone-btn advanced-action-btn" data-composite-id="${escapeHtml(def.id)}" title="Clone as new">Clone</button>
+        <button class="composite-delete-btn advanced-action-btn danger" data-composite-id="${escapeHtml(def.id)}" title="Delete">Delete</button>
       </div>
     </div>`
     )
@@ -447,7 +447,7 @@ function getInnerEffectNodeOptions(selectedNodeId: string): string {
     .map((n) => {
       const typeInfo = getNodeEffectInfo(n);
       const label = n.displayName || typeInfo?.displayName || n.type;
-      return `<option value="${n.id}" ${n.id === selectedNodeId ? "selected" : ""}>${escapeHtml(label)} (${n.id})</option>`;
+      return `<option value="${escapeHtml(n.id)}" ${n.id === selectedNodeId ? "selected" : ""}>${escapeHtml(label)} (${escapeHtml(n.id)})</option>`;
     })
     .join("");
 }
@@ -464,14 +464,14 @@ function getNodeParamOptions(nodeId: string, selectedKey: string): string {
     // Fall back to node.params keys
     const keys = Object.keys(node.params ?? {});
     return keys
-      .map((k) => `<option value="${k}" ${k === selectedKey ? "selected" : ""}>${k}</option>`)
+      .map((k) => `<option value="${escapeHtml(k)}" ${k === selectedKey ? "selected" : ""}>${escapeHtml(k)}</option>`)
       .join("");
   }
 
   return params
     .map(
       (p) =>
-        `<option value="${p.key}" ${p.key === selectedKey ? "selected" : ""}>${escapeHtml(p.name)} (${p.key})</option>`
+        `<option value="${escapeHtml(p.key)}" ${p.key === selectedKey ? "selected" : ""}>${escapeHtml(p.name)} (${escapeHtml(p.key)})</option>`
     )
     .join("");
 }

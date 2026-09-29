@@ -23,6 +23,7 @@ import type { ParameterDef } from "./presetV2.js";
 import { buildDefaultParamControlsHtml } from "./parameterControlMarkup.js";
 import { uiState } from "./state.js";
 import type { GraphNode } from "./types.js";
+import { escapeHtml } from "./utils.js";
 
 export class LayoutDesignerModal {
   /**
@@ -823,7 +824,7 @@ export class LayoutDesignerModal {
     const themeClass = this.layout.containerTheme ? ` theme-${this.layout.containerTheme}` : '';
 
     this.controlsLayer.innerHTML = `
-      <div class="layout-default-controls-preview custom-layout-backdrop${themeClass}" style="${wrapperStyle} pointer-events: none;">
+      <div class="layout-default-controls-preview custom-layout-backdrop${escapeHtml(themeClass)}" style="${escapeHtml(wrapperStyle)} pointer-events: none;">
         ${innerHtml}
       </div>
     `;
@@ -976,7 +977,7 @@ export class LayoutDesignerModal {
         const selected = selectedImageId && img.imageId === selectedImageId ? "selected" : "";
         const typeLabel = img.type ? ` [${img.type}]` : "";
         const name = img.fileName || img.imageId;
-        return `<option value="${img.imageId}" ${selected}>${name}${typeLabel}</option>`;
+        return `<option value="${escapeHtml(img.imageId)}" ${selected}>${name}${typeLabel}</option>`;
       }),
     ];
     return options.join("");
@@ -1059,7 +1060,7 @@ export class LayoutDesignerModal {
         ? getLayoutImageUrl(control.style.knobImageId)
         : null;
       const customKnobClass = knobImageUrl ? " is-custom-image" : "";
-      const customKnobStyle = knobImageUrl ? ` style="background-image: url('${knobImageUrl}');"` : "";
+      const customKnobStyle = knobImageUrl ? ` style="background-image: url('${escapeHtml(knobImageUrl)}');"` : "";
       html += `<div class="control-knob${customKnobClass}" data-style="${knobStyle}"${customKnobStyle}></div>`;
     }
 
@@ -1385,7 +1386,7 @@ export class LayoutDesignerModal {
             (p) => `
           <button
             class="layout-add-control-btn"
-            data-param-key="${p.key}"
+            data-param-key="${escapeHtml(p.key)}"
             style="
               display: block;
               width: 100%;
@@ -1412,7 +1413,7 @@ export class LayoutDesignerModal {
               (resource) => `
             <button
               class="layout-add-control-btn"
-              data-resource-key="${resource.controlKey}"
+              data-resource-key="${escapeHtml(resource.controlKey)}"
               style="
                 display: block;
                 width: 100%;

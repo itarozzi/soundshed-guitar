@@ -50,8 +50,8 @@ describe("Tone3000 preview in the resource browser", () => {
   it("starts the next preview without cancelling the one playing", async () => {
     const modal = previewingModal();
 
-    await modal.startPreview("1", "a", "https://tone3000.test/models/a.nam");
-    await modal.startPreview("1", "b", "https://tone3000.test/models/b.nam");
+    await modal.startPreview("1", "a", "https://www.tone3000.com/api/v1/models/1/download/a.nam");
+    await modal.startPreview("1", "b", "https://www.tone3000.com/api/v1/models/1/download/b.nam");
 
     expect(sent.map((message) => message.type)).toEqual(["previewRemoteResource", "previewRemoteResource"]);
     expect(sent[1]).toMatchObject({ nodeId: "amp", resourceIndex: 0, tempResourceId: "preview:tone3000:1:b" });
@@ -60,10 +60,10 @@ describe("Tone3000 preview in the resource browser", () => {
 
   it("keeps the playing preview when the next download fails, so closing still restores", async () => {
     const modal = previewingModal();
-    await modal.startPreview("1", "a", "https://tone3000.test/models/a.nam");
+    await modal.startPreview("1", "a", "https://www.tone3000.com/api/v1/models/1/download/a.nam");
     globalThis.fetch = vi.fn(async () => ({ ok: false, status: 404 }) as Response) as typeof fetch;
 
-    await modal.startPreview("1", "b", "https://tone3000.test/models/b.nam");
+    await modal.startPreview("1", "b", "https://www.tone3000.com/api/v1/models/1/download/b.nam");
     modal.cancelPreview();
 
     expect(sent.map((message) => message.type)).toEqual(["previewRemoteResource", "cancelPreviewResource"]);

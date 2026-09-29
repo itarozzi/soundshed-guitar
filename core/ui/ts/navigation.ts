@@ -103,16 +103,6 @@ export function activateTab(tabId: string): void {
 }
 
 export function switchMainPanel(panelId: string): void {
-  // Sync to Alpine store so x-show / :class in ui-components react
-  try {
-    const Alpine = (window as any).Alpine;
-    const uiStore = Alpine && Alpine.store && Alpine.store('ui');
-    if (uiStore) {
-      uiStore.mainPanel = panelId === "library"
-        ? "settings"
-        : (panelId === "scalex" ? "sharing" : (panelId === "performance" ? "visualizer" : panelId));
-    }
-  } catch {}
   const requestedSettingsTab = panelId === "library" ? "library" : null;
   const openPadsView = panelId === "performance";
   const normalizedPanelId = panelId === "performance"
@@ -453,9 +443,6 @@ export function applyUiViewState(state?: UiViewState): void {
   }
   applyingViewState = false;
 }
-
-// Expose for Alpine direct calls from x-on:click handlers in header etc.
-(window as any).__switchMainPanel = switchMainPanel;
 
 const CONTROL_BAR_COLLAPSED_KEY = "guitarfx.controlBarCollapsed";
 

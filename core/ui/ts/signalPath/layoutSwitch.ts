@@ -37,7 +37,7 @@ export function renderLayoutSwitchButtonHtml(node: GraphNode, blendId: string, u
   const label = `Effect layout: ${usingCustomLayout ? "custom layout" : "standard controls"}`;
   const standardTitle = usingCustomLayout ? "Show the standard controls" : "Showing the standard controls";
   return `
-    <div class="node-layout-split" role="group" aria-label="${label}">
+    <div class="node-layout-split" role="group" aria-label="${escapeHtml(label)}">
       <button
         class="effect-visualization-toolbar-btn node-layout-split-btn node-layout-standard-btn${usingCustomLayout ? "" : " is-active"}"
         type="button"
@@ -55,8 +55,8 @@ export function renderLayoutSwitchButtonHtml(node: GraphNode, blendId: string, u
         type="button"
         aria-haspopup="dialog"
         aria-expanded="false"
-        title="${label} — choose layout"
-        aria-label="${label}. Choose effect layout"
+        title="${escapeHtml(label)} — choose layout"
+        aria-label="${escapeHtml(label)}. Choose effect layout"
       >
         ${renderIcon("layout", "effect-visualization-toolbar-icon layout-switch-icon")}
         ${renderIcon("chevron-down", "node-layout-split-caret")}

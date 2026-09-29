@@ -844,10 +844,10 @@ function renderLoopList(): void {
       const isEditing = loop.id === editingLoopId;
       const rowMainHtml = isEditing
         ? `
-            <input type="text" class="practice-tool-loop-editable practice-tool-loop-name-input" data-loop-id="${loop.id}" data-field="name" list="practice-tool-loop-name-templates" placeholder="Loop name" value="${escapeHtml(loop.name)}" />
-            <input type="number" class="practice-tool-loop-editable practice-tool-loop-time-input" data-loop-id="${loop.id}" data-field="start" min="0" max="${maxSec}" step="0.01" value="${loop.startSec.toFixed(2)}" aria-label="Start time in seconds" />
+            <input type="text" class="practice-tool-loop-editable practice-tool-loop-name-input" data-loop-id="${escapeHtml(loop.id)}" data-field="name" list="practice-tool-loop-name-templates" placeholder="Loop name" value="${escapeHtml(loop.name)}" />
+            <input type="number" class="practice-tool-loop-editable practice-tool-loop-time-input" data-loop-id="${escapeHtml(loop.id)}" data-field="start" min="0" max="${escapeHtml(maxSec)}" step="0.01" value="${loop.startSec.toFixed(2)}" aria-label="Start time in seconds" />
             <span class="practice-tool-loop-time-sep">–</span>
-            <input type="number" class="practice-tool-loop-editable practice-tool-loop-time-input" data-loop-id="${loop.id}" data-field="end" min="0" max="${maxSec}" step="0.01" value="${loop.endSec.toFixed(2)}" aria-label="End time in seconds" />
+            <input type="number" class="practice-tool-loop-editable practice-tool-loop-time-input" data-loop-id="${escapeHtml(loop.id)}" data-field="end" min="0" max="${escapeHtml(maxSec)}" step="0.01" value="${loop.endSec.toFixed(2)}" aria-label="End time in seconds" />
             <span class="practice-tool-loop-time-unit">s</span>
           `
         : `
@@ -855,14 +855,14 @@ function renderLoopList(): void {
             <span class="practice-tool-loop-range">${formatClockTime(loop.startSec)}–${formatClockTime(loop.endSec)}</span>
           `;
       return `
-        <div class="practice-tool-loop-row${isActive ? " is-active" : ""}${isEditing ? " is-editing" : ""}" data-loop-id="${loop.id}">
-          <button type="button" class="practice-tool-loop-select-btn" data-loop-id="${loop.id}" aria-pressed="${isActive}" title="${isActive ? "Active loop — click to deactivate" : "Select loop"}">${isActive ? "●" : "○"}</button>
-          <div class="practice-tool-loop-row-main" data-loop-id="${loop.id}">
+        <div class="practice-tool-loop-row${isActive ? " is-active" : ""}${isEditing ? " is-editing" : ""}" data-loop-id="${escapeHtml(loop.id)}">
+          <button type="button" class="practice-tool-loop-select-btn" data-loop-id="${escapeHtml(loop.id)}" aria-pressed="${isActive}" title="${isActive ? "Active loop — click to deactivate" : "Select loop"}">${isActive ? "●" : "○"}</button>
+          <div class="practice-tool-loop-row-main" data-loop-id="${escapeHtml(loop.id)}">
             ${rowMainHtml}
           </div>
           <div class="practice-tool-loop-row-actions">
-            ${isEditing ? "" : `<button type="button" class="practice-tool-loop-rename-btn" data-loop-id="${loop.id}" title="Edit name/time" aria-label="Edit loop name and time">✎</button>`}
-            <button type="button" class="practice-tool-loop-delete-btn" data-loop-id="${loop.id}" title="Delete" aria-label="Delete loop">✕</button>
+            ${isEditing ? "" : `<button type="button" class="practice-tool-loop-rename-btn" data-loop-id="${escapeHtml(loop.id)}" title="Edit name/time" aria-label="Edit loop name and time">✎</button>`}
+            <button type="button" class="practice-tool-loop-delete-btn" data-loop-id="${escapeHtml(loop.id)}" title="Delete" aria-label="Delete loop">✕</button>
           </div>
         </div>
       `;

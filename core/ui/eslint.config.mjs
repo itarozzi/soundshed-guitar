@@ -1,5 +1,6 @@
 import js from "@eslint/js";
 import tseslint from "typescript-eslint";
+import noUnescapedHtmlAttribute from "./scripts/eslint-rules/no-unescaped-html-attribute.mjs";
 
 /**
  * Deliberately small ruleset. The job here is to catch what a large refactor
@@ -81,6 +82,21 @@ export default tseslint.config(
       // `try { ... } catch {}` is the house idiom for optional DOM/host calls
       // that are allowed to fail silently. It is intentional, not an oversight.
       "no-empty": ["error", { allowEmptyCatch: true }],
+    },
+  },
+
+  // ── Markup built from preset, pack and server data ────────────────────
+  // Node ids, names and paths arrive in imported presets and Tone Sharing
+  // packs, and most markup here is a template literal assigned to innerHTML.
+  // An attribute value is the one position that can be checked exactly — it
+  // never holds markup — so a plain string there must go through escapeHtml.
+  // (eslint-plugin-no-unsanitized was considered: it flags every innerHTML
+  // assignment built by a helper, which is nearly all ~190 of them here.)
+  {
+    files: ["ts/**/*.ts"],
+    plugins: { soundshed: { rules: { "no-unescaped-html-attribute": noUnescapedHtmlAttribute } } },
+    rules: {
+      "soundshed/no-unescaped-html-attribute": "error",
     },
   },
 

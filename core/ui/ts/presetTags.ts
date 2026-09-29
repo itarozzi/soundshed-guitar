@@ -1,3 +1,4 @@
+import { escapeHtml } from "./utils.js";
 /**
  * Canonical tag vocabulary offered wherever the user can tag a preset or a
  * Multi-Rig mix: the Save Preset modal, the Save Multi-Rig modal, the Tone
@@ -23,11 +24,11 @@ export const STANDARD_TAGS: readonly string[] = [
 /**
  * Fills a tag-picker container with one button per tag, using the given
  * chip class. Safe to call on an already-populated container — existing
- * children are replaced. Tag values come from our own constant list (or
- * other trusted call sites), so no HTML-escaping is performed.
+ * children are replaced. Tags are escaped: a preset's own tags come from
+ * whoever shared it.
  */
 export function renderTagChips(container: HTMLElement, tags: readonly string[], chipClass: string): void {
   container.innerHTML = tags
-    .map((tag) => `<button type="button" class="${chipClass}" data-tag="${tag}">${tag}</button>`)
+    .map((tag) => `<button type="button" class="${escapeHtml(chipClass)}" data-tag="${escapeHtml(tag)}">${escapeHtml(tag)}</button>`)
     .join("");
 }

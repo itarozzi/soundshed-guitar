@@ -12,6 +12,7 @@ import { setPresetLoadingId } from "../presetLibraryStore.js";
 import type { Setlist } from "../types.js";
 import { setlistCollapsible, setlistEditorHeader, setlistListElement, setlistPanel, setlistSlotsElement, setlistToggle } from "./dom.js";
 import { renderActivePreset } from "./filter.js";
+import { escapeHtml } from "../utils.js";
 
 export function normalizeSetlistName(name: string): string {
   return name.trim();
@@ -258,9 +259,9 @@ export function renderSetlistPanel(): void {
           const active = setlist.id === uiState.activeSetlistId ? "active" : "";
           const bankLabel = typeof setlist.bank === "number" ? `Bank ${setlist.bank}` : "No Bank";
           return `
-            <div class="setlist-item ${active}" data-setlist-id="${setlist.id}">
-              <span>${setlist.name}</span>
-              <span class="bank-pill">${bankLabel}</span>
+            <div class="setlist-item ${active}" data-setlist-id="${escapeHtml(setlist.id)}">
+              <span>${escapeHtml(setlist.name)}</span>
+              <span class="bank-pill">${escapeHtml(bankLabel)}</span>
             </div>
           `;
         })
@@ -294,7 +295,7 @@ export function renderSetlistPanel(): void {
         const isActive = index === cursorIdx ? " active" : "";
         return `
           <div class="setlist-slot${isActive}" data-slot-index="${index}" draggable="true">
-            <span class="setlist-slot-title">${presetName}</span>
+            <span class="setlist-slot-title">${escapeHtml(presetName)}</span>
             <button class="setlist-slot-remove" data-slot-index="${index}" type="button">×</button>
           </div>
         `;

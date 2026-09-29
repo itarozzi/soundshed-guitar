@@ -147,7 +147,7 @@ export async function renderFeedRows(rows: ToneSharingRow[], requestVersion = br
                         ${renderToneIconButton({ kind: "action", value: "download", icon: "download", label: isInstalled ? "Pack already installed" : "Download pack", primary: true, disabled: isInstalled })}
                         ${renderToneIconButton({ kind: "action", value: "share", icon: "share", label: "Share pack" })}`;
           return `
-                  <div class="${cardClass}${isPreviewing ? " is-previewing" : ""}" data-kind="${item.kind}" data-id="${itemId}" data-title="${safeTitle}"${styleAttr}${lazyThumbAttr}>
+                  <div class="${escapeHtml(cardClass)}${isPreviewing ? " is-previewing" : ""}" data-kind="${item.kind}" data-id="${itemId}" data-title="${safeTitle}"${styleAttr}${lazyThumbAttr}>
                     <div class="tone-sharing-card-item-content">
                       <div class="tone-sharing-card-item-header">
                         <div class="tone-sharing-card-item-title">${safeTitle}</div>

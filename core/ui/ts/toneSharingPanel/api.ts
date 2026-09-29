@@ -63,6 +63,31 @@ export function buildApiUrl(pathOrUrl: string): string {
   return `${base}${normalizedPath}`;
 }
 
+/** True when `url` is on the Tone Sharing API's own origin, the only place the session goes. */
+export function isToneSharingApiUrl(url: string): boolean {
+  try {
+    return new URL(url).origin === getApiOrigin();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * fetch() for a Tone Sharing path, or an absolute URL the server handed back (a download,
+ * a pack thumbnail). The session id and cookies go only to the API's own origin: an absolute
+ * URL in a pack's metadata may point anywhere, and must not be handed the session.
+ */
+export function toneSharingFetch(pathOrUrl: string, init: RequestInit = {}): Promise<Response> {
+  const url = buildApiUrl(pathOrUrl);
+  const ownOrigin = isToneSharingApiUrl(url);
+  const headers = new Headers(init.headers ?? {});
+  headers.delete("x-session-id");
+  if (ownOrigin && toneSharingState.sessionId) {
+    headers.set("x-session-id", toneSharingState.sessionId);
+  }
+  return fetch(url, { ...init, headers, credentials: ownOrigin ? "include" : "omit" });
+}
+
 export async function apiFetch<T = unknown>(path: string, init: RequestInit = {}): Promise<T> {
   const request = async (includeSessionId: boolean): Promise<{ response: Response; payload: Record<string, unknown> | null }> => {
     const headers = new Headers(init.headers ?? {});

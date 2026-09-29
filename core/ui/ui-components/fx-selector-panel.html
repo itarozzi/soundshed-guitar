@@ -6,50 +6,15 @@
           <svg class="fx-toggle-icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
         </button>
       </div>
-      <div class="fx-selector-content" x-data>
-        <div class="fx-selector-categories scrollbar-thin" id="fx-selector-categories">
-          <template x-for="cat in ($store.fxSelector ? $store.fxSelector.categories : [])" :key="cat.id">
-            <div class="fx-category"
-                 :class="{ active: $store.fxSelector.activeCategory === cat.id }"
-                 :style="`--category-color: ${cat.color}`"
-                 x-on:click="$store.fxSelector && $store.fxSelector.selectCategory(cat.id)">
-              <span x-html="cat.iconHtml || ''"></span>
-              <span class="fx-category-name" x-text="cat.name"></span>
-              <span class="fx-category-count" x-text="cat.count"></span>
-            </div>
-          </template>
-        </div>
+      <div class="fx-selector-content">
+        <!-- fxSelector.ts renders the categories and the effects list. -->
+        <div class="fx-selector-categories scrollbar-thin" id="fx-selector-categories"></div>
         <div class="fx-selector-effects">
           <div class="fx-selector-search">
-            <input type="text" id="fx-search-input" placeholder="Search effects…"
-                   :value="$store.fxSelector ? $store.fxSelector.searchFilter : ''" />
+            <input type="text" id="fx-search-input" placeholder="Search effects…" />
           </div>
           <p>Drag any effect into the signal chain. You can also drag effects around to move them in the chain. </p>
-          <div class="fx-selector-effects-list scrollbar-thin" id="fx-selector-effects-list">
-            <template x-for="fx in ($store.fxSelector ? $store.fxSelector.effects : [])" :key="fx.id || fx.type">
-              <div class="fx-item"
-                :data-effect-type="fx.type"
-                :data-blend-id="fx.blendId || ''"
-                :data-blend-category="fx.blendCategory || ''"
-                :data-composite-id="fx.compositeId || ''"
-                :data-custom-effect-id="fx.customEffectId || ''"
-                :data-custom-effect-resource-type="fx.moduleResourceType || ''"
-                :data-custom-effect-resource-id="fx.moduleResourceId || ''"
-                :data-custom-effect-default-params="fx.customEffectDefaultParams || ''"
-                :data-effect-category="fx.category || ''"
-                :style="`--category-color: ${fx.categoryColor || '#808080'}`">
-                <div class="fx-item-icon"></div>
-                <div class="fx-item-info">
-                  <div class="fx-item-name" x-text="fx.displayName || fx.name || fx.title || ''"></div>
-                  <div class="fx-item-type" x-text="fx.category || ''"></div>
-                </div>
-                <span class="fx-item-badge" x-show="fx.requiresResource" x-text="fx.resourceType ? `Requires ${fx.resourceType}` : 'Requires resource'"></span>
-                <span class="fx-item-badge" x-show="fx.blendId">Custom blend</span>
-                <span class="fx-item-badge" x-show="fx.customEffectId">Custom</span>
-                <span class="fx-item-badge" x-show="fx.compositeId">Package</span>
-              </div>
-            </template>
-          </div>
+          <div class="fx-selector-effects-list scrollbar-thin" id="fx-selector-effects-list"></div>
         </div>
       </div>
     </section>

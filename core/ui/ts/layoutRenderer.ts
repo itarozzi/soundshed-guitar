@@ -105,7 +105,7 @@ export function renderCustomLayout(
   return `
     <div class="custom-layout-scale-outer" style="position: relative; width: 100%; overflow: hidden; height: ${h}px;">
       <div 
-        class="custom-layout-container${themeClass}" 
+        class="custom-layout-container${escapeHtml(themeClass)}" 
         data-design-w="${w}"
         data-design-h="${h}"
         style="
@@ -148,11 +148,11 @@ function renderOverlays(node: GraphNode, overlays: LayoutRectangleOverlay[]): st
         return "";
       }
 
-      const backgroundColor = overlay.style?.backgroundColor || "#000000";
+      const backgroundColor = safeCssValue(overlay.style?.backgroundColor, "#000000");
       const backgroundOpacity = typeof overlay.style?.backgroundOpacity === "number"
         ? Math.max(0, Math.min(1, overlay.style.backgroundOpacity))
         : 0.25;
-      const borderColor = overlay.style?.borderColor || "#ffffff";
+      const borderColor = safeCssValue(overlay.style?.borderColor, "#ffffff");
       const borderWidth = Math.max(0, overlay.style?.borderWidth ?? 1);
       const borderRadius = Math.max(0, overlay.style?.borderRadius ?? 0);
       const fill = colorWithAlpha(backgroundColor, backgroundOpacity);
@@ -166,8 +166,8 @@ function renderOverlays(node: GraphNode, overlays: LayoutRectangleOverlay[]): st
             top: ${Math.round(overlay.position.y)}px;
             width: ${Math.round(overlay.size.width)}px;
             height: ${Math.round(overlay.size.height)}px;
-            background-color: ${isVisible ? fill : "transparent"};
-            border: ${isVisible ? `${borderWidth}px solid ${borderColor}` : "0 solid transparent"};
+            background-color: ${escapeHtml(isVisible ? fill : "transparent")};
+            border: ${escapeHtml(isVisible ? `${borderWidth}px solid ${borderColor}` : "0 solid transparent")};
             border-radius: ${borderRadius}px;
             z-index: ${toggleBypassOnClick ? 4 : 1};
             box-sizing: border-box;
@@ -179,6 +179,34 @@ function renderOverlays(node: GraphNode, overlays: LayoutRectangleOverlay[]): st
       `;
     })
     .join("");
+}
+
+/**
+ * A colour, gradient or font value from a layout, or `fallback` when it could do
+ * more than set its one property. Layouts are imported from files: a `;` would
+ * start another declaration, and url() would fetch from anywhere.
+ */
+export function safeCssValue(value: unknown, fallback: string): string {
+  if (typeof value !== "string") {
+    return fallback;
+  }
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > 256 || !/^[\w\s#%.,()'"+\-/]+$/.test(trimmed)
+    || /\b(url|image|image-set|expression)\s*\(/i.test(trimmed)) {
+    return fallback;
+  }
+  return trimmed;
+}
+
+/** A finite number from a layout (whose JSON may hold anything), else `fallback`. */
+function layoutNumber(value: unknown, fallback: number): number {
+  const number = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+/** url() for a layout's own image — data, blob or bundled file — or `none` for anything else. */
+function layoutImageCssUrl(url: string): string {
+  return /^(data:image\/|blob:|layout-images\/)/.test(url) && !/["\\\r\n]/.test(url) ? `url("${url}")` : "none";
 }
 
 /** Applies an alpha channel to a #rgb or #rrggbb colour, passing anything else through. */
@@ -259,7 +287,7 @@ export function renderCustomLayoutBackdrop(
   return `
     <div class="custom-layout-scale-outer" style="position: relative; width: 100%; overflow: hidden; height: ${h}px;">
       <div
-        class="custom-layout-container custom-layout-backdrop${themeClass}"
+        class="custom-layout-container custom-layout-backdrop${escapeHtml(themeClass)}"
         data-design-w="${w}"
         data-design-h="${h}"
         style="
@@ -279,7 +307,7 @@ export function renderCustomLayoutBackdrop(
         <div class="custom-layout-labels" style="position: absolute; inset: 0; z-index: 3; pointer-events: none; margin: 0; padding: 0;">
           ${labels}
         </div>
-        <div class="custom-layout-default-controls" style="${wrapperStyle}">
+        <div class="custom-layout-default-controls" style="${escapeHtml(wrapperStyle)}">
           ${innerHtml}
         </div>
       </div>
@@ -297,32 +325,32 @@ function renderBackgrounds(backgrounds: LayoutBackground[]): string {
       let style = `
         position: absolute;
         inset: 0;
-        z-index: ${bg.layerIndex};
+        z-index: ${layoutNumber(bg.layerIndex, 0)};
       `;
 
       if (bg.type === "color") {
-        style += `background-color: ${bg.value};`;
+        style += `background-color: ${safeCssValue(bg.value, "transparent")};`;
       } else if (bg.type === "gradient") {
-        style += `background: ${bg.value};`;
+        style += `background: ${safeCssValue(bg.value, "none")};`;
       } else if (bg.type === "image") {
         const url = getLayoutImageUrl(bg.value);
         if (url) {
           // Determine background-size
-          let bgSize: string = bg.size || "cover";
+          let bgSize: string = safeCssValue(bg.size, "cover");
           if (bg.size === "custom" && bg.scale !== undefined) {
-            bgSize = `${bg.scale * 100}%`;
+            bgSize = `${layoutNumber(bg.scale, 1) * 100}%`;
           } else if (bg.size === "stretch") {
             bgSize = "100% 100%";
           }
           // Match designer semantics exactly: origin is always top-left with pixel offsets.
-          const offsetX = bg.offsetX || 0;
-          const offsetY = bg.offsetY || 0;
+          const offsetX = layoutNumber(bg.offsetX, 0);
+          const offsetY = layoutNumber(bg.offsetY, 0);
           const bgPosition = `${offsetX}px ${offsetY}px`;
           // Tile mode uses repeat
           const bgRepeat = bg.size === "tile" ? "repeat" : "no-repeat";
 
           style += `
-            background-image: url('${url}');
+            background-image: ${layoutImageCssUrl(url)};
             background-size: ${bgSize};
             background-position: ${bgPosition};
             background-repeat: ${bgRepeat};
@@ -330,11 +358,12 @@ function renderBackgrounds(backgrounds: LayoutBackground[]): string {
         }
       }
 
-      if (bg.opacity !== undefined && bg.opacity < 1) {
-        style += `opacity: ${bg.opacity};`;
+      const opacity = layoutNumber(bg.opacity, 1);
+      if (opacity < 1) {
+        style += `opacity: ${opacity};`;
       }
 
-      return `<div class="custom-layout-bg" style="${style}"></div>`;
+      return `<div class="custom-layout-bg" style="${escapeHtml(style)}"></div>`;
     })
     .join("");
 }
@@ -393,9 +422,10 @@ function renderControls(
 
       const labelPosition = control.style?.labelPosition || "top";
       const showValue = control.style?.showValue !== false;
-      const knobStyle = control.style?.knobStyle || "default";
+      // A class-name suffix, and the JSON behind it is not held to its type.
+      const knobStyle = /^[\w-]+$/.test(String(control.style?.knobStyle ?? "")) ? control.style!.knobStyle! : "default";
       const hideLabel = control.style?.hideLabel === true;
-      const labelColor = control.style?.labelColor || "var(--text-dark-secondary)";
+      const labelColor = safeCssValue(control.style?.labelColor, "var(--text-dark-secondary)");
 
       const isToggle = !isResourceControl && (control.type === "toggle" || unit === "toggle");
       const isEnum = !isResourceControl && unit === "enum" && Array.isArray(labels);
@@ -413,7 +443,7 @@ function renderControls(
       let controlHtml = "";
 
       if (!hideLabel && labelPosition === "top") {
-        controlHtml += `<span class="custom-control-label" style="font-size: 10px; color: ${labelColor}; margin-bottom: 4px;">${escapeHtml(label)}</span>`;
+        controlHtml += `<span class="custom-control-label" style="font-size: 10px; color: ${escapeHtml(labelColor)}; margin-bottom: 4px;">${escapeHtml(label)}</span>`;
       }
 
       if (isResourceControl) {
@@ -454,7 +484,7 @@ function renderControls(
           ? `
               <div
                 class="plugin-host-loading"
-                data-node-id="${node.id}"
+                data-node-id="${escapeHtml(node.id)}"
                 data-resource-index="${resourceIndex}"
                 role="status"
                 aria-live="polite"
@@ -467,12 +497,12 @@ function renderControls(
           : "";
 
         controlHtml += `
-          <div class="node-resource-selector custom-layout-resource-selector" data-node-id="${node.id}">
+          <div class="node-resource-selector custom-layout-resource-selector" data-node-id="${escapeHtml(node.id)}">
             <div class="resource-controls">
               <button
                 class="resource-picker-btn"
-                data-node-id="${node.id}"
-                data-resource-type="${resourceDef?.resourceType ?? ""}"
+                data-node-id="${escapeHtml(node.id)}"
+                data-resource-type="${escapeHtml(resourceDef?.resourceType ?? "")}"
                 data-resource-index="${resourceIndex}"
                 ${exposedResourceAttr}
               >Browse</button>
@@ -480,7 +510,7 @@ function renderControls(
                 <button
                   type="button"
                   class="preset-action-btn resource-nav-btn resource-nav-prev-btn"
-                  data-node-id="${node.id}"
+                  data-node-id="${escapeHtml(node.id)}"
                   data-resource-type="${resourceDef?.resourceType ?? ""}"
                   data-resource-index="${resourceIndex}"
                   ${exposedResourceAttr}
@@ -491,8 +521,8 @@ function renderControls(
               ` : ""}
               <div
                 class="${missingClass}"
-                data-node-id="${node.id}"
-                data-resource-type="${resourceDef?.resourceType ?? ""}"
+                data-node-id="${escapeHtml(node.id)}"
+                data-resource-type="${escapeHtml(resourceDef?.resourceType ?? "")}"
                 data-resource-index="${resourceIndex}"
                 ${exposedResourceAttr}
                 title="${escapeHtml(resourceDef?.currentDisplayName ?? "") }"
@@ -501,7 +531,7 @@ function renderControls(
                 <button
                   type="button"
                   class="preset-action-btn resource-nav-btn resource-nav-next-btn"
-                  data-node-id="${node.id}"
+                  data-node-id="${escapeHtml(node.id)}"
                   data-resource-type="${resourceDef?.resourceType ?? ""}"
                   data-resource-index="${resourceIndex}"
                   ${exposedResourceAttr}
@@ -513,8 +543,8 @@ function renderControls(
               ${(resourceDef?.allowBrowseFile ?? true) ? `
                 <button
                   class="resource-browse-btn"
-                  data-node-id="${node.id}"
-                  data-resource-type="${resourceDef?.resourceType ?? ""}"
+                  data-node-id="${escapeHtml(node.id)}"
+                  data-resource-type="${escapeHtml(resourceDef?.resourceType ?? "")}"
                   data-resource-index="${resourceIndex}"
                   ${exposedResourceAttr}
                   data-accept="${browseAccept}"
@@ -530,7 +560,7 @@ function renderControls(
         const checked = value >= 0.5;
         controlHtml += `
           <label class="toggle-switch">
-            <input class="node-param-toggle" type="checkbox" data-node-id="${node.id}" data-param-key="${key}" ${checked ? "checked" : ""}>
+            <input class="node-param-toggle" type="checkbox" data-node-id="${escapeHtml(node.id)}" data-param-key="${escapeHtml(key)}" ${checked ? "checked" : ""}>
             <span class="toggle-slider"></span>
           </label>
         `;
@@ -541,8 +571,8 @@ function renderControls(
           <input
             type="range"
             class="custom-layout-slider node-param-slider"
-            data-node-id="${node.id}"
-            data-param-key="${key}"
+            data-node-id="${escapeHtml(node.id)}"
+            data-param-key="${escapeHtml(key)}"
             data-value="${value}"
             data-default="${defaultValue ?? 0}"
             data-min="${min ?? 0}"
@@ -560,15 +590,15 @@ function renderControls(
           <input
             type="range"
             class="custom-layout-slider node-param-slider"
-            data-node-id="${node.id}"
-            data-param-key="${key}"
+            data-node-id="${escapeHtml(node.id)}"
+            data-param-key="${escapeHtml(key)}"
             data-value="${value}"
             data-default="${defaultValue ?? 0}"
             min="${min ?? 0}"
             max="${max ?? 1}"
             ${step !== undefined ? `step="${step}"` : `step="0.01"`}
             value="${value}"
-            ${isEnum ? `data-labels="${labels?.join("|") ?? ""}"` : ""}
+            ${isEnum ? `data-labels="${escapeHtml(labels?.join("|") ?? "")}"` : ""}
             ${blendAttrs}
           >
         `;
@@ -585,35 +615,35 @@ function renderControls(
         controlHtml += `
           <div 
             class="knob node-param-knob custom-knob-${knobStyle}" 
-            data-node-id="${node.id}" 
-            data-param-key="${key}"
+            data-node-id="${escapeHtml(node.id)}" 
+            data-param-key="${escapeHtml(key)}"
             data-value="${value}"
             data-default="${defaultValue ?? 0}"
             data-min="${min ?? 0}"
             data-max="${max ?? 1}"
-            data-unit="${unit || "amount"}"
+            data-unit="${escapeHtml(unit || "amount")}"
             ${step !== undefined ? `data-step="${step}"` : ""}
-            ${isEnum ? `data-labels="${labels?.join("|") ?? ""}"` : ""}
+            ${isEnum ? `data-labels="${escapeHtml(labels?.join("|") ?? "")}"` : ""}
             ${taper === "log" ? `data-taper="log"` : ""}
             ${blendAttrs}
             ${customKnobAttr}
             style="${knobBg}"
           >
-            ${useCustomKnobImage ? `<div class="custom-knob-face" style="background-image: url('${knobImageUrl}');"></div>` : ""}
+            ${useCustomKnobImage ? `<div class="custom-knob-face" style="background-image: url('${escapeHtml(knobImageUrl)}');"></div>` : ""}
             <div class="knob-indicator"></div>
           </div>
         `;
       }
 
       if (!hideLabel && labelPosition === "bottom") {
-        controlHtml += `<span class="custom-control-label" style="font-size: 10px; color: ${labelColor}; margin-top: 4px;">${escapeHtml(label)}</span>`;
+        controlHtml += `<span class="custom-control-label" style="font-size: 10px; color: ${escapeHtml(labelColor)}; margin-top: 4px;">${escapeHtml(label)}</span>`;
       }
 
       if (!isResourceControl && showValue) {
         controlHtml += `<span class="node-param-value" style="font-size: 9px; color: var(--text-tertiary); margin-top: 2px;">${displayValue}</span>`;
       }
 
-      return `<div class="custom-layout-control" style="${controlStyle}">${controlHtml}</div>`;
+      return `<div class="custom-layout-control" style="${escapeHtml(controlStyle)}">${controlHtml}</div>`;
     })
     .join("");
 }
@@ -628,15 +658,15 @@ function renderTextLabels(labels: LayoutTextLabel[]): string {
         position: absolute;
         left: ${Math.round(label.position.x)}px;
         top: ${Math.round(label.position.y)}px;
-        font-size: ${label.fontSize}px;
-        font-weight: ${label.fontWeight || "normal"};
-        ${label.fontFamily ? `font-family: ${label.fontFamily};` : ""}
-        color: ${label.color || "var(--text-dark-primary)"};
-        text-align: ${label.textAlign || "left"};
+        font-size: ${layoutNumber(label.fontSize, 12)}px;
+        font-weight: ${safeCssValue(label.fontWeight, "normal")};
+        ${label.fontFamily ? `font-family: ${safeCssValue(label.fontFamily, "inherit")};` : ""}
+        color: ${safeCssValue(label.color, "var(--text-dark-primary)")};
+        text-align: ${safeCssValue(label.textAlign, "left")};
         pointer-events: none;
       `;
 
-      return `<span class="custom-layout-text-label" style="${style}">${escapeHtml(label.text)}</span>`;
+      return `<span class="custom-layout-text-label" style="${escapeHtml(style)}">${escapeHtml(label.text)}</span>`;
     })
     .join("");
 }

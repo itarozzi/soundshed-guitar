@@ -31,6 +31,7 @@ import {
 import { EqSpectrumWatcher, type EqSpectrum, type EqSpectrumSource } from "./eqSpectrum.js";
 import { GenericKnob } from "./knob.js";
 import { appendLog } from "./logging.js";
+import { escapeHtml } from "./utils.js";
 
 /**
  * Everything an EQ panel needs to know about the specific EQ it is editing.
@@ -205,10 +206,10 @@ export class EqPanel {
     const knobHtml = (id: string, label: string, value: number) => `
       <div class="eq-knob-control">
         <span class="knob-label">${label}</span>
-        <div class="knob" data-param="${id}" data-value="${value}">
+        <div class="knob" data-param="${escapeHtml(id)}" data-value="${value}">
           <div class="knob-indicator"></div>
         </div>
-        <span class="knob-value" data-knob-value="${id}"></span>
+        <span class="knob-value" data-knob-value="${escapeHtml(id)}"></span>
       </div>`;
 
     const params = this.binding.readParams();

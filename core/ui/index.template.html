@@ -35,6 +35,21 @@
       delete window.inAndroidUserScriptEval;
     }
   </script>
+  <!--
+    Content Security Policy. It must come after the Android bootstrap above: a
+    policy set by <meta> applies only to what follows it, and that bootstrap has
+    to eval() JUCE's scripts, which this policy forbids everywhere else.
+
+    Scripts load only from the app itself; inline ones must match a hash, which
+    scripts/assemble-html.js computes into the placeholder when it writes
+    index.html, so edit them freely. Markup built from preset or pack data can
+    then carry no script: no inline handlers, no javascript: URLs, no plugins,
+    no <base>. `juce:` is the resource scheme on Apple and Linux WebViews
+    (juce://juce.backend/), listed in case 'self' does not match it there.
+    Native calls from JUCE (ExecuteScript, evaluateJavascript) are not subject
+    to it. Styles stay open: the UI sets inline style attributes everywhere.
+  -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' juce:; script-src 'self' juce: {{CSP_INLINE_SCRIPT_HASHES}}; style-src 'self' juce: 'unsafe-inline'; img-src 'self' juce: data: blob: https: http:; media-src 'self' juce: data: blob: https: http:; font-src 'self' juce: data:; connect-src 'self' juce: data: blob: https: http: ws: wss:; frame-src https:; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'" />
   <script>
     /*
       Display density, applied before first paint.
@@ -66,7 +81,6 @@
     })();
   </script>
   <script src="build-flags.js"></script>
-  <script src="dist/alpine.min.js"></script>
   <style>
     html[data-jam-enabled="false"] [data-panel="jam"],
     html[data-jam-enabled="false"] #panel-jam,

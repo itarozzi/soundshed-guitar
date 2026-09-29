@@ -80,6 +80,39 @@ function normalizeTone3000RequestUrl(input: string): string {
   }
 }
 
+/**
+ * True when `url` is on the official Tone3000 API's origin or, in proxy mode, the configured
+ * proxy's. Nothing else may be fetched through tone3000AuthenticatedFetch: its callers pass
+ * URLs from API responses and from imported preset archives (`modelUrl`), and in BYOK mode
+ * the session's bearer token goes with the request.
+ */
+export function isTone3000RequestUrlAllowed(url: string): boolean {
+  let origin: string;
+  try {
+    origin = new URL(url).origin;
+  } catch {
+    return false;
+  }
+  const allowed = [new URL(TONE3000_OFFICIAL_API_BASE).origin];
+  const config = getTone3000ApiClientConfig();
+  if (config.usingProxy) {
+    try {
+      allowed.push(new URL(config.baseUrl).origin);
+    } catch {
+      // A malformed proxy setting allows nothing extra.
+    }
+  }
+  return allowed.includes(origin);
+}
+
+function describeRequestHost(url: string): string {
+  try {
+    return new URL(url).host || url;
+  } catch {
+    return "an invalid URL";
+  }
+}
+
 function maskApiKey(apiKey: string): string {
   if (apiKey.length <= 6) {
     return "***";
@@ -268,6 +301,10 @@ export async function ensureTone3000Session(): Promise<void> {
 
 export async function tone3000AuthenticatedFetch(input: string, init?: RequestInit): Promise<Response> {
   const requestUrl = normalizeTone3000RequestUrl(input);
+  if (!isTone3000RequestUrlAllowed(requestUrl)) {
+    appendLog(`tone3000 request refused: ${describeRequestHost(requestUrl)} is not the Tone3000 API or the configured proxy`);
+    throw new Error(`Refusing a Tone3000 request to ${describeRequestHost(requestUrl)}`);
+  }
   if (isProxyModeActive()) {
     return fetch(requestUrl, init);
   }
@@ -360,8 +397,13 @@ export async function downloadTone3000ResourceByModelUrl(modelUrl: string): Prom
 }
 
 export async function downloadTone3000ResourceByReference(reference: Tone3000ArchiveReference): Promise<ArrayBuffer> {
-  if (reference.modelUrl) {
+  // The reference comes from an archive someone shared: a modelUrl anywhere but Tone3000 is
+  // ignored, and the model is looked up by its ids instead.
+  if (reference.modelUrl && isTone3000RequestUrlAllowed(reference.modelUrl)) {
     return downloadTone3000ResourceByModelUrl(reference.modelUrl);
+  }
+  if (reference.modelUrl) {
+    appendLog(`tone3000 archive modelUrl ignored: ${describeRequestHost(reference.modelUrl)} is not Tone3000`);
   }
 
   if (!isProxyModeActive() && !uiState.tone3000Session?.accessToken) {

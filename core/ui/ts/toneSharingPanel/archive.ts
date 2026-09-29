@@ -3,9 +3,8 @@
  * .zip a pack download hands to the importer.
  */
 
-import { buildApiUrl, parseApiErrorMessage } from "./api.js";
+import { parseApiErrorMessage, toneSharingFetch } from "./api.js";
 import { resolveCreatorProfileHandle } from "./format.js";
-import { toneSharingState } from "./state.js";
 import type { ItemArchive, ItemArchiveResource, ItemCollectionArchive, Tone3000ResourceRef, ToneSharingPackDetails } from "./types.js";
 
 export async function readPresetFromArchive(buffer: ArrayBuffer): Promise<Record<string, unknown>> {
@@ -47,10 +46,7 @@ export async function buildPackArchiveFromDetails(details: ToneSharingPackDetail
   const packCreatorHandle = resolveCreatorProfileHandle(details.pack as unknown as Record<string, unknown>) ?? undefined;
   const packCreatorId = details.pack.creatorUserId ?? undefined;
   for (const item of sortedItems) {
-    const response = await fetch(buildApiUrl(`/items/${item.itemId}/download`), {
-      headers: toneSharingState.sessionId ? { "x-session-id": toneSharingState.sessionId } : {},
-      credentials: "include"
-    });
+    const response = await toneSharingFetch(`/items/${item.itemId}/download`);
 
     if (!response.ok) {
       const message = await parseApiErrorMessage(response);

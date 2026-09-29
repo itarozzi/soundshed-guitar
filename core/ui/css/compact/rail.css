@@ -13,7 +13,7 @@
  *
  * ts/compactMode.ts stamps html[data-compact-layout="rail"]. The header is not
  * replaced, only stood on its end: Tones and Jam keep their feature-flag gating
- * and Alpine bindings, and settings keeps its handler.
+ * and click handlers, and settings keeps its handler.
  */
 
 /* Rail-only markup in the header, hidden everywhere else. */

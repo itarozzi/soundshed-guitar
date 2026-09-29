@@ -34,7 +34,7 @@ describe("downloadTone3000ResourceByReference", () => {
           status: 200,
           json: async () => ({
             models: [
-              { id: "known-a1-model", model_url: "https://tone3000.test/models/known-a1-model" },
+              { id: "known-a1-model", model_url: "https://www.tone3000.com/api/v1/models/known-a1-model" },
             ],
           }),
           text: async () => "",

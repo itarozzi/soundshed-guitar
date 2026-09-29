@@ -530,7 +530,7 @@ std::optional<ParsedFactoryPresetArchive> ParseFactoryPresetArchive(const std::f
             return true;
         }
 
-        const auto presetOpt = guitarfx::PresetStorage::DeserializeFromJson(presetJson.dump());
+        auto presetOpt = guitarfx::PresetStorage::DeserializeFromJson(presetJson.dump());
 
         if (!presetOpt)
         {
@@ -538,7 +538,10 @@ std::optional<ParsedFactoryPresetArchive> ParseFactoryPresetArchive(const std::f
             return false;
         }
 
-        parsed.presets.push_back(*presetOpt);
+        // Installs, archive sessions and factory packs all come through here, and the first two
+        // are whatever someone chose to share.
+        SanitizeImportedPreset(*presetOpt);
+        parsed.presets.push_back(std::move(*presetOpt));
         return true;
     };
 
@@ -618,6 +621,93 @@ void RemapPresetArchiveReferences(guitarfx::Preset& preset,
     for (auto& scene : preset.scenes)
     {
         RemapPresetGraphResources(scene.graph, resourceIdMap, blendIdMap);
+    }
+}
+
+bool IsSafeImportedNodeId(std::string_view id)
+{
+    return !id.empty() && id.size() <= 64 && std::all_of(id.begin(), id.end(), [](char ch) {
+        return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_' ||
+               ch == '-';
+    });
+}
+
+void SanitizeImportedPreset(guitarfx::Preset& preset)
+{
+    std::vector<guitarfx::SignalGraph*> graphs{&preset.graph};
+
+    for (auto& scene : preset.scenes)
+    {
+        graphs.push_back(&scene.graph);
+    }
+
+    if (preset.globalSignalChain)
+    {
+        graphs.push_back(&preset.globalSignalChain->preChainGraph);
+        graphs.push_back(&preset.globalSignalChain->postChainGraph);
+    }
+
+    // One new id per bad id, decided before anything is rewritten, so a scene's copy of a node and
+    // an edge in another graph that names it all land on the same replacement.
+    std::unordered_map<std::string, std::string> replacements;
+
+    for (const auto* graph : graphs)
+    {
+        for (const auto& node : graph->nodes)
+        {
+            if (!IsSafeImportedNodeId(node.id) && !replacements.contains(node.id))
+            {
+                replacements.emplace(node.id, GenerateGuidV4String());
+            }
+        }
+    }
+
+    const auto resolve = [&](std::string& id) {
+        if (IsSafeImportedNodeId(id))
+        {
+            return true;
+        }
+
+        const auto it = replacements.find(id);
+
+        if (it == replacements.end())
+        {
+            return false;
+        }
+
+        id = it->second;
+        return true;
+    };
+
+    for (auto* graph : graphs)
+    {
+        for (auto& node : graph->nodes)
+        {
+            resolve(node.id);
+
+            for (auto& resource : node.resources)
+            {
+                resource.filePath.clear();
+            }
+        }
+
+        std::vector<guitarfx::GraphEdge> edges;
+        edges.reserve(graph->edges.size());
+
+        for (auto edge : graph->edges)
+        {
+            if (resolve(edge.from) && resolve(edge.to))
+            {
+                edges.push_back(std::move(edge));
+            }
+        }
+
+        graph->edges = std::move(edges);
+    }
+
+    for (auto& embedded : preset.embeddedResources)
+    {
+        embedded.originalPath.clear();
     }
 }
 

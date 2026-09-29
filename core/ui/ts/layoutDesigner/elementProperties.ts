@@ -11,6 +11,7 @@ import { snapToGrid } from "../layoutTypes.js";
 import type { KnobStylePreset, LabelPosition, LayoutControl, LayoutRectangleOverlay, LayoutTextLabel } from "../layoutTypes.js";
 import { getLayoutImageUrl } from "./images.js";
 import type { LayoutPropertiesHost } from "./propertiesHost.js";
+import { escapeHtml } from "../utils.js";
 
 export class ElementProperties {
   constructor(private readonly host: LayoutPropertiesHost) {}
@@ -62,7 +63,7 @@ export class ElementProperties {
         </div>
         ${control.style?.knobStyle === "custom" ? `
         <div class="layout-image-preview">
-          ${control.style?.knobImageId ? `<img src="${getLayoutImageUrl(control.style.knobImageId) || ""}" alt="Knob">` : `<span class="layout-image-preview-placeholder">No image</span>`}
+          ${control.style?.knobImageId ? `<img src="${escapeHtml(getLayoutImageUrl(control.style.knobImageId) || "")}" alt="Knob">` : `<span class="layout-image-preview-placeholder">No image</span>`}
         </div>
         <div class="layout-property-row">
           <span class="layout-property-label">Use Existing</span>
@@ -122,7 +123,7 @@ export class ElementProperties {
         <div class="layout-property-row">
           <span class="layout-property-label">Override</span>
           <div class="layout-property-input">
-            <input type="text" id="prop-label-override" value="${control.labelOverride || ""}" placeholder="${bindingLabel}">
+            <input type="text" id="prop-label-override" value="${escapeHtml(control.labelOverride || "")}" placeholder="${escapeHtml(bindingLabel)}">
           </div>
         </div>
         <div class="layout-property-row">
@@ -140,7 +141,7 @@ export class ElementProperties {
         <div class="layout-property-row">
           <span class="layout-property-label">Color</span>
           <div class="layout-property-input">
-            <input type="color" id="prop-label-color" value="${control.style?.labelColor || "#ffffff"}">
+            <input type="color" id="prop-label-color" value="${escapeHtml(control.style?.labelColor || "#ffffff")}">
           </div>
         </div>
       </div>
@@ -278,7 +279,7 @@ export class ElementProperties {
         <div class="layout-property-row">
           <span class="layout-property-label">Text</span>
           <div class="layout-property-input">
-            <input type="text" id="prop-label-text" value="${label.text}">
+            <input type="text" id="prop-label-text" value="${escapeHtml(label.text)}">
           </div>
         </div>
       </div>
@@ -327,7 +328,7 @@ export class ElementProperties {
         <div class="layout-property-row">
           <span class="layout-property-label">Color</span>
           <div class="layout-property-input">
-            <input type="color" id="prop-label-color" value="${label.color || "#ffffff"}">
+            <input type="color" id="prop-label-color" value="${escapeHtml(label.color || "#ffffff")}">
           </div>
         </div>
         <div class="layout-property-row">
@@ -480,7 +481,7 @@ export class ElementProperties {
         <div class="layout-property-row">
           <span class="layout-property-label">Fill</span>
           <div class="layout-property-input">
-            <input type="color" id="prop-overlay-bg-color" value="${backgroundColor}">
+            <input type="color" id="prop-overlay-bg-color" value="${escapeHtml(backgroundColor)}">
           </div>
         </div>
         <div class="layout-property-row">
@@ -493,7 +494,7 @@ export class ElementProperties {
         <div class="layout-property-row">
           <span class="layout-property-label">Border</span>
           <div class="layout-property-input">
-            <input type="color" id="prop-overlay-border-color" value="${borderColor}">
+            <input type="color" id="prop-overlay-border-color" value="${escapeHtml(borderColor)}">
           </div>
         </div>
         <div class="layout-property-row">

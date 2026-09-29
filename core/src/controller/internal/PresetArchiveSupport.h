@@ -134,6 +134,17 @@ void RemapPresetGraphResources(SignalGraph& graph, const std::unordered_map<std:
 void RemapPresetArchiveReferences(Preset& preset, const std::unordered_map<std::string, std::string>& resourceIdMap,
                                   const std::unordered_map<std::string, std::string>& blendIdMap);
 
+/// True for a node id an archive may keep: 1 to 64 of A-Z, a-z, 0-9, `_` and `-`. The web UI
+/// writes node ids into markup and selectors, so an id with anything else is replaced.
+[[nodiscard]] bool IsSafeImportedNodeId(std::string_view id);
+
+/// Makes a preset read from an archive safe to store and show. A node id that fails
+/// IsSafeImportedNodeId gets a fresh one — the same across the graph, every scene and the
+/// global chain — and the edges follow; an edge naming no node is dropped. Resource file paths
+/// are cleared: they name a file on the sharer's machine, or wherever the archive likes (a UNC
+/// path would have the engine open a remote share).
+void SanitizeImportedPreset(Preset& preset);
+
 [[nodiscard]] std::filesystem::path ResolveFactoryPresetDirectory(const IPluginHost& host,
                                                                   const std::filesystem::path& legacyResourceRoot);
 

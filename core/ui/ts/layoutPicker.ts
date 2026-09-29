@@ -124,7 +124,7 @@ function editTitleFor(entry: LayoutLibraryEntry): string {
 
 function renderEditButtonHtml(entry: LayoutLibraryEntry, extraClass = ""): string {
   const title = escapeHtml(editTitleFor(entry));
-  return `<button type="button" class="layout-picker-option-edit${extraClass ? ` ${extraClass}` : ""}" data-layout-id="${escapeHtml(entry.layoutId)}" title="${title}" aria-label="${title}">${EDIT_ICON_SVG}</button>`;
+  return `<button type="button" class="layout-picker-option-edit${escapeHtml(extraClass ? ` ${extraClass}` : "")}" data-layout-id="${escapeHtml(entry.layoutId)}" title="${title}" aria-label="${title}">${EDIT_ICON_SVG}</button>`;
 }
 
 function renderDropdownItemHtml(entry: LayoutLibraryEntry, isSelected: boolean, canDesign: boolean): string {

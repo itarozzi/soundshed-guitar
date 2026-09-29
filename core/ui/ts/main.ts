@@ -45,7 +45,6 @@ import { initMultiRigTab } from "./multiPresetMixer.js";
 import { applyBuildFlags } from "./buildFlags.js";
 import { hideSplashScreen, initSplashScreen } from "./splash.js";
 import { FEATURE_FLAGS_CHANGED_EVENT } from "./featureFlags.js";
-import { initAlpineStores, startAlpine } from "./alpine.js";
 import { initializePerformancePads } from "./performancePads.js";
 import { initializeSetlistPadPresetDrop } from "./setlistPadDrop.js";
 import { configureToneSharingHostActions } from "./toneSharingPanel/hostActions.js";
@@ -195,11 +194,6 @@ async function bootstrap(): Promise<void> {
 
   applyBuildFlags();
 
-  // Alpine integration - register stores early so x-data expressions in HTML can use them.
-  initAlpineStores();
-  // Explicit start is safe even if the defer script auto-initializes.
-  startAlpine();
-
   initializeTabButtons();
   initializeControlBarTabs();
   initCompactStage();
@@ -210,13 +204,6 @@ async function bootstrap(): Promise<void> {
 
   // Ensure listeners for icon bar tabs (Play/Tones/Jam/Settings) are attached early
   initializeIconBarTabs({ onEq: openEqModal });
-
-  // Ensure Alpine store reflects the initial panel (for :class in header component)
-  try {
-    const A = (window as any).Alpine;
-    const ui = A && A.store && A.store('ui');
-    if (ui) ui.mainPanel = 'visualizer';
-  } catch {}
 
   // Force initial main panel visibility via legacy logic (adds .active)
   switchMainPanel('visualizer');

@@ -5,6 +5,7 @@
 
 import { bindDemoAudioControls } from "../demoAudio.js";
 import { switchMainPanel } from "../navigation.js";
+import { STANDARD_TAGS, renderTagChips } from "../presetTags.js";
 import { getPresetRating, getRecentPresets, loadFavoritePresetIds, setPresetRating } from "../presets/favorites.js";
 import { getPresetFolderPath, sortPresetFoldersAlphabetically } from "../presets/folders.js";
 import { PRESET_FOLDER_ALL_ID, PRESET_FOLDER_FAVORITES_ID, PRESET_FOLDER_RECENTS_ID, sortPresetsAlphabetically } from "../presets/sorting.js";
@@ -73,6 +74,7 @@ export function renderPresetUI(preset: Preset | null): void {
 export function initializePresetTagFilterBar(): void {
   const bar = document.getElementById("preset-tag-filter-bar");
   if (!bar) return;
+  renderTagChips(bar, STANDARD_TAGS, "preset-tag-filter-chip");
   bar.querySelectorAll<HTMLButtonElement>(".preset-tag-filter-chip").forEach((btn) => {
     btn.addEventListener("click", () => {
       const tag = btn.dataset.tag ?? "";

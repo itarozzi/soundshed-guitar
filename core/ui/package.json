@@ -22,7 +22,6 @@
     "check:stylesheets": "node scripts/check-stylesheets.js"
   },
   "dependencies": {
-    "alpinejs": "^3.15.12",
     "jszip": "^3.10.1"
   },
   "devDependencies": {

@@ -18,7 +18,11 @@ let debugSnapshotTimer: number | null = null;
 
 export function isSensitiveDebugKey(key: string): boolean {
   const normalizedKey = key.toLowerCase();
+  // `sessionid` covers `toneSharing.sessionId`, which signs in to Tone Sharing on its own.
   return normalizedKey.includes("token")
+    || normalizedKey.includes("sessionid")
+    || normalizedKey.includes("session_id")
+    || normalizedKey.includes("session-id")
     || normalizedKey.includes("api_key")
     || normalizedKey.includes("apikey")
     || normalizedKey.includes("secret")

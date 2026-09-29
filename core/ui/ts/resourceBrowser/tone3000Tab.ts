@@ -403,7 +403,7 @@ export class Tone3000Tab {
         const username = tone.user?.username ?? "";
         
         return `
-          <div class="${expandedClass}" data-tone-id="${String(tone.id)}">
+          <div class="${expandedClass}" data-tone-id="${escapeHtml(String(tone.id))}">
             <div class="resource-browser-tone-header">
               ${imageMarkup}
               <div class="resource-browser-tone-info">
@@ -416,7 +416,7 @@ export class Tone3000Tab {
                   ${username ? `<span>${escapeHtml(username)}</span>` : ""}
                 </div>
               </div>
-              <button class="resource-browser-tone-expand" type="button" data-tone-id="${String(tone.id)}">
+              <button class="resource-browser-tone-expand" type="button" data-tone-id="${escapeHtml(String(tone.id))}">
                 ${isExpanded ? "▲ Hide" : "▼ Show"}
               </button>
             </div>
@@ -430,14 +430,14 @@ export class Tone3000Tab {
   private renderToneExpandedContent(tone: Tone3000Tone): string {
     const modelsActive = this.expandedToneSection === "models";
     return `
-      <div class="resource-browser-tone-sections" data-tone-id="${String(tone.id)}">
+      <div class="resource-browser-tone-sections" data-tone-id="${escapeHtml(String(tone.id))}">
         <div class="resource-browser-tone-section-tabs" role="tablist" aria-label="Tone sections">
           <button
             class="resource-browser-tone-section-tab ${modelsActive ? "is-active" : ""}"
             type="button"
             role="tab"
             aria-selected="${modelsActive ? "true" : "false"}"
-            data-tone-id="${String(tone.id)}"
+            data-tone-id="${escapeHtml(String(tone.id))}"
             data-tone-section="models"
           >Models</button>
           <button
@@ -445,7 +445,7 @@ export class Tone3000Tab {
             type="button"
             role="tab"
             aria-selected="${!modelsActive ? "true" : "false"}"
-            data-tone-id="${String(tone.id)}"
+            data-tone-id="${escapeHtml(String(tone.id))}"
             data-tone-section="details"
           >Details</button>
         </div>
@@ -485,19 +485,19 @@ export class Tone3000Tab {
           const previewLabel = isPreviewing ? `${getStopSvg()} Stop` : isLoadingPreview ? "Loading..." : `Preview`;
           
           return `
-            <div class="${previewClass}" data-model-id="${String(model.id)}">
+            <div class="${previewClass}" data-model-id="${escapeHtml(String(model.id))}">
               <span class="resource-browser-model-name">${escapeHtml(model.name)}</span>
               <div class="resource-browser-model-actions">
                 <button class="resource-browser-model-preview" type="button" 
-                        data-tone-id="${String(tone.id)}" 
-                        data-model-id="${String(model.id)}"
+                        data-tone-id="${escapeHtml(String(tone.id))}" 
+                        data-model-id="${escapeHtml(String(model.id))}"
                         data-model-url="${escapeHtml(model.model_url)}"
                         ${isLoadingPreview ? "disabled" : ""}>
                   ${previewLabel}
                 </button>
                 <button class="resource-browser-model-select" type="button"
-                        data-tone-id="${String(tone.id)}"
-                        data-model-id="${String(model.id)}"
+                        data-tone-id="${escapeHtml(String(tone.id))}"
+                        data-model-id="${escapeHtml(String(model.id))}"
                         data-model-url="${escapeHtml(model.model_url)}"
                         data-model-name="${escapeHtml(model.name)}">
                   Select

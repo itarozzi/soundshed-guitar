@@ -5,6 +5,7 @@ import { appendLog } from "./logging.js";
 import { showNotification } from "./notifications.js";
 import { getApiBaseUrl } from "./apiConfig.js";
 import { refreshSettingsUpdateBanner } from "./settings.js";
+import { escapeHtml } from "./utils.js";
 
 const UPDATE_CHECK_ENABLED_SETTING = "app.updateCheckEnabled";
 const INSTANCE_ID_SETTING = "app.instanceId";
@@ -181,14 +182,14 @@ function createUpdateModal(data: UpdateCheckResult): void {
           <button class="icon-btn" id="update-modal-close">&times;</button>
         </div>
         <div class="modal-body">
-          <p>A new version of Soundshed Guitar is available: <strong>${data.latest_version}</strong></p>
+          <p>A new version of Soundshed Guitar is available: <strong>${escapeHtml(data.latest_version)}</strong></p>
           <div class="release-notes" style="margin-top: 15px; max-height: 200px; overflow-y: auto; background: var(--bg-color-dark, rgba(0,0,0,0.1)); padding: 10px; border-radius: 4px; font-size: 0.9em;">
             ${renderMarkdown(data.release_notes || "No release notes provided.")}
           </div>
         </div>
         <div class="modal-footer">
           <button class="btn" id="update-modal-later">Later</button>
-          <a href="${data.download_url}" target="_blank" class="btn primary" id="update-modal-download">Download Update</a>
+          <a href="${escapeHtml(toHttpUrl(data.download_url) ?? "#")}" target="_blank" class="btn primary" id="update-modal-download">Download Update</a>
         </div>
       </div>
     `;
@@ -209,16 +210,62 @@ function createUpdateModal(data: UpdateCheckResult): void {
   modal.style.display = "flex";
 }
 
-function renderMarkdown(text: string): string {
-  // Very basic markdown rendering for release notes
+/** The URL when it is an absolute http(s) one, else null: a link can never be `javascript:`. */
+export function toHttpUrl(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  try {
+    const url = new URL(value.trim());
+    return url.protocol === "https:" || url.protocol === "http:" ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+function renderEmphasis(escaped: string): string {
+  return escaped
+    .replace(/\*\*(.*)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*(.*)\*/g, "<em>$1</em>");
+}
+
+/**
+ * One line of release notes: text is escaped before any tag is added, and a link
+ * or image keeps its markup only when its target is an http(s) URL.
+ */
+function renderMarkdownInline(line: string): string {
+  let html = "";
+  let last = 0;
+  const pattern = /(!?)\[([^\]]*)\]\(([^)\s]*)\)/g;
+  for (let match = pattern.exec(line); match; match = pattern.exec(line)) {
+    html += renderEmphasis(escapeHtml(line.slice(last, match.index)));
+    const [, bang, label, target] = match;
+    const url = toHttpUrl(target);
+    if (!url) {
+      html += renderEmphasis(escapeHtml(label));
+    } else if (bang) {
+      html += `<img alt="${escapeHtml(label)}" src="${escapeHtml(url)}" />`;
+    } else {
+      html += `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${renderEmphasis(escapeHtml(label))}</a>`;
+    }
+    last = match.index + match[0].length;
+  }
+  return html + renderEmphasis(escapeHtml(line.slice(last)));
+}
+
+/** Very basic markdown for release notes, which arrive from the update server. */
+export function renderMarkdown(text: string): string {
   return text
-    .replace(/^### (.*$)/gim, '<h3>$1</h3>')
-    .replace(/^## (.*$)/gim, '<h2>$1</h2>')
-    .replace(/^# (.*$)/gim, '<h1>$1</h1>')
-    .replace(/^> (.*$)/gim, '<blockquote>$1</blockquote>')
-    .replace(/\*\*(.*)\*\*/gim, '<strong>$1</strong>')
-    .replace(/\*(.*)\*/gim, '<em>$1</em>')
-    .replace(/!\[(.*?)\]\((.*?)\)/gim, "<img alt='$1' src='$2' />")
-    .replace(/\[(.*?)\]\((.*?)\)/gim, "<a href='$2'>$1</a>")
-    .replace(/\n$/gim, '<br />');
+    .split(/\r?\n/)
+    .map((line) => {
+      const heading = /^(#{1,3}) (.*)$/.exec(line);
+      if (heading) {
+        const level = heading[1].length;
+        return `<h${level}>${renderMarkdownInline(heading[2])}</h${level}>`;
+      }
+      const quote = /^> (.*)$/.exec(line);
+      return quote ? `<blockquote>${renderMarkdownInline(quote[1])}</blockquote>` : renderMarkdownInline(line);
+    })
+    .join("\n")
+    .replace(/\n$/gm, "<br />");
 }

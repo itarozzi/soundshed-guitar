@@ -52,7 +52,7 @@ export function renderToneIconButton(options: {
     : "";
 
   const disabledAttr = options.disabled ? " disabled" : "";
-  return `<button class="${className}" type="button" ${dataName}="${escapeHtml(options.value)}" aria-label="${escapeHtml(options.label)}" title="${escapeHtml(options.label)}"${disabledAttr}${attrs}>${toneActionIconMarkup(options.icon)}</button>`;
+  return `<button class="${escapeHtml(className)}" type="button" ${dataName}="${escapeHtml(options.value)}" aria-label="${escapeHtml(options.label)}" title="${escapeHtml(options.label)}"${disabledAttr}${attrs}>${toneActionIconMarkup(options.icon)}</button>`;
 }
 
 export function setActionButtonBusy(button: HTMLButtonElement, busyLabel: string): () => void {

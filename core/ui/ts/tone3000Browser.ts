@@ -282,7 +282,7 @@ function renderCategories(): void {
   categoryListEl.innerHTML = CATEGORIES.map((category) => {
     const activeClass = category.id === activeCategory.id ? "active" : "";
     return `
-      <button class="tone3000-category ${activeClass}" data-category="${category.id}">
+      <button class="tone3000-category ${activeClass}" data-category="${escapeHtml(category.id)}">
         <span>${category.label}</span>
       </button>
     `;
@@ -454,7 +454,7 @@ function renderResults(tones: Tone3000Tone[]): void {
         `;
 
       return `
-        <div class="results-item tone3000-item" data-tone-id="${toneId}">
+        <div class="results-item tone3000-item" data-tone-id="${escapeHtml(toneId)}">
           ${imageMarkup}
           <div class="results-item-main tone3000-item-main">
             <div class="tone3000-item-header">
@@ -472,8 +472,8 @@ function renderResults(tones: Tone3000Tone[]): void {
             </div>
           </div>
           <div class="results-item-actions tone3000-item-actions">
-            <button class="tone3000-details-btn" data-tone-id="${toneId}" type="button">Details</button>
-            <button class="tone3000-import-btn" data-tone-id="${toneId}" type="button">${buttonLabel}</button>
+            <button class="tone3000-details-btn" data-tone-id="${escapeHtml(toneId)}" type="button">Details</button>
+            <button class="tone3000-import-btn" data-tone-id="${escapeHtml(toneId)}" type="button">${buttonLabel}</button>
           </div>
         </div>
       `;

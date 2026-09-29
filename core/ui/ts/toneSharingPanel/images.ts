@@ -6,7 +6,7 @@
  * to the DOM as object URLs, so this module also owns revoking them.
  */
 
-import { buildApiUrl } from "./api.js";
+import { toneSharingFetch } from "./api.js";
 import { toneSharingState } from "./state.js";
 import type { ResizedImageResult, ToneSharingPack } from "./types.js";
 
@@ -91,10 +91,8 @@ export async function resolvePackThumbnailUrl(pack: ToneSharingPack): Promise<st
     return cached;
   }
 
-  const response = await fetch(buildApiUrl(thumbnailPath), {
-    headers: toneSharingState.sessionId ? { "x-session-id": toneSharingState.sessionId } : {},
-    credentials: "include"
-  });
+  // A pack's thumbnailUrl may be absolute and point anywhere; the session goes only to the API.
+  const response = await toneSharingFetch(thumbnailPath);
   if (!response.ok) {
     throw new Error(`Thumbnail load failed (${response.status})`);
   }

@@ -501,7 +501,7 @@ function renderHeaderActionButton(action: string, label: string): string {
     <button
       class="performance-header-action"
       type="button"
-      data-performance-action="${action}"
+      data-performance-action="${escapeHtml(action)}"
     >${label}</button>
   `;
 }

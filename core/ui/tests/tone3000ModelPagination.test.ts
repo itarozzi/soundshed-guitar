@@ -9,7 +9,7 @@ function makeModels(count: number): Tone3000Model[] {
   return Array.from({ length: count }, (_, index) => ({
     id: index + 1,
     name: `Model ${index + 1}`,
-    model_url: `https://tone3000.test/models/${index + 1}`,
+    model_url: `https://www.tone3000.com/api/v1/models/${index + 1}/download/model-${index + 1}.nam`,
   }));
 }
 
@@ -112,9 +112,12 @@ describe("Tone3000 model listings", () => {
 
   it("finds a shared model that is on a later page", async () => {
     const wanted = models[models.length - 1];
+    // In proxy mode the model's official URL is fetched through the proxy, under the same path.
+    const wantedPath = new URL(wanted.model_url!).pathname.replace(/^\/api\/v1/, "");
+    const isWanted = (url: string) => new URL(url).pathname.endsWith(wantedPath);
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url === wanted.model_url) {
+      if (isWanted(url)) {
         return {
           ok: true,
           status: 200,
@@ -130,6 +133,6 @@ describe("Tone3000 model listings", () => {
     const bytes = await downloadTone3000ResourceByReference({ toneId: "tone-1", modelId: String(wanted.id) });
 
     expect(bytes.byteLength).toBe(3);
-    expect(fetchMock.mock.calls.map(([input]) => String(input))).toContain(wanted.model_url);
+    expect(fetchMock.mock.calls.some(([input]) => isWanted(String(input)))).toBe(true);
   });
 });

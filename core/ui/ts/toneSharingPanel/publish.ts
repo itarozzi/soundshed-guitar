@@ -5,7 +5,7 @@
 
 import { showNotification } from "../notifications.js";
 import { clonePreset, uiState } from "../state.js";
-import { apiFetch, buildApiUrl } from "./api.js";
+import { apiFetch, toneSharingFetch } from "./api.js";
 import { loadBrowse, loadMine } from "./browse.js";
 import { ensurePublishConsent } from "./consent.js";
 import { element, setUploadStatus } from "./dom.js";
@@ -199,14 +199,12 @@ export async function uploadAndPublishItem(): Promise<void> {
       })
     });
 
-    const uploadResponse = await fetch(buildApiUrl(`/uploads/${init.uploadId}`), {
+    const uploadResponse = await toneSharingFetch(`/uploads/${init.uploadId}`, {
       method: "PUT",
       headers: {
         "content-type": publicPayload.type || "application/octet-stream",
-        ...(toneSharingState.sessionId ? { "x-session-id": toneSharingState.sessionId } : {})
       },
       body: publicPayload,
-      credentials: "include"
     });
 
     const uploadResult = await uploadResponse.json();
@@ -230,14 +228,12 @@ export async function uploadAndPublishItem(): Promise<void> {
       })
     });
 
-    const backupUploadResponse = await fetch(buildApiUrl(`/uploads/${backupInit.uploadId}`), {
+    const backupUploadResponse = await toneSharingFetch(`/uploads/${backupInit.uploadId}`, {
       method: "PUT",
       headers: {
         "content-type": privatePayload.type || "application/octet-stream",
-        ...(toneSharingState.sessionId ? { "x-session-id": toneSharingState.sessionId } : {})
       },
       body: privatePayload,
-      credentials: "include"
     });
 
     const backupUploadResult = await backupUploadResponse.json();

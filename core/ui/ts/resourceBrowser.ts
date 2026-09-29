@@ -1337,7 +1337,7 @@ export class ResourceBrowserModal {
         const isDetailsExpanded = this.expandedLibraryItemId === res.id;
         const entryClass = `resource-browser-library-entry${isDetailsExpanded ? " is-details-expanded" : ""}`;
         return `
-          <div class="${entryClass}" data-source="library">
+          <div class="${escapeHtml(entryClass)}" data-source="library">
             <div class="${selectedClass} resource-browser-item-row" data-resource-id="${escapeHtml(res.id)}">
               <div class="results-item-main resource-browser-item-info">
                 <div class="results-item-title resource-browser-item-title">${escapeHtml(title)}</div>

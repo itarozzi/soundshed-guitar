@@ -115,6 +115,14 @@ Older presets and saved global chains may still carry `autoLevelInput`/`autoLeve
 
 **Resolution priority**: library → embedded → filePath
 
+**Presets from outside** — a preset archive, a Tone Sharing pack or a generated pack — are
+cleaned on the way in, by the engine (`SanitizeImportedPreset`, run by
+`ParseFactoryPresetArchive`) and by the web UI (`sanitizeImportedPreset` in
+`core/ui/ts/presets/sanitize.ts`): every `filePath` (and `originalPath`, `customModelPath`,
+`customIrPath`) is dropped, since it names a file on the sharer's machine or anywhere else the
+archive chooses, and a node id that is not 1-64 of `[A-Za-z0-9_-]` gets a fresh id, the same in
+the graph and every scene, with the edges following. Node ids end up in the UI's markup.
+
 A blend node's resources are not stored with the preset: the controller builds them
 from the node's blend definition whenever it builds the chain.
 

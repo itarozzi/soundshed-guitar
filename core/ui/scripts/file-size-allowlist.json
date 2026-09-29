@@ -2,8 +2,8 @@
   "budget": 800,
   "allowed": {
     "ts/resourceBrowser.ts": 2196,
-    "ts/layoutDesigner.ts": 2036,
-    "ts/presets/archive.ts": 1542,
+    "ts/layoutDesigner.ts": 2037,
+    "ts/presets/archive.ts": 1556,
     "ts/blendEditor.ts": 1500,
     "css/tone-sharing.css": 1484,
     "ts/signalPath.ts": 1476,

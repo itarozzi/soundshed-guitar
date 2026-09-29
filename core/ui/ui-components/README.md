@@ -1,4 +1,4 @@
-# UI Components (Alpine.js)
+# UI Components
 
 This directory contains the split HTML fragments for the Soundshed Guitar UI.
 
@@ -7,24 +7,27 @@ This directory contains the split HTML fragments for the Soundshed Guitar UI.
 - Run `npm run build` (or `npm run build:html`) after edits.
 - CMake tracks these files for rebuilds.
 
-## Alpine.js Integration
-- Global stores live in `ts/alpine.ts` (e.g. `$store.ui`, `$store.fxSelector`).
-- Use directives: `x-show`, `x-for`, `:class`, `x-on:click`, `x-model`, `x-text`, etc.
-- Component data providers and logic stay in TypeScript.
-- Call `Alpine.store('xxx').update...()` or use data factories from TS modules.
-- For dynamic inserted content: `initAlpineTree(el)`.
+## Markup only, no inline script
+- The fragments are static markup. Behaviour, and any markup built from data, lives in TypeScript.
+- `index.template.html` sets a Content-Security-Policy with no `'unsafe-inline'` or `'unsafe-eval'`
+  for scripts, so an `on*=` attribute, a `javascript:` URL or a template directive that evaluates
+  expressions (Alpine's `x-*`, which the UI used to load) will not run. Alpine was removed for
+  that reason: it evaluates attribute text as code, so any markup injected from a shared preset
+  would have run too.
+- An inline `<script>` in the template is allowed, and hashed into the policy at build time.
+- Values interpolated into markup go through `escapeHtml` (`ts/utils.ts`); ESLint's
+  `soundshed/no-unescaped-html-attribute` rule enforces it for attribute values.
 
 ## Adding a new component
-1. Create `some-component.html` here with the markup + Alpine directives.
+1. Create `some-component.html` here with the markup.
 2. Add `<!--#include:ui-components/some-component.html-->` in the shell.
-3. (Optional) Add store slice + push/update functions in `ts/alpine.ts` or feature module.
-4. Migrate related `render*` / `innerHTML` code in the matching `.ts` file to update the store instead.
-5. Rebuild and test.
+3. Render its dynamic parts, and bind its events, from the matching `.ts` module.
+4. Rebuild and test.
 
 ## Current extractions (full port in progress - index.template.html is the thin editable source with markers; run build to produce runtime index.html)
 Top-level:
 - splash-screen.html
-- header-icon-bar.html (Alpine nav tabs + store)
+- header-icon-bar.html
 - control-bar.html (thin shell)
   - input-control-group.html
   - preset-group.html (further includes below)
@@ -33,7 +36,7 @@ Top-level:
 - jam-floating-player-root.html
 - preset-toolbar-row.html
 - preset-selector-row.html
-- preset-library-popover.html (Alpine tag chips)
+- preset-library-popover.html
 - signal-path-bar.html
 - fx-selector-panel.html
 - main-content.html (thin)

@@ -13,7 +13,6 @@ const DIST = path.join(ROOT, 'dist');
 
 const FILES = [
   ['jszip/dist/jszip.min.js', 'jszip.min.js'],
-  ['alpinejs/dist/cdn.min.js', 'alpine.min.js'],
 ];
 
 let copied = 0;

@@ -17,15 +17,8 @@
               </div>
               <button id="preset-library-close-btn" type="button" class="preset-library-close-btn" aria-label="Close preset selector" title="Close">×</button>
             </div>
-            <div class="preset-tag-filter-bar" id="preset-tag-filter-bar" x-data>
-              <template x-for="t in ($store.presetTags ? $store.presetTags.tags : [])" :key="t.tag">
-                <button type="button" class="preset-tag-filter-chip"
-                        :class="{ active: $store.presetTags && $store.presetTags.activeFilters.includes(t.tag) }"
-                        :data-tag="t.tag"
-                        x-on:click="$store.presetTags && $store.presetTags.toggle(t.tag)"
-                        x-text="t.label"></button>
-              </template>
-            </div>
+            <!-- presets/library.ts renders the chips (initializePresetTagFilterBar). -->
+            <div class="preset-tag-filter-bar" id="preset-tag-filter-bar"></div>
             <div class="preset-library-body" id="preset-library-presets-panel" role="tabpanel" aria-labelledby="preset-lib-tab-presets">
               <div class="preset-folder-tree" id="preset-folder-tree"></div>
               <div class="preset-list-column">

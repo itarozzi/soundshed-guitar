@@ -126,7 +126,7 @@ export class BlendEditorModal {
     });
 
     if (this.paramSelect) {
-      this.paramSelect.innerHTML = BLEND_PARAM_SPECS.map((spec) => `<option value="${spec.id}">${spec.label}</option>`).join("");
+      this.paramSelect.innerHTML = BLEND_PARAM_SPECS.map((spec) => `<option value="${escapeHtml(spec.id)}">${spec.label}</option>`).join("");
     }
 
     this.modal?.addEventListener("mousedown", (event) => {
@@ -286,7 +286,7 @@ export class BlendEditorModal {
         const spec = getBlendParamSpec(paramId);
         const label = spec?.label ?? paramId;
         return `
-          <span class="blend-param-chip" data-param-id="${paramId}">
+          <span class="blend-param-chip" data-param-id="${escapeHtml(paramId)}">
             ${escapeHtml(label)}
             <button type="button" class="blend-param-remove">×</button>
           </span>
@@ -846,7 +846,7 @@ export class BlendEditorModal {
       .sort((a, b) => a.name.localeCompare(b.name))
       .map((res) => {
         const selected = res.id === selectedId ? "selected" : "";
-        return `<option value="${res.id}" ${selected}>${escapeHtml(res.name)}</option>`;
+        return `<option value="${escapeHtml(res.id)}" ${selected}>${escapeHtml(res.name)}</option>`;
       })
       .join("");
 
@@ -1028,7 +1028,7 @@ export class BlendEditorModal {
             <span class="knob-label">${escapeHtml(label)}</span>
             <div
               class="knob blend-test-knob"
-              data-param-id="${paramId}"
+              data-param-id="${escapeHtml(paramId)}"
               data-value="${displayValue.toFixed(2)}"
               data-min="${min}"
               data-max="${max}"
@@ -1475,7 +1475,7 @@ function renderParamInput(paramId: string, parameters: Record<string, number>): 
   return `
     <label class="blend-model-param">
       <span>${escapeHtml(label)}</span>
-      <input class="blend-model-param-value" data-param-id="${paramId}" type="number" step="${step}" placeholder="Value" value="${escapeHtml(value)}" />
+      <input class="blend-model-param-value" data-param-id="${escapeHtml(paramId)}" type="number" step="${step}" placeholder="Value" value="${escapeHtml(value)}" />
     </label>
   `;
 }

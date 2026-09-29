@@ -114,13 +114,13 @@ export function buildNodeResourceSelector(
           : undefined;
         const resourceOptions = resources.map((res: LibraryResource) => {
           const selected = resolvedCurrentId === res.id && !current.filePath ? "selected" : "";
-          return `<option value="${res.id}" ${selected}>${res.name}</option>`;
+          return `<option value="${escapeHtml(res.id)}" ${selected}>${res.name}</option>`;
         }).join("");
         const customOption = current.filePath
-          ? `<option value="__custom__" selected>Custom: ${current.filePath.split("/").pop()}</option>`
+          ? `<option value="__custom__" selected>Custom: ${escapeHtml(current.filePath.split("/").pop())}</option>`
           : "";
         const hostedPluginOpenButton = resourceType === "plugin"
-          ? `<button type="button" class="resource-picker-btn plugin-host-open-btn" data-node-id="${node.id}" ${hasCurrentSelection ? "" : "disabled"}>Open Plugin</button>`
+          ? `<button type="button" class="resource-picker-btn plugin-host-open-btn" data-node-id="${escapeHtml(node.id)}" ${hasCurrentSelection ? "" : "disabled"}>Open Plugin</button>`
           : "";
         const hostedPluginSelectionLabel = resourceType === "plugin"
           ? `<div class="plugin-host-selected-name" title="${escapeHtml(hasCurrentSelection ? getNodeResourceDisplayName(node, resourceIndex, "plugin") : "No plugin selected")}">${escapeHtml(hasCurrentSelection ? getNodeResourceDisplayName(node, resourceIndex, "plugin") : "No plugin selected")}</div>`
@@ -145,14 +145,14 @@ export function buildNodeResourceSelector(
         });
 
         return `
-          <div class="node-resource-selector" data-node-id="${node.id}" data-resource-index="${resourceIndex}" data-resource-type="${resourceType}">
+          <div class="node-resource-selector" data-node-id="${escapeHtml(node.id)}" data-resource-index="${resourceIndex}" data-resource-type="${escapeHtml(resourceType)}">
             <label>${escapeHtml(exposedResource.displayName || exposedResource.resourceId)}</label>
             <div class="resource-controls">
               ${isLibraryPicker ? `
                 ${hideRedundantLibraryBrowseButton ? "" : `
                   <button
                     class="resource-picker-btn"
-                    data-node-id="${node.id}"
+                    data-node-id="${escapeHtml(node.id)}"
                     data-resource-type="${resourceType}"
                     data-resource-index="${resourceIndex}"
                     data-exposed-resource-id="${escapeHtml(exposedResource.resourceId)}"
@@ -160,7 +160,7 @@ export function buildNodeResourceSelector(
                 `}
                 <div
                   class="${missingClass}"
-                  data-node-id="${node.id}"
+                  data-node-id="${escapeHtml(node.id)}"
                   data-resource-type="${resourceType}"
                   data-resource-index="${resourceIndex}"
                   data-exposed-resource-id="${escapeHtml(exposedResource.resourceId)}"
@@ -168,7 +168,7 @@ export function buildNodeResourceSelector(
                 >${escapeHtml(displayName)}</div>
                 <button
                   class="resource-clear-btn"
-                  data-node-id="${node.id}"
+                  data-node-id="${escapeHtml(node.id)}"
                   data-resource-type="${resourceType}"
                   data-resource-index="${resourceIndex}"
                   data-exposed-resource-id="${escapeHtml(exposedResource.resourceId)}"
@@ -179,8 +179,8 @@ export function buildNodeResourceSelector(
               ` : isPluginPicker ? `` : `
                 <select
                   class="resource-selector resource-dropdown"
-                  data-node-id="${node.id}"
-                  data-resource-type="${resourceType}"
+                  data-node-id="${escapeHtml(node.id)}"
+                  data-resource-type="${escapeHtml(resourceType)}"
                   data-resource-index="${resourceIndex}"
                   data-exposed-resource-id="${escapeHtml(exposedResource.resourceId)}"
                 >
@@ -190,8 +190,8 @@ export function buildNodeResourceSelector(
                 </select>
                 <button
                   class="resource-clear-btn"
-                  data-node-id="${node.id}"
-                  data-resource-type="${resourceType}"
+                  data-node-id="${escapeHtml(node.id)}"
+                  data-resource-type="${escapeHtml(resourceType)}"
                   data-resource-index="${resourceIndex}"
                   data-exposed-resource-id="${escapeHtml(exposedResource.resourceId)}"
                   data-empty-label="${escapeHtml(emptyDisplayName)}"
@@ -202,8 +202,8 @@ export function buildNodeResourceSelector(
               ${canBrowseFile && !isLibraryPicker ? `
                 <button
                   class="resource-browse-btn"
-                  data-node-id="${node.id}"
-                  data-resource-type="${resourceType}"
+                  data-node-id="${escapeHtml(node.id)}"
+                  data-resource-type="${escapeHtml(resourceType)}"
                   data-resource-index="${resourceIndex}"
                   data-exposed-resource-id="${escapeHtml(exposedResource.resourceId)}"
                   data-accept="${browseAccept}"
@@ -216,7 +216,7 @@ export function buildNodeResourceSelector(
             </div>
             ${isPluginPicker ? buildHostedPluginListHtml(node, resourceIndex, exposedResource.resourceId) : ""}
             ${hostedPluginLoadError}
-            ${current.filePath && !isPluginPicker ? `<div class="resource-path-info" title="${current.filePath}">${current.filePath}</div>` : ""}
+            ${current.filePath && !isPluginPicker ? `<div class="resource-path-info" title="${escapeHtml(current.filePath)}">${escapeHtml(current.filePath)}</div>` : ""}
             ${isLibraryPicker ? `<div class="resource-drop-hint">Click to browse, or drag and drop a file here</div>` : ""}
           </div>
         `;
@@ -232,10 +232,10 @@ export function buildNodeResourceSelector(
       resourceSelector = blendState
         ? renderBlendInfoHtml(node, blendState)
         : `
-          <div class="node-resource-selector" data-node-id="${node.id}">
+          <div class="node-resource-selector" data-node-id="${escapeHtml(node.id)}">
             <label>Blend</label>
             <div class="resource-controls">
-              ${isFeatureEnabled(Features.BlendTools) ? `<button class="blend-open-btn" data-node-id="${node.id}">Edit Blend</button>` : ""}
+              ${isFeatureEnabled(Features.BlendTools) ? `<button class="blend-open-btn" data-node-id="${escapeHtml(node.id)}">Edit Blend</button>` : ""}
             </div>
           </div>
         `;
@@ -245,7 +245,7 @@ export function buildNodeResourceSelector(
       const resolvedCurrentId = resolveResourceIdAlias(currentId, aliasById);
       return resources.map((res: LibraryResource) => {
         const selected = res.id === resolvedCurrentId ? "selected" : "";
-        return `<option value="${res.id}" ${selected}>${res.name}</option>`;
+        return `<option value="${escapeHtml(res.id)}" ${selected}>${res.name}</option>`;
       }).join("");
     };
 
@@ -253,7 +253,7 @@ export function buildNodeResourceSelector(
       const current = getNodeResourceAtIndex(node, index);
       const resourceOptions = buildOptions(current.id);
       const customOption = current.filePath
-        ? `<option value="__custom__" selected>Custom: ${current.filePath.split("/").pop()}</option>`
+        ? `<option value="__custom__" selected>Custom: ${escapeHtml(current.filePath.split("/").pop())}</option>`
         : "";
       const indexAttr = includeIndexAttr ? `data-resource-index="${index}"` : "";
       const isLibraryPicker = resourceType === "nam" || resourceType === "ir";
@@ -294,7 +294,7 @@ export function buildNodeResourceSelector(
         <button
           type="button"
           class="preset-action-btn resource-nav-btn resource-nav-prev-btn"
-          data-node-id="${node.id}"
+          data-node-id="${escapeHtml(node.id)}"
           data-resource-type="${navResourceType}"
           ${indexAttr}
           data-nav-direction="prev"
@@ -306,7 +306,7 @@ export function buildNodeResourceSelector(
         <button
           type="button"
           class="preset-action-btn resource-nav-btn resource-nav-next-btn"
-          data-node-id="${node.id}"
+          data-node-id="${escapeHtml(node.id)}"
           data-resource-type="${navResourceType}"
           ${indexAttr}
           data-nav-direction="next"
@@ -315,7 +315,7 @@ export function buildNodeResourceSelector(
         >${renderIcon("arrow-right", "resource-nav-icon")}</button>
       ` : "";
       const hostedPluginOpenButton = resourceType === "plugin"
-        ? `<button type="button" class="resource-picker-btn plugin-host-open-btn" data-node-id="${node.id}" ${hasCurrentSelection ? "" : "disabled"}>Open Plugin</button>`
+        ? `<button type="button" class="resource-picker-btn plugin-host-open-btn" data-node-id="${escapeHtml(node.id)}" ${hasCurrentSelection ? "" : "disabled"}>Open Plugin</button>`
         : "";
       const hostedPluginSelectionLabel = resourceType === "plugin"
         ? `<div class="plugin-host-selected-name" title="${escapeHtml(hasCurrentSelection ? getNodeResourceDisplayName(node, index, "plugin") : "No plugin selected")}">${escapeHtml(hasCurrentSelection ? getNodeResourceDisplayName(node, index, "plugin") : "No plugin selected")}</div>`
@@ -339,14 +339,14 @@ export function buildNodeResourceSelector(
       });
 
       return `
-        <div class="node-resource-selector" data-node-id="${node.id}" data-resource-index="${index}" data-resource-type="${resourceType}">
+        <div class="node-resource-selector" data-node-id="${escapeHtml(node.id)}" data-resource-index="${index}" data-resource-type="${escapeHtml(resourceType)}">
           <label>${label}</label>
           <div class="resource-controls">
             ${isLibraryPicker ? `
               ${hideRedundantLibraryBrowseButton ? "" : `
                 <button
                   class="resource-picker-btn"
-                  data-node-id="${node.id}"
+                  data-node-id="${escapeHtml(node.id)}"
                   data-resource-type="${resourceType}"
                   ${indexAttr}
                 >Browse</button>
@@ -354,7 +354,7 @@ export function buildNodeResourceSelector(
               ${navPrevButton}
               <div
                 class="${missingClass}"
-                data-node-id="${node.id}"
+                data-node-id="${escapeHtml(node.id)}"
                 data-resource-type="${resourceType}"
                 ${indexAttr}
                 title="${escapeHtml(displayName)}"
@@ -362,7 +362,7 @@ export function buildNodeResourceSelector(
               ${navNextButton}
               <button
                 class="resource-clear-btn"
-                data-node-id="${node.id}"
+                data-node-id="${escapeHtml(node.id)}"
                 data-resource-type="${resourceType}"
                 ${indexAttr}
                 data-empty-label="${escapeHtml(emptyDisplayName)}"
@@ -372,8 +372,8 @@ export function buildNodeResourceSelector(
             ` : isPluginPicker ? `` : `
               <select
                 class="resource-dropdown"
-                data-node-id="${node.id}"
-                data-resource-type="${resourceType}"
+                data-node-id="${escapeHtml(node.id)}"
+                data-resource-type="${escapeHtml(resourceType)}"
                 ${indexAttr}
               >
                 <option value="">-- Select from Library --</option>
@@ -382,8 +382,8 @@ export function buildNodeResourceSelector(
               </select>
               <button
                 class="resource-clear-btn"
-                data-node-id="${node.id}"
-                data-resource-type="${resourceType}"
+                data-node-id="${escapeHtml(node.id)}"
+                data-resource-type="${escapeHtml(resourceType)}"
                 ${indexAttr}
                 data-empty-label="${escapeHtml(emptyDisplayName)}"
                 title="Clear selected resource"
@@ -393,8 +393,8 @@ export function buildNodeResourceSelector(
             ${!isLibraryPicker ? `
               <button
                 class="resource-browse-btn"
-                data-node-id="${node.id}"
-                data-resource-type="${resourceType}"
+                data-node-id="${escapeHtml(node.id)}"
+                data-resource-type="${escapeHtml(resourceType)}"
                 ${indexAttr}
                 data-accept="${browseAccept}"
                 title="Browse for file..."
@@ -406,7 +406,7 @@ export function buildNodeResourceSelector(
           </div>
           ${isPluginPicker ? buildHostedPluginListHtml(node, index) : ""}
           ${hostedPluginLoadError}
-          ${current.filePath && !isPluginPicker ? `<div class="resource-path-info" title="${current.filePath}">${current.filePath}</div>` : ""}
+          ${current.filePath && !isPluginPicker ? `<div class="resource-path-info" title="${escapeHtml(current.filePath)}">${escapeHtml(current.filePath)}</div>` : ""}
           ${isLibraryPicker ? `<div class="resource-drop-hint">Click to browse, or drag and drop a file here</div>` : ""}
         </div>
       `;
@@ -420,14 +420,14 @@ export function buildNodeResourceSelector(
             ${buildSelector(index, `Model ${index + 1}`, true)}
             <div class="node-resource-meta">
               <label>Model ${index + 1} Value</label>
-              <input class="resource-param-value" type="number" step="0.1" data-node-id="${node.id}" data-resource-index="${index}" value="${paramValue}" />
+              <input class="resource-param-value" type="number" step="0.1" data-node-id="${escapeHtml(node.id)}" data-resource-index="${index}" value="${paramValue}" />
             </div>
           `;
         }).join("") : `
           ${buildSelector(0, "Model 1", true)}
           <div class="node-resource-meta">
             <label>Model 1 Value</label>
-            <input class="resource-param-value" type="number" step="0.1" data-node-id="${node.id}" data-resource-index="0" value="0" />
+            <input class="resource-param-value" type="number" step="0.1" data-node-id="${escapeHtml(node.id)}" data-resource-index="0" value="0" />
           </div>
         `;
         resourceSelector = modelSelectors;

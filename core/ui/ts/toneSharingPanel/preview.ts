@@ -6,11 +6,11 @@
 import { postMessage } from "../bridge.js";
 import { uiState } from "../state.js";
 import { syncFeedPreviewButton } from "./actionButtons.js";
-import { apiFetch, buildApiUrl } from "./api.js";
+import { apiFetch, toneSharingFetch } from "./api.js";
 import { element } from "./dom.js";
 import { resolveCreatorProfileHandle } from "./format.js";
 import { getToneSharingHostActions } from "./hostActions.js";
-import { previewState, toneSharingState } from "./state.js";
+import { previewState } from "./state.js";
 import type { ToneSharingItem } from "./types.js";
 
 export function showPreviewIndicator(title: string): void {
@@ -49,19 +49,14 @@ export async function clearPreviewPreset(): Promise<void> {
 }
 
 /**
- * Walk the preset JSON (as returned by readPresetFromArchive) and replace
- * every resource-id reference that appears in idMap with its mapped value.
- * This is needed so previewed presets resolve to resources imported from
- * the tone-sharing archive.
- */
-/**
- * For a single-item archive buffer from the tone-sharing API, extract any
- * embedded resource files (NAM models, IR WAVs, etc.) and import them into
- * the local library via importRemoteResource messages.  Resources already
- * present in the library (matched by content hash or id) are skipped.
+ * Loads a Tone Sharing item into the engine to audition it, without saving it.
  *
- * Returns a Map<oldId, newId> suitable for remapping the preset JSON before
- * it is loaded or previewed.
+ * The archive is read with `previewOnly`, which writes nothing: no preset, no
+ * blend, no resource. Its models and IRs are played only when the library
+ * already has them (matched by content hash, or by id for Tone3000 models);
+ * anything else stays missing until the item is installed. A preview used to
+ * import the archive's files and fetch its Tone3000 URLs, which let a shared
+ * archive both write to the library and choose where the Tone3000 token went.
  */
 export async function previewPreset(itemId: string, itemTitle: string): Promise<void> {
   // Save original preset ID so we can restore it later (only on first preview)
@@ -69,10 +64,7 @@ export async function previewPreset(itemId: string, itemTitle: string): Promise<
     previewState.priorPresetId = uiState.activePresetId ?? null;
   }
 
-  const response = await fetch(buildApiUrl(`/items/${itemId}/download`), {
-    headers: toneSharingState.sessionId ? { "x-session-id": toneSharingState.sessionId } : {},
-    credentials: "include"
-  });
+  const response = await toneSharingFetch(`/items/${itemId}/download`);
   if (!response.ok) {
     throw new Error(`Preview download failed (${response.status})`);
   }

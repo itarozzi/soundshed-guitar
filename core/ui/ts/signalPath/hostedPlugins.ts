@@ -353,7 +353,7 @@ export function buildHostedPluginLoadingIndicatorHtml(node: GraphNode, resourceI
   return `
     <div
       class="plugin-host-loading"
-      data-node-id="${node.id}"
+      data-node-id="${escapeHtml(node.id)}"
       data-resource-index="${resourceIndex}"
       role="status"
       aria-live="polite"
@@ -383,7 +383,7 @@ export function buildHostedPluginListHtml(node: GraphNode, resourceIndex: number
     return `
       <div
         class="plugin-host-item${isSelected ? " is-selected" : ""}${isFavorite ? " is-favorite" : ""}"
-        data-node-id="${node.id}"
+        data-node-id="${escapeHtml(node.id)}"
         data-resource-id="${escapeHtml(res.id)}"
         data-resource-index="${resourceIndex}"
         ${exposedAttr}
@@ -403,7 +403,7 @@ export function buildHostedPluginListHtml(node: GraphNode, resourceIndex: number
           <button
             type="button"
             class="plugin-host-favorite-btn${isFavorite ? " is-favorite" : ""}"
-            data-node-id="${node.id}"
+            data-node-id="${escapeHtml(node.id)}"
             data-resource-id="${escapeHtml(res.id)}"
             data-resource-name="${escapeHtml(res.name)}"
             title="${favoriteTitle}"
@@ -413,7 +413,7 @@ export function buildHostedPluginListHtml(node: GraphNode, resourceIndex: number
           <button
             type="button"
             class="plugin-host-remove-btn"
-            data-node-id="${node.id}"
+            data-node-id="${escapeHtml(node.id)}"
             data-resource-id="${escapeHtml(res.id)}"
             data-resource-name="${escapeHtml(res.name)}"
             title="Remove plugin from library"
@@ -446,7 +446,7 @@ export function buildHostedPluginListHtml(node: GraphNode, resourceIndex: number
   return `
     <div
       class="plugin-host-list${isLoading ? " is-loading" : ""}"
-      data-node-id="${node.id}"
+      data-node-id="${escapeHtml(node.id)}"
       data-resource-type="plugin"
       data-resource-index="${resourceIndex}"
       role="listbox"

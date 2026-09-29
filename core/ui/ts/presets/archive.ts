@@ -10,14 +10,14 @@ import { postMessage } from "../bridge.js";
 import { showConfirm } from "../dialogs.js";
 import { registerInstalledToneSharingPack } from "../toneSharingPanel.js";
 import type { InstalledPackMetadata } from "../toneSharingPanel.js";
-import { downloadTone3000ResourceByReference, isTone3000AuthReady, isTone3000ProxyModeEnabled, saveTone3000ApiKey } from "../tone3000.js";
+import { downloadTone3000ResourceByReference, isTone3000AuthReady, isTone3000ProxyModeEnabled, isTone3000RequestUrlAllowed, saveTone3000ApiKey } from "../tone3000.js";
 import { switchMainPanel } from "../navigation.js";
 import { activateLibraryTab } from "../settings.js";
 import { getLibraryResource, getLibraryResourceByHash } from "../resourceLibrary.js";
 import type { ArchiveImportContext, ArchiveImportOptions, GeneratorPackManifest, GeneratorPresetV2, GeneratorResourceIndex, ImportPackContext, ImportPackSource, ImportPackSummary, ImportPackWithConfirmationOptions, PresetArchive, PresetArchiveFolder, PresetArchiveResource, PresetCollectionArchive, Tone3000ResourceRef } from "./archiveTypes.js";
 import { applyImportedPresetFolders, assignImportedPresetsToTopLevelFolder, buildArchivePresetFoldersForExport, getPresetFolderExportName, getPresetsForFolderId } from "./folderArchive.js";
 import { PRESET_FOLDER_ALL_ID } from "./sorting.js";
-import { sanitizePresetForArchive, getPresetArchiveSessionState } from "./sanitize.js";
+import { sanitizeImportedPreset, sanitizePresetForArchive, getPresetArchiveSessionState } from "./sanitize.js";
 import { requestPresetFromBackend } from "./fetch.js";
 import { requestPresetLibraryRefresh } from "./refresh.js";
 import { cachePresetInMemory } from "./cache.js";
@@ -1102,7 +1102,7 @@ export async function importTone3000ArchiveResources(
           creatorName: ref.creatorName ?? "",
           authorUsername: ref.creatorName ?? "",
           modelId: ref.modelId ?? "",
-          ...(ref.modelUrl ? { modelUrl: ref.modelUrl } : {}),
+          ...(ref.modelUrl && isTone3000RequestUrlAllowed(ref.modelUrl) ? { modelUrl: ref.modelUrl } : {}),
         },
         data,
       });
@@ -1203,6 +1203,10 @@ export async function importPresetArchive(
       importedResources.push({ type: resource.type, id: existing.id });
       continue;
     }
+    // A preview plays what is already in the library and writes nothing to it.
+    if (previewOnly) {
+      continue;
+    }
     const entry = resolveArchiveResourceEntry(resource, fileMap, normalizedFileMap);
     if (!entry) {
       continue;
@@ -1234,14 +1238,23 @@ export async function importPresetArchive(
     });
   }
 
-  // Download tone3000-sourced resources using the user's own authenticated session.
-  if (tone3000ResourcesToImport.length > 0) {
+  // Download tone3000-sourced resources using the user's own authenticated session. A preview
+  // downloads nothing: the archive names the URLs, and the session's token goes with them.
+  if (previewOnly) {
+    for (const ref of tone3000ResourcesToImport) {
+      const existing = getLibraryResource(ref.type, ref.id);
+      if (existing && !existing.fileMissing) {
+        idMap.set(ref.id, existing.id);
+      }
+    }
+  } else if (tone3000ResourcesToImport.length > 0) {
     await importTone3000ArchiveResources(tone3000ResourcesToImport, idMap, importedResources);
   }
 
   const blendIdMap = new Map<string, string>();
   const presetIdMap = new Map<string, string>();
-  blends.forEach((blend) => {
+  // Nor does a preview save the pack's blends; its blend nodes play only blends already here.
+  (previewOnly ? [] : blends).forEach((blend) => {
     const newBlendId = generateResourceId(blend.id || blend.name || "blend");
     blendIdMap.set(blend.id, newBlendId);
 
@@ -1265,7 +1278,7 @@ export async function importPresetArchive(
 
   const importedPresets: Preset[] = [];
   for (const sourcePreset of presetsToImport) {
-    const importedPreset = sanitizePresetForArchive(sourcePreset);
+    const importedPreset = sanitizeImportedPreset(sanitizePresetForArchive(sourcePreset));
     migratePresetNodeTypes(importedPreset);
     const sourcePresetId = importedPreset.id || importedPreset.name || "preset";
     const archiveOrigin = getToneSharingOriginMetadata(importedPreset);
@@ -1488,6 +1501,7 @@ export async function importGeneratedPack(file: File, context: ArchiveImportCont
         })),
       },
     };
+    sanitizeImportedPreset(appPreset);
 
     postMessage({
       type: "savePreset",

@@ -1,7 +1,7 @@
     <header class="icon-bar film-grain">
       <span class="app-title">Soundshed Guitar</span>
       <span class="icon-bar-spacer"></span>
-      <nav class="nav-tabs" aria-label="Main navigation" x-data>
+      <nav class="nav-tabs" aria-label="Main navigation">
         <!--
           Chain and Effect exist for the compact landscape rail alone
           (html[data-compact-layout="rail"]), where they stand in for Play: the two
@@ -33,8 +33,8 @@
           </svg>
           <span class="nav-tab-label" data-compact-stage-detail-label>Effect</span>
         </button>
-        <button class="icon-btn nav-tab" :class="{ active: $store.ui && $store.ui.mainPanel === 'visualizer' }" x-on:click="$store.ui && $store.ui.switchMainPanel('visualizer')" data-panel="visualizer" title="Play">PLAY</button>
-        <button class="icon-btn nav-tab" :class="{ active: $store.ui && $store.ui.mainPanel === 'sharing' }" x-on:click="$store.ui && $store.ui.switchMainPanel('sharing')" data-panel="sharing" title="Tones">
+        <button class="icon-btn nav-tab" data-panel="visualizer" title="Play">PLAY</button>
+        <button class="icon-btn nav-tab" data-panel="sharing" title="Tones">
           <svg class="nav-tab-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
             <path d="M9 17.5V5.5l11-2v12" />
             <circle cx="6.5" cy="17.5" r="2.5" />
@@ -42,7 +42,7 @@
           </svg>
           <span class="nav-tab-label">TONES</span>
         </button>
-        <button class="icon-btn nav-tab" :class="{ active: $store.ui && $store.ui.mainPanel === 'jam' }" x-on:click="$store.ui && $store.ui.switchMainPanel('jam')" data-panel="jam" title="Jam">
+        <button class="icon-btn nav-tab" data-panel="jam" title="Jam">
           <svg class="nav-tab-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
             <path d="M4 17v-5a8 8 0 0 1 16 0v5" />
             <rect x="3" y="14" width="4.5" height="6.5" rx="1.5" />

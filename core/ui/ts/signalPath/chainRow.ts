@@ -26,6 +26,7 @@ import { renderIcon } from "../iconAssets.js";
 import type { UiSettings } from "../types.js";
 import { getCurrentUiSettings, updateUiSettings } from "../windowSettings.js";
 import type { EdgeRef } from "./graph.js";
+import { escapeHtml } from "../utils.js";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -66,7 +67,7 @@ export function renderBoundaryNode(kind: "input" | "output"): string {
 }
 
 export function renderConnectorWrapper(edge: EdgeRef): string {
-  const data = `data-edge-from="${edge.from}" data-edge-to="${edge.to}" data-edge-from-port="${edge.fromPort}"`
+  const data = `data-edge-from="${escapeHtml(edge.from)}" data-edge-to="${escapeHtml(edge.to)}" data-edge-from-port="${edge.fromPort}"`
     + ` data-edge-to-port="${edge.toPort}" data-edge-gain="${edge.gain}"`;
   return `
     <div class="signal-connector-wrapper" ${data}>

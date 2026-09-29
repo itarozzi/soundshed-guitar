@@ -13,10 +13,18 @@
  * Writes the result to index.html (in-place for the ui root, matching WebView expectations).
  *
  * Run automatically as part of `npm run build`.
+ *
+ * It also fills in the Content-Security-Policy: the template's
+ * {{CSP_INLINE_SCRIPT_HASHES}} placeholder becomes a 'sha256-…' source for every
+ * inline <script> that follows the policy, so an inline script can be edited
+ * without touching the policy by hand.
  */
 
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+
+const CSP_HASHES_PLACEHOLDER = '{{CSP_INLINE_SCRIPT_HASHES}}';
 
 const ROOT = __dirname.replace(/[\\/]scripts$/, '');
 const COMPONENTS_DIR = path.join(ROOT, 'ui-components');
@@ -68,18 +76,52 @@ function processIncludes(html, seen = new Set()) {
   });
 }
 
-function main() {
-  const inputPath = findTemplate();
-  let html = fs.readFileSync(inputPath, 'utf8');
+/**
+ * The CSP hash source for an inline script's text. The browser hashes the text as
+ * the HTML parser leaves it, which has turned every CRLF into LF; the working tree
+ * is CRLF on Windows, so hashing the raw file would never match.
+ */
+function inlineScriptHash(scriptText) {
+  const normalized = scriptText.replace(/\r\n?/g, '\n');
+  return `'sha256-${crypto.createHash('sha256').update(normalized, 'utf8').digest('base64')}'`;
+}
 
-  const before = html.length;
-  html = processIncludes(html);
+/** Replaces the policy's placeholder with the hashes of the inline scripts after it. */
+function applyCspScriptHashes(html) {
+  const at = html.indexOf(CSP_HASHES_PLACEHOLDER);
+  if (at < 0) {
+    return html;
+  }
+  const hashes = [];
+  const inlineScript = /<script(\s[^>]*)?>([\s\S]*?)<\/script>/gi;
+  inlineScript.lastIndex = at;
+  for (let match = inlineScript.exec(html); match; match = inlineScript.exec(html)) {
+    const attributes = match[1] || '';
+    if (!/\ssrc\s*=/i.test(attributes)) {
+      hashes.push(inlineScriptHash(match[2]));
+    }
+  }
+  return html.slice(0, at) + hashes.join(' ') + html.slice(at + CSP_HASHES_PLACEHOLDER.length);
+}
+
+/** The finished index.html text, from the template. */
+function assembleHtml() {
+  const inputPath = findTemplate();
+  const template = fs.readFileSync(inputPath, 'utf8');
+  return { inputPath, template, html: applyCspScriptHashes(processIncludes(template)) };
+}
+
+function main() {
+  const { inputPath, template, html } = assembleHtml();
 
   // If this was the template, or we did work, write output
   fs.writeFileSync(OUTPUT, html, 'utf8');
-  const after = html.length;
 
-  console.log(`[assemble-html] Assembled ${path.basename(inputPath)} -> ${path.relative(ROOT, OUTPUT)} (${before} -> ${after} bytes)`);
+  console.log(`[assemble-html] Assembled ${path.basename(inputPath)} -> ${path.relative(ROOT, OUTPUT)} (${template.length} -> ${html.length} bytes)`);
 }
 
-main();
+module.exports = { assembleHtml, applyCspScriptHashes, inlineScriptHash, CSP_HASHES_PLACEHOLDER };
+
+if (require.main === module) {
+  main();
+}

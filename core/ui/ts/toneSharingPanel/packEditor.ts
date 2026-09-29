@@ -3,12 +3,13 @@
  * that either keeps it a draft or publishes it.
  */
 
-import { apiFetch, buildApiUrl } from "./api.js";
+import { apiFetch, toneSharingFetch } from "./api.js";
 import { loadBrowse, loadMine } from "./browse.js";
 import { element, setText } from "./dom.js";
 import { buildPackImageVariants } from "./images.js";
 import { toneSharingState } from "./state.js";
 import type { ToneSharingItem, ToneSharingPack, ToneSharingPackDetails } from "./types.js";
+import { escapeHtml } from "../utils.js";
 
 let publishPackInFlight = false;
 
@@ -105,7 +106,7 @@ export async function loadMyDraftPacksForSelect(): Promise<void> {
     const drafts = data.packs.filter((p) => p.moderationStatus === "draft");
     select.innerHTML =
       `<option value="">Or add to existing draft pack…</option>` +
-      drafts.map((p) => `<option value="${p.id}">${p.title}</option>`).join("");
+      drafts.map((p) => `<option value="${escapeHtml(p.id)}">${p.title}</option>`).join("");
   } catch {
   }
 }
@@ -174,14 +175,12 @@ export async function savePack(publish: boolean): Promise<void> {
         })
       });
 
-      const uploadResponse = await fetch(buildApiUrl(`/uploads/${init.uploadId}`), {
+      const uploadResponse = await toneSharingFetch(`/uploads/${init.uploadId}`, {
         method: "PUT",
         headers: {
           "content-type": thumbnailBlob.type || "application/octet-stream",
-          ...(toneSharingState.sessionId ? { "x-session-id": toneSharingState.sessionId } : {})
         },
         body: thumbnailBlob,
-        credentials: "include"
       });
       const uploadPayload = await uploadResponse.json().catch(() => null);
       if (!uploadResponse.ok || uploadPayload?.ok === false) {
@@ -254,8 +253,8 @@ export function renderPackItemSelection(items: ToneSharingItem[], checked = new 
     .map(
       (item) => `
         <label class="tone-sharing-select-item">
-          <input type="checkbox" data-pack-item-id="${item.id}" ${checked.has(item.id) ? "checked" : ""} />
-          <span>${item.title}</span>
+          <input type="checkbox" data-pack-item-id="${escapeHtml(item.id)}" ${checked.has(item.id) ? "checked" : ""} />
+          <span>${escapeHtml(item.title)}</span>
         </label>
       `
     )

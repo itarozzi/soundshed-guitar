@@ -49,7 +49,7 @@ export function buildMixerInputControlsHtml(node: GraphNode, preset: Preset): st
                 <span class="mixer-input-label">${escapeHtml(inputLabel)}</span>
                 <label class="toggle-switch mixer-mute-toggle">
                   <input class="node-param-toggle mixer-input-mute" type="checkbox" 
-                         data-node-id="${node.id}" data-param-key="${muteKey}" ${muteValue ? "checked" : ""}>
+                         data-node-id="${escapeHtml(node.id)}" data-param-key="${escapeHtml(muteKey)}" ${muteValue ? "checked" : ""}>
                   <span class="toggle-slider"></span>
                 </label>
                 <span class="mixer-mute-label">${muteValue ? "Muted" : "Active"}</span>
@@ -58,8 +58,8 @@ export function buildMixerInputControlsHtml(node: GraphNode, preset: Preset): st
                 <div class="node-param-group mixer-param">
                   <span class="node-param-label">Level</span>
                   <div class="knob node-param-knob" 
-                       data-node-id="${node.id}" 
-                       data-param-key="${levelKey}"
+                       data-node-id="${escapeHtml(node.id)}" 
+                       data-param-key="${escapeHtml(levelKey)}"
                        data-value="${levelValue}"
                        data-default="0"
                        data-min="-60"
@@ -72,8 +72,8 @@ export function buildMixerInputControlsHtml(node: GraphNode, preset: Preset): st
                 <div class="node-param-group mixer-param">
                   <span class="node-param-label">Pan</span>
                   <div class="knob node-param-knob" 
-                       data-node-id="${node.id}" 
-                       data-param-key="${panKey}"
+                       data-node-id="${escapeHtml(node.id)}" 
+                       data-param-key="${escapeHtml(panKey)}"
                        data-value="${panValue}"
                        data-default="0"
                        data-min="-1"
@@ -86,8 +86,8 @@ export function buildMixerInputControlsHtml(node: GraphNode, preset: Preset): st
                 <div class="node-param-group mixer-param">
                   <span class="node-param-label">Delay</span>
                   <div class="knob node-param-knob" 
-                       data-node-id="${node.id}" 
-                       data-param-key="${delayKey}"
+                       data-node-id="${escapeHtml(node.id)}" 
+                       data-param-key="${escapeHtml(delayKey)}"
                        data-value="${delayValue}"
                        data-default="0"
                        data-min="0"

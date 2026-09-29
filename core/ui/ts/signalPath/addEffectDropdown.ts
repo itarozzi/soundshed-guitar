@@ -57,11 +57,11 @@ function buildDropdownHtml(): string {
                 ? (getCustomLayout(effect.type, effect.blendId) ?? getCustomLayout(effect.type))?.thumbnailDataUrl
                 : (getCustomLayout(effect.type)?.thumbnailDataUrl ?? effect.thumbnailDataUrl);
             const icon = thumb
-              ? `<img src="${thumb.replace(/"/g, '&quot;')}" alt="" aria-hidden="true" class="effect-dropdown-thumb" />`
+              ? `<img src="${escapeHtml(thumb)}" alt="" aria-hidden="true" class="effect-dropdown-thumb" />`
               : `<span class="effect-dropdown-icon">${effect.blendId ? getBadgeIcon("blend", "Custom blend") : getNodeIcon(effect.type)}</span>`;
               return `
               <div class="effect-dropdown-item"
-                data-effect-type="${effect.type}"
+                data-effect-type="${escapeHtml(effect.type)}"
                 data-blend-id="${escapeHtml(effect.blendId ?? "")}"
                 data-blend-name="${escapeHtml(effect.blendId ? effect.displayName : "")}"
                 data-blend-category="${escapeHtml(effect.blendCategory ?? "") }"

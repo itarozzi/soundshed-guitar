@@ -8,6 +8,7 @@
 import type { LayoutBackground } from "../layoutTypes.js";
 import { getLayoutImageUrl } from "./images.js";
 import type { LayoutPropertiesHost } from "./propertiesHost.js";
+import { escapeHtml } from "../utils.js";
 
 export class CanvasProperties {
   constructor(private readonly host: LayoutPropertiesHost) {}
@@ -151,7 +152,7 @@ export class CanvasProperties {
         <div class="layout-property-row">
           <span class="layout-property-label">Color</span>
           <div class="layout-property-input">
-            <input type="color" id="prop-bg-color" value="${bg.value || "#1a1a2e"}">
+            <input type="color" id="prop-bg-color" value="${escapeHtml(bg.value || "#1a1a2e")}">
           </div>
         </div>
       `;
@@ -160,7 +161,7 @@ export class CanvasProperties {
         <div class="layout-property-row">
           <span class="layout-property-label">Gradient</span>
           <div class="layout-property-input">
-            <input type="text" id="prop-bg-gradient" value="${bg.value}" placeholder="linear-gradient(...)">
+            <input type="text" id="prop-bg-gradient" value="${escapeHtml(bg.value)}" placeholder="linear-gradient(...)">
           </div>
         </div>
       `;
@@ -195,7 +196,7 @@ export class CanvasProperties {
       <div class="layout-property-group">
         <div class="layout-property-group-title">Image Source</div>
         <div class="layout-image-preview">
-          ${bg.value ? `<img src="${getLayoutImageUrl(bg.value) || ""}" alt="Background">` : `<span class="layout-image-preview-placeholder">No image</span>`}
+          ${bg.value ? `<img src="${escapeHtml(getLayoutImageUrl(bg.value) || "")}" alt="Background">` : `<span class="layout-image-preview-placeholder">No image</span>`}
         </div>
         <div class="layout-property-row">
           <span class="layout-property-label">Use Existing</span>

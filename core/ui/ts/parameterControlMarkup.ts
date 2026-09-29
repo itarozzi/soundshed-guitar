@@ -6,6 +6,7 @@
 import { formatParamValue } from "./layoutRenderer.js";
 import { effectiveTaper } from "./paramTaper.js";
 import type { ParameterDef } from "./presetV2.js";
+import { escapeHtml } from "./utils.js";
 
 export function formatParamLabel(key: string): string {
   return key
@@ -39,7 +40,7 @@ export function buildDefaultParamControlsHtml(paramDefs: ParameterDef[], nodeId 
         <div class="node-param-group">
           <span class="node-param-label">${label}</span>
           <label class="toggle-switch">
-            <input class="node-param-toggle" type="checkbox" data-node-id="${nodeId}" data-param-key="${p.key}" ${checked ? "checked" : ""} disabled>
+            <input class="node-param-toggle" type="checkbox" data-node-id="${escapeHtml(nodeId)}" data-param-key="${escapeHtml(p.key)}" ${checked ? "checked" : ""} disabled>
             <span class="toggle-slider"></span>
           </label>
           <span class="node-param-value">${checked ? "On" : "Off"}</span>
@@ -50,15 +51,15 @@ export function buildDefaultParamControlsHtml(paramDefs: ParameterDef[], nodeId 
       <div class="node-param-group">
         <span class="node-param-label">${label}</span>
         <div class="knob node-param-knob"
-          data-node-id="${nodeId}"
-          data-param-key="${p.key}"
+          data-node-id="${escapeHtml(nodeId)}"
+          data-param-key="${escapeHtml(p.key)}"
           data-value="${value}"
           data-default="${value}"
           data-min="${min}"
           data-max="${max}"
-          data-unit="${unit}"
+          data-unit="${escapeHtml(unit)}"
           ${p.step !== undefined ? `data-step="${p.step}"` : ""}
-          ${isEnum ? `data-labels="${enumLabels.join("|")}"` : ""}
+          ${isEnum ? `data-labels="${escapeHtml(enumLabels.join("|"))}"` : ""}
           ${taper === "log" ? `data-taper="log"` : ""}
         >
           <div class="knob-indicator"></div>

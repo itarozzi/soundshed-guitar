@@ -8,6 +8,7 @@
  * web UI reads.
  */
 
+#include <algorithm>
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
@@ -23,6 +24,7 @@
 
 #include "IPluginHost.h"
 #include "PluginController.h"
+#include "controller/internal/PresetArchiveSupport.h"
 #include "presets/PresetStorage.h"
 #include "resources/ResourceLibrary.h"
 #include "util/Base64.h"
@@ -361,6 +363,80 @@ void TestInstallOnePreset()
     Expect(changed && changed->value("key", "") == "toneSharing.installedPacks", "and the UI is told of the new setting");
 }
 
+// The web UI writes node ids into markup, and a resource path would have the engine open any file
+// the sharer names, a network share included.
+void TestHostileNodeIdsAndPathsAreCleaned()
+{
+    TestHost host(Sandbox("hostile"));
+    guitarfx::PluginController controller(host);
+    controller.Initialize();
+
+    const std::string hostileId = "amp\"><img src=x onerror=alert(1)>";
+    auto preset = BuildPreset("shared-hostile", "Hostile", "sha-h");
+    preset.graph.nodes[1].id = hostileId;
+    preset.graph.nodes[1].resources.push_back({"ir", "", R"(\\attacker.example\share\cab.wav)"});
+    preset.graph.edges = {GraphEdge{"__input__", hostileId, 0, 0, 1.0}, GraphEdge{hostileId, "__output__", 0, 0, 1.0},
+                          GraphEdge{"__input__", "no such <node>", 0, 0, 1.0}};
+    preset.scenes.push_back({"scene-b", "B", preset.graph});
+
+    Send(controller, "installPresetArchives",
+         {{"requestId", "r-hostile"},
+          {"entry", {{"id", "tone-sharing-api:item:hostile"}, {"title", "Hostile"}, {"source", "toneSharingApi"}}},
+          {"archives", {Archive(SinglePresetArchive(preset, "sha-h", kModelA), "Hostile")}}});
+
+    const auto reply = Latest(host, "presetArchivesInstalled");
+    const auto presetIds = reply ? reply->value("presetIds", nlohmann::json::array()) : nlohmann::json::array();
+    Expect(presetIds.size() == 1, "the preset with a hostile node id still installs");
+
+    if (presetIds.size() != 1)
+    {
+        return;
+    }
+
+    const auto stored = StoredPreset(host, controller, presetIds[0].get<std::string>());
+    Expect(stored.has_value(), "the cleaned preset can be read back");
+
+    if (!stored)
+    {
+        return;
+    }
+
+    // Found by its model: the stored type is the canonical effect id, not the alias it was saved under.
+    const auto isAmp = [](const GraphNode& node) {
+        return std::any_of(node.resources.begin(), node.resources.end(),
+                           [](const guitarfx::ResourceRef& resource) { return resource.resourceType == "nam"; });
+    };
+    const auto amp = std::find_if(stored->graph.nodes.begin(), stored->graph.nodes.end(), isAmp);
+    Expect(amp != stored->graph.nodes.end(), "the amp node survives");
+
+    if (amp == stored->graph.nodes.end())
+    {
+        return;
+    }
+
+    const std::string newId = amp->id;
+    Expect(guitarfx::controller_detail::IsSafeImportedNodeId(newId) && newId != hostileId, "the node gets a safe id");
+    Expect(std::count_if(stored->graph.edges.begin(), stored->graph.edges.end(),
+                         [&](const GraphEdge& edge) { return edge.from == newId || edge.to == newId; }) == 2,
+           "both of its edges follow it");
+
+    for (const auto& edge : stored->graph.edges)
+    {
+        Expect(edge.to != "no such <node>", "an edge to no node is dropped");
+    }
+
+    for (const auto& resource : amp->resources)
+    {
+        Expect(resource.filePath.empty(), "no resource keeps the archive's file path");
+    }
+
+    const auto scene = std::find_if(stored->scenes.begin(), stored->scenes.end(),
+                                    [](const guitarfx::PresetScene& s) { return s.id == "scene-b"; });
+    Expect(scene != stored->scenes.end() && std::any_of(scene->graph.nodes.begin(), scene->graph.nodes.end(),
+                                                        [&](const GraphNode& node) { return node.id == newId; }),
+           "the scene's copy of the node gets the same new id");
+}
+
 void TestSecondInstallReusesTheModel()
 {
     TestHost host(Sandbox("reuse"));
@@ -576,6 +652,7 @@ void TestDeleteTakesOutWhatItAdded()
 int main()
 {
     TestInstallOnePreset();
+    TestHostileNodeIdsAndPathsAreCleaned();
     TestSecondInstallReusesTheModel();
     TestReusesAnOlderImportOfTheSameFile();
     TestPackGetsAFolder();

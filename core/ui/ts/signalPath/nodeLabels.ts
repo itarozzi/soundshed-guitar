@@ -416,12 +416,12 @@ export function buildCustomEffectActions(node: GraphNode): string {
   const saveLabel = linkedEntry ? "Update My Custom Effect" : "Save To My Custom Effects";
 
   return `
-    <div class="node-resource-selector node-custom-effect-actions" data-node-id="${node.id}">
+    <div class="node-resource-selector node-custom-effect-actions" data-node-id="${escapeHtml(node.id)}">
       <label>Custom Effect Designer</label>
       <div class="resource-controls">
-        <button type="button" class="primary-btn custom-effect-design-btn" data-node-id="${node.id}">Design With AI</button>
-        <button type="button" class="primary-btn custom-effect-save-btn" data-node-id="${node.id}" ${hasModule ? "" : "disabled"}>${saveLabel}</button>
-        <button type="button" class="secondary-btn custom-effect-use-btn" data-node-id="${node.id}" ${hasModule ? "" : "disabled"}>Use This Effect</button>
+        <button type="button" class="primary-btn custom-effect-design-btn" data-node-id="${escapeHtml(node.id)}">Design With AI</button>
+        <button type="button" class="primary-btn custom-effect-save-btn" data-node-id="${escapeHtml(node.id)}" ${hasModule ? "" : "disabled"}>${saveLabel}</button>
+        <button type="button" class="secondary-btn custom-effect-use-btn" data-node-id="${escapeHtml(node.id)}" ${hasModule ? "" : "disabled"}>Use This Effect</button>
       </div>
       <div class="resource-path-info">${escapeHtml(buildCustomEffectActionStatus(node))}</div>
     </div>

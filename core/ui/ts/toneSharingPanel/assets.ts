@@ -4,7 +4,7 @@
  */
 
 import { uiState } from "../state.js";
-import { apiFetch, buildApiUrl, parseApiErrorMessage } from "./api.js";
+import { apiFetch, parseApiErrorMessage, toneSharingFetch } from "./api.js";
 import { buildPackArchiveFromDetails } from "./archive.js";
 import { resolveCreatorProfileHandle } from "./format.js";
 import { getToneSharingHostActions } from "./hostActions.js";
@@ -32,10 +32,7 @@ export async function downloadAsset(kind: "item" | "pack", id: string): Promise<
   const installedSnapshotBefore = JSON.stringify(toneSharingState.installedPacks);
   const presetCountBefore = uiState.presets.length;
   const path = kind === "item" ? `/items/${id}/download` : `/packs/${id}/download`;
-  const response = await fetch(buildApiUrl(path), {
-    headers: toneSharingState.sessionId ? { "x-session-id": toneSharingState.sessionId } : {},
-    credentials: "include"
-  });
+  const response = await toneSharingFetch(path);
 
   if (!response.ok && !(kind === "pack" && response.status === 409)) {
     const message = await parseApiErrorMessage(response);

@@ -794,7 +794,7 @@ function renderGraphSignalPath(preset: Preset): void {
       : "";
 
     const html = `
-      <div class="parallel-container" data-splitter-id="${splitterId}" data-mixer-id="${joinId}">
+      <div class="parallel-container" data-splitter-id="${escapeHtml(splitterId)}" data-mixer-id="${escapeHtml(joinId)}">
         <div class="parallel-split">
           <div class="split-icon" aria-hidden="true">
             ${renderIcon("parallel-split", "parallel-flow-icon")}
@@ -949,7 +949,7 @@ function renderNodeElement(node: GraphNode, options?: RenderNodeElementOptions):
   });
   const thumbUrl = nodeLayout?.thumbnailDataUrl ?? nodeTypeInfo?.thumbnailDataUrl ?? (getEffectVisualizationEquipmentImage(node) || null);
   const thumbAvatar = thumbUrl
-    ? `<span class="node-layout-thumb-wrap" aria-hidden="true"><img class="node-layout-thumb" src="${thumbUrl.replace(/"/g, "&quot;")}" alt="" /><span class="node-layout-thumb-icon">${icon}</span></span>`
+    ? `<span class="node-layout-thumb-wrap" aria-hidden="true"><img class="node-layout-thumb" src="${escapeHtml(thumbUrl)}" alt="" /><span class="node-layout-thumb-icon">${icon}</span></span>`
     : "";
   const thumbClass = thumbUrl ? " has-thumb" : "";
   const deleteButton = allowDelete
@@ -962,8 +962,8 @@ function renderNodeElement(node: GraphNode, options?: RenderNodeElementOptions):
     : "";
 
   return `
-    <div class="signal-node ${categoryClass} ${bypassedClass} ${selectedClass} ${missingClass}${thumbClass}" 
-         data-node-id="${node.id}" 
+    <div class="signal-node ${escapeHtml(categoryClass)} ${bypassedClass} ${selectedClass} ${missingClass}${thumbClass}" 
+         data-node-id="${escapeHtml(node.id)}" 
          tabindex="0"${nodeTitleAttr}${nodeAriaLabel}>
       ${thumbAvatar}
       ${deleteButton}

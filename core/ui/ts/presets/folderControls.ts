@@ -15,6 +15,7 @@ import { uiState } from "../state.js";
 import type { PresetFolder } from "../types.js";
 import { presetFolderDeleteButton, presetFolderRenameButton } from "./dom.js";
 import { filterPresets } from "./filter.js";
+import { escapeHtml } from "../utils.js";
 
 export function populatePresetFolderSelect(select: HTMLSelectElement | null, selectedId?: string | null): void {
   if (!select) return;
@@ -37,7 +38,7 @@ export function populatePresetFolderSelect(select: HTMLSelectElement | null, sel
   buildOptions(folders, 0);
 
   select.innerHTML = options
-    .map((option) => `<option value="${option.id}">${option.label}</option>`)
+    .map((option) => `<option value="${escapeHtml(option.id)}">${option.label}</option>`)
     .join("");
 
   const resolved = selectedId ?? uiState.activePresetFolderId ?? PRESET_FOLDER_ALL_ID;

@@ -7,6 +7,7 @@ import { sanitizeFilename } from "./archiveUtils.js";
 import type { DemoClip } from "./types.js";
 import { Features, isFeatureEnabled } from "./featureFlags.js";
 import { getPlaySvg, getStopSvg } from "./iconAssets.js";
+import { escapeHtml } from "./utils.js";
 
 // Track whether demo audio is currently playing
 let demoAudioPlaying = false;
@@ -92,7 +93,7 @@ function renderDemoAudioOptions(): string {
   return sources
     .map((sample) => {
       const selected = sample.id === selectedId;
-      return `<option value="${sample.id}"${selected ? " selected" : ""}>${sample.title}</option>`;
+      return `<option value="${escapeHtml(sample.id)}"${selected ? " selected" : ""}>${sample.title}</option>`;
     })
     .join("");
 }

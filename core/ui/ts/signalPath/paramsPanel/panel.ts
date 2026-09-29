@@ -145,7 +145,7 @@ export function showNodeParamsPanel(node: GraphNode, preset: Preset): void {
         <div class="node-param-group">
           <span class="node-param-label">${label}</span>
           <label class="toggle-switch">
-            <input class="node-param-toggle" type="checkbox" data-node-id="${node.id}" data-param-key="${key}" ${checked ? "checked" : ""}>
+            <input class="node-param-toggle" type="checkbox" data-node-id="${escapeHtml(node.id)}" data-param-key="${escapeHtml(key)}" ${checked ? "checked" : ""}>
             <span class="toggle-slider"></span>
           </label>
           <span class="node-param-value">${checked ? "On" : "Off"}</span>
@@ -163,8 +163,8 @@ export function showNodeParamsPanel(node: GraphNode, preset: Preset): void {
             <input
               type="range"
               class="node-param-blend-slider"
-              data-node-id="${node.id}"
-              data-param-key="${key}"
+              data-node-id="${escapeHtml(node.id)}"
+              data-param-key="${escapeHtml(key)}"
               min="${min}"
               max="${max}"
               step="0.01"
@@ -183,15 +183,15 @@ export function showNodeParamsPanel(node: GraphNode, preset: Preset): void {
         <span class="node-param-label">${label}</span>
         <div 
           class="knob node-param-knob" 
-          data-node-id="${node.id}" 
-          data-param-key="${key}"
+          data-node-id="${escapeHtml(node.id)}" 
+          data-param-key="${escapeHtml(key)}"
           data-value="${displayValue}"
           data-default="${defaultValue}"
           data-min="${min}"
           data-max="${max}"
-          data-unit="${unit}"
+          data-unit="${escapeHtml(unit)}"
           ${step !== undefined ? `data-step="${step}"` : ""}
-          ${isEnum ? `data-labels="${enumLabels.join("|")}"` : ""}
+          ${isEnum ? `data-labels="${escapeHtml(enumLabels.join("|"))}"` : ""}
           ${taper === "log" ? `data-taper="log"` : ""}
           ${paramDef.blend ? blendKnobDataAttributes(paramDef.blend) : ""}
         >
@@ -244,30 +244,30 @@ export function showNodeParamsPanel(node: GraphNode, preset: Preset): void {
   const isGraphicEqNode = EffectTypeRegistry.resolve(node.type) === EffectGuids.kEqGraphic;
   const customEffectActions = buildCustomEffectActions(node);
   const eqVisualizer = isEqNode && !isGraphicEqNode ? `
-    <div class="eq-visualizer" data-node-id="${node.id}">
+    <div class="eq-visualizer" data-node-id="${escapeHtml(node.id)}">
       <div class="eq-visualizer-header">
         <span>EQ Curve</span>
         <span class="eq-visualizer-range">±18 dB</span>
       </div>
-      <canvas class="eq-curve-canvas" data-node-id="${node.id}"></canvas>
+      <canvas class="eq-curve-canvas" data-node-id="${escapeHtml(node.id)}"></canvas>
     </div>
   ` : "";
   const isSpatialNode = EffectTypeRegistry.resolve(node.type) === EffectGuids.kSpatial3D;
   const spatialSpeakerMode = (node.params?.listenMode ?? 0) >= 0.5;
   const spatialVisualizer = isSpatialNode ? `
-    <div class="spatial-visualizer" data-node-id="${node.id}">
+    <div class="spatial-visualizer" data-node-id="${escapeHtml(node.id)}">
       <div class="spatial-visualizer-header">
         <span>Source Position</span>
         <span class="spatial-visualizer-hint">${spatialSpeakerMode
           ? "Speaker mode &mdash; height and behind are reduced"
           : "Best on headphones"}</span>
       </div>
-      <canvas class="spatial-panner-canvas" data-node-id="${node.id}" tabindex="0"></canvas>
+      <canvas class="spatial-panner-canvas" data-node-id="${escapeHtml(node.id)}" tabindex="0"></canvas>
       <p class="spatial-visualizer-help">Drag the radar to pan and set distance, drag the arc for height. Shift for fine, double-click to reset.</p>
     </div>
   ` : "";
   const graphicEqControls = isGraphicEqNode ? `
-    <section class="graphic-eq-controls" data-node-id="${node.id}">
+    <section class="graphic-eq-controls" data-node-id="${escapeHtml(node.id)}">
       <canvas class="graphic-eq-curve-canvas" aria-hidden="true"></canvas>
       <div class="graphic-eq-toolbar">
         <button type="button" class="graphic-eq-reset-btn" title="Reset all band gains to 0 dB">Reset</button>
@@ -352,7 +352,7 @@ export function showNodeParamsPanel(node: GraphNode, preset: Preset): void {
     analyzerSpectrogramHistoryByNode.delete(node.id);
   }
   const analyzerSection = isInputAnalyzerNode ? `
-    <section class="default-effect-section input-analyzer-panel" data-node-id="${node.id}">
+    <section class="default-effect-section input-analyzer-panel" data-node-id="${escapeHtml(node.id)}">
       <div class="input-analyzer-header">
         <div class="input-analyzer-title">Signal Analyzer</div>
         <div class="input-analyzer-updated">Waiting for live analyzer data…</div>
@@ -498,7 +498,7 @@ export function showNodeParamsPanel(node: GraphNode, preset: Preset): void {
             ${calibrationMetadataChip}
             <button
               class="default-effect-shell-toggle node-bypass-btn ${nodeIsBypassed ? "bypassed" : ""}"
-              data-node-id="${node.id}"
+              data-node-id="${escapeHtml(node.id)}"
               type="button"
               role="switch"
               aria-checked="${nodeIsBypassed ? "false" : "true"}"

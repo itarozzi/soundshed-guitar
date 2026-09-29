@@ -6,7 +6,7 @@
  * object and pushing it back into the header and the profile form.
  */
 
-import { apiFetch, buildApiUrl, isToneSharingAdmin, updateToneSharingSession } from "./api.js";
+import { apiFetch, buildApiUrl, isToneSharingAdmin, toneSharingFetch, updateToneSharingSession } from "./api.js";
 import { loadBrowse, loadMine } from "./browse.js";
 import { element, setText } from "./dom.js";
 import { resizeImageToMaxWidth } from "./images.js";
@@ -253,14 +253,12 @@ export async function uploadProfileAvatar(file: File): Promise<string> {
     })
   });
 
-  const uploadResponse = await fetch(buildApiUrl(`/uploads/${init.uploadId}`), {
+  const uploadResponse = await toneSharingFetch(`/uploads/${init.uploadId}`, {
     method: "PUT",
     headers: {
       "content-type": avatarBlob.type || "application/octet-stream",
-      ...(toneSharingState.sessionId ? { "x-session-id": toneSharingState.sessionId } : {}),
     },
     body: avatarBlob,
-    credentials: "include",
   });
 
   const uploadPayload = await uploadResponse.json().catch(() => null);

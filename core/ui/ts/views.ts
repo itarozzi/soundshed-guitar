@@ -46,7 +46,7 @@ function renderParameterSection(): string {
       const label = (parameter as { label?: string; id?: string }).label ?? (parameter as { id?: string }).id ?? "";
       return `
         <div class="param-card">
-          <span class="param-label">${label}</span>
+          <span class="param-label">${escapeHtml(label)}</span>
           <span class="param-value">${formatParameterValue(parameter)}</span>
         </div>
       `;
@@ -309,7 +309,7 @@ export function renderPresetList(
           const count = folder.presetIds.length;
           const childMarkup = folder.children?.length ? renderFolderTree(folder.children, depth + 1, folder.id) : "";
           return `
-            <div class="preset-folder-item ${activeId === folder.id ? "active" : ""}" data-folder-id="${folder.id}" data-parent-id="${parentId}" data-depth="${depth}" draggable="true">
+            <div class="preset-folder-item ${activeId === folder.id ? "active" : ""}" data-folder-id="${escapeHtml(folder.id)}" data-parent-id="${escapeHtml(parentId)}" data-depth="${depth}" draggable="true">
               ${indent}
               <span class="folder-name">${escapeHtml(folder.name)}</span>
               <span class="folder-count">${count}</span>
@@ -438,13 +438,13 @@ export function renderPresetList(
         const inMixer = uiState.mixer?.activePresetIds.includes(preset.id) ?? false;
         const showMixerControls = isFeatureEnabled(Features.MultiRig);
         const addToMixerBtn = showMixerControls
-          ? `<button class="preset-add-to-mixer-btn${inMixer ? " in-mixer" : ""}" data-preset-id="${preset.id}" title="${inMixer ? "Already in mixer" : "Add to mixer"}" type="button">${inMixer ? `${getCheckmarkSvg()} In Mixer` : "+ Mixer"}</button>`
+          ? `<button class="preset-add-to-mixer-btn${inMixer ? " in-mixer" : ""}" data-preset-id="${escapeHtml(preset.id)}" title="${inMixer ? "Already in mixer" : "Add to mixer"}" type="button">${inMixer ? `${getCheckmarkSvg()} In Mixer` : "+ Mixer"}</button>`
           : "";
 
         const isLoadingPreset = preset.id === uiState.presetLoadingId;
 
         return `
-        <article class="preset-item ${preset.id === activePresetId ? "active" : ""}${isLoadingPreset ? " loading" : ""}" data-id="${preset.id}">
+        <article class="preset-item ${preset.id === activePresetId ? "active" : ""}${isLoadingPreset ? " loading" : ""}" data-id="${escapeHtml(preset.id)}">
           <header>
             <h3>${escapeHtml(preset.name)}</h3>
             ${addToMixerBtn}
@@ -452,7 +452,7 @@ export function renderPresetList(
           ${metaParts ? `<div class="preset-item-meta">${metaParts}</div>` : ""}
           ${tagChips}
           <p>${escapeHtml(preset.description ?? "")}</p>
-          <div class="preset-rating" data-preset-id="${preset.id}">
+          <div class="preset-rating" data-preset-id="${escapeHtml(preset.id)}">
             <span class="preset-rating-label">${label}</span>
             <div class="preset-rating-stars">
               ${stars}
@@ -599,8 +599,8 @@ export function renderPresetDetails(
         <div class="attachment-card">
           <div class="attachment-icon">${icon}</div>
           <div class="attachment-info">
-            <span class="attachment-type">${label}</span>
-            <span class="attachment-hash" title="${escapeHtml(attachment.hash ?? "")}">${hashShort}</span>
+            <span class="attachment-type">${escapeHtml(label)}</span>
+            <span class="attachment-hash" title="${escapeHtml(attachment.hash ?? "")}">${escapeHtml(hashShort)}</span>
           </div>
           <div class="attachment-status active"></div>
         </div>
@@ -620,7 +620,7 @@ export function renderPresetDetails(
       return `
         <div class="fx-node">
           <div class="fx-node-icon">${icon}</div>
-          <span class="fx-node-label">${stage.replace(/_/g, " ")}</span>
+          <span class="fx-node-label">${escapeHtml(stage.replace(/_/g, " "))}</span>
         </div>
         <div class="fx-connector"></div>
       `;
