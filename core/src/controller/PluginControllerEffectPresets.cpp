@@ -498,4 +498,37 @@ void PluginController::HandleDeleteEffectPresetRequest(const nlohmann::json& pay
     SaveUiStorageJson(kEffectPresetsFile, document);
     BroadcastEffectPresets();
 }
+
+std::vector<ResourceRef> PluginController::CollectEffectPresetResourceRefs() const
+{
+    const auto document =
+        NormalizeEffectPresetsDocument(LoadUiStorageJson(kEffectPresetsFile, nlohmann::json::object()));
+    std::vector<ResourceRef> refs;
+
+    for (const auto& presets : document.at("byEffectType"))
+    {
+        if (!presets.is_array())
+        {
+            continue;
+        }
+
+        for (const auto& entry : presets)
+        {
+            if (!entry.is_object() || !entry.contains("resources") || !entry["resources"].is_array())
+            {
+                continue;
+            }
+
+            for (const auto& resource : entry["resources"])
+            {
+                if (resource.is_object())
+                {
+                    refs.push_back(DeserializeResourceRef(resource));
+                }
+            }
+        }
+    }
+
+    return refs;
+}
 } // namespace guitarfx

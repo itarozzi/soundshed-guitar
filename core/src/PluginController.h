@@ -36,6 +36,7 @@
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -488,6 +489,8 @@ class PluginController
     void HandleApplyEffectPresetRequest(const nlohmann::json& payload);
     void HandleDeleteEffectPresetRequest(const nlohmann::json& payload);
     void BroadcastEffectPresets();
+    /// Every resource reference the saved effect presets carry, library or not.
+    [[nodiscard]] std::vector<ResourceRef> CollectEffectPresetResourceRefs() const;
     void HandleSetSetlistsRequest(const nlohmann::json& payload);
 
     // Engine-owned preset edits (controller/PluginControllerPresetEdits.cpp): what every UI asks
@@ -786,6 +789,14 @@ class PluginController
                                                                          const std::string& resourceId) const;
     void EnsureResourceUsageDiskIndex() const;
     void InvalidateResourceUsageIndex();
+    /// Calls visit for each stored preset, read fresh: the user's, then the factory presets,
+    /// then the factory archives'. That order is the usage index's tie-break.
+    void ForEachStoredPreset(const std::function<void(const Preset&)>& visit) const;
+    /// "type:id" for every library resource anything still refers to: the running and stored
+    /// presets (every scene), the mixer's other slots, blends, composites, custom effects, the
+    /// global chain and effect presets. Read fresh, not from the usage index, since a cleanup
+    /// deletes files on the strength of it.
+    [[nodiscard]] std::unordered_set<std::string> CollectResourceKeysInUse() const;
     void AppendUserLibraryResource(const LibraryResource& resource);
     /// Writes a model or IR into the library's content folder and adds it to the user library,
     /// for importRemoteResource and archive installs alike. Does not broadcast. On failure

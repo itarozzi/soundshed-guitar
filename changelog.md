@@ -63,6 +63,7 @@ A big update: five new effects, fifteen classic drive pedals, a Practice Tool fo
 * Tone Sharing search now covers every community preset, with a new tag filter.
 * Fixed a crash on files with non-ASCII characters in their names, such as an emdash.
 * Fixed effects that use both an amp model and a cab IR, such as Supercharged Neural Amp, losing one when you pick the other.
+* Removing an installed Tone Sharing pack, or cleaning up unused resources, now removes them for good: they no longer reappear after a restart with their files gone. Models and IRs still used in a preset's later scene, an effect preset, a composite or a custom effect are kept.
 
 ### Look & Feel
 * **Compact layout** for small windows, chosen automatically. You can override it with Layout Density in Settings. A tall, narrow window (the app snapped to half your screen, say) shows the signal chain and the selected effect together, and on a phone the preset bar, controls, preset library, FX list and setlist pads all fit the screen.

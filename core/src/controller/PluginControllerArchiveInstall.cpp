@@ -584,13 +584,15 @@ void PluginController::HandleDeleteInstalledPresetArchiveRequest(const nlohmann:
 
         for (const auto& preset : LoadAllUserPresets())
         {
-            for (const auto& node : preset.graph.nodes)
-            {
-                if (const auto it = node.config.find("blendId"); it != node.config.end())
+            ForEachPresetGraph(preset, [&](const SignalGraph& graph) {
+                for (const auto& node : graph.nodes)
                 {
-                    blendsInUse.insert(it->second);
+                    if (const auto it = node.config.find("blendId"); it != node.config.end())
+                    {
+                        blendsInUse.insert(it->second);
+                    }
                 }
-            }
+            });
         }
 
         const auto before = mBlendLibrary.size();

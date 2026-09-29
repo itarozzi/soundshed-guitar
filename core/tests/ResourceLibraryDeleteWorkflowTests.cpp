@@ -1,3 +1,4 @@
+#include <chrono>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -399,6 +400,224 @@ bool TestDeleteInUseResourceIsRefused()
 
     return true;
 }
+
+/// A profile of its own per run, removed when the guard goes. Declare the guard before the
+/// controller so the controller has closed the store by the time the folder is deleted.
+struct SandboxGuard
+{
+    fs::path root;
+
+    ~SandboxGuard()
+    {
+        std::error_code ec;
+        fs::remove_all(root, ec);
+    }
+};
+
+fs::path MakeCleanupSandbox(const std::string& name)
+{
+    // Per run, so a concurrent run of this suite cannot delete the profile from under this one.
+    static const auto run = std::to_string(std::chrono::steady_clock::now().time_since_epoch().count() % 100000000);
+    const auto root = fs::temp_directory_path() / ("guitarfx-resource-cleanup-tests-" + run) / name;
+    std::error_code ec;
+    fs::remove_all(root, ec);
+    fs::create_directories(root, ec);
+    SetSettingsEnvRoot(root);
+    return root;
+}
+
+std::optional<nlohmann::json> CleanupResources(guitarfx::PluginController& controller, TestHost& host,
+                                               const std::vector<SavedResourceInfo>& resources)
+{
+    nlohmann::json list = nlohmann::json::array();
+
+    for (const auto& resource : resources)
+    {
+        list.push_back({{"type", resource.type}, {"id", resource.id}});
+    }
+
+    host.messages.clear();
+    controller.HandleUIMessage(nlohmann::json{
+        {"type", "cleanupResourceLibrary"},
+        {"scope", "all"},
+        {"removeFiles", true},
+        {"resources", list},
+    }
+                                   .dump());
+    return FindLastMessageOfType(host.messages, "resourceCleanupResult");
+}
+
+std::optional<SavedResourceInfo> SaveStoredResource(guitarfx::PluginController& controller, TestHost& host,
+                                                    const std::string& name, const std::string& data)
+{
+    return SaveLocalResource(controller, host,
+                             nlohmann::json{
+                                 {"type", "saveLocalLibraryResource"},
+                                 {"resourceType", "wasm"},
+                                 {"name", name},
+                                 {"fileName", name + ".wasm"},
+                                 {"data", data},
+                             });
+}
+
+bool TestCleanupRemovalPersistsAcrossRestart()
+{
+    const fs::path sandbox = MakeCleanupSandbox("restart");
+    const SandboxGuard guard{sandbox};
+    std::error_code ec;
+    fs::create_directories(sandbox / "external", ec);
+
+    const fs::path externalFile = sandbox / "external" / "cleanup-external.wasm";
+    {
+        std::ofstream file(externalFile, std::ios::binary);
+        file.write("\x05\x06\x07\x08", 4);
+    }
+
+    std::optional<SavedResourceInfo> stored;
+    std::optional<SavedResourceInfo> external;
+    std::optional<SavedResourceInfo> kept;
+
+    {
+        TestHost host(sandbox);
+        guitarfx::PluginController controller(host);
+        controller.Initialize();
+
+        stored = SaveStoredResource(controller, host, "cleanup-stored", "AQID");
+        // Added since the store migration, so the legacy index never heard of it.
+        external = SaveLocalResource(controller, host,
+                                     nlohmann::json{
+                                         {"type", "saveLocalLibraryResource"},
+                                         {"resourceType", "wasm"},
+                                         {"name", "Cleanup External"},
+                                         {"filePath", externalFile.string()},
+                                     });
+        kept = SaveStoredResource(controller, host, "cleanup-kept", "AQIDBA==");
+
+        if (!stored || !external || !kept)
+        {
+            std::cerr << "Failed to save the cleanup restart resources\n";
+            return false;
+        }
+
+        const auto result = CleanupResources(controller, host, {*stored, *external});
+
+        if (!result || result->value("removed", 0) != 2)
+        {
+            std::cerr << "Cleanup should remove the stored and external entries, got "
+                      << (result ? result->dump() : std::string{"no reply"}) << "\n";
+            return false;
+        }
+    }
+
+    if (fs::exists(stored->filePath))
+    {
+        std::cerr << "Cleaned-up resource's file in the content folder should be deleted\n";
+        return false;
+    }
+
+    if (!fs::exists(externalFile))
+    {
+        std::cerr << "Cleaned-up external entry's file, outside the content folder, should remain\n";
+        return false;
+    }
+
+    if (LibraryIndexContains(sandbox, stored->type, stored->id) ||
+        LibraryIndexContains(sandbox, external->type, external->id))
+    {
+        std::cerr << "Cleaned-up resources are still rows in the document store\n";
+        return false;
+    }
+
+    // The library is read from the store alone at startup.
+    TestHost host(sandbox);
+    guitarfx::PluginController controller(host);
+    controller.Initialize();
+    const auto& library = controller.GetResourceLibrary();
+
+    if (!library.HasResource(kept->type, kept->id))
+    {
+        std::cerr << "Resource left out of the cleanup is missing after restart, so the restart proves nothing\n";
+        return false;
+    }
+
+    if (library.HasResource(stored->type, stored->id) || library.HasResource(external->type, external->id))
+    {
+        std::cerr << "Cleaned-up resource reappeared after restart\n";
+        return false;
+    }
+
+    return true;
+}
+
+bool TestCleanupKeepsResourceUsedOnlyInLaterScene()
+{
+    using namespace guitarfx;
+
+    const fs::path sandbox = MakeCleanupSandbox("later-scene");
+    const SandboxGuard guard{sandbox};
+
+    TestHost host(sandbox);
+    PluginController controller(host);
+    controller.Initialize();
+
+    const auto sceneOnly = SaveStoredResource(controller, host, "cleanup-scene-two", "AQID");
+    const auto unused = SaveStoredResource(controller, host, "cleanup-unused", "AQIDBA==");
+
+    if (!sceneOnly || !unused)
+    {
+        std::cerr << "Failed to save the later-scene cleanup resources\n";
+        return false;
+    }
+
+    // Scene 1, which is also the working graph, has no resource; scene 2 plays sceneOnly.
+    Preset preset = BuildSingleNodeResourcePreset("scene-node", sceneOnly->type, sceneOnly->id);
+    preset.id = "cleanup-later-scene-preset";
+    preset.name = "Cleanup Later Scene";
+
+    PresetScene sceneOne{"scene-1", "Scene 1", preset.graph};
+    sceneOne.graph.nodes[1].resources.clear();
+    const PresetScene sceneTwo{"scene-2", "Scene 2", preset.graph};
+    preset.graph = sceneOne.graph;
+    preset.scenes = {sceneOne, sceneTwo};
+
+    // Written through a connection of its own, so the preset is only in storage: never loaded,
+    // never in a mixer slot, and found only by reading the stored presets' scenes.
+    {
+        storage::JsonStore store;
+        std::string error;
+
+        if (!store.Open(sandbox / "Soundshed Guitar" / "data" / "v1" / "soundshed.db", error) ||
+            !PresetStorage::SaveToStore(store, preset))
+        {
+            std::cerr << "Could not store the later-scene preset: " << error << "\n";
+            return false;
+        }
+    }
+
+    const auto result = CleanupResources(controller, host, {*sceneOnly, *unused});
+
+    if (!result || result->value("removed", 0) != 1 || result->value("skippedUsed", 0) != 1)
+    {
+        std::cerr << "Cleanup should remove the unused resource and skip the scene-2 one as in use, got "
+                  << (result ? result->dump() : std::string{"no reply"}) << "\n";
+        return false;
+    }
+
+    if (!fs::exists(sceneOnly->filePath) || !LibraryIndexContains(sandbox, sceneOnly->type, sceneOnly->id) ||
+        !controller.GetResourceLibrary().HasResource(sceneOnly->type, sceneOnly->id))
+    {
+        std::cerr << "Resource used only in scene 2 lost its file or entry\n";
+        return false;
+    }
+
+    if (fs::exists(unused->filePath) || LibraryIndexContains(sandbox, unused->type, unused->id))
+    {
+        std::cerr << "Unused resource's file or store row survived the cleanup\n";
+        return false;
+    }
+
+    return true;
+}
 } // namespace
 
 int main()
@@ -422,6 +641,8 @@ int main()
     run("Delete stored resource removes file and index", TestDeleteStoredResourceRemovesFileAndIndex());
     run("Delete external resource keeps file and removes index", TestDeleteExternalResourceKeepsFileButRemovesIndex());
     run("Delete in-use resource is refused", TestDeleteInUseResourceIsRefused());
+    run("Cleanup removal persists across a restart", TestCleanupRemovalPersistsAcrossRestart());
+    run("Cleanup keeps a resource used only in a later scene", TestCleanupKeepsResourceUsedOnlyInLaterScene());
 
     std::cout << "\nResource library delete workflow tests: " << passed << " passed, " << failed << " failed\n";
     return failed == 0 ? 0 : 1;

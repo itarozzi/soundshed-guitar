@@ -272,7 +272,7 @@ For portable sharing, resources embed as base64 in the preset JSON (`EmbeddedRes
 Central catalog of NAM models and IR files.
 
 - **Storage layout** (`data/v1/resources/`):
-  - `indexes/resources-index.json` — canonical index with `resourceId`, `resourceType`, `provider`, `contentHash`, `filePath`, `displayName`, `originalFileName`.
+  - The catalog is the document store (`data/v1/soundshed.db`): one `resource` row per entry, keyed `<type>:<id>`, loaded at startup. Adding, deleting or cleaning up a resource writes that row. `indexes/resources-index.json` is the pre-store index; only the one-time storage migration reads it, and nothing writes it.
   - `content/<provider>/<hash-named-file>` — actual binaries (hash-addressed for deduplication).
 - **ResourceRef resolution priority**: 1) library (resourceType + resourceId), 2) embedded (embeddedId), 3) file path.
 - **Content deduplication**: SHA-256 hash prevents duplicate storage.
@@ -619,7 +619,7 @@ data/v1/
     user/<presetId>.json          # User preset files
   resources/
     content/<provider>/<hash>     # Binary NAM/.wav files, hash-addressed
-    indexes/resources-index.json  # Resource catalog
+    indexes/resources-index.json  # Pre-store catalog, read once by the storage migration
   blends/
     library.json                  # Blend definitions
   composites/

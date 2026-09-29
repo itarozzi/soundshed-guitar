@@ -19,7 +19,6 @@
 #include "resources/PluginPathUtils.h"
 #include "resources/ResourceLibrary.h"
 #include "util/Base64.h"
-#include "util/FileIO.h"
 #include "util/PathEncoding.h"
 #include "util/PathSanitizer.h"
 
@@ -34,6 +33,35 @@ using namespace guitarfx::controller_detail;
 
 namespace guitarfx
 {
+namespace
+{
+/// Calls fn(ref) for each library reference the graph's nodes hold.
+template <typename Fn> void ForEachLibraryRef(const SignalGraph& graph, Fn&& fn)
+{
+    for (const auto& node : graph.nodes)
+    {
+        for (const auto& ref : node.resources)
+        {
+            if (ref.IsLibraryRef())
+            {
+                fn(ref);
+            }
+        }
+    }
+}
+
+/// The same across every graph the preset carries, scenes included.
+template <typename Fn> void ForEachLibraryRef(const Preset& preset, Fn&& fn)
+{
+    ForEachPresetGraph(preset, [&](const SignalGraph& graph) { ForEachLibraryRef(graph, fn); });
+}
+
+std::string ResourceKey(const std::string& type, const std::string& id)
+{
+    return type + ":" + id;
+}
+} // namespace
+
 void PluginController::HandleImportRemoteResourceRequest(const nlohmann::json& payload)
 {
     const std::string resourceType = payload.value("resourceType", "");
@@ -895,36 +923,12 @@ void PluginController::HandleDeleteLibraryResourceRequest(const nlohmann::json& 
 std::optional<std::string> PluginController::FindFirstPresetUsingResource(const std::string& resourceType,
                                                                           const std::string& resourceId) const
 {
-    const auto graphUsesResource = [&](const SignalGraph& graph) -> bool {
-        for (const auto& node : graph.nodes)
-        {
-            for (const auto& ref : node.resources)
-            {
-                if (ref.IsLibraryRef() && ref.resourceType == resourceType && ref.resourceId == resourceId)
-                {
-                    return true;
-                }
-            }
-        }
-
-        return false;
-    };
-
     const auto presetUsesResource = [&](const Preset& preset) -> bool {
-        if (graphUsesResource(preset.graph))
-        {
-            return true;
-        }
-
-        for (const auto& scene : preset.scenes)
-        {
-            if (graphUsesResource(scene.graph))
-            {
-                return true;
-            }
-        }
-
-        return false;
+        bool uses = false;
+        ForEachLibraryRef(preset, [&](const ResourceRef& ref) {
+            uses = uses || (ref.resourceType == resourceType && ref.resourceId == resourceId);
+        });
+        return uses;
     };
 
     const auto presetDisplayName = [](const Preset& preset) -> std::string {
@@ -991,7 +995,7 @@ void PluginController::EnsureResourceUsageDiskIndex() const
 
     mResourceUsageDiskIndex.clear();
 
-    const auto indexPreset = [this](const Preset& preset) {
+    ForEachStoredPreset([this](const Preset& preset) {
         std::string displayName = preset.name;
 
         if (displayName.empty())
@@ -999,57 +1003,11 @@ void PluginController::EnsureResourceUsageDiskIndex() const
             displayName = !preset.id.empty() ? preset.id : "Unnamed preset";
         }
 
-        const auto indexGraph = [&](const SignalGraph& graph) {
-            for (const auto& node : graph.nodes)
-            {
-                for (const auto& ref : node.resources)
-                {
-                    if (!ref.IsLibraryRef())
-                    {
-                        continue;
-                    }
-
-                    const std::string key = ref.resourceType + ":" + ref.resourceId;
-                    // Preserve first-found priority (user > factory > archive).
-                    mResourceUsageDiskIndex.emplace(key, displayName);
-                }
-            }
-        };
-
-        indexGraph(preset.graph);
-
-        for (const auto& scene : preset.scenes)
-        {
-            indexGraph(scene.graph);
-        }
-    };
-
-    // User presets first so they win ties.
-    for (const auto& preset : LoadAllUserPresets())
-    {
-        indexPreset(preset);
-    }
-
-    // Factory presets next.
-    {
-        const auto factoryDir = ResolveFactoryPresetDirectory(mHost, mResourceRoot);
-
-        if (std::filesystem::exists(factoryDir))
-        {
-            const auto factoryPresets = PresetStorage::LoadAllFromDirectory(factoryDir);
-
-            for (const auto& preset : factoryPresets)
-            {
-                indexPreset(preset);
-            }
-        }
-    }
-
-    // Factory archive presets last.
-    for (const auto& [_, preset] : mFactoryArchivePresets)
-    {
-        indexPreset(preset);
-    }
+        ForEachLibraryRef(preset, [&](const ResourceRef& ref) {
+            // Preserve first-found priority (user > factory > archive).
+            mResourceUsageDiskIndex.emplace(ResourceKey(ref.resourceType, ref.resourceId), displayName);
+        });
+    });
 
     mResourceUsageDiskIndexValid = true;
 }
@@ -1058,6 +1016,98 @@ void PluginController::InvalidateResourceUsageIndex()
 {
     mResourceUsageDiskIndexValid = false;
     mResourceUsageDiskIndex.clear();
+}
+
+void PluginController::ForEachStoredPreset(const std::function<void(const Preset&)>& visit) const
+{
+    for (const auto& preset : LoadAllUserPresets())
+    {
+        visit(preset);
+    }
+
+    const auto factoryDir = ResolveFactoryPresetDirectory(mHost, mResourceRoot);
+
+    if (std::filesystem::exists(factoryDir))
+    {
+        for (const auto& preset : PresetStorage::LoadAllFromDirectory(factoryDir))
+        {
+            visit(preset);
+        }
+    }
+
+    for (const auto& [_, preset] : mFactoryArchivePresets)
+    {
+        visit(preset);
+    }
+}
+
+std::unordered_set<std::string> PluginController::CollectResourceKeysInUse() const
+{
+    std::unordered_set<std::string> keys;
+    const auto addRef = [&](const ResourceRef& ref) {
+        if (ref.IsLibraryRef())
+        {
+            keys.insert(ResourceKey(ref.resourceType, ref.resourceId));
+        }
+    };
+    const auto addPreset = [&](const Preset& preset) { ForEachLibraryRef(preset, addRef); };
+
+    if (mActivePreset)
+    {
+        addPreset(*mActivePreset);
+    }
+
+    // A Multi-Rig slot can be playing a preset that was never saved, or has since been deleted.
+    for (const auto& [_, presetJson] : mMixerPresetJsonCache)
+    {
+        if (const auto preset = PresetStorage::DeserializeFromJson(presetJson))
+        {
+            addPreset(*preset);
+        }
+    }
+
+    ForEachStoredPreset(addPreset);
+
+    // Presets name a blend node's blend, not its models.
+    if (mBlendLibrary.is_array())
+    {
+        for (const auto& blend : mBlendLibrary)
+        {
+            for (const auto& modelId : CollectBlendModelIds(blend))
+            {
+                keys.insert(ResourceKey("nam", modelId));
+            }
+        }
+    }
+
+    for (const auto& definition : mCompositeLibrary.GetAllDefinitions())
+    {
+        ForEachLibraryRef(definition.innerGraph, addRef);
+    }
+
+    if (mEditingComposite)
+    {
+        ForEachLibraryRef(mEditingComposite->innerGraph, addRef);
+    }
+
+    for (const auto& entry : mCustomEffectLibrary.GetAllEntries())
+    {
+        if (!entry.moduleResourceType.empty() && !entry.moduleResourceId.empty())
+        {
+            keys.insert(ResourceKey(entry.moduleResourceType, entry.moduleResourceId));
+        }
+    }
+
+    const auto& globalChain = mPresetMixer.GetGlobalChainConfig();
+    ForEachLibraryRef(globalChain.preChainGraph, addRef);
+    ForEachLibraryRef(globalChain.postChainGraph, addRef);
+
+    for (const auto& ref : CollectEffectPresetResourceRefs())
+    {
+        addRef(ref);
+    }
+
+    return keys;
 }
 
 void PluginController::HandleQueryResourceUsageRequest(const nlohmann::json& payload)
@@ -1700,78 +1750,8 @@ void PluginController::HandleCleanupResourceLibraryRequest(const nlohmann::json&
         return;
     }
 
-    const auto settingsDir = mFileSystem.ResolveSettingsDirectory();
-    const auto resourcesDir = settingsDir / "resources";
-    const auto libraryDir = resourcesDir / "indexes";
-    const auto libraryFile = libraryDir / "resources-index.json";
-    const auto resourceFilesDir = resourcesDir / "content";
-
-    nlohmann::json entries = nlohmann::json::array();
-
-    if (std::filesystem::exists(libraryFile))
-    {
-        std::ifstream input(libraryFile);
-
-        if (input)
-        {
-            nlohmann::json parsed;
-            input >> parsed;
-
-            if (parsed.is_array())
-            {
-                entries = std::move(parsed);
-            }
-        }
-    }
-
-    auto makeKey = [](const std::string& type, const std::string& id) { return type + ":" + id; };
-
-    std::unordered_set<std::string> userKeys;
-
-    for (const auto& e : entries)
-    {
-        const std::string t = e.value("type", ""), i = e.value("id", "");
-
-        if (!t.empty() && !i.empty())
-        {
-            userKeys.insert(makeKey(t, i));
-        }
-    }
-
-    std::unordered_set<std::string> usedKeys;
-    auto addUsedPreset = [&](const Preset& preset) {
-        for (const auto& n : preset.graph.nodes)
-        {
-            for (const auto& r : n.resources)
-            {
-                if (r.IsLibraryRef())
-                {
-                    usedKeys.insert(makeKey(r.resourceType, r.resourceId));
-                }
-            }
-        }
-    };
-
-    if (mActivePreset)
-    {
-        addUsedPreset(*mActivePreset);
-    }
-
-    for (const auto& p : LoadAllUserPresets())
-    {
-        addUsedPreset(p);
-    }
-
-    if (mBlendLibrary.is_array())
-    {
-        for (const auto& blend : mBlendLibrary)
-        {
-            for (const auto& modelId : CollectBlendModelIds(blend))
-            {
-                usedKeys.insert(makeKey("nam", modelId));
-            }
-        }
-    }
+    const auto resourceFilesDir = ResolveResourcesRoot() / "content";
+    const auto usedKeys = CollectResourceKeysInUse();
 
     auto isScopeMatch = [&](const std::string& type) { return scope == "all" || scope == type; };
 
@@ -1805,8 +1785,7 @@ void PluginController::HandleCleanupResourceLibraryRequest(const nlohmann::json&
         return true;
     };
 
-    std::vector<std::string> removedKeys;
-    std::size_t skipped = 0, skippedUsed = 0;
+    std::size_t removed = 0, skipped = 0, skippedUsed = 0;
 
     for (const auto& item : resources)
     {
@@ -1829,9 +1808,7 @@ void PluginController::HandleCleanupResourceLibraryRequest(const nlohmann::json&
             continue;
         }
 
-        const std::string key = makeKey(t, i);
-
-        if (usedKeys.count(key) > 0)
+        if (usedKeys.contains(ResourceKey(t, i)))
         {
             ++skippedUsed;
             continue;
@@ -1845,7 +1822,9 @@ void PluginController::HandleCleanupResourceLibraryRequest(const nlohmann::json&
             continue;
         }
 
-        const bool isUserEntry = userKeys.count(key) > 0;
+        // The store is the library's only persistence, so a row there is what makes an entry
+        // the user's. One held only in memory, such as a preset archive session's, is not.
+        const bool isUserEntry = Store().Has(storage::ItemType::kResource, ResourceLibrary::MakeStoreId(t, i));
         const bool isUserFile =
             !resourceOpt->filePath.empty() && isUnderDirectory(resourceOpt->filePath, resourceFilesDir);
 
@@ -1855,36 +1834,29 @@ void PluginController::HandleCleanupResourceLibraryRequest(const nlohmann::json&
             continue;
         }
 
-        mResourceLibrary.RemoveResource(t, i);
-        removedKeys.push_back(key);
-
+        // The file before the entry, as a single delete does: a file that cannot go keeps its
+        // entry, rather than being left in the content folder with nothing pointing at it.
         if (removeFiles && isUserFile)
         {
             std::error_code ec;
             std::filesystem::remove(resourceOpt->filePath, ec);
-        }
-    }
 
-    if (!removedKeys.empty())
-    {
-        std::unordered_set<std::string> removedSet(removedKeys.begin(), removedKeys.end());
-        nlohmann::json updated = nlohmann::json::array();
-
-        for (const auto& e : entries)
-        {
-            const std::string t = e.value("type", ""), i = e.value("id", "");
-
-            if (!t.empty() && !i.empty() && removedSet.count(makeKey(t, i)) > 0)
+            if (ec)
             {
+                AppendSessionLog("Resource cleanup could not delete " + util::PathToUtf8(resourceOpt->filePath) + ": " +
+                                 ec.message());
+                ++skipped;
                 continue;
             }
-
-            updated.push_back(e);
         }
 
-        [[maybe_unused]] const auto ensuredLibraryDir = mFileSystem.EnsureDirectory(libraryDir);
-        [[maybe_unused]] const bool savedIndex = util::WriteTextFileAtomic(libraryFile, updated.dump(2));
+        // From the store as well as memory, or it is back at the next start.
+        RemoveUserLibraryResource(t, i);
+        ++removed;
+    }
 
+    if (removed > 0)
+    {
         TouchSharedSyncState({"resourceLibrary"});
     }
 
@@ -1892,7 +1864,7 @@ void PluginController::HandleCleanupResourceLibraryRequest(const nlohmann::json&
     nlohmann::json msg;
     msg["type"] = "resourceCleanupResult";
     msg["requested"] = resources.size();
-    msg["removed"] = removedKeys.size();
+    msg["removed"] = removed;
     msg["skipped"] = skipped;
     msg["skippedUsed"] = skippedUsed;
     SendMessageToUI(msg.dump());

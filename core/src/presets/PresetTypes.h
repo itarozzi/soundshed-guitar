@@ -362,6 +362,27 @@ void NormalizePresetScenes(Preset& preset);
                                         std::string* resolvedSceneId = nullptr);
 void SyncPresetSceneFromGraph(Preset& preset, const std::string& sceneId);
 
+/**
+ * Calls fn(graph) for every graph a preset carries: its working graph, each scene's, and the
+ * global chain it saved. Anything asking what a preset refers to walks all of them, since a
+ * scene past the first can name a model or blend the working graph does not.
+ */
+template <typename Fn> void ForEachPresetGraph(const Preset& preset, Fn&& fn)
+{
+    fn(preset.graph);
+
+    for (const auto& scene : preset.scenes)
+    {
+        fn(scene.graph);
+    }
+
+    if (preset.globalSignalChain)
+    {
+        fn(preset.globalSignalChain->preChainGraph);
+        fn(preset.globalSignalChain->postChainGraph);
+    }
+}
+
 inline void EnsurePresetBoundaryGainNodes(Preset& preset)
 {
     EnsurePresetBoundaryGainNodes(preset.graph);
