@@ -173,6 +173,8 @@
   --z-popover: 900;
   --z-modal: 1000;
   --z-modal-priority: 1100;
+  /* A modal that stops an action midway to ask something (confirm, API key), so it sits above whatever modal started the action. */
+  --z-modal-interrupt: 1200;
 
   /* Overlay Colors */
   --overlay-light: rgba(255, 255, 255, 0.3);

@@ -8,6 +8,7 @@
 #include <iostream>
 #include <iterator>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <nlohmann/json.hpp>
@@ -880,6 +881,169 @@ bool TestHostStateRestoreAppliesMergedSettings()
     if (std::abs(controller.GetMixer().GetUserInputCalibrationGainDb() - 4.5) > 1e-9)
     {
         std::cerr << "Restored user input calibration was merged into settings but never applied\n";
+        return false;
+    }
+
+    return true;
+}
+
+bool TestHostStateLeavesOutAccountSettings()
+{
+    const fs::path sandbox =
+        fs::temp_directory_path() / "guitarfx-preset-management-tests" / "host-state-no-account-settings";
+    std::error_code ec;
+    fs::remove_all(sandbox, ec);
+    fs::create_directories(sandbox, ec);
+    SetSettingsEnvRoot(sandbox);
+
+    TestHost host(sandbox);
+    guitarfx::PluginController plugin(host);
+    plugin.Initialize();
+
+    for (const auto& [key, value] : std::vector<std::pair<std::string, nlohmann::json>>{
+             {"tone3000.apiKey", "t3k-current"},
+             {"tone3000.useSoundshedToneSearchApi", false},
+             {"toneSharing.sessionId", "session-current"},
+             {"jam.youtubeApiKey", "yt-current"},
+             {"audio.dsp.nominalOperatingLevelDbfs", -15.0},
+         })
+    {
+        plugin.HandleUIMessage(nlohmann::json{{"type", "setSetting"}, {"key", key}, {"value", value}}.dump());
+    }
+
+    const auto state = nlohmann::json::parse(plugin.SerializeState());
+    const auto& appSettings = state.at("appSettings");
+
+    for (const char* key :
+         {"tone3000.apiKey", "tone3000.useSoundshedToneSearchApi", "toneSharing.sessionId", "jam.youtubeApiKey"})
+    {
+        if (appSettings.contains(key))
+        {
+            std::cerr << "Host state carried the account setting " << key << " into the project\n";
+            return false;
+        }
+    }
+
+    if (std::abs(appSettings.value("audio.dsp.nominalOperatingLevelDbfs", 0.0) - (-15.0)) > 1e-9)
+    {
+        std::cerr << "Leaving out account settings dropped a project setting too\n";
+        return false;
+    }
+
+    return true;
+}
+
+bool TestHostStateRestoreKeepsCurrentAccountSettings()
+{
+    const fs::path sandbox =
+        fs::temp_directory_path() / "guitarfx-preset-management-tests" / "host-state-keeps-account-settings";
+    std::error_code ec;
+    fs::remove_all(sandbox, ec);
+    fs::create_directories(sandbox, ec);
+    SetSettingsEnvRoot(sandbox);
+
+    TestHost host(sandbox);
+
+    {
+        guitarfx::PluginController seed(host);
+        seed.Initialize();
+        seed.HandleUIMessage(
+            nlohmann::json{{"type", "setSetting"}, {"key", "tone3000.apiKey"}, {"value", "t3k-current"}}.dump());
+        seed.HandleUIMessage(nlohmann::json{
+            {"type", "setSetting"},
+            {"key", "tone3000.useSoundshedToneSearchApi"},
+            {"value", false}}.dump());
+    }
+
+    // A project saved by an older build, which still wrote account settings into host state.
+    nlohmann::json oldProject;
+    oldProject["appSettings"] = nlohmann::json{
+        {"tone3000.apiKey", "t3k-old"},
+        {"tone3000.useSoundshedToneSearchApi", true},
+        {"toneSharing.sessionId", "session-old"},
+    };
+
+    guitarfx::PluginController restored(host);
+    restored.Initialize();
+    restored.DeserializeState(oldProject.dump());
+
+    const auto& settings = restored.GetAppSettings();
+
+    if (settings.value("tone3000.apiKey", std::string{}) != "t3k-current" ||
+        settings.value("tone3000.useSoundshedToneSearchApi", true) != false)
+    {
+        std::cerr << "An old project put its Tone3000 key or connection mode over the user's current one\n";
+        return false;
+    }
+
+    if (settings.contains("toneSharing.sessionId"))
+    {
+        std::cerr << "An old project signed this instance in to Tone Sharing\n";
+        return false;
+    }
+
+    return true;
+}
+
+bool TestUiLoadPicksUpAccountSettingsChangedElsewhere()
+{
+    const fs::path sandbox =
+        fs::temp_directory_path() / "guitarfx-preset-management-tests" / "ui-load-account-settings";
+    std::error_code ec;
+    fs::remove_all(sandbox, ec);
+    fs::create_directories(sandbox, ec);
+    SetSettingsEnvRoot(sandbox);
+
+    TestHost host(sandbox);
+
+    // Loaded with a project, editor closed, so nothing drives its shared-sync poll.
+    guitarfx::PluginController closedEditor(host);
+    closedEditor.Initialize();
+    closedEditor.HandleUIMessage(
+        nlohmann::json{{"type", "setSetting"}, {"key", "toneSharing.sessionId"}, {"value", "session-a"}}.dump());
+
+    // The key is entered in another instance, and the Tone Sharing sign-in ended there.
+    {
+        guitarfx::PluginController other(host);
+        other.Initialize();
+        other.HandleUIMessage(
+            nlohmann::json{{"type", "setSetting"}, {"key", "tone3000.apiKey"}, {"value", "t3k-entered"}}.dump());
+        other.HandleUIMessage(
+            nlohmann::json{{"type", "setSetting"}, {"key", "toneSharing.sessionId"}, {"value", nullptr}}.dump());
+    }
+
+    closedEditor.HandleUIMessage(nlohmann::json{{"type", "uiReady"}}.dump());
+
+    const auto& settings = closedEditor.GetAppSettings();
+
+    if (settings.value("tone3000.apiKey", std::string{}) != "t3k-entered")
+    {
+        std::cerr << "An editor opened after the Tone3000 key was entered elsewhere did not get it\n";
+        return false;
+    }
+
+    if (settings.contains("toneSharing.sessionId"))
+    {
+        std::cerr << "An editor opened after a sign-out elsewhere was still signed in\n";
+        return false;
+    }
+
+    // Taking the store's value is not an edit of this instance's, so nothing is written back.
+    closedEditor.HandleUIMessage(
+        nlohmann::json{{"type", "setSetting"}, {"key", "app.updateCheckEnabled"}, {"value", false}}.dump());
+
+    StoreReader reader(sandbox);
+
+    if (!reader.Ok())
+    {
+        return false;
+    }
+
+    const auto stored = reader.AppSettings();
+
+    if (stored.value("tone3000.apiKey", std::string{}) != "t3k-entered" || stored.contains("toneSharing.sessionId"))
+    {
+        std::cerr << "Refreshing account settings on UI load changed what the store holds\n";
         return false;
     }
 
@@ -3870,6 +4034,9 @@ int main()
     run("Host state restore does not republish project settings",
         TestHostStateRestoreDoesNotRepublishProjectSettings());
     run("Host state restore applies merged settings", TestHostStateRestoreAppliesMergedSettings());
+    run("Host state leaves out account settings", TestHostStateLeavesOutAccountSettings());
+    run("Host state restore keeps current account settings", TestHostStateRestoreKeepsCurrentAccountSettings());
+    run("UI load picks up account settings changed elsewhere", TestUiLoadPicksUpAccountSettingsChangedElsewhere());
     run("Plugin instance does not own lastPresetId", TestPluginInstanceDoesNotOwnLastPresetId());
     run("UI layout is not shared between plugin and standalone", TestUiLayoutIsNotSharedBetweenPluginAndStandalone());
     run("Plugin state remembers editor window size", TestPluginStateRemembersEditorWindowSize());

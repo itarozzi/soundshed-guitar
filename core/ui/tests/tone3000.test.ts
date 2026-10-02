@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { uiState } from "../ts/state.js";
-import { downloadTone3000ResourceByReference } from "../ts/tone3000.js";
+import { applySharedTone3000Settings, downloadTone3000ResourceByReference } from "../ts/tone3000.js";
 
 describe("downloadTone3000ResourceByReference", () => {
   const originalFetch = globalThis.fetch;
@@ -63,5 +63,38 @@ describe("downloadTone3000ResourceByReference", () => {
     const modelLookupUrl = fetchMock.mock.calls[0]?.[0];
     expect(String(modelLookupUrl)).toContain("tone_id=tone-123");
     expect(String(modelLookupUrl)).not.toContain("architecture=");
+  });
+});
+
+describe("applySharedTone3000Settings", () => {
+  const session = { accessToken: "session-token", refreshToken: "", expiresAt: Date.now() + 600_000 };
+
+  beforeEach(() => {
+    uiState.tone3000Session = { ...session };
+  });
+
+  afterEach(() => {
+    uiState.tone3000Session = null;
+  });
+
+  it("keeps the session when another instance changed something else", () => {
+    const previous = { "tone3000.apiKey": "key-a", "tone3000.useSoundshedToneSearchApi": false, theme: "dark" };
+    uiState.appSettings = { ...previous, theme: "light" };
+
+    applySharedTone3000Settings(previous);
+
+    expect(uiState.tone3000Session).not.toBeNull();
+  });
+
+  it.each([
+    ["the key was replaced", { "tone3000.apiKey": "key-b", "tone3000.useSoundshedToneSearchApi": false }],
+    ["the key was cleared", { "tone3000.useSoundshedToneSearchApi": false }],
+    ["the proxy was turned on", { "tone3000.apiKey": "key-a", "tone3000.useSoundshedToneSearchApi": true }],
+  ])("drops the session when %s in another instance", (_label, next) => {
+    uiState.appSettings = next;
+
+    applySharedTone3000Settings({ "tone3000.apiKey": "key-a", "tone3000.useSoundshedToneSearchApi": false });
+
+    expect(uiState.tone3000Session).toBeNull();
   });
 });

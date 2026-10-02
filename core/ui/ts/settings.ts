@@ -18,7 +18,7 @@ import { initLibraryCleanup } from "./settings/libraryCleanup.js";
 import { initLibraryExport } from "./settings/libraryExport.js";
 import { initLibraryFilters, renderLibraryView } from "./settings/libraryView.js";
 import { initEquipmentTabs, initLibraryTabs } from "./settings/tabs.js";
-import { applyTone3000ModeVisibility, clearApiKey, initTone3000ProxyHealthCheck, initTone3000UseSoundshedApiToggle, saveApiKey, updateTone3000ApiModeStatus, updateTone3000ProxyHealthStatus } from "./settings/tone3000Settings.js";
+import { applyTone3000ModeVisibility, clearApiKey, initTone3000ProxyHealthCheck, initTone3000UseSoundshedApiToggle, refreshTone3000ApiKeyField, saveApiKey, updateTone3000ApiModeStatus, updateTone3000ProxyHealthStatus } from "./settings/tone3000Settings.js";
 import { refreshSettingsUpdateBanner, updateCurrentVersionDisplay } from "./settings/updateBanner.js";
 import { getSettingValue, restoreIndexSelectSetting, sanitizeNumericSetting } from "./settings/values.js";
 import { uiState } from "./state.js";
@@ -32,7 +32,8 @@ export { initDensitySelect, initThemeSelect, initZoomControls } from "./settings
 export { initDiagnosticsToggle } from "./settings/dspSettings.js";
 export { handleUserInputCalibrationDiagnosticsUpdate, initUserInputCalibrationControls } from "./settings/inputCalibration.js";
 export { activateAdvancedSubTab, activateEquipmentTab, activateLibraryTab } from "./settings/tabs.js";
-export { refreshSettingsUpdateBanner, updateSettingsSessionStatus } from "./settings/updateBanner.js";
+export { refreshSettingsUpdateBanner } from "./settings/updateBanner.js";
+export { refreshTone3000ApiKeyField } from "./settings/tone3000Settings.js";
 export { setSettingsViewStateSuppressed } from "./settings/viewState.js";
 
 let settingsInitialized = false;
@@ -78,8 +79,8 @@ export function refreshSettingsView(): void {
 
   if (apiKeyInput) {
     apiKeyInput.value = "";
-    apiKeyInput.placeholder = stored ? "API key stored" : "Enter your Tone3000 API key";
   }
+  refreshTone3000ApiKeyField();
   refreshUserInputCalibrationView();
   if (themeSelect) {
     themeSelect.value = themeSwitcher.getCurrentTheme();

@@ -13,10 +13,6 @@ export function updateCurrentVersionDisplay(): void {
   versionEl.textContent = version;
 }
 
-export function updateSettingsSessionStatus(): void {
-  // Session lifecycle is managed silently in tone3000.ts.
-}
-
 export function refreshSettingsUpdateBanner(): void {
   const banner = document.getElementById("settings-update-banner");
   if (!banner) return;

@@ -286,7 +286,7 @@ Central catalog of NAM models and IR files.
 
 Integration with the Tone3000 cloud amp model library.
 
-- **Authentication**: API key stored in `settings/app.json` (`tone3000.apiKey`), exchanged for OAuth-style tokens at `https://www.tone3000.com/api/v1/auth/session`. Token refresh handled automatically.
+- **Authentication**: The API key (`tone3000.apiKey`) is exchanged for OAuth-style tokens at `https://www.tone3000.com/api/v1/auth/session`. Token refresh handled automatically. The key and the connection mode (`tone3000.useSoundshedToneSearchApi`) are account settings: they are kept once, in the shared settings store, whether entered in Settings or in the prompt a Tone3000 import raises, and every instance uses them, the standalone app and plugins alike. A DAW project's saved state never carries them, so an old project cannot bring back an old key, and a plugin editor re-reads them when it opens. A key changed or cleared in one instance drops the others' sessions.
 - **Browse categories**: Pedals/FX, Preamps, Amps, Full Rigs, Cabinet IRs.
 - **Search**: Query-based tone search with category filtering.
 - **Import**: Download individual NAM models or IR files into the local resource library.

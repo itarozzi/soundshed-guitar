@@ -629,6 +629,10 @@ void PluginController::DrainControlSurfaceRequests()
 void PluginController::OnWebContentLoaded()
 {
     mUIReady = true;
+
+    // A plugin editor can open long after this instance last read the store; the state it
+    // is about to be sent must carry the user's current keys and sign-ins.
+    RefreshAccountSettingsFromStore();
     mPendingStateBroadcast = true;
 
     // The UI may not be ready when Initialize() loads/sends the layout library.

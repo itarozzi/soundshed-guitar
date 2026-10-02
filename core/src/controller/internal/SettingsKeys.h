@@ -18,6 +18,11 @@ namespace guitarfx::controller_detail
 inline constexpr const char* kJamYouTubeApiKeySettingKey = "jam.youtubeApiKey";
 inline constexpr const char* kBundledJamYouTubeApiKey = "";
 
+// ── Tone3000 ────────────────────────────────────────────────────────
+// Whether Tone3000 requests go through the Soundshed proxy, which needs no API key. An
+// account setting, like the key itself (see IsAccountSettingKey).
+inline constexpr const char* kTone3000UseSoundshedApiSettingKey = "tone3000.useSoundshedToneSearchApi";
+
 // ── DSP levels ──────────────────────────────────────────────────────
 inline constexpr const char* kNominalOperatingLevelSettingKey = "audio.dsp.nominalOperatingLevelDbfs";
 inline constexpr const char* kOutputProtectionCeilingSettingKey = "audio.dsp.outputProtectionCeilingDbfs";

@@ -250,6 +250,12 @@ class PluginController
     /// host state, are never written to disk, and survive a shared-settings reload.
     [[nodiscard]] bool IsInstanceOwnedSettingKey(const std::string& key) const;
 
+    /// True for the settings that belong to the user's accounts rather than to any one
+    /// instance or project: API keys, sign-in sessions and the Tone3000 connection mode.
+    /// They live only in the shared store, so entering one anywhere makes it available
+    /// everywhere. Host state never carries them, in either direction.
+    [[nodiscard]] static bool IsAccountSettingKey(const std::string& key);
+
     [[nodiscard]] IPluginHost& GetHost()
     {
         return mHost;
@@ -870,6 +876,10 @@ class PluginController
     void AdoptAppSettingsAsBaseline() const;
     bool CleanupLegacyAppSettingsOnLoad();
     void LoadAppSettings();
+    /// Re-reads the account settings (IsAccountSettingKey) from the shared store, leaving
+    /// every other setting alone. Called when a UI loads, so one entered in another instance
+    /// meanwhile is there even though this instance never heard about the change.
+    void RefreshAccountSettingsFromStore();
     void LoadLastSessionState();
     [[nodiscard]] std::optional<Preset> LoadPresetById(const std::string& presetId) const;
     [[nodiscard]] std::optional<std::string> FindPresetIdByTitle(const std::string& presetTitle) const;

@@ -224,6 +224,15 @@ bool PluginController::IsInstanceOwnedSettingKey(const std::string& key) const
     return (IsNamQualitySettingKey(key) || IsUiLayoutSettingKey(key)) && !mHost.IsStandalone();
 }
 
+bool PluginController::IsAccountSettingKey(const std::string& key)
+{
+    // Every credential, by the same test that keeps them out of debug snapshots: a DAW
+    // project is a file people send each other. The connection mode goes with the
+    // Tone3000 key, or a project could put one instance back on a mode that needs a key
+    // it does not have.
+    return IsSensitiveDebugKey(key) || key == kTone3000UseSoundshedApiSettingKey;
+}
+
 bool PluginController::ApplyNamQualitySettings()
 {
     // NAM quality (slimmable size, oversampling, anti-alias phase) is per plugin
@@ -827,6 +836,77 @@ void PluginController::LoadAppSettings()
     if (CleanupLegacyAppSettingsOnLoad())
     {
         SaveAppSettings();
+    }
+}
+
+void PluginController::RefreshAccountSettingsFromStore()
+{
+    // Only an open editor polls for shared changes, so a plugin instance whose editor was
+    // closed (or not yet opened) when a key was entered elsewhere never reloaded it, and
+    // would prompt for it again. A full shared reload here would also reset automation
+    // slots and the project's restored settings just for opening the editor; account
+    // settings are the store's alone, so taking those is enough.
+    if (!mAppSettings.is_object())
+    {
+        mAppSettings = nlohmann::json::object();
+    }
+
+    if (!mAppSettingsBaseline.is_object())
+    {
+        mAppSettingsBaseline = nlohmann::json::object();
+    }
+
+    nlohmann::json stored = nlohmann::json::object();
+
+    for (const auto& item : Store().List(storage::ItemType::kSetting))
+    {
+        if (IsAccountSettingKey(item.id))
+        {
+            if (auto parsed = item.Parse())
+            {
+                stored[item.id] = std::move(*parsed);
+            }
+        }
+    }
+
+    std::vector<std::string> keys;
+
+    for (const auto& [key, value] : mAppSettings.items())
+    {
+        if (IsAccountSettingKey(key) && !stored.contains(key))
+        {
+            keys.push_back(key);
+        }
+    }
+
+    for (const auto& [key, value] : stored.items())
+    {
+        keys.push_back(key);
+    }
+
+    for (const auto& key : keys)
+    {
+        // A value this instance has not managed to publish yet is newer than the store's.
+        const auto current = mAppSettings.find(key);
+        const auto published = mAppSettingsBaseline.find(key);
+        const bool hasCurrent = current != mAppSettings.end();
+        const bool hasPublished = published != mAppSettingsBaseline.end();
+
+        if (hasCurrent != hasPublished || (hasCurrent && *current != *published))
+        {
+            continue;
+        }
+
+        if (const auto it = stored.find(key); it != stored.end())
+        {
+            mAppSettings[key] = *it;
+            mAppSettingsBaseline[key] = *it;
+        }
+        else
+        {
+            mAppSettings.erase(key);
+            mAppSettingsBaseline.erase(key);
+        }
     }
 }
 

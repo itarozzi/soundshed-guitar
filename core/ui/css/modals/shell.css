@@ -100,6 +100,12 @@
   transform: none;
 }
 
+/* Raised by an action that may itself have been started from a modal, such as installing from
+   the Tone Sharing pack view, so it has to stack above that modal or it opens hidden behind it. */
+.modal.modal-interrupt {
+  z-index: var(--z-modal-interrupt, 1200);
+}
+
 /* Alert/Confirm Dialog */
 .dialog-modal .dialog-content {
   width: 520px;

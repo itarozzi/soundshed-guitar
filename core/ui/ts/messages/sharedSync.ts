@@ -16,6 +16,7 @@ import { applyPerformancePadAppSettings, refreshPerformancePads } from "../perfo
 import { applyPresetArchiveSessionState, applyPresetRecentsFromAppSettings, applyPresetRecentsFromBackend } from "../presets.js";
 import { refreshSettingsView } from "../settings.js";
 import { uiState } from "../state.js";
+import { applySharedTone3000Settings } from "../tone3000.js";
 import { applyToneSharingAppSettings } from "../toneSharingPanel.js";
 import type { AppSettings, BlendLibrary, CustomEffectLibrary, PresetArchiveSessionState, ResourceLibrary, UiSettings } from "../types.js";
 import { triggerUpdateCheck } from "../updateCheck.js";
@@ -68,7 +69,9 @@ export function onSharedSyncState(payload: IncomingPayload): void {
   };
 
   if (sharedPayload.appSettings) {
+    const previousAppSettings = uiState.appSettings;
     replaceAppSettings(sharedPayload.appSettings as AppSettings);
+    applySharedTone3000Settings(previousAppSettings);
     applyDensityAppSettings(sharedPayload.appSettings);
     applyStoredDemoAudioSelection();
     applyToneSharingAppSettings(sharedPayload.appSettings);

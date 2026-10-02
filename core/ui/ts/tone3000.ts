@@ -1,7 +1,7 @@
 import { uiState } from "./state.js";
 import { appendLog } from "./logging.js";
 import { updateAppSetting } from "./appSettingsStore.js";
-import type { AppSettingValue, Tone3000Session } from "./types.js";
+import type { AppSettings, AppSettingValue, Tone3000Session } from "./types.js";
 import type { Tone3000ApiSession, Tone3000Architecture } from "./tone3000ApiTypes.js";
 import {
   fetchAllTone3000ModelPages,
@@ -430,6 +430,26 @@ export async function downloadTone3000ResourceByReference(reference: Tone3000Arc
   }
 
   return downloadTone3000ResourceByModelUrl(modelUrl);
+}
+
+/**
+ * Follows a key or connection mode another instance changed. The key is shared by every
+ * instance, so one that was cleared or replaced elsewhere must stop being used here too;
+ * left alone, the session's refresh timer would keep renewing it with the old key. The
+ * session is only dropped: the next request starts one from the current settings.
+ */
+export function applySharedTone3000Settings(previous: AppSettings | null | undefined): void {
+  const previousKey = previous?.[TONE3000_API_KEY_SETTING];
+  const keyBefore = typeof previousKey === "string" ? previousKey.trim() : "";
+  const proxyBefore = previous?.[TONE3000_USE_SOUNDSHED_API_SETTING] === true;
+  if (keyBefore === getApiKeyFromSettings() && proxyBefore === isSoundshedToneSearchApiEnabled()) {
+    return;
+  }
+  clearSessionTimers();
+  if (uiState.tone3000Session) {
+    uiState.tone3000Session = null;
+    appendLog("tone3000 key or connection mode changed in another instance; session dropped");
+  }
 }
 
 export async function handleAppSettingUpdate(key: string, value: AppSettingValue): Promise<void> {

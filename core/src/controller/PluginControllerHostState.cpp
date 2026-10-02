@@ -192,7 +192,23 @@ std::string PluginController::BuildHostState(HostedPluginStateSource source) con
 
     state["presetId"] = mActivePresetId;
     state["activeSceneId"] = GetResolvedActiveSceneId();
-    state["appSettings"] = mAppSettings;
+
+    // Account settings stay out of the project: they are the user's, not the project's,
+    // and a project file gets shared.
+    nlohmann::json appSettings = nlohmann::json::object();
+
+    if (mAppSettings.is_object())
+    {
+        for (const auto& [key, value] : mAppSettings.items())
+        {
+            if (!IsAccountSettingKey(key))
+            {
+                appSettings[key] = value;
+            }
+        }
+    }
+
+    state["appSettings"] = std::move(appSettings);
     state["uiSettings"] = mUiSettings;
     state["uiViewState"] = mUiViewState;
     state["globalSignalChain"] = mPresetMixer.GetGlobalChainConfig();
@@ -372,7 +388,13 @@ void PluginController::RestoreHostState(const std::string& json)
 
             for (auto it = incomingSettings->begin(); it != incomingSettings->end(); ++it)
             {
-                mAppSettings[it.key()] = it.value();
+                // Projects saved before account settings were left out still carry them.
+                // Taking one would put this instance on a key, sign-in or Tone3000 mode
+                // from whenever the project was saved, instead of the user's current one.
+                if (!IsAccountSettingKey(it.key()))
+                {
+                    mAppSettings[it.key()] = it.value();
+                }
             }
 
             // Merging is not applying. These values have to reach the DSP, or the

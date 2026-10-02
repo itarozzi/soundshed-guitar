@@ -2,7 +2,7 @@ import { getNavigationViewState, mergeNavigationViewState } from "./navigationSt
 import { postMessage } from "./bridge.js";
 import { isCompact } from "./compactMode.js";
 import { applyCompactStage, isCompactStage, setCompactStage, setCompactStageDetailLabel } from "./compactStage.js";
-import { initSettingsPanel, updateSettingsSessionStatus, activateEquipmentTab, activateLibraryTab, activateAdvancedSubTab, setSettingsViewStateSuppressed } from "./settings.js";
+import { initSettingsPanel, refreshTone3000ApiKeyField, activateEquipmentTab, activateLibraryTab, activateAdvancedSubTab, setSettingsViewStateSuppressed } from "./settings.js";
 import { ensureTone3000Session } from "./tone3000.js";
 import { handleJamPanelActivated, initializeJamPanel } from "./jam.js";
 import { initializeToneSharingPanel } from "./toneSharingPanel.js";
@@ -157,7 +157,7 @@ export function switchMainPanel(panelId: string): void {
       activateEquipmentTab(requestedSettingsTab);
     }
     if (isFeatureEnabled(Features.Tone3000)) {
-      void ensureTone3000Session().then(() => updateSettingsSessionStatus());
+      void ensureTone3000Session().then(() => refreshTone3000ApiKeyField());
     }
   }
 

@@ -13,6 +13,19 @@ import { apiKeyInput, saveButton, tone3000ApiKeyRow, tone3000ApiModeStatus, tone
 import { API_KEY_SETTING, TONE3000_USE_SOUNDSHED_API_SETTING } from "./keys.js";
 import { getSettingValue } from "./values.js";
 
+/**
+ * Says whether a key is stored, without ever putting the key in the field. The key can be
+ * saved from outside this panel (the prompt a Tone3000 import raises) or by another instance,
+ * so this runs whenever the panel is shown, not only when it is first built.
+ */
+export function refreshTone3000ApiKeyField(): void {
+  if (!apiKeyInput) {
+    return;
+  }
+  const stored = getSettingValue(API_KEY_SETTING);
+  apiKeyInput.placeholder = typeof stored === "string" && stored.trim() ? "API key stored" : "Enter your Tone3000 API key";
+}
+
 export function initTone3000UseSoundshedApiToggle(): void {
   // Bound to a local so the null check narrows inside the listener; a
   // narrowing on an imported binding does not survive into a closure.
@@ -126,8 +139,8 @@ export async function saveApiKey(): Promise<void> {
       appendLog("tone3000 api key saved and verified");
       if (apiKeyInput) {
         apiKeyInput.value = "";
-        apiKeyInput.placeholder = "API key stored";
       }
+      refreshTone3000ApiKeyField();
       showNotification("Tone3000 API key saved");
       return;
     }
@@ -136,9 +149,7 @@ export async function saveApiKey(): Promise<void> {
     // is not retained or used for subsequent requests.
     updateAppSetting(API_KEY_SETTING, rollbackKey);
     await handleAppSettingUpdate(API_KEY_SETTING, rollbackKey);
-    if (apiKeyInput) {
-      apiKeyInput.placeholder = rollbackKey ? "API key stored" : "Enter your Tone3000 API key";
-    }
+    refreshTone3000ApiKeyField();
     appendLog("tone3000 api key rejected (authentication failed)");
     showNotification("Tone3000 API key is invalid");
   } catch (error) {
@@ -155,6 +166,7 @@ export async function clearApiKey(): Promise<void> {
   if (apiKeyInput) {
     apiKeyInput.value = "";
   }
+  refreshTone3000ApiKeyField();
 
   await handleAppSettingUpdate(API_KEY_SETTING, null);
 }
