@@ -60,6 +60,50 @@ std::string ResourceKey(const std::string& type, const std::string& id)
 {
     return type + ":" + id;
 }
+
+std::string NameOrId(const std::string& name, const std::string& id, const char* fallback)
+{
+    return !name.empty() ? name : !id.empty() ? id : fallback;
+}
+
+/// How a refusal words a kind of use: "Used by <label>: <name>".
+std::string ResourceUseLabel(const std::string& kind)
+{
+    if (kind == "effectPreset")
+    {
+        return "effect preset";
+    }
+
+    if (kind == "customEffect")
+    {
+        return "custom effect";
+    }
+
+    if (kind == "globalChain")
+    {
+        return "global chain";
+    }
+
+    return kind;
+}
+
+/// What uses a resource, as a delete refusal and a usage answer both report it. presetName and
+/// blendName were the only fields before the other kinds were checked, and older UIs read them.
+void AddResourceUseFields(nlohmann::json& msg, const std::string& kind, const std::string& name)
+{
+    msg["detail"] = "Used by " + ResourceUseLabel(kind) + ": " + name;
+    msg["usageKind"] = kind;
+    msg["usageName"] = name;
+
+    if (kind == "preset")
+    {
+        msg["presetName"] = name;
+    }
+    else if (kind == "blend")
+    {
+        msg["blendName"] = name;
+    }
+}
 } // namespace
 
 void PluginController::HandleImportRemoteResourceRequest(const nlohmann::json& payload)
@@ -834,31 +878,16 @@ void PluginController::HandleDeleteLibraryResourceRequest(const nlohmann::json& 
         return;
     }
 
-    const auto firstUsingPreset = FindFirstPresetUsingResource(resourceType, resourceId);
-
-    if (firstUsingPreset.has_value())
+    // Stored presets and effect presets are read fresh rather than from the usage index: the
+    // file cannot come back, and the index can miss what another instance saved moments ago.
+    if (const auto use = FindFirstResourceUse(resourceType, resourceId, StoredUseSource::Fresh))
     {
-        SendMessageToUI(nlohmann::json{{"type", "resourceDeleteFailed"},
-                                       {"message", "Resource is in use"},
-                                       {"detail", "Used by preset: " + *firstUsingPreset},
-                                       {"resourceType", resourceType},
-                                       {"id", resourceId},
-                                       {"presetName", *firstUsingPreset}}
-                            .dump());
-        return;
-    }
-
-    // Presets name only a blend node's blend, not its models, so a model a blend plays is
-    // checked against the blend library.
-    if (const auto firstUsingBlend = FindFirstBlendUsingResource(resourceType, resourceId))
-    {
-        SendMessageToUI(nlohmann::json{{"type", "resourceDeleteFailed"},
-                                       {"message", "Resource is in use"},
-                                       {"detail", "Used by blend: " + *firstUsingBlend},
-                                       {"resourceType", resourceType},
-                                       {"id", resourceId},
-                                       {"blendName", *firstUsingBlend}}
-                            .dump());
+        nlohmann::json msg = {{"type", "resourceDeleteFailed"},
+                              {"message", "Resource is in use"},
+                              {"resourceType", resourceType},
+                              {"id", resourceId}};
+        AddResourceUseFields(msg, use->kind, use->name);
+        SendMessageToUI(msg.dump());
         return;
     }
 
@@ -920,70 +949,21 @@ void PluginController::HandleDeleteLibraryResourceRequest(const nlohmann::json& 
         nlohmann::json{{"type", "resourceRemoved"}, {"resourceType", resourceType}, {"id", resourceId}}.dump());
 }
 
-std::optional<std::string> PluginController::FindFirstPresetUsingResource(const std::string& resourceType,
-                                                                          const std::string& resourceId) const
+std::optional<PluginController::ResourceUse> PluginController::FindFirstResourceUse(const std::string& resourceType,
+                                                                                    const std::string& resourceId,
+                                                                                    StoredUseSource storedUses) const
 {
-    const auto presetUsesResource = [&](const Preset& preset) -> bool {
-        bool uses = false;
-        ForEachLibraryRef(preset, [&](const ResourceRef& ref) {
-            uses = uses || (ref.resourceType == resourceType && ref.resourceId == resourceId);
-        });
-        return uses;
-    };
+    const std::string wanted = ResourceKey(resourceType, resourceId);
+    std::optional<ResourceUse> first;
 
-    const auto presetDisplayName = [](const Preset& preset) -> std::string {
-        if (!preset.name.empty())
+    ForEachResourceUse(storedUses, [&](const std::string& key, const ResourceUse& use) {
+        if (!first && key == wanted)
         {
-            return preset.name;
+            first = use;
         }
+    });
 
-        if (!preset.id.empty())
-        {
-            return preset.id;
-        }
-
-        return "Unnamed preset";
-    };
-
-    // Check active preset
-    if (mActivePreset && presetUsesResource(*mActivePreset))
-    {
-        return presetDisplayName(*mActivePreset);
-    }
-
-    // Consult the cached disk/archive index (built once, reused until presets change).
-    EnsureResourceUsageDiskIndex();
-    const std::string key = resourceType + ":" + resourceId;
-    const auto it = mResourceUsageDiskIndex.find(key);
-
-    if (it != mResourceUsageDiskIndex.end())
-    {
-        return it->second;
-    }
-
-    return std::nullopt;
-}
-
-std::optional<std::string> PluginController::FindFirstBlendUsingResource(const std::string& resourceType,
-                                                                         const std::string& resourceId) const
-{
-    if (resourceType != "nam" || !mBlendLibrary.is_array())
-    {
-        return std::nullopt;
-    }
-
-    for (const auto& blend : mBlendLibrary)
-    {
-        const auto modelIds = CollectBlendModelIds(blend);
-
-        if (std::find(modelIds.begin(), modelIds.end(), resourceId) != modelIds.end())
-        {
-            const std::string name = blend.value("name", "");
-            return name.empty() ? blend.value("id", "") : name;
-        }
-    }
-
-    return std::nullopt;
+    return first;
 }
 
 void PluginController::EnsureResourceUsageDiskIndex() const
@@ -995,18 +975,9 @@ void PluginController::EnsureResourceUsageDiskIndex() const
 
     mResourceUsageDiskIndex.clear();
 
-    ForEachStoredPreset([this](const Preset& preset) {
-        std::string displayName = preset.name;
-
-        if (displayName.empty())
-        {
-            displayName = !preset.id.empty() ? preset.id : "Unnamed preset";
-        }
-
-        ForEachLibraryRef(preset, [&](const ResourceRef& ref) {
-            // Preserve first-found priority (user > factory > archive).
-            mResourceUsageDiskIndex.emplace(ResourceKey(ref.resourceType, ref.resourceId), displayName);
-        });
+    ForEachStoredResourceUse([this](const std::string& key, const ResourceUse& use) {
+        // Preserve first-found priority (user > factory > archive presets, then effect presets).
+        mResourceUsageDiskIndex.emplace(key, use);
     });
 
     mResourceUsageDiskIndexValid = true;
@@ -1041,20 +1012,39 @@ void PluginController::ForEachStoredPreset(const std::function<void(const Preset
     }
 }
 
-std::unordered_set<std::string> PluginController::CollectResourceKeysInUse() const
+void PluginController::ForEachStoredResourceUse(
+    const std::function<void(const std::string& key, const ResourceUse& use)>& visit) const
 {
-    std::unordered_set<std::string> keys;
-    const auto addRef = [&](const ResourceRef& ref) {
+    ForEachStoredPreset([&](const Preset& preset) {
+        const ResourceUse use{"preset", NameOrId(preset.name, preset.id, "Unnamed preset")};
+        ForEachLibraryRef(preset,
+                          [&](const ResourceRef& ref) { visit(ResourceKey(ref.resourceType, ref.resourceId), use); });
+    });
+
+    ForEachEffectPresetResourceRef([&](const ResourceRef& ref, const std::string& presetName) {
         if (ref.IsLibraryRef())
         {
-            keys.insert(ResourceKey(ref.resourceType, ref.resourceId));
+            visit(ResourceKey(ref.resourceType, ref.resourceId), ResourceUse{"effectPreset", presetName});
         }
+    });
+}
+
+void PluginController::ForEachResourceUse(
+    StoredUseSource storedUses, const std::function<void(const std::string& key, const ResourceUse& use)>& visit) const
+{
+    const auto visitGraph = [&](const SignalGraph& graph, const ResourceUse& use) {
+        ForEachLibraryRef(graph,
+                          [&](const ResourceRef& ref) { visit(ResourceKey(ref.resourceType, ref.resourceId), use); });
     };
-    const auto addPreset = [&](const Preset& preset) { ForEachLibraryRef(preset, addRef); };
+    const auto visitPreset = [&](const Preset& preset) {
+        const ResourceUse use{"preset", NameOrId(preset.name, preset.id, "Unnamed preset")};
+        ForEachLibraryRef(preset,
+                          [&](const ResourceRef& ref) { visit(ResourceKey(ref.resourceType, ref.resourceId), use); });
+    };
 
     if (mActivePreset)
     {
-        addPreset(*mActivePreset);
+        visitPreset(*mActivePreset);
     }
 
     // A Multi-Rig slot can be playing a preset that was never saved, or has since been deleted.
@@ -1062,51 +1052,67 @@ std::unordered_set<std::string> PluginController::CollectResourceKeysInUse() con
     {
         if (const auto preset = PresetStorage::DeserializeFromJson(presetJson))
         {
-            addPreset(*preset);
+            visitPreset(*preset);
         }
     }
 
-    ForEachStoredPreset(addPreset);
+    if (storedUses == StoredUseSource::Fresh)
+    {
+        ForEachStoredResourceUse(visit);
+    }
+    else
+    {
+        EnsureResourceUsageDiskIndex();
+
+        for (const auto& [key, use] : mResourceUsageDiskIndex)
+        {
+            visit(key, use);
+        }
+    }
 
     // Presets name a blend node's blend, not its models.
     if (mBlendLibrary.is_array())
     {
         for (const auto& blend : mBlendLibrary)
         {
+            const ResourceUse use{"blend", NameOrId(blend.value("name", ""), blend.value("id", ""), "Unnamed blend")};
+
             for (const auto& modelId : CollectBlendModelIds(blend))
             {
-                keys.insert(ResourceKey("nam", modelId));
+                visit(ResourceKey("nam", modelId), use);
             }
         }
     }
 
-    for (const auto& definition : mCompositeLibrary.GetAllDefinitions())
-    {
-        ForEachLibraryRef(definition.innerGraph, addRef);
-    }
-
     if (mEditingComposite)
     {
-        ForEachLibraryRef(mEditingComposite->innerGraph, addRef);
+        visitGraph(mEditingComposite->innerGraph,
+                   {"composite", NameOrId(mEditingComposite->name, mEditingComposite->id, "Unnamed composite")});
+    }
+
+    for (const auto& definition : mCompositeLibrary.GetAllDefinitions())
+    {
+        visitGraph(definition.innerGraph, {"composite", NameOrId(definition.name, definition.id, "Unnamed composite")});
     }
 
     for (const auto& entry : mCustomEffectLibrary.GetAllEntries())
     {
         if (!entry.moduleResourceType.empty() && !entry.moduleResourceId.empty())
         {
-            keys.insert(ResourceKey(entry.moduleResourceType, entry.moduleResourceId));
+            visit(ResourceKey(entry.moduleResourceType, entry.moduleResourceId),
+                  {"customEffect", NameOrId(entry.name, entry.id, "Unnamed custom effect")});
         }
     }
 
     const auto& globalChain = mPresetMixer.GetGlobalChainConfig();
-    ForEachLibraryRef(globalChain.preChainGraph, addRef);
-    ForEachLibraryRef(globalChain.postChainGraph, addRef);
+    visitGraph(globalChain.preChainGraph, {"globalChain", "pre-chain"});
+    visitGraph(globalChain.postChainGraph, {"globalChain", "post-chain"});
+}
 
-    for (const auto& ref : CollectEffectPresetResourceRefs())
-    {
-        addRef(ref);
-    }
-
+std::unordered_set<std::string> PluginController::CollectResourceKeysInUse() const
+{
+    std::unordered_set<std::string> keys;
+    ForEachResourceUse(StoredUseSource::Fresh, [&](const std::string& key, const ResourceUse&) { keys.insert(key); });
     return keys;
 }
 
@@ -1123,15 +1129,25 @@ void PluginController::HandleQueryResourceUsageRequest(const nlohmann::json& pay
         return;
     }
 
-    const auto presetName = FindFirstPresetUsingResource(resourceType, resourceId);
-    const auto blendName = presetName ? std::nullopt : FindFirstBlendUsingResource(resourceType, resourceId);
-    SendMessageToUI(nlohmann::json{{"type", "resourceUsageInfo"},
-                                   {"resourceType", resourceType},
-                                   {"id", resourceId},
-                                   {"inUse", presetName.has_value() || blendName.has_value()},
-                                   {"presetName", presetName ? *presetName : ""},
-                                   {"blendName", blendName ? *blendName : ""}}
-                        .dump());
+    // The resource browser asks once per row it shows, so what is stored comes from the index.
+    // It only greys out the delete button; the delete itself checks again, reading fresh.
+    const auto use = FindFirstResourceUse(resourceType, resourceId, StoredUseSource::UsageIndex);
+    nlohmann::json msg = {{"type", "resourceUsageInfo"},
+                          {"resourceType", resourceType},
+                          {"id", resourceId},
+                          {"inUse", use.has_value()},
+                          {"presetName", ""},
+                          {"blendName", ""},
+                          {"usageKind", ""},
+                          {"usageName", ""},
+                          {"detail", ""}};
+
+    if (use)
+    {
+        AddResourceUseFields(msg, use->kind, use->name);
+    }
+
+    SendMessageToUI(msg.dump());
 }
 
 void PluginController::HandleUpdateLibraryResourceRequest(const nlohmann::json& payload)

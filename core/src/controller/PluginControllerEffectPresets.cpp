@@ -228,6 +228,7 @@ void PluginController::HandleSaveEffectPresetRequest(const nlohmann::json& paylo
     }
 
     SaveUiStorageJson(kEffectPresetsFile, document);
+    InvalidateResourceUsageIndex();
     BroadcastEffectPresets();
 }
 
@@ -496,14 +497,15 @@ void PluginController::HandleDeleteEffectPresetRequest(const nlohmann::json& pay
     }
 
     SaveUiStorageJson(kEffectPresetsFile, document);
+    InvalidateResourceUsageIndex();
     BroadcastEffectPresets();
 }
 
-std::vector<ResourceRef> PluginController::CollectEffectPresetResourceRefs() const
+void PluginController::ForEachEffectPresetResourceRef(
+    const std::function<void(const ResourceRef& ref, const std::string& presetName)>& visit) const
 {
     const auto document =
         NormalizeEffectPresetsDocument(LoadUiStorageJson(kEffectPresetsFile, nlohmann::json::object()));
-    std::vector<ResourceRef> refs;
 
     for (const auto& presets : document.at("byEffectType"))
     {
@@ -519,16 +521,21 @@ std::vector<ResourceRef> PluginController::CollectEffectPresetResourceRefs() con
                 continue;
             }
 
+            std::string name = entry.value("name", "");
+
+            if (name.empty())
+            {
+                name = entry.value("id", "Unnamed effect preset");
+            }
+
             for (const auto& resource : entry["resources"])
             {
                 if (resource.is_object())
                 {
-                    refs.push_back(DeserializeResourceRef(resource));
+                    visit(DeserializeResourceRef(resource), name);
                 }
             }
         }
     }
-
-    return refs;
 }
 } // namespace guitarfx

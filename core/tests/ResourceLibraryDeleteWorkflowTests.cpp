@@ -13,6 +13,7 @@
 #include "PluginController.h"
 #include "presets/PresetStorage.h"
 #include "presets/PresetTypes.h"
+#include "presets/PresetTypesJson.h"
 
 namespace fs = std::filesystem;
 
@@ -618,6 +619,259 @@ bool TestCleanupKeepsResourceUsedOnlyInLaterScene()
 
     return true;
 }
+
+std::optional<nlohmann::json> QueryResourceUsage(guitarfx::PluginController& controller, TestHost& host,
+                                                 const SavedResourceInfo& resource)
+{
+    host.messages.clear();
+    controller.HandleUIMessage(nlohmann::json{
+        {"type", "queryResourceUsage"},
+        {"resourceType", resource.type},
+        {"resourceId", resource.id},
+    }
+                                   .dump());
+    return FindLastMessageOfType(host.messages, "resourceUsageInfo");
+}
+
+/// The usage query names the same user a refused delete would.
+bool ExpectUsageReported(guitarfx::PluginController& controller, TestHost& host, const SavedResourceInfo& resource,
+                         const std::string& kind, const std::string& detail)
+{
+    const auto usage = QueryResourceUsage(controller, host, resource);
+
+    if (!usage || !usage->value("inUse", false) || usage->value("usageKind", "") != kind ||
+        usage->value("detail", "") != detail)
+    {
+        std::cerr << "Usage query should report \"" << detail << "\", got "
+                  << (usage ? usage->dump() : std::string{"no reply"}) << "\n";
+        return false;
+    }
+
+    return true;
+}
+
+/// Refused as in use, naming `detail`, with the file and the store row left alone.
+bool ExpectDeleteRefused(guitarfx::PluginController& controller, TestHost& host, const fs::path& sandbox,
+                         const SavedResourceInfo& resource, const std::string& detail)
+{
+    host.messages.clear();
+    controller.HandleUIMessage(nlohmann::json{
+        {"type", "deleteLibraryResource"},
+        {"resourceType", resource.type},
+        {"resourceId", resource.id},
+    }
+                                   .dump());
+
+    const auto failed = FindLastMessageOfType(host.messages, "resourceDeleteFailed");
+
+    if (!failed || failed->value("message", "") != "Resource is in use" || failed->value("detail", "") != detail)
+    {
+        std::cerr << "Delete should be refused with \"" << detail << "\", got "
+                  << (failed ? failed->dump() : std::string{"no refusal"}) << "\n";
+        return false;
+    }
+
+    if (FindLastMessageOfType(host.messages, "resourceRemoved"))
+    {
+        std::cerr << "Refused delete still announced resourceRemoved\n";
+        return false;
+    }
+
+    if (!fs::exists(resource.filePath) || !LibraryIndexContains(sandbox, resource.type, resource.id) ||
+        !controller.GetResourceLibrary().HasResource(resource.type, resource.id))
+    {
+        std::cerr << "Refused delete lost the resource's file or entry\n";
+        return false;
+    }
+
+    return true;
+}
+
+bool TestDeleteResourceUsedOnlyByEffectPresetIsRefused()
+{
+    using namespace guitarfx;
+
+    const fs::path sandbox = MakeCleanupSandbox("effect-preset-only");
+    const SandboxGuard guard{sandbox};
+
+    TestHost host(sandbox);
+    PluginController controller(host);
+    controller.Initialize();
+
+    const auto saved = SaveStoredResource(controller, host, "effect-preset-only", "AQID");
+
+    if (!saved)
+    {
+        std::cerr << "Failed to save the effect-preset-only resource\n";
+        return false;
+    }
+
+    // The effect preset is saved from a node playing the resource, then that preset is replaced by
+    // one without it, so nothing but the effect preset refers to the resource.
+    if (!LoadPreset(controller, BuildSingleNodeResourcePreset("resource-node", saved->type, saved->id)))
+    {
+        std::cerr << "Failed to load the preset the effect preset is saved from\n";
+        return false;
+    }
+
+    host.messages.clear();
+    controller.HandleUIMessage(nlohmann::json{
+        {"type", "saveEffectPreset"},
+        {"effectType", "utility"},
+        {"name", "Only Here"},
+        {"nodeId", "resource-node"},
+    }
+                                   .dump());
+
+    const auto effectPresets = FindLastMessageOfType(host.messages, "effectPresets");
+    const auto saves =
+        effectPresets
+            ? effectPresets->value("byEffectType", nlohmann::json::object()).value("utility", nlohmann::json::array())
+            : nlohmann::json::array();
+
+    if (saves.size() != 1 || saves[0].value("resources", nlohmann::json::array()).empty())
+    {
+        std::cerr << "Effect preset was not saved with the node's resource\n";
+        return false;
+    }
+
+    Preset other = BuildSingleNodeResourcePreset("resource-node", saved->type, saved->id);
+    other.id = "resource-delete-test-other";
+    other.name = "Without The Resource";
+    other.graph.nodes[1].resources.clear();
+
+    if (!LoadPreset(controller, other))
+    {
+        std::cerr << "Failed to load the preset without the resource\n";
+        return false;
+    }
+
+    const std::string detail = "Used by effect preset: Only Here";
+
+    if (!ExpectUsageReported(controller, host, *saved, "effectPreset", detail) ||
+        !ExpectDeleteRefused(controller, host, sandbox, *saved, detail))
+    {
+        return false;
+    }
+
+    // With the effect preset gone the resource is free: the query's cached index was invalidated,
+    // and the delete goes ahead.
+    controller.HandleUIMessage(nlohmann::json{
+        {"type", "deleteEffectPreset"},
+        {"effectType", "utility"},
+        {"presetId", saves[0].value("id", "")},
+    }
+                                   .dump());
+
+    const auto usage = QueryResourceUsage(controller, host, *saved);
+
+    if (!usage || usage->value("inUse", true))
+    {
+        std::cerr << "Resource should be free once its effect preset is deleted, got "
+                  << (usage ? usage->dump() : std::string{"no reply"}) << "\n";
+        return false;
+    }
+
+    if (!DeleteResourceAndExpectRemoved(controller, host, saved->type, saved->id) || fs::exists(saved->filePath))
+    {
+        std::cerr << "Resource no longer used should delete, file and all\n";
+        return false;
+    }
+
+    return true;
+}
+
+bool TestDeleteResourceUsedOnlyByCompositeIsRefused()
+{
+    using namespace guitarfx;
+
+    const fs::path sandbox = MakeCleanupSandbox("composite-only");
+    const SandboxGuard guard{sandbox};
+
+    TestHost host(sandbox);
+    PluginController controller(host);
+    controller.Initialize();
+
+    const auto saved = SaveStoredResource(controller, host, "composite-only", "AQID");
+
+    if (!saved)
+    {
+        std::cerr << "Failed to save the composite-only resource\n";
+        return false;
+    }
+
+    CompositeEffectDefinition definition;
+    definition.id = "resource-delete-test-composite";
+    definition.name = "Delete Test Composite";
+    definition.innerGraph = BuildSingleNodeResourcePreset("inner-node", saved->type, saved->id).graph;
+
+    host.messages.clear();
+    controller.HandleUIMessage(nlohmann::json{
+        {"type", "saveCompositeDefinition"},
+        {"definition", SerializeCompositeEffectDefinition(definition)},
+    }
+                                   .dump());
+
+    if (!FindLastMessageOfType(host.messages, "compositeDefinitionAdded"))
+    {
+        std::cerr << "Composite definition was not saved\n";
+        return false;
+    }
+
+    const std::string detail = "Used by composite: Delete Test Composite";
+    return ExpectUsageReported(controller, host, *saved, "composite", detail) &&
+           ExpectDeleteRefused(controller, host, sandbox, *saved, detail);
+}
+
+bool TestDeleteReadsStoredPresetsFresh()
+{
+    using namespace guitarfx;
+
+    const fs::path sandbox = MakeCleanupSandbox("stale-usage-index");
+    const SandboxGuard guard{sandbox};
+
+    TestHost host(sandbox);
+    PluginController controller(host);
+    controller.Initialize();
+
+    const auto saved = SaveStoredResource(controller, host, "stale-index", "AQID");
+
+    if (!saved)
+    {
+        std::cerr << "Failed to save the stale-index resource\n";
+        return false;
+    }
+
+    // Builds the usage index while nothing uses the resource.
+    const auto before = QueryResourceUsage(controller, host, *saved);
+
+    if (!before || before->value("inUse", true))
+    {
+        std::cerr << "Resource should start unused, got " << (before ? before->dump() : std::string{"no reply"})
+                  << "\n";
+        return false;
+    }
+
+    // Another instance saves a preset that uses it: straight into the store, with nothing to
+    // invalidate this controller's index.
+    Preset preset = BuildSingleNodeResourcePreset("resource-node", saved->type, saved->id);
+    preset.id = "resource-delete-test-elsewhere";
+    preset.name = "Saved Elsewhere";
+
+    {
+        storage::JsonStore store;
+        std::string error;
+
+        if (!store.Open(sandbox / "Soundshed Guitar" / "data" / "v1" / "soundshed.db", error) ||
+            !PresetStorage::SaveToStore(store, preset))
+        {
+            std::cerr << "Could not store the other instance's preset: " << error << "\n";
+            return false;
+        }
+    }
+
+    return ExpectDeleteRefused(controller, host, sandbox, *saved, "Used by preset: Saved Elsewhere");
+}
 } // namespace
 
 int main()
@@ -643,6 +897,9 @@ int main()
     run("Delete in-use resource is refused", TestDeleteInUseResourceIsRefused());
     run("Cleanup removal persists across a restart", TestCleanupRemovalPersistsAcrossRestart());
     run("Cleanup keeps a resource used only in a later scene", TestCleanupKeepsResourceUsedOnlyInLaterScene());
+    run("Delete refuses a resource used only by an effect preset", TestDeleteResourceUsedOnlyByEffectPresetIsRefused());
+    run("Delete refuses a resource used only by a composite", TestDeleteResourceUsedOnlyByCompositeIsRefused());
+    run("Delete reads stored presets fresh, not the usage index", TestDeleteReadsStoredPresetsFresh());
 
     std::cout << "\nResource library delete workflow tests: " << passed << " passed, " << failed << " failed\n";
     return failed == 0 ? 0 : 1;

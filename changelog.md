@@ -65,6 +65,7 @@ A big update: five new effects, fifteen classic drive pedals, a Practice Tool fo
 * Fixed effects that use both an amp model and a cab IR, such as Supercharged Neural Amp, losing one when you pick the other.
 * Removing an installed Tone Sharing pack, or cleaning up unused resources, now removes them for good: they no longer reappear after a restart with their files gone. Models and IRs still used in a preset's later scene, an effect preset, a composite or a custom effect are kept.
 * A shared preset or Tone Sharing pack can no longer run code in the app, or send your Tone3000 or Tone Sharing sign-in to another website. Previewing a shared tone no longer downloads or saves anything, so a model it uses plays only once it is in your library.
+* Deleting a model or IR from the resource library no longer deletes one that an effect preset, a composite, a custom effect, the global chain or an unsaved Multi-Rig rig still uses: the delete is refused and says what uses it, as it already did for presets and blends.
 
 ### Look & Feel
 * **Compact layout** for small windows, chosen automatically. You can override it with Layout Density in Settings. A tall, narrow window (the app snapped to half your screen, say) shows the signal chain and the selected effect together, and on a phone the preset bar, controls, preset library, FX list and setlist pads all fit the screen.

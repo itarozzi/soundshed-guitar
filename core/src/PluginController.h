@@ -489,8 +489,10 @@ class PluginController
     void HandleApplyEffectPresetRequest(const nlohmann::json& payload);
     void HandleDeleteEffectPresetRequest(const nlohmann::json& payload);
     void BroadcastEffectPresets();
-    /// Every resource reference the saved effect presets carry, library or not.
-    [[nodiscard]] std::vector<ResourceRef> CollectEffectPresetResourceRefs() const;
+    /// Calls visit(ref, presetName) for every resource reference the saved effect presets carry,
+    /// library or not, read fresh from storage.
+    void ForEachEffectPresetResourceRef(
+        const std::function<void(const ResourceRef& ref, const std::string& presetName)>& visit) const;
     void HandleSetSetlistsRequest(const nlohmann::json& payload);
 
     // Engine-owned preset edits (controller/PluginControllerPresetEdits.cpp): what every UI asks
@@ -782,20 +784,42 @@ class PluginController
     bool UpdateResourceForNodeId(const std::string& nodeId, const ResourceRef& ref, bool applyPreset = true);
     void RefreshWasmNodeDescriptor(GraphNode& node);
     [[nodiscard]] std::optional<std::filesystem::path> ResolveResourceRef(const ResourceRef& ref) const;
-    [[nodiscard]] std::optional<std::string> FindFirstPresetUsingResource(const std::string& resourceType,
-                                                                          const std::string& resourceId) const;
-    /// The name of the first blend that plays the model, for a resource no preset uses directly.
-    [[nodiscard]] std::optional<std::string> FindFirstBlendUsingResource(const std::string& resourceType,
-                                                                         const std::string& resourceId) const;
+
+    /// Something that refers to a library resource. `kind` is "preset", "effectPreset", "blend",
+    /// "composite", "customEffect" or "globalChain"; `name` is what the user knows it by.
+    struct ResourceUse
+    {
+        std::string kind;
+        std::string name;
+    };
+    /// Where a usage walk gets what is stored (presets and effect presets): read fresh, or from
+    /// the usage index. Anything that deletes a file on the answer reads fresh; the index can
+    /// lag another instance's saves, and effect preset saves never invalidate it across instances.
+    enum class StoredUseSource
+    {
+        Fresh,
+        UsageIndex
+    };
+    /// Calls visit("type:id", use) for every library resource reference anything holds, in the
+    /// order a refusal names them: the running preset, the Multi-Rig's other slots (saved or not),
+    /// stored presets (every scene), effect presets, blends' models, composites (the one being
+    /// edited too), custom effects, and the global chain.
+    void ForEachResourceUse(StoredUseSource storedUses,
+                            const std::function<void(const std::string& key, const ResourceUse& use)>& visit) const;
+    /// The stored half of that walk, read fresh: stored presets, then effect presets.
+    void ForEachStoredResourceUse(
+        const std::function<void(const std::string& key, const ResourceUse& use)>& visit) const;
+    /// The first thing ForEachResourceUse finds using the resource, if anything does.
+    [[nodiscard]] std::optional<ResourceUse> FindFirstResourceUse(const std::string& resourceType,
+                                                                  const std::string& resourceId,
+                                                                  StoredUseSource storedUses) const;
     void EnsureResourceUsageDiskIndex() const;
     void InvalidateResourceUsageIndex();
     /// Calls visit for each stored preset, read fresh: the user's, then the factory presets,
     /// then the factory archives'. That order is the usage index's tie-break.
     void ForEachStoredPreset(const std::function<void(const Preset&)>& visit) const;
-    /// "type:id" for every library resource anything still refers to: the running and stored
-    /// presets (every scene), the mixer's other slots, blends, composites, custom effects, the
-    /// global chain and effect presets. Read fresh, not from the usage index, since a cleanup
-    /// deletes files on the strength of it.
+    /// "type:id" for every library resource ForEachResourceUse finds. Read fresh, not from the
+    /// usage index, since a cleanup deletes files on the strength of it.
     [[nodiscard]] std::unordered_set<std::string> CollectResourceKeysInUse() const;
     void AppendUserLibraryResource(const LibraryResource& resource);
     /// Writes a model or IR into the library's content folder and adds it to the user library,
@@ -959,10 +983,10 @@ class PluginController
 
     std::optional<PresetArchiveSessionState> mPresetArchiveSession;
 
-    // Cached index of which disk/archive presets reference each library resource.
-    // Maps "resourceType:resourceId" -> first preset display name (user > factory > archive).
-    // Active preset is checked live and is not part of this cache.
-    mutable std::unordered_map<std::string, std::string> mResourceUsageDiskIndex;
+    // Cached index of what is stored that references each library resource: presets (user >
+    // factory > archive), then effect presets. Maps "resourceType:resourceId" -> the first use
+    // found. Only the usage query reads it; everything in memory is checked live.
+    mutable std::unordered_map<std::string, ResourceUse> mResourceUsageDiskIndex;
     mutable bool mResourceUsageDiskIndexValid{false};
 
     // Active preset state
