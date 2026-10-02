@@ -77,6 +77,7 @@ set(TEST_SOURCES
     RealtimeConvolverTests.cpp
     RealtimeTaskPoolTests.cpp
     ResourceLoadBenchmark.cpp
+    ReverbPresetTests.cpp
     RingModEffectTests.cpp
     SampleRateConverterTests.cpp
     StorageMigrationTests.cpp

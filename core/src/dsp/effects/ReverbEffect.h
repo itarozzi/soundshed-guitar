@@ -3,6 +3,7 @@
 #include "dsp/EffectProcessor.h"
 #include "dsp/EffectRegistry.h"
 #include "dsp/EffectGuids.h"
+#include "dsp/effects/ReverbPresets.h"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -1324,12 +1325,14 @@ inline void RegisterReverbEffect()
                 param("decay", "Decay", 0.46, 0.0, 1.0, "amount"), param("size", "Size", 0.42, 0.0, 1.0, "amount"),
                 param("damping", "Damping", 0.56, 0.0, 1.0, "amount"),
                 param("preDelay", "Pre Delay", 8.0, 0.0, 220.0, "ms"), param("mix", "Mix", 0.22, 0.0, 1.0, "amount")};
+            info.presets = reverb_presets::Room(info.parameters);
             break;
         case ReverbEffect::Mode::Chamber:
             info.parameters = {
                 param("decay", "Decay", 0.6, 0.0, 1.0, "amount"), param("size", "Size", 0.56, 0.0, 1.0, "amount"),
                 param("tone", "Tone", 0.52, 0.0, 1.0, "amount"), param("preDelay", "Pre Delay", 15.0, 0.0, 220.0, "ms"),
                 param("mix", "Mix", 0.24, 0.0, 1.0, "amount")};
+            info.presets = reverb_presets::Chamber(info.parameters);
             break;
         case ReverbEffect::Mode::Advanced:
             info.displayName = "Advanced Reverb";
@@ -1358,6 +1361,7 @@ inline void RegisterReverbEffect()
                                param("modDepth", "Mod Depth", 0.18, 0.0, 1.0, "amount", "Advanced", true),
                                param("ducking", "Ducking", 0.08, 0.0, 1.0, "amount", "Advanced", true),
                                param("drive", "Drive", 0.0, 0.0, 1.0, "amount", "Advanced", true)};
+            info.presets = reverb_presets::Advanced(info.parameters);
             break;
         }
 

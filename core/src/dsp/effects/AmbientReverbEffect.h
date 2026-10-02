@@ -3,6 +3,7 @@
 #include "dsp/EffectProcessor.h"
 #include "dsp/EffectRegistry.h"
 #include "dsp/EffectGuids.h"
+#include "dsp/effects/ReverbPresets.h"
 
 #include <algorithm>
 #include <array>
@@ -664,6 +665,7 @@ inline void RegisterAmbientReverbEffect()
                        {"modDepth", "Mod Depth", 0.38, 0.0, 1.0, "", "modulation"},
                        {"mix", "Mix", 0.28, 0.0, 1.0, "", "tone"},
                        {"outputGain", "Output", 0.0, -18.0, 12.0, "dB", "tone", true}};
+    info.presets = reverb_presets::Ambient(info.parameters);
 
     EffectRegistry::Instance().Register(info.type, info, []() { return std::make_unique<AmbientReverbEffect>(); });
 }

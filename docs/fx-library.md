@@ -626,6 +626,14 @@ measure 0.07-0.27 at 22-57 ms and peaks of +15-21 dB.
 Now: Room 0.16, Chamber 0.17, Advanced 0.23 and Spring 0.18, all at 54-69 ms, with peaks of
 +15-21 dB.
 
+**Factory presets** (`ReverbPresets.h`, listed under each reverb below) set every control their
+reverb declares, `mix` included, but not Ambient's `outputGain`: the level the player has set stays
+theirs. Each list opens with its default, which is the parameter defaults themselves, so a node added
+fresh sounds as it did before there were presets. `ReverbPresetTests` holds them to that, and renders
+each to check it stays finite, dies away and sits near its default's level. On guitar through a cab
+every preset's output is within -1.2 to +2.9 dB of its default's. The long Advanced halls lean on
+Mod Depth: a decay that long resolves the comb modes, and modulation is what smears them.
+
 #### Room Reverb (`reverb_room`)
 
 | Parameter | Range | Default | Unit |
@@ -635,6 +643,8 @@ Now: Room 0.16, Chamber 0.17, Advanced 0.23 and Spring 0.18, all at 54-69 ms, wi
 | `damping` | 0.0–1.0 | 0.56 | — |
 | `preDelay` | 0–220 | 8.0 | ms |
 | `mix` | 0.0–1.0 | 0.22 | — |
+
+Factory presets: Studio Room (default), Small Room, Bright Room, Live Room, Large Room, Warm Room.
 
 #### Chamber Reverb (`reverb_chamber`)
 
@@ -646,6 +656,8 @@ Now: Room 0.16, Chamber 0.17, Advanced 0.23 and Spring 0.18, all at 54-69 ms, wi
 | `preDelay` | 0–220 | 15.0 | ms |
 | `mix` | 0.0–1.0 | 0.24 | — |
 
+Factory presets: Echo Chamber (default), Small Chamber, Bright Chamber, Dark Chamber, Large Chamber.
+
 #### Spring Reverb (`reverb_spring`)
 
 Dedicated spring-tank model with short dispersive delays, resonant drip emphasis, and nonlinear tank drive.
@@ -656,6 +668,8 @@ Dedicated spring-tank model with short dispersive delays, resonant drip emphasis
 | `tone` | 0.0–1.0 | 0.52 | — |
 | `drive` | 0.0–1.0 | 0.18 | — |
 | `mix` | 0.0–1.0 | 0.18 | — |
+
+Factory presets: Amp Spring (default), Surf Spring, Short Spring, Dark Spring, Bright Spring, Long Spring.
 
 #### Advanced Reverb (`reverb_advanced`)
 
@@ -684,6 +698,8 @@ Advanced controls:
 | `ducking` | 0.0–1.0 | 0.08 | — |
 | `drive` | 0.0–1.0 | 0.00 | — |
 
+Factory presets: Wide Room (default), Concert Hall, Bright Plate, Ducked Lead, Lush Hall, Gritty Spring.
+
 #### Ambient Reverb (`reverb_ambient`)
 
 Long, diffuse late reverb with soft early reflections, slow modulation, and a wide stereo bloom.
@@ -700,6 +716,8 @@ Long, diffuse late reverb with soft early reflections, slow modulation, and a wi
 | `modDepth` | 0.0–1.0 | 0.38 | — |
 | `mix` | 0.0–1.0 | 0.28 | — |
 | `outputGain` | -18..+12 | 0.0 | dB |
+
+Factory presets: Wide Bloom (default), Tight Ambience, Lead Halo, Dark Swell, Cloud, Infinite Wash.
 
 ### Simple Cabinet (`cab_simple`)
 Filter-based cabinet with no IR required: five cabinet types, a mic with type, position and

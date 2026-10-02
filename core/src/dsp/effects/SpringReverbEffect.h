@@ -3,6 +3,7 @@
 #include "dsp/EffectGuids.h"
 #include "dsp/EffectProcessor.h"
 #include "dsp/EffectRegistry.h"
+#include "dsp/effects/ReverbPresets.h"
 
 #include <algorithm>
 #include <array>
@@ -750,6 +751,7 @@ inline void RegisterSpringReverbEffect()
                        {"tone", "Tone", 0.52, 0.0, 1.0, "amount", "spring"},
                        {"drive", "Drive", 0.18, 0.0, 1.0, "amount", "spring"},
                        {"mix", "Mix", 0.18, 0.0, 1.0, "amount", "spring"}};
+    info.presets = reverb_presets::Spring(info.parameters);
 
     EffectRegistry::Instance().Register(info.type, info, []() { return std::make_unique<SpringReverbEffect>(); });
 }

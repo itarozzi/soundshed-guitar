@@ -22,6 +22,7 @@ A big update: five new effects, fifteen classic drive pedals, a Practice Tool fo
 * **NAM Blends**: the Blend knob now plays the right model, blends crossfade smoothly between models, they work in Multi-Rig mixes, and saving a blend is heard straight away.
 * **Reverbs**: Room, Ambient and Spring sound smoother, Diffusion no longer acts as a volume boost, and Decay has a more usable range. At their default settings they are as wet as before; presets that turned Diffusion up on Advanced or Ambient Reverb come out drier, and ones that turned it down, wetter.
 * **Room, Chamber, Advanced and Spring Reverb** no longer ring with a metallic tone when Mix is turned up. The spring's echoes now smear out like a real tank's instead of fluttering.
+* **Reverb presets**: Room, Chamber, Advanced, Spring and Ambient Reverb each come with factory presets in their Presets menu, from Small Room and Surf Spring to Concert Hall, Ducked Lead and Infinite Wash. A newly added reverb still starts where it always did.
 * **Noise gate**: closes smoothly instead of clicking and keeps your settings through restarts. The global gate's full settings are now a click away in the control bar.
 * **Pitch Shift**: new Snap to Semitone switch, and a pedal range so heel to toe covers exactly the interval you want (0 to +7 semitones, say). It also responds a little faster and no longer plays a snatch of old audio when switched back on.
 * **Graphic EQ**: starts flat, has a Reset button, and its band layouts now sit in the Presets dropdown alongside your own curves.
