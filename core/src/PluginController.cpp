@@ -28,6 +28,7 @@
 #include "controller/internal/ControllerUtils.h"
 #include "dsp/EffectRegistry.h"
 #include "dsp/effects/BuiltinEffects.h"
+#include "util/PathEncoding.h"
 
 #include <iostream>
 #include <utility>
@@ -99,7 +100,7 @@ void PluginController::Initialize()
     mResourceRoot = mHost.GetUserDataPath();
     mUserPresetsPath = mFileSystem.ResolvePresetDirectory() / "user";
 
-    std::cout << "[Plugin] Initializing. Resource root: " << mResourceRoot.string() << std::endl;
+    std::cout << "[Plugin] Initializing. Resource root: " << util::PathToUtf8(mResourceRoot) << std::endl;
 
     // Ensure essential directories exist on first launch
     [[maybe_unused]] const auto ensuredResourceRoot = mFileSystem.EnsureDirectory(mResourceRoot);

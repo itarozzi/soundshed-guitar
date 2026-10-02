@@ -1,5 +1,6 @@
 #include "presets/CompositePresetStorage.h"
 #include "util/FileIO.h"
+#include "util/PathEncoding.h"
 #include "util/PathSanitizer.h"
 
 #include <fstream>
@@ -116,12 +117,12 @@ std::vector<CompositePreset> CompositePresetStorage::ListAll(const std::filesyst
                 continue;
             }
 
-            if (entry.path().extension().string() != ".json")
+            if (entry.path().extension() != ".json")
             {
                 continue;
             }
 
-            const std::string stem = entry.path().stem().string();
+            const std::string stem = util::PathToUtf8(entry.path().stem());
 
             // Must end with ".composite" (stem of "id.composite.json" is "id.composite")
             if (stem.size() < 10 || stem.substr(stem.size() - 10) != ".composite")

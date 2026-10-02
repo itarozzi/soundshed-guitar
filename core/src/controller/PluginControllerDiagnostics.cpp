@@ -15,6 +15,7 @@
 #include "controller/TelemetryPublisher.h"
 #include "controller/internal/ControllerUtils.h"
 #include "controller/internal/HostedPluginSupport.h"
+#include "util/PathEncoding.h"
 
 #include <fstream>
 
@@ -72,8 +73,8 @@ void PluginController::HandleDebugReportUiStateRequest(const nlohmann::json& pay
         snapshot["capturedAt"] = FormatTimestamp();
         snapshot["source"] = source;
         snapshot["paths"] = {
-            {"sessionLog", (mFileSystem.ResolveSettingsDirectory() / kSessionLogFileName).generic_string()},
-            {"snapshot", ResolveDebugSnapshotPath(mFileSystem).generic_string()},
+            {"sessionLog", util::PathToUtf8(mFileSystem.ResolveSettingsDirectory() / kSessionLogFileName)},
+            {"snapshot", util::PathToUtf8(ResolveDebugSnapshotPath(mFileSystem))},
         };
         snapshot["session"] = {
             {"activePresetId", mActivePresetId},
@@ -103,7 +104,7 @@ void PluginController::HandleDebugReportUiStateRequest(const nlohmann::json& pay
 
         SendMessageToUI(nlohmann::json{
             {"type", "debugSnapshotWritten"},
-            {"path", snapshotPath.generic_string()},
+            {"path", util::PathToUtf8(snapshotPath)},
             {"source", source},
         }
                             .dump());

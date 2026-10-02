@@ -18,6 +18,7 @@
 #include "dsp/effects/SimpleCabMatch.h"
 #include "resources/ResourceLibrary.h"
 #include "util/Base64.h"
+#include "util/PathEncoding.h"
 #include "util/PathSanitizer.h"
 #include "util/Wav.h"
 
@@ -167,7 +168,7 @@ void PluginController::HandleExportEffectAsIrRequest(const nlohmann::json& paylo
         const std::string fileName = util::SanitizeFilename(candidate + ".wav");
         return std::any_of(existing.begin(), existing.end(), [&](const LibraryResource& resource) {
             return resource.type == "ir" &&
-                   (resource.name == candidate || resource.filePath.filename().string() == fileName);
+                   (resource.name == candidate || util::PathToUtf8(resource.filePath.filename()) == fileName);
         });
     };
     const std::string baseName = name;

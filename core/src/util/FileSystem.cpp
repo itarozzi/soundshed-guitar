@@ -1,7 +1,9 @@
 #include "FileSystem.h"
 
 #include <cstdlib>
+#include <cstring>
 #include <mutex>
+#include <string>
 
 namespace guitarfx
 {
@@ -26,6 +28,28 @@ void FileSystem::SetPlatformRootOverride(const std::filesystem::path& root)
     PlatformRootOverride() = root;
 }
 
+std::filesystem::path FileSystem::ReadEnvironmentPath(const char* name)
+{
+#ifdef _WIN32
+    // Variable names are ASCII, so widening them byte by byte is exact.
+    const std::wstring wideName(name, name + std::strlen(name));
+    wchar_t* value = nullptr;
+    std::size_t length = 0;
+
+    if (_wdupenv_s(&value, &length, wideName.c_str()) != 0 || value == nullptr)
+    {
+        return {};
+    }
+
+    std::filesystem::path result(value);
+    std::free(value);
+    return result;
+#else
+    const char* value = std::getenv(name);
+    return value != nullptr ? std::filesystem::path(value) : std::filesystem::path{};
+#endif
+}
+
 std::filesystem::path FileSystem::ResolvePlatformRootDirectory() const
 {
     {
@@ -39,23 +63,23 @@ std::filesystem::path FileSystem::ResolvePlatformRootDirectory() const
 
 #ifdef _WIN32
 
-    if (const char* appData = std::getenv("APPDATA"); appData != nullptr && appData[0] != '\0')
+    if (const auto appData = ReadEnvironmentPath("APPDATA"); !appData.empty())
     {
-        return std::filesystem::path{appData} / "Soundshed Guitar";
+        return appData / "Soundshed Guitar";
     }
 
 #elif defined(__APPLE__)
 
-    if (const char* home = std::getenv("HOME"); home != nullptr && home[0] != '\0')
+    if (const auto home = ReadEnvironmentPath("HOME"); !home.empty())
     {
-        return std::filesystem::path{home} / "Library" / "Soundshed Guitar";
+        return home / "Library" / "Soundshed Guitar";
     }
 
 #else
 
-    if (const char* home = std::getenv("HOME"); home != nullptr && home[0] != '\0')
+    if (const auto home = ReadEnvironmentPath("HOME"); !home.empty())
     {
-        return std::filesystem::path{home} / ".config" / "Soundshed Guitar";
+        return home / ".config" / "Soundshed Guitar";
     }
 
 #endif

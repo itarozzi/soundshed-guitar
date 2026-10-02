@@ -4,6 +4,7 @@
 #include "dsp/EffectRegistry.h"
 #include "resources/PluginPathUtils.h"
 #include "util/FileSystem.h"
+#include "util/PathEncoding.h"
 
 #include <algorithm>
 #include <cctype>
@@ -109,9 +110,13 @@ namespace guitarfx
 #endif
         }
 
+        // UTF-8 with the platform's own separators. Not path::string(): on Windows that is
+        // the ANSI code page, which garbles a plugin under a folder like "Müzik" and throws
+        // for a name the code page cannot spell.
         std::string ToDisplayPath (const std::filesystem::path& path)
         {
-            return path.string();
+            const auto utf8 = path.u8string();
+            return std::string (utf8.begin(), utf8.end());
         }
 
         std::string FromJuceString (const juce::String& value)
@@ -194,7 +199,7 @@ namespace guitarfx
             const std::string normalizedManufacturer = NormalizePluginIdentityToken (FromJuceString (description.manufacturerName));
             std::string normalizedName = NormalizePluginIdentityToken (FromJuceString (description.name));
             if (normalizedName.empty())
-                normalizedName = NormalizePluginIdentityToken (pluginPath.stem().string());
+                normalizedName = NormalizePluginIdentityToken (ToDisplayPath (pluginPath.stem()));
 
             if (!normalizedManufacturer.empty() && !normalizedName.empty())
                 return normalizedManufacturer + "." + normalizedName;
@@ -286,7 +291,7 @@ namespace guitarfx
                     break;
             }
 
-            const std::string extension = ToLowerAscii (path.extension().string());
+            const std::string extension = ToLowerAscii (ToDisplayPath (path.extension()));
 
 #if JUCE_LINUX
             // A bare .so outside any bundle can still be an LV2 binary; let the scanner decide.
@@ -848,7 +853,7 @@ namespace guitarfx
         {
             AppendHostedPluginTrace ("SetConfig pluginPath=" + value);
             if (!value.empty())
-                LoadPluginFromPath (std::filesystem::path (value));
+                LoadPluginFromPath (guitarfx::util::PathFromUtf8 (value));
             return;
         }
 

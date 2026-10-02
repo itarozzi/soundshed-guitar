@@ -22,7 +22,7 @@ namespace guitarfx::controller_detail
 {
 std::string BuildFactoryArchiveKey(const std::filesystem::path& archivePath)
 {
-    std::string name = archivePath.filename().string();
+    std::string name = util::PathToUtf8(archivePath.filename());
     constexpr std::array<std::string_view, 4> suffixes = {
         ".soundshed.presets",
         ".soundshed.preset",
@@ -80,7 +80,7 @@ std::string BuildScopedPresetArchiveSessionId(const std::string& archiveKey, con
 
 bool IsFactoryArchiveExtension(const std::filesystem::path& path)
 {
-    std::string extension = path.extension().string();
+    std::string extension = util::PathToUtf8(path.extension());
     std::transform(extension.begin(), extension.end(), extension.begin(),
                    [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
     return extension == ".preset" || extension == ".presets";
@@ -534,7 +534,7 @@ std::optional<ParsedFactoryPresetArchive> ParseFactoryPresetArchive(const std::f
 
         if (!presetOpt)
         {
-            error = "Failed to parse preset JSON from archive " + archivePath.filename().string();
+            error = "Failed to parse preset JSON from archive " + util::PathToUtf8(archivePath.filename());
             return false;
         }
 
@@ -738,7 +738,7 @@ std::filesystem::path ResolveFactoryPresetDirectory(const guitarfx::IPluginHost&
 
 std::filesystem::path NormalizePresetArchiveSavePath(const std::filesystem::path& path)
 {
-    const std::string filename = path.filename().string();
+    const std::string filename = util::PathToUtf8(path.filename());
     std::string normalized = filename;
     std::string lowerNormalized = normalized;
     std::transform(lowerNormalized.begin(), lowerNormalized.end(), lowerNormalized.begin(),
@@ -765,6 +765,6 @@ std::filesystem::path NormalizePresetArchiveSavePath(const std::filesystem::path
         return path;
     }
 
-    return path.parent_path() / normalized;
+    return path.parent_path() / util::PathFromUtf8(normalized);
 }
 } // namespace guitarfx::controller_detail

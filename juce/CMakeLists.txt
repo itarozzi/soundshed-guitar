@@ -386,6 +386,7 @@ set(CommonSourceFiles
     "${CMAKE_CURRENT_SOURCE_DIR}/source/Main.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/source/JuceHostedPluginEffect.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/source/JuceHostedPluginEffect.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/source/JucePathConversion.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/source/PluginProcessorAdapter.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/source/PluginProcessorAdapter.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/source/ProductInfo.h"
@@ -809,6 +810,34 @@ if(WIN32)
     )
 
     add_test(NAME WebView2UserDataTests COMMAND WebView2UserDataTests)
+
+    # The juce::File <-> std::filesystem::path crossing (source/JucePathConversion.h) on
+    # folders named outside plain ASCII. Header-only on both sides, so no core library.
+    add_executable(JucePathConversionTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/JucePathConversionTests.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/source/JucePathConversion.h"
+    )
+
+    target_include_directories(JucePathConversionTests
+        PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/source"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../core/src"
+    )
+
+    target_link_libraries(JucePathConversionTests
+        PRIVATE
+            juce_core
+            juce::juce_recommended_config_flags
+            juce::juce_recommended_warning_flags
+    )
+
+    set_target_properties(JucePathConversionTests PROPERTIES
+        CXX_STANDARD 20
+        CXX_STANDARD_REQUIRED ON
+        FOLDER "GuitarFX/Tests"
+    )
+
+    add_test(NAME JucePathConversionTests COMMAND JucePathConversionTests)
 
     # Offline renderer that automates external plugins' transpose parameter for
     # the transpose benchmark (see tools/transpose-benchmark/). Not a ctest.

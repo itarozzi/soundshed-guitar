@@ -219,7 +219,7 @@ void ResourceFolderScanner::ScanWorker(std::string requestPath,
             return;
         }
 
-        libraryIdByPath.emplace(normalizePath(std::filesystem::path(entry.first)), std::move(entry.second));
+        libraryIdByPath.emplace(normalizePath(util::PathFromUtf8(entry.first)), std::move(entry.second));
     }
 
     std::error_code ec;

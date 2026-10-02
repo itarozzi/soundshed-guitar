@@ -308,12 +308,12 @@ void PluginController::HandleRenderDemoAudioRequest(const nlohmann::json& payloa
             }
 
             SendMessageToUI(nlohmann::json{{"type", "demoAudioRenderSaved"},
-                                           {"path", result.path.generic_string()},
+                                           {"path", util::PathToUtf8(result.path)},
                                            {"sampleRate", renderSampleRate}}
                                 .dump());
             AppendSessionLog("Demo audio rendered (" +
                              std::to_string(static_cast<int>(std::llround(renderSampleRate))) +
-                             " Hz): " + result.path.generic_string());
+                             " Hz): " + util::PathToUtf8(result.path));
         });
 }
 

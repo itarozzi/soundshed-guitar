@@ -18,6 +18,7 @@
 #include "presets/PresetStorage.h"
 #include "resources/ResourceLibrary.h"
 #include "util/FileIO.h"
+#include "util/PathEncoding.h"
 #include "util/PathSanitizer.h"
 
 #include <algorithm>
@@ -100,7 +101,7 @@ void PluginController::StartPresetArchiveSession(const std::string& archiveFileN
                                                  const std::vector<std::uint8_t>& archiveBytes)
 {
     std::string parseError;
-    auto parsedOpt = ParseFactoryPresetArchive(std::filesystem::path(archiveFileName), archiveBytes, parseError);
+    auto parsedOpt = ParseFactoryPresetArchive(util::PathFromUtf8(archiveFileName), archiveBytes, parseError);
 
     if (!parsedOpt)
     {
@@ -125,7 +126,7 @@ void PluginController::StartPresetArchiveSession(const std::string& archiveFileN
     }
 
     const auto settingsDir = mFileSystem.ResolveSettingsDirectory();
-    const std::string archiveKeyBase = BuildFactoryArchiveKey(std::filesystem::path(archiveFileName));
+    const std::string archiveKeyBase = BuildFactoryArchiveKey(util::PathFromUtf8(archiveFileName));
     const std::string sessionStamp = std::to_string(
         std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
             .count());
@@ -281,7 +282,7 @@ void PluginController::StartPresetArchiveSession(const std::string& archiveFileN
     presetFoldersPayload["activeFolderId"] = "__all__";
 
     mPresetArchiveSession = PresetArchiveSessionState{
-        archiveKey,         std::filesystem::path(archiveFileName).filename().string(), sessionRoot, presetDir,
+        archiveKey,         util::PathToUtf8(util::PathFromUtf8(archiveFileName).filename()), sessionRoot, presetDir,
         presetIdMap.size(),
     };
 
@@ -451,8 +452,8 @@ void PluginController::HandleSavePresetArchiveRequest(const nlohmann::json& payl
             }
 
             SendMessageToUI(
-                nlohmann::json{{"type", "presetExportSaved"}, {"path", normalizedPath.generic_string()}}.dump());
-            AppendSessionLog("Preset export saved: " + normalizedPath.generic_string());
+                nlohmann::json{{"type", "presetExportSaved"}, {"path", util::PathToUtf8(normalizedPath)}}.dump());
+            AppendSessionLog("Preset export saved: " + util::PathToUtf8(normalizedPath));
         });
 }
 
@@ -566,7 +567,7 @@ void PluginController::LoadFactoryPresetArchives()
     {
         if (entry.path().extension() == ".json")
         {
-            occupiedPresetIds.insert(entry.path().stem().string());
+            occupiedPresetIds.insert(util::PathToUtf8(entry.path().stem()));
         }
     }
 
@@ -586,7 +587,7 @@ void PluginController::LoadFactoryPresetArchives()
 
         if (zipBytes.empty())
         {
-            AppendSessionLog("Factory preset archive skipped (empty or unreadable): " + entry.path().string());
+            AppendSessionLog("Factory preset archive skipped (empty or unreadable): " + util::PathToUtf8(entry.path()));
             continue;
         }
 
@@ -595,7 +596,7 @@ void PluginController::LoadFactoryPresetArchives()
 
         if (!parsedOpt)
         {
-            AppendSessionLog("Factory preset archive skipped (" + entry.path().filename().string() +
+            AppendSessionLog("Factory preset archive skipped (" + util::PathToUtf8(entry.path().filename()) +
                              "): " + parseError);
             continue;
         }
@@ -673,13 +674,14 @@ void PluginController::LoadFactoryPresetArchives()
 
             if (needsWrite && !WriteFile(targetPath, resource.bytes))
             {
-                AppendSessionLog("Factory preset archive resource write failed: " + targetPath.string());
+                AppendSessionLog("Factory preset archive resource write failed: " + util::PathToUtf8(targetPath));
                 continue;
             }
 
             if (!std::filesystem::exists(targetPath))
             {
-                AppendSessionLog("Factory preset archive resource missing after import: " + targetPath.string());
+                AppendSessionLog("Factory preset archive resource missing after import: " +
+                                 util::PathToUtf8(targetPath));
                 continue;
             }
 
@@ -694,7 +696,7 @@ void PluginController::LoadFactoryPresetArchives()
             libraryResource.filePath = targetPath;
             libraryResource.hash = resource.hash;
             libraryResource.metadata["provider"] = kFactoryArchiveResourceProvider;
-            libraryResource.metadata["archive"] = entry.path().filename().string();
+            libraryResource.metadata["archive"] = util::PathToUtf8(entry.path().filename());
             libraryResource.metadata["factoryArchiveKey"] = archiveKey;
             libraryResource.metadata["factoryArchiveHash"] = archiveHash;
             libraryResource.metadata["originalId"] = resource.id;
@@ -815,14 +817,14 @@ void PluginController::LoadFactoryPresetArchives()
         UpdateFactoryPresetFolders(Store(), archiveKey, parsed.presetFolders, presetIdMapping, importedPresetIds);
 
         archiveState["hash"] = archiveHash;
-        archiveState["fileName"] = entry.path().filename().string();
+        archiveState["fileName"] = util::PathToUtf8(entry.path().filename());
         factoryArchiveState["archives"][archiveKey] = archiveState;
 
         if (parsed.tone3000ResourceCount > 0)
         {
             AppendSessionLog(
                 "Factory preset archive contains tone3000 resource references that are not auto-imported at startup: " +
-                entry.path().filename().string());
+                util::PathToUtf8(entry.path().filename()));
         }
     }
 

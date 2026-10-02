@@ -1,5 +1,7 @@
 #include "resources/PluginPathUtils.h"
 
+#include "util/PathEncoding.h"
+
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -127,7 +129,7 @@ const FormatSuffix* MatchSuffix(const std::string& lowerName, bool bundlesOnly)
 
 std::string LowerFilename(const std::filesystem::path& path)
 {
-    return ToLowerAscii(StripTrailingSeparator(path).filename().string());
+    return ToLowerAscii(util::PathToUtf8(StripTrailingSeparator(path).filename()));
 }
 } // namespace
 
@@ -150,7 +152,7 @@ std::filesystem::path ResolvePluginBundlePath(const std::filesystem::path& path)
 
     for (auto current = trimmed;;)
     {
-        if (MatchSuffix(ToLowerAscii(current.filename().string()), /*bundlesOnly=*/true) != nullptr)
+        if (MatchSuffix(ToLowerAscii(util::PathToUtf8(current.filename())), /*bundlesOnly=*/true) != nullptr)
         {
             nearest = current;
             break;
@@ -174,12 +176,12 @@ std::filesystem::path ResolvePluginBundlePath(const std::filesystem::path& path)
     // Keep climbing only past ancestors that repeat the same name, which is the
     // Windows VST3 layout (Foo.vst3\Contents\x86_64-win\Foo.vst3). Anything else
     // stops here, so "Container.vst3\Foo.vst3" resolves to Foo.vst3.
-    const std::string nearestName = ToLowerAscii(nearest.filename().string());
+    const std::string nearestName = ToLowerAscii(util::PathToUtf8(nearest.filename()));
     std::filesystem::path outermost = nearest;
 
     for (auto current = nearest.parent_path(); !current.empty();)
     {
-        if (ToLowerAscii(current.filename().string()) == nearestName)
+        if (ToLowerAscii(util::PathToUtf8(current.filename())) == nearestName)
         {
             outermost = current;
         }

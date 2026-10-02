@@ -2,6 +2,7 @@
 
 #include "IPluginHost.h"
 #include "util/FileIO.h"
+#include "util/PathEncoding.h"
 #include "util/Wav.h"
 
 #include <algorithm>
@@ -138,7 +139,7 @@ nlohmann::json MetronomeClickLibrary::LoadManifest() const
 
     if (parsed.is_discarded())
     {
-        std::cerr << "[Plugin] Metronome kit manifest is not valid JSON: " << path.generic_string() << std::endl;
+        std::cerr << "[Plugin] Metronome kit manifest is not valid JSON: " << util::PathToUtf8(path) << std::endl;
         return {};
     }
 
@@ -259,7 +260,7 @@ std::shared_ptr<MetronomeClickLibrary::ClickSamples> MetronomeClickLibrary::Load
 
         if (!std::filesystem::exists(path))
         {
-            std::cerr << "[Plugin] Metronome " << label << " sample not found: " << path.generic_string() << std::endl;
+            std::cerr << "[Plugin] Metronome " << label << " sample not found: " << util::PathToUtf8(path) << std::endl;
             return;
         }
 
@@ -267,7 +268,7 @@ std::shared_ptr<MetronomeClickLibrary::ClickSamples> MetronomeClickLibrary::Load
 
         if (bytes.empty())
         {
-            std::cerr << "[Plugin] Metronome " << label << " sample empty: " << path.generic_string() << std::endl;
+            std::cerr << "[Plugin] Metronome " << label << " sample empty: " << util::PathToUtf8(path) << std::endl;
             return;
         }
 
@@ -275,7 +276,7 @@ std::shared_ptr<MetronomeClickLibrary::ClickSamples> MetronomeClickLibrary::Load
 
         if (!wavData)
         {
-            std::cerr << "[Plugin] Metronome " << label << " sample unsupported WAV: " << path.generic_string()
+            std::cerr << "[Plugin] Metronome " << label << " sample unsupported WAV: " << util::PathToUtf8(path)
                       << std::endl;
             return;
         }
@@ -284,7 +285,7 @@ std::shared_ptr<MetronomeClickLibrary::ClickSamples> MetronomeClickLibrary::Load
 
         if (resampled.empty() || resampled.front().empty())
         {
-            std::cerr << "[Plugin] Metronome " << label << " sample empty after resample: " << path.generic_string()
+            std::cerr << "[Plugin] Metronome " << label << " sample empty after resample: " << util::PathToUtf8(path)
                       << std::endl;
             return;
         }

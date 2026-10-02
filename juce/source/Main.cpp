@@ -1,3 +1,4 @@
+#include "JucePathConversion.h"
 #include "PluginProcessorAdapter.h"
 #include "ProductInfo.h"
 #include "ProfileFolder.h"
@@ -364,7 +365,7 @@ private:
             return {};
 
         const auto path = adapter->GetUserDataPath() / "data" / "v1" / "settings" / "ui" / soundshed::product::windowStateFileName;
-        return juce::File (path.string());
+        return soundshed::toJuceFile (path);
     }
 
     WindowState loadWindowState() const

@@ -2,6 +2,7 @@
 
 #include "dsp/FiniteCheck.h"
 #include "util/FileIO.h"
+#include "util/PathEncoding.h"
 
 #include <algorithm>
 #include <cctype>
@@ -642,7 +643,7 @@ std::optional<WasmModuleDescriptor> WasmEffect::InspectModuleFile(const std::fil
     {
         if (error)
         {
-            *error = "WASM module file not found: " + modulePath.string();
+            *error = "WASM module file not found: " + util::PathToUtf8(modulePath);
         }
 
         return std::nullopt;
@@ -656,7 +657,7 @@ std::optional<WasmModuleDescriptor> WasmEffect::InspectModuleFile(const std::fil
     {
         if (error)
         {
-            *error = "WASM module file is empty: " + modulePath.string();
+            *error = "WASM module file is empty: " + util::PathToUtf8(modulePath);
         }
 
         return std::nullopt;

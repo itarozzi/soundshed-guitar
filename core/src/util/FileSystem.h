@@ -18,6 +18,13 @@ class FileSystem
     /// restores the environment-derived default.
     static void SetPlatformRootOverride(const std::filesystem::path& root);
 
+    /// An environment variable read as a path; empty when it is unset or empty.
+    ///
+    /// On Windows this reads the wide environment. The narrow one is in the ANSI code
+    /// page, which cannot spell every user name, so a profile under such a name would
+    /// resolve to a folder that does not exist.
+    [[nodiscard]] static std::filesystem::path ReadEnvironmentPath(const char* name);
+
     [[nodiscard]] std::filesystem::path ResolvePlatformRootDirectory() const;
     [[nodiscard]] std::filesystem::path ResolveDataDirectory() const;
     [[nodiscard]] std::filesystem::path ResolveDataV1Directory() const;

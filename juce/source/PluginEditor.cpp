@@ -9,6 +9,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include "JucePathConversion.h"
 #include "UiBridge.h"
 #include "editor/StartupLog.h"
 #include "WebView2UserData.h"
@@ -362,7 +363,7 @@ PluginEditor::PluginEditor (PluginProcessorAdapter& p)
     : SoundshedEditorBase (p, {}),
       resourceRoot ([&p] {
           const auto exeFile = juce::File::getSpecialLocation (juce::File::currentExecutableFile);
-          const auto exeDir = std::filesystem::path (exeFile.getParentDirectory().getFullPathName().toStdString());
+          const auto exeDir = soundshed::toStdPath (exeFile.getParentDirectory());
           const auto cwd = std::filesystem::current_path();
           const auto adapterRoot = p.GetBundledAssetsPath();
 
@@ -375,11 +376,11 @@ PluginEditor::PluginEditor (PluginProcessorAdapter& p)
           candidates.push_back (cwd / "Resources");
 
           writeStartupLog ("[PluginEditor] exe       : " + exeFile.getFullPathName());
-          writeStartupLog ("[PluginEditor] cwd       : " + juce::String (cwd.string()));
-          writeStartupLog ("[PluginEditor] adapter   : " + juce::String (adapterRoot.string()));
+          writeStartupLog ("[PluginEditor] cwd       : " + soundshed::toJuceString (cwd));
+          writeStartupLog ("[PluginEditor] adapter   : " + soundshed::toJuceString (adapterRoot));
 
           const auto resolved = guitarfx::ui::ResolveResourceRoot (candidates);
-          writeStartupLog ("[PluginEditor] resolved  : " + juce::String (resolved.string()));
+          writeStartupLog ("[PluginEditor] resolved  : " + soundshed::toJuceString (resolved));
 
           if (resolved.empty())
           {
@@ -390,10 +391,10 @@ PluginEditor::PluginEditor (PluginProcessorAdapter& p)
               const auto indexPath = resolved / "ui" / "index.html";
               const bool indexExists = std::filesystem::exists (indexPath);
               writeStartupLog ("[PluginEditor] index.html exists: " + juce::String (indexExists ? "YES" : "NO")
-                               + " (" + juce::String (indexPath.string()) + ")");
+                               + " (" + soundshed::toJuceString (indexPath) + ")");
           }
 
-          return juce::File (resolved.string());
+          return soundshed::toJuceFile (resolved);
       }()),
       webView ([this] {
 #if JUCE_LINUX

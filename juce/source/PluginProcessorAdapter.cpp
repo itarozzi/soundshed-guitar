@@ -8,6 +8,7 @@
 
 #include "PluginProcessorAdapter.h"
 #include "JuceHostedPluginEffect.h"
+#include "JucePathConversion.h"
 #include "ProductInfo.h"
 #include "ProfileFolder.h"
 
@@ -761,7 +762,7 @@ void PluginProcessorAdapter::BrowseFileAsync (
         if (file.existsAsFile() || (acceptDirectories && file.isDirectory()))
         {
             result.success = true;
-            result.path = std::filesystem::path (file.getFullPathName().toStdString());
+            result.path = soundshed::toStdPath (file);
         }
 
         if (callback)
@@ -926,7 +927,7 @@ void PluginProcessorAdapter::SaveFileAsync (
         if (file != juce::File())
         {
             result.success = true;
-            result.path = std::filesystem::path (file.getFullPathName().toStdString());
+            result.path = soundshed::toStdPath (file);
         }
 
         if (callback)
@@ -959,7 +960,7 @@ std::filesystem::path PluginProcessorAdapter::GetUserDataPath() const
     migrateDataOutOfSandboxContainerOnce (dataDir);
 #endif
 
-    return std::filesystem::path (dataDir.getFullPathName().toStdString());
+    return soundshed::toStdPath (dataDir);
 }
 
 std::filesystem::path PluginProcessorAdapter::GetBundledAssetsPath() const
@@ -1153,27 +1154,21 @@ std::filesystem::path PluginProcessorAdapter::locateAssetsRoot() const
     // On Android there is no directory next to the binary: the UI ships as APK
     // assets, and SoundshedApp unpacks them to "<dataDir>/resources" before
     // JUCE starts.  userApplicationDataDirectory is that same dataDir.
-    const auto androidDataDir = std::filesystem::path (
-        juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
-            .getFullPathName()
-            .toStdString());
+    const auto androidDataDir = soundshed::toStdPath (
+        juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory));
     if (!androidDataDir.empty())
         candidates.push_back (androidDataDir / "resources");
 #endif
 
-    const auto cwd = std::filesystem::path (
-        juce::File::getCurrentWorkingDirectory().getFullPathName().toStdString());
+    const auto cwd = soundshed::toStdPath (juce::File::getCurrentWorkingDirectory());
     if (!cwd.empty())
     {
         candidates.push_back (cwd / "resources");
         candidates.push_back (cwd / "Resources");
     }
 
-    const auto exeDir = std::filesystem::path (
-        juce::File::getSpecialLocation (juce::File::currentExecutableFile)
-            .getParentDirectory()
-            .getFullPathName()
-            .toStdString());
+    const auto exeDir = soundshed::toStdPath (
+        juce::File::getSpecialLocation (juce::File::currentExecutableFile).getParentDirectory());
     if (!exeDir.empty())
     {
         candidates.push_back (exeDir / "resources");

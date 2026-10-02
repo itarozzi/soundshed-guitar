@@ -11,6 +11,8 @@
 #include <limits>
 #include <vector>
 
+#include "util/PathEncoding.h"
+
 namespace guitarfx
 {
 struct IRWavData
@@ -642,7 +644,7 @@ inline bool LoadAiffFile(const std::filesystem::path& path, IRWavData& out)
 // -------------------------------------------------------------------------
 inline bool LoadAudioFile(const std::filesystem::path& path, IRWavData& out)
 {
-    std::string ext = path.extension().string();
+    std::string ext = util::PathToUtf8(path.extension());
     std::transform(ext.begin(), ext.end(), ext.begin(),
                    [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 

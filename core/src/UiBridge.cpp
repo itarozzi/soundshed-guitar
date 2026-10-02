@@ -1,7 +1,8 @@
 #include "UiBridge.h"
 
+#include "util/FileSystem.h"
+
 #include <array>
-#include <cstdlib>
 #include <system_error>
 
 namespace
@@ -37,14 +38,12 @@ std::filesystem::path NormalizeResourceRoot(const std::filesystem::path& candida
 
 std::filesystem::path ResolveEnvOverride()
 {
-    const char* envValue = std::getenv("SOUNDSHED_RESOURCE_ROOT");
+    const auto envPath = guitarfx::FileSystem::ReadEnvironmentPath("SOUNDSHED_RESOURCE_ROOT");
 
-    if (!envValue || envValue[0] == '\0')
+    if (envPath.empty())
     {
         return {};
     }
-
-    const std::filesystem::path envPath(envValue);
 
     if (const auto normalized = NormalizeResourceRoot(envPath); !normalized.empty())
     {

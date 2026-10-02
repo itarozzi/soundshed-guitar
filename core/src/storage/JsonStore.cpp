@@ -170,7 +170,7 @@ JsonStore::OpenStatus JsonStore::OpenChecked(const std::filesystem::path& dbPath
     if (const auto problems = QuickCheckLocked(); !problems.empty())
     {
         error = "database failed its integrity check: " + problems.front();
-        std::cerr << "[JsonStore] " << dbPath.string() << " is damaged and will not be opened:" << std::endl;
+        std::cerr << "[JsonStore] " << util::PathToUtf8(dbPath) << " is damaged and will not be opened:" << std::endl;
 
         for (const auto& problem : problems)
         {

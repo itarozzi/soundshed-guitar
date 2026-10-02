@@ -12,6 +12,7 @@
 #include "controller/internal/ControllerUtils.h"
 #include "controller/internal/LayoutSupport.h"
 #include "util/Base64.h"
+#include "util/PathEncoding.h"
 
 #include <algorithm>
 #include <fstream>
@@ -194,7 +195,7 @@ void PluginController::HandleSaveEffectLayoutRequest(const nlohmann::json& paylo
                                 continue;
                             }
 
-                            if (imgEntry.path().stem().string() == imageId)
+                            if (util::PathToUtf8(imgEntry.path().stem()) == imageId)
                             {
                                 sourcePath = imgEntry.path();
                                 break;
@@ -222,7 +223,7 @@ void PluginController::HandleSaveEffectLayoutRequest(const nlohmann::json& paylo
 
                     if (ec)
                     {
-                        AppendSessionLog("Failed to copy layout image " + sourcePath.generic_string() + ": " +
+                        AppendSessionLog("Failed to copy layout image " + util::PathToUtf8(sourcePath) + ": " +
                                          ec.message());
                     }
                 }
@@ -325,8 +326,8 @@ void PluginController::HandleExportEffectLayoutRequest(const nlohmann::json& pay
             }
 
             SendMessageToUI(
-                nlohmann::json{{"type", "layoutExportSaved"}, {"path", result.path.generic_string()}}.dump());
-            AppendSessionLog("Layout exported: " + result.path.generic_string());
+                nlohmann::json{{"type", "layoutExportSaved"}, {"path", util::PathToUtf8(result.path)}}.dump());
+            AppendSessionLog("Layout exported: " + util::PathToUtf8(result.path));
         });
 }
 
@@ -352,9 +353,9 @@ void PluginController::HandleBrowseLayoutImageRequest(const nlohmann::json& payl
 
             const auto selectedPath = result.path;
             const auto timestamp = std::chrono::system_clock::now().time_since_epoch().count();
-            const std::string imageId = selectedPath.stem().string() + "_" + std::to_string(timestamp);
-            const std::string destFilename = imageId + selectedPath.extension().string();
-            const auto destPath = imagesDir / destFilename;
+            const std::string imageId = util::PathToUtf8(selectedPath.stem()) + "_" + std::to_string(timestamp);
+            const std::string destFilename = imageId + util::PathToUtf8(selectedPath.extension());
+            const auto destPath = imagesDir / util::PathFromUtf8(destFilename);
 
             try
             {
@@ -374,7 +375,7 @@ void PluginController::HandleBrowseLayoutImageRequest(const nlohmann::json& payl
 
                 const std::string base64Data = util::EncodeBase64(imageData);
                 std::string mimeType = "image/png";
-                const auto ext = selectedPath.extension().string();
+                const auto ext = util::PathToUtf8(selectedPath.extension());
 
                 if (ext == ".jpg" || ext == ".jpeg")
                 {
@@ -426,15 +427,15 @@ void PluginController::HandleSaveLayoutImageRequest(const nlohmann::json& payloa
         return;
     }
 
-    const auto destPath = imagesDir / fileName;
+    const auto destPath = imagesDir / util::PathFromUtf8(fileName);
 
     if (WriteFile(destPath, decodedBytes))
     {
-        AppendSessionLog("Layout image saved from import: " + destPath.generic_string());
+        AppendSessionLog("Layout image saved from import: " + util::PathToUtf8(destPath));
     }
     else
     {
-        AppendSessionLog("SaveLayoutImage: failed to write " + destPath.generic_string());
+        AppendSessionLog("SaveLayoutImage: failed to write " + util::PathToUtf8(destPath));
     }
 }
 
@@ -500,7 +501,7 @@ void PluginController::LoadLayoutLibrary()
                 layoutEntry["layoutId"] = layoutId;
                 // Sidecar images still live on disk next to where the layout
                 // document used to be; the designer resolves them from here.
-                layoutEntry["filePath"] = ResolveLayoutFilePath(mFileSystem, layoutId).generic_string();
+                layoutEntry["filePath"] = util::PathToUtf8(ResolveLayoutFilePath(mFileSystem, layoutId));
                 entries.push_back(layoutEntry);
             }
 
@@ -574,7 +575,7 @@ void PluginController::LoadLayoutLibrary()
 
                     if (layoutId.empty())
                     {
-                        layoutId = "factory::" + layoutFolder.path().filename().string();
+                        layoutId = "factory::" + util::PathToUtf8(layoutFolder.path().filename());
                         layoutJson["layoutId"] = layoutId;
                     }
 
@@ -589,7 +590,7 @@ void PluginController::LoadLayoutLibrary()
                     factoryEntry["isDefault"] = false; // resolved after user entries are built
                     factoryEntry["layoutId"] = layoutId;
                     factoryEntry["isFactory"] = true;
-                    factoryEntry["filePath"] = layoutJsonPath.generic_string();
+                    factoryEntry["filePath"] = util::PathToUtf8(layoutJsonPath);
 
                     if (!library["byEffectType"].contains(lookupKey))
                     {
@@ -601,7 +602,7 @@ void PluginController::LoadLayoutLibrary()
                 }
                 catch (const std::exception& e)
                 {
-                    AppendSessionLog("Failed to load factory layout from " + layoutFolder.path().generic_string() +
+                    AppendSessionLog("Failed to load factory layout from " + util::PathToUtf8(layoutFolder.path()) +
                                      ": " + e.what());
                 }
             }
@@ -659,7 +660,7 @@ nlohmann::json PluginController::BuildLayoutImages()
                 continue;
             }
 
-            const auto ext = entry.path().extension().string();
+            const auto ext = util::PathToUtf8(entry.path().extension());
 
             if (ext != ".png" && ext != ".jpg" && ext != ".jpeg")
             {
@@ -687,14 +688,14 @@ nlohmann::json PluginController::BuildLayoutImages()
 
             const std::string dataUrl = "data:" + mimeType + ";base64," + base64Data;
 
-            const std::string imageId = entry.path().stem().string();
+            const std::string imageId = util::PathToUtf8(entry.path().stem());
             bool replaced = false;
 
             for (auto& existing : images)
             {
                 if (existing.is_object() && existing.value("imageId", std::string{}) == imageId)
                 {
-                    existing["fileName"] = entry.path().filename().string();
+                    existing["fileName"] = util::PathToUtf8(entry.path().filename());
                     existing["dataUrl"] = dataUrl;
                     replaced = true;
                     break;
@@ -705,7 +706,7 @@ nlohmann::json PluginController::BuildLayoutImages()
             {
                 nlohmann::json imageRef;
                 imageRef["imageId"] = imageId;
-                imageRef["fileName"] = entry.path().filename().string();
+                imageRef["fileName"] = util::PathToUtf8(entry.path().filename());
                 imageRef["dataUrl"] = dataUrl;
                 images.push_back(imageRef);
             }
@@ -806,7 +807,7 @@ nlohmann::json PluginController::BuildLayoutImages()
                             continue;
                         }
 
-                        const auto imgPath = imagesDir / fileName;
+                        const auto imgPath = imagesDir / util::PathFromUtf8(fileName);
 
                         if (!std::filesystem::exists(imgPath))
                         {
@@ -825,7 +826,7 @@ nlohmann::json PluginController::BuildLayoutImages()
                         imgFile.close();
 
                         const std::string base64Data = util::EncodeBase64(imgData);
-                        const auto ext = imgPath.extension().string();
+                        const auto ext = util::PathToUtf8(imgPath.extension());
                         std::string mimeType = "image/png";
 
                         if (ext == ".jpg" || ext == ".jpeg")
@@ -861,7 +862,7 @@ nlohmann::json PluginController::BuildLayoutImages()
                 catch (const std::exception& e)
                 {
                     AppendSessionLog("Failed to load factory layout images from " +
-                                     layoutFolder.path().generic_string() + ": " + e.what());
+                                     util::PathToUtf8(layoutFolder.path()) + ": " + e.what());
                 }
             }
         }

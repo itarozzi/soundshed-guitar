@@ -18,6 +18,7 @@
 #include "controller/internal/NamResourceMetadata.h"
 #include "controller/internal/PresetArchiveSupport.h"
 #include "presets/PresetStorage.h"
+#include "util/PathEncoding.h"
 
 #include <algorithm>
 #include <fstream>
@@ -220,7 +221,7 @@ std::optional<Preset> PluginController::TryLoadStoredPresetById(const std::strin
         if (auto presetOpt = PresetStorage::LoadFromFile(factoryPath))
         {
             AppendSessionLog("Hosted plugin rehydrate source=factory-file presetId=" + resolvedPresetId + ", path=" +
-                             factoryPath.generic_string() + ", state=" + SummarizeHostedPluginState(*presetOpt));
+                             util::PathToUtf8(factoryPath) + ", state=" + SummarizeHostedPluginState(*presetOpt));
             return presetOpt;
         }
     }

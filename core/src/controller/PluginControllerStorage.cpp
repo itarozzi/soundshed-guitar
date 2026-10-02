@@ -90,7 +90,7 @@ void PluginController::OpenDocumentStore() const
 
         if (renameEc)
         {
-            AppendSessionLog("The document store at " + dbPath.string() +
+            AppendSessionLog("The document store at " + util::PathToUtf8(dbPath) +
                              " is damaged and could not be moved aside: " + renameEc.message());
             std::cerr << "[Plugin] Damaged document store could not be quarantined: " << renameEc.message()
                       << std::endl;
@@ -105,10 +105,10 @@ void PluginController::OpenDocumentStore() const
             std::filesystem::remove(dbPath.parent_path() / (dbPath.filename().string() + suffix), sidecarEc);
         }
 
-        AppendSessionLog("The document store at " + dbPath.string() + " was damaged (" + error +
-                         "). It has been moved to " + quarantinePath.string() +
+        AppendSessionLog("The document store at " + util::PathToUtf8(dbPath) + " was damaged (" + error +
+                         "). It has been moved to " + util::PathToUtf8(quarantinePath) +
                          " and the library will be rebuilt from the legacy files.");
-        std::cerr << "[Plugin] Damaged document store quarantined as " << quarantinePath.string() << std::endl;
+        std::cerr << "[Plugin] Damaged document store quarantined as " << util::PathToUtf8(quarantinePath) << std::endl;
 
         error.clear();
         status = mStore.OpenChecked(dbPath, error);
@@ -119,7 +119,7 @@ void PluginController::OpenDocumentStore() const
         // Everything downstream degrades to empty-and-read-only rather than
         // crashing, and the legacy tree is still on disk untouched, so the user
         // loses this session's changes but never their library.
-        AppendSessionLog("Could not open the document store at " + dbPath.string() + ": " + error);
+        AppendSessionLog("Could not open the document store at " + util::PathToUtf8(dbPath) + ": " + error);
         std::cerr << "[Plugin] Document store unavailable: " << error << std::endl;
         return;
     }
@@ -133,7 +133,7 @@ void PluginController::OpenDocumentStore() const
 
     if (report.ran)
     {
-        std::string summary = "Imported the legacy JSON tree into " + dbPath.string() + ": " +
+        std::string summary = "Imported the legacy JSON tree into " + util::PathToUtf8(dbPath) + ": " +
                               std::to_string(report.itemsImported) + " items";
 
         for (const auto& note : report.notes)

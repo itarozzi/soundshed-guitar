@@ -273,9 +273,8 @@ void PluginController::HandleSaveCurrentCustomEffectRequest(const nlohmann::json
         savePayload["filePath"] = util::PathToUtf8(moduleRef.filePath);
         savePayload["name"] = requestedNameOpt && !requestedNameOpt->empty()
                                   ? *requestedNameOpt
-                                  : (!std::filesystem::path(moduleRef.filePath).stem().string().empty()
-                                         ? std::filesystem::path(moduleRef.filePath).stem().string()
-                                         : "Custom Effect Module");
+                                  : (!moduleRef.filePath.stem().empty() ? util::PathToUtf8(moduleRef.filePath.stem())
+                                                                        : "Custom Effect Module");
         savePayload["category"] = "Local";
         savePayload["metadata"] = nlohmann::json::object({{"provider", kLocalResourceProvider}});
 
@@ -679,7 +678,7 @@ void PluginController::HandleImportGeneratedCustomEffectRequest(const nlohmann::
     };
 
     const auto persistArtifactPath = [&](const char* metadataKey, const std::filesystem::path& path) {
-        moduleResource->metadata[metadataKey] = path.lexically_normal().generic_string();
+        moduleResource->metadata[metadataKey] = util::PathToUtf8(path.lexically_normal());
     };
 
     const auto bundleDir = moduleResource->filePath.parent_path();
@@ -1070,10 +1069,10 @@ void PluginController::HandleExportGeneratedCustomEffectBundleRequest(const nloh
                             }
 
                             SendMessageToUI(nlohmann::json{{"type", "generatedCustomEffectBundleExportSaved"},
-                                                           {"path", result.path.generic_string()}}
+                                                           {"path", util::PathToUtf8(result.path)}}
                                                 .dump());
                             AppendSessionLog("Generated Custom Effect bundle exported: " +
-                                             result.path.generic_string());
+                                             util::PathToUtf8(result.path));
                         });
 }
 
@@ -1392,8 +1391,8 @@ void PluginController::HandleSaveBlendArchiveRequest(const nlohmann::json& paylo
             }
 
             SendMessageToUI(
-                nlohmann::json{{"type", "blendExportSaved"}, {"path", result.path.generic_string()}}.dump());
-            AppendSessionLog("Blend export saved: " + result.path.generic_string());
+                nlohmann::json{{"type", "blendExportSaved"}, {"path", util::PathToUtf8(result.path)}}.dump());
+            AppendSessionLog("Blend export saved: " + util::PathToUtf8(result.path));
         });
 }
 
@@ -1784,7 +1783,7 @@ void PluginController::LoadCompositeLibrary()
         if (std::filesystem::exists(factoryDir))
         {
             mCompositeLibrary.LoadFromDirectory(factoryDir);
-            std::cout << "[Plugin] Loaded factory composite definitions from " << factoryDir.string() << ": "
+            std::cout << "[Plugin] Loaded factory composite definitions from " << util::PathToUtf8(factoryDir) << ": "
                       << mCompositeLibrary.GetAllDefinitions().size() << std::endl;
         }
         else
@@ -1795,8 +1794,9 @@ void PluginController::LoadCompositeLibrary()
             if (std::filesystem::exists(legacyFactoryDir))
             {
                 mCompositeLibrary.LoadFromDirectory(legacyFactoryDir);
-                std::cout << "[Plugin] Loaded legacy factory composite definitions from " << legacyFactoryDir.string()
-                          << ": " << mCompositeLibrary.GetAllDefinitions().size() << std::endl;
+                std::cout << "[Plugin] Loaded legacy factory composite definitions from "
+                          << util::PathToUtf8(legacyFactoryDir) << ": " << mCompositeLibrary.GetAllDefinitions().size()
+                          << std::endl;
             }
         }
 

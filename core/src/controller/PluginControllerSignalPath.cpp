@@ -1562,7 +1562,7 @@ bool PluginController::UpdateResourceForNodeType(const std::string& nodeType, co
             ref.filePath = filePath;
 
             const auto normalizePath = [](const std::filesystem::path& value) {
-                std::string normalized = value.lexically_normal().generic_string();
+                std::string normalized = util::PathToUtf8(value.lexically_normal());
                 std::transform(normalized.begin(), normalized.end(), normalized.begin(),
                                [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
                 return normalized;
