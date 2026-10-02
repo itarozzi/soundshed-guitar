@@ -267,6 +267,16 @@ Rules that keep this honest:
   project's values back.
 - A shared-sync reload must re-assert instance-owned values, or another instance's change
   drags this one's tier and editor layout with it.
+- A shared-sync reload takes only the shared settings the store has changed since this
+  instance last read or wrote them (`MergeAppSettingsChangedInStore()`, against
+  `mStoreAppSettingsSnapshot`). The rest keep this instance's values, so a project's restored
+  level target or calibration survives an unrelated change elsewhere. A key another
+  instance did change wins, project value or not: it is the newer edit.
+- Only an open editor polls, so a plugin instance with its editor closed hears nothing.
+  It catches up when an editor's UI loads (`uiReady`): if the shared-sync version has
+  moved since it last loaded the shared sources (`mSharedSyncVersionLoaded`), it reloads
+  them before the UI is sent its state. Its own writes move that version on only when
+  nothing was written in between.
 - The editor **window size** rides in host state too, but it is not a setting: the editor
   reports its bounds to `SetEditorWindowSize()` and they are written as
   `state["editorWindow"]`, so a DAW reopens each instance at the size the user left it.

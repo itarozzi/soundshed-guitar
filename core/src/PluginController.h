@@ -876,10 +876,11 @@ class PluginController
     void AdoptAppSettingsAsBaseline() const;
     bool CleanupLegacyAppSettingsOnLoad();
     void LoadAppSettings();
-    /// Re-reads the account settings (IsAccountSettingKey) from the shared store, leaving
-    /// every other setting alone. Called when a UI loads, so one entered in another instance
-    /// meanwhile is there even though this instance never heard about the change.
-    void RefreshAccountSettingsFromStore();
+    void ApplyBundledAppSettingDefaults();
+    /// Takes into mAppSettings each shared setting the store has changed since this instance
+    /// last read or wrote it, and leaves every other one alone, a DAW project's restored values
+    /// included. Applies nothing; returns whether mAppSettings changed.
+    bool MergeAppSettingsChangedInStore();
     void LoadLastSessionState();
     [[nodiscard]] std::optional<Preset> LoadPresetById(const std::string& presetId) const;
     [[nodiscard]] std::optional<std::string> FindPresetIdByTitle(const std::string& presetTitle) const;
@@ -931,7 +932,11 @@ class PluginController
     /// logged, not fatal: the store stays closed and every read returns empty.
     void OpenDocumentStore() const;
     void TouchSharedSyncState(const std::vector<std::string>& domains) const;
+    [[nodiscard]] std::uint64_t ReadSharedSyncVersion() const;
     void ReloadSharedSyncSourcesFromDisk();
+    /// ReloadSharedSyncSourcesFromDisk(), if anything has been written since this instance
+    /// last loaded the shared sources (see mSharedSyncVersionLoaded).
+    void CatchUpWithSharedStore();
     void PollSharedSyncState();
     [[nodiscard]] std::filesystem::path ResolveRiffLibraryPath() const;
     [[nodiscard]] nlohmann::json LoadRiffLibraryIndex() const;
@@ -1062,6 +1067,16 @@ class PluginController
      * record them as already-published.
      */
     mutable nlohmann::json mAppSettingsBaseline = nlohmann::json::object();
+
+    /**
+     * The settings as the store held them when this instance last read or wrote them.
+     *
+     * Not the baseline: a host-state restore folds the project's values into that, so it
+     * no longer says what the store held. A shared reload compares the store with this to
+     * tell a setting changed elsewhere, which it takes, from one only this instance holds
+     * differently, which it keeps (MergeAppSettingsChangedInStore).
+     */
+    mutable nlohmann::json mStoreAppSettingsSnapshot = nlohmann::json::object();
 
     /// True while DeserializeState() is restoring host state, during which
     /// SaveAppSettings() and NotifyHostStateChanged() are no-ops. Set only by its scope guard.
@@ -1195,10 +1210,18 @@ class PluginController
     mutable std::uint64_t mSharedSyncVersionSeen = 0;
     mutable bool mSharedSyncVersionSeenInitialized = false;
     std::uint64_t mSharedSyncVersionHandled = 0;
+    /// The shared-sync version this instance's copies of the shared sources reflect: read
+    /// before Initialize() or a reload loads them, and moved on by this instance's own write
+    /// only when nothing was written in between. Unlike mSharedSyncVersionSeen it never moves
+    /// without a load, so an editor opened after changes it missed knows to catch up.
+    mutable std::uint64_t mSharedSyncVersionLoaded = 0;
     std::chrono::steady_clock::time_point mNextSharedSyncPollAt{};
 
     // Automation
     AutomationSlotTable mAutomationSlots;
+    /// automation.json as this instance last read or wrote it. A DAW project restores its own
+    /// slots, so a shared reload replaces them only when the store's have changed since.
+    mutable nlohmann::json mStoreAutomationSnapshot = nlohmann::json::object();
     /// Written on the message thread; a host reads it as its current program on any thread.
     std::atomic<int> mSetlistCursorIndex{0};
     int mSetlistBankSize = 8;

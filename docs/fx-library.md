@@ -245,8 +245,9 @@ one project can sit at different tiers.
 - **Plugin**: the values belong to the instance. They are saved in host state
   (`SerializeState`, `state["namQuality"]`) and restored with the project.
   `app.json` only seeds a brand-new instance; instances never write to it, and
-  `ReloadSharedSyncSourcesFromDisk()` re-asserts the instance's own values so the
-  cross-instance settings sync cannot overwrite them.
+  `ReloadSharedSyncSourcesFromDisk()` skips them when it merges the store's changes and
+  re-asserts the instance's own values, so the cross-instance settings sync cannot
+  overwrite them.
 - **Standalone**: unchanged — `app.json` owns them.
 
 **Offline rendering.** A DAW flips `AudioProcessor::setNonRealtime()` around a

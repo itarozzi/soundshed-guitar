@@ -640,7 +640,7 @@ void PluginController::SaveAppSettings() const
 
     const nlohmann::json& baseline = mAppSettingsBaseline;
 
-    std::vector<std::pair<std::string, std::string>> upserts;
+    std::vector<std::pair<std::string, const nlohmann::json*>> upserts;
     std::vector<std::string> removals;
 
     for (const auto& [key, value] : mAppSettings.items())
@@ -654,7 +654,7 @@ void PluginController::SaveAppSettings() const
 
         if (previous == baseline.end() || *previous != value)
         {
-            upserts.emplace_back(key, value.dump());
+            upserts.emplace_back(key, &value);
         }
     }
 
@@ -673,9 +673,9 @@ void PluginController::SaveAppSettings() const
 
     storage::JsonStore& store = Store();
     const bool wrote = store.Transact([&]() {
-        for (const auto& [key, json] : upserts)
+        for (const auto& [key, value] : upserts)
         {
-            if (!store.PutRaw(storage::ItemType::kSetting, key, json))
+            if (!store.PutRaw(storage::ItemType::kSetting, key, value->dump()))
             {
                 return false;
             }
@@ -696,6 +696,18 @@ void PluginController::SaveAppSettings() const
     {
         std::cerr << "[Plugin] SaveAppSettings failed" << std::endl;
         return;
+    }
+
+    // The store now holds these as this instance wrote them, so a later reload does not
+    // mistake them for another instance's change.
+    for (const auto& [key, value] : upserts)
+    {
+        mStoreAppSettingsSnapshot[key] = *value;
+    }
+
+    for (const auto& key : removals)
+    {
+        mStoreAppSettingsSnapshot.erase(key);
     }
 
     AdoptAppSettingsAsBaseline();
@@ -801,20 +813,21 @@ bool PluginController::CleanupLegacyAppSettingsOnLoad()
     return settingsChanged;
 }
 
+void PluginController::ApplyBundledAppSettingDefaults()
+{
+    if (!mAppSettings.is_object())
+    {
+        mAppSettings = nlohmann::json::object();
+    }
+
+    if (std::strlen(kBundledJamYouTubeApiKey) > 0)
+    {
+        mAppSettings[kJamYouTubeApiKeySettingKey] = std::string{kBundledJamYouTubeApiKey};
+    }
+}
+
 void PluginController::LoadAppSettings()
 {
-    const auto applyBundledDefaults = [this]() {
-        if (!mAppSettings.is_object())
-        {
-            mAppSettings = nlohmann::json::object();
-        }
-
-        if (std::strlen(kBundledJamYouTubeApiKey) > 0)
-        {
-            mAppSettings[kJamYouTubeApiKeySettingKey] = std::string{kBundledJamYouTubeApiKey};
-        }
-    };
-
     mAppSettings = nlohmann::json::object();
 
     for (const auto& item : Store().List(storage::ItemType::kSetting))
@@ -830,8 +843,9 @@ void PluginController::LoadAppSettings()
     // rewritten, and a default for a key nobody has ever set should be written
     // once — both fall out of diffing against the store's own contents.
     mAppSettingsBaseline = mAppSettings;
+    mStoreAppSettingsSnapshot = mAppSettings;
 
-    applyBundledDefaults();
+    ApplyBundledAppSettingDefaults();
 
     if (CleanupLegacyAppSettingsOnLoad())
     {
@@ -839,13 +853,15 @@ void PluginController::LoadAppSettings()
     }
 }
 
-void PluginController::RefreshAccountSettingsFromStore()
+bool PluginController::MergeAppSettingsChangedInStore()
 {
-    // Only an open editor polls for shared changes, so a plugin instance whose editor was
-    // closed (or not yet opened) when a key was entered elsewhere never reloaded it, and
-    // would prompt for it again. A full shared reload here would also reset automation
-    // slots and the project's restored settings just for opening the editor; account
-    // settings are the store's alone, so taking those is enough.
+    // What a plugin instance holds is not a copy of the store: it runs on the settings its DAW
+    // project restored, which are never published. Replacing everything with the store's copy
+    // put those back to the machine's on every shared change, even one to an unrelated domain,
+    // and would now do it just for opening an editor (see CatchUpWithSharedStore). So only what
+    // the store changed since this instance last saw it is taken, and that, being another
+    // instance's newer edit, wins over this instance's value whether it came from the project
+    // or not. Account settings need nothing of their own: the project never carries them.
     if (!mAppSettings.is_object())
     {
         mAppSettings = nlohmann::json::object();
@@ -856,51 +872,60 @@ void PluginController::RefreshAccountSettingsFromStore()
         mAppSettingsBaseline = nlohmann::json::object();
     }
 
+    if (!mStoreAppSettingsSnapshot.is_object())
+    {
+        mStoreAppSettingsSnapshot = nlohmann::json::object();
+    }
+
+    const nlohmann::json before = mAppSettings;
     nlohmann::json stored = nlohmann::json::object();
 
     for (const auto& item : Store().List(storage::ItemType::kSetting))
     {
-        if (IsAccountSettingKey(item.id))
+        if (auto parsed = item.Parse())
         {
-            if (auto parsed = item.Parse())
-            {
-                stored[item.id] = std::move(*parsed);
-            }
+            stored[item.id] = std::move(*parsed);
         }
     }
 
     std::vector<std::string> keys;
-
-    for (const auto& [key, value] : mAppSettings.items())
-    {
-        if (IsAccountSettingKey(key) && !stored.contains(key))
-        {
-            keys.push_back(key);
-        }
-    }
 
     for (const auto& [key, value] : stored.items())
     {
         keys.push_back(key);
     }
 
+    for (const auto& [key, value] : mStoreAppSettingsSnapshot.items())
+    {
+        if (!stored.contains(key))
+        {
+            keys.push_back(key);
+        }
+    }
+
     for (const auto& key : keys)
     {
-        // A value this instance has not managed to publish yet is newer than the store's.
-        const auto current = mAppSettings.find(key);
-        const auto published = mAppSettingsBaseline.find(key);
-        const bool hasCurrent = current != mAppSettings.end();
-        const bool hasPublished = published != mAppSettingsBaseline.end();
-
-        if (hasCurrent != hasPublished || (hasCurrent && *current != *published))
+        // This instance's own (NAM quality, layout); ApplySettingsToRuntime re-asserts them.
+        if (key.empty() || IsInstanceOwnedSettingKey(key))
         {
             continue;
         }
 
-        if (const auto it = stored.find(key); it != stored.end())
+        const auto now = stored.find(key);
+        const auto seen = mStoreAppSettingsSnapshot.find(key);
+        const bool inStore = now != stored.end();
+        const bool wasInStore = seen != mStoreAppSettingsSnapshot.end();
+
+        if (inStore == wasInStore && (!inStore || *now == *seen))
         {
-            mAppSettings[key] = *it;
-            mAppSettingsBaseline[key] = *it;
+            continue;
+        }
+
+        // Published already, by whoever changed it, so nothing for this instance to write back.
+        if (inStore)
+        {
+            mAppSettings[key] = *now;
+            mAppSettingsBaseline[key] = *now;
         }
         else
         {
@@ -908,6 +933,19 @@ void PluginController::RefreshAccountSettingsFromStore()
             mAppSettingsBaseline.erase(key);
         }
     }
+
+    mStoreAppSettingsSnapshot = std::move(stored);
+
+    // As LoadAppSettings() does: a key another instance (or an older build) wrote is held to
+    // the same rules as one read at startup.
+    ApplyBundledAppSettingDefaults();
+
+    if (CleanupLegacyAppSettingsOnLoad())
+    {
+        SaveAppSettings();
+    }
+
+    return mAppSettings != before;
 }
 
 void PluginController::LoadLastSessionState()

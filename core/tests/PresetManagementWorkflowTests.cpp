@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <chrono>
 #include <cstdlib>
 #include <cstdint>
 #include <array>
@@ -8,6 +9,7 @@
 #include <iostream>
 #include <iterator>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -1368,6 +1370,426 @@ bool TestSharedSyncReloadAppliesSharedSettingsAndKeepsInstanceOwned()
     if (plugin.GetAppSettings().value("audio.nam.oversampling", 0.0) != 3.0)
     {
         std::cerr << "Shared-sync reload clobbered this instance's NAM tier\n";
+        return false;
+    }
+
+    return true;
+}
+
+/// The last message of `type` the controller sent its UI, or null.
+nlohmann::json LastSentMessage(const TestHost& host, const std::string& type)
+{
+    for (auto it = host.sentMessages.rbegin(); it != host.sentMessages.rend(); ++it)
+    {
+        auto message = nlohmann::json::parse(*it, nullptr, false);
+
+        if (message.is_object() && message.value("type", std::string{}) == type)
+        {
+            return message;
+        }
+    }
+
+    return nullptr;
+}
+
+bool ContainsEntryWithId(const nlohmann::json& entries, const std::string& key, const std::string& id)
+{
+    return entries.is_array() && std::any_of(entries.begin(), entries.end(), [&](const nlohmann::json& entry) {
+               return entry.is_object() && entry.value(key, std::string{}) == id;
+           });
+}
+
+/// The NAM models a state or sharedSyncState message lists.
+nlohmann::json ListedModels(const nlohmann::json& message)
+{
+    return message.value("resourceLibrary", nlohmann::json::object()).value("nam", nlohmann::json::array());
+}
+
+/// The custom automation slots in a host state's automation block.
+nlohmann::json CustomSlots(const nlohmann::json& hostState)
+{
+    return hostState.value("automation", nlohmann::json::object()).value("customSlots", nlohmann::json::array());
+}
+
+/// What another instance does to the shared library: indexes a model and builds a blend from it.
+/// Returns the model's id, or an empty string if the import failed.
+std::string ImportModelAndSaveBlend(guitarfx::PluginController& controller, TestHost& host, const fs::path& dir,
+                                    const std::string& name, const std::string& blendId)
+{
+    const nlohmann::json model = {{"version", "0.5.4"},
+                                  {"architecture", "Linear"},
+                                  {"config", {{"receptive_field", 4}, {"bias", false}}},
+                                  {"weights", {1.0f, 0.0f, 0.0f, 0.0f}},
+                                  {"sample_rate", 48000.0},
+                                  {"metadata", nlohmann::json::object()}};
+    const fs::path path = dir / (name + ".nam");
+    std::ofstream(path) << model.dump();
+
+    host.sentMessages.clear();
+    controller.HandleUIMessage(nlohmann::json{
+        {"type", "saveLocalLibraryResource"}, {"resourceType", "nam"}, {"name", name}, {"filePath", path.string()}}
+                                   .dump());
+    const auto imported = LastSentMessage(host, "resourceImported");
+    const std::string modelId = imported.is_object() ? imported.value("id", std::string{}) : std::string{};
+
+    if (modelId.empty())
+    {
+        return {};
+    }
+
+    const nlohmann::json blend = {
+        {"id", blendId},
+        {"name", blendId},
+        {"category", "amp"},
+        {"parameters", {"gain"}},
+        {"models", {modelId}},
+        {"modelMappings", nlohmann::json::array({{{"id", modelId}, {"parameterId", "gain"}}})},
+        {"blendMode", "interpolate"}};
+    controller.HandleUIMessage(nlohmann::json{{"type", "saveBlendDefinition"}, {"blend", blend}}.dump());
+    return modelId;
+}
+
+/// The full state an editor's UI is sent once it loads: the reply to uiReady, sent on the idle
+/// tick after it.
+nlohmann::json OpenEditor(guitarfx::PluginController& controller, TestHost& host)
+{
+    host.sentMessages.clear();
+    controller.HandleUIMessage(nlohmann::json{{"type", "uiReady"}}.dump());
+    controller.OnIdle();
+    return LastSentMessage(host, "state");
+}
+
+nlohmann::json ProjectWithLevelTargetAndCalibration()
+{
+    nlohmann::json project;
+    project["appSettings"] = nlohmann::json{
+        {"audio.dsp.nominalOperatingLevelDbfs", -12.0},
+        {"audio.userInputCalibration.activeProfileId", "profile-a"},
+        {"audio.userInputCalibration.profiles",
+         nlohmann::json::array({nlohmann::json{{"id", "profile-a"}, {"name", "Profile A"}, {"gainDb", 4.5}}})},
+    };
+    return project;
+}
+
+bool TestEditorOpenCatchesUpOnChangesMadeWhileClosed()
+{
+    const fs::path sandbox = fs::temp_directory_path() / "guitarfx-preset-management-tests" / "catch-up-closed-editor";
+    std::error_code ec;
+    fs::remove_all(sandbox, ec);
+    fs::create_directories(sandbox, ec);
+    SetSettingsEnvRoot(sandbox);
+
+    TestHost host(sandbox);
+
+    // Loaded with a project, editor not open yet, so nothing drives its shared-sync poll.
+    guitarfx::PluginController closedEditor(host);
+    closedEditor.Initialize();
+
+    std::string modelId;
+    {
+        TestHost appHost(sandbox, {}, /*standalone=*/true);
+        guitarfx::PluginController app(appHost);
+        app.Initialize();
+        modelId = ImportModelAndSaveBlend(app, appHost, sandbox, "Imported Elsewhere", "blend-elsewhere");
+        app.HandleUIMessage(nlohmann::json{{"type", "setSetting"}, {"key", "theme"}, {"value", "light"}}.dump());
+    }
+
+    if (modelId.empty())
+    {
+        std::cerr << "The other instance could not import its model\n";
+        return false;
+    }
+
+    // The editor's first idle tick polls, and the first poll takes the store's version as seen
+    // without loading anything. That must not count as having caught up.
+    closedEditor.OnIdle();
+    const auto state = OpenEditor(closedEditor, host);
+
+    if (!state.is_object())
+    {
+        std::cerr << "Opening the editor sent no state\n";
+        return false;
+    }
+
+    if (!ContainsEntryWithId(ListedModels(state), "id", modelId))
+    {
+        std::cerr << "An editor opened after a model was imported elsewhere did not list it\n";
+        return false;
+    }
+
+    if (!ContainsEntryWithId(state.value("blendLibrary", nlohmann::json::array()), "id", "blend-elsewhere"))
+    {
+        std::cerr << "An editor opened after a blend was saved elsewhere did not list it\n";
+        return false;
+    }
+
+    if (state.value("appSettings", nlohmann::json::object()).value("theme", std::string{}) != "light")
+    {
+        std::cerr << "An editor opened after a setting changed elsewhere did not get it\n";
+        return false;
+    }
+
+    return true;
+}
+
+bool TestReopenedEditorCatchesUpPastItsOwnWrite()
+{
+    const fs::path sandbox =
+        fs::temp_directory_path() / "guitarfx-preset-management-tests" / "catch-up-reopened-editor";
+    std::error_code ec;
+    fs::remove_all(sandbox, ec);
+    fs::create_directories(sandbox, ec);
+    SetSettingsEnvRoot(sandbox);
+
+    TestHost host(sandbox);
+    guitarfx::PluginController plugin(host);
+    plugin.Initialize();
+
+    // The editor opens and is closed again. Nothing resets the UI-ready flag, and nothing polls.
+    plugin.OnIdle();
+    (void)OpenEditor(plugin, host);
+
+    std::string modelId;
+    {
+        TestHost otherHost(sandbox);
+        guitarfx::PluginController other(otherHost);
+        other.Initialize();
+        modelId = ImportModelAndSaveBlend(other, otherHost, sandbox, "Imported While Closed", "blend-while-closed");
+    }
+
+    // Meanwhile this instance writes something of its own (a MIDI setlist step saves the cursor,
+    // say). That must not mark the other instance's change as loaded.
+    plugin.HandleUIMessage(
+        nlohmann::json{{"type", "setSetting"}, {"key", "app.updateCheckEnabled"}, {"value", false}}.dump());
+
+    // Reopened: a new page, whose uiReady is the only sign of it.
+    const auto state = OpenEditor(plugin, host);
+
+    if (!state.is_object() || modelId.empty())
+    {
+        std::cerr << "Reopening the editor sent no state, or the other instance's import failed\n";
+        return false;
+    }
+
+    if (!ContainsEntryWithId(ListedModels(state), "id", modelId) ||
+        !ContainsEntryWithId(state.value("blendLibrary", nlohmann::json::array()), "id", "blend-while-closed"))
+    {
+        std::cerr << "A reopened editor missed a model and blend added elsewhere while it was closed\n";
+        return false;
+    }
+
+    return true;
+}
+
+bool TestEditorOpenCatchUpKeepsProjectSettingsAndAutomation()
+{
+    const fs::path sandbox =
+        fs::temp_directory_path() / "guitarfx-preset-management-tests" / "catch-up-keeps-project-state";
+    std::error_code ec;
+    fs::remove_all(sandbox, ec);
+    fs::create_directories(sandbox, ec);
+    SetSettingsEnvRoot(sandbox);
+
+    TestHost host(sandbox);
+
+    // The machine's own automation mappings are in the store before the project opens.
+    {
+        guitarfx::PluginController seed(host);
+        seed.Initialize();
+        seed.HandleUIMessage(nlohmann::json{
+            {"type", "setAutomationSlot"}, {"slotId", "custom.machine"}, {"label", "Machine"}, {"address", ""}}
+                                 .dump());
+    }
+
+    guitarfx::PluginController plugin(host);
+    plugin.Initialize();
+
+    // The project brings its own level target, calibration and automation slot, and values.
+    auto project = ProjectWithLevelTargetAndCalibration();
+    project["automation"] = {
+        {"schemaVersion", 1},
+        {"defaultSlotOverrides", nlohmann::json::object()},
+        {"customSlots",
+         nlohmann::json::array({{{"slotId", "custom.project"}, {"label", "Project"}, {"address", ""}}})}};
+    project["automationValues"] = {{"custom.project", 0.6}, {"default.inputLevel", 0.3}};
+    plugin.DeserializeState(project.dump());
+
+    // With its editor closed, an unrelated setting changes elsewhere.
+    {
+        TestHost appHost(sandbox, {}, /*standalone=*/true);
+        guitarfx::PluginController app(appHost);
+        app.Initialize();
+        app.HandleUIMessage(nlohmann::json{{"type", "setSetting"}, {"key", "theme"}, {"value", "light"}}.dump());
+    }
+
+    // The other instance's startup put the process-wide level target back to the store's, so
+    // only an editor open that re-applies the project's own leaves it at -12 below.
+    (void)OpenEditor(plugin, host);
+    const auto& settings = plugin.GetAppSettings();
+
+    if (settings.value("theme", std::string{}) != "light")
+    {
+        std::cerr << "An editor opened after a setting changed elsewhere did not get it\n";
+        return false;
+    }
+
+    if (std::abs(settings.value("audio.dsp.nominalOperatingLevelDbfs", 0.0) - (-12.0)) > 1e-9 ||
+        std::abs(guitarfx::GetNominalOperatingLevelDbfs() - (-12.0)) > 1e-9)
+    {
+        std::cerr << "Catching up put the project's level target back to the machine's\n";
+        return false;
+    }
+
+    if (std::abs(plugin.GetMixer().GetUserInputCalibrationGainDb() - 4.5) > 1e-9)
+    {
+        std::cerr << "Catching up dropped the project's input calibration\n";
+        return false;
+    }
+
+    const auto hostState = nlohmann::json::parse(plugin.SerializeState());
+    const auto values = hostState.value("automationValues", nlohmann::json::object());
+
+    if (!ContainsEntryWithId(CustomSlots(hostState), "slotId", "custom.project") ||
+        std::abs(values.value("custom.project", 0.0) - 0.6) > 1e-6 ||
+        std::abs(values.value("default.inputLevel", 0.0) - 0.3) > 1e-6)
+    {
+        std::cerr << "Catching up replaced the project's automation slots or reset their values\n";
+        return false;
+    }
+
+    // Nor does anything the project restored reach the store on the way.
+    StoreReader reader(sandbox);
+
+    if (!reader.Ok())
+    {
+        return false;
+    }
+
+    const auto stored = reader.AppSettings();
+
+    if (std::abs(stored.value("audio.dsp.nominalOperatingLevelDbfs", 0.0) - (-12.0)) < 1e-9 ||
+        stored.value("audio.userInputCalibration.activeProfileId", nlohmann::json{}) == "profile-a")
+    {
+        std::cerr << "Catching up published the project's settings to the shared store\n";
+        return false;
+    }
+
+    return true;
+}
+
+bool TestEditorOpenCatchUpTakesWhatChangedElsewhere()
+{
+    const fs::path sandbox = fs::temp_directory_path() / "guitarfx-preset-management-tests" / "catch-up-takes-changes";
+    std::error_code ec;
+    fs::remove_all(sandbox, ec);
+    fs::create_directories(sandbox, ec);
+    SetSettingsEnvRoot(sandbox);
+
+    TestHost host(sandbox);
+    guitarfx::PluginController plugin(host);
+    plugin.Initialize();
+
+    auto project = ProjectWithLevelTargetAndCalibration();
+    project["automationValues"] = {{"default.inputLevel", 0.3}};
+    plugin.DeserializeState(project.dump());
+
+    // Elsewhere, with this editor closed: the level target the project also set, and the
+    // automation mappings.
+    {
+        TestHost otherHost(sandbox);
+        guitarfx::PluginController other(otherHost);
+        other.Initialize();
+        other.HandleUIMessage(
+            nlohmann::json{{"type", "setSetting"}, {"key", "audio.dsp.nominalOperatingLevelDbfs"}, {"value", -27.0}}
+                .dump());
+        other.HandleUIMessage(nlohmann::json{
+            {"type", "setAutomationSlot"}, {"slotId", "custom.elsewhere"}, {"label", "Elsewhere"}, {"address", ""}}
+                                  .dump());
+    }
+
+    // Process-wide, and the other instance already set it; knock it off so the check below sees
+    // what this instance applies.
+    guitarfx::SetNominalOperatingLevelDbfs(guitarfx::kDefaultNominalOperatingLevelDbfs);
+
+    (void)OpenEditor(plugin, host);
+
+    // The newer edit wins, even over the project's value.
+    if (std::abs(plugin.GetAppSettings().value("audio.dsp.nominalOperatingLevelDbfs", 0.0) - (-27.0)) > 1e-9 ||
+        std::abs(guitarfx::GetNominalOperatingLevelDbfs() - (-27.0)) > 1e-9)
+    {
+        std::cerr << "A setting changed elsewhere after the project opened kept the project's value\n";
+        return false;
+    }
+
+    if (std::abs(plugin.GetMixer().GetUserInputCalibrationGainDb() - 4.5) > 1e-9)
+    {
+        std::cerr << "Taking one setting changed elsewhere dropped another the project set\n";
+        return false;
+    }
+
+    const auto hostState = nlohmann::json::parse(plugin.SerializeState());
+
+    if (!ContainsEntryWithId(CustomSlots(hostState), "slotId", "custom.elsewhere"))
+    {
+        std::cerr << "An automation mapping changed elsewhere did not arrive\n";
+        return false;
+    }
+
+    const auto values = hostState.value("automationValues", nlohmann::json::object());
+
+    if (std::abs(values.value("default.inputLevel", 0.0) - 0.3) > 1e-6)
+    {
+        std::cerr << "Taking another instance's automation mappings reset this instance's values\n";
+        return false;
+    }
+
+    return true;
+}
+
+bool TestOwnWriteDoesNotHideAnotherInstancesChange()
+{
+    const fs::path sandbox = fs::temp_directory_path() / "guitarfx-preset-management-tests" / "own-write-hides-change";
+    std::error_code ec;
+    fs::remove_all(sandbox, ec);
+    fs::create_directories(sandbox, ec);
+    SetSettingsEnvRoot(sandbox);
+
+    TestHost host(sandbox);
+    guitarfx::PluginController plugin(host);
+    plugin.Initialize();
+    plugin.OnIdle();
+    (void)OpenEditor(plugin, host);
+
+    std::string modelId;
+    {
+        TestHost otherHost(sandbox);
+        guitarfx::PluginController other(otherHost);
+        other.Initialize();
+        modelId = ImportModelAndSaveBlend(other, otherHost, sandbox, "Imported Between Polls", "blend-between-polls");
+    }
+
+    // Written here before this instance's next poll.
+    plugin.HandleUIMessage(
+        nlohmann::json{{"type", "setSetting"}, {"key", "app.updateCheckEnabled"}, {"value", false}}.dump());
+
+    // The editor stays open; the poll runs every two seconds.
+    std::this_thread::sleep_for(std::chrono::milliseconds(2100));
+    host.sentMessages.clear();
+    plugin.OnIdle();
+
+    if (!LastSentMessage(host, "sharedSyncUpdated").is_object())
+    {
+        std::cerr << "An instance's own write hid another instance's change from its open editor\n";
+        return false;
+    }
+
+    // What the UI does with the notice.
+    plugin.HandleUIMessage(nlohmann::json{{"type", "getSharedSyncState"}}.dump());
+    const auto shared = LastSentMessage(host, "sharedSyncState");
+
+    if (modelId.empty() || !shared.is_object() || !ContainsEntryWithId(ListedModels(shared), "id", modelId))
+    {
+        std::cerr << "The open editor's reload after the notice did not bring the other instance's model\n";
         return false;
     }
 
@@ -4042,6 +4464,12 @@ int main()
     run("Plugin state remembers editor window size", TestPluginStateRemembersEditorWindowSize());
     run("Shared-sync reload applies shared settings and keeps instance-owned",
         TestSharedSyncReloadAppliesSharedSettingsAndKeepsInstanceOwned());
+    run("Editor open catches up on changes made while closed", TestEditorOpenCatchesUpOnChangesMadeWhileClosed());
+    run("Reopened editor catches up past its own write", TestReopenedEditorCatchesUpPastItsOwnWrite());
+    run("Editor open catch-up keeps project settings and automation",
+        TestEditorOpenCatchUpKeepsProjectSettingsAndAutomation());
+    run("Editor open catch-up takes what changed elsewhere", TestEditorOpenCatchUpTakesWhatChangedElsewhere());
+    run("Own write does not hide another instance's change", TestOwnWriteDoesNotHideAnotherInstancesChange());
     run("Load preset rehydrates scrubbed hosted plugin state", TestLoadPresetRehydratesScrubbedHostedPluginState());
     run("Load preset rehydrates scrubbed hosted plugin state from active preset",
         TestLoadPresetRehydratesScrubbedHostedPluginStateFromActivePreset());

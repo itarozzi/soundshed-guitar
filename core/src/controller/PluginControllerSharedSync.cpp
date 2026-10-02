@@ -11,6 +11,11 @@
  * outside lets two instances see the same version and both write version+1, so
  * one notification is lost and everyone else shows stale data until the next
  * unrelated change.
+ *
+ * Only an open editor drives that poll, so a plugin instance whose editor is
+ * closed hears nothing. It catches up when an editor's UI loads instead
+ * (CatchUpWithSharedStore), by comparing the counter with the one it last
+ * loaded at, which unlike the poll's never moves without a load.
  */
 
 #include "PluginController.h"
@@ -25,15 +30,45 @@ using namespace guitarfx::controller_detail;
 
 namespace guitarfx
 {
+std::uint64_t PluginController::ReadSharedSyncVersion() const
+{
+    const auto payload = Store().Get(storage::ItemType::kDocument, kSharedSyncStateDocumentId);
+
+    if (!payload || !payload->is_object())
+    {
+        return 0;
+    }
+
+    const auto versionIt = payload->find("version");
+    return versionIt != payload->end() && versionIt->is_number_unsigned() ? versionIt->get<std::uint64_t>() : 0;
+}
+
+void PluginController::CatchUpWithSharedStore()
+{
+    if (ReadSharedSyncVersion() != mSharedSyncVersionLoaded)
+    {
+        ReloadSharedSyncSourcesFromDisk();
+    }
+}
+
 void PluginController::ReloadSharedSyncSourcesFromDisk()
 {
-    // LoadAppSettings() replaces mAppSettings wholesale from the shared store, which would
-    // otherwise drag this instance's NAM quality and editor layout back to whatever another
-    // instance (or the standalone app) last wrote. kPreserveInstanceOwned re-asserts them
-    // instead; the live values are members, so nothing needs snapshotting first.
-    LoadAppSettings();
+    // Read before anything is loaded: a write landing meanwhile is then still newer than what
+    // this instance has, and the next catch-up takes it.
+    const auto version = ReadSharedSyncVersion();
+    mSharedSyncVersionLoaded = version;
 
-    if (ApplySettingsToRuntime(SettingsApplyMode::kPreserveInstanceOwned))
+    // Nothing for the poll to announce about a version already loaded.
+    if (!mSharedSyncVersionSeenInitialized || version > mSharedSyncVersionSeen)
+    {
+        mSharedSyncVersionSeen = version;
+        mSharedSyncVersionSeenInitialized = true;
+    }
+
+    // Applied only on a change, so a reload for some other domain cannot reapply settings over
+    // runtime state a project restored on its own (the limiter, say). kPreserveInstanceOwned
+    // keeps this instance's NAM quality and editor layout.
+    if (MergeAppSettingsChangedInStore() && ApplySettingsToRuntime(SettingsApplyMode::kPreserveInstanceOwned))
     {
         SaveAppSettings();
     }
@@ -63,11 +98,19 @@ void PluginController::ReloadSharedSyncSourcesFromDisk()
         mRiffLibraryIndex = LoadRiffLibraryIndex();
     }
 
-    const auto automationData = LoadUiStorageJson("automation.json", nlohmann::json::object());
-
-    if (!automationData.empty())
+    // Only when another instance changed them: a plugin instance runs on the slots its project
+    // restored. The values are this instance's either way (see SaveValuesToJson), so they are
+    // carried into the new slots rather than left at 0 for a host to read back.
+    if (const auto automationData = LoadUiStorageJson("automation.json", nlohmann::json::object());
+        automationData != mStoreAutomationSnapshot)
     {
-        ReplaceAutomationSlots(automationData, nullptr);
+        mStoreAutomationSnapshot = automationData;
+
+        if (!automationData.empty())
+        {
+            const auto values = mAutomationSlots.SaveValuesToJson();
+            ReplaceAutomationSlots(automationData, &values);
+        }
     }
 
     const auto setlistsData = LoadUiStorageJson("setlists.json", nlohmann::json::object());
@@ -147,19 +190,7 @@ void PluginController::PollSharedSyncState()
 void PluginController::HandleGetSharedSyncStateRequest()
 {
     // Only act if the shared sync state has a new version since we last responded.
-    const auto filePayload =
-        Store().Get(storage::ItemType::kDocument, kSharedSyncStateDocumentId).value_or(nlohmann::json::object());
-    std::uint64_t currentVersion = 0;
-
-    if (filePayload.is_object())
-    {
-        const auto it = filePayload.find("version");
-
-        if (it != filePayload.end() && it->is_number_unsigned())
-        {
-            currentVersion = it->get<std::uint64_t>();
-        }
-    }
+    const auto currentVersion = ReadSharedSyncVersion();
 
     if (currentVersion > 0 && currentVersion == mSharedSyncVersionHandled)
     {
@@ -168,13 +199,8 @@ void PluginController::HandleGetSharedSyncStateRequest()
 
     mSharedSyncVersionHandled = currentVersion;
 
-    if (!mSharedSyncVersionSeenInitialized || currentVersion > mSharedSyncVersionSeen)
-    {
-        mSharedSyncVersionSeen = currentVersion;
-        mSharedSyncVersionSeenInitialized = true;
-    }
-
-    ReloadSharedSyncSourcesFromDisk();
+    // The UI asks after a change notice, but an editor's load may already have caught up with it.
+    CatchUpWithSharedStore();
 
     nlohmann::json state;
     state["type"] = "sharedSyncState";
@@ -309,7 +335,18 @@ void PluginController::TouchSharedSyncState(const std::vector<std::string>& doma
         return;
     }
 
-    mSharedSyncVersionSeen = nextVersion;
-    mSharedSyncVersionSeenInitialized = true;
+    // This instance already holds its own change, so its UI need not hear of it. If someone else
+    // wrote in between, it is still missing theirs: the poll has to announce this version, and
+    // the loaded version stays put, so the reload that follows (or the next catch-up) runs.
+    if (!mSharedSyncVersionSeenInitialized || mSharedSyncVersionSeen + 1 == nextVersion)
+    {
+        mSharedSyncVersionSeen = nextVersion;
+        mSharedSyncVersionSeenInitialized = true;
+    }
+
+    if (mSharedSyncVersionLoaded + 1 == nextVersion)
+    {
+        mSharedSyncVersionLoaded = nextVersion;
+    }
 }
 } // namespace guitarfx

@@ -120,6 +120,10 @@ void PluginController::Initialize()
     // app-side mono folding/channel selection so the input is used as provided.
     mPresetMixer.SetHostControlledInput(!mHost.IsStandalone());
 
+    // Before anything shared is loaded, so a write by another instance while this runs is
+    // still newer than what gets loaded (see CatchUpWithSharedStore).
+    mSharedSyncVersionLoaded = ReadSharedSyncVersion();
+
     LoadAppSettings();
 
     if (ApplySettingsToRuntime(SettingsApplyMode::kApplyAll))
@@ -169,6 +173,7 @@ void PluginController::Initialize()
 
     // Load automation.json
     const auto automationData = LoadUiStorageJson("automation.json", nlohmann::json::object());
+    mStoreAutomationSnapshot = automationData;
 
     if (!automationData.empty())
     {
@@ -630,9 +635,12 @@ void PluginController::OnWebContentLoaded()
 {
     mUIReady = true;
 
-    // A plugin editor can open long after this instance last read the store; the state it
-    // is about to be sent must carry the user's current keys and sign-ins.
-    RefreshAccountSettingsFromStore();
+    // Only an open editor polls for other instances' changes, so a plugin instance whose editor
+    // was closed, or never opened, has missed every one since: a resource imported, a blend
+    // edited, a key entered. The first poll after an editor opens takes the store's version as
+    // seen without loading it, and a notice sent while a reopened page loads has nobody to
+    // hear it. The state this UI is about to be sent has to include all of them.
+    CatchUpWithSharedStore();
     mPendingStateBroadcast = true;
 
     // The UI may not be ready when Initialize() loads/sends the layout library.

@@ -13,12 +13,14 @@
  * This test's main thread is the message thread. Its DAW parameters are bound the way the plugin
  * adapter binds them, including a reserved placeholder no slot will ever have.
  *  - The parameters follow their slots: restores, MIDI, the UI, the host's own automation, a slot
- *    added and removed, and a parameter whose slot has gone reads 0.
+ *    added and removed, and a parameter whose slot has gone reads 0. A shared-sync reload of
+ *    another instance's mappings keeps every value.
  *  - Under churn, one thread reads every parameter in a loop while the audio thread applies MIDI
  *    to a mapped slot and processes audio, and the message thread restores host state over and
  *    over (with custom slots coming and going, so the list is rebuilt at different sizes). Every
  *    value read is one a slot really had: a restore never shows a value in between.
- *  - The same again with shared-sync reloads and custom slots added and removed one at a time.
+ *  - The same again with custom slots added and removed one at a time, and another instance's
+ *    mappings reloaded through shared sync.
  */
 
 #include <atomic>
@@ -129,6 +131,53 @@ void Send(PluginController& controller, const nlohmann::json& message)
     controller.HandleUIMessage(message.dump());
 }
 
+/// Another instance on the same store, changing the shared automation mappings as its own
+/// setAutomationSlot would: the document, then the shared-sync version. The controller's next
+/// getSharedSyncState then reloads them. Its own writes no longer do: it already has those.
+class OtherInstance
+{
+  public:
+    explicit OtherInstance(const fs::path& sandbox)
+    {
+        std::string error;
+        mOpen = mStore.Open(sandbox / "Soundshed Guitar" / "data" / "v1" / "soundshed.db", error);
+
+        if (!mOpen)
+        {
+            std::cout << "[FAIL] could not open the store as another instance: " << error << "\n";
+        }
+    }
+
+    [[nodiscard]] bool Ok() const
+    {
+        return mOpen;
+    }
+
+    bool WriteAutomation(const nlohmann::json& customSlots)
+    {
+        const nlohmann::json automation = {
+            {"schemaVersion", 1}, {"defaultSlotOverrides", nlohmann::json::object()}, {"customSlots", customSlots}};
+
+        return mStore.Transact([&] {
+            std::uint64_t next = 1;
+
+            if (const auto previous = mStore.Get(storage::ItemType::kDocument, "shared-sync-state");
+                previous && previous->is_object())
+            {
+                next = previous->value("version", std::uint64_t{0}) + 1;
+            }
+
+            return mStore.Put(storage::ItemType::kDocument, "automation", automation) &&
+                   mStore.Put(storage::ItemType::kDocument, "shared-sync-state",
+                              {{"version", next}, {"domains", {"automation"}}});
+        });
+    }
+
+  private:
+    storage::JsonStore mStore;
+    bool mOpen = false;
+};
+
 MidiEvent Cc(int value)
 {
     return MidiEvent{static_cast<std::uint8_t>(0xB0), static_cast<std::uint8_t>(kMidiController),
@@ -210,8 +259,7 @@ class MidiAudioThread
 class ParameterReader
 {
   public:
-    ParameterReader(PluginController& controller, bool inputLevelMayBeZero)
-        : mController(controller), mInputLevelMayBeZero(inputLevelMayBeZero)
+    explicit ParameterReader(PluginController& controller) : mController(controller)
     {
         mThread = std::thread([this] { Run(); });
     }
@@ -273,8 +321,8 @@ class ParameterReader
         switch (parameter)
         {
         case kInputLevel:
-            // Only ever restored. A shared-sync reload rebuilds the slots with their values at 0.
-            return value == kInputLevelA || value == kInputLevelB || (mInputLevelMayBeZero && value == 0.0f);
+            // Only ever restored. A shared-sync reload carries it into the slots it rebuilds.
+            return value == kInputLevelA || value == kInputLevelB;
         case kPlaceholder:
             return value == 0.0f;
         default:
@@ -283,14 +331,13 @@ class ParameterReader
     }
 
     PluginController& mController;
-    const bool mInputLevelMayBeZero;
     std::thread mThread;
     std::atomic<bool> mStop{false};
 };
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
-bool TestParametersFollowSlots(PluginController& controller)
+bool TestParametersFollowSlots(PluginController& controller, OtherInstance& other)
 {
     const std::string label = "parameters: ";
     const auto value = [&controller](int parameter) { return controller.GetDawParameterValue(parameter); };
@@ -310,6 +357,17 @@ bool TestParametersFollowSlots(PluginController& controller)
 
     controller.ApplyAutomationFromDAW("default.inputLevel", 0.4f);
     passed = Check(Near(value(kInputLevel), 0.4f), label + "so does the host's own automation") && passed;
+
+    // Another instance adds a mapping. This one takes the mappings, but the values are its own.
+    passed = Check(other.WriteAutomation(
+                       nlohmann::json::array({CustomSlot("custom.midi", true), CustomSlot("custom.elsewhere", false)})),
+                   label + "another instance changes the mappings") &&
+             passed;
+    Send(controller, {{"type", "getSharedSyncState"}});
+    passed = Check(Near(value(kInputLevel), 0.4f) && Near(value(kMidiSlot), 1.0f),
+                   label + "a shared-sync reload keeps them (" + Show(value(kInputLevel)) + ", " +
+                       Show(value(kMidiSlot)) + ")") &&
+             passed;
 
     Send(controller, {{"type", "setAutomationSlot"}, {"slotId", "custom.ui"}, {"label", "UI"}, {"address", ""}});
     Send(controller, {{"type", "setAutomationValue"}, {"slotId", "custom.ui"}, {"value", 0.3}});
@@ -332,10 +390,11 @@ bool TestParametersFollowSlots(PluginController& controller)
     return passed;
 }
 
-/// Restores back and forth, and with `sharedSync` also custom slots added and removed and the
-/// shared automation reloaded, while a host thread reads every parameter and the audio thread
+/// Restores back and forth, and with `sharedSync` also custom slots added and removed and another
+/// instance's mappings reloaded, while a host thread reads every parameter and the audio thread
 /// applies MIDI.
-bool TestReadersUnderChurn(PluginController& controller, test::PumpedTestHost& host, bool sharedSync)
+bool TestReadersUnderChurn(PluginController& controller, test::PumpedTestHost& host, OtherInstance& other,
+                           bool sharedSync)
 {
     const std::string label = sharedSync ? "churn with shared sync: " : "churn: ";
     constexpr int kRounds = 200;
@@ -344,7 +403,7 @@ bool TestReadersUnderChurn(PluginController& controller, test::PumpedTestHost& h
     host.Pump();
 
     MidiAudioThread audio(controller);
-    ParameterReader reader(controller, sharedSync);
+    ParameterReader reader(controller);
 
     for (int round = 0; round < kRounds; ++round)
     {
@@ -359,7 +418,8 @@ bool TestReadersUnderChurn(PluginController& controller, test::PumpedTestHost& h
 
             if (round % 4 == 0)
             {
-                // The write above bumped the shared version, so this reloads automation.json.
+                (void)other.WriteAutomation(nlohmann::json::array(
+                    {CustomSlot("custom.midi", true), CustomSlot("custom.other" + std::to_string(round), false)}));
                 Send(controller, {{"type", "getSharedSyncState"}});
             }
 
@@ -407,9 +467,11 @@ bool Run()
         controller.BindDawParameters(kBoundSlotIds);
         host.Pump();
 
-        passed = TestParametersFollowSlots(controller) && passed;
-        passed = TestReadersUnderChurn(controller, host, false) && passed;
-        passed = TestReadersUnderChurn(controller, host, true) && passed;
+        OtherInstance other(sandbox);
+        passed = other.Ok() && passed;
+        passed = TestParametersFollowSlots(controller, other) && passed;
+        passed = TestReadersUnderChurn(controller, host, other, false) && passed;
+        passed = TestReadersUnderChurn(controller, host, other, true) && passed;
         host.Pump();
     }
 

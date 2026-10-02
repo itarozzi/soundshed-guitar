@@ -194,6 +194,8 @@ void PluginController::SaveUiStorageJson(const std::string& filename, const nloh
     if (filename == "automation.json")
     {
         domains.push_back("automation");
+        // A reload then sees these slots as already this instance's (see ReloadSharedSyncSourcesFromDisk).
+        mStoreAutomationSnapshot = payload;
     }
     else if (filename == "setlists.json")
     {
