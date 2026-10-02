@@ -58,6 +58,9 @@ class SpringReverbEffect : public EffectProcessor
 
         mSmoothCoeff = static_cast<float>(1.0 - std::exp(-1.0 / (std::max(1.0, mSampleRate) * 0.015)));
         mTensionSmoothCoeff = static_cast<float>(1.0 - std::exp(-1.0 / (std::max(1.0, mSampleRate) * 0.12)));
+        mTankOutGain = static_cast<float>(std::pow(10.0, kWetMakeupDb / 20.0) / static_cast<double>(kTankCount));
+        mChirpStretch = std::clamp<size_t>(static_cast<size_t>(std::lround(kChirpStretchAt48k * mSampleRate / 48000.0)),
+                                           1, kMaxChirpStretch);
 
         UpdateParameters();
         mFeedback = mFeedbackTarget;
@@ -88,7 +91,11 @@ class SpringReverbEffect : public EffectProcessor
             mTankDcPrevR[index] = 0.0f;
             mTankDcStateL[index] = 0.0f;
             mTankDcStateR[index] = 0.0f;
+            mChirpL[index].fill(0.0f);
+            mChirpR[index].fill(0.0f);
         }
+
+        mChirpPos = 0;
 
         for (size_t index = 0; index < kDispersionCount; ++index)
         {
@@ -183,6 +190,8 @@ class SpringReverbEffect : public EffectProcessor
 
             float tankOutL = 0.0f;
             float tankOutR = 0.0f;
+            std::array<float, kTankCount> loopL = {};
+            std::array<float, kTankCount> loopR = {};
 
             for (size_t tankIndex = 0; tankIndex < kTankCount; ++tankIndex)
             {
@@ -202,10 +211,23 @@ class SpringReverbEffect : public EffectProcessor
                 // Block DC in the loop. The saturator below sits inside this feedback path, and a
                 // nonlinearity fed asymmetric tank ringing pumps low frequency back round with it —
                 // measured 13 dB above mid in the 20-120 Hz band once Drive was up.
-                const float filteredL = ProcessTankDcBlock(mTankLowpassStateL[tankIndex], mTankDcPrevL[tankIndex],
-                                                           mTankDcStateL[tankIndex]);
-                const float filteredR = ProcessTankDcBlock(mTankLowpassStateR[tankIndex], mTankDcPrevR[tankIndex],
-                                                           mTankDcStateR[tankIndex]);
+                loopL[tankIndex] = ProcessTankDcBlock(mTankLowpassStateL[tankIndex], mTankDcPrevL[tankIndex],
+                                                      mTankDcStateL[tankIndex]);
+                loopR[tankIndex] = ProcessTankDcBlock(mTankLowpassStateR[tankIndex], mTankDcPrevR[tankIndex],
+                                                      mTankDcStateR[tankIndex]);
+            }
+
+            // Dispersion on every trip round the loop, as a real spring has. Applied once at the
+            // input alone, every echo came back the same shape and the tail was a rigid flutter at
+            // the loop times -- whitened autocorrelation 0.51 at 53.5 ms, where real spring captures
+            // measure about 0.1 -- and it read as metallic. Here the higher frequencies fall further
+            // behind on each pass, so each echo is a longer chirp than the last.
+            Disperse(loopL, loopR);
+
+            for (size_t tankIndex = 0; tankIndex < kTankCount; ++tankIndex)
+            {
+                const float filteredL = loopL[tankIndex];
+                const float filteredR = loopR[tankIndex];
 
                 // Self-feedback plus a little cross-coupling. The pair decays at (self + cross), so
                 // the old 0.54 ceiling capped the tank at ~0.65 s — a real spring tank rings for
@@ -239,8 +261,13 @@ class SpringReverbEffect : public EffectProcessor
                 tankOutR += filteredR;
             }
 
-            tankOutL *= (1.0f / static_cast<float>(kTankCount));
-            tankOutR *= (1.0f / static_cast<float>(kTankCount));
+            if (++mChirpPos >= mChirpStretch)
+            {
+                mChirpPos = 0;
+            }
+
+            tankOutL *= mTankOutGain;
+            tankOutR *= mTankOutGain;
 
             const float drip1L =
                 ProcessBandpass(tankOutL, mBandpassState1L, mDripBand1B0, mDripBand1B2, mDripBand1A1, mDripBand1A2);
@@ -365,6 +392,19 @@ class SpringReverbEffect : public EffectProcessor
     static constexpr double kMaxTankFeedback = 1.02;
     // Corner of the one-pole DC block inside the tank loop.
     static constexpr double kTankDcHz = 30.0;
+    // Fixed gain on the tank's output. Until the dispersion allpasses were fixed they were resonant
+    // combs adding 10-30 dB, and the Mix default and saved presets were balanced against that level.
+    // The fix, with the tank changes made alongside it, left the spring 13.5 dB quieter at its
+    // default settings (measured on guitar clips, raw and through a cab), which this puts back. It
+    // follows no control, so it does not bring the defect back.
+    static constexpr double kWetMakeupDb = 13.5;
+    // In-loop dispersion: kChirpStages first-order allpasses with coefficient kChirpCoeff, each
+    // stretched over K samples. Group delay then climbs from about 0.3 ms at DC to 5.3 ms a pass
+    // at fs/2K, 6 kHz with K = 4 at 48 kHz. K follows the sample rate so that corner stays put.
+    static constexpr size_t kChirpStages = 16;
+    static constexpr size_t kMaxChirpStretch = 16;
+    static constexpr double kChirpStretchAt48k = 4.0;
+    static constexpr float kChirpCoeff = 0.6f;
 
     size_t DelayMsToSamples(double ms) const
     {
@@ -530,6 +570,33 @@ class SpringReverbEffect : public EffectProcessor
         return output;
     }
 
+    // One stage of the dispersion chain, (a + z^-K) / (1 + a z^-K) in transposed form: a single
+    // K-sample state line per stage, indexed by the shared mChirpPos.
+    static float ChirpStage(float& slot, float x)
+    {
+        const float delayed = slot;
+        const float w = x - kChirpCoeff * delayed;
+        slot = FlushNearZero(w);
+        return kChirpCoeff * w + delayed;
+    }
+
+    // Runs every tank's chain, both sides, a stage at a time. Each chain is a serial dependency, so
+    // stepping the six together lets them overlap rather than wait on each other. Run one after
+    // another they added about 60% to the spring's time a block; stepped together, about 25%.
+    void Disperse(std::array<float, kTankCount>& l, std::array<float, kTankCount>& r)
+    {
+        for (size_t stage = 0; stage < kChirpStages; ++stage)
+        {
+            const size_t slot = stage * kMaxChirpStretch + mChirpPos;
+
+            for (size_t tank = 0; tank < kTankCount; ++tank)
+            {
+                l[tank] = ChirpStage(mChirpL[tank][slot], l[tank]);
+                r[tank] = ChirpStage(mChirpR[tank][slot], r[tank]);
+            }
+        }
+    }
+
     float ProcessTankDcBlock(float input, float& prevIn, float& prevOut) const
     {
         const float output = mTankDcAlpha * (prevOut + input - prevIn);
@@ -613,6 +680,11 @@ class SpringReverbEffect : public EffectProcessor
     std::array<float, kTankCount> mTankDcStateL{};
     std::array<float, kTankCount> mTankDcStateR{};
 
+    std::array<std::array<float, kChirpStages * kMaxChirpStretch>, kTankCount> mChirpL{};
+    std::array<std::array<float, kChirpStages * kMaxChirpStretch>, kTankCount> mChirpR{};
+    size_t mChirpStretch = 4;
+    size_t mChirpPos = 0;
+
     std::array<std::vector<float>, kDispersionCount> mDispersionDelayL;
     std::array<std::vector<float>, kDispersionCount> mDispersionDelayR;
     std::array<size_t, kDispersionCount> mDispersionWriteL{};
@@ -635,6 +707,8 @@ class SpringReverbEffect : public EffectProcessor
     float mDriveSmoothed = 0.18f;
     float mSmoothCoeff = 0.0f;
     float mTensionSmoothCoeff = 0.0f;
+    // Averages the tanks and applies kWetMakeupDb; set in Prepare.
+    float mTankOutGain = 1.0f / static_cast<float>(kTankCount);
     float mWetToneStateL = 0.0f;
     float mWetToneStateR = 0.0f;
 

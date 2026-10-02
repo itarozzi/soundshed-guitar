@@ -63,6 +63,7 @@ class AmbientReverbEffect : public EffectProcessor
 
         mSmoothCoeff = static_cast<float>(1.0 - std::exp(-1.0 / (std::max(1.0, mSampleRate) * 0.015)));
         mSizeSmoothCoeff = static_cast<float>(1.0 - std::exp(-1.0 / (std::max(1.0, mSampleRate) * 0.18)));
+        mLateGain = static_cast<float>(std::pow(10.0, kLateMakeupDb / 20.0) / static_cast<double>(kCombCount));
 
         for (size_t index = 0; index < kCombCount; ++index)
         {
@@ -246,8 +247,8 @@ class AmbientReverbEffect : public EffectProcessor
                 combSumR += delayedR;
             }
 
-            float lateL = combSumL / static_cast<float>(kCombCount);
-            float lateR = combSumR / static_cast<float>(kCombCount);
+            float lateL = combSumL * mLateGain;
+            float lateR = combSumR * mLateGain;
 
             const float crossFeed = 0.05f + static_cast<float>(mSpace) * 0.12f;
             const float lateCrossL = lateL + lateR * crossFeed;
@@ -430,6 +431,12 @@ class AmbientReverbEffect : public EffectProcessor
     static constexpr double kFeedHighpassHz = 70.0;
     static constexpr double kRt60MinS = 0.8;
     static constexpr double kRt60MaxS = 20.0;
+    // Fixed gain on the late reverb. Until the diffusers were fixed they were resonant combs, and
+    // their gain -- 12.4 dB at the default Diffusion -- set the late level that the Mix default and
+    // saved presets were balanced against. This puts it back, on the late path alone because that
+    // is where the diffusers sit, so the early reflections keep their old balance against it. It
+    // follows no control, so Diffusion stays out of the level.
+    static constexpr double kLateMakeupDb = 12.4;
 
     size_t DelayMsToSamples(double ms) const
     {
@@ -614,6 +621,8 @@ class AmbientReverbEffect : public EffectProcessor
     float mOutputGainSmoothed = 1.0f;
     float mOutputGainTarget = 1.0f;
     float mModDepthSamples = 6.0f;
+    // Averages the combs and applies kLateMakeupDb; set in Prepare.
+    float mLateGain = 1.0f / static_cast<float>(kCombCount);
     float mSmoothCoeff = 0.0f;
     float mSizeSmoothCoeff = 0.0f;
     float mWetToneStateL = 0.0f;

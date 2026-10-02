@@ -238,15 +238,19 @@ class ReverbEffect : public EffectProcessor
             const float preL = ReadFromDelay(mPreDelayL, mPreDelayWrite, mPreDelaySamples);
             const float preR = ReadFromDelay(mPreDelayR, mPreDelayWrite, mPreDelaySamples);
 
-            float earlyL = preL * mEarlyBaseGain;
-            float earlyR = preR * mEarlyBaseGain;
+            // The tank's feed: the direct sound here, and the early taps, which each line takes with
+            // its own signs below.
+            const float directL = preL * mDirectFeed;
+            const float directR = preR * mDirectFeed;
+            std::array<float, kEarlyTapCount> tapL = {};
+            std::array<float, kEarlyTapCount> tapR = {};
 
             for (size_t t = 0; t < kEarlyTapCount; ++t)
             {
-                earlyL += ReadFromDelay(mPreDelayL, mPreDelayWrite, mPreDelaySamples + mEarlyTapSamples[t]) *
-                          mEarlyTapGains[t];
-                earlyR += ReadFromDelay(mPreDelayR, mPreDelayWrite, mPreDelaySamples + mEarlyTapSamplesMirror[t]) *
-                          mEarlyTapGains[t];
+                tapL[t] = ReadFromDelay(mPreDelayL, mPreDelayWrite, mPreDelaySamples + mEarlyTapSamples[t]) *
+                          mEarlyTapFeed[t];
+                tapR[t] = ReadFromDelay(mPreDelayR, mPreDelayWrite, mPreDelaySamples + mEarlyTapSamplesMirror[t]) *
+                          mEarlyTapFeed[t];
             }
 
             if (++mPreDelayWrite >= mPreDelayL.size())
@@ -263,9 +267,6 @@ class ReverbEffect : public EffectProcessor
 
             const float combModDepth = mModDepthInternal;
             const float allpassModDepth = mModDepthInternal * 0.6f;
-
-            float tankInL = ApplyDrive(preL * (1.0f - mEarlyMix) + earlyL * mEarlyMix, drive);
-            float tankInR = ApplyDrive(preR * (1.0f - mEarlyMix) + earlyR * mEarlyMix, drive);
 
             float combOutL = 0.0f;
             float combOutR = 0.0f;
@@ -310,8 +311,24 @@ class ReverbEffect : public EffectProcessor
                 const float feedbackL = mixedL + (mixedR - mixedL) * kStereoFeedbackBlend;
                 const float feedbackR = mixedR + (mixedL - mixedR) * kStereoFeedbackBlend;
 
-                mCombBufferL[c][mCombWriteL[c]] = FlushNearZero(tankInL + feedbackL * mFeedback);
-                mCombBufferR[c][mCombWriteR[c]] = FlushNearZero(tankInR + feedbackR * mFeedback);
+                // Every line used to take the same feed, so they all carried the same comb -- the
+                // first tap lands ~5 ms behind the direct sound at nearly its level -- and summing
+                // them kept it: the whole tail rang at the tap spacing. Signs that cancel across the
+                // lines leave no tap pattern common to them all.
+                float injectL = directL;
+                float injectR = directR;
+
+                for (size_t t = 0; t < kEarlyTapCount; ++t)
+                {
+                    injectL += kTapSigns[c][t] * tapL[t];
+                    injectR += kTapSigns[c][t] * tapR[t];
+                }
+
+                injectL = ApplyDrive(injectL, drive);
+                injectR = ApplyDrive(injectR, drive);
+
+                mCombBufferL[c][mCombWriteL[c]] = FlushNearZero(injectL + feedbackL * mFeedback);
+                mCombBufferR[c][mCombWriteR[c]] = FlushNearZero(injectR + feedbackR * mFeedback);
 
                 if (++mCombWriteL[c] >= mCombBufferL[c].size())
                 {
@@ -645,6 +662,17 @@ class ReverbEffect : public EffectProcessor
     static constexpr std::array<double, kCombCount> kCombModPhaseOffsets = {0.0,  0.73, 1.41, 2.19,
                                                                             2.94, 3.67, 4.28, 5.11};
     static constexpr std::array<double, kAllpassCount> kAllpassModPhaseOffsets = {0.37, 1.83, 3.12, 4.71};
+    // The sign each comb line takes each early tap with: columns 1-4 of an 8x8 Hadamard matrix, so
+    // every tap reaches four lines positively and four negatively.
+    static constexpr std::array<std::array<float, kEarlyTapCount>, kCombCount> kTapSigns = {
+        {{1.0f, 1.0f, 1.0f, 1.0f},
+         {-1.0f, 1.0f, -1.0f, 1.0f},
+         {1.0f, -1.0f, -1.0f, 1.0f},
+         {-1.0f, -1.0f, 1.0f, 1.0f},
+         {1.0f, 1.0f, 1.0f, -1.0f},
+         {-1.0f, 1.0f, -1.0f, -1.0f},
+         {1.0f, -1.0f, -1.0f, -1.0f},
+         {-1.0f, -1.0f, 1.0f, -1.0f}}};
 
     struct ModeProfile
     {
@@ -673,6 +701,11 @@ class ReverbEffect : public EffectProcessor
         double earlyMixMax = 0.46;
     };
 
+    // The output diffusers are kept to a few milliseconds. An allpass of delay M and gain g holds
+    // the frequencies at multiples of 1/M for up to M(1+g)/(1-g), so in a decaying tail those
+    // frequencies outlast the rest: at 12-18 ms and g up to 0.74 the tail rang at 60-80 Hz and its
+    // harmonics, the metallic tone that Mix exposes. At 2-7 ms the echoes they make are dense
+    // within about 30 ms and nothing they hold lasts long enough to be heard as a pitch.
     static ModeProfile GetProfile(Mode mode)
     {
         switch (mode)
@@ -680,8 +713,8 @@ class ReverbEffect : public EffectProcessor
         case Mode::Chamber:
             return {{26.7, 29.8, 33.4, 36.9, 39.8, 43.6, 47.5, 50.9},
                     {27.4, 30.6, 34.1, 37.6, 40.7, 44.4, 48.3, 51.8},
-                    {6.1, 9.1, 12.8, 17.2},
-                    {6.8, 9.8, 13.5, 17.9},
+                    {2.44, 3.64, 5.12, 6.88},
+                    {2.72, 3.92, 5.40, 7.16},
                     {8.0, 13.0, 21.0, 31.0},
                     {0.38f, 0.24f, 0.17f, 0.12f},
                     1.1,
@@ -701,8 +734,8 @@ class ReverbEffect : public EffectProcessor
         case Mode::Spring:
             return {{18.2, 20.7, 24.3, 27.0, 30.1, 32.8, 35.5, 38.4},
                     {18.7, 21.4, 24.8, 27.7, 30.7, 33.2, 36.1, 39.1},
-                    {3.1, 5.2, 7.3, 9.7},
-                    {3.6, 5.8, 7.9, 10.1},
+                    {1.24, 2.08, 2.92, 3.88},
+                    {1.44, 2.32, 3.16, 4.04},
                     {4.0, 7.0, 11.0, 16.0},
                     {0.45f, 0.27f, 0.17f, 0.11f},
                     0.9,
@@ -723,8 +756,8 @@ class ReverbEffect : public EffectProcessor
         default:
             return {{19.7, 22.1, 24.9, 27.8, 30.5, 33.2, 35.7, 38.1},
                     {20.3, 22.8, 25.4, 28.5, 31.3, 33.9, 36.4, 39.2},
-                    {4.8, 6.8, 9.1, 12.2},
-                    {5.2, 7.3, 9.8, 12.9},
+                    {1.92, 2.72, 3.64, 4.88},
+                    {2.08, 2.92, 3.92, 5.16},
                     {5.0, 9.0, 14.0, 20.0},
                     {0.40f, 0.25f, 0.19f, 0.13f},
                     0.95,
@@ -741,6 +774,29 @@ class ReverbEffect : public EffectProcessor
                     1.00,
                     0.12,
                     0.44};
+        }
+    }
+
+    // Fixed gain on the wet path, per type. Until the diffusers were made true allpasses they were
+    // resonant combs whose gain set the wet level -- 12-17 dB of it at each type's Diffusion -- and
+    // every Mix default and saved preset was balanced against that. The fix, with the Decay ranges
+    // changed alongside it, left these reverbs 10-15 dB quieter at the same Mix. A constant puts the
+    // level back without the defect, since it follows no control. Each value is what that type lost
+    // at its default settings, measured on guitar clips raw and through a cab.
+    static double WetMakeupDb(Mode mode)
+    {
+        switch (mode)
+        {
+        case Mode::Chamber:
+            return 14.3;
+        // Spring is never registered as a mode of its own. As Advanced's Spring character it takes
+        // Advanced's value, as Advanced's other characters do.
+        case Mode::Spring:
+        case Mode::Advanced:
+            return 13.5;
+        case Mode::Room:
+        default:
+            return 10.3;
         }
     }
 
@@ -915,9 +971,11 @@ class ReverbEffect : public EffectProcessor
             std::clamp(0.02 + (mDamping * 0.62) + (1.0 - mTone) * 0.26 + profile.dampBias * 0.08, 0.02, 0.96);
         mDampTarget = static_cast<float>(dampBase);
 
+        // Diffusion tops out near 0.65. Above that an allpass holds its resonant frequencies so long
+        // (M(1+g)/(1-g), 24 times its delay at the old 0.92) that it rings however short it is.
         mDiffusionGainTarget =
-            static_cast<float>(std::clamp(0.28 + mDiffusion * 0.58 + profile.diffusionBias * 0.08, 0.2, 0.92));
-        mCombGain = 1.0f / static_cast<float>(kCombCount);
+            static_cast<float>(std::clamp(0.25 + mDiffusion * 0.36 + profile.diffusionBias * 0.08, 0.2, 0.7));
+        mCombGain = static_cast<float>(std::pow(10.0, WetMakeupDb(mMode) / 20.0) / static_cast<double>(kCombCount));
 
         const double modBias = std::clamp(profile.modulationBias + mModDepth * 0.8, 0.0, 1.5);
         const double modInc = kTwoPi * std::clamp(mModRateHz, 0.02, 8.0) / std::max(1.0, mSampleRate);
@@ -934,9 +992,16 @@ class ReverbEffect : public EffectProcessor
         mHighpassAlphaTarget = static_cast<float>(rcLow / (rcLow + dt));
         mLowpassAlphaTarget = static_cast<float>(dt / (rcHigh + dt));
 
-        mEarlyBaseGain = static_cast<float>(profile.earlyBaseGain);
-        mEarlyMix = static_cast<float>(
-            std::clamp(profile.earlyMixBias + mDiffusion * 0.12, profile.earlyMixMin, profile.earlyMixMax));
+        // The tank is fed the direct sound blended with the early reflections: (1 - mix) of the direct
+        // plus mix of the reflections, whose own pattern opens with the direct at earlyBaseGain.
+        const double earlyMix =
+            std::clamp(profile.earlyMixBias + mDiffusion * 0.12, profile.earlyMixMin, profile.earlyMixMax);
+        mDirectFeed = static_cast<float>(1.0 - earlyMix + earlyMix * profile.earlyBaseGain);
+
+        for (size_t t = 0; t < kEarlyTapCount; ++t)
+        {
+            mEarlyTapFeed[t] = mEarlyTapGains[t] * static_cast<float>(earlyMix);
+        }
 
         const double duckAttack = 0.006;
         const double duckRelease = 0.11;
@@ -1145,6 +1210,8 @@ class ReverbEffect : public EffectProcessor
     std::array<size_t, kEarlyTapCount> mEarlyTapSamples = {};
     std::array<size_t, kEarlyTapCount> mEarlyTapSamplesMirror = {};
     std::array<float, kEarlyTapCount> mEarlyTapGains = {};
+    // Each tap's share of the tank feed: its gain times the early mix.
+    std::array<float, kEarlyTapCount> mEarlyTapFeed = {};
     size_t mPreDelaySamples = 1;
 
     float mLowpassStateL = 0.0f;
@@ -1185,8 +1252,8 @@ class ReverbEffect : public EffectProcessor
     float mDamp = 0.3f;
     float mDiffusionGain = 0.6f;
     float mCombGain = 0.125f;
-    float mEarlyBaseGain = 0.42f;
-    float mEarlyMix = 0.3f;
+    // The direct sound's share of the tank feed.
+    float mDirectFeed = 0.8f;
 
     // Smoothed-parameter targets — set in UpdateParameters(), lerped per-sample in Process().
     float mFeedbackTarget = 0.78f;

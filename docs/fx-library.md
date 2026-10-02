@@ -596,6 +596,36 @@ Room, chamber, and advanced reverb share a common algorithmic engine. Spring and
 
 Each effect exposes the controls most relevant to that style rather than sharing one universal surface.
 
+**Wet level.** Each carries a fixed makeup gain on its wet path: Room +10.3 dB, Chamber +14.3,
+Advanced +13.5 (whatever its Character), Spring +13.5, and Ambient +12.4 on the late reverb alone,
+where its diffusers sit, so the early reflections keep their balance against it. Until 1.6.0 the
+diffusers were resonant combs rather than allpasses, and their gain, which also rose with
+Diffusion, set the wet level every Mix default and saved preset was balanced against. Fixing them
+took 10-15 dB out of the wet path at the default settings. The makeup puts each type back where it
+was at those settings, measured on guitar clips raw and through a cab, and it follows no control, so
+Diffusion stays out of the level. Ambient is matched at 1.5.0's default Decay (0.7). At 100% wet a
+guitar comes out between -2 and +10 dB of where it went in, depending on the type, close to the
++1 to +11 dB the Convolution Reverb's unit-energy normalisation gives with the factory IRs.
+
+**Keeping the tail from ringing.** A turned-up Mix exposes any tone the tail holds, and three
+things used to give it one. They are measured on the impulse response's late tail: the whitened
+autocorrelation, where a peak at lag τ is a pitch or flutter at 1/τ, and the spectral peaks above a
+third-octave average. Real and high-end reverbs (Lexicon 480L, Bricasti and EMT 140 captures)
+measure 0.07-0.27 at 22-57 ms and peaks of +15-21 dB.
+- *Output diffusers* are 2-7 ms with gain up to about 0.65. At 12-18 ms and up to 0.92 they held
+  their resonances (multiples of 1/M) for up to M(1+g)/(1-g), and the tail rang at 60-80 Hz:
+  Room 0.37 at 12 ms, Chamber 0.60 at 17 ms.
+- *Early taps* feed each comb line with its own signs (columns of a Hadamard matrix). Fed alike,
+  every line carried the same comb, the first tap ~5 ms behind the direct sound, and so did the
+  whole tail.
+- *Spring* disperses on every pass of each tank loop (16 first-order allpasses stretched over
+  K = 4 samples at 48 kHz, scaled with the rate), not once at the input, where each echo came back
+  the same shape and the tail fluttered at the loop times (0.51 at 53.5 ms; real spring captures
+  measure about 0.1).
+
+Now: Room 0.16, Chamber 0.17, Advanced 0.23 and Spring 0.18, all at 54-69 ms, with peaks of
++15-21 dB.
+
 #### Room Reverb (`reverb_room`)
 
 | Parameter | Range | Default | Unit |
@@ -610,11 +640,11 @@ Each effect exposes the controls most relevant to that style rather than sharing
 
 | Parameter | Range | Default | Unit |
 |-----------|-------|---------|------|
-| `decay` | 0.0–1.0 | 0.42 | — |
-| `size` | 0.0–1.0 | 0.38 | — |
-| `tone` | 0.0–1.0 | 0.42 | — |
-| `preDelay` | 0–220 | 12.0 | ms |
-| `mix` | 0.0–1.0 | 0.16 | — |
+| `decay` | 0.0–1.0 | 0.60 | — |
+| `size` | 0.0–1.0 | 0.56 | — |
+| `tone` | 0.0–1.0 | 0.52 | — |
+| `preDelay` | 0–220 | 15.0 | ms |
+| `mix` | 0.0–1.0 | 0.24 | — |
 
 #### Spring Reverb (`reverb_spring`)
 
@@ -633,23 +663,24 @@ Common controls:
 
 | Parameter | Range | Default | Unit |
 |-----------|-------|---------|------|
-| `decay` | 0.0–1.0 | 0.40 | — |
-| `size` | 0.0–1.0 | 0.40 | — |
-| `mix` | 0.0–1.0 | 0.16 | — |
-| `damping` | 0.0–1.0 | 0.66 | — |
-| `preDelay` | 0–220 | 12.0 | ms |
-| `tone` | 0.0–1.0 | 0.42 | — |
-| `width` | 0.0–1.2 | 0.88 | — |
+| `character` | 0–2 | 0 | Room, Chamber, Spring |
+| `decay` | 0.0–1.0 | 0.64 | — |
+| `size` | 0.0–1.0 | 0.55 | — |
+| `mix` | 0.0–1.0 | 0.24 | — |
+| `damping` | 0.0–1.0 | 0.46 | — |
+| `preDelay` | 0–220 | 16.0 | ms |
+| `tone` | 0.0–1.0 | 0.62 | — |
+| `width` | 0.0–1.2 | 1.00 | — |
 
 Advanced controls:
 
 | Parameter | Range | Default | Unit |
 |-----------|-------|---------|------|
-| `diffusion` | 0.0–1.0 | 0.74 | — |
+| `diffusion` | 0.0–1.0 | 0.70 | — |
 | `lowCut` | 20–1200 | 140 | Hz, log taper |
-| `highCut` | 1000–20000 | 7600 | Hz, log taper |
-| `modRate` | 0.02–8.0 | 0.28 | Hz |
-| `modDepth` | 0.0–1.0 | 0.26 | — |
+| `highCut` | 1000–20000 | 12000 | Hz, log taper |
+| `modRate` | 0.02–8.0 | 0.45 | Hz |
+| `modDepth` | 0.0–1.0 | 0.18 | — |
 | `ducking` | 0.0–1.0 | 0.08 | — |
 | `drive` | 0.0–1.0 | 0.00 | — |
 
@@ -659,9 +690,9 @@ Long, diffuse late reverb with soft early reflections, slow modulation, and a wi
 
 | Parameter | Range | Default | Unit |
 |-----------|-------|---------|------|
-| `decay` | 0.0–1.0 | 0.70 | — |
+| `decay` | 0.0–1.0 | 0.50 | — |
 | `space` | 0.0–1.0 | 0.72 | — |
-| `diffusion` | 0.0–1.0 | 0.84 | — |
+| `diffusion` | 0.0–1.0 | 0.40 | — |
 | `preDelay` | 0–200 | 26.0 | ms |
 | `tone` | 0.0–1.0 | 0.42 | — |
 | `width` | 0.0–1.25 | 1.08 | — |
