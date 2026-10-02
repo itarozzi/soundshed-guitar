@@ -544,6 +544,8 @@ set(GUITARFX_CORE_SOURCES
     src/dsp/MultiPresetMixer.cpp
     src/dsp/DspReaper.h
     src/dsp/DspReaper.cpp
+    src/dsp/RealtimeParallel.h
+    src/dsp/RealtimeParallel.cpp
     src/dsp/GlobalChainEditor.h
     src/dsp/GlobalChainEditor.cpp
     src/dsp/GlobalChainEngine.h

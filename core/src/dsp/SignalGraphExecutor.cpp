@@ -210,7 +210,7 @@ SignalGraphExecutor::SignalGraphExecutor() = default;
 
 SignalGraphExecutor::~SignalGraphExecutor()
 {
-    StopWorkers();
+    mWorkerPool.Stop();
 }
 
 SignalGraphExecutor::SignalGraphExecutor(SignalGraphExecutor&& other) noexcept
@@ -225,7 +225,7 @@ SignalGraphExecutor& SignalGraphExecutor::operator=(SignalGraphExecutor&& other)
         return *this;
     }
 
-    StopWorkers();
+    mWorkerPool.Stop();
 
     mGraph = std::move(other.mGraph);
     mResourceLibrary = other.mResourceLibrary;
@@ -843,14 +843,7 @@ void SignalGraphExecutor::Prepare(double sampleRate, int maxBlockSize)
     const bool graphHasMeaningfulParallelLevel = (maxLevelScore * maxBlockSize) >= kMinLevelParallelWorkUnits;
     mUseParallelLevels = maxLevelWidth > 1 && workerCount > 0 && graphHasMeaningfulParallelLevel;
 
-    if (mUseParallelLevels)
-    {
-        StartWorkers(workerCount);
-    }
-    else
-    {
-        StopWorkers();
-    }
+    mWorkerPool.Start(mUseParallelLevels ? workerCount : 0);
 }
 
 void SignalGraphExecutor::Reset()
@@ -1005,60 +998,18 @@ void SignalGraphExecutor::Process(float** inputs, float** outputs, int numSample
         const int levelScore = (levelIndex < mExecutionLevelScores.size()) ? mExecutionLevelScores[levelIndex] : 0;
         const bool useParallelLevel = ShouldUseParallelLevel(
             levelCount, levelScore, numSamples,
-            mUseParallelLevels && mParallelLevelsEnabled.load(std::memory_order_acquire), !mWorkerThreads.empty());
+            mUseParallelLevels && mParallelLevelsEnabled.load(std::memory_order_acquire), mWorkerPool.HasWorkers());
 
         if (useParallelLevel)
         {
-            const int wi = std::min(levelCount, kMaxParallelWorkItems);
-
-            for (int i = 0; i < wi; ++i)
-            {
-                auto& item = mWorkItems[static_cast<size_t>(i)];
-                item.planIndex = level[static_cast<size_t>(i)];
-                item.numSamples = numSamples;
-                item.diagnosticsEnabled = diagnosticsEnabled;
-                item.collectLevels = collectLevels;
-            }
-
-            {
-                std::lock_guard<std::mutex> lock(mParallelMutex);
-                mParallelTaskHead.store(0, std::memory_order_relaxed);
-                mParallelDoneCount.store(0, std::memory_order_relaxed);
-                mParallelTaskCount.store(wi, std::memory_order_relaxed);
-                mParallelGeneration.fetch_add(1, std::memory_order_relaxed);
-            }
-
-            const int workersNeeded = std::min<int>(std::max(0, wi - 1), static_cast<int>(mWorkerThreads.size()));
-
-            for (int n = 0; n < workersNeeded; ++n)
-            {
-                mParallelCv.notify_one();
-            }
-
-            while (true)
-            {
-                const int idx = mParallelTaskHead.fetch_add(1, std::memory_order_acq_rel);
-
-                if (idx >= wi)
-                {
-                    break;
-                }
-
-                ProcessPlannedNode(mPlan[static_cast<size_t>(mWorkItems[static_cast<size_t>(idx)].planIndex)],
-                                   numSamples, diagnosticsEnabled, collectLevels);
-                mParallelDoneCount.fetch_add(1, std::memory_order_release);
-            }
-
-            while (mParallelDoneCount.load(std::memory_order_acquire) < wi)
-            {
-                std::this_thread::yield();
-            }
-
-            for (int i = wi; i < levelCount; ++i)
-            {
-                ProcessPlannedNode(mPlan[static_cast<size_t>(level[static_cast<size_t>(i)])], numSamples,
+            // This thread runs nodes alongside the workers; the pool returns once the whole
+            // level has run, so the next level reads finished buffers.
+            auto processNode = [&](int index) {
+                ProcessPlannedNode(mPlan[static_cast<size_t>(level[static_cast<size_t>(index)])], numSamples,
                                    diagnosticsEnabled, collectLevels);
-            }
+            };
+
+            mWorkerPool.Run(levelCount, processNode);
         }
         else
         {
@@ -1124,93 +1075,6 @@ void SignalGraphExecutor::Process(float** inputs, float** outputs, int numSample
         mLastRealTimeUs.store(realTimeUs, std::memory_order_relaxed);
         mLastDspLoadPercent.store((realTimeUs > 0.0) ? (totalProcessingTimeUs / realTimeUs) * 100.0 : 0.0,
                                   std::memory_order_relaxed);
-    }
-}
-
-void SignalGraphExecutor::StartWorkers(int count)
-{
-    StopWorkers();
-
-    {
-        std::lock_guard<std::mutex> lock(mParallelMutex);
-        mParallelQuit.store(false, std::memory_order_relaxed);
-        mParallelGeneration.store(0, std::memory_order_relaxed);
-    }
-
-    const int numWorkers = std::min(count, kMaxParallelWorkers);
-    mWorkerThreads.reserve(static_cast<size_t>(numWorkers));
-
-    for (int i = 0; i < numWorkers; ++i)
-    {
-        mWorkerThreads.emplace_back([this]() { WorkerLoop(); });
-    }
-}
-
-void SignalGraphExecutor::StopWorkers()
-{
-    if (mWorkerThreads.empty())
-    {
-        return;
-    }
-
-    {
-        std::lock_guard<std::mutex> lock(mParallelMutex);
-        mParallelQuit.store(true, std::memory_order_relaxed);
-    }
-    mParallelCv.notify_all();
-
-    for (auto& thread : mWorkerThreads)
-    {
-        if (thread.joinable())
-        {
-            thread.join();
-        }
-    }
-
-    mWorkerThreads.clear();
-}
-
-void SignalGraphExecutor::WorkerLoop()
-{
-    uint32_t lastGeneration = 0;
-
-    while (true)
-    {
-        {
-            std::unique_lock<std::mutex> lock(mParallelMutex);
-            mParallelCv.wait(lock, [&]() {
-                return mParallelQuit.load(std::memory_order_relaxed) ||
-                       mParallelGeneration.load(std::memory_order_relaxed) != lastGeneration;
-            });
-        }
-
-        if (mParallelQuit.load(std::memory_order_acquire))
-        {
-            break;
-        }
-
-        lastGeneration = mParallelGeneration.load(std::memory_order_acquire);
-        const int total = mParallelTaskCount.load(std::memory_order_acquire);
-
-        while (true)
-        {
-            const int idx = mParallelTaskHead.fetch_add(1, std::memory_order_acq_rel);
-
-            if (idx >= total)
-            {
-                break;
-            }
-
-            const auto& item = mWorkItems[static_cast<size_t>(idx)];
-
-            if (item.planIndex >= 0 && static_cast<std::size_t>(item.planIndex) < mPlan.size())
-            {
-                ProcessPlannedNode(mPlan[static_cast<std::size_t>(item.planIndex)], item.numSamples,
-                                   item.diagnosticsEnabled, item.collectLevels);
-            }
-
-            mParallelDoneCount.fetch_add(1, std::memory_order_release);
-        }
     }
 }
 

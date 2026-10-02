@@ -16,19 +16,6 @@ namespace guitarfx
 {
 namespace
 {
-static inline void CpuRelax() noexcept
-{
-#if defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86))
-    _mm_pause();
-#elif defined(__GNUC__) || defined(__clang__)
-    #if defined(__x86_64__) || defined(__i386__)
-    __asm volatile("pause" ::: "memory");
-    #elif defined(__aarch64__) || defined(__arm__)
-    __asm volatile("yield" ::: "memory");
-    #endif
-#endif
-}
-
 int ScoreNodeTypeForParallelWork(std::string_view type)
 {
     // Heuristic weights for per-node CPU cost in realtime processing.
@@ -338,21 +325,13 @@ void MultiPresetMixer::SetMultiThreadedProcessingEnabled(bool enabled)
 
     if (!enabled)
     {
-        StopWorkers();
+        mWorkerPool.Stop();
         return;
     }
 
-    if (!mPrepared)
+    if (mPrepared)
     {
-        return;
-    }
-
-    const unsigned int hw = std::thread::hardware_concurrency();
-    const int workerCount = static_cast<int>(hw > 1 ? hw - 1 : 0);
-
-    if (workerCount > 0)
-    {
-        StartWorkers(workerCount);
+        StartWorkers();
     }
 }
 
@@ -810,7 +789,7 @@ MultiPresetMixer::~MultiPresetMixer()
 {
     // Stop tuner callbacks before any other mixer state begins tearing down.
     mTuner.reset();
-    StopWorkers();
+    mWorkerPool.Stop();
     mReaper.Stop();
 }
 
@@ -819,88 +798,11 @@ void MultiPresetMixer::CollectRetiredMainThread()
     mReaper.CollectMainThread();
 }
 
-void MultiPresetMixer::StartWorkers(int count)
+void MultiPresetMixer::StartWorkers()
 {
-    StopWorkers();
-
-    {
-        std::lock_guard<std::mutex> lock(mParallelMutex);
-        mParallelQuit.store(false, std::memory_order_relaxed);
-        mParallelGeneration.store(0, std::memory_order_relaxed);
-    }
-
-    const int numWorkers = std::min(count, kMaxParallelWorkers);
-    mWorkerThreads.reserve(static_cast<size_t>(numWorkers));
-
-    for (int i = 0; i < numWorkers; ++i)
-    {
-        mWorkerThreads.emplace_back([this] { WorkerLoop(); });
-    }
-}
-
-void MultiPresetMixer::StopWorkers()
-{
-    if (mWorkerThreads.empty())
-    {
-        return;
-    }
-
-    {
-        std::lock_guard<std::mutex> lock(mParallelMutex);
-        mParallelQuit.store(true, std::memory_order_relaxed);
-    }
-    mParallelCv.notify_all();
-
-    for (auto& t : mWorkerThreads)
-    {
-        if (t.joinable())
-        {
-            t.join();
-        }
-    }
-
-    mWorkerThreads.clear();
-}
-
-void MultiPresetMixer::WorkerLoop()
-{
-    uint32_t lastGen = 0;
-
-    while (true)
-    {
-        {
-            std::unique_lock<std::mutex> lock(mParallelMutex);
-            mParallelCv.wait(lock, [&] {
-                return mParallelQuit.load(std::memory_order_relaxed) ||
-                       mParallelGeneration.load(std::memory_order_relaxed) != lastGen;
-            });
-        }
-
-        if (mParallelQuit.load(std::memory_order_acquire))
-        {
-            break;
-        }
-
-        lastGen = mParallelGeneration.load(std::memory_order_acquire);
-
-        const int total = mParallelTaskCount.load(std::memory_order_acquire);
-
-        while (true)
-        {
-            const int idx = mParallelTaskHead.fetch_add(1, std::memory_order_acq_rel);
-
-            if (idx >= total)
-            {
-                break;
-            }
-
-            const auto& wi = mWorkItems[static_cast<size_t>(idx)];
-            float* ins[2] = {wi.preChainOutL, wi.preChainOutR};
-            float* outs[2] = {wi.inst->outL.data(), wi.inst->outR.data()};
-            wi.inst->executor.Process(ins, outs, wi.numSamples);
-            mParallelDoneCount.fetch_add(1, std::memory_order_release);
-        }
-    }
+    const unsigned int hw = std::thread::hardware_concurrency();
+    const int workerCount = static_cast<int>(hw > 1 ? hw - 1 : 0);
+    mWorkerPool.Start(std::min(workerCount, kMaxParallelWorkers));
 }
 
 void MultiPresetMixer::Prepare(double sampleRate, int maxBlockSize)
@@ -936,20 +838,13 @@ void MultiPresetMixer::Prepare(double sampleRate, int maxBlockSize)
     }
 
     // Start worker threads for parallel preset processing.
-    // Reserve hw_concurrency-1 threads so the audio thread's core is not contested.
     if (mMultiThreadedProcessingEnabled.load(std::memory_order_acquire))
     {
-        const unsigned int hw = std::thread::hardware_concurrency();
-        const int workerCount = static_cast<int>(hw > 1 ? hw - 1 : 0);
-
-        if (workerCount > 0)
-        {
-            StartWorkers(workerCount);
-        }
+        StartWorkers();
     }
     else
     {
-        StopWorkers();
+        mWorkerPool.Stop();
     }
 }
 
@@ -1271,7 +1166,7 @@ void MultiPresetMixer::Process(float** inputs, float** outputs, int numSamples)
 
     const bool useParallel =
         ShouldUseParallelPresetDispatch(mMultiThreadedProcessingEnabled.load(std::memory_order_acquire), liveCount,
-                                        totalWorkUnits, !mWorkerThreads.empty());
+                                        totalWorkUnits, mWorkerPool.HasWorkers());
 
     // Avoid nested parallelism: if mixer-level fan-out is active, run each preset graph serially.
     for (auto& inst : mVoices.Instances())
@@ -1313,57 +1208,17 @@ void MultiPresetMixer::Process(float** inputs, float** outputs, int numSamples)
             }
         }
 
-        // Publish tasks and wake only the workers we actually need.
-        {
-            std::lock_guard<std::mutex> lock(mParallelMutex);
-            mParallelTaskHead.store(0, std::memory_order_relaxed);
-            mParallelDoneCount.store(0, std::memory_order_relaxed);
-            mParallelTaskCount.store(wi, std::memory_order_relaxed);
-            mParallelGeneration.fetch_add(1, std::memory_order_relaxed);
-        }
-        const int workersNeeded = std::min<int>(std::max(0, wi - 1), static_cast<int>(mWorkerThreads.size()));
-
-        for (int n = 0; n < workersNeeded; ++n)
-        {
-            mParallelCv.notify_one();
-        }
-
-        // Audio thread steals tasks alongside workers.
-        while (true)
-        {
-            const int idx = mParallelTaskHead.fetch_add(1, std::memory_order_acq_rel);
-
-            if (idx >= wi)
-            {
-                break;
-            }
-
-            const auto& item = mWorkItems[static_cast<size_t>(idx)];
+        // The audio thread takes items alongside the workers, and the pool returns once every
+        // item has run, holding the DSP lock throughout (see RealtimeTaskPool::Run for how it
+        // waits on a worker that has not been scheduled).
+        auto processItem = [this](int index) {
+            const auto& item = mWorkItems[static_cast<size_t>(index)];
             float* ins[2] = {item.preChainOutL, item.preChainOutR};
             float* outs[2] = {item.inst->outL.data(), item.inst->outR.data()};
             item.inst->executor.Process(ins, outs, item.numSamples);
-            mParallelDoneCount.fetch_add(1, std::memory_order_release);
-        }
+        };
 
-        // Wait for all tasks to complete. A worker that has not been scheduled yet cannot be
-        // waited out by spinning: this thread holds the DSP lock, so starving it against a
-        // normal-priority worker hangs every message-thread handler behind the lock, not just
-        // this block. Spin first — that is the whole point on the fast path — but back off to
-        // a real yield once spinning has clearly not been enough, so the worker can run.
-        constexpr int kSpinsBeforeYield = 10000;
-        int spins = 0;
-
-        while (mParallelDoneCount.load(std::memory_order_acquire) < wi)
-        {
-            if (++spins < kSpinsBeforeYield)
-            {
-                CpuRelax();
-            }
-            else
-            {
-                std::this_thread::yield();
-            }
-        }
+        mWorkerPool.Run(wi, processItem);
 
         // Mix all parallel outputs into the accumulator.
         for (int i = 0; i < wi; ++i)

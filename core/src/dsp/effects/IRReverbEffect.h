@@ -29,6 +29,7 @@ class IRReverbEffect : public EffectProcessor
   public:
     void Prepare(double sampleRate, int maxBlockSize) override
     {
+        rtparallel::DualLaneExecutor::EnsureStarted(); // here, so Process() never starts its thread
         mSampleRate = sampleRate;
         mMaxBlockSize = maxBlockSize;
         mPrepared = true;

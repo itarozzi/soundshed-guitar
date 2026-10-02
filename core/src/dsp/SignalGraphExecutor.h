@@ -2,6 +2,7 @@
 
 #include "presets/PresetTypes.h"
 #include "dsp/DeferredRebuild.h"
+#include "dsp/RealtimeParallel.h"
 #include "dsp/SignalTelemetry.h"
 #include "dsp/SpectrumTap.h"
 #include <map>
@@ -369,9 +370,6 @@ class SignalGraphExecutor
     /// Points the watched node, and only that node, at mSpectrumTap. Rerun whenever node
     /// states are created, since a new one starts out untapped.
     void ApplySpectrumWatch();
-    void StartWorkers(int count);
-    void StopWorkers();
-    void WorkerLoop();
 
     SignalGraph mGraph;
     ResourceLibrary* mResourceLibrary = nullptr;
@@ -449,27 +447,10 @@ class SignalGraphExecutor
     std::atomic<bool> mParallelLevelsEnabled{true};
     bool mNamInputModeMono = false;
 
-    // Parallel node processing within one graph level.
+    // Parallel node processing within one graph level. The pool is not moved with the rest:
+    // a moved-into executor runs its levels serially until its own Prepare() starts one.
     static constexpr int kMaxParallelWorkers = 7;
-    static constexpr int kMaxParallelWorkItems = 128;
-
-    struct ParallelWorkItem
-    {
-        int planIndex = -1;
-        int numSamples = 0;
-        bool diagnosticsEnabled = false;
-        bool collectLevels = false;
-    };
-
-    std::array<ParallelWorkItem, kMaxParallelWorkItems> mWorkItems{};
-    std::atomic<int> mParallelTaskHead{0};
-    std::atomic<int> mParallelTaskCount{0};
-    std::atomic<int> mParallelDoneCount{0};
-    std::atomic<uint32_t> mParallelGeneration{0};
-    std::atomic<bool> mParallelQuit{false};
-    std::mutex mParallelMutex;
-    std::condition_variable mParallelCv;
-    std::vector<std::thread> mWorkerThreads;
+    rtparallel::RealtimeTaskPool mWorkerPool;
     bool mUseParallelLevels = false;
 
     /// Created on the first watch and kept for the executor's lifetime, so the audio thread

@@ -557,17 +557,11 @@ class MultiPresetMixer
     };
 
     std::array<ParallelWorkItem, kMaxWorkItems> mWorkItems{};
-    std::atomic<int> mParallelTaskHead{0};
-    std::atomic<int> mParallelTaskCount{0};
-    std::atomic<int> mParallelDoneCount{0};
-    std::atomic<uint32_t> mParallelGeneration{0};
-    std::atomic<bool> mParallelQuit{false};
-    std::mutex mParallelMutex;
-    std::condition_variable mParallelCv;
-    std::vector<std::thread> mWorkerThreads;
+    // Declared last, so destroyed first; ~MultiPresetMixer() stops it before anything else goes.
+    rtparallel::RealtimeTaskPool mWorkerPool;
 
-    void StartWorkers(int count);
-    void StopWorkers();
-    void WorkerLoop();
+    /// Starts hardware_concurrency - 1 workers (at most kMaxParallelWorkers), leaving the
+    /// audio thread's core uncontested.
+    void StartWorkers();
 };
 } // namespace guitarfx

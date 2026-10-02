@@ -73,6 +73,7 @@ set(TEST_SOURCES
     ResourceLibraryDeleteWorkflowTests.cpp
     ResourcePreviewWorkflowTests.cpp
     RealtimeConvolverTests.cpp
+    RealtimeTaskPoolTests.cpp
     ResourceLoadBenchmark.cpp
     RingModEffectTests.cpp
     SampleRateConverterTests.cpp

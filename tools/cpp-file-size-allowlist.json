@@ -11,7 +11,7 @@
     "core/src/controller/PluginControllerSignalPath.cpp": 2133,
     "juce/source/JuceHostedPluginEffect.cpp": 2150,
     "core/src/dsp/effects/WasmEffect.cpp": 2072,
-    "core/src/dsp/MultiPresetMixer.cpp": 2012,
+    "core/src/dsp/MultiPresetMixer.cpp": 1916,
     "core/src/dsp/SignalGraphExecutor.cpp": 1872,
     "core/src/controller/PluginControllerRiffs.cpp": 1796,
     "core/tests/TransposeBenchmark.cpp": 1580,

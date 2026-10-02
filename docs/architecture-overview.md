@@ -68,11 +68,19 @@ Web-based SPA in a native WebView container.
 | Thread | Priority | Purpose |
 |--------|----------|---------|
 | Audio | Realtime | Audio processing (no blocking) |
+| DSP helpers | Normal | Work the audio thread fans out and waits for: presets in the mixer, graph levels, the halves of a stereo effect |
 | UI | Normal | User interaction, WebView rendering |
 | Background | Below Normal | Model loading, network, file I/O |
 
 **Communication:**
 - Audio ↔ UI: Lock-free queues, atomic parameter updates
+- Audio → DSP helpers: `rtparallel::RealtimeTaskPool` (`core/src/dsp/RealtimeParallel.h`), used
+  by the mixer, the graph executor and `DualLaneExecutor`. The audio thread publishes a dispatch,
+  works through it alongside the helpers and waits only for tasks a helper has claimed; waking
+  them is a semaphore post, not a lock. A claim is one compare-exchange on a word holding the
+  dispatch's generation, task count and next index, so a helper that stalls past the end of one
+  dispatch cannot claim into the next. Helpers set flush-to-zero as the audio thread does.
+  Android runs without them (`kParallelDspSupported`, see android-build.md).
 - UI → Background: Task queue
 - Background → UI: Completion callbacks
 - Host → state: a DAW may ask for the plugin's state on any thread. `SerializeState` builds

@@ -1,11 +1,12 @@
 #pragma once
 
 #include <atomic>
-#include <condition_variable>
 #include <cstdint>
+#include <memory>
 #include <mutex>
 #include <thread>
-#include <utility>
+#include <type_traits>
+#include <vector>
 
 #if defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86))
     #include <immintrin.h>
@@ -42,23 +43,152 @@ inline void CpuRelax() noexcept
 #endif
 }
 
+/// Flush-to-zero and denormals-are-zero for the calling thread (x86 MXCSR FTZ|DAZ, ARM
+/// FPCR/FPSCR FZ): the mode juce::ScopedNoDenormals gives the host's audio callback. A
+/// thread that runs DSP on the audio thread's behalf needs it too, or a decaying tail it
+/// happens to process falls into denormal arithmetic, many times slower, that the same
+/// work on the audio thread never does. Not restored: call it at the top of a thread the
+/// DSP owns.
+void FlushDenormalsOnThisThread() noexcept;
+
+/// A fixed set of helper threads the audio thread fans work out to, and works alongside.
+///
+/// Run() publishes a dispatch of `count` tasks and claims them together with the workers;
+/// each index runs exactly once, and Run() returns when every one has finished. The
+/// calling thread takes no lock: workers park on a semaphore and waking them is a post, and
+/// a worker slow to wake only costs parallelism, since the caller takes whatever is left.
+///
+/// A claim is one compare-exchange on a word holding the dispatch's generation, its task
+/// count and the next index, so it can only succeed against the dispatch it read. The
+/// pools this replaced loaded the count once on waking and then claimed with a bare
+/// fetch_add, so a worker that stalled past the end of one dispatch came back into the
+/// next, smaller one: it ran an index beyond that dispatch's count (a stale slot, in the
+/// mixer a preset instance possibly already retired) and counted it done, letting the
+/// audio thread stop waiting while real work was still running.
+///
+/// One dispatcher at a time. Start() and Stop() are for the message thread.
+class RealtimeTaskPool
+{
+  public:
+    using TaskFn = void (*)(void* context, int index);
+    using ClaimHook = void (*)();
+
+    /// The most tasks one dispatch fans out; the claim word gives the count eight bits.
+    /// Run() does any beyond it on the calling thread.
+    static constexpr int kMaxTasks = 255;
+
+    RealtimeTaskPool() = default;
+    ~RealtimeTaskPool();
+
+    RealtimeTaskPool(const RealtimeTaskPool&) = delete;
+    RealtimeTaskPool& operator=(const RealtimeTaskPool&) = delete;
+
+    /// Replaces the workers with `workerCount` new ones; zero only stops them. If some
+    /// threads cannot be created it keeps the ones that were.
+    void Start(int workerCount);
+    void Stop();
+
+    [[nodiscard]] int WorkerCount() const noexcept
+    {
+        return mWorkerCount.load(std::memory_order_acquire);
+    }
+
+    [[nodiscard]] bool HasWorkers() const noexcept
+    {
+        return WorkerCount() > 0;
+    }
+
+    /// Runs task(context, i) for every i in [0, count) on this thread and the workers, and
+    /// returns once all of them have finished. With no workers, or one task, it runs them
+    /// here in order.
+    void Run(TaskFn task, void* context, int count) noexcept;
+
+    /// Run() for a callable taking the task index. It is called by reference, from several
+    /// threads at once, and must outlive the call (a local lambda does).
+    template <typename Fn> void Run(int count, Fn&& fn) noexcept
+    {
+        using Callable = std::remove_reference_t<Fn>;
+        auto* callable = const_cast<std::remove_const_t<Callable>*>(std::addressof(fn));
+        Run([](void* context, int index) { (*static_cast<Callable*>(context))(index); }, callable, count);
+    }
+
+    /// Tests only: called on every pool's workers before each claim attempt, which is where
+    /// a stall exposed the stale-claim race. Null (the default) turns it off.
+    static void SetWorkerClaimHookForTesting(ClaimHook hook) noexcept;
+
+  private:
+    /// A counting semaphore whose post never blocks and is never lost to a worker that
+    /// is only on its way to waiting. Created by the first Start() and kept until the
+    /// pool is destroyed, so a Run() racing a Stop() never posts to a closed one.
+    class Semaphore
+    {
+      public:
+        Semaphore() = default;
+        ~Semaphore();
+        Semaphore(const Semaphore&) = delete;
+        Semaphore& operator=(const Semaphore&) = delete;
+
+        bool Create();
+        void Post(int count) noexcept;
+        void Wait() noexcept;
+        bool TryWait() noexcept;
+
+      private:
+        void* mHandle = nullptr;
+    };
+
+    void StopLocked();
+    void WorkerLoop();
+    /// Claims and runs tasks of whichever dispatch is current until it has none left.
+    void RunClaims(bool onWorker) noexcept;
+    void WakeWorkers(int wanted) noexcept;
+
+    // Bits 63..16 the generation, 15..8 the task count, 7..0 the next index to claim.
+    std::atomic<std::uint64_t> mClaim{0};
+    std::atomic<int> mDone{0};
+    // The dispatch's task. Written before mClaim publishes it and not again until every
+    // claimed index is done, so a worker only reads it between a claim and that claim's
+    // completion. mGeneration is the dispatcher's own count.
+    TaskFn mTask = nullptr;
+    void* mContext = nullptr;
+    std::uint64_t mGeneration = 0;
+
+    std::atomic<int> mWorkerCount{0};
+    // Posted wake-ups no worker has taken yet. A dispatch tops them up to what it needs
+    // rather than adding to them, so a worker that is slow to wake is not woken twice.
+    std::atomic<int> mPendingWakes{0};
+    std::atomic<bool> mQuit{false};
+    Semaphore mWake;
+    std::vector<std::thread> mThreads;
+    std::mutex mLifecycleMutex;
+};
+
+/// Runs the two independent halves of an effect's block (left and right, slot A and B)
+/// on the calling thread and one helper. One per process, shared by every effect: a caller
+/// that finds it busy, another effect on another thread mid-Run, is told to run both
+/// halves itself.
 class DualLaneExecutor
 {
   public:
-    static DualLaneExecutor& Instance()
-    {
-        static DualLaneExecutor instance;
-        return instance;
-    }
+    static DualLaneExecutor& Instance();
+
+    /// Starts the helper thread if the platform allows one and it is not running yet.
+    /// Call it from an effect's Prepare(): Run() never starts it, so the thread is never
+    /// created from inside an audio block.
+    static void EnsureStarted();
 
     DualLaneExecutor(const DualLaneExecutor&) = delete;
     DualLaneExecutor& operator=(const DualLaneExecutor&) = delete;
 
     [[nodiscard]] bool IsAvailable() const noexcept
     {
-        return mWorkerStarted.load(std::memory_order_acquire);
+        return mPool.HasWorkers();
     }
 
+    /// Runs mainFn and workerFn once each and returns true when both are done. The calling
+    /// thread takes mainFn first, and workerFn as well if the helper has not claimed it by
+    /// then. False, having run neither, if the helper is not running or another caller is
+    /// mid-Run.
     template <typename WorkerFn, typename MainFn> bool Run(WorkerFn&& workerFn, MainFn&& mainFn)
     {
         if (!IsAvailable())
@@ -73,142 +203,29 @@ class DualLaneExecutor
             return false;
         }
 
-        struct JobContext
-        {
-            WorkerFn* fn;
+        auto lanes = [&](int lane) {
+            if (lane == 0)
+            {
+                mainFn();
+            }
+            else
+            {
+                workerFn();
+            }
         };
 
-        JobContext ctx{&workerFn};
-
-        mWorkerThunk.store(&Invoke<JobContext>, std::memory_order_release);
-        mWorkerContext.store(&ctx, std::memory_order_release);
-        mWorkerDone.store(false, std::memory_order_release);
-
-        {
-            std::lock_guard<std::mutex> lock(mMutex);
-            mGeneration.fetch_add(1, std::memory_order_relaxed);
-        }
-        mCv.notify_one();
-
-        std::forward<MainFn>(mainFn)();
-
-        while (!mWorkerDone.load(std::memory_order_acquire))
-        {
-            CpuRelax();
-        }
-
+        mPool.Run(2, lanes);
         mBusy.store(false, std::memory_order_release);
         return true;
     }
 
   private:
-    using WorkerThunk = void (*)(void*);
+    DualLaneExecutor() = default;
+    ~DualLaneExecutor() = default;
 
-    DualLaneExecutor()
-    {
-        if (!kParallelDspSupported)
-        {
-            return;
-        }
-
-        const unsigned int hw = std::thread::hardware_concurrency();
-
-        if (hw < 2)
-        {
-            return;
-        }
-
-        try
-        {
-            mWorkerThread = std::thread([this]() { WorkerLoop(); });
-            mWorkerStarted.store(true, std::memory_order_release);
-        }
-        catch (...)
-        {
-            mWorkerStarted.store(false, std::memory_order_release);
-        }
-    }
-
-    ~DualLaneExecutor()
-    {
-        if (!mWorkerStarted.load(std::memory_order_acquire))
-        {
-            return;
-        }
-
-        {
-            std::lock_guard<std::mutex> lock(mMutex);
-            mQuit.store(true, std::memory_order_relaxed);
-            mGeneration.fetch_add(1, std::memory_order_relaxed);
-        }
-        mCv.notify_one();
-
-        if (mWorkerThread.joinable())
-        {
-            mWorkerThread.join();
-        }
-    }
-
-    template <typename JobContext> static void Invoke(void* ctx)
-    {
-        if (!ctx)
-        {
-            return;
-        }
-
-        auto* typed = static_cast<JobContext*>(ctx);
-
-        if (typed->fn)
-        {
-            (*typed->fn)();
-        }
-    }
-
-    void WorkerLoop()
-    {
-        std::uint32_t lastGeneration = 0;
-
-        while (true)
-        {
-            {
-                std::unique_lock<std::mutex> lock(mMutex);
-                mCv.wait(lock, [&]() {
-                    return mQuit.load(std::memory_order_relaxed) ||
-                           mGeneration.load(std::memory_order_relaxed) != lastGeneration;
-                });
-            }
-
-            if (mQuit.load(std::memory_order_acquire))
-            {
-                break;
-            }
-
-            lastGeneration = mGeneration.load(std::memory_order_acquire);
-
-            auto* thunk = mWorkerThunk.load(std::memory_order_acquire);
-            void* context = mWorkerContext.load(std::memory_order_acquire);
-
-            if (thunk)
-            {
-                thunk(context);
-            }
-
-            mWorkerDone.store(true, std::memory_order_release);
-        }
-    }
-
-    std::atomic<bool> mWorkerStarted{false};
+    RealtimeTaskPool mPool;
     std::atomic<bool> mBusy{false};
-    std::atomic<bool> mWorkerDone{false};
-    std::atomic<bool> mQuit{false};
-
-    std::atomic<WorkerThunk> mWorkerThunk{nullptr};
-    std::atomic<void*> mWorkerContext{nullptr};
-
-    std::atomic<std::uint32_t> mGeneration{0};
-    std::mutex mMutex;
-    std::condition_variable mCv;
-    std::thread mWorkerThread;
+    std::once_flag mStarted;
 };
 
 [[nodiscard]] inline bool ShouldParallelizeStereoWork(int numSamples) noexcept
