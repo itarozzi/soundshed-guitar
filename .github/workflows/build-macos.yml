@@ -22,14 +22,14 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           submodules: recursive
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
 
       # Set up a temporary keychain with the signing certificates.
       # We manage the keychain manually (rather than via the sudara composite
@@ -95,7 +95,7 @@ jobs:
 
       - name: Upload validation logs
         if: ${{ failure() }}
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: validation-logs-macos
           path: juce/builds/validation
@@ -193,7 +193,7 @@ jobs:
           xcrun stapler staple "${{ steps.pkg.outputs.pkg_path }}"
 
       - name: Upload GitHub artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: macos-universal-pkg
           path: ${{ steps.pkg.outputs.pkg_path }}

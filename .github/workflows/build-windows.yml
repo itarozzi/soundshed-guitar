@@ -79,14 +79,14 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           submodules: recursive
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
 
       - name: Install Typescript
         run: npm install -g typescript
@@ -111,7 +111,7 @@ jobs:
 
       - name: Upload validation logs
         if: ${{ failure() && matrix.arch == 'x64' }}
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: validation-logs-windows-${{ matrix.arch }}${{ matrix.avx == 'avx2' && '' || format('-{0}', matrix.avx) }}
           path: juce/builds/validation
@@ -216,7 +216,7 @@ jobs:
           "asset_path=$assetPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
       - name: Upload GitHub artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: windows-${{ matrix.arch }}${{ matrix.avx == 'avx2' && '' || format('-{0}', matrix.avx) }}-installer
           path: ${{ steps.asset.outputs.asset_path }}
