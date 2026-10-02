@@ -2,6 +2,12 @@ name: Build macOS
 
 on:
   workflow_dispatch:
+    inputs:
+      upload_to_r2:
+        description: "Also upload the build to Cloudflare R2"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -11,7 +17,8 @@ jobs:
     runs-on: macos-14
 
     env:
-      R2_BUCKET: ${{ vars.CLOUDFLARE_R2_BUCKET }}
+      # Empty, so the R2 steps are skipped, unless upload_to_r2 is ticked.
+      R2_BUCKET: ${{ inputs.upload_to_r2 && vars.CLOUDFLARE_R2_BUCKET || '' }}
 
     steps:
       - name: Checkout

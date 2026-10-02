@@ -22,6 +22,11 @@ on:
           - avx
           - noavx
           - all
+      upload_to_r2:
+        description: "Also upload the build to Cloudflare R2"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -65,7 +70,8 @@ jobs:
             avx: noavx
 
     env:
-      R2_BUCKET: ${{ vars.CLOUDFLARE_R2_BUCKET }}
+      # Empty, so the R2 steps are skipped, unless upload_to_r2 is ticked.
+      R2_BUCKET: ${{ inputs.upload_to_r2 && vars.CLOUDFLARE_R2_BUCKET || '' }}
       HAS_GCP_AUTH: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && secrets.GCP_SERVICE_ACCOUNT != '' }}
       HAS_WINDOWS_SIGNING_CERT: ${{ secrets.WINDOWS_SIGNING_CERT_CHAIN_PEM_B64 != '' }}
       HAS_KMS_CONFIG: ${{ secrets.GCP_KMS_KEY_ID != '' }}
