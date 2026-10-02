@@ -74,7 +74,10 @@ void PluginController::ReloadSharedSyncSourcesFromDisk()
     }
 
     const nlohmann::json previousBlends = mBlendLibrary;
-    LoadResourceLibraries();
+
+    // Not LoadResourceLibraries(): its category clean-up reads the header of every NAM file in
+    // the library, and only startup needs it. Every import sets the category itself.
+    mResourceLibrary.LoadFromStore(Store(), ResolveResourcesRoot());
     LoadBlendLibrary();
     LoadCustomEffectLibrary();
 
