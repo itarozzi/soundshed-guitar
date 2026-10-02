@@ -158,7 +158,7 @@ void PluginController::ResetNamNodeLevelState(const std::string& nodeId)
         node->params["useCalibration"] = 1.0;
     }
 
-    mActivePresetJson = PresetStorage::SerializeToJson(*mActivePreset);
+    MirrorActivePresetJson();
     mPendingStateBroadcast = true;
 
     if (!mActivePresetId.empty())

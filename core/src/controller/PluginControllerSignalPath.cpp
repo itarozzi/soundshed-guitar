@@ -107,7 +107,7 @@ void PluginController::HandleUpdateSignalPathNodeParamRequest(const nlohmann::js
         UpdateHostLatency();
     }
 
-    mActivePresetJson = mActivePreset ? PresetStorage::SerializeToJson(*mActivePreset) : "{}";
+    MirrorActivePresetJson();
 }
 
 void PluginController::HandleUpdateSignalPathNodeBypassRequest(const nlohmann::json& payload)
@@ -143,7 +143,7 @@ void PluginController::HandleUpdateSignalPathNodeBypassRequest(const nlohmann::j
         std::lock_guard<std::mutex> lock(mDSPMutex);
         mPresetMixer.SetNodeEnabled(presetId, nodeId, enabled);
     }
-    mActivePresetJson = mActivePreset ? PresetStorage::SerializeToJson(*mActivePreset) : "{}";
+    MirrorActivePresetJson();
     mPendingStateBroadcast = true;
 }
 
@@ -250,9 +250,10 @@ void PluginController::HandleUpdateSignalPathNodeConfigRequest(const nlohmann::j
         }
         else if (mActivePreset)
         {
+            // The edit went into the working copy, so it is mirrored to that rig's entry,
+            // whatever slot the payload named.
             SyncActivePresetSceneGraph();
-            mActivePresetJson = PresetStorage::SerializeToJson(*mActivePreset);
-            mMixerPresetJsonCache[presetId] = mActivePresetJson;
+            MirrorActivePresetJson();
             mPendingStateBroadcast = true;
             notifyStateChanged = true;
         }
@@ -472,7 +473,7 @@ void PluginController::HandleUpdateNodeResourceRequest(const nlohmann::json& pay
 
         RefreshWasmNodeDescriptor(*target);
 
-        // ApplyPreset replaces the working copy, so nothing may read `target` after it.
+        // The rebuild replaces the working copy, so nothing may read `target` after it.
         const bool resetNamLevels =
             IsNamEffectType(target->type) && !target->resources.empty() && target->resources.front().IsValid();
         target = nullptr;
@@ -486,7 +487,7 @@ void PluginController::HandleUpdateNodeResourceRequest(const nlohmann::json& pay
         else if (mActivePreset)
         {
             SyncActivePresetSceneGraph();
-            ApplyPreset(*mActivePreset);
+            ApplyActivePresetInItsSlot();
             mPendingStateBroadcast = true;
             appliedPreset = true;
         }
@@ -529,7 +530,7 @@ void PluginController::HandleUpdateNodeResourceRequest(const nlohmann::json& pay
 
             RefreshWasmNodeDescriptor(*node);
 
-            // ApplyPreset replaces the working copy, so nothing may read `node` after it.
+            // The rebuild replaces the working copy, so nothing may read `node` after it.
             const bool resetNamLevels =
                 IsNamEffectType(node->type) && !node->resources.empty() && node->resources.front().IsValid();
             node = nullptr;
@@ -543,7 +544,7 @@ void PluginController::HandleUpdateNodeResourceRequest(const nlohmann::json& pay
             else if (mActivePreset)
             {
                 SyncActivePresetSceneGraph();
-                ApplyPreset(*mActivePreset);
+                ApplyActivePresetInItsSlot();
                 mPendingStateBroadcast = true;
                 appliedPreset = true;
             }
@@ -791,7 +792,7 @@ void PluginController::HandleAddSignalPathNodeRequest(const nlohmann::json& payl
         else if (mActivePreset)
         {
             SyncActivePresetSceneGraph();
-            ApplyPreset(*mActivePreset);
+            ApplyActivePresetInItsSlot();
             BroadcastState();
         }
 
@@ -902,7 +903,7 @@ void PluginController::HandleAddSignalPathNodeRequest(const nlohmann::json& payl
     else if (mActivePreset)
     {
         SyncActivePresetSceneGraph();
-        ApplyPreset(*mActivePreset);
+        ApplyActivePresetInItsSlot();
         BroadcastState();
     }
 }
@@ -1005,7 +1006,7 @@ void PluginController::HandleSplitSignalPathEdgeRequest(const nlohmann::json& pa
     else if (mActivePreset)
     {
         SyncActivePresetSceneGraph();
-        ApplyPreset(*mActivePreset);
+        ApplyActivePresetInItsSlot();
         BroadcastState();
     }
 }
@@ -1090,7 +1091,7 @@ void PluginController::HandleCollapseSignalPathSplitRequest(const nlohmann::json
     else if (mActivePreset)
     {
         SyncActivePresetSceneGraph();
-        ApplyPreset(*mActivePreset);
+        ApplyActivePresetInItsSlot();
         BroadcastState();
     }
 }
@@ -1210,7 +1211,7 @@ void PluginController::HandleReplaceSignalPathNodeRequest(const nlohmann::json& 
     else if (mActivePreset)
     {
         SyncActivePresetSceneGraph();
-        ApplyPreset(*mActivePreset);
+        ApplyActivePresetInItsSlot();
         BroadcastState();
     }
 }
@@ -1399,7 +1400,7 @@ void PluginController::HandleReorderSignalPathNodeRequest(const nlohmann::json& 
     else if (mActivePreset)
     {
         SyncActivePresetSceneGraph();
-        ApplyPreset(*mActivePreset);
+        ApplyActivePresetInItsSlot();
         BroadcastState();
     }
 }
@@ -1473,7 +1474,7 @@ void PluginController::HandleDeleteSignalPathNodeRequest(const nlohmann::json& p
     else if (mActivePreset)
     {
         SyncActivePresetSceneGraph();
-        ApplyPreset(*mActivePreset);
+        ApplyActivePresetInItsSlot();
         BroadcastState();
     }
 }
@@ -1589,7 +1590,7 @@ bool PluginController::UpdateResourceForNodeType(const std::string& nodeType, co
 
             if (applyPreset)
             {
-                ApplyPreset(*mActivePreset);
+                ApplyActivePresetInItsSlot();
             }
 
             mPendingStateBroadcast = true;
@@ -1647,7 +1648,7 @@ bool PluginController::UpdateResourceForNodeId(const std::string& nodeId, const 
 
     if (applyPreset && mActivePreset)
     {
-        ApplyPreset(*mActivePreset);
+        ApplyActivePresetInItsSlot();
         mPendingStateBroadcast = true;
     }
 

@@ -217,7 +217,7 @@ void PluginController::DiscardFailedHostedPluginResourceSelection(const std::str
     if (mActivePreset)
     {
         SyncActivePresetSceneGraph();
-        ApplyPreset(*mActivePreset);
+        ApplyActivePresetInItsSlot();
         mPendingStateBroadcast = true;
     }
 }
@@ -759,8 +759,7 @@ void PluginController::RestoreStandaloneHostedPluginState(const std::string& jso
         AppendSessionLog("Standalone session restored hosted plugin state presetId=" + mActivePresetId + ", nodes=" +
                          std::to_string(grafted) + ", state=" + SummarizeHostedPluginState(*mActivePreset));
 
-        mActivePresetJson = PresetStorage::SerializeToJson(*mActivePreset);
-        ApplyPreset(*mActivePreset);
+        ApplyActivePresetInItsSlot();
         mPendingStateBroadcast = true;
     }
     catch (const std::exception&)
@@ -815,8 +814,7 @@ void PluginController::CaptureLiveHostedPluginStateIntoActivePreset()
         return;
     }
 
-    mActivePresetJson = PresetStorage::SerializeToJson(*mActivePreset);
-    mMixerPresetJsonCache[mActivePresetId] = mActivePresetJson;
+    MirrorActivePresetJson();
     AppendSessionLog("Hosted plugin live state folded into working copy presetId=" + mActivePresetId +
                      ", state=" + SummarizeHostedPluginState(*mActivePreset));
     NotifyHostStateChanged();

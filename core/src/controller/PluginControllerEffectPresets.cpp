@@ -390,7 +390,7 @@ void PluginController::HandleApplyEffectPresetRequest(const nlohmann::json& payl
         }
         else
         {
-            mActivePresetJson = mActivePreset ? PresetStorage::SerializeToJson(*mActivePreset) : "{}";
+            MirrorActivePresetJson();
             mPendingStateBroadcast = true;
         }
 
@@ -421,7 +421,7 @@ void PluginController::HandleApplyEffectPresetRequest(const nlohmann::json& payl
 
     RefreshWasmNodeDescriptor(*node);
 
-    // ApplyPreset replaces the working copy, so nothing may read `node` after it.
+    // The rebuild replaces the working copy, so nothing may read `node` after it.
     const bool resetNamLevels =
         IsNamEffectType(node->type) && !node->resources.empty() && node->resources.front().IsValid();
     node = nullptr;
@@ -439,7 +439,7 @@ void PluginController::HandleApplyEffectPresetRequest(const nlohmann::json& payl
     }
 
     SyncActivePresetSceneGraph();
-    ApplyPreset(*mActivePreset);
+    ApplyActivePresetInItsSlot();
     mPendingStateBroadcast = true;
 
     if (resetNamLevels)

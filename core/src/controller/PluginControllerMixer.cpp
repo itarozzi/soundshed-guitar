@@ -230,6 +230,11 @@ void PluginController::FocusMixerPreset(const std::string& presetId)
     // focus moves; once it moves, this slot's runtime notifications land elsewhere.
     CaptureLiveHostedPluginStateIntoActivePreset();
 
+    // And the rest of its working copy, unsaved edits included: from here that entry is all the
+    // rig has. Whatever an edit path left unmirrored (automation folds its parameters without
+    // re-serialising, up to 30 times a second) is caught here, where the entry is next read.
+    MirrorActivePresetJson();
+
     const auto it = mMixerPresetJsonCache.find(presetId);
 
     if (it == mMixerPresetJsonCache.end())
@@ -262,38 +267,41 @@ void PluginController::FocusMixerPreset(const std::string& presetId)
 bool PluginController::ReplaceActiveMixerPresetInPlace(const Preset& preset, const std::string& presetId,
                                                        const std::string& name)
 {
-    UpdatePresetSwapTailBudget();
-
     // As AddActivePreset: the blend nodes' models come from the blend library.
     Preset slotPreset = preset;
     ApplyBlendDefinitions(slotPreset);
 
+    if (!ReplaceMixerSlotInstance(slotPreset, presetId, name))
+    {
+        return false;
+    }
+
+    try
+    {
+        mMixerPresetJsonCache[presetId] = PresetStorage::SerializeToJson(preset);
+    }
+    catch (...)
+    {
+    }
+    UpdateHostLatency();
+    return true;
+}
+
+bool PluginController::ReplaceMixerSlotInstance(const Preset& slotPreset, const std::string& presetId,
+                                                const std::string& name)
+{
+    UpdatePresetSwapTailBudget();
     mPresetMixer.PreparePresetSwap(slotPreset, presetId, name);
-    bool replaced = false;
-    {
-        std::lock_guard<std::mutex> lock(mDSPMutex);
-        replaced = mPresetMixer.CommitPresetReplacement(presetId);
+    std::lock_guard<std::mutex> lock(mDSPMutex);
 
-        if (replaced)
-        {
-            AttachRuntimeConfigCallbacks(presetId, slotPreset);
-            InjectNamInterfaceCalibrationIntoSlot(presetId, slotPreset);
-        }
+    if (!mPresetMixer.CommitPresetReplacement(presetId))
+    {
+        return false;
     }
 
-    if (replaced)
-    {
-        try
-        {
-            mMixerPresetJsonCache[presetId] = PresetStorage::SerializeToJson(preset);
-        }
-        catch (...)
-        {
-        }
-        UpdateHostLatency();
-    }
-
-    return replaced;
+    AttachRuntimeConfigCallbacks(presetId, slotPreset);
+    InjectNamInterfaceCalibrationIntoSlot(presetId, slotPreset);
+    return true;
 }
 
 void PluginController::ApplyActivePresetInItsSlot()
@@ -307,13 +315,50 @@ void PluginController::ApplyActivePresetInItsSlot()
     const bool sharesTheMix = activeMixerIds.size() > 1 &&
                               std::find(activeMixerIds.begin(), activeMixerIds.end(), mActivePresetId) != activeMixerIds.end();
 
-    if (sharesTheMix && ReplaceActiveMixerPresetInPlace(*mActivePreset, mActivePresetId, mActivePreset->name))
+    if (!sharesTheMix)
     {
-        mActivePresetJson = PresetStorage::SerializeToJson(*mActivePreset);
+        ApplyPreset(*mActivePreset);
         return;
     }
 
-    ApplyPreset(*mActivePreset);
+    // Readied as ApplyPreset() readies it, against the global chain already running, which a
+    // rebuild of one slot leaves alone. That hydrates the blends too, so the slot is built from
+    // this copy as it is, and one serialisation serves the working copy and the slot's entry: a
+    // preset carrying hosted-plugin state can run to megabytes.
+    Preset slotPreset = *mActivePreset;
+    const std::string sceneId = PreparePresetForEngine(slotPreset, mActiveSceneId, mPresetMixer.GetGlobalChainConfig());
+    std::string slotJson = PresetStorage::SerializeToJson(slotPreset);
+
+    if (!ReplaceMixerSlotInstance(slotPreset, mActivePresetId, slotPreset.name))
+    {
+        // The slot left the mix since the snapshot.
+        ApplyPreset(*mActivePreset);
+        return;
+    }
+
+    mMixerPresetJsonCache[mActivePresetId] = slotJson;
+    mActiveSceneId = sceneId;
+    mActivePreset = std::move(slotPreset);
+    mActivePresetJson = std::move(slotJson);
+    UpdateHostLatency();
+    NotifyHostStateChanged();
+}
+
+void PluginController::MirrorActivePresetJson()
+{
+    if (!mActivePreset)
+    {
+        return;
+    }
+
+    mActivePresetJson = PresetStorage::SerializeToJson(*mActivePreset);
+
+    // Only an entry the slot already has: the working copy can outlive its slot (a rig removed
+    // from the mix while focused), and every entry here is read as a slot's.
+    if (const auto it = mMixerPresetJsonCache.find(mActivePresetId); it != mMixerPresetJsonCache.end())
+    {
+        it->second = mActivePresetJson;
+    }
 }
 
 // The slot lookups behind these walk instances the audio thread erases, and Process() reads

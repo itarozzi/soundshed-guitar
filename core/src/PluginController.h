@@ -364,9 +364,11 @@ class PluginController
     /// that is one of several active mixer presets) without disturbing any other slot.
     /// Returns false if presetId is not currently an active mixer slot.
     bool ReplaceActiveMixerPresetInPlace(const Preset& preset, const std::string& presetId, const std::string& name);
-    /// Applies the working copy after a scene change: only its own slot when it is one of
-    /// several presets in the mix (ApplyPreset() would swap the mixer down to it alone),
-    /// otherwise through ApplyPreset().
+    /// Rebuilds the working copy after an edit to it (a node added, moved, replaced or removed, a
+    /// resource changed, a scene switched): only its own slot when it is one of several presets
+    /// in the mix, otherwise through ApplyPreset(). ApplyPreset() is the "change preset" swap: it
+    /// retires every live instance, so in a Multi-Rig mix it would fade the other rigs out and
+    /// drop their unsaved edits.
     void ApplyActivePresetInItsSlot();
 
     // ── Signal path test ───────────────────────────────────────────
@@ -577,6 +579,22 @@ class PluginController
     };
     void BroadcastState(StateScope scope = StateScope::Full);
     void ApplyPreset(const Preset& preset);
+    /// What ApplyPreset() does to a preset before the engine builds it, shared with the in-slot
+    /// rebuild so a working copy comes out the same whether or not other rigs share the mix:
+    /// scenes normalised and `sceneId` resolved, WASM descriptors refreshed, legacy NAM level
+    /// params stripped, blends hydrated, hosted plugins remapped, boundary gain nodes ensured, and
+    /// the global chain in force recorded. Returns the scene it resolved.
+    std::string PreparePresetForEngine(Preset& preset, const std::string& sceneId,
+                                       const GlobalSignalChainConfig& chainConfig);
+    /// Builds a new instance for an active mixer slot from `slotPreset`, as it is, off the DSP
+    /// lock, and swaps it in for the running one under the lock, which keeps the slot's mix
+    /// settings. Leaves the slot's cache entry and the host latency to the caller. Returns false
+    /// if presetId is not an active mixer slot.
+    bool ReplaceMixerSlotInstance(const Preset& slotPreset, const std::string& presetId, const std::string& name);
+    /// The working copy changed in place: re-serialises it into mActivePresetJson and its mixer
+    /// slot's cache entry. That entry is all a rig has while it is not focused: a rig-tab switch
+    /// reloads it and a host save stores it.
+    void MirrorActivePresetJson();
     /// Call with mDSPMutex held: the lookups walk instances the audio thread erases. Safe
     /// for a hosted plugin too, whose SetRuntimeConfigChangedCallback only stores the callback.
     void AttachRuntimeConfigCallbacks(const std::string& presetId, const Preset& preset);

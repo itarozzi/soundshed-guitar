@@ -183,8 +183,7 @@ void PluginController::HandleAddSceneRequest(const nlohmann::json& payload)
 
     // The new scene is a copy of the one playing, so switching to it changes nothing audible.
     (void)SetPresetActiveScene(*mActivePreset, newSceneId, &mActiveSceneId);
-    mActivePresetJson = PresetStorage::SerializeToJson(*mActivePreset);
-    mMixerPresetJsonCache[mActivePresetId] = mActivePresetJson;
+    MirrorActivePresetJson();
     SendActivePresetLoaded();
 }
 
@@ -208,8 +207,7 @@ void PluginController::HandleRenameSceneRequest(const nlohmann::json& payload)
     title.erase(title.find_last_not_of(" \t\r\n") + 1);
     scene->title = title.empty() ? std::string("Scene") : title;
 
-    mActivePresetJson = PresetStorage::SerializeToJson(*mActivePreset);
-    mMixerPresetJsonCache[mActivePresetId] = mActivePresetJson;
+    MirrorActivePresetJson();
     SendActivePresetLoaded();
 }
 
@@ -252,12 +250,15 @@ void PluginController::HandleRemoveSceneRequest(const nlohmann::json& payload)
     if (wasActive)
     {
         // The removed scene was playing: the one that replaces it has to be heard. In a
-        // multi-preset mix only this preset's slot is rebuilt.
+        // multi-preset mix only this preset's slot is rebuilt. Either way the rebuild leaves
+        // the working copy's JSON and its slot's entry current.
         ApplyActivePresetInItsSlot();
     }
+    else
+    {
+        MirrorActivePresetJson();
+    }
 
-    mActivePresetJson = PresetStorage::SerializeToJson(*mActivePreset);
-    mMixerPresetJsonCache[mActivePresetId] = mActivePresetJson;
     SendActivePresetLoaded();
 }
 

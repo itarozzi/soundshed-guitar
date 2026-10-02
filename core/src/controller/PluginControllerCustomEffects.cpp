@@ -545,7 +545,7 @@ void PluginController::HandleSaveCurrentCustomEffectRequest(const nlohmann::json
         else if (mActivePreset)
         {
             SyncActivePresetSceneGraph();
-            ApplyPreset(*mActivePreset);
+            ApplyActivePresetInItsSlot();
         }
     }
 
@@ -1012,7 +1012,7 @@ void PluginController::HandleImportGeneratedCustomEffectRequest(const nlohmann::
         else if (mActivePreset)
         {
             SyncActivePresetSceneGraph();
-            ApplyPreset(*mActivePreset);
+            ApplyActivePresetInItsSlot();
         }
     }
 
@@ -1559,19 +1559,7 @@ void PluginController::RebuildSlotsUsingBlend(const std::string& blendId)
             // Rebuilt as a chain edit rebuilds it, so first bank the hosted plugins' live
             // state: the new slot starts them from what the preset holds.
             CaptureLiveHostedPluginStateIntoActivePreset();
-
-            if (slots.size() == 1)
-            {
-                ApplyPreset(*mActivePreset);
-            }
-            else
-            {
-                // ApplyPreset() would swap the whole mixer down to this one slot.
-                ApplyBlendDefinitions(*mActivePreset);
-                mActivePresetJson = PresetStorage::SerializeToJson(*mActivePreset);
-                ReplaceActiveMixerPresetInPlace(*mActivePreset, slot.id, slot.name);
-            }
-
+            ApplyActivePresetInItsSlot();
             mPendingStateBroadcast = true;
             continue;
         }

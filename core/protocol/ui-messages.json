@@ -317,7 +317,6 @@
     "exitCompositeEditMode",
     "exportEffectLayout",
     "exportGeneratedCustomEffectBundle",
-    "focusMixerPreset",
     "generatedCustomEffectBundleExportFailed",
     "generatedCustomEffectBundleExportSaved",
     "getAppInfo",

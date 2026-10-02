@@ -379,7 +379,9 @@ void PluginController::HandleSavePresetRequest(const nlohmann::json& payload)
 
             if (renamed)
             {
+                // The slot's cache entry moves to the new id with it, and is filled in below.
                 mMixerPresetJsonCache.erase(previousSlotId);
+                mMixerPresetJsonCache.try_emplace(newPreset.id);
                 AppendSessionLog("Mixer slot re-keyed after save from " + previousSlotId + " to " + newPreset.id);
             }
             else
@@ -391,8 +393,7 @@ void PluginController::HandleSavePresetRequest(const nlohmann::json& payload)
 
         mActivePreset = newPreset;
         mActivePresetId = newPreset.id;
-        mActivePresetJson = PresetStorage::SerializeToJson(newPreset);
-        mMixerPresetJsonCache[mActivePresetId] = mActivePresetJson;
+        MirrorActivePresetJson();
         mPendingStateBroadcast = true;
 
         if (!IsPresetArchiveSessionActive())
@@ -636,25 +637,23 @@ void PluginController::HandleSetSetlistsRequest(const nlohmann::json& payload)
 // Applying a preset to the running engine
 // ════════════════════════════════════════════════════════════════════
 
-void PluginController::ApplyPreset(const Preset& preset)
+std::string PluginController::PreparePresetForEngine(Preset& preset, const std::string& sceneId,
+                                                     const GlobalSignalChainConfig& chainConfig)
 {
-    // === Phase 1: Normalize and prepare preset data — no DSP lock needed. ===
-    // All work here modifies local copies only; the audio thread is unaffected.
-    Preset normalizedPreset = preset;
-    NormalizePresetScenes(normalizedPreset);
-    std::string resolvedSceneId = mActiveSceneId;
+    NormalizePresetScenes(preset);
+    std::string resolvedSceneId = sceneId;
 
-    if (!SetPresetActiveScene(normalizedPreset, resolvedSceneId, &resolvedSceneId))
+    if (!SetPresetActiveScene(preset, resolvedSceneId, &resolvedSceneId))
     {
-        resolvedSceneId = GetDefaultPresetSceneId(normalizedPreset);
+        resolvedSceneId = GetDefaultPresetSceneId(preset);
     }
 
-    for (auto& node : normalizedPreset.graph.nodes)
+    for (auto& node : preset.graph.nodes)
     {
         RefreshWasmNodeDescriptor(node);
     }
 
-    for (auto& node : normalizedPreset.graph.nodes)
+    for (auto& node : preset.graph.nodes)
     {
         if (!IsNamEffectType(node.type))
         {
@@ -680,20 +679,27 @@ void PluginController::ApplyPreset(const Preset& preset)
     // can resolve NAM model paths for MultiModelNAMAmpEffect. Without it, blend nodes added
     // or replaced via the signal path UI have empty resources, leaving the effect in
     // passthrough mode (no models loaded -> input/output gain and blend selection have no effect).
-    ApplyBlendDefinitions(normalizedPreset);
+    ApplyBlendDefinitions(preset);
 
-    TryRemapHostedPluginResources(normalizedPreset);
-    EnsurePresetBoundaryGainNodes(normalizedPreset);
+    TryRemapHostedPluginResources(preset);
+    EnsurePresetBoundaryGainNodes(preset);
 
+    // The preset records the global chain in force; it never sets it (see ApplyPreset).
+    preset.global.inputTrim = chainConfig.inputGain;
+    preset.global.outputTrim = chainConfig.outputGain;
+    preset.globalSignalChain = chainConfig;
+    return resolvedSceneId;
+}
+
+void PluginController::ApplyPreset(const Preset& preset)
+{
+    // === Phase 1: Normalize and prepare preset data — no DSP lock needed. ===
+    // All work here modifies local copies only; the audio thread is unaffected.
+    //
     // Global settings (gate, transpose, EQ, doubler, limiter) must never come from presets.
     // They are per-instance state and come from app settings (standalone) or host state (plugin).
     // Preserve current global FX state when loading a preset—ignore any preset-level overrides.
     auto chainConfig = mPresetMixer.GetGlobalChainConfig();
-    const double inputGainDb = chainConfig.inputGain;
-    const double outputGainDb = chainConfig.outputGain;
-
-    chainConfig.inputGain = inputGainDb;
-    chainConfig.outputGain = outputGainDb;
 
     if (mHost.IsStandalone())
     {
@@ -708,10 +714,8 @@ void PluginController::ApplyPreset(const Preset& preset)
             (chanIt != mAppSettings.end() && chanIt->is_number_integer()) ? std::clamp(chanIt->get<int>(), 0, 1) : 0;
     }
 
-    normalizedPreset.global.inputTrim = inputGainDb;
-    normalizedPreset.global.outputTrim = outputGainDb;
-    normalizedPreset.globalSignalChain = chainConfig;
-
+    Preset normalizedPreset = preset;
+    const std::string resolvedSceneId = PreparePresetForEngine(normalizedPreset, mActiveSceneId, chainConfig);
     const std::string initialSlotId = normalizedPreset.id.empty() ? "p1" : normalizedPreset.id;
     std::string newPresetJson = PresetStorage::SerializeToJson(normalizedPreset); // moved in under the lock
 

@@ -539,15 +539,12 @@ void PluginController::FoldAutomationNodeChanges()
             });
         }
 
+        // A parameter alone is not mirrored: under automation that would re-serialise the preset
+        // up to 30 times a second. FocusMixerPreset mirrors the working copy as its rig loses
+        // focus, which is where the slot's copy is next read.
         if (bypassChanged)
         {
-            mActivePresetJson = PresetStorage::SerializeToJson(*mActivePreset);
-
-            if (!mActivePresetId.empty())
-            {
-                mMixerPresetJsonCache[mActivePresetId] = mActivePresetJson;
-            }
-
+            MirrorActivePresetJson();
             mPendingStateBroadcast = true;
         }
     }

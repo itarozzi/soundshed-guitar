@@ -50,6 +50,7 @@ set(TEST_SOURCES
     MixerInstanceLockTests.cpp
     MixerTelemetryTests.cpp
     MultiPresetMixerTests.cpp
+    MultiRigEditWorkflowTests.cpp
     NamCalibrationProbe.cpp
     NamModelCacheTests.cpp
     NamQualityPolicyTests.cpp

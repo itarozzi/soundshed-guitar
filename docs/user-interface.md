@@ -157,6 +157,7 @@ The UI is a web-based single-page application (SPA) hosted in a native WebView. 
 | `browseNodeResource` | `{nodeId}` | Browse for node resource |
 | `addActivePreset` | `{presetId}` | Add preset to multi-mixer |
 | `removeActivePreset` | `{presetId}` | Remove preset from mixer |
+| `focusMixerPreset` | `{presetId}` | Make that mixer slot the one the editor shows and edits. The slot losing focus keeps its working copy, unsaved edits included, as what a switch back reloads and a host save stores. An edit to the focused slot's chain rebuilds only that slot; the others keep playing |
 | `setPresetMix` | `{presetId, mix}` | Set mixer preset level |
 | `setPresetPan` | `{presetId, pan}` | Set mixer preset pan |
 | `setPresetMute` | `{presetId, mute}` | Mute mixer preset |
