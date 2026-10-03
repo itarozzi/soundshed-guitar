@@ -20,6 +20,11 @@ jobs:
     container:
       image: ubuntu:20.04
 
+    # Container steps default to sh (dash), which has no pipefail, [[ ]] or <<<.
+    defaults:
+      run:
+        shell: bash
+
     strategy:
       fail-fast: false
       matrix:
