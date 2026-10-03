@@ -28,6 +28,22 @@ export function getUserEffectPresets(node: GraphNode): StoredEffectPreset[] {
 }
 
 /**
+ * Read-only effect presets the factory archives ship, by canonical effect type, as the
+ * engine's last `effectPresets` broadcast had them. Unlike the registry's factory presets
+ * they can choose a factory model, IR or blend, so the engine applies them.
+ */
+let factoryPackEffectPresets: Record<string, StoredEffectPreset[]> = {};
+
+export function setFactoryPackEffectPresets(byEffectType: Record<string, StoredEffectPreset[]>): void {
+  factoryPackEffectPresets = byEffectType;
+}
+
+/** The factory archives' presets for this node's effect: read-only, and listed as factory. */
+export function getFactoryPackEffectPresets(node: GraphNode): StoredEffectPreset[] {
+  return factoryPackEffectPresets[effectPresetStorageKey(node)] ?? [];
+}
+
+/**
  * Apply a preset's parameters to a node.
  *
  * `order` comes from a factory preset's parameterOrder and matters where one
@@ -61,12 +77,13 @@ export function applyEffectPresetParams(
 }
 
 /**
- * Load one of the user's saved presets into a node. The engine applies it, since only
- * it holds everything the preset restores (a hosted plugin's state never reaches the
- * UI), and echoes the node back; the parameters are set here as well so the knobs move
- * without waiting for that.
+ * Load a stored preset into a node: one of the user's, or one a factory archive ships.
+ * The engine applies it, since only it holds everything the preset restores (a hosted
+ * plugin's state never reaches the UI, and a factory archive's models and IRs are
+ * library entries it resolves), and echoes the node back; the parameters are set here
+ * as well so the knobs move without waiting for that.
  */
-export function applyUserEffectPreset(node: GraphNode, entry: StoredEffectPreset): void {
+export function applyStoredEffectPreset(node: GraphNode, entry: StoredEffectPreset): void {
   const known = new Set((getNodeEffectInfo(node)?.parameters ?? []).map((def) => def.key));
   for (const [key, value] of Object.entries(entry.parameters ?? {})) {
     if (known.has(key) && typeof value === "number" && Number.isFinite(value)) {
@@ -94,7 +111,10 @@ export function refreshEffectPresetsFlyout(): void {
   effectPresetsPopover?.dispatchEvent(new CustomEvent("effect-presets-refresh"));
 }
 
-/** Option values encode which list an entry came from: "factory:id" / "user:id". */
+/**
+ * Option values encode which list an entry came from: "factory:id" (the effect's own),
+ * "pack:id" (a factory archive's) or "user:id".
+ */
 export function parseEffectPresetOptionValue(value: string): { kind: string; id: string } | null {
   const separator = value.indexOf(":");
   if (separator <= 0) return null;
@@ -189,6 +209,7 @@ export function openEffectPresetsFlyout(initialAnchor: HTMLElement, nodeId: stri
     }
     const { node } = target;
     const factoryPresets = getNodeEffectInfo(node)?.presets ?? [];
+    const packPresets = getFactoryPackEffectPresets(node);
     const userPresets = getUserEffectPresets(node);
 
     const options = (entries: { id: string; name: string }[], kind: string): string =>
@@ -198,13 +219,14 @@ export function openEffectPresetsFlyout(initialAnchor: HTMLElement, nodeId: stri
 
     // With nothing to choose from, the flyout collapses to just the save row —
     // an empty dropdown and a permanently disabled Delete are only clutter.
-    const hasAnyPresets = factoryPresets.length > 0 || userPresets.length > 0;
+    const hasFactoryPresets = factoryPresets.length > 0 || packPresets.length > 0;
+    const hasAnyPresets = hasFactoryPresets || userPresets.length > 0;
 
     popover.innerHTML = `
       ${hasAnyPresets ? `
       <select class="effect-presets-picker" aria-label="Load a preset for this effect">
         <option value="">Select a preset…</option>
-        ${factoryPresets.length ? `<optgroup label="Factory">${options(factoryPresets, "factory")}</optgroup>` : ""}
+        ${hasFactoryPresets ? `<optgroup label="Factory">${options(factoryPresets, "factory")}${options(packPresets, "pack")}</optgroup>` : ""}
         ${userPresets.length ? `<optgroup label="My presets">${options(userPresets, "user")}</optgroup>` : ""}
       </select>` : ""}
       <div class="effect-presets-popover-row">
@@ -254,8 +276,9 @@ export function openEffectPresetsFlyout(initialAnchor: HTMLElement, nodeId: stri
         const entry = (getNodeEffectInfo(target.node)?.presets ?? []).find((c) => c.id === selection.id);
         if (entry) applyEffectPresetParams(target.node, target.preset, entry.parameters, entry.parameterOrder);
       } else {
-        const entry = getUserEffectPresets(target.node).find((c) => c.id === selection.id);
-        if (entry) applyUserEffectPreset(target.node, entry);
+        const stored = selection.kind === "pack" ? getFactoryPackEffectPresets(target.node) : getUserEffectPresets(target.node);
+        const entry = stored.find((c) => c.id === selection.id);
+        if (entry) applyStoredEffectPreset(target.node, entry);
       }
     });
 

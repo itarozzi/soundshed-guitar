@@ -223,6 +223,57 @@ void TestClientMirrorsTheEngine()
     Expect(sessionCalls == 1, "an unsubscribed listener is not called");
 }
 
+/// A factory archive's effect presets can choose its models, IRs and blends, which only the
+/// engine holds, so the client lists them and leaves applying them to the engine.
+void TestFactoryPackEffectPresetsApplyInTheEngine()
+{
+    LoopbackHost host(Sandbox("factory-pack-presets"));
+    PluginController controller(host);
+    controller.Initialize();
+
+    std::vector<std::string> sentTypes;
+    UiClient client([&controller, &sentTypes](const std::string& json) {
+        sentTypes.push_back(nlohmann::json::parse(json).value("type", ""));
+        controller.HandleUIMessage(json);
+    });
+    host.client = &client;
+    UiCommands commands(client);
+
+    const auto preset = BuildPreset("pa", "Alpha");
+    client.Send("savePreset", {{"saveMode", "overwrite"},
+                               {"presetId", preset.id},
+                               {"name", preset.name},
+                               {"preset", nlohmann::json::parse(PresetStorage::SerializeToJson(preset))}});
+    client.Start();
+    Pump(controller, client);
+    commands.LoadPreset("pa");
+    Pump(controller, client);
+
+    // As the engine sends them when a factory archive ships effect presets.
+    const nlohmann::json pack =
+        nlohmann::json::array({{{"id", "bundle__boost"}, {"name", "Pack Boost"}, {"parameters", {{"gain", 6.0}}}}});
+    client.Enqueue(nlohmann::json{{"type", "effectPresets"},
+                                  {"byEffectType", nlohmann::json::object()},
+                                  {"factoryByEffectType", {{EffectGuids::kGain, pack}}}}
+                       .dump());
+    client.DrainPending();
+
+    const auto& listed = client.State().factoryPackEffectPresets;
+    const auto entries = listed.find(EffectGuids::kGain);
+    Expect(entries != listed.end() && entries->second.size() == 1 && entries->second[0].source == "factoryPack",
+           "a factory archive's effect presets are listed apart from the user's");
+
+    if (entries == listed.end() || entries->second.empty())
+    {
+        return;
+    }
+
+    sentTypes.clear();
+    commands.ApplyEffectPreset("gain_1", entries->second[0]);
+    Expect(sentTypes == std::vector<std::string>{"applyEffectPreset"},
+           "one is applied by the engine, not as parameter changes from the client");
+}
+
 /// The tone sharing service as the web UI reads it (core/ui/ts/toneSharingPanel/).
 void TestToneSharing()
 {
@@ -476,6 +527,7 @@ void TestLayoutDecisions()
 int main()
 {
     TestClientMirrorsTheEngine();
+    TestFactoryPackEffectPresetsApplyInTheEngine();
     TestTelemetryDecoding();
     TestChainLayoutWalksParallelLanes();
     TestPresetBrowse();

@@ -445,6 +445,15 @@ void EffectPage::showPresetMenu()
         menu.addItem (juce::String::fromUTF8 (preset.name.c_str()),
                       [this, nodeId, preset] { context.commands.ApplyEffectPreset (nodeId, preset); });
 
+    // Factory too, from a factory archive: these choose its models, IRs and blends.
+    if (const auto pack = context.state().factoryPackEffectPresets.find (node->type);
+        pack != context.state().factoryPackEffectPresets.end())
+    {
+        for (const auto& preset : pack->second)
+            menu.addItem (juce::String::fromUTF8 (preset.name.c_str()),
+                          [this, nodeId, preset] { context.commands.ApplyEffectPreset (nodeId, preset); });
+    }
+
     const auto custom = context.state().customEffectPresets.find (node->type);
 
     if (custom != context.state().customEffectPresets.end() && ! custom->second.empty())

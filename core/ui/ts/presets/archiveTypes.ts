@@ -1,4 +1,4 @@
-import type { BlendDefinition, Preset } from "../types.js";
+import type { BlendDefinition, Preset, StoredEffectPreset } from "../types.js";
 import type { InstalledPackMetadata } from "../toneSharingPanel.js";
 export type PresetArchiveResource = {
   id: string;
@@ -50,6 +50,11 @@ export type PresetCollectionArchive = {
   presetFolders?: PresetArchiveFolder[];
   /** tone3000-sourced resources excluded from the archive per their redistribution terms. */
   tone3000Resources?: Tone3000ResourceRef[];
+  /**
+   * Effect presets by effect type, on the archive's resource and blend ids. A factory archive's
+   * become factory presets for those effects; imports and archive sessions ignore them.
+   */
+  effectPresets?: Record<string, StoredEffectPreset[]>;
 };
 
 export type ImportPackSource = "zipImport" | "toneSharingApi" | "generatedPack";

@@ -20,6 +20,9 @@ export const USER_INPUT_CALIBRATION_NONE_VALUE = "__none__";
 
 export const FACTORY_ARCHIVE_LOADING_SETTING = "factoryPresets.archiveLoadingEnabled";
 
+/** Preset collection exports carry the user's effect presets: how factory ones are authored. */
+export const FACTORY_ARCHIVE_EXPORT_EFFECT_PRESETS_SETTING = "factoryPresets.exportIncludesEffectPresets";
+
 export const DSP_NOMINAL_LEVEL_SETTING = "audio.dsp.nominalOperatingLevelDbfs";
 
 export const DSP_PROTECTION_CEILING_SETTING = "audio.dsp.outputProtectionCeilingDbfs";

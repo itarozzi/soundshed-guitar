@@ -21,6 +21,7 @@ import { sanitizeImportedPreset, sanitizePresetForArchive, getPresetArchiveSessi
 import { requestPresetFromBackend } from "./fetch.js";
 import { requestPresetLibraryRefresh } from "./refresh.js";
 import { cachePresetInMemory } from "./cache.js";
+import { collectEffectPresetsForExport, finishEffectPresetsForArchive } from "./effectPresetExport.js";
 export function buildPresetImportSignature(preset: Preset): string {
   const json = JSON.stringify(preset ?? null);
   let hash = 5381;
@@ -486,21 +487,17 @@ export async function exportPresetCollectionArchive(presets: Preset[], archiveNa
     }
   }
 
-  const blendIds = new Set<string>();
-  exportSourcePresets.forEach((preset) => {
-    collectPresetBlendIds(preset).forEach((id) => blendIds.add(id));
-  });
+  const effectPresetExport = collectEffectPresetsForExport();
+  const blendIds = new Set<string>([...exportSourcePresets.flatMap(collectPresetBlendIds), ...effectPresetExport.blendIds]);
   const blendDefs = (uiState.blendLibrary ?? []).filter((blend) => blendIds.has(blend.id));
   const refMap = new Map<string, ResourceRef>();
-  exportSourcePresets.forEach((preset) => {
-    collectPresetResourceRefs(preset, blendDefs).forEach((ref) => {
-      const resourceType = ref.resourceType ?? ref.type ?? "";
-      const resourceId = ref.resourceId ?? ref.id ?? "";
-      if (!resourceType || !resourceId) {
-        return;
-      }
-      refMap.set(`${resourceType}:${resourceId}`, ref);
-    });
+  [...exportSourcePresets.flatMap((preset) => collectPresetResourceRefs(preset, blendDefs)), ...effectPresetExport.refs].forEach((ref) => {
+    const resourceType = ref.resourceType ?? ref.type ?? "";
+    const resourceId = ref.resourceId ?? ref.id ?? "";
+    if (!resourceType || !resourceId) {
+      return;
+    }
+    refMap.set(`${resourceType}:${resourceId}`, ref);
   });
 
   const exportResources: PresetArchiveResource[] = [];
@@ -560,6 +557,7 @@ export async function exportPresetCollectionArchive(presets: Preset[], archiveNa
     resources: exportResources,
     blends: clonedBlends,
     ...(presetFolders.length > 0 ? { presetFolders } : {}),
+    ...finishEffectPresetsForArchive(effectPresetExport, idMap, clonedBlends),
   };
 
   zip.file("presets.json", JSON.stringify(archive, null, 2));

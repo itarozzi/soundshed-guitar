@@ -219,9 +219,10 @@ void UiCommands::CollapseSplit(const std::string& splitterId)
 
 void UiCommands::ApplyEffectPreset(const std::string& nodeId, const EffectPresetInfo& preset)
 {
-    // A saved preset can carry a model, an IR, a plugin and its state as well as parameters,
-    // and only the engine holds all of that, so it applies those itself.
-    if (preset.source == "custom")
+    // A saved preset, or one a factory archive ships, can carry a model, an IR, a blend, a plugin
+    // and its state as well as parameters, and only the engine holds all of that, so it applies
+    // those itself. Only the registry's own factory presets are parameters alone.
+    if (preset.source != "factory")
     {
         const auto& state = mClient.State();
         const auto* node = state.activePreset ? state.activePreset->graph.FindNode(nodeId) : nullptr;

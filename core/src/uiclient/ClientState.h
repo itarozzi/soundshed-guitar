@@ -66,7 +66,7 @@ struct EffectPresetInfo
 {
     std::string id;
     std::string name;
-    std::string source; // "factory" or "custom"
+    std::string source; // "factory", "factoryPack" (from a factory archive) or "custom"
     std::map<std::string, double> parameters;
 };
 
@@ -263,6 +263,8 @@ struct ClientState
 
     std::vector<EffectTypeInfo> catalog;
     std::map<std::string, std::vector<EffectPresetInfo>> customEffectPresets; // by effect type
+    /// Factory presets a factory archive ships, choosing its models, IRs and blends; by effect type.
+    std::map<std::string, std::vector<EffectPresetInfo>> factoryPackEffectPresets;
 
     std::map<std::string, std::vector<LibraryResource>> resources; // by resource type
 

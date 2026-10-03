@@ -11,12 +11,15 @@
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <iostream>
+#include <iterator>
 #include <optional>
 #include <string>
 #include <vector>
 
+#include <miniz.h>
 #include <nlohmann/json.hpp>
 
 #include "IPluginHost.h"
@@ -387,6 +390,182 @@ void TestAPresetOnlyLoadsIntoItsOwnEffect()
     Expect(fx && fx->resources.empty() && fx->params.at("inputGain") == 0.0,
            "a Neural Amp preset is not applied to a Neural FX node");
 }
+
+std::vector<std::uint8_t> ReadBytes(const fs::path& path)
+{
+    std::ifstream input(path, std::ios::binary);
+    return {std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
+}
+
+std::vector<std::uint8_t> BuildZip(const std::vector<std::pair<std::string, std::vector<std::uint8_t>>>& entries)
+{
+    mz_zip_archive archive{};
+
+    if (!mz_zip_writer_init_heap(&archive, 0, 0))
+    {
+        return {};
+    }
+
+    for (const auto& [name, data] : entries)
+    {
+        mz_zip_writer_add_mem(&archive, name.c_str(), data.empty() ? nullptr : data.data(), data.size(),
+                              MZ_DEFAULT_COMPRESSION);
+    }
+
+    void* buffer = nullptr;
+    std::size_t size = 0;
+    std::vector<std::uint8_t> zip;
+
+    if (mz_zip_writer_finalize_heap_archive(&archive, &buffer, &size))
+    {
+        zip.assign(static_cast<std::uint8_t*>(buffer), static_cast<std::uint8_t*>(buffer) + size);
+    }
+
+    mz_zip_writer_end(&archive);
+    return zip;
+}
+
+/// A factory archive, bundle.soundshed.presets, whose effect presets choose the IR, the model
+/// (through a blend) and, in one entry, an IR it does not carry. Its effect presets are keyed
+/// as the archive's author might: the IR cab under a legacy alias.
+void WriteFactoryArchiveWithEffectPresets(const fs::path& root)
+{
+    const auto entry = [](const char* id, const char* name, nlohmann::json parameters, nlohmann::json resources,
+                          nlohmann::json config) {
+        nlohmann::json preset = {{"id", id}, {"name", name}, {"parameters", std::move(parameters)}};
+
+        if (!resources.is_null())
+        {
+            preset["resources"] = std::move(resources);
+        }
+
+        if (!config.is_null())
+        {
+            preset["config"] = std::move(config);
+        }
+
+        return preset;
+    };
+
+    nlohmann::json manifest;
+    manifest["formatVersion"] = 1;
+    manifest["presets"] =
+        nlohmann::json::array({nlohmann::json::parse(guitarfx::PresetStorage::SerializeToJson(Chain("pack-rig", {})))});
+    manifest["resources"] = nlohmann::json::array(
+        {{{"id", "ir-1"}, {"name", "Pack 421"}, {"type", "ir"}, {"fileName", "421.wav"}},
+         {{"id", "model-1"}, {"name", "Pack Chugs"}, {"type", "nam"}, {"fileName", "chugs.nam"}}});
+    manifest["blends"] = nlohmann::json::array(
+        {{{"id", "blend-1"}, {"name", "Pack Blend"}, {"models", nlohmann::json::array({"model-1"})}}});
+    manifest["effectPresets"] = {
+        {"cab_ir",
+         nlohmann::json::array(
+             {entry("efp-421", "Pack 421", {{"mix", 0.7}, {"outputGain", -3.0}},
+                    nlohmann::json::array(
+                        {{{"resourceType", "ir"}, {"resourceId", "ir-1"}, {"filePath", "C:/author/421.wav"}}}),
+                    nullptr),
+              entry("efp-missing", "Missing IR", {{"mix", 1.0}},
+                    nlohmann::json::array({{{"resourceType", "ir"}, {"resourceId", "not-in-archive"}}}), nullptr)})},
+        {EffectGuids::kAmpNamBlend, nlohmann::json::array({entry("efp-blend", "Pack Blend", nlohmann::json::object(),
+                                                                 nullptr, {{"blendId", "blend-1"}})})},
+    };
+
+    const auto text = manifest.dump(2);
+    const auto zip = BuildZip({{"presets.json", std::vector<std::uint8_t>(text.begin(), text.end())},
+                               {"resources/421.wav", ReadBytes(IrPath())},
+                               {"resources/chugs.nam", ReadBytes(ModelPath())}});
+
+    const auto dir = root / "presets" / "factory";
+    fs::create_directories(dir);
+    std::ofstream output(dir / "bundle.soundshed.presets", std::ios::binary);
+    output.write(reinterpret_cast<const char*>(zip.data()), static_cast<std::streamsize>(zip.size()));
+}
+
+/// The factory entry named `name` for `effectType`, from the latest broadcast.
+std::optional<nlohmann::json> Factory(const TestHost& host, const std::string& effectType, const std::string& name)
+{
+    const auto message = Latest(host, "effectPresets");
+
+    if (!message || !message->contains("factoryByEffectType") ||
+        !(*message)["factoryByEffectType"].contains(effectType))
+    {
+        return std::nullopt;
+    }
+
+    for (const auto& entry : (*message)["factoryByEffectType"][effectType])
+    {
+        if (entry.value("name", std::string{}) == name)
+        {
+            return entry;
+        }
+    }
+
+    return std::nullopt;
+}
+
+void TestAFactoryArchiveShipsPresetsThatChooseItsIrsAndBlends()
+{
+    const auto root = Sandbox("factory-archive");
+    WriteFactoryArchiveWithEffectPresets(root);
+    TestHost host(root);
+    guitarfx::PluginController controller(host);
+    controller.Initialize();
+    Send(controller, "getEffectPresets");
+
+    const auto cab = Factory(host, EffectGuids::kCabIr, "Pack 421");
+    const auto blend = Factory(host, EffectGuids::kAmpNamBlend, "Pack Blend");
+    Expect(cab.has_value(), "an archive's effect preset is offered under the canonical type, whatever alias it used");
+    Expect(blend.has_value(), "a blend node's effect preset is offered");
+    Expect(!Factory(host, EffectGuids::kCabIr, "Missing IR"),
+           "an entry naming an IR the archive does not carry is left out");
+    Expect(Saved(host, EffectGuids::kCabIr, "Pack 421") == std::nullopt, "factory entries are not the user's own");
+
+    if (!cab || !blend)
+    {
+        return;
+    }
+
+    Expect(cab->value("id", "") == "bundle__efp-421", "the entry's id is scoped by the archive");
+    const auto resources = cab->value("resources", nlohmann::json::array());
+    Expect(resources.size() == 1 && resources[0].value("resourceId", "") == "bundle__ir-1" &&
+               !resources[0].contains("filePath"),
+           "its IR is the archive's, on the scoped id, with no path from the author's machine");
+
+    // The IR is in use while nothing else chooses it: cleaning up the library must keep it.
+    Send(controller, "queryResourceUsage", {{"resourceType", "ir"}, {"resourceId", "bundle__ir-1"}});
+    const auto usage = Latest(host, "resourceUsageInfo");
+    Expect(usage && usage->value("inUse", false) && usage->value("usageKind", "") == "effectPreset" &&
+               usage->value("usageName", "") == "Pack 421",
+           "an IR only a factory effect preset chooses counts as in use");
+
+    Load(controller, Chain("p-target", {Node("cab_x", EffectGuids::kCabIr, {{"mix", 1.0}, {"outputGain", 0.0}}),
+                                        Node("blend_x", EffectGuids::kAmpNamBlend, {})}));
+    Send(controller, "applyEffectPreset",
+         {{"nodeId", "cab_x"}, {"effectType", EffectGuids::kCabIr}, {"presetId", cab->value("id", "")}});
+    Send(controller, "applyEffectPreset",
+         {{"nodeId", "blend_x"}, {"effectType", EffectGuids::kAmpNamBlend}, {"presetId", blend->value("id", "")}});
+
+    const auto* cabNode = LiveNode(controller, "cab_x");
+    Expect(cabNode && !cabNode->resources.empty() && cabNode->resources.front().resourceId == "bundle__ir-1",
+           "applying it chooses the archive's IR");
+    Expect(cabNode && cabNode->params.at("mix") == 0.7 && cabNode->params.at("outputGain") == -3.0,
+           "and sets its parameters");
+    const auto* blendNode = LiveNode(controller, "blend_x");
+    Expect(blendNode && blendNode->config.contains("blendId") && blendNode->config.at("blendId") == "bundle__blend-1",
+           "a blend preset chooses the archive's blend");
+
+    // Switched off, factory archives offer nothing, and their presets no longer apply.
+    Send(controller, "setSetting", {{"key", "factoryPresets.archiveLoadingEnabled"}, {"value", false}});
+    Send(controller, "getEffectPresets");
+    Expect(!Factory(host, EffectGuids::kCabIr, "Pack 421"),
+           "with factory archives off, none of their presets is offered");
+
+    Load(controller, Chain("p-off", {Node("cab_y", EffectGuids::kCabIr, {{"mix", 1.0}})}));
+    Send(controller, "applyEffectPreset",
+         {{"nodeId", "cab_y"}, {"effectType", EffectGuids::kCabIr}, {"presetId", cab->value("id", "")}});
+    const auto* offNode = LiveNode(controller, "cab_y");
+    Expect(offNode && offNode->resources.empty() && offNode->params.at("mix") == 1.0,
+           "with factory archives off, their presets no longer apply");
+}
 } // namespace
 
 int main()
@@ -395,6 +574,7 @@ int main()
     TestOlderEntriesLeaveTheModelAlone();
     TestConfigIsSavedWithoutTransientKeysAndScrubbedForTheUi();
     TestAPresetOnlyLoadsIntoItsOwnEffect();
+    TestAFactoryArchiveShipsPresetsThatChooseItsIrsAndBlends();
 
     if (gFailures > 0)
     {

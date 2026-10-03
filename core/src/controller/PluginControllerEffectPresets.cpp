@@ -6,12 +6,16 @@
  * are the custom half of that same vocabulary, kept in UI storage so they are
  * shared across presets rather than baked into any one of them.
  *
- * A factory preset is only parameter values. A user preset is everything the
- * node was set to — its parameters, its resources (the NAM model, the IR, the
- * hosted plugin) and its config (a blend, an oversampling override, a hosted
- * plugin's state) — so loading it into another chain gives the same sound.
+ * A registry factory preset is only parameter values. A user preset is
+ * everything the node was set to — its parameters, its resources (the NAM model,
+ * the IR, the hosted plugin) and its config (a blend, an oversampling override, a
+ * hosted plugin's state) — so loading it into another chain gives the same sound.
  * Entries saved before resources and config were captured carry parameters
  * only, and loading one leaves the node's resources and config alone.
+ *
+ * Factory archives can ship entries of that same shape (mFactoryArchiveEffectPresets),
+ * choosing the factory models, IRs and blends they carry. They are read-only, sent to
+ * the UI as `factoryByEffectType`, and applied here like a user preset.
  */
 
 #include "PluginController.h"
@@ -93,6 +97,28 @@ nlohmann::json CaptureNodeSettings(const GraphNode& node)
     return entry;
 }
 
+/// The entry with `presetId` among `byEffectType[effectType]`, or nullptr.
+const nlohmann::json* FindEffectPresetEntry(const nlohmann::json& byEffectType, const std::string& effectType,
+                                            const std::string& presetId)
+{
+    const auto presets = byEffectType.find(effectType);
+
+    if (presets == byEffectType.end() || !presets->is_array())
+    {
+        return nullptr;
+    }
+
+    for (const auto& entry : *presets)
+    {
+        if (entry.is_object() && entry.value("id", "") == presetId)
+        {
+            return &entry;
+        }
+    }
+
+    return nullptr;
+}
+
 /// Compared as saved: a node's refs also carry library metadata that is never stored, and
 /// would otherwise make every load look like a new model.
 bool SameResources(const std::vector<ResourceRef>& a, const std::vector<ResourceRef>& b)
@@ -142,6 +168,9 @@ void PluginController::BroadcastEffectPresets()
     nlohmann::json msg;
     msg["type"] = "effectPresets";
     msg["byEffectType"] = ScrubEffectPresetsForUi(document["byEffectType"]);
+    msg["factoryByEffectType"] = IsFactoryPresetArchiveLoadingEnabled()
+                                     ? ScrubEffectPresetsForUi(mFactoryArchiveEffectPresets)
+                                     : nlohmann::json::object();
     SendMessageToUI(msg.dump());
 }
 
@@ -245,25 +274,23 @@ void PluginController::HandleApplyEffectPresetRequest(const nlohmann::json& payl
 
     const auto document =
         NormalizeEffectPresetsDocument(LoadUiStorageJson(kEffectPresetsFile, nlohmann::json::object()));
-    const auto presetsIt = document["byEffectType"].find(effectType);
+    auto& registry = EffectRegistry::Instance();
+    const auto* found = FindEffectPresetEntry(document["byEffectType"], effectType, presetId);
 
-    if (presetsIt == document["byEffectType"].end() || !presetsIt->is_array())
+    // A factory archive's entries sit under the canonical type, and are offered only while
+    // factory archives load.
+    if (!found && IsFactoryPresetArchiveLoadingEnabled())
     {
-        return;
+        found = FindEffectPresetEntry(mFactoryArchiveEffectPresets, registry.Resolve(effectType), presetId);
     }
 
-    const auto entryIt = std::find_if(presetsIt->begin(), presetsIt->end(), [&presetId](const nlohmann::json& entry) {
-        return entry.is_object() && entry.value("id", "") == presetId;
-    });
-
-    if (entryIt == presetsIt->end())
+    if (!found)
     {
         ReportErrorToUI("Effect preset not found", "No saved preset with id " + presetId + " for this effect");
         return;
     }
 
-    const auto& entry = *entryIt;
-    auto& registry = EffectRegistry::Instance();
+    const nlohmann::json entry = *found;
 
     auto* graph = ResolveEditTarget();
     auto* node = graph ? graph->FindNode(nodeId) : nullptr;
@@ -504,38 +531,43 @@ void PluginController::HandleDeleteEffectPresetRequest(const nlohmann::json& pay
 void PluginController::ForEachEffectPresetResourceRef(
     const std::function<void(const ResourceRef& ref, const std::string& presetName)>& visit) const
 {
-    const auto document =
-        NormalizeEffectPresetsDocument(LoadUiStorageJson(kEffectPresetsFile, nlohmann::json::object()));
-
-    for (const auto& presets : document.at("byEffectType"))
-    {
-        if (!presets.is_array())
+    const auto visitAll = [&visit](const nlohmann::json& byEffectType) {
+        for (const auto& presets : byEffectType)
         {
-            continue;
-        }
-
-        for (const auto& entry : presets)
-        {
-            if (!entry.is_object() || !entry.contains("resources") || !entry["resources"].is_array())
+            if (!presets.is_array())
             {
                 continue;
             }
 
-            std::string name = entry.value("name", "");
-
-            if (name.empty())
+            for (const auto& entry : presets)
             {
-                name = entry.value("id", "Unnamed effect preset");
-            }
-
-            for (const auto& resource : entry["resources"])
-            {
-                if (resource.is_object())
+                if (!entry.is_object() || !entry.contains("resources") || !entry["resources"].is_array())
                 {
-                    visit(DeserializeResourceRef(resource), name);
+                    continue;
+                }
+
+                std::string name = entry.value("name", "");
+
+                if (name.empty())
+                {
+                    name = entry.value("id", "Unnamed effect preset");
+                }
+
+                for (const auto& resource : entry["resources"])
+                {
+                    if (resource.is_object())
+                    {
+                        visit(DeserializeResourceRef(resource), name);
+                    }
                 }
             }
         }
-    }
+    };
+
+    const auto document =
+        NormalizeEffectPresetsDocument(LoadUiStorageJson(kEffectPresetsFile, nlohmann::json::object()));
+    visitAll(document.at("byEffectType"));
+    // A factory model or IR one of these alone uses is as much in use as one a factory preset does.
+    visitAll(mFactoryArchiveEffectPresets);
 }
 } // namespace guitarfx

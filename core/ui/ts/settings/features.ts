@@ -8,7 +8,7 @@ import { FEATURE_DEFINITIONS, FEATURE_FLAGS_CHANGED_EVENT, FEATURE_GROUPS, Featu
 import type { FeatureId } from "../featureFlags.js";
 import { updateSelectedNodePeakMeter } from "../signalPath.js";
 import { escapeHtml } from "../utils.js";
-import { advancedTabButton, blendsTabButton, blendsTabPanel, compositeTabButton, compositeTabPanel, equipmentLibraryTabButton, equipmentTabButtons, factoryArchiveLoadingRow, factoryArchiveLoadingToggle, factoryArchiveSettingsSection, featureGroupsContainer, footerRiffRecordButton, jamFloatingPlayerRoot, jamPanel, jamPanelButton, jamPlayerDock, layoutsTabButton, layoutsTabPanel, libraryTabButtons, libraryToolsHeading, libraryToolsSection, resourceLibraryTabButton, sharingPanel, sharingPanelButton, tone3000SettingsHeading, tone3000SettingsSection, tone3000TabButton } from "./dom.js";
+import { advancedTabButton, blendsTabButton, blendsTabPanel, compositeTabButton, compositeTabPanel, equipmentLibraryTabButton, equipmentTabButtons, factoryArchiveExportEffectPresetsToggle, factoryArchiveLoadingRow, factoryArchiveLoadingToggle, factoryArchiveSettingsSection, featureGroupsContainer, footerRiffRecordButton, jamFloatingPlayerRoot, jamPanel, jamPanelButton, jamPlayerDock, layoutsTabButton, layoutsTabPanel, libraryTabButtons, libraryToolsHeading, libraryToolsSection, resourceLibraryTabButton, sharingPanel, sharingPanelButton, tone3000SettingsHeading, tone3000SettingsSection, tone3000TabButton } from "./dom.js";
 import { updateResourceCleanupVisibility } from "./libraryCleanup.js";
 import { renderLibraryView } from "./libraryView.js";
 import { activateAdvancedSubTab, activateEquipmentTab, activateLibraryTab, resolveAdvancedSubTabId, resolveEquipmentTabId, resolveLibraryTabId } from "./tabs.js";
@@ -192,6 +192,9 @@ export function syncFeatureVisibility(): void {
   }
   if (factoryArchiveLoadingToggle) {
     factoryArchiveLoadingToggle.disabled = !factoryPresetArchivesEnabled;
+  }
+  if (factoryArchiveExportEffectPresetsToggle) {
+    factoryArchiveExportEffectPresetsToggle.disabled = !factoryPresetArchivesEnabled;
   }
 
   updateResourceCleanupVisibility(resourceCleanupEnabled);

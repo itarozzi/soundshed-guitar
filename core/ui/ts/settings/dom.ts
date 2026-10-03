@@ -94,6 +94,8 @@ export const featureGroupsContainer = document.getElementById("settings-feature-
 
 export const factoryArchiveLoadingToggle = document.getElementById("factory-archive-loading-toggle") as HTMLInputElement | null;
 
+export const factoryArchiveExportEffectPresetsToggle = document.getElementById("factory-archive-export-effect-presets-toggle") as HTMLInputElement | null;
+
 export const dspNominalLevelInput = document.getElementById("dsp-nominal-level-input") as HTMLInputElement | null;
 
 export const dspProtectionCeilingInput = document.getElementById("dsp-protection-ceiling-input") as HTMLInputElement | null;

@@ -13,6 +13,7 @@
 #include "util/Base64.h"
 
 #include "controller/internal/BlendSupport.h"
+#include "controller/internal/EffectPresetArchiveSupport.h"
 #include "controller/internal/NamResourceMetadata.h"
 #include "controller/internal/PresetArchiveSupport.h"
 #include "presets/PresetStorage.h"
@@ -462,6 +463,7 @@ void PluginController::LoadFactoryPresetArchives()
     mFactoryArchivePresets.clear();
     // The blends are re-registered below; MergeTransientBlends() swaps them into the library.
     mFactoryArchiveBlends = nlohmann::json::array();
+    mFactoryArchiveEffectPresets = nlohmann::json::object();
     mFactoryArchivePresetIds.clear();
     mTrackedFactoryArchivePresetIds.clear();
     mFactoryArchivePresetAliases.clear();
@@ -762,6 +764,17 @@ void PluginController::LoadFactoryPresetArchives()
 
             blend[kFactoryBlendFlag] = true;
             mFactoryArchiveBlends.push_back(std::move(blend));
+        }
+
+        std::vector<std::string> skippedEffectPresets;
+        AppendEffectPresetsByType(mFactoryArchiveEffectPresets,
+                                  ScopeFactoryArchiveEffectPresets(parsed.effectPresets, archiveKey, resourceIdMap,
+                                                                   blendIdMap, skippedEffectPresets));
+
+        for (const auto& name : skippedEffectPresets)
+        {
+            AppendSessionLog("Factory effect preset skipped (" + util::PathToUtf8(entry.path().filename()) +
+                             "): " + name + " names a model, IR or blend the archive does not carry");
         }
 
         std::unordered_map<std::string, std::string> presetIdMapping;

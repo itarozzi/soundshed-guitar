@@ -20,12 +20,16 @@ void UiClient::RegisterLibraryHandlers()
     });
 
     On("effectPresets", [this](const nlohmann::json& m) {
-        auto& presets = mState.customEffectPresets;
-        presets.clear();
+        const auto read = [&m](const char* key, const char* source,
+                               std::map<std::string, std::vector<EffectPresetInfo>>& presets) {
+            presets.clear();
 
-        if (m.contains("byEffectType") && m["byEffectType"].is_object())
-        {
-            for (const auto& [effectType, list] : m["byEffectType"].items())
+            if (!m.contains(key) || !m[key].is_object())
+            {
+                return;
+            }
+
+            for (const auto& [effectType, list] : m[key].items())
             {
                 if (!list.is_array())
                 {
@@ -38,12 +42,14 @@ void UiClient::RegisterLibraryHandlers()
                 {
                     if (entry.is_object())
                     {
-                        entries.push_back(parse::EffectPreset(entry, "custom"));
+                        entries.push_back(parse::EffectPreset(entry, source));
                     }
                 }
             }
-        }
+        };
 
+        read("byEffectType", "custom", mState.customEffectPresets);
+        read("factoryByEffectType", "factoryPack", mState.factoryPackEffectPresets);
         Notify(Topic::Catalog);
     });
 

@@ -157,6 +157,31 @@ back to linear on both sides.
 Log-taper parameters: `ring_mod` `frequency`; `delay_digital` `highCut` and `lowCut`; `cab_ir`
 `lowCutHz` and `highCutHz`; `reverb_advanced` `lowCut` and `highCut`.
 
+### Effect presets
+Every effect's Presets menu draws on three lists:
+
+- **The effect's own factory presets**, `EffectTypeInfo::presets` in the registry: parameter values
+  only, so they can name no model, IR or blend. The one marked `isDefault`, or else the first,
+  seeds a new node.
+- **A factory archive's**: the `effectPresets` section of a bundled `.soundshed.presets`, in the
+  shape of the user's store (effect type -> `[{id, name, parameters, resources?, config?}]`).
+  These can choose the archive's own NAM models and IRs (`resources`) and blends
+  (`config.blendId`). At startup `LoadFactoryPresetArchives` moves those references onto the
+  archive-scoped ids it registers the resources and blends under, and scopes the preset ids the
+  same way (`EffectPresetArchiveSupport.h`); an entry naming anything the archive does not carry
+  is left out and logged. They are listed as factory presets and, like a user preset, applied by
+  the engine (`applyEffectPreset`), replacing the node's resources and config where the entry
+  carries them. A model or IR one of them chooses counts as in use. With factory archive loading
+  off, none is offered.
+- **The user's own**, saved from a node with everything it was set to.
+
+To author factory presets that choose a model, IR or blend: turn on Factory Preset Archive Tools
+(Settings, Feature Toggles) and Include My Effect Presets in Preset Exports, save each preset from
+a node with Save current as, then export a preset folder. The archive then carries your effect
+presets, hosted plugins' excepted, with the models, IRs and blends they choose; an entry whose
+model or IR is not a library resource, or could not be read, is left out with a warning. Put the
+archive in `core/ui/presets/factory/`. Archive installs and archive sessions ignore the section.
+
 ## Effect Categories
 
 | Category | Description | Examples |

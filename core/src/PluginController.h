@@ -498,7 +498,7 @@ class PluginController
     void HandleDeleteEffectPresetRequest(const nlohmann::json& payload);
     void BroadcastEffectPresets();
     /// Calls visit(ref, presetName) for every resource reference the saved effect presets carry,
-    /// library or not, read fresh from storage.
+    /// library or not, read fresh from storage, then for those the factory archives' carry.
     void ForEachEffectPresetResourceRef(
         const std::function<void(const ResourceRef& ref, const std::string& presetName)>& visit) const;
     void HandleSetSetlistsRequest(const nlohmann::json& payload);
@@ -993,6 +993,10 @@ class PluginController
     std::unordered_set<std::string> mPresetArchiveSessionBlendIds;
     nlohmann::json mFactoryArchiveBlends = nlohmann::json::array();
     nlohmann::json mPresetArchiveSessionBlends = nlohmann::json::array();
+    /// Effect presets the factory archives ship, by canonical effect type, their models, IRs
+    /// and blends already on the archive-scoped ids. Read-only, never stored; rebuilt by
+    /// LoadFactoryPresetArchives().
+    nlohmann::json mFactoryArchiveEffectPresets = nlohmann::json::object();
     std::unordered_set<std::string> mFactoryArchivePresetIds;
     std::unordered_set<std::string> mTrackedFactoryArchivePresetIds;
     std::unordered_map<std::string, std::string> mFactoryArchivePresetAliases;

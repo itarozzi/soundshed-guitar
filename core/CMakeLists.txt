@@ -515,6 +515,8 @@ set(GUITARFX_CORE_SOURCES
     src/controller/internal/BlendSupport.cpp
     src/controller/internal/ControllerUtils.h
     src/controller/internal/ControllerUtils.cpp
+    src/controller/internal/EffectPresetArchiveSupport.h
+    src/controller/internal/EffectPresetArchiveSupport.cpp
     src/controller/internal/HostedPluginSupport.h
     src/controller/internal/HostedPluginSupport.cpp
     src/controller/internal/LayoutSupport.h

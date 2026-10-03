@@ -2,6 +2,7 @@
 
 #include "IPluginHost.h"
 #include "controller/internal/ControllerUtils.h"
+#include "controller/internal/EffectPresetArchiveSupport.h"
 #include "controller/internal/NamResourceMetadata.h"
 #include "presets/PresetStorage.h"
 #include "resources/ResourceLibrary.h"
@@ -516,6 +517,11 @@ std::optional<ParsedFactoryPresetArchive> ParseFactoryPresetArchive(const std::f
     if (root.contains("presetFolders") && root["presetFolders"].is_array())
     {
         parsed.presetFolders = root["presetFolders"];
+    }
+
+    if (root.contains("effectPresets"))
+    {
+        parsed.effectPresets = ReadArchiveEffectPresets(root["effectPresets"]);
     }
 
     if (root.contains("tone3000Resources") && root["tone3000Resources"].is_array())
