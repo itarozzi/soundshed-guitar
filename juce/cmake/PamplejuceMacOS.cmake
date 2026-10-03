@@ -1,8 +1,7 @@
 
-# This must be set before the project() call
-# see: https://cmake.org/cmake/help/latest/variable/CMAKE_OSX_DEPLOYMENT_TARGET.html
-# FORCE must be set, see https://stackoverflow.com/a/44340246
-set(CMAKE_OSX_DEPLOYMENT_TARGET "10.15" CACHE STRING "Support macOS down to Catalina" FORCE)
+# The minimum macOS (CMAKE_OSX_DEPLOYMENT_TARGET) is set in juce/CMakeLists.txt,
+# before project(). This file is included after project(), where a FORCE set
+# here used to override it.
 
 # Building universal binaries on macOS increases build time
 # This is set on CI but not during local dev

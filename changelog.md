@@ -89,7 +89,7 @@ A big update: five new effects, fifteen classic drive pedals, a Practice Tool fo
 * The interface is quicker to update and does less background work while hidden.
 
 ### Requirements
-* macOS: Soundshed Guitar needs macOS 11 (Big Sur) or later, and the installer checks for it. On Big Sur, keep Safari up to date, as the interface relies on its latest web engine.
+* macOS: Soundshed Guitar now needs macOS 11 (Big Sur) or later, so Catalina (10.15) is no longer supported, and the installer checks for it. On Big Sur, keep Safari up to date, as the interface relies on its latest web engine.
 
 ### Fixes
 * Opening a DAW project no longer marks it as changed, and the plugin no longer disrupts your DAW's undo and redo.
