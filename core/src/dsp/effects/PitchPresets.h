@@ -11,8 +11,9 @@
  * The arpeggiator's leave out Pitch Trigger and its Pitch, which decide when it plays from what
  * and where the player plays, as the wah's presets leave Auto-Engage alone. Every preset sets
  * the eight custom steps; on a built-in pattern they mirror it, so switching Pattern to Custom
- * keeps the same arp. None goes faster than 1/8, as a new pitch arrives about 35 ms after its
- * step starts.
+ * keeps the same arp. None goes faster than 1/8 triplets, a limit chosen when a new pitch arrived
+ * about 35 ms into its step; since the arp moved to the time-domain shifter (2026-10) it arrives on
+ * the step's first sample.
  *
  * Pitch Shift's set everything, Semitones included: with no pedal mapped it is the interval
  * itself. A pedal preset sets it to the end the pedal rests at, inside its own Range, and a

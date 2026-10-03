@@ -5,9 +5,8 @@
 #include "dsp/EffectGuids.h"
 #include "dsp/FiniteCheck.h"
 #include "dsp/PitchTracker.h"
+#include "dsp/TimeDomainPitchShifter.h"
 #include "dsp/effects/PitchPresets.h"
-#include "dsp/effects/SignalsmithSupport.h"
-#include "signalsmith-stretch.h"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -15,7 +14,6 @@
 #include <random>
 #include <string>
 #include <string_view>
-#include <vector>
 
 namespace guitarfx
 {
@@ -30,13 +28,24 @@ namespace guitarfx
  * PluginController::ProcessAudio() calls MultiPresetMixer::SetTempo() each
  * block which ultimately calls SetParam("bpm", bpm) on this effect.
  *
- * Audio architecture:
- *  - Steps with 0 semitones: dry audio passes through (no stretch latency).
- *  - Steps with non-zero semitones: audio is pitch-shifted via Signalsmith
- *    Stretch (same library as PitchShiftEffect).
- *  - Gate envelope is applied per-sample to control note length and attack,
- *    independent of which DSP path is active.
+ * Audio architecture, all per sample, so a step starts on its own sample in any block size:
+ *  - Steps at 0 semitones play the input itself, undelayed.
+ *  - Other steps read TimeDomainPitchShifter, the engine behind Pitch Shift's Low Latency mode.
+ *    Its history is written on every sample, so a step that starts it plays what is coming in now.
+ *    From one shifted step to the next its tap only changes speed, so the new pitch is heard on
+ *    the step's first sample, with no click. A 0 st step and a shifted one cross-fade over 5 ms.
+ *  - The gate envelope shapes each step's length and attack, whichever path plays.
  *  - Wet/dry mix controls blend between gated-wet and always-on-dry.
+ *
+ * Signalsmith Stretch did the shifting until 2026-10. It was not fed during 0 st steps, so the next
+ * shifted step replayed the audio from before them: after a chord change, the old chord at full
+ * level. Measured at 48 kHz in 64-sample blocks, with that fixed (Stretch re-seeked onto the input
+ * history), against this engine:
+ *
+ *   a new pitch after a shifted step                     40-51 ms     0.1 ms
+ *   CPU per block: mean / p99 / max                 11 / 217 / 396 us   2.7 / 20 / 40 us
+ *   pitch of a held step, notes E2-E4, -12 to +12 st    up to 30 cents   1.5 cents
+ *   latency of a shifted step                               80 ms     2-25 ms (10 nominal)
  *
  * Pitch trigger (Above/Below a threshold): the left input feeds the shared
  * PitchTracker (dsp/PitchTracker.h), and every analysis frame of 2048 samples at
@@ -61,12 +70,8 @@ class AutoArpEffect : public EffectProcessor
         mSampleRate = sampleRate;
         mMaxBlockSize = maxBlockSize;
 
-        const auto buf = static_cast<size_t>(maxBlockSize);
-        mWetL.assign(buf, 0.0f);
-        mWetR.assign(buf, 0.0f);
-        mZero.assign(buf, 0.0f);
-
-        ConfigureSignalsmithLive(mStretch, 2, sampleRate);
+        mShifter.Prepare(sampleRate);
+        mPathFadeStep = 1.0f / std::max(1.0f, static_cast<float>(sampleRate * kPathFadeSeconds));
         mConfigured = true;
         mRng.seed(std::random_device{}());
 
@@ -77,7 +82,6 @@ class AutoArpEffect : public EffectProcessor
 
         RebuildStepList();
         UpdatePhaseIncrement();
-        ApplyStretchSemitones(mCurrentSemitones);
 
         Reset();
     }
@@ -90,10 +94,10 @@ class AutoArpEffect : public EffectProcessor
 
         if (mConfigured)
         {
-            mStretch.reset();
-            ApplyStretchSemitones(mCurrentSemitones);
+            mShifter.Reset();
         }
 
+        StopShifter();
         mDetectedHz = 0.0;
         mSmoothedHz = 0.0;
         mTriggerVote = 0;
@@ -130,91 +134,75 @@ class AutoArpEffect : public EffectProcessor
         // When pitch-gated off, pass through dry audio unchanged.
         if (!mArpActive)
         {
+            StopShifter();
+
             for (int i = 0; i < numSamples; ++i)
             {
+                const float inL = inputs[0] ? inputs[0][i] : 0.0f;
+                const float inR = inputs[1] ? inputs[1][i] : 0.0f;
+                // Kept current, so the arp starts on what is being played when it turns on.
+                mShifter.Write(inL, inR);
+
                 if (outputs[0])
                 {
-                    outputs[0][i] = inputs[0] ? inputs[0][i] : 0.0f;
+                    outputs[0][i] = inL;
                 }
 
                 if (outputs[1])
                 {
-                    outputs[1][i] = inputs[1] ? inputs[1][i] : 0.0f;
+                    outputs[1][i] = inR;
                 }
             }
 
             return;
         }
 
-        // Pitch-shift (or bypass) based on the semitones active at block start.
-        const int blockSemitones = mCurrentSemitones;
-
-        if (blockSemitones == 0)
-        {
-            // No pitch change: copy input to wet buffers directly.
-            for (int i = 0; i < numSamples; ++i)
-            {
-                mWetL[static_cast<size_t>(i)] = inputs[0] ? inputs[0][i] : 0.0f;
-                mWetR[static_cast<size_t>(i)] = inputs[1] ? inputs[1][i] : 0.0f;
-            }
-        }
-        else
-        {
-            if (static_cast<size_t>(numSamples) > mWetL.size())
-            {
-                mWetL.resize(static_cast<size_t>(numSamples), 0.0f);
-                mWetR.resize(static_cast<size_t>(numSamples), 0.0f);
-                mZero.resize(static_cast<size_t>(numSamples), 0.0f);
-            }
-
-            float* ip[2] = {inputs[0] ? inputs[0] : mZero.data(), inputs[1] ? inputs[1] : mZero.data()};
-            float* wp[2] = {mWetL.data(), mWetR.data()};
-            mStretch.process(ip, numSamples, wp, numSamples);
-        }
-
         // Per-sample: apply gate envelope, advance phase, detect step transitions.
         const float dryMix = static_cast<float>(1.0 - mMix);
         const float wetMix = static_cast<float>(mMix);
-        const float attackFrac = mAttack;
-        const float gateFrac = mGate;
+        // The envelope is judged in double: a phase a hair under 1.0 rounds to 1.0f, which read as
+        // past a 100% gate and dropped the last sample of every step to silence, a click.
+        const double attackFrac = mAttack;
+        const double gateFrac = mGate;
         // Release window starts at gateFrac; clamped so it never overruns phase 1.0
-        const float releaseFrac = std::min(mRelease, std::max(0.0f, 1.0f - gateFrac));
-        const float releaseEnd = gateFrac + releaseFrac;
+        const double releaseFrac = std::min(static_cast<double>(mRelease), std::max(0.0, 1.0 - gateFrac));
+        const double releaseEnd = gateFrac + releaseFrac;
 
         for (int i = 0; i < numSamples; ++i)
         {
             // Gate envelope: [0, attack) ramp up | [attack, gate) hold | [gate, gate+release) ramp down | silence
-            const float phase = static_cast<float>(mPhase);
-            float gateGain;
+            const double phase = mPhase;
+            double gateGain = 0.0;
 
             if (phase < attackFrac)
             {
-                gateGain = (attackFrac > 0.0f) ? (phase / attackFrac) : 1.0f;
+                gateGain = phase / attackFrac;
             }
             else if (phase < gateFrac)
             {
-                gateGain = 1.0f;
+                gateGain = 1.0;
             }
-            else if (releaseFrac > 0.0f && phase < releaseEnd)
+            else if (releaseFrac > 0.0 && phase < releaseEnd)
             {
-                gateGain = 1.0f - (phase - gateFrac) / releaseFrac;
-            }
-            else
-            {
-                gateGain = 0.0f;
+                gateGain = 1.0 - (phase - gateFrac) / releaseFrac;
             }
 
             const float dryL = inputs[0] ? inputs[0][i] : 0.0f;
             const float dryR = inputs[1] ? inputs[1][i] : 0.0f;
+            float wetL = dryL;
+            float wetR = dryR;
+            ShiftSample(dryL, dryR, wetL, wetR);
+
+            const auto wetGain = static_cast<float>(gateGain) * wetMix;
 
             if (outputs[0])
             {
-                outputs[0][i] = dryL * dryMix + mWetL[static_cast<size_t>(i)] * gateGain * wetMix;
+                outputs[0][i] = dryL * dryMix + wetL * wetGain;
             }
 
             if (outputs[1])
             {
-                outputs[1][i] = dryR * dryMix + mWetR[static_cast<size_t>(i)] * gateGain * wetMix;
+                outputs[1][i] = dryR * dryMix + wetR * wetGain;
             }
 
             // Advance phase; on wrap, advance to next step.
@@ -244,8 +232,7 @@ class AutoArpEffect : public EffectProcessor
                     mCurrentSemitones = mStepSemitones[static_cast<size_t>(mCurrentStep)];
                 }
 
-                // Update stretch with new pitch for the next block.
-                ApplyStretchSemitones(mCurrentSemitones);
+                ApplyShift(mCurrentSemitones);
             }
         }
     }
@@ -405,20 +392,21 @@ class AutoArpEffect : public EffectProcessor
 
     [[nodiscard]] int GetLatencySamples() const override
     {
-        // Signalsmith reports latency in two halves; host PDC needs the sum.
-        // Note: steps at 0 st bypass Stretch (variable latency by design).
+        // A shifted step plays 2-25 ms behind its input as the tap drifts and splices; this is the
+        // engine's nominal 10 ms. Steps at 0 st and the dry mix are undelayed (variable by design).
         if (!mConfigured)
         {
             return 0;
         }
 
-        return SignalsmithTotalLatencySamples(mStretch);
+        return mShifter.NominalLatencySamples();
     }
 
   private:
     // ── Pattern table ─────────────────────────────────────────────────────
     static constexpr int kMaxCustomSteps = 8;
     static constexpr int kMaxResolvedSteps = 2 * kMaxCustomSteps - 2; // eight steps, Up-Down
+    static constexpr double kPathFadeSeconds = 0.005;                 // input <-> shifter hand-over
     static constexpr int kPatternCustom = 4;
     static constexpr int kPatternRandom = 5;
     /// The trigger is judged once per frame of this length: 2048 samples at 48 kHz, the window the old
@@ -525,7 +513,7 @@ class AutoArpEffect : public EffectProcessor
         // Clamp current step index to new list size
         mCurrentStep = mCurrentStep % mStepCount;
         mCurrentSemitones = mStepSemitones[static_cast<size_t>(mCurrentStep)];
-        ApplyStretchSemitones(mCurrentSemitones);
+        ApplyShift(mCurrentSemitones);
     }
 
     [[nodiscard]] int RandomSemitones()
@@ -543,6 +531,53 @@ class AutoArpEffect : public EffectProcessor
         }
 
         return key[4] - '0';
+    }
+
+    // One sample of the wet path: the input on a 0 st step, the shifter on any other, and a
+    // cross-fade between them as one hands over to the other.
+    void ShiftSample(float inL, float inR, float& wetL, float& wetR)
+    {
+        // Written on every sample, so the shifter starts on what is being played now.
+        mShifter.Write(inL, inR);
+        const bool shifted = mCurrentSemitones != 0;
+
+        if (shifted && !mShifterRunning)
+        {
+            mShifter.SetSemitones(static_cast<double>(mCurrentSemitones), false);
+            mShifter.Engage();
+            mShifterRunning = true;
+        }
+
+        if (!mShifterRunning)
+        {
+            return;
+        }
+
+        float shiftedL = 0.0f;
+        float shiftedR = 0.0f;
+        mShifter.Process(shiftedL, shiftedR);
+        wetL += (shiftedL - inL) * mShifterGain;
+        wetR += (shiftedR - inR) * mShifterGain;
+
+        mShifterGain =
+            shifted ? std::min(1.0f, mShifterGain + mPathFadeStep) : std::max(0.0f, mShifterGain - mPathFadeStep);
+        mShifterRunning = shifted || mShifterGain > 0.0f;
+    }
+
+    // A new step's interval. The shifter takes it at once, as a change of speed; a 0 st step
+    // leaves it at the old interval while it fades out.
+    void ApplyShift(int semitones)
+    {
+        if (semitones != 0)
+        {
+            mShifter.SetSemitones(static_cast<double>(semitones), false);
+        }
+    }
+
+    void StopShifter()
+    {
+        mShifterRunning = false;
+        mShifterGain = 0.0f;
     }
 
     void ResetPitchGate()
@@ -614,11 +649,11 @@ class AutoArpEffect : public EffectProcessor
             if (mTriggerVote >= kActivateFrames && !mArpActive)
             {
                 // Reset to beat-start on fresh activation.
+                // The shifter stopped while the arp was off, and starts again on the history kept.
                 mPhase = 0.0;
                 mCurrentStep = 0;
                 mCurrentSemitones = mStepSemitones[0];
-                ApplyStretchSemitones(mCurrentSemitones);
-                mStretch.reset();
+                ApplyShift(mCurrentSemitones);
                 mArpActive = true;
             }
         }
@@ -631,19 +666,6 @@ class AutoArpEffect : public EffectProcessor
                 mArpActive = false;
             }
         }
-    }
-
-    // Apply semitone transposition to the Signalsmith Stretch instance.
-    void ApplyStretchSemitones(int semitones)
-    {
-        if (!mConfigured)
-        {
-            return;
-        }
-
-        static constexpr double kTonalityLimitHz = 8000.0;
-        const float tonalityLimit = static_cast<float>(kTonalityLimitHz / std::max(1.0, mSampleRate));
-        mStretch.setTransposeSemitones(static_cast<float>(semitones), tonalityLimit);
     }
 
     // ── Parameters ────────────────────────────────────────────────────────
@@ -673,10 +695,10 @@ class AutoArpEffect : public EffectProcessor
     std::mt19937 mRng;
     std::array<int, kMaxResolvedSteps> mStepSemitones{}; // the pattern as played, mStepCount long
     int mStepCount = 1;
-    signalsmith::stretch::SignalsmithStretch<float> mStretch;
-    std::vector<float> mWetL;
-    std::vector<float> mWetR;
-    std::vector<float> mZero;
+    TimeDomainPitchShifter mShifter;
+    bool mShifterRunning = false; // a shifted step is playing, or one is fading out
+    float mShifterGain = 0.0f;    // 0 = the input, 1 = the shifter
+    float mPathFadeStep = 1.0f / 240.0f;
     // Pitch detection state
     PitchTracker mTracker;
     std::uint64_t mDetectionsSeen = 0;

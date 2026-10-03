@@ -1392,11 +1392,35 @@ song's tempo.
 | `pitchMode` / `pitchThreshold` | Always, Above, Below / 50–2000 Hz | Always / 330 | When it plays |
 | `mix` | 0–1 | 0.8 | |
 
+Steps at 0 st play the input itself. The others go through `TimeDomainPitchShifter`, the engine
+behind Pitch Shift's Low Latency mode. Everything runs per sample, so a step starts on its own
+sample whatever the block size. From one shifted step to the next the shifter only changes speed,
+so the new pitch is heard on the step's first sample, without a click; a 0 st step and a shifted
+one cross-fade over 5 ms. The shifter's history is written on every sample, so a shifted step
+after a 0 st one plays what is coming in now. A shifted step runs 2–25 ms behind its input, and
+the node reports the nominal 10 ms. The dry mix is not delayed.
+
+Until 2026-10 the arp used Signalsmith Stretch. Stretch was not fed during 0 st steps, so the next
+shifted step replayed the audio from before them. After a chord change that was the old chord,
+at about full level. Measured at 48 kHz in 64-sample blocks against Stretch with that fixed:
+
+| | Signalsmith Stretch | Time-domain shifter |
+|---|---|---|
+| New pitch after a shifted step | 40–51 ms | 0.1 ms |
+| CPU per block: mean / p99 / max | 11 / 217 / 396 µs | 2.7 / 20 / 40 µs |
+| Pitch error on held notes, E2–E4 shifted −12 to +12 st | up to 30 cents | within 1.5 cents |
+| Latency | 80 ms | 2–25 ms (10 nominal) |
+
+The gate is judged in double precision. In float, a phase just under the end of a step rounded to
+1.0 and read as past a 100% gate, which dropped the last sample of every step to silence.
+`AutoArpEffectTests` covers all of this.
+
 **Factory presets** (`PitchPresets.h`) leave out Pitch Trigger and its Pitch, which decide when it
 plays, and set all eight custom steps, mirroring a built-in pattern where they use one. Major Arp
 (default), Minor Up-Down (1/8 triplets), Power Fifths, Octave Bounce (-12, 0, +12, 0), Sus4 Arp,
 Minor 7th (eight steps, up and back), Fifths Ladder and Octave Swells (quarter notes over the dry
-note). None is faster than 1/8, as a new pitch arrives about 35 ms after its step starts.
+note). Their rates go no faster than 1/8 triplets. They were chosen when a new pitch arrived about
+35 ms into its step; it now arrives on the step's first sample.
 
 ### Pitch tracking in Synth Voice, the Auto Arpeggiator and the tuner
 

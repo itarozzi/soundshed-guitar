@@ -1,6 +1,6 @@
 # Transpose Improvements Plan
 
-Status: in progress (2026-09). Covers the transpose/pitch-shift effect family: `pitch_shift`, `transpose` (also the global pre-chain transpose), `transpose_stft`, and `transpose_hybrid`. Related Signalsmith users: `octave`, `arp_auto`.
+Status: in progress (2026-09). Covers the transpose/pitch-shift effect family: `pitch_shift`, `transpose` (also the global pre-chain transpose), `transpose_stft`, and `transpose_hybrid`. Related Signalsmith users: `octave` (`arp_auto` moved to `TimeDomainPitchShifter` in 2026-10; see docs/fx-library.md).
 
 This revision recasts the live goal around **guitar and bass to -12 st**, with proof gates before listening, and a two-engine product (Signalsmith for shallow, a low-latency engine for deep drop). Do not implement DSP from this doc until the harness can actually prove bass -12.
 
