@@ -5,6 +5,7 @@
 #include "uiclient/UiCommands.h"
 
 #include <algorithm>
+#include <set>
 
 namespace guitarfx::uiclient
 {
@@ -236,9 +237,26 @@ void UiCommands::ApplyEffectPreset(const std::string& nodeId, const EffectPreset
         return;
     }
 
+    // In the preset's own parameterOrder, then whatever it leaves out, as the web UI's
+    // applyEffectPresetParams sends them: the order is the effect's to choose, not the map's.
+    std::set<std::string> applied;
+
+    for (const auto& key : preset.parameterOrder)
+    {
+        const auto value = preset.parameters.find(key);
+
+        if (value != preset.parameters.end() && applied.insert(key).second)
+        {
+            SetNodeParam(nodeId, key, value->second);
+        }
+    }
+
     for (const auto& [key, value] : preset.parameters)
     {
-        SetNodeParam(nodeId, key, value);
+        if (applied.count(key) == 0)
+        {
+            SetNodeParam(nodeId, key, value);
+        }
     }
 }
 

@@ -68,6 +68,7 @@ struct EffectPresetInfo
     std::string name;
     std::string source; // "factory", "factoryPack" (from a factory archive) or "custom"
     std::map<std::string, double> parameters;
+    std::vector<std::string> parameterOrder; // a registry factory preset's apply order, if it has one
 };
 
 struct EffectTypeInfo

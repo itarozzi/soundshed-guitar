@@ -9,6 +9,7 @@
  * against the web UI's behaviour it ports.
  */
 
+#include <algorithm>
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
@@ -21,6 +22,8 @@
 
 #include "IPluginHost.h"
 #include "PluginController.h"
+#include "dsp/EffectRegistry.h"
+#include "dsp/effects/GraphicEQEffect.h"
 #include "presets/PresetStorage.h"
 #include "uiclient/ChainLayout.h"
 #include "uiclient/EffectPresentation.h"
@@ -31,6 +34,7 @@
 #include "uiclient/PresetBrowse.h"
 #include "uiclient/ToneSharing.h"
 #include "uiclient/UiClient.h"
+#include "uiclient/UiClientParsing.h"
 #include "uiclient/UiCommands.h"
 
 namespace fs = std::filesystem;
@@ -272,6 +276,173 @@ void TestFactoryPackEffectPresetsApplyInTheEngine()
     commands.ApplyEffectPreset("gain_1", entries->second[0]);
     Expect(sentTypes == std::vector<std::string>{"applyEffectPreset"},
            "one is applied by the engine, not as parameter changes from the client");
+}
+
+/// The keys a registry factory preset is applied in: its parameterOrder first, then the rest,
+/// as the web UI's applyEffectPresetParams (core/ui/ts/signalPath/effectPresets.ts) sends them.
+std::vector<std::string> FactoryPresetApplyOrder(const EffectPresetDefinition& preset)
+{
+    std::vector<std::string> keys;
+
+    for (const auto& key : preset.parameterOrder)
+    {
+        if (preset.parameters.count(key) != 0 && std::find(keys.begin(), keys.end(), key) == keys.end())
+        {
+            keys.push_back(key);
+        }
+    }
+
+    for (const auto& [key, value] : preset.parameters)
+    {
+        (void)value;
+
+        if (std::find(keys.begin(), keys.end(), key) == keys.end())
+        {
+            keys.push_back(key);
+        }
+    }
+
+    return keys;
+}
+
+/// Every Graphic EQ profile, applied from the catalog the way Nano's presets menu does, leaves
+/// the node - the engine's graph, the live DSP and the client's mirror - holding exactly that
+/// profile's band count and band values, whichever layout it switched from.
+void TestGraphicEqFactoryProfilesApplyExactly()
+{
+    LoopbackHost host(Sandbox("graphic-eq-profiles"));
+    PluginController controller(host);
+    controller.Initialize();
+
+    std::vector<std::string> sentParamKeys;
+    UiClient client([&controller, &sentParamKeys](const std::string& json) {
+        const auto message = nlohmann::json::parse(json);
+
+        if (message.value("type", "") == "updateSignalPathNodeParam")
+        {
+            sentParamKeys.push_back(message.value("paramKey", ""));
+        }
+
+        controller.HandleUIMessage(json);
+    });
+    host.client = &client;
+    UiCommands commands(client);
+
+    // Start from an edited 10-band curve, so a profile has band count and values to undo.
+    auto preset = BuildPreset("pa", "Alpha");
+    auto eq = Node("eq_1", EffectGuids::kEqGraphic);
+    eq.params["bandCount"] = 10.0;
+
+    for (int band = 1; band <= GraphicEQEffect::kMaxBands; ++band)
+    {
+        const std::string prefix = "band" + std::to_string(band);
+        eq.params[prefix + "Enabled"] = 1.0;
+        eq.params[prefix + "Gain"] = band % 2 == 0 ? 6.0 : -4.5;
+        eq.params[prefix + "Freq"] = 100.0 * band;
+        eq.params[prefix + "Q"] = 3.0;
+    }
+
+    preset.graph.nodes.insert(preset.graph.nodes.begin() + 2, eq);
+    preset.graph.edges = {GraphEdge{"__input__", "gain_1", 0, 0, 1.0}, GraphEdge{"gain_1", "eq_1", 0, 0, 1.0},
+                          GraphEdge{"eq_1", "__output__", 0, 0, 1.0}};
+    preset.scenes[0].graph = preset.graph;
+    client.Send("savePreset", {{"saveMode", "overwrite"},
+                               {"presetId", preset.id},
+                               {"name", preset.name},
+                               {"preset", nlohmann::json::parse(PresetStorage::SerializeToJson(preset))}});
+    client.Start();
+    Pump(controller, client);
+    commands.LoadPreset("pa");
+    Pump(controller, client);
+
+    const auto registered = EffectRegistry::Instance().GetTypeInfo(EffectGuids::kEqGraphic);
+    const auto* catalogued = client.State().FindEffectType(EffectGuids::kEqGraphic);
+    Expect(registered.has_value() && registered->presets.size() == 6, "the Graphic EQ registers six profiles");
+    Expect(catalogued != nullptr && catalogued->presets.size() == 6, "and the client's catalog lists all six");
+
+    if (!registered || catalogued == nullptr || !controller.GetActivePreset())
+    {
+        return;
+    }
+
+    // Registry order alternates 5 and 10 bands, so each step changes the layout.
+    for (const auto& definition : registered->presets)
+    {
+        const auto entry = std::find_if(catalogued->presets.begin(), catalogued->presets.end(),
+                                        [&definition](const EffectPresetInfo& p) { return p.id == definition.id; });
+        Expect(entry != catalogued->presets.end() && entry->source == "factory",
+               definition.id + " is in the client's catalog as a factory preset");
+
+        if (entry == catalogued->presets.end())
+        {
+            continue;
+        }
+
+        sentParamKeys.clear();
+        commands.ApplyEffectPreset("eq_1", *entry);
+        Pump(controller, client);
+
+        const auto* engineNode = controller.GetActivePreset()->graph.FindNode("eq_1");
+        const auto* liveEq = controller.GetMixer().GetNodeProcessor("pa", "eq_1");
+        const auto* mirrored =
+            client.State().activePreset ? client.State().activePreset->graph.FindNode("eq_1") : nullptr;
+        Expect(engineNode != nullptr && liveEq != nullptr && mirrored != nullptr,
+               definition.id + ": the node is found");
+
+        if (engineNode == nullptr || liveEq == nullptr || mirrored == nullptr)
+        {
+            continue;
+        }
+
+        std::vector<std::string> wrong;
+
+        for (const auto& [key, value] : definition.parameters)
+        {
+            const auto stored = engineNode->params.find(key);
+            const auto shown = mirrored->params.find(key);
+
+            if (stored == engineNode->params.end() || stored->second != value || liveEq->GetParam(key) != value ||
+                shown == mirrored->params.end() || shown->second != value)
+            {
+                wrong.push_back(key);
+            }
+        }
+
+        Expect(wrong.empty(),
+               definition.id + ": the engine, live DSP and client all hold the profile" +
+                   (wrong.empty() ? std::string{}
+                                  : " (wrong: " + wrong.front() + ", " + std::to_string(wrong.size()) + " keys)"));
+        Expect(liveEq->GetParam("bandCount") == definition.parameters.at("bandCount"),
+               definition.id + ": the live EQ runs the profile's band count");
+        Expect(sentParamKeys == FactoryPresetApplyOrder(definition),
+               definition.id + ": keys are sent in the preset's parameterOrder, then the rest");
+    }
+}
+
+/// A factory preset's parameterOrder is read from the catalog and leads the apply; keys it
+/// does not name follow, and names it lists that the preset does not carry are skipped.
+void TestFactoryPresetParameterOrder()
+{
+    const auto parsed = parse::EffectPreset(nlohmann::json::parse(R"({
+        "id": "p", "name": "P", "source": "factory",
+        "parameters": {"alpha": 1, "bandCount": 10, "band1Gain": 3, "zeta": 2},
+        "parameterOrder": ["bandCount", "missing", "zeta", 7, "bandCount"]})"),
+                                            "factory");
+    Expect(parsed.parameterOrder == std::vector<std::string>{"bandCount", "missing", "zeta", "bandCount"},
+           "parameterOrder is read from the catalog, skipping non-strings");
+    Expect(parse::EffectPreset(nlohmann::json::parse(R"({"id": "q", "parameters": {"a": 1}})"), "factory")
+               .parameterOrder.empty(),
+           "a preset without parameterOrder parses with none");
+
+    std::vector<std::string> sentParamKeys;
+    UiClient client([&sentParamKeys](const std::string& json) {
+        sentParamKeys.push_back(nlohmann::json::parse(json).value("paramKey", ""));
+    });
+    UiCommands commands(client);
+
+    commands.ApplyEffectPreset("gain_1", parsed);
+    Expect(sentParamKeys == std::vector<std::string>{"bandCount", "zeta", "alpha", "band1Gain"},
+           "ordered keys go first, once each, then the rest in key order");
 }
 
 /// The tone sharing service as the web UI reads it (core/ui/ts/toneSharingPanel/).
@@ -528,6 +699,8 @@ int main()
 {
     TestClientMirrorsTheEngine();
     TestFactoryPackEffectPresetsApplyInTheEngine();
+    TestGraphicEqFactoryProfilesApplyExactly();
+    TestFactoryPresetParameterOrder();
     TestTelemetryDecoding();
     TestChainLayoutWalksParallelLanes();
     TestPresetBrowse();

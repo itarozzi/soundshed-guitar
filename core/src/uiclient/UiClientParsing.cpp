@@ -119,6 +119,7 @@ EffectPresetInfo EffectPreset(const nlohmann::json& preset, const std::string& d
         }
     }
 
+    info.parameterOrder = StringArray(preset, "parameterOrder");
     return info;
 }
 
