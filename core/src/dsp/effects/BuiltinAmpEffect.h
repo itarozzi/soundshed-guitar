@@ -522,12 +522,16 @@ class BuiltinAmpEffect : public EffectProcessor
         signal = mFilters[kResonancePeak].Process(signal, ch);
         signal = mFilters[kDampingShelf].Process(signal, ch);
 
-        float powerInput = static_cast<float>(signal);
+        // Sag is the supply giving way as the power stage works: the envelope
+        // pulls the stage's ceiling down to `headroom`, and the knee meets the
+        // signal against that lower ceiling, so loud playing clips harder and
+        // is squeezed the most. It acts only on the clipped share of the
+        // stage, so with no Power Drive it changes nothing.
+        const float powerInput = static_cast<float>(signal);
         const float detector = std::abs(powerInput);
         const float sagCoefficient = detector > mSagEnv[ch] ? mSagAttackCoef : mSagReleaseCoef;
         mSagEnv[ch] = sagCoefficient * mSagEnv[ch] + (1.0f - sagCoefficient) * detector;
         const float headroom = 1.0f / (1.0f + 0.6f * mSagSmoothed * mSagEnv[ch]);
-        powerInput *= headroom;
 
         const float driveAmount = mPowerDriveSmoothed;
         const float clipped = mClippers.PowerClip(powerInput, headroom);

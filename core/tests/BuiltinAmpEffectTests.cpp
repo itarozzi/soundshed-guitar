@@ -144,6 +144,8 @@ struct Voicing
     double voice = 1.0;
     double character = 0.5;
     int stages = 2;
+    double powerDrive = 0.0;
+    double sag = 0.0;
 };
 
 std::vector<float> RenderVoicing(const Voicing& v, Signal signal, double level = 0.10, int frames = 36000)
@@ -155,6 +157,8 @@ std::vector<float> RenderVoicing(const Voicing& v, Signal signal, double level =
     amp.SetParam("voice", v.voice);
     amp.SetParam("character", v.character);
     amp.SetParam("stageCount", v.stages);
+    amp.SetParam("powerDrive", v.powerDrive);
+    amp.SetParam("sag", v.sag);
     amp.Reset();
 
     std::vector<float> input(frames), output(frames);
@@ -353,6 +357,41 @@ void TestCharacterRange()
     Check(rumbleEnds[0] - rumbleEnds[1] > 4.0, "the fuzz end is audibly looser than the modern end");
     Check(biteEnds[1] - biteEnds[0] > 3.0, "the modern end is audibly sharper than the fuzz end");
     Check(std::abs(levelEnds[1] - levelEnds[0]) < 2.0, "Character changes the voicing, not the loudness");
+}
+
+// Sag is the supply giving way under a hard-driven power stage. Its envelope
+// has to pull the stage's ceiling down, so the same playing clips harder and
+// loud notes are squeezed more than soft ones: more harmonics and less dynamic
+// range, not just less level. It once scaled the signal and the ceiling
+// together, which left the clipping exactly where it was: the same spectrum at
+// every setting, only quieter.
+void TestSagLowersPowerCeiling()
+{
+    for (const double voice : {0.0, 1.0})
+    {
+        const Voicing steady{0.45, voice, 0.5, 2, 1.0, 0.0};
+        Voicing sagging = steady;
+        sagging.sag = 1.0;
+
+        const double steadyThd = Thd(RenderVoicing(steady, Signal::Sine, 0.10, 48000), 220.0, 48000.0);
+        const double saggingThd = Thd(RenderVoicing(sagging, Signal::Sine, 0.10, 48000), 220.0, 48000.0);
+        const double steadySpan =
+            HeardDb(RenderVoicing(steady, Signal::Sine)) - HeardDb(RenderVoicing(steady, Signal::Sine, 0.02));
+        const double saggingSpan =
+            HeardDb(RenderVoicing(sagging, Signal::Sine)) - HeardDb(RenderVoicing(sagging, Signal::Sine, 0.02));
+        const double levelDrop = HeardLevel(steady) - HeardLevel(sagging);
+        std::cout << "Sag at full Power Drive, voice " << voice << ": THD " << 100.0 * steadyThd << "% to "
+                  << 100.0 * saggingThd << "%, 0.10/0.02 sine span " << steadySpan << " to " << saggingSpan
+                  << " dB, heard level " << -levelDrop << " dB\n";
+        Check(saggingThd > steadyThd * 1.08, "sag clips the power stage harder, not just more quietly");
+        Check(saggingSpan < steadySpan - 0.6, "sag squeezes loud playing more than soft");
+        Check(levelDrop < 3.0, "full sag costs under 3 dB: a feel control, not a volume control");
+    }
+
+    // With no Power Drive nothing clips there, so there is no ceiling to pull down.
+    const auto withoutSag = RenderVoicing({0.45, 1.0, 0.5, 2, 0.0, 0.0}, Signal::PowerChord);
+    const auto withSag = RenderVoicing({0.45, 1.0, 0.5, 2, 0.0, 1.0}, Signal::PowerChord);
+    Check(withoutSag == withSag, "sag leaves a power stage that is not driven alone");
 }
 
 // Character moves filter corners, clipper knees and bias points while a note
@@ -625,6 +664,7 @@ int main(int argc, char** argv)
     TestGainRange();
     TestLevelTracksGain();
     TestCharacterRange();
+    TestSagLowersPowerCeiling();
     TestCharacterSweepIsSmooth();
     TestMonoPath();
     TestDynamicsAndBlocks();

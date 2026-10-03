@@ -385,12 +385,12 @@ power stage.
 | `contour` | 0–1 | 0.2 | Up to -12 dB at 600 Hz |
 | `presence` | 0–1 | 0.5 | ±6 dB at 4 kHz |
 | `output` | ±24 dB | 0 | |
-| `powerDrive`, `sag`, `bias`, `depth`, `resonance`, `damping` | | | The power section (advanced) |
+| `powerDrive`, `sag`, `bias`, `depth`, `resonance`, `damping` | | | The power section (advanced). Sag pulls the power stage's ceiling down as you dig in, so loud notes clip and compress harder; with Power Drive at 0 it does nothing |
 
 **Factory presets** (`BuiltinAmpPresets.h`) set every control, Output and the hidden power
 section included. Output is the exception to the rule the other effects keep: an amp preset is a
-whole channel, and the Drive voice's presets would otherwise come out 3.5-7.5 dB over the
-default. With it, each lands within about 1.3 dB of the default on the demo DI, as recorded or at
+whole channel, and the Drive voice's presets would otherwise come out 4.5-8.5 dB over the
+default. With it, each lands within about 1.1 dB of the default on the demo DI, as recorded or at
 the nominal level. Clean Channel (default), Edge of Breakup, Classic Crunch (the Clean voice nearly
 dimed), Tight Modern Rhythm, Tight Djent (hard knee, four stages), Scooped Thrash, Vintage High
 Gain (soft knee, sag and bias) and Singing Lead (four stages, mids forward, compressed by sag).

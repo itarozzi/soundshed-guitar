@@ -315,7 +315,8 @@ struct Clippers
         return (knee.Shape(x + clipBias[index]) - clipOffset[index]) * clipInvSlope[index];
     }
 
-    /// The power stage, fully driven, on an input already scaled by the sag's `headroom`.
+    /// The power stage, fully driven, with the sag holding its ceiling down to `headroom`: the
+    /// knee sees the input against that ceiling, so the same input clips harder as it drops.
     [[nodiscard]] float PowerClip(float input, float headroom) const
     {
         return headroom * (knee.Shape(powerGain * (input / headroom + powerBias)) - powerOffset) * powerInvScale;
