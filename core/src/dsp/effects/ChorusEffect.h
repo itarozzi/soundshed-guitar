@@ -200,6 +200,14 @@ class ChorusEffect : public EffectProcessor
         return "modulation";
     }
 
+    /// The right LFO runs a quarter cycle ahead of the left, so a mono input comes out stereo
+    /// whenever the delay is modulated and some of it is heard. Without this the next
+    /// mono-capable node, or the output, would copy the left channel over the right.
+    [[nodiscard]] bool ProducesStereoOutput() const override
+    {
+        return mMix.load(std::memory_order_relaxed) > 0.0f && mDepthMs.load(std::memory_order_relaxed) > 0.0f;
+    }
+
   private:
     static constexpr double kPi = 3.14159265358979323846;
     static constexpr double kHalfPi = 1.57079632679489661923;

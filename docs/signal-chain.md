@@ -121,12 +121,25 @@ Nodes execute in dependency order via Kahn's algorithm. The executor validates a
 Disabled nodes skip processing; their buffer becomes a pass-through of gathered inputs. The signal path remains connected.
 
 ### Stereo Preservation
-`NodeMayProduceStereo()` matches only the categories `mod`, `delay` and `reverb`, but effects
-register the category `modulation`, so that branch does not fire for them. The mechanism that
-actually keeps a stereo image alive downstream is `EffectProcessor::ProducesStereoOutput()`
-returning `true` (checked in `SignalGraphExecutor.cpp`). Any effect that creates stereo from a
-mono source — the 3D Spatial panner in particular — must return `true` there, or the image is
-collapsed by a later node.
+When a node's input carries no stereo signal, a node that supports mono processing runs
+`ProcessMono` on the left channel and copies the result to the right, which halves a NAM
+model's cost on a mono guitar. The output node copies left over right on the same condition. So
+an effect that makes a mono input stereo has to say so, or a later node discards its right
+channel:
+
+- **`EffectProcessor::ProducesStereoOutput()`**, checked each block in
+  `SignalGraphExecutorPlan.cpp`, is the mechanism to use. Return `true` only while the channels
+  can actually differ: Chorus and Flanger while Depth and Mix are both above zero, the delays
+  and Simple Cab while Spread is on, the IR cab while a slot is panned or L/R split is on, Ring
+  Mod until its right carrier has relocked, 3D Spatial always.
+- **`NodeMayProduceStereo()`** also treats every node whose category is `delay` or `reverb` as
+  stereo. It reads the category stored on the graph node, not the registry's. It deliberately
+  leaves out `modulation`: phaser, tremolo and the wahs move both channels together, and
+  counting them as stereo would put a following NAM node on its stereo path at about twice
+  the cost.
+
+`ModulationStereoTests` holds each modulation effect's `ProducesStereoOutput()` to what its
+channels actually do, and checks that the image survives a following amp and the output.
 
 ### Note Routing
 Besides audio, the graph carries notes from nodes that make them to nodes that play them

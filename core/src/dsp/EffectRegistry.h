@@ -83,8 +83,8 @@ struct EffectTypeInfo
 {
     std::string type;        // Canonical UUID type ID (see EffectGuids.h)
     std::string displayName; // Human-readable name
-    std::string
-        category; // "amp", "cab", "eq", "dynamics", "dist", "mod", "delay", "reverb", "pitch", "utility", "synth"
+    std::string category;    // "amp", "cab", "eq", "dynamics", "drive", "modulation", "delay", "reverb", "pitch",
+                             // "utility", "synth"
     std::string description; // User-facing description
     bool requiresResource = false;
     bool requiresTempo = false; // If true, the effect receives current BPM via SetParam("bpm", bpm) each audio block

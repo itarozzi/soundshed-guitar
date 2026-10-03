@@ -49,6 +49,7 @@ set(TEST_SOURCES
     MetronomeServiceTests.cpp
     MixerInstanceLockTests.cpp
     MixerTelemetryTests.cpp
+    ModulationStereoTests.cpp
     MultiPresetMixerTests.cpp
     MultiRigEditWorkflowTests.cpp
     NamCalibrationProbe.cpp
