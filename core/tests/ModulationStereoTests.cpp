@@ -16,6 +16,7 @@
 #include "dsp/EffectRegistry.h"
 #include "dsp/SignalGraphExecutor.h"
 #include "dsp/effects/BuiltinEffects.h"
+#include "dsp/effects/CompositeEffectProcessor.h"
 #include "presets/PresetTypes.h"
 
 #include <algorithm>
@@ -415,6 +416,59 @@ void TestGlobalPostChainDoublerReachesTheOutputStereo()
           "global post-chain doubler keeps its stereo (channels " + std::to_string(difference) + " apart)");
 }
 
+/// Registers a composite (custom effect) wrapping `stages`, under a category the executor does
+/// not count as stereo, so only the composite's own claim can keep its output apart.
+std::string RegisterComposite(const std::string& id, const std::vector<Stage>& stages)
+{
+    RegisterEffects();
+    auto& registry = guitarfx::EffectRegistry::Instance();
+
+    if (!registry.HasType(id))
+    {
+        guitarfx::CompositeEffectDefinition definition;
+        definition.id = id;
+        definition.name = id;
+        definition.category = "utility";
+        definition.innerGraph = MakeChain(stages);
+
+        guitarfx::EffectTypeInfo info;
+        info.type = id;
+        info.displayName = id;
+        info.category = definition.category;
+        registry.Register(info.type, info,
+                          [definition]() { return std::make_unique<guitarfx::CompositeEffectProcessor>(definition); });
+    }
+
+    return id;
+}
+
+/// A chorus inside a composite was merged back to mono by the parent graph, which saw only the
+/// composite, and the composite never said its output was stereo.
+void TestCompositeKeepsItsInteriorStereo()
+{
+    const auto chorus = RegisterComposite("test-composite-chorus", {{"mod", kChorus, {}}});
+
+    const auto alone = RunChain({{"composite", chorus, {}}});
+    Check(MaxChannelDifference(alone.left, alone.right) > kDistinct, "composite chorus -> output keeps its stereo");
+
+    const auto amped = RunChain({{"composite", chorus, {}}, {"next", kAmpBuiltin, {}}});
+    const double difference = MaxChannelDifference(amped.left, amped.right);
+    Check(difference > kDistinct, "composite chorus -> " + NameOf(kAmpBuiltin) + " keeps its stereo (channels " +
+                                      std::to_string(difference) + " apart)");
+
+    const auto probed = RunChain({{"composite", chorus, {}}, {"probe", kProbeType, {}}});
+    Check(probed.probeStereoBlocks == kBlocks && probed.probeMonoBlocks == 0,
+          "composite chorus -> mono-capable node runs its stereo path (mono " + std::to_string(probed.probeMonoBlocks) +
+              ", stereo " + std::to_string(probed.probeStereoBlocks) + ")");
+
+    // And it claims no more than its interior makes.
+    const auto phaser = RegisterComposite("test-composite-phaser", {{"mod", kPhaser, {}}});
+    const auto mono = RunChain({{"composite", phaser, {}}, {"probe", kProbeType, {}}});
+    Check(mono.probeMonoBlocks == kBlocks && mono.probeStereoBlocks == 0,
+          "composite phaser leaves the next node mono (mono " + std::to_string(mono.probeMonoBlocks) + ", stereo " +
+              std::to_string(mono.probeStereoBlocks) + ")");
+}
+
 /// A chorus or flanger that cannot make the channels differ leaves the next node on its mono path.
 void TestSilentModulationKeepsTheMonoPath()
 {
@@ -496,6 +550,7 @@ int main()
     TestEffectsDeclareWhatTheyDo();
     TestChorusAndFlangerReachTheOutputStereo();
     TestGlobalPostChainDoublerReachesTheOutputStereo();
+    TestCompositeKeepsItsInteriorStereo();
     TestSilentModulationKeepsTheMonoPath();
     TestMonoModulationKeepsTheMonoPath();
     TestAutomatedMixSwitchesThePath();

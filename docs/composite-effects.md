@@ -187,6 +187,13 @@ Processing:
 3. Inner graph processes through all sub-effects
 4. Output is returned to the parent graph
 
+Stereo: the composite reports `ProducesStereoOutput()` whenever the inner graph's output was
+stereo on the block just run (`SignalGraphExecutor::LastOutputWasStereo()`). Without that the
+parent sees only the composite, and a chorus or spread delay inside one would be merged back to
+mono at the next mono-capable node or the parent's output (docs/signal-chain.md, Stereo
+Preservation). It claims nothing its interior does not make: a composite of mono effects leaves
+a following amp on its mono path.
+
 Parameter routing:
 - `SetParam("drive", 5.0)` → routes to inner `amp.inputGain = 5.0`
 - `GetParam("drive")` → reads from inner `amp.inputGain`

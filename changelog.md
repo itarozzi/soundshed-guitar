@@ -31,6 +31,7 @@ A big update: five new effects, fifteen classic drive pedals, a Practice Tool fo
 * **Auto Arpeggiator**: the pitch trigger now fires at the pitch you set, not a semitone or two below it.
 * **Chorus and Flanger** now come out in stereo from a mono guitar input. Their two sides were being merged back into one at the output, or at the next amp, drive pedal or noise gate. An amp after them now processes both sides, so a NAM amp there uses about twice the CPU while the chorus or flanger is on.
 * **Global Doubler** now actually widens a mono guitar. It was coming out the same on both sides, so it coloured the tone instead.
+* **Composite effects** with a chorus, flanger or stereo delay inside now come out in stereo too, instead of being merged back into one side by the rest of the chain.
 * Long reverb IRs no longer crackle at small buffer sizes. IR cabs and reverbs now play at the same level at every sample rate, so at 88.2 or 96 kHz they may be a little quieter than before.
 
 ### Presets & Live Playing

@@ -93,6 +93,14 @@ class SignalGraphExecutor
     // Processing
     void Process(float** inputs, float** outputs, int numSamples);
 
+    /// Whether the last block reached the output as stereo: a stereo input, or a node that
+    /// widens a mono one, with its channels left apart. False when the output copied left over
+    /// right, and before the first block. Read it on the thread that called Process().
+    [[nodiscard]] bool LastOutputWasStereo() const noexcept
+    {
+        return mLastOutputStereo;
+    }
+
     // Node control
     void SetNodeEnabled(const std::string& nodeId, bool enabled);
     void SetNodeParam(const std::string& nodeId, const std::string& key, double value);
@@ -430,6 +438,7 @@ class SignalGraphExecutor
     double mOutputTrim = 0.0;
     bool mIsValid = false;
     bool mPrepared = false;
+    bool mLastOutputStereo = false;
 
     // Last block's totals, published by the audio thread and read by the message thread.
     //

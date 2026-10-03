@@ -240,6 +240,7 @@ SignalGraphExecutor& SignalGraphExecutor::operator=(SignalGraphExecutor&& other)
     mOutputTrim = other.mOutputTrim;
     mIsValid = other.mIsValid;
     mPrepared = other.mPrepared;
+    mLastOutputStereo = other.mLastOutputStereo;
     mLastTotalProcessingTimeUs.store(other.mLastTotalProcessingTimeUs.load(std::memory_order_relaxed),
                                      std::memory_order_relaxed);
     mLastRealTimeUs.store(other.mLastRealTimeUs.load(std::memory_order_relaxed), std::memory_order_relaxed);
@@ -886,6 +887,7 @@ void SignalGraphExecutor::Process(float** inputs, float** outputs, int numSample
 
     // Clamp to allocated buffer size to prevent out-of-bounds writes
     numSamples = std::min(numSamples, mMaxBlockSize);
+    mLastOutputStereo = false;
 
     if (!mIsValid || !mPrepared || !inputs || !outputs)
     {
@@ -1033,6 +1035,7 @@ void SignalGraphExecutor::Process(float** inputs, float** outputs, int numSample
         if (state.hasInput)
         {
             const bool outputEnabled = !state.processor || state.processor->IsEnabled();
+            mLastOutputStereo = outputEnabled && state.hasStereoSignal;
 
             if (outputs[0])
             {

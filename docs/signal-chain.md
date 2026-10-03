@@ -132,7 +132,7 @@ channel:
   can actually differ: Chorus and Flanger while Depth and Mix are both above zero, the Doubler
   while Mix is above zero, the delays and Simple Cab while Spread is on, the IR cab while a
   slot is panned or L/R split is on, Ring Mod until its right carrier has relocked, 3D Spatial
-  always.
+  always, and a composite whenever its inner graph's output was stereo.
 - **`NodeMayProduceStereo()`** also treats every node whose category is `delay` or `reverb` as
   stereo. It reads the category stored on the graph node, not the registry's: the default
   global post chain stores its Doubler as `modulation`, so that one relies on its own claim.
@@ -141,8 +141,8 @@ channel:
   about twice the cost.
 
 `ModulationStereoTests` holds each modulation effect and the Doubler to what their channels
-actually do, and checks that the image survives a following amp, the output, and the default
-global post chain.
+actually do, and checks that the image survives a following amp, the output, the default
+global post chain, and being wrapped in a composite.
 
 ### Note Routing
 Besides audio, the graph carries notes from nodes that make them to nodes that play them

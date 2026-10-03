@@ -60,6 +60,14 @@ class CompositeEffectProcessor : public EffectProcessor
     [[nodiscard]] std::string GetType() const override;
     [[nodiscard]] std::string GetCategory() const override;
 
+    /// Stereo whenever the wrapped graph's output was, so a chorus or a spread delay inside a
+    /// composite widens a mono input as it would outside one. The parent asks right after this
+    /// node's Process(), so the answer is for the block just run.
+    [[nodiscard]] bool ProducesStereoOutput() const override
+    {
+        return mEnabled && mInnerExecutor.LastOutputWasStereo();
+    }
+
     [[nodiscard]] bool RequiresResource() const override
     {
         return false;
