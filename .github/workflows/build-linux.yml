@@ -33,36 +33,44 @@ jobs:
       DEBIAN_FRONTEND: noninteractive
       # Empty, so the R2 steps are skipped, unless upload_to_r2 is ticked.
       R2_BUCKET: ${{ inputs.upload_to_r2 && vars.CLOUDFLARE_R2_BUCKET || '' }}
+      # 20.04's own GCC 9 lacks the C++20 the code uses, so build with GCC 13 from
+      # the toolchain PPA. Its libstdc++ is newer than any 20.04 system has, so link
+      # it statically, and keep its symbols out of the plugins' exports so they
+      # never bind to a host's copy.
+      CC: gcc-13
+      CXX: g++-13
+      LDFLAGS: -static-libstdc++ -static-libgcc -Wl,--exclude-libs,libstdc++.a:libgcc.a:libgcc_eh.a
 
     steps:
+      # Without git, checkout falls back to a REST download that cannot fetch submodules.
+      - name: Install git
+        run: |
+          set -euo pipefail
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates git
+
       - name: Checkout
         uses: actions/checkout@v7
         with:
           submodules: recursive
 
+      # 20.04 ships Node 10; this is the same Node the other build workflows use.
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
       - name: Install build dependencies
         run: |
           set -euo pipefail
-          apt-get update
           apt-get install -y --no-install-recommends \
-            ca-certificates \
             curl \
             file \
-            git \
             gnupg \
             pkg-config \
-            cmake \
             ninja-build \
             zip \
             p7zip-full \
-            nodejs \
-            npm \
-            gcc \
-            g++ \
-            gcc-x86-64-linux-gnu \
-            g++-x86-64-linux-gnu \
-            gcc-aarch64-linux-gnu \
-            g++-aarch64-linux-gnu \
             libasound2-dev \
             libx11-dev \
             libxext-dev \
@@ -72,9 +80,39 @@ jobs:
             libfontconfig1-dev \
             libcurl4-openssl-dev \
             libgtk-3-dev \
-            libwebkit2gtk-4.1-dev \
+            libwebkit2gtk-4.0-dev \
             libgl1-mesa-dev \
             libglu1-mesa-dev
+
+          # GCC 13 from the ubuntu-toolchain-r PPA, its signing key pinned by fingerprint.
+          ppa_key=60C317803A41BA51845E371A1E9377A2BA9EF27F
+          ppa_keyring=/usr/share/keyrings/ubuntu-toolchain-r.gpg
+          curl -fsSL "https://keyserver.ubuntu.com/pks/lookup?op=get&options=mr&search=0x${ppa_key}" | gpg --dearmor > "$ppa_keyring"
+          gpg --no-default-keyring --keyring "$ppa_keyring" --with-colons --fingerprint | grep -q "^fpr:::::::::${ppa_key}:"
+          echo "deb [signed-by=${ppa_keyring}] https://ppa.launchpadcontent.net/ubuntu-toolchain-r/test/ubuntu focal main" > /etc/apt/sources.list.d/ubuntu-toolchain-r.list
+          apt-get update
+          apt-get install -y --no-install-recommends gcc-13 g++-13
+          # Release builds use -flto, and CMake archives with plain ar, which can only
+          # index GCC 13's LTO objects through its plugin; without it the archives
+          # come out with no symbols and the link fails. gcc-ar-13 does the same thing.
+          lto_plugin="$(gcc-13 -print-file-name=liblto_plugin.so)"
+          test -f "$lto_plugin"
+          mkdir -p /usr/lib/bfd-plugins
+          ln -sf "$lto_plugin" /usr/lib/bfd-plugins/liblto_plugin.so
+
+          # 20.04 ships CMake 3.16 and the project needs 3.25. Kitware's release
+          # binaries run on old glibc; check them against the published SHA-256.
+          cmake_version=3.31.12
+          case "$(uname -m)" in
+            x86_64)  cmake_arch=x86_64;  cmake_sha256=0dc2e9a6860f06bf10bd8fadc03e35d9eeb4df46e33763a7e480e987758f385c ;;
+            aarch64) cmake_arch=aarch64; cmake_sha256=83f8fd91d2038a56556e1400390fcfe42f79602940c494f6c6f1cdae7f9e7f40 ;;
+            *) echo "No CMake build for $(uname -m)" >&2; exit 1 ;;
+          esac
+          cmake_tar="cmake-${cmake_version}-linux-${cmake_arch}.tar.gz"
+          curl -fsSL -o "/tmp/${cmake_tar}" "https://github.com/Kitware/CMake/releases/download/v${cmake_version}/${cmake_tar}"
+          echo "${cmake_sha256}  /tmp/${cmake_tar}" | sha256sum -c -
+          tar -xzf "/tmp/${cmake_tar}" -C /opt
+          echo "/opt/cmake-${cmake_version}-linux-${cmake_arch}/bin" >> "$GITHUB_PATH"
 
       - name: Install Typescript
         run: npm install -g typescript
@@ -82,14 +120,41 @@ jobs:
       - name: Assert deterministic glibc baseline
         run: |
           set -euo pipefail
-          ldd --version | head -n1
-          ldd --version | head -n1 | grep -E '2\.31(\.|$)'
+          # sed, not head: head stops reading after one line, and ldd's SIGPIPE
+          # then fails the step under pipefail.
+          glibc_line="$(ldd --version | sed -n 1p)"
+          echo "$glibc_line"
+          grep -E '2\.31(\.|$)' <<< "$glibc_line"
 
       - name: Build Linux distribution
         run: |
           set -euo pipefail
           chmod +x ./build_linux.sh
           ./build_linux.sh --arch "${{ matrix.arch }}" --zip
+
+      # The point of building on 20.04: nothing shipped may need a newer glibc, or
+      # the libstdc++ that GCC 13 would otherwise pull in.
+      - name: Check binaries run on glibc 2.31
+        run: |
+          set -euo pipefail
+          status=0
+          while IFS= read -r -d '' f; do
+            [[ "$(file -b "$f")" == ELF* ]] || continue
+            # Whole-output reads only: under pipefail, grep -q exiting early would
+            # fail the pipeline and hide a match.
+            glibc="$( (objdump -T "$f" 2>/dev/null || true) | grep -o 'GLIBC_[0-9][0-9.]*' | sed 's/^GLIBC_//' | sort -uV | tail -n1 || true)"
+            needed="$(objdump -p "$f" 2>/dev/null | awk '/NEEDED/ {print $2}' || true)"
+            echo "${f}: glibc ${glibc:-none}; needs $(echo $needed)"
+            if [[ -n "$glibc" && "$(printf '%s\n2.31\n' "$glibc" | sort -V | tail -n1)" != "2.31" ]]; then
+              echo "::error file=${f}::needs glibc ${glibc}, newer than 2.31"
+              status=1
+            fi
+            if [[ "$needed" == *libstdc++* ]]; then
+              echo "::error file=${f}::links libstdc++ dynamically"
+              status=1
+            fi
+          done < <(find "linux-dist-${{ matrix.arch }}" -type f -print0)
+          exit "$status"
 
       - name: Resolve Linux zip
         id: zip
