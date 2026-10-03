@@ -30,6 +30,7 @@ A big update: five new effects, fifteen classic drive pedals, a Practice Tool fo
 * **Synth Voice**: follows your playing more closely, reaching new notes up to twice as fast and tracking down to low F# on an eight-string. It also uses far less CPU, so it no longer crackles at small buffers.
 * **Auto Arpeggiator**: the pitch trigger now fires at the pitch you set, not a semitone or two below it.
 * **Chorus and Flanger** now come out in stereo from a mono guitar input. Their two sides were being merged back into one at the output, or at the next amp, drive pedal or noise gate. An amp after them now processes both sides, so a NAM amp there uses about twice the CPU while the chorus or flanger is on.
+* **Global Doubler** now actually widens a mono guitar. It was coming out the same on both sides, so it coloured the tone instead.
 * Long reverb IRs no longer crackle at small buffer sizes. IR cabs and reverbs now play at the same level at every sample rate, so at 88.2 or 96 kHz they may be a little quieter than before.
 
 ### Presets & Live Playing

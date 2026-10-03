@@ -7,7 +7,8 @@
  * ProducesStereoOutput(); otherwise the next mono-capable node (an amp, a drive pedal) runs on
  * the left channel alone and copies it right, and the output node does the same. Phaser,
  * tremolo and the wahs move both channels together, so they must leave a following amp on its
- * mono path, which is half the cost of the stereo one for a NAM model.
+ * mono path, which is half the cost of the stereo one for a NAM model. The doubler is here too:
+ * the default global post chain stores it under "modulation", so its own claim is all it has.
  */
 
 #include "dsp/EffectGuids.h"
@@ -32,6 +33,7 @@ namespace
 using guitarfx::EffectGuids::kAmpBuiltin;
 using guitarfx::EffectGuids::kAutoWah;
 using guitarfx::EffectGuids::kChorus;
+using guitarfx::EffectGuids::kDelayDoubler;
 using guitarfx::EffectGuids::kFlanger;
 using guitarfx::EffectGuids::kOverdrive;
 using guitarfx::EffectGuids::kPhaser;
@@ -225,14 +227,15 @@ struct ChainRun
     int probeStereoBlocks = 0;
 };
 
-/// Runs a mono input through the chain. `beforeBlock` may change a node between blocks.
-ChainRun RunChain(const std::vector<Stage>& stages,
-                  const std::function<void(guitarfx::SignalGraphExecutor&, int)>& beforeBlock = {})
+using BeforeBlock = std::function<void(guitarfx::SignalGraphExecutor&, int)>;
+
+/// Runs a mono input through the graph. `beforeBlock` may change a node between blocks.
+ChainRun RunGraph(const guitarfx::SignalGraph& graph, const BeforeBlock& beforeBlock = {})
 {
     RegisterEffects();
 
     guitarfx::SignalGraphExecutor executor;
-    executor.SetGraph(MakeChain(stages));
+    executor.SetGraph(graph);
     executor.Prepare(kSampleRate, kBlock);
 
     const auto input = MonoInput(kBlock * kBlocks);
@@ -268,6 +271,11 @@ ChainRun RunChain(const std::vector<Stage>& stages,
     }
 
     return run;
+}
+
+ChainRun RunChain(const std::vector<Stage>& stages, const BeforeBlock& beforeBlock = {})
+{
+    return RunGraph(MakeChain(stages), beforeBlock);
 }
 
 /// Runs the effect on its own, outside the executor, with the same signal on both inputs.
@@ -316,10 +324,13 @@ struct ModulationCase
     const char* label;
 };
 
-/// Each modulation effect's claim about its stereo output must match what it does.
+/// Each effect's claim about its stereo output must match what it does.
 void TestEffectsDeclareWhatTheyDo()
 {
     const std::vector<ModulationCase> cases = {
+        {kDelayDoubler, {}, true, "doubler at defaults"},
+        {kDelayDoubler, {{"mix", 0.0}}, false, "doubler with Mix at zero"},
+        {kDelayDoubler, {{"time", 0.0}}, false, "doubler with Time at zero"},
         {kChorus, {}, true, "chorus at defaults"},
         {kChorus, {{"mix", 0.0}}, false, "chorus with Mix at zero"},
         {kChorus, {{"depth", 0.0}}, false, "chorus with Depth at zero"},
@@ -377,6 +388,31 @@ void TestChorusAndFlangerReachTheOutputStereo()
               name + " -> mono-capable node runs its stereo path (mono " + std::to_string(probed.probeMonoBlocks) +
                   ", stereo " + std::to_string(probed.probeStereoBlocks) + ")");
     }
+}
+
+/// The default global post chain stores its doubler under "modulation", which the executor does
+/// not count as stereo, so on a mono rig the output node used to copy the doubler's left channel
+/// over its right: a comb filter on both sides instead of width.
+void TestGlobalPostChainDoublerReachesTheOutputStereo()
+{
+    auto graph = guitarfx::GlobalSignalChainConfig::BuildDefaultPostChainGraph();
+    auto doubler = std::find_if(graph.nodes.begin(), graph.nodes.end(),
+                                [](const guitarfx::GraphNode& node) { return node.type == kDelayDoubler; });
+
+    if (doubler == graph.nodes.end())
+    {
+        Check(false, "the default global post chain has a doubler");
+        return;
+    }
+
+    // Stored as "delay", the category alone would keep it stereo and this would prove nothing.
+    Check(doubler->category != "delay", "the default doubler node is not stored as \"delay\"");
+    doubler->enabled = true;
+
+    const auto run = RunGraph(graph);
+    const double difference = MaxChannelDifference(run.left, run.right);
+    Check(difference > kDistinct,
+          "global post-chain doubler keeps its stereo (channels " + std::to_string(difference) + " apart)");
 }
 
 /// A chorus or flanger that cannot make the channels differ leaves the next node on its mono path.
@@ -459,6 +495,7 @@ int main()
 {
     TestEffectsDeclareWhatTheyDo();
     TestChorusAndFlangerReachTheOutputStereo();
+    TestGlobalPostChainDoublerReachesTheOutputStereo();
     TestSilentModulationKeepsTheMonoPath();
     TestMonoModulationKeepsTheMonoPath();
     TestAutomatedMixSwitchesThePath();

@@ -129,17 +129,20 @@ channel:
 
 - **`EffectProcessor::ProducesStereoOutput()`**, checked each block in
   `SignalGraphExecutorPlan.cpp`, is the mechanism to use. Return `true` only while the channels
-  can actually differ: Chorus and Flanger while Depth and Mix are both above zero, the delays
-  and Simple Cab while Spread is on, the IR cab while a slot is panned or L/R split is on, Ring
-  Mod until its right carrier has relocked, 3D Spatial always.
+  can actually differ: Chorus and Flanger while Depth and Mix are both above zero, the Doubler
+  while Mix is above zero, the delays and Simple Cab while Spread is on, the IR cab while a
+  slot is panned or L/R split is on, Ring Mod until its right carrier has relocked, 3D Spatial
+  always.
 - **`NodeMayProduceStereo()`** also treats every node whose category is `delay` or `reverb` as
-  stereo. It reads the category stored on the graph node, not the registry's. It deliberately
-  leaves out `modulation`: phaser, tremolo and the wahs move both channels together, and
-  counting them as stereo would put a following NAM node on its stereo path at about twice
-  the cost.
+  stereo. It reads the category stored on the graph node, not the registry's: the default
+  global post chain stores its Doubler as `modulation`, so that one relies on its own claim.
+  It deliberately leaves out `modulation`: phaser, tremolo and the wahs move both channels
+  together, and counting them as stereo would put a following NAM node on its stereo path at
+  about twice the cost.
 
-`ModulationStereoTests` holds each modulation effect's `ProducesStereoOutput()` to what its
-channels actually do, and checks that the image survives a following amp and the output.
+`ModulationStereoTests` holds each modulation effect and the Doubler to what their channels
+actually do, and checks that the image survives a following amp, the output, and the default
+global post chain.
 
 ### Note Routing
 Besides audio, the graph carries notes from nodes that make them to nodes that play them

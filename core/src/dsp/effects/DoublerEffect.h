@@ -126,6 +126,15 @@ class DoublerEffect : public EffectProcessor
         return "delay";
     }
 
+    /// The delayed copy is added on the left and subtracted on the right, so a mono input comes
+    /// out stereo whenever any of it is mixed in. Said here rather than left to the "delay"
+    /// category, which a graph node need not carry: the default global post chain stores its
+    /// doubler as "modulation".
+    [[nodiscard]] bool ProducesStereoOutput() const override
+    {
+        return mMix > 0.0 && mDelaySamples > 0;
+    }
+
   private:
     void UpdateDelaySamples()
     {

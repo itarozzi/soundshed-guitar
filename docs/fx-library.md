@@ -1047,7 +1047,9 @@ defaults, has no makeup and sits 1.5-3 dB lower.
 
 ### Chorus (`chorus`)
 A modulated delay: a sine LFO swings the delay either side of Delay, the right channel 90°
-ahead of the left.
+ahead of the left. So a mono input comes out stereo while Depth and Mix are both above zero,
+and the nodes after it keep both sides; an amp or drive pedal there runs its stereo path (a NAM
+model at about twice the CPU) until one of them is turned to zero.
 
 | Parameter | Range | Default | Unit |
 |-----------|-------|---------|------|
@@ -1065,7 +1067,8 @@ DI, but for Vibrato, which sits at the bypass level, 2.2 dB over the default's m
 
 ### Flanger (`flanger`)
 A short delay swept from Delay up to Delay + Depth, the right channel 90° ahead, with feedback
-through a 6 kHz low-pass and a soft limit.
+through a 6 kHz low-pass and a soft limit. Like the chorus, it makes a mono input stereo while
+Depth and Mix are both above zero.
 
 | Parameter | Range | Default | Unit |
 |-----------|-------|---------|------|
@@ -1082,7 +1085,9 @@ Comb (a near-static ring), Fast Swirl and Tempo Sweep. Within 2.1 dB of the defa
 DI; the high-feedback ones run a little hotter when played softly.
 
 ### Doubler (`delay_doubler`)
-Creates stereo width by mixing a delayed copy of the signal.
+Creates stereo width by mixing a delayed copy of the signal in: added on the left, subtracted
+on the right. A mono input comes out stereo whenever Mix is above zero; at a Time of 0 it
+passes the input through.
 
 | Parameter | Range | Default | Unit |
 |-----------|-------|---------|------|
