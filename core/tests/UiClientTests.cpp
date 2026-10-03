@@ -628,6 +628,15 @@ void TestParamFormatting()
     EffectParamInfo toggle{"on", "On", "toggle", "", 0, 1, 0};
 
     Expect(FormatParamValue(enumParam, 1.2) == "Rat", "an enum shows its label");
+    // Labels run from the minimum: the arp's Steps (2 to 8) used to show "6" at 4, and its menu
+    // committed a label's index, so "2", "3" and "4" all chose 2.
+    EffectParamInfo steps{
+        "numSteps", "Steps", "enum", "", 2, 8, 4, 1, false, false, {"2", "3", "4", "5", "6", "7", "8"}};
+    Expect(FormatParamValue(steps, 4) == "4" && FormatParamValue(steps, 2) == "2" && FormatParamValue(steps, 8) == "8",
+           "an enum's labels are counted from its minimum");
+    Expect(EnumLabelValue(steps, 0) == 2 && EnumLabelValue(steps, 6) == 8 && EnumLabelIndex(steps, 5) == 3 &&
+               EnumLabelIndex(steps, 1) == -1 && EnumLabelIndex(enumParam, 2) == 2,
+           "a label stands for the minimum plus its index");
     Expect(FormatParamValue(pan, 0.004) == "C" && FormatParamValue(pan, -0.25) == "L25" && FormatParamValue(pan, 0.5) == "R50",
            "pan shows L/C/R");
     Expect(FormatParamValue(freq, 999.6) == "1.00kHz" && FormatParamValue(freq, 12500) == "12.5kHz" &&

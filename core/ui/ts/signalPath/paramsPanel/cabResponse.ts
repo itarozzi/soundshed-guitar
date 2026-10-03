@@ -18,6 +18,7 @@ import {
   type ResponseCurve,
 } from "../../effectResponse.js";
 import { drawResponsePlot } from "../../eqPlot.js";
+import { enumLabel } from "../../paramLabels.js";
 import { showNotification } from "../../notifications.js";
 import { EffectTypeRegistry, getNodeEffectInfo } from "../../presetV2.js";
 import { uiState } from "../../state.js";
@@ -119,7 +120,7 @@ function exportName(node: GraphNode): string {
   const label = (key: string): string => {
     const def = parameters.find((parameter) => parameter.key === key);
     const value = node.params?.[key] ?? def?.default ?? 0;
-    return def?.labels?.[Math.round(value - (def.min ?? 0))] ?? "";
+    return def?.labels ? (enumLabel(value, def.labels, def.min, def.step) ?? "") : "";
   };
   return ["Simple Cab", label("cabinet"), label("micType")].filter(Boolean).join(" ");
 }

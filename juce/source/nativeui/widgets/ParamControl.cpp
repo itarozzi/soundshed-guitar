@@ -209,10 +209,13 @@ void ParamControl::showValueMenu()
 
     if (IsEnumParam (info))
     {
+        // Labels run from the minimum, so a label's value is not its index (Steps runs 2 to 8).
+        const auto current = EnumLabelIndex (info, value);
+
         for (std::size_t i = 0; i < info.labels.size(); ++i)
         {
-            const auto option = static_cast<double> (i);
-            menu.addItem (juce::String::fromUTF8 (info.labels[i].c_str()), true, std::llround (value) == (long long) i,
+            const auto option = EnumLabelValue (info, i);
+            menu.addItem (juce::String::fromUTF8 (info.labels[i].c_str()), true, current == (int) i,
                           [this, option] { commit (option); });
         }
     }

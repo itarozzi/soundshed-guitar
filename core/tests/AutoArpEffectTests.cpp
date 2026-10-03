@@ -10,6 +10,8 @@
  *   - the output is the same in any block size: steps start on their own sample
  *   - SetParam takes any key and any value without throwing, and nothing it or Process does
  *     allocates on the audio thread
+ *   - Steps declares one label per value, from its minimum, so a UI that indexes labels from the
+ *     minimum reads 4 as "4"
  */
 
 #include <algorithm>
@@ -21,6 +23,8 @@
 #include <utility>
 #include <vector>
 
+#include "dsp/EffectGuids.h"
+#include "dsp/EffectRegistry.h"
 #include "dsp/FiniteCheck.h"
 #include "dsp/effects/AutoArpEffect.h"
 #include "helpers/AudioThreadAllocations.h"
@@ -533,6 +537,27 @@ void TestNoAudioThreadAllocations()
 void TestDeclarations()
 {
     std::cout << "\n--- Declarations ---\n";
+    guitarfx::RegisterAutoArpEffect();
+    const auto info = guitarfx::EffectRegistry::Instance().GetTypeInfo(guitarfx::EffectGuids::kAutoArp);
+    const guitarfx::ParameterDef* steps = nullptr;
+
+    for (size_t i = 0; info && i < info->parameters.size(); ++i)
+    {
+        steps = info->parameters[i].id == "numSteps" ? &info->parameters[i] : steps;
+    }
+
+    // Stored presets hold 2..8, so the values stay; the labels are listed from the minimum, one per
+    // step, as EffectParamSpec documents ("in value order").
+    bool labelled =
+        steps && steps->minValue == 2.0 && steps->maxValue == 8.0 && steps->step == 1.0 && steps->labels.size() == 7;
+
+    for (size_t i = 0; labelled && i < steps->labels.size(); ++i)
+    {
+        labelled = steps->labels[i] == std::to_string(2 + i);
+    }
+
+    Check(labelled, "Steps keeps 2..8, with one label per value from its minimum");
+
     AutoArpEffect effect;
     effect.Prepare(48000.0, 64);
     Check(effect.GetLatencySamples() == 480, "reports the shifter's nominal 10 ms",

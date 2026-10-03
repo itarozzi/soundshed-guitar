@@ -12,6 +12,7 @@
 
 #include "uiclient/ClientState.h"
 
+#include <cstddef>
 #include <string>
 
 namespace guitarfx::uiclient
@@ -29,6 +30,14 @@ namespace guitarfx::uiclient
 
 [[nodiscard]] bool IsToggleParam(const EffectParamInfo& param);
 [[nodiscard]] bool IsEnumParam(const EffectParamInfo& param);
+
+/// Which of an enum's labels a value shows, or -1 for none. Labels are listed in value order from
+/// the minimum, one per step, so the Auto Arpeggiator's Steps (2 to 8) shows "4" at 4, where
+/// indexing by the value showed "6".
+[[nodiscard]] int EnumLabelIndex(const EffectParamInfo& param, double value);
+
+/// The value an enum's label stands for: the minimum plus `index` steps.
+[[nodiscard]] double EnumLabelValue(const EffectParamInfo& param, std::size_t index);
 
 /// The value a node holds for a parameter, or the parameter's default.
 [[nodiscard]] double NodeParamValue(const GraphNode& node, const EffectParamInfo& param);

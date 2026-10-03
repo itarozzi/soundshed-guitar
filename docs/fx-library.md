@@ -1415,6 +1415,10 @@ The gate is judged in double precision. In float, a phase just under the end of 
 1.0 and read as past a 100% gate, which dropped the last sample of every step to silence.
 `AutoArpEffectTests` covers all of this.
 
+`numSteps` is an enum from 2, so both UIs count its labels from the parameter's minimum
+(`enumLabel` in `paramLabels.ts`, `EnumLabelIndex` in `uiclient/ParamFormat.h`). Indexed by the
+value, 4 showed "6", and Nano's menu set 2 for any of "2", "3" or "4".
+
 **Factory presets** (`PitchPresets.h`) leave out Pitch Trigger and its Pitch, which decide when it
 plays, and set all eight custom steps, mirroring a built-in pattern where they use one. Major Arp
 (default), Minor Up-Down (1/8 triplets), Power Fifths, Octave Bounce (-12, 0, +12, 0), Sus4 Arp,

@@ -198,7 +198,7 @@ export function showNodeParamsPanel(node: GraphNode, preset: Preset): void {
           ${isBlendParam ? `<div class="knob-mapped-points"></div>` : ""}
           <div class="knob-indicator"></div>
         </div>
-        <span class="node-param-value">${formatParamValue(displayValue, unit, enumLabels, taper)}</span>
+        <span class="node-param-value">${formatParamValue(displayValue, unit, enumLabels, taper, min, step)}</span>
        
       </div>
     `;

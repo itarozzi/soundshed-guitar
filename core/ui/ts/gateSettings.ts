@@ -21,6 +21,7 @@ import { sendGlobalChainParam } from "./bridge.js";
 import { uiState } from "./state.js";
 import { EffectGuids } from "./effectGuids.js";
 import { GenericKnob } from "./knob.js";
+import { enumLabel } from "./paramLabels.js";
 import { EffectTypeRegistry, type ParameterDef } from "./presetV2.js";
 import { escapeHtml } from "./utils.js";
 import type { GraphNode } from "./types.js";
@@ -94,8 +95,7 @@ function formatGateValue(value: number, def: ParameterDef): string {
     return def.labels?.[value >= 0.5 ? 1 : 0] ?? (value >= 0.5 ? "On" : "Off");
   }
   if (def.labels?.length) {
-    const index = Math.round(value);
-    return def.labels[index] ?? `${index}`;
+    return enumLabel(value, def.labels, def.min, def.step) ?? `${Math.round(value)}`;
   }
   const text = value.toFixed(valueDecimals(def));
   return def.unit ? `${text} ${def.unit}` : text;

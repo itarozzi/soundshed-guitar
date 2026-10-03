@@ -4,6 +4,7 @@
  */
 
 import { GenericKnob, enhanceRangeInput } from "../../controls.js";
+import { enumLabel } from "../../paramLabels.js";
 import { formatTaperedValue, parseParamTaper, taperPositionToValue } from "../../paramTaper.js";
 import { getNodeEffectInfo } from "../../presetV2.js";
 import { BLEND_MAPPING_EPS, buildParameterMapFromLegacy, getBlendState, normalizeBlendValue, updateBlendMatchSummary, updateBlendParamIndicators } from "../../signalPathBlend.js";
@@ -109,7 +110,7 @@ export function bindNodeParamControls(node: GraphNode, preset: Preset): void {
             } else if (paramDef.unit === "dB" || paramDef.unit === "ms" || paramDef.unit === "Hz") {
               valueEl.textContent = `${value.toFixed(1)}${paramDef.unit}`;
             } else if (paramDef.unit === "enum" && Array.isArray(paramDef.labels)) {
-              valueEl.textContent = paramDef.labels[Math.round(value)] ?? `${Math.round(value)}`;
+              valueEl.textContent = enumLabel(value, paramDef.labels, paramDef.min, paramDef.step) ?? `${Math.round(value)}`;
             } else {
               valueEl.textContent = value.toFixed(2);
             }
@@ -263,8 +264,7 @@ export function bindNodeParamControls(node: GraphNode, preset: Preset): void {
 
     const formatValue = (rawValue: number): string => {
       if (isEnum) {
-        const index = Math.round(rawValue);
-        return labels[index] ?? `${index}`;
+        return enumLabel(rawValue, labels, min, step) ?? `${Math.round(rawValue)}`;
       }
       if (isBlendParam) {
         return rawValue.toFixed(1);

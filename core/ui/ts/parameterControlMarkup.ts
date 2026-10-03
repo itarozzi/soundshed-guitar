@@ -64,7 +64,7 @@ export function buildDefaultParamControlsHtml(paramDefs: ParameterDef[], nodeId 
         >
           <div class="knob-indicator"></div>
         </div>
-        <span class="node-param-value">${formatParamValue(value, unit, enumLabels, taper)}</span>
+        <span class="node-param-value">${formatParamValue(value, unit, enumLabels, taper, min, p.step)}</span>
       </div>`;
   };
 

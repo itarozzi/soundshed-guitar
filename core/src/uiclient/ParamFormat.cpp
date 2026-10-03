@@ -33,6 +33,12 @@ ParamTaper TaperOf(const EffectParamInfo& param)
 {
     return param.logTaper ? ParamTaper::Log : ParamTaper::Linear;
 }
+
+// An enum steps by its declared step, or by one where it declares none.
+double EnumStep(const EffectParamInfo& param)
+{
+    return param.step > 0.0 ? param.step : 1.0;
+}
 } // namespace
 
 bool IsToggleParam(const EffectParamInfo& param)
@@ -43,6 +49,17 @@ bool IsToggleParam(const EffectParamInfo& param)
 bool IsEnumParam(const EffectParamInfo& param)
 {
     return param.unit == "enum" && !param.labels.empty();
+}
+
+int EnumLabelIndex(const EffectParamInfo& param, double value)
+{
+    const auto index = std::llround((value - param.minValue) / EnumStep(param));
+    return index >= 0 && static_cast<std::size_t>(index) < param.labels.size() ? static_cast<int>(index) : -1;
+}
+
+double EnumLabelValue(const EffectParamInfo& param, std::size_t index)
+{
+    return param.minValue + static_cast<double>(index) * EnumStep(param);
 }
 
 std::string FormatTaperedValue(double value, const std::string& unit)
@@ -70,14 +87,8 @@ std::string FormatParamValue(const EffectParamInfo& param, double value)
 
     if (IsEnumParam(param))
     {
-        const auto index = static_cast<long long>(std::llround(value));
-
-        if (index >= 0 && static_cast<std::size_t>(index) < param.labels.size())
-        {
-            return param.labels[static_cast<std::size_t>(index)];
-        }
-
-        return std::to_string(index);
+        const int index = EnumLabelIndex(param, value);
+        return index >= 0 ? param.labels[static_cast<std::size_t>(index)] : std::to_string(std::llround(value));
     }
 
     if (param.unit == "pan")

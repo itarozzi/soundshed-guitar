@@ -7,6 +7,7 @@
 import { uiState } from "./state.js";
 import { blendKnobDataAttributes, denormalizeBlendValue, type BlendParamDef } from "./blendUtils.js";
 import { renderIcon } from "./iconAssets.js";
+import { enumLabel } from "./paramLabels.js";
 import { effectiveTaper, formatTaperedValue, valueToTaperPosition, type ParamTaper } from "./paramTaper.js";
 import { escapeHtml } from "./utils.js";
 import { ensureLayoutImagesLoaded } from "./layoutImages.js";
@@ -415,7 +416,7 @@ function renderControls(
       const taper = blendBinding ? "linear" : effectiveTaper(paramDef?.taper, min ?? 0, max ?? 1);
       const displayValue = isResourceControl
         ? ""
-        : formatParamValue(value, unit, labels, taper);
+        : formatParamValue(value, unit, labels, taper, min, step);
       const label = control.labelOverride
         || (isResourceControl ? resourceDef?.displayName : paramDef?.name)
         || control.paramKey;
@@ -677,13 +678,19 @@ function renderTextLabels(labels: LayoutTextLabel[]): string {
  * Exported so the signal-path renderer and designer preview share identical formatting.
  * A log-taper value, which can run from 1.25 to 18,000, is shown to about three figures.
  */
-export function formatParamValue(value: number, unit?: string, labels?: string[], taper?: ParamTaper): string {
+export function formatParamValue(
+  value: number,
+  unit?: string,
+  labels?: string[],
+  taper?: ParamTaper,
+  min = 0,
+  step?: number,
+): string {
   if (unit === "toggle") {
     return value >= 0.5 ? "On" : "Off";
   }
   if (unit === "enum" && Array.isArray(labels)) {
-    const index = Math.round(value);
-    return labels[index] ?? `${index}`;
+    return enumLabel(value, labels, min, step) ?? `${Math.round(value)}`;
   }
   if (taper === "log") {
     return formatTaperedValue(value, unit);
