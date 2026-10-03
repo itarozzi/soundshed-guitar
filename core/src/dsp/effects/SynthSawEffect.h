@@ -27,7 +27,7 @@ namespace guitarfx
  *    --------------
  *    The shared real-time tracker, dsp/PitchTracker.h: YIN on a copy of the mono
  *    input low-passed at 2 kHz and decimated to about 12 kHz, refined at the full
- *    rate, every 5 ms, from 45 Hz to 1.5 kHz. Its accepted pitch already rejects
+ *    rate, every 5 ms, from 45 Hz to 2 kHz. Its accepted pitch already rejects
  *    outliers (a jump of over a semitone must repeat on two detections before it is
  *    taken), and it holds the last pitch through silence and a note's dying tail.
  *
@@ -35,9 +35,11 @@ namespace guitarfx
  *    the audio thread, with a median filter and octave correction on top. Measured
  *    at 48 kHz in 64-sample blocks, that cost 50 us per block on average and 130 us
  *    at the 99th percentile on the DI demo (220 us on noise, rising with the square
- *    of the sample rate); the tracker costs 3 us and 12 us, gets the oscillator to a
- *    new note in 13-60 ms where the old one took up to 83 ms, reads steady tones
- *    within a cent, and reaches down to 45 Hz where the old one stopped at 50.
+ *    of the sample rate); the tracker costs 1.7 us and 7.7 us in Release (built
+ *    without /fp:fast its sums go unvectorised, at five times the cost), gets the
+ *    oscillator to a new note in 13-60 ms where the old one took up to 83 ms, reads
+ *    steady tones within a cent, and reaches down to 45 Hz where the old one
+ *    stopped at 50.
  *
  * 2. ONSET DETECTION
  *    ---------------
@@ -77,7 +79,7 @@ namespace guitarfx
  *
  * FUTURE ENHANCEMENTS:
  *   - MIDI note output for driving external instruments
- *   - Multiple waveform types (square, triangle, pulse width modulation)
+ *   - Pulse width modulation (Saw, Square, Triangle and Sine are in)
  *   - Polyphonic pitch detection for chords
  *   - Pitch quantization to musical scales
  *
@@ -220,11 +222,11 @@ class SynthSawEffect : public EffectProcessor
             {
                 // Apply octave shift: 2^octaveShift multiplies frequency
                 // octaveShift=1 doubles freq, octaveShift=-1 halves it
-                double freq = mCurrentFreq * std::pow(2.0, mOctaveShift);
+                double freq = mCurrentFreq * mOctaveRatio;
 
                 // Apply detune in cents (100 cents = 1 semitone, 1200 cents = 1 octave)
                 // Formula: freq * 2^(cents/1200)
-                freq *= std::pow(2.0, mDetune / 1200.0);
+                freq *= mDetuneRatio;
 
                 // Clamp frequency to reasonable range to avoid aliasing at high freq
                 // and subsonic rumble at low freq
@@ -251,7 +253,7 @@ class SynthSawEffect : public EffectProcessor
                 if (mVoice2Mix > 0.0f)
                 {
                     // Apply semitone shift: freq * 2^(semitones/12)
-                    const double freq2 = freq * std::pow(2.0, mVoice2Semitones / 12.0);
+                    const double freq2 = freq * mVoice2Ratio;
                     const double freq2Clamped = std::clamp(freq2, kMinOutputFrequency, kMaxFrequency);
                     const double phaseInc2 = freq2Clamped / mSampleRate;
                     mOscPhase2 += phaseInc2;
@@ -311,10 +313,12 @@ class SynthSawEffect : public EffectProcessor
         else if (key == "detune")
         {
             mDetune = std::clamp(value, -100.0, 100.0);
+            mDetuneRatio = std::pow(2.0, mDetune / 1200.0);
         }
         else if (key == "octaveShift")
         {
             mOctaveShift = std::clamp(value, -2.0, 2.0);
+            mOctaveRatio = std::pow(2.0, mOctaveShift);
         }
         else if (key == "glide")
         {
@@ -334,6 +338,7 @@ class SynthSawEffect : public EffectProcessor
         else if (key == "voice2Semitones")
         {
             mVoice2Semitones = std::clamp(value, -24.0, 24.0);
+            mVoice2Ratio = std::pow(2.0, mVoice2Semitones / 12.0);
         }
         else if (key == "voice2Mix")
         {
@@ -530,7 +535,8 @@ class SynthSawEffect : public EffectProcessor
      * @param phaseInc   Phase increment per sample (freq / sampleRate)
      * @param shape      0=Saw, 1=Square/Pulse, 2=Triangle, 3=Sine
      * @param pulseWidth Duty cycle for Square waveform [0.1, 0.9] — ignored for other shapes
-     * @return           Waveform sample in approximately [-1, +1]
+     * @return           Waveform sample, zero-mean: in approximately [-1, +1], the Square in
+     *                   [-2 * pulseWidth, 2 - 2 * pulseWidth]
      */
     static float GenerateSample(double phase, double phaseInc, int shape, double pulseWidth)
     {
@@ -555,6 +561,13 @@ class SynthSawEffect : public EffectProcessor
             }
 
             out -= PolyBLEP(phaseFall, phaseInc); // smooth falling edge
+
+            // At +1 for pulseWidth of the cycle and -1 for the rest, the pulse's mean is
+            // 2 * pulseWidth - 1, which the envelope would turn into a DC step on every note: a
+            // thump. Taking it off makes the wave zero-mean at any width, as an AC-coupled analog
+            // pulse is, between 2 - 2 * pulseWidth and -2 * pulseWidth. The PolyBLEP corrections
+            // stay as they are: each edge is still a step of 2, and a correction integrates to zero.
+            out -= static_cast<float>(2.0 * pulseWidth - 1.0);
             return out;
         }
         case 2: // Triangle — piecewise linear; continuous waveform, no PolyBLEP required
@@ -623,6 +636,9 @@ class SynthSawEffect : public EffectProcessor
     double mReleaseMs = 100.0;
     double mDetune = 0.0;      // cents
     double mOctaveShift = 0.0; // octaves (-2 to +2)
+    // Frequency ratios, worked out when their parameter changes rather than with a std::pow per sample
+    double mDetuneRatio = 1.0; // 2^(detune / 1200)
+    double mOctaveRatio = 1.0; // 2^octaveShift
     double mGlideMs = 10.0;    // portamento time (reduced default)
     float mOutputGain = 1.0f;
     float kGateThreshold = 0.001f; // -60 dB default
@@ -642,7 +658,8 @@ class SynthSawEffect : public EffectProcessor
     double mGlideCoef = 0.1;
 
     // 2nd voice parameters
-    double mVoice2Semitones = 0.0; // semitone offset (-12 to +12)
+    double mVoice2Semitones = 0.0; // semitone offset (-24 to +24)
+    double mVoice2Ratio = 1.0;     // 2^(voice2Semitones / 12)
     float mVoice2Mix = 0.0f;       // mix between voice 1 and voice 2 (0 = only voice 1)
 
     // Waveform selection per voice (0=Saw, 1=Square, 2=Triangle, 3=Sine)

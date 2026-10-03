@@ -6,7 +6,8 @@
  * Synth Voice's presets leave out Output, the player's level, and Gate, a threshold set
  * against the player's own noise floor: a preset that reset it would have the synth sputter on
  * hum for anyone who had raised it. They stay within about 1 dB of the default on the demo DI,
- * and every pulse width stays at 0.5, as anything else adds DC.
+ * and every pulse width stays at 0.5. Any other width used to add DC; the Square is zero-mean at
+ * every width now, though a narrower pulse measures quieter (1.9 dB at 0.2) and needs level-matching.
  *
  * The arpeggiator's leave out Pitch Trigger and its Pitch, which decide when it plays from what
  * and where the player plays, as the wah's presets leave Auto-Engage alone. Every preset sets

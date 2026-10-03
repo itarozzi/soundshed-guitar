@@ -9,6 +9,7 @@
  * 4. Generate sawtooth output at the correct frequency
  * 5. Keep what moving onto the shared PitchTracker changed: note changes in 64-sample blocks,
  *    45-50 Hz notes, 96 and 192 kHz, the pitch held through a release, and the glide
+ * 6. Keep a pulse of any width free of DC, on either voice
  */
 
 #include <algorithm>
@@ -790,16 +791,22 @@ TestResult TestPulseWidthChange(guitarfx::SynthSawEffect& effect)
     float maxAbs = 0.0f;
     int highCount = 0, lowCount = 0, totalNonZero = 0;
 
+    // The pulse is zero-mean, so at pw=0.25 it sits at +1.5 and -0.5 (times the envelope): each
+    // sample is judged against the midpoint of the two, away from the edges, rather than against 0.
+    const auto [lowest, highest] = std::minmax_element(output.begin(), output.end());
+    const float midpoint = 0.5f * (*lowest + *highest);
+    const float margin = 0.2f * (*highest - *lowest);
+
     for (float s : output)
     {
         maxAbs = std::max(maxAbs, std::abs(s));
 
-        if (s > 0.2f)
+        if (s > midpoint + margin)
         {
             ++highCount;
             ++totalNonZero;
         }
-        else if (s < -0.2f)
+        else if (s < midpoint - margin)
         {
             ++lowCount;
             ++totalNonZero;
@@ -807,15 +814,14 @@ TestResult TestPulseWidthChange(guitarfx::SynthSawEffect& effect)
     }
 
     // At pw=0.25 the high state should occupy ~25% of non-transition samples
-    // Allow wide tolerance since PolyBLEP blurs the edges
     const double dutyCycle =
         totalNonZero > 0 ? static_cast<double>(highCount) / static_cast<double>(totalNonZero) : 0.5;
 
     std::ostringstream msg;
     msg << std::fixed << std::setprecision(3) << "(peak=" << maxAbs << ", duty=" << dutyCycle << ", expected ~0.25)";
 
-    // Expect duty clearly below 0.5 (asymmetric square)
-    if (maxAbs > 0.1f && dutyCycle < 0.45)
+    // PolyBLEP blurs about a sample at each edge, of a 218-sample period
+    if (maxAbs > 0.1f && dutyCycle > 0.2 && dutyCycle < 0.3)
     {
         result.passed = true;
         result.message = "PASS " + msg.str();
@@ -1049,7 +1055,9 @@ void TestPitchTrackerMigration(int& passed, int& failed)
                passed, failed);
     }
 
-    // Informational: the cost of a 64-sample block on a plucked note.
+    // Informational: the cost of a 64-sample block on a plucked note. Only a Release build's figure
+    // means much: built /O2 without /fp:fast the tracker's sums go unvectorised and it costs about
+    // 11 us, five times what Release does, and Debug is slower again.
     {
         guitarfx::SynthSawEffect effect;
         effect.Prepare(sr, 64);
@@ -1066,6 +1074,103 @@ void TestPitchTrackerMigration(int& passed, int& failed)
         std::cout << "  Cost per 64-sample block: mean "
                   << std::accumulate(us.begin(), us.end(), 0.0) / static_cast<double>(us.size()) << " us, p99 "
                   << us[us.size() * 99 / 100] << " us (informational)\n";
+    }
+
+    std::cout << "\n";
+}
+
+/// The left output of `x` run through `effect` in 64-sample blocks.
+std::vector<float> Render64(guitarfx::SynthSawEffect& effect, const std::vector<float>& x)
+{
+    std::vector<float> y(x.size(), 0.0f);
+    std::vector<float> outR(64);
+
+    for (std::size_t start = 0; start + 64 <= x.size(); start += 64)
+    {
+        float* in[2] = {const_cast<float*>(x.data() + start), const_cast<float*>(x.data() + start)};
+        float* out[2] = {y.data() + start, outR.data()};
+        effect.Process(in, out, 64);
+    }
+
+    return y;
+}
+
+/// The share of `y`'s energy below `hz`, in dB: the DFT bins up to `hz` over the whole of `y`, which
+/// starts and ends in silence, so it needs no window.
+double EnergyBelowDb(const std::vector<float>& y, double hz, double sampleRate)
+{
+    const double n = static_cast<double>(y.size());
+    double total = 0.0;
+
+    for (const float v : y)
+    {
+        total += static_cast<double>(v) * v;
+    }
+
+    double below = 0.0;
+
+    for (int k = 0; k <= static_cast<int>(hz * n / sampleRate); ++k)
+    {
+        // Rotate a phasor rather than calling cos and sin for each sample.
+        const double step = 2.0 * kPi * k / n;
+        const double stepCos = std::cos(step), stepSin = std::sin(step);
+        double c = 1.0, s = 0.0, re = 0.0, im = 0.0;
+
+        for (const float v : y)
+        {
+            re += v * c;
+            im -= v * s;
+            const double next = c * stepCos - s * stepSin;
+            s = s * stepCos + c * stepSin;
+            c = next;
+        }
+
+        below += (k == 0 ? 1.0 : 2.0) * (re * re + im * im) / n;
+    }
+
+    return 10.0 * std::log10(std::max(below / std::max(total, 1e-30), 1e-30));
+}
+
+/// A pulse narrower or wider than half the cycle used to sit at +1 and -1 around a mean of
+/// 2 * width - 1, which the envelope made a DC step on every note: at width 0.2, 36% of the output's
+/// power was below 15 Hz (-4.4 dB), a thump on each note. Now the pulse is zero-mean at any width, on
+/// either voice, and leaves no more down there than a Saw, which is zero-mean already.
+void TestPulseHasNoDC(int& passed, int& failed)
+{
+    std::cout << "--- Pulse Width DC Tests ---\n";
+    constexpr double sr = kTestSampleRate;
+
+    // A2 held for a second, released over 20 ms, then long enough for the synth's own release.
+    std::vector<float> x(static_cast<std::size_t>(1.0 * sr));
+    AddPluck(x, 0, 110.0, sr, 20.0);
+    x.resize(x.size() + static_cast<std::size_t>(0.6 * sr), 0.0f);
+
+    const auto belowDb = [&](const std::vector<std::pair<std::string, double>>& params) {
+        guitarfx::SynthSawEffect effect;
+        effect.Prepare(sr, 64);
+
+        for (const auto& [key, value] : params)
+        {
+            effect.SetParam(key, value);
+        }
+
+        return EnergyBelowDb(Render64(effect, x), 15.0, sr);
+    };
+
+    // Measured: the Saw -32.8 dB; the pulses -35.5, -36.1 and -39.0 dB, where they were -4.5.
+    const double saw = belowDb({});
+    std::cout << "  Saw, for reference: " << std::to_string(saw) << " dB of the energy below 15 Hz\n";
+    const std::pair<std::string, std::vector<std::pair<std::string, double>>> pulses[] = {
+        {"Voice 1 at pulse width 0.2", {{"waveShape", 1.0}, {"pulseWidth", 0.2}}},
+        {"Voice 1 at pulse width 0.8", {{"waveShape", 1.0}, {"pulseWidth", 0.8}}},
+        {"Voice 2 alone at pulse width 0.2",
+         {{"voice2WaveShape", 1.0}, {"voice2PulseWidth", 0.2}, {"voice2Semitones", 7.0}, {"voice2Mix", 1.0}}}};
+
+    for (const auto& [what, params] : pulses)
+    {
+        const double below = belowDb(params);
+        Report(below < -30.0, what + " leaves negligible energy below 15 Hz",
+               std::to_string(below) + " dB, the Saw " + std::to_string(saw), passed, failed);
     }
 
     std::cout << "\n";
@@ -1297,6 +1402,7 @@ int main()
     std::cout << "\n";
 
     TestPitchTrackerMigration(passed, failed);
+    TestPulseHasNoDC(passed, failed);
 
     // Summary
     std::cout << "========================================\n";

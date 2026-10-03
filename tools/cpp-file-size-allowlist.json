@@ -23,7 +23,7 @@
     "juce/source/PluginProcessorAdapter.cpp": 1227,
     "core/tests/Spatial3DEffectTests.cpp": 1341,
     "core/src/PluginController.h": 1372,
-    "core/tests/SynthSawEffectTests.cpp": 1308,
+    "core/tests/SynthSawEffectTests.cpp": 1697,
     "core/tests/NAMModelDiagnosticTests.cpp": 1305,
     "core/src/dsp/effects/OptimizedNAMAmpEffect.h": 1276,
     "core/src/automation/AutomationSlotTable.cpp": 1252,
