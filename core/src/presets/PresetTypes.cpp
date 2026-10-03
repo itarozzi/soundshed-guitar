@@ -1,5 +1,6 @@
 #include "presets/PresetTypes.h"
 #include "dsp/EffectRegistry.h"
+#include "dsp/effects/BuiltinAmpLegacyMigration.h"
 #include "dsp/effects/DriveLegacyMigration.h"
 
 #include <algorithm>
@@ -126,6 +127,7 @@ void CanonicalizeNodeParams(GraphNode& node)
 void MigrateLegacyNodeParams(GraphNode& node)
 {
     drive_legacy::MigrateParams(node.type, node.params);
+    amp_legacy::MigrateParams(node.type, node.params);
 }
 
 void EnsurePresetBoundaryGainNodes(SignalGraph& graph)

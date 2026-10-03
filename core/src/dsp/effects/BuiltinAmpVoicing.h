@@ -370,7 +370,8 @@ inline constexpr float kSagDepth = 0.6f;
  * to keep. So the level holds at the nominal level, and playing softer or harder than that, the
  * clean end follows you and the high-gain end compresses, as an amp does. Re-measure this if the
  * voicing changes (BuiltinAmpEffectTests --measure-levels prints a replacement);
- * TestLevelHoldsAtNominal fails when it goes stale.
+ * TestLevelHoldsAtNominal fails when it goes stale. Then re-run BuiltinAmpLegacyMigrationTests
+ * --calibrate too: the migration of pre-1.6 presets tabulates this amp's level.
  */
 inline constexpr float kDefaultGain = 0.45f;
 inline constexpr int kDefaultStages = 2;

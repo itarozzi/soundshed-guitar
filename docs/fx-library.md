@@ -406,6 +406,24 @@ or at the nominal level. Clean Channel (default), Edge of Breakup, Classic Crunc
 dimed), Tight Modern Rhythm, Tight Djent (hard knee, four stages), Scooped Thrash, Vintage High
 Gain (soft knee, sag and bias) and Singing Lead (four stages, mids forward, compressed by sag).
 
+**Older presets keep their loudness.** The amp was rebuilt after 1.5.0. The 1.5.0 amp had no level
+makeup and came out 12–18 dB above a guitar at the nominal level at any Gain past a quarter, so its
+presets set Output against that, often -15 to -24 dB. A stored amp node with no `character` key can
+only come from before the rebuild, so reading one migrates it (`MigrateLegacyNodeParams`,
+`BuiltinAmpLegacyMigration.h`). It gets Character's default explicitly and the Output at which the
+new amp is as loud as the old one was, every other control unchanged. That Output comes from both
+amps' heard gain, tabulated by voice, Preamp Stages, Gain and Input Trim. On top of that come a
+model of the old power stage for its Power Drive and Sag, the new amp's own power-stage model for
+what an Input Trim does to its makeup, and how much more of a tone-stack cut or boost each amp let
+through.
+
+Against the old amp, which `BuiltinAmpLegacyMigrationTests` keeps verbatim
+(`helpers/LegacyBuiltinAmp.h`), the factory pack's amps keep their loudness to within 0.4 dB.
+Random old settings hold to about 0.7 dB RMS, 1 dB at worst. An old node that would need more than
++24 dB of Output, one already turned up on the old amp, stops there. `--calibrate` re-derives the
+tables if the new amp's voicing or makeup changes. A migrated node is saved with its Character the
+next time its preset is, and is not migrated again.
+
 ### IR Cabinet (`cab_ir`)
 Impulse response convolution for cabinet simulation.
 

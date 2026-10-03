@@ -350,7 +350,9 @@ void CanonicalizeNodeParams(GraphNode& node);
  * and is left alone, and so is one already brought up to date.
  *
  * Today that is the drive pedals: a node from before their Model switch is put on the first
- * model with the Level that keeps it as loud as it was (see DriveLegacyMigration.h).
+ * model with the Level that keeps it as loud as it was (see DriveLegacyMigration.h). And the Heavy
+ * American: a node from before its rebuild gets the Output that keeps it as loud as it was (see
+ * BuiltinAmpLegacyMigration.h).
  */
 void MigrateLegacyNodeParams(GraphNode& node);
 

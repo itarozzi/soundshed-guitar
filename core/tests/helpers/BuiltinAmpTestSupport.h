@@ -329,7 +329,24 @@ inline std::vector<float> NominalGuitar(const char* file, double from = 0.0, dou
     return guitar;
 }
 
-// The amp's output for `guitar`, lined up with it (its latency taken out).
+// An effect's output for `guitar`, lined up with it (its latency taken out). It has to be prepared
+// at 48 kHz for blocks of 256.
+inline std::vector<float> RenderGuitar(guitarfx::EffectProcessor& effect, const std::vector<float>& guitar)
+{
+    const auto latency = static_cast<std::size_t>(effect.GetLatencySamples());
+    std::vector<float> input(guitar), output(guitar.size() + latency);
+    input.resize(output.size(), 0.0f);
+
+    for (std::size_t start = 0; start < input.size(); start += 256)
+    {
+        const int count = static_cast<int>(std::min<std::size_t>(256, input.size() - start));
+        effect.ProcessMono(input.data() + start, output.data() + start, count);
+    }
+
+    return std::vector<float>(output.begin() + static_cast<std::ptrdiff_t>(latency), output.end());
+}
+
+// The amp's output for `guitar` at `v`.
 inline std::vector<float> RenderGuitar(const Voicing& v, const std::vector<float>& guitar)
 {
     guitarfx::BuiltinAmpEffect amp;
@@ -342,26 +359,15 @@ inline std::vector<float> RenderGuitar(const Voicing& v, const std::vector<float
     amp.SetParam("sag", v.sag);
     amp.SetParam("bias", v.bias);
     amp.Reset();
-
-    const auto latency = static_cast<std::size_t>(amp.GetLatencySamples());
-    std::vector<float> input(guitar), output(guitar.size() + latency);
-    input.resize(output.size(), 0.0f);
-
-    for (std::size_t start = 0; start < input.size(); start += 256)
-    {
-        const int count = static_cast<int>(std::min<std::size_t>(256, input.size() - start));
-        amp.ProcessMono(input.data() + start, output.data() + start, count);
-    }
-
-    return std::vector<float>(output.begin() + static_cast<std::ptrdiff_t>(latency), output.end());
+    return RenderGuitar(amp, guitar);
 }
 
-// How much louder the amp makes `guitar`, as heard, in dB, over the blocks where it plays.
-inline double HeardGainDb(const Voicing& v, const std::vector<float>& guitar)
+// How much louder `output` is than `guitar`, as heard, in dB, over the blocks where it plays.
+inline double HeardGainDb(const std::vector<float>& guitar, const std::vector<float>& output)
 {
     const auto playing = PlayingBlocks(guitar);
     const auto in = Heard(guitar);
-    const auto out = Heard(RenderGuitar(v, guitar));
+    const auto out = Heard(output);
     double inPower = 0.0, outPower = 0.0;
 
     for (std::size_t i = 0; i < playing.size() * kLevelBlock; ++i)
@@ -374,6 +380,12 @@ inline double HeardGainDb(const Voicing& v, const std::vector<float>& guitar)
     }
 
     return 10.0 * std::log10((outPower + 1.0e-30) / (inPower + 1.0e-30));
+}
+
+// How much louder the amp at `v` makes `guitar`, as heard, in dB.
+inline double HeardGainDb(const Voicing& v, const std::vector<float>& guitar)
+{
+    return HeardGainDb(guitar, RenderGuitar(v, guitar));
 }
 
 // The guitar the level makeup is measured on: 10 s of the demo DI and both demo riffs, each at the
