@@ -2,14 +2,19 @@
 
 /**
  * Measurement helpers for the Heavy American's tests (BuiltinAmpEffectTests.cpp): rendering the
- * amp over test signals and voicings, harmonic and band measurements, the heard level its makeup
- * was measured with, and the worst curvature that hears a click.
+ * amp over test signals, voicings and the demo guitar at the nominal level, harmonic and band
+ * measurements, the heard level its makeup is measured with, and the worst curvature that hears a
+ * click.
  */
 
+#include "dsp/IRWavLoader.h"
 #include "dsp/effects/BuiltinAmpEffect.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
+#include <filesystem>
+#include <thread>
 #include <vector>
 
 namespace builtin_amp_test
@@ -102,6 +107,7 @@ struct Voicing
     int stages = 2;
     double powerDrive = 0.0;
     double sag = 0.0;
+    double bias = 0.0;
 };
 
 inline std::vector<float> RenderVoicing(const Voicing& v, Signal signal, double level = 0.10, int frames = 36000)
@@ -115,6 +121,7 @@ inline std::vector<float> RenderVoicing(const Voicing& v, Signal signal, double 
     amp.SetParam("stageCount", v.stages);
     amp.SetParam("powerDrive", v.powerDrive);
     amp.SetParam("sag", v.sag);
+    amp.SetParam("bias", v.bias);
     amp.Reset();
 
     std::vector<float> input(frames), output(frames);
@@ -172,10 +179,10 @@ struct Biquad
     }
 };
 
-// Level as the player hears it, the way the amp's makeup table was measured:
-// a generic cab band (2nd-order 90 Hz high pass, 4.5 kHz low pass) and the
-// BS.1770 K-weighting shelf, in dB.
-inline double HeardDb(const std::vector<float>& signal, int start = 12000)
+// The signal as the player hears it, the way the amp's makeup table was measured: through a
+// generic cab band (2nd-order 90 Hz high pass, 4.5 kHz low pass) and the BS.1770 K-weighting
+// shelf.
+inline std::vector<double> Heard(const std::vector<float>& signal)
 {
     constexpr double sampleRate = 48000.0;
     auto pass = [&](double frequency, bool high) {
@@ -190,17 +197,25 @@ inline double HeardDb(const std::vector<float>& signal, int start = 12000)
                  A * ((A + 1.0) + (A - 1.0) * c - 2.0 * sA * al) / a0, 2.0 * ((A - 1.0) - (A + 1.0) * c) / a0,
                  ((A + 1.0) - (A - 1.0) * c - 2.0 * sA * al) / a0};
     Biquad highPass = pass(90.0, true), lowPass = pass(4500.0, false);
-
-    double power = 0.0;
+    std::vector<double> heard(signal.size());
 
     for (std::size_t i = 0; i < signal.size(); ++i)
     {
-        const double y = shelf.Run(lowPass.Run(highPass.Run(signal[i])));
+        heard[i] = shelf.Run(lowPass.Run(highPass.Run(signal[i])));
+    }
 
-        if (static_cast<int>(i) >= start)
-        {
-            power += y * y;
-        }
+    return heard;
+}
+
+// Heard level in dB, from `start` on.
+inline double HeardDb(const std::vector<float>& signal, int start = 12000)
+{
+    const auto heard = Heard(signal);
+    double power = 0.0;
+
+    for (std::size_t i = static_cast<std::size_t>(start); i < heard.size(); ++i)
+    {
+        power += heard[i] * heard[i];
     }
 
     return 10.0 * std::log10(power / static_cast<double>(signal.size() - start) + 1.0e-30);
@@ -241,5 +256,172 @@ inline double WorstCurvature(const std::vector<float>& output, int from, int to)
     }
 
     return worst;
+}
+
+// ---------------------------------------------------------------------------------------
+// A guitar at the nominal level: what the level makeup is measured on and held to.
+// ---------------------------------------------------------------------------------------
+
+constexpr std::size_t kLevelBlock = 4800;
+
+// Which 100 ms blocks of `input` are playing: those within 30 dB of its loudest.
+inline std::vector<bool> PlayingBlocks(const std::vector<float>& input)
+{
+    std::vector<double> power(input.size() / kLevelBlock, 0.0);
+
+    for (std::size_t i = 0; i < power.size() * kLevelBlock; ++i)
+    {
+        power[i / kLevelBlock] += static_cast<double>(input[i]) * input[i];
+    }
+
+    const double loudest = power.empty() ? 0.0 : *std::max_element(power.begin(), power.end());
+    std::vector<bool> playing(power.size());
+
+    for (std::size_t block = 0; block < power.size(); ++block)
+    {
+        playing[block] = power[block] > loudest * 1.0e-3;
+    }
+
+    return playing;
+}
+
+// A demo recording (core/ui/demo, 48 kHz), `seconds` of it from `from` on (all of it at 0), scaled
+// to play at -18 dBFS RMS over its playing blocks. Empty if it does not load.
+inline std::vector<float> NominalGuitar(const char* file, double from = 0.0, double seconds = 0.0)
+{
+    guitarfx::IRWavData data;
+    std::vector<float> guitar;
+
+    if (!guitarfx::irwav::LoadWavFile(std::filesystem::path(GUITARFX_DEMO_AUDIO_DIR) / file, data) ||
+        data.sampleRate != 48000.0)
+    {
+        return guitar;
+    }
+
+    guitarfx::irwav::DownmixToMono(data, guitar);
+    const auto first = std::min(guitar.size(), static_cast<std::size_t>(from * 48000.0));
+    const auto last =
+        seconds > 0.0 ? std::min(guitar.size(), first + static_cast<std::size_t>(seconds * 48000.0)) : guitar.size();
+    guitar = std::vector<float>(guitar.begin() + static_cast<std::ptrdiff_t>(first),
+                                guitar.begin() + static_cast<std::ptrdiff_t>(last));
+
+    const auto playing = PlayingBlocks(guitar);
+    double power = 0.0;
+    std::size_t counted = 0;
+
+    for (std::size_t i = 0; i < playing.size() * kLevelBlock; ++i)
+    {
+        if (playing[i / kLevelBlock])
+        {
+            power += static_cast<double>(guitar[i]) * guitar[i];
+            ++counted;
+        }
+    }
+
+    const auto gain =
+        static_cast<float>(std::pow(10.0, -18.0 / 20.0) / std::sqrt(power / static_cast<double>(counted)));
+
+    for (float& sample : guitar)
+    {
+        sample *= gain;
+    }
+
+    return guitar;
+}
+
+// The amp's output for `guitar`, lined up with it (its latency taken out).
+inline std::vector<float> RenderGuitar(const Voicing& v, const std::vector<float>& guitar)
+{
+    guitarfx::BuiltinAmpEffect amp;
+    amp.Prepare(48000.0, 256);
+    amp.SetParam("gain", v.gain);
+    amp.SetParam("voice", v.voice);
+    amp.SetParam("character", v.character);
+    amp.SetParam("stageCount", v.stages);
+    amp.SetParam("powerDrive", v.powerDrive);
+    amp.SetParam("sag", v.sag);
+    amp.SetParam("bias", v.bias);
+    amp.Reset();
+
+    const auto latency = static_cast<std::size_t>(amp.GetLatencySamples());
+    std::vector<float> input(guitar), output(guitar.size() + latency);
+    input.resize(output.size(), 0.0f);
+
+    for (std::size_t start = 0; start < input.size(); start += 256)
+    {
+        const int count = static_cast<int>(std::min<std::size_t>(256, input.size() - start));
+        amp.ProcessMono(input.data() + start, output.data() + start, count);
+    }
+
+    return std::vector<float>(output.begin() + static_cast<std::ptrdiff_t>(latency), output.end());
+}
+
+// How much louder the amp makes `guitar`, as heard, in dB, over the blocks where it plays.
+inline double HeardGainDb(const Voicing& v, const std::vector<float>& guitar)
+{
+    const auto playing = PlayingBlocks(guitar);
+    const auto in = Heard(guitar);
+    const auto out = Heard(RenderGuitar(v, guitar));
+    double inPower = 0.0, outPower = 0.0;
+
+    for (std::size_t i = 0; i < playing.size() * kLevelBlock; ++i)
+    {
+        if (playing[i / kLevelBlock])
+        {
+            inPower += in[i] * in[i];
+            outPower += out[i] * out[i];
+        }
+    }
+
+    return 10.0 * std::log10((outPower + 1.0e-30) / (inPower + 1.0e-30));
+}
+
+// The guitar the level makeup is measured on: 10 s of the demo DI and both demo riffs, each at the
+// nominal level.
+inline std::vector<std::vector<float>> MeasuringGuitar()
+{
+    return {NominalGuitar("DI_Guitar_L.wav", 10.0, 10.0), NominalGuitar("guitar-riff-01.wav"),
+            NominalGuitar("guitar-riff-02.wav")};
+}
+
+// The amp's own heard gain at `v` over `guitar`: what was heard, less the makeup the amp applied
+// there. What --measure-levels re-fits the makeup to.
+inline double RawGainDb(const Voicing& v, const std::vector<std::vector<float>>& guitar)
+{
+    using namespace guitarfx::builtin_amp;
+    const auto gain = static_cast<float>(v.gain), voice = static_cast<float>(v.voice);
+    const auto character = static_cast<float>(v.character);
+    double sum = 0.0;
+    for (const auto& take : guitar)
+    {
+        sum += HeardGainDb(v, take);
+    }
+    const double makeupDb =
+        LevelMakeupDb(gain, voice, character, v.stages) +
+        20.0 * std::log10(PowerDriveMakeup(gain, voice, v.stages, character, static_cast<float>(v.powerDrive),
+                                           static_cast<float>(v.bias), static_cast<float>(v.sag)));
+    return sum / static_cast<double>(guitar.size()) - makeupDb;
+}
+
+// Runs body(0) .. body(count - 1) across the machine's cores, for --measure-levels.
+template <class Body> void ParallelFor(int count, const Body& body)
+{
+    std::atomic<int> next{0};
+    std::vector<std::thread> workers;
+
+    for (unsigned w = 0; w < std::max(1u, std::thread::hardware_concurrency()); ++w)
+    {
+        workers.emplace_back([&] {
+            for (int i = next++; i < count; i = next++)
+            {
+                body(i);
+            }
+        });
+    }
+
+    for (auto& worker : workers)
+    {
+        worker.join();
+    }
 }
 } // namespace builtin_amp_test

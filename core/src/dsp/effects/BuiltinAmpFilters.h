@@ -14,6 +14,18 @@
  */
 namespace guitarfx::builtin_amp
 {
+/// A one-pole glide that lands exactly on its target instead of creeping towards it forever, so
+/// the effect's voicing cache can tell when a control stops.
+inline void Glide(float& value, float target, float step)
+{
+    value += step * (target - value);
+
+    if (std::abs(target - value) < 1.0e-6f)
+    {
+        value = target;
+    }
+}
+
 /// The high-pass/low-pass pair that couples one preamp stage into the next.
 struct StageFilter
 {
@@ -123,7 +135,7 @@ struct StageFades
 
     /// The level table's makeup for the stages that are in, or while some fade, for how far
     /// each one is.
-    [[nodiscard]] float Makeup(float gain, float voice) const
+    [[nodiscard]] float Makeup(float gain, float voice, float character) const
     {
         std::array<float, kMaxStages> stageIn = {};
         int stages = 0;
@@ -136,7 +148,7 @@ struct StageFades
             fading = fading || (mix[stage] > 0.0f && mix[stage] < 1.0f);
         }
 
-        return fading ? LevelMakeup(gain, voice, stageIn) : LevelMakeup(gain, voice, stages);
+        return fading ? LevelMakeup(gain, voice, character, stageIn) : LevelMakeup(gain, voice, character, stages);
     }
 
     /// The fade runs linearly in time, but a crossfade that starts or stops with a step in its

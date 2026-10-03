@@ -100,7 +100,7 @@ const std::vector<Effect>& Effects()
         {"Synth Voice", EffectGuids::kSynthSaw, {"outputGain", "gate"}, {}},
         {"Auto Arpeggiator", EffectGuids::kAutoArp, {"pitchMode", "pitchThreshold"}, {}},
         {"Pitch Shift", EffectGuids::kPitchShift, {}, {}},
-        // Output is set: the Drive voice is 6-8 dB hotter than the Clean, and only Output levels it.
+        // Output is set, to take out what each preset's tone controls add to the amp's level.
         {"Heavy American", EffectGuids::kAmpBuiltin, {}, {}, 3.0},
     };
     return effects;

@@ -4,10 +4,11 @@
  * BuiltinAmpPresets.h — Factory presets for the Heavy American.
  *
  * Unlike every other effect's, these set Output. An amp preset is a whole channel, and its
- * Output is that channel's volume: the Drive voice keeps its own level reference, 6-8 dB over
- * the Clean voice's, and Output is the only control that can bring a Drive preset back. So
- * each sets it to land within about 1.1 dB of the default on the demo DI, whether that is as
- * recorded (-21 dBFS RMS) or at the nominal level, and browsing presets never jumps.
+ * Output is that channel's volume. The amp holds the nominal level whatever the voice, gain,
+ * stages and power section say, but not through its tone controls or Bright, so each preset's
+ * Output takes out what those add: all of them sit within 1 dB of 0, and land within 0.3 dB of
+ * the default, as heard, on the demo DI and riffs as recorded or at the nominal level. Browsing
+ * presets never jumps.
  *
  * Every preset sets the hidden power section too, so none leaves behind settings the player
  * cannot see, and Input Trim, which sits before the distortion and so is voicing, not level.
@@ -41,7 +42,7 @@ namespace guitarfx::builtin_amp
                 {"treble", 0.55},
                 {"contour", 0.1},
                 {"presence", 0.55},
-                {"output", 0.5},
+                {"output", -0.5},
                 {"powerDrive", 0.35},
                 {"sag", 0.3},
                 {"bias", 0.15},
@@ -62,7 +63,7 @@ namespace guitarfx::builtin_amp
                 {"treble", 0.6},
                 {"contour", 0.1},
                 {"presence", 0.6},
-                {"output", 1.5},
+                {"output", -1.0},
                 {"powerDrive", 0.4},
                 {"sag", 0.3},
                 {"bias", 0.1},
@@ -81,7 +82,7 @@ namespace guitarfx::builtin_amp
                 {"treble", 0.6},
                 {"contour", 0.5},
                 {"presence", 0.6},
-                {"output", -6.5},
+                {"output", 0.0},
                 {"powerDrive", 0.15},
                 {"sag", 0.3},
                 {"depth", 0.6},
@@ -98,7 +99,7 @@ namespace guitarfx::builtin_amp
                 {"treble", 0.55},
                 {"contour", 0.5},
                 {"presence", 0.55},
-                {"output", -8.0},
+                {"output", 0.5},
                 {"depth", 0.45},
                 {"resonance", 0.55},
                 {"damping", 0.4}}),
@@ -113,7 +114,7 @@ namespace guitarfx::builtin_amp
                 {"treble", 0.65},
                 {"contour", 0.75},
                 {"presence", 0.65},
-                {"output", -5.5},
+                {"output", 0.5},
                 {"powerDrive", 0.2},
                 {"sag", 0.3},
                 {"depth", 0.65},
@@ -130,7 +131,7 @@ namespace guitarfx::builtin_amp
                 {"bass", 0.55},
                 {"middle", 0.6},
                 {"presence", 0.45},
-                {"output", -5.5},
+                {"output", -0.5},
                 {"powerDrive", 0.4},
                 {"sag", 0.55},
                 {"bias", 0.25},
@@ -146,7 +147,7 @@ namespace guitarfx::builtin_amp
                 {"middle", 0.7},
                 {"treble", 0.55},
                 {"contour", 0.05},
-                {"output", -6.0},
+                {"output", 0.0},
                 {"powerDrive", 0.35},
                 {"sag", 0.7},
                 {"bias", 0.1},

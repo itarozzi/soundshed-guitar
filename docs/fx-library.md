@@ -372,11 +372,22 @@ A built-in high-gain amp head, for use with a cab or IR after it (`BuiltinAmpEff
 `BuiltinAmpVoicing.h`). Up to four clip stages, two before the tone stack and two after, then a
 power stage.
 
+**Level.** Output is the only level control. With it at 0 dB, a guitar at the nominal operating
+level (Settings, -18 dBFS by default) comes out at that level, as heard through a cab, whatever
+Voice, Gain, Preamp Stages, Character, Power Drive, Bias and Sag are set to: about -18 dBFS RMS.
+Across those controls it holds to 0.3 dB RMS and about 1 dB at worst on the demo guitar. The
+makeup is static, measured on real guitar at the nominal level (`kHeardGainDb`, re-measured with
+`BuiltinAmpEffectTests --measure-levels`), so the amp still plays like one: softer playing comes
+out quieter on the clean end and barely changes on the high-gain end. The tone controls, Bright,
+Pre Emphasis and Input Trim are not compensated. The amp reads the nominal level the way the drive
+pedals do: a guitar there drives it exactly as hard wherever that level is set, and comes out at
+it.
+
 | Parameter | Range | Default | Notes |
 |---|---|---|---|
-| `voice` | Clean / Drive | Clean | Drive has its own level reference, 6-8 dB over Clean's |
+| `voice` | Clean / Drive | Clean | Both channels come out at the same level |
 | `gain` | 0–1 | 0.45 | Level-compensated, so it is not a volume control |
-| `character` | 0–1 | 0.5 | Vintage (soft knee, even harmonics, loose) to modern (hard knee, tight) |
+| `character` | 0–1 | 0.5 | Vintage (soft knee, even harmonics, loose) to modern (hard knee, tight); level-compensated |
 | `bright` | off / on | off | +3 dB shelf at 2.5 kHz before the first stage |
 | `preEmphasis` | 0–1 | 0 | Up to +6 dB more on that shelf (advanced) |
 | `stageCount` | 1–4 | 2 | Clip stages; level-compensated, and fades a stage in or out over 20 ms |
@@ -385,13 +396,13 @@ power stage.
 | `contour` | 0–1 | 0.2 | Up to -12 dB at 600 Hz |
 | `presence` | 0–1 | 0.5 | ±6 dB at 4 kHz |
 | `output` | ±24 dB | 0 | |
-| `powerDrive`, `sag`, `bias`, `depth`, `resonance`, `damping` | | | The power section (advanced). Power Drive is level-compensated, like Gain. Sag pulls the power stage's ceiling down as you dig in, so loud notes clip and compress harder; with Power Drive at 0 it does nothing |
+| `powerDrive`, `sag`, `bias`, `depth`, `resonance`, `damping` | | | The power section (advanced). Power Drive, Bias and Sag are level-compensated, like Gain. Sag pulls the power stage's ceiling down as you dig in, so loud notes clip and compress harder than soft ones around a level that holds; with Power Drive at 0 it does nothing |
 
 **Factory presets** (`BuiltinAmpPresets.h`) set every control, Output and the hidden power
 section included. Output is the exception to the rule the other effects keep: an amp preset is a
-whole channel, and the Drive voice's presets would otherwise come out 4.5-8.5 dB over the
-default. With it, each lands within about 1.1 dB of the default on the demo DI, as recorded or at
-the nominal level. Clean Channel (default), Edge of Breakup, Classic Crunch (the Clean voice nearly
+whole channel, and its Output takes out what its tone controls and Bright add. Every one is within
+1 dB of 0 and lands within 0.3 dB of the default, as heard, on the demo DI and riffs, as recorded
+or at the nominal level. Clean Channel (default), Edge of Breakup, Classic Crunch (the Clean voice nearly
 dimed), Tight Modern Rhythm, Tight Djent (hard knee, four stages), Scooped Thrash, Vintage High
 Gain (soft knee, sag and bias) and Singing Lead (four stages, mids forward, compressed by sag).
 

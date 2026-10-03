@@ -3,7 +3,9 @@
 #include "dsp/effects/BuiltinAmpVoicing.h"
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
+#include <cstdint>
 #include <iomanip>
 #include <iostream>
 #include <string>
@@ -72,58 +74,24 @@ void TestGainRange()
     Check(DriveThd(1.0, 4, 1.0, 0.02) > 0.30, "a quiet input still reaches full saturation");
 }
 
-// Gain and stage count are distortion controls. Driving a cascade harder
-// raises its small-signal gain long before it saturates, so without the makeup
-// the top of the gain control was 7-17 dB louder than the bottom and every
-// comparison was really a loudness comparison. If this fails after a voicing
-// change, re-measure kHeardLevelDb.
-void TestLevelTracksGain()
+// The amp's level is Output's alone: a guitar at the nominal level comes out at
+// that level, as heard through a cab, whatever Voice, Gain, Preamp Stages,
+// Character and Power Drive say. Those are distortion controls, and an amp is a
+// compressor, so this has to hold on a real guitar at the nominal level: with
+// the makeup measured on quiet sine tones, Gain, stages and Power Drive each
+// cost up to 4-5 dB, the Drive voice ran 6 dB over the Clean, and the default
+// was 7.5 dB over the input. If this fails after a voicing change, re-measure
+// (BuiltinAmpEffectTests --measure-levels).
+void TestLevelHoldsAtNominal()
 {
-    for (const double voice : {0.0, 1.0})
+    const auto guitar = NominalGuitar("guitar-riff-01.wav");
+    Check(!guitar.empty(), "the demo riff loads");
+    if (guitar.empty())
     {
-        double atHalfGain[5] = {}; // by stage count
-        for (const int stages : {1, 2, 4})
-        {
-            double lowest = 1.0e9, highest = -1.0e9;
-            for (const double gain : {0.0, 0.5, 1.0})
-            {
-                const double level = HeardLevel({gain, voice, 0.5, stages});
-                lowest = std::min(lowest, level);
-                highest = std::max(highest, level);
-                if (gain == 0.5)
-                {
-                    atHalfGain[stages] = level;
-                }
-            }
-            std::cout << "Heard level span across gain, voice " << voice << ", " << stages
-                      << " stages: " << highest - lowest << " dB\n";
-            Check(highest - lowest < 1.5, "the gain control changes the distortion, not the loudness");
-        }
-
-        // Adding stages is also a distortion control, not a volume control.
-        for (const int stages : {1, 4})
-        {
-            Check(std::abs(atHalfGain[stages] - atHalfGain[2]) < 1.5,
-                  "the stage count changes the distortion, not the loudness");
-        }
+        return;
     }
 
-    // The Character extremes are not in the table; they only have to stay close.
-    for (const double character : {0.0, 1.0})
-    {
-        const double low = HeardLevel({0.0, 1.0, character, 2});
-        const double high = HeardLevel({1.0, 1.0, character, 2});
-        Check(std::abs(high - low) < 3.0, "the gain control stays level-neutral at the Character extremes");
-    }
-}
-
-// Power Drive is a distortion control too. Fully driven, the power stage is a
-// 12 dB small-signal boost into its clipper, so it was 1 to 11 dB louder than
-// none, the most where the preamp ran clean. If this fails after a voicing
-// change, re-fit kPowerStageSineDb (BuiltinAmpEffectTests --measure-levels).
-void TestPowerDriveTracksLevel()
-{
-    double worst = 0.0;
+    std::vector<Voicing> voicings;
     for (const double voice : {0.0, 1.0})
     {
         for (const int stages : {1, 2, 4})
@@ -132,21 +100,50 @@ void TestPowerDriveTracksLevel()
             {
                 for (const double character : {0.0, 0.5, 1.0})
                 {
-                    const double none = HeardLevel({gain, voice, character, stages, 0.0});
-                    for (const double powerDrive : {0.5, 1.0})
-                    {
-                        worst = std::max(worst,
-                                         std::abs(HeardLevel({gain, voice, character, stages, powerDrive}) - none));
-                    }
+                    voicings.push_back({gain, voice, character, stages});
                 }
+                // Character follows Gain here and Bias follows the voice, which reaches
+                // each of their ends without multiplying the count. Sag is tried at
+                // full Power Drive, where it costs the most.
+                for (const double powerDrive : {0.5, 1.0})
+                {
+                    voicings.push_back({gain, voice, gain, stages, powerDrive, 0.0, voice * 2.0 - 1.0});
+                }
+                voicings.push_back({gain, voice, gain, stages, 1.0, 1.0, voice * 2.0 - 1.0});
             }
         }
     }
-    std::cout << "Heard level change from Power Drive, worst across voice, stages, gain and Character: " << worst
-              << " dB\n";
-    Check(worst < 1.5, "Power Drive changes the distortion, not the loudness");
+    // Between the table's steps.
+    voicings.push_back({0.6, 1.0, 0.3, 3, 0.7, 0.4, 0.5});
+    voicings.push_back({0.15, 0.0, 0.85, 3, 0.3, 0.0, -0.5});
+    voicings.push_back({0.9, 1.0, 0.1, 2});
+    voicings.push_back({0.35, 0.0, 0.65, 4, 1.0, 0.0, 1.0});
 
-    // And it still is a distortion control.
+    double worst = 0.0, squares = 0.0;
+    Voicing worstAt;
+    for (const Voicing& v : voicings)
+    {
+        const double heard = HeardGainDb(v, guitar);
+        squares += heard * heard;
+        if (std::abs(heard) > std::abs(worst))
+        {
+            worst = heard;
+            worstAt = v;
+        }
+    }
+    const double rms = std::sqrt(squares / static_cast<double>(voicings.size()));
+    std::cout << "Heard level against a guitar at the nominal level over " << voicings.size() << " settings: " << rms
+              << " dB RMS, worst " << worst << " dB (voice " << worstAt.voice << ", " << worstAt.stages
+              << " stages, gain " << worstAt.gain << ", Character " << worstAt.character << ", Power Drive "
+              << worstAt.powerDrive << ", Bias " << worstAt.bias << ")\n";
+    // The corners (full Power Drive and Bias on the soft knee) sit near 1 dB.
+    Check(rms < 0.5 && std::abs(worst) < 1.5,
+          "a guitar at the nominal level comes out at that level, whatever the controls say");
+}
+
+// Power Drive is level-compensated, but it still has to be a distortion control.
+void TestPowerDriveAddsDistortion()
+{
     const double none = Thd(RenderVoicing({0.45, 0.0, 0.5, 2, 0.0}, Signal::Sine, 0.10, 48000), 220.0, 48000.0);
     const double full = Thd(RenderVoicing({0.45, 0.0, 0.5, 2, 1.0}, Signal::Sine, 0.10, 48000), 220.0, 48000.0);
     std::cout << "Clean voice THD at Power Drive 0 and 1: " << 100.0 * none << "%, " << 100.0 * full << "%\n";
@@ -211,7 +208,8 @@ void TestCharacterRange()
 // loud notes are squeezed more than soft ones: more harmonics and less dynamic
 // range, not just less level. It once scaled the signal and the ceiling
 // together, which left the clipping exactly where it was: the same spectrum at
-// every setting, only quieter.
+// every setting, only quieter. The level it costs is made up at the nominal
+// level (TestLevelHoldsAtNominal); these quieter tones only have to stay close.
 void TestSagLowersPowerCeiling()
 {
     for (const double voice : {0.0, 1.0})
@@ -232,7 +230,7 @@ void TestSagLowersPowerCeiling()
                   << " dB, heard level " << -levelDrop << " dB\n";
         Check(saggingThd > steadyThd * 1.08, "sag clips the power stage harder, not just more quietly");
         Check(saggingSpan < steadySpan - 0.6, "sag squeezes loud playing more than soft");
-        Check(levelDrop < 3.0, "full sag costs under 3 dB: a feel control, not a volume control");
+        Check(std::abs(levelDrop) < 2.0, "full sag is a feel control, not a volume control");
     }
 
     // With no Power Drive nothing clips there, so there is no ceiling to pull down.
@@ -391,6 +389,62 @@ void TestVoiceIsASwitch()
     Check(low && amp.GetParam("voice") == 1.0, "Voice lands on Clean or Drive, never between");
     Check(RenderVoicing({0.45, 0.7}, Signal::Sine) == RenderVoicing({0.45, 1.0}, Signal::Sine),
           "a Voice between the two sounds exactly like the nearer channel");
+}
+
+// The amp is voiced for a guitar at -18 dBFS. With the nominal operating level
+// set somewhere else, a guitar there has to drive it exactly as hard, and come
+// out at that level: the same output, 6 dB up.
+void TestNominalLevelIsFollowed()
+{
+    const Voicing v{0.6, 1.0, 0.5, 3, 0.5};
+    const auto atDefault = RenderVoicing(v, Signal::PowerChord);
+    guitarfx::SetNominalOperatingLevelDbfs(-12.0);
+    const double up = guitarfx::DbToLinearGain(6.0);
+    const auto raised = RenderVoicing(v, Signal::PowerChord, 0.10 * up);
+    guitarfx::SetNominalOperatingLevelDbfs(guitarfx::kDefaultNominalOperatingLevelDbfs);
+
+    double worst = 0.0, peak = 0.0;
+    for (std::size_t i = 0; i < raised.size(); ++i)
+    {
+        worst = std::max(worst, std::abs(raised[i] - up * atDefault[i]));
+        peak = std::max(peak, std::abs(up * atDefault[i]));
+    }
+    std::cout << "Nominal level at -12 dBFS: worst difference from the -18 dBFS render, 6 dB up, " << worst / peak
+              << " of its peak\n";
+    Check(worst < 1.0e-4 * peak, "a guitar at the nominal level drives the amp the same, wherever that level is");
+}
+
+// A NaN gain once survived the range clamp and indexed the level table with it,
+// which crashed the audio thread in a build with strict floating point. Every
+// control has to ignore a value that is not a number.
+void TestNonFiniteValuesIgnored()
+{
+    // Made at run time: clang's -ffast-math (the Android build's) folds a NaN or
+    // infinity constant away before it reaches the amp.
+    volatile std::uint64_t nanBits = 0x7ff8000000000000ull, infinityBits = 0x7ff0000000000000ull;
+    const auto nan = std::bit_cast<double>(static_cast<std::uint64_t>(nanBits));
+    const auto infinity = std::bit_cast<double>(static_cast<std::uint64_t>(infinityBits));
+    bool kept = true, finite = true;
+    for (const auto& spec : guitarfx::builtin_amp::kParams)
+    {
+        for (const double value : {nan, infinity, -infinity})
+        {
+            guitarfx::BuiltinAmpEffect amp;
+            amp.Prepare(48000.0, 64);
+            const double before = amp.GetParam(spec.id);
+            amp.SetParam(spec.id, value);
+            kept = kept && amp.GetParam(spec.id) == before;
+
+            std::vector<float> block(64, 0.05f), out(64);
+            for (int b = 0; b < 8; ++b)
+            {
+                amp.ProcessMono(block.data(), out.data(), 64);
+                finite = finite && std::all_of(out.begin(), out.end(), [](float y) { return guitarfx::IsFinite(y); });
+            }
+        }
+    }
+    Check(kept, "a control ignores NaN and infinity");
+    Check(finite, "the output stays finite after a non-finite control value");
 }
 
 // The executor runs the amp on one channel whenever the guitar signal is mono,
@@ -572,116 +626,152 @@ void TestAliasing()
 }
 } // namespace
 
-// Prints kHeardLevelDb for BuiltinAmpVoicing.h. The table has to describe the
-// amp's own voicing, so measure it with the makeup taken back out: each cell
-// is the heard level divided by the makeup the amp applied there.
-void MeasureLevelTable()
+// Prints kHeardGainDb for BuiltinAmpVoicing.h, measured with the makeup taken
+// back out, since the table has to describe the amp's own voicing.
+void MeasureLevelTable(const std::vector<std::vector<float>>& guitar)
 {
-    std::cout << "inline constexpr float kHeardLevelDb[2][kMaxStages][5] = {\n";
-    for (int voice = 0; voice <= 1; ++voice)
+    constexpr int kCells = 2 * 4 * 5 * 5;
+    std::vector<double> cells(kCells);
+    ParallelFor(kCells, [&](int cell) {
+        const int voice = cell / 100, stages = cell / 25 % 4 + 1, row = cell / 5 % 5, column = cell % 5;
+        cells[cell] = RawGainDb({column * 0.25, static_cast<double>(voice), row * 0.25, stages}, guitar);
+    });
+
+    // Laid out as clang-format leaves it, so it pastes in as it is.
+    const std::string declaration = "inline constexpr float kHeardGainDb[2][kMaxStages][5][5] = ";
+    std::cout << std::fixed << std::setprecision(2);
+    for (int cell = 0; cell < kCells; ++cell)
     {
-        std::cout << "        {";
-        for (int stages = 1; stages <= 4; ++stages)
+        if (cell % 5 == 0)
         {
-            std::cout << (stages == 1 ? "{" : "         {");
-            for (int step = 0; step <= 4; ++step)
-            {
-                const double gain = step * 0.25;
-                double sum = 0.0;
-                const float makeupDb =
-                    guitarfx::builtin_amp::LevelMakeupDb(static_cast<float>(gain), static_cast<float>(voice), stages);
-                for (const double character : {0.0, 0.25, 0.5, 0.75, 1.0})
-                {
-                    sum += HeardLevel({gain, static_cast<double>(voice), character, stages}) - makeupDb;
-                }
-                std::cout << std::fixed << std::setprecision(2) << sum / 5.0 << "f" << (step < 4 ? ", " : "");
-            }
-            std::cout << (stages < 4 ? "},\n" : (voice == 0 ? "}},\n" : "}}};\n"));
+            const std::size_t opened = cell % 100 == 0 ? 3 : cell % 25 == 0 ? 2 : 1;
+            std::cout << (cell == 0 ? declaration + "{" : std::string(declaration.size() + 4 - opened, ' '))
+                      << std::string(opened, '{');
+        }
+        std::cout << cells[cell] << "f" << (cell % 5 < 4 ? ", " : "}");
+        if (cell % 5 == 4)
+        {
+            std::cout << (cell % 25 != 24      ? ",\n"
+                          : cell % 100 != 99   ? "},\n"
+                          : cell != kCells - 1 ? "}},\n"
+                                               : "}}};\n");
         }
     }
 }
 
-// Prints a re-fitted kPowerStageSineDb for BuiltinAmpVoicing.h, after the
-// table, which it reads. Each point is the heard level Power Drive adds with
-// its makeup taken back out, which is what the power stage itself added.
-void FitPowerStageSine()
+// Prints a re-fitted kPowerFeedDb and kPowerFeedSlope for BuiltinAmpVoicing.h,
+// after the table, which they read. Each point is the heard level Power Drive
+// and Sag add with their makeup taken back out: what the power stage added.
+void FitPowerFeed(const std::vector<std::vector<float>>& guitar)
 {
     using namespace guitarfx::builtin_amp;
-    struct Point
-    {
-        Clippers clippers;
-        float drive, levelDb;
-        double addedDb;
-    };
-    std::vector<Point> points;
+    std::vector<Voicing> voicings;
     for (const double voice : {0.0, 1.0})
     {
         for (const int stages : {1, 2, 4})
         {
             for (const double gain : {0.0, 0.5, 1.0})
             {
-                const float clean = HeardLevelDb(0, stages, static_cast<float>(gain));
-                const float levelDb = clean + static_cast<float>(voice) *
-                                                  (HeardLevelDb(1, stages, static_cast<float>(gain)) - clean);
                 for (const double character : {0.0, 0.5, 1.0})
                 {
-                    const double none = HeardLevel({gain, voice, character, stages, 0.0});
-                    for (const float drive : {0.5f, 1.0f})
+                    voicings.push_back({gain, voice, character, stages});
+                    for (const double drive : {0.5, 1.0})
                     {
-                        Point point{{}, drive, levelDb, 0.0};
-                        point.clippers.SetCharacter(static_cast<float>(character));
-                        point.clippers.SetPowerStage(drive, 0.0f);
-                        point.addedDb = HeardLevel({gain, voice, character, stages, drive}) - none +
-                                        PowerStageGainDb(point.clippers, drive, levelDb);
-                        points.push_back(point);
+                        for (const double bias : {-1.0, 0.0, 1.0})
+                        {
+                            voicings.push_back({gain, voice, character, stages, drive, 0.0, bias});
+                        }
+                        voicings.push_back({gain, voice, character, stages, drive, 1.0});
                     }
                 }
             }
         }
     }
+    std::vector<double> raw(voicings.size());
+    ParallelFor(static_cast<int>(voicings.size()), [&](int i) { raw[i] = RawGainDb(voicings[i], guitar); });
 
-    float best = 0.0f;
-    double bestRms = 1.0e9, bestWorst = 0.0;
-    for (int tenths = 0; tenths <= 80; ++tenths)
+    struct Point
     {
-        const float shift = 0.1f * static_cast<float>(tenths) - kPowerStageSineDb;
-        double squares = 0.0, worst = 0.0;
-        for (const Point& point : points)
+        Clippers clippers;
+        float drive, sag, preampDb;
+        double addedDb;
+    };
+
+    std::vector<Point> points;
+    double undriven = 0.0;
+    for (std::size_t i = 0; i < voicings.size(); ++i)
+    {
+        const Voicing& v = voicings[i];
+        if (v.powerDrive == 0.0)
         {
-            const double error = PowerStageGainDb(point.clippers, point.drive, point.levelDb + shift) - point.addedDb;
-            squares += error * error;
-            worst = std::max(worst, std::abs(error));
+            undriven = raw[i];
+            continue;
         }
-        if (std::sqrt(squares / static_cast<double>(points.size())) < bestRms)
+        Point point{{}, static_cast<float>(v.powerDrive), static_cast<float>(v.sag), 0.0f, raw[i] - undriven};
+        point.preampDb = PreampGainDb(static_cast<float>(v.gain), static_cast<float>(v.voice),
+                                      static_cast<float>(v.character), v.stages);
+        point.clippers.SetCharacter(static_cast<float>(v.character));
+        point.clippers.SetPowerStage(point.drive, static_cast<float>(v.bias));
+        points.push_back(point);
+    }
+
+    float bestFeed = 0.0f, bestSlope = 0.0f;
+    double bestRms = 1.0e9, bestWorst = 0.0;
+    for (int feed = -200; feed <= 0; ++feed)
+    {
+        for (int slope = 40; slope <= 100; ++slope)
         {
-            best = 0.1f * static_cast<float>(tenths);
-            bestRms = std::sqrt(squares / static_cast<double>(points.size()));
-            bestWorst = worst;
+            double squares = 0.0, worst = 0.0;
+            for (const Point& point : points)
+            {
+                const float sinePeakDb =
+                    0.1f * static_cast<float>(feed) + 0.01f * static_cast<float>(slope) * point.preampDb;
+                const double error =
+                    PowerStageGainDb(point.clippers, point.drive, point.sag, sinePeakDb) - point.addedDb;
+                squares += error * error;
+                worst = std::max(worst, std::abs(error));
+            }
+            if (std::sqrt(squares / static_cast<double>(points.size())) < bestRms)
+            {
+                bestRms = std::sqrt(squares / static_cast<double>(points.size()));
+                bestWorst = worst;
+                bestFeed = 0.1f * static_cast<float>(feed);
+                bestSlope = 0.01f * static_cast<float>(slope);
+            }
         }
     }
-    std::cout << std::fixed << std::setprecision(1) << "inline constexpr float kPowerStageSineDb = " << best
-              << "f; // " << std::setprecision(2) << bestRms << " dB RMS, " << bestWorst << " dB at worst\n";
+    std::cout << std::fixed << std::setprecision(2) << "inline constexpr float kPowerFeedDb = " << bestFeed
+              << "f;\ninline constexpr float kPowerFeedSlope = " << bestSlope << "f; // " << bestRms << " dB RMS, "
+              << bestWorst << " dB at worst\n";
 }
 
 int main(int argc, char** argv)
 {
     if (argc > 1 && std::string(argv[1]) == "--measure-levels")
     {
-        MeasureLevelTable();
-        FitPowerStageSine();
+        const auto guitar = MeasuringGuitar();
+        if (std::any_of(guitar.begin(), guitar.end(), [](const auto& take) { return take.empty(); }))
+        {
+            std::cerr << "The demo guitar did not load from " << GUITARFX_DEMO_AUDIO_DIR << '\n';
+            return 1;
+        }
+        MeasureLevelTable(guitar);
+        FitPowerFeed(guitar);
         return 0;
     }
 
     TestHalfbandLatency();
     TestGainRange();
-    TestLevelTracksGain();
-    TestPowerDriveTracksLevel();
+    TestLevelHoldsAtNominal();
+    TestPowerDriveAddsDistortion();
     TestCharacterRange();
     TestSagLowersPowerCeiling();
     TestCharacterSweepIsSmooth();
     TestStageChangeIsSmooth();
     TestReturningStageStartsFresh();
     TestVoiceIsASwitch();
+    TestNominalLevelIsFollowed();
+    TestNonFiniteValuesIgnored();
     TestMonoPath();
     TestDynamicsAndBlocks();
     TestAliasing();

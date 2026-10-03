@@ -4,6 +4,7 @@
 #include "dsp/EffectProcessor.h"
 #include "dsp/EffectRegistry.h"
 #include "dsp/EffectGuids.h"
+#include "dsp/FiniteCheck.h"
 #include "dsp/effects/BuiltinAmpFilters.h"
 #include "dsp/effects/BuiltinAmpOversampling.h"
 #include "dsp/effects/BuiltinAmpPresets.h"
@@ -80,12 +81,13 @@ class BuiltinAmpEffect : public EffectProcessor
 
         mVoiceSmoothed = mVoice;
         mGainSmoothed = mGain;
-        mStageGainSmoothed = mStageGainLinear;
+        mNominal.Follow();
+        mStageGainSmoothed = mStageGainLinear * mNominal.inputGain;
         mPowerDriveSmoothed = mPowerDrive;
         mSagSmoothed = mSag;
         mBiasSmoothed = mBias;
         mCharacterSmoothed = mCharacter;
-        mOutputGainSmoothed = mOutputGainTarget;
+        mOutputGainSmoothed = mOutputGainTarget / mNominal.inputGain;
         mPowerMakeupSmoothed = mPowerMakeupTarget;
         AdvanceFilters(1.0);
         mStageFades.Settle(std::clamp(mStageCount, 1, kMaxStages));
@@ -141,7 +143,8 @@ class BuiltinAmpEffect : public EffectProcessor
 
         const std::size_t index = FindParam(key);
 
-        if (index == kParamCount)
+        // A NaN survives the clamp below, and as a gain it would index the level table with it.
+        if (index == kParamCount || !IsFinite(value))
         {
             return;
         }
@@ -231,9 +234,9 @@ class BuiltinAmpEffect : public EffectProcessor
 
         // What feeds the power stage and how it clips: worked out per change, then glided.
         if (index == kVoice || index == kGain || index == kCharacter || index == kStageCount || index == kPowerDrive ||
-            index == kBias)
+            index == kBias || index == kSag)
         {
-            mPowerMakeupTarget = PowerDriveMakeup(mGain, mVoice, mStageCount, mCharacter, mPowerDrive, mBias);
+            mPowerMakeupTarget = PowerDriveMakeup(mGain, mVoice, mStageCount, mCharacter, mPowerDrive, mBias, mSag);
         }
     }
 
@@ -350,8 +353,12 @@ class BuiltinAmpEffect : public EffectProcessor
     // so a mono block and a stereo block leave them in the same place.
     template <int Channels> void Render(const float* const* inputs, float* const* outputs, int numSamples)
     {
+        using builtin_amp::Glide;
         const int stageCount = std::clamp(mStageCount, 1, kMaxStages);
         const float smoothStep = 1.0f - mControlSmoothCoef;
+        mNominal.Follow();
+        const float inputTarget = mStageGainLinear * mNominal.inputGain;
+        const float outputTarget = mOutputGainTarget / mNominal.inputGain;
 
         for (int i = 0; i < numSamples; ++i)
         {
@@ -391,12 +398,12 @@ class BuiltinAmpEffect : public EffectProcessor
             // sample.
             Glide(mVoiceSmoothed, mVoice, smoothStep);
             Glide(mGainSmoothed, mGain, smoothStep);
-            mStageGainSmoothed += smoothStep * (mStageGainLinear - mStageGainSmoothed);
+            mStageGainSmoothed += smoothStep * (inputTarget - mStageGainSmoothed);
             Glide(mPowerDriveSmoothed, mPowerDrive, smoothStep);
             mSagSmoothed += smoothStep * (mSag - mSagSmoothed);
             Glide(mBiasSmoothed, mBias, smoothStep);
             Glide(mCharacterSmoothed, mCharacter, smoothStep);
-            mOutputGainSmoothed += smoothStep * (mOutputGainTarget - mOutputGainSmoothed);
+            mOutputGainSmoothed += smoothStep * (outputTarget - mOutputGainSmoothed);
             Glide(mPowerMakeupSmoothed, mPowerMakeupTarget, smoothStep);
             AdvanceFilters(1.0 - mFilterSmoothCoef);
             UpdateVoicing(mStageFades.Advance(stageCount, mStageFilters));
@@ -459,26 +466,14 @@ class BuiltinAmpEffect : public EffectProcessor
             mClippers.SetPowerStage(mPowerDriveSmoothed, mBiasSmoothed);
         }
 
-        if (mVoicingStale || stagesMoved || mGainSmoothed != mVoicedGain || mVoiceSmoothed != mVoicedVoice)
+        if (kneeMoved || stagesMoved || mGainSmoothed != mVoicedGain || mVoiceSmoothed != mVoicedVoice)
         {
             mVoicedGain = mGainSmoothed;
             mVoicedVoice = mVoiceSmoothed;
-            mLevelMakeup = mStageFades.Makeup(mGainSmoothed, mVoiceSmoothed);
+            mLevelMakeup = mStageFades.Makeup(mGainSmoothed, mVoiceSmoothed, mCharacterSmoothed);
         }
 
         mVoicingStale = false;
-    }
-
-    // A one-pole glide that lands exactly on its target instead of creeping
-    // towards it forever, so the voicing cache can tell when a control stops.
-    static void Glide(float& value, float target, float step)
-    {
-        value += step * (target - value);
-
-        if (std::abs(target - value) < 1.0e-6f)
-        {
-            value = target;
-        }
     }
 
     float ProcessAmpSample(float sample, int ch)
@@ -538,12 +533,13 @@ class BuiltinAmpEffect : public EffectProcessor
         // pulls the stage's ceiling down to `headroom`, and the knee meets the
         // signal against that lower ceiling, so loud playing clips harder and
         // is squeezed the most. It acts only on the clipped share of the
-        // stage, so with no Power Drive it changes nothing.
+        // stage, so with no Power Drive it changes nothing. The level it
+        // costs at the nominal level is made up (PowerDriveMakeup).
         const float powerInput = static_cast<float>(signal);
         const float detector = std::abs(powerInput);
         const float sagCoefficient = detector > mSagEnv[ch] ? mSagAttackCoef : mSagReleaseCoef;
         mSagEnv[ch] = sagCoefficient * mSagEnv[ch] + (1.0f - sagCoefficient) * detector;
-        const float headroom = 1.0f / (1.0f + 0.6f * mSagSmoothed * mSagEnv[ch]);
+        const float headroom = builtin_amp::SagHeadroom(mSagSmoothed, mSagEnv[ch]);
 
         const float driveAmount = mPowerDriveSmoothed;
         const float clipped = mClippers.PowerClip(powerInput, headroom);
@@ -729,6 +725,7 @@ class BuiltinAmpEffect : public EffectProcessor
     std::array<BuiltinAmpHalfband2x, 2> mUpFirst = {}, mDownFirst = {}, mUpSecond = {}, mDownSecond = {};
     std::array<builtin_amp::StageFilter, kMaxStages> mStageFilters = {};
     builtin_amp::StageFades mStageFades;
+    builtin_amp::NominalLevel mNominal;
     std::array<builtin_amp::GlidingBiquad, kFilterCount> mFilters = {};
 
     float mVoice = 0.0f;
