@@ -2,7 +2,7 @@
 <installer-gui-script minSpecVersion="2">
     <title>${PRODUCT_NAME}</title>
     <allowed-os-versions>
-        <os-version min="10.13" />
+        <os-version min="11.0" />
     </allowed-os-versions>
     <license file="EULA" />
     <readme file="README" />

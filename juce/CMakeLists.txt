@@ -90,6 +90,16 @@ if(APPLE)
 ]=])
 endif()
 
+# Oldest macOS the build runs on. Left unset, the compiler targets the SDK on the
+# build machine, so moving CI to a newer runner silently drops older macOS.
+# 11.0 is the floor anyway for Apple Silicon, and the UI's color-mix() and CSS
+# nesting need the WebKit from Safari 16.5, which Big Sur gets and Catalina doesn't.
+# Must be set before project(); a value set on the command line or in the
+# environment still wins. Keep juce/packaging/distribution.xml.template in step.
+if(NOT CMAKE_OSX_DEPLOYMENT_TARGET AND NOT DEFINED ENV{MACOSX_DEPLOYMENT_TARGET})
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version" FORCE)
+endif()
+
 # For simplicity, the name of the CMake project is also the name of the target
 project(${PROJECT_NAME} VERSION ${CURRENT_VERSION})
 

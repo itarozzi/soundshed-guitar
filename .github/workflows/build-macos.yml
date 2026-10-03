@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   build:
-    runs-on: macos-14
+    runs-on: macos-15
 
     env:
       # Empty, so the R2 steps are skipped, unless upload_to_r2 is ticked.
