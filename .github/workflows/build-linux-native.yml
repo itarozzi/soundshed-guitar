@@ -28,7 +28,7 @@ jobs:
       matrix:
         include:
           - arch: x64
-            runner: ubuntu-24-04
+            runner: ubuntu-24.04
           - arch: arm64
             runner: ubuntu-24.04-arm
 
@@ -85,7 +85,9 @@ jobs:
       - name: Report glibc baseline
         run: |
           set -euo pipefail
-          ldd --version | head -n1
+          # sed, not head: head stops reading after one line, and ldd's SIGPIPE
+          # then fails the step under pipefail.
+          ldd --version | sed -n 1p
 
       - name: Build Linux distribution
         run: |
