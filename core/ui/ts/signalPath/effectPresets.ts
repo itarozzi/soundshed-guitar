@@ -46,10 +46,12 @@ export function getFactoryPackEffectPresets(node: GraphNode): StoredEffectPreset
 /**
  * Apply a preset's parameters to a node.
  *
- * `order` comes from a factory preset's parameterOrder and matters where one
- * parameter constrains another — Graphic EQ's bandCount has to land before the
- * per-band values it bounds. Keys the effect no longer declares are skipped, so
- * a snapshot saved before a parameter was renamed cannot inject dead keys.
+ * `order` is a factory preset's parameterOrder: the keys it names go first, in
+ * that order, then the rest, as Nano's UiCommands::ApplyEffectPreset sends them.
+ * The Graphic EQ does not depend on it: its band frequencies no longer clamp
+ * against their neighbours, and bandCount bounds no band value. Keys the effect
+ * no longer declares are skipped, so a snapshot saved before a parameter was
+ * renamed cannot inject dead keys.
  */
 export function applyEffectPresetParams(
   node: GraphNode,
