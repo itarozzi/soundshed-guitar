@@ -27,6 +27,25 @@ on:
         required: false
         default: false
         type: boolean
+  # Called by build-all.yml. A called workflow cannot take a choice input, so
+  # these are strings, with the same values as the choices above.
+  workflow_call:
+    inputs:
+      target_arch:
+        description: "x64, arm64, or both"
+        required: false
+        default: "both"
+        type: string
+      avx_variant:
+        description: "avx2, avx, noavx, or all"
+        required: false
+        default: "avx2"
+        type: string
+      upload_to_r2:
+        description: "Also upload the build to Cloudflare R2"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -57,10 +76,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Resolves to ["x64"], ["arm64"], or ["x64","arm64"] based on the target_arch input (default: both)
-        arch: ${{ github.event.inputs.target_arch == 'x64' && fromJSON('["x64"]') || github.event.inputs.target_arch == 'arm64' && fromJSON('["arm64"]') || fromJSON('["x64","arm64"]') }}
+        # Resolves to ["x64"], ["arm64"], or ["x64","arm64"] based on the target_arch input (default: both).
+        # inputs, not github.event.inputs: when called, the event is the caller's, with the caller's inputs.
+        arch: ${{ inputs.target_arch == 'x64' && fromJSON('["x64"]') || inputs.target_arch == 'arm64' && fromJSON('["arm64"]') || fromJSON('["x64","arm64"]') }}
         # Resolves to a single tier, or all three, based on the avx_variant input (default: avx2)
-        avx: ${{ github.event.inputs.avx_variant == 'avx' && fromJSON('["avx"]') || github.event.inputs.avx_variant == 'noavx' && fromJSON('["noavx"]') || github.event.inputs.avx_variant == 'all' && fromJSON('["avx2","avx","noavx"]') || fromJSON('["avx2"]') }}
+        avx: ${{ inputs.avx_variant == 'avx' && fromJSON('["avx"]') || inputs.avx_variant == 'noavx' && fromJSON('["noavx"]') || inputs.avx_variant == 'all' && fromJSON('["avx2","avx","noavx"]') || fromJSON('["avx2"]') }}
         exclude:
           # The x86-64 SIMD baseline never applies to arm64, which picks its own
           # /arch:armv8.x, so these would be duplicates of the standard build.

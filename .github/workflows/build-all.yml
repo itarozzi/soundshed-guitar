@@ -1,0 +1,101 @@
+name: Build All Platforms
+
+# Runs every platform build from one commit in one run, by calling each platform's
+# own workflow. Those workflows still run on their own as before; each also has a
+# workflow_call trigger for this. The platforms build in parallel, and one failing
+# does not stop the others.
+#
+# Everything here belongs to this run, including the artifacts. publish-release.yml
+# looks for artifacts only in the individual build workflows' runs, so it does not
+# see builds made here.
+
+on:
+  workflow_dispatch:
+    inputs:
+      windows:
+        description: "Build Windows"
+        required: false
+        default: true
+        type: boolean
+      macos:
+        description: "Build macOS"
+        required: false
+        default: true
+        type: boolean
+      linux:
+        description: "Build Linux (ubuntu:20.04 container, glibc 2.31)"
+        required: false
+        default: true
+        type: boolean
+      linux_native:
+        description: "Build Linux (native runner, newer glibc)"
+        required: false
+        default: true
+        type: boolean
+      windows_target_arch:
+        description: "Windows architecture to build (x64, arm64, or both)"
+        required: false
+        default: "both"
+        type: choice
+        options:
+          - both
+          - x64
+          - arm64
+      windows_avx_variant:
+        description: "Windows x64 SIMD baseline: avx2 (standard), avx, noavx, or all"
+        required: false
+        default: "avx2"
+        type: choice
+        options:
+          - avx2
+          - avx
+          - noavx
+          - all
+      upload_to_r2:
+        description: "Also upload the builds to Cloudflare R2"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: Windows
+    if: ${{ inputs.windows }}
+    uses: ./.github/workflows/build-windows.yml
+    # The Windows workflow signs through Google Cloud workload identity, which
+    # needs an OIDC token, and a called workflow gets only what its caller grants.
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      target_arch: ${{ inputs.windows_target_arch }}
+      avx_variant: ${{ inputs.windows_avx_variant }}
+      upload_to_r2: ${{ inputs.upload_to_r2 }}
+    secrets: inherit
+
+  macos:
+    name: macOS
+    if: ${{ inputs.macos }}
+    uses: ./.github/workflows/build-macos.yml
+    with:
+      upload_to_r2: ${{ inputs.upload_to_r2 }}
+    secrets: inherit
+
+  linux:
+    name: Linux
+    if: ${{ inputs.linux }}
+    uses: ./.github/workflows/build-linux.yml
+    with:
+      upload_to_r2: ${{ inputs.upload_to_r2 }}
+    secrets: inherit
+
+  linux-native:
+    name: Linux (native)
+    if: ${{ inputs.linux_native }}
+    uses: ./.github/workflows/build-linux-native.yml
+    with:
+      upload_to_r2: ${{ inputs.upload_to_r2 }}
+    secrets: inherit

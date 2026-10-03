@@ -14,6 +14,14 @@ on:
         required: false
         default: false
         type: boolean
+  # Called by build-all.yml.
+  workflow_call:
+    inputs:
+      upload_to_r2:
+        description: "Also upload the build to Cloudflare R2"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
