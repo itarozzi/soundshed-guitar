@@ -4,6 +4,7 @@
 #include "dsp/EffectRegistry.h"
 #include "dsp/EffectGuids.h"
 #include "dsp/PitchTracker.h"
+#include "dsp/effects/PitchPresets.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -691,6 +692,7 @@ inline void RegisterSynthSawEffect()
          1.0,
          {"Saw", "Square", "Triangle", "Sine"}},
         {"voice2PulseWidth", "V2 Pulse Width", 0.5, 0.1, 0.9, "amount", "voice2"}};
+    info.presets = pitch_presets::SynthVoice(info.parameters);
 
     EffectRegistry::Instance().Register(info.type, info, []() { return std::make_unique<SynthSawEffect>(); });
 }

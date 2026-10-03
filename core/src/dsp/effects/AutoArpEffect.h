@@ -4,6 +4,7 @@
 #include "dsp/EffectRegistry.h"
 #include "dsp/EffectGuids.h"
 #include "dsp/PitchTracker.h"
+#include "dsp/effects/PitchPresets.h"
 #include "dsp/effects/SignalsmithSupport.h"
 #include "signalsmith-stretch.h"
 #include <algorithm>
@@ -766,6 +767,7 @@ inline void RegisterAutoArpEffect()
         // Mix
         {"mix", "Mix", 0.8, 0.0, 1.0, "", "", false, 0.0, {}},
     };
+    info.presets = pitch_presets::AutoArp(info.parameters);
 
     EffectRegistry::Instance().Register(info.type, info, []() { return std::make_unique<AutoArpEffect>(); });
 }

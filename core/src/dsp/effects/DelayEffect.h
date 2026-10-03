@@ -3,6 +3,7 @@
 #include "dsp/EffectProcessor.h"
 #include "dsp/EffectRegistry.h"
 #include "dsp/EffectGuids.h"
+#include "dsp/effects/FactoryPresetSupport.h"
 #include "dsp/effects/TempoSync.h"
 #include <algorithm>
 #include <cmath>
@@ -452,6 +453,69 @@ class DelayEffect : public EffectProcessor
     float mEnvelopeR = 0.0f;
 };
 
+namespace digital_delay
+{
+/// Division is left out of a preset with Sync off, so the player's own survives; Dotted Eighth
+/// names its division, and its Time is the same at 120 bpm, so turning Sync off keeps the
+/// feel. Every advanced control is set too: hidden, a stale value would be heard and not seen.
+/// Keep ids stable once shipped; the UIs list them.
+[[nodiscard]] inline std::vector<EffectPresetDefinition> FactoryPresets(const std::vector<ParameterDef>& params)
+{
+    const factory_presets::Builder b(params, {"syncDivision"});
+
+    return {
+        b.Defaults("dd3", "DD-3"),
+        b.Make("slapback", "Slapback",
+               {{"time", 100.0}, {"feedback", 0.1}, {"mix", 0.35}, {"highCut", 6000.0}, {"lowCut", 100.0}}),
+        b.Make("dotted-eighth", "Dotted Eighth",
+               {{"time", 375.0},
+                {"syncMode", 1.0},
+                {"syncDivision", 8.0},
+                {"feedback", 0.35},
+                {"mix", 0.4},
+                {"highCut", 7000.0},
+                {"lowCut", 150.0}}),
+        b.Make("ping-pong", "Ping-Pong",
+               {{"time", 400.0},
+                {"feedback", 0.45},
+                {"mix", 0.35},
+                {"highCut", 6000.0},
+                {"lowCut", 120.0},
+                {"stereoMode", 1.0}}),
+        // The echoes stay back while you play and bloom in the gaps.
+        b.Make("ducked-lead", "Ducked Lead",
+               {{"time", 450.0},
+                {"feedback", 0.45},
+                {"mix", 0.35},
+                {"highCut", 5500.0},
+                {"lowCut", 180.0},
+                {"spread", 12.0},
+                {"modRate", 0.6},
+                {"modDepth", 1.2},
+                {"ducking", 0.8}}),
+        b.Make("ambient-wash", "Ambient Wash",
+               {{"time", 650.0},
+                {"feedback", 0.65},
+                {"mix", 0.3},
+                {"highCut", 3500.0},
+                {"lowCut", 250.0},
+                {"spread", 30.0},
+                {"modRate", 0.35},
+                {"modDepth", 3.0},
+                {"ducking", 0.3}}),
+        b.Make("lo-fi-echo", "Lo-Fi Echo",
+               {{"time", 280.0},
+                {"feedback", 0.5},
+                {"mix", 0.3},
+                {"highCut", 2200.0},
+                {"lowCut", 500.0},
+                {"drive", 1.0},
+                {"modRate", 1.2},
+                {"modDepth", 0.4}}),
+    };
+}
+} // namespace digital_delay
+
 inline void RegisterDelayEffect()
 {
     EffectTypeInfo info;
@@ -476,6 +540,7 @@ inline void RegisterDelayEffect()
         {"modRate", "Mod Rate", 0.0, 0.0, 10.0, "Hz", "", true},
         {"modDepth", "Mod Depth", 0.0, 0.0, 20.0, "ms", "", true},
         {"ducking", "Ducking", 0.0, 0.0, 1.0, "amount", "", true}};
+    info.presets = digital_delay::FactoryPresets(info.parameters);
 
     EffectRegistry::Instance().Register(info.type, info, []() { return std::make_unique<DelayEffect>(); });
 }

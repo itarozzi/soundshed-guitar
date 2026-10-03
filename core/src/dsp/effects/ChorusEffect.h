@@ -3,6 +3,7 @@
 #include "dsp/EffectProcessor.h"
 #include "dsp/EffectRegistry.h"
 #include "dsp/EffectGuids.h"
+#include "dsp/effects/ModulationPresets.h"
 #include "dsp/effects/TempoSync.h"
 #include <atomic>
 #include <algorithm>
@@ -278,6 +279,7 @@ inline void RegisterChorusEffect()
         {"delay", "Delay", 15.0, 1.0, 30.0, "ms"},
         {"feedback", "Feedback", 0.1, 0.0, 0.95, "amount"},
         {"mix", "Mix", 0.3, 0.0, 1.0, "amount"}};
+    info.presets = modulation_presets::Chorus(info.parameters);
 
     EffectRegistry::Instance().Register(info.type, info, []() { return std::make_unique<ChorusEffect>(); });
 }

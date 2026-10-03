@@ -4,6 +4,7 @@
 #include "dsp/EffectRegistry.h"
 #include "dsp/EffectGuids.h"
 #include "dsp/FiniteCheck.h"
+#include "dsp/effects/DynamicsPresets.h"
 #include <algorithm>
 #include <atomic>
 #include <cmath>
@@ -480,6 +481,7 @@ inline void RegisterNoiseGateEffect()
     stereoLink.labels = {"Independent", "Linked"};
 
     info.parameters = {threshold, attack, hold, release, hysteresis, range, stereoLink};
+    info.presets = dynamics_presets::Gate(info.parameters);
 
     EffectRegistry::Instance().Register(info.type, info, []() { return std::make_unique<NoiseGateEffect>(); });
 }

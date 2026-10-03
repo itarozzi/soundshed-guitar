@@ -370,6 +370,8 @@ int main()
                 effect.SetParam("attack", 1.0);
                 effect.SetParam("release", 60.0);
                 effect.SetParam("mix", 1.0);
+                // Linked by default, as the gate is; this case is about the other mode.
+                effect.SetParam("stereoLink", 0.0);
                 return true;
             },
             resources, GenerateSine(220.0, 0.03), GenerateSilence(), GenerateSine(880.0, 0.85), 0.10, 5.0e-3, true, 3);
@@ -382,6 +384,7 @@ int main()
                 effect.SetParam("attack", 5.0);
                 effect.SetParam("release", 120.0);
                 effect.SetParam("mix", 1.0);
+                effect.SetParam("stereoLink", 0.0);
                 return true;
             },
             resources, GenerateSine(220.0, 0.03), GenerateSilence(), GenerateSine(880.0, 0.85), 0.12, 6.0e-3, true, 3);

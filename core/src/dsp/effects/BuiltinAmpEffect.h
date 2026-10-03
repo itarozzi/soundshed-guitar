@@ -6,6 +6,7 @@
 #include "dsp/EffectGuids.h"
 #include "dsp/effects/BuiltinAmpFilters.h"
 #include "dsp/effects/BuiltinAmpOversampling.h"
+#include "dsp/effects/BuiltinAmpPresets.h"
 #include "dsp/effects/BuiltinAmpVoicing.h"
 #include <algorithm>
 #include <array>
@@ -767,6 +768,7 @@ inline void RegisterBuiltinAmpEffect()
     info.description = "High-gain amp head for use with a separate cabinet or IR";
     info.requiresResource = false;
     info.parameters = BuildParameterDefs(builtin_amp::kParams);
+    info.presets = builtin_amp::FactoryPresets(info.parameters);
 
     EffectRegistry::Instance().Register(info.type, info, []() { return std::make_unique<BuiltinAmpEffect>(); });
 }

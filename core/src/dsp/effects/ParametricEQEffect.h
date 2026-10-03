@@ -11,6 +11,7 @@
 #include "dsp/EffectRegistry.h"
 #include "dsp/EffectGuids.h"
 #include "dsp/FiniteCheck.h"
+#include "dsp/effects/FactoryPresetSupport.h"
 #include <algorithm>
 #include <array>
 
@@ -603,6 +604,55 @@ class ParametricEQEffect : public EffectProcessor
     }};
 };
 
+namespace parametric_eq
+{
+/// Starting curves for the usual jobs: before an amp to shape what it distorts, or after it
+/// (and its cab) to clean up what it made. Every band is set, so no curve leaves another's
+/// bands behind. Keep ids stable once shipped; the UIs list them.
+[[nodiscard]] inline std::vector<EffectPresetDefinition> FactoryPresets(const std::vector<ParameterDef>& params)
+{
+    const factory_presets::Builder b(params, {});
+
+    return {
+        b.Defaults("flat", "Flat"),
+        b.Make("mud-cut", "Mud Cut", {{"lowMidGain", -4.0}, {"lowMidFreq", 300.0}, {"lowMidQ", 1.2}}),
+        b.Make("fizz-tamer", "Fizz Tamer",
+               {{"highMidGain", -4.0},
+                {"highMidFreq", 6000.0},
+                {"highMidQ", 2.0},
+                {"highGain", -5.0},
+                {"highFreq", 9000.0}}),
+        b.Make("mid-hump", "Mid Hump",
+               {{"lowGain", -3.0},
+                {"lowFreq", 120.0},
+                {"lowMidGain", 5.0},
+                {"lowMidFreq", 720.0},
+                {"lowMidQ", 0.8},
+                {"highGain", -2.0},
+                {"highFreq", 6000.0}}),
+        b.Make("scoop", "Scoop",
+               {{"lowGain", 2.0},
+                {"lowMidGain", -5.0},
+                {"lowMidFreq", 500.0},
+                {"lowMidQ", 0.7},
+                {"highGain", 2.0},
+                {"highFreq", 4000.0}}),
+        b.Make("presence-lift", "Presence Lift",
+               {{"highMidGain", 3.0}, {"highMidFreq", 3000.0}, {"highGain", 2.0}, {"highFreq", 8000.0}}),
+        b.Make("tight-low-end", "Tight Low End",
+               {{"lowGain", -6.0}, {"lowFreq", 150.0}, {"lowMidGain", 1.5}, {"lowMidFreq", 900.0}, {"lowMidQ", 0.8}}),
+        b.Make("glassy-clean", "Glassy Clean",
+               {{"lowMidGain", -2.0},
+                {"lowMidFreq", 250.0},
+                {"highMidGain", 2.0},
+                {"highMidFreq", 2500.0},
+                {"highMidQ", 0.8},
+                {"highGain", 4.0},
+                {"highFreq", 6000.0}}),
+    };
+}
+} // namespace parametric_eq
+
 inline void RegisterParametricEQEffect()
 {
     EffectTypeInfo info;
@@ -624,6 +674,7 @@ inline void RegisterParametricEQEffect()
                        {"highGain", "High Gain", 0.0, -12.0, 12.0, "dB", "High", false, 0.0, {}},
                        {"highFreq", "High Freq", 8000.0, 2000.0, 16000.0, "Hz", "High", false, 0.0, {}},
                        {"highQ", "High Q", 0.707, 0.1, 10.0, "amount", "High", false, 0.0, {}}};
+    info.presets = parametric_eq::FactoryPresets(info.parameters);
 
     EffectRegistry::Instance().Register(info.type, info, []() { return std::make_unique<ParametricEQEffect>(); });
 }

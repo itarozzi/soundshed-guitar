@@ -4,6 +4,7 @@
 #include "dsp/EffectRegistry.h"
 #include "dsp/EffectGuids.h"
 #include "dsp/FiniteCheck.h"
+#include "dsp/effects/ModulationPresets.h"
 #include "dsp/effects/TempoSync.h"
 #include <atomic>
 #include <algorithm>
@@ -363,6 +364,7 @@ inline void RegisterFlangerEffect()
         {"delay", "Delay", 1.0, 0.1, 5.0, "ms"},
         {"feedback", "Feedback", 0.2, 0.0, 0.85, "amount"},
         {"mix", "Mix", 0.5, 0.0, 1.0, "amount"}};
+    info.presets = modulation_presets::Flanger(info.parameters);
 
     EffectRegistry::Instance().Register(info.type, info, []() { return std::make_unique<FlangerEffect>(); });
 }

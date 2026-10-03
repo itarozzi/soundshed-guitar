@@ -91,6 +91,7 @@ All UUID constants are defined in `core/src/dsp/EffectGuids.h`. The table below 
 | `kOctave` | `2e4d5380-5a79-412f-bfc0-bf84ef74d561` | `octave` |
 | `kGain` | `0bcd895e-5d36-4247-a351-6bed1fcb37a8` | `gain` |
 | `kSynthSaw` | `608e846e-0e60-4064-9c83-37c0df573c38` | `synth_saw` |
+| `kAutoArp` | `e4a7c9d0-3b52-4f16-8a9e-2c7f1d0e5b83` | `arp_auto` |
 | `kGuitarToMidi` | `c2b0fdc1-ba9a-411c-8d19-4f6eeab86e33` | `guitar_to_midi` |
 | `kSplitter` | `f5f2541b-fcea-4cfd-9e62-eeddf583ef4e` | `splitter` |
 | `kMixer` | `d7d1e40f-9c79-4582-9a82-d5fa5bbbfb97` | `mixer` |
@@ -162,7 +163,10 @@ Every effect's Presets menu draws on three lists:
 
 - **The effect's own factory presets**, `EffectTypeInfo::presets` in the registry: parameter values
   only, so they can name no model, IR or blend. The one marked `isDefault`, or else the first,
-  seeds a new node.
+  seeds a new node. New lists are built with `factory_presets::Builder` (`FactoryPresetSupport.h`):
+  every declared default but the player's own controls, then the preset's changes, so choosing one
+  never leaves another's settings behind. `EffectFactoryPresetTests` holds each such list to that,
+  checks its default is the parameter defaults, and renders every preset on the demo DI.
 - **A factory archive's**: the `effectPresets` section of a bundled `.soundshed.presets`, in the
   shape of the user's store (effect type -> `[{id, name, parameters, resources?, config?}]`).
   These can choose the archive's own NAM models and IRs (`resources`) and blends
@@ -363,6 +367,34 @@ follow the per-instance NAM quality above.
 
 **Resource**: NAM model files (`.nam`), one per capture.
 
+### Heavy American (`amp_builtin`)
+A built-in high-gain amp head, for use with a cab or IR after it (`BuiltinAmpEffect.h`, voiced in
+`BuiltinAmpVoicing.h`). Up to four clip stages, two before the tone stack and two after, then a
+power stage.
+
+| Parameter | Range | Default | Notes |
+|---|---|---|---|
+| `voice` | Clean / Drive | Clean | Drive has its own level reference, 6-8 dB over Clean's |
+| `gain` | 0–1 | 0.45 | Level-compensated, so it is not a volume control |
+| `character` | 0–1 | 0.5 | Vintage (soft knee, even harmonics, loose) to modern (hard knee, tight) |
+| `bright` | off / on | off | +3 dB shelf at 2.5 kHz before the first stage |
+| `preEmphasis` | 0–1 | 0 | Up to +6 dB more on that shelf (advanced) |
+| `stageCount` | 1–4 | 2 | Clip stages; level-compensated, and switches at once |
+| `stageGain` | ±24 dB | 0 | Input Trim, before the first stage; not compensated |
+| `bass` / `middle` / `treble` | 0–1 | 0.5 | ±9 dB at 120 Hz, 750 Hz, 3.5 kHz |
+| `contour` | 0–1 | 0.2 | Up to -12 dB at 600 Hz |
+| `presence` | 0–1 | 0.5 | ±6 dB at 4 kHz |
+| `output` | ±24 dB | 0 | |
+| `powerDrive`, `sag`, `bias`, `depth`, `resonance`, `damping` | | | The power section (advanced) |
+
+**Factory presets** (`BuiltinAmpPresets.h`) set every control, Output and the hidden power
+section included. Output is the exception to the rule the other effects keep: an amp preset is a
+whole channel, and the Drive voice's presets would otherwise come out 3.5-7.5 dB over the
+default. With it, each lands within about 1.3 dB of the default on the demo DI, as recorded or at
+the nominal level. Clean Channel (default), Edge of Breakup, Classic Crunch (the Clean voice nearly
+dimed), Tight Modern Rhythm, Tight Djent (hard knee, four stages), Scooped Thrash, Vintage High
+Gain (soft knee, sag and bias) and Singing Lead (four stages, mids forward, compressed by sag).
+
 ### IR Cabinet (`cab_ir`)
 Impulse response convolution for cabinet simulation.
 
@@ -469,6 +501,19 @@ stops a decaying note chattering it open and shut. `range` is the attenuation wh
 than a full mute. `stereoLink` keys one detector off the louder channel so a stereo signal cannot
 half-close; turning it off gates each channel on its own level.
 
+**Factory presets** (`DynamicsPresets.h`) set how the gate opens and closes, and leave out
+`threshold` and `stereoLink`: the threshold belongs to the player's pickups and how much noise
+their rig makes, and choosing how a gate closes should not move where it closes.
+
+| Preset | Attack / Hold / Release | Hysteresis | Range |
+|---|---|---|---|
+| Standard Gate (default) | 1 / 50 / 50 ms | 4 dB | -80 dB |
+| Soft Reduction | 2 / 100 / 200 ms | 6 dB | -18 dB, an expander more than a gate |
+| High-Gain Tight | 0.5 / 20 / 25 ms | 6 dB | -80 dB |
+| Staccato Chug | 0.2 / 5 / 10 ms | 8 dB | -90 dB |
+| Natural Decay | 2 / 150 / 300 ms | 10 dB | -60 dB |
+| Ambient Friendly | 5 / 250 / 500 ms | 12 dB | -30 dB, so tails into a delay or reverb fade, not stop |
+
 ### Parametric EQ (`eq_parametric`)
 4-band parametric equalizer (low/high shelves + 2 parametric mids).
 
@@ -487,14 +532,39 @@ half-close; turning it off gates each channel on its own level.
 | `highFreq` | 2000–16000 | 8000 | Hz |
 | `highQ` | 0.1–10 | 0.707 | — |
 
+**Factory presets** set every band: Flat (default), Mud Cut (-4 dB at 300 Hz), Fizz Tamer
+(-4 dB at 6 kHz and a -5 dB shelf from 9 kHz, after an amp), Mid Hump (+5 dB at 720 Hz with the
+lows and highs eased, a Tube Screamer's curve), Scoop, Presence Lift, Tight Low End (a -6 dB
+shelf below 150 Hz, before a high-gain amp) and Glassy Clean. There is no output control, so the
+curves move the level: from -3.5 dB (Scoop) to +3 dB (Mid Hump) on the demo DI.
+
 ### Digital Delay (`delay_digital`)
-Clean digital delay.
+Clean stereo digital delay, with its tone filters and drive inside the feedback loop.
 
 | Parameter | Range | Default | Unit |
 |-----------|-------|---------|------|
-| `timeMs` | 1–2000 | 300 | ms |
-| `feedback` | 0.0–0.95 | 0.3 | — |
-| `mix` | 0.0–1.0 | 0.3 | — |
+| `time` | 1–2000 | 300 | ms (`timeMs` is accepted as an alias) |
+| `syncMode` | Free / Tempo | Free | — |
+| `syncDivision` | 1/1 … 1/32T | 1/4 | — |
+| `feedback` | 0.0–0.95 | 0.4 | — |
+| `mix` | 0.0–1.0 | 0.3 | — (dry × (1 − mix) + wet × mix) |
+| `highCut` | 200–20000, log | 8000 | Hz, one-pole, in the loop |
+| `lowCut` | 20–5000, log | 20 | Hz, one-pole, in the loop |
+| `drive` | 0.0–1.0 | 0.0 | — (saturates the feedback write; the first repeat stays clean) |
+| `stereoMode` | Normal / Ping-Pong | Normal | — |
+| `spread` | 0–50 | 0 | ms on the right tap (advanced) |
+| `modRate` | 0–10 | 0 | Hz (advanced) |
+| `modDepth` | 0–20 | 0 | ms either way (advanced) |
+| `ducking` | 0.0–1.0 | 0.0 | — (advanced; the wet dips while you play) |
+
+Time is not smoothed, so changing it (or choosing a preset) jumps the read head; the tape and
+analog delays glide.
+
+**Factory presets** set every control, the advanced ones too, and leave out Division unless the
+preset is tempo-synced: DD-3 (default), Slapback (100 ms, one repeat), Dotted Eighth (1/8 dotted
+at the song's tempo, 375 ms when Sync is off), Ping-Pong, Ducked Lead (the echoes bloom in the
+gaps), Ambient Wash (650 ms, long and dark, modulated and spread) and Lo-Fi Echo (telephone-band
+repeats, driven and warbling). On the demo DI each is within 1.1 dB of the default.
 
 ### Tape Echo (`delay_tape`)
 
@@ -909,6 +979,14 @@ Clean, precise VCA-style compressor.
 | `knee` | 0–24 | 6.0 | dB |
 | `makeup` | 0–24 | 0.0 | dB |
 | `mix` | 0.0–1.0 | 1.0 | — |
+| `softClip` | 0.0–1.0 | 0.0 | — (advanced) |
+| `stereoLink` | Independent / Linked | Linked | — (advanced) |
+
+A peak detector feeds a soft-knee gain computer, and Attack and Release smooth the gain
+reduction (in dB) rising and falling. On a steady sine the smoothing leaves it a little under
+the ideal peak curve: 9.4 dB of reduction where 4:1 on a peak 14 dB over would take 10.5.
+Fast settings cost some low-frequency distortion, as on any fast compressor: 0.6% THD on a low E
+at 10/100 ms, 1.5% at 1/50 ms.
 
 ### Opto Compressor (`compressor_opto`)
 Smooth optical-style compressor.
@@ -921,6 +999,87 @@ Smooth optical-style compressor.
 | `release` | 50–3000 | 300 | ms |
 | `makeup` | 0–24 | 0.0 | dB |
 | `mix` | 0.0–1.0 | 1.0 | — |
+| `softClip` | 0.0–1.0 | 0.0 | — (advanced) |
+| `stereoLink` | Independent / Linked | Linked | — (advanced) |
+
+An RMS detector (5 ms) feeds a hard-knee gain computer, and lands on the ideal curve. The cell
+releases more slowly the more gain reduction it holds, a little like a photocell.
+
+**Both compressors**
+
+- **Stereo Link**, as on the gate. Linked (the default), one detector on the louder channel sets
+  one gain for both, so a stereo image after a chorus or a ping-pong delay holds still.
+  Independent, each channel is compressed on its own level, as both always were before the
+  switch; `StereoProcessingTests` holds that mode to it. A mono signal is compressed the same
+  either way. Presets leave the switch alone.
+- **Makeup and Mix glide** over 20 ms, so turning them, automating them or choosing a preset
+  never steps the level mid-note.
+- **A NaN or an infinity in the input** is scrubbed to silence before the detector sees it.
+  Before, one infinity left either compressor putting out NaN for good, and one NaN left the
+  Opto never compressing again (`CompressorEffectTests`).
+- **Threshold is in dBFS**, not relative to the nominal operating level, so a hotter rig
+  compresses harder.
+
+**Factory presets** (`DynamicsPresets.h`) set every control. They are voiced on the demo DI (median
+peaks near -7 dBFS), and Makeup brings each to within 1 dB of the level it came in at, so
+switching one on changes the dynamics, not the volume; the default, being the parameter
+defaults, has no makeup and sits 1.5-3 dB lower.
+
+| VCA | Settings |
+|---|---|
+| Classic VCA (default) | The defaults: -20 dB, 4:1, 10/100 ms, 6 dB knee |
+| Chicken Pickin' | -32 dB, 8:1, 4/150 ms: snap on the pick, then squash |
+| Funk Clean | -28 dB, 4:1, 15/80 ms: lets the pick through for percussive cleans |
+| Transparent Leveler | -24 dB, 2:1, 20/250 ms, 12 dB knee: evens out, barely heard |
+| Parallel Squash | -38 dB, 12:1, 1/80 ms under the dry signal at 40% |
+| Lead Sustain | -36 dB, 10:1, 5/400 ms, a little soft clip |
+| Peak Catcher | -10 dB, 20:1, 0.5/60 ms, hard knee: only the loudest hits |
+
+| Opto | Settings |
+|---|---|
+| Smooth Opto (default) | The defaults: -20 dB, 3:1, 20/300 ms |
+| Gentle Leveler | -26 dB, 2:1, 30/600 ms |
+| Studio Leveling | -30 dB, 4:1, 10/500 ms |
+| Clean Sustain | -34 dB, 6:1, 15/1200 ms |
+| Slow Bloom | -32 dB, 4:1, 120/1500 ms: the pick through, then the swell held |
+| Parallel Bloom | -36 dB, 8:1, 40/800 ms under the dry signal at 50% |
+| Opto Limit | -20 dB, 20:1, 5/250 ms, a little soft clip |
+
+### Chorus (`chorus`)
+A modulated delay: a sine LFO swings the delay either side of Delay, the right channel 90°
+ahead of the left.
+
+| Parameter | Range | Default | Unit |
+|-----------|-------|---------|------|
+| `rate` | 0.1–10 | 0.5 | Hz |
+| `syncMode` / `syncDivision` | Free / Tempo, 1/1 … 1/32T | Free, 1/4 | — |
+| `depth` | 0–20 | 2.0 | ms either way |
+| `delay` | 1–30 | 15 | ms |
+| `feedback` | 0.0–0.95 | 0.1 | — (undamped: keep it low) |
+| `mix` | 0.0–1.0 | 0.3 | — |
+
+Pitch wobble is about 10.9 × Rate × Depth cents. **Factory presets** set every control but
+Division: Studio Chorus (default), CE-2, Small Clone, Lush Chorus, Double Track, Vibrato (fully
+wet, so pitch alone, as a CE-1's vibrato) and Warble. Within 0.8 dB of the default on the demo
+DI, but for Vibrato, which sits at the bypass level, 2.2 dB over the default's mix.
+
+### Flanger (`flanger`)
+A short delay swept from Delay up to Delay + Depth, the right channel 90° ahead, with feedback
+through a 6 kHz low-pass and a soft limit.
+
+| Parameter | Range | Default | Unit |
+|-----------|-------|---------|------|
+| `rate` | 0.05–5 | 0.25 | Hz |
+| `syncMode` / `syncDivision` | Free / Tempo, 1/1 … 1/32T | Free, 1/4 | — |
+| `depth` | 0–5 | 2.0 | ms |
+| `delay` | 0.1–5 | 1.0 | ms (the first notch sits at 1 / (2 × delay)) |
+| `feedback` | 0.0–0.85 | 0.2 | — |
+| `mix` | 0.0–1.0 | 0.5 | — (0.5 gives the deepest notches) |
+
+**Factory presets** set every control, leaving out Division but for Tempo Sweep (one sweep a
+bar): Classic Flanger (default), MXR 117 (a slow, wide jet), BF-2, Electric Mistress, Metallic
+Comb (a near-static ring), Fast Swirl and Tempo Sweep. Within 2.1 dB of the default on the demo
+DI; the high-feedback ones run a little hotter when played softly.
 
 ### Doubler (`delay_doubler`)
 Creates stereo width by mixing a delayed copy of the signal.
@@ -1190,6 +1349,50 @@ node starts with.
 | Sub-Octave Ring | Tracking, a just fifth (7 st + 2 cents) | — | Odd harmonics of half the note; Tone 0.7, Mix 0.8 |
 | Octave Shimmer | Tracking, +12 st | — | Mix 0.5 keeps the note under the shimmer |
 
+### Synth Voice (`synth_saw`)
+Tracks the pitch of a single note and plays it on two oscillator voices, shaped by an envelope
+follower on the input.
+
+| Parameter | Range | Default | Notes |
+|---|---|---|---|
+| `mix` | 0–1 | 1.0 | Dry guitar to synth |
+| `attack` / `release` | 0.1–100 / 10–1000 ms | 5 / 100 | The envelope follower |
+| `detune` | ±100 cents | 0 | Both voices |
+| `octaveShift` | -2..+2 | 0 | Both voices |
+| `glide` | 0–500 ms | 10 | |
+| `outputGain` | -24..+12 dB | 0 | |
+| `gate` | -80..0 dB | -60 | Silent below it |
+| `waveShape`, `pulseWidth` | Saw / Square / Triangle / Sine, 0.1–0.9 | Saw, 0.5 | Voice 1 |
+| `voice2Semitones`, `voice2Mix` | ±24 st, 0–1 | 0, 0 | Voice 2's interval and share |
+| `voice2WaveShape`, `voice2PulseWidth` | as voice 1 | Saw, 0.5 | |
+
+**Factory presets** (`PitchPresets.h`) leave out Output, the player's level, and Gate, which is
+set against their own noise floor. Classic Saw (default), Synth Bass (square an octave down),
+Square Lead (with a triangle an octave up, and glide), Fifth Stack, Sine Flute, Saw Pad (slow
+attack, long release) and Sub Octave Blend (the guitar with a square an octave below). Within
+about 1 dB of the default on the demo DI. Every pulse width stays at 0.5: anything else adds DC.
+
+### Auto Arpeggiator (`arp_auto`)
+Pitch-shifts what you play through a pattern of intervals, one step per beat division at the
+song's tempo.
+
+| Parameter | Range | Default | Notes |
+|---|---|---|---|
+| `stepRate` | 1/4 … 1/32T | 1/8 | |
+| `pattern` | Major Triad, Minor Triad, Power Chord, Octaves, Custom, Random | Major Triad | |
+| `direction` | Up, Down, Up-Down | Up | |
+| `numSteps` | 2–8 | 4 | Custom and Random only |
+| `gate` / `attack` / `release` | fractions of a step | 0.8 / 0.05 / 0.08 | |
+| `step0`…`step7` | ±24 st | 0, 4, 7, 12, 0… | Custom's intervals (advanced) |
+| `pitchMode` / `pitchThreshold` | Always, Above, Below / 50–2000 Hz | Always / 330 | When it plays |
+| `mix` | 0–1 | 0.8 | |
+
+**Factory presets** (`PitchPresets.h`) leave out Pitch Trigger and its Pitch, which decide when it
+plays, and set all eight custom steps, mirroring a built-in pattern where they use one. Major Arp
+(default), Minor Up-Down (1/8 triplets), Power Fifths, Octave Bounce (-12, 0, +12, 0), Sus4 Arp,
+Minor 7th (eight steps, up and back), Fifths Ladder and Octave Swells (quarter notes over the dry
+note). None is faster than 1/8, as a new pitch arrives about 35 ms after its step starts.
+
 ### Pitch tracking in Synth Voice, the Auto Arpeggiator and the tuner
 
 The same `dsp/PitchTracker.h` (see *Pitch tracker* under Ring Modulator) follows the note for
@@ -1306,6 +1509,13 @@ over 10 ms, with both engines running until the fade ends. The engines' latencie
 bypass's, so a hard switch used to jump the audio in time (80 ms on High Quality) with a click;
 now it is a short blend. Both engines record their input history on every sample, so either
 starts on current audio. Tests: `core/tests/PitchShiftEngineTests.cpp`.
+
+**Factory presets** (`PitchPresets.h`) set everything, Semitones included: with no pedal mapped it is
+the interval itself, so a pedal preset sets it to the end the pedal rests at, inside its own
+Range. Full Range (default), Octave Down, Octave Up Blend (High Quality, for chords, at 40%),
+Fifth Harmony (at 50%), Whammy Up (heel dry, toe an octave up, gliding), Dive Bomb (rests at the
+toe, rock back to dive) and Step Whammy (in semitones). Everything a pedal moves uses Low Latency.
+The two blends sit 3 dB under the default, as Mix is a linear crossfade.
 
 ### Transpose (`transpose`)
 High-quality transpose effect optimized for integer semitone steps using Signalsmith Stretch.

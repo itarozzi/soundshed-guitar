@@ -714,6 +714,15 @@ bool TestRecursiveEffectsRecoverFromNonFiniteInput()
     fuzz.Prepare(kSampleRate, kBlock);
     fuzz.SetParam("model", 3.0);
 
+    // The compressors' detectors and gain cells are one-pole state. Measured before they scrubbed
+    // their input: one infinity left either putting out NaN from then on, and one NaN left the
+    // Opto never compressing again (CompressorEffectTests checks that it resumes compressing).
+    CompressorEffect vcaCompressor;
+    vcaCompressor.Prepare(kSampleRate, kBlock);
+
+    OptoCompressorEffect optoCompressor;
+    optoCompressor.Prepare(kSampleRate, kBlock);
+
     // Not recursive, but its splices are chosen by correlating the input history, where a NaN
     // would sit for as long as the search reaches back. Wet only.
     PitchShiftEffect pitchShift;
@@ -733,6 +742,8 @@ bool TestRecursiveEffectsRecoverFromNonFiniteInput()
     passed = ExpectRecoversFromNonFiniteInput("distortion (Metal Zone)", distortion) && passed;
     passed = ExpectRecoversFromNonFiniteInput("fuzz (Fuzz-Tone)", fuzz) && passed;
     passed = ExpectRecoversFromNonFiniteInput("pitch shift (Low Latency)", pitchShift) && passed;
+    passed = ExpectRecoversFromNonFiniteInput("VCA compressor", vcaCompressor) && passed;
+    passed = ExpectRecoversFromNonFiniteInput("Opto compressor", optoCompressor) && passed;
     return passed;
 }
 

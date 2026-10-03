@@ -5,6 +5,7 @@
 #include "dsp/EffectGuids.h"
 #include "dsp/FiniteCheck.h"
 #include "dsp/TimeDomainPitchShifter.h"
+#include "dsp/effects/PitchPresets.h"
 #include "dsp/effects/SignalsmithSupport.h"
 #include "signalsmith-stretch.h"
 #include <algorithm>
@@ -465,6 +466,7 @@ inline void RegisterPitchShiftEffect()
                        {"stepMode", "Snap to Semitone", 1.0, 0.0, 1.0, "toggle"},
                        {"minSemitones", "Range Min", -12.0, -12.0, 12.0, "st", "", false, 1.0},
                        {"maxSemitones", "Range Max", 12.0, -12.0, 12.0, "st", "", false, 1.0}};
+    info.presets = pitch_presets::PitchShift(info.parameters);
     EffectRegistry::Instance().Register(info.type, info, []() { return std::make_unique<PitchShiftEffect>(); });
 }
 } // namespace guitarfx
