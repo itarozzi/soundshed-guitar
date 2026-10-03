@@ -439,6 +439,123 @@ void TestCharacterSweepIsSmooth()
     Check(sweep < steady * 1.5, "a Character change glides instead of clicking");
 }
 
+double WorstCurvature(const std::vector<float>& output, int from, int to)
+{
+    double worst = 0.0;
+    for (int i = from + 1; i < to - 1; ++i)
+    {
+        worst = std::max(worst, std::abs(static_cast<double>(output[i + 1]) - 2.0 * output[i] + output[i - 1]));
+    }
+    return worst;
+}
+
+// Preamp Stages adds or removes clip stages and their coupling filters, which
+// moves the phase and shape of a ringing note at once: switched, that is a
+// click. It has to fade, both ways, on the same nearly clean tone the Character
+// sweep listens to.
+void TestStageChangeIsSmooth()
+{
+    constexpr double sampleRate = 48000.0;
+    constexpr int frames = 72000, up = 24000, down = 48000;
+    guitarfx::BuiltinAmpEffect amp;
+    amp.Prepare(sampleRate, 64);
+    amp.SetParam("gain", 0.0);
+    amp.SetParam("voice", 0.0);
+    amp.SetParam("stageCount", 1);
+    amp.Reset();
+
+    std::vector<float> input(frames), output(frames);
+    for (int i = 0; i < frames; ++i)
+    {
+        input[i] = static_cast<float>(0.1 * std::sin(2.0 * kPi * 220.0 * i / sampleRate));
+    }
+    for (int start = 0; start < frames; start += 64)
+    {
+        if (start == up || start == down)
+        {
+            amp.SetParam("stageCount", start == up ? 4 : 1);
+        }
+        amp.ProcessMono(input.data() + start, output.data() + start, 64);
+    }
+
+    const double steady = std::max({WorstCurvature(output, 12000, up), WorstCurvature(output, down - 12000, down),
+                                    WorstCurvature(output, frames - 12000, frames)});
+    const double adding = WorstCurvature(output, up, up + 4800);
+    const double removing = WorstCurvature(output, down, down + 4800);
+    std::cout << "Preamp Stages 1 to 4 and back: worst curvature " << adding << " and " << removing << " against "
+              << steady << " at rest\n";
+    Check(adding < steady * 1.5, "adding preamp stages fades them in instead of clicking");
+    Check(removing < steady * 1.5, "removing preamp stages fades them out instead of clicking");
+}
+
+// A stage switched back in must not pick up where its coupling filter was left
+// the last time it played, a different note ago: that is a transient of the
+// old note in the new one. Two amps hear the same playing; one had stages 3
+// and 4 in at the start and the other never did. Once both are back at four
+// stages they must agree from the first sample of the fade.
+void TestReturningStageStartsFresh()
+{
+    constexpr double sampleRate = 48000.0;
+    constexpr int block = 64, frames = 96000, dropped = 12032, restored = 48000;
+    guitarfx::BuiltinAmpEffect former, fresh;
+    for (auto* amp : {&former, &fresh})
+    {
+        amp->SetParam("gain", 0.8);
+        amp->SetParam("voice", 1.0);
+        amp->SetParam("stageCount", amp == &former ? 4 : 2);
+        amp->Prepare(sampleRate, block);
+    }
+
+    // A loud low chord while stages 3 and 4 are in, then a quieter high note.
+    std::vector<float> input(frames);
+    for (int i = 0; i < frames; ++i)
+    {
+        const double t = i / sampleRate;
+        input[i] = static_cast<float>(i < dropped + 4800
+                                          ? 0.3 * (std::sin(2.0 * kPi * 82.41 * t) + std::sin(2.0 * kPi * 123.47 * t))
+                                          : 0.05 * std::sin(2.0 * kPi * 659.3 * t));
+    }
+
+    std::vector<float> formerOut(frames), freshOut(frames);
+    for (int start = 0; start < frames; start += block)
+    {
+        if (start == dropped)
+        {
+            former.SetParam("stageCount", 2);
+        }
+        if (start == restored)
+        {
+            former.SetParam("stageCount", 4);
+            fresh.SetParam("stageCount", 4);
+        }
+        former.ProcessMono(input.data() + start, formerOut.data() + start, block);
+        fresh.ProcessMono(input.data() + start, freshOut.data() + start, block);
+    }
+
+    double before = 0.0, after = 0.0;
+    for (int i = restored - 2400; i < frames; ++i)
+    {
+        double& worst = i < restored ? before : after;
+        worst = std::max(worst, std::abs(static_cast<double>(formerOut[i]) - freshOut[i]));
+    }
+    std::cout << "Stages 3 and 4 back in: worst difference from an amp that never had them " << after << " (" << before
+              << " just before)\n";
+    Check(after < 1.0e-5, "a stage switched back in starts fresh, not where it was left");
+}
+
+// Voice picks a channel. It is a switch like Bright, so anything that sends it
+// a value between the two (a host's automation lane) lands on one of them.
+void TestVoiceIsASwitch()
+{
+    guitarfx::BuiltinAmpEffect amp;
+    amp.SetParam("voice", 0.3);
+    const bool low = amp.GetParam("voice") == 0.0;
+    amp.SetParam("voice", 0.7);
+    Check(low && amp.GetParam("voice") == 1.0, "Voice lands on Clean or Drive, never between");
+    Check(RenderVoicing({0.45, 0.7}, Signal::Sine) == RenderVoicing({0.45, 1.0}, Signal::Sine),
+          "a Voice between the two sounds exactly like the nearer channel");
+}
+
 // The executor runs the amp on one channel whenever the guitar signal is mono,
 // and may flip between that and stereo block by block as the input changes.
 // One channel has to sound exactly like the left of two, and coming back to
@@ -666,6 +783,9 @@ int main(int argc, char** argv)
     TestCharacterRange();
     TestSagLowersPowerCeiling();
     TestCharacterSweepIsSmooth();
+    TestStageChangeIsSmooth();
+    TestReturningStageStartsFresh();
+    TestVoiceIsASwitch();
     TestMonoPath();
     TestDynamicsAndBlocks();
     TestAliasingAndPower();

@@ -379,7 +379,7 @@ power stage.
 | `character` | 0–1 | 0.5 | Vintage (soft knee, even harmonics, loose) to modern (hard knee, tight) |
 | `bright` | off / on | off | +3 dB shelf at 2.5 kHz before the first stage |
 | `preEmphasis` | 0–1 | 0 | Up to +6 dB more on that shelf (advanced) |
-| `stageCount` | 1–4 | 2 | Clip stages; level-compensated, and switches at once |
+| `stageCount` | 1–4 | 2 | Clip stages; level-compensated, and fades a stage in or out over 20 ms |
 | `stageGain` | ±24 dB | 0 | Input Trim, before the first stage; not compensated |
 | `bass` / `middle` / `treble` | 0–1 | 0.5 | ±9 dB at 120 Hz, 750 Hz, 3.5 kHz |
 | `contour` | 0–1 | 0.2 | Up to -12 dB at 600 Hz |

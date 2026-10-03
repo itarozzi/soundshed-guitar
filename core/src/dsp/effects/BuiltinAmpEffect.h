@@ -87,9 +87,10 @@ class BuiltinAmpEffect : public EffectProcessor
         mCharacterSmoothed = mCharacter;
         mOutputGainSmoothed = mOutputGainTarget;
         AdvanceFilters(1.0);
+        mStageFades.Settle(std::clamp(mStageCount, 1, kMaxStages));
         mVoicingStale = true;
         mRightChannelStale = false;
-        UpdateVoicing(std::clamp(mStageCount, 1, kMaxStages));
+        UpdateVoicing();
     }
 
     void Process(float** inputs, float** outputs, int numSamples) override
@@ -149,7 +150,8 @@ class BuiltinAmpEffect : public EffectProcessor
         switch (index)
         {
         case kVoice:
-            mVoice = static_cast<float>(value);
+            // A channel switch, like Bright; the glide still blends the change.
+            mVoice = (value >= 0.5) ? 1.0f : 0.0f;
             break;
         case kGain:
             mGain = static_cast<float>(value);
@@ -388,13 +390,13 @@ class BuiltinAmpEffect : public EffectProcessor
             Glide(mCharacterSmoothed, mCharacter, smoothStep);
             mOutputGainSmoothed += smoothStep * (mOutputGainTarget - mOutputGainSmoothed);
             AdvanceFilters(1.0 - mFilterSmoothCoef);
-            UpdateVoicing(stageCount);
+            UpdateVoicing(mStageFades.Advance(stageCount, mStageFilters));
 
             for (int sub = 0; sub < mOversamplingFactor; ++sub)
             {
                 for (int ch = 0; ch < Channels; ++ch)
                 {
-                    highOutput[ch][sub] = ProcessAmpSample(highInput[ch][sub], ch, stageCount);
+                    highOutput[ch][sub] = ProcessAmpSample(highInput[ch][sub], ch);
                 }
             }
 
@@ -428,7 +430,7 @@ class BuiltinAmpEffect : public EffectProcessor
      * channels and all four oversampled steps, worked out once per host sample
      * instead of once per channel per stage.
      */
-    void UpdateVoicing(int stageCount)
+    void UpdateVoicing(bool stagesMoved = false)
     {
         // Each group is only refreshed while its controls are moving; the
         // glides settle exactly on their targets, so a static setting costs a
@@ -448,13 +450,11 @@ class BuiltinAmpEffect : public EffectProcessor
             mClippers.SetPowerStage(mPowerDriveSmoothed, mBiasSmoothed);
         }
 
-        if (mVoicingStale || mGainSmoothed != mVoicedGain || mVoiceSmoothed != mVoicedVoice ||
-            stageCount != mVoicedStages)
+        if (mVoicingStale || stagesMoved || mGainSmoothed != mVoicedGain || mVoiceSmoothed != mVoicedVoice)
         {
             mVoicedGain = mGainSmoothed;
             mVoicedVoice = mVoiceSmoothed;
-            mVoicedStages = stageCount;
-            mLevelMakeup = builtin_amp::LevelMakeup(mGainSmoothed, mVoiceSmoothed, stageCount);
+            mLevelMakeup = mStageFades.Makeup(mGainSmoothed, mVoiceSmoothed);
         }
 
         mVoicingStale = false;
@@ -472,7 +472,7 @@ class BuiltinAmpEffect : public EffectProcessor
         }
     }
 
-    float ProcessAmpSample(float sample, int ch, int stageCount)
+    float ProcessAmpSample(float sample, int ch)
     {
         using namespace builtin_amp;
 
@@ -487,10 +487,11 @@ class BuiltinAmpEffect : public EffectProcessor
         float stage = (clean + (drive - clean) * voice) * 0.9f;
         stage = mStageFilters[0].Process(stage, ch);
 
-        if (stageCount >= 2)
+        if (const float fade = mStageFades.mix[1]; fade > 0.0f)
         {
-            stage = mClippers.Clip(stage * StageDrive(gain, voice, 1.1f, 1.5f, 7.0f), kClipStage2) * 0.85f;
-            stage = mStageFilters[1].Process(stage, ch);
+            float engaged = mClippers.Clip(stage * StageDrive(gain, voice, 1.1f, 1.5f, 7.0f), kClipStage2) * 0.85f;
+            engaged = mStageFilters[1].Process(engaged, ch);
+            stage = StageFades::SwitchIn(stage, engaged, fade);
         }
 
         signal = mFilters[kBassShelf].Process(stage, ch);
@@ -500,16 +501,18 @@ class BuiltinAmpEffect : public EffectProcessor
 
         stage = static_cast<float>(signal);
 
-        if (stageCount >= 3)
+        if (const float fade = mStageFades.mix[2]; fade > 0.0f)
         {
-            stage = mClippers.Clip(stage * StageDrive(gain, voice, 1.6f, 1.2f, 8.0f), kClipStage3) * 0.8f;
-            stage = mStageFilters[2].Process(stage, ch);
+            float engaged = mClippers.Clip(stage * StageDrive(gain, voice, 1.6f, 1.2f, 8.0f), kClipStage3) * 0.8f;
+            engaged = mStageFilters[2].Process(engaged, ch);
+            stage = StageFades::SwitchIn(stage, engaged, fade);
         }
 
-        if (stageCount >= 4)
+        if (const float fade = mStageFades.mix[3]; fade > 0.0f)
         {
-            stage = mClippers.Clip(stage * StageDrive(gain, voice, 1.35f, 0.8f, 6.0f), kClipStage4) * 0.8f;
-            stage = mStageFilters[3].Process(stage, ch);
+            float engaged = mClippers.Clip(stage * StageDrive(gain, voice, 1.35f, 0.8f, 6.0f), kClipStage4) * 0.8f;
+            engaged = mStageFilters[3].Process(engaged, ch);
+            stage = StageFades::SwitchIn(stage, engaged, fade);
         }
 
         signal = mFilters[kVoicingPeak].Process(stage, ch);
@@ -597,6 +600,8 @@ class BuiltinAmpEffect : public EffectProcessor
 
     void UpdateSmoothing()
     {
+        mStageFades.SetSampleRate(mSampleRate);
+
         if (mSampleRate <= 0.0)
         {
             mControlSmoothCoef = 0.0f;
@@ -714,6 +719,7 @@ class BuiltinAmpEffect : public EffectProcessor
     int mOversamplingFactor = 1;
     std::array<BuiltinAmpHalfband2x, 2> mUpFirst = {}, mDownFirst = {}, mUpSecond = {}, mDownSecond = {};
     std::array<builtin_amp::StageFilter, kMaxStages> mStageFilters = {};
+    builtin_amp::StageFades mStageFades;
     std::array<builtin_amp::GlidingBiquad, kFilterCount> mFilters = {};
 
     float mVoice = 0.0f;
@@ -751,7 +757,6 @@ class BuiltinAmpEffect : public EffectProcessor
     float mVoicedBias = 0.0f;
     float mVoicedGain = 0.0f;
     float mVoicedVoice = 0.0f;
-    int mVoicedStages = 0;
     builtin_amp::Clippers mClippers;
     float mLevelMakeup = 1.0f;
     float mDepth = 0.4f;

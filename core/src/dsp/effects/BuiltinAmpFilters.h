@@ -8,8 +8,9 @@
 #include <cmath>
 
 /**
- * The Heavy American's linear filters: the one-pole coupling between preamp stages, and the
- * gliding biquads that make up its pre-filters, tone stack, voicing and speaker controls.
+ * The Heavy American's linear filters: the one-pole coupling between preamp stages and the fades
+ * that switch those stages in and out, and the gliding biquads that make up its pre-filters, tone
+ * stack, voicing and speaker controls.
  */
 namespace guitarfx::builtin_amp
 {
@@ -36,6 +37,12 @@ struct StageFilter
     {
         hpCoefficient = hpTarget;
         lpStep = lpTarget;
+        ClearState();
+    }
+
+    /// Silence on both channels, keeping the corners where they are.
+    void ClearState()
+    {
         previousInput.fill(0.0f);
         previousHighPass.fill(0.0f);
         previousLowPass.fill(0.0f);
@@ -64,6 +71,91 @@ struct StageFilter
     std::array<float, 2> previousInput = {};
     std::array<float, 2> previousHighPass = {};
     std::array<float, 2> previousLowPass = {};
+};
+
+/**
+ * Preamp Stages, faded: a stage is brought in or taken out over 20 ms instead of switched, which
+ * clicked on a ringing note. Part-way, a stage is crossfaded with its own input (SwitchIn). One
+ * coming back from fully out starts from silence, not from whatever its coupling filter held when
+ * it last played, and the fade-in covers that start. Stepped once per host sample.
+ */
+struct StageFades
+{
+    void SetSampleRate(double sampleRate)
+    {
+        step = sampleRate > 0.0 ? static_cast<float>(1.0 / (0.02 * sampleRate)) : 1.0f;
+    }
+
+    /// Straight to `stageCount`, as after a reset.
+    void Settle(int stageCount)
+    {
+        for (int stage = 0; stage < kMaxStages; ++stage)
+        {
+            mix[stage] = stage < stageCount ? 1.0f : 0.0f;
+        }
+    }
+
+    /// One step towards `stageCount`. Says whether any stage moved.
+    bool Advance(int stageCount, std::array<StageFilter, kMaxStages>& filters)
+    {
+        bool moved = false;
+
+        for (int stage = 1; stage < kMaxStages; ++stage)
+        {
+            const float target = stage < stageCount ? 1.0f : 0.0f;
+
+            if (mix[stage] == target)
+            {
+                continue;
+            }
+
+            if (mix[stage] == 0.0f)
+            {
+                filters[stage].ClearState();
+            }
+
+            mix[stage] = target > mix[stage] ? std::min(mix[stage] + step, 1.0f) : std::max(mix[stage] - step, 0.0f);
+            moved = true;
+        }
+
+        return moved;
+    }
+
+    /// The level table's makeup for the stages that are in, or while some fade, for how far
+    /// each one is.
+    [[nodiscard]] float Makeup(float gain, float voice) const
+    {
+        std::array<float, kMaxStages> stageIn = {};
+        int stages = 0;
+        bool fading = false;
+
+        for (int stage = 0; stage < kMaxStages; ++stage)
+        {
+            stageIn[stage] = Shape(mix[stage]);
+            stages += mix[stage] == 1.0f ? 1 : 0;
+            fading = fading || (mix[stage] > 0.0f && mix[stage] < 1.0f);
+        }
+
+        return fading ? LevelMakeup(gain, voice, stageIn) : LevelMakeup(gain, voice, stages);
+    }
+
+    /// The fade runs linearly in time, but a crossfade that starts or stops with a step in its
+    /// slope is a faint tick of its own on a clean note, so it is eased. Exactly 0 and 1 at the
+    /// ends.
+    [[nodiscard]] static float Shape(float position)
+    {
+        return position * position * (3.0f - 2.0f * position);
+    }
+
+    /// A stage `position` of the way through its fade. Fully in is exactly the stage's own output.
+    [[nodiscard]] static float SwitchIn(float bypassed, float engaged, float position)
+    {
+        return position == 1.0f ? engaged : bypassed + Shape(position) * (engaged - bypassed);
+    }
+
+    /// How far each stage is in; the first always is.
+    std::array<float, kMaxStages> mix = {1.0f, 1.0f, 0.0f, 0.0f};
+    float step = 1.0f;
 };
 
 /**

@@ -396,4 +396,26 @@ inline constexpr float kHeardLevelDb[2][kMaxStages][5] = {{{-19.73f, -17.43f, -1
     constexpr float dbToLog2 = 0.166096405f; // 1 / (20 log10 2)
     return std::exp2(LevelMakeupDb(gain, voice, stages) * dbToLog2);
 }
+
+/**
+ * The makeup while Preamp Stages fades stages in or out, `stageIn[k]` being how far stage k + 1
+ * is in. Each stage brings its own step of the table in with it, so going from one count to
+ * another the makeup moves straight there. Passing through the counts in between instead
+ * follows the table's zigzag, and every corner is a kink in the level.
+ */
+[[nodiscard]] inline float LevelMakeup(float gain, float voice, const std::array<float, kMaxStages>& stageIn)
+{
+    float db = LevelMakeupDb(gain, voice, 1);
+
+    for (int stage = 1; stage < kMaxStages; ++stage)
+    {
+        if (stageIn[stage] > 0.0f)
+        {
+            db += stageIn[stage] * (LevelMakeupDb(gain, voice, stage + 1) - LevelMakeupDb(gain, voice, stage));
+        }
+    }
+
+    constexpr float dbToLog2 = 0.166096405f; // 1 / (20 log10 2)
+    return std::exp2(db * dbToLog2);
+}
 } // namespace guitarfx::builtin_amp
