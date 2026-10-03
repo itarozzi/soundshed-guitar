@@ -157,6 +157,15 @@ if(APPLE AND CMAKE_OSX_ARCHITECTURES MATCHES ";")
     message(STATUS "Universal macOS build detected; disabling WASM effects because Wasmtime C API bundles are single-architecture.")
 endif()
 
+# Plain char is unsigned on Linux arm64, and WDL (in the resampler) refuses to
+# compile unless it is signed, because its code assumes it. As in the Android
+# build: force signed char for the whole tree, which keeps char the same as on
+# x86, Windows and Apple, and is a no-op on x86_64 Linux.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_compile_options($<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang>:-fsigned-char>
+                        $<$<COMPILE_LANG_AND_ID:C,GNU,Clang>:-fsigned-char>)
+endif()
+
 # Shared core library (framework-agnostic DSP, presets, resources, controller)
 set(GUITARFX_CORE_FETCH_DEPS ON CACHE BOOL "" FORCE)
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../core
