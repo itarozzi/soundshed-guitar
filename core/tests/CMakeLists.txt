@@ -3,6 +3,7 @@
 set(TEST_SOURCES
     AtomicFileWriteTests.cpp
     AudioDeviceRequestTests.cpp
+    AutoArpEffectTests.cpp
     AutomationBypassEndToEndTests.cpp
     AutomationNodeParamRangeTests.cpp
     AutomationNodeRealtimeTests.cpp

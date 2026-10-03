@@ -3,14 +3,18 @@
 #include "dsp/EffectProcessor.h"
 #include "dsp/EffectRegistry.h"
 #include "dsp/EffectGuids.h"
+#include "dsp/FiniteCheck.h"
 #include "dsp/PitchTracker.h"
 #include "dsp/effects/PitchPresets.h"
 #include "dsp/effects/SignalsmithSupport.h"
 #include "signalsmith-stretch.h"
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <random>
+#include <string>
+#include <string_view>
 #include <vector>
 
 namespace guitarfx
@@ -82,11 +86,7 @@ class AutoArpEffect : public EffectProcessor
     {
         mPhase = 0.0;
         mCurrentStep = 0;
-
-        if (!mStepSemitones.empty())
-        {
-            mCurrentSemitones = mStepSemitones[0];
-        }
+        mCurrentSemitones = mStepSemitones[0];
 
         if (mConfigured)
         {
@@ -223,39 +223,42 @@ class AutoArpEffect : public EffectProcessor
             if (mPhase >= 1.0)
             {
                 mPhase -= 1.0;
-                const int count = static_cast<int>(mStepSemitones.size());
 
-                if (count > 0)
+                if (mRandomDirection)
                 {
-                    if (mRandomDirection)
-                    {
-                        mCurrentStep = static_cast<int>(mRng() % static_cast<unsigned>(count));
-                    }
-                    else
-                    {
-                        mCurrentStep = (mCurrentStep + 1) % count;
-                    }
-
-                    if (mRandomPattern)
-                    {
-                        // Fresh random semitone for this step so every note is unpredictable.
-                        mCurrentSemitones = static_cast<int>(mRng() % 25u) - 12;
-                        mStepSemitones[static_cast<size_t>(mCurrentStep)] = mCurrentSemitones;
-                    }
-                    else
-                    {
-                        mCurrentSemitones = mStepSemitones[static_cast<size_t>(mCurrentStep)];
-                    }
-
-                    // Update stretch with new pitch for the next block.
-                    ApplyStretchSemitones(mCurrentSemitones);
+                    mCurrentStep = static_cast<int>(mRng() % static_cast<unsigned>(mStepCount));
                 }
+                else
+                {
+                    mCurrentStep = (mCurrentStep + 1) % mStepCount;
+                }
+
+                if (mRandomPattern)
+                {
+                    // Fresh random semitone for this step so every note is unpredictable.
+                    mCurrentSemitones = RandomSemitones();
+                    mStepSemitones[static_cast<size_t>(mCurrentStep)] = mCurrentSemitones;
+                }
+                else
+                {
+                    mCurrentSemitones = mStepSemitones[static_cast<size_t>(mCurrentStep)];
+                }
+
+                // Update stretch with new pitch for the next block.
+                ApplyStretchSemitones(mCurrentSemitones);
             }
         }
     }
 
+    // Can run on the audio thread (MIDI and DAW automation), so it neither allocates nor throws.
     void SetParam(const std::string& key, double value) override
     {
+        // A NaN would reach the int casts below, and a table index read from one.
+        if (!IsFinite(value))
+        {
+            return;
+        }
+
         if (key == "bpm")
         {
             mBpm = std::clamp(value, 30.0, 300.0);
@@ -310,19 +313,13 @@ class AutoArpEffect : public EffectProcessor
         {
             mPitchThreshold = std::clamp(value, 50.0, 2000.0);
         }
-        else if (key.size() > 4 && key.substr(0, 4) == "step")
+        else if (const int idx = CustomStepIndex(key); idx >= 0)
         {
-            // step0 .. step7
-            const int idx = std::stoi(key.substr(4));
+            mCustomSteps[static_cast<size_t>(idx)] = static_cast<int>(std::clamp(std::round(value), -24.0, 24.0));
 
-            if (idx >= 0 && idx < kMaxCustomSteps)
+            if (mPattern == kPatternCustom)
             {
-                mCustomSteps[static_cast<size_t>(idx)] = static_cast<int>(std::clamp(std::round(value), -24.0, 24.0));
-
-                if (mPattern == kPatternCustom)
-                {
-                    RebuildStepList();
-                }
+                RebuildStepList();
             }
         }
     }
@@ -388,14 +385,9 @@ class AutoArpEffect : public EffectProcessor
             return mPitchThreshold;
         }
 
-        if (key.size() > 4 && key.substr(0, 4) == "step")
+        if (const int idx = CustomStepIndex(key); idx >= 0)
         {
-            const int idx = std::stoi(key.substr(4));
-
-            if (idx >= 0 && idx < kMaxCustomSteps)
-            {
-                return static_cast<double>(mCustomSteps[static_cast<size_t>(idx)]);
-            }
+            return static_cast<double>(mCustomSteps[static_cast<size_t>(idx)]);
         }
 
         return 0.0;
@@ -426,6 +418,7 @@ class AutoArpEffect : public EffectProcessor
   private:
     // ── Pattern table ─────────────────────────────────────────────────────
     static constexpr int kMaxCustomSteps = 8;
+    static constexpr int kMaxResolvedSteps = 2 * kMaxCustomSteps - 2; // eight steps, Up-Down
     static constexpr int kPatternCustom = 4;
     static constexpr int kPatternRandom = 5;
     /// The trigger is judged once per frame of this length: 2048 samples at 48 kHz, the window the old
@@ -469,96 +462,87 @@ class AutoArpEffect : public EffectProcessor
         mPhaseIncrement = 1.0 / std::max(1.0, stepSamples);
     }
 
-    // Rebuild the resolved step semitone list from pattern/direction/numSteps.
+    // Rebuild the resolved step semitone list from pattern/direction/numSteps. Runs from SetParam,
+    // so on the audio thread too: fixed arrays, no allocation.
     void RebuildStepList()
     {
-        std::vector<int> base;
+        std::array<int, kMaxCustomSteps> base{};
+        int count = 0;
 
         mRandomPattern = (mPattern == kPatternRandom);
         mRandomDirection = mRandomPattern; // Random pattern always picks steps randomly
 
         if (mPattern == kPatternRandom)
         {
-            // Populate the pool with mNumSteps random semitones in [0, 12].
+            // Populate the pool with mNumSteps random semitones in [-12, +12].
             // Steps are re-randomized individually on each advance in Process().
-            for (int i = 0; i < mNumSteps; ++i)
+            for (; count < mNumSteps && count < kMaxCustomSteps; ++count)
             {
-                base.push_back(static_cast<int>(mRng() % 25u) - 12);
+                base[static_cast<size_t>(count)] = RandomSemitones();
             }
         }
         else if (mPattern == kPatternCustom)
         {
-            for (int i = 0; i < mNumSteps && i < kMaxCustomSteps; ++i)
+            for (; count < mNumSteps && count < kMaxCustomSteps; ++count)
             {
-                base.push_back(mCustomSteps[static_cast<size_t>(i)]);
+                base[static_cast<size_t>(count)] = mCustomSteps[static_cast<size_t>(count)];
             }
         }
         else
         {
             const auto& row = kPatternTable[static_cast<size_t>(mPattern)];
 
-            for (int i = 0; i < 9 && row[i] >= 0; ++i)
+            for (; count < kMaxCustomSteps && row[count] >= 0; ++count)
             {
-                base.push_back(row[i]);
+                base[static_cast<size_t>(count)] = row[count];
             }
         }
 
-        if (base.empty())
+        // Direction (ignored for Random pattern — steps are always picked randomly):
+        // Up as listed, Down reversed, Up-Down there and back without repeating the ends.
+        const bool down = !mRandomPattern && mDirection == 1;
+        mStepCount = 0;
+
+        for (int i = 0; i < count; ++i)
         {
-            mStepSemitones = {0};
-            mCurrentStep = 0;
-            mCurrentSemitones = 0;
-            return;
+            mStepSemitones[static_cast<size_t>(mStepCount++)] = base[static_cast<size_t>(down ? count - 1 - i : i)];
         }
 
-        // Apply direction (ignored for Random pattern — steps are always picked randomly)
-        if (!mRandomPattern)
+        if (!mRandomPattern && mDirection == 2)
         {
-            switch (mDirection)
+            for (int i = count - 2; i >= 1; --i)
             {
-            case 0: // Up — use base as-is
-                mStepSemitones = base;
-                break;
-            case 1: // Down — reverse
-                mStepSemitones = std::vector<int>(base.rbegin(), base.rend());
-                break;
-            case 2: // Up-Down — base + reverse without duplicating endpoints
-            {
-                mStepSemitones = base;
-
-                if (base.size() > 1)
-                {
-                    for (int i = static_cast<int>(base.size()) - 2; i >= 1; --i)
-                    {
-                        mStepSemitones.push_back(base[static_cast<size_t>(i)]);
-                    }
-                }
-
-                break;
-            }
-            default:
-                mStepSemitones = base;
-                break;
+                mStepSemitones[static_cast<size_t>(mStepCount++)] = base[static_cast<size_t>(i)];
             }
         }
-        else
+
+        if (mStepCount == 0)
         {
-            mStepSemitones = base;
+            mStepSemitones[0] = 0;
+            mStepCount = 1;
         }
 
         // Clamp current step index to new list size
-        const int count = static_cast<int>(mStepSemitones.size());
+        mCurrentStep = mCurrentStep % mStepCount;
+        mCurrentSemitones = mStepSemitones[static_cast<size_t>(mCurrentStep)];
+        ApplyStretchSemitones(mCurrentSemitones);
+    }
 
-        if (count > 0)
+    [[nodiscard]] int RandomSemitones()
+    {
+        return static_cast<int>(mRng() % 25u) - 12;
+    }
+
+    /// The index in "step0".."step7", or -1 for any other key. A plain character check: the old
+    /// std::stoi threw on an undeclared key such as "stepMode", on the audio thread.
+    [[nodiscard]] static int CustomStepIndex(std::string_view key) noexcept
+    {
+        if (key.size() != 5 || !key.starts_with("step") || key[4] < '0' || key[4] >= '0' + kMaxCustomSteps)
         {
-            mCurrentStep = mCurrentStep % count;
-            mCurrentSemitones = mStepSemitones[static_cast<size_t>(mCurrentStep)];
-
-            if (mConfigured)
-            {
-                ApplyStretchSemitones(mCurrentSemitones);
-            }
+            return -1;
         }
+
+        return key[4] - '0';
     }
 
     void ResetPitchGate()
@@ -632,13 +616,8 @@ class AutoArpEffect : public EffectProcessor
                 // Reset to beat-start on fresh activation.
                 mPhase = 0.0;
                 mCurrentStep = 0;
-
-                if (!mStepSemitones.empty())
-                {
-                    mCurrentSemitones = mStepSemitones[0];
-                    ApplyStretchSemitones(mCurrentSemitones);
-                }
-
+                mCurrentSemitones = mStepSemitones[0];
+                ApplyStretchSemitones(mCurrentSemitones);
                 mStretch.reset();
                 mArpActive = true;
             }
@@ -669,9 +648,9 @@ class AutoArpEffect : public EffectProcessor
 
     // ── Parameters ────────────────────────────────────────────────────────
     double mBpm = 120.0;
-    int mStepRate = 1;  // 0=1/4, 1=1/8, 2=1/16, 3=1/8T, 4=1/16T, 5=1/32, 6=1/32T
-    int mNumSteps = 4;  // active steps in Custom mode
-    int mPattern = 0;   // 0=Major, 1=Minor, 2=Power, 3=Octaves, 4=Custom
+    int mStepRate = 1;  // 0=1/4, 1=1/8, 2=1/16, 3=1/32, 4=1/8T, 5=1/16T, 6=1/32T
+    int mNumSteps = 4;  // active steps in Custom and Random
+    int mPattern = 0;   // 0=Major, 1=Minor, 2=Power, 3=Octaves, 4=Custom, 5=Random
     int mDirection = 0; // 0=Up, 1=Down, 2=UpDown
     float mGate = 0.8f;
     float mAttack = 0.05f;
@@ -692,7 +671,8 @@ class AutoArpEffect : public EffectProcessor
     bool mRandomPattern = false;
     bool mRandomDirection = false;
     std::mt19937 mRng;
-    std::vector<int> mStepSemitones;
+    std::array<int, kMaxResolvedSteps> mStepSemitones{}; // the pattern as played, mStepCount long
+    int mStepCount = 1;
     signalsmith::stretch::SignalsmithStretch<float> mStretch;
     std::vector<float> mWetL;
     std::vector<float> mWetR;
