@@ -1,9 +1,14 @@
     <!-- FX Library Selector Panel -->
-    <section class="fx-selector-panel film-grain collapsed" id="fx-selector-panel">
+    <section class="fx-selector-panel film-grain collapsed" id="fx-selector-panel" aria-labelledby="fx-selector-title">
       <div class="fx-selector-header">
-        <span class="fx-selector-title">FX Library</span>
-        <button class="fx-selector-toggle" id="fx-selector-toggle" aria-expanded="false" title="Expand FX Library">
-          <svg class="fx-toggle-icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+        <!-- fxSelector.ts retitles these while the library is open to replace a node. -->
+        <div class="fx-selector-heading">
+          <span class="fx-selector-title" id="fx-selector-title">FX Library</span>
+          <span class="fx-selector-hint" id="fx-selector-hint">Drag an effect into the signal chain, or drag effects in the chain to move them.</span>
+        </div>
+        <button type="button" class="fx-selector-close" id="fx-selector-close" title="Close (Esc)" aria-label="Close FX Library">
+          <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+          <span>Close</span>
         </button>
       </div>
       <div class="fx-selector-content">
@@ -13,7 +18,6 @@
           <div class="fx-selector-search">
             <input type="text" id="fx-search-input" placeholder="Search effects…" />
           </div>
-          <p>Drag any effect into the signal chain. You can also drag effects around to move them in the chain. </p>
           <div class="fx-selector-effects-list scrollbar-thin" id="fx-selector-effects-list"></div>
         </div>
       </div>

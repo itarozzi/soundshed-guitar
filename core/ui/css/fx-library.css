@@ -39,37 +39,53 @@
 
 .fx-selector-header {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
   align-items: center;
-  gap: 8px;
-  padding: 8px 16px;
+  gap: 12px;
+  padding: 8px 10px 8px 16px;
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-light);
   flex-shrink: 0;
-  cursor: pointer;
 }
 
-.fx-selector-toggle {
+.fx-selector-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.fx-selector-hint {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+/* A labelled button rather than a bare glyph, so closing the library is never a hunt. */
+.fx-selector-close {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
+  gap: 6px;
+  flex-shrink: 0;
+  min-height: 30px;
+  padding: 0 12px 0 9px;
   border: 1px solid var(--border-medium);
   background: var(--bg-card);
   color: var(--text-primary);
   border-radius: var(--radius-md);
+  font-size: 12px;
+  font-weight: 600;
   cursor: pointer;
-  transition: transform 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+  transition: border-color 0.2s ease, background 0.2s ease;
 }
 
-.fx-selector-toggle:hover {
+.fx-selector-close:hover,
+.fx-selector-close:focus-visible {
   border-color: var(--color-accent);
   background: var(--overlay-light);
 }
 
-.fx-selector-panel.collapsed .fx-toggle-icon {
-  transform: rotate(-90deg);
+.fx-selector-close svg {
+  flex-shrink: 0;
 }
 
 .fx-selector-content {
@@ -90,8 +106,9 @@
 }
 
 .fx-selector-title {
-  margin-left: auto;
-  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 12px;
   font-weight: 700;
   color: var(--text-primary);
@@ -255,6 +272,36 @@
 .fx-item.dragging {
   opacity: 0.6;
   transform: scale(0.95);
+}
+
+/* Opened to replace a node, a click chooses an effect (a drag still works). */
+.fx-selector-panel.is-replacing .fx-selector-title {
+  color: var(--color-accent);
+}
+
+.fx-selector-panel.is-replacing .fx-item {
+  cursor: pointer;
+}
+
+.fx-selector-panel.is-replacing .fx-item:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+.fx-item.is-current {
+  border-color: color-mix(in srgb, var(--category-color, var(--color-accent)) 60%, var(--border-medium));
+}
+
+.fx-item-current {
+  flex-shrink: 0;
+  padding: 2px 6px;
+  border-radius: var(--radius-pill);
+  background: var(--overlay-medium);
+  color: var(--text-secondary);
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
 }
 
 .fx-item-drag-preview {

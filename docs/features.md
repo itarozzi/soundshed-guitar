@@ -323,6 +323,7 @@ Visual node graph editor for building and editing effect chains.
 
 - **Graph visualization**: Nodes shown in signal-flow order with connection lines. Selection highlights node details.
 - **Add effects**: Drag from the categorized FX browser (`fxSelector.ts`) or insert after a selected node.
+- **Replace effects**: Double-click a node to open the FX browser on its category, then click an effect to put it in the node's place (`signalPath/replaceChooser.ts`), or drag one onto any node.
 - **Remove effects**: Delete node from graph; graph re-connects adjacent nodes.
 - **Reorder**: Drag-drop reordering of nodes within the chain.
 - **Bypass**: Per-node enable/disable toggle.

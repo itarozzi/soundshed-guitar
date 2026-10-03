@@ -1,8 +1,9 @@
 /**
  * FX Library Selector Panel
- * 
+ *
  * Provides a categorized browser for effects that can be dragged
- * into the signal path.
+ * into the signal path. Opened to replace a node (double-click it in the chain), a click
+ * on an effect also puts it in that node's place; see signalPath/replaceChooser.ts.
  */
 
 import { EffectTypeRegistry, type EffectTypeInfo } from "./presetV2.js";
@@ -23,15 +24,35 @@ const fxSelectorPanel = document.getElementById("fx-selector-panel");
 const fxSelectorCategories = document.getElementById("fx-selector-categories");
 const fxSelectorEffectsList = document.getElementById("fx-selector-effects-list");
 const fxSearchInput = document.getElementById("fx-search-input") as HTMLInputElement | null;
-const fxSelectorToggle = document.getElementById("fx-selector-toggle") as HTMLButtonElement | null;
-const fxSelectorHeader = document.querySelector(".fx-selector-header") as HTMLElement | null;
+const fxSelectorClose = document.getElementById("fx-selector-close") as HTMLButtonElement | null;
+const fxSelectorTitle = document.getElementById("fx-selector-title");
+const fxSelectorHint = document.getElementById("fx-selector-hint");
 const signalPathBar = document.getElementById("signal-path-bar");
+const libraryHint = fxSelectorHint?.textContent ?? "";
+
+/** Which library entry: its effect type, and the blend or custom effect it carries. */
+export type FxItemIdentity = { effectType: string; blendId?: string; customEffectId?: string };
+
+/**
+ * The node the library was opened to replace. While there is one, a click on an effect
+ * chooses it for that node; dragging works as it always does.
+ */
+export type FxReplaceTarget = {
+  presetId: string;
+  nodeId: string;
+  /** What the title calls the node. */
+  name: string;
+  /** The effect in the node now. It is marked, and choosing it closes without a change. */
+  current: FxItemIdentity;
+  onChoose: (payload: FxPointerDragPayload) => void;
+};
 
 // State
 let activeCategory = "amp"; // Currently selected category tab
 let searchFilter = "";
 let dragDelegationBound = false;
 let effectCatalogRequested = false;
+let replaceTarget: FxReplaceTarget | null = null;
 
 function ensureEffectCatalogHydrated(reason: string): void {
   const hasHydratedCatalog = getCatalogEffects().some((effect) => !!effect.category);
@@ -49,10 +70,6 @@ function ensureEffectCatalogHydrated(reason: string): void {
 
 function syncFxSelectorCollapsedState(options?: { focusSearch?: boolean }): void {
   const isCollapsed = fxSelectorPanel?.classList.contains("collapsed") ?? false;
-  fxSelectorToggle?.setAttribute("aria-expanded", String(!isCollapsed));
-  if (fxSelectorToggle) {
-    fxSelectorToggle.title = isCollapsed ? "Expand FX Library" : "Collapse FX Library";
-  }
   signalPathBar?.classList.toggle("fx-library-collapsed", isCollapsed);
   if (!isCollapsed && options?.focusSearch) {
     fxSearchInput?.focus();
@@ -67,17 +84,30 @@ export function setFxSelectorCollapsed(collapsed: boolean, options?: { focusSear
   if (!fxSelectorPanel) {
     return;
   }
+  if (collapsed) {
+    // The panel stays in the DOM, hidden: a search field keeping focus would take typing.
+    if (fxSelectorPanel.contains(document.activeElement)) {
+      (document.activeElement as HTMLElement).blur();
+    }
+    if (replaceTarget) {
+      setFxSelectorReplaceTarget(null);
+    }
+  }
   fxSelectorPanel.classList.toggle("collapsed", collapsed);
   syncFxSelectorCollapsedState(options);
 }
 
+/** Opens the library to add effects; opened to replace a node, it stops replacing it. */
 export function expandFxSelector(options?: { focusSearch?: boolean }): void {
+  if (replaceTarget) {
+    setFxSelectorReplaceTarget(null);
+  }
   setFxSelectorCollapsed(false, options);
 }
 
 export function focusFxSelectorCategory(
   categoryId: string,
-  options?: { expand?: boolean; focusSearch?: boolean; clearSearch?: boolean },
+  options?: { expand?: boolean; focusSearch?: boolean; clearSearch?: boolean; replace?: FxReplaceTarget },
 ): void {
   if (!categoryId) {
     return;
@@ -91,11 +121,44 @@ export function focusFxSelectorCategory(
   }
 
   activeCategory = categoryId;
+  if (options?.expand) {
+    replaceTarget = options.replace ?? null;
+    renderReplaceMode();
+  }
   renderCategories();
   renderEffectsList();
 
   if (options?.expand) {
-    expandFxSelector({ focusSearch: options.focusSearch });
+    setFxSelectorCollapsed(false, { focusSearch: options.focusSearch });
+  }
+}
+
+export function getFxSelectorReplaceTarget(): FxReplaceTarget | null {
+  return replaceTarget;
+}
+
+/** Sets or clears the node the library replaces, leaving it open or closed as it is. */
+export function setFxSelectorReplaceTarget(target: FxReplaceTarget | null): void {
+  replaceTarget = target;
+  renderReplaceMode();
+  renderEffectsList();
+}
+
+export function isSameFxItem(a: FxItemIdentity, b: FxItemIdentity): boolean {
+  return EffectTypeRegistry.resolve(a.effectType) === EffectTypeRegistry.resolve(b.effectType)
+    && (a.blendId ?? "") === (b.blendId ?? "")
+    && (a.customEffectId ?? "") === (b.customEffectId ?? "");
+}
+
+function renderReplaceMode(): void {
+  fxSelectorPanel?.classList.toggle("is-replacing", Boolean(replaceTarget));
+  if (fxSelectorTitle) {
+    fxSelectorTitle.textContent = replaceTarget ? `Replace ${replaceTarget.name}` : "FX Library";
+  }
+  if (fxSelectorHint) {
+    fxSelectorHint.textContent = replaceTarget
+      ? "Click an effect to use it instead, or drag one anywhere in the chain."
+      : libraryHint;
   }
 }
 
@@ -189,17 +252,19 @@ export function initFxSelector(): void {
 
   syncFxSelectorCollapsedState();
 
-  // Toggle collapse/expand
-  fxSelectorToggle?.addEventListener("click", () => {
-    setFxSelectorCollapsed(!isFxSelectorCollapsed());
+  fxSelectorClose?.addEventListener("click", () => {
+    setFxSelectorCollapsed(true);
   });
 
-  fxSelectorHeader?.addEventListener("click", (event) => {
-    const target = event.target as HTMLElement;
-    if (target.closest(".fx-selector-toggle")) {
+  // Escape from the library or the chain it serves. A dialog opened over them has its own.
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || event.defaultPrevented || isFxSelectorCollapsed()) {
       return;
     }
-    setFxSelectorCollapsed(!isFxSelectorCollapsed());
+    const target = event.target as Node | null;
+    if (target === document.body || (target && fxSelectorPanel.parentElement?.contains(target))) {
+      setFxSelectorCollapsed(true);
+    }
   });
 
   // Search input
@@ -208,7 +273,7 @@ export function initFxSelector(): void {
     renderEffectsList();
   });
 
-  bindFxItemDragHandlers();
+  bindFxItemHandlers();
 
   ensureEffectCatalogHydrated("init");
 
@@ -357,7 +422,7 @@ export function renderEffectsList(): void {
   fxSelectorEffectsList.innerHTML = effectsHtml + blendsHtml + customEffectsHtml + compositesHtml;
 
   // Bind drag handlers to FX items
-  bindFxItemDragHandlers();
+  bindFxItemHandlers();
 
 }
 
@@ -377,11 +442,16 @@ function renderFxItem(effect: FxLibraryItem, categoryColor: string): string {
   const customEffectBadge = effect.customEffectId
     ? `<span class="fx-item-badge" title="Saved custom effect">Custom</span>`
     : "";
+  // Opened to replace a node, every effect is a button that chooses it.
+  const isCurrent = replaceTarget !== null
+    && isSameFxItem({ effectType: effect.type, blendId: effect.blendId, customEffectId: effect.customEffectId }, replaceTarget.current);
+  const chooseAttrs = replaceTarget ? ` role="button" tabindex="0"${isCurrent ? ' aria-current="true"' : ""}` : "";
+  const currentBadge = isCurrent ? `<span class="fx-item-current">Current</span>` : "";
 
   // Names and ids here come from blends, custom effects and imported archives, and a blend's
   // name can be a Tone3000 title, so everything user-supplied is escaped.
   return `
-        <div class="fx-item"
+        <div class="fx-item${isCurrent ? " is-current" : ""}"${chooseAttrs}
           data-effect-type="${escapeHtml(effect.type)}"
           data-blend-id="${escapeHtml(effect.blendId ?? "")}"
           data-blend-category="${escapeHtml(effect.blendCategory ?? "")}"
@@ -397,9 +467,58 @@ function renderFxItem(effect: FxLibraryItem, categoryColor: string): string {
         <div class="fx-item-name">${escapeHtml(effect.displayName)}</div>
         <div class="fx-item-type">${escapeHtml(effect.category)}</div>
       </div>
-      ${resourceBadge}${blendBadge}${customEffectBadge}${compositeBadge}
+      ${currentBadge}${resourceBadge}${blendBadge}${customEffectBadge}${compositeBadge}
     </div>
   `;
+}
+
+/** What an FX library item carries into the chain, read back from its data attributes. */
+function readFxItemPayload(el: HTMLElement): FxPointerDragPayload | null {
+  const effectType = el.dataset.effectType;
+  if (!effectType) return null;
+
+  let customEffect: FxPointerDragPayload["customEffect"];
+  const customEffectId = el.dataset.customEffectId;
+  if (customEffectId) {
+    let defaultParams: Record<string, number> = {};
+    try {
+      defaultParams = JSON.parse(decodeURIComponent(el.dataset.customEffectDefaultParams ?? "%7B%7D")) as Record<string, number>;
+    } catch {
+      defaultParams = {};
+    }
+    customEffect = {
+      customEffectId,
+      name: el.querySelector(".fx-item-name")?.textContent ?? "Custom Effect",
+      category: el.dataset.effectCategory ?? "utility",
+      moduleResourceType: el.dataset.customEffectResourceType ?? "",
+      moduleResourceId: el.dataset.customEffectResourceId ?? "",
+      defaultParams,
+    };
+  }
+
+  return {
+    effectType,
+    blendId: el.dataset.blendId || undefined,
+    blendName: el.querySelector(".fx-item-name")?.textContent ?? undefined,
+    blendCategory: el.dataset.blendCategory || undefined,
+    customEffect,
+  };
+}
+
+/**
+ * Chooses an effect for the node the library was opened to replace, and closes it.
+ * pointerDrag.ts swallows the click that ends a drag, so only a plain click or a key lands here.
+ */
+function chooseFxItem(el: HTMLElement): void {
+  const target = replaceTarget;
+  const payload = readFxItemPayload(el);
+  if (!target || !payload) return;
+
+  setFxSelectorCollapsed(true);
+  const chosen = { effectType: payload.effectType, blendId: payload.blendId, customEffectId: payload.customEffect?.customEffectId };
+  if (!isSameFxItem(chosen, target.current)) {
+    target.onChoose(payload);
+  }
 }
 
 /**
@@ -409,9 +528,9 @@ function renderFxItem(effect: FxLibraryItem, categoryColor: string): string {
  * delivers the `drop` event to our targets, so native dragging could not add
  * effects on Linux at all (issue #27). The signal path owns the graph, so it
  * owns what a drop means — this module only reports where the drag started and
- * which effect it carries.
+ * which effect it carries. Clicks and keys choose an effect while replacing a node.
  */
-function bindFxItemDragHandlers(): void {
+function bindFxItemHandlers(): void {
   if (!fxSelectorEffectsList || dragDelegationBound) return;
 
   fxSelectorEffectsList.addEventListener("pointerdown", (event: PointerEvent) => {
@@ -419,41 +538,24 @@ function bindFxItemDragHandlers(): void {
 
     const target = event.target as HTMLElement | null;
     const el = target?.closest(".fx-item") as HTMLElement | null;
-    const effectType = el?.dataset.effectType;
-    if (!el || !effectType) return;
-
-    let customEffect: FxPointerDragPayload["customEffect"];
-    const customEffectId = el.dataset.customEffectId;
-    if (customEffectId) {
-      let defaultParams: Record<string, number> = {};
-      try {
-        defaultParams = JSON.parse(decodeURIComponent(el.dataset.customEffectDefaultParams ?? "%7B%7D")) as Record<string, number>;
-      } catch {
-        defaultParams = {};
-      }
-      customEffect = {
-        customEffectId,
-        name: el.querySelector(".fx-item-name")?.textContent ?? "Custom Effect",
-        category: el.dataset.effectCategory ?? "utility",
-        moduleResourceType: el.dataset.customEffectResourceType ?? "",
-        moduleResourceId: el.dataset.customEffectResourceId ?? "",
-        defaultParams,
-      };
-    }
+    const payload = el ? readFxItemPayload(el) : null;
+    if (!el || !payload) return;
 
     document.dispatchEvent(new CustomEvent("fx-pointer-drag-start", {
-      detail: {
-        source: el,
-        pointerEvent: event,
-        payload: {
-          effectType,
-          blendId: el.dataset.blendId || undefined,
-          blendName: el.querySelector(".fx-item-name")?.textContent ?? undefined,
-          blendCategory: el.dataset.blendCategory || undefined,
-          customEffect,
-        } satisfies FxPointerDragPayload,
-      },
+      detail: { source: el, pointerEvent: event, payload },
     }));
+  });
+
+  fxSelectorEffectsList.addEventListener("click", (event: MouseEvent) => {
+    const el = (event.target as HTMLElement | null)?.closest<HTMLElement>(".fx-item");
+    if (el) chooseFxItem(el);
+  });
+
+  fxSelectorEffectsList.addEventListener("keydown", (event: KeyboardEvent) => {
+    const el = (event.target as HTMLElement | null)?.closest<HTMLElement>(".fx-item");
+    if (!el || !replaceTarget || (event.key !== "Enter" && event.key !== " ")) return;
+    event.preventDefault();
+    chooseFxItem(el);
   });
 
   dragDelegationBound = true;

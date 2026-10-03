@@ -13,7 +13,6 @@ import { EffectTypeRegistry, getNodeEffectInfo } from "./presetV2.js";
 import { EffectGuids } from "./effectGuids.js";
 import { renderIcon } from "./iconAssets.js";
 import {
-  focusFxSelectorCategory,
   sendAddSignalPathNode,
   sendAddSignalPathNodeOnEdge,
   type FxPointerDragPayload,
@@ -54,6 +53,7 @@ import { isProtectedSignalPathNode, isToggleableSignalPathNode, toggleSignalPath
 import { updateSignalPathClipIndicators } from "./signalPath/telemetry.js";
 import { reanchorAddEffectDropdown, showAddEffectDropdown } from "./signalPath/addEffectDropdown.js";
 import { initSignalPathAddMenu, updateSignalPathAddMenuAvailability } from "./signalPath/addMenu.js";
+import { openReplaceChooser, syncReplaceChooser } from "./signalPath/replaceChooser.js";
 export { applySignalPathNodeBypassState, isToggleableSignalPathNode } from "./signalPath/bypass.js";
 export { applySpatialPositionUpdate, buildDefaultParamControlsHtml } from "./signalPath/paramsPanel.js";
 export { closeEffectPresetsFlyout, refreshEffectPresetsFlyout } from "./signalPath/effectPresets.js";
@@ -194,25 +194,26 @@ function resolveFxDropTarget(event: PointerEvent): FxDropTarget | null {
   return null;
 }
 
-function applyFxDrop(target: FxDropTarget | null, payload: FxPointerDragPayload): void {
-  if (!target) return;
-
+function fxItemNodeOptions(payload: FxPointerDragPayload): SignalPathNodeOptions {
   const customEffect = payload.customEffect;
-  const options = customEffect
+  return customEffect
     ? buildCustomEffectNodeOptions({ ...customEffect, baseEffectType: payload.effectType })
-    : {
-      config: payload.blendId ? { blendId: payload.blendId } : undefined,
-      label: payload.blendName,
-      category: payload.blendCategory,
-    };
+    : { config: payload.blendId ? { blendId: payload.blendId } : undefined, label: payload.blendName, category: payload.blendCategory };
+}
 
-  if (target.kind === "node") {
-    applyOptimisticNodeReplacement(target.node, payload.effectType, target.preset, options);
-    sendReplaceSignalPathNode(target.node.id, payload.effectType, options);
-    return;
+/** Puts an FX library effect in a node's place: dropped on it, or chosen in the library opened to replace it. */
+function replaceNodeWithFxItem(node: GraphNode, preset: Preset, payload: FxPointerDragPayload): void {
+  const options = fxItemNodeOptions(payload);
+  applyOptimisticNodeReplacement(node, payload.effectType, preset, options);
+  sendReplaceSignalPathNode(node.id, payload.effectType, options);
+}
+
+function applyFxDrop(target: FxDropTarget | null, payload: FxPointerDragPayload): void {
+  if (target?.kind === "node") {
+    replaceNodeWithFxItem(target.node, target.preset, payload);
+  } else if (target) {
+    sendAddEffectAtEdgeOrFallback(payload.effectType, target.edge, "__input__", fxItemNodeOptions(payload));
   }
-
-  sendAddEffectAtEdgeOrFallback(payload.effectType, target.edge, "__input__", options);
 }
 
 /**
@@ -871,7 +872,8 @@ function renderGraphSignalPath(preset: Preset): void {
 
   // Bind click handlers
   bindNodeClickHandlers(preset);
-  
+  syncReplaceChooser(preset);
+
   // Bind drop handlers for connectors (to insert between nodes)
   bindConnectorDropHandlers(preset);
 
@@ -1088,20 +1090,10 @@ function bindNodeClickHandlers(preset: Preset): void {
     });
 
     el.addEventListener("dblclick", () => {
-      const nodeId = el.dataset.nodeId;
-      if (!nodeId || !preset.graph) {
-        return;
+      const node = getGraphNode(el.dataset.nodeId ?? "");
+      if (node) {
+        openReplaceChooser(node, preset, replaceNodeWithFxItem);
       }
-
-      const node = preset.graph.nodes.find((n) => n.id === nodeId);
-      if (!node) {
-        return;
-      }
-
-      focusFxSelectorCategory(getNodeCategory(node), {
-        expand: true,
-        clearSearch: true,
-      });
     });
 
     // Reordering, and the vertical flick that toggles bypass.

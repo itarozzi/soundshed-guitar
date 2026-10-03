@@ -388,7 +388,7 @@ on `<html>`; every rule in `css/compact/` keys off those attributes. The pre-pai
 - **The chain wraps** onto more lines by default here (below).
 - **Adding an effect.** With the chain on its own stage, the floating + menu's Add FX… opens
   the effect chooser at the end of the chain, the list a + between two nodes opens, instead of
-  the FX library, whose effects can only be dragged (`signalPath/addMenu.ts`). The library
+  the FX library, whose effects are added by dragging (`signalPath/addMenu.ts`). The library
   would have to open over the chain it drops onto, and on a touch screen a drag that starts
   upwards scrolls its list instead.
 - **Narrow (≤ 540px).** The preset name takes the whole first line of the top strip, and
@@ -618,6 +618,24 @@ To change an effect's look, edit the JSON, then run the generator.
 ## Signal Chain Editor Notes
 
 - To create parallel paths, add the **Splitter** effect from the Utility category. The join **Mixer** node is inserted automatically and is not user-addable.
+
+### The FX library and replacing an effect (`core/ui/ts/fxSelector.ts`, `signalPath/replaceChooser.ts`)
+
+The FX library (Add FX…) drops over the chain. Its effects are dragged onto a connection to
+add them, or onto a node to replace it. The labelled Close button in its header and Escape
+close it; Escape counts only from the library or the chain (or nothing focused), so Escape in
+a dialog over them closes just the dialog.
+
+- **Replacing.** Double-clicking a node opens the library on that node's category to replace
+  it: the title names the node, the effect in it now is marked Current, and a click on another
+  effect (or Enter on a focused one) replaces the node and closes the library, with no drag.
+  The replacement goes through the same path as a drop on the node, and its controls come up
+  as an added effect's do. Choosing the Current effect closes without a change, so a model or
+  dialled-in settings are not reset by accident. Dragging still works while replacing.
+- **When it stops replacing.** Closing the library, opening it from Add FX…, or the node going
+  away (deleted, or another preset shown) leaves an ordinary library. An effect dropped on the
+  node meanwhile retitles it. A splitter or mixer cannot be replaced, so double-clicking one
+  opens the ordinary library.
 
 ### Wrapping the chain (`core/ui/ts/signalPath/chainRow.ts`, `css/signal-path/wrap.css`)
 
