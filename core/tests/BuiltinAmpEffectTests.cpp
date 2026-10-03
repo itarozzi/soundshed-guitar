@@ -9,9 +9,12 @@
 #include <string>
 #include <vector>
 
+#include "helpers/BuiltinAmpTestSupport.h"
+
+using namespace builtin_amp_test;
+
 namespace
 {
-constexpr double kPi = 3.14159265358979323846;
 int failures = 0;
 
 void Check(bool condition, const char* message)
@@ -21,67 +24,6 @@ void Check(bool condition, const char* message)
         std::cerr << "FAIL: " << message << '\n';
         ++failures;
     }
-}
-
-std::vector<float> Render(double sampleRate, double amplitude, double frequency, int blockSize, double voice,
-                          int stages, double powerDrive = 0.0, double gain = 0.45)
-{
-    constexpr int frames = 48000;
-    guitarfx::BuiltinAmpEffect amp;
-    amp.SetParam("voice", voice);
-    amp.SetParam("stageCount", stages);
-    amp.SetParam("powerDrive", powerDrive);
-    amp.SetParam("gain", gain);
-    amp.Prepare(sampleRate, blockSize);
-
-    std::vector<float> input(frames), output(frames);
-    for (int i = 0; i < frames; ++i)
-    {
-        input[i] = static_cast<float>(amplitude * std::sin(2.0 * kPi * frequency * i / sampleRate));
-    }
-    for (int start = 0; start < frames; start += blockSize)
-    {
-        const int count = std::min(blockSize, frames - start);
-        // The left of a stereo render bit for bit (TestMonoPath), without running the right.
-        amp.ProcessMono(input.data() + start, output.data() + start, count);
-    }
-    return output;
-}
-
-double Rms(const std::vector<float>& signal, int start)
-{
-    double power = 0.0;
-    for (std::size_t i = static_cast<std::size_t>(start); i < signal.size(); ++i)
-    {
-        power += static_cast<double>(signal[i]) * signal[i];
-    }
-    return std::sqrt(power / static_cast<double>(signal.size() - static_cast<std::size_t>(start)));
-}
-
-double ToneMagnitude(const std::vector<float>& signal, int start, double frequency, double sampleRate)
-{
-    double real = 0.0, imaginary = 0.0;
-    for (std::size_t i = static_cast<std::size_t>(start); i < signal.size(); ++i)
-    {
-        const double phase = 2.0 * kPi * frequency * static_cast<double>(i) / sampleRate;
-        real += signal[i] * std::cos(phase);
-        imaginary += signal[i] * std::sin(phase);
-    }
-    return 2.0 * std::hypot(real, imaginary) / static_cast<double>(signal.size() - start);
-}
-
-// Harmonic distortion relative to the fundamental, as a fraction.
-double Thd(const std::vector<float>& signal, double fundamental, double sampleRate)
-{
-    const int start = 12000;
-    const double first = ToneMagnitude(signal, start, fundamental, sampleRate);
-    double harmonics = 0.0;
-    for (int h = 2; h <= 12 && fundamental * h < sampleRate * 0.45; ++h)
-    {
-        const double magnitude = ToneMagnitude(signal, start, fundamental * h, sampleRate);
-        harmonics += magnitude * magnitude;
-    }
-    return std::sqrt(harmonics) / std::max(first, 1.0e-12);
 }
 
 double DriveThd(double gain, int stages, double voice = 1.0, double amplitude = 0.10)
@@ -130,122 +72,6 @@ void TestGainRange()
     Check(DriveThd(1.0, 4, 1.0, 0.02) > 0.30, "a quiet input still reaches full saturation");
 }
 
-enum class Signal
-{
-    Sine,        // A3, 220 Hz
-    String,      // A3 with harmonics falling at ~9 dB/octave, like a pickup
-    PowerChord,  // E2 + B2
-    Lead         // E5, 659.3 Hz
-};
-
-struct Voicing
-{
-    double gain = 0.45;
-    double voice = 1.0;
-    double character = 0.5;
-    int stages = 2;
-    double powerDrive = 0.0;
-    double sag = 0.0;
-};
-
-std::vector<float> RenderVoicing(const Voicing& v, Signal signal, double level = 0.10, int frames = 36000)
-{
-    constexpr double sampleRate = 48000.0;
-    guitarfx::BuiltinAmpEffect amp;
-    amp.Prepare(sampleRate, 256);
-    amp.SetParam("gain", v.gain);
-    amp.SetParam("voice", v.voice);
-    amp.SetParam("character", v.character);
-    amp.SetParam("stageCount", v.stages);
-    amp.SetParam("powerDrive", v.powerDrive);
-    amp.SetParam("sag", v.sag);
-    amp.Reset();
-
-    std::vector<float> input(frames), output(frames);
-    for (int i = 0; i < frames; ++i)
-    {
-        const double t = i / sampleRate;
-        double x = 0.0;
-        switch (signal)
-        {
-        case Signal::Sine:
-            x = std::sin(2.0 * kPi * 220.0 * t);
-            break;
-        case Signal::String:
-            for (int h = 1; h <= 30; ++h)
-            {
-                x += std::sin(2.0 * kPi * 220.0 * h * t) / std::pow(h, 1.5);
-            }
-            x /= 1.9;
-            break;
-        case Signal::PowerChord:
-            x = 0.5 * (std::sin(2.0 * kPi * 82.41 * t) + std::sin(2.0 * kPi * 123.47 * t));
-            break;
-        case Signal::Lead:
-            x = std::sin(2.0 * kPi * 659.3 * t);
-            break;
-        }
-        input[i] = static_cast<float>(level * x);
-    }
-    for (int start = 0; start < frames; start += 256)
-    {
-        const int count = std::min(256, frames - start);
-        // The left of a stereo render bit for bit (TestMonoPath), without running the right.
-        amp.ProcessMono(input.data() + start, output.data() + start, count);
-    }
-    return output;
-}
-
-struct Biquad
-{
-    double b0 = 1.0, b1 = 0.0, b2 = 0.0, a1 = 0.0, a2 = 0.0, s1 = 0.0, s2 = 0.0;
-    double Run(double x)
-    {
-        const double y = b0 * x + s1;
-        s1 = b1 * x - a1 * y + s2;
-        s2 = b2 * x - a2 * y;
-        return y;
-    }
-};
-
-// Level as the player hears it, the way the amp's makeup table was measured:
-// a generic cab band (2nd-order 90 Hz high pass, 4.5 kHz low pass) and the
-// BS.1770 K-weighting shelf, in dB.
-double HeardDb(const std::vector<float>& signal, int start = 12000)
-{
-    constexpr double sampleRate = 48000.0;
-    auto pass = [&](double frequency, bool high) {
-        const double w = 2.0 * kPi * frequency / sampleRate, c = std::cos(w), a = std::sin(w) / std::sqrt(2.0);
-        const double a0 = 1.0 + a, edge = high ? (1.0 + c) / 2.0 : (1.0 - c) / 2.0;
-        return Biquad{edge / a0, (high ? -2.0 : 2.0) * edge / a0, edge / a0, -2.0 * c / a0, (1.0 - a) / a0};
-    };
-    const double A = std::pow(10.0, 4.0 / 40.0), w = 2.0 * kPi * 1681.0 / sampleRate;
-    const double c = std::cos(w), al = std::sin(w) / std::sqrt(2.0), sA = std::sqrt(A);
-    const double a0 = (A + 1.0) - (A - 1.0) * c + 2.0 * sA * al;
-    Biquad shelf{A * ((A + 1.0) + (A - 1.0) * c + 2.0 * sA * al) / a0, -2.0 * A * ((A - 1.0) + (A + 1.0) * c) / a0,
-                 A * ((A + 1.0) + (A - 1.0) * c - 2.0 * sA * al) / a0, 2.0 * ((A - 1.0) - (A + 1.0) * c) / a0,
-                 ((A + 1.0) - (A - 1.0) * c - 2.0 * sA * al) / a0};
-    Biquad highPass = pass(90.0, true), lowPass = pass(4500.0, false);
-
-    double power = 0.0;
-    for (std::size_t i = 0; i < signal.size(); ++i)
-    {
-        const double y = shelf.Run(lowPass.Run(highPass.Run(signal[i])));
-        if (static_cast<int>(i) >= start)
-        {
-            power += y * y;
-        }
-    }
-    return 10.0 * std::log10(power / static_cast<double>(signal.size() - start) + 1.0e-30);
-}
-
-double HeardLevel(const Voicing& v)
-{
-    return (HeardDb(RenderVoicing(v, Signal::Sine)) + HeardDb(RenderVoicing(v, Signal::PowerChord)) +
-            HeardDb(RenderVoicing(v, Signal::Lead))) /
-           3.0;
-}
-
 // Gain and stage count are distortion controls. Driving a cascade harder
 // raises its small-signal gain long before it saturates, so without the makeup
 // the top of the gain control was 7-17 dB louder than the bottom and every
@@ -291,19 +117,40 @@ void TestLevelTracksGain()
     }
 }
 
-double BandShareDb(const std::vector<float>& signal, double fundamental, double low, double high, double top)
+// Power Drive is a distortion control too. Fully driven, the power stage is a
+// 12 dB small-signal boost into its clipper, so it was 1 to 11 dB louder than
+// none, the most where the preamp ran clean. If this fails after a voicing
+// change, re-fit kPowerStageSineDb (BuiltinAmpEffectTests --measure-levels).
+void TestPowerDriveTracksLevel()
 {
-    double band = 0.0, all = 0.0;
-    for (int h = 1; fundamental * h < top; ++h)
+    double worst = 0.0;
+    for (const double voice : {0.0, 1.0})
     {
-        const double magnitude = ToneMagnitude(signal, 12000, fundamental * h, 48000.0);
-        all += magnitude * magnitude;
-        if (fundamental * h >= low && fundamental * h < high)
+        for (const int stages : {1, 2, 4})
         {
-            band += magnitude * magnitude;
+            for (const double gain : {0.0, 0.5, 1.0})
+            {
+                for (const double character : {0.0, 0.5, 1.0})
+                {
+                    const double none = HeardLevel({gain, voice, character, stages, 0.0});
+                    for (const double powerDrive : {0.5, 1.0})
+                    {
+                        worst = std::max(worst,
+                                         std::abs(HeardLevel({gain, voice, character, stages, powerDrive}) - none));
+                    }
+                }
+            }
         }
     }
-    return 10.0 * std::log10(band / all + 1.0e-30);
+    std::cout << "Heard level change from Power Drive, worst across voice, stages, gain and Character: " << worst
+              << " dB\n";
+    Check(worst < 1.5, "Power Drive changes the distortion, not the loudness");
+
+    // And it still is a distortion control.
+    const double none = Thd(RenderVoicing({0.45, 0.0, 0.5, 2, 0.0}, Signal::Sine, 0.10, 48000), 220.0, 48000.0);
+    const double full = Thd(RenderVoicing({0.45, 0.0, 0.5, 2, 1.0}, Signal::Sine, 0.10, 48000), 220.0, 48000.0);
+    std::cout << "Clean voice THD at Power Drive 0 and 1: " << 100.0 * none << "%, " << 100.0 * full << "%\n";
+    Check(full > none * 3.0, "Power Drive adds distortion");
 }
 
 // One amp, classic fuzz to modern high gain. At a high-gain setting Character
@@ -437,16 +284,6 @@ void TestCharacterSweepIsSmooth()
     const double sweep = worstCurvature(change, change + 4800);
     std::cout << "Character sweep: worst curvature " << sweep << " against " << steady << " at rest\n";
     Check(sweep < steady * 1.5, "a Character change glides instead of clicking");
-}
-
-double WorstCurvature(const std::vector<float>& output, int from, int to)
-{
-    double worst = 0.0;
-    for (int i = from + 1; i < to - 1; ++i)
-    {
-        worst = std::max(worst, std::abs(static_cast<double>(output[i + 1]) - 2.0 * output[i] + output[i - 1]));
-    }
-    return worst;
 }
 
 // Preamp Stages adds or removes clip stages and their coupling filters, which
@@ -706,7 +543,7 @@ void TestDynamicsAndBlocks()
     Check(maximumDifference < 1.0e-6, "block partition does not change the output");
 }
 
-void TestAliasingAndPower()
+void TestAliasing()
 {
     const auto brightDrive = Render(48000.0, 0.15, 7000.0, 256, 1.0, 4);
     const double fundamental = ToneMagnitude(brightDrive, 24000, 7000.0, 48000.0);
@@ -732,11 +569,6 @@ void TestAliasingAndPower()
                                                  std::max(unfilteredFundamental, 1.0e-12));
     std::cout << "Same model without decimation filtering: " << unfilteredDb << " dBc\n";
     Check(aliasDb < unfilteredDb - 20.0, "half-band path suppresses aliasing by at least 20 dB");
-
-    const auto cleanPower = Render(48000.0, 0.10, 440.0, 256, 0.0, 2, 0.0);
-    const auto drivenPower = Render(48000.0, 0.10, 440.0, 256, 0.0, 2, 1.0);
-    Check(std::abs(Rms(cleanPower, 4096) - Rms(drivenPower, 4096)) > 0.02,
-          "power drive changes the nonlinear output");
 }
 } // namespace
 
@@ -769,17 +601,81 @@ void MeasureLevelTable()
     }
 }
 
+// Prints a re-fitted kPowerStageSineDb for BuiltinAmpVoicing.h, after the
+// table, which it reads. Each point is the heard level Power Drive adds with
+// its makeup taken back out, which is what the power stage itself added.
+void FitPowerStageSine()
+{
+    using namespace guitarfx::builtin_amp;
+    struct Point
+    {
+        Clippers clippers;
+        float drive, levelDb;
+        double addedDb;
+    };
+    std::vector<Point> points;
+    for (const double voice : {0.0, 1.0})
+    {
+        for (const int stages : {1, 2, 4})
+        {
+            for (const double gain : {0.0, 0.5, 1.0})
+            {
+                const float clean = HeardLevelDb(0, stages, static_cast<float>(gain));
+                const float levelDb = clean + static_cast<float>(voice) *
+                                                  (HeardLevelDb(1, stages, static_cast<float>(gain)) - clean);
+                for (const double character : {0.0, 0.5, 1.0})
+                {
+                    const double none = HeardLevel({gain, voice, character, stages, 0.0});
+                    for (const float drive : {0.5f, 1.0f})
+                    {
+                        Point point{{}, drive, levelDb, 0.0};
+                        point.clippers.SetCharacter(static_cast<float>(character));
+                        point.clippers.SetPowerStage(drive, 0.0f);
+                        point.addedDb = HeardLevel({gain, voice, character, stages, drive}) - none +
+                                        PowerStageGainDb(point.clippers, drive, levelDb);
+                        points.push_back(point);
+                    }
+                }
+            }
+        }
+    }
+
+    float best = 0.0f;
+    double bestRms = 1.0e9, bestWorst = 0.0;
+    for (int tenths = 0; tenths <= 80; ++tenths)
+    {
+        const float shift = 0.1f * static_cast<float>(tenths) - kPowerStageSineDb;
+        double squares = 0.0, worst = 0.0;
+        for (const Point& point : points)
+        {
+            const double error = PowerStageGainDb(point.clippers, point.drive, point.levelDb + shift) - point.addedDb;
+            squares += error * error;
+            worst = std::max(worst, std::abs(error));
+        }
+        if (std::sqrt(squares / static_cast<double>(points.size())) < bestRms)
+        {
+            best = 0.1f * static_cast<float>(tenths);
+            bestRms = std::sqrt(squares / static_cast<double>(points.size()));
+            bestWorst = worst;
+        }
+    }
+    std::cout << std::fixed << std::setprecision(1) << "inline constexpr float kPowerStageSineDb = " << best
+              << "f; // " << std::setprecision(2) << bestRms << " dB RMS, " << bestWorst << " dB at worst\n";
+}
+
 int main(int argc, char** argv)
 {
     if (argc > 1 && std::string(argv[1]) == "--measure-levels")
     {
         MeasureLevelTable();
+        FitPowerStageSine();
         return 0;
     }
 
     TestHalfbandLatency();
     TestGainRange();
     TestLevelTracksGain();
+    TestPowerDriveTracksLevel();
     TestCharacterRange();
     TestSagLowersPowerCeiling();
     TestCharacterSweepIsSmooth();
@@ -788,7 +684,7 @@ int main(int argc, char** argv)
     TestVoiceIsASwitch();
     TestMonoPath();
     TestDynamicsAndBlocks();
-    TestAliasingAndPower();
+    TestAliasing();
     if (failures)
     {
         std::cerr << failures << " test(s) failed\n";

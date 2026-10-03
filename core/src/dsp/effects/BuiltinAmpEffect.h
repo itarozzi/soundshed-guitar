@@ -86,6 +86,7 @@ class BuiltinAmpEffect : public EffectProcessor
         mBiasSmoothed = mBias;
         mCharacterSmoothed = mCharacter;
         mOutputGainSmoothed = mOutputGainTarget;
+        mPowerMakeupSmoothed = mPowerMakeupTarget;
         AdvanceFilters(1.0);
         mStageFades.Settle(std::clamp(mStageCount, 1, kMaxStages));
         mVoicingStale = true;
@@ -226,6 +227,13 @@ class BuiltinAmpEffect : public EffectProcessor
             break;
         default:
             break;
+        }
+
+        // What feeds the power stage and how it clips: worked out per change, then glided.
+        if (index == kVoice || index == kGain || index == kCharacter || index == kStageCount || index == kPowerDrive ||
+            index == kBias)
+        {
+            mPowerMakeupTarget = PowerDriveMakeup(mGain, mVoice, mStageCount, mCharacter, mPowerDrive, mBias);
         }
     }
 
@@ -389,6 +397,7 @@ class BuiltinAmpEffect : public EffectProcessor
             Glide(mBiasSmoothed, mBias, smoothStep);
             Glide(mCharacterSmoothed, mCharacter, smoothStep);
             mOutputGainSmoothed += smoothStep * (mOutputGainTarget - mOutputGainSmoothed);
+            Glide(mPowerMakeupSmoothed, mPowerMakeupTarget, smoothStep);
             AdvanceFilters(1.0 - mFilterSmoothCoef);
             UpdateVoicing(mStageFades.Advance(stageCount, mStageFilters));
 
@@ -540,7 +549,7 @@ class BuiltinAmpEffect : public EffectProcessor
         const float clipped = mClippers.PowerClip(powerInput, headroom);
         const float powered = powerInput + driveAmount * (clipped - powerInput);
         signal = mFilters[kPostHighPass].Process(powered, ch);
-        return static_cast<float>(signal) * mOutputGainSmoothed * mLevelMakeup;
+        return static_cast<float>(signal) * mOutputGainSmoothed * mLevelMakeup * mPowerMakeupSmoothed;
     }
 
     static float DbToLinear(double db)
@@ -744,6 +753,8 @@ class BuiltinAmpEffect : public EffectProcessor
     float mPreEmphasis = 0.0f;
     float mPowerDrive = 0.0f;
     float mPowerDriveSmoothed = 0.0f;
+    float mPowerMakeupTarget = 1.0f;
+    float mPowerMakeupSmoothed = 1.0f;
     float mSag = 0.0f;
     float mSagSmoothed = 0.0f;
     float mBias = 0.0f;

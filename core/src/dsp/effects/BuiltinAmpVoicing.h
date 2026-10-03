@@ -10,7 +10,7 @@
 /**
  * What the Heavy American is, as opposed to how it runs (BuiltinAmpEffect.h): its parameter
  * table, where the preamp stages sit, the clipper knees Character morphs between, the drive law,
- * and the level table that keeps Gain from being a volume control.
+ * and the level makeup that keeps Gain and Power Drive from being volume controls.
  */
 namespace guitarfx::builtin_amp
 {
@@ -417,5 +417,69 @@ inline constexpr float kHeardLevelDb[2][kMaxStages][5] = {{{-19.73f, -17.43f, -1
 
     constexpr float dbToLog2 = 0.166096405f; // 1 / (20 log10 2)
     return std::exp2(db * dbToLog2);
+}
+
+/**
+ * Power Drive has to change how hard the power stage is pushed, not how loud the amp is. Fully
+ * driven, the stage is a 12 dB small-signal boost into its clipper, so without this full Power
+ * Drive was 1 to 11 dB louder than none: the most where the preamp runs clean and quiet, the
+ * least where it is already saturated.
+ *
+ * What the stage adds depends on how hot it is fed, and the level table already says that: it
+ * behaves like a sine kPowerStageSineDb above the amp's heard level at that gain, voice and
+ * stage count. The makeup takes out that sine's RMS gain through the power stage as the Clippers
+ * have it set up, so it follows Character's knee and Bias as well as the drive. Fitted against
+ * the heard level over voice, stages, gain, Character and Power Drive, it holds to 0.3 dB RMS
+ * and 1.1 dB at worst (the soft knee at full drive). Static, like the table; and Sag is left out,
+ * since costing level as you dig in is what it is for. TestPowerDriveTracksLevel fails when this
+ * goes stale.
+ */
+inline constexpr float kPowerStageSineDb = 3.5f;
+
+/// The level the power stage adds at `drive`, in dB, for an amp heard at `levelDb`.
+[[nodiscard]] inline float PowerStageGainDb(const Clippers& clippers, float drive, float levelDb)
+{
+    constexpr int kPoints = 16;
+    constexpr float dbToLog2 = 0.166096405f; // 1 / (20 log10 2)
+    const float amplitude = std::exp2((levelDb + kPowerStageSineDb) * dbToLog2);
+    std::array<float, kPoints> out = {};
+    float in = 0.0f, mean = 0.0f;
+
+    for (int i = 0; i < kPoints; ++i)
+    {
+        const float x = amplitude * static_cast<float>(std::sin(2.0 * kPi * (i + 0.5) / kPoints));
+        out[i] = x + drive * (clippers.PowerClip(x, 1.0f) - x);
+        in += x * x;
+        mean += out[i] / kPoints;
+    }
+
+    // Bias makes the stage asymmetric; the DC that adds is filtered out after it, and unheard.
+    float power = 0.0f;
+
+    for (const float y : out)
+    {
+        power += (y - mean) * (y - mean);
+    }
+
+    return 10.0f * std::log10(power / in);
+}
+
+/// The trim that keeps Power Drive from being a volume control, as a gain, for the controls as
+/// set. Exactly 1 with no Power Drive.
+[[nodiscard]] inline float PowerDriveMakeup(float gain, float voice, int stages, float character, float drive,
+                                            float bias)
+{
+    if (drive <= 0.0f)
+    {
+        return 1.0f;
+    }
+
+    Clippers clippers;
+    clippers.SetCharacter(character);
+    clippers.SetPowerStage(drive, bias);
+    const float clean = HeardLevelDb(0, stages, gain);
+    const float levelDb = clean + voice * (HeardLevelDb(1, stages, gain) - clean);
+    constexpr float dbToLog2 = 0.166096405f; // 1 / (20 log10 2)
+    return std::exp2(-PowerStageGainDb(clippers, drive, levelDb) * dbToLog2);
 }
 } // namespace guitarfx::builtin_amp

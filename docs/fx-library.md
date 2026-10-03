@@ -385,7 +385,7 @@ power stage.
 | `contour` | 0–1 | 0.2 | Up to -12 dB at 600 Hz |
 | `presence` | 0–1 | 0.5 | ±6 dB at 4 kHz |
 | `output` | ±24 dB | 0 | |
-| `powerDrive`, `sag`, `bias`, `depth`, `resonance`, `damping` | | | The power section (advanced). Sag pulls the power stage's ceiling down as you dig in, so loud notes clip and compress harder; with Power Drive at 0 it does nothing |
+| `powerDrive`, `sag`, `bias`, `depth`, `resonance`, `damping` | | | The power section (advanced). Power Drive is level-compensated, like Gain. Sag pulls the power stage's ceiling down as you dig in, so loud notes clip and compress harder; with Power Drive at 0 it does nothing |
 
 **Factory presets** (`BuiltinAmpPresets.h`) set every control, Output and the hidden power
 section included. Output is the exception to the rule the other effects keep: an amp preset is a
