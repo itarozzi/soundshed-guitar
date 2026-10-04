@@ -1586,12 +1586,24 @@ toe, rock back to dive) and Step Whammy (in semitones). Everything a pedal moves
 The two blends sit 3 dB under the default, as Mix is a linear crossfade.
 
 ### Transpose (`transpose`)
-High-quality transpose effect optimized for integer semitone steps using Signalsmith Stretch.
+Shifts the whole input by whole semitones, for playing in another tuning. Two engines:
+
+- **High Quality** (0, the default, so presets saved before the second engine sound as they did):
+  Signalsmith Stretch, 80 ms of latency.
+- **Low Latency** (1): `SpliceTransposer`, a time-domain shifter that moves its read tap to every
+  pick attack, so attacks arrive 3-6 ms late shifting down, and that reports 16 ms. It holds a
+  low E1 in tune, and on the bench it scores better than High Quality on every measure
+  (`docs/transpose-engine.md`). The global transpose always runs this one.
+
+At 0 st the node passes its input through and reports no latency. Entering or leaving 0 st, and
+switching engine, crossfade over 10 ms, and both engines keep recording their input while idle, so
+a shift never starts on stale audio.
 
 | Parameter | Range | Default | Unit |
 |-----------|-------|---------|------|
 | `semitones` | -36..+12 | 0.0 | st |
 | `mix` | 0.0–1.0 | 1.0 | — |
+| `engine` | 0/1 (`High Quality`/`Low Latency`) | 0.0 | enum |
 
 ### Transpose (Hybrid) (`transpose_hybrid`)
 Low-latency hybrid transpose path for down-tuning. Uses a dual-band STFT sustain path, switches medium and deeper downshifts to the more stable polyphonic analysis mode, and blends in a latency-aligned dry transient assist to keep pick attacks tighter without leaving the low fundamentals unshifted. Live semitone changes fade the reconfigured wet path back in to reduce clicks and STFT warmup artifacts.

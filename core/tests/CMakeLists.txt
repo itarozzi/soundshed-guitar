@@ -95,12 +95,14 @@ set(TEST_SOURCES
     SignalPathNodeConfigLockTests.cpp
     SimpleCabEffectTests.cpp
     SpectrumTapTests.cpp
+    SpliceTransposerTests.cpp
     Spatial3DEffectTests.cpp
     StereoProcessingTests.cpp
     SynthSawEffectTests.cpp
     TestWavLoad.cpp
     Tone3000ResourceWorkflowTests.cpp
     TransposeBenchmark.cpp
+    TransposeEffectTests.cpp
     WahEffectTests.cpp
 )
 

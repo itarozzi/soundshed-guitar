@@ -1,5 +1,6 @@
 #include "dsp/GlobalChainEngine.h"
 
+#include "dsp/GlobalChainEditor.h"
 
 namespace guitarfx
 {
@@ -45,7 +46,7 @@ void GlobalChainEngine::Rebuild(const ExecutorSetup& setup)
         mConfig.preChainGraph = preGraph;
     }
 
-    Load(*mPre, preGraph, &mConfig.inputGain, setup);
+    Load(*mPre, GlobalChainEditor::LivePreChain(preGraph), &mConfig.inputGain, setup);
 
     auto postGraph = mConfig.BuildPostChainGraph();
 
@@ -97,7 +98,8 @@ bool GlobalChainEngine::PrepareSwap(GlobalSignalChainConfig normalized, const Ex
     // Expensive part: runs on the caller's thread with no DSP lock held.
     mPendingPre = std::make_unique<SignalGraphExecutor>();
     mPendingPost = std::make_unique<SignalGraphExecutor>();
-    Load(*mPendingPre, mPendingConfig->preChainGraph, &mPendingConfig->inputGain, setup);
+    Load(*mPendingPre, GlobalChainEditor::LivePreChain(mPendingConfig->preChainGraph), &mPendingConfig->inputGain,
+         setup);
     Load(*mPendingPost, mPendingConfig->postChainGraph, nullptr, setup);
     return true;
 }

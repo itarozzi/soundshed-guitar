@@ -17,6 +17,14 @@ class GlobalChainEditor
 
     static void NormalizeConfig(GlobalSignalChainConfig& config);
 
+    /// The pre-chain as the executor runs it, from the configured one. The config's transpose
+    /// node is on only while it transposes, which is what both UIs show and what is saved; the
+    /// running node never stops. It is transparent at 0 st and fades into and out of that by
+    /// itself, and it keeps its input history, so neither a shift starting nor one ending
+    /// jumps the audio, and a shift never starts on stale audio. It runs the Low Latency engine,
+    /// at the configured shift while the node is on and 0 while it is off.
+    [[nodiscard]] static SignalGraph LivePreChain(const SignalGraph& configured);
+
     void SetGateEnabled(bool enabled);
     void SetGateThreshold(double thresholdDb);
     void SetGateAttack(double attackMs);
@@ -43,6 +51,12 @@ class GlobalChainEditor
     /// Every SetGate* value setter is this call: the node is the copy the config is
     /// serialized from, so the two have to move together or a restart loses the edit.
     void SetGateParam(const char* key, double value);
+
+    /// The shift the running transpose node plays for a configured one (see LivePreChain).
+    [[nodiscard]] static double LiveTransposeSemitones(const GraphNode& node);
+
+    /// Hands the configured transpose node to the running one, the way LivePreChain does.
+    void PushLiveTranspose(const GraphNode& node);
 
     [[nodiscard]] GraphNode* FindPreNode(const char* id, const char* type);
     [[nodiscard]] GraphNode* FindPostNode(const char* id, const char* type);

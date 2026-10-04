@@ -1,6 +1,6 @@
 # Transpose Improvements Plan
 
-Status: in progress (2026-09). Covers the transpose/pitch-shift effect family: `pitch_shift`, `transpose` (also the global pre-chain transpose), `transpose_stft`, and `transpose_hybrid`. Related Signalsmith users: `octave` (`arp_auto` moved to `TimeDomainPitchShifter` in 2026-10; see docs/fx-library.md).
+Status: in progress (2026-09). **2026-10-04: the global transpose now runs `SpliceTransposer`, a full-band time-domain engine with pick-attack re-sync, and `transpose` offers it as Engine: Low Latency; see docs/transpose-engine.md for the design and the measurements. Sections below that predate it are kept as the record.** Covers the transpose/pitch-shift effect family: `pitch_shift`, `transpose` (also the global pre-chain transpose), `transpose_stft`, and `transpose_hybrid`. Related Signalsmith users: `octave` (`arp_auto` moved to `TimeDomainPitchShifter` in 2026-10; see docs/fx-library.md).
 
 This revision recasts the live goal around **guitar and bass to -12 st**, with proof gates before listening, and a two-engine product (Signalsmith for shallow, a low-latency engine for deep drop). Do not implement DSP from this doc until the harness can actually prove bass -12.
 
@@ -30,13 +30,14 @@ Displacement for a linear spectrum resample is `f0 * (1 - 2^(st/12)) * N / sr`. 
 
 ## Current State
 
-Global pre-chain node `global_transpose` (`EffectGuids::kTranspose`) is still **Signalsmith**, now via the shared `ConfigureSignalsmithLive()` policy (`core/src/dsp/effects/SignalsmithSupport.h`) rather than `presetCheaper`. Mixer/UI clamp +/-12. 0 st bypasses Stretch and reports 0 latency. STFT and hybrid are experimental-flag gated in the FX catalog.
+Global pre-chain node `global_transpose` (`EffectGuids::kTranspose`) runs the Low Latency engine (`SpliceTransposer`) since 2026-10-04: `GlobalChainEditor::LivePreChain` keeps the node running through 0 st, where it is transparent and reports 0 latency, and crossfades into and out of shifting. Mixer/UI clamp +/-12. Before that it ran Signalsmith via the shared `ConfigureSignalsmithLive()` policy (`core/src/dsp/effects/SignalsmithSupport.h`). STFT and hybrid are experimental-flag gated in the FX catalog.
 
 | Effect | Engine | Range (st) | Latency @48 kHz (measured) | Notes |
 |---|---|---|---|---|
 | `pitch_shift` (High Quality) | Signalsmith `ConfigureSignalsmithLive` (3840/960) | -12..+12 (continuous) | 3840 samples (80 ms) when shifting | Tonality limit 8 kHz; a new shift heard ~40 ms after it is set |
 | `pitch_shift` (Low Latency) | `TimeDomainPitchShifter`: resampling tap + correlation-matched splices | -12..+12 (continuous) | reports 10 ms; tap 5-13 ms mean by shift | Added 2026-09 for expression pedals: a shift is heard within 3 ms; faint flutter on chords |
-| `transpose` | same | -36..+12 (integer); global clamp +/-12 | 80 ms when shifting | Tonality limit 16 kHz; **this is the live global path today** |
+| `transpose` (High Quality, node default) | same | -36..+12 (integer); global clamp +/-12 | 80 ms when shifting | Tonality limit 16 kHz |
+| `transpose` (Low Latency) | `SpliceTransposer`: drifting tap, rate-cost correlation splices, match-length fades, pick-attack re-sync | -36..+12 (integer) | reports 16 ms; picks arrive 3-6 ms late shifting down | **The live global path since 2026-10-04**; docs/transpose-engine.md |
 | `transpose_stft` | STFT phase vocoder (`stftPitchShift`) | -12..+12 | LL ~6.7-14 ms; poly ~13-26 ms | Profiles by `abs(st)` + mode; experimental |
 | `transpose_hybrid` | Dual-band **dual STFT** (900 Hz split) + dry transient assist | -15..0 | ~7-29 ms; **~2.1-2.5 ms/block** | Auto poly STFT at >=4 st depth; experimental; research only |
 
@@ -172,6 +173,8 @@ Listening only after gates: mono riff, chords, bass open-string + riff, guitar a
 4. **Time-domain lows for deep drop** (see live -12 path). Not a shallow-only SOLA experiment: this is the likely way to hit <=8-10 ms on bass.
 
 ## Live -12 path
+
+**Update 2026-10-04:** a full-band time-domain engine (`SpliceTransposer`) met the latency bar with better pitch, sidebands and attacks than Signalsmith at every interval, guitar and synthetic bass, on the bench in docs/transpose-engine.md, so the global path uses it and steps 1-4 below are no longer on its critical path. Still open from this plan: real bass DI fixtures and a HyperTune comparison on the same report.
 
 Commercial bar is ~7 ms (HyperTune) to ~18 ms (Archetype, under-reports PDC). Our STFT LL is already in the 13 ms neighbourhood on guitar with correct pitch at -12. Closing the remaining gap is quality-then-latency, not the reverse.
 

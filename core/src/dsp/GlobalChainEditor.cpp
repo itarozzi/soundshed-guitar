@@ -1,6 +1,7 @@
 #include "dsp/GlobalChainEditor.h"
 
 #include "dsp/EffectGuids.h"
+#include "dsp/effects/TransposeEffect.h"
 
 #include <algorithm>
 #include <cmath>
@@ -144,12 +145,45 @@ void GlobalChainEditor::SetGateStereoLink(bool linked)
     SetGateParam("stereoLink", linked ? 1.0 : 0.0);
 }
 
+SignalGraph GlobalChainEditor::LivePreChain(const SignalGraph& configured)
+{
+    SignalGraph live = configured;
+
+    if (auto* node = FindNodeByIdOrType(live, "global_transpose", EffectGuids::kTranspose))
+    {
+        node->params["semitones"] = LiveTransposeSemitones(*node);
+        node->params["engine"] = TransposeEffect::kLowLatencyEngine;
+        node->enabled = true;
+    }
+
+    return live;
+}
+
+double GlobalChainEditor::LiveTransposeSemitones(const GraphNode& node)
+{
+    const auto semitones = node.params.find("semitones");
+
+    if (!node.enabled || semitones == node.params.end())
+    {
+        return 0.0;
+    }
+
+    return std::clamp(std::round(semitones->second), -12.0, 12.0);
+}
+
+void GlobalChainEditor::PushLiveTranspose(const GraphNode& node)
+{
+    mPre.SetNodeEnabled(node.id, true);
+    mPre.SetNodeParam(node.id, "engine", TransposeEffect::kLowLatencyEngine);
+    mPre.SetNodeParam(node.id, "semitones", LiveTransposeSemitones(node));
+}
+
 void GlobalChainEditor::SetTransposeEnabled(bool enabled)
 {
     if (auto* node = FindPreNode("global_transpose", EffectGuids::kTranspose))
     {
         node->enabled = enabled;
-        mPre.SetNodeEnabled(node->id, enabled);
+        PushLiveTranspose(*node);
     }
 }
 
@@ -161,8 +195,7 @@ void GlobalChainEditor::SetTranspose(int semitones)
     {
         node->enabled = enabled;
         node->params["semitones"] = value;
-        mPre.SetNodeEnabled(node->id, enabled);
-        mPre.SetNodeParam(node->id, "semitones", value);
+        PushLiveTranspose(*node);
     }
 }
 
