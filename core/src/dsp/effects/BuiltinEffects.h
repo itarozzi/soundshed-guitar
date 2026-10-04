@@ -28,7 +28,6 @@
 #include "dsp/effects/PhaserEffect.h"
 #include "dsp/effects/TremoloEffect.h"
 #include "dsp/effects/RingModEffect.h"
-#include "dsp/effects/AutoWahEffect.h"
 #include "dsp/effects/WahEffect.h"
 #include "dsp/effects/Spatial3DEffect.h"
 #include "dsp/effects/OctaveEffect.h"
@@ -141,7 +140,6 @@ inline void RegisterAllEffects()
     RegisterPhaserEffect();
     RegisterTremoloEffect();
     RegisterRingModEffect();
-    RegisterAutoWahEffect();
     RegisterWahEffect();
     RegisterSpatial3DEffect();
     RegisterOctaveEffect();

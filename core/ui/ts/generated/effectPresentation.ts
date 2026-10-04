@@ -139,7 +139,6 @@ export const EFFECTS: Readonly<Record<string, EffectPresentation>> = {
   [EffectGuids.kPhaser]: { icon: "wave" },
   [EffectGuids.kTremolo]: { icon: "wave" },
   [EffectGuids.kRingMod]: { icon: "wave" },
-  [EffectGuids.kAutoWah]: { icon: "mixer" },
   [EffectGuids.kWah]: { icon: "mixer" },
   [EffectGuids.kOctave]: { icon: "note" },
   [EffectGuids.kPitchShift]: { icon: "note" },

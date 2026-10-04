@@ -1,17 +1,24 @@
-﻿#pragma once
+#pragma once
+
+/**
+ * @file LegacyAutoWah.h
+ * @brief The Auto-Wah as it shipped, kept verbatim for WahLegacyMigrationTests.
+ *
+ * The effect was folded into the Wah's Envelope control (see WahLegacyMigration.h). Its DSP is
+ * kept here, and nowhere else, so the migration can be checked against what the old effect
+ * did rather than against what its knobs said: its filter resonated at half the frequency it
+ * was set to, and its bandpass peaked at Q times the input. Nothing registers it.
+ */
 
 #include "dsp/EffectProcessor.h"
-#include "dsp/EffectRegistry.h"
-#include "dsp/EffectGuids.h"
+
 #include <algorithm>
 #include <cmath>
+#include <string>
 
-namespace guitarfx
+namespace legacy_wah
 {
-/**
- * Auto-wah effect using envelope follower and bandpass filter.
- */
-class AutoWahEffect : public EffectProcessor
+class LegacyAutoWahEffect : public guitarfx::EffectProcessor
 {
   public:
     void Prepare(double sampleRate, int maxBlockSize) override
@@ -187,22 +194,4 @@ class AutoWahEffect : public EffectProcessor
     float mBandR = 0.0f;
     float mLowR = 0.0f;
 };
-
-inline void RegisterAutoWahEffect()
-{
-    EffectTypeInfo info;
-    info.type = EffectGuids::kAutoWah;
-    info.aliases = {"auto_wah"};
-    info.displayName = "Auto-Wah";
-    info.category = "modulation";
-    info.description = "Envelope-controlled bandpass filter";
-    info.requiresResource = false;
-    info.parameters = {{"sensitivity", "Sensitivity", 0.6, 0.0, 1.0, "amount"},
-                       {"minFreq", "Min Freq", 300.0, 200.0, 1000.0, "Hz"},
-                       {"maxFreq", "Max Freq", 2800.0, 800.0, 5000.0, "Hz"},
-                       {"resonance", "Resonance", 2.5, 0.5, 10.0, "Q"},
-                       {"mix", "Mix", 1.0, 0.0, 1.0, "amount"}};
-
-    EffectRegistry::Instance().Register(info.type, info, []() { return std::make_unique<AutoWahEffect>(); });
-}
-} // namespace guitarfx
+} // namespace legacy_wah

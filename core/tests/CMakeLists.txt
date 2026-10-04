@@ -104,6 +104,8 @@ set(TEST_SOURCES
     TransposeBenchmark.cpp
     TransposeEffectTests.cpp
     WahEffectTests.cpp
+    WahEnvelopeTests.cpp
+    WahLegacyMigrationTests.cpp
 )
 
 if(GUITARFX_CORE_ENABLE_WASM_EFFECTS)

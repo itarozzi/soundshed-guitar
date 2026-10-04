@@ -222,8 +222,9 @@ GraphNode DeserializeGraphNode(const nlohmann::json& json, const std::optional<s
 {
     GraphNode node;
     node.id = json.value("id", "");
-    // Resolve legacy string IDs to canonical UUIDs for backward compatibility
-    node.type = EffectRegistry::Instance().Resolve(json.value("type", ""));
+    // The type as stored, legacy or retired id included: the migrations below read it that way,
+    // and it is resolved to the canonical UUID once they have run.
+    node.type = json.value("type", "");
     node.category = json.value("category", "");
     // Support both "label" and "displayName"
     node.label = json.value("label", json.value("displayName", ""));
@@ -276,6 +277,8 @@ GraphNode DeserializeGraphNode(const nlohmann::json& json, const std::optional<s
     }
 
     MigrateLegacyNodeParams(node);
+    // Resolve legacy string IDs to canonical UUIDs for backward compatibility
+    node.type = EffectRegistry::Instance().Resolve(node.type);
     return node;
 }
 

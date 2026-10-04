@@ -406,15 +406,6 @@ int main()
             0.10, 5.0e-4, false, 1);
 
         allPassed &= RunChannelIndependenceTest(
-            "Auto-wah ignores opposite channel envelope", "auto_wah",
-            [](guitarfx::EffectProcessor& effect, const TestResources&) {
-                effect.SetParam("sensitivity", 1.0);
-                effect.SetParam("mix", 1.0);
-                return true;
-            },
-            resources, GenerateSine(220.0, 0.18), GenerateSilence(), GenerateSine(880.0, 0.9), 0.18, 2.0e-2, true, 3);
-
-        allPassed &= RunChannelIndependenceTest(
             "Wah saturation ignores opposite channel level", "wah",
             [](guitarfx::EffectProcessor& effect, const TestResources&) {
                 effect.SetParam("position", 0.0);

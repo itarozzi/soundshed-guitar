@@ -82,7 +82,7 @@ All UUID constants are defined in `core/src/dsp/EffectGuids.h`. The table below 
 | `kPhaser` | `3aa9dc81-31c2-40d5-9b1b-b0b9d1295e9b` | `phaser` |
 | `kTremolo` | `c9debb02-d7e7-43e3-8330-b387be46dcf4` | `tremolo` |
 | `kRingMod` | `c13068c1-9c50-4c7c-be9e-eef808990651` | `ring_mod` |
-| `kAutoWah` | `b06c6d84-01b3-4d0a-ad98-40eecb64438e` | `auto_wah` |
+| `kAutoWah` | `b06c6d84-01b3-4d0a-ad98-40eecb64438e` | `auto_wah` (retired: runs as `kWah`) |
 | `kWah` | `8ae7a185-8075-466f-a83b-72f8dfa50af0` | `wah` |
 | `kSpatial3D` | `a3196960-a89b-4388-829e-cbf8d8dd91c3` | `spatial_3d` |
 | `kPitchShift` | `0c15f065-8335-4932-9d2f-366d436ec30a` | `pitch_shift` |
@@ -195,7 +195,7 @@ archive in `core/ui/presets/factory/`. Archive installs and archive sessions ign
 | `drive` | Gain/clipping/saturation | Overdrive, distortion, fuzz |
 | `dynamics` | Dynamics processing | Noise gate, compressor, limiter |
 | `eq` | Equalization | Parametric EQ |
-| `modulation` | Modulation effects | Chorus, flanger, phaser, tremolo, ring modulator, auto-wah, wah |
+| `modulation` | Modulation effects | Chorus, flanger, phaser, tremolo, ring modulator, wah (pedal or envelope) |
 | `pitch` | Pitch manipulation | Pitch shift, transpose, octave |
 | `delay` | Time-based delay | Digital delay, tape echo, analog (BBD) delay, doubler |
 | `reverb` | Reverberation | Room, chamber, spring, advanced, IR, ambient |
@@ -1207,10 +1207,12 @@ set, because effect presets are copied wholesale into a graph node rather than m
 
 ### Wah (`wah`)
 
-A conventional, foot-controlled wah: a resonant bandpass swept by **Pedal Position**. Map
-that parameter to an expression pedal, a MIDI CC or host automation (right-click the control
-for MIDI Learn). Every other parameter describes the pedal, so a factory preset is a *model*
-of a wah rather than a setting of one. The envelope-driven version is `auto_wah`.
+A wah: a resonant bandpass swept by a pedal or by the playing level. With **Control** at
+Pedal it follows **Pedal Position**; map that parameter to an expression pedal, a MIDI CC or
+host automation (right-click the control for MIDI Learn). At Auto Wah it follows how hard you
+play, as an envelope filter does. The voicing parameters describe the pedal either way, so a
+factory preset is a *model* of a wah rather than a setting of one. The former Auto-Wah effect
+runs as this effect's Auto Wah control; see *Retired Auto-Wah* below.
 
 **Signal path, per channel**
 
@@ -1226,7 +1228,8 @@ in ─┬─ resonant bandpass (TPT state-variable filter) × peak gain ──�
 | Peak gain | `2·√Q`, tilted by Toe Gain (dB, applied progressively along the travel). A unity-peak bandpass passes pink-noise power in proportion to 1/Q whatever its frequency, so pink noise — close to a guitar's long-term spectrum — holds a steady level across both the sweep and the Q knob. Where Q falls toward the toe, the heel is the taller peak: 6 dB on the GCB-95 curve, in line with Holters and Zölzer's measured 6–8 dB. |
 | Saturation | The filter's damping rises with the square of the resonant stage's own output, so a hot input flattens and widens the peak and adds odd harmonics, as a saturating inductor or a clipping transistor stage does. |
 | Pedal smoothing | Frequency, Q and gain glide in the log domain with the Response time constant. That removes the zipper noise of a 7-bit MIDI CC, and doubles as the lag of an optical (LDR) wah. Level, Mix, Low End and Treble smooth over a fixed 10 ms. |
-| Auto-Engage | For controllers without a toe switch. The wah fades in over 25 ms as soon as the pedal leaves the heel, and fades back to the dry signal once the pedal has rested at or below 4% travel for 400 ms, so a quick heel-toe rock never cuts out. A wah loaded with its pedal parked at the heel starts off. |
+| Auto-Engage | For controllers without a toe switch. The wah fades in over 25 ms as soon as the pedal leaves the heel, and fades back to the dry signal once the pedal has rested at or below 4% travel for 400 ms, so a quick heel-toe rock never cuts out. A wah loaded with its pedal parked at the heel starts off. Pedal mode only: the envelope parks the filter at the heel between notes, where this would switch the wah off at every rest. |
+| Auto Wah control | A peak follower with Attack and Release time constants reads the louder of the two channels (one detector, as a stereo compressor links its sides, so a stereo image never wobbles between them). Sensitivity is the gain the level is read with, 0 dB at 0 to 40 dB at 1; the default, +10 dB, puts a nominal guitar's accents at the toe and the rest of its playing part way. The result, capped at 1, is the pedal's travel above Pedal Position, which is the rest the filter opens from. The opening sets the filter directly every sample: Attack and Release are the smoothing here, and Response plays no part. |
 
 The trapezoidal (topology-preserving) state-variable filter stays stable and free of
 artefacts while its coefficients change every sample, which a direct-form biquad does not.
@@ -1236,11 +1239,15 @@ Centre frequencies are clamped to 0.45 × the sample rate. Latency is zero.
 
 | Parameter | Range | Default | Unit | Group |
 |-----------|-------|---------|------|-------|
-| `position` | 0–1 | 0.5 | heel → toe | Pedal |
+| `control` | Pedal / Auto Wah | Pedal | enum | Pedal |
+| `position` | 0–1 | 0.5 | heel → toe (the rest position in Auto Wah mode) | Pedal |
 | `response` | 1–150 | 12 | ms | Pedal (advanced) |
 | `autoEngage` | 0/1 | 0 | toggle | Pedal |
-| `heelFreq` | 150–1000 | 440 | Hz | Voicing |
-| `toeFreq` | 600–5000 | 2000 | Hz | Voicing |
+| `sensitivity` | 0–1 | 0.25 | 0–40 dB of detector gain | Auto Envelope (advanced) |
+| `attack` | 1–100 | 5 | ms, log taper | Auto Envelope (advanced) |
+| `release` | 10–1000 | 80 | ms, log taper | Auto Envelope (advanced) |
+| `heelFreq` | 100–1000 | 440 | Hz | Voicing |
+| `toeFreq` | 400–5000 | 2000 | Hz | Voicing |
 | `taper` | -1…1 | -0.25 | — | Voicing (advanced) |
 | `q` | 0.5–20 | 8 | Q at the heel | Voicing |
 | `toeQScale` | 0.1–2 | 0.25 | × | Voicing (advanced) |
@@ -1252,11 +1259,14 @@ Centre frequencies are clamped to 0.45 × the sample rate. Latency is zero.
 | `mix` | 0–1 | 1.0 | — | Output |
 
 The defaults are the Cry Baby GCB-95 voicing, which is also the preset a new node starts
-with. Read-only feedback: `currentFrequency`, `currentQ`, `engaged`.
+with. Read-only feedback: `currentFrequency`, `currentQ`, `engaged`, `envelope` (the detector's
+opening, 0–1).
 
 **Factory presets** set every voicing parameter plus `mix`, and deliberately leave out
-`position` and `autoEngage`. Those belong to the player's controller, so loading a voicing
-never moves the pedal or switches the wah off underfoot. The presets are voiced
+`control`, `position`, `autoEngage` and the envelope settings (`wah::IsPerformanceParam`).
+Those belong to the player's controller and to how the wah is driven, so loading a voicing
+never moves the pedal, switches the wah off underfoot, or takes the sweep away from the
+envelope. The presets are voiced
 approximations of each pedal, not circuit captures; where a sweep range is marked estimated,
 no published figure was found.
 
@@ -1303,6 +1313,25 @@ effect pedal*, DAFx-11; ElectroSmash's GCB-95 and V847 analyses; the DAFx-15 pap
 Ibanez Weeping Demon; the Fulltone, Xotic, Real McCoy and Vox Big Bad Wah manuals and product
 pages; and for the Morley signature wahs, Morley's product copy and published reviews. Tom
 Morello's TBM95 shares the GCB-95's published specification, so the GCB-95 preset covers it.
+
+**Retired Auto-Wah.** The `auto_wah` effect (`kAutoWah`) was folded into this one: its type is an
+alias of `wah`, so a stored auto-wah node runs as a wah, and on load `WahLegacyMigration.h` gives
+it the wah's parameters on the Auto Wah control. The mapping follows what the old filter did
+rather than what its knobs said. Its state-variable filter resonated at half the frequency set,
+so Min and Max Freq become Heel and Toe Freq at half their values. Its damping was 1/Q plus the
+integrator gain tan(πf/fs), so its Q fell short of the knob (Q 10 gave 8.4 at 300 Hz and 2.3 at
+5 kHz) and its bandpass peaked at that Q where the wah's peaks at 2·√Q, so Q, Toe Q Scale, Level
+and Toe Gain are set to the Q and peak it had at each end of the sweep, at 48 kHz. It swept
+linearly in Hz, so Taper is set for the two sweeps to agree at mid-travel, which keeps them
+within about 10% from a quarter open to the toe; nearer the heel the migrated wah sits higher on
+a faint signal. Its envelope followed each channel on its own, where the wah's one detector
+follows the louder. Its Sensitivity read the level 1 + 9 × Sensitivity times hotter, so the
+setting is mapped to the same gain on the wah's 0–40 dB scale (its default 0.6 becomes 0.40). Its
+fixed 5 ms attack and 80 ms release are set explicitly, Pedal Position 0
+is the rest the envelope opens from, and Low End, Treble and Saturation are off. A node whose
+type a loader has already resolved to `wah` is still recognised by the old keys (`minFreq`,
+`maxFreq`, `resonance`). `WahLegacyMigrationTests` holds the mapping to the old effect, kept verbatim in
+`core/tests/helpers/LegacyAutoWah.h`.
 
 ### Ring Modulator (`ring_mod`)
 

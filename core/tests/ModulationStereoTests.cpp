@@ -32,7 +32,6 @@
 namespace
 {
 using guitarfx::EffectGuids::kAmpBuiltin;
-using guitarfx::EffectGuids::kAutoWah;
 using guitarfx::EffectGuids::kChorus;
 using guitarfx::EffectGuids::kDelayDoubler;
 using guitarfx::EffectGuids::kFlanger;
@@ -344,7 +343,7 @@ void TestEffectsDeclareWhatTheyDo()
         {kTremolo, {}, false, "tremolo at defaults"},
         {kTremolo, {{"depth", 1.0}, {"shape", 1.0}, {"rate", 12.0}}, false, "tremolo pushed hard"},
         {kWah, {}, false, "wah at defaults"},
-        {kAutoWah, {}, false, "auto-wah at defaults"},
+        {kWah, {{"control", 1.0}}, false, "wah on its Auto Wah control"},
     };
 
     for (const auto& c : cases)
@@ -488,15 +487,18 @@ void TestSilentModulationKeepsTheMonoPath()
     }
 }
 
-/// Phaser, tremolo and the wahs must not push a following amp onto its stereo path.
+/// Phaser, tremolo and the wah on either control must not push a following amp onto its stereo path.
 void TestMonoModulationKeepsTheMonoPath()
 {
-    for (const char* type : {kPhaser, kTremolo, kWah, kAutoWah})
+    const std::vector<std::pair<const char*, Params>> stages = {
+        {kPhaser, {}}, {kTremolo, {}}, {kWah, {}}, {kWah, {{"control", 1.0}}}};
+
+    for (const auto& [type, params] : stages)
     {
-        const auto run = RunChain({{"mod", type, {}}, {"probe", kProbeType, {}}});
+        const auto run = RunChain({{"mod", type, params}, {"probe", kProbeType, {}}});
         Check(run.probeMonoBlocks == kBlocks && run.probeStereoBlocks == 0,
-              NameOf(type) + " leaves the next node mono (mono " + std::to_string(run.probeMonoBlocks) + ", stereo " +
-                  std::to_string(run.probeStereoBlocks) + ")");
+              NameOf(type) + (params.empty() ? "" : " (Auto Wah)") + " leaves the next node mono (mono " +
+                  std::to_string(run.probeMonoBlocks) + ", stereo " + std::to_string(run.probeStereoBlocks) + ")");
     }
 }
 

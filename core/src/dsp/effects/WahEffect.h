@@ -10,6 +10,7 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -52,11 +53,40 @@ constexpr double kEngageFadeMs = 25.0;
 /// A smoothed value this close to its target snaps onto it. In log2 units it is 0.1 cent.
 constexpr double kSettleThreshold = 1.0e-4;
 
+/// Auto Wah control: Sensitivity is the gain the playing level is read with, 0 to 40 dB. At 0 a
+/// full-scale peak opens the filter fully; at the default, +10 dB, a peak at -10 dBFS does, which
+/// on a guitar at the nominal level puts accents at the toe and the rest of the playing part way
+/// (on the demo riffs, median opening 0.7 and nothing pinned at the toe); at 1 a peak 40 dB down
+/// does, for a quiet rig. The retired Auto-Wah read it 1 + 9 x Sensitivity times hotter, which at
+/// its default pinned a nominal guitar at the toe nine notes in ten.
+constexpr double kSensitivityRangeDb = 40.0;
+
+/// The detector gain for a Sensitivity setting.
+[[nodiscard]] inline double SensitivityGain(double sensitivity)
+{
+    return std::pow(10.0, sensitivity * kSensitivityRangeDb / 20.0);
+}
+
+/// What sweeps the filter.
+enum class Control
+{
+    Pedal = 0,    ///< Pedal Position: an expression pedal, a MIDI CC or host automation
+    Envelope = 1, ///< the playing level, as an envelope filter does
+    Count
+};
+
+inline constexpr const char* kControlLabels[] = {"Pedal", "Auto Wah"};
+static_assert(std::size(kControlLabels) == static_cast<std::size_t>(Control::Count));
+
 enum Param : std::size_t
 {
+    kControl,
     kPosition,
     kResponse,
     kAutoEngage,
+    kSensitivity,
+    kAttack,
+    kRelease,
     kHeelFreq,
     kToeFreq,
     kTaper,
@@ -75,11 +105,15 @@ enum Param : std::size_t
 /// Entries are in `Param` order. The voicing defaults are the Cry Baby GCB-95 preset's, so a
 /// wah built straight from the registry sounds like a new node does.
 inline constexpr std::array<EffectParamSpec, kParamCount> kParams = {{
+    {"control", "Control", 0.0, 0.0, 1.0, "enum", "Pedal", false, 1.0, kControlLabels},
     {"position", "Pedal Position", 0.5, 0.0, 1.0, "amount", "Pedal", false, 0.0},
     {"response", "Response", 12.0, 1.0, 150.0, "ms", "Pedal", true, 0.0},
     {"autoEngage", "Auto-Engage", 0.0, 0.0, 1.0, "toggle", "Pedal", false, 1.0},
-    {"heelFreq", "Heel Freq", 440.0, 150.0, 1000.0, "Hz", "Voicing", false, 0.0},
-    {"toeFreq", "Toe Freq", 2000.0, 600.0, 5000.0, "Hz", "Voicing", false, 0.0},
+    {"sensitivity", "Sensitivity", 0.25, 0.0, 1.0, "amount", "Auto Envelope", true, 0.0},
+    LogTaper({"attack", "Attack", 5.0, 1.0, 100.0, "ms", "Auto Envelope", true, 0.0}),
+    LogTaper({"release", "Release", 80.0, 10.0, 1000.0, "ms", "Auto Envelope", true, 0.0}),
+    {"heelFreq", "Heel Freq", 440.0, 100.0, 1000.0, "Hz", "Voicing", false, 0.0},
+    {"toeFreq", "Toe Freq", 2000.0, 400.0, 5000.0, "Hz", "Voicing", false, 0.0},
     {"taper", "Taper", -0.25, -1.0, 1.0, "amount", "Voicing", true, 0.0},
     {"q", "Q", 8.0, 0.5, 20.0, "", "Voicing", false, 0.0},
     {"toeQScale", "Toe Q Scale", 0.25, 0.1, 2.0, "x", "Voicing", true, 0.0},
@@ -96,26 +130,42 @@ inline constexpr std::array<EffectParamSpec, kParamCount> kParams = {{
     return FindParamSpec(kParams, key);
 }
 
+/// The parameters a factory voicing leaves alone. They belong to the player's controller and to
+/// how the wah is driven, not to the pedal being modelled, so loading a voicing never moves the
+/// pedal, switches the wah off underfoot, or takes the sweep away from the envelope.
+[[nodiscard]] constexpr bool IsPerformanceParam(Param param) noexcept
+{
+    return param == kControl || param == kPosition || param == kAutoEngage || param == kSensitivity ||
+           param == kAttack || param == kRelease;
+}
+
 [[nodiscard]] inline float FlushDenormal(float value)
 {
     return (std::fabs(value) < 1.0e-25f) ? 0.0f : value;
+}
+
+/// The exponent WarpPosition raises the travel to for a taper.
+[[nodiscard]] inline double WarpExponent(double taper)
+{
+    return std::pow(3.0, -taper);
 }
 
 /// Bends pedal travel the way a pot taper does: 0 is even, positive packs the sweep toward the
 /// heel, negative toward the toe.
 [[nodiscard]] inline double WarpPosition(double position, double taper)
 {
-    return std::pow(std::clamp(position, 0.0, 1.0), std::pow(3.0, -taper));
+    return std::pow(std::clamp(position, 0.0, 1.0), WarpExponent(taper));
 }
 } // namespace wah
 
 /**
- * Conventional, pedal-controlled wah.
+ * A wah, swept by a pedal or by the playing level.
  *
- * The auto-wah drives its filter from the playing envelope. This one is driven by
- * `position`, meant to be mapped to an expression pedal, a MIDI CC or host automation. The
- * other parameters describe the pedal itself, so a factory preset is a model of a particular
- * wah rather than a setting of one.
+ * With Control at Pedal the filter follows `position`, meant to be mapped to an expression
+ * pedal, a MIDI CC or host automation. At Auto Wah it follows the playing level, as an envelope
+ * filter does: one detector for both channels opens the filter from Pedal Position toward the
+ * toe as the guitar gets louder. The voicing parameters describe the pedal itself either way, so
+ * a factory preset is a model of a particular wah rather than a setting of one.
  *
  * Per channel:
  *
@@ -143,6 +193,12 @@ inline constexpr std::array<EffectParamSpec, kParamCount> kParams = {{
  * Pedal movement is smoothed over `response` ms in the log-frequency domain. A MIDI CC moves in
  * 1/127 steps, which would otherwise be audible as zipper noise, and an optical wah's
  * light-dependent resistor lags the pedal in much the same way.
+ *
+ * The envelope detector is a peak follower with its own Attack and Release, which are the
+ * smoothing in that mode: its opening sets the filter directly, every sample. Sensitivity scales
+ * the level it reads. The two channels share the detector, as a stereo compressor links its
+ * sides, so the louder side opens the filter for both and a stereo image never wobbles between
+ * them. Auto-Engage and Response belong to the pedal and do nothing in Auto Wah mode.
  */
 class WahEffect : public EffectProcessor
 {
@@ -174,6 +230,8 @@ class WahEffect : public EffectProcessor
     void Reset() override
     {
         mChannels = {};
+        mEnvelope = 0.0f;
+        mOpening = 0.0f;
         ComputeTargets();
 
         mPitch = mTargetPitch;
@@ -204,15 +262,25 @@ class WahEffect : public EffectProcessor
         ComputeTargets();
         UpdateAutoEngage(numSamples);
 
+        const bool envelope = EnvelopeControl();
         const double pedalSmoothing = SmoothingCoefficient(mValues[wah::kResponse]);
         const float engageTarget = EngageTarget();
-        mGliding = mGliding || std::abs(mTargetPitch - mPitch) > wah::kSettleThreshold ||
-                   std::abs(mTargetLogQ - mLogQ) > wah::kSettleThreshold ||
-                   std::abs(mTargetLogGain - mLogGain) > wah::kSettleThreshold;
+        // The envelope sets the filter directly. A glide picks up from wherever it left the
+        // filter when the control goes back to the pedal.
+        mGliding = !envelope && (mGliding || std::abs(mTargetPitch - mPitch) > wah::kSettleThreshold ||
+                                 std::abs(mTargetLogQ - mLogQ) > wah::kSettleThreshold ||
+                                 std::abs(mTargetLogGain - mLogGain) > wah::kSettleThreshold);
 
         for (int i = 0; i < numSamples; ++i)
         {
-            if (mGliding)
+            const float inL = inputs[0] ? inputs[0][i] : 0.0f;
+            const float inR = inputs[1] ? inputs[1][i] : inL;
+
+            if (envelope)
+            {
+                FollowEnvelope(std::max(std::abs(inL), std::abs(inR)));
+            }
+            else if (mGliding)
             {
                 GlidePedal(pedalSmoothing);
             }
@@ -224,8 +292,6 @@ class WahEffect : public EffectProcessor
             mEngage = Approach(mEngage, engageTarget, mEngageSmoothing);
 
             const float wetAmount = mMix * mEngage;
-            const float inL = inputs[0] ? inputs[0][i] : 0.0f;
-            const float inR = inputs[1] ? inputs[1][i] : inL;
             const float outL = ProcessSample(mChannels[0], inL, wetAmount);
             const float outR = ProcessSample(mChannels[1], inR, wetAmount);
 
@@ -250,6 +316,17 @@ class WahEffect : public EffectProcessor
                 channel = {};
             }
         }
+
+        // The same for the detector, which would otherwise hold the filter at a NaN centre.
+        if (!IsFinite(mEnvelope) || !IsFinite(mPitch))
+        {
+            mEnvelope = 0.0f;
+            mOpening = 0.0f;
+            mPitch = mTargetPitch;
+            mLogQ = mTargetLogQ;
+            mLogGain = mTargetLogGain;
+            UpdateFilterCoefficients();
+        }
     }
 
     void SetParam(const std::string& key, double value) override
@@ -261,8 +338,7 @@ class WahEffect : public EffectProcessor
             return;
         }
 
-        const auto& spec = wah::kParams[index];
-        mValues[index] = std::clamp(value, spec.minValue, spec.maxValue);
+        mValues[index] = NormaliseParamValue(wah::kParams[index], value);
     }
 
     void SetConfig(const std::string&, const std::string&) override
@@ -290,6 +366,11 @@ class WahEffect : public EffectProcessor
         if (key == "engaged")
         {
             return mEngage;
+        }
+
+        if (key == "envelope")
+        {
+            return mOpening;
         }
 
         return 0.0;
@@ -340,11 +421,21 @@ class WahEffect : public EffectProcessor
         mEngageSmoothing = static_cast<float>(SmoothingCoefficient(wah::kEngageFadeMs));
         mLowEndCoefficient = OnePoleCoefficient(wah::kLowEndCutoffHz);
         mTrebleCoefficient = OnePoleCoefficient(wah::kTrebleShelfHz);
+        mMinPitch = std::log2(wah::kMinFilterHz);
+        mMaxPitch = std::log2(std::max(wah::kMinFilterHz, mSampleRate * wah::kMaxFilterFraction));
+        mGainBase = std::log2(wah::kPeakGainScale);
     }
 
+    [[nodiscard]] bool EnvelopeControl() const
+    {
+        return static_cast<wah::Control>(static_cast<int>(mValues[wah::kControl])) == wah::Control::Envelope;
+    }
+
+    /// The pedal's heel switch. The envelope parks the filter at the heel between notes, where
+    /// this would switch the wah off at every rest, so the envelope never engages it.
     [[nodiscard]] bool AutoEngageEnabled() const
     {
-        return mValues[wah::kAutoEngage] >= 0.5;
+        return mValues[wah::kAutoEngage] >= 0.5 && !EnvelopeControl();
     }
 
     [[nodiscard]] int AutoOffHoldSamples() const
@@ -371,25 +462,65 @@ class WahEffect : public EffectProcessor
         }
     }
 
+    /// The filter a pedal position asks for, in the log domain the glide runs in.
+    struct PedalState
+    {
+        double pitch = 0.0; ///< log2 of the centre frequency
+        double logQ = 0.0;
+        double logGain = 0.0;
+    };
+
     /// Everything the parameters ask for, read once per block. SetParam lands between blocks,
     /// so nothing finer is lost.
     void ComputeTargets()
     {
-        const double warped = wah::WarpPosition(mValues[wah::kPosition], mValues[wah::kTaper]);
-        const double heelPitch = std::log2(mValues[wah::kHeelFreq]);
-        const double toePitch = std::log2(mValues[wah::kToeFreq]);
-        const double maxPitch = std::log2(std::max(wah::kMinFilterHz, mSampleRate * wah::kMaxFilterFraction));
+        mWarpExponent = wah::WarpExponent(mValues[wah::kTaper]);
+        mHeelPitch = std::log2(mValues[wah::kHeelFreq]);
+        mPitchSpan = std::log2(mValues[wah::kToeFreq]) - mHeelPitch;
+        mHeelLogQ = std::log2(mValues[wah::kQ]);
+        mLogQSpan = std::log2(mValues[wah::kToeQScale]);
+        mToeGainLog2 = mValues[wah::kToeGain] * wah::kLog2PerDb;
+        mRestPosition = mValues[wah::kPosition];
 
-        mTargetPitch = std::clamp(heelPitch + warped * (toePitch - heelPitch), std::log2(wah::kMinFilterHz), maxPitch);
-        mTargetLogQ = std::log2(mValues[wah::kQ]) + warped * std::log2(mValues[wah::kToeQScale]);
-        mTargetLogGain =
-            std::log2(wah::kPeakGainScale) + 0.5 * mTargetLogQ + warped * mValues[wah::kToeGain] * wah::kLog2PerDb;
+        const PedalState pedal = PedalFor(mRestPosition);
+        mTargetPitch = pedal.pitch;
+        mTargetLogQ = pedal.logQ;
+        mTargetLogGain = pedal.logGain;
 
         mTargetLevel = static_cast<float>(std::pow(10.0, mValues[wah::kLevel] / 20.0));
         mTargetMix = static_cast<float>(mValues[wah::kMix]);
         mTargetLowEnd = static_cast<float>(mValues[wah::kLowEnd]);
         mTargetTreble = static_cast<float>(std::pow(10.0, mValues[wah::kTreble] / 20.0));
         mSaturation = static_cast<float>(mValues[wah::kSaturation]) * wah::kSaturationScale;
+
+        mSensitivityGain = wah::SensitivityGain(mValues[wah::kSensitivity]);
+        mAttackCoefficient = static_cast<float>(SmoothingCoefficient(mValues[wah::kAttack]));
+        mReleaseCoefficient = static_cast<float>(SmoothingCoefficient(mValues[wah::kRelease]));
+    }
+
+    /// WarpPosition and the sweep laws, from the per-block constants.
+    [[nodiscard]] PedalState PedalFor(double position) const
+    {
+        const double warped = std::pow(std::clamp(position, 0.0, 1.0), mWarpExponent);
+        PedalState pedal;
+        pedal.pitch = std::clamp(mHeelPitch + warped * mPitchSpan, mMinPitch, mMaxPitch);
+        pedal.logQ = mHeelLogQ + warped * mLogQSpan;
+        pedal.logGain = mGainBase + 0.5 * pedal.logQ + warped * mToeGainLog2;
+        return pedal;
+    }
+
+    /// One detector for both channels. Its opening is the pedal's travel above its rest position
+    /// and sets the filter straight away: Attack and Release are the smoothing here.
+    void FollowEnvelope(float level)
+    {
+        mEnvelope += (level > mEnvelope ? mAttackCoefficient : mReleaseCoefficient) * (level - mEnvelope);
+        mOpening = static_cast<float>(std::min(1.0, static_cast<double>(mEnvelope) * mSensitivityGain));
+
+        const PedalState pedal = PedalFor(mRestPosition + (1.0 - mRestPosition) * mOpening);
+        mPitch = pedal.pitch;
+        mLogQ = pedal.logQ;
+        mLogGain = pedal.logGain;
+        UpdateFilterCoefficients();
     }
 
     void GlidePedal(double coefficient)
@@ -461,6 +592,23 @@ class WahEffect : public EffectProcessor
     double mLogGain = 0.0;
     bool mGliding = false;
 
+    double mWarpExponent = 1.0; ///< the sweep, as ComputeTargets reads it
+    double mHeelPitch = 0.0;
+    double mPitchSpan = 0.0;
+    double mHeelLogQ = 0.0;
+    double mLogQSpan = 0.0;
+    double mToeGainLog2 = 0.0;
+    double mRestPosition = 0.0;
+    double mMinPitch = 0.0;
+    double mMaxPitch = 0.0;
+    double mGainBase = 1.0;
+
+    double mSensitivityGain = 1.0; ///< the envelope detector
+    float mEnvelope = 0.0f;        ///< the level it follows
+    float mOpening = 0.0f;         ///< 0..1, the travel it adds to the rest position
+    float mAttackCoefficient = 1.0f;
+    float mReleaseCoefficient = 1.0f;
+
     float mG = 0.0f;
     float mDamping = 1.0f;
     float mPeakGain = 1.0f;
@@ -489,9 +637,10 @@ namespace wah
  * How a factory preset voices the pedal.
  *
  * A factory preset models a pedal, so it sets every voicing parameter and deliberately leaves
- * the two performance parameters alone. Pedal Position belongs to whatever controller is
- * mapped to it and Auto-Engage to how the player switches the wah, so loading a voicing must
- * neither move the pedal nor switch the wah off under the player's foot.
+ * the performance parameters (IsPerformanceParam) alone. Pedal Position belongs to whatever
+ * controller is mapped to it, Auto-Engage to how the player switches the wah, and Control with
+ * the envelope settings to how the player drives it, so loading a voicing must neither move the
+ * pedal, switch the wah off under the player's foot, nor take the sweep away from the envelope.
  *
  * Sweep ranges come from the manufacturers' published specifications where they exist (every
  * Dunlop model here), from circuit analysis and measurement for the GCB-95 and Vox, and from
@@ -595,11 +744,15 @@ inline void RegisterWahEffect()
 {
     EffectTypeInfo info;
     info.type = EffectGuids::kWah;
-    info.aliases = {"wah"};
+    // The Auto-Wah was folded into this effect's Auto Wah control. Its nodes run here, brought up
+    // to the wah's parameters by WahLegacyMigration.h.
+    info.aliases = {"wah", "auto_wah", EffectGuids::kAutoWah};
     info.displayName = "Wah";
     info.category = "modulation";
-    info.description = "Pedal-controlled wah. Map Pedal Position to an expression pedal or MIDI CC; "
-                       "factory presets voice classic and boutique wahs.";
+    info.description = "Wah swept by a pedal or by your playing. Map Pedal Position to an expression pedal or MIDI "
+                       "CC, or set Control to Auto Wah to let your playing sweep it; factory presets voice classic and "
+                       "boutique "
+                       "wahs.";
     info.requiresResource = false;
     info.presets = wah::FactoryPresets();
     info.parameters = BuildParameterDefs(wah::kParams);

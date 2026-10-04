@@ -352,7 +352,9 @@ void CanonicalizeNodeParams(GraphNode& node);
  * Today that is the drive pedals: a node from before their Model switch is put on the first
  * model with the Level that keeps it as loud as it was (see DriveLegacyMigration.h). And the Heavy
  * American: a node from before its rebuild gets the Output that keeps it as loud as it was (see
- * BuiltinAmpLegacyMigration.h).
+ * BuiltinAmpLegacyMigration.h). And the Auto-Wah, folded into the Wah: its node is given the wah's
+ * parameters, on the Envelope control, with the sweep and level the old filter actually had (see
+ * WahLegacyMigration.h).
  */
 void MigrateLegacyNodeParams(GraphNode& node);
 

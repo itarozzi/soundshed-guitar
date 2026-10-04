@@ -5,7 +5,7 @@
 A big update: five new effects, fifteen classic drive pedals, a Practice Tool for learning songs, undo/redo and A/B for your signal chain, gapless preset switching with ringing tails, and right-click MIDI Learn on nearly every control.
 
 ### New Effects
-* **Wah**: a real pedal wah for your expression pedal or MIDI controller, with 34 factory voicings covering classic, boutique and artist signature wahs. It can switch itself off when you rock back to the heel.
+* **Wah**: a real pedal wah for your expression pedal or MIDI controller, with 34 factory voicings covering classic, boutique and artist signature wahs. It can switch itself off when you rock back to the heel. Set Control to Auto Wah and your playing sweeps it instead, through any of the voicings. This replaces the old Auto-Wah effect: one already in your presets becomes a wah on Auto Wah with the same sweep and level.
 * **Tape Echo**: warm, wobbly repeats with wow and flutter, up to three playback heads, and the pitch bend of a real tape machine when you change the delay time.
 * **Analog Delay**: bucket-brigade repeats that get darker the longer the delay. Push the feedback high and both new delays run away into self-oscillation.
 * **3D Spatial**: place your guitar anywhere around you on headphones, or set it moving with seven motion modes, optionally in time with the song.

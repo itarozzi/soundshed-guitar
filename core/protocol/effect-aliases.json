@@ -132,13 +132,12 @@
       "guid": "c13068c1-9c50-4c7c-be9e-eef808990651",
       "aliases": ["ring_mod"]
     },
-    "kAutoWah": {
-      "guid": "b06c6d84-01b3-4d0a-ad98-40eecb64438e",
-      "aliases": ["auto_wah"]
-    },
     "kWah": {
       "guid": "8ae7a185-8075-466f-a83b-72f8dfa50af0",
-      "aliases": ["wah"]
+      "aliases": ["wah", "auto_wah"],
+      "retiredTypes": {
+        "kAutoWah": "b06c6d84-01b3-4d0a-ad98-40eecb64438e"
+      }
     },
     "kAutoArp": {
       "guid": "e4a7c9d0-3b52-4f16-8a9e-2c7f1d0e5b83",

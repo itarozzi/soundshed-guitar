@@ -222,10 +222,6 @@
       "guid": "c13068c1-9c50-4c7c-be9e-eef808990651",
       "icon": "wave"
     },
-    "kAutoWah": {
-      "guid": "b06c6d84-01b3-4d0a-ad98-40eecb64438e",
-      "icon": "mixer"
-    },
     "kWah": {
       "guid": "8ae7a185-8075-466f-a83b-72f8dfa50af0",
       "icon": "mixer"
