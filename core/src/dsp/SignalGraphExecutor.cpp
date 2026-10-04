@@ -12,8 +12,6 @@
 #include <algorithm>
 #include <cmath>
 #include <future>
-#include <queue>
-#include <set>
 #include <chrono>
 #include <tuple>
 
@@ -144,48 +142,6 @@ bool InputPairIsStereo(const float* left, const float* right, int numSamples)
     return false;
 }
 
-int ScoreNodeTypeForParallelWork(const std::string& type)
-{
-    if (type == EffectGuids::kAmpNam || type == EffectGuids::kAmpNamOptimized || type == EffectGuids::kAmpNamBlend ||
-        type == EffectGuids::kFxNam)
-    {
-        return 14;
-    }
-
-    if (type == EffectGuids::kCabIr || type == EffectGuids::kReverbIr)
-    {
-        return 12;
-    }
-
-    if (type == EffectGuids::kReverbAdvanced || type == EffectGuids::kReverbAmbient ||
-        type == EffectGuids::kReverbRoom || type == EffectGuids::kReverbSpring)
-    {
-        return 6;
-    }
-
-    if (type == EffectGuids::kDelayDigital || type == EffectGuids::kDelayDoubler || type == EffectGuids::kEqParametric)
-    {
-        return 3;
-    }
-
-    if (type == kNodeTypeInput || type == kNodeTypeOutput || type == kNodeTypeSplitter)
-    {
-        return 0;
-    }
-
-    if (type == kNodeTypeMixer)
-    {
-        return 1;
-    }
-
-    if (type == EffectGuids::kGain)
-    {
-        return 1;
-    }
-
-    return 2;
-}
-
 bool ShouldUseParallelLevel(int levelCount, int levelScore, int numSamples, bool executorParallelEnabled,
                             bool workersAvailable)
 {
@@ -200,7 +156,6 @@ bool ShouldUseParallelLevel(int levelCount, int levelScore, int numSamples, bool
     }
 
     // Keep level parallelization for blocks/levels with enough expected CPU work.
-    constexpr int kMinLevelParallelWorkUnits = 1800;
     const int totalWorkUnits = levelScore * numSamples;
     return totalWorkUnits >= kMinLevelParallelWorkUnits;
 }
@@ -213,69 +168,11 @@ SignalGraphExecutor::~SignalGraphExecutor()
     mWorkerPool.Stop();
 }
 
-SignalGraphExecutor::SignalGraphExecutor(SignalGraphExecutor&& other) noexcept
-{
-    *this = std::move(other);
-}
-
-SignalGraphExecutor& SignalGraphExecutor::operator=(SignalGraphExecutor&& other) noexcept
-{
-    if (this == &other)
-    {
-        return *this;
-    }
-
-    mWorkerPool.Stop();
-
-    mGraph = std::move(other.mGraph);
-    mResourceLibrary = other.mResourceLibrary;
-    mNodeStates = std::move(other.mNodeStates);
-    mExecutionOrder = std::move(other.mExecutionOrder);
-    mIncomingEdgeCount = std::move(other.mIncomingEdgeCount);
-    mExecutionLevels = std::move(other.mExecutionLevels);
-    mIncomingEdgesByNode = std::move(other.mIncomingEdgesByNode);
-    mSampleRate = other.mSampleRate;
-    mMaxBlockSize = other.mMaxBlockSize;
-    mInputTrim = other.mInputTrim;
-    mOutputTrim = other.mOutputTrim;
-    mIsValid = other.mIsValid;
-    mPrepared = other.mPrepared;
-    mLastOutputStereo = other.mLastOutputStereo;
-    mLastTotalProcessingTimeUs.store(other.mLastTotalProcessingTimeUs.load(std::memory_order_relaxed),
-                                     std::memory_order_relaxed);
-    mLastRealTimeUs.store(other.mLastRealTimeUs.load(std::memory_order_relaxed), std::memory_order_relaxed);
-    mLastDspLoadPercent.store(other.mLastDspLoadPercent.load(std::memory_order_relaxed), std::memory_order_relaxed);
-    mTempLeftBuffer = std::move(other.mTempLeftBuffer);
-    mTempRightBuffer = std::move(other.mTempRightBuffer);
-    // After mNodeStates: our old node states, which pointed at our old tap, are gone before it is.
-    mSpectrumTap = std::move(other.mSpectrumTap);
-    mSpectrumWatchNodeId = std::move(other.mSpectrumWatchNodeId);
-    mSignalDiagnosticsEnabled.store(other.mSignalDiagnosticsEnabled.load(std::memory_order_acquire),
-                                    std::memory_order_release);
-    mUseParallelLevels = other.mUseParallelLevels;
-    // Carried so the BuildExecutionPlan() below re-seeds the moved processors. Without it
-    // they would keep the tempo they already had and only pick a new one up when it next
-    // changed — right, but only by accident.
-    mAppliedTempoBpm = other.mAppliedTempoBpm;
-
-    // The plan is pointers into mNodeStates, mGraph and the processors. Moving those
-    // containers happens to preserve element addresses, but relying on that would make
-    // this a landmine for anyone who later swaps a container type. Rebuild instead --
-    // this is a message-thread operation, so it costs nothing that matters.
-    BuildExecutionPlan();
-
-    return *this;
-}
-
 void SignalGraphExecutor::SetGraph(const SignalGraph& graph)
 {
     mGraph = graph;
-    mIsValid = false;
     mPrepared = false;
     mNodeStates.clear();
-    mExecutionOrder.clear();
-    mExecutionLevelScores.clear();
-    mIncomingEdgeCount.clear();
 
     // CreateProcessors applies node params in map order, so a node carrying one parameter
     // under two spellings would let the key that sorts later decide the value. Fold them
@@ -349,101 +246,38 @@ void SignalGraphExecutor::SetGraph(const SignalGraph& graph)
         }
     }
 
-    // Track incoming edge counts and precompute per-node incoming edge index lists
+    // Each node's incoming edges, for the plan and the latency walk.
     mIncomingEdgesByNode.clear();
 
     for (const auto& node : mGraph.nodes)
     {
-        mIncomingEdgeCount[node.id] = 0;
         mIncomingEdgesByNode[node.id] = {};
     }
 
     for (std::size_t i = 0; i < mGraph.edges.size(); ++i)
     {
-        const auto& edge = mGraph.edges[i];
-        mIncomingEdgeCount[edge.to] += 1;
-        mIncomingEdgesByNode[edge.to].push_back(i);
+        mIncomingEdgesByNode[mGraph.edges[i].to].push_back(i);
     }
 
-    BuildExecutionOrder();
     BuildExecutionLevels();
     CreateProcessors();
     // Must follow CreateProcessors(): the plan holds pointers into mNodeStates and to the
     // processors it creates. Processors are only ever built there, and mNodeStates is only
     // repopulated here, so this is the single place the plan can go stale.
     BuildExecutionPlan();
-
-    if (mPrepared)
-    {
-        Prepare(mSampleRate, mMaxBlockSize);
-    }
-}
-
-void SignalGraphExecutor::BuildExecutionOrder()
-{
-    // Topological sort using Kahn's algorithm. A valid graph processes every
-    // node once; fewer processed nodes means a cycle exists and audio is muted.
-    std::map<std::string, int> inDegree;
-    std::map<std::string, std::vector<std::string>> adjacency;
-
-    // Initialize
-    for (const auto& node : mGraph.nodes)
-    {
-        inDegree[node.id] = 0;
-        adjacency[node.id] = {};
-    }
-
-    // Build adjacency and in-degree
-    for (const auto& edge : mGraph.edges)
-    {
-        adjacency[edge.from].push_back(edge.to);
-        inDegree[edge.to]++;
-    }
-
-    // Find all nodes with no incoming edges
-    std::queue<std::string> queue;
-
-    for (const auto& [id, degree] : inDegree)
-    {
-        if (degree == 0)
-        {
-            queue.push(id);
-        }
-    }
-
-    // Process
-    mExecutionOrder.clear();
-
-    while (!queue.empty())
-    {
-        std::string current = queue.front();
-        queue.pop();
-        mExecutionOrder.push_back(current);
-
-        for (const auto& neighbor : adjacency[current])
-        {
-            inDegree[neighbor]--;
-
-            if (inDegree[neighbor] == 0)
-            {
-                queue.push(neighbor);
-            }
-        }
-    }
-
-    // Check if we processed all nodes (no cycles)
-    mIsValid = (mExecutionOrder.size() == mGraph.nodes.size());
 }
 
 void SignalGraphExecutor::BuildExecutionLevels()
 {
+    // Kahn's algorithm, peeling the graph a level at a time: a level is every node whose
+    // sources have all run, so its nodes are independent of each other and may run in
+    // parallel, and the levels in order are the execution order. A node left over has a
+    // source that never runs -- a cycle -- and an edge naming a node the graph does not have
+    // is as broken; either way the graph is invalid and Process() outputs silence.
+    mExecutionOrder.clear();
     mExecutionLevels.clear();
     mExecutionLevelScores.clear();
-
-    if (!mIsValid)
-    {
-        return;
-    }
+    mIsValid = false;
 
     std::map<std::string, int> inDegree;
     std::map<std::string, std::vector<std::string>> adjacency;
@@ -451,17 +285,21 @@ void SignalGraphExecutor::BuildExecutionLevels()
     for (const auto& node : mGraph.nodes)
     {
         inDegree[node.id] = 0;
-        adjacency[node.id] = {};
+        adjacency[node.id];
     }
 
     for (const auto& edge : mGraph.edges)
     {
+        if (inDegree.count(edge.from) == 0 || inDegree.count(edge.to) == 0)
+        {
+            return;
+        }
+
         adjacency[edge.from].push_back(edge.to);
-        inDegree[edge.to]++;
+        ++inDegree[edge.to];
     }
 
     std::vector<std::string> frontier;
-    frontier.reserve(mGraph.nodes.size());
 
     for (const auto& [id, degree] : inDegree)
     {
@@ -475,49 +313,37 @@ void SignalGraphExecutor::BuildExecutionLevels()
 
     while (!frontier.empty())
     {
-        mExecutionLevels.push_back(frontier);
         int levelScore = 0;
-
-        for (const auto& nodeId : frontier)
-        {
-            const auto* node = mGraph.FindNode(nodeId);
-
-            if (node)
-            {
-                levelScore += ScoreNodeTypeForParallelWork(node->type);
-            }
-        }
-
-        mExecutionLevelScores.push_back(levelScore);
-        processed += frontier.size();
-
         std::vector<std::string> next;
 
         for (const auto& id : frontier)
         {
+            if (const auto* node = mGraph.FindNode(id))
+            {
+                levelScore += ScoreNodeTypeForParallelWork(node->type);
+            }
+
             for (const auto& neighbor : adjacency[id])
             {
-                auto it = inDegree.find(neighbor);
-
-                if (it == inDegree.end())
-                {
-                    continue;
-                }
-
-                it->second -= 1;
-
-                if (it->second == 0)
+                if (--inDegree[neighbor] == 0)
                 {
                     next.push_back(neighbor);
                 }
             }
         }
 
+        processed += frontier.size();
+        mExecutionOrder.insert(mExecutionOrder.end(), frontier.begin(), frontier.end());
+        mExecutionLevelScores.push_back(levelScore);
+        mExecutionLevels.push_back(std::move(frontier));
         frontier = std::move(next);
     }
 
-    if (processed != mGraph.nodes.size())
+    mIsValid = processed == mGraph.nodes.size();
+
+    if (!mIsValid)
     {
+        mExecutionOrder.clear();
         mExecutionLevels.clear();
         mExecutionLevelScores.clear();
     }
@@ -840,7 +666,6 @@ void SignalGraphExecutor::Prepare(double sampleRate, int maxBlockSize)
     const int hardwareWorkerBudget = rtparallel::kParallelDspSupported ? static_cast<int>(hw > 1 ? hw - 1 : 0) : 0;
     const int graphWorkerLimit = std::max(0, static_cast<int>(maxLevelWidth) - 1);
     const int workerCount = std::min({hardwareWorkerBudget, graphWorkerLimit, kMaxParallelWorkers});
-    constexpr int kMinLevelParallelWorkUnits = 1800;
     const bool graphHasMeaningfulParallelLevel = (maxLevelScore * maxBlockSize) >= kMinLevelParallelWorkUnits;
     mUseParallelLevels = maxLevelWidth > 1 && workerCount > 0 && graphHasMeaningfulParallelLevel;
 
@@ -860,14 +685,15 @@ void SignalGraphExecutor::Reset()
 
 void SignalGraphExecutor::AllocateBuffers(int maxBlockSize)
 {
+    const auto size = static_cast<size_t>(maxBlockSize);
+
     for (auto& [id, state] : mNodeStates)
     {
-        state.bufferLeft.resize(static_cast<size_t>(maxBlockSize), 0.0f);
-        state.bufferRight.resize(static_cast<size_t>(maxBlockSize), 0.0f);
+        state.bufferLeft.assign(size, 0.0f);
+        state.bufferRight.assign(size, 0.0f);
+        state.scratchLeft.assign(size, 0.0f);
+        state.scratchRight.assign(size, 0.0f);
     }
-
-    mTempLeftBuffer.resize(static_cast<size_t>(maxBlockSize), 0.0f);
-    mTempRightBuffer.resize(static_cast<size_t>(maxBlockSize), 0.0f);
 }
 
 void SignalGraphExecutor::Process(float** inputs, float** outputs, int numSamples)
@@ -934,6 +760,7 @@ void SignalGraphExecutor::Process(float** inputs, float** outputs, int numSample
         std::fill(state.bufferRight.begin(), state.bufferRight.begin() + numSamples, 0.0f);
         state.hasInput = false;
         state.hasStereoSignal = false;
+        state.channelCount.store(0, std::memory_order_relaxed);
         state.notesLastBlock = state.notesThisBlock;
         state.notesThisBlock = false;
 
@@ -953,9 +780,7 @@ void SignalGraphExecutor::Process(float** inputs, float** outputs, int numSample
     }
 
     // Apply input trim (global + input node gain)
-    const double inputNodeGainDb =
-        (mInputTrimNode && mInputTrimNode->params.count("gainDb")) ? mInputTrimNode->params.at("gainDb") : 0.0;
-    const float inputGain = mInputGainCache.Get(mInputTrim + inputNodeGainDb);
+    const float inputGain = mInputGainCache.Get(mInputTrim + (mInputNodeGainDb ? *mInputNodeGainDb : 0.0));
 
     if (mInputPlanNode)
     {
@@ -983,6 +808,7 @@ void SignalGraphExecutor::Process(float** inputs, float** outputs, int numSample
         // silent) must be reported as mono so downstream mono-capable nodes (e.g. NAM
         // amps) run a single model instead of processing a dead channel.
         state.hasStereoSignal = InputPairIsStereo(inputs[0], inputs[1], numSamples);
+        state.channelCount.store(state.hasStereoSignal ? 2 : 1, std::memory_order_relaxed);
 
         if (collectLevels)
         {
@@ -1024,9 +850,7 @@ void SignalGraphExecutor::Process(float** inputs, float** outputs, int numSample
     }
 
     // Copy the output node's buffers out, applying trim.
-    const double outputNodeGainDb =
-        (mOutputTrimNode && mOutputTrimNode->params.count("gainDb")) ? mOutputTrimNode->params.at("gainDb") : 0.0;
-    const float outputGain = mOutputGainCache.Get(mOutputTrim + outputNodeGainDb);
+    const float outputGain = mOutputGainCache.Get(mOutputTrim + (mOutputNodeGainDb ? *mOutputNodeGainDb : 0.0));
 
     for (const PlannedNode* plannedOutput : mOutputPlanNodes)
     {
@@ -1189,7 +1013,7 @@ std::vector<SignalGraphExecutor::NodeSignalLevel> SignalGraphExecutor::GetNodeSi
         entry.peak = state.peak.load(std::memory_order_relaxed);
         entry.rms = state.rms.load(std::memory_order_relaxed);
         entry.clipCount = state.clipCount.load(std::memory_order_relaxed);
-        entry.channelCount = state.hasInput ? (state.hasStereoSignal ? 2 : 1) : 0;
+        entry.channelCount = state.channelCount.load(std::memory_order_relaxed);
         const auto* analyzerEffect =
             state.processor ? dynamic_cast<const InputAnalyzerEffect*>(state.processor.get()) : nullptr;
 

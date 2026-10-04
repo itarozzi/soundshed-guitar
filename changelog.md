@@ -102,6 +102,7 @@ A big update: five new effects, fifteen classic drive pedals, a Practice Tool fo
 * Fixed crashes when some DAWs save or open a project, or read parameters while mappings reload.
 * Fixed a crash previewing demo audio on a DAW track with a mono input.
 * Fixed rare crashes and audio glitches in Multi-Rig and in chains with parallel branches on multi-core computers.
+* A bypassed Mixer node in a parallel chain now keeps its branches panned where you put them instead of folding them to mono.
 * Multi-Rig: adding, moving or removing an effect in one rig, or loading a model or IR into it, no longer fades out the other rigs or throws away their unsaved changes, and switching between rigs keeps every knob, bypass and pedal change.
 * Hosted plugins keep their settings through chain edits, scene switches, Multi-Rig and restarts (#23), get clean audio at every buffer size, and ones that used to load silently now work.
 * CLAP: parameter changes made while playback is stopped now apply straight away.

@@ -104,13 +104,4 @@ MixerTelemetry::NodeSignalLevel MixerTelemetry::ToSnapshotNode(
     node.analyzer = entry.analyzer;
     return node;
 }
-
-void MixerTelemetry::CopyFrom(const MixerTelemetry& other) noexcept
-{
-    SetEnabled(other.IsEnabled());
-    mOversizedBlockCount.store(other.GetOversizedBlockCount(), std::memory_order_relaxed);
-    WriteLevels(mRawInputLevels, ReadLevels(other.mRawInputLevels));
-    WriteLevels(mInputLevels, ReadLevels(other.mInputLevels));
-    WriteLevels(mOutputLevels, ReadLevels(other.mOutputLevels));
-}
 } // namespace guitarfx

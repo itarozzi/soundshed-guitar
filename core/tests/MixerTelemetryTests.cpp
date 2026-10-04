@@ -44,14 +44,5 @@ int main()
         return 1;
     }
 
-    telemetry.SetEnabled(false);
-    MixerTelemetry movedReadings;
-    movedReadings.CopyFrom(telemetry);
-    if (movedReadings.IsEnabled() || movedReadings.GetOversizedBlockCount() != 1 ||
-        movedReadings.GetSnapshot().rawInput.peak != 2.0)
-    {
-        std::cerr << "Telemetry state was not retained during mixer move\n";
-        return 1;
-    }
     return 0;
 }

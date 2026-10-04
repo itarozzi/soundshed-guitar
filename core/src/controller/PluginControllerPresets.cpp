@@ -134,7 +134,7 @@ void PluginController::HandlePresetLoadRequest(const nlohmann::json& payload)
         }
         else
         {
-            ApplyPreset(preset); // SetGlobalChainConfig is called inside ApplyPreset under mDSPMutex
+            ApplyPreset(preset); // stages and commits the global chain swap as well
         }
 
         mPendingPresetStateBroadcast = true;

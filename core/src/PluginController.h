@@ -262,11 +262,12 @@ class PluginController
     }
 
     // ── Automation (public API for host adapters) ───────────────────
-    /// Queue a MIDI event from the audio thread. Non-blocking and allocation-free;
-    /// the event is applied later via ProcessQueuedMidi().
+    /// Queue a MIDI event from the audio thread. Non-blocking and allocation-free; the next
+    /// ProcessAudio() applies it under the DSP lock, ahead of the block it belongs to.
     void EnqueueMidi(const MidiEvent& ev);
-    /// Drain and apply queued MIDI events under the DSP lock. Audio thread only;
-    /// uses try_lock so it never stalls the audio thread (events retried next block).
+    /// Applies the queued MIDI without a block. Takes the DSP lock with try_lock, so it never
+    /// stalls the caller, and leaves the events queued for next time if it cannot. ProcessAudio()
+    /// drains the same queue under the lock it already holds, so a host need not call this.
     void ProcessQueuedMidi();
     /// Enable/disable forwarding of raw MIDI events to the UI diagnostics log.
     void SetMidiLogEnabled(bool enabled);
@@ -956,6 +957,8 @@ class PluginController
 
     void AppendSessionLog(const std::string& message) const;
     void ProcessAudioLocked(float** inputs, float** outputs, int numSamples);
+    /// Under mDSPMutex: applies the queued MIDI to the automation slots.
+    void DrainQueuedMidiLocked();
     void ApplySetlistPresetByIndexDirect(int index);
     void SetlistBankChangeDirect(int delta);
     void SelectSetlistBankDirect(int bankNumber);

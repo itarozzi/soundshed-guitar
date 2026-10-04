@@ -355,12 +355,9 @@ void PluginProcessorAdapter::processBlock (juce::AudioBuffer<float>& buffer,
         midiMessages.clear();
     }
 
-    // Apply queued MIDI under the DSP lock (non-blocking; runs every block so any
-    // events deferred by lock contention on a previous block are retried).
-    mController.ProcessQueuedMidi();
-
-    // Drain pending DAW parameter changes (collected by AutomationSlotParameter::setValue),
-    // non-blocking like the MIDI above: a block that finds the DSP lock held retries next time.
+    // Drain pending DAW parameter changes (collected by AutomationSlotParameter::setValue)
+    // without blocking: a block that finds the DSP lock held retries next time. The MIDI
+    // queued above is applied by ProcessAudio itself, under the lock it takes for the block.
     applyPendingDAWParamChanges (false);
 
     // Set up float** for the core ProcessAudio

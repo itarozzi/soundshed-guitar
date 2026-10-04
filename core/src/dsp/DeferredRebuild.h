@@ -9,7 +9,7 @@ namespace guitarfx
  * The expensive half of a parameter change that SetParam could not make where it ran.
  *
  * SetParam can run on the audio thread: MIDI and DAW automation apply there, under the DSP lock
- * (PluginController::ProcessQueuedMidi). The message thread holds the same lock for anything it
+ * (PluginController::ProcessAudio). The message thread holds the same lock for anything it
  * calls into the chain, and the audio thread outputs silence for any block that finds it held.
  * So a parameter whose change needs a rebuild that allocates (the IR cab's Normalize and Low
  * Latency, the convolution reverb's Quality and Low Latency, which rebuild their convolvers) is

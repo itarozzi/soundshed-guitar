@@ -23,14 +23,6 @@ PresetVoicePool::ReadScope::~ReadScope()
     mPool.mReaders.fetch_sub(1, std::memory_order_release);
 }
 
-void PresetVoicePool::TakeStateFrom(PresetVoicePool& other)
-{
-    mInstances = std::move(other.mInstances);
-    mSampleRate = other.mSampleRate;
-    mTailSeconds = other.mTailSeconds;
-    mTailReleaseSamples = other.mTailReleaseSamples;
-}
-
 void PresetVoicePool::Prepare(double sampleRate)
 {
     mSampleRate = sampleRate;

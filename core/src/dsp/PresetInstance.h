@@ -112,8 +112,8 @@ struct PresetInstance
     }
 
     PresetInstance() = default;
-    PresetInstance(PresetInstance&&) noexcept = default;
-    PresetInstance& operator=(PresetInstance&&) noexcept = default;
+    /// Neither copyable nor movable: the executor's worker threads are bound to its address.
+    /// PresetVoicePool holds instances by pointer, so moving one around is a pointer move.
     PresetInstance(const PresetInstance&) = delete;
     PresetInstance& operator=(const PresetInstance&) = delete;
 };

@@ -59,9 +59,6 @@ class MixerTelemetry
         return mOversizedBlockCount.load(std::memory_order_relaxed);
     }
 
-    // Atomics make the type intentionally non-movable. A moving mixer copies its latest readings.
-    void CopyFrom(const MixerTelemetry& other) noexcept;
-
   private:
     struct AtomicLevelStats
     {

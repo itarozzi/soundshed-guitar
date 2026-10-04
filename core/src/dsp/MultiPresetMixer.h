@@ -3,13 +3,13 @@
 #include "presets/PresetTypes.h"
 #include "dsp/DspReaper.h"
 #include "dsp/EffectProcessor.h"
+#include "dsp/EffectRegistry.h"
 #include "dsp/GlobalChainEngine.h"
 #include "dsp/PresetInstance.h"
 #include "dsp/PresetVoicePool.h"
 #include "dsp/SignalGraphExecutor.h"
 #include "dsp/SignalTelemetry.h"
 #include "dsp/MixerTelemetry.h"
-#include "dsp/effects/ParametricEQEffect.h"
 #include "dsp/RealtimeParallel.h"
 #include "dsp/TunerEngine.h"
 
@@ -63,8 +63,6 @@ class MultiPresetMixer
     ~MultiPresetMixer();
     MultiPresetMixer(const MultiPresetMixer&) = delete;
     MultiPresetMixer& operator=(const MultiPresetMixer&) = delete;
-    MultiPresetMixer(MultiPresetMixer&& other) noexcept;
-    MultiPresetMixer& operator=(MultiPresetMixer&& other) noexcept;
 
     void SetResourceLibrary(ResourceLibrary* library)
     {
@@ -539,7 +537,7 @@ class MultiPresetMixer
     std::vector<float> mPreChainOutL, mPreChainOutR;
     std::vector<float> mPostChainOutL, mPostChainOutR;
 
-    // Stable heap address keeps the tuner's worker bound to its owner across mixer moves.
+    // By pointer so the destructor can stop it first, ahead of everything it reports on.
     std::unique_ptr<TunerEngine> mTuner;
 
     MixerTelemetry mTelemetry;

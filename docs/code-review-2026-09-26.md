@@ -422,10 +422,10 @@ Nano's layering is clean. It talks to the engine only through the JSON protocol,
 ### P3 — Minor
 
 - Engine:
-  - The summed-mono input branch can never run (`MultiPresetMixer.cpp:1052`).
+  - The summed-mono input branch can never run (`MultiPresetMixer.cpp:1052`). *Removed 3 October.*
   - `core/src/dsp/simd` (1,304 lines) is used only by a benchmark.
-  - `MultiPresetMixer.h:12` includes `ParametricEQEffect.h` without using it, and that reaches 36 TUs through `PluginController.h`.
-  - Executor move-assignment drops the parallel-level scores, so a global chain installed by swap never runs levels in parallel.
+  - `MultiPresetMixer.h:12` includes `ParametricEQEffect.h` without using it, and that reaches 36 TUs through `PluginController.h`. *Removed 3 October.*
+  - Executor move-assignment drops the parallel-level scores, so a global chain installed by swap never runs levels in parallel. *Fixed 3 October: `SignalGraphExecutor` is no longer movable; `GlobalChainEngine` holds its executors by pointer and `DspReaper` takes an outgoing one whole, worker threads included.*
 - Controller:
   - `SelectSceneByIndex` and the setlist bank functions call `try_lock` on a mutex the calling thread may already hold, which is undefined behaviour for `std::mutex`.
   - The layout association index is a JSON file outside the store and outside shared sync.

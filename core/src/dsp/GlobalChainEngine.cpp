@@ -1,15 +1,8 @@
 #include "dsp/GlobalChainEngine.h"
 
+
 namespace guitarfx
 {
-void GlobalChainEngine::TakeStateFrom(GlobalChainEngine& other)
-{
-    mConfig = std::move(other.mConfig);
-    mPre = std::move(other.mPre);
-    mPost = std::move(other.mPost);
-    mNeedsRebuild.store(other.mNeedsRebuild.load(std::memory_order_acquire), std::memory_order_release);
-}
-
 void GlobalChainEngine::Load(SignalGraphExecutor& executor, const SignalGraph& graph, const double* inputTrimDb,
                              const ExecutorSetup& setup)
 {
@@ -44,9 +37,6 @@ bool GlobalChainEngine::EnsureUpToDate(const ExecutorSetup& setup)
 
 void GlobalChainEngine::Rebuild(const ExecutorSetup& setup)
 {
-    mPre.Reset();
-    mPost.Reset();
-
     auto preGraph = mConfig.BuildPreChainGraph();
 
     if (preGraph.nodes.empty() && preGraph.edges.empty())
@@ -55,7 +45,7 @@ void GlobalChainEngine::Rebuild(const ExecutorSetup& setup)
         mConfig.preChainGraph = preGraph;
     }
 
-    Load(mPre, preGraph, &mConfig.inputGain, setup);
+    Load(*mPre, preGraph, &mConfig.inputGain, setup);
 
     auto postGraph = mConfig.BuildPostChainGraph();
 
@@ -65,7 +55,7 @@ void GlobalChainEngine::Rebuild(const ExecutorSetup& setup)
         mConfig.postChainGraph = postGraph;
     }
 
-    Load(mPost, postGraph, nullptr, setup);
+    Load(*mPost, postGraph, nullptr, setup);
 
     mNeedsRebuild.store(false, std::memory_order_release);
 }
@@ -105,8 +95,10 @@ bool GlobalChainEngine::PrepareSwap(GlobalSignalChainConfig normalized, const Ex
     }
 
     // Expensive part: runs on the caller's thread with no DSP lock held.
-    Load(mPendingPre.emplace(), mPendingConfig->preChainGraph, &mPendingConfig->inputGain, setup);
-    Load(mPendingPost.emplace(), mPendingConfig->postChainGraph, nullptr, setup);
+    mPendingPre = std::make_unique<SignalGraphExecutor>();
+    mPendingPost = std::make_unique<SignalGraphExecutor>();
+    Load(*mPendingPre, mPendingConfig->preChainGraph, &mPendingConfig->inputGain, setup);
+    Load(*mPendingPost, mPendingConfig->postChainGraph, nullptr, setup);
     return true;
 }
 
@@ -120,22 +112,16 @@ bool GlobalChainEngine::CommitSwap()
     mConfig = std::move(*mPendingConfig);
     mPendingConfig.reset();
 
-    if (mPendingPre.has_value() && mPendingPost.has_value())
+    if (mPendingPre && mPendingPost)
     {
-        // Hand the outgoing executors to the reaper rather than destroying them here: the
-        // audio thread try_locks the DSP mutex and outputs silence when it cannot take it,
-        // so freeing node state under that lock is an audible dropout.
-        //
-        // Residual: the move-assignment below stops any worker threads the outgoing executor
-        // owned, and SignalGraphExecutor's move does not transfer them, so that join happens
-        // under the caller's DSP lock. It is a wake-and-join of parked threads (bounded, tens
-        // of microseconds) and is zero for the linear default chains, which never start
-        // workers. Preset instances avoid this entirely by being held via unique_ptr.
-        mReaper.RetireExecutor(mPre);
-        mReaper.RetireExecutor(mPost);
+        // The outgoing executors go to the reaper whole rather than being destroyed here: the
+        // audio thread try_locks the DSP mutex and outputs silence when it cannot take it, so
+        // freeing node state, or joining worker threads, under that lock is an audible dropout.
+        mReaper.RetireExecutor(std::move(mPre));
+        mReaper.RetireExecutor(std::move(mPost));
 
-        mPre = std::move(*mPendingPre);
-        mPost = std::move(*mPendingPost);
+        mPre = std::move(mPendingPre);
+        mPost = std::move(mPendingPost);
         mNeedsRebuild.store(false, std::memory_order_release);
     }
 

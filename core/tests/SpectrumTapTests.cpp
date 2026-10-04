@@ -322,25 +322,17 @@ bool TestExecutorTapsTheNodeInput()
     ok &=
         Report("A rebuilt graph keeps feeding the watched node", std::abs(rebuilt - (atEq - 20.0)) < 2.0, Db(rebuilt));
 
-    // Moved into a new executor, as a global chain swap does.
-    SignalGraphExecutor moved;
-    moved = std::move(executor);
-    SineSource louder(1000.0, 0.5);
-    RunExecutor(moved, louder, 0.5);
-    const double afterMove = ReadLevelAt(moved, 1000.0);
-    ok &= Report("A moved executor keeps its tap", std::abs(afterMove - atEq) < 2.0, Db(afterMove));
-
-    moved.ClearSpectrumWatch();
-    ok &= Report("Clearing the watch stops reads", !moved.ReadWatchedSpectrum(bins));
+    executor.ClearSpectrumWatch();
+    ok &= Report("Clearing the watch stops reads", !executor.ReadWatchedSpectrum(bins));
 
     // A removed node ends the watch.
-    moved.WatchNodeSpectrum("eq");
+    executor.WatchNodeSpectrum("eq");
     SignalGraph withoutEq;
     withoutEq.nodes.push_back({"in", kNodeTypeInput, "", "Input", true});
     withoutEq.nodes.push_back({"out", kNodeTypeOutput, "", "Output", true});
     withoutEq.edges.push_back({"in", "out", 0, 0, 1.0});
-    moved.SetGraph(withoutEq);
-    ok &= Report("A node that is gone cannot be watched", !moved.WatchNodeSpectrum("eq"));
+    executor.SetGraph(withoutEq);
+    ok &= Report("A node that is gone cannot be watched", !executor.WatchNodeSpectrum("eq"));
     return ok;
 }
 

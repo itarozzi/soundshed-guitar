@@ -53,9 +53,9 @@ class DspReaper
     /// draining the queue, or the queue is at capacity.
     [[nodiscard]] bool TryRetireRealtime(std::unique_ptr<PresetInstance>& inst);
 
-    /// Message thread, under the DSP lock: moves a live executor out onto the queue, leaving
-    /// `executor` moved-from for the caller to assign its replacement into.
-    void RetireExecutor(SignalGraphExecutor& executor);
+    /// Message thread, under the DSP lock: queues an executor the caller has just replaced.
+    /// Its worker threads go with it, so nothing is joined under the lock.
+    void RetireExecutor(std::unique_ptr<SignalGraphExecutor> executor);
 
     /// Message thread only, without the DSP lock. Hosted processors (including composites)
     /// must be destroyed here rather than on the reaper thread, which may wait on their
@@ -70,9 +70,9 @@ class DspReaper
     void Loop();
 
     std::vector<std::unique_ptr<PresetInstance>> mInstances;
-    std::vector<SignalGraphExecutor> mExecutors;
+    std::vector<std::unique_ptr<SignalGraphExecutor>> mExecutors;
     std::vector<std::unique_ptr<PresetInstance>> mMainThreadInstances;
-    std::vector<SignalGraphExecutor> mMainThreadExecutors;
+    std::vector<std::unique_ptr<SignalGraphExecutor>> mMainThreadExecutors;
     std::mutex mMutex;
     std::condition_variable mCv;
     std::thread mThread;

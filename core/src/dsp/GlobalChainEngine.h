@@ -6,6 +6,7 @@
 
 #include <atomic>
 #include <map>
+#include <memory>
 #include <optional>
 #include <string>
 
@@ -37,16 +38,13 @@ struct ExecutorSetup
 class GlobalChainEngine
 {
   public:
-    explicit GlobalChainEngine(DspReaper& reaper) : mReaper(reaper)
+    explicit GlobalChainEngine(DspReaper& reaper)
+        : mReaper(reaper), mPre(std::make_unique<SignalGraphExecutor>()), mPost(std::make_unique<SignalGraphExecutor>())
     {
     }
 
     GlobalChainEngine(const GlobalChainEngine&) = delete;
     GlobalChainEngine& operator=(const GlobalChainEngine&) = delete;
-
-    /// Takes the other engine's config, executors and rebuild flag, as a moved mixer does.
-    /// Each engine keeps its own reaper, and a staged swap is left behind.
-    void TakeStateFrom(GlobalChainEngine& other);
 
     [[nodiscard]] GlobalSignalChainConfig& Config() noexcept
     {
@@ -60,22 +58,22 @@ class GlobalChainEngine
 
     [[nodiscard]] SignalGraphExecutor& Pre() noexcept
     {
-        return mPre;
+        return *mPre;
     }
 
     [[nodiscard]] const SignalGraphExecutor& Pre() const noexcept
     {
-        return mPre;
+        return *mPre;
     }
 
     [[nodiscard]] SignalGraphExecutor& Post() noexcept
     {
-        return mPost;
+        return *mPost;
     }
 
     [[nodiscard]] const SignalGraphExecutor& Post() const noexcept
     {
-        return mPost;
+        return *mPost;
     }
 
     /// Asks for the next EnsureUpToDate() to rebuild both executors.
@@ -113,14 +111,16 @@ class GlobalChainEngine
 
     DspReaper& mReaper;
     GlobalSignalChainConfig mConfig;
-    SignalGraphExecutor mPre;
-    SignalGraphExecutor mPost;
+    // By pointer, never null: a swap hands the outgoing executor to the reaper whole, worker
+    // threads included, so nothing is moved or joined under the DSP lock.
+    std::unique_ptr<SignalGraphExecutor> mPre;
+    std::unique_ptr<SignalGraphExecutor> mPost;
     std::atomic<bool> mNeedsRebuild{true};
 
-    // Staged by PrepareSwap(). The two executor slots stay empty when the graphs were
-    // unchanged and only the scalars need applying.
+    // Staged by PrepareSwap(). The two executors stay null when the graphs were unchanged and
+    // only the scalars need applying.
     std::optional<GlobalSignalChainConfig> mPendingConfig;
-    std::optional<SignalGraphExecutor> mPendingPre;
-    std::optional<SignalGraphExecutor> mPendingPost;
+    std::unique_ptr<SignalGraphExecutor> mPendingPre;
+    std::unique_ptr<SignalGraphExecutor> mPendingPost;
 };
 } // namespace guitarfx

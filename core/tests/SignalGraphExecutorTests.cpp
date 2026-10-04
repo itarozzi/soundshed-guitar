@@ -555,6 +555,117 @@ bool TestTempoReachesTempoAwareNodes()
     auto* rebuilt = exec.GetNodeProcessor("delay");
     return rebuilt != nullptr && std::abs(rebuilt->GetParam("bpm") - 90.0) <= 1e-6;
 }
+
+/// A graph the executor cannot run -- a cycle, or an edge naming a node it does not have -- is
+/// invalid, and an invalid graph is silence rather than whatever part of it could be ordered.
+bool TestBrokenGraphsAreInvalid()
+{
+    using namespace guitarfx;
+
+    SignalGraph dangling;
+    dangling.nodes.push_back({"in", kNodeTypeInput, "", "Input", true});
+    dangling.nodes.push_back({"out", kNodeTypeOutput, "", "Output", true});
+    dangling.edges.push_back({"in", "ghost", 0, 0, 1.0});
+    dangling.edges.push_back({"ghost", "out", 0, 0, 1.0});
+
+    SignalGraph cyclic;
+    cyclic.nodes.push_back({"in", kNodeTypeInput, "", "Input", true});
+    cyclic.nodes.push_back({"a", kNodeTypeSplitter, "", "A", true});
+    cyclic.nodes.push_back({"b", kNodeTypeSplitter, "", "B", true});
+    cyclic.nodes.push_back({"out", kNodeTypeOutput, "", "Output", true});
+    cyclic.edges.push_back({"in", "a", 0, 0, 1.0});
+    cyclic.edges.push_back({"a", "b", 0, 0, 1.0});
+    cyclic.edges.push_back({"b", "a", 0, 0, 1.0});
+    cyclic.edges.push_back({"b", "out", 0, 0, 1.0});
+
+    for (const SignalGraph* graph : {&dangling, &cyclic})
+    {
+        SignalGraphExecutor exec;
+        exec.SetGraph(*graph);
+        exec.Prepare(kSR, kBlock);
+
+        if (exec.IsValid() || !exec.GetExecutionOrder().empty())
+        {
+            return false;
+        }
+
+        std::vector<float> inL(kBlock), inR(kBlock), outL(kBlock, 1.0f), outR(kBlock, 1.0f);
+        GenerateSine(inL, inR);
+        float* inputs[2] = {inL.data(), inR.data()};
+        float* outputs[2] = {outL.data(), outR.data()};
+        exec.Process(inputs, outputs, kBlock);
+
+        if (Analyze(outL, outR).peak != 0.0)
+        {
+            return false;
+        }
+    }
+
+    SignalGraph linear;
+    linear.nodes.push_back({"in", kNodeTypeInput, "", "Input", true});
+    linear.nodes.push_back({"out", kNodeTypeOutput, "", "Output", true});
+    linear.edges.push_back({"in", "out", 0, 0, 1.0});
+
+    SignalGraphExecutor exec;
+    exec.SetGraph(linear);
+    return exec.IsValid() && exec.GetExecutionOrder() == std::vector<std::string>{"in", "out"};
+}
+
+/// A mixer's inputs get their level, pan and delay as they are gathered, whether the node runs or
+/// is bypassed, so a bypassed mixer with a panned input is still stereo at the output.
+bool TestBypassedMixerKeepsItsPan()
+{
+    using namespace guitarfx;
+    RegisterAllEffects();
+
+    SignalGraph graph;
+    graph.nodes.push_back({"in", kNodeTypeInput, "", "Input", true});
+    graph.nodes.push_back({"split", kNodeTypeSplitter, "", "Split", true});
+    GraphNode mix{"mix", kNodeTypeMixer, "", "Mix", true};
+    mix.params["pan_0"] = -1.0;
+    mix.params["pan_1"] = 1.0;
+    mix.params["level_1"] = -12.0;
+    graph.nodes.push_back(mix);
+    graph.nodes.push_back({"out", kNodeTypeOutput, "", "Output", true});
+    graph.edges.push_back({"in", "split", 0, 0, 1.0});
+    graph.edges.push_back({"split", "mix", 0, 0, 1.0});
+    graph.edges.push_back({"split", "mix", 1, 1, 1.0});
+    graph.edges.push_back({"mix", "out", 0, 0, 1.0});
+
+    const auto peakOf = [](const std::vector<float>& channel) {
+        double peak = 0.0;
+
+        for (const float sample : channel)
+        {
+            peak = std::max(peak, static_cast<double>(std::abs(sample)));
+        }
+
+        return peak;
+    };
+
+    for (const bool enabled : {true, false})
+    {
+        SignalGraphExecutor exec;
+        exec.SetGraph(graph);
+        exec.Prepare(kSR, kBlock);
+        exec.SetNodeEnabled("mix", enabled);
+
+        std::vector<float> inL(kBlock), inR(kBlock), outL(kBlock), outR(kBlock);
+        GenerateSine(inL, inR);
+        float* inputs[2] = {inL.data(), inR.data()};
+        float* outputs[2] = {outL.data(), outR.data()};
+        exec.Process(inputs, outputs, kBlock);
+
+        // Input 0 hard left at full level, input 1 hard right 12 dB down: the channels differ,
+        // and the output node must not have copied left over right.
+        if (!exec.LastOutputWasStereo() || peakOf(outL) < 0.4 || peakOf(outL) <= 2.0 * peakOf(outR))
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
 } // namespace
 
 int main()
@@ -1216,6 +1327,36 @@ int main()
     {
         const bool ok = TestTempoReachesTempoAwareNodes();
         std::cout << "Tempo delivery to tempo-aware nodes:" << (ok ? "  PASS" : "  FAIL") << "\n";
+
+        if (ok)
+        {
+            ++passed;
+        }
+        else
+        {
+            ++failed;
+        }
+    }
+
+    // Case 15: A cycle or a dangling edge makes the graph invalid, and an invalid graph is silent
+    {
+        const bool ok = TestBrokenGraphsAreInvalid();
+        std::cout << "Broken graphs are invalid:" << (ok ? "  PASS" : "  FAIL") << "\n";
+
+        if (ok)
+        {
+            ++passed;
+        }
+        else
+        {
+            ++failed;
+        }
+    }
+
+    // Case 16: A bypassed mixer still carries its inputs' pan
+    {
+        const bool ok = TestBypassedMixerKeepsItsPan();
+        std::cout << "Bypassed mixer keeps its pan:" << (ok ? "  PASS" : "  FAIL") << "\n";
 
         if (ok)
         {

@@ -101,11 +101,16 @@ input → split          → mixer → output
 ## Execution Model
 
 ### Topological Sort
-Nodes execute in dependency order via Kahn's algorithm. The executor validates acyclicity—cycles cause the graph to be marked invalid.
+Nodes are sorted into levels by Kahn's algorithm: a level is every node whose sources have all
+run, so its nodes are independent of each other and may run in parallel, and the levels in order
+are the execution order. A cycle, or an edge naming a node the graph does not have, marks the
+graph invalid, and an invalid graph outputs silence.
 
 ### Buffer Management
-- Per-node stereo buffers allocated at `Prepare()` time
-- Sized for `maxBlockSize`
+- Per-node stereo buffers allocated at `Prepare()` time, sized for `maxBlockSize`
+- Each node has a buffer pair and a scratch pair: it gathers its input into the buffers,
+  processes from them into the scratch pair, and the two are swapped. No effect is asked to
+  process in place, and nothing is copied back.
 - No allocations during audio processing
 
 ### Processing Loop
@@ -166,7 +171,7 @@ If edges reference `__input__` or `__output__` but those nodes are missing, the 
 
 | Method | When Called | Purpose |
 |--------|-------------|---------|
-| `SetGraph(graph)` | Preset load | Build execution order, create processors |
+| `SetGraph(graph)` | Preset load | Build execution order, create processors; leaves the executor unprepared, so `Prepare()` follows |
 | `Prepare(rate, blockSize)` | Sample rate/buffer change | Allocate buffers, prepare processors |
 | `Reset()` | Playback start | Clear processor state |
 | `Process(in, out, samples)` | Audio callback | Execute graph |
@@ -203,6 +208,7 @@ Support for running multiple presets in parallel with mix/mute/solo controls:
 
 Current executor validates:
 - **Acyclic**: Topological sort must cover all nodes
+- **Edges name nodes**: an edge to or from a node the graph does not have is invalid
 
 Future validation (not yet enforced):
 - Exactly one `input` and one `output` node

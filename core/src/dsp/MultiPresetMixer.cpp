@@ -1,54 +1,20 @@
 #include "dsp/MultiPresetMixer.h"
+#include "dsp/EffectRegistry.h"
 #include "dsp/GlobalChainEditor.h"
 #include "dsp/LevelTargets.h"
 #include "dsp/EffectGuids.h"
 #include "dsp/FiniteCheck.h"
+#include "dsp/SignalGraphExecutorInternal.h"
 #include "resources/ResourceLibrary.h"
 
 #include <array>
 #include <cmath>
-#include <condition_variable>
-#include <mutex>
-#include <thread>
 #include <string_view>
 
 namespace guitarfx
 {
 namespace
 {
-int ScoreNodeTypeForParallelWork(std::string_view type)
-{
-    // Heuristic weights for per-node CPU cost in realtime processing.
-    if (type == EffectGuids::kAmpNam || type == EffectGuids::kAmpNamOptimized || type == EffectGuids::kAmpNamBlend ||
-        type == EffectGuids::kFxNam)
-    {
-        return 14;
-    }
-
-    if (type == EffectGuids::kCabIr || type == EffectGuids::kReverbIr)
-    {
-        return 12;
-    }
-
-    if (type == EffectGuids::kReverbAdvanced || type == EffectGuids::kReverbAmbient ||
-        type == EffectGuids::kReverbRoom || type == EffectGuids::kReverbSpring)
-    {
-        return 6;
-    }
-
-    if (type == EffectGuids::kDelayDigital || type == EffectGuids::kDelayDoubler || type == EffectGuids::kEqParametric)
-    {
-        return 3;
-    }
-
-    if (type == EffectGuids::kGain)
-    {
-        return 1;
-    }
-
-    return 2;
-}
-
 /// Can this graph still make a sound worth keeping once its input is cut? Only the
 /// time-based families can, so only they earn a ring-out. Everything else — an amp, a cab,
 /// an EQ, a synth voice with nothing left to track — is silent or, worse, still playing
@@ -86,7 +52,7 @@ int EstimateGraphComplexityScore(const std::vector<std::string>& nodeTypes)
 
     for (const auto& type : nodeTypes)
     {
-        score += ScoreNodeTypeForParallelWork(type);
+        score += executor_detail::ScoreNodeTypeForParallelWork(type);
     }
 
     return std::max(1, score);
@@ -170,49 +136,6 @@ bool MultiPresetMixer::AddActivePreset(const Preset& preset, const std::string& 
 
 MultiPresetMixer::MultiPresetMixer() : mTuner(std::make_unique<TunerEngine>())
 {
-}
-
-MultiPresetMixer::MultiPresetMixer(MultiPresetMixer&& other) noexcept
-{
-    *this = std::move(other);
-}
-
-MultiPresetMixer& MultiPresetMixer::operator=(MultiPresetMixer&& other) noexcept
-{
-    if (this == &other)
-    {
-        return *this;
-    }
-
-    // The reaper thread and its retire queues stay with the object that owns them (as do the
-    // parallel worker threads); only the DSP state moves.
-    mResourceLibrary = other.mResourceLibrary;
-    mVoices.TakeStateFrom(other.mVoices);
-    mSampleRate = other.mSampleRate;
-    mMaxBlockSize = other.mMaxBlockSize;
-    mPrepared = other.mPrepared;
-    mMixGainDb = other.mMixGainDb;
-    mMixGain = other.mMixGain;
-    mMasterGain = other.mMasterGain;
-    mOutputMuted.store(other.mOutputMuted.load(std::memory_order_relaxed), std::memory_order_relaxed);
-    mLimiterEnabled = other.mLimiterEnabled;
-    mUserInputCalibrationGainDb = other.mUserInputCalibrationGainDb;
-    mUserInputCalibrationGainLinear = other.mUserInputCalibrationGainLinear;
-    mMonoMode = other.mMonoMode;
-    mInputChannel = other.mInputChannel;
-    mHostControlledInput = other.mHostControlledInput;
-    mTempInL = std::move(other.mTempInL);
-    mTempInR = std::move(other.mTempInR);
-    mPreChainOutL = std::move(other.mPreChainOutL);
-    mPreChainOutR = std::move(other.mPreChainOutR);
-    mPostChainOutL = std::move(other.mPostChainOutL);
-    mPostChainOutR = std::move(other.mPostChainOutR);
-    mGlobalChain.TakeStateFrom(other.mGlobalChain);
-    mTuner = std::move(other.mTuner);
-
-    mTelemetry.CopyFrom(other.mTelemetry);
-
-    return *this;
 }
 
 void MultiPresetMixer::SetUserInputCalibrationGainDb(double dB)
@@ -366,7 +289,7 @@ void MultiPresetMixer::EnsureGlobalChainsUpToDate()
 void MultiPresetMixer::ApplyGlobalChainScalars(const GlobalSignalChainConfig& config)
 {
     mMonoMode = mHostControlledInput ? false : config.monoMode;
-    mInputChannel = config.inputChannel;
+    mInputChannel = std::clamp(config.inputChannel, 0, 1);
     mLimiterEnabled = config.limiterEnabled;
     mMasterGain = std::pow(10.0, config.outputGain / 20.0);
     mGlobalChain.Pre().SetInputTrim(config.inputGain);
@@ -925,36 +848,19 @@ void MultiPresetMixer::Process(float** inputs, float** outputs, int numSamples)
 
     if (mMonoMode && (processInL || processInR))
     {
-        // Apply mono mode: produce dual-mono buffers even when only one live
-        // hardware input channel is present.
-        const bool standaloneInputPath = !mHostControlledInput;
+        // Mono mode: the chosen hardware input on both channels, or silence if it is not there.
+        const float* source = (mInputChannel == 1) ? processInR : processInL;
 
-        for (int i = 0; i < numSamples; ++i)
+        if (source)
         {
-            const float leftSample = processInL ? processInL[i] : 0.0f;
-            const float rightSample = processInR ? processInR[i] : 0.0f;
-
-            float monoSample = 0.0f;
-
-            if (mInputChannel == 0)
-            {
-                monoSample = leftSample; // Left only
-            }
-            else if (mInputChannel == 1)
-            {
-                monoSample = rightSample; // Right only
-            }
-            else
-            {
-                // Match NAM Gateway standalone input semantics:
-                // sum live inputs directly (no DAW-style averaging).
-                monoSample = standaloneInputPath ? (leftSample + rightSample) : ((leftSample + rightSample) * 0.5f);
-            }
-
-            mTempInL[static_cast<std::size_t>(i)] = monoSample;
-            mTempInR[static_cast<std::size_t>(i)] = monoSample;
+            std::copy_n(source, numSamples, mTempInL.data());
+        }
+        else
+        {
+            std::fill_n(mTempInL.data(), numSamples, 0.0f);
         }
 
+        std::copy_n(mTempInL.data(), numSamples, mTempInR.data());
         processInL = mTempInL.data();
         processInR = mTempInR.data();
     }
@@ -990,8 +896,7 @@ void MultiPresetMixer::Process(float** inputs, float** outputs, int numSamples)
     // Process tuner FIRST (before any processing, uses raw input for accurate pitch detection)
     if (mTuner->IsEnabled())
     {
-        float* tunerInputs[2] = {processInL, processInR};
-        mTuner->Process(tunerInputs[mInputChannel], numSamples);
+        mTuner->Process((mInputChannel == 1) ? processInR : processInL, numSamples);
 
         // If not in live tuner mode, mute the output
         if (!mTuner->IsLiveMode())
@@ -1140,26 +1045,13 @@ void MultiPresetMixer::Process(float** inputs, float** outputs, int numSamples)
     // did not get scheduled promptly hung the whole app. A retiring instance still rides
     // along once the live set has earned the fan-out on its own.
     int liveCount = 0;
+    int totalWorkUnits = 0;
 
     for (const auto& inst : mVoices.Instances())
     {
         if (!inst->IsRetiring() && isAudible(*inst))
         {
             ++liveCount;
-        }
-    }
-
-    int totalWorkUnits = 0;
-
-    if (liveCount >= 2)
-    {
-        for (const auto& inst : mVoices.Instances())
-        {
-            if (inst->IsRetiring() || !isAudible(*inst))
-            {
-                continue;
-            }
-
             totalWorkUnits += inst->complexityScore * numSamples;
         }
     }
@@ -1289,11 +1181,6 @@ void MultiPresetMixer::Process(float** inputs, float** outputs, int numSamples)
     {
         std::copy(mPostChainOutR.begin(), mPostChainOutR.begin() + numSamples, outputs[1]);
     }
-
-    // NOTE: preset swaps used to be masked by fading the master output up from zero here.
-    // That could not hide the step down to silence when the outgoing chain was cut, and it
-    // also ducked the global post-chain's own tail. The swap is now crossfaded per instance
-    // in the preset mix above, so nothing is needed at this point.
 
     // ==========================================================================
     // FINAL OUTPUT STAGE: Master gain, limiter

@@ -32,10 +32,6 @@ class PresetVoicePool
     PresetVoicePool(const PresetVoicePool&) = delete;
     PresetVoicePool& operator=(const PresetVoicePool&) = delete;
 
-    /// Takes the other pool's instances and tail settings, as a moved mixer does. Each pool
-    /// keeps its own reaper, and an instance staged but not committed is left behind.
-    void TakeStateFrom(PresetVoicePool& other);
-
     /// Resolves the sample-based windows for this sample rate.
     void Prepare(double sampleRate);
 

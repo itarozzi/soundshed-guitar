@@ -328,6 +328,9 @@ Notes on what Phase 1 forced:
   the DSP lock (bounded, and zero for the linear default chains, which never start workers).
   Fully removing it needs the executors held by pointer too, or `SignalGraphExecutor`'s move to
   transfer worker threads — deferred to Phase 3, which reworks that ownership anyway.
+  **Resolved (3 October):** `GlobalChainEngine` holds its executors by `unique_ptr` and
+  `DspReaper::RetireExecutor` takes ownership, so the outgoing executor's workers are joined on
+  the reaper thread. `SignalGraphExecutor` is no longer movable at all.
 
 Covered by `core/tests/GaplessSwitchingTests.cpp`: crossfade continuity, retiring instances
 hidden from queries, unchanged-config rebuild skip, in-place replace preserving other slots,

@@ -294,6 +294,22 @@ int main()
         }
     }
 
+    // A stored input channel beyond the two hardware inputs is held to them: the mono fold and
+    // the tuner both select by it.
+    {
+        MultiPresetMixer mixer;
+        auto config = GlobalSignalChainConfig::CreateDefault();
+        config.monoMode = true;
+        config.inputChannel = 7;
+        mixer.SetGlobalChainConfig(config);
+
+        if (mixer.GetInputChannel() != 1 || !mixer.IsMonoMode())
+        {
+            std::cerr << "Out-of-range input channel was not clamped" << std::endl;
+            allPassed = false;
+        }
+    }
+
     // Loading a preset without embedded global chain settings must keep global transpose usable
     {
         MultiPresetMixer mixer;

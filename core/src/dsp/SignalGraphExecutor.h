@@ -74,12 +74,16 @@ class SignalGraphExecutor
     SignalGraphExecutor();
     ~SignalGraphExecutor();
 
+    /// Neither copyable nor movable: the plan points into the node states, and the worker
+    /// threads are bound to this address. An owner that replaces one (GlobalChainEngine,
+    /// PresetVoicePool) holds it by pointer and hands the old one to the DspReaper whole.
     SignalGraphExecutor(const SignalGraphExecutor&) = delete;
     SignalGraphExecutor& operator=(const SignalGraphExecutor&) = delete;
-    SignalGraphExecutor(SignalGraphExecutor&& other) noexcept;
-    SignalGraphExecutor& operator=(SignalGraphExecutor&& other) noexcept;
 
     // Setup
+
+    /// Builds the processors and the execution plan for `graph`. Leaves the executor
+    /// unprepared: call Prepare() before Process() runs again.
     void SetGraph(const SignalGraph& graph);
 
     void SetResourceLibrary(ResourceLibrary* library)
@@ -279,13 +283,21 @@ class SignalGraphExecutor
         /// `id` again, shared, for AutomationTarget.
         std::shared_ptr<const std::string> sharedId;
         std::unique_ptr<EffectProcessor> processor;
+        /// The node's signal this block: its gathered input until it has run, its output after.
         std::vector<float> bufferLeft;
         std::vector<float> bufferRight;
+        /// Where the node writes its output, swapped with the pair above once it has run, so
+        /// no effect processes in place and nothing is copied back.
+        std::vector<float> scratchLeft;
+        std::vector<float> scratchRight;
         bool hasInput = false;
         bool hasStereoSignal = false;
         std::atomic<double> peak{0.0};
         std::atomic<double> rms{0.0};
         std::atomic<int> clipCount{0};
+        /// Channels the node carried last block: 0 for a node that had no input, else 1 or 2.
+        /// Published every block, so the message thread never reads the two flags above.
+        std::atomic<int> channelCount{0};
         // Last block's processing time, or kNodeDidNotRunUs when the node did not run. Published
         // here rather than into a map so the audio thread never allocates; GetPerformanceStats()
         // collects it on the message thread, the same way node latency already works. "Did not
@@ -361,7 +373,8 @@ class SignalGraphExecutor
         float mLinear = 1.0f;
     };
 
-    void BuildExecutionOrder();
+    /// Sorts the graph into levels of independent nodes, which in order are the execution
+    /// order, and decides whether it is valid.
     void BuildExecutionLevels();
     void BuildExecutionPlan();
     /// Finds each note player's upstream note sources, once the plan's edges are resolved.
@@ -415,11 +428,14 @@ class SignalGraphExecutor
     /// but the handful where it actually moves — costs a comparison instead of a SetParam
     /// walk through each effect's string-keyed parameter dispatch.
     double mAppliedTempoBpm = 0.0;
-    /// The nodes literally named "__input__"/"__output__", which carry the trim gains.
-    /// Distinct from the plan nodes above: a preset can have an input-*typed* node under
-    /// a different id, and the trim only ever came from the well-known ids.
-    const GraphNode* mInputTrimNode = nullptr;
-    const GraphNode* mOutputTrimNode = nullptr;
+    /// The Input and Output nodes' own gains in dB: the kBoundaryGainParam entries of the
+    /// nodes literally named "__input__"/"__output__", which SetGraph makes sure they hold,
+    /// or null without such a node. Distinct from the plan nodes above: a preset can have an
+    /// input-*typed* node under a different id, and the trim only ever came from the
+    /// well-known ids. Resolved once per plan rather than looked up per block: a std::map
+    /// entry keeps its address, and automation writes the value in place.
+    const double* mInputNodeGainDb = nullptr;
+    const double* mOutputNodeGainDb = nullptr;
     DbToLinear mInputGainCache;
     DbToLinear mOutputGainCache;
 
@@ -428,8 +444,7 @@ class SignalGraphExecutor
     /// previous block's numbers dozens of times before anything looked at them.
     int mMeteringCountdownSamples = 0;
     std::vector<int> mExecutionLevelScores;
-    std::map<std::string, int> mIncomingEdgeCount;
-    // Precomputed per-node incoming edge index lists (into mGraph.edges) for O(1) lookup in Process()
+    /// Each node's incoming edges, as indices into mGraph.edges, for the plan and the latency walk.
     std::map<std::string, std::vector<std::size_t>> mIncomingEdgesByNode;
 
     double mSampleRate = 44100.0;
@@ -456,8 +471,8 @@ class SignalGraphExecutor
     std::atomic<bool> mParallelLevelsEnabled{true};
     bool mNamInputModeMono = false;
 
-    // Parallel node processing within one graph level. The pool is not moved with the rest:
-    // a moved-into executor runs its levels serially until its own Prepare() starts one.
+    // Parallel node processing within one graph level. Prepare() starts the workers, sized to
+    // the widest level, and only for a graph with a level worth fanning out.
     static constexpr int kMaxParallelWorkers = 7;
     rtparallel::RealtimeTaskPool mWorkerPool;
     bool mUseParallelLevels = false;
@@ -466,9 +481,5 @@ class SignalGraphExecutor
     /// can never be left holding a pointer to a freed tap.
     std::unique_ptr<SpectrumTap> mSpectrumTap;
     std::string mSpectrumWatchNodeId;
-
-    // Temporary buffers for mixing
-    std::vector<float> mTempLeftBuffer;
-    std::vector<float> mTempRightBuffer;
 };
 } // namespace guitarfx

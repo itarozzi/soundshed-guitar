@@ -55,7 +55,7 @@ void DspReaper::Stop()
 void DspReaper::CollectMainThread()
 {
     std::vector<std::unique_ptr<PresetInstance>> instances;
-    std::vector<SignalGraphExecutor> executors;
+    std::vector<std::unique_ptr<SignalGraphExecutor>> executors;
     {
         std::lock_guard<std::mutex> lock(mMutex);
         instances.reserve(mMainThreadInstances.size());
@@ -83,7 +83,7 @@ void DspReaper::Loop()
     while (true)
     {
         std::vector<std::unique_ptr<PresetInstance>> instances;
-        std::vector<SignalGraphExecutor> executors;
+        std::vector<std::unique_ptr<SignalGraphExecutor>> executors;
 
         {
             std::unique_lock<std::mutex> lock(mMutex);
@@ -166,11 +166,16 @@ bool DspReaper::TryRetireRealtime(std::unique_ptr<PresetInstance>& inst)
     return true;
 }
 
-void DspReaper::RetireExecutor(SignalGraphExecutor& executor)
+void DspReaper::RetireExecutor(std::unique_ptr<SignalGraphExecutor> executor)
 {
+    if (!executor)
+    {
+        return;
+    }
+
     {
         std::lock_guard<std::mutex> lock(mMutex);
-        auto& queue = executor.AnyNodeRequiresMainThreadLoad() ? mMainThreadExecutors : mExecutors;
+        auto& queue = executor->AnyNodeRequiresMainThreadLoad() ? mMainThreadExecutors : mExecutors;
         queue.push_back(std::move(executor));
     }
     mCv.notify_one();

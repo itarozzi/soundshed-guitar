@@ -111,4 +111,47 @@ inline bool IsNamNodeType(const std::string& type)
            type == EffectGuids::kFxNam || type == "amp_nam" || type == "amp_nam_optimized" || type == "amp_nam_blend" ||
            type == "fx_nam";
 }
+
+/// Roughly what a node of `type` costs per sample relative to the others. The executor sums
+/// these over a level, and the mixer over a preset's graph, to decide whether fanning the work
+/// out to helper threads is worth the hand-off.
+inline int ScoreNodeTypeForParallelWork(const std::string& type)
+{
+    if (IsNamNodeType(type))
+    {
+        return 14;
+    }
+
+    if (type == EffectGuids::kCabIr || type == EffectGuids::kReverbIr)
+    {
+        return 12;
+    }
+
+    if (type == EffectGuids::kReverbAdvanced || type == EffectGuids::kReverbAmbient ||
+        type == EffectGuids::kReverbRoom || type == EffectGuids::kReverbSpring)
+    {
+        return 6;
+    }
+
+    if (type == EffectGuids::kDelayDigital || type == EffectGuids::kDelayDoubler || type == EffectGuids::kEqParametric)
+    {
+        return 3;
+    }
+
+    if (type == kNodeTypeInput || type == kNodeTypeOutput || type == kNodeTypeSplitter)
+    {
+        return 0;
+    }
+
+    if (type == kNodeTypeMixer || type == EffectGuids::kGain)
+    {
+        return 1;
+    }
+
+    return 2;
+}
+
+/// The least score-times-samples a graph level must carry before the executor runs its nodes
+/// on helper threads instead of in sequence.
+inline constexpr int kMinLevelParallelWorkUnits = 1800;
 } // namespace guitarfx::executor_detail

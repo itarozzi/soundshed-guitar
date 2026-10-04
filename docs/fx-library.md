@@ -223,7 +223,7 @@ class EffectProcessor {
 ### Where SetParam runs
 
 `SetParam` can run on the audio thread. MIDI and DAW automation apply there, under the DSP lock
-(`PluginController::ProcessQueuedMidi`), and any node parameter can be bound to an automation
+(`PluginController::ProcessAudio`), and any node parameter can be bound to an automation
 slot. So `SetParam` must not allocate, lock or rebuild. Nor can a rebuild move to the message thread
 under the lock: the audio thread outputs silence for any block that finds the lock held.
 

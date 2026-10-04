@@ -247,6 +247,9 @@ bool PluginController::ProcessAudio(float** inputs, float** outputs, int numSamp
 
 void PluginController::ProcessAudioLocked(float** inputs, float** outputs, int numSamples)
 {
+    // The block's MIDI first, so a footswitch pressed before it lands on it and not the next.
+    DrainQueuedMidiLocked();
+
     // Riff capture runs ahead of the chain: it records the dry input. The guard is
     // here rather than inside so a session that is not capturing — every ordinary
     // block — costs one predicted branch and no call.
@@ -297,6 +300,17 @@ void PluginController::ProcessAudioLocked(float** inputs, float** outputs, int n
     }
 
     mSignalTest->CollectOutput(outputs, numSamples);
+}
+
+void PluginController::DrainQueuedMidiLocked()
+{
+    // Nearly every block has nothing waiting, and the check is two atomic loads.
+    if (!mControlSurface->HasMidiToApply())
+    {
+        return;
+    }
+
+    mControlSurface->DrainMidiForApply([this](const MidiEvent& event) { mAutomationSlots.HandleMidi(event); });
 }
 
 // ════════════════════════════════════════════════════════════════════

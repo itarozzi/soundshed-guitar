@@ -340,9 +340,8 @@ void PluginController::EnqueueMidi(const MidiEvent& ev)
 
 void PluginController::ProcessQueuedMidi()
 {
-    // Audio thread. Drain queued MIDI events under the DSP lock without ever
-    // blocking: if the lock is held (e.g. a preset load on the message thread),
-    // leave the events queued and retry on the next block.
+    // Without ever blocking: if the lock is held (a preset load on the message thread, say),
+    // the events stay queued for the next block, which drains them under its own lock.
     if (!mControlSurface->HasMidiToApply())
     {
         return;
@@ -355,7 +354,7 @@ void PluginController::ProcessQueuedMidi()
         return;
     }
 
-    mControlSurface->DrainMidiForApply([this](const MidiEvent& event) { mAutomationSlots.HandleMidi(event); });
+    DrainQueuedMidiLocked();
 }
 
 void PluginController::SetMidiLogEnabled(bool enabled)

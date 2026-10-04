@@ -291,18 +291,5 @@ int main()
         return 1;
     }
 
-    // The active worker must remain bound to its engine when the owning mixer moves.
-    MultiPresetMixer source;
-    source.Prepare(sampleRate, blockSize);
-    source.SetTunerReferenceFrequency(432.0);
-    source.SetLiveTunerMode(false);
-    source.SetTunerEnabled(true);
-    MultiPresetMixer moved(std::move(source));
-    if (!moved.IsTunerEnabled() || moved.IsLiveTunerMode() || moved.GetTunerReferenceFrequency() != 432.0)
-    {
-        std::cerr << "Mixer move lost active tuner state\n";
-        return 1;
-    }
-    moved.SetTunerEnabled(false);
     return TestPitchTracker() ? 0 : 1;
 }
