@@ -10,6 +10,7 @@
  */
 
 #include <chrono>
+#include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -24,6 +25,7 @@
 
 #include "IPluginHost.h"
 #include "PluginController.h"
+#include "automation/AutomationTypes.h"
 #include "presets/PresetStorage.h"
 
 namespace fs = std::filesystem;
@@ -218,6 +220,24 @@ void SettleDirty(guitarfx::PluginController& controller)
     controller.OnIdle();
 }
 
+/// A custom automation slot driving the address from the given CC number on any channel.
+void MapCc(guitarfx::PluginController& controller, const std::string& slotId, const std::string& address, int cc)
+{
+    guitarfx::MidiControlMap map;
+    map.eventType = guitarfx::MidiControlMap::EventType::CC;
+    map.channel = -1;
+    map.controller = cc;
+    (void)controller.GetAutomationSlots().SetCustomSlot(slotId, slotId, address, std::nullopt, map, std::nullopt);
+}
+
+/// A CC, handed over the way the plugin's processBlock does.
+void SendCc(guitarfx::PluginController& controller, int cc, int value)
+{
+    controller.EnqueueMidi(
+        guitarfx::MidiEvent{0xB0, static_cast<std::uint8_t>(cc), static_cast<std::uint8_t>(value), 0});
+    controller.ProcessQueuedMidi();
+}
+
 void TestSelectSceneMatchesLoadWithSceneId()
 {
     const auto preset = BuildTwoScenePreset("p-scenes");
@@ -329,6 +349,62 @@ void TestDirtyFlagFollowsTheWorkingCopy()
 
     Send(controller, "savePreset", {{"saveMode", "overwrite"}, {"presetId", "p-dirty"}, {"name", "Two Scenes"}});
     Expect(!Latest(host, "presetDirtyChanged")->value("dirty", true), "saving makes it clean");
+}
+
+void TestAutomationIsNotAnEdit()
+{
+    TestHost host(Sandbox("automation-dirty"));
+    guitarfx::PluginController controller(host);
+    controller.Initialize();
+    Send(controller, "uiReady");
+
+    Store(controller, BuildTwoScenePreset("p-auto"));
+    Send(controller, "loadPreset", {{"presetId", "p-auto"}});
+    SettleDirty(controller);
+    Expect(!Latest(host, "presetLoaded")->value("activePresetDirty", true), "a loaded preset opens clean");
+
+    // An expression pedal on the gain node's level and a footswitch bypassing it. OnIdle folds
+    // what they moved into the working copy before it re-checks the flag.
+    MapCc(controller, "custom.gain", "node.gain.gainDb", 20);
+    MapCc(controller, "custom.gainBypass", "node.gain.bypassed", 21);
+    const auto gainNode = [&controller]() { return controller.GetActivePreset()->graph.FindNode("gain_1"); };
+    const auto gainDb = [&gainNode]() {
+        const auto& params = gainNode()->params;
+        const auto it = params.find("gainDb");
+        return it == params.end() ? -999.0 : it->second;
+    };
+
+    SendCc(controller, 20, 127);
+    SettleDirty(controller);
+    Expect(gainDb() == 24.0, "the pedal reached the working copy");
+    const auto dirty = Latest(host, "presetDirtyChanged");
+    Expect(!dirty || !dirty->value("dirty", true), "a pedal move is not an edit");
+
+    // A knob turned by hand is an edit, and the pedal moving the same knob afterwards neither
+    // clears nor renews it.
+    Send(controller, "updateSignalPathNodeParam", {{"nodeId", "gain_1"}, {"paramKey", "gainDb"}, {"value", 1.5}});
+    SettleDirty(controller);
+    Expect(Latest(host, "presetDirtyChanged")->value("dirty", false), "a knob turned by hand is an edit");
+
+    SendCc(controller, 20, 0);
+    SettleDirty(controller);
+    Expect(gainDb() == -24.0, "the pedal moved the edited knob");
+    Expect(Latest(host, "presetDirtyChanged")->value("dirty", false), "but does not clear the edit");
+
+    Send(controller, "savePreset", {{"saveMode", "overwrite"}, {"presetId", "p-auto"}, {"name", "Two Scenes"}});
+    Expect(!Latest(host, "presetDirtyChanged")->value("dirty", true), "saving makes it clean");
+
+    SendCc(controller, 20, 127);
+    SettleDirty(controller);
+    Expect(gainDb() == 24.0, "the pedal still reaches the saved preset's working copy");
+    Expect(!Latest(host, "presetDirtyChanged")->value("dirty", true), "and leaves it clean");
+
+    // Nor is a footswitch bypass. Last, since automation drives the first enabled node of a type,
+    // so the pedal would no longer reach the bypassed one.
+    SendCc(controller, 21, 127);
+    SettleDirty(controller);
+    Expect(!gainNode()->enabled, "the footswitch reached the working copy");
+    Expect(!Latest(host, "presetDirtyChanged")->value("dirty", true), "a footswitch bypass is not an edit either");
 }
 
 void TestFavoriteAndRatingPatches()
@@ -576,6 +652,7 @@ int main()
     TestAddRenameRemoveSceneFollowWebRules();
     TestLoadByIdMatchesLoadWithBody();
     TestDirtyFlagFollowsTheWorkingCopy();
+    TestAutomationIsNotAnEdit();
     TestFavoriteAndRatingPatches();
     TestRecentsKeepTheWebUiRules();
     TestNewPresetUsesTheDefaultTemplate();

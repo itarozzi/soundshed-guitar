@@ -100,6 +100,7 @@ A big update: five new effects, fifteen classic drive pedals, a Practice Tool fo
 ### Fixes
 * Opening a DAW project no longer marks it as changed, and the plugin no longer disrupts your DAW's undo and redo.
 * Fixed crashes when some DAWs save or open a project, or read parameters while mappings reload.
+* Moving a knob from a MIDI controller, an expression pedal or DAW automation no longer marks the preset as unsaved.
 * Fixed a crash previewing demo audio on a DAW track with a mono input.
 * Fixed rare crashes and audio glitches in Multi-Rig and in chains with parallel branches on multi-core computers.
 * A bypassed Mixer node in a parallel chain now keeps its branches panned where you put them instead of folding them to mono.

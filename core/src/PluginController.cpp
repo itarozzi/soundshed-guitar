@@ -154,8 +154,7 @@ void PluginController::Initialize()
 
     // What was playing when the app started is the unsaved-changes baseline, not a preset
     // just played: as in the web UI before, Recents gets only what is played from here on.
-    mActivePresetBaselineId = mActivePresetId;
-    mActivePresetBaseline = ActivePresetComparisonForm();
+    CaptureActivePresetBaseline();
 
     // Initialize automation system
     mAutomationSlots.SetMixer(&mPresetMixer);
@@ -495,101 +494,6 @@ void PluginController::OnIdle()
             mPracticeToolUpdateCounter = 0;
             mPracticeTool->OnIdle();
         }
-    }
-}
-
-void PluginController::FoldAutomationNodeChanges()
-{
-    // The latest for each node parameter and each bypassed type, however long since the last call
-    // (see NodeChangeQueue).
-    std::vector<NodeChangeQueue::Change> changes;
-    mAutomationSlots.TakeNodeChanges(
-        [&changes](NodeChangeQueue::Change&& change) { changes.push_back(std::move(change)); });
-
-    if (const auto dropped = mAutomationSlots.TakeDroppedNodeChangeCount(); dropped > 0)
-    {
-        AppendSessionLog("[Automation] " + std::to_string(dropped) +
-                         " node changes arrived with no room to report them; the editor may show old values");
-    }
-
-    if (changes.empty())
-    {
-        return;
-    }
-
-    if (mActivePreset)
-    {
-        // Into the active scene's graph as well as the preset's: BroadcastState copies the scene's
-        // over the preset's (SyncActivePresetSceneGraph), which would put the old values back.
-        auto* scene = FindPresetScene(*mActivePreset, GetResolvedActiveSceneId());
-        const auto forEachGraph = [&](const auto& apply) {
-            if (scene)
-            {
-                apply(scene->graph);
-            }
-
-            apply(mActivePreset->graph);
-        };
-        bool bypassChanged = false;
-
-        for (const auto& change : changes)
-        {
-            if (change.nodeId)
-            {
-                forEachGraph([&](SignalGraph& graph) {
-                    if (auto* node = graph.FindNode(*change.nodeId))
-                    {
-                        node->params[change.binding->paramId] = change.value;
-                    }
-                });
-                continue;
-            }
-
-            const bool enabled = change.value != 0.0;
-            forEachGraph([&](SignalGraph& graph) {
-                for (auto& node : graph.nodes)
-                {
-                    if (EffectRegistry::Instance().Resolve(node.type) == change.binding->effectType)
-                    {
-                        node.enabled = enabled;
-                        bypassChanged = true;
-                    }
-                }
-            });
-        }
-
-        // A parameter alone is not mirrored: under automation that would re-serialise the preset
-        // up to 30 times a second. FocusMixerPreset mirrors the working copy as its rig loses
-        // focus, which is where the slot's copy is next read.
-        if (bypassChanged)
-        {
-            MirrorActivePresetJson();
-            mPendingStateBroadcast = true;
-        }
-    }
-
-    // A host's save is built from the working copy. What it is answered with when it asks from
-    // another thread while this one is busy (see HostStateRelay) catches up at most once a second.
-    mHostStateRelay->MarkStale();
-
-    if (mHostStateRelay->TakeRefreshDue(std::chrono::steady_clock::now()))
-    {
-        RememberHostStateFromWorkingCopy();
-    }
-
-    for (const auto& change : changes)
-    {
-        if (!change.nodeId)
-        {
-            continue;
-        }
-
-        nlohmann::json msg;
-        msg["type"] = "signalPathNodeParamUpdated";
-        msg["nodeId"] = *change.nodeId;
-        msg["key"] = change.binding->paramId;
-        msg["value"] = change.value;
-        SendMessageToUI(msg.dump());
     }
 }
 

@@ -15,17 +15,22 @@
  *  - the output mute, which the mixer applies after the output gain, so a chain rebuild
  *    re-deriving that gain can no longer undo it;
  *  - the unsaved-changes flag: the working copy compared with a baseline taken when the
- *    preset was loaded or saved.
+ *    preset was loaded or saved, with what automation moves folded into both, since a pedal
+ *    or a DAW lane is not an edit.
  */
 
 #include "PluginController.h"
 
+#include "controller/HostStateRelay.h"
 #include "controller/internal/ControllerUtils.h"
 #include "controller/internal/HostedPluginSupport.h"
+#include "dsp/EffectRegistry.h"
 #include "presets/PresetStorage.h"
 
 #include <algorithm>
 #include <chrono>
+#include <utility>
+#include <vector>
 
 using namespace guitarfx::controller_detail;
 
@@ -43,6 +48,20 @@ double NowSeconds()
 {
     using namespace std::chrono;
     return duration<double>(steady_clock::now().time_since_epoch()).count();
+}
+
+/// Whether two nodes hold the same value for a parameter; a key neither holds counts as the same.
+bool SameParam(const GraphNode& a, const GraphNode& b, const std::string& key)
+{
+    const auto inA = a.params.find(key);
+    const auto inB = b.params.find(key);
+
+    if (inA == a.params.end() || inB == b.params.end())
+    {
+        return inA == a.params.end() && inB == b.params.end();
+    }
+
+    return inA->second == inB->second;
 }
 
 std::string BuildDefaultSceneId(std::size_t index)
@@ -521,17 +540,12 @@ void PluginController::HandleSetOutputMutedRequest(const nlohmann::json& payload
 
 // ── Unsaved changes ─────────────────────────────────────────────────────────
 
-std::string PluginController::ActivePresetComparisonForm() const
+std::string PluginController::PresetComparisonForm(const Preset& preset)
 {
-    if (!mActivePreset)
-    {
-        return {};
-    }
-
     // What makes two presets the same to the person editing them: the scenes (the active
     // graph is only a copy of one, so switching scenes is not a change) and not the live
     // state of a hosted plugin, which moves whenever the plugin does.
-    Preset copy = *mActivePreset;
+    Preset copy = preset;
 
     if (!copy.scenes.empty())
     {
@@ -553,8 +567,7 @@ void PluginController::ResetActivePresetBaseline()
 {
     // A preset that was not playing before is also what the recently played list records.
     const bool presetChanged = mActivePresetId != mActivePresetBaselineId;
-    mActivePresetBaseline = ActivePresetComparisonForm();
-    mActivePresetBaselineId = mActivePresetId;
+    CaptureActivePresetBaseline();
     mNextDirtyCheckSeconds = 0.0;
 
     if (mActivePresetDirty)
@@ -567,6 +580,14 @@ void PluginController::ResetActivePresetBaseline()
     {
         RecordPresetRecent(mActivePresetId);
     }
+}
+
+void PluginController::CaptureActivePresetBaseline()
+{
+    mActivePresetBaselinePreset = mActivePreset;
+    mActivePresetBaseline = mActivePreset ? PresetComparisonForm(*mActivePreset) : std::string{};
+    mActivePresetBaselineStale = false;
+    mActivePresetBaselineId = mActivePresetId;
 }
 
 void PluginController::UpdateActivePresetDirty()
@@ -592,12 +613,149 @@ void PluginController::UpdateActivePresetDirty()
     }
 
     mNextDirtyCheckSeconds = now + kDirtyCheckIntervalSeconds;
-    const bool dirty = ActivePresetComparisonForm() != mActivePresetBaseline;
+
+    // Automation has moved the baseline since it was last serialised (FoldAutomationNodeChanges).
+    if (mActivePresetBaselineStale && mActivePresetBaselinePreset)
+    {
+        mActivePresetBaseline = PresetComparisonForm(*mActivePresetBaselinePreset);
+        mActivePresetBaselineStale = false;
+    }
+
+    const bool dirty = PresetComparisonForm(*mActivePreset) != mActivePresetBaseline;
 
     if (dirty != mActivePresetDirty)
     {
         mActivePresetDirty = dirty;
         SendMessageToUI(nlohmann::json{{"type", "presetDirtyChanged"}, {"dirty", dirty}}.dump());
+    }
+}
+
+void PluginController::FoldAutomationNodeChanges()
+{
+    // The latest for each node parameter and each bypassed type, however long since the last call
+    // (see NodeChangeQueue).
+    std::vector<NodeChangeQueue::Change> changes;
+    mAutomationSlots.TakeNodeChanges(
+        [&changes](NodeChangeQueue::Change&& change) { changes.push_back(std::move(change)); });
+
+    if (const auto dropped = mAutomationSlots.TakeDroppedNodeChangeCount(); dropped > 0)
+    {
+        AppendSessionLog("[Automation] " + std::to_string(dropped) +
+                         " node changes arrived with no room to report them; the editor may show old values");
+    }
+
+    if (changes.empty())
+    {
+        return;
+    }
+
+    if (mActivePreset)
+    {
+        // Into the active scene's graph as well as the preset's: BroadcastState copies the scene's
+        // over the preset's (SyncActivePresetSceneGraph), which would put the old values back.
+        //
+        // And into the unsaved-changes baseline, so what a pedal or a DAW lane moves does not read
+        // as an edit (UpdateActivePresetDirty): only where the baseline still agrees with the
+        // working copy, since a parameter the user has changed by hand is an edit until it is
+        // saved or put back, whatever automation does to it afterwards.
+        const auto sceneId = GetResolvedActiveSceneId();
+        Preset* baseline = mActivePresetBaselinePreset && mActivePresetBaselineId == mActivePresetId
+                               ? &*mActivePresetBaselinePreset
+                               : nullptr;
+        auto* scene = FindPresetScene(*mActivePreset, sceneId);
+        auto* baselineScene = baseline ? FindPresetScene(*baseline, sceneId) : nullptr;
+        const auto forEachGraph = [&](const auto& apply) {
+            if (scene)
+            {
+                apply(scene->graph, baselineScene ? &baselineScene->graph : nullptr);
+            }
+
+            apply(mActivePreset->graph, baseline ? &baseline->graph : nullptr);
+        };
+        bool bypassChanged = false;
+
+        for (const auto& change : changes)
+        {
+            if (change.nodeId)
+            {
+                const auto& key = change.binding->paramId;
+                forEachGraph([&](SignalGraph& graph, SignalGraph* baselineGraph) {
+                    auto* node = graph.FindNode(*change.nodeId);
+
+                    if (!node)
+                    {
+                        return;
+                    }
+
+                    if (auto* base = baselineGraph ? baselineGraph->FindNode(*change.nodeId) : nullptr;
+                        base && SameParam(*base, *node, key))
+                    {
+                        base->params[key] = change.value;
+                    }
+
+                    node->params[key] = change.value;
+                });
+                continue;
+            }
+
+            const bool enabled = change.value != 0.0;
+            forEachGraph([&](SignalGraph& graph, SignalGraph* baselineGraph) {
+                for (auto& node : graph.nodes)
+                {
+                    if (EffectRegistry::Instance().Resolve(node.type) != change.binding->effectType)
+                    {
+                        continue;
+                    }
+
+                    if (auto* base = baselineGraph ? baselineGraph->FindNode(node.id) : nullptr;
+                        base && base->enabled == node.enabled)
+                    {
+                        base->enabled = enabled;
+                    }
+
+                    node.enabled = enabled;
+                    bypassChanged = true;
+                }
+            });
+        }
+
+        if (baseline)
+        {
+            mActivePresetBaselineStale = true;
+        }
+
+        // A parameter alone is not mirrored: under automation that would re-serialise the preset
+        // up to 30 times a second. FocusMixerPreset mirrors the working copy as its rig loses
+        // focus, which is where the slot's copy is next read.
+        if (bypassChanged)
+        {
+            MirrorActivePresetJson();
+            mPendingStateBroadcast = true;
+        }
+    }
+
+    // A host's save is built from the working copy. What it is answered with when it asks from
+    // another thread while this one is busy (see HostStateRelay) catches up at most once a second.
+    mHostStateRelay->MarkStale();
+
+    if (mHostStateRelay->TakeRefreshDue(std::chrono::steady_clock::now()))
+    {
+        RememberHostStateFromWorkingCopy();
+    }
+
+    for (const auto& change : changes)
+    {
+        if (!change.nodeId)
+        {
+            continue;
+        }
+
+        nlohmann::json msg;
+        msg["type"] = "signalPathNodeParamUpdated";
+        msg["nodeId"] = *change.nodeId;
+        msg["key"] = change.binding->paramId;
+        msg["value"] = change.value;
+        SendMessageToUI(msg.dump());
     }
 }
 } // namespace guitarfx

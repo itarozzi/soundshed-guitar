@@ -523,10 +523,13 @@ class PluginController
     [[nodiscard]] std::filesystem::path FindDemoClipFile(const std::string& clipId, std::string* title) const;
     void RecordPresetRecent(const std::string& presetId);
     /// Unsaved-changes tracking: the working copy against a baseline taken when a preset is
-    /// loaded or saved, compared in ActivePresetComparisonForm(); checked from OnIdle.
+    /// loaded or saved (CaptureActivePresetBaseline), compared in PresetComparisonForm(); checked
+    /// from OnIdle. What automation moves is not an edit: FoldAutomationNodeChanges gives the
+    /// baseline the same value, unless the user had already changed that parameter by hand.
     void ResetActivePresetBaseline();
+    void CaptureActivePresetBaseline();
     void UpdateActivePresetDirty();
-    [[nodiscard]] std::string ActivePresetComparisonForm() const;
+    [[nodiscard]] static std::string PresetComparisonForm(const Preset& preset);
 
     // Effect analysis (controller/PluginControllerEffectAnalysis.cpp): an effect's response
     // curve, exporting it as an IR, and matching the Simple Cabinet to a library IR.
@@ -553,8 +556,9 @@ class PluginController
     /// tick). Built off the DSP lock and swapped in under it.
     void RefreshAutomationBindings();
     /// Message thread: folds the node parameter and bypass changes automation made into the
-    /// working copy and tells the UI. OnIdle calls it, and so does DrainControlSurfaceRequests,
-    /// which the plugin's own timer runs while no editor is open.
+    /// working copy, and into the unsaved-changes baseline since they are not edits, and tells
+    /// the UI. OnIdle calls it, and so does DrainControlSurfaceRequests, which the plugin's own
+    /// timer runs while no editor is open (controller/PluginControllerPresetEdits.cpp).
     void FoldAutomationNodeChanges();
     /// Hands the controller-display feed the active preset's name (idle tick).
     void SyncControllerDisplay();
@@ -1035,9 +1039,14 @@ class PluginController
     std::string mActivePresetId;
     std::string mActiveSceneId;
 
-    // Unsaved changes (UpdateActivePresetDirty) and the output mute (setOutputMuted).
+    // Unsaved changes (UpdateActivePresetDirty) and the output mute (setOutputMuted). The baseline
+    // is the preset as loaded or saved: kept as a Preset so automation's changes can be folded
+    // into it too (FoldAutomationNodeChanges), and as the comparison form the check compares,
+    // re-serialised at the next check once a fold has made it stale.
+    std::optional<Preset> mActivePresetBaselinePreset;
     std::string mActivePresetBaseline;
     std::string mActivePresetBaselineId;
+    bool mActivePresetBaselineStale = false;
     double mNextDirtyCheckSeconds = 0.0;
     bool mActivePresetDirty = false;
     bool mOutputMuted = false;
