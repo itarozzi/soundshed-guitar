@@ -87,7 +87,9 @@ A scratch harness (not in the repo) ran each engine over one corpus at each inte
   envelope over 30% of its peak and 4x its level before the pick, against the dry's own; the
   share of picks heard twice (a second pick-sized peak 5-80 ms later where the dry has none) or
   lost (under 25% of the expected level).
-- **CPU**: microseconds per 64-sample block on `DI_Guitar_L.wav`, Release flags.
+- **CPU**: microseconds per 64-sample block on `DI_Guitar_L.wav`, Release flags. (That is the
+  demo DI guitar, a WAV when these were measured; it ships as `core/ui/demo/DI_Guitar_L.mp3`
+  since 2026-10-04, and the benchmark decodes that.)
 
 Calibration: a pure delay scores its own delay exactly on every pick, with no doubled or lost
 ones. The doubled and lost counts are unreliable at +12 st, where every engine repeats the pick.

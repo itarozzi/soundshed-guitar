@@ -43,6 +43,7 @@
 #include "dsp/EffectProcessor.h"
 #include "dsp/EffectRegistry.h"
 #include "dsp/effects/BuiltinEffects.h"
+#include "util/AudioDecoder.h"
 #include "util/Wav.h"
 
 #ifndef GUITARFX_DEMO_AUDIO_DIR
@@ -106,10 +107,11 @@ const std::vector<EffectVariant> kVariants = {
 
 const std::vector<int> kSemitoneSettings = {-12, -7, -5, -3, -2, -1, 0, 2, 5, 7, 12};
 
+// The demo clips (core/ui/demo): WAVs and, for the long DI take, an MP3; LoadDemoSample decodes either.
 const std::vector<std::string> kDemoSamples = {
     "guitar-riff-01.wav",
     "guitar-riff-02.wav",
-    "DI_Guitar_L.wav",
+    "DI_Guitar_L.mp3",
 };
 
 const fs::path kExternalPluginsCollectionRelPath = fs::path("tools") / "transpose-benchmark" / "external-plugins.json";
@@ -147,7 +149,7 @@ std::optional<StereoAudio> LoadDemoSample(const fs::path& path)
         return std::nullopt;
     }
 
-    const auto decoded = guitarfx::util::DecodePcmWav(bytes);
+    const auto decoded = guitarfx::util::DecodeAudioBytes(bytes);
 
     if (!decoded || decoded->channelSamples.empty() || decoded->sampleRate <= 0.0)
     {

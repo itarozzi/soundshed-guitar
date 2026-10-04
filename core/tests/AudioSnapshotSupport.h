@@ -1,6 +1,6 @@
 #pragma once
 
-// Stimuli, WAV I/O, the block driver and the "freshly added node" parameters for AudioSnapshot.
+// Stimuli, audio I/O, the block driver and the "freshly added node" parameters for AudioSnapshot.
 //
 // tools/audio-ab copies the harness (this header, AudioSnapshotChains.h and AudioSnapshot.cpp)
 // into older checkouts so that both sides of a comparison run the same harness, so everything
@@ -24,6 +24,8 @@
 
 #include <nlohmann/json.hpp>
 
+#include "util/AudioDecoder.h"
+
 #if defined(_M_X64) || defined(_M_IX86) || defined(__x86_64__) || defined(__i386__)
     #include <xmmintrin.h>
     #define AUDIO_SNAPSHOT_MXCSR 1
@@ -46,104 +48,28 @@ struct Stimulus
     std::size_t playFrames = 0;
 };
 
-/// First channel of a PCM (16/24/32-bit) or float WAV, as doubles in -1..1.
-inline std::vector<double> ReadWavMono(const fs::path& file, double& sampleRateOut)
+/// First channel of a WAV, AIFF or MP3 file, as doubles in -1..1, through the core's own decoder
+/// (in since 1.4.0, so every revision the harness builds against has it). The demo DI guitar
+/// that `--di` names has shipped as an MP3 since 2026-10-04.
+inline std::vector<double> ReadAudioMono(const fs::path& file, double& sampleRateOut)
 {
-    std::vector<double> out;
     std::ifstream f(file, std::ios::binary);
 
     if (!f)
     {
-        return out;
+        return {};
     }
 
-    const std::vector<char> all((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    const std::vector<std::uint8_t> all((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    const auto decoded = guitarfx::util::DecodeAudioBytes(all);
 
-    if (all.size() < 44 || std::memcmp(all.data(), "RIFF", 4) != 0 || std::memcmp(all.data() + 8, "WAVE", 4) != 0)
+    if (!decoded || decoded->channelSamples.empty() || decoded->sampleRate <= 0.0)
     {
-        return out;
+        return {};
     }
 
-    const auto u32 = [&](std::size_t p) {
-        std::uint32_t v = 0;
-        std::memcpy(&v, all.data() + p, 4);
-        return v;
-    };
-    const auto u16 = [&](std::size_t p) {
-        std::uint16_t v = 0;
-        std::memcpy(&v, all.data() + p, 2);
-        return v;
-    };
-
-    std::size_t p = 12;
-    int format = 1;
-    int channels = 1;
-    int bits = 16;
-
-    while (p + 8 <= all.size())
-    {
-        const std::string id(all.data() + p, 4);
-        const std::uint32_t size = u32(p + 4);
-
-        if (id == "fmt " && size >= 16)
-        {
-            format = u16(p + 8);
-            channels = std::max<int>(1, u16(p + 10));
-            sampleRateOut = static_cast<double>(u32(p + 12));
-            bits = u16(p + 22);
-
-            if (format == 0xFFFE && size >= 26)
-            {
-                format = u16(p + 32); // WAVE_FORMAT_EXTENSIBLE: the sub-format GUID starts with the tag
-            }
-        }
-        else if (id == "data")
-        {
-            const std::size_t bytes = std::min<std::size_t>(size, all.size() - (p + 8));
-            const std::size_t stride = static_cast<std::size_t>(channels) * static_cast<std::size_t>(bits / 8);
-            const std::size_t frames = stride > 0 ? bytes / stride : 0;
-            const char* base = all.data() + p + 8;
-            out.resize(frames);
-
-            for (std::size_t i = 0; i < frames; ++i)
-            {
-                const char* s = base + i * stride;
-
-                if (format == 3 && bits == 32)
-                {
-                    float v = 0.0f;
-                    std::memcpy(&v, s, 4);
-                    out[i] = v;
-                }
-                else if (bits == 16)
-                {
-                    std::int16_t v = 0;
-                    std::memcpy(&v, s, 2);
-                    out[i] = v / 32768.0;
-                }
-                else if (bits == 24)
-                {
-                    const auto* b = reinterpret_cast<const unsigned char*>(s);
-                    const std::int32_t v = static_cast<std::int32_t>((static_cast<std::uint32_t>(b[2]) << 24) |
-                                                                     (static_cast<std::uint32_t>(b[1]) << 16) |
-                                                                     (static_cast<std::uint32_t>(b[0]) << 8));
-                    out[i] = (v >> 8) / 8388608.0;
-                }
-                else if (bits == 32)
-                {
-                    std::int32_t v = 0;
-                    std::memcpy(&v, s, 4);
-                    out[i] = v / 2147483648.0;
-                }
-            }
-
-            break;
-        }
-
-        p += 8 + size + (size & 1u);
-    }
-
-    return out;
+    sampleRateOut = decoded->sampleRate;
+    return decoded->channelSamples.front();
 }
 
 /// Four-point Hermite resampling. Only the stimulus goes through this, and both builds get

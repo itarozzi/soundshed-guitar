@@ -7,6 +7,7 @@
  * click.
  */
 
+#include "DemoAudio.h"
 #include "dsp/IRWavLoader.h"
 #include "dsp/effects/BuiltinAmpEffect.h"
 
@@ -287,15 +288,14 @@ inline std::vector<bool> PlayingBlocks(const std::vector<float>& input)
     return playing;
 }
 
-// A demo recording (core/ui/demo, 48 kHz), `seconds` of it from `from` on (all of it at 0), scaled
-// to play at -18 dBFS RMS over its playing blocks. Empty if it does not load.
+// A demo recording (core/ui/demo, 48 kHz, WAV or MP3), `seconds` of it from `from` on (all of it at
+// 0), scaled to play at -18 dBFS RMS over its playing blocks. Empty if it does not load.
 inline std::vector<float> NominalGuitar(const char* file, double from = 0.0, double seconds = 0.0)
 {
     guitarfx::IRWavData data;
     std::vector<float> guitar;
 
-    if (!guitarfx::irwav::LoadWavFile(std::filesystem::path(GUITARFX_DEMO_AUDIO_DIR) / file, data) ||
-        data.sampleRate != 48000.0)
+    if (!guitarfx::test::LoadDemoClip(file, data) || data.sampleRate != 48000.0)
     {
         return guitar;
     }
@@ -395,7 +395,7 @@ inline double HeardGainDb(const Voicing& v, const std::vector<float>& guitar)
 // nominal level.
 inline std::vector<std::vector<float>> MeasuringGuitar()
 {
-    return {NominalGuitar("DI_Guitar_L.wav", 10.0, 10.0), NominalGuitar("guitar-riff-01.wav"),
+    return {NominalGuitar(guitarfx::test::kDemoDiGuitar, 10.0, 10.0), NominalGuitar("guitar-riff-01.wav"),
             NominalGuitar("guitar-riff-02.wav")};
 }
 

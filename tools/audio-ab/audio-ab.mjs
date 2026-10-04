@@ -263,7 +263,7 @@ function renderKey(rev, opts) {
   const definition = fs.readFileSync(opts.definition);
   const def = JSON.parse(definition);
   const assets = path.join(REPO, "core", "tests", "testdata", "assets");
-  const inputs = [path.join(REPO, "core", "ui", "demo", "DI_Guitar_L.wav"), ...Object.values(def.resources ?? {}).map((r) => path.join(assets, r))]
+  const inputs = [path.join(REPO, "core", "ui", "demo", "DI_Guitar_L.mp3"), ...Object.values(def.resources ?? {}).map((r) => path.join(assets, r))]
     .map((f) => (fs.existsSync(f) ? `${f}:${fs.statSync(f).size}` : `${f}:missing`));
   return sha256(JSON.stringify({ sha: rev.sha, harness, definition: sha256(definition), inputs, rate: opts.rate, block: opts.block, signals: opts.signals, filter: opts.filter, only: opts.only })).slice(0, 10);
 }
@@ -284,7 +284,7 @@ async function render(rev, opts) {
   fs.rmSync(dir, { recursive: true, force: true });
   fs.mkdirSync(path.join(dir, "_env", "local"), { recursive: true });
   const args = ["--out", dir, "--definition", opts.definition, "--assets", path.join(REPO, "core", "tests", "testdata", "assets"),
-    "--di", path.join(REPO, "core", "ui", "demo", "DI_Guitar_L.wav"), "--rate", String(opts.rate), "--block", String(opts.block)];
+    "--di", path.join(REPO, "core", "ui", "demo", "DI_Guitar_L.mp3"), "--rate", String(opts.rate), "--block", String(opts.block)];
   if (opts.signals) args.push("--signals", opts.signals);
   if (opts.filter) args.push("--filter", opts.filter);
   if (opts.only) args.push("--only", opts.only);

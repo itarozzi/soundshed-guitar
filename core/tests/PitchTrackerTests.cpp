@@ -24,8 +24,8 @@
 #include <string>
 #include <vector>
 
+#include "DemoAudio.h"
 #include "dsp/BiquadDesign.h"
-#include "dsp/IRWavLoader.h"
 #include "dsp/PitchTracker.h"
 
 #ifndef GUITARFX_DEMO_AUDIO_DIR
@@ -469,18 +469,16 @@ double ReferenceYin(const std::vector<float>& signal, std::size_t end, double sa
 void TestRealGuitar()
 {
     std::cout << "\nDI guitar recording against full-rate YIN" << std::endl;
-    const std::filesystem::path path = std::filesystem::path(GUITARFX_DEMO_AUDIO_DIR) / "DI_Guitar_L.wav";
-    guitarfx::IRWavData data;
+    double sampleRate = 0.0;
+    auto guitar = guitarfx::test::LoadDemoClipMono(guitarfx::test::kDemoDiGuitar, sampleRate);
 
-    if (!guitarfx::irwav::LoadWavFile(path, data))
+    // The clip is part of the repo: not finding it is a broken test, not a reason to skip.
+    if (guitar.empty())
     {
-        std::cout << "  [SKIP] " << path.string() << " not found" << std::endl;
+        Check(false, "the demo DI guitar loads", guitarfx::test::kDemoDiGuitar);
         return;
     }
 
-    std::vector<float> guitar;
-    guitarfx::irwav::DownmixToMono(data, guitar);
-    const double sampleRate = data.sampleRate;
     guitar.resize(std::min(guitar.size(), static_cast<std::size_t>(40.0 * sampleRate)));
 
     // The reference hears what the tracker hears: the same 2 kHz low-pass.

@@ -57,7 +57,7 @@ _FALLBACK_SEMITONE_MAX = 24
 _DEFAULT_SAMPLES = [
     "guitar-riff-01.wav",
     "guitar-riff-02.wav",
-    "DI_Guitar_L.wav",
+    "DI_Guitar_L.mp3",
 ]
 
 

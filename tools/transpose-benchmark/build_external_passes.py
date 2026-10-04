@@ -12,7 +12,7 @@ Input render-manifest schema:
     "pluginId": "hypertune_vst3",
     "entries": [
         {
-            "sample": "DI_Guitar_L.wav",
+            "sample": "DI_Guitar_L.mp3",
             "semitones": -12,
             "wav": "external/HyperTune_DI_m12.wav",
             "reportedLatencySamples": 0

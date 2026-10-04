@@ -44,7 +44,7 @@
 
 #include "JuceHostedPluginEffect.h"
 
-#include "util/Wav.h"
+#include "util/AudioDecoder.h"
 
 #include <juce_events/juce_events.h>
 
@@ -78,10 +78,11 @@ constexpr int kFlushPadFrames = 8192;
 // up with the dry references and built-in variant passes.
 const std::vector<int> kDefaultSemitones = {-12, -7, -5, -3, -2, -1, 0, 2, 5, 7, 12};
 
+// The demo clips (core/ui/demo): WAVs and, for the long DI take, an MP3; LoadDemoSample decodes either.
 const std::vector<std::string> kDemoSamples = {
     "guitar-riff-01.wav",
     "guitar-riff-02.wav",
-    "DI_Guitar_L.wav",
+    "DI_Guitar_L.mp3",
 };
 
 const fs::path kCollectionRelPath = fs::path("tools") / "transpose-benchmark" / "external-plugins.json";
@@ -141,7 +142,7 @@ std::optional<StereoAudio> LoadDemoSample(const fs::path& path)
     if (bytes.empty())
         return std::nullopt;
 
-    const auto decoded = guitarfx::util::DecodePcmWav(bytes);
+    const auto decoded = guitarfx::util::DecodeAudioBytes(bytes);
     if (!decoded || decoded->channelSamples.empty() || decoded->sampleRate <= 0.0)
         return std::nullopt;
 

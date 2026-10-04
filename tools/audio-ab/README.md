@@ -69,7 +69,7 @@ level, tone and tail only.
 
 | Stimulus  | What it is                                                                  |
 | --------- | --------------------------------------------------------------------------- |
-| `di`      | 6 s of the demo DI guitar (`core/ui/demo/DI_Guitar_L.wav`, from 12 s, faded in and out) + 2 s tail |
+| `di`      | 6 s of the demo DI guitar (`core/ui/demo/DI_Guitar_L.mp3`, from 12 s, faded in and out) + 2 s tail |
 | `di_hot`  | the same, 12 dB hotter, to push drives and amps                              |
 | `sweep`   | 4 s exponential sine sweep, 20 Hz to 20 kHz at −12 dBFS, + 1 s tail          |
 | `impulse` | a −6 dBFS impulse at 10 ms, + 1.5 s tail                                     |

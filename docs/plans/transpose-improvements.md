@@ -207,7 +207,7 @@ An offline benchmark renders demo audio through every variant at multiple semito
 - Renderer: `core/tests/TransposeBenchmark.cpp` (CMake target `TransposeBenchmark`, ctest label `benchmark`, excluded from fast test runs).
 - Report generator: `tools/transpose-benchmark/generate_report.py` (Python stdlib only).
 - Pipeline: `tools/transpose-benchmark/run_benchmark.ps1`.
-- Inputs today: `core/ui/demo/guitar-riff-01.wav`, `guitar-riff-02.wav`, `DI_Guitar_L.wav` (trimmed to 12 s, native sample rate, 512-sample blocks). **Bass + chord fixtures are required before claiming the goal.**
+- Inputs today: `core/ui/demo/guitar-riff-01.wav`, `guitar-riff-02.wav`, `DI_Guitar_L.mp3` (trimmed to 12 s, native sample rate, 512-sample blocks). **Bass + chord fixtures are required before claiming the goal.**
 - Latency is measured two ways: `GetLatencySamples()` (what PDC would use) and envelope cross-correlation against the dry signal (ground truth). Rendered WAVs are compensated by the *reported* latency, so any PDC misreport is audible in the report.
 - **Pitch accuracy** is measured per pass: `pitchErrorCents` (median cents error of the output fundamental vs the requested interval), `pitchJitterCents` (robust MAD-scaled spread) and `pitchFrames` (usable frames). See below.
 - External references: `tools/transpose-benchmark/external-plugins.json` (HyperTune Metal, Archetype Misha Mansoor X) via pedalboard.

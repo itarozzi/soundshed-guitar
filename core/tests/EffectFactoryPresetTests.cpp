@@ -23,11 +23,11 @@
 #include <string>
 #include <vector>
 
+#include "DemoAudio.h"
 #include "dsp/EffectGuids.h"
 #include "dsp/EffectProcessor.h"
 #include "dsp/EffectRegistry.h"
 #include "dsp/FiniteCheck.h"
-#include "dsp/IRWavLoader.h"
 #include "dsp/effects/AutoArpEffect.h"
 #include "dsp/effects/BuiltinAmpEffect.h"
 #include "dsp/effects/ChorusEffect.h"
@@ -214,15 +214,16 @@ void TestWellFormed(const Effect& effect)
     Check(problem.empty(), "every preset sets every control but the player's own, in range, and nothing else", problem);
 }
 
+/// The demo DI guitar as mono. Empty if it does not load, or is not at the 48 kHz the renders
+/// below count their samples at.
 std::vector<float> LoadGuitar()
 {
-    guitarfx::IRWavData data;
-    const auto path = std::filesystem::path(GUITARFX_DEMO_AUDIO_DIR) / "DI_Guitar_L.wav";
-    std::vector<float> guitar;
+    double sampleRate = 0.0;
+    auto guitar = guitarfx::test::LoadDemoClipMono(guitarfx::test::kDemoDiGuitar, sampleRate);
 
-    if (guitarfx::irwav::LoadWavFile(path, data))
+    if (sampleRate != 48000.0)
     {
-        guitarfx::irwav::DownmixToMono(data, guitar);
+        guitar.clear();
     }
 
     return guitar;

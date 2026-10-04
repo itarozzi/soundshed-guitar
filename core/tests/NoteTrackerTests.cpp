@@ -28,8 +28,8 @@
 #include <string>
 #include <vector>
 
+#include "DemoAudio.h"
 #include "GuitarPhraseSynth.h"
-#include "dsp/IRWavLoader.h"
 #include "dsp/NoteTracker.h"
 #include "dsp/PitchTracker.h"
 
@@ -540,18 +540,17 @@ void TestLowestFrequency()
 void TestRealGuitar()
 {
     std::cout << "\nDI guitar recording" << std::endl;
-    const std::filesystem::path path = std::filesystem::path(GUITARFX_DEMO_AUDIO_DIR) / "DI_Guitar_L.wav";
-    guitarfx::IRWavData data;
+    double sampleRate = 0.0;
+    const auto guitar = guitarfx::test::LoadDemoClipMono(guitarfx::test::kDemoDiGuitar, sampleRate);
 
-    if (!guitarfx::irwav::LoadWavFile(path, data))
+    // The clip is part of the repo: not finding it is a broken test, not a reason to skip.
+    if (guitar.empty())
     {
-        std::cout << "  [SKIP] " << path.string() << " not found" << std::endl;
+        Check(false, "the demo DI guitar loads", guitarfx::test::kDemoDiGuitar);
         return;
     }
 
-    std::vector<float> guitar;
-    guitarfx::irwav::DownmixToMono(data, guitar);
-    const auto events = Run(guitar, data.sampleRate);
+    const auto events = Run(guitar, sampleRate);
     int notes = 0;
     int picks = 0;
     int tooShort = 0;

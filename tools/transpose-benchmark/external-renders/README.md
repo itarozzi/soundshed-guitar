@@ -6,7 +6,7 @@ Place one JSON manifest file here for each external plugin you want to include i
 
 ## Workflow
 
-1. Render audio through the external plugin at each semitone setting you want to compare (manually or via your DAW). Use the same dry source files as the benchmark (`core/ui/demo/guitar-riff-01.wav`, `guitar-riff-02.wav`, `DI_Guitar_L.wav`).
+1. Render audio through the external plugin at each semitone setting you want to compare (manually or via your DAW). Use the same dry source files as the benchmark (`core/ui/demo/guitar-riff-01.wav`, `guitar-riff-02.wav`, `DI_Guitar_L.mp3`).
 
 2. Copy the rendered WAVs into the snapshot directory that `run_benchmark.ps1` creates, typically under `transpose-benchmark-out/<snapshot>/external/`.
 

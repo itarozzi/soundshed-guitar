@@ -464,7 +464,7 @@ int main(int argc, char** argv)
         }
 
         double diRate = 0.0;
-        const auto diRaw = o.di.empty() ? std::vector<double>{} : ReadWavMono(o.di, diRate);
+        const auto diRaw = o.di.empty() ? std::vector<double>{} : ReadAudioMono(o.di, diRate);
         const auto di = Resample(diRaw, diRate, o.sampleRate);
         std::vector<Stimulus> stimuli;
 
