@@ -483,6 +483,9 @@ JUCE-only utility effect that hosts an external plugin supported by JUCE's plugi
   state to that scene and leaves the other scenes' stored chunks alone.
 - An empty capture is never authoritative — it is ignored rather than allowed to erase a
   stored chunk.
+- A load restores the chunk once, before the plugin is prepared, as hosts do. A prepare
+  restores only a chunk that instance has not been given, so preparing again (a device
+  change, say) leaves the plugin as it is rather than putting back the last capture.
 - Pointing a node at a different plugin drops the previous plugin's chunk and identity keys;
   a chunk is only ever carried across a rebuild when the plugin identity still matches.
 - Every mixer slot persists its own state, not just the one holding the editing focus.

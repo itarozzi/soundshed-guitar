@@ -6,6 +6,8 @@
 //     the controller turns into an erase of the node's stored state;
 //   * a capture per parameter tick during a knob drag, each one a full getStateInformation()
 //     on the message thread.
+// And one on the restore side: every load restoring the same state twice, before and after
+// the prepare that follows it.
 
 #include "JuceHostedPluginEffect.h"
 
@@ -68,6 +70,8 @@ public:
     }
     [[nodiscard]] int StateReadCount() const { return mStateReadCount; }
     void ResetStateReadCount() { mStateReadCount = 0; }
+    [[nodiscard]] int StateWriteCount() const { return mStateWriteCount; }
+    [[nodiscard]] const juce::String& StateText() const { return mStateText; }
     [[nodiscard]] juce::AudioParameterFloat* Parameter() const { return mParameter; }
 
     // ── AudioPluginInstance ────────────────────────────────────────
@@ -105,12 +109,14 @@ public:
 
     void setStateInformation(const void* data, int sizeInBytes) override
     {
+        ++mStateWriteCount;
         mStateText = juce::String::fromUTF8(static_cast<const char*>(data), sizeInBytes);
     }
 
 private:
     juce::String mStateText;
     int mStateReadCount = 0;
+    int mStateWriteCount = 0;
     juce::AudioParameterFloat* mParameter = nullptr;
 };
 
@@ -326,6 +332,80 @@ bool TestUnbalancedGestureEndDoesNotWedgeCapture()
     return true;
 }
 
+/// The node's stored state for a plugin holding `stateText`, as a preset would carry it.
+std::string EncodedStateOf(const juce::String& stateText)
+{
+    guitarfx::JuceHostedPluginEffect source;
+    source.InstallHostedPluginForTesting(std::make_unique<StubPluginInstance>(stateText));
+    return source.GetConfig(kStateConfigKey);
+}
+
+/// A prepare restores only state the plugin has not been given. A load restores the state and
+/// the node is prepared straight after, which used to restore it a second time on every load:
+/// a second setStateInformation, ~200 ms for some plugins.
+bool TestPrepareDoesNotRestoreStateTwice()
+{
+    const auto savedState = EncodedStateOf("state-saved");
+    const auto laterState = EncodedStateOf("state-later");
+
+    guitarfx::JuceHostedPluginEffect effect;
+    auto plugin = std::make_unique<StubPluginInstance>("state-default");
+    auto* raw = plugin.get();
+    effect.InstallHostedPluginForTesting(std::move(plugin));
+
+    // State that arrives before the node is prepared is restored by the first prepare.
+    effect.SetConfig(kStateConfigKey, savedState);
+    effect.Prepare(48000.0, 512);
+
+    if (raw->StateWriteCount() != 1 || raw->StateText() != "state-saved")
+    {
+        Fail("the first prepare did not restore the state once: " + std::to_string(raw->StateWriteCount())
+             + " write(s), plugin holds '" + raw->StateText().toStdString() + "'");
+        return false;
+    }
+
+    // Preparing again, as a device change does, leaves the state the plugin already has.
+    effect.Prepare(48000.0, 256);
+
+    if (raw->StateWriteCount() != 1)
+    {
+        Fail("a prepare restored state the plugin already had: " + std::to_string(raw->StateWriteCount())
+             + " writes");
+        return false;
+    }
+
+    // Restoring state explicitly still lands, even the same state.
+    effect.SetConfig(kStateConfigKey, savedState);
+
+    if (raw->StateWriteCount() != 2)
+    {
+        Fail("an explicit restore of the same state was skipped");
+        return false;
+    }
+
+    effect.SetConfig(kStateConfigKey, laterState);
+
+    if (raw->StateWriteCount() != 3 || raw->StateText() != "state-later")
+    {
+        Fail("a new state was not restored");
+        return false;
+    }
+
+    // A new instance, as a plugin reload makes, has been given nothing yet.
+    auto replacement = std::make_unique<StubPluginInstance>("state-default");
+    auto* rawReplacement = replacement.get();
+    effect.InstallHostedPluginForTesting(std::move(replacement));
+    effect.Prepare(48000.0, 512);
+
+    if (rawReplacement->StateWriteCount() != 1 || rawReplacement->StateText() != "state-later")
+    {
+        Fail("a new instance was not given the node's state on prepare");
+        return false;
+    }
+
+    return true;
+}
+
 } // namespace
 
 int main()
@@ -344,6 +424,7 @@ int main()
     run("Real capture is still published", TestRealCaptureIsStillPublished());
     run("Gesture coalesces captures", TestGestureCoalescesCaptures());
     run("Unbalanced gesture end does not wedge capture", TestUnbalancedGestureEndDoesNotWedgeCapture());
+    run("Prepare does not restore state twice", TestPrepareDoesNotRestoreStateTwice());
 
     std::cout << "\nHosted plugin state capture tests: " << passed << " passed, " << failed << " failed\n";
     return failed == 0 ? 0 : 1;

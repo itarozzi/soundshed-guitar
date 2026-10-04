@@ -139,6 +139,9 @@ namespace guitarfx
         std::string mPluginFormat;
         std::string mPluginIdentifier;
         std::string mPluginStateBase64;
+        // The state last restored into the current mPlugin, so preparing it straight after a
+        // load does not restore the same state a second time. Cleared with the instance.
+        std::string mAppliedPluginStateBase64;
         std::string mLastError;
         std::string mLastErrorCode;
         RuntimeConfigChangedCallback mRuntimeConfigChangedCallback;

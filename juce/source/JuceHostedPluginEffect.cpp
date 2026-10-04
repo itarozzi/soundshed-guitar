@@ -1284,8 +1284,8 @@ namespace guitarfx
             // JUCE's LV2 host destroys and recreates the plugin view/instance
             // internals inside prepareToPlay; keep the audio thread out. Plugins also
             // notify the host from inside prepareToPlay, so capture has to stay out too —
-            // see AutoCaptureSuppressionScope. ApplyPendingPluginState() below restores the
-            // intended state anyway, so nothing is lost by ignoring those notifications.
+            // see AutoCaptureSuppressionScope. The state they report there is the one they
+            // already had, which is restored below if it has not reached this instance.
             const AutoCaptureSuppressionScope suppressCapture (mAutoCaptureSuppressionDepth);
             const juce::SpinLock::ScopedLockType lock (mPluginProcessLock);
             mPlugin->setRateAndBufferSizeDetails (mSampleRate, mMaxBlockSize);
@@ -1298,6 +1298,20 @@ namespace guitarfx
             // prepareToPlay usually stops an instrument's voices, but it need not.
             mNotePlayer.ReleaseAllNext();
         }
+
+        // A load restores the state before preparing, the order hosts use, and prepareToPlay
+        // keeps it: JUCE's VST3 host only sets up processing, and its LV2 host saves and
+        // restores the state around rebuilding the instance. Restoring it again here was a
+        // second setStateInformation on every load, ~200 ms for some plugins. So only state
+        // this instance has not been given yet is applied: the first prepare of a node whose
+        // state arrived while it was unprepared, or one set since.
+        if (!mPluginStateBase64.empty() && mPluginStateBase64 == mAppliedPluginStateBase64)
+        {
+            AppendHostedPluginTrace ("PrepareLoadedPlugin state already applied plugin=" + FromJuceString (mPlugin->getName())
+                                     + ", stateLength=" + std::to_string (mPluginStateBase64.size()));
+            return;
+        }
+
         ApplyPendingPluginState();
     }
 
@@ -1426,6 +1440,7 @@ namespace guitarfx
         AppendHostedPluginTrace ("ApplyPluginStateBase64 complete plugin=" + FromJuceString (mPlugin->getName())
                                  + ", postApply=" + applySummary);
         mLastError.clear();
+        mAppliedPluginStateBase64 = value;
     }
 
     void JuceHostedPluginEffect::ApplyPendingPluginState()
@@ -1541,6 +1556,9 @@ namespace guitarfx
             mPlugin->releaseResources();
             mPlugin.reset();
         }
+
+        // Whatever the next instance holds, it has not been given this state yet.
+        mAppliedPluginStateBase64.clear();
     }
 
 #if defined(GUITARFX_ENABLE_PLUGIN_HOST_TEST_API)
