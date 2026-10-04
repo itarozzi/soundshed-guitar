@@ -2,7 +2,7 @@
  * @file PitchShiftEngineTests.cpp
  * @brief Pitch Shift's two engines and the crossfades between its paths.
  *
- *   - the Low Latency engine (TimeDomainPitchShifter) is heard at a new shift within a few
+ *   - the Low Latency engine (SpliceTransposer) is heard at a new shift within a few
  *     milliseconds, where High Quality (Signalsmith Stretch) takes about 40
  *   - it holds pitch within a few cents from -12 to +12 st, at 44.1, 48 and 96 kHz
  *   - at 0 st the node passes the input through untouched and reports no latency, and at Mix 0
@@ -326,9 +326,9 @@ void TestTransparencyAndAlignment()
         }
 
         Check(aligned, "Mix 0 plays the input delayed by exactly the reported latency", std::to_string(latency));
-        // Between the shortest and longest delays the tap sits at, rather than a number for a host.
-        Check(latency >= static_cast<int>(kSampleRate * 0.005) && latency <= static_cast<int>(kSampleRate * 0.015),
-              "Low Latency reports 5-15 ms", Num(latency * 1000.0 / kSampleRate, 1) + " ms");
+        // The tap's mean delay over its window: (2 ms floor + 30 ms window) / 2.
+        Check(latency == static_cast<int>(kSampleRate * 0.016), "Low Latency reports 16 ms",
+              Num(latency * 1000.0 / kSampleRate, 1) + " ms");
         effect.SetParam("semitones", 12.0);
         Check(effect.GetLatencySamples() == latency, "and the same at every shift");
         effect.SetParam("engine", 0.0);

@@ -30,7 +30,7 @@ namespace guitarfx
  *
  * Audio architecture, all per sample, so a step starts on its own sample in any block size:
  *  - Steps at 0 semitones play the input itself, undelayed.
- *  - Other steps read TimeDomainPitchShifter, the engine behind Pitch Shift's Low Latency mode.
+ *  - Other steps read TimeDomainPitchShifter, a time-domain shifter that takes a new pitch at once.
  *    Its history is written on every sample, so a step that starts it plays what is coming in now.
  *    From one shifted step to the next its tap only changes speed, so the new pitch is heard on
  *    the step's first sample, with no click. A 0 st step and a shifted one cross-fade over 5 ms.

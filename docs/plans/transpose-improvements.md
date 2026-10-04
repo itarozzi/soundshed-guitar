@@ -35,7 +35,7 @@ Global pre-chain node `global_transpose` (`EffectGuids::kTranspose`) runs the Lo
 | Effect | Engine | Range (st) | Latency @48 kHz (measured) | Notes |
 |---|---|---|---|---|
 | `pitch_shift` (High Quality) | Signalsmith `ConfigureSignalsmithLive` (3840/960) | -12..+12 (continuous) | 3840 samples (80 ms) when shifting | Tonality limit 8 kHz; a new shift heard ~40 ms after it is set |
-| `pitch_shift` (Low Latency) | `TimeDomainPitchShifter`: resampling tap + correlation-matched splices | -12..+12 (continuous) | reports 10 ms; tap 5-13 ms mean by shift | Added 2026-09 for expression pedals: a shift is heard within 3 ms; faint flutter on chords |
+| `pitch_shift` (Low Latency) | `SpliceTransposer` since 2026-10-04 (`TimeDomainPitchShifter` before) | -12..+12 (continuous) | reports 16 ms | For expression pedals: a shift is heard within 3 ms; chords clean, low notes in tune |
 | `transpose` (High Quality, node default) | same | -36..+12 (integer); global clamp +/-12 | 80 ms when shifting | Tonality limit 16 kHz |
 | `transpose` (Low Latency) | `SpliceTransposer`: drifting tap, rate-cost correlation splices, match-length fades, pick-attack re-sync | -36..+12 (integer) | reports 16 ms; picks arrive 3-6 ms late shifting down | **The live global path since 2026-10-04**; docs/transpose-engine.md |
 | `transpose_stft` | STFT phase vocoder (`stftPitchShift`) | -12..+12 | LL ~6.7-14 ms; poly ~13-26 ms | Profiles by `abs(st)` + mode; experimental |
@@ -198,7 +198,7 @@ Keep one global node id (`global_transpose`) and the existing UI knob. Route ins
 | Max quality / offline | Signalsmith HQ |
 | FX library `transpose_stft` / `transpose_hybrid` | Stay experimental until the live path wins A/B |
 
-`pitch_shift` remains the continuous FX-library shifter, with Signalsmith as its default engine; do not silently swap that engine for STFT. Its Low Latency engine (`TimeDomainPitchShifter`, 2026-09) is the first time-domain engine in the family, built for control response rather than deep drop: a candidate starting point for the time-domain lows of the live -12 path, not yet measured against those gates.
+`pitch_shift` remains the continuous FX-library shifter, with Signalsmith as its default engine; do not silently swap that engine for STFT. Its Low Latency engine was `TimeDomainPitchShifter` (2026-09), the first time-domain engine in the family, built for control response; since 2026-10-04 it is `SpliceTransposer`, the engine the global transpose runs.
 
 ## Validation: Transpose Benchmark Harness
 

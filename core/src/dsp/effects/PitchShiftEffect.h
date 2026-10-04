@@ -4,7 +4,7 @@
 #include "dsp/EffectRegistry.h"
 #include "dsp/EffectGuids.h"
 #include "dsp/FiniteCheck.h"
-#include "dsp/TimeDomainPitchShifter.h"
+#include "dsp/SpliceTransposer.h"
 #include "dsp/effects/PitchPresets.h"
 #include "dsp/effects/SignalsmithSupport.h"
 #include "signalsmith-stretch.h"
@@ -27,9 +27,10 @@ namespace guitarfx
  *     Signalsmith Stretch. 80 ms of latency, and a new shift is only heard about 40 ms after
  *     it is set, since Stretch takes it at its next analysis frame and fades it in over its
  *     synthesis window. See SignalsmithSupport.h.
- *   - Low Latency (1): TimeDomainPitchShifter. A new shift is heard on the next sample, and the
- *     audio is 5-15 ms late depending on the shift; the price is a faint flutter on chords.
- *     This is the one for an expression pedal.
+ *   - Low Latency (1): SpliceTransposer, the engine Transpose and the global transpose use. A new
+ *     shift is heard on the next sample, picks arrive a few milliseconds late, and it reports its
+ *     tap's mean delay, 16 ms. It holds low bass notes in tune and chords cleanly (see
+ *     docs/transpose-engine.md). This is the one for an expression pedal.
  *
  * Latency contract:
  *   - When shifting: report the engine's latency and delay the dry signal by it before the
@@ -441,7 +442,7 @@ class PitchShiftEffect : public EffectProcessor
 
     signalsmith::stretch::SignalsmithStretch<float> mStretch;
     SignalsmithDryHistory mDry;
-    TimeDomainPitchShifter mLive;
+    SpliceTransposer mLive;
     std::vector<float> mWetL;
     std::vector<float> mWetR;
     std::vector<float> mZero;

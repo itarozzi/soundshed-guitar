@@ -1,9 +1,9 @@
 # Transpose engine: SpliceTransposer
 
 Record of the Low Latency transpose engine (`core/src/dsp/SpliceTransposer.h`): what it does,
-why, and the measurements behind its constants. The global transpose always runs it; the
-`transpose` effect offers it as Engine: Low Latency beside Signalsmith Stretch (High Quality, the
-default for nodes, so presets saved before it sound as they did).
+why, and the measurements behind its constants. The global transpose always runs it, and the
+`transpose` and `pitch_shift` effects offer it as Engine: Low Latency beside Signalsmith Stretch
+(High Quality, the default for nodes, so presets saved before it sound as they did).
 
 ## Why another engine
 
@@ -18,9 +18,9 @@ A time-domain splicer avoids both problems: a delay line read at the pitch ratio
 placed where the waveform matches, the idea behind the Eventide H949's "de-glitch" and the
 drop-tune pedals that followed it. Bass is no harder for it than guitar, and its latency is set
 by the window it splices across, not by a frequency resolution. Our first one,
-TimeDomainPitchShifter (Pitch Shift's Low Latency engine, built for pedal sweeps), searches a span
-too short for a low E1's period and knows nothing of attacks. SpliceTransposer is the one built
-for transposing.
+TimeDomainPitchShifter (built for Pitch Shift's pedal sweeps, and still the Auto Arpeggiator's),
+searches a span too short for a low E1's period and knows nothing of attacks. SpliceTransposer is
+the one built for transposing, and it has since replaced that one in Pitch Shift too.
 
 ## How it works
 
@@ -95,8 +95,8 @@ ones. The doubled and lost counts are unreliable at +12 st, where every engine r
 ## Results
 
 48 kHz, 30 ms window. `ss80` is Signalsmith Stretch as Transpose ran it, `tdps` the
-TimeDomainPitchShifter (Pitch Shift's Low Latency engine), `new` SpliceTransposer. Lower is better
-everywhere.
+TimeDomainPitchShifter (Pitch Shift's previous Low Latency engine), `new` SpliceTransposer. Lower
+is better everywhere.
 
 | st | engine | guitar pitch mean / p98 | guitar sideband | bass pitch mean / p98 | bass sideband | chord sideband | dyad sideband | attack median / p90 ms | heard twice | lost |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -138,6 +138,22 @@ percentile / worst), over -12, -5, -2, +4 and +12 st. A 64-sample block has 1333
 | ss80 | 11.6-12.7 / 172-193 / 233-277 | 2.9-3.6 / 161-186 / 240-308 |
 | tdps | 0.9-1.6 / 5.3-5.6 / 8-18 | 0.2-0.5 / 0.5-4.5 / 8-31 |
 | **new** | 1.6-3.4 / 8-21 / 24-48 | 0.5-1.0 / 3.1-5.4 / 10-50 |
+
+Pedal sweeps, for Pitch Shift: 0 to +12, down to -12 and back, the target moved every 64
+samples with Snap off (a 4 ms glide), on a held A2, a held open E chord and `DI_Guitar_L.wav`:
+
+| sweep | engine | A2 pitch along the sweep, mean / p95 cents | largest step, x the input's | quietest 10 ms on the chord (dry) |
+|---|---|---|---|---|
+| half an octave a second | tdps | 4.8 / 6.1 | 1.03 note, 1.77 DI | -30.3 dB (-27.0) |
+| half an octave a second | **new** | **4.7 / 5.6** | 1.03 note, 1.85 DI | -30.0 dB |
+| four octaves a second | tdps | 10.0 / 35.1 | 1.21 note, 1.94 DI | -10.5 dB (-9.3) |
+| four octaves a second | **new** | **9.2 / 33.9** | 1.25 note, 1.96 DI | -12.7 dB |
+
+Both engines take a new shift on the next sample (a step from -5 to +7 has half its energy at the
+new pitch 3.0 ms later on either), and what pitch error remains is mostly the moving pitch
+smearing the 40 ms measurement frames. The steps grow with the shift itself: at +12 the input
+moves twice as fast. The one cost is on a chord in a very fast sweep, where the quietest moment
+dips 2 dB deeper.
 
 Known limits:
 

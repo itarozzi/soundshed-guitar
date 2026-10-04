@@ -1427,9 +1427,9 @@ song's tempo.
 | `pitchMode` / `pitchThreshold` | Always, Above, Below / 50–2000 Hz | Always / 330 | When it plays |
 | `mix` | 0–1 | 0.8 | |
 
-Steps at 0 st play the input itself. The others go through `TimeDomainPitchShifter`, the engine
-behind Pitch Shift's Low Latency mode. Everything runs per sample, so a step starts on its own
-sample whatever the block size. From one shifted step to the next the shifter only changes speed,
+Steps at 0 st play the input itself. The others go through `TimeDomainPitchShifter`, a time-domain
+shifter (Pitch Shift's Low Latency engine until it moved to `SpliceTransposer`). Everything runs
+per sample, so a step starts on its own sample whatever the block size. From one shifted step to the next the shifter only changes speed,
 so the new pitch is heard on the step's first sample, without a click; a 0 st step and a shifted
 one cross-fade over 5 ms. The shifter's history is written on every sample, so a shifted step
 after a 0 st one plays what is coming in now. A shifted step runs 2–25 ms behind its input, and
@@ -1553,8 +1553,8 @@ reported latency as it passes through it.
 
 | Engine | Latency while shifting | A new shift is heard after | Character |
 |--------|------------------------|----------------------------|-----------|
-| High Quality (default) | 80 ms | ~40 ms | Signalsmith Stretch: clean on chords and big intervals |
-| Low Latency | 10 ms reported; 5–15 ms actual, by shift | under 3 ms | Time domain: faint flutter on chords, the classic whammy sound |
+| High Quality (default) | 80 ms | ~40 ms | Signalsmith Stretch, a phase vocoder: smooth, but smears attacks and low notes |
+| Low Latency | 16 ms reported; picks 3-6 ms late shifting down | under 3 ms | Time domain: low notes in tune, chords clean, picks on time |
 
 High Quality is Signalsmith Stretch (`SignalsmithSupport.h`). It takes a new shift at its next
 analysis frame and fades it in over its synthesis window, so the delay before a pedal move is
@@ -1562,15 +1562,18 @@ heard is its output latency, half the 80 ms total. Shortening the analysis inter
 change that (only its jitter), and every smaller or asymmetric window measured traded tone
 for it. It stays the default so presets saved before the switch sound as they did.
 
-Low Latency is `TimeDomainPitchShifter` (`core/src/dsp/`). A tap reads a delay line at the pitch
-ratio, so a new shift changes the pitch on the next sample, and the tap jumps back (shifting
-up) or forward (shifting down) when it drifts too far. Each jump is crossfaded over 6 ms and
-lands where the waveform matches, by correlation on a 12 kHz copy refined at the full rate, so on
-a single note it joins whole periods. Pitch is exact (within about a cent), and it costs about
-1.5 µs per 64-sample block. With Snap off it follows the target with a 4 ms glide, which smooths
-a 7-bit controller's steps; with Snap on each semitone lands at once. The latency it reports is a
-fixed 10 ms whatever the shift, so a sweep does not keep changing the host's delay compensation;
-the tap's actual delay averages 5-13 ms depending on the shift.
+Low Latency is `SpliceTransposer` (`core/src/dsp/`), the engine Transpose and the global transpose
+run (`docs/transpose-engine.md`). A tap reads a delay line at the pitch ratio, so a new shift
+changes the pitch on the next sample, and the tap jumps when it drifts to the end of its 30 ms
+window. Each jump lands where the waveform matches, scored as mismatch per sample of run and
+refined to a fraction of a sample, so on a single note it joins whole periods; a poor match, such
+as a chord's, fades for longer; and a pick moves the tap to the newest audio. Pitch is within a
+cent from -12 to +12 st, low bass included, and it costs 1.6-3.4 µs per 64-sample block. With Snap
+off it follows the target with a 4 ms glide, which smooths a 7-bit controller's steps; with Snap on
+each semitone lands at once. The latency it reports is a fixed 16 ms whatever the shift, so a
+sweep does not keep changing the host's delay compensation. Until 2026-10 Low Latency was
+`TimeDomainPitchShifter` (10 ms reported, a flutter on chords and low notes out of tune); presets
+saved on it now report 6 ms more latency and sound cleaner.
 
 **Path changes crossfade.** Entering and leaving the 0 st bypass, and switching engine, fade
 over 10 ms, with both engines running until the fade ends. The engines' latencies differ from the
