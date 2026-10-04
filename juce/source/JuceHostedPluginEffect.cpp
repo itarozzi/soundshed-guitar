@@ -13,6 +13,7 @@
 #include <cstring>
 #include <fstream>
 #include <iomanip>
+#include <optional>
 #include <sstream>
 #include <system_error>
 #include <utility>
@@ -716,12 +717,15 @@ namespace guitarfx
 
     void JuceHostedPluginEffect::EnsureFormatsAdded()
     {
-        if (mFormatsAdded)
+        auto& formats = *mSharedFormats;
+        const juce::ScopedLock lock (formats.lock);
+
+        if (formats.added)
             return;
 
-        juce::addDefaultFormatsToManager (mFormatManager);
-        mFormatsAdded = true;
-        AppendHostedPluginTrace ("EnsureFormatsAdded registeredFormats=" + DescribeRegisteredFormats (mFormatManager));
+        juce::addDefaultFormatsToManager (formats.manager);
+        formats.added = true;
+        AppendHostedPluginTrace ("EnsureFormatsAdded registeredFormats=" + DescribeRegisteredFormats (formats.manager));
     }
 
     void JuceHostedPluginEffect::Prepare (double sampleRate, int maxBlockSize)
@@ -998,17 +1002,23 @@ namespace guitarfx
             return false;
         }
 
+        // Held from the scan until the plugin is instantiated: the formats are shared by every
+        // Plugin Host, and the LV2 one changes as it loads bundles. See SharedPluginFormats.
+        std::optional<juce::ScopedLock> formatsLock;
+        formatsLock.emplace (mSharedFormats->lock);
+        auto& formatManager = mSharedFormats->manager;
+
         juce::OwnedArray<juce::PluginDescription> descriptions;
         const auto fileOrIdentifier = pluginFile.getFullPathName();
         const juce::String formatHint = NormalizePluginFormatHint (mPluginFormat);
         std::ostringstream scanLog;
 
-        const auto scanWithFormats = [this, &descriptions, &fileOrIdentifier, &scanLog] (const juce::String& restrictToFormat)
+        const auto scanWithFormats = [&formatManager, &descriptions, &fileOrIdentifier, &scanLog] (const juce::String& restrictToFormat)
         {
             scanLog << "scan pass restrictTo='" << FromJuceString (restrictToFormat) << "'\n";
-            for (int i = 0; i < mFormatManager.getNumFormats(); ++i)
+            for (int i = 0; i < formatManager.getNumFormats(); ++i)
             {
-                auto* format = mFormatManager.getFormat (i);
+                auto* format = formatManager.getFormat (i);
                 if (!format)
                 {
                     scanLog << "  format[" << i << "] <null>\n";
@@ -1053,7 +1063,7 @@ namespace guitarfx
 
             AppendHostedPluginTrace ("LoadPluginFromPath scan failed path=" + ToDisplayPath (resolvedPath)
                                      + ", formatHint='" + FromJuceString (formatHint) + "', registeredFormats="
-                                     + DescribeRegisteredFormats (mFormatManager)
+                                     + DescribeRegisteredFormats (formatManager)
                                      + ", bundlePayload=" + DescribeBundlePayloadForLog (resolvedPath)
                                      + "\n" + scanLog.str());
             SetError (message, "scan-no-descriptions");
@@ -1107,7 +1117,9 @@ namespace guitarfx
         // Loading is already on the JUCE message thread. Keep creation synchronous:
         // createPluginInstanceAsync requires a nested dispatch loop here, which caused
         // valid AU/VST3 initializations to hit an artificial timeout.
-        auto instance = mFormatManager.createPluginInstance (*selected, mSampleRate, mMaxBlockSize, error);
+        auto instance = formatManager.createPluginInstance (*selected, mSampleRate, mMaxBlockSize, error);
+        formatsLock.reset();
+
         if (!instance)
         {
             const std::string pluginName = FromJuceString (selected->name.isNotEmpty()

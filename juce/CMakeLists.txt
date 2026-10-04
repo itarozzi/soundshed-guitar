@@ -666,6 +666,50 @@ if(WIN32)
 
     add_test(NAME HostedPluginStateCaptureTests COMMAND HostedPluginStateCaptureTests)
 
+    # One set of plugin formats shared by every Plugin Host. Loads a path that does not exist,
+    # so it needs no installed plugin. LV2 is on, as in the app, since it is the costly format.
+    add_executable(HostedPluginFormatSharingTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/HostedPluginFormatSharingTests.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/source/JuceHostedPluginEffect.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/source/JuceHostedPluginEffect.h"
+    )
+
+    target_include_directories(HostedPluginFormatSharingTests
+        PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/source"
+    )
+
+    target_compile_definitions(HostedPluginFormatSharingTests
+        PRIVATE
+            JUCE_PLUGINHOST_VST3=1
+            JUCE_PLUGINHOST_LV2=1
+            JUCE_VST3_CAN_REPLACE_VST2=0
+            GUITARFX_ENABLE_PLUGIN_HOST_TEST_API=1
+            _CRT_SECURE_NO_WARNINGS
+    )
+
+    target_link_libraries(HostedPluginFormatSharingTests
+        PRIVATE
+            SoundshedGuitarCore
+            nlohmann_json::nlohmann_json
+            juce_audio_utils
+            juce_audio_processors
+            juce_dsp
+            juce_gui_basics
+            juce_gui_extra
+            juce::juce_recommended_config_flags
+            juce::juce_recommended_lto_flags
+            juce::juce_recommended_warning_flags
+    )
+
+    set_target_properties(HostedPluginFormatSharingTests PROPERTIES
+        CXX_STANDARD 20
+        CXX_STANDARD_REQUIRED ON
+        FOLDER "GuitarFX/Tests"
+    )
+
+    add_test(NAME HostedPluginFormatSharingTests COMMAND HostedPluginFormatSharingTests)
+
     # Notes from a Guitar to MIDI node into a hosted instrument, against a stub instrument.
     add_executable(HostedPluginNoteInputTests
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/HostedPluginNoteInputTests.cpp"

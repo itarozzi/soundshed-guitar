@@ -64,6 +64,7 @@ namespace guitarfx
         // gesture coalescing) run against a stub instead of a real plugin binary.
         void InstallHostedPluginForTesting (std::unique_ptr<juce::AudioPluginInstance> plugin);
         [[nodiscard]] std::string GetPendingPluginStateForTesting() const { return mPluginStateBase64; }
+        [[nodiscard]] const juce::AudioPluginFormatManager& GetPluginFormatsForTesting() const { return mSharedFormats->manager; }
 #endif
 
     private:
@@ -98,7 +99,24 @@ namespace guitarfx
             const juce::AudioProcessorListener::ChangeDetails& details) override;
         void handleAsyncUpdate() override;
 
-        juce::AudioPluginFormatManager mFormatManager;
+        // The plugin formats every Plugin Host in the process scans and instantiates with.
+        // Setting them up is not cheap: JUCE's LV2 format loads every installed LV2 bundle and
+        // writes its own spec bundles to a temp folder, 100-250 ms here, and while each node
+        // owned a set that was paid again for every Plugin Host on every preset load. Shared,
+        // they live while any Plugin Host does, and are set up on the first load rather than
+        // at construction. In the app every load runs on the message thread; the lock covers
+        // a load made where no message loop exists, and is recursive, so a plugin whose setup
+        // runs a nested message loop cannot deadlock a second load on the same thread.
+        struct SharedPluginFormats
+        {
+            juce::CriticalSection lock;
+            juce::AudioPluginFormatManager manager;
+            bool added = false;
+        };
+
+        // Declared ahead of mPlugin so a plugin instance is always destroyed before the
+        // formats that made it, should this be the last Plugin Host.
+        juce::SharedResourcePointer<SharedPluginFormats> mSharedFormats;
         juce::AudioBuffer<float> mWorkBuffer;
         juce::MidiBuffer mMidiBuffer;
         // Notes for the hosted plugin (dsp/NoteEvents.h). The sources are this block's, set by the
@@ -136,7 +154,6 @@ namespace guitarfx
         // gesture-end notification performs the single capture that covers the whole drag.
         std::atomic<int> mActiveGestureDepth { 0 };
         std::atomic<bool> mForceAutoCaptureNotification { false };
-        bool mFormatsAdded = false;
         bool mPrepared = false;
         bool mHostedPluginListenerAttached = false;
     };
