@@ -13,7 +13,6 @@
 #include <cstring>
 #include <fstream>
 #include <iomanip>
-#include <iostream>
 #include <sstream>
 #include <system_error>
 #include <utility>
@@ -380,6 +379,10 @@ namespace guitarfx
 #endif
         }
 
+        // File only, never stderr. Most of these run on the message thread, and when the app is
+        // started with stderr on a pipe nobody drains (a launcher that captures output), each
+        // write blocks once the pipe is full and the whole UI hangs mid preset switch. A plugin
+        // preset load writes several KB here, so a few switches were enough to fill one.
         void AppendHostedPluginTrace (const std::string& message)
         {
             FileSystem fileSystem;
@@ -388,9 +391,7 @@ namespace guitarfx
 
             std::ofstream output (logPath, std::ios::app);
             if (output)
-                output << "[HostedPluginEffect] " << message << "\n";
-
-            std::cerr << "[JuceHostedPluginEffect] " << message << std::endl;
+                output << "[HostedPluginEffect] " << message << std::endl;
         }
 
         void HashBytes (std::uint64_t& hash, const void* data, std::size_t size)
