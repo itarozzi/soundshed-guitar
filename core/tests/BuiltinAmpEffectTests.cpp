@@ -8,7 +8,9 @@
 #include <cstdint>
 #include <iomanip>
 #include <iostream>
+#include <map>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "helpers/BuiltinAmpLevelCalibration.h"
@@ -200,6 +202,63 @@ void TestPowerDriveAddsDistortion()
     const double full = Thd(RenderVoicing({0.45, 0.0, 0.5, 2, 1.0}, Signal::Sine, 0.10, 48000), 220.0, 48000.0);
     std::cout << "Clean voice THD at Power Drive 0 and 1: " << 100.0 * none << "%, " << 100.0 * full << "%\n";
     Check(full > none * 3.0, "Power Drive adds distortion");
+}
+
+// The factory presets have to be what their names say. The drive law's quartic
+// top leaves the Drive voice a crunch below a Gain of about 0.6, however many
+// stages are in, and the hard knee hardly distorts until it is driven: Tight
+// Djent once sat at Gain 0.5 and came out less saturated than Classic Crunch.
+// So each preset is held to the distortion its name promises on a quiet tone
+// (0.05 peak, a soft pick), where a crunch has mostly cleaned up and a
+// high-gain preset has not. Re-check these after a voicing change.
+void TestFactoryPresetsReachTheirGain()
+{
+    constexpr double sampleRate = 48000.0;
+    constexpr int frames = 48128;
+    // Least and most THD each preset may show on the quiet tone, as a fraction.
+    const std::map<std::string, std::pair<double, double>> bounds = {
+        {"clean-channel", {0.0, 0.02}},       {"edge-of-breakup", {0.02, 0.10}}, {"classic-crunch", {0.10, 0.30}},
+        {"tight-modern-rhythm", {0.35, 1.0}}, {"tight-djent", {0.45, 1.0}},      {"scooped-thrash", {0.30, 1.0}},
+        {"vintage-high-gain", {0.30, 1.0}},   {"singing-lead", {0.35, 1.0}},
+    };
+
+    const auto presets =
+        guitarfx::builtin_amp::FactoryPresets(guitarfx::BuildParameterDefs(guitarfx::builtin_amp::kParams));
+
+    for (const auto& preset : presets)
+    {
+        guitarfx::BuiltinAmpEffect amp;
+        amp.Prepare(sampleRate, 256);
+
+        for (const auto& key : preset.parameterOrder)
+        {
+            amp.SetParam(key, preset.parameters.at(key));
+        }
+
+        amp.Reset();
+        std::vector<float> input(frames), output(frames);
+
+        for (int i = 0; i < frames; ++i)
+        {
+            input[i] = static_cast<float>(0.05 * std::sin(2.0 * kPi * 220.0 * i / sampleRate));
+        }
+
+        for (int start = 0; start < frames; start += 256)
+        {
+            amp.ProcessMono(input.data() + start, output.data() + start, std::min(256, frames - start));
+        }
+
+        const double thd = Thd(output, 220.0, sampleRate);
+        std::cout << "  " << preset.displayName << ": THD " << 100.0 * thd << "% on a quiet tone\n";
+        const auto bound = bounds.find(preset.id);
+        Check(bound != bounds.end(), "every factory preset has a saturation bound");
+
+        if (bound != bounds.end())
+        {
+            Check(thd >= bound->second.first && thd <= bound->second.second,
+                  (preset.displayName + " distorts as its name says").c_str());
+        }
+    }
 }
 
 // One amp, classic fuzz to modern high gain. At a high-gain setting Character
@@ -699,6 +758,7 @@ int main(int argc, char** argv)
     TestLevelHoldsAtNominal();
     TestPowerDriveHoldsAtAnyTrim();
     TestPowerDriveAddsDistortion();
+    TestFactoryPresetsReachTheirGain();
     TestCharacterRange();
     TestSagLowersPowerCeiling();
     TestCharacterSweepIsSmooth();

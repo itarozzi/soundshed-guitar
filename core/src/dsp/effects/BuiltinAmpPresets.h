@@ -13,6 +13,10 @@
  * Every preset sets the hidden power section too, so none leaves behind settings the player
  * cannot see, and Input Trim, which sits before the distortion and so is voicing, not level.
  * The legacy per-stage gain keys alias Input Trim and are never set.
+ *
+ * Gain is a log-taper pot (StageDrive): below about 0.6 the Drive voice is a crunch however many
+ * stages are in, and the hard knee hardly distorts until it is driven. A preset meant to be high
+ * gain sits at 0.75 and up; TestFactoryPresetsReachTheirGain holds each one to its name.
  */
 
 #include "dsp/effects/FactoryPresetSupport.h"
@@ -73,7 +77,7 @@ namespace guitarfx::builtin_amp
         // Tight corners, the lows cut before the late stages and put back after them.
         b.Make("tight-modern-rhythm", "Tight Modern Rhythm",
                {{"voice", kDrive},
-                {"gain", 0.62},
+                {"gain", 0.75},
                 {"character", 0.8},
                 {"preEmphasis", 0.2},
                 {"stageCount", 3.0},
@@ -91,7 +95,7 @@ namespace guitarfx::builtin_amp
         // The hard knee and four stages: the tightest low end of the set.
         b.Make("tight-djent", "Tight Djent",
                {{"voice", kDrive},
-                {"gain", 0.5},
+                {"gain", 0.85},
                 {"character", 1.0},
                 {"stageCount", 4.0},
                 {"bass", 0.25},
@@ -99,13 +103,13 @@ namespace guitarfx::builtin_amp
                 {"treble", 0.55},
                 {"contour", 0.5},
                 {"presence", 0.55},
-                {"output", 0.5},
+                {"output", -0.2},
                 {"depth", 0.45},
                 {"resonance", 0.55},
                 {"damping", 0.4}}),
         b.Make("scooped-thrash", "Scooped Thrash",
                {{"voice", kDrive},
-                {"gain", 0.72},
+                {"gain", 0.9},
                 {"character", 0.7},
                 {"bright", 1.0},
                 {"stageCount", 3.0},
@@ -114,7 +118,7 @@ namespace guitarfx::builtin_amp
                 {"treble", 0.65},
                 {"contour", 0.75},
                 {"presence", 0.65},
-                {"output", 0.5},
+                {"output", 0.0},
                 {"powerDrive", 0.2},
                 {"sag", 0.3},
                 {"depth", 0.65},
@@ -123,7 +127,7 @@ namespace guitarfx::builtin_amp
         // Soft knee and even harmonics, loose and dark, leaning on the power stage.
         b.Make("vintage-high-gain", "Vintage High Gain",
                {{"voice", kDrive},
-                {"gain", 0.7},
+                {"gain", 0.78},
                 {"character", 0.25},
                 {"bright", 1.0},
                 {"preEmphasis", 0.15},
@@ -131,7 +135,7 @@ namespace guitarfx::builtin_amp
                 {"bass", 0.55},
                 {"middle", 0.6},
                 {"presence", 0.45},
-                {"output", -0.5},
+                {"output", -0.1},
                 {"powerDrive", 0.4},
                 {"sag", 0.55},
                 {"bias", 0.25},
