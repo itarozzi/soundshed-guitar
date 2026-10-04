@@ -379,9 +379,11 @@ Across those controls it holds to 0.3 dB RMS and about 1 dB at worst on the demo
 makeup is static, measured on real guitar at the nominal level (`kHeardGainDb`, re-measured with
 `BuiltinAmpEffectTests --measure-levels`), so the amp still plays like one: softer playing comes
 out quieter on the clean end and barely changes on the high-gain end. The tone controls, Bright,
-Pre Emphasis and Input Trim are not compensated. The amp reads the nominal level the way the drive
-pedals do: a guitar there drives it exactly as hard wherever that level is set, and comes out at
-it.
+Pre Emphasis and Input Trim are not compensated. Input Trim stands for a hotter or cooler pickup,
+but Power Drive and Sag still hold the level at any trim: their makeup feeds the power stage as hot
+as the trim makes it (`kTrimGainDb`), to 0.33 dB RMS over trims of -18 to +12 dB. The amp reads
+the nominal level the way the drive pedals do: a guitar there drives it exactly as hard wherever
+that level is set, and comes out at it.
 
 | Parameter | Range | Default | Notes |
 |---|---|---|---|
@@ -411,11 +413,10 @@ makeup and came out 12–18 dB above a guitar at the nominal level at any Gain p
 presets set Output against that, often -15 to -24 dB. A stored amp node with no `character` key can
 only come from before the rebuild, so reading one migrates it (`MigrateLegacyNodeParams`,
 `BuiltinAmpLegacyMigration.h`). It gets Character's default explicitly and the Output at which the
-new amp is as loud as the old one was, every other control unchanged. That Output comes from both
-amps' heard gain, tabulated by voice, Preamp Stages, Gain and Input Trim. On top of that come a
-model of the old power stage for its Power Drive and Sag, the new amp's own power-stage model for
-what an Input Trim does to its makeup, and how much more of a tone-stack cut or boost each amp let
-through.
+new amp is as loud as the old one was, every other control unchanged. That Output comes from the
+old amp's heard gain, tabulated by voice, Preamp Stages, Gain and Input Trim, against the new
+amp's own Input Trim table. On top of that come a model of the old power stage for its Power
+Drive and Sag, and how much more of a tone-stack cut or boost each amp let through.
 
 Against the old amp, which `BuiltinAmpLegacyMigrationTests` keeps verbatim
 (`helpers/LegacyBuiltinAmp.h`), the factory pack's amps keep their loudness to within 0.4 dB.

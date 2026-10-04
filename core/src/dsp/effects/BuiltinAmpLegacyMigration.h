@@ -27,14 +27,14 @@ namespace guitarfx::amp_legacy
  * That Output is the old one plus the difference between the two amps at the node's settings, as
  * heard (through a generic cab band and K-weighting) on the demo guitar at the nominal level, the
  * way the new amp's own makeup is measured:
- * - The tables hold both amps' heard gain by voice, Preamp Stages, Gain and Input Trim, with Power
- *   Drive and Sag at 0. The old amp's level rose 10 dB in the first sixteenth of its Gain, so the
- *   Gain steps are even on log(1 + 16 Gain), not on Gain.
+ * - kOldLevelDb holds the old amp's heard gain by voice, Preamp Stages, Gain and Input Trim, with
+ *   Power Drive and Sag at 0. The new amp holds the nominal level untrimmed, so its own is its
+ *   kTrimGainDb, which shares the grid: the Gain steps are even on log(1 + 16 Gain), since the old
+ *   amp's level rose 10 dB in the first sixteenth of its Gain.
  * - What the old Power Drive and Sag added comes from a sine through the old power stage (a tanh,
  *   the sag ahead of it holding its input down by its own peaks) standing in for the guitar there,
- *   peaking at kOldFeedDb + kOldFeedSlope x the old amp's heard gain. The new amp makes up both at
- *   the nominal level, so they need no table of their own. An Input Trim moves its power stage off
- *   that level, though, and its own power-stage model says how far its level drifts there.
+ *   peaking at kOldFeedDb + kOldFeedSlope x the old amp's heard gain. The new amp makes up both, at
+ *   any Input Trim, so they need nothing more.
  * - The old voice blended its two channels; the new one snaps to the nearer. The old level is
  *   interpolated between the voices, the new one is the channel it snaps to.
  * - The tone stack's level reaches the two outputs differently: through the old amp's last
@@ -53,25 +53,24 @@ namespace guitarfx::amp_legacy
 /// Character's default, which the tables were measured at and a migrated node is given.
 inline constexpr double kMigratedCharacter = builtin_amp::kParams[builtin_amp::kCharacter].defaultValue;
 
-inline constexpr std::size_t kGainSteps = 9; ///< Gain 0 to 1, even on GainAxis
-inline constexpr std::size_t kTrimSteps = 9; ///< Input Trim -24 to +24 dB in 6 dB steps
-inline constexpr int kStageCounts = 4;
-inline constexpr double kTrimMinDb = -24.0;
-inline constexpr double kTrimMaxDb = 24.0;
+// The new amp's Input Trim grid (builtin_amp::kTrimGainDb), which the old amp's table shares.
+inline constexpr std::size_t kGainSteps = builtin_amp::kTrimGainRows; ///< Gain 0 to 1, even on GainAxis
+inline constexpr std::size_t kTrimSteps = builtin_amp::kTrimColumns;  ///< Input Trim -24 to +24 dB
+inline constexpr int kStageCounts = builtin_amp::kMaxStages;
+inline constexpr double kTrimMinDb = builtin_amp::kTrimMinDb;
+inline constexpr double kTrimMaxDb = builtin_amp::kTrimMaxDb;
 inline constexpr double kOutputMinDb = -24.0;
 inline constexpr double kOutputMaxDb = 24.0;
-inline constexpr double kGainAxisSpread = 16.0;
 
-[[nodiscard]] inline double GainAxis(double gain) noexcept
+[[nodiscard]] inline double GainAxis(double gain)
 {
-    return std::log1p(kGainAxisSpread * std::clamp(gain, 0.0, 1.0)) / std::log1p(kGainAxisSpread);
+    return builtin_amp::TrimGainAxis(gain);
 }
 
 /// The Gain at table row `index`: 0, 0.027, 0.064, 0.118, 0.195, 0.30, 0.46, 0.68, 1.
-[[nodiscard]] inline double GainAtRow(std::size_t index) noexcept
+[[nodiscard]] inline double GainAtRow(std::size_t index)
 {
-    const double axis = static_cast<double>(index) / static_cast<double>(kGainSteps - 1);
-    return std::expm1(axis * std::log1p(kGainAxisSpread)) / kGainAxisSpread;
+    return builtin_amp::TrimGainAtRow(index);
 }
 
 /// [voice][stages - 1][Gain row][Input Trim column] -> heard gain, dB.
@@ -173,100 +172,6 @@ inline constexpr LevelGrid kOldLevelDb = {
         }
     }
 };
-inline constexpr LevelGrid kNewLevelDb = {
-    { // Clean
-        { // 1 stage
-            {-22.99f, -17.01f, -11.08f, -5.31f, 0.00f, 4.39f, 7.57f, 9.70f, 11.12f}, // Gain 0.000
-            {-22.91f, -16.93f, -11.00f, -5.25f, 0.03f, 4.37f, 7.49f, 9.58f, 10.97f}, // Gain 0.027
-            {-22.80f, -16.83f, -10.91f, -5.17f, 0.07f, 4.33f, 7.37f, 9.41f, 10.76f}, // Gain 0.064
-            {-22.68f, -16.71f, -10.79f, -5.08f, 0.09f, 4.25f, 7.18f, 9.15f, 10.45f}, // Gain 0.118
-            {-22.55f, -16.58f, -10.69f, -5.02f, 0.06f, 4.08f, 6.88f, 8.76f, 10.00f}, // Gain 0.195
-            {-22.35f, -16.39f, -10.51f, -4.90f, 0.04f, 3.87f, 6.51f, 8.28f, 9.44f}, // Gain 0.305
-            {-22.05f, -16.10f, -10.25f, -4.73f, 0.03f, 3.62f, 6.07f, 7.70f, 8.77f}, // Gain 0.461
-            {-21.61f, -15.67f, -9.87f, -4.49f, 0.03f, 3.33f, 5.55f, 7.03f, 8.00f}, // Gain 0.683
-            {-21.01f, -15.09f, -9.38f, -4.19f, 0.00f, 2.97f, 4.96f, 6.28f, 7.12f} // Gain 1.000
-        },
-        { // 2 stages
-            {-22.49f, -16.51f, -10.62f, -4.98f, 0.00f, 3.87f, 6.58f, 8.39f, 9.58f}, // Gain 0.000
-            {-22.29f, -16.32f, -10.43f, -4.83f, 0.08f, 3.87f, 6.50f, 8.26f, 9.42f}, // Gain 0.027
-            {-22.04f, -16.08f, -10.21f, -4.65f, 0.16f, 3.83f, 6.36f, 8.05f, 9.16f}, // Gain 0.064
-            {-21.76f, -15.80f, -9.95f, -4.46f, 0.21f, 3.70f, 6.10f, 7.70f, 8.75f}, // Gain 0.118
-            {-21.46f, -15.51f, -9.70f, -4.33f, 0.14f, 3.40f, 5.62f, 7.12f, 8.08f}, // Gain 0.195
-            {-20.94f, -15.01f, -9.27f, -4.08f, 0.09f, 3.06f, 5.07f, 6.42f, 7.27f}, // Gain 0.305
-            {-20.10f, -14.21f, -8.60f, -3.70f, 0.06f, 2.67f, 4.44f, 5.61f, 6.34f}, // Gain 0.461
-            {-18.82f, -13.00f, -7.63f, -3.17f, 0.06f, 2.26f, 3.75f, 4.73f, 5.31f}, // Gain 0.683
-            {-17.04f, -11.40f, -6.44f, -2.63f, 0.00f, 1.79f, 2.99f, 3.75f, 4.17f} // Gain 1.000
-        },
-        { // 3 stages
-            {-21.88f, -15.93f, -10.11f, -4.65f, 0.00f, 3.49f, 5.87f, 7.44f, 8.42f}, // Gain 0.000
-            {-21.59f, -15.65f, -9.84f, -4.44f, 0.11f, 3.49f, 5.79f, 7.30f, 8.23f}, // Gain 0.027
-            {-21.22f, -15.28f, -9.51f, -4.19f, 0.22f, 3.44f, 5.63f, 7.06f, 7.93f}, // Gain 0.064
-            {-20.75f, -14.84f, -9.12f, -3.93f, 0.27f, 3.29f, 5.32f, 6.64f, 7.44f}, // Gain 0.118
-            {-20.23f, -14.34f, -8.71f, -3.73f, 0.17f, 2.92f, 4.76f, 5.95f, 6.64f}, // Gain 0.195
-            {-19.34f, -13.51f, -8.05f, -3.39f, 0.11f, 2.52f, 4.12f, 5.13f, 5.71f}, // Gain 0.305
-            {-17.93f, -12.22f, -7.06f, -2.90f, 0.08f, 2.09f, 3.42f, 4.23f, 4.66f}, // Gain 0.461
-            {-15.86f, -10.41f, -5.77f, -2.31f, 0.07f, 1.66f, 2.69f, 3.27f, 3.56f}, // Gain 0.683
-            {-13.15f, -8.23f, -4.42f, -1.78f, 0.00f, 1.17f, 1.88f, 2.24f, 2.40f} // Gain 1.000
-        },
-        { // 4 stages
-            {-21.40f, -15.46f, -9.69f, -4.38f, 0.00f, 3.17f, 5.28f, 6.64f, 7.46f}, // Gain 0.000
-            {-21.02f, -15.09f, -9.35f, -4.12f, 0.13f, 3.17f, 5.19f, 6.49f, 7.25f}, // Gain 0.027
-            {-20.52f, -14.61f, -8.92f, -3.81f, 0.26f, 3.12f, 5.02f, 6.23f, 6.93f}, // Gain 0.064
-            {-19.89f, -14.00f, -8.40f, -3.48f, 0.33f, 2.95f, 4.69f, 5.78f, 6.40f}, // Gain 0.118
-            {-19.14f, -13.30f, -7.85f, -3.23f, 0.21f, 2.54f, 4.07f, 5.01f, 5.52f}, // Gain 0.195
-            {-17.90f, -12.17f, -6.99f, -2.82f, 0.13f, 2.10f, 3.38f, 4.15f, 4.54f}, // Gain 0.305
-            {-15.97f, -10.48f, -5.79f, -2.28f, 0.09f, 1.66f, 2.67f, 3.23f, 3.49f}, // Gain 0.461
-            {-13.25f, -8.26f, -4.38f, -1.70f, 0.08f, 1.24f, 1.94f, 2.30f, 2.43f}, // Gain 0.683
-            {-9.94f, -5.90f, -3.09f, -1.23f, 0.00f, 0.76f, 1.18f, 1.35f, 1.38f} // Gain 1.000
-        }
-    },
-    { // Drive
-        { // 1 stage
-            {-20.69f, -14.81f, -9.15f, -4.07f, 0.00f, 2.86f, 4.76f, 6.02f, 6.80f}, // Gain 0.000
-            {-20.48f, -14.60f, -8.98f, -3.95f, 0.04f, 2.82f, 4.67f, 5.89f, 6.65f}, // Gain 0.027
-            {-20.21f, -14.35f, -8.76f, -3.81f, 0.07f, 2.75f, 4.53f, 5.70f, 6.42f}, // Gain 0.064
-            {-19.87f, -14.03f, -8.49f, -3.65f, 0.07f, 2.62f, 4.32f, 5.43f, 6.10f}, // Gain 0.118
-            {-19.41f, -13.61f, -8.16f, -3.49f, 0.03f, 2.41f, 3.99f, 5.01f, 5.63f}, // Gain 0.195
-            {-18.65f, -12.91f, -7.62f, -3.23f, -0.04f, 2.09f, 3.51f, 4.41f, 4.93f}, // Gain 0.305
-            {-16.90f, -11.34f, -6.44f, -2.64f, -0.03f, 1.71f, 2.85f, 3.54f, 3.93f}, // Gain 0.461
-            {-13.01f, -8.11f, -4.31f, -1.68f, 0.06f, 1.20f, 1.89f, 2.28f, 2.48f}, // Gain 0.683
-            {-7.39f, -4.30f, -2.23f, -0.86f, 0.00f, 0.50f, 0.77f, 0.90f, 0.96f} // Gain 1.000
-        },
-        { // 2 stages
-            {-19.46f, -13.64f, -8.18f, -3.51f, 0.00f, 2.43f, 4.04f, 5.09f, 5.71f}, // Gain 0.000
-            {-19.10f, -13.30f, -7.89f, -3.32f, 0.08f, 2.42f, 3.98f, 4.97f, 5.57f}, // Gain 0.027
-            {-18.64f, -12.86f, -7.54f, -3.11f, 0.14f, 2.37f, 3.85f, 4.79f, 5.34f}, // Gain 0.064
-            {-18.05f, -12.33f, -7.12f, -2.89f, 0.16f, 2.23f, 3.61f, 4.47f, 4.97f}, // Gain 0.118
-            {-17.27f, -11.63f, -6.63f, -2.70f, 0.08f, 1.96f, 3.20f, 3.96f, 4.39f}, // Gain 0.195
-            {-15.90f, -10.45f, -5.84f, -2.39f, -0.01f, 1.59f, 2.63f, 3.25f, 3.58f}, // Gain 0.305
-            {-12.81f, -7.98f, -4.29f, -1.73f, 0.01f, 1.16f, 1.87f, 2.25f, 2.45f}, // Gain 0.461
-            {-6.66f, -3.84f, -1.94f, -0.64f, 0.19f, 0.66f, 0.89f, 1.00f, 1.04f}, // Gain 0.683
-            {-1.67f, -0.84f, -0.35f, -0.11f, 0.00f, 0.03f, 0.04f, 0.03f, 0.03f} // Gain 1.000
-        },
-        { // 3 stages
-            {-18.44f, -12.70f, -7.46f, -3.15f, 0.00f, 2.12f, 3.49f, 4.31f, 4.76f}, // Gain 0.000
-            {-17.96f, -12.26f, -7.11f, -2.92f, 0.09f, 2.12f, 3.42f, 4.19f, 4.61f}, // Gain 0.027
-            {-17.35f, -11.70f, -6.67f, -2.67f, 0.17f, 2.07f, 3.28f, 3.98f, 4.36f}, // Gain 0.064
-            {-16.55f, -11.00f, -6.16f, -2.42f, 0.19f, 1.92f, 3.01f, 3.64f, 3.96f}, // Gain 0.118
-            {-15.47f, -10.09f, -5.57f, -2.21f, 0.10f, 1.62f, 2.55f, 3.06f, 3.32f}, // Gain 0.195
-            {-13.57f, -8.58f, -4.65f, -1.87f, 0.01f, 1.22f, 1.92f, 2.29f, 2.45f}, // Gain 0.305
-            {-9.56f, -5.69f, -2.99f, -1.16f, 0.04f, 0.75f, 1.10f, 1.25f, 1.31f}, // Gain 0.461
-            {-3.16f, -1.64f, -0.65f, -0.06f, 0.24f, 0.36f, 0.38f, 0.37f, 0.35f}, // Gain 0.683
-            {-0.13f, -0.01f, 0.03f, 0.03f, 0.00f, -0.03f, -0.05f, -0.07f, -0.07f} // Gain 1.000
-        },
-        { // 4 stages
-            {-17.56f, -11.90f, -6.84f, -2.83f, 0.00f, 1.86f, 3.03f, 3.70f, 4.04f}, // Gain 0.000
-            {-16.98f, -11.38f, -6.44f, -2.58f, 0.10f, 1.87f, 2.97f, 3.58f, 3.89f}, // Gain 0.027
-            {-16.23f, -10.71f, -5.94f, -2.31f, 0.19f, 1.82f, 2.82f, 3.37f, 3.64f}, // Gain 0.064
-            {-15.25f, -9.87f, -5.36f, -2.04f, 0.20f, 1.66f, 2.55f, 3.01f, 3.22f}, // Gain 0.118
-            {-13.91f, -8.79f, -4.71f, -1.82f, 0.10f, 1.34f, 2.06f, 2.42f, 2.57f}, // Gain 0.195
-            {-11.59f, -7.06f, -3.73f, -1.47f, 0.01f, 0.93f, 1.43f, 1.64f, 1.72f}, // Gain 0.305
-            {-7.06f, -4.07f, -2.08f, -0.77f, 0.05f, 0.49f, 0.66f, 0.71f, 0.70f}, // Gain 0.461
-            {-1.40f, -0.58f, -0.09f, 0.15f, 0.24f, 0.24f, 0.19f, 0.15f, 0.12f}, // Gain 0.683
-            {0.08f, 0.09f, 0.07f, 0.04f, 0.00f, -0.04f, -0.07f, -0.08f, -0.09f} // Gain 1.000
-        }
-    }
-};
 // *INDENT-ON*
 // clang-format on
 
@@ -359,7 +264,6 @@ struct Settings
     double trimDb = 0.0;
     double drive = 0.0;
     double sag = 0.0;
-    double bias = 0.0;
     double bass = 0.5;
     double middle = 0.5;
     double treble = 0.5;
@@ -399,34 +303,6 @@ struct Settings
     return 10.0 * std::log10(sum / kPoints);
 }
 
-/// How far the new amp's level moves with Power Drive and Sag at this Input Trim, in dB, `newDb`
-/// being its heard gain there without them. Its makeup is worked out for a preamp fed at the
-/// nominal level; a trim feeds the power stage hotter or cooler, and the stage then adds less or
-/// more than the makeup takes out. The amp's own power-stage model says how much, fed with the
-/// preamp's heard gain at this trim.
-[[nodiscard]] inline double NewPowerStageDriftDb(const Settings& settings, int voice, double newDb) noexcept
-{
-    using namespace builtin_amp;
-
-    if (settings.drive <= 0.0)
-    {
-        return 0.0;
-    }
-
-    const auto drive = static_cast<float>(settings.drive);
-    const auto character = static_cast<float>(kMigratedCharacter);
-    Clippers clippers;
-    clippers.SetCharacter(character);
-    clippers.SetPowerStage(drive, static_cast<float>(settings.bias));
-    const float preampDb =
-        PreampGainDb(static_cast<float>(settings.gain), static_cast<float>(voice), character, settings.stages);
-    const auto added = [&](double heardDb) {
-        return PowerStageGainDb(clippers, drive, static_cast<float>(settings.sag),
-                                kPowerFeedDb + kPowerFeedSlope * static_cast<float>(heardDb));
-    };
-    return added(preampDb + newDb) - added(preampDb);
-}
-
 /// How much more of ToneStackDb reaches the new amp's output than reached the old one's, at
 /// these settings, the voices blended as for the old level.
 [[nodiscard]] inline double ToneShare(const Settings& settings, double toneDb) noexcept
@@ -453,10 +329,10 @@ struct Settings
     const double oldClean = at(kOldLevelDb, 0);
     const double oldDb = oldClean + settings.voice * (at(kOldLevelDb, 1) - oldClean);
     const int newVoice = settings.voice >= 0.5 ? 1 : 0;
-    const double newDb = at(kNewLevelDb, newVoice);
+    const double newDb = builtin_amp::TrimGainDb(newVoice, settings.stages, static_cast<float>(settings.gain),
+                                                 static_cast<float>(settings.trimDb));
     const double toneDb = ToneStackDb(settings);
-    return oldDb + OldPowerStageDb(oldDb, settings.drive, settings.sag) -
-           (newDb + NewPowerStageDriftDb(settings, newVoice, newDb)) - ToneShare(settings, toneDb) * toneDb;
+    return oldDb + OldPowerStageDb(oldDb, settings.drive, settings.sag) - newDb - ToneShare(settings, toneDb) * toneDb;
 }
 
 [[nodiscard]] inline bool IsBuiltinAmp(const std::string& type) noexcept
@@ -510,7 +386,6 @@ inline bool MigrateParams(const std::string& type, std::map<std::string, double>
     settings.trimDb = std::clamp(StoredTrimDb(params), kTrimMinDb, kTrimMaxDb);
     settings.drive = std::clamp(stored("powerDrive", 0.0), 0.0, 1.0);
     settings.sag = std::clamp(stored("sag", 0.0), 0.0, 1.0);
-    settings.bias = std::clamp(stored("bias", 0.0), -1.0, 1.0);
     settings.bass = std::clamp(stored("bass", 0.5), 0.0, 1.0);
     settings.middle = std::clamp(stored("middle", 0.5), 0.0, 1.0);
     settings.treble = std::clamp(stored("treble", 0.5), 0.0, 1.0);

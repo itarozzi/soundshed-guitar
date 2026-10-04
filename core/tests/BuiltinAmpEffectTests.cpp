@@ -11,6 +11,7 @@
 #include <string>
 #include <vector>
 
+#include "helpers/BuiltinAmpLevelCalibration.h"
 #include "helpers/BuiltinAmpTestSupport.h"
 
 using namespace builtin_amp_test;
@@ -139,6 +140,57 @@ void TestLevelHoldsAtNominal()
     // The corners (full Power Drive and Bias on the soft knee) sit near 1 dB.
     Check(rms < 0.5 && std::abs(worst) < 1.5,
           "a guitar at the nominal level comes out at that level, whatever the controls say");
+}
+
+// Input Trim is not made up, but Power Drive and Sag are, at any trim: their
+// makeup has to feed the power stage as hot as the trim makes it. Worked out for
+// the nominal feed, Power Drive and Sag moved the level by 2.2 dB RMS over Input
+// Trims of -18 to +12 dB, and up to 6.3 dB. If this fails after a voicing change, re-measure kTrimGainDb
+// (BuiltinAmpEffectTests --measure-levels).
+void TestPowerDriveHoldsAtAnyTrim()
+{
+    const auto guitar = NominalGuitar("guitar-riff-01.wav");
+    if (guitar.empty())
+    {
+        return;
+    }
+
+    double worst = 0.0, squares = 0.0;
+    int count = 0;
+    Voicing worstAt;
+    for (const double voice : {0.0, 1.0})
+    {
+        for (const int stages : {1, 4})
+        {
+            for (const double gain : {0.0, 0.6})
+            {
+                for (const double trim : {-12.0, 12.0})
+                {
+                    // The default knee: the Character extremes are TestLevelHoldsAtNominal's.
+                    Voicing plain{gain, voice, 0.5, stages};
+                    plain.trimDb = trim;
+                    const double untouched = HeardGainDb(plain, guitar);
+                    Voicing driven = plain;
+                    driven.powerDrive = 1.0;
+                    driven.sag = 0.5;
+                    const double moved = HeardGainDb(driven, guitar) - untouched;
+                    squares += moved * moved;
+                    ++count;
+                    if (std::abs(moved) > std::abs(worst))
+                    {
+                        worst = moved;
+                        worstAt = driven;
+                    }
+                }
+            }
+        }
+    }
+    const double rms = std::sqrt(squares / count);
+    std::cout << "Level change from Power Drive and Sag at an Input Trim of 12 dB either way: " << rms
+              << " dB RMS, worst " << worst << " dB (voice " << worstAt.voice << ", " << worstAt.stages
+              << " stages, gain " << worstAt.gain << ", trim " << worstAt.trimDb << " dB, Power Drive "
+              << worstAt.powerDrive << ", Sag " << worstAt.sag << ")\n";
+    Check(rms < 0.6 && std::abs(worst) < 1.5, "Power Drive and Sag hold the level at any Input Trim");
 }
 
 // Power Drive is level-compensated, but it still has to be a distortion control.
@@ -626,125 +678,6 @@ void TestAliasing()
 }
 } // namespace
 
-// Prints kHeardGainDb for BuiltinAmpVoicing.h, measured with the makeup taken
-// back out, since the table has to describe the amp's own voicing.
-void MeasureLevelTable(const std::vector<std::vector<float>>& guitar)
-{
-    constexpr int kCells = 2 * 4 * 5 * 5;
-    std::vector<double> cells(kCells);
-    ParallelFor(kCells, [&](int cell) {
-        const int voice = cell / 100, stages = cell / 25 % 4 + 1, row = cell / 5 % 5, column = cell % 5;
-        cells[cell] = RawGainDb({column * 0.25, static_cast<double>(voice), row * 0.25, stages}, guitar);
-    });
-
-    // Laid out as clang-format leaves it, so it pastes in as it is.
-    const std::string declaration = "inline constexpr float kHeardGainDb[2][kMaxStages][5][5] = ";
-    std::cout << std::fixed << std::setprecision(2);
-    for (int cell = 0; cell < kCells; ++cell)
-    {
-        if (cell % 5 == 0)
-        {
-            const std::size_t opened = cell % 100 == 0 ? 3 : cell % 25 == 0 ? 2 : 1;
-            std::cout << (cell == 0 ? declaration + "{" : std::string(declaration.size() + 4 - opened, ' '))
-                      << std::string(opened, '{');
-        }
-        std::cout << cells[cell] << "f" << (cell % 5 < 4 ? ", " : "}");
-        if (cell % 5 == 4)
-        {
-            std::cout << (cell % 25 != 24      ? ",\n"
-                          : cell % 100 != 99   ? "},\n"
-                          : cell != kCells - 1 ? "}},\n"
-                                               : "}}};\n");
-        }
-    }
-}
-
-// Prints a re-fitted kPowerFeedDb and kPowerFeedSlope for BuiltinAmpVoicing.h,
-// after the table, which they read. Each point is the heard level Power Drive
-// and Sag add with their makeup taken back out: what the power stage added.
-void FitPowerFeed(const std::vector<std::vector<float>>& guitar)
-{
-    using namespace guitarfx::builtin_amp;
-    std::vector<Voicing> voicings;
-    for (const double voice : {0.0, 1.0})
-    {
-        for (const int stages : {1, 2, 4})
-        {
-            for (const double gain : {0.0, 0.5, 1.0})
-            {
-                for (const double character : {0.0, 0.5, 1.0})
-                {
-                    voicings.push_back({gain, voice, character, stages});
-                    for (const double drive : {0.5, 1.0})
-                    {
-                        for (const double bias : {-1.0, 0.0, 1.0})
-                        {
-                            voicings.push_back({gain, voice, character, stages, drive, 0.0, bias});
-                        }
-                        voicings.push_back({gain, voice, character, stages, drive, 1.0});
-                    }
-                }
-            }
-        }
-    }
-    std::vector<double> raw(voicings.size());
-    ParallelFor(static_cast<int>(voicings.size()), [&](int i) { raw[i] = RawGainDb(voicings[i], guitar); });
-
-    struct Point
-    {
-        Clippers clippers;
-        float drive, sag, preampDb;
-        double addedDb;
-    };
-
-    std::vector<Point> points;
-    double undriven = 0.0;
-    for (std::size_t i = 0; i < voicings.size(); ++i)
-    {
-        const Voicing& v = voicings[i];
-        if (v.powerDrive == 0.0)
-        {
-            undriven = raw[i];
-            continue;
-        }
-        Point point{{}, static_cast<float>(v.powerDrive), static_cast<float>(v.sag), 0.0f, raw[i] - undriven};
-        point.preampDb = PreampGainDb(static_cast<float>(v.gain), static_cast<float>(v.voice),
-                                      static_cast<float>(v.character), v.stages);
-        point.clippers.SetCharacter(static_cast<float>(v.character));
-        point.clippers.SetPowerStage(point.drive, static_cast<float>(v.bias));
-        points.push_back(point);
-    }
-
-    float bestFeed = 0.0f, bestSlope = 0.0f;
-    double bestRms = 1.0e9, bestWorst = 0.0;
-    for (int feed = -200; feed <= 0; ++feed)
-    {
-        for (int slope = 40; slope <= 100; ++slope)
-        {
-            double squares = 0.0, worst = 0.0;
-            for (const Point& point : points)
-            {
-                const float sinePeakDb =
-                    0.1f * static_cast<float>(feed) + 0.01f * static_cast<float>(slope) * point.preampDb;
-                const double error =
-                    PowerStageGainDb(point.clippers, point.drive, point.sag, sinePeakDb) - point.addedDb;
-                squares += error * error;
-                worst = std::max(worst, std::abs(error));
-            }
-            if (std::sqrt(squares / static_cast<double>(points.size())) < bestRms)
-            {
-                bestRms = std::sqrt(squares / static_cast<double>(points.size()));
-                bestWorst = worst;
-                bestFeed = 0.1f * static_cast<float>(feed);
-                bestSlope = 0.01f * static_cast<float>(slope);
-            }
-        }
-    }
-    std::cout << std::fixed << std::setprecision(2) << "inline constexpr float kPowerFeedDb = " << bestFeed
-              << "f;\ninline constexpr float kPowerFeedSlope = " << bestSlope << "f; // " << bestRms << " dB RMS, "
-              << bestWorst << " dB at worst\n";
-}
-
 int main(int argc, char** argv)
 {
     if (argc > 1 && std::string(argv[1]) == "--measure-levels")
@@ -756,6 +689,7 @@ int main(int argc, char** argv)
             return 1;
         }
         MeasureLevelTable(guitar);
+        MeasureTrimTable(guitar);
         FitPowerFeed(guitar);
         return 0;
     }
@@ -763,6 +697,7 @@ int main(int argc, char** argv)
     TestHalfbandLatency();
     TestGainRange();
     TestLevelHoldsAtNominal();
+    TestPowerDriveHoldsAtAnyTrim();
     TestPowerDriveAddsDistortion();
     TestCharacterRange();
     TestSagLowersPowerCeiling();

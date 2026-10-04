@@ -233,10 +233,11 @@ class BuiltinAmpEffect : public EffectProcessor
         }
 
         // What feeds the power stage and how it clips: worked out per change, then glided.
-        if (index == kVoice || index == kGain || index == kCharacter || index == kStageCount || index == kPowerDrive ||
-            index == kBias || index == kSag)
+        if (index == kVoice || index == kGain || index == kCharacter || index == kStageCount || index == kStageGain ||
+            index == kPowerDrive || index == kBias || index == kSag)
         {
-            mPowerMakeupTarget = PowerDriveMakeup(mGain, mVoice, mStageCount, mCharacter, mPowerDrive, mBias, mSag);
+            mPowerMakeupTarget = PowerDriveMakeup(mGain, mVoice, mStageCount, mCharacter, mPowerDrive, mBias, mSag,
+                                                  static_cast<float>(mStageGainDb));
         }
     }
 

@@ -560,10 +560,160 @@ inline constexpr float kPowerFeedSlope = 0.74f;
     return 10.0f * std::log10(power / in);
 }
 
+/**
+ * What Input Trim does to the amp's heard level, against no trim, by [voice][stages - 1][Gain row]
+ * [Input Trim -24 to +24 dB in 6 dB steps], at the default Character and no Power Drive.
+ *
+ * Input Trim is not made up: it stands for a hotter or cooler pickup, which the clean end follows
+ * and the high-gain end barely notices. But it also moves how hot the power stage is fed, and the
+ * Power Drive and Sag makeup, worked out for the nominal feed, then took out too much or too
+ * little: with the trim at -11 dB, full Power Drive made the amp 2.8 dB louder. So the makeup feeds
+ * its sine at the table's heard gain plus this. Character moves it by under 0.9 dB at a 12 dB trim,
+ * a few tenths of a dB at the power stage, so it is measured at the default only. The Gain rows
+ * are even on log(1 + 16 Gain), where the level moves fastest. BuiltinAmpEffectTests
+ * --measure-levels re-measures it with the rest; TestPowerDriveHoldsAtAnyTrim fails when it goes
+ * stale.
+ */
+inline constexpr std::size_t kTrimGainRows = 9;
+inline constexpr std::size_t kTrimColumns = 9;
+inline constexpr float kTrimMinDb = -24.0f;
+inline constexpr float kTrimMaxDb = 24.0f;
+inline constexpr double kTrimGainSpread = 16.0;
+
+/// Where `gain` falls along the trim table's Gain rows, 0 to 1.
+[[nodiscard]] inline double TrimGainAxis(double gain)
+{
+    return std::log1p(kTrimGainSpread * std::clamp(gain, 0.0, 1.0)) / std::log1p(kTrimGainSpread);
+}
+
+/// The Gain at trim table row `row`: 0, 0.027, 0.064, 0.118, 0.195, 0.30, 0.46, 0.68, 1.
+[[nodiscard]] inline double TrimGainAtRow(std::size_t row)
+{
+    const double axis = static_cast<double>(row) / static_cast<double>(kTrimGainRows - 1);
+    return std::expm1(axis * std::log1p(kTrimGainSpread)) / kTrimGainSpread;
+}
+
+using TrimGrid = float[2][kMaxStages][kTrimGainRows][kTrimColumns];
+
+// clang-format off
+// *INDENT-OFF*
+inline constexpr TrimGrid kTrimGainDb = {
+    { // Clean
+        { // 1 stage
+            {-22.99f, -17.01f, -11.08f, -5.31f, 0.00f, 4.39f, 7.57f, 9.70f, 11.12f}, // Gain 0.000
+            {-22.94f, -16.96f, -11.04f, -5.28f, 0.00f, 4.34f, 7.46f, 9.54f, 10.94f}, // Gain 0.027
+            {-22.87f, -16.89f, -10.97f, -5.24f, 0.00f, 4.26f, 7.31f, 9.34f, 10.69f}, // Gain 0.064
+            {-22.76f, -16.79f, -10.88f, -5.17f, 0.00f, 4.16f, 7.10f, 9.06f, 10.37f}, // Gain 0.118
+            {-22.61f, -16.64f, -10.74f, -5.07f, 0.00f, 4.02f, 6.83f, 8.70f, 9.94f}, // Gain 0.195
+            {-22.39f, -16.43f, -10.55f, -4.94f, 0.00f, 3.83f, 6.48f, 8.24f, 9.40f}, // Gain 0.305
+            {-22.08f, -16.12f, -10.28f, -4.76f, 0.00f, 3.60f, 6.04f, 7.67f, 8.74f}, // Gain 0.461
+            {-21.63f, -15.69f, -9.90f, -4.51f, 0.00f, 3.31f, 5.53f, 7.01f, 7.97f}, // Gain 0.683
+            {-21.01f, -15.10f, -9.38f, -4.19f, 0.00f, 2.97f, 4.95f, 6.27f, 7.11f} // Gain 1.000
+        },
+        { // 2 stages
+            {-22.48f, -16.51f, -10.61f, -4.98f, 0.00f, 3.88f, 6.58f, 8.39f, 9.59f}, // Gain 0.000
+            {-22.37f, -16.40f, -10.51f, -4.91f, 0.00f, 3.79f, 6.42f, 8.18f, 9.34f}, // Gain 0.027
+            {-22.21f, -16.24f, -10.37f, -4.81f, 0.00f, 3.67f, 6.19f, 7.89f, 9.00f}, // Gain 0.064
+            {-21.96f, -16.00f, -10.16f, -4.67f, 0.00f, 3.50f, 5.89f, 7.49f, 8.54f}, // Gain 0.118
+            {-21.59f, -15.64f, -9.84f, -4.47f, 0.00f, 3.27f, 5.49f, 6.98f, 7.94f}, // Gain 0.195
+            {-21.03f, -15.10f, -9.36f, -4.17f, 0.00f, 2.97f, 4.98f, 6.33f, 7.18f}, // Gain 0.305
+            {-20.17f, -14.27f, -8.66f, -3.76f, 0.00f, 2.61f, 4.37f, 5.55f, 6.27f}, // Gain 0.461
+            {-18.88f, -13.06f, -7.69f, -3.23f, 0.00f, 2.20f, 3.69f, 4.67f, 5.25f}, // Gain 0.683
+            {-17.04f, -11.40f, -6.44f, -2.63f, 0.00f, 1.79f, 2.99f, 3.75f, 4.17f} // Gain 1.000
+        },
+        { // 3 stages
+            {-21.88f, -15.93f, -10.10f, -4.65f, 0.00f, 3.49f, 5.88f, 7.45f, 8.42f}, // Gain 0.000
+            {-21.70f, -15.76f, -9.95f, -4.55f, 0.00f, 3.38f, 5.68f, 7.19f, 8.12f}, // Gain 0.027
+            {-21.43f, -15.50f, -9.72f, -4.41f, 0.00f, 3.23f, 5.41f, 6.84f, 7.71f}, // Gain 0.064
+            {-21.02f, -15.11f, -9.39f, -4.20f, 0.00f, 3.02f, 5.05f, 6.37f, 7.17f}, // Gain 0.118
+            {-20.40f, -14.51f, -8.89f, -3.91f, 0.00f, 2.75f, 4.59f, 5.77f, 6.47f}, // Gain 0.195
+            {-19.45f, -13.62f, -8.16f, -3.50f, 0.00f, 2.41f, 4.01f, 5.02f, 5.60f}, // Gain 0.305
+            {-18.01f, -12.30f, -7.14f, -2.98f, 0.00f, 2.02f, 3.35f, 4.15f, 4.59f}, // Gain 0.461
+            {-15.93f, -10.48f, -5.84f, -2.37f, 0.00f, 1.60f, 2.62f, 3.20f, 3.49f}, // Gain 0.683
+            {-13.14f, -8.23f, -4.42f, -1.78f, 0.00f, 1.17f, 1.88f, 2.25f, 2.40f} // Gain 1.000
+        },
+        { // 4 stages
+            {-21.40f, -15.46f, -9.69f, -4.38f, 0.00f, 3.17f, 5.29f, 6.65f, 7.46f}, // Gain 0.000
+            {-21.15f, -15.22f, -9.48f, -4.25f, 0.00f, 3.04f, 5.06f, 6.36f, 7.12f}, // Gain 0.027
+            {-20.78f, -14.87f, -9.18f, -4.07f, 0.00f, 2.86f, 4.76f, 5.97f, 6.67f}, // Gain 0.064
+            {-20.21f, -14.33f, -8.72f, -3.80f, 0.00f, 2.63f, 4.36f, 5.45f, 6.07f}, // Gain 0.118
+            {-19.35f, -13.52f, -8.06f, -3.44f, 0.00f, 2.33f, 3.85f, 4.80f, 5.31f}, // Gain 0.195
+            {-18.02f, -12.30f, -7.12f, -2.95f, 0.00f, 1.97f, 3.25f, 4.02f, 4.41f}, // Gain 0.305
+            {-16.06f, -10.57f, -5.88f, -2.38f, 0.00f, 1.57f, 2.57f, 3.14f, 3.40f}, // Gain 0.461
+            {-13.33f, -8.34f, -4.46f, -1.78f, 0.00f, 1.16f, 1.87f, 2.22f, 2.35f}, // Gain 0.683
+            {-9.93f, -5.90f, -3.09f, -1.23f, 0.00f, 0.77f, 1.18f, 1.35f, 1.39f} // Gain 1.000
+        }
+    },
+    { // Drive
+        { // 1 stage
+            {-20.69f, -14.80f, -9.15f, -4.07f, 0.00f, 2.86f, 4.76f, 6.02f, 6.80f}, // Gain 0.000
+            {-20.52f, -14.64f, -9.01f, -3.99f, 0.00f, 2.78f, 4.64f, 5.85f, 6.61f}, // Gain 0.027
+            {-20.28f, -14.42f, -8.82f, -3.88f, 0.00f, 2.68f, 4.47f, 5.64f, 6.36f}, // Gain 0.064
+            {-19.94f, -14.10f, -8.56f, -3.73f, 0.00f, 2.55f, 4.25f, 5.36f, 6.03f}, // Gain 0.118
+            {-19.44f, -13.64f, -8.19f, -3.52f, 0.00f, 2.38f, 3.96f, 4.98f, 5.60f}, // Gain 0.195
+            {-18.61f, -12.87f, -7.58f, -3.19f, 0.00f, 2.13f, 3.55f, 4.45f, 4.98f}, // Gain 0.305
+            {-16.87f, -11.31f, -6.42f, -2.62f, 0.00f, 1.74f, 2.87f, 3.57f, 3.96f}, // Gain 0.461
+            {-13.06f, -8.17f, -4.36f, -1.74f, 0.00f, 1.14f, 1.84f, 2.23f, 2.43f}, // Gain 0.683
+            {-7.39f, -4.30f, -2.23f, -0.87f, 0.00f, 0.50f, 0.77f, 0.90f, 0.96f} // Gain 1.000
+        },
+        { // 2 stages
+            {-19.47f, -13.64f, -8.18f, -3.52f, 0.00f, 2.42f, 4.04f, 5.08f, 5.70f}, // Gain 0.000
+            {-19.18f, -13.38f, -7.97f, -3.41f, 0.00f, 2.34f, 3.90f, 4.89f, 5.48f}, // Gain 0.027
+            {-18.78f, -13.01f, -7.68f, -3.26f, 0.00f, 2.22f, 3.70f, 4.64f, 5.19f}, // Gain 0.064
+            {-18.21f, -12.48f, -7.28f, -3.05f, 0.00f, 2.07f, 3.45f, 4.32f, 4.81f}, // Gain 0.118
+            {-17.35f, -11.71f, -6.71f, -2.78f, 0.00f, 1.88f, 3.12f, 3.88f, 4.31f}, // Gain 0.195
+            {-15.88f, -10.44f, -5.82f, -2.38f, 0.00f, 1.60f, 2.64f, 3.26f, 3.59f}, // Gain 0.305
+            {-12.82f, -7.99f, -4.30f, -1.74f, 0.00f, 1.15f, 1.86f, 2.24f, 2.44f}, // Gain 0.461
+            {-6.85f, -4.03f, -2.13f, -0.83f, 0.00f, 0.47f, 0.71f, 0.81f, 0.86f}, // Gain 0.683
+            {-1.68f, -0.84f, -0.36f, -0.11f, 0.00f, 0.03f, 0.03f, 0.03f, 0.03f} // Gain 1.000
+        },
+        { // 3 stages
+            {-18.43f, -12.70f, -7.45f, -3.14f, 0.00f, 2.12f, 3.49f, 4.31f, 4.76f}, // Gain 0.000
+            {-18.05f, -12.35f, -7.20f, -3.01f, 0.00f, 2.03f, 3.33f, 4.10f, 4.51f}, // Gain 0.027
+            {-17.51f, -11.87f, -6.84f, -2.84f, 0.00f, 1.90f, 3.11f, 3.82f, 4.19f}, // Gain 0.064
+            {-16.73f, -11.19f, -6.35f, -2.61f, 0.00f, 1.74f, 2.83f, 3.45f, 3.77f}, // Gain 0.118
+            {-15.56f, -10.19f, -5.67f, -2.31f, 0.00f, 1.52f, 2.45f, 2.97f, 3.22f}, // Gain 0.195
+            {-13.58f, -8.58f, -4.65f, -1.87f, 0.00f, 1.21f, 1.92f, 2.28f, 2.44f}, // Gain 0.305
+            {-9.59f, -5.73f, -3.02f, -1.20f, 0.00f, 0.71f, 1.07f, 1.22f, 1.27f}, // Gain 0.461
+            {-3.40f, -1.88f, -0.89f, -0.30f, 0.00f, 0.12f, 0.14f, 0.13f, 0.11f}, // Gain 0.683
+            {-0.13f, -0.01f, 0.03f, 0.02f, 0.00f, -0.03f, -0.05f, -0.07f, -0.08f} // Gain 1.000
+        },
+        { // 4 stages
+            {-17.55f, -11.89f, -6.84f, -2.83f, 0.00f, 1.87f, 3.04f, 3.70f, 4.04f}, // Gain 0.000
+            {-17.09f, -11.48f, -6.54f, -2.68f, 0.00f, 1.76f, 2.86f, 3.48f, 3.79f}, // Gain 0.027
+            {-16.42f, -10.90f, -6.12f, -2.49f, 0.00f, 1.63f, 2.64f, 3.19f, 3.45f}, // Gain 0.064
+            {-15.45f, -10.07f, -5.57f, -2.24f, 0.00f, 1.46f, 2.34f, 2.81f, 3.02f}, // Gain 0.118
+            {-14.01f, -8.90f, -4.81f, -1.92f, 0.00f, 1.24f, 1.96f, 2.31f, 2.47f}, // Gain 0.195
+            {-11.60f, -7.07f, -3.74f, -1.48f, 0.00f, 0.92f, 1.42f, 1.63f, 1.71f}, // Gain 0.305
+            {-7.11f, -4.12f, -2.13f, -0.82f, 0.00f, 0.44f, 0.62f, 0.66f, 0.65f}, // Gain 0.461
+            {-1.64f, -0.82f, -0.33f, -0.09f, 0.00f, -0.01f, -0.05f, -0.09f, -0.12f}, // Gain 0.683
+            {0.09f, 0.09f, 0.07f, 0.04f, 0.00f, -0.04f, -0.06f, -0.08f, -0.09f} // Gain 1.000
+        }
+    }
+};
+// *INDENT-ON*
+// clang-format on
+
+/// One voice's heard level change for `trimDb`, interpolated across the table's Gain and Input Trim.
+[[nodiscard]] inline float TrimGainDb(int voice, int stages, float gain, float trimDb)
+{
+    const double row = TrimGainAxis(gain) * static_cast<double>(kTrimGainRows - 1);
+    const double column = (std::clamp(trimDb, kTrimMinDb, kTrimMaxDb) - kTrimMinDb) / (kTrimMaxDb - kTrimMinDb) *
+                          static_cast<double>(kTrimColumns - 1);
+    const auto r = std::min(static_cast<std::size_t>(row), kTrimGainRows - 2);
+    const auto c = std::min(static_cast<std::size_t>(column), kTrimColumns - 2);
+    const auto rf = static_cast<float>(row - static_cast<double>(r));
+    const auto cf = static_cast<float>(column - static_cast<double>(c));
+    const auto& cells = kTrimGainDb[voice][stages - 1];
+    const auto along = [&](std::size_t at) { return cells[at][c] + cf * (cells[at][c + 1] - cells[at][c]); };
+    const float low = along(r);
+    return low + rf * (along(r + 1) - low);
+}
+
 /// The trim that keeps Power Drive and Sag from being volume controls, as a gain, for the controls
 /// as set. Exactly 1 with no Power Drive, where nothing clips for Sag to act on.
 [[nodiscard]] inline float PowerDriveMakeup(float gain, float voice, int stages, float character, float drive,
-                                            float bias, float sag)
+                                            float bias, float sag, float trimDb)
 {
     if (drive <= 0.0f)
     {
@@ -573,7 +723,10 @@ inline constexpr float kPowerFeedSlope = 0.74f;
     Clippers clippers;
     clippers.SetCharacter(character);
     clippers.SetPowerStage(drive, bias);
-    const float sinePeakDb = kPowerFeedDb + kPowerFeedSlope * PreampGainDb(gain, voice, character, stages);
+    const float clean = TrimGainDb(0, stages, gain, trimDb);
+    const float trimmedDb = clean + voice * (TrimGainDb(1, stages, gain, trimDb) - clean);
+    const float sinePeakDb =
+        kPowerFeedDb + kPowerFeedSlope * (PreampGainDb(gain, voice, character, stages) + trimmedDb);
     constexpr float dbToLog2 = 0.166096405f; // 1 / (20 log10 2)
     return std::exp2(-PowerStageGainDb(clippers, drive, sag, sinePeakDb) * dbToLog2);
 }

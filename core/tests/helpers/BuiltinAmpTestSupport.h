@@ -108,6 +108,7 @@ struct Voicing
     double powerDrive = 0.0;
     double sag = 0.0;
     double bias = 0.0;
+    double trimDb = 0.0; ///< Input Trim
 };
 
 inline std::vector<float> RenderVoicing(const Voicing& v, Signal signal, double level = 0.10, int frames = 36000)
@@ -122,6 +123,7 @@ inline std::vector<float> RenderVoicing(const Voicing& v, Signal signal, double 
     amp.SetParam("powerDrive", v.powerDrive);
     amp.SetParam("sag", v.sag);
     amp.SetParam("bias", v.bias);
+    amp.SetParam("stageGain", v.trimDb);
     amp.Reset();
 
     std::vector<float> input(frames), output(frames);
@@ -358,6 +360,7 @@ inline std::vector<float> RenderGuitar(const Voicing& v, const std::vector<float
     amp.SetParam("powerDrive", v.powerDrive);
     amp.SetParam("sag", v.sag);
     amp.SetParam("bias", v.bias);
+    amp.SetParam("stageGain", v.trimDb);
     amp.Reset();
     return RenderGuitar(amp, guitar);
 }
@@ -411,7 +414,8 @@ inline double RawGainDb(const Voicing& v, const std::vector<std::vector<float>>&
     const double makeupDb =
         LevelMakeupDb(gain, voice, character, v.stages) +
         20.0 * std::log10(PowerDriveMakeup(gain, voice, v.stages, character, static_cast<float>(v.powerDrive),
-                                           static_cast<float>(v.bias), static_cast<float>(v.sag)));
+                                           static_cast<float>(v.bias), static_cast<float>(v.sag),
+                                           static_cast<float>(v.trimDb)));
     return sum / static_cast<double>(guitar.size()) - makeupDb;
 }
 

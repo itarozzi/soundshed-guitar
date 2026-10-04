@@ -336,7 +336,8 @@ void PrintGrid(const char* name, const std::vector<double>& cells)
     std::cout << "};\n";
 }
 
-/// Measures both amps over the table's grid on the measuring guitar, and fits the old power stage.
+/// Measures the old amp over the table's grid on the measuring guitar (the new one untrimmed, for the tone
+/// shares), and fits the old power stage.
 void Calibrate()
 {
     const auto guitar = builtin_amp_test::MeasuringGuitar();
@@ -365,12 +366,12 @@ void Calibrate()
                                  {"stageGain", legacy::kTrimMinDb + 6.0 * static_cast<double>(column)},
                                  {"character", legacy::kMigratedCharacter}};
         oldCells[cell] = both(params, true);
-        newCells[cell] = both(params, false);
+        // The new amp is only needed untrimmed, for the tone shares; its trim table is its own.
+        newCells[cell] = column == legacy::kTrimSteps / 2 ? both(params, false) : 0.0;
     });
 
     std::cout << "// clang-format off\n// *INDENT-OFF*\n";
     PrintGrid("kOldLevelDb", oldCells);
-    PrintGrid("kNewLevelDb", newCells);
     std::cout << "// *INDENT-ON*\n// clang-format on\n";
 
     // The tone stack's share, against the Input Trim 0 column of the grids just measured.
