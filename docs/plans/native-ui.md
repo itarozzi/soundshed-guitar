@@ -276,7 +276,7 @@ tools/agent-ui-debug/native/         live-driving tool for the native editor
 | Formats | Standalone, VST3, AU, AAX, CLAP, LV2 (Linux) | Same set |
 | Editor | `WebEditor` | `NativeEditor` |
 | WebView | `NEEDS_WEB_BROWSER`, `NEEDS_WEBVIEW2`, `JUCE_WEB_BROWSER=1` | All off; web editor sources not compiled |
-| `JUCE_FORCE_DEBUG` | On on desktop (for WebView2 DevTools) | Off |
+| `JUCE_FORCE_DEBUG` | Off since the JUCE 9.0.3 bump (was on for WebView2 DevTools) | Off |
 | Shipped `resources/ui/` | Whole UI | Only the data the engine needs: `presets/`, `assets/`, `metronome/`, `demo/`, `images/icons/` |
 | Installer | As today | Own installer. No WebView2 runtime step. Never touches the shared profile on uninstall |
 | `soundshed://` handler | Registers it | Does not register it |

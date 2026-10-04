@@ -253,7 +253,7 @@ Found by the engine and controller reviewers. The main per-block path is clean; 
 
 - `processBlockBypassed` clears the MIDI and calls JUCE's default. That default passes the dry signal through with no delay and asserts `getLatencySamples() == 0`. With an IR cab, NAM oversampling or a transpose in the chain, a host bypass shifts the track earlier by the reported latency.
 - `GUITARFX_JUCE_FORCE_DEBUG` is 1 for every desktop build. It is deliberate, to keep WebView2 DevTools in release. But it also turns on `jassert` and the leak detectors in shipped VST3, CLAP and Standalone builds, including on the audio thread, and the assertion above then fires on every bypassed block.
-- `JUCE_WEBVIEW2_DEVTOOLS_ENABLED=1` is not referenced anywhere in JUCE (*Reported*).
+- `JUCE_WEBVIEW2_DEVTOOLS_ENABLED=1` is not referenced anywhere in JUCE (*Reported*). *Fixed 2026-10-04 with the JUCE 9.0.3 bump: `JUCE_FORCE_DEBUG` and this define are gone, so release builds are release builds on every platform; DevTools in the WebView now follow the build configuration.*
 
 Relevant locations:
 

@@ -68,7 +68,7 @@ cd android && ./gradlew assembleRelease -Pssg.abis=arm64-v8a
 ```
 
 That configures CMake as `Release`, which brings `-O3`, `-ffast-math` and
-LTO, and it also drops `JUCE_FORCE_DEBUG` (see below). The APK lands in
+LTO. The APK lands in
 `android/app/build/outputs/apk/release/`.
 
 The build type is set explicitly in `app/build.gradle.kts`. Left to itself,
@@ -82,12 +82,6 @@ The release variant is signed with the **debug** keystore so it can be installed
 and played through directly. That is a testing convenience, not a shipping
 configuration: distribution needs a real keystore and the `signingConfig` line in
 `app/build.gradle.kts` replaced.
-
-Note `juce/CMakeLists.txt` sets `JUCE_FORCE_DEBUG=1` for every platform except
-Android. It exists so Windows release builds keep their WebView2 DevTools, but
-it also leaves JUCE's assertions and debug-only paths compiled in — including on
-the audio thread — so on Android it is off and a release build is genuinely a
-release build.
 
 `ssg.abis` picks the ABIs. The native project is large, so building one ABI is
 much faster while iterating:

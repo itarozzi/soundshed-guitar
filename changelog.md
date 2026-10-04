@@ -91,6 +91,7 @@ A big update: five new effects, fifteen classic drive pedals, a Practice Tool fo
 * NAM quality and window size are saved with each plugin instance in your DAW project, and a plugin no longer overwrites your standalone-only settings.
 
 ### Performance
+* **Release builds are now true release builds**: the framework underneath (JUCE, now 9.0.3) was compiled with its debug-only assertions and leak detectors switched on in every shipped build, including on the audio thread. They are off now.
 * The audio engine does far less work: a simple chain now uses about a third of the CPU it did.
 * The interface is quicker to update and does less background work while hidden.
 * Presets that host other plugins switch faster: one with three Plugin Hosts now loads in about half a second instead of up to two.

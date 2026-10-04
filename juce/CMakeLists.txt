@@ -52,17 +52,6 @@ else()
     set(GUITARFX_PLUGINHOST_ENABLED 1)
 endif()
 
-# JUCE_FORCE_DEBUG keeps JUCE_DEBUG on in release-family builds, which is only
-# wanted so Windows release builds keep their WebView2 DevTools. It also turns on
-# JUCE's assertions and debug-only paths — including ones on the audio thread —
-# so on Android, where there is no DevTools story and every cycle in the callback
-# counts, leave it off and let release builds actually be release builds.
-if(CMAKE_SYSTEM_NAME STREQUAL "Android")
-    set(GUITARFX_JUCE_FORCE_DEBUG 0)
-else()
-    set(GUITARFX_JUCE_FORCE_DEBUG 1)
-endif()
-
 set(GUITARFX_VST3_AUTO_MANIFEST TRUE)
 
 if(WIN32
@@ -312,7 +301,7 @@ set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT Embedded CACHE STRING "" FORCE)
 
 # JUCE is setup in the /JUCE folder and this build enforces a pinned JUCE version.
 # If your checkout drifts, configure will fail with an actionable message.
-set(GUITARFX_REQUIRED_JUCE_VERSION "8.0.14")
+set(GUITARFX_REQUIRED_JUCE_VERSION "9.0.3")
 set(_guitarfx_juce_core_header "${CMAKE_CURRENT_SOURCE_DIR}/JUCE/modules/juce_core/juce_core.h")
 if(NOT EXISTS "${_guitarfx_juce_core_header}")
     message(FATAL_ERROR "Missing JUCE checkout at ${_guitarfx_juce_core_header}. Ensure JUCE is available in juce/JUCE.")
@@ -451,9 +440,10 @@ target_compile_definitions(SharedCode
     # Use WebView2 on Windows
     JUCE_USE_WIN_WEBVIEW2=1
     JUCE_USE_WIN_WEBVIEW2_WITH_STATIC_LINKING=${GUITARFX_WEBVIEW2_STATIC_LINKING}
-    JUCE_WEBVIEW2_DEVTOOLS_ENABLED=1
-    # JUCE disables WebView2 DevTools when JUCE_DEBUG=0; restore prior behavior in release-family Windows builds.
-    JUCE_FORCE_DEBUG=${GUITARFX_JUCE_FORCE_DEBUG}
+    # WebView2 DevTools (F12, context menu) follow JUCE_DEBUG, so Release builds have them off.
+    # Release used to force JUCE_DEBUG on to keep them, which also kept every jassert and leak
+    # detector live in shipped builds. Use a Debug build, or the remote-debugging port
+    # (tools/agent-ui-debug/README.md), which works in any configuration.
     GUITARFX_WKWEBVIEW_INLINE_MEDIA_PLAYBACK=${GUITARFX_WKWEBVIEW_INLINE_MEDIA_PLAYBACK}
     GUITARFX_WKWEBVIEW_DISABLE_MEDIA_USER_ACTION=${GUITARFX_WKWEBVIEW_DISABLE_MEDIA_USER_ACTION}
 

@@ -17,8 +17,7 @@ juce::Drawable* IconCache::drawableFor (const juce::String& name)
     // Some icons stroke with "currentColor", which JUCE's SVG parser leaves transparent. Only
     // the alpha channel is used (the colour comes from draw()), so any solid colour will do.
     if (file.existsAsFile())
-        if (auto xml = juce::parseXML (file.loadFileAsString().replace ("currentColor", "#000000")))
-            drawable = juce::Drawable::createFromSVG (*xml);
+        drawable = juce::Drawable::createFromSVGString (file.loadFileAsString().replace ("currentColor", "#000000"));
 
     auto* raw = drawable.get();
     drawables[name] = std::move (drawable);

@@ -357,15 +357,15 @@ extensions.configure<ApplicationAndroidComponentsExtension> {
 //
 // The hazard is a JUCE upgrade silently changing the original while we keep
 // shipping an old fork. Pin the upstream file's hash: if it moves, the build
-// fails and whoever bumped JUCE re-applies the one-line patch on top of the new
+// fails and whoever bumped JUCE re-applies the "Soundshed patch" blocks on top of the new
 // version and updates the hash here.
 // ---------------------------------------------------------------------------
 val vendoredJuceWebViewUpstream =
     File(juceModules, "juce_gui_extra/native/java/app/com/rmsl/juce/JuceWebViewClasses.java")
 
-/** SHA-256 of the upstream file this fork was taken from (JUCE 8.0.14). */
+/** SHA-256 of the upstream file this fork was taken from (JUCE 9.0.3). */
 val vendoredJuceWebViewUpstreamSha =
-    "bea03778134b46da7387b318e6eba43569f89c1bd430996ba45c37039c194213"
+    "63ba7e765bd56e955f1cf1ffc1f1fd646ee2da8abe4106132bb820d28ace397e"
 
 val checkVendoredJuceWebView = tasks.register("checkVendoredJuceWebView") {
     description = "Fails if JUCE's JuceWebViewClasses.java has changed since our patched copy was taken."
@@ -394,7 +394,7 @@ val checkVendoredJuceWebView = tasks.register("checkVendoredJuceWebView") {
                 android/app/src/main/java/com/rmsl/juce/JuceWebViewClasses.java is a
                 patched copy of that file (it adds settings.setDomStorageEnabled(true),
                 without which the UI cannot start). Re-take the copy from the new
-                upstream version, re-apply that one-line patch, and update
+                upstream version, re-apply the blocks marked "Soundshed patch", and update
                 vendoredJuceWebViewUpstreamSha in this build file.
                 """.trimIndent()
             )
@@ -418,9 +418,9 @@ tasks.named("preBuild") { dependsOn(checkVendoredJuceWebView) }
 val vendoredOboeUpstream =
     File(juceModules, "juce_audio_devices/native/oboe/include/oboe/AudioStreamBase.h")
 
-/** SHA-256 of the upstream header this overlay was taken from (JUCE 8.0.14). */
+/** SHA-256 of the upstream header this overlay was taken from (JUCE 9.0.3). */
 val vendoredOboeUpstreamSha =
-    "da424cf10e7ae32db12d639fd63ed82da58153fbc30e385a97c5c388b979e949"
+    "f61bd3b6d5e0fcf4a7a79396d1652476521f41b0f02ecc20493c59729bbcecd0"
 
 val checkVendoredOboeHeader = tasks.register("checkVendoredOboeHeader") {
     description = "Fails if Oboe's AudioStreamBase.h has changed since our overlay was taken."

@@ -3,6 +3,7 @@
 #include "dsp/EffectGuids.h"
 #include "dsp/EffectRegistry.h"
 #include "dsp/effects/BuiltinEffects.h"
+#include "util/PathEncoding.h"
 
 #include "NAM/dsp.h"
 #include "NAM/get_dsp.h"
@@ -154,7 +155,7 @@ std::size_t ResolveModelLimit(std::size_t discoveredCount)
 
 std::optional<std::string> ResolvePinnedGatewayStateForModel(const fs::path& modelPath)
 {
-  const std::string file = modelPath.filename().string();
+  const std::string file = guitarfx::util::PathToUtf8(modelPath.filename());
   if (file == kPinnedGatewayStateModelFileMesaAmp)
     return std::string(kPinnedGatewayStateBase64MesaAmp);
   if (file == kPinnedGatewayStateModelFileMesaPow)
@@ -390,7 +391,7 @@ Measurement MeasureGatewayReference(const fs::path& gatewayPath,
 
   if (bindings->modelIndex >= 0)
   {
-    const std::string modelNeedle = modelPath.stem().string();
+    const std::string modelNeedle = guitarfx::util::PathToUtf8(modelPath.stem());
     if (!SetChoiceByLabel(*plugin, bindings->modelIndex, modelNeedle))
     {
       m.error = "failed to select Gateway model by label: " + modelNeedle;
@@ -488,7 +489,7 @@ int main()
   const fs::path gatewayPath{GetGatewayPath()};
   if (!fs::exists(gatewayPath))
   {
-    std::cout << "Skipping Gateway NAM probe; plugin not found: " << gatewayPath.string() << "\n";
+    std::cout << "Skipping Gateway NAM probe; plugin not found: " << guitarfx::util::PathToUtf8(gatewayPath) << "\n";
     return kSkipCode;
   }
 
@@ -496,7 +497,7 @@ int main()
   auto models = DiscoverModels(assetsRoot);
   if (models.empty())
   {
-    std::cout << "Skipping Gateway NAM probe; no .nam models found under " << assetsRoot.string() << "\n";
+    std::cout << "Skipping Gateway NAM probe; no .nam models found under " << guitarfx::util::PathToUtf8(assetsRoot) << "\n";
     return kSkipCode;
   }
   models.resize(ResolveModelLimit(models.size()));
@@ -511,7 +512,7 @@ int main()
   std::cout << std::fixed << std::setprecision(6);
   std::cout << "============================================================\n";
   std::cout << "Gateway NAM calibration probe (hosted VST3 reference)\n";
-  std::cout << "Gateway: " << gatewayPath.string() << "\n";
+  std::cout << "Gateway: " << guitarfx::util::PathToUtf8(gatewayPath) << "\n";
   std::cout << "Models: " << models.size() << ", SampleRate=" << kSampleRate << ", BlockSize=" << kBlockSize << "\n";
   std::cout << "Tolerances: dBFS=" << kDbfsTolerance
             << ", maxAbs=" << kSampleMaxAbsTolerance
@@ -520,7 +521,7 @@ int main()
 
   for (const auto& model : models)
   {
-    std::cout << "Model: " << model.lexically_relative(assetsRoot).string() << "\n";
+    std::cout << "Model: " << guitarfx::util::PathToUtf8(model.lexically_relative(assetsRoot)) << "\n";
     PrintModelMetadata(model, assetsRoot);
 
     for (double amp : amplitudes)

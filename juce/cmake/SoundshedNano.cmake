@@ -69,9 +69,6 @@ target_compile_definitions(NanoSharedCode
     JUCE_PLUGINHOST_LV2=${GUITARFX_PLUGINHOST_ENABLED}
     JUCE_ASIO=${GUITARFX_JUCE_ASIO_ENABLED}
     JUCE_ASIO_USE_EXTERNAL_SDK=${GUITARFX_JUCE_ASIO_USE_EXTERNAL_SDK}
-    # Soundshed Guitar forces JUCE_DEBUG on in release builds only to keep WebView2's
-    # DevTools. With no WebView there is no reason to pay for JUCE's debug paths.
-    JUCE_FORCE_DEBUG=0
     CMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE}"
     VERSION="${CURRENT_VERSION}"
     PRODUCT_NAME_WITHOUT_VERSION="${NANO_PRODUCT_NAME}"

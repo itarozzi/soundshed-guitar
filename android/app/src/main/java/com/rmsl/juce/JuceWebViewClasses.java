@@ -16,7 +16,7 @@
    framework to you, and you must discontinue the installation or download
    process and cease use of the JUCE framework.
 
-   JUCE End User Licence Agreement: https://juce.com/legal/juce-8-licence/
+   JUCE End User Licence Agreement: https://juce.com/legal/juce-9-licence/
    JUCE Privacy Policy: https://juce.com/juce-privacy-policy
    JUCE Website Terms of Service: https://juce.com/juce-website-terms-of-service/
 
@@ -36,7 +36,7 @@
 // VENDORED FROM JUCE — DO NOT EDIT CASUALLY.
 //
 // Source: juce/JUCE/modules/juce_gui_extra/native/java/app/com/rmsl/juce/
-//         JuceWebViewClasses.java   (JUCE 8.0.14)
+//         JuceWebViewClasses.java   (JUCE 9.0.3)
 //
 // JUCE resolves this class through the app's class loader before falling back
 // to the copy it embeds as bytecode (see JNIClassBase::initialise), so a copy
