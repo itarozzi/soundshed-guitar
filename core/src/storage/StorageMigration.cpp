@@ -3,19 +3,19 @@
 #include "storage/JsonStore.h"
 #include "util/FileIO.h"
 #include "util/PathEncoding.h"
+#include "util/SessionLog.h"
 
 #include <nlohmann/json.hpp>
 
 #include <chrono>
 #include <fstream>
-#include <iostream>
 #include <sstream>
 
 namespace guitarfx::storage
 {
 namespace
 {
-std::optional<nlohmann::json> ReadJson(const std::filesystem::path& path)
+std::optional<nlohmann::json> ReadJson(const std::filesystem::path& path, const std::filesystem::path& logDirectory)
 {
     std::error_code ec;
 
@@ -37,8 +37,8 @@ std::optional<nlohmann::json> ReadJson(const std::filesystem::path& path)
     }
     catch (const std::exception& exception)
     {
-        std::cerr << "[StorageMigration] Could not parse " << util::PathToUtf8(path) << ": " << exception.what()
-                  << std::endl;
+        util::AppendSessionLog(logDirectory, "[StorageMigration] Could not parse " + util::PathToUtf8(path) + ": " +
+                                                 exception.what());
         return std::nullopt;
     }
 }
@@ -94,6 +94,13 @@ struct Importer
     JsonStore& store;
     MigrationReport& report;
 
+    /// Diagnostics go beside the store being imported into: the profile's settings directory for
+    /// the app's own, and a test's own directory for a test's.
+    [[nodiscard]] std::filesystem::path LogDirectory() const
+    {
+        return store.Path().parent_path();
+    }
+
     /// Set when a *write* fails, as opposed to a source being missing or
     /// unreadable. A source we cannot read is skipped and noted — the user
     /// loses that one file and the rest of the import still stands. A write
@@ -112,7 +119,7 @@ struct Importer
     void Fail(const std::string& source, const std::string& why)
     {
         report.failures.push_back(source + ": " + why);
-        std::cerr << "[StorageMigration] " << source << " — " << why << std::endl;
+        util::AppendSessionLog(LogDirectory(), "[StorageMigration] " + source + " — " + why);
     }
 
     void FailHard(const std::string& source, const std::string& why)
@@ -133,7 +140,7 @@ struct Importer
             return;
         }
 
-        const auto parsed = ReadJson(path);
+        const auto parsed = ReadJson(path, LogDirectory());
 
         if (!parsed)
         {
@@ -163,7 +170,7 @@ struct Importer
             return;
         }
 
-        const auto parsed = ReadJson(path);
+        const auto parsed = ReadJson(path, LogDirectory());
 
         if (!parsed)
         {
@@ -231,7 +238,7 @@ struct Importer
             return;
         }
 
-        const auto parsed = ReadJson(path);
+        const auto parsed = ReadJson(path, LogDirectory());
 
         if (!parsed)
         {
@@ -339,7 +346,7 @@ struct Importer
                     stem = stem.substr(0, stem.size() - requiredStemSuffix.size());
                 }
 
-                const auto parsed = ReadJson(entry.path());
+                const auto parsed = ReadJson(entry.path(), LogDirectory());
 
                 if (!parsed || !parsed->is_object())
                 {
@@ -413,7 +420,7 @@ struct Importer
                     continue;
                 }
 
-                const auto parsed = ReadJson(entry.path() / "layout.json");
+                const auto parsed = ReadJson(entry.path() / "layout.json", LogDirectory());
 
                 if (!parsed || !parsed->is_object())
                 {
@@ -463,7 +470,7 @@ struct Importer
             return;
         }
 
-        const auto parsed = ReadJson(path);
+        const auto parsed = ReadJson(path, LogDirectory());
 
         if (!parsed)
         {
@@ -530,7 +537,8 @@ void RunImport(Importer& importer, const std::filesystem::path& settingsDirector
     // the legacy settings file rather than assuming the default.
     std::filesystem::path riffLibraryDir = settingsDirectory / "riff-library";
 
-    if (const auto legacySettings = ReadJson(legacyAppSettingsPath); legacySettings && legacySettings->is_object())
+    if (const auto legacySettings = ReadJson(legacyAppSettingsPath, importer.LogDirectory());
+        legacySettings && legacySettings->is_object())
     {
         const auto configured = StringField(*legacySettings, "riffLibrary.path");
 
@@ -602,8 +610,9 @@ MigrationReport MigrateLegacyJsonTree(JsonStore& store, const std::filesystem::p
     // while another instance imports, and it runs on the message thread during
     // Initialize(). Say so before blocking, so a two-minute silent freeze on the
     // first launch after upgrading is at least diagnosable from the log.
-    std::cerr << "[StorageMigration] Importing the legacy library into " << util::PathToUtf8(store.Path())
-              << "; this runs once and other instances wait for it." << std::endl;
+    util::AppendSessionLog(store.Path().parent_path(), "[StorageMigration] Importing the legacy library into " +
+                                                           util::PathToUtf8(store.Path()) +
+                                                           "; this runs once and other instances wait for it.");
 
     bool alreadyMigrated = false;
     Importer importer{store, report};

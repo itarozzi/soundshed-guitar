@@ -16,8 +16,7 @@
 #include "controller/internal/ControllerUtils.h"
 #include "controller/internal/HostedPluginSupport.h"
 #include "util/PathEncoding.h"
-
-#include <fstream>
+#include "util/SessionLog.h"
 
 using namespace guitarfx::controller_detail;
 
@@ -25,23 +24,7 @@ namespace guitarfx
 {
 void PluginController::AppendSessionLog(const std::string& message) const
 {
-    if (message.empty())
-    {
-        return;
-    }
-
-    const auto settingsDir = GetEffectiveSettingsDirectory();
-    const auto logPath = settingsDir / kSessionLogFileName;
-    [[maybe_unused]] const auto ensuredLogDir = mFileSystem.EnsureDirectory(logPath.parent_path());
-
-    std::ofstream output(logPath, std::ios::app);
-
-    if (!output)
-    {
-        return;
-    }
-
-    output << FormatTimestamp() << " " << message << "\n";
+    util::AppendSessionLog(GetEffectiveSettingsDirectory(), message);
 }
 
 void PluginController::HandleCaptureDebugSnapshotRequest(const nlohmann::json& payload)
@@ -73,7 +56,7 @@ void PluginController::HandleDebugReportUiStateRequest(const nlohmann::json& pay
         snapshot["capturedAt"] = FormatTimestamp();
         snapshot["source"] = source;
         snapshot["paths"] = {
-            {"sessionLog", util::PathToUtf8(mFileSystem.ResolveSettingsDirectory() / kSessionLogFileName)},
+            {"sessionLog", util::PathToUtf8(util::SessionLogPath(mFileSystem.ResolveSettingsDirectory()))},
             {"snapshot", util::PathToUtf8(ResolveDebugSnapshotPath(mFileSystem))},
         };
         snapshot["session"] = {

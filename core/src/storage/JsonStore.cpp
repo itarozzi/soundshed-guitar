@@ -1,11 +1,12 @@
 #include "storage/JsonStore.h"
 
 #include "util/PathEncoding.h"
+#include "util/SessionLog.h"
 
 #include <sqlite3.h>
 
 #include <chrono>
-#include <iostream>
+#include <string>
 
 namespace guitarfx::storage
 {
@@ -77,9 +78,16 @@ class Stmt
     int mRc = SQLITE_ERROR;
 };
 
-void LogFailure(const char* what, sqlite3* db)
+/// Beside the database the message is about: for the app's own store that is the profile's settings
+/// directory, and a store opened anywhere else (a test's, say) keeps its diagnostics with it.
+void Log(const std::filesystem::path& dbPath, const std::string& message)
 {
-    std::cerr << "[JsonStore] " << what << ": " << (db ? sqlite3_errmsg(db) : "no database") << std::endl;
+    util::AppendSessionLog(dbPath.parent_path(), "[JsonStore] " + message);
+}
+
+void LogFailure(const std::filesystem::path& dbPath, const char* what, sqlite3* db)
+{
+    Log(dbPath, std::string{what} + ": " + (db ? sqlite3_errmsg(db) : "no database"));
 }
 } // namespace
 
@@ -91,7 +99,8 @@ std::optional<nlohmann::json> StoreItem::Parse() const
     }
     catch (const std::exception& exception)
     {
-        std::cerr << "[JsonStore] Unparseable document " << type << ":" << id << " — " << exception.what() << std::endl;
+        util::AppendSessionLog("[JsonStore] Unparseable document " + std::string{type} + ":" + std::string{id} + " — " +
+                               exception.what());
         return std::nullopt;
     }
 }
@@ -170,11 +179,11 @@ JsonStore::OpenStatus JsonStore::OpenChecked(const std::filesystem::path& dbPath
     if (const auto problems = QuickCheckLocked(); !problems.empty())
     {
         error = "database failed its integrity check: " + problems.front();
-        std::cerr << "[JsonStore] " << util::PathToUtf8(dbPath) << " is damaged and will not be opened:" << std::endl;
+        Log(dbPath, util::PathToUtf8(dbPath) + " is damaged and will not be opened:");
 
         for (const auto& problem : problems)
         {
-            std::cerr << "[JsonStore]   " << problem << std::endl;
+            Log(dbPath, "  " + problem);
         }
 
         sqlite3_close_v2(mDb);
@@ -210,7 +219,7 @@ void JsonStore::Close()
     // close_v2 hands sqlite the responsibility to free it once it can.
     if (const int rc = sqlite3_close_v2(mDb); rc != SQLITE_OK)
     {
-        LogFailure("Close", mDb);
+        LogFailure(mPath, "Close", mDb);
     }
 
     mDb = nullptr;
@@ -306,7 +315,7 @@ bool JsonStore::Put(std::string_view type, std::string_view id, const nlohmann::
     }
     catch (const std::exception& exception)
     {
-        std::cerr << "[JsonStore] Could not serialize " << type << ":" << id << " — " << exception.what() << std::endl;
+        Log(mPath, "Could not serialize " + std::string{type} + ":" + std::string{id} + " — " + exception.what());
         return false;
     }
     return PutRaw(type, id, serialized);
@@ -330,7 +339,7 @@ bool JsonStore::PutRawLocked(std::string_view type, std::string_view id, std::st
 
     if (!stmt.Ok())
     {
-        LogFailure("Prepare put", mDb);
+        LogFailure(mPath, "Prepare put", mDb);
         return false;
     }
 
@@ -341,7 +350,7 @@ bool JsonStore::PutRawLocked(std::string_view type, std::string_view id, std::st
 
     if (stmt.Step() != SQLITE_DONE)
     {
-        LogFailure("Put", mDb);
+        LogFailure(mPath, "Put", mDb);
         return false;
     }
 
@@ -370,7 +379,7 @@ bool JsonStore::ReplaceAll(std::string_view type, const std::vector<StoreItem>& 
 
             if (!del.Ok())
             {
-                LogFailure("Prepare replace-all delete", mDb);
+                LogFailure(mPath, "Prepare replace-all delete", mDb);
                 return false;
             }
 
@@ -378,7 +387,7 @@ bool JsonStore::ReplaceAll(std::string_view type, const std::vector<StoreItem>& 
 
             if (del.Step() != SQLITE_DONE)
             {
-                LogFailure("Replace-all delete", mDb);
+                LogFailure(mPath, "Replace-all delete", mDb);
                 return false;
             }
         }
@@ -408,7 +417,7 @@ std::optional<std::string> JsonStore::GetRaw(std::string_view type, std::string_
 
     if (!stmt.Ok())
     {
-        LogFailure("Prepare get", mDb);
+        LogFailure(mPath, "Prepare get", mDb);
         return std::nullopt;
     }
 
@@ -438,7 +447,7 @@ std::optional<nlohmann::json> JsonStore::Get(std::string_view type, std::string_
     }
     catch (const std::exception& exception)
     {
-        std::cerr << "[JsonStore] Unparseable document " << type << ":" << id << " — " << exception.what() << std::endl;
+        Log(mPath, "Unparseable document " + std::string{type} + ":" + std::string{id} + " — " + exception.what());
         return std::nullopt;
     }
 }
@@ -477,7 +486,7 @@ bool JsonStore::Remove(std::string_view type, std::string_view id)
 
     if (!stmt.Ok())
     {
-        LogFailure("Prepare remove", mDb);
+        LogFailure(mPath, "Prepare remove", mDb);
         return false;
     }
 
@@ -486,7 +495,7 @@ bool JsonStore::Remove(std::string_view type, std::string_view id)
 
     if (stmt.Step() != SQLITE_DONE)
     {
-        LogFailure("Remove", mDb);
+        LogFailure(mPath, "Remove", mDb);
         return false;
     }
 
@@ -513,7 +522,7 @@ std::int64_t JsonStore::RemoveAllOfType(std::string_view type)
 
     if (stmt.Step() != SQLITE_DONE)
     {
-        LogFailure("RemoveAllOfType", mDb);
+        LogFailure(mPath, "RemoveAllOfType", mDb);
         return 0;
     }
 
@@ -535,7 +544,7 @@ std::vector<StoreItem> JsonStore::List(std::string_view type) const
 
     if (!stmt.Ok())
     {
-        LogFailure("Prepare list", mDb);
+        LogFailure(mPath, "Prepare list", mDb);
         return result;
     }
 
@@ -674,7 +683,7 @@ bool JsonStore::SetMeta(std::string_view key, std::string_view value)
 
     if (!stmt.Ok())
     {
-        LogFailure("Prepare set-meta", mDb);
+        LogFailure(mPath, "Prepare set-meta", mDb);
         return false;
     }
 
@@ -683,7 +692,7 @@ bool JsonStore::SetMeta(std::string_view key, std::string_view value)
 
     if (stmt.Step() != SQLITE_DONE)
     {
-        LogFailure("SetMeta", mDb);
+        LogFailure(mPath, "SetMeta", mDb);
         return false;
     }
 
@@ -709,7 +718,7 @@ bool JsonStore::Transact(const std::function<bool()>& work)
 
         if (!ExecLocked(("SAVEPOINT " + savepoint + ";").c_str(), savepointError))
         {
-            std::cerr << "[JsonStore] Could not create savepoint: " << savepointError << std::endl;
+            Log(mPath, "Could not create savepoint: " + savepointError);
             return false;
         }
 
@@ -721,12 +730,12 @@ bool JsonStore::Transact(const std::function<bool()>& work)
         }
         catch (const std::exception& exception)
         {
-            std::cerr << "[JsonStore] Nested transaction body threw: " << exception.what() << std::endl;
+            Log(mPath, std::string{"Nested transaction body threw: "} + exception.what());
             inner = false;
         }
         catch (...)
         {
-            std::cerr << "[JsonStore] Nested transaction body threw an unknown exception" << std::endl;
+            Log(mPath, "Nested transaction body threw an unknown exception");
             inner = false;
         }
         --mTransactionDepth;
@@ -739,7 +748,7 @@ bool JsonStore::Transact(const std::function<bool()>& work)
 
             if (!ExecLocked(("ROLLBACK TO " + savepoint + ";").c_str(), rollbackError))
             {
-                std::cerr << "[JsonStore] Savepoint rollback failed: " << rollbackError << std::endl;
+                Log(mPath, "Savepoint rollback failed: " + rollbackError);
             }
         }
 
@@ -747,7 +756,7 @@ bool JsonStore::Transact(const std::function<bool()>& work)
 
         if (!ExecLocked(("RELEASE " + savepoint + ";").c_str(), releaseError))
         {
-            std::cerr << "[JsonStore] Savepoint release failed: " << releaseError << std::endl;
+            Log(mPath, "Savepoint release failed: " + releaseError);
         }
 
         return inner;
@@ -757,7 +766,7 @@ bool JsonStore::Transact(const std::function<bool()>& work)
 
     if (!ExecLocked("BEGIN IMMEDIATE;", error))
     {
-        std::cerr << "[JsonStore] Could not begin transaction: " << error << std::endl;
+        Log(mPath, "Could not begin transaction: " + error);
         return false;
     }
 
@@ -769,12 +778,12 @@ bool JsonStore::Transact(const std::function<bool()>& work)
     }
     catch (const std::exception& exception)
     {
-        std::cerr << "[JsonStore] Transaction body threw: " << exception.what() << std::endl;
+        Log(mPath, std::string{"Transaction body threw: "} + exception.what());
         succeeded = false;
     }
     catch (...)
     {
-        std::cerr << "[JsonStore] Transaction body threw an unknown exception" << std::endl;
+        Log(mPath, "Transaction body threw an unknown exception");
         succeeded = false;
     }
     --mTransactionDepth;
@@ -785,7 +794,7 @@ bool JsonStore::Transact(const std::function<bool()>& work)
 
         if (!ExecLocked("ROLLBACK;", rollbackError))
         {
-            std::cerr << "[JsonStore] Rollback failed: " << rollbackError << std::endl;
+            Log(mPath, "Rollback failed: " + rollbackError);
         }
 
         return false;
@@ -793,7 +802,7 @@ bool JsonStore::Transact(const std::function<bool()>& work)
 
     if (!ExecLocked("COMMIT;", error))
     {
-        std::cerr << "[JsonStore] Commit failed: " << error << std::endl;
+        Log(mPath, "Commit failed: " + error);
         // Best effort: the commit already failed, so there is nothing useful to
         // do if unwinding it fails too.
         std::string rollbackError;

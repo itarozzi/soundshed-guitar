@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
-#include <iostream>
 #include <list>
 #include <mutex>
 #include <string>
@@ -13,6 +12,7 @@
 #include "NAM/activations.h"
 #include "NAM/dsp.h"
 #include "NAM/get_dsp.h"
+#include "util/SessionLog.h"
 
 namespace guitarfx::nammodelcache
 {
@@ -235,12 +235,12 @@ std::unique_ptr<::nam::DSP> GetModel(const std::filesystem::path& path)
     }
     catch (const std::exception& e)
     {
-        std::cerr << "[NamModelCache] ERROR: failed to load model: " << e.what() << "\n";
+        util::AppendSessionLog(std::string{"[NamModelCache] ERROR: failed to load model: "} + e.what());
         return nullptr;
     }
     catch (...)
     {
-        std::cerr << "[NamModelCache] ERROR: unknown failure loading model\n";
+        util::AppendSessionLog("[NamModelCache] ERROR: unknown failure loading model");
         return nullptr;
     }
 }

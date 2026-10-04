@@ -10,13 +10,14 @@
 #include "dsp/IRWavLoader.h"
 #include "dsp/ImpulseResampler.h"
 #include "dsp/effects/SpeakerDrive.h"
+#include "util/PathEncoding.h"
+#include "util/SessionLog.h"
 #include <algorithm>
 #include <array>
 #include <atomic>
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
-#include <iostream>
 #include <memory>
 #include <utility>
 #include <vector>
@@ -856,7 +857,7 @@ class IRCabEffect : public EffectProcessor
     {
         if (!std::filesystem::exists(resourcePath))
         {
-            std::cerr << "[IRCabEffect] ERROR: IR file not found: " << resourcePath << "\n";
+            util::AppendSessionLog("[IRCabEffect] ERROR: IR file not found: " + util::PathToUtf8(resourcePath));
             return false;
         }
 
@@ -865,7 +866,8 @@ class IRCabEffect : public EffectProcessor
         // Single-resource load path (legacy): load slot A and clear slot B.
         if (!LoadWavFile(resourcePath))
         {
-            std::cerr << "[IRCabEffect] ERROR: Failed to load/parse IR WAV file: " << resourcePath << "\n";
+            util::AppendSessionLog("[IRCabEffect] ERROR: Failed to load/parse IR WAV file: " +
+                                   util::PathToUtf8(resourcePath));
             return false;
         }
 
@@ -881,7 +883,8 @@ class IRCabEffect : public EffectProcessor
 
         if (!loaded)
         {
-            std::cerr << "[IRCabEffect] ERROR: Failed to initialize convolver for: " << resourcePath << "\n";
+            util::AppendSessionLog("[IRCabEffect] ERROR: Failed to initialize convolver for: " +
+                                   util::PathToUtf8(resourcePath));
             return false;
         }
 
@@ -942,7 +945,8 @@ class IRCabEffect : public EffectProcessor
         {
             if (!std::filesystem::exists(paths[slotAIdx]))
             {
-                std::cerr << "[IRCabEffect] ERROR: IR A file not found: " << paths[slotAIdx] << "\n";
+                util::AppendSessionLog("[IRCabEffect] ERROR: IR A file not found: " +
+                                       util::PathToUtf8(paths[slotAIdx]));
             }
             else if (LoadWavFile(paths[slotAIdx]))
             {
@@ -952,13 +956,14 @@ class IRCabEffect : public EffectProcessor
 
                 if (!loadedA)
                 {
-                    std::cerr << "[IRCabEffect] ERROR: Failed to initialize convolver A for: " << paths[slotAIdx]
-                              << "\n";
+                    util::AppendSessionLog("[IRCabEffect] ERROR: Failed to initialize convolver A for: " +
+                                           util::PathToUtf8(paths[slotAIdx]));
                 }
             }
             else
             {
-                std::cerr << "[IRCabEffect] ERROR: Failed to load IR A: " << paths[slotAIdx] << "\n";
+                util::AppendSessionLog("[IRCabEffect] ERROR: Failed to load IR A: " +
+                                       util::PathToUtf8(paths[slotAIdx]));
             }
         }
 
@@ -983,7 +988,8 @@ class IRCabEffect : public EffectProcessor
         {
             if (!std::filesystem::exists(paths[slotBIdx]))
             {
-                std::cerr << "[IRCabEffect] WARNING: IR B file not found: " << paths[slotBIdx] << "\n";
+                util::AppendSessionLog("[IRCabEffect] WARNING: IR B file not found: " +
+                                       util::PathToUtf8(paths[slotBIdx]));
             }
             else if (LoadWavFileInto(paths[slotBIdx], mImpulseBL, mImpulseBR, mIRSampleRateB, mIsStereoB))
             {
@@ -998,13 +1004,14 @@ class IRCabEffect : public EffectProcessor
 
                 if (!loadedB)
                 {
-                    std::cerr << "[IRCabEffect] WARNING: Failed to initialize convolver B for: " << paths[slotBIdx]
-                              << "\n";
+                    util::AppendSessionLog("[IRCabEffect] WARNING: Failed to initialize convolver B for: " +
+                                           util::PathToUtf8(paths[slotBIdx]));
                 }
             }
             else
             {
-                std::cerr << "[IRCabEffect] WARNING: Failed to load IR B: " << paths[slotBIdx] << "\n";
+                util::AppendSessionLog("[IRCabEffect] WARNING: Failed to load IR B: " +
+                                       util::PathToUtf8(paths[slotBIdx]));
             }
         }
 

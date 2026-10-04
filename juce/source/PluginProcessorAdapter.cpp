@@ -22,6 +22,7 @@
 #include "controller/ControllerDisplayFeed.h"
 #include "resources/PluginPathUtils.h"
 #include "util/FileSystem.h"
+#include "util/SessionLog.h"
 
 #include <nlohmann/json.hpp>
 
@@ -31,7 +32,6 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
-#include <iostream>
 #include <mutex>
 #include <vector>
 #include <thread>
@@ -96,18 +96,21 @@ namespace
                 && destination.getNumberOfChildFiles (juce::File::findFilesAndDirectories
                                                       | juce::File::ignoreHiddenFiles) > 0)
             {
-                std::cerr << "[PluginProcessorAdapter] Sandbox container data at "
-                          << container.getFullPathName() << " left in place: "
-                          << destination.getFullPathName() << " already holds data.\n";
+                guitarfx::util::AppendSessionLog (("[PluginProcessorAdapter] Sandbox container data at "
+                                                   + container.getFullPathName() + " left in place: "
+                                                   + destination.getFullPathName() + " already holds data.")
+                                                      .toStdString());
                 return;
             }
 
             if (container.copyDirectoryTo (destination))
-                std::cerr << "[PluginProcessorAdapter] Migrated user data out of the sandbox container: "
-                          << container.getFullPathName() << " -> " << destination.getFullPathName() << "\n";
+                guitarfx::util::AppendSessionLog (("[PluginProcessorAdapter] Migrated user data out of the sandbox container: "
+                                                   + container.getFullPathName() + " -> " + destination.getFullPathName())
+                                                      .toStdString());
             else
-                std::cerr << "[PluginProcessorAdapter] ERROR: failed to migrate user data from "
-                          << container.getFullPathName() << " to " << destination.getFullPathName() << "\n";
+                guitarfx::util::AppendSessionLog (("[PluginProcessorAdapter] ERROR: failed to migrate user data from "
+                                                   + container.getFullPathName() + " to " + destination.getFullPathName())
+                                                      .toStdString());
         });
     }
 #endif
@@ -647,7 +650,7 @@ void PluginProcessorAdapter::setNonRealtime (bool isNonRealtime) noexcept
     }
     catch (const std::exception& e)
     {
-        std::cerr << "[Plugin] setNonRealtime failed: " << e.what() << std::endl;
+        guitarfx::util::AppendSessionLog (std::string { "setNonRealtime failed: " } + e.what());
     }
 }
 

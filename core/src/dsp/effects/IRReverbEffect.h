@@ -8,12 +8,13 @@
 #include "dsp/ImpulseResampler.h"
 #include "dsp/RealtimeParallel.h"
 #include "dsp/RealtimeConvolver.h"
+#include "util/PathEncoding.h"
+#include "util/SessionLog.h"
 #include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
-#include <iostream>
 #include <memory>
 #include <utility>
 #include <vector>
@@ -332,13 +333,14 @@ class IRReverbEffect : public EffectProcessor
     {
         if (!std::filesystem::exists(resourcePath))
         {
-            std::cerr << "[IRReverbEffect] ERROR: IR file not found: " << resourcePath << "\n";
+            util::AppendSessionLog("[IRReverbEffect] ERROR: IR file not found: " + util::PathToUtf8(resourcePath));
             return false;
         }
 
         if (!LoadWavFile(resourcePath))
         {
-            std::cerr << "[IRReverbEffect] ERROR: Failed to load/parse IR WAV file: " << resourcePath << "\n";
+            util::AppendSessionLog("[IRReverbEffect] ERROR: Failed to load/parse IR WAV file: " +
+                                   util::PathToUtf8(resourcePath));
             return false;
         }
 
@@ -353,7 +355,8 @@ class IRReverbEffect : public EffectProcessor
 
         if (!InitializeConvolvers())
         {
-            std::cerr << "[IRReverbEffect] ERROR: Failed to initialize convolvers for: " << resourcePath << "\n";
+            util::AppendSessionLog("[IRReverbEffect] ERROR: Failed to initialize convolvers for: " +
+                                   util::PathToUtf8(resourcePath));
             return false;
         }
 
@@ -665,13 +668,13 @@ class IRReverbEffect : public EffectProcessor
 
         if (!irwav::LoadAudioFile(path, data))
         {
-            std::cerr << "[IRReverbEffect] Failed to parse audio data from: " << path << "\n";
+            util::AppendSessionLog("[IRReverbEffect] Failed to parse audio data from: " + util::PathToUtf8(path));
             return false;
         }
 
         if (data.channels < 1)
         {
-            std::cerr << "[IRReverbEffect] ERROR: IR file has no audio channels: " << path << "\n";
+            util::AppendSessionLog("[IRReverbEffect] ERROR: IR file has no audio channels: " + util::PathToUtf8(path));
             return false;
         }
 
@@ -689,7 +692,8 @@ class IRReverbEffect : public EffectProcessor
 
             if (!mHasTrueStereo)
             {
-                std::cerr << "[IRReverbEffect] WARNING: 4-channel IR file has empty channels: " << path << "\n";
+                util::AppendSessionLog("[IRReverbEffect] WARNING: 4-channel IR file has empty channels: " +
+                                       util::PathToUtf8(path));
             }
         }
         else
@@ -702,7 +706,8 @@ class IRReverbEffect : public EffectProcessor
 
         if (!HasImpulses())
         {
-            std::cerr << "[IRReverbEffect] ERROR: IR file missing required stereo channels: " << path << "\n";
+            util::AppendSessionLog("[IRReverbEffect] ERROR: IR file missing required stereo channels: " +
+                                   util::PathToUtf8(path));
             return false;
         }
 

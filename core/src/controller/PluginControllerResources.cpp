@@ -1964,8 +1964,8 @@ void PluginController::LoadResourceLibraries()
 {
     mResourceLibrary.LoadFromStore(Store(), ResolveResourcesRoot());
     CleanupResourceLibraryCategoriesOnStartup();
-    std::cout << "[Plugin] Loaded " << mResourceLibrary.GetAllResources().size() << " resources from "
-              << util::PathToUtf8(ResolveDocumentStorePath()) << std::endl;
+    AppendSessionLog("Loaded " + std::to_string(mResourceLibrary.GetAllResources().size()) + " resources from " +
+                     util::PathToUtf8(ResolveDocumentStorePath()));
 }
 
 void PluginController::CleanupResourceLibraryCategoriesOnStartup()

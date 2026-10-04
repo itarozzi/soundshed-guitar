@@ -34,7 +34,6 @@ namespace guitarfx::controller_detail
 
 inline constexpr const char* kLocalResourceProvider = "local";
 inline constexpr const char* kLocalResourceStorageFolder = "local";
-inline constexpr const char* kSessionLogFileName = "logs/session-log.txt";
 inline constexpr const char* kDebugSnapshotFileName = "logs/debug-state.json";
 inline constexpr const char* kSharedSyncStateDocumentId = "shared-sync-state";
 

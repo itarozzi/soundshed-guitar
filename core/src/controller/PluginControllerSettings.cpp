@@ -185,7 +185,7 @@ void PluginController::ApplyGlobalFxSettingsFromAppSettings()
     }
     catch (const std::exception& e)
     {
-        std::cerr << "[Plugin] Failed to apply global FX settings: " << e.what() << std::endl;
+        AppendSessionLog(std::string{"Failed to apply global FX settings: "} + e.what());
     }
 }
 
@@ -694,7 +694,7 @@ void PluginController::SaveAppSettings() const
 
     if (!wrote)
     {
-        std::cerr << "[Plugin] SaveAppSettings failed" << std::endl;
+        AppendSessionLog("SaveAppSettings failed");
         return;
     }
 
@@ -970,14 +970,13 @@ void PluginController::LoadLastSessionState()
     {
         if (!IsFactoryPresetArchiveLoadingEnabled() && mTrackedFactoryArchivePresetIds.contains(lastPresetId))
         {
-            std::cout << "[Plugin] Skipping last factory archive preset restore because archive loading is disabled"
-                      << std::endl;
+            AppendSessionLog("Skipping last factory archive preset restore because archive loading is disabled");
             mPendingStateBroadcast = true;
-            std::cout << "[Plugin] Last session state restored" << std::endl;
+            AppendSessionLog("Last session state restored");
             return;
         }
 
-        std::cout << "[Plugin] Restoring last preset: " << lastPresetId << std::endl;
+        AppendSessionLog("Restoring last preset: " + lastPresetId);
         try
         {
             const auto aliasIt = mFactoryArchivePresetAliases.find(lastPresetId);
@@ -1009,16 +1008,16 @@ void PluginController::LoadLastSessionState()
                 mActivePreset = *presetOpt;
                 mActivePresetJson = PresetStorage::SerializeToJson(*presetOpt);
                 ApplyPreset(*presetOpt);
-                std::cout << "[Plugin] Restored preset: " << presetOpt->name << std::endl;
+                AppendSessionLog("Restored preset: " + presetOpt->name);
             }
             else
             {
-                std::cerr << "[Plugin] Last preset not found on disk: " << lastPresetId << std::endl;
+                AppendSessionLog("Last preset not found on disk: " + lastPresetId);
             }
         }
         catch (const std::exception& e)
         {
-            std::cerr << "[Plugin] Failed to restore last preset: " << e.what() << std::endl;
+            AppendSessionLog(std::string{"Failed to restore last preset: "} + e.what());
         }
     }
 
@@ -1028,6 +1027,6 @@ void PluginController::LoadLastSessionState()
     }
 
     mPendingStateBroadcast = true;
-    std::cout << "[Plugin] Last session state restored" << std::endl;
+    AppendSessionLog("Last session state restored");
 }
 } // namespace guitarfx

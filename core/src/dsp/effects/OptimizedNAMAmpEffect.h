@@ -19,13 +19,14 @@
 #include "dsp/effects/NAMSampleRate.h"
 #include "dsp/effects/NAMOversampling.h"
 #include "dsp/effects/NAMSlimmableSettings.h"
+#include "util/PathEncoding.h"
+#include "util/SessionLog.h"
 #include "NAM/dsp.h"
 #include "NAM/get_dsp.h"
 #include <filesystem>
 #include <algorithm>
 #include <cstdint>
 #include <future>
-#include <iostream>
 #include <memory>
 #include <optional>
 #include <string>
@@ -680,7 +681,8 @@ class OptimizedNAMAmpEffect : public EffectProcessor
         {
             if (!std::filesystem::exists(resourcePath))
             {
-                std::cerr << "[OptimizedNAMAmpEffect] ERROR: Model file not found: " << resourcePath << "\n";
+                util::AppendSessionLog("[OptimizedNAMAmpEffect] ERROR: Model file not found: " +
+                                       util::PathToUtf8(resourcePath));
                 return false;
             }
 
@@ -692,7 +694,8 @@ class OptimizedNAMAmpEffect : public EffectProcessor
 
             if (!modelLeft || !modelRight)
             {
-                std::cerr << "[OptimizedNAMAmpEffect] ERROR: Failed to parse NAM model file: " << resourcePath << "\n";
+                util::AppendSessionLog("[OptimizedNAMAmpEffect] ERROR: Failed to parse NAM model file: " +
+                                       util::PathToUtf8(resourcePath));
                 return false;
             }
 
@@ -715,13 +718,14 @@ class OptimizedNAMAmpEffect : public EffectProcessor
         }
         catch (const std::exception& e)
         {
-            std::cerr << "[OptimizedNAMAmpEffect] ERROR: Exception loading model " << resourcePath << ": " << e.what()
-                      << "\n";
+            util::AppendSessionLog("[OptimizedNAMAmpEffect] ERROR: Exception loading model " +
+                                   util::PathToUtf8(resourcePath) + ": " + e.what());
             return false;
         }
         catch (...)
         {
-            std::cerr << "[OptimizedNAMAmpEffect] ERROR: Unknown exception loading model " << resourcePath << "\n";
+            util::AppendSessionLog("[OptimizedNAMAmpEffect] ERROR: Unknown exception loading model " +
+                                   util::PathToUtf8(resourcePath));
             return false;
         }
     }

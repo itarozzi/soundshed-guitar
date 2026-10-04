@@ -3,10 +3,11 @@
 #include "IPluginHost.h"
 #include "util/FileIO.h"
 #include "util/PathEncoding.h"
+#include "util/SessionLog.h"
 #include "util/Wav.h"
 
 #include <algorithm>
-#include <iostream>
+#include <string>
 #include <string_view>
 #include <system_error>
 
@@ -139,7 +140,7 @@ nlohmann::json MetronomeClickLibrary::LoadManifest() const
 
     if (parsed.is_discarded())
     {
-        std::cerr << "[Plugin] Metronome kit manifest is not valid JSON: " << util::PathToUtf8(path) << std::endl;
+        util::AppendSessionLog("Metronome kit manifest is not valid JSON: " + util::PathToUtf8(path));
         return {};
     }
 
@@ -260,7 +261,7 @@ std::shared_ptr<MetronomeClickLibrary::ClickSamples> MetronomeClickLibrary::Load
 
         if (!std::filesystem::exists(path))
         {
-            std::cerr << "[Plugin] Metronome " << label << " sample not found: " << util::PathToUtf8(path) << std::endl;
+            util::AppendSessionLog("Metronome " + std::string{label} + " sample not found: " + util::PathToUtf8(path));
             return;
         }
 
@@ -268,7 +269,7 @@ std::shared_ptr<MetronomeClickLibrary::ClickSamples> MetronomeClickLibrary::Load
 
         if (bytes.empty())
         {
-            std::cerr << "[Plugin] Metronome " << label << " sample empty: " << util::PathToUtf8(path) << std::endl;
+            util::AppendSessionLog("Metronome " + std::string{label} + " sample empty: " + util::PathToUtf8(path));
             return;
         }
 
@@ -276,8 +277,8 @@ std::shared_ptr<MetronomeClickLibrary::ClickSamples> MetronomeClickLibrary::Load
 
         if (!wavData)
         {
-            std::cerr << "[Plugin] Metronome " << label << " sample unsupported WAV: " << util::PathToUtf8(path)
-                      << std::endl;
+            util::AppendSessionLog("Metronome " + std::string{label} +
+                                   " sample unsupported WAV: " + util::PathToUtf8(path));
             return;
         }
 
@@ -285,8 +286,8 @@ std::shared_ptr<MetronomeClickLibrary::ClickSamples> MetronomeClickLibrary::Load
 
         if (resampled.empty() || resampled.front().empty())
         {
-            std::cerr << "[Plugin] Metronome " << label << " sample empty after resample: " << util::PathToUtf8(path)
-                      << std::endl;
+            util::AppendSessionLog("Metronome " + std::string{label} +
+                                   " sample empty after resample: " + util::PathToUtf8(path));
             return;
         }
 

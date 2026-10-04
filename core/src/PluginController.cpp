@@ -30,7 +30,6 @@
 #include "dsp/effects/BuiltinEffects.h"
 #include "util/PathEncoding.h"
 
-#include <iostream>
 #include <utility>
 
 #include "GuitarFXConfig.h"
@@ -100,7 +99,7 @@ void PluginController::Initialize()
     mResourceRoot = mHost.GetUserDataPath();
     mUserPresetsPath = mFileSystem.ResolvePresetDirectory() / "user";
 
-    std::cout << "[Plugin] Initializing. Resource root: " << util::PathToUtf8(mResourceRoot) << std::endl;
+    AppendSessionLog("Initializing. Resource root: " + util::PathToUtf8(mResourceRoot));
 
     // Ensure essential directories exist on first launch
     [[maybe_unused]] const auto ensuredResourceRoot = mFileSystem.EnsureDirectory(mResourceRoot);

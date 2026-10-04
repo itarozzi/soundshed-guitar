@@ -961,7 +961,7 @@ bool PluginController::TryLoadConfiguredDefaultPreset()
 
     if (!presetId)
     {
-        std::cerr << "[Plugin] Configured default preset title not found: " << configuredTitle << std::endl;
+        AppendSessionLog("Configured default preset title not found: " + configuredTitle);
         return false;
     }
 
@@ -969,7 +969,7 @@ bool PluginController::TryLoadConfiguredDefaultPreset()
 
     if (!presetOpt)
     {
-        std::cerr << "[Plugin] Configured default preset could not be loaded: " << configuredTitle << std::endl;
+        AppendSessionLog("Configured default preset could not be loaded: " + configuredTitle);
         return false;
     }
 
@@ -977,7 +977,7 @@ bool PluginController::TryLoadConfiguredDefaultPreset()
     mActivePreset = *presetOpt;
     mActivePresetJson = PresetStorage::SerializeToJson(*presetOpt);
     ApplyPreset(*presetOpt);
-    std::cout << "[Plugin] Loaded configured default preset: " << presetOpt->name << std::endl;
+    AppendSessionLog("Loaded configured default preset: " + presetOpt->name);
     return true;
 }
 } // namespace guitarfx

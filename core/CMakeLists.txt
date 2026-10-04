@@ -665,6 +665,8 @@ set(GUITARFX_CORE_SOURCES
     src/util/PathSanitizer.h
     src/util/PathSanitizer.cpp
     src/util/PathEncoding.h
+    src/util/SessionLog.h
+    src/util/SessionLog.cpp
     src/util/Utf8.h
     src/util/Wav.h
     src/util/Wav.cpp

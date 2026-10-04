@@ -1481,7 +1481,7 @@ void PluginController::HandleEnterCompositeEditModeRequest(const nlohmann::json&
     }
 
     mEditingComposite = *def;
-    std::cout << "[Plugin] Entered composite edit mode: " << compositeId << " (" << def->name << ")" << std::endl;
+    AppendSessionLog("Entered composite edit mode: " + compositeId + " (" + def->name + ")");
     BroadcastCompositeEditState();
 }
 
@@ -1503,7 +1503,7 @@ void PluginController::HandleExitCompositeEditModeRequest(const nlohmann::json& 
             response["definition"] = SerializeCompositeEffectDefinition(*mEditingComposite);
             SendMessageToUI(response.dump());
 
-            std::cout << "[Plugin] Saved composite from edit mode: " << mEditingComposite->id << std::endl;
+            AppendSessionLog("Saved composite from edit mode: " + mEditingComposite->id);
         }
         else
         {
@@ -1514,7 +1514,7 @@ void PluginController::HandleExitCompositeEditModeRequest(const nlohmann::json& 
     const std::string exitId = mEditingComposite ? mEditingComposite->id : "";
     mEditingComposite.reset();
 
-    std::cout << "[Plugin] Exited composite edit mode" << (save ? " (saved)" : " (cancelled)") << std::endl;
+    AppendSessionLog(std::string{"Exited composite edit mode"} + (save ? " (saved)" : " (cancelled)"));
 
     nlohmann::json exitMsg;
     exitMsg["type"] = "compositeEditModeExited";
@@ -1783,8 +1783,8 @@ void PluginController::LoadCompositeLibrary()
         if (std::filesystem::exists(factoryDir))
         {
             mCompositeLibrary.LoadFromDirectory(factoryDir);
-            std::cout << "[Plugin] Loaded factory composite definitions from " << util::PathToUtf8(factoryDir) << ": "
-                      << mCompositeLibrary.GetAllDefinitions().size() << std::endl;
+            AppendSessionLog("Loaded factory composite definitions from " + util::PathToUtf8(factoryDir) + ": " +
+                             std::to_string(mCompositeLibrary.GetAllDefinitions().size()));
         }
         else
         {
@@ -1794,9 +1794,9 @@ void PluginController::LoadCompositeLibrary()
             if (std::filesystem::exists(legacyFactoryDir))
             {
                 mCompositeLibrary.LoadFromDirectory(legacyFactoryDir);
-                std::cout << "[Plugin] Loaded legacy factory composite definitions from "
-                          << util::PathToUtf8(legacyFactoryDir) << ": " << mCompositeLibrary.GetAllDefinitions().size()
-                          << std::endl;
+                AppendSessionLog("Loaded legacy factory composite definitions from " +
+                                 util::PathToUtf8(legacyFactoryDir) + ": " +
+                                 std::to_string(mCompositeLibrary.GetAllDefinitions().size()));
             }
         }
 
@@ -1805,13 +1805,13 @@ void PluginController::LoadCompositeLibrary()
         if (std::filesystem::exists(userDir))
         {
             mCompositeLibrary.LoadFromDirectory(userDir);
-            std::cout << "[Plugin] Composite library total definitions: "
-                      << mCompositeLibrary.GetAllDefinitions().size() << std::endl;
+            AppendSessionLog("Composite library total definitions: " +
+                             std::to_string(mCompositeLibrary.GetAllDefinitions().size()));
         }
     }
     catch (const std::exception& e)
     {
-        std::cerr << "[Plugin] Failed to load composite library: " << e.what() << std::endl;
+        AppendSessionLog(std::string{"Failed to load composite library: "} + e.what());
     }
 }
 } // namespace guitarfx

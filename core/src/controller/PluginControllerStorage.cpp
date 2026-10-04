@@ -21,7 +21,6 @@
 #include "util/PathEncoding.h"
 
 #include <chrono>
-#include <iostream>
 
 using namespace guitarfx::controller_detail;
 
@@ -92,8 +91,6 @@ void PluginController::OpenDocumentStore() const
         {
             AppendSessionLog("The document store at " + util::PathToUtf8(dbPath) +
                              " is damaged and could not be moved aside: " + renameEc.message());
-            std::cerr << "[Plugin] Damaged document store could not be quarantined: " << renameEc.message()
-                      << std::endl;
             return;
         }
 
@@ -108,7 +105,6 @@ void PluginController::OpenDocumentStore() const
         AppendSessionLog("The document store at " + util::PathToUtf8(dbPath) + " was damaged (" + error +
                          "). It has been moved to " + util::PathToUtf8(quarantinePath) +
                          " and the library will be rebuilt from the legacy files.");
-        std::cerr << "[Plugin] Damaged document store quarantined as " << util::PathToUtf8(quarantinePath) << std::endl;
 
         error.clear();
         status = mStore.OpenChecked(dbPath, error);
@@ -120,7 +116,6 @@ void PluginController::OpenDocumentStore() const
         // crashing, and the legacy tree is still on disk untouched, so the user
         // loses this session's changes but never their library.
         AppendSessionLog("Could not open the document store at " + util::PathToUtf8(dbPath) + ": " + error);
-        std::cerr << "[Plugin] Document store unavailable: " << error << std::endl;
         return;
     }
 
@@ -147,7 +142,6 @@ void PluginController::OpenDocumentStore() const
         }
 
         AppendSessionLog(summary);
-        std::cout << "[Plugin] " << summary << std::endl;
     }
 }
 

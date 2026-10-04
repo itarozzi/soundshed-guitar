@@ -24,8 +24,6 @@
 #include "resources/ResourceLibrary.h"
 #include "util/PathEncoding.h"
 
-#include <iostream>
-
 using namespace guitarfx::controller_detail;
 
 namespace guitarfx
@@ -334,7 +332,7 @@ void PluginController::TouchSharedSyncState(const std::vector<std::string>& doma
 
     if (!wrote)
     {
-        std::cerr << "[Plugin] TouchSharedSyncState failed" << std::endl;
+        AppendSessionLog("TouchSharedSyncState failed");
         return;
     }
 

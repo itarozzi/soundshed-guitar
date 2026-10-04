@@ -3,15 +3,14 @@
 #include "dsp/EffectGuids.h"
 #include "dsp/EffectRegistry.h"
 #include "resources/PluginPathUtils.h"
-#include "util/FileSystem.h"
 #include "util/PathEncoding.h"
+#include "util/SessionLog.h"
 
 #include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
-#include <fstream>
 #include <iomanip>
 #include <optional>
 #include <sstream>
@@ -31,7 +30,6 @@ namespace guitarfx
         constexpr const char* kPluginNameConfigKey = "pluginName";
         constexpr const char* kPluginManufacturerConfigKey = "pluginManufacturer";
         constexpr const char* kPluginLastErrorCodeConfigKey = "lastErrorCode";
-        constexpr const char* kHostedPluginTraceLogFileName = "logs/session-log.txt";
         constexpr std::uint64_t kFNVOffsetBasis = 14695981039346656037ull;
         constexpr std::uint64_t kFNVPrime = 1099511628211ull;
 
@@ -380,19 +378,11 @@ namespace guitarfx
 #endif
         }
 
-        // File only, never stderr. Most of these run on the message thread, and when the app is
-        // started with stderr on a pipe nobody drains (a launcher that captures output), each
-        // write blocks once the pipe is full and the whole UI hangs mid preset switch. A plugin
-        // preset load writes several KB here, so a few switches were enough to fill one.
+        // The session log, timestamped like the controller's own lines, and never stdout or
+        // stderr (see util/SessionLog.h).
         void AppendHostedPluginTrace (const std::string& message)
         {
-            FileSystem fileSystem;
-            const auto logPath = fileSystem.ResolveSettingsDirectory() / kHostedPluginTraceLogFileName;
-            [[maybe_unused]] const auto ensuredLogDir = fileSystem.EnsureDirectory (logPath.parent_path());
-
-            std::ofstream output (logPath, std::ios::app);
-            if (output)
-                output << "[HostedPluginEffect] " << message << std::endl;
+            util::AppendSessionLog ("[HostedPluginEffect] " + message);
         }
 
         void HashBytes (std::uint64_t& hash, const void* data, std::size_t size)
@@ -1010,7 +1000,12 @@ namespace guitarfx
 
         juce::OwnedArray<juce::PluginDescription> descriptions;
         const auto fileOrIdentifier = pluginFile.getFullPathName();
-        const juce::String formatHint = NormalizePluginFormatHint (mPluginFormat);
+        // With no stored format, the file's own type names it. Scanning with every format instead
+        // had JUCE's LV2 host try each .vst3 as an LV2 bundle (it takes "C:" for a URI scheme):
+        // time on every load, and lilv printing its errors to stderr.
+        const juce::String formatHint = NormalizePluginFormatHint (
+            mPluginFormat.empty() ? std::string { pluginpath::PluginFormatId (pluginpath::PluginFormatFromPath (resolvedPath)) }
+                                  : mPluginFormat);
         std::ostringstream scanLog;
 
         const auto scanWithFormats = [&formatManager, &descriptions, &fileOrIdentifier, &scanLog] (const juce::String& restrictToFormat)
