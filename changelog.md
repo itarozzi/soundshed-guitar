@@ -111,6 +111,7 @@ A big update: five new effects, fifteen classic drive pedals, a Practice Tool fo
 * Windows: the CLAP plugin window fits on scaled displays (#38), the installer's checkboxes work (#41), and the app no longer leaves a new temporary folder behind on every launch.
 * macOS: imported files are still available after a restart.
 * Linux: dragging and reordering effects works (#27), and the app explains what to install if WebKit is missing (#21).
+* Restoring the app after minimising it no longer reloads the whole interface: what you had open stays as it was, and a Jam track keeps playing.
 * Fixed the effect dropdown at non-default zoom levels (#33) and non-ASCII text in the plugin UI (#13).
 * The tuner gives steadier readings and shows high notes in the right octave.
 * Plus many smaller fixes. The git history has the full list.

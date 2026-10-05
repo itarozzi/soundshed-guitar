@@ -405,6 +405,17 @@ PluginEditor::PluginEditor (PluginProcessorAdapter& p)
                              .withBackend (getPreferredBrowserBackend())
                              .withWinWebView2Options (juce::WebBrowserComponent::Options::WinWebView2 {}
                                      .withUserDataFolder (webView2UserDataFolder()))
+                             // JUCE's default swaps a hidden browser onto about:blank and goes back
+                             // when it shows again. For this app that is a full reload on restoring a
+                             // minimised window: a white flash, a fresh handshake, and every piece of
+                             // unsaved UI state lost, the Jam view's YouTube player with it. Hidden but
+                             // loaded costs next to nothing: JUCE still hides the native view, so the
+                             // page goes hidden and says so ("uiVisibility"), which stops the telemetry
+                             // feeds and the per-node metering, and the browser stops drawing and
+                             // throttles the page's timers. A video playing in the Jam view keeps
+                             // playing through a minimise, as the engine's own playback does. (The
+                             // Linux backend never unloaded; this brings the others into line.)
+                             .withKeepPageLoadedWhenBrowserIsHidden()
                              .withUserScript (
                                  "window.IPlugSendMsg = function(payload) {"
                                  "  try {"

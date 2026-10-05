@@ -290,6 +290,10 @@ Rules for anyone touching this:
   `uiVisibility`, which also switches the DSP's signal diagnostics off. The page cannot
   report its own teardown, so the JUCE editor (`SoundshedEditorBase`, for Nano too) sends `uiVisibility {visible:false}` to the
   controller itself when it is destroyed, and `{visible:true}` when a new one opens.
+  A minimised window, or an editor a host hides, is not a teardown: the WebView editor keeps
+  the page loaded (`withKeepPageLoadedWhenBrowserIsHidden`, where JUCE's default would swap in
+  `about:blank` and reload the UI on restore), so the page reports itself hidden through
+  `visibilitychange` and comes back with its state intact.
 
 ## JavaScript Bridge
 
