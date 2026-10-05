@@ -114,6 +114,14 @@ export function refreshEffectPresetsFlyout(): void {
 }
 
 /**
+ * Factory presets in alphanumeric order, numbers by value ("1960 4x12" before "AC30",
+ * "Band 2" before "Band 10"), ignoring case. Stable, so equal names keep their order.
+ */
+export function sortFactoryEffectPresets<T extends { name: string }>(entries: readonly T[]): T[] {
+  return [...entries].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
+}
+
+/**
  * Option values encode which list an entry came from: "factory:id" (the effect's own),
  * "pack:id" (a factory archive's) or "user:id".
  */
@@ -214,10 +222,17 @@ export function openEffectPresetsFlyout(initialAnchor: HTMLElement, nodeId: stri
     const packPresets = getFactoryPackEffectPresets(node);
     const userPresets = getUserEffectPresets(node);
 
+    const option = (entry: { id: string; name: string }, kind: string): string =>
+      `<option value="${escapeHtml(kind)}:${escapeHtml(entry.id)}">${escapeHtml(entry.name)}</option>`;
     const options = (entries: { id: string; name: string }[], kind: string): string =>
-      entries
-        .map((entry) => `<option value="${escapeHtml(kind)}:${escapeHtml(entry.id)}">${escapeHtml(entry.name)}</option>`)
-        .join("");
+      entries.map((entry) => option(entry, kind)).join("");
+    // The effect's own and the factory archives' presets as one list, in name order.
+    const factoryOptions = sortFactoryEffectPresets([
+      ...factoryPresets.map((entry) => ({ ...entry, kind: "factory" })),
+      ...packPresets.map((entry) => ({ ...entry, kind: "pack" })),
+    ])
+      .map((entry) => option(entry, entry.kind))
+      .join("");
 
     // With nothing to choose from, the flyout collapses to just the save row —
     // an empty dropdown and a permanently disabled Delete are only clutter.
@@ -228,7 +243,7 @@ export function openEffectPresetsFlyout(initialAnchor: HTMLElement, nodeId: stri
       ${hasAnyPresets ? `
       <select class="effect-presets-picker" aria-label="Load a preset for this effect">
         <option value="">Select a preset…</option>
-        ${hasFactoryPresets ? `<optgroup label="Factory">${options(factoryPresets, "factory")}${options(packPresets, "pack")}</optgroup>` : ""}
+        ${hasFactoryPresets ? `<optgroup label="Factory">${factoryOptions}</optgroup>` : ""}
         ${userPresets.length ? `<optgroup label="My presets">${options(userPresets, "user")}</optgroup>` : ""}
       </select>` : ""}
       <div class="effect-presets-popover-row">

@@ -38,7 +38,7 @@ A big update: five new effects, fifteen classic drive pedals, a Practice Tool fo
 ### Presets & Live Playing
 * **Gapless preset switching**: presets crossfade instead of cutting, and delay and reverb tails keep ringing when you change preset or scene. You choose how long in Settings → General → Preset Switching. Switching is also about three times faster.
 * **Undo/redo and A/B** for the signal chain (#43). Ctrl/Cmd+Z undoes, Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y redoes, and A/B flips between two versions of your chain.
-* **Effect presets**: every effect has a Presets dropdown with factory settings and your own saved ones.
+* **Effect presets**: every effect has a Presets dropdown with factory settings, listed alphabetically, and your own saved ones.
 * **More factory presets**: Digital Delay, Chorus, Flanger, Heavy American, the VCA and Opto Compressors, Noise Gate, Parametric EQ, Synth Voice, Auto Arpeggiator and Pitch Shift now come with their own, from Slapback and Dotted Eighth to CE-2, MXR 117, Tight Djent, Chicken Pickin', Mud Cut, Synth Bass, Octave Bounce and Dive Bomb. The compressor and amp presets are level-matched, so trying them doesn't jump in volume, and the gate's leave your threshold where you set it. A newly added effect still starts where it always did.
 * Back/forward buttons beside the preset selector step through your recently loaded presets for quick comparisons.
 * **Multi-Rig** is now on by default. Add presets to the mixer from any preset card, set the mix level with its own Master Out knob, and save whole mixes to your library. The output limiter switch has moved to Settings → General → Advanced DSP Level Targets and is now remembered.

@@ -179,6 +179,9 @@ Every effect's Presets menu draws on three lists:
   off, none is offered.
 - **The user's own**, saved from a node with everything it was set to.
 
+The menu lists the first two together under Factory, in alphanumeric order (numbers by value,
+case ignored), then the user's own. The order in the registry still decides which is the default.
+
 To author factory presets that choose a model, IR or blend: turn on Factory Preset Archive Tools
 (Settings, Feature Toggles) and Include My Effect Presets in Preset Exports, save each preset from
 a node with Save current as, then export a preset folder. The archive then carries your effect

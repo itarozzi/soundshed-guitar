@@ -5,6 +5,8 @@
 #include "uiclient/NodeLabels.h"
 #include "uiclient/ParamFormat.h"
 
+#include <algorithm>
+
 namespace soundshed::nano
 {
 using namespace guitarfx::uiclient;
@@ -441,18 +443,21 @@ void EffectPage::showPresetMenu()
     juce::PopupMenu menu;
     const auto nodeId = node->id;
 
-    for (const auto& preset : type->presets)
-        menu.addItem (juce::String::fromUTF8 (preset.name.c_str()),
-                      [this, nodeId, preset] { context.commands.ApplyEffectPreset (nodeId, preset); });
+    // The effect's own, and a factory archive's (these choose its models, IRs and blends),
+    // as one list in alphanumeric order.
+    auto factory = type->presets;
 
-    // Factory too, from a factory archive: these choose its models, IRs and blends.
     if (const auto pack = context.state().factoryPackEffectPresets.find (node->type);
         pack != context.state().factoryPackEffectPresets.end())
-    {
-        for (const auto& preset : pack->second)
-            menu.addItem (juce::String::fromUTF8 (preset.name.c_str()),
-                          [this, nodeId, preset] { context.commands.ApplyEffectPreset (nodeId, preset); });
-    }
+        factory.insert (factory.end(), pack->second.begin(), pack->second.end());
+
+    std::stable_sort (factory.begin(), factory.end(), [] (const auto& a, const auto& b) {
+        return juce::String::fromUTF8 (a.name.c_str()).compareNatural (juce::String::fromUTF8 (b.name.c_str())) < 0;
+    });
+
+    for (const auto& preset : factory)
+        menu.addItem (juce::String::fromUTF8 (preset.name.c_str()),
+                      [this, nodeId, preset] { context.commands.ApplyEffectPreset (nodeId, preset); });
 
     const auto custom = context.state().customEffectPresets.find (node->type);
 
