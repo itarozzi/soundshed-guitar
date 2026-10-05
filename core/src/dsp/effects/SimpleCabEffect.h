@@ -526,6 +526,75 @@ namespace simple_cab
                           {{kCabinet, 4.0}, {kMicType, 2.0}, {kMicDistance, 0.6}}),
         MakeFactoryPreset("wide-2x12", "Wide 2x12", false, {{kCabinet, 3.0}, {kSpread, 0.7}}),
         MakeFactoryPreset("cranked-4x12", "Cranked 4x12", false, {{kSpeakerDrive, 0.6}, {kAutoLevel, 1.0}}),
+        // Popular cabinets, each fitted to the broad shape of reference captures of that cab
+        // (SimpleCabMatch with the cabinet type held) and kept at least 1.3 dB apart in shape from
+        // every other preset here (TestFactoryPresetsAreDistinct). Auto Level holds them all at
+        // the default voicing's loudness, so stepping through them doesn't jump in level.
+        // clang-format off
+        MakeFactoryPreset("deluxe-1x12", "Deluxe 1x12", false,
+                          {{kCabinet, 1.0}, {kSize, 1.0}, {kBass, 0.53}, {kMids, 0.0}, {kPresence, 0.47},
+                           {kBrightness, 0.0}, {kMicType, 2.0}, {kMicPosition, 0.58}, {kMicDistance, 0.34},
+                           {kAutoLevel, 1.0}}),
+        MakeFactoryPreset("ac30-2x12-blue", "AC30 2x12 Blue", false,
+                          {{kCabinet, 2.0}, {kSize, 0.59}, {kBass, 0.0}, {kMids, 0.48}, {kPresence, 0.28},
+                           {kBrightness, 0.2}, {kMicType, 2.0}, {kMicPosition, 0.52}, {kAutoLevel, 1.0}}),
+        MakeFactoryPreset("twin-2x12", "Twin 2x12", false,
+                          {{kCabinet, 2.0}, {kSize, 0.38}, {kBass, 0.0}, {kMids, 0.66}, {kPresence, 0.73},
+                           {kBrightness, 1.0}, {kMicPosition, 0.75}, {kMicDistance, 0.16}, {kAutoLevel, 1.0},
+                           {kMic2Blend, 0.23}, {kMic2Type, 0.0}, {kMic2Position, 0.58}}),
+        MakeFactoryPreset("jc-120-2x12", "JC-120 2x12", false,
+                          {{kCabinet, 2.0}, {kSize, 0.7}, {kBass, 0.53}, {kMids, 0.7}, {kPresence, 0.0},
+                           {kBrightness, 0.0}, {kMicPosition, 0.28}, {kAutoLevel, 1.0}}),
+        MakeFactoryPreset("dc30-2x12", "DC30 2x12", false,
+                          {{kCabinet, 2.0}, {kSize, 0.64}, {kBass, 0.0}, {kMids, 0.72}, {kPresence, 0.0},
+                           {kBrightness, 0.19}, {kMicType, 2.0}, {kMicPosition, 0.58}, {kAutoLevel, 1.0}}),
+        MakeFactoryPreset("vintage-15-inch", "Vintage 15-inch", false,
+                          {{kCabinet, 2.0}, {kSize, 0.22}, {kBass, 0.0}, {kMids, 0.34}, {kPresence, 0.59},
+                           {kBrightness, 0.66}, {kMicType, 2.0}, {kMicPosition, 0.95}, {kAutoLevel, 1.0}}),
+        MakeFactoryPreset("closed-2x12-v30", "Closed 2x12 V30", false,
+                          {{kCabinet, 3.0}, {kSize, 0.22}, {kBass, 0.8}, {kMids, 1.0}, {kPresence, 0.94},
+                           {kBrightness, 0.39}, {kMicType, 1.0}, {kMicPosition, 0.53}, {kMicDistance, 0.11},
+                           {kAutoLevel, 1.0}, {kMic2Blend, 0.49}, {kMic2Type, 0.0}, {kMic2Position, 0.0}}),
+        MakeFactoryPreset("closed-2x12-evm12l", "Closed 2x12 EVM12L", false,
+                          {{kCabinet, 3.0}, {kSize, 0.23}, {kBass, 0.09}, {kMids, 0.63}, {kPresence, 0.56},
+                           {kBrightness, 0.53}, {kMicType, 2.0}, {kMicPosition, 0.94}, {kAutoLevel, 1.0}}),
+        MakeFactoryPreset("super-reverb-4x10", "Super Reverb 4x10", false,
+                          {{kCabinet, 4.0}, {kSize, 1.0}, {kBass, 0.0}, {kMids, 0.77}, {kPresence, 0.19},
+                           {kBrightness, 0.0}, {kMicType, 2.0}, {kMicPosition, 0.75}, {kAutoLevel, 1.0}}),
+        MakeFactoryPreset("recto-4x12-v30", "Recto 4x12 V30", false,
+                          {{kSize, 0.33}, {kBass, 0.23}, {kMids, 0.53}, {kPresence, 0.41}, {kBrightness, 0.42},
+                           {kMicType, 2.0}, {kMicPosition, 0.41}, {kAutoLevel, 1.0}}),
+        MakeFactoryPreset("1960-4x12-v30", "1960 4x12 V30", false,
+                          {{kSize, 0.53}, {kBass, 0.88}, {kMids, 0.78}, {kMicType, 2.0}, {kMicPosition, 0.0},
+                           {kAutoLevel, 1.0}}),
+        MakeFactoryPreset("1960-4x12-greenback", "1960 4x12 Greenback", false,
+                          {{kSize, 0.11}, {kBass, 0.28}, {kMids, 0.34}, {kPresence, 0.16}, {kBrightness, 0.34},
+                           {kMicPosition, 0.28}, {kAutoLevel, 1.0}}),
+        MakeFactoryPreset("1960-4x12-g12t-75", "1960 4x12 G12T-75", false,
+                          {{kSize, 0.36}, {kBass, 0.14}, {kMids, 0.3}, {kPresence, 0.78}, {kBrightness, 1.0},
+                           {kMicType, 1.0}, {kMicPosition, 0.0}, {kAutoLevel, 1.0}}),
+        MakeFactoryPreset("ppc412-v30", "PPC412 V30", false,
+                          {{kSize, 0.36}, {kBass, 0.34}, {kMids, 0.61}, {kPresence, 0.0}, {kBrightness, 0.42},
+                           {kMicType, 2.0}, {kMicPosition, 0.59}, {kAutoLevel, 1.0}}),
+        MakeFactoryPreset("xxl-4x12-v30", "XXL 4x12 V30", false,
+                          {{kSize, 0.06}, {kBass, 0.0}, {kMids, 0.52}, {kPresence, 0.22}, {kBrightness, 0.38},
+                           {kMicPosition, 0.42}, {kAutoLevel, 1.0}}),
+        MakeFactoryPreset("fane-4x12", "Fane 4x12", false,
+                          {{kSize, 0.34}, {kBass, 0.0}, {kMids, 0.69}, {kPresence, 0.91}, {kBrightness, 0.47},
+                           {kMicType, 1.0}, {kMicPosition, 0.28}, {kAutoLevel, 1.0}}),
+        MakeFactoryPreset("legacy-4x12-v30", "Legacy 4x12 V30", false,
+                          {{kSize, 0.55}, {kBass, 0.08}, {kMids, 0.3}, {kPresence, 0.39}, {kBrightness, 0.06},
+                           {kMicType, 2.0}, {kAutoLevel, 1.0}}),
+        MakeFactoryPreset("alnico-cream-4x12", "Alnico Cream 4x12", false,
+                          {{kSize, 1.0}, {kBass, 0.0}, {kMids, 0.72}, {kPresence, 0.0}, {kBrightness, 0.59},
+                           {kMicType, 2.0}, {kMicPosition, 0.63}, {kAutoLevel, 1.0}}),
+        MakeFactoryPreset("boutique-4x12", "Boutique 4x12", false,
+                          {{kSize, 0.41}, {kBass, 0.83}, {kMids, 0.83}, {kPresence, 0.61}, {kBrightness, 0.42},
+                           {kMicPosition, 0.36}, {kAutoLevel, 1.0}}),
+        MakeFactoryPreset("svt-8x10-bass", "SVT 8x10 Bass", false,
+                          {{kSize, 1.0}, {kBass, 0.86}, {kMids, 0.0}, {kPresence, 0.69}, {kBrightness, 0.67},
+                           {kMicPosition, 0.0}, {kAutoLevel, 1.0}}),
+        // clang-format on
     };
 }
 } // namespace simple_cab
@@ -535,7 +604,7 @@ inline void RegisterSimpleCabEffect()
     EffectTypeInfo info;
     info.type = EffectGuids::kCabSimple;
     info.aliases = {"cab_simple"};
-    info.displayName = "Simple Cabinet";
+    info.displayName = "Cybercab - Cab Sim";
     info.category = "cab";
     info.description = "Lightweight cabinet with five cab types, mic type, position and distance, a second mic, "
                        "speaker drive and stereo spread (no IR required)";

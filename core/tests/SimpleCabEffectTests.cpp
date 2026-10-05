@@ -570,6 +570,94 @@ void TestFactoryPresets()
 
     Check(defaults == 1 && info->presets.front().isDefault, "the first preset, and only it, starts new nodes");
 }
+
+/// No two factory presets sound alike: every pair's response shapes differ by at least 1.3 dB
+/// RMS across 60 Hz to 10 kHz, level removed. A pair that differs in Speaker Drive or Stereo Spread
+/// is told apart by that, which a power-averaged response does not show.
+void TestFactoryPresetsAreDistinct()
+{
+    guitarfx::RegisterSimpleCabEffect();
+    const auto info = guitarfx::EffectRegistry::Instance().GetTypeInfo(guitarfx::EffectGuids::kCabSimple);
+
+    if (!info)
+    {
+        return;
+    }
+
+    constexpr double kMinimumDifferenceDb = 1.3;
+    const cab::Voicer voicer(kSampleRate);
+    std::vector<double> frequencies;
+
+    for (double hz = 60.0; hz <= 10000.0; hz *= std::exp2(1.0 / 12.0))
+    {
+        frequencies.push_back(hz);
+    }
+
+    struct Shape
+    {
+        std::string id;
+        double speakerDrive = 0.0;
+        double spread = 0.0;
+        std::vector<double> db;
+    };
+
+    std::vector<Shape> shapes;
+
+    for (const auto& preset : info->presets)
+    {
+        cab::ParamValues values = cab::kDefaultValues;
+
+        for (const auto& [key, value] : preset.parameters)
+        {
+            const std::size_t index = guitarfx::FindParamSpec(cab::kParams, key);
+
+            if (index != cab::kParamCount)
+            {
+                values[index] = value;
+            }
+        }
+
+        const cab::Design design = voicer.Build(cab::ToSettings(values));
+        Shape shape{preset.id, values[cab::kSpeakerDrive], values[cab::kSpread], {}};
+        double mean = 0.0;
+
+        for (const double hz : frequencies)
+        {
+            shape.db.push_back(voicer.MagnitudeDb(design, hz));
+            mean += shape.db.back() / static_cast<double>(frequencies.size());
+        }
+
+        for (double& db : shape.db)
+        {
+            db -= mean;
+        }
+
+        shapes.push_back(std::move(shape));
+    }
+
+    for (std::size_t a = 0; a < shapes.size(); ++a)
+    {
+        for (std::size_t b = a + 1; b < shapes.size(); ++b)
+        {
+            if (shapes[a].speakerDrive != shapes[b].speakerDrive || shapes[a].spread != shapes[b].spread)
+            {
+                continue;
+            }
+
+            double sumSquares = 0.0;
+
+            for (std::size_t i = 0; i < frequencies.size(); ++i)
+            {
+                const double difference = shapes[a].db[i] - shapes[b].db[i];
+                sumSquares += difference * difference;
+            }
+
+            const double rmsDb = std::sqrt(sumSquares / static_cast<double>(frequencies.size()));
+            Check(rmsDb >= kMinimumDifferenceDb,
+                  shapes[a].id + " and " + shapes[b].id + " sound alike (" + std::to_string(rmsDb) + " dB apart)");
+        }
+    }
+}
 } // namespace
 
 int main()
@@ -589,6 +677,7 @@ int main()
     TestRecoversFromNonFiniteInput();
     TestParameterHandling();
     TestFactoryPresets();
+    TestFactoryPresetsAreDistinct();
 
     if (gFailures > 0)
     {

@@ -114,7 +114,7 @@ export function updateCabResponseVisualization(node: GraphNode): void {
   });
 }
 
-/** "Simple Cab 2x12 Open Ribbon": what the export is called until the user renames it. */
+/** "Cybercab 2x12 Open Ribbon": what the export is called until the user renames it. */
 function exportName(node: GraphNode): string {
   const parameters = getNodeEffectInfo(node)?.parameters ?? [];
   const label = (key: string): string => {
@@ -122,7 +122,7 @@ function exportName(node: GraphNode): string {
     const value = node.params?.[key] ?? def?.default ?? 0;
     return def?.labels ? (enumLabel(value, def.labels, def.min, def.step) ?? "") : "";
   };
-  return ["Simple Cab", label("cabinet"), label("micType")].filter(Boolean).join(" ");
+  return ["Cybercab", label("cabinet"), label("micType")].filter(Boolean).join(" ");
 }
 
 export function bindCabResponseControls(node: GraphNode, preset: Preset): void {

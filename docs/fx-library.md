@@ -847,7 +847,7 @@ Long, diffuse late reverb with soft early reflections, slow modulation, and a wi
 
 Factory presets: Wide Bloom (default), Tight Ambience, Lead Halo, Dark Swell, Cloud, Infinite Wash.
 
-### Simple Cabinet (`cab_simple`)
+### Cybercab - Cab Sim (`cab_simple`)
 Filter-based cabinet with no IR required: five cabinet types, a mic with type, position and
 distance, an optional second mic, speaker drive and stereo spread. Use an IR cabinet when one
 particular speaker and microphone's exact notches matter; the Simple Cab reaches their broad
@@ -887,8 +887,16 @@ Speaker Drive, being level-dependent, is not captured) and **Match** (`matchSimp
 tries every cabinet and mic type and searches the tone controls for the closest 1/6-octave
 shape to a library IR, keeping the node's Output, Auto Level and Speaker Drive).
 
-Seven factory presets ship with it; the first, **Closed 4x12**, is the defaults and starts new
-nodes. Presets set every control except Output.
+Twenty-seven factory presets ship with it; the first, **Closed 4x12**, is the defaults and starts new
+nodes. Presets set every control except Output. Besides the seven generic voicings there are twenty
+popular cabinets: Deluxe 1x12, AC30 2x12 Blue, Twin 2x12, JC-120 2x12, DC30 2x12, Vintage 15-inch,
+Closed 2x12 V30, Closed 2x12 EVM12L, Super Reverb 4x10, Recto 4x12 V30, 1960 4x12 V30, 1960 4x12
+Greenback, 1960 4x12 G12T-75, PPC412 V30, XXL 4x12 V30, Fane 4x12, Legacy 4x12 V30, Alnico Cream
+4x12, Boutique 4x12 and SVT 8x10 Bass. Each was fitted to reference IRs of that cabinet with the
+IR match, its cabinet type held to the real one, and they have Auto Level on so stepping through
+them holds the level. `TestFactoryPresetsAreDistinct` keeps every pair of presets at least 1.3 dB
+apart in response shape (RMS, 60 Hz to 10 kHz, level removed); a pair that differs in Speaker
+Drive or Stereo Spread is exempt, since that is what tells them apart.
 
 ### Drive Pedals (`overdrive`, `distortion`, `fuzz`)
 Three effects, each a family of classic circuits behind a **Model** switch: the overdrives,

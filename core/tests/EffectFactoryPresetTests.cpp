@@ -37,6 +37,7 @@
 #include "dsp/effects/NoiseGateEffect.h"
 #include "dsp/effects/ParametricEQEffect.h"
 #include "dsp/effects/PitchShiftEffect.h"
+#include "dsp/effects/SimpleCabEffect.h"
 #include "dsp/effects/SynthSawEffect.h"
 
 #ifndef GUITARFX_DEMO_AUDIO_DIR
@@ -102,6 +103,8 @@ const std::vector<Effect>& Effects()
         {"Pitch Shift", EffectGuids::kPitchShift, {}, {}},
         // Output is set, to take out what each preset's tone controls add to the amp's level.
         {"Heavy American", EffectGuids::kAmpBuiltin, {}, {}, 3.0},
+        // The bass cab sits lowest on a guitar DI, about 5 dB under the default.
+        {"Cybercab", EffectGuids::kCabSimple, {"outputGain"}, {}},
     };
     return effects;
 }
@@ -347,6 +350,7 @@ int main()
     guitarfx::RegisterAutoArpEffect();
     guitarfx::RegisterPitchShiftEffect();
     guitarfx::RegisterBuiltinAmpEffect();
+    guitarfx::RegisterSimpleCabEffect();
 
     const auto guitar = LoadGuitar();
 
