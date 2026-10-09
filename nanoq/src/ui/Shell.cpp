@@ -13,6 +13,21 @@ namespace
 {
 constexpr float kBarHeight = 56.0f;
 
+// The web UI's settings for the demo clip, shared with Soundshed Guitar and Nano.
+constexpr const char* kDemoClipSetting = "demoAudio.selectedId";
+constexpr const char* kDemoRenderRateSetting = "demoAudio.renderSampleRate";
+constexpr const char* kDemoRepeatSetting = "nativeUi.demoRepeat";
+
+bool BoolSetting(const nlohmann::json& settings, const char* key, bool fallback)
+{
+    return settings.contains(key) && settings[key].is_boolean() ? settings[key].get<bool>() : fallback;
+}
+
+double NumberSetting(const nlohmann::json& settings, const char* key, double fallback)
+{
+    return settings.contains(key) && settings[key].is_number() ? settings[key].get<double>() : fallback;
+}
+
 std::string PresetTitle(const guitarfx::uiclient::ClientState& state)
 {
     if (const auto* summary = state.FindPresetSummary(state.activePresetId))
@@ -56,6 +71,7 @@ void Shell::Subscribe()
     on(Topic::Resources, kChain | kPage);
     on(Topic::GlobalChain, kTransport);
     on(Topic::Mixer, kTransport);
+    on(Topic::Demo, kTransport);
 }
 
 void Shell::BuildRoot()
@@ -396,10 +412,84 @@ Ptr Shell::BuildTransport()
     auto metronome = std::make_shared<Button>(mTheme, "Metronome", [this] { OpenMetronome(); }, Button::Style::Plain);
     metronome->MinWidth(96).TextSize(metrics::kSmallText);
 
-    auto bar = Row({HGap(12), label("IN"), HGap(8), FixedWidth(180, PadXY(0, 16, mInMeter)), HGap(20),
-                    label("OUT"), HGap(8), FixedWidth(180, PadXY(0, 16, mOutMeter)), HGap(20), FixedWidth(80, mLoadText),
-                    Stretch(), io, HGap(8), tuner, HGap(8), metronome, HGap(8), mute, HGap(12)});
+    // Demo audio: the clip (a tap opens the list), play/stop and repeat.
+    const auto* clip = SelectedDemoClip();
+    const bool playing = mState.demo.playing;
+    const bool repeat = BoolSetting(mState.appSettings, kDemoRepeatSetting, false);
+
+    auto clipButton = std::make_shared<Button>(mTheme, clip != nullptr ? clip->title : "Demo", [this] { OpenDemoClips(); },
+                                               Button::Style::Plain);
+    clipButton->MinWidth(120).TextSize(metrics::kSmallText).Enabled(clip != nullptr);
+    auto play = std::make_shared<Button>(
+        mTheme, playing ? "Stop" : "Play",
+        [this, playing] {
+            auto& cmds = mSession.Commands();
+            if (playing)
+            {
+                cmds.StopDemo();
+                return;
+            }
+            if (const auto* c = SelectedDemoClip())
+            {
+                if (c->takeId.empty())
+                    cmds.PreviewDemoClip(c->id, BoolSetting(mState.appSettings, kDemoRepeatSetting, false));
+                else
+                    cmds.PreviewRiff(c->takeId);
+            }
+        },
+        playing ? Button::Style::Primary : Button::Style::Plain);
+    play->MinWidth(56).TextSize(metrics::kSmallText).Enabled(clip != nullptr);
+    auto loop = std::make_shared<Button>(
+        mTheme, "Loop",
+        [this, repeat] { mSession.Commands().SetSetting(kDemoRepeatSetting, !repeat); }, Button::Style::Plain);
+    loop->MinWidth(52).TextSize(metrics::kSmallText).On(repeat).Dot(true);
+
+    auto bar = Row({HGap(12), label("IN"), HGap(6), FixedWidth(64, PadXY(0, 16, mInMeter)), HGap(12), label("OUT"), HGap(6),
+                    FixedWidth(64, PadXY(0, 16, mOutMeter)), HGap(12), FixedWidth(64, mLoadText), Stretch(), clipButton,
+                    HGap(6), play, HGap(6), loop, HGap(16), io, HGap(6), tuner, HGap(6), metronome, HGap(6), mute, HGap(12)});
 
     return FixedHeight(48, Fill(mTheme.Bar(), PadXY(0, 4, bar)));
+}
+
+const guitarfx::uiclient::DemoClip* Shell::SelectedDemoClip() const
+{
+    const auto selected = mState.appSettings.value(kDemoClipSetting, std::string{});
+    for (const auto* list : {&mState.demo.clips, &mState.demo.riffClips})
+        for (const auto& clip : *list)
+            if (clip.id == selected)
+                return &clip;
+    return mState.demo.clips.empty() ? nullptr : &mState.demo.clips.front();
+}
+
+void Shell::OpenDemoClips()
+{
+    const auto* current = SelectedDemoClip();
+    std::vector<MenuItem> items;
+
+    for (const auto* list : {&mState.demo.clips, &mState.demo.riffClips})
+    {
+        if (list == &mState.demo.riffClips && !list->empty())
+            items.push_back({"Favourite riffs", false, true, {}});
+        for (const auto& clip : *list)
+            items.push_back({clip.title, current != nullptr && current->id == clip.id, false,
+                             [this, id = clip.id] { mSession.Commands().SetSetting(kDemoClipSetting, id); }});
+    }
+
+    if (current != nullptr)
+    {
+        items.push_back({"Render", false, true, {}});
+        items.push_back({"Render this clip through the preset", false, false, [this] {
+                             const auto* c = SelectedDemoClip();
+                             if (c == nullptr)
+                                 return;
+                             const int rate = static_cast<int>(NumberSetting(mState.appSettings, kDemoRenderRateSetting, 0.0));
+                             if (c->takeId.empty())
+                                 mSession.Commands().RenderDemoClip(c->id, rate);
+                             else
+                                 mSession.Commands().RenderRiffTake(c->takeId, rate);
+                         }});
+    }
+
+    OpenMenu("Demo audio", std::move(items));
 }
 } // namespace nanoq::ui

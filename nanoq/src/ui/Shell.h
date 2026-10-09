@@ -128,6 +128,8 @@ private:
     [[nodiscard]] std::vector<const guitarfx::uiclient::EffectTypeInfo*> OfferedEffects() const;
 
     // Instruments.cpp
+    void OpenDemoClips();
+    [[nodiscard]] const guitarfx::uiclient::DemoClip* SelectedDemoClip() const;
     void OpenTuner();
     void OpenMetronome();
     void OpenControls();
