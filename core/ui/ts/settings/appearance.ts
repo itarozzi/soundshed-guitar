@@ -8,8 +8,10 @@ import { getDensityPreference, setDensityPreference } from "../compactMode.js";
 import { uiState } from "../state.js";
 import { themeSwitcher } from "../theme-switcher.js";
 import type { ThemeName } from "../theme-switcher.js";
+import { updateAppSetting } from "../appSettingsStore.js";
+import { WHEEL_ADJUST_SETTING, isWheelAdjustEnabled } from "../wheelAdjust.js";
 import { updateUiSettings } from "../windowSettings.js";
-import { densityLevelSelect, themeSelect, zoomLevelSelect } from "./dom.js";
+import { densityLevelSelect, themeSelect, wheelAdjustToggle, zoomLevelSelect } from "./dom.js";
 import { ZOOM_DEFAULT, ZOOM_LEVEL_OPTIONS, ZOOM_MAX, ZOOM_MIN } from "./keys.js";
 
 let themeSelectInitialized = false;
@@ -51,6 +53,24 @@ export function initDensitySelect(): void {
   window.addEventListener("densityPreferenceChanged", () => {
     select.value = getDensityPreference();
   });
+}
+
+export function initWheelAdjustToggle(): void {
+  // Bound to a local so the null check narrows inside the listener.
+  const toggle = wheelAdjustToggle;
+  if (!toggle || toggle.dataset.bound === "true") return;
+  toggle.dataset.bound = "true";
+  toggle.checked = isWheelAdjustEnabled();
+  toggle.addEventListener("change", () => {
+    updateAppSetting(WHEEL_ADJUST_SETTING, Boolean(toggle.checked));
+  });
+}
+
+/** Shows the stored value; app settings arrive after the panel binds. */
+export function refreshWheelAdjustToggle(): void {
+  if (wheelAdjustToggle) {
+    wheelAdjustToggle.checked = isWheelAdjustEnabled();
+  }
 }
 
 export function initThemeSelect(): void {

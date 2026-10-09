@@ -7,7 +7,7 @@
  */
 
 import { updateAppSetting } from "./appSettingsStore.js";
-import { initDensitySelect, initThemeSelect, initZoomControls } from "./settings/appearance.js";
+import { initDensitySelect, initThemeSelect, initWheelAdjustToggle, initZoomControls, refreshWheelAdjustToggle } from "./settings/appearance.js";
 import { initAudioDeviceSettings, syncAudioDeviceSettingsAvailability } from "./settings/audioDevice.js";
 import { apiKeyInput, channelModeControlToggle, clearButton, dspNominalLevelInput,dspOutputLimiterToggle, dspProtectionCeilingInput, factoryArchiveExportEffectPresetsToggle, factoryArchiveLoadingToggle, namAntiAliasPhaseSelect, namAutoInputCalibrationToggle, namInterfaceCalibrationLevelInput, namOversamplingSelect, namSlimmableSizeInput, presetSwitchTailSelect, saveButton, themeSelect, tone3000UseSoundshedApiToggle, updateCheckToggle } from "./settings/dom.js";
 import { initChannelModeControlToggle, initDiagnosticsToggle, initDspLevelTargetControls,initFactoryArchiveExportEffectPresetsToggle, initFactoryArchiveLoadingToggle, initPresetSwitchControls, initUpdateCheckToggle } from "./settings/dspSettings.js";
@@ -63,6 +63,7 @@ export function initSettingsPanel(): void {
   initThemeSelect();
   initZoomControls();
   initDensitySelect();
+  initWheelAdjustToggle();
   initLibraryTabs();
   initLibraryExport();
 
@@ -88,6 +89,7 @@ export function refreshSettingsView(): void {
     themeSelect.value = themeSwitcher.getCurrentTheme();
   }
   refreshFeatureToggleStates();
+  refreshWheelAdjustToggle();
   if (factoryArchiveLoadingToggle) {
     const factoryArchiveLoadingEnabled = getSettingValue(FACTORY_ARCHIVE_LOADING_SETTING);
     factoryArchiveLoadingToggle.checked = factoryArchiveLoadingEnabled === null ? true : Boolean(factoryArchiveLoadingEnabled);

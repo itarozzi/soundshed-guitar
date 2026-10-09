@@ -7,6 +7,7 @@ import { GenericKnob } from "./knob.js";
 import { EqPanel } from "./eqPanel.js";
 import { initializeGateControls, syncGateControlsFromState } from "./gateSettings.js";
 import { clampValue, countStepDecimals, deriveRangeStep } from "./utils.js";
+import { isWheelAdjustEnabled } from "./wheelAdjust.js";
 
 // The knob widget moved to ./knob.js so the EQ panel component (and anything
 // else) can use one without importing this module. Re-exported here so the
@@ -45,7 +46,7 @@ export function enhanceRangeInput(
   input.addEventListener(
     "wheel",
     (event) => {
-      if (input.disabled) {
+      if (input.disabled || !isWheelAdjustEnabled()) {
         return;
       }
 

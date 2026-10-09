@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Settings
+* A new **Mouse wheel adjusts controls** switch in Settings → General → UI. Turn it off and the scroll wheel stops changing knobs, sliders and the metronome tempo as the pointer passes over them, and just scrolls the page.
+
 ## 1.6.0 (Oct 8, 2026)
 
 A big update: nine new effects, fifteen classic drive pedals, a Practice Tool for learning songs, undo/redo and A/B for your signal chain, gapless preset switching with ringing tails, and right-click MIDI Learn on nearly every control.

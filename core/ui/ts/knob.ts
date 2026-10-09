@@ -12,6 +12,7 @@ import { appendLog } from "./logging.js";
 import { setParameter } from "./bridge.js";
 import { effectiveTaper, taperPositionToValue, valueToTaperPosition, type ParamTaper } from "./paramTaper.js";
 import { clampValue, countStepDecimals, deriveRangeStep } from "./utils.js";
+import { isWheelAdjustEnabled } from "./wheelAdjust.js";
 
 /** A wheel notch on a tapered knob moves this share of its travel: 100 notches end to end. */
 const TAPER_WHEEL_NOTCH = 0.01;
@@ -296,7 +297,7 @@ export class GenericKnob {
   }
 
   private onWheel(e: WheelEvent): void {
-    if (this.isDragging) {
+    if (this.isDragging || !isWheelAdjustEnabled()) {
       return;
     }
 

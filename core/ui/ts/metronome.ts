@@ -12,6 +12,7 @@
 import { uiState } from "./state.js";
 import { setMetronome } from "./bridge.js";
 import { GenericKnob, enhanceRangeInput } from "./controls.js";
+import { isWheelAdjustEnabled } from "./wheelAdjust.js";
 import type { EnvironmentState, MetronomeState, MetronomeSubdivisionOption } from "./types.js";
 import { getPlaySvg, getStopSvg } from "./iconAssets.js";
 import { MetronomeDropdown, type DropdownOption } from "./metronomeDropdown.js";
@@ -559,7 +560,7 @@ function initializeBpmControls(): void {
     // Wheel over the readout replaces the coarse slider the panel used to
     // carry; Shift drops it to tenths, which is where tapped tempos land.
     bpmInput.addEventListener("wheel", (event) => {
-      if (!isEditable()) return;
+      if (!isEditable() || !isWheelAdjustEnabled()) return;
       event.preventDefault();
       nudge(event.deltaY < 0 ? 1 : -1, event.shiftKey);
     });
