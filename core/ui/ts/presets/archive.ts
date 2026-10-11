@@ -1,4 +1,3 @@
-import { appendLog } from "../logging.js";
 import { showNotification } from "../notifications.js";
 import { clonePreset, uiState } from "../state.js";
 import { cachePreset, putLibraryPresetFirst, setActivePresetId } from "../presetLibraryStore.js";
@@ -10,11 +9,11 @@ import { postMessage } from "../bridge.js";
 import { showConfirm } from "../dialogs.js";
 import { registerInstalledToneSharingPack } from "../toneSharingPanel.js";
 import type { InstalledPackMetadata } from "../toneSharingPanel.js";
-import { downloadTone3000ResourceByReference, isTone3000AuthReady, isTone3000ProxyModeEnabled, isTone3000RequestUrlAllowed, saveTone3000ApiKey } from "../tone3000.js";
-import { switchMainPanel } from "../navigation.js";
-import { activateLibraryTab } from "../settings.js";
+import { isTone3000ProxyModeEnabled } from "../tone3000.js";
 import { getLibraryResource, getLibraryResourceByHash } from "../resourceLibrary.js";
 import type { ArchiveImportContext, ArchiveImportOptions, GeneratorPackManifest, GeneratorPresetV2, GeneratorResourceIndex, ImportPackContext, ImportPackSource, ImportPackSummary, ImportPackWithConfirmationOptions, PresetArchive, PresetArchiveFolder, PresetArchiveResource, PresetCollectionArchive, Tone3000ResourceRef } from "./archiveTypes.js";
+import { buildArchiveRemoteRef, importArchiveRemoteResources, mapInstalledRemoteResources, readArchiveRemoteRefs, shouldReferenceRemotely } from "./remoteArchiveResources.js";
+import type { RemoteResourceRef } from "../remoteResources.js";
 import { applyImportedPresetFolders, assignImportedPresetsToTopLevelFolder, buildArchivePresetFoldersForExport, getPresetFolderExportName, getPresetsForFolderId } from "./folderArchive.js";
 import { PRESET_FOLDER_ALL_ID } from "./sorting.js";
 import { sanitizeImportedPreset, sanitizePresetForArchive, getPresetArchiveSessionState } from "./sanitize.js";
@@ -121,13 +120,13 @@ export async function inspectImportPack(file: File, context: ImportPackContext):
     presetCount = archive.preset ? 1 : 0;
     resourceCount = Array.isArray(archive.resources) ? archive.resources.length : 0;
     blendCount = Array.isArray(archive.blends) ? archive.blends.length : 0;
-    tone3000ResourceCount = Array.isArray(archive.tone3000Resources) ? archive.tone3000Resources.length : 0;
+    tone3000ResourceCount = readArchiveRemoteRefs(archive).length;
   } else if (presetsEntry) {
     const archive = JSON.parse(await presetsEntry.async("text")) as PresetCollectionArchive;
     presetCount = Array.isArray(archive.presets) ? archive.presets.length : 0;
     resourceCount = Array.isArray(archive.resources) ? archive.resources.length : 0;
     blendCount = Array.isArray(archive.blends) ? archive.blends.length : 0;
-    tone3000ResourceCount = Array.isArray(archive.tone3000Resources) ? archive.tone3000Resources.length : 0;
+    tone3000ResourceCount = readArchiveRemoteRefs(archive).length;
   }
 
   return {
@@ -703,6 +702,7 @@ export async function buildToneSharingPresetArchiveBlobs(preset: Preset): Promis
   const blendDefs = (uiState.blendLibrary ?? []).filter((blend) => blendIds.includes(blend.id));
   const resourceRefs = collectPresetResourceRefs(preset, blendDefs);
   const exportResources: PresetArchiveResource[] = [];
+  const exportRemoteResources: RemoteResourceRef[] = [];
   const exportTone3000Resources: Tone3000ResourceRef[] = [];
   const idMap = new Map<string, string>();
 
@@ -718,23 +718,12 @@ export async function buildToneSharingPresetArchiveBlobs(preset: Preset): Promis
       continue;
     }
 
-    if (resource.metadata?.provider === "tone3000") {
-      const toneId = resource.metadata.toneId?.trim() ?? "";
-      const modelId = resource.metadata.modelId?.trim() ?? "";
-      if (!toneId || !modelId) {
-        throw new Error(`Tone3000 resource "${resource.name || resource.id}" is missing toneId/modelId metadata and cannot be shared.`);
+    if (shouldReferenceRemotely(resource)) {
+      const { ref: remoteRef, legacy } = buildArchiveRemoteRef(resource, resourceType);
+      exportRemoteResources.push(remoteRef);
+      if (legacy) {
+        exportTone3000Resources.push(legacy);
       }
-
-      exportTone3000Resources.push({
-        id: resource.id,
-        name: resource.name,
-        category: resource.category,
-        type: resourceType,
-        toneId,
-        modelId,
-        creatorId: resource.metadata.creatorId?.trim() || undefined,
-        creatorName: resource.metadata.creatorName?.trim() || resource.metadata.authorUsername?.trim() || undefined,
-      });
       continue;
     }
 
@@ -773,6 +762,7 @@ export async function buildToneSharingPresetArchiveBlobs(preset: Preset): Promis
     preset: sanitizedPreset,
     resources: exportResources,
     blends: clonedBlends,
+    ...(exportRemoteResources.length > 0 ? { remoteResources: exportRemoteResources } : {}),
     ...(exportTone3000Resources.length > 0 ? { tone3000Resources: exportTone3000Resources } : {}),
   };
 
@@ -781,86 +771,6 @@ export async function buildToneSharingPresetArchiveBlobs(preset: Preset): Promis
     publicBlob: await zip.generateAsync({ type: "blob" }),
     privateBlob,
   };
-}
-
-export let tone3000RequirementResolve: ((value: boolean) => void) | null = null;
-
-export function closeTone3000RequirementModal(result: boolean): void {
-  const modal = document.getElementById("tone3000-required-modal") as HTMLElement | null;
-  const status = document.getElementById("tone3000-required-status") as HTMLElement | null;
-  if (modal) {
-    modal.style.display = "none";
-  }
-  if (status) {
-    status.textContent = "";
-  }
-  if (tone3000RequirementResolve) {
-    tone3000RequirementResolve(result);
-    tone3000RequirementResolve = null;
-  }
-}
-
-export async function promptForTone3000ApiKey(resourceCount: number): Promise<boolean> {
-  const modal = document.getElementById("tone3000-required-modal") as HTMLElement | null;
-  const message = document.getElementById("tone3000-required-message") as HTMLElement | null;
-  const status = document.getElementById("tone3000-required-status") as HTMLElement | null;
-  const input = document.getElementById("tone3000-required-api-key") as HTMLInputElement | null;
-  const saveButton = document.getElementById("tone3000-required-save") as HTMLButtonElement | null;
-  const settingsButton = document.getElementById("tone3000-required-open-settings") as HTMLButtonElement | null;
-  const cancelButton = document.getElementById("tone3000-required-cancel") as HTMLButtonElement | null;
-  const closeButton = document.getElementById("tone3000-required-close") as HTMLButtonElement | null;
-
-  if (!modal || !message || !status || !input || !saveButton || !settingsButton || !cancelButton || !closeButton) {
-    throw new Error("Tone3000 access modal is not available");
-  }
-
-  if (tone3000RequirementResolve) {
-    tone3000RequirementResolve(false);
-    tone3000RequirementResolve = null;
-  }
-
-  message.textContent = `${resourceCount} Tone3000 resource(s) in this shared preset require your own Tone3000 API key before import can continue.`;
-  status.textContent = "";
-  input.value = "";
-  modal.style.display = "flex";
-
-  return new Promise<boolean>((resolve) => {
-    tone3000RequirementResolve = resolve;
-
-    saveButton.onclick = async () => {
-      const apiKey = input.value.trim();
-      if (!apiKey) {
-        status.textContent = "Enter your Tone3000 API key to continue.";
-        return;
-      }
-      status.textContent = "Starting Tone3000 session...";
-      saveButton.disabled = true;
-      try {
-        const saved = await saveTone3000ApiKey(apiKey);
-        if (!saved) {
-          status.textContent = "Tone3000 authentication failed. Check the API key and try again.";
-          return;
-        }
-        closeTone3000RequirementModal(true);
-      } finally {
-        saveButton.disabled = false;
-      }
-    };
-
-    settingsButton.onclick = () => {
-      switchMainPanel("settings");
-      activateLibraryTab("tone3000");
-      status.textContent = "Opened Settings › Library › Tone3000.";
-    };
-
-    cancelButton.onclick = () => closeTone3000RequirementModal(false);
-    closeButton.onclick = () => closeTone3000RequirementModal(false);
-    modal.onmousedown = (event) => {
-      if (event.target === modal) {
-        closeTone3000RequirementModal(false);
-      }
-    };
-  });
 }
 
 export async function exportCurrentPresetArchive(): Promise<void> {
@@ -1031,96 +941,6 @@ export function buildImportResourceFileName(resource: PresetArchiveResource): st
   return `${hashPrefix}-${trimmedBase}${ext}`;
 }
 
-/**
- * Download tone3000 resources referenced in a preset archive using the user's
- * own authenticated session. Redistribution of tone3000 files is prohibited by
- * their terms, so archives carry only a model URL rather than file bytes.
- */
-export async function importTone3000ArchiveResources(
-  refs: Tone3000ResourceRef[],
-  idMap: Map<string, string>,
-  importedResources: Array<{ type: string; id: string }>,
-): Promise<void> {
-  const proxyModeEnabled = isTone3000ProxyModeEnabled();
-  if (!proxyModeEnabled && !isTone3000AuthReady()) {
-    const storedApiKey = typeof uiState.appSettings["tone3000.apiKey"] === "string"
-      ? (uiState.appSettings["tone3000.apiKey"] as string).trim()
-      : "";
-
-    if (storedApiKey) {
-      appendLog("tone3000 session missing; attempting auto-start from saved API key");
-      await saveTone3000ApiKey(storedApiKey);
-    }
-
-    if (!isTone3000AuthReady()) {
-      const granted = await promptForTone3000ApiKey(refs.length);
-      if (!granted) {
-        throw new Error("Tone3000 API key is required to import this shared preset");
-      }
-    }
-  }
-
-  let succeeded = 0;
-  let failed = 0;
-
-  for (const ref of refs) {
-    // If the resource was previously imported, reuse it.
-    const existing = getLibraryResource(ref.type, ref.id);
-    if (existing && !existing.fileMissing) {
-      idMap.set(ref.id, existing.id);
-      importedResources.push({ type: ref.type, id: existing.id });
-      succeeded += 1;
-      continue;
-    }
-
-    try {
-      const buffer = await downloadTone3000ResourceByReference({
-        toneId: ref.toneId,
-        modelId: ref.modelId,
-        modelUrl: ref.modelUrl,
-      });
-      const data = arrayBufferToBase64(buffer);
-      const extension = ref.type === "ir" ? ".wav" : ".nam";
-      const fileName = `${sanitizeFilename(ref.name ?? ref.id, "resource")}${extension}`;
-
-      postMessage({
-        type: "importRemoteResource",
-        provider: "tone3000",
-        resourceType: ref.type,
-        resourceId: ref.id,
-        name: ref.name ?? ref.id,
-        description: "",
-        category: ref.category ?? "",
-        subfolder: "preset-imports",
-        fileName,
-        metadata: {
-          provider: "tone3000",
-          toneId: ref.toneId ?? "",
-          creatorId: ref.creatorId ?? "",
-          creatorName: ref.creatorName ?? "",
-          authorUsername: ref.creatorName ?? "",
-          modelId: ref.modelId ?? "",
-          ...(ref.modelUrl && isTone3000RequestUrlAllowed(ref.modelUrl) ? { modelUrl: ref.modelUrl } : {}),
-        },
-        data,
-      });
-
-      idMap.set(ref.id, ref.id);
-      importedResources.push({ type: ref.type, id: ref.id });
-      succeeded += 1;
-      appendLog(`tone3000 archive resource imported: ${ref.name ?? ref.id}`);
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      appendLog(`tone3000 archive resource failed (${ref.name ?? ref.id}): ${msg}`);
-      failed += 1;
-    }
-  }
-
-  if (failed > 0) {
-    throw new Error(`Tone3000 resource download incomplete: ${succeeded} succeeded, ${failed} failed.`);
-  }
-}
-
 export async function importPresetArchive(
   file: File,
   context: ArchiveImportContext = { source: "zipImport" },
@@ -1150,7 +970,7 @@ export async function importPresetArchive(
   }
 
   let resourcesToImport: PresetArchiveResource[] = [];
-  let tone3000ResourcesToImport: Tone3000ResourceRef[] = [];
+  let remoteResourcesToImport: RemoteResourceRef[] = [];
   let blends: BlendDefinition[] = [];
   let presetsToImport: Preset[] = [];
   let presetFoldersToImport: PresetArchiveFolder[] = [];
@@ -1163,7 +983,7 @@ export async function importPresetArchive(
       return [];
     }
     resourcesToImport = archive.resources ?? [];
-    tone3000ResourcesToImport = archive.tone3000Resources ?? [];
+    remoteResourcesToImport = readArchiveRemoteRefs(archive);
     blends = archive.blends ?? [];
     presetsToImport = [archive.preset];
   } else if (presetsEntry) {
@@ -1174,7 +994,7 @@ export async function importPresetArchive(
       return [];
     }
     resourcesToImport = archive.resources ?? [];
-    tone3000ResourcesToImport = archive.tone3000Resources ?? [];
+    remoteResourcesToImport = readArchiveRemoteRefs(archive);
     blends = archive.blends ?? [];
     presetsToImport = archive.presets;
     presetFoldersToImport = archive.presetFolders ?? [];
@@ -1236,17 +1056,12 @@ export async function importPresetArchive(
     });
   }
 
-  // Download tone3000-sourced resources using the user's own authenticated session. A preview
-  // downloads nothing: the archive names the URLs, and the session's token goes with them.
+  // Fetch the resources the archive names but does not carry from their providers. A preview
+  // fetches nothing: it plays what is already in the library.
   if (previewOnly) {
-    for (const ref of tone3000ResourcesToImport) {
-      const existing = getLibraryResource(ref.type, ref.id);
-      if (existing && !existing.fileMissing) {
-        idMap.set(ref.id, existing.id);
-      }
-    }
-  } else if (tone3000ResourcesToImport.length > 0) {
-    await importTone3000ArchiveResources(tone3000ResourcesToImport, idMap, importedResources);
+    mapInstalledRemoteResources(remoteResourcesToImport, idMap);
+  } else if (remoteResourcesToImport.length > 0) {
+    await importArchiveRemoteResources(remoteResourcesToImport, idMap, importedResources);
   }
 
   const blendIdMap = new Map<string, string>();

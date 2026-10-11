@@ -4,6 +4,7 @@
 #include "controller/internal/ControllerUtils.h"
 #include "controller/internal/EffectPresetArchiveSupport.h"
 #include "controller/internal/NamResourceMetadata.h"
+#include "controller/internal/RemoteResourceRefs.h"
 #include "presets/PresetStorage.h"
 #include "resources/ResourceLibrary.h"
 #include "storage/JsonStore.h"
@@ -524,11 +525,7 @@ std::optional<ParsedFactoryPresetArchive> ParseFactoryPresetArchive(const std::f
         parsed.effectPresets = ReadArchiveEffectPresets(root["effectPresets"]);
     }
 
-    if (root.contains("tone3000Resources") && root["tone3000Resources"].is_array())
-    {
-        parsed.tone3000Resources = root["tone3000Resources"];
-        parsed.tone3000ResourceCount = root["tone3000Resources"].size();
-    }
+    parsed.remoteResources = ReadArchiveRemoteResources(root);
 
     auto appendPreset = [&](const nlohmann::json& presetJson) -> bool {
         if (!presetJson.is_object())

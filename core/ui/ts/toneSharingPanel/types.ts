@@ -5,6 +5,8 @@
  * bottom of the feature's dependency graph.
  */
 
+import type { RemoteResourceRef } from "../remoteResources.js";
+
 export type ToneSharingUser = {
   id: string;
   email: string;
@@ -91,6 +93,7 @@ export type ItemArchive = {
   preset: Record<string, unknown>;
   resources: ItemArchiveResource[];
   blends?: Array<Record<string, unknown>>;
+  remoteResources?: RemoteResourceRef[];
   tone3000Resources?: Tone3000ResourceRef[];
 };
 
@@ -100,6 +103,7 @@ export type ItemCollectionArchive = {
   presets: Array<Record<string, unknown>>;
   resources: ItemArchiveResource[];
   blends?: Array<Record<string, unknown>>;
+  remoteResources?: RemoteResourceRef[];
   tone3000Resources?: Tone3000ResourceRef[];
 };
 
@@ -169,30 +173,13 @@ export type InstalledPackMetadata = {
   resources: InstalledPackResourceRef[];
 };
 
-export type AiToneEffect = { type: string; name: string; settings?: Record<string, string | number> };
-
-export type AiToneCombination = {
-  name: string;
-  description: string;
-  amp: string;
-  cabinet: string;
-  pedals: string[];
-  effects: AiToneEffect[];
-};
-
-export type AiToneSearchResult = {
-  query: { band?: string; song?: string };
-  combinations: AiToneCombination[];
-  generatedAt: string;
-};
-
 export type ToneSharingShareTarget = {
   kind: "item" | "pack";
   id: string;
 };
 
 /** Which feed the browse area is showing. */
-export type BrowseMode = "featured" | "items" | "packs" | "installed" | "mine" | "ai-search" | "review";
+export type BrowseMode = "featured" | "items" | "packs" | "installed" | "mine" | "review";
 
 export type BrowseCollectionState = {
   page: number;

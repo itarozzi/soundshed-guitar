@@ -564,6 +564,47 @@ bool TestConsecutivePreviewsRestoreTheTrueOriginal()
     return true;
 }
 
+/// Provider titles run to 170 characters; the import writes a short name and subfolder so the
+/// path stays under Windows' 260-character limit, keeping the extension.
+bool TestRemoteImportShortensLongNames()
+{
+    const fs::path sandbox = FreshSandbox("import-long-names");
+    RecordingHost host(sandbox);
+    guitarfx::PluginController controller(host);
+
+    const std::string longTitle(170, 'x');
+    nlohmann::json message{{"type", "importRemoteResource"},
+                           {"requestId", "import-long"},
+                           {"provider", "tone3000"},
+                           {"resourceType", "nam"},
+                           {"resourceId", "tone3000:202"},
+                           {"name", "Long"},
+                           {"subfolder", "amp/" + longTitle},
+                           {"fileName", "Fender Vibroverb 1964 " + longTitle + ".nam"},
+                           {"data", guitarfx::util::EncodeBase64(BytesOf("model"))}};
+    controller.HandleUIMessage(message.dump());
+
+    const auto resource = ImportedResource(controller, "nam", "tone3000:202");
+
+    if (!resource)
+    {
+        std::cerr << "  A long name was not imported\n";
+        return false;
+    }
+
+    const auto fileName = resource->filePath.filename().string();
+    const auto folder = resource->filePath.parent_path().filename().string();
+
+    if (fileName.size() > 72 || fileName.rfind(".nam") != fileName.size() - 4 || fileName.rfind("Fender_Vibroverb_1964", 0) != 0 ||
+        folder.size() > 40)
+    {
+        std::cerr << "  The import wrote " << folder << "/" << fileName << "\n";
+        return false;
+    }
+
+    return true;
+}
+
 bool TestPreviewOnAnotherSlotRestoresTheFirst()
 {
     const fs::path sandbox = FreshSandbox("preview-other-slot");
@@ -618,6 +659,7 @@ int main()
         TestZipPreviewWithNothingPlayableLeavesTheNodeAlone());
     run("Consecutive previews restore the true original", TestConsecutivePreviewsRestoreTheTrueOriginal());
     run("Preview on another slot restores the first", TestPreviewOnAnotherSlotRestoresTheFirst());
+    run("Remote import shortens long names", TestRemoteImportShortensLongNames());
 
     std::cout << "\nTone3000 resource workflow tests: " << passed << " passed, " << failed << " failed\n";
     return failed == 0 ? 0 : 1;

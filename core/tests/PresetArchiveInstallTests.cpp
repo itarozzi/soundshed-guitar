@@ -25,6 +25,7 @@
 #include "IPluginHost.h"
 #include "PluginController.h"
 #include "controller/internal/PresetArchiveSupport.h"
+#include "controller/internal/RemoteResourceRefs.h"
 #include "presets/PresetStorage.h"
 #include "resources/ResourceLibrary.h"
 #include "util/Base64.h"
@@ -572,6 +573,93 @@ void TestMissingTone3000ModelsInstallNothing()
     Expect(InstalledEntries(controller).empty(), "and nothing is recorded");
 }
 
+/// A remote reference from any provider resolves to the library's copy by provider and provider
+/// key, even when the archive used another library id for it, and the preset is pointed there.
+void TestRemoteResourceResolvesByProviderKey()
+{
+    TestHost host(Sandbox("remote-key"));
+    guitarfx::PluginController controller(host);
+    controller.Initialize();
+
+    Send(controller, "importRemoteResource",
+         {{"provider", "soundshed"},
+          {"resourceType", "nam"},
+          {"resourceId", "soundshed:open-amp-1"},
+          {"name", "Open Amp"},
+          {"fileName", "open-amp.nam"},
+          {"metadata", {{"provider", "soundshed"}, {"providerKey", "open-amp-1"}, {"licence", "cc-by"}}},
+          {"data", guitarfx::util::EncodeBase64(kModelB)}});
+    Expect(controller.GetResourceLibrary().LookupResource("nam", "soundshed:open-amp-1").has_value(), "the remote model is in the library");
+
+    const nlohmann::json extra = {
+        {"remoteResources",
+         {{{"id", "soundshed:renamed-on-the-sharers-machine"}, {"type", "nam"}, {"name", "Open Amp"}, {"provider", "soundshed"},
+           {"providerKey", "open-amp-1"}, {"licence", "cc-by"}}}}};
+    const auto zip = SinglePresetArchive(BuildPreset("p", "Open Tone", "soundshed:renamed-on-the-sharers-machine"), "sha-a", kModelA, extra);
+    host.sent.clear();
+    Send(controller, "installPresetArchives",
+         {{"requestId", "r3"}, {"entry", {{"id", "tone-sharing-api:item:open"}}}, {"archives", {Archive(zip, "Open Tone")}}});
+
+    const auto reply = Latest(host, "presetArchivesInstalled");
+    Expect(reply.has_value(), "the install succeeds");
+    const auto presetIds = reply ? reply->value("presetIds", nlohmann::json::array()) : nlohmann::json::array();
+
+    if (presetIds.size() == 1)
+    {
+        if (const auto stored = StoredPreset(host, controller, presetIds[0].get<std::string>()))
+        {
+            const auto& amp = stored->graph.nodes[1];
+            Expect(!amp.resources.empty() && amp.resources[0].resourceId == "soundshed:open-amp-1", "the preset plays the library's copy");
+        }
+    }
+}
+
+void TestMissingRemoteModelsFromOtherProvidersInstallNothing()
+{
+    TestHost host(Sandbox("remote-missing"));
+    guitarfx::PluginController controller(host);
+    controller.Initialize();
+
+    const nlohmann::json extra = {
+        {"remoteResources",
+         {{{"id", "soundshed:nowhere"}, {"type", "nam"}, {"name", "Open Amp"}, {"provider", "soundshed"}, {"providerKey", "nowhere"}}}}};
+    const auto zip = SinglePresetArchive(BuildPreset("p", "Open Tone", "soundshed:nowhere"), "sha-a", kModelA, extra);
+    host.sent.clear();
+    Send(controller, "installPresetArchives",
+         {{"requestId", "r4"}, {"entry", {{"id", "tone-sharing-api:item:missing"}}}, {"archives", {Archive(zip, "Open Tone")}}});
+
+    const auto failed = Latest(host, "presetArchivesInstallFailed");
+    Expect(failed.has_value(), "the install fails");
+
+    if (failed)
+    {
+        const auto detail = failed->value("detail", "");
+        Expect(detail.find("Open Amp") != std::string::npos && detail.find("soundshed") != std::string::npos,
+               "naming the model and where it comes from");
+    }
+
+    Expect(InstalledEntries(controller).empty(), "and nothing is recorded");
+}
+
+/// An archive listing a Tone3000 model in both lists (as the web UI now writes them) needs it once.
+void TestBothListsNameTheModelOnce()
+{
+    const nlohmann::json root = {
+        {"remoteResources", {{{"id", "tone3000:456"}, {"type", "nam"}, {"provider", "tone3000"}, {"providerKey", "456"}}}},
+        {"tone3000Resources",
+         {{{"id", "tone3000:456"}, {"type", "nam"}, {"toneId", "123"}, {"modelId", "456"}},
+          {{"id", "tone3000:789"}, {"type", "nam"}, {"toneId", "123"}, {"modelId", "789"}, {"name", "Legacy Only"}}}},
+    };
+    const auto refs = guitarfx::controller_detail::ReadArchiveRemoteResources(root);
+    Expect(refs.size() == 2, "one entry per library id");
+
+    if (refs.size() == 2)
+    {
+        Expect(refs[1].value("provider", "") == "tone3000" && refs[1].value("providerKey", "") == "789", "a legacy entry becomes a tone3000 reference");
+        Expect(refs[1]["providerData"].value("toneId", "") == "123", "keeping its tone id");
+    }
+}
+
 void TestUnreadableDownloadIsRefused()
 {
     TestHost host(Sandbox("unreadable"));
@@ -657,6 +745,9 @@ int main()
     TestReusesAnOlderImportOfTheSameFile();
     TestPackGetsAFolder();
     TestMissingTone3000ModelsInstallNothing();
+    TestRemoteResourceResolvesByProviderKey();
+    TestMissingRemoteModelsFromOtherProvidersInstallNothing();
+    TestBothListsNameTheModelOnce();
     TestUnreadableDownloadIsRefused();
     TestDeleteTakesOutWhatItAdded();
 

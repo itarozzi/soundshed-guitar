@@ -19,7 +19,8 @@
 - Effects live in core/src/dsp/effects/; new effects implement EffectProcessor and register via EffectRegistry.
 - Shared DSP building blocks: core/src/dsp/BiquadDesign.h (RBJ filter designs, responses, state, ramps),
   EffectParamSpec.h (constexpr parameter tables), LinearRamp.h (click-free parameter glides),
-  PitchTracker.h (real-time monophonic guitar pitch, allocation-free, a few µs per block). Reuse them
+  PitchTracker.h (real-time monophonic guitar pitch, allocation-free, a few µs per block),
+  Loudness.h (BS.1770 K-weighting, gating and an offline LUFS/peak/RMS meter). Reuse them
   rather than adding another private copy.
 - Validate parameter ranges and resource presence; fail fast with clear errors instead of silent defaults.
 - Full spec: docs/signal-chain.md, docs/fx-library.md

@@ -56,6 +56,8 @@ class DemoPreviewService;
 class MetronomeService;
 class SignalTestService;
 class ResourceFolderScanner;
+class PresetLevelMeter;
+struct PresetLevelJob;
 class TelemetryPublisher;
 class TunerService;
 class PracticeToolService;
@@ -598,6 +600,10 @@ class PluginController
     /// the global chain in force recorded. Returns the scene it resolved.
     std::string PreparePresetForEngine(Preset& preset, const std::string& sceneId,
                                        const GlobalSignalChainConfig& chainConfig);
+    /// measurePresetLevel's message-thread half (PluginControllerPresetLevel.cpp): the preset
+    /// resolved, prepared and built into a graph of its own for mPresetLevelMeter to render.
+    /// Nullopt with `failure` ({message, ...}) filled when it cannot be.
+    std::optional<PresetLevelJob> BuildPresetLevelJob(const nlohmann::json& payload, nlohmann::json& failure);
     /// Builds a new instance for an active mixer slot from `slotPreset`, as it is, off the DSP
     /// lock, and swaps it in for the running one under the lock, which keeps the slot's mix
     /// settings. Leaves the slot's cache entry and the host latency to the caller. Returns false
@@ -1155,6 +1161,9 @@ class PluginController
     /// Answers "listResourceFolder" itself. Shut down explicitly in the destructor, ahead of
     /// the members its detached workers publish through.
     std::unique_ptr<ResourceFolderScanner> mResourceFolderScanner;
+    /// Answers "measurePresetLevel" itself, rendering on a worker of its own. Shut down
+    /// explicitly in the destructor, ahead of the resource library its graphs read.
+    std::unique_ptr<PresetLevelMeter> mPresetLevelMeter;
     std::unique_ptr<TelemetryPublisher> mTelemetry;
     std::unique_ptr<TunerService> mTuner;
     std::unique_ptr<DemoPreviewService> mDemoPreview;

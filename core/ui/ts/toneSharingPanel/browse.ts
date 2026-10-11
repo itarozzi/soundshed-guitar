@@ -3,23 +3,19 @@
  * happen once an install has changed what "installed" means.
  */
 
-import { renderAiSearchView } from "./aiSearch.js";
 import { apiFetch, isToneSharingAdmin } from "./api.js";
 import { element, setUploadStatus } from "./dom.js";
 import { applyFeaturedLayout, buildSingleRow, loadStandardBrowsePage, renderFeedRows, resetBrowseCollections, updateActiveSharedFilter, updateBrowseFooter, updateCommunityPresetSearchUi, updateFeaturedMoreLink } from "./feed.js";
 import { renderInstalledPacks } from "./installedPacks.js";
 import { clearPackDetail, viewPack } from "./packDetail.js";
 import { setBrowseLoaders } from "./refresh.js";
-import { browseState, isAiToneSearchEnabled, toneSharingState } from "./state.js";
+import { browseState, toneSharingState } from "./state.js";
 import type { ToneSharingItem, ToneSharingPack, ToneSharingRow } from "./types.js";
 
 export async function loadBrowse(): Promise<void> {
   const feed = element<HTMLElement>("tone-sharing-feed");
   if (!feed) {
     return;
-  }
-  if (browseState.mode === "ai-search" && !isAiToneSearchEnabled()) {
-    browseState.mode = "featured";
   }
   clearPackDetail();
   feed.innerHTML = `<div class="tone-sharing-status">Loading...</div>`;
@@ -70,11 +66,6 @@ export async function loadBrowse(): Promise<void> {
 
     if (browseState.mode === "installed") {
       await renderInstalledPacks();
-      return;
-    }
-
-    if (browseState.mode === "ai-search") {
-      renderAiSearchView();
       return;
     }
 

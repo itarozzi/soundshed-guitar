@@ -36,6 +36,10 @@ namespace guitarfx
 {
 namespace
 {
+/// Longest file name and subfolder segment an import writes (see ImportResourceFile).
+constexpr std::size_t kMaxImportFileName = 72;
+constexpr std::size_t kMaxImportSubfolderSegment = 40;
+
 /// Calls fn(ref) for each library reference the graph's nodes hold.
 template <typename Fn> void ForEachLibraryRef(const SignalGraph& graph, Fn&& fn)
 {
@@ -212,7 +216,9 @@ std::optional<LibraryResource> PluginController::ImportResourceFile(LibraryResou
     const auto settingsDir = mFileSystem.ResolveSettingsDirectory();
     const auto sanitizedProvider = util::SanitizePathSegment(provider, true);
     auto targetDir = settingsDir / "resources" / "content" / sanitizedProvider;
-    const auto sanitizedSubfolder = util::SanitizeSubfolderPath(subfolder);
+    // Provider titles name subfolders and files; capped so the full path stays under Windows'
+    // 260-character limit below the settings folder, with room for a hash suffix on a clash.
+    const auto sanitizedSubfolder = util::LimitSubfolderSegments(util::SanitizeSubfolderPath(subfolder), kMaxImportSubfolderSegment);
 
     if (!sanitizedSubfolder.empty())
     {
@@ -222,7 +228,7 @@ std::optional<LibraryResource> PluginController::ImportResourceFile(LibraryResou
     [[maybe_unused]] const auto ensuredTargetDir = mFileSystem.EnsureDirectory(targetDir);
 
     std::string resolvedName = fileName.empty() ? resourceId : fileName;
-    resolvedName = util::SanitizeFilename(resolvedName);
+    resolvedName = util::LimitFilenameLength(util::SanitizeFilename(resolvedName), kMaxImportFileName);
 
     if (resolvedName.find('.') == std::string::npos)
     {

@@ -31,6 +31,7 @@ import { postMessage } from "./bridge.js";
 import { initializeMetronome } from "./metronome.js";
 import { initializeAutomationPanel, requestAutomationState } from "./automationPanel.js";
 import { initializeMidiLearnMenu } from "./midiLearnMenu.js";
+import { initializeToneBuilderPanel } from "./toneBuilder/panel.js";
 import { initializeBlendEditorModal, initSignalPathResize, renderSignalPathBar, createNamIrGlobalFileDropHandler } from "./signalPath.js";
 // Imported past the signalPath.ts facade on purpose: that file is at its pinned
 // size ceiling (check:sizes), and history.ts is a new sibling rather than code
@@ -236,6 +237,7 @@ async function bootstrap(): Promise<void> {
   initializeMetronome();
   initializeAutomationPanel();
   initializeMidiLearnMenu();
+  initializeToneBuilderPanel();
   initializeRiffLibraryPanel();
   // A Practice Tool project can carry the preset that was selected when it was
   // saved. The preset library can't be reached from the Practice Tool directly

@@ -4,17 +4,16 @@
  */
 
 import { showNotification } from "../notifications.js";
-import { clonePreset, uiState } from "../state.js";
-import { apiFetch, toneSharingFetch } from "./api.js";
+import { uiState } from "../state.js";
+import { apiFetch } from "./api.js";
 import { loadBrowse, loadMine } from "./browse.js";
 import { ensurePublishConsent } from "./consent.js";
 import { element, setUploadStatus } from "./dom.js";
-import { getToneSharingHostActions } from "./hostActions.js";
+import { createToneSharingPresetItem, hasPublishableSignalChain } from "./itemUpload.js";
 import { addItemToExistingPack, loadMyDraftPacksForSelect, openPackModal } from "./packEditor.js";
 import { getPresetToneSharingOrigin } from "./presetLinks.js";
 import { copyToneSharingShareLink } from "./shareLinks.js";
 import { toneSharingState } from "./state.js";
-import type { ToneSharingItem } from "./types.js";
 
 let publishItemInFlight = false;
 
@@ -164,24 +163,8 @@ export async function uploadAndPublishItem(): Promise<void> {
     return;
   }
 
-  // Validate signal chain: requires input + output + at least one effect node
-  const graphNodes = activePreset.graph?.nodes ?? [];
-  const hasInput = graphNodes.some((n) => n.type === "input");
-  const hasOutput = graphNodes.some((n) => n.type === "output");
-  const effectNodes = graphNodes.filter((n) => n.type !== "input" && n.type !== "output");
-  if (!hasInput || !hasOutput || effectNodes.length === 0) {
+  if (!hasPublishableSignalChain(activePreset)) {
     setUploadStatus("Preset must have a signal chain with at least one effect node to publish.");
-    return;
-  }
-
-  let publicPayload: Blob;
-  let privatePayload: Blob;
-  try {
-    const archiveBlobs = await getToneSharingHostActions().buildToneSharingPresetArchiveBlobs(clonePreset(activePreset));
-    publicPayload = archiveBlobs.publicBlob;
-    privatePayload = archiveBlobs.privateBlob;
-  } catch (error) {
-    setUploadStatus(`Publish failed: ${(error as Error).message}`);
     return;
   }
 
@@ -189,82 +172,13 @@ export async function uploadAndPublishItem(): Promise<void> {
   setPublishItemBusy(true, "Uploading preset for approval...");
 
   try {
-    const init = await apiFetch<{ uploadId: string }>("/uploads/init", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        kind: "item_payload",
-        mimeType: publicPayload.type || "application/octet-stream",
-        byteSize: publicPayload.size
-      })
-    });
+    const item = await createToneSharingPresetItem(activePreset, { title, description, tags: selectedTags });
 
-    const uploadResponse = await toneSharingFetch(`/uploads/${init.uploadId}`, {
-      method: "PUT",
-      headers: {
-        "content-type": publicPayload.type || "application/octet-stream",
-      },
-      body: publicPayload,
-    });
-
-    const uploadResult = await uploadResponse.json();
-    if (!uploadResponse.ok || uploadResult?.ok === false) {
-      throw new Error(uploadResult?.error?.message || `Upload failed (${uploadResponse.status})`);
-    }
-
-    const complete = await apiFetch<{ assetId: string }>("/uploads/complete", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ uploadId: init.uploadId })
-    });
-
-    const backupInit = await apiFetch<{ uploadId: string }>("/uploads/init", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        kind: "item_payload",
-        mimeType: privatePayload.type || "application/octet-stream",
-        byteSize: privatePayload.size
-      })
-    });
-
-    const backupUploadResponse = await toneSharingFetch(`/uploads/${backupInit.uploadId}`, {
-      method: "PUT",
-      headers: {
-        "content-type": privatePayload.type || "application/octet-stream",
-      },
-      body: privatePayload,
-    });
-
-    const backupUploadResult = await backupUploadResponse.json();
-    if (!backupUploadResponse.ok || backupUploadResult?.ok === false) {
-      throw new Error(backupUploadResult?.error?.message || `Backup upload failed (${backupUploadResponse.status})`);
-    }
-
-    const backupComplete = await apiFetch<{ assetId: string }>("/uploads/complete", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ uploadId: backupInit.uploadId })
-    });
-
-    const item = await apiFetch<{ item: ToneSharingItem }>("/items", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        type: "preset",
-        title,
-        description,
-        tags: selectedTags.length > 0 ? selectedTags : undefined,
-        payloadAssetId: complete.assetId,
-        privatePayloadAssetId: backupComplete.assetId
-      })
-    });
-
-    await apiFetch(`/items/${item.item.id}/publish`, { method: "POST" });
+    await apiFetch(`/items/${item.id}/publish`, { method: "POST" });
 
     let shareCopied = false;
     try {
-      const link = await copyToneSharingShareLink({ kind: "item", id: item.item.id });
+      const link = await copyToneSharingShareLink({ kind: "item", id: item.id });
       showNotification("Share link copied", link);
       shareCopied = true;
     } catch {
@@ -281,11 +195,11 @@ export async function uploadAndPublishItem(): Promise<void> {
       : " Open the item card and press Share to copy the public link once approved.";
 
     if (addToNewPack) {
-      await openPackModal(undefined, item.item.id);
+      await openPackModal(undefined, item.id);
       setUploadStatus(`Preset submitted for moderator approval.${shareNote}`);
     } else if (assignPackId) {
       try {
-        await addItemToExistingPack(assignPackId, item.item.id);
+        await addItemToExistingPack(assignPackId, item.id);
         setUploadStatus(`Submitted for approval and added to pack.${shareNote}`);
       } catch (error) {
         setUploadStatus(`Submitted for approval but pack update failed: ${(error as Error).message}.${shareNote}`);

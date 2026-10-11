@@ -3,6 +3,7 @@ import { postMessage } from "./bridge.js";
 import { tone3000AuthenticatedFetch } from "./tone3000.js";
 import { buildBlendModelMappingsFromNames } from "./blendUtils.js";
 import { arrayBufferToBase64 } from "./utils.js";
+import { remoteResourceMetadata } from "./remoteResources.js";
 import type { Tone3000Architecture, Tone3000Model, Tone3000Tone } from "./tone3000ApiTypes.js";
 import { fetchAllTone3000ModelPages, sortTone3000ModelsByName } from "./tone3000Api.js";
 
@@ -203,6 +204,61 @@ export function createTone3000BlendDefinition(tone: Tone3000Tone, modelIds: stri
   };
 }
 
+/** What a capture filed under this gear covers, in the provider-neutral words (remoteResources.ts). */
+export function tone3000CaptureScope(gear: string | undefined): string | null {
+  switch (gear) {
+    case "amp": return "amp";
+    case "amp-cab":
+    case "full-rig": return "amp+cab";
+    case "pedal": return "pedal";
+    case "outboard": return "outboard";
+    case "cab": return "cab";
+    case "space": return "room";
+    default: return null;
+  }
+}
+
+/**
+ * The library metadata for a model imported from a tone: the provider-neutral keys
+ * (remoteResources.ts) plus the tone and model fields this provider needs to find it again.
+ */
+export function tone3000ResourceMetadata(
+  tone: Tone3000Tone,
+  model: { id: string | number; name?: string; modelUrl?: string; architectureVersion?: string },
+  entryName?: string,
+): Record<string, string> {
+  const sourceUrl = `https://www.tone3000.com/tones/${tone.slug ?? tone.id}`;
+  const creatorName = tone.user?.display_name ?? tone.user?.name ?? tone.user?.username ?? "";
+  return {
+    ...remoteResourceMetadata({
+      provider: "tone3000",
+      providerKey: entryName ? `${model.id}:${sanitizeFilename(entryName)}` : String(model.id),
+      licence: tone.license ?? null,
+      creatorName,
+      creatorUrl: tone.user?.url ?? null,
+      sourceUrl,
+      captureScope: tone3000CaptureScope(tone.gear),
+    }),
+    tone3000Category: tone.gear ?? "",
+    toneId: String(tone.id),
+    toneTitle: tone.title ?? "",
+    groupId: String(tone.id),
+    groupName: tone.title ?? tone.name ?? "",
+    gear: tone.gear ?? "",
+    platform: tone.platform ?? "",
+    modelId: String(model.id),
+    modelName: model.name ?? "",
+    ...(model.modelUrl ? { modelUrl: model.modelUrl } : {}),
+    imageUrl: getTone3000ImageUrl(tone) ?? "",
+    architectureVersion: model.architectureVersion ?? "",
+    ...(entryName ? { entryName } : {}),
+    sourceUrl,
+    creatorId: tone.user?.id != null ? String(tone.user.id) : "",
+    creatorName,
+    authorUsername: tone.user?.username ?? "",
+  };
+}
+
 function importRemoteResource(options: {
   tone: Tone3000Tone;
   model: Tone3000Model;
@@ -225,26 +281,12 @@ function importRemoteResource(options: {
     category: tone.gear ?? "",
     subfolder,
     fileName,
-    metadata: {
-      provider: "tone3000",
-      tone3000Category: tone.gear ?? "",
-      toneId: String(tone.id),
-      toneTitle: tone.title ?? "",
-      groupId: String(tone.id),
-      groupName: tone.title ?? tone.name ?? "",
-      gear: tone.gear ?? "",
-      platform: tone.platform ?? "",
-      modelId: String(model.id),
-      modelName: model.name ?? "",
+    metadata: tone3000ResourceMetadata(tone, {
+      id: model.id,
+      name: model.name,
       modelUrl: model.model_url,
-      imageUrl: getTone3000ImageUrl(tone) ?? "",
-      architectureVersion: model.architecture_version ?? "",
-      ...(entryName ? { entryName } : {}),
-      sourceUrl: `https://www.tone3000.com/tones/${tone.slug ?? tone.id}`,
-      creatorId: tone.user?.id != null ? String(tone.user.id) : "",
-      creatorName: tone.user?.display_name ?? tone.user?.name ?? tone.user?.username ?? "",
-      authorUsername: tone.user?.username ?? "",
-    },
+      architectureVersion: model.architecture_version ?? undefined,
+    }, entryName),
     data,
   });
 }

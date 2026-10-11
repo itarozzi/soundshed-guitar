@@ -64,9 +64,12 @@ struct ParsedFactoryPresetArchive
     /// Effect presets, by effect type as the archive names it (EffectPresetArchiveSupport.h).
     /// Only factory archives offer them; installs and archive sessions leave them unread.
     nlohmann::json effectPresets = nlohmann::json::object();
-    /// Models shared as Tone3000 references rather than files: {id, name, type, toneId, modelId, ...}.
-    nlohmann::json tone3000Resources = nlohmann::json::array();
-    std::size_t tone3000ResourceCount = 0;
+    /// Models and IRs the archive names rather than carries, because their licence or provider
+    /// does not allow passing the file on: {id, type, name, provider, providerKey, hash?,
+    /// providerData?, ...}. Read from `remoteResources` and from the older `tone3000Resources`
+    /// list, which comes back here as provider "tone3000" with its toneId and modelId in
+    /// providerData. One entry per library id.
+    nlohmann::json remoteResources = nlohmann::json::array();
 };
 
 /// Stable key identifying one archive, derived from its filename. Everything

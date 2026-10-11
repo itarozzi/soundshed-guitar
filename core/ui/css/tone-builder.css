@@ -1,0 +1,208 @@
+/* The Tone Builder modal (toneBuilder/panel.ts). */
+.tone-builder-content {
+  width: 640px;
+  max-width: 95vw;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.tone-builder-content .modal-body {
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tone-builder-form {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 8px 12px;
+  align-items: center;
+}
+
+.tone-builder-form .tone-builder-check {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tone-builder-form .tone-builder-hint {
+  grid-column: 2;
+  margin: -4px 0 0;
+}
+
+.tone-builder-muted {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.tone-builder-error {
+  color: var(--color-danger, #e06c75);
+}
+
+.tone-builder-summary {
+  margin: 0;
+  line-height: 1.4;
+}
+
+.tone-builder-presets {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tone-builder-preset {
+  padding: 8px 10px;
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-lg);
+  background: var(--bg-control);
+}
+
+.tone-builder-preset h4 {
+  margin: 0 0 4px;
+}
+
+.tone-builder-preset p {
+  margin: 0 0 6px;
+  font-size: 12px;
+}
+
+.tone-builder-scene {
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.tone-builder-captures {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tone-builder-captures li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 10px;
+  font-size: 12px;
+}
+
+.tone-builder-badge {
+  margin-left: auto;
+  padding: 1px 6px;
+  border-radius: var(--radius-md);
+  background: var(--overlay-medium);
+  font-size: 11px;
+}
+
+.tone-builder-steps {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+@media (max-width: 520px) {
+  .tone-builder-form {
+    grid-template-columns: 1fr;
+  }
+
+  .tone-builder-form .tone-builder-hint {
+    grid-column: 1;
+  }
+}
+
+.tone-builder-matches {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tone-builder-matches li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-lg);
+  background: var(--bg-control);
+}
+
+.tone-builder-match-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.tone-builder-match-title {
+  font-weight: 600;
+}
+
+.tone-builder-match-desc {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tone-builder-match-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.tone-builder-pack {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  gap: 12px;
+  align-items: start;
+}
+
+.tone-builder-artwork {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tone-builder-artwork-image,
+.tone-builder-artwork-empty {
+  width: 160px;
+  height: 160px;
+  border-radius: var(--radius-lg);
+  object-fit: cover;
+  background: var(--bg-control);
+}
+
+.tone-builder-artwork-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 12px;
+  border: 1px dashed var(--border-medium);
+}
+
+.tone-builder-pack-text h4 {
+  margin: 0 0 6px;
+}
+
+.tone-builder-pack-text p {
+  margin: 0 0 6px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+@media (max-width: 520px) {
+  .tone-builder-pack {
+    grid-template-columns: 1fr;
+  }
+}

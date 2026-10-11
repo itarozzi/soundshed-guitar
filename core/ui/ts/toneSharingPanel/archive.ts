@@ -6,6 +6,7 @@
 import { parseApiErrorMessage, toneSharingFetch } from "./api.js";
 import { resolveCreatorProfileHandle } from "./format.js";
 import type { ItemArchive, ItemArchiveResource, ItemCollectionArchive, Tone3000ResourceRef, ToneSharingPackDetails } from "./types.js";
+import type { RemoteResourceRef } from "../remoteResources.js";
 
 export async function readPresetFromArchive(buffer: ArrayBuffer): Promise<Record<string, unknown>> {
   const bytes = new Uint8Array(buffer);
@@ -41,6 +42,7 @@ export async function buildPackArchiveFromDetails(details: ToneSharingPackDetail
   const mergedResources = new Map<string, { entry: ItemArchiveResource; bytes: Uint8Array }>();
   const mergedBlends = new Map<string, Record<string, unknown>>();
   const mergedTone3000Resources = new Map<string, Tone3000ResourceRef>();
+  const mergedRemoteResources = new Map<string, RemoteResourceRef>();
 
   const sortedItems = [...details.items].sort((a, b) => a.sortOrder - b.sortOrder);
   const packCreatorHandle = resolveCreatorProfileHandle(details.pack as unknown as Record<string, unknown>) ?? undefined;
@@ -119,6 +121,11 @@ export async function buildPackArchiveFromDetails(details: ToneSharingPackDetail
           mergedTone3000Resources.set(key, ref);
         }
       }
+      for (const ref of parsed.remoteResources ?? []) {
+        if (ref?.id && !mergedRemoteResources.has(`${ref.type}:${ref.id}`)) {
+          mergedRemoteResources.set(`${ref.type}:${ref.id}`, ref);
+        }
+      }
       continue;
     }
 
@@ -164,6 +171,11 @@ export async function buildPackArchiveFromDetails(details: ToneSharingPackDetail
           mergedTone3000Resources.set(key, ref);
         }
       }
+      for (const ref of parsed.remoteResources ?? []) {
+        if (ref?.id && !mergedRemoteResources.has(`${ref.type}:${ref.id}`)) {
+          mergedRemoteResources.set(`${ref.type}:${ref.id}`, ref);
+        }
+      }
       continue;
     }
 
@@ -186,6 +198,7 @@ export async function buildPackArchiveFromDetails(details: ToneSharingPackDetail
     presets: mergedPresets,
     resources: Array.from(mergedResources.values()).map((entry) => entry.entry),
     blends: Array.from(mergedBlends.values()),
+    ...(mergedRemoteResources.size > 0 ? { remoteResources: Array.from(mergedRemoteResources.values()) } : {}),
     ...(mergedTone3000Resources.size > 0 ? { tone3000Resources: Array.from(mergedTone3000Resources.values()) } : {}),
   };
   outZip.file("presets.json", JSON.stringify(archive, null, 2));

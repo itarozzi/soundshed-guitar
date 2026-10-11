@@ -5,6 +5,7 @@
 #include "dsp/EffectRegistry.h"
 #include "dsp/FiniteCheck.h"
 #include "dsp/LevelTargets.h"
+#include "dsp/Loudness.h"
 
 #include <algorithm>
 #include <array>
@@ -73,49 +74,6 @@ class InputAnalyzerEffect : public EffectProcessor
         std::uint64_t generatedAtMs = 0;
     };
 
-    struct BiquadCoefficients
-    {
-        double b0 = 1.0;
-        double b1 = 0.0;
-        double b2 = 0.0;
-        double a1 = 0.0;
-        double a2 = 0.0;
-    };
-
-    struct BiquadFilter
-    {
-        double b0 = 1.0;
-        double b1 = 0.0;
-        double b2 = 0.0;
-        double a1 = 0.0;
-        double a2 = 0.0;
-        double z1 = 0.0;
-        double z2 = 0.0;
-
-        void Set(const BiquadCoefficients& coeffs)
-        {
-            b0 = coeffs.b0;
-            b1 = coeffs.b1;
-            b2 = coeffs.b2;
-            a1 = coeffs.a1;
-            a2 = coeffs.a2;
-        }
-
-        void Reset()
-        {
-            z1 = 0.0;
-            z2 = 0.0;
-        }
-
-        double Process(double input)
-        {
-            const double output = (b0 * input) + z1;
-            z1 = (b1 * input) - (a1 * output) + z2;
-            z2 = (b2 * input) - (a2 * output);
-            return output;
-        }
-    };
-
     void Prepare(double sampleRate, int maxBlockSize) override
     {
         if (!ValidatePrepare(sampleRate, maxBlockSize))
@@ -157,10 +115,8 @@ class InputAnalyzerEffect : public EffectProcessor
         mShortTermWindowEnergy = 0.0;
         mLoudnessBlockCount = 0;
         mLoudnessBlockWriteIndex = 0;
-        mLeftLoudnessFilter1.Reset();
-        mLeftLoudnessFilter2.Reset();
-        mRightLoudnessFilter1.Reset();
-        mRightLoudnessFilter2.Reset();
+        mLeftLoudnessFilter.Reset();
+        mRightLoudnessFilter.Reset();
         std::fill(mMomentaryEnergyRing.begin(), mMomentaryEnergyRing.end(), 0.0);
         std::fill(mShortTermEnergyRing.begin(), mShortTermEnergyRing.end(), 0.0);
 
@@ -467,11 +423,9 @@ class InputAnalyzerEffect : public EffectProcessor
     static constexpr double kRmsReleaseSeconds = 0.35;
     static constexpr double kStereoEnterRatio = 0.05;
     static constexpr double kStereoExitRatio = 0.02;
-    static constexpr double kMomentaryWindowSeconds = 0.4;
+    static constexpr double kMomentaryWindowSeconds = loudness::kBlockSeconds;
     static constexpr double kShortTermWindowSeconds = 3.0;
-    static constexpr double kLoudnessHopSeconds = 0.1;
-    static constexpr double kLoudnessAbsoluteGateLufs = -70.0;
-    static constexpr double kLoudnessRelativeGateDb = -10.0;
+    static constexpr double kLoudnessHopSeconds = loudness::kHopSeconds;
     static constexpr std::size_t kLoudnessHistoryBlocks = 4096;
     static constexpr std::array<double, static_cast<std::size_t>(kBarkBands + 1)> kBarkBandEdgesHz{
         20.0,   100.0,  200.0,  300.0,  400.0,  510.0,  630.0,  770.0,  920.0,  1080.0, 1270.0,  1480.0, 1720.0,
@@ -494,7 +448,7 @@ class InputAnalyzerEffect : public EffectProcessor
             return 0.0;
         }
 
-        return std::pow(10.0, (lufs + 0.691) / 10.0);
+        return loudness::LufsToMeanSquare(lufs);
     }
 
     static double MeanSquareToLufs(double meanSquare)
@@ -504,42 +458,7 @@ class InputAnalyzerEffect : public EffectProcessor
             return kNoLoudnessLufs;
         }
 
-        return -0.691 + 10.0 * std::log10(meanSquare);
-    }
-
-    static BiquadCoefficients DesignKWeightingHighShelf(double sampleRate)
-    {
-        constexpr double kGainDb = 3.99984385397;
-        constexpr double kQ = 0.7071752369554193;
-        constexpr double kFc = 1681.9744509555319;
-        const double K = std::tan(3.14159265358979323846 * kFc / sampleRate);
-        const double Vh = std::pow(10.0, kGainDb / 20.0);
-        const double Vb = std::pow(Vh, 0.499666774155);
-        const double a0 = 1.0 + K / kQ + K * K;
-
-        BiquadCoefficients coeffs;
-        coeffs.b0 = (Vh + Vb * K / kQ + K * K) / a0;
-        coeffs.b1 = 2.0 * (K * K - Vh) / a0;
-        coeffs.b2 = (Vh - Vb * K / kQ + K * K) / a0;
-        coeffs.a1 = 2.0 * (K * K - 1.0) / a0;
-        coeffs.a2 = (1.0 - K / kQ + K * K) / a0;
-        return coeffs;
-    }
-
-    static BiquadCoefficients DesignKWeightingHighPass(double sampleRate)
-    {
-        constexpr double kQ = 0.5003270373253953;
-        constexpr double kFc = 38.13547087613982;
-        const double K = std::tan(3.14159265358979323846 * kFc / sampleRate);
-        const double a0 = 1.0 + K / kQ + K * K;
-
-        BiquadCoefficients coeffs;
-        coeffs.b0 = 1.0 / a0;
-        coeffs.b1 = -2.0 / a0;
-        coeffs.b2 = 1.0 / a0;
-        coeffs.a1 = 2.0 * (K * K - 1.0) / a0;
-        coeffs.a2 = (1.0 - K / kQ + K * K) / a0;
-        return coeffs;
+        return loudness::MeanSquareToLufs(meanSquare);
     }
 
     static int FindBarkBandIndex(double frequencyHz)
@@ -575,12 +494,8 @@ class InputAnalyzerEffect : public EffectProcessor
         mMomentaryEnergyRing.assign(mMomentaryWindowSamples, 0.0);
         mShortTermEnergyRing.assign(mShortTermWindowSamples, 0.0);
 
-        const auto highShelf = DesignKWeightingHighShelf(mSampleRate);
-        const auto highPass = DesignKWeightingHighPass(mSampleRate);
-        mLeftLoudnessFilter1.Set(highShelf);
-        mLeftLoudnessFilter2.Set(highPass);
-        mRightLoudnessFilter1.Set(highShelf);
-        mRightLoudnessFilter2.Set(highPass);
+        mLeftLoudnessFilter.Prepare(mSampleRate);
+        mRightLoudnessFilter.Prepare(mSampleRate);
     }
 
     void UpdateLoudnessAnalysis(const float* leftIn, const float* rightIn, int numSamples)
@@ -595,8 +510,8 @@ class InputAnalyzerEffect : public EffectProcessor
             const double leftSample = leftIn ? static_cast<double>(leftIn[i]) : 0.0;
             const double rightSample = rightIn ? static_cast<double>(rightIn[i]) : 0.0;
 
-            const double leftFiltered = mLeftLoudnessFilter2.Process(mLeftLoudnessFilter1.Process(leftSample));
-            const double rightFiltered = mRightLoudnessFilter2.Process(mRightLoudnessFilter1.Process(rightSample));
+            const double leftFiltered = mLeftLoudnessFilter.Process(leftSample);
+            const double rightFiltered = mRightLoudnessFilter.Process(rightSample);
             const double sampleEnergy = (leftFiltered * leftFiltered) + (rightFiltered * rightFiltered);
 
             PushWindowEnergy(sampleEnergy, mMomentaryEnergyRing, mMomentaryWindowEnergy, mMomentaryWriteIndex,
@@ -674,12 +589,7 @@ class InputAnalyzerEffect : public EffectProcessor
 
     void RecomputeIntegratedLoudness()
     {
-        if (mLoudnessBlockCount == 0)
-        {
-            mIntegratedLufs.store(kNoLoudnessLufs, std::memory_order_relaxed);
-            return;
-        }
-
+        // Scratch on the stack: the gating itself (loudness::GatedLoudness) allocates nothing.
         std::array<double, kLoudnessHistoryBlocks> energies{};
         std::size_t validCount = 0;
 
@@ -689,52 +599,14 @@ class InputAnalyzerEffect : public EffectProcessor
                 (mLoudnessBlockWriteIndex + kLoudnessHistoryBlocks - mLoudnessBlockCount + i) % kLoudnessHistoryBlocks;
             const double lufs = mLoudnessBlocks[index];
 
-            if (!IsFinite(lufs) || lufs < kLoudnessAbsoluteGateLufs)
+            if (IsFinite(lufs))
             {
-                continue;
-            }
-
-            energies[validCount++] = LufsToMeanSquare(lufs);
-        }
-
-        if (validCount == 0)
-        {
-            mIntegratedLufs.store(kNoLoudnessLufs, std::memory_order_relaxed);
-            return;
-        }
-
-        double absEnergySum = 0.0;
-
-        for (std::size_t i = 0; i < validCount; ++i)
-        {
-            absEnergySum += energies[i];
-        }
-
-        const double absAverageEnergy = absEnergySum / static_cast<double>(validCount);
-        const double relativeGateLufs = MeanSquareToLufs(absAverageEnergy) + kLoudnessRelativeGateDb;
-
-        double gatedEnergySum = 0.0;
-        std::size_t gatedCount = 0;
-
-        for (std::size_t i = 0; i < validCount; ++i)
-        {
-            const double lufs = MeanSquareToLufs(energies[i]);
-
-            if (lufs > relativeGateLufs)
-            {
-                gatedEnergySum += energies[i];
-                ++gatedCount;
+                energies[validCount++] = LufsToMeanSquare(lufs);
             }
         }
 
-        if (gatedCount == 0)
-        {
-            mIntegratedLufs.store(kNoLoudnessLufs, std::memory_order_relaxed);
-            return;
-        }
-
-        const double integratedEnergy = gatedEnergySum / static_cast<double>(gatedCount);
-        mIntegratedLufs.store(MeanSquareToLufs(integratedEnergy), std::memory_order_relaxed);
+        const auto integrated = loudness::GatedLoudness(energies.data(), validCount);
+        mIntegratedLufs.store(integrated ? *integrated : kNoLoudnessLufs, std::memory_order_relaxed);
     }
 
     static double BallisticAlpha(double deltaSeconds, double timeConstantSeconds)
@@ -805,10 +677,8 @@ class InputAnalyzerEffect : public EffectProcessor
     std::vector<double> mMomentaryEnergyRing;
     std::vector<double> mShortTermEnergyRing;
     std::array<double, kLoudnessHistoryBlocks> mLoudnessBlocks{};
-    BiquadFilter mLeftLoudnessFilter1;
-    BiquadFilter mLeftLoudnessFilter2;
-    BiquadFilter mRightLoudnessFilter1;
-    BiquadFilter mRightLoudnessFilter2;
+    loudness::KWeightingFilter mLeftLoudnessFilter;
+    loudness::KWeightingFilter mRightLoudnessFilter;
 };
 
 inline void RegisterInputAnalyzerEffect()

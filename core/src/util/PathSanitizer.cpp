@@ -118,4 +118,52 @@ std::string SanitizeFilename(const std::string& raw)
 {
     return SanitizePathSegment(raw, true);
 }
+
+std::string LimitFilenameLength(const std::string& name, std::size_t maxLength)
+{
+    if (name.size() <= maxLength)
+    {
+        return name;
+    }
+
+    // Keep a short extension (".nam", ".wav", ".json"); a long "extension" is part of the title.
+    const auto dot = name.rfind('.');
+    const std::string extension = dot != std::string::npos && dot > 0 && name.size() - dot <= 8 ? name.substr(dot) : std::string{};
+    const std::size_t stemLimit = maxLength > extension.size() ? maxLength - extension.size() : 1;
+    std::string stem = name.substr(0, std::min(stemLimit, name.size() - extension.size()));
+
+    while (!stem.empty() && (stem.back() == '.' || stem.back() == '-' || stem.back() == '_'))
+    {
+        stem.pop_back();
+    }
+
+    return (stem.empty() ? std::string{"resource"} : stem) + extension;
+}
+
+std::filesystem::path LimitSubfolderSegments(const std::filesystem::path& subfolder, std::size_t maxSegmentLength)
+{
+    std::filesystem::path result;
+
+    for (const auto& part : subfolder)
+    {
+        std::string segment = part.string();
+
+        if (segment.size() > maxSegmentLength)
+        {
+            segment.resize(maxSegmentLength);
+
+            while (!segment.empty() && (segment.back() == '.' || segment.back() == '-' || segment.back() == '_'))
+            {
+                segment.pop_back();
+            }
+        }
+
+        if (!segment.empty())
+        {
+            result /= segment;
+        }
+    }
+
+    return result;
+}
 } // namespace guitarfx::util

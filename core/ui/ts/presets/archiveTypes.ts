@@ -1,5 +1,6 @@
 import type { BlendDefinition, Preset, StoredEffectPreset } from "../types.js";
 import type { InstalledPackMetadata } from "../toneSharingPanel.js";
+import type { RemoteResourceRef } from "../remoteResources.js";
 export type PresetArchiveResource = {
   id: string;
   name?: string;
@@ -37,7 +38,9 @@ export type PresetArchive = {
   preset: Preset;
   resources: PresetArchiveResource[];
   blends?: BlendDefinition[];
-  /** tone3000-sourced resources excluded from the archive per their redistribution terms. */
+  /** Remote resources named rather than carried, from any provider (remoteArchiveResources.ts). */
+  remoteResources?: RemoteResourceRef[];
+  /** The Tone3000 ones again, for app versions that read only this list. */
   tone3000Resources?: Tone3000ResourceRef[];
 };
 
@@ -48,7 +51,9 @@ export type PresetCollectionArchive = {
   resources: PresetArchiveResource[];
   blends?: BlendDefinition[];
   presetFolders?: PresetArchiveFolder[];
-  /** tone3000-sourced resources excluded from the archive per their redistribution terms. */
+  /** Remote resources named rather than carried, from any provider (remoteArchiveResources.ts). */
+  remoteResources?: RemoteResourceRef[];
+  /** The Tone3000 ones again, for app versions that read only this list. */
   tone3000Resources?: Tone3000ResourceRef[];
   /**
    * Effect presets by effect type, on the archive's resource and blend ids. A factory archive's

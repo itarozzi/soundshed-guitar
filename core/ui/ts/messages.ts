@@ -15,6 +15,7 @@ import { DEBUG_SNAPSHOT_SKIP_TYPES, onCaptureDebugSnapshot, onDebugSnapshotWritt
 import { onCompositeDefinitionAdded, onCompositeDefinitionRemoved, onCompositeEditModeExited, onCompositeEditState, onCompositeLibrary, onCompositePresetList, onCompositePresetLoaded, onCompositePresetSaved, onCustomEffectLibrary, onCustomEffectSaved, onEffectCatalog, onEffectResponse, onGeneratedCustomEffectBundleExportFailed, onGeneratedCustomEffectBundleExportSaved, onIrAlignment, onSimpleCabIrMatch } from "./messages/effectHandlers.js";
 import { onLayoutExportFailed, onLayoutExportSaved, onLayoutImageSelected, onLayoutImagesLoaded, onLayoutLibraryLoaded, onLayoutSaved } from "./messages/layoutHandlers.js";
 import { onNavigateToToneSharingDeepLink } from "./messages/mixerHandlers.js";
+import { onPresetLevelMeasureFailed, onPresetLevelMeasured } from "./messages/presetLevelHandlers.js";
 import { onEffectPresets, onPresetArchiveSessionEnded, onPresetArchiveSessionFailed, onPresetArchiveSessionStarted, onPresetData, onPresetDirtyChanged, onPresetExportFailed, onPresetExportSaved, onPresetFavorites, onPresetFolders, onPresetList, onPresetLoaded, onPresetRatings, onPresetRecents, onPresetSaved, onSetlistCursorChanged, onSetlists } from "./messages/presetHandlers.js";
 import { onBlendExportFailed, onBlendExportSaved, onHostedPluginResourceLoadCompleted, onHostedPluginResourceLoadFailed, onIrLoaded, onLibraryExportFailed, onLibraryExportSaved, onModelLoaded, onNodeResourceBrowseCancelled, onResourceCleanupResult, onResourceData, onResourceDataFailed, onResourceDeleteFailed, onResourceFolderListing, onResourceFolderListingFailed, onResourceFolderMetadata, onResourceFolderPicked, onResourceImported, onResourceImportFailed, onResourceRemoved, onResourceUsageInfo, onToneSharingPackDeleteFailed } from "./messages/resourceHandlers.js";
 import { onSharedSyncState, onSharedSyncUpdated } from "./messages/sharedSync.js";
@@ -134,6 +135,8 @@ const MESSAGE_HANDLERS: Record<string, MessageHandler> = {
   "effectResponse": onEffectResponse,
   "simpleCabIrMatch": onSimpleCabIrMatch,
   "irAlignment": onIrAlignment,
+  "presetLevelMeasured": onPresetLevelMeasured,
+  "presetLevelMeasureFailed": onPresetLevelMeasureFailed,
   "compositeDefinitionAdded": onCompositeDefinitionAdded,
   "compositeDefinitionRemoved": onCompositeDefinitionRemoved,
   "compositeEditState": onCompositeEditState,

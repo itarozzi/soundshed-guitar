@@ -3,6 +3,7 @@ import { importGeneratedCustomEffect, getCustomEffectEntry } from "./customEffec
 import { Features, isFeatureEnabled } from "./featureFlags.js";
 import { showNotification } from "./notifications.js";
 import { getApiBaseUrl } from "./apiConfig.js";
+import { toneSharingFetch } from "./toneSharingPanel/api.js";
 import type { GraphNode } from "./types.js";
 import { arrayBufferToBase64, escapeHtml } from "./utils.js";
 
@@ -179,11 +180,9 @@ async function designerApiFetch<T>(path: string, init: RequestInit = {}): Promis
     headers.set("content-type", "application/json");
   }
 
-  const response = await fetch(`${apiBase}${path}`, {
-    ...init,
-    headers,
-    credentials: "include",
-  });
+  // The AI routes need the signed-in session. The cookie never reaches the API from the app's
+  // own origin, so the session goes as a header, which toneSharingFetch adds for the API's origin.
+  const response = await toneSharingFetch(`${apiBase}${path}`, { ...init, headers });
 
   let payload: { ok?: boolean; data?: T; error?: { message?: string } } | null = null;
   try {

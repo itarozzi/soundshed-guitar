@@ -194,6 +194,12 @@ export function sendAnalyzeIrAlignment(requestId: string, irA: ResourceRef | nul
   postMessage({ type: "analyzeIrAlignment", requestId, ...(irA ? { irA } : {}), ...(irB ? { irB } : {}) });
 }
 
+/** Asks how loud a preset plays a demo clip, measured offline on a graph of its own; answered by
+ * "presetLevelMeasured" or "presetLevelMeasureFailed" carrying the same requestId (see presetLevel.ts). */
+export function sendMeasurePresetLevel(requestId: string, request: Record<string, unknown>): void {
+  postMessage({ ...request, type: "measurePresetLevel", requestId });
+}
+
 /** One request to the standalone app's audio device settings (see settings/audioDevice.ts). */
 export function sendAudioDeviceRequest(action: string, args: Record<string, unknown> = {}): void {
   postMessage({ type: "audioDevice", action, ...args });

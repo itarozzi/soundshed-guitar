@@ -58,6 +58,7 @@ instead of scrolling one enormous one:
 | `controller/PluginControllerMixer.cpp`          | Mixer slots and levels                                |
 | `controller/PluginControllerMetronome.cpp`      | Click track                                           |
 | `controller/PluginControllerDemo.cpp`           | Demo preview and offline render                       |
+| `controller/PluginControllerPresetLevel.cpp`    | `measurePresetLevel`'s message-thread half: the preset resolved, prepared and built into a graph of its own for `PresetLevelMeter` |
 | `controller/PluginControllerEffectPresets.cpp`  | Per-effect user presets: parameters, resources, config |
 
 Free functions shared between those files live in `core/src/controller/internal/`
@@ -84,6 +85,7 @@ Prefer adding to one of these over adding another member to the controller:
 | `TunerService`                   | Pitch readings handed from the audio thread to the UI, and the tuner's own messages (on/off, live monitoring, reference pitch) |
 | `HostStateRelay`                 | The DAW's saves, restores and program changes from other threads, handed to the message thread: a fallback blob for a save it cannot answer in time, and a queue for restores it cannot start in time |
 | `ResourceFolderScanner`          | The resource browser's folder listing, on detached workers so a slow drive never stalls the message thread. A generation counter supersedes in-flight scans; `Shutdown()` (called from `~PluginController`, not left to member teardown) waits for the last worker |
+| `PresetLevelMeter`               | `measurePresetLevel`: renders a preset over a demo clip on a detached graph (`MultiPresetMixer::BuildDetachedExecutor`) on one low-priority worker, never the live mixer or the DSP lock, and answers BS.1770 loudness (`dsp/Loudness.h`, shared with the Signal Analyzer), peak and RMS through `RunOnMainThread` |
 
 What is left on `PluginController` itself is the shared core every area needs
 — the host, the mixer, the DSP lock, the active preset, app settings, the

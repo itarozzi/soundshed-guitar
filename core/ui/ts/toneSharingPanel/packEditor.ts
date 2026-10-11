@@ -1,12 +1,19 @@
 /**
  * Authoring a pack: the modal, the draft list it can be added to, and the save
  * that either keeps it a draft or publishes it.
+ *
+ * The modal also starts a pack from a preset folder; ./folderPack.ts owns that
+ * list and the uploads it needs.
  */
 
-import { apiFetch, toneSharingFetch } from "./api.js";
+import type { Preset } from "../types.js";
+import { apiFetch } from "./api.js";
 import { loadBrowse, loadMine } from "./browse.js";
+import { ensurePublishConsent } from "./consent.js";
 import { element, setText } from "./dom.js";
+import { clearFolderPackSession, countFolderPackUploads, getFolderPackSession, renderFolderPackSelection, resolveFolderPackItemIds, startFolderPackSession } from "./folderPack.js";
 import { buildPackImageVariants } from "./images.js";
+import { uploadToneSharingAsset } from "./itemUpload.js";
 import { toneSharingState } from "./state.js";
 import type { ToneSharingItem, ToneSharingPack, ToneSharingPackDetails } from "./types.js";
 import { escapeHtml } from "../utils.js";
@@ -31,7 +38,7 @@ export function setPublishPackBusy(busy: boolean, message?: string): void {
     }
   });
   document.querySelectorAll<HTMLInputElement>("#tone-sharing-pack-items input[type='checkbox']").forEach((checkbox) => {
-    checkbox.disabled = busy;
+    checkbox.disabled = busy || checkbox.dataset.packBlocked === "true";
   });
   if (progress) {
     progress.style.display = busy ? "flex" : "none";
@@ -42,23 +49,32 @@ export function setPublishPackBusy(busy: boolean, message?: string): void {
   }
 }
 
-export async function openPackModal(packId?: string, preCheckItemId?: string): Promise<void> {
-  editingPackId = packId ?? null;
-  const modal = element<HTMLElement>("tone-sharing-pack-modal");
-  if (!modal) {
-    return;
-  }
+/** Empties the form and sets the item list's heading for the kind of pack being made. */
+function resetPackModal(itemsLabel: string, itemsHint: string): void {
   setPublishPackBusy(false, "Publishing pack...");
-
   const titleEl = element<HTMLInputElement>("tone-sharing-pack-title");
   const descEl = element<HTMLTextAreaElement>("tone-sharing-pack-description");
   const imageEl = element<HTMLInputElement>("tone-sharing-pack-image");
-  const titleHeader = element<HTMLElement>("tone-sharing-pack-modal-title");
-
   if (titleEl) titleEl.value = "";
   if (descEl) descEl.value = "";
   if (imageEl) imageEl.value = "";
   setText("tone-sharing-pack-status", "");
+  setText("tone-sharing-pack-items-label", itemsLabel);
+  setText("tone-sharing-pack-items-hint", itemsHint);
+}
+
+export async function openPackModal(packId?: string, preCheckItemId?: string): Promise<void> {
+  editingPackId = packId ?? null;
+  clearFolderPackSession();
+  const modal = element<HTMLElement>("tone-sharing-pack-modal");
+  if (!modal) {
+    return;
+  }
+  resetPackModal("My Published Presets", "Check presets to include in this pack");
+
+  const titleEl = element<HTMLInputElement>("tone-sharing-pack-title");
+  const descEl = element<HTMLTextAreaElement>("tone-sharing-pack-description");
+  const titleHeader = element<HTMLElement>("tone-sharing-pack-modal-title");
 
   let checkedItemIds = new Set<string>(preCheckItemId ? [preCheckItemId] : []);
 
@@ -85,6 +101,40 @@ export async function openPackModal(packId?: string, preCheckItemId?: string): P
   modal.style.display = "flex";
 }
 
+/**
+ * Opens the modal on a new pack made from a preset folder: titled after the
+ * folder, listing its presets, all checked. `loadPreset` returns a preset in
+ * full — graph and Tone Sharing origin — where the chooser's list has a summary.
+ */
+export async function openFolderPackModal(
+  folderName: string,
+  presets: Preset[],
+  loadPreset: (presetId: string) => Promise<Preset>,
+): Promise<void> {
+  editingPackId = null;
+  clearFolderPackSession();
+  const modal = element<HTMLElement>("tone-sharing-pack-modal");
+  if (!modal) {
+    return;
+  }
+  resetPackModal(`Presets in ${folderName}`, "Presets not yet on Tone Sharing are uploaded as drafts");
+  const titleEl = element<HTMLInputElement>("tone-sharing-pack-title");
+  if (titleEl) titleEl.value = folderName;
+  setText("tone-sharing-pack-modal-title", "Create Pack from Folder");
+  const itemsHost = element<HTMLElement>("tone-sharing-pack-items");
+  if (itemsHost) itemsHost.innerHTML = "";
+  setText("tone-sharing-pack-status", "Loading your presets on Tone Sharing...");
+  modal.style.display = "flex";
+
+  try {
+    await startFolderPackSession(folderName, presets, loadPreset);
+    renderFolderPackSelection();
+    setText("tone-sharing-pack-status", "");
+  } catch (error) {
+    setText("tone-sharing-pack-status", `Load failed: ${(error as Error).message}`);
+  }
+}
+
 export function closePackModal(force = false): void {
   if (publishPackInFlight && !force) {
     return;
@@ -94,6 +144,7 @@ export function closePackModal(force = false): void {
     modal.style.display = "none";
   }
   editingPackId = null;
+  clearFolderPackSession();
 }
 
 export async function loadMyDraftPacksForSelect(): Promise<void> {
@@ -142,57 +193,44 @@ export async function savePack(publish: boolean): Promise<void> {
     return;
   }
 
-  if (publish) {
-    setPublishPackBusy(true, editingPackId ? "Submitting pack for approval..." : "Publishing pack...");
-  }
-
-  const itemIds = Array.from(document.querySelectorAll<HTMLInputElement>("#tone-sharing-pack-items input[data-pack-item-id]:checked"))
+  const folderPack = getFolderPackSession() !== null;
+  const uploadCount = folderPack ? countFolderPackUploads() : 0;
+  const checkedItemIds = Array.from(document.querySelectorAll<HTMLInputElement>("#tone-sharing-pack-items input[data-pack-item-id]:checked"))
     .map((input) => input.dataset.packItemId ?? "")
     .filter(Boolean);
+  const checkedPresetCount = document.querySelectorAll("#tone-sharing-pack-items input[data-pack-preset-id]:checked").length;
 
-  if (itemIds.length === 0) {
+  if ((folderPack ? checkedPresetCount : checkedItemIds.length) === 0) {
     setText("tone-sharing-pack-status", "Select at least one preset.");
-    if (publish) {
-      setPublishPackBusy(false, "Publishing pack...");
-    }
     return;
+  }
+
+  if (uploadCount > 0) {
+    try {
+      await ensurePublishConsent();
+    } catch (error) {
+      setText("tone-sharing-pack-status", `${publish ? "Publish" : "Save"} cancelled: ${(error as Error).message}`);
+      return;
+    }
+  }
+
+  // Uploading a folder's presets takes a while, so a draft save locks the form too.
+  const busy = publish || uploadCount > 0;
+  if (busy) {
+    setPublishPackBusy(true, publish ? (editingPackId ? "Submitting pack for approval..." : "Publishing pack...") : "Saving pack...");
   }
 
   setText("tone-sharing-pack-status", editingPackId ? "Saving..." : "Creating pack...");
 
   try {
+    const itemIds = folderPack
+      ? await resolveFolderPackItemIds((message) => setText("tone-sharing-pack-status", message))
+      : checkedItemIds;
+
     let thumbnailAssetId: string | undefined;
     if (imageFile) {
       const variants = await buildPackImageVariants(imageFile);
-      const thumbnailBlob = variants.small.blob;
-      const init = await apiFetch<{ uploadId: string }>("/uploads/init", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          kind: "thumbnail",
-          mimeType: thumbnailBlob.type || "application/octet-stream",
-          byteSize: thumbnailBlob.size
-        })
-      });
-
-      const uploadResponse = await toneSharingFetch(`/uploads/${init.uploadId}`, {
-        method: "PUT",
-        headers: {
-          "content-type": thumbnailBlob.type || "application/octet-stream",
-        },
-        body: thumbnailBlob,
-      });
-      const uploadPayload = await uploadResponse.json().catch(() => null);
-      if (!uploadResponse.ok || uploadPayload?.ok === false) {
-        throw new Error(uploadPayload?.error?.message || `Pack image upload failed (${uploadResponse.status})`);
-      }
-
-      const complete = await apiFetch<{ assetId: string }>("/uploads/complete", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ uploadId: init.uploadId })
-      });
-      thumbnailAssetId = complete.assetId;
+      thumbnailAssetId = await uploadToneSharingAsset("thumbnail", variants.small.blob);
     }
 
     let packId: string;
@@ -220,6 +258,11 @@ export async function savePack(publish: boolean): Promise<void> {
     });
 
     if (publish) {
+      // A draft item in the pack would never reach the moderators, so it goes with the pack.
+      const draftIds = new Set(toneSharingState.myItems.filter((item) => item.moderationStatus === "draft").map((item) => item.id));
+      for (const itemId of itemIds.filter((id) => draftIds.has(id))) {
+        await apiFetch(`/items/${itemId}/publish`, { method: "POST" });
+      }
       await apiFetch(`/packs/${packId}/publish`, { method: "POST" });
       setText("tone-sharing-pack-status", "Pack submitted for moderator approval.");
       setPublishPackBusy(false, "Publishing pack...");
@@ -232,7 +275,7 @@ export async function savePack(publish: boolean): Promise<void> {
   } catch (error) {
     setText("tone-sharing-pack-status", `${publish ? "Publish" : "Save"} failed: ${(error as Error).message}`);
   } finally {
-    if (publish) {
+    if (busy) {
       setPublishPackBusy(false, "Publishing pack...");
     }
   }

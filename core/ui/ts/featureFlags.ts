@@ -7,7 +7,7 @@ export const Features = {
   ResourceLibrary: "resourceLibrary",
   RiffLibrary: "riffLibrary",
   ToneSharing: "toneSharing",
-  AiToneSearch: "aiToneSearch",
+  ToneBuilder: "toneBuilder",
   Jam: "jam",
   PracticeTool: "practiceTool",
   ExperimentalEffects: "experimentalEffects",
@@ -72,10 +72,10 @@ export const FEATURE_DEFINITIONS: FeatureDefinition[] = [
     defaultEnabled: true,
   },
   {
-    id: Features.AiToneSearch,
-    key: "features.aiToneSearch.enabled",
-    label: "AI Tone Search",
-    description: "Shows the AI Tone Search tab and tools under Tone Sharing.",
+    id: Features.ToneBuilder,
+    key: "features.toneBuilder.enabled",
+    label: "AI Tone Builder",
+    description: "Adds a Tone Builder button to Tone Sharing: it checks the community presets first, then researches a tone, picks NAM captures and IRs, and builds ready-to-play presets.",
     defaultEnabled: false,
   },
   {
@@ -184,7 +184,7 @@ export const FEATURE_GROUPS: FeatureGroupDefinition[] = [
     id: "power",
     title: "Power Features",
     description: "These features are optional and may be under development or designed for advanced users.",
-    featureIds: [Features.AiToneSearch, Features.ExperimentalEffects, Features.CustomEffects, Features.CompositeEffects, Features.BlendTools, Features.EffectLayout, Features.ResourceCleanup, Features.FactoryPresetArchives, Features.DebugStateCapture, Features.EffectsPerformancePads],
+    featureIds: [Features.ToneBuilder, Features.ExperimentalEffects, Features.CustomEffects, Features.CompositeEffects, Features.BlendTools, Features.EffectLayout, Features.ResourceCleanup, Features.FactoryPresetArchives, Features.DebugStateCapture, Features.EffectsPerformancePads],
   },
 ];
 

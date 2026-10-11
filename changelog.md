@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Tone Sharing
+* Right-click a folder in the preset chooser and pick **Create Pack…** to start a Tone Sharing pack from the folder's presets, its subfolders' included. The pack takes the folder's name, and each preset shows whether it is already on Tone Sharing. Presets that aren't yet are uploaded as drafts when you save, and only go to the moderators when you publish the pack. Presets you installed from someone else's pack are left out.
+* **AI Tone Builder** (Settings → Features → Power Features, off by default; needs a Soundshed sign-in): press **Tone Builder…** in Tone Sharing, name an artist, song or style and pick how hard it should think. It first shows anything Tone Sharing already has for it, then researches the rig, picks NAM captures and IRs, and proposes ready-to-play presets with pack artwork. You review every capture it chose before anything is downloaded; gear no capture covers gets a built-in stand-in. The presets are balanced to the same level as the factory packs, saved to a "Tone Builder" folder, and can be shared on Tone Sharing under your account.
+* The AI Tone Search tab is gone; the Tone Builder replaces it.
+* Imported Tone3000 models now remember their licence and what the capture covers (amp only, full rig, pedal), and shared presets name models from any source, not only Tone3000.
+
 ### Settings
 * A new **Mouse wheel adjusts controls** switch in Settings → General → UI. Turn it off and the scroll wheel stops changing knobs, sliders and the metronome tempo as the pointer passes over them, and just scrolls the page.
 

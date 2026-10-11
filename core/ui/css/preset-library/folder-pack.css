@@ -1,0 +1,72 @@
+/* Right-click menu on a folder row; hung from <body> by presets/folderContextMenu.ts. */
+.preset-folder-menu {
+  position: fixed;
+  z-index: calc(var(--z-modal, 1000) + 10);
+  min-width: 200px;
+  max-width: min(320px, calc(100vw - 8px));
+  padding: 6px;
+  border: 1px solid var(--modal-border);
+  border-radius: var(--radius-lg);
+  background: var(--modal-bg-raised);
+  box-shadow: 0 18px 36px rgba(0, 0, 0, 0.42);
+  color: var(--modal-text);
+  font-size: 12px;
+}
+
+.preset-folder-menu-title {
+  padding: 4px 8px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--modal-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.preset-folder-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--modal-text);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.preset-folder-menu-item:hover:not(:disabled),
+.preset-folder-menu-item:focus-visible {
+  background: var(--color-accent);
+  color: #fff;
+  outline: none;
+}
+
+.preset-folder-menu-item:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.preset-folder-menu-hint {
+  font-size: 11px;
+  font-weight: 400;
+  opacity: 0.75;
+  white-space: nowrap;
+}
+
+/* Whether a folder preset is already on Tone Sharing, in the pack modal (toneSharingPanel/folderPack.ts). */
+.tone-sharing-select-item-hint {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.tone-sharing-select-item.is-blocked {
+  opacity: 0.55;
+}

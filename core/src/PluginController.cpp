@@ -20,6 +20,7 @@
 #include "controller/DemoPreviewService.h"
 #include "controller/HostStateRelay.h"
 #include "controller/MetronomeService.h"
+#include "controller/PresetLevelMeter.h"
 #include "controller/ResourceFolderScanner.h"
 #include "controller/SignalTestService.h"
 #include "controller/TelemetryPublisher.h"
@@ -57,6 +58,11 @@ PluginController::PluginController(IPluginHost& host) : mHost(host)
     mSignalTest = std::make_unique<SignalTestService>(sendToUI);
     mResourceFolderScanner = std::make_unique<ResourceFolderScanner>(sendToUI, mResourceLibrary);
     mResourceFolderScanner->RegisterMessageHandlers(mMessageHandlers);
+    mPresetLevelMeter = std::make_unique<PresetLevelMeter>(
+        mHost, sendToUI, [this](const nlohmann::json& payload, nlohmann::json& failure) {
+            return BuildPresetLevelJob(payload, failure);
+        });
+    mPresetLevelMeter->RegisterMessageHandlers(mMessageHandlers);
     mTuner = std::make_unique<TunerService>(sendToUI, mPresetMixer, mDSPMutex);
     mTuner->RegisterMessageHandlers(mMessageHandlers);
     mDemoPreview = std::make_unique<DemoPreviewService>(mHost, mPresetMixer, mDSPMutex, mSignalTest->ActiveFlag(),
@@ -86,6 +92,9 @@ PluginController::~PluginController()
     // SendMessageToUI, so they must stop while the members it reaches into are still
     // alive, not part-way through member teardown.
     mResourceFolderScanner->Shutdown();
+
+    // Likewise the level meter's worker, whose graphs read the resource library.
+    mPresetLevelMeter->Shutdown();
 
     // Close after the workers are done, since they can still write through it.
     // This checkpoints the WAL so the -wal file does not grow across sessions.

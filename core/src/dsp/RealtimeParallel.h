@@ -51,6 +51,40 @@ inline void CpuRelax() noexcept
 /// DSP owns.
 void FlushDenormalsOnThisThread() noexcept;
 
+/// Drops the calling thread below normal priority, so DSP it runs in the background (an offline
+/// render beside the live audio) gives way to everything interactive. Not restored: for a thread
+/// of its own. A no-op where there is no such priority to ask for.
+void LowerPriorityOfThisThread() noexcept;
+
+namespace detail
+{
+inline thread_local bool tSharedHelpersRefused = false;
+}
+
+/// Keeps the calling thread's DSP off the helpers every effect shares (DualLaneExecutor), for as
+/// long as it lives: while one is in scope, Run() refuses and the effect does both halves itself.
+/// For an offline render on a worker thread, which must never take the one helper the audio
+/// thread's effects lean on, nor leave the audio thread to find it busy and run serially.
+class ScopedSharedHelpersRefused
+{
+  public:
+    ScopedSharedHelpersRefused() noexcept : mPrevious(detail::tSharedHelpersRefused)
+    {
+        detail::tSharedHelpersRefused = true;
+    }
+
+    ~ScopedSharedHelpersRefused()
+    {
+        detail::tSharedHelpersRefused = mPrevious;
+    }
+
+    ScopedSharedHelpersRefused(const ScopedSharedHelpersRefused&) = delete;
+    ScopedSharedHelpersRefused& operator=(const ScopedSharedHelpersRefused&) = delete;
+
+  private:
+    bool mPrevious;
+};
+
 /// A fixed set of helper threads the audio thread fans work out to, and works alongside.
 ///
 /// Run() publishes a dispatch of `count` tasks and claims them together with the workers;
@@ -191,7 +225,7 @@ class DualLaneExecutor
     /// mid-Run.
     template <typename WorkerFn, typename MainFn> bool Run(WorkerFn&& workerFn, MainFn&& mainFn)
     {
-        if (!IsAvailable())
+        if (!IsAvailable() || detail::tSharedHelpersRefused)
         {
             return false;
         }

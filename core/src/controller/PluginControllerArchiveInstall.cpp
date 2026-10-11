@@ -12,7 +12,7 @@
  * Where it differs from that path, on purpose: a model or IR the library already holds is
  * reused rather than copied again (matched on the engine's own content hash); the running
  * preset is left alone rather than replaced by the last one saved; and every archive is read
- * and every Tone3000 model resolved before anything is written, so a tone that cannot be
+ * and every remote model resolved before anything is written, so a tone that cannot be
  * installed leaves nothing half-installed behind.
  */
 
@@ -21,6 +21,7 @@
 #include "controller/internal/BlendSupport.h"
 #include "controller/internal/ControllerUtils.h"
 #include "controller/internal/PresetArchiveSupport.h"
+#include "controller/internal/RemoteResourceRefs.h"
 #include "presets/PresetStorage.h"
 #include "resources/ResourceLibrary.h"
 #include "util/Base64.h"
@@ -151,63 +152,52 @@ void PluginController::HandleInstallPresetArchivesRequest(const nlohmann::json& 
         archives.push_back({std::move(*parsed), title});
     }
 
-    // A Tone3000 model is shared as a reference, not a file: it has to be in the library
-    // already (installed in Soundshed Guitar, which can download it).
-    std::unordered_map<std::string, std::string> tone3000Ids;
-    std::vector<std::string> missingTone3000;
+    // A remote model or IR is shared as a reference, not a file: it has to be in the library
+    // already (installed in Soundshed Guitar, which can download it from its provider).
+    std::unordered_map<std::string, std::string> remoteIds;
+    std::vector<std::string> missingRemote;
+    std::vector<std::string> missingProviders;
 
     for (const auto& archive : archives)
     {
-        for (const auto& reference : archive.parsed.tone3000Resources)
+        for (const auto& reference : archive.parsed.remoteResources)
         {
-            if (!reference.is_object())
-            {
-                continue;
-            }
-
             const std::string id = reference.value("id", "");
-            const std::string type = reference.value("type", "nam");
-            const std::string toneId = reference.value("toneId", "");
-            const std::string modelId = reference.value("modelId", "");
-            std::string found;
-
-            for (const auto& resource : mResourceLibrary.GetAllResources())
-            {
-                const auto meta = [&](const char* key) {
-                    const auto it = resource.metadata.find(key);
-                    return it == resource.metadata.end() ? std::string{} : it->second;
-                };
-
-                if (resource.type == type && !toneId.empty() && meta("provider") == "tone3000" && meta("toneId") == toneId &&
-                    meta("modelId") == modelId)
-                {
-                    found = resource.id;
-                    break;
-                }
-            }
+            const std::string found = FindRemoteResource(mResourceLibrary, reference);
 
             if (found.empty())
             {
-                missingTone3000.push_back(reference.value("name", modelId.empty() ? id : modelId));
+                const std::string name = reference.value("name", "");
+                const std::string provider = reference.value("provider", "");
+                missingRemote.push_back(name.empty() ? id : name);
+                if (std::find(missingProviders.begin(), missingProviders.end(), provider) == missingProviders.end())
+                {
+                    missingProviders.push_back(provider);
+                }
             }
             else if (!id.empty())
             {
-                tone3000Ids[id] = found;
+                remoteIds[id] = found;
             }
         }
     }
 
-    if (!missingTone3000.empty())
+    if (!missingRemote.empty())
     {
-        std::string names;
+        const auto join = [](const std::vector<std::string>& items) {
+            std::string joined;
+            for (const auto& item : items)
+            {
+                joined += (joined.empty() ? "" : ", ") + item;
+            }
+            return joined;
+        };
+        const bool onlyTone3000 = missingProviders.size() == 1 && missingProviders.front() == "tone3000";
+        const std::string from = onlyTone3000 ? "Tone3000 models" : "models from " + join(missingProviders);
 
-        for (const auto& name : missingTone3000)
-        {
-            names += (names.empty() ? "" : ", ") + name;
-        }
-
-        fail("Needs Tone3000 models", "This tone uses Tone3000 models that are not in your library (" + names +
-                                          "). Install it in Soundshed Guitar, which can download them.");
+        fail(onlyTone3000 ? "Needs Tone3000 models" : "Needs remote models",
+             "This tone uses " + from + " that are not in your library (" + join(missingRemote) +
+                 "). Install it in Soundshed Guitar, which can download them.");
         return;
     }
 
@@ -226,7 +216,7 @@ void PluginController::HandleInstallPresetArchivesRequest(const nlohmann::json& 
 
     for (auto& archive : archives)
     {
-        auto resourceIds = tone3000Ids;
+        auto resourceIds = remoteIds;
         std::unordered_map<std::string, std::string> blendIds;
 
         for (const auto& file : archive.parsed.resources)

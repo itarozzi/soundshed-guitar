@@ -9,8 +9,7 @@
  */
 
 import { API_BASE_URL } from "../apiConfig.js";
-import { Features, isFeatureEnabled } from "../featureFlags.js";
-import type { AiToneCombination, BrowseCollectionState, BrowseMode, InstalledPackMetadata, ToneSharingItem, ToneSharingShareTarget, ToneSharingUser } from "./types.js";
+import type { BrowseCollectionState, BrowseMode, InstalledPackMetadata, ToneSharingItem, ToneSharingShareTarget, ToneSharingUser } from "./types.js";
 
 export const storageKeys = {
   sessionId: "toneSharing.sessionId",
@@ -31,18 +30,6 @@ export const toneSharingState = {
   myItems: [] as ToneSharingItem[],
   installedPacks: [] as InstalledPackMetadata[]
 };
-
-export const aiSearchState = {
-  band: "",
-  song: "",
-  combinations: [] as AiToneCombination[],
-  loading: false,
-  error: ""
-};
-
-export function isAiToneSearchEnabled(): boolean {
-  return isFeatureEnabled(Features.AiToneSearch);
-}
 
 export const browseCollections: BrowseCollectionState = {
   page: 1,

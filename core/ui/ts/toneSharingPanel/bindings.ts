@@ -15,7 +15,8 @@ import { clearPackDetail, viewPack } from "./packDetail.js";
 import { openPackModal } from "./packEditor.js";
 import { previewPreset } from "./preview.js";
 import { copyToneSharingShareLink } from "./shareLinks.js";
-import { browseState, isAiToneSearchEnabled, toneSharingState } from "./state.js";
+import { browseState, toneSharingState } from "./state.js";
+import { Features, isFeatureEnabled } from "../featureFlags.js";
 
 export function bindBrowseActions(): void {
   const feed = element<HTMLElement>("tone-sharing-feed");
@@ -160,23 +161,23 @@ export function bindBrowseModeButtons(): void {
     { id: "tone-sharing-browse-items", mode: "items" },
     { id: "tone-sharing-browse-packs", mode: "packs" },
     { id: "tone-sharing-browse-review", mode: "review" },
-    { id: "tone-sharing-browse-ai-search", mode: "ai-search" },
     { id: "tone-sharing-browse-installed", mode: "installed" },
     { id: "tone-sharing-browse-mine", mode: "mine" }
   ];
 
-  const syncAiSearchButtonVisibility = () => {
-    const aiSearchButton = element<HTMLButtonElement>("tone-sharing-browse-ai-search");
-    if (aiSearchButton) {
-      aiSearchButton.style.display = isAiToneSearchEnabled() ? "" : "none";
-    }
-    if (browseState.mode === "ai-search" && !isAiToneSearchEnabled()) {
-      browseState.mode = "featured";
+  // The Tone Builder lives in its own feature (toneBuilder/panel.ts) and opens on this event.
+  const toneBuilderButton = element<HTMLButtonElement>("tone-sharing-tone-builder");
+  toneBuilderButton?.addEventListener("click", () => {
+    document.dispatchEvent(new CustomEvent("tone-builder:open", { detail: {} }));
+  });
+  const syncToneBuilderButtonVisibility = () => {
+    if (toneBuilderButton) {
+      toneBuilderButton.style.display = isFeatureEnabled(Features.ToneBuilder) ? "" : "none";
     }
   };
 
   const setActive = () => {
-    syncAiSearchButtonVisibility();
+    syncToneBuilderButtonVisibility();
     for (const entry of modes) {
       const button = element<HTMLButtonElement>(entry.id);
       if (button) {
@@ -192,9 +193,6 @@ export function bindBrowseModeButtons(): void {
       continue;
     }
     button.addEventListener("click", async () => {
-      if (entry.mode === "ai-search" && !isAiToneSearchEnabled()) {
-        return;
-      }
       browseState.activeSharedTarget = null;
       updateActiveSharedFilter();
       browseState.mode = entry.mode;

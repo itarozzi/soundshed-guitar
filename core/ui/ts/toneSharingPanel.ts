@@ -15,7 +15,7 @@
  * scripts/check-cycles.js collapses a feature's own modules for this reason.
  */
 
-import { FEATURE_FLAGS_CHANGED_EVENT, Features } from "./featureFlags.js";
+import { FEATURE_FLAGS_CHANGED_EVENT, Features, isFeatureEnabled } from "./featureFlags.js";
 import { loadAuthSession } from "./toneSharingPanel/account.js";
 import { normalizeSettingString } from "./toneSharingPanel/api.js";
 import { bindBrowseActions, bindBrowseModeButtons } from "./toneSharingPanel/bindings.js";
@@ -25,13 +25,14 @@ import { clearPackThumbnailObjectUrls } from "./toneSharingPanel/images.js";
 import { normalizeInstalledPackMetadata, reconcileInstalledPacksWithPresetLibrary } from "./toneSharingPanel/installedPacks.js";
 import { restoreLocalState } from "./toneSharingPanel/localState.js";
 import { openSharedTargetFromLocation } from "./toneSharingPanel/shareLinks.js";
-import { browseState, storageKeys, toneSharingState } from "./toneSharingPanel/state.js";
+import { storageKeys, toneSharingState } from "./toneSharingPanel/state.js";
 import { bindTopControls } from "./toneSharingPanel/topBindings.js";
 import type { InstalledPackMetadata } from "./toneSharingPanel/types.js";
 
 export { openToneSharingSignInModal } from "./toneSharingPanel/account.js";
 export { registerInstalledToneSharingPack } from "./toneSharingPanel/installedPacks.js";
 export { isToneSharingSignedIn, syncToneSharingFavoriteForPreset, syncToneSharingRatingForPreset } from "./toneSharingPanel/presetLinks.js";
+export { openFolderPackModal } from "./toneSharingPanel/packEditor.js";
 export { openToneSharingPublishPresetModal } from "./toneSharingPanel/publish.js";
 export { handleToneSharingDeepLink } from "./toneSharingPanel/shareLinks.js";
 export type { InstalledPackMetadata } from "./toneSharingPanel/types.js";
@@ -86,6 +87,17 @@ export function applyToneSharingAppSettings(settings?: Record<string, unknown>):
   })();
 }
 
+/**
+ * Whether the user is signed in. Until the Tones tab has been opened the saved
+ * session has not been checked, so it is checked here first.
+ */
+export async function ensureToneSharingSignedIn(): Promise<boolean> {
+  if (!toneSharingState.user && toneSharingState.sessionId) {
+    await loadAuthSession();
+  }
+  return Boolean(toneSharingState.user);
+}
+
 let toneSharingPanelInitialized = false;
 
 export function initializeToneSharingPanel(): void {
@@ -105,14 +117,12 @@ export function initializeToneSharingPanel(): void {
   bindBrowseActions();
   document.addEventListener(FEATURE_FLAGS_CHANGED_EVENT, (event) => {
     const detail = (event as CustomEvent<{ featureId?: string }>).detail;
-    if (detail?.featureId !== Features.AiToneSearch) {
-      return;
+    if (detail?.featureId === Features.ToneBuilder) {
+      const toneBuilderButton = element<HTMLButtonElement>("tone-sharing-tone-builder");
+      if (toneBuilderButton) {
+        toneBuilderButton.style.display = isFeatureEnabled(Features.ToneBuilder) ? "" : "none";
+      }
     }
-    if (browseState.mode === "mine") {
-      void loadMine();
-      return;
-    }
-    void loadBrowse();
   });
 
   void (async () => {

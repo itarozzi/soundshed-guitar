@@ -13,6 +13,7 @@ import { isVirtualPresetFolderId } from "../presets/folders.js";
 import { uiState } from "../state.js";
 import { nextPresetBtn, presetExportFolderButton, presetExtraActionsBtn, presetExtraActionsMenu, presetFolderAddButton, presetFolderDeleteButton, presetFolderNameInput, presetFolderRenameButton, presetLibraryCloseButton, presetLibraryPopover, presetRedoBtn, presetSelector, presetUndoBtn, prevPresetBtn, randomPresetBtn, setlistAddButton, setlistBankInput, setlistCollapsible, setlistNameInput, setlistToggle } from "./dom.js";
 import { initializePresetDrag } from "./drag.js";
+import { initializePresetFolderMenu } from "./folderContextMenu.js";
 import { createFolder, deleteFolderById, getCurrentRealPresetFolder, renameFolder, syncPresetFolderToolbarState } from "./folderControls.js";
 import { stepPresetHistory } from "./history.js";
 import { filterPresets, updatePresetDropdownSelection } from "./filter.js";
@@ -196,6 +197,8 @@ export function initializePresetControls(): void {
 
   // Presets dragged onto folders, the setlist panel and setlist pads.
   initializePresetDrag();
+  // Right-click on a folder → Create Pack….
+  initializePresetFolderMenu();
 
   if (presetFolderAddButton) {
     presetFolderAddButton.addEventListener("click", () => {

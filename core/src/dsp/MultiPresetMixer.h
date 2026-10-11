@@ -114,6 +114,17 @@ class MultiPresetMixer
     void PreparePresetSwap(const Preset& preset, const std::string& id, const std::string& name);
     void CommitPresetSwap();
 
+    /// A graph for `preset` built as a slot's is (the same resource library, NAM quality
+    /// defaults and boundary nodes) but owned by the caller and never installed, for offline
+    /// work that must leave the running slots alone (measurePresetLevel). Fed `inputLayout`,
+    /// never dual mono, with no diagnostics or level-parallel fan-out. Not prepared. Message
+    /// thread, without the DSP lock, as PreparePresetSwap is.
+    [[nodiscard]] std::unique_ptr<SignalGraphExecutor> BuildDetachedExecutor(const Preset& preset,
+                                                                             ChannelLayout inputLayout) const;
+
+    /// The equal-power pan law a slot is mixed with: a centred slot is 3 dB down on each side.
+    static void ComputePanGains(double pan, float& gL, float& gR);
+
     // ── Tail spill ──────────────────────────────────────────────────────────────────
     // How long an outgoing preset may keep ringing after a swap, in seconds. The outgoing
     // chain has its *input* ramped to zero over the declick window and its output left
@@ -545,7 +556,6 @@ class MultiPresetMixer
     [[nodiscard]] GlobalChainEditor EditGlobalChain();
 
     void AllocateBuffers(int maxBlockSize);
-    static void ComputePanGains(double pan, float& gL, float& gR);
     void EnsureGlobalChainsUpToDate();
     /// Apply the non-graph parts of the global config (mono/auto-level/limiter/master gain).
     void ApplyGlobalChainScalars(const GlobalSignalChainConfig& config);

@@ -53,6 +53,7 @@ set(TEST_SOURCES
     IRReverbAutomationRealtimeTests.cpp
     IRReverbQualityTests.cpp
     ImpulseResamplerTests.cpp
+    LoudnessTests.cpp
     PracticeToolCrossfadeTests.cpp
     MessageDispatchTypeErrorTests.cpp
     MessageHandlerRegistryTests.cpp
@@ -78,6 +79,7 @@ set(TEST_SOURCES
     PresetDSPLoadingTests.cpp
     PresetArchiveInstallTests.cpp
     PresetEditCommandsTests.cpp
+    PresetLevelMeasureTests.cpp
     PresetManagementWorkflowTests.cpp
     UiClientTests.cpp
     PresetStorageTests.cpp

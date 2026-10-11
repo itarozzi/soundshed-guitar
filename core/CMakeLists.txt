@@ -489,6 +489,9 @@ set(GUITARFX_CORE_SOURCES
     src/controller/TelemetryPublisher.cpp
     src/controller/ResourceFolderScanner.h
     src/controller/ResourceFolderScanner.cpp
+    src/controller/PresetLevelMeter.h
+    src/controller/PresetLevelMeter.cpp
+    src/controller/PluginControllerPresetLevel.cpp
     src/controller/PluginControllerMetronome.cpp
     src/controller/PluginControllerHostState.cpp
     src/controller/PluginControllerStorage.cpp
@@ -533,6 +536,7 @@ set(GUITARFX_CORE_SOURCES
     src/controller/internal/OfflineRenderSupport.cpp
     src/controller/internal/PresetArchiveSupport.h
     src/controller/internal/PresetArchiveSupport.cpp
+    src/controller/internal/RemoteResourceRefs.cpp
     src/controller/internal/RiffSupport.h
     src/controller/internal/RiffSupport.cpp
     src/controller/internal/SettingsKeys.h
@@ -581,6 +585,8 @@ set(GUITARFX_CORE_SOURCES
     src/dsp/BiquadDesign.h
     src/dsp/HalfBandIir.h
     src/dsp/LinearRamp.h
+    src/dsp/Loudness.h
+    src/dsp/Loudness.cpp
     src/dsp/ImpulseResponseAnalysis.h
     src/dsp/NamModelCache.h
     src/dsp/NamModelCache.cpp

@@ -73,6 +73,13 @@ void FlushDenormalsOnThisThread() noexcept
 #endif
 }
 
+void LowerPriorityOfThisThread() noexcept
+{
+#if defined(_WIN32)
+    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
+#endif
+}
+
 // ---------------------------------------------------------------------------
 // Semaphore
 // ---------------------------------------------------------------------------

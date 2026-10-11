@@ -250,6 +250,24 @@ std::unique_ptr<PresetInstance> MultiPresetMixer::BuildInstance(const Preset& pr
     return inst;
 }
 
+std::unique_ptr<SignalGraphExecutor> MultiPresetMixer::BuildDetachedExecutor(const Preset& preset,
+                                                                             ChannelLayout inputLayout) const
+{
+    auto executor = std::make_unique<SignalGraphExecutor>();
+    Preset normalizedPreset = preset;
+    EnsurePresetBoundaryGainNodes(normalizedPreset);
+
+    // As BuildInstance, but for a caller's own render rather than the live mix.
+    executor->SetResourceLibrary(mResourceLibrary);
+    executor->SeedNodeTypeConfigDefaults(mNodeTypeConfigDefaults);
+    executor->SetInputLayout(inputLayout);
+    executor->SetDualMono(false);
+    executor->SetGraph(normalizedPreset.graph);
+    executor->SetSignalDiagnosticsEnabled(false);
+    executor->SetParallelLevelsEnabled(false);
+    return executor;
+}
+
 bool MultiPresetMixer::AddActivePreset(const Preset& preset, const std::string& presetId, const std::string& name)
 {
     // Avoid duplicate IDs. Instances that are fading out after a swap do not count —

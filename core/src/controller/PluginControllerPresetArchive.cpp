@@ -117,9 +117,9 @@ void PluginController::StartPresetArchiveSession(const std::string& archiveFileN
         throw std::runtime_error("Archive contains no presets");
     }
 
-    if (parsed.tone3000ResourceCount > 0)
+    if (!parsed.remoteResources.empty())
     {
-        throw std::runtime_error("Archive session mode does not support Tone3000-linked resources yet");
+        throw std::runtime_error("Archive session mode does not support remote (provider-linked) resources yet");
     }
 
     if (IsPresetArchiveSessionActive())
@@ -845,10 +845,10 @@ void PluginController::LoadFactoryPresetArchives()
         archiveState["fileName"] = util::PathToUtf8(entry.path().filename());
         factoryArchiveState["archives"][archiveKey] = archiveState;
 
-        if (parsed.tone3000ResourceCount > 0)
+        if (!parsed.remoteResources.empty())
         {
             AppendSessionLog(
-                "Factory preset archive contains tone3000 resource references that are not auto-imported at startup: " +
+                "Factory preset archive contains remote resource references that are not auto-imported at startup: " +
                 util::PathToUtf8(entry.path().filename()));
         }
     }
