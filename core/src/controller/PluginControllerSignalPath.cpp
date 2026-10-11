@@ -1158,57 +1158,14 @@ void PluginController::HandleCollapseSignalPathSplitRequest(const nlohmann::json
         return;
     }
 
-    auto& edges = targetGraph->edges;
-    std::vector<GraphEdge*> splitterOut;
-    GraphEdge* mixerOut = nullptr;
-    GraphEdge* splitterIn = nullptr;
+    // One branch in use is fine: its effects move back into the main path.
+    const auto change = CollapseSplit(*targetGraph, splitterId, mixerId);
 
-    for (auto& e : edges)
+    if (!change.changed)
     {
-        if (e.from == splitterId)
-        {
-            splitterOut.push_back(&e);
-        }
-
-        if (e.from == mixerId)
-        {
-            mixerOut = &e;
-        }
-
-        if (e.to == splitterId)
-        {
-            splitterIn = &e;
-        }
-    }
-
-    if (!splitterIn || !mixerOut)
-    {
-        ReportErrorToUI("Collapse split failed", "Split is not connected correctly");
+        ReportErrorToUI("Collapse split failed", change.error);
         return;
     }
-
-    const bool branchesEmpty =
-        !splitterOut.empty() &&
-        std::all_of(splitterOut.begin(), splitterOut.end(), [&](const GraphEdge* e) { return e && e->to == mixerId; });
-
-    if (!branchesEmpty)
-    {
-        ReportErrorToUI("Collapse split failed", "Can only collapse an empty split (remove branch effects first)");
-        return;
-    }
-
-    splitterIn->to = mixerOut->to;
-    splitterIn->toPort = mixerOut->toPort;
-    splitterIn->gain = mixerOut->gain;
-
-    edges.erase(std::remove_if(
-                    edges.begin(), edges.end(),
-                    [&](const GraphEdge& e) { return e.from == splitterId || e.from == mixerId || e.to == mixerId; }),
-                edges.end());
-
-    targetGraph->nodes.erase(std::remove_if(targetGraph->nodes.begin(), targetGraph->nodes.end(),
-                                            [&](const GraphNode& n) { return n.id == splitterId || n.id == mixerId; }),
-                             targetGraph->nodes.end());
 
     if (IsCompositeEditMode())
     {

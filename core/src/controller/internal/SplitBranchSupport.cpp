@@ -5,6 +5,7 @@
 #include "presets/PresetTypes.h"
 
 #include <algorithm>
+#include <optional>
 #include <set>
 #include <vector>
 
@@ -247,6 +248,128 @@ SplitBranchChange SetSplitBranchCount(SignalGraph& graph, const std::string& spl
     {
         ClearMixerInputParams(*mixer, branch.toPort);
     }
+
+    return {true, {}};
+}
+
+SplitBranchChange CollapseSplit(SignalGraph& graph, const std::string& splitterId, const std::string& mixerId)
+{
+    const GraphNode* splitter = graph.FindNode(splitterId);
+    const GraphNode* mixer = graph.FindNode(mixerId);
+
+    if (!splitter || !IsSplitterNode(*splitter) || !mixer || !IsMixerNode(*mixer))
+    {
+        return {false, "That is not a split"};
+    }
+
+    auto& edges = graph.edges;
+    std::optional<std::size_t> splitterIn;
+    std::optional<std::size_t> mixerOut;
+    std::vector<std::size_t> occupied;
+    bool anyBranch = false;
+
+    for (std::size_t i = 0; i < edges.size(); ++i)
+    {
+        const auto& edge = edges[i];
+
+        if (edge.to == splitterId)
+        {
+            splitterIn = i;
+        }
+
+        if (edge.from == mixerId)
+        {
+            mixerOut = i;
+        }
+
+        if (edge.from == splitterId)
+        {
+            anyBranch = true;
+
+            if (edge.to != mixerId)
+            {
+                occupied.push_back(i);
+            }
+        }
+    }
+
+    if (!splitterIn || !mixerOut || !anyBranch)
+    {
+        return {false, "The split is not connected correctly"};
+    }
+
+    if (occupied.size() > 1)
+    {
+        return {false, "More than one branch has effects: remove or move them so only one branch is in use"};
+    }
+
+    if (occupied.empty())
+    {
+        edges[*splitterIn].to = edges[*mixerOut].to;
+        edges[*splitterIn].toPort = edges[*mixerOut].toPort;
+        edges[*splitterIn].gain *= edges[*mixerOut].gain;
+    }
+    else
+    {
+        const GraphEdge& branch = edges[occupied.front()];
+
+        // The branch's last effect is whichever node feeding the mixer the branch can reach.
+        std::set<std::string> reached{branch.to};
+        std::vector<std::string> pending{branch.to};
+
+        while (!pending.empty() && reached.size() < static_cast<std::size_t>(kMaxBranchLength))
+        {
+            const std::string current = pending.back();
+            pending.pop_back();
+
+            for (const auto& edge : edges)
+            {
+                if (edge.from == current && edge.to != mixerId && reached.insert(edge.to).second)
+                {
+                    pending.push_back(edge.to);
+                }
+            }
+        }
+
+        std::optional<std::size_t> tail;
+
+        for (std::size_t i = 0; i < edges.size(); ++i)
+        {
+            if (edges[i].to == mixerId && reached.contains(edges[i].from))
+            {
+                if (tail)
+                {
+                    return {false, "The split is not connected correctly"};
+                }
+
+                tail = i;
+            }
+        }
+
+        if (!tail || reached.contains(splitterId) || reached.contains(mixerId))
+        {
+            return {false, "The split is not connected correctly"};
+        }
+
+        const GraphEdge into = edges[*splitterIn];
+        const GraphEdge out = edges[*mixerOut];
+        edges[*splitterIn].to = branch.to;
+        edges[*splitterIn].toPort = branch.toPort;
+        edges[*splitterIn].gain = into.gain * branch.gain;
+        edges[*tail].to = out.to;
+        edges[*tail].toPort = out.toPort;
+        edges[*tail].gain *= out.gain;
+    }
+
+    edges.erase(std::remove_if(edges.begin(), edges.end(),
+                               [&](const GraphEdge& edge) {
+                                   return edge.from == splitterId || edge.from == mixerId || edge.to == mixerId;
+                               }),
+                edges.end());
+
+    graph.nodes.erase(std::remove_if(graph.nodes.begin(), graph.nodes.end(),
+                                     [&](const GraphNode& node) { return node.id == splitterId || node.id == mixerId; }),
+                      graph.nodes.end());
 
     return {true, {}};
 }

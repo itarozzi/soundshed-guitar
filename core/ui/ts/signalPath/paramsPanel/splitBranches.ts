@@ -35,6 +35,16 @@ export function getSplitBranchState(node: GraphNode, preset: Preset): SplitBranc
   return { count: branches.length, minCount: Math.max(MIN_SPLIT_BRANCHES, occupied) };
 }
 
+/**
+ * The tooltip on a split's remove control. Removing a split keeps the effects of the one
+ * branch that has any, back in the main path; with more than one in use the engine refuses.
+ */
+export function collapseSplitTitle(usedBranches: number): string {
+  if (usedBranches === 0) return "Remove split";
+  if (usedBranches === 1) return "Remove split: its effects move back into the main signal path";
+  return "Remove split: first take the effects off all but one branch";
+}
+
 export function buildSplitBranchControlsHtml(node: GraphNode, preset: Preset): string {
   const state = getSplitBranchState(node, preset);
   if (!state) {

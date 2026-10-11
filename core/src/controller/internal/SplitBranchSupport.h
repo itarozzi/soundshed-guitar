@@ -10,8 +10,9 @@
  * param stores it, so a preset can never say three while wiring two.
  *
  * Adding a branch adds an empty one, splitter straight to a free mixer input. Only an
- * empty branch can be removed, the same rule collapsing a split follows, so changing the
- * count never deletes an effect.
+ * empty branch can be removed, so changing the count never deletes an effect. Collapsing
+ * a split never deletes one either: it needs every branch but one empty, and moves that
+ * one's effects back into the main path.
  */
 
 #include <string>
@@ -48,4 +49,10 @@ struct SplitBranchChange
 /// Add empty branches, or remove empty ones (highest first), until the split has `count`.
 /// On an error the graph is left as it was.
 SplitBranchChange SetSplitBranchCount(SignalGraph& graph, const std::string& splitterId, int count);
+
+/// Remove a split, its splitter and its mixer. When one branch holds effects, they move back
+/// into the main path where the split was, in the same order; the other branches must be empty.
+/// The mixer's level, pan, delay and mute for that branch go with it. On an error the graph is
+/// left as it was.
+SplitBranchChange CollapseSplit(SignalGraph& graph, const std::string& splitterId, const std::string& mixerId);
 } // namespace guitarfx::controller_detail

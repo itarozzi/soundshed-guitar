@@ -7,9 +7,11 @@
  *   - the join mixer is found through effects on the branches and past a split nested in one
  *   - growing a split adds empty branches on free mixer inputs, up to the mixer's four
  *   - shrinking removes only empty branches, the last first, and clears that input's params
+ *   - collapsing moves the one branch in use back into the main path, nested splits and all
  *   - every refusal leaves the graph exactly as it was
  */
 
+#include <algorithm>
 #include <iostream>
 #include <string>
 
@@ -190,6 +192,77 @@ void TestShrink()
     const auto belowTwo = split::SetSplitBranchCount(empty, "split", 1);
     Check(!belowTwo.changed && !belowTwo.error.empty(), "one branch is refused: that is not a split");
 }
+
+bool HasEdge(const SignalGraph& graph, const std::string& from, const std::string& to)
+{
+    return std::any_of(graph.edges.begin(), graph.edges.end(),
+                       [&](const GraphEdge& edge) { return edge.from == from && edge.to == to; });
+}
+
+bool HasNode(const SignalGraph& graph, const std::string& id)
+{
+    return graph.FindNode(id) != nullptr;
+}
+
+void TestCollapse()
+{
+    std::cout << "\n-- collapsing a split --" << std::endl;
+    auto empty = EmptySplit();
+    const auto emptyChange = split::CollapseSplit(empty, "split", "mix");
+    Check(emptyChange.changed && emptyChange.error.empty(), "an empty split collapses");
+    Check(empty.edges.size() == 1 && HasEdge(empty, "__input__", "__output__") && !HasNode(empty, "split") &&
+              !HasNode(empty, "mix"),
+          "leaving input straight to output");
+
+    // gate → split → [ | delay → reverb ] → mix → output: the used branch moves into the main path.
+    SignalGraph oneLane;
+    oneLane.nodes = {Node("__input__", "input"), Node("gate", "gate"),     Node("split", guitarfx::EffectGuids::kSplitter),
+                     Node("delay", "delay"),     Node("reverb", "reverb"), Node("mix", guitarfx::EffectGuids::kMixer),
+                     Node("__output__", "output")};
+    oneLane.edges = {Edge("__input__", "gate"),     Edge("gate", "split"),         Edge("split", "mix", 0, 0),
+                     Edge("split", "delay", 1),     Edge("delay", "reverb"),       Edge("reverb", "mix", 0, 1),
+                     Edge("mix", "__output__")};
+    const auto laneChange = split::CollapseSplit(oneLane, "split", "mix");
+    Check(laneChange.changed && laneChange.error.empty(), "a split with one branch in use collapses");
+    Check(oneLane.edges.size() == 4 && HasEdge(oneLane, "__input__", "gate") && HasEdge(oneLane, "gate", "delay") &&
+              HasEdge(oneLane, "delay", "reverb") && HasEdge(oneLane, "reverb", "__output__"),
+          "its effects sit in the main path, in order");
+    Check(!HasNode(oneLane, "split") && !HasNode(oneLane, "mix") && HasNode(oneLane, "delay") && HasNode(oneLane, "reverb"),
+          "the splitter and mixer go, the effects stay");
+
+    // The used branch can be any of them, and can hold a split of its own:
+    // split → [ | | amp → innerSplit → [ | cab ] → innerMix ] → mix → output.
+    SignalGraph nested;
+    nested.nodes = {Node("__input__", "input"),
+                    Node("split", guitarfx::EffectGuids::kSplitter),
+                    Node("amp", "amp"),
+                    Node("innerSplit", guitarfx::EffectGuids::kSplitter),
+                    Node("cab", "cab"),
+                    Node("innerMix", guitarfx::EffectGuids::kMixer),
+                    Node("mix", guitarfx::EffectGuids::kMixer),
+                    Node("__output__", "output")};
+    nested.edges = {Edge("__input__", "split"),         Edge("split", "mix", 0, 0),
+                    Edge("split", "mix", 1, 1),         Edge("split", "amp", 2),
+                    Edge("amp", "innerSplit"),          Edge("innerSplit", "innerMix", 0, 0),
+                    Edge("innerSplit", "cab", 1),       Edge("cab", "innerMix", 0, 1),
+                    Edge("innerMix", "mix", 0, 2),      Edge("mix", "__output__")};
+    const auto nestedChange = split::CollapseSplit(nested, "split", "mix");
+    Check(nestedChange.changed, "the third branch in use, with a split inside it");
+    Check(nested.edges.size() == 6 && HasEdge(nested, "__input__", "amp") && HasEdge(nested, "innerMix", "__output__") &&
+              HasEdge(nested, "innerSplit", "cab") && HasNode(nested, "innerSplit") && HasNode(nested, "innerMix"),
+          "the inner split comes along intact");
+
+    auto blend = ThreeAmpBlend();
+    const auto before = blend;
+    const auto busy = split::CollapseSplit(blend, "split", "mix");
+    Check(!busy.changed && !busy.error.empty() && blend == before,
+          "refused with effects on more than one branch, the graph untouched");
+
+    auto wrongIds = EmptySplit();
+    const auto wrongBefore = wrongIds;
+    const auto wrong = split::CollapseSplit(wrongIds, "mix", "split");
+    Check(!wrong.changed && !wrong.error.empty() && wrongIds == wrongBefore, "refused for ids that are not a split");
+}
 } // namespace
 
 int main()
@@ -199,6 +272,7 @@ int main()
     TestFindJoin();
     TestGrow();
     TestShrink();
+    TestCollapse();
 
     std::cout << "\n" << (gChecks - gFailures) << "/" << gChecks << " checks passed" << std::endl;
     return gFailures == 0 ? 0 : 1;

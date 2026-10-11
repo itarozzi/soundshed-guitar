@@ -47,7 +47,7 @@ import { SIGNAL_PATH_FULL_HEIGHT, scheduleSignalPathLayoutAdapt } from "./signal
 import { renderBoundaryNode, renderConnectorWrapper, renderSignalChainRow, signalChainLineAt } from "./signalPath/chainRow.js";
 import type { EdgeRef } from "./signalPath/graph.js";
 import { buildGraphMaps, normalizeEdge, parseEdgeFromDataset, pickPrimaryOutgoingEdge, sortEdgesByPort } from "./signalPath/graph.js";
-import { showNodeParamsPanel } from "./signalPath/paramsPanel.js";
+import { collapseSplitTitle, showNodeParamsPanel } from "./signalPath/paramsPanel.js";
 import { buildMissingResourceTooltip, buildNodeLayoutMatchText, getMissingResourceEntries, getNodeArchitectureBadge, getNodeDisplayName, getNodeResourceDisplayName, getNodeUserTitle } from "./signalPath/nodeLabels.js";
 import { isProtectedSignalPathNode, isToggleableSignalPathNode, toggleSignalPathNodeBypass } from "./signalPath/bypass.js";
 import { updateSignalPathClipIndicators } from "./signalPath/telemetry.js";
@@ -791,7 +791,7 @@ function renderGraphSignalPath(preset: Preset): void {
     // Collapse/remove lives on the mixer node delete control (same as other effects),
     // not on the decorative join icon.
     const mixerNodeHtml = joinNode
-      ? renderNodeElement(joinNode, canCollapse ? { collapseSplitterId: splitterId } : undefined)
+      ? renderNodeElement(joinNode, canCollapse ? { collapseSplitterId: splitterId, collapseTitle: collapseSplitTitle(outs.filter((edge) => edge.to !== joinId).length) } : undefined)
       : "";
 
     const html = `
@@ -896,8 +896,9 @@ function sendAddEffectAtEdgeOrFallback(
 }
 
 type RenderNodeElementOptions = {
-  /** When set on a mixer join node, delete collapses the empty parallel split. */
+  /** When set on a mixer join node, delete collapses the parallel split; collapseTitle is its tooltip. */
   collapseSplitterId?: string;
+  collapseTitle?: string;
 };
 
 /**
@@ -956,7 +957,7 @@ function renderNodeElement(node: GraphNode, options?: RenderNodeElementOptions):
   const thumbClass = thumbUrl ? " has-thumb" : "";
   const deleteButton = allowDelete
     ? (canCollapseParallel
-      ? `<button class="signal-node-delete" type="button" title="Collapse split (only if empty)" aria-label="Collapse split" data-collapse-splitter-id="${escapeHtml(collapseSplitterId!)}" data-collapse-mixer-id="${escapeHtml(node.id)}">×</button>`
+      ? `<button class="signal-node-delete" type="button" title="${escapeHtml(options?.collapseTitle ?? "Remove split")}" aria-label="Collapse split" data-collapse-splitter-id="${escapeHtml(collapseSplitterId!)}" data-collapse-mixer-id="${escapeHtml(node.id)}">×</button>`
       : '<button class="signal-node-delete" type="button" title="Remove" aria-label="Remove">×</button>')
     : "";
   const bypassButton = isToggleableSignalPathNode(node)
@@ -1151,22 +1152,12 @@ function bindNodeClickHandlers(preset: Preset): void {
       }
     });
 
-    // Keyboard handler - Delete/Backspace to remove
+    // Delete/Backspace does what the node's own × does: removes an effect, collapses a split at
+    // its join mixer, and nothing on a splitter or mixer that has no ×, so half a split is never deleted.
     el.addEventListener("keydown", (e: KeyboardEvent) => {
-      const nodeId = el.dataset.nodeId;
-      if (nodeId && (e.key === "Delete" || e.key === "Backspace")) {
+      if (el.dataset.nodeId && (e.key === "Delete" || e.key === "Backspace")) {
         e.preventDefault();
-
-        const node = getGraphNode(nodeId);
-        if (node && (node.type === EffectGuids.kSplitter || node.type === EffectGuids.kMixer)) {
-          // Avoid corrupting the graph; use the collapse split button instead.
-          return;
-        }
-
-        sendSignalPathNodeDelete(nodeId);
-        setSelectedNodeId(null);
-        hideNodeParamsPanel();
-        updateEffectVisualization();
+        el.querySelector<HTMLElement>(".signal-node-delete")?.click();
       }
     });
   });
