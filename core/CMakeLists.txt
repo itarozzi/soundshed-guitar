@@ -469,6 +469,8 @@ set(GUITARFX_CORE_SOURCES
     src/controller/ControlSurfaceQueue.cpp
     src/controller/ControllerDisplayFeed.h
     src/controller/ControllerDisplayFeed.cpp
+    src/controller/SetlistMidiOut.h
+    src/controller/SetlistMidiOut.cpp
     src/controller/DemoPreviewService.h
     src/controller/DemoPreviewService.cpp
     src/controller/HostStateRelay.h

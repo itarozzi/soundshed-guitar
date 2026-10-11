@@ -399,6 +399,7 @@ set(CommonSourceFiles
     "${CMAKE_CURRENT_SOURCE_DIR}/source/Main.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/source/JuceHostedPluginEffect.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/source/JuceHostedPluginEffect.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/source/ControllerMidiOutput.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/source/JucePathConversion.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/source/LaunchCurtain.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/source/LaunchCurtain.cpp"

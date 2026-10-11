@@ -15,6 +15,7 @@
 #include "IPluginHost.h"
 #include "MessageHandlerRegistry.h"
 #include "automation/AutomationSlotTable.h"
+#include "controller/SetlistMidiOut.h"
 #include "dsp/MultiPresetMixer.h"
 #include "dsp/effects/CompositeEffectProcessor.h"
 #include "dsp/effects/NAMOversampling.h"
@@ -277,6 +278,11 @@ class PluginController
     /// into `out` and returns its length, or 0 when there is none. Never blocks or allocates;
     /// the adapter adds it to the block's MIDI output. See ControllerDisplayFeed.
     [[nodiscard]] std::size_t TakeControllerDisplaySysEx(std::span<std::uint8_t> out);
+    /// Audio thread: copies the Bank Select and Program Change telling the MIDI device about a
+    /// bank or setlist slot picked in the app into `out` and returns how many, or 0 when there
+    /// are none. Never blocks or allocates; the adapter adds them to the block's MIDI output.
+    /// See SetlistMidiOut.
+    [[nodiscard]] std::size_t TakeSetlistMidiOut(std::span<SetlistMidiOut::ShortMessage> out);
     /// Any thread, never with mDSPMutex held: the host's program change and the UI's. From a
     /// host's own thread (an AU factory preset, an LV2 program preset) it is handed to the
     /// message thread and waited for, as a restore is (see DeserializeState), and stays queued
@@ -517,6 +523,9 @@ class PluginController
     void HandleSetPresetRatingRequest(const nlohmann::json& payload);
     void HandleGetPresetRecentsRequest();
     void HandleSelectSetlistRequest(const nlohmann::json& payload);
+    /// The UI's pick of a slot in the active setlist: loads it as a footswitch would, and tells
+    /// the MIDI device when the settings ask for it (see SendSetlistPickToMidi).
+    void HandleSetSetlistCursorRequest(const nlohmann::json& payload);
     void HandleSetResourceFavoriteRequest(const nlohmann::json& payload);
     void HandleSetOutputMutedRequest(const nlohmann::json& payload);
     void SendActivePresetLoaded(bool created = false);
@@ -565,6 +574,10 @@ class PluginController
     void FoldAutomationNodeChanges();
     /// Hands the controller-display feed the active preset's name (idle tick).
     void SyncControllerDisplay();
+    /// Message thread, after the app itself picked a bank or a slot: queues the active
+    /// setlist's Bank Select and, given a slot, its Program Change for the MIDI output, when the
+    /// midi.setlistOut settings ask for it. Never called for a pick from MIDI or the DAW.
+    void SendSetlistPickToMidi(std::optional<int> slotIndex);
     void HandleGetThemeRequest();
     void HandleSetThemeRequest(const nlohmann::json& payload);
     void HandleGetSharedSyncStateRequest();
@@ -972,7 +985,8 @@ class PluginController
     void DrainQueuedMidiLocked();
     /// Message thread, never with mDSPMutex held: each loads a preset or rewrites the setlist.
     /// Automation, which applies under the lock, parks these (see DrainControlSurfaceRequests).
-    void ApplySetlistPresetByIndexDirect(int index);
+    /// Returns whether the slot held a preset, and so the cursor moved to it.
+    bool ApplySetlistPresetByIndexDirect(int index);
     void SetlistBankChangeDirect(int delta);
     void SelectSetlistBankDirect(int bankNumber);
     void SelectSceneByIndexDirect(int index);
@@ -1156,6 +1170,7 @@ class PluginController
 
     std::unique_ptr<ControlSurfaceQueue> mControlSurface;
     std::unique_ptr<ControllerDisplayFeed> mControllerDisplay;
+    std::unique_ptr<SetlistMidiOut> mSetlistMidiOut;
     std::unique_ptr<MetronomeService> mMetronome;
     std::unique_ptr<SignalTestService> mSignalTest;
     /// Answers "listResourceFolder" itself. Shut down explicitly in the destructor, ahead of

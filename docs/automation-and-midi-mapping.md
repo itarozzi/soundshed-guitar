@@ -325,6 +325,19 @@ The name is picked up on the idle tick, which the editor's timer drives. In a pl
 
 The *Mappings* tab of the MIDI & Automation panel has a checkbox for it, backed by the app setting `midi.controllerDisplay.presetName` (absent = on). Turned off, nothing is sent; turned back on, the name is sent again.
 
+### Setlist picks sent to the device
+
+A bank or setlist slot picked in the app can be sent to the MIDI output, so a controller, or a second unit following along, shows the same selection. It is the same "preset N of bank B" a controller sends to pick a slot (§1), so the device hears what it would have sent itself:
+
+- **A slot** (`setSetlistCursor`: a setlist pad, a slot in the setlist panel, Nano's setlist) sends the active setlist's `bank` number as Bank Select, then a Program Change of the slot's index, 0-based. A setlist with no bank number sends the Program Change alone. A slot that held no preset, and so changed nothing, sends nothing; a slot whose preset is already playing still sends, since the cursor moved to it.
+- **A setlist** (`selectSetlist`: the bank arrows, the setlist list) sends its Bank Select alone, since nothing is loaded. One with no bank number sends nothing.
+
+Bank Select goes out as the app setting `midi.setlistOut.bankSelect` says: `msbLsb` (absent) sends CC0 = bank / 128 then CC32 = bank % 128, the MIDI standard, for banks 0..16383; `msb` sends CC0 = bank and `lsb` CC32 = bank, for banks 0..127; `none` sends no Bank Select. All three decode to the same bank on this app's own input. A bank, slot or channel the setting cannot express sends nothing at all, with a session log entry: a device told the wrong bank would load the wrong thing. The channel is `midi.setlistOut.channel` (1..16, absent = 1), and the whole feature is `midi.setlistOut.enabled` (absent = off). The Mappings tab has the switch and both choices under the controller-display checkbox (`core/ui/ts/midiSetlistOut.ts`).
+
+Only picks made in the app are sent. A setlist step, bank change or bank select that came from MIDI was the device's own, and one from the DAW (its program change or a setlist automation slot) is the host's to route, so neither is echoed back; that also rules out a loop with a device that answers a program change with one of its own. Keyboard mappings drive setlist slots through automation, as MIDI does, so they do not send either.
+
+`core/src/controller/SetlistMidiOut` owns it. `PluginController::HandleSetSetlistCursorRequest` and `HandleSelectSetlistRequest` call `SendSetlistPickToMidi` once the pick has applied, which reads the settings and queues the messages. The adapter collects them in `processBlock` through `TakeSetlistMidiOut` after the display's SysEx, Bank Select before Program Change, and adds them at the start of the block. Like the display feed it never blocks or allocates, and keeps only the newest pick. Where the messages go is the same as for the display text: the standalone's chosen MIDI output, or the plugin's MIDI output (CLAP forwards these short messages as `CLAP_EVENT_MIDI`). Nothing is sent while the host bypasses the plugin; the newest pick goes out once it is active again.
+
 ### MIDI learn
 
 Each slot row has a "Learn" button. When armed, the next matching MIDI event becomes that slot's `MidiControlMap`. The engine forwards the raw event to the UI as `midiLearnCapture {slotId, eventType, channel, controller}` so the UI can show the captured values and let the user confirm/cancel.

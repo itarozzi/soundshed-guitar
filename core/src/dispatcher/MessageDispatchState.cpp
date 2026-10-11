@@ -114,8 +114,7 @@ bool MessageDispatcher::DispatchStateAndLists(PluginController& c, const nlohman
 
     if (type == "setSetlistCursor")
     {
-        const int cursorIndex = msg.value("cursorIndex", 0);
-        c.ApplySetlistPresetByIndex(cursorIndex);
+        c.HandleSetSetlistCursorRequest(msg);
         return true;
     }
 

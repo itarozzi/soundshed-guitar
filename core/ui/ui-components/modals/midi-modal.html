@@ -21,6 +21,31 @@
           <input type="checkbox" id="midi-controller-display-preset-name" />
           <span>Show the preset name on the MIDI controller's display</span>
         </label>
+        <label
+          class="midi-option-toggle"
+          title="A setlist sends its bank number as Bank Select; a slot then sends a Program Change for its position (slot 1 is program 0). Changes made from the MIDI device or the DAW are not sent back."
+        >
+          <input type="checkbox" id="midi-setlist-out-enabled" />
+          <span>Send a program change to the MIDI device when a bank or setlist slot is picked here</span>
+        </label>
+        <div class="midi-option-fields">
+          <label class="midi-option-field">
+            <span>Channel</span>
+            <select id="midi-setlist-out-channel"></select>
+          </label>
+          <label
+            class="midi-option-field"
+            title="How the setlist's bank number is sent. CC0 + CC32 is the MIDI standard; some devices read only one of them."
+          >
+            <span>Bank select</span>
+            <select id="midi-setlist-out-bank-select">
+              <option value="msbLsb">CC0 + CC32</option>
+              <option value="msb">CC0 only</option>
+              <option value="lsb">CC32 only</option>
+              <option value="none">Don't send</option>
+            </select>
+          </label>
+        </div>
         <p class="midi-help">
           Map automation slots to MIDI control messages, keyboard keys, or DAW parameters.
           Default slots are always available; custom slots can target any effect parameter.

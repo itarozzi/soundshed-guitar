@@ -56,6 +56,12 @@ inline constexpr const char* kNamAntiAliasPhaseNodeConfigKey = "antiAliasPhase";
 // Whether the active preset's name is sent to the MIDI controller's display as SysEx
 // (see ControllerDisplayFeed). Absent means on.
 inline constexpr const char* kControllerDisplayPresetNameSettingKey = "midi.controllerDisplay.presetName";
+// Whether a bank or setlist slot picked in the app is sent to the MIDI output as Bank Select and
+// Program Change (see SetlistMidiOut). Absent means off. The channel is 1..16, absent 1; the
+// bank select mode is "msbLsb" (absent), "msb", "lsb" or "none".
+inline constexpr const char* kSetlistMidiOutEnabledSettingKey = "midi.setlistOut.enabled";
+inline constexpr const char* kSetlistMidiOutChannelSettingKey = "midi.setlistOut.channel";
+inline constexpr const char* kSetlistMidiOutBankSelectSettingKey = "midi.setlistOut.bankSelect";
 
 // ── Input calibration ───────────────────────────────────────────────
 inline constexpr const char* kNamInterfaceCalibrationLevelDbuSettingKey = "audio.nam.interfaceCalibrationLevelDbu";

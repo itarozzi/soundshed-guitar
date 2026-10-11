@@ -16,6 +16,7 @@ import { getXMarkSvg } from "./iconAssets.js";
 import { describeMidiMap, formatMidiChannel, withCurrentTargetOption } from "./midiMapping.js";
 import type { AutomationTargetOption } from "./midiMapping.js";
 import { escapeHtml } from "./utils.js";
+import { syncSetlistMidiOutControls, wireSetlistMidiOutControls } from "./midiSetlistOut.js";
 
 let modalInitialized = false;
 let pendingLearnSlotId: string | null = null;
@@ -140,6 +141,7 @@ export function initializeAutomationPanel(): void {
   wireModal();
   wireTabs();
   wireControllerDisplayToggle();
+  wireSetlistMidiOutControls();
   renderAutomationPanel();
   renderKeyboardPanel();
   renderMidiLog();
@@ -187,6 +189,7 @@ function openMidiModal(): void {
   postMessage({ type: "setMidiLogEnabled", enabled: midiLogEnabled });
   // Settings can change from another instance while the panel is closed.
   syncControllerDisplayToggle();
+  syncSetlistMidiOutControls();
   requestAutomationState();
   renderKeyboardPanel();
   // Steal focus so keyboard events aren't consumed by buttons/inputs

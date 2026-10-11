@@ -478,6 +478,9 @@ void PluginController::HandleSelectSetlistRequest(const nlohmann::json& payload)
     msg["activeSetlistId"] = setlistId;
     msg["cursorIndex"] = 0;
     SendMessageToUI(msg.dump());
+
+    // The bank alone: no slot was picked, and nothing loaded.
+    SendSetlistPickToMidi(std::nullopt);
 }
 
 // ── Resources ───────────────────────────────────────────────────────────────

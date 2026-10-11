@@ -1,6 +1,7 @@
 /**
  * PluginControllerAutomation.cpp - Host automation slots, MIDI learn, setlists
- * and scenes, and the preset name sent back to the MIDI controller's display.
+ * and scenes, and what is sent back to the MIDI device: the preset name for the
+ * controller's display, and the bank and slot picked in the app.
  *
  * The *Direct variants of the setlist and scene switches run on the caller's
  * thread; the plain ones defer to the message pump. MIDI arrives on the audio
@@ -22,6 +23,32 @@ using namespace guitarfx::controller_detail;
 
 namespace guitarfx
 {
+namespace
+{
+/// The `bank` number of the active setlist in setlists.json (the first setlist when none is
+/// marked active), or nothing when there are no setlists or it has no bank number.
+std::optional<int> FindActiveSetlistBank(const nlohmann::json& setlistsData)
+{
+    const auto setlists = setlistsData.value("setlists", nlohmann::json::array());
+    const std::string activeSetlistId = setlistsData.value("activeSetlistId", "");
+
+    for (const auto& sl : setlists)
+    {
+        if (activeSetlistId.empty() || sl.value("id", "") == activeSetlistId)
+        {
+            if (sl.contains("bank") && sl["bank"].is_number_integer())
+            {
+                return sl["bank"].get<int>();
+            }
+
+            return std::nullopt;
+        }
+    }
+
+    return std::nullopt;
+}
+} // namespace
+
 void PluginController::HandleGetAutomationRequest()
 {
     nlohmann::json msg;
@@ -249,6 +276,55 @@ std::size_t PluginController::TakeControllerDisplaySysEx(std::span<std::uint8_t>
     return mControllerDisplay->TakeSysEx(out);
 }
 
+void PluginController::SendSetlistPickToMidi(std::optional<int> slotIndex)
+{
+    const auto enabled = mAppSettings.find(kSetlistMidiOutEnabledSettingKey);
+
+    if (enabled == mAppSettings.end() || !enabled->is_boolean() || !enabled->get<bool>())
+    {
+        return;
+    }
+
+    const auto channel = mAppSettings.find(kSetlistMidiOutChannelSettingKey);
+    const auto bankSelect = mAppSettings.find(kSetlistMidiOutBankSelectSettingKey);
+    const int channelNumber = channel != mAppSettings.end() && channel->is_number_integer() ? channel->get<int>() : 1;
+    const auto mode = SetlistMidiOut::ParseBankSelect(
+        bankSelect != mAppSettings.end() && bankSelect->is_string() ? bankSelect->get<std::string>() : std::string{});
+    const auto bank = FindActiveSetlistBank(LoadUiStorageJson("setlists.json", nlohmann::json::object()));
+
+    // Nothing to say: a setlist with no bank number picked on its own, or no bank select sent.
+    if (!slotIndex.has_value() && (!bank.has_value() || mode == SetlistMidiOut::BankSelect::None))
+    {
+        return;
+    }
+
+    if (!mSetlistMidiOut->Queue(channelNumber, mode, bank, slotIndex))
+    {
+        AppendSessionLog("[MIDI out] Setlist pick not sent: bank " + (bank ? std::to_string(*bank) : "none") +
+                         ", slot " + (slotIndex ? std::to_string(*slotIndex + 1) : "none") +
+                         " cannot be sent on channel " + std::to_string(channelNumber) +
+                         " with this bank select setting");
+    }
+}
+
+std::size_t PluginController::TakeSetlistMidiOut(std::span<SetlistMidiOut::ShortMessage> out)
+{
+    return mSetlistMidiOut->Take(out);
+}
+
+void PluginController::HandleSetSetlistCursorRequest(const nlohmann::json& payload)
+{
+    // UI messages arrive on the message thread. After anything the host queued earlier, as
+    // ApplySetlistPresetByIndex does.
+    const int index = payload.value("cursorIndex", 0);
+    mHostStateRelay->ApplyQueued();
+
+    if (ApplySetlistPresetByIndexDirect(index))
+    {
+        SendSetlistPickToMidi(index);
+    }
+}
+
 void PluginController::HandleSetAutomationValueRequest(const nlohmann::json& payload)
 {
     const std::string slotId = payload.value("slotId", "");
@@ -373,7 +449,7 @@ void PluginController::ApplySetlistPresetByIndex(int index)
     // message thread as much as a restore does, so it is handed over the same way.
     if (!mHost.IsMessageThread())
     {
-        (void)RunHostChangeOnMessageThread([this, index] { ApplySetlistPresetByIndexDirect(index); }, false,
+        (void)RunHostChangeOnMessageThread([this, index] { (void)ApplySetlistPresetByIndexDirect(index); }, false,
                                            std::nullopt);
         return;
     }
@@ -383,14 +459,14 @@ void PluginController::ApplySetlistPresetByIndex(int index)
     ApplySetlistPresetByIndexDirect(index);
 }
 
-void PluginController::ApplySetlistPresetByIndexDirect(int index)
+bool PluginController::ApplySetlistPresetByIndexDirect(int index)
 {
     const auto setlistsData = LoadUiStorageJson("setlists.json", nlohmann::json::object());
     const auto setlists = setlistsData.value("setlists", nlohmann::json::array());
 
     if (setlists.empty())
     {
-        return;
+        return false;
     }
 
     // Resolve the active setlist by activeSetlistId (first setlist as fallback)
@@ -408,12 +484,12 @@ void PluginController::ApplySetlistPresetByIndexDirect(int index)
 
     if (!activeSlots || !activeSlots->is_array())
     {
-        return;
+        return false;
     }
 
     if (index < 0 || index >= static_cast<int>(activeSlots->size()))
     {
-        return;
+        return false;
     }
 
     const auto& slot = (*activeSlots)[index];
@@ -421,7 +497,7 @@ void PluginController::ApplySetlistPresetByIndexDirect(int index)
 
     if (presetId.empty())
     {
-        return;
+        return false;
     }
 
     mSetlistCursorIndex = index;
@@ -455,6 +531,7 @@ void PluginController::ApplySetlistPresetByIndexDirect(int index)
     msg["cursorIndex"] = index;
     msg["presetId"] = presetId;
     SendMessageToUI(msg.dump());
+    return true;
 }
 
 int PluginController::GetActiveSceneIndex() const
@@ -672,31 +749,8 @@ int PluginController::GetSetlistBankBase() const
 
 int PluginController::GetSetlistBankNumber() const
 {
-    // Return the bank number of the active setlist, or 0 if none/unassigned.
-    const auto setlistsData = LoadUiStorageJson("setlists.json", nlohmann::json::object());
-    const auto setlists = setlistsData.value("setlists", nlohmann::json::array());
-
-    if (setlists.empty())
-    {
-        return 0;
-    }
-
-    const std::string activeSetlistId = setlistsData.value("activeSetlistId", "");
-
-    for (const auto& sl : setlists)
-    {
-        if (activeSetlistId.empty() || sl.value("id", "") == activeSetlistId)
-        {
-            if (sl.contains("bank") && sl["bank"].is_number_integer())
-            {
-                return sl["bank"].get<int>();
-            }
-
-            return 0;
-        }
-    }
-
-    return 0;
+    // The bank number of the active setlist, or 0 if none/unassigned.
+    return FindActiveSetlistBank(LoadUiStorageJson("setlists.json", nlohmann::json::object())).value_or(0);
 }
 
 std::string PluginController::GetSetlistSlotPresetId(int index) const

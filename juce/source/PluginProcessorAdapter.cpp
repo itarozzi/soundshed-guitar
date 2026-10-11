@@ -20,7 +20,7 @@
 #endif
 #include "UiBridge.h"
 
-#include "controller/ControllerDisplayFeed.h"
+#include "ControllerMidiOutput.h"
 #include "resources/PluginPathUtils.h"
 
 // Same include order as Main.cpp: the standalone window header expects the audio and GUI
@@ -393,12 +393,9 @@ void PluginProcessorAdapter::processBlock (juce::AudioBuffer<float>& buffer,
         buffer.clear();
     }
 
-    // The only MIDI this plugin sends: the preset name for the controller's display. The
-    // incoming messages were cleared above, so nothing is echoed back out.
-    guitarfx::ControllerDisplayFeed::SysExBuffer displaySysEx {};
-
-    if (const auto size = mController.TakeControllerDisplaySysEx (displaySysEx); size > 0)
-        midiMessages.addEvent (displaySysEx.data(), static_cast<int> (size), 0);
+    // The only MIDI this plugin sends: the preset name for the controller's display, and the
+    // bank and setlist slot picked in the app. The incoming messages were cleared above.
+    AddControllerMidiOutput (mController, midiMessages);
 }
 
 void PluginProcessorAdapter::processBlockBypassed (juce::AudioBuffer<float>& buffer,

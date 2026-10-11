@@ -95,6 +95,7 @@ set(TEST_SOURCES
     RingModEffectTests.cpp
     RotaryVibeEffectTests.cpp
     SampleRateConverterTests.cpp
+    SetlistMidiOutTests.cpp
     StorageMigrationTests.cpp
     SignalChainMutationStressTest.cpp
     SignalChainThreadingBenchmark.cpp

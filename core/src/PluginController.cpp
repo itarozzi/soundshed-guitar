@@ -53,6 +53,7 @@ PluginController::PluginController(IPluginHost& host) : mHost(host)
 
     mControlSurface = std::make_unique<ControlSurfaceQueue>(sendToUI);
     mControllerDisplay = std::make_unique<ControllerDisplayFeed>();
+    mSetlistMidiOut = std::make_unique<SetlistMidiOut>();
     mMetronome = std::make_unique<MetronomeService>(mHost, mAppSettings, mResourceRoot, sendToUI);
     mTelemetry = std::make_unique<TelemetryPublisher>(mHost, mPresetMixer, sendToUI);
     mSignalTest = std::make_unique<SignalTestService>(sendToUI);
