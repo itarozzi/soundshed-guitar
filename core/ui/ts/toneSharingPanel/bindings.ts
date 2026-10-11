@@ -5,7 +5,8 @@
 
 import { showConfirm } from "../dialogs.js";
 import { showNotification } from "../notifications.js";
-import { setActionButtonBusy } from "./actionButtons.js";
+import { setActionButtonBusy, syncFeatureToggleButton } from "./actionButtons.js";
+import { confirmAndDelete, openAdminEditModal, refreshAfterAdminChange, setFeatured } from "./adminEdit.js";
 import { deleteAsset, downloadAsset, moderateTarget } from "./assets.js";
 import { loadBrowse, loadMine } from "./browse.js";
 import { element, setUploadStatus } from "./dom.js";
@@ -129,6 +130,41 @@ export function bindBrowseActions(): void {
         await loadBrowse();
       } catch (error) {
         setUploadStatus(`Moderation failed: ${(error as Error).message}`);
+      }
+      return;
+    }
+
+    if (button.dataset.action === "feature") {
+      const featured = button.dataset.featured !== "true";
+      const restoreBusy = setActionButtonBusy(button, featured ? "Featuring..." : "Unfeaturing...");
+      try {
+        await setFeatured({ kind, id }, featured);
+        restoreBusy();
+        syncFeatureToggleButton(button, featured);
+        setUploadStatus(featured ? "Featured on the home page." : "Removed from the home page.");
+        if (browseState.mode === "featured") {
+          await loadBrowse();
+        }
+      } catch (error) {
+        restoreBusy();
+        setUploadStatus(`Feature change failed: ${(error as Error).message}`);
+      }
+      return;
+    }
+
+    if (button.dataset.action === "admin-edit") {
+      void openAdminEditModal({ kind, id });
+      return;
+    }
+
+    if (button.dataset.action === "admin-delete") {
+      const title = card.dataset.title || id;
+      try {
+        if (await confirmAndDelete({ kind, id }, title)) {
+          await refreshAfterAdminChange();
+        }
+      } catch (error) {
+        setUploadStatus(`Delete failed: ${(error as Error).message}`);
       }
       return;
     }

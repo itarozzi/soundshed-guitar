@@ -18,6 +18,7 @@
 import { FEATURE_FLAGS_CHANGED_EVENT, Features, isFeatureEnabled } from "./featureFlags.js";
 import { loadAuthSession } from "./toneSharingPanel/account.js";
 import { normalizeSettingString } from "./toneSharingPanel/api.js";
+import { bindAdminEditModal } from "./toneSharingPanel/adminEdit.js";
 import { bindBrowseActions, bindBrowseModeButtons } from "./toneSharingPanel/bindings.js";
 import { loadBrowse, loadMine } from "./toneSharingPanel/browse.js";
 import { element } from "./toneSharingPanel/dom.js";
@@ -115,6 +116,7 @@ export function initializeToneSharingPanel(): void {
   bindTopControls();
   bindBrowseModeButtons();
   bindBrowseActions();
+  bindAdminEditModal();
   document.addEventListener(FEATURE_FLAGS_CHANGED_EVENT, (event) => {
     const detail = (event as CustomEvent<{ featureId?: string }>).detail;
     if (detail?.featureId === Features.ToneBuilder) {

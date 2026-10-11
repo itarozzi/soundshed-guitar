@@ -1,0 +1,45 @@
+/* Admin tools on Tone Sharing: the feature toggle on cards and the edit modal. */
+
+/* Above the pack view, which it can be opened from; dialogs still sit above it. */
+.tone-sharing-admin-edit-modal {
+  z-index: var(--z-modal-priority, 1100);
+}
+
+.tone-sharing-admin-edit-meta {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.tone-sharing-admin-edit-modal[data-kind="item"] .tone-sharing-admin-edit-pack-only,
+.tone-sharing-admin-edit-modal[data-kind="pack"] .tone-sharing-admin-edit-item-only {
+  display: none;
+}
+
+.tone-sharing-admin-edit-featured {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+/* The shell paints every footer button in the accent colour; a delete must not look like Save. */
+.tone-sharing-admin-edit-modal .modal-footer .tone-sharing-admin-edit-delete {
+  margin-right: auto;
+  background: transparent;
+  border: 1px solid var(--color-error);
+  color: var(--status-error-text);
+}
+
+.tone-sharing-admin-edit-modal .modal-footer .tone-sharing-admin-edit-delete:hover:not(:disabled) {
+  background: var(--status-error-bg);
+}
+
+.tone-sharing-card-btn[data-action="feature"].is-active,
+.tone-sharing-card-btn[data-pack-action="feature"].is-active {
+  color: var(--accent-primary);
+}
+
+.tone-sharing-card-btn[data-action="feature"].is-active .tone-sharing-btn-icon path,
+.tone-sharing-card-btn[data-pack-action="feature"].is-active .tone-sharing-btn-icon path {
+  fill: currentColor;
+}

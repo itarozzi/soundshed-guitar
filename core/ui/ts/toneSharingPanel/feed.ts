@@ -8,10 +8,10 @@
  */
 
 import { escapeHtml, idAccentColor } from "../utils.js";
-import { renderToneIconButton } from "./actionButtons.js";
-import { apiFetch } from "./api.js";
+import { featureToggleButton, renderToneIconButton } from "./actionButtons.js";
+import { apiFetch, isToneSharingAdmin } from "./api.js";
 import { element } from "./dom.js";
-import { buildModerationBadge, formatCompactMetric, getToneSharingDisplayTags, resolveCreatorAvatarUrl, resolveCreatorProfileHandle, resolveToneSharingDownloadCount } from "./format.js";
+import { buildModerationBadge, canFeature, formatCompactMetric, getToneSharingDisplayTags, resolveCreatorAvatarUrl, resolveCreatorProfileHandle, resolveToneSharingDownloadCount } from "./format.js";
 import { observePackThumbnails } from "./images.js";
 import { buildInstalledToneSharingLookup } from "./presetLinks.js";
 import { requestBrowseReload } from "./refresh.js";
@@ -49,6 +49,9 @@ export async function renderFeedRows(rows: ToneSharingRow[], requestVersion = br
   const useTiledLayout = browseState.mode === "featured" || browseState.mode === "items" || browseState.mode === "packs";
   feed.classList.toggle("tone-sharing-feed--tiled", useTiledLayout);
   const installedLookup = buildInstalledToneSharingLookup();
+  // My Content already has the owner's edit and delete; admins get theirs everywhere else.
+  const adminTools = isToneSharingAdmin() && browseState.mode !== "installed";
+  const adminEditTools = adminTools && browseState.mode !== "mine";
 
   if (!rows.length) {
     feed.innerHTML = `<div class="tone-sharing-status">No content yet. Publish the first tone.</div>`;
@@ -165,6 +168,9 @@ export async function renderFeedRows(rows: ToneSharingRow[], requestVersion = br
                       ${reviewMode ? `${renderToneIconButton({ kind: "action", value: "approve", icon: "approve", label: "Approve", primary: true })}${renderToneIconButton({ kind: "action", value: "reject", icon: "reject", label: "Reject" })}` : ""}
                       ${browseState.mode === "mine" && item.kind === "pack" ? renderToneIconButton({ kind: "action", value: "edit-pack", icon: "edit", label: "Edit pack" }) : ""}
                       ${browseState.mode === "mine" ? renderToneIconButton({ kind: "action", value: "delete", icon: "delete", label: "Delete" }) : ""}
+                      ${adminTools && canFeature(item.moderationStatus) ? featureToggleButton("action", Boolean(item.featured)) : ""}
+                      ${adminEditTools ? renderToneIconButton({ kind: "action", value: "admin-edit", icon: "edit", label: "Edit (admin)" }) : ""}
+                      ${adminEditTools ? renderToneIconButton({ kind: "action", value: "admin-delete", icon: "delete", label: "Delete (admin)" }) : ""}
                     </div>
                   </div>
                 `;

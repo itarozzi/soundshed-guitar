@@ -1,0 +1,39 @@
+<div id="tone-sharing-admin-edit-modal" class="modal tone-sharing-admin-edit-modal" style="display: none;">
+      <div class="modal-content tone-sharing-pack-modal-content">
+        <div class="modal-header">
+          <h3 id="tone-sharing-admin-edit-title">Edit Preset</h3>
+          <button id="tone-sharing-admin-edit-close" class="modal-close" type="button">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="tone-sharing-admin-edit-meta" id="tone-sharing-admin-edit-meta"></div>
+          <div class="tone-sharing-grid-form">
+            <label for="tone-sharing-admin-edit-name">Title</label>
+            <input id="tone-sharing-admin-edit-name" type="text" />
+            <label for="tone-sharing-admin-edit-description">Description</label>
+            <textarea id="tone-sharing-admin-edit-description" rows="3"></textarea>
+            <label class="tone-sharing-admin-edit-item-only">Tags</label>
+            <div class="tone-sharing-tags-picker tone-sharing-admin-edit-item-only" id="tone-sharing-admin-edit-tags"></div>
+            <label class="tone-sharing-admin-edit-pack-only" for="tone-sharing-admin-edit-image">Replace Image</label>
+            <input class="tone-sharing-admin-edit-pack-only" id="tone-sharing-admin-edit-image" type="file" accept="image/*" />
+          </div>
+          <label class="tone-sharing-admin-edit-featured">
+            <input id="tone-sharing-admin-edit-featured" type="checkbox" />
+            <span>Featured</span>
+            <span class="tone-sharing-status" id="tone-sharing-admin-edit-featured-hint"></span>
+          </label>
+          <div class="tone-sharing-pack-items-section tone-sharing-admin-edit-pack-only">
+            <div class="tone-sharing-pack-items-header">
+              <span class="tone-sharing-label">Presets in Pack</span>
+              <span class="tone-sharing-status">Uncheck a preset to remove it from the pack</span>
+            </div>
+            <div class="tone-sharing-select-list" id="tone-sharing-admin-edit-items"></div>
+          </div>
+          <div class="tone-sharing-status" id="tone-sharing-admin-edit-status"></div>
+        </div>
+        <div class="modal-footer">
+          <button id="tone-sharing-admin-edit-delete" type="button" class="btn btn-danger tone-sharing-admin-edit-delete">Delete</button>
+          <button id="tone-sharing-admin-edit-cancel" type="button" class="btn btn-secondary">Cancel</button>
+          <button id="tone-sharing-admin-edit-save" type="button" class="btn btn-primary">Save</button>
+        </div>
+      </div>
+    </div>

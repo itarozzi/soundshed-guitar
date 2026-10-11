@@ -22,9 +22,32 @@ export function toneActionIconMarkup(icon: ToneActionIcon): string {
       return `<svg class="tone-sharing-btn-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3.5 3.5 12.5 12.5M12.5 3.5l-9 9"/></svg>`;
     case "edit":
       return `<svg class="tone-sharing-btn-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.2 11.8V13.8h2l6.7-6.7-2-2z"/><path d="m9.7 3.1 2 2"/></svg>`;
+    case "feature":
+      return `<svg class="tone-sharing-btn-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><path d="M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6z"/></svg>`;
     case "delete":
       return `<svg class="tone-sharing-btn-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4.2h11"/><path d="M6 4.2V2.8h4v1.4"/><path d="M4.5 4.2l.7 8.5h5.6l.7-8.5"/></svg>`;
   }
+}
+
+/** The admin's feature toggle; tone-sharing-admin.css fills the star while it is featured. */
+export function featureToggleButton(kind: "action" | "pack-action", featured: boolean): string {
+  return renderToneIconButton({
+    kind,
+    value: "feature",
+    icon: "feature",
+    label: featured ? "Featured (click to unfeature)" : "Feature on the home page",
+    active: featured,
+    attrs: { "data-featured": featured ? "true" : "false" },
+  });
+}
+
+/** Updates a feature toggle in place after the server has accepted the change. */
+export function syncFeatureToggleButton(button: HTMLButtonElement, featured: boolean): void {
+  button.classList.toggle("is-active", featured);
+  button.dataset.featured = featured ? "true" : "false";
+  const label = featured ? "Featured (click to unfeature)" : "Feature on the home page";
+  button.setAttribute("title", label);
+  button.setAttribute("aria-label", label);
 }
 
 export function renderToneIconButton(options: {

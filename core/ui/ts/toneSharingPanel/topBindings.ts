@@ -7,7 +7,8 @@ import { showNotification } from "../notifications.js";
 import { STANDARD_TAGS, renderTagChips } from "../presetTags.js";
 import { escapeHtml } from "../utils.js";
 import { closeSignInModal, openToneSharingSignInModal, previewSelectedProfileAvatar, saveProfile, sendCode, signOut, verifyCode } from "./account.js";
-import { setActionButtonBusy, syncPackPreviewButtons } from "./actionButtons.js";
+import { setActionButtonBusy, syncFeatureToggleButton, syncPackPreviewButtons } from "./actionButtons.js";
+import { confirmAndDelete, openAdminEditModal, refreshAfterAdminChange, setFeatured } from "./adminEdit.js";
 import { downloadAsset } from "./assets.js";
 import { element, setUploadStatus } from "./dom.js";
 import { loadStandardBrowsePage, scheduleCommunitySearch, updateBrowseFooter, updateCommunityPresetSearchUi } from "./feed.js";
@@ -215,6 +216,37 @@ export function bindTopControls(): void {
         showNotification("Pack share link copied", link);
       } catch (error) {
         setUploadStatus(`Share failed: ${(error as Error).message}`);
+      }
+      return;
+    }
+
+    if (button.dataset.packAction === "feature") {
+      const featured = button.dataset.featured !== "true";
+      const restoreBusy = setActionButtonBusy(button, featured ? "Featuring..." : "Unfeaturing...");
+      try {
+        await setFeatured({ kind: "pack", id: packId }, featured);
+        restoreBusy();
+        syncFeatureToggleButton(button, featured);
+        setUploadStatus(featured ? "Pack featured on the home page." : "Pack removed from the home page.");
+      } catch (error) {
+        restoreBusy();
+        setUploadStatus(`Feature change failed: ${(error as Error).message}`);
+      }
+      return;
+    }
+
+    if (button.dataset.packAction === "admin-edit") {
+      void openAdminEditModal({ kind: "pack", id: packId });
+      return;
+    }
+
+    if (button.dataset.packAction === "admin-delete") {
+      try {
+        if (await confirmAndDelete({ kind: "pack", id: packId }, modal?.dataset.packTitle || packId)) {
+          await refreshAfterAdminChange();
+        }
+      } catch (error) {
+        setUploadStatus(`Delete failed: ${(error as Error).message}`);
       }
       return;
     }

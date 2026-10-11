@@ -140,3 +140,8 @@ export function buildModerationBadge(status: string | undefined): string {
   const label = normalized.replace(/_/g, " ");
   return `<span class="tone-sharing-moderation-badge tone-sharing-moderation-badge--${escapeHtml(className)}">${escapeHtml(label)}</span>`;
 }
+
+/** Featuring is for approved content only: the server refuses anything else. A home row omits the status; it is approved. */
+export function canFeature(moderationStatus: string | undefined): boolean {
+  return moderationStatus === undefined || moderationStatus === "approved";
+}

@@ -4,10 +4,10 @@
  */
 
 import { escapeHtml } from "../utils.js";
-import { renderToneIconButton } from "./actionButtons.js";
-import { apiFetch } from "./api.js";
+import { featureToggleButton, renderToneIconButton } from "./actionButtons.js";
+import { apiFetch, isToneSharingAdmin } from "./api.js";
 import { element, setText } from "./dom.js";
-import { getToneSharingDisplayTags } from "./format.js";
+import { canFeature, getToneSharingDisplayTags } from "./format.js";
 import { resolvePackThumbnailUrl } from "./images.js";
 import { buildInstalledToneSharingLookup } from "./presetLinks.js";
 import type { ToneSharingPackDetails } from "./types.js";
@@ -52,11 +52,18 @@ export async function renderPackDetail(details: ToneSharingPackDetails): Promise
   setText("tone-sharing-pack-view-count", `${details.items.length} preset${details.items.length !== 1 ? "s" : ""}`);
   const actionsEl = element<HTMLElement>("tone-sharing-pack-view-actions");
   if (actionsEl) {
+    const adminTools = isToneSharingAdmin()
+      ? `${canFeature(pack.moderationStatus) ? featureToggleButton("pack-action", Boolean(pack.featured)) : ""}
+      ${renderToneIconButton({ kind: "pack-action", value: "admin-edit", icon: "edit", label: "Edit pack (admin)" })}
+      ${renderToneIconButton({ kind: "pack-action", value: "admin-delete", icon: "delete", label: "Delete pack (admin)" })}`
+      : "";
     actionsEl.innerHTML = `
       ${renderToneIconButton({ kind: "pack-action", value: "share-pack", icon: "share", label: "Share pack" })}
       ${renderToneIconButton({ kind: "pack-action", value: "download-pack", icon: "download", label: isPackInstalled ? "Pack already installed" : "Download pack", primary: true, disabled: isPackInstalled })}
+      ${adminTools}
     `;
   }
+  modal.dataset.packTitle = pack.title;
 
   const presetsEl = element<HTMLElement>("tone-sharing-pack-view-presets");
   if (presetsEl) {

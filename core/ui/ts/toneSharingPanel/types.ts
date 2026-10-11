@@ -190,7 +190,7 @@ export type BrowseCollectionState = {
   packs: ToneSharingPack[];
 };
 
-export type ToneActionIcon = "preview" | "download" | "share" | "view" | "approve" | "reject" | "edit" | "delete";
+export type ToneActionIcon = "preview" | "download" | "share" | "view" | "approve" | "reject" | "edit" | "delete" | "feature";
 
 export type InstalledToneSharingLookup = {
   itemIds: Set<string>;
