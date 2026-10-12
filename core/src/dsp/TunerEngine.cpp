@@ -21,6 +21,10 @@ TunerEngine::~TunerEngine()
 void TunerEngine::Prepare(double sampleRate)
 {
     mSampleRate = sampleRate;
+    // Down to an extended-range bass's low C#, before Prepare() so the buffers are sized for it.
+    // A held note reads the same over the longer window, which only costs following fast playing,
+    // and a tuner is not used for that.
+    mTracker.SetLowestFrequency(PitchTracker::kBassLowestHz);
     mTracker.Prepare(sampleRate);
     mReadingLength = static_cast<std::size_t>(std::max(1L, std::lround(sampleRate * kReadingSeconds)));
     mDetectionsSeen = 0;
@@ -219,7 +223,7 @@ void TunerEngine::QueueReading()
 TunerEngine::Result TunerEngine::FrequencyToNote(double frequency, double referenceFrequency)
 {
     Result result;
-    if (frequency < 20.0 || frequency > 20000.0)
+    if (!(frequency >= PitchTracker::kBassLowestHz && frequency <= 20000.0))
     {
         return result;
     }

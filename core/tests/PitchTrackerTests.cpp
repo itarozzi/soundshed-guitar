@@ -193,9 +193,11 @@ void TestAccuracy()
 }
 
 /// Of the detections from 0.1 s into `tone`, the percentage that found a pitch.
-double FoundPercent(const std::vector<float>& tone, double sampleRate)
+double FoundPercent(const std::vector<float>& tone, double sampleRate, double lowestHz = PitchTracker::kMinHz,
+                    double fromSeconds = 0.1)
 {
     PitchTracker tracker;
+    tracker.SetLowestFrequency(lowestHz);
     tracker.Prepare(sampleRate);
     std::uint64_t seen = 0;
     int detections = 0;
@@ -209,7 +211,7 @@ double FoundPercent(const std::vector<float>& tone, double sampleRate)
         {
             seen = tracker.DetectionCount();
 
-            if (n >= static_cast<std::size_t>(0.1 * sampleRate))
+            if (n >= static_cast<std::size_t>(fromSeconds * sampleRate))
             {
                 ++detections;
                 found += tracker.HasPitch() ? 1 : 0;
@@ -251,6 +253,62 @@ void TestLowNotes()
 
     Check(worst >= 95.0, "sawtooths and plucks from 46 to 110 Hz find their pitch on at least 95% of detections",
           "worst " + Num(worst, 1) + "%" + (where.empty() ? "" : ", " + where));
+}
+
+/// A bass's low strings, which the tuner reads with the range taken down to kBassLowestHz.
+void TestBassRange()
+{
+    std::cout << "\nBass range" << std::endl;
+    double worst = 100.0;
+    double worstCents = 0.0;
+    std::string where;
+
+    for (const double sampleRate : {44100.0, 48000.0, 96000.0, 192000.0})
+    {
+        // An extended-range bass's low C#, a semitone flat of it, a seven-string's low F#, a
+        // five-string's low B and a four-string's low E.
+        for (const double frequency : {17.32, 16.35, 23.12, 30.87, 41.2})
+        {
+            const auto tone = Tone(frequency, 0.6, sampleRate, Kind::Pluck);
+            // From once the window, 125 ms at the lowest, has filled and the note been confirmed.
+            const double found = FoundPercent(tone, sampleRate, PitchTracker::kBassLowestHz, 0.2);
+            PitchTracker tracker;
+            tracker.SetLowestFrequency(PitchTracker::kBassLowestHz);
+            tracker.Prepare(sampleRate);
+            tracker.Process(tone.data(), static_cast<int>(tone.size()));
+            const double cents =
+                tracker.FrequencyHz() > 0.0 ? std::abs(Cents(tracker.FrequencyHz(), frequency)) : 1.0e9;
+            worstCents = std::max(worstCents, cents);
+
+            if (found < worst)
+            {
+                worst = found;
+                where = Num(frequency, 2) + " Hz at " + Num(sampleRate, 0);
+            }
+        }
+    }
+
+    Check(worst >= 95.0, "plucks down to a semitone under a bass's low C# find their pitch on at least 95% of detections",
+          "worst " + Num(worst, 1) + "%" + (where.empty() ? "" : ", " + where));
+    Check(worstCents < 2.0, "and read within 2 cents", "worst " + Num(worstCents, 2) + " cents");
+    Check(FoundPercent(Tone(30.87, 0.6, 48000.0, Kind::Pluck), 48000.0) < 5.0 &&
+              FoundPercent(Tone(17.32, 0.6, 48000.0, Kind::Pluck), 48000.0) < 5.0,
+          "left at its default range the tracker does not reach them");
+
+    PitchTracker tracker;
+    tracker.SetLowestFrequency(1.0);
+    Check(tracker.LowestFrequencyHz() == PitchTracker::kBassLowestHz, "a lower value is held to kBassLowestHz");
+
+    // The effects set their range after Prepare(), and must keep the guitar's buffers and window.
+    PitchTracker effect;
+    effect.Prepare(48000.0);
+    effect.SetLowestFrequency(PitchTracker::kBassLowestHz);
+    Check(effect.LowestFrequencyHz() == PitchTracker::kMinHz,
+          "after Prepare() the range goes no lower than its buffers were sized for");
+    effect.SetLowestFrequency(78.0);
+    effect.Prepare(48000.0);
+    effect.SetLowestFrequency(1.0);
+    Check(effect.LowestFrequencyHz() == PitchTracker::kMinHz, "nor does it from a narrowed range");
 }
 
 /// Samples from the start of `second` until the tracker reads it within 20 cents.
@@ -567,6 +625,7 @@ int main()
 
     TestAccuracy();
     TestLowNotes();
+    TestBassRange();
     TestResponse();
     TestRejection();
     TestRealGuitar();

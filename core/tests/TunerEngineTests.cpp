@@ -6,6 +6,7 @@
 #include <condition_variable>
 #include <cstdint>
 #include <iostream>
+#include <iterator>
 #include <mutex>
 #include <optional>
 #include <utility>
@@ -222,6 +223,71 @@ bool TestPitchTracker()
 
     return true;
 }
+
+/// `seconds` of a bass-like tone at `frequency`: its fundamental well under the second and third
+/// harmonics, as from a pickup near the bridge.
+std::vector<float> BassTone(double sampleRate, double frequency, double seconds)
+{
+    constexpr double kHarmonics[] = {0.25, 1.0, 0.6, 0.4, 0.25, 0.15};
+    std::vector<float> signal(static_cast<std::size_t>(seconds * sampleRate));
+
+    for (std::size_t n = 0; n < signal.size(); ++n)
+    {
+        double sum = 0.0;
+
+        for (std::size_t h = 0; h < std::size(kHarmonics); ++h)
+        {
+            sum += kHarmonics[h] * std::sin(2.0 * kPi * frequency * static_cast<double>(h + 1) *
+                                            static_cast<double>(n) / sampleRate);
+        }
+
+        signal[n] = static_cast<float>(0.12 * sum);
+    }
+
+    return signal;
+}
+
+/// A bass's low strings, below the 45 Hz the tracker stops at by default, read as their own
+/// notes. Returns false on a failure.
+bool TestBass()
+{
+    struct Note
+    {
+        double frequency;
+        const char* name;
+        int octave;
+    };
+
+    // An extended-range bass's low C#, the same a quarter-tone flat, a seven-string's low F#, a
+    // five-string's low B and a four-string's low E.
+    const Note notes[] = {{17.324, "C#/Db", 0},
+                          {17.324 * std::pow(2.0, -25.0 / 1200.0), "C#/Db", 0},
+                          {23.125, "F#/Gb", 0},
+                          {30.868, "B", 0},
+                          {41.203, "E", 1}};
+
+    for (const double sampleRate : {44100.0, 48000.0, 96000.0, 192000.0})
+    {
+        for (const Note& note : notes)
+        {
+            double mean = 0.0;
+            double spread = 0.0;
+            const auto readings = Readings(sampleRate, BassTone(sampleRate, note.frequency, 1.0));
+
+            if (!Steady(readings, 4, note.frequency, mean, spread) || std::abs(mean) > 1.0 ||
+                Last(readings).noteName != note.name || Last(readings).octave != note.octave)
+            {
+                std::cerr << "Tuner did not read " << note.name << note.octave << " (" << note.frequency << " Hz) at "
+                          << sampleRate << " Hz: " << Last(readings).noteName << Last(readings).octave << ", "
+                          << Last(readings).frequency << " Hz\n";
+                return false;
+            }
+        }
+    }
+
+    std::cout << "Bass low C#, low F#, low B and low E read at 44.1-192 kHz\n";
+    return true;
+}
 } // namespace
 
 int main()
@@ -291,5 +357,5 @@ int main()
         return 1;
     }
 
-    return TestPitchTracker() ? 0 : 1;
+    return TestPitchTracker() && TestBass() ? 0 : 1;
 }

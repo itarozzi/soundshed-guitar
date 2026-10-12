@@ -15,7 +15,8 @@ namespace guitarfx
 {
 /// Tracks the raw input's pitch on the audio thread and reports it from a worker thread.
 ///
-/// Process() runs the shared PitchTracker (a detection every 5 ms) and, once per reading, averages
+/// Process() runs the shared PitchTracker (a detection every 5 ms), its range taken down to a
+/// bass's low C# (PitchTracker::kBassLowestHz), and, once per reading, averages
 /// that reading's detections and hands the result to the worker, which names the note against the
 /// reference pitch and calls the callback. A reading comes every 2048 samples at 48 kHz (about
 /// 43 ms at any rate). Averaging the 5 ms detections over it reads a held note with a third to a

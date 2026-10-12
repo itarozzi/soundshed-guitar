@@ -75,18 +75,28 @@ static_assert(std::size(kLowestNoteHz) == std::size(kLowestNoteLabels));
  * Both histories are mirrored rings: every sample is written twice, a ring's length apart, so
  * the newest samples are always one contiguous run and the difference loops vectorise.
  *
- * SetLowestFrequency() narrows the range from the bottom. The window is two of the longest period
+ * SetLowestFrequency() moves the bottom of the range. The window is two of the longest period
  * the tracker looks for, so an instrument that never goes below a standard guitar's low E is
  * tracked over a window 58% as long and picks a new note up that much sooner. It is opt-in: left
  * alone, the tracker covers 45 Hz up as it always has.
+ *
+ * Below kMinHz, down to kBassLowestHz for a bass's low strings (the tuner), the window grows to
+ * as much as 125 ms, which follows fast playing worse and costs several times as much. So that
+ * nothing else pays for it, Prepare() sizes the buffers for kMinHz, or for a lower frequency only
+ * if one was set before it, and SetLowestFrequency() after Prepare() goes no lower than that.
  *
  * Prepare() allocates; Process(), Push() and SetLowestFrequency() do not, and none of them locks.
  */
 class PitchTracker
 {
   public:
+    /// The bottom of the range unless SetLowestFrequency() moves it.
     static constexpr double kMinHz = 45.0;
     static constexpr double kMaxHz = 2000.0;
+    /// The lowest SetLowestFrequency() goes, set before Prepare(): a little under C0 (16.4 Hz), so
+    /// an extended-range bass's low C# (17.3 Hz) still reads a semitone flat. A four-string's low
+    /// E is 41.2 Hz, a five- or six-string's low B 30.9 Hz and a seven-string's low F# 23.1 Hz.
+    static constexpr double kBassLowestHz = 16.0;
     /// The highest SetLowestFrequency() goes: an octave and a half above a guitar's top string, and
     /// still two octaves below kMaxHz, so the lag range never closes up.
     static constexpr double kMaxLowestHz = 500.0;
@@ -100,9 +110,10 @@ class PitchTracker
         mHop = std::max(1, static_cast<int>(std::lround(kHopSeconds * mDecimatedRate)));
         mRefineReach = std::min(mDecimation / 2 + 2, (kMaxRefineLags - 3) / 2);
 
-        // Sized for the full range whatever the lowest frequency is now, so that narrowing or
-        // widening it later never allocates.
-        const int longestLag = LongestLag(kMinHz);
+        // Sized for the full guitar range whatever the lowest frequency is now, so that narrowing
+        // or widening it later never allocates; lower only when the lowest frequency already is.
+        mPreparedLowestHz = std::min(kMinHz, mLowestHz);
+        const int longestLag = LongestLag(mPreparedLowestHz);
         mDecimated.Assign(2 * longestLag + 2);
         mFull.Assign(longestLag * mDecimation + (longestLag + 2) * mDecimation + mRefineReach + 2);
         mNormalised.assign(static_cast<std::size_t>(longestLag + 2), 1.0f);
@@ -115,10 +126,12 @@ class PitchTracker
 
     /// Tracks pitches from `hz` up rather than from kMinHz, over a window sized to match. A tone
     /// below it reads as no pitch, or as its octave. A change resets the tracker; setting the
-    /// value it already has does nothing.
+    /// value it already has does nothing. Below kMinHz it must be set before Prepare(): after,
+    /// it goes no lower than what Prepare() sized the buffers for.
     void SetLowestFrequency(double hz)
     {
-        const double lowest = IsFinite(hz) ? std::clamp(hz, kMinHz, kMaxLowestHz) : kMinHz;
+        const double bottom = mNormalised.empty() ? kBassLowestHz : mPreparedLowestHz;
+        const double lowest = IsFinite(hz) ? std::clamp(hz, bottom, kMaxLowestHz) : kMinHz;
 
         if (lowest == mLowestHz)
         {
@@ -612,6 +625,7 @@ class PitchTracker
     int mDecimation = 4;
     double mDecimatedRate = 12000.0;
     double mLowestHz = kMinHz;
+    double mPreparedLowestHz = kMinHz; ///< the lowest frequency the buffers are sized for
     int mMaxLag = 0;
     int mMinLag = 2;
     int mHalf = 0;
