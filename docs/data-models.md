@@ -297,6 +297,12 @@ Rules that keep this honest:
   loaded from the store — matched by scene id, node id and plugin identity, and only when
   the snapshot's `presetId` still matches the resolved `lastPresetId`. Unsaved graph edits
   stay discarded. See `docs/fx-library.md` for the full set of recall rules.
+- There is always an active preset. Startup (`LoadLastSessionState()`) restores
+  `lastPresetId`; when that is missing, deleted, unreadable or a disabled factory-archive
+  preset, `LoadFallbackPreset()` takes the configured default (`kDefaultStartupPresetTitle`),
+  else the first preset in the library, else a new unsaved preset. A tone-sharing preview
+  (`preview-…` id) is never recorded as `lastPresetId`, so the preset played before it
+  comes back instead.
 
 ## Preset Manager Operations
 

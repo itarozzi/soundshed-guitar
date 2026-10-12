@@ -199,11 +199,7 @@ bool PluginController::ApplyActivePresetById(const std::string& presetId)
     // Only the standalone app owns the machine-wide "last preset". A hosted instance
     // still reads it to seed a brand-new instance, but its own preset choice belongs to
     // the DAW project (host state), not to every other instance and the app.
-    if (mHost.IsStandalone() && !IsPresetArchiveSessionActive())
-    {
-        mAppSettings["lastPresetId"] = mActivePresetId;
-        SaveAppSettings();
-    }
+    RememberActivePresetAsLast();
 
     return true;
 }

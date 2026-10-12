@@ -589,27 +589,9 @@ function renderSignalPathBarContent(): void {
   lastRenderedPresetId = renderedPresetId ?? null;
   
   if (!activePreset) {
-    // Show placeholder signal chain (no preset loaded yet)
-    if (signalPathNodesElement) {
-      signalPathNodesElement.innerHTML = `
-        <div class="signal-node input-node" data-node-id="__input__" title="Input" aria-label="Input">
-          <div class="node-icon"><span class="fx-effect-icon" style="--icon-url: url('/images/icons/amp.svg')" aria-hidden="true"></span>
-          </div>
-          <span class="node-label">Input</span>
-        </div>
-        <div class="signal-connector"></div>
-        <div class="signal-node" data-node-id="placeholder" title="No Preset" aria-label="No Preset">
-          <div class="node-icon"><span class="fx-effect-icon" style="--icon-url: url('/images/icons/bolt.svg')" aria-hidden="true"></span>
-          </div>
-          <span class="node-label">No Preset</span>
-        </div>
-        <div class="signal-connector"></div>
-        <div class="signal-node output-node" data-node-id="__output__" title="Output" aria-label="Output">
-          <div class="node-icon"><span class="fx-effect-icon" style="--icon-url: url('/images/icons/speaker.svg')" aria-hidden="true"></span>
-          </div>
-          <span class="node-label">Output</span>
-        </div>`;
-    }
+    // Only before the engine's first state: it always has an active preset after that (a new
+    // one when nothing else loads), so there is never a "no preset" chain to draw.
+    if (signalPathNodesElement) signalPathNodesElement.innerHTML = "";
     if (sceneToolbarHost) sceneToolbarHost.innerHTML = "";
     toolbarRow?.classList.add("scene-toolbar-empty");
     updateSignalPathAddMenuAvailability(false);

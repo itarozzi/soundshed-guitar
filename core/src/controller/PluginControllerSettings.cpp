@@ -955,16 +955,15 @@ void PluginController::LoadLastSessionState()
         }
     }
 
+    if (!lastPresetId.empty() && !IsFactoryPresetArchiveLoadingEnabled() &&
+        mTrackedFactoryArchivePresetIds.contains(lastPresetId))
+    {
+        AppendSessionLog("Skipping last factory archive preset restore because archive loading is disabled");
+        lastPresetId.clear();
+    }
+
     if (!lastPresetId.empty())
     {
-        if (!IsFactoryPresetArchiveLoadingEnabled() && mTrackedFactoryArchivePresetIds.contains(lastPresetId))
-        {
-            AppendSessionLog("Skipping last factory archive preset restore because archive loading is disabled");
-            mPendingStateBroadcast = true;
-            AppendSessionLog("Last session state restored");
-            return;
-        }
-
         AppendSessionLog("Restoring last preset: " + lastPresetId);
         try
         {
@@ -1010,9 +1009,11 @@ void PluginController::LoadLastSessionState()
         }
     }
 
-    if (lastPresetId.empty())
+    // Never start on an empty chain: a last preset that is gone, unreadable or unavailable
+    // falls back the same way as having none.
+    if (!mActivePreset)
     {
-        TryLoadConfiguredDefaultPreset();
+        LoadFallbackPreset();
     }
 
     mPendingStateBroadcast = true;

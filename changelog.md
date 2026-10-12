@@ -8,6 +8,9 @@
 ### Signal Chain
 * You can now remove a split when one of its branches has effects. Click the mixer's × (or select the mixer and press Delete) and that branch's effects move back into the main signal path, in the same order. If more than one branch has effects, it still asks you to clear all but one first.
 
+### Presets
+* The app always starts with a preset loaded. If the preset you last played has been deleted or can't be loaded, it picks the default preset, or another one from your library, or a new preset, and you no longer see an empty "No Preset" signal chain. Previewing a tone from Tone Sharing and then closing the app now brings back the preset you were playing before the preview.
+
 ### Tone Sharing
 * Right-click a folder in the preset chooser and pick **Create Pack…** to start a Tone Sharing pack from the folder's presets, its subfolders' included. The pack takes the folder's name, and each preset shows whether it is already on Tone Sharing. Presets that aren't yet are uploaded as drafts when you save, and only go to the moderators when you publish the pack. Presets you installed from someone else's pack are left out.
 * **AI Tone Builder** (Settings → Features → Power Features, off by default; needs a Soundshed sign-in): press **Tone Builder…** in Tone Sharing, name an artist, song or style and pick how hard it should think. It first shows anything Tone Sharing already has for it, then researches the rig, picks NAM captures and IRs, and proposes ready-to-play presets with pack artwork. You review every capture it chose before anything is downloaded; gear no capture covers gets a built-in stand-in. The presets are balanced to the same level as the factory packs, saved to a "Tone Builder" folder, and can be shared on Tone Sharing under your account.

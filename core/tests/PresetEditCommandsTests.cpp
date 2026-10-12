@@ -650,6 +650,57 @@ void TestSceneEditsKeepTheMix()
            "and the scene that takes its place is heard");
 }
 
+void TestStartupAlwaysHasAPreset()
+{
+    {
+        TestHost host(Sandbox("startup-empty"));
+        guitarfx::PluginController controller(host);
+        controller.Initialize();
+
+        const auto& active = controller.GetActivePreset();
+        Expect(active && active->name == "New Preset", "an empty library starts on a new preset");
+        Send(controller, "getPresetRecents");
+        Expect(Latest(host, "presetRecents")->at("presetIds").empty(),
+               "the startup preset is not recorded as recently played");
+    }
+
+    const auto missingRoot = Sandbox("startup-missing");
+    {
+        TestHost host(missingRoot);
+        guitarfx::PluginController controller(host);
+        controller.Initialize();
+        Store(controller, BuildTwoScenePreset("s-kept"));
+        Store(controller, BuildTwoScenePreset("s-gone"));
+        Send(controller, "loadPreset", {{"presetId", "s-gone"}});
+        Send(controller, "deletePreset", {{"presetId", "s-gone"}});
+    }
+    {
+        TestHost host(missingRoot);
+        guitarfx::PluginController controller(host);
+        controller.Initialize();
+        const auto& active = controller.GetActivePreset();
+        Expect(active && active->id == "s-kept", "a last preset that is gone falls back to one in the library");
+    }
+
+    const auto previewRoot = Sandbox("startup-preview");
+    {
+        TestHost host(previewRoot);
+        guitarfx::PluginController controller(host);
+        controller.Initialize();
+        Store(controller, BuildTwoScenePreset("s-first"));
+        Store(controller, BuildTwoScenePreset("s-played"));
+        Send(controller, "loadPreset", {{"presetId", "s-played"}});
+        LoadBody(controller, BuildTwoScenePreset("preview-itm_1"));
+    }
+    {
+        TestHost host(previewRoot);
+        guitarfx::PluginController controller(host);
+        controller.Initialize();
+        const auto& active = controller.GetActivePreset();
+        Expect(active && active->id == "s-played", "a tone-sharing preview is never restored; the preset before it is");
+    }
+}
+
 void TestDeleteSendsTheNewList()
 {
     TestHost host(Sandbox("delete"));
@@ -689,6 +740,7 @@ int main()
     TestFavoriteAndRatingPatches();
     TestRecentsKeepTheWebUiRules();
     TestNewPresetUsesTheDefaultTemplate();
+    TestStartupAlwaysHasAPreset();
     TestOutputMuteSurvivesAPresetLoad();
     TestSelectSetlistMovesTheCursorOnly();
     TestUiSettingsKeepNanosPart();

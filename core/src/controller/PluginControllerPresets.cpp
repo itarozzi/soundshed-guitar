@@ -152,11 +152,7 @@ void PluginController::HandlePresetLoadRequest(const nlohmann::json& payload)
         // Send explicit "presetLoaded" confirmation to the UI
         SendActivePresetLoaded();
 
-        if (mHost.IsStandalone() && !IsPresetArchiveSessionActive())
-        {
-            mAppSettings["lastPresetId"] = mActivePresetId;
-            SaveAppSettings();
-        }
+        RememberActivePresetAsLast();
     }
     catch (const std::exception& e)
     {
@@ -886,11 +882,14 @@ std::optional<std::string> PluginController::FindPresetIdByTitle(const std::stri
         return std::nullopt;
     }
 
-    const bool factoryArchiveLoadingEnabled = IsFactoryPresetArchiveLoadingEnabled();
+    return FindPresetIdWhere(
+        [&](const Preset& preset) { return NormalizePresetTitle(preset.name) == normalizedTitle; });
+}
 
-    auto matchesTitle = [&](const Preset& preset) -> bool {
-        return NormalizePresetTitle(preset.name) == normalizedTitle;
-    };
+std::optional<std::string>
+PluginController::FindPresetIdWhere(const std::function<bool(const Preset&)>& matches) const
+{
+    const bool factoryArchiveLoadingEnabled = IsFactoryPresetArchiveLoadingEnabled();
 
     for (const auto& preset : LoadAllUserPresets())
     {
@@ -899,7 +898,7 @@ std::optional<std::string> PluginController::FindPresetIdByTitle(const std::stri
             continue;
         }
 
-        if (matchesTitle(preset))
+        if (matches(preset))
         {
             return preset.id;
         }
@@ -923,7 +922,7 @@ std::optional<std::string> PluginController::FindPresetIdByTitle(const std::stri
 
             const auto presetOpt = PresetStorage::LoadFromFile(entry.path());
 
-            if (presetOpt && matchesTitle(*presetOpt))
+            if (presetOpt && matches(*presetOpt))
             {
                 return presetOpt->id;
             }
@@ -934,7 +933,7 @@ std::optional<std::string> PluginController::FindPresetIdByTitle(const std::stri
     {
         for (const auto& [presetId, preset] : mFactoryArchivePresets)
         {
-            if (matchesTitle(preset))
+            if (matches(preset))
             {
                 return presetId;
             }
@@ -961,19 +960,54 @@ bool PluginController::TryLoadConfiguredDefaultPreset()
         return false;
     }
 
-    const auto presetOpt = LoadPresetById(*presetId);
+    return TryActivateStartupPreset(*presetId, "configured default preset");
+}
+
+bool PluginController::TryActivateStartupPreset(const std::string& presetId, const std::string& logLabel)
+{
+    const auto presetOpt = LoadPresetById(presetId);
 
     if (!presetOpt)
     {
-        AppendSessionLog("Configured default preset could not be loaded: " + configuredTitle);
+        AppendSessionLog("The " + logLabel + " could not be loaded: " + presetId);
         return false;
     }
 
-    mActivePresetId = *presetId;
+    mActivePresetId = presetId;
     mActivePreset = *presetOpt;
     mActivePresetJson = PresetStorage::SerializeToJson(*presetOpt);
     ApplyPreset(*presetOpt);
-    AppendSessionLog("Loaded configured default preset: " + presetOpt->name);
+    AppendSessionLog("Loaded " + logLabel + ": " + presetOpt->name);
     return true;
+}
+
+void PluginController::LoadFallbackPreset()
+{
+    if (TryLoadConfiguredDefaultPreset())
+    {
+        return;
+    }
+
+    if (const auto firstId = FindPresetIdWhere([](const Preset&) { return true; });
+        firstId && TryActivateStartupPreset(*firstId, "first available preset"))
+    {
+        return;
+    }
+
+    ActivateNewPreset();
+    AppendSessionLog("No preset to restore; started a new preset");
+}
+
+void PluginController::RememberActivePresetAsLast()
+{
+    // "preview-" is the id the tone-sharing panel gives a preview (toneSharingPanel/preview.ts):
+    // it is never saved, so remembering it would leave nothing to restore.
+    if (!mHost.IsStandalone() || IsPresetArchiveSessionActive() || mActivePresetId.rfind("preview-", 0) == 0)
+    {
+        return;
+    }
+
+    mAppSettings["lastPresetId"] = mActivePresetId;
+    SaveAppSettings();
 }
 } // namespace guitarfx

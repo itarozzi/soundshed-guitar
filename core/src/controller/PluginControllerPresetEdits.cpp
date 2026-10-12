@@ -286,17 +286,21 @@ void PluginController::HandleRemoveSceneRequest(const nlohmann::json& payload)
 void PluginController::HandleNewPresetRequest(const nlohmann::json&)
 {
     CaptureLiveHostedPluginStateIntoActivePreset();
+    ActivateNewPreset();
 
+    // Unsaved until the user saves it: its baseline is itself, so it opens clean.
+    ResetActivePresetBaseline();
+    SendActivePresetLoaded(true);
+}
+
+void PluginController::ActivateNewPreset()
+{
     Preset preset = BuildNewPreset();
     NormalizePresetScenes(preset);
     (void)SetPresetActiveScene(preset, std::string{}, &mActiveSceneId);
     mActivePresetId = preset.id;
     ApplyPreset(preset);
     mPendingPresetStateBroadcast = true;
-
-    // Unsaved until the user saves it: its baseline is itself, so it opens clean.
-    ResetActivePresetBaseline();
-    SendActivePresetLoaded(true);
 }
 
 void PluginController::SendActivePresetLoaded(bool created)

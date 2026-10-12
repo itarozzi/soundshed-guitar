@@ -308,6 +308,10 @@ void PluginController::StartPresetArchiveSession(const std::string& archiveFileN
         mActivePresetId = firstPreset->id;
         ApplyPreset(*firstPreset);
     }
+    else
+    {
+        LoadFallbackPreset();
+    }
 
     InvalidateResourceUsageIndex();
     mPendingStateBroadcast = true;

@@ -3966,11 +3966,8 @@ bool TestSetlistCursorSwitchesPresetWithoutStackingMixer()
             return true;
         };
 
-        if (!stepToSlot(0, "setlist-a"))
-        {
-            return false;
-        }
-
+        // Startup already plays setlist-a (the first preset in the library, as there is no
+        // last preset), and a step onto the playing preset only moves the cursor, so start on B.
         if (!stepToSlot(1, "setlist-b"))
         {
             return false;

@@ -909,7 +909,20 @@ class PluginController
     void LoadLastSessionState();
     [[nodiscard]] std::optional<Preset> LoadPresetById(const std::string& presetId) const;
     [[nodiscard]] std::optional<std::string> FindPresetIdByTitle(const std::string& presetTitle) const;
+    /// The first preset `matches` accepts: user presets, then factory files, then the factory
+    /// archives when they are enabled. In a preset-archive session, only its own presets.
+    [[nodiscard]] std::optional<std::string> FindPresetIdWhere(const std::function<bool(const Preset&)>& matches) const;
     bool TryLoadConfiguredDefaultPreset();
+    /// Loads `presetId` as the active preset at startup; false when it cannot be loaded.
+    bool TryActivateStartupPreset(const std::string& presetId, const std::string& logLabel);
+    /// There is always an active preset: when none could be restored, the configured default,
+    /// else the first preset in the library, else a new unsaved one.
+    void LoadFallbackPreset();
+    /// Makes a new, unsaved preset (BuildNewPreset) the active one. The caller sets its baseline.
+    void ActivateNewPreset();
+    /// Standalone only: records the active preset as the one to restore next launch. A
+    /// tone-sharing preview is never recorded; it lives only in memory.
+    void RememberActivePresetAsLast();
     void LoadResourceLibraries();
     void CleanupResourceLibraryCategoriesOnStartup();
     void LoadFactoryPresetArchives();
