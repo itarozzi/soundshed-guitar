@@ -297,7 +297,8 @@ void TestResponse()
     const auto& single = kClasses[static_cast<std::size_t>(Pickup::SingleCoilBridge)];
     const auto& humbucker = kClasses[static_cast<std::size_t>(Pickup::HumbuckerBridge)];
 
-    auto effect = Make({{"source", P(Pickup::SingleCoilBridge)}, {"target", P(Pickup::HumbuckerBridge)}});
+    auto effect =
+        Make({{"sensing", 0.0}, {"source", P(Pickup::SingleCoilBridge)}, {"target", P(Pickup::HumbuckerBridge)}});
     const double expectedDc = humbucker.levelDb - single.levelDb;
     Check(std::abs(ResponseDb(*effect, 20.0) - expectedDc) < 0.05, "single coil to humbucker gains the level gap",
           std::to_string(ResponseDb(*effect, 20.0)) + " dB, expected " + std::to_string(expectedDc));
@@ -326,6 +327,91 @@ void TestResponse()
     Check(worstMeasured < 0.1, "the audio has the response it reports",
           "worst " + std::to_string(worstMeasured) + " dB; at 3217 Hz " + std::to_string(MeasuredDb(*effect, 3217.0)) +
               " dB measured, " + std::to_string(ResponseDb(*effect, 3217.0)) + " reported");
+}
+
+/// The response at `hz` relative to 1 kHz: the shape, with the level taken out.
+double ShapeDb(const PickupMatchEffect& effect, double hz)
+{
+    return ResponseDb(effect, hz) - ResponseDb(effect, 1000.0);
+}
+
+void TestSensing()
+{
+    std::cout << "\nString sensing" << std::endl;
+    const double matched = static_cast<double>(guitarfx::pickup_match::LevelMode::Matched);
+
+    // Bridge to neck on the same kind of pickup: the neck hears the low harmonics far more.
+    auto neck =
+        Make({{"source", P(Pickup::SingleCoilBridge)}, {"target", P(Pickup::SingleCoilNeck)}, {"levelMode", matched}});
+    auto neckElectrical = Make({{"source", P(Pickup::SingleCoilBridge)},
+                                {"target", P(Pickup::SingleCoilNeck)},
+                                {"levelMode", matched},
+                                {"sensing", 0.0}});
+    Check(ShapeDb(*neck, 100.0) > 6.0 && std::abs(ShapeDb(*neckElectrical, 100.0)) < 1.5,
+          "bridge to neck fills out the lows, which the electrics alone barely touch",
+          std::to_string(ShapeDb(*neck, 100.0)) + " vs " + std::to_string(ShapeDb(*neckElectrical, 100.0)) +
+              " dB at 100 Hz");
+
+    // The same pickup moved to the neck by hand: sensing only.
+    auto moved = Make({{"source", P(Pickup::SingleCoilBridge)},
+                       {"target", P(Pickup::SingleCoilBridge)},
+                       {"targetPosition", static_cast<double>(guitarfx::pickup_match::PositionChoice::Neck)}});
+    Check(ShapeDb(*moved, 100.0) > 6.0 && std::abs(ResponseDb(*moved, 1000.0)) < 1.0,
+          "Sound Like Position moves the same pickup to the neck",
+          std::to_string(ShapeDb(*moved, 100.0)) + " dB at 100 Hz");
+
+    // Single coil to humbucker at the neck: the two coils take the top down beyond the electrics.
+    auto hum =
+        Make({{"source", P(Pickup::SingleCoilNeck)}, {"target", P(Pickup::HumbuckerNeck)}, {"levelMode", matched}});
+    auto humElectrical = Make({{"source", P(Pickup::SingleCoilNeck)},
+                               {"target", P(Pickup::HumbuckerNeck)},
+                               {"levelMode", matched},
+                               {"sensing", 0.0}});
+    Check(ShapeDb(*hum, 6300.0) < ShapeDb(*humElectrical, 6300.0) - 2.5,
+          "a humbucker's two coils take the top down beyond its electrics",
+          std::to_string(ShapeDb(*hum, 6300.0)) + " vs " + std::to_string(ShapeDb(*humElectrical, 6300.0)) +
+              " dB at 6.3 kHz");
+
+    // Strength scales the sensing part by dB.
+    auto half = Make({{"source", P(Pickup::SingleCoilBridge)},
+                      {"target", P(Pickup::SingleCoilBridge)},
+                      {"targetPosition", static_cast<double>(guitarfx::pickup_match::PositionChoice::Neck)},
+                      {"sensing", 0.5}});
+    Check(std::abs(ShapeDb(*half, 100.0) - 0.5 * ShapeDb(*moved, 100.0)) < 0.3,
+          "String Sensing at half moves half the dB");
+
+    // Undoing the source is exact: there and back again is flat, sensing and all.
+    auto there = Make({{"source", P(Pickup::SingleCoilBridge)}, {"target", P(Pickup::HumbuckerNeck)}});
+    auto back = Make({{"source", P(Pickup::HumbuckerNeck)}, {"target", P(Pickup::SingleCoilBridge)}});
+    double worst = 0.0;
+    for (double f = 30.0; f <= 20000.0; f *= 1.2)
+    {
+        worst = std::max(worst, std::abs(ResponseDb(*there, f) + ResponseDb(*back, f)));
+    }
+    Check(worst < 1.0e-6, "bridge single coil to neck humbucker and back is flat",
+          "worst " + std::to_string(worst) + " dB");
+
+    // Max Treble Boost holds the top a narrower pickup adds over a wider one.
+    auto capped = Make({{"source", P(Pickup::HumbuckerBridge)},
+                        {"target", P(Pickup::HumbuckerBridge)},
+                        {"targetPosition", static_cast<double>(guitarfx::pickup_match::PositionChoice::Bridge)},
+                        {"sourcePosition", static_cast<double>(guitarfx::pickup_match::PositionChoice::Bridge)},
+                        {"maxBoost", 0.0}});
+    auto widthUp =
+        Make({{"source", P(Pickup::HumbuckerBridge)}, {"target", P(Pickup::SingleCoilBridge)}, {"maxBoost", 0.0}});
+    auto widthUpOpen =
+        Make({{"source", P(Pickup::HumbuckerBridge)}, {"target", P(Pickup::SingleCoilBridge)}, {"maxBoost", 24.0}});
+    Check(ResponseDb(*widthUp, 10000.0) < ResponseDb(*widthUpOpen, 10000.0) - 2.0 &&
+              std::abs(ResponseDb(*capped, 10000.0)) < 1.0e-9,
+          "Max Treble Boost holds the top a single coil's narrower window adds",
+          std::to_string(ResponseDb(*widthUp, 10000.0)) + " vs " + std::to_string(ResponseDb(*widthUpOpen, 10000.0)) +
+              " dB at 10 kHz");
+
+    // A design is sensed where its type sits: a custom PAF like the generic bridge humbucker.
+    auto designed = Make({{"target", kCustomChoice}, {"targetDesignType", 2.0}});
+    auto generic = Make({{"target", P(Pickup::HumbuckerBridge)}});
+    Check(std::abs(ShapeDb(*designed, 100.0) - ShapeDb(*generic, 100.0)) < 1.5,
+          "a custom humbucker is sensed at the bridge, like the generic one");
 }
 
 void TestRoundTrip()
@@ -358,14 +444,18 @@ void TestRoundTrip()
 void TestLevelMode()
 {
     std::cout << "\nLevel" << std::endl;
-    auto matched = Make({{"source", P(Pickup::SingleCoilBridge)},
+    auto matched = Make({{"sensing", 0.0},
+                         {"source", P(Pickup::SingleCoilBridge)},
                          {"target", P(Pickup::HumbuckerBridge)},
                          {"levelMode", static_cast<double>(guitarfx::pickup_match::LevelMode::Matched)}});
     Check(std::abs(ResponseDb(*matched, 20.0)) < 0.05, "Matched holds the lows where they were");
 
-    auto half =
-        Make({{"source", P(Pickup::SingleCoilBridge)}, {"target", P(Pickup::HumbuckerBridge)}, {"amount", 0.5}});
-    auto full = Make({{"source", P(Pickup::SingleCoilBridge)}, {"target", P(Pickup::HumbuckerBridge)}});
+    auto half = Make({{"sensing", 0.0},
+                      {"source", P(Pickup::SingleCoilBridge)},
+                      {"target", P(Pickup::HumbuckerBridge)},
+                      {"amount", 0.5}});
+    auto full =
+        Make({{"sensing", 0.0}, {"source", P(Pickup::SingleCoilBridge)}, {"target", P(Pickup::HumbuckerBridge)}});
     Check(std::abs(ResponseDb(*half, 20.0) - 0.5 * ResponseDb(*full, 20.0)) < 0.05,
           "Amount moves the level by dB, half way at 0.5");
 
@@ -379,7 +469,8 @@ void TestMaxBoost()
 
     for (double cap : {0.0, 6.0, 12.0})
     {
-        auto effect = Make({{"source", P(Pickup::P90)},
+        auto effect = Make({{"sensing", 0.0},
+                            {"source", P(Pickup::P90)},
                             {"target", P(Pickup::ActiveHumbucker)},
                             {"levelMode", static_cast<double>(guitarfx::pickup_match::LevelMode::Matched)},
                             {"maxBoost", cap}});
@@ -389,15 +480,19 @@ void TestMaxBoost()
               std::to_string(top) + " dB at 16 kHz");
     }
 
-    auto open = Make({{"source", P(Pickup::P90)},
+    auto open = Make({{"sensing", 0.0},
+                      {"source", P(Pickup::P90)},
                       {"target", P(Pickup::ActiveHumbucker)},
                       {"levelMode", static_cast<double>(guitarfx::pickup_match::LevelMode::Matched)},
                       {"maxBoost", 24.0}});
     Check(ResponseDb(*open, 16000.0) > 15.0, "a wide cap lets the full boost through");
 
-    auto down =
-        Make({{"source", P(Pickup::SingleCoilBridge)}, {"target", P(Pickup::HumbuckerBridge)}, {"maxBoost", 0.0}});
-    auto downOpen = Make({{"source", P(Pickup::SingleCoilBridge)}, {"target", P(Pickup::HumbuckerBridge)}});
+    auto down = Make({{"sensing", 0.0},
+                      {"source", P(Pickup::SingleCoilBridge)},
+                      {"target", P(Pickup::HumbuckerBridge)},
+                      {"maxBoost", 0.0}});
+    auto downOpen =
+        Make({{"sensing", 0.0}, {"source", P(Pickup::SingleCoilBridge)}, {"target", P(Pickup::HumbuckerBridge)}});
     Check(std::abs(ResponseDb(*down, 8000.0) - ResponseDb(*downOpen, 8000.0)) < 1.0e-9,
           "it does nothing going to a darker pickup");
 }
@@ -626,6 +721,7 @@ int main()
     TestIdentity();
     TestResponse();
     TestRoundTrip();
+    TestSensing();
     TestLevelMode();
     TestMaxBoost();
     TestMono();

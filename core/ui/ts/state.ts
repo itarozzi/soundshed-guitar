@@ -19,6 +19,15 @@ const DEFAULT_PRE_CHAIN_GRAPH: SignalGraph = {
       config: {},
     },
     {
+      id: "global_pickup",
+      type: EffectGuids.kPickupMatch,
+      displayName: "Pickup Match",
+      category: "eq",
+      bypassed: true,
+      params: {},
+      config: {},
+    },
+    {
       id: "global_gate",
       type: EffectGuids.kDynamicsGate,
       displayName: "Noise Gate",
@@ -54,7 +63,8 @@ const DEFAULT_PRE_CHAIN_GRAPH: SignalGraph = {
     },
   ],
   edges: [
-    { from: "__input__", to: "global_gate", fromPort: 0, toPort: 0, gain: 1 },
+    { from: "__input__", to: "global_pickup", fromPort: 0, toPort: 0, gain: 1 },
+    { from: "global_pickup", to: "global_gate", fromPort: 0, toPort: 0, gain: 1 },
     { from: "global_gate", to: "global_transpose", fromPort: 0, toPort: 0, gain: 1 },
     { from: "global_transpose", to: "__output__", fromPort: 0, toPort: 0, gain: 1 },
   ],

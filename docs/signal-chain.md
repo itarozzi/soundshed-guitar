@@ -118,7 +118,7 @@ graph invalid, and an invalid graph outputs silence.
 2. Apply the input mode (Mono takes input 1, input 2 or both summed onto both channels) and the
    active user input calibration gain.
 3. Measure processed input diagnostics.
-4. Process global pre-chain (for example noise gate and transpose).
+4. Process global pre-chain (Pickup Match, noise gate and transpose).
 5. For each preset: process the preset graph, then mix outputs with pan and mix gain.
 6. Process global post-chain (for example EQ and doubler).
 7. Apply master gain, then final output protection if enabled.
@@ -242,7 +242,7 @@ Global chains may include additional parameters, but core trims remain, and glob
 
 ## Global Signal Chains
 
-Global pre-chain and post-chain are SignalGraphs that wrap around all presets, referencing GlobalSignalChainConfig, preChainGraph, postChainGraph. Default contents include pre: input → gate; post: EQ → doubler. Configuration via UI enables shared FX across presets.
+Global pre-chain and post-chain are SignalGraphs that wrap around all presets, referencing GlobalSignalChainConfig, preChainGraph, postChainGraph. Default contents include pre: input → Pickup Match (`global_pickup`, bypassed) → gate → transpose; post: EQ → doubler. `GlobalChainEditor::NormalizeConfig` gives a chain saved before Pickup Match was part of it the node, bypassed, straight after its input, and leaves the rest of the chain as it was. Configuration via UI enables shared FX across presets.
 
 ## Multi-Preset Mixing
 

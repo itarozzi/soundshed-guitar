@@ -572,7 +572,8 @@ default instead of the setting and then write that default back over it.
 whole of it on the bar; the chevron beside the dB readout opens a flyout with every parameter
 above, `advanced` ones under their own heading. `ts/gateSettings.ts` builds that panel from the
 effect catalogue rather than a list of its own, so a parameter added here appears there with its
-range, unit and grouping; each change goes out as a `gate.<id>` `setGlobalChainParam`.
+range, unit and grouping; each change goes out as a `gate.<id>` `setGlobalChainParam`. The rows are
+`ts/flyoutParamControls.ts`'s, shared with the global Pickup Match tab.
 
 **Attack and release shape the applied gain, not the detector.** The detector runs fast and at
 a fixed rate so the gate sees a pick attack the moment it arrives; the user's times control how
@@ -684,6 +685,8 @@ vary in level from unit to unit.
 | `output` | -12..+12 dB | 0 | |
 | `sourceDesignType` … `sourceCapacitanceTrim` | | | "Your Pickup" as a custom design: Type, DC Resistance (3–20 kΩ), Wire Gauge (42–44 AWG), Magnet, Cover, Coil Wiring, Capacitance Trim (±50%). Read only while `source` is Custom Design |
 | `targetDesignType` … `targetCapacitanceTrim` | | | The same for "Sound Like" |
+| `sensing` | 0–1 | 1 | String Sensing: how much of the position and width difference to apply; scaled by Amount too |
+| `sourcePosition`, `targetPosition` | From Pickup / Neck / Middle / Bridge | From Pickup | Where each pickup sits on the string, for String Sensing |
 
 **Factory presets:** Single Coil to Humbucker (default), Neck Single Coil to Humbucker, Humbucker
 to Single Coil, Neck Humbucker to Single Coil, Single Coil to P-90, and Humbucker to P-90.
@@ -728,9 +731,61 @@ picture (`pickup-single`, `pickup-p90`, `pickup-humbucker`, `pickup-active`, `pi
 one line of detail. The detail gives the position, the peak, and the output against a generic neck
 single coil. The params panel also draws the conversion's response curve, "Pickup Conversion".
 
+**Not in the effect picker, for now.** The UI marks the type `catalogHidden` (`presetV2.ts`), so the FX
+library, the add-effect menu and the replace chooser leave it out. The Tone Builder's service also skips
+hidden effects. The global chain's node is the way in. A preset that already holds a Pickup Match still
+loads, plays and edits it.
+
+**In the global chain.** The pre-chain carries a Pickup Match, `global_pickup`, straight after the input
+and bypassed until switched on, so one setting converts the player's pickup ahead of every preset.
+It is edited in the input calibration flyout (the chevron under the input meter), on its Pickup Match tab.
+
+The tab is built from the same pieces as the params panel, so the two never drift:
+- the pickers;
+- the conversion curve;
+- the custom-design blocks;
+- knob rows from `ts/flyoutParamControls.ts`, the code the gate flyout uses.
+
+A change goes out as a `pickup.<id>` `setGlobalChainParam` for any of the effect's parameters, and as
+`pickup.enabled` for on and off. While it is on, a picture of the target pickup sits beside the IN
+label; clicking it opens the tab.
+
+**String Sensing.** The measurements are electrical, and they leave out what players hear most between
+pickups: where a pickup sits on the string, and how wide it senses.
+- **Position:** a pickup at distance p from the bridge on scale L hears harmonic n in proportion to
+  sin(πnp/L). Near the bridge the low harmonics barely move the string, so a bridge pickup sounds thin
+  and a neck pickup full: about 9–10 dB at 100 Hz on a Strat, fading out by 600 Hz.
+- **Width:** a coil senses a window of the string. A humbucker's two coils, 18 mm apart, take the upper
+  harmonics down a further 2–5 dB above 2.5 kHz against a single coil.
+
+Both act by harmonic number, so by note. `tools/gen-pickup-sensing.mjs` averages them over the notes from
+low E to the high E's 12th fret, which holds for chords. It fits each geometry with a low shelf, a peak and
+a high shelf, to within 0.5 dB RMS, in `PickupSensing.generated.h`. `npm run check:pickup-sensing` holds
+that file to the script, in `verify` and CI.
+
+There are nine geometries: single coil, P-90 or humbucker, at the neck, middle or bridge. Each uses
+typical dimensions, not measured ones:
+- Fender 648 mm and Gibson 628 mm scales.
+- 160/100/41 mm from the bridge for single coils, 152/100/45 mm otherwise.
+- Coil windows of 8, 13 and 7 mm.
+- 18 mm between a humbucker's coils.
+
+Which geometry a side uses:
+- **Family:** actives count as humbuckers, and the Other family as single coils.
+- **Position:** the side's Position, or else the catalogue entry's own. A pickup without one (the P-90 and
+  active classes, models measured on their own, custom designs) sits where its kind usually does: a single
+  coil in the middle, anything else at the bridge.
+
+Conversion runs the target's three bands and the source's three with their gains negated. An RBJ shelf or
+peak with its gain negated is the exact inverse, so there and back is flat, and the same geometry on both
+sides runs nothing. Max Treble Boost also caps the top a narrower pickup adds.
+
+In the effect's own response (`PickupMatchEffectTests`), String Sensing makes Single Coil (Bridge) →
+Single Coil (Neck) 10 dB fuller at 100 Hz against 1 kHz. The electrics alone moved that by 0.1 dB.
+
 **Not modelled.** The measurements are electrical only. A humbucker's two coils, and a pickup's
-distance from the bridge, comb the string's harmonics by harmonic number. The notches therefore
-move with the note played, and a fixed filter cannot follow them. The classes also assume the
+distance from the bridge, comb the string's harmonics by harmonic number. The notches move with the note played, so a fixed filter cannot follow them exactly; String
+Sensing applies their average. The classes also assume the
 measured load. A short cable, a 1M input or a rolled-off volume knob moves a real pickup's peak.
 
 ### Digital Delay (`delay_digital`)

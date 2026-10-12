@@ -6,6 +6,7 @@ import { EffectGuids } from "./effectGuids.js";
 import { GenericKnob } from "./knob.js";
 import { EqPanel } from "./eqPanel.js";
 import { initializeGateControls, syncGateControlsFromState } from "./gateSettings.js";
+import { syncPickupMatchFromState } from "./pickupMatchGlobal.js";
 import { clampValue, countStepDecimals, deriveRangeStep } from "./utils.js";
 import { isWheelAdjustEnabled } from "./wheelAdjust.js";
 
@@ -407,6 +408,7 @@ export function syncControlsFromState(): void {
 
   syncDoublerControlsFromState();
   syncGateControlsFromState();
+  syncPickupMatchFromState();
   syncEQControlsFromState();
   updateOutputMuteToggleState();
 }

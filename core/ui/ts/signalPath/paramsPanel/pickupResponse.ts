@@ -132,14 +132,18 @@ export function describeDesign(summary: Readonly<Record<string, number>>, side: 
     + `peak ${formatNumber(peak! / 1000, 2)} kHz, Q ${formatNumber(q!, 2)}, output ${signed(level!)} dB`;
 }
 
-function curveCanvas(): HTMLCanvasElement | null {
-  return nodeParamsPanelElement?.querySelector<HTMLCanvasElement>(".pickup-response-canvas") ?? null;
+/** Where the sections are drawn: the params panel, unless a caller hosts them elsewhere (the
+ * global Pickup Match tab in the input calibration flyout). */
+type Root = ParentNode | null | undefined;
+
+function curveCanvas(root: Root): HTMLCanvasElement | null {
+  return root?.querySelector<HTMLCanvasElement>(".pickup-response-canvas") ?? null;
 }
 
-function drawCurve(canvas: HTMLCanvasElement, nodeId: string): void {
+function drawCurve(canvas: HTMLCanvasElement, nodeId: string, withSpectrum: boolean): void {
   const curve = shownCurve?.nodeId === nodeId ? shownCurve.curve : null;
   drawResponsePlot(canvas, curve ? (freq) => responseDbAt(curve, freq) : () => Number.NaN, {
-    spectrum: paramsPanelInteractions.eqSpectrum?.spectrum ?? null,
+    spectrum: withSpectrum ? paramsPanelInteractions.eqSpectrum?.spectrum ?? null : null,
     minDb: CURVE_MIN_DB,
     maxDb: CURVE_MAX_DB,
     gridStepDb: CURVE_GRID_DB,
@@ -147,11 +151,11 @@ function drawCurve(canvas: HTMLCanvasElement, nodeId: string): void {
 }
 
 /** Shows the design block of each side set to Custom Design, with its figures when known. */
-function updateDesignBlocks(node: GraphNode): void {
+function updateDesignBlocks(node: GraphNode, root: Root): void {
   const defs = EffectTypeRegistry.get(node.type)?.parameters ?? [];
   const summary = shownCurve?.nodeId === node.id ? shownCurve.curve.summary : undefined;
   for (const side of SIDES) {
-    const block = nodeParamsPanelElement?.querySelector<HTMLElement>(`.pickup-design[data-side="${side}"]`);
+    const block = root?.querySelector<HTMLElement>(`.pickup-design[data-side="${side}"]`);
     if (!block || block.dataset.nodeId !== node.id) {
       continue;
     }
@@ -164,25 +168,29 @@ function updateDesignBlocks(node: GraphNode): void {
 }
 
 /** Redraws the curve straight away with the last one, then again when the engine answers. */
-export function updatePickupResponseVisualization(node: GraphNode): void {
-  const canvas = isPickupMatchNode(node) ? curveCanvas() : null;
+export function updatePickupResponseVisualization(node: GraphNode, root: Root = nodeParamsPanelElement): void {
+  const canvas = isPickupMatchNode(node) ? curveCanvas(root) : null;
   if (!canvas) {
     return;
   }
   fitCanvasToLayout(canvas);
-  ensureNodeSpectrumWatcher(canvas, node.id, () => drawCurve(canvas, node.id));
-  drawCurve(canvas, node.id);
-  updateDesignBlocks(node);
+  // The spectrum is the params panel's selected node's; a hosted curve draws without it.
+  const inPanel = root === nodeParamsPanelElement;
+  if (inPanel) {
+    ensureNodeSpectrumWatcher(canvas, node.id, () => drawCurve(canvas, node.id, true));
+  }
+  drawCurve(canvas, node.id, inPanel);
+  updateDesignBlocks(node, root);
 
   requestEffectResponse(node.type, node.params ?? {}, (curve) => {
     if (curve) {
       shownCurve = { nodeId: node.id, curve };
     }
     // The panel may have been rebuilt, or moved to another node, while the request was out.
-    const current = curveCanvas();
+    const current = curveCanvas(root);
     if (current && current.closest<HTMLElement>(".pickup-response")?.dataset.nodeId === node.id) {
-      drawCurve(current, node.id);
-      updateDesignBlocks(node);
+      drawCurve(current, node.id, inPanel);
+      updateDesignBlocks(node, root);
     }
   });
 }

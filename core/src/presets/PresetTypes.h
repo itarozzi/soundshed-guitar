@@ -192,7 +192,7 @@ struct GlobalSignalChainConfig
     bool limiterEnabled = false;
 
     /**
-     * Build a SignalGraph for the pre-chain (input → gate → transpose → output).
+     * Build a SignalGraph for the pre-chain (input → pickup match → gate → transpose → output).
      */
     [[nodiscard]] SignalGraph BuildPreChainGraph() const;
 
@@ -206,6 +206,10 @@ struct GlobalSignalChainConfig
      */
     [[nodiscard]] static SignalGraph BuildDefaultPreChainGraph();
     [[nodiscard]] static SignalGraph BuildDefaultPostChainGraph();
+
+    /// The pre-chain's Pickup Match node, "global_pickup": bypassed, at the effect's defaults.
+    /// It sits straight after the input, so everything after it hears the converted pickup.
+    [[nodiscard]] static GraphNode BuildPickupMatchNode();
 
     /**
      * Create default global chain configuration.

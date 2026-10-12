@@ -204,7 +204,7 @@ The UI is a web-based single-page application (SPA) hosted in a native WebView. 
 | `saveBlendArchive` | `{data, fileName}` | Save a base64 `.namz` blend archive through a save dialog; answered with `blendExportSaved` or `blendExportFailed` |
 | `setSetting` | `{key, value}` | Persist and apply an app setting |
 | `setUserInputCalibrationTrainingActive` | `{active}` | Temporarily bypass the active calibration profile while training |
-| `setGlobalChainParam` | `{param, value}` | Set global chain parameter |
+| `setGlobalChainParam` | `{path, value}` | Set a global chain parameter by path: `gate.*`, `transpose.*`, `eq.*`, `doubler.*`, `input.gain`, `output.gain`, and `pickup.enabled` or `pickup.<id>` for any of Pickup Match's parameters (unknown ids are logged and ignored) |
 | `getGlobalChain` | `{}` | Request global chain state |
 | `getEffectCatalog` | `{}` | Request effect catalog |
 | `getPresetList` | `{}` | Request preset list from disk |

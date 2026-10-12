@@ -9,6 +9,7 @@
 #include "dsp/LinearRamp.h"
 #include "dsp/effects/PickupDesign.h"
 #include "dsp/effects/PickupModels.generated.h"
+#include "dsp/effects/PickupSensing.generated.h"
 #include "dsp/effects/PickupTypes.h"
 
 #include <algorithm>
@@ -40,9 +41,14 @@
  * second-order fit to its response (28 Hz to 20 kHz, into 10 ft of low-capacitance cable and a
  * 500K pot; tools/gen-pickup-models.mjs writes PickupModels.generated.h). The fit reaches a median
  * 0.37 dB RMS up to 12 kHz. Active and some noiseless pickups fit worse, up to 5 dB, because their
- * curves carry their own EQ; their fitErrorDb says so. The classes are medians of those fits. What the measurements
- * leave out is where the coils sit under the string: a humbucker's two coils and the pickup's distance from the bridge
- * comb the harmonics by harmonic number, so by note, and a fixed filter cannot follow that.
+ * curves carry their own EQ; their fitErrorDb says so. The classes are medians of those fits.
+ *
+ * The measurements are electrical. Where a pickup sits on the string and how wide it senses
+ * matter as much: a bridge pickup barely hears the low harmonics, which hardly move the string
+ * there, and a humbucker's two coils take the upper ones down. Those comb the harmonics by
+ * harmonic number, so by note; String Sensing applies their average over the notes a guitar
+ * plays (tools/gen-pickup-sensing.mjs, PickupSensing.generated.h), which holds for chords too.
+ * It runs as the target's low shelf, peak and high shelf with the source's undone.
  */
 namespace guitarfx
 {
@@ -171,11 +177,29 @@ enum Param : std::size_t
     kTargetCover,
     kTargetWiring,
     kTargetCapacitanceTrim,
+    // String sensing: where each pickup sits on the string and how wide it senses.
+    kSensing,
+    kSourcePosition,
+    kTargetPosition,
     kParamCount
 };
 
 inline constexpr std::size_t kDesignParamCount = kTargetDesignType - kSourceDesignType;
-static_assert(kParamCount - kTargetDesignType == kDesignParamCount);
+static_assert(kTargetCapacitanceTrim + 1 - kTargetDesignType == kDesignParamCount);
+
+/// A side's position: from the chosen pickup (its catalogue position, or for a type alone the
+/// usual one), or set by hand.
+enum class PositionChoice
+{
+    FromPickup,
+    Neck,
+    Middle,
+    Bridge,
+    Count
+};
+
+inline constexpr const char* kPositionLabels[] = {"From Pickup", "Neck", "Middle", "Bridge"};
+static_assert(std::size(kPositionLabels) == static_cast<std::size_t>(PositionChoice::Count));
 
 inline constexpr double kLastPickup = static_cast<double>(kPickupCount - 1);
 
@@ -211,16 +235,22 @@ inline constexpr std::array<EffectParamSpec, kParamCount> kParams = {{
     {"targetWiring", "Coil Wiring", static_cast<double>(DesignWiring::Series), 0.0, 2.0, "enum", "Sound Like Design",
      true, 1.0, kWiringLabels},
     {"targetCapacitanceTrim", "Capacitance Trim", 0.0, -50.0, 50.0, "%", "Sound Like Design", true, 1.0},
+    {"sensing", "String Sensing", 1.0, 0.0, 1.0, "amount", "String Sensing", false, 0.0},
+    {"sourcePosition", "Your Pickup Position", 0.0, 0.0, 3.0, "enum", "String Sensing", false, 1.0, kPositionLabels},
+    {"targetPosition", "Sound Like Position", 0.0, 0.0, 3.0, "enum", "String Sensing", false, 1.0, kPositionLabels},
 }};
 
 using Values = std::array<double, kParamCount>;
 
 inline constexpr Values kDefaultValues = DefaultParamValues(kParams);
 
-/// What the effect runs: one section and a gain.
+/// The electrical section, then the target's three sensing bands, then the source's undone.
+inline constexpr std::size_t kSectionCount = 7;
+
+/// What the effect runs: its sections and a gain.
 struct Design
 {
-    BiquadCoefficients section; ///< the identity when there is nothing to change
+    std::array<BiquadCoefficients, kSectionCount> sections{}; ///< the identity when there is nothing to change
     double gain = 1.0;
 };
 
@@ -301,6 +331,65 @@ struct Design
     return model;
 }
 
+/// Which of kSensingFits a side senses like: its family's geometry (single coil, P-90 or
+/// humbucker; actives are humbuckers, anything else a single coil) at its position. The position
+/// is the pickup's own, or the side's Position when set; a pickup without one (a P-90 or active
+/// class, a model measured on its own, a custom design) is taken where that kind usually sits:
+/// a single coil in the middle, anything else at the bridge.
+[[nodiscard]] inline std::size_t SensingProfileIndex(const Values& values, Param side) noexcept
+{
+    const std::size_t index = PickupIndex(values[side]);
+    PickupFamily family = kPickups[index].family;
+    PickupPosition position = kPickups[index].position;
+
+    if (index == kCustomPickup)
+    {
+        const auto spec = DesignSpecFor(values, DesignParamsFor(side));
+        family = kDesignTypes[static_cast<std::size_t>(spec.type)].humbucker ? PickupFamily::Humbucker
+                                                                             : PickupFamily::SingleCoil;
+        position = PickupPosition::Any;
+    }
+
+    const auto choice = static_cast<PositionChoice>(
+        std::clamp(std::lround(values[side == kSource ? kSourcePosition : kTargetPosition]), 0L, 3L));
+
+    if (choice != PositionChoice::FromPickup)
+    {
+        position = choice == PositionChoice::Neck     ? PickupPosition::Neck
+                   : choice == PositionChoice::Middle ? PickupPosition::Middle
+                                                      : PickupPosition::Bridge;
+    }
+
+    const std::size_t geometry = family == PickupFamily::P90                                           ? 1
+                                 : family == PickupFamily::Humbucker || family == PickupFamily::Active ? 2
+                                                                                                       : 0;
+
+    if (position == PickupPosition::Any)
+    {
+        position = geometry == 0 ? PickupPosition::Middle : PickupPosition::Bridge;
+    }
+
+    const std::size_t place = position == PickupPosition::Neck ? 0 : position == PickupPosition::Middle ? 1 : 2;
+    return geometry * 3 + place;
+}
+
+/// One band of a sensing profile at `scale` of its gain: a low shelf, a peak, a high shelf.
+[[nodiscard]] inline BiquadCoefficients SensingSection(std::size_t band, const SensingBand& spec, double scale,
+                                                       double sampleRate) noexcept
+{
+    const double gainDb = spec.gainDb * scale;
+
+    switch (band)
+    {
+    case 0:
+        return biquad::LowShelf(spec.frequencyHz, spec.q, gainDb, sampleRate);
+    case 1:
+        return biquad::Peaking(spec.frequencyHz, spec.q, gainDb, sampleRate);
+    default:
+        return biquad::HighShelf(spec.frequencyHz, spec.q, gainDb, sampleRate);
+    }
+}
+
 /// The design for a set of parameter values.
 ///
 /// Amount moves the target's resonance and Q from the source's towards the chosen pickup's by
@@ -338,8 +427,46 @@ struct Design
     }
 
     Design design;
-    design.section = MatchSection(source.resonanceHz, source.q, targetHz, targetQ, sampleRate);
+    design.sections[0] = MatchSection(source.resonanceHz, source.q, targetHz, targetQ, sampleRate);
     design.gain = std::pow(10.0, levelDb / 20.0);
+
+    // String sensing: the target's profile, and the source's undone. A shelf or peak with its
+    // gain negated is the exact inverse of itself (RBJ, fixed Q), so the pair cancels when the
+    // two are alike, and the same pickup on both sides runs nothing at all.
+    const std::size_t sourceProfile = SensingProfileIndex(values, kSource);
+    const std::size_t targetProfile = SensingProfileIndex(values, kTarget);
+    const double strength = std::clamp(values[kSensing], 0.0, 1.0) * amount;
+
+    if (strength > 0.0 && sourceProfile != targetProfile)
+    {
+        const auto& from = kSensingFits[sourceProfile].bands;
+        const auto& to = kSensingFits[targetProfile].bands;
+        double sourceScale = -strength;
+        double targetScale = strength;
+
+        // Max Treble Boost holds here too: the top end the target's width adds over the source's.
+        const double topBoostDb = strength * (to[2].gainDb - from[2].gainDb);
+        const double maxBoostDb = std::max(0.0, values[kMaxBoost]);
+
+        if (topBoostDb > maxBoostDb)
+        {
+            const double scale = maxBoostDb / topBoostDb;
+            design.sections[3] = SensingSection(2, to[2], targetScale * scale, sampleRate);
+            design.sections[6] = SensingSection(2, from[2], sourceScale * scale, sampleRate);
+        }
+        else
+        {
+            design.sections[3] = SensingSection(2, to[2], targetScale, sampleRate);
+            design.sections[6] = SensingSection(2, from[2], sourceScale, sampleRate);
+        }
+
+        for (std::size_t band = 0; band < 2; ++band)
+        {
+            design.sections[1 + band] = SensingSection(band, to[band], targetScale, sampleRate);
+            design.sections[4 + band] = SensingSection(band, from[band], sourceScale, sampleRate);
+        }
+    }
+
     return design;
 }
 } // namespace pickup_match
@@ -382,12 +509,19 @@ class PickupMatchEffect : public EffectProcessor
 
     void Reset() override
     {
-        for (auto& state : mState)
+        for (auto& channel : mState)
         {
-            state.Reset();
+            for (auto& state : channel)
+            {
+                state.Reset();
+            }
         }
 
-        mSection.Finish();
+        for (auto& section : mSections)
+        {
+            section.Finish();
+        }
+
         mGain.Finish();
         mRampSamplesRemaining = 0;
     }
@@ -506,7 +640,13 @@ class PickupMatchEffect : public EffectProcessor
 
         for (std::size_t i = 0; i < frequenciesHz.size(); ++i)
         {
-            const double magnitude = std::abs(biquad::Response(design.section, frequenciesHz[i], mSampleRate));
+            double magnitude = 1.0;
+
+            for (const auto& section : design.sections)
+            {
+                magnitude *= std::abs(biquad::Response(section, frequenciesHz[i], mSampleRate));
+            }
+
             magnitudesDb[i] = 20.0 * std::log10(std::max(magnitude, 1.0e-12)) + gainDb;
         }
 
@@ -566,10 +706,15 @@ class PickupMatchEffect : public EffectProcessor
     void UpdateDesign() noexcept
     {
         const pickup_match::Design design = pickup_match::BuildDesign(mValues, mSampleRate);
-        mSection.target = design.section;
+
+        for (std::size_t i = 0; i < pickup_match::kSectionCount; ++i)
+        {
+            mSections[i].target = design.sections[i];
+            mSections[i].Begin(mRampSamples);
+        }
+
         mGain.target = design.gain;
         mRampSamplesRemaining = mRampSamples;
-        mSection.Begin(mRampSamples);
         mGain.Begin(mRampSamples);
     }
 
@@ -582,25 +727,45 @@ class PickupMatchEffect : public EffectProcessor
 
         if (--mRampSamplesRemaining == 0)
         {
-            mSection.Finish();
+            for (auto& section : mSections)
+            {
+                section.Finish();
+            }
+
             mGain.Finish();
             return;
         }
 
-        mSection.Advance();
+        for (auto& section : mSections)
+        {
+            section.Advance();
+        }
+
         mGain.Advance();
     }
 
-    [[nodiscard]] float ProcessSample(float input, biquad::State& state) noexcept
+    using ChannelState = std::array<biquad::State, pickup_match::kSectionCount>;
+
+    [[nodiscard]] float ProcessSample(float input, ChannelState& states) noexcept
     {
-        // A NaN or infinity would stay in the filter's memory, so it plays as silence.
+        // A NaN or infinity would stay in the filters' memory, so it plays as silence.
         // IsFinite, because the fast-math builds fold std::isfinite away.
-        const double dry = IsFinite(input) ? static_cast<double>(input) : 0.0;
-        const double wet = state.Process(mSection.current, dry) * mGain.current;
+        double wet = IsFinite(input) ? static_cast<double>(input) : 0.0;
+
+        for (std::size_t i = 0; i < pickup_match::kSectionCount; ++i)
+        {
+            wet = states[i].Process(mSections[i].current, wet);
+        }
+
+        wet *= mGain.current;
 
         if (!IsFinite(wet))
         {
-            state.Reset();
+            for (auto& state : states)
+            {
+                state.Reset();
+            }
+
             return 0.0f;
         }
 
@@ -608,9 +773,9 @@ class PickupMatchEffect : public EffectProcessor
     }
 
     pickup_match::Values mValues = pickup_match::kDefaultValues;
-    biquad::Ramp mSection;
+    std::array<biquad::Ramp, pickup_match::kSectionCount> mSections{};
     LinearRamp<double> mGain{1.0, 1.0, 0.0};
-    std::array<biquad::State, 2> mState{};
+    std::array<ChannelState, 2> mState{};
     int mRampSamples = 1;
     int mRampSamplesRemaining = 0;
 };

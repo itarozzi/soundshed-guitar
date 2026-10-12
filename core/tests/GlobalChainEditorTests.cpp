@@ -2,6 +2,9 @@
 
 #include "dsp/EffectGuids.h"
 #include "dsp/effects/BuiltinEffects.h"
+#include "dsp/effects/PickupMatchEffect.h"
+
+#include <algorithm>
 
 #include <cmath>
 #include <iostream>
@@ -45,9 +48,93 @@ bool CanonicalizesStoredParamAliases()
     return true;
 }
 
+/// The node after the input in a linear chain, or "" when the input feeds nothing.
+std::string AfterInput(const SignalGraph& graph)
+{
+    for (const auto& edge : graph.edges)
+    {
+        if (edge.from == "__input__")
+        {
+            return edge.to;
+        }
+    }
+
+    return {};
+}
+
+/**
+ * Pickup Match sits straight after the input, bypassed: in a new chain, and in a chain saved
+ * before it existed, which keeps its own nodes and settings.
+ */
+bool AddsBypassedPickupMatchAfterInput()
+{
+    RegisterAllEffects();
+
+    GlobalSignalChainConfig fresh;
+    GlobalChainEditor::NormalizeConfig(fresh);
+    const auto* pickup = fresh.preChainGraph.FindNode("global_pickup");
+
+    if (!pickup || pickup->enabled || pickup->type != EffectGuids::kPickupMatch ||
+        AfterInput(fresh.preChainGraph) != "global_pickup" || pickup->params.count("target") == 0)
+    {
+        std::cerr << "A new global chain has no bypassed Pickup Match after its input\n";
+        return false;
+    }
+
+    // A chain saved before: input -> gate -> transpose -> output, with a gate setting.
+    GlobalSignalChainConfig stored;
+    GlobalChainEditor::NormalizeConfig(stored);
+    auto& graph = stored.preChainGraph;
+    graph.nodes.erase(std::remove_if(graph.nodes.begin(), graph.nodes.end(),
+                                     [](const GraphNode& n) { return n.id == "global_pickup"; }),
+                      graph.nodes.end());
+    graph.edges = {
+        {"__input__", "global_gate"}, {"global_gate", "global_transpose"}, {"global_transpose", "__output__"}};
+    graph.FindNode("global_gate")->params["threshold"] = -51.0;
+
+    GlobalChainEditor::NormalizeConfig(stored);
+    const auto* gate = stored.preChainGraph.FindNode("global_gate");
+    const bool gateFollows = std::any_of(graph.edges.begin(), graph.edges.end(), [](const auto& e) {
+        return e.from == "global_pickup" && e.to == "global_gate";
+    });
+
+    if (AfterInput(graph) != "global_pickup" || !gateFollows || !gate || gate->params.at("threshold") != -51.0 ||
+        graph.edges.size() != 4)
+    {
+        std::cerr << "A stored chain was not given Pickup Match after its input, intact otherwise\n";
+        return false;
+    }
+
+    GlobalChainEditor::NormalizeConfig(stored);
+
+    if (std::count_if(graph.nodes.begin(), graph.nodes.end(),
+                      [](const GraphNode& n) { return n.type == EffectGuids::kPickupMatch; }) != 1)
+    {
+        std::cerr << "Normalizing again added a second Pickup Match\n";
+        return false;
+    }
+
+    SignalGraphExecutor pre;
+    SignalGraphExecutor post;
+    GlobalChainEditor editor(stored, pre, post);
+    editor.SetPickupMatchEnabled(true);
+    const bool known = editor.SetPickupMatchParam("target", 9999.0);
+    const bool unknown = editor.SetPickupMatchParam("notAParam", 1.0);
+    const auto* edited = stored.preChainGraph.FindNode("global_pickup");
+
+    if (!edited->enabled || !known || unknown || edited->params.at("target") != pickup_match::kLastPickup ||
+        edited->params.count("notAParam") != 0)
+    {
+        std::cerr << "Pickup Match edits did not land on the global node as the effect holds them\n";
+        return false;
+    }
+
+    return true;
+}
+
 int main()
 {
-    if (!CanonicalizesStoredParamAliases())
+    if (!CanonicalizesStoredParamAliases() || !AddsBypassedPickupMatchAfterInput())
     {
         return 1;
     }

@@ -1,6 +1,8 @@
 #include "dsp/GlobalChainEditor.h"
 
 #include "dsp/EffectGuids.h"
+#include "dsp/EffectParamSpec.h"
+#include "dsp/effects/PickupMatchEffect.h"
 #include "dsp/effects/TransposeEffect.h"
 
 #include <algorithm>
@@ -21,6 +23,23 @@ bool GraphHasNodeType(const SignalGraph& graph, const std::string& type)
         }
     }
     return false;
+}
+
+/// Puts `node` straight after the chain's input: whatever the input fed, the node now feeds.
+void InsertAfterInput(SignalGraph& graph, GraphNode node)
+{
+    const std::string inputId = "__input__";
+
+    for (auto& edge : graph.edges)
+    {
+        if (edge.from == inputId)
+        {
+            edge.from = node.id;
+        }
+    }
+
+    graph.edges.push_back({inputId, node.id});
+    graph.nodes.push_back(std::move(node));
 }
 
 GraphNode* FindNodeByIdOrType(SignalGraph& graph, const char* id, const char* type)
@@ -47,6 +66,13 @@ void GlobalChainEditor::NormalizeConfig(GlobalSignalChainConfig& config)
         !GraphHasNodeType(config.preChainGraph, EffectGuids::kTranspose))
     {
         config.preChainGraph = GlobalSignalChainConfig::BuildDefaultPreChainGraph();
+    }
+
+    // Chains saved before Pickup Match was part of the global chain gain it, bypassed, straight
+    // after the input; the rest of the chain and its settings are left as they were.
+    if (!GraphHasNodeType(config.preChainGraph, EffectGuids::kPickupMatch))
+    {
+        InsertAfterInput(config.preChainGraph, GlobalSignalChainConfig::BuildPickupMatchNode());
     }
 
     if ((config.postChainGraph.nodes.empty() && config.postChainGraph.edges.empty()) ||
@@ -97,6 +123,38 @@ void GlobalChainEditor::SetGateEnabled(bool enabled)
         node->enabled = enabled;
         mPre.SetNodeEnabled(node->id, enabled);
     }
+}
+
+void GlobalChainEditor::SetPickupMatchEnabled(bool enabled)
+{
+    if (auto* node = FindPreNode("global_pickup", EffectGuids::kPickupMatch))
+    {
+        node->enabled = enabled;
+        mPre.SetNodeEnabled(node->id, enabled);
+    }
+}
+
+bool GlobalChainEditor::SetPickupMatchParam(const std::string& key, double value)
+{
+    const std::size_t index = FindParamSpec(pickup_match::kParams, key);
+
+    if (index == pickup_match::kParamCount)
+    {
+        return false;
+    }
+
+    auto* node = FindPreNode("global_pickup", EffectGuids::kPickupMatch);
+
+    if (!node)
+    {
+        return false;
+    }
+
+    // Stored as the effect will hold it, so the saved chain never carries a value it would not play.
+    const double normalised = NormaliseParamValue(pickup_match::kParams[index], value);
+    node->params[key] = normalised;
+    mPre.SetNodeParam(node->id, key, normalised);
+    return true;
 }
 
 void GlobalChainEditor::SetGateParam(const char* key, double value)

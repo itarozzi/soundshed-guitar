@@ -366,6 +366,9 @@ const EFFECT_STUBS: EffectStub[] = [
   // EQ
   { type: EffectGuids.kEqParametric },
   { type: EffectGuids.kEqGraphic },
+  // Only the global chain's (the input calibration flyout's Pickup Match tab) for now; presets
+  // that already hold one still load and edit it.
+  { type: EffectGuids.kPickupMatch, catalogHidden: true },
   // Utility
   { type: EffectGuids.kGain },
   { type: EffectGuids.kWasmHost },

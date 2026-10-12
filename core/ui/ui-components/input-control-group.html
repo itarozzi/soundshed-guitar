@@ -17,7 +17,7 @@
             class="input-vu-meter-dropdown-trigger"
             type="button"
             aria-label="Input calibration options"
-            aria-haspopup="menu"
+            aria-haspopup="dialog"
             aria-expanded="false"
             aria-controls="user-input-calibration-toolbar-menu"
             title="Input calibration options"
@@ -26,10 +26,15 @@
               <path d="M3.5 5.75 8 10.25l4.5-4.5" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" />
             </svg>
           </button>
-          <div id="user-input-calibration-toolbar-menu" class="input-calibration-toolbar-menu" role="menu" hidden></div>
+          <div id="user-input-calibration-toolbar-menu" class="input-calibration-toolbar-menu" role="dialog" aria-label="Input calibration and Pickup Match" hidden></div>
         </div>
         <div class="control-stack control-stack-knob">
-          <div class="control-stack-label">IN</div>
+          <div class="control-stack-label">
+            IN
+            <!-- Shown while the global Pickup Match is on (ts/pickupMatchGlobal.ts); opens its tab. -->
+            <button id="pickup-match-indicator" class="pickup-match-indicator" type="button"
+              aria-haspopup="dialog" title="Pickup Match on" hidden></button>
+          </div>
           <div class="knob-control" id="input-control" title="Input Level">
             <div class="knob" data-param="input" data-value="0">
               <div class="knob-indicator"></div>

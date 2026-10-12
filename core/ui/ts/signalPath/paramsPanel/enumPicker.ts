@@ -92,17 +92,37 @@ function triggerInnerHtml(choice: PickerChoice | undefined): string {
   `;
 }
 
+/** The trigger alone, showing the current choice: for a row laid out by its owner. */
+export function buildEnumPickerButtonHtml(nodeId: string, def: ParameterDef, value: number): string {
+  const choice = pickerChoices(def)[pickerChoiceIndex(def, value)];
+  return `<button type="button" class="enum-picker-trigger" data-node-id="${escapeHtml(nodeId)}"
+        data-param-key="${escapeHtml(def.key)}" aria-haspopup="dialog" aria-expanded="false"
+        title="${escapeHtml(choice?.info.detail ?? choice?.label ?? "")}">${triggerInnerHtml(choice)}</button>`;
+}
+
 /** The control the params panel draws in place of a knob. */
 export function buildEnumPickerTriggerHtml(nodeId: string, def: ParameterDef, value: number, label: string): string {
-  const choice = pickerChoices(def)[pickerChoiceIndex(def, value)];
   return `
     <div class="node-param-group enum-picker-group">
       <span class="node-param-label">${escapeHtml(label)}</span>
-      <button type="button" class="enum-picker-trigger" data-node-id="${escapeHtml(nodeId)}"
-        data-param-key="${escapeHtml(def.key)}" aria-haspopup="dialog" aria-expanded="false"
-        title="${escapeHtml(choice?.info.detail ?? choice?.label ?? "")}">${triggerInnerHtml(choice)}</button>
+      ${buildEnumPickerButtonHtml(nodeId, def, value)}
     </div>
   `;
+}
+
+/**
+ * What choosing a value means. By default it is a node parameter of the active preset, sent
+ * the way any params-panel control sends one; a picker for something else (the global chain's
+ * Pickup Match) passes its own.
+ */
+export type EnumPickerCommit = (def: ParameterDef, value: number) => void;
+
+function commitNodeParam(node: GraphNode): EnumPickerCommit {
+  return (def, value) => {
+    node.params[def.key] = value;
+    sendSignalPathNodeParamUpdate(node.id, def.key, value);
+    refreshNodeVisualizations(node);
+  };
 }
 
 interface OpenPicker {
@@ -133,11 +153,16 @@ function findTrigger(nodeId: string, key: string): HTMLElement | null {
 }
 
 /** Wires every picker trigger the panel just drew to `node`. */
-export function bindEnumPickerTriggers(root: ParentNode | null | undefined, node: GraphNode, defs: ParameterDef[]): void {
+export function bindEnumPickerTriggers(
+  root: ParentNode | null | undefined,
+  node: GraphNode,
+  defs: readonly ParameterDef[],
+  commit: EnumPickerCommit = commitNodeParam(node),
+): void {
   root?.querySelectorAll<HTMLButtonElement>(".enum-picker-trigger").forEach((trigger) => {
     const def = defs.find((candidate) => candidate.key === trigger.dataset.paramKey);
     if (!isPickerParam(def)) return;
-    trigger.addEventListener("click", () => openEnumPicker(trigger, node, def));
+    trigger.addEventListener("click", () => openEnumPicker(trigger, node, def, commit));
     // A panel redraw while the flyout is open: the flyout follows the new trigger.
     if (openPicker && openPicker.nodeId === node.id && openPicker.key === def.key) {
       trigger.setAttribute("aria-expanded", "true");
@@ -146,7 +171,12 @@ export function bindEnumPickerTriggers(root: ParentNode | null | undefined, node
   openPicker?.reposition();
 }
 
-export function openEnumPicker(initialAnchor: HTMLElement, node: GraphNode, def: ParameterDef): void {
+export function openEnumPicker(
+  initialAnchor: HTMLElement,
+  node: GraphNode,
+  def: ParameterDef,
+  commit: EnumPickerCommit = commitNodeParam(node),
+): void {
   // Re-clicking the trigger that opened it closes it.
   if (openPicker) {
     const same = openPicker.nodeId === node.id && openPicker.key === def.key;
@@ -269,13 +299,11 @@ export function openEnumPicker(initialAnchor: HTMLElement, node: GraphNode, def:
     // Close first: nothing may redraw the clicked row while its click is still bubbling.
     close(true);
     selectedIndex = index;
-    node.params[def.key] = choice.value;
-    sendSignalPathNodeParamUpdate(node.id, def.key, choice.value);
     if (trigger.isConnected) {
       trigger.innerHTML = triggerInnerHtml(choice);
       trigger.title = choice.info.detail ?? choice.label;
     }
-    refreshNodeVisualizations(node);
+    commit(def, choice.value);
   };
 
   const onDocumentPointerDown = (event: PointerEvent): void => {

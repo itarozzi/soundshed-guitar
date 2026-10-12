@@ -1,6 +1,7 @@
 /**
  * Which effects the FX library offers: the experimental ones only with Experimental Effects on,
- * and Guitar to MIDI, which no longer is, always.
+ * Guitar to MIDI, which no longer is, always, and Pickup Match, which lives in the global chain
+ * for now, never.
  */
 import { beforeEach, describe, expect, it } from "vitest";
 import { EffectGuids } from "../ts/effectGuids.js";
@@ -8,6 +9,7 @@ import { uiState } from "../ts/state.js";
 
 const { EffectTypeRegistry } = await import("../ts/presetV2.js");
 const { getCatalogEffects } = await import("../ts/fxSelector.js");
+const { onEffectCatalog } = await import("../ts/messages/effectHandlers.js");
 
 for (const [type, displayName, category] of [
   [EffectGuids.kGuitarToMidi, "Guitar to MIDI", "synth"],
@@ -28,6 +30,14 @@ describe("FX library catalog", () => {
     expect(offered()).toContain(EffectGuids.kGuitarToMidi);
     expect(offered()).not.toContain(EffectGuids.kTransposeStft);
     expect(offered()).not.toContain(EffectGuids.kTransposeHybrid);
+  });
+
+  it("never offers Pickup Match, even once the engine's catalogue has described it", () => {
+    onEffectCatalog({ type: "effectCatalog", catalog: [
+      { type: EffectGuids.kPickupMatch, name: "Pickup Match", category: "eq", parameters: [] },
+    ] });
+    expect(EffectTypeRegistry.get(EffectGuids.kPickupMatch)?.displayName).toBe("Pickup Match");
+    expect(offered()).not.toContain(EffectGuids.kPickupMatch);
   });
 
   it("adds the experimental transposes when the feature is on", () => {

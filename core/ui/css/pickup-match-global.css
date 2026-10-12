@@ -1,0 +1,99 @@
+/* The global chain's Pickup Match: its tab in the input calibration flyout, and the control
+   bar's indicator beside the IN label (ts/pickupMatchGlobal.ts). The tab strip is the params
+   panel's (.node-param-tabs), the rows are the shared flyout rows (flyout-params.css), and
+   the curve, pickers and design blocks are Pickup Match's own (signal-path/enum-picker.css). */
+
+/* The flyout's tab strip sits flush in its padding. */
+.input-calibration-toolbar-menu .input-calibration-tabs {
+  margin: -2px -2px 4px;
+}
+
+.input-calibration-tab-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.input-calibration-tab-panel[hidden] {
+  display: none;
+}
+
+/* Pickup Match needs room for its pickers and curve; the calibration list keeps its width. */
+.input-calibration-toolbar-menu.is-pickup-tab {
+  width: min(380px, calc(100vw - 16px));
+  max-height: min(78vh, 720px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.pickup-match-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Off: everything stays editable, so it can be set up before it is switched on, but reads as
+   inactive. */
+.pickup-match-tab.is-off > :not(.flyout-settings-header) {
+  opacity: 0.6;
+}
+
+.pickup-match-tab-hint {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.pickup-match-tab .pickup-response-canvas {
+  height: 110px;
+}
+
+/* A picker row: label, then the trigger across the control and value columns. */
+.flyout-param-row.is-picker {
+  grid-template-columns: 1fr 2fr;
+}
+
+.flyout-param-row.is-picker .enum-picker-trigger {
+  min-width: 0;
+  max-width: none;
+}
+
+.pickup-match-tab .pickup-design {
+  margin-top: 0;
+}
+
+/* The indicator: the target pickup's picture, beside IN while Pickup Match is on. */
+.pickup-match-indicator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 14px;
+  margin-left: 4px;
+  padding: 0 2px;
+  border: 1px solid color-mix(in srgb, var(--accent-primary) 70%, var(--border-light));
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--accent-primary) 14%, transparent);
+  color: var(--accent-primary);
+  vertical-align: middle;
+  cursor: pointer;
+}
+
+.pickup-match-indicator[hidden] {
+  display: none;
+}
+
+.pickup-match-indicator:hover {
+  background: color-mix(in srgb, var(--accent-primary) 24%, transparent);
+}
+
+.pickup-match-indicator:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+.pickup-match-indicator svg {
+  width: 100%;
+  height: 100%;
+}

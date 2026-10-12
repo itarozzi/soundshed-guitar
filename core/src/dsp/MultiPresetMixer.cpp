@@ -479,6 +479,16 @@ void MultiPresetMixer::CommitGlobalChainSwap()
     }
 }
 
+void MultiPresetMixer::SetGlobalPickupMatchEnabled(bool enabled)
+{
+    EditGlobalChain().SetPickupMatchEnabled(enabled);
+}
+
+bool MultiPresetMixer::SetGlobalPickupMatchParam(const std::string& key, double value)
+{
+    return EditGlobalChain().SetPickupMatchParam(key, value);
+}
+
 void MultiPresetMixer::SetGlobalGateEnabled(bool enabled)
 {
     EditGlobalChain().SetGateEnabled(enabled);

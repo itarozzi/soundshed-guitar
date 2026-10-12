@@ -13,6 +13,7 @@ import { showConfirm } from "../dialogs.js";
 import { showNotification } from "../notifications.js";
 import { uiState } from "../state.js";
 import type { AppSettingValue, UserInputCalibrationProfile } from "../types.js";
+import { renderPickupMatchTab } from "../pickupMatchGlobal.js";
 import { userInputCalibrationCancelButton, userInputCalibrationCapturedPeak, userInputCalibrationCloseButton, userInputCalibrationDeleteButton, userInputCalibrationDescriptionInput, userInputCalibrationLivePeak, userInputCalibrationModal, userInputCalibrationNameInput, userInputCalibrationProfileSelect, userInputCalibrationRecommendedTrim, userInputCalibrationResetButton, userInputCalibrationSaveButton, userInputCalibrationStatus, userInputCalibrationSummary, userInputCalibrationToolbarMenu, userInputCalibrationToolbarTrigger, userInputCalibrationTrainButton } from "./dom.js";
 import { USER_INPUT_CALIBRATION_ACTIVE_PROFILE_SETTING, USER_INPUT_CALIBRATION_NONE_VALUE, USER_INPUT_CALIBRATION_PROFILES_SETTING, USER_INPUT_CALIBRATION_TARGET_PEAK_DBFS } from "./keys.js";
 import { getSettingValue } from "./values.js";
@@ -151,6 +152,10 @@ export function isUserInputCalibrationModalOpen(): boolean {
   return Boolean(userInputCalibrationModal && userInputCalibrationModal.style.display !== "none");
 }
 
+function pickupMatchIndicator(): HTMLElement | null {
+  return document.getElementById("pickup-match-indicator");
+}
+
 export function isUserInputCalibrationToolbarMenuOpen(): boolean {
   return Boolean(userInputCalibrationToolbarMenu && !userInputCalibrationToolbarMenu.hidden);
 }
@@ -188,12 +193,15 @@ export function closeUserInputCalibrationToolbarMenu(): void {
     ?.classList.remove("has-open-calibration");
 }
 
-export function openUserInputCalibrationToolbarMenu(): void {
+export function openUserInputCalibrationToolbarMenu(tab?: ToolbarTab): void {
   if (!userInputCalibrationToolbarMenu) {
     return;
   }
 
   userInputCalibrationToolbarMenu.hidden = false;
+  // Pickup Match is drawn fresh each time it is shown, so it opens on the node as it is now.
+  ensureToolbarMenuTabs(userInputCalibrationToolbarMenu);
+  showToolbarTab(userInputCalibrationToolbarMenu, tab ?? activeToolbarTab);
   positionUserInputCalibrationToolbarMenu();
   userInputCalibrationToolbarTrigger?.setAttribute("aria-expanded", "true");
   userInputCalibrationToolbarTrigger
@@ -360,6 +368,51 @@ export function handleUserInputCalibrationProfileSelection(): void {
   applyUserInputCalibrationProfileSelection(activeProfileId);
 }
 
+/** The flyout's tabs: the calibration profiles, and the global chain's Pickup Match. */
+type ToolbarTab = "calibration" | "pickup";
+let activeToolbarTab: ToolbarTab = "calibration";
+
+/**
+ * The tab strip and the two panels, made once. The calibration list is redrawn into its panel
+ * whenever the profiles change; Pickup Match draws its own each time its tab is shown. The
+ * strip reuses the params panel's tab styling.
+ */
+function ensureToolbarMenuTabs(menu: HTMLElement): HTMLElement {
+  const existing = menu.querySelector<HTMLElement>('.input-calibration-tab-panel[data-tab="calibration"]');
+  if (existing) {
+    return existing;
+  }
+  menu.innerHTML = `
+    <div class="node-param-tabs input-calibration-tabs" role="tablist" aria-label="Input settings">
+      <button class="node-param-tab" data-tab="calibration" type="button" role="tab">Calibration</button>
+      <button class="node-param-tab" data-tab="pickup" type="button" role="tab">Pickup Match</button>
+    </div>
+    <div class="input-calibration-tab-panel" data-tab="calibration" role="menu" aria-label="Input calibration"></div>
+    <div class="input-calibration-tab-panel" data-tab="pickup" role="tabpanel" aria-label="Pickup Match"></div>`;
+  showToolbarTab(menu, activeToolbarTab);
+  return menu.querySelector<HTMLElement>('.input-calibration-tab-panel[data-tab="calibration"]') as HTMLElement;
+}
+
+function showToolbarTab(menu: HTMLElement, tab: ToolbarTab): void {
+  activeToolbarTab = tab;
+  menu.querySelectorAll<HTMLElement>(".input-calibration-tabs .node-param-tab").forEach((button) => {
+    const active = button.dataset.tab === tab;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-selected", active ? "true" : "false");
+  });
+  menu.querySelectorAll<HTMLElement>(".input-calibration-tab-panel").forEach((panel) => {
+    panel.hidden = panel.dataset.tab !== tab;
+  });
+  menu.classList.toggle("is-pickup-tab", tab === "pickup");
+  const pickupPanel = menu.querySelector<HTMLElement>('.input-calibration-tab-panel[data-tab="pickup"]');
+  if (tab === "pickup" && pickupPanel) {
+    renderPickupMatchTab(pickupPanel);
+  }
+  if (isUserInputCalibrationToolbarMenuOpen()) {
+    positionUserInputCalibrationToolbarMenu();
+  }
+}
+
 export function renderUserInputCalibrationToolbarMenu(profiles: UserInputCalibrationProfile[], activeProfile: UserInputCalibrationProfile | null): void {
   // Bound to a local so the null check narrows inside the closures below; a
   // narrowing on an imported binding does not survive into a closure.
@@ -368,7 +421,8 @@ export function renderUserInputCalibrationToolbarMenu(profiles: UserInputCalibra
     return;
   }
 
-  toolbarMenu.innerHTML = "";
+  const panel = ensureToolbarMenuTabs(toolbarMenu);
+  panel.innerHTML = "";
 
   const header = document.createElement("div");
   header.className = "input-calibration-toolbar-menu-header";
@@ -385,7 +439,7 @@ export function renderUserInputCalibrationToolbarMenu(profiles: UserInputCalibra
     : (activeProfile ? `${activeProfile.name} active` : "No active calibration");
   header.appendChild(subtitle);
 
-  toolbarMenu.appendChild(header);
+  panel.appendChild(header);
 
   const appendProfileItem = (profile: UserInputCalibrationProfile | null): void => {
     const itemRow = document.createElement("div");
@@ -440,7 +494,7 @@ export function renderUserInputCalibrationToolbarMenu(profiles: UserInputCalibra
       itemRow.appendChild(deleteButton);
     }
 
-    toolbarMenu.appendChild(itemRow);
+    panel.appendChild(itemRow);
   };
 
   appendProfileItem(null);
@@ -448,7 +502,7 @@ export function renderUserInputCalibrationToolbarMenu(profiles: UserInputCalibra
 
   const divider = document.createElement("div");
   divider.className = "input-calibration-toolbar-menu-divider";
-  toolbarMenu.appendChild(divider);
+  panel.appendChild(divider);
 
   const trainButton = document.createElement("button");
   trainButton.type = "button";
@@ -476,7 +530,7 @@ export function renderUserInputCalibrationToolbarMenu(profiles: UserInputCalibra
   trainMeta.textContent = "TRAIN";
   trainButton.appendChild(trainMeta);
 
-  toolbarMenu.appendChild(trainButton);
+  panel.appendChild(trainButton);
 
   if (userInputCalibrationToolbarTrigger) {
     userInputCalibrationToolbarTrigger.classList.toggle("has-active-calibration", Boolean(activeProfile));
@@ -495,6 +549,12 @@ export function renderUserInputCalibrationToolbarMenu(profiles: UserInputCalibra
 export async function handleUserInputCalibrationToolbarMenuClick(event: MouseEvent): Promise<void> {
   const target = event.target;
   if (!(target instanceof HTMLElement)) {
+    return;
+  }
+
+  const tabButton = target.closest<HTMLElement>(".input-calibration-tabs .node-param-tab");
+  if (tabButton && userInputCalibrationToolbarMenu) {
+    showToolbarTab(userInputCalibrationToolbarMenu, tabButton.dataset.tab === "pickup" ? "pickup" : "calibration");
     return;
   }
 
@@ -593,7 +653,15 @@ export function initUserInputCalibrationControls(): void {
   userInputCalibrationProfileSelect?.addEventListener("change", handleUserInputCalibrationProfileSelection);
   userInputCalibrationTrainButton?.addEventListener("click", openUserInputCalibrationTrainingModal);
   userInputCalibrationDeleteButton?.addEventListener("click", () => void deleteActiveUserInputCalibrationProfile());
-  userInputCalibrationToolbarTrigger?.addEventListener("click", toggleUserInputCalibrationToolbarMenu);
+  userInputCalibrationToolbarTrigger?.addEventListener("click", () => toggleUserInputCalibrationToolbarMenu());
+  // The control bar's Pickup Match indicator opens the flyout on its tab, or closes it there.
+  pickupMatchIndicator()?.addEventListener("click", () => {
+    if (isUserInputCalibrationToolbarMenuOpen() && activeToolbarTab === "pickup") {
+      closeUserInputCalibrationToolbarMenu();
+      return;
+    }
+    openUserInputCalibrationToolbarMenu("pickup");
+  });
   userInputCalibrationToolbarMenu?.addEventListener("click", (event) => void handleUserInputCalibrationToolbarMenuClick(event));
   userInputCalibrationCloseButton?.addEventListener("click", closeUserInputCalibrationTrainingModal);
   userInputCalibrationCancelButton?.addEventListener("click", closeUserInputCalibrationTrainingModal);
@@ -612,7 +680,14 @@ export function initUserInputCalibrationControls(): void {
       return;
     }
 
-    if (userInputCalibrationToolbarMenu?.contains(target) || userInputCalibrationToolbarTrigger?.contains(target)) {
+    if (userInputCalibrationToolbarMenu?.contains(target) || userInputCalibrationToolbarTrigger?.contains(target)
+        || pickupMatchIndicator()?.contains(target)) {
+      return;
+    }
+
+    // A popover the flyout opened (a Pickup Match picker) hangs from the body, outside it.
+    const element = target instanceof Element ? target : target.parentElement;
+    if (element?.closest("[data-control-bar-popover]")) {
       return;
     }
 

@@ -338,6 +338,8 @@ class MultiPresetMixer
     }
 
     // Global pre-chain controls (noise gate, transpose)
+    void SetGlobalPickupMatchEnabled(bool enabled);
+    bool SetGlobalPickupMatchParam(const std::string& key, double value);
     void SetGlobalGateEnabled(bool enabled);
     void SetGlobalGateThreshold(double thresholdDb);
     void SetGlobalGateAttack(double attackMs);

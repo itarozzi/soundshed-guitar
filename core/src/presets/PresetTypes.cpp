@@ -300,6 +300,8 @@ SignalGraph GlobalSignalChainConfig::BuildDefaultPreChainGraph()
     inputNode.enabled = true;
     graph.nodes.push_back(inputNode);
 
+    graph.nodes.push_back(BuildPickupMatchNode());
+
     // Noise Gate
     GraphNode gateNode;
     gateNode.id = "global_gate";
@@ -327,12 +329,25 @@ SignalGraph GlobalSignalChainConfig::BuildDefaultPreChainGraph()
     outputNode.enabled = true;
     graph.nodes.push_back(outputNode);
 
-    // Edges: input → gate → transpose → output
-    graph.edges.push_back({"__input__", "global_gate"});
+    // Edges: input → pickup match → gate → transpose → output
+    graph.edges.push_back({"__input__", "global_pickup"});
+    graph.edges.push_back({"global_pickup", "global_gate"});
     graph.edges.push_back({"global_gate", "global_transpose"});
     graph.edges.push_back({"global_transpose", "__output__"});
 
     return graph;
+}
+
+GraphNode GlobalSignalChainConfig::BuildPickupMatchNode()
+{
+    GraphNode node;
+    node.id = "global_pickup";
+    node.type = EffectGuids::kPickupMatch;
+    node.category = "eq";
+    node.label = "Pickup Match";
+    node.enabled = false;
+    ApplyDefaultParamsFromRegistry(node);
+    return node;
 }
 
 SignalGraph GlobalSignalChainConfig::BuildDefaultPostChainGraph()

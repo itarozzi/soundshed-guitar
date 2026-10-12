@@ -143,6 +143,23 @@ void PluginController::HandleSetGlobalChainParamRequest(const nlohmann::json& pa
             mPresetMixer.SetGlobalGateStereoLink(value.is_number() ? value.get<double>() >= 0.5 : value.get<bool>());
             persistGlobalFx = true;
         }
+        else if (path == "pickup.enabled")
+        {
+            mPresetMixer.SetGlobalPickupMatchEnabled(value.is_number() ? value.get<double>() >= 0.5
+                                                                       : value.get<bool>());
+            persistGlobalFx = true;
+        }
+        else if (path.rfind("pickup.", 0) == 0 && value.is_number())
+        {
+            // Any of Pickup Match's parameters by its own id, so one route serves all 21 and
+            // any it gains later.
+            persistGlobalFx = mPresetMixer.SetGlobalPickupMatchParam(path.substr(7), value.get<double>());
+
+            if (!persistGlobalFx)
+            {
+                AppendSessionLog("Ignoring unknown global Pickup Match parameter: " + path);
+            }
+        }
         else if (path == "transpose.enabled")
         {
             mPresetMixer.SetGlobalTransposeEnabled(value.get<bool>());

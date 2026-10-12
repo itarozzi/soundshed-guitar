@@ -3,6 +3,8 @@
 #include "dsp/SignalGraphExecutor.h"
 #include "presets/PresetTypes.h"
 
+#include <string>
+
 namespace guitarfx
 {
 /// Message-thread view of the global chain's config and live pre/post executors.
@@ -25,6 +27,9 @@ class GlobalChainEditor
     /// at the configured shift while the node is on and 0 while it is off.
     [[nodiscard]] static SignalGraph LivePreChain(const SignalGraph& configured);
 
+    void SetPickupMatchEnabled(bool enabled);
+    /// One of Pickup Match's parameters, by its id. False for an id the effect does not have.
+    bool SetPickupMatchParam(const std::string& key, double value);
     void SetGateEnabled(bool enabled);
     void SetGateThreshold(double thresholdDb);
     void SetGateAttack(double attackMs);

@@ -18,6 +18,8 @@ on:
       - "tools/check-protocol.mjs"
       - "tools/gen-effect-presentation.mjs"
       - "tools/check-effect-presentation.mjs"
+      - "tools/gen-pickup-sensing.mjs"
+      - "core/src/dsp/effects/PickupSensing.generated.h"
       - "core/src/dsp/EffectGuids.h"
       - ".github/workflows/ui-checks.yml"
   pull_request:
@@ -27,6 +29,8 @@ on:
       - "tools/check-protocol.mjs"
       - "tools/gen-effect-presentation.mjs"
       - "tools/check-effect-presentation.mjs"
+      - "tools/gen-pickup-sensing.mjs"
+      - "core/src/dsp/effects/PickupSensing.generated.h"
       - "core/src/dsp/EffectGuids.h"
       - ".github/workflows/ui-checks.yml"
   workflow_dispatch:
@@ -77,6 +81,10 @@ jobs:
 
       - name: Effect presentation table
         run: npm run check:presentation
+
+      # Pickup Match's string-sensing table is generated from physics alone, so it can be checked.
+      - name: Pickup sensing table
+        run: npm run check:pickup-sensing
 
       - name: File size budget
         run: npm run check:sizes

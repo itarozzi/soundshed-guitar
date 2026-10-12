@@ -1,0 +1,95 @@
+/* Parameter rows for a settings flyout, built from the engine's parameter definitions by
+   ts/flyoutParamControls.ts: a header with an on/off switch, rows of label | control | value,
+   section titles and a reset footer. The gate settings flyout and Pickup Match's tab in the
+   input calibration flyout share them. */
+
+.flyout-settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border-dark);
+}
+
+.flyout-settings-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.flyout-settings-section-title {
+  margin-top: 2px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+.flyout-settings-params {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* Label | control | value. The control column is the knob's own 38px so a
+   toggle in the same column lines up under the knobs above it. */
+.flyout-param-row {
+  display: grid;
+  grid-template-columns: 1fr 38px 56px;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+}
+
+.flyout-param-row .knob {
+  width: 30px;
+  height: 30px;
+  justify-self: center;
+}
+
+.flyout-param-row.is-switch .toggle-switch {
+  justify-self: center;
+}
+
+.flyout-param-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.flyout-param-value {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.flyout-settings-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 6px;
+  border-top: 1px solid var(--border-dark);
+}
+
+.flyout-settings-reset {
+  padding: 4px 10px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.flyout-settings-reset:hover {
+  background: var(--overlay-light);
+  border-color: var(--accent-primary);
+  color: var(--text-primary);
+}

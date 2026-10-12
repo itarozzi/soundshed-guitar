@@ -20,19 +20,22 @@ import { appendLog } from "./logging.js";
 import { sendGlobalChainParam } from "./bridge.js";
 import { uiState } from "./state.js";
 import { EffectGuids } from "./effectGuids.js";
+import {
+  bindFlyoutParamRows,
+  buildFlyoutParamRows,
+  type FlyoutParamBinding,
+  KNOB_SWEEP_PIXELS,
+  knobStep,
+  refreshFlyoutParamRows,
+} from "./flyoutParamControls.js";
 import { GenericKnob } from "./knob.js";
-import { enumLabel } from "./paramLabels.js";
 import { EffectTypeRegistry, type ParameterDef } from "./presetV2.js";
-import { escapeHtml } from "./utils.js";
 import type { GraphNode } from "./types.js";
 
 /** Threshold's ends before the effect catalogue arrives with the real ones. */
 const FALLBACK_THRESHOLD_RANGE = { min: -80, max: 0, step: 1 };
 
-/** Pixels of drag for a full sweep, whatever the parameter's span. */
-const KNOB_SWEEP_PIXELS = 200;
-
-const flyoutKnobs = new Map<string, GenericKnob>();
+let flyoutKnobs = new Map<string, GenericKnob>();
 let thresholdKnob: GenericKnob | null = null;
 let thresholdRangeFromCatalog = false;
 let flyoutBuilt = false;
@@ -65,40 +68,6 @@ function gateParamDef(key: string): ParameterDef | undefined {
 function gateParamValue(def: ParameterDef): number {
   const stored = getGateNode()?.params[def.key];
   return typeof stored === "number" && Number.isFinite(stored) ? stored : def.default;
-}
-
-/**
- * A two-label 0..1 parameter is a switch however the engine spells it — the gate's
- * Stereo Link is `{0,1}` with `{"Independent","Linked"}` rather than unit "toggle".
- */
-function isSwitchParam(def: ParameterDef): boolean {
-  return def.unit === "toggle" || (def.labels?.length === 2 && def.min === 0 && def.max === 1);
-}
-
-/**
- * Decimals from the span, not the unit: 0.1–50 ms wants one place where 0–500 ms
- * reads better with none, and both are "ms".
- */
-function valueDecimals(def: ParameterDef): number {
-  const span = Math.abs(def.max - def.min);
-  if (span <= 2) return 2;
-  if (span <= 60) return 1;
-  return 0;
-}
-
-function knobStep(def: ParameterDef): number {
-  return def.step && def.step > 0 ? def.step : Math.pow(10, -valueDecimals(def));
-}
-
-function formatGateValue(value: number, def: ParameterDef): string {
-  if (isSwitchParam(def)) {
-    return def.labels?.[value >= 0.5 ? 1 : 0] ?? (value >= 0.5 ? "On" : "Off");
-  }
-  if (def.labels?.length) {
-    return enumLabel(value, def.labels, def.min, def.step) ?? `${Math.round(value)}`;
-  }
-  const text = value.toFixed(valueDecimals(def));
-  return def.unit ? `${text} ${def.unit}` : text;
 }
 
 // ── Sending ──────────────────────────────────────────────────────────────────
@@ -145,33 +114,12 @@ function reflectGateEnabled(enabled: boolean): void {
 
 // ── Flyout ───────────────────────────────────────────────────────────────────
 
-function buildParamRow(def: ParameterDef): string {
-  const label = escapeHtml(def.name || def.key);
-  const value = gateParamValue(def);
-  const display = escapeHtml(formatGateValue(value, def));
-  const key = escapeHtml(def.key);
-
-  if (isSwitchParam(def)) {
-    return `
-      <div class="gate-param-row is-switch">
-        <span class="gate-param-label">${label}</span>
-        <label class="toggle-switch">
-          <input type="checkbox" class="gate-param-toggle" data-param-key="${key}" ${value >= 0.5 ? "checked" : ""} />
-          <span class="toggle-slider"></span>
-        </label>
-        <span class="gate-param-value" data-param-key="${key}">${display}</span>
-      </div>`;
-  }
-
-  return `
-    <div class="gate-param-row">
-      <span class="gate-param-label">${label}</span>
-      <div class="knob gate-param-knob" data-param-key="${key}" data-value="${value}">
-        <div class="knob-indicator"></div>
-      </div>
-      <span class="gate-param-value" data-param-key="${key}">${display}</span>
-    </div>`;
-}
+/** Where the flyout's rows read values from and send changes to (flyoutParamControls.ts). */
+const gateBinding: FlyoutParamBinding = {
+  idPrefix: "gate",
+  value: (def) => gateParamValue(def),
+  apply: (key, value, commit) => applyGateParam(key, value, commit),
+};
 
 /**
  * Builds the flyout from the catalogue. Returns false when the catalogue has not
@@ -189,19 +137,19 @@ function buildFlyout(): boolean {
   const enabled = !(getGateNode()?.bypassed ?? true);
 
   flyout.innerHTML = `
-    <div class="gate-settings-header">
-      <span class="gate-settings-title">Noise Gate</span>
+    <div class="flyout-settings-header">
+      <span class="flyout-settings-title">Noise Gate</span>
       <label class="toggle-switch gate-settings-enable">
         <input type="checkbox" class="gate-settings-enable-input" ${enabled ? "checked" : ""} />
         <span class="toggle-slider"></span>
       </label>
     </div>
-    <div class="gate-settings-params">${main.map(buildParamRow).join("")}</div>
+    <div class="flyout-settings-params">${buildFlyoutParamRows(main, gateBinding)}</div>
     ${advanced.length === 0 ? "" : `
-      <div class="gate-settings-section-title">Advanced</div>
-      <div class="gate-settings-params">${advanced.map(buildParamRow).join("")}</div>`}
-    <div class="gate-settings-footer">
-      <button type="button" class="gate-settings-reset">Reset to defaults</button>
+      <div class="flyout-settings-section-title">Advanced</div>
+      <div class="flyout-settings-params">${buildFlyoutParamRows(advanced, gateBinding)}</div>`}
+    <div class="flyout-settings-footer">
+      <button type="button" class="flyout-settings-reset">Reset to defaults</button>
     </div>`;
 
   bindFlyoutControls(flyout, defs);
@@ -210,48 +158,10 @@ function buildFlyout(): boolean {
 }
 
 function bindFlyoutControls(flyout: HTMLElement, defs: ParameterDef[]): void {
-  flyoutKnobs.clear();
-
-  defs.forEach((def) => {
-    const valueEl = flyout.querySelector<HTMLElement>(`.gate-param-value[data-param-key="${def.key}"]`);
-
-    if (isSwitchParam(def)) {
-      const input = flyout.querySelector<HTMLInputElement>(`.gate-param-toggle[data-param-key="${def.key}"]`);
-      input?.addEventListener("change", () => {
-        const value = input.checked ? 1 : 0;
-        applyGateParam(def.key, value, true);
-        if (valueEl) {
-          valueEl.textContent = formatGateValue(value, def);
-        }
-      });
-      return;
+  flyoutKnobs = bindFlyoutParamRows(flyout, defs, gateBinding, (key, value) => {
+    if (key === "threshold") {
+      thresholdKnob?.setValue(value);
     }
-
-    const knobEl = flyout.querySelector<HTMLElement>(`.gate-param-knob[data-param-key="${def.key}"]`);
-    if (!knobEl) {
-      return;
-    }
-
-    const span = Math.abs(def.max - def.min);
-    flyoutKnobs.set(def.key, new GenericKnob({
-      knobElement: knobEl,
-      paramId: `gate_${def.key}`,
-      minValue: def.min,
-      maxValue: def.max,
-      defaultValue: def.default,
-      stepValue: knobStep(def),
-      sensitivity: span > 0 ? span / KNOB_SWEEP_PIXELS : 0.5,
-      displayFormat: (value) => formatGateValue(value, def),
-      valueDisplay: valueEl,
-      sendParameter: false,
-      onValueChange: (value) => {
-        applyGateParam(def.key, value, false);
-        if (def.key === "threshold") {
-          thresholdKnob?.setValue(value);
-        }
-      },
-      onValueCommit: (value) => applyGateParam(def.key, value, true),
-    }));
   });
 
   flyout.querySelector<HTMLInputElement>(".gate-settings-enable-input")
@@ -259,7 +169,7 @@ function bindFlyoutControls(flyout: HTMLElement, defs: ParameterDef[]): void {
       applyGateEnabled((event.target as HTMLInputElement).checked);
     });
 
-  flyout.querySelector<HTMLButtonElement>(".gate-settings-reset")
+  flyout.querySelector<HTMLButtonElement>(".flyout-settings-reset")
     ?.addEventListener("click", () => resetGateParams());
 }
 
@@ -275,24 +185,7 @@ function refreshFlyoutValues(): void {
   if (!flyout || !flyoutBuilt) {
     return;
   }
-
-  gateParamDefs().forEach((def) => {
-    const value = gateParamValue(def);
-    const knob = flyoutKnobs.get(def.key);
-    if (knob) {
-      knob.setValue(value);
-      return;
-    }
-
-    const input = flyout.querySelector<HTMLInputElement>(`.gate-param-toggle[data-param-key="${def.key}"]`);
-    if (input) {
-      input.checked = value >= 0.5;
-    }
-    const valueEl = flyout.querySelector<HTMLElement>(`.gate-param-value[data-param-key="${def.key}"]`);
-    if (valueEl) {
-      valueEl.textContent = formatGateValue(value, def);
-    }
-  });
+  refreshFlyoutParamRows(flyout, gateParamDefs(), flyoutKnobs, gateBinding);
 }
 
 function isFlyoutOpen(): boolean {
