@@ -13,6 +13,7 @@ import { sendSignalPathNodeParamUpdate } from "../commands.js";
 import { requestNodeParamsPanel } from "../render.js";
 import { nodeParamsPanelElement } from "../state.js";
 import { ensureNodeSpectrumWatcher, fitCanvasToLayout } from "./nodeSpectrum.js";
+import { isPickupMatchNode } from "./pickupResponse.js";
 import { nodeParamKnobs, paramsPanelInteractions } from "./state.js";
 
 /**
@@ -42,7 +43,7 @@ function graphicEqSliderAxis(canvas: HTMLCanvasElement, node: GraphNode): EqFreq
 
 export function updateEqVisualization(node: GraphNode): void {
   const typeInfo = getNodeEffectInfo(node);
-  if (!typeInfo || (typeInfo.category !== "eq" && !node.type.startsWith("eq_"))) {
+  if (!typeInfo || (typeInfo.category !== "eq" && !node.type.startsWith("eq_")) || isPickupMatchNode(node)) {
     return;
   }
 

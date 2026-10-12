@@ -2,6 +2,10 @@
 
 #include "uiclient/ParamFormat.h"
 
+#include <algorithm>
+#include <string>
+#include <vector>
+
 namespace soundshed::nano
 {
 using guitarfx::uiclient::FormatParamValue;
@@ -211,12 +215,65 @@ void ParamControl::showValueMenu()
     {
         // Labels run from the minimum, so a label's value is not its index (Steps runs 2 to 8).
         const auto current = EnumLabelIndex (info, value);
-
-        for (std::size_t i = 0; i < info.labels.size(); ++i)
-        {
+        const auto itemFor = [this, current] (std::size_t i) {
             const auto option = EnumLabelValue (info, i);
-            menu.addItem (juce::String::fromUTF8 (info.labels[i].c_str()), true, current == (int) i,
-                          [this, option] { commit (option); });
+            juce::PopupMenu::Item item (juce::String::fromUTF8 (info.labels[i].c_str()));
+            item.setTicked (current == (int) i).setAction ([this, option] { commit (option); });
+            return item;
+        };
+
+        if (info.labelGroups.empty())
+        {
+            for (std::size_t i = 0; i < info.labels.size(); ++i)
+                menu.addItem (itemFor (i));
+        }
+        else
+        {
+            // Too many labels for one list (Pickup Match has 257): a submenu per group, and in
+            // each a submenu per subgroup, both in the order the labels first name them.
+            std::vector<std::string> groups;
+            for (const auto& group : info.labelGroups)
+                if (std::find (groups.begin(), groups.end(), group) == groups.end())
+                    groups.push_back (group);
+
+            for (const auto& group : groups)
+            {
+                std::vector<std::string> subgroups;
+                bool groupHoldsCurrent = false;
+
+                for (std::size_t i = 0; i < info.labels.size(); ++i)
+                {
+                    if (info.labelGroups[i] != group)
+                        continue;
+                    groupHoldsCurrent = groupHoldsCurrent || current == (int) i;
+                    if (std::find (subgroups.begin(), subgroups.end(), info.labelSubgroups[i]) == subgroups.end())
+                        subgroups.push_back (info.labelSubgroups[i]);
+                }
+
+                juce::PopupMenu groupMenu;
+
+                for (const auto& subgroup : subgroups)
+                {
+                    juce::PopupMenu subgroupMenu;
+                    bool subgroupHoldsCurrent = false;
+
+                    for (std::size_t i = 0; i < info.labels.size(); ++i)
+                    {
+                        if (info.labelGroups[i] == group && info.labelSubgroups[i] == subgroup)
+                        {
+                            subgroupMenu.addItem (itemFor (i));
+                            subgroupHoldsCurrent = subgroupHoldsCurrent || current == (int) i;
+                        }
+                    }
+
+                    const auto& name = subgroup.empty() ? group : subgroup;
+                    groupMenu.addSubMenu (juce::String::fromUTF8 (name.c_str()), subgroupMenu, true, nullptr,
+                                          subgroupHoldsCurrent);
+                }
+
+                menu.addSubMenu (juce::String::fromUTF8 ((group.empty() ? std::string ("Other") : group).c_str()),
+                                 groupMenu, true, nullptr, groupHoldsCurrent);
+            }
         }
     }
     else

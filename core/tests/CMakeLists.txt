@@ -73,6 +73,7 @@ set(TEST_SOURCES
     NonAsciiPathWorkflowTests.cpp
     NotePlayerTests.cpp
     NoteTrackerTests.cpp
+    PickupMatchEffectTests.cpp
     PitchShiftEngineTests.cpp
     PitchTrackerTests.cpp
     PluginPathUtilsTests.cpp

@@ -26,6 +26,9 @@ export interface ResponseCurve {
   frequencies: readonly number[];
   /** dB at each frequency. */
   magnitudesDb: readonly number[];
+  /** Named figures the curve leaves out, for an effect that gives them (Pickup Match's
+   * designed pickups). Absent otherwise. */
+  summary?: Readonly<Record<string, number>>;
 }
 
 /** Called with the curve, or null when the engine has none for this effect. */
@@ -91,6 +94,16 @@ function numberArray(value: unknown): number[] | null {
   return value as number[];
 }
 
+/** The reply's finite numeric summary entries, as a spreadable `{ summary }`, or nothing. */
+function parseSummary(value: unknown): { summary?: Record<string, number> } {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+  const entries = Object.entries(value as Record<string, unknown>)
+    .filter((entry): entry is [string, number] => typeof entry[1] === "number" && Number.isFinite(entry[1]));
+  return entries.length > 0 ? { summary: Object.fromEntries(entries) } : {};
+}
+
 /** Handles an "effectResponse" reply. Returns false for one nobody is waiting for. */
 export function applyEffectResponse(payload: Record<string, unknown>): boolean {
   if (!inFlight || payload.requestId !== inFlight.id) {
@@ -104,7 +117,7 @@ export function applyEffectResponse(payload: Record<string, unknown>): boolean {
   const magnitudesDb = numberArray(payload.magnitudesDb);
   const valid = payload.supported === true && frequencies !== null && magnitudesDb !== null
     && frequencies.length >= 2 && frequencies.length === magnitudesDb.length;
-  request.listener(valid ? { frequencies, magnitudesDb } : null);
+  request.listener(valid ? { frequencies, magnitudesDb, ...parseSummary(payload.summary) } : null);
   sendQueued();
   return true;
 }

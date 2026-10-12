@@ -22,6 +22,43 @@ export interface ParameterDef {
   advanced?: boolean;
   /** How a knob travels across min..max; absent means linear. See paramTaper.ts. */
   taper?: ParamTaper;
+  /** Per-label detail for a picker, parallel to labels. See enumPicker.ts. */
+  labelInfo?: ParamLabelInfo[];
+  /** "picker" draws an enum as a dropdown flyout instead of a knob. */
+  control?: string;
+}
+
+/**
+ * The engine's labelInfo, or undefined unless it has one entry per label: a picker indexes the
+ * two together. Only string fields are kept.
+ */
+export function parseParamLabelInfo(raw: unknown, labelCount: number): ParamLabelInfo[] | undefined {
+  if (!Array.isArray(raw) || raw.length === 0 || raw.length !== labelCount) {
+    return undefined;
+  }
+  return raw.map((entry) => {
+    const source = (entry && typeof entry === "object" ? entry : {}) as Record<string, unknown>;
+    const info: ParamLabelInfo = {};
+    for (const field of ["group", "subgroup", "icon", "detail"] as const) {
+      const value = source[field];
+      if (typeof value === "string" && value !== "") {
+        info[field] = value;
+      }
+    }
+    return info;
+  });
+}
+
+/** What a picker shows for one enum choice beyond its label. */
+export interface ParamLabelInfo {
+  /** Top-level filter, drawn as a tile. */
+  group?: string;
+  /** Heading within a group. */
+  subgroup?: string;
+  /** A picture pickerIcons.ts knows by name. */
+  icon?: string;
+  /** One short line under the label. */
+  detail?: string;
 }
 
 export interface EffectPresetDefinition {

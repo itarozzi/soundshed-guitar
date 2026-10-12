@@ -6,6 +6,7 @@
 #include "dsp/effects/GainEffect.h"
 #include "dsp/effects/NoiseGateEffect.h"
 #include "dsp/effects/ParametricEQEffect.h"
+#include "dsp/effects/PickupMatchEffect.h"
 #include "dsp/effects/GraphicEQEffect.h"
 #include "dsp/effects/DelayEffect.h"
 #include "dsp/effects/TapeDelayEffect.h"
@@ -112,6 +113,7 @@ inline void RegisterAllEffects()
     // EQ
     RegisterParametricEQEffect();
     RegisterGraphicEQEffect();
+    RegisterPickupMatchEffect();
 
     // Amp models
     RegisterBuiltinAmpEffect();

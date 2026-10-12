@@ -72,6 +72,10 @@
       "guid": "ef8240ba-c973-4e09-ab65-4faf56a8ecbf",
       "aliases": ["eq_graphic"]
     },
+    "kPickupMatch": {
+      "guid": "df1f4ed4-5d84-4a21-9474-ad6ab014fca5",
+      "aliases": ["pickup_match"]
+    },
     "kDelayDigital": {
       "guid": "673d3e7a-e9ef-4c5d-a4c4-619dff3355ed",
       "aliases": ["delay_digital"]

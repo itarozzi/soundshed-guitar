@@ -48,6 +48,7 @@ constexpr const char* kFuzz = "3a38b19c-1d97-4989-b5bb-12bcc59d1e6b";
 // ── EQ ────────────────────────────────────────────────────────────────
 constexpr const char* kEqParametric = "4b4025ca-64cd-4180-be79-81873b618dba";
 constexpr const char* kEqGraphic = "ef8240ba-c973-4e09-ab65-4faf56a8ecbf";
+constexpr const char* kPickupMatch = "df1f4ed4-5d84-4a21-9474-ad6ab014fca5";
 
 // ── Delay ─────────────────────────────────────────────────────────────
 constexpr const char* kDelayDigital = "673d3e7a-e9ef-4c5d-a4c4-619dff3355ed";

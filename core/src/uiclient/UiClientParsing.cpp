@@ -98,6 +98,18 @@ EffectParamInfo EffectParam(const nlohmann::json& param)
     info.advanced = param.value("advanced", false);
     info.logTaper = param.value("taper", std::string{}) == "log";
     info.labels = StringArray(param, "labels");
+
+    if (const auto found = param.find("labelInfo");
+        found != param.end() && found->is_array() && found->size() == info.labels.size())
+    {
+        for (const auto& entry : *found)
+        {
+            const bool isObject = entry.is_object();
+            info.labelGroups.push_back(isObject ? entry.value("group", std::string{}) : std::string{});
+            info.labelSubgroups.push_back(isObject ? entry.value("subgroup", std::string{}) : std::string{});
+        }
+    }
+
     return info;
 }
 

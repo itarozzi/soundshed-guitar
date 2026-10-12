@@ -249,6 +249,35 @@ nlohmann::json SerializeEffectParameter(const ParameterDef& param)
         json["taper"] = ParamTaperName(param.taper);
     }
 
+    // Only when it lines up with the labels: a picker indexes the two together.
+    if (!param.labelInfo.empty() && param.labelInfo.size() == param.labels.size())
+    {
+        auto infos = nlohmann::json::array();
+
+        for (const auto& info : param.labelInfo)
+        {
+            nlohmann::json entry = nlohmann::json::object();
+
+            for (const auto& [name, value] : {std::pair{"group", &info.group}, std::pair{"subgroup", &info.subgroup},
+                                              std::pair{"icon", &info.icon}, std::pair{"detail", &info.detail}})
+            {
+                if (!value->empty())
+                {
+                    entry[name] = *value;
+                }
+            }
+
+            infos.push_back(std::move(entry));
+        }
+
+        json["labelInfo"] = std::move(infos);
+    }
+
+    if (!param.control.empty())
+    {
+        json["control"] = param.control;
+    }
+
     return json;
 }
 

@@ -19,7 +19,7 @@ import { handleCompositePresetList, handleCompositePresetLoaded, handleComposite
 import { showNotification } from "../notifications.js";
 import { parseParamTaper } from "../paramTaper.js";
 import { renderActivePreset } from "../presets.js";
-import { EffectTypeRegistry } from "../presetV2.js";
+import { EffectTypeRegistry, parseParamLabelInfo } from "../presetV2.js";
 import { refreshSelectedNodeParams, renderSignalPathBar } from "../signalPath.js";
 import { enterCompositeEditState, exitCompositeEditState, getActivePresetForRender, uiState, updateCompositeEditState } from "../state.js";
 import type { CompositePreset, CustomEffectLibrary } from "../types.js";
@@ -121,6 +121,8 @@ export function onEffectCatalog(payload: IncomingPayload): void {
                 group?: unknown;
                 advanced?: unknown;
                 taper?: unknown;
+                labelInfo?: unknown;
+                control?: unknown;
               };
               const key = typeof p.key === "string" ? p.key : "";
               const existingParam = key ? existingParamsByKey.get(key) : undefined;
@@ -139,6 +141,9 @@ export function onEffectCatalog(payload: IncomingPayload): void {
                 // Absent is linear. Not inherited from the entry being replaced: an engine that
                 // leaves the field out has declared linear, unlike a missing name or range.
                 taper: parseParamTaper(p.taper),
+                // Like the taper, declared afresh each time: a stale list could misname the labels.
+                labelInfo: parseParamLabelInfo(p.labelInfo, labels?.length ?? 0),
+                control: typeof p.control === "string" ? p.control : undefined,
               };
             })
             .filter((param) => param.key !== "")

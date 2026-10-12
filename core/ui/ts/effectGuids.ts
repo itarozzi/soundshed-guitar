@@ -35,6 +35,7 @@ export const EffectGuids = {
   // EQ
   kEqParametric:         "4b4025ca-64cd-4180-be79-81873b618dba",
   kEqGraphic:            "ef8240ba-c973-4e09-ab65-4faf56a8ecbf",
+  kPickupMatch:          "df1f4ed4-5d84-4a21-9474-ad6ab014fca5",
 
   // Delay
   kDelayDigital:         "673d3e7a-e9ef-4c5d-a4c4-619dff3355ed",
@@ -111,6 +112,7 @@ export const EFFECT_ALIAS_MAP: Record<string, string> = {
   fuzz:                  EffectGuids.kFuzz,
   eq_parametric:         EffectGuids.kEqParametric,
   eq_graphic:            EffectGuids.kEqGraphic,
+  pickup_match:          EffectGuids.kPickupMatch,
   delay_digital:         EffectGuids.kDelayDigital,
   delay_doubler:         EffectGuids.kDelayDoubler,
   delay_tape:            EffectGuids.kDelayTape,

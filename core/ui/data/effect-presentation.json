@@ -202,6 +202,10 @@
       "guid": "ef8240ba-c973-4e09-ab65-4faf56a8ecbf",
       "icon": "sliders"
     },
+    "kPickupMatch": {
+      "guid": "df1f4ed4-5d84-4a21-9474-ad6ab014fca5",
+      "icon": "sliders"
+    },
     "kChorus": {
       "guid": "decdd132-029a-46a5-a362-edcde007a450",
       "icon": "wave"

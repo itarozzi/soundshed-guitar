@@ -134,6 +134,7 @@ export const EFFECTS: Readonly<Record<string, EffectPresentation>> = {
   [EffectGuids.kCabSimple]: { icon: "speaker" },
   [EffectGuids.kEqParametric]: { icon: "sliders" },
   [EffectGuids.kEqGraphic]: { icon: "sliders" },
+  [EffectGuids.kPickupMatch]: { icon: "sliders" },
   [EffectGuids.kChorus]: { icon: "wave" },
   [EffectGuids.kFlanger]: { icon: "wave" },
   [EffectGuids.kPhaser]: { icon: "wave" },

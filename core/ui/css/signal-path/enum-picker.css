@@ -1,0 +1,316 @@
+/* ─────────────────────────────────────────────────────────────
+   Enum picker (enumPicker.ts)
+
+   A dropdown flyout in place of a knob, for an enum with too many
+   choices to dial through: the current choice's picture and name on
+   the trigger; group tiles, a search box and the choices under
+   subgroup headings in the flyout. Appended to <body>, fixed, and
+   placed against the trigger.
+   ───────────────────────────────────────────────────────────── */
+
+.enum-picker-group {
+  grid-column: span 2;
+  min-width: 0;
+}
+
+.enum-picker-trigger {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) 12px;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 180px;
+  max-width: 280px;
+  padding: 6px 10px 6px 8px;
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-lg);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.enum-picker-trigger:hover,
+.enum-picker-trigger[aria-expanded="true"] {
+  border-color: var(--accent-primary);
+}
+
+.enum-picker-trigger:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+.enum-picker-trigger-icon,
+.enum-picker-option-icon,
+.enum-picker-group-icon {
+  display: block;
+  color: var(--accent-primary);
+}
+
+.enum-picker-trigger-icon {
+  width: 40px;
+  height: 25px;
+}
+
+.enum-picker-trigger-icon svg,
+.enum-picker-option-icon svg,
+.enum-picker-group-icon svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.enum-picker-trigger-text,
+.enum-picker-option-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.enum-picker-trigger-label,
+.enum-picker-option-label {
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.enum-picker-trigger-sub,
+.enum-picker-option-detail {
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 10px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.enum-picker-trigger-chevron {
+  width: 12px;
+  height: 12px;
+  background: var(--text-secondary);
+  -webkit-mask: var(--icon-url) center / contain no-repeat;
+  mask: var(--icon-url) center / contain no-repeat;
+}
+
+.enum-picker-popover {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 4000;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(420px, calc(100vw - 16px));
+  padding: 10px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-2xl);
+  background: var(--bg-elevated, rgba(16, 18, 24, 0.98));
+  color: var(--text-primary);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.5);
+}
+
+.enum-picker-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.enum-picker-title {
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.enum-picker-search {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 6px 9px;
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-md);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12px;
+}
+
+.enum-picker-search:focus-visible {
+  outline: none;
+  border-color: var(--accent-primary);
+}
+
+.enum-picker-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(54px, 1fr));
+  gap: 6px;
+}
+
+.enum-picker-group-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 7px 4px 5px;
+  border: 1px solid var(--border-dark);
+  border-radius: var(--radius-lg);
+  background: var(--overlay-light);
+  color: var(--text-primary);
+  font: inherit;
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.enum-picker-group-tile:hover,
+.enum-picker-group-tile:focus-visible {
+  border-color: color-mix(in srgb, var(--accent-primary) 60%, transparent);
+  outline: none;
+}
+
+.enum-picker-group-tile[aria-checked="true"] {
+  border-color: var(--accent-primary);
+  background: color-mix(in srgb, var(--accent-primary) 14%, transparent);
+}
+
+.enum-picker-group-icon {
+  width: 36px;
+  height: 22px;
+}
+
+.enum-picker-all-icon {
+  display: block;
+  width: 22px;
+  height: 22px;
+  background: var(--accent-primary);
+  -webkit-mask: var(--icon-url) center / contain no-repeat;
+  mask: var(--icon-url) center / contain no-repeat;
+}
+
+.enum-picker-group-name {
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.enum-picker-group-count {
+  color: var(--text-secondary);
+  font-size: 9px;
+}
+
+.enum-picker-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.enum-picker-subgroup {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 6px 6px 3px;
+  background: var(--bg-elevated, rgba(16, 18, 24, 0.98));
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.enum-picker-option {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) 14px;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 4px 8px 4px 5px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-lg);
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.enum-picker-option:hover,
+.enum-picker-option:focus-visible {
+  background: var(--overlay-light);
+  outline: none;
+}
+
+.enum-picker-option:focus-visible {
+  border-color: var(--accent-primary);
+}
+
+.enum-picker-option.is-selected {
+  border-color: color-mix(in srgb, var(--accent-primary) 55%, transparent);
+  background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
+}
+
+.enum-picker-option-icon {
+  width: 34px;
+  height: 21px;
+}
+
+.enum-picker-option-check {
+  width: 14px;
+  height: 14px;
+  background: var(--accent-primary);
+  -webkit-mask: var(--icon-url) center / contain no-repeat;
+  mask: var(--icon-url) center / contain no-repeat;
+}
+
+.enum-picker-empty {
+  padding: 18px 8px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  text-align: center;
+}
+
+/* Pickup Match's conversion curve, the Simple Cabinet's response plot's twin. */
+.pickup-response {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Pickup Match's design blocks: a custom side's construction, and what it predicts. */
+.pickup-design {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.pickup-design[hidden] {
+  display: none;
+}
+
+.pickup-design-summary {
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: var(--radius-md);
+  background: var(--overlay-light);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.pickup-design-summary:empty {
+  display: none;
+}
+
+.pickup-design-note {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 10px;
+  line-height: 1.45;
+}

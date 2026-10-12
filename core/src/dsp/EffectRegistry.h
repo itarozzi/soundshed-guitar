@@ -17,6 +17,15 @@ namespace guitarfx
 {
 class EffectProcessor;
 
+/// What a picker shows for one enum choice beyond its label. Every field is optional.
+struct ParamLabelInfo
+{
+    std::string group;    ///< top-level filter the picker draws as a tile, e.g. a pickup's family
+    std::string subgroup; ///< heading within a group, e.g. a brand
+    std::string icon;     ///< a picture the UI knows by this name
+    std::string detail;   ///< one short line under the label
+};
+
 /**
  * Parameter definition for UI rendering.
  */
@@ -39,6 +48,11 @@ struct ParameterDef
     // How a knob, a MIDI controller or a DAW lane travels across min..max. Last, so the
     // positional initialisers effects use keep meaning what they did; absent means linear.
     ParamTaper taper = ParamTaper::Linear;
+    // For an enum with too many choices for a knob: per-label detail for a picker, parallel to
+    // `labels` (empty, or one entry per label), and how to draw the parameter. Display only;
+    // the value is still the label's index.
+    std::vector<ParamLabelInfo> labelInfo;
+    std::string control; // "" = the unit's usual control; "picker" = a dropdown flyout
 };
 
 /// `def` on a log taper, for an effect that declares its parameters inline. The range must be

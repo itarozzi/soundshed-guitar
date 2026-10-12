@@ -67,6 +67,7 @@ All UUID constants are defined in `core/src/dsp/EffectGuids.h`. The table below 
 | `kFuzz` | `3a38b19c-1d97-4989-b5bb-12bcc59d1e6b` | `fuzz` |
 | `kEqParametric` | `4b4025ca-64cd-4180-be79-81873b618dba` | `eq_parametric` |
 | `kEqGraphic` | `ef8240ba-c973-4e09-ab65-4faf56a8ecbf` | `eq_graphic` |
+| `kPickupMatch` | `df1f4ed4-5d84-4a21-9474-ad6ab014fca5` | `pickup_match` |
 | `kDelayDigital` | `673d3e7a-e9ef-4c5d-a4c4-619dff3355ed` | `delay_digital` |
 | `kDelayDoubler` | `778aaef4-40e3-4efa-8782-6a8bfa1d1661` | `delay_doubler` |
 | `kDelayTape` | `c46cecdc-d800-416e-a9cf-b9a13bd3ab35` | `delay_tape` |
@@ -161,6 +162,20 @@ back to linear on both sides.
 Log-taper parameters: `ring_mod` `frequency`; `delay_digital` `highCut` and `lowCut`; `cab_ir`
 `lowCutHz` and `highCutHz`; `reverb_advanced` `lowCut` and `highCut`; `harmonizer` `highCut`;
 `vibe` `rate`; `tremolo` `crossover`; `dynamics_gate` `swell`.
+
+### Effect pickers
+An enum with too many choices to dial through can ask to be drawn as a picker. It sets
+`ParameterDef::control = "picker"`, and can describe each label with `ParameterDef::labelInfo`:
+a `group`, a `subgroup`, an `icon` and a line of `detail`, one entry per label.
+
+The catalog sends both, and the value is still the label's index.
+- **Web UI** (`signalPath/paramsPanel/enumPicker.ts`): draws a trigger with the current choice's
+  picture and name. Its flyout has a tile per group, a search box, and the choices under subgroup
+  headings. Pictures come from `pickerIcons.ts`, by name.
+- **Nano:** nests its menu by group, then subgroup.
+- **Custom layouts:** still draw a knob.
+
+Used by `pickup_match` `source`, `target` and the two design types.
 
 ### Effect presets
 Every effect's Presets menu draws on three lists:
@@ -617,6 +632,106 @@ their rig makes, and choosing how a gate closes should not move where it closes.
 lows and highs eased, a Tube Screamer's curve), Scoop, Presence Lift, Tight Low End (a -6 dB
 shelf below 150 Hz, before a high-gain amp) and Glassy Clean. There is no output control, so the
 curves move the level: from -3.5 dB (Scoop) to +3 dB (Mid Hump) on the demo DI.
+
+### Pickup Match (`pickup_match`)
+Makes the player's pickup sound like another kind: a single coil like a humbucker, or a humbucker
+like a single coil (`PickupMatchEffect.h`). Put it first in the chain, before any drive, compressor
+or amp, so they hear the new pickup.
+
+**How.** A passive pickup is close to a linear filter. Its inductance resonates with the winding,
+cable and pot load into a second-order low-pass with a peak. Matching divides the target pickup's
+response by the source's: one biquad whose zeros cancel the source's peak and whose poles put the
+target's in. It is unity at DC, plus the two pickups' output difference. Each polynomial is
+prewarped at its own peak, so both peaks land where they belong at any sample rate. Going there
+and back again (single coil to humbucker, then humbucker to single coil) is flat to rounding.
+
+**Pickups.** Either side can be one of 258 choices: seven generic classes, Custom Design (index 7,
+below), then 250 measured models (`PickupModels.generated.h`). Each model is a second-order fit to its measured response,
+28 Hz to 20 kHz, into 10 ft of low-capacitance cable and a 500K pot.
+
+The table comes from `node tools/gen-pickup-models.mjs <dir>`, pointed at the folder of measurement
+pages, which is not in this repository. The generator:
+- Checks that each page holds the pickup it was asked for. Three source pages failed or repeated
+  another: two "+" names that the scraper sent unencoded, and one duplicate.
+- Records the RMS fit error. About ten models miss by more than 1.5 dB, mostly actives and
+  noiseless types whose curves carry their own EQ, and the picker marks them "approximate".
+- Keeps the table **append-only**. A preset stores a pickup as its index, so a model keeps its
+  place and new ones go on the end. `PickupMatchEffectTests` pins the first entries.
+
+The classes are medians of the measured fits. The fits reach a median of
+0.3–0.4 dB RMS up to 12 kHz on passive pickups.
+
+| Class | Resonance | Q | Level |
+|---|---|---|---|
+| Single Coil (Neck) | 3551 Hz | 1.33 | -0.9 dB |
+| Single Coil (Middle) | 3551 Hz | 1.38 | +1.7 dB |
+| Single Coil (Bridge) | 3217 Hz | 1.23 | +2.1 dB |
+| P-90 | 1577 Hz | 1.09 | +6.6 dB |
+| Humbucker (Neck) | 2800 Hz | 1.01 | +7.5 dB |
+| Humbucker (Bridge) | 2343 Hz | 0.97 | +9.7 dB |
+| Active Humbucker | 4973 Hz | 0.63 | +11.1 dB |
+
+The active class is the roughest. Actives carry their preamp's EQ, fit worst (up to 5 dB), and
+vary in level from unit to unit.
+
+| Parameter | Range | Default | Notes |
+|---|---|---|---|
+| `source` | pickup | Single Coil (Bridge) | "Your Pickup". A picker, not a knob (below) |
+| `target` | pickup | Humbucker (Bridge) | "Sound Like". A picker, not a knob (below) |
+| `amount` | 0–1 | 1 | Moves the resonance and Q by ratio and the level by dB. At 0 the audio passes through bit for bit, and likewise with the same class on both sides |
+| `levelMode` | Pickup Output / Matched | Pickup Output | Pickup Output keeps the level difference, so a humbucker drives what follows harder. Matched holds the level for an even A/B |
+| `maxBoost` | 0–24 dB | 12 dB | Advanced. Caps the treble shelf going to a brighter pickup. The cap is on the prewarped frequencies, so it holds right up to Nyquist at any rate. Without it a P-90 to an active pickup reached +66 dB at Nyquist at 8 kHz |
+| `output` | -12..+12 dB | 0 | |
+| `sourceDesignType` … `sourceCapacitanceTrim` | | | "Your Pickup" as a custom design: Type, DC Resistance (3–20 kΩ), Wire Gauge (42–44 AWG), Magnet, Cover, Coil Wiring, Capacitance Trim (±50%). Read only while `source` is Custom Design |
+| `targetDesignType` … `targetCapacitanceTrim` | | | The same for "Sound Like" |
+
+**Factory presets:** Single Coil to Humbucker (default), Neck Single Coil to Humbucker, Humbucker
+to Single Coil, Neck Humbucker to Single Coil, Single Coil to P-90, and Humbucker to P-90.
+
+**Custom Design** (`PickupDesign.h`) builds a pickup from its construction. Coil L, R and C, with eddy
+losses as a shunt resistance across the coil, into the reference load is still a second-order
+low-pass, so a design comes out as the resonance, Q and level every other pickup has.
+
+The model is fitted to 397 measured pickups. A back-test predicted each pickup with itself left out
+(private research notes, `research/pickup-design`):
+- **Inductance:** grows with wire length (DC resistance ÷ the gauge's ohms per metre) to the power
+  1.12, from a per-type intercept. Ceramic adds about 19% over A5, and A2/A3 4–7%. Median error 7.5%.
+- **Capacitance:** the type's median. Construction does not predict it (18% error whatever is
+  known), so **Capacitance Trim** stands in for insulation and wind pattern.
+- **Eddy loss:** a per-type shunt. It takes about 3.4 dB off the peak, and the shunt gets peak height
+  to 0.7 dB median.
+- **Together:** the loaded peak to about **1 semitone** median, against 6–7 semitones of spread
+  within a type.
+
+Thinner ground:
+- **Brass cover:** from two measured pickups. Nickel silver showed no damping in three.
+- **Coil wiring:** series, parallel and split are circuit maths for two matched coils with little
+  coupling. Wiring leaves a single coil alone.
+- **Magnet grade:** changes inductance only. Pole gauss flips direction between types, so it cannot
+  set output.
+
+**Not offered:**
+- **P-90 type:** the two data sources disagree by 5.6 semitones.
+- **Pickup position:** it combs the harmonics by note, which a fixed filter cannot follow.
+
+A reference load (760 pF, 114 kΩ) puts designs on the catalogue's scale. It is calibrated once, so
+that each type's median design lands on its generic class: Strat, Tele and PAF within 0.8 semitone
+and 8% Q (`PickupMatchEffectTests` holds it).
+
+The params panel shows a side's design controls in a block of their own, only while that side is
+Custom Design. The block also shows what the engine predicts: wire length, L, R, C, peak, Q and
+output. These come from `DescribeSettings`, sent with the response curve.
+
+**The picker.** Both pickup choices declare `control: "picker"` and a `labelInfo` entry per label
+(see Effect pickers). Each entry gives the family as the group, the brand as the subgroup, a family
+picture (`pickup-single`, `pickup-p90`, `pickup-humbucker`, `pickup-active`, `pickup-other`) and
+one line of detail. The detail gives the position, the peak, and the output against a generic neck
+single coil. The params panel also draws the conversion's response curve, "Pickup Conversion".
+
+**Not modelled.** The measurements are electrical only. A humbucker's two coils, and a pickup's
+distance from the bridge, comb the string's harmonics by harmonic number. The notches therefore
+move with the note played, and a fixed filter cannot follow them. The classes also assume the
+measured load. A short cable, a 1M input or a rolled-off volume knob moves a real pickup's peak.
 
 ### Digital Delay (`delay_digital`)
 Clean stereo digital delay, with its tone filters and drive inside the feedback loop.

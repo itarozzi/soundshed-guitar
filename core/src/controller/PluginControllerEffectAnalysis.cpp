@@ -15,6 +15,7 @@
 #include "dsp/EffectAnalysis.h"
 #include "dsp/EffectGuids.h"
 #include "dsp/EffectRegistry.h"
+#include "dsp/FiniteCheck.h"
 #include "dsp/IRWavLoader.h"
 #include "dsp/ImpulseResampler.h"
 #include "dsp/IrAlignment.h"
@@ -202,6 +203,26 @@ void PluginController::HandleGetEffectResponseRequest(const nlohmann::json& payl
 
         reply["frequencies"] = frequencies;
         reply["magnitudesDb"] = std::move(rounded);
+
+        // What the curve leaves out, for an effect that says (EffectProcessor::DescribeSettings).
+        if (const auto effect = effect_analysis::CreateConfigured(EffectRegistry::Instance().Resolve(requestedType),
+                                                                  ParseParams(payload)))
+        {
+            nlohmann::json summary = nlohmann::json::object();
+
+            for (const auto& [name, value] : effect->DescribeSettings())
+            {
+                if (IsFinite(value))
+                {
+                    summary[name] = value;
+                }
+            }
+
+            if (!summary.empty())
+            {
+                reply["summary"] = std::move(summary);
+            }
+        }
     }
 
     SendMessageToUI(reply.dump());

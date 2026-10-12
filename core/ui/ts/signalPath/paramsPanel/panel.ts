@@ -35,6 +35,8 @@ import { buildMixerInputControlsHtml } from "./mixerInput.js";
 import { bindSplitBranchControls, buildSplitBranchControlsHtml } from "./splitBranches.js";
 import { bindBlendModeOverride, bindBypassButton, bindCustomEffectActionControls, bindNodeTitleEdit } from "./nodeActions.js";
 import { bindChannelModeControl, renderChannelModeControl } from "./channelMode.js";
+import { bindEnumPickerTriggers, buildEnumPickerTriggerHtml, isPickerParam } from "./enumPicker.js";
+import { buildPickupDesignSectionHtml, buildPickupResponseSectionHtml, isPickupMatchNode, PICKUP_DESIGN_PARAM_KEYS } from "./pickupResponse.js";
 import { bindNodeParamControls, bindParamTabs, formatParamLabel, isToggleParam } from "./paramControls.js";
 import { isPitchShiftType, semitoneKnobRange } from "./pitchShiftRange.js";
 import { buildNodeResourceSelector, preloadResourceNavigationCaches } from "./resourceSelector.js";
@@ -117,6 +119,11 @@ export function showNodeParamsPanel(node: GraphNode, preset: Preset): void {
     paramDefs = paramDefs.filter((paramDef) => !IR_ALIGNMENT_PARAM_KEYS.includes(paramDef.key));
   }
 
+  // Pickup Match's design parameters live in the design blocks, shown while a side is custom.
+  if (isPickupMatchNode(node)) {
+    paramDefs = paramDefs.filter((paramDef) => !PICKUP_DESIGN_PARAM_KEYS.includes(paramDef.key));
+  }
+
   const isPitchShift = isPitchShiftType(node.type);
 
   const renderParamControl = (paramDef: BlendParamDef): string => {
@@ -146,6 +153,11 @@ export function showNodeParamsPanel(node: GraphNode, preset: Preset): void {
     // A blend knob shows its blend spec's scale, and a pitch shift's the node's own range;
     // neither is the range the taper was declared over.
     const taper = isBlendParam || pitchRange ? "linear" : effectiveTaper(paramDef.taper, min, max);
+
+    // An enum with too many choices for a knob, which the engine asked to have as a picker.
+    if (isPickerParam(paramDef) && !isBlendParam) {
+      return buildEnumPickerTriggerHtml(node.id, paramDef, value, label);
+    }
 
     if (isToggle) {
       const checked = value >= 0.5;
@@ -255,7 +267,8 @@ export function showNodeParamsPanel(node: GraphNode, preset: Preset): void {
   }
   const hasAdvancedTab = advancedParamDefs.length > 0;
 
-  const isEqNode = typeInfo?.category === "eq" || node.type.startsWith("eq_");
+  // Pickup Match is an EQ by category, but it draws its own curve and has no bands to edit.
+  const isEqNode = (typeInfo?.category === "eq" || node.type.startsWith("eq_")) && !isPickupMatchNode(node);
   const isGraphicEqNode = EffectTypeRegistry.resolve(node.type) === EffectGuids.kEqGraphic;
   const customEffectActions = buildCustomEffectActions(node);
   const eqVisualizer = isEqNode && !isGraphicEqNode ? `
@@ -307,9 +320,10 @@ export function showNodeParamsPanel(node: GraphNode, preset: Preset): void {
     </section>
   ` : "";
 
-  const cabResponseSection = buildCabResponseSectionHtml(node);
+  const cabResponseSection = buildCabResponseSectionHtml(node) + buildPickupResponseSectionHtml(node);
   // Under the Main and Advanced tabs rather than in either, so it is in view whichever is open.
-  const irAlignmentSection = buildIrAlignmentSectionHtml(node);
+  const irAlignmentSection = buildIrAlignmentSectionHtml(node)
+    + buildPickupDesignSectionHtml(node, typeInfo?.parameters ?? [], buildParamControls);
   const mixerInputControls = buildMixerInputControlsHtml(node, preset);
   const splitBranchControls = buildSplitBranchControlsHtml(node, preset);
 
@@ -552,6 +566,8 @@ export function showNodeParamsPanel(node: GraphNode, preset: Preset): void {
 
   // Bind controls
   bindNodeParamControls(node, preset);
+  // Every definition, not just the generic controls': the pickup design blocks hold pickers too.
+  bindEnumPickerTriggers(nodeParamsPanelElement, node, typeInfo?.parameters ?? paramDefs);
   bindEffectPresetsButton(node);
   bindGraphicEqControls(node, preset);
   bindCabResponseControls(node, preset);

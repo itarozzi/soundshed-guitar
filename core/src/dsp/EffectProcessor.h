@@ -7,6 +7,7 @@
 #include <memory>
 #include <span>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "dsp/ChannelLayout.h"
@@ -203,6 +204,15 @@ class EffectProcessor
                                                     std::span<double> /*magnitudesDb*/) const
     {
         return false;
+    }
+
+    /// Named figures about the current settings that the response curve does not show, sent
+    /// with it (getEffectResponse): Pickup Match's designed pickups, their inductance and
+    /// capacitance, say. Asked of a fresh instance built for analysis, on the message thread.
+    /// Empty for most effects.
+    [[nodiscard]] virtual std::vector<std::pair<std::string, double>> DescribeSettings() const
+    {
+        return {};
     }
 
     // Notes (dsp/NoteEvents.h). A node that makes notes from its input exposes them here, and

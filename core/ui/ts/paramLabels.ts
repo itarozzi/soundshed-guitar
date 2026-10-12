@@ -11,6 +11,12 @@ export function enumLabel(value: number, labels: readonly string[], min = 0, ste
   return index >= 0 ? labels[index] : undefined;
 }
 
+/** The label a value lands on, clamped into the list: what an enum control shows as chosen. */
+export function enumLabelIndex(value: number, count: number, min = 0, step?: number): number {
+  const index = Math.round((value - min) / (step !== undefined && step > 0 ? step : 1));
+  return Math.min(Math.max(Number.isFinite(index) ? index : 0, 0), Math.max(0, count - 1));
+}
+
 /**
  * A parameter that moves in whole steps (a MIDI channel, semitones, a count) as a whole number
  * with its unit, where it showed "1.00" or "-12.00st"; undefined for any other parameter, or a

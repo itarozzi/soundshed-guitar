@@ -60,6 +60,10 @@ struct EffectParamInfo
     bool advanced = false;
     bool logTaper = false;
     std::vector<std::string> labels;
+    // From the engine's labelInfo, for an enum with many labels: each label's group and
+    // subgroup, so a menu can nest them. Empty, or one entry per label.
+    std::vector<std::string> labelGroups;
+    std::vector<std::string> labelSubgroups;
 };
 
 struct EffectPresetInfo
