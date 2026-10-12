@@ -162,14 +162,31 @@ double MaxDifference(const std::vector<float>& a, const std::vector<float>& b)
     return worst;
 }
 
+struct Leak
+{
+    double rightIntoLeft = 0.0;
+    double leftIntoRight = 0.0;
+};
+
+/// How far each side of one node moves, in dual mono, when only the other side's input changes.
+Leak LeakBetweenSides(const GraphNode& node)
+{
+    static const auto guitar = Tone(196.0, 0.3, 0x1111u);
+    static const auto keys = Tone(587.0, 0.25, 0x2222u);
+    static const auto other = Tone(330.0, 0.2, 0x3333u);
+
+    const auto graph = SingleNode(node);
+    const auto both = Run(graph, guitar, keys, true);
+    const auto otherRight = Run(graph, guitar, other, true);
+    const auto otherLeft = Run(graph, other, keys, true);
+    return {MaxDifference(both.left, otherRight.left), MaxDifference(both.right, otherLeft.right)};
+}
+
 /// For every registered type: in dual mono, the left output does not move when only the right
 /// input changes, and the right does not move when only the left does.
 void TestNoTypeLeaksBetweenSides()
 {
     auto& registry = guitarfx::EffectRegistry::Instance();
-    const auto guitar = Tone(196.0, 0.3, 0x1111u);
-    const auto keys = Tone(587.0, 0.25, 0x2222u);
-    const auto other = Tone(330.0, 0.2, 0x3333u);
     Random random(0xd0a1d0a1u);
     int types = 0;
 
@@ -194,21 +211,49 @@ void TestNoTypeLeaksBetweenSides()
                 values += " " + def.id + "=" + std::to_string(value);
             }
 
-            const auto graph = SingleNode(node);
-            const auto both = Run(graph, guitar, keys, true);
-            const auto otherRight = Run(graph, guitar, other, true);
-            const auto otherLeft = Run(graph, other, keys, true);
-
-            const double rightIntoLeft = MaxDifference(both.left, otherRight.left);
-            const double leftIntoRight = MaxDifference(both.right, otherLeft.right);
-            Check(rightIntoLeft <= kNoLeak && leftIntoRight <= kNoLeak,
+            const auto leak = LeakBetweenSides(node);
+            Check(leak.rightIntoLeft <= kNoLeak && leak.leftIntoRight <= kNoLeak,
                   info.displayName + " (" + info.type + "): nothing crosses in dual mono; right into left " +
-                      std::to_string(rightIntoLeft) + ", left into right " + std::to_string(leftIntoRight) + " with" +
-                      values);
+                      std::to_string(leak.rightIntoLeft) + ", left into right " + std::to_string(leak.leftIntoRight) +
+                      " with" + values);
         }
     }
 
     std::cout << types << " types checked for leaks between the sides\n";
+}
+
+/// The Auto Arpeggiator's Random pattern, triggered Above a pitch only the right side's input
+/// reaches. Its generator was seeded from std::random_device, so each run played different steps
+/// on the right and the sweep above read that as the left input leaking across. These settings
+/// came up there once Pickup Match gained parameters; pinned so the check no longer depends on
+/// where the shared random sequence lands.
+void TestAutoArpRandomPatternIsRepeatable()
+{
+    using namespace guitarfx::EffectGuids;
+    GraphNode node{"fx", kAutoArp, "modulation", "Auto Arpeggiator", true};
+    node.params = {{"stepRate", 5.0},
+                   {"pattern", 5.0},
+                   {"direction", 1.0},
+                   {"numSteps", 7.0},
+                   {"gate", 0.896035},
+                   {"attack", 0.184255},
+                   {"release", 0.320438},
+                   {"step0", 22.0},
+                   {"step1", -16.0},
+                   {"step2", -17.0},
+                   {"step3", 24.0},
+                   {"step4", -19.0},
+                   {"step5", 20.0},
+                   {"step6", -21.0},
+                   {"step7", 24.0},
+                   {"pitchMode", 1.0},
+                   {"pitchThreshold", 421.998651},
+                   {"mix", 0.247865}};
+
+    const auto leak = LeakBetweenSides(node);
+    Check(leak.rightIntoLeft <= kNoLeak && leak.leftIntoRight <= kNoLeak,
+          "Auto Arpeggiator, Random pattern above 422 Hz: nothing crosses in dual mono; right into left " +
+              std::to_string(leak.rightIntoLeft) + ", left into right " + std::to_string(leak.leftIntoRight));
 }
 
 /// At its defaults, one node fed the same signal on both sides puts out in dual mono exactly what
@@ -356,6 +401,7 @@ int main()
     guitarfx::RegisterAllEffects();
 
     TestNoTypeLeaksBetweenSides();
+    TestAutoArpRandomPatternIsRepeatable();
     TestIdenticalSidesMatchStereo();
     TestSecondInstanceStaysInStep();
     TestStagingInstallsSecondInstances();

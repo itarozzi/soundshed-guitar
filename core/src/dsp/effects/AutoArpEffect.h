@@ -79,7 +79,11 @@ class AutoArpEffect : public EffectProcessor
         mShifter.Prepare(sampleRate);
         mPathFadeStep = 1.0f / std::max(1.0f, static_cast<float>(sampleRate * kPathFadeSeconds));
         mConfigured = true;
-        mRng.seed(std::random_device{}());
+        // A fixed seed: the Random pattern plays the same steps from the same input, so a render
+        // matches playback, and a dual-mono twin matches the primary on identical sides. Seeded
+        // from std::random_device, each instance went its own way, which DualMonoTests read as
+        // one side's input reaching the other.
+        mRng.seed(kRngSeed);
 
         mTracker.Prepare(sampleRate);
         mPitchFrameLength = std::max(1, static_cast<int>(std::lround(sampleRate * kPitchFrameSeconds)));
@@ -415,6 +419,7 @@ class AutoArpEffect : public EffectProcessor
     static constexpr double kPathFadeSeconds = 0.005;                 // input <-> shifter hand-over
     static constexpr int kPatternCustom = 4;
     static constexpr int kPatternRandom = 5;
+    static constexpr std::uint32_t kRngSeed = 0xa4b1e5u;
     /// The trigger is judged once per frame of this length: 2048 samples at 48 kHz, the window the old
     /// detector analysed in one go, so the debounce and smoothing below keep their timing.
     static constexpr double kPitchFrameSeconds = 2048.0 / 48000.0;
