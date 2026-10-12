@@ -679,7 +679,7 @@ vary in level from unit to unit.
 |---|---|---|---|
 | `source` | pickup | Single Coil (Bridge) | "Your Pickup". A picker, not a knob (below) |
 | `target` | pickup | Humbucker (Bridge) | "Sound Like". A picker, not a knob (below) |
-| `amount` | 0–1 | 1 | Moves the resonance and Q by ratio and the level by dB. At 0 the audio passes through bit for bit, and likewise with the same class on both sides |
+| `amount` | 0–3 | 1 | 0 is no change, and the audio passes through bit for bit (as it does with the same pickup on both sides). 1 is the chosen pickup. Past 1 it exaggerates the difference (below). Moves the resonance and Q by ratio, the level by dB, and scales String Sensing |
 | `levelMode` | Pickup Output / Matched | Pickup Output | Pickup Output keeps the level difference, so a humbucker drives what follows harder. Matched holds the level for an even A/B |
 | `maxBoost` | 0–24 dB | 12 dB | Advanced. Caps the treble shelf going to a brighter pickup. The cap is on the prewarped frequencies, so it holds right up to Nyquist at any rate. Without it a P-90 to an active pickup reached +66 dB at Nyquist at 8 kHz |
 | `output` | -12..+12 dB | 0 | |
@@ -782,6 +782,21 @@ sides runs nothing. Max Treble Boost also caps the top a narrower pickup adds.
 
 In the effect's own response (`PickupMatchEffectTests`), String Sensing makes Single Coil (Bridge) →
 Single Coil (Neck) 10 dB fuller at 100 Hz against 1 kHz. The electrics alone moved that by 0.1 dB.
+
+**Exaggerating: Amount past 1.** A faithful conversion can be subtle through a drive and a cab, so
+Amount runs to 3. Past 1 the conversion carries on the same way, a caricature of the difference.
+Single Coil (Bridge) → Humbucker (Bridge), with level matched, is 7 dB down at 3 kHz at 1, 15 dB at 2
+and 20 dB at 3. String Sensing scales with it: bridge to neck is +10 dB at 100 Hz at 1 and +19 dB at 2.
+
+Limits keep a caricature stable and usable:
+- the resonance stays at 300 Hz or above;
+- Q stays between 0.3 and 6;
+- the level change stays within 18 dB;
+- each sensing band stays within 18 dB.
+
+Where the two pickups' own values already go further than a limit, the limit widens to include them, so
+nothing up to 1 is held back. The catalogue's widest level gap is 36 dB, and it still comes through at 1.
+Max Treble Boost still caps treble added at any Amount.
 
 **Not modelled.** The measurements are electrical only. A humbucker's two coils, and a pickup's
 distance from the bridge, comb the string's harmonics by harmonic number. The notches move with the note played, so a fixed filter cannot follow them exactly; String

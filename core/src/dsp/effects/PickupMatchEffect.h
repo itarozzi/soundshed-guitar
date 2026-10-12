@@ -203,13 +203,25 @@ static_assert(std::size(kPositionLabels) == static_cast<std::size_t>(PositionCho
 
 inline constexpr double kLastPickup = static_cast<double>(kPickupCount - 1);
 
+/// Amount past 1 carries on past the target, the same way and in proportion: a caricature of
+/// the difference, for when the real one is too subtle to hear through a drive and a cab.
+inline constexpr double kMaxAmount = 3.0;
+
+// What extrapolating may reach. Each widens to take in both pickups, so nothing up to Amount 1
+// is ever held back: only the caricature is.
+inline constexpr double kMinExaggeratedHz = 300.0;
+inline constexpr double kMinExaggeratedQ = 0.3;
+inline constexpr double kMaxExaggeratedQ = 6.0;
+inline constexpr double kMaxExaggeratedLevelDb = 18.0;
+inline constexpr double kMaxSensingBandDb = 18.0;
+
 /// The one place parameter ranges live: registration and SetParam's clamping both read it.
 inline constexpr std::array<EffectParamSpec, kParamCount> kParams = {{
     {"source", "Your Pickup", static_cast<double>(Pickup::SingleCoilBridge), 0.0, kLastPickup, "enum", "Pickups", false,
      1.0, kPickupLabels},
     {"target", "Sound Like", static_cast<double>(Pickup::HumbuckerBridge), 0.0, kLastPickup, "enum", "Pickups", false,
      1.0, kPickupLabels},
-    {"amount", "Amount", 1.0, 0.0, 1.0, "amount", "Pickups", false, 0.0},
+    {"amount", "Amount", 1.0, 0.0, kMaxAmount, "amount", "Pickups", false, 0.0},
     {"levelMode", "Level", 0.0, 0.0, 1.0, "enum", "Output", false, 1.0, kLevelModeLabels},
     {"maxBoost", "Max Treble Boost", 12.0, 0.0, 24.0, "dB", "Output", true, 0.0},
     {"output", "Output", 0.0, -12.0, 12.0, "dB", "Output", false, 0.0},
@@ -377,7 +389,7 @@ struct Design
 [[nodiscard]] inline BiquadCoefficients SensingSection(std::size_t band, const SensingBand& spec, double scale,
                                                        double sampleRate) noexcept
 {
-    const double gainDb = spec.gainDb * scale;
+    const double gainDb = std::clamp(spec.gainDb * scale, -kMaxSensingBandDb, kMaxSensingBandDb);
 
     switch (band)
     {
@@ -393,7 +405,10 @@ struct Design
 /// The design for a set of parameter values.
 ///
 /// Amount moves the target's resonance and Q from the source's towards the chosen pickup's by
-/// ratio, and its level by dB, so 0 is exactly the identity. Max Treble Boost caps how far the
+/// ratio, and its level by dB, so 0 is exactly the identity and 1 is the chosen pickup. Past 1 it
+/// carries on the same way (see kMaxAmount), held to a resonance of at least 300 Hz, a Q of
+/// 0.3-6 and a level change of 18 dB, or the pickups' own where those go further, so a caricature
+/// stays a stable filter at a usable level. Max Treble Boost caps how far the
 /// target's peak may sit above the source's. Above both peaks the analogue section's gain
 /// settles at (ft / fs)^2; after prewarping, the digital one reaches (tan(pi ft / sr) /
 /// tan(pi fs / sr))^2 at Nyquist, which is larger and grows without bound as ft nears Nyquist
@@ -405,10 +420,13 @@ struct Design
 {
     const PickupModel source = ResolvePickup(values, kSource);
     const PickupModel target = ResolvePickup(values, kTarget);
-    const double amount = std::clamp(values[kAmount], 0.0, 1.0);
+    const double amount = std::clamp(values[kAmount], 0.0, kMaxAmount);
 
     double targetHz = source.resonanceHz * std::pow(target.resonanceHz / source.resonanceHz, amount);
-    const double targetQ = source.q * std::pow(target.q / source.q, amount);
+    targetHz = std::max(targetHz, std::min({kMinExaggeratedHz, source.resonanceHz, target.resonanceHz}));
+    const double targetQ =
+        std::clamp(source.q * std::pow(target.q / source.q, amount), std::min({kMinExaggeratedQ, source.q, target.q}),
+                   std::max({kMaxExaggeratedQ, source.q, target.q}));
 
     if (targetHz > source.resonanceHz)
     {
@@ -423,7 +441,9 @@ struct Design
 
     if (std::lround(values[kLevelMode]) == static_cast<long>(LevelMode::Pickup))
     {
-        levelDb += amount * (target.levelDb - source.levelDb);
+        const double gapDb = target.levelDb - source.levelDb;
+        const double limitDb = std::max(kMaxExaggeratedLevelDb, std::abs(gapDb));
+        levelDb += std::clamp(amount * gapDb, -limitDb, limitDb);
     }
 
     Design design;

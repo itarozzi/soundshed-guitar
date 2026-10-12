@@ -224,7 +224,8 @@ void TestRegistration()
     PickupMatchEffect effect;
     effect.SetParam("amount", 7.0);
     effect.SetParam("source", 9999.0);
-    Check(effect.GetParam("amount") == 1.0 && effect.GetParam("source") == guitarfx::pickup_match::kLastPickup,
+    Check(effect.GetParam("amount") == guitarfx::pickup_match::kMaxAmount &&
+              effect.GetParam("source") == guitarfx::pickup_match::kLastPickup,
           "out-of-range values clamp");
 }
 
@@ -412,6 +413,82 @@ void TestSensing()
     auto generic = Make({{"target", P(Pickup::HumbuckerBridge)}});
     Check(std::abs(ShapeDb(*designed, 100.0) - ShapeDb(*generic, 100.0)) < 1.5,
           "a custom humbucker is sensed at the bridge, like the generic one");
+}
+
+void TestExaggerate()
+{
+    std::cout << "\nAmount past 1" << std::endl;
+    const double matched = static_cast<double>(guitarfx::pickup_match::LevelMode::Matched);
+    const auto at = [&](double amount) {
+        return Make({{"source", P(Pickup::SingleCoilBridge)},
+                     {"target", P(Pickup::HumbuckerBridge)},
+                     {"levelMode", matched},
+                     {"amount", amount}});
+    };
+    const auto one = at(1.0);
+    const auto two = at(2.0);
+    const auto three = at(3.0);
+
+    // Single coil to humbucker darkens: further at 2, further still at 3.
+    Check(ShapeDb(*two, 3000.0) < ShapeDb(*one, 3000.0) - 2.0 && ShapeDb(*three, 3000.0) < ShapeDb(*two, 3000.0) - 2.0,
+          "the humbucker's darkening grows past Amount 1",
+          std::to_string(ShapeDb(*one, 3000.0)) + " / " + std::to_string(ShapeDb(*two, 3000.0)) + " / " +
+              std::to_string(ShapeDb(*three, 3000.0)) + " dB at 3 kHz");
+
+    // String sensing scales the same way: bridge to neck fills out twice as much at 2.
+    const auto neck = [&](double amount) {
+        return Make({{"source", P(Pickup::SingleCoilBridge)},
+                     {"target", P(Pickup::SingleCoilBridge)},
+                     {"targetPosition", static_cast<double>(guitarfx::pickup_match::PositionChoice::Neck)},
+                     {"amount", amount}});
+    };
+    const auto neckOne = neck(1.0);
+    const auto neckTwo = neck(2.0);
+    // Close to double: each band stops at 18 dB, which the bridge's low shelf (-9.2 dB) just passes.
+    Check(ShapeDb(*neckTwo, 100.0) > 1.85 * ShapeDb(*neckOne, 100.0) &&
+              ShapeDb(*neckTwo, 100.0) <= 2.0 * ShapeDb(*neckOne, 100.0) + 0.1,
+          "String Sensing about doubles at Amount 2, each band held to 18 dB",
+          std::to_string(ShapeDb(*neckOne, 100.0)) + " -> " + std::to_string(ShapeDb(*neckTwo, 100.0)) +
+              " dB at 100 Hz");
+
+    // The level gap scales too, but no further than 18 dB (or the pickups' own gap).
+    const auto louder =
+        Make({{"source", P(Pickup::SingleCoilBridge)}, {"target", P(Pickup::HumbuckerBridge)}, {"amount", 3.0}});
+    Check(std::abs(ResponseDb(*louder, 20.0) - 18.0) < 0.6, "Pickup Output's gap stops at 18 dB",
+          std::to_string(ResponseDb(*louder, 20.0)) + " dB");
+
+    // Up to Amount 1 nothing is held back: the measured models' widest gap still comes through.
+    using guitarfx::pickup_match::kPickups;
+    std::size_t quietest = 0;
+    std::size_t loudest = 0;
+    for (std::size_t i = 0; i < kPickups.size(); ++i)
+    {
+        quietest = kPickups[i].levelDb < kPickups[quietest].levelDb ? i : quietest;
+        loudest = kPickups[i].levelDb > kPickups[loudest].levelDb ? i : loudest;
+    }
+    auto widest =
+        Make({{"source", static_cast<double>(quietest)}, {"target", static_cast<double>(loudest)}, {"sensing", 0.0}});
+    const double gap = kPickups[loudest].levelDb - kPickups[quietest].levelDb;
+    Check(gap > 18.0 && std::abs(ResponseDb(*widest, 20.0) - gap) < 0.5, "Amount 1 keeps a gap wider than 18 dB",
+          std::to_string(gap) + " dB");
+
+    // Pushed to 3 between the most different pickups, every pairing stays a finite, bounded filter.
+    bool stable = true;
+    const auto noise = Noise(4096);
+    for (Pickup from : {Pickup::P90, Pickup::ActiveHumbucker, Pickup::SingleCoilNeck, Pickup::HumbuckerBridge})
+    {
+        for (Pickup to : {Pickup::P90, Pickup::ActiveHumbucker, Pickup::SingleCoilNeck, Pickup::HumbuckerBridge})
+        {
+            for (double rate : {8000.0, 48000.0})
+            {
+                auto effect = Make({{"source", P(from)}, {"target", P(to)}, {"amount", 3.0}, {"maxBoost", 24.0}}, rate);
+                const auto out = Run(*effect, noise);
+                stable = stable && std::all_of(out.begin(), out.end(),
+                                               [](float s) { return guitarfx::IsFinite(s) && std::abs(s) < 40.0f; });
+            }
+        }
+    }
+    Check(stable, "Amount 3 stays finite and bounded between the most different pickups, at 8 and 48 kHz");
 }
 
 void TestRoundTrip()
@@ -657,7 +734,7 @@ void TestSweepsAndRecovery()
     {
         effect->SetParam("source", std::floor(unit(rng) * 7.0));
         effect->SetParam("target", std::floor(unit(rng) * 7.0));
-        effect->SetParam("amount", unit(rng));
+        effect->SetParam("amount", unit(rng) * guitarfx::pickup_match::kMaxAmount);
         effect->SetParam("maxBoost", unit(rng) * 24.0);
 
         // Designs anywhere in their ranges, on either side.
@@ -721,6 +798,7 @@ int main()
     TestIdentity();
     TestResponse();
     TestRoundTrip();
+    TestExaggerate();
     TestSensing();
     TestLevelMode();
     TestMaxBoost();
