@@ -26,6 +26,7 @@ export const EffectGuids = {
   kCompressorVca:        "72af3541-2408-4a5c-a2dc-ba164f17eac9",
   kCompressorOpto:       "9651c79e-6530-4c23-9150-aa4c0ff2f1d8",
   kLimiterBrickwall:     "f4094126-b5de-4c5d-8d05-d56bd8c312d1",
+  kNoiseReduction:       "b29b11b4-79ee-4e90-84f0-8a8ae5c6350b",
 
   // Drive
   kOverdrive:            "fa9e05a8-168a-4293-aa91-6b770de3da1d",
@@ -107,6 +108,7 @@ export const EFFECT_ALIAS_MAP: Record<string, string> = {
   compressor_vca:        EffectGuids.kCompressorVca,
   compressor_opto:       EffectGuids.kCompressorOpto,
   limiter_brickwall:     EffectGuids.kLimiterBrickwall,
+  noise_reduction:       EffectGuids.kNoiseReduction,
   overdrive:             EffectGuids.kOverdrive,
   distortion:            EffectGuids.kDistortion,
   fuzz:                  EffectGuids.kFuzz,

@@ -62,6 +62,7 @@ All UUID constants are defined in `core/src/dsp/EffectGuids.h`. The table below 
 | `kCompressorVca` | `72af3541-2408-4a5c-a2dc-ba164f17eac9` | `compressor_vca` |
 | `kCompressorOpto` | `9651c79e-6530-4c23-9150-aa4c0ff2f1d8` | `compressor_opto` |
 | `kLimiterBrickwall` | `f4094126-b5de-4c5d-8d05-d56bd8c312d1` | `limiter_brickwall` |
+| `kNoiseReduction` | `b29b11b4-79ee-4e90-84f0-8a8ae5c6350b` | `noise_reduction` |
 | `kOverdrive` | `fa9e05a8-168a-4293-aa91-6b770de3da1d` | `overdrive` |
 | `kDistortion` | `686773c9-30ac-4f33-b0f8-9222146d45b1` | `distortion` |
 | `kFuzz` | `3a38b19c-1d97-4989-b5bb-12bcc59d1e6b` | `fuzz` |
@@ -215,7 +216,7 @@ archive in `core/ui/presets/factory/`. Archive installs and archive sessions ign
 | `amp` | Amplifier simulation | NAM amp models, Neural FX |
 | `cab` | Cabinet simulation | IR convolution, simple cab |
 | `drive` | Gain/clipping/saturation | Overdrive, distortion, fuzz |
-| `dynamics` | Dynamics processing | Noise gate, compressor, limiter |
+| `dynamics` | Dynamics processing | Noise gate, noise reduction, compressor, limiter |
 | `eq` | Equalization | Parametric EQ |
 | `modulation` | Modulation effects | Chorus, flanger, phaser, tremolo, ring modulator, wah (pedal or envelope) |
 | `pitch` | Pitch manipulation | Pitch shift, transpose, octave |
@@ -645,6 +646,100 @@ their rig makes, and choosing how a gate closes should not move where it closes.
 | Ambient Friendly | 5 / 250 / 500 ms | 12 dB | -30 dB, so tails into a delay or reverb fade, not stop |
 | Volume Swell | Swell, 600 ms; hold 80, release 250 ms | 10 dB | -80 dB |
 | Slow Swell | Swell, 1100 ms; hold 150, release 500 ms | 12 dB | -80 dB |
+
+### Noise Reduction (`noise_reduction`)
+Noise reduction for guitar and bass pickups: mains hum and single-coil buzz taken out by
+cancellation, hiss by a band-split downward expander. No latency, and not a gate: the hum is
+cancelled under the playing as well as between notes, and a decaying note is never chopped. It
+belongs first in the chain, before anything that adds gain. `NoiseReductionEffect.h` runs it,
+`NoiseReductionSupport.h` holds the parameter table, the voicings, the canceller bank and the
+floor tracker, and `NoiseReductionHiss.h` the hiss stage.
+
+```
+in ─┬─ hum canceller (LMS per harmonic) ─┬─ low band ──────────────────┬─ out
+    │    ▲ learns only while quiet        ├─ mid band  × expander gain ─┤
+    │    ▲ frequency-locked to the mains  └─ high band × expander gain ─┘
+    └─ quiet detection (input and residual, each against its own floor)
+```
+
+| Parameter | Range | Default | Unit |
+|-----------|-------|---------|------|
+| `pickup` | Single Coil / Humbucker / Active / Bass | Single Coil | — |
+| `hum` | 0–1 | 1 | amount |
+| `mains` | Auto / 50 Hz / 60 Hz | Auto | — |
+| `hiss` | 0–1 | 0.5 | amount (1 = up to 30 dB of cut) |
+| `threshold` | 0–24 | 10 | dB above the measured noise |
+| `release` (advanced) | 20–500 | 100 | ms |
+| `listen` (advanced) | Output / Removed Noise | Output | — |
+
+**Hum.** A pickup is a coil in the mains' magnetic field, so its noise is the mains frequency and
+its harmonics, and a single coil's buzz reaches several kilohertz. `HarmonicBank` is a bank of
+adaptive sinusoid cancellers (Widrow's adaptive noise canceller with the reference generated, not
+measured): a cosine and sine pair per harmonic, weighted by LMS to match that harmonic's amplitude
+and phase. The harmonics are independent and each learns with a 300 ms time constant, which makes
+each notch about 1 Hz wide while learning. With the weights held, the bank is a fixed sum of
+sinusoids subtracted from the input, so it takes away the hum it learned and nothing else.
+
+- **Learning only while quiet.** The weights adapt at full rate while the input is quiet and fade
+  out steeply as it rises, so a note being played, even one sitting exactly on a hum harmonic, is
+  never learned away (`NoiseReductionEffectTests` holds a 4 s note at 300 Hz, the 5th harmonic of
+  60 Hz, to 0.1 dB). Quiet is judged twice, each against a noise floor of its own, and either is
+  enough: what is left after cancelling, within 6 dB of its floor, and the input as it came, within
+  3 dB of its floor. The residual alone can deadlock: let the mains drift while learning is off and
+  the residual climbs above the floor it set while it was cancelling well, reads as playing, and
+  learning never resumes. The input's level does not depend on the canceller, so it breaks that.
+- **Following the mains.** Mains wanders by hundredths of a hertz, which at the 96th harmonic is a
+  few hertz, far outside a 1 Hz notch. Every 100 ms of quiet, a frequency-locked loop reads how far
+  each harmonic's learned phase has turned, fits one frequency error to all of them (weighted, and
+  only harmonics clearly above the weights' noise), and moves the fundamental half of the way.
+  It stays within 0.5 Hz of 50 or 60 Hz. The test locks 50.2 Hz mains to within 0.01 Hz.
+- **Auto mains.** Two small probe banks listen for 50 Hz and 60 Hz on harmonics the two do not
+  share (1, 2, 3, 4, 5 and 7), learning faster than the canceller so drift cannot hide either.
+  Every half second Auto weighs their learned power by how quiet each block was, and switches the
+  canceller to the other mains if it is 6 dB stronger and above -100 dBFS.
+- **Pickup** sets how many harmonics are followed: up to 4.8 kHz for Single Coil (buzz), 2.4 kHz
+  for Bass, 1.2 kHz for Humbucker and 600 Hz for Active, whose pickups cancel most of it. The count
+  is fixed from the nominal mains, so drift never moves a harmonic in or out.
+- **Hum** scales the subtracted estimate (a 20 ms glide). At zero the canceller stops; turned up
+  again, it starts from nothing, since its oscillators stood still meanwhile.
+
+**Hiss.** Two fourth-order Butterworth low-passes split the signal by subtraction: low is the
+first, mid the second less the first, high the input less the second, so the three add back to the
+input exactly and at unity gains nothing changes. The splits are 2 and 5 kHz (Single Coil,
+Humbucker), 2.5 and 6 kHz (Active) and 1.2 and 3.5 kHz (Bass). Below the lower split nothing is
+touched. Each upper band's power (5 ms smoothing, the same both ways, so the detector does not
+ride the hiss's own peaks; a pick still opens a band within a millisecond) is compared with that
+band's noise level: 3 dB over its floor, since a minimum sits below the mean. At the noise level
+and below the band gets the full cut Hiss asks for, at Threshold above it unity, and between them
+a straight line in decibels. Gains open over 2 ms and close over Release. The test measures 15 dB
+of cut on steady hiss at Hiss 50% and 30 dB at 100%, with the band below 800 Hz within 0.3 dB.
+
+**Noise floors are measured, not set** (`FloorTracker`): the lowest smoothed level over the last
+5 s, in ten half-second subwindows, fed one minimum per block. Any pause, palm mute or decay shows
+the floor, so Threshold means the same whatever the interface's gain. Only five seconds of
+unbroken playing can lift a floor, and ceilings cap how far (-40 dBFS broadband, -50 dBFS per hiss
+band). For the first 250 ms after a reset the smoothed levels are still rising from zero, so the
+floors take no readings and the hiss stage does not expand.
+
+**Listen** set to Removed Noise plays the input less the output: only what was taken away, to
+check that it is only noise.
+
+Each channel has its own canceller, detectors and floors (`CanWiden` false,
+`KeepsChannelsSeparate` true), with a mono path; a mono path turning stereo hands the right
+channel what the left has learned. A non-finite input resets the channel within a block. Release
+cost, measured with `/O2 /fp:fast /arch:AVX2`: about 6.5 µs per 64-sample block for Single Coil
+(80 harmonics at 60 Hz) and 3–4 µs for the others, against a 1333 µs deadline at 48 kHz.
+
+**On the DI take** (`NoiseReductionEffectTests`, 20 s of the demo riffs with 60 Hz buzz to 4 kHz
+and hiss 74 dB down added): the canceller takes the added hum down 12 dB under the playing, where
+learning mostly waits, and both stages together take the added noise down 26 dB between the riffs,
+while every loud 50 ms window keeps its level to 0.3 dB. On the clean take alone, Auto stays on
+50 Hz and the loop moves off nominal, so the recording seems to carry some 50 Hz hum of its own.
+
+**Factory presets** leave out `mains` and `listen`: where the player plugs in, and what they are
+checking. Single Coil (the default), Humbucker, Active Pickups (Hiss 60%), Bass (Hiss 40%,
+Release 160 ms), Hum Only (Hiss 0), High Gain (Hiss 85%, Threshold 14 dB, Release 70 ms) and Gentle
+(Hum 70%, Hiss 25%, Threshold 6 dB, Release 200 ms).
 
 ### Parametric EQ (`eq_parametric`)
 4-band parametric equalizer (low/high shelves + 2 parametric mids).

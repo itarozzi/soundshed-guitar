@@ -322,6 +322,10 @@
       "guid": "f4094126-b5de-4c5d-8d05-d56bd8c312d1",
       "icon": "bolt"
     },
+    "kNoiseReduction": {
+      "guid": "b29b11b4-79ee-4e90-84f0-8a8ae5c6350b",
+      "icon": "guitar"
+    },
     "kPluginHost": {
       "guid": "7ebf3f9a-bf7d-4f1c-b11c-73a4b3c27546",
       "equipmentImage": "images/equipment/fx/studio-rack-multifx.png"

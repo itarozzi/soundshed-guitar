@@ -755,6 +755,12 @@ bool TestRecursiveEffectsRecoverFromNonFiniteInput()
     harmonicTremolo.SetParam("mode", 1.0);
     harmonicTremolo.Prepare(kSampleRate, kBlock);
 
+    // The noise reduction's hum canceller learns from its input, and its hiss split and level
+    // detectors are recursive. Hiss at full, so the bands are cut and no dry path hides them.
+    NoiseReductionEffect noiseReduction;
+    noiseReduction.Prepare(kSampleRate, kBlock);
+    noiseReduction.SetParam("hiss", 1.0);
+
     bool passed = ExpectRecoversFromNonFiniteInput("parametric EQ", parametric);
     passed = ExpectRecoversFromNonFiniteInput("graphic EQ", graphic) && passed;
     passed = ExpectRecoversFromNonFiniteInput("flanger", flanger) && passed;
@@ -770,6 +776,7 @@ bool TestRecursiveEffectsRecoverFromNonFiniteInput()
     passed = ExpectRecoversFromNonFiniteInput("rotary (Fast)", rotary) && passed;
     passed = ExpectRecoversFromNonFiniteInput("vibe (Vibrato)", vibe) && passed;
     passed = ExpectRecoversFromNonFiniteInput("tremolo (Harmonic)", harmonicTremolo) && passed;
+    passed = ExpectRecoversFromNonFiniteInput("noise reduction", noiseReduction) && passed;
     passed = ExpectRecoversFromNonFiniteInput("VCA compressor", vcaCompressor) && passed;
     passed = ExpectRecoversFromNonFiniteInput("Opto compressor", optoCompressor) && passed;
     return passed;

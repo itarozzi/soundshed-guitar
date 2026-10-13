@@ -15,6 +15,7 @@ export type PresentationIcon =
   | "doubler"
   | "flame"
   | "gear"
+  | "guitar"
   | "megaphone"
   | "meter"
   | "microscope"
@@ -163,6 +164,7 @@ export const EFFECTS: Readonly<Record<string, EffectPresentation>> = {
   [EffectGuids.kMixer]: { icon: "mixer" },
   [EffectGuids.kInputAnalyzer]: { icon: "microscope" },
   [EffectGuids.kLimiterBrickwall]: { icon: "bolt" },
+  [EffectGuids.kNoiseReduction]: { icon: "guitar" },
   [EffectGuids.kPluginHost]: { equipmentImage: "images/equipment/fx/studio-rack-multifx.png" },
   [EffectGuids.kWasmHost]: { equipmentImage: "images/equipment/pedals/colourful-pedal2.png" },
 };

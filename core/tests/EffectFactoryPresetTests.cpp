@@ -36,6 +36,7 @@
 #include "dsp/effects/FlangerEffect.h"
 #include "dsp/effects/HarmonizerEffect.h"
 #include "dsp/effects/NoiseGateEffect.h"
+#include "dsp/effects/NoiseReductionEffect.h"
 #include "dsp/effects/ParametricEQEffect.h"
 #include "dsp/effects/PitchShiftEffect.h"
 #include "dsp/effects/RotaryEffect.h"
@@ -99,6 +100,8 @@ const std::vector<Effect>& Effects()
         {"Opto Compressor", EffectGuids::kCompressorOpto, {"stereoLink"}, {}},
         // The Swell presets fade every note in, so on the busy DI riffs they sit lowest.
         {"Noise Gate", EffectGuids::kDynamicsGate, {"threshold", "stereoLink"}, {}, 12.0},
+        // Mains is where the player plugs in, Listen what they are checking.
+        {"Noise Reduction", EffectGuids::kNoiseReduction, {"mains", "listen"}, {}},
         {"Parametric EQ", EffectGuids::kEqParametric, {}, {}},
         {"Digital Delay", EffectGuids::kDelayDigital, {"syncDivision"}, {kDivisionWhenSynced}},
         {"Chorus", EffectGuids::kChorus, {"syncDivision"}, {kDivisionWhenSynced}},
@@ -352,6 +355,7 @@ int main()
     std::cout << "=== EffectFactoryPresetTests ===" << std::endl;
     guitarfx::RegisterCompressorEffects();
     guitarfx::RegisterNoiseGateEffect();
+    guitarfx::RegisterNoiseReductionEffect();
     guitarfx::RegisterParametricEQEffect();
     guitarfx::RegisterDelayEffect();
     guitarfx::RegisterChorusEffect();

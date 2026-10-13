@@ -39,6 +39,7 @@ constexpr const char* kDynamicsGate = "e8388de1-d262-4123-a123-8dbc56f657bc";
 constexpr const char* kCompressorVca = "72af3541-2408-4a5c-a2dc-ba164f17eac9";
 constexpr const char* kCompressorOpto = "9651c79e-6530-4c23-9150-aa4c0ff2f1d8";
 constexpr const char* kLimiterBrickwall = "f4094126-b5de-4c5d-8d05-d56bd8c312d1";
+constexpr const char* kNoiseReduction = "b29b11b4-79ee-4e90-84f0-8a8ae5c6350b";
 
 // ── Distortion / drive ────────────────────────────────────────────────
 constexpr const char* kOverdrive = "fa9e05a8-168a-4293-aa91-6b770de3da1d";

@@ -52,6 +52,10 @@
       "guid": "f4094126-b5de-4c5d-8d05-d56bd8c312d1",
       "aliases": ["limiter_brickwall"]
     },
+    "kNoiseReduction": {
+      "guid": "b29b11b4-79ee-4e90-84f0-8a8ae5c6350b",
+      "aliases": ["noise_reduction"]
+    },
     "kOverdrive": {
       "guid": "fa9e05a8-168a-4293-aa91-6b770de3da1d",
       "aliases": ["overdrive"]

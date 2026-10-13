@@ -5,6 +5,7 @@
 #include "dsp/EffectGuids.h"
 #include "dsp/effects/GainEffect.h"
 #include "dsp/effects/NoiseGateEffect.h"
+#include "dsp/effects/NoiseReductionEffect.h"
 #include "dsp/effects/ParametricEQEffect.h"
 #include "dsp/effects/PickupMatchEffect.h"
 #include "dsp/effects/GraphicEQEffect.h"
@@ -104,6 +105,7 @@ inline void RegisterAllEffects()
 
     // Dynamics
     RegisterNoiseGateEffect();
+    RegisterNoiseReductionEffect();
     RegisterCompressorEffects(); // VCA and Opto compressors
     RegisterLimiterEffect();
     RegisterOverdriveEffect();
