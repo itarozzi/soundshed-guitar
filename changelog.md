@@ -21,6 +21,7 @@
 * A new **Mouse wheel adjusts controls** switch in Settings → General → UI. Turn it off and the scroll wheel stops changing knobs, sliders and the metronome tempo as the pointer passes over them, and just scrolls the page.
 
 ### Fixes
+* The noise gate shuts promptly again when you stop playing. Since 1.6.0 it stayed fully open for about a quarter of a second after the last note, before its Hold and Release even started. In front of a high-gain amp that was a burst of hiss every time you stopped, most noticeable at the end of a demo clip. It now starts closing about 40 ms after the playing stops, plus your Hold time. Low notes still hold it open, down to a seven-string's low B.
 * The tuner now reads a bass's low strings: the low E of a four-string, the low B of a five- or six-string, the low F# of a seven-string and an extended-range bass tuned down to low C#, down to a semitone under that. It showed nothing below about 45 Hz, or at best the note an octave up now and then.
 
 ## 1.6.0 (Oct 8, 2026)

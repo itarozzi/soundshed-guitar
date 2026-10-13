@@ -96,6 +96,7 @@ class NoiseGateEffect : public EffectProcessor
         for (int channel = 0; channel < 2; ++channel)
         {
             mDetector[channel] = 0.0f;
+            mDetectorHoldRemaining[channel] = 0;
             mGain[channel] = 0.0f;
             mOpen[channel] = false;
             mHoldSamplesRemaining[channel] = 0;
@@ -336,11 +337,19 @@ class NoiseGateEffect : public EffectProcessor
 
   private:
     /// The detector's own timing, deliberately not user-facing. It has to see a pick attack
-    /// the instant it arrives, and its release has to be slow enough to bridge the gaps
-    /// between the peaks of a low open E (82 Hz, so 12 ms apart) or the detector would sag
-    /// once a cycle and chatter the gate within a single note.
+    /// the instant it arrives, and it has to bridge the gaps between the peaks of a low open E
+    /// (82 Hz, so 12 ms apart; 16 ms for a seven-string's low B) or it would sag once a cycle and chatter the gate within a
+    /// single note. It bridges them by holding each peak for kDetectorPeakHoldMs, not by
+    /// falling slowly. A slow fall (a 25 ms one-pole did this until 2026-10-13) also slows
+    /// every close: after a riff stops dead it took ~170 ms to fall the 58 dB to the close
+    /// threshold, before Hold even began, and the gate sits in front of the amp, so that
+    /// whole time the amp's full gain was turning the input noise floor into a burst of
+    /// hiss. Held and then falling fast, it is at the threshold ~40 ms after the playing stops.
     static constexpr double kDetectorAttackMs = 0.2;
-    static constexpr double kDetectorReleaseMs = 25.0;
+    static constexpr double kDetectorPeakHoldMs = 20.0;
+    static constexpr double kDetectorReleaseMs = 3.0;
+    /// A peak within about 1 dB of the held one renews the hold (see NextGain).
+    static constexpr float kDetectorRefreshRatio = 0.89f;
 
     /// Sidechain corner. Below this is hum, rumble and handling noise -- the things a gate is
     /// asked to remove, which a full-band detector would instead treat as reasons to open.
@@ -359,6 +368,7 @@ class NoiseGateEffect : public EffectProcessor
         float releaseCoef = 0.0f;
         float detectorAttackCoef = 0.0f;
         float detectorReleaseCoef = 0.0f;
+        int detectorHoldSamples = 0;
         float highPassCoef = 0.0f;
         float openThreshold = 0.0f;
         float closeThreshold = 0.0f;
@@ -377,6 +387,7 @@ class NoiseGateEffect : public EffectProcessor
         coefficients.releaseCoef = mReleaseCoef.load(std::memory_order_relaxed);
         coefficients.detectorAttackCoef = mDetectorAttackCoef.load(std::memory_order_relaxed);
         coefficients.detectorReleaseCoef = mDetectorReleaseCoef.load(std::memory_order_relaxed);
+        coefficients.detectorHoldSamples = mDetectorHoldSamples.load(std::memory_order_relaxed);
         coefficients.highPassCoef = mHighPassCoef.load(std::memory_order_relaxed);
         coefficients.openThreshold = mOpenThreshold.load(std::memory_order_relaxed);
         coefficients.closeThreshold = mCloseThreshold.load(std::memory_order_relaxed);
@@ -419,8 +430,28 @@ class NoiseGateEffect : public EffectProcessor
     [[nodiscard]] float NextGain(float level, const Coefficients& coefficients, int channel, bool pick)
     {
         float& detector = mDetector[channel];
-        detector += (level > detector ? coefficients.detectorAttackCoef : coefficients.detectorReleaseCoef) *
-                    (level - detector);
+
+        if (level > detector)
+        {
+            detector += coefficients.detectorAttackCoef * (level - detector);
+            mDetectorHoldRemaining[channel] = coefficients.detectorHoldSamples;
+        }
+        else if (level > detector * kDetectorRefreshRatio)
+        {
+            // A peak about as high as the one held renews the hold. Sampled peaks of a steady
+            // note land a hair under the held value as often as over it, and one that does not
+            // count would let the hold lapse mid-cycle and the fast fall drop through a whole
+            // half-cycle of a low note.
+            mDetectorHoldRemaining[channel] = coefficients.detectorHoldSamples;
+        }
+        else if (mDetectorHoldRemaining[channel] > 0)
+        {
+            --mDetectorHoldRemaining[channel];
+        }
+        else
+        {
+            detector += coefficients.detectorReleaseCoef * (level - detector);
+        }
 
         if (detector > coefficients.openThreshold)
         {
@@ -509,6 +540,8 @@ class NoiseGateEffect : public EffectProcessor
         mReleaseCoef.store(onePole(mReleaseMs.load(std::memory_order_relaxed)), std::memory_order_relaxed);
         mDetectorAttackCoef.store(onePole(kDetectorAttackMs), std::memory_order_relaxed);
         mDetectorReleaseCoef.store(onePole(kDetectorReleaseMs), std::memory_order_relaxed);
+        mDetectorHoldSamples.store(static_cast<int>(kDetectorPeakHoldMs * 0.001 * mSampleRate),
+                                   std::memory_order_relaxed);
         mHighPassCoef.store(static_cast<float>(1.0 - std::exp(-2.0 * kPi * kSidechainHighPassHz / mSampleRate)),
                             std::memory_order_relaxed);
         mOpenThreshold.store(static_cast<float>(std::pow(10.0, thresholdDb / 20.0)), std::memory_order_relaxed);
@@ -542,6 +575,7 @@ class NoiseGateEffect : public EffectProcessor
     std::atomic<float> mReleaseCoef{0.0f};
     std::atomic<float> mDetectorAttackCoef{0.0f};
     std::atomic<float> mDetectorReleaseCoef{0.0f};
+    std::atomic<int> mDetectorHoldSamples{0};
     std::atomic<float> mHighPassCoef{0.0f};
     std::atomic<float> mOpenThreshold{0.0f};
     std::atomic<float> mCloseThreshold{0.0f};
@@ -552,6 +586,7 @@ class NoiseGateEffect : public EffectProcessor
 
     // State, audio thread only. Linked detection uses index 0 for both channels.
     float mDetector[2] = {0.0f, 0.0f};
+    int mDetectorHoldRemaining[2] = {0, 0};
     float mGain[2] = {0.0f, 0.0f};
     float mHighPassState[2] = {0.0f, 0.0f};
     int mHoldSamplesRemaining[2] = {0, 0};

@@ -581,6 +581,15 @@ the gain ramps between `range` and unity. This is what keeps the close from clic
 sits in front of the amp, so a gain step at the threshold level would be amplified with the rest
 of the signal.
 
+The detector holds each peak for 20 ms, which bridges the 12 ms between peaks of a low open E
+(16 ms for a seven-string's low B),
+and then falls with a 3 ms time constant. It is down at the close threshold about 40 ms after the
+playing stops, and `hold` starts from there. Until 2026-10-13 it fell over a 25 ms one-pole
+instead, which took about 170 ms after a riff stopped dead. All that time the gate passed the
+input noise floor at full level, and in front of a high-gain amp that was a quarter-second burst
+of hiss after every stop. 1.5.0's gate, whose detector followed `release`, had closed in about
+60 ms at the same settings.
+
 `hysteresis` is how far below `threshold` the level has to fall before the gate may close, which
 stops a decaying note chattering it open and shut. `range` is the attenuation when closed rather
 than a full mute. `stereoLink` keys one detector off the louder channel so a stereo signal cannot

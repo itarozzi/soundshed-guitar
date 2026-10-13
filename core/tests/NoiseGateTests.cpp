@@ -27,7 +27,9 @@
 #include <iostream>
 #include <limits>
 #include <memory>
+#include <random>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -533,6 +535,110 @@ void TestHysteresisStopsChatter()
           std::to_string(withHysteresis) + " transitions");
 }
 
+/// Plays `signal` through `gate` in 16-sample steps and returns how long after `stopAt` the gate
+/// reports itself closed, in ms, or -1 if it never does.
+double MsUntilClosed(NoiseGateEffect& gate, const std::vector<float>& signal, std::size_t stopAt)
+{
+    constexpr std::size_t kStep = 16;
+    std::vector<float> in(kStep, 0.0f);
+    std::vector<float> out(kStep, 0.0f);
+
+    for (std::size_t offset = 0; offset < signal.size(); offset += kStep)
+    {
+        const std::size_t count = std::min(kStep, signal.size() - offset);
+        std::copy_n(signal.begin() + static_cast<std::ptrdiff_t>(offset), count, in.begin());
+        gate.ProcessMono(in.data(), out.data(), static_cast<int>(count));
+
+        if (offset >= stopAt && !gate.IsOpen())
+        {
+            return 1000.0 * static_cast<double>(offset + count - stopAt) / kSampleRate;
+        }
+    }
+
+    return -1.0;
+}
+
+void TestCloseIsPromptAfterAnAbruptStop()
+{
+    std::cout << "\n-- close after the playing stops --" << std::endl;
+
+    // A riff that stops dead onto the interface's noise floor. The gate sits in front of the
+    // amp, so however long it stays open here the amp's whole gain is turning that floor into
+    // hiss. With the detector's old 25 ms fall this took ~170 ms plus Hold.
+    std::vector<float> signal = Tone(Amplitude(-13.0), static_cast<int>(kSampleRate * 0.3));
+    const std::size_t stopAt = signal.size();
+    std::mt19937 rng(7);
+    std::normal_distribution<float> noise(0.0f, static_cast<float>(Amplitude(-95.0)));
+
+    for (int i = 0; i < static_cast<int>(kSampleRate * 0.5); ++i)
+    {
+        signal.push_back(noise(rng));
+    }
+
+    for (const auto& [holdMs, releaseMs, hysteresisDb] :
+         {std::tuple{90.0, 118.0, 11.4}, std::tuple{50.0, 1.0, 4.0}, std::tuple{0.0, 50.0, 4.0}})
+    {
+        auto effect = MakeGate({{"threshold", -60.0},
+                                {"attack", 1.0},
+                                {"hold", holdMs},
+                                {"release", releaseMs},
+                                {"hysteresis", hysteresisDb}});
+        auto* gate = dynamic_cast<NoiseGateEffect*>(effect.get());
+
+        if (gate == nullptr)
+        {
+            Check(false, "the registry creates a gate");
+            return;
+        }
+
+        const double closedAfterMs = MsUntilClosed(*gate, signal, stopAt);
+        Check(closedAfterMs >= 0.0 && closedAfterMs < holdMs + 50.0,
+              "hold " + Num(holdMs, 0) + " ms: the gate starts closing within 50 ms of Hold after the playing stops",
+              Num(closedAfterMs, 1) + " ms");
+    }
+}
+
+void TestLowNotesDoNotSagTheDetector()
+{
+    std::cout << "\n-- low notes --" << std::endl;
+
+    // A low open E (82 Hz, peaks 12 ms apart) and a seven-string's low B (16 ms), each a few dB over
+    // the threshold after the sidechain high-pass has taken its 5-7 dB, with no Hold and no
+    // hysteresis to hide behind: the detector itself has to bridge the gap between peaks, or
+    // the gate shuts once a cycle within the one note.
+    for (const double frequency : {82.41, 61.74})
+    {
+        auto effect = MakeGate({{"threshold", -40.0}, {"attack", 1.0}, {"hold", 0.0}, {"release", 10.0},
+                                {"hysteresis", 0.0}});
+        auto* gate = dynamic_cast<NoiseGateEffect*>(effect.get());
+
+        if (gate == nullptr)
+        {
+            Check(false, "the registry creates a gate");
+            return;
+        }
+
+        const auto note = Tone(Amplitude(-30.0), static_cast<int>(kSampleRate * 1.0), frequency);
+        constexpr std::size_t kStep = 16;
+        std::vector<float> in(kStep, 0.0f);
+        std::vector<float> out(kStep, 0.0f);
+        int closes = 0;
+        bool wasOpen = false;
+
+        for (std::size_t offset = 0; offset < note.size(); offset += kStep)
+        {
+            const std::size_t count = std::min(kStep, note.size() - offset);
+            std::copy_n(note.begin() + static_cast<std::ptrdiff_t>(offset), count, in.begin());
+            gate->ProcessMono(in.data(), out.data(), static_cast<int>(count));
+            closes += (wasOpen && !gate->IsOpen()) ? 1 : 0;
+            wasOpen = gate->IsOpen();
+        }
+
+        Check(wasOpen && closes == 0, "a sustained " + Num(frequency, 1) + " Hz note holds the gate open",
+              std::to_string(closes) + " closes");
+    }
+}
+
 void TestDetectorIsLinkedAcrossChannels()
 {
     std::cout << "\n-- linked stereo detection --" << std::endl;
@@ -629,6 +735,8 @@ int main()
     TestOpenAndClosedLevels();
     TestCloseIsARampNotAStep();
     TestHysteresisStopsChatter();
+    TestCloseIsPromptAfterAnAbruptStop();
+    TestLowNotesDoNotSagTheDetector();
     TestDetectorIsLinkedAcrossChannels();
     TestMonoMatchesStereo();
     TestNonFiniteInputDoesNotLatch();
