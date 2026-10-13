@@ -17,6 +17,7 @@
  *   - the gate closes as a ramp, not a step, with noise still present
  *   - hysteresis stops a level hovering at the threshold from chattering the gate
  *   - one detector drives both channels, so a quiet channel is not gated against a loud one
+ *   - hiss well under the threshold cannot hold the gate open, while a tone over it opens it
  *   - the mono fast path produces the same output as the stereo path
  *   - a non-finite input sample does not latch the gate shut
  */
@@ -639,6 +640,56 @@ void TestLowNotesDoNotSagTheDetector()
     }
 }
 
+void TestHissDoesNotHoldTheGateOpen()
+{
+    std::cout << "\n-- hiss --" << std::endl;
+
+    // White noise 7.5 dB under the threshold by RMS. Its peaks still reach the threshold
+    // through a sidechain that is only high-passed (the detector read it at -42 to -40 dBFS),
+    // so before the sidechain low-pass this hiss alone held the gate open. Through it the
+    // detector reads about 5 dB lower and never gets there.
+    constexpr double kThresholdDb = -42.5;
+    std::mt19937 rng(11);
+    std::normal_distribution<float> noise(0.0f, static_cast<float>(Amplitude(-50.0)));
+    std::vector<float> hiss(static_cast<std::size_t>(kSampleRate * 1.0));
+
+    for (auto& sample : hiss)
+    {
+        sample = noise(rng);
+    }
+
+    const Params params{{"threshold", kThresholdDb}, {"attack", 1.0}, {"hold", 0.0}, {"release", 10.0}};
+    auto effect = MakeGate(params);
+    auto* gate = dynamic_cast<NoiseGateEffect*>(effect.get());
+
+    if (gate == nullptr)
+    {
+        Check(false, "the registry creates a gate");
+        return;
+    }
+
+    constexpr std::size_t kStep = 16;
+    std::vector<float> out(kStep, 0.0f);
+    int openSteps = 0;
+
+    for (std::size_t offset = 0; offset + kStep <= hiss.size(); offset += kStep)
+    {
+        gate->ProcessMono(hiss.data() + offset, out.data(), static_cast<int>(kStep));
+        openSteps += gate->IsOpen() ? 1 : 0;
+    }
+
+    Check(openSteps == 0, "hiss 7.5 dB under the threshold does not open the gate",
+          "open for " + std::to_string(openSteps * kStep) + " samples");
+
+    // While a tone in the guitar's range, only 2.5 dB over, opens it as before.
+    auto toneGate = MakeGate(params);
+    const auto tone = Tone(Amplitude(kThresholdDb + 2.5), static_cast<int>(kSampleRate * 0.25));
+    const auto passed = RunMono(*toneGate, tone);
+    const double gainDb = Db(Peak(passed, passed.size() / 2, passed.size())) - (kThresholdDb + 2.5);
+    Check(std::abs(gainDb) < 0.1, "a 440 Hz tone 2.5 dB over the threshold passes at unity",
+          Num(gainDb, 3) + " dB from unity");
+}
+
 void TestDetectorIsLinkedAcrossChannels()
 {
     std::cout << "\n-- linked stereo detection --" << std::endl;
@@ -737,6 +788,7 @@ int main()
     TestHysteresisStopsChatter();
     TestCloseIsPromptAfterAnAbruptStop();
     TestLowNotesDoNotSagTheDetector();
+    TestHissDoesNotHoldTheGateOpen();
     TestDetectorIsLinkedAcrossChannels();
     TestMonoMatchesStereo();
     TestNonFiniteInputDoesNotLatch();

@@ -590,6 +590,12 @@ input noise floor at full level, and in front of a high-gain amp that was a quar
 of hiss after every stop. 1.5.0's gate, whose detector followed `release`, had closed in about
 60 ms at the same settings.
 
+The detector listens through a band-pass: a one-pole high-pass at 120 Hz, so hum and rumble
+cannot hold the gate open, and a one-pole low-pass at 5 kHz, so hiss cannot either. At 48 kHz
+the detector reads white noise about 5 dB lower through the low-pass, while tones from 82 Hz to
+1 kHz move by under 0.2 dB (2 dB at 4 kHz). At only 6 dB/oct it does not slow the detector's
+response to a pick attack.
+
 `hysteresis` is how far below `threshold` the level has to fall before the gate may close, which
 stops a decaying note chattering it open and shut. `range` is the attenuation when closed rather
 than a full mute. `stereoLink` keys one detector off the louder channel so a stereo signal cannot

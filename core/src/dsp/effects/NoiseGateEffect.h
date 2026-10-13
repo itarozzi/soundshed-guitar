@@ -26,8 +26,10 @@ namespace guitarfx
  *    it along with everything else.
  *  - **One detector drives both channels.** Gating each channel off its own envelope lets
  *    a stereo signal end up with one side open and the other shut, which wanders the image.
- *  - **The sidechain is high-passed.** Mains hum and cabinet rumble are the things a guitar
- *    gate exists to remove, and a full-band detector lets exactly those hold it open.
+ *  - **The sidechain is band-passed.** Mains hum and cabinet rumble are the things a guitar
+ *    gate exists to remove, and a full-band detector lets exactly those hold it open. Hiss
+ *    is the other thing, and it is mostly above where a guitar's energy is, so a gentle
+ *    low-pass stops it holding the gate open once the playing has stopped.
  *
  * Hysteresis is what keeps a decaying note from chattering: the level that opens the gate
  * is above the level that lets it close again, so a signal hovering at the threshold
@@ -101,6 +103,7 @@ class NoiseGateEffect : public EffectProcessor
             mOpen[channel] = false;
             mHoldSamplesRemaining[channel] = 0;
             mHighPassState[channel] = 0.0f;
+            mLowPassState[channel] = 0.0f;
             mSwell[channel] = 0.0f;
             mDucking[channel] = false;
             mPick[static_cast<std::size_t>(channel)].Reset();
@@ -131,8 +134,8 @@ class NoiseGateEffect : public EffectProcessor
         {
             const float left = inputLeft ? inputLeft[i] : 0.0f;
             const float right = inputRight ? inputRight[i] : left;
-            const float leftLevel = HighPassedLevel(left, 0, coefficients.highPassCoef);
-            const float rightLevel = HighPassedLevel(right, 1, coefficients.highPassCoef);
+            const float leftLevel = SidechainLevel(left, 0, coefficients);
+            const float rightLevel = SidechainLevel(right, 1, coefficients);
             float leftGain = 0.0f;
             float rightGain = 0.0f;
 
@@ -183,7 +186,7 @@ class NoiseGateEffect : public EffectProcessor
 
         for (int i = 0; i < numSamples; ++i)
         {
-            const float key = HighPassedLevel(input[i], 0, coefficients.highPassCoef);
+            const float key = SidechainLevel(input[i], 0, coefficients);
             const bool pick = coefficients.swell && mPick[0].Process(input[i]);
             output[i] = input[i] * NextGain(key, coefficients, 0, pick);
         }
@@ -354,6 +357,10 @@ class NoiseGateEffect : public EffectProcessor
     /// Sidechain corner. Below this is hum, rumble and handling noise -- the things a gate is
     /// asked to remove, which a full-band detector would instead treat as reasons to open.
     static constexpr double kSidechainHighPassHz = 120.0;
+    /// And above this, mostly hiss. Only 6 dB/oct, so a pick's attack still reaches the
+    /// detector at once. At 48 kHz the detector reads white noise about 5 dB lower through
+    /// it, while tones from 82 Hz to 1 kHz move by under 0.2 dB (2 dB at 4 kHz).
+    static constexpr double kSidechainLowPassHz = 5000.0;
 
     /// Swell: a pick only restarts the swell once the last one has got this far, so the pick
     /// that opened the gate cannot restart its own swell.
@@ -370,6 +377,7 @@ class NoiseGateEffect : public EffectProcessor
         float detectorReleaseCoef = 0.0f;
         int detectorHoldSamples = 0;
         float highPassCoef = 0.0f;
+        float lowPassCoef = 0.0f;
         float openThreshold = 0.0f;
         float closeThreshold = 0.0f;
         float floorGain = 0.0f;
@@ -389,6 +397,7 @@ class NoiseGateEffect : public EffectProcessor
         coefficients.detectorReleaseCoef = mDetectorReleaseCoef.load(std::memory_order_relaxed);
         coefficients.detectorHoldSamples = mDetectorHoldSamples.load(std::memory_order_relaxed);
         coefficients.highPassCoef = mHighPassCoef.load(std::memory_order_relaxed);
+        coefficients.lowPassCoef = mLowPassCoef.load(std::memory_order_relaxed);
         coefficients.openThreshold = mOpenThreshold.load(std::memory_order_relaxed);
         coefficients.closeThreshold = mCloseThreshold.load(std::memory_order_relaxed);
         coefficients.floorGain = mFloorGain.load(std::memory_order_relaxed);
@@ -410,6 +419,7 @@ class NoiseGateEffect : public EffectProcessor
         for (int channel = 0; channel < 2; ++channel)
         {
             if (!IsFinite(mDetector[channel]) || !IsFinite(mGain[channel]) || !IsFinite(mHighPassState[channel]) ||
+                !IsFinite(mLowPassState[channel]) ||
                 !IsFinite(mSwell[channel]))
             {
                 Reset();
@@ -418,13 +428,16 @@ class NoiseGateEffect : public EffectProcessor
         }
     }
 
-    /// One-pole: the state follows the low end, so what is left over is the high-passed
-    /// signal. Rectified here rather than by the caller, because rectifying first would turn
-    /// the hum this is meant to reject into a DC term the filter cannot see.
-    [[nodiscard]] float HighPassedLevel(float sample, int channel, float coef)
+    /// Two one-poles: the first state follows the low end, so what is left over is the
+    /// high-passed signal, and the second smooths that above kSidechainLowPassHz. Rectified
+    /// here rather than by the caller, because rectifying first would turn the hum this is
+    /// meant to reject into a DC term the filter cannot see.
+    [[nodiscard]] float SidechainLevel(float sample, int channel, const Coefficients& coefficients)
     {
-        mHighPassState[channel] += coef * (sample - mHighPassState[channel]);
-        return std::abs(sample - mHighPassState[channel]);
+        mHighPassState[channel] += coefficients.highPassCoef * (sample - mHighPassState[channel]);
+        const float highPassed = sample - mHighPassState[channel];
+        mLowPassState[channel] += coefficients.lowPassCoef * (highPassed - mLowPassState[channel]);
+        return std::abs(mLowPassState[channel]);
     }
 
     [[nodiscard]] float NextGain(float level, const Coefficients& coefficients, int channel, bool pick)
@@ -544,6 +557,10 @@ class NoiseGateEffect : public EffectProcessor
                                    std::memory_order_relaxed);
         mHighPassCoef.store(static_cast<float>(1.0 - std::exp(-2.0 * kPi * kSidechainHighPassHz / mSampleRate)),
                             std::memory_order_relaxed);
+        // Kept under Nyquist, where a one-pole's coefficient stops meaning a corner.
+        const double lowPassHz = std::min(kSidechainLowPassHz, 0.45 * mSampleRate);
+        mLowPassCoef.store(static_cast<float>(1.0 - std::exp(-2.0 * kPi * lowPassHz / mSampleRate)),
+                           std::memory_order_relaxed);
         mOpenThreshold.store(static_cast<float>(std::pow(10.0, thresholdDb / 20.0)), std::memory_order_relaxed);
         mCloseThreshold.store(static_cast<float>(std::pow(10.0, (thresholdDb - hysteresisDb) / 20.0)),
                               std::memory_order_relaxed);
@@ -577,6 +594,7 @@ class NoiseGateEffect : public EffectProcessor
     std::atomic<float> mDetectorReleaseCoef{0.0f};
     std::atomic<int> mDetectorHoldSamples{0};
     std::atomic<float> mHighPassCoef{0.0f};
+    std::atomic<float> mLowPassCoef{0.0f};
     std::atomic<float> mOpenThreshold{0.0f};
     std::atomic<float> mCloseThreshold{0.0f};
     std::atomic<float> mFloorGain{0.0f};
@@ -589,6 +607,7 @@ class NoiseGateEffect : public EffectProcessor
     int mDetectorHoldRemaining[2] = {0, 0};
     float mGain[2] = {0.0f, 0.0f};
     float mHighPassState[2] = {0.0f, 0.0f};
+    float mLowPassState[2] = {0.0f, 0.0f};
     int mHoldSamplesRemaining[2] = {0, 0};
     bool mOpen[2] = {false, false};
     // Swell's position through its fade, and whether a retrigger is dipping it.
