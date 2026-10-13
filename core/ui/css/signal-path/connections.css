@@ -4,17 +4,66 @@
   --signal-route-surface: var(--bg-secondary);
   --signal-route-width: 2px;
   --signal-route-half-width: 1px;
+  /* What a cable turns as signal flows through it: the live LED green. A
+     parallel branch keeps its own colour (parallel.css). */
+  --signal-route-hot: #48e078;
 }
 
+/* A connector passing signal is .signal-live, set by updateSignalPathFlow
+   (ts/signalPath/signalFlow.ts) when playing starts and cleared when it stops. */
 .signal-connector {
+  --signal-route-lit: var(--signal-route-color, var(--signal-route-main));
   width: 36px;
-  height: var(--signal-route-width);
-  background: color-mix(in srgb, var(--signal-route-color, var(--signal-route-main)) 72%, transparent);
+  height: calc(var(--signal-route-width) + 1px);
+  background: color-mix(in srgb, var(--signal-route-lit) 55%, transparent);
   border-radius: var(--radius-pill);
   flex-shrink: 0;
   position: relative;
-  transition: background 0.15s ease, height 0.15s ease;
+  transition: background 0.3s ease, box-shadow 0.3s ease, height 0.15s ease;
   cursor: pointer;
+}
+
+.signal-connector-wrapper.signal-live .signal-connector {
+  --signal-route-lit: var(--signal-route-hot);
+  background: var(--signal-route-lit);
+  box-shadow: 0 0 7px color-mix(in srgb, var(--signal-route-lit) 70%, transparent);
+}
+
+/* The signal itself: bright pulses running down a live cable. The strip slides
+   by transform, which the compositor animates without restyling or repainting. */
+.signal-flow {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+
+.signal-connector-wrapper.signal-live .signal-flow {
+  opacity: 1;
+}
+
+.signal-flow::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -18px;
+  right: 0;
+  background: linear-gradient(90deg,
+      transparent 0%,
+      color-mix(in srgb, white 62%, var(--signal-route-lit)) 50%,
+      transparent 100%) 0 0 / 18px 100% repeat-x;
+}
+
+.signal-connector-wrapper.signal-live .signal-flow::before {
+  animation: signal-flow 0.4s linear infinite;
+}
+
+@keyframes signal-flow {
+  from { transform: translateX(0); }
+  to { transform: translateX(18px); }
 }
 
 .signal-connector::after {
@@ -24,18 +73,36 @@
   top: 50%;
   width: 5px;
   height: 5px;
-  border-top: 1.5px solid var(--signal-route-color, var(--signal-route-main));
-  border-right: 1.5px solid var(--signal-route-color, var(--signal-route-main));
+  border-top: 1.5px solid var(--signal-route-lit);
+  border-right: 1.5px solid var(--signal-route-lit);
   transform: translateY(-50%) rotate(45deg);
   transform-origin: center;
 }
 
-.signal-connector.drag-over {
+/* Qualified by the wrapper so it outranks a live cable's colours. */
+.signal-connector-wrapper .signal-connector.drag-over {
   height: 4px;
   background: var(--node-drag-over);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--node-drag-over) 20%, transparent);
 }
 
+.signal-connector-wrapper .signal-connector.drag-over .signal-flow {
+  opacity: 0;
+}
+
 .signal-connector.drag-over::after {
   border-color: var(--node-drag-over);
+}
+
+/* Without the motion a live cable still shows, by its colour and glow. */
+@media (prefers-reduced-motion: reduce) {
+  .signal-connector-wrapper.signal-live .signal-flow::before {
+    animation: none;
+  }
+
+  .signal-flow::before {
+    left: 0;
+    background: color-mix(in srgb, white 40%, var(--signal-route-lit));
+    opacity: 0.5;
+  }
 }

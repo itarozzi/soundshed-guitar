@@ -58,6 +58,7 @@ export const zoomLevelSelect = document.getElementById("zoom-level-select") as H
 
 export const densityLevelSelect = document.getElementById("density-level-select") as HTMLSelectElement | null;
 export const wheelAdjustToggle = document.getElementById("wheel-adjust-toggle") as HTMLInputElement | null;
+export const signalFlowAnimationToggle = document.getElementById("signal-flow-animation-toggle") as HTMLInputElement | null;
 
 export const librarySearchInput = document.getElementById("equipment-library-search") as HTMLInputElement | null;
 

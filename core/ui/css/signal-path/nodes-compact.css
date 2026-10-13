@@ -1,0 +1,136 @@
+/* Compact density for the signal path: icon-only nodes and tighter routes.
+   Loaded after nodes.css, whose base styles these override. */
+
+/*
+ * The splitter selects one of two fixed density modes. Full mode uses the
+ * base styles in nodes.css; compact mode uses icon-only nodes with no labels.
+ */
+
+.signal-path-bar[data-density="compact"] .signal-path-scroll {
+  padding: 4px 8px 12px;
+}
+
+/* Icon-only compact */
+.signal-path-bar[data-density="compact"] .signal-path-nodes {
+  padding: 0;
+}
+
+.signal-path-bar[data-density="compact"] .signal-node {
+  min-width: 40px;
+  width: 40px;
+  min-height: 40px;
+  gap: 0;
+  border-radius: var(--radius-lg);
+}
+
+.signal-path-bar[data-density="compact"] .signal-node .node-info,
+.signal-path-bar[data-density="compact"] .signal-node .node-label {
+  display: none;
+}
+
+.signal-path-bar[data-density="compact"] .signal-node .node-icon {
+  width: 20px;
+  height: 20px;
+  /* The whole tile is the icon here; a well inside it would only crowd it. */
+  background: none;
+  box-shadow: none;
+}
+
+.signal-path-bar[data-density="compact"] .signal-node::after {
+  left: 18%;
+  right: 18%;
+}
+
+.signal-path-bar[data-density="compact"] .signal-node .node-icon .fx-effect-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.signal-path-bar[data-density="compact"] .signal-node.has-thumb .node-icon {
+  display: none;
+}
+
+/* Relative, not static: in flow like the icon it replaces, but still the badge's
+   containing block. */
+.signal-path-bar[data-density="compact"] .signal-node.has-thumb .node-layout-thumb-wrap {
+  position: relative;
+  top: auto;
+  height: 26px;
+}
+
+.signal-path-bar[data-density="compact"] .signal-node.has-thumb .node-layout-thumb {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-sm);
+  opacity: 1;
+}
+
+.signal-path-bar[data-density="compact"] .signal-node.has-thumb .node-layout-thumb-icon {
+  width: 12px;
+  height: 12px;
+}
+
+.signal-path-bar[data-density="compact"] .signal-node.has-thumb .node-layout-thumb-icon .fx-effect-icon {
+  width: 8px;
+  height: 8px;
+}
+
+/* Compact connectors retain a fixed, readable spacing. */
+.signal-path-bar[data-density="compact"] .signal-connector {
+  width: 32px;
+}
+
+.signal-path-bar[data-density="compact"] .signal-arrow {
+  font-size: 12px;
+  margin: 0 4px;
+}
+
+.signal-path-bar[data-density="compact"] .node-bypass-badge {
+  top: 16px;
+  right: 1px;
+  font-size: 6px;
+  padding: 1px 3px;
+}
+
+.signal-path-bar[data-density="compact"] .node-missing-badge {
+  top: auto;
+  bottom: 2px;
+  left: 2px;
+  right: auto;
+  font-size: 9px;
+  padding: 0 3px;
+}
+
+.signal-path-bar[data-density="compact"] .node-clip-indicator {
+  right: 3px;
+  bottom: 3px;
+  width: 5px;
+  height: 5px;
+}
+
+.signal-path-bar[data-density="compact"] .signal-node-delete,
+.signal-path-bar[data-density="compact"] .signal-node-bypass {
+  width: 14px;
+  height: 14px;
+  font-size: 11px;
+  line-height: 12px;
+}
+
+/* Tighter parallel layout when space is limited */
+.signal-path-bar[data-density="compact"] .signal-graph-container {
+  gap: 4px;
+  padding: 0;
+}
+
+.signal-path-bar[data-density="compact"] .parallel-branches {
+  gap: 4px;
+  padding: 4px 2px;
+  margin: 0 2px;
+}
+
+.signal-path-bar[data-density="compact"] .parallel-split,
+.signal-path-bar[data-density="compact"] .parallel-join {
+  min-width: 26px;
+  min-height: 26px;
+  padding: 2px;
+}

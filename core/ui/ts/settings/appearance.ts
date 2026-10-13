@@ -10,8 +10,9 @@ import { themeSwitcher } from "../theme-switcher.js";
 import type { ThemeName } from "../theme-switcher.js";
 import { updateAppSetting } from "../appSettingsStore.js";
 import { WHEEL_ADJUST_SETTING, isWheelAdjustEnabled } from "../wheelAdjust.js";
+import { SIGNAL_FLOW_ANIMATION_SETTING, isSignalFlowAnimationEnabled, updateSignalPathFlow } from "../signalPath/signalFlow.js";
 import { updateUiSettings } from "../windowSettings.js";
-import { densityLevelSelect, themeSelect, wheelAdjustToggle, zoomLevelSelect } from "./dom.js";
+import { densityLevelSelect, signalFlowAnimationToggle, themeSelect, wheelAdjustToggle, zoomLevelSelect } from "./dom.js";
 import { ZOOM_DEFAULT, ZOOM_LEVEL_OPTIONS, ZOOM_MAX, ZOOM_MIN } from "./keys.js";
 
 let themeSelectInitialized = false;
@@ -70,6 +71,25 @@ export function initWheelAdjustToggle(): void {
 export function refreshWheelAdjustToggle(): void {
   if (wheelAdjustToggle) {
     wheelAdjustToggle.checked = isWheelAdjustEnabled();
+  }
+}
+
+export function initSignalFlowAnimationToggle(): void {
+  const toggle = signalFlowAnimationToggle;
+  if (!toggle || toggle.dataset.bound === "true") return;
+  toggle.dataset.bound = "true";
+  toggle.checked = isSignalFlowAnimationEnabled();
+  toggle.addEventListener("change", () => {
+    updateAppSetting(SIGNAL_FLOW_ANIMATION_SETTING, Boolean(toggle.checked));
+    // Light or clear the chain now rather than on the next diagnostics frame.
+    updateSignalPathFlow();
+  });
+}
+
+/** Shows the stored value; app settings arrive after the panel binds. */
+export function refreshSignalFlowAnimationToggle(): void {
+  if (signalFlowAnimationToggle) {
+    signalFlowAnimationToggle.checked = isSignalFlowAnimationEnabled();
   }
 }
 

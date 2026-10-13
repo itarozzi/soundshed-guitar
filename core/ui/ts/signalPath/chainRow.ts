@@ -27,6 +27,7 @@ import type { UiSettings } from "../types.js";
 import { getCurrentUiSettings, updateUiSettings } from "../windowSettings.js";
 import type { EdgeRef } from "./graph.js";
 import { escapeHtml } from "../utils.js";
+import { updateSignalPathFlow } from "./signalFlow.js";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -71,7 +72,7 @@ export function renderConnectorWrapper(edge: EdgeRef): string {
     + ` data-edge-to-port="${edge.toPort}" data-edge-gain="${edge.gain}"`;
   return `
     <div class="signal-connector-wrapper" ${data}>
-      <div class="signal-connector"></div>
+      <div class="signal-connector"><span class="signal-flow"></span></div>
       <button class="signal-add-btn" ${data} title="Add Effect">
         <span class="add-icon">+</span>
       </button>
@@ -102,7 +103,7 @@ export function applySignalChainWrapState(bar: HTMLElement | null): boolean {
   return wrap;
 }
 
-type Box = { left: number; right: number; top: number; bottom: number };
+type Box = { left: number; right: number; top: number; bottom: number; segment: HTMLElement };
 
 type Line = { boxes: Box[]; top: number; bottom: number };
 
@@ -191,10 +192,17 @@ export function updateSignalChainWrapRoutes(nodesElement: HTMLElement | null, on
   for (let i = 0; i + 1 < lines.length; i++) {
     const path = document.createElementNS(SVG_NS, "path");
     path.setAttribute("d", routePath(lines[i], lines[i + 1], reach));
+    // The route carries what the next line's first connector carries.
+    const next = lines[i + 1].boxes[0].segment.querySelector<HTMLElement>(".signal-connector-wrapper[data-edge-from]");
+    if (next?.dataset.edgeFrom) {
+      path.dataset.edgeFrom = next.dataset.edgeFrom;
+    }
     svg.appendChild(path);
   }
   // First, so the nodes paint over the route where a card's artwork overhangs it.
   container.prepend(svg);
+  // Light the new routes now rather than on the next diagnostics frame.
+  updateSignalPathFlow();
 }
 
 /**
@@ -232,6 +240,7 @@ function measureLines(container: HTMLElement, row: HTMLElement): Line[] {
       right: (rect.right - origin.left) / scale,
       top: (rect.top - origin.top) / scale,
       bottom: (rect.bottom - origin.top) / scale,
+      segment,
     };
     const line = lines[lines.length - 1];
     // Along a line each segment starts where the one before it ends; one that starts

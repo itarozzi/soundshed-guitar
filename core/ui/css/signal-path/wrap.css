@@ -54,9 +54,15 @@
 
 .signal-chain-wrap-routes path {
   fill: none;
-  stroke: color-mix(in srgb, var(--signal-route-main) 72%, transparent);
-  stroke-width: var(--signal-route-width);
+  stroke: color-mix(in srgb, var(--signal-route-main) 55%, transparent);
+  stroke-width: calc(var(--signal-route-width) + 1px);
   stroke-linecap: round;
+  transition: stroke 0.3s ease;
+}
+
+/* Live like the connector it leads into (ts/signalPath/signalFlow.ts). */
+.signal-chain-wrap-routes path.signal-live {
+  stroke: var(--signal-route-hot);
 }
 
 /* The toggle, in the corner opposite the collapse chevron and styled like it. */

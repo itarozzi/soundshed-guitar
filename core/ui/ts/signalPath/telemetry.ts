@@ -15,6 +15,7 @@ import {
   selectedNodeDspStatusAverages,
   signalPathNodesElement,
 } from "./state.js";
+import { updateSignalPathFlow } from "./signalFlow.js";
 
 let selectedNodeDspStatusVisible = false;
 
@@ -479,11 +480,15 @@ export function isDspStatusVisible(): boolean {
   return selectedNodeDspStatusVisible;
 }
 
+const CLIP_STATES = ["clip-on", "clip-off", "clip-inactive", "clip-unknown"] as const;
+
 /**
  * Sets the clip indicator on every node in the signal path bar from the latest
- * diagnostics snapshot — all of them, unlike the selected-node readouts above.
+ * diagnostics snapshot — all of them, unlike the selected-node readouts above —
+ * and lights the connectors and node underglows with the signal level.
  */
 export function updateSignalPathClipIndicators(): void {
+  updateSignalPathFlow();
   const nodeElements = signalPathNodesElement?.querySelectorAll(".signal-node[data-node-id]");
   if (!nodeElements) {
     return;
@@ -509,34 +514,43 @@ export function updateSignalPathClipIndicators(): void {
     const indicator = el.querySelector(".node-clip-indicator") as HTMLElement | null;
     if (!indicator) return;
 
-    indicator.classList.remove("clip-on", "clip-off", "clip-inactive", "clip-unknown");
-
+    let state: string;
+    let title: string;
     if (!diagnostics) {
-      indicator.classList.add("clip-inactive");
-      indicator.title = "Waiting for diagnostics data";
-      return;
-    }
-
-    const nodeId = el.dataset.nodeId ?? "";
-    let clipped: boolean | undefined;
-
-    if (nodeId === "__input__") {
-      clipped = diagnostics.input?.clipped;
-    } else if (nodeId === "__output__") {
-      clipped = diagnostics.output?.clipped;
-    } else if (nodeClipMap.has(nodeId)) {
-      clipped = nodeClipMap.get(nodeId);
-    }
-
-    if (clipped === true) {
-      indicator.classList.add("clip-on");
-      indicator.title = "Clipping detected";
-    } else if (clipped === false) {
-      indicator.classList.add("clip-off");
-      indicator.title = "No clipping";
+      state = "clip-inactive";
+      title = "Waiting for diagnostics data";
     } else {
-      indicator.classList.add("clip-unknown");
-      indicator.title = "No diagnostics data";
+      const nodeId = el.dataset.nodeId ?? "";
+      let clipped: boolean | undefined;
+
+      if (nodeId === "__input__") {
+        clipped = diagnostics.input?.clipped;
+      } else if (nodeId === "__output__") {
+        clipped = diagnostics.output?.clipped;
+      } else if (nodeClipMap.has(nodeId)) {
+        clipped = nodeClipMap.get(nodeId);
+      }
+
+      if (clipped === true) {
+        state = "clip-on";
+        title = "Clipping detected";
+      } else if (clipped === false) {
+        state = "clip-off";
+        title = "No clipping";
+      } else {
+        state = "clip-unknown";
+        title = "No diagnostics data";
+      }
+    }
+
+    // This runs twenty times a second. Rewriting an unchanged class still restyles
+    // the LED, so only touch it when the state actually moves.
+    if (!indicator.classList.contains(state)) {
+      indicator.classList.remove(...CLIP_STATES);
+      indicator.classList.add(state);
+    }
+    if (indicator.title !== title) {
+      indicator.title = title;
     }
   });
 }

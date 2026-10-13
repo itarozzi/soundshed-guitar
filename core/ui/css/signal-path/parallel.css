@@ -167,6 +167,7 @@
 
 .parallel-branch .signal-connector-wrapper {
   --signal-route-color: var(--parallel-branch-accent);
+  --signal-route-hot: var(--parallel-branch-accent);
 }
 
 /* Stretch the last connector in each parallel branch to fill the remaining width */
