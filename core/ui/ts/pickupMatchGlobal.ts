@@ -15,8 +15,9 @@
  * My Guitars lets a player save the settings for each guitar they own under its name and switch
  * between them. They are Pickup Match's ordinary user effect presets (effect-presets.json, by
  * effect type), so one saved here is offered by a Pickup Match node's Presets button too, and
- * the other way round. Which one was chosen is not stored: the list marks the guitar whose every
- * setting the node holds now, so after a knob is turned no guitar is marked until it is saved.
+ * the other way round. Which one was chosen is not stored: the dropdown shows the guitar whose
+ * every setting the node holds now, so after a knob is turned it reads "Unsaved settings" until
+ * the guitar is saved again.
  */
 
 import { postMessage, sendGlobalChainParam } from "./bridge.js";
@@ -33,7 +34,11 @@ import { appendLog } from "./logging.js";
 import { showNotification } from "./notifications.js";
 import { pickerIcon } from "./pickerIcons.js";
 import { EffectTypeRegistry, type ParameterDef } from "./presetV2.js";
-import { effectPresetStorageKey, getUserEffectPresets } from "./signalPath/effectPresets.js";
+import {
+  effectPresetStorageKey,
+  getUserEffectPresets,
+  sortFactoryEffectPresets,
+} from "./signalPath/effectPresets.js";
 import {
   bindEnumPickerTriggers,
   isPickerParam,
@@ -179,28 +184,29 @@ function conversionChoices(value: (def: ParameterDef) => number) {
 
 const DELETE_ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>';
 
+/**
+ * A dropdown of the saved guitars in name order, so a long list stays one row, showing the current
+ * one, or "Unsaved settings" when none matches. Beside it, a delete for the current guitar.
+ */
 function guitarListHtml(guitars: readonly StoredEffectPreset[], current: StoredEffectPreset | undefined): string {
   if (guitars.length === 0) {
     return `<p class="pickup-match-tab-hint">Set Your Pickup for the guitar you are playing, then save it under
       the guitar's name to switch back to it in one click.</p>`;
   }
-  return guitars.map((entry) => {
-    const active = entry.id === current?.id;
-    const note = conversionChoices((def) => savedValue(entry, def) ?? def.default).text;
-    const id = escapeHtml(entry.id);
-    const name = escapeHtml(entry.name);
-    const title = escapeHtml(active ? `${entry.name} is loaded` : `Load ${entry.name}`);
-    return `
-      <div class="pickup-guitar-row">
-        <button type="button" class="pickup-guitar-item${active ? " active" : ""}" data-guitar-id="${id}"
-          aria-pressed="${active}" title="${title}">
-          <span class="pickup-guitar-name">${name}</span>
-          ${note ? `<span class="pickup-guitar-note">${escapeHtml(note)}</span>` : ""}
-        </button>
-        <button type="button" class="pickup-guitar-delete" data-guitar-delete="${id}"
-          aria-label="Delete ${name}" title="Delete ${name}">${DELETE_ICON}</button>
-      </div>`;
-  }).join("");
+  const options = sortFactoryEffectPresets(guitars).map((entry) =>
+    `<option value="${escapeHtml(entry.id)}"${entry.id === current?.id ? " selected" : ""}>${escapeHtml(entry.name)}</option>`,
+  ).join("");
+  const conversion = current ? conversionChoices((def) => savedValue(current, def) ?? def.default).text : "";
+  const deleteLabel = escapeHtml(current ? `Delete ${current.name}` : "Load a saved guitar to delete it");
+  return `
+    <div class="pickup-guitar-row">
+      <select class="pickup-guitar-select" aria-label="Load a saved guitar" title="${escapeHtml(conversion)}">
+        ${current ? "" : `<option value="" disabled selected>Unsaved settings</option>`}
+        ${options}
+      </select>
+      <button type="button" class="pickup-guitar-delete" data-guitar-delete="${escapeHtml(current?.id ?? "")}"
+        ${current ? "" : "disabled"} aria-label="${deleteLabel}" title="${deleteLabel}">${DELETE_ICON}</button>
+    </div>`;
 }
 
 /** Redraws the guitar list when what it shows has changed: a save, a delete, or a new match. */
@@ -296,7 +302,7 @@ function guitarsSectionHtml(): string {
     </div>`;
 }
 
-/** One listener for the section; the list inside it is redrawn without rebinding. */
+/** One set of listeners for the section; the dropdown inside it is redrawn without rebinding. */
 function bindGuitarsSection(container: HTMLElement): void {
   const section = container.querySelector<HTMLElement>(".pickup-guitars");
   const input = section?.querySelector<HTMLInputElement>(".pickup-guitar-name-input");
@@ -310,13 +316,13 @@ function bindGuitarsSection(container: HTMLElement): void {
       void deleteGuitar(deleteButton.dataset.guitarDelete ?? "");
       return;
     }
-    const item = target?.closest<HTMLElement>("[data-guitar-id]");
-    if (item) {
-      loadGuitar(item.dataset.guitarId ?? "");
-      return;
-    }
     if (target?.closest(".pickup-guitar-save-button")) {
       void saveGuitar(input);
+    }
+  });
+  section.addEventListener("change", (event) => {
+    if (event.target instanceof HTMLSelectElement && event.target.matches(".pickup-guitar-select")) {
+      loadGuitar(event.target.value);
     }
   });
   input.addEventListener("keydown", (event) => {

@@ -8,6 +8,7 @@
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <optional>
 #include <string>
 #include <thread>
 #include <utility>
@@ -662,6 +663,122 @@ bool TestPluginStateRestoresGlobalGate()
     if (!eq || !eq->enabled)
     {
         std::cerr << "Global EQ enable was not restored from plugin state\n";
+        return false;
+    }
+
+    return true;
+}
+
+/// Pickup Match in the global chain is per instance: the standalone's choice is its own app
+/// setting, and a DAW instance keeps its own in the project. A DAW project with several
+/// instances must not start converting pickups because the standalone did.
+bool TestGlobalPickupMatchStaysWithItsInstance()
+{
+    const fs::path sandbox =
+        fs::temp_directory_path() / "guitarfx-preset-management-tests" / "global-pickup-per-instance";
+    std::error_code ec;
+    fs::remove_all(sandbox, ec);
+    fs::create_directories(sandbox, ec);
+    SetSettingsEnvRoot(sandbox);
+
+    const auto pickupNode = [](const guitarfx::PluginController& controller) -> std::optional<guitarfx::GraphNode> {
+        const auto chain = controller.GetMixer().GetGlobalChainConfig();
+        const auto* node = chain.preChainGraph.FindNode("global_pickup");
+        return node ? std::optional<guitarfx::GraphNode>(*node) : std::nullopt;
+    };
+    const auto sourceOf = [](const guitarfx::GraphNode& node) {
+        const auto it = node.params.find("source");
+        return it == node.params.end() ? -1.0 : it->second;
+    };
+    const auto setPickup = [](guitarfx::PluginController& controller, const std::string& path,
+                              const nlohmann::json& value) {
+        controller.HandleUIMessage(
+            nlohmann::json{{"type", "setGlobalChainParam"}, {"path", path}, {"value", value}}.dump());
+    };
+
+    // The standalone switches Pickup Match on and picks a pickup; that is written to the shared store.
+    {
+        TestHost standaloneHost(sandbox, {}, /*standalone=*/true);
+        guitarfx::PluginController standalone(standaloneHost);
+        standalone.Initialize();
+        setPickup(standalone, "pickup.enabled", true);
+        setPickup(standalone, "pickup.source", 3.0);
+
+        const auto node = pickupNode(standalone);
+
+        if (!node || !node->enabled || sourceOf(*node) != 3.0)
+        {
+            std::cerr << "Standalone did not take its own Pickup Match change\n";
+            return false;
+        }
+    }
+
+    // A new DAW instance on the same profile starts with Pickup Match off, at its defaults.
+    TestHost hostA(sandbox);
+    guitarfx::PluginController instanceA(hostA);
+    instanceA.Initialize();
+
+    {
+        const auto node = pickupNode(instanceA);
+
+        if (!node || node->enabled || sourceOf(*node) == 3.0)
+        {
+            std::cerr << "A new plugin instance picked up the standalone's Pickup Match\n";
+            return false;
+        }
+    }
+
+    // One instance switching it on leaves the next instance in the project alone.
+    setPickup(instanceA, "pickup.enabled", true);
+    setPickup(instanceA, "pickup.source", 5.0);
+
+    TestHost hostB(sandbox);
+    guitarfx::PluginController instanceB(hostB);
+    instanceB.Initialize();
+
+    if (const auto node = pickupNode(instanceB); !node || node->enabled)
+    {
+        std::cerr << "A second plugin instance picked up the first instance's Pickup Match\n";
+        return false;
+    }
+
+    // A shared-settings reload (another instance changed the shared store) brings none of it in either.
+    instanceB.HandleUIMessage(nlohmann::json{{"type", "getSharedSyncState"}}.dump());
+
+    if (const auto node = pickupNode(instanceB); !node || node->enabled)
+    {
+        std::cerr << "A shared-settings reload switched Pickup Match on in a plugin instance\n";
+        return false;
+    }
+
+    // The instance's own choice goes with its project and comes back on reopening it.
+    const auto savedState = instanceA.SerializeState();
+    TestHost hostReopened(sandbox);
+    guitarfx::PluginController reopened(hostReopened);
+    reopened.Initialize();
+    reopened.DeserializeState(savedState);
+
+    if (const auto node = pickupNode(reopened); !node || !node->enabled || sourceOf(*node) != 5.0)
+    {
+        std::cerr << "Plugin state did not restore the instance's own Pickup Match\n";
+        return false;
+    }
+
+    // And the shared store still holds the standalone's choice: the plugin never wrote it.
+    StoreReader reader(sandbox);
+
+    if (!reader.Ok())
+    {
+        return false;
+    }
+
+    const auto chain = reader.AppSettings().value("globalFx.settings", nlohmann::json::object())
+                           .get<guitarfx::GlobalSignalChainConfig>();
+    const auto* stored = chain.preChainGraph.FindNode("global_pickup");
+
+    if (!stored || !stored->enabled || sourceOf(*stored) != 3.0)
+    {
+        std::cerr << "A plugin instance wrote its Pickup Match into the standalone's settings\n";
         return false;
     }
 
@@ -4514,6 +4631,7 @@ int main()
     run("Load preset via message", TestLoadPresetViaMessage());
     run("Plugin state restores active scene", TestPluginStateRestoresActiveScene());
     run("Plugin state restores global gate", TestPluginStateRestoresGlobalGate());
+    run("Global Pickup Match stays with its instance", TestGlobalPickupMatchStaysWithItsInstance());
     run("setParameter routes to global chain", TestSetParameterMessageRoutesToGlobalChain());
     run("Instance-owned NAM quality never reaches shared store", TestPluginInstanceNamQualityNeverReachesSharedStore());
     run("Host state restore does not republish project settings",

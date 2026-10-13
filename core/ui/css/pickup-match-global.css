@@ -63,17 +63,12 @@
   margin-top: 0;
 }
 
-/* My Guitars: saved settings by guitar name, styled after the calibration profiles' list. */
+/* My Guitars: a dropdown of saved settings by guitar name, so a long list stays one row; the
+   select matches the effect presets flyout's, the delete the calibration profiles'. */
 .pickup-guitars {
   display: flex;
   flex-direction: column;
   gap: 4px;
-}
-
-.pickup-guitar-list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
 }
 
 .pickup-guitar-row {
@@ -82,46 +77,16 @@
   gap: 4px;
 }
 
-.pickup-guitar-item {
-  display: flex;
+.pickup-guitar-select {
   flex: 1 1 auto;
   min-width: 0;
-  flex-direction: column;
-  gap: 1px;
-  padding: 6px 10px;
-  border: 1px solid transparent;
-  border-radius: var(--radius-xl);
-  background: transparent;
+  padding: 6px 8px;
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-md);
+  background: var(--bg-input);
   color: var(--text-primary);
-  text-align: left;
-  cursor: pointer;
-  transition: background 120ms ease, border-color 120ms ease;
-}
-
-.pickup-guitar-item:hover {
-  background: var(--overlay-light);
-  border-color: var(--border-light);
-}
-
-.pickup-guitar-item.active {
-  background: color-mix(in srgb, var(--accent-primary) 14%, var(--overlay-light));
-  border-color: color-mix(in srgb, var(--accent-primary) 44%, var(--border-light));
-}
-
-.pickup-guitar-name {
   font-size: 12px;
-  font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.pickup-guitar-note {
-  font-size: 10px;
-  color: var(--text-tertiary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  cursor: pointer;
 }
 
 .pickup-guitar-delete {
@@ -138,13 +103,18 @@
   transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
 }
 
-.pickup-guitar-delete:hover {
+.pickup-guitar-delete:hover:not(:disabled) {
   background: color-mix(in srgb, var(--overlay-light) 72%, var(--status-error-text) 28%);
   border-color: var(--status-error-border);
   color: var(--status-error-text);
 }
 
-.pickup-guitar-item:focus-visible,
+.pickup-guitar-delete:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.pickup-guitar-select:focus-visible,
 .pickup-guitar-delete:focus-visible {
   outline: 2px solid var(--accent-primary);
   outline-offset: 2px;
