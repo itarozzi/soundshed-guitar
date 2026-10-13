@@ -14,7 +14,7 @@ cmake_minimum_required(VERSION 3.22)
 # Before project(): Artist needs std::filesystem, from macOS 10.15, and its prebuilt bundles target 11.0.
 set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version")
 
-project(SoundshedNanoQ VERSION 1.6.0 LANGUAGES C CXX)
+project(SoundshedNanoQ VERSION 1.7.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
