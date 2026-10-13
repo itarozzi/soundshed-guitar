@@ -17,7 +17,7 @@
 
 import { updateAppSetting } from "../appSettingsStore.js";
 import { uiState } from "../state.js";
-import type { AppSettingValue, PracticeToolLoopRegion, PracticeToolProject } from "../types.js";
+import type { AppSettingValue, PracticeToolLoopRegion, PracticeToolProject, PracticeToolProjectLink } from "../types.js";
 import { sanitizePracticeToolEq } from "./eq.js";
 
 const LOOPS_SETTING_KEY = "practiceTool.loops";
@@ -26,6 +26,9 @@ const PROJECTS_SETTING_KEY = "practiceTool.projects";
 /** Nothing enforces this in the UI beyond refusing to add the next one — it
  * exists so a runaway caller can't grow the settings blob without bound. */
 export const MAX_PRACTICE_TOOL_PROJECTS = 200;
+
+/** The same guard for links, per project. */
+export const MAX_PRACTICE_TOOL_PROJECT_LINKS = 30;
 
 // ── Seams ────────────────────────────────────────────────────────────────────
 
@@ -166,6 +169,9 @@ export function parsePracticeToolProject(value: unknown): PracticeToolProject | 
     : null;
   const presetId = typeof record.presetId === "string" && record.presetId ? record.presetId : undefined;
   const presetName = typeof record.presetName === "string" && record.presetName ? record.presetName : undefined;
+  const links = Array.isArray(record.links)
+    ? record.links.map(parseProjectLink).filter((link): link is PracticeToolProjectLink => link !== null)
+    : [];
   return {
     id,
     name,
@@ -185,6 +191,7 @@ export function parsePracticeToolProject(value: unknown): PracticeToolProject | 
     ...(record.eq ? { eq: sanitizePracticeToolEq(record.eq) } : {}),
     ...(presetId ? { presetId } : {}),
     ...(presetId && presetName ? { presetName } : {}),
+    ...(links.length ? { links } : {}),
     savedAt: Math.max(0, readNumber(record.savedAt, 0)),
   };
 }
@@ -230,6 +237,9 @@ export function capturePracticeToolProject(
   const presetName = presetId
     ? (uiState.presets.find((preset) => preset.id === presetId)?.name ?? "")
     : "";
+  // Links are edited on the saved project, not captured from the player, so
+  // saving over a project must not drop the ones already attached to it.
+  const links = options.projectId ? findPracticeToolProject(options.projectId)?.links ?? [] : [];
   return {
     id: options.projectId ?? generateProjectId(),
     name: trimmedName,
@@ -245,6 +255,7 @@ export function capturePracticeToolProject(
     eq: sanitizePracticeToolEq(player.eq),
     ...(presetId ? { presetId } : {}),
     ...(presetId && presetName ? { presetName } : {}),
+    ...(links.length ? { links: links.map((link) => ({ ...link })) } : {}),
     savedAt: Date.now(),
   };
 }
@@ -284,6 +295,109 @@ export function findPracticeToolProjectByName(name: string): PracticeToolProject
     return null;
   }
   return readPracticeToolProjects().find((project) => project.name.trim().toLowerCase() === needle) ?? null;
+}
+
+// ── Links ────────────────────────────────────────────────────────────────────
+
+const MAX_LINK_URL_LENGTH = 2048;
+const MAX_LINK_TITLE_LENGTH = 200;
+
+/**
+ * Turns what the user typed or pasted into a URL the editor will open, or null.
+ * A bare "songsterr.com/a/wsa/…" gets https:// in front, since that is how
+ * addresses are usually copied out of a browser's bar. Anything that isn't
+ * http(s) once parsed — a file path, mailto:, javascript: — is refused: the
+ * native side opens only http(s), so such a link could never be followed.
+ */
+export function normalizePracticeToolLinkUrl(input: string): string | null {
+  const trimmed = input.trim();
+  if (!trimmed || trimmed.length > MAX_LINK_URL_LENGTH || /\s/.test(trimmed)) {
+    return null;
+  }
+  const withScheme = /^[a-z][a-z0-9+.-]*:/i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  let parsed: URL;
+  try {
+    parsed = new URL(withScheme);
+  } catch {
+    return null;
+  }
+  if ((parsed.protocol !== "https:" && parsed.protocol !== "http:") || !parsed.hostname.includes(".")) {
+    return null;
+  }
+  return parsed.href;
+}
+
+/** What a link row shows when the link has no title: the host, minus "www.". */
+export function describePracticeToolLink(link: PracticeToolProjectLink): string {
+  if (link.title) {
+    return link.title;
+  }
+  try {
+    return new URL(link.url).hostname.replace(/^www\./i, "");
+  } catch {
+    return link.url;
+  }
+}
+
+function parseProjectLink(value: unknown): PracticeToolProjectLink | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  const id = typeof record.id === "string" && record.id ? record.id : "";
+  const url = typeof record.url === "string" ? normalizePracticeToolLinkUrl(record.url) : null;
+  if (!id || !url) {
+    return null;
+  }
+  const title = typeof record.title === "string" ? record.title.trim().slice(0, MAX_LINK_TITLE_LENGTH) : "";
+  return { id, title, url };
+}
+
+function generateLinkId(): string {
+  return `ptlink-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export type AddProjectLinkResult = "added" | "invalid-url" | "too-many" | "no-project";
+
+/**
+ * Adds a link to a saved project and persists it straight away. Leaves
+ * `savedAt` alone: that orders the project list, and attaching a link is not
+ * re-saving the practice session.
+ */
+export function addPracticeToolProjectLink(projectId: string, title: string, url: string): AddProjectLinkResult {
+  const projects = readPracticeToolProjects();
+  const project = projects.find((entry) => entry.id === projectId);
+  if (!project) {
+    return "no-project";
+  }
+  const normalizedUrl = normalizePracticeToolLinkUrl(url);
+  if (!normalizedUrl) {
+    return "invalid-url";
+  }
+  const links = project.links ?? [];
+  if (links.length >= MAX_PRACTICE_TOOL_PROJECT_LINKS) {
+    return "too-many";
+  }
+  project.links = [...links, { id: generateLinkId(), title: title.trim().slice(0, MAX_LINK_TITLE_LENGTH), url: normalizedUrl }];
+  writePracticeToolProjects(projects);
+  return "added";
+}
+
+export function removePracticeToolProjectLink(projectId: string, linkId: string): boolean {
+  const projects = readPracticeToolProjects();
+  const project = projects.find((entry) => entry.id === projectId);
+  const links = project?.links ?? [];
+  const remaining = links.filter((link) => link.id !== linkId);
+  if (!project || remaining.length === links.length) {
+    return false;
+  }
+  if (remaining.length) {
+    project.links = remaining;
+  } else {
+    delete project.links;
+  }
+  writePracticeToolProjects(projects);
+  return true;
 }
 
 // ── Recall ───────────────────────────────────────────────────────────────────

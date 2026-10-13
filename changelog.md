@@ -20,6 +20,9 @@
 * The AI Tone Search tab is gone; the Tone Builder replaces it.
 * Imported Tone3000 models now remember their licence and what the capture covers (amp only, full rig, pedal), and shared presets name models from any source, not only Tone3000.
 
+### Practice Tool
+* Saved projects can now keep links: the tab for the song, a lesson video, the lyrics. Pick a project and paste an address into the new **Links** section under the loops, with a title if you like. Links are kept with the project as soon as you add them, and clicking one opens it in your web browser.
+
 ### Settings
 * A new **Mouse wheel adjusts controls** switch in Settings → General → UI. Turn it off and the scroll wheel stops changing knobs, sliders and the metronome tempo as the pointer passes over them, and just scrolls the page.
 

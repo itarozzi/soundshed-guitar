@@ -14,6 +14,7 @@ import { showNotification } from "../notifications.js";
 import { uiState } from "../state.js";
 import type { PracticeToolProject } from "../types.js";
 import { escapeHtml } from "../utils.js";
+import { bindPracticeToolProjectLinkActions, renderPracticeToolProjectLinks } from "./projectLinksPanel.js";
 import {
   canRecallPresets,
   capturePracticeToolProject,
@@ -141,6 +142,7 @@ export function renderPracticeToolProjects(): void {
   if (hint) {
     hint.textContent = buildHintText(projects);
   }
+  renderPracticeToolProjectLinks(selectedProjectId);
 }
 
 async function saveCurrentProject(): Promise<void> {
@@ -229,7 +231,8 @@ async function deleteSelectedProject(): Promise<void> {
     renderPracticeToolProjects();
     return;
   }
-  if (!(await showConfirm(`Delete the saved project "${project.name}"? The track file and its loops are not affected.`, "Delete project"))) {
+  const linkNote = project.links?.length ? ` Its ${project.links.length} saved link${project.links.length === 1 ? " goes" : "s go"} with it.` : "";
+  if (!(await showConfirm(`Delete the saved project "${project.name}"? The track file and its loops are not affected.${linkNote}`, "Delete project"))) {
     return;
   }
   deletePracticeToolProject(project.id);
@@ -284,4 +287,6 @@ export function bindPracticeToolProjectActions(): void {
     deleteBtn.dataset.bound = "true";
     deleteBtn.addEventListener("click", () => void deleteSelectedProject());
   }
+
+  bindPracticeToolProjectLinkActions();
 }

@@ -59,6 +59,15 @@ export interface PracticeToolState {
   eq: PracticeToolEqState;
 }
 
+/** A web page kept with a project — the tablature, a lesson video, the lyrics.
+ * Only http(s): those are all the editor will hand to the system browser. */
+export interface PracticeToolProjectLink {
+  id: string;
+  /** May be empty; the row then shows the URL's host. */
+  title: string;
+  url: string;
+}
+
 /**
  * A saved Practice Tool project: the backing track that was loaded, the loops
  * defined on it, the fader settings, and — if the user opted in at save time —
@@ -86,5 +95,8 @@ export interface PracticeToolProject {
   presetId?: string;
   /** Captured at save time so the row still reads sensibly if the preset is gone. */
   presetName?: string;
+  /** Edited on the saved project directly (no Save needed), and carried over
+   * when Save overwrites it. Absent until the first link is added. */
+  links?: PracticeToolProjectLink[];
   savedAt: number;
 }

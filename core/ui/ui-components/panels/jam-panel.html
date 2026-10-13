@@ -161,6 +161,21 @@
                       <div class="settings-hint">Speed and pitch are independent — changing one never affects the other.</div>
                     </div>
                   </div>
+
+                  <!-- Links kept with the selected saved project (the tab, a
+                       lesson, the lyrics) — see practiceTool/projectLinksPanel.ts. -->
+                  <div class="settings-section practice-tool-links-section">
+                    <h3>Links</h3>
+                    <div class="practice-tool-links-list" id="practice-tool-links-list">
+                      <!-- Link rows rendered by JS -->
+                    </div>
+                    <div class="practice-tool-links-add">
+                      <input type="text" id="practice-tool-link-title" class="practice-tool-link-input practice-tool-link-title-input" placeholder="Title (optional)" aria-label="Link title" maxlength="200" disabled />
+                      <input type="text" id="practice-tool-link-url" class="practice-tool-link-input practice-tool-link-url-input" placeholder="https://… e.g. the tablature" aria-label="Link address" inputmode="url" spellcheck="false" disabled />
+                      <button id="practice-tool-link-add" type="button" class="secondary" disabled>Add Link</button>
+                    </div>
+                    <div class="settings-hint" id="practice-tool-links-hint"></div>
+                  </div>
                 </div>
               </div>
             </div>

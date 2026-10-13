@@ -832,6 +832,7 @@ named loop regions for drilling difficult passages.
 `practiceTool/projects.ts` owns all persistence (the per-file loop store and
 saved projects) plus the seams the panel can only *request* through,
 `practiceTool/projectsPanel.ts` is the project bar's controls,
+`practiceTool/projectLinksPanel.ts` is the selected project's Links section,
 `practiceTool/faders.ts` is the four faders and the debounced sends they share,
 `practiceTool/eq.ts` / `eqSend.ts` / `eqModal.ts` are the backing-track EQ's
 state, its engine sends and the binding that points the shared `EqPanel` at it,
@@ -929,6 +930,16 @@ eq → bridge → state would otherwise close a cycle.
   preset is reloaded through `applyPresetFromLibrary`, handed in by `main.ts`
   because the Practice Tool cannot import the preset library directly without
   closing a cycle.
+- **Links.** The section under the loops and faders keeps web pages with the
+  selected saved project — the tablature, a lesson video, the lyrics
+  (`practiceTool/projectLinksPanel.ts`, drawn for whichever project the bar has
+  selected). Links are stored on the project itself (`links` in
+  `practiceTool.projects`), added and removed straight away with no Save, and
+  carried over when Save overwrites the project. With no project selected the
+  section asks for one to be saved first. Only http(s) addresses are kept — a bare
+  `songsterr.com/…` gains `https://` — because the editor opens nothing else; each
+  row is a plain anchor, which `main.ts`'s document click handler sends to the
+  system browser as `openUrl`.
 - **Transport.** Play/pause/stop plus four faders — Volume, Balance, Speed (25%–200%)
   and Pitch (±12 semitones) — each sending its own bridge message per change
   (`setPracticeToolGain`/`setPracticeToolBalance`/`setPracticeToolSpeed`/

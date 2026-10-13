@@ -547,6 +547,121 @@
   border-color: var(--practice-field-focus);
 }
 
+/* ── Links ────────────────────────────────────────────────────────────────
+   Web pages kept with the selected saved project. Rows match the loop rows;
+   the address is shown dimmed beside the title and gives way first. */
+
+.practice-tool-links-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.practice-tool-links-list:empty {
+  display: none;
+}
+
+.practice-tool-link-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--practice-row-border);
+  background: var(--practice-row-bg);
+  margin-bottom: 6px;
+  min-width: 0;
+}
+
+.practice-tool-link {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--practice-amber-text);
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.practice-tool-link:hover,
+.practice-tool-link:focus-visible {
+  text-decoration: underline;
+}
+
+.practice-tool-link-url {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--practice-text-dim);
+  font-size: 11px;
+}
+
+.practice-tool-link-delete-btn {
+  flex: 0 0 auto;
+  align-self: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--practice-chip-border);
+  background: var(--practice-chip-bg);
+  color: var(--practice-chip-text);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.practice-tool-links-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.practice-tool-link-input {
+  padding: 5px 8px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--practice-field-border);
+  background: var(--practice-field-bg);
+  color: var(--practice-field-text);
+  font-size: 11px;
+  min-width: 0;
+}
+
+.practice-tool-link-input:focus {
+  outline: none;
+  border-color: var(--practice-field-focus);
+}
+
+.practice-tool-link-input:disabled {
+  opacity: 0.55;
+}
+
+.practice-tool-link-title-input {
+  flex: 0 1 180px;
+}
+
+.practice-tool-link-url-input {
+  flex: 1 1 220px;
+}
+
+.practice-tool-links-add button {
+  padding: 6px 10px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-medium);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.practice-tool-links-add button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 @media (max-width: 760px) {
   .practice-tool-body {
     grid-template-columns: 1fr;

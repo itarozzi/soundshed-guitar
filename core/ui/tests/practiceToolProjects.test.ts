@@ -3,13 +3,19 @@ import { uiState } from "../ts/state.js";
 import { createDefaultPracticeToolEq } from "../ts/practiceTool/eq.js";
 import type { PracticeToolProject, PracticeToolState } from "../ts/types.js";
 import {
+  addPracticeToolProjectLink,
   capturePracticeToolProject,
   consumePendingProjectRecall,
   deletePracticeToolProject,
+  describePracticeToolLink,
+  findPracticeToolProject,
   findPracticeToolProjectByName,
   getProjectTrackAvailability,
+  MAX_PRACTICE_TOOL_PROJECT_LINKS,
+  normalizePracticeToolLinkUrl,
   parsePracticeToolProject,
   readPracticeToolProjects,
+  removePracticeToolProjectLink,
   setPendingProjectRecall,
   storePracticeToolProject,
 } from "../ts/practiceTool/projects.js";
@@ -262,5 +268,81 @@ describe("consumePendingProjectRecall", () => {
     setPendingProjectRecall(capturePracticeToolProject("Song A", { includePreset: false })!);
     expect(consumePendingProjectRecall("C:\\Music\\backing.wav")).not.toBeNull();
     expect(consumePendingProjectRecall("C:\\Music\\backing.wav")).toBeNull();
+  });
+});
+
+describe("project links", () => {
+  function savedProject(name = "Song A"): PracticeToolProject {
+    const project = capturePracticeToolProject(name, { includePreset: false })!;
+    storePracticeToolProject(project);
+    return project;
+  }
+
+  it("normalises pasted addresses and refuses anything the browser can't open", () => {
+    expect(normalizePracticeToolLinkUrl("  https://www.songsterr.com/a/wsa/song-tab  ")).toBe("https://www.songsterr.com/a/wsa/song-tab");
+    expect(normalizePracticeToolLinkUrl("songsterr.com/a/wsa/song-tab")).toBe("https://songsterr.com/a/wsa/song-tab");
+    expect(normalizePracticeToolLinkUrl("http://example.com")).toBe("http://example.com/");
+    expect(normalizePracticeToolLinkUrl("")).toBeNull();
+    expect(normalizePracticeToolLinkUrl("javascript:alert(1)")).toBeNull();
+    expect(normalizePracticeToolLinkUrl("mailto:someone@example.com")).toBeNull();
+    expect(normalizePracticeToolLinkUrl("C:\\Tabs\\song.pdf")).toBeNull();
+    expect(normalizePracticeToolLinkUrl("file:///C:/Tabs/song.pdf")).toBeNull();
+    expect(normalizePracticeToolLinkUrl("not a url")).toBeNull();
+    expect(normalizePracticeToolLinkUrl("tab")).toBeNull();
+  });
+
+  it("adds a link to the saved project straight away, without touching savedAt", () => {
+    const project = savedProject();
+    expect(addPracticeToolProjectLink(project.id, " Tab ", "songsterr.com/a/wsa/song-tab")).toBe("added");
+    const stored = findPracticeToolProject(project.id)!;
+    expect(stored.links).toEqual([{ id: expect.any(String), title: "Tab", url: "https://songsterr.com/a/wsa/song-tab" }]);
+    expect(stored.savedAt).toBe(project.savedAt);
+  });
+
+  it("reports why a link was not added", () => {
+    const project = savedProject();
+    expect(addPracticeToolProjectLink("missing", "", "https://example.com")).toBe("no-project");
+    expect(addPracticeToolProjectLink(project.id, "", "javascript:alert(1)")).toBe("invalid-url");
+    for (let i = 0; i < MAX_PRACTICE_TOOL_PROJECT_LINKS; ++i) {
+      expect(addPracticeToolProjectLink(project.id, "", `https://example.com/${i}`)).toBe("added");
+    }
+    expect(addPracticeToolProjectLink(project.id, "", "https://example.com/one-more")).toBe("too-many");
+  });
+
+  it("removes a link, dropping the field once the last one goes", () => {
+    const project = savedProject();
+    addPracticeToolProjectLink(project.id, "Tab", "https://example.com/tab");
+    const linkId = findPracticeToolProject(project.id)!.links![0].id;
+    expect(removePracticeToolProjectLink(project.id, "missing")).toBe(false);
+    expect(removePracticeToolProjectLink(project.id, linkId)).toBe(true);
+    expect(findPracticeToolProject(project.id)!.links).toBeUndefined();
+  });
+
+  it("keeps a project's links when Save overwrites it", () => {
+    const project = savedProject();
+    addPracticeToolProjectLink(project.id, "Tab", "https://example.com/tab");
+    const resaved = capturePracticeToolProject("Song A", { includePreset: false, projectId: project.id })!;
+    expect(resaved.links?.map((link) => link.url)).toEqual(["https://example.com/tab"]);
+    expect(capturePracticeToolProject("Song B", { includePreset: false })!.links).toBeUndefined();
+  });
+
+  it("drops stored links that are broken or unopenable when reading projects back", () => {
+    const parsed = parsePracticeToolProject({
+      id: "p1",
+      name: "Song",
+      filePath: "C:\\Music\\backing.wav",
+      links: [
+        { id: "l1", title: "Tab", url: "https://example.com/tab" },
+        { id: "l2", title: "Bad", url: "javascript:alert(1)" },
+        { id: "", title: "No id", url: "https://example.com" },
+        "https://example.com",
+      ],
+    });
+    expect(parsed?.links).toEqual([{ id: "l1", title: "Tab", url: "https://example.com/tab" }]);
+  });
+
+  it("labels an untitled link with its host", () => {
+    expect(describePracticeToolLink({ id: "l", title: "", url: "https://www.songsterr.com/a/wsa/x" })).toBe("songsterr.com");
+    expect(describePracticeToolLink({ id: "l", title: "Lesson", url: "https://youtube.com/watch?v=1" })).toBe("Lesson");
   });
 });
