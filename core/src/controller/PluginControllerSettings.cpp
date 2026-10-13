@@ -362,6 +362,7 @@ bool PluginController::ApplySettingsToRuntime(SettingsApplyMode mode)
     mMetronome->ApplySettingsFromAppSettings();
     settingsChanged |= ApplyDspLevelTargetSettingsFromAppSettings();
     settingsChanged |= ApplyPresetSwitchSettingsFromAppSettings();
+    ApplyMultiCoreSettingFromAppSettings();
     ApplyInputModeSettingsFromAppSettings();
     ApplyGlobalFxSettingsFromAppSettings();
 

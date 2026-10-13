@@ -56,15 +56,23 @@ void FlushDenormalsOnThisThread() noexcept;
 /// of its own. A no-op where there is no such priority to ask for.
 void LowerPriorityOfThisThread() noexcept;
 
+/// Puts the calling thread in the scheduling class of the host's audio thread: MMCSS "Pro Audio"
+/// on Windows, a time-constraint policy on macOS, SCHED_FIFO where Linux allows it. For a helper
+/// the audio thread waits on, which otherwise gets scheduled like any background thread. Best
+/// effort and not restored: for a thread of its own that sleeps whenever it has no work.
+void RaisePriorityOfThisThreadForAudio() noexcept;
+
 namespace detail
 {
 inline thread_local bool tSharedHelpersRefused = false;
 }
 
-/// Keeps the calling thread's DSP off the helpers every effect shares (DualLaneExecutor), for as
-/// long as it lives: while one is in scope, Run() refuses and the effect does both halves itself.
-/// For an offline render on a worker thread, which must never take the one helper the audio
-/// thread's effects lean on, nor leave the audio thread to find it busy and run serially.
+/// Keeps the calling thread's DSP off every helper thread for as long as it lives: while one is in
+/// scope, DualLaneExecutor::Run() refuses (the effect does both halves itself) and
+/// RealtimeTaskPool::Run() runs every task on the caller. For an offline render on a worker
+/// thread, which must never take the one helper the audio thread's effects lean on, nor leave the
+/// audio thread to find it busy and run serially; and for the mixer's block when multi-core
+/// processing is off.
 class ScopedSharedHelpersRefused
 {
   public:
@@ -133,8 +141,8 @@ class RealtimeTaskPool
     }
 
     /// Runs task(context, i) for every i in [0, count) on this thread and the workers, and
-    /// returns once all of them have finished. With no workers, or one task, it runs them
-    /// here in order.
+    /// returns once all of them have finished. With no workers, one task, or a
+    /// ScopedSharedHelpersRefused in scope on this thread, it runs them here in order.
     void Run(TaskFn task, void* context, int count) noexcept;
 
     /// Run() for a callable taking the task index. It is called by reference, from several

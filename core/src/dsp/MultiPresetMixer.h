@@ -9,6 +9,7 @@
 #include "dsp/PresetVoicePool.h"
 #include "dsp/SignalGraphExecutor.h"
 #include "dsp/SignalTelemetry.h"
+#include "dsp/SilenceSleepGate.h"
 #include "dsp/MixerTelemetry.h"
 #include "dsp/RealtimeParallel.h"
 #include "dsp/TunerEngine.h"
@@ -232,6 +233,19 @@ class MultiPresetMixer
     [[nodiscard]] bool IsMultiThreadedProcessingEnabled() const noexcept
     {
         return mMultiThreadedProcessingEnabled.load(std::memory_order_acquire);
+    }
+
+    /// Whether the chains stop running after a stretch of silence in and out (SilenceSleepGate).
+    /// On by default; off for anything that needs every block rendered, such as a test.
+    void SetSleepOnSilenceEnabled(bool enabled) noexcept
+    {
+        mSleepOnSilenceEnabled.store(enabled, std::memory_order_release);
+    }
+
+    /// Audio thread, or a test between blocks: whether the last block skipped the chains.
+    [[nodiscard]] bool IsSleepingOnSilence() const noexcept
+    {
+        return mSleepGate.IsAsleep();
     }
 
     // Global input settings
@@ -582,6 +596,8 @@ class MultiPresetMixer
     std::atomic<bool> mOutputMuted{false};
     bool mLimiterEnabled = false;
     std::atomic<bool> mMultiThreadedProcessingEnabled{rtparallel::kParallelDspSupported};
+    std::atomic<bool> mSleepOnSilenceEnabled{true};
+    SilenceSleepGate mSleepGate; // audio thread, apart from Prepare()
 
     // Global settings
     double mUserInputCalibrationGainDb = 0.0;

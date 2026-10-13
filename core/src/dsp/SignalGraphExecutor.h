@@ -5,6 +5,7 @@
 #include "dsp/DeferredRebuild.h"
 #include "dsp/RealtimeParallel.h"
 #include "dsp/SignalTelemetry.h"
+#include "dsp/SilenceSleepGate.h"
 #include "dsp/SpectrumTap.h"
 #include <map>
 #include <memory>
@@ -26,6 +27,10 @@ class EffectProcessor;
 class MixerEffect;
 class ResourceLibrary;
 struct NoteBlock;
+
+/// Classifies a graph's node types (SignalGraphExecutor::GetNodeTypesDeep()) for the silence
+/// gate. Asks the effect registry, so message thread only.
+[[nodiscard]] GraphSleepTraits ClassifyGraphForSleep(const std::vector<std::string>& nodeTypes);
 
 /**
  * Executes a signal graph by processing audio through nodes in topological order.
@@ -251,6 +256,21 @@ class SignalGraphExecutor
     /// wraps such a node report the same requirement to its parent graph, so it is never
     /// dispatched to a worker thread.
     [[nodiscard]] bool AnyNodeRequiresMainThreadLoad() const;
+
+    /// What this graph means for the mixer's silence gate, worked out by SetGraph (composites
+    /// looked through). Safe from the audio thread.
+    [[nodiscard]] GraphSleepTraits GetSleepTraits() const noexcept
+    {
+        return {mCanRingOut.load(std::memory_order_acquire), mKeepsAwake.load(std::memory_order_acquire)};
+    }
+
+    /// The mixer skipped this graph for a block of silence (SilenceSleepGate): its load is
+    /// nothing, rather than whatever the last block it ran took.
+    void NoteBlockSkipped() noexcept
+    {
+        mLastTotalProcessingTimeUs.store(0.0, std::memory_order_relaxed);
+        mLastDspLoadPercent.store(0.0, std::memory_order_relaxed);
+    }
 
     // Global settings
     void SetInputTrim(double dB)
@@ -578,6 +598,8 @@ class SignalGraphExecutor
 
     std::atomic<bool> mSignalDiagnosticsEnabled{true};
     std::atomic<bool> mParallelLevelsEnabled{true};
+    std::atomic<bool> mCanRingOut{false};
+    std::atomic<bool> mKeepsAwake{false};
 
     // Parallel node processing within one graph level. Prepare() starts the workers, sized to
     // the widest level, and only for a graph with a level worth fanning out.

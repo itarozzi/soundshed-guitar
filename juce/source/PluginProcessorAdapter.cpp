@@ -272,6 +272,10 @@ PluginProcessorAdapter::PluginProcessorAdapter()
     mController.Initialize();
     registerAutomationParameters();
 
+    // Metering off until an editor opens and turns it on (SoundshedEditorBase), or a DAW
+    // instance whose editor is never opened meters every block all session.
+    soundshed::editor::sendUiMessage (*this, "uiVisibility", { { "visible", false } });
+
     // A footswitch mapped to a setlist preset or scene must work with the editor closed, and a
     // node parameter automation moves must reach the working copy a save is built from. The
     // audio thread cannot hand either over itself (callAsync allocates), so they wait for the

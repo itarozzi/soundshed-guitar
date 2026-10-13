@@ -792,6 +792,8 @@ class PluginController
     /// here: the length is tempo-relative, so it is resolved per swap by
     /// UpdatePresetSwapTailBudget() against the tempo the player is on at that moment.
     bool ApplyPresetSwitchSettingsFromAppSettings();
+    /// Pushes this host's multi-core setting (standalone or plugin key) to the mixer.
+    void ApplyMultiCoreSettingFromAppSettings();
     /// Tells the mixer how long the outgoing preset may ring after the swap it is about to
     /// be asked for: the stored bar count at the current tempo and meter.
     void UpdatePresetSwapTailBudget();

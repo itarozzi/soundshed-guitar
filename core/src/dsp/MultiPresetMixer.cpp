@@ -15,37 +15,6 @@ namespace guitarfx
 {
 namespace
 {
-/// Can this graph still make a sound worth keeping once its input is cut? Only the
-/// time-based families can, so only they earn a ring-out. Everything else — an amp, a cab,
-/// an EQ, a synth voice with nothing left to track — is silent or, worse, still playing
-/// within a few milliseconds of the switch, and running it on is the "old preset hangs on"
-/// complaint rather than a tail.
-///
-/// Message thread only: it asks the registry for each type's category.
-bool GraphCanRingOut(const std::vector<std::string>& nodeTypes)
-{
-    const auto& registry = EffectRegistry::Instance();
-
-    for (const auto& type : nodeTypes)
-    {
-        // Opaque wrappers: the graph cannot see what a third-party plugin or a WASM module
-        // does, and one of them being a reverb is likelier than the cost of being wrong.
-        if (type == EffectGuids::kPluginHost || type == EffectGuids::kWasmHost)
-        {
-            return true;
-        }
-
-        const auto info = registry.GetTypeInfo(registry.Resolve(type));
-
-        if (info && (info->category == "delay" || info->category == "reverb"))
-        {
-            return true;
-        }
-    }
-
-    return false;
-}
-
 int EstimateGraphComplexityScore(const std::vector<std::string>& nodeTypes)
 {
     int score = 0;
@@ -239,7 +208,9 @@ std::unique_ptr<PresetInstance> MultiPresetMixer::BuildInstance(const Preset& pr
     inst->executor.SetGraph(normalizedPreset.graph); // CreateProcessors + LoadResources here
     inst->executor.SetSignalDiagnosticsEnabled(mTelemetry.IsEnabled());
     inst->complexityScore = EstimateGraphComplexityScore(inst->executor.GetNodeTypes());
-    inst->canRingOut = GraphCanRingOut(inst->executor.GetNodeTypesDeep());
+    // Only time-based nodes (delay, reverb) and opaque hosted ones earn a ring-out: anything else
+    // is silent, or still playing, within milliseconds of a switch (ClassifyGraphForSleep).
+    inst->canRingOut = inst->executor.GetSleepTraits().canRingOut;
 
     if (mPrepared)
     {
@@ -901,6 +872,7 @@ void MultiPresetMixer::Prepare(double sampleRate, int maxBlockSize)
     mSampleRate = sampleRate;
     mMaxBlockSize = maxBlockSize;
     mPrepared = true;
+    mSleepGate.Prepare(sampleRate);
 
     mVoices.Prepare(sampleRate);
 
@@ -943,6 +915,7 @@ void MultiPresetMixer::Prepare(double sampleRate, int maxBlockSize)
 
 void MultiPresetMixer::Reset()
 {
+    mSleepGate.Wake();
     mGlobalChain.Pre().Reset();
     mGlobalChain.Post().Reset();
 
@@ -1016,6 +989,18 @@ void MultiPresetMixer::Process(float** inputs, float** outputs, int numSamples)
 void MultiPresetMixer::ProcessStereoBlock(float** inputs, float** outputs, int numSamples)
 {
     const bool diagnosticsEnabled = mTelemetry.IsEnabled();
+
+    // Multi-core processing off (a plugin's default): the whole block runs on this thread. Every
+    // helper pool refuses work from it while the scope lasts, so there is no preset fan-out, no
+    // parallel graph level (a composite's inner graph included), and the NAM and IR nodes do both
+    // stereo lanes themselves rather than handing one to the shared helper.
+    const bool multiCore = mMultiThreadedProcessingEnabled.load(std::memory_order_acquire);
+    std::optional<rtparallel::ScopedSharedHelpersRefused> singleThreaded;
+
+    if (!multiCore)
+    {
+        singleThreaded.emplace();
+    }
 
     // NOTE: Do NOT call EnsureGlobalChainsUpToDate() here.
     // Rebuilding global chains allocates memory which is unsafe on the audio thread.
@@ -1120,6 +1105,58 @@ void MultiPresetMixer::ProcessStereoBlock(float** inputs, float** outputs, int n
 
             return;
         }
+    }
+
+    // ==========================================================================
+    // SLEEP ON SILENCE: skip every chain once input and output have both been quiet for a
+    // while (SilenceSleepGate). Measured on the block as it arrived, after any demo preview
+    // or test tone was mixed in, so those wake it like playing does.
+    // ==========================================================================
+    const float sleepInputPeak =
+        SilenceSleepGate::PeakOf(inputs ? inputs[0] : nullptr, inputs ? inputs[1] : nullptr, numSamples);
+    const auto preTraits = mGlobalChain.Pre().GetSleepTraits();
+    const auto postTraits = mGlobalChain.Post().GetSleepTraits();
+    bool sleepAllowed = mSleepOnSilenceEnabled.load(std::memory_order_acquire) && !mTuner->IsEnabled() &&
+                        !preTraits.keepsAwake && !postTraits.keepsAwake;
+    bool sleepCanRingOut = preTraits.canRingOut || postTraits.canRingOut;
+
+    for (const auto& inst : mVoices.Instances())
+    {
+        const auto traits = inst->executor.GetSleepTraits();
+        sleepCanRingOut = sleepCanRingOut || traits.canRingOut;
+
+        // A crossfade or ring-out only advances on blocks that run, and a graph that keeps
+        // the gate awake means it.
+        if (inst->phase != InstancePhase::Active || traits.keepsAwake)
+        {
+            sleepAllowed = false;
+        }
+    }
+
+    if (mSleepGate.ShouldSkip(sleepInputPeak, sleepAllowed))
+    {
+        for (float* channel : {outputs[0], outputs[1]})
+        {
+            if (channel)
+            {
+                std::fill(channel, channel + numSamples, 0.0f);
+            }
+        }
+
+        if (diagnosticsEnabled)
+        {
+            mGlobalChain.Pre().NoteBlockSkipped();
+            mGlobalChain.Post().NoteBlockSkipped();
+
+            for (auto& inst : mVoices.Instances())
+            {
+                inst->executor.NoteBlockSkipped();
+            }
+
+            mTelemetry.Record(MixerTelemetry::Stage::Output, outputs[0], outputs[1], numSamples);
+        }
+
+        return;
     }
 
     // ==========================================================================
@@ -1260,8 +1297,7 @@ void MultiPresetMixer::ProcessStereoBlock(float** inputs, float** outputs, int n
     }
 
     const bool useParallel =
-        ShouldUseParallelPresetDispatch(mMultiThreadedProcessingEnabled.load(std::memory_order_acquire), liveCount,
-                                        totalWorkUnits, mWorkerPool.HasWorkers());
+        ShouldUseParallelPresetDispatch(multiCore, liveCount, totalWorkUnits, mWorkerPool.HasWorkers());
 
     // Avoid nested parallelism: if mixer-level fan-out is active, run each preset graph serially.
     for (auto& inst : mVoices.Instances())
@@ -1383,6 +1419,12 @@ void MultiPresetMixer::ProcessStereoBlock(float** inputs, float** outputs, int n
     {
         std::copy(mPostChainOutR.begin(), mPostChainOutR.begin() + numSamples, outputs[1]);
     }
+
+    // What the chains made, before the output level: a muted or turned-down output is no
+    // reason to think they have gone quiet.
+    mSleepGate.NoteProcessed(sleepInputPeak,
+                             SilenceSleepGate::PeakOf(mPostChainOutL.data(), mPostChainOutR.data(), numSamples),
+                             numSamples, sleepCanRingOut);
 
     // ==========================================================================
     // FINAL OUTPUT STAGE: Master gain, limiter

@@ -53,6 +53,11 @@ bool MessageDispatcher::DispatchSettings(PluginController& c, const nlohmann::js
             c.ApplyPresetSwitchSettingsFromAppSettings();
         }
 
+        if (key == "audio.processing.multiCore.standalone" || key == "audio.processing.multiCore.plugin")
+        {
+            c.ApplyMultiCoreSettingFromAppSettings();
+        }
+
         if (PluginController::IsNamQualitySettingKey(key))
         {
             c.ApplyNamQualitySettings();

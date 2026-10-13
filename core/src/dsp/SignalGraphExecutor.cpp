@@ -213,6 +213,51 @@ void SignalGraphExecutor::SetGraph(const SignalGraph& graph)
     BuildExecutionPlan();
     // After the plan, whose layout pass has told every node its input layout.
     LoadPendingResources();
+
+    // After CreateProcessors(), which builds any composite's inner graph for this to look into.
+    const auto traits = ClassifyGraphForSleep(GetNodeTypesDeep());
+    mCanRingOut.store(traits.canRingOut, std::memory_order_release);
+    mKeepsAwake.store(traits.keepsAwake, std::memory_order_release);
+}
+
+GraphSleepTraits ClassifyGraphForSleep(const std::vector<std::string>& nodeTypes)
+{
+    const auto& registry = EffectRegistry::Instance();
+    GraphSleepTraits traits;
+
+    for (const auto& type : nodeTypes)
+    {
+        // Opaque wrappers: the graph cannot see what a third-party plugin or a WASM module does.
+        // It may be a synth, or make sound of its own, and one of them being a reverb is likelier
+        // than the cost of being wrong.
+        if (type == EffectGuids::kPluginHost || type == EffectGuids::kWasmHost)
+        {
+            traits.canRingOut = true;
+            traits.keepsAwake = true;
+            continue;
+        }
+
+        const auto canonical = registry.Resolve(type);
+
+        // A note source's MIDI goes on to the host, and a sleeping chain would hold its
+        // last note rather than let it go.
+        if (canonical == EffectGuids::kGuitarToMidi)
+        {
+            traits.keepsAwake = true;
+        }
+
+        // Only the time-based families can go quiet and sound again with nothing new played.
+        // Everything else (an amp, a cab, an EQ, a synth voice with nothing left to track) is
+        // silent within milliseconds of its input.
+        const auto info = registry.GetTypeInfo(canonical);
+
+        if (info && (info->category == "delay" || info->category == "reverb"))
+        {
+            traits.canRingOut = true;
+        }
+    }
+
+    return traits;
 }
 
 void SignalGraphExecutor::BuildExecutionLevels()

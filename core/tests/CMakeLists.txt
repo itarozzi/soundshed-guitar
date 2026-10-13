@@ -62,6 +62,7 @@ set(TEST_SOURCES
     MixerInstanceLockTests.cpp
     MixerTelemetryTests.cpp
     ModulationStereoTests.cpp
+    MultiCoreSettingTests.cpp
     MultiPresetMixerTests.cpp
     MultiRigEditWorkflowTests.cpp
     NamCalibrationProbe.cpp
@@ -105,6 +106,7 @@ set(TEST_SOURCES
     TunerEngineTests.cpp
     SignalGraphExecutorTests.cpp
     SignalPathNodeConfigLockTests.cpp
+    SilenceSleepGateTests.cpp
     SimpleCabEffectTests.cpp
     SpectrumTapTests.cpp
     SpliceTransposerTests.cpp

@@ -251,6 +251,27 @@ Support for running multiple presets in parallel with mix/mute/solo controls:
 - Outputs summed with per-preset gain
 - Solo/mute for A/B comparison
 
+## Threads and Silence
+
+**Multi-core processing.** The mixer can hand work to helper threads: presets fanned out across
+workers when three or more are live, a graph's parallel levels, and the second stereo lane of a
+NAM or IR node (`DualLaneExecutor`). Helpers run in the host audio thread's scheduling class
+(MMCSS "Pro Audio", a macOS time-constraint policy, or SCHED_FIFO where Linux allows it), because
+the audio thread waits on them. Settings → Performance → "Use Multiple CPU Cores" turns all of it
+on or off. The store is shared, so there are two keys: `audio.processing.multiCore.standalone`
+(default on) and `audio.processing.multiCore.plugin` (default off, read by every plugin instance).
+A DAW already spreads its tracks over its own audio threads, and helpers there compete with it.
+Off, `MultiPresetMixer::ProcessStereoBlock` holds a `ScopedSharedHelpersRefused` for the block,
+and every pool then runs its tasks on the calling thread.
+
+**Sleep on silence.** `SilenceSleepGate` skips every chain once the block's input has been under
+about -80 dBFS **and** the chains' output under about -96 dBFS for 1 s, or 5 s when a graph can
+ring out. The default post-chain's Doubler counts as a delay, so 5 s is usual. It writes silence
+until the input moves again (6 dB over the quiet input's peak), then processes that block as
+normal. Nothing is reset, so a chain resumes exactly where it stopped, holding only what had
+already decayed. It stays awake while the tuner is on, during a crossfade or tail, and for any
+graph with a hosted plugin, a WASM module or Guitar to MIDI (`ClassifyGraphForSleep`).
+
 ## Validation Rules
 
 Current executor validates:

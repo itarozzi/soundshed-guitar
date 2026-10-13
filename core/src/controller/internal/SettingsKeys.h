@@ -42,6 +42,17 @@ inline constexpr int kPresetSwitchTailBarsDefault = 2;
 inline constexpr int kPresetSwitchTailBarsMin = 0;
 inline constexpr int kPresetSwitchTailBarsMax = 4;
 
+// ── Multi-core processing ───────────────────────────────────────────
+// Whether this instance spreads its DSP over helper threads (the mixer's preset workers, a
+// graph's parallel levels and the stereo lanes of NAM and IR nodes). Two keys because the store
+// is shared and the defaults differ: on for the standalone, off in a plugin, where the DAW
+// already spreads its tracks over its own audio threads and our helpers compete with them.
+// Every plugin instance reads the plugin key. Absent means the default.
+inline constexpr const char* kMultiCoreStandaloneSettingKey = "audio.processing.multiCore.standalone";
+inline constexpr const char* kMultiCorePluginSettingKey = "audio.processing.multiCore.plugin";
+inline constexpr bool kMultiCoreStandaloneDefault = true;
+inline constexpr bool kMultiCorePluginDefault = false;
+
 // ── NAM quality ─────────────────────────────────────────────────────
 // Each setting has a matching per-node config key: the app-wide setting is
 // pushed down onto every NAM node, and a node may then carry its own value.

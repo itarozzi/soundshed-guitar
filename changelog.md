@@ -20,6 +20,12 @@
 ### Settings
 * A new **Mouse wheel adjusts controls** switch in Settings → General → UI. Turn it off and the scroll wheel stops changing knobs, sliders and the metronome tempo as the pointer passes over them, and just scrolls the page.
 
+### Performance
+* Soundshed Guitar now stops processing when nothing is being played, such as on a muted DAW track, an empty one, or with your guitar's volume rolled off, and uses next to no CPU until you play again. It waits for delay repeats and reverb tails to die away first, and the first note you play comes through in full.
+* A new **Use Multiple CPU Cores** switch in Settings → Performance. It is off by default in the plugin: your DAW already spreads its tracks across your cores, and the extra threads competed with it, which could cause crackles and dropouts. It stays on in the standalone app. The standalone app and the plugin keep separate settings, and the plugin's applies to every instance.
+* When multiple cores are in use, the extra threads now get the same high priority as the audio thread. Before, a busy computer, or a DAW minimised on macOS, could hold them up, which used more CPU and could cause crackles.
+* A plugin instance whose window has never been opened no longer measures its levels for meters nobody can see.
+
 ### Fixes
 * The noise gate shuts promptly again when you stop playing. Since 1.6.0 it stayed fully open for about a quarter of a second after the last note, before its Hold and Release even started. In front of a high-gain amp that was a burst of hiss every time you stopped, most noticeable at the end of a demo clip. It now starts closing about 40 ms after the playing stops, plus your Hold time. Low notes still hold it open, down to a seven-string's low B.
 * The tuner now reads a bass's low strings: the low E of a four-string, the low B of a five- or six-string, the low F# of a seven-string and an extended-range bass tuned down to low C#, down to a semitone under that. It showed nothing below about 45 Hz, or at best the note an octave up now and then.

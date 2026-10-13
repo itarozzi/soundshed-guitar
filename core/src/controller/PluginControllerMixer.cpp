@@ -11,6 +11,7 @@
 
 #include "controller/internal/HostedPluginSupport.h"
 #include "controller/internal/PresetArchiveSupport.h"
+#include "controller/internal/SettingsKeys.h"
 #include "presets/PresetStorage.h"
 
 #include <algorithm>
@@ -392,4 +393,19 @@ void PluginController::SetMixGainDb(double dB)
 {
     mPresetMixer.SetMixGainDb(dB);
 }
+
+void PluginController::ApplyMultiCoreSettingFromAppSettings()
+{
+    const bool standalone = mHost.IsStandalone();
+    const auto it = mAppSettings.find(standalone ? kMultiCoreStandaloneSettingKey : kMultiCorePluginSettingKey);
+    const bool enabled = it != mAppSettings.end() && it->is_boolean()
+                             ? it->get<bool>()
+                             : (standalone ? kMultiCoreStandaloneDefault : kMultiCorePluginDefault);
+
+    // No DSP lock: the flag is atomic, and stopping the helpers joins threads, which must never
+    // happen under the lock the audio thread try_locks. A block already fanned out finishes on
+    // the audio thread (RealtimeTaskPool::Stop).
+    mPresetMixer.SetMultiThreadedProcessingEnabled(enabled);
+}
+
 } // namespace guitarfx

@@ -13,8 +13,14 @@
     #include <windows.h>
 #elif defined(__APPLE__)
     #include <dispatch/dispatch.h>
+    #include <mach/mach.h>
+    #include <mach/mach_time.h>
+    #include <mach/thread_policy.h>
+    #include <pthread.h>
 #else
     #include <cerrno>
+    #include <pthread.h>
+    #include <sched.h>
     #include <semaphore.h>
 #endif
 
@@ -77,6 +83,57 @@ void LowerPriorityOfThisThread() noexcept
 {
 #if defined(_WIN32)
     SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
+#endif
+}
+
+void RaisePriorityOfThisThreadForAudio() noexcept
+{
+#if defined(_WIN32)
+    // MMCSS "Pro Audio", the class hosts and drivers run their own audio threads in. avrt.dll
+    // is loaded rather than linked so a system without it still gets the fallback.
+    using SetCharacteristicsFn = HANDLE(WINAPI*)(LPCWSTR, LPDWORD);
+    static const auto setCharacteristics = []() -> SetCharacteristicsFn {
+        HMODULE avrt = LoadLibraryW(L"avrt.dll");
+        return avrt ? reinterpret_cast<SetCharacteristicsFn>(GetProcAddress(avrt, "AvSetMmThreadCharacteristicsW"))
+                    : nullptr;
+    }();
+
+    DWORD taskIndex = 0;
+
+    if (setCharacteristics == nullptr || setCharacteristics(L"Pro Audio", &taskIndex) == nullptr)
+    {
+        SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
+    }
+#elif defined(__APPLE__)
+    // A time-constraint thread, as the host's own audio thread is. Without this a helper is an
+    // ordinary thread: when the host is not the frontmost app (a minimised window will do it)
+    // macOS lowers it, and on Apple silicon moves it to an efficiency core, while the audio
+    // thread waits for it. Aperiodic, since a helper wakes when a block hands it work; the
+    // numbers bound one lane of one block, well under the 50 ms the kernel accepts.
+    mach_timebase_info_data_t timebase{};
+
+    if (mach_timebase_info(&timebase) != KERN_SUCCESS || timebase.numer == 0)
+    {
+        return;
+    }
+
+    const auto nsToTicks = [&timebase](std::uint64_t ns) {
+        return static_cast<std::uint32_t>(ns * timebase.denom / timebase.numer);
+    };
+
+    thread_time_constraint_policy_data_t policy{};
+    policy.period = 0;
+    policy.computation = nsToTicks(5'000'000);
+    policy.constraint = nsToTicks(10'000'000);
+    policy.preemptible = 1;
+    thread_policy_set(pthread_mach_thread_np(pthread_self()), THREAD_TIME_CONSTRAINT_POLICY,
+                      reinterpret_cast<thread_policy_t>(&policy), THREAD_TIME_CONSTRAINT_POLICY_COUNT);
+#elif defined(__linux__) && !defined(__ANDROID__)
+    // Only granted with an rtprio limit (the audio group on most distributions); otherwise the
+    // call fails and the helper stays an ordinary thread, as before.
+    sched_param param{};
+    param.sched_priority = std::max(1, sched_get_priority_min(SCHED_FIFO));
+    pthread_setschedparam(pthread_self(), SCHED_FIFO, &param);
 #endif
 }
 
@@ -276,6 +333,7 @@ void RealtimeTaskPool::StopLocked()
 void RealtimeTaskPool::WorkerLoop()
 {
     FlushDenormalsOnThisThread();
+    RaisePriorityOfThisThreadForAudio();
 
     while (true)
     {
@@ -354,7 +412,7 @@ void RealtimeTaskPool::Run(TaskFn task, void* context, int count) noexcept
     const int workers = WorkerCount();
     const int fanned = std::min(count, kMaxTasks);
 
-    if (workers == 0 || fanned < 2)
+    if (workers == 0 || fanned < 2 || detail::tSharedHelpersRefused)
     {
         for (int i = 0; i < count; ++i)
         {
