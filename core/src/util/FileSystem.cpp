@@ -1,7 +1,10 @@
 #include "FileSystem.h"
 
+#include <atomic>
+#include <chrono>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
 #include <mutex>
 #include <string>
 
@@ -124,6 +127,37 @@ std::optional<std::filesystem::path> FileSystem::EnsureDirectory(const std::file
     if (std::filesystem::create_directories(dir, ec) || std::filesystem::exists(dir))
     {
         return dir;
+    }
+
+    return std::nullopt;
+}
+
+std::optional<std::string> FileSystem::CheckWritable(const std::filesystem::path& dir) const
+{
+    std::error_code ec;
+
+    if (!std::filesystem::is_directory(dir, ec))
+    {
+        return std::string{"it is not a folder"};
+    }
+
+    // Unique per call: plugin instances in one host, and the standalone beside a host, start
+    // together and probe the same folder.
+    static std::atomic<unsigned> sequence{0};
+    const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
+    const auto probe = dir / (".write-probe-" + std::to_string(stamp) + "-" + std::to_string(sequence.fetch_add(1)));
+
+    bool written = false;
+    {
+        std::ofstream file(probe, std::ios::binary | std::ios::trunc);
+        written = file && (file << 'x') && file.flush();
+    }
+
+    std::filesystem::remove(probe, ec);
+
+    if (!written)
+    {
+        return std::string{"a new file could not be created there"};
     }
 
     return std::nullopt;

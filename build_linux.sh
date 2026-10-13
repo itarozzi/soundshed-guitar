@@ -388,6 +388,7 @@ check_linux_dependencies() {
         xext
         xinerama
         xrandr
+        xi
         gtk+-x11-3.0
     )
 
@@ -406,7 +407,7 @@ check_linux_dependencies() {
         echo "" >&2
         echo "✗ Missing Linux build dependencies: ${missing_modules[*]}" >&2
         echo "  Install the JUCE Linux packages, for example on Ubuntu:" >&2
-        echo "  sudo apt-get update && sudo apt-get install libasound2-dev libx11-dev libxext-dev libxinerama-dev libxrandr-dev libfreetype6-dev libfontconfig1-dev libcurl4-openssl-dev libgtk-3-dev libwebkit2gtk-4.1-dev libgl1-mesa-dev libglu1-mesa-dev ninja-build" >&2
+        echo "  sudo apt-get update && sudo apt-get install libasound2-dev libx11-dev libxext-dev libxinerama-dev libxrandr-dev libxi-dev libfreetype6-dev libfontconfig1-dev libcurl4-openssl-dev libgtk-3-dev libwebkit2gtk-4.1-dev libgl1-mesa-dev libglu1-mesa-dev ninja-build" >&2
         exit 1
     fi
 }

@@ -289,6 +289,35 @@ bool TestProfileUnderNonAsciiUserName()
 
     return true;
 }
+
+/// The startup writability probe works in a folder outside plain ASCII, leaves nothing behind,
+/// and reports a folder that is not there.
+bool TestWritableProbeUnderNonAsciiName()
+{
+    const fs::path sandbox = FreshSandbox(guitarfx::util::PathFromUtf8("M\xC3\xBCzik \xC5\x9E"));
+    const guitarfx::FileSystem fileSystem;
+    bool ok = true;
+
+    if (const auto problem = fileSystem.CheckWritable(sandbox))
+    {
+        std::cerr << "A writable folder was reported as not writable: " << *problem << "\n";
+        ok = false;
+    }
+
+    if (fs::directory_iterator(sandbox) != fs::directory_iterator())
+    {
+        std::cerr << "The probe left a file behind\n";
+        ok = false;
+    }
+
+    if (!fileSystem.CheckWritable(sandbox / "missing"))
+    {
+        std::cerr << "A missing folder was reported as writable\n";
+        ok = false;
+    }
+
+    return ok;
+}
 } // namespace
 
 int main()
@@ -313,6 +342,7 @@ int main()
 
     run("Folder pick under a non-ASCII name", TestFolderPickUnderNonAsciiName);
     run("Profile under a non-ASCII user name", TestProfileUnderNonAsciiUserName);
+    run("Writability probe under a non-ASCII name", TestWritableProbeUnderNonAsciiName);
 
     std::cout << "\nNon-ASCII path workflow tests: " << (failed == 0 ? "all passed" : "FAILED") << "\n";
     return failed == 0 ? 0 : 1;

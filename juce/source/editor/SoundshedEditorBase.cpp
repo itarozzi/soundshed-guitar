@@ -16,8 +16,25 @@ void sendUiMessage (PluginProcessorAdapter& processor, const char* type, nlohman
 SoundshedEditorBase::SoundshedEditorBase (PluginProcessorAdapter& processor, SizeLimits limits)
     : AudioProcessorEditor (&processor),
       processorRef (processor),
-      sizeLimits (limits)
+      sizeLimits (limits),
+      constructedAtMs (juce::Time::getMillisecondCounterHiRes())
 {
+    // One line that says where every later line came from, so a log a user sends in can be
+    // read without asking which build, format, host and display it was.
+    auto line = juce::String ("[Editor] ") + JucePlugin_Name + " " + JucePlugin_VersionString + " ("
+                + juce::AudioProcessor::getWrapperTypeDescription (processor.wrapperType) + ")";
+
+    if (processor.wrapperType != juce::AudioProcessor::wrapperType_Standalone)
+        line << " in " << juce::PluginHostType().getHostDescription();
+
+    line << "; " << juce::SystemStats::getOperatingSystemName() << "; " << juce::SystemStats::getJUCEVersion();
+
+    if (const auto* display = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay())
+        line << "; display " << juce::roundToInt (display->logicalBounds.getWidth()) << "x"
+             << juce::roundToInt (display->logicalBounds.getHeight()) << " @ "
+             << display->scale << "x, " << juce::roundToInt (display->dpi) << " dpi";
+
+    writeStartupLog (line);
 }
 
 SoundshedEditorBase::~SoundshedEditorBase()
@@ -49,6 +66,9 @@ void SoundshedEditorBase::notifyReadyToShow()
         return;
 
     readyToShowNotified = true;
+    writeStartupLog ("[Editor] ready to show after "
+                     + juce::String (juce::roundToInt (juce::Time::getMillisecondCounterHiRes() - constructedAtMs))
+                     + " ms");
 
     if (onReadyToShow != nullptr)
         onReadyToShow();

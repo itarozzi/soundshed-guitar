@@ -33,5 +33,10 @@ class FileSystem
     [[nodiscard]] std::filesystem::path ResolveSettingsDirectory() const;
     [[nodiscard]] std::filesystem::path ResolveSettingsFile() const;
     [[nodiscard]] std::optional<std::filesystem::path> EnsureDirectory(const std::filesystem::path& dir) const;
+
+    /// Why a new file cannot be written in `dir`, or nothing when one can. A folder that exists
+    /// can still refuse writes, for instance one left owned by another account, so this creates
+    /// and removes a small probe file rather than trusting EnsureDirectory.
+    [[nodiscard]] std::optional<std::string> CheckWritable(const std::filesystem::path& dir) const;
 };
 } // namespace guitarfx

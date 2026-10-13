@@ -217,7 +217,8 @@ merging, and verification of both saved data and the audio path.
   `cmake --build juce/builds --config Release --target SoundshedGuitar_VST3 SoundshedGuitar_CLAP`.
   The first run downloads the pinned validators into `juce/builds/tools/`; pluginval's
   logs go to `juce/builds/validation/`. CI runs it in `build-windows.yml` (x64 legs)
-  and `build-macos.yml`.
+  and `build-macos.yml`. Each pluginval test may take up to 10 minutes; change that with
+  `--timeout-ms` or `SSG_PLUGINVAL_TIMEOUT_MS`.
 - **Did the sound change between versions?** `node tools/audio-ab/audio-ab.mjs <base> [<target>]`
   (target defaults to the working tree, so `... HEAD` shows what uncommitted changes do and
   `... 1.5.0` compares against the public release). It builds `core/tests/AudioSnapshot` in

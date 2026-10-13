@@ -638,8 +638,11 @@ data/v1/
     indexes/effect-layouts.json
     images/
   logs/
-    session-log.txt
+    session-log.txt               # Falls back to <temp>/Soundshed Guitar/ if this folder refuses writes
 ```
+
+The editor's startup trace is outside `data/v1`, at `<ROOT>/logs/soundshed-startup.log`. Past
+1 MB it is moved to `soundshed-startup.old.log` and a new file is started.
 
 ---
 

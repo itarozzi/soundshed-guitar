@@ -112,12 +112,24 @@ void PluginController::Initialize()
     AppendSessionLog("Initializing. Resource root: " + util::PathToUtf8(mResourceRoot));
 
     // Ensure essential directories exist on first launch
-    [[maybe_unused]] const auto ensuredResourceRoot = mFileSystem.EnsureDirectory(mResourceRoot);
-    [[maybe_unused]] const auto ensuredSettingsRoot =
-        mFileSystem.EnsureDirectory(mFileSystem.ResolveSettingsDirectory());
-    [[maybe_unused]] const auto ensuredUserPresets = mFileSystem.EnsureDirectory(mUserPresetsPath);
-    [[maybe_unused]] const auto ensuredResources =
-        mFileSystem.EnsureDirectory(mFileSystem.ResolveSettingsDirectory() / "resources");
+    const auto settingsRoot = mFileSystem.ResolveSettingsDirectory();
+
+    for (const auto& dir : {mResourceRoot, settingsRoot, mUserPresetsPath, settingsRoot / "resources"})
+    {
+        if (!mFileSystem.EnsureDirectory(dir))
+        {
+            AppendSessionLog("Could not create the folder " + util::PathToUtf8(dir));
+        }
+    }
+
+    // The document store, settings and imports all live under here. A folder that exists but
+    // refuses writes (one left owned by another account, say) otherwise fails quietly, one
+    // save at a time.
+    if (const auto problem = mFileSystem.CheckWritable(settingsRoot))
+    {
+        AppendSessionLog("The data folder " + util::PathToUtf8(settingsRoot) + " is not writable: " + *problem +
+                         ". Presets, settings and imports will not be saved until its permissions are fixed.");
+    }
 
     // Eagerly, so the migration log lands at startup rather than on first use.
     // Goes through Store() so the once-flag is consumed here and a later access

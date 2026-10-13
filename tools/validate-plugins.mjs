@@ -18,6 +18,7 @@
  *   node tools/validate-plugins.mjs --config Debug
  *   node tools/validate-plugins.mjs --formats VST3,CLAP # a missing format is then an error
  *   node tools/validate-plugins.mjs --strictness 8 --skip-gui-tests
+ *   node tools/validate-plugins.mjs --timeout-ms 900000 # pluginval's per-test limit, default 10 min
  *   node tools/validate-plugins.mjs --artefacts <dir>   # default juce/builds/SoundshedGuitar_artefacts/<config>
  *   node tools/validate-plugins.mjs --artefacts nanoq/build/Release/products --product "Soundshed Nano Q"   # Nano Q
  *
@@ -96,8 +97,10 @@ const TOOLS = {
 };
 
 // pluginval's default per-test timeout is 30 s; a cold prepare that loads NAM
-// models and IRs can take longer than that on a busy CI runner.
-const PLUGINVAL_TIMEOUT_MS = 120000;
+// models and IRs can take longer than that on a busy CI runner, and at strictness 10
+// the parameter thread-safety test alone can run past 2 minutes on a slow Windows
+// runner. Override with --timeout-ms or SSG_PLUGINVAL_TIMEOUT_MS.
+const PLUGINVAL_DEFAULT_TIMEOUT_MS = 600000;
 
 // ---------------------------------------------------------------------------
 // Arguments
@@ -108,6 +111,7 @@ function parseArgs(argv) {
     formats: null,
     strictness: 10,
     skipGuiTests: false,
+    timeoutMs: Number(process.env.SSG_PLUGINVAL_TIMEOUT_MS || PLUGINVAL_DEFAULT_TIMEOUT_MS),
     artefacts: null,
     product: null,
     toolsDir: process.env.SSG_VALIDATOR_TOOLS_DIR || path.join(REPO_ROOT, "juce", "builds", "tools"),
@@ -125,6 +129,7 @@ function parseArgs(argv) {
     else if (a === "--formats") args.formats = next().split(",").map((f) => f.trim().toUpperCase()).filter(Boolean);
     else if (a === "--strictness") args.strictness = Number(next());
     else if (a === "--skip-gui-tests") args.skipGuiTests = true;
+    else if (a === "--timeout-ms") args.timeoutMs = Number(next());
     else if (a === "--artefacts") args.artefacts = path.resolve(next());
     else if (a === "--product") args.product = next();
     else if (a === "--tools-dir") args.toolsDir = path.resolve(next());
@@ -135,6 +140,7 @@ function parseArgs(argv) {
     } else fail(`unknown argument ${a}`);
   }
   if (!Number.isInteger(args.strictness) || args.strictness < 1 || args.strictness > 10) fail("--strictness must be 1..10");
+  if (!Number.isInteger(args.timeoutMs) || args.timeoutMs < 1000) fail("--timeout-ms must be a whole number of milliseconds, at least 1000");
   if (!args.artefacts) args.artefacts = path.join(REPO_ROOT, "juce", "builds", "SoundshedGuitar_artefacts", args.config);
   return args;
 }
@@ -267,7 +273,7 @@ function validateWithPluginval(format, target, args) {
     "--strictness-level",
     String(args.strictness),
     "--timeout-ms",
-    String(PLUGINVAL_TIMEOUT_MS),
+    String(args.timeoutMs),
     "--output-dir",
     args.logsDir,
   ];

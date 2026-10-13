@@ -85,6 +85,10 @@ private:
 
     SizeLimits sizeLimits;
 
+    // When the editor was constructed, so the startup log can say how long it took to have
+    // something on screen (notifyReadyToShow).
+    double constructedAtMs = 0.0;
+
     // Set once a host has pushed its DPI scale at us via setScaleFactor(). Of the formats we
     // build, only the CLAP wrapper does that - see applyHostScaleWorkaround() for why it matters.
     bool hostSuppliedScaleFactor = false;

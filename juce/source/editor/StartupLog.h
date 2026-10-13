@@ -7,5 +7,6 @@ namespace soundshed::editor
 /// Appends a timestamped line to <profile>/logs/soundshed-startup.log (and the JUCE logger
 /// where one is attached). The file outlives the process and works in release builds, which
 /// is the point: it is how an editor that came up blank or at the wrong size gets diagnosed.
+/// Past 1 MB the file is moved to soundshed-startup.old.log and a new one started.
 void writeStartupLog (const juce::String& message);
 } // namespace soundshed::editor
