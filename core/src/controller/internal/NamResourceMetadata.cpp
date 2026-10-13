@@ -385,12 +385,14 @@ std::optional<std::string> MapToLibraryCategory(const std::string& rawCategory)
         return std::nullopt;
     }
 
-    if (category == "amp")
+    // The trainer's gear types (amp, pedal, pedal_amp, amp_cab, amp_pedal_cab, preamp, studio)
+    // arrive here with '_' already turned into '-'.
+    if (category == "amp" || category == "pedal-amp")
     {
         return std::string{"amp"};
     }
 
-    if (category == "preamp" || category == "outboard")
+    if (category == "preamp" || category == "outboard" || category == "studio")
     {
         return std::string{"preamp"};
     }
@@ -407,7 +409,7 @@ std::optional<std::string> MapToLibraryCategory(const std::string& rawCategory)
     }
 
     if (category == "full-rig" || category == "fullrig" || category == "amp-cab" || category == "ampcab" ||
-        category == "amp+cab" || category == "amp-and-cab")
+        category == "amp+cab" || category == "amp-and-cab" || category == "amp-pedal-cab")
     {
         return std::string{"full-rig"};
     }

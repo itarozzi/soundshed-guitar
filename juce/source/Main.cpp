@@ -591,6 +591,18 @@ public:
         quit();
     }
 
+    // Android (and iOS) can stop a backgrounded app without ever asking it to quit, so the
+    // saves above never run. Save the rig and flush the settings file each time it goes to
+    // the background instead.
+    void suspended() override
+    {
+        if (mMainWindow != nullptr)
+            if (auto* holder = mMainWindow->getPluginHolder())
+                holder->savePluginState();
+
+        mAppProperties.saveIfNeeded();
+    }
+
     void anotherInstanceStarted (const juce::String& commandLine) override
     {
         // Extract deep link from incoming command line and route to existing instance

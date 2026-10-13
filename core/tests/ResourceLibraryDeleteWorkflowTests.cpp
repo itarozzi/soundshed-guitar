@@ -12,6 +12,7 @@
 
 #include "IPluginHost.h"
 #include "PluginController.h"
+#include "controller/internal/NamResourceMetadata.h"
 #include "presets/PresetStorage.h"
 #include "presets/PresetTypes.h"
 #include "presets/PresetTypesJson.h"
@@ -980,6 +981,42 @@ bool TestStartupBackfillsNamMetadataOnce()
 
     return ok;
 }
+
+/// Every gear type the NAM trainer writes files the capture somewhere definite. amp_pedal_cab
+/// used to fall through to "amp", so a full rig captured with a pedal in front was filed as an
+/// amp that still needs a cab.
+bool TestNamGearTypesMapToLibraryCategories()
+{
+    const std::pair<const char*, const char*> expected[] = {
+        {"amp", "amp"},           {"pedal", "pedal"},          {"pedal_amp", "amp"},
+        {"amp_cab", "full-rig"},  {"amp_pedal_cab", "full-rig"}, {"preamp", "preamp"},
+        {"studio", "preamp"},
+    };
+
+    bool ok = true;
+
+    for (const auto& [gearType, category] : expected)
+    {
+        guitarfx::LibraryResource resource;
+        resource.type = "nam";
+        resource.metadata["gear_type"] = gearType;
+        const std::string filed = guitarfx::controller_detail::ResolveResourceLibraryCategory(resource, "Local");
+
+        if (filed != category)
+        {
+            std::cerr << "gear_type " << gearType << " was filed under " << filed << ", not " << category << "\n";
+            ok = false;
+        }
+
+        if (!guitarfx::controller_detail::MapToLibraryCategory(gearType))
+        {
+            std::cerr << "gear_type " << gearType << " fell back to the default instead of mapping\n";
+            ok = false;
+        }
+    }
+
+    return ok;
+}
 } // namespace
 
 int main()
@@ -1009,6 +1046,7 @@ int main()
     run("Delete refuses a resource used only by a composite", TestDeleteResourceUsedOnlyByCompositeIsRefused());
     run("Delete reads stored presets fresh, not the usage index", TestDeleteReadsStoredPresetsFresh());
     run("Startup backfills NAM metadata once and saves it", TestStartupBackfillsNamMetadataOnce());
+    run("NAM gear types map to library categories", TestNamGearTypesMapToLibraryCategories());
 
     std::cout << "\nResource library delete workflow tests: " << passed << " passed, " << failed << " failed\n";
     return failed == 0 ? 0 : 1;
