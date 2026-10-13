@@ -8,6 +8,7 @@ import { appendLog } from "../logging.js";
 import { reconcileActiveCompositePreset } from "../multiPresetMixer.js";
 import { showNotification } from "../notifications.js";
 import { refreshPerformancePads } from "../performancePads.js";
+import { refreshPickupMatchGuitars } from "../pickupMatchGlobal.js";
 import { adoptCreatedPreset, applyPresetArchiveSessionState, applyPresetFavoritesFromBackend, applyPresetFoldersFromBackend, applyPresetRatingsFromBackend, applyPresetRecentsFromBackend, applySetlistCursorFromBackend, applySetlistsFromBackend, cachePresetInMemory, handlePresetDataMessage, populatePresetDropdown, refilterPresets, refreshPresetCacheEntryFromBackend, renderActivePreset, setFavoriteToggleState, updatePresetActionButtons, updatePresetDropdownSelection } from "../presets.js";
 import { normalizePresetScenes } from "../presetScenes.js";
 import { migratePresetNodeTypes } from "../presetV2.js";
@@ -227,9 +228,11 @@ export function onEffectPresets(payload: IncomingPayload): void {
   };
   uiState.effectPresets = effectPresetsPayload.byEffectType ?? {};
   setFactoryPackEffectPresets(effectPresetsPayload.factoryByEffectType ?? {});
-  // The backend re-broadcasts after each save/delete. Only the presets flyout shows
-  // the list; re-rendering the params panel too would rebuild the button it hangs from.
+  // The backend re-broadcasts after each save/delete. Only the presets flyout and the global
+  // Pickup Match's guitar list show the list; re-rendering the params panel too would rebuild
+  // the button the flyout hangs from.
   refreshEffectPresetsFlyout();
+  refreshPickupMatchGuitars();
 }
 
 export function onSetlistCursorChanged(payload: IncomingPayload): void {

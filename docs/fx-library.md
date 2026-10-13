@@ -750,6 +750,15 @@ A change goes out as a `pickup.<id>` `setGlobalChainParam` for any of the effect
 `pickup.enabled` for on and off. While it is on, a picture of the target pickup sits beside the IN
 label; clicking it opens the tab.
 
+**My Guitars.** The tab lists the player's saved settings by guitar name. They are Pickup Match's ordinary
+user effect presets (`saveEffectPreset` / `deleteEffectPreset`, filed under the effect's GUID), so a
+Pickup Match node's Presets button offers the same list.
+- Saving sends every parameter and no `nodeId`. The engine looks a node id up in the active preset's
+  chain, and the global node is not in it.
+- Loading sends only the parameters that differ, as `pickup.<id>`, and leaves on/off alone.
+- Which guitar was chosen is not stored. The list marks the one whose every saved parameter the node
+  holds now, and the indicator names it. After a knob turn, nothing is marked until the guitar is saved again.
+
 **String Sensing.** The measurements are electrical, and they leave out what players hear most between
 pickups: where a pickup sits on the string, and how wide it senses.
 - **Position:** a pickup at distance p from the bridge on scale L hears harmonic n in proportion to

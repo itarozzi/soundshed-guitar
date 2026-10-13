@@ -685,9 +685,10 @@ export function initUserInputCalibrationControls(): void {
       return;
     }
 
-    // A popover the flyout opened (a Pickup Match picker) hangs from the body, outside it.
+    // A popover the flyout opened (a Pickup Match picker) hangs from the body, outside it, and
+    // so does a confirmation it asked for (deleting a profile or a guitar).
     const element = target instanceof Element ? target : target.parentElement;
-    if (element?.closest("[data-control-bar-popover]")) {
+    if (element?.closest("[data-control-bar-popover], #dialog-modal")) {
       return;
     }
 

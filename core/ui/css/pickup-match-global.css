@@ -63,6 +63,137 @@
   margin-top: 0;
 }
 
+/* My Guitars: saved settings by guitar name, styled after the calibration profiles' list. */
+.pickup-guitars {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.pickup-guitar-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pickup-guitar-row {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+}
+
+.pickup-guitar-item {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-xl);
+  background: transparent;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.pickup-guitar-item:hover {
+  background: var(--overlay-light);
+  border-color: var(--border-light);
+}
+
+.pickup-guitar-item.active {
+  background: color-mix(in srgb, var(--accent-primary) 14%, var(--overlay-light));
+  border-color: color-mix(in srgb, var(--accent-primary) 44%, var(--border-light));
+}
+
+.pickup-guitar-name {
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pickup-guitar-note {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pickup-guitar-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 30px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-xl);
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.pickup-guitar-delete:hover {
+  background: color-mix(in srgb, var(--overlay-light) 72%, var(--status-error-text) 28%);
+  border-color: var(--status-error-border);
+  color: var(--status-error-text);
+}
+
+.pickup-guitar-item:focus-visible,
+.pickup-guitar-delete:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+.pickup-guitar-delete svg {
+  display: block;
+  pointer-events: none;
+}
+
+.pickup-guitar-save {
+  display: flex;
+  gap: 6px;
+}
+
+/* The input and button match the effect presets flyout's save row. */
+.pickup-guitar-name-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-md);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.pickup-guitar-save-button {
+  padding: 6px 10px;
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.pickup-guitar-save-button:hover {
+  border-color: var(--accent-primary);
+  color: var(--text-primary);
+}
+
+.pickup-guitar-name-input:focus-visible,
+.pickup-guitar-save-button:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
 /* The indicator: the target pickup's picture, beside IN while Pickup Match is on. */
 .pickup-match-indicator {
   display: inline-flex;
