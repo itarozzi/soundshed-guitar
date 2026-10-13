@@ -896,6 +896,8 @@ void SignalGraphExecutor::Process(float** inputs, float** outputs, int numSample
     }
 
     // Clear all buffers and reset input flags
+    bool widenHoldEnded = false;
+
     for (auto& planned : mPlan)
     {
         NodeState& state = *planned.state;
@@ -905,6 +907,12 @@ void SignalGraphExecutor::Process(float** inputs, float** outputs, int numSample
         state.channelCount.store(0, std::memory_order_relaxed);
         state.notesLastBlock = state.notesThisBlock;
         state.notesThisBlock = false;
+
+        if (state.widenHoldSamples > 0)
+        {
+            state.widenHoldSamples = std::max(0, state.widenHoldSamples - numSamples);
+            widenHoldEnded = widenHoldEnded || state.widenHoldSamples == 0;
+        }
 
         if (diagnosticsEnabled)
         {
@@ -919,6 +927,12 @@ void SignalGraphExecutor::Process(float** inputs, float** outputs, int numSample
             state.rms.store(0.0, std::memory_order_relaxed);
             state.clipCount.store(0, std::memory_order_relaxed);
         }
+    }
+
+    // A bypassed widener has held its stereo long enough: the chain after it drops to mono.
+    if (widenHoldEnded)
+    {
+        ResolveChannelLayout(false);
     }
 
     // Apply input trim (global + input node gain)
@@ -1279,6 +1293,8 @@ void SignalGraphExecutor::SetNodeEnabled(const std::string& nodeId, bool enabled
 
     if (auto* state = FindNodeState(nodeId))
     {
+        const bool wasEnabled = state->processor && state->processor->IsEnabled();
+
         for (EffectProcessor* processor : {state->processor.get(), state->twin.get(), state->pendingTwin.get()})
         {
             if (processor)
@@ -1286,6 +1302,30 @@ void SignalGraphExecutor::SetNodeEnabled(const std::string& nodeId, bool enabled
                 processor->SetEnabled(enabled);
             }
         }
+
+        OnNodeBypassChanged(*state, wasEnabled);
+    }
+}
+
+void SignalGraphExecutor::OnNodeBypassChanged(NodeState& state, bool wasEnabled)
+{
+    EffectProcessor* processor = state.processor.get();
+
+    // Before SetGraph() there is no plan, and building one reads each processor's bypass.
+    if (!processor || mPlan.empty() || processor->IsEnabled() == wasEnabled || !processor->CanWiden())
+    {
+        return;
+    }
+
+    if (processor->IsEnabled())
+    {
+        state.widenHoldSamples = 0;
+        ResolveChannelLayout(false);
+    }
+    else
+    {
+        // Still widening until the hold runs out (Process() counts it down), so nothing changes yet.
+        state.widenHoldSamples = std::max(1, static_cast<int>(mSampleRate * kBypassedWidenerHoldSeconds));
     }
 }
 
@@ -1643,6 +1683,8 @@ bool SignalGraphExecutor::SetAutomatedNodesEnabled(const std::string& canonicalT
             node->enabled = enabled;
         }
 
+        const bool wasEnabled = state->processor && state->processor->IsEnabled();
+
         if (state->processor)
         {
             state->processor->SetEnabled(enabled);
@@ -1653,6 +1695,7 @@ bool SignalGraphExecutor::SetAutomatedNodesEnabled(const std::string& canonicalT
             state->twin->SetEnabled(enabled);
         }
 
+        OnNodeBypassChanged(*state, wasEnabled);
         found = true;
     }
 

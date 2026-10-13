@@ -56,7 +56,9 @@ class EffectProcessor
     /// inputs are the same: a pan, a width or spread control, an LFO offset between the sides,
     /// a stereo file. A fixed fact about the type, not about its current settings: the graph
     /// turns stereo after every node that can widen, so a user making it stereo later is heard
-    /// at once, with nothing to switch. Defaults to true, because the two mistakes are not
+    /// at once, with nothing to switch. Only bypass counts: a bypassed node widens nothing, and
+    /// the graph re-resolves when it is switched (SignalGraphExecutor::SetNodeEnabled). Defaults
+    /// to true, because the two mistakes are not
     /// alike: a type wrongly left at true costs CPU in whatever follows it, while one wrongly
     /// declared false lets a following mono path drop its right side. ChannelLayoutTests holds
     /// every type that says false to identical outputs under random settings.
@@ -85,9 +87,11 @@ class EffectProcessor
     }
 
     /// The layout of this node's input, told by the executor when its graph is built and
-    /// whenever its input layout changes (message thread; under the DSP lock once the graph is
-    /// running). A node with a mono path can use it to bring its right side's state level with
-    /// its left before stereo processing starts; a composite hands it to its inner graph.
+    /// whenever its input layout changes: under the DSP lock once the graph is running, and then
+    /// possibly on the audio thread (a bypass from MIDI, or a bypassed widener's hold running
+    /// out), so it must not block or allocate. A node with a mono path can use it to bring its
+    /// right side's state level with its left before stereo processing starts; the executor fades
+    /// the right side in either way. A composite hands it to its inner graph.
     virtual void SetInputLayout(ChannelLayout /*layout*/)
     {
     }

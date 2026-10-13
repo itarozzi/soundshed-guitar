@@ -3,8 +3,9 @@
  * @brief Holds the executor's channel layout to configuration, never to the audio.
  *
  * Whether a connection is mono or stereo is resolved when a graph is built, from its input layout
- * and the effect types along the path (EffectProcessor::CanWiden). Two things follow, and both are
- * pinned here:
+ * and the effect types along the path (EffectProcessor::CanWiden), and again when one of those
+ * types is bypassed or switched back on. Two things follow, and both are pinned here, along with
+ * the bypass changes not clicking:
  *
  *  - Every type that declares it cannot widen really never does: identical sides in, identical
  *    sides out, under any settings. A type that secretly widens would let a following mono path
@@ -381,6 +382,179 @@ void TestInputLayoutChangesInPlace()
     Check(!executor.OutputIsStereo(), "and back");
 }
 
+/// A bypassed type that can widen widens nothing: a chain only it made stereo is mono while it is
+/// bypassed, from the build on, and follows its bypass while running. Switched off it holds its
+/// stereo for a moment first; switched on it turns the chain stereo at once.
+void TestBypassedWidenerLeavesChainMono()
+{
+    using namespace guitarfx::EffectGuids;
+
+    auto graph = Chain({{"chorus", kChorus}, {"amp", kAmpBuiltin}, {"eq", kEqGraphic}});
+    graph.FindNode("chorus")->enabled = false;
+    const auto bypassed = ChannelCounts(graph, ChannelLayout::Mono);
+    Check(bypassed.at("chorus") == 1 && bypassed.at("amp") == 1 && bypassed.at("eq") == 1 && bypassed.at("out") == 1,
+          "a chain with its only widener bypassed is mono throughout");
+
+    const auto stereoIn = ChannelCounts(graph, ChannelLayout::Stereo);
+    Check(stereoIn.at("amp") == 2 && stereoIn.at("out") == 2, "a stereo input stays stereo past a bypassed widener");
+
+    SignalGraphExecutor executor;
+    executor.SetInputLayout(ChannelLayout::Mono);
+    executor.SetGraph(graph);
+    executor.Prepare(kSampleRate, kBlock);
+    std::vector<float> inL(kBlock, 0.1f), inR(kBlock, 0.1f), outL(kBlock), outR(kBlock);
+    float* ins[2] = {inL.data(), inR.data()};
+    float* outs[2] = {outL.data(), outR.data()};
+    const auto runSeconds = [&](double seconds) {
+        for (int block = 0; block < static_cast<int>(seconds * kSampleRate / kBlock); ++block)
+        {
+            executor.Process(ins, outs, kBlock);
+        }
+    };
+
+    runSeconds(0.1);
+    Check(!executor.OutputIsStereo(), "running mono while the widener is bypassed");
+    executor.SetNodeEnabled("chorus", true);
+    Check(executor.OutputIsStereo(), "switching the widener on turns the chain stereo at once");
+    executor.SetNodeEnabled("chorus", false);
+    Check(executor.OutputIsStereo(), "switching it off holds the stereo for a moment");
+    runSeconds(0.4);
+    Check(!executor.OutputIsStereo(), "and then drops the chain to mono");
+
+    // The by-type path a MIDI footswitch takes does the same.
+    const auto chorusType = guitarfx::EffectRegistry::Instance().Resolve(kChorus);
+    executor.SetAutomatedNodesEnabled(chorusType, true);
+    Check(executor.OutputIsStereo(), "switched on by type, the chain turns stereo at once");
+    executor.SetAutomatedNodesEnabled(chorusType, false);
+    runSeconds(0.4);
+    Check(!executor.OutputIsStereo(), "switched off by type, it drops to mono after the hold");
+
+    // A bypass that changes nothing about widening leaves the layout alone.
+    executor.SetNodeEnabled("amp", false);
+    Check(!executor.OutputIsStereo(), "bypassing a type that cannot widen changes nothing");
+}
+
+/// Switching a widener on or off while running moves the layout under a playing signal without a
+/// click on either side: the nodes after it that ran mono fade their right side in, and switching
+/// off holds stereo until their right sides have settled level with their left.
+void TestBypassLayoutChangesDoNotClick()
+{
+    using namespace guitarfx::EffectGuids;
+
+    auto graph = Chain({{"chorus", kChorus}, {"drive", kOverdrive}, {"amp", kAmpBuiltin}, {"eq", kEqGraphic}});
+    graph.FindNode("chorus")->enabled = false;
+    graph.FindNode("chorus")->params["mix"] = 0.0; // dry: the chorus itself adds no edge of its own
+
+    SignalGraphExecutor executor;
+    executor.SetInputLayout(ChannelLayout::Mono);
+    executor.SetGraph(graph);
+    executor.Prepare(kSampleRate, kBlock);
+
+    const int blocksPerPhase = static_cast<int>(0.6 * kSampleRate / kBlock);
+    const auto signal = TestSignal(kBlock * blocksPerPhase * 3);
+    std::vector<float> inL(kBlock), inR(kBlock), outL(kBlock), outR(kBlock);
+    std::vector<float> left, right;
+
+    for (int block = 0; block < blocksPerPhase * 3; ++block)
+    {
+        if (block == blocksPerPhase)
+        {
+            executor.SetNodeEnabled("chorus", true);
+        }
+        else if (block == blocksPerPhase * 2)
+        {
+            executor.SetNodeEnabled("chorus", false);
+        }
+
+        std::copy_n(signal.begin() + static_cast<std::ptrdiff_t>(block) * kBlock, kBlock, inL.begin());
+        std::fill(inR.begin(), inR.end(), 0.0f);
+        float* ins[2] = {inL.data(), inR.data()};
+        float* outs[2] = {outL.data(), outR.data()};
+        executor.Process(ins, outs, kBlock);
+        left.insert(left.end(), outL.begin(), outL.end());
+        right.insert(right.end(), outR.begin(), outR.end());
+    }
+
+    // With the chorus dry both sides carry the same signal throughout, so anything between them is
+    // what the changes made: a right side starting from stale state, or dropped before it settled.
+    double apart = 0.0;
+
+    for (size_t i = 0; i < left.size(); ++i)
+    {
+        apart = std::max(apart, std::fabs(static_cast<double>(left[i]) - right[i]));
+    }
+
+    Check(apart <= kSameSides,
+          "the sides stay together across switching a widener on and off; apart by " + std::to_string(apart));
+}
+
+/// A NAM amp on a mono connection loads one model. When the connection turns stereo while running,
+/// the left model covers both sides until the right one is built, and the right one then comes in
+/// without a click: on identical inputs the two sides stay together from then on. (Before it lands
+/// the right side's tone stack is still settling from its idle mono stretch; in a graph the
+/// executor's own StereoFadeIn covers that, and TestBypassLayoutChangesDoNotClick holds it.)
+void TestNamRightModelComesInWithoutAClick()
+{
+    using namespace guitarfx;
+    const std::filesystem::path model = std::filesystem::path(GUITARFX_TEST_RESOURCES_DIR) / "assets" / "amps" /
+                                        "Guitar" / "TimR" / "JCM800 2203 1985" / "JCM800 Hi P6 B8 M4 T7 G6.nam";
+    auto effect = EffectRegistry::Instance().Create(EffectGuids::kAmpNamOptimized);
+    effect->SetInputLayout(ChannelLayout::Mono);
+
+    if (!effect->LoadResource(model))
+    {
+        Check(false, "the NAM amp loads the test model");
+        return;
+    }
+
+    effect->Prepare(kSampleRate, kBlock);
+    const int blocksPerPhase = static_cast<int>(0.4 * kSampleRate / kBlock);
+    const auto signal = TestSignal(kBlock * blocksPerPhase * 3);
+    std::vector<float> inL(kBlock), inR(kBlock), outL(kBlock), outR(kBlock);
+    double apart = 0.0;
+
+    for (int block = 0; block < blocksPerPhase * 3; ++block)
+    {
+        std::copy_n(signal.begin() + static_cast<std::ptrdiff_t>(block) * kBlock, kBlock, inL.begin());
+
+        if (block < blocksPerPhase)
+        {
+            effect->ProcessMono(inL.data(), outL.data(), kBlock);
+            continue;
+        }
+
+        if (block == blocksPerPhase)
+        {
+            effect->SetInputLayout(ChannelLayout::Stereo);
+        }
+        else if (block == blocksPerPhase * 2)
+        {
+            // What the message thread does off the DSP lock, then under it.
+            auto work = effect->TakeDeferredRebuild();
+            Check(work != nullptr, "turning stereo asks for the right model");
+
+            if (work)
+            {
+                work->Build();
+                effect->CommitDeferredRebuild(*work);
+            }
+        }
+
+        std::copy(inL.begin(), inL.end(), inR.begin());
+        float* ins[2] = {inL.data(), inR.data()};
+        float* outs[2] = {outL.data(), outR.data()};
+        effect->Process(ins, outs, kBlock);
+
+        for (int i = 0; block >= blocksPerPhase * 2 && i < kBlock; ++i)
+        {
+            apart = std::max(apart, std::fabs(static_cast<double>(outL[static_cast<size_t>(i)]) -
+                                              static_cast<double>(outR[static_cast<size_t>(i)])));
+        }
+    }
+
+    Check(apart <= kSameSides, "the right model comes in with the sides together; apart by " + std::to_string(apart));
+}
+
 /// In stereo, a right input that comes and goes changes nothing about the layout, and nothing on
 /// the left ever reaches the right: the right output is exactly what the right input alone makes.
 void TestStereoNeverReadsTheAudio()
@@ -457,6 +631,9 @@ int main()
     TestChannelModeFoldsToMono();
     TestInputLayoutChangesInPlace();
     TestStereoNeverReadsTheAudio();
+    TestBypassedWidenerLeavesChainMono();
+    TestBypassLayoutChangesDoNotClick();
+    TestNamRightModelComesInWithoutAClick();
 
     if (gFailures > 0)
     {

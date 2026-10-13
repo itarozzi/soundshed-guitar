@@ -257,9 +257,15 @@ void SignalGraphExecutor::ResolveChannelLayout(bool notifyAll)
             // Dual mono lets nothing cross between the sides, so a mono fold, which would, is off.
             const bool monoMode = !mDualMono && !isBoundary && state.monoFold != NodeState::MonoFold::None;
             const bool canWiden = processor && processor->CanWiden();
-            const bool outputStereo = !monoMode && (inputStereo || canWiden);
+            // A bypassed effect passes its input on as it arrived, so it widens nothing, unless it
+            // is still holding its stereo (kBypassedWidenerHoldSeconds). A mixer pans its inputs as
+            // it gathers them, bypassed or not.
+            const bool widens =
+                canWiden && (processor->IsEnabled() || state.widenHoldSamples > 0 || planned.isMixer);
+            const bool outputStereo = !monoMode && (inputStereo || widens);
             const bool processesMono = !inputStereo || monoMode;
             const bool inputChanged = (inputStereo != state.inputStereo);
+            const bool ranMono = planned.runMono;
 
             state.inputStereo = inputStereo;
             state.outputStereo = outputStereo;
@@ -269,6 +275,17 @@ void SignalGraphExecutor::ResolveChannelLayout(bool notifyAll)
             planned.runMono = processesMono && !canWiden && processor && !isBoundary && !planned.isMixer &&
                               processor->SupportsMonoProcessing();
             planned.twin = mDualMono ? state.twin.get() : nullptr;
+
+            // A node that ran mono kept no right side, so one that turns stereo while running fades
+            // that side in rather than starting it from stale state.
+            if (ranMono && !planned.runMono && outputStereo && !planned.twin)
+            {
+                state.stereoFadeIn.Start(mSampleRate);
+            }
+            else if (planned.runMono || !outputStereo)
+            {
+                state.stereoFadeIn.Stop();
+            }
 
             if (processor && (notifyAll || inputChanged))
             {
@@ -614,6 +631,10 @@ void SignalGraphExecutor::ProcessPlannedNode(PlannedNode& planned, int numSample
                     // channels can round differently, so the left is copied over the right rather
                     // than trusted to match.
                     copyLeftToRight();
+                }
+                else if (state->stereoFadeIn.IsActive())
+                {
+                    state->stereoFadeIn.Apply(state->bufferLeft.data(), state->bufferRight.data(), numSamples);
                 }
             }
         }

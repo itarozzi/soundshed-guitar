@@ -16,6 +16,7 @@
 #include "dsp/FiniteCheck.h"
 #include "dsp/NamModelCache.h"
 #include "dsp/RealtimeParallel.h"
+#include "dsp/StereoFadeIn.h"
 #include "dsp/effects/NAMSampleRate.h"
 #include "dsp/effects/NAMOversampling.h"
 #include "dsp/effects/NAMSlimmableSettings.h"
@@ -208,6 +209,7 @@ class OptimizedNAMAmpEffect : public EffectProcessor
             if (mModelRight)
             {
                 ProcessModels(numSamples);
+                mRightModelFadeIn.Apply(mOutputBufferL.data(), mOutputBufferR.data(), numSamples);
             }
             else
             {
@@ -433,6 +435,8 @@ class OptimizedNAMAmpEffect : public EffectProcessor
         std::swap(mModelRight, work->model);
         std::swap(mOversamplingRight, work->oversampling);
         mRightModelWanted = false;
+        // The new model has heard nothing yet, while the left one has been covering both sides.
+        mRightModelFadeIn.Start(mSampleRate);
     }
 
     [[nodiscard]] int GetLatencySamples() const override
@@ -869,6 +873,8 @@ class OptimizedNAMAmpEffect : public EffectProcessor
     // Unknown until the executor says, so both models load: never less than a stereo input needs.
     bool mStereoInput = true;
     bool mRightModelWanted = false;
+    /// Brings in a right model built while running, over what the left one was making for it.
+    StereoFadeIn mRightModelFadeIn;
     // Counts model loads, so a right model built for one model is never installed beside another.
     std::uint64_t mModelGeneration = 0;
 

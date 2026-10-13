@@ -129,8 +129,9 @@ Disabled nodes skip processing; their buffer becomes a pass-through of gathered 
 
 ### Channel Layout
 Whether each connection carries one signal on both channels (mono) or two (stereo) is decided
-when a graph is built, from the graph's input and the effect types along the path. It is never
-measured from the audio, and it never moves because a knob did.
+when a graph is built, from the graph's input, the effect types along the path and which of them
+are bypassed. It is never measured from the audio, and it never moves because a knob did; bypass
+is the one control that moves it.
 
 - **The input.** In a DAW the track's bus decides: a mono track is mono, a stereo track stereo,
   and a mono-in/stereo-out insert is mono in. In the standalone app the input mode decides:
@@ -148,7 +149,9 @@ measured from the audio, and it never moves because a knob did.
   synth and Guitar to MIDI.
 - **Resolution** (`SignalGraphExecutor::ResolveChannelLayout`), in execution order: a node's
   input is stereo if any connection into it is; its output is stereo if its input is or its type
-  can widen. A node runs `ProcessMono` on one channel, copied to the other, only when its input is
+  can widen and it is not bypassed (a bypassed node passes its input on untouched; a mixer still
+  pans its inputs, so it counts bypassed or not). A node runs `ProcessMono` on one channel, copied
+  to the other, only when its input is
   mono, it has a mono path and its type cannot widen. Everything else runs `Process` on both
   channels. A mono connection always holds the same samples on both channels: after a node runs
   in stereo on one, its left is copied over its right.
@@ -157,12 +160,22 @@ measured from the audio, and it never moves because a knob did.
 - **Changes.** A running graph re-resolves in place when its input layout changes (an input mode
   or a bus change); anything structural rebuilds the chain anyway. A NAM node on a mono
   connection loads only its left model; a connection that turns stereo while running builds the
-  right one off the DSP lock (`TakeDeferredRebuild`) while the left covers both sides.
+  right one off the DSP lock (`TakeDeferredRebuild`) while the left covers both sides, then fades
+  it in (`StereoFadeIn`).
+- **Bypass.** Switching a widening type on or off while running re-resolves in place, from the
+  editor or a MIDI footswitch alike (`SetNodeEnabled`, `SetAutomatedNodesEnabled`). Switched on,
+  the chain after it turns stereo at once, and each node there that was running mono fades its
+  right side in (`StereoFadeIn`: 170 ms copying the left while the right warms up, then a 30 ms
+  crossfade), since that side's state is stale; switching mid-note does not click. Switched off,
+  it keeps counting as widening for 250 ms (`kBypassedWidenerHoldSeconds`) so the nodes after it
+  settle their right side level with their left, then the chain drops to mono. Both lengths
+  outlast the largest NAM model's receptive field, about 170 ms. A composite counts as widening
+  whenever anything inside it can, bypassed or not.
 
 Since everything after a node that can widen already runs stereo, turning a pan or a Spread up,
 switching a tremolo to Pan or loading a stereo IR is heard in the block it lands in, with nothing
 to switch. The cost is CPU: an amp placed after a widening effect runs both sides even while that
-effect is not widening. A node's **channel mode** (`GraphNode.channelMode`) is the control for
+effect is not widening, unless it is bypassed. A node's **channel mode** (`GraphNode.channelMode`) is the control for
 that: Mono folds a stereo input (summed, or one side alone), runs the node mono and puts out mono;
 a widening type in Mono has its output summed too. The chain after it is mono again until the next
 type that can widen. Changing it rebuilds the chain.

@@ -7,6 +7,7 @@
 #include "dsp/SignalTelemetry.h"
 #include "dsp/SilenceSleepGate.h"
 #include "dsp/SpectrumTap.h"
+#include "dsp/StereoFadeIn.h"
 #include <map>
 #include <memory>
 #include <string>
@@ -46,12 +47,18 @@ struct NoteBlock;
  *
  * Channel layout: whether each connection carries one signal on both channels (mono) or two
  * (stereo) is resolved when the plan is built, from the executor's input layout and the effect
- * types along the path, never from the audio and never from an effect's current settings. The
- * input node has the input layout; a node's input is stereo if any connection into it is; its
- * output is stereo if its input is or its type CanWiden(). A node runs its mono path only on a
- * mono input, and only when its type cannot widen. Since everything after a node that can widen
- * already runs stereo, a user turning a pan or a width up is heard at once, with nothing to
- * switch. A mono connection always holds the same samples on both channels.
+ * types along the path and whether each is bypassed, never from the audio and never from an
+ * effect's other settings. The input node has the input layout; a node's input is stereo if any
+ * connection into it is; its output is stereo if its input is or its type CanWiden() and it is
+ * not bypassed. A node runs its mono path only on a mono input, and only when its type cannot
+ * widen. Since everything after a node that can widen already runs stereo, a user turning a pan
+ * or a width up is heard at once, with nothing to switch. A mono connection always holds the same
+ * samples on both channels.
+ *
+ * Bypass moves the layout while running (SetNodeEnabled). Switching a widening type off holds
+ * its stereo for kBypassedWidenerHoldSeconds, so what follows settles before it drops to mono;
+ * switching one on turns the chain after it stereo at once, and each node there that ran mono
+ * fades its right side in (StereoFadeIn), since that side's state is stale.
  *
  * Dual mono (SetDualMono): the input is stereo and nothing crosses between the sides anywhere.
  * A node whose type keeps its channels apart (EffectProcessor::KeepsChannelsSeparate) runs as
@@ -163,6 +170,8 @@ class SignalGraphExecutor
     [[nodiscard]] bool AnyNodeCanWiden() const;
 
     // Node control
+    /// Bypass on or off. A bypassed type that can widen does not count as widening (see the class
+    /// comment), so a chain it alone made stereo runs mono again.
     void SetNodeEnabled(const std::string& nodeId, bool enabled);
     void SetNodeParam(const std::string& nodeId, const std::string& key, double value);
     void SetNodeConfig(const std::string& nodeId, const std::string& key, const std::string& value);
@@ -341,6 +350,11 @@ class SignalGraphExecutor
   private:
     /// NodeState::processingTimeUs for a node that did not run in the last block.
     static constexpr double kNodeDidNotRunUs = -1.0;
+    /// How long a bypassed type that can widen still counts as widening. What follows it runs
+    /// both sides meanwhile on what are now identical inputs, so their right sides settle level
+    /// with their left before the chain drops to mono: a NAM model forgets everything older than
+    /// its receptive field, about 85 ms for a standard model and 170 ms for the largest.
+    static constexpr double kBypassedWidenerHoldSeconds = 0.25;
 
     struct NodeState
     {
@@ -373,6 +387,11 @@ class SignalGraphExecutor
         /// comment). Written only when the layout is resolved, under the DSP lock once running.
         bool inputStereo = false;
         bool outputStereo = false;
+        /// Samples left for which a bypassed type that can widen still counts as widening, so the
+        /// chain after it holds stereo (kBypassedWidenerHoldSeconds). Zero when not holding.
+        int widenHoldSamples = 0;
+        /// The right side coming in after the node turned from mono to stereo while running.
+        StereoFadeIn stereoFadeIn;
         /// The node's channel mode (GraphNode::channelMode): None follows its input; the others
         /// fold a stereo input to one channel, run it mono and put out mono.
         enum class MonoFold : std::uint8_t
@@ -489,6 +508,9 @@ class SignalGraphExecutor
     /// processor its input layout: every one when `notifyAll` (a freshly built plan), else only
     /// those whose input layout changed. No allocation, so a running graph can redo it.
     void ResolveChannelLayout(bool notifyAll);
+    /// After a node's bypass changed: a type that can widen re-resolves the layout at once when
+    /// switched on, and holds its stereo for kBypassedWidenerHoldSeconds when switched off.
+    void OnNodeBypassChanged(NodeState& state, bool wasEnabled);
     /// Finds each note player's upstream note sources, once the plan's edges are resolved.
     void ResolveNoteRouting();
     /// Hands `planned`, a note player about to run, the sources that ran this block.
