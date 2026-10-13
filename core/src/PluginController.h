@@ -61,6 +61,7 @@ class PresetLevelMeter;
 struct PresetLevelJob;
 class TelemetryPublisher;
 class TunerService;
+class GateLearnService;
 class PracticeToolService;
 class HostStateRelay;
 
@@ -1196,6 +1197,8 @@ class PluginController
     std::unique_ptr<PresetLevelMeter> mPresetLevelMeter;
     std::unique_ptr<TelemetryPublisher> mTelemetry;
     std::unique_ptr<TunerService> mTuner;
+    /// Answers "gateLearn" itself: the noise gate learning the noise floor.
+    std::unique_ptr<GateLearnService> mGateLearn;
     std::unique_ptr<DemoPreviewService> mDemoPreview;
     std::unique_ptr<PracticeToolService> mPracticeTool;
     std::unique_ptr<HostStateRelay> mHostStateRelay;

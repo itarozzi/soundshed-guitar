@@ -27,6 +27,7 @@ import { analyzerSpectrogramHistoryByNode, getSelectedNodeDspStatusNodeId, nodeP
 import { bindSelectedNodeDspStatusToggle, isDspStatusVisible, resetDspStatusAverages, updateSelectedNodeAnalyzerPanel, updateSelectedNodeDspStatus, updateSelectedNodePeakMeter } from "../telemetry.js";
 import { getEffectVisualizationEquipmentImage, getEffectVisualizationStockImage, updateEffectVisualization } from "../visualization.js";
 import { bindCabResponseControls, buildCabResponseSectionHtml } from "./cabResponse.js";
+import { bindGateLearnSection, buildGateLearnSectionHtml } from "./gateLearnPanel.js";
 import { bindGraphicEqControls } from "./eq.js";
 import { bindHostedPluginActionControls, bindHostedPluginListControls } from "./hostedPlugins.js";
 import { bindIrAlignmentControls, buildIrAlignmentSectionHtml, IR_ALIGNMENT_PARAM_KEYS, isIrCabNode } from "./irAlignmentPanel.js";
@@ -320,7 +321,8 @@ export function showNodeParamsPanel(node: GraphNode, preset: Preset): void {
     </section>
   ` : "";
 
-  const cabResponseSection = buildCabResponseSectionHtml(node) + buildPickupResponseSectionHtml(node);
+  const cabResponseSection = buildCabResponseSectionHtml(node) + buildPickupResponseSectionHtml(node)
+    + buildGateLearnSectionHtml(node);
   // Under the Main and Advanced tabs rather than in either, so it is in view whichever is open.
   const irAlignmentSection = buildIrAlignmentSectionHtml(node)
     + buildPickupDesignSectionHtml(node, typeInfo?.parameters ?? [], buildParamControls);
@@ -571,6 +573,7 @@ export function showNodeParamsPanel(node: GraphNode, preset: Preset): void {
   bindEffectPresetsButton(node);
   bindGraphicEqControls(node, preset);
   bindCabResponseControls(node, preset);
+  bindGateLearnSection(node, preset);
   bindIrAlignmentControls(node);
   bindSplitBranchControls(node, preset);
   bindLayoutOverlayBypassToggles(node, preset);

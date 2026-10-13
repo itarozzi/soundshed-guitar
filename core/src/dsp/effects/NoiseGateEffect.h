@@ -6,6 +6,7 @@
 #include "dsp/FiniteCheck.h"
 #include "dsp/PickAttackDetector.h"
 #include "dsp/effects/DynamicsPresets.h"
+#include "dsp/effects/NoiseGateLearn.h"
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -40,6 +41,9 @@ namespace guitarfx
  * note. A note picked while the last still rings dips the level in a few milliseconds and
  * swells again, so legato lines swell note by note; between detached notes the gate closes as
  * usual. Attack does nothing in Swell; Release, Hold, Range and the thresholds work as in Gate.
+ *
+ * Learn listens to the detector with the strings muted and reports where Threshold belongs
+ * (GateNoiseLearner). It only measures: the UI applies the threshold it suggests.
  */
 class NoiseGateEffect : public EffectProcessor
 {
@@ -72,6 +76,8 @@ class NoiseGateEffect : public EffectProcessor
         {
             pick.Prepare(mSampleRate);
         }
+
+        mLearner.Prepare(mSampleRate);
     }
 
     void Prepare(double sampleRate, int maxBlockSize) override
@@ -90,6 +96,7 @@ class NoiseGateEffect : public EffectProcessor
             pick.Prepare(sampleRate);
         }
 
+        mLearner.Prepare(sampleRate);
         Reset();
     }
 
@@ -129,6 +136,7 @@ class NoiseGateEffect : public EffectProcessor
         const float* inputRight = inputs[1];
         float* outputLeft = outputs[0];
         float* outputRight = outputs[1];
+        const bool learning = mLearner.BeginBlock();
 
         for (int i = 0; i < numSamples; ++i)
         {
@@ -164,6 +172,16 @@ class NoiseGateEffect : public EffectProcessor
             {
                 outputRight[i] = right * rightGain;
             }
+
+            if (learning)
+            {
+                mLearner.Feed(coefficients.stereoLink ? mDetector[0] : std::max(mDetector[0], mDetector[1]));
+            }
+        }
+
+        if (learning)
+        {
+            mLearner.EndBlock();
         }
     }
 
@@ -183,12 +201,23 @@ class NoiseGateEffect : public EffectProcessor
         GuardState();
 
         const Coefficients coefficients = LoadCoefficients();
+        const bool learning = mLearner.BeginBlock();
 
         for (int i = 0; i < numSamples; ++i)
         {
             const float key = SidechainLevel(input[i], 0, coefficients);
             const bool pick = coefficients.swell && mPick[0].Process(input[i]);
             output[i] = input[i] * NextGain(key, coefficients, 0, pick);
+
+            if (learning)
+            {
+                mLearner.Feed(mDetector[0]);
+            }
+        }
+
+        if (learning)
+        {
+            mLearner.EndBlock();
         }
     }
 
@@ -336,6 +365,24 @@ class NoiseGateEffect : public EffectProcessor
     [[nodiscard]] bool IsOpen() const
     {
         return mOpen[0];
+    }
+
+    /// Learn's measurement: started and read from the message thread, fed by Process().
+    [[nodiscard]] GateNoiseLearner& Learner()
+    {
+        return mLearner;
+    }
+
+    [[nodiscard]] const GateNoiseLearner& Learner() const
+    {
+        return mLearner;
+    }
+
+    /// The threshold a finished Learn suggests at this gate's current hysteresis.
+    [[nodiscard]] double LearnedThresholdDb(double noiseFloorDb) const
+    {
+        return GateNoiseLearner::ThresholdFor(noiseFloorDb, mHysteresisDb.load(std::memory_order_relaxed),
+                                              kMinThresholdDb, kMaxThresholdDb);
     }
 
   private:
@@ -614,6 +661,7 @@ class NoiseGateEffect : public EffectProcessor
     float mSwell[2] = {0.0f, 0.0f};
     bool mDucking[2] = {false, false};
     std::array<PickAttackDetector, 2> mPick;
+    GateNoiseLearner mLearner;
 };
 
 inline void RegisterNoiseGateEffect()

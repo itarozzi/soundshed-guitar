@@ -568,6 +568,27 @@ executor's copy of the graph: the config is what the UI is sent and what the set
 written from, so a panel reading `attack` out of a node holding only `attackMs` would show a
 default instead of the setting and then write that default back over it.
 
+**Learn sets `threshold` from the noise.** With the strings muted, Learn listens to the gate's
+own detector for 2 s (after 100 ms to settle) and suggests a threshold the noise cannot reach:
+`noise floor + hysteresis + 3 dB`, clamped to the parameter's range, so that even the close level
+sits above the noise and hiss can neither open the gate nor hold it open after a note. The noise
+floor is the 95th percentile of the detector's 10 ms slice peaks, so a cable knock, which the
+detector's peak hold stretches over four or five slices, does not drag the threshold up: anything
+under about 90 ms is left out. A floor more than 15 dB over the median slice, or above -12 dBFS,
+means something longer was played, and the listen is reported as that rather than applied. It measures the detector rather than the input, so the suggestion is right
+wherever the gate sits in the chain, after an amp included.
+
+The measurement is `GateNoiseLearner` (`NoiseGateLearn.h`), fed per sample from `Process` and
+`ProcessMono` only while a listen runs; it allocates and locks nothing, and leaves the audio
+bit-identical. `GateLearnService` answers `gateLearn`: it starts a listen on the global gate or a
+preset's node, holds the mixer awake (`MultiPresetMixer::SetHoldAwake`, since the quiet it listens
+to would otherwise put the chains to sleep), polls on idle, restarts the listen on a gate rebuilt
+meanwhile, and reports `gateLearnStatus`. The engine never sets `threshold` itself: the UI applies
+the suggestion as an ordinary edit, so it lands in the preset, undo and the host. The button is
+at the top of the global gate's flyout and in a gate node's panel, under a meter
+(`ts/gateLearn.ts`) of the noise heard against Threshold and its hysteresis band. Learn switches
+a bypassed gate on first, since a bypassed gate hears nothing.
+
 **The global gate is edited from the control bar.** The GATE toggle and threshold knob are the
 whole of it on the bar; the chevron beside the dB readout opens a flyout with every parameter
 above, `advanced` ones under their own heading. `ts/gateSettings.ts` builds that panel from the

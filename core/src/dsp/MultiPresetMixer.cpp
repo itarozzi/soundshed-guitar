@@ -764,6 +764,11 @@ EffectProcessor* MultiPresetMixer::GetNodeProcessor(const std::string& presetId,
     return nullptr;
 }
 
+EffectProcessor* MultiPresetMixer::GetGlobalPreNodeProcessor(const std::string& nodeId)
+{
+    return mGlobalChain.Pre().GetNodeProcessor(nodeId);
+}
+
 const EffectProcessor* MultiPresetMixer::GetNodeProcessor(const std::string& presetId, const std::string& nodeId) const
 {
     if (const auto* inst = mVoices.Find(presetId))
@@ -1116,7 +1121,8 @@ void MultiPresetMixer::ProcessStereoBlock(float** inputs, float** outputs, int n
         SilenceSleepGate::PeakOf(inputs ? inputs[0] : nullptr, inputs ? inputs[1] : nullptr, numSamples);
     const auto preTraits = mGlobalChain.Pre().GetSleepTraits();
     const auto postTraits = mGlobalChain.Post().GetSleepTraits();
-    bool sleepAllowed = mSleepOnSilenceEnabled.load(std::memory_order_acquire) && !mTuner->IsEnabled() &&
+    bool sleepAllowed = mSleepOnSilenceEnabled.load(std::memory_order_acquire) &&
+                        !mHoldAwake.load(std::memory_order_acquire) && !mTuner->IsEnabled() &&
                         !preTraits.keepsAwake && !postTraits.keepsAwake;
     bool sleepCanRingOut = preTraits.canRingOut || postTraits.canRingOut;
 

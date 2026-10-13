@@ -71,6 +71,7 @@ set(TEST_SOURCES
     NamResamplerResetTests.cpp
     NAMPerformanceBenchmark.cpp
     NoiseGateTests.cpp
+    NoiseGateLearnTests.cpp
     NonAsciiPathWorkflowTests.cpp
     NotePlayerTests.cpp
     NoteTrackerTests.cpp

@@ -8,6 +8,7 @@
  */
 
 import { Features, isFeatureEnabled } from "./featureFlags.js";
+import { onGateLearnStatus } from "./gateLearn.js";
 import { onAudioDeviceLevels, onAudioDeviceState } from "./messages/audioDeviceHandlers.js";
 import { onDemoAudioRenderFailed, onDemoAudioRenderSaved, onMetronomeBeat, onPracticeToolFileLoaded, onPracticeToolPlaybackEnded, onPracticeToolTransportState, onPreviewComplete, onPreviewStarted, onPreviewStopped, onRiffCaptureCanceled, onRiffCaptureProgress, onRiffCaptureStarted, onRiffCaptureStopped, onRiffLibraryState, onRiffSaved } from "./messages/captureHandlers.js";
 import { onAutomation, onMidiLearnCapture, onMidiLog } from "./messages/controlSurfaceHandlers.js";
@@ -104,6 +105,7 @@ const MESSAGE_HANDLERS: Record<string, MessageHandler> = {
   "theme": onTheme,
   "tunerUpdate": onTunerUpdate,
   "tunerStarted": onTunerStarted,
+  "gateLearnStatus": onGateLearnStatus,
   "tunerStopped": onTunerStopped,
   "tunerReferenceChanged": onTunerReferenceChanged,
   "tunerLiveModeChanged": onTunerLiveModeChanged,

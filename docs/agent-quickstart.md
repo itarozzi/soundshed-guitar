@@ -83,6 +83,7 @@ Prefer adding to one of these over adding another member to the controller:
 | `DemoPreviewService`             | Demo audio preview mixed into the input                              |
 | `SignalTestService`              | Test-tone injection and the measurement it reports                   |
 | `TunerService`                   | Pitch readings handed from the audio thread to the UI, and the tuner's own messages (on/off, live monitoring, reference pitch) |
+| `GateLearnService`               | The noise gate's Learn: starts a listen on the global gate or a preset node, holds the mixer awake, polls it on idle and reports `gateLearnStatus`. Measures only; the UI applies the threshold |
 | `HostStateRelay`                 | The DAW's saves, restores and program changes from other threads, handed to the message thread: a fallback blob for a save it cannot answer in time, and a queue for restores it cannot start in time |
 | `ResourceFolderScanner`          | The resource browser's folder listing, on detached workers so a slow drive never stalls the message thread. A generation counter supersedes in-flight scans; `Shutdown()` (called from `~PluginController`, not left to member teardown) waits for the last worker |
 | `PresetLevelMeter`               | `measurePresetLevel`: renders a preset over a demo clip on a detached graph (`MultiPresetMixer::BuildDetachedExecutor`) on one low-priority worker, never the live mixer or the DSP lock, and answers BS.1770 loudness (`dsp/Loudness.h`, shared with the Signal Analyzer), peak and RMS through `RunOnMainThread` |

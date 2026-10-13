@@ -25,6 +25,7 @@
 #include "controller/SignalTestService.h"
 #include "controller/TelemetryPublisher.h"
 #include "controller/TunerService.h"
+#include "controller/GateLearnService.h"
 #include "controller/PracticeToolService.h"
 #include "controller/internal/ControllerUtils.h"
 #include "dsp/EffectRegistry.h"
@@ -66,6 +67,10 @@ PluginController::PluginController(IPluginHost& host) : mHost(host)
     mPresetLevelMeter->RegisterMessageHandlers(mMessageHandlers);
     mTuner = std::make_unique<TunerService>(sendToUI, mPresetMixer, mDSPMutex);
     mTuner->RegisterMessageHandlers(mMessageHandlers);
+    mGateLearn = std::make_unique<GateLearnService>(sendToUI, mPresetMixer, mDSPMutex, [this]() {
+        return mActivePresetId.empty() ? std::string("p1") : mActivePresetId;
+    });
+    mGateLearn->RegisterMessageHandlers(mMessageHandlers);
     mDemoPreview = std::make_unique<DemoPreviewService>(mHost, mPresetMixer, mDSPMutex, mSignalTest->ActiveFlag(),
                                                         onError, sendToUI);
     mPracticeTool = std::make_unique<PracticeToolService>(mHost, mDSPMutex, onError, sendToUI);
@@ -524,6 +529,8 @@ void PluginController::OnIdle()
     mSignalTest->OnIdle();
 
     mTuner->OnIdle();
+
+    mGateLearn->OnIdle();
 
     mTelemetry->OnIdle();
 

@@ -242,6 +242,14 @@ class MultiPresetMixer
         mSleepOnSilenceEnabled.store(enabled, std::memory_order_release);
     }
 
+    /// Keeps the chains running through silence while set, whatever SetSleepOnSilenceEnabled
+    /// says: a noise gate learning the noise floor has to hear it, and that noise is quiet
+    /// enough to put the chains to sleep.
+    void SetHoldAwake(bool holdAwake) noexcept
+    {
+        mHoldAwake.store(holdAwake, std::memory_order_release);
+    }
+
     /// Audio thread, or a test between blocks: whether the last block skipped the chains.
     [[nodiscard]] bool IsSleepingOnSilence() const noexcept
     {
@@ -409,6 +417,9 @@ class MultiPresetMixer
                                             const std::string& key) const;
     [[nodiscard]] EffectProcessor* GetNodeProcessor(const std::string& presetId, const std::string& nodeId);
     [[nodiscard]] const EffectProcessor* GetNodeProcessor(const std::string& presetId, const std::string& nodeId) const;
+    /// A node of the live global pre-chain (the global gate is "global_gate"). Valid while the
+    /// caller holds the DSP lock, as GetNodeProcessor is.
+    [[nodiscard]] EffectProcessor* GetGlobalPreNodeProcessor(const std::string& nodeId);
     bool LoadNodeResource(const std::string& presetId, const std::string& nodeId, const ResourceRef& ref);
 
     /// One running graph's deferred rebuilds (see DeferredRebuild).
@@ -597,6 +608,7 @@ class MultiPresetMixer
     bool mLimiterEnabled = false;
     std::atomic<bool> mMultiThreadedProcessingEnabled{rtparallel::kParallelDspSupported};
     std::atomic<bool> mSleepOnSilenceEnabled{true};
+    std::atomic<bool> mHoldAwake{false};
     SilenceSleepGate mSleepGate; // audio thread, apart from Prepare()
 
     // Global settings

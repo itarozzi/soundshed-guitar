@@ -5,6 +5,9 @@
 ### MIDI
 * The app can now tell your MIDI device when you pick a bank or a setlist slot in the app, so a controller or a second unit following along shows the same selection. Turn on **Send a program change to the MIDI device** in the MIDI & Automation panel's Mappings tab and choose the channel. Picking a slot sends its setlist's bank number as Bank Select, then a Program Change for the slot (slot 1 is program 0); picking a setlist sends its Bank Select alone. Choose CC0 + CC32, CC0 only or CC32 only to suit your device, or no Bank Select at all. Changes made from the MIDI device itself or from your DAW are not sent back to it.
 
+### Noise Gate
+* **Learn** sets the noise gate's threshold for you. Mute the strings and press Learn: the gate listens to your rig's noise for two seconds and sets Threshold just above it, high enough that hiss can't open the gate or hold it open after a note. It's at the top of the global gate's settings (the chevron beside the GATE knob) and in the Noise Gate effect's panel, under a meter that shows the noise it heard against the threshold. If you played while it listened it says so and leaves the threshold alone. In an effect's panel, Undo puts the old threshold back.
+
 ### Signal Chain
 * You can now remove a split when one of its branches has effects. Click the mixer's × (or select the mixer and press Delete) and that branch's effects move back into the main signal path, in the same order. If more than one branch has effects, it still asks you to clear all but one first.
 

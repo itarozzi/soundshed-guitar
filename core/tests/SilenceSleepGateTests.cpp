@@ -231,6 +231,21 @@ void TestMixerGateOff()
     Check(!rig.mixer.IsSleepingOnSilence(), "never sleeps with the gate off");
 }
 
+void TestMixerHeldAwake()
+{
+    // A noise gate learning the noise floor holds the mixer awake: the quiet it listens to
+    // would otherwise stop the chains, and the gate would hear nothing.
+    Rig rig(MakeLinearPreset("pass", {}));
+    rig.mixer.SetHoldAwake(true);
+    rig.Fill(0.0f);
+    rig.Run(SilenceSleepGate::kRingOutHoldSeconds + 1.0);
+    Check(!rig.mixer.IsSleepingOnSilence(), "never sleeps while held awake");
+
+    rig.mixer.SetHoldAwake(false);
+    rig.Run(SilenceSleepGate::kRingOutHoldSeconds + 1.0);
+    Check(rig.mixer.IsSleepingOnSilence(), "sleeps again once released");
+}
+
 void TestDelayRepeatsAreNotCut()
 {
     Rig rig(MakeLinearPreset("delay", {EffectGuids::kDelayDigital}));
@@ -256,6 +271,7 @@ int main()
     TestClassification();
     TestMixerSleepsAndWakesCleanly();
     TestMixerGateOff();
+    TestMixerHeldAwake();
     TestDelayRepeatsAreNotCut();
 
     if (gFailures != 0)

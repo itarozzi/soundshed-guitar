@@ -487,6 +487,8 @@ set(GUITARFX_CORE_SOURCES
     src/controller/SignalTestService.cpp
     src/controller/TunerService.h
     src/controller/TunerService.cpp
+    src/controller/GateLearnService.h
+    src/controller/GateLearnService.cpp
     src/controller/TelemetryPublisher.h
     src/controller/TelemetryPublisher.cpp
     src/controller/ResourceFolderScanner.h
@@ -603,6 +605,7 @@ set(GUITARFX_CORE_SOURCES
     src/dsp/effects/BuiltinEffects.h
     src/dsp/effects/GainEffect.h
     src/dsp/effects/NoiseGateEffect.h
+    src/dsp/effects/NoiseGateLearn.h
     src/dsp/effects/ParametricEQEffect.h
     src/dsp/effects/DelayEffect.h
     src/dsp/effects/ReverbEffect.h

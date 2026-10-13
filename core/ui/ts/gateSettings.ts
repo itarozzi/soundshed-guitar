@@ -14,12 +14,23 @@
  * `gate.<key>` global-chain param *and* written onto the node, because the node
  * is the copy the settings blob is serialized from; sending alone would lose an
  * edit made just before the state is saved.
+ *
+ * The flyout opens on Learn (gateLearn.ts): the gate listens to the noise with
+ * the strings muted and sets Threshold just above it, through applyGateParam
+ * like any other edit.
  */
 
 import { appendLog } from "./logging.js";
 import { sendGlobalChainParam } from "./bridge.js";
 import { uiState } from "./state.js";
 import { EffectGuids } from "./effectGuids.js";
+import {
+  bindGateLearnView,
+  gateLearnMeterHtml,
+  type GateLearnTarget,
+  refreshGateLearnViews,
+  registerGateLearnApplier,
+} from "./gateLearn.js";
 import {
   bindFlyoutParamRows,
   buildFlyoutParamRows,
@@ -34,6 +45,8 @@ import type { GraphNode } from "./types.js";
 
 /** Threshold's ends before the effect catalogue arrives with the real ones. */
 const FALLBACK_THRESHOLD_RANGE = { min: -80, max: 0, step: 1 };
+
+const GLOBAL_GATE_LEARN: GateLearnTarget = { scope: "global", nodeId: "global_gate" };
 
 let flyoutKnobs = new Map<string, GenericKnob>();
 let thresholdKnob: GenericKnob | null = null;
@@ -87,6 +100,22 @@ function applyGateParam(key: string, value: number, commit: boolean): void {
   if (commit) {
     appendLog(`preChainGraph.global_gate.${key} → ${value}`);
   }
+  if (key === "threshold" || key === "hysteresis") {
+    refreshGateLearnViews(GLOBAL_GATE_LEARN);
+  }
+}
+
+/** Gate values for the Learn meter, falling back to the definitions' defaults. */
+function gateValueOr(key: string, fallback: number): number {
+  const def = gateParamDef(key);
+  return def ? gateParamValue(def) : fallback;
+}
+
+/** A finished Learn: set like a turned knob, so every view of Threshold follows. */
+function applyLearnedThreshold(thresholdDb: number): void {
+  applyGateParam("threshold", thresholdDb, true);
+  thresholdKnob?.setValue(thresholdDb);
+  flyoutKnobs.get("threshold")?.setValue(thresholdDb);
 }
 
 function applyGateEnabled(enabled: boolean): void {
@@ -144,6 +173,7 @@ function buildFlyout(): boolean {
         <span class="toggle-slider"></span>
       </label>
     </div>
+    ${gateLearnMeterHtml(GLOBAL_GATE_LEARN)}
     <div class="flyout-settings-params">${buildFlyoutParamRows(main, gateBinding)}</div>
     ${advanced.length === 0 ? "" : `
       <div class="flyout-settings-section-title">Advanced</div>
@@ -171,6 +201,18 @@ function bindFlyoutControls(flyout: HTMLElement, defs: ParameterDef[]): void {
 
   flyout.querySelector<HTMLButtonElement>(".flyout-settings-reset")
     ?.addEventListener("click", () => resetGateParams());
+
+  bindGateLearnView(flyout, {
+    target: GLOBAL_GATE_LEARN,
+    threshold: () => gateValueOr("threshold", -60),
+    hysteresis: () => gateValueOr("hysteresis", 4),
+    range: () => gateParamDef("threshold") ?? FALLBACK_THRESHOLD_RANGE,
+    ensureEnabled: () => {
+      if (getGateNode()?.bypassed ?? true) {
+        applyGateEnabled(true);
+      }
+    },
+  });
 }
 
 function resetGateParams(): void {
@@ -186,6 +228,7 @@ function refreshFlyoutValues(): void {
     return;
   }
   refreshFlyoutParamRows(flyout, gateParamDefs(), flyoutKnobs, gateBinding);
+  refreshGateLearnViews(GLOBAL_GATE_LEARN);
 }
 
 function isFlyoutOpen(): boolean {
@@ -264,6 +307,7 @@ export function initializeGateControls(): void {
     return;
   }
   controlsInitialized = true;
+  registerGateLearnApplier("global", (_target, thresholdDb) => applyLearnedThreshold(thresholdDb));
 
   const gateToggle = gateToggleEl();
   gateToggle?.addEventListener("change", () => applyGateEnabled(gateToggle.checked));
