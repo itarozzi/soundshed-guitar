@@ -6,6 +6,7 @@
 #include <mutex>
 #include <thread>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 #if defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86))
@@ -209,15 +210,51 @@ class RealtimeTaskPool
 /// on the calling thread and one helper. One per process, shared by every effect: a caller
 /// that finds it busy, another effect on another thread mid-Run, is told to run both
 /// halves itself.
+///
+/// The helper runs only while some effect holds a Lease. The last Lease to go stops it and
+/// joins it on whichever thread drops that Lease, which is a plugin instance's own teardown.
+/// It used to run until the process-wide object was destroyed. In a plugin that is during
+/// DLL unload, under the Windows loader lock, and a thread cannot finish exiting while
+/// another holds that lock, so the join would hang the host as it unloaded the plugin.
 class DualLaneExecutor
 {
   public:
     static DualLaneExecutor& Instance();
 
-    /// Starts the helper thread if the platform allows one and it is not running yet.
-    /// Call it from an effect's Prepare(): Run() never starts it, so the thread is never
-    /// created from inside an audio block.
-    static void EnsureStarted();
+    /// Keeps the helper running while held. Move-only; an empty one holds nothing.
+    class Lease
+    {
+      public:
+        Lease() noexcept = default;
+        ~Lease();
+        Lease(Lease&& other) noexcept : mHeld(std::exchange(other.mHeld, false))
+        {
+        }
+        Lease& operator=(Lease&& other) noexcept;
+        Lease(const Lease&) = delete;
+        Lease& operator=(const Lease&) = delete;
+
+        [[nodiscard]] bool IsHeld() const noexcept
+        {
+            return mHeld;
+        }
+
+      private:
+        friend class DualLaneExecutor;
+        explicit Lease(bool held) noexcept : mHeld(held)
+        {
+        }
+        bool mHeld = false;
+    };
+
+    /// Takes a Lease, starting the helper if the platform allows one and it is not running.
+    /// Call it from an effect's Prepare() and keep the Lease for the effect's lifetime: Run()
+    /// never starts the helper, so it is never created from inside an audio block. Dropping
+    /// the last Lease joins the helper, so never let that happen on the audio thread.
+    [[nodiscard]] static Lease Acquire();
+
+    /// How many Leases are held; for tests.
+    [[nodiscard]] static int LeaseCountForTesting();
 
     DualLaneExecutor(const DualLaneExecutor&) = delete;
     DualLaneExecutor& operator=(const DualLaneExecutor&) = delete;
@@ -265,9 +302,12 @@ class DualLaneExecutor
     DualLaneExecutor() = default;
     ~DualLaneExecutor() = default;
 
+    void Release();
+
     RealtimeTaskPool mPool;
     std::atomic<bool> mBusy{false};
-    std::once_flag mStarted;
+    std::mutex mLeaseMutex;
+    int mLeases = 0;
 };
 
 [[nodiscard]] inline bool ShouldParallelizeStereoWork(int numSamples) noexcept

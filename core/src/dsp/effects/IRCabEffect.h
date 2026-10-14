@@ -47,7 +47,10 @@ class IRCabEffect : public EffectProcessor
 
     void Prepare(double sampleRate, int maxBlockSize) override
     {
-        rtparallel::DualLaneExecutor::EnsureStarted(); // here, so Process() never starts its thread
+        if (!mDualLaneLease.IsHeld())
+        {
+            mDualLaneLease = rtparallel::DualLaneExecutor::Acquire(); // here, so Process() never starts its thread
+        }
         mSampleRate = sampleRate;
         mMaxBlockSize = maxBlockSize;
         mPrepared = true;
@@ -2006,6 +2009,9 @@ class IRCabEffect : public EffectProcessor
     std::array<double, 2> mMicAProxS1 = {}, mMicAProxS2 = {};
     std::array<double, 2> mMicBShelfS1 = {}, mMicBShelfS2 = {};
     std::array<double, 2> mMicBProxS1 = {}, mMicBProxS2 = {};
+
+    // Keeps the shared second lane running while this effect exists; taken in Prepare().
+    rtparallel::DualLaneExecutor::Lease mDualLaneLease;
 };
 
 inline void RegisterIRCabEffect()

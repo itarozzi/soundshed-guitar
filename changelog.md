@@ -41,6 +41,7 @@
 * On Android the app now saves your rig each time it goes to the background, so nothing is lost when the system later closes it.
 * NAM captures whose file says they are an amp with a pedal and a cab are now filed as full rigs rather than amps, and captures of studio gear as preamps. Models already in your library move on the next start.
 * With Low Latency on (the default), the IR Cab and IR Reverb no longer add more than 256 samples of latency, about 5 ms at 48 kHz. A short IR used to add as much as the largest block your DAW said it might send, up to 2048 samples (43 ms) even when the DAW actually sent far smaller ones, and you heard all of it while playing live.
+* On Windows, closing a project or removing the last Soundshed Guitar from a track now stops the plugin's helper thread straight away. Before, it kept running until the DAW unloaded the plugin, and stopping it at that point could hang the DAW.
 * The tuner now reads a bass's low strings: the low E of a four-string, the low B of a five- or six-string, the low F# of a seven-string and an extended-range bass tuned down to low C#, down to a semitone under that. It showed nothing below about 45 Hz, or at best the note an octave up now and then.
 
 ## 1.6.0 (Oct 8, 2026)

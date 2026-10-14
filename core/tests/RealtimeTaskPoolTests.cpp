@@ -27,6 +27,8 @@
 #include <thread>
 #include <vector>
 
+#include "dsp/EffectGuids.h"
+#include "dsp/EffectRegistry.h"
 #include "dsp/MultiPresetMixer.h"
 #include "dsp/RealtimeParallel.h"
 #include "dsp/SignalGraphExecutor.h"
@@ -280,6 +282,11 @@ bool TestNoStaleClaimsWhileDispatchesShrink()
 
 // ── The dual-lane executor ───────────────────────────────────────────────────
 
+bool HelperExpected()
+{
+    return guitarfx::rtparallel::kParallelDspSupported && std::thread::hardware_concurrency() >= 2;
+}
+
 bool TestDualLaneStartsFromPrepareOnly()
 {
     auto& lanes = DualLaneExecutor::Instance();
@@ -292,20 +299,19 @@ bool TestDualLaneStartsFromPrepareOnly()
 
     if (ranBeforeStart || ran != 0 || lanes.IsAvailable())
     {
-        std::cerr << "  Run() ran or started the helper before EnsureStarted()\n";
+        std::cerr << "  Run() ran or started the helper before anything took a lease\n";
         ok = false;
     }
 
-    DualLaneExecutor::EnsureStarted();
-    const bool helperExpected = guitarfx::rtparallel::kParallelDspSupported && std::thread::hardware_concurrency() >= 2;
+    const auto lease = DualLaneExecutor::Acquire();
 
-    if (lanes.IsAvailable() != helperExpected)
+    if (lanes.IsAvailable() != HelperExpected())
     {
-        std::cerr << "  EnsureStarted() left the helper " << (lanes.IsAvailable() ? "running" : "stopped") << "\n";
+        std::cerr << "  Acquire() left the helper " << (lanes.IsAvailable() ? "running" : "stopped") << "\n";
         return false;
     }
 
-    if (!helperExpected)
+    if (!HelperExpected())
     {
         return ok;
     }
@@ -358,6 +364,74 @@ bool TestDualLaneStartsFromPrepareOnly()
         ok = false;
     }
 
+    return ok;
+}
+
+/// The helper runs only while something holds a lease, and an effect holds one from its first
+/// Prepare() until it is destroyed. The helper used to run until the process-wide executor was
+/// destroyed, which in a plugin is DLL unload, where joining a thread hangs on the loader lock.
+bool TestLastLeaseStopsTheHelper()
+{
+    auto& lanes = DualLaneExecutor::Instance();
+    bool ok = true;
+
+    const auto expect = [&ok, &lanes](int leases, bool running, const char* when) {
+        const int held = DualLaneExecutor::LeaseCountForTesting();
+        const bool available = lanes.IsAvailable();
+
+        if (held != leases || available != (running && HelperExpected()))
+        {
+            std::cerr << "  " << when << ": " << held << " leases (expected " << leases << "), helper "
+                      << (available ? "running" : "stopped") << "\n";
+            ok = false;
+        }
+    };
+
+    expect(0, false, "before any effect is prepared");
+
+    {
+        auto cab = guitarfx::EffectRegistry::Instance().Create(guitarfx::EffectGuids::kCabIr);
+
+        if (!cab)
+        {
+            std::cerr << "  the registry did not create an IR cab\n";
+            return false;
+        }
+
+        expect(0, false, "an IR cab created but not prepared");
+        cab->Prepare(48000.0, 256);
+        cab->Prepare(44100.0, 512);
+        expect(1, true, "an IR cab prepared twice");
+
+        {
+            auto second = DualLaneExecutor::Acquire();
+            auto moved = std::move(second);
+            expect(2, true, "a second lease, moved");
+        }
+
+        expect(1, true, "the second lease dropped");
+    }
+
+    expect(0, false, "the IR cab destroyed");
+
+    {
+        const auto again = DualLaneExecutor::Acquire();
+        expect(1, true, "a lease taken after the helper stopped");
+
+        if (HelperExpected())
+        {
+            int ran = 0;
+            const bool ranBoth = lanes.Run([&ran] { ++ran; }, [&ran] { ++ran; });
+
+            if (!ranBoth || ran != 2)
+            {
+                std::cerr << "  the restarted helper did not run both lanes\n";
+                ok = false;
+            }
+        }
+    }
+
+    expect(0, false, "every lease dropped again");
     return ok;
 }
 
@@ -594,6 +668,7 @@ int main()
     guitarfx::rtparallel::FlushDenormalsOnThisThread();
     guitarfx::RegisterAllEffects();
 
+    run("Dual-lane helper stops with the last lease", TestLastLeaseStopsTheHelper);
     run("Executor: parallel levels match serial while they shrink", TestExecutorMatchesSerialWhileLevelsShrink);
     run("Mixer: preset fan-out matches serial while presets drop out", TestMixerMatchesSerialWhilePresetsDrop);
 

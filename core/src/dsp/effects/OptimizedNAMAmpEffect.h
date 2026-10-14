@@ -117,7 +117,10 @@ class OptimizedNAMAmpEffect : public EffectProcessor
 
     void Prepare(double sampleRate, int maxBlockSize) override
     {
-        rtparallel::DualLaneExecutor::EnsureStarted(); // here, so Process() never starts its thread
+        if (!mDualLaneLease.IsHeld())
+        {
+            mDualLaneLease = rtparallel::DualLaneExecutor::Acquire(); // here, so Process() never starts its thread
+        }
         mSampleRate = sampleRate;
         mMaxBlockSize = maxBlockSize;
         mPrepared = true;
@@ -1153,6 +1156,9 @@ class OptimizedNAMAmpEffect : public EffectProcessor
             return std::nullopt;
         }
     }
+
+    // Keeps the shared second lane running while this effect exists; taken in Prepare().
+    rtparallel::DualLaneExecutor::Lease mDualLaneLease;
 };
 
 inline void RegisterOptimizedNAMAmpEffect()

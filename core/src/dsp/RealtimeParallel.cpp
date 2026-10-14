@@ -465,16 +465,59 @@ DualLaneExecutor& DualLaneExecutor::Instance()
     return instance;
 }
 
-void DualLaneExecutor::EnsureStarted()
+DualLaneExecutor::Lease DualLaneExecutor::Acquire()
 {
     auto& executor = Instance();
+    const std::lock_guard<std::mutex> lock(executor.mLeaseMutex);
 
-    std::call_once(executor.mStarted, [&executor] {
-        if (kParallelDspSupported && std::thread::hardware_concurrency() >= 2)
+    if (executor.mLeases++ == 0 && kParallelDspSupported && std::thread::hardware_concurrency() >= 2)
+    {
+        executor.mPool.Start(1);
+    }
+
+    return Lease(true);
+}
+
+int DualLaneExecutor::LeaseCountForTesting()
+{
+    auto& executor = Instance();
+    const std::lock_guard<std::mutex> lock(executor.mLeaseMutex);
+    return executor.mLeases;
+}
+
+void DualLaneExecutor::Release()
+{
+    const std::lock_guard<std::mutex> lock(mLeaseMutex);
+
+    if (mLeases > 0 && --mLeases == 0)
+    {
+        // Nobody can be inside Run(): every caller is an effect that holds a Lease. Were one
+        // mid-dispatch anyway, Stop() lets it finish, as it does for the other pools.
+        mPool.Stop();
+    }
+}
+
+DualLaneExecutor::Lease::~Lease()
+{
+    if (mHeld)
+    {
+        Instance().Release();
+    }
+}
+
+DualLaneExecutor::Lease& DualLaneExecutor::Lease::operator=(Lease&& other) noexcept
+{
+    if (this != &other)
+    {
+        if (mHeld)
         {
-            executor.mPool.Start(1);
+            Instance().Release();
         }
-    });
+
+        mHeld = std::exchange(other.mHeld, false);
+    }
+
+    return *this;
 }
 } // namespace rtparallel
 } // namespace guitarfx

@@ -277,6 +277,14 @@ A DAW already spreads its tracks over its own audio threads, and helpers there c
 Off, `MultiPresetMixer::ProcessStereoBlock` holds a `ScopedSharedHelpersRefused` for the block,
 and every pool then runs its tasks on the calling thread.
 
+The mixer's and each executor's helpers belong to their plugin instance. `DualLaneExecutor` is
+shared by the whole process, so its helper runs only while some effect holds a
+`DualLaneExecutor::Lease`, which an IR or NAM effect takes in its first `Prepare()`. The last
+Lease to go stops and joins it during the plugin's own teardown. Before 2026-10-13 it ran until
+the process-wide object was destroyed, which in a plugin is DLL unload. On Windows that join
+happens under the loader lock, which the exiting thread needs, so it could hang the host as it
+unloaded the plugin.
+
 **Sleep on silence.** `SilenceSleepGate` skips every chain once the block's input has been under
 about -80 dBFS **and** the chains' output under about -96 dBFS for 1 s, or 5 s when a graph can
 ring out. The default post-chain's Doubler counts as a delay, so 5 s is usual. It writes silence
