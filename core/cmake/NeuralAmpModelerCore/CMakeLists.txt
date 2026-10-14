@@ -19,6 +19,13 @@ guitarfx_disable_linux_gnu_unique(NeuralAmpModelerCore)
 target_compile_features(NeuralAmpModelerCore PUBLIC cxx_std_17)
 guitarfx_apply_release_optimizations(NeuralAmpModelerCore)
 
+# Never link-time optimised, whatever CMAKE_INTERPROCEDURAL_OPTIMIZATION or the release flags say.
+# Built with MSVC's /GL the A2 model ran 2.0x slower and the standard WaveNet 1.3x slower, measured
+# on 2026-10-14 (docs/dsp-performance-review-2026-10-14.md). The JUCE target is link-time
+# optimised; this library is linked into it as plain object code.
+set_target_properties(NeuralAmpModelerCore PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+target_compile_options(NeuralAmpModelerCore PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/GL->)
+
 if(GUITARFX_OPTIMISE_NAM_IN_DEBUG)
     if(MSVC)
         string(REGEX REPLACE "[/-](RTC[1csu]+|Od|Ob0)( |$)" "" CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")

@@ -36,6 +36,7 @@
 * A plugin instance whose window has never been opened no longer measures its levels for meters nobody can see.
 * On a stereo track, Soundshed Guitar now notices when both sides carry the same mono guitar, as they do when a guitar input is recorded or monitored on a stereo track, and runs each amp model and cab once instead of twice. That about halves its CPU on such tracks, and the sound is unchanged. It takes a second of playing to notice. A real stereo source is never treated this way, and if a track starts carrying stereo, the right side comes back within a fifth of a second.
 * NAM amps cost about a third less to resample when your DAW or interface runs at a different sample rate from the capture, such as 44.1 kHz with a 48 kHz capture, and they add almost 1 ms less latency there (27 samples instead of 66 at 44.1 kHz).
+* On Linux and on Intel Macs, NAM amps now use the fused multiply-add instructions every AVX2 processor has, which makes them a little faster.
 
 ### Fixes
 * The noise gate shuts promptly again when you stop playing. Since 1.6.0 it stayed fully open for about a quarter of a second after the last note, before its Hold and Release even started. In front of a high-gain amp that was a burst of hiss every time you stopped, most noticeable at the end of a demo clip. It now starts closing about 40 ms after the playing stops, plus your Hold time. Low notes still hold it open, down to a seven-string's low B.

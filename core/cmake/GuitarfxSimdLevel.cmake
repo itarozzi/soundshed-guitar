@@ -6,7 +6,11 @@ include("${CMAKE_CURRENT_LIST_DIR}/GuitarfxWindowsArch.cmake")
 # ---------------------------------------------------------------------------
 # SIMD baseline for x86-64 Release/RelWithDebInfo builds.
 #
-#   avx2  /arch:AVX2, -mavx2.  Intel Haswell (2013) / AMD Excavator (2015) on.
+#   avx2  /arch:AVX2, -march=x86-64-v3.  Intel Haswell (2013) / AMD Excavator
+#         (2015) on. Both give the compiler FMA as well as AVX2: MSVC's /arch:AVX2
+#         implies it, but gcc/clang's -mavx2 does not, and Eigen only fuses the
+#         NAM core's multiply-adds when __FMA__ is defined. -mavx2 alone measured
+#         4-13% slower NAM inference (docs/dsp-performance-review-2026-10-14.md).
 #   avx   /arch:AVX,  -mavx.   Intel Sandy Bridge / AMD Bulldozer (2011) on.
 #         Still compiles every 256-bit kernel in core/src/dsp/simd/SimdMath.h,
 #         because those guard on __AVX__ rather than __AVX2__ and the codebase
@@ -88,7 +92,9 @@ function(guitarfx_apply_simd_arch_flags target_name visibility)
     # no flag of its own.
     set(_flag "")
     if(GUITARFX_CORE_SIMD_LEVEL STREQUAL "avx2")
-        set(_flag "-mavx2")
+        # One flag, so -Xarch_x86_64 below covers all of it: AVX2, FMA, BMI1/2, F16C and MOVBE,
+        # the Haswell level that /arch:AVX2 means on MSVC.
+        set(_flag "-march=x86-64-v3")
     elseif(GUITARFX_CORE_SIMD_LEVEL STREQUAL "avx")
         set(_flag "-mavx")
     endif()
