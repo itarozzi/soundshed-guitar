@@ -30,6 +30,21 @@ using namespace guitarfx::controller_detail;
 
 namespace guitarfx
 {
+namespace
+{
+nlohmann::json LivePeaksToJson(const std::vector<std::atomic<float>>& livePeaks)
+{
+    nlohmann::json peaks = nlohmann::json::array();
+
+    for (const auto& peak : livePeaks)
+    {
+        peaks.push_back(peak.load(std::memory_order_relaxed));
+    }
+
+    return peaks;
+}
+} // namespace
+
 void PluginController::HandleGetRiffLibraryRequest()
 {
     SendRiffLibraryStateToUI();
@@ -75,6 +90,9 @@ void PluginController::HandleSetRiffLibraryPathRequest(const nlohmann::json& pay
 
 void PluginController::HandleStartRiffCaptureRequest(const nlohmann::json& payload)
 {
+    // Whatever the last take still owes the UI goes ahead of this one's messages.
+    PublishRiffCaptureNotices();
+
     bool captureBusy = false;
     {
         std::lock_guard<std::mutex> lock(mDSPMutex);
@@ -135,7 +153,7 @@ void PluginController::HandleStartRiffCaptureRequest(const nlohmann::json& paylo
     capture->sampleRate = sampleRate;
     capture->bitsPerSample = 16;
     constexpr std::size_t kLivePeakBuckets = 256;
-    capture->livePeaks.assign(kLivePeakBuckets, 0.0f);
+    capture->livePeaks = std::vector<std::atomic<float>>(kLivePeakBuckets);
     capture->livePeakBucketSize =
         std::max<std::size_t>(1, (captureSamples + kLivePeakBuckets - 1) / kLivePeakBuckets);
     capture->lastProgressSample = 0;
@@ -150,6 +168,7 @@ void PluginController::HandleStartRiffCaptureRequest(const nlohmann::json& paylo
         {
             retiredCapture = std::move(mRiffCapture);
             mRiffCapture = capture;
+            mRiffNoticeCapture = capture;
             ActivateRiffGuidance(config, false);
             installed = true;
         }
@@ -179,6 +198,9 @@ void PluginController::HandleStartRiffCaptureRequest(const nlohmann::json& paylo
 
 void PluginController::HandleArmRiffCaptureRequest(const nlohmann::json& payload)
 {
+    // Whatever the last take still owes the UI goes ahead of this one's messages.
+    PublishRiffCaptureNotices();
+
     bool captureBusy = false;
     {
         std::lock_guard<std::mutex> lock(mDSPMutex);
@@ -241,7 +263,7 @@ void PluginController::HandleArmRiffCaptureRequest(const nlohmann::json& payload
     capture->countInSamples = countInSamples;
     capture->sampleRate = sampleRate;
     capture->bitsPerSample = 16;
-    capture->livePeaks.assign(kLivePeakBuckets, 0.0f);
+    capture->livePeaks = std::vector<std::atomic<float>>(kLivePeakBuckets);
     capture->livePeakBucketSize =
         std::max<std::size_t>(1, (maxCaptureSamples + kLivePeakBuckets - 1) / kLivePeakBuckets);
     capture->lastProgressSample = 0;
@@ -257,6 +279,7 @@ void PluginController::HandleArmRiffCaptureRequest(const nlohmann::json& payload
         {
             retiredCapture = std::move(mRiffCapture);
             mRiffCapture = capture;
+            mRiffNoticeCapture = capture;
             // Start click playing via guidance (count-in pattern), don't start recording yet
             ActivateRiffGuidance(config, false);
             installed = true;
@@ -1347,6 +1370,9 @@ void PluginController::FinalizeRiffCapture(bool canceled)
         }
 
         capture = mRiffCapture;
+        // This stop answers for the take now: nothing the audio thread raised before it may
+        // follow it out, such as a progress message after the take has stopped.
+        (void)capture->notices.Take();
 
         // If still armed (never triggered), cancel instead of producing empty audio.
         if (canceled || (capture->armed && !capture->active))
@@ -1371,6 +1397,11 @@ void PluginController::FinalizeRiffCapture(bool canceled)
             capture->endedAt = std::chrono::steady_clock::now();
             DeactivateRiffGuidance(false);
         }
+    }
+
+    if (mRiffNoticeCapture == capture)
+    {
+        mRiffNoticeCapture.reset();
     }
 
     if (sendCanceled)
@@ -1442,7 +1473,7 @@ void PluginController::SendRiffLibraryStateToUI()
 
             if (mutableCapture)
             {
-                waveformPeaks = captureSnapshot->livePeaks;
+                waveformPeaks = LivePeaksToJson(captureSnapshot->livePeaks);
             }
         }
     }
@@ -1528,16 +1559,8 @@ void PluginController::ProcessRiffCaptureBlock(float** inputs, int numSamples)
                     capture.active = true;
                     capture.writeIndex = capture.countInSamples; // already past count-in
                     capture.startedAt = std::chrono::steady_clock::now();
-                    nlohmann::json startMsg;
-                    startMsg["type"] = "riffCaptureStarted";
-                    startMsg["takeId"] = capture.takeId;
-                    startMsg["bars"] = capture.config.bars;
-                    startMsg["tempoBpm"] = capture.config.tempoBpm;
-                    startMsg["timeSigNum"] = capture.config.timeSigNum;
-                    startMsg["timeSigDen"] = capture.config.timeSigDen;
-                    startMsg["countInBars"] = 0;
-                    startMsg["barAlignOffsetSamples"] = barAlignOffset;
-                    SendMessageToUI(startMsg.dump());
+                    capture.notices.barAlignOffsetSamples.store(barAlignOffset, std::memory_order_relaxed);
+                    capture.notices.Raise(RiffCaptureNotices::kStarted);
                     break;
                 }
             }
@@ -1576,7 +1599,12 @@ void PluginController::ProcessRiffCaptureBlock(float** inputs, int numSamples)
 
                         if (bucket < capture.livePeaks.size())
                         {
-                            capture.livePeaks[bucket] = std::max(capture.livePeaks[bucket], peakVal);
+                            auto& livePeak = capture.livePeaks[bucket];
+
+                            if (peakVal > livePeak.load(std::memory_order_relaxed))
+                            {
+                                livePeak.store(peakVal, std::memory_order_relaxed);
+                            }
                         }
                     }
                 }
@@ -1593,11 +1621,8 @@ void PluginController::ProcessRiffCaptureBlock(float** inputs, int numSamples)
             if (capturedSoFar > 0 && capturedSoFar >= capture.lastProgressSample + progressInterval)
             {
                 capture.lastProgressSample = capturedSoFar;
-                nlohmann::json progressMsg;
-                progressMsg["type"] = "riffCaptureProgress";
-                progressMsg["capturedSamples"] = capturedSoFar;
-                progressMsg["waveformPeaks"] = capture.livePeaks;
-                SendMessageToUI(progressMsg.dump());
+                capture.notices.capturedSamples.store(capturedSoFar, std::memory_order_relaxed);
+                capture.notices.Raise(RiffCaptureNotices::kProgress);
             }
 
             if (capture.writeIndex >= capture.targetSamples)
@@ -1614,16 +1639,65 @@ void PluginController::ProcessRiffCaptureBlock(float** inputs, int numSamples)
                     samplesPerBeat * static_cast<double>(std::max(1, capture.config.timeSigNum));
                 const int computedBars = std::max(
                     1, static_cast<int>(std::round(static_cast<double>(capturedFinal) / std::max(1.0, samplesPerBar))));
-                nlohmann::json msg;
-                msg["type"] = "riffCaptureStopped";
-                msg["takeId"] = capture.takeId;
-                msg["bars"] = computedBars;
-                msg["capturedSamples"] = capturedFinal;
-                msg["sampleRate"] = capture.sampleRate;
-                msg["hasAudio"] = capturedFinal > 0;
-                msg["waveformPeaks"] = capture.livePeaks;
-                SendMessageToUI(msg.dump());
+                capture.notices.stoppedBars.store(computedBars, std::memory_order_relaxed);
+                capture.notices.Raise(RiffCaptureNotices::kStopped);
             }
+        }
+    }
+}
+
+void PluginController::PublishRiffCaptureNotices()
+{
+    if (!mRiffNoticeCapture)
+    {
+        return;
+    }
+
+    // Held across the sends: a handler may replace mRiffCapture meanwhile.
+    const std::shared_ptr<RiffCaptureRuntime> capture = mRiffNoticeCapture;
+    auto& notices = capture->notices;
+    const std::uint32_t pending = notices.Take();
+
+    if ((pending & RiffCaptureNotices::kStarted) != 0)
+    {
+        nlohmann::json msg;
+        msg["type"] = "riffCaptureStarted";
+        msg["takeId"] = capture->takeId;
+        msg["bars"] = capture->config.bars;
+        msg["tempoBpm"] = capture->config.tempoBpm;
+        msg["timeSigNum"] = capture->config.timeSigNum;
+        msg["timeSigDen"] = capture->config.timeSigDen;
+        msg["countInBars"] = 0;
+        msg["barAlignOffsetSamples"] = notices.barAlignOffsetSamples.load(std::memory_order_relaxed);
+        SendMessageToUI(msg.dump());
+    }
+
+    if ((pending & RiffCaptureNotices::kProgress) != 0)
+    {
+        nlohmann::json msg;
+        msg["type"] = "riffCaptureProgress";
+        msg["capturedSamples"] = notices.capturedSamples.load(std::memory_order_relaxed);
+        msg["waveformPeaks"] = LivePeaksToJson(capture->livePeaks);
+        SendMessageToUI(msg.dump());
+    }
+
+    if ((pending & RiffCaptureNotices::kStopped) != 0)
+    {
+        // The take is full, and the audio thread writes nothing more to it.
+        const std::size_t capturedFinal = capture->left.size();
+        nlohmann::json msg;
+        msg["type"] = "riffCaptureStopped";
+        msg["takeId"] = capture->takeId;
+        msg["bars"] = notices.stoppedBars.load(std::memory_order_relaxed);
+        msg["capturedSamples"] = capturedFinal;
+        msg["sampleRate"] = capture->sampleRate;
+        msg["hasAudio"] = capturedFinal > 0;
+        msg["waveformPeaks"] = LivePeaksToJson(capture->livePeaks);
+        SendMessageToUI(msg.dump());
+
+        if (mRiffNoticeCapture == capture)
+        {
+            mRiffNoticeCapture.reset();
         }
     }
 }

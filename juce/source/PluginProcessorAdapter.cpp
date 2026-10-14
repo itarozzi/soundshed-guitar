@@ -309,17 +309,17 @@ void PluginProcessorAdapter::releaseResources()
 
 void PluginProcessorAdapter::applyPendingDAWParamChanges (bool mayBlock)
 {
-    // The queue stays locked while its changes apply (a few slot updates), and is cleared in
-    // place rather than swapped out, so it keeps its capacity and the audio thread frees
-    // nothing. If the DSP lock is busy the changes stay queued for the next block rather than
-    // the audio thread waiting on the message thread for it.
-    std::lock_guard<std::mutex> lock (mPendingDAWParamMutex);
+    // The audio thread only tries this lock: a host thread holds it while appending, which can allocate.
+    std::unique_lock<std::mutex> lock (mPendingDAWParamMutex, std::try_to_lock);
 
-    if (mPendingDAWParamChanges.empty())
+    if (!lock.owns_lock() && mayBlock)
+        lock.lock();
+
+    if (!lock.owns_lock() || mPendingDAWParamChanges.empty())
         return;
 
     if (mController.ApplyAutomationFromDAW (mPendingDAWParamChanges, mSlotIdsByParameter, mayBlock))
-        mPendingDAWParamChanges.clear();
+        mPendingDAWParamChanges.clear(); // in place: the queue keeps its capacity, so nothing is freed
 }
 
 bool PluginProcessorAdapter::isBusesLayoutSupported (const BusesLayout& layouts) const

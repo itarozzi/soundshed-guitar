@@ -410,6 +410,33 @@ void Reset(double inputSampleRate, int blockSize)
     std::vector<float> decimationEdgeCoefficients = toFloatTaps(decimationEdgeCoefficientsT);
     std::vector<float> innerCoefficients = toFloatTaps(innerCoefficientsT);")
 
+    # Two per-block paths wrote to std::cerr when a block came up short. That runs on the audio
+    # thread, which blocks in the write when stderr is a pipe nobody drains, and the app logs to
+    # its session log and nowhere else. The short block is still filled with its last sample; only
+    # the write goes. The profiler's two reports stay: they only run with NAM_RESAMPLER_PROFILE set.
+    _guitarfx_replace_once(_content "no-stderr-on-short-block"
+[=[
+      std::cerr << "Did not yield enough samples (" << populated2 << ") to provide the required output buffer (expected "
+                << nFrames << ")! Filling with last sample..." << std::endl;]=]
+[=[
+      // Soundshed fix (core/cmake/GuitarfxAudioDSPTools.cmake): no stderr on the audio thread.]=])
+    _guitarfx_replace_once(_content "no-stderr-on-short-cascaded-block"
+[=[
+      std::cerr << "Cascaded half-band path yielded too few samples (" << populated << " / " << nFrames
+                << "). Filling with last sample..." << std::endl;]=]
+[=[
+      // Soundshed fix (core/cmake/GuitarfxAudioDSPTools.cmake): no stderr on the audio thread.]=])
+
+    string(REGEX MATCHALL "std::cerr" _stderr_writes "${_content}")
+    list(LENGTH _stderr_writes _stderr_write_count)
+    if(NOT _stderr_write_count EQUAL 2)
+        message(FATAL_ERROR
+            "AudioDSPTools: ResamplingContainer.h writes to std::cerr ${_stderr_write_count} times, "
+            "where only the two NAM_RESAMPLER_PROFILE reports may. A write on a per-block path blocks "
+            "the audio thread on an undrained stderr pipe; remove it in "
+            "core/cmake/GuitarfxAudioDSPTools.cmake.")
+    endif()
+
     # Written through a temporary so the header's timestamp only moves when its content does.
     file(WRITE "${_to}/ResamplingContainer.h.new" "${_content}")
     file(COPY_FILE "${_to}/ResamplingContainer.h.new" "${_to}/ResamplingContainer.h" ONLY_IF_DIFFERENT)

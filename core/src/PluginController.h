@@ -15,6 +15,7 @@
 #include "IPluginHost.h"
 #include "MessageHandlerRegistry.h"
 #include "automation/AutomationSlotTable.h"
+#include "controller/RiffCaptureNotices.h"
 #include "controller/SetlistMidiOut.h"
 #include "dsp/MultiPresetMixer.h"
 #include "dsp/effects/CompositeEffectProcessor.h"
@@ -990,6 +991,8 @@ class PluginController
     /// Audio thread, under the DSP lock. Only reached while a capture is armed or
     /// running — see ProcessAudioLocked. Defined in PluginControllerRiffs.cpp.
     void ProcessRiffCaptureBlock(float** inputs, int numSamples);
+    /// Message thread: sends what ProcessRiffCaptureBlock raised (RiffCaptureNotices).
+    void PublishRiffCaptureNotices();
 
     /// Atomic: readers see the old file or all of the new one (util::WriteFileAtomic).
     /// Defined in PluginControllerStorage.cpp.
@@ -1238,8 +1241,10 @@ class PluginController
         std::size_t countInSamples = 0;
         double sampleRate = 0.0;
         int bitsPerSample = 16;
-        // Live waveform during recording (256 peak buckets for up to 16 bars)
-        std::vector<float> livePeaks;
+        // Live waveform during recording (256 peak buckets for up to 16 bars). Written by the
+        // audio thread and read by the message thread as it publishes progress.
+        std::vector<std::atomic<float>> livePeaks;
+        RiffCaptureNotices notices;
         std::size_t livePeakBucketSize = 1;
         std::size_t lastProgressSample = 0;
         std::size_t armPostCountInSamples = 0; // samples elapsed in detection phase after count-in
@@ -1252,6 +1257,9 @@ class PluginController
     /// Published under mDSPMutex. Active captures are mutated only while that lock
     /// is held; completed captures are treated as immutable and replaced wholesale.
     std::shared_ptr<RiffCaptureRuntime> mRiffCapture;
+    /// Message thread: the capture whose notices PublishRiffCaptureNotices() still owes the UI,
+    /// held apart from mRiffCapture so a handler that replaces that one cannot drop the last.
+    std::shared_ptr<RiffCaptureRuntime> mRiffNoticeCapture;
 
     // Resource preview state (for temp loading from Tone3000)
     struct PreviewState

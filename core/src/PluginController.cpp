@@ -407,6 +407,7 @@ void PluginController::OnIdle()
     mPresetMixer.CollectRetiredMainThread();
     ApplyDeferredNodeRebuilds();
     PollSharedSyncState();
+    PublishRiffCaptureNotices();
 
     // Has the editor's reported size settled? Commit it as the remembered size and tell
     // the host its saved state is stale so the project keeps it. Deferred by one idle tick
