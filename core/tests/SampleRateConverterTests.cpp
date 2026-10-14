@@ -434,7 +434,7 @@ std::vector<NAM_SAMPLE> RenderThroughNamResampler(double hostRate, double modelR
 }
 
 /// At a fractional rate ratio the resampler takes its Lanczos fallback, and Reset() pre-rolls it
-/// with GetLatency() samples of silence. The pre-roll can be longer than the host block (117
+/// with GetLatency() samples of silence. The pre-roll can be longer than the host block (86
 /// samples for a 44.1 kHz model at 48 kHz with 2x and a linear-phase filter), and it used to be
 /// read past the end of a one-block scratch buffer: uninitialised heap reached the model, which
 /// turned it into NaN. The fix is in core/cmake/GuitarfxAudioDSPTools.cmake. The resampler
@@ -459,7 +459,9 @@ bool TestNamFractionalResamplerPreRoll()
         // Minimum phase resets its filters on a huge sample, which hid the bad read as a dropout.
         {"44.1 kHz model at 48 kHz, oversampling off, minimum phase", 48000.0, 44100.0, 1, 0},
     };
-    constexpr int kSmallBlocks[] = {32, 64};
+    // 16 for the minimum-phase case: its pre-roll (29 samples with the A=12 Lanczos kernel) is
+    // shorter than the others'.
+    constexpr int kSmallBlocks[] = {16, 32, 64};
     constexpr int kReferenceBlock = 512;
     constexpr int kTotalFrames = 8 * kReferenceBlock;
     constexpr double kBlockSizeTolerance = 1.0e-9;
@@ -479,8 +481,8 @@ bool TestNamFractionalResamplerPreRoll()
         const auto peak = std::abs(*std::max_element(reference.begin(), reference.end(),
                                                      [](auto a, auto b) { return std::abs(a) < std::abs(b); }));
 
-        // The case only tests the bug if its pre-roll outgrows every small block.
-        if (!isClean(reference) || peak < 0.25 || referenceLatency <= kSmallBlocks[std::size(kSmallBlocks) - 1])
+        // The case only tests the bug if its pre-roll outgrows a small block.
+        if (!isClean(reference) || peak < 0.25 || referenceLatency <= kSmallBlocks[0])
         {
             std::cerr << test.label << ": the " << kReferenceBlock << "-sample reference is not usable (latency "
                       << referenceLatency << ", peak " << peak << ")\n";

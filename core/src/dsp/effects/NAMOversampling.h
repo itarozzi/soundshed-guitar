@@ -29,6 +29,14 @@ inline constexpr int kNamOversamplingMaxIndex = 5;
 inline constexpr int kNamAntiAliasPhaseMaxIndex = 2;
 inline constexpr int kNamOversamplingIndexDefault = 0;
 inline constexpr int kNamAntiAliasPhaseIndexDefault = 0;
+/// Half-width, in input samples, of the Lanczos kernel the resampler falls back on when the host
+/// rate is not a power-of-two multiple of the model's (44.1 kHz against a 48 kHz model, say). 32
+/// cost 121 ns per host sample there and 12 costs 82, against about 830 for a standard model
+/// (docs/dsp-performance-review-2026-10-14.md), and the latency at 44.1 kHz falls from 66 samples to
+/// 27. tools/audio-ab at 44.1 kHz found no band of the DI guitar or the sweep more than 0.05 dB
+/// apart through a NAM amp; only a lone impulse, whose resampled shape a nonlinear model magnifies,
+/// came out different.
+inline constexpr std::size_t kNamResamplerLanczosHalfWidth = 12;
 
 [[nodiscard]] inline int NamOversamplingFactorFromIndex(double value)
 {
@@ -145,8 +153,8 @@ class NamOversamplingProcessor
 
         if (mResamplingActive)
         {
-            mResampler = std::make_unique<dsp::ResamplingContainer<NAM_SAMPLE, 1, 32>>(mRenderingSampleRate,
-                                                                                       mFilterPhase, mModelSampleRate);
+            mResampler = std::make_unique<dsp::ResamplingContainer<NAM_SAMPLE, 1, kNamResamplerLanczosHalfWidth>>(
+                mRenderingSampleRate, mFilterPhase, mModelSampleRate);
             mResampler->Reset(mHostSampleRate, mMaxBlockSize);
 
             if (mFilterPhase == dsp::EAntiAliasFilterPhase::MinimumPhaseCascadedFIR &&
@@ -252,7 +260,7 @@ class NamOversamplingProcessor
         mResampler->Reset(mHostSampleRate, mMaxBlockSize);
     }
 
-    std::unique_ptr<dsp::ResamplingContainer<NAM_SAMPLE, 1, 32>> mResampler;
+    std::unique_ptr<dsp::ResamplingContainer<NAM_SAMPLE, 1, kNamResamplerLanczosHalfWidth>> mResampler;
     double mHostSampleRate = 48000.0;
     double mModelSampleRate = 48000.0;
     double mRenderingSampleRate = 48000.0;

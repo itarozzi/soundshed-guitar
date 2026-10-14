@@ -48,9 +48,10 @@ function(guitarfx_prepare_audio_dsp_tools source_dir out_include_dir)
 
     # Reset() pre-rolls the upsampler with GetLatency() samples of silence taken from a scratch
     # buffer that holds one host block. At a fractional rate ratio the latency can be longer than
-    # a small block -- 117 samples for 48 kHz -> 88.2 kHz with a linear-phase filter, 71 for
-    # 48 kHz -> 44.1 kHz with minimum phase -- and the single push read uninitialised heap past the
-    # buffer's end, which the NAM model turned into NaN. Push the silence in block-sized pieces.
+    # a small block -- 86 samples for 48 kHz -> 88.2 kHz with a linear-phase filter, 29 for
+    # 48 kHz -> 44.1 kHz with minimum phase, with the core's A=12 Lanczos kernel (117 and 71 with
+    # A=32) -- and the single push read uninitialised heap past the buffer's end, which the NAM
+    # model turned into NaN. Push the silence in block-sized pieces.
     _guitarfx_replace_once(_content "preroll-in-chunks"
         "    mResampler1->PushBlock(mScratchExternalInputPointers.GetList(), mLatency);"
 [=[
