@@ -107,9 +107,9 @@ whichever file above owns that feature. A new file needs registering in
 
 **Size budget:** `node tools/check-cpp-file-sizes.js` fails if an unpinned source
 file is over 800 lines, or if one of the already-listed files grows past its
-pinned ceiling. Pins sit 20% above the file as last measured, so ordinary edits
-to a known-large file pass and the check only fires on real growth — but new
-files still have to come in under 800. CI runs this
+pinned ceiling. Pins sit 20% above the file as last measured, rounded up to a
+multiple of 250, so ordinary edits to a known-large file pass and the check only
+fires on real growth — but new files still have to come in under 800. CI runs this
 (`.github/workflows/cpp-structure.yml`). The pins only ratchet down: `--update`
 lowers pins for files that shrank and never raises one, and a pin more than 5%
 looser than its file needs fails the check, so tighten it in the same change that

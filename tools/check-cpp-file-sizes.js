@@ -47,7 +47,11 @@ const BUDGET = 800;
 /// Growth allowed above a pinned file's measured size before the check fires.
 const HEADROOM = 1.2;
 
-const ceilingFor = (lines) => Math.ceil(lines * HEADROOM);
+/// Pins are rounded up to a multiple of this, so a pin is a round number and an edit or two
+/// to a pinned file does not move what --update would set.
+const PIN_STEP = 250;
+
+const ceilingFor = (lines) => Math.ceil(Math.ceil(lines * HEADROOM) / PIN_STEP) * PIN_STEP;
 
 // First-party sources only. Vendored trees (juce/JUCE, juce/ASIOSDK, build
 // outputs, core/src/compat) are somebody else's problem.
@@ -101,17 +105,17 @@ function main() {
     const allowed = Object.fromEntries(
       over.filter(([file]) => previous[file] !== undefined).map(([file, lines]) => [file, Math.min(previous[file], ceilingFor(lines))])
     );
-    fs.writeFileSync(ALLOWLIST, `${JSON.stringify({ budget: BUDGET, headroom: HEADROOM, allowed }, null, 2)}\n`, 'utf8');
+    fs.writeFileSync(ALLOWLIST, `${JSON.stringify({ budget: BUDGET, headroom: HEADROOM, pinStep: PIN_STEP, allowed }, null, 2)}\n`, 'utf8');
     console.log(`[check-cpp-file-sizes] allowlist tightened: ${Object.keys(allowed).length} file(s) pinned over ${BUDGET} lines.`);
     return;
   }
 
   if (process.argv.includes('--repin') || process.argv.includes('--update')) {
     const allowed = Object.fromEntries(over.map(([file, lines]) => [file, ceilingFor(lines)]));
-    fs.writeFileSync(ALLOWLIST, `${JSON.stringify({ budget: BUDGET, headroom: HEADROOM, allowed }, null, 2)}\n`, 'utf8');
+    fs.writeFileSync(ALLOWLIST, `${JSON.stringify({ budget: BUDGET, headroom: HEADROOM, pinStep: PIN_STEP, allowed }, null, 2)}\n`, 'utf8');
     console.log(
       `[check-cpp-file-sizes] allowlist re-pinned: ${over.length} file(s) over ${BUDGET} lines, ` +
-        `each with ${Math.round((HEADROOM - 1) * 100)}% headroom.`
+        `each with ${Math.round((HEADROOM - 1) * 100)}% headroom, rounded up to a multiple of ${PIN_STEP}.`
     );
     return;
   }
