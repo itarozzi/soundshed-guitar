@@ -233,13 +233,12 @@ merging, and verification of both saved data and the audio path.
   and folds away `std::isnan`/`std::isfinite` and even NaN constants (clang 22 plain bit tests too). Detect
   non-finite values with `core/src/dsp/FiniteCheck.h`, and never use NaN or infinity as a sentinel.
   `FastMathNanTests` is the regression suite. To get Android's semantics on Windows, build the
-  core with clang-cl (WASM off, as on Android; reuses the MSVC tree's fetched sources, and lld-link
-  needs `avrt.lib` named for NAM's MMCSS calls):
+  core with clang-cl (WASM off, as on Android; reuses the MSVC tree's fetched sources):
   ```bash
   D="$(pwd -W)/core/build/_deps"
   cmake -G "Visual Studio 18 2026" -A x64 -T ClangCL -S core -B core/build-clangcl \
     -DGUITARFX_CORE_BUILD_TESTS=ON -DGUITARFX_CORE_ENABLE_WASM_EFFECTS=OFF \
-    "-DCMAKE_EXE_LINKER_FLAGS=/machine:x64 avrt.lib" -DFETCHCONTENT_FULLY_DISCONNECTED=ON \
+    -DFETCHCONTENT_FULLY_DISCONNECTED=ON \
     -DFETCHCONTENT_SOURCE_DIR_NLOHMANN_JSON=$D/nlohmann_json-src \
     -DFETCHCONTENT_SOURCE_DIR_SIGNALSMITH_LINEAR=$D/signalsmith_linear-src \
     -DFETCHCONTENT_SOURCE_DIR_SIGNALSMITH_STRETCH=$D/signalsmith_stretch-src \

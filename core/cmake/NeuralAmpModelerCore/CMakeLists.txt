@@ -48,3 +48,10 @@ else()
     target_include_directories(NeuralAmpModelerCore PUBLIC
         "${NeuralAmpModelerCore_SOURCE_DIR}/Dependencies/nlohmann")
 endif()
+
+# NAM/polyphase.h gives its oversampling workers MMCSS priority (AvSetMmThreadCharacteristicsA,
+# AvSetMmThreadPriority) and names no library for them. With WASM effects on, wasmtime.lib's
+# bundled import stubs happened to supply avrt; with them off, every link of NAM failed.
+if(WIN32)
+    target_link_libraries(NeuralAmpModelerCore PUBLIC avrt)
+endif()
