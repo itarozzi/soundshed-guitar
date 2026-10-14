@@ -17,6 +17,9 @@
  *  - The partition accumulation, which is spread across the samples of a block
  *    rather than done in one burst at the block boundary, still completes when
  *    the host feeds irregular chunk sizes.
+ *  - In low-latency mode a short IR's latency stays at 256 samples however large a
+ *    block the host promises, and still matches the reference when the host then
+ *    sends small blocks.
  */
 
 #include <algorithm>
@@ -398,6 +401,73 @@ bool TestRaggedBlockSizesMatchReference()
     return true;
 }
 
+// The block size SetImpulse() gets is the most the host promised to send, which can be far
+// more than it sends: a host promising 8192 samples and delivering 64 is not unusual. A short
+// cab IR in low-latency mode used to take its partition, and so its latency, from that promise,
+// up to 2048 samples (43 ms at 48 kHz), all of it heard while playing live.
+bool TestLowLatencyIgnoresThePromisedBlock()
+{
+    std::cout << "Test: low-latency latency does not follow the promised block... ";
+
+    const std::vector<float> ir = MakeIR(4096); // ~85 ms, a typical cab IR
+    const std::vector<float> input = MakeNoise(32768, 99u);
+    const std::vector<double> ref = ReferenceConvolve(input, ir);
+
+    for (const int promised : {256, 1024, 8192})
+    {
+        guitarfx::RealtimeConvolver conv;
+        conv.SetLowLatencyMode(true);
+
+        if (!conv.SetImpulse(ir, promised))
+        {
+            std::cout << "FAILED (SetImpulse returned false at " << promised << ")\n";
+            return false;
+        }
+
+        const int latency = conv.GetLatency();
+
+        if (latency != 256)
+        {
+            std::cout << "FAILED (latency " << latency << " with " << promised << " promised, expected 256)\n";
+            return false;
+        }
+
+        // The host then sends far smaller blocks than it promised.
+        const std::vector<double> got = RunConvolver(conv, input, 64);
+        std::vector<double> aligned(ref.size(), 0.0);
+
+        for (std::size_t k = 0; k + static_cast<std::size_t>(latency) < got.size(); ++k)
+        {
+            aligned[k] = got[k + static_cast<std::size_t>(latency)];
+        }
+
+        const std::size_t start = static_cast<std::size_t>(latency) + ir.size();
+        const std::size_t end = ref.size() - static_cast<std::size_t>(latency);
+        const double err = NormalizedRmsDiff(aligned, ref, start, end);
+
+        if (!(err < 1e-3))
+        {
+            std::cout << "FAILED (normalized RMS error " << err << " with " << promised << " promised)\n";
+            return false;
+        }
+    }
+
+    // Low Latency off still trades latency for fewer partitions, as asked.
+    guitarfx::RealtimeConvolver uniform;
+    uniform.SetLowLatencyMode(false);
+    uniform.SetImpulse(ir, 8192);
+
+    if (uniform.GetLatency() != 2048)
+    {
+        std::cout << "FAILED (Low Latency off at 8192 promised: latency " << uniform.GetLatency()
+                  << ", expected 2048)\n";
+        return false;
+    }
+
+    std::cout << "OK (256 at every promised block)\n";
+    return true;
+}
+
 // Reset() must clear all internal state so a second run is identical to a
 // fresh convolver's run.
 bool TestResetClearsState()
@@ -454,6 +524,7 @@ int main()
     runTest(TestNonUniformMatchesUniform);
     runTest(TestLongIrKeepsPartitionCountBounded);
     runTest(TestRaggedBlockSizesMatchReference);
+    runTest(TestLowLatencyIgnoresThePromisedBlock);
     runTest(TestResetClearsState);
 
     std::cout << "\n================================================\n";

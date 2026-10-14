@@ -73,15 +73,9 @@ bool RealtimeConvolver::SetImpulse(const std::vector<float>& irSamples, int bloc
         return true;
     }
 
-    // Partition size the uniform engine would use. It doubles as that engine's
-    // latency, which is why it stays tied to the host block.
-    const size_t uniformPartition =
-        std::clamp(NextPowerOf2(static_cast<size_t>(std::max(blockSize, 256))), size_t{256}, size_t{2048});
-
     if (mLowLatencyMode)
     {
-        // Base block = latency target for the non-uniform engine. Capped so it never
-        // exceeds the uniform partition (otherwise non-uniform gives no benefit).
+        // Base block = the latency target, never more than 256 samples (5.3 ms at 48 kHz).
         const size_t base =
             std::clamp(NextPowerOf2(static_cast<size_t>(std::max(blockSize, 64))), size_t{64}, size_t{256});
 
@@ -93,9 +87,19 @@ bool RealtimeConvolver::SetImpulse(const std::vector<float>& irSamples, int bloc
             return BuildNonUniform(irSamples, blockSize);
         }
 
-        // No benefit available (short IR and a host block already >= uniform partition):
-        // fall through to the uniform engine.
+        // A short IR at a host block of 256 or more: base and tail partition are both 256,
+        // so non-uniform would be one uniform engine at 256 anyway. Build that directly.
+        // Not the uniform partition below: `blockSize` is the most the host promised to
+        // send, not what it sends. A host promising 8192 and delivering 64 made a cab
+        // report 2048 samples (43 ms at 48 kHz) of latency, all of it heard while playing
+        // live, though the cost of the smaller partition is trivial for an IR this short.
+        return BuildUniform(irSamples, base);
     }
+
+    // Partition size the uniform engine uses, which doubles as its latency. Low Latency
+    // off asks for this trade: fewer, larger partitions cost less on a long IR.
+    const size_t uniformPartition =
+        std::clamp(NextPowerOf2(static_cast<size_t>(std::max(blockSize, 256))), size_t{256}, size_t{2048});
 
     return BuildUniform(irSamples, uniformPartition);
 }

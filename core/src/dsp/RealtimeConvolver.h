@@ -25,8 +25,9 @@ namespace guitarfx
  * SetLowLatencyMode(true) before SetImpulse(). In this mode the IR head is
  * convolved with small partitions (low latency) while the tail uses larger
  * partitions for efficiency. Latency drops to the small base block size
- * (e.g. 128), and for a long IR the big tail partition makes it cheaper than
- * the uniform engine as well. See RealtimeConvolver.cpp.
+ * (64 to 256), and for a long IR the big tail partition makes it cheaper than
+ * the uniform engine as well. A short IR that gains nothing from the split runs
+ * on the uniform engine at that same base partition. See RealtimeConvolver.cpp.
  *
  * Either engine spreads a block's partition multiplies across the samples of
  * that block rather than doing them all at the block boundary, so per-callback
@@ -47,7 +48,10 @@ class RealtimeConvolver
     /**
      * Initialize with impulse response.
      * @param irSamples The impulse response samples
-     * @param blockSize Expected processing block size (determines partition size)
+     * @param blockSize The most samples the host promised per call, which may be far more
+     *                  than it sends. In low-latency mode the latency never exceeds 256
+     *                  samples whatever it is; otherwise the partition, and so the latency,
+     *                  follows it from 256 up to 2048.
      * @return true if initialization succeeded
      */
     bool SetImpulse(const std::vector<float>& irSamples, int blockSize);

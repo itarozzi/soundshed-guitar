@@ -478,6 +478,15 @@ still waiting for the next IR load. The host hears about the new latency once th
 Normalize is not a declared parameter, so the node panel has no control for it. Presets set it,
 and so can a slot address that names it (`node.cab_ir.normalizeIR`).
 
+With Low Latency on, the latency is the convolver's base block: 64 or 128 samples when the host
+promises blocks that small, and 256 at most. A long IR gets a non-uniform layout (a small head
+partition, growing to a large tail one). A short one, where splitting gains nothing, runs
+uniformly at the base block. Low Latency off sizes its uniform partition, and so its latency,
+from the largest block the host promised, 256 to 2048 samples. That is fewer, larger partitions,
+cheaper on a long IR. Until 2026-10-13 a short IR took that size even with Low Latency on.
+A host promising 8192 samples and sending 64 then got a cab adding 2048 samples (43 ms at
+48 kHz).
+
 Speaker Drive is the Simple Cabinet's level-dependent speaker stage (`SpeakerDrive.h`) in front
 of the convolution: what an IR, being a linear snapshot, cannot capture. It bends only what
 reaches the IR; the dry mix stays clean. At 0 it is exactly transparent.
