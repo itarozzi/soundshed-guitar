@@ -555,6 +555,12 @@ void PluginController::OnIdle()
 
 void PluginController::DrainControlSurfaceRequests()
 {
+    // A rebuild the audio thread asked for, with the editor closed as much as open: a parameter
+    // that needs one moved by automation, or a right-hand NAM model for a chain that was built
+    // while its stereo input was folded to mono and has just turned stereo. One atomic load when
+    // nothing was asked for.
+    ApplyDeferredNodeRebuilds();
+
     // Polled off the plugin's own timer, so the common case, nothing to do, costs two atomic loads.
     const bool nodeChanges = mAutomationSlots.HasNodeChanges();
 

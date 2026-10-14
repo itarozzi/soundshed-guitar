@@ -45,6 +45,7 @@ set(TEST_SOURCES
     HostedPluginStateWorkflowTests.cpp
     HostRestoreThreadTests.cpp
     HostStateThreadTests.cpp
+    IdenticalInputFoldTests.cpp
     IRBuildOnPrepareTests.cpp
     IRCabAutomationRealtimeTests.cpp
     IrAlignmentTests.cpp

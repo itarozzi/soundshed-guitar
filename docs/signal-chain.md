@@ -130,14 +130,28 @@ Disabled nodes skip processing; their buffer becomes a pass-through of gathered 
 ### Channel Layout
 Whether each connection carries one signal on both channels (mono) or two (stereo) is decided
 when a graph is built, from the graph's input, the effect types along the path and which of them
-are bypassed. It is never measured from the audio, and it never moves because a knob did; bypass
-is the one control that moves it.
+are bypassed. Inside a graph it is never measured from the audio, and it never moves because a
+knob did; bypass is the one control that moves it. The one thing measured is the input itself: a
+stereo input whose two sides match runs mono (below).
 
 - **The input.** In a DAW the track's bus decides: a mono track is mono, a stereo track stereo,
   and a mono-in/stereo-out insert is mono in. In the standalone app the input mode decides:
   Mono takes input 1, input 2 or both summed onto both channels; Stereo and Dual mono keep the
   two inputs apart. A device with one active input is mono whatever was asked
   (`MultiPresetMixer::ApplyInputLayout`).
+- **A stereo input whose sides match folds to mono** (`IdenticalInputDetector`,
+  `MultiPresetMixer::UpdateIdenticalInputFold`). A mono guitar on a stereo DAW track reaches us as
+  the same samples on both sides, and a stereo layout would run every amp model and cab twice to
+  make two identical outputs. After a second of bit-identical, non-silent input in Stereo mode,
+  the pre-chain and every rig get a Mono input layout, so each NAM node runs its left model alone;
+  the output does not change, because a mono connection holds identical sides by definition. The
+  first block whose sides differ puts them back on Stereo at once, through the in-place change
+  below, and the right side of each node that ran mono fades in. Digital silence counts for
+  neither, so a stereo source never folds in its pauses. Dual mono never folds. The layout is
+  re-applied every block, so a rig built off the lock across a change comes into line. Measured
+  with a standard model at 48 kHz and 64 samples, a block took 119 µs unfolded and 58 µs folded
+  (71 µs with a cab IR after it, against 131 µs), the same as a mono input. A test can turn it
+  off (`SetIdenticalInputFoldEnabled`); there is no user setting.
 - **Each effect type declares whether it can widen** (`EffectProcessor::CanWiden`): whether any
   settings can make its two outputs differ when its two inputs are the same. A pan, a width or
   spread control, an LFO offset between the sides, or a stereo file all count, even at zero.
@@ -157,11 +171,14 @@ is the one control that moves it.
   in stereo on one, its left is copied over its right.
 - **Between graphs**, the pre-chain takes the input's layout, each rig the pre-chain's output,
   and the post-chain is stereo, since the Multi-Rig mix bus is.
-- **Changes.** A running graph re-resolves in place when its input layout changes (an input mode
-  or a bus change); anything structural rebuilds the chain anyway. A NAM node on a mono
-  connection loads only its left model; a connection that turns stereo while running builds the
-  right one off the DSP lock (`TakeDeferredRebuild`) while the left covers both sides, then fades
-  it in (`StereoFadeIn`).
+- **Changes.** A running graph re-resolves in place when its input layout changes (an input mode,
+  a bus change, or a matching input folding or unfolding); anything structural rebuilds the chain
+  anyway. A NAM node on a mono connection loads only its left model; a connection that turns
+  stereo while running builds the right one off the DSP lock (`TakeDeferredRebuild`) while the
+  left covers both sides, then fades it in (`StereoFadeIn`). In a plugin those builds run off its
+  own timer too (`DrainControlSurfaceRequests`), so they do not wait for the editor to open. A
+  NAM node that was already stereo keeps its right model while folded, so unfolding builds
+  nothing.
 - **Bypass.** Switching a widening type on or off while running re-resolves in place, from the
   editor or a MIDI footswitch alike (`SetNodeEnabled`, `SetAutomatedNodesEnabled`). Switched on,
   the chain after it turns stereo at once, and each node there that was running mono fades its

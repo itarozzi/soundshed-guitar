@@ -55,7 +55,7 @@ ExecutorSetup MultiPresetMixer::MakeExecutorSetup() const
     setup.prepared = mPrepared;
     setup.sampleRate = mSampleRate;
     setup.maxBlockSize = mMaxBlockSize;
-    setup.inputLayout = (mEffectiveInputMode == InputMode::Mono) ? ChannelLayout::Mono : ChannelLayout::Stereo;
+    setup.inputLayout = CurrentInputLayout();
     setup.dualMono = (mEffectiveInputMode == InputMode::DualMono);
     return setup;
 }
@@ -162,8 +162,13 @@ void MultiPresetMixer::ApplyInputLayout()
         mFoldChannel = kInputChannelLeft;
     }
 
-    const ChannelLayout inputLayout =
-        (mEffectiveInputMode == InputMode::Mono) ? ChannelLayout::Mono : ChannelLayout::Stereo;
+    if (mEffectiveInputMode != InputMode::Stereo)
+    {
+        mIdenticalInput.Reset();
+        mInputFolded.store(false, std::memory_order_release);
+    }
+
+    const ChannelLayout inputLayout = CurrentInputLayout();
     const bool dualMono = (mEffectiveInputMode == InputMode::DualMono);
     mGraphsDualMono.store(dualMono, std::memory_order_release);
     mGlobalChain.Pre().SetInputLayout(inputLayout);
@@ -182,6 +187,43 @@ void MultiPresetMixer::ApplyInputLayout()
     {
         inst->executor.SetInputLayout(rigLayout);
         inst->executor.SetDualMono(dualMono);
+    }
+}
+
+void MultiPresetMixer::UpdateIdenticalInputFold(const float* left, const float* right, int numSamples)
+{
+    if (mEffectiveInputMode != InputMode::Stereo)
+    {
+        return;
+    }
+
+    const bool enabled = mIdenticalInputFoldEnabled.load(std::memory_order_acquire);
+
+    if (!enabled)
+    {
+        mIdenticalInput.Reset();
+    }
+
+    const bool folded = enabled && mIdenticalInput.Update(left, right, numSamples);
+    mInputFolded.store(folded, std::memory_order_release);
+
+    // A bus change's in-place re-resolve, on the audio thread as a bypassed widener's is. Every
+    // block, so a rig built off the lock across a change comes into line; it returns at once when
+    // nothing changes.
+    const ChannelLayout inputLayout = CurrentInputLayout();
+    mGlobalChain.Pre().SetInputLayout(inputLayout);
+    const ChannelLayout rigLayout = mGlobalChain.Pre().OutputIsStereo() || inputLayout == ChannelLayout::Stereo
+                                        ? ChannelLayout::Stereo
+                                        : ChannelLayout::Mono;
+
+    if (mRigInputLayout.load(std::memory_order_relaxed) != rigLayout)
+    {
+        mRigInputLayout.store(rigLayout, std::memory_order_release);
+    }
+
+    for (auto& inst : mVoices.Instances())
+    {
+        inst->executor.SetInputLayout(rigLayout);
     }
 }
 
@@ -895,6 +937,9 @@ void MultiPresetMixer::Prepare(double sampleRate, int maxBlockSize)
     mFoldOutL.resize(static_cast<size_t>(maxBlockSize), 0.0f);
     mFoldOutR.resize(static_cast<size_t>(maxBlockSize), 0.0f);
     mTuner->Prepare(sampleRate);
+    // Starts unfolded: the rebuild below lays every graph out for that.
+    mIdenticalInput.Prepare(sampleRate);
+    mInputFolded.store(false, std::memory_order_release);
 
     // Build and prepare global signal chains based on current config
     mGlobalChain.MarkNeedsRebuild();
@@ -1088,6 +1133,8 @@ void MultiPresetMixer::ProcessStereoBlock(float** inputs, float** outputs, int n
     {
         mTelemetry.Record(MixerTelemetry::Stage::Input, processInL, processInR, numSamples);
     }
+
+    UpdateIdenticalInputFold(processInL, processInR, numSamples);
 
     // Process tuner FIRST (before any processing, uses raw input for accurate pitch detection)
     if (mTuner->IsEnabled())

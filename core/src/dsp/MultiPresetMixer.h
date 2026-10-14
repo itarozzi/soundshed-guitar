@@ -5,6 +5,7 @@
 #include "dsp/EffectProcessor.h"
 #include "dsp/EffectRegistry.h"
 #include "dsp/GlobalChainEngine.h"
+#include "dsp/IdenticalInputDetector.h"
 #include "dsp/PresetInstance.h"
 #include "dsp/PresetVoicePool.h"
 #include "dsp/SignalGraphExecutor.h"
@@ -338,6 +339,25 @@ class MultiPresetMixer
         return mEffectiveInputMode;
     }
 
+    /// Whether a Stereo input whose two sides match runs the rigs on a mono layout, one model per
+    /// amp instead of two (IdenticalInputDetector). On by default; off to compare against.
+    void SetIdenticalInputFoldEnabled(bool enabled) noexcept
+    {
+        mIdenticalInputFoldEnabled.store(enabled, std::memory_order_release);
+    }
+
+    /// Whether the rigs are running mono on a matching stereo input right now.
+    [[nodiscard]] bool IsInputFolded() const noexcept
+    {
+        return mInputFolded.load(std::memory_order_acquire);
+    }
+
+    /// What every rig's graph is fed: mono or stereo.
+    [[nodiscard]] ChannelLayout GetRigInputLayout() const noexcept
+    {
+        return mRigInputLayout.load(std::memory_order_acquire);
+    }
+
     /// When hosted in a DAW the host owns the input configuration: there is no Mono fold, and
     /// the bus's channel count says whether the input is stereo.
     void SetHostControlledInput(bool hostControlled);
@@ -628,10 +648,28 @@ class MultiPresetMixer
     std::atomic<ChannelLayout> mRigInputLayout{ChannelLayout::Stereo};
     // Whether every graph runs dual mono, read by BuildInstance() off the lock likewise.
     std::atomic<bool> mGraphsDualMono{false};
+    // A Stereo input whose sides match, run mono. The detector is the audio thread's, reset under
+    // the DSP lock by ApplyInputLayout() and Prepare(); the flag is written under the lock and
+    // read off it by MakeExecutorSetup(), hence atomic.
+    IdenticalInputDetector mIdenticalInput;
+    std::atomic<bool> mInputFolded{false};
+    std::atomic<bool> mIdenticalInputFoldEnabled{true};
 
     /// Resolves the effective input mode and fold, and hands each graph its input layout:
     /// the pre-chain the input's, every rig the pre-chain's output, the post-chain stereo.
     void ApplyInputLayout();
+
+    /// The input layout the pre-chain gets: Mono for the Mono mode or a folded Stereo input.
+    [[nodiscard]] ChannelLayout CurrentInputLayout() const noexcept
+    {
+        return (mEffectiveInputMode == InputMode::Mono || mInputFolded.load(std::memory_order_acquire))
+                   ? ChannelLayout::Mono
+                   : ChannelLayout::Stereo;
+    }
+
+    /// Audio thread: folds a matching Stereo input, or unfolds it, and keeps every graph's input
+    /// layout in step with that, a rig built off the lock meanwhile included.
+    void UpdateIdenticalInputFold(const float* left, const float* right, int numSamples);
     /// One block of at most mMaxBlockSize into a stereo pair (either output may be null).
     void ProcessStereoBlock(float** inputs, float** outputs, int numSamples);
 
