@@ -970,6 +970,11 @@ void SignalGraphExecutor::Process(float** inputs, float** outputs, int numSample
         state.hasInput = true;
         state.channelCount.store(state.outputStereo ? 2 : 1, std::memory_order_relaxed);
 
+        if (auto* tap = state.loudnessTap.load(std::memory_order_acquire))
+        {
+            tap->Push(state.bufferLeft.data(), state.outputStereo ? state.bufferRight.data() : nullptr, numSamples);
+        }
+
         if (collectLevels)
         {
             const auto stats = ComputeLevelStats(state.bufferLeft.data(), state.bufferRight.data(), numSamples);
@@ -1281,6 +1286,71 @@ void SignalGraphExecutor::ApplySpectrumWatch()
     {
         const bool watched = !mSpectrumWatchNodeId.empty() && id == mSpectrumWatchNodeId;
         state.spectrumTap.store(watched ? mSpectrumTap.get() : nullptr, std::memory_order_release);
+    }
+}
+
+bool SignalGraphExecutor::WatchNodeLoudness(const std::string& nodeId)
+{
+    const NodeState* state = FindNodeState(nodeId);
+
+    if (!state)
+    {
+        ClearLoudnessWatch();
+        return false;
+    }
+
+    if (nodeId == mLoudnessWatchNodeId && state->loudnessTap.load(std::memory_order_acquire) == mLoudnessTap.get())
+    {
+        return true;
+    }
+
+    if (!mLoudnessTap)
+    {
+        mLoudnessTap = std::make_unique<LoudnessTap>();
+    }
+
+    const bool movedNode = nodeId != mLoudnessWatchNodeId;
+    mLoudnessWatchNodeId = nodeId;
+    ApplyLoudnessWatch();
+
+    // As for the spectrum: once the old node has let go, and not for a node merely rebuilt under
+    // the same id, whose integrated value carries on.
+    if (movedNode)
+    {
+        mLoudnessTap->Restart();
+    }
+
+    return true;
+}
+
+void SignalGraphExecutor::ClearLoudnessWatch()
+{
+    if (mLoudnessWatchNodeId.empty())
+    {
+        return;
+    }
+
+    mLoudnessWatchNodeId.clear();
+    ApplyLoudnessWatch();
+}
+
+bool SignalGraphExecutor::ReadWatchedLoudness(LoudnessTap::Reading& out, std::chrono::steady_clock::time_point now)
+{
+    if (!mLoudnessTap || mLoudnessWatchNodeId.empty())
+    {
+        return false;
+    }
+
+    out = mLoudnessTap->Analyze(mSampleRate, now);
+    return true;
+}
+
+void SignalGraphExecutor::ApplyLoudnessWatch()
+{
+    for (auto& [id, state] : mNodeStates)
+    {
+        const bool watched = !mLoudnessWatchNodeId.empty() && id == mLoudnessWatchNodeId;
+        state.loudnessTap.store(watched ? mLoudnessTap.get() : nullptr, std::memory_order_release);
     }
 }
 

@@ -55,6 +55,7 @@ set(TEST_SOURCES
     IRReverbQualityTests.cpp
     ImpulseResamplerTests.cpp
     LoudnessTests.cpp
+    LoudnessTapTests.cpp
     PracticeToolCrossfadeTests.cpp
     MessageDispatchTypeErrorTests.cpp
     MessageHandlerRegistryTests.cpp

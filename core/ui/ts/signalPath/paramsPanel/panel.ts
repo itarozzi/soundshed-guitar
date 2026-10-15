@@ -535,6 +535,9 @@ export function showNodeParamsPanel(node: GraphNode, preset: Preset): void {
               <div><span>Headroom avg</span><strong data-dsp-status-average="headroom">—</strong></div>
               <div><span>Processing avg</span><strong data-dsp-status-average="processing">—</strong></div>
               <div><span>Latency avg</span><strong data-dsp-status-average="latency">—</strong></div>
+              <div title="Momentary loudness of this node's output: the last 400 ms (BS.1770)"><span>Momentary</span><strong data-dsp-loudness="momentary">—</strong></div>
+              <div title="Short-term loudness of this node's output: the last 3 seconds (BS.1770)"><span>Short-term</span><strong data-dsp-loudness="shortTerm">—</strong></div>
+              <div data-dsp-loudness-integrated title="Integrated loudness since this readout opened"><span>Integrated</span><strong data-dsp-loudness="integrated">—</strong></div>
             </div>
           </div>
           <div class="default-effect-shell-meta" aria-label="Module status">

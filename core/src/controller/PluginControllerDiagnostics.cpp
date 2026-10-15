@@ -5,12 +5,16 @@
  *   - the session log, an append-only text file next to the settings;
  *   - the debug snapshot, a one-shot dump of UI state plus backend state,
  *     scrubbed of anything sensitive and written to disk on request;
- *   - the live signal-diagnostics and performance meters, and the spectrum
- *     behind an EQ curve, which are only forwarded from here —
- *     TelemetryPublisher owns their rate limits.
+ *   - the live signal-diagnostics and performance meters, the spectrum
+ *     behind an EQ curve and the loudness in a node's DSP status readout,
+ *     which are only forwarded from here — TelemetryPublisher owns their
+ *     rate limits.
  */
 
 #include "PluginController.h"
+
+#include <array>
+#include <optional>
 
 #include "controller/TelemetryPublisher.h"
 #include "controller/internal/ControllerUtils.h"
@@ -120,20 +124,23 @@ void PluginController::HandleSetSignalDiagnosticsEnabledRequest(const nlohmann::
     mTelemetry->MarkRosterDirty();
 }
 
-void PluginController::HandleSetSpectrumWatchRequest(const nlohmann::json& payload)
+namespace
 {
-    // No node, or a scope we do not know, is how the UI says it has stopped looking.
+/// The node a tap watch message names, as {scope, presetId, nodeId}, or nothing when it names
+/// none: no node, or a scope we do not know, is how the UI says it has stopped looking. A preset
+/// node is looked up the way a parameter edit to it is: in the payload's preset, or else the
+/// active one.
+std::optional<std::array<std::string, 3>> ParseTapWatch(const nlohmann::json& payload,
+                                                        const std::string& activePresetId)
+{
     const std::string nodeId = payload.value("nodeId", std::string{});
     const std::string scope = payload.value("scope", std::string{});
 
     if (nodeId.empty() || (scope != "pre" && scope != "post" && scope != "preset"))
     {
-        mTelemetry->StopSpectrum();
-        return;
+        return std::nullopt;
     }
 
-    // A preset node is looked up the way a parameter edit to it is: in the payload's preset,
-    // or else the active one.
     std::string presetId;
 
     if (scope == "preset")
@@ -142,10 +149,35 @@ void PluginController::HandleSetSpectrumWatchRequest(const nlohmann::json& paylo
 
         if (presetId.empty())
         {
-            presetId = mActivePresetId;
+            presetId = activePresetId;
         }
     }
 
-    mTelemetry->WatchSpectrum(scope, presetId, nodeId);
+    return std::array<std::string, 3>{scope, presetId, nodeId};
+}
+} // namespace
+
+void PluginController::HandleSetSpectrumWatchRequest(const nlohmann::json& payload)
+{
+    if (const auto watch = ParseTapWatch(payload, mActivePresetId))
+    {
+        mTelemetry->WatchSpectrum((*watch)[0], (*watch)[1], (*watch)[2]);
+    }
+    else
+    {
+        mTelemetry->StopSpectrum();
+    }
+}
+
+void PluginController::HandleSetLoudnessWatchRequest(const nlohmann::json& payload)
+{
+    if (const auto watch = ParseTapWatch(payload, mActivePresetId))
+    {
+        mTelemetry->WatchLoudness((*watch)[0], (*watch)[1], (*watch)[2]);
+    }
+    else
+    {
+        mTelemetry->StopLoudness();
+    }
 }
 } // namespace guitarfx

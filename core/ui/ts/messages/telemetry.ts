@@ -9,6 +9,7 @@
 import { requestSignalDiagnosticsRoster } from "../bridge.js";
 import { recordDspLoadSample } from "../dspPerformance.js";
 import { applyEqSpectrumFrame } from "../eqSpectrum.js";
+import { applyNodeLoudnessFrame } from "../nodeLoudness.js";
 import { refreshSavePresetModalPeakInfoIfOpen } from "../presets.js";
 import { handleUserInputCalibrationDiagnosticsUpdate } from "../settings.js";
 import { updateSelectedNodeAnalyzerPanel, updateSelectedNodeDspStatus, updateSelectedNodePeakMeter } from "../signalPath.js";
@@ -276,4 +277,10 @@ export function onSldA(payload: IncomingPayload): void {
  * and eqSpectrum.ts coalesces that itself rather than riding the diagnostics flush. */
 export function onSldS(payload: IncomingPayload): void {
   applyEqSpectrumFrame(payload);
+}
+
+/** The loudness in an open DSP status readout. nodeLoudness.ts tells the readout itself,
+ * three text fields at 10 Hz, so it does not ride the diagnostics flush either. */
+export function onSldL(payload: IncomingPayload): void {
+  applyNodeLoudnessFrame(payload);
 }

@@ -494,6 +494,7 @@ class PluginController
     void HandleGetPerformanceStatsRequest();
     void HandleSetSignalDiagnosticsEnabledRequest(const nlohmann::json& payload);
     void HandleSetSpectrumWatchRequest(const nlohmann::json& payload);
+    void HandleSetLoudnessWatchRequest(const nlohmann::json& payload);
     void HandleGetEffectCatalogRequest();
     void HandleGetPresetListRequest();
     void HandleGetPresetFoldersRequest();

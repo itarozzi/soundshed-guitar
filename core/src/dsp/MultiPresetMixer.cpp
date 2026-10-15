@@ -1585,31 +1585,37 @@ MultiPresetMixer::SignalDiagnosticsSnapshot MultiPresetMixer::GetSignalDiagnosti
     return snapshot;
 }
 
-bool MultiPresetMixer::ReadNodeSpectrum(std::string_view scope, const std::string& presetId, const std::string& nodeId,
-                                        SpectrumTap::Bins& out)
+SignalGraphExecutor* MultiPresetMixer::FindTapExecutor(std::string_view scope, const std::string& presetId)
 {
-    const PresetVoicePool::ReadScope readScope(mVoices);
-    SignalGraphExecutor* executor = nullptr;
-
     if (scope == "pre")
     {
-        executor = &mGlobalChain.Pre();
+        return &mGlobalChain.Pre();
     }
-    else if (scope == "post")
+
+    if (scope == "post")
     {
-        executor = &mGlobalChain.Post();
+        return &mGlobalChain.Post();
     }
-    else if (scope == "preset")
+
+    if (scope == "preset")
     {
         for (auto& inst : mVoices.Instances())
         {
             if (!inst->IsRetiring() && (presetId.empty() || inst->cfg.id == presetId))
             {
-                executor = &inst->executor;
-                break;
+                return &inst->executor;
             }
         }
     }
+
+    return nullptr;
+}
+
+bool MultiPresetMixer::ReadNodeSpectrum(std::string_view scope, const std::string& presetId, const std::string& nodeId,
+                                        SpectrumTap::Bins& out)
+{
+    const PresetVoicePool::ReadScope readScope(mVoices);
+    SignalGraphExecutor* executor = FindTapExecutor(scope, presetId);
 
     // Watching again on every read is what carries the tap onto an executor built since the
     // last one -- a preset swap or a global chain rebuild replaces the executor outright.
@@ -1625,6 +1631,29 @@ void MultiPresetMixer::ClearSpectrumTaps()
     for (auto& inst : mVoices.Instances())
     {
         inst->executor.ClearSpectrumWatch();
+    }
+}
+
+bool MultiPresetMixer::ReadNodeLoudness(std::string_view scope, const std::string& presetId, const std::string& nodeId,
+                                        LoudnessTap::Reading& out)
+{
+    const PresetVoicePool::ReadScope readScope(mVoices);
+    SignalGraphExecutor* executor = FindTapExecutor(scope, presetId);
+
+    // As for the spectrum. A replaced executor starts a fresh tap, so a preset swap restarts the
+    // integrated value: it is a different signal from then on.
+    return executor && executor->WatchNodeLoudness(nodeId) && executor->ReadWatchedLoudness(out);
+}
+
+void MultiPresetMixer::ClearLoudnessTaps()
+{
+    const PresetVoicePool::ReadScope readScope(mVoices);
+    mGlobalChain.Pre().ClearLoudnessWatch();
+    mGlobalChain.Post().ClearLoudnessWatch();
+
+    for (auto& inst : mVoices.Instances())
+    {
+        inst->executor.ClearLoudnessWatch();
     }
 }
 

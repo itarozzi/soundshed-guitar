@@ -126,6 +126,12 @@ bool MessageDispatcher::DispatchMixerAndMonitoring(PluginController& c, const nl
         return true;
     }
 
+    if (type == "setLoudnessWatch")
+    {
+        c.HandleSetLoudnessWatchRequest(msg);
+        return true;
+    }
+
     if (type == "runSignalPathTest")
     {
         c.HandleSignalTestRequest(msg);

@@ -395,6 +395,80 @@ bool TestSpectrumFeedFollowsTheWatch()
 
     return ok;
 }
+
+/// Runs half a second of audio, then enough idle ticks for the loudness feed to fire twice.
+void RunLoudnessFeed(Fixture& fixture)
+{
+    for (int block = 0; block < static_cast<int>(0.5 * kSampleRate / kBlockSize); ++block)
+    {
+        fixture.ProcessBlock(false);
+    }
+
+    for (int tick = 0; tick < 2 * (60 / kLoudnessRateHz); ++tick)
+    {
+        fixture.publisher.OnIdle();
+    }
+}
+
+/// The DSP status readout's loudness goes out only for a watched node, only while the UI can see
+/// it, and stops when told to.
+bool TestLoudnessFeedFollowsTheWatch()
+{
+    std::cout << "\nLoudness feed\n";
+    bool ok = true;
+
+    Fixture fixture;
+    RunLoudnessFeed(fixture);
+    ok &= Report("Nothing is sent before a watch", fixture.OfType("sldL").empty());
+
+    // The first read taps the node, so the audio before it goes unmeasured: a second of it after.
+    fixture.publisher.WatchLoudness("preset", "presetA", "gain");
+    RunLoudnessFeed(fixture);
+    RunLoudnessFeed(fixture);
+    RunLoudnessFeed(fixture);
+    const auto frames = fixture.OfType("sldL");
+    ok &= Report("A watched node's loudness is sent", !frames.empty(), std::to_string(frames.size()) + " frames");
+
+    if (!frames.empty())
+    {
+        const auto& frame = frames.back();
+        ok &= Report("The frame names the watched node", frame.value("scope", std::string{}) == "preset" &&
+                                                             frame.value("presetId", std::string{}) == "presetA" &&
+                                                             frame.value("id", std::string{}) == "gain");
+        const auto& values = frame["l"];
+        ok &= Report("The frame carries momentary, short-term, integrated and time",
+                     values.is_array() && values.size() == 4, values.dump());
+
+        if (values.is_array() && values.size() == 4)
+        {
+            // A 220 Hz sine at 0.3 on a mono input, so about -10 LUFS; short-term has not filled.
+            ok &= Report("Momentary reads the tone",
+                         values[0].is_number() && values[0].get<double>() > -16.0 && values[0].get<double>() < -4.0,
+                         values[0].dump());
+            ok &= Report("Short-term is null until its window fills", values[1].is_null(), values[1].dump());
+            ok &= Report("Integrated reads the tone", values[2].is_number(), values[2].dump());
+            ok &= Report("The time measured is about a second",
+                         values[3].is_number() && std::abs(values[3].get<double>() - 1.0) < 0.2, values[3].dump());
+        }
+    }
+
+    fixture.publisher.SetUiVisible(false);
+    auto before = fixture.OfType("sldL").size();
+    RunLoudnessFeed(fixture);
+    ok &= Report("Nothing is sent while the UI is hidden", fixture.OfType("sldL").size() == before);
+    fixture.publisher.SetUiVisible(true);
+
+    fixture.publisher.StopLoudness();
+    before = fixture.OfType("sldL").size();
+    RunLoudnessFeed(fixture);
+    ok &= Report("Nothing is sent after the watch stops", fixture.OfType("sldL").size() == before);
+
+    fixture.publisher.WatchLoudness("preset", "presetA", "no_such_node");
+    RunLoudnessFeed(fixture);
+    ok &= Report("Nothing is sent for a node that is not there", fixture.OfType("sldL").size() == before);
+
+    return ok;
+}
 } // namespace
 
 int main()
@@ -403,8 +477,9 @@ int main()
 
     bool allPassed = true;
 
-    for (const auto& test : {TestRosterIsStableWhileChannelCountMoves, TestFrameNodeStrideMatchesRoster,
-                             TestRosterIsResentWhenNodeSetChanges, TestSpectrumFeedFollowsTheWatch})
+    for (const auto& test :
+         {TestRosterIsStableWhileChannelCountMoves, TestFrameNodeStrideMatchesRoster,
+          TestRosterIsResentWhenNodeSetChanges, TestSpectrumFeedFollowsTheWatch, TestLoudnessFeedFollowsTheWatch})
     {
         if (!test())
         {

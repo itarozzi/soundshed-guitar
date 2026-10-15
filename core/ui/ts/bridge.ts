@@ -1,5 +1,6 @@
 import type { EqSpectrumSource } from "./eqSpectrum.js";
 import { appendLog } from "./logging.js";
+import type { NodeLoudnessSource } from "./nodeLoudness.js";
 import { setPresetDirty, uiState } from "./state.js";
 import type { ResourceRef } from "./types.js";
 
@@ -157,6 +158,18 @@ export function sendSpectrumWatch(source: EqSpectrumSource | null): void {
       ...(source.presetId ? { presetId: source.presetId } : {}),
     }
     : { type: "setSpectrumWatch" });
+}
+
+/** Starts, moves or renews the backend's loudness tap (see nodeLoudness.ts); null stops it. */
+export function sendLoudnessWatch(source: NodeLoudnessSource | null): void {
+  postMessage(source
+    ? {
+      type: "setLoudnessWatch",
+      scope: source.scope,
+      nodeId: source.nodeId,
+      ...(source.presetId ? { presetId: source.presetId } : {}),
+    }
+    : { type: "setLoudnessWatch" });
 }
 
 /** Asks for an effect's response curve with these parameters; answered by "effectResponse"

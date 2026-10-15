@@ -103,6 +103,7 @@ The UI is a web-based single-page application (SPA) hosted in a native WebView. 
 | `sldRoster` | `{seq, nodes: [[scope, presetId, nodeId, nodeType, hasAnalyzer]], spectrogramRange, barkRange}` | Signal diagnostics roster: everything about the node set that does not change frame to frame. Sent only when the node set changes, and after `getSignalDiagnostics`. |
 | `sld` | `{seq, r, i, o, d}` | Signal level frame at 20 Hz. `r`/`i`/`o` are raw input, processed input and output; `d` holds one tuple per roster node, flattened in roster order. Every tuple is `[peakDbfs, rmsDbfs, clipCount, clipped, channelCount]`, the levels rounded to 0.1 dB; `headroomDb` is derived UI-side. `channelCount` (0 = the node did not run this block, 1 mono, 2 stereo) rides here rather than in the roster: it tracks the signal, so keeping it in the roster re-sent that whole message several times a second. Frames whose `seq` does not match the held roster are dropped. |
 | `sldA` | `{seq, id, t, l, s, b}` | Analyzer telemetry for one node — levels `l`, spectrogram bins `s` and bark bands `b` in whole dBFS. Sent separately from `sld` because it is an order of magnitude larger than a level tuple. |
+| `sldL` | `{scope, presetId?, id, l}` | Loudness of one node's output, for its DSP status readout, 10 Hz while a `setLoudnessWatch` is held and the UI is visible. `l = [momentaryLufs, shortTermLufs, integratedLufs, integratedSeconds]`: BS.1770 / EBU R128 momentary (400 ms) and short-term (3 s) loudness and integrated loudness gated over everything since the watch began, to 0.1 LU, each `null` until its window has filled, for silence, or (integrated) until a block passes the gates; `integratedSeconds` is how long that has been. The audio thread only copies the watched node's samples aside (`core/src/dsp/LoudnessTap.h`); the measuring runs on the message thread. |
 | `sldS` | `{scope, presetId?, id, r, s}` | Spectrum of one node's input, for the EQ curve backdrop, ~30 Hz while a `setSpectrumWatch` is held and the UI is visible. `s` is 128 whole-dB bins log-spaced across `r = [minHz, maxHz, floorDb, ceilingDb]` (20 Hz-20 kHz, -96-0 dB), both ends included, tilted +3 dB/octave about 1 kHz so pink noise reads flat. Nothing is sent for a node that is not there; the UI clears a spectrum that stops arriving. |
 | `spatialPosition` | `{nodes: [{scope, presetId?, nodeId, azimuth, elevation, distance, itdUs, ildDb, rateHz, moving}]}` | Live source position for every 3D Spatial node, ~20 Hz. Purely cosmetic: it keeps the spatial panner's puck in sync with what is being heard, and the widget falls back to the anchor position if it never arrives. Only sent while at least one such node exists. |
 | `riffLibraryState` | `{library: {path, riffs}, capture}` | Reply to `getRiffLibrary`: the riff library as it is on disk. The UI applies `library`; capture state reaches it through the live capture messages |
@@ -183,6 +184,7 @@ The UI is a web-based single-page application (SPA) hosted in a native WebView. 
 | `previewDemoAudio` | `{clipId, repeat?}` or `{audio, region?}` | Play audio into the input as a demo. By `clipId` the engine reads the clip from `ui/demo/clips.json` itself (the ids the full `state` lists as `demoClips`; an unknown one is refused with an `error`), and with `repeat` it loops the whole clip in place until stopped, so no `previewComplete` comes between passes. `audio` is the older form: the file's bytes as base64 `{id, title, data, contentType}` |
 | `renderDemoAudio` | `{clipId? , takeId?, audio?, title?, suggestedName?, renderSampleRate?}` | Render a demo clip (`clipId`, read by the engine), a riff take (`takeId`) or sent audio (`audio`, the older form) to a WAV file using the current preset. `renderSampleRate` accepts `44100`, `48000`, `88200`, `96000`, `176400`, or `192000`; omit or pass `0` for the current device rate. The save-dialog filename appends the resolved rounded kHz rate before `.wav`. |
 | `stopDemoAudio` | `{}` | Stop demo audio playback |
+| `setLoudnessWatch` | `{scope, nodeId, presetId?}` or `{}` | Start, move or renew the loudness tap on one node's output, addressed as for `setSpectrumWatch`, with the same 5 s lease renewed every 2 s while a DSP status readout is open; `{}` stops it. Moving it to another node restarts the measurement, integrated value included; renewing it does not. See `core/ui/ts/nodeLoudness.ts`. |
 | `setSpectrumWatch` | `{scope, nodeId, presetId?}` or `{}` | Start, move or renew the spectrum tap on one node's input (`scope` is `pre`, `post` or `preset`; a preset node without `presetId` is looked up in the active preset). The watch lapses 5 s after the last renewal, so the UI re-sends it every 2 s while an EQ curve is on screen; `{}` stops it. See `core/ui/ts/eqSpectrum.ts`. |
 | `getEffectResponse` | `{requestId, effectType, params, points?}` | Ask for an effect's response curve with these parameters (`points` 2-1024, default 160); answered by `effectResponse`. Built from a fresh instance at 48 kHz rather than the running node, so it needs no DSP lock and works for a node in no running graph. See `core/ui/ts/effectResponse.ts`. |
 | `exportEffectAsIr` | `{requestId, effectType, params, name?}` | Render the effect with these parameters as a 48 kHz 16-bit IR (mono unless its two sides differ) into the IR library. Answered by `resourceImported` or `resourceImportFailed` carrying the `requestId`. A name the library already has gets a number added, so an earlier export is never overwritten. |
@@ -557,6 +559,27 @@ axis as its handles (`eqCurveFreqToX` is the one mapping for both).
   smoothing run on the message thread in `TelemetryPublisher`. It is separate
   from the Signal Analyzer's spectrogram, which resolves no finer than the block
   size. A node inside a composite being edited has no spectrum.
+
+### Loudness in the DSP status readout (`core/ui/ts/nodeLoudness.ts`)
+
+A node's DSP status readout (the meter button on its panel) shows momentary
+(400 ms), short-term (3 s) and integrated loudness of the node's output, in LUFS,
+next to its peak, RMS, processing time and latency.
+
+- **Free unless open.** The watch is held only while a readout is open, and
+  follows the selected node; `updateSelectedNodeDspStatus` re-points it on every
+  refresh, which costs nothing when nothing changed. With no readout open the
+  audio thread pays one pointer load per node; with one open, two copies of one
+  node's block, made after that node's timing so its reported time is unaffected.
+- **Where it comes from.** `LoudnessTap` (`core/src/dsp/LoudnessTap.h`) copies the
+  node's output into a ring on the audio thread. `StreamingLoudnessMeter`
+  (`core/src/dsp/Loudness.h`) does the K-weighting, the 100 ms granules and the
+  gating on the message thread when `TelemetryPublisher` reads it at 10 Hz.
+  Its integrated value agrees with the offline meter `measurePresetLevel` uses.
+- **What the numbers mean.** Each is a dash until its window has filled, or for
+  silence. Integrated runs from when the readout opened on that node: moving to
+  another node, or closing and reopening it, starts it again, and so does a preset
+  swap, which is a new signal. A graph that sleeps on silence counts as silence.
 
 
 ### Waveform range selection (`core/ui/ts/waveform/`)

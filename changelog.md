@@ -12,6 +12,7 @@
 * **Learn** sets the noise gate's threshold for you. Mute the strings and press Learn: the gate listens to your rig's noise for two seconds and sets Threshold just above it, high enough that hiss can't open the gate or hold it open after a note. It's at the top of the global gate's settings (the chevron beside the GATE knob) and in the Noise Gate effect's panel, under a meter that shows the noise it heard against the threshold. If you played while it listened it says so and leaves the threshold alone. In an effect's panel, Undo puts the old threshold back.
 
 ### Signal Chain
+* An effect's DSP status readout (the meter button on its panel) now shows the loudness of the effect's output in LUFS: momentary (the last 400 ms), short-term (the last 3 seconds) and integrated (since you opened the readout), measured as broadcast and streaming loudness meters measure it. Measuring costs your audio nothing you could notice: it runs only while the readout is open, for that one effect, and away from the audio thread.
 * You can now remove a split when one of its branches has effects. Click the mixer's × (or select the mixer and press Delete) and that branch's effects move back into the main signal path, in the same order. If more than one branch has effects, it still asks you to clear all but one first.
 
 ### Presets

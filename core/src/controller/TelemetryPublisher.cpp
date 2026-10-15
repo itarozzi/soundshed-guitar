@@ -96,11 +96,27 @@ void TelemetryPublisher::OnIdle()
             SendSpectrum();
         }
     }
+
+    mLoudnessCounter++;
+
+    if (mLoudnessCounter >= 60 / kLoudnessRateHz)
+    {
+        mLoudnessCounter = 0;
+
+        if (mLoudnessWatch && std::chrono::steady_clock::now() >= mLoudnessWatchExpiresAt)
+        {
+            StopLoudness();
+        }
+
+        // Read even while hidden: a read is what drains the tap, and a gap would be lost from
+        // the integrated value. The lease ends the watch soon enough if the UI has gone.
+        ReadAndSendLoudness(uiVisible);
+    }
 }
 
 void TelemetryPublisher::WatchSpectrum(const std::string& scope, const std::string& presetId, const std::string& nodeId)
 {
-    SpectrumWatch next{scope, presetId, nodeId};
+    NodeWatch next{scope, presetId, nodeId};
 
     // A renewal leaves the tap alone; only a different node needs the old one let go.
     if (!mSpectrumWatch || *mSpectrumWatch != next)
@@ -121,6 +137,69 @@ void TelemetryPublisher::StopSpectrum()
 
     mSpectrumWatch.reset();
     mPresetMixer.ClearSpectrumTaps();
+}
+
+void TelemetryPublisher::WatchLoudness(const std::string& scope, const std::string& presetId, const std::string& nodeId)
+{
+    NodeWatch next{scope, presetId, nodeId};
+
+    if (!mLoudnessWatch || *mLoudnessWatch != next)
+    {
+        mPresetMixer.ClearLoudnessTaps();
+        mLoudnessWatch = std::move(next);
+    }
+
+    mLoudnessWatchExpiresAt = std::chrono::steady_clock::now() + kLoudnessWatchLease;
+}
+
+void TelemetryPublisher::StopLoudness()
+{
+    if (!mLoudnessWatch)
+    {
+        return;
+    }
+
+    mLoudnessWatch.reset();
+    mPresetMixer.ClearLoudnessTaps();
+}
+
+void TelemetryPublisher::ReadAndSendLoudness(bool uiVisible)
+{
+    if (!mLoudnessWatch)
+    {
+        return;
+    }
+
+    LoudnessTap::Reading reading;
+
+    // Nothing is sent for a node that is not there, as for the spectrum; the UI shows dashes once
+    // frames stop arriving.
+    if (!mPresetMixer.ReadNodeLoudness(mLoudnessWatch->scope, mLoudnessWatch->presetId, mLoudnessWatch->nodeId,
+                                       reading) ||
+        !uiVisible)
+    {
+        return;
+    }
+
+    // To 0.1 LU, as the UI shows them. No reading goes out as null, which the UI shows as a dash.
+    const auto lufs = [](const std::optional<double>& value) {
+        return value ? nlohmann::json(std::round(*value * 10.0) / 10.0) : nlohmann::json(nullptr);
+    };
+
+    nlohmann::json msg;
+    msg["type"] = "sldL";
+    msg["scope"] = mLoudnessWatch->scope;
+    msg["id"] = mLoudnessWatch->nodeId;
+
+    if (!mLoudnessWatch->presetId.empty())
+    {
+        msg["presetId"] = mLoudnessWatch->presetId;
+    }
+
+    // [momentaryLufs, shortTermLufs, integratedLufs, integratedSeconds]
+    msg["l"] = nlohmann::json::array({lufs(reading.momentaryLufs), lufs(reading.shortTermLufs),
+                                      lufs(reading.integratedLufs), std::round(reading.measuredSeconds * 10.0) / 10.0});
+    Send(msg.dump());
 }
 
 void TelemetryPublisher::SendSpectrum()

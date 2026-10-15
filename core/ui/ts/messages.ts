@@ -22,7 +22,7 @@ import { onBlendExportFailed, onBlendExportSaved, onHostedPluginResourceLoadComp
 import { onSharedSyncState, onSharedSyncUpdated } from "./messages/sharedSync.js";
 import { onGlobalSignalChainChanged, onSignalPathNodeConfigUpdated, onSignalPathNodeParamUpdated, onSignalPathTestResult, onSpatialPosition } from "./messages/signalPathHandlers.js";
 import { onAmpCabStateChanged, onAppInfo, onAppSettingChanged, onError, onInputModeChanged, onOutputMutedChanged, onState, onTheme } from "./messages/stateHandlers.js";
-import { onDspPerformance, onSld, onSldA, onSldRoster, onSldS } from "./messages/telemetry.js";
+import { onDspPerformance, onSld, onSldA, onSldL, onSldRoster, onSldS } from "./messages/telemetry.js";
 import { onTunerLiveModeChanged, onTunerReferenceChanged, onTunerStarted, onTunerStopped, onTunerUpdate } from "./messages/tunerHandlers.js";
 import type { MessageHandler } from "./messages/types.js";
 
@@ -118,6 +118,7 @@ const MESSAGE_HANDLERS: Record<string, MessageHandler> = {
   "sld": onSld,
   "sldA": onSldA,
   "sldS": onSldS,
+  "sldL": onSldL,
   "spatialPosition": onSpatialPosition,
   "signalPathNodeConfigUpdated": onSignalPathNodeConfigUpdated,
   "signalPathNodeParamUpdated": onSignalPathNodeParamUpdated,
@@ -153,7 +154,7 @@ export function handleIncomingMessage(message: string): void {
   const payload = JSON.parse(message) as Record<string, unknown>;
   const type = typeof payload.type === "string" ? payload.type : "";
   // Frequent diagnostics messages; avoid spamming console.
-  if (type !== "dspPerformance" && type !== "sld" && type !== "sldA" && type !== "sldS" && type !== "sldRoster" && type !== "spatialPosition" && type !== "audioDeviceLevels") {
+  if (type !== "dspPerformance" && type !== "sld" && type !== "sldA" && type !== "sldS" && type !== "sldL" && type !== "sldRoster" && type !== "spatialPosition" && type !== "audioDeviceLevels") {
     console.log("[JS] handleIncomingMessage received:", message.substring(0, 200));
     console.log("[JS] Parsed message type:", type);
   }

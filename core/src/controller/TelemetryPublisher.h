@@ -1,8 +1,9 @@
 #pragma once
 
 // TelemetryPublisher — the metering feeds the UI reads continuously: per-node
-// signal diagnostics, DSP performance stats, spatialiser puck positions, and
-// the spectrum behind whichever EQ curve is on screen.
+// signal diagnostics, DSP performance stats, spatialiser puck positions, the
+// spectrum behind whichever EQ curve is on screen, and the loudness of the node
+// whose DSP status readout is open.
 //
 // These are the app's largest ongoing IPC cost — signal diagnostics alone is
 // ~6.7 KB at 20 Hz — and they exist only to drive on-screen meters. Everything
@@ -68,14 +69,21 @@ class TelemetryPublisher
     void WatchSpectrum(const std::string& scope, const std::string& presetId, const std::string& nodeId);
     void StopSpectrum();
 
+    /// The same for the loudness of one node's output ("sldL"), which the UI holds while that
+    /// node's DSP status readout is open. Moving it to another node restarts the measurement;
+    /// renewing it does not.
+    void WatchLoudness(const std::string& scope, const std::string& presetId, const std::string& nodeId);
+    void StopLoudness();
+
   private:
-    struct SpectrumWatch
+    /// A node a tap feed is watching, addressed as in the diagnostics roster.
+    struct NodeWatch
     {
         std::string scope;
         std::string presetId;
         std::string nodeId;
 
-        bool operator==(const SpectrumWatch&) const = default;
+        bool operator==(const NodeWatch&) const = default;
     };
 
     /// One node in the diagnostics roster.
@@ -103,6 +111,7 @@ class TelemetryPublisher
     void SendPerformanceStats();
     void SendSpatialPositions();
     void SendSpectrum();
+    void ReadAndSendLoudness(bool uiVisible);
 
     IPluginHost& mHost;
     MultiPresetMixer& mPresetMixer;
@@ -116,6 +125,7 @@ class TelemetryPublisher
     int mSignalDiagnosticsCounter = 0;
     int mSpatialPositionCounter = 0;
     int mSpectrumCounter = 0;
+    int mLoudnessCounter = 0;
 
     bool mPendingSignalDiagnostics = false;
     std::chrono::steady_clock::time_point mLastSignalDiagnosticsSentAt{};
@@ -130,7 +140,9 @@ class TelemetryPublisher
     /// spatialiser leaves the chain, instead of the puck freezing where it was.
     bool mSpatialPositionsWereSent = false;
 
-    std::optional<SpectrumWatch> mSpectrumWatch;
+    std::optional<NodeWatch> mSpectrumWatch;
     std::chrono::steady_clock::time_point mSpectrumWatchExpiresAt{};
+    std::optional<NodeWatch> mLoudnessWatch;
+    std::chrono::steady_clock::time_point mLoudnessWatchExpiresAt{};
 };
 } // namespace guitarfx

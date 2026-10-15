@@ -3,6 +3,7 @@
 #include "presets/PresetTypes.h"
 #include "dsp/ChannelLayout.h"
 #include "dsp/DeferredRebuild.h"
+#include "dsp/LoudnessTap.h"
 #include "dsp/RealtimeParallel.h"
 #include "dsp/SignalTelemetry.h"
 #include "dsp/SilenceSleepGate.h"
@@ -321,6 +322,18 @@ class SignalGraphExecutor
     bool ReadWatchedSpectrum(SpectrumTap::Bins& out,
                              std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now());
 
+    // Loudness of one node's output, for the DSP status readout. Like the spectrum: at most one
+    // node per executor, only while the UI is showing it, and message thread only.
+
+    /// Taps `nodeId`'s output, moving the tap off any other node and restarting the measurement
+    /// when it moves. Returns false, and taps nothing, when there is no such node.
+    bool WatchNodeLoudness(const std::string& nodeId);
+    void ClearLoudnessWatch();
+
+    /// The tapped node's loudness as of `now`. False when nothing is tapped.
+    bool ReadWatchedLoudness(LoudnessTap::Reading& out,
+                             std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now());
+
     // Runtime control for intra-graph parallel processing.
     void SetParallelLevelsEnabled(bool enabled)
     {
@@ -420,6 +433,9 @@ class SignalGraphExecutor
         /// The executor's spectrum tap while this is the watched node, else null. The tap
         /// outlives every node that points at it; see mSpectrumTap.
         std::atomic<SpectrumTap*> spectrumTap{nullptr};
+        /// The executor's loudness tap while this is the node the DSP status readout watches, else
+        /// null. Outlives every node that points at it, as the spectrum tap does.
+        std::atomic<LoudnessTap*> loudnessTap{nullptr};
         /// For a note source: whether it ran this block, and whether it ran the one before.
         /// Written by whichever thread runs the node; read by its players, which always run in a
         /// later level, after the level barrier.
@@ -537,6 +553,8 @@ class SignalGraphExecutor
     /// Points the watched node, and only that node, at mSpectrumTap. Rerun whenever node
     /// states are created, since a new one starts out untapped.
     void ApplySpectrumWatch();
+    /// The same for mLoudnessTap.
+    void ApplyLoudnessWatch();
 
     SignalGraph mGraph;
     ResourceLibrary* mResourceLibrary = nullptr;
@@ -633,5 +651,8 @@ class SignalGraphExecutor
     /// can never be left holding a pointer to a freed tap.
     std::unique_ptr<SpectrumTap> mSpectrumTap;
     std::string mSpectrumWatchNodeId;
+    /// The same, for the loudness of the node the DSP status readout shows.
+    std::unique_ptr<LoudnessTap> mLoudnessTap;
+    std::string mLoudnessWatchNodeId;
 };
 } // namespace guitarfx

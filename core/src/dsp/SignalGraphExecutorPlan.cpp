@@ -203,8 +203,10 @@ void SignalGraphExecutor::BuildExecutionPlan()
         ApplyTempoToProcessors();
     }
 
-    // Likewise a rebuilt node starts out untapped, which would silently end an EQ display.
+    // Likewise a rebuilt node starts out untapped, which would silently end an EQ display or a
+    // loudness readout.
     ApplySpectrumWatch();
+    ApplyLoudnessWatch();
 }
 
 void SignalGraphExecutor::SetInputLayout(ChannelLayout layout)
@@ -643,6 +645,13 @@ void SignalGraphExecutor::ProcessPlannedNode(PlannedNode& planned, int numSample
     }
 
     state->channelCount.store(state->outputStereo ? 2 : 1, std::memory_order_relaxed);
+
+    // The DSP status readout's loudness is of what the node puts out, as its level meters are.
+    // After the node's timing, so a node being watched never reports the copy as its own time.
+    if (auto* tap = state->loudnessTap.load(std::memory_order_acquire))
+    {
+        tap->Push(state->bufferLeft.data(), state->outputStereo ? state->bufferRight.data() : nullptr, numSamples);
+    }
 
     if (collectLevels)
     {

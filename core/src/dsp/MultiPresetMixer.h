@@ -512,7 +512,8 @@ class MultiPresetMixer
     // Queries. A walk of the instance list races the audio thread erasing finished fade-outs
     // at the end of Process(), so the caller holds the DSP lock. The periodic telemetry reads
     // (GetPresetCount through GetTotalLatencySamples, GetSignalDiagnosticsSnapshot,
-    // ReadNodeSpectrum, ClearSpectrumTaps, ReadNodeParamsForType, SetSignalDiagnosticsEnabled)
+    // ReadNodeSpectrum, ClearSpectrumTaps, ReadNodeLoudness, ClearLoudnessTaps,
+    // ReadNodeParamsForType, SetSignalDiagnosticsEnabled)
     // hold the erase off themselves instead, so the message thread can call them without it:
     // taking the DSP lock 20-30 times a second would silence a block whenever one landed on an
     // audio callback. Slots are added, retired and re-keyed under the DSP lock on the message
@@ -564,6 +565,14 @@ class MultiPresetMixer
     /// Detaches every spectrum tap, in every executor including retiring ones.
     void ClearSpectrumTaps();
 
+    /// Loudness of one node's output, for the DSP status readout: found and tapped as
+    /// ReadNodeSpectrum does, and kept tapped until ClearLoudnessTaps(). Message thread only.
+    bool ReadNodeLoudness(std::string_view scope, const std::string& presetId, const std::string& nodeId,
+                          LoudnessTap::Reading& out);
+
+    /// Detaches every loudness tap, in every executor including retiring ones.
+    void ClearLoudnessTaps();
+
     // Tuner functionality
     void SetTunerEnabled(bool enabled);
 
@@ -601,6 +610,9 @@ class MultiPresetMixer
     [[nodiscard]] ExecutorSetup MakeExecutorSetup() const;
     /// The edit rules for the live global chain. Defined in MultiPresetMixer.cpp.
     [[nodiscard]] GlobalChainEditor EditGlobalChain();
+    /// The executor a telemetry tap addresses: "pre", "post", or "preset" with `presetId` (empty
+    /// for the first live instance). Null when there is none. The caller holds a ReadScope.
+    [[nodiscard]] SignalGraphExecutor* FindTapExecutor(std::string_view scope, const std::string& presetId);
 
     void AllocateBuffers(int maxBlockSize);
     void EnsureGlobalChainsUpToDate();

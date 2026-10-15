@@ -592,6 +592,8 @@ set(GUITARFX_CORE_SOURCES
     src/dsp/LinearRamp.h
     src/dsp/Loudness.h
     src/dsp/Loudness.cpp
+    src/dsp/LoudnessTap.h
+    src/dsp/LoudnessTap.cpp
     src/dsp/ImpulseResponseAnalysis.h
     src/dsp/NamModelCache.h
     src/dsp/NamModelCache.cpp

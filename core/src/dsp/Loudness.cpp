@@ -147,6 +147,129 @@ LevelMeasurement IntegratedLoudnessMeter::Result() const
     return result;
 }
 
+void StreamingLoudnessMeter::Prepare(double sampleRate)
+{
+    mSampleRate = (IsFinite(sampleRate) && sampleRate > 0.0) ? sampleRate : 48000.0;
+    mGranuleFrames = std::max<std::size_t>(1, static_cast<std::size_t>(std::llround(mSampleRate * kHopSeconds)));
+    mLeftFilter.Prepare(mSampleRate);
+    mRightFilter.Prepare(mSampleRate);
+    Reset();
+}
+
+void StreamingLoudnessMeter::Reset()
+{
+    mLeftFilter.Reset();
+    mRightFilter.Reset();
+    mPendingEnergy = 0.0;
+    mPendingFrames = 0;
+    mRecentGranules.fill(0.0);
+    mRecentWrite = 0;
+    mGranulesClosed = 0;
+    mGatedBlocks.clear();
+    mIntegrated.reset();
+    mFrames = 0;
+}
+
+void StreamingLoudnessMeter::Push(const float* left, const float* right, std::size_t frames)
+{
+    if (left == nullptr)
+    {
+        return;
+    }
+
+    for (std::size_t i = 0; i < frames; ++i)
+    {
+        const double weightedLeft = mLeftFilter.Process(static_cast<double>(left[i]));
+        // A mono signal is the same signal twice: one filter, its energy counted for both sides.
+        const double weightedRight =
+            right != nullptr ? mRightFilter.Process(static_cast<double>(right[i])) : weightedLeft;
+        AddFrameEnergy((weightedLeft * weightedLeft) + (weightedRight * weightedRight));
+    }
+
+    // Leave the right filter where the same input would have: whatever comes next, stereo or
+    // silence, carries on from it.
+    if (right == nullptr)
+    {
+        mRightFilter = mLeftFilter;
+    }
+}
+
+void StreamingLoudnessMeter::PushSilence(std::size_t frames)
+{
+    // Through the filters rather than as bare zeros, so a signal that stops rings out as it would.
+    for (std::size_t i = 0; i < frames; ++i)
+    {
+        const double weightedLeft = mLeftFilter.Process(0.0);
+        const double weightedRight = mRightFilter.Process(0.0);
+        AddFrameEnergy((weightedLeft * weightedLeft) + (weightedRight * weightedRight));
+    }
+}
+
+void StreamingLoudnessMeter::AddFrameEnergy(double energy)
+{
+    mPendingEnergy += energy;
+    ++mFrames;
+
+    if (++mPendingFrames < mGranuleFrames)
+    {
+        return;
+    }
+
+    mRecentGranules[mRecentWrite] = mPendingEnergy / static_cast<double>(mGranuleFrames);
+    mRecentWrite = (mRecentWrite + 1) % kShortTermGranules;
+    ++mGranulesClosed;
+    mPendingEnergy = 0.0;
+    mPendingFrames = 0;
+
+    // Every granule from the fourth on closes a gating block: the last four.
+    if (mGranulesClosed < kMomentaryGranules)
+    {
+        return;
+    }
+
+    double blockSum = 0.0;
+
+    for (std::size_t i = 1; i <= kMomentaryGranules; ++i)
+    {
+        blockSum += mRecentGranules[(mRecentWrite + kShortTermGranules - i) % kShortTermGranules];
+    }
+
+    const double block = blockSum / static_cast<double>(kMomentaryGranules);
+
+    if (IsFinite(block) && block > LufsToMeanSquare(kAbsoluteGateLufs))
+    {
+        mGatedBlocks.push_back(block);
+        mIntegrated = GatedLoudness(mGatedBlocks.data(), mGatedBlocks.size());
+    }
+}
+
+std::optional<double> StreamingLoudnessMeter::WindowLufs(std::size_t granules) const noexcept
+{
+    // About -120 LUFS: below anything a chain makes, and keeps log10 finite on silence.
+    constexpr double kSilentMeanSquare = 1.0e-12;
+
+    if (granules == 0 || granules > kShortTermGranules || mGranulesClosed < granules)
+    {
+        return std::nullopt;
+    }
+
+    double sum = 0.0;
+
+    for (std::size_t i = 1; i <= granules; ++i)
+    {
+        sum += mRecentGranules[(mRecentWrite + kShortTermGranules - i) % kShortTermGranules];
+    }
+
+    const double meanSquare = sum / static_cast<double>(granules);
+
+    if (!IsFinite(meanSquare) || meanSquare <= kSilentMeanSquare)
+    {
+        return std::nullopt;
+    }
+
+    return MeanSquareToLufs(meanSquare);
+}
+
 LevelMeasurement MeasureIntegratedLoudness(const float* left, const float* right, std::size_t frames, double sampleRate)
 {
     IntegratedLoudnessMeter meter(sampleRate);

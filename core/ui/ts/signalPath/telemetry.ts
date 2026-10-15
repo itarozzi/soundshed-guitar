@@ -1,5 +1,6 @@
 import { uiState } from "../state.js";
 import { nodeDspLatencySamples, nodeDspProcessingTimeUs } from "../dspPerformance.js";
+import { getNodeLoudness, setNodeLoudnessListener, setNodeLoudnessWatch, type NodeLoudnessSource } from "../nodeLoudness.js";
 import type {
   InputAnalyzerLevelTelemetry,
   SignalLevelMetrics,
@@ -156,10 +157,75 @@ export function addDspStatusSample(name: string, value: number | null): number |
   return average;
 }
 
+/**
+ * The node the open DSP status readout measures the loudness of, or null when no readout is open.
+ * Addressed as its diagnostics entry is; before the first entry arrives, the Input and Output nodes
+ * are the global chain's ends and anything else is in the active preset. A node inside a composite
+ * being edited is in no running graph, so it has none.
+ */
+function dspStatusLoudnessSource(status: HTMLElement | null | undefined): NodeLoudnessSource | null {
+  const nodeId = getSelectedNodeId();
+  if (!status || !selectedNodeDspStatusVisible || !nodeId || uiState.compositeEditMode) {
+    return null;
+  }
+
+  const entry = getSelectedNodeDiagnosticsEntry();
+  const fallbackScope = nodeId === "__input__" ? "pre" : nodeId === "__output__" ? "post" : "preset";
+  const scope = entry?.scope === "pre" ? "pre" : entry?.scope === "post" ? "post" : entry ? "preset" : fallbackScope;
+  if (scope !== "preset") {
+    return { scope, nodeId: entry?.nodeId ?? nodeId };
+  }
+
+  const presetId = uiState.activePresetId ?? entry?.presetId;
+  return { scope: "preset", nodeId, ...(presetId ? { presetId } : {}) };
+}
+
+function formatIntegratedDuration(seconds: number): string {
+  const whole = Math.max(0, Math.floor(seconds));
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
+}
+
+/** The loudness tiles, from the newest reading. Runs on every "sldL" frame (10 Hz). */
+export function updateSelectedNodeDspLoudness(): void {
+  const status = nodeParamsPanelElement?.querySelector<HTMLElement>(".effect-dsp-status");
+  if (!status || !selectedNodeDspStatusVisible) {
+    return;
+  }
+
+  const reading = getNodeLoudness();
+  const values: Record<string, string> = {
+    momentary: formatAnalyzerLufs(reading?.momentaryLufs ?? undefined),
+    shortTerm: formatAnalyzerLufs(reading?.shortTermLufs ?? undefined),
+    integrated: formatAnalyzerLufs(reading?.integratedLufs ?? undefined),
+  };
+  Object.entries(values).forEach(([name, value]) => {
+    const element = status.querySelector<HTMLElement>(`[data-dsp-loudness="${name}"]`);
+    if (element && element.textContent !== value) {
+      element.textContent = value;
+    }
+  });
+
+  const integratedTile = status.querySelector<HTMLElement>("[data-dsp-loudness-integrated]");
+  if (integratedTile) {
+    const title = reading
+      ? `Integrated loudness over the last ${formatIntegratedDuration(reading.integratedSeconds)}, since this readout opened. Close and reopen it to start again.`
+      : "Integrated loudness since this readout opened";
+    if (integratedTile.title !== title) {
+      integratedTile.title = title;
+    }
+  }
+}
+
+setNodeLoudnessListener(updateSelectedNodeDspLoudness);
+
 export function updateSelectedNodeDspStatus(): void {
   const status = nodeParamsPanelElement?.querySelector<HTMLElement>(".effect-dsp-status");
   const diagnostics = getSelectedNodeDiagnosticsEntry();
   const metrics = diagnostics?.levels;
+
+  // Holds the loudness watch exactly while a readout is open, following the selected node.
+  // Repeating the same node costs nothing.
+  setNodeLoudnessWatch(dspStatusLoudnessSource(status));
 
   if (!status || !selectedNodeDspStatusVisible) {
     return;
@@ -187,6 +253,8 @@ export function updateSelectedNodeDspStatus(): void {
   if (shouldRenderAverage) {
     lastDspStatusAverageRenderAt = now;
   }
+  // A rebuilt panel starts with dashes; fill the loudness tiles without waiting for a frame.
+  updateSelectedNodeDspLoudness();
 }
 
 export function bindSelectedNodeDspStatusToggle(): void {

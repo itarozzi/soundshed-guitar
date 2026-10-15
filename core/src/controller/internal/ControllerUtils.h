@@ -60,6 +60,14 @@ inline constexpr int kSpectrumRateHz = 30;
 /// forgets to stop does not leave a node tapped and a feed running.
 inline constexpr auto kSpectrumWatchLease = std::chrono::milliseconds(5000);
 
+/// The loudness of the node whose DSP status readout is open. BS.1770 refreshes momentary and
+/// short-term loudness every 100 ms, so faster would only repeat values. Each read also drains
+/// the tap's ring, which holds over half a second at any rate, so this is never too slow either.
+inline constexpr int kLoudnessRateHz = 10;
+
+/// As kSpectrumWatchLease, for the loudness readout.
+inline constexpr auto kLoudnessWatchLease = std::chrono::milliseconds(5000);
+
 /// A practice-tool progress readout does not need more than this.
 inline constexpr int kPracticeToolRateHz = 12;
 
