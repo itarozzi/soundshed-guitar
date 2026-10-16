@@ -65,25 +65,30 @@ struct StageFilter
     /// Silence on both channels, keeping the corners where they are.
     void ClearState()
     {
-        previousInput.fill(0.0f);
-        previousHighPass.fill(0.0f);
-        previousLowPass.fill(0.0f);
+        state.fill({});
     }
 
     void CopyChannel(int from, int to)
     {
-        previousInput[to] = previousInput[from];
-        previousHighPass[to] = previousHighPass[from];
-        previousLowPass[to] = previousLowPass[from];
+        state[to] = state[from];
     }
 
-    float Process(float sample, int channel)
+    /// One channel's memory: its last input and both outputs.
+    struct State
     {
-        const float highPassed = hpCoefficient * (previousHighPass[channel] + sample - previousInput[channel]);
-        previousInput[channel] = sample;
-        previousHighPass[channel] = highPassed;
-        previousLowPass[channel] += lpStep * (highPassed - previousLowPass[channel]);
-        return previousLowPass[channel];
+        float input = 0.0f;
+        float highPass = 0.0f;
+        float lowPass = 0.0f;
+    };
+
+    /// One sample through the pair, with the corners `hp` and `lp` and one channel's `s`.
+    [[nodiscard]] static float Step(float hp, float lp, State& s, float sample)
+    {
+        const float highPassed = hp * (s.highPass + sample - s.input);
+        s.input = sample;
+        s.highPass = highPassed;
+        s.lowPass += lp * (highPassed - s.lowPass);
+        return s.lowPass;
     }
 
     float hpCoefficient = 0.0f;
@@ -91,9 +96,7 @@ struct StageFilter
     float hpTarget = 0.0f;
     float lpTarget = 1.0f;
     bool settled = false;
-    std::array<float, 2> previousInput = {};
-    std::array<float, 2> previousHighPass = {};
-    std::array<float, 2> previousLowPass = {};
+    std::array<State, 2> state = {};
 };
 
 /**
@@ -226,11 +229,12 @@ struct GlidingBiquad
         s2[to] = s2[from];
     }
 
-    double Process(double input, int channel)
+    /// One sample through coefficients `c`, with one channel's state in `z1` and `z2`.
+    [[nodiscard]] static double Step(const BiquadCoefficients& c, double& z1, double& z2, double input)
     {
-        const double output = current.b0 * input + s1[channel];
-        s1[channel] = current.b1 * input - current.a1 * output + s2[channel];
-        s2[channel] = current.b2 * input - current.a2 * output;
+        const double output = c.b0 * input + z1;
+        z1 = c.b1 * input - c.a1 * output + z2;
+        z2 = c.b2 * input - c.a2 * output;
         return output;
     }
 

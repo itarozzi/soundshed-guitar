@@ -6,8 +6,8 @@
 #include "dsp/EffectGuids.h"
 #include "dsp/FiniteCheck.h"
 #include "dsp/effects/BuiltinAmpFilters.h"
-#include "dsp/effects/BuiltinAmpOversampling.h"
 #include "dsp/effects/BuiltinAmpPresets.h"
+#include "dsp/effects/BuiltinAmpRender.h"
 #include "dsp/effects/BuiltinAmpVoicing.h"
 #include <algorithm>
 #include <array>
@@ -20,7 +20,8 @@ namespace guitarfx
  * Built-in amp head. The whole nonlinear path runs at up to 4x with an
  * anti-aliasing half-band decimator; cabinet filtering belongs downstream.
  * What it sounds like (parameters, clipper knees, drive law, level table)
- * is in BuiltinAmpVoicing.h, and its linear filters in BuiltinAmpFilters.h.
+ * is in BuiltinAmpVoicing.h, its linear filters in BuiltinAmpFilters.h, and
+ * how the signal runs through them, a chunk at a time, in BuiltinAmpRender.h.
  */
 class BuiltinAmpEffect : public EffectProcessor
 {
@@ -43,14 +44,8 @@ class BuiltinAmpEffect : public EffectProcessor
         mMaxBlockSize = maxBlockSize;
         mOversamplingFactor = sampleRate < 88200.0 ? 4 : (sampleRate < 176400.0 ? 2 : 1);
         mDspSampleRate = sampleRate * mOversamplingFactor;
-
-        for (auto* bank : {&mUpFirst, &mDownFirst, &mUpSecond, &mDownSecond})
-        {
-            for (auto& filter : *bank)
-            {
-                filter.Prepare();
-            }
-        }
+        mControls.shift = mOversamplingFactor == 4 ? 2 : (mOversamplingFactor == 2 ? 1 : 0);
+        mPath.Prepare();
 
         UpdateStageFilters();
         UpdateSmoothing();
@@ -71,26 +66,7 @@ class BuiltinAmpEffect : public EffectProcessor
 
     void Reset() override
     {
-        for (auto* bank : {&mUpFirst, &mDownFirst, &mUpSecond, &mDownSecond})
-        {
-            for (auto& filter : *bank)
-            {
-                filter.Reset();
-            }
-        }
-
-        for (auto& filter : mStageFilters)
-        {
-            filter.Reset();
-        }
-
-        for (auto& filter : mFilters)
-        {
-            filter.Reset();
-        }
-
-        mSagEnv.fill(0.0f);
-
+        mPath.Reset();
         mVoiceSmoothed = mVoice;
         mGainSmoothed = mGain;
         mNominal.Follow();
@@ -101,7 +77,6 @@ class BuiltinAmpEffect : public EffectProcessor
         mCharacterSmoothed = mCharacter;
         mOutputGainSmoothed = mOutputGainTarget / mNominal.inputGain;
         mPowerMakeupSmoothed = mPowerMakeupTarget;
-        AdvanceFilters(1.0);
         mStageFades.Settle(std::clamp(mStageCount, 1, kMaxStages));
         mVoicingStale = true;
         mRightChannelStale = false;
@@ -120,7 +95,7 @@ class BuiltinAmpEffect : public EffectProcessor
             // The right channel sat still while the input was mono. Its input
             // was the left channel's all along, so the left state is exactly
             // where it would have got to.
-            CopyChannelState(0, 1);
+            mPath.CopyChannel(0, 1);
             mRightChannelStale = false;
         }
 
@@ -319,96 +294,38 @@ class BuiltinAmpEffect : public EffectProcessor
   private:
     static constexpr int kMaxStages = builtin_amp::kMaxStages;
 
-    // The fixed-shape filters, in the order the signal meets them.
-    enum Filter
-    {
-        kPreHighPass,
-        kPreEmphasisShelf,
-        kBassShelf,
-        kMiddlePeak,
-        kContourPeak,
-        kTrebleShelf,
-        kVoicingPeak,
-        kPresencePeak,
-        kDepthShelf,
-        kResonancePeak,
-        kDampingShelf,
-        kPostHighPass,
-        kFilterCount
-    };
-
-    // Every piece of per-channel state; the same list Reset() clears. If a
-    // new filter or envelope is added to one, add it here too, or the right
-    // channel comes back from a mono stretch out of step with the left
-    // (TestMonoPath catches that).
-    void CopyChannelState(int from, int to)
-    {
-        for (auto* bank : {&mUpFirst, &mDownFirst, &mUpSecond, &mDownSecond})
-        {
-            (*bank)[to] = (*bank)[from];
-        }
-
-        for (auto& filter : mStageFilters)
-        {
-            filter.CopyChannel(from, to);
-        }
-
-        for (auto& filter : mFilters)
-        {
-            filter.CopyChannel(from, to);
-        }
-
-        mSagEnv[to] = mSagEnv[from];
-    }
-
-    // The processing loop for one channel (ProcessMono) or two (Process).
-    // Controls and voicing are shared and advance once per sample either way,
-    // so a mono block and a stereo block leave them in the same place.
+    // The processing loop for one channel (ProcessMono) or two (Process), a
+    // chunk at a time (BuiltinAmpRender.h). Controls and voicing are shared
+    // and advance once per sample either way, so a mono block and a stereo
+    // block leave them in the same place.
     template <int Channels> void Render(const float* const* inputs, float* const* outputs, int numSamples)
     {
-        using builtin_amp::Glide;
         const int stageCount = std::clamp(mStageCount, 1, kMaxStages);
-        const float smoothStep = 1.0f - mControlSmoothCoef;
         mNominal.Follow();
         const float inputTarget = mStageGainLinear * mNominal.inputGain;
         const float outputTarget = mOutputGainTarget / mNominal.inputGain;
 
-        for (int i = 0; i < numSamples; ++i)
+        for (int start = 0; start < numSamples; start += builtin_amp::kChunk)
         {
-            float highInput[Channels][4] = {};
-            float highOutput[Channels][4] = {};
+            StepControls(std::min(builtin_amp::kChunk, numSamples - start), stageCount, inputTarget, outputTarget);
+            mPath.Render<Channels>(inputs, outputs, start, mControls);
+        }
+    }
 
-            for (int ch = 0; ch < Channels; ++ch)
-            {
-                const float* in = inputs[ch];
-                const float sample = in ? in[i] : 0.0f;
+    // Controls glide at the host rate: 5-10 ms ramps gain nothing from being
+    // stepped four times as often. Each host sample of the chunk is stepped in
+    // turn, and what the stages read is kept for the signal path.
+    void StepControls(int count, int stageCount, float inputTarget, float outputTarget)
+    {
+        using namespace builtin_amp;
+        const float smoothStep = 1.0f - mControlSmoothCoef;
+        ChunkControls& c = mControls;
+        c.count = count;
+        c.filterStep = 1.0 - mFilterSmoothCoef;
 
-                if (mOversamplingFactor == 1)
-                {
-                    highInput[ch][0] = sample;
-                }
-                else
-                {
-                    float firstEven = 0.0f, firstOdd = 0.0f;
-                    mUpFirst[ch].Upsample(sample, firstEven, firstOdd);
-
-                    if (mOversamplingFactor == 2)
-                    {
-                        highInput[ch][0] = firstEven;
-                        highInput[ch][1] = firstOdd;
-                    }
-                    else
-                    {
-                        mUpSecond[ch].Upsample(firstEven, highInput[ch][0], highInput[ch][1]);
-                        mUpSecond[ch].Upsample(firstOdd, highInput[ch][2], highInput[ch][3]);
-                    }
-                }
-            }
-
-            // Controls glide at the host rate: 5-10 ms ramps gain nothing from
-            // being stepped four times as often, and this is a lot of work
-            // (every tone filter's coefficients) to repeat per oversampled
-            // sample.
+        for (int h = 0; h < count; ++h)
+        {
+            const std::array<float, 9> before = Smoothed();
             Glide(mVoiceSmoothed, mVoice, smoothStep);
             Glide(mGainSmoothed, mGain, smoothStep);
             mStageGainSmoothed += smoothStep * (inputTarget - mStageGainSmoothed);
@@ -418,58 +335,66 @@ class BuiltinAmpEffect : public EffectProcessor
             Glide(mCharacterSmoothed, mCharacter, smoothStep);
             mOutputGainSmoothed += smoothStep * (outputTarget - mOutputGainSmoothed);
             Glide(mPowerMakeupSmoothed, mPowerMakeupTarget, smoothStep);
-            AdvanceFilters(1.0 - mFilterSmoothCoef);
-            UpdateVoicing(mStageFades.Advance(stageCount, mStageFilters));
+            const bool stagesMoved = mStageFades.Advance(stageCount, mPath.stageFilters);
+            const ClipperChange change = UpdateVoicing(stagesMoved);
 
-            for (int sub = 0; sub < mOversamplingFactor; ++sub)
+            const float gain = mGainSmoothed;
+            const float voice = mVoiceSmoothed;
+            c.stageGain[h] = mStageGainSmoothed;
+            c.voice[h] = voice;
+            c.drive[kClipClean][h] = 2.0f + 2.5f * gain;
+            c.drive[kClipDrive][h] = StageDrive(gain, 1.0f, 5.0f, 9.0f, 55.0f);
+            c.drive[kClipStage2][h] = StageDrive(gain, voice, 1.1f, 1.5f, 7.0f);
+            c.drive[kClipStage3][h] = StageDrive(gain, voice, 1.6f, 1.2f, 8.0f);
+            c.drive[kClipStage4][h] = StageDrive(gain, voice, 1.35f, 0.8f, 6.0f);
+
+            for (int stage = 0; stage < kMaxStages; ++stage)
             {
-                for (int ch = 0; ch < Channels; ++ch)
-                {
-                    highOutput[ch][sub] = ProcessAmpSample(highInput[ch][sub], ch);
-                }
+                c.mix[stage][h] = mStageFades.mix[stage];
             }
 
-            for (int ch = 0; ch < Channels; ++ch)
+            c.powerDrive[h] = mPowerDriveSmoothed;
+            c.sag[h] = mSagSmoothed;
+            c.outputGain[h] = mOutputGainSmoothed;
+            c.levelMakeup[h] = mLevelMakeup;
+            c.powerMakeup[h] = mPowerMakeupSmoothed;
+            c.RecordClippers(h, mClippers, change);
+
+            // Each step depends only on the one before, so once one moves nothing, nothing
+            // moves for the rest of the chunk: settled controls cost a step, not 64.
+            if (!stagesMoved && Smoothed() == before)
             {
-                if (!outputs[ch])
-                {
-                    continue;
-                }
-
-                float output = highOutput[ch][0];
-
-                if (mOversamplingFactor == 2)
-                {
-                    output = mDownFirst[ch].Downsample(highOutput[ch][0], highOutput[ch][1]);
-                }
-                else if (mOversamplingFactor == 4)
-                {
-                    const float first = mDownSecond[ch].Downsample(highOutput[ch][0], highOutput[ch][1]);
-                    const float second = mDownSecond[ch].Downsample(highOutput[ch][2], highOutput[ch][3]);
-                    output = mDownFirst[ch].Downsample(first, second);
-                }
-
-                outputs[ch][i] = output;
+                c.HoldFrom(h);
+                break;
             }
         }
+    }
+
+    // Every smoothed control, which together with the targets decides the next step.
+    [[nodiscard]] std::array<float, 9> Smoothed() const
+    {
+        return {mVoiceSmoothed, mGainSmoothed,      mStageGainSmoothed,  mPowerDriveSmoothed, mSagSmoothed,
+                mBiasSmoothed,  mCharacterSmoothed, mOutputGainSmoothed, mPowerMakeupSmoothed};
     }
 
     /**
      * Everything derived from the smoothed controls that is the same for both
      * channels and all four oversampled steps, worked out once per host sample
-     * instead of once per channel per stage.
+     * instead of once per channel per stage. Says what moved in the clippers.
      */
-    void UpdateVoicing(bool stagesMoved = false)
+    builtin_amp::ClipperChange UpdateVoicing(bool stagesMoved = false)
     {
         // Each group is only refreshed while its controls are moving; the
         // glides settle exactly on their targets, so a static setting costs a
         // handful of compares here, not tanh and exp2 every sample.
         const bool kneeMoved = mVoicingStale || mCharacterSmoothed != mVoicedCharacter;
+        builtin_amp::ClipperChange change;
 
         if (kneeMoved)
         {
             mVoicedCharacter = mCharacterSmoothed;
             mClippers.SetCharacter(mCharacterSmoothed);
+            change.knee = true;
         }
 
         if (kneeMoved || mPowerDriveSmoothed != mVoicedPowerDrive || mBiasSmoothed != mVoicedBias)
@@ -477,6 +402,7 @@ class BuiltinAmpEffect : public EffectProcessor
             mVoicedPowerDrive = mPowerDriveSmoothed;
             mVoicedBias = mBiasSmoothed;
             mClippers.SetPowerStage(mPowerDriveSmoothed, mBiasSmoothed);
+            change.power = true;
         }
 
         if (kneeMoved || stagesMoved || mGainSmoothed != mVoicedGain || mVoiceSmoothed != mVoicedVoice)
@@ -487,121 +413,12 @@ class BuiltinAmpEffect : public EffectProcessor
         }
 
         mVoicingStale = false;
-    }
-
-    float ProcessAmpSample(float sample, int ch)
-    {
-        using namespace builtin_amp;
-
-        double signal = mFilters[kPreHighPass].Process(sample, ch);
-        signal = mFilters[kPreEmphasisShelf].Process(signal, ch);
-
-        const float gain = mGainSmoothed;
-        const float voice = mVoiceSmoothed;
-        const float input = static_cast<float>(signal) * mStageGainSmoothed;
-        float stage = 0.0f;
-
-        // Voice snaps to 0 or 1, so outside its glide only one leg is heard,
-        // and only that one is clipped.
-        if (voice == 0.0f)
-        {
-            stage = mClippers.Clip(input * (2.0f + 2.5f * gain), kClipClean) * 0.9f;
-        }
-        else if (voice == 1.0f)
-        {
-            stage = mClippers.Clip(input * StageDrive(gain, 1.0f, 5.0f, 9.0f, 55.0f), kClipDrive) * 0.9f;
-        }
-        else
-        {
-            const float clean = mClippers.Clip(input * (2.0f + 2.5f * gain), kClipClean);
-            const float drive = mClippers.Clip(input * StageDrive(gain, 1.0f, 5.0f, 9.0f, 55.0f), kClipDrive);
-            stage = (clean + (drive - clean) * voice) * 0.9f;
-        }
-
-        stage = mStageFilters[0].Process(stage, ch);
-
-        if (const float fade = mStageFades.mix[1]; fade > 0.0f)
-        {
-            float engaged = mClippers.Clip(stage * StageDrive(gain, voice, 1.1f, 1.5f, 7.0f), kClipStage2) * 0.85f;
-            engaged = mStageFilters[1].Process(engaged, ch);
-            stage = StageFades::SwitchIn(stage, engaged, fade);
-        }
-
-        signal = mFilters[kBassShelf].Process(stage, ch);
-        signal = mFilters[kMiddlePeak].Process(signal, ch);
-        signal = mFilters[kContourPeak].Process(signal, ch);
-        signal = mFilters[kTrebleShelf].Process(signal, ch);
-
-        stage = static_cast<float>(signal);
-
-        if (const float fade = mStageFades.mix[2]; fade > 0.0f)
-        {
-            float engaged = mClippers.Clip(stage * StageDrive(gain, voice, 1.6f, 1.2f, 8.0f), kClipStage3) * 0.8f;
-            engaged = mStageFilters[2].Process(engaged, ch);
-            stage = StageFades::SwitchIn(stage, engaged, fade);
-        }
-
-        if (const float fade = mStageFades.mix[3]; fade > 0.0f)
-        {
-            float engaged = mClippers.Clip(stage * StageDrive(gain, voice, 1.35f, 0.8f, 6.0f), kClipStage4) * 0.8f;
-            engaged = mStageFilters[3].Process(engaged, ch);
-            stage = StageFades::SwitchIn(stage, engaged, fade);
-        }
-
-        signal = mFilters[kVoicingPeak].Process(stage, ch);
-
-        // Frequency-dependent power-stage drive: these controls shape the
-        // distortion as well as the level. The external IR supplies cabinet
-        // and microphone tone.
-        signal = mFilters[kPresencePeak].Process(signal, ch);
-        signal = mFilters[kDepthShelf].Process(signal, ch);
-        signal = mFilters[kResonancePeak].Process(signal, ch);
-        signal = mFilters[kDampingShelf].Process(signal, ch);
-
-        // Sag is the supply giving way as the power stage works: the envelope
-        // pulls the stage's ceiling down to `headroom`, and the knee meets the
-        // signal against that lower ceiling, so loud playing clips harder and
-        // is squeezed the most. It acts only on the clipped share of the
-        // stage, so with no Power Drive it changes nothing. The level it
-        // costs at the nominal level is made up (PowerDriveMakeup).
-        const float powerInput = static_cast<float>(signal);
-        const float detector = std::abs(powerInput);
-        const float sagCoefficient = detector > mSagEnv[ch] ? mSagAttackCoef : mSagReleaseCoef;
-        mSagEnv[ch] = sagCoefficient * mSagEnv[ch] + (1.0f - sagCoefficient) * detector;
-
-        // With no Power Drive (the default; its glide lands on exactly 0) the
-        // clipped share is nothing, so the clipper is skipped. The envelope
-        // above follows either way, so turning the drive up finds it current.
-        const float driveAmount = mPowerDriveSmoothed;
-        float powered = powerInput;
-
-        if (driveAmount != 0.0f)
-        {
-            const float headroom = builtin_amp::SagHeadroom(mSagSmoothed, mSagEnv[ch]);
-            const float clipped = mClippers.PowerClip(powerInput, headroom);
-            powered = powerInput + driveAmount * (clipped - powerInput);
-        }
-
-        signal = mFilters[kPostHighPass].Process(powered, ch);
-        return static_cast<float>(signal) * mOutputGainSmoothed * mLevelMakeup * mPowerMakeupSmoothed;
+        return change;
     }
 
     static float DbToLinear(double db)
     {
         return static_cast<float>(std::pow(10.0, db * 0.05));
-    }
-
-    void AdvanceFilters(double step)
-    {
-        for (auto& filter : mFilters)
-        {
-            filter.Advance(step);
-        }
-
-        for (auto& filter : mStageFilters)
-        {
-            filter.Advance(static_cast<float>(step));
-        }
     }
 
     void UpdateStageFilters()
@@ -620,8 +437,8 @@ class BuiltinAmpEffect : public EffectProcessor
 
         for (int stage = 0; stage < kMaxStages; ++stage)
         {
-            mStageFilters[stage].SetCorners(mDspSampleRate, builtin_amp::kStageHighPass[stage] * highPassScale,
-                                            builtin_amp::kStageLowPass[stage] * lowPassScale);
+            mPath.stageFilters[stage].SetCorners(mDspSampleRate, builtin_amp::kStageHighPass[stage] * highPassScale,
+                                                 builtin_amp::kStageLowPass[stage] * lowPassScale);
         }
     }
 
@@ -638,7 +455,8 @@ class BuiltinAmpEffect : public EffectProcessor
         }
 
         const double gainDb = (static_cast<double>(mCharacter) - 0.5) * 8.0;
-        mFilters[kVoicingPeak].SetTarget(builtin_amp::DesignPeaking(1800.0, 0.8, gainDb, mDspSampleRate));
+        mPath.filters[builtin_amp::kVoicingPeak].SetTarget(
+            builtin_amp::DesignPeaking(1800.0, 0.8, gainDb, mDspSampleRate));
     }
 
     void UpdateSmoothing()
@@ -661,15 +479,15 @@ class BuiltinAmpEffect : public EffectProcessor
     {
         if (mSampleRate <= 0.0)
         {
-            mSagAttackCoef = 0.0f;
-            mSagReleaseCoef = 0.0f;
+            mPath.sagAttack = 0.0f;
+            mPath.sagRelease = 0.0f;
             return;
         }
 
         const double attackTau = 0.01;  // 10 ms
         const double releaseTau = 0.18; // 180 ms
-        mSagAttackCoef = static_cast<float>(std::exp(-1.0 / (attackTau * mDspSampleRate)));
-        mSagReleaseCoef = static_cast<float>(std::exp(-1.0 / (releaseTau * mDspSampleRate)));
+        mPath.sagAttack = static_cast<float>(std::exp(-1.0 / (attackTau * mDspSampleRate)));
+        mPath.sagRelease = static_cast<float>(std::exp(-1.0 / (releaseTau * mDspSampleRate)));
     }
 
     void UpdateToneStack()
@@ -687,11 +505,11 @@ class BuiltinAmpEffect : public EffectProcessor
         const double contourGain = -12.0 * mContour;
         const double presenceGain = (mPresence - 0.5) * 12.0;
 
-        mFilters[kBassShelf].SetTarget(DesignLowShelf(120.0, 0.8, bassGain, mDspSampleRate));
-        mFilters[kMiddlePeak].SetTarget(DesignPeaking(750.0, 0.9, midGain, mDspSampleRate));
-        mFilters[kContourPeak].SetTarget(DesignPeaking(600.0, 0.7, contourGain, mDspSampleRate));
-        mFilters[kTrebleShelf].SetTarget(DesignHighShelf(3500.0, 0.9, trebleGain, mDspSampleRate));
-        mFilters[kPresencePeak].SetTarget(DesignPeaking(4000.0, 1.2, presenceGain, mDspSampleRate));
+        mPath.filters[kBassShelf].SetTarget(DesignLowShelf(120.0, 0.8, bassGain, mDspSampleRate));
+        mPath.filters[kMiddlePeak].SetTarget(DesignPeaking(750.0, 0.9, midGain, mDspSampleRate));
+        mPath.filters[kContourPeak].SetTarget(DesignPeaking(600.0, 0.7, contourGain, mDspSampleRate));
+        mPath.filters[kTrebleShelf].SetTarget(DesignHighShelf(3500.0, 0.9, trebleGain, mDspSampleRate));
+        mPath.filters[kPresencePeak].SetTarget(DesignPeaking(4000.0, 1.2, presenceGain, mDspSampleRate));
     }
 
     void UpdatePreFilters()
@@ -706,7 +524,8 @@ class BuiltinAmpEffect : public EffectProcessor
         // 60 Hz at the default Character.
         const double character = mCharacter;
         const double scale = 0.75 + 0.25 * character + 0.5 * character * character;
-        mFilters[kPreHighPass].SetTarget(builtin_amp::DesignHighPass(60.0 * scale, 0.707, mDspSampleRate));
+        mPath.filters[builtin_amp::kPreHighPass].SetTarget(
+            builtin_amp::DesignHighPass(60.0 * scale, 0.707, mDspSampleRate));
     }
 
     void UpdatePreEmphasis()
@@ -725,7 +544,8 @@ class BuiltinAmpEffect : public EffectProcessor
         const double characterTilt = (static_cast<double>(mCharacter) - 0.5) * 8.0;
         const double gainDb = brightBoost + emphasisBoost + characterTilt;
 
-        mFilters[kPreEmphasisShelf].SetTarget(builtin_amp::DesignHighShelf(2500.0, 0.8, gainDb, mDspSampleRate));
+        mPath.filters[builtin_amp::kPreEmphasisShelf].SetTarget(
+            builtin_amp::DesignHighShelf(2500.0, 0.8, gainDb, mDspSampleRate));
     }
 
     void UpdateSpeakerFilters()
@@ -741,9 +561,9 @@ class BuiltinAmpEffect : public EffectProcessor
         const double resonanceGain = static_cast<double>(mResonance) * 6.0;
         const double dampingGain = static_cast<double>(mDamping) * -6.0;
 
-        mFilters[kDepthShelf].SetTarget(DesignLowShelf(120.0, 0.9, depthGain, mDspSampleRate));
-        mFilters[kResonancePeak].SetTarget(DesignPeaking(120.0, 1.0, resonanceGain, mDspSampleRate));
-        mFilters[kDampingShelf].SetTarget(DesignHighShelf(3500.0, 0.9, dampingGain, mDspSampleRate));
+        mPath.filters[kDepthShelf].SetTarget(DesignLowShelf(120.0, 0.9, depthGain, mDspSampleRate));
+        mPath.filters[kResonancePeak].SetTarget(DesignPeaking(120.0, 1.0, resonanceGain, mDspSampleRate));
+        mPath.filters[kDampingShelf].SetTarget(DesignHighShelf(3500.0, 0.9, dampingGain, mDspSampleRate));
     }
 
     void UpdatePostFilters()
@@ -753,18 +573,17 @@ class BuiltinAmpEffect : public EffectProcessor
             return;
         }
 
-        mFilters[kPostHighPass].SetTarget(builtin_amp::DesignHighPass(25.0, 0.707, mDspSampleRate));
+        mPath.filters[builtin_amp::kPostHighPass].SetTarget(builtin_amp::DesignHighPass(25.0, 0.707, mDspSampleRate));
     }
 
     double mSampleRate = 44100.0;
     double mDspSampleRate = 44100.0;
     int mMaxBlockSize = 0;
     int mOversamplingFactor = 1;
-    std::array<BuiltinAmpHalfband2x, 2> mUpFirst = {}, mDownFirst = {}, mUpSecond = {}, mDownSecond = {};
-    std::array<builtin_amp::StageFilter, kMaxStages> mStageFilters = {};
+    builtin_amp::SignalPath mPath;
+    builtin_amp::ChunkControls mControls;
     builtin_amp::StageFades mStageFades;
     builtin_amp::NominalLevel mNominal;
-    std::array<builtin_amp::GlidingBiquad, kFilterCount> mFilters = {};
 
     float mVoice = 0.0f;
     float mVoiceSmoothed = 0.0f;
@@ -808,9 +627,6 @@ class BuiltinAmpEffect : public EffectProcessor
     float mDepth = 0.4f;
     float mResonance = 0.4f;
     float mDamping = 0.5f;
-    float mSagAttackCoef = 0.0f;
-    float mSagReleaseCoef = 0.0f;
-    std::array<float, 2> mSagEnv = {0.0f, 0.0f};
 };
 
 inline void RegisterBuiltinAmpEffect()

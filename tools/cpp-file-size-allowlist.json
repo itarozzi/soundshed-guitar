@@ -45,7 +45,6 @@
     "core/src/storage/JsonStore.cpp": 1250,
     "core/src/controller/PluginControllerPresetArchive.cpp": 1250,
     "core/tests/JsonStoreConcurrencyTests.cpp": 1250,
-    "core/tests/PickupMatchEffectTests.cpp": 1000,
-    "core/src/dsp/effects/BuiltinAmpEffect.h": 1000
+    "core/tests/PickupMatchEffectTests.cpp": 1000
   }
 }

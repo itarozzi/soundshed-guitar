@@ -8,6 +8,14 @@
 #include <cstddef>
 #include <string_view>
 
+// The knees have to be inlined into the clip loops (BuiltinAmpRender.h) for those to vectorise, and
+// MSVC otherwise calls them.
+#if defined(_MSC_VER)
+    #define GUITARFX_KNEE_INLINE __forceinline
+#else
+    #define GUITARFX_KNEE_INLINE inline __attribute__((always_inline))
+#endif
+
 /**
  * What the Heavy American is, as opposed to how it runs (BuiltinAmpEffect.h): its parameter
  * table, where the preamp stages sit, the clipper knees Character morphs between, the drive law,
@@ -171,10 +179,18 @@ inline constexpr float kHardQuintic = 0.2f / (kHardKnee * kHardKnee * kHardKnee 
  * call, about 17 ns on a high-gain stage's large inputs, and the stages are one serial chain, so
  * at four stages it was half the amp's cost. With this the amp runs 25% faster there. Being plain
  * arithmetic, it also vectorises on any compiler, which std::tanh does not under clang.
+ *
+ * MSVC only vectorises it as written here, and inlined: its clip loops (BuiltinAmpRender.h) stay
+ * scalar with std::clamp, which returns a reference, with a test of std::abs, or with a call to
+ * this. The square of 0.0004f picks out exactly the inputs |x| < 0.0004f does (checked over every
+ * float), so these give the same results bit for bit.
  */
-[[nodiscard]] inline float KneeTanh(float x)
+inline constexpr float kKneeTanhLinearSquared = 0.0004f * 0.0004f;
+
+[[nodiscard]] GUITARFX_KNEE_INLINE float KneeTanh(float x)
 {
-    const float clamped = std::clamp(x, -7.90531110763549805f, 7.90531110763549805f);
+    constexpr float limit = 7.90531110763549805f;
+    const float clamped = x < -limit ? -limit : (x > limit ? limit : x);
     const float x2 = clamped * clamped;
     float numerator = -2.76076847742355e-16f;
     numerator = numerator * x2 + 2.00018790482477e-13f;
@@ -187,11 +203,11 @@ inline constexpr float kHardQuintic = 0.2f / (kHardKnee * kHardKnee * kHardKnee 
     denominator = denominator * x2 + 1.18534705686654e-04f;
     denominator = denominator * x2 + 2.26843463243900e-03f;
     denominator = denominator * x2 + 4.89352518554385e-03f;
-    // Below this the rational's rounding is worse than tanh(x) = x.
-    return std::abs(x) < 0.0004f ? x : clamped * numerator / denominator;
+    // Below 0.0004 the rational's rounding is worse than tanh(x) = x.
+    return x * x < kKneeTanhLinearSquared ? x : clamped * numerator / denominator;
 }
 
-[[nodiscard]] inline float SoftKneeShape(float x)
+[[nodiscard]] GUITARFX_KNEE_INLINE float SoftKneeShape(float x)
 {
     const float r = std::sqrt(x * x + kSoftRound * kSoftRound);
     return x / (1.0f - kSoftRound + r);
@@ -204,9 +220,10 @@ inline constexpr float kHardQuintic = 0.2f / (kHardKnee * kHardKnee * kHardKnee 
     return (d - x * x / r) / (d * d);
 }
 
-[[nodiscard]] inline float HardKneeShape(float x)
+[[nodiscard]] GUITARFX_KNEE_INLINE float HardKneeShape(float x)
 {
-    const float c = std::clamp(x, -kHardKnee, kHardKnee);
+    // Not std::clamp, so MSVC vectorises it (see KneeTanh); the same results.
+    const float c = x < -kHardKnee ? -kHardKnee : (x > kHardKnee ? kHardKnee : x);
     const float c2 = c * c;
     return c * (1.0f - c2 * (kHardCubic - kHardQuintic * c2));
 }
@@ -249,7 +266,7 @@ struct KneeBlend
     // At most two knees are ever live, and the weights only change with
     // Character, so these branches predict perfectly and the default costs the
     // one tanh it always did.
-    [[nodiscard]] float Shape(float x) const
+    [[nodiscard]] GUITARFX_KNEE_INLINE float Shape(float x) const
     {
         if (tanhWeight == 1.0f)
         {
@@ -339,14 +356,14 @@ struct Clippers
 
     // One biased stage: the offset keeps silence at zero and the slope keeps
     // the small-signal gain at one, whatever knee and bias Character picked.
-    [[nodiscard]] float Clip(float x, int index) const
+    [[nodiscard]] GUITARFX_KNEE_INLINE float Clip(float x, int index) const
     {
         return (knee.Shape(x + clipBias[index]) - clipOffset[index]) * clipInvSlope[index];
     }
 
     /// The power stage, fully driven, with the sag holding its ceiling down to `headroom`: the
     /// knee sees the input against that ceiling, so the same input clips harder as it drops.
-    [[nodiscard]] float PowerClip(float input, float headroom) const
+    [[nodiscard]] GUITARFX_KNEE_INLINE float PowerClip(float input, float headroom) const
     {
         return headroom * (knee.Shape(powerGain * (input / headroom + powerBias)) - powerOffset) * powerInvScale;
     }
