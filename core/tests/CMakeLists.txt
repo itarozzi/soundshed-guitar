@@ -34,6 +34,7 @@ set(TEST_SOURCES
     EffectPresetWorkflowTests.cpp
     EffectProcessorTests.cpp
     FastMathNanTests.cpp
+    FusedWaveNetTests.cpp
     GaplessSwitchingTests.cpp
     GlobalChainEditorTests.cpp
     GlobalChainEngineTests.cpp
