@@ -346,29 +346,22 @@ class SignalPath
     {
         float* x = mSignal.data();
 
-        for (int h = 0; h < c.count; ++h)
+        if (c.shift == 0 && in)
         {
-            const float sample = in ? in[h] : 0.0f;
-
-            if (c.shift == 0)
-            {
-                x[h] = sample;
-                continue;
-            }
-
-            float even = 0.0f, odd = 0.0f;
-            mUpFirst[ch].Upsample(sample, even, odd);
-
-            if (c.shift == 1)
-            {
-                x[2 * h] = even;
-                x[2 * h + 1] = odd;
-            }
-            else
-            {
-                mUpSecond[ch].Upsample(even, x[4 * h], x[4 * h + 1]);
-                mUpSecond[ch].Upsample(odd, x[4 * h + 2], x[4 * h + 3]);
-            }
+            std::copy(in, in + c.count, x);
+        }
+        else if (c.shift == 0)
+        {
+            std::fill(x, x + c.count, 0.0f);
+        }
+        else if (c.shift == 1)
+        {
+            mUpFirst[ch].UpsampleBlock(in, c.count, x);
+        }
+        else
+        {
+            mUpFirst[ch].UpsampleBlock(in, c.count, mTwice.data());
+            mUpSecond[ch].UpsampleBlock(mTwice.data(), 2 * c.count, x);
         }
     }
 
@@ -381,24 +374,22 @@ class SignalPath
 
         const float* x = mSignal.data();
 
-        for (int h = 0; h < c.count; ++h)
+        if (c.shift == 0)
         {
-            if (c.shift == 0)
-            {
-                out[h] = x[h];
-            }
-            else if (c.shift == 1)
-            {
-                out[h] = mDownFirst[ch].Downsample(x[2 * h], x[2 * h + 1]);
-            }
-            else
-            {
-                const float first = mDownSecond[ch].Downsample(x[4 * h], x[4 * h + 1]);
-                const float second = mDownSecond[ch].Downsample(x[4 * h + 2], x[4 * h + 3]);
-                out[h] = mDownFirst[ch].Downsample(first, second);
-            }
+            std::copy(x, x + c.count, out);
+        }
+        else if (c.shift == 1)
+        {
+            mDownFirst[ch].DownsampleBlock(x, c.count, out);
+        }
+        else
+        {
+            mDownSecond[ch].DownsampleBlock(x, 2 * c.count, mTwice.data());
+            mDownFirst[ch].DownsampleBlock(mTwice.data(), c.count, out);
         }
     }
+
+    static_assert(2 * kChunk <= BuiltinAmpHalfband2x::kMaxBlock, "a stage takes a chunk at 2x in one call");
 
     using Oversampled = std::array<float, kOversampledChunk>;
 
@@ -410,6 +401,8 @@ class SignalPath
     alignas(32) Oversampled mHeadroom = {};
     alignas(32) Oversampled mKneeInput = {};
     alignas(32) Oversampled mKneePart = {};
+    /// The signal at 2x, between the resampler's stages at 4x.
+    std::array<float, 2 * kChunk> mTwice = {};
     std::array<GlidingBiquad, kFilterCount> mFiltersAtStart = {};
     std::array<StageFilter, kMaxStages> mStageFiltersAtStart = {};
 };
