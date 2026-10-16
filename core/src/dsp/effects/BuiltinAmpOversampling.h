@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 
@@ -10,17 +11,22 @@ namespace guitarfx
 // input rate. The decimator takes the even phase, so the total latency is
 // exactly 48 host samples at 4x or 32 host samples at 2x.
 //
-// Run polyphase. Every even tap but the centre is zero, so the even phase is a
-// pure 16-sample delay and the odd phase a 32-tap dot product. Each odd-phase
-// history is a mirrored ring, every sample stored twice and 32 apart, so the
-// newest 32 always sit in a row: no wrap or modulo per tap, and the dot product
-// vectorises. Indexed tap by tap, with a modulo each, this was 40% of the amp's
-// cost (docs/heavy-american-performance-review-2026-10-16.md).
+// Run polyphase, a block at a time. Every even tap but the centre is zero, so
+// the even phase is a pure 16-sample delay and the odd phase a 32-tap FIR. Each
+// direction keeps a line: the last 32 samples, then the block's own, so every
+// sample a block's outputs need sits in a row. The FIR runs across outputs,
+// each tap one multiply-add for a row of them, a vector's worth at once, and
+// each output still adds its taps in order, so it is the dot product it was a
+// sample at a time. One sample at a time, each output a dot product ending in
+// a horizontal sum, read straight after its history was written, this was 45%
+// of the amp's cost (docs/heavy-american-performance-review-2026-10-16.md).
 class BuiltinAmpHalfband2x
 {
   public:
     static constexpr int kTaps = 65;
     static constexpr int kCentre = (kTaps - 1) / 2;
+    /// The most samples one call takes in (upsampling) or gives out (downsampling).
+    static constexpr int kMaxBlock = 128;
 
     void Prepare()
     {
@@ -59,69 +65,133 @@ class BuiltinAmpHalfband2x
 
     void Reset()
     {
-        mUpHistory.fill(0.0f);
-        mOddHistory.fill(0.0f);
-        mEvenDelay.fill(0.0f);
-        mUpAt = 0;
-        mOddAt = 0;
-        mEvenAt = 0;
+        mLine.fill(0.0f);
+        mEvenLine.fill(0.0f);
+        mSums.fill(0.0f);
     }
 
-    void Upsample(float input, float& even, float& odd)
+    /// n samples in (null is silence), 2n out: each one's even phase, then its odd. n is at most
+    /// kMaxBlock.
+    void UpsampleBlock(const float* input, int n, float* output)
     {
-        Push(mUpHistory, mUpAt, input);
-        const float* recent = mUpHistory.data() + mUpAt; // recent[lag]: the input `lag` samples ago
-        even = recent[kEvenDelay];
-        odd = Dot(mUpTaps, recent);
+        float* block = mLine.data() + kHistory;
+
+        if (input)
+        {
+            std::copy(input, input + n, block);
+        }
+        else
+        {
+            std::fill(block, block + n, 0.0f);
+        }
+
+        OddPhase(mUpTaps, block, n);
+        const float* delayed = block - kEvenDelay;
+
+        for (int i = 0; i < n; ++i)
+        {
+            output[2 * i] = delayed[i];
+            output[2 * i + 1] = mSums[i];
+        }
+
+        KeepHistory(mLine, kHistory, n);
     }
 
-    float Downsample(float even, float odd)
+    /// 2n samples in, each one's even phase then its odd; n out, at most kMaxBlock.
+    void DownsampleBlock(const float* input, int n, float* output)
     {
-        // The odd taps meet the odd-phase samples before this one, and the
-        // centre tap the even sample 16 calls back.
-        const float delayed = mEvenDelay[mEvenAt];
-        mEvenDelay[mEvenAt] = even;
-        mEvenAt = (mEvenAt + 1) & (kEvenDelay - 1);
-        const float output = 0.5f * delayed + Dot(mDownTaps, mOddHistory.data() + mOddAt);
-        Push(mOddHistory, mOddAt, odd);
-        return output;
+        float* odd = mLine.data() + kHistory;
+        float* even = mEvenLine.data() + kEvenDelay;
+
+        for (int i = 0; i < n; ++i)
+        {
+            even[i] = input[2 * i];
+            odd[i] = input[2 * i + 1];
+        }
+
+        // The odd taps meet the odd-phase samples before each output's own,
+        // and the centre tap the even sample 16 back.
+        OddPhase(mDownTaps, odd - 1, n);
+        const float* delayed = mEvenLine.data();
+        const int whole = WholeGroups(n);
+
+        for (int i = 0; i < whole; ++i)
+        {
+            mSums[i] = 0.5f * delayed[i] + mSums[i];
+        }
+
+        std::copy(mSums.data(), mSums.data() + n, output);
+        KeepHistory(mLine, kHistory, n);
+        KeepHistory(mEvenLine, kEvenDelay, n);
     }
 
   private:
     static constexpr int kOddTaps = (kTaps - 1) / 2;
     static constexpr int kEvenDelay = kCentre / 2;
-    static_assert((kOddTaps & (kOddTaps - 1)) == 0 && (kEvenDelay & (kEvenDelay - 1)) == 0,
-                  "the rings wrap with a mask");
+    /// The samples kept from one block for the next: as many as the odd phase reaches back.
+    static constexpr int kHistory = kOddTaps;
 
-    using Taps = std::array<float, kOddTaps>;
-    using History = std::array<float, 2 * kOddTaps>;
+    /**
+     * Outputs are worked out in whole groups, the ones past a block's end from stale samples, and
+     * unused, so none falls to a loop's scalar remainder: one that fused its multiply-adds where
+     * the vector lanes didn't, or the other way round, would make the output depend on the host's
+     * block size. A group is a whole number of vectors at any width.
+     */
+    static constexpr int kGroup = 16;
+    static_assert(kMaxBlock % kGroup == 0, "the lines hold whole groups");
+    static_assert(kOddTaps % 8 == 0, "the odd phase runs eight taps a pass");
 
-    static void Push(History& history, int& at, float sample)
+    [[nodiscard]] static int WholeGroups(int n)
     {
-        at = (at + kOddTaps - 1) & (kOddTaps - 1);
-        history[at] = sample;
-        history[at + kOddTaps] = sample;
+        return (n + kGroup - 1) / kGroup * kGroup;
     }
 
-    static float Dot(const Taps& taps, const float* recent)
+    using Taps = std::array<float, kOddTaps>;
+
+    /// mSums[i] = the sum over lag of taps[lag] * newest[i - lag], lag 0 first, for the n
+    /// outputs and the rest of their last group.
+    ///
+    /// Eight taps a pass over the outputs: one tap a pass loaded and stored every sum 32 times,
+    /// and took 40% longer. A pass over a group of outputs held in registers was slower still,
+    /// each sum a chain of 32 dependent multiply-adds.
+    void OddPhase(const Taps& taps, const float* newest, int n)
     {
-        float sum = 0.0f;
+        const int whole = WholeGroups(n);
+        float* sums = mSums.data();
+        std::fill(sums, sums + whole, 0.0f);
 
-        for (int lag = 0; lag < kOddTaps; ++lag)
+        for (int lag = 0; lag < kOddTaps; lag += 8)
         {
-            sum += taps[lag] * recent[lag];
-        }
+            const float t0 = taps[lag], t1 = taps[lag + 1], t2 = taps[lag + 2], t3 = taps[lag + 3];
+            const float t4 = taps[lag + 4], t5 = taps[lag + 5], t6 = taps[lag + 6], t7 = taps[lag + 7];
+            const float* from = newest - lag;
 
-        return sum;
+            for (int i = 0; i < whole; ++i)
+            {
+                float sum = sums[i];
+                sum += t0 * from[i];
+                sum += t1 * from[i - 1];
+                sum += t2 * from[i - 2];
+                sum += t3 * from[i - 3];
+                sum += t4 * from[i - 4];
+                sum += t5 * from[i - 5];
+                sum += t6 * from[i - 6];
+                sum += t7 * from[i - 7];
+                sums[i] = sum;
+            }
+        }
+    }
+
+    /// Moves the last `history` samples of the block just run to the front of the line.
+    template <std::size_t Size> static void KeepHistory(std::array<float, Size>& line, int history, int n)
+    {
+        std::copy(line.begin() + n, line.begin() + n + history, line.begin());
     }
 
     Taps mUpTaps = {};
     Taps mDownTaps = {};
-    History mUpHistory = {};
-    History mOddHistory = {};
-    std::array<float, kEvenDelay> mEvenDelay = {};
-    int mUpAt = 0;
-    int mOddAt = 0;
-    int mEvenAt = 0;
+    alignas(32) std::array<float, kHistory + kMaxBlock> mLine = {};
+    alignas(32) std::array<float, kEvenDelay + kMaxBlock> mEvenLine = {};
+    alignas(32) std::array<float, kMaxBlock> mSums = {};
 };
 } // namespace guitarfx

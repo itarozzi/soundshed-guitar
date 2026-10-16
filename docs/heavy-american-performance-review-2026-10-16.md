@@ -6,7 +6,7 @@
 
 ## Status (16 October 2026)
 
-Findings 1-4 are in `78221428`. Finding 5 is applied on top of it (uncommitted), and the amp now costs about a quarter of what it did before this review: see [Finding 5 applied](#finding-5-applied) below.
+Findings 1-4 are in `78221428` and finding 5 in `3147b865`. The resampler running a chunk at a time is applied on top (uncommitted). The amp now costs about a seventh of what it did before this review at its defaults, and an eighth at high gain. See [Finding 5 applied](#finding-5-applied) and [The resampler a chunk at a time](#the-resampler-a-chunk-at-a-time) below.
 
 Findings 1-4, as applied in `78221428`:
 
@@ -120,13 +120,63 @@ The resampler is now 45% of the cost. A section's loop is bound by its filters' 
 - **RelWithDebInfo** (`/fp:fast`): `FastMathNanTests` and `BuiltinAmpEffectTests` pass, including the mono path's exact match and the block partition. The aliasing check reads -131.7 dBc.
 
 **Not done, and found on the way:**
-- **The 4x resampler** is now 3.7 of 8.2 µs. `Upsample` and `Downsample` still run a sample at a time, each output a 32-tap dot product ending in a horizontal sum. A polyphase FIR over the whole chunk, vectorised across outputs, would cost a few multiply-adds per output. The shorter inner half-band in 6 is the other lever.
+- **The 4x resampler** is now 3.7 of 8.2 µs. `Upsample` and `Downsample` still run a sample at a time, each output a 32-tap dot product ending in a horizontal sum. A polyphase FIR over the whole chunk, vectorised across outputs, would cost a few multiply-adds per output. The shorter inner half-band in 6 is the other lever. Since done: see [The resampler a chunk at a time](#the-resampler-a-chunk-at-a-time).
 - **Glides stop short of their targets.** `Glide` snaps within 1e-6, but a float step of 0.2% of the remaining distance stops changing anything about 1.4e-5 away. Voice glides to 0.999986 and stays there, Character to 0.499993 or 0.500014, Gain to 0.899986 for 0.9. Downward glides to 0 do land.
   - So after a live Voice switch, both legs of stage one are clipped and crossfaded for good. After Character moves back to 0.5, two knees run for good. Finding 2's skip and the single-knee path only apply after a Reset or preset load.
   - Chunked, this costs little: 8.32 and 8.38 µs against 8.15 (`liveVoice1`, `liveChar05`).
   - Snapping once a step changes nothing, as the coefficient glides do, would fix it. That moves the output by about -97 dB in sessions with moves, so it is left for its own change.
 - **The controls while they move.** Moved every block, Gain spends 2.5 µs a block in the controls and Character 6.1. The level makeup, and for Character `Clippers::SetCharacter`, run every host sample while they glide, as they always did.
 - The unmeasured items in 6.
+
+### The resampler a chunk at a time
+
+Each half-band stage takes a whole chunk in one call, and works out its odd phase across the chunk's outputs instead of one output at a time.
+
+| Change | Where |
+|---|---|
+| `UpsampleBlock` (n samples in, 2n out) and `DownsampleBlock` (2n in, n out) replace the per-sample `Upsample` and `Downsample`. `SignalPath` makes one call per stage per chunk, the 2x signal between the stages in `mTwice` | `BuiltinAmpOversampling.h`, `BuiltinAmpRender.h` |
+| Each direction keeps a line instead of a mirrored ring: the last 32 samples, then the block's own. Every sample a block's outputs need is in a row, and the next block keeps the last 32 | `BuiltinAmpHalfband2x` |
+| The odd phase runs eight taps a pass over all the block's outputs, so each output costs one multiply-add per tap and no horizontal sum. Each output still adds its taps in order from lag 0, from 0.0f, as the dot product did | `OddPhase` |
+| Outputs are worked out in whole groups of 16, the ones past the block's end unused, so none falls to a loop's scalar remainder | `WholeGroups` |
+
+The latency (48 host samples at 4x, 32 at 2x), the 2x and 1x paths at 96 and 192 kHz, `Reset` and `CopyChannel` are unchanged. `TestHalfbandLatency` now drives the block calls, and checks that blocks of 1, 7, 17 and 47 give the same impulse response as blocks of 64, exactly.
+
+**Measured** (the same probe and flags, interleaved, best of 8 rounds, µs per block; "Chunked" is finding 5 as above, measured again here):
+
+| Config | Chunked | Resampler in chunks | Speed-up |
+|---|---|---|---|
+| defaults | 8.17 | 5.02 | 1.6x |
+| Voice 1 | 8.15 | 5.02 | 1.6x |
+| high gain, 4 stages | 9.25 | 6.10 | 1.5x |
+| Character 0 / 0.25 / 1 | 8.07 / 8.29 / 7.99 | 4.90 / 5.17 / 4.87 | 1.6x |
+| Power Drive, Sag, Bias | 9.71 | 6.51 | 1.5x |
+| stereo, defaults | 16.06 | 9.88 | 1.6x |
+| stereo, high gain | 18.31 | 11.89 | 1.5x |
+| Gain moved every block | 10.57 | 7.49 | 1.4x |
+| Character moved every block | 18.40 | 15.27 | 1.2x |
+
+clang-cl: defaults 7.85 → 5.04 µs, high gain 9.09 → 6.26, stereo 15.78 → 9.93.
+
+The resampler, up and down, went from 3.8 to 0.6 µs a block at the defaults (phase counters in the probe): from 9.8 ns per 32-tap output to 1.6. Against the review's baseline (33.7 / 50.4 µs), the amp now costs 15% at its defaults and 12% at high gain. Against a standard NAM model (about 57 µs) that is 0.09x and 0.11x.
+
+**How the odd phase is written.** Each kernel was timed in the amp at the defaults, in a race of their own, so compare them within the table (MSVC / clang-cl, µs per block):
+
+| Kernel | µs |
+|---|---|
+| one tap a pass over the outputs | 5.37 / 5.39 |
+| four taps a pass | 5.22 / 5.12 |
+| **eight taps a pass** | **4.94 / 5.11** |
+| sixteen taps a pass | 5.22 / 5.17 |
+| 16 outputs at a time, their sums held in registers through all 32 taps | 6.49 / 5.52 |
+
+One tap a pass loads and stores every sum once per tap; eight taps a pass, once per eight. Holding the sums in registers is slowest: each output's sum is then a chain of 32 dependent multiply-adds, and 16 outputs is only two vectors to overlap them with. More outputs at a time would hide that, but would need a bigger group, and so more unused outputs for short blocks.
+
+**Verification:**
+- **Output against finding 5, the probe built with `/fp:precise`:** bit-identical in all 26 scenarios, under `/arch:SSE2` and under `/arch:AVX2`.
+- **The same with the shipping flags:** RMS -108 to -117 dB against the output, peaks -78 to -100 dB. Finding 5's code differs from itself between `/fp:fast` and `/fp:precise` by the same: RMS -108 to -117 dB, peaks -78 to -100. clang against clang: RMS -115 to -128 dB.
+- **Block-size invariance**, the probe's partition (blocks of 47, 100, 256, 1 and 17 against 64): with the controls still, identical under MSVC, clang and `/fp:precise`. With the controls moving, the worst difference is 3e-8 (-133 dB) under MSVC and 6e-7 (-107 dB) under clang, both from Character's fallback as before; finding 5 gave 3e-8 and 7e-7.
+- **Debug CMake build** of this worktree: `BuiltinAmpEffectTests` (with `TestHalfbandLatency`, `TestAliasing` and `TestDynamicsAndBlocks`), `BuiltinAmpLegacyMigrationTests`, `EffectFactoryPresetTests`, `EffectProcessorTests` and `FastMathNanTests` pass. Everything `BuiltinAmpEffectTests` prints is byte-identical to finding 5's build, the aliasing check's -131.1 dBc included.
+- **RelWithDebInfo** (`/fp:fast`): the same five pass, including the mono path's exact match and the block partition. Its printed figures move in the fifth or sixth digit against finding 5's RelWithDebInfo build. The aliasing check reads -130.5 dBc against -131.7, the float-rounding jitter described under 1-3.
 
 ## Summary
 
@@ -309,3 +359,4 @@ Against NAM: a standard model costs about 57 µs per block. That figure was meas
 | After 1-4 | 0.29x | 0.45x |
 | With 5, predicted | 0.14x | 0.19x |
 | With 5, measured | 0.14x | 0.16x |
+| With the resampler in chunks, measured | 0.09x | 0.11x |

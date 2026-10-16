@@ -645,7 +645,9 @@ void TestMonoPath()
     Check(worstSplit == 0.0, "the right channel comes back from a mono stretch in step with the left");
 }
 
-void TestHalfbandLatency()
+// An impulse up to 4x and back down, `block` host samples at a time (at most half a stage's
+// kMaxBlock, as the amp's chunks are: the inner stage takes twice as many).
+std::vector<float> HalfbandImpulseResponse(int block)
 {
     guitarfx::BuiltinAmpHalfband2x upFirst, upSecond, downSecond, downFirst;
     upFirst.Prepare();
@@ -653,17 +655,29 @@ void TestHalfbandLatency()
     downSecond.Prepare();
     downFirst.Prepare();
 
-    std::vector<float> output(128);
-    for (int i = 0; i < static_cast<int>(output.size()); ++i)
+    std::vector<float> input(128, 0.0f), output(128);
+    input[0] = 1.0f;
+    std::vector<float> twice(2 * block), fourTimes(4 * block);
+    for (int at = 0; at < static_cast<int>(output.size()); at += block)
     {
-        float a = 0.0f, b = 0.0f, c = 0.0f, d = 0.0f;
-        upFirst.Upsample(i == 0 ? 1.0f : 0.0f, a, b);
-        upSecond.Upsample(a, c, d);
-        const float first = downSecond.Downsample(c, d);
-        upSecond.Upsample(b, c, d);
-        const float second = downSecond.Downsample(c, d);
-        output[i] = downFirst.Downsample(first, second);
+        const int n = std::min(block, static_cast<int>(output.size()) - at);
+        upFirst.UpsampleBlock(input.data() + at, n, twice.data());
+        upSecond.UpsampleBlock(twice.data(), 2 * n, fourTimes.data());
+        downSecond.DownsampleBlock(fourTimes.data(), 2 * n, twice.data());
+        downFirst.DownsampleBlock(twice.data(), n, output.data() + at);
     }
+    return output;
+}
+
+void TestHalfbandLatency()
+{
+    const auto output = HalfbandImpulseResponse(64);
+    bool sameInAnyBlocks = true;
+    for (const int block : {1, 7, 17, 47})
+    {
+        sameInAnyBlocks = sameInAnyBlocks && HalfbandImpulseResponse(block) == output;
+    }
+    Check(sameInAnyBlocks, "the halfband stages give the same output in blocks of any size");
 
     const auto peak = std::max_element(output.begin(), output.end());
     Check(std::distance(output.begin(), peak) == 48, "4x halfband latency is 48 host samples");
