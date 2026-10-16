@@ -251,7 +251,7 @@ declare who owns it. There are three classes.
 
 | Class | Persisted in | Examples |
 |-------|--------------|----------|
-| **Shared** | the store, by whoever changes it | interface + user input calibration, DSP level targets, API keys, feature toggles, theme |
+| **Shared** | the store, by whoever changes it | NAM interface calibration level, input levelling profiles, DSP level targets, API keys, feature toggles, theme |
 | **Instance-owned** | host state (the DAW project); the store only *seeds* a brand-new instance | NAM quality tier, UI layout (`uiSettings`/`uiZoom`/`uiBounds`) |
 | **Standalone-only** | the store, and never written by a plugin instance | `lastPresetId`, metronome, input mode, global FX chain |
 

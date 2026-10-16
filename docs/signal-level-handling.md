@@ -6,7 +6,7 @@ This document explains the current signal level handling in the simplest possibl
 
 Today the app handles level in four main places:
 
-1. A single user-wide input calibration gain can be applied before the chain.
+1. A single user-wide input levelling gain can be applied before the chain.
 2. Manual gain controls in the preset and effect graph shape level through the chain.
 3. NAM effects can apply model-metadata-based dBu calibration to input and output.
 4. The mixer can clamp the final output to a configurable ceiling.
@@ -20,7 +20,7 @@ For normal playback, level handling happens in this order:
 1. Raw stereo input enters the mixer.
 2. Raw input diagnostics are measured.
 3. The input mode can put one input, or both summed, on both sides (Mono); a DAW's bus decides instead.
-4. The active user input calibration profile applies one fixed gain change.
+4. The active input levelling profile applies one fixed gain change.
 5. Legacy mixer-wide auto input could run here, but the controller currently keeps it off.
 6. Input diagnostics are measured again after the active input processing.
 7. The global pre-chain runs.
@@ -36,21 +36,21 @@ For normal playback, level handling happens in this order:
 
 ## What Actively Changes Level Today
 
-### 1. User Input Calibration
+### 1. Input Levelling
 
-User input calibration is the main global input-level system.
+Input levelling is the main global input-level system. It was called Input Calibration until 1.6.0, and its settings keys still use that name.
 
 - It is stored in app settings as named profiles.
 - The active profile resolves to one fixed gain value in dB.
 - That gain is applied once at the mixer input before the pre-chain and before any preset processing.
 - If no profile is active, the gain is `0 dB`.
-- While the calibration training flow is open, the applied gain is forced to `0 dB` so the capture is honest.
+- While the levelling training flow is open, the applied gain is forced to `0 dB` so the capture is honest.
 
 In simple terms: this is the app's main way to compensate for a guitar or interface being too hot or too quiet.
 
 ### 2. Manual Gains In The Chain
 
-After the input calibration stage, normal level changes come from explicit controls:
+After the input levelling stage, normal level changes come from explicit controls:
 
 - global input gain and output gain
 - per-preset mix and pan in the mixer
@@ -101,7 +101,7 @@ In simple terms: this is reference information, not an active gain processor.
 
 ## Current Defaults
 
-- User input calibration gain: `0 dB` unless an active profile is selected
+- Input levelling gain: `0 dB` unless an active profile is selected
 - NAM Use Calibration: on by default (enables model-metadata-based dBu correction)
 - Shared output protection ceiling: `-1 dBFS`
 - Mixer-wide auto input: off in current product flow
@@ -126,7 +126,7 @@ The app always streams signal diagnostics.
 
 Three top-level snapshots matter:
 
-- `rawInput`: before mono mode and before user input calibration
+- `rawInput`: before mono mode and before input levelling
 - `input`: after the active input processing
 - `output`: after master gain and after any retired auto output stage, but before the final hard clamp limiter
 
@@ -142,7 +142,7 @@ One important detail: because output diagnostics are measured before the final h
 
 If you want the simplest mental model, use this one:
 
-- Use user input calibration to match your instrument and interface to the app.
+- Use input levelling to match your instrument and interface to the app.
 - Use normal gain controls to shape tone and balance.
 - Leave NAM **Use Calibration** enabled so models automatically correct for their dBu metadata.
 - Let the final protection ceiling stop the output from going too high.

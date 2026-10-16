@@ -1,6 +1,8 @@
 /**
- * Input calibration: measuring the peak an instrument actually produces, and
- * storing the trim that brings it to the level the amp models expect.
+ * Input calibration, shown in the app as Input Levelling: measuring the peak an
+ * instrument actually produces, and storing the trim that brings it to the level
+ * the amp models expect. The code, settings keys and messages keep the older
+ * "calibration" name, so saved profiles carry over.
  *
  * A profile is trained in a modal that watches the live input peak; the toolbar
  * menu is the same data in a smaller form, so both render from the same read of
@@ -307,8 +309,8 @@ export async function deleteUserInputCalibrationProfile(profileId: string): Prom
   }
 
   const confirmed = await showConfirm(
-    `Delete input calibration profile "${profile.name}"?`,
-    "Delete Input Calibration",
+    `Delete input levelling profile "${profile.name}"?`,
+    "Delete Input Levelling Profile",
   );
   if (!confirmed) {
     return;
@@ -317,13 +319,13 @@ export async function deleteUserInputCalibrationProfile(profileId: string): Prom
   const activeProfileId = readActiveUserInputCalibrationProfileId();
   const remainingProfiles = profiles.filter((entry) => entry.id !== profile.id);
   persistUserInputCalibrationState(remainingProfiles, activeProfileId === profile.id ? null : activeProfileId);
-  showNotification("Input calibration deleted", profile.name);
+  showNotification("Input levelling profile deleted", profile.name);
 }
 
 export function saveUserInputCalibrationProfile(): void {
   const name = userInputCalibrationNameInput?.value.trim() ?? "";
   if (!name) {
-    showNotification("Input calibration name required");
+    showNotification("Input levelling profile name required");
     return;
   }
 
@@ -354,7 +356,7 @@ export function saveUserInputCalibrationProfile(): void {
   profiles.push(profile);
   persistUserInputCalibrationState(profiles, profile.id);
   closeUserInputCalibrationTrainingModal();
-  showNotification("Input calibration saved", `${profile.name} • ${formatSignedDbValue(profile.gainDb)}`);
+  showNotification("Input levelling profile saved", `${profile.name} • ${formatSignedDbValue(profile.gainDb)}`);
 }
 
 export function applyUserInputCalibrationProfileSelection(activeProfileId: string | null): void {
@@ -384,10 +386,10 @@ function ensureToolbarMenuTabs(menu: HTMLElement): HTMLElement {
   }
   menu.innerHTML = `
     <div class="node-param-tabs input-calibration-tabs" role="tablist" aria-label="Input settings">
-      <button class="node-param-tab" data-tab="calibration" type="button" role="tab">Calibration</button>
+      <button class="node-param-tab" data-tab="calibration" type="button" role="tab">Levelling</button>
       <button class="node-param-tab" data-tab="pickup" type="button" role="tab">Pickup Match</button>
     </div>
-    <div class="input-calibration-tab-panel" data-tab="calibration" role="menu" aria-label="Input calibration"></div>
+    <div class="input-calibration-tab-panel" data-tab="calibration" role="menu" aria-label="Input levelling"></div>
     <div class="input-calibration-tab-panel" data-tab="pickup" role="tabpanel" aria-label="Pickup Match"></div>`;
   showToolbarTab(menu, activeToolbarTab);
   return menu.querySelector<HTMLElement>('.input-calibration-tab-panel[data-tab="calibration"]') as HTMLElement;
@@ -429,14 +431,14 @@ export function renderUserInputCalibrationToolbarMenu(profiles: UserInputCalibra
 
   const title = document.createElement("span");
   title.className = "input-calibration-toolbar-menu-title";
-  title.textContent = "Input Calibration";
+  title.textContent = "Input Levelling";
   header.appendChild(title);
 
   const subtitle = document.createElement("span");
   subtitle.className = "input-calibration-toolbar-menu-subtitle";
   subtitle.textContent = userInputCalibrationTrainingBypassActive
     ? "Training bypass active"
-    : (activeProfile ? `${activeProfile.name} active` : "No active calibration");
+    : (activeProfile ? `${activeProfile.name} active` : "No active levelling");
   header.appendChild(subtitle);
 
   panel.appendChild(header);
@@ -460,7 +462,7 @@ export function renderUserInputCalibrationToolbarMenu(profiles: UserInputCalibra
 
     const name = document.createElement("span");
     name.className = "input-calibration-toolbar-item-name";
-    name.textContent = profile?.name ?? "No calibration";
+    name.textContent = profile?.name ?? "No levelling";
     copy.appendChild(name);
 
     const note = document.createElement("span");
@@ -535,13 +537,13 @@ export function renderUserInputCalibrationToolbarMenu(profiles: UserInputCalibra
   if (userInputCalibrationToolbarTrigger) {
     userInputCalibrationToolbarTrigger.classList.toggle("has-active-calibration", Boolean(activeProfile));
     userInputCalibrationToolbarTrigger.title = activeProfile
-      ? `Input calibration options (${activeProfile.name})`
-      : "Input calibration options";
+      ? `Input levelling options (${activeProfile.name})`
+      : "Input levelling options";
     userInputCalibrationToolbarTrigger.setAttribute(
       "aria-label",
       activeProfile
-        ? `Input calibration options. Active profile ${activeProfile.name}`
-        : "Input calibration options",
+        ? `Input levelling options. Active profile ${activeProfile.name}`
+        : "Input levelling options",
     );
   }
 }
@@ -600,7 +602,7 @@ export function refreshUserInputCalibrationView(): void {
 
     const noneOption = document.createElement("option");
     noneOption.value = USER_INPUT_CALIBRATION_NONE_VALUE;
-    noneOption.textContent = "No calibration";
+    noneOption.textContent = "No levelling";
     profileSelect.appendChild(noneOption);
 
     profiles.forEach((profile) => {
@@ -624,13 +626,13 @@ export function refreshUserInputCalibrationView(): void {
     if (userInputCalibrationTrainingBypassActive) {
       userInputCalibrationSummary.textContent = persistedActiveProfile
         ? `${persistedActiveProfile.name} temporarily bypassed while training a new input level profile.`
-        : "Input calibration temporarily bypassed while training a new profile.";
+        : "Input levelling temporarily bypassed while training a new profile.";
     } else if (activeProfile) {
       const description = activeProfile.description ? `${activeProfile.description}. ` : "";
       const currentPeak = Number.isFinite(currentPeakDbfs) ? ` Current raw peak: ${formatDbfsValue(currentPeakDbfs)}.` : "";
       userInputCalibrationSummary.textContent = `${activeProfile.name}. ${description}Applies ${formatSignedDbValue(activeProfile.gainDb)} toward ${formatDbfsValue(activeProfile.targetPeakDbfs)} from a captured ${formatDbfsValue(activeProfile.capturedPeakDbfs)}.${currentPeak}`;
     } else {
-      userInputCalibrationSummary.textContent = "No global input calibration active. Train one profile for each guitar or interface gain position you want Soundshed to normalize.";
+      userInputCalibrationSummary.textContent = "No global input levelling active. Train one profile for each guitar or interface gain position you want Soundshed to normalize.";
     }
   }
 

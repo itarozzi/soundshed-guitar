@@ -33,6 +33,7 @@
 
 ### Settings
 * A new **Full Level on Mono Outputs** switch in Settings → General → Advanced DSP Level Targets, off by default. A preset at the default centre pan comes out 3 dB below its input, which keeps its loudness even as it is panned across a stereo output. A mono output, such as a mono DAW track or a single interface output, has nothing to pan across, and with the switch on a preset comes through there at its input level. Stereo outputs are unchanged. In a DAW it applies to plugin instances you add after turning it on, and projects you have already saved keep the level they were made with.
+* Input Calibration is now called **Input Levelling**. It works as before, and the profiles you have trained are kept: open it from the chevron under the input meter.
 * A new **Mouse wheel adjusts controls** switch in Settings → General → UI. Turn it off and the scroll wheel stops changing knobs, sliders and the metronome tempo as the pointer passes over them, and just scrolls the page.
 * On a large display the footer's Setlists, Tuner, MIDI and Rec buttons are labelled, not just icons. A smaller window, or a higher UI zoom, keeps the icons alone.
 

@@ -1,5 +1,5 @@
 /**
- * The global chain's Pickup Match in the input calibration flyout: a tab beside the profiles,
+ * The global chain's Pickup Match in the input levelling flyout: a tab beside the profiles,
  * built from Pickup Match's own pieces; on/off and choices sent as `pickup.<param>`; a picker's
  * popover not closing the flyout; and the control bar indicator. Also the gate flyout, which
  * now draws its rows with the same shared code.
@@ -95,7 +95,7 @@ const sentPaths = () => sent.filter((m) => m.type === "setGlobalChainParam").map
 calibration.initUserInputCalibrationControls();
 gate.initializeGateControls();
 
-describe("Pickup Match in the input calibration flyout", () => {
+describe("Pickup Match in the input levelling flyout", () => {
   let node: GraphNode;
 
   beforeEach(() => {
@@ -110,11 +110,11 @@ describe("Pickup Match in the input calibration flyout", () => {
     sent = [];
   });
 
-  it("puts a Pickup Match tab beside the calibration profiles", () => {
+  it("puts a Pickup Match tab beside the levelling profiles", () => {
     calibration.openUserInputCalibrationToolbarMenu("calibration");
     expect(tab("calibration")?.getAttribute("aria-selected")).toBe("true");
     expect(panel("calibration")?.hidden).toBe(false);
-    expect(panel("calibration")?.textContent).toContain("No calibration");
+    expect(panel("calibration")?.textContent).toContain("No levelling");
     expect(panel("pickup")?.hidden).toBe(true);
 
     tab("pickup")?.click();

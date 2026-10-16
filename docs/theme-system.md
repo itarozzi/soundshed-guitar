@@ -93,7 +93,7 @@ changes how descendant `z-index` resolves and can hide popovers/menus that work 
 themes.
 
 Concrete example (fixed): `.theme-classic .control-bar` adds `backdrop-filter`, which turns
-the control bar into a stacking context. The input-calibration popover lives inside the bar,
+the control bar into a stacking context. The input levelling popover lives inside the bar,
 so in the classic theme its `z-index` was trapped within that context and rendered behind
 the main content — while light/dark (no `backdrop-filter` on the bar) were unaffected. The
 fix is structural and theme-independent: opening the popover toggles a `has-open-calibration`

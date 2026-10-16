@@ -116,7 +116,7 @@ graph invalid, and an invalid graph outputs silence.
 ### Processing Loop
 1. Measure raw input diagnostics.
 2. Apply the input mode (Mono takes input 1, input 2 or both summed onto both channels) and the
-   active user input calibration gain.
+   active input levelling gain.
 3. Measure processed input diagnostics.
 4. Process global pre-chain (Pickup Match, noise gate and transpose).
 5. For each preset: process the preset graph, then mix outputs with pan and mix gain. The pan is
@@ -278,7 +278,7 @@ Applied outside the graph:
 | `inputTrim` | -40..+20 dB | 0.0 | Gain before graph |
 | `outputTrim` | -40..+20 dB | 0.0 | Gain after graph |
 
-Global chains may include additional parameters, but core trims remain, and global effects are now integrated into chains. User input calibration is separate from the preset schema and is applied once from app settings before the pre-chain.
+Global chains may include additional parameters, but core trims remain, and global effects are now integrated into chains. Input levelling is separate from the preset schema and is applied once from app settings before the pre-chain.
 
 ## Global Signal Chains
 

@@ -20,7 +20,7 @@ The core DSP engine routes audio through a directed acyclic graph (DAG) of effec
 - **Implicit I/O**: If edges reference `__input__` or `__output__` but nodes are absent, the executor inserts them.
 - **Parallel paths**: Created by inserting a `splitter` node; a `mixer` node is auto-inserted to rejoin branches. Example use: dual-cab routing or wet/dry parallel delay.
 - **Global processing loop**:
-  1. Raw input metering, mono routing, and user input calibration
+  1. Raw input metering, mono routing, and input levelling
   2. Global pre-chain (shared across all presets)
   3. Per-preset signal graphs (mixed in parallel)
   4. Global post-chain (shared EQ, doubler)
@@ -147,7 +147,7 @@ All types share `decay`, `mix`, and `preDelay`. Each has tuned internals for its
 - **SIMD-optimized inference**: `simd/OptimizedNAM.h`, `simd/OptimizedLSTM.h`, `simd/OptimizedWaveNet.h`, `simd/OptimizedActivations.h` (~2× speedup over scalar).
 - **NAM output normalization**: Applies product-owned `normalizationGainDb` from resource metadata when available, otherwise falls back to model loudness metadata against the shared nominal operating target.
 - **Wet/dry control**: NAM amp, NAM FX, and NAM blend nodes expose an Advanced `mix` control that crossfades between the unprocessed input and the NAM output. Default is fully wet (`1.0`).
-- **Input behavior**: Per-model input auto-leveling is retired in normal product flow. User-to-user matching is handled globally by user input calibration profiles rather than NAM metadata interpretation.
+- **Input behavior**: Per-model input auto-leveling is retired in normal product flow. User-to-user matching is handled globally by input levelling profiles rather than NAM metadata interpretation.
 - **Runtime target**: The shared nominal operating level defaults to `-18 dBFS` and can be changed in Settings.
 - **Model hashing**: `ModelHasher` computes SHA-256 for deduplication and resource identity tracking.
 
@@ -175,7 +175,7 @@ Runs multiple presets simultaneously with independent mix controls — used for 
 - Each preset runs its own full `SignalGraphExecutor` instance in parallel.
 - Per-preset controls: **mix level**, **pan** (equal-power), **mute**, **solo**.
 - **Master gain** and **final output limiter** applied post-mix.
-- **Global input stage**: mono/stereo input routing plus one fixed user input calibration gain before pre-chain and preset processing.
+- **Global input stage**: mono/stereo input routing plus one fixed input levelling gain before pre-chain and preset processing.
 - **Legacy mixer auto-level**: Simple peak-based input/output auto-level paths still exist in code but are forced off in current product flow.
 - **Mono/stereo input mode** selection.
 - **Signal diagnostics**: Streams raw input, processed input, output, and per-node levels plus DSP timing via `sld`/`sldRoster` and `dspPerformance` messages.
@@ -492,7 +492,7 @@ Application configuration panel.
 
 - **Audio device** (standalone): driver, devices, channels, sample rate, buffer size, input mute, test tone, driver control panel, MIDI inputs and output, drawn in the app's own UI rather than JUCE's native dialog (`audioDevice` message; see [user-interface.md](user-interface.md#audio-device)).
 - **Resource folders**: Configure search paths for NAM models and IR files.
-- **User input calibration**: Named calibration profiles apply one fixed gain before the chain to match a guitar/interface setup.
+- **Input Levelling**: Named levelling profiles apply one fixed gain before the chain to match a guitar/interface setup.
 - **Advanced DSP level targets**: Shared nominal operating level and output protection ceiling are configurable and apply immediately at runtime.
 - **Theme selection**: Cycle or select UI theme (see §20).
 - **Tone3000 API key**: Enter and persist API key for Tone3000 integration.

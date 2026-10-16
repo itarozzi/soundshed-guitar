@@ -65,7 +65,7 @@ protocol, or whether the logic currently lives in the TypeScript UI.
 | **Tuner** | Full-screen tuner, live/mute toggle, reference pitch | `tuner` messages | Port smoothing (6-sample average, ±3 cents in tune) |
 | **Metronome** | BPM, tap tempo, meter, beat pattern grid, subdivision, click type, volume | `setMetronome`, `metronomeBeat`. `MetronomeSupport.h` is C++ | Port tap tempo |
 | **Demo audio** | Clip picker (built-in clips, plus favourite riffs recorded in Soundshed Guitar, playback only), play/stop, repeat, render a clip through the current rig to WAV | The UI reads each WAV and sends it as base64 (`demoAudio.ts:259`); repeat is done in TypeScript (`captureHandlers.ts:151`); riffs play with `previewRiffTake` | Engine plays clips by id and handles repeat (part 4) |
-| **Global controls** | Input gain, gate, transpose, global EQ, doubler, output gain, output mute, input mode and channel, calibration profile | `setGlobalChainParam`, `setInputMode`. Mute is inferred in TypeScript from `masterGain` (`controls.ts:99-170`) | Engine-owned mute (part 2) |
+| **Global controls** | Input gain, gate, transpose, global EQ, doubler, output gain, output mute, input mode and channel, input levelling profile | `setGlobalChainParam`, `setInputMode`. Mute is inferred in TypeScript from `masterGain` (`controls.ts:99-170`) | Engine-owned mute (part 2) |
 | **Meters** | Input and output meters with clip and peak hold | `sld` at 20 Hz | Port roster decoding |
 | **Audio and MIDI device** (standalone) | Device type, in/out devices, channels, rate, buffer, input level, test tone, MIDI inputs, Android permission | `audioDevice` messages (`StandaloneAudioSettings`) | A native page driven by the same messages |
 | **Settings (subset)** | Theme, UI scale, Tone3000 key and mode, NAM quality, output limiter and ceiling, preset-switch tails | `setSetting` | — |
@@ -572,7 +572,7 @@ it cheap:
    - Multi-Rig: awareness only (recommended) or full editing.
    - Setlist editing: phase 6 (recommended) or phase 3.
    - Custom image layouts: optional in phase 5.
-   - Input-calibration training: later.
+   - Input levelling training: later.
 
 ## Appendix: messages the native UI uses
 

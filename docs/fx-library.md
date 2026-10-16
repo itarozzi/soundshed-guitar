@@ -916,7 +916,7 @@ loads, plays and edits it.
 
 **In the global chain.** The pre-chain carries a Pickup Match, `global_pickup`, straight after the input
 and bypassed until switched on, so one setting converts the player's pickup ahead of every preset.
-It is edited in the input calibration flyout (the chevron under the input meter), on its Pickup Match tab.
+It is edited in the input levelling flyout (the chevron under the input meter), on its Pickup Match tab.
 
 The tab is built from the same pieces as the params panel, so the two never drift:
 - the pickers;

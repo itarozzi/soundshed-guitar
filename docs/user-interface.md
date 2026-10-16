@@ -191,7 +191,7 @@ The UI is a web-based single-page application (SPA) hosted in a native WebView. 
 | `exportEffectAsIr` | `{requestId, effectType, params, name?}` | Render the effect with these parameters as a 48 kHz 16-bit IR (mono unless its two sides differ) into the IR library. Answered by `resourceImported` or `resourceImportFailed` carrying the `requestId`. A name the library already has gets a number added, so an earlier export is never overwritten. |
 | `matchSimpleCabToIr` | `{requestId, resourceId}` | Find the Simple Cabinet settings closest in shape to library IR `resourceId`; answered by `simpleCabIrMatch`. |
 | `analyzeIrAlignment` | `{requestId, irA?, irB?}` | Find where an IR Cabinet node's IR B lines up with its IR A; answered by `irAlignment`. Send only the slot that has an IR to get that IR's waveform alone, for its response. `irA` and `irB` are the node's resource refs as it holds them, resolved the way the node's own are (library entry, else file path). Read from the files, not the running node, so it needs no DSP lock. See `core/ui/ts/irAlignment.ts`. |
-| `measurePresetLevel` | `{requestId, preset?, presetId?, sceneId?, clipId?, maxSeconds?}` | Measure how loud a preset plays a demo clip; answered by `presetLevelMeasured` or `presetLevelMeasureFailed`. Send the preset whole (`preset`, as saved) or by `presetId` (stored, factory, or the active preset unsaved). `sceneId` picks a scene (default: its first); `clipId` a clip from `ui/demo/clips.json` (default `di-riff-03`, the demo DI); `maxSeconds` measures only the start. The engine builds the preset into a graph of its own, as a mixer slot would be, and renders it offline on a worker thread at the device rate (48 kHz without one): the live mixer, the active preset and the DSP lock are untouched, so the player plays on. It measures the preset as a lone rig is heard in the mix (the centred pan law, about -3 dB, is in the levels; the global chain, master and input calibration are not), with NAM nodes at the reference 12 dBu interface calibration. One render runs at a time and a few may wait. See `core/src/controller/PresetLevelMeter.h` and `core/ui/ts/presetLevel.ts` (`requestPresetLevel`). |
+| `measurePresetLevel` | `{requestId, preset?, presetId?, sceneId?, clipId?, maxSeconds?}` | Measure how loud a preset plays a demo clip; answered by `presetLevelMeasured` or `presetLevelMeasureFailed`. Send the preset whole (`preset`, as saved) or by `presetId` (stored, factory, or the active preset unsaved). `sceneId` picks a scene (default: its first); `clipId` a clip from `ui/demo/clips.json` (default `di-riff-03`, the demo DI); `maxSeconds` measures only the start. The engine builds the preset into a graph of its own, as a mixer slot would be, and renders it offline on a worker thread at the device rate (48 kHz without one): the live mixer, the active preset and the DSP lock are untouched, so the player plays on. It measures the preset as a lone rig is heard in the mix (the centred pan law, about -3 dB, is in the levels; the global chain, master and input levelling are not), with NAM nodes at the reference 12 dBu interface calibration. One render runs at a time and a few may wait. See `core/src/controller/PresetLevelMeter.h` and `core/ui/ts/presetLevel.ts` (`requestPresetLevel`). |
 | `getEffectPresets` | `{}` | Request `effectPresets` |
 | `saveEffectPreset` | `{effectType, name, nodeId?, parameters?}` | Save a user preset for an effect type (a name already saved is overwritten, keeping its id). With `nodeId`, the engine snapshots its own copy of that node in the chain being edited: parameters (not the injected NAM calibration), every resource slot, and config bar transient keys, with a hosted plugin's live state read from the running plugin. Without it, or when the node is not found, `parameters` is saved alone. Answered by `effectPresets` |
 | `applyEffectPreset` | `{nodeId, effectType, presetId}` | Load user preset `presetId` of `effectType` into a node of that type, or a factory archive's (`factoryByEffectType` in `effectPresets`) when no user preset has that id; an unknown id reports `Effect preset not found`. Parameters are applied in the order the effect declares them, leaving out keys it no longer declares. When the entry carries resources or config that differ from the node's, they replace them and the chain is rebuilt, as choosing a model does; otherwise the parameters are set on the running chain with no rebuild. The node comes back in `state` |
@@ -208,7 +208,7 @@ The UI is a web-based single-page application (SPA) hosted in a native WebView. 
 | `deleteBlendDefinition` | `{blendId}` | Delete a blend. Refused with an `error` for a factory blend, a blend from an open preset archive, or one a preset plays (working copy, mixer slots, user or factory-archive presets). Deleting the user's copy of a factory blend brings the factory one back |
 | `saveBlendArchive` | `{data, fileName}` | Save a base64 `.namz` blend archive through a save dialog; answered with `blendExportSaved` or `blendExportFailed` |
 | `setSetting` | `{key, value}` | Persist and apply an app setting |
-| `setUserInputCalibrationTrainingActive` | `{active}` | Temporarily bypass the active calibration profile while training |
+| `setUserInputCalibrationTrainingActive` | `{active}` | Temporarily bypass the active input levelling profile while training |
 | `setGlobalChainParam` | `{path, value}` | Set a global chain parameter by path: `gate.*`, `transpose.*`, `eq.*`, `doubler.*`, `input.gain`, `output.gain`, and `pickup.enabled` or `pickup.<id>` for any of Pickup Match's parameters (unknown ids are logged and ignored) |
 | `getGlobalChain` | `{}` | Request global chain state |
 | `getEffectCatalog` | `{}` | Request effect catalog |
@@ -471,14 +471,14 @@ A list the device offers only one entry for is shown disabled, with a line sayin
 Errors from a request appear in an alert at the top of the section, with a Reset Device
 button, and stay until the next request.
 
-### User Input Calibration
+### Input Levelling
 
-The live product uses named user input calibration profiles instead of the older NAM interface calibration reference model.
+The live product uses named input levelling profiles instead of the older NAM interface calibration reference model. They are edited in the flyout under the input meter (the chevron), on its Levelling tab. The feature was called Input Calibration until 1.6.0, and the code, settings keys (`audio.userInputCalibration.*`) and messages still use that name, so saved profiles carry over.
 
 **Behavior**
 - A profile stores one fixed gain value in dB.
 - The active profile applies that gain once at the mixer input before the pre-chain and preset graphs.
-- While calibration training is active, the live calibration gain is bypassed temporarily so the capture reflects the raw input.
+- While levelling training is active, the live levelling gain is bypassed temporarily so the capture reflects the raw input.
 
 ### Advanced DSP Level Targets
 
