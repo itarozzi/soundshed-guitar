@@ -17,6 +17,7 @@
 #include "controller/internal/NamResourceMetadata.h"
 #include "dsp/EffectGuids.h"
 #include "presets/PresetStorage.h"
+#include "util/LongPath.h"
 #include "util/PathEncoding.h"
 
 using namespace guitarfx::controller_detail;
@@ -63,7 +64,7 @@ void PluginController::HandleLoadModelRequest(const nlohmann::json& payload)
 
     std::filesystem::path filePath = util::PathFromUtf8(path);
 
-    if (!std::filesystem::exists(filePath))
+    if (!util::PathExists(filePath))
     {
         ReportErrorToUI("Model file not found", path);
         return;
@@ -119,7 +120,7 @@ void PluginController::HandleLoadIRRequest(const nlohmann::json& payload)
 
     std::filesystem::path filePath = util::PathFromUtf8(path);
 
-    if (!std::filesystem::exists(filePath))
+    if (!util::PathExists(filePath))
     {
         ReportErrorToUI("IR file not found", path);
         return;

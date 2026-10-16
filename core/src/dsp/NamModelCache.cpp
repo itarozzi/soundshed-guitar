@@ -12,6 +12,7 @@
 #include "NAM/activations.h"
 #include "NAM/dsp.h"
 #include "NAM/get_dsp.h"
+#include "util/LongPath.h"
 #include "util/SessionLog.h"
 
 namespace guitarfx::nammodelcache
@@ -157,15 +158,17 @@ std::unique_ptr<::nam::DSP> GetModel(const std::filesystem::path& path)
 {
     EnableFastTanhOnce();
 
+    // A model past MAX_PATH reads as missing on Windows without the extended-length prefix.
+    const auto osPath = util::LongPathSafe(path);
     std::uintmax_t fileSize = 0;
     std::int64_t writeTime = 0;
 
-    if (!StatFile(path, fileSize, writeTime))
+    if (!StatFile(osPath, fileSize, writeTime))
     {
         return nullptr;
     }
 
-    const std::string key = MakeKey(path);
+    const std::string key = MakeKey(osPath);
     auto& state = State();
 
     std::shared_ptr<const ::nam::dspData> cached;
@@ -205,7 +208,7 @@ std::unique_ptr<::nam::DSP> GetModel(const std::filesystem::path& path)
         }
 
         ::nam::dspData parsed;
-        auto model = ::nam::get_dsp(path, parsed);
+        auto model = ::nam::get_dsp(osPath, parsed);
 
         if (!model)
         {

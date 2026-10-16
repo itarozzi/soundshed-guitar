@@ -349,7 +349,7 @@ class IRReverbEffect : public EffectProcessor
 
     bool LoadResource(const std::filesystem::path& resourcePath) override
     {
-        if (!std::filesystem::exists(resourcePath))
+        if (!util::PathExists(resourcePath))
         {
             util::AppendSessionLog("[IRReverbEffect] ERROR: IR file not found: " + util::PathToUtf8(resourcePath));
             return false;

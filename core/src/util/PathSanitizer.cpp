@@ -140,6 +140,49 @@ std::string LimitFilenameLength(const std::string& name, std::size_t maxLength)
     return (stem.empty() ? std::string{"resource"} : stem) + extension;
 }
 
+std::string CollapseRepeatedHashPrefix(const std::string& name)
+{
+    // A SHA-256 in hex, then a dash.
+    constexpr std::size_t kPrefixLength = 65;
+
+    const auto isHashPrefixAt = [&](std::size_t offset) {
+        if (name.size() < offset + kPrefixLength || name[offset + kPrefixLength - 1] != '-')
+        {
+            return false;
+        }
+
+        return std::all_of(name.begin() + static_cast<std::ptrdiff_t>(offset),
+                           name.begin() + static_cast<std::ptrdiff_t>(offset + kPrefixLength - 1),
+                           [](unsigned char c) { return std::isxdigit(c) != 0; });
+    };
+    const auto samePrefixAt = [&](std::size_t offset) {
+        for (std::size_t i = 0; i < kPrefixLength; ++i)
+        {
+            if (std::tolower(static_cast<unsigned char>(name[offset + i])) !=
+                std::tolower(static_cast<unsigned char>(name[i])))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    };
+
+    if (!isHashPrefixAt(0))
+    {
+        return name;
+    }
+
+    std::size_t rest = kPrefixLength;
+
+    while (isHashPrefixAt(rest) && samePrefixAt(rest))
+    {
+        rest += kPrefixLength;
+    }
+
+    return rest == kPrefixLength ? name : name.substr(0, kPrefixLength) + name.substr(rest);
+}
+
 std::filesystem::path LimitSubfolderSegments(const std::filesystem::path& subfolder, std::size_t maxSegmentLength)
 {
     std::filesystem::path result;

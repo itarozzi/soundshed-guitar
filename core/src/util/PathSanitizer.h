@@ -15,6 +15,12 @@ namespace guitarfx::util
 /// folder, can pass Windows' 260-character path limit.
 [[nodiscard]] std::string LimitFilenameLength(const std::string& name, std::size_t maxLength);
 
+/// `name` with a run of repeated content-hash prefixes cut to one: "<hash>-<hash>-Amp.nam" becomes
+/// "<hash>-Amp.nam", whatever the case of either copy, and anything else comes back unchanged. The
+/// web UI names an archive's files "<sha256>-<name>", and before June 2026 it prefixed a file whose
+/// library name already began that way, so archives exported then carry the hash twice or more.
+[[nodiscard]] std::string CollapseRepeatedHashPrefix(const std::string& name);
+
 /// A sanitized subfolder path with every segment cut to at most `maxSegmentLength` characters.
 [[nodiscard]] std::filesystem::path LimitSubfolderSegments(const std::filesystem::path& subfolder, std::size_t maxSegmentLength);
 } // namespace guitarfx::util
