@@ -22,8 +22,8 @@ constexpr size_t NextPowerOf2(size_t n)
     return power;
 }
 
-// Tail partition size for the non-uniform engine. That engine's latency is pinned to
-// its base block, so the tail is free to use a partition far larger than the host
+// Tail partition size for the non-uniform engine. That engine has no latency to keep
+// down, so the tail is free to use a partition far larger than the host
 // block -- and it has to be, because a partitioned convolution's per-sample cost is
 // proportional to the partition COUNT. A 4.7 s plate reverb split at 256 samples is
 // ~880 partitions and streams 28 KB of spectra per output sample, which is DRAM-bound;
@@ -34,6 +34,25 @@ constexpr size_t kTargetTailPartitions = 64;
 size_t TailPartitionForIR(size_t irLength)
 {
     return std::clamp(NextPowerOf2(irLength / kTargetTailPartitions), size_t{256}, size_t{4096});
+}
+
+// FIR head length of the zero-latency engine: 256 taps, or 512 once the IR is long enough for a
+// 512-sample tail partition. Measured on 480-40,000-sample IRs (docs/plans/zero-latency-ir-cab.md),
+// a vectorised FIR of this length costs less than the 64- and 128-sample FFT partitions it
+// replaces; of the heads tried (64 to 512), 256 was cheapest up to ~8,000 samples and 512 from
+// ~24,000. The switch falls at 16,448 samples, where the tail partition reaches 512.
+constexpr size_t kMaxFirHead = 512;
+
+size_t ZeroLatencyHeadForIR(size_t irLength)
+{
+    return std::min(TailPartitionForIR(irLength), kMaxFirHead);
+}
+
+// The same guard ProcessBlock() puts on every FFT output sample, so a bad sample cannot reach
+// the recursive effects downstream whichever engine runs.
+float SanitizeOutput(float sample)
+{
+    return IsFinite(sample) ? std::clamp(sample, -100.0f, 100.0f) : 0.0f;
 }
 } // namespace
 
@@ -57,17 +76,18 @@ bool RealtimeConvolver::SetImpulse(const std::vector<float>& irSamples, int bloc
         mIRPartitionsFFT.clear();
         mInputFFTDelayLine.clear();
         mFFT.reset();
-        mDirectIR.clear();
-        mDirectHistory.clear();
+        mFirReversed.clear();
+        mFirHistory.clear();
         return false;
     }
 
-    // For very short IRs, use direct convolution (zero latency)
-    if (irSamples.size() <= kDirectConvolutionThreshold)
+    // Low latency is zero latency, and owes nothing to the host block: an IR no longer than the
+    // FIR head runs on the FIR alone, a longer one on the FIR plus partitions that need no delay.
+    const size_t directLimit = mLowLatencyMode ? ZeroLatencyHeadForIR(irSamples.size()) : kDirectConvolutionThreshold;
+
+    if (irSamples.size() <= directLimit)
     {
-        mDirectIR = irSamples;
-        mDirectHistory.assign(irSamples.size(), 0.0f);
-        mDirectHistoryPos = 0;
+        BuildFir(irSamples.data(), irSamples.size());
         mUseDirectConvolution = true;
         mInitialized = true;
         return true;
@@ -75,25 +95,7 @@ bool RealtimeConvolver::SetImpulse(const std::vector<float>& irSamples, int bloc
 
     if (mLowLatencyMode)
     {
-        // Base block = the latency target, never more than 256 samples (5.3 ms at 48 kHz).
-        const size_t base =
-            std::clamp(NextPowerOf2(static_cast<size_t>(std::max(blockSize, 64))), size_t{64}, size_t{256});
-
-        // Non-uniform pays off whenever its tail partition beats the base block: for
-        // latency when the base is below the uniform partition, and -- since a long IR's
-        // tail partition now outgrows the uniform one -- for CPU as well.
-        if (base < TailPartitionForIR(irSamples.size()))
-        {
-            return BuildNonUniform(irSamples, blockSize);
-        }
-
-        // A short IR at a host block of 256 or more: base and tail partition are both 256,
-        // so non-uniform would be one uniform engine at 256 anyway. Build that directly.
-        // Not the uniform partition below: `blockSize` is the most the host promised to
-        // send, not what it sends. A host promising 8192 and delivering 64 made a cab
-        // report 2048 samples (43 ms at 48 kHz) of latency, all of it heard while playing
-        // live, though the cost of the smaller partition is trivial for an IR this short.
-        return BuildUniform(irSamples, base);
+        return BuildNonUniform(irSamples);
     }
 
     // Partition size the uniform engine uses, which doubles as its latency. Low Latency
@@ -189,23 +191,27 @@ bool RealtimeConvolver::BuildUniform(const std::vector<float>& irSamples, size_t
     return true;
 }
 
-// Non-uniform (Gardner-style) partitioned convolution.
+// Zero-latency non-uniform (Gardner-style) partitioned convolution.
 //
-// The IR is split into contiguous segments whose partition size grows
-// geometrically from a small "base" block (low latency) up to the uniform
-// partition (efficient). Each segment is an independent single-block uniform
-// convolver, except the long tail which is one multi-partition uniform engine.
+// The IR is split into contiguous segments. The first, h[0, head), runs as a
+// direct-form FIR. After it come segments whose partition size grows
+// geometrically from `head` up to the tail partition, each an independent
+// single-block uniform convolver, and then the long tail as one multi-partition
+// uniform engine.
 //
 // For a segment covering IR samples starting at offset `off` with partition P,
-// its single-block convolver produces (h_seg * x)[n - P]. To contribute the
-// correctly time-aligned (h_seg * x)[n - off] to an output emitted with system
-// latency L, the stage output is delayed by d = L + off - P. With L = base and
-// the chosen layout (P == off for every stage after the head, and the tail
-// starting at exactly its own partition size), d == base for ALL stages except
-// the head (off=0, P=base, d=0). So a single shared delay line of `base`
-// samples aligns every non-head stage. Summing all stages reconstructs the
-// full convolution delayed by `base` samples.
-bool RealtimeConvolver::BuildNonUniform(const std::vector<float>& irSamples, int blockSize)
+// its single-block convolver produces (h_seg * x)[n - P]. The output needs
+// (h_seg * x)[n - off], so the stage wants an extra delay of off - P. The layout
+// makes P == off for every segment (each starts where the last ended, at twice
+// its offset, and the tail starts at exactly its own partition size), so no stage
+// needs any delay, and the FIR plus all the stages is the full convolution with
+// no latency. Only the head could not be done this way, since it would need P == 0.
+//
+// Until 2026-10 the head was an FFT stage at a base block of 64-256 samples
+// following the host block, and every other stage went through a shared delay
+// line of that length, so the engine ran that many samples late. The FIR costs
+// less than those small partitions did.
+bool RealtimeConvolver::BuildNonUniform(const std::vector<float>& irSamples)
 {
     mInitialized = false;
     mUseDirectConvolution = false;
@@ -213,10 +219,11 @@ bool RealtimeConvolver::BuildNonUniform(const std::vector<float>& irSamples, int
     mNonUniformStages.clear();
 
     const size_t n = irSamples.size();
-    const size_t base = std::clamp(NextPowerOf2(static_cast<size_t>(std::max(blockSize, 64))), size_t{64}, size_t{256});
-    // Never below `base`: the layout below relies on the tail starting at exactly its own
-    // partition size, which the geometric growth from `base` can only reach from underneath.
-    const size_t maxPartition = std::max(TailPartitionForIR(n), base);
+    const size_t head = ZeroLatencyHeadForIR(n);
+    // Never below `head`, which is how ZeroLatencyHeadForIR picks it: the layout relies on
+    // the tail starting at exactly its own partition size, which the doubling from `head`
+    // can only reach from underneath. Both are powers of two.
+    const size_t maxPartition = TailPartitionForIR(n);
 
     // Build a single-block uniform stage covering irSamples[off, off+len).
     auto addStage = [&](size_t off, size_t len, size_t partition) -> bool {
@@ -234,18 +241,15 @@ bool RealtimeConvolver::BuildNonUniform(const std::vector<float>& irSamples, int
         return true;
     };
 
-    // Head segment: low-latency base partition, no extra delay.
-    if (!addStage(0, base, base))
-    {
-        return false;
-    }
+    // Head segment: the direct-form FIR, no latency.
+    BuildFir(irSamples.data(), head);
 
-    // Geometrically growing head segments until the partition reaches maxPartition.
-    size_t off = base;
+    // Geometrically growing segments until the partition reaches maxPartition.
+    size_t off = head;
 
     while (off < n && off < maxPartition)
     {
-        const size_t partition = off; // P == off keeps every stage delay-aligned to `base`
+        const size_t partition = off; // P == off: the stage's own latency is its offset
 
         if (!addStage(off, partition, partition))
         {
@@ -258,8 +262,8 @@ bool RealtimeConvolver::BuildNonUniform(const std::vector<float>& irSamples, int
     // Efficient tail: one multi-partition uniform engine for the remainder.
     if (off < n)
     {
-        // off == maxPartition here, so the tail engine partition is maxPartition and
-        // its required delay also reduces to `base`.
+        // off == maxPartition here, so the tail engine partition is maxPartition and it
+        // needs no delay either.
         std::vector<float> tail(irSamples.begin() + static_cast<std::ptrdiff_t>(off), irSamples.end());
         auto stage = std::make_unique<RealtimeConvolver>();
         stage->mLowLatencyMode = false;
@@ -272,9 +276,7 @@ bool RealtimeConvolver::BuildNonUniform(const std::vector<float>& irSamples, int
         mNonUniformStages.push_back(std::move(stage));
     }
 
-    // Aggregate reporting + shared delay/scratch buffers.
-    mBaseBlock = base;
-    mPartitionSize = base; // GetLatency() reports the base block as the engine latency
+    // Aggregate reporting + scratch buffers. GetLatency() reports 0 for this engine.
     mNumPartitions = 0;
 
     for (const auto& stage : mNonUniformStages)
@@ -282,41 +284,93 @@ bool RealtimeConvolver::BuildNonUniform(const std::vector<float>& irSamples, int
         mNumPartitions += stage->GetNumPartitions();
     }
 
-    mNuScratchSize = std::max<size_t>(static_cast<size_t>(std::max(blockSize, 1)), maxPartition);
-    mNuHeadScratch.assign(mNuScratchSize, 0.0f);
-    mNuRestScratch.assign(mNuScratchSize, 0.0f);
-    mNuStageScratch.assign(mNuScratchSize, 0.0f);
-    mNuDelayLine.assign(base, 0.0f);
-    mNuDelayPos = 0;
+    mNuRestScratch.assign(kFirChunk, 0.0f);
+    mNuStageScratch.assign(kFirChunk, 0.0f);
 
     mIsNonUniform = true;
     mInitialized = true;
     return true;
 }
 
-void RealtimeConvolver::ProcessDirect(const float* input, float* output, int numSamples)
+void RealtimeConvolver::BuildFir(const float* coefficients, size_t count)
 {
-    const size_t irLen = mDirectIR.size();
+    mFirReversed.assign(count, 0.0f);
 
-    for (int i = 0; i < numSamples; ++i)
+    for (size_t k = 0; k < count; ++k)
     {
-        // Store new sample in history
-        mDirectHistory[mDirectHistoryPos] = input[i];
+        mFirReversed[count - 1 - k] = coefficients[k];
+    }
 
-        // Direct FIR convolution: output[n] = sum(input[n-k] * ir[k])
-        float sum = 0.0f;
+    mFirHistory.assign(count - 1 + kFirChunk, 0.0f);
+}
 
-        for (size_t k = 0; k < irLen; ++k)
+void RealtimeConvolver::ProcessFir(const float* input, float* output, size_t numSamples)
+{
+    const size_t taps = mFirReversed.size();
+    const float* coefficients = mFirReversed.data();
+    float* history = mFirHistory.data();
+    size_t done = 0;
+
+    while (done < numSamples)
+    {
+        const size_t chunk = std::min(numSamples - done, kFirChunk);
+        const float* in = input + done;
+        float* out = output + done;
+
+        // The chunk goes in behind the history before any output is written, so the output may
+        // be the input buffer. A non-finite sample goes in as silence: in the history it would
+        // poison the next `taps` outputs.
+        float* fresh = history + taps - 1;
+
+        for (size_t i = 0; i < chunk; ++i)
         {
-            // Calculate index into circular history buffer
-            size_t histIdx = (mDirectHistoryPos + irLen - k) % irLen;
-            sum += mDirectHistory[histIdx] * mDirectIR[k];
+            fresh[i] = IsFinite(in[i]) ? in[i] : 0.0f;
         }
 
-        output[i] = sum;
+        // y[i] = sum_k h[k] x[i - k], which with the coefficients reversed is the dot product of
+        // them with history[i, i + taps). Four outputs share each coefficient load; the compiler
+        // vectorises each sum over k (Release builds are fast-math, so it may reorder them).
+        size_t i = 0;
 
-        // Advance history position
-        mDirectHistoryPos = (mDirectHistoryPos + 1) % irLen;
+        for (; i + 4 <= chunk; i += 4)
+        {
+            const float* x = history + i;
+            float s0 = 0.0f;
+            float s1 = 0.0f;
+            float s2 = 0.0f;
+            float s3 = 0.0f;
+
+            for (size_t k = 0; k < taps; ++k)
+            {
+                const float c = coefficients[k];
+                s0 += c * x[k];
+                s1 += c * x[k + 1];
+                s2 += c * x[k + 2];
+                s3 += c * x[k + 3];
+            }
+
+            out[i] = s0;
+            out[i + 1] = s1;
+            out[i + 2] = s2;
+            out[i + 3] = s3;
+        }
+
+        for (; i < chunk; ++i)
+        {
+            const float* x = history + i;
+            float s = 0.0f;
+
+            for (size_t k = 0; k < taps; ++k)
+            {
+                s += coefficients[k] * x[k];
+            }
+
+            out[i] = s;
+        }
+
+        // Keep the newest taps - 1 samples as the next chunk's history.
+        std::memmove(history, history + chunk, (taps - 1) * sizeof(float));
+        done += chunk;
     }
 }
 
@@ -426,11 +480,17 @@ void RealtimeConvolver::Process(const float* input, float* output, int numSample
     // Use direct convolution for short IRs (zero latency)
     if (mUseDirectConvolution)
     {
-        ProcessDirect(input, output, numSamples);
+        ProcessFir(input, output, static_cast<size_t>(numSamples));
+
+        for (int k = 0; k < numSamples; ++k)
+        {
+            output[k] = SanitizeOutput(output[k]);
+        }
+
         return;
     }
 
-    // Non-uniform (Gardner-style) engine.
+    // Zero-latency non-uniform (Gardner-style) engine.
     if (mIsNonUniform)
     {
         ProcessNonUniform(input, output, numSamples);
@@ -470,52 +530,38 @@ void RealtimeConvolver::Process(const float* input, float* output, int numSample
 
 void RealtimeConvolver::ProcessNonUniform(const float* input, float* output, int numSamples)
 {
-    const size_t numStages = mNonUniformStages.size();
     int processed = 0;
 
     while (processed < numSamples)
     {
-        const int chunk =
-            static_cast<int>(std::min<size_t>(static_cast<size_t>(numSamples - processed), mNuScratchSize));
+        const size_t chunk = std::min(static_cast<size_t>(numSamples - processed), kFirChunk);
         const float* in = input + processed;
         float* out = output + processed;
 
-        // Stage 0 (head): contributes with no extra delay.
-        mNonUniformStages[0]->Process(in, mNuHeadScratch.data(), chunk);
+        // The stages read the input before the FIR writes any output, so the output may be the
+        // input buffer.
+        std::fill_n(mNuRestScratch.data(), chunk, 0.0f);
 
-        // Remaining stages accumulate into mNuRestScratch.
-        std::fill_n(mNuRestScratch.data(), static_cast<size_t>(chunk), 0.0f);
-
-        for (size_t s = 1; s < numStages; ++s)
+        for (auto& stage : mNonUniformStages)
         {
-            mNonUniformStages[s]->Process(in, mNuStageScratch.data(), chunk);
+            stage->Process(in, mNuStageScratch.data(), static_cast<int>(chunk));
 
-            for (int k = 0; k < chunk; ++k)
+            for (size_t k = 0; k < chunk; ++k)
             {
-                mNuRestScratch[static_cast<size_t>(k)] += mNuStageScratch[static_cast<size_t>(k)];
+                mNuRestScratch[k] += mNuStageScratch[k];
             }
         }
 
-        // Delay the accumulated tail by exactly mBaseBlock samples and add the head.
-        if (mBaseBlock == 0)
+        // Every stage is already time-aligned (see BuildNonUniform), so they add straight onto
+        // the head.
+        ProcessFir(in, out, chunk);
+
+        for (size_t k = 0; k < chunk; ++k)
         {
-            for (int k = 0; k < chunk; ++k)
-            {
-                out[k] = mNuHeadScratch[static_cast<size_t>(k)] + mNuRestScratch[static_cast<size_t>(k)];
-            }
-        }
-        else
-        {
-            for (int k = 0; k < chunk; ++k)
-            {
-                const float delayed = mNuDelayLine[mNuDelayPos];
-                mNuDelayLine[mNuDelayPos] = mNuRestScratch[static_cast<size_t>(k)];
-                mNuDelayPos = (mNuDelayPos + 1) % mBaseBlock;
-                out[k] = mNuHeadScratch[static_cast<size_t>(k)] + delayed;
-            }
+            out[k] = SanitizeOutput(out[k] + mNuRestScratch[k]);
         }
 
-        processed += chunk;
+        processed += static_cast<int>(chunk);
     }
 }
 
@@ -529,8 +575,7 @@ void RealtimeConvolver::Reset()
     // Reset direct convolution state
     if (mUseDirectConvolution)
     {
-        std::fill(mDirectHistory.begin(), mDirectHistory.end(), 0.0f);
-        mDirectHistoryPos = 0;
+        std::fill(mFirHistory.begin(), mFirHistory.end(), 0.0f);
         return;
     }
 
@@ -545,9 +590,7 @@ void RealtimeConvolver::Reset()
             }
         }
 
-        std::fill(mNuDelayLine.begin(), mNuDelayLine.end(), 0.0f);
-        mNuDelayPos = 0;
-        std::fill(mNuHeadScratch.begin(), mNuHeadScratch.end(), 0.0f);
+        std::fill(mFirHistory.begin(), mFirHistory.end(), 0.0f);
         std::fill(mNuRestScratch.begin(), mNuRestScratch.end(), 0.0f);
         std::fill(mNuStageScratch.begin(), mNuStageScratch.end(), 0.0f);
         return;

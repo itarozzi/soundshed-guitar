@@ -1090,7 +1090,7 @@ class IRCabEffect : public EffectProcessor
 
     [[nodiscard]] int GetLatencySamples() const override
     {
-        // Report the convolver's algorithmic latency (partition size for FFT convolution, 0 for direct)
+        // Report the convolver's algorithmic latency: 0 with Low Latency on, the partition with it off
         return mConvolverL.IsInitialized() ? mConvolverL.GetLatency() : 0;
     }
 
