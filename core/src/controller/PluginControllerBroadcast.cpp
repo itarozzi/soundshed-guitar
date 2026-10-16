@@ -163,6 +163,8 @@ void PluginController::BroadcastState(StateScope scope)
     mixer["masterGain"] = mPresetMixer.GetMasterGain();
     mixer["mixGainDb"] = mPresetMixer.GetMixGainDb();
     mixer["limiterEnabled"] = mPresetMixer.IsLimiterEnabled();
+    // What this instance runs, which in a plugin can differ from the setting (new instances only).
+    mixer["monoOutputUnity"] = mPresetMixer.IsMonoOutputUnity();
     mixer["activePresetIds"] = activePresetIds;
     nlohmann::json presetConfigs = nlohmann::json::object();
 

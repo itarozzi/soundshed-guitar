@@ -1014,8 +1014,12 @@ void MultiPresetMixer::Process(float** inputs, float** outputs, int numSamples)
     {
         if (outputs[0] && mPrepared && numSamples <= static_cast<int>(mFoldOutL.size()))
         {
+            // The centre pan's 3 dB made up before the fold rather than after, so the meters and
+            // the limiter see what the one channel gets (SetMonoOutputUnity).
+            constexpr float kSqrt2 = 1.41421356f;
+            const float makeup = mMonoOutputUnity.load(std::memory_order_relaxed) ? kSqrt2 : 1.0f;
             float* foldOutputs[2] = {mFoldOutL.data(), mFoldOutR.data()};
-            ProcessStereoBlock(inputs, foldOutputs, numSamples);
+            ProcessStereoBlock(inputs, foldOutputs, numSamples, makeup);
 
             for (int i = 0; i < numSamples; ++i)
             {
@@ -1036,7 +1040,7 @@ void MultiPresetMixer::Process(float** inputs, float** outputs, int numSamples)
     ProcessStereoBlock(inputs, outputs, numSamples);
 }
 
-void MultiPresetMixer::ProcessStereoBlock(float** inputs, float** outputs, int numSamples)
+void MultiPresetMixer::ProcessStereoBlock(float** inputs, float** outputs, int numSamples, float outputGain)
 {
     const bool diagnosticsEnabled = mTelemetry.IsEnabled();
 
@@ -1490,8 +1494,9 @@ void MultiPresetMixer::ProcessStereoBlock(float** inputs, float** outputs, int n
     // FINAL OUTPUT STAGE: Master gain, limiter
     // ==========================================================================
 
-    // Apply master gain
-    const float master = mOutputMuted.load(std::memory_order_relaxed) ? 0.0f : static_cast<float>(mMasterGain);
+    // Apply master gain, with the mono fold's makeup when there is one
+    const float master =
+        mOutputMuted.load(std::memory_order_relaxed) ? 0.0f : static_cast<float>(mMasterGain) * outputGain;
 
     if (master != 1.0f)
     {

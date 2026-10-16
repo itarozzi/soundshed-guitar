@@ -30,6 +30,11 @@ inline constexpr const char* kOutputProtectionCeilingSettingKey = "audio.dsp.out
 // rather than in the global FX blob — that blob is the pre/post chains, and the limiter is
 // an output-stage scalar. Default off, as it has been since the mixer switch existed.
 inline constexpr const char* kOutputLimiterEnabledSettingKey = "audio.dsp.outputLimiterEnabled";
+// Make up the centre pan's 3 dB on a mono output (MultiPresetMixer::SetMonoOutputUnity). The
+// standalone follows it; in a plugin it only seeds a new instance, which then keeps its own
+// value in the project, so turning it on never changes the level of a project already saved.
+// Default off.
+inline constexpr const char* kMonoOutputUnitySettingKey = "audio.dsp.monoOutputUnity";
 inline constexpr const char* kGlobalFxSettingsKey = "globalFx.settings";
 
 // ── Preset switching ────────────────────────────────────────────────

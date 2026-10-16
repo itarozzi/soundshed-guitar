@@ -30,6 +30,7 @@
 * Saved projects can now keep links: the tab for the song, a lesson video, the lyrics. Pick a project and paste an address into the new **Links** section under the loops, with a title if you like. Links are kept with the project as soon as you add them, and clicking one opens it in your web browser.
 
 ### Settings
+* A new **Full Level on Mono Outputs** switch in Settings → General → Advanced DSP Level Targets, off by default. A preset at the default centre pan comes out 3 dB below its input, which keeps its loudness even as it is panned across a stereo output. A mono output, such as a mono DAW track or a single interface output, has nothing to pan across, and with the switch on a preset comes through there at its input level. Stereo outputs are unchanged. In a DAW it applies to plugin instances you add after turning it on, and projects you have already saved keep the level they were made with.
 * A new **Mouse wheel adjusts controls** switch in Settings → General → UI. Turn it off and the scroll wheel stops changing knobs, sliders and the metronome tempo as the pointer passes over them, and just scrolls the page.
 
 ### Performance

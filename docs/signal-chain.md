@@ -119,9 +119,11 @@ graph invalid, and an invalid graph outputs silence.
    active user input calibration gain.
 3. Measure processed input diagnostics.
 4. Process global pre-chain (Pickup Match, noise gate and transpose).
-5. For each preset: process the preset graph, then mix outputs with pan and mix gain.
+5. For each preset: process the preset graph, then mix outputs with pan and mix gain. The pan is
+   equal-power, so a preset at the default centre pan is 3.01 dB down on each side.
 6. Process global post-chain (for example EQ and doubler).
-7. Apply master gain, then final output protection if enabled.
+7. Apply master gain (with the mono-output makeup below, when it is on), then final output
+   protection if enabled.
 8. On a mono output, fold the stereo mix into its one channel.
 
 ### Bypass Semantics
@@ -198,7 +200,15 @@ a widening type in Mono has its output summed too. The chain after it is mono ag
 type that can widen. Changing it rebuilds the chain.
 
 A mono output (a one-channel bus or device) gets the final mix folded, ½(L+R), rather than its
-right side dropped.
+right side dropped. The centre pan's 3 dB then reaches it too, though with one channel there is
+nothing to pan across. **Full Level on Mono Outputs** (`audio.dsp.monoOutputUnity`, default off)
+makes them up: the output stage gains √2 before the fold, ahead of the meters and the limiter, so a
+centred preset reaches a mono output at its input level and the limiter's ceiling still holds on
+what the one channel gets. Stereo outputs are unchanged (`MultiPresetMixer::SetMonoOutputUnity`).
+The standalone follows the setting. A plugin instance takes it once, when it is new, and keeps its
+own value in its host state (`mixer.monoOutputUnity`) from then on: a later change to the setting,
+or a reload of the shared store, leaves it alone, and a project saved before the setting existed
+has no value and restores off, at the level it was made with.
 
 ### Dual Mono
 Dual mono keeps a stereo input as two separate chains through the same preset: nothing crosses

@@ -30,6 +30,7 @@ import { normalizePresetScenes } from "../presetScenes.js";
 import { migratePresetNodeTypes } from "../presetV2.js";
 import { applyRiffLibraryState } from "../riffLibrary.js";
 import { refreshSettingsView } from "../settings.js";
+import { applyMonoOutputUnityInstance } from "../settings/monoOutputUnity.js";
 import { applyEnginePresetDirty, clonePreset, setActivePresetDraft, setActivePresetIsNew, setActivePresetSnapshot, uiState } from "../state.js";
 import { replaceMixerState } from "../mixerStore.js";
 import { cachePreset, putLibraryPresetFirst, setActivePresetId, setActivePresetSceneId, setPresetLoadingId, showAllLibraryPresets } from "../presetLibraryStore.js";
@@ -179,6 +180,8 @@ export function onState(payload: IncomingPayload): void {
       masterGain: typeof mixer.masterGain === "number" ? mixer.masterGain : uiState.mixer?.masterGain ?? 1.0,
       mixGainDb: typeof mixer.mixGainDb === "number" ? mixer.mixGainDb : uiState.mixer?.mixGainDb ?? 0,
     });
+    // What this instance runs on a mono output, for the line under the settings toggle.
+    applyMonoOutputUnityInstance((mixer as { monoOutputUnity?: unknown }).monoOutputUnity);
 
     // Populate presetCache with full graph data for each mixer slot.
     // The C++ includes these so the UI can display signal chains even for

@@ -39,6 +39,14 @@
               </div>
               <div class="settings-hint">Catches peaks at the very end of the chain, at the ceiling above. Applies to the whole output, not to any one preset.</div>
               <div class="settings-row">
+                <label for="dsp-mono-output-unity-toggle">Full Level on Mono Outputs</label>
+                <label class="toggle-switch">
+                  <input type="checkbox" id="dsp-mono-output-unity-toggle" />
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+              <div class="settings-hint">A centred rig sits 3 dB below its input, so that it keeps its loudness when panned across a stereo output. A mono output, such as a mono DAW track or a single interface output, has nothing to pan across: this brings the rig back to its input level there. Stereo outputs are unchanged. In a DAW it applies to instances you add after turning it on, and saved projects keep the level they were made with. <span id="dsp-mono-output-unity-instance" hidden></span></div>
+              <div class="settings-row">
                 <label for="nam-auto-input-calibration-toggle">NAM Auto Input Calibration</label>
                 <label class="toggle-switch">
                   <input type="checkbox" id="nam-auto-input-calibration-toggle" />

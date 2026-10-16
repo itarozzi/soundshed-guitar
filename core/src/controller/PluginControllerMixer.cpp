@@ -408,4 +408,23 @@ void PluginController::ApplyMultiCoreSettingFromAppSettings()
     mPresetMixer.SetMultiThreadedProcessingEnabled(enabled);
 }
 
+void PluginController::ApplyMonoOutputUnityFromAppSettings()
+{
+    // A plugin instance takes the setting only while it is new. Once it has its own value, from
+    // here or from its project, a later change to the setting or a reload of the shared store
+    // leaves it alone: the setting is for instances added from now on, and a saved project keeps
+    // the level it was made with.
+    if (!mHost.IsStandalone() && mMonoOutputUnityOwned)
+    {
+        return;
+    }
+
+    const auto it = mAppSettings.find(kMonoOutputUnitySettingKey);
+    const bool enabled = it != mAppSettings.end() && it->is_boolean() && it->get<bool>();
+
+    // No DSP lock: the flag is atomic and read once per block.
+    mPresetMixer.SetMonoOutputUnity(enabled);
+    mMonoOutputUnityOwned = !mHost.IsStandalone();
+}
+
 } // namespace guitarfx

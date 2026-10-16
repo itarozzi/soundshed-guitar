@@ -363,6 +363,7 @@ bool PluginController::ApplySettingsToRuntime(SettingsApplyMode mode)
     settingsChanged |= ApplyDspLevelTargetSettingsFromAppSettings();
     settingsChanged |= ApplyPresetSwitchSettingsFromAppSettings();
     ApplyMultiCoreSettingFromAppSettings();
+    ApplyMonoOutputUnityFromAppSettings();
     ApplyInputModeSettingsFromAppSettings();
     ApplyGlobalFxSettingsFromAppSettings();
 

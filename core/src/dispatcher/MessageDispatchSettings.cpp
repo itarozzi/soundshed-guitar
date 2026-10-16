@@ -58,6 +58,14 @@ bool MessageDispatcher::DispatchSettings(PluginController& c, const nlohmann::js
             c.ApplyMultiCoreSettingFromAppSettings();
         }
 
+        if (key == "audio.dsp.monoOutputUnity")
+        {
+            // The standalone takes it now; a plugin instance keeps the value it has, and the
+            // state broadcast tells the UI which that is.
+            c.ApplyMonoOutputUnityFromAppSettings();
+            c.mPendingStateBroadcast = true;
+        }
+
         if (PluginController::IsNamQualitySettingKey(key))
         {
             c.ApplyNamQualitySettings();

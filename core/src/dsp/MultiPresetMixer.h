@@ -229,6 +229,21 @@ class MultiPresetMixer
         return mLimiterEnabled;
     }
 
+    /// A mono output (a one-channel bus or device) gets the stereo mix folded, ½(L+R), and the
+    /// rigs' equal-power pan has put a centred rig 3 dB down on each side, which nothing justifies
+    /// once there is only one channel. On, the output stage makes those 3 dB up before the fold,
+    /// so a centred rig reaches a mono output at its input level. Stereo outputs are untouched.
+    /// Off by default; a plugin instance keeps its own value in the project (PluginController).
+    void SetMonoOutputUnity(bool enabled) noexcept
+    {
+        mMonoOutputUnity.store(enabled, std::memory_order_relaxed);
+    }
+
+    [[nodiscard]] bool IsMonoOutputUnity() const noexcept
+    {
+        return mMonoOutputUnity.load(std::memory_order_relaxed);
+    }
+
     void SetMultiThreadedProcessingEnabled(bool enabled);
 
     [[nodiscard]] bool IsMultiThreadedProcessingEnabled() const noexcept
@@ -652,6 +667,7 @@ class MultiPresetMixer
     double mMixGain = 1.0;
     double mMasterGain = 1.0;
     std::atomic<bool> mOutputMuted{false};
+    std::atomic<bool> mMonoOutputUnity{false};
     bool mLimiterEnabled = false;
     std::atomic<bool> mMultiThreadedProcessingEnabled{rtparallel::kParallelDspSupported};
     std::atomic<bool> mSleepOnSilenceEnabled{true};
@@ -698,7 +714,9 @@ class MultiPresetMixer
     /// layout in step with that, a rig built off the lock meanwhile included.
     void UpdateIdenticalInputFold(const float* left, const float* right, int numSamples);
     /// One block of at most mMaxBlockSize into a stereo pair (either output may be null).
-    void ProcessStereoBlock(float** inputs, float** outputs, int numSamples);
+    /// `outputGain` scales the final output stage with the master gain, ahead of the meters and
+    /// the limiter: the mono fold's makeup (SetMonoOutputUnity), 1 otherwise.
+    void ProcessStereoBlock(float** inputs, float** outputs, int numSamples, float outputGain = 1.0f);
 
     // Temporary buffers for input processing
     std::vector<float> mTempInL, mTempInR;

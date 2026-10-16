@@ -29,6 +29,9 @@ export const DSP_PROTECTION_CEILING_SETTING = "audio.dsp.outputProtectionCeiling
 
 export const DSP_OUTPUT_LIMITER_SETTING = "audio.dsp.outputLimiterEnabled";
 
+/** Make up the centre pan's 3 dB on a mono output; seeds new plugin instances only. */
+export const DSP_MONO_OUTPUT_UNITY_SETTING = "audio.dsp.monoOutputUnity";
+
 export const PRESET_SWITCH_TAIL_SETTING = "audio.presetSwitch.tailBars";
 
 export const NAM_SLIMMABLE_SIZE_SETTING = "audio.nam.slimmableSize";

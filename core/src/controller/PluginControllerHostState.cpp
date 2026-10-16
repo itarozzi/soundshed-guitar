@@ -236,6 +236,7 @@ std::string PluginController::BuildHostState(HostedPluginStateSource source) con
     mixer["masterGain"] = mPresetMixer.GetMasterGain();
     mixer["mixGainDb"] = mPresetMixer.GetMixGainDb();
     mixer["limiterEnabled"] = mPresetMixer.IsLimiterEnabled();
+    mixer["monoOutputUnity"] = mPresetMixer.IsMonoOutputUnity();
 
     nlohmann::json activePresetIds = nlohmann::json::array();
     nlohmann::json presetConfigs = nlohmann::json::object();
@@ -489,6 +490,17 @@ void PluginController::RestoreHostState(const std::string& json)
         // flat mirror of the global FX values, and only ever tracked a few of them — the
         // rest read back as 0, which switched those effects off over the chain restored
         // just above. globalSignalChain carries all of it.
+
+        // The mono-output makeup is the project's, never the setting's: the setting is for
+        // instances added from now on. A project saved before it existed has no value, and was
+        // made without the makeup, so it stays off.
+        {
+            const auto mixerIt = state.find("mixer");
+            const bool unity = mixerIt != state.end() && mixerIt->is_object() && mixerIt->contains("monoOutputUnity") &&
+                               (*mixerIt)["monoOutputUnity"].is_boolean() && (*mixerIt)["monoOutputUnity"].get<bool>();
+            mPresetMixer.SetMonoOutputUnity(unity);
+            mMonoOutputUnityOwned = true;
+        }
 
         if (state.contains("mixer") && state["mixer"].is_object())
         {

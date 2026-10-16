@@ -64,6 +64,7 @@ set(TEST_SOURCES
     MixerInstanceLockTests.cpp
     MixerTelemetryTests.cpp
     ModulationStereoTests.cpp
+    MonoOutputLevelTests.cpp
     MultiCoreSettingTests.cpp
     MultiPresetMixerTests.cpp
     MultiRigEditWorkflowTests.cpp

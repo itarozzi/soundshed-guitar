@@ -797,6 +797,9 @@ class PluginController
     bool ApplyPresetSwitchSettingsFromAppSettings();
     /// Pushes this host's multi-core setting (standalone or plugin key) to the mixer.
     void ApplyMultiCoreSettingFromAppSettings();
+    /// The standalone follows the mono-output makeup setting; a plugin instance takes it once,
+    /// when it is new, and after that owns the value (mMonoOutputUnityOwned).
+    void ApplyMonoOutputUnityFromAppSettings();
     /// Tells the mixer how long the outgoing preset may ring after the swap it is about to
     /// be asked for: the stored bar count at the current tempo and meter.
     void UpdatePresetSwapTailBudget();
@@ -1152,6 +1155,11 @@ class PluginController
      * by EffectiveNamQuality() and never written back here.
      */
     NamQualityConfig mNamQuality;
+
+    /// Set once a plugin instance holds its own mono-output makeup: seeded from the shared
+    /// setting when it is new, or restored from its project (absent there means off, the level
+    /// every project saved before the setting existed was made with). Not used in standalone.
+    bool mMonoOutputUnityOwned = false;
 
     /// True while the host renders offline (bounce/freeze/export). Boosts the tier the
     /// DSP actually runs at without touching mNamQuality — see SetOfflineRendering().
