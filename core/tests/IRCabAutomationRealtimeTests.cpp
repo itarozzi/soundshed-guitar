@@ -262,12 +262,16 @@ int main()
                      "Normalize from MIDI allocated on the audio thread beyond the node.* route's own (" +
                          Describe(normalize) + " vs Mix " + Describe(mix) + ")");
 
-    // The effect on its own, with nothing from the route: no allocation at all.
+    // The effect on its own, with nothing from the route: no allocation at all. Trim Leading
+    // Silence is the same kind of setting; asked for and then un-asked, it leaves nothing waiting.
     const std::string lowLatencyKey = "lowLatency";
     const std::string normalizeKey = "normalizeIR";
+    const std::string trimKey = "trimLeadingSilence";
     const auto direct = CountOnAudioThread([&] {
         cab->SetParam(lowLatencyKey, 1.0);
         cab->SetParam(normalizeKey, 1.0);
+        cab->SetParam(trimKey, 1.0);
+        cab->SetParam(trimKey, 0.0);
         cab->SetParam(lowLatencyKey, 0.0);
     });
     passed &= Expect(direct.count == 0, "SetParam on the cab allocated on the audio thread (" + Describe(direct) + ")");

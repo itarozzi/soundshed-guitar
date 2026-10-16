@@ -51,6 +51,7 @@ set(TEST_SOURCES
     IrAlignmentTests.cpp
     IrResourceCategoryTests.cpp
     IRConvolutionTests.cpp
+    IRLeadingSilenceTests.cpp
     IRReverbAutomationRealtimeTests.cpp
     IRReverbQualityTests.cpp
     ImpulseResamplerTests.cpp
@@ -80,6 +81,7 @@ set(TEST_SOURCES
     NonAsciiPathWorkflowTests.cpp
     NotePlayerTests.cpp
     NoteTrackerTests.cpp
+    PassiveToneStackTests.cpp
     PickupMatchEffectTests.cpp
     PitchShiftEngineTests.cpp
     PitchTrackerTests.cpp

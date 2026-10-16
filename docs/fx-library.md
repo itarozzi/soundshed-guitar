@@ -262,8 +262,8 @@ call:
    if the effect was rebuilt in between, and leaves what it replaces in the work, to be freed after
    the lock is released.
 
-A composite forwards both calls to its inner graph. The IR Cabinet's Normalize and Low Latency, and
-the Convolution Reverb's Quality and Low Latency, work this way.
+A composite forwards both calls to its inner graph. The IR Cabinet's Normalize, Low Latency and Trim
+Leading Silence, and the Convolution Reverb's Quality and Low Latency, work this way.
 
 ## Built-in Effect Types
 
@@ -462,6 +462,7 @@ loaded into a prepared node is built straight away. The Convolution Reverb works
 | `outputGain` | -24..+24 | 0.0 | dB |
 | `speakerDrive` | 0.0–1.0 | 0.0 | — |
 | `quality` | 0–3 | 1 | — |
+| `trimLeadingSilence` | 0/1 | 0 | toggle |
 
 Quality levels: 0=Economy, 1=Standard, 2=High, 3=Full
 
@@ -478,14 +479,39 @@ still waiting for the next IR load. The host hears about the new latency once th
 Normalize is not a declared parameter, so the node panel has no control for it. Presets set it,
 and so can a slot address that names it (`node.cab_ir.normalizeIR`).
 
-With Low Latency on, the latency is the convolver's base block: 64 or 128 samples when the host
-promises blocks that small, and 256 at most. A long IR gets a non-uniform layout (a small head
-partition, growing to a large tail one). A short one, where splitting gains nothing, runs
-uniformly at the base block. Low Latency off sizes its uniform partition, and so its latency,
-from the largest block the host promised, 256 to 2048 samples. That is fewer, larger partitions,
-cheaper on a long IR. Until 2026-10-13 a short IR took that size even with Low Latency on.
-A host promising 8192 samples and sending 64 then got a cab adding 2048 samples (43 ms at
-48 kHz).
+With Low Latency on, the cab has no latency at all, whatever block the host promises or sends.
+The first 256 samples of the IR (512 for an IR of 16,448 samples or more) run as a direct
+FIR, and the rest as FFT partitions that grow with their offset into the IR, each one exactly as
+late as its part of the IR has to be (`RealtimeConvolver`). An IR no longer than the FIR runs on
+the FIR alone. At a small host block this costs less CPU than the 64- and 128-sample partitions
+it replaced; at a large one, about the same (docs/plans/zero-latency-ir-cab.md). Low Latency
+off sizes its uniform partition, and so its latency, from the largest block the host promised,
+256 to 2048 samples. That is fewer, larger partitions, the cheapest at a large host block on a
+long IR. An IR of 64 samples or fewer runs as a FIR either way.
+
+Until 2026-10-16 Low Latency meant 64 or 128 samples of latency when the host promised blocks
+that small and 256 otherwise (5.3 ms at 48 kHz in most DAWs). The wet signal was that late, so a
+Mix below 100% comb-filtered against the undelayed dry one; with no latency it no longer can.
+Until 2026-10-13 a short IR took the Low Latency off size even with it on: a host promising 8192
+samples and sending 64 got a cab adding 2048 samples (43 ms at 48 kHz).
+
+**Trim Leading Silence** (`trimLeadingSilence`, off by default, under Advanced) takes off what an
+IR file has in front of its sound: the time the sound took to reach the mic, and any silence the
+capture left before it. With Low Latency's zero, that is the only delay a cab still adds, and
+Quality's length counted it against the IR. An IR's onset is its first sample within -40 dB of its
+peak, in either channel of a stereo IR (`IrLeadingSilence.h`), and the trim stops 4 samples short
+of it so the attack's rise is kept. With two IRs loaded, both lose the earlier one's onset, so IR B
+keeps its place against IR A and an IR B offset means what it did. The trim is counted at the
+host's rate and taken after resampling, so two IRs at different rates move by exactly the same
+time. Quality's length is counted from where the trim stops. It is a rebuild setting like Normalize
+and Low Latency, built off the DSP lock by the message thread when changed on a loaded cab, and it
+does not change the reported latency: an IR's own pre-delay was never counted in it. It is off by
+default so a preset keeps the timing it was made with.
+
+Of 66 distinct cab-length IRs measured on 2026-10-16 (resources/ and a development profile), 51
+reach -40 dB within 0.1 ms, 4 within 0.5 ms, 10 take 0.5-1.6 ms and one 3.5 ms. What the trim
+removes from any of them is at most -44 dB of the IR's peak and -49 dB of its energy, at 44.1, 48
+and 96 kHz, resampled IRs included.
 
 Speaker Drive is the Simple Cabinet's level-dependent speaker stage (`SpeakerDrive.h`) in front
 of the convolution: what an IR, being a linear snapshot, cannot capture. It bends only what
@@ -1111,6 +1137,16 @@ work is taken under the lock. There is no crossfade: the new convolvers start wi
 the tail of what was playing stops at the swap. A change from the node panel is built before its
 message returns, and one from automation at the next idle tick. `GetParam` reports the requested
 value straight away, and the host hears about the new latency once the rebuild is in.
+
+Low Latency on has no latency, the same zero-latency convolver as the IR Cabinet's. Until
+2026-10-16 it reported 64-256 samples, though its dry signal passes undelayed, so a host
+compensating for that latency pulled the dry guitar 1.3-5.3 ms early. The wet signal also
+trailed the dry one by that much, so below 100% Mix the two combed against each other wherever
+the IR has early energy. Now they line up, the same at every buffer size. On the factory pack's
+two bundled reverb IRs (Mix 39% and 70%) it moved the third-octave response by up to 1.25 dB
+against the old 64-sample offset, and against the old 256-sample one by 2.3-3.4 dB at 63 Hz and
+0.6 dB at most above it. Low Latency off still reports its partition, 256 to 2048 samples, and
+its dry signal still is not delayed to match.
 
 ### Algorithmic Reverbs
 Room, chamber, and advanced reverb share a common algorithmic engine. Spring and ambient use dedicated processors because their topology and voicing diverge more strongly from the shared room/chamber design:

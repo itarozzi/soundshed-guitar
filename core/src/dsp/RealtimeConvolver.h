@@ -21,15 +21,15 @@ namespace guitarfx
  * - Partitioned convolution for O(B log B) per-block complexity
  * - Latency = partition size (typically 256-512 samples)
  *
- * Optional non-uniform (Gardner-style) partitioning, enabled via
- * SetLowLatencyMode(true) before SetImpulse(). In this mode the IR head is
- * convolved with small partitions (low latency) while the tail uses larger
- * partitions for efficiency. Latency drops to the small base block size
- * (64 to 256), and for a long IR the big tail partition makes it cheaper than
- * the uniform engine as well. A short IR that gains nothing from the split runs
- * on the uniform engine at that same base partition. See RealtimeConvolver.cpp.
+ * Optional zero-latency, non-uniform (Gardner-style) partitioning, enabled via
+ * SetLowLatencyMode(true) before SetImpulse(). In this mode the first 256 or 512
+ * IR samples run as a direct-form FIR, and the rest as FFT partitions that grow
+ * with their offset into the IR, so the output has no latency at all. It is also
+ * cheaper than small uniform partitions would be at a small host block, and the
+ * big tail partition makes a long IR cheaper than the uniform engine. An IR no
+ * longer than the FIR runs on the FIR alone. See RealtimeConvolver.cpp.
  *
- * Either engine spreads a block's partition multiplies across the samples of
+ * The FFT engine spreads a block's partition multiplies across the samples of
  * that block rather than doing them all at the block boundary, so per-callback
  * cost stays flat even when the host block is much smaller than the partition.
  */
@@ -49,17 +49,17 @@ class RealtimeConvolver
      * Initialize with impulse response.
      * @param irSamples The impulse response samples
      * @param blockSize The most samples the host promised per call, which may be far more
-     *                  than it sends. In low-latency mode the latency never exceeds 256
-     *                  samples whatever it is; otherwise the partition, and so the latency,
-     *                  follows it from 256 up to 2048.
+     *                  than it sends. Low-latency mode ignores it: its latency is 0 whatever
+     *                  the block. Otherwise the partition, and so the latency, follows it
+     *                  from 256 up to 2048.
      * @return true if initialization succeeded
      */
     bool SetImpulse(const std::vector<float>& irSamples, int blockSize);
 
     /**
-     * Enable/disable non-uniform (low-latency) partitioning. Must be called
-     * BEFORE SetImpulse() to take effect; the mode is captured at SetImpulse()
-     * time alongside the partition layout. Defaults to false (uniform).
+     * Enable/disable the zero-latency engine (FIR head plus non-uniform partitions).
+     * Must be called BEFORE SetImpulse() to take effect; the mode is captured at
+     * SetImpulse() time alongside the partition layout. Defaults to false (uniform).
      */
     void SetLowLatencyMode(bool enabled) noexcept
     {
@@ -89,7 +89,7 @@ class RealtimeConvolver
 
     [[nodiscard]] int GetLatency() const noexcept
     {
-        return mUseDirectConvolution ? 0 : static_cast<int>(mPartitionSize);
+        return (mUseDirectConvolution || mIsNonUniform) ? 0 : static_cast<int>(mPartitionSize);
     }
 
     [[nodiscard]] size_t GetNumPartitions() const noexcept
@@ -99,7 +99,11 @@ class RealtimeConvolver
 
   private:
     void ProcessBlock();
-    void ProcessDirect(const float* input, float* output, int numSamples);
+
+    // Direct-form FIR over `count` coefficients: the whole IR when it is short enough, or the
+    // zero-latency engine's head. ProcessFir writes (not adds) its output.
+    void BuildFir(const float* coefficients, size_t count);
+    void ProcessFir(const float* input, float* output, size_t numSamples);
 
     // Folds IR partitions [mPreAccumPartition, target) into mAccumulator for the block
     // that is still filling. Called a slice at a time from Process() so a long IR costs
@@ -111,20 +115,21 @@ class RealtimeConvolver
     // for each stage of the non-uniform engine.
     bool BuildUniform(const std::vector<float>& irSamples, size_t partitionSize);
 
-    // Builds and processes the non-uniform (Gardner-style) engine.
-    bool BuildNonUniform(const std::vector<float>& irSamples, int blockSize);
+    // Builds and processes the zero-latency non-uniform (Gardner-style) engine.
+    bool BuildNonUniform(const std::vector<float>& irSamples);
     void ProcessNonUniform(const float* input, float* output, int numSamples);
 
     bool mInitialized = false;
-    bool mUseDirectConvolution = false; // For short IRs, use direct FIR convolution (no latency)
-    bool mLowLatencyMode = false;       // Requested at SetImpulse time (non-uniform partitioning)
-    bool mIsNonUniform = false;         // True when the non-uniform engine is active
+    bool mUseDirectConvolution = false; // The whole IR runs on the FIR (no latency)
+    bool mLowLatencyMode = false;       // Requested at SetImpulse time (zero-latency engine)
+    bool mIsNonUniform = false;         // True when the zero-latency non-uniform engine is active
 
-    // Direct convolution (for short IRs)
-    std::vector<float> mDirectIR;
-    std::vector<float> mDirectHistory; // Ring buffer for FIR filter state
-    size_t mDirectHistoryPos = 0;
-    static constexpr size_t kDirectConvolutionThreshold = 64; // Use direct convolution for IRs <= this length
+    // Direct-form FIR. Uniform mode uses it alone for IRs up to kDirectConvolutionThreshold;
+    // low-latency mode for IRs up to its head length, and as the head of longer ones.
+    std::vector<float> mFirReversed; // h[count - 1] .. h[0], so each output is one dot product
+    std::vector<float> mFirHistory;  // count - 1 samples of history, then one chunk of input
+    static constexpr size_t kFirChunk = 256;
+    static constexpr size_t kDirectConvolutionThreshold = 64;
 
     // Partition configuration
     size_t mPartitionSize = 0;
@@ -160,18 +165,13 @@ class RealtimeConvolver
     // FFT plan
     std::unique_ptr<SimdFFT> mFFT;
 
-    // --- Non-uniform (Gardner-style) engine ---
-    // mNonUniformStages[0] is the low-latency head segment (no extra delay).
-    // Every other stage's contribution is delayed by exactly mBaseBlock samples
-    // (a single shared delay line), which time-aligns all stages so their sum
-    // equals the full convolution delayed by mBaseBlock. See RealtimeConvolver.cpp.
+    // --- Zero-latency non-uniform (Gardner-style) engine ---
+    // The FIR above covers the IR's head. Each stage here is a uniform engine for the IR
+    // segment starting at the offset equal to its own partition, so its block latency is
+    // exactly the delay that segment needs, and the stages add straight into the FIR's
+    // output. See RealtimeConvolver.cpp.
     std::vector<std::unique_ptr<RealtimeConvolver>> mNonUniformStages;
-    size_t mBaseBlock = 0;              // latency of the non-uniform engine (samples)
-    std::vector<float> mNuHeadScratch;  // output of stage 0 (no delay)
-    std::vector<float> mNuRestScratch;  // accumulated output of stages 1..n-1
+    std::vector<float> mNuRestScratch;  // accumulated output of the stages
     std::vector<float> mNuStageScratch; // per-stage temporary
-    std::vector<float> mNuDelayLine;    // delay ring (length mBaseBlock) for stages 1..n-1
-    size_t mNuDelayPos = 0;
-    size_t mNuScratchSize = 0; // max chunk size for the scratch buffers
 };
 } // namespace guitarfx

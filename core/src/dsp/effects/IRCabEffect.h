@@ -9,6 +9,7 @@
 #include "dsp/IRTypes.h"
 #include "dsp/IRWavLoader.h"
 #include "dsp/ImpulseResampler.h"
+#include "dsp/IrLeadingSilence.h"
 #include "dsp/IrSlotAlignment.h"
 #include "dsp/effects/SpeakerDrive.h"
 #include "util/PathEncoding.h"
@@ -647,6 +648,11 @@ class IRCabEffect : public EffectProcessor
             // The partition layout is fixed when a convolver is built.
             RequestRebuildSetting(mPendingLowLatency, mLowLatency, value > 0.5);
         }
+        else if (key == "trimLeadingSilence")
+        {
+            // The trim is taken from the impulses the convolvers are built from.
+            RequestRebuildSetting(mPendingTrimLeadingSilence, mTrimLeadingSilence, value > 0.5);
+        }
         else if (key == "air")
         {
             mAir = std::clamp(value, 0.0, 1.0);
@@ -692,12 +698,14 @@ class IRCabEffect : public EffectProcessor
     {
     }
 
-    /// A Normalize or Low Latency change SetParam recorded (see RequestRebuildSetting), with copies
-    /// of the impulses to build from: an IR load could replace them while the build runs.
+    /// A Normalize, Low Latency or Trim Leading Silence change SetParam recorded (see
+    /// RequestRebuildSetting), with copies of the impulses to build from: an IR load could replace
+    /// them while the build runs.
     [[nodiscard]] std::unique_ptr<DeferredRebuild> TakeDeferredRebuild() override
     {
         if (mPendingNormalizeIR.load(std::memory_order_acquire) < 0 &&
-            mPendingLowLatency.load(std::memory_order_acquire) < 0)
+            mPendingLowLatency.load(std::memory_order_acquire) < 0 &&
+            mPendingTrimLeadingSilence.load(std::memory_order_acquire) < 0)
         {
             return nullptr;
         }
@@ -706,9 +714,12 @@ class IRCabEffect : public EffectProcessor
         const int pendingQuality = mPendingQuality.load(std::memory_order_acquire);
         auto work = std::make_unique<ConvolverRebuild>();
         work->generation = mBuildGeneration;
-        work->settings = {
-            mSampleRate, mMaxBlockSize, pendingQuality >= 0 ? static_cast<IRQuality>(pendingQuality) : mQuality,
-            EffectiveSetting(mPendingNormalizeIR, mNormalizeIR), EffectiveSetting(mPendingLowLatency, mLowLatency)};
+        work->settings = {mSampleRate,
+                          mMaxBlockSize,
+                          pendingQuality >= 0 ? static_cast<IRQuality>(pendingQuality) : mQuality,
+                          EffectiveSetting(mPendingNormalizeIR, mNormalizeIR),
+                          EffectiveSetting(mPendingLowLatency, mLowLatency),
+                          EffectiveSetting(mPendingTrimLeadingSilence, mTrimLeadingSilence)};
         work->slotA = {mImpulseL, mImpulseR, mIsStereo, mIRSampleRate};
         work->slotB = {mImpulseBL, mImpulseBR, mIsStereoB, mIRSampleRateB};
         return work;
@@ -723,7 +734,8 @@ class IRCabEffect : public EffectProcessor
         // that SetParam has already asked for another pass.
         if (!work || work->generation != mBuildGeneration ||
             EffectiveSetting(mPendingNormalizeIR, mNormalizeIR) != work->settings.normalize ||
-            EffectiveSetting(mPendingLowLatency, mLowLatency) != work->settings.lowLatency)
+            EffectiveSetting(mPendingLowLatency, mLowLatency) != work->settings.lowLatency ||
+            EffectiveSetting(mPendingTrimLeadingSilence, mTrimLeadingSilence) != work->settings.trimLeadingSilence)
         {
             return;
         }
@@ -750,9 +762,11 @@ class IRCabEffect : public EffectProcessor
 
         mNormalizeIR = work->settings.normalize;
         mLowLatency = work->settings.lowLatency;
+        mTrimLeadingSilence = work->settings.trimLeadingSilence;
         mQuality = work->settings.quality;
         ClearPendingIf(mPendingNormalizeIR, mNormalizeIR ? 1 : 0);
         ClearPendingIf(mPendingLowLatency, mLowLatency ? 1 : 0);
+        ClearPendingIf(mPendingTrimLeadingSilence, mTrimLeadingSilence ? 1 : 0);
         ClearPendingIf(mPendingQuality, static_cast<int>(mQuality));
         BeginResourceTransition();
     }
@@ -848,6 +862,11 @@ class IRCabEffect : public EffectProcessor
         if (key == "lowLatency")
         {
             return EffectiveSetting(mPendingLowLatency, mLowLatency) ? 1.0 : 0.0;
+        }
+
+        if (key == "trimLeadingSilence")
+        {
+            return EffectiveSetting(mPendingTrimLeadingSilence, mTrimLeadingSilence) ? 1.0 : 0.0;
         }
 
         if (key == "air")
@@ -991,29 +1010,13 @@ class IRCabEffect : public EffectProcessor
             else if (LoadWavFile(paths[slotAIdx]))
             {
                 mIRPath = paths[slotAIdx];
-                ApplyPendingQuality();
-                loadedA = !mPrepared || InitializeConvolverA(); // else Prepare() builds it (see mPrepared)
-
-                if (!loadedA)
-                {
-                    util::AppendSessionLog("[IRCabEffect] ERROR: Failed to initialize convolver A for: " +
-                                           util::PathToUtf8(paths[slotAIdx]));
-                }
+                loadedA = true; // built below, once IR B is in
             }
             else
             {
                 util::AppendSessionLog("[IRCabEffect] ERROR: Failed to load IR A: " +
                                        util::PathToUtf8(paths[slotAIdx]));
             }
-        }
-
-        if (!loadedA)
-        {
-            mImpulseL.clear();
-            mImpulseR.clear();
-            mIRPath.clear();
-            mConvolverL.Reset();
-            mConvolverR.Reset();
         }
 
         // --- Slot B ---
@@ -1040,17 +1043,45 @@ class IRCabEffect : public EffectProcessor
                     mIRBlend = std::clamp(*refs[slotBIdx].parameterValue, 0.0, 1.0);
                 }
 
-                loadedB = !mPrepared || InitializeConvolverB();
-
-                if (!loadedB)
-                {
-                    util::AppendSessionLog("[IRCabEffect] WARNING: Failed to initialize convolver B for: " +
-                                           util::PathToUtf8(paths[slotBIdx]));
-                }
+                loadedB = true;
             }
             else
             {
                 util::AppendSessionLog("[IRCabEffect] WARNING: Failed to load IR B: " +
+                                       util::PathToUtf8(paths[slotBIdx]));
+            }
+        }
+
+        // Both files are read before either convolver is built: the leading-silence trim reads
+        // both slots' impulses, so each build has to see the pair that will play.
+        if (loadedA)
+        {
+            ApplyPendingQuality();
+            loadedA = !mPrepared || InitializeConvolverA(); // else Prepare() builds it (see mPrepared)
+
+            if (!loadedA)
+            {
+                util::AppendSessionLog("[IRCabEffect] ERROR: Failed to initialize convolver A for: " +
+                                       util::PathToUtf8(paths[slotAIdx]));
+            }
+        }
+
+        if (!loadedA)
+        {
+            mImpulseL.clear();
+            mImpulseR.clear();
+            mIRPath.clear();
+            mConvolverL.Reset();
+            mConvolverR.Reset();
+        }
+
+        if (loadedB)
+        {
+            loadedB = !mPrepared || InitializeConvolverB();
+
+            if (!loadedB)
+            {
+                util::AppendSessionLog("[IRCabEffect] WARNING: Failed to initialize convolver B for: " +
                                        util::PathToUtf8(paths[slotBIdx]));
             }
         }
@@ -1090,7 +1121,7 @@ class IRCabEffect : public EffectProcessor
 
     [[nodiscard]] int GetLatencySamples() const override
     {
-        // Report the convolver's algorithmic latency (partition size for FFT convolution, 0 for direct)
+        // Report the convolver's algorithmic latency: 0 with Low Latency on, the partition with it off
         return mConvolverL.IsInitialized() ? mConvolverL.GetLatency() : 0;
     }
 
@@ -1187,9 +1218,11 @@ class IRCabEffect : public EffectProcessor
         return length;
     }
 
-    // Get processed (potentially truncated) IR based on quality setting
+    // Get processed (potentially truncated) IR based on quality setting. `leadingSamples` is how
+    // much of the front the leading-silence trim will take off afterwards, at the IR's rate: the
+    // quality's length is counted from there.
     static std::vector<float> GetProcessedImpulse(const std::vector<float>& samples, double impulseSampleRate,
-                                                  IRQuality quality, double hostSampleRate)
+                                                  IRQuality quality, double hostSampleRate, size_t leadingSamples = 0)
     {
         if (samples.empty())
         {
@@ -1203,7 +1236,8 @@ class IRCabEffect : public EffectProcessor
         }
 
         const double qualitySampleRate = impulseSampleRate > 0.0 ? impulseSampleRate : hostSampleRate;
-        const size_t maxSamples = GetMaxIRSamples(quality, qualitySampleRate);
+        const size_t qualitySamples = GetMaxIRSamples(quality, qualitySampleRate);
+        const size_t maxSamples = qualitySamples > 0 ? qualitySamples + leadingSamples : 0;
 
         if (maxSamples == 0 || samples.size() <= maxSamples)
         {
@@ -1340,14 +1374,36 @@ class IRCabEffect : public EffectProcessor
         IRQuality quality = IRQuality::Standard;
         bool normalize = true;
         bool lowLatency = true;
+        bool trimLeadingSilence = false;
+        // With the trim on, the leading silence both slots lose, in seconds: the earlier slot's
+        // onset (IrLeadingSilence.h). Worked out from both slots' impulses before each build.
+        double leadingSilenceSeconds = 0.0;
     };
 
     bool InitializeConvolverFromImpulse(const std::vector<float>& impulseL, const std::vector<float>& impulseR,
                                         bool isStereo, double impulseSampleRate, RealtimeConvolver& convolverL,
                                         RealtimeConvolver& convolverR) const
     {
-        const ConvolverBuildSettings settings{mSampleRate, mMaxBlockSize, mQuality, mNormalizeIR, mLowLatency};
+        ConvolverBuildSettings settings{mSampleRate,  mMaxBlockSize, mQuality,
+                                        mNormalizeIR, mLowLatency,   mTrimLeadingSilence};
+        settings.leadingSilenceSeconds =
+            SharedLeadingSilence(settings, mImpulseL, mImpulseR, mIRSampleRate, mImpulseBL, mImpulseBR, mIRSampleRateB);
         return BuildConvolverPair(settings, impulseL, impulseR, isStereo, impulseSampleRate, convolverL, convolverR);
+    }
+
+    /// With Trim Leading Silence on, the leading silence both slots lose, in seconds: the earlier of
+    /// their onsets, so IR B keeps its place against IR A. 0 with it off.
+    static double SharedLeadingSilence(const ConvolverBuildSettings& settings, const std::vector<float>& leftA,
+                                       const std::vector<float>& rightA, double rateA, const std::vector<float>& leftB,
+                                       const std::vector<float>& rightB, double rateB)
+    {
+        if (!settings.trimLeadingSilence)
+        {
+            return 0.0;
+        }
+
+        return ir_leading_silence::SharedOnsetSeconds(ir_leading_silence::FindOnsetSeconds(leftA, rightA, rateA),
+                                                      ir_leading_silence::FindOnsetSeconds(leftB, rightB, rateB));
     }
 
     static bool BuildConvolverPair(const ConvolverBuildSettings& settings, const std::vector<float>& impulseL,
@@ -1361,11 +1417,18 @@ class IRCabEffect : public EffectProcessor
             return false;
         }
 
+        const double sourceRate = impulseSampleRate > 0.0 ? impulseSampleRate : hostRate;
+        // The leading silence comes off at the host's rate, after any resampling, so two slots at
+        // different rates lose exactly the same time. Quality's length is counted after it.
+        const size_t trim = ir_leading_silence::TrimSamples(settings.leadingSilenceSeconds, hostRate);
+        const auto trimAtSourceRate = static_cast<size_t>(static_cast<double>(trim) * sourceRate / hostRate);
+
         if (isStereo && !impulseR.empty())
         {
-            const double sourceRate = impulseSampleRate > 0.0 ? impulseSampleRate : hostRate;
-            std::vector<float> processedL = GetProcessedImpulse(impulseL, sourceRate, settings.quality, hostRate);
-            std::vector<float> processedR = GetProcessedImpulse(impulseR, sourceRate, settings.quality, hostRate);
+            std::vector<float> processedL =
+                GetProcessedImpulse(impulseL, sourceRate, settings.quality, hostRate, trimAtSourceRate);
+            std::vector<float> processedR =
+                GetProcessedImpulse(impulseR, sourceRate, settings.quality, hostRate, trimAtSourceRate);
 
             if (processedL.empty() || processedR.empty())
             {
@@ -1383,6 +1446,9 @@ class IRCabEffect : public EffectProcessor
                 ResampleImpulseForConvolution(processedL, sourceRate, hostRate);
                 ResampleImpulseForConvolution(processedR, sourceRate, hostRate);
             }
+
+            ir_leading_silence::TrimFront(processedL, trim);
+            ir_leading_silence::TrimFront(processedR, trim);
 
             if (settings.normalize)
             {
@@ -1415,8 +1481,8 @@ class IRCabEffect : public EffectProcessor
             return true;
         }
 
-        const double sourceRate = impulseSampleRate > 0.0 ? impulseSampleRate : hostRate;
-        std::vector<float> processedIR = GetProcessedImpulse(impulseL, sourceRate, settings.quality, hostRate);
+        std::vector<float> processedIR =
+            GetProcessedImpulse(impulseL, sourceRate, settings.quality, hostRate, trimAtSourceRate);
 
         if (processedIR.empty())
         {
@@ -1429,6 +1495,8 @@ class IRCabEffect : public EffectProcessor
             // preserve coefficient area rather than audio-waveform peak level.
             ResampleImpulseForConvolution(processedIR, sourceRate, hostRate);
         }
+
+        ir_leading_silence::TrimFront(processedIR, trim);
 
         if (settings.normalize)
         {
@@ -1595,10 +1663,10 @@ class IRCabEffect : public EffectProcessor
         }
     }
 
-    /// Normalize and Low Latency are baked into the convolvers when they are built. With nothing
-    /// built yet (a preset sets its params before its IRs load) the first build picks the value up.
-    /// Otherwise the rebuild is left to the message thread (DeferredRebuild): SetParam can run on
-    /// the audio thread, and the rebuild allocates.
+    /// Normalize, Low Latency and Trim Leading Silence are baked into the convolvers when they are
+    /// built. With nothing built yet (a preset sets its params before its IRs load) the first build
+    /// picks the value up. Otherwise the rebuild is left to the message thread (DeferredRebuild):
+    /// SetParam can run on the audio thread, and the rebuild allocates.
     void RequestRebuildSetting(std::atomic<int>& pending, bool& setting, bool requested)
     {
         if (!HasResource())
@@ -1623,16 +1691,18 @@ class IRCabEffect : public EffectProcessor
         return value >= 0 ? value != 0 : setting;
     }
 
-    /// Every build of the live convolvers starts here: a Normalize or Low Latency change still
-    /// waiting for the message thread is folded into the build, and any rebuild already taken for
-    /// it is dropped when it comes back.
+    /// Every build of the live convolvers starts here: a Normalize, Low Latency or Trim Leading
+    /// Silence change still waiting for the message thread is folded into the build, and any
+    /// rebuild already taken for it is dropped when it comes back.
     void ApplyPendingRebuildSettings()
     {
         ++mBuildGeneration;
         mNormalizeIR = EffectiveSetting(mPendingNormalizeIR, mNormalizeIR);
         mLowLatency = EffectiveSetting(mPendingLowLatency, mLowLatency);
+        mTrimLeadingSilence = EffectiveSetting(mPendingTrimLeadingSilence, mTrimLeadingSilence);
         mPendingNormalizeIR.store(-1, std::memory_order_release);
         mPendingLowLatency.store(-1, std::memory_order_release);
+        mPendingTrimLeadingSilence.store(-1, std::memory_order_release);
     }
 
     /// A pending value the commit just built is no longer pending; a different one still is.
@@ -1659,13 +1729,16 @@ class IRCabEffect : public EffectProcessor
         double sampleRate = 48000.0;
     };
 
-    /// The convolver rebuild a Normalize or Low Latency change needs, built by the message thread
-    /// off the DSP lock from copies of the impulses and settings.
+    /// The convolver rebuild a Normalize, Low Latency or Trim Leading Silence change needs, built by
+    /// the message thread off the DSP lock from copies of the impulses and settings.
     class ConvolverRebuild final : public DeferredRebuild
     {
       public:
         void Build() override
         {
+            settings.leadingSilenceSeconds = SharedLeadingSilence(settings, slotA.left, slotA.right, slotA.sampleRate,
+                                                                  slotB.left, slotB.right, slotB.sampleRate);
+
             // Same slots as the rebuild SetParam used to do: A always, B only when it has an IR.
             if (!slotA.left.empty())
             {
@@ -1956,10 +2029,13 @@ class IRCabEffect : public EffectProcessor
     bool mNormalizeIR = true;
     bool mAutoGainCompEnabled = true;
     bool mLowLatency = true; // non-uniform (low-latency) convolution mode
-    // Normalize and Low Latency as SetParam last asked for them, while the convolvers are still
-    // built the other way (-1 when they match). See RequestRebuildSetting.
+    // Off by default, so a preset from before it existed keeps its timing. See IrLeadingSilence.h.
+    bool mTrimLeadingSilence = false;
+    // Normalize, Low Latency and Trim Leading Silence as SetParam last asked for them, while the
+    // convolvers are still built the other way (-1 when they match). See RequestRebuildSetting.
     std::atomic<int> mPendingNormalizeIR{-1};
     std::atomic<int> mPendingLowLatency{-1};
+    std::atomic<int> mPendingTrimLeadingSilence{-1};
     // Counts builds of the live convolvers, so a deferred rebuild taken before one is dropped.
     std::uint64_t mBuildGeneration = 0;
     // Until the first Prepare() a build would be at the default rate and block size, and
@@ -2073,6 +2149,7 @@ inline void RegisterIRCabEffect()
                        {"slotBOffset", "IR B Offset", 0.0, -IrSlotAlignment::kMaxOffsetMs,
                         IrSlotAlignment::kMaxOffsetMs, "ms", "Alignment", true},
                        {"lowLatency", "Low Latency", 1.0, 0.0, 1.0, "toggle", "Tone", true},
+                       {"trimLeadingSilence", "Trim Leading Silence", 0.0, 0.0, 1.0, "toggle", "Tone", true},
                        {"quality",
                         "Quality",
                         1.0,
