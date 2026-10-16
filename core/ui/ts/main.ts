@@ -1,5 +1,6 @@
 import { initializeControls, initializeAmpCabPowerControls, refreshEqModalVisualization } from "./controls.js";
 import { initializeInputModeControls } from "./inputMode.js";
+import { initializeOutputStatusReadout } from "./outputStatus.js";
 import {
   initializePresetControls,
   initializePresets,
@@ -226,6 +227,7 @@ async function bootstrap(): Promise<void> {
   activateTab("details");
   initializeControls();
   initializeInputModeControls();
+  initializeOutputStatusReadout();
   initializeAmpCabPowerControls();
   initializePresetControls();
   initializeDialogModals();

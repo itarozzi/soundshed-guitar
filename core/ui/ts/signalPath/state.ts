@@ -61,19 +61,10 @@ export function setLastSelectedNode(type: string | null, category: string | null
 
 // ── Per-node caches ────────────────────────────────────────────────────────
 
-/** Rolling averages behind the DSP status readout, keyed by metric name. */
-export const selectedNodeDspStatusAverages = new Map<string, number>();
-
 /** Spectrogram scrollback for the input analyzer, keyed by node id. */
 export const analyzerSpectrogramHistoryByNode = new Map<string, number[][]>();
 
 export const ANALYZER_SPECTROGRAM_HISTORY_FRAMES = 160;
-
-/** Smoothing factor for the DSP status averages; lower is slower. */
-export const DSP_STATUS_AVERAGE_SMOOTHING = 0.01;
-
-/** How often the smoothed DSP averages are redrawn, in milliseconds. */
-export const DSP_STATUS_AVERAGE_RENDER_INTERVAL_MS = 500;
 
 let selectedNodeDspStatusNodeId: string | null = null;
 

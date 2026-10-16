@@ -29,6 +29,33 @@ export function recordDspLoadSample(loadPercent: number): void {
   }
 }
 
+/** How far back the output readout's load peak looks. */
+export const DSP_PEAK_WINDOW_MS = 10_000;
+
+/** Each frame's `peakDspLoadPercent` (the worst block since the frame before) and when it came. */
+const peakSamples: { at: number; percent: number }[] = [];
+
+/** Keeps one frame's peak, dropping those older than the window. */
+export function recordDspPeakSample(percent: number | undefined, now = performance.now()): void {
+  if (typeof percent === "number" && Number.isFinite(percent)) {
+    peakSamples.push({ at: now, percent });
+  }
+  while (peakSamples.length && now - peakSamples[0].at > DSP_PEAK_WINDOW_MS) {
+    peakSamples.shift();
+  }
+}
+
+/** The worst block in the last DSP_PEAK_WINDOW_MS, or null before any frame carried one. */
+export function recentPeakDspLoadPercent(now = performance.now()): number | null {
+  let peak: number | null = null;
+  for (const sample of peakSamples) {
+    if (now - sample.at <= DSP_PEAK_WINDOW_MS && (peak === null || sample.percent > peak)) {
+      peak = sample.percent;
+    }
+  }
+  return peak;
+}
+
 /** The key a node's entries live under in both `dspPerformance` node maps. Private: the
  *  two lookups below are the whole of what callers need. */
 function nodeDspPerformanceKey(node: SignalLevelNodeMetrics): string {

@@ -7,9 +7,10 @@
  */
 
 import { requestSignalDiagnosticsRoster } from "../bridge.js";
-import { recordDspLoadSample } from "../dspPerformance.js";
+import { recordDspLoadSample, recordDspPeakSample } from "../dspPerformance.js";
 import { applyEqSpectrumFrame } from "../eqSpectrum.js";
 import { applyNodeLoudnessFrame } from "../nodeLoudness.js";
+import { updateOutputStatusReadout } from "../outputStatus.js";
 import { refreshSavePresetModalPeakInfoIfOpen } from "../presets.js";
 import { handleUserInputCalibrationDiagnosticsUpdate } from "../settings.js";
 import { updateSelectedNodeAnalyzerPanel, updateSelectedNodeDspStatus, updateSelectedNodePeakMeter } from "../signalPath.js";
@@ -191,6 +192,7 @@ export function flushTelemetryUiUpdates(): void {
   if (telemetryUiPendingDsp) {
     updateDSPPerformancePlot();
     updateSelectedNodeDspStatus();
+    updateOutputStatusReadout();
     telemetryUiPendingDsp = false;
   }
 
@@ -199,6 +201,7 @@ export function flushTelemetryUiUpdates(): void {
     handleUserInputCalibrationDiagnosticsUpdate();
     updateSelectedNodePeakMeter();
     updateSelectedNodeDspStatus();
+    updateOutputStatusReadout();
     updateSelectedNodeAnalyzerPanel();
     refreshSavePresetModalPeakInfoIfOpen();
     telemetryUiPendingSignalDiagnostics = false;
@@ -253,6 +256,7 @@ export function onDspPerformance(payload: IncomingPayload): void {
     };
     uiState.dspPerformance = mergedStats;
     recordDspLoadSample(mergedStats.dspLoadPercent);
+    recordDspPeakSample(mergedStats.peakDspLoadPercent);
     queueTelemetryUiUpdate("dsp");
   }
 }

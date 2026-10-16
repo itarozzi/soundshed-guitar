@@ -423,6 +423,7 @@ export interface DSPPerformanceStats {
   totalProcessingTimeUs: number;
   realTimeUs: number;
   dspLoadPercent: number;
+  peakDspLoadPercent?: number; // the worst block since the previous frame; the fields above are one block each
   nodeProcessingTimesUs: Record<string, number>;
   nodeLatencySamples: Record<string, number>;
   totalLatencySamples?: number;

@@ -3,6 +3,7 @@
  * them, and bind them.
  */
 
+import { EFFECT_DSP_STATUS, renderDspStatusTiles } from "../../dspStatusReadout.js";
 import { EffectGuids } from "../../effectGuids.js";
 import { GRAPHIC_EQ_FREQUENCIES, graphicEqFrequencyBounds } from "../../eqCurve.js";
 import { isNodeBypassed } from "../../graphNodes.js";
@@ -530,14 +531,7 @@ export function showNodeParamsPanel(node: GraphNode, preset: Preset): void {
             </button>
             <div class="effect-dsp-status" aria-label="Live DSP status" ${isDspStatusVisible() ? "" : "hidden"}>
               <button class="effect-dsp-status-close" type="button" aria-label="Close DSP status" title="Close DSP status">×</button>
-              <div><span>Peak avg</span><strong data-dsp-status-average="peak">—</strong></div>
-              <div><span>RMS avg</span><strong data-dsp-status-average="rms">—</strong></div>
-              <div><span>Headroom avg</span><strong data-dsp-status-average="headroom">—</strong></div>
-              <div><span>Processing avg</span><strong data-dsp-status-average="processing">—</strong></div>
-              <div><span>Latency avg</span><strong data-dsp-status-average="latency">—</strong></div>
-              <div title="Momentary loudness of this node's output: the last 400 ms (BS.1770)"><span>Momentary</span><strong data-dsp-loudness="momentary">—</strong></div>
-              <div title="Short-term loudness of this node's output: the last 3 seconds (BS.1770)"><span>Short-term</span><strong data-dsp-loudness="shortTerm">—</strong></div>
-              <div data-dsp-loudness-integrated title="Integrated loudness since this readout opened"><span>Integrated</span><strong data-dsp-loudness="integrated">—</strong></div>
+              <div class="dsp-status-tiles">${renderDspStatusTiles(EFFECT_DSP_STATUS)}</div>
             </div>
           </div>
           <div class="default-effect-shell-meta" aria-label="Module status">

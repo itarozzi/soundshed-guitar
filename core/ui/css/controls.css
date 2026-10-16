@@ -732,7 +732,7 @@ input[type="range"]:focus-visible {
   gap: 2px;
 }
 
-.input-vu-meter-dropdown-trigger {
+.input-vu-meter-dropdown-trigger, .output-status-trigger {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -747,24 +747,24 @@ input[type="range"]:focus-visible {
   transition: background 120ms ease, border-color 120ms ease, color 120ms ease, transform 120ms ease;
 }
 
-.input-vu-meter-dropdown-trigger:hover {
+.input-vu-meter-dropdown-trigger:hover, .output-status-trigger:hover {
   background: var(--overlay-light);
   border-color: var(--accent-primary);
   color: var(--text-primary);
 }
 
-.input-vu-meter-dropdown-trigger:focus-visible {
+.input-vu-meter-dropdown-trigger:focus-visible, .output-status-trigger:focus-visible {
   outline: 2px solid var(--accent-primary, #50b878);
   outline-offset: 2px;
 }
 
-.input-vu-meter-dropdown-trigger svg {
+.input-vu-meter-dropdown-trigger svg, .output-status-trigger svg {
   width: 11px;
   height: 11px;
   transition: transform 140ms ease;
 }
 
-.input-vu-meter-dropdown-trigger[aria-expanded="true"] svg {
+.input-vu-meter-dropdown-trigger[aria-expanded="true"] svg, .output-status-trigger[aria-expanded="true"] svg {
   transform: rotate(180deg);
 }
 

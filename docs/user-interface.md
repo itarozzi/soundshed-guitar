@@ -99,11 +99,11 @@ The UI is a web-based single-page application (SPA) hosted in a native WebView. 
 | `irAlignment` | `{requestId, sampleRate, waveformA, waveformB, normalizeGainA, normalizeGainB, alignedOffsetMs, invertB, match, onsetAMs, onsetBMs, maxOffsetSamples, matchByOffset}` or `{requestId, error}` | Reply to `analyzeIrAlignment`, all at `sampleRate` (48 kHz). `waveformA`/`waveformB`: the first 60 ms of each IR, mono, base64 little-endian float32; `normalizeGain*` is what the cab's Normalize multiplies each by. `alignedOffsetMs` is the `slotBOffset` that lines B up with A, and `invertB` whether it lines up inverted; `match` (0..1) is how alike they are there. `matchByOffset` is the signed match with B moved by each whole sample from `-maxOffsetSamples` to `+maxOffsetSamples` (10 ms). Asked about one IR, only `sampleRate` and that slot's `waveform*` and `normalizeGain*` come back. `error` instead when a file is missing, unreadable or silent. |
 | `presetLevelMeasured` | `{requestId, presetId, sceneId, clipId, integratedLufs, peakDbfs, rmsDbfs, durationSeconds, sampleRate, latencySamples, slotGainDb, tailSeconds}` | Reply to `measurePresetLevel`. `integratedLufs` is BS.1770-4 integrated loudness (gated, as the content pipeline's `loudness.mjs` measures) and `rmsDbfs` the unweighted RMS, both over the clip's `durationSeconds` once the graph's `latencySamples` are allowed for; `peakDbfs` is the sample peak over the whole render, including the `tailSeconds` rendered past the clip for delays and reverbs to ring out. `slotGainDb` is the mix's gain on a lone centred rig, already in all three. A level is `null` when the output is silent or too short or quiet to gate. |
 | `presetLevelMeasureFailed` | `{requestId, message, presetId?, missingResources?}` | `measurePresetLevel` measured nothing: an unknown preset, scene or clip, a preset with third-party plugins, an invalid graph, non-finite output, or too many requests waiting. `missingResources` (`[{nodeId, nodeType, resourceType, resourceId, name, filePath}]`) lists the models and IRs an enabled node names that have no file, which would make the level meaningless. |
-| `dspPerformance` | `{stats: {totalProcessingTimeUs, realTimeUs, dspLoadPercent, totalLatencySamples, nodeProcessingTimesUs, nodeLatencySamples}, sampleRate, blockSize}` | DSP timing at 5 Hz, for the performance panel and the per-node readouts. Both node maps are keyed `<scope>::<nodeId>` — `pre::`, `post::`, or the preset id — since a bare node id only identifies a node within one executor. A node missing from `nodeProcessingTimesUs` did not run last block; the UI blanks it rather than showing a zero. |
+| `dspPerformance` | `{stats: {totalProcessingTimeUs, realTimeUs, dspLoadPercent, peakDspLoadPercent, totalLatencySamples, nodeProcessingTimesUs, nodeLatencySamples}, sampleRate, blockSize}` | DSP timing at 5 Hz, for the performance panel and the per-node readouts. The totals are the last block's; `peakDspLoadPercent` is the heaviest single block since the previous frame (`MultiPresetMixer::TakePeakDspLoadPercent`), which the output meter's readout keeps for 10 s as its load peak. Both node maps are keyed `<scope>::<nodeId>` — `pre::`, `post::`, or the preset id — since a bare node id only identifies a node within one executor. A node missing from `nodeProcessingTimesUs` did not run last block; the UI blanks it rather than showing a zero. |
 | `sldRoster` | `{seq, nodes: [[scope, presetId, nodeId, nodeType, hasAnalyzer]], spectrogramRange, barkRange}` | Signal diagnostics roster: everything about the node set that does not change frame to frame. Sent only when the node set changes, and after `getSignalDiagnostics`. |
 | `sld` | `{seq, r, i, o, d}` | Signal level frame at 20 Hz. `r`/`i`/`o` are raw input, processed input and output; `d` holds one tuple per roster node, flattened in roster order. Every tuple is `[peakDbfs, rmsDbfs, clipCount, clipped, channelCount]`, the levels rounded to 0.1 dB; `headroomDb` is derived UI-side. `channelCount` (0 = the node did not run this block, 1 mono, 2 stereo) rides here rather than in the roster: it tracks the signal, so keeping it in the roster re-sent that whole message several times a second. Frames whose `seq` does not match the held roster are dropped. |
 | `sldA` | `{seq, id, t, l, s, b}` | Analyzer telemetry for one node — levels `l`, spectrogram bins `s` and bark bands `b` in whole dBFS. Sent separately from `sld` because it is an order of magnitude larger than a level tuple. |
-| `sldL` | `{scope, presetId?, id, l}` | Loudness of one node's output, for its DSP status readout, 10 Hz while a `setLoudnessWatch` is held and the UI is visible. `l = [momentaryLufs, shortTermLufs, integratedLufs, integratedSeconds]`: BS.1770 / EBU R128 momentary (400 ms) and short-term (3 s) loudness and integrated loudness gated over everything since the watch began, to 0.1 LU, each `null` until its window has filled, for silence, or (integrated) until a block passes the gates; `integratedSeconds` is how long that has been. The audio thread only copies the watched node's samples aside (`core/src/dsp/LoudnessTap.h`); the measuring runs on the message thread. |
+| `sldL` | `{scope, presetId?, id, l}` or `{slot: 1, scope: "output", l}` | Loudness of one node's output, for its DSP status readout, or with `slot: 1` of the app's output after the master volume, for the output meter's readout; each 10 Hz while its `setLoudnessWatch` is held and the UI is visible. `l = [momentaryLufs, shortTermLufs, integratedLufs, integratedSeconds]`: BS.1770 / EBU R128 momentary (400 ms) and short-term (3 s) loudness and integrated loudness gated over everything since the watch began, to 0.1 LU, each `null` until its window has filled, for silence, or (integrated) until a block passes the gates; `integratedSeconds` is how long that has been. The audio thread only copies the watched node's samples aside (`core/src/dsp/LoudnessTap.h`); the measuring runs on the message thread. |
 | `sldS` | `{scope, presetId?, id, r, s}` | Spectrum of one node's input, for the EQ curve backdrop, ~30 Hz while a `setSpectrumWatch` is held and the UI is visible. `s` is 128 whole-dB bins log-spaced across `r = [minHz, maxHz, floorDb, ceilingDb]` (20 Hz-20 kHz, -96-0 dB), both ends included, tilted +3 dB/octave about 1 kHz so pink noise reads flat. Nothing is sent for a node that is not there; the UI clears a spectrum that stops arriving. |
 | `spatialPosition` | `{nodes: [{scope, presetId?, nodeId, azimuth, elevation, distance, itdUs, ildDb, rateHz, moving}]}` | Live source position for every 3D Spatial node, ~20 Hz. Purely cosmetic: it keeps the spatial panner's puck in sync with what is being heard, and the widget falls back to the anchor position if it never arrives. Only sent while at least one such node exists. |
 | `riffLibraryState` | `{library: {path, riffs}, capture}` | Reply to `getRiffLibrary`: the riff library as it is on disk. The UI applies `library`; capture state reaches it through the live capture messages |
@@ -184,7 +184,7 @@ The UI is a web-based single-page application (SPA) hosted in a native WebView. 
 | `previewDemoAudio` | `{clipId, repeat?}` or `{audio, region?}` | Play audio into the input as a demo. By `clipId` the engine reads the clip from `ui/demo/clips.json` itself (the ids the full `state` lists as `demoClips`; an unknown one is refused with an `error`), and with `repeat` it loops the whole clip in place until stopped, so no `previewComplete` comes between passes. `audio` is the older form: the file's bytes as base64 `{id, title, data, contentType}` |
 | `renderDemoAudio` | `{clipId? , takeId?, audio?, title?, suggestedName?, renderSampleRate?}` | Render a demo clip (`clipId`, read by the engine), a riff take (`takeId`) or sent audio (`audio`, the older form) to a WAV file using the current preset. `renderSampleRate` accepts `44100`, `48000`, `88200`, `96000`, `176400`, or `192000`; omit or pass `0` for the current device rate. The save-dialog filename appends the resolved rounded kHz rate before `.wav`. |
 | `stopDemoAudio` | `{}` | Stop demo audio playback |
-| `setLoudnessWatch` | `{scope, nodeId, presetId?}` or `{}` | Start, move or renew the loudness tap on one node's output, addressed as for `setSpectrumWatch`, with the same 5 s lease renewed every 2 s while a DSP status readout is open; `{}` stops it. Moving it to another node restarts the measurement, integrated value included; renewing it does not. See `core/ui/ts/nodeLoudness.ts`. |
+| `setLoudnessWatch` | `{scope, nodeId, presetId?}` or `{}`; `{slot: 1, scope: "output"}` or `{slot: 1}` | Start, move or renew the loudness tap on one node's output, addressed as for `setSpectrumWatch`, with the same 5 s lease renewed every 2 s while a DSP status readout shows a loudness figure; `{}` stops it. Moving it to another node restarts the measurement, integrated value included; renewing it does not. `slot: 1` is a second, independent watch on the app's output (`MultiPresetMixer::ReadOutputLoudness`), held by the output meter's readout; `{slot: 1}` stops it. See `core/ui/ts/nodeLoudness.ts`. |
 | `setSpectrumWatch` | `{scope, nodeId, presetId?}` or `{}` | Start, move or renew the spectrum tap on one node's input (`scope` is `pre`, `post` or `preset`; a preset node without `presetId` is looked up in the active preset). The watch lapses 5 s after the last renewal, so the UI re-sends it every 2 s while an EQ curve is on screen; `{}` stops it. See `core/ui/ts/eqSpectrum.ts`. |
 | `getEffectResponse` | `{requestId, effectType, params, points?}` | Ask for an effect's response curve with these parameters (`points` 2-1024, default 160); answered by `effectResponse`. Built from a fresh instance at 48 kHz rather than the running node, so it needs no DSP lock and works for a node in no running graph. See `core/ui/ts/effectResponse.ts`. |
 | `exportEffectAsIr` | `{requestId, effectType, params, name?}` | Render the effect with these parameters as a 48 kHz 16-bit IR (mono unless its two sides differ) into the IR library. Answered by `resourceImported` or `resourceImportFailed` carrying the `requestId`. A name the library already has gets a number added, so an earlier export is never overwritten. |
@@ -560,22 +560,40 @@ axis as its handles (`eqCurveFreqToX` is the one mapping for both).
   from the Signal Analyzer's spectrogram, which resolves no finer than the block
   size. A node inside a composite being edited has no spectrum.
 
-### Loudness in the DSP status readout (`core/ui/ts/nodeLoudness.ts`)
+### DSP status readouts (`core/ui/ts/dspStatusReadout.ts`, `outputStatus.ts`, `nodeLoudness.ts`)
 
-A node's DSP status readout (the meter button on its panel) shows momentary
-(400 ms), short-term (3 s) and integrated loudness of the node's output, in LUFS,
-next to its peak, RMS, processing time and latency.
+Two readouts show live DSP figures as a row of tiles: an effect's (the meter
+button on its panel) and the app output's (the chevron under the output meter,
+below the mute button, a flyout hung from the body like the input mode one).
 
-- **Free unless open.** The watch is held only while a readout is open, and
-  follows the selected node; `updateSelectedNodeDspStatus` re-points it on every
-  refresh, which costs nothing when nothing changed. With no readout open the
-  audio thread pays one pointer load per node; with one open, two copies of one
-  node's block, made after that node's timing so its reported time is unaffected.
+- **The user picks the tiles.** Each tile has a × that removes it; the + after
+  them opens a menu of the figures not shown, grouped Levels, Loudness and DSP.
+  The choice is an app setting per readout (`ui.dspStatus.items`,
+  `ui.outputStatus.items`), so it lasts and follows the user into every
+  instance. An effect's readout starts with Peak, RMS, Processing and Latency;
+  the output's with DSP load, Load peak, Latency, Peak and RMS.
+- **What the output's figures are.** Peak, RMS, headroom and loudness are of the
+  app's output after the master volume, measured where the output meter measures
+  it. Processing and Latency are the whole chain's. DSP load is the chain's
+  processing time as a share of real time, averaged; Load peak is the heaviest
+  single block in the last 10 s (`peakDspLoadPercent`), which the averaged and
+  sampled figures miss.
+- **Free unless shown.** Loudness is measured only while a readout is open and
+  shows a loudness tile; an effect's watch follows the selected node, and
+  `updateSelectedNodeDspStatus` re-points it on every refresh, which costs nothing
+  when nothing changed. With no watch the audio thread pays one pointer load per
+  node; with one, two copies of one block, made after that node's timing so its
+  reported time is unaffected. The load peak is the per-block chain times the
+  executors already measure, summed in the mixer.
+- **Redraws wait for the click.** Removing or adding a tile redraws the row on the
+  next frame, and the + menu closes before it applies a choice, so the compact
+  Controls sheet's outside-click check never walks up from a detached node.
 - **Where it comes from.** `LoudnessTap` (`core/src/dsp/LoudnessTap.h`) copies the
   node's output into a ring on the audio thread. `StreamingLoudnessMeter`
   (`core/src/dsp/Loudness.h`) does the K-weighting, the 100 ms granules and the
   gating on the message thread when `TelemetryPublisher` reads it at 10 Hz.
   Its integrated value agrees with the offline meter `measurePresetLevel` uses.
+  The output's loudness comes from a tap of the same kind on the mixer's output.
 - **What the numbers mean.** Each is a dash until its window has filled, or for
   silence. Integrated runs from when the readout opened on that node: moving to
   another node, or closing and reopening it, starts it again, and so does a preset

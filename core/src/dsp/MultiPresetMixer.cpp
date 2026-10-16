@@ -1219,6 +1219,10 @@ void MultiPresetMixer::ProcessStereoBlock(float** inputs, float** outputs, int n
     float* preChainOutputs[2] = {mPreChainOutL.data(), mPreChainOutR.data()};
     mGlobalChain.Pre().Process(preChainInputs, preChainOutputs, numSamples);
 
+    // This block's DSP time, every chain that ran summed as GetPerformanceStats() sums them, for
+    // the peak load. Each executor has just timed itself; adding the numbers up costs nothing.
+    double blockDspUs = mGlobalChain.Pre().LastBlockProcessingTimeUs();
+
     // ==========================================================================
     // PRESET PROCESSING: Process each active preset and mix
     // ==========================================================================
@@ -1273,7 +1277,9 @@ void MultiPresetMixer::ProcessStereoBlock(float** inputs, float** outputs, int n
 
     // Mix one processed instance into the accumulator, applying its mixer gain, pan and
     // (when it is mid-swap) a linear fade ramp across the block.
+    // Every instance that ran this block is mixed exactly once, on this thread, whichever path ran it.
     const auto mixInstance = [&](PresetInstance& inst) {
+        blockDspUs += inst.executor.LastBlockProcessingTimeUs();
         float gL = 1.0f, gR = 1.0f;
         ComputePanGains(inst.cfg.pan, gL, gR);
         const float baseL = static_cast<float>(inst.cfg.mix) * gL;
@@ -1461,6 +1467,7 @@ void MultiPresetMixer::ProcessStereoBlock(float** inputs, float** outputs, int n
     // ==========================================================================
     float* postChainOutputs[2] = {mPostChainOutL.data(), mPostChainOutR.data()};
     mGlobalChain.Post().Process(outputs, postChainOutputs, numSamples);
+    blockDspUs += mGlobalChain.Post().LastBlockProcessingTimeUs();
 
     // Copy post-chain output back to main outputs
     if (outputs[0])
@@ -1509,6 +1516,26 @@ void MultiPresetMixer::ProcessStereoBlock(float** inputs, float** outputs, int n
     {
         mTelemetry.Record(MixerTelemetry::Stage::Output, outputs ? outputs[0] : nullptr,
                           outputs ? outputs[1] : nullptr, numSamples);
+
+        // Kept when it beats the span's peak so far. A take between the load and the store can
+        // only move this one block into the next span.
+        const double realTimeUs = (static_cast<double>(numSamples) / mSampleRate) * 1e6;
+
+        if (realTimeUs > 0.0)
+        {
+            const double loadPercent = (blockDspUs / realTimeUs) * 100.0;
+
+            if (loadPercent > mPeakDspLoadPercent.load(std::memory_order_relaxed))
+            {
+                mPeakDspLoadPercent.store(loadPercent, std::memory_order_relaxed);
+            }
+        }
+    }
+
+    // The output readout's loudness is measured where the output meter is.
+    if (auto* tap = mActiveOutputLoudnessTap.load(std::memory_order_acquire); tap && outputs && outputs[0])
+    {
+        tap->Push(outputs[0], outputs[1], numSamples);
     }
 
     // Optional simple limiter (clip)
@@ -1655,6 +1682,30 @@ void MultiPresetMixer::ClearLoudnessTaps()
     {
         inst->executor.ClearLoudnessWatch();
     }
+}
+
+bool MultiPresetMixer::ReadOutputLoudness(LoudnessTap::Reading& out)
+{
+    if (mActiveOutputLoudnessTap.load(std::memory_order_acquire) == nullptr)
+    {
+        if (!mOutputLoudnessTap)
+        {
+            mOutputLoudnessTap = std::make_unique<LoudnessTap>();
+        }
+
+        // Restarted before the audio thread can push to it, so nothing from an earlier watch
+        // is measured again.
+        mOutputLoudnessTap->Restart();
+        mActiveOutputLoudnessTap.store(mOutputLoudnessTap.get(), std::memory_order_release);
+    }
+
+    out = mOutputLoudnessTap->Analyze(mSampleRate);
+    return true;
+}
+
+void MultiPresetMixer::ClearOutputLoudnessTap()
+{
+    mActiveOutputLoudnessTap.store(nullptr, std::memory_order_release);
 }
 
 std::vector<std::string> MultiPresetMixer::GetActivePresetIds() const

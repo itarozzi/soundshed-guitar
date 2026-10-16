@@ -71,6 +71,22 @@
                   <path class="output-quick-mute-slash" d="M5 5l14 14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
                 </svg>
               </button>
+              <!-- The output's DSP status readout (ts/outputStatus.ts), as the input meter has its calibration menu. -->
+              <button
+                id="output-status-trigger"
+                class="output-status-trigger"
+                type="button"
+                aria-label="Output DSP status"
+                aria-haspopup="dialog"
+                aria-expanded="false"
+                aria-controls="output-status-flyout"
+                title="Output DSP status"
+              >
+                <svg viewBox="0 0 16 16" aria-hidden="true">
+                  <path d="M3.5 5.75 8 10.25l4.5-4.5" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+              </button>
+              <div id="output-status-flyout" class="output-status-flyout" role="dialog" aria-label="Output DSP status" data-control-bar-popover hidden></div>
             </div>
           </div>
         </div>

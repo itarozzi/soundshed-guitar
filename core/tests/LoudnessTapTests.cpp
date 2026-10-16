@@ -12,6 +12,8 @@
  *    it counts the time as silence.
  *  - The executor taps the watched node's output, after it has run, and the tap adds no allocation
  *    to the audio path.
+ *  - The mixer measures the app's output where the output meter does, after the master volume,
+ *    and keeps the worst block's DSP load for the performance feed.
  */
 
 #include "dsp/LoudnessTap.h"
@@ -675,6 +677,95 @@ bool TestMixerFindsTheNodeByScope()
                  Lufs(reading.momentaryLufs));
     return ok;
 }
+
+/// A mixer with the -6 dB gain preset, and a sine to run through it.
+struct MixerRun
+{
+    MultiPresetMixer mixer;
+    ExecutorRun run;
+
+    MixerRun()
+    {
+        mixer.Prepare(kSampleRate, ExecutorRun::kBlock);
+        Preset preset;
+        preset.id = "presetA";
+        preset.name = "presetA";
+        preset.graph = MakeGainGraph();
+        mixer.AddActivePreset(preset, "presetA", "presetA");
+    }
+
+    void Process(double seconds)
+    {
+        float* inputs[2] = {run.inL.data(), run.inR.data()};
+        float* outputs[2] = {run.outL.data(), run.outR.data()};
+
+        for (int i = 0; i < static_cast<int>(seconds * kSampleRate / ExecutorRun::kBlock); ++i)
+        {
+            run.sine.Fill(run.inL.data(), run.inL.size());
+            mixer.Process(inputs, outputs, ExecutorRun::kBlock);
+        }
+    }
+};
+
+bool TestMixerMeasuresItsOutput()
+{
+    std::cout << "\nThe mixer measures the app's output\n";
+    bool ok = true;
+
+    MixerRun m;
+    LoudnessTap::Reading reading;
+    ok &=
+        Report("The first read taps the output", m.mixer.ReadOutputLoudness(reading) && reading.measuredSeconds == 0.0);
+
+    m.Process(1.0);
+    m.mixer.ReadOutputLoudness(reading);
+    ok &= Report("A second of audio is measured", std::abs(reading.measuredSeconds - 1.0) < 0.01,
+                 std::to_string(reading.measuredSeconds) + " s");
+    ok &= Report("The output reads the tone",
+                 reading.momentaryLufs.has_value() && *reading.momentaryLufs < -15.0 && *reading.momentaryLufs > -40.0,
+                 Lufs(reading.momentaryLufs));
+
+    // Measured after the master volume, as the output meter is: a muted output is silent.
+    m.mixer.SetOutputMuted(true);
+    m.Process(0.5);
+    m.mixer.ReadOutputLoudness(reading);
+    ok &= Report("A muted output reads as silence", !reading.momentaryLufs.has_value(), Lufs(reading.momentaryLufs));
+    m.mixer.SetOutputMuted(false);
+
+    // Let go and taken again, it starts over.
+    m.mixer.ClearOutputLoudnessTap();
+    m.Process(0.5);
+    m.mixer.ReadOutputLoudness(reading);
+    ok &= Report("Unwatched audio is not measured", reading.measuredSeconds == 0.0,
+                 std::to_string(reading.measuredSeconds) + " s");
+    m.Process(0.5);
+    m.mixer.ReadOutputLoudness(reading);
+    ok &= Report("A new watch measures from its start", std::abs(reading.measuredSeconds - 0.5) < 0.01,
+                 std::to_string(reading.measuredSeconds) + " s");
+    return ok;
+}
+
+bool TestMixerKeepsThePeakLoad()
+{
+    std::cout << "\nThe mixer keeps the worst block's DSP load\n";
+    bool ok = true;
+
+    MixerRun m;
+    m.mixer.SetSignalDiagnosticsEnabled(false);
+    m.Process(0.2);
+    ok &= Report("Nothing is kept with diagnostics off", m.mixer.TakePeakDspLoadPercent() == 0.0);
+
+    m.mixer.SetSignalDiagnosticsEnabled(true);
+    m.Process(0.2);
+    const auto stats = m.mixer.GetPerformanceStats();
+    const double peak = m.mixer.TakePeakDspLoadPercent();
+    std::ostringstream detail;
+    detail << std::fixed << std::setprecision(2) << "peak " << peak << "%, last block " << stats.dspLoadPercent << "%";
+    ok &= Report("A peak is kept", peak > 0.0, detail.str());
+    ok &= Report("It is no lower than the last block's load", peak + 1e-9 >= stats.dspLoadPercent, detail.str());
+    ok &= Report("Taking it starts a new span", m.mixer.TakePeakDspLoadPercent() == 0.0);
+    return ok;
+}
 } // namespace
 
 int main()
@@ -686,7 +777,8 @@ int main()
     for (const auto& test :
          {TestMeterReadsTheReferenceTone, TestMeterWindowsFillBeforeReading, TestMeterIntegratedMatchesTheOfflineMeter,
           TestMeterSilence, TestTapGivesTheMeterWhatWasPushed, TestTapBacklogAndRestart, TestTapCountsAPauseAsSilence,
-          TestExecutorTapsTheNodeOutput, TestTapAddsNothingToTheAudioPath, TestMixerFindsTheNodeByScope})
+          TestExecutorTapsTheNodeOutput, TestTapAddsNothingToTheAudioPath, TestMixerFindsTheNodeByScope,
+          TestMixerMeasuresItsOutput, TestMixerKeepsThePeakLoad})
     {
         if (!test())
         {

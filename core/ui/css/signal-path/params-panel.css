@@ -376,36 +376,8 @@
   display: none;
 }
 
-.effect-dsp-status > div {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-  flex: 0 1 auto;
-  padding: 5px 7px;
-  border: 1px solid rgba(182, 198, 233, 0.2);
-  border-radius: var(--radius-md);
-  background: linear-gradient(160deg, rgba(46, 54, 74, 0.48), rgba(20, 24, 35, 0.58));
-  box-shadow: 0 5px 14px rgba(0, 0, 0, 0.28);
-  backdrop-filter: blur(2px);
-}
-
-.effect-dsp-status span {
-  color: rgba(198, 206, 225, 0.68);
-  font-size: 7px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-
-.effect-dsp-status strong {
-  overflow: hidden;
-  color: #edf4ff;
-  font-size: 10px;
-  font-variant-numeric: tabular-nums;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+/* The tiles themselves, and their × and + (shared with the output meter's readout), are in
+   css/dsp-status.css. */
 
 .effect-dsp-status-close {
   position: absolute;

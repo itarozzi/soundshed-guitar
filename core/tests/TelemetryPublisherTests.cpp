@@ -469,6 +469,88 @@ bool TestLoudnessFeedFollowsTheWatch()
 
     return ok;
 }
+
+/// Frames of one slot: 0 for a node's readout (no slot field), 1 for the app's output.
+std::vector<nlohmann::json> LoudnessFrames(const Fixture& fixture, int slot)
+{
+    std::vector<nlohmann::json> out;
+
+    for (const auto& frame : fixture.OfType("sldL"))
+    {
+        if (frame.value("slot", 0) == slot)
+        {
+            out.push_back(frame);
+        }
+    }
+
+    return out;
+}
+
+/// The output meter's loudness runs beside a node's, and stops on its own.
+bool TestOutputLoudnessFeed()
+{
+    std::cout << "\nOutput loudness feed\n";
+    bool ok = true;
+
+    Fixture fixture;
+    fixture.publisher.WatchOutputLoudness();
+    fixture.publisher.WatchLoudness("preset", "presetA", "gain");
+    RunLoudnessFeed(fixture);
+    RunLoudnessFeed(fixture);
+    RunLoudnessFeed(fixture);
+
+    const auto output = LoudnessFrames(fixture, 1);
+    const auto node = LoudnessFrames(fixture, 0);
+    ok &= Report("The output's loudness is sent", !output.empty(), std::to_string(output.size()) + " frames");
+    ok &= Report("...alongside the node's", !node.empty(), std::to_string(node.size()) + " frames");
+
+    if (!output.empty())
+    {
+        const auto& frame = output.back();
+        ok &= Report("The frame names the output and no node",
+                     frame.value("scope", std::string{}) == "output" && !frame.contains("id"));
+        ok &= Report("Momentary reads the tone",
+                     frame["l"].is_array() && frame["l"].size() == 4 && frame["l"][0].is_number(), frame["l"].dump());
+    }
+
+    fixture.publisher.StopOutputLoudness();
+    const auto outputBefore = LoudnessFrames(fixture, 1).size();
+    const auto nodeBefore = LoudnessFrames(fixture, 0).size();
+    RunLoudnessFeed(fixture);
+    ok &= Report("Stopping the output stops only its frames",
+                 LoudnessFrames(fixture, 1).size() == outputBefore && LoudnessFrames(fixture, 0).size() > nodeBefore);
+    return ok;
+}
+
+/// Every performance frame carries the worst block since the one before.
+bool TestPerformanceFrameCarriesThePeak()
+{
+    std::cout << "\nPeak DSP load\n";
+    bool ok = true;
+
+    Fixture fixture;
+
+    for (int block = 0; block < 20; ++block)
+    {
+        fixture.ProcessBlock(false);
+    }
+
+    fixture.publisher.RequestPerformanceStats();
+    const auto frames = fixture.OfType("dspPerformance");
+    ok &= Report("A performance frame is sent", !frames.empty());
+
+    if (!frames.empty())
+    {
+        const auto& stats = frames.back()["stats"];
+        const double peak = stats.value("peakDspLoadPercent", -1.0);
+        const double last = stats.value("dspLoadPercent", -1.0);
+        ok &= Report("It carries the peak load", peak > 0.0, std::to_string(peak) + "%");
+        ok &= Report("The peak is no lower than the last block", peak + 1e-9 >= last,
+                     std::to_string(peak) + "% vs " + std::to_string(last) + "%");
+    }
+
+    return ok;
+}
 } // namespace
 
 int main()
@@ -479,7 +561,8 @@ int main()
 
     for (const auto& test :
          {TestRosterIsStableWhileChannelCountMoves, TestFrameNodeStrideMatchesRoster,
-          TestRosterIsResentWhenNodeSetChanges, TestSpectrumFeedFollowsTheWatch, TestLoudnessFeedFollowsTheWatch})
+          TestRosterIsResentWhenNodeSetChanges, TestSpectrumFeedFollowsTheWatch, TestLoudnessFeedFollowsTheWatch,
+          TestOutputLoudnessFeed, TestPerformanceFrameCarriesThePeak})
     {
         if (!test())
         {

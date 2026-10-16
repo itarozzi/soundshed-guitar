@@ -1,6 +1,22 @@
 import { uiState } from "../state.js";
 import { nodeDspLatencySamples, nodeDspProcessingTimeUs } from "../dspPerformance.js";
 import { getNodeLoudness, setNodeLoudnessListener, setNodeLoudnessWatch, type NodeLoudnessSource } from "../nodeLoudness.js";
+import {
+  DspStatusAverager,
+  EFFECT_DSP_STATUS,
+  bindDspStatusTiles,
+  closeDspStatusAddMenu,
+  formatDspStatusDb,
+  formatDspStatusHeadroom,
+  formatDspStatusLatency,
+  formatDspStatusLufs,
+  formatDspStatusTime,
+  integratedLoudnessTitle,
+  renderDspStatusTiles,
+  setDspStatusTitle,
+  setDspStatusValues,
+  showsLoudness,
+} from "../dspStatusReadout.js";
 import type {
   InputAnalyzerLevelTelemetry,
   SignalLevelMetrics,
@@ -8,19 +24,14 @@ import type {
 } from "../types.js";
 import {
   ANALYZER_SPECTROGRAM_HISTORY_FRAMES,
-  DSP_STATUS_AVERAGE_RENDER_INTERVAL_MS,
-  DSP_STATUS_AVERAGE_SMOOTHING,
   analyzerSpectrogramHistoryByNode,
   getSelectedNodeId,
   nodeParamsPanelElement,
-  selectedNodeDspStatusAverages,
   signalPathNodesElement,
 } from "./state.js";
 import { updateSignalPathFlow } from "./signalFlow.js";
 
 let selectedNodeDspStatusVisible = false;
-
-let lastDspStatusAverageRenderAt = 0;
 
 export function getSelectedNodeDiagnosticsEntry(): SignalLevelNodeMetrics | null {
   if (!getSelectedNodeId()) {
@@ -100,72 +111,18 @@ export function updateSelectedNodePeakMeter(): void {
   rail.title = `Node peak: ${metrics.peakDbfs.toFixed(1)} dBFS · Headroom: ${metrics.headroomDb.toFixed(1)} dB`;
 }
 
-export function formatDspStatusDb(value: number | null | undefined): string {
-  return Number.isFinite(value) ? `${value!.toFixed(1)} dBFS` : "—";
-}
-
-export function formatDspStatusHeadroom(value: number | null | undefined): string {
-  return Number.isFinite(value) ? `${value!.toFixed(1)} dB` : "—";
-}
-
-export function getSelectedNodeDspStatusTimeUs(
-  node: SignalLevelNodeMetrics | null,
-): number | null {
-  return node ? nodeDspProcessingTimeUs(node) : null;
-}
-
-export function getSelectedNodeDspStatusLatencySamples(
-  node: SignalLevelNodeMetrics | null,
-): number | null {
-  return node ? nodeDspLatencySamples(node) : null;
-}
-
-export function formatDspStatusTime(timeUs: number | null): string {
-  if (timeUs === null) {
-    return "—";
-  }
-
-  const totalTimeUs = uiState.dspPerformance?.totalProcessingTimeUs;
-  const share = typeof totalTimeUs === "number" && totalTimeUs > 0
-    ? ` (${((timeUs / totalTimeUs) * 100).toFixed(1)}%)`
-    : "";
-  return `${timeUs.toFixed(1)} μs${share}`;
-}
-
-export function formatDspStatusLatency(latencySamples: number | null): string {
-  if (latencySamples === null || latencySamples <= 0) {
-    return "—";
-  }
-
-  const sampleRate = uiState.dspPerformance?.sampleRate;
-  const milliseconds = typeof sampleRate === "number" && sampleRate > 0
-    ? ` (${((latencySamples / sampleRate) * 1000).toFixed(2)} ms)`
-    : "";
-  return `${latencySamples} smp${milliseconds}`;
-}
-
-export function addDspStatusSample(name: string, value: number | null): number | null {
-  if (value === null || !Number.isFinite(value)) {
-    return null;
-  }
-
-  const previous = selectedNodeDspStatusAverages.get(name);
-  const average = previous === undefined
-    ? value
-    : previous + DSP_STATUS_AVERAGE_SMOOTHING * (value - previous);
-  selectedNodeDspStatusAverages.set(name, average);
-  return average;
-}
+/** The selected node's readout averages; reset when the selection moves. */
+const effectDspStatusAverages = new DspStatusAverager();
 
 /**
- * The node the open DSP status readout measures the loudness of, or null when no readout is open.
- * Addressed as its diagnostics entry is; before the first entry arrives, the Input and Output nodes
- * are the global chain's ends and anything else is in the active preset. A node inside a composite
- * being edited is in no running graph, so it has none.
+ * The node the open DSP status readout measures the loudness of, or null when no readout is open
+ * or it shows no loudness figure. Addressed as its diagnostics entry is; before the first entry
+ * arrives, the Input and Output nodes are the global chain's ends and anything else is in the
+ * active preset. A node inside a composite being edited is in no running graph, so it has none.
  */
 function dspStatusLoudnessSource(status: HTMLElement | null | undefined): NodeLoudnessSource | null {
   const nodeId = getSelectedNodeId();
-  if (!status || !selectedNodeDspStatusVisible || !nodeId || uiState.compositeEditMode) {
+  if (!status || !selectedNodeDspStatusVisible || !nodeId || uiState.compositeEditMode || !showsLoudness(EFFECT_DSP_STATUS)) {
     return null;
   }
 
@@ -180,11 +137,6 @@ function dspStatusLoudnessSource(status: HTMLElement | null | undefined): NodeLo
   return { scope: "preset", nodeId, ...(presetId ? { presetId } : {}) };
 }
 
-function formatIntegratedDuration(seconds: number): string {
-  const whole = Math.max(0, Math.floor(seconds));
-  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
-}
-
 /** The loudness tiles, from the newest reading. Runs on every "sldL" frame (10 Hz). */
 export function updateSelectedNodeDspLoudness(): void {
   const status = nodeParamsPanelElement?.querySelector<HTMLElement>(".effect-dsp-status");
@@ -193,27 +145,12 @@ export function updateSelectedNodeDspLoudness(): void {
   }
 
   const reading = getNodeLoudness();
-  const values: Record<string, string> = {
-    momentary: formatAnalyzerLufs(reading?.momentaryLufs ?? undefined),
-    shortTerm: formatAnalyzerLufs(reading?.shortTermLufs ?? undefined),
-    integrated: formatAnalyzerLufs(reading?.integratedLufs ?? undefined),
-  };
-  Object.entries(values).forEach(([name, value]) => {
-    const element = status.querySelector<HTMLElement>(`[data-dsp-loudness="${name}"]`);
-    if (element && element.textContent !== value) {
-      element.textContent = value;
-    }
+  setDspStatusValues(status, {
+    momentary: formatDspStatusLufs(reading?.momentaryLufs),
+    shortTerm: formatDspStatusLufs(reading?.shortTermLufs),
+    integrated: formatDspStatusLufs(reading?.integratedLufs),
   });
-
-  const integratedTile = status.querySelector<HTMLElement>("[data-dsp-loudness-integrated]");
-  if (integratedTile) {
-    const title = reading
-      ? `Integrated loudness over the last ${formatIntegratedDuration(reading.integratedSeconds)}, since this readout opened. Close and reopen it to start again.`
-      : "Integrated loudness since this readout opened";
-    if (integratedTile.title !== title) {
-      integratedTile.title = title;
-    }
-  }
+  setDspStatusTitle(status, "integrated", integratedLoudnessTitle(reading ? reading.integratedSeconds : null));
 }
 
 setNodeLoudnessListener(updateSelectedNodeDspLoudness);
@@ -223,35 +160,26 @@ export function updateSelectedNodeDspStatus(): void {
   const diagnostics = getSelectedNodeDiagnosticsEntry();
   const metrics = diagnostics?.levels;
 
-  // Holds the loudness watch exactly while a readout is open, following the selected node.
-  // Repeating the same node costs nothing.
+  // Holds the loudness watch exactly while a readout showing loudness is open, following the
+  // selected node. Repeating the same node costs nothing.
   setNodeLoudnessWatch(dspStatusLoudnessSource(status));
 
   if (!status || !selectedNodeDspStatusVisible) {
     return;
   }
 
-  const timeUs = getSelectedNodeDspStatusTimeUs(diagnostics);
-  const latencySamples = getSelectedNodeDspStatusLatencySamples(diagnostics);
-  const values: Record<string, string> = {
-    peak: formatDspStatusDb(addDspStatusSample("peak", metrics?.peakDbfs ?? null)),
-    rms: formatDspStatusDb(addDspStatusSample("rms", metrics?.rmsDbfs ?? null)),
-    headroom: formatDspStatusHeadroom(addDspStatusSample("headroom", metrics?.headroomDb ?? null)),
-    processing: formatDspStatusTime(addDspStatusSample("processing", timeUs)),
-    latency: formatDspStatusLatency(addDspStatusSample("latency", latencySamples)),
+  const averages = effectDspStatusAverages;
+  const timeUs = diagnostics ? nodeDspProcessingTimeUs(diagnostics) : null;
+  const latencySamples = diagnostics ? nodeDspLatencySamples(diagnostics) : null;
+  const values = {
+    peak: formatDspStatusDb(averages.add("peak", metrics?.peakDbfs)),
+    rms: formatDspStatusDb(averages.add("rms", metrics?.rmsDbfs)),
+    headroom: formatDspStatusHeadroom(averages.add("headroom", metrics?.headroomDb)),
+    processing: formatDspStatusTime(averages.add("processing", timeUs), uiState.dspPerformance?.totalProcessingTimeUs),
+    latency: formatDspStatusLatency(averages.add("latency", latencySamples), uiState.dspPerformance?.sampleRate),
   };
-
-  const now = performance.now();
-  const shouldRenderAverage = lastDspStatusAverageRenderAt === 0
-    || now - lastDspStatusAverageRenderAt >= DSP_STATUS_AVERAGE_RENDER_INTERVAL_MS;
-  Object.entries(values).forEach(([name, value]) => {
-    const average = status.querySelector<HTMLElement>(`[data-dsp-status-average="${name}"]`);
-    if (average && shouldRenderAverage && average.textContent !== value) {
-      average.textContent = value;
-    }
-  });
-  if (shouldRenderAverage) {
-    lastDspStatusAverageRenderAt = now;
+  if (averages.takeRenderTurn()) {
+    setDspStatusValues(status, values);
   }
   // A rebuilt panel starts with dashes; fill the loudness tiles without waiting for a frame.
   updateSelectedNodeDspLoudness();
@@ -277,6 +205,9 @@ export function bindSelectedNodeDspStatusToggle(): void {
       dspBadge.classList.toggle("is-active", visible);
     }
     status!.hidden = !visible;
+    if (!visible) {
+      closeDspStatusAddMenu();
+    }
     updateSelectedNodeDspStatus();
   }
 
@@ -285,6 +216,18 @@ export function bindSelectedNodeDspStatusToggle(): void {
 
   status.querySelector<HTMLButtonElement>(".effect-dsp-status-close")?.addEventListener("click", () => {
     setDspVisible(false);
+  });
+
+  // A figure added or removed: redraw the tiles with every value, rather than wait for the next
+  // averaged redraw, and start or stop the loudness measurement to suit.
+  bindDspStatusTiles(status, EFFECT_DSP_STATUS, () => {
+    const tiles = status.querySelector<HTMLElement>(".dsp-status-tiles");
+    if (!tiles) {
+      return;
+    }
+    tiles.innerHTML = renderDspStatusTiles(EFFECT_DSP_STATUS);
+    effectDspStatusAverages.reset();
+    updateSelectedNodeDspStatus();
   });
 }
 
@@ -539,8 +482,7 @@ export function updateSelectedNodeAnalyzerPanel(): void {
  * the readout does not blend one effect's numbers into the next.
  */
 export function resetDspStatusAverages(): void {
-  selectedNodeDspStatusAverages.clear();
-  lastDspStatusAverageRenderAt = 0;
+  effectDspStatusAverages.reset();
 }
 
 /** Whether the DSP status readout is expanded in the node parameters panel. */

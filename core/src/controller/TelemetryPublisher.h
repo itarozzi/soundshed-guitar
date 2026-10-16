@@ -17,6 +17,8 @@
 // the UI drops any frame whose roster it does not have. A graph edit marks the
 // roster dirty, and a reloaded UI recovers without waiting for one.
 
+#include "dsp/LoudnessTap.h"
+
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -75,6 +77,12 @@ class TelemetryPublisher
     void WatchLoudness(const std::string& scope, const std::string& presetId, const std::string& nodeId);
     void StopLoudness();
 
+    /// The same for the loudness of the app's output ("sldL" with slot 1), which the UI holds
+    /// while the output meter's readout is open. Independent of the node watch above: both can
+    /// run at once. Starting it restarts the measurement; renewing it does not.
+    void WatchOutputLoudness();
+    void StopOutputLoudness();
+
   private:
     /// A node a tap feed is watching, addressed as in the diagnostics roster.
     struct NodeWatch
@@ -112,6 +120,9 @@ class TelemetryPublisher
     void SendSpatialPositions();
     void SendSpectrum();
     void ReadAndSendLoudness(bool uiVisible);
+    void ReadAndSendOutputLoudness(bool uiVisible);
+    void SendLoudnessFrame(const LoudnessTap::Reading& reading, int slot, const std::string& scope,
+                           const std::string& nodeId, const std::string& presetId);
 
     IPluginHost& mHost;
     MultiPresetMixer& mPresetMixer;
@@ -144,5 +155,7 @@ class TelemetryPublisher
     std::chrono::steady_clock::time_point mSpectrumWatchExpiresAt{};
     std::optional<NodeWatch> mLoudnessWatch;
     std::chrono::steady_clock::time_point mLoudnessWatchExpiresAt{};
+    bool mOutputLoudnessWatched = false;
+    std::chrono::steady_clock::time_point mOutputLoudnessWatchExpiresAt{};
 };
 } // namespace guitarfx

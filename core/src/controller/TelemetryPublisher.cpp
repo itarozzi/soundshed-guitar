@@ -103,14 +103,22 @@ void TelemetryPublisher::OnIdle()
     {
         mLoudnessCounter = 0;
 
-        if (mLoudnessWatch && std::chrono::steady_clock::now() >= mLoudnessWatchExpiresAt)
+        const auto now = std::chrono::steady_clock::now();
+
+        if (mLoudnessWatch && now >= mLoudnessWatchExpiresAt)
         {
             StopLoudness();
+        }
+
+        if (mOutputLoudnessWatched && now >= mOutputLoudnessWatchExpiresAt)
+        {
+            StopOutputLoudness();
         }
 
         // Read even while hidden: a read is what drains the tap, and a gap would be lost from
         // the integrated value. The lease ends the watch soon enough if the UI has gone.
         ReadAndSendLoudness(uiVisible);
+        ReadAndSendOutputLoudness(uiVisible);
     }
 }
 
@@ -181,6 +189,44 @@ void TelemetryPublisher::ReadAndSendLoudness(bool uiVisible)
         return;
     }
 
+    SendLoudnessFrame(reading, 0, mLoudnessWatch->scope, mLoudnessWatch->nodeId, mLoudnessWatch->presetId);
+}
+
+void TelemetryPublisher::WatchOutputLoudness()
+{
+    mOutputLoudnessWatched = true;
+    mOutputLoudnessWatchExpiresAt = std::chrono::steady_clock::now() + kLoudnessWatchLease;
+}
+
+void TelemetryPublisher::StopOutputLoudness()
+{
+    if (!mOutputLoudnessWatched)
+    {
+        return;
+    }
+
+    mOutputLoudnessWatched = false;
+    mPresetMixer.ClearOutputLoudnessTap();
+}
+
+void TelemetryPublisher::ReadAndSendOutputLoudness(bool uiVisible)
+{
+    if (!mOutputLoudnessWatched)
+    {
+        return;
+    }
+
+    LoudnessTap::Reading reading;
+
+    if (mPresetMixer.ReadOutputLoudness(reading) && uiVisible)
+    {
+        SendLoudnessFrame(reading, 1, "output", {}, {});
+    }
+}
+
+void TelemetryPublisher::SendLoudnessFrame(const LoudnessTap::Reading& reading, int slot, const std::string& scope,
+                                           const std::string& nodeId, const std::string& presetId)
+{
     // To 0.1 LU, as the UI shows them. No reading goes out as null, which the UI shows as a dash.
     const auto lufs = [](const std::optional<double>& value) {
         return value ? nlohmann::json(std::round(*value * 10.0) / 10.0) : nlohmann::json(nullptr);
@@ -188,12 +234,23 @@ void TelemetryPublisher::ReadAndSendLoudness(bool uiVisible)
 
     nlohmann::json msg;
     msg["type"] = "sldL";
-    msg["scope"] = mLoudnessWatch->scope;
-    msg["id"] = mLoudnessWatch->nodeId;
+    msg["scope"] = scope;
 
-    if (!mLoudnessWatch->presetId.empty())
+    // Slot 0, a node's readout, has been the frame's only kind and stays implicit; slot 1 is the
+    // app's output, which has no node.
+    if (slot != 0)
     {
-        msg["presetId"] = mLoudnessWatch->presetId;
+        msg["slot"] = slot;
+    }
+
+    if (!nodeId.empty())
+    {
+        msg["id"] = nodeId;
+    }
+
+    if (!presetId.empty())
+    {
+        msg["presetId"] = presetId;
     }
 
     // [momentaryLufs, shortTermLufs, integratedLufs, integratedSeconds]
@@ -450,6 +507,9 @@ void TelemetryPublisher::SendPerformanceStats()
     statsJson["totalProcessingTimeUs"] = stats.totalProcessingTimeUs;
     statsJson["realTimeUs"] = stats.realTimeUs;
     statsJson["dspLoadPercent"] = stats.dspLoadPercent;
+    // The worst single block since the last frame. The fields above are one block each, sampled
+    // a few times a second, which misses the occasional heavy block an overrun comes from.
+    statsJson["peakDspLoadPercent"] = mPresetMixer.TakePeakDspLoadPercent();
     statsJson["totalLatencySamples"] = totalLatencySamples;
     // Keys here are `<scope>::<nodeId>`, which is what the UI looks them up by. They used
     // to go out twice — once scoped and once bare — and the bare copy was both redundant

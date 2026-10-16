@@ -171,6 +171,27 @@ void PluginController::HandleSetSpectrumWatchRequest(const nlohmann::json& paylo
 
 void PluginController::HandleSetLoudnessWatchRequest(const nlohmann::json& payload)
 {
+    // Slot 1 is the output meter's readout, which measures the app's output rather than a node:
+    // {slot: 1, scope: "output"} starts or renews it, {slot: 1} stops it. No slot is slot 0, a
+    // node's readout, as the message was before there were two.
+    const auto slot = payload.find("slot");
+
+    if (slot != payload.end() && slot->is_number_integer() && slot->get<int>() == 1)
+    {
+        const auto scope = payload.find("scope");
+
+        if (scope != payload.end() && scope->is_string() && scope->get<std::string>() == "output")
+        {
+            mTelemetry->WatchOutputLoudness();
+        }
+        else
+        {
+            mTelemetry->StopOutputLoudness();
+        }
+
+        return;
+    }
+
     if (const auto watch = ParseTapWatch(payload, mActivePresetId))
     {
         mTelemetry->WatchLoudness((*watch)[0], (*watch)[1], (*watch)[2]);

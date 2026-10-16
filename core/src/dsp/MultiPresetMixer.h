@@ -513,7 +513,7 @@ class MultiPresetMixer
     // at the end of Process(), so the caller holds the DSP lock. The periodic telemetry reads
     // (GetPresetCount through GetTotalLatencySamples, GetSignalDiagnosticsSnapshot,
     // ReadNodeSpectrum, ClearSpectrumTaps, ReadNodeLoudness, ClearLoudnessTaps,
-    // ReadNodeParamsForType, SetSignalDiagnosticsEnabled)
+    // ReadOutputLoudness, ClearOutputLoudnessTap, ReadNodeParamsForType, SetSignalDiagnosticsEnabled)
     // hold the erase off themselves instead, so the message thread can call them without it:
     // taking the DSP lock 20-30 times a second would silence a block whenever one landed on an
     // audio callback. Slots are added, retired and re-keyed under the DSP lock on the message
@@ -572,6 +572,21 @@ class MultiPresetMixer
 
     /// Detaches every loudness tap, in every executor including retiring ones.
     void ClearLoudnessTaps();
+
+    /// Loudness of the app's output, for the output meter's readout: what the device is sent,
+    /// after the output level and master volume, measured where the output meter is. Tapped on
+    /// first read, restarting the measurement, until ClearOutputLoudnessTap(). Message thread.
+    bool ReadOutputLoudness(LoudnessTap::Reading& out);
+    void ClearOutputLoudnessTap();
+
+    /// The highest DSP load any one block reached since the last call, as a percentage of the
+    /// block's real time, and starts the next span. The load is GetPerformanceStats()'s: every
+    /// chain's processing time that block, summed. Only blocks run with diagnostics on count.
+    /// One consumer, the performance feed. Message thread.
+    [[nodiscard]] double TakePeakDspLoadPercent() noexcept
+    {
+        return mPeakDspLoadPercent.exchange(0.0, std::memory_order_relaxed);
+    }
 
     // Tuner functionality
     void SetTunerEnabled(bool enabled);
@@ -696,6 +711,13 @@ class MultiPresetMixer
     std::unique_ptr<TunerEngine> mTuner;
 
     MixerTelemetry mTelemetry;
+
+    /// See TakePeakDspLoadPercent(). Written by the audio thread, taken by the message thread.
+    std::atomic<double> mPeakDspLoadPercent{0.0};
+    /// The output readout's tap, created on its first read and kept for the mixer's lifetime so
+    /// the audio thread never holds a freed one; the audio thread pushes only while it is active.
+    std::unique_ptr<LoudnessTap> mOutputLoudnessTap;
+    std::atomic<LoudnessTap*> mActiveOutputLoudnessTap{nullptr};
 
     // ---- Parallel preset processing -----------------------------------------------
     static constexpr int kMaxParallelWorkers = 7;

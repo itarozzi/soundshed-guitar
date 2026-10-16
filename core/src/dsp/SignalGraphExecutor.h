@@ -357,6 +357,14 @@ class SignalGraphExecutor
     }
 
     [[nodiscard]] DSPPerformanceStats GetPerformanceStats() const;
+
+    /// The last block's processing time, as GetPerformanceStats reports it: zero for a block the
+    /// mixer skipped, and only kept while diagnostics are on. For the thread that ran the block,
+    /// which is where the mixer reads it for its per-block peak.
+    [[nodiscard]] double LastBlockProcessingTimeUs() const noexcept
+    {
+        return mLastTotalProcessingTimeUs.load(std::memory_order_relaxed);
+    }
     /// Returns the enabled-node longest-path latency through the graph.
     [[nodiscard]] int GetTotalLatencySamples() const;
 

@@ -172,6 +172,11 @@ export function sendLoudnessWatch(source: NodeLoudnessSource | null): void {
     : { type: "setLoudnessWatch" });
 }
 
+/** Starts or renews (true) or stops (false) the backend's loudness tap on the app's output. */
+export function sendOutputLoudnessWatch(on: boolean): void {
+  postMessage(on ? { type: "setLoudnessWatch", slot: 1, scope: "output" } : { type: "setLoudnessWatch", slot: 1 });
+}
+
 /** Asks for an effect's response curve with these parameters; answered by "effectResponse"
  * with the same requestId (see effectResponse.ts). */
 export function sendEffectResponseRequest(
