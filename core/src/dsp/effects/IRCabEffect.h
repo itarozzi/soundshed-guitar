@@ -925,8 +925,7 @@ class IRCabEffect : public EffectProcessor
         mImpulseBL.clear();
         mImpulseBR.clear();
         mIRPathB.clear();
-        mConvolverBL.Reset();
-        mConvolverBR.Reset();
+        UnloadConvolverPair(mConvolverBL, mConvolverBR);
         ApplyPendingQuality();
         ApplyPendingRebuildSettings();
         const bool loaded = !mPrepared || InitializeConvolverA(); // else Prepare() builds it (see mPrepared)
@@ -1014,8 +1013,7 @@ class IRCabEffect : public EffectProcessor
         mImpulseBL.clear();
         mImpulseBR.clear();
         mIRPathB.clear();
-        mConvolverBL.Reset();
-        mConvolverBR.Reset();
+        UnloadConvolverPair(mConvolverBL, mConvolverBR);
         bool loadedB = false;
 
         if (slotBIdx >= 0)
@@ -1062,8 +1060,7 @@ class IRCabEffect : public EffectProcessor
             mImpulseL.clear();
             mImpulseR.clear();
             mIRPath.clear();
-            mConvolverL.Reset();
-            mConvolverR.Reset();
+            UnloadConvolverPair(mConvolverL, mConvolverR);
         }
 
         if (loadedB)
@@ -1465,8 +1462,7 @@ class IRCabEffect : public EffectProcessor
             if (!convolverL.SetImpulse(processedL, settings.maxBlockSize) ||
                 !convolverR.SetImpulse(processedR, settings.maxBlockSize))
             {
-                convolverL.Reset();
-                convolverR.Reset();
+                UnloadConvolverPair(convolverL, convolverR);
                 return false;
             }
 
@@ -1507,8 +1503,7 @@ class IRCabEffect : public EffectProcessor
         if (!convolverL.SetImpulse(processedIR, settings.maxBlockSize) ||
             !convolverR.SetImpulse(processedIR, settings.maxBlockSize))
         {
-            convolverL.Reset();
-            convolverR.Reset();
+            UnloadConvolverPair(convolverL, convolverR);
             return false;
         }
 
@@ -1710,6 +1705,15 @@ class IRCabEffect : public EffectProcessor
     {
         std::swap(previous, live);
         std::swap(live, built);
+    }
+
+    /// Empties a slot: IsInitialized() turns false, so the slot stops sounding. RealtimeConvolver's
+    /// Reset() only clears history, which left a "cleared" slot playing its old IR. This frees the
+    /// old buffers, as the builds around it in a load do; never call it from Process().
+    static void UnloadConvolverPair(RealtimeConvolver& left, RealtimeConvolver& right)
+    {
+        left = RealtimeConvolver();
+        right = RealtimeConvolver();
     }
 
     /// One IR slot's impulse, as a deferred rebuild copies it.
