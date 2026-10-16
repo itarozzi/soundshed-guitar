@@ -38,8 +38,17 @@ export function onLayoutSaved(payload: IncomingPayload): void {
   const savePayload = payload as { effectType?: string; blendId?: string; layoutId?: string; lookupKey?: string };
   const displayKey = savePayload.blendId ? `${savePayload.effectType} (blend: ${savePayload.blendId})` : savePayload.effectType;
   appendLog(`Layout saved for ${displayKey ?? "effect"}${savePayload.layoutId ? ` (${savePayload.layoutId})` : ""}`);
-  showNotification("Layout saved");
+  // The designer says "Layout saved" and closes once its own save is confirmed.
+  layoutDesigner.handleSaveResult({ layoutId: savePayload.layoutId, ok: true });
   // layoutLibraryLoaded will follow and trigger a full refresh.
+}
+
+export function onLayoutSaveFailed(payload: IncomingPayload): void {
+  const failPayload = payload as { layoutId?: string; message?: string };
+  appendLog(`Layout save failed${failPayload.layoutId ? ` (${failPayload.layoutId})` : ""}: ${failPayload.message ?? "unknown error"}`);
+  if (!layoutDesigner.handleSaveResult({ layoutId: failPayload.layoutId, ok: false, message: failPayload.message })) {
+    showNotification(`Layout not saved: ${failPayload.message ?? "the engine could not write it"}`);
+  }
 }
 
 export function onLayoutImagesLoaded(payload: IncomingPayload): void {

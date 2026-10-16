@@ -76,14 +76,23 @@ export function showAlert(message: string, title = "Notice"): Promise<void> {
   }).then(() => undefined);
 }
 
-export function showConfirm(message: string, title = "Confirm"): Promise<boolean> {
+export function showConfirm(
+  message: string,
+  title = "Confirm",
+  labels: { ok?: string; cancel?: string } = {},
+): Promise<boolean> {
   return openDialog({
     mode: "confirm",
     title,
     message,
-    okLabel: "OK",
-    cancelLabel: "Cancel",
+    okLabel: labels.ok ?? "OK",
+    cancelLabel: labels.cancel ?? "Cancel",
   });
+}
+
+/** True while an alert or confirm is on screen; modals beneath it should leave the keyboard alone. */
+export function isDialogOpen(): boolean {
+  return Boolean(dialogModal && dialogModal.style.display !== "none");
 }
 
 export function initializeDialogModals(): void {
@@ -110,7 +119,9 @@ export function initializeDialogModals(): void {
   });
 
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && dialogModal?.style.display !== "none") {
+    if (event.key === "Escape" && isDialogOpen()) {
+      // Handled: a modal under the dialog must not take the same Escape as its own.
+      event.preventDefault();
       closeDialog(false);
     }
   });

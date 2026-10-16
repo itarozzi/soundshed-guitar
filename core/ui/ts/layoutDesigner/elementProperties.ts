@@ -92,7 +92,7 @@ export class ElementProperties {
         <div class="layout-property-group-title">Control</div>
         <div class="layout-property-row">
           <span class="layout-property-label">Binding</span>
-          <span class="layout-property-input">${bindingLabel}</span>
+          <span class="layout-property-input">${escapeHtml(bindingLabel)}</span>
         </div>
         <div class="layout-property-row">
           <span class="layout-property-label">Type</span>

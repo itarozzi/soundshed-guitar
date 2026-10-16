@@ -314,6 +314,41 @@ export function sanitizeLayout(layout: EffectLayout): EffectLayout {
   return layout;
 }
 
+/** A layout has at most this many background layers, indexed 0 (bottom) and 1 (top). */
+export const MAX_BACKGROUND_LAYERS = 2;
+
+/**
+ * The lowest layer index no background uses, or null when every layer is taken.
+ * Not `backgrounds.length`: after the bottom layer is deleted that is the index the
+ * remaining top layer already has, so a new image replaced it and a new colour shared
+ * its index (and Remove then deleted both).
+ */
+export function nextFreeBackgroundLayer(backgrounds: LayoutBackground[]): number | null {
+  for (let index = 0; index < MAX_BACKGROUND_LAYERS; index++) {
+    if (!backgrounds.some((bg) => bg.layerIndex === index)) {
+      return index;
+    }
+  }
+  return null;
+}
+
+/**
+ * Give each background a layer index of its own, keeping their order. Layouts saved
+ * before nextFreeBackgroundLayer can hold two layers with the same index, which the
+ * designer can neither select apart nor delete one at a time.
+ */
+export function normalizeBackgroundLayers(layout: EffectLayout): EffectLayout {
+  const indexes = layout.backgrounds.map((bg) => bg.layerIndex);
+  const valid = indexes.every((index, i) =>
+    Number.isInteger(index) && index >= 0 && index < MAX_BACKGROUND_LAYERS && indexes.indexOf(index) === i);
+  if (!valid) {
+    layout.backgrounds = [...layout.backgrounds]
+      .sort((a, b) => (Number(a.layerIndex) || 0) - (Number(b.layerIndex) || 0))
+      .map((bg, index) => ({ ...bg, layerIndex: index }));
+  }
+  return layout;
+}
+
 /** Generate a unique ID for layout elements */
 export function generateLayoutId(): string {
   return `layout-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;

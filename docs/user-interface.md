@@ -110,7 +110,8 @@ The UI is a web-based single-page application (SPA) hosted in a native WebView. 
 | `toneSharingPackDeleteFailed` | `{message}` | An installed pack's archive could not be deleted. The pack is already gone from the installed list; this only says its files were left behind |
 | `metronomeState` | `{bpm, enabled, volumeDb, pan, clickType, clickTypes, beatPattern, timeSigNum, timeSigDen, grouping, subdivision, subdivisions}` | Metronome state. `beatPattern` is one character per beat — `H` accent, `M` medium, `L` normal, `S` silent — always exactly `timeSigNum` long. `grouping` is `"2+2+3"` for an odd meter, empty otherwise. `clickTypes` and `subdivisions` are the lists the pickers are built from. |
 | `metronomeBeat` | `{beatIndex, beatsPerBar, level}` | One per beat while the click runs and the UI is visible, for the beat display. `level` is `accent`/`medium`/`normal`/`silent`. Subdivision ticks are not sent. |
-| `layoutSaved` | `{...}` | Effect layout saved |
+| `layoutSaved` | `{effectType, blendId, lookupKey, layoutId, layout}` | Reply to `saveEffectLayout`: the layout and its index entry are written, and every image it draws on has been copied into its own folder. The designer waits for this (or `layoutSaveFailed`) before it closes |
+| `layoutSaveFailed` | `{layoutId, message}` | Reply to `saveEffectLayout` when the layout or the index could not be written. The designer stays open with the work in it and shows `message` |
 | `layoutLibraryLoaded` | `{layoutLibrary}` | Layout library loaded |
 | `compositeLibrary` | `{...}` | Composite effect library |
 | `compositeDefinitionAdded` | `{...}` | Composite effect added |
@@ -858,6 +859,33 @@ blur/Enter as a single undo step, and again on save so an uncommitted edit is no
 Leaving it blank falls back to the effect display name (plus blend name for per-blend
 layouts), which is also the name pre-filled for a new layout; forking a factory layout
 appends " (copy)" so the two are distinguishable in the picker.
+
+### Layout Designer saving, closing and import (`layoutDesigner/layoutStore.ts`, `layoutImport.ts`)
+
+- **Save waits for the engine.** `saveEffectLayout` is answered by `layoutSaved` or
+  `layoutSaveFailed`. The designer disables Save, then closes on the first answer or stays
+  open and shows the error on the second. After 15 s without an answer it re-enables Save.
+- **Closing asks first.** Cancel, ✕, Escape (with nothing selected) and a click on the
+  backdrop compare the layout with how it opened, including a name still being typed, and
+  confirm before discarding. While the confirm (or any dialog) is up the designer ignores the
+  keyboard: the dialog marks its Escape handled.
+- **Reset keeps identity.** It replaces the design but keeps `layoutId`, `name`, `blendId`
+  and `createdAt`, so Save overwrites the layout rather than adding a second one.
+- **Background layers** take the lowest free `layerIndex` (`nextFreeBackgroundLayer`), and a
+  layout that opens with two layers on one index is renumbered in order.
+- **Import does not trust the archive.** `prepareLayoutImport` takes only what has a layout's
+  shape. The layout takes the identity of the one open in the designer (its id, effect type and
+  blend), so Save overwrites that one and no other. Each image gets a new id and file name
+  (plain characters plus a unique suffix), its references are repointed, and it is sent with
+  `saveLayoutImage` into the open layout's folder. Manifest names with a folder, drive or
+  unknown type are skipped, and the toast counts skipped images and controls that don't match
+  the effect.
+- **The engine checks again.** `saveLayoutImage` refuses any name that is not a bare image file
+  name whose stem is the image id, content that does not start like its type, or anything over
+  16 MB (`LayoutSupport.h`). Every save copies each image the layout draws on into its own
+  folder (`CopyMissingLayoutImages`, searching other layouts, the legacy shared folder and the
+  factory layouts). Before a delete removes a layout's folder, every other layout takes its own
+  copy of what it borrowed.
 
 ## Jam Panel Notes
 

@@ -12,12 +12,13 @@ import { postMessage } from "../bridge.js";
 import type { EffectLayout, LayoutLibraryEntry } from "../layoutTypes.js";
 import type { ParameterDef } from "../presetV2.js";
 import type { SelectedElement } from "./types.js";
-import { DEFAULT_LAYOUT_DIMENSIONS, createEmptyLayout, generateLayoutId, layoutLookupKey, sanitizeLayout, snapToGrid } from "../layoutTypes.js";
+import { DEFAULT_LAYOUT_DIMENSIONS, createEmptyLayout, generateLayoutId, layoutLookupKey, snapToGrid } from "../layoutTypes.js";
 import { showNotification } from "../notifications.js";
 import { uiState } from "../state.js";
 import { arrayBufferToBase64 } from "../utils.js";
 import { LAYOUT_LIBRARY_CHANGED_EVENT } from "./events.js";
 import { loadThumbnailImage } from "./images.js";
+import { prepareLayoutImport } from "./layoutImport.js";
 
 /**
  * What the store needs from the designer around it: which layout is open, what
@@ -40,17 +41,19 @@ export interface LayoutStoreHost {
   setNewLayout(value: boolean): void;
   /** The parameters a default layout should lay out controls for. */
   getParamDefs(): ParameterDef[];
+  /** Parameter and resource keys the open effect has, so an import can say what does not match. */
+  getKnownControlKeys(): ReadonlySet<string>;
   /** Read the name field back into the layout before saving. */
   applyLayoutName(pushUndo?: boolean): void;
-  /** Which images the layout still refers to, so unused ones are not saved. */
-  collectReferencedImageIds(): string[];
   updateDeleteButtonVisibility(): void;
   /** Told after a successful save, for a caller that asked to be. */
   notifySaved(layout: EffectLayout): void;
   /** Snapshot for undo, before an import replaces what is open. */
   pushUndoState(): void;
-  /** Redraw the width/height fields after an import changed them. */
-  updateDimensionInputs(): void;
+  /** Redraw the toolbar fields (name, size, default-controls toggle) after an import changed them. */
+  refreshEditorChrome(): void;
+  /** Disable Save while the engine is writing the layout. */
+  setSaving(saving: boolean): void;
   renderCanvas(): void;
   selectElement(element: SelectedElement): void;
   /** The file input behind Import — read it, then clear it for the next pick. */
@@ -58,7 +61,21 @@ export interface LayoutStoreHost {
   closeModal(didSave?: boolean): void;
 }
 
+/** How long a save waits for the engine to answer before Save is offered again. */
+const SAVE_ANSWER_TIMEOUT_MS = 15000;
+
+interface PendingSave {
+  layoutId: string;
+  layout: EffectLayout;
+  timer: ReturnType<typeof setTimeout>;
+}
+
 export class LayoutStore {
+  /** The save sent to the engine and not yet answered. */
+  private pendingSave: PendingSave | null = null;
+  /** Set from the click until the save is sent, so a double click cannot send two. */
+  private preparingSave = false;
+
   constructor(private readonly host: LayoutStoreHost) {}
 
   private persistLayoutLocally(layout: EffectLayout): void {
@@ -138,14 +155,33 @@ export class LayoutStore {
     this.host.closeModal();
   }
 
+  /**
+   * Send the layout to the engine. The designer stays open until the engine answers
+   * (`layoutSaved` or `layoutSaveFailed`, through handleSaveResult), so a save that fails
+   * keeps the work on screen instead of closing over it with "Layout saved".
+   */
   async save(): Promise<void> {
     const layout = this.host.getLayout();
-    if (!layout) return;
+    if (!layout || this.pendingSave || this.preparingSave) return;
+    this.preparingSave = true;
+    try {
+      await this.sendSave(layout);
+    } finally {
+      this.preparingSave = false;
+    }
+  }
 
+  private async sendSave(layout: EffectLayout): Promise<void> {
     // Pick up any name edit that has not been committed by a blur yet
     this.host.applyLayoutName();
     if (!layout.name) {
       layout.name = this.host.getFallbackLayoutName();
+    }
+
+    // The engine mints an id for a layout without one, and the library cache here would
+    // then hold the layout under a different one until the next reload.
+    if (!layout.layoutId) {
+      layout.layoutId = generateLayoutId();
     }
 
     layout.modifiedAt = new Date().toISOString();
@@ -161,31 +197,69 @@ export class LayoutStore {
       if (thumbnail) layout.thumbnailDataUrl = thumbnail;
     } catch { /* thumbnail failure must not block save */ }
 
-    const isNewLayout = this.host.isNewLayout();
-    const referencedImageIds = isNewLayout ? this.host.collectReferencedImageIds() : [];
+    // The designer may have closed while the thumbnail rendered.
+    if (this.host.getLayout() !== layout) return;
 
-    // Send to plugin for persistence (include blendId for per-blend file naming)
+    const layoutId = layout.layoutId;
+    this.pendingSave = {
+      layoutId,
+      layout: JSON.parse(JSON.stringify(layout)) as EffectLayout,
+      timer: setTimeout(() => this.handleSaveTimeout(layoutId), SAVE_ANSWER_TIMEOUT_MS),
+    };
+    this.host.setSaving(true);
+
+    // The engine copies every image the layout draws on into the layout's own folder.
     postMessage({
       type: "saveEffectLayout",
       effectType: this.host.getEffectType(),
       blendId: this.host.getBlendId() || undefined,
-      layoutId: layout.layoutId,
-      layout: layout,
-      isNewLayout,
-      referencedImageIds,
+      layoutId,
+      layout,
     });
+  }
+
+  /**
+   * The engine's answer to a save. Returns false when it is not for the save this
+   * designer is waiting on, so the caller can report it some other way.
+   */
+  handleSaveResult(result: { layoutId?: string; ok: boolean; message?: string }): boolean {
+    const pending = this.pendingSave;
+    if (!pending || result.layoutId !== pending.layoutId) return false;
+
+    clearTimeout(pending.timer);
+    this.pendingSave = null;
+    this.host.setSaving(false);
+
+    if (!result.ok) {
+      showNotification(`Layout not saved: ${result.message || "the engine could not write it"}`);
+      return true;
+    }
 
     // After first save the layout is no longer new/factory
     this.host.setNewLayout(false);
     this.host.setFactoryLayout(false);
     this.host.updateDeleteButtonVisibility();
-
-    this.persistLayoutLocally(layout);
-
-    this.host.notifySaved(layout);
-
+    this.persistLayoutLocally(pending.layout);
+    this.host.notifySaved(pending.layout);
     showNotification("Layout saved");
     this.host.closeModal(true);
+    return true;
+  }
+
+  /** Forget a save still in flight: the designer is closing, so nothing waits on the answer. */
+  cancelPendingSave(): void {
+    if (this.pendingSave) {
+      clearTimeout(this.pendingSave.timer);
+      this.pendingSave = null;
+    }
+    this.host.setSaving(false);
+  }
+
+  private handleSaveTimeout(layoutId: string): void {
+    if (this.pendingSave?.layoutId !== layoutId) return;
+    this.pendingSave = null;
+    this.host.setSaving(false);
+    showNotification("The layout may not have saved: the engine did not answer. Save again to be sure.");
   }
 
   /** Render a compact thumbnail of the current layout onto an offscreen canvas and return a JPEG data URL. */
@@ -367,6 +441,9 @@ export class LayoutStore {
       return;
     }
 
+    const current = this.host.getLayout();
+    if (!current?.layoutId) return;
+
     try {
       const buffer = await file.arrayBuffer();
       const zip = await zipLib.loadAsync(buffer);
@@ -377,96 +454,62 @@ export class LayoutStore {
         return;
       }
 
-      const layoutText = await layoutEntry.async("text");
-      const archive = JSON.parse(layoutText) as {
-        formatVersion?: number;
-        layout?: EffectLayout;
-        images?: Array<{ imageId: string; fileName: string; type?: string }>;
-      };
+      const archive = JSON.parse(await layoutEntry.async("text")) as unknown;
+      const prepared = await prepareLayoutImport(
+        archive,
+        async (archivePath) => {
+          const entry = zip.file(archivePath);
+          return entry ? entry.async("arraybuffer") : null;
+        },
+        {
+          layoutId: current.layoutId,
+          effectType: this.host.getEffectType() || current.effectType,
+          blendId: this.host.getBlendId() || undefined,
+          name: current.name,
+          createdAt: current.createdAt,
+        },
+        this.host.getKnownControlKeys(),
+      );
 
-      if (!archive.layout) {
-        showNotification("Import failed: archive has no layout data");
+      if ("error" in prepared) {
+        showNotification(`Import failed: ${prepared.error}`);
         return;
       }
 
-      // Extract images from zip and build data URLs
-      const imageManifest = archive.images ?? [];
-      const importedImages: Array<{ imageId: string; fileName: string; dataUrl: string; rawBase64: string; type?: string }> = [];
-
-      for (const imgRef of imageManifest) {
-        const imgEntry = zip.file(`images/${imgRef.fileName}`);
-        if (!imgEntry) continue;
-
-        const imgBuffer = await imgEntry.async("arraybuffer");
-        const imgBase64 = arrayBufferToBase64(imgBuffer);
-
-        // Determine MIME type from extension
-        const ext = imgRef.fileName.split(".").pop()?.toLowerCase() ?? "png";
-        const mimeMap: Record<string, string> = {
-          png: "image/png",
-          jpg: "image/jpeg",
-          jpeg: "image/jpeg",
-          gif: "image/gif",
-          webp: "image/webp",
-          svg: "image/svg+xml",
-        };
-        const mime = mimeMap[ext] ?? "image/png";
-        const dataUrl = `data:${mime};base64,${imgBase64}`;
-
-        importedImages.push({
-          imageId: imgRef.imageId,
-          fileName: imgRef.fileName,
-          dataUrl,
-          rawBase64: imgBase64,
-          type: imgRef.type,
+      // The images go into the open layout's own folder, under names chosen here.
+      if (!uiState.layoutLibrary) {
+        uiState.layoutLibrary = { byEffectType: {}, defaults: {}, images: [] };
+      }
+      for (const image of prepared.images) {
+        uiState.layoutLibrary.images.push({
+          imageId: image.imageId,
+          fileName: image.fileName,
+          dataUrl: image.dataUrl,
+          type: image.type,
+        });
+        postMessage({
+          type: "saveLayoutImage",
+          imageId: image.imageId,
+          fileName: image.fileName,
+          data: image.base64,
+          layoutId: current.layoutId,
         });
       }
 
-      // Register images in the layout library
-      if (importedImages.length > 0) {
-        if (!uiState.layoutLibrary) {
-          uiState.layoutLibrary = { byEffectType: {}, defaults: {}, images: [] };
-        }
-        for (const img of importedImages) {
-          // Replace existing or add new
-          const existingIdx = uiState.layoutLibrary.images.findIndex((i) => i.imageId === img.imageId);
-          const imageRef = {
-            imageId: img.imageId,
-            fileName: img.fileName,
-            dataUrl: img.dataUrl,
-            type: img.type as "background" | "knob" | "general" | undefined,
-          };
-          if (existingIdx >= 0) {
-            uiState.layoutLibrary.images[existingIdx] = imageRef;
-          } else {
-            uiState.layoutLibrary.images.push(imageRef);
-          }
-
-          // Send image to C++ for persistent storage
-          postMessage({
-            type: "saveLayoutImage",
-            imageId: img.imageId,
-            fileName: img.fileName,
-            data: img.rawBase64,
-            layoutId: archive.layout.layoutId ?? "",
-          });
-        }
-      }
-
-      // Load the imported layout into the designer
       this.host.pushUndoState();
-      const imported = sanitizeLayout(archive.layout);
-      this.host.setLayout(imported);
-      // Update effect type if it matches or override with current
-      if (this.host.getEffectType() && archive.layout.effectType !== this.host.getEffectType()) {
-        imported.effectType = this.host.getEffectType();
-      }
-      imported.modifiedAt = new Date().toISOString();
-
-      this.host.updateDimensionInputs();
+      this.host.setLayout(prepared.layout);
+      this.host.refreshEditorChrome();
       this.host.renderCanvas();
       this.host.selectElement(null);
-      showNotification("Layout imported");
+
+      const notes: string[] = [];
+      if (prepared.skippedImages.length) {
+        notes.push(`${prepared.skippedImages.length} image${prepared.skippedImages.length === 1 ? "" : "s"} could not be used`);
+      }
+      if (prepared.unmatchedControls) {
+        notes.push(`${prepared.unmatchedControls} control${prepared.unmatchedControls === 1 ? " doesn't" : "s don't"} match this effect`);
+      }
+      showNotification(notes.length ? `Layout imported; ${notes.join(", ")}` : "Layout imported");
     } catch (err) {
       console.error("[LayoutDesigner] Import failed:", err);
       showNotification(`Import failed: ${err instanceof Error ? err.message : "unknown error"}`);

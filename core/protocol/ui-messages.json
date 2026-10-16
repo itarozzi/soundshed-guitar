@@ -214,6 +214,7 @@
     "layoutImagesLoaded",
     "layoutLibraryLoaded",
     "layoutSaved",
+    "layoutSaveFailed",
     "libraryExportFailed",
     "libraryExportSaved",
     "metronomeBeat",

@@ -947,7 +947,8 @@ class PluginController
     // Builds the (potentially heavy) base64-encoded layout image list on demand.
     // Kept out of the startup LoadLayoutLibrary payload so app load stays lightweight.
     [[nodiscard]] nlohmann::json BuildLayoutImages();
-    void SaveLayoutToFile(const std::string& effectType, const nlohmann::json& layoutJson);
+    /// False when the document store refused the write; the caller reports it.
+    [[nodiscard]] bool SaveLayoutToFile(const std::string& layoutId, const nlohmann::json& layoutJson);
     [[nodiscard]] nlohmann::json LoadUiStorageJson(const std::string& filename, const nlohmann::json& fallback) const;
     void SaveUiStorageJson(const std::string& filename, const nlohmann::json& payload) const;
     /// Legacy UI-storage filename → document id ("setlists.json" → "setlists").

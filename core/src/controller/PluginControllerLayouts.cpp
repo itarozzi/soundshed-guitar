@@ -2,9 +2,11 @@
  * PluginControllerLayouts.cpp - Custom effect layouts and their images.
  *
  * A layout is an index entry in one shared settings file plus a content
- * directory holding its layout.json and images. Deleting one has to remove
- * both halves, and saving one has to copy any newly referenced image into the
- * content directory before the index points at it.
+ * directory holding its images. Every save copies each image the layout draws
+ * on into that directory, so a layout never depends on another's folder, and a
+ * delete first lets every other layout take its own copy of what it borrowed.
+ * Images arriving from an imported archive are named by the archive, so their
+ * names are checked before anything is written.
  */
 
 #include "PluginController.h"
@@ -15,6 +17,7 @@
 #include "util/PathEncoding.h"
 
 #include <algorithm>
+#include <cctype>
 #include <fstream>
 
 using namespace guitarfx::controller_detail;
@@ -24,7 +27,6 @@ namespace guitarfx
 void PluginController::HandleDeleteLayoutRequest(const nlohmann::json& payload)
 {
     const std::string effectType = payload.value("effectType", "");
-    const std::string blendId = payload.value("blendId", "");
     const std::string layoutId = payload.value("layoutId", "");
 
     if (effectType.empty())
@@ -39,81 +41,109 @@ void PluginController::HandleDeleteLayoutRequest(const nlohmann::json& payload)
         return;
     }
 
-    const std::string lookupKey = blendId.empty() ? effectType : (effectType + "::" + blendId);
-
-    Store().Remove(storage::ItemType::kLayout, layoutId);
-
-    // The document is in the store now, but the image sidecars are still files.
-    const auto layoutDir = ResolveLayoutDir(mFileSystem, layoutId);
-    std::error_code ec;
-
-    if (std::filesystem::exists(layoutDir, ec))
-    {
-        std::filesystem::remove_all(layoutDir, ec);
-
-        if (ec)
-        {
-            ReportErrorToUI("Delete layout failed", "Unable to remove the layout's image folder");
-            return;
-        }
-    }
-
-    AppendSessionLog("Layout deleted: " + layoutId);
-
-    // Update associations mapping
     nlohmann::json settings = LoadEffectLayoutsSettings(mFileSystem);
+    const auto log = [this](const std::string& line) { AppendSessionLog(line); };
 
+    // Any image picker can choose an image from another layout's folder, and this one's folder
+    // goes below. Every other layout takes its own copy of what it draws on first.
     if (settings.contains("associations") && settings["associations"].is_object())
     {
-        auto& assoc = settings["associations"];
+        const auto factoryDir = ResolveFactoryLayoutsDir(mHost.GetBundledAssetsPath());
 
-        if (assoc.contains(lookupKey) && assoc[lookupKey].is_object())
+        for (const auto& [key, entry] : settings["associations"].items())
         {
-            auto& entry = assoc[lookupKey];
-            auto ids = entry.value("layoutIds", nlohmann::json::array());
-
-            if (!ids.is_array())
+            if (!entry.is_object() || !entry.contains("layoutIds") || !entry["layoutIds"].is_array())
             {
-                ids = nlohmann::json::array();
+                continue;
             }
 
-            nlohmann::json updated = nlohmann::json::array();
-
-            for (const auto& id : ids)
+            for (const auto& id : entry["layoutIds"])
             {
-                if (id.is_string() && id.get<std::string>() == layoutId)
+                if (!id.is_string() || id.get<std::string>() == layoutId)
                 {
                     continue;
                 }
 
-                updated.push_back(id);
-            }
-
-            entry["layoutIds"] = updated;
-
-            const std::string currentDefault = entry.value("defaultLayoutId", "");
-
-            if (currentDefault == layoutId)
-            {
-                if (!updated.empty() && updated[0].is_string())
+                if (const auto other = Store().Get(storage::ItemType::kLayout, id.get<std::string>()))
                 {
-                    entry["defaultLayoutId"] = updated[0].get<std::string>();
+                    CopyMissingLayoutImages(mFileSystem, factoryDir, id.get<std::string>(),
+                                            CollectLayoutImageIds(*other), log);
                 }
-                else
-                {
-                    entry["defaultLayoutId"] = "";
-                }
-            }
-
-            // Remove empty association entries
-            if (entry.value("layoutIds", nlohmann::json::array()).empty())
-            {
-                assoc.erase(lookupKey);
             }
         }
     }
 
-    SaveEffectLayoutsSettings(mFileSystem, settings);
+    if (!Store().Remove(storage::ItemType::kLayout, layoutId))
+    {
+        ReportErrorToUI("Delete layout failed", "The layout could not be removed from the library");
+        LoadLayoutLibrary(); // the UI dropped it already; put it back
+        return;
+    }
+
+    AppendSessionLog("Layout deleted: " + layoutId);
+
+    // Out of every association, not only the one the UI named: the same layout can be listed
+    // under an effect type and a blend of it, and a listing left behind points at nothing.
+    if (settings.contains("associations") && settings["associations"].is_object())
+    {
+        auto& assoc = settings["associations"];
+        std::vector<std::string> emptied;
+
+        for (auto& [key, entry] : assoc.items())
+        {
+            if (!entry.is_object())
+            {
+                continue;
+            }
+
+            const auto ids = entry.contains("layoutIds") && entry["layoutIds"].is_array() ? entry["layoutIds"]
+                                                                                          : nlohmann::json::array();
+            nlohmann::json updated = nlohmann::json::array();
+
+            for (const auto& id : ids)
+            {
+                if (!(id.is_string() && id.get<std::string>() == layoutId))
+                {
+                    updated.push_back(id);
+                }
+            }
+
+            entry["layoutIds"] = updated;
+
+            if (entry.contains("defaultLayoutId") && entry["defaultLayoutId"].is_string() &&
+                entry["defaultLayoutId"].get<std::string>() == layoutId)
+            {
+                entry["defaultLayoutId"] =
+                    !updated.empty() && updated[0].is_string() ? updated[0].get<std::string>() : std::string{};
+            }
+
+            if (updated.empty())
+            {
+                emptied.push_back(key);
+            }
+        }
+
+        for (const auto& key : emptied)
+        {
+            assoc.erase(key);
+        }
+    }
+
+    if (!SaveEffectLayoutsSettings(mFileSystem, settings))
+    {
+        AppendSessionLog("Delete layout: the layout index could not be written");
+    }
+
+    // The image folder last, and only as tidying: the layout is gone from the library either
+    // way, and a folder an antivirus scan holds open must not leave it half deleted.
+    const auto layoutDir = ResolveLayoutDir(mFileSystem, layoutId);
+    std::error_code ec;
+    std::filesystem::remove_all(layoutDir, ec);
+
+    if (ec)
+    {
+        AppendSessionLog("Delete layout: could not remove " + util::PathToUtf8(layoutDir) + ": " + ec.message());
+    }
 
     LoadLayoutLibrary();
 }
@@ -123,12 +153,16 @@ void PluginController::HandleSaveEffectLayoutRequest(const nlohmann::json& paylo
     const std::string effectType = payload.value("effectType", "");
     const std::string blendId = payload.value("blendId", "");
     std::string layoutId = payload.value("layoutId", "");
-    const bool isNewLayout = payload.value("isNewLayout", false);
     const auto layoutIt = payload.find("layout");
+    const auto reportFailure = [this, &layoutId](const std::string& reason) {
+        AppendSessionLog("Save layout failed (" + layoutId + "): " + reason);
+        SendMessageToUI(
+            nlohmann::json{{"type", "layoutSaveFailed"}, {"layoutId", layoutId}, {"message", reason}}.dump());
+    };
 
     if (effectType.empty() || layoutIt == payload.end() || !layoutIt->is_object())
     {
-        ReportErrorToUI("Save layout failed", "Missing effect type or layout data");
+        reportFailure("Missing effect type or layout data");
         return;
     }
 
@@ -139,96 +173,23 @@ void PluginController::HandleSaveEffectLayoutRequest(const nlohmann::json& paylo
         layoutId = GenerateGuidV4String();
     }
 
-    // Persist layout JSON in its own subdirectory.
     nlohmann::json layoutJson = *layoutIt;
     layoutJson["layoutId"] = layoutId;
-    SaveLayoutToFile(layoutId, layoutJson);
 
-    // When saving a new layout (first time or forked from factory), copy any referenced
-    // images from wherever they currently live into this layout's images/ directory so
-    // the layout is self-contained.
-    if (isNewLayout)
+    if (!SaveLayoutToFile(layoutId, layoutJson))
     {
-        const auto destImagesDir = ResolveLayoutDir(mFileSystem, layoutId) / "images";
-        [[maybe_unused]] const auto ensuredDest = mFileSystem.EnsureDirectory(destImagesDir);
+        reportFailure("The layout could not be written to the library");
+        return;
+    }
 
-        const auto referencedIt = payload.find("referencedImageIds");
-
-        if (referencedIt != payload.end() && referencedIt->is_array())
-        {
-            const auto settingsDir = mFileSystem.ResolveSettingsDirectory();
-            const auto userLayoutsRoot = settingsDir / "layouts" / "content";
-
-            for (const auto& idVal : *referencedIt)
-            {
-                if (!idVal.is_string())
-                {
-                    continue;
-                }
-
-                const std::string imageId = idVal.get<std::string>();
-
-                // Search: first in other user layout image dirs, then legacy fallback dir.
-                std::filesystem::path sourcePath;
-                std::error_code ec;
-
-                if (std::filesystem::exists(userLayoutsRoot, ec))
-                {
-                    for (const auto& layoutDir : std::filesystem::directory_iterator(userLayoutsRoot, ec))
-                    {
-                        if (!layoutDir.is_directory())
-                        {
-                            continue;
-                        }
-
-                        const auto imagesDir = layoutDir.path() / "images";
-
-                        if (!std::filesystem::exists(imagesDir))
-                        {
-                            continue;
-                        }
-
-                        for (const auto& imgEntry : std::filesystem::directory_iterator(imagesDir, ec))
-                        {
-                            if (!imgEntry.is_regular_file())
-                            {
-                                continue;
-                            }
-
-                            if (util::PathToUtf8(imgEntry.path().stem()) == imageId)
-                            {
-                                sourcePath = imgEntry.path();
-                                break;
-                            }
-                        }
-
-                        if (!sourcePath.empty())
-                        {
-                            break;
-                        }
-                    }
-                }
-
-                if (sourcePath.empty())
-                {
-                    continue; // image not found, skip
-                }
-
-                const auto destPath = destImagesDir / sourcePath.filename();
-
-                if (destPath != sourcePath)
-                {
-                    std::filesystem::copy_file(sourcePath, destPath, std::filesystem::copy_options::overwrite_existing,
-                                               ec);
-
-                    if (ec)
-                    {
-                        AppendSessionLog("Failed to copy layout image " + util::PathToUtf8(sourcePath) + ": " +
-                                         ec.message());
-                    }
-                }
-            }
-        }
+    // Every image the layout draws on gets a copy in its own folder, on every save rather than
+    // only the first: one picked from another layout's folder would otherwise go with that layout
+    // when it is deleted, and a factory layout's fork would depend on the bundled folder.
+    for (const auto& imageId : CopyMissingLayoutImages(
+             mFileSystem, ResolveFactoryLayoutsDir(mHost.GetBundledAssetsPath()), layoutId,
+             CollectLayoutImageIds(layoutJson), [this](const std::string& line) { AppendSessionLog(line); }))
+    {
+        AppendSessionLog("Layout " + layoutId + " refers to an image that is not in the library: " + imageId);
     }
 
     // Update association mapping
@@ -272,7 +233,12 @@ void PluginController::HandleSaveEffectLayoutRequest(const nlohmann::json& paylo
     assocEntry["layoutIds"] = ids;
     assocEntry["defaultLayoutId"] = layoutId;
 
-    SaveEffectLayoutsSettings(mFileSystem, settings);
+    if (!SaveEffectLayoutsSettings(mFileSystem, settings))
+    {
+        reportFailure("The layout index could not be written");
+        LoadLayoutLibrary();
+        return;
+    }
 
     SendMessageToUI(nlohmann::json{
         {"type", "layoutSaved"},
@@ -338,6 +304,14 @@ void PluginController::HandleBrowseLayoutImageRequest(const nlohmann::json& payl
     const std::string paramKey = payload.value("paramKey", "");
     const std::string layoutId = payload.value("layoutId", "");
 
+    // An image goes in the folder of the layout it is for. Without an id it would land in the
+    // legacy shared folder, which the loader only reads for old layouts' sake.
+    if (layoutId.empty())
+    {
+        ReportErrorToUI("Image import failed", "Missing layoutId");
+        return;
+    }
+
     mHost.BrowseFileAsync(
         BrowseFileType::ImageFile, "Select Image",
         [this, purpose, layerIndex, paramKey, layoutId](const BrowseFileResult& result) {
@@ -346,15 +320,34 @@ void PluginController::HandleBrowseLayoutImageRequest(const nlohmann::json& payl
                 return;
             }
 
-            const auto imagesDir = layoutId.empty()
-                                       ? mFileSystem.ResolveSettingsDirectory() / "layouts" / "content" / "images"
-                                       : ResolveLayoutDir(mFileSystem, layoutId) / "images";
+            const auto selectedPath = result.path;
+            const std::string mimeType = LayoutImageMimeType(selectedPath.extension());
+
+            if (mimeType.empty())
+            {
+                ReportErrorToUI("Image import failed", "Layouts take PNG, JPEG, GIF, WebP or SVG images");
+                return;
+            }
+
+            std::error_code sizeEc;
+            const auto size = std::filesystem::file_size(selectedPath, sizeEc);
+
+            if (!sizeEc && size > kMaxLayoutImageBytes)
+            {
+                ReportErrorToUI("Image import failed", "The image is larger than 16 MB");
+                return;
+            }
+
+            const auto imagesDir = ResolveLayoutDir(mFileSystem, layoutId) / "images";
             [[maybe_unused]] const auto ensuredImagesDir = mFileSystem.EnsureDirectory(imagesDir);
 
-            const auto selectedPath = result.path;
+            // The extension in lower case, so "IMG_0042.JPG" is read back like any other JPEG.
+            std::string extension = util::PathToUtf8(selectedPath.extension());
+            std::transform(extension.begin(), extension.end(), extension.begin(),
+                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
             const auto timestamp = std::chrono::system_clock::now().time_since_epoch().count();
             const std::string imageId = util::PathToUtf8(selectedPath.stem()) + "_" + std::to_string(timestamp);
-            const std::string destFilename = imageId + util::PathToUtf8(selectedPath.extension());
+            const std::string destFilename = imageId + extension;
             const auto destPath = imagesDir / util::PathFromUtf8(destFilename);
 
             try
@@ -373,16 +366,7 @@ void PluginController::HandleBrowseLayoutImageRequest(const nlohmann::json& payl
                                                     std::istreambuf_iterator<char>());
                 imageFile.close();
 
-                const std::string base64Data = util::EncodeBase64(imageData);
-                std::string mimeType = "image/png";
-                const auto ext = util::PathToUtf8(selectedPath.extension());
-
-                if (ext == ".jpg" || ext == ".jpeg")
-                {
-                    mimeType = "image/jpeg";
-                }
-
-                const std::string dataUrl = "data:" + mimeType + ";base64," + base64Data;
+                const std::string dataUrl = "data:" + mimeType + ";base64," + util::EncodeBase64(imageData);
 
                 SendMessageToUI(nlohmann::json{
                     {"type", "layoutImageSelected"},
@@ -409,24 +393,35 @@ void PluginController::HandleSaveLayoutImageRequest(const nlohmann::json& payloa
     const std::string dataEncoded = payload.value("data", "");
     const std::string layoutId = payload.value("layoutId", "");
 
-    if (imageId.empty() || fileName.empty() || dataEncoded.empty())
+    if (imageId.empty() || fileName.empty() || dataEncoded.empty() || layoutId.empty())
     {
         AppendSessionLog("SaveLayoutImage: missing required fields");
+        ReportErrorToUI("Image import failed", "The layout's image was incomplete");
         return;
     }
 
-    const auto imagesDir = layoutId.empty() ? mFileSystem.ResolveSettingsDirectory() / "layouts" / "content" / "images"
-                                            : ResolveLayoutDir(mFileSystem, layoutId) / "images";
-    [[maybe_unused]] const auto ensuredImagesDir = mFileSystem.EnsureDirectory(imagesDir);
+    // The name comes from an imported archive's manifest, so the archive chooses it. A name
+    // with a folder or a drive in it would be written wherever it points.
+    if (!IsSafeLayoutImageFileName(fileName, imageId))
+    {
+        AppendSessionLog("SaveLayoutImage: refused the file name " + fileName);
+        ReportErrorToUI("Image import failed", "The layout's image has a file name that cannot be used");
+        return;
+    }
 
     const auto decodedBytes = util::DecodeBase64(dataEncoded);
 
-    if (decodedBytes.empty())
+    if (decodedBytes.empty() || decodedBytes.size() > kMaxLayoutImageBytes ||
+        !LooksLikeLayoutImage(decodedBytes, util::PathFromUtf8(fileName).extension()))
     {
-        AppendSessionLog("SaveLayoutImage: failed to decode base64 data for " + imageId);
+        AppendSessionLog("SaveLayoutImage: refused " + fileName + " (" + std::to_string(decodedBytes.size()) +
+                         " bytes): not an image of its type, or too large");
+        ReportErrorToUI("Image import failed", "The layout's image is not a supported image, or is larger than 16 MB");
         return;
     }
 
+    const auto imagesDir = ResolveLayoutDir(mFileSystem, layoutId) / "images";
+    [[maybe_unused]] const auto ensuredImagesDir = mFileSystem.EnsureDirectory(imagesDir);
     const auto destPath = imagesDir / util::PathFromUtf8(fileName);
 
     if (WriteFile(destPath, decodedBytes))
@@ -436,6 +431,7 @@ void PluginController::HandleSaveLayoutImageRequest(const nlohmann::json& payloa
     else
     {
         AppendSessionLog("SaveLayoutImage: failed to write " + util::PathToUtf8(destPath));
+        ReportErrorToUI("Image import failed", "The layout's image could not be written");
     }
 }
 
@@ -523,7 +519,7 @@ void PluginController::LoadLayoutLibrary()
     // added as defaults only when no user-defined default already exists for that key.
     {
         const auto bundledRoot = mHost.GetBundledAssetsPath();
-        const auto factoryLayoutsDir = bundledRoot / "ui" / "assets" / "layouts";
+        const auto factoryLayoutsDir = ResolveFactoryLayoutsDir(bundledRoot);
 
         if (std::filesystem::exists(factoryLayoutsDir))
         {
@@ -660,9 +656,9 @@ nlohmann::json PluginController::BuildLayoutImages()
                 continue;
             }
 
-            const auto ext = util::PathToUtf8(entry.path().extension());
+            const std::string mimeType = LayoutImageMimeType(entry.path().extension());
 
-            if (ext != ".png" && ext != ".jpg" && ext != ".jpeg")
+            if (mimeType.empty())
             {
                 continue;
             }
@@ -678,16 +674,7 @@ nlohmann::json PluginController::BuildLayoutImages()
                                                 std::istreambuf_iterator<char>());
             imageFile.close();
 
-            const std::string base64Data = util::EncodeBase64(imageData);
-            std::string mimeType = "image/png";
-
-            if (ext == ".jpg" || ext == ".jpeg")
-            {
-                mimeType = "image/jpeg";
-            }
-
-            const std::string dataUrl = "data:" + mimeType + ";base64," + base64Data;
-
+            const std::string dataUrl = "data:" + mimeType + ";base64," + util::EncodeBase64(imageData);
             const std::string imageId = util::PathToUtf8(entry.path().stem());
             bool replaced = false;
 
@@ -712,6 +699,10 @@ nlohmann::json PluginController::BuildLayoutImages()
             }
         }
     };
+
+    // Images saved before every layout had an id went to one shared folder. Listed first, so a
+    // layout's own copy of the same image wins.
+    appendImagesFromDir(ResolveLegacyLayoutImagesDir(mFileSystem));
 
     // User layout images: one images/ folder per associated layoutId.
     nlohmann::json settings = LoadEffectLayoutsSettings(mFileSystem);
@@ -750,7 +741,7 @@ nlohmann::json PluginController::BuildLayoutImages()
     // Factory layout images: referenced via each layout's manifest.
     {
         const auto bundledRoot = mHost.GetBundledAssetsPath();
-        const auto factoryLayoutsDir = bundledRoot / "ui" / "assets" / "layouts";
+        const auto factoryLayoutsDir = ResolveFactoryLayoutsDir(bundledRoot);
 
         if (std::filesystem::exists(factoryLayoutsDir))
         {
@@ -825,16 +816,14 @@ nlohmann::json PluginController::BuildLayoutImages()
                                                           std::istreambuf_iterator<char>());
                         imgFile.close();
 
-                        const std::string base64Data = util::EncodeBase64(imgData);
-                        const auto ext = util::PathToUtf8(imgPath.extension());
-                        std::string mimeType = "image/png";
+                        const std::string mimeType = LayoutImageMimeType(imgPath.extension());
 
-                        if (ext == ".jpg" || ext == ".jpeg")
+                        if (mimeType.empty())
                         {
-                            mimeType = "image/jpeg";
+                            continue;
                         }
 
-                        const std::string dataUrl = "data:" + mimeType + ";base64," + base64Data;
+                        const std::string dataUrl = "data:" + mimeType + ";base64," + util::EncodeBase64(imgData);
 
                         bool replaced = false;
 
@@ -876,7 +865,7 @@ void PluginController::HandleRequestLayoutImagesRequest()
     SendMessageToUI(nlohmann::json{{"type", "layoutImagesLoaded"}, {"images", BuildLayoutImages()}}.dump());
 }
 
-void PluginController::SaveLayoutToFile(const std::string& layoutId, const nlohmann::json& layoutJson)
+bool PluginController::SaveLayoutToFile(const std::string& layoutId, const nlohmann::json& layoutJson)
 {
     // The layout document goes to the store; its image sidecars stay in
     // layouts/content/<id>/images/, so the directory is still created.
@@ -886,10 +875,10 @@ void PluginController::SaveLayoutToFile(const std::string& layoutId, const nlohm
     if (Store().Put(storage::ItemType::kLayout, layoutId, layoutJson))
     {
         AppendSessionLog("Layout saved: " + layoutId);
+        return true;
     }
-    else
-    {
-        AppendSessionLog("Failed to save layout: " + layoutId);
-    }
+
+    AppendSessionLog("Failed to save layout: " + layoutId);
+    return false;
 }
 } // namespace guitarfx

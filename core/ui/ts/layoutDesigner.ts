@@ -10,12 +10,12 @@ import { CanvasProperties } from "./layoutDesigner/canvasProperties.js";
 import { LayoutStore } from "./layoutDesigner/layoutStore.js";
 import { ElementProperties } from "./layoutDesigner/elementProperties.js";
 import { getLayoutImageUrl } from "./layoutDesigner/images.js";
-import { showConfirm } from "./dialogs.js";
+import { isDialogOpen, showConfirm } from "./dialogs.js";
 import type { CopiedTextLabelPayload, DragState, LayoutResourceCandidate, SelectedElement } from "./layoutDesigner/types.js";
 import { ensureLayoutImagesLoaded } from "./layoutImages.js";
-import { colorWithAlpha, renderCustomLayoutPreviewLayers } from "./layoutRenderer.js";
+import { colorWithAlpha, renderCustomLayoutPreviewLayers, safeCssValue } from "./layoutRenderer.js";
 import type { LayoutResourceControlDef } from "./layoutRenderer.js";
-import { DEFAULT_LAYOUT_DIMENSIONS, LAYOUT_DIMENSION_LIMITS, LAYOUT_GRID_SIZE, generateLabelId, generateLayoutId, generateOverlayId, layoutLookupKey, snapToGrid } from "./layoutTypes.js";
+import { DEFAULT_LAYOUT_DIMENSIONS, LAYOUT_DIMENSION_LIMITS, LAYOUT_GRID_SIZE, MAX_BACKGROUND_LAYERS, generateLabelId, generateLayoutId, generateOverlayId, layoutLookupKey, nextFreeBackgroundLayer, normalizeBackgroundLayers, snapToGrid } from "./layoutTypes.js";
 import type { EffectLayout, LayoutBackground, LayoutControl, LayoutImageRef, LayoutLibraryEntry, LayoutRectangleOverlay, LayoutTextLabel } from "./layoutTypes.js";
 import { showNotification } from "./notifications.js";
 import { EffectTypeRegistry } from "./presetV2.js";
@@ -48,8 +48,11 @@ export class LayoutDesignerModal {
       this.isNewLayout = value;
     },
     getParamDefs: () => this.paramDefs,
+    getKnownControlKeys: () => new Set([
+      ...this.paramDefs.map((paramDef) => paramDef.key),
+      ...this.resourceCandidates.map((candidate) => candidate.controlKey),
+    ]),
     applyLayoutName: (pushUndo) => this.applyLayoutName(pushUndo),
-    collectReferencedImageIds: () => this.collectReferencedImageIds(),
     updateDeleteButtonVisibility: () => this.updateDeleteButtonVisibility(),
     takeImportFile: () => {
       const file = this.importFileInput?.files?.[0] ?? null;
@@ -59,7 +62,13 @@ export class LayoutDesignerModal {
     closeModal: (didSave) => this.close(didSave),
     notifySaved: (layout) => this.onSaveCallback?.(layout),
     pushUndoState: () => this.pushUndoState(),
-    updateDimensionInputs: () => this.updateDimensionInputs(),
+    refreshEditorChrome: () => this.refreshEditorChrome(),
+    setSaving: (saving) => {
+      if (this.saveBtn) {
+        this.saveBtn.disabled = saving;
+        this.saveBtn.setAttribute("aria-busy", String(saving));
+      }
+    },
     renderCanvas: () => this.renderCanvas(),
     selectElement: (element) => this.selectElement(element),
   });
@@ -132,6 +141,10 @@ export class LayoutDesignerModal {
   private undoStack: string[] = [];
   private redoStack: string[] = [];
   private static readonly MAX_UNDO = 50;
+  /** The layout as it was opened, to tell whether closing would lose anything. */
+  private cleanSnapshot = "";
+  /** Set while the discard-changes question is on screen, so Escape does not ask it twice. */
+  private confirmingClose = false;
   private copiedTextLabel: CopiedTextLabelPayload | null = null;
   /** Tracks whether undo was pushed for current sidebar edit session */
   private sidebarUndoPushed = false;
@@ -242,8 +255,8 @@ export class LayoutDesignerModal {
 
   private bindEvents(): void {
     // Close buttons
-    this.closeBtn?.addEventListener("click", () => this.close());
-    this.cancelBtn?.addEventListener("click", () => this.close());
+    this.closeBtn?.addEventListener("click", () => { void this.requestClose(); });
+    this.cancelBtn?.addEventListener("click", () => { void this.requestClose(); });
     this.saveBtn?.addEventListener("click", () => { void this.store.save(); });
     this.deleteBtn?.addEventListener("click", () => { void this.confirmDeleteCurrentLayout(); });
     this.exportBtn?.addEventListener("click", () => this.store.exportLayout());
@@ -253,7 +266,7 @@ export class LayoutDesignerModal {
     // Modal backdrop click
     this.modal?.addEventListener("mousedown", (e) => {
       if (e.target === this.modal) {
-        this.close();
+        void this.requestClose();
       }
     });
 
@@ -401,6 +414,9 @@ export class LayoutDesignerModal {
     if (this.layout && !Array.isArray(this.layout.overlays)) {
       this.layout.overlays = [];
     }
+    if (this.layout) {
+      normalizeBackgroundLayers(this.layout);
+    }
 
     // Tag the layout with blendId so it persists across save/load
     if (this.layout && this.blendId) {
@@ -414,34 +430,23 @@ export class LayoutDesignerModal {
     this.zoom = 1;
     this.undoStack = [];
     this.redoStack = [];
-
-    // Sync toolbar checkbox
-    if (this.useDefaultControlsCheckbox) {
-      this.useDefaultControlsCheckbox.checked = this.layout?.useDefaultControls === true;
-    }
-    // Sync Add Control button dim state
-    if (this.addControlBtn) {
-      const isDefaultControls = this.layout?.useDefaultControls === true;
-      this.addControlBtn.style.opacity = isDefaultControls ? "0.4" : "";
-      this.addControlBtn.title = isDefaultControls
-        ? "Add Control (disabled \u2014 Default Controls mode)"
-        : "Add Parameter Control";
-    }
+    this.confirmingClose = false;
 
     // Update UI
-    this.updateNameInput();
-    this.updateDimensionInputs();
+    this.refreshEditorChrome();
     this.updateZoomUI();
     this.updateUndoRedoButtons();
     this.updateDeleteButtonVisibility();
     this.renderCanvas();
     this.renderSidebar();
+    this.cleanSnapshot = JSON.stringify(this.layout);
 
     // Show modal
     this.modal.style.display = "flex";
   }
 
   close(didSave: boolean = false): void {
+    this.store.cancelPendingSave();
     if (this.modal) {
       this.modal.style.display = "none";
     }
@@ -449,11 +454,64 @@ export class LayoutDesignerModal {
     this.effectType = "";
     this.blendId = "";
     this.selectedElement = null;
+    this.cleanSnapshot = "";
     this.onCloseCallback?.(didSave);
+  }
+
+  /** True when closing now would throw away an edit, including a name still being typed. */
+  private isDirty(): boolean {
+    if (!this.layout) return false;
+    if (JSON.stringify(this.layout) !== this.cleanSnapshot) return true;
+    return (this.nameInput?.value.trim() ?? "") !== (this.layout.name ?? "").trim();
+  }
+
+  /**
+   * Close unless that would lose edits, in which case ask first. Cancel, the close button,
+   * Escape and a click on the backdrop all come through here; the backdrop is a few pixels
+   * from the canvas, and none of them used to ask.
+   */
+  private async requestClose(): Promise<void> {
+    if (this.confirmingClose) return;
+    if (!this.isDirty()) {
+      this.close();
+      return;
+    }
+    this.confirmingClose = true;
+    try {
+      const discard = await showConfirm("Close the layout designer and discard your changes?", "Unsaved changes", {
+        ok: "Discard changes",
+        cancel: "Keep editing",
+      });
+      if (discard && this.layout) this.close();
+    } finally {
+      this.confirmingClose = false;
+    }
+  }
+
+  /** Bring the toolbar in line with the layout: after open, undo, redo, reset and import. */
+  private refreshEditorChrome(): void {
+    this.updateNameInput();
+    this.updateDimensionInputs();
+    const isDefaultControls = this.layout?.useDefaultControls === true;
+    if (this.useDefaultControlsCheckbox) {
+      this.useDefaultControlsCheckbox.checked = isDefaultControls;
+    }
+    // Dim Add Control: it has no effect in Default Controls mode
+    if (this.addControlBtn) {
+      this.addControlBtn.style.opacity = isDefaultControls ? "0.4" : "";
+      this.addControlBtn.title = isDefaultControls
+        ? "Add Control (disabled \u2014 Default Controls mode)"
+        : "Add Parameter Control";
+    }
   }
 
   onSave(callback: (layout: EffectLayout) => void): void {
     this.onSaveCallback = callback;
+  }
+
+  /** The engine's answer to a save; false when no save of that layout is waiting here. */
+  handleSaveResult(result: { layoutId?: string; ok: boolean; message?: string }): boolean {
+    return this.store.handleSaveResult(result);
   }
 
   /** Re-render the canvas when layout images finish loading, if the designer is open. */
@@ -518,31 +576,20 @@ export class LayoutDesignerModal {
   }
 
 
-  /** Collect all image IDs referenced by the current layout. */
-  private collectReferencedImageIds(): string[] {
-    if (!this.layout) return [];
-    const ids = new Set<string>();
-    for (const bg of this.layout.backgrounds) {
-      if (bg.type === "image" && bg.value) ids.add(bg.value);
-    }
-    for (const control of this.layout.controls) {
-      if (control.style?.knobImageId) ids.add(control.style.knobImageId);
-    }
-    return Array.from(ids);
-  }
-
-
-
-
-
-
+  /**
+   * Replace the design with the auto-generated one, keeping the layout's identity. Without
+   * its id, Save created a second layout beside the first, and images browsed afterwards
+   * went to a folder nothing reads back.
+   */
   private resetLayout(): void {
-    if (!this.effectType) return;
+    if (!this.effectType || !this.layout) return;
 
     this.pushUndoState();
-    this.layout = this.store.createDefaultLayout(this.effectType);
+    const { layoutId, name, blendId, author, createdAt } = this.layout;
+    this.layout = { ...this.store.createDefaultLayout(this.effectType), layoutId, name, blendId, author };
+    if (createdAt) this.layout.createdAt = createdAt;
     this.selectedElement = null;
-    this.updateDimensionInputs();
+    this.refreshEditorChrome();
     this.renderCanvas();
     this.renderSidebar();
     showNotification("Layout reset to default");
@@ -585,8 +632,7 @@ export class LayoutDesignerModal {
     this.redoStack.push(JSON.stringify(this.layout));
     this.layout = JSON.parse(this.undoStack.pop()!) as EffectLayout;
     this.selectedElement = null;
-    this.updateNameInput();
-    this.updateDimensionInputs();
+    this.refreshEditorChrome();
     this.renderCanvas();
     this.renderSidebar();
     this.updateUndoRedoButtons();
@@ -597,8 +643,7 @@ export class LayoutDesignerModal {
     this.undoStack.push(JSON.stringify(this.layout));
     this.layout = JSON.parse(this.redoStack.pop()!) as EffectLayout;
     this.selectedElement = null;
-    this.updateNameInput();
-    this.updateDimensionInputs();
+    this.refreshEditorChrome();
     this.renderCanvas();
     this.renderSidebar();
     this.updateUndoRedoButtons();
@@ -843,10 +888,12 @@ export class LayoutDesignerModal {
       layer.className = `layout-designer-background layer-${bg.layerIndex}${isSelected ? " selected" : ""}`;
       layer.dataset.layerIndex = String(bg.layerIndex);
 
+      // Filtered as the runtime renderer filters them: an imported gradient could otherwise
+      // carry url(https://…) and fetch it the moment the designer draws.
       if (bg.type === "color") {
-        layer.style.backgroundColor = bg.value;
+        layer.style.backgroundColor = safeCssValue(bg.value, "transparent");
       } else if (bg.type === "gradient") {
-        layer.style.background = bg.value;
+        layer.style.background = safeCssValue(bg.value, "transparent");
       } else if (bg.type === "image") {
         // bg.value is imageId - resolve to actual URL
         const imageUrl = getLayoutImageUrl(bg.value);
@@ -976,8 +1023,9 @@ export class LayoutDesignerModal {
       ...images.map((img) => {
         const selected = selectedImageId && img.imageId === selectedImageId ? "selected" : "";
         const typeLabel = img.type ? ` [${img.type}]` : "";
+        // Both can come from an imported archive's manifest.
         const name = img.fileName || img.imageId;
-        return `<option value="${escapeHtml(img.imageId)}" ${selected}>${name}${typeLabel}</option>`;
+        return `<option value="${escapeHtml(img.imageId)}" ${selected}>${escapeHtml(name)}${escapeHtml(typeLabel)}</option>`;
       }),
     ];
     return options.join("");
@@ -1022,7 +1070,8 @@ export class LayoutDesignerModal {
     const isResourceControl = this.isResourceControl(control);
     const paramDef = isResourceControl ? undefined : this.paramDefs.find((p) => p.key === control.paramKey);
     const resourceDef = isResourceControl ? this.resourceCandidates.find((candidate) => candidate.controlKey === control.paramKey) : undefined;
-    const label = control.labelOverride || resourceDef?.displayName || paramDef?.name || control.paramKey;
+    // Markup-escaped: an imported layout supplies labelOverride and paramKey.
+    const label = escapeHtml(control.labelOverride || resourceDef?.displayName || paramDef?.name || control.paramKey);
     const isSelected =
       this.selectedElement?.type === "control" && this.selectedElement.paramKey === control.paramKey;
 
@@ -1061,7 +1110,7 @@ export class LayoutDesignerModal {
         : null;
       const customKnobClass = knobImageUrl ? " is-custom-image" : "";
       const customKnobStyle = knobImageUrl ? ` style="background-image: url('${escapeHtml(knobImageUrl)}');"` : "";
-      html += `<div class="control-knob${customKnobClass}" data-style="${knobStyle}"${customKnobStyle}></div>`;
+      html += `<div class="control-knob${customKnobClass}" data-style="${escapeHtml(knobStyle)}"${customKnobStyle}></div>`;
     }
 
     if (!hideLabel && labelPos === "bottom") {
@@ -1259,12 +1308,12 @@ export class LayoutDesignerModal {
   private showAddBackgroundMenu(): void {
     if (!this.layout || !this.sidebarContent) return;
 
-    if (this.layout.backgrounds.length >= 2) {
-      showNotification("Maximum 2 background layers");
+    const targetLayerIndex = nextFreeBackgroundLayer(this.layout.backgrounds);
+    if (targetLayerIndex === null) {
+      showNotification(`Maximum ${MAX_BACKGROUND_LAYERS} background layers`);
       return;
     }
 
-    const targetLayerIndex = this.layout.backgrounds.length;
     const images = this.getReusableLayoutImages("background");
 
     this.selectedElement = null;
@@ -1331,10 +1380,15 @@ export class LayoutDesignerModal {
 
   private browseBackgroundImage(layerIndex?: number): void {
     console.log("[LayoutDesigner] browseBackgroundImage called");
+    const targetLayerIndex = layerIndex ?? (this.layout ? nextFreeBackgroundLayer(this.layout.backgrounds) : 0);
+    if (targetLayerIndex === null) {
+      showNotification(`Maximum ${MAX_BACKGROUND_LAYERS} background layers`);
+      return;
+    }
     postMessage({
       type: "browseLayoutImage",
       purpose: "background",
-      layerIndex: layerIndex ?? (this.layout?.backgrounds.length || 0),
+      layerIndex: targetLayerIndex,
       layoutId: this.layout?.layoutId ?? "",
     });
   }
@@ -1342,12 +1396,12 @@ export class LayoutDesignerModal {
   private addColorBackground(): void {
     if (!this.layout) return;
 
-    if (this.layout.backgrounds.length >= 2) {
-      showNotification("Maximum 2 background layers");
+    const layerIndex = nextFreeBackgroundLayer(this.layout.backgrounds);
+    if (layerIndex === null) {
+      showNotification(`Maximum ${MAX_BACKGROUND_LAYERS} background layers`);
       return;
     }
 
-    const layerIndex = this.layout.backgrounds.length;
     this.pushUndoState();
     const newBg: LayoutBackground = {
       layerIndex,
@@ -1401,7 +1455,7 @@ export class LayoutDesignerModal {
               text-align: left;
             "
           >
-            ${p.name || p.key} <span style="opacity: 0.5; font-size: 10px;">${p.unit || ""}</span>
+            ${escapeHtml(p.name || p.key)} <span style="opacity: 0.5; font-size: 10px;">${escapeHtml(p.unit || "")}</span>
           </button>
         `
           )
@@ -1428,7 +1482,7 @@ export class LayoutDesignerModal {
                 text-align: left;
               "
             >
-              ${resource.displayName} <span style="opacity: 0.5; font-size: 10px;">${resource.resourceType}</span>
+              ${escapeHtml(resource.displayName)} <span style="opacity: 0.5; font-size: 10px;">${escapeHtml(resource.resourceType)}</span>
             </button>
           `,
             )
@@ -1809,6 +1863,9 @@ export class LayoutDesignerModal {
 
   private onKeyDown(e: KeyboardEvent): void {
     if (!this.modal || this.modal.style.display === "none") return;
+    // A confirm dialog above the designer owns the keyboard: Escape there answers it, and
+    // used to close the designer underneath too, edits and all.
+    if (e.defaultPrevented || isDialogOpen()) return;
     if (this.isEditableKeyboardTarget(e.target)) return;
 
     // Undo/Redo: Ctrl+Z / Ctrl+Y or Ctrl+Shift+Z
@@ -1845,7 +1902,7 @@ export class LayoutDesignerModal {
       if (this.selectedElement) {
         this.selectElement(null);
       } else {
-        this.close();
+        void this.requestClose();
       }
       return;
     }
