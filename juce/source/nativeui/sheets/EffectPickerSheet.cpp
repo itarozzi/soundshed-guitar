@@ -31,6 +31,7 @@ std::vector<const EffectTypeInfo*> EffectPickerContent::offeredEffects (const Na
     const std::set<std::string> experimental { guids::kTransposeStft, guids::kTransposeHybrid };
     const bool showExperimental = featureEnabled (context, "experimentalEffects");
     const bool showCustom = featureEnabled (context, "customEffects");
+    const bool showPickupMatch = featureEnabled (context, "pickupMatch");
     std::vector<const EffectTypeInfo*> offered;
 
     for (const auto& info : context.state().catalog)
@@ -43,6 +44,10 @@ std::vector<const EffectTypeInfo*> EffectPickerContent::offeredEffects (const Na
             continue;
 
         if (info.type == guids::kWasmHost && ! showCustom)
+            continue;
+
+        // Pickup Match is experimental, behind a feature of its own.
+        if (info.type == guids::kPickupMatch && ! showPickupMatch)
             continue;
 
         if (experimental.count (info.type) > 0 && ! showExperimental)

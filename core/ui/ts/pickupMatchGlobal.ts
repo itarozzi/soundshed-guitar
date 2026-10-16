@@ -4,6 +4,10 @@
  * plays. This module draws its tab in the input calibration flyout (settings/inputCalibration.ts
  * hosts it) and the control bar's indicator, which shows while it is on.
  *
+ * It is experimental, behind the Pickup Match feature flag (off by default). With the flag off
+ * neither the tab nor the indicator shows, and a Pickup Match left on is switched off, so nothing
+ * the player cannot see changes their sound.
+ *
  * The tab is built from the same pieces as Pickup Match's params panel, so the two cannot drift:
  * - flyout rows for its knobs (flyoutParamControls.ts, shared with the gate flyout);
  * - the pickup pickers (enumPicker.ts);
@@ -20,9 +24,11 @@
  * the guitar is saved again.
  */
 
+import { haveAppSettingsArrived } from "./appSettingsStore.js";
 import { postMessage, sendGlobalChainParam } from "./bridge.js";
 import { showConfirm } from "./dialogs.js";
 import { EffectGuids } from "./effectGuids.js";
+import { Features, isFeatureEnabled } from "./featureFlags.js";
 import {
   bindFlyoutParamRows,
   buildFlyoutParamRows,
@@ -388,7 +394,7 @@ export function updatePickupMatchIndicator(): void {
   if (!indicator) {
     return;
   }
-  const on = isGlobalPickupMatchOn();
+  const on = isFeatureEnabled(Features.PickupMatch) && isGlobalPickupMatchOn();
   indicator.hidden = !on;
   if (!on) {
     return;
@@ -409,11 +415,23 @@ export function refreshPickupMatchGuitars(): void {
 }
 
 /**
- * The global chain arrived or changed: bring the indicator and an open tab up to date. The tab
- * is redrawn only when its layout would change (on/off, a pickup choice); otherwise its controls
- * just take the new values, so a knob being dragged is not pulled out from under the pointer.
+ * With the feature flag off, a Pickup Match left on (from before the flag was switched off) is
+ * switched off. Not before the app settings arrive: until then the flag reads as its default.
+ */
+function switchOffWhileFeatureOff(): void {
+  if (haveAppSettingsArrived() && !isFeatureEnabled(Features.PickupMatch) && isGlobalPickupMatchOn()) {
+    applyEnabled(false);
+  }
+}
+
+/**
+ * The global chain or the feature flag arrived or changed: bring the indicator and an open tab
+ * up to date. The tab is redrawn only when its layout would change (on/off, a pickup choice);
+ * otherwise its controls just take the new values, so a knob being dragged is not pulled out
+ * from under the pointer.
  */
 export function syncPickupMatchFromState(): void {
+  switchOffWhileFeatureOff();
   updatePickupMatchIndicator();
   const node = getGlobalPickupNode();
   if (!tabRoot?.isConnected || tabRoot.hidden || !node) {

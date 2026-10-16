@@ -11,6 +11,7 @@ export const Features = {
   Jam: "jam",
   PracticeTool: "practiceTool",
   ExperimentalEffects: "experimentalEffects",
+  PickupMatch: "pickupMatch",
   CustomEffects: "customEffects",
   MultiRig: "multiRig",
   CompositeEffects: "compositeEffects",
@@ -101,6 +102,13 @@ export const FEATURE_DEFINITIONS: FeatureDefinition[] = [
     legacyAdvanced: true,
   },
   {
+    id: Features.PickupMatch,
+    key: "features.pickupMatch.enabled",
+    label: "Pickup Match",
+    description: "Experimental: makes your guitar's pickup sound like another, a single coil like a humbucker or the other way round, ahead of every preset. Adds a Pickup Match tab to the input meter's flyout (the chevron under the meter). While this is off, Pickup Match is off too.",
+    defaultEnabled: false,
+  },
+  {
     id: Features.CustomEffects,
     key: "features.customEffects.enabled",
     label: "Custom Effects",
@@ -184,7 +192,7 @@ export const FEATURE_GROUPS: FeatureGroupDefinition[] = [
     id: "power",
     title: "Power Features",
     description: "These features are optional and may be under development or designed for advanced users.",
-    featureIds: [Features.ToneBuilder, Features.ExperimentalEffects, Features.CustomEffects, Features.CompositeEffects, Features.BlendTools, Features.EffectLayout, Features.ResourceCleanup, Features.FactoryPresetArchives, Features.DebugStateCapture, Features.EffectsPerformancePads],
+    featureIds: [Features.ToneBuilder, Features.ExperimentalEffects, Features.PickupMatch, Features.CustomEffects, Features.CompositeEffects, Features.BlendTools, Features.EffectLayout, Features.ResourceCleanup, Features.FactoryPresetArchives, Features.DebugStateCapture, Features.EffectsPerformancePads],
   },
 ];
 

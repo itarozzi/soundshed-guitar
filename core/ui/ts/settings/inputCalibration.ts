@@ -12,6 +12,7 @@
 import { postMessage } from "../bridge.js";
 import { updateAppSetting } from "../appSettingsStore.js";
 import { showConfirm } from "../dialogs.js";
+import { Features, isFeatureEnabled } from "../featureFlags.js";
 import { showNotification } from "../notifications.js";
 import { uiState } from "../state.js";
 import type { AppSettingValue, UserInputCalibrationProfile } from "../types.js";
@@ -395,8 +396,15 @@ function ensureToolbarMenuTabs(menu: HTMLElement): HTMLElement {
   return menu.querySelector<HTMLElement>('.input-calibration-tab-panel[data-tab="calibration"]') as HTMLElement;
 }
 
-function showToolbarTab(menu: HTMLElement, tab: ToolbarTab): void {
+function showToolbarTab(menu: HTMLElement, requested: ToolbarTab): void {
+  // Pickup Match is experimental: with its feature off the strip goes and the profiles show alone.
+  const pickupEnabled = isFeatureEnabled(Features.PickupMatch);
+  const tab = pickupEnabled ? requested : "calibration";
   activeToolbarTab = tab;
+  const strip = menu.querySelector<HTMLElement>(".input-calibration-tabs");
+  if (strip) {
+    strip.hidden = !pickupEnabled;
+  }
   menu.querySelectorAll<HTMLElement>(".input-calibration-tabs .node-param-tab").forEach((button) => {
     const active = button.dataset.tab === tab;
     button.classList.toggle("is-active", active);
@@ -412,6 +420,22 @@ function showToolbarTab(menu: HTMLElement, tab: ToolbarTab): void {
   }
   if (isUserInputCalibrationToolbarMenuOpen()) {
     positionUserInputCalibrationToolbarMenu();
+  }
+}
+
+/**
+ * The Pickup Match feature was switched on or off: the flyout's tab strip comes or goes. Left
+ * alone otherwise, since showing the Pickup Match tab again would redraw it under a knob drag.
+ */
+export function syncUserInputCalibrationToolbarTabs(): void {
+  const menu = userInputCalibrationToolbarMenu;
+  const strip = menu?.querySelector<HTMLElement>(".input-calibration-tabs");
+  if (!menu || !strip) {
+    return;
+  }
+  const stripShown = !strip.hidden;
+  if (stripShown !== isFeatureEnabled(Features.PickupMatch)) {
+    showToolbarTab(menu, activeToolbarTab);
   }
 }
 

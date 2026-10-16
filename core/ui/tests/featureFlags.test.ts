@@ -28,3 +28,24 @@ describe("Multi-Rig feature flag", () => {
     expect(power?.featureIds).not.toContain(Features.MultiRig);
   });
 });
+
+describe("Pickup Match feature flag", () => {
+  beforeEach(() => {
+    uiState.appSettings = {} as typeof uiState.appSettings;
+  });
+
+  it("is off by default, as an experimental Power Feature", () => {
+    expect(isFeatureEnabled(Features.PickupMatch)).toBe(false);
+    expect(FEATURE_GROUPS.find((group) => group.id === "power")?.featureIds).toContain(Features.PickupMatch);
+  });
+
+  it("does not follow the legacy advanced-options switch", () => {
+    uiState.appSettings = { "ui.advancedOptionsEnabled": true } as unknown as typeof uiState.appSettings;
+    expect(isFeatureEnabled(Features.PickupMatch)).toBe(false);
+  });
+
+  it("is on for a user who switched it on", () => {
+    uiState.appSettings = { "features.pickupMatch.enabled": true } as unknown as typeof uiState.appSettings;
+    expect(isFeatureEnabled(Features.PickupMatch)).toBe(true);
+  });
+});

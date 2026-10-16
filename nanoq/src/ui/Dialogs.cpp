@@ -200,6 +200,7 @@ std::vector<const EffectTypeInfo*> Shell::OfferedEffects() const
     const std::set<std::string> experimental{guids::kTransposeStft, guids::kTransposeHybrid};
     const bool showExperimental = FeatureEnabled(mState, "experimentalEffects");
     const bool showCustom = FeatureEnabled(mState, "customEffects");
+    const bool showPickupMatch = FeatureEnabled(mState, "pickupMatch");
 
     std::vector<const EffectTypeInfo*> offered;
     for (const auto& info : mState.catalog)
@@ -211,6 +212,9 @@ std::vector<const EffectTypeInfo*> Shell::OfferedEffects() const
             info.type == guids::kGuitarToMidi || info.type.rfind("composite:", 0) == 0)
             continue;
         if (info.type == guids::kWasmHost && !showCustom)
+            continue;
+        // Pickup Match is experimental, behind a feature of its own.
+        if (info.type == guids::kPickupMatch && !showPickupMatch)
             continue;
         if (experimental.count(info.type) > 0 && !showExperimental)
             continue;

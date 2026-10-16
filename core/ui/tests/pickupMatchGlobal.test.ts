@@ -1,8 +1,9 @@
 /**
  * The global chain's Pickup Match in the input levelling flyout: a tab beside the profiles,
  * built from Pickup Match's own pieces; on/off and choices sent as `pickup.<param>`; a picker's
- * popover not closing the flyout; and the control bar indicator. Also the gate flyout, which
- * now draws its rows with the same shared code.
+ * popover not closing the flyout; and the control bar indicator. With its feature flag off, none
+ * of that shows and a Pickup Match left on is switched off. Also the gate flyout, which now draws
+ * its rows with the same shared code.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { GraphNode } from "../ts/types";
@@ -36,6 +37,7 @@ window.IPlugSendMsg = (payload: string) => {
 const { EffectGuids } = await import("../ts/effectGuids.js");
 const { EffectTypeRegistry } = await import("../ts/presetV2.js");
 const { uiState } = await import("../ts/state.js");
+const { recordAppSetting, replaceAppSettings } = await import("../ts/appSettingsStore.js");
 const calibration = await import("../ts/settings/inputCalibration.js");
 const { syncPickupMatchFromState } = await import("../ts/pickupMatchGlobal.js");
 const picker = await import("../ts/signalPath/paramsPanel/enumPicker.js");
@@ -91,21 +93,27 @@ const indicator = () => document.getElementById("pickup-match-indicator") as HTM
 const tab = (name: string) => menu().querySelector<HTMLButtonElement>(`.input-calibration-tabs [data-tab="${name}"]`);
 const panel = (name: string) => menu().querySelector<HTMLElement>(`.input-calibration-tab-panel[data-tab="${name}"]`);
 const sentPaths = () => sent.filter((m) => m.type === "setGlobalChainParam").map((m) => [m.path, m.value]);
+const PICKUP_MATCH_FEATURE = "features.pickupMatch.enabled";
 
 calibration.initUserInputCalibrationControls();
 gate.initializeGateControls();
+
+function useGlobalChainWith(node: GraphNode): void {
+  uiState.globalSignalChain = {
+    inputGain: 0, monoMode: true, inputChannel: 0, outputGain: 0, limiterEnabled: false,
+    preChainGraph: { nodes: [node], edges: [] }, postChainGraph: { nodes: [], edges: [] },
+  };
+}
 
 describe("Pickup Match in the input levelling flyout", () => {
   let node: GraphNode;
 
   beforeEach(() => {
+    recordAppSetting(PICKUP_MATCH_FEATURE, true);
     picker.closeEnumPicker();
     calibration.closeUserInputCalibrationToolbarMenu();
     node = pickupNode();
-    uiState.globalSignalChain = {
-      inputGain: 0, monoMode: true, inputChannel: 0, outputGain: 0, limiterEnabled: false,
-      preChainGraph: { nodes: [node], edges: [] }, postChainGraph: { nodes: [], edges: [] },
-    };
+    useGlobalChainWith(node);
     syncPickupMatchFromState();
     sent = [];
   });
@@ -191,6 +199,61 @@ describe("Pickup Match in the input levelling flyout", () => {
     indicator().dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
     indicator().click();
     expect(menu().hidden).toBe(true);
+  });
+});
+
+// These run in order: the first is before the engine's settings arrive, and the rest after.
+describe("Pickup Match with its feature flag off", () => {
+  let node: GraphNode;
+
+  beforeEach(() => {
+    recordAppSetting(PICKUP_MATCH_FEATURE, false);
+    picker.closeEnumPicker();
+    calibration.closeUserInputCalibrationToolbarMenu();
+    node = pickupNode();
+    useGlobalChainWith(node);
+    sent = [];
+  });
+
+  it("switches nothing off before the app settings arrive, as the flag reads off until then", () => {
+    node.bypassed = false;
+    syncPickupMatchFromState();
+    expect(sentPaths()).toEqual([]);
+    expect(node.bypassed).toBe(false);
+  });
+
+  it("switches a Pickup Match left on off, and hides the indicator", () => {
+    replaceAppSettings({ ...uiState.appSettings, [PICKUP_MATCH_FEATURE]: false });
+    node.bypassed = false;
+    syncPickupMatchFromState();
+    expect(sentPaths()).toEqual([["pickup.enabled", false]]);
+    expect(node.bypassed).toBe(true);
+    expect(indicator().hidden).toBe(true);
+  });
+
+  it("leaves the flyout to the input profiles, with no tab strip", () => {
+    calibration.openUserInputCalibrationToolbarMenu("pickup");
+    expect(menu().hidden).toBe(false);
+    expect(menu().querySelector<HTMLElement>(".input-calibration-tabs")?.hidden).toBe(true);
+    expect(panel("calibration")?.hidden).toBe(false);
+    expect(panel("pickup")?.hidden).toBe(true);
+    expect(menu().classList.contains("is-pickup-tab")).toBe(false);
+    expect(sent).toEqual([]);
+  });
+
+  it("brings the tab strip back on an open flyout when the feature is switched on", () => {
+    calibration.openUserInputCalibrationToolbarMenu("calibration");
+    recordAppSetting(PICKUP_MATCH_FEATURE, true);
+    calibration.syncUserInputCalibrationToolbarTabs();
+    expect(menu().querySelector<HTMLElement>(".input-calibration-tabs")?.hidden).toBe(false);
+    tab("pickup")?.click();
+    expect(panel("pickup")?.hidden).toBe(false);
+
+    recordAppSetting(PICKUP_MATCH_FEATURE, false);
+    calibration.syncUserInputCalibrationToolbarTabs();
+    expect(menu().querySelector<HTMLElement>(".input-calibration-tabs")?.hidden).toBe(true);
+    expect(panel("calibration")?.hidden).toBe(false);
+    expect(panel("pickup")?.hidden).toBe(true);
   });
 });
 

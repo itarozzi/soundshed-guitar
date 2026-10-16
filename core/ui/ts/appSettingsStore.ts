@@ -16,6 +16,13 @@ import { setAppSetting } from "./bridge.js";
 import { uiState } from "./state.js";
 import type { AppSettings, AppSettingValue } from "./types.js";
 
+/** Whether the engine's settings have arrived. Until then `uiState.appSettings` holds only defaults. */
+let receivedFromEngine = false;
+
+export function haveAppSettingsArrived(): boolean {
+  return receivedFromEngine;
+}
+
 /** One setting's stored value, or null when it has never been set. */
 export function getAppSetting(key: string): AppSettingValue {
   return uiState.appSettings?.[key] ?? null;
@@ -52,4 +59,5 @@ export function updateAppSettings(values: Readonly<Record<string, AppSettingValu
  */
 export function replaceAppSettings(settings: AppSettings): void {
   uiState.appSettings = settings;
+  receivedFromEngine = true;
 }

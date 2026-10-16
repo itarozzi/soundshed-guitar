@@ -918,6 +918,17 @@ loads, plays and edits it.
 and bypassed until switched on, so one setting converts the player's pickup ahead of every preset.
 It is edited in the input levelling flyout (the chevron under the input meter), on its Pickup Match tab.
 
+**Experimental, behind a feature flag.** Settings → Features → Power Features → Pickup Match
+(`features.pickupMatch.enabled`, `Features.PickupMatch`) is off by default. While it is off:
+- the flyout has no tab strip and shows the input profiles alone;
+- the indicator beside IN stays hidden;
+- a global Pickup Match left on is switched off (`pickup.enabled` false), so nothing the player can't
+  see changes the sound. This waits for the engine's app settings, since the flag reads as its
+  default until they arrive (`haveAppSettingsArrived` in `appSettingsStore.ts`);
+- the Nano's effect pickers leave the effect out. The web UI's pickers leave it out either way (see above).
+
+A preset that already holds a Pickup Match node still loads, plays and edits it with the flag off.
+
 The tab is built from the same pieces as the params panel, so the two never drift:
 - the pickers;
 - the conversion curve;
