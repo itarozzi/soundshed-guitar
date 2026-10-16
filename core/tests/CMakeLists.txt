@@ -28,6 +28,7 @@ set(TEST_SOURCES
     DriveLegacyMigrationTests.cpp
     DrivePedalTests.cpp
     DSPPerformanceTests.cpp
+    DualLanePlacementTests.cpp
     DualMonoTests.cpp
     EffectAliasParityTests.cpp
     EffectFactoryPresetTests.cpp

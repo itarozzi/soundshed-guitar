@@ -128,8 +128,11 @@ class RealtimeTaskPool
     RealtimeTaskPool& operator=(const RealtimeTaskPool&) = delete;
 
     /// Replaces the workers with `workerCount` new ones; zero only stops them. If some
-    /// threads cannot be created it keeps the ones that were.
-    void Start(int workerCount);
+    /// threads cannot be created it keeps the ones that were. With `avoidDispatcherCore`, a
+    /// worker keeps off the physical core the dispatching thread last ran on, where Windows
+    /// would otherwise often wake it on that thread's SMT sibling (see CoreAvoidance in the
+    /// .cpp). For the dual-lane helper; a no-op off Windows.
+    void Start(int workerCount, bool avoidDispatcherCore = false);
     void Stop();
 
     [[nodiscard]] int WorkerCount() const noexcept
@@ -202,6 +205,10 @@ class RealtimeTaskPool
     // rather than adding to them, so a worker that is slow to wake is not woken twice.
     std::atomic<int> mPendingWakes{0};
     std::atomic<bool> mQuit{false};
+    // Set by Start() before it creates the workers. The logical processor the dispatcher
+    // started its last Run() on, for workers keeping off its core.
+    std::atomic<bool> mAvoidDispatcherCore{false};
+    std::atomic<int> mDispatcherCpu{-1};
     Semaphore mWake;
     std::vector<std::thread> mThreads;
     std::mutex mLifecycleMutex;

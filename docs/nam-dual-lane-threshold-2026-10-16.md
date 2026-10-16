@@ -90,7 +90,109 @@ one logical CPU per physical core (affinity 0x5555) made them consistent. The st
 then gained 27-43% from 48 samples and the NAM core 21-49% from 16, and the CPU overhead at 512
 samples fell from +75% to +8%. So the noise is the helper sharing a physical core with the audio
 thread (its SMT sibling), with the caller spinning while both run at half speed. Paced runs did
-not show it. Nothing here addresses that; it is a separate change (the helper's CPU placement).
+not show it here, but later runs did: see the next section, which confirms the cause and changes
+where the helper runs.
+
+## Where the helper runs (follow-up)
+
+`NAMDualLaneBenchmark --placement` records, for each dual block, the logical processor the calling
+thread dispatched from and the one the helper started the right lane on
+(`GetCurrentProcessorNumberEx`; in the effect pass through the pool's claim hook). It sorts the
+blocks into four cases: the helper on another physical core, on the caller's SMT sibling, on the
+caller's own CPU, or not at all (the caller ran both lanes).
+
+**The cause, confirmed.** Left to Windows, the helper woke on the caller's SMT sibling in 70-98% of
+the NAM amp's blocks on an otherwise idle machine (under 10% load), paced and back to back alike.
+Within one row, a block with the helper on the sibling took 1.21x as long as one with the helper
+on another core in the direct pass, and 1.13x in the effect pass, whose block holds more than the
+two lanes. Across 248 rows, those with under 10% sibling blocks saved 37% on average, and those
+with half or more saved 21% (correlation -0.52). The processor numbers show how Windows chooses.
+Caller and helper sat mostly on CPUs 2, 3, 6 and 7 (cores 1 and 3), and the helper hardly ever
+ran on the ideal processor Windows gave it (CPU 10). Windows seems to prefer the idle sibling
+of a busy core to a sleeping core, perhaps because that core is already awake. With the fix below,
+the helper's paced start (dispatch to its lane starting) rose from 11-13 µs to 18-29 µs at 512
+samples, where cores sleep longest between blocks.
+
+**What was tried.** Two variants were rejected:
+
+- An ideal processor on another core, re-aimed when the caller changes core: the helper was still
+  on the sibling in up to 54% of back-to-back blocks, and gains stayed noisy.
+- CPU sets leaving out the caller's last two cores rather than one: the paced sibling share fell
+  from 9-22% to 2-10%, but most rows at 16-128 samples lost ground, by up to 13 points. Waking a
+  sleeping core costs more than a short lane on a shared one.
+
+The CPU sets that leave out only the caller's latest core gave 0% sibling blocks back to back.
+That is the change.
+
+**The change.** `DualLaneExecutor` starts its helper with `avoidDispatcherCore`
+(`RealtimeTaskPool::Start`). Each `Run()` stores the processor number it dispatches from, which
+costs about 1 ns. After its lane, before it sleeps, the helper looks that processor's physical core
+up. The SMT topology comes from `GetSystemCpuSetInformation`, read once when the pool starts. If
+the core is not the one it already avoids, the helper narrows its own selected CPU sets to the
+other cores (`SetThreadSelectedCpuSets`, about 0.5 µs). Back to back that was rare, since the caller
+mostly stayed on one CPU; paced, it happened whenever the audio thread woke on another core. The
+audio thread gains nothing beyond reading its processor number.
+
+Where a thread's hard affinity leaves none of its CPU sets (a host limited to one core), Windows
+follows the affinity, so the helper still runs. Both functions are looked up at run time, so
+nothing changes before Windows 10. The mixer's and the graph executor's pools are left as they
+were.
+
+**Results.** Release build, the same machine, two to three runs of each placement, alternated,
+each started at under 12% machine load. Each cell is the wall time the dual lane saved against
+helpers refused, before → **after**, with dual:serial process CPU in brackets. These runs and the
+earlier sections' were taken hours apart, and absolute gains differed between sessions (the
+earlier paced table had the old placement at +22% where these runs had +1%). Compare within a
+table only.
+
+NAM amp effect, paced (2 runs each):
+
+| Block | Standard fused | A2 fused | Standard core | A2 core |
+|---:|---|---|---|---|
+| 16 | 0% → **-2%** (1.02 → 1.03x) | -1% → **0%** (1.02 → 1.00x) | +7% → **+28%** (1.64 → 1.28x) | +9% → **+28%** (1.62 → 1.26x) |
+| 32 | +1% → **+15%** (1.60 → 1.29x) | 0% → **+11%** (1.59 → 1.35x) | +13% → **+23%** (1.56 → 1.30x) | +15% → **+25%** (1.54 → 1.29x) |
+| 48 | +6% → **+15%** (1.54 → 1.34x) | +2% → **+12%** (1.58 → 1.34x) | +14% → **+26%** (1.58 → 1.28x) | +18% → **+29%** (1.50 → 1.25x) |
+| 64 | +8% → **+19%** (1.58 → 1.33x) | +4% → **+13%** (1.60 → 1.30x) | +18% → **+30%** (1.53 → 1.24x) | +18% → **+27%** (1.52 → 1.27x) |
+| 128 | +13% → **+22%** (1.57 → 1.32x) | +16% → **+19%** (1.50 → 1.32x) | +21% → **+37%** (1.50 → 1.17x) | +20% → **+31%** (1.52 → 1.25x) |
+| 256 | +15% → **+30%** (1.59 → 1.26x) | +15% → **+29%** (1.56 → 1.24x) | +21% → **+38%** (1.54 → 1.17x) | +22% → **+37%** (1.52 → 1.20x) |
+| 512 | +16% → **+32%** (1.61 → 1.28x) | +15% → **+32%** (1.62 → 1.25x) | +21% → **+40%** (1.56 → 1.17x) | +25% → **+37%** (1.45 → 1.21x) |
+
+NAM amp effect, back to back (3 runs each):
+
+| Block | Standard fused | A2 fused | Standard core | A2 core |
+|---:|---|---|---|---|
+| 16 | 0% → **-1%** (1.00 → 1.01x) | +3% → **+1%** (0.97 → 0.99x) | -3% → **+29%** (1.87 → 1.30x) | -1% → **+33%** (1.85 → 1.22x) |
+| 32 | 0% → **0%** (1.00 → 1.00x) | +2% → **0%** (1.01 → 1.00x) | 0% → **+38%** (1.90 → 1.16x) | +4% → **+38%** (1.82 → 1.16x) |
+| 48 | -1% → **+1%** (1.08 → 1.04x) | +1% → **+1%** (1.30 → 1.05x) | +7% → **+40%** (1.78 → 1.14x) | +5% → **+42%** (1.81 → 1.10x) |
+| 64 | -6% → **+33%** (1.92 → 1.20x) | -7% → **+32%** (1.95 → 1.20x) | +6% → **+43%** (1.82 → 1.09x) | +10% → **+42%** (1.73 → 1.10x) |
+| 128 | +1% → **+33%** (1.88 → 1.22x) | +5% → **+29%** (1.77 → 1.29x) | +7% → **+44%** (1.83 → 1.08x) | +13% → **+41%** (1.70 → 1.11x) |
+| 256 | +3% → **+32%** (1.88 → 1.26x) | +14% → **+39%** (1.63 → 1.13x) | +14% → **+45%** (1.69 → 1.07x) | +10% → **+43%** (1.76 → 1.09x) |
+| 512 | +5% → **+38%** (1.85 → 1.19x) | +3% → **+41%** (1.87 → 1.11x) | +14% → **+47%** (1.69 → 1.05x) | +15% → **+46%** (1.67 → 1.05x) |
+
+The fused rows at 16-48 samples back to back, and at 16 paced, are the gate keeping the block on
+one thread, before and after. Blocks with the helper on the caller's sibling fell from 70-84% to
+12-20% paced, and from 78-98% to 0% back to back. What is left paced is the audio thread waking on
+another core, since the helper's CPU sets follow it one block late.
+
+The direct pass (two models, no gate) moved the same way. Paced, the gain went from -14% to +23%
+before to 0% to +41% after. Back to back, the A2 fused model and the NAM core gained 16-46 points
+on the old placement. The one case Windows had already placed well was the standard fused model
+back to back (0% sibling blocks before). It came out 2-5 points lower at 16-64 samples, about 1-2 µs
+a block, and level from 96; the cause was not found.
+
+**macOS and Linux.** Nothing changed on either.
+
+- macOS: Apple silicon has no SMT. Intel Macs do, but the one placement hint is the affinity tag
+  (`THREAD_AFFINITY_POLICY`), which groups threads to share an L2 rather than keeping them apart,
+  and Apple silicon ignores it.
+- Linux: the fair scheduler's wake-up path looks for a wholly idle core first. But the helper runs
+  `SCHED_FIFO` where rtprio allows, and real-time placement goes by the priority of what each CPU
+  is running, not by SMT siblings (from the kernel source, not measured). The tool there would be
+  a hard affinity mask: `sched_getcpu()` on the audio thread, the siblings from
+  `/sys/devices/system/cpu/cpu*/topology/thread_siblings_list`, then `sched_setaffinity` on the
+  helper.
+
+Neither is trivial or measured, so both are left alone.
 
 ## Not measured
 
@@ -101,6 +203,9 @@ not show it. Nothing here addresses that; it is a separate change (the helper's 
   over from the smallest blocks.
 - Oversampled NAM and the NAM Blend with several models. Both make a lane cost more, which the gate
   reads directly.
+- The helper's placement anywhere but this Ryzen and Windows 11: Intel's hybrid parts (its CPU sets
+  still include the efficiency cores, so Windows picks), Ryzens with two CCDs (the helper may land
+  across the fabric from the audio thread), and a DAW whose own audio threads keep other cores busy.
 
 ## Reproduce
 
@@ -109,6 +214,10 @@ cmake --build core/build --config Release --target NAMDualLaneBenchmark
 core/build/tests/Release/NAMDualLaneBenchmark.exe            # direct and effect, both models
 core/build/tests/Release/NAMDualLaneBenchmark.exe --effect   # the effect rows only
 core/build/tests/Release/NAMDualLaneBenchmark.exe --direct path/to/model.nam
+core/build/tests/Release/NAMDualLaneBenchmark.exe --effect --placement --paced --blocks 32,64,128
 ```
 
-About 15 minutes for the full run; the paced rows run in real time.
+About 15 minutes for the full run; the paced rows run in real time. `--fused`/`--core`,
+`--paced`/`--back-to-back` and `--blocks` narrow it; `--placement` adds the per-row placement line.
+The placement tables came from runs alternated with a build that started the helper without
+`avoidDispatcherCore`, each started only once machine load was under 12%.

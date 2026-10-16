@@ -11,9 +11,13 @@
  * the helper is asleep when each block starts; back-to-back runs keep it warm. docs/signal-chain.md
  * (Threads and Silence) has the numbers this produced.
  *
- * Usage: NAMDualLaneBenchmark [--direct | --effect] [model.nam ...]
+ * Usage: NAMDualLaneBenchmark [--direct | --effect] [--fused | --core] [--paced | --back-to-back]
+ *                             [--blocks 64,128,...] [--placement] [model.nam ...]
  *   With no model, a standard (16/8) and an A2 model from testdata. --direct or --effect runs
- *   only that half.
+ *   only that half; --fused or --core one engine; --paced or --back-to-back one pacing.
+ *   --placement (Windows) adds a line per row: how often the helper ran on another physical
+ *   core, on the calling thread's SMT sibling or on its very CPU, each case's mean block time,
+ *   and the CPUs both threads ran on most.
  */
 
 #ifndef NOMINMAX
@@ -21,14 +25,17 @@
 #endif
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <filesystem>
 #include <iomanip>
 #include <iostream>
 #include <memory>
 #include <numeric>
 #include <random>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <vector>
@@ -55,6 +62,8 @@
 
 #include "NAM/activations.h"
 #include "NAM/dsp.h"
+
+#include "CpuPlacement.h"
 
 namespace fs = std::filesystem;
 
@@ -153,6 +162,26 @@ double ProcessCpuUs()
 #endif
 }
 
+// --placement: which logical CPU the calling thread and the helper ran each dual block on.
+bool gPlacement = false;
+
+using guitarfx::test::CpuTopology;
+using guitarfx::test::CurrentCpu;
+
+// The effect pass, where the lanes are the effect's own: the claim hook runs on the helper
+// before each claim attempt, so it sees the helper's CPU, and it runs twice in a block where
+// the helper took the right lane (the claim, then finding nothing left) but once where the
+// calling thread had already taken it.
+std::atomic<int> gHelperCpu{-1};
+std::atomic<int> gHelperClaimAttempts{0};
+
+void RecordHelperCpu()
+{
+    int expected = -1;
+    gHelperCpu.compare_exchange_strong(expected, CurrentCpu(), std::memory_order_relaxed);
+    gHelperClaimAttempts.fetch_add(1, std::memory_order_relaxed);
+}
+
 // Sleeps out what is left of a block period.
 class BlockPacer
 {
@@ -213,6 +242,10 @@ struct LaneStats
     int blocks = 0;
     int helperRanRight = 0;
     std::vector<double> helperStartUs; // dispatch to the helper starting the right lane
+    // --placement, one per dual block: the calling thread's CPU at dispatch, and the helper's
+    // when it took the right lane (-1 if it did not).
+    std::vector<int> callerCpu;
+    std::vector<int> helperCpu;
 
     [[nodiscard]] double Mean() const
     {
@@ -294,6 +327,84 @@ void PrintLaneRow(int blockSize, const LaneStats& serial, const LaneStats& dual,
     }
 }
 
+// --placement: where the helper ran against the calling thread, and the dual block's mean
+// wall time for each case.
+void PrintPlacementRow(const LaneStats& dual)
+{
+    static const CpuTopology topology;
+
+    if (dual.callerCpu.size() != dual.blockUs.size() || dual.blockUs.empty())
+    {
+        return;
+    }
+
+    enum
+    {
+        kOtherCore,
+        kSibling,
+        kSameCpu,
+        kCallerOnly,
+        kKinds
+    };
+
+    static const char* const kNames[kKinds] = {"other core", "SMT sibling", "same CPU", "caller only"};
+    int count[kKinds] = {};
+    double sumUs[kKinds] = {};
+    std::vector<int> callerHistogram;
+    std::vector<int> helperHistogram;
+
+    for (std::size_t i = 0; i < dual.blockUs.size(); ++i)
+    {
+        const int caller = dual.callerCpu[i];
+        const int helper = dual.helperCpu[i];
+        const int kind = helper < 0                                           ? kCallerOnly
+                         : helper == caller                                   ? kSameCpu
+                         : topology.CoreOf(helper) == topology.CoreOf(caller) ? kSibling
+                                                                              : kOtherCore;
+        count[kind]++;
+        sumUs[kind] += dual.blockUs[i];
+
+        for (const auto& [cpu, histogram] : {std::pair{caller, &callerHistogram}, std::pair{helper, &helperHistogram}})
+        {
+            if (cpu >= 0)
+            {
+                histogram->resize(std::max(histogram->size(), static_cast<std::size_t>(cpu) + 1), 0);
+                (*histogram)[static_cast<std::size_t>(cpu)]++;
+            }
+        }
+    }
+
+    const auto top = [](const std::vector<int>& histogram) {
+        std::string text;
+        std::vector<int> order(histogram.size());
+        std::iota(order.begin(), order.end(), 0);
+        std::sort(order.begin(), order.end(), [&](int a, int b) { return histogram[a] > histogram[b]; });
+        const int total = std::accumulate(histogram.begin(), histogram.end(), 0);
+
+        for (std::size_t i = 0; i < order.size() && i < 3 && histogram[order[i]] > 0; ++i)
+        {
+            text += (i ? " " : "") + std::to_string(order[i]) + ":" +
+                    std::to_string(static_cast<int>(std::lround(100.0 * histogram[order[i]] / total))) + "%";
+        }
+
+        return text;
+    };
+
+    std::cout << "         placement:";
+
+    for (int kind = 0; kind < kKinds; ++kind)
+    {
+        if (count[kind] > 0)
+        {
+            std::cout << " " << kNames[kind] << " " << std::fixed << std::setprecision(0)
+                      << 100.0 * count[kind] / static_cast<double>(dual.blockUs.size()) << "% (" << std::setprecision(1)
+                      << sumUs[kind] / count[kind] << " µs);";
+        }
+    }
+
+    std::cout << " caller cpu " << top(callerHistogram) << ", helper cpu " << top(helperHistogram) << "\n";
+}
+
 // Two model instances, one per channel, called the way the NAM amp effect's ProcessModels does.
 void SweepModelDirect(const fs::path& modelPath, bool fused, const std::vector<int>& blockSizes, bool paced,
                       BlockPacer& pacer)
@@ -345,12 +456,20 @@ void SweepModelDirect(const fs::path& modelPath, bool fused, const std::vector<i
         LaneStats* dualStats = nullptr;
         const auto mainThread = std::this_thread::get_id();
         std::chrono::steady_clock::time_point dispatched;
+        int helperCpu = -1;
         const auto dualBlock = [&]() {
+            const int callerCpu = gPlacement ? CurrentCpu() : -1;
+            helperCpu = -1;
             dispatched = std::chrono::steady_clock::now();
             const bool ran = lanes.Run(
                 [&]() {
                     if (std::this_thread::get_id() != mainThread)
                     {
+                        if (gPlacement)
+                        {
+                            helperCpu = CurrentCpu();
+                        }
+
                         dualStats->helperRanRight++;
                         dualStats->helperStartUs.push_back(
                             std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - dispatched)
@@ -364,6 +483,12 @@ void SweepModelDirect(const fs::path& modelPath, bool fused, const std::vector<i
             if (!ran)
             {
                 serialBlock();
+            }
+
+            if (gPlacement)
+            {
+                dualStats->callerCpu.push_back(callerCpu);
+                dualStats->helperCpu.push_back(helperCpu);
             }
         };
 
@@ -383,6 +508,8 @@ void SweepModelDirect(const fs::path& modelPath, bool fused, const std::vector<i
         dual = LaneStats{};
         dual.helperStartUs.reserve(static_cast<std::size_t>(blocks));
         dual.blockUs.reserve(static_cast<std::size_t>(blocks));
+        dual.callerCpu.reserve(static_cast<std::size_t>(blocks));
+        dual.helperCpu.reserve(static_cast<std::size_t>(blocks));
         serial.blockUs.reserve(static_cast<std::size_t>(blocks));
 
         for (int round = 0; round < kRounds; ++round)
@@ -392,6 +519,11 @@ void SweepModelDirect(const fs::path& modelPath, bool fused, const std::vector<i
         }
 
         PrintLaneRow(blockSize, serial, dual, true);
+
+        if (gPlacement)
+        {
+            PrintPlacementRow(dual);
+        }
     }
 }
 
@@ -430,7 +562,26 @@ void SweepEffect(const fs::path& resourcesDir, const fs::path& modelPath, bool f
         float* inputs[2] = {inputL.data(), inputR.data()};
         float* outputs[2] = {outputL.data(), outputR.data()};
 
-        const auto ownChoice = [&]() { executor->Process(inputs, outputs, blockSize); };
+        LaneStats* dualStats = nullptr;
+        const auto ownChoice = [&]() {
+            if (!gPlacement)
+            {
+                executor->Process(inputs, outputs, blockSize);
+                return;
+            }
+
+            const int callerCpu = CurrentCpu();
+            gHelperCpu.store(-1, std::memory_order_relaxed);
+            gHelperClaimAttempts.store(0, std::memory_order_relaxed);
+            executor->Process(inputs, outputs, blockSize);
+            const bool helperRan = gHelperClaimAttempts.load(std::memory_order_relaxed) >= 2;
+
+            if (dualStats)
+            {
+                dualStats->callerCpu.push_back(callerCpu);
+                dualStats->helperCpu.push_back(helperRan ? gHelperCpu.load(std::memory_order_relaxed) : -1);
+            }
+        };
         const auto refused = [&]() {
             const guitarfx::rtparallel::ScopedSharedHelpersRefused noHelpers;
             executor->Process(inputs, outputs, blockSize);
@@ -446,6 +597,9 @@ void SweepEffect(const fs::path& resourcesDir, const fs::path& modelPath, bool f
         const int blocks = SweepBlockCount(blockSize, kSampleRate);
         LaneStats serial;
         LaneStats dual;
+        dual.callerCpu.reserve(static_cast<std::size_t>(blocks));
+        dual.helperCpu.reserve(static_cast<std::size_t>(blocks));
+        dualStats = &dual;
 
         for (int round = 0; round < kRounds; ++round)
         {
@@ -454,12 +608,33 @@ void SweepEffect(const fs::path& resourcesDir, const fs::path& modelPath, bool f
         }
 
         PrintLaneRow(blockSize, serial, dual, false);
+
+        if (gPlacement)
+        {
+            PrintPlacementRow(dual);
+        }
     }
 }
 
-void RunDualLaneSweep(const fs::path& resourcesDir, const std::vector<fs::path>& models, bool direct, bool effect)
+struct SweepOptions
 {
-    const std::vector<int> blockSizes = {16, 24, 32, 48, 64, 96, 128, 192, 256, 384, 512};
+    bool direct = true;
+    bool effect = true;
+    std::vector<bool> engines = {true, false}; // fused, NAM core
+    std::vector<bool> pacing = {true, false};  // paced, back to back
+    std::vector<int> blockSizes = {16, 24, 32, 48, 64, 96, 128, 192, 256, 384, 512};
+};
+
+void RunDualLaneSweep(const fs::path& resourcesDir, const std::vector<fs::path>& models, const SweepOptions& options)
+{
+    const std::vector<int>& blockSizes = options.blockSizes;
+    const bool direct = options.direct;
+    const bool effect = options.effect;
+
+    if (gPlacement)
+    {
+        guitarfx::rtparallel::RealtimeTaskPool::SetWorkerClaimHookForTesting(&RecordHelperCpu);
+    }
 
     // As a host's audio thread runs, and as the helper itself does.
     guitarfx::rtparallel::RaisePriorityOfThisThreadForAudio();
@@ -479,9 +654,9 @@ void RunDualLaneSweep(const fs::path& resourcesDir, const std::vector<fs::path>&
 
     for (const auto& model : models)
     {
-        for (const bool fused : {true, false})
+        for (const bool fused : options.engines)
         {
-            for (const bool paced : {true, false})
+            for (const bool paced : options.pacing)
             {
                 if (direct)
                 {
@@ -508,8 +683,7 @@ int main(int argc, char* argv[])
     {
         const fs::path resourcesDir = fs::path(GUITARFX_TEST_RESOURCES_DIR);
         const fs::path amps = resourcesDir / "assets" / "amps" / "Guitar";
-        bool direct = true;
-        bool effect = true;
+        SweepOptions options;
         std::vector<fs::path> models;
 
         for (int i = 1; i < argc; ++i)
@@ -518,11 +692,33 @@ int main(int argc, char* argv[])
 
             if (arg == "--direct")
             {
-                effect = false;
+                options.effect = false;
             }
             else if (arg == "--effect")
             {
-                direct = false;
+                options.direct = false;
+            }
+            else if (arg == "--placement")
+            {
+                gPlacement = true;
+            }
+            else if (arg == "--fused" || arg == "--core")
+            {
+                options.engines = {arg == "--fused"};
+            }
+            else if (arg == "--paced" || arg == "--back-to-back")
+            {
+                options.pacing = {arg == "--paced"};
+            }
+            else if (arg == "--blocks" && i + 1 < argc)
+            {
+                options.blockSizes.clear();
+                std::stringstream list(argv[++i]);
+
+                for (std::string size; std::getline(list, size, ',');)
+                {
+                    options.blockSizes.push_back(std::stoi(size));
+                }
             }
             else
             {
@@ -539,7 +735,7 @@ int main(int argc, char* argv[])
         // As the app runs the NAM core (NamModelCache switches it on).
         nam::activations::Activation::enable_fast_tanh();
 
-        RunDualLaneSweep(resourcesDir, models, direct, effect);
+        RunDualLaneSweep(resourcesDir, models, options);
         return 0;
     }
     catch (const std::exception& ex)
