@@ -13,6 +13,7 @@ set(TEST_SOURCES
     BiquadDesignTests.cpp
     BiquadNyquistTests.cpp
     BuiltinAmpEffectTests.cpp
+    BuiltinAmpGlideTests.cpp
     BuiltinAmpLegacyMigrationTests.cpp
     BlendDefinitionWorkflowTests.cpp
     BlendEffectTests.cpp
