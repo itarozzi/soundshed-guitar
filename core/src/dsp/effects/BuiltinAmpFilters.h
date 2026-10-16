@@ -37,12 +37,22 @@ struct StageFilter
         const double lp = std::min(lowPassHz, sampleRate * 0.45);
         hpTarget = static_cast<float>(std::exp(-2.0 * kPi * hp / sampleRate));
         lpTarget = static_cast<float>(1.0 - std::exp(-2.0 * kPi * lp / sampleRate));
+        settled = false;
     }
 
+    /// Stops stepping once a step changes nothing, as GlidingBiquad::Advance does.
     void Advance(float step)
     {
+        if (settled)
+        {
+            return;
+        }
+
+        const float hpBefore = hpCoefficient;
+        const float lpBefore = lpStep;
         hpCoefficient += step * (hpTarget - hpCoefficient);
         lpStep += step * (lpTarget - lpStep);
+        settled = hpCoefficient == hpBefore && lpStep == lpBefore;
     }
 
     void Reset()
@@ -80,6 +90,7 @@ struct StageFilter
     float lpStep = 1.0f;
     float hpTarget = 0.0f;
     float lpTarget = 1.0f;
+    bool settled = false;
     std::array<float, 2> previousInput = {};
     std::array<float, 2> previousHighPass = {};
     std::array<float, 2> previousLowPass = {};
@@ -176,13 +187,31 @@ struct StageFades
  */
 struct GlidingBiquad
 {
+    void SetTarget(const BiquadCoefficients& design)
+    {
+        target = design;
+        settled = false;
+    }
+
+    // Once a step leaves every coefficient where it was, every later step would too (the same
+    // inputs give the same result), so the glide stops until the next design. That is
+    // bit-identical to stepping on, and a settled filter costs one branch per sample instead of
+    // five multiply-adds in double.
     void Advance(double step)
     {
+        if (settled)
+        {
+            return;
+        }
+
+        const BiquadCoefficients before = current;
         current.b0 += step * (target.b0 - current.b0);
         current.b1 += step * (target.b1 - current.b1);
         current.b2 += step * (target.b2 - current.b2);
         current.a1 += step * (target.a1 - current.a1);
         current.a2 += step * (target.a2 - current.a2);
+        settled = current.b0 == before.b0 && current.b1 == before.b1 && current.b2 == before.b2 &&
+                  current.a1 == before.a1 && current.a2 == before.a2;
     }
 
     void Reset()
@@ -205,8 +234,10 @@ struct GlidingBiquad
         return output;
     }
 
+    /// Set through SetTarget, which restarts the glide.
     BiquadCoefficients target;
     BiquadCoefficients current;
+    bool settled = false;
     std::array<double, 2> s1 = {};
     std::array<double, 2> s2 = {};
 };

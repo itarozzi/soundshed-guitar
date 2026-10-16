@@ -499,9 +499,25 @@ class BuiltinAmpEffect : public EffectProcessor
         const float gain = mGainSmoothed;
         const float voice = mVoiceSmoothed;
         const float input = static_cast<float>(signal) * mStageGainSmoothed;
-        const float clean = mClippers.Clip(input * (2.0f + 2.5f * gain), kClipClean);
-        const float drive = mClippers.Clip(input * StageDrive(gain, 1.0f, 5.0f, 9.0f, 55.0f), kClipDrive);
-        float stage = (clean + (drive - clean) * voice) * 0.9f;
+        float stage = 0.0f;
+
+        // Voice snaps to 0 or 1, so outside its glide only one leg is heard,
+        // and only that one is clipped.
+        if (voice == 0.0f)
+        {
+            stage = mClippers.Clip(input * (2.0f + 2.5f * gain), kClipClean) * 0.9f;
+        }
+        else if (voice == 1.0f)
+        {
+            stage = mClippers.Clip(input * StageDrive(gain, 1.0f, 5.0f, 9.0f, 55.0f), kClipDrive) * 0.9f;
+        }
+        else
+        {
+            const float clean = mClippers.Clip(input * (2.0f + 2.5f * gain), kClipClean);
+            const float drive = mClippers.Clip(input * StageDrive(gain, 1.0f, 5.0f, 9.0f, 55.0f), kClipDrive);
+            stage = (clean + (drive - clean) * voice) * 0.9f;
+        }
+
         stage = mStageFilters[0].Process(stage, ch);
 
         if (const float fade = mStageFades.mix[1]; fade > 0.0f)
@@ -552,11 +568,20 @@ class BuiltinAmpEffect : public EffectProcessor
         const float detector = std::abs(powerInput);
         const float sagCoefficient = detector > mSagEnv[ch] ? mSagAttackCoef : mSagReleaseCoef;
         mSagEnv[ch] = sagCoefficient * mSagEnv[ch] + (1.0f - sagCoefficient) * detector;
-        const float headroom = builtin_amp::SagHeadroom(mSagSmoothed, mSagEnv[ch]);
 
+        // With no Power Drive (the default; its glide lands on exactly 0) the
+        // clipped share is nothing, so the clipper is skipped. The envelope
+        // above follows either way, so turning the drive up finds it current.
         const float driveAmount = mPowerDriveSmoothed;
-        const float clipped = mClippers.PowerClip(powerInput, headroom);
-        const float powered = powerInput + driveAmount * (clipped - powerInput);
+        float powered = powerInput;
+
+        if (driveAmount != 0.0f)
+        {
+            const float headroom = builtin_amp::SagHeadroom(mSagSmoothed, mSagEnv[ch]);
+            const float clipped = mClippers.PowerClip(powerInput, headroom);
+            powered = powerInput + driveAmount * (clipped - powerInput);
+        }
+
         signal = mFilters[kPostHighPass].Process(powered, ch);
         return static_cast<float>(signal) * mOutputGainSmoothed * mLevelMakeup * mPowerMakeupSmoothed;
     }
@@ -613,7 +638,7 @@ class BuiltinAmpEffect : public EffectProcessor
         }
 
         const double gainDb = (static_cast<double>(mCharacter) - 0.5) * 8.0;
-        mFilters[kVoicingPeak].target = builtin_amp::DesignPeaking(1800.0, 0.8, gainDb, mDspSampleRate);
+        mFilters[kVoicingPeak].SetTarget(builtin_amp::DesignPeaking(1800.0, 0.8, gainDb, mDspSampleRate));
     }
 
     void UpdateSmoothing()
@@ -662,11 +687,11 @@ class BuiltinAmpEffect : public EffectProcessor
         const double contourGain = -12.0 * mContour;
         const double presenceGain = (mPresence - 0.5) * 12.0;
 
-        mFilters[kBassShelf].target = DesignLowShelf(120.0, 0.8, bassGain, mDspSampleRate);
-        mFilters[kMiddlePeak].target = DesignPeaking(750.0, 0.9, midGain, mDspSampleRate);
-        mFilters[kContourPeak].target = DesignPeaking(600.0, 0.7, contourGain, mDspSampleRate);
-        mFilters[kTrebleShelf].target = DesignHighShelf(3500.0, 0.9, trebleGain, mDspSampleRate);
-        mFilters[kPresencePeak].target = DesignPeaking(4000.0, 1.2, presenceGain, mDspSampleRate);
+        mFilters[kBassShelf].SetTarget(DesignLowShelf(120.0, 0.8, bassGain, mDspSampleRate));
+        mFilters[kMiddlePeak].SetTarget(DesignPeaking(750.0, 0.9, midGain, mDspSampleRate));
+        mFilters[kContourPeak].SetTarget(DesignPeaking(600.0, 0.7, contourGain, mDspSampleRate));
+        mFilters[kTrebleShelf].SetTarget(DesignHighShelf(3500.0, 0.9, trebleGain, mDspSampleRate));
+        mFilters[kPresencePeak].SetTarget(DesignPeaking(4000.0, 1.2, presenceGain, mDspSampleRate));
     }
 
     void UpdatePreFilters()
@@ -681,7 +706,7 @@ class BuiltinAmpEffect : public EffectProcessor
         // 60 Hz at the default Character.
         const double character = mCharacter;
         const double scale = 0.75 + 0.25 * character + 0.5 * character * character;
-        mFilters[kPreHighPass].target = builtin_amp::DesignHighPass(60.0 * scale, 0.707, mDspSampleRate);
+        mFilters[kPreHighPass].SetTarget(builtin_amp::DesignHighPass(60.0 * scale, 0.707, mDspSampleRate));
     }
 
     void UpdatePreEmphasis()
@@ -700,7 +725,7 @@ class BuiltinAmpEffect : public EffectProcessor
         const double characterTilt = (static_cast<double>(mCharacter) - 0.5) * 8.0;
         const double gainDb = brightBoost + emphasisBoost + characterTilt;
 
-        mFilters[kPreEmphasisShelf].target = builtin_amp::DesignHighShelf(2500.0, 0.8, gainDb, mDspSampleRate);
+        mFilters[kPreEmphasisShelf].SetTarget(builtin_amp::DesignHighShelf(2500.0, 0.8, gainDb, mDspSampleRate));
     }
 
     void UpdateSpeakerFilters()
@@ -716,9 +741,9 @@ class BuiltinAmpEffect : public EffectProcessor
         const double resonanceGain = static_cast<double>(mResonance) * 6.0;
         const double dampingGain = static_cast<double>(mDamping) * -6.0;
 
-        mFilters[kDepthShelf].target = DesignLowShelf(120.0, 0.9, depthGain, mDspSampleRate);
-        mFilters[kResonancePeak].target = DesignPeaking(120.0, 1.0, resonanceGain, mDspSampleRate);
-        mFilters[kDampingShelf].target = DesignHighShelf(3500.0, 0.9, dampingGain, mDspSampleRate);
+        mFilters[kDepthShelf].SetTarget(DesignLowShelf(120.0, 0.9, depthGain, mDspSampleRate));
+        mFilters[kResonancePeak].SetTarget(DesignPeaking(120.0, 1.0, resonanceGain, mDspSampleRate));
+        mFilters[kDampingShelf].SetTarget(DesignHighShelf(3500.0, 0.9, dampingGain, mDspSampleRate));
     }
 
     void UpdatePostFilters()
@@ -728,7 +753,7 @@ class BuiltinAmpEffect : public EffectProcessor
             return;
         }
 
-        mFilters[kPostHighPass].target = builtin_amp::DesignHighPass(25.0, 0.707, mDspSampleRate);
+        mFilters[kPostHighPass].SetTarget(builtin_amp::DesignHighPass(25.0, 0.707, mDspSampleRate));
     }
 
     double mSampleRate = 44100.0;
