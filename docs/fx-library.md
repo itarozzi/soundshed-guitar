@@ -262,8 +262,8 @@ call:
    if the effect was rebuilt in between, and leaves what it replaces in the work, to be freed after
    the lock is released.
 
-A composite forwards both calls to its inner graph. The IR Cabinet's Normalize and Low Latency, and
-the Convolution Reverb's Quality and Low Latency, work this way.
+A composite forwards both calls to its inner graph. The IR Cabinet's Normalize, Low Latency and Trim
+Leading Silence, and the Convolution Reverb's Quality and Low Latency, work this way.
 
 ## Built-in Effect Types
 
@@ -462,6 +462,7 @@ loaded into a prepared node is built straight away. The Convolution Reverb works
 | `outputGain` | -24..+24 | 0.0 | dB |
 | `speakerDrive` | 0.0–1.0 | 0.0 | — |
 | `quality` | 0–3 | 1 | — |
+| `trimLeadingSilence` | 0/1 | 0 | toggle |
 
 Quality levels: 0=Economy, 1=Standard, 2=High, 3=Full
 
@@ -493,6 +494,24 @@ that small and 256 otherwise (5.3 ms at 48 kHz in most DAWs). The wet signal was
 Mix below 100% comb-filtered against the undelayed dry one; with no latency it no longer can.
 Until 2026-10-13 a short IR took the Low Latency off size even with it on: a host promising 8192
 samples and sending 64 got a cab adding 2048 samples (43 ms at 48 kHz).
+
+**Trim Leading Silence** (`trimLeadingSilence`, off by default, under Advanced) takes off what an
+IR file has in front of its sound: the time the sound took to reach the mic, and any silence the
+capture left before it. With Low Latency's zero, that is the only delay a cab still adds, and
+Quality's length counted it against the IR. An IR's onset is its first sample within -40 dB of its
+peak, in either channel of a stereo IR (`IrLeadingSilence.h`), and the trim stops 4 samples short
+of it so the attack's rise is kept. With two IRs loaded, both lose the earlier one's onset, so IR B
+keeps its place against IR A and an IR B offset means what it did. The trim is counted at the
+host's rate and taken after resampling, so two IRs at different rates move by exactly the same
+time. Quality's length is counted from where the trim stops. It is a rebuild setting like Normalize
+and Low Latency, built off the DSP lock by the message thread when changed on a loaded cab, and it
+does not change the reported latency: an IR's own pre-delay was never counted in it. It is off by
+default so a preset keeps the timing it was made with.
+
+Of 66 distinct cab-length IRs measured on 2026-10-16 (resources/ and a development profile), 51
+reach -40 dB within 0.1 ms, 4 within 0.5 ms, 10 take 0.5-1.6 ms and one 3.5 ms. What the trim
+removes from any of them is at most -44 dB of the IR's peak and -49 dB of its energy, at 44.1, 48
+and 96 kHz, resampled IRs included.
 
 Speaker Drive is the Simple Cabinet's level-dependent speaker stage (`SpeakerDrive.h`) in front
 of the convolution: what an IR, being a linear snapshot, cannot capture. It bends only what

@@ -51,6 +51,7 @@ set(TEST_SOURCES
     IrAlignmentTests.cpp
     IrResourceCategoryTests.cpp
     IRConvolutionTests.cpp
+    IRLeadingSilenceTests.cpp
     IRReverbAutomationRealtimeTests.cpp
     IRReverbQualityTests.cpp
     ImpulseResamplerTests.cpp
