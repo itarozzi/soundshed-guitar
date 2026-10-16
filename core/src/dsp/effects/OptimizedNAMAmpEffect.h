@@ -1115,23 +1115,22 @@ class OptimizedNAMAmpEffect : public EffectProcessor
 
     void ProcessModels(int numSamples)
     {
-        bool ranParallel = false;
+        const auto left = [&]() {
+            mStereoLanes.TimeLane(numSamples, [&]() {
+                mOversamplingLeft.Process(*mModelLeft, mInputBufferL.data(), mOutputBufferL.data(), numSamples);
+            });
+        };
+        const auto right = [&]() {
+            mOversamplingRight.Process(*mModelRight, mInputBufferR.data(), mOutputBufferR.data(), numSamples);
+        };
 
-        if (rtparallel::ShouldParallelizeStereoWork(numSamples))
-        {
-            ranParallel = rtparallel::DualLaneExecutor::Instance().Run(
-                [&]() {
-                    mOversamplingRight.Process(*mModelRight, mInputBufferR.data(), mOutputBufferR.data(), numSamples);
-                },
-                [&]() {
-                    mOversamplingLeft.Process(*mModelLeft, mInputBufferL.data(), mOutputBufferL.data(), numSamples);
-                });
-        }
+        const bool ranParallel =
+            mStereoLanes.ShouldParallelize(numSamples) && rtparallel::DualLaneExecutor::Instance().Run(right, left);
 
         if (!ranParallel)
         {
-            mOversamplingLeft.Process(*mModelLeft, mInputBufferL.data(), mOutputBufferL.data(), numSamples);
-            mOversamplingRight.Process(*mModelRight, mInputBufferR.data(), mOutputBufferR.data(), numSamples);
+            left();
+            right();
         }
     }
 
@@ -1159,6 +1158,8 @@ class OptimizedNAMAmpEffect : public EffectProcessor
 
     // Keeps the shared second lane running while this effect exists; taken in Prepare().
     rtparallel::DualLaneExecutor::Lease mDualLaneLease;
+    // Whether the right model is worth the second lane, from what the left one costs.
+    rtparallel::StereoLaneGate mStereoLanes;
 };
 
 inline void RegisterOptimizedNAMAmpEffect()

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -310,10 +311,49 @@ class DualLaneExecutor
     int mLeases = 0;
 };
 
+/// Whether an IR effect hands its second convolver to the dual-lane helper at this block size.
+/// The NAM effects decide by what a lane costs instead (StereoLaneGate); this rule was not
+/// re-measured when they changed.
 [[nodiscard]] inline bool ShouldParallelizeStereoWork(int numSamples) noexcept
 {
     constexpr int kMinSamples = 96;
     return numSamples >= kMinSamples;
 }
+
+/// Whether a stereo effect's second lane is worth handing to the dual-lane helper, judged by
+/// what a lane costs rather than by the block size. The helper sleeps between blocks and starts
+/// a lane 5-20 µs after it is handed one, then runs it a little slower than a warm core would,
+/// so a short lane is done sooner on the calling thread. Measured with NAM models on both
+/// engines (docs/signal-chain.md): a lane of about 11 µs broke even, and from about 15 µs the
+/// hand-off took 10-40% off the block. In samples that line ran from 16 (the NAM core) to 64
+/// (a fused A2 model, back to back), so no one block size can draw it.
+///
+/// The effect runs the lane it keeps on the calling thread through TimeLane(), whichever way
+/// the block goes, and asks ShouldParallelize() before each block. Audio thread only.
+class StereoLaneGate
+{
+  public:
+    [[nodiscard]] bool ShouldParallelize(int numSamples) const noexcept
+    {
+        return mLaneUsPerSample * static_cast<float>(numSamples) >= kMinLaneUs;
+    }
+
+    template <typename Fn> void TimeLane(int numSamples, Fn&& lane)
+    {
+        const auto start = std::chrono::steady_clock::now();
+        lane();
+        const float us = std::chrono::duration<float, std::micro>(std::chrono::steady_clock::now() - start).count();
+        const float usPerSample = us / static_cast<float>(numSamples > 0 ? numSamples : 1);
+
+        // Smoothed over about eight blocks, so one preempted block does not hold the decision.
+        mLaneUsPerSample =
+            mLaneUsPerSample > 0.0f ? mLaneUsPerSample + (usPerSample - mLaneUsPerSample) * 0.125f : usPerSample;
+    }
+
+  private:
+    static constexpr float kMinLaneUs = 15.0f;
+
+    float mLaneUsPerSample = 0.0f; // unmeasured: the first block stays on the calling thread
+};
 } // namespace rtparallel
 } // namespace guitarfx

@@ -76,6 +76,7 @@ set(TEST_SOURCES
     NamModelCacheTests.cpp
     NamQualityPolicyTests.cpp
     NamResamplerResetTests.cpp
+    NAMDualLaneBenchmark.cpp
     NAMPerformanceBenchmark.cpp
     NoiseGateTests.cpp
     NoiseGateLearnTests.cpp
@@ -150,6 +151,7 @@ option(GUITARFX_TEST_STRESS "Register the signal-chain mutation stress test with
 # three, and it leaves ~36 MB of WAVs under the build tree each time). They are always built;
 # this registers them, labelled `benchmark`, for `ctest -L benchmark`.
 set(GUITARFX_TEST_BENCHMARK_NAMES
+    NAMDualLaneBenchmark
     NAMPerformanceBenchmark
     ResourceLoadBenchmark
     SignalChainThreadingBenchmark

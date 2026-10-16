@@ -778,14 +778,16 @@ class MultiModelNAMAmpEffect : public EffectProcessor
             }
         };
 
+        // The left lane is timed whichever thread the right one runs on: the gate weighs it.
+        const auto runLeftLane = [&]() { mStereoLanes.TimeLane(numSamples, [&]() { runLane(0); }); };
+
         // Each channel has its own model instances, so the two lanes share nothing.
-        const bool ranInParallel =
-            stereo && rtparallel::ShouldParallelizeStereoWork(numSamples) &&
-            rtparallel::DualLaneExecutor::Instance().Run([&]() { runLane(1); }, [&]() { runLane(0); });
+        const bool ranInParallel = stereo && mStereoLanes.ShouldParallelize(numSamples) &&
+                                   rtparallel::DualLaneExecutor::Instance().Run([&]() { runLane(1); }, runLeftLane);
 
         if (!ranInParallel)
         {
-            runLane(0);
+            runLeftLane();
 
             if (stereo)
             {
@@ -1271,6 +1273,8 @@ class MultiModelNAMAmpEffect : public EffectProcessor
 
     // Keeps the shared second lane running while this effect exists; taken in Prepare().
     rtparallel::DualLaneExecutor::Lease mDualLaneLease;
+    // Whether the right lane's models are worth the second lane, from what the left lane costs.
+    rtparallel::StereoLaneGate mStereoLanes;
 };
 
 inline void RegisterMultiModelNAMAmpEffect()

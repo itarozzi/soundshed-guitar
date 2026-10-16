@@ -206,7 +206,8 @@ one-pass fill equals the hash after a real prewarm, for all seven test models.
 - **Stereo helper threshold.** `ShouldParallelizeStereoWork` hands the right model to the dual-lane
   helper from 96 samples (`RealtimeParallel.h:313`). A helper wake costs 5-50 µs. A fused standard model
   takes about 28 µs at 96 samples, and 40 µs at 128. Re-measure the threshold once fused models ship;
-  it probably wants to rise.
+  it probably wants to rise. *Measured the same day: it wanted to fall, and to follow lane cost rather
+  than block size ([nam-dual-lane-threshold-2026-10-16.md](nam-dual-lane-threshold-2026-10-16.md)).*
 - **Benchmark hygiene.** `NAMPerformanceBenchmark` still calls `nam::get_dsp` without fast tanh, as the
   14 October review found. Its standard-model figure overstates the cost by about 20%.
 - **Docs.** `docs/neural-amp-modeler-core-integration.md` still names `sdatkinson@v0.4.0.rc3` as the

@@ -399,7 +399,8 @@ was not running first runs unheard for its prewarm length (the NAM model's own f
 at its native rate, at least 60 ms and at most 250 ms), so it is not heard with stale
 history; until one of the models asked for is ready, the current mix holds. Models out
 of the mix are not run, and at most four run at once during a fast sweep. In stereo,
-left and right run on two threads (`rtparallel::DualLaneExecutor`).
+left and right run on two threads (`rtparallel::DualLaneExecutor`) once a lane costs
+enough to be worth it (signal-chain.md, Threads and Silence).
 
 **CPU.** One model when a knob sits on a captured setting or in snap mode, two while
 crossfading, briefly up to four during fast sweeps. Oversampling and slimmable size
