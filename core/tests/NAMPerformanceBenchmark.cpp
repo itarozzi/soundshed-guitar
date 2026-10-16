@@ -1,9 +1,10 @@
 /**
  * NAM Model Performance Benchmark
  *
- * Measures DSP performance of NAM model processing comparing:
- * - Standard NAM (amp_nam) using upstream library
- * - Optimized NAM (amp_nam_optimized) using SIMD-accelerated implementation
+ * Measures NAM model processing on the two engines NamModelCache can build a model on:
+ * - the NAM core (nam::get_dsp), with fast tanh as the app runs it
+ * - the fused WaveNet pass (dsp/nam/FusedWaveNet.h), the app's default where the shape allows
+ * each called directly, then through the NAM amp effect in a SignalGraphExecutor.
  *
  * Reports samples/second throughput, real-time capability factor, and speedup.
  */
@@ -26,6 +27,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include "dsp/NamModelCache.h"
 #include "dsp/SignalGraphExecutor.h"
 #include "dsp/EffectRegistry.h"
 #include "dsp/effects/BuiltinEffects.h"
@@ -34,6 +36,7 @@
 #include "presets/PresetTypes.h"
 #include "resources/ResourceLibrary.h"
 
+#include "NAM/activations.h"
 #include "NAM/dsp.h"
 #include "NAM/get_dsp.h"
 
@@ -43,9 +46,13 @@ namespace
 {
 constexpr double kPi = 3.14159265358979323846;
 
-// Effect type identifiers
-constexpr const char* kAmpTypeStandard = "amp_nam";
-constexpr const char* kAmpTypeOptimized = "amp_nam_optimized";
+// The NAM amp effect (amp_nam and amp_nam_optimized are aliases of it).
+constexpr const char* kAmpType = "amp_nam";
+
+const char* EngineName(bool fused)
+{
+    return fused ? "fused WaveNet" : "NAM core";
+}
 
 // ============================================================================
 // Benchmark Configuration
@@ -160,16 +167,17 @@ void GenerateGuitarLikeSignal(std::vector<float>& buffer, double sampleRate)
 // ============================================================================
 
 BenchmarkResult BenchmarkDirectNAM(const fs::path& modelPath, const std::string& modelName,
-                                   const BenchmarkConfig& config)
+                                   const BenchmarkConfig& config, bool fused)
 {
     BenchmarkResult result;
-    result.name = "Direct NAM Library";
+    result.name = std::string("Direct, ") + EngineName(fused);
     result.modelName = modelName;
     result.sampleRate = config.sampleRate;
     result.blockSize = config.blockSize;
 
     // Load model
-    auto model = nam::get_dsp(modelPath);
+    guitarfx::nammodelcache::SetFusedEngineEnabled(true);
+    auto model = fused ? guitarfx::nammodelcache::GetModel(modelPath) : nam::get_dsp(modelPath);
 
     if (!model)
     {
@@ -324,10 +332,10 @@ guitarfx::Preset MakeNamPreset(const fs::path& modelPath, const char* ampType)
 }
 
 BenchmarkResult BenchmarkGraphNAM(const fs::path& resourcesDir, const fs::path& modelPath, const std::string& modelName,
-                                  const char* ampType, const BenchmarkConfig& config)
+                                  const char* ampType, const BenchmarkConfig& config, bool fused)
 {
     BenchmarkResult result;
-    result.name = std::string(ampType) + " (via SignalGraphExecutor)";
+    result.name = std::string(ampType) + " on the " + EngineName(fused) + " (via SignalGraphExecutor)";
     result.modelName = modelName;
     result.sampleRate = config.sampleRate;
     result.blockSize = config.blockSize;
@@ -340,9 +348,12 @@ BenchmarkResult BenchmarkGraphNAM(const fs::path& resourcesDir, const fs::path& 
     auto executor = std::make_unique<guitarfx::SignalGraphExecutor>();
     executor->SetResourceLibrary(resourceLibrary.get());
 
+    // The effect builds its models through NamModelCache, which picks the engine.
+    guitarfx::nammodelcache::SetFusedEngineEnabled(fused);
     auto preset = MakeNamPreset(modelPath, ampType);
     executor->SetGraph(preset.graph);
     executor->Prepare(config.sampleRate, config.blockSize);
+    guitarfx::nammodelcache::SetFusedEngineEnabled(true);
 
     // Allocate buffers
     std::vector<float> inputL(static_cast<size_t>(config.blockSize));
@@ -459,6 +470,7 @@ void RunMultiConfigBenchmark(const fs::path& resourcesDir, const fs::path& model
         {44100.0, 64, "44.1kHz / 64 samples (low latency)"},
         {44100.0, 128, "44.1kHz / 128 samples"},
         {44100.0, 256, "44.1kHz / 256 samples"},
+        {48000.0, 64, "48kHz / 64 samples (low latency)"},
         {48000.0, 128, "48kHz / 128 samples"},
         {48000.0, 256, "48kHz / 256 samples"},
         {48000.0, 512, "48kHz / 512 samples"},
@@ -466,7 +478,7 @@ void RunMultiConfigBenchmark(const fs::path& resourcesDir, const fs::path& model
     };
 
     std::cout << "\n┌─────────────────────────────────────┬──────────────┬──────────────┬──────────┐\n";
-    std::cout << "│ Configuration                       │ Standard NAM │ Optimized    │ Speedup  │\n";
+    std::cout << "│ Configuration                       │ NAM core     │ Fused        │ Speedup  │\n";
     std::cout << "│                                     │ RT Factor    │ RT Factor    │          │\n";
     std::cout << "├─────────────────────────────────────┼──────────────┼──────────────┼──────────┤\n";
 
@@ -478,8 +490,8 @@ void RunMultiConfigBenchmark(const fs::path& resourcesDir, const fs::path& model
         cfg.warmupBlocks = 50;
         cfg.measureBlocks = 500;
 
-        auto standardResult = BenchmarkGraphNAM(resourcesDir, modelPath, modelName, kAmpTypeStandard, cfg);
-        auto optimizedResult = BenchmarkGraphNAM(resourcesDir, modelPath, modelName, kAmpTypeOptimized, cfg);
+        auto standardResult = BenchmarkGraphNAM(resourcesDir, modelPath, modelName, kAmpType, cfg, false);
+        auto optimizedResult = BenchmarkGraphNAM(resourcesDir, modelPath, modelName, kAmpType, cfg, true);
 
         double speedup = optimizedResult.samplesPerSecond / standardResult.samplesPerSecond;
 
@@ -491,6 +503,34 @@ void RunMultiConfigBenchmark(const fs::path& resourcesDir, const fs::path& model
     }
 
     std::cout << "└─────────────────────────────────────┴──────────────┴──────────────┴──────────┘\n";
+}
+
+// What a preset switch pays per model and channel: a model built from a cache hit, then the Reset
+// (and prewarm) the effect's Prepare runs at 48 kHz with 64-sample blocks. Best of five.
+void MeasureModelLoad(const fs::path& modelPath)
+{
+    std::cout << "\nModel load (cache hit + Reset(48000, 65)):\n";
+
+    for (const bool fused : {false, true})
+    {
+        guitarfx::nammodelcache::SetFusedEngineEnabled(fused);
+        (void)guitarfx::nammodelcache::GetModel(modelPath); // fills the cache
+        double bestMs = 1e9;
+
+        for (int round = 0; round < 5; ++round)
+        {
+            const auto start = std::chrono::high_resolution_clock::now();
+            auto model = guitarfx::nammodelcache::GetModel(modelPath);
+            model->Reset(48000.0, 65);
+            const auto end = std::chrono::high_resolution_clock::now();
+            bestMs = std::min(bestMs, std::chrono::duration<double, std::milli>(end - start).count());
+        }
+
+        std::cout << "  " << std::left << std::setw(14) << EngineName(fused) << std::right << std::fixed
+                  << std::setprecision(3) << bestMs << " ms\n";
+    }
+
+    guitarfx::nammodelcache::SetFusedEngineEnabled(true);
 }
 } // namespace
 
@@ -524,16 +564,20 @@ int main(int argc, char* argv[])
             return 1;
         }
 
-        // Use first model for detailed benchmark
+        // The first model in the library (a standard WaveNet), or the .nam file named on the command line.
         const auto& firstModel = audioModelsJson[0];
-        const fs::path modelPath = resourcesDir / firstModel.value("filePath", "");
-        const std::string modelName = firstModel.value("title", "Unknown");
+        const fs::path modelPath = argc > 1 ? fs::path(argv[1]) : resourcesDir / firstModel.value("filePath", "");
+        const std::string modelName = argc > 1 ? modelPath.filename().string() : firstModel.value("title", "Unknown");
 
         if (!fs::exists(modelPath))
         {
             std::cerr << "ERROR: Model file not found: " << modelPath << "\n";
             return 1;
         }
+
+        // As the app runs the NAM core (NamModelCache switches it on). Without it the NAM core
+        // rows overstate a Tanh model's cost by about 20%.
+        nam::activations::Activation::enable_fast_tanh();
 
         // Run activation function micro-benchmarks first
         guitarfx::benchmark::RunAllBenchmarks();
@@ -555,20 +599,21 @@ int main(int argc, char* argv[])
         std::cout << "Warmup: " << config.warmupBlocks << " blocks\n";
         std::cout << "Measure: " << config.measureBlocks << " blocks\n";
 
-        // Benchmark direct NAM library
-        auto directResult = BenchmarkDirectNAM(modelPath, modelName, config);
-        PrintBenchmarkResult(directResult);
+        // The model alone, on each engine
+        auto directCore = BenchmarkDirectNAM(modelPath, modelName, config, false);
+        PrintBenchmarkResult(directCore);
+        auto directFused = BenchmarkDirectNAM(modelPath, modelName, config, true);
+        PrintBenchmarkResult(directFused);
+        PrintSpeedup(directCore, directFused);
 
-        // Benchmark standard NAM effect
-        auto standardResult = BenchmarkGraphNAM(resourcesDir, modelPath, modelName, kAmpTypeStandard, config);
+        // Through the NAM amp effect, on each engine
+        auto standardResult = BenchmarkGraphNAM(resourcesDir, modelPath, modelName, kAmpType, config, false);
         PrintBenchmarkResult(standardResult);
-
-        // Benchmark optimized NAM effect
-        auto optimizedResult = BenchmarkGraphNAM(resourcesDir, modelPath, modelName, kAmpTypeOptimized, config);
+        auto optimizedResult = BenchmarkGraphNAM(resourcesDir, modelPath, modelName, kAmpType, config, true);
         PrintBenchmarkResult(optimizedResult);
-
-        // Print speedup comparison
         PrintSpeedup(standardResult, optimizedResult);
+
+        MeasureModelLoad(modelPath);
 
         // Run multi-configuration benchmark
         RunMultiConfigBenchmark(resourcesDir, modelPath, modelName);

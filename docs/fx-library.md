@@ -277,6 +277,23 @@ Neural amp model processing.
 
 **Resource**: NAM model file (`.nam`)
 
+#### How the model runs
+
+Every NAM node builds its models through `nammodelcache::GetModel` (`core/src/dsp/NamModelCache.h`),
+one per channel, from a parse cached per file. A WaveNet, or an A2 slimmable container, runs on the
+fused WaveNet pass (`core/src/dsp/nam/FusedWaveNet.h`): every model shape measured does, and it costs
+2.0-4.8x less CPU than the NAM core (through the NAM amp effect at 48 kHz with 64-sample blocks, 2.8x
+on a standard and on an A2 model), with output within float rounding of the NAM core's and
+bit-identical whatever the host block size. Its weights are packed once per file and shared by every
+node and channel, so building a cached model and preparing it takes about 0.4 ms, where the NAM core
+took 14 ms for a standard model and 24 ms for an A2 one (`NAMPerformanceBenchmark`). Other architectures
+(LSTM, ConvNet) and WaveNet options it does not compute run on the NAM core, as before. arm64 builds
+have no fused kernel yet and run everything on the NAM core.
+
+Launching with `GUITARFX_NAM_ENGINE=core` in the environment puts every model on the NAM core, for
+A/B listening and support; the session log names the engine on the first model load. The details are
+in [neural-amp-modeler-core-integration.md](neural-amp-modeler-core-integration.md).
+
 #### NAM quality (per-instance setting)
 
 NAM quality is **not** a preset parameter. It lives under Settings -> DSP
@@ -326,7 +343,7 @@ filter both change the resampler's reported latency, applying them also
 re-reports plugin latency to the host.
 
 Oversampling uses the NAM-Oversampler processing model: the host signal is
-resampled to an integer multiple of the model's native rate, the NAM core's
+resampled to an integer multiple of the model's native rate, the model's
 temporal convolutions are time-scaled by the same multiple, and the result is
 resampled back to the host rate. This preserves the model's physical receptive
 field instead of shortening its dilations at higher rendering rates.

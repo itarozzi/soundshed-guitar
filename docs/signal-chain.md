@@ -4,7 +4,8 @@
 - `core/src/dsp/SignalGraphExecutor.h` — Graph execution, buffer routing, topological sort
 - `core/src/dsp/SignalGraphExecutor.cpp` — Executor implementation
 - `core/src/presets/PresetTypes.h` — `SignalGraph`, `GraphNode`, `GraphEdge` structures
-- `core/src/dsp/effects/NAMAmpEffect.h` — Neural amp model loading and processing
+- `core/src/dsp/effects/OptimizedNAMAmpEffect.h` — Neural amp model loading and processing
+- `core/src/dsp/NamModelCache.h`, `core/src/dsp/nam/FusedWaveNet.h` — Where NAM models are built, and the fused pass they run on
 - `core/src/dsp/MultiPresetMixer.h` — Multi-preset mixing, global chain orchestration
 
 ## Overview
