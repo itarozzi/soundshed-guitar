@@ -288,7 +288,8 @@ bit-identical whatever the host block size. Its weights are packed once per file
 node and channel, so building a cached model and preparing it takes about 0.4 ms, where the NAM core
 took 14 ms for a standard model and 24 ms for an A2 one (`NAMPerformanceBenchmark`). Other architectures
 (LSTM, ConvNet) and WaveNet options it does not compute run on the NAM core, as before. arm64 builds
-have no fused kernel yet and run everything on the NAM core.
+run everything on the NAM core until the NEON kernel has been timed on ARM hardware
+(`GUITARFX_FUSED_WAVENET_NEON`, docs/neural-amp-modeler-core-integration.md).
 
 Launching with `GUITARFX_NAM_ENGINE=core` in the environment puts every model on the NAM core, for
 A/B listening and support; the session log names the engine on the first model load. The details are
