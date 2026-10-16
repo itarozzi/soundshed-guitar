@@ -328,12 +328,12 @@ class BuiltinAmpEffect : public EffectProcessor
             const std::array<float, 9> before = Smoothed();
             Glide(mVoiceSmoothed, mVoice, smoothStep);
             Glide(mGainSmoothed, mGain, smoothStep);
-            mStageGainSmoothed += smoothStep * (inputTarget - mStageGainSmoothed);
+            Glide(mStageGainSmoothed, inputTarget, smoothStep);
             Glide(mPowerDriveSmoothed, mPowerDrive, smoothStep);
-            mSagSmoothed += smoothStep * (mSag - mSagSmoothed);
+            Glide(mSagSmoothed, mSag, smoothStep);
             Glide(mBiasSmoothed, mBias, smoothStep);
             Glide(mCharacterSmoothed, mCharacter, smoothStep);
-            mOutputGainSmoothed += smoothStep * (outputTarget - mOutputGainSmoothed);
+            Glide(mOutputGainSmoothed, outputTarget, smoothStep);
             Glide(mPowerMakeupSmoothed, mPowerMakeupTarget, smoothStep);
             const bool stagesMoved = mStageFades.Advance(stageCount, mPath.stageFilters);
             const ClipperChange change = UpdateVoicing(stagesMoved);

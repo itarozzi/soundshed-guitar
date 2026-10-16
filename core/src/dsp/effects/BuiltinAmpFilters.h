@@ -15,12 +15,16 @@
 namespace guitarfx::builtin_amp
 {
 /// A one-pole glide that lands exactly on its target instead of creeping towards it forever, so
-/// the effect's voicing cache can tell when a control stops.
+/// the effect's voicing cache can tell when a control stops, and the single-voice and single-knee
+/// paths take over once it does. Near a target other than 0, a float step stops changing anything
+/// while still more than 1e-6 away (a 10 ms glide at 48 kHz stalls about 1.4e-5 short of 1), so a
+/// step that changes nothing lands as well.
 inline void Glide(float& value, float target, float step)
 {
+    const float before = value;
     value += step * (target - value);
 
-    if (std::abs(target - value) < 1.0e-6f)
+    if (value == before || std::abs(target - value) < 1.0e-6f)
     {
         value = target;
     }
