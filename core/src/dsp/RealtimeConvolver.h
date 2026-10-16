@@ -78,7 +78,9 @@ class RealtimeConvolver
     void Process(const float* input, float* output, int numSamples);
 
     /**
-     * Reset internal state (clears all buffers).
+     * Clears the history (input, output and delay-line buffers) and keeps the impulse, so
+     * IsInitialized() stays true and the next Process() still convolves. To drop the impulse,
+     * assign a default-constructed convolver.
      */
     void Reset();
 
