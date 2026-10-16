@@ -92,6 +92,10 @@ class RealtimeConvolver
         return (mUseDirectConvolution || mIsNonUniform) ? 0 : static_cast<int>(mPartitionSize);
     }
 
+    /// The most latency a convolver built for `blockSize` can have, in either mode: the uniform
+    /// engine's partition for that block. A dry path sized for it can match any IR's latency.
+    [[nodiscard]] static int GetMaxLatency(int blockSize) noexcept;
+
     [[nodiscard]] size_t GetNumPartitions() const noexcept
     {
         return mNumPartitions;

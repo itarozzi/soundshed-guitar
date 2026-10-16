@@ -489,9 +489,21 @@ off sizes its uniform partition, and so its latency, from the largest block the 
 256 to 2048 samples. That is fewer, larger partitions, the cheapest at a large host block on a
 long IR. An IR of 64 samples or fewer runs as a FIR either way.
 
+The dry signal is delayed by whatever latency the cab reports (`DryPathDelay.h`), so below 100%
+Mix the dry and wet line up and a host's delay compensation places both right. With Low Latency
+on that delay is 0 and the dry passes through exactly. The delay line is sized at `Prepare` for
+the largest partition that block size can get (`RealtimeConvolver::GetMaxLatency`), and records
+on every path, Mix 0 and no IR included, so the dry is just as late at Mix 0 and a Mix raised
+from 0 finds history. When the latency changes, by a Low Latency switch or an IR load, the dry
+crossfades to the new delay over the same 30 ms as the wet. A bypassed node is not processed and
+the executor counts no latency for it.
+
 Until 2026-10-16 Low Latency meant 64 or 128 samples of latency when the host promised blocks
 that small and 256 otherwise (5.3 ms at 48 kHz in most DAWs). The wet signal was that late, so a
 Mix below 100% comb-filtered against the undelayed dry one; with no latency it no longer can.
+Low Latency off kept the comb, and the host pulled the dry 256-2048 samples early, until the dry
+delay later the same day. That changed a cab at 50% Mix with Low Latency off by up to 7.8 dB in a
+band (the comb going); at 100% Mix, or with Low Latency on, the output is bit-identical.
 Until 2026-10-13 a short IR took the Low Latency off size even with it on: a host promising 8192
 samples and sending 64 got a cab adding 2048 samples (43 ms at 48 kHz).
 
@@ -1145,8 +1157,23 @@ trailed the dry one by that much, so below 100% Mix the two combed against each 
 the IR has early energy. Now they line up, the same at every buffer size. On the factory pack's
 two bundled reverb IRs (Mix 39% and 70%) it moved the third-octave response by up to 1.25 dB
 against the old 64-sample offset, and against the old 256-sample one by 2.3-3.4 dB at 63 Hz and
-0.6 dB at most above it. Low Latency off still reports its partition, 256 to 2048 samples, and
-its dry signal still is not delayed to match.
+0.6 dB at most above it.
+
+Low Latency off reports its partition, 256 to 2048 samples, and delays the dry signal by the same
+amount (`DryPathDelay.h`, as in the IR Cabinet), so the dry and wet line up as they do with Low
+Latency on: the switch changes when the reverb sounds, not how. A change of latency moves the dry
+over a 30 ms crossfade; the wet starts afresh at the swap, as above. Until 2026-10-16 the dry
+passed undelayed here too, and the wet trailed it by the partition, which follows the largest
+block the host promises.
+
+Reporting no latency and calling that trail a pre-delay would have kept the old sound exactly,
+and was the simpler fix. Measured with `tools/audio-ab` on the factory pack's two reverb nodes set
+to Low Latency off (no factory preset turns it off), delaying the dry moves them by 0.9-1.8 dB in
+the 63-80 Hz bands. But the old trail is itself a change that size whenever the buffer size
+changes: from a 64- to a 1024-sample host block the same two nodes moved 1.5-1.7 dB at 80 Hz, and
+switching Low Latency moved a reverb on a cab IR at 30% Mix by up to 9 dB in a band. With the dry
+delayed, both are a pure shift in time (gain-matched null below -98 dB). Reporting 0 would also
+have been wrong for the IR Cabinet, whose wet signal is the guitar itself.
 
 ### Algorithmic Reverbs
 Room, chamber, and advanced reverb share a common algorithmic engine. Spring and ambient use dedicated processors because their topology and voicing diverge more strongly from the shared room/chamber design:

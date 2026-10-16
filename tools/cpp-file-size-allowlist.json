@@ -6,7 +6,7 @@
     "core/tests/PresetManagementWorkflowTests.cpp": 5750,
     "core/tests/EffectProcessorTests.cpp": 3250,
     "core/tests/IRConvolutionTests.cpp": 2750,
-    "core/src/dsp/effects/IRCabEffect.h": 2750,
+    "core/src/dsp/effects/IRCabEffect.h": 2500,
     "core/src/controller/PluginControllerResources.cpp": 2500,
     "core/src/controller/PluginControllerSignalPath.cpp": 2500,
     "juce/source/JuceHostedPluginEffect.cpp": 2250,

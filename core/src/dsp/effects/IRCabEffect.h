@@ -1,6 +1,7 @@
 #pragma once
 
 #include "dsp/BiquadDesign.h"
+#include "dsp/DryPathDelay.h"
 #include "dsp/EffectProcessor.h"
 #include "dsp/EffectRegistry.h"
 #include "dsp/EffectGuids.h"
@@ -81,6 +82,8 @@ class IRCabEffect : public EffectProcessor
         mPrevOutputBufferR.resize(static_cast<size_t>(maxBlockSize));
         mPrevOutputBufferBL.resize(static_cast<size_t>(maxBlockSize));
         mPrevOutputBufferBR.resize(static_cast<size_t>(maxBlockSize));
+        mDryDelay.Prepare(RealtimeConvolver::GetMaxLatency(maxBlockSize), maxBlockSize,
+                          mResourceTransitionSamplesTotal);
 
         ApplyPendingQuality();
         ApplyPendingRebuildSettings();
@@ -112,6 +115,7 @@ class IRCabEffect : public EffectProcessor
         ResetMicPositionState();
         mSpeakerDrive.Reset();
         mAlignment.Reset();
+        mDryDelay.Reset();
         mResourceTransitionSamplesRemaining = 0;
         mPrevHasSlotA = false;
         mPrevHasSlotB = false;
@@ -145,43 +149,8 @@ class IRCabEffect : public EffectProcessor
         const bool rightReady = !mIsStereo || mConvolverR.IsInitialized();
         const bool convolverReady = mConvolverL.IsInitialized() && rightReady;
 
-        // Full bypass (disabled or mix=0): pass dry signal through unchanged.
-        if (!mEnabled || mMix <= 0.0)
-        {
-            if (outputs[0])
-            {
-                if (inputs[0])
-                {
-                    std::copy_n(inputs[0], numSamples, outputs[0]);
-                }
-                else
-                {
-                    std::fill_n(outputs[0], numSamples, 0.0f);
-                }
-            }
-
-            if (outputs[1])
-            {
-                if (inputs[1])
-                {
-                    std::copy_n(inputs[1], numSamples, outputs[1]);
-                }
-                else if (inputs[0])
-                {
-                    std::copy_n(inputs[0], numSamples, outputs[1]);
-                }
-                else
-                {
-                    std::fill_n(outputs[1], numSamples, 0.0f);
-                }
-            }
-
-            return;
-        }
-
-        // No IR loaded: pass the dry signal through unchanged (full bypass).
-        // The effect is intentionally transparent when no cabinet IR has been selected.
-        if (!convolverReady)
+        // Before Prepare nothing is built and there is nowhere to record the input: pass it through.
+        if (!mPrepared)
         {
             if (outputs[0])
             {
@@ -219,6 +188,30 @@ class IRCabEffect : public EffectProcessor
         {
             mInputBufferL[i] = inputs[0] ? inputs[0][i] : 0.0f;
             mInputBufferR[i] = inputs[1] ? inputs[1][i] : (inputs[0] ? inputs[0][i] : 0.0f);
+        }
+
+        // The clean dry signal, as late as the latency the effect reports, so it lines up with the
+        // wet one below 100% Mix and a host's delay compensation places both right (DryPathDelay).
+        // Recorded on every path, so a Mix raised from 0 or an IR loaded while playing has history.
+        mDryDelay.Process(mInputBufferL.data(), mInputBufferR.data(), numSamples, GetLatencySamples());
+        const float* dryInL = mDryDelay.Output(0);
+        const float* dryInR = mDryDelay.Output(1);
+
+        // Full bypass (disabled or mix=0), or no IR loaded: the dry signal alone. The effect is
+        // intentionally transparent when no cabinet IR has been selected.
+        if (!mEnabled || mMix <= 0.0 || !convolverReady)
+        {
+            if (outputs[0])
+            {
+                std::copy_n(dryInL, numSamples, outputs[0]);
+            }
+
+            if (outputs[1])
+            {
+                std::copy_n(dryInR, numSamples, outputs[1]);
+            }
+
+            return;
         }
 
         // Speaker drive bends what reaches the IR, as a pushed speaker would; the dry path
@@ -549,8 +542,7 @@ class IRCabEffect : public EffectProcessor
                 }
                 else
                 {
-                    const float dryL = inputs[0] ? inputs[0][i] : 0.0f;
-                    outputs[0][i] = static_cast<float>(wetL) * wetGain + dryL * dryGain;
+                    outputs[0][i] = static_cast<float>(wetL) * wetGain + dryInL[i] * dryGain;
                 }
             }
 
@@ -562,8 +554,7 @@ class IRCabEffect : public EffectProcessor
                 }
                 else
                 {
-                    const float dryR = inputs[1] ? inputs[1][i] : (inputs[0] ? inputs[0][i] : 0.0f);
-                    outputs[1][i] = static_cast<float>(wetR) * wetGain + dryR * dryGain;
+                    outputs[1][i] = static_cast<float>(wetR) * wetGain + dryInR[i] * dryGain;
                 }
             }
         }
@@ -1121,7 +1112,8 @@ class IRCabEffect : public EffectProcessor
 
     [[nodiscard]] int GetLatencySamples() const override
     {
-        // Report the convolver's algorithmic latency: 0 with Low Latency on, the partition with it off
+        // Report the convolver's algorithmic latency: 0 with Low Latency on, the partition with it
+        // off. The dry signal is delayed to match (mDryDelay).
         return mConvolverL.IsInitialized() ? mConvolverL.GetLatency() : 0;
     }
 
@@ -2009,6 +2001,7 @@ class IRCabEffect : public EffectProcessor
     std::vector<float> mPrevOutputBufferR;
     std::vector<float> mPrevOutputBufferBL;
     std::vector<float> mPrevOutputBufferBR;
+    DryPathDelay mDryDelay; // the clean dry signal, as late as GetLatencySamples() says
 
     double mMix = 1.0;
     double mIRBlend = 0.0;

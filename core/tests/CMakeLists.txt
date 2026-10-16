@@ -50,6 +50,7 @@ set(TEST_SOURCES
     IRBuildOnPrepareTests.cpp
     IRCabAutomationRealtimeTests.cpp
     IrAlignmentTests.cpp
+    IrDryPathDelayTests.cpp
     IrResourceCategoryTests.cpp
     IRConvolutionTests.cpp
     IRLeadingSilenceTests.cpp

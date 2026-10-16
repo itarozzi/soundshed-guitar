@@ -100,10 +100,13 @@ bool RealtimeConvolver::SetImpulse(const std::vector<float>& irSamples, int bloc
 
     // Partition size the uniform engine uses, which doubles as its latency. Low Latency
     // off asks for this trade: fewer, larger partitions cost less on a long IR.
-    const size_t uniformPartition =
-        std::clamp(NextPowerOf2(static_cast<size_t>(std::max(blockSize, 256))), size_t{256}, size_t{2048});
+    return BuildUniform(irSamples, static_cast<size_t>(GetMaxLatency(blockSize)));
+}
 
-    return BuildUniform(irSamples, uniformPartition);
+int RealtimeConvolver::GetMaxLatency(int blockSize) noexcept
+{
+    return static_cast<int>(
+        std::clamp(NextPowerOf2(static_cast<size_t>(std::max(blockSize, 256))), size_t{256}, size_t{2048}));
 }
 
 bool RealtimeConvolver::BuildUniform(const std::vector<float>& irSamples, size_t partitionSize)

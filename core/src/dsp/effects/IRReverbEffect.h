@@ -1,5 +1,6 @@
 #pragma once
 
+#include "dsp/DryPathDelay.h"
 #include "dsp/EffectProcessor.h"
 #include "dsp/EffectRegistry.h"
 #include "dsp/EffectGuids.h"
@@ -56,6 +57,8 @@ class IRReverbEffect : public EffectProcessor
         mOutputBufferRR.resize(static_cast<std::size_t>(maxBlockSize));
         mOutputBufferLR.resize(static_cast<std::size_t>(maxBlockSize));
         mOutputBufferRL.resize(static_cast<std::size_t>(maxBlockSize));
+        mDryDelay.Prepare(RealtimeConvolver::GetMaxLatency(maxBlockSize), maxBlockSize,
+                          static_cast<int>(std::round(sampleRate * kDryDelayCrossfadeSeconds)));
 
         // CRITICAL: Clear filter state BEFORE updating filter coefficients to prevent transients
         // when stale filter state is processed with new sample-rate-dependent coefficients.
@@ -77,6 +80,7 @@ class IRReverbEffect : public EffectProcessor
         mConvolverRR.Reset();
         mConvolverLR.Reset();
         mConvolverRL.Reset();
+        mDryDelay.Reset();
         mToneStateL = 0.0f;
         mToneStateR = 0.0f;
     }
@@ -116,7 +120,9 @@ class IRReverbEffect : public EffectProcessor
   private:
     void ProcessChunk(float** inputs, float** outputs, int numSamples)
     {
-        if (!mEnabled || !mConvolverLL.IsInitialized() || !mConvolverRR.IsInitialized())
+        // Bypassed, the effect has no latency (SignalGraphExecutor counts none for it), and before
+        // Prepare there is nowhere to record the input.
+        if (!mEnabled || !mPrepared)
         {
             // Bypass: copy input to output, falling back L→R if R is null
             if (outputs[0])
@@ -154,6 +160,29 @@ class IRReverbEffect : public EffectProcessor
         {
             mInputBufferL[i] = inputs[0] ? inputs[0][i] : 0.0f;
             mInputBufferR[i] = inputs[1] ? inputs[1][i] : (inputs[0] ? inputs[0][i] : 0.0f);
+        }
+
+        // The dry signal, as late as the latency the effect reports, so it lines up with the wet
+        // one and a host's delay compensation places both right (DryPathDelay). Recorded with no IR
+        // loaded too, so one loaded while playing has history to read.
+        mDryDelay.Process(mInputBufferL.data(), mInputBufferR.data(), numSamples, GetLatencySamples());
+        const float* dryInL = mDryDelay.Output(0);
+        const float* dryInR = mDryDelay.Output(1);
+
+        if (!mConvolverLL.IsInitialized() || !mConvolverRR.IsInitialized())
+        {
+            // No IR: the dry signal alone.
+            if (outputs[0])
+            {
+                std::copy_n(dryInL, numSamples, outputs[0]);
+            }
+
+            if (outputs[1])
+            {
+                std::copy_n(dryInR, numSamples, outputs[1]);
+            }
+
+            return;
         }
 
         const bool allowParallel = rtparallel::ShouldParallelizeStereoWork(numSamples);
@@ -200,8 +229,8 @@ class IRReverbEffect : public EffectProcessor
 
         for (int i = 0; i < numSamples; ++i)
         {
-            const float dryL = inputs[0] ? inputs[0][i] : 0.0f;
-            const float dryR = inputs[1] ? inputs[1][i] : dryL;
+            const float dryL = dryInL[i];
+            const float dryR = dryInR[i];
 
             float wetL = static_cast<float>(mOutputBufferLL[i] + (trueStereo ? mOutputBufferLR[i] : 0.0f));
             float wetR = static_cast<float>(mOutputBufferRR[i] + (trueStereo ? mOutputBufferRL[i] : 0.0f));
@@ -391,6 +420,8 @@ class IRReverbEffect : public EffectProcessor
         return mIRPath;
     }
 
+    /// The convolvers' latency: 0 with Low Latency on, the partition with it off. The dry signal is
+    /// delayed to match (mDryDelay).
     [[nodiscard]] int GetLatencySamples() const override
     {
         return mConvolverLL.IsInitialized() ? mConvolverLL.GetLatency() : 0;
@@ -409,6 +440,8 @@ class IRReverbEffect : public EffectProcessor
   private:
     // Host rate the IR normalisation gain is anchored to (see ComputeL2NormGain).
     static constexpr double kNormalizationReferenceRate = 48000.0;
+    // How long the dry signal takes to move to a new latency, the IR Cabinet's IR crossfade.
+    static constexpr double kDryDelayCrossfadeSeconds = 0.03;
 
     /// One IR's impulses at one sample rate. Never changed once built, and shared rather than
     /// copied: a deferred rebuild reads them off the DSP lock while an IR load may replace the
@@ -925,6 +958,7 @@ class IRReverbEffect : public EffectProcessor
     std::vector<float> mOutputBufferRR;
     std::vector<float> mOutputBufferLR;
     std::vector<float> mOutputBufferRL;
+    DryPathDelay mDryDelay; // the dry signal, as late as GetLatencySamples() says
 
     std::atomic<double> mMix{0.3};
     std::atomic<double> mOutputGain{1.0};
