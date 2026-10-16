@@ -38,6 +38,7 @@ import { initializeBlendEditorModal, initSignalPathResize, renderSignalPathBar, 
 // size ceiling (check:sizes), and history.ts is a new sibling rather than code
 // split out of it, so there is no original module path to preserve.
 import { initSignalChainHistory } from "./signalPath/history.js";
+import { initResourceSlotDragHighlight } from "./signalPath/resourceFileDrag.js";
 import { initializeCustomEffectDesignerModal } from "./customEffectDesigner.js";
 import { initializeDialogModals } from "./dialogs.js";
 import { activateTab, initCompactStageDestinations, initCompactStagePersistence, initializeControlBarTabs, initializeIconBarTabs, initializePlayFooterPadsToggle, initializeTabButtons, switchMainPanel, initControlBarCollapse, initSignalPathCollapse } from "./navigation.js";
@@ -263,6 +264,7 @@ async function bootstrap(): Promise<void> {
     handle: createNamIrGlobalFileDropHandler(),
   });
   initializeGlobalFileDrop();
+  initResourceSlotDragHighlight();
   initMultiRigTab();
   initializeCustomEffectDesignerModal();
   if (eqModalCloseBtn) {

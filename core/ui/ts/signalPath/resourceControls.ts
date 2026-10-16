@@ -5,7 +5,7 @@ import type {
 import { postMessage } from "../bridge.js";
 import { showConfirm } from "../dialogs.js";
 import { resourceBrowserModal, type ResourceNavigationResult as ResourceNavigationSelection } from "../resourceBrowser.js";
-import { findMatchingResourcePickerLabel } from "../resourcePickerLabel.js";
+import { applyResourcePickerLabelState, findMatchingResourcePickerLabel } from "../resourcePickerLabel.js";
 import { getLibraryResource } from "../resourceLibrary.js";
 import {
   nodeParamsPanelElement,
@@ -173,7 +173,6 @@ export function bindResourceControls(node: GraphNode, preset: Preset): void {
           );
           sendNodeResourceUpdate(nodeId, resourceType, resourceId, "", resourceIndex, undefined, exposedResourceId);
           const label = getLibraryResourceName(resourceType, resourceId) || resourceId || "";
-          const labelText = label || (resourceType === "ir" ? "No IR selected" : "No model selected");
           const labelCandidates = nodeParamsPanelElement?.querySelectorAll(
             `.resource-picker-label[data-node-id="${nodeId}"]`,
           ) as NodeListOf<HTMLElement> | null;
@@ -186,10 +185,7 @@ export function bindResourceControls(node: GraphNode, preset: Preset): void {
           );
 
           if (labelEl) {
-            labelEl.textContent = labelText;
-            labelEl.title = labelText;
-            const missing = Boolean(resourceId) && !getLibraryResource(resourceType, resourceId);
-            labelEl.classList.toggle("is-missing", missing);
+            applyResourcePickerLabelState(labelEl, label, Boolean(resourceId) && !getLibraryResource(resourceType, resourceId));
           }
 
           syncResourceNavigationButtons(nodeId, resourceType, resourceIndex, exposedResourceId, resourceId, "");
@@ -266,9 +262,7 @@ export function bindResourceControls(node: GraphNode, preset: Preset): void {
       );
 
       if (labelEl) {
-        labelEl.textContent = labelText || (resourceType === "ir" ? "No IR selected" : "No model selected");
-        labelEl.title = labelText || "";
-        labelEl.classList.toggle("is-missing", Boolean(next.resourceId) && !nextResource && !next.displayName);
+        applyResourcePickerLabelState(labelEl, labelText, Boolean(next.resourceId) && !nextResource && !next.displayName);
       }
       syncResourceNavigationButtons(nodeId, resourceType, resourceIndex, exposedResourceId, next.resourceId ?? "", next.filePath ?? "");
     };
@@ -383,7 +377,6 @@ export function bindResourceControls(node: GraphNode, preset: Preset): void {
         const resourceType = clearBtn.dataset.resourceType;
         const resourceIndex = clearBtn.dataset.resourceIndex ? parseInt(clearBtn.dataset.resourceIndex, 10) : undefined;
         const exposedResourceId = clearBtn.dataset.exposedResourceId;
-        const emptyLabel = clearBtn.dataset.emptyLabel || "No resource selected";
 
         if (!nodeId || !resourceType) {
           return;
@@ -461,9 +454,7 @@ export function bindResourceControls(node: GraphNode, preset: Preset): void {
           : null;
 
         if (labelEl) {
-          labelEl.textContent = emptyLabel;
-          labelEl.title = emptyLabel;
-          labelEl.classList.remove("is-missing");
+          applyResourcePickerLabelState(labelEl, "");
         }
 
         if (pickerResourceType) {

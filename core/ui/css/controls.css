@@ -682,23 +682,7 @@ input[type="range"]:focus-visible {
   cursor: pointer;
 }
 
-.resource-picker-label {
-  flex: 1;
-  min-width: 0;
-  padding: 6px 10px;
-  border-radius: var(--radius-sm);
-  background:#3a3a4a99;
-  color: var(--text-dark-primary);
-  font-size: 12px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  cursor: pointer;
-}
-
-.resource-picker-label.is-missing {
-  color: var(--color-warning);
-}
+/* .resource-picker-label lives in signal-path/resource-picker.css with its empty state. */
 
 .resource-nav-btn {
   min-width: 30px;

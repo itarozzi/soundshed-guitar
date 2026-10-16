@@ -125,6 +125,7 @@ describe("a hostile preset renders as text", () => {
     expect(ids.length).toBeGreaterThan(3);
     expect(ids.every((id) => id === HOSTILE)).toBe(true);
     expect(panel.querySelector(".resource-path-info")?.textContent).toBe(`C:\\${HOSTILE}.nam`);
+    expect(panel.querySelector(".resource-picker-label-text")?.textContent).toBe(`${HOSTILE}.nam`);
   });
 
   it("in the setlist editor: setlist and preset names", () => {

@@ -12,6 +12,7 @@ import type { EffectTypeInfo } from "../../presetV2.js";
 import { resourceBrowserModal } from "../../resourceBrowser.js";
 import { resolveResourceIdAlias } from "../../resourceDedup.js";
 import { getLibraryResource } from "../../resourceLibrary.js";
+import { getResourcePickerLabelClass, getResourcePickerLabelTitle, renderResourcePickerLabelContent } from "../../resourcePickerLabel.js";
 import type { getBlendState} from "../../signalPathBlend.js";
 import { renderBlendInfoHtml } from "../../signalPathBlend.js";
 import type { GraphNode, LibraryResource, Preset } from "../../types.js";
@@ -47,6 +48,11 @@ export function preloadResourceNavigationCaches(node: GraphNode, preset: Preset,
   navCacheRequests.forEach(({ resourceType, categoryHint, contextKey }) => {
     resourceBrowserModal.preloadLibraryNavigationCache(resourceType, { categoryHint, contextKey });
   });
+}
+
+/** The cabinet's second IR only blends in, so an empty one is normal: it is asked for quietly. */
+function isOptionalResourceSlot(node: GraphNode, resourceIndex: number): boolean {
+  return EffectTypeRegistry.resolve(node.type) === EffectGuids.kCabIr && resourceIndex > 0;
 }
 
 /** The resource slots for a node, plus any controls a custom layout can position. */
@@ -95,14 +101,15 @@ export function buildNodeResourceSelector(
         const resolvedCurrentId = resolveResourceIdAlias(current.id ?? "", aliasById);
         // Folder navigation lands a file path with no library id, so key the
         // label off either: id-only would render the empty state for it.
-        const displayName = current.id || current.filePath
-          ? getNodeResourceDisplayName(node, resourceIndex, resourceType) || emptyDisplayName
-          : emptyDisplayName;
         const hasCurrentSelection = Boolean(current.id || current.filePath);
+        const displayName = hasCurrentSelection
+          ? getNodeResourceDisplayName(node, resourceIndex, resourceType)
+          : "";
         const isMissing = Boolean(current.id)
           && !current.filePath
           && !getLibraryResource(resourceType, current.id);
-        const missingClass = isMissing ? "resource-picker-label is-missing" : "resource-picker-label";
+        const isOptional = isOptionalResourceSlot(node, resourceIndex);
+        const labelState = { resourceType, displayName, isMissing, isOptional };
         const canBrowseFile = exposedResource.allowBrowseFile ?? true;
         const isLibraryPicker = resourceType === "nam" || resourceType === "ir";
         const isPluginPicker = resourceType === "plugin";
@@ -142,6 +149,7 @@ export function buildNodeResourceSelector(
           currentDisplayName: displayName,
           currentFilePath: current.filePath,
           isMissing,
+          isOptional,
         });
 
         return `
@@ -158,21 +166,23 @@ export function buildNodeResourceSelector(
                     data-exposed-resource-id="${escapeHtml(exposedResource.resourceId)}"
                   >Browse</button>
                 `}
-                <div
-                  class="${missingClass}"
+                <button
+                  type="button"
+                  class="${escapeHtml(getResourcePickerLabelClass(labelState))}"
                   data-node-id="${escapeHtml(node.id)}"
                   data-resource-type="${resourceType}"
                   data-resource-index="${resourceIndex}"
                   data-exposed-resource-id="${escapeHtml(exposedResource.resourceId)}"
-                  title="${escapeHtml(displayName)}"
-                >${escapeHtml(displayName)}</div>
+                  ${isOptional ? `data-optional="true"` : ""}
+                  title="${escapeHtml(getResourcePickerLabelTitle(labelState))}"
+                  aria-haspopup="dialog"
+                >${renderResourcePickerLabelContent(labelState)}</button>
                 <button
                   class="resource-clear-btn"
                   data-node-id="${escapeHtml(node.id)}"
                   data-resource-type="${resourceType}"
                   data-resource-index="${resourceIndex}"
                   data-exposed-resource-id="${escapeHtml(exposedResource.resourceId)}"
-                  data-empty-label="${escapeHtml(emptyDisplayName)}"
                   title="Clear selected resource"
                   ${hasCurrentSelection ? "" : "disabled"}
                 >${renderIcon("close", "resource-clear-icon")}</button>
@@ -194,7 +204,6 @@ export function buildNodeResourceSelector(
                   data-resource-type="${escapeHtml(resourceType)}"
                   data-resource-index="${resourceIndex}"
                   data-exposed-resource-id="${escapeHtml(exposedResource.resourceId)}"
-                  data-empty-label="${escapeHtml(emptyDisplayName)}"
                   title="Clear selected resource"
                   ${hasCurrentSelection ? "" : "disabled"}
                 >${renderIcon("close", "resource-clear-icon")}</button>
@@ -217,7 +226,6 @@ export function buildNodeResourceSelector(
             ${isPluginPicker ? buildHostedPluginListHtml(node, resourceIndex, exposedResource.resourceId) : ""}
             ${hostedPluginLoadError}
             ${current.filePath && !isPluginPicker ? `<div class="resource-path-info" title="${escapeHtml(current.filePath)}">${escapeHtml(current.filePath)}</div>` : ""}
-            ${isLibraryPicker ? `<div class="resource-drop-hint">Click to browse, or drag and drop a file here</div>` : ""}
           </div>
         `;
       })
@@ -258,17 +266,15 @@ export function buildNodeResourceSelector(
       const indexAttr = includeIndexAttr ? `data-resource-index="${index}"` : "";
       const isLibraryPicker = resourceType === "nam" || resourceType === "ir";
       const isPluginPicker = resourceType === "plugin";
-      const emptyDisplayName = resourceType === "ir" ? "No IR selected" : "No model selected";
       // Folder navigation lands a file path with no library id, so key the
       // label off either: id-only would render the empty state for it.
-      const displayName = current.id || current.filePath
-        ? getNodeResourceDisplayName(node, index) || emptyDisplayName
-        : emptyDisplayName;
       const hasCurrentSelection = Boolean(current.id || current.filePath);
+      const displayName = hasCurrentSelection ? getNodeResourceDisplayName(node, index) : "";
       const isMissing = Boolean(current.id)
         && !current.filePath
         && !getLibraryResource(resourceType, current.id);
-      const missingClass = isMissing ? "resource-picker-label is-missing" : "resource-picker-label";
+      const isOptional = isOptionalResourceSlot(node, index);
+      const labelState = { resourceType, displayName, isMissing, isOptional };
       const navResourceType = resourceType === "nam" || resourceType === "ir" ? resourceType : null;
       const navigationCategoryHint = navResourceType
         ? resolveResourceNavigationCategoryHint(node, preset, navResourceType)
@@ -336,6 +342,7 @@ export function buildNodeResourceSelector(
         currentDisplayName: displayName,
         currentFilePath: current.filePath,
         isMissing,
+        isOptional,
       });
 
       return `
@@ -352,20 +359,22 @@ export function buildNodeResourceSelector(
                 >Browse</button>
               `}
               ${navPrevButton}
-              <div
-                class="${missingClass}"
+              <button
+                type="button"
+                class="${escapeHtml(getResourcePickerLabelClass(labelState))}"
                 data-node-id="${escapeHtml(node.id)}"
                 data-resource-type="${resourceType}"
                 ${indexAttr}
-                title="${escapeHtml(displayName)}"
-              >${escapeHtml(displayName)}</div>
+                ${isOptional ? `data-optional="true"` : ""}
+                title="${escapeHtml(getResourcePickerLabelTitle(labelState))}"
+                aria-haspopup="dialog"
+              >${renderResourcePickerLabelContent(labelState)}</button>
               ${navNextButton}
               <button
                 class="resource-clear-btn"
                 data-node-id="${escapeHtml(node.id)}"
                 data-resource-type="${resourceType}"
                 ${indexAttr}
-                data-empty-label="${escapeHtml(emptyDisplayName)}"
                 title="Clear selected resource"
                 ${hasCurrentSelection ? "" : "disabled"}
               >${renderIcon("close", "resource-clear-icon")}</button>
@@ -385,7 +394,6 @@ export function buildNodeResourceSelector(
                 data-node-id="${escapeHtml(node.id)}"
                 data-resource-type="${escapeHtml(resourceType)}"
                 ${indexAttr}
-                data-empty-label="${escapeHtml(emptyDisplayName)}"
                 title="Clear selected resource"
                 ${hasCurrentSelection ? "" : "disabled"}
               >${renderIcon("close", "resource-clear-icon")}</button>
@@ -407,7 +415,6 @@ export function buildNodeResourceSelector(
           ${isPluginPicker ? buildHostedPluginListHtml(node, index) : ""}
           ${hostedPluginLoadError}
           ${current.filePath && !isPluginPicker ? `<div class="resource-path-info" title="${escapeHtml(current.filePath)}">${escapeHtml(current.filePath)}</div>` : ""}
-          ${isLibraryPicker ? `<div class="resource-drop-hint">Click to browse, or drag and drop a file here</div>` : ""}
         </div>
       `;
     };

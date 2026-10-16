@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { findMatchingResourcePickerLabel, type ResourcePickerLabelLike } from "../ts/resourcePickerLabel";
+import {
+  applyResourcePickerLabelState,
+  findMatchingResourcePickerLabel,
+  getResourcePickerLabelClass,
+  getResourcePickerLabelTitle,
+  renderResourcePickerLabelContent,
+  type ResourcePickerLabelLike,
+} from "../ts/resourcePickerLabel";
 
 function makeLabel(dataset: ResourcePickerLabelLike["dataset"]): ResourcePickerLabelLike {
   return { dataset };
@@ -42,5 +49,54 @@ describe("findMatchingResourcePickerLabel", () => {
 
     const result = findMatchingResourcePickerLabel(labels, "amp-2", "nam", 0);
     expect(result).toBeNull();
+  });
+});
+function render(state: Parameters<typeof renderResourcePickerLabelContent>[0]): HTMLButtonElement {
+  const label = document.createElement("button");
+  label.className = getResourcePickerLabelClass(state);
+  label.title = getResourcePickerLabelTitle(state);
+  label.innerHTML = renderResourcePickerLabelContent(state);
+  return label;
+}
+
+describe("resource picker label states", () => {
+  it("asks for a model when the slot is empty, and says a file can be dropped", () => {
+    const label = render({ resourceType: "nam", displayName: "" });
+    expect(label.classList.contains("is-empty")).toBe(true);
+    expect(label.querySelector(".resource-picker-label-text")?.textContent).toBe("Choose a model");
+    expect(label.querySelector(".resource-picker-label-hint")?.textContent).toBe("or drop a .nam file here");
+    expect(label.querySelector(".resource-picker-label-action")?.textContent).toBe("Browse");
+    expect(label.querySelector(".resource-picker-label-caret")).toBeNull();
+    expect(label.title).toBe("Choose a model, or drop a .nam file here");
+  });
+
+  it("asks for an optional second IR quietly", () => {
+    const label = render({ resourceType: "ir", displayName: "", isOptional: true });
+    expect(label.className).toBe("resource-picker-label is-empty is-optional");
+    expect(label.querySelector(".resource-picker-label-text")?.textContent).toBe("Add a second IR");
+  });
+
+  it("names a loaded resource, with a caret and no hint", () => {
+    const label = render({ resourceType: "ir", displayName: "4x12 V30", isMissing: true });
+    expect(label.className).toBe("resource-picker-label is-missing");
+    expect(label.querySelector(".resource-picker-label-text")?.textContent).toBe("4x12 V30");
+    expect(label.querySelector(".resource-picker-label-caret")).not.toBeNull();
+    expect(label.querySelector(".resource-picker-label-hint")).toBeNull();
+    expect(label.title).toBe("4x12 V30");
+  });
+
+  it("redraws in place from loaded to empty and back, keeping the slot's optional flag", () => {
+    const label = render({ resourceType: "ir", displayName: "Room" });
+    label.dataset.resourceType = "ir";
+    label.dataset.optional = "true";
+
+    applyResourcePickerLabelState(label, "");
+    expect(label.className).toBe("resource-picker-label is-empty is-optional");
+    expect(label.textContent).toContain("Add a second IR");
+
+    applyResourcePickerLabelState(label, "<b>Hall</b>");
+    expect(label.className).toBe("resource-picker-label");
+    expect(label.querySelector("b")).toBeNull();
+    expect(label.querySelector(".resource-picker-label-text")?.textContent).toBe("<b>Hall</b>");
   });
 });

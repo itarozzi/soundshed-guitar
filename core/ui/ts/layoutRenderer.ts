@@ -12,6 +12,7 @@ import { effectiveTaper, formatTaperedValue, valueToTaperPosition, type ParamTap
 import { escapeHtml } from "./utils.js";
 import { ensureLayoutImagesLoaded } from "./layoutImages.js";
 import { resourceBrowserModal } from "./resourceBrowser.js";
+import { getResourcePickerLabelClass, getResourcePickerLabelTitle, renderResourcePickerLabelContent } from "./resourcePickerLabel.js";
 import type {
   EffectLayout,
   LayoutControl,
@@ -33,9 +34,11 @@ export interface LayoutResourceControlDef {
   navigationContextKey?: string;
   allowBrowseFile?: boolean;
   currentResourceId?: string;
+  /** Empty when nothing is loaded: the label then asks for a resource instead. */
   currentDisplayName: string;
   currentFilePath?: string;
   isMissing?: boolean;
+  isOptional?: boolean;
 }
 
 /**
@@ -453,7 +456,12 @@ function renderControls(
           : resourceDef?.resourceType === "ir"
             ? ".wav"
             : "*";
-        const missingClass = resourceDef?.isMissing ? "resource-picker-label is-missing" : "resource-picker-label";
+        const labelState = {
+          resourceType: resourceDef?.resourceType ?? "",
+          displayName: resourceDef?.currentDisplayName ?? "",
+          isMissing: resourceDef?.isMissing,
+          isOptional: resourceDef?.isOptional,
+        };
         const exposedResourceAttr = resourceDef?.exposedResourceId
           ? `data-exposed-resource-id="${escapeHtml(resourceDef.exposedResourceId)}"`
           : "";
@@ -498,7 +506,11 @@ function renderControls(
           : "";
 
         controlHtml += `
-          <div class="node-resource-selector custom-layout-resource-selector" data-node-id="${escapeHtml(node.id)}">
+          <div
+            class="node-resource-selector custom-layout-resource-selector"
+            data-node-id="${escapeHtml(node.id)}"
+            ${navResourceType ? `data-resource-type="${navResourceType}" data-resource-index="${resourceIndex}"` : ""}
+          >
             <div class="resource-controls">
               <button
                 class="resource-picker-btn"
@@ -520,14 +532,28 @@ function renderControls(
                   aria-label="Previous resource"${prevDisabled}
                 >${renderIcon("arrow-left", "resource-nav-icon")}</button>
               ` : ""}
-              <div
-                class="${missingClass}"
-                data-node-id="${escapeHtml(node.id)}"
-                data-resource-type="${escapeHtml(resourceDef?.resourceType ?? "")}"
-                data-resource-index="${resourceIndex}"
-                ${exposedResourceAttr}
-                title="${escapeHtml(resourceDef?.currentDisplayName ?? "") }"
-              >${escapeHtml(resourceDef?.currentDisplayName ?? "")}</div>
+              ${navResourceType ? `
+                <button
+                  type="button"
+                  class="${escapeHtml(getResourcePickerLabelClass(labelState))}"
+                  data-node-id="${escapeHtml(node.id)}"
+                  data-resource-type="${navResourceType}"
+                  data-resource-index="${resourceIndex}"
+                  ${exposedResourceAttr}
+                  ${resourceDef?.isOptional ? `data-optional="true"` : ""}
+                  title="${escapeHtml(getResourcePickerLabelTitle(labelState))}"
+                  aria-haspopup="dialog"
+                >${renderResourcePickerLabelContent(labelState)}</button>
+              ` : `
+                <div
+                  class="resource-picker-label"
+                  data-node-id="${escapeHtml(node.id)}"
+                  data-resource-type="${escapeHtml(resourceDef?.resourceType ?? "")}"
+                  data-resource-index="${resourceIndex}"
+                  ${exposedResourceAttr}
+                  title="${escapeHtml(resourceDef?.currentDisplayName || "No resource selected")}"
+                >${escapeHtml(resourceDef?.currentDisplayName || "No resource selected")}</div>
+              `}
               ${resourceDef?.resourceType === "nam" || resourceDef?.resourceType === "ir" ? `
                 <button
                   type="button"

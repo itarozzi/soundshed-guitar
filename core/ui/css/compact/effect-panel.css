@@ -269,8 +269,12 @@ html[data-density="compact"] .default-effect-shell .resource-path-info {
 
 /* A drag-and-drop affordance, on a display that is usually touched. The picker
    itself still opens on tap, and drop still works if a pointer can do it. */
-html[data-density="compact"] .default-effect-shell .resource-drop-hint {
+html[data-density="compact"] .default-effect-shell .resource-picker-label-hint {
   display: none;
+}
+
+html[data-density="compact"] .default-effect-shell .node-resource-selector .resource-picker-label.is-empty {
+  min-height: 36px;
 }
 
 html[data-density="compact"] .default-effect-shell .effect-inline-resource-selectors {
