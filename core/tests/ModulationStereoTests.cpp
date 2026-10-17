@@ -416,6 +416,55 @@ void TestChorusAndFlangerReachTheOutputStereo()
     }
 }
 
+/// The doubler's buffer used to be exactly 100 ms long, so Time at its 100 ms maximum read back
+/// the sample just written: no delay, a level boost on the left, and at Mix 1 a silent right side.
+void TestDoublerAtItsLongestTimeStillDelays()
+{
+    RegisterEffects();
+
+    for (const double rate : {44100.0, 48000.0, 96000.0})
+    {
+        auto effect = guitarfx::EffectRegistry::Instance().Create(kDelayDoubler);
+
+        if (!effect)
+        {
+            Check(false, "registry creates the doubler");
+            return;
+        }
+
+        effect->Prepare(rate, kBlock);
+        effect->SetParam("time", 100.0);
+        effect->SetParam("mix", 1.0);
+
+        const auto delay = static_cast<size_t>(rate * 0.1);
+        const auto length = (delay / kBlock + 2) * kBlock;
+        std::vector<float> left(length), right(length);
+        std::vector<float> inL(kBlock), inR(kBlock);
+
+        for (size_t offset = 0; offset < length; offset += kBlock)
+        {
+            std::fill(inL.begin(), inL.end(), 0.0f);
+            std::fill(inR.begin(), inR.end(), 0.0f);
+
+            if (offset == 0)
+            {
+                inL[0] = inR[0] = 1.0f;
+            }
+
+            float* in[2] = {inL.data(), inR.data()};
+            float* out[2] = {left.data() + offset, right.data() + offset};
+            effect->Process(in, out, kBlock);
+        }
+
+        const auto label = "doubler at 100 ms, " + std::to_string(static_cast<int>(rate)) + " Hz: ";
+        const auto at = [&](size_t i) {
+            return " (L " + std::to_string(left[i]) + ", R " + std::to_string(right[i]) + ")";
+        };
+        Check(left[0] == 1.0f && right[0] == 1.0f, label + "the dry impulse passes on both sides" + at(0));
+        Check(left[delay] == 1.0f && right[delay] == -1.0f, label + "the copy lands 100 ms later" + at(delay));
+    }
+}
+
 /// On a mono rig the output node used to copy the global doubler's left channel over its right: a
 /// comb filter on both sides instead of width.
 void TestGlobalPostChainDoublerReachesTheOutputStereo()
@@ -575,6 +624,7 @@ int main()
     TestEffectsDeclareWhatTheyDo();
     TestChorusAndFlangerReachTheOutputStereo();
     TestGlobalPostChainDoublerReachesTheOutputStereo();
+    TestDoublerAtItsLongestTimeStillDelays();
     TestCompositeKeepsItsInteriorStereo();
     TestWideningTypesKeepWhatFollowsStereo();
     TestMonoModulationKeepsTheMonoPath();

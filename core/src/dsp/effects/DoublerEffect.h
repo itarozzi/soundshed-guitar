@@ -24,11 +24,17 @@ class DoublerEffect : public EffectProcessor
 
     void Prepare(double sampleRate, int maxBlockSize) override
     {
+        if (!ValidatePrepare(sampleRate, maxBlockSize))
+        {
+            return;
+        }
+
         mSampleRate = sampleRate;
         mMaxBlockSize = maxBlockSize;
 
-        // Allocate for max ~100ms delay
-        const size_t maxSamples = static_cast<size_t>(sampleRate * 0.1);
+        // Room for the full 100 ms plus the sample being written: a delay as long as the
+        // buffer would read back the sample just written, which is no delay at all.
+        const size_t maxSamples = static_cast<size_t>(std::ceil(sampleRate * 0.1)) + 1;
         mBufferL.resize(maxSamples, 0.0f);
         mBufferR.resize(maxSamples, 0.0f);
 
@@ -55,8 +61,11 @@ class DoublerEffect : public EffectProcessor
 
         if (bufSize == 0)
         {
+            CopyStereoInputToOutput(inputs, outputs, numSamples);
             return;
         }
+
+        const int delaySamples = std::min(mDelaySamples, static_cast<int>(bufSize) - 1);
 
         for (int i = 0; i < numSamples; ++i)
         {
@@ -68,7 +77,7 @@ class DoublerEffect : public EffectProcessor
             mBufferL[mWriteIndex] = inL;
             mBufferR[mWriteIndex] = inR;
 
-            const int readIdx = static_cast<int>(mWriteIndex) - mDelaySamples;
+            const int readIdx = static_cast<int>(mWriteIndex) - delaySamples;
             const std::size_t safeReadIdx =
                 static_cast<std::size_t>((readIdx + static_cast<int>(bufSize)) % static_cast<int>(bufSize));
             const float delayedL = mBufferL[safeReadIdx];
