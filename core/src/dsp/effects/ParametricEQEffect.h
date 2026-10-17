@@ -364,33 +364,38 @@ class ParametricEQEffect : public EffectProcessor
     }
 
     // Validates and constrains all band parameters to numerically safe ranges before
-    // coefficient computation.  Each frequency ceiling is also guarded against the
-    // Nyquist limit (sampleRate * 0.49) so the biquad formulae stay well-conditioned
-    // at non-standard sample rates (e.g. 88.2 kHz, 96 kHz).
+    // coefficient computation. The frequencies keep the values set, within each band's
+    // range; the guard against the Nyquist limit is applied where the filters are designed
+    // (DesignFrequency). Clamped here, it outlived the sample rate: a high shelf prepared at
+    // 22.05 kHz stayed at 10.8 kHz when the host went back to 44.1 kHz.
     void ClampBandParams()
     {
-        // Hard cap slightly below Nyquist to avoid cos/sin degeneracy at w0 = pi.
-        const double maxFreq = std::max(20.0, mSampleRate * 0.49);
-
         // Band 0 — low shelf: 20 Hz–500 Hz corner, ±12 dB, Q default 0.707 (Butterworth)
         mBands[0].gainDb = ClampFinite(mBands[0].gainDb, -12.0, 12.0, 0.0);
-        mBands[0].freq = ClampFinite(mBands[0].freq, 20.0, std::min(500.0, maxFreq), 100.0);
+        mBands[0].freq = ClampFinite(mBands[0].freq, 20.0, 500.0, 100.0);
         mBands[0].q = ClampFinite(mBands[0].q, 0.1, 10.0, 0.707);
 
         // Band 1 — low-mid peak: 100 Hz–2 kHz centre, ±12 dB, Q default 1.0
         mBands[1].gainDb = ClampFinite(mBands[1].gainDb, -12.0, 12.0, 0.0);
-        mBands[1].freq = ClampFinite(mBands[1].freq, 100.0, std::min(2000.0, maxFreq), 400.0);
+        mBands[1].freq = ClampFinite(mBands[1].freq, 100.0, 2000.0, 400.0);
         mBands[1].q = ClampFinite(mBands[1].q, 0.1, 10.0, 1.0);
 
         // Band 2 — high-mid peak: 500 Hz–8 kHz centre, ±12 dB, Q default 1.0
         mBands[2].gainDb = ClampFinite(mBands[2].gainDb, -12.0, 12.0, 0.0);
-        mBands[2].freq = ClampFinite(mBands[2].freq, 500.0, std::min(8000.0, maxFreq), 2000.0);
+        mBands[2].freq = ClampFinite(mBands[2].freq, 500.0, 8000.0, 2000.0);
         mBands[2].q = ClampFinite(mBands[2].q, 0.1, 10.0, 1.0);
 
         // Band 3 — high shelf: 2 kHz–16 kHz corner, ±12 dB, Q default 0.707 (Butterworth)
         mBands[3].gainDb = ClampFinite(mBands[3].gainDb, -12.0, 12.0, 0.0);
-        mBands[3].freq = ClampFinite(mBands[3].freq, 2000.0, std::min(16000.0, maxFreq), 8000.0);
+        mBands[3].freq = ClampFinite(mBands[3].freq, 2000.0, 16000.0, 8000.0);
         mBands[3].q = ClampFinite(mBands[3].q, 0.1, 10.0, 0.707);
+    }
+
+    // The band's frequency for its filter: held just below Nyquist (sampleRate * 0.49), so the
+    // biquad formulae stay well-conditioned (no cos/sin degeneracy at w0 = pi).
+    [[nodiscard]] double DesignFrequency(const Band& band) const
+    {
+        return std::min(band.freq, std::max(20.0, mSampleRate * 0.49));
     }
 
     // Returns `fallback` if `value` is NaN or ±infinity; otherwise clamps to [minimum, maximum].
@@ -470,7 +475,7 @@ class ParametricEQEffect : public EffectProcessor
         // A = sqrt(linear gain) — appears as A and 1/A in the RBJ formula.
         const double A = std::pow(10.0, band.gainDb / 40.0);
         // w0: angular frequency in radians per sample.
-        const double w0 = 2.0 * M_PI * band.freq / mSampleRate;
+        const double w0 = 2.0 * M_PI * DesignFrequency(band) / mSampleRate;
         const double cosw0 = std::cos(w0);
         const double sinw0 = std::sin(w0);
         // alpha relates to the -3 dB bandwidth: BW = arcsin(alpha) / (π/Fs).
@@ -527,7 +532,7 @@ class ParametricEQEffect : public EffectProcessor
         }
 
         const double A = std::pow(10.0, band.gainDb / 40.0); // linear amplitude factor
-        const double w0 = 2.0 * M_PI * band.freq / mSampleRate;
+        const double w0 = 2.0 * M_PI * DesignFrequency(band) / mSampleRate;
         const double cosw0 = std::cos(w0);
         const double sinw0 = std::sin(w0);
         // alpha encodes shelf slope; sinw0/(2*Q) mirrors the peaking definition so
@@ -583,7 +588,7 @@ class ParametricEQEffect : public EffectProcessor
         }
 
         const double A = std::pow(10.0, band.gainDb / 40.0);
-        const double w0 = 2.0 * M_PI * band.freq / mSampleRate;
+        const double w0 = 2.0 * M_PI * DesignFrequency(band) / mSampleRate;
         const double cosw0 = std::cos(w0);
         const double sinw0 = std::sin(w0);
         const double alpha = sinw0 / (2.0 * band.q);

@@ -222,9 +222,12 @@ class GraphicEQEffect : public EffectProcessor
         return std::max(20.0, std::min(20000.0, mSampleRate * 0.49));
     }
 
-    [[nodiscard]] double ClampFrequencyForBand(int bandIndex, double value) const
+    /// The frequency as set, within the control's range. The cap below Nyquist is applied only to
+    /// the filter design: stored, it outlived the sample rate, so a band prepared at 32 kHz stayed
+    /// at 15.7 kHz when the host went back to 48 kHz.
+    [[nodiscard]] static double ClampFrequencyForBand(int bandIndex, double value)
     {
-        return ClampFinite(value, 20.0, MaxFrequency(), kDefaultFrequencies[bandIndex]);
+        return ClampFinite(value, 20.0, 20000.0, kDefaultFrequencies[bandIndex]);
     }
 
     /// What follows "band<N>" in a key ParseBandIndex accepted.
@@ -283,7 +286,8 @@ class GraphicEQEffect : public EffectProcessor
         {
             auto& band = mBands[index];
             band.gainDb = ClampFinite(band.gainDb, -18.0, 18.0, 0.0);
-            band.frequencyHz = ClampFinite(band.frequencyHz, 20.0, maxFrequency, kDefaultFrequencies[index]);
+            band.frequencyHz = ClampFrequencyForBand(index, band.frequencyHz);
+            const double designFrequencyHz = std::min(band.frequencyHz, maxFrequency);
             band.q = ClampFinite(band.q, 0.2, 8.0, 1.0);
 
             if (std::abs(band.gainDb) < 0.001)
@@ -294,7 +298,7 @@ class GraphicEQEffect : public EffectProcessor
             }
 
             const double amplitude = std::pow(10.0, band.gainDb / 40.0);
-            const double w0 = 2.0 * 3.14159265358979323846 * band.frequencyHz / mSampleRate;
+            const double w0 = 2.0 * 3.14159265358979323846 * designFrequencyHz / mSampleRate;
             const double alpha = std::sin(w0) / (2.0 * band.q);
             const double a0 = 1.0 + alpha / amplitude;
 

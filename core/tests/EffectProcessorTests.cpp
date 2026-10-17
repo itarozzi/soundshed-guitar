@@ -1255,6 +1255,51 @@ bool TestParametricEQClippingStability()
     return finite && audible && bounded;
 }
 
+/// Both EQs kept their frequencies capped below the Nyquist of whatever rate they were prepared at,
+/// so a band set at a low host rate stayed low after the rate went back up. And the graphic EQ took
+/// a key like "band10", digits with nothing after them, for a band key and threw std::out_of_range
+/// taking its suffix: from a preset, on the build thread; from automation, on the audio thread.
+bool TestEqFrequenciesOutliveTheSampleRate()
+{
+    std::cout << "\n--- EQ frequencies outlive the sample rate ---\n";
+    auto& registry = guitarfx::EffectRegistry::Instance();
+    auto graphic = registry.Create(guitarfx::EffectGuids::kEqGraphic);
+    auto parametric = registry.Create(guitarfx::EffectGuids::kEqParametric);
+
+    if (!graphic || !parametric)
+    {
+        std::cout << "  FAIL: Could not create the EQs\n";
+        return false;
+    }
+
+    bool keyThrew = false;
+
+    try
+    {
+        graphic->SetParam("band10", 1.0);
+        (void)graphic->GetParam("band10");
+    }
+    catch (const std::exception&)
+    {
+        keyThrew = true;
+    }
+
+    graphic->Prepare(32000.0, kTestBlockSize);
+    graphic->SetParam("band10Freq", 18000.0);
+    graphic->Prepare(kTestSampleRate, kTestBlockSize);
+    parametric->Prepare(22050.0, kTestBlockSize);
+    parametric->SetParam("highFreq", 16000.0);
+    parametric->Prepare(44100.0, kTestBlockSize);
+
+    const double graphicHz = graphic->GetParam("band10Freq");
+    const double parametricHz = parametric->GetParam("highFreq");
+    const bool passed = !keyThrew && graphicHz == 18000.0 && parametricHz == 16000.0;
+    std::cout << "  \"band10\" " << (keyThrew ? "threw" : "is ignored") << ", graphic band 10 at " << graphicHz
+              << " Hz, parametric high shelf at " << parametricHz << " Hz\n";
+    std::cout << (passed ? "  PASS\n" : "  FAIL\n");
+    return passed;
+}
+
 bool TestGraphicEQProfilesAndStability()
 {
     std::cout << "\n--- Graphic EQ Profile and Stability Test ---\n";
@@ -2673,6 +2718,11 @@ int main()
     }
 
     if (!TestGraphicEQProfilesAndStability())
+    {
+        return 1;
+    }
+
+    if (!TestEqFrequenciesOutliveTheSampleRate())
     {
         return 1;
     }
