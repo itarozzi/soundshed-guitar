@@ -62,6 +62,39 @@ describe("normalizeImportedLayout", () => {
     expect(layout!.overlays).toEqual([]);
     expect(layout!.dimensions).toEqual({ width: 400, height: 280 });
   });
+
+  it("gives every field the designer and renderer put into markup or CSS its type", () => {
+    // Each of these used to reach an attribute or a style as it stood: the scale as
+    // value="${scaleX}" in the designer and as transform: scale(...) in the panel.
+    const markup = `1"><iframe src="https://example.com">`;
+    const css = "1);background-image:url(https://example.com/x.png";
+    const layout = normalizeImportedLayout({
+      effectType: "delay_digital",
+      defaultControlsScale: { x: markup, y: css },
+      defaultControlsOffset: { x: css, y: 4 },
+      containerTheme: "dark evil",
+      author: { name: "not a string" },
+      backgrounds: [{ layerIndex: 0, type: "color", value: "#000", offsetX: css, offsetY: markup, scale: css, opacity: css }],
+      overlays: [
+        { id: "o1", position: { x: 0, y: 0 }, size: { width: 8, height: 8 }, style: { borderWidth: css, borderRadius: markup } },
+        { id: "o2", position: { x: 0, y: 0 }, size: { width: 8, height: 8 }, style: "nonsense" },
+      ],
+      controls: [{ paramKey: "time", type: "knob", position: { x: 0, y: 0 }, style: "nonsense", labelOverride: 5 }],
+      textLabels: [{ id: "l1", text: "Hi", position: { x: 0, y: 0 }, fontFamily: 12, color: {} }],
+    })!;
+
+    expect(layout.defaultControlsScale).toEqual({ x: 1, y: 1 });
+    expect(layout.defaultControlsOffset).toEqual({ x: 0, y: 4 });
+    expect(layout.containerTheme).toBeUndefined();
+    expect(layout.author).toBeUndefined();
+    expect(layout.backgrounds[0]).toMatchObject({ offsetX: undefined, offsetY: undefined, scale: undefined, opacity: undefined });
+    expect(layout.overlays![0].style).toMatchObject({ borderWidth: undefined, borderRadius: undefined });
+    expect(layout.overlays![1].style).toBeUndefined();
+    expect(layout.controls[0].style).toBeUndefined();
+    expect(layout.controls[0].labelOverride).toBeUndefined();
+    expect(layout.textLabels[0]).toMatchObject({ fontFamily: undefined, color: undefined });
+    expect(normalizeImportedLayout({ effectType: "x", containerTheme: "classic" })!.containerTheme).toBe("classic");
+  });
 });
 
 describe("prepareLayoutImport", () => {

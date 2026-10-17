@@ -64,6 +64,21 @@ function finite(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
+/** A finite number, or nothing: for the optional numbers a layout may leave out. */
+function optionalFinite(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function optionalPoint(value: unknown, fallback: number): { x: number; y: number } | undefined {
+  return isRecord(value) ? { x: finite(value.x, fallback), y: finite(value.y, fallback) } : undefined;
+}
+
+const CONTAINER_THEMES = new Set(["dark", "light", "classic"]);
+
 function hasPosition(value: Record<string, unknown>): boolean {
   const position = value.position;
   return isRecord(position) && Number.isFinite(position.x) && Number.isFinite(position.y);
@@ -90,6 +105,11 @@ export function importedImageId(fileName: string, unique: string): string {
 /**
  * The parts of an archive's layout that have a layout's shape, with defaults for what
  * is missing; null when it is not a layout at all.
+ *
+ * Every field the designer and the renderer put into markup or CSS is given its type here:
+ * an archive can say anything, and a number field holding `1"><iframe …>` or
+ * `1);background-image:url(…)` went straight into an attribute or a style. A theme that is
+ * not one of ours, or a string where an object belongs, made the designer throw on every render.
  */
 export function normalizeImportedLayout(raw: unknown): EffectLayout | null {
   if (!isRecord(raw)) return null;
@@ -98,29 +118,80 @@ export function normalizeImportedLayout(raw: unknown): EffectLayout | null {
   const backgrounds = (Array.isArray(raw.backgrounds) ? raw.backgrounds : []).filter(
     (bg): bg is LayoutBackground =>
       isRecord(bg) && ["color", "gradient", "image"].includes(bg.type as string) && typeof bg.value === "string",
-  ).map((bg) => ({ ...bg, layerIndex: finite(bg.layerIndex, 0) }));
+  ).map((bg) => ({
+    ...bg,
+    layerIndex: finite(bg.layerIndex, 0),
+    opacity: optionalFinite(bg.opacity),
+    scale: optionalFinite(bg.scale),
+    offsetX: optionalFinite(bg.offsetX),
+    offsetY: optionalFinite(bg.offsetY),
+  }));
 
   const controls = (Array.isArray(raw.controls) ? raw.controls : []).filter(
     (control): control is LayoutControl =>
       isRecord(control) && typeof control.paramKey === "string" && control.paramKey !== "" && hasPosition(control),
-  );
+  ).map((control) => {
+    const size = control.size as unknown;
+    const style = control.style as unknown;
+    return {
+      ...control,
+      size: isRecord(size) && Number.isFinite(size.width) && Number.isFinite(size.height) ? control.size : undefined,
+      style: isRecord(style)
+        ? {
+            ...(style as LayoutControl["style"]),
+            labelColor: optionalString(style.labelColor),
+            accentColor: optionalString(style.accentColor),
+            knobImageId: optionalString(style.knobImageId),
+          }
+        : undefined,
+      labelOverride: optionalString(control.labelOverride),
+    };
+  });
 
   const overlays = (Array.isArray(raw.overlays) ? raw.overlays : []).filter(
     (overlay): overlay is LayoutRectangleOverlay =>
       isRecord(overlay) && typeof overlay.id === "string" && hasPosition(overlay) && isRecord(overlay.size)
       && Number.isFinite(overlay.size.width) && Number.isFinite(overlay.size.height),
-  );
+  ).map((overlay) => {
+    const style = overlay.style as unknown;
+    return {
+      ...overlay,
+      style: isRecord(style)
+        ? {
+            ...(style as LayoutRectangleOverlay["style"]),
+            backgroundColor: optionalString(style.backgroundColor),
+            backgroundOpacity: optionalFinite(style.backgroundOpacity),
+            borderColor: optionalString(style.borderColor),
+            borderWidth: optionalFinite(style.borderWidth),
+            borderRadius: optionalFinite(style.borderRadius),
+          }
+        : undefined,
+    };
+  });
 
   const textLabels = (Array.isArray(raw.textLabels) ? raw.textLabels : []).filter(
     (label): label is LayoutTextLabel =>
       isRecord(label) && typeof label.id === "string" && typeof label.text === "string" && hasPosition(label),
-  ).map((label) => ({ ...label, fontSize: finite(label.fontSize, 14) }));
+  ).map((label) => ({
+    ...label,
+    fontSize: finite(label.fontSize, 14),
+    fontFamily: optionalString(label.fontFamily),
+    color: optionalString(label.color),
+  }));
 
   const layout: EffectLayout = {
     ...(raw as Partial<EffectLayout>),
     effectType: typeof raw.effectType === "string" ? raw.effectType : "",
     version: finite(raw.version, 1),
     name: typeof raw.name === "string" ? raw.name : undefined,
+    author: optionalString(raw.author),
+    containerTheme:
+      typeof raw.containerTheme === "string" && CONTAINER_THEMES.has(raw.containerTheme)
+        ? (raw.containerTheme as EffectLayout["containerTheme"])
+        : undefined,
+    useDefaultControls: raw.useDefaultControls === true ? true : undefined,
+    defaultControlsOffset: optionalPoint(raw.defaultControlsOffset, 0),
+    defaultControlsScale: optionalPoint(raw.defaultControlsScale, 1),
     dimensions: {
       width: finite(dimensions.width, DEFAULT_LAYOUT_DIMENSIONS.width),
       height: finite(dimensions.height, DEFAULT_LAYOUT_DIMENSIONS.height),

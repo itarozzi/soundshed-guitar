@@ -157,8 +157,8 @@ function renderOverlays(node: GraphNode, overlays: LayoutRectangleOverlay[]): st
         ? Math.max(0, Math.min(1, overlay.style.backgroundOpacity))
         : 0.25;
       const borderColor = safeCssValue(overlay.style?.borderColor, "#ffffff");
-      const borderWidth = Math.max(0, overlay.style?.borderWidth ?? 1);
-      const borderRadius = Math.max(0, overlay.style?.borderRadius ?? 0);
+      const borderWidth = Math.max(0, layoutNumber(overlay.style?.borderWidth, 1));
+      const borderRadius = Math.max(0, layoutNumber(overlay.style?.borderRadius, 0));
       const fill = colorWithAlpha(backgroundColor, backgroundOpacity);
 
       return `
@@ -276,10 +276,11 @@ export function renderCustomLayoutBackdrop(
   const labels = renderTextLabels(layout.textLabels);
   const themeClass = layout.containerTheme ? ` theme-${layout.containerTheme}` : '';
 
-  const offsetX = layout.defaultControlsOffset?.x ?? 0;
-  const offsetY = layout.defaultControlsOffset?.y ?? 0;
-  const scaleX = layout.defaultControlsScale?.x ?? 1;
-  const scaleY = layout.defaultControlsScale?.y ?? 1;
+  // Numbers, whatever a stored or shared layout holds: a string here went into the style as CSS.
+  const offsetX = layoutNumber(layout.defaultControlsOffset?.x, 0);
+  const offsetY = layoutNumber(layout.defaultControlsOffset?.y, 0);
+  const scaleX = layoutNumber(layout.defaultControlsScale?.x, 1);
+  const scaleY = layoutNumber(layout.defaultControlsScale?.y, 1);
   const hasTransformOrOffset = offsetX !== 0 || offsetY !== 0 || scaleX !== 1 || scaleY !== 1;
   // Fix the controls wrapper to the design canvas width so flex-wrap break points match
   // the designer exactly. Uniform outer scaling (applied at runtime) handles fitting.
