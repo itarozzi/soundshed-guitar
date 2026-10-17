@@ -138,8 +138,10 @@ struct AutomationSlot
     AutomationSlot() = default;
     AutomationSlot(const AutomationSlot& other);
     AutomationSlot& operator=(const AutomationSlot& other);
-    AutomationSlot(AutomationSlot&&) noexcept = default;
-    AutomationSlot& operator=(AutomationSlot&&) noexcept = default;
+    // Written out: the atomics cannot be moved, so defaulted moves would be deleted, and the vector
+    // would quietly fall back on the copies, which do not take dawValue.
+    AutomationSlot(AutomationSlot&& other) noexcept;
+    AutomationSlot& operator=(AutomationSlot&& other) noexcept;
 
     /// Set value from a source; marks pending apply.
     void SetValue(float normalized, AutomationSource src);

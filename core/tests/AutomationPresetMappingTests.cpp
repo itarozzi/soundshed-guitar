@@ -13,6 +13,7 @@
 #include <iostream>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include "automation/AutomationSlotTable.h"
 #include "dsp/MultiPresetMixer.h"
@@ -79,6 +80,53 @@ bool AddPresetSlot(AutomationSlotTable& table, const std::string& slotId, const 
 {
     return table.SetPresetSlot(slotId, presetId, std::optional<std::string>(slotId),
                                std::optional<std::string>(address), std::optional<MidiControlMap>(Cc(controller)));
+}
+
+/// Each DAW parameter reads a cell its slot mirrors its value into. Slot moves were defaulted, and
+/// so deleted (std::atomic cannot move): the vector copied instead, and a copy does not take the
+/// cell. A custom slot added past the vector's capacity left every other slot unjoined, and
+/// removing one from the middle wrote each later slot's value into its neighbour's cell.
+bool TestDawParametersFollowSlotsAsTheTableChanges(MultiPresetMixer& mixer)
+{
+    AutomationSlotTable table;
+    InitializeTable(table, mixer);
+
+    std::vector<std::string> layout = table.GetSlotIds();
+
+    for (int i = 0; i < kMaxCustomSlots; ++i)
+    {
+        layout.push_back("custom." + std::to_string(i));
+    }
+
+    table.BindDawParameters(layout);
+    const auto cell = [&](const std::string& slotId) {
+        const auto it = std::find(layout.begin(), layout.end(), slotId);
+        return table.GetDawParameterValue(static_cast<int>(it - layout.begin()));
+    };
+    const auto set = [&](const std::string& slotId, float value) {
+        table.FindSlot(slotId)->SetValue(value, AutomationSource::UI);
+    };
+    bool passed = true;
+
+    for (int i = 0; i < kMaxCustomSlots; ++i)
+    {
+        const auto id = "custom." + std::to_string(i);
+        passed &= Expect(AddCustom(table, id, "global.outputTrim", 40 + i), "adding " + id);
+        set(id, 0.01f * static_cast<float>(i + 1));
+    }
+
+    const auto show = [&](const std::string& slotId) { return ": " + std::to_string(cell(slotId)); };
+    set("default.inputLevel", 0.75f);
+    passed &= Expect(Near(cell("default.inputLevel"), 0.75),
+                     "with the custom slots added, Input Level's parameter follows it" + show("default.inputLevel"));
+    passed &= Expect(Near(cell("custom.0"), 0.01), "and so does the first custom slot's" + show("custom.0"));
+
+    passed &= Expect(table.RemoveCustomSlot("custom.3"), "removing custom.3");
+    passed &= Expect(cell("custom.3") == 0.0f, "a removed slot's parameter reads 0" + show("custom.3"));
+    set("custom.4", 0.9f);
+    passed &= Expect(Near(cell("custom.4"), 0.9) && cell("custom.3") == 0.0f,
+                     "the slot after it keeps its own parameter" + show("custom.4"));
+    return passed;
 }
 } // namespace
 
@@ -177,6 +225,8 @@ int main()
     allPassed &=
         Expect(removed == kMaxPresetSlotsPerPreset && !table.FindSlot("preset.1") && table.FindSlot("preset.b"),
                "removing preset A's mappings should leave preset B's: removed " + std::to_string(removed));
+
+    allPassed &= TestDawParametersFollowSlotsAsTheTableChanges(mixer);
 
     if (allPassed)
     {

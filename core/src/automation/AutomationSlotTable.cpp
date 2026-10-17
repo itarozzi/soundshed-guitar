@@ -65,7 +65,8 @@ bool ListensTo(const MidiControlMap& map, MidiControlMap::EventType eventType, i
 //
 // A copy is not in the table, so it does not take dawValue: the constructor leaves it unset and
 // assignment keeps the target's. A move does take it, which is what keeps a slot joined to its
-// DAW parameter as the vector reallocates or erases around it.
+// DAW parameter as the vector reallocates or erases around it. The moves are written out below:
+// defaulted ones are deleted (std::atomic cannot move), and the vector then used the copies.
 
 AutomationSlot::AutomationSlot(const AutomationSlot& other)
     : slotId(other.slotId), label(other.label), address(other.address), nodeSelector(other.nodeSelector),
@@ -94,6 +95,42 @@ AutomationSlot& AutomationSlot::operator=(const AutomationSlot& other)
         lastNormalized.store(other.lastNormalized.load());
         lastToggleGate.store(other.lastToggleGate.load());
         pendingApply.store(other.pendingApply.load());
+    }
+
+    return *this;
+}
+
+AutomationSlot::AutomationSlot(AutomationSlot&& other) noexcept
+    : slotId(std::move(other.slotId)), label(std::move(other.label)), address(std::move(other.address)),
+      nodeSelector(std::move(other.nodeSelector)), isDefault(other.isDefault), presetId(std::move(other.presetId)),
+      midiMap(std::move(other.midiMap)), keyMaps(std::move(other.keyMaps)), nodeBinding(std::move(other.nodeBinding)),
+      value(other.value.load()), lastSource(other.lastSource.load()), lastNormalized(other.lastNormalized.load()),
+      lastToggleGate(other.lastToggleGate.load()), pendingApply(other.pendingApply.load()), dawValue(other.dawValue)
+{
+    other.dawValue = nullptr;
+}
+
+AutomationSlot& AutomationSlot::operator=(AutomationSlot&& other) noexcept
+{
+    if (this != &other)
+    {
+        slotId = std::move(other.slotId);
+        label = std::move(other.label);
+        address = std::move(other.address);
+        nodeSelector = std::move(other.nodeSelector);
+        isDefault = other.isDefault;
+        presetId = std::move(other.presetId);
+        midiMap = std::move(other.midiMap);
+        keyMaps = std::move(other.keyMaps);
+        nodeBinding = std::move(other.nodeBinding);
+        value.store(other.value.load());
+        lastSource.store(other.lastSource.load());
+        lastNormalized.store(other.lastNormalized.load());
+        lastToggleGate.store(other.lastToggleGate.load());
+        pendingApply.store(other.pendingApply.load());
+        // The slot moves, and its parameter with it; the cell this one had is no longer its own.
+        dawValue = other.dawValue;
+        other.dawValue = nullptr;
     }
 
     return *this;
