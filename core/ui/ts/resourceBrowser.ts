@@ -1794,10 +1794,20 @@ export class ResourceBrowserModal {
   
   
   
+  /** Bumped by every preview, so a download that is not the latest preview's is dropped. */
+  private previewSequence = 0;
+
   private async startPreview(toneId: string, modelId: string, modelUrl: string): Promise<void> {
     if (!this.options) {
       return;
     }
+
+    // The picker this preview was asked from. The download takes a while: the picker may be closed
+    // by then (options gone), or open for another node (new options), and a newer preview may have
+    // started. The download is then dropped rather than sent to whichever node the picker is on now.
+    const options = this.options;
+    const sequence = ++this.previewSequence;
+    const isStale = (): boolean => this.options !== options || sequence !== this.previewSequence;
     
     // The current preview keeps playing while the next one downloads, and is not cancelled here:
     // the engine replaces it and keeps the node's original for close to restore. Cancelling first
@@ -1823,21 +1833,24 @@ export class ResourceBrowserModal {
       }
       
       const buffer = await response.arrayBuffer();
+      if (isStale()) {
+        return;
+      }
       const contentType = response.headers.get("content-type") ?? "";
       const isZip = contentType.includes("zip") || modelUrl.toLowerCase().endsWith(".zip");
       
       // For preview, we send the file data to the plugin for temporary loading
       const data = arrayBufferToBase64(buffer);
       const tempResourceId = `preview:tone3000:${toneId}:${modelId}`;
-      const resourceType = this.options.resourceType;
+      const resourceType = options.resourceType;
       
       // Send preview message to plugin
       postMessage({
         type: "previewRemoteResource",
         resourceType,
         tempResourceId,
-        nodeId: this.options.nodeId,
-        resourceIndex: this.options.resourceIndex,
+        nodeId: options.nodeId,
+        resourceIndex: options.resourceIndex,
         isZip,
         data,
       });
@@ -1858,6 +1871,9 @@ export class ResourceBrowserModal {
       
       showNotification("Preview started", "Playing Tone3000 model");
     } catch (error) {
+      if (isStale()) {
+        return;
+      }
       const message = error instanceof Error ? error.message : String(error);
       showNotification("Preview failed", message);
       if (this.tone3000Tab.tone3000Status) {
@@ -1897,6 +1913,12 @@ export class ResourceBrowserModal {
     if (!this.options) {
       return;
     }
+
+    // As for a preview: the picker this was asked from, which may be closed or open for another
+    // slot by the time the download is in. The import then stops; it used to take the new slot's
+    // resource type (an IR import of .nam bytes) and select into the new node, closing it.
+    const options = this.options;
+    const isStale = (): boolean => this.options !== options;
     
     if (!isTone3000AuthReady()) {
       showNotification("Import failed", "No Tone3000 session");
@@ -1927,9 +1949,12 @@ export class ResourceBrowserModal {
       }
       
       const buffer = await response.arrayBuffer();
+      if (isStale()) {
+        return;
+      }
       const contentType = response.headers.get("content-type") ?? "";
       const isZip = contentType.includes("zip") || modelUrl.toLowerCase().endsWith(".zip");
-      const resourceType = this.options.resourceType;
+      const resourceType = options.resourceType;
       
       // Import the resource
       const resourceId = await this.tone3000Tab.navigation.importTone3000Resource(
@@ -1940,8 +1965,11 @@ export class ResourceBrowserModal {
         buffer,
         isZip,
         resourceType,
-        resourceType === "ir" ? slotImportCategory(this.options, "") : undefined,
+        resourceType === "ir" ? slotImportCategory(options, "") : undefined,
       );
+      if (isStale()) {
+        return;
+      }
       
       if (this.tone3000Tab.tone3000Status) {
         this.tone3000Tab.tone3000Status.textContent = "";
@@ -1957,6 +1985,9 @@ export class ResourceBrowserModal {
       this.selectedResourceId = resourceId;
       this.confirmSelection();
     } catch (error) {
+      if (isStale()) {
+        return;
+      }
       const message = error instanceof Error ? error.message : String(error);
       showNotification("Import failed", message);
       if (this.tone3000Tab.tone3000Status) {

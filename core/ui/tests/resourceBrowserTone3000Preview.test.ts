@@ -58,6 +58,41 @@ describe("Tone3000 preview in the resource browser", () => {
     expect(modal.previewState).toMatchObject({ active: true, modelId: "b" });
   });
 
+  // The download takes a while. One finishing after the picker was opened for another node used
+  // to be sent with that node's id and resource type; one finishing after a newer preview started
+  // replaced it.
+  it("drops a download that is no longer the current picker's latest preview", async () => {
+    const downloads: Array<() => void> = [];
+    globalThis.fetch = vi.fn(() => new Promise<Response>((resolve) => {
+      downloads.push(() => resolve({
+        ok: true,
+        status: 200,
+        arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+        text: async () => "",
+        headers: new Headers({ "content-type": "application/octet-stream" }),
+      } as Response));
+    })) as typeof fetch;
+
+    const modal = previewingModal();
+    const pending = modal.startPreview("1", "a", "https://www.tone3000.com/api/v1/models/1/download/a.nam");
+    modal.options = { resourceType: "ir", nodeId: "cab", resourceIndex: 0, onSelect: () => {} };
+    await vi.waitFor(() => expect(downloads).toHaveLength(1));
+    downloads[0]();
+    await pending;
+    expect(sent).toEqual([]);
+
+    const slow = modal.startPreview("1", "b", "https://www.tone3000.com/api/v1/models/1/download/b.nam");
+    await vi.waitFor(() => expect(downloads).toHaveLength(2));
+    const fast = modal.startPreview("1", "c", "https://www.tone3000.com/api/v1/models/1/download/c.nam");
+    await vi.waitFor(() => expect(downloads).toHaveLength(3));
+    downloads[2]();
+    await fast;
+    downloads[1]();
+    await slow;
+    expect(sent.map((message) => message.tempResourceId)).toEqual(["preview:tone3000:1:c"]);
+    expect(sent[0]).toMatchObject({ nodeId: "cab", resourceType: "ir" });
+  });
+
   it("keeps the playing preview when the next download fails, so closing still restores", async () => {
     const modal = previewingModal();
     await modal.startPreview("1", "a", "https://www.tone3000.com/api/v1/models/1/download/a.nam");
