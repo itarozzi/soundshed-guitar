@@ -1,12 +1,17 @@
 #!/usr/bin/env node
 /**
- * Audio A/B between two versions of the app: does anything sound different?
+ * Audio A/B between two versions of the app: does anything sound different? And with `perf`:
+ * how does their DSP CPU compare?
  *
  * For each revision it builds core/tests/AudioSnapshot in Release (in a git worktree of its
  * own, so the base is built from exactly that commit with its own pinned dependencies),
  * renders every effect alone at its defaults and a set of whole chains through a real
  * PluginController at default settings (tools/audio-ab/snapshot.json), then compares the
  * two sets of renders and says which effects and chains changed audibly.
+ *
+ * `perf` builds core/tests/AudioPerf the same way, runs each revision's build in turn for a
+ * number of rounds, timing the perfCases in snapshot.json, and reports µs per block from each
+ * case's best round, with the ratio against the first revision.
  *
  * The harness that renders both sides is always the one in this checkout: it is copied into
  * the base's worktree, so a difference can only come from the DSP, never from the harness.
@@ -19,6 +24,8 @@
  *   node tools/audio-ab/audio-ab.mjs 1.5.0 main --rate 44100 --signals di,di_hot
  *   node tools/audio-ab/audio-ab.mjs render <rev>         # build and render one side only
  *   node tools/audio-ab/audio-ab.mjs report <renderDirA> <renderDirB>
+ *   node tools/audio-ab/audio-ab.mjs perf <revA> [<revB>...]   # DSP CPU, ratios against revA
+ *   node tools/audio-ab/audio-ab.mjs perf 1.5.0 1.6.0 HEAD --rate 44100 --stereo
  *   node tools/audio-ab/audio-ab.mjs list                 # cached worktrees, builds and renders
  *   node tools/audio-ab/audio-ab.mjs clean [--all]        # remove worktrees and builds (--all: renders and reports too)
  *
@@ -30,6 +37,7 @@
  *   --block <n>            block size (default 64, a 48 kHz/64 ASIO rig)
  *   --signals a,b          stimuli: di, di_hot, sweep, impulse, silence, noise (default from snapshot.json)
  *   --filter <text>        only effects/chains whose name, alias or type contains <text>
+ *                          (perf: only cases whose id or name contains it)
  *   --only effects|chains  one pass only
  *   --definition <file>    another snapshot definition (default tools/audio-ab/snapshot.json)
  *   --work-dir <dir>       where worktrees, builds, renders and reports live
@@ -38,22 +46,34 @@
  *   --fail-on <verdict>    exit 1 if any subject is at least this bad: broken (default), audible, slight, never
  *   --threshold k=v        override a threshold in analysis.mjs, e.g. --threshold levelAudibleDb=1
  *
+ * perf options (with --rate, --block, --filter, --definition and --work-dir above):
+ *   --rounds <n>           rounds per revision, interleaved; each case keeps its best (default 4)
+ *   --seconds <s>          audio timed per case per round, after a second of warm-up (default 10)
+ *   --stereo               a stereo input (another part of the DI on the right) instead of the
+ *                          app's default mono input
+ *   --core <n>             the logical core to pin the timing thread to, -1 for none (default 4)
+ *
  * Renders of a committed revision are cached by commit, harness, definition and options, so
  * comparing the same base again only re-renders the working tree. Builds are incremental.
  * The first build of a revision fetches its dependencies and compiles the core: minutes.
+ * CMAKE_BUILD_PARALLEL_LEVEL, when set, caps the build's parallel jobs.
  */
 
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { compareRuns, printSummary, writeHtml, writeJson, writeMarkdown } from "./report.mjs";
 import { DEFAULT_THRESHOLDS, severityRank } from "./analysis.mjs";
+import { printPerf, summarisePerf, writePerfJson, writePerfMarkdown } from "./perf.mjs";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const IS_WIN = process.platform === "win32";
-const HARNESS_FILES = ["AudioSnapshot.cpp", "AudioSnapshotChains.h", "AudioSnapshotSupport.h", "AudioSnapshot.cmake"];
+// What a render depends on; AudioPerf.cpp is copied in with it but does not change a render.
+const RENDER_HARNESS_FILES = ["AudioSnapshot.cpp", "AudioSnapshotChains.h", "AudioSnapshotSupport.h", "AudioSnapshot.cmake"];
+const HARNESS_FILES = [...RENDER_HARNESS_FILES, "AudioPerf.cpp"];
 const WORKTREE = "worktree";
 
 // ---------------------------------------------------------------- arguments
@@ -78,7 +98,11 @@ function parseArgs(argv) {
     else if (a === "--threshold") {
       const [k, v] = next().split("=");
       opts.thresholds[k] = Number(v);
-    } else if (a === "--all") opts.all = true;
+    } else if (a === "--rounds") opts.rounds = Number(next());
+    else if (a === "--seconds") opts.seconds = Number(next());
+    else if (a === "--stereo") opts.stereo = true;
+    else if (a === "--core") opts.core = Number(next());
+    else if (a === "--all") opts.all = true;
     else if (a === "--help" || a === "-h") opts.help = true;
     else if (a.startsWith("--")) throw new Error(`unknown option ${a}`);
     else opts.positional.push(a);
@@ -89,6 +113,13 @@ function parseArgs(argv) {
   }
   opts.rate ??= 48000;
   opts.block ??= 64;
+  opts.rounds ??= 4;
+  opts.seconds ??= 10;
+  opts.core ??= 4;
+  opts.stereo ??= false;
+  if (!(Number.isInteger(opts.rounds) && opts.rounds > 0)) throw new Error("--rounds must be a whole number above 0");
+  if (!(opts.seconds > 0)) throw new Error("--seconds must be above 0");
+  if (!Number.isInteger(opts.core)) throw new Error("--core must be a whole number");
   opts.definition ??= path.join(REPO, "tools", "audio-ab", "snapshot.json");
   opts.workDir ??= process.env.SSG_AUDIO_AB_DIR ? path.resolve(process.env.SSG_AUDIO_AB_DIR) : path.resolve(REPO, "..", `${path.basename(REPO)}-audio-ab`);
   return opts;
@@ -109,10 +140,10 @@ function git(args, cwd = REPO) {
 }
 
 /** Runs a command with its output going to a log; returns the exit code. `onLine` sees each line. */
-function run(cmd, args, { cwd, log, env, onLine } = {}) {
+function run(cmd, args, { cwd, log, env, onLine, append } = {}) {
   return new Promise((resolve) => {
     fs.mkdirSync(path.dirname(log), { recursive: true });
-    const out = fs.createWriteStream(log);
+    const out = fs.createWriteStream(log, { flags: append ? "a" : "w" });
     out.write(`> ${cmd} ${args.join(" ")}\n`);
     const child = spawn(cmd, args, { cwd, env: env ?? process.env, windowsHide: true });
     let pending = "";
@@ -222,7 +253,8 @@ function noopNpm(workDir) {
   return file.replaceAll("\\", "/");
 }
 
-async function build(rev, workDir) {
+/** Builds one of the harness's tools (AudioSnapshot or AudioPerf) for a revision; returns the executable. */
+async function build(rev, workDir, target = "AudioSnapshot") {
   const buildDir = path.join(workDir, "build", rev.key);
   const logs = path.join(workDir, "logs");
   if (!fs.existsSync(path.join(buildDir, "CMakeCache.txt"))) {
@@ -235,10 +267,12 @@ async function build(rev, workDir) {
       throw new Error(`configure failed for ${rev.label}:\n${tailOf(path.join(logs, `${rev.key}-configure.log`), /error/i)}`);
     }
   }
-  step(`building AudioSnapshot for ${rev.label} (Release)`);
-  const log = path.join(logs, `${rev.key}-build.log`);
+  step(`building ${target} for ${rev.label} (Release)`);
+  const log = path.join(logs, `${rev.key}-build-${target}.log`);
   let compiled = 0;
-  const code = await run("cmake", ["--build", buildDir, "--config", "Release", "--target", "AudioSnapshot", "--parallel"], {
+  // A bare --parallel ignores CMAKE_BUILD_PARALLEL_LEVEL, so pass it on when it is set.
+  const jobs = process.env.CMAKE_BUILD_PARALLEL_LEVEL ? [process.env.CMAKE_BUILD_PARALLEL_LEVEL] : [];
+  const code = await run("cmake", ["--build", buildDir, "--config", "Release", "--target", target, "--parallel", ...jobs], {
     log,
     onLine: (l) => {
       if (/\.(cpp|cc|c)\s*$/.test(l.trim())) {
@@ -251,21 +285,21 @@ async function build(rev, workDir) {
     throw new Error(`build failed for ${rev.label} (full log: ${log}):\n${tailOf(log, /\berror\b/i)}` +
       (rev.key !== WORKTREE ? "\nThe harness is this checkout's; if it uses an API this revision lacks, guard it with a requires-check (see AudioSnapshotSupport.h)." : ""));
   }
-  const exe = [path.join(buildDir, "tests", "Release", IS_WIN ? "AudioSnapshot.exe" : "AudioSnapshot"), path.join(buildDir, "tests", "AudioSnapshot")].find((p) => fs.existsSync(p));
-  if (!exe) throw new Error(`built, but no AudioSnapshot executable under ${buildDir}`);
+  const exe = [path.join(buildDir, "tests", "Release", IS_WIN ? `${target}.exe` : target), path.join(buildDir, "tests", target)].find((p) => fs.existsSync(p));
+  if (!exe) throw new Error(`built, but no ${target} executable under ${buildDir}`);
   return exe;
 }
 
 // ---------------------------------------------------------------- render
 
 function renderKey(rev, opts) {
-  const harness = sha256(...HARNESS_FILES.map((f) => fs.readFileSync(path.join(REPO, "core", "tests", f))));
-  const definition = fs.readFileSync(opts.definition);
-  const def = JSON.parse(definition);
+  const harness = sha256(...RENDER_HARNESS_FILES.map((f) => fs.readFileSync(path.join(REPO, "core", "tests", f))));
+  // The perf cases do not change a render, so editing them keeps the cache.
+  const { perfCases, ...def } = JSON.parse(fs.readFileSync(opts.definition, "utf8"));
   const assets = path.join(REPO, "core", "tests", "testdata", "assets");
   const inputs = [path.join(REPO, "core", "ui", "demo", "DI_Guitar_L.mp3"), ...Object.values(def.resources ?? {}).map((r) => path.join(assets, r))]
     .map((f) => (fs.existsSync(f) ? `${f}:${fs.statSync(f).size}` : `${f}:missing`));
-  return sha256(JSON.stringify({ sha: rev.sha, harness, definition: sha256(definition), inputs, rate: opts.rate, block: opts.block, signals: opts.signals, filter: opts.filter, only: opts.only })).slice(0, 10);
+  return sha256(JSON.stringify({ sha: rev.sha, harness, definition: sha256(JSON.stringify(def)), inputs, rate: opts.rate, block: opts.block, signals: opts.signals, filter: opts.filter, only: opts.only })).slice(0, 10);
 }
 
 async function render(rev, opts) {
@@ -305,6 +339,70 @@ async function render(rev, opts) {
   fs.writeFileSync(infoFile, JSON.stringify({ label: rev.label, spec: rev.spec, sha: rev.sha, describe: rev.describe, dirty: rev.dirty, key, rate: opts.rate, block: opts.block, renderedAt: new Date().toISOString() }, null, 1));
   console.log(`   ${count} renders in ${((Date.now() - started) / 1000).toFixed(0)} s -> ${dir}`);
   return dir;
+}
+
+// ---------------------------------------------------------------- perf
+
+/**
+ * Builds AudioPerf for every revision, then runs them in turn, round after round, so a machine
+ * that warms up or gets busy part-way affects them all alike. Each round starts with the next
+ * revision along, so none always runs first. Each case keeps its best round.
+ */
+async function perf(specs, opts) {
+  if (!specs.length) throw new Error("perf needs at least one revision");
+  const revs = specs.map((s) => resolveRevision(s, opts.workDir));
+  const exes = [];
+  for (const rev of revs) {
+    ensureWorktree(rev);
+    injectHarness(rev);
+    exes.push(await build(rev, opts.workDir, "AudioPerf"));
+  }
+
+  const args = ["--definition", opts.definition, "--assets", path.join(REPO, "core", "tests", "testdata", "assets"),
+    "--di", path.join(REPO, "core", "ui", "demo", "DI_Guitar_L.mp3"), "--rate", String(opts.rate), "--block", String(opts.block),
+    "--seconds", String(opts.seconds), "--core", String(opts.core)];
+  if (opts.stereo) args.push("--stereo");
+  if (opts.filter) args.push("--filter", opts.filter);
+  // As for renders: nothing the engine might read or write lands in the real profile.
+  const envDir = path.join(opts.workDir, "perf-env");
+  fs.mkdirSync(path.join(envDir, "local"), { recursive: true });
+  const env = { ...process.env, APPDATA: envDir, LOCALAPPDATA: path.join(envDir, "local"), HOME: envDir };
+
+  step(`timing ${revs.map((r) => r.label).join(", ")}: ${opts.rounds} round${opts.rounds === 1 ? "" : "s"} of ${opts.seconds} s per case at ${opts.rate} Hz, ${opts.block}-sample blocks, ${opts.stereo ? "stereo" : "mono"}`);
+  const results = revs.map(() => []);
+  const configs = revs.map(() => null);
+  const logged = new Set();
+  for (let round = 1; round <= opts.rounds; round++) {
+    for (let k = 0; k < revs.length; k++) {
+      const i = (round - 1 + k) % revs.length;
+      const log = path.join(opts.workDir, "logs", `${revs[i].key}-perf.log`);
+      const code = await run(exes[i], args, {
+        cwd: envDir, env, log, append: logged.has(log),
+        onLine: (l) => {
+          if (l.startsWith("config ")) configs[i] = JSON.parse(l.slice(7));
+          else if (l.startsWith("result ")) results[i].push({ ...JSON.parse(l.slice(7)), round });
+        },
+      });
+      logged.add(log);
+      if (code !== 0) throw new Error(`AudioPerf failed for ${revs[i].label} (log: ${log}):\n${tailOf(log, null, 15)}`);
+    }
+    console.log(`   round ${round} of ${opts.rounds} done`);
+  }
+  fs.rmSync(envDir, { recursive: true, force: true });
+
+  const model = summarisePerf({
+    revisions: revs.map((r, i) => ({ label: r.label, spec: r.spec, sha: r.sha, describe: r.describe, dirty: r.dirty, config: configs[i] })),
+    results,
+    options: { rate: opts.rate, block: opts.block, stereo: opts.stereo, rounds: opts.rounds, seconds: opts.seconds, core: opts.core, filter: opts.filter ?? null, definition: opts.definition },
+    machine: { cpu: os.cpus()[0]?.model?.trim() ?? "unknown", logicalCores: os.cpus().length, platform: os.platform(), release: os.release() },
+  });
+  const stamp = new Date().toISOString().slice(0, 19).replaceAll(":", "").replace("T", "-");
+  const reportDir = path.join(opts.workDir, "reports", `perf-${revs.map((r) => r.key).join("-vs-")}-${opts.rate}-b${opts.block}${opts.stereo ? "-stereo" : ""}-${stamp}`);
+  fs.mkdirSync(reportDir, { recursive: true });
+  writePerfJson(model, reportDir);
+  writePerfMarkdown(model, reportDir);
+  printPerf(model, { reportDir });
+  return 0;
 }
 
 // ---------------------------------------------------------------- commands
@@ -355,7 +453,7 @@ async function main() {
   const opts = parseArgs(process.argv.slice(2));
   const [cmd, ...rest] = opts.positional;
   if (opts.help || !cmd) {
-    console.log(fs.readFileSync(fileURLToPath(import.meta.url), "utf8").split("*/")[0].replace(/^#!.*\n\/\*\*\n?/, "").replace(/^ \* ?/gm, ""));
+    console.log(fs.readFileSync(fileURLToPath(import.meta.url), "utf8").split("*/")[0].replace(/^#!.*\r?\n\/\*\*\r?\n?/, "").replace(/^ \* ?/gm, ""));
     return 0;
   }
   if (cmd === "list") {
@@ -375,6 +473,7 @@ async function main() {
     await render(resolveRevision(rest[0], opts.workDir), opts);
     return 0;
   }
+  if (cmd === "perf") return perf(rest, opts);
   const base = resolveRevision(cmd, opts.workDir);
   const target = resolveRevision(rest[0] ?? "WORKTREE", opts.workDir);
   const dirA = await render(base, opts);

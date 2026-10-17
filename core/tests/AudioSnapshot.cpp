@@ -58,10 +58,6 @@ namespace
 {
 constexpr int kHarnessVersion = 1;
 
-// What PluginController applies at default settings (SettingsKeys.h), mirrored for the effects
-// pass, which runs the executor without a controller. The chains pass gets the real thing.
-constexpr double kDefaultNamInterfaceCalibrationDbu = 12.0;
-
 struct Options
 {
     fs::path out;
@@ -149,18 +145,6 @@ bool ParseArgs(int argc, char** argv, Options& o)
     return !o.out.empty() && !o.definition.empty() && !o.assets.empty() && o.sampleRate > 0.0 && o.block > 0;
 }
 
-json LoadJson(const fs::path& file)
-{
-    std::ifstream f(file, std::ios::binary);
-
-    if (!f)
-    {
-        throw std::runtime_error("cannot open " + file.string());
-    }
-
-    return json::parse(f);
-}
-
 bool Matches(const Options& o, std::initializer_list<std::string> names)
 {
     if (o.filter.empty())
@@ -171,22 +155,6 @@ bool Matches(const Options& o, std::initializer_list<std::string> names)
     for (const auto& n : names)
     {
         if (n.find(o.filter) != std::string::npos)
-        {
-            return true;
-        }
-    }
-
-    return false;
-}
-
-bool IsNamCalibratable(const std::string& canonicalType)
-{
-    // controller_detail::IsNamCalibratableEffectType, by alias so older revisions resolve it too.
-    auto& registry = guitarfx::EffectRegistry::Instance();
-
-    for (const char* alias : {"amp_nam", "amp_nam_optimized", "amp_nam_blend", "fx_nam"})
-    {
-        if (registry.Resolve(alias) == canonicalType)
         {
             return true;
         }

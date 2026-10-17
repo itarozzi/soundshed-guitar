@@ -6,11 +6,15 @@ through the app at its default settings, for both versions. Then it compares the
 says which effects and chains changed, how (level, tone, waveform, tail, latency) and whether
 a player would hear it.
 
+Its `perf` command answers a second one: **how does DSP CPU compare between versions?** See
+[Timing DSP between versions](#timing-dsp-between-versions-perf).
+
 ```powershell
 node tools/audio-ab/audio-ab.mjs 1.5.0              # the public release vs your working tree
 node tools/audio-ab/audio-ab.mjs HEAD               # what your uncommitted changes do to the sound
 node tools/audio-ab/audio-ab.mjs 1.5.0 main         # any two revisions
 node tools/audio-ab/audio-ab.mjs 1.5.0 --rate 44100 --signals di,di_hot
+node tools/audio-ab/audio-ab.mjs perf 1.5.0 1.6.0 HEAD   # µs per block, against 1.5.0
 node tools/audio-ab/audio-ab.mjs --help
 ```
 
@@ -25,7 +29,7 @@ For each revision the driver:
 
 1. **Checks it out** as a detached git worktree under the work directory. `WORKTREE` uses
    this checkout directly.
-2. **Copies in this checkout's harness**: `core/tests/AudioSnapshot.cpp`,
+2. **Copies in this checkout's harness**: `core/tests/AudioSnapshot.cpp`, `AudioPerf.cpp`,
    `AudioSnapshotChains.h`, `AudioSnapshotSupport.h` and `AudioSnapshot.cmake`. If that revision's
    `core/tests/CMakeLists.txt` does not include `AudioSnapshot.cmake`, the driver adds the
    include. Both sides therefore run the same harness, so a difference can only come from
@@ -40,7 +44,7 @@ For each revision the driver:
    identical input.
 
 Renders of a committed revision are cached. The cache key covers the commit, the harness,
-`snapshot.json`, the inputs and the options, so comparing against the same base again only
+`snapshot.json` (bar its `perfCases`), the inputs and the options, so comparing against the same base again only
 re-renders the working tree. The first run for a revision is the slow one: 1.5.0 took about
 six minutes (two to configure and fetch, three to build, 40 s to render). After that, builds
 are incremental and a full render takes about 30 s.
@@ -157,6 +161,108 @@ The verdict rules live in `analysis.mjs` and are pinned by synthetic cases in
 already have without building or rendering anything, run
 `node tools/audio-ab/audio-ab.mjs report <renderDirA> <renderDirB>`.
 
+## Timing DSP between versions (`perf`)
+
+```powershell
+node tools/audio-ab/audio-ab.mjs perf 1.5.0 1.6.0 HEAD      # ratios against the first revision
+node tools/audio-ab/audio-ab.mjs perf HEAD WORKTREE         # what your uncommitted changes cost
+node tools/audio-ab/audio-ab.mjs perf 1.6.0 HEAD --rate 44100 --stereo --filter nam
+```
+
+`perf` checks out, copies the harness into and builds each revision as above, but its target
+is `core/tests/AudioPerf`. Then it runs the revisions' builds one after another, for
+`--rounds` rounds (default 4). Each round starts with the next revision along, so a machine
+that warms up or gets busy part-way through affects every revision alike. Each case keeps its
+best round, because interference only ever adds time. The console prints the table, and
+`perf.md` and `perf.json` are written to `reports/perf-…`.
+
+On a Ryzen 7 8845HS laptop on 2026-10-17, with the builds already done, this took 20 seconds.
+The effects run faster than real time, so 10 s of audio takes well under a second to time:
+
+```text
+DSP CPU  µs per 64-sample block at 48000 Hz, mono input
+  the mean of each case's best of 4 rounds of 10 s; the deadline is 1333 µs; ratios are against 1.5.0, below 1 is faster
+
+                                       1.5.0          1.6.0           HEAD
+  NAM, standard model (JCM800)          65.9   54.8 (0.83×)   20.8 (0.32×)
+  NAM, A2 model (MESA clean)            53.3   51.4 (0.96×)   17.8 (0.33×)
+  IR Cab (421 1960)                     13.2   11.4 (0.87×)   4.88 (0.37×)
+  Heavy American at defaults            9.26   32.6 (3.52×)   5.37 (0.58×)
+  Heavy American, 4 stages, gain 0.8    15.5   43.7 (2.82×)   6.41 (0.41×)
+```
+
+A revision's first `perf` build compiles only `AudioPerf.cpp` if its tree already has the
+core built, from `render` or an earlier `perf` run. A fresh revision takes as long as its
+first render does.
+
+### What is timed
+
+Each case in `perfCases` in `snapshot.json` is built as a chain is: node types by alias,
+fresh-node parameters, `params` on top, test resources, and `edges` if given. It then runs on
+its own `SignalGraphExecutor`, the way the effects pass runs one effect. A NAM node gets the
+controller's 12 dBu interface calibration, unless the case sets `calibrationInputLevel`. The
+input is the six seconds of demo DI that the `di` stimulus uses, looped. After a second of
+warm-up, `--seconds` of audio (default 10) is timed, one `Process` call at a time.
+
+- **Mono input by default**, as the app's default input is. On 1.6.0 and later, the executor
+  gets the Mono input layout, as the mixer gives it. 1.5.0 has no layout and runs mono when it
+  sees L == R. Without the layout, 1.6.0 and later run NAM and the amp in stereo at twice the
+  cost, which the app never does for a mono input. `--stereo` feeds another part of the DI to
+  the right channel and sets the Stereo layout. On 1.5.0, the different right channel is what
+  makes it run stereo.
+- The timing thread is pinned to one logical core (`--core`, default 4; `-1` for none) at
+  high priority, with denormals flushed as in the app's audio callback. Work that an effect
+  hands to helper threads counts only as the time `Process` spends waiting for it.
+- `--rate` and `--block` work as they do for renders. At a rate other than the model's own,
+  a NAM figure includes whatever resampling that revision does. 1.6.0 and later resample, and
+  report the resampler's latency.
+
+### Reading the table
+
+Each figure is the mean µs per block from the case's best round. The ratio is against the
+first revision named, and below 1 is faster. The block deadline (1333 µs at 48 kHz/64) is
+printed alongside. `perf.md` adds the median, p99, max, share of the deadline, latency, output
+rms and round spread for every case on every revision.
+
+- **Output rms** checks that the same work is timed. Equal rms across revisions means the
+  effect does the same thing. A different rms means the effect itself changed, as the Heavy
+  American did between 1.5.0 and 1.6.0: a new amp, 4x oversampled and about 5x quieter.
+- `passthrough!` means the output equalled the input on every timed block: nothing was
+  processed, perhaps because a model failed to load. `silent!` means the output was silent.
+- **Round spread** is how far the second-best round ran above the best one. When it is small,
+  the best round is not a fluke. One slow round among close ones does not matter, because the
+  best round discards it. Above 5% is reported as noisy: run again with the machine idle and
+  plugged in, or with more `--rounds`.
+- `error` means the case could not be built on that revision, for example because the effect
+  type is not in it.
+
+Figures are only comparable within one run on one machine. Compare revisions in the same
+`perf` call, not against an old report. The summary rules live in `perf.mjs` and are pinned
+by `perf.test.mjs`: `node --test tools/audio-ab/perf.test.mjs`.
+
+### Adding a case
+
+Add an entry to `perfCases`, written as a chain is:
+
+```json
+{
+  "id": "amp-cab",
+  "name": "NAM into the IR Cab",
+  "nodes": [
+    { "type": "amp_nam_optimized", "resource": "nam-drive" },
+    { "type": "cab_ir", "resource": "ir" }
+  ]
+}
+```
+
+`--filter` picks cases whose id or name contains the text. Changing `perfCases` does not
+invalidate the render cache. To time one build directly, without the driver:
+
+```powershell
+& <work-dir>\build\<sha>\tests\Release\AudioPerf.exe --definition tools\audio-ab\snapshot.json `
+    --assets core\tests\testdata\assets --di core\ui\demo\DI_Guitar_L.mp3 --rounds 3 --filter nam
+```
+
 ## Keeping the harness buildable against old revisions
 
 The harness is compiled against every revision it compares, so it can only use APIs those
@@ -177,8 +283,8 @@ Everything lives in the work directory: `../<repo>-audio-ab` by default, or `--w
 | `src/<sha>`   | one git worktree per revision                                       |
 | `build/<sha>` | its Release build tree (`build/worktree` for this checkout), 0.7–1.2 GB each |
 | `renders/`    | float WAVs, `manifest.json`, `effects.json`: about 190 MB per revision at 48 kHz |
-| `reports/`    | `report.html`, `report.md`, `compare.json`, and the base, target and difference audio of every changed case, so a report plays what it measured even after the renders are replaced (1.5.0 against today: about 200 MB) |
-| `logs/`       | configure, build and render logs                                    |
+| `reports/`    | `report.html`, `report.md`, `compare.json`, and the base, target and difference audio of every changed case, so a report plays what it measured even after the renders are replaced (1.5.0 against today: about 200 MB). `perf-…` folders hold `perf.md` and `perf.json` |
+| `logs/`       | configure, build, render and perf logs; `<sha>-perf.log` holds AudioPerf's raw output for every round |
 
 `node tools/audio-ab/audio-ab.mjs list` shows what is cached. `clean` removes the worktrees
 and builds, and `clean --all` removes the renders and reports as well.
@@ -196,3 +302,5 @@ and builds, and `clean --all` removes the renders and reports as well.
 - Controller policy in the effects pass. That pass mirrors the controller's defaults (the
   12 dBu NAM calibration) rather than running the controller. The chains pass runs the real
   controller, so a policy change shows up there.
+- For `perf`: the controller's own cost (input stage, mixer, global chain, master), and other
+  compilers. It times what this machine builds: MSVC on Windows.

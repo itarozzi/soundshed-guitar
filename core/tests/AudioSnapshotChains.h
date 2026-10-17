@@ -1,7 +1,7 @@
 #pragma once
 
-// The graph-building helpers both AudioSnapshot passes use, and the chains pass itself: a
-// headless standalone host, the chain definitions turned into presets, and one stimulus
+// The graph-building helpers both AudioSnapshot passes and AudioPerf use, and the chains pass
+// itself: a headless standalone host, the chain definitions turned into presets, and one stimulus
 // rendered through a real PluginController with a fresh profile. Copied into older checkouts
 // with the rest of the harness (see AudioSnapshotSupport.h), so it keeps to the same APIs.
 
@@ -29,6 +29,26 @@ using nlohmann::json;
 
 constexpr double kTempoBpm = 120.0;
 constexpr int kChainPrimeTenths = 10; // a second of silence before each chain render
+
+// What PluginController applies at default settings (SettingsKeys.h), mirrored where the harness
+// runs the executor without a controller. The chains pass gets the real thing.
+constexpr double kDefaultNamInterfaceCalibrationDbu = 12.0;
+
+inline bool IsNamCalibratable(const std::string& canonicalType)
+{
+    // controller_detail::IsNamCalibratableEffectType, by alias so older revisions resolve it too.
+    auto& registry = guitarfx::EffectRegistry::Instance();
+
+    for (const char* alias : {"amp_nam", "amp_nam_optimized", "amp_nam_blend", "fx_nam"})
+    {
+        if (registry.Resolve(alias) == canonicalType)
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
 
 // ---------------------------------------------------------------- resources and graphs
 
