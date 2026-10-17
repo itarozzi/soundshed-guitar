@@ -29,8 +29,9 @@ if(TARGET nlohmann_json::nlohmann_json)
     target_link_libraries(SoundshedGuitarFusedWaveNet PUBLIC nlohmann_json::nlohmann_json)
 endif()
 
-# The NEON kernel compiles in every arm64 build, but models run on it only with
-# GUITARFX_FUSED_WAVENET_NEON on (core/CMakeLists.txt). No effect on other architectures.
+# The NEON kernel compiles in every arm64 build, and models run on it while
+# GUITARFX_FUSED_WAVENET_NEON is on (core/CMakeLists.txt, on by default). No effect on other
+# architectures.
 if(GUITARFX_FUSED_WAVENET_NEON)
     target_compile_definitions(SoundshedGuitarFusedWaveNet PRIVATE GUITARFX_FWN_NEON_ENABLED=1)
 endif()

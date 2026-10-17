@@ -1,9 +1,9 @@
 name: NEON benchmark (macOS)
 
 # Times the fused WaveNet's NEON kernel against the NAM core on Apple silicon, and checks its output
-# there. The kernel compiles in every arm64 build, but models run on it only with
-# GUITARFX_FUSED_WAVENET_NEON on (core/CMakeLists.txt), which stays off until the kernel has been
-# timed on ARM hardware. This is that timing.
+# there. arm64 builds run NAM models on that kernel by default (GUITARFX_FUSED_WAVENET_NEON,
+# core/CMakeLists.txt), which this workflow's first run decided: 1.7-2.5x the NAM core on standard
+# and A2 full models, 1.1-1.3x on A2 lite. Re-run it after changing the kernel.
 #
 # Manual only. GitHub's macOS runners are shared VMs, so read the speedup column: both engines run in
 # one process with their rounds interleaved, so a busy host slows both alike. The absolute times say

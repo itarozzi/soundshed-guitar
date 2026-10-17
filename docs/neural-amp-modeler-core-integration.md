@@ -100,10 +100,13 @@ avx2 tier, two SSE halves on other x86-64 builds, and two NEON halves with fused
 arm64 (macOS, Windows on ARM, Linux, Android). A plain C++ version measured 0.3x the NAM core, so
 nothing else runs the fused pass.
 
-**The NEON kernel is off until it has been timed on ARM hardware.** It is compiled into every arm64
-build, but `fusedwavenet::IsAvailable()` stays false there and every model runs on the NAM core,
-unless the core is configured with `-DGUITARFX_FUSED_WAVENET_NEON=ON`
-(docs/nam-dsp-performance-review-2026-10-16.md, recommendation 3). Its register tile is 4 outputs x
+**The NEON kernel is on by default.** Timed on a GitHub Apple silicon runner by
+`.github/workflows/neon-benchmark.yml` (Apple clang 17, 48 kHz, model alone), it ran 1.7-2.5x the
+NAM core on a standard and an A2 full model and 1.1-1.3x on A2 lite at host blocks of 32 to 512,
+with output 117-120 dB from the NAM core's and FusedWaveNetTests passing on the hardware. It has not been timed on Cortex-A cores (Android,
+arm64 Linux) or on Windows on ARM. Configuring the core with `-DGUITARFX_FUSED_WAVENET_NEON=OFF` puts
+every arm64 model back on the NAM core (docs/nam-dsp-performance-review-2026-10-16.md,
+recommendation 3). Its register tile is 4 outputs x
 3 vectors of 8 frames, as on AVX2: 24 accumulators, 6 input registers and one holding the four
 outputs' weights, 31 of NEON's 32. The accumulators are named variables rather than an array, because
 MSVC's ARM64 back end stores an array of them back to the stack on every input, and the four weights

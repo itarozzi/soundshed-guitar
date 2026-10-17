@@ -1,10 +1,9 @@
 // Times the fused WaveNet pass (dsp/nam/FusedWaveNet.h) against the NAM core it stands in for, the
 // model alone, at real-time block sizes, and writes the result as a Markdown table and as JSON.
 //
-// Written to decide whether arm64 can run the fused pass by default: its NEON kernel compiles in
-// every arm64 build but models run on it only with GUITARFX_FUSED_WAVENET_NEON (core/CMakeLists.txt),
-// which stays off until the kernel is timed on ARM hardware. .github/workflows/neon-benchmark.yml
-// runs this on Apple silicon. It works on any build with a fused kernel (AVX2, SSE, NEON).
+// Written to decide whether arm64 could run the fused pass by default, which it now does
+// (GUITARFX_FUSED_WAVENET_NEON, core/CMakeLists.txt). .github/workflows/neon-benchmark.yml runs this
+// on Apple silicon. It works on any build with a fused kernel (AVX2, SSE, NEON).
 //
 // Both engines are built by NamModelCache, as the app builds them, and run in the same process with
 // rounds interleaved (and their order alternated), so a shared or noisy machine moves both alike.
@@ -556,8 +555,8 @@ int main(int argc, char** argv)
 
         if (!fwn::IsAvailable())
         {
-            std::cout << "No fused kernel in this build, so both columns are the NAM core. On arm64, configure with "
-                         "-DGUITARFX_FUSED_WAVENET_NEON=ON.\n";
+            std::cout << "No fused kernel in this build, so both columns are the NAM core. On arm64, it was "
+                         "configured with -DGUITARFX_FUSED_WAVENET_NEON=OFF.\n";
         }
 
         const auto input = MakeInput(static_cast<int>(kSampleRate) * 4);

@@ -265,8 +265,7 @@ bool IsAvailable() noexcept
 #if defined(GUITARFX_FWN_AVX2) || defined(GUITARFX_FWN_SSE)
     return true;
 #elif defined(GUITARFX_FWN_NEON) && defined(GUITARFX_FWN_NEON_ENABLED)
-    // GUITARFX_FUSED_WAVENET_NEON in CMake. Off by default until the kernel is timed against the
-    // NAM core on ARM hardware.
+    // GUITARFX_FUSED_WAVENET_NEON in CMake, on by default.
     return true;
 #else
     return false;

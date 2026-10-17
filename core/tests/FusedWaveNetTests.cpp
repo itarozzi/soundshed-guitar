@@ -651,7 +651,7 @@ int main()
 
     if (!fwn::IsAvailable())
     {
-        // arm64 has a NEON kernel, off until it is timed there: -DGUITARFX_FUSED_WAVENET_NEON=ON runs it.
+        // An arm64 build configured with -DGUITARFX_FUSED_WAVENET_NEON=OFF, or another architecture.
         std::cout << "FusedWaveNetTests skipped: no fused kernel in this build" << std::endl;
         return 0;
     }

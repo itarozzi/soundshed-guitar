@@ -40,10 +40,9 @@
 namespace guitarfx::fusedwavenet
 {
 /// Whether this build has a vector kernel for the fused pass: AVX2 with FMA, or SSE on other
-/// x86-64 builds, or NEON on arm64 when built with GUITARFX_FUSED_WAVENET_NEON (off until the
-/// kernel is timed on ARM hardware). False elsewhere, where Pack() always returns nullptr and
-/// every model stays on the NAM core. A plain C++ fallback measured 0.3x the NAM core, so none
-/// is compiled.
+/// x86-64 builds, or NEON on arm64 unless built with GUITARFX_FUSED_WAVENET_NEON off. False
+/// elsewhere, where Pack() always returns nullptr and every model stays on the NAM core. A plain
+/// C++ fallback measured 0.3x the NAM core, so none is compiled.
 [[nodiscard]] bool IsAvailable() noexcept;
 
 /// The kernel in use, for the session log: "AVX2", "SSE", "NEON" or "none".

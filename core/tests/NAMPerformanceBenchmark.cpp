@@ -603,7 +603,7 @@ int main(int argc, char* argv[])
 
         if (!guitarfx::fusedwavenet::IsAvailable())
         {
-            // On arm64 the NEON kernel is there but off: configure with -DGUITARFX_FUSED_WAVENET_NEON=ON.
+            // On arm64, a build configured with -DGUITARFX_FUSED_WAVENET_NEON=OFF.
             std::cout << " (none in this build, so the fused rows below are the NAM core again)";
         }
 

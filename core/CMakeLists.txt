@@ -26,9 +26,11 @@ else()
 endif()
 option(GUITARFX_CORE_BUILD_TESTS "Build core unit tests" OFF)
 option(GUITARFX_OPTIMISE_NAM_IN_DEBUG "Build the fetched NAM core optimised in Debug too (off to step through it)" ON)
-# Off until the NEON kernel has been timed against the NAM core on ARM hardware: arm64 builds then
-# run every NAM model on the NAM core, as before the fused pass.
-option(GUITARFX_FUSED_WAVENET_NEON "Run NAM models on the fused WaveNet's NEON kernel on arm64" OFF)
+# arm64 builds run NAM models on the fused WaveNet's NEON kernel wherever their shape allows. On
+# Apple silicon it measured 1.7-2.5x the NAM core on standard and A2 full models and 1.1-1.3x on A2
+# lite (.github/workflows/neon-benchmark.yml). Off runs every model on the NAM core, as before the
+# fused pass.
+option(GUITARFX_FUSED_WAVENET_NEON "Run NAM models on the fused WaveNet's NEON kernel on arm64" ON)
 option(GUITARFX_CORE_ENABLE_WASM_EFFECTS "Build the generic WASM effect host" ON)
 # The web UI bundle (core/ui, built with npm) is for the WebView product; a product with a native UI
 # (Nano Q) has no use for it and turns this off.

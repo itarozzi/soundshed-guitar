@@ -10,9 +10,10 @@
 // The vector kernel. AVX2 needs FMA too: MSVC's /arch:AVX2 implies it, clang and gcc need it named
 // (-march=x86-64-v3 does). Other x86-64 builds, the avx and sse2 tiers, get two SSE halves, which
 // measured 1.2-2.7x the NAM core's own SSE build. arm64 gets two NEON halves with fused
-// multiply-adds, always compiled but used only where GUITARFX_FWN_NEON_ENABLED is defined (see
-// IsAvailable()), since nobody has timed it on ARM yet. Elsewhere there is no kernel: IsAvailable()
-// is false, and the plain C++ vector below only keeps FusedWaveNet.cpp compiling.
+// multiply-adds, always compiled and used where GUITARFX_FWN_NEON_ENABLED is defined (see
+// IsAvailable()), which CMake defines by default; on Apple silicon it measured 1.7-2.5x the NAM
+// core on standard and A2 full models. Elsewhere there is no kernel: IsAvailable() is false, and
+// the plain C++ vector below only keeps FusedWaveNet.cpp compiling.
 #if defined(__AVX2__) && (defined(__FMA__) || (defined(_MSC_VER) && !defined(__clang__)))
     #define GUITARFX_FWN_AVX2 1
     #include <immintrin.h>
