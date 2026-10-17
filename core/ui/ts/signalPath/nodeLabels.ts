@@ -6,7 +6,6 @@ import type {
   LibraryResource,
   ResourceRef,
 } from "../types.js";
-import { postMessage } from "../bridge.js";
 import { requestResourceData } from "../archiveUtils.js";
 import { escapeHtml, base64ToArrayBuffer } from "../utils.js";
 import { EffectTypeRegistry, getNodeEffectInfo } from "../presetV2.js";
@@ -81,47 +80,51 @@ export function normalizeArchitectureBadge(raw: string): string {
   return "";
 }
 
-export function mapNamArchitectureTokenToBadge(raw: string): string {
-  const normalized = raw.trim().toLowerCase();
-  if (!normalized) {
+/**
+ * A1/A2 for a parsed .nam model, from its own top-level members only: an A2 file is a
+ * SlimmableContainer whose submodels each carry their own "architecture", so the first
+ * one in the text says nothing. An unwrapped A2 WaveNet is told apart from an A1 one by
+ * its layers: per-layer "kernel_sizes", activation arrays, "head1x1"/"layer1x1".
+ * Mirrors ClassifyNamArchitectureVersion in the engine's NamResourceMetadata.cpp.
+ */
+export function classifyNamModelArchitecture(model: unknown): string {
+  if (!model || typeof model !== "object" || Array.isArray(model)) {
     return "";
   }
 
-  if (normalized.includes("slimmablecontainer") || normalized.includes("slimmable")) {
+  const { architecture, config } = model as { architecture?: unknown; config?: { layers?: unknown } | null };
+  if (architecture === "SlimmableContainer") {
     return "A2";
   }
-  if (normalized.includes("wavenet")) {
-    return "A1";
+  if (architecture !== "WaveNet") {
+    return "";
   }
 
-  return "";
+  const layers = Array.isArray(config?.layers) ? config.layers : [];
+  const hasA2Layers = layers.some((layer: unknown) => {
+    if (!layer || typeof layer !== "object") {
+      return false;
+    }
+    const fields = layer as Record<string, unknown>;
+    return Array.isArray(fields.kernel_sizes) || "head1x1" in fields || "layer1x1" in fields
+      || Array.isArray(fields.activation);
+  });
+  return hasA2Layers ? "A2" : "A1";
 }
 
 export function inferNamArchitectureBadgeFromData(base64Data: string): string {
-  let text = "";
   try {
-    text = new TextDecoder().decode(base64ToArrayBuffer(base64Data));
+    return classifyNamModelArchitecture(JSON.parse(new TextDecoder().decode(base64ToArrayBuffer(base64Data))));
   } catch {
     return "";
   }
-
-  const architectureMatch = text.match(/"architecture(?:_version|Version)?"\s*:\s*(?:"([^"]+)"|(\d+(?:\.\d+)?))/i);
-  const explicitToken = (architectureMatch?.[1] || architectureMatch?.[2] || "").trim();
-  const explicitBadge = normalizeArchitectureBadge(explicitToken) || mapNamArchitectureTokenToBadge(explicitToken);
-  if (explicitBadge) {
-    return explicitBadge;
-  }
-
-  if (/"architecture"\s*:\s*"slimmablecontainer"/i.test(text) || /"submodels"\s*:/i.test(text)) {
-    return "A2";
-  }
-  if (/"architecture"\s*:\s*"wavenet"/i.test(text)) {
-    return "A1";
-  }
-
-  return "";
 }
 
+/**
+ * Works out a badge for a model whose library row has none, for this session only. The
+ * engine reads every model's own header and stores architectureVersion itself
+ * (EnrichNamResourceMetadata), so nothing guessed here is written back.
+ */
 export function requestNamArchitectureInference(resource: LibraryResource): void {
   const resourceId = resource.id;
   if (!resourceId
@@ -148,32 +151,6 @@ export function requestNamArchitectureInference(resource: LibraryResource): void
       }
 
       inferredNamArchitectureByResourceId.set(resourceId, badge);
-
-      const existingBadge = normalizeArchitectureBadge(
-        resource.metadata?.architectureVersion
-        || resource.metadata?.architecture_version
-        || resource.metadata?.architecture
-        || "",
-      );
-
-      if (!existingBadge) {
-        const metadata = {
-          ...(resource.metadata ?? {}),
-          architectureVersion: badge,
-        };
-        resource.metadata = metadata;
-
-        postMessage({
-          type: "updateLibraryResource",
-          resourceType: "nam",
-          resourceId,
-          name: resource.name,
-          category: resource.category,
-          description: resource.description,
-          metadata,
-        });
-      }
-
       requestSignalPathRender();
     } catch {
       unavailableNamArchitectureResourceIds.add(resourceId);

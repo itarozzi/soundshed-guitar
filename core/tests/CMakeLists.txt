@@ -81,6 +81,7 @@ set(TEST_SOURCES
     NamModelCacheTests.cpp
     NamQualityPolicyTests.cpp
     NamResamplerResetTests.cpp
+    NamResourceMetadataTests.cpp
     NAMDualLaneBenchmark.cpp
     NAMPerformanceBenchmark.cpp
     NoiseGateTests.cpp

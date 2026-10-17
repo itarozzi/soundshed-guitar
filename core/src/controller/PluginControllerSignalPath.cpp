@@ -424,7 +424,7 @@ void PluginController::HandleUpdateNodeResourceRequest(const nlohmann::json& pay
 
     if (payload.contains("filePath"))
     {
-        ref.filePath = payload["filePath"].get<std::string>();
+        ref.filePath = util::PathFromUtf8(payload["filePath"].get<std::string>());
     }
 
     if (payload.contains("embeddedId"))

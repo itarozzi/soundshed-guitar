@@ -96,7 +96,9 @@ std::optional<LibraryResource> ResourceFromJson(const nlohmann::json& item,
 
     if (!rawPath.empty())
     {
-        std::filesystem::path resolvedPath(rawPath);
+        // Stored as UTF-8 (ResourceToJson). path(std::string) would read it in the ANSI code
+        // page on Windows, and a model in a folder such as "Müzik" would go missing on reload.
+        std::filesystem::path resolvedPath = util::PathFromUtf8(rawPath);
 
         if (resolvedPath.is_relative() && !relativeBases.empty())
         {

@@ -3,21 +3,19 @@
 #include "controller/internal/IrResourceCategory.h"
 #include "dsp/EffectGuids.h"
 #include "resources/ResourceLibrary.h"
+#include "util/JsonSkimmer.h"
 #include "util/LongPath.h"
-#include "util/Utf8.h"
 
 #include <algorithm>
 #include <cctype>
-#include <cstdint>
+#include <cstdio>
 #include <fstream>
-#include <string_view>
-#include <system_error>
-#include <vector>
-
-#include <nlohmann/json.hpp>
+#include <istream>
 
 namespace guitarfx::controller_detail
 {
+using util::JsonSkimmer;
+
 bool IsNamEffectType(const std::string& type)
 {
     return type == guitarfx::EffectGuids::kAmpNam || type == "amp_nam" ||
@@ -40,56 +38,212 @@ bool IsNamCalibratableEffectType(const std::string& type)
 
 namespace
 {
-/// Index of the quote that closes the JSON string literal opening at sv[open], or npos if
-/// the header ends first. A backslash escapes the byte after it, so \" does not close it.
-std::size_t FindStringLiteralEnd(std::string_view sv, std::size_t open)
+/// Fills the descriptive fields from the model's top-level "metadata" object.
+bool ReadMetadataObject(JsonSkimmer& json, NamFileMetadata& result)
 {
-    for (std::size_t i = open + 1; i < sv.size(); ++i)
+    if (json.PeekValue() != '{')
     {
-        if (sv[i] == '\\')
+        return json.SkipValue();
+    }
+
+    std::string year, month, day;
+
+    const bool ok = json.ForEachMember([&](const std::string& key) {
+        if (key == "name")
         {
-            ++i;
+            return json.ReadString(result.namName);
         }
-        else if (sv[i] == '"')
+
+        if (key == "modeled_by")
         {
-            return i;
+            return json.ReadString(result.modeledBy);
+        }
+
+        if (key == "gear_make")
+        {
+            return json.ReadString(result.gearMake);
+        }
+
+        if (key == "gear_model")
+        {
+            return json.ReadString(result.gearModel);
+        }
+
+        if (key == "gear_type")
+        {
+            return json.ReadString(result.gearType);
+        }
+
+        if (key == "tone_type")
+        {
+            return json.ReadString(result.toneType);
+        }
+
+        if (key == "input_level_dbu")
+        {
+            return json.ReadNumber(result.inputLevelDbu);
+        }
+
+        if (key == "output_level_dbu")
+        {
+            return json.ReadNumber(result.outputLevelDbu);
+        }
+
+        if (key == "date" && json.PeekValue() == '{')
+        {
+            return json.ForEachMember([&](const std::string& part) {
+                if (part == "year")
+                {
+                    return json.ReadNumber(year);
+                }
+
+                if (part == "month")
+                {
+                    return json.ReadNumber(month);
+                }
+
+                if (part == "day")
+                {
+                    return json.ReadNumber(day);
+                }
+
+                return json.SkipValue();
+            });
+        }
+
+        if (key == "training" && json.PeekValue() == '{')
+        {
+            return json.ForEachMember([&](const std::string& part) {
+                return part == "final_loss" ? json.ReadNumber(result.trainingFinalLoss) : json.SkipValue();
+            });
+        }
+
+        return json.SkipValue();
+    });
+
+    // date → "YYYY-MM-DD"
+    if (!year.empty())
+    {
+        try
+        {
+            const int y = std::stoi(year);
+            const int m = month.empty() ? 0 : std::stoi(month);
+            const int d = day.empty() ? 0 : std::stoi(day);
+            char dateBuf[12];
+            std::snprintf(dateBuf, sizeof(dateBuf), "%04d-%02d-%02d", y, m, d);
+            result.modelDate = dateBuf;
+        }
+        catch (...)
+        {
         }
     }
 
-    return std::string_view::npos;
+    return ok;
 }
 
-/// The value of a JSON string literal (quotes included) with its escapes decoded. The
-/// header is read raw off disk, so it is not trusted to be UTF-8: a file written in a
-/// legacy code page has its stray bytes replaced with U+FFFD, and a literal the parser
-/// still rejects (a bad escape, a raw control character) comes back as written. Either
-/// way the result is valid UTF-8, which is what lets it go into a JSON message or the
-/// library without dump() throwing.
-std::string DecodeJsonStringLiteral(std::string_view literal)
+/// Whether a WaveNet "config" has the layer layout the A2 trainer writes: per-layer
+/// "kernel_sizes", activation arrays and the "head1x1"/"layer1x1" blocks. A1 layers have
+/// one "kernel_size" and one activation name.
+bool ScanWaveNetConfig(JsonSkimmer& json, bool& hasA2Layers)
 {
-    const std::string utf8 = util::ReplaceInvalidUtf8(literal);
+    if (json.PeekValue() != '{')
+    {
+        return json.SkipValue();
+    }
 
-    try
-    {
-        return nlohmann::json::parse(utf8).get<std::string>();
-    }
-    catch (const nlohmann::json::exception&)
-    {
-        return utf8.substr(1, utf8.size() - 2);
-    }
+    return json.ForEachMember([&](const std::string& key) {
+        if (key != "layers" || json.PeekValue() != '[')
+        {
+            return json.SkipValue();
+        }
+
+        return json.ForEachElement([&]() {
+            if (json.PeekValue() != '{')
+            {
+                return json.SkipValue();
+            }
+
+            return json.ForEachMember([&](const std::string& field) {
+                if (field == "kernel_sizes" || field == "head1x1" || field == "layer1x1" ||
+                    (field == "activation" && json.PeekValue() == '['))
+                {
+                    hasA2Layers = true;
+                }
+
+                return json.SkipValue();
+            });
+        });
+    });
 }
 } // namespace
 
-/// Extracts all recognised metadata fields from a NAM model file header.
-/// NAM .nam files are a JSON header followed by binary weights; we read the
-/// first 64 KB and use targeted string searches to avoid a full JSON parse.
-NamFileMetadata TryExtractNamMetadata(const std::filesystem::path& namFilePath)
+std::string ClassifyNamArchitectureVersion(const std::string& architecture, bool waveNetHasA2Layers)
+{
+    if (architecture == "SlimmableContainer")
+    {
+        return "A2";
+    }
+
+    if (architecture == "WaveNet")
+    {
+        return waveNetHasA2Layers ? "A2" : "A1";
+    }
+
+    return {};
+}
+
+NamFileMetadata ReadNamMetadata(std::istream& in)
 {
     NamFileMetadata result;
+    bool waveNetHasA2Layers = false;
+    JsonSkimmer json(in);
 
+    // Only the top-level members count. An A2 file is a SlimmableContainer whose
+    // submodels each carry their own "architecture", "metadata", "version" and
+    // "sample_rate", and trainers write the top-level members in any order, metadata
+    // after the weights included, so the whole file is walked. A truncated file keeps
+    // whatever came before the break.
+    json.ForEachMember([&](const std::string& key) {
+        if (key == "version")
+        {
+            return json.ReadString(result.fileVersion);
+        }
+
+        if (key == "architecture")
+        {
+            return json.ReadString(result.architecture);
+        }
+
+        if (key == "sample_rate")
+        {
+            return json.ReadNumber(result.sampleRate);
+        }
+
+        if (key == "metadata")
+        {
+            return ReadMetadataObject(json, result);
+        }
+
+        if (key == "config")
+        {
+            return ScanWaveNetConfig(json, waveNetHasA2Layers);
+        }
+
+        return json.SkipValue();
+    });
+
+    result.architectureVersion = ClassifyNamArchitectureVersion(result.architecture, waveNetHasA2Layers);
+    return result;
+}
+
+/// Extracts the recognised metadata fields from a NAM model file. A .nam file is one
+/// JSON document, weights included, so it is skimmed (ReadNamMetadata) rather than
+/// parsed: folder scans read hundreds of them.
+NamFileMetadata TryExtractNamMetadata(const std::filesystem::path& namFilePath)
+{
     if (!guitarfx::util::PathExists(namFilePath))
     {
-        return result;
+        return {};
     }
 
     try
@@ -98,262 +252,88 @@ NamFileMetadata TryExtractNamMetadata(const std::filesystem::path& namFilePath)
 
         if (!file)
         {
-            return result;
+            return {};
         }
 
-        constexpr std::size_t kBufSize = 65536;
-        std::vector<char> buf(kBufSize);
-        file.read(buf.data(), static_cast<std::streamsize>(kBufSize));
-        const auto len = static_cast<std::size_t>(file.gcount());
-
-        if (len == 0)
-        {
-            return result;
-        }
-
-        const std::string_view content(buf.data(), len);
-
-        // Extract a JSON string value: find "key" : "value" and return value, decoded.
-        const auto extractStr = [](const std::string_view sv, const std::string_view key) -> std::string {
-            const auto needle = std::string("\"").append(key).append("\"");
-            const auto kp = sv.find(needle);
-
-            if (kp == std::string_view::npos)
-            {
-                return {};
-            }
-
-            const auto cp = sv.find(':', kp + needle.size());
-
-            if (cp == std::string_view::npos)
-            {
-                return {};
-            }
-
-            auto p = cp + 1;
-
-            while (p < sv.size() && std::isspace(static_cast<unsigned char>(sv[p])))
-            {
-                ++p;
-            }
-
-            if (p >= sv.size() || sv[p] != '"')
-            {
-                return {};
-            }
-
-            const auto eq = FindStringLiteralEnd(sv, p);
-
-            if (eq == std::string_view::npos)
-            {
-                return {};
-            }
-
-            return DecodeJsonStringLiteral(sv.substr(p, eq - p + 1));
-        };
-
-        // Extract a JSON number value: find "key" : number and return as string.
-        const auto extractNum = [](const std::string_view sv, const std::string_view key) -> std::string {
-            const auto needle = std::string("\"").append(key).append("\"");
-            const auto kp = sv.find(needle);
-
-            if (kp == std::string_view::npos)
-            {
-                return {};
-            }
-
-            const auto cp = sv.find(':', kp + needle.size());
-
-            if (cp == std::string_view::npos)
-            {
-                return {};
-            }
-
-            auto p = cp + 1;
-
-            while (p < sv.size() && std::isspace(static_cast<unsigned char>(sv[p])))
-            {
-                ++p;
-            }
-
-            if (p >= sv.size())
-            {
-                return {};
-            }
-
-            if (!std::isdigit(static_cast<unsigned char>(sv[p])) && sv[p] != '-')
-            {
-                return {};
-            }
-
-            const auto ns = p;
-
-            while (p < sv.size() && (std::isdigit(static_cast<unsigned char>(sv[p])) || sv[p] == '.' || sv[p] == '-' ||
-                                     sv[p] == '+' || sv[p] == 'e' || sv[p] == 'E'))
-            {
-                ++p;
-            }
-
-            return std::string(sv.substr(ns, p - ns));
-        };
-
-        // Return the full text of a named JSON sub-object { ... }.
-        const auto extractObjContent = [](const std::string_view sv, const std::string_view key) -> std::string_view {
-            const auto needle = std::string("\"").append(key).append("\"");
-            const auto kp = sv.find(needle);
-
-            if (kp == std::string_view::npos)
-            {
-                return {};
-            }
-
-            auto p = sv.find('{', kp + needle.size());
-
-            if (p == std::string_view::npos)
-            {
-                return {};
-            }
-
-            int depth = 0;
-            bool ins = false, esc = false;
-
-            for (std::size_t i = p; i < sv.size(); ++i)
-            {
-                const char c = sv[i];
-
-                if (esc)
-                {
-                    esc = false;
-                    continue;
-                }
-
-                if (ins)
-                {
-                    if (c == '\\')
-                    {
-                        esc = true;
-                    }
-                    else if (c == '"')
-                    {
-                        ins = false;
-                    }
-
-                    continue;
-                }
-
-                if (c == '"')
-                {
-                    ins = true;
-                }
-                else if (c == '{')
-                {
-                    ++depth;
-                }
-                else if (c == '}')
-                {
-                    if (--depth == 0)
-                    {
-                        return sv.substr(p, i - p + 1);
-                    }
-                }
-            }
-
-            return sv.substr(p); // buffer truncated — still usable
-        };
-
-        // Top-level fields
-        result.fileVersion = extractStr(content, "version");
-        result.architecture = extractStr(content, "architecture");
-        result.sampleRate = extractNum(content, "sample_rate");
-
-        // metadata sub-object
-        const auto metaContent = extractObjContent(content, "metadata");
-
-        if (!metaContent.empty())
-        {
-            result.namName = extractStr(metaContent, "name");
-            result.modeledBy = extractStr(metaContent, "modeled_by");
-            result.gearMake = extractStr(metaContent, "gear_make");
-            result.gearModel = extractStr(metaContent, "gear_model");
-            result.gearType = extractStr(metaContent, "gear_type");
-            result.toneType = extractStr(metaContent, "tone_type");
-            result.inputLevelDbu = extractNum(metaContent, "input_level_dbu");
-            result.outputLevelDbu = extractNum(metaContent, "output_level_dbu");
-
-            // date sub-object → "YYYY-MM-DD"
-            const auto dateContent = extractObjContent(metaContent, "date");
-
-            if (!dateContent.empty())
-            {
-                const auto yearStr = extractNum(dateContent, "year");
-
-                if (!yearStr.empty())
-                {
-                    try
-                    {
-                        const int y = std::stoi(yearStr);
-                        const auto ms = extractNum(dateContent, "month");
-                        const auto ds = extractNum(dateContent, "day");
-                        const int m = ms.empty() ? 0 : std::stoi(ms);
-                        const int d = ds.empty() ? 0 : std::stoi(ds);
-                        char dateBuf[12];
-                        std::snprintf(dateBuf, sizeof(dateBuf), "%04d-%02d-%02d", y, m, d);
-                        result.modelDate = dateBuf;
-                    }
-                    catch (...)
-                    {
-                    }
-                }
-            }
-
-            // training.final_loss
-            const auto trainContent = extractObjContent(metaContent, "training");
-
-            if (!trainContent.empty())
-            {
-                result.trainingFinalLoss = extractNum(trainContent, "final_loss");
-            }
-        }
+        return ReadNamMetadata(file);
     }
     catch (...)
     {
     }
 
-    return result;
+    return {};
 }
 
-/// Enriches a NAM LibraryResource's metadata map from the .nam file header.
-/// Uses setIfMissing semantics for all fields except gear_type, which always
-/// takes the file's authoritative value (required for full-rig signal routing).
-void EnrichNamResourceMetadata(guitarfx::LibraryResource& resource, const std::filesystem::path& namFilePath)
+namespace
+{
+/// The architecture_version spellings the Tone3000 API uses; the reader writes "A1"/"A2".
+bool IsTone3000ArchitectureVersion(const std::string& value)
+{
+    return value == "1" || value == "2" || value == "custom";
+}
+} // namespace
+
+/// Enriches a NAM LibraryResource's metadata map from the .nam file.
+///
+/// What the file says about its own structure (gear_type, which drives full-rig cab
+/// routing, the file version, architecture and sample rate) always replaces what the row
+/// held: builds before 1.7 misread A2 files, and the UI once guessed. architectureVersion
+/// follows the file too, except for the "1", "2" or "custom" the Tone3000 API gave an
+/// import. The descriptive fields (name, gear, calibration levels, date) are filled in
+/// where missing, so a user's edit stands, unless `refresh` says to take the file's.
+void EnrichNamResourceMetadata(guitarfx::LibraryResource& resource, const std::filesystem::path& namFilePath,
+                               NamMetadataRefresh refresh)
 {
     const NamFileMetadata meta = TryExtractNamMetadata(namFilePath);
+    auto& metadata = resource.metadata;
 
-    const auto setIfMissing = [&](const std::string& key, const std::string& value) {
-        if (!value.empty() && !resource.metadata.count(key))
+    const auto setFromFile = [&](const std::string& key, const std::string& value) {
+        if (!value.empty())
         {
-            resource.metadata[key] = value;
+            metadata[key] = value;
         }
     };
 
-    // gear_type: always prefer the file's value — it drives full-rig cab routing.
-    if (!meta.gearType.empty())
+    const auto setDescriptive = [&](const std::string& key, const std::string& value) {
+        if (!value.empty() && (refresh == NamMetadataRefresh::FromFile || !metadata.count(key)))
+        {
+            metadata[key] = value;
+        }
+    };
+
+    setFromFile("gear_type", meta.gearType);
+    setFromFile("namFileVersion", meta.fileVersion);
+    setFromFile("architecture", meta.architecture);
+    setFromFile("sampleRate", meta.sampleRate);
+
+    // Only a file that was read and named its architecture says anything about the
+    // version: a missing or unreadable one leaves the row alone.
+    if (!meta.architecture.empty())
     {
-        resource.metadata["gear_type"] = meta.gearType;
+        const auto existing = metadata.find("architectureVersion");
+
+        if (existing == metadata.end() || !IsTone3000ArchitectureVersion(existing->second))
+        {
+            if (!meta.architectureVersion.empty())
+            {
+                metadata["architectureVersion"] = meta.architectureVersion;
+            }
+            else if (existing != metadata.end())
+            {
+                metadata.erase(existing);
+            }
+        }
     }
 
-    setIfMissing("namFileVersion", meta.fileVersion);
-    setIfMissing("architecture", meta.architecture);
-    setIfMissing("sampleRate", meta.sampleRate);
-    setIfMissing("namName", meta.namName);
-    setIfMissing("modeledBy", meta.modeledBy);
-    setIfMissing("gearMake", meta.gearMake);
-    setIfMissing("gearModel", meta.gearModel);
-    setIfMissing("toneType", meta.toneType);
-    setIfMissing("inputLevelDbu", meta.inputLevelDbu);
-    setIfMissing("outputLevelDbu", meta.outputLevelDbu);
-    setIfMissing("modelDate", meta.modelDate);
-    setIfMissing("trainingFinalLoss", meta.trainingFinalLoss);
+    setDescriptive("namName", meta.namName);
+    setDescriptive("modeledBy", meta.modeledBy);
+    setDescriptive("gearMake", meta.gearMake);
+    setDescriptive("gearModel", meta.gearModel);
+    setDescriptive("toneType", meta.toneType);
+    setDescriptive("inputLevelDbu", meta.inputLevelDbu);
+    setDescriptive("outputLevelDbu", meta.outputLevelDbu);
+    setDescriptive("modelDate", meta.modelDate);
+    setDescriptive("trainingFinalLoss", meta.trainingFinalLoss);
 }
 
 std::string NormalizeCategoryToken(std::string value)

@@ -588,6 +588,39 @@ void TestChainLayoutWalksParallelLanes()
            "NodeBefore follows the branch a node is on");
 }
 
+void TestNodeArchitectureBadge()
+{
+    ClientState state;
+    const auto model = [](const std::string& id, nlohmann::json metadata) {
+        uiclient::LibraryResource resource;
+        resource.id = id;
+        resource.type = "nam";
+        resource.metadata = std::move(metadata);
+        return resource;
+    };
+    state.resources["nam"] = {
+        model("slimmable", {{"architecture", "SlimmableContainer"}, {"architectureVersion", "A2"}}),
+        model("unwrapped-a2", {{"architecture", "WaveNet"}, {"architectureVersion", "A2"}}),
+        model("a1", {{"architecture", "WaveNet"}, {"architectureVersion", "A1"}}),
+        model("tone3000", {{"architecture", "WaveNet"}, {"architectureVersion", "2"}}),
+        model("unread", {{"architecture", "WaveNet"}}),
+    };
+    const auto badge = [&](const std::string& id) {
+        GraphNode node = Node("amp", EffectGuids::kAmpNam);
+        ResourceRef ref;
+        ref.resourceType = "nam";
+        ref.resourceId = id;
+        node.resources = {ref};
+        return NodeArchitectureBadge(state, node);
+    };
+
+    Expect(badge("slimmable") == "A2", "a SlimmableContainer shows A2");
+    Expect(badge("unwrapped-a2") == "A2", "an unwrapped A2 WaveNet shows A2, not its file's WaveNet");
+    Expect(badge("a1") == "A1", "an A1 WaveNet shows A1");
+    Expect(badge("tone3000") == "A2", "the Tone3000 API's 2 shows A2");
+    Expect(badge("unread").empty(), "WaveNet alone says nothing about A1 or A2");
+}
+
 void TestPresetBrowse()
 {
     ClientState state;
@@ -721,6 +754,7 @@ int main()
     TestFactoryPresetParameterOrder();
     TestTelemetryDecoding();
     TestChainLayoutWalksParallelLanes();
+    TestNodeArchitectureBadge();
     TestPresetBrowse();
     TestParamFormatting();
     TestInstruments();

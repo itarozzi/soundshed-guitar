@@ -531,7 +531,8 @@ void PluginController::HandleLoadRiffTakeForEditRequest(const nlohmann::json& pa
         return;
     }
 
-    const std::string filePath = take->value("filePath", std::string{});
+    // Stored as UTF-8: as a narrow string the path would be read in the ANSI code page.
+    const auto filePath = util::PathFromUtf8(take->value("filePath", std::string{}));
 
     if (filePath.empty() || !std::filesystem::exists(filePath))
     {
@@ -1033,7 +1034,8 @@ void PluginController::HandlePreviewRiffTakeRequest(const nlohmann::json& payloa
         return;
     }
 
-    const std::string filePath = take->value("filePath", std::string{});
+    // Stored as UTF-8: as a narrow string the path would be read in the ANSI code page.
+    const auto filePath = util::PathFromUtf8(take->value("filePath", std::string{}));
 
     if (filePath.empty() || !std::filesystem::exists(filePath))
     {

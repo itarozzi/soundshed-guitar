@@ -693,6 +693,7 @@ set(GUITARFX_CORE_SOURCES
     src/util/LongPath.h
     src/util/FileSystem.h
     src/util/FileSystem.cpp
+    src/util/JsonSkimmer.h
     src/util/PathSanitizer.h
     src/util/PathSanitizer.cpp
     src/util/PathEncoding.h
