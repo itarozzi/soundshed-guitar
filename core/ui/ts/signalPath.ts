@@ -1087,13 +1087,15 @@ function bindNodeClickHandlers(preset: Preset): void {
     // Native drag-and-drop still handles the two drags that do not originate
     // from a pointer press inside the signal path: files from the OS, and
     // resource groups from the equipment library.
+    // Each handler takes only the drags it can use and leaves the rest, a preset pack from the OS
+    // above all, to the global importer, which skips a drop something else has already taken.
     el.addEventListener("dragover", (e: DragEvent) => {
-      e.preventDefault();
       const nodeId = el.dataset.nodeId;
       if (!nodeId) return;
 
       const types = Array.from(e.dataTransfer?.types ?? []);
       if (types.includes("application/x-resource-group")) {
+        e.preventDefault();
         el.classList.add("drag-over");
         if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
         return;
@@ -1102,6 +1104,7 @@ function bindNodeClickHandlers(preset: Preset): void {
       if (types.includes("Files")) {
         const node = preset.graph?.nodes.find((n) => n.id === nodeId);
         if (node && isNamOrCabIrNode(node)) {
+          e.preventDefault();
           el.classList.add("drag-over");
           if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
         }
@@ -1113,13 +1116,13 @@ function bindNodeClickHandlers(preset: Preset): void {
     });
 
     el.addEventListener("drop", (e: DragEvent) => {
-      e.preventDefault();
       el.classList.remove("drag-over");
       const targetNodeId = el.dataset.nodeId;
       if (!targetNodeId || !preset.graph) return;
 
       const resourceGroupPayload = e.dataTransfer?.getData("application/x-resource-group");
       if (resourceGroupPayload) {
+        e.preventDefault();
         const targetNode = preset.graph.nodes.find((n) => n.id === targetNodeId);
         handleResourceGroupDrop(resourceGroupPayload, targetNodeId, targetNode?.type === EffectGuids.kAmpNamBlend);
         return;
@@ -1130,6 +1133,7 @@ function bindNodeClickHandlers(preset: Preset): void {
       const targetNode = preset.graph.nodes.find((n) => n.id === targetNodeId);
       const resourceType = inferResourceTypeFromFile(file);
       if (targetNode && isNamOrCabIrNode(targetNode) && resourceType && nodeAcceptsResourceType(targetNode, resourceType)) {
+        e.preventDefault();
         void handleNamIrFileDrop(file, targetNodeId);
       }
     });
@@ -1162,8 +1166,8 @@ function bindConnectorDropHandlers(preset: Preset): void {
     };
 
     el.addEventListener("dragover", (e: DragEvent) => {
-      e.preventDefault();
       if (!Array.from(e.dataTransfer?.types ?? []).includes("application/x-resource-group")) return;
+      e.preventDefault();
       setHighlight(true);
       if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
     });
@@ -1173,10 +1177,10 @@ function bindConnectorDropHandlers(preset: Preset): void {
     });
 
     el.addEventListener("drop", (e: DragEvent) => {
-      e.preventDefault();
       setHighlight(false);
       const resourceGroupPayload = e.dataTransfer?.getData("application/x-resource-group");
       if (resourceGroupPayload && preset.graph) {
+        e.preventDefault();
         handleResourceGroupDrop(resourceGroupPayload, null, false, parseEdgeFromDataset(el));
       }
     });

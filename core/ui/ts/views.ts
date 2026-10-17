@@ -347,7 +347,9 @@ export function renderPresetList(
         }
       });
 
+      // Only a folder's own drag; a file from the OS is left for the global importer.
       item.addEventListener("dragover", (event) => {
+        if (!Array.from(event.dataTransfer?.types ?? []).includes("application/x-preset-folder")) return;
         event.preventDefault();
         item.classList.add("drag-over");
       });
@@ -367,11 +369,11 @@ export function renderPresetList(
 
       // A preset lands here by pointer (presets/drag.ts); the only native drag is a folder's own.
       item.addEventListener("drop", (event) => {
-        event.preventDefault();
         item.classList.remove("drag-over");
         const folderDragId = event.dataTransfer?.getData("application/x-preset-folder") ?? "";
         const folderId = item.dataset.folderId ?? PRESET_FOLDER_ALL_ID;
         if (folderDragId) {
+          event.preventDefault();
           if (folderId === PRESET_FOLDER_RECENTS_ID || folderId === PRESET_FOLDER_FAVORITES_ID) {
             return;
           }

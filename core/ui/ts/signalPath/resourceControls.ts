@@ -509,14 +509,12 @@ export function bindResourceControls(node: GraphNode, preset: Preset): void {
 
     selectorEl.addEventListener("drop", (e: DragEvent) => {
       if (!Array.from(e.dataTransfer?.types ?? []).includes("Files")) return;
+      selectorEl.classList.remove("drag-over");
+      const file = Array.from(e.dataTransfer?.files ?? [])[0];
+      // A file this slot cannot take (a preset pack) goes on to the global importer.
+      if (!file || inferResourceTypeFromFile(file) !== elResourceType) return;
       e.preventDefault();
       e.stopPropagation();
-      selectorEl.classList.remove("drag-over");
-      const files = Array.from(e.dataTransfer?.files ?? []);
-      const file = files[0];
-      if (!file) return;
-      const resourceType = inferResourceTypeFromFile(file);
-      if (resourceType !== elResourceType) return;
       void handleNamIrFileDrop(file, elNodeId, elResourceIndex);
     });
   });

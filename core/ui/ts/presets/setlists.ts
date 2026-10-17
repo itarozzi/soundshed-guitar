@@ -327,13 +327,24 @@ export function renderSetlistPanel(): void {
       event.dataTransfer?.setDragImage(slotEl, 20, 20);
     });
 
+    // Only a slot's own drag is taken here. Any other (a pack dropped from Explorer) is left for
+    // the global importer; it used to be swallowed, and Number("") is 0, so it moved slot 0.
+    const isSlotDrag = (event: DragEvent): boolean =>
+      Array.from(event.dataTransfer?.types ?? []).includes("application/x-setlist-slot");
+
     slotEl.addEventListener("dragover", (event) => {
-      event.preventDefault();
+      if (isSlotDrag(event)) {
+        event.preventDefault();
+      }
     });
 
     slotEl.addEventListener("drop", (event) => {
+      const raw = event.dataTransfer?.getData("application/x-setlist-slot") ?? "";
+      if (!isSlotDrag(event) || raw === "") {
+        return;
+      }
       event.preventDefault();
-      const fromIndex = Number(event.dataTransfer?.getData("application/x-setlist-slot") ?? -1);
+      const fromIndex = Number(raw);
       const toIndex = Number(slotEl.dataset.slotIndex ?? -1);
       if (fromIndex >= 0 && toIndex >= 0) {
         moveSetlistSlot(fromIndex, toIndex);
