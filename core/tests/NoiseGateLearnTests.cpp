@@ -280,6 +280,35 @@ void TestLearningLeavesTheAudioAlone()
     Check(expected == actual, "the output is bit-identical with and without a listen");
 }
 
+/// A listen that finishes part way through a long block used to keep counting slices for the rest
+/// of it, writing past the end of its slice array (an assertion in Debug, a scribble in Release).
+void TestAListenThatEndsMidBlock()
+{
+    std::cout << "\n-- a listen that ends mid-block --" << std::endl;
+
+    GateNoiseLearner learner;
+    learner.Prepare(kSampleRate);
+    learner.Start(1);
+    Check(learner.BeginBlock(), "the block that picks up Start listens");
+
+    const int slice = static_cast<int>(GateNoiseLearner::kSliceMs * 0.001 * kSampleRate);
+    const int settle = static_cast<int>(GateNoiseLearner::kSettleMs * 0.001 * kSampleRate);
+    const int listen = settle + GateNoiseLearner::kSlices * slice;
+
+    // One block holding the whole listen and three slices more, louder than the noise.
+    for (int i = 0; i < listen + 3 * slice; ++i)
+    {
+        learner.Feed(i < listen ? 1.0e-3f : 0.5f);
+    }
+
+    learner.EndBlock();
+    const auto heard = learner.Read();
+    Check(heard.state == GateNoiseLearner::State::Done && heard.progress == 1.0f, "the listen finishes");
+    Check(std::abs(heard.noiseFloorDb + 60.0f) < 0.01f, "only what it heard while listening counts",
+          Num(heard.noiseFloorDb, 2) + " dB");
+    Check(!learner.BeginBlock(), "and the next block no longer listens");
+}
+
 void TestSessions()
 {
     std::cout << "\n-- sessions --" << std::endl;
@@ -408,6 +437,7 @@ int main()
     TestSilenceLearnsTheBottomOfTheRange();
     TestMonoLearnsTheSameFloor();
     TestLearningLeavesTheAudioAlone();
+    TestAListenThatEndsMidBlock();
     TestSessions();
     TestServiceListensOnTheGlobalGate();
 

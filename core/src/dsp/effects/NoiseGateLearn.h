@@ -137,6 +137,13 @@ class GateNoiseLearner
     {
         mBlockPeak = std::max(mBlockPeak, detector);
 
+        // A listen can finish part way through a block, and the gate keeps feeding the rest of
+        // it: a full slice more would be written one past the end of mSlices.
+        if (!mListening)
+        {
+            return;
+        }
+
         if (mSettleRemaining > 0)
         {
             --mSettleRemaining;
