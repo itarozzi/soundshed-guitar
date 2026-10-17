@@ -61,6 +61,7 @@
 * On Windows, NAM models and IRs whose full path is 260 characters or longer now load. Before, the app reported them as missing ("Model file not found"), which a deep folder of captures can reach.
 * Model and IR files installed from older preset packs or shared tones no longer carry their 64-character file code twice in their names, which pushed some of them past that limit. Files already installed that way are renamed on the next start.
 * Deleting Soundshed Guitar from a track's inserts and inserting it again no longer crashes your DAW. Since 1.6.0, once every Soundshed Guitar in the DAW had gone, removed or closed with its project, opening the window of the next one crashed DAWs that keep the plugin loaded, such as Studio One.
+* An IR Cab with an IR in the IR B slot and none in IR A now plays IR B. Before, it let your guitar through with no cab at all. One IR on its own now plays in full whichever slot it is in, whatever IR Blend and L/R Split are set to, as an IR A on its own always has, with its own slot's Level, Pan, Invert and mic settings. A preset saved with only IR B now has its cab. Loading or clearing a cab's second IR also fades smoothly now, where with IR Blend above 0 the level used to jump.
 
 ## 1.6.0 (Oct 8, 2026)
 

@@ -491,6 +491,17 @@ loaded into a prepared node is built straight away. The Convolution Reverb works
 
 Quality levels: 0=Economy, 1=Standard, 2=High, 3=Full
 
+**Two IR slots.** IR A and IR B each have their own Level, Pan, Invert and mic settings. With
+both loaded, IR Blend (`irBlend`) crossfades from A at 0 to B at 1, and L/R Split (`lrSplit`)
+plays A from the left input and B from the right instead. One IR alone plays in full, in either
+slot, as if IR Blend were all the way to it, whatever IR Blend, L/R Split and the IR B offset
+say: its own slot's settings apply and the other slot's do not, and the cab reports its latency.
+Loading or clearing a slot crossfades over 30 ms from what was playing, the outgoing side at the
+level it played at. Until 2026-10-17 a cab with only IR B passed its input dry, because
+`Process()` waited for slot A's convolvers, and it reported no latency with Low Latency off. The
+outgoing side of that crossfade also played at the incoming slots' levels then, so adding IR B
+to IR A, or clearing it, with IR Blend above 0 jumped the level instead of fading it.
+
 **Normalize and Low Latency** (`normalizeIR` and `lowLatency`, both on by default) are built into
 the convolvers: the normalisation gain into the coefficients, and the latency into the partition
 layout. A preset sets them before its IRs load, so loading one rebuilds nothing extra. A change
@@ -571,8 +582,7 @@ The web UI shows an **Alignment** section under the Main and Advanced tabs, so i
 whichever tab is open, once both IRs are loaded. It sets the offset by dragging B's waveform over
 A's, by clicking along a strip of how alike the two are at every offset, by typing or by nudging,
 and draws the two summed against the two added without interfering, so a cancellation shows as a
-dip. With one IR loaded the section shows only that IR's response; with only IR B it also says
-B is not heard yet, since without IR A the cab passes its input dry.
+dip. With one IR loaded, in either slot, the section shows only that IR's response.
 
 **Auto Align** asks the engine (`analyzeIrAlignment`, `dsp/IrAlignment.h`) where B lines up: it band-limits both IRs to 100 Hz-6 kHz, cross-correlates
 them over ±10 ms, takes the largest correlation within 2 ms of the offset that lines up their

@@ -121,12 +121,12 @@ describe("the IR Cabinet's Alignment section", () => {
     expect(section()?.querySelector(".ir-alignment-note")?.textContent).toBe("");
   });
 
-  it("says IR B alone is not heard", () => {
+  it("shows IR B alone as it shows IR A alone: it plays in full, so there is no note", () => {
     const node = cab("cab-only-b", [{} as ResourceRef, IR_B]);
     showNodeParamsPanel(node, presetWith(node));
     expect(section()?.querySelector(".ir-alignment-waves")).toBeNull();
     expect(section()?.querySelector(".eq-visualizer-header span")?.textContent).toBe("IR B");
-    expect(section()?.querySelector(".ir-alignment-note")?.textContent).toBe("IR B is only heard once IR A is loaded.");
+    expect(section()?.querySelector(".ir-alignment-note")?.textContent).toBe("");
   });
 
   it("sits under the tabs, asks for one analysis per pair, and aligns on request", () => {

@@ -345,11 +345,11 @@ function drawResponse(canvas: HTMLCanvasElement, spectra: AlignmentSpectra, anal
   });
 }
 
-/** Blend at one end, or L/R Split, changes what the offset does: say so. And a cab
- * with only IR B plays nothing through it (IRCabEffect passes the input dry). */
+/** Blend at one end, or L/R Split, changes what the offset does: say so. One IR
+ * alone, in either slot, plays in full whatever they are set to, so it needs no note. */
 function noteFor(node: GraphNode, single: boolean): string {
   if (single) {
-    return slotRef(node, 0) ? "" : "IR B is only heard once IR A is loaded.";
+    return "";
   }
   const params = node.params ?? {};
   if ((params.lrSplit ?? 0) >= 0.5) {

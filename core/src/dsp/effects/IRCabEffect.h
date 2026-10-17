@@ -146,8 +146,9 @@ class IRCabEffect : public EffectProcessor
             return;
         }
 
-        const bool rightReady = !mIsStereo || mConvolverR.IsInitialized();
-        const bool convolverReady = mConvolverL.IsInitialized() && rightReady;
+        // Either slot can play alone (BlendedSlotMix), so the cab is ready with either.
+        const bool hasA = SlotAReady();
+        const bool hasB = SlotBReady();
 
         // Before Prepare nothing is built and there is nowhere to record the input: pass it through.
         if (!mPrepared)
@@ -199,7 +200,7 @@ class IRCabEffect : public EffectProcessor
 
         // Full bypass (disabled or mix=0), or no IR loaded: the dry signal alone. The effect is
         // intentionally transparent when no cabinet IR has been selected.
-        if (!mEnabled || mMix <= 0.0 || !convolverReady)
+        if (!mEnabled || mMix <= 0.0 || (!hasA && !hasB))
         {
             if (outputs[0])
             {
@@ -228,12 +229,11 @@ class IRCabEffect : public EffectProcessor
 
         // Process through convolvers
         const bool allowParallel = rtparallel::ShouldParallelizeStereoWork(numSamples);
-        const bool hasB = mConvolverBL.IsInitialized() && (!mIsStereoB || mConvolverBR.IsInitialized());
         // L/R split: slot A takes left input, slot B takes right input (requires both slots loaded).
-        const bool useLRSplit = mLRSplitEnabled && hasB;
+        const bool useLRSplit = mLRSplitEnabled && hasA && hasB;
 
         // Each slot reads its own copy of the input, the later one delayed by the alignment offset.
-        mAlignment.SetBothSlotsLoaded(hasB);
+        mAlignment.SetBothSlotsLoaded(hasA && hasB);
         mAlignment.Process(mInputBufferL.data(), mInputBufferR.data(), numSamples);
         const float* inAL = mAlignment.SlotInput(0, 0);
         const float* inAR = mAlignment.SlotInput(0, 1);
@@ -260,19 +260,22 @@ class IRCabEffect : public EffectProcessor
         }
         else
         {
-            bool ranParallel = false;
-
-            if (allowParallel)
+            if (hasA)
             {
-                ranParallel = rtparallel::DualLaneExecutor::Instance().Run(
-                    [&]() { mConvolverR.Process(inAR, mOutputBufferR.data(), numSamples); },
-                    [&]() { mConvolverL.Process(inAL, mOutputBufferL.data(), numSamples); });
-            }
+                bool ranParallel = false;
 
-            if (!ranParallel)
-            {
-                mConvolverL.Process(inAL, mOutputBufferL.data(), numSamples);
-                mConvolverR.Process(inAR, mOutputBufferR.data(), numSamples);
+                if (allowParallel)
+                {
+                    ranParallel = rtparallel::DualLaneExecutor::Instance().Run(
+                        [&]() { mConvolverR.Process(inAR, mOutputBufferR.data(), numSamples); },
+                        [&]() { mConvolverL.Process(inAL, mOutputBufferL.data(), numSamples); });
+                }
+
+                if (!ranParallel)
+                {
+                    mConvolverL.Process(inAL, mOutputBufferL.data(), numSamples);
+                    mConvolverR.Process(inAR, mOutputBufferR.data(), numSamples);
+                }
             }
 
             if (hasB)
@@ -294,7 +297,11 @@ class IRCabEffect : public EffectProcessor
             }
         }
 
-        const bool transitionActive = mResourceTransitionSamplesRemaining > 0 && mPrevHasSlotA;
+        // The outgoing side of a crossfade: the slots that were playing, either or both. Read once,
+        // since the fade can end partway through the block.
+        const bool prevHasA = mPrevHasSlotA;
+        const bool prevHasB = mPrevHasSlotB;
+        const bool transitionActive = mResourceTransitionSamplesRemaining > 0 && (prevHasA || prevHasB);
 
         if (transitionActive)
         {
@@ -307,19 +314,27 @@ class IRCabEffect : public EffectProcessor
                 {
                     ran = rtparallel::DualLaneExecutor::Instance().Run(
                         [&]() {
-                            if (mPrevHasSlotB)
+                            if (prevHasB)
                             {
                                 mPrevConvolverBL.Process(inBR, mPrevOutputBufferBL.data(), numSamples);
                             }
                         },
-                        [&]() { mPrevConvolverL.Process(inAL, mPrevOutputBufferL.data(), numSamples); });
+                        [&]() {
+                            if (prevHasA)
+                            {
+                                mPrevConvolverL.Process(inAL, mPrevOutputBufferL.data(), numSamples);
+                            }
+                        });
                 }
 
                 if (!ran)
                 {
-                    mPrevConvolverL.Process(inAL, mPrevOutputBufferL.data(), numSamples);
+                    if (prevHasA)
+                    {
+                        mPrevConvolverL.Process(inAL, mPrevOutputBufferL.data(), numSamples);
+                    }
 
-                    if (mPrevHasSlotB)
+                    if (prevHasB)
                     {
                         mPrevConvolverBL.Process(inBR, mPrevOutputBufferBL.data(), numSamples);
                     }
@@ -327,22 +342,25 @@ class IRCabEffect : public EffectProcessor
             }
             else
             {
-                bool ranPrevParallel = false;
-
-                if (allowParallel)
+                if (prevHasA)
                 {
-                    ranPrevParallel = rtparallel::DualLaneExecutor::Instance().Run(
-                        [&]() { mPrevConvolverR.Process(inAR, mPrevOutputBufferR.data(), numSamples); },
-                        [&]() { mPrevConvolverL.Process(inAL, mPrevOutputBufferL.data(), numSamples); });
+                    bool ranPrevParallel = false;
+
+                    if (allowParallel)
+                    {
+                        ranPrevParallel = rtparallel::DualLaneExecutor::Instance().Run(
+                            [&]() { mPrevConvolverR.Process(inAR, mPrevOutputBufferR.data(), numSamples); },
+                            [&]() { mPrevConvolverL.Process(inAL, mPrevOutputBufferL.data(), numSamples); });
+                    }
+
+                    if (!ranPrevParallel)
+                    {
+                        mPrevConvolverL.Process(inAL, mPrevOutputBufferL.data(), numSamples);
+                        mPrevConvolverR.Process(inAR, mPrevOutputBufferR.data(), numSamples);
+                    }
                 }
 
-                if (!ranPrevParallel)
-                {
-                    mPrevConvolverL.Process(inAL, mPrevOutputBufferL.data(), numSamples);
-                    mPrevConvolverR.Process(inAR, mPrevOutputBufferR.data(), numSamples);
-                }
-
-                if (mPrevHasSlotB)
+                if (prevHasB)
                 {
                     bool ranPrevBParallel = false;
 
@@ -367,22 +385,38 @@ class IRCabEffect : public EffectProcessor
         const float dryGain = static_cast<float>(1.0 - mMix);
         const bool wetOnly = mMix >= 0.9999;
 
-        // In L/R split mode each slot handles one channel at full gain; normal mode uses blend.
-        double blend, slotAGain, slotBGain, autoCompGain;
+        // In L/R split mode each slot handles one channel at full gain; normal mode uses blend,
+        // with a lone IR in full (BlendedSlotMix).
+        double slotAGain, slotBGain, autoCompGain;
+        // The outgoing side of a crossfade plays at the levels its own slots had: a slot added or
+        // cleared fades from what was heard. Auto Gain Comp is applied after the crossfade, so
+        // the outgoing levels carry the ratio of its comp to the live one.
+        double prevSlotAGain, prevSlotBGain;
 
         if (useLRSplit)
         {
-            blend = 0.0;
             slotAGain = mSlotAGain * (mSlotAPolarityInverted ? -1.0 : 1.0);
             slotBGain = mSlotBGain * (mSlotBPolarityInverted ? -1.0 : 1.0);
             autoCompGain = 1.0;
+            prevSlotAGain = slotAGain;
+            prevSlotBGain = slotBGain;
         }
         else
         {
-            blend = hasB ? std::clamp(mIRBlend, 0.0, 1.0) : 0.0;
-            slotAGain = (1.0 - blend) * mSlotAGain * (mSlotAPolarityInverted ? -1.0 : 1.0);
-            slotBGain = blend * mSlotBGain * (mSlotBPolarityInverted ? -1.0 : 1.0);
-            autoCompGain = ComputeBlendCompGain(hasB, blend);
+            const SlotMix live = BlendedSlotMix(hasA, hasB);
+            slotAGain = live.slotAGain;
+            slotBGain = live.slotBGain;
+            autoCompGain = live.compGain;
+            prevSlotAGain = slotAGain;
+            prevSlotBGain = slotBGain;
+
+            if (transitionActive && (prevHasA != hasA || prevHasB != hasB))
+            {
+                const SlotMix outgoing = BlendedSlotMix(prevHasA, prevHasB);
+                const double compRatio = outgoing.compGain / autoCompGain;
+                prevSlotAGain = outgoing.slotAGain * compRatio;
+                prevSlotBGain = outgoing.slotBGain * compRatio;
+            }
         }
 
         // Equal-power pan gains (sqrt(2)-normalised so centre pan = unity gain).
@@ -427,30 +461,36 @@ class IRCabEffect : public EffectProcessor
             }
             else
             {
-                double slotAL = mOutputBufferL[i] * slotAGain;
-                double slotAR = mOutputBufferR[i] * slotAGain;
+                wetL = 0.0;
+                wetR = 0.0;
 
-                if (mMicEmulationEnabled)
+                if (hasA)
                 {
-                    slotAL = ProcessMicPositionSlotA(slotAL, 0);
-                    slotAR = ProcessMicPositionSlotA(slotAR, 1);
-                }
+                    double slotAL = mOutputBufferL[i] * slotAGain;
+                    double slotAR = mOutputBufferR[i] * slotAGain;
 
-                if (hasPanA && dualMono)
-                {
-                    // Dual mono: a balance, each side kept to itself.
-                    slotAL *= slotAPanL;
-                    slotAR *= slotAPanR;
-                }
-                else if (hasPanA)
-                {
-                    const double monoA = (slotAL + slotAR) * 0.5;
-                    slotAL = monoA * slotAPanL;
-                    slotAR = monoA * slotAPanR;
-                }
+                    if (mMicEmulationEnabled)
+                    {
+                        slotAL = ProcessMicPositionSlotA(slotAL, 0);
+                        slotAR = ProcessMicPositionSlotA(slotAR, 1);
+                    }
 
-                wetL = slotAL;
-                wetR = slotAR;
+                    if (hasPanA && dualMono)
+                    {
+                        // Dual mono: a balance, each side kept to itself.
+                        slotAL *= slotAPanL;
+                        slotAR *= slotAPanR;
+                    }
+                    else if (hasPanA)
+                    {
+                        const double monoA = (slotAL + slotAR) * 0.5;
+                        slotAL = monoA * slotAPanL;
+                        slotAR = monoA * slotAPanR;
+                    }
+
+                    wetL = slotAL;
+                    wetR = slotAR;
+                }
 
                 if (hasB)
                 {
@@ -487,22 +527,26 @@ class IRCabEffect : public EffectProcessor
                     static_cast<double>(progressed) / static_cast<double>(std::max(1, mResourceTransitionSamplesTotal));
                 const double oldWeight = 1.0 - std::clamp(newWeight, 0.0, 1.0);
 
-                double prevWetL, prevWetR;
+                double prevWetL = 0.0;
+                double prevWetR = 0.0;
 
                 if (useLRSplit)
                 {
-                    prevWetL = mPrevOutputBufferL[i] * slotAGain;
-                    prevWetR = mPrevHasSlotB ? mPrevOutputBufferBL[i] * slotBGain : 0.0;
+                    prevWetL = prevHasA ? mPrevOutputBufferL[i] * prevSlotAGain : 0.0;
+                    prevWetR = prevHasB ? mPrevOutputBufferBL[i] * prevSlotBGain : 0.0;
                 }
                 else
                 {
-                    prevWetL = mPrevOutputBufferL[i] * slotAGain;
-                    prevWetR = mPrevOutputBufferR[i] * slotAGain;
-
-                    if (mPrevHasSlotB)
+                    if (prevHasA)
                     {
-                        prevWetL += mPrevOutputBufferBL[i] * slotBGain;
-                        prevWetR += mPrevOutputBufferBR[i] * slotBGain;
+                        prevWetL = mPrevOutputBufferL[i] * prevSlotAGain;
+                        prevWetR = mPrevOutputBufferR[i] * prevSlotAGain;
+                    }
+
+                    if (prevHasB)
+                    {
+                        prevWetL += mPrevOutputBufferBL[i] * prevSlotBGain;
+                        prevWetR += mPrevOutputBufferBR[i] * prevSlotBGain;
                     }
                 }
 
@@ -1097,9 +1141,7 @@ class IRCabEffect : public EffectProcessor
 
     [[nodiscard]] bool HasResource() const override
     {
-        const bool slotAReady = mConvolverL.IsInitialized() && (!mIsStereo || mConvolverR.IsInitialized());
-        const bool slotBReady = mConvolverBL.IsInitialized();
-        return slotAReady || slotBReady;
+        return SlotAReady() || SlotBReady();
     }
 
     [[nodiscard]] std::filesystem::path GetResourcePath() const override
@@ -1110,8 +1152,13 @@ class IRCabEffect : public EffectProcessor
     [[nodiscard]] int GetLatencySamples() const override
     {
         // Report the convolver's algorithmic latency: 0 with Low Latency on, the partition with it
-        // off. The dry signal is delayed to match (mDryDelay).
-        return mConvolverL.IsInitialized() ? mConvolverL.GetLatency() : 0;
+        // off. The dry signal is delayed to match (mDryDelay). IR A's, or a lone IR B's.
+        if (mConvolverL.IsInitialized())
+        {
+            return mConvolverL.GetLatency();
+        }
+
+        return mConvolverBL.IsInitialized() ? mConvolverBL.GetLatency() : 0;
     }
 
     [[nodiscard]] std::string GetType() const override
@@ -1621,6 +1668,35 @@ class IRCabEffect : public EffectProcessor
 
         const double mean = sum / static_cast<double>(count);
         return std::max(1e-8, mean);
+    }
+
+    /// A slot plays once its convolvers are built: both channels' for a stereo IR.
+    [[nodiscard]] bool SlotAReady() const
+    {
+        return mConvolverL.IsInitialized() && (!mIsStereo || mConvolverR.IsInitialized());
+    }
+
+    [[nodiscard]] bool SlotBReady() const
+    {
+        return mConvolverBL.IsInitialized() && (!mIsStereoB || mConvolverBR.IsInitialized());
+    }
+
+    /// Each slot's level outside L/R Split, with its Level and Invert, and the Auto Gain Comp
+    /// applied after them.
+    struct SlotMix
+    {
+        double slotAGain = 0.0;
+        double slotBGain = 0.0;
+        double compGain = 1.0;
+    };
+
+    /// IR Blend crossfades two IRs. A lone IR, in either slot, is the blend all the way to it: it
+    /// plays in full whatever IR Blend says, as one IR in a cab should.
+    [[nodiscard]] SlotMix BlendedSlotMix(bool hasA, bool hasB) const
+    {
+        const double blend = hasA && hasB ? std::clamp(mIRBlend, 0.0, 1.0) : (hasB ? 1.0 : 0.0);
+        return {(1.0 - blend) * mSlotAGain * (mSlotAPolarityInverted ? -1.0 : 1.0),
+                blend * mSlotBGain * (mSlotBPolarityInverted ? -1.0 : 1.0), ComputeBlendCompGain(hasB, blend)};
     }
 
     double ComputeBlendCompGain(bool hasB, double blend) const
