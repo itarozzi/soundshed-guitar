@@ -38,14 +38,16 @@
 * On a large display the footer's Setlists, Tuner, MIDI and Rec buttons are labelled, not just icons. A smaller window, or a higher UI zoom, keeps the icons alone.
 
 ### Performance
+* Amps and cabs are much lighter on your CPU than in 1.6.0. With a mono guitar at 48 kHz and a 64-sample buffer on Windows, a NAM amp uses about a third of the CPU it did, the IR Cab about 40% and the Heavy American about a sixth. A preset with a NAM amp and an IR Cab uses about 40% of what it did.
 * Soundshed Guitar now stops processing when nothing is being played, such as on a muted DAW track, an empty one, or with your guitar's volume rolled off, and uses next to no CPU until you play again. It waits for delay repeats and reverb tails to die away first, and the first note you play comes through in full.
 * A new **Use Multiple CPU Cores** switch in Settings → Performance. It is off by default in the plugin: your DAW already spreads its tracks across your cores, and the extra threads competed with it, which could cause crackles and dropouts. It stays on in the standalone app. The standalone app and the plugin keep separate settings, and the plugin's applies to every instance.
 * When multiple cores are in use, the extra threads now get the same high priority as the audio thread. Before, a busy computer, or a DAW minimised on macOS, could hold them up, which used more CPU and could cause crackles.
 * A plugin instance whose window has never been opened no longer measures its levels for meters nobody can see.
 * On a stereo track, Soundshed Guitar now notices when both sides carry the same mono guitar, as they do when a guitar input is recorded or monitored on a stereo track, and runs each amp model and cab once instead of twice. That about halves its CPU on such tracks, and the sound is unchanged. It takes a second of playing to notice. A real stereo source is never treated this way, and if a track starts carrying stereo, the right side comes back within a fifth of a second.
+* NAM amps run on a new, faster engine on Windows, Linux and Intel Macs, and use about a third of the CPU they did, standard and A2 models alike. They sound the same. Going back to a model the app has already loaded, as when you switch between presets, is quicker too: the model is ready to play in under half a millisecond instead of 15 to 25. On Apple silicon Macs, Windows on ARM and Android, NAM amps run as before for now.
 * NAM amps cost about a third less to resample when your DAW or interface runs at a different sample rate from the capture, such as 44.1 kHz with a 48 kHz capture, and they add almost 1 ms less latency there (27 samples instead of 66 at 44.1 kHz).
 * On Linux and on Intel Macs, NAM amps now use the fused multiply-add instructions every AVX2 processor has, which makes them a little faster.
-* The **Heavy American** amp uses about a seventh of the CPU it did, and an eighth at high gain, and sounds the same.
+* The **Heavy American** amp uses about a sixth of the CPU it did in 1.6.0, and a seventh at high gain, and sounds the same.
 
 ### Fixes
 * The noise gate shuts promptly again when you stop playing. Since 1.6.0 it stayed fully open for about a quarter of a second after the last note, before its Hold and Release even started. In front of a high-gain amp that was a burst of hiss every time you stopped, most noticeable at the end of a demo clip. It now starts closing about 40 ms after the playing stops, plus your Hold time. Low notes still hold it open, down to a seven-string's low B.
