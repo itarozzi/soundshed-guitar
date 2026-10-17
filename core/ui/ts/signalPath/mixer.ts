@@ -297,7 +297,13 @@ export function bindInlineMixerControls(panel: HTMLElement): void {
         valueDisplay: mixKnob.parentElement?.querySelector<HTMLElement>(".knob-value"),
         sensitivity: knobSensitivity(0, 1),
         sendParameter: false,
-        onValueChange: (v) => setPresetMix(pid, v),
+        // Into the mixer store as well as the engine, as Mute and Solo are: the engine sends no
+        // state back for these, so the strip re-rendered from the store's stale value, and the
+        // next drag started from there and jumped the level.
+        onValueChange: (v) => {
+          setPresetMix(pid, v);
+          updateMixerSlot(pid, { mix: v });
+        },
       });
     }
 
@@ -313,7 +319,10 @@ export function bindInlineMixerControls(panel: HTMLElement): void {
         valueDisplay: panKnob.parentElement?.querySelector<HTMLElement>(".knob-value"),
         sensitivity: knobSensitivity(-1, 1),
         sendParameter: false,
-        onValueChange: (v) => setPresetPan(pid, v),
+        onValueChange: (v) => {
+          setPresetPan(pid, v);
+          updateMixerSlot(pid, { pan: v });
+        },
       });
     }
 
