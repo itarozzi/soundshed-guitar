@@ -1,10 +1,11 @@
 #pragma once
 
-// Stimuli, audio I/O, the block driver and the "freshly added node" parameters for AudioSnapshot.
+// Stimuli, audio I/O, the block driver and the "freshly added node" parameters for AudioSnapshot
+// and AudioPerf.
 //
-// tools/audio-ab copies the harness (this header, AudioSnapshotChains.h and AudioSnapshot.cpp)
-// into older checkouts so that both sides of a comparison run the same harness, so everything
-// here sticks to APIs that have
+// tools/audio-ab copies the harness (this header, AudioSnapshotChains.h, AudioSnapshot.cpp and
+// AudioPerf.cpp) into older checkouts so that both sides of a comparison run the same harness, so
+// everything here sticks to APIs that have
 // been stable since 1.5.0. Where a newer field or method is useful, it is reached through a
 // `requires` check in a template, which compiles away against a revision that lacks it.
 
@@ -18,6 +19,7 @@
 #include <fstream>
 #include <iterator>
 #include <map>
+#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
@@ -519,6 +521,18 @@ template <typename TypeInfo> std::string EffectSlug(const TypeInfo& info)
 inline fs::path Utf8Path(const std::string& s)
 {
     return fs::path(std::u8string(s.begin(), s.end()));
+}
+
+inline nlohmann::json LoadJson(const fs::path& file)
+{
+    std::ifstream f(file, std::ios::binary);
+
+    if (!f)
+    {
+        throw std::runtime_error("cannot open " + file.string());
+    }
+
+    return nlohmann::json::parse(f);
 }
 
 /// Points the settings root at `root`, so a controller never reads or writes the real profile.

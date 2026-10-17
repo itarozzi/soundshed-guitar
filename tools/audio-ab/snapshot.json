@@ -1,5 +1,5 @@
 {
-  "$comment": "What core/tests/AudioSnapshot renders. Resource paths are relative to core/tests/testdata/assets. Node types are aliases (core/protocol/effect-aliases.json), so one definition serves every revision; a node gets the params a freshly added node gets unless it sets freshParams: false, then its own params on top. Without edges, nodes run in series between __input__ and __output__. See tools/audio-ab/README.md.",
+  "$comment": "What core/tests/AudioSnapshot renders. Resource paths are relative to core/tests/testdata/assets. Node types are aliases (core/protocol/effect-aliases.json), so one definition serves every revision; a node gets the params a freshly added node gets unless it sets freshParams: false, then its own params on top. Without edges, nodes run in series between __input__ and __output__. perfCases are what core/tests/AudioPerf times for audio-ab perf: nodes and edges as in a chain, run on an executor of their own. See tools/audio-ab/README.md.",
   "signals": ["di", "sweep", "impulse", "silence"],
   "resources": {
     "nam-clean": "amps/Guitar/A2/[AMP] MESA.MKVII-90W-CH1-CLN Factory Bright Clean - BLEND #1.nam",
@@ -107,6 +107,33 @@
         { "type": "cab_simple" },
         { "type": "reverb_spring" }
       ]
+    }
+  ],
+  "perfCases": [
+    {
+      "id": "nam-standard",
+      "name": "NAM, standard model (JCM800)",
+      "nodes": [{ "type": "amp_nam_optimized", "resource": "nam-drive" }]
+    },
+    {
+      "id": "nam-a2",
+      "name": "NAM, A2 model (MESA clean)",
+      "nodes": [{ "type": "amp_nam_optimized", "resource": "nam-clean" }]
+    },
+    {
+      "id": "ir-cab",
+      "name": "IR Cab (421 1960)",
+      "nodes": [{ "type": "cab_ir", "resource": "ir" }]
+    },
+    {
+      "id": "heavy-american",
+      "name": "Heavy American at defaults",
+      "nodes": [{ "type": "amp_builtin" }]
+    },
+    {
+      "id": "heavy-american-4-stage",
+      "name": "Heavy American, 4 stages, gain 0.8",
+      "nodes": [{ "type": "amp_builtin", "params": { "stageCount": 4, "gain": 0.8 } }]
     }
   ]
 }
