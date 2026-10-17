@@ -15,14 +15,19 @@
  * on every block, which on Windows takes a lock on the audio thread. Reset() reads them now.
  *
  * Both fixes are in core/cmake/GuitarfxAudioDSPTools.cmake.
+ *
+ * The amp's own side of that skip has to notice a host rate change too, even when the model's rate
+ * and block size come out unchanged.
  */
 
 #include "dsp/effects/NAMOversampling.h"
+#include "dsp/effects/OptimizedNAMAmpEffect.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
+#include <filesystem>
 #include <iostream>
 #include <vector>
 
@@ -279,6 +284,72 @@ bool TestNamResamplerReadsSwitchesAtReset()
 
     return allPassed;
 }
+
+/// A host rate change kept the amp's old setup whenever the model's own rate and block size came
+/// out the same, as they do at 1x for 48 kHz/480 to 96 kHz/960: the model ran without the
+/// resampler 96 kHz needs, on blocks larger than it was prepared for, with a stale latency. Re-
+/// prepared, the amp must match one prepared fresh at the new settings, sample for sample.
+bool TestNamAmpReprepareAtANewHostRate()
+{
+    const auto model = std::filesystem::path(GUITARFX_TEST_RESOURCES_DIR) /
+                       "assets/amps/Guitar/Emil Rohbe/VOX AC15 NAM PACK/VOX AC15 Capture 3 - Emil Rohbe.nam";
+    constexpr double kRate = 96000.0;
+    constexpr int kBlock = 960;
+    guitarfx::OptimizedNAMAmpEffect moved;
+    guitarfx::OptimizedNAMAmpEffect fresh;
+
+    if (!moved.LoadResource(model) || !fresh.LoadResource(model))
+    {
+        std::cerr << "could not load " << model.string() << "\n";
+        return false;
+    }
+
+    moved.Prepare(48000.0, 480);
+    moved.Prepare(kRate, kBlock);
+    fresh.Prepare(kRate, kBlock);
+
+    bool passed = true;
+
+    if (moved.GetLatencySamples() != fresh.GetLatencySamples())
+    {
+        std::cerr << "re-prepared at 96 kHz the amp reports " << moved.GetLatencySamples()
+                  << " samples of latency, prepared fresh " << fresh.GetLatencySamples() << "\n";
+        passed = false;
+    }
+
+    std::vector<float> in(kBlock), movedL(kBlock), movedR(kBlock), freshL(kBlock), freshR(kBlock);
+    double largest = 0.0;
+
+    for (int block = 0; block < 10; ++block)
+    {
+        for (int i = 0; i < kBlock; ++i)
+        {
+            in[i] = static_cast<float>(0.3 * std::sin(2.0 * kPi * 220.0 * (block * kBlock + i) / kRate));
+        }
+
+        float* inputs[2] = {in.data(), in.data()};
+        float* movedOut[2] = {movedL.data(), movedR.data()};
+        float* freshOut[2] = {freshL.data(), freshR.data()};
+        moved.Process(inputs, movedOut, kBlock);
+        fresh.Process(inputs, freshOut, kBlock);
+
+        for (int i = 0; i < kBlock; ++i)
+        {
+            largest = std::max({largest, std::abs(static_cast<double>(movedL[i]) - freshL[i]),
+                                std::abs(static_cast<double>(movedR[i]) - freshR[i])});
+        }
+    }
+
+    std::cout << "NAM amp re-prepared at 96 kHz/960 differs from a fresh one by " << largest << "\n";
+
+    if (largest != 0.0)
+    {
+        std::cerr << "the re-prepared amp does not match one prepared fresh at 96 kHz\n";
+        passed = false;
+    }
+
+    return passed;
+}
 } // namespace
 
 int main()
@@ -294,6 +365,12 @@ int main()
     if (!TestNamResamplerReadsSwitchesAtReset())
     {
         std::cerr << "NAM resampler debug switch test failed\n";
+        allPassed = false;
+    }
+
+    if (!TestNamAmpReprepareAtANewHostRate())
+    {
+        std::cerr << "NAM amp host rate change test failed\n";
         allPassed = false;
     }
 

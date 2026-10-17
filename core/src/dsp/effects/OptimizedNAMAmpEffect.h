@@ -892,6 +892,10 @@ class OptimizedNAMAmpEffect : public EffectProcessor
     bool mModelsNeedReset = false;
     double mResetModelSampleRate = 0.0;
     int mResetModelBlockSize = 0;
+    // The host side of the same reset: the oversampler's resamplers and the dry delay are built
+    // for these, and a host rate change can leave the model rate and block size as they were.
+    double mResetHostSampleRate = 0.0;
+    int mResetHostBlockSize = 0;
 
     // Host-domain buffers (NAM_SAMPLE). Input holds post-input-gain signal;
     // output holds model output. When no resampling is needed the model
@@ -1063,7 +1067,9 @@ class OptimizedNAMAmpEffect : public EffectProcessor
     /// Before Prepare() the effect does not yet know the real sample rate, so a reset then
     /// would be undone by the reset Prepare() forces anyway — skip it and let Prepare() do
     /// the single authoritative pass. After Prepare(), a reset only runs when the resolved
-    /// model rate or block size actually changed, or when the model objects were replaced.
+    /// model rate or block size, or the host rate or block size, actually changed, or when the
+    /// model objects were replaced. The host's matter on their own: at 1x the model rate is the
+    /// model's, whatever the host runs at, and 48 kHz/480 to 96 kHz/960 keeps the model block.
     void ResetModelsIfNeeded()
     {
         if (!mPrepared)
@@ -1072,7 +1078,8 @@ class OptimizedNAMAmpEffect : public EffectProcessor
         }
 
         if (!mModelsNeedReset && mResetModelSampleRate == mModelSampleRate &&
-            mResetModelBlockSize == mMaxModelBlockSize)
+            mResetModelBlockSize == mMaxModelBlockSize && mResetHostSampleRate == mSampleRate &&
+            mResetHostBlockSize == mMaxBlockSize)
         {
             return;
         }
@@ -1111,6 +1118,8 @@ class OptimizedNAMAmpEffect : public EffectProcessor
 
         mResetModelSampleRate = mModelSampleRate;
         mResetModelBlockSize = mMaxModelBlockSize;
+        mResetHostSampleRate = mSampleRate;
+        mResetHostBlockSize = mMaxBlockSize;
         mModelsNeedReset = false;
     }
 
