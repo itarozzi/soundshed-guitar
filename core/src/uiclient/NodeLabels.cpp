@@ -142,30 +142,30 @@ std::string NodeArchitectureBadge(const ClientState& state, const GraphNode& nod
             continue;
         }
 
-        auto raw = MetadataString(resource->metadata, "architecture");
-
-        if (raw.empty())
+        // architectureVersion is the A1/A2 the engine reads from the file itself (or the
+        // Tone3000 API's "1"/"2"); "architecture" is the file's own name for it, such as
+        // "WaveNet", which says nothing about A1 or A2. The same order as the web UI.
+        for (const char* key : {"architectureVersion", "architecture_version", "architecture"})
         {
-            raw = MetadataString(resource->metadata, "architectureVersion");
-        }
+            auto raw = MetadataString(resource->metadata, key);
+            std::transform(raw.begin(), raw.end(), raw.begin(),
+                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            raw = Trim(raw);
 
-        std::transform(raw.begin(), raw.end(), raw.begin(),
-                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-        raw = Trim(raw);
+            if (raw == "2" || raw == "a2")
+            {
+                return "A2";
+            }
 
-        if (raw == "2" || raw == "a2")
-        {
-            return "A2";
-        }
+            if (raw == "1" || raw == "a1")
+            {
+                return "A1";
+            }
 
-        if (raw == "1" || raw == "a1")
-        {
-            return "A1";
-        }
-
-        if (raw == "custom")
-        {
-            return "Custom";
+            if (raw == "custom")
+            {
+                return "Custom";
+            }
         }
     }
 

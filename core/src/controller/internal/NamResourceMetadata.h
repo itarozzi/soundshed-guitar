@@ -4,13 +4,16 @@
  * NamResourceMetadata.h — Reading NAM capture metadata and mapping it onto
  * library categories.
  *
- * A .nam file is a JSON header followed by binary weights, so it cannot be
- * handed to a JSON parser whole. The targeted reader here is what the importer,
- * the archive loader and the folder browser all use, so an imported capture is
+ * A .nam file is one JSON document whose weights array is nearly all of it, so
+ * it is skimmed rather than parsed (util/JsonSkimmer.h), and only its top-level
+ * members are read: an A2 file nests whole submodels, each with its own
+ * "architecture" and "metadata". The reader here is what the importer, the
+ * archive loader and the folder browser all use, so an imported capture is
  * filed the same way whichever route it arrived by.
  */
 
 #include <filesystem>
+#include <iosfwd>
 #include <optional>
 #include <string>
 
@@ -25,6 +28,9 @@ struct NamFileMetadata
 {
     std::string fileVersion;
     std::string architecture;
+    /// "A2" for a SlimmableContainer or an A2-layout WaveNet, "A1" for any other
+    /// WaveNet, empty for the rest (LSTM, ConvNet, Linear). What the badges show.
+    std::string architectureVersion;
     std::string sampleRate;
     std::string namName;
     std::string modeledBy;
@@ -38,12 +44,37 @@ struct NamFileMetadata
     std::string trainingFinalLoss;
 };
 
-/// Parses the JSON header of a .nam file. Missing or malformed files yield a
+/// Store meta key and value recording that every NAM row has been re-read by the
+/// current reader. Raise the value when the reader starts reading a field differently
+/// and the library re-reads each model once at the next launch.
+inline constexpr const char* kNamMetadataRevisionKey = "nam_metadata_revision";
+inline constexpr const char* kNamMetadataRevision = "2";
+
+/// Reads a .nam model's top-level fields from a stream. Malformed input yields
+/// whatever was read before the fault.
+[[nodiscard]] NamFileMetadata ReadNamMetadata(std::istream& in);
+
+/// Reads a .nam file's top-level fields. Missing or malformed files yield a
 /// default-constructed result rather than an error.
 [[nodiscard]] NamFileMetadata TryExtractNamMetadata(const std::filesystem::path& namFilePath);
 
-/// Fills in a library resource's descriptive fields from the capture's own metadata.
-void EnrichNamResourceMetadata(LibraryResource& resource, const std::filesystem::path& namFilePath);
+/// "A1", "A2" or empty for a top-level architecture name, given whether a WaveNet's
+/// layers have the A2 layout.
+[[nodiscard]] std::string ClassifyNamArchitectureVersion(const std::string& architecture, bool waveNetHasA2Layers);
+
+enum class NamMetadataRefresh
+{
+    /// Descriptive fields only where the row has none, so a user's edit stands.
+    FillMissing,
+    /// Every field the file has replaces the row's: for rows an older reader filled.
+    FromFile,
+};
+
+/// Fills in a library resource's metadata from the capture's own file. The file's
+/// structural fields (architecture and its A1/A2, version, sample rate, gear type)
+/// always win; see the definition for what else does.
+void EnrichNamResourceMetadata(LibraryResource& resource, const std::filesystem::path& namFilePath,
+                               NamMetadataRefresh refresh = NamMetadataRefresh::FillMissing);
 
 /// Lowercases and strips separators so category spellings compare equal.
 [[nodiscard]] std::string NormalizeCategoryToken(std::string value);

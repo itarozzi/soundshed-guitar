@@ -2104,6 +2104,12 @@ void PluginController::CleanupResourceLibraryCategoriesOnStartup()
     auto allResources = mResourceLibrary.GetAllResources();
     std::vector<LibraryResource> changed;
 
+    // Builds before 1.7 read only a model's first 64 KB and took the first "architecture"
+    // and "metadata" they met. In an A2 file those can be a nested submodel's, or the real
+    // ones can come after the weights, so A2 captures were filed as A1 and calibrated ones
+    // as uncalibrated. Every model is read again once, its file replacing what was stored.
+    const bool rereadNamFiles = Store().GetMeta(kNamMetadataRevisionKey) != std::string{kNamMetadataRevision};
+
     for (auto& resource : allResources)
     {
         if (resource.type == "ir")
@@ -2142,7 +2148,11 @@ void PluginController::CleanupResourceLibraryCategoriesOnStartup()
         // seconds from a cold disk.
         const auto metadataBefore = resource.metadata;
 
-        if (resource.metadata.count("namFileVersion") == 0)
+        if (rereadNamFiles)
+        {
+            EnrichNamResourceMetadata(resource, resource.filePath, NamMetadataRefresh::FromFile);
+        }
+        else if (resource.metadata.count("namFileVersion") == 0)
         {
             EnrichNamResourceMetadata(resource, resource.filePath);
         }
@@ -2164,13 +2174,15 @@ void PluginController::CleanupResourceLibraryCategoriesOnStartup()
         changed.push_back(resource);
     }
 
+    bool saved = true;
+
     if (!changed.empty())
     {
         // One transaction for the whole normalization pass: either every row is
         // reclassified or none is, so a crash here cannot leave the library
         // half-categorized. A row that only gained metadata is saved too, or the
         // next launch would read its file again.
-        Store().Transact([&]() {
+        saved = Store().Transact([&]() {
             for (const auto& resource : changed)
             {
                 if (!ResourceLibrary::PutInStore(Store(), resource, resourcesRoot))
@@ -2183,6 +2195,13 @@ void PluginController::CleanupResourceLibraryCategoriesOnStartup()
         });
         AppendSessionLog("Normalized resource categories or NAM metadata at startup: " +
                          std::to_string(changed.size()));
+    }
+
+    // Stamped only once the rows are saved, so a failed pass is tried again next launch.
+    if (rereadNamFiles && saved)
+    {
+        Store().SetMeta(kNamMetadataRevisionKey, kNamMetadataRevision);
+        AppendSessionLog("Re-read NAM model metadata (revision " + std::string{kNamMetadataRevision} + ")");
     }
 }
 } // namespace guitarfx
