@@ -65,6 +65,7 @@
 * Model and IR files installed from older preset packs or shared tones no longer carry their 64-character file code twice in their names, which pushed some of them past that limit. Files already installed that way are renamed on the next start.
 * Deleting Soundshed Guitar from a track's inserts and inserting it again no longer crashes your DAW. Since 1.6.0, once every Soundshed Guitar in the DAW had gone, removed or closed with its project, opening the window of the next one crashed DAWs that keep the plugin loaded, such as Studio One.
 * An IR Cab with an IR in the IR B slot and none in IR A now plays IR B. Before, it let your guitar through with no cab at all. One IR on its own now plays in full whichever slot it is in, whatever IR Blend and L/R Split are set to, as an IR A on its own always has, with its own slot's Level, Pan, Invert and mic settings. A preset saved with only IR B now has its cab. Loading or clearing a cab's second IR also fades smoothly now, where with IR Blend above 0 the level used to jump.
+* Changing the IR Cab's **Quality** now changes what you hear straight away. Before, a cab with an IR loaded kept playing at its old Quality until you loaded another IR, changed Normalize or Trim Leading Silence, or your audio settings changed, so the setting seemed to do nothing. It now crossfades to the new Quality in a few milliseconds, whether you change it on the panel, from MIDI or with DAW automation.
 
 ## 1.6.0 (Oct 8, 2026)
 

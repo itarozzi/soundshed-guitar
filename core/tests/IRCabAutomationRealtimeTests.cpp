@@ -1,20 +1,25 @@
 /**
- * IRCabAutomationRealtimeTests.cpp — automating the IR cab's Normalize and Trim Leading Silence
- * must not rebuild its convolvers on the audio thread.
+ * IRCabAutomationRealtimeTests.cpp — automating the IR cab's Quality, Normalize and Trim Leading
+ * Silence must not rebuild its convolvers on the audio thread, and a change to any of them on a
+ * loaded cab is built by the message thread rather than waiting for the next IR load.
  *
  * MIDI and DAW automation apply on the audio thread: PluginController::ProcessQueuedMidi takes the
  * DSP lock there with a try-lock and hands each event to AutomationSlotTable::HandleMidi, which
  * reaches the node's SetParam through MultiPresetMixer::FindAutomationTarget. Any node parameter can
- * be bound to a slot. Changing either of these two needs the convolvers rebuilt, which allocates
- * and runs the FFT setup. (Low Latency was the other one, until it was retired.)
+ * be bound to a slot. Changing any of these three needs the convolvers rebuilt, which allocates
+ * and runs the FFT setup. (Low Latency was another, until it was retired.)
  *
- * This binds both to MIDI CCs, sends the CCs from a thread standing in for the audio thread, and
+ * This binds them to MIDI CCs, sends the CCs from a thread standing in for the audio thread, and
  * counts what that thread allocates, against a slot on the cab's Mix sent the same way. The node.*
  * route itself allocates nothing (AutomationNodeRealtimeTests), so the effect must add nothing to it.
+ *
+ * Until 2026-10 Quality only recorded the change, and a loaded cab kept playing the old length
+ * until an IR load, a Prepare or a Normalize or Trim change rebuilt it.
  */
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <filesystem>
 #include <iostream>
 #include <memory>
@@ -22,6 +27,7 @@
 #include <vector>
 
 #include "automation/AutomationSlotTable.h"
+#include "dsp/DeferredRebuild.h"
 #include "dsp/EffectRegistry.h"
 #include "dsp/MultiPresetMixer.h"
 #include "dsp/effects/BuiltinEffects.h"
@@ -41,6 +47,14 @@ constexpr const char* kCabNodeId = "cab";
 constexpr int kMixCc = 20;
 constexpr int kTrimCc = 21;
 constexpr int kNormalizeCc = 22;
+constexpr int kQualityCc = 23;
+// Quality is an enum, Economy to Full. A CC lands on the nearest index: 0 is Economy, 42 Standard.
+constexpr int kQualityEconomyCc = 0;
+constexpr int kQualityStandardCc = 42;
+constexpr double kEconomy = 0.0;
+constexpr double kStandard = 1.0;
+constexpr double kHigh = 2.0;
+constexpr double kFull = 3.0;
 
 bool Expect(bool condition, const std::string& message)
 {
@@ -122,9 +136,19 @@ bool ProcessBlocks(MultiPresetMixer& mixer, int blocks)
 }
 
 /// The message thread's part, as PluginController::ApplyDeferredNodeRebuilds does it but with no
-/// DSP lock, since nothing else runs here. Returns how many graphs had a rebuild waiting.
+/// DSP lock, since nothing else runs here. Like it, it looks only when a SetParam has asked for a
+/// rebuild since the last pass. Returns how many graphs had a rebuild waiting.
 std::size_t ApplyDeferredRebuilds(MultiPresetMixer& mixer)
 {
+    static std::uint64_t requestsSeen = 0;
+    const auto requests = DeferredRebuild::RequestCount();
+
+    if (requests == requestsSeen)
+    {
+        return 0;
+    }
+
+    requestsSeen = requests;
     std::vector<MultiPresetMixer::GraphRebuildWork> rebuilds;
     mixer.TakeDeferredRebuilds(rebuilds);
 
@@ -138,12 +162,14 @@ std::size_t ApplyDeferredRebuilds(MultiPresetMixer& mixer)
 }
 
 /// A cab with these settings from the start, loaded the way a preset loads one.
-std::unique_ptr<EffectProcessor> MakeLoadedCab(const std::filesystem::path& irPath, double normalize, double trim)
+std::unique_ptr<EffectProcessor> MakeLoadedCab(const std::filesystem::path& irPath, double normalize, double trim,
+                                               double quality = kStandard)
 {
     auto cab = EffectRegistry::Instance().Create("cab_ir");
     cab->SetParam("mix", 1.0);
     cab->SetParam("normalizeIR", normalize);
     cab->SetParam("trimLeadingSilence", trim);
+    cab->SetParam("quality", quality);
     cab->Prepare(kSampleRate, kBlockSize);
 
     ResourceRef ir;
@@ -153,14 +179,20 @@ std::unique_ptr<EffectProcessor> MakeLoadedCab(const std::filesystem::path& irPa
     return cab;
 }
 
-/// Both effects, reset, give bit-identical output for the same input, and it is not silence.
-bool SameOutput(EffectProcessor& a, EffectProcessor& b)
+struct Comparison
+{
+    bool same = true;   // bit-identical throughout
+    bool heard = false; // the first effect made some sound
+    float maxDifference = 0.0f;
+};
+
+/// Both effects, reset, fed the same input.
+Comparison Compare(EffectProcessor& a, EffectProcessor& b)
 {
     a.Reset();
     b.Reset();
     std::vector<float> in(kBlockSize), aL(kBlockSize), aR(kBlockSize), bL(kBlockSize), bR(kBlockSize);
-    bool same = true;
-    bool heard = false;
+    Comparison result;
 
     // Long enough to reach the convolver's tail partitions.
     for (int block = 0; block < 256; ++block)
@@ -177,11 +209,91 @@ bool SameOutput(EffectProcessor& a, EffectProcessor& b)
         float* outputsB[2] = {bL.data(), bR.data()};
         a.Process(inputs, outputsA, kBlockSize);
         b.Process(inputs, outputsB, kBlockSize);
-        same = same && aL == bL && aR == bR;
-        heard = heard || std::any_of(aL.begin(), aL.end(), [](float s) { return std::abs(s) > 1e-6f; });
+        result.same = result.same && aL == bL && aR == bR;
+        result.heard = result.heard || std::any_of(aL.begin(), aL.end(), [](float s) { return std::abs(s) > 1e-6f; });
+
+        for (int i = 0; i < kBlockSize; ++i)
+        {
+            const auto k = static_cast<std::size_t>(i);
+            result.maxDifference = std::max({result.maxDifference, std::abs(aL[k] - bL[k]), std::abs(aR[k] - bR[k])});
+        }
     }
 
-    return same && heard;
+    return result;
+}
+
+/// Both effects, reset, give bit-identical output for the same input, and it is not silence.
+bool SameOutput(EffectProcessor& a, EffectProcessor& b)
+{
+    const auto comparison = Compare(a, b);
+    return comparison.same && comparison.heard;
+}
+
+/// Quality on a loaded cab: the change waits for the message thread, which builds it in, and the
+/// cab then sounds exactly like one built at that quality. The test IR's energy runs out at about
+/// 1,900 samples, so Economy's 480 cuts it short where Standard's 2,064 does not.
+bool TestQualityAppliesLive(MultiPresetMixer& mixer, EffectProcessor& cab, const std::filesystem::path& irPath)
+{
+    bool passed = true;
+    const std::string qualityKey = "quality";
+
+    // Catch up with requests the checks before this one left unseen (a Prepare built them in), so
+    // the next pass sees only what Quality asks for.
+    passed &= Expect(ApplyDeferredRebuilds(mixer) == 0, "Nothing should be waiting before Quality changes");
+
+    const auto economy = CountOnAudioThread([&] { cab.SetParam(qualityKey, kEconomy); });
+    passed &=
+        Expect(economy.count == 0, "Quality on the cab allocated on the audio thread (" + Describe(economy) + ")");
+    passed &= Expect(cab.GetParam("quality") == kEconomy, "GetParam should report the Quality asked for");
+    passed &= Expect(SameOutput(cab, *MakeLoadedCab(irPath, 1.0, 1.0)),
+                     "A Quality change should not rebuild before the message thread");
+
+    passed &= Expect(ApplyDeferredRebuilds(mixer) == 1,
+                     "A Quality change on a loaded cab should wait for the message thread, not the next IR load");
+    passed &= Expect(ApplyDeferredRebuilds(mixer) == 0, "Nothing should be left waiting once Quality is built");
+    passed &= Expect(ProcessBlocks(mixer, 32), "The cab should render finite audio across the Quality crossfade");
+
+    const auto againstStandard = Compare(cab, *MakeLoadedCab(irPath, 1.0, 1.0, kStandard));
+    std::cout << "Economy against Standard after the live change: max difference " << againstStandard.maxDifference
+              << std::endl;
+    passed &= Expect(againstStandard.heard && againstStandard.maxDifference > 1e-3f,
+                     "Economy should change what a loaded cab plays");
+    passed &= Expect(SameOutput(cab, *MakeLoadedCab(irPath, 1.0, 1.0, kEconomy)),
+                     "A cab switched to Economy should sound exactly like one built at Economy");
+
+    // A Quality asked for while the rebuild for another is being built supersedes it.
+    cab.SetParam(qualityKey, kHigh);
+    auto superseded = cab.TakeDeferredRebuild();
+    cab.SetParam(qualityKey, kFull);
+    passed &= Expect(superseded != nullptr, "High should wait for the message thread");
+
+    if (superseded)
+    {
+        superseded->Build();
+        cab.CommitDeferredRebuild(*superseded);
+    }
+
+    passed &= Expect(cab.GetParam("quality") == kFull && SameOutput(cab, *MakeLoadedCab(irPath, 1.0, 1.0, kEconomy)),
+                     "A Quality rebuild superseded while it was built should not be installed");
+    passed &= Expect(ApplyDeferredRebuilds(mixer) == 1 && SameOutput(cab, *MakeLoadedCab(irPath, 1.0, 1.0, kFull)),
+                     "The Quality that superseded it should be built next");
+
+    // A Prepare in between builds the waiting Quality itself, and the late work is dropped.
+    cab.SetParam(qualityKey, kStandard);
+    auto preempted = cab.TakeDeferredRebuild();
+    cab.Prepare(kSampleRate, kBlockSize);
+
+    if (preempted)
+    {
+        preempted->Build();
+        cab.CommitDeferredRebuild(*preempted);
+    }
+
+    passed &= Expect(preempted != nullptr && cab.GetParam("quality") == kStandard && !cab.TakeDeferredRebuild(),
+                     "A Prepare should build a waiting Quality in");
+    passed &= Expect(SameOutput(cab, *MakeLoadedCab(irPath, 1.0, 1.0, kStandard)),
+                     "A cab prepared with a Quality waiting should sound like one built with it");
+    return passed;
 }
 } // namespace
 
@@ -234,6 +346,7 @@ int main()
                      "Failed to bind Trim Leading Silence");
     passed &= Expect(BindSlot(table, "custom.cabNormalize", "node.cab_ir.normalizeIR", kNormalizeCc),
                      "Failed to bind Normalize");
+    passed &= Expect(BindSlot(table, "custom.cabQuality", "node.cab_ir.quality", kQualityCc), "Failed to bind Quality");
 
     // Warm the route once per slot at the value each parameter already has, so a first-use cost
     // anywhere on it cannot be charged to one of the measured events.
@@ -241,20 +354,27 @@ int main()
         table.HandleMidi(MidiEvent{0xB0, kMixCc, 127, 0});
         table.HandleMidi(MidiEvent{0xB0, kTrimCc, 127, 0});
         table.HandleMidi(MidiEvent{0xB0, kNormalizeCc, 127, 0});
+        table.HandleMidi(MidiEvent{0xB0, kQualityCc, kQualityStandardCc, 0});
     });
 
     const auto mix = CountOnAudioThread([&] { table.HandleMidi(MidiEvent{0xB0, kMixCc, 64, 0}); });
     const auto trim = CountOnAudioThread([&] { table.HandleMidi(MidiEvent{0xB0, kTrimCc, 0, 0}); });
     const auto normalize = CountOnAudioThread([&] { table.HandleMidi(MidiEvent{0xB0, kNormalizeCc, 0, 0}); });
+    const auto quality =
+        CountOnAudioThread([&] { table.HandleMidi(MidiEvent{0xB0, kQualityCc, kQualityEconomyCc, 0}); });
 
     std::cout << "Audio thread, one CC each: Mix " << Describe(mix) << "; Trim Leading Silence " << Describe(trim)
-              << "; Normalize " << Describe(normalize) << std::endl;
+              << "; Normalize " << Describe(normalize) << "; Quality " << Describe(quality) << std::endl;
 
-    passed &= Expect(cab->GetParam("trimLeadingSilence") == 0.0 && cab->GetParam("normalizeIR") == 0.0,
-                     "Both CCs should have reached the cab's SetParam");
+    passed &= Expect(cab->GetParam("trimLeadingSilence") == 0.0 && cab->GetParam("normalizeIR") == 0.0 &&
+                         cab->GetParam("quality") == kEconomy,
+                     "All three CCs should have reached the cab's SetParam");
     passed &= Expect(trim.count == mix.count,
                      "Trim Leading Silence from MIDI allocated on the audio thread beyond the node.* route's own (" +
                          Describe(trim) + " vs Mix " + Describe(mix) + ")");
+    passed &= Expect(quality.count == mix.count,
+                     "Quality from MIDI allocated on the audio thread beyond the node.* route's own (" +
+                         Describe(quality) + " vs Mix " + Describe(mix) + ")");
     // Normalize is not a declared parameter, so the route skips the range lookup and allocates less.
     passed &= Expect(normalize.count <= mix.count,
                      "Normalize from MIDI allocated on the audio thread beyond the node.* route's own (" +
@@ -264,19 +384,22 @@ int main()
     // built cancels what the CCs left waiting; asking again waits again.
     const std::string normalizeKey = "normalizeIR";
     const std::string trimKey = "trimLeadingSilence";
+    const std::string qualityKey = "quality";
     const auto direct = CountOnAudioThread([&] {
         cab->SetParam(trimKey, 1.0);
         cab->SetParam(normalizeKey, 1.0);
+        cab->SetParam(qualityKey, kStandard);
         cab->SetParam(trimKey, 0.0);
         cab->SetParam(trimKey, 1.0);
         cab->SetParam(normalizeKey, 0.0);
     });
     passed &= Expect(direct.count == 0, "SetParam on the cab allocated on the audio thread (" + Describe(direct) + ")");
 
-    // Asked for Normalize off, and Trim off and back on again: only the first is waiting, and
-    // nothing is rebuilt until the message thread builds it. Mix back to where the comparison cabs
-    // have it, from the CC above.
-    passed &= Expect(cab->GetParam("normalizeIR") == 0.0 && cab->GetParam("trimLeadingSilence") == 1.0,
+    // Asked for Normalize off, Quality back to Standard, and Trim off and back on again: only the
+    // first is waiting, and nothing is rebuilt until the message thread builds it. Mix back to
+    // where the comparison cabs have it, from the CC above.
+    passed &= Expect(cab->GetParam("normalizeIR") == 0.0 && cab->GetParam("trimLeadingSilence") == 1.0 &&
+                         cab->GetParam("quality") == kStandard,
                      "GetParam should report what was last asked for");
     cab->SetParam("mix", 1.0);
     passed &= Expect(SameOutput(*cab, *MakeLoadedCab(irPath, 1.0, 1.0)),
@@ -325,6 +448,8 @@ int main()
                      "A Prepare should build a waiting setting in");
     passed &= Expect(SameOutput(*cab, *MakeLoadedCab(irPath, 1.0, 1.0)),
                      "A cab prepared with a setting waiting should sound like one built with it");
+
+    passed &= TestQualityAppliesLive(mixer, *cab, irPath);
 
     std::cout << (passed ? "IRCabAutomationRealtimeTests passed" : "IRCabAutomationRealtimeTests FAILED") << std::endl;
     return passed ? 0 : 1;
