@@ -124,6 +124,12 @@ function closeRiffCaptureModal(): void {
     setMetronome({ enabled: false });
     renderRiffCaptureStatus();
   }
+  // A take playing on Repeat would otherwise go on looping, and redrawing a hidden canvas, after
+  // the modal is gone.
+  if (capturedPreviewActive) {
+    stopCapturedPreviewAnimation();
+    stopPreviewPlayback();
+  }
   modal.style.display = "none";
 }
 
