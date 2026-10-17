@@ -20,6 +20,7 @@
 #include "dsp/effects/NAMSampleRate.h"
 #include "dsp/effects/NAMOversampling.h"
 #include "dsp/effects/NAMSlimmableSettings.h"
+#include "util/LongPath.h"
 #include "util/PathEncoding.h"
 #include "util/SessionLog.h"
 #include "NAM/dsp.h"
@@ -786,7 +787,7 @@ class OptimizedNAMAmpEffect : public EffectProcessor
     {
         try
         {
-            if (!std::filesystem::exists(resourcePath))
+            if (!util::PathExists(resourcePath))
             {
                 util::AppendSessionLog("[OptimizedNAMAmpEffect] ERROR: Model file not found: " +
                                        util::PathToUtf8(resourcePath));

@@ -905,7 +905,7 @@ class IRCabEffect : public EffectProcessor
 
     bool LoadResource(const std::filesystem::path& resourcePath) override
     {
-        if (!std::filesystem::exists(resourcePath))
+        if (!util::PathExists(resourcePath))
         {
             util::AppendSessionLog("[IRCabEffect] ERROR: IR file not found: " + util::PathToUtf8(resourcePath));
             return false;
@@ -992,7 +992,7 @@ class IRCabEffect : public EffectProcessor
 
         if (slotAIdx >= 0)
         {
-            if (!std::filesystem::exists(paths[slotAIdx]))
+            if (!util::PathExists(paths[slotAIdx]))
             {
                 util::AppendSessionLog("[IRCabEffect] ERROR: IR A file not found: " +
                                        util::PathToUtf8(paths[slotAIdx]));
@@ -1018,7 +1018,7 @@ class IRCabEffect : public EffectProcessor
 
         if (slotBIdx >= 0)
         {
-            if (!std::filesystem::exists(paths[slotBIdx]))
+            if (!util::PathExists(paths[slotBIdx]))
             {
                 util::AppendSessionLog("[IRCabEffect] WARNING: IR B file not found: " +
                                        util::PathToUtf8(paths[slotBIdx]));

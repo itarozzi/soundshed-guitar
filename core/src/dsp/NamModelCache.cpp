@@ -17,6 +17,7 @@
 #include "NAM/dsp.h"
 #include "NAM/get_dsp.h"
 #include "dsp/nam/FusedWaveNet.h"
+#include "util/LongPath.h"
 #include "util/SessionLog.h"
 
 namespace guitarfx::nammodelcache
@@ -291,15 +292,17 @@ std::unique_ptr<::nam::DSP> GetModel(const std::filesystem::path& path)
     EnableFastTanhOnce();
     LogEngineOnce();
 
+    // A model past MAX_PATH reads as missing on Windows without the extended-length prefix.
+    const auto osPath = util::LongPathSafe(path);
     std::uintmax_t fileSize = 0;
     std::int64_t writeTime = 0;
 
-    if (!StatFile(path, fileSize, writeTime))
+    if (!StatFile(osPath, fileSize, writeTime))
     {
         return nullptr;
     }
 
-    const std::string key = MakeKey(path);
+    const std::string key = MakeKey(osPath);
     auto& state = State();
 
     std::shared_ptr<const ::nam::dspData> cached;
@@ -336,7 +339,7 @@ std::unique_ptr<::nam::DSP> GetModel(const std::filesystem::path& path)
     {
         if (!cached)
         {
-            auto parsed = std::make_shared<const ::nam::dspData>(ParseModelFile(path));
+            auto parsed = std::make_shared<const ::nam::dspData>(ParseModelFile(osPath));
             const std::size_t bytes = EstimateBytes(*parsed);
             std::lock_guard<std::mutex> lock(state.mutex);
             // A concurrent load of the same path may have inserted already; replacing is

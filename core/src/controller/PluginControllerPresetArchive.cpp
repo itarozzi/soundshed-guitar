@@ -650,7 +650,7 @@ void PluginController::LoadFactoryPresetArchives()
         {
             const std::string scopedResourceId = BuildScopedFactoryArchiveId(archiveKey, resource.id);
             std::string resolvedName = resource.fileName.empty() ? resource.id : resource.fileName;
-            resolvedName = util::SanitizeFilename(resolvedName);
+            resolvedName = util::CollapseRepeatedHashPrefix(util::SanitizeFilename(resolvedName));
 
             if (resolvedName.empty())
             {

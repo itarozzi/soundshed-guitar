@@ -687,6 +687,7 @@ set(GUITARFX_CORE_SOURCES
     src/util/Base64.cpp
     src/util/FileIO.h
     src/util/FileIO.cpp
+    src/util/LongPath.h
     src/util/FileSystem.h
     src/util/FileSystem.cpp
     src/util/PathSanitizer.h

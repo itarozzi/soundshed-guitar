@@ -20,6 +20,8 @@
 #include "resources/PluginPathUtils.h"
 #include "resources/ResourceLibrary.h"
 #include "util/Base64.h"
+#include "util/FileIO.h"
+#include "util/LongPath.h"
 #include "util/PathEncoding.h"
 #include "util/PathSanitizer.h"
 
@@ -28,6 +30,7 @@
 #include <fstream>
 #include <span>
 #include <string_view>
+#include <unordered_map>
 #include <unordered_set>
 
 using namespace guitarfx::controller_detail;
@@ -108,6 +111,44 @@ void AddResourceUseFields(nlohmann::json& msg, const std::string& kind, const st
     {
         msg["blendName"] = name;
     }
+}
+
+/// Moves a library file named "<hash>-<hash>-<name>" to "<hash>-<name>" beside it, and returns
+/// where it now is: that name, or empty if it stays put. A file already at the new name — a later
+/// pack carried it, or another instance starting at the same moment moved this one — is used when
+/// it holds the same bytes, and the doubled copy goes.
+std::filesystem::path MoveToSinglePrefixedName(const std::filesystem::path& doubled,
+                                               const std::filesystem::path& target)
+{
+    const auto doubledOs = util::LongPathSafe(doubled);
+    const auto targetOs = util::LongPathSafe(target);
+    std::error_code ec;
+    const bool doubledThere = std::filesystem::exists(doubledOs, ec);
+
+    if (std::filesystem::exists(targetOs, ec))
+    {
+        if (doubledThere)
+        {
+            const auto bytes = util::ReadFileBytes(doubled);
+
+            if (bytes.empty() || !util::FileContentEquals(target, bytes))
+            {
+                return {};
+            }
+
+            std::filesystem::remove(doubledOs, ec);
+        }
+
+        return target;
+    }
+
+    if (!doubledThere)
+    {
+        return {};
+    }
+
+    std::filesystem::rename(doubledOs, targetOs, ec);
+    return !ec || std::filesystem::exists(targetOs, ec) ? target : std::filesystem::path{};
 }
 } // namespace
 
@@ -228,7 +269,8 @@ std::optional<LibraryResource> PluginController::ImportResourceFile(LibraryResou
     [[maybe_unused]] const auto ensuredTargetDir = mFileSystem.EnsureDirectory(targetDir);
 
     std::string resolvedName = fileName.empty() ? resourceId : fileName;
-    resolvedName = util::LimitFilenameLength(util::SanitizeFilename(resolvedName), kMaxImportFileName);
+    resolvedName = util::LimitFilenameLength(util::CollapseRepeatedHashPrefix(util::SanitizeFilename(resolvedName)),
+                                             kMaxImportFileName);
 
     if (resolvedName.find('.') == std::string::npos)
     {
@@ -414,7 +456,7 @@ std::optional<LibraryResource> PluginController::SaveLocalLibraryResource(const 
             resolvedPath = guitarfx::pluginpath::ResolvePluginBundlePath(resolvedPath);
         }
 
-        if (!std::filesystem::exists(resolvedPath))
+        if (!util::PathExists(resolvedPath))
         {
             error = "Selected file does not exist";
             return std::nullopt;
@@ -1980,9 +2022,80 @@ bool PluginController::ExtractFirstResourceFromZip(const std::vector<std::uint8_
 void PluginController::LoadResourceLibraries()
 {
     mResourceLibrary.LoadFromStore(Store(), ResolveResourcesRoot());
+    CollapseDoubledHashFileNamesOnStartup();
     CleanupResourceLibraryCategoriesOnStartup();
     AppendSessionLog("Loaded " + std::to_string(mResourceLibrary.GetAllResources().size()) + " resources from " +
                      util::PathToUtf8(ResolveDocumentStorePath()));
+}
+
+void PluginController::CollapseDoubledHashFileNamesOnStartup()
+{
+    // Archives exported before June 2026 named files "<hash>-<hash>-<name>" (see
+    // util::CollapseRepeatedHashPrefix), and installing one kept that name. Beneath the profile
+    // folder the longest passed Windows' 260-character limit. Each such file moves to its
+    // single-prefix name, and every entry that pointed at it follows. Only files the app wrote,
+    // under resources/content; one in the user's own folders keeps the name they gave it.
+    const auto contentRoot = (ResolveResourcesRoot() / "content").lexically_normal();
+    std::unordered_map<std::string, std::filesystem::path> movedTo;
+    std::vector<LibraryResource> changed;
+
+    for (auto resource : mResourceLibrary.GetAllResources())
+    {
+        const auto relative = resource.filePath.lexically_normal().lexically_relative(contentRoot);
+
+        if (resource.filePath.empty() || relative.empty() || *relative.begin() == "..")
+        {
+            continue;
+        }
+
+        const std::string name = util::PathToUtf8(resource.filePath.filename());
+        const std::string collapsed = util::CollapseRepeatedHashPrefix(name);
+
+        if (collapsed == name)
+        {
+            continue;
+        }
+
+        const std::string key = util::PathToUtf8(resource.filePath.lexically_normal());
+        auto moved = movedTo.find(key);
+
+        if (moved == movedTo.end())
+        {
+            const auto target = resource.filePath.parent_path() / util::PathFromUtf8(collapsed);
+            moved = movedTo.emplace(key, MoveToSinglePrefixedName(resource.filePath, target)).first;
+        }
+
+        if (moved->second.empty())
+        {
+            continue;
+        }
+
+        resource.filePath = moved->second;
+        mResourceLibrary.UpdateResource(resource.type, resource.id, resource);
+        changed.push_back(resource);
+    }
+
+    if (changed.empty())
+    {
+        return;
+    }
+
+    const auto resourcesRoot = ResolveResourcesRoot();
+    Store().Transact([&]() {
+        for (const auto& resource : changed)
+        {
+            if (!ResourceLibrary::PutInStore(Store(), resource, resourcesRoot))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    });
+    // Instances already running hold the old paths.
+    TouchSharedSyncState({"resourceLibrary"});
+    AppendSessionLog("Renamed library files that carried their hash twice: " + std::to_string(changed.size()) +
+                     " entries");
 }
 
 void PluginController::CleanupResourceLibraryCategoriesOnStartup()

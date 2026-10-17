@@ -1,5 +1,6 @@
 #include "resources/ResourceLibrary.h"
 #include "util/FileIO.h"
+#include "util/LongPath.h"
 #include "util/PathEncoding.h"
 #include "presets/PresetTypes.h"
 
@@ -104,9 +105,8 @@ std::optional<LibraryResource> ResourceFromJson(const nlohmann::json& item,
             for (const auto& base : relativeBases)
             {
                 const auto attempt = base / resolvedPath;
-                std::error_code existsEc;
 
-                if (std::filesystem::exists(attempt, existsEc))
+                if (util::PathExists(attempt))
                 {
                     candidate = attempt;
                     break;
@@ -327,7 +327,7 @@ std::optional<std::filesystem::path> ResourceLibrary::ResolveResource(const Reso
     {
         auto resource = LookupResource(ref.resourceType, ref.resourceId);
 
-        if (resource && std::filesystem::exists(resource->filePath))
+        if (resource && util::PathExists(resource->filePath))
         {
             return resource->filePath;
         }
@@ -364,7 +364,7 @@ std::optional<std::filesystem::path> ResourceLibrary::ResolveResource(const Reso
                     isMatch = true;
                 }
 
-                if (isMatch && std::filesystem::exists(res.filePath))
+                if (isMatch && util::PathExists(res.filePath))
                 {
                     return res.filePath;
                 }
@@ -380,7 +380,7 @@ std::optional<std::filesystem::path> ResourceLibrary::ResolveResource(const Reso
 
     if (ref.IsFilePath())
     {
-        if (std::filesystem::exists(ref.filePath))
+        if (util::PathExists(ref.filePath))
         {
             return ref.filePath;
         }

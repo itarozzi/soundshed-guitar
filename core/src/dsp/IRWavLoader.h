@@ -11,6 +11,7 @@
 #include <limits>
 #include <vector>
 
+#include "util/LongPath.h"
 #include "util/PathEncoding.h"
 
 namespace guitarfx
@@ -102,7 +103,7 @@ inline bool LoadWavFile(const std::filesystem::path& path, IRWavData& out)
 {
     out = {};
 
-    std::ifstream file(path, std::ios::binary);
+    std::ifstream file(util::LongPathSafe(path), std::ios::binary);
 
     if (!file)
     {
@@ -397,7 +398,7 @@ inline bool LoadAiffFile(const std::filesystem::path& path, IRWavData& out)
 {
     out = {};
 
-    std::ifstream file(path, std::ios::binary);
+    std::ifstream file(util::LongPathSafe(path), std::ios::binary);
 
     if (!file)
     {

@@ -126,6 +126,20 @@ cleaned on the way in, by the engine (`SanitizeImportedPreset`, run by
 archive chooses, and a node id that is not 1-64 of `[A-Za-z0-9_-]` gets a fresh id, the same in
 the graph and every scene, with the edges following. Node ids end up in the UI's markup.
 
+**Archive file names.** An archive names each file `<sha256>-<name>`. Exports before June 2026
+prefixed a library file whose name already began that way, giving `<sha256>-<sha256>-<name>`, and
+Preset Pack Vol. 1 shipped four such files until July 2026. Installing a factory archive or a tone
+(`util::CollapseRepeatedHashPrefix`) keeps one prefix, and at startup the controller renames any
+such file under `resources/content` and repoints its library entries
+(`CollapseDoubledHashFileNamesOnStartup`). Files in the user's own folders keep their names.
+
+**Long paths.** Windows reports a path of 260 characters or more as missing unless it carries
+the `\\?\` prefix: a plug-in cannot declare `longPathAware` for its host, and the registry switch
+is off by default. Model and IR files are therefore checked and opened through
+`util::LongPathSafe` / `util::PathExists` (`core/src/util/LongPath.h`): the library's resolution,
+the NAM model cache, the WAV/AIFF loader, the NAM/IR effects, `loadModel`/`loadIR` and local-file
+registration. The stored and displayed path never carries the prefix.
+
 A blend node's resources are not stored with the preset: the controller builds them
 from the node's blend definition whenever it builds the chain.
 

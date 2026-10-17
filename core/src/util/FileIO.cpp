@@ -1,5 +1,7 @@
 #include "FileIO.h"
 
+#include "LongPath.h"
+
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -115,7 +117,7 @@ void SetError(std::string* error, std::string message)
 
 std::vector<std::uint8_t> ReadFileBytes(const std::filesystem::path& path)
 {
-    std::ifstream input(path, std::ios::binary);
+    std::ifstream input(LongPathSafe(path), std::ios::binary);
 
     if (!input)
     {
@@ -138,7 +140,8 @@ std::vector<std::uint8_t> ReadFileBytes(const std::filesystem::path& path)
 
 bool WriteFileAtomic(const std::filesystem::path& target, std::span<const std::uint8_t> data, std::string* error)
 {
-    const auto temporary = MakeTemporarySibling(target);
+    const auto osTarget = LongPathSafe(target);
+    const auto temporary = LongPathSafe(MakeTemporarySibling(target));
     std::error_code removeEc;
 
     {
@@ -180,7 +183,7 @@ bool WriteFileAtomic(const std::filesystem::path& target, std::span<const std::u
 
     while (true)
     {
-        auto moveEc = MoveIntoPlace(temporary, target, false);
+        auto moveEc = MoveIntoPlace(temporary, osTarget, false);
 
         if (moveEc && IsAlreadyExists(moveEc))
         {
@@ -190,7 +193,7 @@ bool WriteFileAtomic(const std::filesystem::path& target, std::span<const std::u
                 return true;
             }
 
-            moveEc = MoveIntoPlace(temporary, target, true);
+            moveEc = MoveIntoPlace(temporary, osTarget, true);
         }
 
         if (!moveEc)
@@ -225,15 +228,16 @@ bool WriteTextFileAtomic(const std::filesystem::path& target, std::string_view t
 
 bool FileContentEquals(const std::filesystem::path& path, std::span<const std::uint8_t> data)
 {
+    const auto osPath = LongPathSafe(path);
     std::error_code ec;
-    const auto onDisk = std::filesystem::file_size(path, ec);
+    const auto onDisk = std::filesystem::file_size(osPath, ec);
 
     if (ec || onDisk != data.size())
     {
         return false;
     }
 
-    std::ifstream input(path, std::ios::binary);
+    std::ifstream input(osPath, std::ios::binary);
 
     if (!input)
     {

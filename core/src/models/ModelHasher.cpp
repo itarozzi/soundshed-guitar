@@ -1,5 +1,7 @@
 #include "ModelHasher.h"
 
+#include "util/LongPath.h"
+
 #include <array>
 #include <cstdint>
 #include <fstream>
@@ -37,7 +39,7 @@ std::string ToHex(std::uint64_t hash)
 /// @return Hexadecimal string of the 64-bit FNV-1a hash, or empty on failure.
 std::string ModelHasher::HashFile(const std::filesystem::path& filePath) const
 {
-    std::ifstream input(filePath, std::ios::binary);
+    std::ifstream input(util::LongPathSafe(filePath), std::ios::binary);
 
     if (!input)
     {

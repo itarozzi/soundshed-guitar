@@ -58,6 +58,8 @@
 * The tuner now reads a bass's low strings: the low E of a four-string, the low B of a five- or six-string, the low F# of a seven-string and an extended-range bass tuned down to low C#, down to a semitone under that. It showed nothing below about 45 Hz, or at best the note an octave up now and then.
 * Bounces and exports no longer start with a gap. Since 1.6.0, when your DAW started a render, Soundshed Guitar switched its NAM amps to a higher-quality mode, and the switch held up its audio long enough to leave silence at the start of the file, about half a second in FL Studio. Renders now use the quality you play at, so a bounce sounds exactly like playback; to render at a higher quality, raise it in Settings → DSP Performance before you bounce. And if the plugin is busy during a render, say because you opened its window, the render now waits for it instead of getting silence.
 * Soundshed Guitar now waits until your DAW has finished loading its settings before telling the DAW its latency has changed. Telling it in the middle of the load, as it did before, can upset a DAW that answers by restarting the plugin there, and may be behind FL Studio's "plugin crashed while loading its settings".
+* On Windows, NAM models and IRs whose full path is 260 characters or longer now load. Before, the app reported them as missing ("Model file not found"), which a deep folder of captures can reach.
+* Model and IR files installed from older preset packs or shared tones no longer carry their 64-character file code twice in their names, which pushed some of them past that limit. Files already installed that way are renamed on the next start.
 
 ## 1.6.0 (Oct 8, 2026)
 

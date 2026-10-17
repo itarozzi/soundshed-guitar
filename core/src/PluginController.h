@@ -924,6 +924,7 @@ class PluginController
     /// tone-sharing preview is never recorded; it lives only in memory.
     void RememberActivePresetAsLast();
     void LoadResourceLibraries();
+    void CollapseDoubledHashFileNamesOnStartup();
     void CleanupResourceLibraryCategoriesOnStartup();
     void LoadFactoryPresetArchives();
     /// The stored blends, then the factory-archive and preset-archive session blends.

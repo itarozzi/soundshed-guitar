@@ -3,6 +3,7 @@
 #include "controller/internal/IrResourceCategory.h"
 #include "dsp/EffectGuids.h"
 #include "resources/ResourceLibrary.h"
+#include "util/LongPath.h"
 #include "util/Utf8.h"
 
 #include <algorithm>
@@ -85,16 +86,15 @@ std::string DecodeJsonStringLiteral(std::string_view literal)
 NamFileMetadata TryExtractNamMetadata(const std::filesystem::path& namFilePath)
 {
     NamFileMetadata result;
-    std::error_code ec;
 
-    if (!std::filesystem::exists(namFilePath, ec) || ec)
+    if (!guitarfx::util::PathExists(namFilePath))
     {
         return result;
     }
 
     try
     {
-        std::ifstream file(namFilePath, std::ios::binary);
+        std::ifstream file(guitarfx::util::LongPathSafe(namFilePath), std::ios::binary);
 
         if (!file)
         {
