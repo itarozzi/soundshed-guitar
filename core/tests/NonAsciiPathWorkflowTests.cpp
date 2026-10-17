@@ -23,8 +23,12 @@
 
 #include "IPluginHost.h"
 #include "PluginController.h"
+#include "dsp/EffectGuids.h"
+#include "presets/PresetStorage.h"
+#include "storage/JsonStore.h"
 #include "util/FileSystem.h"
 #include "util/PathEncoding.h"
+#include "util/Wav.h"
 
 namespace fs = std::filesystem;
 
@@ -253,6 +257,219 @@ bool TestFolderPickUnderNonAsciiName()
     return false;
 }
 
+/// A model added to the library from a folder named outside plain ASCII is still found after a
+/// restart. The library read each stored path back through path(std::string), the ANSI code page,
+/// so after a reload such a model showed as missing and a preset using it could not load it. Both
+/// ways a path is stored are covered: absolute, for a folder elsewhere, and relative to the
+/// resources folder, for a file inside it.
+bool TestLibraryPathsSurviveARestart()
+{
+    const fs::path sandbox = FreshSandbox("library-reload");
+    const ScopedProfileRoot profileRoot(sandbox);
+    const fs::path source = fs::path(GUITARFX_TEST_RESOURCES_DIR) / "assets" / "amps" / "Guitar" / "A2" /
+                            guitarfx::util::PathFromUtf8("A2 -wth space an \xE2\x80\x94 _emdash.nam");
+    const fs::path outside = sandbox / guitarfx::util::PathFromUtf8("M\xC3\xBCzik") /
+                             guitarfx::util::PathFromUtf8("\xC5\x9F"
+                                                          "ark\xC4\xB1 \xE2\x80\x94 outside.nam");
+    const fs::path inside = guitarfx::FileSystem{}.ResolveSettingsDirectory() / "resources" / "content" / "local" /
+                            guitarfx::util::PathFromUtf8("\xC3\x87"
+                                                         "a \xE2\x80\x94 inside.nam");
+    std::error_code ec;
+
+    for (const auto& target : {outside, inside})
+    {
+        fs::create_directories(target.parent_path(), ec);
+
+        if (!fs::copy_file(source, target, fs::copy_options::overwrite_existing, ec))
+        {
+            std::cerr << "Could not stage the test model: " << ec.message() << "\n";
+            return false;
+        }
+    }
+
+    std::vector<std::pair<fs::path, std::string>> added;
+    {
+        TestHost host(sandbox);
+        guitarfx::PluginController controller(host);
+        controller.Initialize();
+
+        for (const auto& target : {outside, inside})
+        {
+            controller.HandleUIMessage(nlohmann::json{{"type", "saveLocalLibraryResource"},
+                                                      {"resourceType", "nam"},
+                                                      {"filePath", guitarfx::util::PathToUtf8(target)}}
+                                           .dump());
+
+            for (const auto& resource : controller.GetResourceLibrary().GetResourcesByType("nam"))
+            {
+                if (resource.filePath == target)
+                {
+                    added.emplace_back(target, resource.id);
+                }
+            }
+        }
+    }
+
+    if (added.size() != 2)
+    {
+        std::cerr << "Only " << added.size() << " of the 2 models were added to the library\n";
+        return false;
+    }
+
+    TestHost host(sandbox);
+    guitarfx::PluginController controller(host);
+    controller.Initialize();
+    bool ok = true;
+
+    for (const auto& [target, id] : added)
+    {
+        guitarfx::ResourceRef ref;
+        ref.resourceType = "nam";
+        ref.resourceId = id;
+        const auto resource = controller.GetResourceLibrary().LookupResource("nam", id);
+        const auto resolved = controller.GetResourceLibrary().ResolveResource(ref);
+
+        if (!resource || resource->filePath != target || !resolved || *resolved != target)
+        {
+            std::cerr << "After a restart " << guitarfx::util::PathToUtf8(target) << " came back as "
+                      << (resource ? guitarfx::util::PathToUtf8(resource->filePath) : std::string("(no row)")) << "\n";
+            ok = false;
+        }
+    }
+
+    return ok;
+}
+
+/// A riff take kept in a riff library folder named outside plain ASCII opens for editing. The take's
+/// path is stored as UTF-8, and the edit, preview and demo-render handlers read it back as a narrow
+/// string, the ANSI code page, so every take in such a library reported its WAV file missing.
+bool TestRiffTakeInNonAsciiLibrary()
+{
+    const fs::path sandbox = FreshSandbox("riff-library");
+    const ScopedProfileRoot profileRoot(sandbox);
+    const fs::path libraryRoot = sandbox / guitarfx::util::PathFromUtf8("M\xC3\xBCzik \xC5\x9E"
+                                                                        "ark\xC4\xB1lar");
+    const std::vector<float> tone(4800, 0.25f);
+
+    if (!guitarfx::util::WriteStereo16BitWav(libraryRoot / "takes" / "riff-1" / "take.wav", tone, tone, 48000))
+    {
+        std::cerr << "Could not write the test take\n";
+        return false;
+    }
+
+    {
+        TestHost host(sandbox);
+        guitarfx::PluginController controller(host);
+        controller.Initialize();
+        controller.HandleUIMessage(
+            nlohmann::json{{"type", "setRiffLibraryPath"}, {"path", guitarfx::util::PathToUtf8(libraryRoot)}}.dump());
+    }
+
+    {
+        guitarfx::storage::JsonStore store;
+        std::string error;
+
+        if (!store.Open(guitarfx::FileSystem{}.ResolveSettingsDirectory() / "soundshed.db", error))
+        {
+            std::cerr << "Could not open the store: " << error << "\n";
+            return false;
+        }
+
+        const nlohmann::json take{{"id", "take-1"}, {"filePath", "takes/riff-1/take.wav"}, {"durationSec", 0.1}};
+        auto index =
+            store.Get(guitarfx::storage::ItemType::kDocument, "riff-library").value_or(nlohmann::json::object());
+        index["riffs"] = nlohmann::json::array(
+            {{{"id", "riff-1"}, {"title", "Riff One"}, {"takes", nlohmann::json::array({take})}}});
+
+        if (!store.Put(guitarfx::storage::ItemType::kDocument, "riff-library", index))
+        {
+            std::cerr << "Could not seed the riff library\n";
+            return false;
+        }
+    }
+
+    TestHost host(sandbox);
+    guitarfx::PluginController controller(host);
+    controller.Initialize();
+    controller.HandleUIMessage(R"({"type":"loadRiffTakeForEdit","takeId":"take-1"})");
+
+    if (const auto error = host.WaitForMessage("error", std::chrono::milliseconds(200)))
+    {
+        std::cerr << "Opening the take failed: " << error->dump() << "\n";
+        return false;
+    }
+
+    if (!host.WaitForMessage("riffCaptureStopped"))
+    {
+        std::cerr << "The take was not opened for editing\n";
+        return false;
+    }
+
+    return true;
+}
+
+/// A model chosen for a node straight from a file, not the library, in a folder named outside plain
+/// ASCII. updateNodeResource took the payload's UTF-8 path as a narrow string, the ANSI code page,
+/// so the node pointed at a file that does not exist.
+bool TestNodeResourceFromNonAsciiFile()
+{
+    const fs::path sandbox = FreshSandbox("node-resource");
+    const ScopedProfileRoot profileRoot(sandbox);
+    const fs::path source = fs::path(GUITARFX_TEST_RESOURCES_DIR) / "assets" / "amps" / "Guitar" / "A2" /
+                            "Boosted-6505+-A2-Chugs-FullRig.nam";
+    const fs::path model = sandbox / guitarfx::util::PathFromUtf8("M\xC3\xBCzik") /
+                           guitarfx::util::PathFromUtf8("\xC5\x9F"
+                                                        "ark\xC4\xB1.nam");
+    std::error_code ec;
+    fs::create_directories(model.parent_path(), ec);
+
+    if (!fs::copy_file(source, model, fs::copy_options::overwrite_existing, ec))
+    {
+        std::cerr << "Could not stage the test model: " << ec.message() << "\n";
+        return false;
+    }
+
+    guitarfx::Preset preset;
+    preset.id = "non-ascii-node";
+    preset.name = preset.id;
+    preset.version = 2;
+    preset.graph.nodes.resize(3);
+    preset.graph.nodes[0].id = "__input__";
+    preset.graph.nodes[0].type = guitarfx::kNodeTypeInput;
+    preset.graph.nodes[1].id = "amp";
+    preset.graph.nodes[1].type = guitarfx::EffectGuids::kAmpNamOptimized;
+    preset.graph.nodes[2].id = "__output__";
+    preset.graph.nodes[2].type = guitarfx::kNodeTypeOutput;
+    preset.graph.edges = {{"__input__", "amp", 0, 0, 1.0}, {"amp", "__output__", 0, 0, 1.0}};
+
+    TestHost host(sandbox);
+    guitarfx::PluginController controller(host);
+    controller.Initialize();
+    const auto presetJson = nlohmann::json::parse(guitarfx::PresetStorage::SerializeToJson(preset));
+    controller.HandleUIMessage(
+        nlohmann::json{{"type", "loadPreset"}, {"presetId", preset.id}, {"preset", presetJson}}.dump());
+    controller.HandleUIMessage(nlohmann::json{{"type", "updateNodeResource"},
+                                              {"nodeId", "amp"},
+                                              {"resourceIndex", 0},
+                                              {"resourceType", "nam"},
+                                              {"filePath", guitarfx::util::PathToUtf8(model)}}
+                                   .dump());
+
+    const auto& active = controller.GetActivePreset();
+    const auto* amp = active ? active->graph.FindNode("amp") : nullptr;
+
+    if (!amp || amp->resources.empty() || amp->resources.front().filePath != model)
+    {
+        std::cerr << "The node's model came out as "
+                  << (amp && !amp->resources.empty() ? guitarfx::util::PathToUtf8(amp->resources.front().filePath)
+                                                     : std::string("(none)"))
+                  << "\n";
+        return false;
+    }
+
+    return true;
+}
+
 /// A profile under a Windows user name outside plain ASCII. The core read %APPDATA% through the
 /// narrow environment, where the Western code page spells "Şule" as "Sule", and paths it reported
 /// went through path::string(): the ANSI code page, which JSON rejects, or a throw.
@@ -341,6 +558,9 @@ int main()
     };
 
     run("Folder pick under a non-ASCII name", TestFolderPickUnderNonAsciiName);
+    run("Library paths under non-ASCII names survive a restart", TestLibraryPathsSurviveARestart);
+    run("Riff take in a non-ASCII riff library", TestRiffTakeInNonAsciiLibrary);
+    run("Node model from a non-ASCII file", TestNodeResourceFromNonAsciiFile);
     run("Profile under a non-ASCII user name", TestProfileUnderNonAsciiUserName);
     run("Writability probe under a non-ASCII name", TestWritableProbeUnderNonAsciiName);
 

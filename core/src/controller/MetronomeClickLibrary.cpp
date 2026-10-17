@@ -82,7 +82,7 @@ std::filesystem::path MetronomeClickLibrary::ResolvePath(const std::string& rawP
         return {};
     }
 
-    std::filesystem::path path{rawPath};
+    const std::filesystem::path path = util::PathFromUtf8(rawPath);
 
     if (path.is_absolute())
     {

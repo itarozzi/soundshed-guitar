@@ -178,7 +178,7 @@ void PluginController::HandleRenderDemoAudioRequest(const nlohmann::json& payloa
                     return;
                 }
 
-                const std::string filePath = take->value("filePath", std::string{});
+                const auto filePath = util::PathFromUtf8(take->value("filePath", std::string{}));
 
                 if (filePath.empty() || !std::filesystem::exists(filePath))
                 {
