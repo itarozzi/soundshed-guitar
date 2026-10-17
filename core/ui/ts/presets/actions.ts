@@ -26,7 +26,7 @@ import { initPresetModalAdvancedActions, initPresetModalTabs, setPresetModalActi
 import { getFilteredPresets, populatePresetDropdown, renderActivePreset, updatePresetDropdownSelection } from "./filter.js";
 import { applyPresetFromLibrary } from "./load.js";
 import { closePresetExtraActionsMenu, togglePresetExtraActionsMenu } from "./popover.js";
-import { configureSavePresetModalLabels, createDefaultPreset, populateSavePresetModalFields, resolvePresetModalFolderId, updateSavePresetModalPeakInfo } from "./saveModal.js";
+import { configureSavePresetModalLabels, createDefaultPreset, populateSavePresetModalFields, refuseSaveWhileEditingComposite, resolvePresetModalFolderId, updateSavePresetModalPeakInfo } from "./saveModal.js";
 import { canModifyPreset, isActivePresetNewDraft, updatePresetActionButtons } from "./toolbar.js";
 import { stripGlobalSignalChainForSave } from "./validate.js";
 
@@ -112,6 +112,10 @@ export async function deleteCurrentPreset(): Promise<void> {
 
 // Save (overwrite) current preset
 export function saveOverwriteCurrentPreset(): void {
+  if (refuseSaveWhileEditingComposite()) {
+    return;
+  }
+
   const activePresetId = uiState.activePresetId;
   if (!activePresetId) {
     showNotification("Error", "No preset selected");
@@ -171,6 +175,10 @@ export function saveOverwriteCurrentPreset(): void {
 
 // Open edit preset modal (reuses save modal with pre-filled data)
 export function openEditPresetModal(): void {
+  if (refuseSaveWhileEditingComposite()) {
+    return;
+  }
+
   const activePresetId = uiState.activePresetId;
   if (!activePresetId) {
     showNotification("Error", "No preset selected");

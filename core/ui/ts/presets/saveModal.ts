@@ -14,7 +14,7 @@ import { stripLegacyGlobals } from "../presets/sanitize.js";
 import { normalizePresetScenes } from "../presetScenes.js";
 import { STANDARD_TAGS, renderTagChips } from "../presetTags.js";
 import { generateUserPresetId } from "../presetV2.js";
-import { clonePreset, getActivePresetForRender, setActivePresetDraft, setActivePresetIsNew, setActivePresetSnapshot, setPresetDirty, uiState } from "../state.js";
+import { clonePreset, getActivePresetForRender, isCompositeEditMode, setActivePresetDraft, setActivePresetIsNew, setActivePresetSnapshot, setPresetDirty, uiState } from "../state.js";
 import { cachePreset, putLibraryPresetFirst, replaceLibraryPreset, setActivePresetId, setActivePresetSceneId, showAllLibraryPresets } from "../presetLibraryStore.js";
 import type { Preset } from "../types.js";
 import { movePresetToFolder, populatePresetFolderSelect } from "./folderControls.js";
@@ -111,7 +111,24 @@ export function openCreatePresetModal(mode: Extract<SavePresetModalMode, "save-a
   nameInput?.select();
 }
 
+/**
+ * While a composite is open for editing, the chain on screen (getActivePresetForRender) is the
+ * composite's inner graph, not the preset: saving it stored that graph as a new junk preset and put
+ * it in the active preset's place. The composite editor saves the composite itself.
+ */
+export function refuseSaveWhileEditingComposite(): boolean {
+  if (!isCompositeEditMode()) {
+    return false;
+  }
+  showNotification("Finish editing the composite first", "Save or close the composite editor, then save the preset.");
+  return true;
+}
+
 export function openSavePresetModal(): void {
+  if (refuseSaveWhileEditingComposite()) {
+    return;
+  }
+
   openCreatePresetModal("save-as", getActivePresetForRender());
 }
 
