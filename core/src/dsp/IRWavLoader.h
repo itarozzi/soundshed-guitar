@@ -91,6 +91,23 @@ inline std::uint32_t ReadFourCC(std::ifstream& stream)
     return value;
 }
 
+/// What is left of the file from where the stream stands. A chunk's size field is trusted only this
+/// far: a streamed or unpatched header says 0xFFFFFFFF, which would allocate gigabytes.
+inline std::size_t BytesLeft(std::ifstream& stream)
+{
+    const auto here = stream.tellg();
+
+    if (here < 0)
+    {
+        return 0;
+    }
+
+    stream.seekg(0, std::ios::end);
+    const auto end = stream.tellg();
+    stream.seekg(here);
+    return end > here ? static_cast<std::size_t>(end - here) : 0;
+}
+
 constexpr std::uint32_t MakeFourCC(char a, char b, char c, char d)
 {
     return static_cast<std::uint32_t>(static_cast<unsigned char>(a)) |
@@ -187,7 +204,8 @@ inline bool LoadWavFile(const std::filesystem::path& path, IRWavData& out)
                 return false;
             }
 
-            const std::size_t totalSamples = chunkSize / bytesPerSample;
+            const std::size_t totalSamples =
+                std::min<std::size_t>(chunkSize, BytesLeft(file)) / bytesPerSample / channels * channels;
 
             if (totalSamples == 0)
             {
@@ -257,7 +275,16 @@ inline bool LoadWavFile(const std::filesystem::path& path, IRWavData& out)
         }
         else
         {
-            file.seekg(chunkSize, std::ios::cur);
+            file.seekg(static_cast<std::streamoff>(chunkSize), std::ios::cur);
+
+            // RIFF pads an odd-sized chunk with a zero byte the size leaves out; not skipping it,
+            // an odd iXML, bext or JUNK chunk before the audio threw the walk off and "data" was
+            // never found. Some writers leave the pad out (two of the test IRs' 603-byte bext
+            // chunks run straight into "fmt "), so it is skipped only where it is there.
+            if ((chunkSize & 1u) != 0 && file.peek() == 0)
+            {
+                file.get();
+            }
         }
     }
 
@@ -490,6 +517,11 @@ inline bool LoadAiffFile(const std::filesystem::path& path, IRWavData& out)
             }
 
             fmtLoaded = true;
+
+            // To the chunk's end: an AIFC COMM goes on with the compression type's name (a Pascal
+            // string), and the next chunk header was read from inside it, so no AIFC file loaded.
+            const std::streamoff commSize = static_cast<std::streamoff>(chunkSize) + (chunkSize & 1u ? 1 : 0);
+            file.seekg(static_cast<std::streamoff>(chunkStart) + commSize);
         }
         else if (chunkId == "SSND")
         {
@@ -523,8 +555,10 @@ inline bool LoadAiffFile(const std::filesystem::path& path, IRWavData& out)
                 return false;
             }
 
-            ReadBigEndian<std::uint32_t>(file); // dataOffset (unused for uncompressed)
-            ReadBigEndian<std::uint32_t>(file); // blockSize  (unused for uncompressed)
+            const std::uint32_t dataOffset = ReadBigEndian<std::uint32_t>(file);
+            ReadBigEndian<std::uint32_t>(file); // blockSize (unused for uncompressed)
+            // The samples start this far past the header; a non-zero offset was read as audio.
+            file.seekg(static_cast<std::streamoff>(dataOffset), std::ios::cur);
 
             const std::size_t bytesPerSample = static_cast<std::size_t>(bitsPerSample) / 8u;
 
@@ -533,7 +567,9 @@ inline bool LoadAiffFile(const std::filesystem::path& path, IRWavData& out)
                 return false;
             }
 
-            const std::size_t totalSamples = static_cast<std::size_t>(numFrames) * static_cast<std::size_t>(channels);
+            const std::size_t totalSamples =
+                std::min(static_cast<std::size_t>(numFrames) * static_cast<std::size_t>(channels),
+                         BytesLeft(file) / bytesPerSample / channels * channels);
 
             if (totalSamples == 0)
             {
