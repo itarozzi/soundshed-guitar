@@ -93,6 +93,38 @@ struct PracticeToolServiceTestAccess
         return left;
     }
 
+    /// Playing, as Play() leaves it, without waking the idle render thread.
+    static void SetPlaying(PracticeToolService& svc)
+    {
+        svc.mState.store(static_cast<int>(PracticeToolService::PlaybackState::Playing));
+    }
+
+    [[nodiscard]] static bool IsPlaying(const PracticeToolService& svc)
+    {
+        return svc.mState.load() == static_cast<int>(PracticeToolService::PlaybackState::Playing);
+    }
+
+    [[nodiscard]] static bool EndQueued(const PracticeToolService& svc)
+    {
+        return svc.mEndOfTrackQueued.load();
+    }
+
+    [[nodiscard]] static bool EndedPending(const PracticeToolService& svc)
+    {
+        return svc.mPlaybackEndedPending.load();
+    }
+
+    [[nodiscard]] static std::size_t RingFrames(const PracticeToolService& svc)
+    {
+        return svc.mOutputRing->AvailableToRead();
+    }
+
+    static void RenderChunk(PracticeToolService& svc, const std::shared_ptr<PracticeToolService::TrackBuffer>& buffer,
+                            std::size_t& cursor)
+    {
+        svc.RenderChunk(buffer, cursor);
+    }
+
     static constexpr double kTestSampleRate = 48000.0;
 };
 } // namespace guitarfx
@@ -463,6 +495,72 @@ bool TestJumpLeavesNothingOfTheOldPositionBehind()
 
     return controlLeaks && noLeak && startsAtOnce;
 }
+
+// A non-looping track used to stop the moment the render thread read its last frame, with the
+// ring still holding up to ~2.7 s of rendered audio, and the stretcher its latency's worth: the end
+// of the track was never heard, and the next Play played that tail before the top of the track. Now
+// the stretcher is flushed, and the audio thread plays the ring out and stops after it.
+bool TestTrackEndPlaysTheRingOut()
+{
+    std::cout << "\n--- PracticeToolService Track End Tests ---\n";
+
+    NullPluginHost host;
+    std::mutex dspMutex;
+    auto svc = MakeService(host, dspMutex);
+    PracticeToolServiceTestAccess::ConfigureStretch(*svc);
+    PracticeToolServiceTestAccess::SetPlaying(*svc);
+
+    const auto frames = static_cast<std::size_t>(kSampleRate * 0.5);
+    std::vector<float> tone(frames);
+
+    for (std::size_t i = 0; i < frames; ++i)
+    {
+        tone[i] = static_cast<float>(0.5 * std::sin(2.0 * 3.14159265358979323846 * 220.0 * i / kSampleRate));
+    }
+
+    auto buffer = PracticeToolServiceTestAccess::MakeBuffer(tone, tone, kSampleRate);
+    std::size_t cursor = 0;
+    PracticeToolServiceTestAccess::JumpTo(*svc, buffer, cursor, 0); // as a new file starts
+
+    for (int chunk = 0; chunk < 200 && !PracticeToolServiceTestAccess::EndQueued(*svc); ++chunk)
+    {
+        PracticeToolServiceTestAccess::RenderChunk(*svc, buffer, cursor);
+    }
+
+    const bool stillPlaying = PracticeToolServiceTestAccess::IsPlaying(*svc);
+    const std::size_t queued = PracticeToolServiceTestAccess::RingFrames(*svc);
+    std::vector<float> left(512), right(512);
+    std::size_t heard = 0;
+
+    for (int block = 0; block < 400 && PracticeToolServiceTestAccess::IsPlaying(*svc); ++block)
+    {
+        std::fill(left.begin(), left.end(), 0.0f);
+        std::fill(right.begin(), right.end(), 0.0f);
+        float* outputs[2] = {left.data(), right.data()};
+        svc->RenderPostChain(outputs, 512);
+
+        for (const float sample : left)
+        {
+            heard += std::abs(sample) > 1.0e-3f ? 1 : 0;
+        }
+    }
+
+    const bool stopped = !PracticeToolServiceTestAccess::IsPlaying(*svc);
+    const bool ended = PracticeToolServiceTestAccess::EndedPending(*svc);
+    // All of it, the stretcher's last moments too: they are still inside it when the file runs out.
+    const bool playedOut = heard > frames * 97 / 100;
+
+    std::cout << "  " << std::left << std::setw(48)
+              << "Still playing when the end is rendered:" << (stillPlaying ? "PASS" : "FAIL") << " (" << queued
+              << " frames queued)\n";
+    std::cout << "  " << std::left << std::setw(48)
+              << "The tail is heard before it stops:" << (playedOut ? "PASS" : "FAIL") << " (" << heard << " of "
+              << frames << " frames)\n";
+    std::cout << "  " << std::left << std::setw(48)
+              << "Then it stops and reports the end:" << (stopped && ended ? "PASS" : "FAIL") << "\n";
+
+    return stillPlaying && playedOut && stopped && ended;
+}
 } // namespace
 
 int main()
@@ -485,6 +583,11 @@ int main()
     }
 
     if (!TestJumpLeavesNothingOfTheOldPositionBehind())
+    {
+        allPassed = false;
+    }
+
+    if (!TestTrackEndPlaysTheRingOut())
     {
         allPassed = false;
     }

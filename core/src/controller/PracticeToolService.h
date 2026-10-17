@@ -284,6 +284,11 @@ class PracticeToolService
     std::atomic<bool> mSeekPending{false};
     std::atomic<double> mPendingSeekSeconds{0.0};
     std::atomic<bool> mPlaybackEndedPending{false};
+    // A non-looping track's last audio is in the ring. The render thread stops rendering; the audio
+    // thread stops playback once it has played the ring out (RenderPostChain). Stopping at the
+    // render thread's end-of-file cut off the ring's ~2.7 s of lookahead, which the next Play then
+    // played before the start of the track.
+    std::atomic<bool> mEndOfTrackQueued{false};
 
     // Bumped whenever any state that can invalidate in-flight rendered audio
     // changes (seek, loop region/enable, speed, pitch, new file, stop). The
@@ -297,6 +302,9 @@ class PracticeToolService
 
     signalsmith::stretch::SignalsmithStretch<float> mStretch; // background-thread only
     bool mStretchConfigured = false;
+    // Input frames of silence still to feed the stretcher at a track's end, so its last moments (held
+    // for its latency) come out; -1 while not at an end. Render-thread only.
+    int mTailFlushInFrames = -1;
 
     std::vector<float> mSourceScratchL, mSourceScratchR; // background-thread only
     std::vector<float> mStretchOutL, mStretchOutR;       // background-thread only

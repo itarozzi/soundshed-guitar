@@ -388,7 +388,8 @@ bool PracticeToolService::IsLoaded() const
 
 void PracticeToolService::RenderPostChain(float** outputs, int numSamples)
 {
-    if (!outputs || !outputs[0] || !outputs[1] || numSamples <= 0)
+    // A mono output bus has no right channel: the track is summed into the left.
+    if (!outputs || !outputs[0] || numSamples <= 0)
     {
         return;
     }
@@ -411,6 +412,18 @@ void PracticeToolService::RenderPostChain(float** outputs, int numSamples)
     numSamples = std::min(numSamples, static_cast<int>(mPopScratch.size()));
 
     const std::size_t popped = mOutputRing->Pop(mPopScratch.data(), static_cast<std::size_t>(numSamples));
+
+    // The track's end was queued and the ring has now played out: playback is over. Rewound to the
+    // top, as Stop() does, so the next Play starts there through a fresh jump.
+    if (popped < static_cast<std::size_t>(numSamples) && mEndOfTrackQueued.exchange(false, std::memory_order_acq_rel))
+    {
+        mState.store(static_cast<int>(PlaybackState::Stopped), std::memory_order_release);
+        mPendingSeekSeconds.store(0.0, std::memory_order_relaxed);
+        mSeekPending.store(true, std::memory_order_release);
+        mParamGeneration.fetch_add(1, std::memory_order_release);
+        mPlaybackEndedPending.store(true, std::memory_order_release);
+    }
+
     const float gain = static_cast<float>(mGain.load(std::memory_order_relaxed));
     const double balance = mBalance.load(std::memory_order_relaxed);
     // A "balance" control, not a full pan law: the favored channel always
@@ -445,10 +458,20 @@ void PracticeToolService::RenderPostChain(float** outputs, int numSamples)
         }
     }
 
-    for (std::size_t i = 0; i < popped; ++i)
+    if (outputs[1])
     {
-        outputs[0][i] += mPopScratch[i].l * gainL;
-        outputs[1][i] += mPopScratch[i].r * gainR;
+        for (std::size_t i = 0; i < popped; ++i)
+        {
+            outputs[0][i] += mPopScratch[i].l * gainL;
+            outputs[1][i] += mPopScratch[i].r * gainR;
+        }
+    }
+    else
+    {
+        for (std::size_t i = 0; i < popped; ++i)
+        {
+            outputs[0][i] += 0.5f * (mPopScratch[i].l * gainL + mPopScratch[i].r * gainR);
+        }
     }
 
     // Underrun (popped < numSamples): per the priority principle, the

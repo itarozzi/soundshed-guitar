@@ -317,11 +317,25 @@ void PracticeToolService::RenderChunk(const std::shared_ptr<TrackBuffer>& buffer
 
     mOutputRing->Push(mPushScratch.data(), static_cast<std::size_t>(numOutFrames));
 
+    // The stretcher still holds the track's last moments, its latency's worth: it is fed silence
+    // until they are out, then the end is handed to the audio thread, which plays the ring out and
+    // asks for the rewind. The cursor stays at the end meanwhile, so the position readout counts
+    // down the tail.
     if (exhausted && !mLoopingEnabled.load(std::memory_order_relaxed))
     {
-        mPlaybackEndedPending.store(true, std::memory_order_release);
-        mState.store(static_cast<int>(PlaybackState::Stopped), std::memory_order_release);
-        cursor = 0;
+        if (mTailFlushInFrames < 0)
+        {
+            mTailFlushInFrames =
+                mStretch.inputLatency() + static_cast<int>(std::ceil(mStretch.outputLatency() * speed));
+        }
+
+        mTailFlushInFrames -= numInFrames - written;
+
+        if (mTailFlushInFrames <= 0)
+        {
+            mTailFlushInFrames = -1;
+            mEndOfTrackQueued.store(true, std::memory_order_release);
+        }
     }
 }
 
@@ -375,6 +389,9 @@ void PracticeToolService::RenderThreadLoop()
         if (isNewBuffer || gen != localGeneration)
         {
             localGeneration = gen;
+            // A jump, a new file, or looping turned on: there is more to render after all.
+            mEndOfTrackQueued.store(false, std::memory_order_release);
+            mTailFlushInFrames = -1;
             const bool seekReq = mSeekPending.exchange(false, std::memory_order_acq_rel);
             const double seekSecs = mPendingSeekSeconds.load(std::memory_order_relaxed);
 
@@ -429,7 +446,9 @@ void PracticeToolService::RenderThreadLoop()
         // played. Resync work above (seek/loop/pitch/speed) still applies
         // immediately regardless of transport state, so everything is ready
         // the instant playback starts.
-        if (mState.load(std::memory_order_acquire) != static_cast<int>(PlaybackState::Playing))
+        // Nor once the end of the track is in the ring: the audio thread plays it out and stops.
+        if (mState.load(std::memory_order_acquire) != static_cast<int>(PlaybackState::Playing) ||
+            mEndOfTrackQueued.load(std::memory_order_acquire))
         {
             std::unique_lock<std::mutex> lock(mRenderWakeMutex);
             mRenderWake.wait_for(lock, std::chrono::milliseconds(50), [this, gen]() {
