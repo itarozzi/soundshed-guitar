@@ -293,6 +293,88 @@ void TestPresetsRun(const Reverb& reverb)
 
     Check(sound, "each stays finite, dies away, and stays within 9 dB of the default's level", problem);
 }
+
+std::unique_ptr<guitarfx::EffectProcessor> MakeAtDefaults(const std::string& type)
+{
+    auto& registry = guitarfx::EffectRegistry::Instance();
+    auto effect = registry.Create(type);
+
+    for (const auto& def : registry.GetTypeInfo(type)->parameters)
+    {
+        effect->SetParam(def.id, def.defaultValue);
+    }
+
+    effect->Prepare(kSampleRate, kBlockSize);
+    return effect;
+}
+
+/// Runs `seconds` of input, a noise burst at -12 dBFS rms for the first `burstSeconds` and silence
+/// after, and returns the output's energy.
+double RunEnergy(guitarfx::EffectProcessor& effect, double seconds, double burstSeconds = 0.0)
+{
+    const auto total = static_cast<std::size_t>(kSampleRate * seconds);
+    const auto burst = static_cast<std::size_t>(kSampleRate * burstSeconds);
+    std::vector<float> inL(kBlockSize), inR(kBlockSize), outL(kBlockSize), outR(kBlockSize);
+    float* inputs[2] = {inL.data(), inR.data()};
+    float* outputs[2] = {outL.data(), outR.data()};
+    std::uint32_t seed = 777u;
+    double energy = 0.0;
+
+    for (std::size_t start = 0; start < total; start += kBlockSize)
+    {
+        for (int i = 0; i < kBlockSize; ++i)
+        {
+            float v = 0.0f;
+
+            if (start + i < burst)
+            {
+                seed = seed * 1664525u + 1013904223u;
+                v = 0.25f * 1.7320508f * (static_cast<float>(seed >> 8) / 8388608.0f - 1.0f);
+            }
+
+            inL[i] = v;
+            inR[i] = v;
+        }
+
+        effect.Process(inputs, outputs, kBlockSize);
+
+        for (int i = 0; i < kBlockSize; ++i)
+        {
+            energy += static_cast<double>(outL[i]) * outL[i] + static_cast<double>(outR[i]) * outR[i];
+        }
+    }
+
+    return energy;
+}
+
+/// Setting Advanced Reverb's Character to the one it already has (a CC landing on the same step,
+/// an effect preset that keeps it) used to clear the tank, chopping the tail every time.
+void TestSameCharacterKeepsTheTail()
+{
+    std::cout << "\nAdvanced Reverb: the same Character again keeps the tail" << std::endl;
+    auto effect = MakeAtDefaults(guitarfx::EffectGuids::kReverbAdvanced);
+    RunEnergy(*effect, 0.25, 0.05);
+    const double before = RunEnergy(*effect, 0.1);
+    effect->SetParam("character", effect->GetParam("character"));
+    const double after = RunEnergy(*effect, 0.1);
+    Check(before > 1e-6 && after > before * 0.05, "the tail rings on",
+          "energy " + std::to_string(before) + " before, " + std::to_string(after) + " after");
+}
+
+/// At Mix 0 the reverb stops running its tank. It used to keep what the tank held, so raising Mix
+/// seconds later played the old tail, and the old pre-delay as if it were new input.
+void TestMixUpFromZeroStartsClean(const Reverb& reverb)
+{
+    std::cout << "\n" << reverb.name << " Reverb: Mix up from zero starts clean" << std::endl;
+    auto effect = MakeAtDefaults(reverb.type);
+    effect->SetParam("mix", 1.0);
+    RunEnergy(*effect, 0.25, 0.05);
+    effect->SetParam("mix", 0.0);
+    RunEnergy(*effect, 1.0);
+    effect->SetParam("mix", 1.0);
+    const double replayed = RunEnergy(*effect, 0.5);
+    Check(replayed < 1e-12, "silence in, silence out", "energy " + std::to_string(replayed));
+}
 } // namespace
 
 int main()
@@ -306,6 +388,18 @@ int main()
     {
         TestWellFormed(reverb);
         TestPresetsRun(reverb);
+    }
+
+    TestSameCharacterKeepsTheTail();
+
+    for (const auto& reverb : kReverbs)
+    {
+        // Spring and Ambient are their own effects, with no Mix-zero shortcut.
+        if (std::string(reverb.type) != guitarfx::EffectGuids::kReverbSpring &&
+            std::string(reverb.type) != guitarfx::EffectGuids::kReverbAmbient)
+        {
+            TestMixUpFromZeroStartsClean(reverb);
+        }
     }
 
     std::cout << "\n" << (gChecks - gFailures) << "/" << gChecks << " checks passed" << std::endl;

@@ -166,6 +166,10 @@ class ReverbEffect : public EffectProcessor
         // instead of cutting the wet signal on the block it lands.
         if (!mEnabled || (mMix <= 0.0 && mMixSmoothed <= 1.0e-4f))
         {
+            // The tank stops here with whatever it held. Clear it before it runs again, or raising
+            // Mix later replays the old tail, and the old pre-delay as if it were new input.
+            mTankHeld = true;
+
             if (outputs[0])
             {
                 if (inputs && inputs[0])
@@ -195,6 +199,12 @@ class ReverbEffect : public EffectProcessor
             }
 
             return;
+        }
+
+        if (mTankHeld)
+        {
+            Reset();
+            mTankHeld = false;
         }
 
         const float drive = static_cast<float>(mDrive);
@@ -490,11 +500,18 @@ class ReverbEffect : public EffectProcessor
         else if (key == "character" && mMode == Mode::Advanced)
         {
             const int idx = static_cast<int>(std::round(std::clamp(value, 0.0, 2.0)));
-            mCharacter = CharacterFromIndex(idx);
+            const Mode character = CharacterFromIndex(idx);
+
             // Only swap the delay topology and clear buffers — all other parameters are
             // intentionally preserved so Advanced mode users retain their manual settings.
-            Reset();
-            UpdateParameters();
+            // The same character again (a CC landing on the same step, an effect preset that
+            // keeps it) changes nothing, so it must not cut the tail.
+            if (character != mCharacter)
+            {
+                mCharacter = character;
+                Reset();
+                UpdateParameters();
+            }
         }
     }
 
@@ -1273,6 +1290,8 @@ class ReverbEffect : public EffectProcessor
     // Mix and width smoothed values — lerped per-sample to prevent click on parameter changes.
     float mMixSmoothed = 0.24f;
     float mWidthSmoothed = 1.0f;
+    // Set while Process skips the tank (Mix at zero, or disabled), so it is cleared before it runs again.
+    bool mTankHeld = false;
 
     // Audio-rate modulation depth (scaled from mModDepth user value in UpdateParameters).
     // Kept separate so GetParam("modDepth") always returns the user-facing 0–1 value.
