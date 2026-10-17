@@ -1,27 +1,18 @@
 /**
  * @file RealtimeConvolverTests.cpp
- * @brief Unit tests for the RealtimeConvolver, focused on the zero-latency
- *        non-uniform (Gardner-style) partitioning path enabled via
- *        SetLowLatencyMode(true).
+ * @brief Unit tests for the RealtimeConvolver: zero-latency non-uniform
+ *        (Gardner-style) partitioning.
  *
  * The tests verify that:
- *  - Low-latency mode reports no latency at all.
- *  - Its impulse response is the IR itself from the first sample, for IRs on
+ *  - The impulse response is the IR itself from the first sample, for IRs on
  *    either side of every FIR/partition boundary and at odd block sizes.
- *  - The non-uniform engine produces the same result as a direct reference
- *    convolution, delay-aligned by the reported latency.
- *  - The non-uniform output matches the uniform output once both are aligned
- *    by their respective latencies (so the toggle only changes latency/CPU,
- *    not the tone).
+ *  - The output matches a direct reference convolution, sample for sample.
  *  - Reset() clears state so a subsequent run is identical to a fresh one.
  *  - A multi-second IR is split into a bounded number of partitions rather than
  *    one per host block, so its per-sample cost does not scale with IR length.
  *  - The partition accumulation, which is spread across the samples of a block
  *    rather than done in one burst at the block boundary, still completes when
  *    the host feeds irregular chunk sizes.
- *  - In low-latency mode a short IR's latency stays at 0 however large a block
- *    the host promises, and still matches the reference when the host then sends
- *    small blocks.
  *  - Processing in place (output buffer == input buffer) gives the same output.
  */
 
@@ -187,38 +178,7 @@ std::vector<float> MakeNoise(std::size_t length, unsigned seed)
 
 // ---------------------------------------------------------------------------
 
-// Low-latency mode has no latency at all, where the uniform engine has its partition.
-bool TestLowLatencyReportsZeroLatency()
-{
-    std::cout << "Test: low-latency mode reports zero latency... ";
-
-    const std::vector<float> ir = MakeIR(4096);
-    const int blockSize = 128;
-
-    guitarfx::RealtimeConvolver uniform;
-    uniform.SetLowLatencyMode(false);
-    uniform.SetImpulse(ir, blockSize);
-
-    guitarfx::RealtimeConvolver lowLat;
-    lowLat.SetLowLatencyMode(true);
-    lowLat.SetImpulse(ir, blockSize);
-
-    const int uniformLatency = uniform.GetLatency();
-    const int lowLatency = lowLat.GetLatency();
-
-    if (lowLatency != 0 || uniformLatency != 256)
-    {
-        std::cout << "FAILED (uniform=" << uniformLatency << ", expected 256; lowLatency=" << lowLatency
-                  << ", expected 0)\n";
-        return false;
-    }
-
-    std::cout << "OK (uniform=" << uniformLatency << ", lowLatency=" << lowLatency << ")\n";
-    return true;
-}
-
-// The non-uniform engine, delay-aligned by its reported latency, must match a
-// direct reference convolution.
+// The output must match a direct reference convolution, with no delay between them.
 bool TestNonUniformMatchesReference()
 {
     std::cout << "Test: non-uniform output matches reference convolution... ";
@@ -228,30 +188,18 @@ bool TestNonUniformMatchesReference()
     const std::vector<float> input = MakeNoise(16384, 1234u);
 
     guitarfx::RealtimeConvolver conv;
-    conv.SetLowLatencyMode(true);
 
-    if (!conv.SetImpulse(ir, blockSize))
+    if (!conv.SetImpulse(ir))
     {
         std::cout << "FAILED (SetImpulse returned false)\n";
         return false;
     }
 
-    const int latency = conv.GetLatency();
     const std::vector<double> got = RunConvolver(conv, input, blockSize);
     const std::vector<double> ref = ReferenceConvolve(input, ir);
 
-    // Align: got[latency + k] should match ref[k].
-    std::vector<double> aligned(ref.size(), 0.0);
-
-    for (std::size_t k = 0; k + static_cast<std::size_t>(latency) < got.size(); ++k)
-    {
-        aligned[k] = got[k + static_cast<std::size_t>(latency)];
-    }
-
-    // Compare over a region clear of edge/transition effects.
-    const std::size_t start = static_cast<std::size_t>(latency) + ir.size();
-    const std::size_t end = ref.size() - static_cast<std::size_t>(latency);
-    const double err = NormalizedRmsDiff(aligned, ref, start, end);
+    // Compare once the IR has filled, clear of the start-up edge.
+    const double err = NormalizedRmsDiff(got, ref, ir.size(), ref.size());
 
     if (!(err < 1e-3))
     {
@@ -259,59 +207,7 @@ bool TestNonUniformMatchesReference()
         return false;
     }
 
-    std::cout << "OK (error " << err << ", latency " << latency << ")\n";
-    return true;
-}
-
-// Toggling the mode must not change the tone: uniform and non-uniform outputs
-// must match once aligned by their (different) latencies.
-bool TestNonUniformMatchesUniform()
-{
-    std::cout << "Test: non-uniform output matches uniform (delay-aligned)... ";
-
-    const std::vector<float> ir = MakeIR(6000); // > max partition to exercise the tail engine
-    const int blockSize = 128;                  // base (128) < uniform partition (256) => non-uniform active
-    const std::vector<float> input = MakeNoise(24000, 99u);
-
-    guitarfx::RealtimeConvolver uniform;
-    uniform.SetLowLatencyMode(false);
-    uniform.SetImpulse(ir, blockSize);
-
-    guitarfx::RealtimeConvolver lowLat;
-    lowLat.SetLowLatencyMode(true);
-    lowLat.SetImpulse(ir, blockSize);
-
-    const int uLat = uniform.GetLatency();
-    const int lLat = lowLat.GetLatency();
-
-    const std::vector<double> uOut = RunConvolver(uniform, input, blockSize);
-    const std::vector<double> lOut = RunConvolver(lowLat, input, blockSize);
-
-    // Shift both to remove their latency, then compare on common indices.
-    std::vector<double> uAligned(input.size(), 0.0);
-    std::vector<double> lAligned(input.size(), 0.0);
-
-    for (std::size_t k = 0; k + static_cast<std::size_t>(uLat) < uOut.size(); ++k)
-    {
-        uAligned[k] = uOut[k + static_cast<std::size_t>(uLat)];
-    }
-
-    for (std::size_t k = 0; k + static_cast<std::size_t>(lLat) < lOut.size(); ++k)
-    {
-        lAligned[k] = lOut[k + static_cast<std::size_t>(lLat)];
-    }
-
-    const std::size_t start = ir.size() + static_cast<std::size_t>(std::max(uLat, lLat));
-    const std::size_t end = input.size() - static_cast<std::size_t>(std::max(uLat, lLat));
-    const double err = NormalizedRmsDiff(lAligned, uAligned, start, end);
-
-    if (!(err < 1e-3))
-    {
-        std::cout << "FAILED (normalized RMS error " << err << ", uLat=" << uLat << ", lLat=" << lLat << ")\n";
-        return false;
-    }
-
-    std::cout << "OK (error " << err << ", uLat=" << uLat << ", lLat=" << lLat << ")\n";
+    std::cout << "OK (error " << err << ")\n";
     return true;
 }
 
@@ -324,18 +220,16 @@ bool TestLongIrKeepsPartitionCountBounded()
     std::cout << "Test: long IR keeps the partition count bounded... ";
 
     const std::vector<float> ir = MakeIR(226304); // ~4.7 s at 48 kHz, a plate reverb
-    const int blockSize = 64;                     // the smallest block a low-latency ASIO setup asks for
 
     guitarfx::RealtimeConvolver conv;
-    conv.SetLowLatencyMode(true);
 
-    if (!conv.SetImpulse(ir, blockSize))
+    if (!conv.SetImpulse(ir))
     {
         std::cout << "FAILED (SetImpulse returned false)\n";
         return false;
     }
 
-    // Tying the tail partition to the host block would give ~880 partitions here.
+    // Tying the tail partition to a 64-sample host block would give ~880 partitions here.
     const std::size_t partitions = conv.GetNumPartitions();
 
     if (partitions > 128)
@@ -344,13 +238,7 @@ bool TestLongIrKeepsPartitionCountBounded()
         return false;
     }
 
-    if (conv.GetLatency() != 0)
-    {
-        std::cout << "FAILED (latency " << conv.GetLatency() << ", expected 0)\n";
-        return false;
-    }
-
-    std::cout << "OK (" << partitions << " partitions, latency " << conv.GetLatency() << ")\n";
+    std::cout << "OK (" << partitions << " partitions)\n";
     return true;
 }
 
@@ -361,32 +249,19 @@ bool TestRaggedBlockSizesMatchReference()
     std::cout << "Test: ragged host chunks match reference convolution... ";
 
     const std::vector<float> ir = MakeIR(8192); // long enough for a multi-partition tail
-    const int blockSize = 64;
     const std::vector<float> input = MakeNoise(32768, 4242u);
 
     guitarfx::RealtimeConvolver conv;
-    conv.SetLowLatencyMode(true);
 
-    if (!conv.SetImpulse(ir, blockSize))
+    if (!conv.SetImpulse(ir))
     {
         std::cout << "FAILED (SetImpulse returned false)\n";
         return false;
     }
 
-    const int latency = conv.GetLatency();
     const std::vector<double> got = RunConvolverRaggedly(conv, input, 31337u);
     const std::vector<double> ref = ReferenceConvolve(input, ir);
-
-    std::vector<double> aligned(ref.size(), 0.0);
-
-    for (std::size_t k = 0; k + static_cast<std::size_t>(latency) < got.size(); ++k)
-    {
-        aligned[k] = got[k + static_cast<std::size_t>(latency)];
-    }
-
-    const std::size_t start = static_cast<std::size_t>(latency) + ir.size();
-    const std::size_t end = ref.size() - static_cast<std::size_t>(latency);
-    const double err = NormalizedRmsDiff(aligned, ref, start, end);
+    const double err = NormalizedRmsDiff(got, ref, ir.size(), ref.size());
 
     if (!(err < 1e-3))
     {
@@ -395,74 +270,6 @@ bool TestRaggedBlockSizesMatchReference()
     }
 
     std::cout << "OK (error " << err << ")\n";
-    return true;
-}
-
-// The block size SetImpulse() gets is the most the host promised to send, which can be far
-// more than it sends: a host promising 8192 samples and delivering 64 is not unusual. A short
-// cab IR in low-latency mode used to take its partition, and so its latency, from that promise,
-// up to 2048 samples (43 ms at 48 kHz), all of it heard while playing live. Then it was held to
-// 256; now there is none.
-bool TestLowLatencyIgnoresThePromisedBlock()
-{
-    std::cout << "Test: low-latency latency does not follow the promised block... ";
-
-    const std::vector<float> ir = MakeIR(4096); // ~85 ms, a typical cab IR
-    const std::vector<float> input = MakeNoise(32768, 99u);
-    const std::vector<double> ref = ReferenceConvolve(input, ir);
-
-    for (const int promised : {256, 1024, 8192})
-    {
-        guitarfx::RealtimeConvolver conv;
-        conv.SetLowLatencyMode(true);
-
-        if (!conv.SetImpulse(ir, promised))
-        {
-            std::cout << "FAILED (SetImpulse returned false at " << promised << ")\n";
-            return false;
-        }
-
-        const int latency = conv.GetLatency();
-
-        if (latency != 0)
-        {
-            std::cout << "FAILED (latency " << latency << " with " << promised << " promised, expected 0)\n";
-            return false;
-        }
-
-        // The host then sends far smaller blocks than it promised.
-        const std::vector<double> got = RunConvolver(conv, input, 64);
-        std::vector<double> aligned(ref.size(), 0.0);
-
-        for (std::size_t k = 0; k + static_cast<std::size_t>(latency) < got.size(); ++k)
-        {
-            aligned[k] = got[k + static_cast<std::size_t>(latency)];
-        }
-
-        const std::size_t start = static_cast<std::size_t>(latency) + ir.size();
-        const std::size_t end = ref.size() - static_cast<std::size_t>(latency);
-        const double err = NormalizedRmsDiff(aligned, ref, start, end);
-
-        if (!(err < 1e-3))
-        {
-            std::cout << "FAILED (normalized RMS error " << err << " with " << promised << " promised)\n";
-            return false;
-        }
-    }
-
-    // Low Latency off still trades latency for fewer partitions, as asked.
-    guitarfx::RealtimeConvolver uniform;
-    uniform.SetLowLatencyMode(false);
-    uniform.SetImpulse(ir, 8192);
-
-    if (uniform.GetLatency() != 2048)
-    {
-        std::cout << "FAILED (Low Latency off at 8192 promised: latency " << uniform.GetLatency()
-                  << ", expected 2048)\n";
-        return false;
-    }
-
-    std::cout << "OK (0 at every promised block)\n";
     return true;
 }
 
@@ -493,11 +300,10 @@ bool TestZeroLatencyImpulseIsTheIR()
             }
 
             guitarfx::RealtimeConvolver conv;
-            conv.SetLowLatencyMode(true);
 
-            if (!conv.SetImpulse(ir, 64) || conv.GetLatency() != 0)
+            if (!conv.SetImpulse(ir))
             {
-                std::cout << "FAILED (IR " << length << ": SetImpulse failed or latency " << conv.GetLatency() << ")\n";
+                std::cout << "FAILED (IR " << length << ": SetImpulse returned false)\n";
                 return false;
             }
 
@@ -545,13 +351,11 @@ bool TestInPlaceMatchesOutOfPlace()
         const std::vector<float> ir = MakeIR(length);
 
         guitarfx::RealtimeConvolver outOfPlace;
-        outOfPlace.SetLowLatencyMode(true);
-        outOfPlace.SetImpulse(ir, 64);
+        outOfPlace.SetImpulse(ir);
         const std::vector<double> expected = RunConvolver(outOfPlace, input, 300);
 
         guitarfx::RealtimeConvolver inPlace;
-        inPlace.SetLowLatencyMode(true);
-        inPlace.SetImpulse(ir, 64);
+        inPlace.SetImpulse(ir);
         std::vector<float> buffer(300);
         double err = 0.0;
 
@@ -578,42 +382,6 @@ bool TestInPlaceMatchesOutOfPlace()
     return true;
 }
 
-// Low Latency off still runs an IR of 64 samples or fewer as a FIR, with no latency, and a longer
-// one on its partition.
-bool TestUniformModeShortIrIsDirect()
-{
-    std::cout << "Test: uniform mode runs a 64-sample IR directly... ";
-
-    const std::vector<float> ir = MakeIR(64);
-    const std::vector<float> input = MakeNoise(4096, 31u);
-
-    guitarfx::RealtimeConvolver conv;
-    conv.SetLowLatencyMode(false);
-    conv.SetImpulse(ir, 512);
-
-    guitarfx::RealtimeConvolver longer;
-    longer.SetLowLatencyMode(false);
-    longer.SetImpulse(MakeIR(65), 512);
-
-    if (conv.GetLatency() != 0 || longer.GetLatency() != 512)
-    {
-        std::cout << "FAILED (latency " << conv.GetLatency() << " at 64 taps, expected 0; " << longer.GetLatency()
-                  << " at 65, expected 512)\n";
-        return false;
-    }
-
-    const double err = NormalizedRmsDiff(RunConvolver(conv, input, 37), ReferenceConvolve(input, ir), 0, input.size());
-
-    if (!(err < 1e-5))
-    {
-        std::cout << "FAILED (normalized RMS error " << err << ")\n";
-        return false;
-    }
-
-    std::cout << "OK (error " << err << ")\n";
-    return true;
-}
-
 // Reset() must clear all internal state so a second run is identical to a
 // fresh convolver's run.
 bool TestResetClearsState()
@@ -625,8 +393,7 @@ bool TestResetClearsState()
     const std::vector<float> input = MakeNoise(8192, 7u);
 
     guitarfx::RealtimeConvolver conv;
-    conv.SetLowLatencyMode(true);
-    conv.SetImpulse(ir, blockSize);
+    conv.SetImpulse(ir);
 
     const std::vector<double> first = RunConvolver(conv, input, blockSize);
 
@@ -665,15 +432,11 @@ int main()
         }
     };
 
-    runTest(TestLowLatencyReportsZeroLatency);
     runTest(TestZeroLatencyImpulseIsTheIR);
     runTest(TestNonUniformMatchesReference);
-    runTest(TestNonUniformMatchesUniform);
     runTest(TestLongIrKeepsPartitionCountBounded);
     runTest(TestRaggedBlockSizesMatchReference);
-    runTest(TestLowLatencyIgnoresThePromisedBlock);
     runTest(TestInPlaceMatchesOutOfPlace);
-    runTest(TestUniformModeShortIrIsDirect);
     runTest(TestResetClearsState);
 
     std::cout << "\n================================================\n";

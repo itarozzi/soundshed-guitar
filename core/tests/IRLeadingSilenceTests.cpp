@@ -10,7 +10,7 @@
  * the blended response is still a pure shift of the untrimmed one, with an IR B offset set and with
  * the two IRs at different rates. Quality's length is counted from the onset rather than the file's
  * first sample. Off is the default, and builds exactly what the cab built before the trim existed.
- * A change on a loaded cab waits for the message thread like Normalize and Low Latency.
+ * A change on a loaded cab waits for the message thread like Normalize.
  */
 
 #include <algorithm>
@@ -344,8 +344,8 @@ bool TestSlotsAtDifferentRatesKeepTheirAlignment()
 bool TestQualityCountsFromTheOnset()
 {
     // Economy keeps 10 ms, 480 samples, and fades the last 64 out. A slowly decaying tail outlasts
-    // that, so the length binds. Normalize is off and Low Latency (the default) has no latency, so
-    // the cab's response is the IR's own samples.
+    // that, so the length binds. Normalize is off and the convolver has no latency, so the cab's
+    // response is the IR's own samples.
     constexpr std::size_t kOnset = 144;
     constexpr std::size_t kEconomy = 480;
     constexpr std::size_t kUnfaded = kEconomy - 64;
@@ -377,8 +377,7 @@ bool TestQualityCountsFromTheOnset()
 
     auto offCab = MakeCab(path, {}, {.normalize = 0.0, .quality = 0.0});
     auto onCab = MakeCab(path, {}, {.trim = true, .normalize = 0.0, .quality = 0.0});
-    bool ok = Expect(offCab->GetLatencySamples() == 0 && onCab->GetLatencySamples() == 0,
-                     "Low Latency adds no latency, so the response is the IR itself");
+    bool ok = true;
     const auto off = ImpulseResponse(*offCab);
     const auto on = ImpulseResponse(*onCab);
 

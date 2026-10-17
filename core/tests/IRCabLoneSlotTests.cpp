@@ -4,12 +4,11 @@
  * A lone IR plays in full, as if IR Blend were turned all the way to its slot, whatever IR Blend,
  * L/R Split or IR B Offset say: those only mean something between two IRs. That was always true of
  * IR A alone. A cab with only IR B passed the guitar through dry until 2026-10-17, because Process()
- * waited for slot A's convolvers, and it reported no latency with Low Latency off.
+ * waited for slot A's convolvers.
  *
  * - IR B alone sounds bit-identical to IR A alone with the same file, at IR Blend 0, 0.5 and 1,
- *   with L/R Split on, with an IR B Offset, at Mix 0.5 with Low Latency off, with Trim Leading
- *   Silence, and with a stereo IR, and reports the same latency. Neither changes with IR Blend or
- *   L/R Split.
+ *   with L/R Split on, with an IR B Offset, at Mix 0.5, with Trim Leading Silence, and with a
+ *   stereo IR. Neither changes with IR Blend or L/R Split.
  * - A lone slot keeps its own Level, Pan, Invert and Mic settings, and ignores the other slot's.
  * - A lone IR sounds exactly like both loaded with IR Blend all the way to it.
  * - Reloading a lone B crossfades exactly as reloading a lone A does. Adding or clearing the other
@@ -230,7 +229,7 @@ float WorstDifference(const std::vector<float>& x, const std::vector<float>& y)
     return worst;
 }
 
-/// Clears both cabs' history, renders them and expects the same output, bit for bit, and latency.
+/// Clears both cabs' history, renders them and expects the same output, bit for bit.
 bool SoundsTheSame(EffectProcessor& cab, EffectProcessor& reference, const std::string& what)
 {
     cab.Reset();
@@ -238,11 +237,7 @@ bool SoundsTheSame(EffectProcessor& cab, EffectProcessor& reference, const std::
     const auto x = Render(cab);
     const auto y = Render(reference);
     const float worst = WorstDifference(x, y);
-    bool ok = Expect(worst == 0.0f, what + " (worst difference " + std::to_string(worst) + ")");
-    ok &= Expect(cab.GetLatencySamples() == reference.GetLatencySamples(),
-                 what + ": reports the same latency (" + std::to_string(cab.GetLatencySamples()) + " against " +
-                     std::to_string(reference.GetLatencySamples()) + ")");
-    return ok;
+    return Expect(worst == 0.0f, what + " (worst difference " + std::to_string(worst) + ")");
 }
 
 /// IR B alone against IR A alone with the same file, with settings that only matter between two
@@ -268,7 +263,7 @@ bool TestLoneBSoundsLikeLoneA(const IRFiles& irs)
         {"L/R Split at IR Blend 1", irs.a, {}, {{"lrSplit", 1.0}, {"irBlend", 1.0}}},
         {"IR B Offset +2 ms", irs.a, {}, {{"slotBOffset", 2.0}, {"irBlend", 0.5}}},
         {"IR B Offset -3 ms", irs.a, {}, {{"slotBOffset", -3.0}}},
-        {"Mix 0.5, Low Latency off", irs.a, {{"mix", 0.5}, {"lowLatency", 0.0}}, {{"irBlend", 0.5}}},
+        {"Mix 0.5", irs.a, {{"mix", 0.5}}, {{"irBlend", 0.5}}},
         {"Trim Leading Silence", irs.late, {{"trimLeadingSilence", 1.0}}, {{"irBlend", 0.5}}},
         {"a stereo IR", irs.stereo, {}, {{"irBlend", 0.3}, {"lrSplit", 1.0}}},
         {"Output, Low Cut, Air, Speaker Drive",
@@ -299,11 +294,6 @@ bool TestLoneBSoundsLikeLoneA(const IRFiles& irs)
     const auto inputR = Noise(kLength, 12);
     input.insert(input.end(), inputR.begin(), inputR.end());
     ok &= Expect(WorstDifference(Render(*loneB), input) > 0.1f, "IR B alone does not pass the input through dry");
-
-    // With Low Latency off the convolver is a partition late, and the cab says so.
-    auto lateB = MakeCab({{}, irs.a}, {{"lowLatency", 0.0}});
-    ok &= Expect(lateB->GetLatencySamples() > 0, "IR B alone with Low Latency off reports its latency (" +
-                                                     std::to_string(lateB->GetLatencySamples()) + ")");
     return ok;
 }
 

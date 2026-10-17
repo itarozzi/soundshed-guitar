@@ -13,25 +13,21 @@ class SimdFFT;
 namespace guitarfx
 {
 /**
- * Real-time convolver using Uniformly Partitioned Overlap-Save (UPOLS) algorithm.
+ * Real-time convolver with no latency: non-uniform (Gardner-style) partitioning.
  *
- * Optimized for low-latency real-time audio:
- * - Fixed-size FFT blocks regardless of IR length
- * - All buffers pre-allocated (zero allocations in audio thread)
- * - Partitioned convolution for O(B log B) per-block complexity
- * - Latency = partition size (typically 256-512 samples)
+ * The first 256 or 512 IR samples run as a direct-form FIR, and the rest as
+ * uniformly partitioned overlap-save (UPOLS) FFT stages whose partitions grow with
+ * their offset into the IR, so the output has no latency at all. An IR no longer
+ * than the FIR runs on the FIR alone. All buffers are allocated by SetImpulse(),
+ * none on the audio thread. See RealtimeConvolver.cpp.
  *
- * Optional zero-latency, non-uniform (Gardner-style) partitioning, enabled via
- * SetLowLatencyMode(true) before SetImpulse(). In this mode the first 256 or 512
- * IR samples run as a direct-form FIR, and the rest as FFT partitions that grow
- * with their offset into the IR, so the output has no latency at all. It is also
- * cheaper than small uniform partitions would be at a small host block, and the
- * big tail partition makes a long IR cheaper than the uniform engine. An IR no
- * longer than the FIR runs on the FIR alone. See RealtimeConvolver.cpp.
- *
- * The FFT engine spreads a block's partition multiplies across the samples of
+ * Each FFT stage spreads a block's partition multiplies across the samples of
  * that block rather than doing them all at the block boundary, so per-callback
  * cost stays flat even when the host block is much smaller than the partition.
+ *
+ * Until 2026-10 a Low Latency switch could run the whole IR as one uniform engine
+ * instead, 256 to 2048 samples late. It saved little CPU on short IRs and cost more
+ * on long ones (docs/plans/zero-latency-ir-cab.md), so it is gone.
  */
 class RealtimeConvolver
 {
@@ -46,30 +42,12 @@ class RealtimeConvolver
     RealtimeConvolver& operator=(RealtimeConvolver&&) noexcept;
 
     /**
-     * Initialize with impulse response.
+     * Initialize with impulse response. The layout depends on the IR alone, not the host block,
+     * and Process() takes blocks of any size.
      * @param irSamples The impulse response samples
-     * @param blockSize The most samples the host promised per call, which may be far more
-     *                  than it sends. Low-latency mode ignores it: its latency is 0 whatever
-     *                  the block. Otherwise the partition, and so the latency, follows it
-     *                  from 256 up to 2048.
      * @return true if initialization succeeded
      */
-    bool SetImpulse(const std::vector<float>& irSamples, int blockSize);
-
-    /**
-     * Enable/disable the zero-latency engine (FIR head plus non-uniform partitions).
-     * Must be called BEFORE SetImpulse() to take effect; the mode is captured at
-     * SetImpulse() time alongside the partition layout. Defaults to false (uniform).
-     */
-    void SetLowLatencyMode(bool enabled) noexcept
-    {
-        mLowLatencyMode = enabled;
-    }
-
-    [[nodiscard]] bool IsLowLatencyMode() const noexcept
-    {
-        return mLowLatencyMode;
-    }
+    bool SetImpulse(const std::vector<float>& irSamples);
 
     /**
      * Process audio samples through the convolver.
@@ -89,15 +67,6 @@ class RealtimeConvolver
         return mInitialized;
     }
 
-    [[nodiscard]] int GetLatency() const noexcept
-    {
-        return (mUseDirectConvolution || mIsNonUniform) ? 0 : static_cast<int>(mPartitionSize);
-    }
-
-    /// The most latency a convolver built for `blockSize` can have, in either mode: the uniform
-    /// engine's partition for that block. A dry path sized for it can match any IR's latency.
-    [[nodiscard]] static int GetMaxLatency(int blockSize) noexcept;
-
     [[nodiscard]] size_t GetNumPartitions() const noexcept
     {
         return mNumPartitions;
@@ -116,9 +85,8 @@ class RealtimeConvolver
     // the same on every callback. See RealtimeConvolver.cpp.
     void AccumulatePartitionsUpTo(size_t target);
 
-    // Builds a uniformly-partitioned overlap-save engine with an explicit
-    // partition size (power of two). Used both for the default uniform path and
-    // for each stage of the non-uniform engine.
+    // Builds a uniformly-partitioned overlap-save engine with an explicit partition size (power
+    // of two), a partition late. Each FFT stage of the non-uniform engine is one of these.
     bool BuildUniform(const std::vector<float>& irSamples, size_t partitionSize);
 
     // Builds and processes the zero-latency non-uniform (Gardner-style) engine.
@@ -126,16 +94,14 @@ class RealtimeConvolver
     void ProcessNonUniform(const float* input, float* output, int numSamples);
 
     bool mInitialized = false;
-    bool mUseDirectConvolution = false; // The whole IR runs on the FIR (no latency)
-    bool mLowLatencyMode = false;       // Requested at SetImpulse time (zero-latency engine)
+    bool mUseDirectConvolution = false; // The whole IR runs on the FIR
     bool mIsNonUniform = false;         // True when the zero-latency non-uniform engine is active
 
-    // Direct-form FIR. Uniform mode uses it alone for IRs up to kDirectConvolutionThreshold;
-    // low-latency mode for IRs up to its head length, and as the head of longer ones.
+    // Direct-form FIR: the whole IR when it is no longer than the head, else the head of the
+    // non-uniform engine.
     std::vector<float> mFirReversed; // h[count - 1] .. h[0], so each output is one dot product
     std::vector<float> mFirHistory;  // count - 1 samples of history, then one chunk of input
     static constexpr size_t kFirChunk = 256;
-    static constexpr size_t kDirectConvolutionThreshold = 64;
 
     // Partition configuration
     size_t mPartitionSize = 0;

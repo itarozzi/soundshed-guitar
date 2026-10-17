@@ -1,6 +1,5 @@
 #pragma once
 
-#include "dsp/DryPathDelay.h"
 #include "dsp/EffectProcessor.h"
 #include "dsp/EffectRegistry.h"
 #include "dsp/EffectGuids.h"
@@ -57,8 +56,6 @@ class IRReverbEffect : public EffectProcessor
         mOutputBufferRR.resize(static_cast<std::size_t>(maxBlockSize));
         mOutputBufferLR.resize(static_cast<std::size_t>(maxBlockSize));
         mOutputBufferRL.resize(static_cast<std::size_t>(maxBlockSize));
-        mDryDelay.Prepare(RealtimeConvolver::GetMaxLatency(maxBlockSize), maxBlockSize,
-                          static_cast<int>(std::round(sampleRate * kDryDelayCrossfadeSeconds)));
 
         // CRITICAL: Clear filter state BEFORE updating filter coefficients to prevent transients
         // when stale filter state is processed with new sample-rate-dependent coefficients.
@@ -80,7 +77,6 @@ class IRReverbEffect : public EffectProcessor
         mConvolverRR.Reset();
         mConvolverLR.Reset();
         mConvolverRL.Reset();
-        mDryDelay.Reset();
         mToneStateL = 0.0f;
         mToneStateR = 0.0f;
     }
@@ -120,8 +116,7 @@ class IRReverbEffect : public EffectProcessor
   private:
     void ProcessChunk(float** inputs, float** outputs, int numSamples)
     {
-        // Bypassed, the effect has no latency (SignalGraphExecutor counts none for it), and before
-        // Prepare there is nowhere to record the input.
+        // Bypassed, or before Prepare, when the buffers are empty: pass the input through.
         if (!mEnabled || !mPrepared)
         {
             // Bypass: copy input to output, falling back L→R if R is null
@@ -162,12 +157,10 @@ class IRReverbEffect : public EffectProcessor
             mInputBufferR[i] = inputs[1] ? inputs[1][i] : (inputs[0] ? inputs[0][i] : 0.0f);
         }
 
-        // The dry signal, as late as the latency the effect reports, so it lines up with the wet
-        // one and a host's delay compensation places both right (DryPathDelay). Recorded with no IR
-        // loaded too, so one loaded while playing has history to read.
-        mDryDelay.Process(mInputBufferL.data(), mInputBufferR.data(), numSamples, GetLatencySamples());
-        const float* dryInL = mDryDelay.Output(0);
-        const float* dryInR = mDryDelay.Output(1);
+        // The dry signal. The convolvers have no latency, so it needs no delay to line up with the
+        // wet one.
+        const float* dryInL = mInputBufferL.data();
+        const float* dryInR = mInputBufferR.data();
 
         if (!mConvolverLL.IsInitialized() || !mConvolverRR.IsInitialized())
         {
@@ -281,25 +274,19 @@ class IRReverbEffect : public EffectProcessor
             RequestRebuildSetting(mPendingQuality, static_cast<int>(mQuality),
                                   static_cast<int>(std::clamp(value, 0.0, 3.0)));
         }
-        else if (key == "lowLatency")
-        {
-            // The partition layout is fixed when a convolver is built.
-            RequestRebuildSetting(mPendingLowLatency, mLowLatency ? 1 : 0, value > 0.5 ? 1 : 0);
-        }
     }
 
     void SetConfig(const std::string&, const std::string&) override
     {
     }
 
-    /// A Quality or Low Latency change SetParam recorded (see RequestRebuildSetting), sharing the
-    /// playback-rate impulses to build from rather than copying them: a reverb IR runs to seconds,
-    /// and this runs under the DSP lock.
+    /// A Quality change SetParam recorded (see RequestRebuildSetting), sharing the playback-rate
+    /// impulses to build from rather than copying them: a reverb IR runs to seconds, and this runs
+    /// under the DSP lock.
     [[nodiscard]] std::unique_ptr<DeferredRebuild> TakeDeferredRebuild() override
     {
-        if ((mPendingQuality.load(std::memory_order_acquire) < 0 &&
-             mPendingLowLatency.load(std::memory_order_acquire) < 0) ||
-            !HasResource() || !HasImpulses() || mMaxBlockSize == 0)
+        if (mPendingQuality.load(std::memory_order_acquire) < 0 || !HasResource() || !HasImpulses() ||
+            mMaxBlockSize == 0)
         {
             return nullptr;
         }
@@ -309,7 +296,7 @@ class IRReverbEffect : public EffectProcessor
 
         auto work = std::make_unique<ConvolverRebuild>();
         work->generation = mBuildGeneration;
-        work->settings = {mSampleRate, mMaxBlockSize, EffectiveQuality(), EffectiveLowLatency()};
+        work->settings = {mSampleRate, EffectiveQuality()};
         work->hasTrueStereo = mHasTrueStereo;
         work->playback = mPlaybackImpulses;
         return work;
@@ -323,7 +310,7 @@ class IRReverbEffect : public EffectProcessor
         // waiting settings folded in. A change requested while it was built supersedes it, and
         // that SetParam has already asked for another pass.
         if (!work || !work->convolvers || work->generation != mBuildGeneration ||
-            EffectiveQuality() != work->settings.quality || EffectiveLowLatency() != work->settings.lowLatency)
+            EffectiveQuality() != work->settings.quality)
         {
             return;
         }
@@ -336,9 +323,7 @@ class IRReverbEffect : public EffectProcessor
         std::swap(mConvolverLR, work->convolvers->lr);
         std::swap(mConvolverRL, work->convolvers->rl);
         mQuality = work->settings.quality;
-        mLowLatency = work->settings.lowLatency;
         ClearPendingIf(mPendingQuality, static_cast<int>(mQuality));
-        ClearPendingIf(mPendingLowLatency, mLowLatency ? 1 : 0);
     }
 
     [[nodiscard]] double GetParam(const std::string& key) const override
@@ -366,11 +351,6 @@ class IRReverbEffect : public EffectProcessor
         if (key == "quality")
         {
             return static_cast<double>(EffectiveQuality());
-        }
-
-        if (key == "lowLatency")
-        {
-            return EffectiveLowLatency() ? 1.0 : 0.0;
         }
 
         return 0.0;
@@ -420,13 +400,6 @@ class IRReverbEffect : public EffectProcessor
         return mIRPath;
     }
 
-    /// The convolvers' latency: 0 with Low Latency on, the partition with it off. The dry signal is
-    /// delayed to match (mDryDelay).
-    [[nodiscard]] int GetLatencySamples() const override
-    {
-        return mConvolverLL.IsInitialized() ? mConvolverLL.GetLatency() : 0;
-    }
-
     [[nodiscard]] std::string GetType() const override
     {
         return "reverb_ir";
@@ -440,8 +413,6 @@ class IRReverbEffect : public EffectProcessor
   private:
     // Host rate the IR normalisation gain is anchored to (see ComputeL2NormGain).
     static constexpr double kNormalizationReferenceRate = 48000.0;
-    // How long the dry signal takes to move to a new latency, the IR Cabinet's IR crossfade.
-    static constexpr double kDryDelayCrossfadeSeconds = 0.03;
 
     /// One IR's impulses at one sample rate. Never changed once built, and shared rather than
     /// copied: a deferred rebuild reads them off the DSP lock while an IR load may replace the
@@ -459,9 +430,7 @@ class IRReverbEffect : public EffectProcessor
     struct ConvolverBuildSettings
     {
         double sampleRate = 48000.0;
-        int maxBlockSize = 0;
         IRQuality quality = IRQuality::Standard;
-        bool lowLatency = true;
     };
 
     /// The convolvers a deferred rebuild builds, allocated by the build rather than when the work
@@ -474,8 +443,7 @@ class IRReverbEffect : public EffectProcessor
         RealtimeConvolver rl;
     };
 
-    /// The convolver rebuild a Quality or Low Latency change needs, built by the message thread off
-    /// the DSP lock.
+    /// The convolver rebuild a Quality change needs, built by the message thread off the DSP lock.
     class ConvolverRebuild final : public DeferredRebuild
     {
       public:
@@ -774,8 +742,8 @@ class IRReverbEffect : public EffectProcessor
 
         // Resample once per (IR, playback rate); a quality change only re-truncates.
         EnsurePlaybackImpulses();
-        return BuildConvolvers({mSampleRate, mMaxBlockSize, mQuality, mLowLatency}, *mPlaybackImpulses, mHasTrueStereo,
-                               mConvolverLL, mConvolverRR, mConvolverLR, mConvolverRL);
+        return BuildConvolvers({mSampleRate, mQuality}, *mPlaybackImpulses, mHasTrueStereo, mConvolverLL, mConvolverRR,
+                               mConvolverLR, mConvolverRL);
     }
 
     /// Truncates the playback-rate impulses for the quality, normalises them and builds the
@@ -840,29 +808,24 @@ class IRReverbEffect : public EffectProcessor
             }
         }
 
-        convolverLL.SetLowLatencyMode(settings.lowLatency);
-        convolverRR.SetLowLatencyMode(settings.lowLatency);
-        convolverLR.SetLowLatencyMode(settings.lowLatency);
-        convolverRL.SetLowLatencyMode(settings.lowLatency);
-
-        if (!convolverLL.SetImpulse(processedLL, settings.maxBlockSize))
+        if (!convolverLL.SetImpulse(processedLL))
         {
             return false;
         }
 
-        if (!convolverRR.SetImpulse(processedRR, settings.maxBlockSize))
+        if (!convolverRR.SetImpulse(processedRR))
         {
             return false;
         }
 
         if (trueStereo)
         {
-            if (!convolverLR.SetImpulse(processedLR, settings.maxBlockSize))
+            if (!convolverLR.SetImpulse(processedLR))
             {
                 return false;
             }
 
-            if (!convolverRL.SetImpulse(processedRL, settings.maxBlockSize))
+            if (!convolverRL.SetImpulse(processedRL))
             {
                 return false;
             }
@@ -871,8 +834,8 @@ class IRReverbEffect : public EffectProcessor
         return true;
     }
 
-    /// Quality and Low Latency are built into the convolvers, so SetParam only records a change
-    /// and the next build picks it up. With nothing built yet (a preset sets its params before its
+    /// Quality is built into the convolvers, so SetParam only records a change and the next build
+    /// picks it up. With nothing built yet (a preset sets its params before its
     /// IR loads) that is the first build. Otherwise the rebuild is left to the message thread
     /// (DeferredRebuild): SetParam can run on the audio thread, and the rebuild allocates.
     void RequestRebuildSetting(std::atomic<int>& pending, int built, int requested)
@@ -892,22 +855,13 @@ class IRReverbEffect : public EffectProcessor
         return pending >= 0 ? static_cast<IRQuality>(pending) : mQuality;
     }
 
-    [[nodiscard]] bool EffectiveLowLatency() const
-    {
-        const int pending = mPendingLowLatency.load(std::memory_order_acquire);
-        return pending >= 0 ? pending != 0 : mLowLatency;
-    }
-
-    /// Every build of the live convolvers starts here: a Quality or Low Latency change still
-    /// waiting is folded into the build, and any rebuild already taken for it is dropped when it
-    /// comes back.
+    /// Every build of the live convolvers starts here: a Quality change still waiting is folded
+    /// into the build, and any rebuild already taken for it is dropped when it comes back.
     void ApplyPendingRebuildSettings()
     {
         ++mBuildGeneration;
         mQuality = EffectiveQuality();
-        mLowLatency = EffectiveLowLatency();
         mPendingQuality.store(-1, std::memory_order_release);
-        mPendingLowLatency.store(-1, std::memory_order_release);
     }
 
     /// A pending value the commit just built is no longer pending; a different one still is.
@@ -958,16 +912,13 @@ class IRReverbEffect : public EffectProcessor
     std::vector<float> mOutputBufferRR;
     std::vector<float> mOutputBufferLR;
     std::vector<float> mOutputBufferRL;
-    DryPathDelay mDryDelay; // the dry signal, as late as GetLatencySamples() says
 
     std::atomic<double> mMix{0.3};
     std::atomic<double> mOutputGain{1.0};
     IRQuality mQuality = IRQuality::Standard;
-    bool mLowLatency = true; // non-uniform (low-latency) convolution mode
-    // Quality and Low Latency as SetParam last asked for them, while the convolvers are built
-    // another way or not built yet (-1 when they match). See RequestRebuildSetting.
+    // Quality as SetParam last asked for it, while the convolvers are built another way or not
+    // built yet (-1 when they match). See RequestRebuildSetting.
     std::atomic<int> mPendingQuality{-1};
-    std::atomic<int> mPendingLowLatency{-1};
     // Counts builds of the live convolvers, so a deferred rebuild taken before one is dropped.
     std::uint64_t mBuildGeneration = 0;
     // Until the first Prepare() a build would be at the default rate and block size, and
@@ -997,7 +948,6 @@ inline void RegisterIRReverbEffect()
         {"mix", "Mix", 0.3, 0.0, 1.0, "amount"},
         {"outputGain", "Output", 0.0, -24.0, 24.0, "dB"},
         {"tone", "Tone", 1.0, 0.0, 1.0, "amount"},
-        {"lowLatency", "Low Latency", 1.0, 0.0, 1.0, "toggle"},
         {"quality", "Quality", 3.0, 0.0, 3.0, "enum", "", false, 1.0, {"Economy", "Standard", "High", "Full"}}};
 
     EffectRegistry::Instance().Register(info.type, info, []() { return std::make_unique<IRReverbEffect>(); });

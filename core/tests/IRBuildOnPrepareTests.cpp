@@ -200,8 +200,6 @@ bool TestLoadOrder(const LoadCase& loadCase)
     passed &= Expect(Load(*preparedFirst, loadCase) && preparedFirst->HasResource(),
                      loadCase.name + ": a load on a prepared effect should build at once");
 
-    passed &= Expect(loadedFirst->GetLatencySamples() == preparedFirst->GetLatencySamples(),
-                     loadCase.name + ": both orders should report the same latency");
     passed &= Expect(Render(*loadedFirst, 400) == Render(*preparedFirst, 400),
                      loadCase.name + ": both orders should render bit-identical output");
 
@@ -279,16 +277,15 @@ int main()
     const fs::path cabStereo = WriteIR("cab_200ms_44k_stereo.wav", 0.2, 44100.0, 2, 3);
     const fs::path cabMono = WriteIR("cab_100ms_96k_mono.wav", 0.1, 96000.0, 1, 4);
 
-    // Quality and Low Latency set before the IR loads are folded into the one build.
-    passed &= TestLoadOrder({"reverb, true stereo",
-                             EffectGuids::kReverbIr,
-                             {{"mix", 0.6}, {"quality", 1.0}, {"lowLatency", 0.0}},
-                             {verbQuad}});
+    // Quality, Normalize and Trim Leading Silence set before the IR loads are folded into the one
+    // build.
+    passed &=
+        TestLoadOrder({"reverb, true stereo", EffectGuids::kReverbIr, {{"mix", 0.6}, {"quality", 1.0}}, {verbQuad}});
     passed &= TestLoadOrder({"reverb, stereo", EffectGuids::kReverbIr, {{"mix", 1.0}}, {verbStereo}});
     passed &= TestLoadOrder({"cab, slot A", EffectGuids::kCabIr, {{"normalizeIR", 0.0}}, {cabStereo}});
     passed &= TestLoadOrder({"cab, slots A and B",
                              EffectGuids::kCabIr,
-                             {{"irBlend", 0.5}, {"quality", 3.0}, {"lowLatency", 0.0}},
+                             {{"irBlend", 0.5}, {"quality", 3.0}, {"trimLeadingSilence", 1.0}},
                              {cabStereo, cabMono}});
 
     // A build before Prepare would run at the default 44.1 kHz, so for an IR at the host's 48 kHz it

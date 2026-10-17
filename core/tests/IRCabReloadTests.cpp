@@ -4,13 +4,13 @@
  * A load that leaves a slot empty must empty it. The cab used to "clear" a slot with
  * RealtimeConvolver::Reset(), which only clears history, so the slot went on playing its old IR:
  * a cab given A and B, then A alone, still blended in the old B (A came out 3 dB down at irBlend
- * 0.5), and with B's impulse gone, Prepare and the Normalize/Low Latency rebuilds skipped B while
- * it kept sounding. A composite's inner executor reaches this, reloading its inner cab with one
+ * 0.5), and with B's impulse gone, Prepare and the Normalize rebuild skipped B while it kept
+ * sounding. A composite's inner executor reaches this, reloading its inner cab with one
  * resource and no slot index.
  *
  * Reloading a prepared cab must sound bit-identical to a fresh cab given the same IRs: A alone,
  * with or without a slot index; A through the single-file LoadResource; a failed A beside B; and
- * after a Prepare at another rate or a Low Latency rebuild. An empty load must leave it passing
+ * after a Prepare at another rate or a Normalize rebuild. An empty load must leave it passing
  * the input through untouched, as SignalGraphExecutor expects of a node whose slots were cleared.
  */
 
@@ -190,15 +190,14 @@ bool SoundsTheSame(EffectProcessor& reloaded, EffectProcessor& fresh, const std:
 
     bool ok =
         Expect(worst == 0.0f, what + ": sounds like a fresh cab (worst difference " + std::to_string(worst) + ")");
-    ok &= Expect(reloaded.GetLatencySamples() == fresh.GetLatencySamples(), what + ": reports a fresh cab's latency");
     ok &= Expect(reloaded.HasResource() == fresh.HasResource(), what + ": HasResource() as a fresh cab");
     return ok;
 }
 
-/// Flips Low Latency and runs the deferred rebuild it asks for, as the message thread would.
-void RebuildWithLowLatencyFlipped(EffectProcessor& cab)
+/// Flips Normalize and runs the deferred rebuild it asks for, as the message thread would.
+void RebuildWithNormalizeFlipped(EffectProcessor& cab)
 {
-    cab.SetParam("lowLatency", cab.GetParam("lowLatency") > 0.5 ? 0.0 : 1.0);
+    cab.SetParam("normalizeIR", cab.GetParam("normalizeIR") > 0.5 ? 0.0 : 1.0);
 
     if (auto work = cab.TakeDeferredRebuild())
     {
@@ -231,9 +230,9 @@ bool TestReloadWithOnlyADropsB(const IRFiles& irs)
         fresh->Prepare(44100.0, kBlockSize);
         ok &= SoundsTheSame(*reloaded, *fresh, what + ", then Prepare at 44.1 kHz");
 
-        RebuildWithLowLatencyFlipped(*reloaded);
-        RebuildWithLowLatencyFlipped(*fresh);
-        ok &= SoundsTheSame(*reloaded, *fresh, what + ", then a Low Latency rebuild");
+        RebuildWithNormalizeFlipped(*reloaded);
+        RebuildWithNormalizeFlipped(*fresh);
+        ok &= SoundsTheSame(*reloaded, *fresh, what + ", then a Normalize rebuild");
     }
 
     return ok;
@@ -270,7 +269,6 @@ bool TestEmptyLoadPassesDry(const IRFiles& irs)
     cab->LoadResources({}, {});
 
     bool ok = Expect(!cab->HasResource(), "an empty load leaves no resource");
-    ok &= Expect(cab->GetLatencySamples() == 0, "an empty load leaves no latency");
 
     // No Reset: passing dry is a plain copy from the next block on.
     const std::size_t length = kBlockSize * 20;

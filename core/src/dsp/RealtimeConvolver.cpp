@@ -64,14 +64,14 @@ RealtimeConvolver::RealtimeConvolver(RealtimeConvolver&&) noexcept = default;
 
 RealtimeConvolver& RealtimeConvolver::operator=(RealtimeConvolver&&) noexcept = default;
 
-bool RealtimeConvolver::SetImpulse(const std::vector<float>& irSamples, int blockSize)
+bool RealtimeConvolver::SetImpulse(const std::vector<float>& irSamples)
 {
     mInitialized = false;
     mUseDirectConvolution = false;
     mIsNonUniform = false;
     mNonUniformStages.clear();
 
-    if (irSamples.empty() || blockSize <= 0)
+    if (irSamples.empty())
     {
         mIRPartitionsFFT.clear();
         mInputFFTDelayLine.clear();
@@ -81,11 +81,9 @@ bool RealtimeConvolver::SetImpulse(const std::vector<float>& irSamples, int bloc
         return false;
     }
 
-    // Low latency is zero latency, and owes nothing to the host block: an IR no longer than the
-    // FIR head runs on the FIR alone, a longer one on the FIR plus partitions that need no delay.
-    const size_t directLimit = mLowLatencyMode ? ZeroLatencyHeadForIR(irSamples.size()) : kDirectConvolutionThreshold;
-
-    if (irSamples.size() <= directLimit)
+    // An IR no longer than the FIR head runs on the FIR alone, a longer one on the FIR plus
+    // partitions that need no delay. Neither owes anything to the host block.
+    if (irSamples.size() <= ZeroLatencyHeadForIR(irSamples.size()))
     {
         BuildFir(irSamples.data(), irSamples.size());
         mUseDirectConvolution = true;
@@ -93,20 +91,7 @@ bool RealtimeConvolver::SetImpulse(const std::vector<float>& irSamples, int bloc
         return true;
     }
 
-    if (mLowLatencyMode)
-    {
-        return BuildNonUniform(irSamples);
-    }
-
-    // Partition size the uniform engine uses, which doubles as its latency. Low Latency
-    // off asks for this trade: fewer, larger partitions cost less on a long IR.
-    return BuildUniform(irSamples, static_cast<size_t>(GetMaxLatency(blockSize)));
-}
-
-int RealtimeConvolver::GetMaxLatency(int blockSize) noexcept
-{
-    return static_cast<int>(
-        std::clamp(NextPowerOf2(static_cast<size_t>(std::max(blockSize, 256))), size_t{256}, size_t{2048}));
+    return BuildNonUniform(irSamples);
 }
 
 bool RealtimeConvolver::BuildUniform(const std::vector<float>& irSamples, size_t partitionSize)
@@ -231,7 +216,6 @@ bool RealtimeConvolver::BuildNonUniform(const std::vector<float>& irSamples)
     // Build a single-block uniform stage covering irSamples[off, off+len).
     auto addStage = [&](size_t off, size_t len, size_t partition) -> bool {
         auto stage = std::make_unique<RealtimeConvolver>();
-        stage->mLowLatencyMode = false;
         std::vector<float> slice(irSamples.begin() + static_cast<std::ptrdiff_t>(off),
                                  irSamples.begin() + static_cast<std::ptrdiff_t>(std::min(off + len, n)));
 
@@ -269,7 +253,6 @@ bool RealtimeConvolver::BuildNonUniform(const std::vector<float>& irSamples)
         // needs no delay either.
         std::vector<float> tail(irSamples.begin() + static_cast<std::ptrdiff_t>(off), irSamples.end());
         auto stage = std::make_unique<RealtimeConvolver>();
-        stage->mLowLatencyMode = false;
 
         if (!stage->BuildUniform(tail, maxPartition))
         {
@@ -279,7 +262,7 @@ bool RealtimeConvolver::BuildNonUniform(const std::vector<float>& irSamples)
         mNonUniformStages.push_back(std::move(stage));
     }
 
-    // Aggregate reporting + scratch buffers. GetLatency() reports 0 for this engine.
+    // Aggregate reporting + scratch buffers.
     mNumPartitions = 0;
 
     for (const auto& stage : mNonUniformStages)

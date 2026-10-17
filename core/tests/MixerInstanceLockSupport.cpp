@@ -54,7 +54,7 @@ class ProbeRebuild final : public guitarfx::DeferredRebuild
     }
 };
 
-/// Takes a "rebuild" param the way the IR cab takes Normalize and Low Latency: SetParam records it
+/// Takes a "rebuild" param the way the IR cab takes Normalize: SetParam records it
 /// and the message thread builds it.
 class RebuildProbeEffect final : public guitarfx::EffectProcessor
 {

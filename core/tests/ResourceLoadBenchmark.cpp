@@ -196,7 +196,7 @@ void BenchmarkNamModel(const fs::path& path)
               << std::setprecision(1) << (100.0 * (1.0 - data / std::max(file, 1e-9))) << "% off each model)\n";
 }
 
-void BenchmarkIr(const fs::path& path, int blockSize)
+void BenchmarkIr(const fs::path& path)
 {
     std::cout << "\n" << DisplayName(path) << "\n";
 
@@ -227,7 +227,7 @@ void BenchmarkIr(const fs::path& path, int blockSize)
 
             guitarfx::RealtimeConvolver convolver;
             const auto t = Clock::now();
-            convolver.SetImpulse(mono, blockSize);
+            convolver.SetImpulse(mono);
             partitionMs.push_back(MsSince(t));
         }
     }
@@ -407,7 +407,7 @@ int main()
     }
 
     std::cout << "\n---------------------------------------------------------------------\n";
-    std::cout << " IR partitioning (block size 512)\n";
+    std::cout << " IR partitioning\n";
     std::cout << "---------------------------------------------------------------------\n";
 
     const auto irFiles = CollectFiles(assets / "ir", ".wav", 3);
@@ -419,7 +419,7 @@ int main()
 
     for (const auto& path : irFiles)
     {
-        BenchmarkIr(path, 512);
+        BenchmarkIr(path);
     }
 
     std::cout << "\n---------------------------------------------------------------------\n";

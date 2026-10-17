@@ -1,12 +1,12 @@
 /**
- * IRCabAutomationRealtimeTests.cpp — automating the IR cab's Normalize and Low Latency must not
- * rebuild its convolvers on the audio thread.
+ * IRCabAutomationRealtimeTests.cpp — automating the IR cab's Normalize and Trim Leading Silence
+ * must not rebuild its convolvers on the audio thread.
  *
  * MIDI and DAW automation apply on the audio thread: PluginController::ProcessQueuedMidi takes the
  * DSP lock there with a try-lock and hands each event to AutomationSlotTable::HandleMidi, which
  * reaches the node's SetParam through MultiPresetMixer::FindAutomationTarget. Any node parameter can
- * be bound to a slot. Changing either of these two used to rebuild the convolvers inside SetParam,
- * which allocates and runs the FFT setup.
+ * be bound to a slot. Changing either of these two needs the convolvers rebuilt, which allocates
+ * and runs the FFT setup. (Low Latency was the other one, until it was retired.)
  *
  * This binds both to MIDI CCs, sends the CCs from a thread standing in for the audio thread, and
  * counts what that thread allocates, against a slot on the cab's Mix sent the same way. The node.*
@@ -39,7 +39,7 @@ constexpr int kBlockSize = 64;
 constexpr const char* kPresetId = "cabPreset";
 constexpr const char* kCabNodeId = "cab";
 constexpr int kMixCc = 20;
-constexpr int kLowLatencyCc = 21;
+constexpr int kTrimCc = 21;
 constexpr int kNormalizeCc = 22;
 
 bool Expect(bool condition, const std::string& message)
@@ -62,7 +62,7 @@ Preset MakeCabPreset(const std::filesystem::path& irPath)
     GraphNode cab{kCabNodeId, "cab_ir", "cab", "IR Cabinet", true};
     // Both settings start on, so the CCs below turn them off.
     cab.params["mix"] = 1.0;
-    cab.params["lowLatency"] = 1.0;
+    cab.params["trimLeadingSilence"] = 1.0;
     cab.params["normalizeIR"] = 1.0;
 
     ResourceRef ir;
@@ -138,12 +138,12 @@ std::size_t ApplyDeferredRebuilds(MultiPresetMixer& mixer)
 }
 
 /// A cab with these settings from the start, loaded the way a preset loads one.
-std::unique_ptr<EffectProcessor> MakeLoadedCab(const std::filesystem::path& irPath, double lowLatency, double normalize)
+std::unique_ptr<EffectProcessor> MakeLoadedCab(const std::filesystem::path& irPath, double normalize, double trim)
 {
     auto cab = EffectRegistry::Instance().Create("cab_ir");
     cab->SetParam("mix", 1.0);
-    cab->SetParam("lowLatency", lowLatency);
     cab->SetParam("normalizeIR", normalize);
+    cab->SetParam("trimLeadingSilence", trim);
     cab->Prepare(kSampleRate, kBlockSize);
 
     ResourceRef ir;
@@ -162,7 +162,7 @@ bool SameOutput(EffectProcessor& a, EffectProcessor& b)
     bool same = true;
     bool heard = false;
 
-    // Long enough to reach the tail partitions of either convolution layout.
+    // Long enough to reach the convolver's tail partitions.
     for (int block = 0; block < 256; ++block)
     {
         for (int i = 0; i < kBlockSize; ++i)
@@ -230,8 +230,8 @@ int main()
     table.SetEffectRegistry(&EffectRegistry::Instance());
 
     passed &= Expect(BindSlot(table, "custom.cabMix", "node.cab_ir.mix", kMixCc), "Failed to bind Mix");
-    passed &= Expect(BindSlot(table, "custom.cabLowLatency", "node.cab_ir.lowLatency", kLowLatencyCc),
-                     "Failed to bind Low Latency");
+    passed &= Expect(BindSlot(table, "custom.cabTrim", "node.cab_ir.trimLeadingSilence", kTrimCc),
+                     "Failed to bind Trim Leading Silence");
     passed &= Expect(BindSlot(table, "custom.cabNormalize", "node.cab_ir.normalizeIR", kNormalizeCc),
                      "Failed to bind Normalize");
 
@@ -239,70 +239,65 @@ int main()
     // anywhere on it cannot be charged to one of the measured events.
     CountOnAudioThread([&] {
         table.HandleMidi(MidiEvent{0xB0, kMixCc, 127, 0});
-        table.HandleMidi(MidiEvent{0xB0, kLowLatencyCc, 127, 0});
+        table.HandleMidi(MidiEvent{0xB0, kTrimCc, 127, 0});
         table.HandleMidi(MidiEvent{0xB0, kNormalizeCc, 127, 0});
     });
 
-    const int latencyBefore = cab->GetLatencySamples();
-
     const auto mix = CountOnAudioThread([&] { table.HandleMidi(MidiEvent{0xB0, kMixCc, 64, 0}); });
-    const auto lowLatency = CountOnAudioThread([&] { table.HandleMidi(MidiEvent{0xB0, kLowLatencyCc, 0, 0}); });
+    const auto trim = CountOnAudioThread([&] { table.HandleMidi(MidiEvent{0xB0, kTrimCc, 0, 0}); });
     const auto normalize = CountOnAudioThread([&] { table.HandleMidi(MidiEvent{0xB0, kNormalizeCc, 0, 0}); });
 
-    std::cout << "Audio thread, one CC each: Mix " << Describe(mix) << "; Low Latency " << Describe(lowLatency)
+    std::cout << "Audio thread, one CC each: Mix " << Describe(mix) << "; Trim Leading Silence " << Describe(trim)
               << "; Normalize " << Describe(normalize) << std::endl;
 
-    passed &= Expect(cab->GetParam("lowLatency") == 0.0 && cab->GetParam("normalizeIR") == 0.0,
+    passed &= Expect(cab->GetParam("trimLeadingSilence") == 0.0 && cab->GetParam("normalizeIR") == 0.0,
                      "Both CCs should have reached the cab's SetParam");
-    passed &= Expect(lowLatency.count == mix.count,
-                     "Low Latency from MIDI allocated on the audio thread beyond the node.* route's own (" +
-                         Describe(lowLatency) + " vs Mix " + Describe(mix) + ")");
+    passed &= Expect(trim.count == mix.count,
+                     "Trim Leading Silence from MIDI allocated on the audio thread beyond the node.* route's own (" +
+                         Describe(trim) + " vs Mix " + Describe(mix) + ")");
     // Normalize is not a declared parameter, so the route skips the range lookup and allocates less.
     passed &= Expect(normalize.count <= mix.count,
                      "Normalize from MIDI allocated on the audio thread beyond the node.* route's own (" +
                          Describe(normalize) + " vs Mix " + Describe(mix) + ")");
 
-    // The effect on its own, with nothing from the route: no allocation at all. Trim Leading
-    // Silence is the same kind of setting; asked for and then un-asked, it leaves nothing waiting.
-    const std::string lowLatencyKey = "lowLatency";
+    // The effect on its own, with nothing from the route: no allocation at all. Asking for what is
+    // built cancels what the CCs left waiting; asking again waits again.
     const std::string normalizeKey = "normalizeIR";
     const std::string trimKey = "trimLeadingSilence";
     const auto direct = CountOnAudioThread([&] {
-        cab->SetParam(lowLatencyKey, 1.0);
-        cab->SetParam(normalizeKey, 1.0);
         cab->SetParam(trimKey, 1.0);
+        cab->SetParam(normalizeKey, 1.0);
         cab->SetParam(trimKey, 0.0);
-        cab->SetParam(lowLatencyKey, 0.0);
+        cab->SetParam(trimKey, 1.0);
+        cab->SetParam(normalizeKey, 0.0);
     });
     passed &= Expect(direct.count == 0, "SetParam on the cab allocated on the audio thread (" + Describe(direct) + ")");
 
-    // Asked for Low Latency off, and Normalize off and back on again: only the first is waiting,
-    // and nothing is rebuilt until the message thread builds it.
-    passed &= Expect(cab->GetParam("lowLatency") == 0.0 && cab->GetParam("normalizeIR") == 1.0,
+    // Asked for Normalize off, and Trim off and back on again: only the first is waiting, and
+    // nothing is rebuilt until the message thread builds it. Mix back to where the comparison cabs
+    // have it, from the CC above.
+    passed &= Expect(cab->GetParam("normalizeIR") == 0.0 && cab->GetParam("trimLeadingSilence") == 1.0,
                      "GetParam should report what was last asked for");
-    passed &= Expect(cab->GetLatencySamples() == latencyBefore, "Nothing should be rebuilt before the message thread");
+    cab->SetParam("mix", 1.0);
+    passed &= Expect(SameOutput(*cab, *MakeLoadedCab(irPath, 1.0, 1.0)),
+                     "Nothing should be rebuilt before the message thread");
     passed &= Expect(ProcessBlocks(mixer, 32), "The cab should render finite audio after automation");
 
     passed &= Expect(ApplyDeferredRebuilds(mixer) == 1, "The cab's rebuild should be waiting for the message thread");
-    const int latencyAfter = cab->GetLatencySamples();
-    std::cout << "Cab latency with Low Latency on: " << latencyBefore << ", off: " << latencyAfter << std::endl;
-    passed &= Expect(latencyAfter > latencyBefore, "The message thread's rebuild should turn Low Latency off");
-    passed &= Expect(cab->GetParam("lowLatency") == 0.0 && cab->GetParam("normalizeIR") == 1.0,
+    passed &= Expect(cab->GetParam("normalizeIR") == 0.0 && cab->GetParam("trimLeadingSilence") == 1.0,
                      "The settings should read back as built");
     passed &= Expect(ApplyDeferredRebuilds(mixer) == 0, "Nothing should be left waiting once it is built");
     passed &= Expect(ProcessBlocks(mixer, 32), "The cab should render finite audio across the crossfade");
 
-    // The rebuild is the build a cab set up that way from the start would do. Mix back to where
-    // the comparison cabs have it, from the CC above.
-    cab->SetParam("mix", 1.0);
+    // The rebuild is the build a cab set up that way from the start would do.
     passed &= Expect(SameOutput(*cab, *MakeLoadedCab(irPath, 0.0, 1.0)),
                      "A rebuilt cab should sound exactly like one built with its settings");
 
     // Asking again for what is built, while the rebuild for the change is being built, drops it.
-    cab->SetParam(normalizeKey, 0.0);
-    auto superseded = cab->TakeDeferredRebuild();
     cab->SetParam(normalizeKey, 1.0);
-    passed &= Expect(superseded != nullptr, "Normalize off should wait for the message thread");
+    auto superseded = cab->TakeDeferredRebuild();
+    cab->SetParam(normalizeKey, 0.0);
+    passed &= Expect(superseded != nullptr, "Normalize on should wait for the message thread");
 
     if (superseded)
     {
@@ -310,13 +305,13 @@ int main()
         cab->CommitDeferredRebuild(*superseded);
     }
 
-    passed &= Expect(cab->GetParam("normalizeIR") == 1.0 && !cab->TakeDeferredRebuild(),
+    passed &= Expect(cab->GetParam("normalizeIR") == 0.0 && !cab->TakeDeferredRebuild(),
                      "A rebuild superseded while it was built should not be installed");
     passed &= Expect(SameOutput(*cab, *MakeLoadedCab(irPath, 0.0, 1.0)),
                      "A superseded rebuild should leave the cab as it was");
 
     // A Prepare in between rebuilds with the waiting setting itself, and the late work is dropped.
-    cab->SetParam(normalizeKey, 0.0);
+    cab->SetParam(normalizeKey, 1.0);
     auto preempted = cab->TakeDeferredRebuild();
     cab->Prepare(kSampleRate, kBlockSize);
 
@@ -326,9 +321,9 @@ int main()
         cab->CommitDeferredRebuild(*preempted);
     }
 
-    passed &= Expect(preempted != nullptr && cab->GetParam("normalizeIR") == 0.0 && !cab->TakeDeferredRebuild(),
+    passed &= Expect(preempted != nullptr && cab->GetParam("normalizeIR") == 1.0 && !cab->TakeDeferredRebuild(),
                      "A Prepare should build a waiting setting in");
-    passed &= Expect(SameOutput(*cab, *MakeLoadedCab(irPath, 0.0, 0.0)),
+    passed &= Expect(SameOutput(*cab, *MakeLoadedCab(irPath, 1.0, 1.0)),
                      "A cab prepared with a setting waiting should sound like one built with it");
 
     std::cout << (passed ? "IRCabAutomationRealtimeTests passed" : "IRCabAutomationRealtimeTests FAILED") << std::endl;

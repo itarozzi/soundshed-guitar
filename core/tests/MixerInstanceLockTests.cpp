@@ -591,12 +591,9 @@ bool TestLatencyReadLockedNotifiedUnlocked(PluginController& controller)
         passed = CheckWindow(what + " host notification", notifies, "arrived under the DSP lock") && passed;
     };
 
-    trigger("lowLatency param", [&] {
-        Send(controller, {{"type", "updateSignalPathNodeParam"},
-                          {"presetId", kPresetId},
-                          {"nodeId", "probe"},
-                          {"paramKey", "lowLatency"},
-                          {"value", 1.0}});
+    // A global Transpose change is one that can change the chain's latency.
+    trigger("transpose", [&] {
+        Send(controller, {{"type", "setGlobalChainParam"}, {"path", "transpose.semitones"}, {"value", 0}});
     });
 
     // A bounce starting or ending only records the mode: no walk, and nothing for the host.

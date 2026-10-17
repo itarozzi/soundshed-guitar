@@ -263,8 +263,8 @@ call:
    if the effect was rebuilt in between, and leaves what it replaces in the work, to be freed after
    the lock is released.
 
-A composite forwards both calls to its inner graph. The IR Cabinet's Normalize, Low Latency and Trim
-Leading Silence, and the Convolution Reverb's Quality and Low Latency, work this way.
+A composite forwards both calls to its inner graph. The IR Cabinet's Normalize and Trim Leading
+Silence, and the Convolution Reverb's Quality, work this way.
 
 ## Built-in Effect Types
 
@@ -495,66 +495,58 @@ Quality levels: 0=Economy, 1=Standard, 2=High, 3=Full
 both loaded, IR Blend (`irBlend`) crossfades from A at 0 to B at 1, and L/R Split (`lrSplit`)
 plays A from the left input and B from the right instead. One IR alone plays in full, in either
 slot, as if IR Blend were all the way to it, whatever IR Blend, L/R Split and the IR B offset
-say: its own slot's settings apply and the other slot's do not, and the cab reports its latency.
+say: its own slot's settings apply and the other slot's do not.
 Loading or clearing a slot crossfades over 30 ms from what was playing, the outgoing side at the
 level it played at. Until 2026-10-17 a cab with only IR B passed its input dry, because
-`Process()` waited for slot A's convolvers, and it reported no latency with Low Latency off. The
-outgoing side of that crossfade also played at the incoming slots' levels then, so adding IR B
+`Process()` waited for slot A's convolvers. The outgoing side of that crossfade also played at the incoming slots' levels then, so adding IR B
 to IR A, or clearing it, with IR Blend above 0 jumped the level instead of fading it.
 
-**Normalize and Low Latency** (`normalizeIR` and `lowLatency`, both on by default) are built into
-the convolvers: the normalisation gain into the coefficients, and the latency into the partition
-layout. A preset sets them before its IRs load, so loading one rebuilds nothing extra. A change
-once IRs are loaded, from the node panel or from MIDI or DAW automation, is not built in `SetParam`
+**Normalize** (`normalizeIR`, on by default) is built into the convolvers: the normalisation gain
+into the coefficients. A preset sets it before its IRs load, so loading one rebuilds nothing extra.
+A change once IRs are loaded, from the node panel or from MIDI or DAW automation, is not built in `SetParam`
 (see *Where SetParam runs*). The message thread builds it off the DSP lock from copies of the
 impulses, and swaps it in under the lock with the same 30 ms crossfade an IR change uses. The
 outgoing side of that crossfade is the convolvers that were playing, history and all. A change from
 the node panel is built before its message returns, and one from automation at the next idle tick.
 `GetParam` reports the requested value straight away. The rebuild also applies a Quality change
-still waiting for the next IR load. The host hears about the new latency once the rebuild is in.
-Normalize is not a declared parameter, so the node panel has no control for it. Presets set it,
+still waiting for the next IR load. Normalize is not a declared parameter, so the node panel has no control for it. Presets set it,
 and so can a slot address that names it (`node.cab_ir.normalizeIR`).
 
-With Low Latency on, the cab has no latency at all, whatever block the host promises or sends.
+**No latency.** The cab has no latency at all, whatever block the host promises or sends.
 The first 256 samples of the IR (512 for an IR of 16,448 samples or more) run as a direct
 FIR, and the rest as FFT partitions that grow with their offset into the IR, each one exactly as
 late as its part of the IR has to be (`RealtimeConvolver`). An IR no longer than the FIR runs on
 the FIR alone. At a small host block this costs less CPU than the 64- and 128-sample partitions
-it replaced; at a large one, about the same (docs/plans/zero-latency-ir-cab.md). Low Latency
-off sizes its uniform partition, and so its latency, from the largest block the host promised,
-256 to 2048 samples. That is fewer, larger partitions, the cheapest at a large host block on a
-long IR. An IR of 64 samples or fewer runs as a FIR either way.
+it replaced; at a large one, about the same (docs/plans/zero-latency-ir-cab.md). So the dry
+signal lines up with the wet one below 100% Mix with no delay of its own. Speaker Drive bends a
+copy of the input, so the dry stays clean.
 
-The dry signal is delayed by whatever latency the cab reports (`DryPathDelay.h`), so below 100%
-Mix the dry and wet line up and a host's delay compensation places both right. With Low Latency
-on that delay is 0 and the dry passes through exactly. The delay line is sized at `Prepare` for
-the largest partition that block size can get (`RealtimeConvolver::GetMaxLatency`), and records
-on every path, Mix 0 and no IR included, so the dry is just as late at Mix 0 and a Mix raised
-from 0 finds history. When the latency changes, by a Low Latency switch or an IR load, the dry
-crossfades to the new delay over the same 30 ms as the wet. A bypassed node is not processed and
-the executor counts no latency for it.
-
-Until 2026-10-16 Low Latency meant 64 or 128 samples of latency when the host promised blocks
-that small and 256 otherwise (5.3 ms at 48 kHz in most DAWs). The wet signal was that late, so a
-Mix below 100% comb-filtered against the undelayed dry one; with no latency it no longer can.
-Low Latency off kept the comb, and the host pulled the dry 256-2048 samples early, until the dry
-delay later the same day. That changed a cab at 50% Mix with Low Latency off by up to 7.8 dB in a
-band (the comb going); at 100% Mix, or with Low Latency on, the output is bit-identical.
-Until 2026-10-13 a short IR took the Low Latency off size even with it on: a host promising 8192
-samples and sending 64 got a cab adding 2048 samples (43 ms at 48 kHz).
+Until 2026-10-16 the cab's Low Latency switch, on by default, meant 64 or 128 samples of latency
+when the host promised blocks that small and 256 otherwise (5.3 ms at 48 kHz in most DAWs). The
+wet signal was that late, so a Mix below 100% comb-filtered against the undelayed dry one. Low
+Latency off ran one uniform partition, 256 to 2048 samples from the largest block the host
+promised, and from later that day delayed the dry to match (`DryPathDelay`). Measured against the
+zero-latency convolver, off saved 7-9 ns per sample per convolver on a cab-length IR (about 0.04%
+of a core), cost 1.2-1.9x more on a 0.5-1 s IR and up to 3.7x on a 3 s reverb at blocks up to 256,
+and sounded the same, shifted. So on
+2026-10-17 the switch was retired from both IR effects. A preset or MIDI binding that still sets
+`lowLatency` is ignored, and one saved with it off loses its 5-43 ms of latency, which a host
+compensates for as it does any latency change. Until 2026-10-13 a short IR took the Low Latency
+off size even with it on: a host promising 8192 samples and sending 64 got a cab adding 2048
+samples (43 ms at 48 kHz).
 
 **Trim Leading Silence** (`trimLeadingSilence`, off by default, under Advanced) takes off what an
 IR file has in front of its sound: the time the sound took to reach the mic, and any silence the
-capture left before it. With Low Latency's zero, that is the only delay a cab still adds, and
+capture left before it. With no convolver latency, that is the only delay a cab still adds, and
 Quality's length counted it against the IR. An IR's onset is its first sample within -40 dB of its
 peak, in either channel of a stereo IR (`IrLeadingSilence.h`), and the trim stops 4 samples short
 of it so the attack's rise is kept. With two IRs loaded, both lose the earlier one's onset, so IR B
 keeps its place against IR A and an IR B offset means what it did. The trim is counted at the
 host's rate and taken after resampling, so two IRs at different rates move by exactly the same
-time. Quality's length is counted from where the trim stops. It is a rebuild setting like Normalize
-and Low Latency, built off the DSP lock by the message thread when changed on a loaded cab, and it
-does not change the reported latency: an IR's own pre-delay was never counted in it. It is off by
-default so a preset keeps the timing it was made with.
+time. Quality's length is counted from where the trim stops. It is a rebuild setting like Normalize,
+built off the DSP lock by the message thread when changed on a loaded cab. The cab reports no
+latency either way: an IR's own pre-delay was never counted as latency. It is off by default so a
+preset keeps the timing it was made with.
 
 Of 66 distinct cab-length IRs measured on 2026-10-16 (resources/ and a development profile), 51
 reach -40 dB within 0.1 ms, 4 within 0.5 ms, 10 take 0.5-1.6 ms and one 3.5 ms. What the trim
@@ -1176,7 +1168,6 @@ Impulse response reverb (`IRReverbEffect.h`). Takes a mono, stereo or true-stere
 | `mix` | 0.0–1.0 | 0.3 | — |
 | `outputGain` | -24..+24 | 0.0 | dB |
 | `tone` | 0.0–1.0 | 1.0 | — |
-| `lowLatency` | 0/1 | 1 | toggle |
 | `quality` | 0–3 | 3 | — |
 
 Quality sets how much of the IR is kept: 0=Economy (1.5 s), 1=Standard (3 s), 2=High (6 s),
@@ -1185,41 +1176,33 @@ instead, when that comes first. The last 2048 samples kept are faded out. The IR
 the host rate once per IR and rate, and normalised by its L2 norm, anchored to 48 kHz so the level
 does not change with the host rate.
 
-**Quality and Low Latency** are built into the convolvers: where the IR is cut, and so its
-normalisation gain, into the coefficients, and the latency into the partition layout. A preset sets
-them before its IR loads, so loading one rebuilds nothing extra. A change once the IR is loaded,
+**Quality** is built into the convolvers: where the IR is cut, and so its normalisation gain, into
+the coefficients. A preset sets it before its IR loads, so loading one rebuilds nothing extra. A change once the IR is loaded,
 from the node panel or from MIDI or DAW automation, is not built in `SetParam` (see *Where SetParam
 runs*). The message thread builds it off the DSP lock and swaps it in under the lock. The work
 shares the resampled impulses rather than copying them, since a reverb IR runs to seconds and the
 work is taken under the lock. There is no crossfade: the new convolvers start with no history, so
 the tail of what was playing stops at the swap. A change from the node panel is built before its
 message returns, and one from automation at the next idle tick. `GetParam` reports the requested
-value straight away, and the host hears about the new latency once the rebuild is in.
+value straight away.
 
-Low Latency on has no latency, the same zero-latency convolver as the IR Cabinet's. Until
-2026-10-16 it reported 64-256 samples, though its dry signal passes undelayed, so a host
-compensating for that latency pulled the dry guitar 1.3-5.3 ms early. The wet signal also
-trailed the dry one by that much, so below 100% Mix the two combed against each other wherever
-the IR has early energy. Now they line up, the same at every buffer size. On the factory pack's
+The reverb has no latency: it runs the same zero-latency convolver as the IR Cabinet. Until
+2026-10-16 its Low Latency switch, on by default, reported 64-256 samples, though its dry signal
+passed undelayed, so a host compensating for that latency pulled the dry guitar 1.3-5.3 ms early.
+The wet signal also trailed the dry one by that much, so below 100% Mix the two combed against
+each other wherever the IR has early energy. Now they line up, the same at every buffer size. On the factory pack's
 two bundled reverb IRs (Mix 39% and 70%) it moved the third-octave response by up to 1.25 dB
 against the old 64-sample offset, and against the old 256-sample one by 2.3-3.4 dB at 63 Hz and
 0.6 dB at most above it.
 
-Low Latency off reports its partition, 256 to 2048 samples, and delays the dry signal by the same
-amount (`DryPathDelay.h`, as in the IR Cabinet), so the dry and wet line up as they do with Low
-Latency on: the switch changes when the reverb sounds, not how. A change of latency moves the dry
-over a 30 ms crossfade; the wet starts afresh at the swap, as above. Until 2026-10-16 the dry
-passed undelayed here too, and the wet trailed it by the partition, which follows the largest
-block the host promises.
-
-Reporting no latency and calling that trail a pre-delay would have kept the old sound exactly,
-and was the simpler fix. Measured with `tools/audio-ab` on the factory pack's two reverb nodes set
-to Low Latency off (no factory preset turns it off), delaying the dry moves them by 0.9-1.8 dB in
-the 63-80 Hz bands. But the old trail is itself a change that size whenever the buffer size
-changes: from a 64- to a 1024-sample host block the same two nodes moved 1.5-1.7 dB at 80 Hz, and
-switching Low Latency moved a reverb on a cab IR at 30% Mix by up to 9 dB in a band. With the dry
-delayed, both are a pure shift in time (gain-matched null below -98 dB). Reporting 0 would also
-have been wrong for the IR Cabinet, whose wet signal is the guitar itself.
+Low Latency off reported its partition, 256 to 2048 samples from the largest block the host
+promised, and from later on 2026-10-16 delayed the dry by the same amount (`DryPathDelay`), so the
+switch changed when the reverb sounded, not how. Reporting no latency and calling the wet's trail a
+pre-delay would have kept the old sound exactly, but that trail moved the factory pack's two
+reverb nodes 1.5-1.7 dB at 80 Hz between a 64- and a 1024-sample host block. On a 3 s IR off also
+cost 1.8-3.7x the CPU of the zero-latency convolver at every block up to 512, so on 2026-10-17 it
+was retired with the IR Cabinet's. A preset or MIDI binding that still sets `lowLatency` is
+ignored.
 
 ### Algorithmic Reverbs
 Room, chamber, and advanced reverb share a common algorithmic engine. Spring and ambient use dedicated processors because their topology and voicing diverge more strongly from the shared room/chamber design:

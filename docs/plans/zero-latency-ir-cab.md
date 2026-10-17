@@ -162,3 +162,68 @@ offset, and 2.3-3.4 dB at 63 Hz (0.6 dB above) against the old 256.
 Also checked: the fast-math Release semantics. A probe built with MSVC `/fp:fast` and clang-cl
 `-ffast-math` fed NaN and infinity (parsed at run time, checked with a volatile bit test) into IRs
 of 200 to 40,000 samples: nothing non-finite came out, and the signal returned.
+
+## Is Low Latency off still worth having?
+
+Measured 2026-10-17 at 22f67212: the current `RealtimeConvolver`, on against off, one channel,
+48 kHz, `/Ox /fp:fast /arch:AVX2`, ns per sample, best of 5 interleaved runs. "Block" is both the
+host's promised maximum and the block processed, which is off's best case: a host that promises
+more than it sends gives off a larger partition, so more latency, for the same CPU.
+
+| IR (samples) | Block 64: on / off | 256 | 512 | 1024 | Off's latency |
+| ------------ | ------------------ | --- | --- | ---- | ------------- |
+| 480 (Economy) | 29 / 20 | 28 / 20 | 28 / 20 | 28 / 21 | 256, 256, 512, 1024 |
+| 2,064 (Standard, default) | 32 / 25 | 32 / 24 | 31 / 22 | 31 / 22 | " |
+| 8,160 (High) | 46 / 39 | 45 / 39 | 44 / 32 | 45 / 24 | " |
+| 24,000 (500 ms, Full) | 65 / 77 | 66 / 76 | 64 / 48 | 63 / 34 | " |
+| 48,000 (1 s) | 102 / 193 | 97 / 190 | 102 / 102 | 93 / 51 | " |
+| 144,000 (3 s reverb) | 161 / 505 | 151 / 535 | 143 / 251 | 141 / 119 | " |
+
+On's latency is 0 in every row. Worst single callback was within about 2x either way, and under
+450 us everywhere (3 s IR, block 256, off).
+
+- On cab-length IRs (Economy to High) off saves 7-9 ns per sample per convolver below a 512 block:
+  about 0.04% of one core each, 0.15% for a stereo two-IR cab. It pays for that with 5.3 ms of
+  latency or more. Only at 1024-sample blocks does it near half the cost.
+- On a Full-length cab IR or a convolution reverb, off costs more than on at every block up to
+  256, and on a 3 s reverb up to 512 (1.2-3.7x). The tail's large partitions are what make on
+  cheap there; off runs the whole IR at the small uniform partition.
+- The output is the same either way apart from the shift, since off delays the dry to match
+  (`DryPathDelay.h`, e44c16d5), so off has no sound advantage.
+
+So off no longer earns a user-facing switch. What stops it being dropped today: ARM (Android, Apple
+Silicon) is still unmeasured, and off is the only fallback if the FIR head turns out slow there.
+
+**Retired 2026-10-17** from both IR effects, ARM still unmeasured. `RealtimeConvolver` is now
+zero-latency only: `SetImpulse()` takes no block size, and `SetLowLatencyMode`, `GetLatency` and
+`GetMaxLatency` are gone. The uniform engine stays as the FFT stages' builder, so a uniform mode for
+ARM would be a few lines in `SetImpulse` if one is ever needed. `DryPathDelay.h` and the controller's
+re-report of latency on a `lowLatency` change went with it. A saved `lowLatency` is ignored
+(`IrZeroLatencyTests`).
+
+## The Convolution Reverb
+
+It needs no change to get any of this. It builds its convolvers with Low Latency on by default (no
+factory preset turns it off), and the zero-latency engine lives in `RealtimeConvolver`. The reverb
+gains the most from it: the dry and wet line up (it used to report latency while its dry ran
+undelayed), and a 3 s IR costs 1.2-1.5x less at every block from 32 to 1024 (*As implemented*). Its Low
+Latency switch was the one to retire first, since off cost 1.8-3.7x more on a 3 s IR at every
+block up to 512 (table above); it went on 2026-10-17 with the cab's.
+
+What is still open for it, checked 2026-10-17 on the 925 WAVs under `D:/NAM/Reverbs` (Bricasti,
+adventurekid, Voxengo, EMT-140 and a few others):
+
+- **Skipping leading silence would save nothing.** The median onset is 0 ms at -80 dB in every
+  collection, and 5 files of 925 start 10.7 ms or later (the 512-tap FIR head at 48 kHz).
+- **Full quality keeps the dead tail.** Where the energy still to come falls below -70 dB of the
+  total, the median file has 25% left (Bricasti), 27% (adventurekid) and 19% (Voxengo), but 1-6%
+  elsewhere. Full skips the energy truncation the other qualities do. Trimming that would buy
+  less than its share of length, because the engine's cost grows more slowly than the IR (1 s
+  97 ns, 3 s about 150 ns per sample).
+- **True stereo does the FFTs twice.** 268 of the 804 Bricasti files have four channels, so they
+  run four convolvers. LL and RL transform the same left input and LR and RR the same right,
+  and LL's and LR's outputs are summed after two separate inverse FFTs. A convolver taking two
+  IRs on one input, and summing in the frequency domain, would halve the true-stereo FFT work;
+  the multiplies stay.
+- **The real-FFT follow-up (step 5) pays most here.** A long reverb IR's cost is mostly FFT
+  stages; a cab IR's is mostly the FIR head.

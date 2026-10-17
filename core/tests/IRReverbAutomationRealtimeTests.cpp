@@ -1,14 +1,14 @@
 /**
- * IRReverbAutomationRealtimeTests.cpp — automating the convolution reverb's Quality and Low Latency
- * must not rebuild its convolvers on the audio thread.
+ * IRReverbAutomationRealtimeTests.cpp — automating the convolution reverb's Quality must not
+ * rebuild its convolvers on the audio thread.
  *
  * MIDI and DAW automation apply on the audio thread: PluginController::ProcessQueuedMidi takes the
  * DSP lock there with a try-lock and hands each event to AutomationSlotTable::HandleMidi, which
- * reaches the node's SetParam through MultiPresetMixer::SetNodeParamByType. Changing either of these
- * two used to rebuild the convolvers inside SetParam, which allocates, re-truncates a reverb IR that
- * runs to seconds, and runs the FFT setup.
+ * reaches the node's SetParam through MultiPresetMixer::SetNodeParamByType. Changing Quality (and
+ * Low Latency, until it was retired) used to rebuild the convolvers inside SetParam, which
+ * allocates, re-truncates a reverb IR that runs to seconds, and runs the FFT setup.
  *
- * This binds both to MIDI CCs, sends the CCs from a thread standing in for the audio thread, and
+ * This binds it to a MIDI CC, sends the CC from a thread standing in for the audio thread, and
  * counts what that thread allocates, against a slot on the reverb's Mix sent the same way. The
  * node.* route allocates a little of its own for any parameter, so the effect must add nothing to
  * it. The message thread builds the change instead (DeferredRebuild): what it holds the DSP lock for
@@ -49,7 +49,6 @@ constexpr const char* kPresetId = "reverbPreset";
 constexpr const char* kReverbNodeId = "verb";
 constexpr int kMixCc = 20;
 constexpr int kQualityCc = 21;
-constexpr int kLowLatencyCc = 22;
 // Taking the work and committing it hold the DSP lock. A copy of one of these IRs would be
 // megabytes. Not zero: MSVC's Debug containers allocate a small proxy for each one moved.
 constexpr std::size_t kLockedBytesBudget = 4096;
@@ -136,7 +135,6 @@ Preset MakeReverbPreset(const fs::path& irPath)
     // records every SetNodeParam there, and a new key would allocate for any effect.
     verb.params["mix"] = 1.0;
     verb.params["quality"] = 3.0;
-    verb.params["lowLatency"] = 1.0;
     verb.resources.push_back(IRRef(irPath));
 
     GraphNode out{"out", kNodeTypeOutput, "", "Output", true};
@@ -208,12 +206,11 @@ bool ApplyDeferredRebuild(EffectProcessor& effect)
 
 /// A reverb with these settings from the start, set up the way a preset's node is: params first,
 /// then the IR, then Prepare.
-std::unique_ptr<EffectProcessor> MakeLoadedReverb(const fs::path& irPath, double quality, double lowLatency)
+std::unique_ptr<EffectProcessor> MakeLoadedReverb(const fs::path& irPath, double quality)
 {
     auto verb = EffectRegistry::Instance().Create(EffectGuids::kReverbIr);
     verb->SetParam("mix", 1.0);
     verb->SetParam("quality", quality);
-    verb->SetParam("lowLatency", lowLatency);
     verb->LoadResources({IRRef(irPath)}, {irPath});
     verb->Prepare(kSampleRate, kBlockSize);
     return verb;
@@ -229,7 +226,7 @@ bool SameOutput(EffectProcessor& a, EffectProcessor& b)
     bool same = true;
     bool heard = false;
 
-    // Long enough to reach the tail partitions of either convolution layout.
+    // Long enough to reach the convolver's tail partitions.
     for (int block = 0; block < 256; ++block)
     {
         for (int i = 0; i < kBlockSize; ++i)
@@ -297,51 +294,41 @@ int main()
     passed &= Expect(BindSlot(table, "custom.verbMix", "node.reverb_ir.mix", kMixCc), "Failed to bind Mix");
     passed &=
         Expect(BindSlot(table, "custom.verbQuality", "node.reverb_ir.quality", kQualityCc), "Failed to bind Quality");
-    passed &= Expect(BindSlot(table, "custom.verbLowLatency", "node.reverb_ir.lowLatency", kLowLatencyCc),
-                     "Failed to bind Low Latency");
 
     // Warm the route once per slot at the value each parameter already has, so a first-use cost
     // anywhere on it cannot be charged to one of the measured events.
     CountOnAudioThread([&] {
         table.HandleMidi(MidiEvent{0xB0, kMixCc, 127, 0});
         table.HandleMidi(MidiEvent{0xB0, kQualityCc, 127, 0});
-        table.HandleMidi(MidiEvent{0xB0, kLowLatencyCc, 127, 0});
     });
-
-    const int latencyBefore = verb->GetLatencySamples();
 
     const auto mix = CountOnAudioThread([&] { table.HandleMidi(MidiEvent{0xB0, kMixCc, 64, 0}); });
     const auto quality = CountOnAudioThread([&] { table.HandleMidi(MidiEvent{0xB0, kQualityCc, 0, 0}); });
-    const auto lowLatency = CountOnAudioThread([&] { table.HandleMidi(MidiEvent{0xB0, kLowLatencyCc, 0, 0}); });
 
-    std::cout << "Audio thread, one CC each: Mix " << Describe(mix) << "; Quality " << Describe(quality)
-              << "; Low Latency " << Describe(lowLatency) << std::endl;
+    std::cout << "Audio thread, one CC each: Mix " << Describe(mix) << "; Quality " << Describe(quality) << std::endl;
 
-    passed &= Expect(verb->GetParam("quality") == 0.0 && verb->GetParam("lowLatency") == 0.0,
-                     "Both CCs should have reached the reverb's SetParam");
+    passed &= Expect(verb->GetParam("quality") == 0.0, "The CC should have reached the reverb's SetParam");
     passed &= Expect(quality.count == mix.count, "Quality from MIDI allocated on the audio thread beyond the node.* "
                                                  "route's own (" +
                                                      Describe(quality) + " vs Mix " + Describe(mix) + ")");
-    passed &= Expect(lowLatency.count == mix.count,
-                     "Low Latency from MIDI allocated on the audio thread beyond the node.* route's own (" +
-                         Describe(lowLatency) + " vs Mix " + Describe(mix) + ")");
 
-    // The effect on its own, with nothing from the route: no allocation at all.
+    // The effect on its own, with nothing from the route: no allocation at all. Asking for what is
+    // built cancels what the CC left waiting; asking again waits again.
     const std::string qualityKey = "quality";
-    const std::string lowLatencyKey = "lowLatency";
     const auto direct = CountOnAudioThread([&] {
         verb->SetParam(qualityKey, 2.0);
-        verb->SetParam(lowLatencyKey, 1.0);
+        verb->SetParam(qualityKey, 3.0);
         verb->SetParam(qualityKey, 0.0);
-        verb->SetParam(lowLatencyKey, 0.0);
     });
     passed &=
         Expect(direct.count == 0, "SetParam on the reverb allocated on the audio thread (" + Describe(direct) + ")");
 
-    // Asked for Economy with Low Latency off: nothing is rebuilt until the message thread builds it.
-    passed &= Expect(verb->GetParam("quality") == 0.0 && verb->GetParam("lowLatency") == 0.0,
-                     "GetParam should report what was last asked for");
-    passed &= Expect(verb->GetLatencySamples() == latencyBefore, "Nothing should be rebuilt before the message thread");
+    // Asked for Economy: nothing is rebuilt until the message thread builds it. Mix back to where
+    // the comparison reverbs have it, from the CC above.
+    passed &= Expect(verb->GetParam("quality") == 0.0, "GetParam should report what was last asked for");
+    verb->SetParam("mix", 1.0);
+    passed &= Expect(SameOutput(*verb, *MakeLoadedReverb(stereoIR, 3.0)),
+                     "Nothing should be rebuilt before the message thread");
     passed &= Expect(ProcessBlocks(mixer, 32), "The reverb should render finite audio after automation");
 
     // The message thread's part, measured: what it does under the DSP lock must not grow with the
@@ -364,29 +351,22 @@ int main()
     passed &= Expect(commit.bytes <= kLockedBytesBudget,
                      "Committing the rebuild should only swap under the DSP lock (" + Describe(commit) + ")");
 
-    const int latencyAfter = verb->GetLatencySamples();
-    std::cout << "Reverb latency with Low Latency on: " << latencyBefore << ", off: " << latencyAfter << std::endl;
-    passed &= Expect(latencyAfter > latencyBefore, "The message thread's rebuild should turn Low Latency off");
-    passed &= Expect(verb->GetParam("quality") == 0.0 && verb->GetParam("lowLatency") == 0.0,
-                     "The settings should read back as built");
+    passed &= Expect(verb->GetParam("quality") == 0.0, "The setting should read back as built");
     passed &= Expect(!verb->TakeDeferredRebuild(), "Nothing should be left waiting once it is built");
     passed &= Expect(ProcessBlocks(mixer, 32), "The reverb should render finite audio after the swap");
 
-    // The rebuild is the build a reverb set up that way from the start would do. Mix back to where
-    // the comparison reverbs have it, from the CC above.
-    verb->SetParam("mix", 1.0);
-    passed &= Expect(SameOutput(*verb, *MakeLoadedReverb(stereoIR, 0.0, 0.0)),
+    // The rebuild is the build a reverb set up that way from the start would do.
+    passed &= Expect(SameOutput(*verb, *MakeLoadedReverb(stereoIR, 0.0)),
                      "A rebuilt reverb should sound exactly like one built with its settings");
-    passed &= Expect(!SameOutput(*verb, *MakeLoadedReverb(stereoIR, 3.0, 0.0)),
+    passed &= Expect(!SameOutput(*verb, *MakeLoadedReverb(stereoIR, 3.0)),
                      "Economy should have truncated the IR, so it should not sound like Full");
 
     // True stereo: all four convolvers are rebuilt and swapped.
     {
-        auto quad = MakeLoadedReverb(trueStereoIR, 3.0, 1.0);
+        auto quad = MakeLoadedReverb(trueStereoIR, 3.0);
         quad->SetParam("quality", 0.0);
-        quad->SetParam("lowLatency", 0.0);
         passed &= Expect(ApplyDeferredRebuild(*quad), "A true-stereo reverb should wait for the message thread too");
-        passed &= Expect(SameOutput(*quad, *MakeLoadedReverb(trueStereoIR, 0.0, 0.0)),
+        passed &= Expect(SameOutput(*quad, *MakeLoadedReverb(trueStereoIR, 0.0)),
                          "A rebuilt true-stereo reverb should sound exactly like one built with its settings");
     }
 
@@ -404,11 +384,11 @@ int main()
 
     passed &= Expect(verb->GetParam("quality") == 0.0 && !verb->TakeDeferredRebuild(),
                      "A rebuild superseded while it was built should not be installed");
-    passed &= Expect(SameOutput(*verb, *MakeLoadedReverb(stereoIR, 0.0, 0.0)),
+    passed &= Expect(SameOutput(*verb, *MakeLoadedReverb(stereoIR, 0.0)),
                      "A superseded rebuild should leave the reverb as it was");
 
     // A Prepare in between rebuilds with the waiting setting itself, and the late work is dropped.
-    verb->SetParam(lowLatencyKey, 1.0);
+    verb->SetParam(qualityKey, 2.0);
     auto preempted = verb->TakeDeferredRebuild();
     verb->Prepare(kSampleRate, kBlockSize);
 
@@ -418,9 +398,9 @@ int main()
         verb->CommitDeferredRebuild(*preempted);
     }
 
-    passed &= Expect(preempted != nullptr && verb->GetParam("lowLatency") == 1.0 && !verb->TakeDeferredRebuild(),
+    passed &= Expect(preempted != nullptr && verb->GetParam("quality") == 2.0 && !verb->TakeDeferredRebuild(),
                      "A Prepare should build a waiting setting in");
-    passed &= Expect(SameOutput(*verb, *MakeLoadedReverb(stereoIR, 0.0, 1.0)),
+    passed &= Expect(SameOutput(*verb, *MakeLoadedReverb(stereoIR, 2.0)),
                      "A reverb prepared with a setting waiting should sound like one built with it");
 
     // So does an IR load: the late work, built from the old IR, is dropped.
@@ -436,7 +416,7 @@ int main()
 
     passed &= Expect(overtaken != nullptr && verb->GetParam("quality") == 1.0 && !verb->TakeDeferredRebuild(),
                      "An IR load should build a waiting setting in");
-    passed &= Expect(SameOutput(*verb, *MakeLoadedReverb(trueStereoIR, 1.0, 1.0)),
+    passed &= Expect(SameOutput(*verb, *MakeLoadedReverb(trueStereoIR, 1.0)),
                      "A rebuild taken before an IR load should not bring the old IR back");
 
     std::error_code ignored;

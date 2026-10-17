@@ -214,8 +214,8 @@ void PluginController::ClearNamCalibrationParams(GraphNode& node) const
 void PluginController::ApplyDeferredNodeRebuilds()
 {
     // SetParam can run on the audio thread (MIDI and DAW automation apply there), so a parameter
-    // whose change needs a rebuild, like the IR cab's Normalize and Low Latency, is only recorded
-    // there. The rebuild is built here, off the DSP lock, and swapped in under it: the audio thread
+    // whose change needs a rebuild, like the IR cab's Normalize, is only recorded there. The
+    // rebuild is built here, off the DSP lock, and swapped in under it: the audio thread
     // outputs silence for any block that finds the lock held, so nothing holds it for the build.
     // The request count spares idle ticks with nothing requested from taking the lock at all.
     const auto requests = DeferredRebuild::RequestCount();
@@ -247,7 +247,8 @@ void PluginController::ApplyDeferredNodeRebuilds()
         mPresetMixer.CommitDeferredRebuilds(rebuilds);
     }
 
-    // Frees what the rebuilds replaced, after the lock. Low Latency changes the chain's length.
+    // Frees what the rebuilds replaced, after the lock, and tells the host the chain's latency in
+    // case a rebuild changed it.
     rebuilds.clear();
     UpdateHostLatency();
 }

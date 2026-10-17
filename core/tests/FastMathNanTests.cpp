@@ -782,13 +782,12 @@ bool TestRecursiveEffectsRecoverFromNonFiniteInput()
     return passed;
 }
 
-/// The FFT convolver zeroes any non-finite sample it would output, so a bad input sample cannot
-/// reach the recursive effects after a cab or reverb IR. (Its clamp happens to catch NaN too.)
-/// Low Latency, the cab and reverb default, adds a direct FIR head, which takes a non-finite
-/// input sample as silence and has the same guard on what it outputs.
-bool TestConvolverOutputStaysFinite(bool lowLatency)
+/// The convolver zeroes any non-finite sample it would output, so a bad input sample cannot reach
+/// the recursive effects after a cab or reverb IR. (Its clamp happens to catch NaN too.) Its FIR
+/// head takes a non-finite input sample as silence, and its FFT stages have the same guard.
+bool TestConvolverOutputStaysFinite()
 {
-    std::cout << "\nConvolver output after a non-finite sample (" << (lowLatency ? "Low Latency" : "uniform") << ")\n";
+    std::cout << "\nConvolver output after a non-finite sample\n";
 
     // Long enough to take the partitioned FFT path rather than direct convolution.
     std::vector<float> impulse(4096);
@@ -802,9 +801,8 @@ bool TestConvolverOutputStaysFinite(bool lowLatency)
     impulse[0] = 1.0f;
 
     RealtimeConvolver convolver;
-    convolver.SetLowLatencyMode(lowLatency);
 
-    if (!Report("the convolver accepts a 4096-sample impulse", convolver.SetImpulse(impulse, kBlock)))
+    if (!Report("the convolver accepts a 4096-sample impulse", convolver.SetImpulse(impulse)))
     {
         return false;
     }
@@ -877,8 +875,7 @@ int main()
     passed = TestControllerCalibrationSwitch() && passed;
     passed = TestAnalyzerPublishesNoLoudnessAsNull() && passed;
     passed = TestRecursiveEffectsRecoverFromNonFiniteInput() && passed;
-    passed = TestConvolverOutputStaysFinite(false) && passed;
-    passed = TestConvolverOutputStaysFinite(true) && passed;
+    passed = TestConvolverOutputStaysFinite() && passed;
     passed = TestLevelTargetsRejectNonFiniteValues() && passed;
 
     std::cout << (passed ? "\nAll fast-math NaN handling tests passed\n" : "\nFast-math NaN handling tests FAILED\n");

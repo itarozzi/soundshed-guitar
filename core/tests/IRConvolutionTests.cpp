@@ -470,7 +470,7 @@ class IRConvolutionTester
     {
         mExecutor.SetNodeParam("cab", key, value);
 
-        // Parameters that rebuild the impulse (normalizeIR, lowLatency) only record the change
+        // Parameters that rebuild the impulse (normalizeIR, trimLeadingSilence) only record the change
         // in SetParam, which can run on the audio thread; the message thread builds it. Do its
         // part here, as PluginController::ApplyDeferredNodeRebuilds does.
         if (auto rebuild = mExecutor.TakeDeferredRebuilds())

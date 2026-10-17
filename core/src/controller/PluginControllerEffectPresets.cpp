@@ -406,11 +406,6 @@ void PluginController::HandleApplyEffectPresetRequest(const nlohmann::json& payl
 
         ApplyDeferredNodeRebuilds();
 
-        if (std::any_of(params.begin(), params.end(), [](const auto& param) { return param.first == "lowLatency"; }))
-        {
-            UpdateHostLatency();
-        }
-
         if (IsCompositeEditMode())
         {
             BroadcastCompositeEditState();

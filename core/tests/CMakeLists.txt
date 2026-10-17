@@ -55,7 +55,7 @@ set(TEST_SOURCES
     IRCabLoneSlotTests.cpp
     IRCabReloadTests.cpp
     IrAlignmentTests.cpp
-    IrDryPathDelayTests.cpp
+    IrZeroLatencyTests.cpp
     IrResourceCategoryTests.cpp
     IRConvolutionTests.cpp
     IRLeadingSilenceTests.cpp

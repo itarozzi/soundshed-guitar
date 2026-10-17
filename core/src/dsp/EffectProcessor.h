@@ -192,7 +192,7 @@ class EffectProcessor
         return {};
     }
 
-    // Latency: effects with algorithmic latency (IR convolution, pitch shift) must override.
+    // Latency: effects with algorithmic latency (pitch shift, NAM resampling) must override.
     [[nodiscard]] virtual int GetLatencySamples() const
     {
         return 0;
