@@ -60,6 +60,7 @@
 * Soundshed Guitar now waits until your DAW has finished loading its settings before telling the DAW its latency has changed. Telling it in the middle of the load, as it did before, can upset a DAW that answers by restarting the plugin there, and may be behind FL Studio's "plugin crashed while loading its settings".
 * On Windows, NAM models and IRs whose full path is 260 characters or longer now load. Before, the app reported them as missing ("Model file not found"), which a deep folder of captures can reach.
 * Model and IR files installed from older preset packs or shared tones no longer carry their 64-character file code twice in their names, which pushed some of them past that limit. Files already installed that way are renamed on the next start.
+* Deleting Soundshed Guitar from a track's inserts and inserting it again no longer crashes your DAW. Since 1.6.0, once every Soundshed Guitar in the DAW had gone, removed or closed with its project, opening the window of the next one crashed DAWs that keep the plugin loaded, such as Studio One.
 
 ## 1.6.0 (Oct 8, 2026)
 

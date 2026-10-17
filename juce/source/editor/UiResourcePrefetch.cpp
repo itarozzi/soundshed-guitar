@@ -46,6 +46,11 @@ namespace
 
     // A thread JUCE deletes at shutdown rather than a detached one: in a plugin, JUCE's
     // singletons go before the host unloads the DLL, and this stops reading before then.
+    //
+    // That shutdown happens whenever the last instance goes, and a host can insert the plugin
+    // again while the DLL stays loaded (delete it from the inserts, insert it again), so this
+    // must be creatable again afterwards. Declared create-once, it came back null for the
+    // next editor, which crashed the host.
     class Prefetcher final : public juce::DeletedAtShutdown, private juce::Thread
     {
     public:
@@ -57,7 +62,7 @@ namespace
             clearSingletonInstance();
         }
 
-        JUCE_DECLARE_SINGLETON_INLINE (Prefetcher, true)
+        JUCE_DECLARE_SINGLETON_INLINE (Prefetcher, false)
 
         // start() and release() run on the message thread only; the lock is for the files.
         void start (const juce::File& folder)
@@ -142,7 +147,9 @@ namespace
 
 void prefetchUiResources (const juce::File& uiFolder)
 {
-    Prefetcher::getInstance()->start (uiFolder);
+    // Only an optimisation: with no prefetcher, the handler reads each file itself.
+    if (auto* prefetcher = Prefetcher::getInstance())
+        prefetcher->start (uiFolder);
 }
 
 std::optional<std::vector<std::byte>> takePrefetchedUiResource (const juce::File& file)
