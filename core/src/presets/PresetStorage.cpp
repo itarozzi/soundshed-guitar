@@ -185,6 +185,11 @@ nlohmann::json SerializeGraphNode(const GraphNode& node, const std::optional<std
         json["enabled"] = node.enabled;
     }
 
+    if (!node.channelMode.empty())
+    {
+        json["channelMode"] = node.channelMode;
+    }
+
     if (!node.params.empty())
     {
         json["params"] = nlohmann::json::object();
@@ -237,6 +242,11 @@ GraphNode DeserializeGraphNode(const nlohmann::json& json, const std::optional<s
     if (json.contains("title") && json["title"].is_string())
     {
         node.title = json["title"].get<std::string>();
+    }
+
+    if (json.contains("channelMode") && json["channelMode"].is_string())
+    {
+        node.channelMode = json["channelMode"].get<std::string>();
     }
 
     // Support both "enabled" and "bypassed" (inverted)
@@ -677,6 +687,11 @@ bool PresetStorage::SaveToFile(const Preset& preset, const std::filesystem::path
             json["tags"] = normalizedPreset.tags;
         }
 
+        if (normalizedPreset.designedPeakInputDbfs.has_value())
+        {
+            json["designedPeakInputDbfs"] = normalizedPreset.designedPeakInputDbfs.value();
+        }
+
         // Global signal chain settings are intentionally never persisted in presets—they are
         // per-instance state (app settings for standalone, host state for plugins) and must not
         // mix with portable preset data. Presets store only the signal graph / effects chain.
@@ -774,6 +789,11 @@ std::optional<Preset> PresetStorage::LoadFromFile(const std::filesystem::path& p
             {
                 preset.tags.push_back(tag.get<std::string>());
             }
+        }
+
+        if (json.contains("designedPeakInputDbfs") && json["designedPeakInputDbfs"].is_number())
+        {
+            preset.designedPeakInputDbfs = json["designedPeakInputDbfs"].get<double>();
         }
 
         preset.global = GlobalSettings{};

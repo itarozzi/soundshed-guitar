@@ -715,6 +715,80 @@ bool TestNodeParams()
     return true;
 }
 
+// Test: a node's Channels setting and the preset's design input peak survive both the JSON and the
+// file round trip. Neither pair wrote channelMode, so a node set to mono lost its fold on every
+// save, host-state save and scene switch; the file pair also dropped designedPeakInputDbfs.
+bool TestChannelModeAndDesignPeakRoundTrip()
+{
+    std::cout << "Test: ChannelModeAndDesignPeakRoundTrip... ";
+
+    PresetTestFixture fixture;
+    auto original = CreateTestPreset("channel-mode-test", "Channel Mode Test");
+    original.designedPeakInputDbfs = -9.5;
+
+    for (auto& node : original.graph.nodes)
+    {
+        if (node.type != guitarfx::kNodeTypeInput && node.type != guitarfx::kNodeTypeOutput)
+        {
+            node.channelMode = "monoLeft";
+        }
+    }
+
+    const auto check = [&](const std::optional<guitarfx::Preset>& loaded, const char* how) {
+        if (!loaded)
+        {
+            std::cout << "FAIL (" << how << " failed)" << std::endl;
+            return false;
+        }
+
+        std::vector<const guitarfx::SignalGraph*> graphs = {&loaded->graph};
+
+        for (const auto& scene : loaded->scenes)
+        {
+            graphs.push_back(&scene.graph);
+        }
+
+        for (const auto* graph : graphs)
+        {
+            for (const auto& node : graph->nodes)
+            {
+                const bool boundary = node.type == guitarfx::kNodeTypeInput || node.type == guitarfx::kNodeTypeOutput;
+
+                if (node.channelMode != (boundary ? "" : "monoLeft"))
+                {
+                    std::cout << "FAIL (" << how << ": " << node.id << " is '" << node.channelMode << "')\n";
+                    return false;
+                }
+            }
+        }
+
+        if (loaded->designedPeakInputDbfs != original.designedPeakInputDbfs)
+        {
+            std::cout << "FAIL (" << how << " lost designedPeakInputDbfs)" << std::endl;
+            return false;
+        }
+
+        return true;
+    };
+
+    if (!check(guitarfx::PresetStorage::DeserializeFromJson(guitarfx::PresetStorage::SerializeToJson(original)),
+               "the JSON round trip"))
+    {
+        return false;
+    }
+
+    const fs::path filePath = fixture.mTempDir / "channel_mode_preset.json";
+
+    if (!guitarfx::PresetStorage::SaveToFile(original, filePath) ||
+        !check(guitarfx::PresetStorage::LoadFromFile(filePath), "the file round trip"))
+    {
+        return false;
+    }
+
+    std::cout << "PASS" << std::endl;
+    return true;
+}
+
 // Test: Embedded resources
 bool TestEmbeddedResources()
 {
@@ -1030,6 +1104,7 @@ int main()
     runTest(TestResourceRefValidation);
     runTest(TestDeserializeInvalidJson);
     runTest(TestNodeParams);
+    runTest(TestChannelModeAndDesignPeakRoundTrip);
     runTest(TestEmbeddedResources);
     runTest(TestPresetFilePathNormalizationOnDisk);
     runTest(TestBoundaryBypassStatePreservedDuringNormalization);
