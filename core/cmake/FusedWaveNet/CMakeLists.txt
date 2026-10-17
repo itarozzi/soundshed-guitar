@@ -29,6 +29,12 @@ if(TARGET nlohmann_json::nlohmann_json)
     target_link_libraries(SoundshedGuitarFusedWaveNet PUBLIC nlohmann_json::nlohmann_json)
 endif()
 
+# The NEON kernel compiles in every arm64 build, but models run on it only with
+# GUITARFX_FUSED_WAVENET_NEON on (core/CMakeLists.txt). No effect on other architectures.
+if(GUITARFX_FUSED_WAVENET_NEON)
+    target_compile_definitions(SoundshedGuitarFusedWaveNet PRIVATE GUITARFX_FWN_NEON_ENABLED=1)
+endif()
+
 # Each output must sum its inputs in source order whatever the register tile, or the output stops
 # being bit-identical across host block sizes. Fast-math's reassociation would let the compiler
 # reorder the two-SSE-half kernel's mul-add chains differently in different tile shapes. The rest

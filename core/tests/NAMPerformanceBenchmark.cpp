@@ -28,6 +28,7 @@
 #include <nlohmann/json.hpp>
 
 #include "dsp/NamModelCache.h"
+#include "dsp/nam/FusedWaveNet.h"
 #include "dsp/SignalGraphExecutor.h"
 #include "dsp/EffectRegistry.h"
 #include "dsp/effects/BuiltinEffects.h"
@@ -598,6 +599,15 @@ int main(int argc, char* argv[])
         std::cout << "Block Size: " << config.blockSize << " samples\n";
         std::cout << "Warmup: " << config.warmupBlocks << " blocks\n";
         std::cout << "Measure: " << config.measureBlocks << " blocks\n";
+        std::cout << "Fused kernel: " << guitarfx::fusedwavenet::KernelName();
+
+        if (!guitarfx::fusedwavenet::IsAvailable())
+        {
+            // On arm64 the NEON kernel is there but off: configure with -DGUITARFX_FUSED_WAVENET_NEON=ON.
+            std::cout << " (none in this build, so the fused rows below are the NAM core again)";
+        }
+
+        std::cout << "\n";
 
         // The model alone, on each engine
         auto directCore = BenchmarkDirectNAM(modelPath, modelName, config, false);

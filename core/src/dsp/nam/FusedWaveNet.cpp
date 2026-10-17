@@ -35,6 +35,133 @@ int NextPow2(int v)
 // out[o][f] (+)= bias[o] + sum_i W[i][o] * in[i][f], for one tile of OT outputs x FT 8-frame
 // vectors. W is input-major: the nout weights for input i are contiguous. Each output sums its
 // inputs in the same order whatever the tile, so every tile gives the same bits.
+#if defined(GUITARFX_FWN_NEON)
+// The NEON tile names its accumulators, one row of up to three vectors per output. Held in an
+// array, as below, MSVC's ARM64 back end keeps them in registers but also stores every one back to
+// the stack on every input (12 stores per 24 multiply-adds); clang, and MSVC on x64, do not. A
+// 4-output tile takes its four weights in one register (FmaLane). The arithmetic and its order are
+// the array version's, so the bits are the same.
+template <int FT>
+GUITARFX_FWN_INLINE void RowInit(V8& a0, V8& a1, V8& a2, const float* bias, int o, const float* outRow, bool accumulate)
+{
+    const V8 b = bias != nullptr ? Set1(bias[o]) : Set1(0.0f);
+    a0 = accumulate ? Add(Load(outRow), b) : b;
+
+    if constexpr (FT > 1)
+    {
+        a1 = accumulate ? Add(Load(outRow + 8), b) : b;
+    }
+
+    if constexpr (FT > 2)
+    {
+        a2 = accumulate ? Add(Load(outRow + 16), b) : b;
+    }
+}
+
+// One output's row += its weight, lane L of w, times the inputs.
+template <int FT, int L> GUITARFX_FWN_INLINE void RowFma(V8& a0, V8& a1, V8& a2, float32x4_t w, V8 x0, V8 x1, V8 x2)
+{
+    a0 = FmaLane<L>(w, x0, a0);
+
+    if constexpr (FT > 1)
+    {
+        a1 = FmaLane<L>(w, x1, a1);
+    }
+
+    if constexpr (FT > 2)
+    {
+        a2 = FmaLane<L>(w, x2, a2);
+    }
+}
+
+template <int FT> GUITARFX_FWN_INLINE void RowStore(float* outRow, V8 a0, V8 a1, V8 a2)
+{
+    Store(outRow, a0);
+
+    if constexpr (FT > 1)
+    {
+        Store(outRow + 8, a1);
+    }
+
+    if constexpr (FT > 2)
+    {
+        Store(outRow + 16, a2);
+    }
+}
+
+template <int OT, int FT>
+GUITARFX_FWN_INLINE void GemmTile(const float* weights, int nout, const float* bias, const float* const* inRows,
+                                  int nin, float* out, int outStride, int o0, int f0, bool accumulate)
+{
+    static_assert((OT == 1 || OT == 2 || OT == 4) && FT >= 1 && FT <= 3, "the named rows cover 4 x 3");
+    float* const tile = out + o0 * outStride + f0;
+    V8 a00, a01, a02, a10, a11, a12, a20, a21, a22, a30, a31, a32;
+
+    RowInit<FT>(a00, a01, a02, bias, o0, tile, accumulate);
+
+    if constexpr (OT > 1)
+    {
+        RowInit<FT>(a10, a11, a12, bias, o0 + 1, tile + outStride, accumulate);
+    }
+
+    if constexpr (OT > 2)
+    {
+        RowInit<FT>(a20, a21, a22, bias, o0 + 2, tile + 2 * outStride, accumulate);
+        RowInit<FT>(a30, a31, a32, bias, o0 + 3, tile + 3 * outStride, accumulate);
+    }
+
+    for (int i = 0; i < nin; ++i)
+    {
+        const float* x = inRows[i] + f0;
+        const V8 x0 = Load(x);
+        V8 x1 = x0;
+        V8 x2 = x0;
+
+        if constexpr (FT > 1)
+        {
+            x1 = Load(x + 8);
+        }
+
+        if constexpr (FT > 2)
+        {
+            x2 = Load(x + 16);
+        }
+
+        const float* w = weights + i * nout + o0;
+
+        if constexpr (OT == 4)
+        {
+            const float32x4_t w4 = vld1q_f32(w);
+            RowFma<FT, 0>(a00, a01, a02, w4, x0, x1, x2);
+            RowFma<FT, 1>(a10, a11, a12, w4, x0, x1, x2);
+            RowFma<FT, 2>(a20, a21, a22, w4, x0, x1, x2);
+            RowFma<FT, 3>(a30, a31, a32, w4, x0, x1, x2);
+        }
+        else
+        {
+            RowFma<FT, 0>(a00, a01, a02, vld1q_dup_f32(w), x0, x1, x2);
+
+            if constexpr (OT > 1)
+            {
+                RowFma<FT, 0>(a10, a11, a12, vld1q_dup_f32(w + 1), x0, x1, x2);
+            }
+        }
+    }
+
+    RowStore<FT>(tile, a00, a01, a02);
+
+    if constexpr (OT > 1)
+    {
+        RowStore<FT>(tile + outStride, a10, a11, a12);
+    }
+
+    if constexpr (OT > 2)
+    {
+        RowStore<FT>(tile + 2 * outStride, a20, a21, a22);
+        RowStore<FT>(tile + 3 * outStride, a30, a31, a32);
+    }
+}
+#else
 template <int OT, int FT>
 GUITARFX_FWN_INLINE void GemmTile(const float* weights, int nout, const float* bias, const float* const* inRows,
                                   int nin, float* out, int outStride, int o0, int f0, bool accumulate)
@@ -82,6 +209,7 @@ GUITARFX_FWN_INLINE void GemmTile(const float* weights, int nout, const float* b
         }
     }
 }
+#endif
 
 template <int FT>
 GUITARFX_FWN_INLINE void GemmFrames(const float* weights, int nout, const float* bias, const float* const* inRows,
@@ -136,6 +264,10 @@ bool IsAvailable() noexcept
 {
 #if defined(GUITARFX_FWN_AVX2) || defined(GUITARFX_FWN_SSE)
     return true;
+#elif defined(GUITARFX_FWN_NEON) && defined(GUITARFX_FWN_NEON_ENABLED)
+    // GUITARFX_FUSED_WAVENET_NEON in CMake. Off by default until the kernel is timed against the
+    // NAM core on ARM hardware.
+    return true;
 #else
     return false;
 #endif
@@ -147,6 +279,8 @@ const char* KernelName() noexcept
     return "AVX2";
 #elif defined(GUITARFX_FWN_SSE)
     return "SSE";
+#elif defined(GUITARFX_FWN_NEON) && defined(GUITARFX_FWN_NEON_ENABLED)
+    return "NEON";
 #else
     return "none";
 #endif

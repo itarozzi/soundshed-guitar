@@ -95,10 +95,52 @@ time. Then, for each model it builds:
 Both apply the file's metadata (loudness, input and output level) as `nam::create_dsp` does, and
 both run fast tanh: `GetModel` switches the NAM core to it before the first model is built.
 
-The fused pass needs a vector kernel: AVX2 with FMA on the avx2 tier, two SSE halves on other x86-64
-builds. arm64 (macOS, Windows on ARM, Linux, Android) has none yet, so every model there runs on
-the NAM core; a plain C++ version measured 0.3x the NAM core, and a NEON one is still to be written
-and measured (docs/nam-dsp-performance-review-2026-10-16.md, recommendation 3).
+The fused pass needs a vector kernel (`core/src/dsp/nam/FusedWaveNetSimd.h`): AVX2 with FMA on the
+avx2 tier, two SSE halves on other x86-64 builds, and two NEON halves with fused multiply-adds on
+arm64 (macOS, Windows on ARM, Linux, Android). A plain C++ version measured 0.3x the NAM core, so
+nothing else runs the fused pass.
+
+**The NEON kernel is off until it has been timed on ARM hardware.** It is compiled into every arm64
+build, but `fusedwavenet::IsAvailable()` stays false there and every model runs on the NAM core,
+unless the core is configured with `-DGUITARFX_FUSED_WAVENET_NEON=ON`
+(docs/nam-dsp-performance-review-2026-10-16.md, recommendation 3). Its register tile is 4 outputs x
+3 vectors of 8 frames, as on AVX2: 24 accumulators, 6 input registers and one holding the four
+outputs' weights, 31 of NEON's 32. The accumulators are named variables rather than an array, because
+MSVC's ARM64 back end stores an array of them back to the stack on every input, and the four weights
+come from one load, multiplied by lane, because GCC spilled three accumulators when it held four
+broadcast weights. Each output still sums its inputs in source order, so every tile gives the same
+bits.
+
+Checked without ARM hardware (2026-10-16):
+
+- It compiles without warnings in MSVC ARM64 (`/arch:armv8.2`), clang-cl for
+  `aarch64-pc-windows-msvc`, and GCC 13 and clang 18 for `aarch64-linux-gnu`, and in all four the
+  tile's loop keeps every accumulator in registers: per input, 6 input loads, one weight load and 24
+  multiply-adds.
+- `FusedWaveNetTests` passes on aarch64 Linux under QEMU user-mode emulation, built with GCC 13 and
+  with clang 18 (`-O3 -ffast-math -fno-associative-math`, kernel on): all 29 models 110.0-140.5 dB
+  from the NAM core, bit-identical across host block patterns, the one-pass prewarm equal to a real
+  one, time scales 2 and 4 at 118.2 dB or more. First blocks come closer to the 100 dB floor than on
+  x86-64 (103.8 there): 101.0 dB at worst under clang and 102.8 under GCC. Both sides of that
+  comparison change on arm64, since the NAM core runs Eigen's NEON code there.
+- The x86-64 kernels are untouched: MSVC compiles `FusedWaveNet.cpp` to the same instructions as
+  before for AVX2 and SSE.
+
+Emulation says nothing about speed. To decide whether to turn it on, on an Apple-silicon Mac, an
+arm64 Linux machine or a Windows on ARM laptop (MSVC compiles the kernel differently from clang and
+GCC, so Windows needs its own run):
+
+1. Configure the core with `-DGUITARFX_CORE_BUILD_TESTS=ON -DGUITARFX_FUSED_WAVENET_NEON=ON` and
+   build `FusedWaveNetTests` and `NAMPerformanceBenchmark` in Release.
+2. `FusedWaveNetTests` must pass and print `Fused WaveNet kernel: NEON`.
+3. `NAMPerformanceBenchmark`, once with no argument (a standard WaveNet) and once with an A2 model
+   (`core/tests/testdata/assets/amps/Guitar/A2/...`), must print `Fused kernel: NEON`. Compare the
+   NAM core and fused rows, directly and through `amp_nam`, at 512 and at 48 kHz/64. AVX2 measured
+   2.8x (standard) and 3.1x (A2) directly, 2.3-2.8x through the effect.
+4. If the fused rows win, make `GUITARFX_FUSED_WAVENET_NEON` default to ON in `core/CMakeLists.txt`
+   (or only for the platforms measured). The Android build does not build the core tests, so Android
+   needs either the two test targets built with the NDK and run over adb, or a measurement in the
+   app.
 
 **Switching it off.** Launching with the environment variable `GUITARFX_NAM_ENGINE=core` makes
 every model the NAM core's, for A/B listening and support. Tests and tools call
@@ -136,7 +178,7 @@ This keeps test binaries aligned with runtime linkage behavior.
 the shapes the assets lack, at least 100 dB apart at time scales 1, 2 and 4; bit-identical output
 across host block patterns; the one-pass prewarm equal to a real one; and the shape detector refusing
 everything it does not compute. Run it in Release and in the clang-cl build too, since fast-math is
-where such code breaks.
+where such code breaks. On arm64 it skips itself unless the NEON kernel is switched on (see above).
 
 ## Current Integration Contract (Practical)
 
