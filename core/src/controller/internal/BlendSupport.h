@@ -44,6 +44,10 @@ inline constexpr const char* kFactoryBlendFlag = "factory";
 /// The preset's graph or any of its scenes.
 [[nodiscard]] bool PresetUsesBlend(const Preset& preset, const std::string& blendId);
 
+/// Fills one blend node in from `blend`, as ApplyBlendDefinitionsToGraph does each node it finds
+/// a definition for.
+void ApplyBlendDefinitionToNode(GraphNode& node, const nlohmann::json& blend);
+
 /**
  * Fills each blend node of `graph` in from `library`: the models and the values they were
  * captured at, the definition's blendMode, a label if the node has none, and a starting

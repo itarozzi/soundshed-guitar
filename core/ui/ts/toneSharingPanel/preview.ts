@@ -5,7 +5,7 @@
 
 import { postMessage } from "../bridge.js";
 import { showNotification } from "../notifications.js";
-import type { ArchivePreviewFiles } from "../presets/archiveTypes.js";
+import type { ArchivePreview } from "../presets/archiveTypes.js";
 import { uiState } from "../state.js";
 import { syncFeedPreviewButton } from "./actionButtons.js";
 import { apiFetch, toneSharingFetch } from "./api.js";
@@ -58,8 +58,10 @@ export async function clearPreviewPreset(): Promise<void> {
  * content hash, or by id for Tone3000 models) play from there. The rest are
  * handed to the engine with the preset ("previewPreset"), which stages them in
  * a temp folder for this preview alone: the archive's own files, and its
- * Tone3000 models fetched by their ids. The archive's own model URL is never
- * followed off Tone3000, so it cannot choose where the Tone3000 token goes.
+ * Tone3000 models fetched by their ids. The archive's blends go too, and play
+ * for the preview without joining the blend library. The archive's own model
+ * URL is never followed off Tone3000, so it cannot choose where the Tone3000
+ * token goes.
  */
 export async function previewPreset(itemId: string, itemTitle: string): Promise<void> {
   // Save original preset ID so we can restore it later (only on first preview)
@@ -86,7 +88,7 @@ export async function previewPreset(itemId: string, itemTitle: string): Promise<
   }
 
   const importFile = new File([blob], fileName, { type: blob.type || "application/octet-stream" });
-  const previewFiles: ArchivePreviewFiles = { resources: [], unavailable: [] };
+  const preview: ArchivePreview = { resources: [], blends: [], unavailable: [] };
   const importedPresets = await getToneSharingHostActions().importPresetArchive(importFile, {
     source: "toneSharingApi",
     itemId,
@@ -95,7 +97,7 @@ export async function previewPreset(itemId: string, itemTitle: string): Promise<
     titleHint: fileName.replace(/\.(soundshed\.preset|soundshed\.presets|preset|zip)$/i, ""),
   }, {
     previewOnly: true,
-    previewFiles,
+    preview,
     suppressNotifications: true,
   });
 
@@ -104,11 +106,11 @@ export async function previewPreset(itemId: string, itemTitle: string): Promise<
     throw new Error("Preview import produced no preset");
   }
 
-  postMessage({ type: "previewPreset", preset, presetId: `preview-${itemId}`, resources: previewFiles.resources });
-  if (previewFiles.unavailable.length > 0) {
+  postMessage({ type: "previewPreset", preset, presetId: `preview-${itemId}`, resources: preview.resources, blends: preview.blends });
+  if (preview.unavailable.length > 0) {
     showNotification(
       "Preview is missing models",
-      `${previewFiles.unavailable.join(", ")} could not be loaded, so the preview plays without ${previewFiles.unavailable.length === 1 ? "it" : "them"}. Installing the tone fetches them.`,
+      `${preview.unavailable.join(", ")} could not be loaded, so the preview plays without ${preview.unavailable.length === 1 ? "it" : "them"}. Installing the tone fetches them.`,
     );
   }
 

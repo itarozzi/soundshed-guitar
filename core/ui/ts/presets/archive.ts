@@ -1028,7 +1028,7 @@ export async function importPresetArchive(
     const data = arrayBufferToBase64(await entry.async("arraybuffer"));
     // A preview writes nothing to the library: a file it lacks goes to the engine to stage instead.
     if (previewOnly) {
-      options.previewFiles?.resources.push({ resourceType: resource.type, resourceId: resource.id, name: resource.name ?? fileName, data });
+      options.preview?.resources.push({ resourceType: resource.type, resourceId: resource.id, name: resource.name ?? fileName, data });
       continue;
     }
     const importFileName = buildImportResourceFileName(resource);
@@ -1059,34 +1059,26 @@ export async function importPresetArchive(
   // Fetch the resources the archive names but does not carry from their providers. A preview
   // imports none of them: those the library lacks are fetched for the engine to stage.
   if (previewOnly) {
-    await prepareArchiveRemoteResourcesForPreview(remoteResourcesToImport, idMap, options.previewFiles);
+    await prepareArchiveRemoteResourcesForPreview(remoteResourcesToImport, idMap, options.preview);
   } else if (remoteResourcesToImport.length > 0) {
     await importArchiveRemoteResources(remoteResourcesToImport, idMap, importedResources);
   }
 
   const blendIdMap = new Map<string, string>();
   const presetIdMap = new Map<string, string>();
-  // Nor does a preview save the pack's blends; its blend nodes play only blends already here.
-  (previewOnly ? [] : blends).forEach((blend) => {
-    const newBlendId = generateResourceId(blend.id || blend.name || "blend");
-    blendIdMap.set(blend.id, newBlendId);
-
+  // Nor does a preview save the pack's blends: they go to the engine with the preset, which plays
+  // them for the preview alone, under their own ids.
+  blends.forEach((blend) => {
     const remapModel = (id: string) => idMap.get(id) ?? id;
     const models = (blend.models ?? []).map(remapModel);
-    const modelMappings = (blend.modelMappings ?? []).map((mapping) => ({
-      ...mapping,
-      id: remapModel(mapping.id),
-    }));
-
-    postMessage({
-      type: "saveBlendDefinition",
-      blend: {
-        ...blend,
-        id: newBlendId,
-        models,
-        modelMappings,
-      },
-    });
+    const modelMappings = (blend.modelMappings ?? []).map((mapping) => ({ ...mapping, id: remapModel(mapping.id) }));
+    if (previewOnly) {
+      options.preview?.blends.push({ ...blend, models, modelMappings });
+      return;
+    }
+    const newBlendId = generateResourceId(blend.id || blend.name || "blend");
+    blendIdMap.set(blend.id, newBlendId);
+    postMessage({ type: "saveBlendDefinition", blend: { ...blend, id: newBlendId, models, modelMappings } });
   });
 
   const importedPresets: Preset[] = [];

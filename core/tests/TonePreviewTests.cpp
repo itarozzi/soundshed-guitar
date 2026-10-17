@@ -4,9 +4,11 @@
  *
  * The files a preview sends must play, in every scene, from a folder of the preview's own, and
  * never reach the library; any other path the shared preset carries is dropped; and the next
- * preview takes the last one's files away.
+ * preview takes the last one's files away. The archive's blends play in the preview without
+ * joining the blend library.
  */
 
+#include <algorithm>
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
@@ -21,6 +23,7 @@
 
 #include "IPluginHost.h"
 #include "PluginController.h"
+#include "dsp/EffectGuids.h"
 #include "presets/PresetStorage.h"
 #include "resources/ResourceLibrary.h"
 #include "util/Base64.h"
@@ -241,12 +244,106 @@ void TestNextPreviewReplacesTheFiles()
     Expect(second && fs::exists(second->filePath), "the second preview stages its own");
     Expect(!firstFolder.empty() && !fs::exists(firstFolder), "the first preview's folder is gone");
 }
+
+/// The blend library a UI opening now is sent: the ids it holds.
+std::vector<std::string> BlendLibraryIds(TestHost& host, guitarfx::PluginController& controller)
+{
+    host.sent.clear();
+    controller.HandleUIMessage(nlohmann::json{{"type", "uiReady"}}.dump());
+    controller.OnIdle();
+    std::vector<std::string> ids;
+
+    for (const auto& message : host.sent)
+    {
+        const auto parsed = nlohmann::json::parse(message, nullptr, false);
+
+        if (parsed.is_object() && parsed.contains("blendLibrary") && parsed["blendLibrary"].is_array())
+        {
+            ids.clear();
+
+            for (const auto& blend : parsed["blendLibrary"])
+            {
+                ids.push_back(blend.value("id", ""));
+            }
+        }
+    }
+
+    return ids;
+}
+
+void TestPreviewPlaysTheArchivesBlends()
+{
+    TestHost host(Sandbox("blends"));
+    guitarfx::PluginController controller(host);
+    controller.Initialize();
+    controller.HandleUIMessage(
+        nlohmann::json{{"type", "saveBlendDefinition"},
+                       {"blend", {{"id", "library-blend"}, {"name", "Library Blend"}, {"models", {"library-model"}}}}}
+            .dump());
+
+    // One blend node naming the archive's blend, one naming a blend only the library has.
+    auto preset = SharedPreset();
+    auto archiveBlend = Node("blend_1", guitarfx::EffectGuids::kAmpNamBlend);
+    archiveBlend.config["blendId"] = "archive-blend";
+    auto libraryBlend = Node("blend_2", guitarfx::EffectGuids::kAmpNamBlend);
+    libraryBlend.config["blendId"] = "library-blend";
+    preset.graph.nodes.push_back(archiveBlend);
+    preset.graph.nodes.push_back(libraryBlend);
+    preset.graph.edges = {{"__input__", "amp_1", 0, 0, 1.0},
+                          {"amp_1", "cab_1", 0, 0, 1.0},
+                          {"cab_1", "blend_1", 0, 0, 1.0},
+                          {"blend_1", "blend_2", 0, 0, 1.0},
+                          {"blend_2", "__output__", 0, 0, 1.0}};
+    preset.scenes = {{"scene-a", "A", preset.graph}};
+
+    auto message = PreviewMessage(preset, "Amp", "AQID");
+    message["resources"].push_back(
+        {{"resourceType", "nam"}, {"resourceId", "tone3000:7"}, {"name", "Low"}, {"data", "AQID"}});
+    message["resources"].push_back(
+        {{"resourceType", "nam"}, {"resourceId", "tone3000:8"}, {"name", "High"}, {"data", "BAUG"}});
+    message["blends"] = {{{"id", "archive-blend"}, {"name", "Crunch Blend"}, {"models", {"tone3000:7", "tone3000:8"}}}};
+    controller.HandleUIMessage(message.dump());
+
+    const auto& active = controller.GetActivePreset();
+    Expect(active.has_value(), "the preview with blends loads");
+
+    if (!active)
+    {
+        return;
+    }
+
+    for (const auto* graph : {&active->graph, &active->scenes.front().graph})
+    {
+        const auto* baked = graph->FindNode("blend_1");
+        Expect(baked && !baked->config.contains("blendId"), "the archive's blend node no longer names the blend");
+        Expect(baked && baked->label == "Crunch Blend", "it takes the blend's name");
+        Expect(baked && baked->resources.size() == 2, "it plays the blend's two models");
+
+        for (const auto& ref : baked ? baked->resources : std::vector<guitarfx::ResourceRef>{})
+        {
+            Expect(fs::exists(ref.filePath) && ref.filePath.parent_path().parent_path().filename() == "tone-preview",
+                   "blend model " + ref.resourceId + " plays its staged file");
+        }
+
+        const auto* fromLibrary = graph->FindNode("blend_2");
+        Expect(fromLibrary && fromLibrary->config.contains("blendId") && fromLibrary->resources.size() == 1 &&
+                   fromLibrary->resources.front().resourceId == "library-model",
+               "a blend the archive does not carry still plays the library's");
+    }
+
+    const auto blendIds = BlendLibraryIds(host, controller);
+    Expect(std::find(blendIds.begin(), blendIds.end(), "archive-blend") == blendIds.end(),
+           "the archive's blend never joins the blend library");
+    Expect(std::find(blendIds.begin(), blendIds.end(), "library-blend") != blendIds.end(),
+           "the library's own blend is still there");
+}
 } // namespace
 
 int main()
 {
     TestPreviewPlaysStagedFilesOutsideTheLibrary();
     TestNextPreviewReplacesTheFiles();
+    TestPreviewPlaysTheArchivesBlends();
 
     if (gFailures > 0)
     {

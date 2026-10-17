@@ -20,7 +20,7 @@ import { downloadTone3000ResourceByReference, isTone3000AuthReady, isTone3000Pro
 import type { LibraryResource } from "../types.js";
 import { arrayBufferToBase64 } from "../utils.js";
 import { sanitizeFilename } from "../archiveUtils.js";
-import type { ArchivePreviewFiles, PreviewResource, Tone3000ResourceRef } from "./archiveTypes.js";
+import type { ArchivePreview, PreviewResource, Tone3000ResourceRef } from "./archiveTypes.js";
 
 const TONE3000 = "tone3000";
 
@@ -237,7 +237,7 @@ async function fetchTone3000(ref: RemoteResourceRef): Promise<{ data: string; me
 }
 
 /**
- * A preview's remote resources: those the library has are played from there, and with `files`
+ * A preview's remote resources: those the library has are played from there, and with `preview`
  * the rest are fetched for the engine to stage. Nothing is imported. Unlike an install this never
  * asks for a Tone3000 key; without access, or when a fetch fails, the resource is listed
  * unavailable and the preview plays without it.
@@ -245,10 +245,10 @@ async function fetchTone3000(ref: RemoteResourceRef): Promise<{ data: string; me
 export async function prepareArchiveRemoteResourcesForPreview(
   refs: RemoteResourceRef[],
   idMap: Map<string, string>,
-  files: ArchivePreviewFiles | undefined,
+  preview: ArchivePreview | undefined,
 ): Promise<void> {
   mapInstalledRemoteResources(refs, idMap);
-  if (!files) {
+  if (!preview) {
     return;
   }
   const missing = refs.filter((ref) => {
@@ -274,9 +274,9 @@ export async function prepareArchiveRemoteResourcesForPreview(
   }));
   fetched.forEach((resource, index) => {
     if (resource) {
-      files.resources.push(resource);
+      preview.resources.push(resource);
     } else {
-      files.unavailable.push(missing[index].name ?? missing[index].id);
+      preview.unavailable.push(missing[index].name ?? missing[index].id);
     }
   });
 }

@@ -106,9 +106,11 @@ export interface PreviewResource {
   data: string;
 }
 
-/** What a preview needs besides the preset: the files the library lacks, and what it could not get. */
-export interface ArchivePreviewFiles {
+/** What a preview needs besides the preset: the files the library lacks, the archive's blends, and what it could not get. */
+export interface ArchivePreview {
   resources: PreviewResource[];
+  /** The archive's blends under their own ids, their models on the library's ids where it has them. */
+  blends: BlendDefinition[];
   /** Names of the remote models and IRs that could not be fetched; the preview plays without them. */
   unavailable: string[];
 }
@@ -116,10 +118,11 @@ export interface ArchivePreviewFiles {
 export type ArchiveImportOptions = {
   previewOnly?: boolean;
   /**
-   * With previewOnly: filled with the archive's files the library lacks, and its remote ones
-   * fetched from their providers, for the engine to stage ("previewPreset"). Nothing is imported.
+   * With previewOnly: filled with the archive's files the library lacks, its remote ones fetched
+   * from their providers, and its blends, for the engine to play ("previewPreset"). Nothing is
+   * imported or saved.
    */
-  previewFiles?: ArchivePreviewFiles;
+  preview?: ArchivePreview;
   suppressNotifications?: boolean;
   topLevelFolderName?: string;
 };

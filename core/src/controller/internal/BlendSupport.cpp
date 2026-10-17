@@ -221,6 +221,19 @@ bool PresetUsesBlend(const Preset& preset, const std::string& blendId)
                        [&](const PresetScene& scene) { return GraphPlaysBlend(scene.graph, blendId); });
 }
 
+void ApplyBlendDefinitionToNode(GraphNode& node, const nlohmann::json& blend)
+{
+    node.resources = BuildBlendResourceRefs(blend);
+    node.config["blendMode"] = blend.value("blendMode", "interpolate");
+
+    if (node.label.empty())
+    {
+        node.label = blend.value("name", "");
+    }
+
+    SeedUnsetBlendParameters(node);
+}
+
 void ApplyBlendDefinitionsToGraph(SignalGraph& graph, const nlohmann::json& library)
 {
     for (auto& node : graph.nodes)
@@ -240,15 +253,7 @@ void ApplyBlendDefinitionsToGraph(SignalGraph& graph, const nlohmann::json& libr
             continue;
         }
 
-        node.resources = BuildBlendResourceRefs(*blend);
-        node.config["blendMode"] = blend->value("blendMode", "interpolate");
-
-        if (node.label.empty())
-        {
-            node.label = blend->value("name", "");
-        }
-
-        SeedUnsetBlendParameters(node);
+        ApplyBlendDefinitionToNode(node, *blend);
     }
 }
 } // namespace guitarfx::controller_detail

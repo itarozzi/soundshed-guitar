@@ -10,6 +10,10 @@
  * file path. The library is never told, so nothing appears in it, and a later install fetches
  * and imports the files as it always did.
  *
+ * The archive's blends come with the preset too. They are not registered in the blend library:
+ * each blend node is filled in from its definition here and stops naming it (BakePreviewBlends),
+ * so it plays its models, staged or from the library, without the load looking the blend up.
+ *
  * The files stay while the preview can still play them: a scene switch or a rebuild reads them
  * again. The next preview replaces the folder, and one left by a crashed or closed instance is
  * removed by the next preview after a day.
@@ -17,6 +21,7 @@
 
 #include "PluginController.h"
 
+#include "controller/internal/BlendSupport.h"
 #include "controller/internal/PresetArchiveSupport.h"
 #include "presets/PresetStorage.h"
 #include "util/Base64.h"
@@ -79,31 +84,58 @@ std::string PreviewFileName(const std::string& name, const std::string& resource
     return candidate;
 }
 
-/// Points every node naming a staged resource at its file. The id stays, so a library that holds
-/// the resource after all (the tone was installed meanwhile) still wins.
-void PointPresetAtStagedFiles(Preset& preset, const StagedFiles& staged)
+/// Calls fn(node) for every node of the preset's graph and its scenes'.
+template <typename Fn> void ForEachPresetNode(Preset& preset, Fn&& fn)
 {
-    auto pointGraph = [&](SignalGraph& graph) {
-        for (auto& node : graph.nodes)
-        {
-            for (auto& ref : node.resources)
-            {
-                const auto it = staged.find({ref.resourceType, ref.resourceId});
-
-                if (it != staged.end())
-                {
-                    ref.filePath = it->second;
-                }
-            }
-        }
-    };
-
-    pointGraph(preset.graph);
+    for (auto& node : preset.graph.nodes)
+    {
+        fn(node);
+    }
 
     for (auto& scene : preset.scenes)
     {
-        pointGraph(scene.graph);
+        for (auto& node : scene.graph.nodes)
+        {
+            fn(node);
+        }
     }
+}
+
+/// Fills each blend node naming one of the archive's own blends in from it, as a load fills a
+/// node from the blend library, then takes its blendId away so the load leaves it as it is. The
+/// blends are never registered, so nothing reaches the blend library. A node naming a blend the
+/// archive does not carry keeps its blendId and plays the library's, as it would installed.
+void BakePreviewBlends(Preset& preset, const nlohmann::json& blends)
+{
+    if (!blends.is_array() || blends.empty())
+    {
+        return;
+    }
+
+    ForEachPresetNode(preset, [&](GraphNode& node) {
+        if (const auto* blend = FindBlendDefinition(blends, GetNodeBlendId(node)))
+        {
+            ApplyBlendDefinitionToNode(node, *blend);
+            node.config.erase(kBlendIdConfigKey);
+        }
+    });
+}
+
+/// Points every node naming a staged resource at its file, blend models included. The id stays,
+/// so a library that holds the resource after all (the tone was installed meanwhile) still wins.
+void PointPresetAtStagedFiles(Preset& preset, const StagedFiles& staged)
+{
+    ForEachPresetNode(preset, [&](GraphNode& node) {
+        for (auto& ref : node.resources)
+        {
+            const auto it = staged.find({ref.resourceType, ref.resourceId});
+
+            if (it != staged.end())
+            {
+                ref.filePath = it->second;
+            }
+        }
+    });
 }
 } // namespace
 
@@ -126,6 +158,8 @@ void PluginController::HandlePreviewPresetRequest(const nlohmann::json& payload)
     Preset preset = std::move(*presetOpt);
     // Any path the shared preset carries is the sharer's; only the files staged below play.
     SanitizeImportedPreset(preset);
+    // Before the files are pointed at, so a blend's models find theirs too.
+    BakePreviewBlends(preset, payload.value("blends", nlohmann::json::array()));
 
     const auto previewRoot = mFileSystem.ResolveSettingsDirectory() / "temp" / kTonePreviewFolder;
     std::error_code ec;
