@@ -73,6 +73,12 @@ std::optional<DecodedWav> DecodePcmWav(const std::vector<std::uint8_t>& bytes)
 
         if (chunkId == "fmt ")
         {
+            // Sixteen bytes are read below, which a shorter chunk at the end of the file does not have.
+            if (chunkSize < 16)
+            {
+                return std::nullopt;
+            }
+
             audioFormat = ReadUint16LE(bytes.data() + chunkDataStart);
             channels = ReadUint16LE(bytes.data() + chunkDataStart + 2);
             sampleRate = ReadUint32LE(bytes.data() + chunkDataStart + 4);
@@ -119,7 +125,10 @@ std::optional<DecodedWav> DecodePcmWav(const std::vector<std::uint8_t>& bytes)
 
     const std::size_t bytesPerSample = static_cast<std::size_t>(bitsPerSample) / 8;
 
-    if (bytesPerSample == 0)
+    // A frame holds a sample for every channel. A smaller block align made the frame count, and the
+    // buffers allocated for it, far larger than the file: a 1 MB file declaring 65535 channels and a
+    // block align of 1 asked for about 500 GB before a sample was read.
+    if (bytesPerSample == 0 || blockAlign < static_cast<std::size_t>(channels) * bytesPerSample)
     {
         return std::nullopt;
     }
