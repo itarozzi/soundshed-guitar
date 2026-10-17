@@ -256,7 +256,26 @@ class TestHost final : public guitarfx::IPluginHost
 
     void RunOnMainThread(std::function<void()> fn) override
     {
+        if (queueMainThreadTasks)
+        {
+            queuedMainThreadTasks.push_back(std::move(fn));
+            return;
+        }
+
         fn();
+    }
+
+    /// Runs what was posted while `queueMainThreadTasks` was set, as the host's message
+    /// thread would once it gets round to it.
+    void RunQueuedMainThreadTasks()
+    {
+        auto tasks = std::move(queuedMainThreadTasks);
+        queuedMainThreadTasks.clear();
+
+        for (auto& task : tasks)
+        {
+            task();
+        }
     }
 
     [[nodiscard]] fs::path GetUserDataPath() const override
@@ -291,6 +310,8 @@ class TestHost final : public guitarfx::IPluginHost
 
     std::vector<std::string> sentMessages;
     int stateChangedNotifications = 0;
+    bool queueMainThreadTasks = false;
+    std::vector<std::function<void()>> queuedMainThreadTasks;
 
   private:
     fs::path mUserDataPath;
@@ -1266,6 +1287,47 @@ bool TestRestoredGraphDoesNotInheritSwappedPluginState()
                  "the rebuilt processor for plugin one was given plugin two's state");
     return ok;
 }
+
+/// A plugin's state change is handed to the message thread through the host. A DAW can tear
+/// the instance down before that task runs (closing the project right after an edit inside
+/// the plugin's editor), and the task must then find the controller gone rather than touch it.
+bool TestRuntimeCapturePostedBeforeTeardownIsDropped()
+{
+    const auto sandbox = MakeSandbox("runtime-capture-after-teardown");
+
+    TestHost host(sandbox);
+
+    // On the heap, so its memory is handed back (and, in a debug build, overwritten) when it
+    // goes: a task that still touches it then reads garbage rather than a plausible corpse.
+    auto controller = std::make_unique<guitarfx::PluginController>(host);
+    controller->Initialize();
+    controller->Prepare(48000.0, 512);
+
+    LoadPreset(*controller, BuildHostedPluginPreset("hp-teardown", "Teardown", "state-a"));
+
+    auto* live = FindLiveFake("state-a");
+
+    if (!Expect(live != nullptr, "no live processor after load"))
+    {
+        return false;
+    }
+
+    // The host is busy: the capture is queued for its message thread, not run at once.
+    host.queueMainThreadTasks = true;
+    live->MutateStateAndNotify("state-a-edited");
+
+    if (!Expect(!host.queuedMainThreadTasks.empty(), "the capture was not handed to the message thread"))
+    {
+        return false;
+    }
+
+    controller.reset();
+
+    // The controller is gone. The task it posted runs now, as it would on a host that got
+    // round to it after the teardown.
+    host.RunQueuedMainThreadTasks();
+    return Expect(true, "a capture posted before teardown ran after it");
+}
 } // namespace
 
 int main()
@@ -1303,6 +1365,7 @@ int main()
     run("Restoring an earlier graph keeps it and the plugin state", TestRestoringAnEarlierGraphKeepsItAndPluginState());
     run("Restored graph does not inherit a swapped plugin's state",
         TestRestoredGraphDoesNotInheritSwappedPluginState());
+    run("Runtime capture posted before teardown is dropped", TestRuntimeCapturePostedBeforeTeardownIsDropped());
 
     std::cout << "\nHosted plugin state workflow tests: " << passed << " passed, " << failed << " failed\n";
     return failed == 0 ? 0 : 1;

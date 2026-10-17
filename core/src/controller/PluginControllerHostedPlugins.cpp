@@ -17,6 +17,7 @@
 #include "util/PathEncoding.h"
 
 #include <algorithm>
+#include <memory>
 
 using namespace guitarfx::controller_detail;
 
@@ -33,9 +34,17 @@ void PluginController::AttachRuntimeConfigCallbacks(const std::string& presetId,
     {
         if (auto* processor = mPresetMixer.GetNodeProcessor(presetId, node.id))
         {
+            // The change is handed to the message thread through the host, and a host can
+            // tear this controller down before that task runs: the task must find it gone.
             processor->SetRuntimeConfigChangedCallback(
-                [this, presetId, nodeId = node.id](const std::string& key, const std::string& value) {
-                    mHost.RunOnMainThread([this, presetId, nodeId, key, value]() {
+                [this, &host = mHost, alive = std::weak_ptr<const bool>(mAliveForPostedTasks), presetId,
+                 nodeId = node.id](const std::string& key, const std::string& value) {
+                    host.RunOnMainThread([this, alive, presetId, nodeId, key, value]() {
+                        if (alive.expired())
+                        {
+                            return;
+                        }
+
                         HandleRuntimeNodeConfigChanged(presetId, nodeId, key, value);
                     });
                 });
