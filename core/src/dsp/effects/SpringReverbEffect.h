@@ -460,15 +460,17 @@ class SpringReverbEffect : public EffectProcessor
         return output;
     }
 
-    // Padé [2/2] rational tanh approximation, error < 0.5% for |x| ≤ 3.5, clips at ±5.5.
+    // Padé [2/2] rational tanh approximation, error < 2.5% for |x| < 3. The curve reaches exactly 1,
+    // with zero slope, at |x| = 3 and rises past it beyond, so it is held at ±1 from there: clipping
+    // any later made the curve non-monotonic, with a 5% step down where it was cut off.
     static float FastTanh(float x) noexcept
     {
-        if (x > 5.5f)
+        if (x >= 3.0f)
         {
             return 1.0f;
         }
 
-        if (x < -5.5f)
+        if (x <= -3.0f)
         {
             return -1.0f;
         }
@@ -477,6 +479,10 @@ class SpringReverbEffect : public EffectProcessor
         return x * (27.0f + x2) / (27.0f + 9.0f * x2);
     }
 
+    /// Drive fades in over the bottom tenth of its range: the shaped curve's small-signal gain is
+    /// drive / tanh(drive), already 1.29 (+2.2 dB) at the smallest drive, so switching straight to it
+    /// from the untouched signal stepped the level, and the smoothed drive only reaches exactly zero
+    /// once it flushes to it, seconds after Drive is turned down.
     static float ApplyDrive(float sample, float amount)
     {
         if (amount <= 0.0f)
@@ -492,7 +498,8 @@ class SpringReverbEffect : public EffectProcessor
             return sample;
         }
 
-        return FastTanh(sample * drive) / norm;
+        const float shaped = FastTanh(sample * drive) / norm;
+        return sample + std::min(1.0f, amount * 10.0f) * (shaped - sample);
     }
 
     // Same curve, normalised so the small-signal gain stays at 1 instead of rising to drive/tanh(drive).
