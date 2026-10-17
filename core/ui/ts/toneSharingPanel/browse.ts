@@ -20,7 +20,12 @@ export async function loadBrowse(): Promise<void> {
   clearPackDetail();
   feed.innerHTML = `<div class="tone-sharing-status">Loading...</div>`;
   resetBrowseCollections();
+  // Every reply is checked against this, and rendered with it, before it is shown: switching tab
+  // starts another load, and a slow reply for the old tab (/home most often) used to land last and
+  // replace the new tab's feed under the new tab's name. renderFeedRows' own default version is
+  // read when it is called, after the await, so it could never catch that.
   const loadVersion = browseState.requestVersion;
+  const isStale = (): boolean => browseState.requestVersion !== loadVersion;
   browseState.featuredHiddenPresetCount = 0;
   updateActiveSharedFilter();
   updateCommunityPresetSearchUi();
@@ -30,16 +35,22 @@ export async function loadBrowse(): Promise<void> {
   try {
     if (browseState.activeSharedTarget) {
       if (browseState.activeSharedTarget.kind === "item") {
-        const itemResult = await apiFetch<{ item: ToneSharingItem }>(`/items/${browseState.activeSharedTarget.id}`);
-        await renderFeedRows([buildSingleRow("Shared Preset", [itemResult.item], "item")]);
+        const itemResult = await apiFetch<{ item: ToneSharingItem }>(`/items/${encodeURIComponent(browseState.activeSharedTarget.id)}`);
+        if (isStale()) return;
+        await renderFeedRows([buildSingleRow("Shared Preset", [itemResult.item], "item")], loadVersion);
+        if (isStale()) return;
         updateFeaturedMoreLink();
         setUploadStatus(`Opened shared preset: ${itemResult.item.title}`);
         return;
       }
 
-      const packResult = await apiFetch<{ pack: ToneSharingPack }>(`/packs/${browseState.activeSharedTarget.id}`);
-      await renderFeedRows([buildSingleRow("Shared Pack", [packResult.pack], "pack")]);
-      await viewPack(browseState.activeSharedTarget.id);
+      const packId = browseState.activeSharedTarget.id;
+      const packResult = await apiFetch<{ pack: ToneSharingPack }>(`/packs/${encodeURIComponent(packId)}`);
+      if (isStale()) return;
+      await renderFeedRows([buildSingleRow("Shared Pack", [packResult.pack], "pack")], loadVersion);
+      if (isStale()) return;
+      await viewPack(packId);
+      if (isStale()) return;
       updateFeaturedMoreLink();
       setUploadStatus(`Opened shared pack: ${packResult.pack.title}`);
       return;
@@ -47,9 +58,11 @@ export async function loadBrowse(): Promise<void> {
 
     if (browseState.mode === "featured") {
       const home = await apiFetch<{ rows: ToneSharingRow[] }>("/home");
+      if (isStale()) return;
       const featured = applyFeaturedLayout(home.rows);
       browseState.featuredHiddenPresetCount = featured.hiddenPresetCount;
-      await renderFeedRows(featured.rows);
+      await renderFeedRows(featured.rows, loadVersion);
+      if (isStale()) return;
       updateFeaturedMoreLink();
       return;
     }
@@ -78,16 +91,17 @@ export async function loadBrowse(): Promise<void> {
         apiFetch<{ items: ToneSharingItem[] }>("/items/pending/list"),
         apiFetch<{ packs: ToneSharingPack[] }>("/packs/pending/list"),
       ]);
+      if (isStale()) return;
       await renderFeedRows([
         buildSingleRow("Presets Awaiting Approval", items.items, "item"),
         buildSingleRow("Packs Awaiting Approval", packs.packs, "pack"),
-      ]);
+      ], loadVersion);
       return;
     }
 
     await loadMine();
   } catch (error) {
-    if (browseState.requestVersion !== loadVersion) return;
+    if (isStale()) return;
     browseState.featuredHiddenPresetCount = 0;
     updateFeaturedMoreLink();
     feed.innerHTML = `<div class="tone-sharing-status">Load failed: ${(error as Error).message}</div>`;
@@ -100,7 +114,13 @@ export async function loadMine(): Promise<void> {
     return;
   }
 
-  if (browseState.mode === "mine") {
+  // Showing My Content is a load of its own: one still in flight for another tab must not land on
+  // it. Fetching for something else (the list of my items) leaves the feed alone.
+  const showing = browseState.mode === "mine";
+  const loadVersion = showing ? ++browseState.requestVersion : browseState.requestVersion;
+  const isStale = (): boolean => browseState.requestVersion !== loadVersion || browseState.mode !== "mine";
+
+  if (showing) {
     clearPackDetail();
   }
 
@@ -119,14 +139,14 @@ export async function loadMine(): Promise<void> {
 
     toneSharingState.myItems = itemsData.items;
 
-    if (browseState.mode === "mine") {
+    if (showing && !isStale()) {
       await renderFeedRows([
         buildSingleRow("My Presets on Tone Sharing", itemsData.items, "item"),
         buildSingleRow("My Packs on Tone Sharing", packsData.packs, "pack")
-      ]);
+      ], loadVersion);
     }
   } catch (error) {
-    if (browseState.mode === "mine") {
+    if (showing && !isStale()) {
       feed.innerHTML = `<div class="tone-sharing-status">Load failed: ${(error as Error).message}</div>`;
     }
   }
