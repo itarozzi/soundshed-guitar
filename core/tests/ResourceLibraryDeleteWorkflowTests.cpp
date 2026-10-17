@@ -325,6 +325,59 @@ bool TestSameNamedDropsKeepTheirOwnFiles()
     return true;
 }
 
+/// A second delete of an id already gone (a double click, a stale list, another instance first)
+/// used to resolve through the library's fuzzy fallback to another pack's "__abc" and delete its
+/// file without checking its uses, leaving its entry pointing at nothing.
+bool TestDeletingAGoneIdLeavesOthersAlone()
+{
+    const fs::path sandbox = fs::temp_directory_path() / "guitarfx-resource-delete-tests" / "gone-id";
+    std::error_code ec;
+    fs::remove_all(sandbox, ec);
+    fs::create_directories(sandbox, ec);
+    SetSettingsEnvRoot(sandbox);
+
+    TestHost host(sandbox);
+    guitarfx::PluginController controller(host);
+    const auto save = [&](const char* id, const char* fileName, const char* base64) {
+        return SaveLocalResource(controller, host,
+                                 nlohmann::json{{"type", "saveLocalLibraryResource"},
+                                                {"resourceType", "wasm"},
+                                                {"resourceId", id},
+                                                {"name", id},
+                                                {"fileName", fileName},
+                                                {"data", base64}});
+    };
+
+    const auto packA = save("PackA__abc", "pack-a.wasm", "AQID");
+    const auto packB = save("PackB__abc", "pack-b.wasm", "BAUG");
+
+    if (!packA || !packB || packA->id != "PackA__abc" || packB->id != "PackB__abc")
+    {
+        std::cerr << "Failed to save the two packs' resources\n";
+        return false;
+    }
+
+    if (!DeleteResourceAndExpectRemoved(controller, host, "wasm", "PackA__abc"))
+    {
+        std::cerr << "The first delete did not remove PackA__abc\n";
+        return false;
+    }
+
+    host.messages.clear();
+    controller.HandleUIMessage(
+        nlohmann::json{{"type", "deleteLibraryResource"}, {"resourceType", "wasm"}, {"resourceId", "PackA__abc"}}
+            .dump());
+
+    if (FindLastMessageOfType(host.messages, "resourceRemoved") || !fs::exists(packB->filePath) ||
+        !LibraryIndexContains(sandbox, "wasm", "PackB__abc"))
+    {
+        std::cerr << "Deleting PackA__abc again removed PackB__abc's file or entry\n";
+        return false;
+    }
+
+    return true;
+}
+
 bool TestDeleteExternalResourceKeepsFileButRemovesIndex()
 {
     const fs::path sandbox = fs::temp_directory_path() / "guitarfx-resource-delete-tests" / "external-resource";
@@ -1093,6 +1146,7 @@ int main()
 
     run("Delete stored resource removes file and index", TestDeleteStoredResourceRemovesFileAndIndex());
     run("Same-named drops keep their own files", TestSameNamedDropsKeepTheirOwnFiles());
+    run("Deleting a gone id leaves other resources alone", TestDeletingAGoneIdLeavesOthersAlone());
     run("Delete external resource keeps file and removes index", TestDeleteExternalResourceKeepsFileButRemovesIndex());
     run("Delete in-use resource is refused", TestDeleteInUseResourceIsRefused());
     run("Cleanup removal persists across a restart", TestCleanupRemovalPersistsAcrossRestart());

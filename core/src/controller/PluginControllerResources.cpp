@@ -925,9 +925,13 @@ void PluginController::HandleDeleteLibraryResourceRequest(const nlohmann::json& 
         return;
     }
 
+    // Exactly this id. LookupResource falls back to fuzzy matches (the part after "__", or any id
+    // ending "__<suffix>"), so a second delete of an id already gone found another resource,
+    // checked the gone one's uses, and deleted the other's file, leaving its entry pointing at
+    // nothing.
     const auto resourceOpt = mResourceLibrary.LookupResource(resourceType, resourceId);
 
-    if (!resourceOpt)
+    if (!resourceOpt || resourceOpt->id != resourceId)
     {
         SendMessageToUI(nlohmann::json{
             {"type", "resourceDeleteFailed"}, {"message", "Resource delete failed"}, {"detail", "Resource not found"}}
@@ -1897,9 +1901,10 @@ void PluginController::HandleCleanupResourceLibraryRequest(const nlohmann::json&
             continue;
         }
 
+        // Exactly this id, as a single delete takes it: a fuzzy match is another resource.
         const auto resourceOpt = mResourceLibrary.LookupResource(t, i);
 
-        if (!resourceOpt)
+        if (!resourceOpt || resourceOpt->id != i)
         {
             ++skipped;
             continue;
