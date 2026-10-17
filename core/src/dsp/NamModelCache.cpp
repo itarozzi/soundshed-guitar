@@ -1,10 +1,14 @@
 #include "dsp/NamModelCache.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <cstdlib>
+#include <fstream>
 #include <list>
 #include <mutex>
+#include <stdexcept>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -12,6 +16,7 @@
 #include "NAM/activations.h"
 #include "NAM/dsp.h"
 #include "NAM/get_dsp.h"
+#include "dsp/nam/FusedWaveNet.h"
 #include "util/SessionLog.h"
 
 namespace guitarfx::nammodelcache
@@ -22,6 +27,10 @@ namespace
 struct Entry
 {
     std::shared_ptr<const ::nam::dspData> data;
+    // The weights packed for the fused pass, once packing has been tried: null when the shape
+    // is not one it takes.
+    std::shared_ptr<const fusedwavenet::PackedModel> fused;
+    bool fusedTried = false;
     std::uintmax_t fileSize = 0;
     std::int64_t writeTime = 0;
     std::size_t bytes = 0;
@@ -38,6 +47,8 @@ struct CacheState
     std::size_t hits = 0;
     std::size_t misses = 0;
     std::size_t evictions = 0;
+    std::size_t fusedBuilds = 0;
+    std::size_t coreBuilds = 0;
 };
 
 CacheState& State()
@@ -151,11 +162,134 @@ void EnableFastTanhOnce()
     }();
     (void)enabled;
 }
+
+// -1 until SetFusedEngineEnabled is called; the environment decides until then.
+std::atomic<int> gFusedEngineOverride{-1};
+
+bool FusedEngineFromEnvironment()
+{
+    std::string value;
+#ifdef _WIN32
+    char* raw = nullptr;
+    std::size_t length = 0;
+
+    if (_dupenv_s(&raw, &length, "GUITARFX_NAM_ENGINE") == 0 && raw != nullptr)
+    {
+        value = raw;
+        std::free(raw);
+    }
+
+#else
+
+    if (const char* raw = std::getenv("GUITARFX_NAM_ENGINE"); raw != nullptr)
+    {
+        value = raw;
+    }
+
+#endif
+    return value != "core";
+}
+
+// One line per process, so a session log says which engine its NAM models ran on.
+void LogEngineOnce()
+{
+    static const bool logged = [] {
+        std::string line = "[NamModelCache] NAM engine: ";
+
+        if (!fusedwavenet::IsAvailable())
+        {
+            line += "NAM core (no fused kernel in this build)";
+        }
+        else if (!IsFusedEngineEnabled())
+        {
+            line += "NAM core (fused WaveNet switched off)";
+        }
+        else
+        {
+            line += std::string("fused WaveNet (") + fusedwavenet::KernelName() + "), NAM core for other shapes";
+        }
+
+        util::AppendSessionLog(line);
+        return true;
+    }();
+    (void)logged;
+}
+
+// The file as nam::get_dsp(path, dspData&) reads it, without building a model from it.
+::nam::dspData ParseModelFile(const std::filesystem::path& path)
+{
+    std::ifstream stream(path);
+    nlohmann::json json;
+    stream >> json;
+
+    ::nam::dspData data;
+    data.version = json.at("version").get<std::string>();
+    ::nam::verify_config_version(data.version);
+    data.architecture = json.at("architecture").get<std::string>();
+    data.config = json.at("config");
+    data.metadata = json.value("metadata", nlohmann::json());
+
+    const auto weights = json.find("weights");
+
+    if (weights == json.end())
+    {
+        throw std::runtime_error("Corrupted model file is missing weights.");
+    }
+
+    data.weights = weights->get<std::vector<float>>();
+    data.expected_sample_rate = ::nam::get_sample_rate_from_nam_file(json);
+    return data;
+}
+
+// Packs the entry's weights for the fused pass, once per entry, outside the lock. Another
+// thread may pack the same entry meanwhile; the first to store wins, and both results match.
+std::shared_ptr<const fusedwavenet::PackedModel> PackForFusedEngine(CacheState& state, const std::string& key,
+                                                                    const std::shared_ptr<const ::nam::dspData>& data)
+{
+    auto packed = fusedwavenet::Pack(*data);
+    std::lock_guard<std::mutex> lock(state.mutex);
+    auto it = state.entries.find(key);
+
+    // Only into the entry this parse came from: the file may have been replaced since.
+    if (it != state.entries.end() && it->second.data == data && !it->second.fusedTried)
+    {
+        it->second.fused = packed;
+        it->second.fusedTried = true;
+
+        if (packed)
+        {
+            it->second.bytes += packed->bytes;
+            state.bytes += packed->bytes;
+            EvictToBudgetLocked(state);
+        }
+    }
+
+    return packed;
+}
 } // namespace
+
+void SetFusedEngineEnabled(const bool enabled)
+{
+    gFusedEngineOverride.store(enabled ? 1 : 0, std::memory_order_relaxed);
+}
+
+bool IsFusedEngineEnabled()
+{
+    const int forced = gFusedEngineOverride.load(std::memory_order_relaxed);
+
+    if (forced >= 0)
+    {
+        return forced != 0;
+    }
+
+    static const bool fromEnvironment = FusedEngineFromEnvironment();
+    return fromEnvironment;
+}
 
 std::unique_ptr<::nam::DSP> GetModel(const std::filesystem::path& path)
 {
     EnableFastTanhOnce();
+    LogEngineOnce();
 
     std::uintmax_t fileSize = 0;
     std::int64_t writeTime = 0;
@@ -169,6 +303,8 @@ std::unique_ptr<::nam::DSP> GetModel(const std::filesystem::path& path)
     auto& state = State();
 
     std::shared_ptr<const ::nam::dspData> cached;
+    std::shared_ptr<const fusedwavenet::PackedModel> fused;
+    bool fusedTried = false;
     {
         std::lock_guard<std::mutex> lock(state.mutex);
         auto it = state.entries.find(key);
@@ -178,6 +314,8 @@ std::unique_ptr<::nam::DSP> GetModel(const std::filesystem::path& path)
             if (it->second.fileSize == fileSize && it->second.writeTime == writeTime)
             {
                 cached = it->second.data;
+                fused = it->second.fused;
+                fusedTried = it->second.fusedTried;
                 TouchLocked(state, key);
                 ++state.hits;
             }
@@ -196,31 +334,17 @@ std::unique_ptr<::nam::DSP> GetModel(const std::filesystem::path& path)
 
     try
     {
-        if (cached)
+        if (!cached)
         {
-            // get_dsp takes a non-const reference and may consume the data, so the cached
-            // copy is never handed out directly.
-            ::nam::dspData copy = *cached;
-            return ::nam::get_dsp(copy);
-        }
-
-        ::nam::dspData parsed;
-        auto model = ::nam::get_dsp(path, parsed);
-
-        if (!model)
-        {
-            return nullptr;
-        }
-
-        const std::size_t bytes = EstimateBytes(parsed);
-        {
+            auto parsed = std::make_shared<const ::nam::dspData>(ParseModelFile(path));
+            const std::size_t bytes = EstimateBytes(*parsed);
             std::lock_guard<std::mutex> lock(state.mutex);
             // A concurrent load of the same path may have inserted already; replacing is
             // harmless and keeps the newest stat data.
             EraseLocked(state, key);
 
             Entry entry;
-            entry.data = std::make_shared<const ::nam::dspData>(std::move(parsed));
+            entry.data = parsed;
             entry.fileSize = fileSize;
             entry.writeTime = writeTime;
             entry.bytes = bytes;
@@ -229,6 +353,34 @@ std::unique_ptr<::nam::DSP> GetModel(const std::filesystem::path& path)
             state.entries.emplace(key, std::move(entry));
             TouchLocked(state, key);
             EvictToBudgetLocked(state);
+            cached = std::move(parsed);
+        }
+
+        if (IsFusedEngineEnabled() && fusedwavenet::IsAvailable())
+        {
+            if (!fusedTried)
+            {
+                fused = PackForFusedEngine(state, key, cached);
+            }
+
+            if (fused)
+            {
+                auto model = fusedwavenet::Build(*fused);
+                std::lock_guard<std::mutex> lock(state.mutex);
+                ++state.fusedBuilds;
+                return model;
+            }
+        }
+
+        // get_dsp takes a non-const reference and may consume the data, so the cached
+        // copy is never handed out directly.
+        ::nam::dspData copy = *cached;
+        auto model = ::nam::get_dsp(copy);
+
+        if (model)
+        {
+            std::lock_guard<std::mutex> lock(state.mutex);
+            ++state.coreBuilds;
         }
 
         return model;
@@ -280,6 +432,8 @@ Stats GetStats()
     stats.hits = state.hits;
     stats.misses = state.misses;
     stats.evictions = state.evictions;
+    stats.fusedBuilds = state.fusedBuilds;
+    stats.coreBuilds = state.coreBuilds;
     return stats;
 }
 
@@ -290,5 +444,7 @@ void ResetStats()
     state.hits = 0;
     state.misses = 0;
     state.evictions = 0;
+    state.fusedBuilds = 0;
+    state.coreBuilds = 0;
 }
 } // namespace guitarfx::nammodelcache

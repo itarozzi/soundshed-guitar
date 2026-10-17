@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <climits>
+#include <optional>
 
 #if defined(_WIN32)
     #ifndef NOMINMAX
@@ -60,6 +61,170 @@ constexpr int CountOf(std::uint64_t word) noexcept
 constexpr int kSpinsBeforeYield = 10000;
 
 std::atomic<RealtimeTaskPool::ClaimHook> gWorkerClaimHook{nullptr};
+
+#if defined(_WIN32)
+int CurrentCpu() noexcept
+{
+    PROCESSOR_NUMBER number{};
+    GetCurrentProcessorNumberEx(&number);
+    return number.Group * 64 + number.Number;
+}
+
+// Keeps a worker off the physical core its dispatcher runs on. Windows 11 on an 8-core Ryzen woke
+// the dual-lane helper on the audio thread's SMT sibling in 70-98% of blocks, paced or back to
+// back. There both lanes ran at about half speed while the audio thread spun on the helper, so the
+// hand-off saved at most 25% of the block, often nothing, for 1.5-2x the CPU. Narrowing the worker's selected CPU sets
+// (Windows 10 and later) to the other cores stopped it. Setting its ideal processor instead left
+// it on the sibling in up to half the blocks, and keeping it off the dispatcher's last two cores
+// cost more at small blocks than it saved: waking a sleeping core is slower than waking the
+// sibling of a busy one. docs/nam-dual-lane-threshold-2026-10-16.md has the numbers.
+class CoreAvoidance
+{
+  public:
+    static const CoreAvoidance& Instance()
+    {
+        static const CoreAvoidance instance;
+        return instance;
+    }
+
+    // The physical core of a logical processor (CurrentCpu() numbering), or -1.
+    [[nodiscard]] int CoreOf(int cpu) const noexcept
+    {
+        return cpu >= 0 && cpu < static_cast<int>(mCoreOfCpu.size()) ? mCoreOfCpu[static_cast<std::size_t>(cpu)] : -1;
+    }
+
+    [[nodiscard]] std::size_t CpuSetCount() const noexcept
+    {
+        return mCpuSets.size();
+    }
+
+    // Narrows the calling thread to the cores other than `avoid`. `scratch` holds CpuSetCount()
+    // ids, reserved by the caller so this never allocates. A no-op with one core, or before
+    // Windows 10.
+    void AvoidOnThisThread(int avoid, std::vector<ULONG>& scratch) const noexcept
+    {
+        if (mSetSelectedCpuSets == nullptr || scratch.capacity() < mCpuSets.size())
+        {
+            return;
+        }
+
+        scratch.clear();
+
+        for (const auto& [id, core] : mCpuSets)
+        {
+            if (core != avoid)
+            {
+                scratch.push_back(id);
+            }
+        }
+
+        mSetSelectedCpuSets(GetCurrentThread(), scratch.data(), static_cast<ULONG>(scratch.size()));
+    }
+
+  private:
+    using GetSystemCpuSetInformationFn = BOOL(WINAPI*)(PSYSTEM_CPU_SET_INFORMATION, ULONG, PULONG, HANDLE, ULONG);
+    using SetThreadSelectedCpuSetsFn = BOOL(WINAPI*)(HANDLE, const ULONG*, ULONG);
+
+    CoreAvoidance()
+    {
+        // Looked up rather than linked, so the core still loads where they do not exist.
+        HMODULE kernel = GetModuleHandleW(L"kernel32.dll");
+        const auto getInformation =
+            kernel
+                ? reinterpret_cast<GetSystemCpuSetInformationFn>(GetProcAddress(kernel, "GetSystemCpuSetInformation"))
+                : nullptr;
+        const auto setSelected =
+            kernel ? reinterpret_cast<SetThreadSelectedCpuSetsFn>(GetProcAddress(kernel, "SetThreadSelectedCpuSets"))
+                   : nullptr;
+        ULONG length = 0;
+
+        if (getInformation == nullptr || setSelected == nullptr)
+        {
+            return;
+        }
+
+        getInformation(nullptr, 0, &length, GetCurrentProcess(), 0);
+        std::vector<std::uint8_t> buffer(length);
+
+        if (length == 0 || !getInformation(reinterpret_cast<PSYSTEM_CPU_SET_INFORMATION>(buffer.data()), length,
+                                           &length, GetCurrentProcess(), 0))
+        {
+            return;
+        }
+
+        // Logical processors on one core share its group and CoreIndex.
+        std::vector<std::pair<int, int>> coreKeys;
+
+        for (ULONG offset = 0; offset < length;)
+        {
+            const auto* entry = reinterpret_cast<const SYSTEM_CPU_SET_INFORMATION*>(buffer.data() + offset);
+            offset += entry->Size;
+
+            if (entry->Type != CpuSetInformation)
+            {
+                continue;
+            }
+
+            const std::pair<int, int> key{entry->CpuSet.Group, entry->CpuSet.CoreIndex};
+            auto found = std::find(coreKeys.begin(), coreKeys.end(), key);
+
+            if (found == coreKeys.end())
+            {
+                found = coreKeys.insert(coreKeys.end(), key);
+            }
+
+            const int core = static_cast<int>(found - coreKeys.begin());
+            const auto cpu = static_cast<std::size_t>(entry->CpuSet.Group) * 64 + entry->CpuSet.LogicalProcessorIndex;
+
+            if (cpu >= mCoreOfCpu.size())
+            {
+                mCoreOfCpu.resize(cpu + 1, -1);
+            }
+
+            mCoreOfCpu[cpu] = core;
+            mCpuSets.emplace_back(entry->CpuSet.Id, core);
+        }
+
+        if (coreKeys.size() >= 2) // else there is nowhere else to go
+        {
+            mSetSelectedCpuSets = setSelected;
+        }
+    }
+
+    SetThreadSelectedCpuSetsFn mSetSelectedCpuSets = nullptr;
+    std::vector<int> mCoreOfCpu;
+    std::vector<std::pair<ULONG, int>> mCpuSets; // id, core
+};
+
+// One worker's side of it, run on the worker after its tasks are done, so the system call (about
+// 0.5 µs) never sits between the audio thread and the end of its block. It places the next wake,
+// and runs only when the dispatcher has moved to another core. All Run() adds is reading the
+// dispatcher's processor number (about a nanosecond).
+class DispatcherCoreAvoider
+{
+  public:
+    DispatcherCoreAvoider()
+    {
+        mScratch.reserve(CoreAvoidance::Instance().CpuSetCount());
+    }
+
+    void Follow(int dispatcherCpu) noexcept
+    {
+        const auto& avoidance = CoreAvoidance::Instance();
+        const int core = avoidance.CoreOf(dispatcherCpu);
+
+        if (core >= 0 && core != mAvoided)
+        {
+            mAvoided = core;
+            avoidance.AvoidOnThisThread(core, mScratch);
+        }
+    }
+
+  private:
+    int mAvoided = -1;
+    std::vector<ULONG> mScratch;
+};
+#endif
 } // namespace
 
 void FlushDenormalsOnThisThread() noexcept
@@ -262,7 +427,7 @@ void RealtimeTaskPool::SetWorkerClaimHookForTesting(ClaimHook hook) noexcept
     gWorkerClaimHook.store(hook, std::memory_order_release);
 }
 
-void RealtimeTaskPool::Start(int workerCount)
+void RealtimeTaskPool::Start(int workerCount, bool avoidDispatcherCore)
 {
     std::lock_guard<std::mutex> lock(mLifecycleMutex);
     StopLocked();
@@ -273,6 +438,18 @@ void RealtimeTaskPool::Start(int workerCount)
     }
 
     mQuit.store(false, std::memory_order_seq_cst);
+    mDispatcherCpu.store(-1, std::memory_order_relaxed);
+    mAvoidDispatcherCore.store(false, std::memory_order_relaxed);
+
+#if defined(_WIN32)
+    if (avoidDispatcherCore)
+    {
+        (void)CoreAvoidance::Instance(); // reads the topology here, on the message thread
+        mAvoidDispatcherCore.store(true, std::memory_order_relaxed);
+    }
+#else
+    (void)avoidDispatcherCore;
+#endif
 
     try
     {
@@ -335,6 +512,15 @@ void RealtimeTaskPool::WorkerLoop()
     FlushDenormalsOnThisThread();
     RaisePriorityOfThisThreadForAudio();
 
+#if defined(_WIN32)
+    std::optional<DispatcherCoreAvoider> avoider;
+
+    if (mAvoidDispatcherCore.load(std::memory_order_relaxed))
+    {
+        avoider.emplace();
+    }
+#endif
+
     while (true)
     {
         mWake.Wait();
@@ -346,6 +532,13 @@ void RealtimeTaskPool::WorkerLoop()
         }
 
         RunClaims(true);
+
+#if defined(_WIN32)
+        if (avoider)
+        {
+            avoider->Follow(mDispatcherCpu.load(std::memory_order_relaxed));
+        }
+#endif
     }
 }
 
@@ -428,6 +621,14 @@ void RealtimeTaskPool::Run(TaskFn task, void* context, int count) noexcept
     mTask = task;
     mContext = context;
     mDone.store(0, std::memory_order_relaxed);
+
+#if defined(_WIN32)
+    if (mAvoidDispatcherCore.load(std::memory_order_relaxed))
+    {
+        mDispatcherCpu.store(CurrentCpu(), std::memory_order_relaxed);
+    }
+#endif
+
     ++mGeneration;
     mClaim.store((mGeneration << kGenerationShift) | (static_cast<std::uint64_t>(fanned) << kCountShift),
                  std::memory_order_seq_cst);
@@ -472,7 +673,7 @@ DualLaneExecutor::Lease DualLaneExecutor::Acquire()
 
     if (executor.mLeases++ == 0 && kParallelDspSupported && std::thread::hardware_concurrency() >= 2)
     {
-        executor.mPool.Start(1);
+        executor.mPool.Start(1, true);
     }
 
     return Lease(true);

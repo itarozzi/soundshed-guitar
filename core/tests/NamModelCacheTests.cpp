@@ -153,14 +153,31 @@ void TestCacheHitProducesIdenticalOutput(const fs::path& modelPath)
     Check(a.size() == b.size(), "both renders are the same length");
     Check(a == b, "a cache hit renders bit-identically to a fresh parse");
 
-    // And identical to the uncached library path, so the cache introduces no drift.
+    // Within float rounding of the uncached library path where the cache builds a fused model
+    // (dsp/nam/FusedWaveNet.h), and identical to it on the NAM core, so the cache adds no drift.
     auto direct = ::nam::get_dsp(modelPath);
     Check(direct != nullptr, "direct get_dsp still works");
 
     if (direct)
     {
         const auto c = Render(*direct, 48000.0, 256, 8);
-        Check(a == c, "cached model matches an uncached get_dsp(path) model");
+        double error = 0.0;
+        double signal = 0.0;
+
+        for (size_t i = 0; i < c.size() && i < a.size(); ++i)
+        {
+            error += (double(a[i]) - c[i]) * (double(a[i]) - c[i]);
+            signal += double(c[i]) * c[i];
+        }
+
+        Check(error == 0.0 || 10.0 * std::log10(signal / error) >= 100.0,
+              "cached model is within 100 dB of an uncached get_dsp(path) model");
+
+        cache::SetFusedEngineEnabled(false);
+        auto onCore = cache::GetModel(modelPath);
+        cache::SetFusedEngineEnabled(true);
+        Check(onCore != nullptr && Render(*onCore, 48000.0, 256, 8) == c,
+              "with the fused pass off, the cached model matches an uncached get_dsp(path) model bit for bit");
     }
 }
 

@@ -842,6 +842,12 @@ if(DEFINED NeuralAmpModelerCore_SOURCE_DIR)
     endif()
 endif()
 
+# The fused WaveNet pass the model cache builds NAM models on; its own scope, so it is optimised
+# in Debug as the NAM core is.
+add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/cmake/FusedWaveNet"
+                 "${CMAKE_CURRENT_BINARY_DIR}/FusedWaveNet")
+target_link_libraries(SoundshedGuitarCore PUBLIC SoundshedGuitarFusedWaveNet)
+
 if(DEFINED nam_oversampler_audio_dsp_tools_SOURCE_DIR)
     # A generated copy of its resampler with local fixes, not the checkout itself; see the module.
     include("${CMAKE_CURRENT_LIST_DIR}/cmake/GuitarfxAudioDSPTools.cmake")

@@ -367,6 +367,48 @@ bool TestDualLaneStartsFromPrepareOnly()
     return ok;
 }
 
+/// The NAM effects hand their right model to the helper only once a lane is measured to cost more
+/// than the helper's wake. Only lower bounds on time are relied on (a spin lasts at least as long
+/// as asked), plus a free lane that would have to stall for 4 ms to read as worth handing over.
+bool TestStereoLaneGateWeighsLaneCost()
+{
+    using guitarfx::rtparallel::StereoLaneGate;
+    bool ok = true;
+
+    StereoLaneGate gate;
+
+    if (gate.ShouldParallelize(4096))
+    {
+        std::cerr << "  an unmeasured gate handed a lane over\n";
+        ok = false;
+    }
+
+    gate.TimeLane(64, [] {
+        const auto until = std::chrono::steady_clock::now() + std::chrono::milliseconds(2);
+
+        while (std::chrono::steady_clock::now() < until)
+        {
+        }
+    });
+
+    if (!gate.ShouldParallelize(64))
+    {
+        std::cerr << "  a lane of 2 ms was not handed over\n";
+        ok = false;
+    }
+
+    StereoLaneGate cheap;
+    cheap.TimeLane(4096, [] {});
+
+    if (cheap.ShouldParallelize(16))
+    {
+        std::cerr << "  a lane that cost nothing was handed over\n";
+        ok = false;
+    }
+
+    return ok;
+}
+
 /// The helper runs only while something holds a lease, and an effect holds one from its first
 /// Prepare() until it is destroyed. The helper used to run until the process-wide executor was
 /// destroyed, which in a plugin is DLL unload, where joining a thread hangs on the loader lock.
@@ -669,6 +711,7 @@ int main()
     guitarfx::RegisterAllEffects();
 
     run("Dual-lane helper stops with the last lease", TestLastLeaseStopsTheHelper);
+    run("Stereo lane gate weighs what a lane costs", TestStereoLaneGateWeighsLaneCost);
     run("Executor: parallel levels match serial while they shrink", TestExecutorMatchesSerialWhileLevelsShrink);
     run("Mixer: preset fan-out matches serial while presets drop out", TestMixerMatchesSerialWhilePresetsDrop);
 

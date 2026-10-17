@@ -4,7 +4,8 @@
 - `core/src/dsp/SignalGraphExecutor.h` — Graph execution, buffer routing, topological sort
 - `core/src/dsp/SignalGraphExecutor.cpp` — Executor implementation
 - `core/src/presets/PresetTypes.h` — `SignalGraph`, `GraphNode`, `GraphEdge` structures
-- `core/src/dsp/effects/NAMAmpEffect.h` — Neural amp model loading and processing
+- `core/src/dsp/effects/OptimizedNAMAmpEffect.h` — Neural amp model loading and processing
+- `core/src/dsp/NamModelCache.h`, `core/src/dsp/nam/FusedWaveNet.h` — Where NAM models are built, and the fused pass they run on
 - `core/src/dsp/MultiPresetMixer.h` — Multi-preset mixing, global chain orchestration
 
 ## Overview
@@ -311,6 +312,34 @@ Lease to go stops and joins it during the plugin's own teardown. Before 2026-10-
 the process-wide object was destroyed, which in a plugin is DLL unload. On Windows that join
 happens under the loader lock, which the exiting thread needs, so it could hang the host as it
 unloaded the plugin.
+
+**Where the helper runs.** On Windows the dual-lane helper keeps off the physical core the audio
+thread runs on. After each lane it narrows its own CPU sets (`SetThreadSelectedCpuSets`) to the
+other cores, and does so again only when the audio thread turns up on another core. Run() itself
+only reads its processor number. Left to itself, Windows woke the helper on the audio
+thread's SMT sibling in 70-98% of blocks (Ryzen 7 8845HS, 2026-10-16), whether blocks were paced
+or back to back, and setting its ideal processor did not stop it. On a shared core both lanes ran
+at about half speed while the audio thread spun waiting, so the hand-off saved at most 25% of the block
+and often nothing, for 1.5-2x the CPU. Kept off the core, it saves 11-47% for 1.03-1.35x. The mixer's and the
+executor's pools are left to the scheduler, and so is everything on macOS and Linux.
+
+**When a NAM node uses the second lane.** The NAM amp and NAM Blend go by what a lane costs,
+not by block size. Each times its left lane, which runs on the audio thread either way, and hands
+the right lane to the helper once the left one takes 15 µs or more (`rtparallel::StereoLaneGate`,
+smoothed over about eight blocks; an effect's first block stays on the audio thread). The helper
+sleeps between blocks and starts a lane 5-20 µs after it is handed one, so a shorter lane is done
+sooner on the audio thread. `NAMDualLaneBenchmark` measured this on 2026-10-16 (Ryzen 7 8845HS,
+48 kHz, a standard 16/8 and an A2 model on both engines). A lane of about 11 µs broke even, and
+from about 15 µs the hand-off took 10-40% off the stereo block, for about 30% more process CPU
+(the same trade the old rule already made at larger blocks). In block sizes that line falls anywhere from 16 samples (the NAM core) to 64 (a fused A2
+model on a warm core), so no fixed size can follow it. The rule before was 96 samples or more,
+which left the common 32-64 sample settings on one thread. With blocks paced as a host paces
+them, the NAM amp now takes 19-25% off at 32-64 samples on the fused pass and 29-34% on the NAM
+core, where it took nothing before. Oversampling and a Blend's extra models make a lane cost more,
+so the hand-off starts at smaller blocks for them. The IR cab and IR reverb still go by block size
+(96 samples, `ShouldParallelizeStereoWork`) and were not re-measured. The tables, and the
+measurements behind where the helper runs, are in
+[nam-dual-lane-threshold-2026-10-16.md](nam-dual-lane-threshold-2026-10-16.md).
 
 **Sleep on silence.** `SilenceSleepGate` skips every chain once the block's input has been under
 about -80 dBFS **and** the chains' output under about -96 dBFS for 1 s, or 5 s when a graph can

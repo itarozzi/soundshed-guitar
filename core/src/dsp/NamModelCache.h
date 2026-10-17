@@ -19,8 +19,14 @@ namespace guitarfx
  * right channel). That cost sits directly on the preset-switch critical path.
  *
  * nam::dspData is a plain copyable struct, and nam::get_dsp() has an overload that builds
- * a model from one. So the parse result is cached and each construction becomes a struct
- * copy plus model instantiation, which measures ~0.1-1.6 ms — a 80-98% saving per model.
+ * a model from one. So the parse result is cached and each construction skips the file. The
+ * NAM core still re-walks the config and prewarms on every build, though: 7-46 ms per model
+ * (docs/nam-dsp-performance-review-2026-10-16.md).
+ *
+ * So where the model is a WaveNet shape the fused pass takes (dsp/nam/FusedWaveNet.h), the
+ * entry also holds its packed weights, and every model built from it is a fused one sharing
+ * them: a build and prewarm in well under a millisecond, and 2-4.8x less CPU while it runs.
+ * Anything else is built by the NAM core from the cached dspData.
  *
  * Entries are keyed by canonical path + file size + last-write time, so editing or
  * replacing a model file invalidates its entry. Eviction is LRU against a byte budget.
@@ -41,6 +47,16 @@ namespace nammodelcache
  */
 std::unique_ptr<::nam::DSP> GetModel(const std::filesystem::path& path);
 
+/**
+ * Whether GetModel builds fused models where the shape allows, or always the NAM core's. On by
+ * default where this build has a fused kernel (fusedwavenet::IsAvailable()). Setting the
+ * environment variable GUITARFX_NAM_ENGINE=core before launch turns it off for the process, for
+ * A/B listening and support; tests and tools can also set it here. Models already built keep
+ * the engine they were built with, so a change takes effect at the next model load.
+ */
+void SetFusedEngineEnabled(bool enabled);
+[[nodiscard]] bool IsFusedEngineEnabled();
+
 /// Maximum bytes of parsed model data to retain. Setting a lower budget evicts immediately.
 void SetBudgetBytes(std::size_t bytes);
 [[nodiscard]] std::size_t GetBudgetBytes();
@@ -55,6 +71,8 @@ struct Stats
     std::size_t hits = 0;
     std::size_t misses = 0;
     std::size_t evictions = 0;
+    std::size_t fusedBuilds = 0; // models GetModel built on the fused pass
+    std::size_t coreBuilds = 0;  // and on the NAM core
 };
 
 [[nodiscard]] Stats GetStats();
