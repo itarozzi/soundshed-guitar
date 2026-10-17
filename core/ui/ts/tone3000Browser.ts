@@ -301,8 +301,17 @@ function renderCategories(): void {
   });
 }
 
+/** Bumped by every search, so a reply that is not the latest search's is dropped. */
+let searchSequence = 0;
+
 async function runSearch(page = 1): Promise<void> {
   if (!resultsEl) return;
+
+  // Searches overlap: change the category, the sort or the page while one is in flight and the
+  // older reply could land last and overwrite the newer, filtered by the category current then.
+  const sequence = ++searchSequence;
+  const isStale = (): boolean => sequence !== searchSequence;
+  const category = activeCategory;
 
   syncBrowseModeUi();
 
@@ -316,6 +325,8 @@ async function runSearch(page = 1): Promise<void> {
   activeQuery = useFavoritesMode ? "" : (searchInputEl?.value.trim() ?? "");
   currentPage = page;
   await ensureTone3000Session();
+
+  if (isStale()) return;
 
   if (!isTone3000AuthReady()) {
     resultsEl.innerHTML = `<div class="tone3000-empty">Add a Tone3000 API key to browse models.</div>`;
@@ -334,8 +345,8 @@ async function runSearch(page = 1): Promise<void> {
       if (activeQuery) {
         params.set("query", activeQuery);
       }
-      if (activeCategory.gear) {
-        params.set("gear", activeCategory.gear);
+      if (category.gear) {
+        params.set("gear", category.gear);
       }
       const sortValue = sortSelectEl?.value ?? "popular";
       if (sortValue === "popular") {
@@ -352,6 +363,8 @@ async function runSearch(page = 1): Promise<void> {
     const endpoint = useFavoritesMode ? buildTone3000FavoritesUrl(params) : buildTone3000SearchUrl(params);
     const response = await tone3000AuthenticatedFetch(endpoint);
 
+    if (isStale()) return;
+
     if (!response.ok) {
       if (useFavoritesMode && (response.status === 401 || response.status === 403 || response.status === 404)) {
         throw new Error("Favourites are only available in BYOK direct API mode.");
@@ -360,23 +373,26 @@ async function runSearch(page = 1): Promise<void> {
     }
 
     const data = await response.json();
+
+    if (isStale()) return;
+
     const tones = extractTone3000Tones(data);
     backfillTone3000ResourceImages(tones);
 
     const filtered = useFavoritesMode
       ? tones
-      : activeCategory.platform
+      : category.platform
       ? tones.filter((tone) => {
           const platform = (tone.platform ?? "").toLowerCase();
           const platforms = (tone as { platforms?: string[] }).platforms;
           if (!platform && !Array.isArray(platforms)) {
             return true;
           }
-          if (platform === activeCategory.platform) {
+          if (platform === category.platform) {
             return true;
           }
           return Array.isArray(platforms)
-            ? platforms.some((value) => value.toLowerCase() === activeCategory.platform)
+            ? platforms.some((value) => value.toLowerCase() === category.platform)
             : false;
         })
       : tones;
@@ -384,6 +400,8 @@ async function runSearch(page = 1): Promise<void> {
     updatePagination(false, data, filtered.length);
     renderResults(filtered);
   } catch (error) {
+    if (isStale()) return;
+
     const message = error instanceof Error ? error.message : String(error);
     resultsEl.innerHTML = `<div class="tone3000-empty">${escapeHtml(message)}</div>`;
     updatePagination(false);

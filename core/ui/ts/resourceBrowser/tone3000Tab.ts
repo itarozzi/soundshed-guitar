@@ -110,6 +110,8 @@ export class Tone3000Tab {
     this.tone3000Architecture?.addEventListener("change", () => {
       this.expandedToneId = null;
       this.toneModelsCache.clear();
+      this.toneModelErrors.clear();
+      ++this.toneModelsGeneration;
       this.host.saveState();
       void this.runTone3000Search();
     });
@@ -176,6 +178,11 @@ export class Tone3000Tab {
   private expandedToneSection: "models" | "details" = "models";
 
   toneModelsCache: Map<string, Tone3000Model[]> = new Map();
+  /** A tone whose models failed to load, with why: shown, and retried on the next expand, never
+   *  cached (the cache is persisted, so a passing network error read "No models" for good). */
+  private toneModelErrors: Map<string, string> = new Map();
+  /** Bumped when the cache is cleared for an architecture change, so a fetch for the old one is dropped. */
+  private toneModelsGeneration = 0;
 
   /** The Tone3000 half of the per-resource-type state the modal remembers. */
   captureTone3000State(persisted: PersistedResourceBrowserState, resourceType: ResourceType): void {
@@ -250,10 +257,18 @@ export class Tone3000Tab {
     }
   }
 
+  /** Bumped by every search, so a reply that is not the latest search's is dropped. */
+  private tone3000SearchSequence = 0;
+
   async runTone3000Search(page = 1): Promise<void> {
     if (!this.tone3000List || !this.host.getOptions()) {
       return;
     }
+
+    // The picker is one modal shared by every slot: a model search still in flight when it is
+    // opened for an IR slot (or the category, sort or page changes) could land last and fill it.
+    const sequence = ++this.tone3000SearchSequence;
+    const isStale = (): boolean => sequence !== this.tone3000SearchSequence;
 
     this.syncTone3000ModeUi();
     
@@ -265,6 +280,9 @@ export class Tone3000Tab {
     }
 
     await ensureTone3000Session();
+    if (isStale()) {
+      return;
+    }
     if (!isTone3000AuthReady()) {
       this.tone3000List.innerHTML = `<div class="resource-browser-empty">Add a Tone3000 API key in Settings to browse.</div>`;
       this.updateTone3000Pagination(false);
@@ -323,6 +341,9 @@ export class Tone3000Tab {
       
       const endpoint = useFavoritesMode ? buildTone3000FavoritesUrl(params) : buildTone3000SearchUrl(params);
       const response = await tone3000AuthenticatedFetch(endpoint);
+      if (isStale()) {
+        return;
+      }
       
       if (!response.ok) {
         if (useFavoritesMode && (response.status === 401 || response.status === 403 || response.status === 404)) {
@@ -332,6 +353,9 @@ export class Tone3000Tab {
       }
       
       const data = await response.json();
+      if (isStale()) {
+        return;
+      }
       const tones = extractTone3000Tones(data);
       backfillTone3000ResourceImages(tones);
 
@@ -340,6 +364,9 @@ export class Tone3000Tab {
       this.updateTone3000PaginationFromData(data, tones.length);
       this.renderTone3000List();
     } catch (error) {
+      if (isStale()) {
+        return;
+      }
       const message = error instanceof Error ? error.message : String(error);
       this.tone3000List.innerHTML = `<div class="resource-browser-empty">Error: ${escapeHtml(message)}</div>`;
       this.updateTone3000Pagination(false);
@@ -462,7 +489,10 @@ export class Tone3000Tab {
     const models = this.toneModelsCache.get(String(tone.id));
     
     if (!models) {
-      return `<div class="resource-browser-tone-models"><div class="resource-browser-empty">Loading models...</div></div>`;
+      const error = this.toneModelErrors.get(String(tone.id));
+      return error
+        ? `<div class="resource-browser-tone-models"><div class="resource-browser-empty">Could not load models: ${escapeHtml(error)}</div></div>`
+        : `<div class="resource-browser-tone-models"><div class="resource-browser-empty">Loading models...</div></div>`;
     }
     
     if (!models.length) {
@@ -638,13 +668,24 @@ export class Tone3000Tab {
     if (!this.toneModelsCache.has(toneId)) {
       const tone = this.tone3000Tones.find((t) => String(t.id) === toneId);
       if (tone) {
+        // Models are fetched for the architecture selected now. A change of architecture while
+        // this is in flight clears the cache, and this tone's list for the old one must not
+        // come back into it to show, and import, the wrong architecture's models.
+        const generation = this.toneModelsGeneration;
+        this.toneModelErrors.delete(toneId);
         try {
           const models = await this.fetchToneModels(tone);
+          if (generation !== this.toneModelsGeneration) {
+            return;
+          }
           this.toneModelsCache.set(toneId, models);
           this.renderTone3000List();
         } catch (error) {
           console.error("Failed to fetch models:", error);
-          this.toneModelsCache.set(toneId, []);
+          if (generation !== this.toneModelsGeneration) {
+            return;
+          }
+          this.toneModelErrors.set(toneId, error instanceof Error ? error.message : String(error));
           this.renderTone3000List();
         }
       }
