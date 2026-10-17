@@ -182,6 +182,13 @@ export class Tone3000DetailsView {
 
     try {
       const models = await this.fetchModels(tone);
+
+      // The list walks every page, so it can be slow, and the dialog may show another tone by now:
+      // that tone's list is its own, and Import would otherwise take this one's models under its name.
+      if (this.currentTone !== tone) {
+        return;
+      }
+
       this.currentModels = models;
 
       if (!models.length) {
@@ -199,6 +206,10 @@ export class Tone3000DetailsView {
       }
       this.updateSelectionStatus();
     } catch (error) {
+      if (this.currentTone !== tone) {
+        return;
+      }
+
       const message = error instanceof Error ? error.message : String(error);
       this.els.modelsStatus.textContent = `Unable to load models: ${message}`;
       this.updateSelectionStatus();
