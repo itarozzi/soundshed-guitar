@@ -1,5 +1,6 @@
 #include "AudioDecoder.h"
 #include "Wav.h"
+#include "dsp/FiniteCheck.h"
 
 #include <algorithm>
 #include <cmath>
@@ -255,15 +256,20 @@ std::optional<DecodedWav> DecodePcmAiff(const std::vector<std::uint8_t>& bytes)
             const std::uint8_t* s = pcm + frameBase + ch * bytesPerSample;
             double sample = 0.0;
 
+            // AIFF floats are big-endian, like the rest of the format: copied as they stand they
+            // decoded as full-scale noise with a NaN or infinity about one sample in 256.
             if (isFloat32)
             {
+                const std::uint32_t raw = ReadU32BE(s);
                 float v;
-                std::memcpy(&v, s, 4);
-                sample = static_cast<double>(v);
+                std::memcpy(&v, &raw, 4);
+                sample = IsFinite(v) ? static_cast<double>(v) : 0.0;
             }
             else if (isFloat64)
             {
-                std::memcpy(&sample, s, 8);
+                const std::uint64_t raw = (static_cast<std::uint64_t>(ReadU32BE(s)) << 32u) | ReadU32BE(s + 4);
+                std::memcpy(&sample, &raw, 8);
+                sample = IsFinite(sample) ? sample : 0.0;
             }
             else if (isLittleEndian)
             {

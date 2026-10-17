@@ -1,6 +1,7 @@
 #include "Wav.h"
 
 #include "dsp/BlockSincResampler.h"
+#include "dsp/FiniteCheck.h"
 #include "util/FileIO.h"
 
 #include <algorithm>
@@ -155,15 +156,17 @@ std::optional<DecodedWav> DecodePcmWav(const std::vector<std::uint8_t>& bytes)
 
             if (isFloat)
             {
+                // A NaN or infinity is silence: std::clamp below passes NaN straight through.
                 if (bitsPerSample == 32)
                 {
                     float v;
                     std::memcpy(&v, bytes.data() + so, 4);
-                    sample = v;
+                    sample = IsFinite(v) ? v : 0.0;
                 }
                 else if (bitsPerSample == 64)
                 {
                     std::memcpy(&sample, bytes.data() + so, 8);
+                    sample = IsFinite(sample) ? sample : 0.0;
                 }
                 else
                 {

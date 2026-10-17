@@ -1,12 +1,15 @@
 #include <cstdint>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <limits>
 #include <string>
 #include <vector>
 
 #include "dsp/IRWavLoader.h"
+#include "util/AudioDecoder.h"
 #include "util/Wav.h"
 
 #ifndef GUITARFX_TEST_RESOURCES_DIR
@@ -257,12 +260,61 @@ bool TestIrLoaderStreamedDataSize()
     return ReportCheck(LoadIr("streamed.wav", WavWithOddChunk(0xFFFFFFFFu), wav) && HoldsTheSamples(wav),
                        "  reads the samples the file holds:");
 }
+
+// ── The audio decoder (util/AudioDecoder.h): riff import, the practice tool, demo preview ──
+
+/// A 32-bit float AIFC ('fl32') of `samples`, mono at 48 kHz.
+std::vector<std::uint8_t> FloatAifc(const std::vector<float>& samples)
+{
+    std::vector<std::uint8_t> body;
+    PutTag(body, "AIFC");
+    PutTag(body, "COMM");
+    PutBE32(body, 22 + 2);
+    PutBE16(body, 1);
+    PutBE32(body, static_cast<std::uint32_t>(samples.size()));
+    PutBE16(body, 32);
+    const std::uint8_t k48k[] = {0x40, 0x0E, 0xBB, 0x80, 0, 0, 0, 0, 0, 0};
+    body.insert(body.end(), std::begin(k48k), std::end(k48k));
+    PutTag(body, "fl32");
+    body.insert(body.end(), {0, 0}); // an empty compression name, padded to even
+    PutTag(body, "SSND");
+    PutBE32(body, 8 + 4 * static_cast<std::uint32_t>(samples.size()));
+    PutBE32(body, 0);
+    PutBE32(body, 0);
+
+    for (const float sample : samples)
+    {
+        std::uint32_t raw = 0;
+        std::memcpy(&raw, &sample, 4);
+        PutBE32(body, raw);
+    }
+
+    std::vector<std::uint8_t> file;
+    PutTag(file, "FORM");
+    PutBE32(file, static_cast<std::uint32_t>(body.size()));
+    file.insert(file.end(), body.begin(), body.end());
+    return file;
+}
+
+/// AIFF floats are big-endian. The decoder copied them as they stood, so a float AIFF (a common
+/// Logic or GarageBand export) came out as full-scale noise with the odd NaN, and std::clamp let
+/// a NaN through into the chain. A NaN or infinity in the file now decodes as silence.
+bool TestFloatAiffDecode()
+{
+    std::cout << "Test: float AIFF decode\n";
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    const auto decoded = guitarfx::util::DecodeAudioBytes(FloatAifc({0.5f, -0.25f, nan, 0.125f}));
+    const bool right = decoded && decoded->channels == 1 && decoded->channelSamples.size() == 1 &&
+                       decoded->channelSamples[0] == std::vector<double>{0.5, -0.25, 0.0, 0.125};
+    return ReportCheck(right, "  the samples, big-endian, a NaN as silence:");
+}
 } // namespace
 
 int main()
 {
     bool passed = TestDecodeRegressionFixture();
     passed = TestIrLoaderFormats() && passed;
+    passed = TestFloatAiffDecode() && passed;
 
     // Only once the walk reaches the data chunk, so an old loader is not asked for 8.6 GB.
     passed = passed && TestIrLoaderStreamedDataSize();
