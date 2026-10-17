@@ -93,6 +93,9 @@ Web-based SPA in a native WebView container.
   being restored until then, and the host hears `NotifyDeferredStateRestored()` once it lands.
   While a host thread waits, the controller holds back its own calls into the host (latency,
   state changed) until that thread has been let go, since it may hold a lock the host needs.
+  A restore on the message thread holds them too, until the host's setState has returned: a
+  task posted to the message thread makes them then. A host that hears from the plugin inside
+  its own call can re-enter it (VST3's `restartComponent` is made synchronously there).
 
 ## Performance Targets
 

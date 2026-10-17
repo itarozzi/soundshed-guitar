@@ -598,8 +598,20 @@ bool TestLatencyReadLockedNotifiedUnlocked(PluginController& controller)
                           {"paramKey", "lowLatency"},
                           {"value", 1.0}});
     });
-    trigger("offline render on", [&] { controller.SetOfflineRendering(true); });
-    trigger("offline render off", [&] { controller.SetOfflineRendering(false); });
+
+    // A bounce starting or ending only records the mode: no walk, and nothing for the host.
+    for (const bool offline : {true, false})
+    {
+        const Mark reads{gProbes.latencyReads};
+        const Mark notifies{gProbes.notifies};
+        RunArmed(gProbes.latencyArmed, [&] { controller.SetOfflineRendering(offline); });
+        const bool untouched =
+            gProbes.latencyReads.calls.load() == reads.calls && gProbes.notifies.calls.load() == notifies.calls;
+        passed = Check(untouched,
+                       std::string("offline render ") + (offline ? "on" : "off") + ": no latency walk, no host call") &&
+                 passed;
+    }
+
     return passed;
 }
 

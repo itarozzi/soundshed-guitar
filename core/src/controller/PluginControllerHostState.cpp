@@ -94,7 +94,7 @@ void PluginController::NotifyHostStateChanged()
         return;
     }
 
-    if (mHost.IsMessageThread() && mHostCallsHeld)
+    if (mHost.IsMessageThread() && (mHostCallsHeld || mHostCallsHeldForHostCall))
     {
         mHeldStateChange = true;
         return;
@@ -126,6 +126,12 @@ bool PluginController::RunHostChangeOnMessageThread(std::function<void()> change
 void PluginController::ReleaseHeldHostCalls()
 {
     mHostCallsHeld = false;
+
+    // The host's own call into the plugin has not returned yet; the task posted for that makes them.
+    if (mHostCallsHeldForHostCall)
+    {
+        return;
+    }
 
     if (std::exchange(mHeldLatencyReport, false))
     {
@@ -319,10 +325,42 @@ bool PluginController::DeserializeState(const std::string& json)
         return RunHostChangeOnMessageThread([this, json] { RestoreHostState(json); }, true, std::move(pendingState));
     }
 
+    // The host is still inside its setState here, and hearing from the plugin there can trip it
+    // up. A latency change becomes VST3's restartComponent, made synchronously on this thread,
+    // and a host may answer it by deactivating and re-preparing the plugin halfway through the
+    // restore. FL Studio reports any fault inside the call as the plugin crashing while loading
+    // its settings. So what the restore, and anything queued ahead of it, has to tell the host
+    // waits until the call has returned.
+    HoldHostCallsUntilHostReturns();
+
     // One the host made earlier from another thread goes first, or it would land on top of this.
     mHostStateRelay->ApplyQueued();
     RestoreHostState(json);
     return true;
+}
+
+void PluginController::HoldHostCallsUntilHostReturns()
+{
+    // Already held by an earlier restore whose task has not run yet: that task makes them for both.
+    if (std::exchange(mHostCallsHeldForHostCall, true))
+    {
+        return;
+    }
+
+    mHost.RunOnMainThread([this, alive = std::weak_ptr<const bool>(mAliveForPostedTasks)] {
+        if (alive.expired())
+        {
+            return;
+        }
+
+        mHostCallsHeldForHostCall = false;
+
+        // A relayed change holding them still has its own release to come, which makes them.
+        if (!mHostCallsHeld)
+        {
+            ReleaseHeldHostCalls();
+        }
+    });
 }
 
 void PluginController::RestoreHostState(const std::string& json)

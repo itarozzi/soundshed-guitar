@@ -555,6 +555,22 @@ bool TestProgramChanges(PluginController& controller, TestHost& host)
     return passed;
 }
 
+/// A restore on the message thread runs inside the host's own setState, which a host can trip
+/// over hearing from the plugin; the latency change waits for the call to return.
+bool TestOnThreadRestoreHoldsHostCalls(PluginController& controller, TestHost& host, const std::string& savedA,
+                                       const std::string& savedB)
+{
+    controller.DeserializeState(savedA);
+    host.Pump();
+    const int before = host.latencyReports.load();
+    controller.DeserializeState(savedB);
+    bool passed = Check(host.latencyReports.load() == before, "on-thread restore: the host hears nothing inside it");
+    host.Pump();
+    passed = Check(host.latencyReports.load() > before, "on-thread restore: it hears the latency once it returned") &&
+             passed;
+    return passed;
+}
+
 /// A host thread restores and changes program throughout, while the message thread reloads
 /// presets, adds and removes a slot, restores and saves on its own account, and now and then
 /// stays busy past the wait.
@@ -712,6 +728,7 @@ bool Run()
             passed = TestBusyMessageThreadDefers(controller, host, savedB) && passed;
             passed = TestQueuedRestoresKeepOrder(controller, host, savedA, savedB) && passed;
             passed = TestProgramChanges(controller, host) && passed;
+            passed = TestOnThreadRestoreHoldsHostCalls(controller, host, savedA, savedB) && passed;
             passed = TestRestoringUnderChurn(controller, host, audio, savedA, savedB) && passed;
         }
 

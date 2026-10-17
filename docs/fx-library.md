@@ -248,7 +248,8 @@ class EffectProcessor {
 `SetParam` can run on the audio thread. MIDI and DAW automation apply there, under the DSP lock
 (`PluginController::ProcessAudio`), and any node parameter can be bound to an automation
 slot. So `SetParam` must not allocate, lock or rebuild. Nor can a rebuild move to the message thread
-under the lock: the audio thread outputs silence for any block that finds the lock held.
+under the lock: in real time the audio thread outputs silence for any block that finds the lock held
+(and while rendering offline it waits for it, which stalls the bounce instead).
 
 A parameter whose change needs a rebuild records the new value in `SetParam` and calls
 `DeferredRebuild::NoteRequested()` (`core/src/dsp/DeferredRebuild.h`). The message thread finishes
@@ -304,15 +305,20 @@ one project can sit at different tiers.
 
 **Offline rendering.** A DAW flips `AudioProcessor::setNonRealtime()` around a
 bounce, freeze, or export; `PluginProcessorAdapter` forwards that to
-`PluginController::SetOfflineRendering()`. With no realtime deadline to protect,
-`ApplyOfflineRenderBoost()` renders at full quality: slimmable size goes to
-maximum and oversampling is lifted to at least 2x. Both are *floors* — a user
-already running 8x keeps 8x — and the anti-alias phase is left alone, since the
-host compensates its latency either way and changing it would alter the rendered
-phase response. The user's stored settings are never modified, so returning to
-real time restores their live tier. Note that the boost can change reported
-plugin latency (Off has no resampler at matched rates; 2x does), which is why
-`SetOfflineRendering()` re-reports latency to the host.
+`PluginController::SetOfflineRendering()`, on whatever thread the host used: JUCE's
+VST3 wrapper calls it from `process()` every block, LV2's from `run()`, and CLAP's
+render extension from the main thread while audio runs. It only records the mode.
+A bounce renders at the instance's own tier, so it sounds like playback, and the
+switch changes neither the latency nor anything under the DSP lock. While offline,
+`ProcessAudio` waits for the DSP lock instead of giving the block up: a bounce asks
+for the next block at once, so a block given up would be silence written into the
+file for as long as the message thread held the lock.
+
+1.6.0 raised NAM to full size and at least 2x oversampling for renders. That
+re-prepared every NAM node under the DSP lock, 16-140 ms per instance with one
+NAM node, and every block asked for meanwhile came back silent, which in FL Studio
+left up to a second of silence at the start of renders. To render at a higher
+tier, raise it for the instance before bouncing.
 
 **Delivery.** `PluginController::ApplyNamQualitySettings()` sanitizes the values
 and pushes them through `MultiPresetMixer::SetNodeTypeConfigDefault()` for the

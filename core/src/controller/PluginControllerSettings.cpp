@@ -274,43 +274,21 @@ bool PluginController::ApplyNamQualitySettings()
     return settingsChanged;
 }
 
-PluginController::NamQualityConfig PluginController::ApplyOfflineRenderBoost(NamQualityConfig quality)
-{
-    // An offline bounce has no realtime deadline, so spend the CPU on quality: full
-    // slimmable size, and at least 2x oversampling. Both are floors, not overrides — a
-    // user already running higher keeps their choice.
-    quality.slimmableSize = kNamSlimmableSizeMax;
-    quality.oversamplingIndex = std::max(quality.oversamplingIndex, kOfflineMinimumOversamplingIndex);
-    return quality;
-}
-
-PluginController::NamQualityConfig PluginController::EffectiveNamQuality() const
-{
-    return mOfflineRendering ? ApplyOfflineRenderBoost(mNamQuality) : mNamQuality;
-}
-
 void PluginController::SetOfflineRendering(bool offline)
 {
-    if (mOfflineRendering == offline)
-    {
-        return;
-    }
-
-    mOfflineRendering = offline;
-
-    // Re-push at the new effective tier. The host calls this around a bounce, off the
-    // audio thread, and follows it with prepareToPlay — but push now so a host that
-    // does not re-prepare still renders at the right quality.
-    PushNamQualityToDsp();
-    UpdateHostLatency();
+    // Only the mode is recorded. 1.6.0 also raised NAM to full size and 2x oversampling for
+    // the bounce, re-preparing every NAM node under the DSP lock: 16-140 ms per instance, on
+    // whatever thread the host switched from (VST3's process() among them). Every block the
+    // host asked for meanwhile came back silent, which a bounce writes into the file, so
+    // renders lost up to a second at the start.
+    mOfflineRendering.store(offline, std::memory_order_relaxed);
 }
 
 void PluginController::PushNamQualityToDsp()
 {
-    const NamQualityConfig effective = EffectiveNamQuality();
-    const std::string slimmableValue = std::to_string(effective.slimmableSize);
-    const std::string oversamplingValue = std::to_string(effective.oversamplingIndex);
-    const std::string antiAliasPhaseValue = std::to_string(effective.antiAliasPhaseIndex);
+    const std::string slimmableValue = std::to_string(mNamQuality.slimmableSize);
+    const std::string oversamplingValue = std::to_string(mNamQuality.oversamplingIndex);
+    const std::string antiAliasPhaseValue = std::to_string(mNamQuality.antiAliasPhaseIndex);
 
     std::lock_guard<std::mutex> lock(mDSPMutex);
 

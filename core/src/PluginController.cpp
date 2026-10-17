@@ -80,6 +80,9 @@ PluginController::PluginController(IPluginHost& host) : mHost(host)
 
 PluginController::~PluginController()
 {
+    // Tasks this posted to the message thread that have not run yet find it gone.
+    mAliveForPostedTasks.reset();
+
     // Before anything else goes: a restore or program change the host stopped waiting for can
     // still be queued for the message thread, or running there.
     mHostStateRelay->Shutdown();
@@ -291,7 +294,17 @@ bool PluginController::ProcessAudio(float** inputs, float** outputs, int numSamp
 
     if (!lock.owns_lock())
     {
-        return false; // Caller should output silence
+        // In real time a block given up is a short dropout, and waiting would miss the deadline.
+        // A bounce has no deadline and asks for the next block at once, so giving up would write
+        // silence into the render for as long as the message thread holds the lock. Wait instead.
+        // Every path takes JUCE's callback lock before this one, and nothing holding this one
+        // waits for the audio thread, so the wait cannot deadlock.
+        if (!mOfflineRendering.load(std::memory_order_relaxed))
+        {
+            return false; // Caller should output silence
+        }
+
+        lock.lock();
     }
 
     ProcessAudioLocked(inputs, outputs, numSamples);
@@ -733,8 +746,9 @@ void PluginController::HandleGetAppInfoRequest()
 
 void PluginController::UpdateHostLatency()
 {
-    // A host thread is waiting on this change and may hold what the host needs to hear it.
-    if (mHost.IsMessageThread() && mHostCallsHeld)
+    // A host thread is waiting on this change and may hold what the host needs to hear it, or
+    // the host's own call into the plugin has not returned yet.
+    if (mHost.IsMessageThread() && (mHostCallsHeld || mHostCallsHeldForHostCall))
     {
         mHeldLatencyReport = true;
         return;

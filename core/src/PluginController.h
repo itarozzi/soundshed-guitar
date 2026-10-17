@@ -206,18 +206,18 @@ class PluginController
 
     /**
      * Tell the controller whether the host is rendering offline (bounce/freeze/export)
-     * rather than in real time. Called from the host adapter's setNonRealtime().
+     * rather than in real time. Called from the host adapter's setNonRealtime(), on any
+     * thread: JUCE's VST3 wrapper calls it from process() every block, LV2's from run().
      *
-     * Offline there is no CPU budget to protect, so NAM runs at full quality regardless
-     * of the user's real-time tier: slimmable size goes to maximum and oversampling is
-     * lifted to at least 2x. The user's stored settings are not modified — only what the
-     * DSP is currently running at — so switching back to real time restores their tier.
+     * It only records the mode. While offline, ProcessAudio waits for the DSP lock instead
+     * of giving up the block, since a block given up is silence written into the render.
+     * The chain itself is left alone: a bounce renders exactly what plays back.
      */
     void SetOfflineRendering(bool offline);
 
     [[nodiscard]] bool IsOfflineRendering() const
     {
-        return mOfflineRendering;
+        return mOfflineRendering.load(std::memory_order_relaxed);
     }
 
     /// NAM quality tier owned by this plugin instance.
@@ -227,21 +227,6 @@ class PluginController
         int oversamplingIndex = kNamOversamplingIndexDefault;
         int antiAliasPhaseIndex = kNamAntiAliasPhaseIndexDefault;
     };
-
-    /// Minimum oversampling index used while rendering offline (index 1 == 2x).
-    static constexpr int kOfflineMinimumOversamplingIndex = 1;
-
-    /**
-     * The offline-render quality policy: full slimmable size and at least 2x
-     * oversampling. Both are floors, so a user already above them keeps their choice,
-     * and the anti-alias filter is left alone — the host compensates its latency either
-     * way, and changing it would alter the rendered phase response.
-     */
-    [[nodiscard]] static NamQualityConfig ApplyOfflineRenderBoost(NamQualityConfig quality);
-
-    /// The tier the DSP is currently running at: the user's settings in real time, or
-    /// the offline-render boost while bouncing.
-    [[nodiscard]] NamQualityConfig EffectiveNamQuality() const;
 
     /// True for the NAM quality keys (slimmable size, oversampling, anti-alias phase).
     [[nodiscard]] static bool IsNamQualitySettingKey(const std::string& key);
@@ -667,10 +652,17 @@ class PluginController
                                       std::optional<std::string> pendingState);
     /// Message thread: makes the host calls held back during a relayed change.
     void ReleaseHeldHostCalls();
+    /// Message thread, inside a host's call: holds host calls until that call has returned, and
+    /// posts a task to the message thread that makes them then. See DeserializeState.
+    void HoldHostCallsUntilHostReturns();
     /// Message thread only. See RunHostChangeOnMessageThread.
     bool mHostCallsHeld = false;
+    /// Message thread only. Set by HoldHostCallsUntilHostReturns until its posted task runs.
+    bool mHostCallsHeldForHostCall = false;
     bool mHeldLatencyReport = false;
     bool mHeldStateChange = false;
+    /// Expires with the controller, so a task it posted to the message thread can tell.
+    std::shared_ptr<const bool> mAliveForPostedTasks = std::make_shared<const bool>(true);
     /// The restore itself, on the message thread. See DeserializeState.
     void RestoreHostState(const std::string& json);
     /**
@@ -1152,8 +1144,7 @@ class PluginController
      * plugin, so two instances in one DAW project can sit at different tiers. app.json
      * only seeds a brand-new instance. In standalone it stays app.json-backed.
      *
-     * This always holds what the user chose. The offline-render boost is applied on top
-     * by EffectiveNamQuality() and never written back here.
+     * This always holds what the user chose, and it is what the DSP runs at, offline too.
      */
     NamQualityConfig mNamQuality;
 
@@ -1162,9 +1153,9 @@ class PluginController
     /// every project saved before the setting existed was made with). Not used in standalone.
     bool mMonoOutputUnityOwned = false;
 
-    /// True while the host renders offline (bounce/freeze/export). Boosts the tier the
-    /// DSP actually runs at without touching mNamQuality — see SetOfflineRendering().
-    bool mOfflineRendering = false;
+    /// True while the host renders offline (bounce/freeze/export). Set from any thread, read by
+    /// the audio thread — see SetOfflineRendering().
+    std::atomic<bool> mOfflineRendering{false};
 
     nlohmann::json mUiSettings = nlohmann::json::object();
     nlohmann::json mUiViewState = nlohmann::json::object();

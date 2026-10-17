@@ -656,16 +656,9 @@ void PluginProcessorAdapter::setNonRealtime (bool isNonRealtime) noexcept
 {
     juce::AudioProcessor::setNonRealtime (isNonRealtime);
 
-    // JUCE declares this noexcept, and re-tiering takes the DSP lock and re-reports
-    // latency. Never let an exception escape into std::terminate over a quality switch.
-    try
-    {
-        mController.SetOfflineRendering (isNonRealtime);
-    }
-    catch (const std::exception& e)
-    {
-        guitarfx::util::AppendSessionLog (std::string { "setNonRealtime failed: " } + e.what());
-    }
+    // Any thread, the audio thread included: JUCE's VST3 wrapper calls this from process() every
+    // block. The controller only records the mode, so it takes no lock and cannot throw.
+    mController.SetOfflineRendering (isNonRealtime);
 }
 
 // ════════════════════════════════════════════════════════════════════════
