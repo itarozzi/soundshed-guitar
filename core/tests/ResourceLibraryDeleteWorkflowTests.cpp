@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <iterator>
 #include <map>
 #include <optional>
 #include <string>
@@ -265,6 +266,59 @@ bool TestDeleteStoredResourceRemovesFileAndIndex()
     if (LibraryIndexContains(sandbox, saved->type, saved->id))
     {
         std::cerr << "Stored resource still present in library index after delete\n";
+        return false;
+    }
+
+    return true;
+}
+
+/// Two dropped files whose names sanitise alike ("drop 1" and "drop_1"), and a drop that sends no
+/// hash, as a drop onto a node does. The second used to overwrite the first resource's file in
+/// place, so the first entry, and every preset using it, played the second file's bytes.
+bool TestSameNamedDropsKeepTheirOwnFiles()
+{
+    const fs::path sandbox = fs::temp_directory_path() / "guitarfx-resource-delete-tests" / "same-named-drops";
+    std::error_code ec;
+    fs::remove_all(sandbox, ec);
+    fs::create_directories(sandbox, ec);
+    SetSettingsEnvRoot(sandbox);
+
+    TestHost host(sandbox);
+    guitarfx::PluginController controller(host);
+    const auto drop = [&](const char* fileName, const char* base64) {
+        return SaveLocalResource(controller, host,
+                                 nlohmann::json{{"type", "saveLocalLibraryResource"},
+                                                {"resourceType", "wasm"},
+                                                {"name", fileName},
+                                                {"fileName", fileName},
+                                                {"data", base64}});
+    };
+    const auto bytesOf = [](const fs::path& path) {
+        std::ifstream file(path, std::ios::binary);
+        return std::string(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+    };
+
+    const auto first = drop("drop 1.wasm", "AQID");  // 01 02 03
+    const auto second = drop("drop_1.wasm", "BAUG"); // 04 05 06
+    const auto again = drop("drop 1.wasm", "AQID");
+
+    if (!first || !second || !again)
+    {
+        std::cerr << "A dropped resource was not saved\n";
+        return false;
+    }
+
+    if (first->filePath == second->filePath || bytesOf(first->filePath) != std::string("\x01\x02\x03") ||
+        bytesOf(second->filePath) != std::string("\x04\x05\x06"))
+    {
+        std::cerr << "The second drop overwrote the first resource's file (" << first->filePath.string() << ", "
+                  << second->filePath.string() << ")\n";
+        return false;
+    }
+
+    if (again->id != first->id || again->filePath != first->filePath)
+    {
+        std::cerr << "The same file dropped again made a new entry (" << again->filePath.string() << ")\n";
         return false;
     }
 
@@ -1038,6 +1092,7 @@ int main()
     };
 
     run("Delete stored resource removes file and index", TestDeleteStoredResourceRemovesFileAndIndex());
+    run("Same-named drops keep their own files", TestSameNamedDropsKeepTheirOwnFiles());
     run("Delete external resource keeps file and removes index", TestDeleteExternalResourceKeepsFileButRemovesIndex());
     run("Delete in-use resource is refused", TestDeleteInUseResourceIsRefused());
     run("Cleanup removal persists across a restart", TestCleanupRemovalPersistsAcrossRestart());

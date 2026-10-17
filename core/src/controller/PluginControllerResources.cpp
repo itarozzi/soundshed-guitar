@@ -537,15 +537,22 @@ std::optional<LibraryResource> PluginController::SaveLocalLibraryResource(const 
 
         resolvedPath = targetDir / resolvedName;
 
-        if (std::filesystem::exists(resolvedPath) && !resolvedHash.empty())
+        // A file of that name may hold other bytes: names sanitise to ASCII letters, digits, '-'
+        // and '_', so "Clean 1.nam" and "Clean_1.nam" meet, and a name in Cyrillic or CJK alone
+        // comes out as "nam.nam". Compared in the engine's own hash, whatever the payload sent:
+        // the UI's is SHA-256, which never matched, and a drop onto a node sends none, so the
+        // file was overwritten in place and another resource played these bytes.
+        const std::string incomingHash = mHasher.HashBytes(decodedBytes);
+
+        if (std::filesystem::exists(resolvedPath))
         {
             const std::string existingHash = mHasher.HashFile(resolvedPath);
 
-            if (!existingHash.empty() && existingHash != resolvedHash)
+            if (existingHash != incomingHash)
             {
                 const std::filesystem::path stem = resolvedPath.stem();
                 const std::filesystem::path ext = resolvedPath.extension();
-                const std::string hashSuffix = resolvedHash.substr(0, std::min<std::size_t>(12, resolvedHash.size()));
+                const std::string hashSuffix = incomingHash.substr(0, std::min<std::size_t>(12, incomingHash.size()));
                 // Appended as path parts, not through path::string() and back: that is the
                 // ANSI code page on Windows.
                 const auto candidateNamed = [&](const std::string& suffixText) {
@@ -557,7 +564,8 @@ std::optional<LibraryResource> PluginController::SaveLocalLibraryResource(const 
                 std::filesystem::path candidate = candidateNamed("-" + hashSuffix);
                 std::size_t suffix = 2;
 
-                while (std::filesystem::exists(candidate))
+                // A candidate that already holds these bytes is this file dropped again.
+                while (std::filesystem::exists(candidate) && mHasher.HashFile(candidate) != incomingHash)
                 {
                     candidate = candidateNamed("-" + hashSuffix + "-" + std::to_string(suffix++));
                 }
