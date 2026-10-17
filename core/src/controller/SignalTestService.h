@@ -11,7 +11,8 @@
 // Threading. Start() is called on the message thread; InjectInput() and
 // CollectOutput() run on the audio thread and do no allocation, locking or
 // I/O. The handoff is two atomics: the audio thread clears mActive and raises
-// mResultPending when the tone has played out, and OnIdle() on the message
+// mResultPending once the block the tone ended in has been measured, and
+// Start() refuses while either is set. OnIdle() on the message
 // thread is the only reader of the accumulated state after that point. Nothing
 // touches mState concurrently, because mActive gates the audio-thread writes
 // and mResultPending gates the message-thread read.
@@ -79,6 +80,7 @@ class SignalTestService
         double sampleRate = 0.0;
         double inputSumSquares = 0.0;
         std::array<double, 2> outputSumSquares{0.0, 0.0};
+        bool toneDone = false; ///< The tone has played out; this block's output is the last measured.
         std::chrono::steady_clock::time_point startTime;
     };
 

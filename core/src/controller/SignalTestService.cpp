@@ -23,7 +23,9 @@ SignalTestService::SignalTestService(SendMessageFn sendMessage) : mSendMessage(s
 
 bool SignalTestService::Start(double frequencyHz, double durationSeconds, double sampleRate)
 {
-    if (sampleRate <= 0.0)
+    // Not over a test still running or a result not yet reported: the audio thread may be writing
+    // mState, and it is the message thread's only once the result is handed over.
+    if (sampleRate <= 0.0 || mActive.load(std::memory_order_acquire) || mResultPending.load(std::memory_order_acquire))
     {
         return false;
     }
@@ -37,6 +39,7 @@ bool SignalTestService::Start(double frequencyHz, double durationSeconds, double
     st.samplesRemaining = st.totalSamples;
     st.inputSumSquares = 0.0;
     st.outputSumSquares = {0.0, 0.0};
+    st.toneDone = st.totalSamples <= 0;
     st.startTime = std::chrono::steady_clock::now();
 
     mResult = {};
@@ -46,41 +49,45 @@ bool SignalTestService::Start(double frequencyHz, double durationSeconds, double
 
 void SignalTestService::InjectInput(float** inputs, int numSamples)
 {
-    if (!mActive.load(std::memory_order_acquire))
+    if (!mActive.load(std::memory_order_acquire) || mState.toneDone)
     {
         return;
     }
 
     auto& st = mState;
 
-    if (inputs && inputs[0] && inputs[1])
+    // The tone goes into the left input, and the right as well when there is one: a mono input bus
+    // has no right channel, and requiring one left the test running, and every demo and riff
+    // preview refused, for the rest of the session.
+    for (int i = 0; i < numSamples && st.samplesRemaining > 0; ++i, --st.samplesRemaining)
     {
-        for (int i = 0; i < numSamples && st.samplesRemaining > 0; ++i, --st.samplesRemaining)
+        const auto sample = static_cast<float>(std::sin(st.phase * kTwoPi));
+        st.phase += st.phaseIncrement;
+
+        if (st.phase >= 1.0)
         {
-            const auto sample = static_cast<float>(std::sin(st.phase * kTwoPi));
-            st.phase += st.phaseIncrement;
-
-            if (st.phase >= 1.0)
-            {
-                st.phase -= 1.0;
-            }
-
-            inputs[0][i] = sample;
-            inputs[1][i] = sample;
-            st.inputSumSquares += static_cast<double>(sample) * sample;
+            st.phase -= 1.0;
         }
+
+        if (inputs && inputs[0])
+        {
+            inputs[0][i] = sample;
+        }
+
+        if (inputs && inputs[1])
+        {
+            inputs[1][i] = sample;
+        }
+
+        st.inputSumSquares += static_cast<double>(sample) * sample;
     }
 
-    if (st.samplesRemaining <= 0)
-    {
-        mActive.store(false, std::memory_order_release);
-        mResultPending.store(true, std::memory_order_release);
-    }
+    st.toneDone = st.samplesRemaining <= 0;
 }
 
 void SignalTestService::CollectOutput(float* const* outputs, int numSamples)
 {
-    if (mState.samplesRemaining <= 0 && !mResultPending.load(std::memory_order_relaxed))
+    if (!mActive.load(std::memory_order_acquire))
     {
         return;
     }
@@ -96,6 +103,14 @@ void SignalTestService::CollectOutput(float* const* outputs, int numSamples)
         {
             mState.outputSumSquares[1] += static_cast<double>(outputs[1][i]) * outputs[1][i];
         }
+    }
+
+    // The block the tone ended in is the last one measured. Only then is the result handed over,
+    // so nothing is added to it while OnIdle() reads it, and no audio after the tone is counted.
+    if (mState.toneDone)
+    {
+        mActive.store(false, std::memory_order_release);
+        mResultPending.store(true, std::memory_order_release);
     }
 }
 

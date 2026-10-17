@@ -125,6 +125,7 @@ set(TEST_SOURCES
     TunerEngineTests.cpp
     SignalGraphExecutorTests.cpp
     SignalPathNodeConfigLockTests.cpp
+    SignalTestServiceTests.cpp
     SilenceSleepGateTests.cpp
     SimpleCabEffectTests.cpp
     SpectrumTapTests.cpp
