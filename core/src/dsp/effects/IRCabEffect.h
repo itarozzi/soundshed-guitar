@@ -554,9 +554,10 @@ class IRCabEffect : public EffectProcessor
                 wetL = prevWetL * oldWeight + wetL * (1.0 - oldWeight);
                 wetR = prevWetR * oldWeight + wetR * (1.0 - oldWeight);
 
-                mResourceTransitionSamplesRemaining -= 1;
-
-                if (mResourceTransitionSamplesRemaining <= 0)
+                // transitionActive holds for the whole block, so the fade can end partway through
+                // it: count down to zero and clear the outgoing side once, on the sample it ends.
+                // Counting on past zero cleared all four convolvers again on every sample left.
+                if (mResourceTransitionSamplesRemaining > 0 && --mResourceTransitionSamplesRemaining == 0)
                 {
                     mPrevHasSlotA = false;
                     mPrevHasSlotB = false;
