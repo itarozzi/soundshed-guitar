@@ -103,16 +103,17 @@ nothing else runs the fused pass.
 **The NEON kernel is on by default.** Timed on a GitHub Apple silicon runner by
 `.github/workflows/neon-benchmark.yml` (Apple clang 17, 48 kHz, model alone), it ran 1.7-2.5x the
 NAM core on a standard and an A2 full model and 1.1-1.3x on A2 lite at host blocks of 32 to 512,
-with output 117-120 dB from the NAM core's and FusedWaveNetTests passing on the hardware. It has not been timed on Cortex-A cores (Android,
-arm64 Linux) or on Windows on ARM. Configuring the core with `-DGUITARFX_FUSED_WAVENET_NEON=OFF` puts
-every arm64 model back on the NAM core (docs/nam-dsp-performance-review-2026-10-16.md,
-recommendation 3). Its register tile is 4 outputs x
-3 vectors of 8 frames, as on AVX2: 24 accumulators, 6 input registers and one holding the four
-outputs' weights, 31 of NEON's 32. The accumulators are named variables rather than an array, because
-MSVC's ARM64 back end stores an array of them back to the stack on every input, and the four weights
-come from one load, multiplied by lane, because GCC spilled three accumulators when it held four
-broadcast weights. Each output still sums its inputs in source order, so every tile gives the same
-bits.
+with output 117-120 dB from the NAM core's and FusedWaveNetTests passing on the hardware. The same
+workflow also times it on GitHub's arm64 Linux runner (`ubuntu-24.04-arm`, GCC) and its Windows on
+ARM runner (`windows-11-arm`, MSVC); neither has been run yet, and Android has not been timed at all
+(see below). Configuring the core with `-DGUITARFX_FUSED_WAVENET_NEON=OFF` puts every arm64 model
+back on the NAM core (docs/nam-dsp-performance-review-2026-10-16.md, recommendation 3). Its
+register tile is 4 outputs x 3 vectors of 8 frames, as on AVX2: 24 accumulators, 6 input registers
+and one holding the four outputs' weights, 31 of NEON's 32. The accumulators are named variables
+rather than an array, because MSVC's ARM64 back end stores an array of them back to the stack on
+every input, and the four weights come from one load, multiplied by lane, because GCC spilled three
+accumulators when it held four broadcast weights. Each output still sums its inputs in source order,
+so every tile gives the same bits.
 
 Checked without ARM hardware (2026-10-16):
 
@@ -129,21 +130,37 @@ Checked without ARM hardware (2026-10-16):
 - The x86-64 kernels are untouched: MSVC compiles `FusedWaveNet.cpp` to the same instructions as
   before for AVX2 and SSE.
 
-Emulation says nothing about speed. To decide whether to turn it on, on an Apple-silicon Mac, an
-arm64 Linux machine or a Windows on ARM laptop (MSVC compiles the kernel differently from clang and
-GCC, so Windows needs its own run):
+Emulation says nothing about speed. `.github/workflows/neon-benchmark.yml` times the kernel on
+hardware. Dispatch it with `platforms` set to any of `macos`, `linux` and `windows` (all three by
+default). Each platform builds the core in Release with the kernel on:
 
-1. Configure the core with `-DGUITARFX_CORE_BUILD_TESTS=ON -DGUITARFX_FUSED_WAVENET_NEON=ON` and
-   build `FusedWaveNetTests` and `NAMPerformanceBenchmark` in Release.
+- macOS with Apple clang;
+- arm64 Linux with GCC and `-fsigned-char`, which the core needs there as the JUCE build does,
+  since WDL's headers under the NAM resampler refuse unsigned char;
+- Windows with MSVC ARM64 through the Visual Studio generator. MSVC compiles the kernel differently
+  from clang and GCC, so Windows needs its own run.
+
+Each runs `FusedWaveNetTests` and `FusedWaveNetBenchmark --require-kernel NEON`, and writes the
+same table to the run's summary under its own heading, with the CPU it ran on. GitHub's arm64
+runners are cloud VMs on server-class Arm cores, so the Linux figures stand in for Android phones
+only loosely.
+
+By hand, on a machine the workflow cannot reach:
+
+1. Configure the core with `-DGUITARFX_CORE_BUILD_TESTS=ON -DGUITARFX_FUSED_WAVENET_NEON=ON` (on
+   arm64 Linux also `-DCMAKE_C_FLAGS=-fsigned-char -DCMAKE_CXX_FLAGS=-fsigned-char`). Build
+   `FusedWaveNetTests`, `FusedWaveNetBenchmark` and `NAMPerformanceBenchmark` in Release.
 2. `FusedWaveNetTests` must pass and print `Fused WaveNet kernel: NEON`.
-3. `NAMPerformanceBenchmark`, once with no argument (a standard WaveNet) and once with an A2 model
+3. `FusedWaveNetBenchmark --require-kernel NEON` prints the workflow's table (`--markdown FILE`
+   writes it).
+4. `NAMPerformanceBenchmark`, once with no argument (a standard WaveNet) and once with an A2 model
    (`core/tests/testdata/assets/amps/Guitar/A2/...`), must print `Fused kernel: NEON`. Compare the
    NAM core and fused rows, directly and through `amp_nam`, at 512 and at 48 kHz/64. AVX2 measured
    2.8x (standard) and 3.1x (A2) directly, 2.3-2.8x through the effect.
-4. If the fused rows win, make `GUITARFX_FUSED_WAVENET_NEON` default to ON in `core/CMakeLists.txt`
-   (or only for the platforms measured). The Android build does not build the core tests, so Android
-   needs either the two test targets built with the NDK and run over adb, or a measurement in the
-   app.
+5. If a platform's fused rows lose, narrow the `GUITARFX_FUSED_WAVENET_NEON` default in
+   `core/CMakeLists.txt` for that platform. The Android build does not build the core tests, so
+   Android needs either the test targets built with the NDK and run over adb, or a measurement in
+   the app.
 
 **Switching it off.** Launching with the environment variable `GUITARFX_NAM_ENGINE=core` makes
 every model the NAM core's, for A/B listening and support. Tests and tools call
