@@ -105,6 +105,38 @@ describe("the Tone Builder", () => {
     await vi.waitFor(() => expect(applyPreset).toHaveBeenCalledWith("p1"));
   });
 
+  it("starts no research job when stopped before it starts", async () => {
+    // Stop is closing the panel. During the Tone Sharing check or the catalogue upload it used to
+    // abort nothing, and the (metered) research job started anyway once they finished.
+    signedIn.mockResolvedValue(true);
+    let finishCheck: (value: never[]) => void = () => undefined;
+    findCommunityMatches.mockReturnValueOnce(new Promise((resolve) => { finishCheck = resolve; }));
+    let finishCatalogue: (value: string) => void = () => undefined;
+    ensureEffectCatalogue.mockReturnValueOnce(new Promise((resolve) => { finishCatalogue = resolve; }));
+    startToneBuilderJob.mockResolvedValue({ jobId: "job-stopped" });
+    waitForToneBuilderJob.mockResolvedValue(doneJob);
+
+    document.dispatchEvent(new CustomEvent("tone-builder:open", { detail: { artist: "Stopped", song: "Early" } }));
+    await vi.waitFor(() => expect(document.getElementById("tone-builder-artist")).not.toBeNull());
+    click("research");
+    await vi.waitFor(() => expect(findCommunityMatches).toHaveBeenCalled());
+    click("close");
+    finishCheck([]);
+    await vi.waitFor(() => expect(modal()?.style.display).toBe("none"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(ensureEffectCatalogue).not.toHaveBeenCalled();
+
+    // And stopped during the catalogue check, once the Tone Sharing check is behind it.
+    document.dispatchEvent(new CustomEvent("tone-builder:open", { detail: {} }));
+    await vi.waitFor(() => expect(modal()?.style.display).toBe("flex"));
+    click("research");
+    await vi.waitFor(() => expect(ensureEffectCatalogue).toHaveBeenCalled());
+    click("close");
+    finishCatalogue("hash");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(startToneBuilderJob).not.toHaveBeenCalled();
+  });
+
   it("asks a signed-out user to sign in instead", async () => {
     signedIn.mockResolvedValue(false);
     document.dispatchEvent(new CustomEvent("tone-builder:open", { detail: {} }));

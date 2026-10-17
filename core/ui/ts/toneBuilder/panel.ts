@@ -181,11 +181,22 @@ async function research(): Promise<void> {
     render();
     return;
   }
+  // Stop (closing the panel) aborts this from the first await on. The controller used to be made
+  // only after the Tone Sharing check, and nothing looked at it before the job started, so a Stop
+  // during the check or the catalogue upload still started the research job, which is metered.
+  const abort = new AbortController();
+  state.abort = abort;
   const subject = `${state.artist.toLowerCase()}|${state.song.toLowerCase()}`;
   if (subject !== state.checkedSubject && (state.artist || state.song)) {
     Object.assign(state, { stage: "running", error: "", status: "Looking on Tone Sharing first…", job: null });
     render();
-    state.matches = await findCommunityMatches(state.artist, state.song).catch(() => []);
+    const matches = await findCommunityMatches(state.artist, state.song).catch(() => []);
+    if (abort.signal.aborted) {
+      Object.assign(state, { stage: "brief", status: "", error: "Cancelled" });
+      render();
+      return;
+    }
+    state.matches = matches;
     state.checkedSubject = subject;
     if (state.matches.length) {
       state.stage = "matches";
@@ -194,10 +205,10 @@ async function research(): Promise<void> {
     }
   }
   Object.assign(state, { stage: "running", error: "", status: "Checking the effect catalogue…", job: null });
-  state.abort = new AbortController();
   render();
   try {
     const effectCatalogHash = await ensureEffectCatalogue(readAppBuildInventory().effects);
+    if (abort.signal.aborted) throw new Error("Cancelled");
     const brief: ToneBrief = {
       subject: { artist: state.artist || null, song: state.song || null, freeText: state.notes || null },
       player: { instrument: state.instrument },
@@ -212,7 +223,7 @@ async function research(): Promise<void> {
       state.job = update;
       state.status = update.progress[update.progress.length - 1]?.message ?? update.status;
       render();
-    }, state.abort.signal);
+    }, abort.signal);
     state.job = job;
     if (job.status === "failed" || !job.proposal) {
       throw new Error(job.error?.message ?? "The tone builder could not finish this tone");
