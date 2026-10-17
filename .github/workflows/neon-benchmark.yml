@@ -1,0 +1,176 @@
+name: NEON benchmark (macOS)
+
+# Times the fused WaveNet's NEON kernel against the NAM core on Apple silicon, and checks its output
+# there. The kernel compiles in every arm64 build, but models run on it only with
+# GUITARFX_FUSED_WAVENET_NEON on (core/CMakeLists.txt), which stays off until the kernel has been
+# timed on ARM hardware. This is that timing.
+#
+# Manual only. GitHub's macOS runners are shared VMs, so read the speedup column: both engines run in
+# one process with their rounds interleaved, so a busy host slows both alike. The absolute times say
+# less. The tables land in the run's summary, and the raw output in its artifact.
+
+on:
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: "Apple silicon runner label: macos-15, macos-14, macos-26, or a larger runner such as macos-15-xlarge"
+        required: false
+        default: macos-15
+        type: string
+      blocks:
+        description: "Host block sizes, comma-separated"
+        required: false
+        default: "32,64,128,512"
+        type: string
+      rounds:
+        description: "Interleaved rounds per case; each engine's best round is kept"
+        required: false
+        default: "7"
+        type: string
+      seconds:
+        description: "Seconds of audio per round"
+        required: false
+        default: "2"
+        type: string
+      models:
+        description: "Extra .nam files to time, repo-relative, separated by ';' (the defaults always run)"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neon-benchmark-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  neon:
+    name: NEON vs NAM core (${{ inputs.runner }})
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 75
+
+    env:
+      BUILD_DIR: core/build-neon
+      OUT_DIR: neon-benchmark
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # The core only needs Eigen from the submodules (it fetches the rest itself); JUCE is not built.
+      - name: Eigen submodule
+        run: git submodule update --init --depth 1 Dependencies/eigen
+
+      - name: Runner
+        run: |
+          set -euo pipefail
+          mkdir -p "$OUT_DIR"
+          {
+            echo "uname: $(uname -mrs)"
+            echo "cpu: $(sysctl -n machdep.cpu.brand_string)"
+            echo "cores: $(sysctl -n hw.ncpu) logical, $(sysctl -n hw.perflevel0.physicalcpu 2>/dev/null || echo '?') performance"
+            echo "memory: $(( $(sysctl -n hw.memsize) / 1073741824 )) GB"
+            sw_vers | tr '\n' ' '; echo
+            cmake --version | sed -n 1p
+            c++ --version | sed -n 1p
+          } | tee "$OUT_DIR/runner.txt"
+          if [ "$(uname -m)" != "arm64" ]; then
+            echo "::error::${{ inputs.runner }} is not an Apple silicon runner ($(uname -m))"
+            exit 1
+          fi
+
+      # Release, as the app ships (-O3 -ffast-math from guitarfx_apply_release_optimizations), with the
+      # NEON kernel switched on. No web UI bundle and no WASM host: neither touches NAM.
+      - name: Configure
+        run: |
+          cmake -S core -B "$BUILD_DIR" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
+            -DGUITARFX_CORE_BUILD_TESTS=ON \
+            -DGUITARFX_FUSED_WAVENET_NEON=ON \
+            -DGUITARFX_CORE_BUILD_WEB_UI=OFF \
+            -DGUITARFX_CORE_ENABLE_WASM_EFFECTS=OFF
+
+      - name: Build
+        run: |
+          cmake --build "$BUILD_DIR" --config Release --parallel "$(sysctl -n hw.ncpu)" \
+            --target FusedWaveNetTests FusedWaveNetBenchmark NAMPerformanceBenchmark
+
+      # Correctness on real NEON first: every test model within 100 dB of the NAM core, bit-identical
+      # across host block patterns. QEMU has run it before; this is the first run on hardware.
+      - name: FusedWaveNetTests
+        run: |
+          set -euo pipefail
+          "$BUILD_DIR/tests/FusedWaveNetTests" 2>&1 | tee "$OUT_DIR/FusedWaveNetTests.txt"
+          if ! grep -q "Fused WaveNet kernel: NEON" "$OUT_DIR/FusedWaveNetTests.txt"; then
+            echo "::error::The NEON kernel is not in this build, so nothing was tested on it"
+            exit 1
+          fi
+
+      - name: FusedWaveNetBenchmark
+        env:
+          BLOCKS: ${{ inputs.blocks }}
+          ROUNDS: ${{ inputs.rounds }}
+          SECONDS_PER_ROUND: ${{ inputs.seconds }}
+          MODELS: ${{ inputs.models }}
+        run: |
+          set -euo pipefail
+          models=()
+          if [ -n "$MODELS" ]; then
+            # The defaults are named here too, since naming any model replaces them.
+            amps=core/tests/testdata/assets/amps/Guitar
+            models+=("$amps/TimR/JCM800 2203 1985/JCM800 Hi P6 B8 M4 T7 G6.nam"
+                     "$amps/A2/Boosted-6505+-A2-Chugs-FullRig.nam")
+            IFS=';' read -r -a extra <<< "$MODELS"
+            for m in "${extra[@]}"; do
+              m="$(echo "$m" | sed 's/^ *//; s/ *$//')"
+              if [ -n "$m" ]; then
+                models+=("$m")
+              fi
+            done
+          fi
+          "$BUILD_DIR/tests/FusedWaveNetBenchmark" \
+            --require-kernel NEON \
+            --block "$BLOCKS" --rounds "$ROUNDS" --seconds "$SECONDS_PER_ROUND" \
+            --markdown "$OUT_DIR/FusedWaveNetBenchmark.md" \
+            --json "$OUT_DIR/FusedWaveNetBenchmark.json" \
+            ${models[@]+"${models[@]}"} 2>&1 | tee "$OUT_DIR/FusedWaveNetBenchmark.txt"
+
+      # The same comparison through the NAM amp effect in a SignalGraphExecutor, as the app runs it.
+      # Its output is long, so it goes to the artifact only.
+      - name: NAMPerformanceBenchmark
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          "$BUILD_DIR/tests/NAMPerformanceBenchmark" > "$OUT_DIR/NAMPerformanceBenchmark.txt" 2>&1
+          grep -E "Fused kernel:|SPEEDUP:|Block time improvement" "$OUT_DIR/NAMPerformanceBenchmark.txt" || true
+
+      - name: Summary
+        if: ${{ !cancelled() }}
+        run: |
+          {
+            echo "## NEON benchmark on ${{ inputs.runner }}"
+            echo
+            echo '```'
+            cat "$OUT_DIR/runner.txt" 2>/dev/null || true
+            echo '```'
+            echo
+            if [ -f "$OUT_DIR/FusedWaveNetTests.txt" ]; then
+              echo "**FusedWaveNetTests:** $(grep -E 'FusedWaveNetTests (passed|FAILED|skipped)' "$OUT_DIR/FusedWaveNetTests.txt" | tail -1)"
+              grep -E "^FAIL:" "$OUT_DIR/FusedWaveNetTests.txt" | head -20 | sed 's/^/    /' || true
+              echo
+            fi
+            cat "$OUT_DIR/FusedWaveNetBenchmark.md" 2>/dev/null || echo "FusedWaveNetBenchmark wrote no table: see the step log."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: neon-benchmark-${{ inputs.runner }}-${{ github.run_number }}
+          path: ${{ env.OUT_DIR }}
+          if-no-files-found: warn
