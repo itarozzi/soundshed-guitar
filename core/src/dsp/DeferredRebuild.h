@@ -11,8 +11,8 @@ namespace guitarfx
  * SetParam can run on the audio thread: MIDI and DAW automation apply there, under the DSP lock
  * (PluginController::ProcessAudio). The message thread holds the same lock for anything it
  * calls into the chain, and the audio thread outputs silence for any block that finds it held.
- * So a parameter whose change needs a rebuild that allocates (the IR cab's Normalize and Trim
- * Leading Silence, the convolution reverb's Quality, which rebuild their convolvers) is
+ * So a parameter whose change needs a rebuild that allocates (the IR cab's Quality, Normalize and
+ * Trim Leading Silence, the convolution reverb's Quality, which rebuild their convolvers) is
  * only recorded by SetParam, which then calls NoteRequested(). The message thread finishes it in
  * three steps (PluginController::ApplyDeferredNodeRebuilds):
  *

@@ -263,8 +263,8 @@ call:
    if the effect was rebuilt in between, and leaves what it replaces in the work, to be freed after
    the lock is released.
 
-A composite forwards both calls to its inner graph. The IR Cabinet's Normalize and Trim Leading
-Silence, and the Convolution Reverb's Quality, work this way.
+A composite forwards both calls to its inner graph. The IR Cabinet's Quality, Normalize and Trim
+Leading Silence, and the Convolution Reverb's Quality, work this way.
 
 ## Built-in Effect Types
 
@@ -509,9 +509,13 @@ A change once IRs are loaded, from the node panel or from MIDI or DAW automation
 impulses, and swaps it in under the lock with the same 30 ms crossfade an IR change uses. The
 outgoing side of that crossfade is the convolvers that were playing, history and all. A change from
 the node panel is built before its message returns, and one from automation at the next idle tick.
-`GetParam` reports the requested value straight away. The rebuild also applies a Quality change
-still waiting for the next IR load. Normalize is not a declared parameter, so the node panel has no control for it. Presets set it,
+`GetParam` reports the requested value straight away. Normalize is not a declared parameter, so the node panel has no control for it. Presets set it,
 and so can a slot address that names it (`node.cab_ir.normalizeIR`).
+
+**Quality** is a rebuild setting the same way: where the IR is cut, and so its normalisation gain,
+is built into the convolvers, and a change on a loaded cab is built by the message thread and
+crossfaded in. Until 2026-10-17 it only recorded the change, and the cab kept playing the old
+length until the next IR load, Prepare, or Normalize or Trim Leading Silence change.
 
 **No latency.** The cab has no latency at all, whatever block the host promises or sends.
 The first 256 samples of the IR (512 for an IR of 16,448 samples or more) run as a direct

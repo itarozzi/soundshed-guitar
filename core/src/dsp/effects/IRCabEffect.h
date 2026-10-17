@@ -84,7 +84,6 @@ class IRCabEffect : public EffectProcessor
         mPrevOutputBufferBL.resize(static_cast<size_t>(maxBlockSize));
         mPrevOutputBufferBR.resize(static_cast<size_t>(maxBlockSize));
 
-        ApplyPendingQuality();
         ApplyPendingRebuildSettings();
 
         // Reinitialize convolvers if we have IRs loaded
@@ -677,8 +676,9 @@ class IRCabEffect : public EffectProcessor
         }
         else if (key == "quality")
         {
-            const int q = static_cast<int>(std::clamp(value, 0.0, 3.0));
-            mPendingQuality.store(q, std::memory_order_release);
+            // Where the IR is truncated, and so its normalisation gain, is built into the convolvers.
+            RequestRebuildSetting(mPendingQuality, mQuality,
+                                  static_cast<IRQuality>(static_cast<int>(std::clamp(value, 0.0, 3.0))));
         }
         else if (key == "trimLeadingSilence")
         {
@@ -730,24 +730,23 @@ class IRCabEffect : public EffectProcessor
     {
     }
 
-    /// A Normalize or Trim Leading Silence change SetParam recorded (see RequestRebuildSetting),
-    /// with copies of the impulses to build from: an IR load could replace them while the build
-    /// runs.
+    /// A Quality, Normalize or Trim Leading Silence change SetParam recorded (see
+    /// RequestRebuildSetting), with copies of the impulses to build from: an IR load could replace
+    /// them while the build runs.
     [[nodiscard]] std::unique_ptr<DeferredRebuild> TakeDeferredRebuild() override
     {
-        if (mPendingNormalizeIR.load(std::memory_order_acquire) < 0 &&
+        if (mPendingQuality.load(std::memory_order_acquire) < 0 &&
+            mPendingNormalizeIR.load(std::memory_order_acquire) < 0 &&
             mPendingTrimLeadingSilence.load(std::memory_order_acquire) < 0)
         {
             return nullptr;
         }
 
-        // The build takes the quality GetParam reports.
-        const int pendingQuality = mPendingQuality.load(std::memory_order_acquire);
         auto work = std::make_unique<ConvolverRebuild>();
         work->generation = mBuildGeneration;
         work->settings = {mSampleRate,
                           mMaxBlockSize,
-                          pendingQuality >= 0 ? static_cast<IRQuality>(pendingQuality) : mQuality,
+                          EffectiveQuality(),
                           EffectiveSetting(mPendingNormalizeIR, mNormalizeIR),
                           EffectiveSetting(mPendingTrimLeadingSilence, mTrimLeadingSilence)};
         work->slotA = {mImpulseL, mImpulseR, mIsStereo, mIRSampleRate};
@@ -762,7 +761,7 @@ class IRCabEffect : public EffectProcessor
         // An IR load or a Prepare since the work was taken rebuilt the convolvers itself, with the
         // waiting settings folded in. A change requested while it was built supersedes it, and
         // that SetParam has already asked for another pass.
-        if (!work || work->generation != mBuildGeneration ||
+        if (!work || work->generation != mBuildGeneration || EffectiveQuality() != work->settings.quality ||
             EffectiveSetting(mPendingNormalizeIR, mNormalizeIR) != work->settings.normalize ||
             EffectiveSetting(mPendingTrimLeadingSilence, mTrimLeadingSilence) != work->settings.trimLeadingSilence)
         {
@@ -882,8 +881,7 @@ class IRCabEffect : public EffectProcessor
 
         if (key == "quality")
         {
-            const int pending = mPendingQuality.load(std::memory_order_acquire);
-            return pending >= 0 ? static_cast<double>(pending) : static_cast<double>(mQuality);
+            return static_cast<double>(EffectiveQuality());
         }
 
         if (key == "trimLeadingSilence")
@@ -957,7 +955,6 @@ class IRCabEffect : public EffectProcessor
         mImpulseBR.clear();
         mIRPathB.clear();
         UnloadConvolverPair(mConvolverBL, mConvolverBR);
-        ApplyPendingQuality();
         ApplyPendingRebuildSettings();
         const bool loaded = !mPrepared || InitializeConvolverA(); // else Prepare() builds it (see mPrepared)
 
@@ -1076,7 +1073,6 @@ class IRCabEffect : public EffectProcessor
         // both slots' impulses, so each build has to see the pair that will play.
         if (loadedA)
         {
-            ApplyPendingQuality();
             loadedA = !mPrepared || InitializeConvolverA(); // else Prepare() builds it (see mPrepared)
 
             if (!loadedA)
@@ -1681,20 +1677,12 @@ class IRCabEffect : public EffectProcessor
         return 1.0 / std::sqrt(std::max(1e-8, energy));
     }
 
-    void ApplyPendingQuality()
-    {
-        const int pending = mPendingQuality.exchange(-1, std::memory_order_acq_rel);
-
-        if (pending >= 0)
-        {
-            mQuality = static_cast<IRQuality>(pending);
-        }
-    }
-
-    /// Normalize and Trim Leading Silence are baked into the convolvers when they are built. With nothing built yet (a
-    /// preset sets its params before its IRs load) the first build picks the value up. Otherwise the rebuild is left to
-    /// the message thread (DeferredRebuild): SetParam can run on the audio thread, and the rebuild allocates.
-    void RequestRebuildSetting(std::atomic<int>& pending, bool& setting, bool requested)
+    /// Quality, Normalize and Trim Leading Silence are baked into the convolvers when they are built. With
+    /// nothing built yet (a preset sets its params before its IRs load) the first build picks the value up.
+    /// Otherwise the rebuild is left to the message thread (DeferredRebuild): SetParam can run on the audio
+    /// thread, and the rebuild allocates.
+    template <typename Setting>
+    void RequestRebuildSetting(std::atomic<int>& pending, Setting& setting, Setting requested)
     {
         if (!HasResource())
         {
@@ -1704,7 +1692,7 @@ class IRCabEffect : public EffectProcessor
         }
 
         // Asking for what is built cancels a change still waiting.
-        const int target = requested == setting ? -1 : (requested ? 1 : 0);
+        const int target = requested == setting ? -1 : static_cast<int>(requested);
 
         if (pending.exchange(target, std::memory_order_acq_rel) != target)
         {
@@ -1718,14 +1706,22 @@ class IRCabEffect : public EffectProcessor
         return value >= 0 ? value != 0 : setting;
     }
 
-    /// Every build of the live convolvers starts here: a Normalize or Trim Leading Silence change
-    /// still waiting for the message thread is folded into the build, and any rebuild already taken
-    /// for it is dropped when it comes back.
+    [[nodiscard]] IRQuality EffectiveQuality() const
+    {
+        const int pending = mPendingQuality.load(std::memory_order_acquire);
+        return pending >= 0 ? static_cast<IRQuality>(pending) : mQuality;
+    }
+
+    /// Every build of the live convolvers starts here: a Quality, Normalize or Trim Leading Silence
+    /// change still waiting for the message thread is folded into the build, and any rebuild
+    /// already taken for it is dropped when it comes back.
     void ApplyPendingRebuildSettings()
     {
         ++mBuildGeneration;
+        mQuality = EffectiveQuality();
         mNormalizeIR = EffectiveSetting(mPendingNormalizeIR, mNormalizeIR);
         mTrimLeadingSilence = EffectiveSetting(mPendingTrimLeadingSilence, mTrimLeadingSilence);
+        mPendingQuality.store(-1, std::memory_order_release);
         mPendingNormalizeIR.store(-1, std::memory_order_release);
         mPendingTrimLeadingSilence.store(-1, std::memory_order_release);
     }
@@ -1763,8 +1759,8 @@ class IRCabEffect : public EffectProcessor
         double sampleRate = 48000.0;
     };
 
-    /// The convolver rebuild a Normalize or Trim Leading Silence change needs, built by the message
-    /// thread off the DSP lock from copies of the impulses and settings.
+    /// The convolver rebuild a Quality, Normalize or Trim Leading Silence change needs, built by
+    /// the message thread off the DSP lock from copies of the impulses and settings.
     class ConvolverRebuild final : public DeferredRebuild
     {
       public:
@@ -2061,13 +2057,13 @@ class IRCabEffect : public EffectProcessor
     double mOutputGain = 1.0;
     bool mEnabled = true;
     IRQuality mQuality = IRQuality::Standard;
-    std::atomic<int> mPendingQuality{-1};
     bool mNormalizeIR = true;
     bool mAutoGainCompEnabled = true;
     // Off by default, so a preset from before it existed keeps its timing. See IrLeadingSilence.h.
     bool mTrimLeadingSilence = false;
-    // Normalize and Trim Leading Silence as SetParam last asked for them, while the convolvers are
-    // still built the other way (-1 when they match). See RequestRebuildSetting.
+    // Quality, Normalize and Trim Leading Silence as SetParam last asked for them, while the
+    // convolvers are still built the other way (-1 when they match). See RequestRebuildSetting.
+    std::atomic<int> mPendingQuality{-1};
     std::atomic<int> mPendingNormalizeIR{-1};
     std::atomic<int> mPendingTrimLeadingSilence{-1};
     // Counts builds of the live convolvers, so a deferred rebuild taken before one is dropped.
