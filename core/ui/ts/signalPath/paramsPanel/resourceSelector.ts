@@ -121,7 +121,7 @@ export function buildNodeResourceSelector(
           : undefined;
         const resourceOptions = resources.map((res: LibraryResource) => {
           const selected = resolvedCurrentId === res.id && !current.filePath ? "selected" : "";
-          return `<option value="${escapeHtml(res.id)}" ${selected}>${res.name}</option>`;
+          return `<option value="${escapeHtml(res.id)}" ${selected}>${escapeHtml(res.name)}</option>`;
         }).join("");
         const customOption = current.filePath
           ? `<option value="__custom__" selected>Custom: ${escapeHtml(current.filePath.split("/").pop())}</option>`
@@ -253,7 +253,7 @@ export function buildNodeResourceSelector(
       const resolvedCurrentId = resolveResourceIdAlias(currentId, aliasById);
       return resources.map((res: LibraryResource) => {
         const selected = res.id === resolvedCurrentId ? "selected" : "";
-        return `<option value="${escapeHtml(res.id)}" ${selected}>${res.name}</option>`;
+        return `<option value="${escapeHtml(res.id)}" ${selected}>${escapeHtml(res.name)}</option>`;
       }).join("");
     };
 

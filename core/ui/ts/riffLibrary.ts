@@ -1313,12 +1313,12 @@ export function renderRiffLibraryPanel(): void {
         <div class="results-item equipment-library-item riff-library-item">
           <div class="results-item-main equipment-library-item-main">
             <div class="results-item-title equipment-library-item-title">
-              ${riff.title}
+              ${escapeHtml(riff.title)}
             </div>
             <div class="results-item-meta equipment-library-item-meta">
-              <span>Categories: ${categoriesText}</span>
-              <span>Tags: ${tagText}</span>
-              <span>${usedText}</span>
+              <span>Categories: ${escapeHtml(categoriesText)}</span>
+              <span>Tags: ${escapeHtml(tagText)}</span>
+              <span>${escapeHtml(usedText)}</span>
               <span>Takes: ${riff.takes.length}</span>
             </div>
             <div class="results-item-path equipment-library-item-path" title="${escapeHtml(take?.filePath ?? "")}">${takeSummary}</div>

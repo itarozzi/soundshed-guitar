@@ -179,7 +179,7 @@ export async function renderFeedRows(rows: ToneSharingRow[], requestVersion = br
 
       return `
         <div class="tone-sharing-row">
-          <div class="tone-sharing-row-title">${row.title}</div>
+          <div class="tone-sharing-row-title">${escapeHtml(row.title)}</div>
           <div class="tone-sharing-row-track">
             ${itemHtml.join("")}
           </div>

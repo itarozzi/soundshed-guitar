@@ -38,7 +38,7 @@ export function populatePresetFolderSelect(select: HTMLSelectElement | null, sel
   buildOptions(folders, 0);
 
   select.innerHTML = options
-    .map((option) => `<option value="${escapeHtml(option.id)}">${option.label}</option>`)
+    .map((option) => `<option value="${escapeHtml(option.id)}">${escapeHtml(option.label)}</option>`)
     .join("");
 
   const resolved = selectedId ?? uiState.activePresetFolderId ?? PRESET_FOLDER_ALL_ID;

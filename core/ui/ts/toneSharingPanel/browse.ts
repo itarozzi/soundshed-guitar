@@ -3,6 +3,7 @@
  * happen once an install has changed what "installed" means.
  */
 
+import { escapeHtml } from "../utils.js";
 import { apiFetch, isToneSharingAdmin } from "./api.js";
 import { element, setUploadStatus } from "./dom.js";
 import { applyFeaturedLayout, buildSingleRow, loadStandardBrowsePage, renderFeedRows, resetBrowseCollections, updateActiveSharedFilter, updateBrowseFooter, updateCommunityPresetSearchUi, updateFeaturedMoreLink } from "./feed.js";
@@ -104,7 +105,7 @@ export async function loadBrowse(): Promise<void> {
     if (isStale()) return;
     browseState.featuredHiddenPresetCount = 0;
     updateFeaturedMoreLink();
-    feed.innerHTML = `<div class="tone-sharing-status">Load failed: ${(error as Error).message}</div>`;
+    feed.innerHTML = `<div class="tone-sharing-status">Load failed: ${escapeHtml((error as Error).message)}</div>`;
   }
 }
 
@@ -147,7 +148,7 @@ export async function loadMine(): Promise<void> {
     }
   } catch (error) {
     if (showing && !isStale()) {
-      feed.innerHTML = `<div class="tone-sharing-status">Load failed: ${(error as Error).message}</div>`;
+      feed.innerHTML = `<div class="tone-sharing-status">Load failed: ${escapeHtml((error as Error).message)}</div>`;
     }
   }
 }

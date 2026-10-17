@@ -93,7 +93,7 @@ function renderDemoAudioOptions(): string {
   return sources
     .map((sample) => {
       const selected = sample.id === selectedId;
-      return `<option value="${escapeHtml(sample.id)}"${selected ? " selected" : ""}>${sample.title}</option>`;
+      return `<option value="${escapeHtml(sample.id)}"${selected ? " selected" : ""}>${escapeHtml(sample.title)}</option>`;
     })
     .join("");
 }

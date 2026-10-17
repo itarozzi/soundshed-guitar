@@ -157,7 +157,7 @@ export async function loadMyDraftPacksForSelect(): Promise<void> {
     const drafts = data.packs.filter((p) => p.moderationStatus === "draft");
     select.innerHTML =
       `<option value="">Or add to existing draft pack…</option>` +
-      drafts.map((p) => `<option value="${escapeHtml(p.id)}">${p.title}</option>`).join("");
+      drafts.map((p) => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.title)}</option>`).join("");
   } catch {
   }
 }
