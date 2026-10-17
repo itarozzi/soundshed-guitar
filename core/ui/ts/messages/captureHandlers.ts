@@ -58,6 +58,10 @@ export function onRiffCaptureStopped(payload: IncomingPayload): void {
   applyRiffCaptureState({
     active: false,
     complete: true,
+    // The bar-align offset belongs to the take just recorded in arm mode. A crop, an import or a
+    // take loaded for editing starts where it starts: carrying the old offset over trimmed a
+    // cropped take's start again on every crop, and an imported WAV saved with the wrong bars.
+    barAlignOffsetSamples: source === "capture" ? uiState.riffCapture?.barAlignOffsetSamples ?? 0 : 0,
     takeId: (payload as { takeId?: string }).takeId ?? uiState.riffCapture?.takeId ?? "",
     bars: (payload as { bars?: number }).bars ?? uiState.riffCapture?.bars ?? 1,
     tempoBpm: (payload as { tempoBpm?: number }).tempoBpm ?? uiState.riffCapture?.tempoBpm ?? 120,
@@ -87,7 +91,7 @@ export function onRiffCaptureStopped(payload: IncomingPayload): void {
 
 export function onRiffCaptureCanceled(payload: IncomingPayload): void {
   appendLog(`riff capture cancelled ← ${(payload as { takeId?: string }).takeId ?? "take"}`);
-  applyRiffCaptureState({ active: false, complete: false, takeId: "", capturedSamples: 0, sampleRate: 0, hasAudio: false, waveformPeaks: [] });
+  applyRiffCaptureState({ active: false, complete: false, takeId: "", capturedSamples: 0, sampleRate: 0, hasAudio: false, waveformPeaks: [], barAlignOffsetSamples: 0 });
   showNotification("Riff capture cancelled");
 }
 

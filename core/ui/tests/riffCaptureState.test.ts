@@ -4,6 +4,8 @@
  *   - Arming ends when the take starts: the engine never sends `armed` itself. Left set, a take the
  *     engine finished on its own (the buffer full) still read "Armed", and Stop or Close then sent
  *     a cancel that threw the finished take away.
+ *   - The bar-align offset belongs to the take recorded in arm mode, not to a crop or an import,
+ *     which used to have it applied again.
  */
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -36,5 +38,14 @@ describe("riff capture state", () => {
     applyRiffCaptureState({ armed: true, active: false, complete: false });
     onRiffCaptureStopped({ type: "riffCaptureStopped", takeId: "t1", capturedSamples: 48000, sampleRate: 48000, hasAudio: true } as never);
     expect(uiState.riffCapture.armed).toBe(false);
+  });
+
+  it("keeps the bar-align offset for the recorded take only", () => {
+    onRiffCaptureStarted({ type: "riffCaptureStarted", takeId: "t2", barAlignOffsetSamples: 4800 } as never);
+    onRiffCaptureStopped({ type: "riffCaptureStopped", takeId: "t2", capturedSamples: 96000, sampleRate: 48000, hasAudio: true } as never);
+    expect(uiState.riffCapture.barAlignOffsetSamples).toBe(4800);
+
+    onRiffCaptureStopped({ type: "riffCaptureStopped", source: "trim", takeId: "t2", capturedSamples: 91200, sampleRate: 48000, hasAudio: true } as never);
+    expect(uiState.riffCapture.barAlignOffsetSamples).toBe(0);
   });
 });
