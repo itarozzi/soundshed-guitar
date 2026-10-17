@@ -9,6 +9,7 @@
 #include <array>
 #include <cmath>
 #include <string>
+#include <string_view>
 
 namespace guitarfx
 {
@@ -108,7 +109,7 @@ class GraphicEQEffect : public EffectProcessor
             }
 
             auto& band = mBands[bandIndex];
-            const std::string suffix = key.substr(key.find_first_not_of("0123456789", 4));
+            const std::string_view suffix = BandSuffix(key);
 
             if (suffix == "Enabled")
             {
@@ -155,7 +156,7 @@ class GraphicEQEffect : public EffectProcessor
         }
 
         const auto& band = mBands[bandIndex];
-        const std::string suffix = key.substr(key.find_first_not_of("0123456789", 4));
+        const std::string_view suffix = BandSuffix(key);
 
         if (suffix == "Enabled")
         {
@@ -226,6 +227,14 @@ class GraphicEQEffect : public EffectProcessor
         return ClampFinite(value, 20.0, MaxFrequency(), kDefaultFrequencies[bandIndex]);
     }
 
+    /// What follows "band<N>" in a key ParseBandIndex accepted.
+    [[nodiscard]] static std::string_view BandSuffix(const std::string& key)
+    {
+        return std::string_view(key).substr(key.find_first_not_of("0123456789", 4));
+    }
+
+    /// "band<N><suffix>", N from 1 to kMaxBands, with a suffix after the digits: a bare "band10"
+    /// is not a band key, and taking its suffix threw std::out_of_range.
     static int ParseBandIndex(const std::string& key)
     {
         if (key.rfind("band", 0) != 0 || key.size() < 6)
@@ -242,7 +251,9 @@ class GraphicEQEffect : public EffectProcessor
             ++cursor;
         }
 
-        return cursor == 4 || oneBasedIndex < 1 || oneBasedIndex > kMaxBands ? -1 : oneBasedIndex - 1;
+        return cursor == 4 || cursor == key.size() || oneBasedIndex < 1 || oneBasedIndex > kMaxBands
+                   ? -1
+                   : oneBasedIndex - 1;
     }
 
     static float ProcessSample(float input, float b0, float b1, float b2, float a1, float a2, float& x1, float& x2,
