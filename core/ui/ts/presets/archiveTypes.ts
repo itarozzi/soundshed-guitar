@@ -96,8 +96,30 @@ export type ArchiveImportContext = {
   titleHint?: string;
 };
 
+/** A model or IR a preview plays from a file the engine stages for it, never from the library. */
+export interface PreviewResource {
+  resourceType: string;
+  /** The id the preset's nodes name it by. */
+  resourceId: string;
+  name: string;
+  /** The file, base64. */
+  data: string;
+}
+
+/** What a preview needs besides the preset: the files the library lacks, and what it could not get. */
+export interface ArchivePreviewFiles {
+  resources: PreviewResource[];
+  /** Names of the remote models and IRs that could not be fetched; the preview plays without them. */
+  unavailable: string[];
+}
+
 export type ArchiveImportOptions = {
   previewOnly?: boolean;
+  /**
+   * With previewOnly: filled with the archive's files the library lacks, and its remote ones
+   * fetched from their providers, for the engine to stage ("previewPreset"). Nothing is imported.
+   */
+  previewFiles?: ArchivePreviewFiles;
   suppressNotifications?: boolean;
   topLevelFolderName?: string;
 };

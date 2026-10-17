@@ -20,7 +20,7 @@ import { downloadTone3000ResourceByReference, isTone3000AuthReady, isTone3000Pro
 import type { LibraryResource } from "../types.js";
 import { arrayBufferToBase64 } from "../utils.js";
 import { sanitizeFilename } from "../archiveUtils.js";
-import type { Tone3000ResourceRef } from "./archiveTypes.js";
+import type { ArchivePreviewFiles, PreviewResource, Tone3000ResourceRef } from "./archiveTypes.js";
 
 const TONE3000 = "tone3000";
 
@@ -199,9 +199,10 @@ async function promptForTone3000ApiKey(resourceCount: number): Promise<boolean> 
   });
 }
 
-async function ensureTone3000Access(refCount: number): Promise<void> {
+/** Starts a Tone3000 session from the saved key when there is none. True when models can be fetched. */
+async function startTone3000Access(): Promise<boolean> {
   if (isTone3000ProxyModeEnabled() || isTone3000AuthReady()) {
-    return;
+    return true;
   }
   const storedApiKey = typeof uiState.appSettings["tone3000.apiKey"] === "string"
     ? (uiState.appSettings["tone3000.apiKey"] as string).trim()
@@ -210,7 +211,11 @@ async function ensureTone3000Access(refCount: number): Promise<void> {
     appendLog("tone3000 session missing; attempting auto-start from saved API key");
     await saveTone3000ApiKey(storedApiKey);
   }
-  if (!isTone3000AuthReady() && !(await promptForTone3000ApiKey(refCount))) {
+  return isTone3000AuthReady();
+}
+
+async function ensureTone3000Access(refCount: number): Promise<void> {
+  if (!(await startTone3000Access()) && !(await promptForTone3000ApiKey(refCount))) {
     throw new Error("Tone3000 API key is required to import this shared preset");
   }
 }
@@ -229,6 +234,51 @@ async function fetchTone3000(ref: RemoteResourceRef): Promise<{ data: string; me
       ...(modelUrl && isTone3000RequestUrlAllowed(modelUrl) ? { modelUrl } : {}),
     },
   };
+}
+
+/**
+ * A preview's remote resources: those the library has are played from there, and with `files`
+ * the rest are fetched for the engine to stage. Nothing is imported. Unlike an install this never
+ * asks for a Tone3000 key; without access, or when a fetch fails, the resource is listed
+ * unavailable and the preview plays without it.
+ */
+export async function prepareArchiveRemoteResourcesForPreview(
+  refs: RemoteResourceRef[],
+  idMap: Map<string, string>,
+  files: ArchivePreviewFiles | undefined,
+): Promise<void> {
+  mapInstalledRemoteResources(refs, idMap);
+  if (!files) {
+    return;
+  }
+  const missing = refs.filter((ref) => {
+    const existing = getLibraryResource(ref.type, ref.id);
+    return !(existing && !existing.fileMissing);
+  });
+  if (missing.length === 0) {
+    return;
+  }
+  const canFetch = missing.some((ref) => ref.provider === TONE3000) && await startTone3000Access();
+  const fetched = await Promise.all(missing.map(async (ref): Promise<PreviewResource | null> => {
+    if (ref.provider !== TONE3000 || !canFetch) {
+      return null;
+    }
+    try {
+      const { data } = await fetchTone3000(ref);
+      return { resourceType: ref.type, resourceId: ref.id, name: ref.name ?? ref.id, data };
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      appendLog(`${ref.provider} preview resource failed (${ref.name ?? ref.id}): ${msg}`);
+      return null;
+    }
+  }));
+  fetched.forEach((resource, index) => {
+    if (resource) {
+      files.resources.push(resource);
+    } else {
+      files.unavailable.push(missing[index].name ?? missing[index].id);
+    }
+  });
 }
 
 /**

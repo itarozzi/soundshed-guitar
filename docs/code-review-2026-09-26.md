@@ -101,6 +101,8 @@ Relevant locations:
 
 **Status:** Fixed in 86113960 (29 September). Tone3000 requests go only to the official API's origin or the configured proxy's, and an archive's `modelUrl` is never fetched. A preview downloads nothing. The Tone Sharing session id goes only to the API's own origin, and debug snapshots redact it.
 
+**Changed 17 October:** a preview that downloaded nothing played a Tone3000-based tone with every model and IR missing, so it sounded clean. A preview now fetches the Tone3000 models the library lacks, by tone and model id through the same host check, and never asks for a key. It still imports and saves nothing: the engine stages the files in a temp folder for that preview alone (`previewPreset`). The host check is what keeps the token safe, so the "download nothing" half of the recommendation is no longer needed for that.
+
 ### P0 — Uninstalling a tone pack deletes files but not their library entries
 
 *Confirmed.*

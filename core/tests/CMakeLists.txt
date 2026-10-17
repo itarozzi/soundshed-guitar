@@ -134,6 +134,7 @@ set(TEST_SOURCES
     SynthSawEffectTests.cpp
     TestWavLoad.cpp
     Tone3000ResourceWorkflowTests.cpp
+    TonePreviewTests.cpp
     TransposeBenchmark.cpp
     TransposeEffectTests.cpp
     WahEffectTests.cpp

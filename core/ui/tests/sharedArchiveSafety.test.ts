@@ -7,6 +7,7 @@ import { createRequire } from "node:module";
 import { createHash } from "node:crypto";
 import JSZip from "jszip";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { ArchivePreviewFiles } from "../ts/presets/archiveTypes";
 import type { Preset } from "../ts/types";
 
 vi.mock("../ts/notifications.js", () => ({ clearNotification: vi.fn(), showNotification: vi.fn() }));
@@ -119,6 +120,59 @@ describe("importing a shared archive", () => {
     expect(fetchMock).not.toHaveBeenCalled();
     expect(sent.map((message) => message.type)).toEqual([]);
     expect(preset.graph!.nodes.every((node) => SAFE_NODE_ID.test(node.id))).toBe(true);
+  });
+
+  it("hands a preview the files the library lacks, importing nothing and fetching Tone3000 models by id", async () => {
+    const fetched: string[] = [];
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      fetched.push(url);
+      if (url.includes("/models?") || url.includes("tone_id=")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: [{ id: "m1", model_url: "https://www.tone3000.com/api/v1/models/m1/download/m1.nam" }], page: 1, total_pages: 1 }),
+          text: async () => "",
+          headers: new Headers(),
+        } as Response;
+      }
+      return okBytes();
+    }) as typeof fetch;
+    const previewFiles: ArchivePreviewFiles = { resources: [], unavailable: [] };
+
+    const [preset] = await importPresetArchive(await archiveFile(), { source: "toneSharingApi", itemId: "item-1" }, {
+      previewOnly: true,
+      previewFiles,
+      suppressNotifications: true,
+    });
+
+    expect(sent.map((message) => message.type)).toEqual([]);
+    expect(fetched.some((url) => url.includes("evil.example"))).toBe(false);
+    expect(previewFiles.unavailable).toEqual([]);
+    expect(previewFiles.resources).toEqual([
+      { resourceType: "ir", resourceId: "bundled-ir", name: "Cab", data: "AQID" },
+      { resourceType: "nam", resourceId: "t3k-model", name: "Amp", data: "AQID" },
+    ]);
+    // The nodes keep naming the archive's ids, which is what the engine stages the files under.
+    expect(preset.graph!.nodes[1].resources).toEqual([{ resourceType: "nam", resourceId: "t3k-model", id: "t3k-model" }]);
+  });
+
+  it("previews without a Tone3000 model when there is no access, and never asks for a key", async () => {
+    uiState.tone3000Session = null;
+    uiState.appSettings = { ...uiState.appSettings, "tone3000.apiKey": "", "tone3000.useSoundshedToneSearchApi": false };
+    const fetchMock = vi.fn(async () => okBytes());
+    globalThis.fetch = fetchMock as typeof fetch;
+    const previewFiles: ArchivePreviewFiles = { resources: [], unavailable: [] };
+
+    await importPresetArchive(await archiveFile(), { source: "toneSharingApi", itemId: "item-1" }, {
+      previewOnly: true,
+      previewFiles,
+      suppressNotifications: true,
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(previewFiles.resources.map((resource) => resource.resourceId)).toEqual(["bundled-ir"]);
+    expect(previewFiles.unavailable).toEqual(["Amp"]);
   });
 
   it("never fetches the archive's own modelUrl: the model is found by its Tone3000 ids", async () => {

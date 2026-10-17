@@ -77,6 +77,7 @@
     "openUrl",
     "previewCapturedRiff",
     "previewDemoAudio",
+    "previewPreset",
     "previewRemoteResource",
     "previewRiffTake",
     "queryResourceUsage",

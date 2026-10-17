@@ -12,7 +12,7 @@ import type { InstalledPackMetadata } from "../toneSharingPanel.js";
 import { isTone3000ProxyModeEnabled } from "../tone3000.js";
 import { getLibraryResource, getLibraryResourceByHash } from "../resourceLibrary.js";
 import type { ArchiveImportContext, ArchiveImportOptions, GeneratorPackManifest, GeneratorPresetV2, GeneratorResourceIndex, ImportPackContext, ImportPackSource, ImportPackSummary, ImportPackWithConfirmationOptions, PresetArchive, PresetArchiveFolder, PresetArchiveResource, PresetCollectionArchive, Tone3000ResourceRef } from "./archiveTypes.js";
-import { buildArchiveRemoteRef, importArchiveRemoteResources, mapInstalledRemoteResources, readArchiveRemoteRefs, shouldReferenceRemotely } from "./remoteArchiveResources.js";
+import { buildArchiveRemoteRef, importArchiveRemoteResources, prepareArchiveRemoteResourcesForPreview, readArchiveRemoteRefs, shouldReferenceRemotely } from "./remoteArchiveResources.js";
 import type { RemoteResourceRef } from "../remoteResources.js";
 import { applyImportedPresetFolders, assignImportedPresetsToTopLevelFolder, buildArchivePresetFoldersForExport, getPresetFolderExportName, getPresetsForFolderId } from "./folderArchive.js";
 import { PRESET_FOLDER_ALL_ID } from "./sorting.js";
@@ -1021,16 +1021,16 @@ export async function importPresetArchive(
       importedResources.push({ type: resource.type, id: existing.id });
       continue;
     }
-    // A preview plays what is already in the library and writes nothing to it.
-    if (previewOnly) {
-      continue;
-    }
     const entry = resolveArchiveResourceEntry(resource, fileMap, normalizedFileMap);
     if (!entry) {
       continue;
     }
-    const dataBuffer = await entry.async("arraybuffer");
-    const data = arrayBufferToBase64(dataBuffer);
+    const data = arrayBufferToBase64(await entry.async("arraybuffer"));
+    // A preview writes nothing to the library: a file it lacks goes to the engine to stage instead.
+    if (previewOnly) {
+      options.previewFiles?.resources.push({ resourceType: resource.type, resourceId: resource.id, name: resource.name ?? fileName, data });
+      continue;
+    }
     const importFileName = buildImportResourceFileName(resource);
     const newId = generateResourceId(fileName);
     idMap.set(resource.id, newId);
@@ -1057,9 +1057,9 @@ export async function importPresetArchive(
   }
 
   // Fetch the resources the archive names but does not carry from their providers. A preview
-  // fetches nothing: it plays what is already in the library.
+  // imports none of them: those the library lacks are fetched for the engine to stage.
   if (previewOnly) {
-    mapInstalledRemoteResources(remoteResourcesToImport, idMap);
+    await prepareArchiveRemoteResourcesForPreview(remoteResourcesToImport, idMap, options.previewFiles);
   } else if (remoteResourcesToImport.length > 0) {
     await importArchiveRemoteResources(remoteResourcesToImport, idMap, importedResources);
   }

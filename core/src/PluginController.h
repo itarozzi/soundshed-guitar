@@ -439,6 +439,8 @@ class PluginController
     // controller/PluginControllerArchiveInstall.cpp: tones downloaded from tone sharing
     void HandleInstallPresetArchivesRequest(const nlohmann::json& payload);
     void HandleDeleteInstalledPresetArchiveRequest(const nlohmann::json& payload);
+    // controller/PluginControllerTonePreview.cpp: a shared tone auditioned without installing it
+    void HandlePreviewPresetRequest(const nlohmann::json& payload);
     void HandleSaveEffectLayoutRequest(const nlohmann::json& payload);
     void HandleExportEffectLayoutRequest(const nlohmann::json& payload);
     void HandleBrowseLayoutImageRequest(const nlohmann::json& payload);
@@ -1275,6 +1277,10 @@ class PluginController
     };
 
     PreviewState mPreviewState;
+
+    /// The folder holding the files the previewed shared tone plays (HandlePreviewPresetRequest),
+    /// kept until the next preview replaces it. Empty when nothing was staged.
+    std::filesystem::path mTonePreviewDir;
 
     // UI state
     bool mUIReady = false;
