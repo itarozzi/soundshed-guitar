@@ -262,6 +262,13 @@ export function applyRiffCaptureState(capture: Partial<RiffCaptureState>): void 
   if (typeof capture.armed === "boolean") {
     isArmed = capture.armed;
   }
+  // Arming ends when the signal starts the take; the engine says so by starting it (and finishing
+  // it, when the buffer fills), never with `armed` itself. Left set, a take the engine finished on
+  // its own still read "Armed · waiting for signal", and Stop or Close then cancelled it, throwing
+  // the finished take away.
+  if (capture.active === true || capture.complete === true) {
+    isArmed = false;
+  }
   // When recording starts or capture is cleared, reset live waveform
   if (capture.active === true || capture.active === false) {
     if (!capture.active) {
