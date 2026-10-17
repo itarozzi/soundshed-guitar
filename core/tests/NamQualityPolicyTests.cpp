@@ -111,6 +111,7 @@ class AudioThread
     std::atomic<int> processed{0};
     std::atomic<int> givenUp{0};
     std::atomic<double> longestBlockMs{0.0};
+    std::atomic<double> processedMs{0.0}; ///< Summed time of the processed blocks; only this thread writes it.
 
   private:
     void Run()
@@ -133,6 +134,12 @@ class AudioThread
             const bool ran = mController.ProcessAudio(inputs, outputs, kBlock);
             const auto took = std::chrono::steady_clock::now() - start;
             const double ms = std::chrono::duration<double, std::milli>(took).count();
+            if (ran)
+            {
+                // Before the count, so a reader that sees the count sees its block's time.
+                processedMs.store(processedMs.load() + ms);
+            }
+
             (ran ? processed : givenUp).fetch_add(1);
             longestBlockMs.store(std::max(longestBlockMs.load(), ms));
             std::this_thread::sleep_for(std::chrono::microseconds(200));
@@ -223,15 +230,27 @@ void TestOfflineWaitsForTheLock(PluginController& controller, AudioThread& audio
     Check(realtimeLost > 0, "in real time a busy DSP lock costs blocks (" + std::to_string(realtimeLost) + ")");
 
     controller.SetOfflineRendering(true);
+
+    // A typical block of this rig, offline, with nothing holding the lock.
+    const int quietFrom = audio.processed.load();
+    const double quietMsFrom = audio.processedMs.load();
+    audio.WaitForBlocks(50);
+    const double typicalMs =
+        (audio.processedMs.load() - quietMsFrom) / std::max(1, audio.processed.load() - quietFrom);
+
     givenUpBefore = audio.givenUp.load();
     audio.longestBlockMs.store(0.0);
     busySpell();
     Check(audio.WaitForBlocks(5), "offline the audio thread keeps going (no deadlock)");
     Check(audio.givenUp.load() == givenUpBefore,
           "offline it gives up no block (" + std::to_string(audio.givenUp.load() - givenUpBefore) + " lost)");
-    // A block of this rig takes about a millisecond; one that waited out a prepare takes 20 or more.
-    Check(audio.longestBlockMs.load() >= 5.0,
-          "it waited for the lock instead (longest block " + std::to_string(audio.longestBlockMs.load()) + " ms)");
+    // A block that waited out a prepare takes several typical blocks. How long a prepare holds the
+    // lock depends on the NAM engine: on the fused engine those blocks took 1.1-1.8 ms against a
+    // typical 0.22, and on the NAM core (GUITARFX_NAM_ENGINE=core) 7.6-10 ms against 0.5. So the bar
+    // is the typical block just measured, not a fixed time.
+    Check(audio.longestBlockMs.load() >= 3.0 * typicalMs,
+          "it waited for the lock instead (longest block " + std::to_string(audio.longestBlockMs.load()) +
+              " ms, typical " + std::to_string(typicalMs) + " ms)");
     controller.SetOfflineRendering(false);
 }
 } // namespace
