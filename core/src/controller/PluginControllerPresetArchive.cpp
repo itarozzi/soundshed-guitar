@@ -287,8 +287,7 @@ void PluginController::StartPresetArchiveSession(const std::string& archiveFileN
         archiveKey,         util::PathToUtf8(util::PathFromUtf8(archiveFileName).filename()), sessionRoot, presetDir,
         presetIdMap.size(),
     };
-
-    SaveUiStorageJson("preset-folders.json", presetFoldersPayload);
+    mPresetArchiveSession->folders = std::move(presetFoldersPayload);
 
     ClearActivePresetMixerState();
     mActivePreset.reset();

@@ -1065,6 +1065,10 @@ class PluginController
         std::filesystem::path rootPath;
         std::filesystem::path presetDir;
         std::size_t presetCount = 0;
+        // The session's preset-folders document, which stands in for the user's while the session
+        // lasts. The document store does not move for a session, so writing this there replaced
+        // the user's folders for good.
+        nlohmann::json folders = nlohmann::json::object();
     };
 
     std::optional<PresetArchiveSessionState> mPresetArchiveSession;

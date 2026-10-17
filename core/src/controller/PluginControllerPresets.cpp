@@ -529,7 +529,8 @@ void PluginController::HandleGetPresetByIdRequest(const nlohmann::json& payload)
 
 void PluginController::HandleGetPresetFoldersRequest()
 {
-    const auto payload = LoadUiStorageJson("preset-folders.json", nlohmann::json::object());
+    const auto payload = mPresetArchiveSession ? mPresetArchiveSession->folders
+                                               : LoadUiStorageJson("preset-folders.json", nlohmann::json::object());
     nlohmann::json folders = payload.value("folders", nlohmann::json::array());
     std::string activeFolderId = payload.value("activeFolderId", "__all__");
 
@@ -574,6 +575,14 @@ void PluginController::HandleSetPresetFoldersRequest(const nlohmann::json& paylo
     nlohmann::json toStore = nlohmann::json::object();
     toStore["folders"] = payload.value("folders", nlohmann::json::array());
     toStore["activeFolderId"] = payload.value("activeFolderId", "__all__");
+
+    // A session's folders are its own, and go with it.
+    if (mPresetArchiveSession)
+    {
+        mPresetArchiveSession->folders = std::move(toStore);
+        return;
+    }
+
     SaveUiStorageJson("preset-folders.json", toStore);
 }
 

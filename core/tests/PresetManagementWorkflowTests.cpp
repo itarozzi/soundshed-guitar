@@ -3217,6 +3217,24 @@ bool TestPresetArchiveSessionMode()
             return false;
         }
 
+        // The user's own folders. The session used to write its folders over them in the
+        // document store, which a session never moves, so they were gone for good.
+        const auto userFolders = nlohmann::json::array(
+            {{{"id", "user-folder"}, {"name", "My Folder"}, {"presetIds", nlohmann::json::array({"saved-preset"})}}});
+        controller.HandleUIMessage(
+            nlohmann::json{{"type", "setPresetFolders"}, {"folders", userFolders}, {"activeFolderId", "user-folder"}}
+                .dump());
+        const auto foldersNow = [&]() {
+            controller.HandleUIMessage(nlohmann::json{{"type", "getPresetFolders"}}.dump());
+            const auto message = FindLatestMessageOfType(host.sentMessages, "presetFolders");
+            return message ? message->value("folders", nlohmann::json::array()) : nlohmann::json::array();
+        };
+        const auto hasUserFolder = [](const nlohmann::json& folders) {
+            return std::any_of(folders.begin(), folders.end(), [](const nlohmann::json& folder) {
+                return folder.is_object() && folder.value("id", "") == "user-folder";
+            });
+        };
+
         nlohmann::json startMessage = nlohmann::json::object();
         startMessage["type"] = "startPresetArchiveSession";
         startMessage["fileName"] = "session-pack.soundshed.presets";
@@ -3236,6 +3254,17 @@ bool TestPresetArchiveSessionMode()
             std::cerr << "Archive session preset id was not session-scoped\n";
             return false;
         }
+
+        if (hasUserFolder(foldersNow()))
+        {
+            std::cerr << "Archive session showed the user's folders rather than its own\n";
+            return false;
+        }
+
+        // A folder edit inside the session stays in the session.
+        nlohmann::json clearFolders = {{"type", "setPresetFolders"}, {"activeFolderId", "__all__"}};
+        clearFolders["folders"] = nlohmann::json::array();
+        controller.HandleUIMessage(clearFolders.dump());
 
         nlohmann::json getList = nlohmann::json::object();
         getList["type"] = "getPresetList";
@@ -3320,6 +3349,12 @@ bool TestPresetArchiveSessionMode()
         if (!restoredNormalPreset)
         {
             std::cerr << "Normal preset library did not return after archive session end\n";
+            return false;
+        }
+
+        if (!hasUserFolder(foldersNow()))
+        {
+            std::cerr << "The user's preset folders did not survive the archive session\n";
             return false;
         }
 
