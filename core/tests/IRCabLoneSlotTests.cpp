@@ -13,6 +13,8 @@
  * - A lone IR sounds exactly like both loaded with IR Blend all the way to it.
  * - Reloading a lone B crossfades exactly as reloading a lone A does. Adding or clearing the other
  *   slot crossfades from what was playing at the level it played at, with no dip.
+ * - The outgoing side of a load's crossfade keeps the history it was playing with. Until 2026-10-18
+ *   it was rebuilt empty, so an IR change while playing dropped nearly to silence for ~1 ms.
  */
 
 #include <algorithm>
@@ -373,7 +375,8 @@ bool TestLoneBReloadCrossfadesAsLoneA(const IRFiles& irs)
 
 /// Loads `after` into a cab playing `before`, and expects the 30 ms crossfade between what each
 /// plays alone: the outgoing side at the level it played at, so adding or clearing a slot cannot
-/// dip or jump. Both sides start with no history at the load, as the effect builds them.
+/// dip or jump. The outgoing side carries on with the history it had at the load; the incoming
+/// side, newly built, starts with none.
 bool ExpectCrossfade(const Slots& before, const Slots& after, double blend, const std::string& what)
 {
     const Params params = {{"irBlend", blend}};
@@ -383,6 +386,7 @@ bool ExpectCrossfade(const Slots& before, const Slots& after, double blend, cons
     const auto crossfaded = Render(*cab, 51);
     auto outgoing = MakeCab(before, params);
     auto incoming = MakeCab(after, params);
+    Render(*outgoing, 41); // the history the cab had at the load
     const auto from = Render(*outgoing, 51);
     const auto to = Render(*incoming, 51);
     double worst = 0.0;
@@ -421,6 +425,62 @@ bool TestAddingOrClearingASlotCrossfades(const IRFiles& irs)
 
     return ok;
 }
+
+/// Reloading the IR a cab is playing, mid-stream, should barely be heard: the outgoing side carries
+/// on as it was while the incoming one fills. Measured in 1 ms windows against a cab never reloaded.
+/// With the outgoing side rebuilt empty, the first window came out more than 10 dB down.
+bool TestReloadWhilePlayingHasNoDip(const IRFiles& irs)
+{
+    std::cout << "Reloading the IR while playing has no dip" << std::endl;
+
+    bool ok = true;
+    const auto reloads = {std::pair<std::string, bool>{"LoadResources", false}, {"LoadResource", true}};
+
+    for (const auto& [path, single] : reloads)
+    {
+        auto cab = MakeCab({irs.a, {}});
+        auto steady = MakeCab({irs.a, {}});
+        Render(*cab, 61);
+        Render(*steady, 61);
+
+        if (single)
+        {
+            cab->LoadResource(irs.a);
+        }
+        else
+        {
+            Load(*cab, {irs.a, {}});
+        }
+
+        const auto reloaded = Render(*cab, 71);
+        const auto reference = Render(*steady, 71);
+        constexpr std::size_t kWindow = 48;
+        double worstDb = 0.0;
+
+        for (std::size_t channel = 0; channel < 2; ++channel)
+        {
+            for (std::size_t start = 0; start + kWindow <= kCrossfadeSamples + 480; start += kWindow)
+            {
+                double got = 0.0;
+                double expected = 0.0;
+
+                for (std::size_t n = start; n < start + kWindow; ++n)
+                {
+                    const std::size_t i = channel * kLength + n;
+                    got += static_cast<double>(reloaded[i]) * reloaded[i];
+                    expected += static_cast<double>(reference[i]) * reference[i];
+                }
+
+                worstDb = std::min(worstDb, 10.0 * std::log10(got / expected));
+            }
+        }
+
+        ok &= Expect(worstDb > -1.0, path + ": the quietest 1 ms of the fade should be within 1 dB of the cab " +
+                                         "never reloaded, but was " + std::to_string(worstDb) + " dB");
+    }
+
+    return ok;
+}
 } // namespace
 
 int main()
@@ -435,6 +495,7 @@ int main()
         ok &= TestLoneSlotIsBlendAllTheWay(irs);
         ok &= TestLoneBReloadCrossfadesAsLoneA(irs);
         ok &= TestAddingOrClearingASlotCrossfades(irs);
+        ok &= TestReloadWhilePlayingHasNoDip(irs);
     }
 
     std::error_code ignored;

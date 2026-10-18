@@ -67,6 +67,15 @@ about 0.5 s, would pin the intended behaviour.
 
 ### 3. An IR change crossfades from an outgoing side that has no history
 
+**Fixed the same day:** `CapturePreviousConvolvers()` now moves the live convolvers into the
+outgoing slots and leaves the live ones empty for the load to build. A moved-from convolver keeps its
+`mInitialized` flag but loses its buffers, so the live one is replaced with an empty convolver
+rather than left as moved. `LoadResource` now takes the capture after the WAV parse, so a file that
+won't load leaves the cab playing. `ExpectCrossfade` now renders its outgoing reference with the
+history the cab had. The new `TestReloadWhilePlayingHasNoDip` reloads the playing IR through both
+load paths and requires every 1 ms window of the fade to stay within 1 dB of a cab that was never
+reloaded. The old code gave -7.6 dB and fails 14 checks in `IRCabLoneSlotTests`.
+
 `CapturePreviousConvolvers()` rebuilds the outgoing convolvers with `SetImpulse`, which starts them
 empty. It does not move the live ones across. The incoming side starts empty too, so the first moments
 of the 30 ms fade are both sides warming up from silence. Simulated on `421 1960.wav` → `Fat Boy.wav`

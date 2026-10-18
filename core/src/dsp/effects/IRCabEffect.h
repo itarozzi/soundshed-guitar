@@ -948,8 +948,6 @@ class IRCabEffect : public EffectProcessor
             return false;
         }
 
-        CapturePreviousConvolvers();
-
         // Single-resource load path (legacy): load slot A and clear slot B.
         if (!LoadWavFile(resourcePath))
         {
@@ -958,6 +956,8 @@ class IRCabEffect : public EffectProcessor
             return false;
         }
 
+        // After the parse, so a file that will not load leaves the cab playing what it was.
+        CapturePreviousConvolvers();
         mIRPath = resourcePath;
         mImpulseBL.clear();
         mImpulseBR.clear();
@@ -1526,26 +1526,27 @@ class IRCabEffect : public EffectProcessor
         return true;
     }
 
+    /// What is playing becomes the outgoing side of a load's crossfade as it stands, history and
+    /// all, as CommitDeferredRebuild() does. The live slots are left empty, for the load to build
+    /// or unload. Until 2026-10-18 the outgoing side was rebuilt from the impulses with no history,
+    /// so both sides of the fade started from silence: a ~1 ms near-dropout and a few dB low for
+    /// ~10 ms on every IR change while playing.
     void CapturePreviousConvolvers()
     {
-        mPrevHasSlotA = false;
-        mPrevHasSlotB = false;
-        mPrevConvolverL.Reset();
-        mPrevConvolverR.Reset();
-        mPrevConvolverBL.Reset();
-        mPrevConvolverBR.Reset();
+        mPrevHasSlotA = SlotAReady();
+        mPrevHasSlotB = SlotBReady();
+        MoveToOutgoing(mConvolverL, mPrevConvolverL);
+        MoveToOutgoing(mConvolverR, mPrevConvolverR);
+        MoveToOutgoing(mConvolverBL, mPrevConvolverBL);
+        MoveToOutgoing(mConvolverBR, mPrevConvolverBR);
+    }
 
-        if (HasResource())
-        {
-            mPrevHasSlotA = InitializeConvolverFromImpulse(mImpulseL, mImpulseR, mIsStereo, mIRSampleRate,
-                                                           mPrevConvolverL, mPrevConvolverR);
-        }
-
-        if (!mImpulseBL.empty() && mConvolverBL.IsInitialized())
-        {
-            mPrevHasSlotB = InitializeConvolverFromImpulse(mImpulseBL, mImpulseBR, mIsStereoB, mIRSampleRateB,
-                                                           mPrevConvolverBL, mPrevConvolverBR);
-        }
+    /// A moved-from convolver keeps its flags but not its buffers, so `live` is replaced with an
+    /// empty one rather than left as moved.
+    static void MoveToOutgoing(RealtimeConvolver& live, RealtimeConvolver& outgoing)
+    {
+        outgoing = std::move(live);
+        live = RealtimeConvolver();
     }
 
     bool InitializeConvolverA()
