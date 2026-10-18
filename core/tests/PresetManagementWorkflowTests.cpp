@@ -3770,6 +3770,59 @@ bool TestStandaloneStartupInputModeOverridesRestoredPreset()
     return true;
 }
 
+/// A shared-settings reload re-applies the global FX blob, which carries no input mode: the
+/// standalone's mono input on its second channel came back as stereo on the first.
+bool TestSharedSyncReloadKeepsStandaloneInputMode()
+{
+    const fs::path sandbox =
+        fs::temp_directory_path() / "guitarfx-preset-management-tests" / "shared-reload-input-mode";
+    std::error_code ec;
+    fs::remove_all(sandbox, ec);
+    fs::create_directories(sandbox, ec);
+    SetSettingsEnvRoot(sandbox);
+
+    const fs::path settingsPath = sandbox / "Soundshed Guitar" / "data" / "v1" / "settings" / "app.json";
+    fs::create_directories(settingsPath.parent_path(), ec);
+    {
+        nlohmann::json settings = nlohmann::json::object();
+        settings["inputChannel.monoMode"] = true;
+        settings["inputChannel.mono"] = 1;
+        settings["globalFx.settings"] = guitarfx::GlobalSignalChainConfig::CreateDefault();
+        std::ofstream output(settingsPath);
+        output << settings.dump(2);
+    }
+
+    TestHost host(sandbox, {}, /*standalone=*/true);
+    guitarfx::PluginController standalone(host);
+    standalone.Initialize();
+
+    if (!standalone.GetMixer().IsMonoMode() || standalone.GetMixer().GetInputChannel() != 1)
+    {
+        std::cerr << "Standalone did not start on the selected input channel\n";
+        return false;
+    }
+
+    // Another instance changes a genuinely shared setting, so the standalone reloads.
+    {
+        TestHost otherHost(sandbox);
+        guitarfx::PluginController other(otherHost);
+        other.Initialize();
+        other.HandleUIMessage(
+            nlohmann::json{{"type", "setSetting"}, {"key", "audio.dsp.nominalOperatingLevelDbfs"}, {"value", -27.0}}
+                .dump());
+    }
+
+    standalone.HandleUIMessage(nlohmann::json{{"type", "getSharedSyncState"}}.dump());
+
+    if (!standalone.GetMixer().IsMonoMode() || standalone.GetMixer().GetInputChannel() != 1)
+    {
+        std::cerr << "Shared-sync reload reset the standalone's input mode\n";
+        return false;
+    }
+
+    return true;
+}
+
 guitarfx::Preset BuildChainPreset(const std::string& id)
 {
     using namespace guitarfx;
@@ -4707,6 +4760,7 @@ int main()
     run("Preset archive session mode", TestPresetArchiveSessionMode());
     run("Standalone ignores embedded host snapshot", TestStandaloneDeserializeStateIgnoresEmbeddedPresetSnapshot());
     run("Standalone startup keeps selected input channel", TestStandaloneStartupInputModeOverridesRestoredPreset());
+    run("Shared-sync reload keeps the standalone's input mode", TestSharedSyncReloadKeepsStandaloneInputMode());
     run("Riff library path normalization", TestRiffLibraryPathNormalization());
     run("Optimized NAM metadata alias parsing", TestOptimizedNamMetadataAliasParsing());
     run("Effect replacement survives later interactions", TestEffectReplacementSurvivesLaterInteractions());

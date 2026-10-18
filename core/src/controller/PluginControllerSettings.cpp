@@ -159,8 +159,13 @@ void PluginController::ApplyGlobalFxSettingsFromAppSettings()
         auto config = it->get<GlobalSignalChainConfig>();
         // The blob does not carry the limiter, and committing the swap re-applies every
         // scalar from the config — so carry the live value across rather than reading the
-        // stored default back over the app setting applied just above.
+        // stored default back over the app setting applied just above. The same goes for the
+        // input mode ApplyInputModeSettingsFromAppSettings has just applied: read back as the
+        // blob's defaults, a mono input on its second channel became stereo on the first.
         config.limiterEnabled = mPresetMixer.IsLimiterEnabled();
+        config.monoMode = mPresetMixer.IsMonoMode();
+        config.inputChannel = mPresetMixer.GetInputChannel();
+        config.dualMono = mPresetMixer.IsDualMono();
 
         // Build off the lock, install under it — rebuilding the global executors while the
         // audio thread is blocked on mDSPMutex is an audible dropout.
