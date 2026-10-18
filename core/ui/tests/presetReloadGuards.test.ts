@@ -19,7 +19,7 @@ vi.mock("../ts/presets/filter.js", () => ({
 
 const { uiState } = await import("../ts/state.js");
 const { setStoredPresetIds } = await import("../ts/presetLibraryStore.js");
-const { applySetlistCursorFromBackend, selectSetlistSlot, setActiveSetlist } = await import("../ts/presets/setlists.js");
+const { applySetlistCursorFromBackend, moveSetlistSlot, removeSetlistSlot, selectSetlistSlot, setActiveSetlist } = await import("../ts/presets/setlists.js");
 const { applyPresetFromLibrary } = await import("../ts/presets/load.js");
 
 function preset(id: string): Preset {
@@ -167,5 +167,50 @@ describe("choosing a setlist", () => {
     expect(sent("setSetlists")).toHaveLength(0);
     expect(uiState.activeSetlistId).toBe("set-2");
     expect(uiState.setlistCursorIndex).toBe(0);
+  });
+});
+
+describe("editing the setlist's slots", () => {
+  // The engine steps "next" from the cursor it was last sent, so the cursor has to follow the
+  // slot it was on: left alone, removing a slot before it moved the highlight (and the engine's
+  // next step) onto the slot after the one playing.
+  const slotIds = () => (uiState.setlists[0] as { slots: Array<{ presetId: string }> }).slots.map((slot) => slot.presetId);
+  const sentCursor = () => (sent("setSetlists").at(-1) as { cursorIndex?: number } | undefined)?.cursorIndex;
+
+  beforeEach(() => {
+    uiState.setlists = [{ id: "set-1", name: "Set 1", slots: [{ presetId: "a" }, { presetId: "b" }, { presetId: "c" }] }] as never;
+  });
+
+  it("keeps the cursor on the playing slot when a slot before it is removed", () => {
+    uiState.setlistCursorIndex = 1;
+    removeSetlistSlot(0);
+
+    expect(slotIds()).toEqual(["b", "c"]);
+    expect(uiState.setlistCursorIndex).toBe(0);
+    expect(sentCursor()).toBe(0);
+  });
+
+  it("keeps the cursor in range when the last slot, the playing one, is removed", () => {
+    uiState.setlistCursorIndex = 2;
+    removeSetlistSlot(2);
+
+    expect(uiState.setlistCursorIndex).toBe(1);
+    expect(sentCursor()).toBe(1);
+  });
+
+  it("moves the cursor with its slot, and past a slot dragged over it", () => {
+    uiState.setlistCursorIndex = 1;
+    moveSetlistSlot(1, 2);
+    expect(slotIds()).toEqual(["a", "c", "b"]);
+    expect(uiState.setlistCursorIndex).toBe(2);
+
+    moveSetlistSlot(0, 2);
+    expect(slotIds()).toEqual(["c", "b", "a"]);
+    expect(uiState.setlistCursorIndex).toBe(1);
+
+    moveSetlistSlot(2, 0);
+    expect(slotIds()).toEqual(["a", "c", "b"]);
+    expect(uiState.setlistCursorIndex).toBe(2);
+    expect(sentCursor()).toBe(2);
   });
 });

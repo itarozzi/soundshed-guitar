@@ -233,6 +233,16 @@ export function moveSetlistSlot(fromIndex: number, toIndex: number): void {
   }
   const [slot] = setlist.slots.splice(fromIndex, 1);
   setlist.slots.splice(toIndex, 0, slot);
+  // The cursor stays on the slot it was on: the engine steps from it, so a footswitch
+  // "next" after the move must still land on the slot after the one playing.
+  const cursor = uiState.setlistCursorIndex ?? 0;
+  if (cursor === fromIndex) {
+    uiState.setlistCursorIndex = toIndex;
+  } else if (fromIndex < cursor && cursor <= toIndex) {
+    uiState.setlistCursorIndex = cursor - 1;
+  } else if (toIndex <= cursor && cursor < fromIndex) {
+    uiState.setlistCursorIndex = cursor + 1;
+  }
   persistSetlists();
   renderSetlistPanel();
 }
@@ -243,6 +253,12 @@ export function removeSetlistSlot(index: number): void {
     return;
   }
   setlist.slots.splice(index, 1);
+  const cursor = uiState.setlistCursorIndex ?? 0;
+  if (index < cursor) {
+    uiState.setlistCursorIndex = cursor - 1;
+  } else if (index === cursor) {
+    uiState.setlistCursorIndex = Math.max(0, Math.min(cursor, setlist.slots.length - 1));
+  }
   persistSetlists();
   renderSetlistPanel();
 }
