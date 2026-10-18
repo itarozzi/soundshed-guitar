@@ -680,7 +680,23 @@ int main()
             allPassed = false;
         }
 
+        // The level moves in a ramp, not a step: the first sample after the change is still
+        // close to the old level, and the new one is reached within a few blocks.
         processBlock();
+        const float firstAfterChange = outL[0];
+
+        if (std::fabs(firstAfterChange - reference) > 0.1f * std::fabs(reference))
+        {
+            std::cerr << "Mix gain change stepped to " << firstAfterChange << " on its first sample (from " << reference
+                      << ")" << std::endl;
+            allPassed = false;
+        }
+
+        for (int i = 0; i < 16; ++i)
+        {
+            processBlock();
+        }
+
         const float halved = outL[static_cast<size_t>(kTestBlockSize) - 1];
 
         if (std::fabs(halved - 0.5f * reference) > 1e-4f)
@@ -723,6 +739,103 @@ int main()
         if (allPassed)
         {
             std::cout << "MultiPresetMixer mix gain test passed" << std::endl;
+        }
+    }
+
+    // Mute: a ramp rather than a step, and no stale tail when the rig comes back.
+    {
+        MultiPresetMixer mixer;
+        ResourceLibrary lib;
+        mixer.SetResourceLibrary(&lib);
+        mixer.Prepare(kTestSampleRate, kTestBlockSize);
+
+        auto preset = MakeLinearPreset("pMute", {"delay_digital"});
+        preset.graph.nodes[1].params["time"] = 50.0;
+        preset.graph.nodes[1].params["feedback"] = 0.5;
+        preset.graph.nodes[1].params["mix"] = 1.0;
+
+        if (!mixer.AddActivePreset(preset, "pMute", "Mute"))
+        {
+            std::cerr << "Failed to add mute delay preset" << std::endl;
+            return 1;
+        }
+
+        std::vector<float> inL(static_cast<size_t>(kTestBlockSize), 0.0f);
+        std::vector<float> inR(static_cast<size_t>(kTestBlockSize), 0.0f);
+        std::vector<float> outL(static_cast<size_t>(kTestBlockSize), 0.0f);
+        std::vector<float> outR(static_cast<size_t>(kTestBlockSize), 0.0f);
+        float* inputs[2] = {inL.data(), inR.data()};
+        float* outputs[2] = {outL.data(), outR.data()};
+
+        const auto processBlock = [&](float level) {
+            std::fill(inL.begin(), inL.end(), level);
+            std::fill(inR.begin(), inR.end(), level);
+            std::fill(outL.begin(), outL.end(), 0.0f);
+            std::fill(outR.begin(), outR.end(), 0.0f);
+            mixer.Process(inputs, outputs, kTestBlockSize);
+        };
+
+        // Signal in until the delay line is full of it and the add-time ramp has settled.
+        for (int i = 0; i < 100; ++i)
+        {
+            processBlock(0.25f);
+        }
+
+        processBlock(0.25f);
+        const float playing = outL[static_cast<size_t>(kTestBlockSize) - 1];
+
+        if (std::fabs(playing) < 1e-3f)
+        {
+            std::cerr << "Mute test's delay preset is silent before the mute" << std::endl;
+            allPassed = false;
+        }
+
+        mixer.SetPresetMute("pMute", true);
+        processBlock(0.25f);
+
+        if (std::fabs(outL[0]) < 0.5f * std::fabs(playing))
+        {
+            std::cerr << "Mute stepped to " << outL[0] << " on its first sample (from " << playing << ")" << std::endl;
+            allPassed = false;
+        }
+
+        // Muted for longer than the drain, with nothing coming in: the echoes ring out unheard.
+        const int drainBlocks =
+            static_cast<int>(kTestSampleRate * MultiPresetMixer::kMuteDrainSeconds) / kTestBlockSize;
+
+        for (int i = 0; i < drainBlocks + 100; ++i)
+        {
+            processBlock(0.0f);
+        }
+
+        if (std::fabs(outL[static_cast<size_t>(kTestBlockSize) - 1]) > 1e-6f)
+        {
+            std::cerr << "A muted rig is still heard" << std::endl;
+            allPassed = false;
+        }
+
+        mixer.SetPresetMute("pMute", false);
+        float loudestAfterUnmute = 0.0f;
+
+        for (int i = 0; i < 100; ++i)
+        {
+            processBlock(0.0f);
+
+            for (const float sample : outL)
+            {
+                loudestAfterUnmute = std::max(loudestAfterUnmute, std::fabs(sample));
+            }
+        }
+
+        if (loudestAfterUnmute > 1e-4f)
+        {
+            std::cerr << "Unmuting replayed a stale tail at " << loudestAfterUnmute << std::endl;
+            allPassed = false;
+        }
+
+        if (allPassed)
+        {
+            std::cout << "MultiPresetMixer mute test passed" << std::endl;
         }
     }
 

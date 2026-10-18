@@ -68,6 +68,13 @@ struct PresetInstance
     /// What is left of the hold budget.
     int tailSamplesRemaining = 0;
 
+    /// Mute, and being soloed out, as a ramp rather than a step: 1 is heard, 0 is silent.
+    /// Once silent the chain still runs for muteDrainSamplesRemaining, its delays and
+    /// reverbs ringing out unheard, and then stops; an unmute has no stale tail to replay.
+    /// Audio thread.
+    float muteGain = 1.0f;
+    int muteDrainSamplesRemaining = 0;
+
     /// Sizes the per-block buffers. Not on the audio thread.
     void ResizeBuffers(int maxBlockSize);
 

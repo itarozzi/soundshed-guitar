@@ -919,6 +919,7 @@ void MultiPresetMixer::Prepare(double sampleRate, int maxBlockSize)
     mSampleRate = sampleRate;
     mMaxBlockSize = maxBlockSize;
     mPrepared = true;
+    mMixGainApplied = static_cast<float>(mMixGain);
     mSleepGate.Prepare(sampleRate);
 
     mVoices.Prepare(sampleRate);
@@ -966,6 +967,7 @@ void MultiPresetMixer::Prepare(double sampleRate, int maxBlockSize)
 void MultiPresetMixer::Reset()
 {
     mSleepGate.Wake();
+    mMixGainApplied = static_cast<float>(mMixGain);
     mGlobalChain.Pre().Reset();
     mGlobalChain.Post().Reset();
 
@@ -1244,8 +1246,13 @@ void MultiPresetMixer::ProcessStereoBlock(float** inputs, float** outputs, int n
         }
     }
 
+    // Muted, or soloed out. Not heard, but not stopped at once either: see mixInstance.
+    const auto silenced = [&](const PresetInstance& inst) { return inst.cfg.mute || (anySolo && !inst.cfg.solo); };
+
     const auto isAudible = [&](const PresetInstance& inst) {
-        if (inst.cfg.mute)
+        // Silent, and its tail has rung out: skip the chain entirely. Skipped as soon as it
+        // was muted, a delay or a reverb froze mid-tail and replayed it on the unmute.
+        if (silenced(inst) && inst.muteGain <= 0.0f && inst.muteDrainSamplesRemaining <= 0)
         {
             return false;
         }
@@ -1263,7 +1270,7 @@ void MultiPresetMixer::ProcessStereoBlock(float** inputs, float** outputs, int n
             return inst.fadeSamplesRemaining > 0;
         }
 
-        return !anySolo || inst.cfg.solo;
+        return true;
     };
 
     // What an instance reads this block. Everything live shares the pre-chain output; a
@@ -1284,48 +1291,81 @@ void MultiPresetMixer::ProcessStereoBlock(float** inputs, float** outputs, int n
     // Every instance that ran this block is mixed exactly once, on this thread, whichever path ran it.
     const auto mixInstance = [&](PresetInstance& inst) {
         blockDspUs += inst.executor.LastBlockProcessingTimeUs();
+
+        // Mute, and being soloed out, ramp over the declick length rather than stepping. A
+        // chain that has reached silence is still run (isAudible) until its tail has rung
+        // out, so that an unmute has nothing stale to replay; here it has nothing to mix.
+        const float muteTarget = silenced(inst) ? 0.0f : 1.0f;
+        const float muteStart = inst.muteGain;
+
+        if (muteStart <= 0.0f && muteTarget <= 0.0f)
+        {
+            inst.muteDrainSamplesRemaining = std::max(0, inst.muteDrainSamplesRemaining - numSamples);
+            return;
+        }
+
+        const float muteStep = static_cast<float>(numSamples) / static_cast<float>(PresetVoicePool::kFadeSamples);
+        const float muteEnd = muteTarget > muteStart ? std::min(muteTarget, muteStart + muteStep)
+                                                     : std::max(muteTarget, muteStart - muteStep);
+        inst.muteGain = muteEnd;
+
+        if (muteEnd <= 0.0f)
+        {
+            inst.muteDrainSamplesRemaining = static_cast<int>(mSampleRate * kMuteDrainSeconds);
+        }
+
         float gL = 1.0f, gR = 1.0f;
         ComputePanGains(inst.cfg.pan, gL, gR);
         const float baseL = static_cast<float>(inst.cfg.mix) * gL;
         const float baseR = static_cast<float>(inst.cfg.mix) * gR;
 
-        if (inst.phase == InstancePhase::Active)
+        float fadeStart = 1.0f, fadeEnd = 1.0f;
+
+        if (inst.phase != InstancePhase::Active)
         {
+            inst.GetFadeGains(numSamples, fadeStart, fadeEnd);
+        }
+
+        if (fadeStart == fadeEnd && muteStart == muteEnd)
+        {
+            const float gainL = baseL * fadeStart * muteStart;
+            const float gainR = baseR * fadeStart * muteStart;
+
             for (int i = 0; i < numSamples; ++i)
             {
                 if (outputs[0])
                 {
-                    outputs[0][i] += inst.outL[static_cast<size_t>(i)] * baseL;
+                    outputs[0][i] += inst.outL[static_cast<size_t>(i)] * gainL;
                 }
 
                 if (outputs[1])
                 {
-                    outputs[1][i] += inst.outR[static_cast<size_t>(i)] * baseR;
+                    outputs[1][i] += inst.outR[static_cast<size_t>(i)] * gainR;
                 }
             }
 
             return;
         }
 
-        float fadeStart = 1.0f, fadeEnd = 1.0f;
-        inst.GetFadeGains(numSamples, fadeStart, fadeEnd);
         // Divide by numSamples, not numSamples-1: the last sample of this block lands one
-        // step short of fadeEnd, which is exactly where the next block starts. Using
+        // step short of the end gain, which is exactly where the next block starts. Using
         // numSamples-1 would repeat that value and put a one-sample flat spot in the ramp.
         const float step = (fadeEnd - fadeStart) / static_cast<float>(numSamples);
+        const float muteRampStep = (muteEnd - muteStart) / static_cast<float>(numSamples);
 
         float fade = fadeStart;
+        float mute = muteStart;
 
-        for (int i = 0; i < numSamples; ++i, fade += step)
+        for (int i = 0; i < numSamples; ++i, fade += step, mute += muteRampStep)
         {
             if (outputs[0])
             {
-                outputs[0][i] += inst.outL[static_cast<size_t>(i)] * baseL * fade;
+                outputs[0][i] += inst.outL[static_cast<size_t>(i)] * baseL * fade * mute;
             }
 
             if (outputs[1])
             {
-                outputs[1][i] += inst.outR[static_cast<size_t>(i)] * baseR * fade;
+                outputs[1][i] += inst.outR[static_cast<size_t>(i)] * baseR * fade * mute;
             }
         }
     };
@@ -1446,11 +1486,34 @@ void MultiPresetMixer::ProcessStereoBlock(float** inputs, float** outputs, int n
 
     // ==========================================================================
     // MIX GAIN: the Multi-Rig's own level, applied to the summed preset mix ahead
-    // of the global post-chain and the global output stage.
+    // of the global post-chain and the global output stage. Slewed, a unity step
+    // per 10 ms: applied flat per block, the level knob zippered, and the snap to
+    // unity as a swap left the mix jumped an outgoing tail by the whole trim.
     // ==========================================================================
-    const float mixGain = static_cast<float>(mMixGain);
+    const float mixGainTarget = static_cast<float>(mMixGain);
+    float mixGain = mMixGainApplied;
 
-    if (mixGain != 1.0f)
+    if (mixGain != mixGainTarget)
+    {
+        constexpr float kMixGainSlewPerSecond = 100.0f;
+        const float maxStep = static_cast<float>(kMixGainSlewPerSecond / std::max(1.0, mSampleRate));
+
+        for (int i = 0; i < numSamples; ++i)
+        {
+            mixGain += std::clamp(mixGainTarget - mixGain, -maxStep, maxStep);
+
+            for (float* channel : {outputs[0], outputs[1]})
+            {
+                if (channel)
+                {
+                    channel[i] *= mixGain;
+                }
+            }
+        }
+
+        mMixGainApplied = mixGain;
+    }
+    else if (mixGain != 1.0f)
     {
         for (float* channel : {outputs[0], outputs[1]})
         {

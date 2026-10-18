@@ -190,6 +190,9 @@ class MultiPresetMixer
     // reject a nonsense value arriving from a file or a message.
     static constexpr double kMinMixGainDb = -60.0;
     static constexpr double kMaxMixGainDb = 24.0;
+    /// How long a muted (or soloed-out) rig keeps running once silent, so its delays and
+    /// reverbs ring out unheard rather than freezing mid-tail for the unmute to replay.
+    static constexpr double kMuteDrainSeconds = 2.0;
 
     // Master/global controls
     void SetMasterGain(double value)
@@ -665,6 +668,9 @@ class MultiPresetMixer
     bool mPrepared = false;
     double mMixGainDb = 0.0;
     double mMixGain = 1.0;
+    // Audio thread: the gain the last block ended on. A change (the level knob, or the snap to
+    // unity when a swap leaves the mix) ramps from here rather than stepping.
+    float mMixGainApplied = 1.0f;
     double mMasterGain = 1.0;
     std::atomic<bool> mOutputMuted{false};
     std::atomic<bool> mMonoOutputUnity{false};
