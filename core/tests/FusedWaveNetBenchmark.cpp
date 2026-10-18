@@ -3,7 +3,8 @@
 //
 // Written to decide whether arm64 could run the fused pass by default, which it now does
 // (GUITARFX_FUSED_WAVENET_NEON, core/CMakeLists.txt). .github/workflows/neon-benchmark.yml runs this
-// on Apple silicon. It works on any build with a fused kernel (AVX2, SSE, NEON).
+// on Apple silicon, arm64 Linux and Windows on ARM. It works on any build with a fused kernel (AVX2,
+// SSE, NEON).
 //
 // Both engines are built by NamModelCache, as the app builds them, and run in the same process with
 // rounds interleaved (and their order alternated), so a shared or noisy machine moves both alike.
