@@ -416,6 +416,7 @@ class MultiPresetMixer
     void SetGlobalEQBandGain(int band, double dB);
     void SetGlobalEQBandFrequency(int band, double freq);
     void SetGlobalEQBandQ(int band, double q);
+    void SetGlobalEQBandShape(int band, double shape);
     void SetGlobalDoublerEnabled(bool enabled);
     void SetGlobalDoublerDelay(double delayMs);
     void SetGlobalDoublerMix(double mix);

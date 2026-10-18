@@ -10,7 +10,7 @@ import {
 describe("createDefaultPracticeToolEqParams", () => {
   it("covers every key the engine's EQ accepts", () => {
     const params = createDefaultPracticeToolEqParams();
-    expect(PRACTICE_TOOL_EQ_PARAM_KEYS.length).toBe(12);
+    expect(PRACTICE_TOOL_EQ_PARAM_KEYS.length).toBe(14);
     PRACTICE_TOOL_EQ_PARAM_KEYS.forEach((key) => {
       expect(typeof params[key]).toBe("number");
     });
@@ -33,6 +33,13 @@ describe("createDefaultPracticeToolEqParams", () => {
 });
 
 describe("sanitizePracticeToolEq", () => {
+  it("preserves band shapes in saved projects and defaults older projects to shelves", () => {
+    expect(sanitizePracticeToolEq({ params: { lowShape: 1, highShape: 1 } }).params)
+      .toMatchObject({ lowShape: 1, highShape: 1 });
+    expect(sanitizePracticeToolEq({ params: { lowGain: 4 } }).params)
+      .toMatchObject({ lowShape: 0, highShape: 0 });
+  });
+
   it("returns the flat default for anything unusable", () => {
     const flat = createDefaultPracticeToolEqParams();
     for (const value of [undefined, null, 42, "eq", []]) {

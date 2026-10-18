@@ -2,6 +2,7 @@
 
 #include "dsp/EffectGuids.h"
 #include "dsp/EffectParamSpec.h"
+#include "dsp/FiniteCheck.h"
 #include "dsp/effects/PickupMatchEffect.h"
 #include "dsp/effects/TransposeEffect.h"
 
@@ -306,6 +307,22 @@ void GlobalChainEditor::SetEQBandQ(int band, double q)
     {
         node->params[kParamNames[band]] = q;
         mPost.SetNodeParam(node->id, kParamNames[band], q);
+    }
+}
+
+void GlobalChainEditor::SetEQBandShape(int band, double shape)
+{
+    if (band != 0 && band != 3)
+    {
+        return;
+    }
+
+    if (auto* node = FindPostNode("global_eq", EffectGuids::kEqParametric))
+    {
+        const char* key = band == 0 ? "lowShape" : "highShape";
+        const double normalised = IsFinite(shape) && shape >= 0.5 ? 1.0 : 0.0;
+        node->params[key] = normalised;
+        mPost.SetNodeParam(node->id, key, normalised);
     }
 }
 

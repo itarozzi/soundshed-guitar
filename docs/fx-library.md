@@ -821,13 +821,17 @@ Release 160 ms), Hum Only (Hiss 0), High Gain (Hiss 85%, Threshold 14 dB, Releas
 (Hum 70%, Hiss 25%, Threshold 6 dB, Release 200 ms).
 
 ### Parametric EQ (`eq_parametric`)
-4-band parametric equalizer (low/high shelves + 2 parametric mids).
+4-band parametric equalizer with two bell mids and independently selectable Shelf / Bell shapes
+for the low and high bands. Shapes default to Shelf, including in older presets that omit the
+shape parameters. The curve, Q controls, saved presets, Global EQ and backing-track EQ all follow
+the selected shapes; changing shape preserves the band's frequency, gain and Q.
 
 | Parameter | Range | Default | Unit |
 |-----------|-------|---------|------|
 | `lowGain` | -12..+12 | 0.0 | dB |
 | `lowFreq` | 20–500 | 100 | Hz |
 | `lowQ` | 0.1–10 | 0.707 | — |
+| `lowShape` | 0 (Shelf), 1 (Bell) | 0 | enum |
 | `lowMidGain` | -12..+12 | 0.0 | dB |
 | `lowMidFreq` | 100–2000 | 400 | Hz |
 | `lowMidQ` | 0.1–10 | 1.0 | — |
@@ -837,6 +841,12 @@ Release 160 ms), Hum Only (Hiss 0), High Gain (Hiss 85%, Threshold 14 dB, Releas
 | `highGain` | -12..+12 | 0.0 | dB |
 | `highFreq` | 2000–16000 | 8000 | Hz |
 | `highQ` | 0.1–10 | 0.707 | — |
+| `highShape` | 0 (Shelf), 1 (Bell) | 0 | enum |
+
+Frequency number controls step by 1 Hz. Graphic EQ frequency edits are applied on Enter or
+focus loss, not on each keystroke, so typing `800` is not interrupted by adjacent-band limits.
+Finished entries are constrained to the allowed range; Escape cancels an edit, and an empty
+or invalid entry restores the previous frequency. Gain sliders continue to update live.
 
 **Factory presets** set every band: Flat (default), Mud Cut (-4 dB at 300 Hz), Fizz Tamer
 (-4 dB at 6 kHz and a -5 dB shelf from 9 kHz, after an amp), Mid Hump (+5 dB at 720 Hz with the

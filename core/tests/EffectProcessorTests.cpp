@@ -18,6 +18,7 @@
 #include <vector>
 #include <string>
 #include <iomanip>
+#include <limits>
 
 #include "dsp/EffectRegistry.h"
 #include "dsp/EffectProcessor.h"
@@ -1187,6 +1188,84 @@ bool TestDriveEffectCharacter()
               << ", FUZZ peak=" << fuzzMetrics.peak << ")\n";
 
     return distinctOk && distortionCompressed && fuzzAsymmetric && fuzzCleansUp && protectedOutput;
+}
+
+bool TestParametricEQBandShapes()
+{
+    std::cout << "\n--- Parametric EQ selectable band shapes ---\n";
+    guitarfx::ParametricEQEffect effect;
+    effect.Prepare(kTestSampleRate, kTestBlockSize);
+    bool passed = effect.GetParam("lowShape") == 0.0 && effect.GetParam("highShape") == 0.0;
+
+    const auto measureDb = [&](double frequency) {
+        effect.Reset();
+        std::vector<float> input(kTestBlockSize);
+        std::vector<float> output(kTestBlockSize);
+        float* inputs[] = {input.data(), input.data()};
+        float* outputs[] = {output.data(), nullptr};
+        double inputEnergy = 0.0;
+        double outputEnergy = 0.0;
+
+        for (int block = 0; block < 96; ++block)
+        {
+            for (int i = 0; i < kTestBlockSize; ++i)
+            {
+                input[i] = static_cast<float>(
+                    0.1 * std::sin(2.0 * kPi * frequency * (block * kTestBlockSize + i) / kTestSampleRate));
+            }
+
+            effect.Process(inputs, outputs, kTestBlockSize);
+
+            if (block >= 48)
+            {
+                for (int i = 0; i < kTestBlockSize; ++i)
+                {
+                    inputEnergy += input[i] * input[i];
+                    outputEnergy += output[i] * output[i];
+                }
+            }
+        }
+
+        return 10.0 * std::log10(outputEnergy / inputEnergy);
+    };
+
+    for (const bool low : {true, false})
+    {
+        const std::string prefix = low ? "low" : "high";
+        const double centre = low ? 200.0 : 4000.0;
+        const double outside = low ? 20.0 : 20000.0;
+        effect.SetParam(prefix + "Freq", centre);
+        effect.SetParam(prefix + "Q", 1.0);
+
+        for (const double gain : {-9.0, 9.0})
+        {
+            effect.SetParam(prefix + "Gain", gain);
+            effect.SetParam(prefix + "Shape", 0.0);
+            const double shelfDb = measureDb(outside);
+            effect.SetParam(prefix + "Shape", 1.0);
+            const double bellCentreDb = measureDb(centre);
+            const double bellOutsideDb = measureDb(outside);
+            const bool shapeOk =
+                std::abs(shelfDb - gain) < 0.3 && std::abs(bellCentreDb - gain) < 0.1 && std::abs(bellOutsideDb) < 0.3;
+            passed = passed && shapeOk;
+            std::cout << "  " << prefix << " " << gain << " dB: shelf outside=" << shelfDb
+                      << ", bell centre=" << bellCentreDb << ", bell outside=" << bellOutsideDb
+                      << (shapeOk ? " PASS\n" : " FAIL\n");
+        }
+
+        effect.SetParam(prefix + "Gain", 0.0);
+    }
+
+    effect.SetParam("lowShape", 1.0);
+    effect.SetParam("highShape", 1.0);
+    effect.Prepare(32000.0, kTestBlockSize);
+    passed = passed && effect.GetParam("lowShape") == 1.0 && effect.GetParam("highShape") == 1.0;
+    effect.SetParam("lowShape", -1.0);
+    effect.SetParam("highShape", 42.0);
+    passed = passed && effect.GetParam("lowShape") == 0.0 && effect.GetParam("highShape") == 1.0;
+    effect.SetParam("highShape", std::numeric_limits<double>::quiet_NaN());
+    passed = passed && effect.GetParam("highShape") == 0.0;
+    return passed;
 }
 
 bool TestParametricEQClippingStability()
@@ -2708,6 +2787,11 @@ int main()
     }
 
     if (!TestDriveEffectCharacter())
+    {
+        return 1;
+    }
+
+    if (!TestParametricEQBandShapes())
     {
         return 1;
     }

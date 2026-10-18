@@ -100,6 +100,31 @@ describe("EqPanel rendering", () => {
 });
 
 describe("EqPanel wiring", () => {
+  it("selects shapes independently, reflects loaded values and resets to shelves", () => {
+    const { bandsHost } = mountHost();
+    const backing = makeBinding({ lowShape: 1 });
+    const panel = new EqPanel({ bandsHost, canvas: null, idPrefix: "test" }, backing.binding);
+    const low = bandsHost.querySelector<HTMLSelectElement>('[data-eq-shape="lowShape"]')!;
+    const high = bandsHost.querySelector<HTMLSelectElement>('[data-eq-shape="highShape"]')!;
+    expect(low.value).toBe("1");
+    expect(high.value).toBe("0");
+    high.value = "1";
+    high.dispatchEvent(new Event("change"));
+    expect(backing.writes.at(-1)).toEqual({ changed: { highShape: 1 }, commit: true });
+    expect(backing.params.lowShape).toBe(1);
+    panel.resetToDefaults();
+    expect(low.value).toBe("0");
+    expect(high.value).toBe("0");
+  });
+
+  it("uses whole-Hz steps in frequency inline editors", () => {
+    const { bandsHost } = mountHost();
+    new EqPanel({ bandsHost, canvas: null, idPrefix: "test" }, makeBinding().binding);
+    bandsHost.querySelector<HTMLElement>('[data-knob-value="test_0_freq"]')!
+      .dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    expect(bandsHost.querySelector<HTMLInputElement>(".knob-inline-editor")!.step).toBe("1");
+  });
+
   it("routes the toggle through the binding and tells the host", () => {
     const { bandsHost, toggle, resetButton } = mountHost();
     const backing = makeBinding();
@@ -208,6 +233,18 @@ describe("EqPanel spectrum", () => {
 });
 
 describe("parametric EQ curve limits", () => {
+  it("defaults to shelves and draws independently selected bells, matching the DSP", () => {
+    expect(buildEqBandConfigsFromParams({}).map((band) => band.shelfType))
+      .toEqual(["low", undefined, undefined, "high"]);
+    expect(buildEqBandConfigsFromParams({ lowShape: 1 }).map((band) => band.shelfType))
+      .toEqual([undefined, undefined, undefined, "high"]);
+    expect(buildEqBandConfigsFromParams({ highShape: 1 }).map((band) => band.shelfType))
+      .toEqual(["low", undefined, undefined, undefined]);
+    expect(buildEqBandConfigsFromParams({ lowShape: 1, highShape: 1 }).every((band) => band.shelfType === undefined)).toBe(true);
+    expect(buildEqBandConfigsFromParams({ lowShape: NaN, highShape: Infinity }).map((band) => band.shelfType))
+      .toEqual(["low", undefined, undefined, "high"]);
+  });
+
   // ParametricEQEffect clamps each band to ±12 dB and to its own frequency range; a curve
   // allowing more drew a +18 that played at +12, and a saved 3 kHz high shelf at 4 kHz.
   it("are the engine's: ±12 dB and its band frequency ranges", () => {

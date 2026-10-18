@@ -4,7 +4,7 @@
  */
 
 import { EffectGuids } from "../../effectGuids.js";
-import { EqCurveInteraction, GRAPHIC_EQ_FREQUENCIES, buildEqBandConfigsFromParams, buildGraphicEqBandConfigs, clampGraphicEqFrequency, drawEqCurve, eqBandChangeToParams } from "../../eqCurve.js";
+import { EqCurveInteraction, GRAPHIC_EQ_FREQUENCIES, buildEqBandConfigsFromParams, buildGraphicEqBandConfigs, clampGraphicEqFrequency, drawEqCurve, eqBandChangeToParams, graphicEqFrequencyBounds } from "../../eqCurve.js";
 import { anchoredFrequencyAxis, type EqFrequencyAxis } from "../../eqPlot.js";
 import { EffectTypeRegistry, getNodeEffectInfo } from "../../presetV2.js";
 import { getActivePresetForRender } from "../../state.js";
@@ -106,7 +106,8 @@ export function updateEqVisualization(node: GraphNode): void {
   }
 }
 
-export function bindGraphicEqControls(node: GraphNode, preset: Preset): void {  if (EffectTypeRegistry.resolve(node.type) !== EffectGuids.kEqGraphic) {
+export function bindGraphicEqControls(node: GraphNode, preset: Preset): void {
+  if (EffectTypeRegistry.resolve(node.type) !== EffectGuids.kEqGraphic) {
     return;
   }
 
@@ -135,17 +136,52 @@ export function bindGraphicEqControls(node: GraphNode, preset: Preset): void {  
     applyParams(flatParams, true);
   });
 
-  nodeParamsPanelElement?.querySelectorAll<HTMLInputElement>(".graphic-eq-gain, .graphic-eq-gain-value-input, .graphic-eq-frequency").forEach((input) => {
+  nodeParamsPanelElement?.querySelectorAll<HTMLInputElement>(".graphic-eq-frequency").forEach((input) => {
+    const commit = (): void => {
+      const key = input.dataset.paramKey;
+      const bandMatch = key && /^band(\d+)Freq$/.exec(key);
+      if (!key || !bandMatch) return;
+      const rawValue = input.value.trim() === "" ? NaN : Number(input.value);
+      if (!Number.isFinite(rawValue)) {
+        input.value = `${Math.round(node.params[key] ?? GRAPHIC_EQ_FREQUENCIES[Number(bandMatch[1]) - 1])}`;
+        return;
+      }
+      const value = clampGraphicEqFrequency(node.params, Number(bandMatch[1]), rawValue);
+      input.value = `${value}`;
+      if (node.params[key] !== value) applyParams({ [key]: value });
+      nodeParamsPanelElement?.querySelectorAll<HTMLInputElement>(".graphic-eq-frequency").forEach((field) => {
+        const match = /^band(\d+)Freq$/.exec(field.dataset.paramKey ?? "");
+        if (!match) return;
+        const bounds = graphicEqFrequencyBounds(node.params, Number(match[1]));
+        field.min = `${Math.ceil(bounds.min)}`;
+        field.max = `${Math.floor(bounds.max)}`;
+      });
+    };
+    // Keep partial text local: "8" and "80" are not finished attempts to enter "800".
+    input.addEventListener("change", commit);
+    input.addEventListener("blur", commit);
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        commit();
+        input.blur();
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        const key = input.dataset.paramKey;
+        if (key) input.value = `${node.params[key] ?? input.defaultValue}`;
+        input.blur();
+      }
+    });
+  });
+
+  nodeParamsPanelElement?.querySelectorAll<HTMLInputElement>(".graphic-eq-gain, .graphic-eq-gain-value-input").forEach((input) => {
     input.addEventListener("input", () => {
       const key = input.dataset.paramKey;
       if (input.value.trim() === "") return;
       const rawValue = Number(input.value);
       if (!key || !Number.isFinite(rawValue)) return;
-      const bandMatch = /^band(\d+)Freq$/.exec(key);
-      const value = bandMatch
-        ? clampGraphicEqFrequency(node.params, Number(bandMatch[1]), rawValue)
-        : Math.max(-18, Math.min(18, rawValue));
-      if (value !== rawValue) input.value = bandMatch ? `${Math.round(value)}` : value.toFixed(1);
+      const value = Math.max(-18, Math.min(18, rawValue));
+      if (value !== rawValue) input.value = value.toFixed(1);
       applyParams({ [key]: value });
       if (input.classList.contains("graphic-eq-gain") || input.classList.contains("graphic-eq-gain-value-input")) {
         const band = input.closest(".graphic-eq-band");
@@ -157,9 +193,6 @@ export function bindGraphicEqControls(node: GraphNode, preset: Preset): void {  
         }
         if (gainValueInput && gainValueInput !== input) gainValueInput.value = value.toFixed(1);
       }
-    });
-    input.addEventListener("change", () => {
-      if (input.classList.contains("graphic-eq-frequency")) requestNodeParamsPanel(node, preset);
     });
   });
 

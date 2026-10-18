@@ -21,11 +21,11 @@ namespace guitarfx
  * 4-band parametric equalizer implemented as a serial chain of biquad (second-order IIR)
  * sections using the Direct Form I difference equation.
  *
- * Band layout (fixed topology):
- *   [0] Low shelf      — shelving filter below ~20–500 Hz
+ * Band layout:
+ *   [0] Low shelf/bell — corner/centre frequency 20–500 Hz
  *   [1] Low-mid peak   — peaking bell filter, 100–2000 Hz
  *   [2] High-mid peak  — peaking bell filter, 500–8000 Hz
- *   [3] High shelf     — shelving filter above ~2000–16000 Hz
+ *   [3] High shelf/bell — corner/centre frequency 2000–16000 Hz
  *
  * All biquad coefficients are derived from the RBJ Audio EQ Cookbook
  * (Robert Bristow-Johnson, https://www.w3.org/2011/audio/audio-eq-cookbook.html).
@@ -210,6 +210,14 @@ class ParametricEQEffect : public EffectProcessor
         {
             mBands[3].q = value;
         }
+        else if (key == "lowShape")
+        {
+            mBands[0].isShelf = ClampFinite(value, 0.0, 1.0, 0.0) < 0.5;
+        }
+        else if (key == "highShape")
+        {
+            mBands[3].isShelf = ClampFinite(value, 0.0, 1.0, 0.0) < 0.5;
+        }
 
         ClampBandParams();
         UpdateCoefficients();
@@ -221,6 +229,16 @@ class ParametricEQEffect : public EffectProcessor
 
     [[nodiscard]] double GetParam(const std::string& key) const override
     {
+        if (key == "lowShape")
+        {
+            return mBands[0].isShelf ? 0.0 : 1.0;
+        }
+
+        if (key == "highShape")
+        {
+            return mBands[3].isShelf ? 0.0 : 1.0;
+        }
+
         if (key == "lowGain")
         {
             return mBands[0].gainDb;
@@ -331,9 +349,14 @@ class ParametricEQEffect : public EffectProcessor
     {
         ClampBandParams();
 
-        // Band 0: low shelving filter (boosts/cuts everything below `freq`)
-        mBands[0].isShelf = true;
-        CalculateLowShelf(mBands[0]);
+        if (mBands[0].isShelf)
+        {
+            CalculateLowShelf(mBands[0]);
+        }
+        else
+        {
+            CalculatePeaking(mBands[0]);
+        }
 
         // Bands 1–2: peaking bell filters (boost/cut centred at `freq`)
         mBands[1].isShelf = false;
@@ -342,9 +365,14 @@ class ParametricEQEffect : public EffectProcessor
         mBands[2].isShelf = false;
         CalculatePeaking(mBands[2]);
 
-        // Band 3: high shelving filter (boosts/cuts everything above `freq`)
-        mBands[3].isShelf = true;
-        CalculateHighShelf(mBands[3]);
+        if (mBands[3].isShelf)
+        {
+            CalculateHighShelf(mBands[3]);
+        }
+        else
+        {
+            CalculatePeaking(mBands[3]);
+        }
 
         // IMPORTANT: do NOT zero the delay lines here.
         //
@@ -680,17 +708,19 @@ inline void RegisterParametricEQEffect()
     info.description = "4-band parametric equalizer";
     info.requiresResource = false;
     info.parameters = {{"lowGain", "Low Gain", 0.0, -12.0, 12.0, "dB", "Low", false, 0.0, {}},
-                       {"lowFreq", "Low Freq", 100.0, 20.0, 500.0, "Hz", "Low", false, 0.0, {}},
+                       {"lowFreq", "Low Freq", 100.0, 20.0, 500.0, "Hz", "Low", false, 1.0, {}},
                        {"lowQ", "Low Q", 0.707, 0.1, 10.0, "amount", "Low", false, 0.0, {}},
                        {"lowMidGain", "Low-Mid Gain", 0.0, -12.0, 12.0, "dB", "Low Mid", false, 0.0, {}},
-                       {"lowMidFreq", "Low-Mid Freq", 400.0, 100.0, 2000.0, "Hz", "Low Mid", false, 0.0, {}},
+                       {"lowMidFreq", "Low-Mid Freq", 400.0, 100.0, 2000.0, "Hz", "Low Mid", false, 1.0, {}},
                        {"lowMidQ", "Low-Mid Q", 1.0, 0.1, 10.0, "amount", "Low Mid", false, 0.0, {}},
                        {"highMidGain", "High-Mid Gain", 0.0, -12.0, 12.0, "dB", "High Mid", false, 0.0, {}},
-                       {"highMidFreq", "High-Mid Freq", 2000.0, 500.0, 8000.0, "Hz", "High Mid", false, 0.0, {}},
+                       {"highMidFreq", "High-Mid Freq", 2000.0, 500.0, 8000.0, "Hz", "High Mid", false, 1.0, {}},
                        {"highMidQ", "High-Mid Q", 1.0, 0.1, 10.0, "amount", "High Mid", false, 0.0, {}},
                        {"highGain", "High Gain", 0.0, -12.0, 12.0, "dB", "High", false, 0.0, {}},
-                       {"highFreq", "High Freq", 8000.0, 2000.0, 16000.0, "Hz", "High", false, 0.0, {}},
-                       {"highQ", "High Q", 0.707, 0.1, 10.0, "amount", "High", false, 0.0, {}}};
+                       {"highFreq", "High Freq", 8000.0, 2000.0, 16000.0, "Hz", "High", false, 1.0, {}},
+                       {"highQ", "High Q", 0.707, 0.1, 10.0, "amount", "High", false, 0.0, {}},
+                       {"lowShape", "Low Shape", 0.0, 0.0, 1.0, "enum", "Low", false, 1.0, {"Shelf", "Bell"}},
+                       {"highShape", "High Shape", 0.0, 0.0, 1.0, "enum", "High", false, 1.0, {"Shelf", "Bell"}}};
     info.presets = parametric_eq::FactoryPresets(info.parameters);
 
     EffectRegistry::Instance().Register(info.type, info, []() { return std::make_unique<ParametricEQEffect>(); });

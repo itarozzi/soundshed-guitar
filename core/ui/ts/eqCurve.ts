@@ -7,11 +7,11 @@ export { drawEqCurve } from "./eqPlot.js";
 // ===== Shared 4-band parametric EQ constants =====
 
 /** Canonical param keys for each EQ band (matches ParametricEQEffect). */
-export const EQ_BAND_KEYS: ReadonlyArray<{ gain: string; freq: string; q: string | null }> = [
-  { gain: "lowGain", freq: "lowFreq", q: "lowQ" },
+export const EQ_BAND_KEYS: ReadonlyArray<{ gain: string; freq: string; q: string | null; shape?: string }> = [
+  { gain: "lowGain", freq: "lowFreq", q: "lowQ", shape: "lowShape" },
   { gain: "lowMidGain", freq: "lowMidFreq", q: "lowMidQ" },
   { gain: "highMidGain", freq: "highMidFreq", q: "highMidQ" },
-  { gain: "highGain", freq: "highFreq", q: "highQ" },
+  { gain: "highGain", freq: "highFreq", q: "highQ", shape: "highShape" },
 ];
 
 export const EQ_BAND_LABELS: ReadonlyArray<string> = ["Low", "Low Mid", "High Mid", "High"];
@@ -141,7 +141,7 @@ export function buildEqBandConfigsFromParams(
       hasQ: range.hasQ,
       qMin: range.qMin,
       qMax: range.qMax,
-      shelfType: range.shelfType,
+      shelfType: keys.shape && normalize(params[keys.shape], 0, 0, 1) >= 0.5 ? undefined : range.shelfType,
       label: EQ_BAND_LABELS[i],
     };
   });

@@ -275,6 +275,11 @@ void PluginController::HandleSetGlobalChainParamRequest(const nlohmann::json& pa
             mPresetMixer.SetGlobalEQBandQ(3, value.get<double>());
             persistGlobalFx = true;
         }
+        else if ((path == "eq.lowShape" || path == "eq.highShape") && value.is_number())
+        {
+            mPresetMixer.SetGlobalEQBandShape(path == "eq.lowShape" ? 0 : 3, value.get<double>());
+            persistGlobalFx = true;
+        }
     }
 
     if (latencyMayChange)

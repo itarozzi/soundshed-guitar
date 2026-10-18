@@ -138,6 +138,10 @@ export class EqPanel {
         if (knobs.q && keys.q) {
           knobs.q.setValue(this.valueFor(params, keys.q, EQ_BAND_RANGES[index].qDefault));
         }
+        if (keys.shape) {
+          const select = this.options.bandsHost?.querySelector<HTMLSelectElement>(`[data-eq-shape="${keys.shape}"]`);
+          if (select) select.value = this.valueFor(params, keys.shape, 0) >= 0.5 ? "1" : "0";
+        }
       });
     } finally {
       this.syncing = false;
@@ -163,6 +167,7 @@ export class EqPanel {
       if (keys.q) {
         changed[keys.q] = EQ_BAND_RANGES[index].qDefault;
       }
+      if (keys.shape) changed[keys.shape] = 0;
     });
     this.binding.writeParams(changed, true);
     // The curve keeps its own copies of the bands, so a wholesale reset has to
@@ -218,7 +223,11 @@ export class EqPanel {
       const prefix = `${this.options.idPrefix}_${index}`;
       return `
         <div class="eq-band">
-          <span class="eq-band-title">${EQ_BAND_LABELS[index].toUpperCase()}</span>
+          <span class="eq-band-title">${EQ_BAND_LABELS[index].toUpperCase()}
+          ${keys.shape ? `<select class="eq-band-shape" data-eq-shape="${escapeHtml(keys.shape)}" aria-label="${escapeHtml(EQ_BAND_LABELS[index])} band shape">
+            <option value="0">Shelf</option><option value="1">Bell</option>
+          </select>` : ""}
+          </span>
           <div class="eq-knob-group">
             ${knobHtml(`${prefix}_gain`, "GAIN", this.valueFor(params, keys.gain, 0))}
             ${knobHtml(`${prefix}_freq`, "FREQ", this.valueFor(params, keys.freq, EQ_FREQ_DEFAULTS[index]))}
@@ -226,6 +235,13 @@ export class EqPanel {
           </div>
         </div>`;
     }).join("");
+
+    host.querySelectorAll<HTMLSelectElement>("[data-eq-shape]").forEach((select) => {
+      select.addEventListener("change", () => {
+        const key = select.dataset.eqShape;
+        if (key) this.onKnobChanged(key, Number(select.value), true);
+      });
+    });
 
     this.bandKnobs = EQ_BAND_KEYS.map((keys, index) => {
       const range = EQ_BAND_RANGES[index];
@@ -248,6 +264,7 @@ export class EqPanel {
           displayFormat: format,
           valueDisplay: host.querySelector<HTMLElement>(`[data-knob-value="${id}"]`),
           sensitivity,
+          stepValue: suffix === "freq" ? 1 : undefined,
           // The panel routes every change through the binding itself; the knob
           // must never take its own shortcut to the engine.
           sendParameter: false,

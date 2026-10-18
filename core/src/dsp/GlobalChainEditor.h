@@ -44,6 +44,7 @@ class GlobalChainEditor
     void SetEQBandGain(int band, double dB);
     void SetEQBandFrequency(int band, double freq);
     void SetEQBandQ(int band, double q);
+    void SetEQBandShape(int band, double shape);
     void SetDoublerEnabled(bool enabled);
     void SetDoublerDelay(double delayMs);
     void SetDoublerMix(double mix);

@@ -572,6 +572,11 @@ void MultiPresetMixer::SetGlobalEQBandQ(int band, double q)
     EditGlobalChain().SetEQBandQ(band, q);
 }
 
+void MultiPresetMixer::SetGlobalEQBandShape(int band, double shape)
+{
+    EditGlobalChain().SetEQBandShape(band, shape);
+}
+
 void MultiPresetMixer::SetGlobalDoublerEnabled(bool enabled)
 {
     EditGlobalChain().SetDoublerEnabled(enabled);

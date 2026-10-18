@@ -18,7 +18,7 @@ import type { PracticeToolEqState } from "../types.js";
 
 /** Every parameter key the engine's EQ accepts, in band order. */
 export const PRACTICE_TOOL_EQ_PARAM_KEYS: readonly string[] = EQ_BAND_KEYS.flatMap((keys) =>
-  keys.q ? [keys.gain, keys.freq, keys.q] : [keys.gain, keys.freq]);
+  [keys.gain, keys.freq, ...(keys.q ? [keys.q] : []), ...(keys.shape ? [keys.shape] : [])]);
 
 /** Flat, matching ParametricEQEffect's own band defaults — a fresh EQ is the
  * identity curve, so switching it on before touching anything is inaudible. */
@@ -30,6 +30,7 @@ export function createDefaultPracticeToolEqParams(): Record<string, number> {
     if (keys.q) {
       params[keys.q] = EQ_BAND_RANGES[index].qDefault;
     }
+    if (keys.shape) params[keys.shape] = 0;
   });
   return params;
 }

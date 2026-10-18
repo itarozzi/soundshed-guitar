@@ -2415,6 +2415,10 @@ bool TestStandalonePersistsGlobalFxSettingsBetweenLaunches()
         controller.HandleUIMessage(
             nlohmann::json{{"type", "setGlobalChainParam"}, {"path", "eq.highMidQ"}, {"value", 1.4}}.dump());
         controller.HandleUIMessage(
+            nlohmann::json{{"type", "setGlobalChainParam"}, {"path", "eq.lowShape"}, {"value", 1.0}}.dump());
+        controller.HandleUIMessage(
+            nlohmann::json{{"type", "setGlobalChainParam"}, {"path", "eq.highShape"}, {"value", 1.0}}.dump());
+        controller.HandleUIMessage(
             nlohmann::json{{"type", "setGlobalChainParam"}, {"path", "doubler.enabled"}, {"value", true}}.dump());
         controller.HandleUIMessage(
             nlohmann::json{{"type", "setGlobalChainParam"}, {"path", "doubler.delay"}, {"value", 31.0}}.dump());
@@ -2484,7 +2488,8 @@ bool TestStandalonePersistsGlobalFxSettingsBetweenLaunches()
     const auto* eq = chain.postChainGraph.FindNode("global_eq");
 
     if (!eq || !eq->enabled || std::abs(eq->params.at("lowGain") - 1.75) > 1e-9 ||
-        std::abs(eq->params.at("highMidQ") - 1.4) > 1e-9)
+        std::abs(eq->params.at("highMidQ") - 1.4) > 1e-9 || eq->params.at("lowShape") != 1.0 ||
+        eq->params.at("highShape") != 1.0)
     {
         std::cerr << "Standalone global EQ settings were not restored\n";
         return false;
