@@ -212,6 +212,28 @@ struct IRFiles
     fs::path b = WriteMonoWav("b.wav", DecayingNoiseIR(2));
 };
 
+/// An IR change on a slot panned hard left: the outgoing IR keeps the slot's pan through the
+/// 30 ms crossfade, so the right side stays silent rather than carrying the old IR, centred.
+bool TestCrossfadeKeepsTheSlotsPan(const IRFiles& irs)
+{
+    auto cab = MakeCab({{IRRef(irs.a, 0)}, {irs.a}});
+    cab->SetParam("slotAPan", -1.0);
+    Render(*cab, kBlockSize * 8);
+
+    cab->LoadResources({IRRef(irs.b, 0)}, {irs.b});
+    const auto out = Render(*cab, kBlockSize * 40);
+    float loudestRight = 0.0f;
+
+    for (std::size_t n = out.size() / 2; n < out.size(); ++n)
+    {
+        loudestRight = std::max(loudestRight, std::abs(out[n]));
+    }
+
+    return Expect(loudestRight < 1e-6f,
+                  "an IR change on a slot panned hard left leaves the right side silent (loudest " +
+                      std::to_string(loudestRight) + ")");
+}
+
 bool TestReloadWithOnlyADropsB(const IRFiles& irs)
 {
     bool ok = true;
@@ -289,6 +311,7 @@ int main()
     {
         const IRFiles irs;
         ok &= TestReloadWithOnlyADropsB(irs);
+        ok &= TestCrossfadeKeepsTheSlotsPan(irs);
         ok &= TestSingleFileLoadDropsB(irs);
         ok &= TestFailedLoadOfADropsA(irs);
         ok &= TestEmptyLoadPassesDry(irs);

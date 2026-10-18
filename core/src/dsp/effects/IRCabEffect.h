@@ -433,7 +433,7 @@ class IRCabEffect : public EffectProcessor
             slotAPanR = kSqrt2 * std::sin(angle);
         }
 
-        const bool hasPanB = hasB && std::abs(mSlotBPan) > 1e-6;
+        const bool hasPanB = (hasB || (transitionActive && prevHasB)) && std::abs(mSlotBPan) > 1e-6;
         const bool dualMono = mDualMono.load(std::memory_order_relaxed);
         double slotBPanL = 1.0, slotBPanR = 1.0;
 
@@ -446,13 +446,39 @@ class IRCabEffect : public EffectProcessor
 
         for (int i = 0; i < numSamples; ++i)
         {
+            // The outgoing side of a crossfade is blended in here, slot by slot, before mic
+            // emulation and pan. Blended after them, an outgoing slot panned hard left spent the
+            // 30 ms fade centred and uncoloured: a jump in position and tone on every IR change.
+            double oldWeight = 0.0;
+
+            if (transitionActive)
+            {
+                const int progressed = mResourceTransitionSamplesTotal - mResourceTransitionSamplesRemaining;
+                const double newWeight =
+                    static_cast<double>(progressed) / static_cast<double>(std::max(1, mResourceTransitionSamplesTotal));
+                oldWeight = 1.0 - std::clamp(newWeight, 0.0, 1.0);
+            }
+
+            const double liveWeight = 1.0 - oldWeight;
+            const bool fadeA = transitionActive && prevHasA;
+            const bool fadeB = transitionActive && prevHasB;
             double wetL, wetR;
 
             if (useLRSplit)
             {
                 // Slot A → left channel; slot B → right channel.
-                wetL = mOutputBufferL[i] * slotAGain;
-                wetR = mOutputBufferBL[i] * slotBGain;
+                wetL = mOutputBufferL[i] * slotAGain * liveWeight;
+                wetR = mOutputBufferBL[i] * slotBGain * liveWeight;
+
+                if (fadeA)
+                {
+                    wetL += mPrevOutputBufferL[i] * prevSlotAGain * oldWeight;
+                }
+
+                if (fadeB)
+                {
+                    wetR += mPrevOutputBufferBL[i] * prevSlotBGain * oldWeight;
+                }
 
                 if (mMicEmulationEnabled)
                 {
@@ -465,10 +491,16 @@ class IRCabEffect : public EffectProcessor
                 wetL = 0.0;
                 wetR = 0.0;
 
-                if (hasA)
+                if (hasA || fadeA)
                 {
-                    double slotAL = mOutputBufferL[i] * slotAGain;
-                    double slotAR = mOutputBufferR[i] * slotAGain;
+                    double slotAL = hasA ? mOutputBufferL[i] * slotAGain * liveWeight : 0.0;
+                    double slotAR = hasA ? mOutputBufferR[i] * slotAGain * liveWeight : 0.0;
+
+                    if (fadeA)
+                    {
+                        slotAL += mPrevOutputBufferL[i] * prevSlotAGain * oldWeight;
+                        slotAR += mPrevOutputBufferR[i] * prevSlotAGain * oldWeight;
+                    }
 
                     if (mMicEmulationEnabled)
                     {
@@ -493,10 +525,16 @@ class IRCabEffect : public EffectProcessor
                     wetR = slotAR;
                 }
 
-                if (hasB)
+                if (hasB || fadeB)
                 {
-                    double slotBL = mOutputBufferBL[i] * slotBGain;
-                    double slotBR = mOutputBufferBR[i] * slotBGain;
+                    double slotBL = hasB ? mOutputBufferBL[i] * slotBGain * liveWeight : 0.0;
+                    double slotBR = hasB ? mOutputBufferBR[i] * slotBGain * liveWeight : 0.0;
+
+                    if (fadeB)
+                    {
+                        slotBL += mPrevOutputBufferBL[i] * prevSlotBGain * oldWeight;
+                        slotBR += mPrevOutputBufferBR[i] * prevSlotBGain * oldWeight;
+                    }
 
                     if (mMicEmulationEnabled)
                     {
@@ -523,37 +561,6 @@ class IRCabEffect : public EffectProcessor
 
             if (transitionActive)
             {
-                const int progressed = mResourceTransitionSamplesTotal - mResourceTransitionSamplesRemaining;
-                const double newWeight =
-                    static_cast<double>(progressed) / static_cast<double>(std::max(1, mResourceTransitionSamplesTotal));
-                const double oldWeight = 1.0 - std::clamp(newWeight, 0.0, 1.0);
-
-                double prevWetL = 0.0;
-                double prevWetR = 0.0;
-
-                if (useLRSplit)
-                {
-                    prevWetL = prevHasA ? mPrevOutputBufferL[i] * prevSlotAGain : 0.0;
-                    prevWetR = prevHasB ? mPrevOutputBufferBL[i] * prevSlotBGain : 0.0;
-                }
-                else
-                {
-                    if (prevHasA)
-                    {
-                        prevWetL = mPrevOutputBufferL[i] * prevSlotAGain;
-                        prevWetR = mPrevOutputBufferR[i] * prevSlotAGain;
-                    }
-
-                    if (prevHasB)
-                    {
-                        prevWetL += mPrevOutputBufferBL[i] * prevSlotBGain;
-                        prevWetR += mPrevOutputBufferBR[i] * prevSlotBGain;
-                    }
-                }
-
-                wetL = prevWetL * oldWeight + wetL * (1.0 - oldWeight);
-                wetR = prevWetR * oldWeight + wetR * (1.0 - oldWeight);
-
                 // transitionActive holds for the whole block, so the fade can end partway through
                 // it: count down to zero and clear the outgoing side once, on the sample it ends.
                 // Counting on past zero cleared all four convolvers again on every sample left.
