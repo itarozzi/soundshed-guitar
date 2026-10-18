@@ -31,7 +31,14 @@ export function hidePreviewIndicator(): void {
   if (indicator) indicator.style.display = "none";
 }
 
+/**
+ * Bumped by every preview and clear: a preview still loading when the next request comes
+ * drops out at its next await, so it cannot apply itself over a clear or a later preview.
+ */
+let previewRequestId = 0;
+
 export async function clearPreviewPreset(): Promise<void> {
+  previewRequestId += 1;
   const feedEl = element<HTMLElement>("tone-sharing-feed");
   if (previewState.itemId) {
     const card = feedEl?.querySelector(`.tone-sharing-card-item[data-id="${CSS.escape(previewState.itemId)}"]`) as HTMLElement | null;
@@ -64,12 +71,16 @@ export async function clearPreviewPreset(): Promise<void> {
  * token goes.
  */
 export async function previewPreset(itemId: string, itemTitle: string): Promise<void> {
+  const requestId = ++previewRequestId;
   // Save original preset ID so we can restore it later (only on first preview)
   if (!previewState.itemId) {
     previewState.priorPresetId = uiState.activePresetId ?? null;
   }
 
   const response = await toneSharingFetch(`/items/${itemId}/download`);
+  if (requestId !== previewRequestId) {
+    return;
+  }
   if (!response.ok) {
     throw new Error(`Preview download failed (${response.status})`);
   }
@@ -78,6 +89,9 @@ export async function previewPreset(itemId: string, itemTitle: string): Promise<
   const fileMatch = disposition.match(/filename="?([^"]+)"?/i);
   const fileName = fileMatch?.[1] || `item-${itemId}.soundshed.preset`;
   const blob = await response.blob();
+  if (requestId !== previewRequestId) {
+    return;
+  }
 
   let itemMeta: ToneSharingItem | null = null;
   try {
@@ -85,6 +99,9 @@ export async function previewPreset(itemId: string, itemTitle: string): Promise<
     itemMeta = itemResponse.item;
   } catch {
     itemMeta = null;
+  }
+  if (requestId !== previewRequestId) {
+    return;
   }
 
   const importFile = new File([blob], fileName, { type: blob.type || "application/octet-stream" });
@@ -101,6 +118,9 @@ export async function previewPreset(itemId: string, itemTitle: string): Promise<
     suppressNotifications: true,
   });
 
+  if (requestId !== previewRequestId) {
+    return;
+  }
   const preset = importedPresets[importedPresets.length - 1];
   if (!preset) {
     throw new Error("Preview import produced no preset");
