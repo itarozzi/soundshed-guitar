@@ -903,6 +903,33 @@ if(WIN32)
 
     add_test(NAME JucePathConversionTests COMMAND JucePathConversionTests)
 
+    # The options every Nano menu opens with (source/nativeui/widgets/MenuOptions.h): a menu
+    # must know when the control that opened it has gone. Header-only, so no plugin or core.
+    add_executable(NanoMenuOptionsTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/NanoMenuOptionsTests.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/source/nativeui/widgets/MenuOptions.h"
+    )
+
+    target_include_directories(NanoMenuOptionsTests
+        PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/source"
+    )
+
+    target_link_libraries(NanoMenuOptionsTests
+        PRIVATE
+            juce_gui_basics
+            juce::juce_recommended_config_flags
+            juce::juce_recommended_warning_flags
+    )
+
+    set_target_properties(NanoMenuOptionsTests PROPERTIES
+        CXX_STANDARD 20
+        CXX_STANDARD_REQUIRED ON
+        FOLDER "GuitarFX/Tests"
+    )
+
+    add_test(NAME NanoMenuOptionsTests COMMAND NanoMenuOptionsTests)
+
     # Offline renderer that automates external plugins' transpose parameter for
     # the transpose benchmark (see tools/transpose-benchmark/). Not a ctest.
     add_executable(TransposeExternalRender

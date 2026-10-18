@@ -1,6 +1,7 @@
 #include "nativeui/NanoContext.h"
 
 #include "nativeui/tones/ToneSharingService.h"
+#include "nativeui/widgets/MenuOptions.h"
 
 #include "util/PathEncoding.h"
 
@@ -46,8 +47,7 @@ double NanoContext::now()
 
 void NanoContext::showMenu (juce::PopupMenu menu, juce::Component* target)
 {
-    const auto options = juce::PopupMenu::Options().withStandardItemHeight (touch ? 40 : 28);
-    showMenu (std::move (menu), target != nullptr ? options.withTargetComponent (target) : options.withMousePosition());
+    showMenu (std::move (menu), menuOptions (target, touch));
 }
 
 void NanoContext::showMenu (juce::PopupMenu menu, juce::PopupMenu::Options options)
