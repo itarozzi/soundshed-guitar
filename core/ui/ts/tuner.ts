@@ -66,9 +66,12 @@ const tunerState: TunerState = {
 
 const tunerSampleBuffer: TunerSample[] = [];
 const kTunerSampleWindow = 6;
+/** The note the samples in the buffer were read against; a different note starts a new average. */
+let tunerSampleNoteName = "";
 
 function resetTunerSamples(): void {
   tunerSampleBuffer.length = 0;
+  tunerSampleNoteName = "";
 }
 
 function addTunerSample(sample: TunerSample): void {
@@ -356,6 +359,14 @@ export function handleTunerUpdate(data: TunerData): void {
     tunerState.lastDetection = data;
     updateTunerDisplay(data);
     return;
+  }
+
+  // Cents are relative to the note named, so readings of two notes do not average: E at +45
+  // and F at -45 would come out as F in tune.
+  const noteName = data.noteName ?? "";
+  if (noteName !== tunerSampleNoteName) {
+    resetTunerSamples();
+    tunerSampleNoteName = noteName;
   }
 
   const centOffset = data.centOffset ?? 0;
