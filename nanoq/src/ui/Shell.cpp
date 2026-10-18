@@ -67,6 +67,9 @@ void Shell::Subscribe()
     on(Topic::Session, kTransport | kValues | kSettings);
     on(Topic::ActivePreset, kTopBar | kScenes | kChain | kPage | kValues);
     on(Topic::PresetLibrary, kTopBar | kPage);
+    // Choosing a setlist moves only the cursor (nothing loads), so no other topic redraws the
+    // Setlists tab for it.
+    on(Topic::Setlists, kPage);
     on(Topic::Catalog, kChain | kPage);
     on(Topic::Resources, kChain | kPage);
     on(Topic::GlobalChain, kTransport);
