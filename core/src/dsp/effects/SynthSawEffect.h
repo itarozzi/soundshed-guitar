@@ -99,6 +99,9 @@ class SynthSawEffect : public EffectProcessor
         mSampleRate = sampleRate;
         mMaxBlockSize = maxBlockSize;
         mTracker.Prepare(sampleRate);
+        // The oscillators are PolyBLEP, so they stay clean up to near Nyquist: only the ceiling
+        // a phase increment can reach is a hard limit, not the tracker's top note.
+        mMaxOutputFrequency = kMaxOutputFrequencyRatio * sampleRate;
 
         UpdateEnvelopeCoefs();
         UpdateGlideCoef();
@@ -194,8 +197,14 @@ class SynthSawEffect : public EffectProcessor
                 if (semitoneRatio > 1.5 || semitoneRatio < 0.67)
                 {
                     mCurrentFreq = mTargetFreq;
-                    mOscPhase = 0.0;  // Reset phase on new note
-                    mOscPhase2 = 0.0; // Reset 2nd voice phase on new note
+
+                    // A new note restarts the cycle only while the voice is silent: a sine or
+                    // triangle reset mid-cycle at full level is a step of up to full scale.
+                    if (mEnvelopeLevel <= kGateThreshold)
+                    {
+                        mOscPhase = 0.0;
+                        mOscPhase2 = 0.0;
+                    }
                 }
                 else
                 {
@@ -234,11 +243,13 @@ class SynthSawEffect : public EffectProcessor
                 // Formula: freq * 2^(cents/1200)
                 freq *= mDetuneRatio;
 
-                // Clamp frequency to reasonable range to avoid aliasing at high freq
-                // and subsonic rumble at low freq
+                // Clamp frequency to keep the phase increment below Nyquist and out of
+                // subsonic rumble. The ceiling is after the octave shift and detune, so it
+                // must sit far above the tracker's top note (2 kHz), or Octave +2 would play
+                // every note from about C5 up at the same pitch.
                 // Note: kMinOutputFrequency (20 Hz) is lower than the tracker's lowest
                 // pitch (45 Hz) to allow octave-down shifting from detected pitches
-                freq = std::clamp(freq, kMinOutputFrequency, kMaxFrequency);
+                freq = std::clamp(freq, kMinOutputFrequency, mMaxOutputFrequency);
 
                 // Phase accumulator: increments by (freq/sampleRate) each sample
                 // When phase >= 1.0, it wraps back, creating the sawtooth cycle
@@ -260,7 +271,7 @@ class SynthSawEffect : public EffectProcessor
                 {
                     // Apply semitone shift: freq * 2^(semitones/12)
                     const double freq2 = freq * mVoice2Ratio;
-                    const double freq2Clamped = std::clamp(freq2, kMinOutputFrequency, kMaxFrequency);
+                    const double freq2Clamped = std::clamp(freq2, kMinOutputFrequency, mMaxOutputFrequency);
                     const double phaseInc2 = freq2Clamped / mSampleRate;
                     mOscPhase2 += phaseInc2;
 
@@ -482,7 +493,9 @@ class SynthSawEffect : public EffectProcessor
   private:
     static constexpr double kPi = 3.14159265358979323846;
     static constexpr double kMinOutputFrequency = 20.0; // ~E0 - minimum for synth output (allows -2 octave shift)
-    static constexpr double kMaxFrequency = 2000.0;     // ~B6
+    /// The highest oscillator frequency as a share of the sample rate: PolyBLEP's correction
+    /// spans two phase increments, so it needs the increment below one half.
+    static constexpr double kMaxOutputFrequencyRatio = 0.45;
     static constexpr float kConfidenceThreshold = 0.7f;
     static constexpr float kOnsetThreshold = 0.15f; // Envelope rise threshold for onset
     /// Confident detections, 5 ms apart, before the glide slows back down after an onset: about the
@@ -662,6 +675,7 @@ class SynthSawEffect : public EffectProcessor
     double mTargetFreq = 0.0; ///< the tracker's accepted pitch, which the glide heads for
     bool mTargetHeld = false; ///< the target is the pitch the tracker holds while it finds none
     double mGlideCoef = 0.1;
+    double mMaxOutputFrequency = kMaxOutputFrequencyRatio * 48000.0; ///< set from the rate in Prepare
 
     // 2nd voice parameters
     double mVoice2Semitones = 0.0; // semitone offset (-24 to +24)

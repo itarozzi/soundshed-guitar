@@ -1175,6 +1175,69 @@ void TestPulseHasNoDC(int& passed, int& failed)
 
     std::cout << "\n";
 }
+
+/// The oscillator ceiling sits after the octave shift, so a high note shifted up keeps its pitch;
+/// and a wide interval does not restart a sounding sine mid-cycle, which stepped the output by up
+/// to its full level.
+void TestHighNotesAndWideIntervals(int& passed, int& failed)
+{
+    std::cout << "--- High Notes and Wide Intervals ---\n";
+    constexpr double sr = kTestSampleRate;
+
+    {
+        // A5 two octaves up is 3520 Hz; the 2 kHz ceiling played it at 2000.
+        guitarfx::SynthSawEffect effect;
+        effect.Prepare(sr, 64);
+        effect.SetParam("mix", 1.0);
+        effect.SetParam("waveShape", 3.0);
+        effect.SetParam("octaveShift", 2.0);
+        std::vector<float> x(static_cast<std::size_t>(0.5 * sr));
+        AddPluck(x, 0, 880.0, sr);
+        const std::vector<float> y = Render64(effect, x);
+        const std::vector<float> tail(y.end() - static_cast<std::ptrdiff_t>(0.2 * sr), y.end());
+        const double hz = EstimateOutputFrequency(tail, sr);
+        Report(std::abs(hz - 3520.0) < 0.05 * 3520.0, "A5 at Octave +2 plays 3520 Hz", std::to_string(hz) + " Hz",
+               passed, failed);
+    }
+
+    {
+        // A sine voice moving A3 to A4 (an octave: a jump, not a glide). Its largest
+        // sample-to-sample step stays near what a full-level A4 sine takes.
+        guitarfx::SynthSawEffect effect;
+        effect.Prepare(sr, 64);
+        effect.SetParam("mix", 1.0);
+        effect.SetParam("waveShape", 3.0);
+        const std::size_t split = static_cast<std::size_t>(0.4 * sr);
+        std::vector<float> x(2 * split);
+        AddPluck(x, 0, 220.0, sr);
+        AddPluck(x, split, 440.0, sr);
+        const std::vector<float> y = Render64(effect, x);
+        float peak = 0.0f;
+        float steadyStep = 0.0f;
+        float worstStep = 0.0f;
+
+        for (std::size_t n = 1; n < y.size(); ++n)
+        {
+            const float step = std::abs(y[n] - y[n - 1]);
+            peak = std::max(peak, std::abs(y[n]));
+            worstStep = std::max(worstStep, step);
+
+            if (n > y.size() - static_cast<std::size_t>(0.1 * sr))
+            {
+                steadyStep = std::max(steadyStep, step);
+            }
+        }
+
+        // A full-level 440 Hz sine steps by at most 2 pi 440 / 48000 of its peak, about 0.058.
+        const double ratio = worstStep / std::max(1.0e-9f, peak);
+        Report(ratio < 0.1, "a sine voice jumping an octave does not step mid-cycle",
+               "largest step " + std::to_string(ratio) + " of the peak, steady " +
+                   std::to_string(steadyStep / std::max(1.0e-9f, peak)),
+               passed, failed);
+    }
+
+    std::cout << "\n";
+}
 } // anonymous namespace
 
 int main()
@@ -1403,6 +1466,7 @@ int main()
 
     TestPitchTrackerMigration(passed, failed);
     TestPulseHasNoDC(passed, failed);
+    TestHighNotesAndWideIntervals(passed, failed);
 
     // Summary
     std::cout << "========================================\n";
