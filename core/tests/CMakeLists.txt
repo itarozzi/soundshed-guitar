@@ -128,6 +128,7 @@ set(TEST_SOURCES
     SignalTestServiceTests.cpp
     SilenceSleepGateTests.cpp
     SimpleCabEffectTests.cpp
+    SpeakerDriveTests.cpp
     SpectrumTapTests.cpp
     SpliceTransposerTests.cpp
     SplitBranchTests.cpp

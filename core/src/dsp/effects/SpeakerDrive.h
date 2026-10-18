@@ -19,9 +19,12 @@ namespace guitarfx
  *    the low band is also what lets it run without oversampling: a cubic makes only the
  *    third harmonic, and three times the low band is nowhere near Nyquist.
  *  - Power compression. The voice coil heats, its resistance rises and the speaker plays
- *    quieter. Heat builds and drains slowly, so a sustained loud passage sags over a
- *    fraction of a second and recovers after it. A slow average of the signal power drives
- *    a gentle 2:1 gain reduction above a threshold, never more than 6 dB.
+ *    quieter. Heat builds and drains slowly, so a sustained loud passage sags and recovers
+ *    after it. A slow average of the signal power drives a gentle 2:1 gain reduction above
+ *    the nominal -18 dBFS, reaching its 6 dB limit at -6 dBFS. The threshold reads the
+ *    input as it arrives, not after the excursion pre-gain: with the pre-gain folded in, any
+ *    normal playing level held the gain at its limit, a fixed volume cut rather than
+ *    compression.
  *
  * Drive is the amount of both. At 0 the stage is exactly transparent, so it can sit in
  * front of any cabinet without changing presets that never touch it. Stereo channels are
@@ -106,13 +109,18 @@ class SpeakerDrive
         // Power compression, in the power domain to avoid a log per sample: for 2:1 above
         // threshold T the output power is T * sqrt(P / T), so the gain is (T / P)^(1/4).
         double& power = mPower[channel];
-        const double drivenPower = input * input * preGain * preGain;
-        power += (drivenPower > power ? mAttack : mRelease) * (drivenPower - power);
+        const double inputPower = input * input;
+        power += (inputPower > power ? mAttack : mRelease) * (inputPower - power);
+
+        // Past the 6 dB limit more power changes nothing, so the detector stops there. Left to
+        // climb, a loud passage wound it far above the limit, and the release had to drain all
+        // of that before the gain moved: seconds at the limit after the playing dropped.
+        power = std::min(power, kCompressionLimitPower);
         double gain = 1.0;
 
         if (power > kCompressionThresholdPower)
         {
-            gain = std::max(kMinCompressionGain, std::sqrt(std::sqrt(kCompressionThresholdPower / power)));
+            gain = std::sqrt(std::sqrt(kCompressionThresholdPower / power));
         }
 
         return excursion * (1.0 - drive * (1.0 - gain));
@@ -143,6 +151,10 @@ class SpeakerDrive
     static constexpr double kCompressionReleaseSeconds = 0.4;
     static constexpr double kCompressionThresholdPower = 0.0158;    // -18 dBFS
     static constexpr double kMinCompressionGain = 0.50118723362727; // -6 dB, the most it takes
+    // The power at which 2:1 reaches kMinCompressionGain: 12 dB over the threshold, -6 dBFS.
+    static constexpr double kCompressionLimitPower =
+        kCompressionThresholdPower /
+        (kMinCompressionGain * kMinCompressionGain * kMinCompressionGain * kMinCompressionGain);
     static constexpr double kDriveSmoothingSeconds = 0.02;
     static constexpr double kInactiveDrive = 1e-6;
     static constexpr double kDefaultCornerHz = 180.0;
