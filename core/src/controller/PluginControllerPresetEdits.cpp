@@ -414,7 +414,10 @@ void PluginController::HandleGetPresetRecentsRequest()
 
 void PluginController::RecordPresetRecent(const std::string& presetId)
 {
-    if (presetId.empty())
+    // A tone-sharing preview ("preview-<item>", never saved) and an archive session's scoped
+    // ids resolve to nothing once they are over, and the four-entry list is too short to
+    // carry them: as RememberActivePresetAsLast, they are not recently played presets.
+    if (presetId.empty() || IsPresetArchiveSessionActive() || presetId.rfind("preview-", 0) == 0)
     {
         return;
     }

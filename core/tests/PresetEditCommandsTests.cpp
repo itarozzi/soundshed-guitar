@@ -483,6 +483,13 @@ void TestRecentsKeepTheWebUiRules()
     Expect(Latest(host, "presetRecents")->at("presetIds") == nlohmann::json::array({"r3", "r2", "r1"}),
            "a new preset goes first; one already listed keeps its place");
 
+    // A tone-sharing preview plays under an id that is never saved: it is not a recent.
+    Send(controller, "previewPreset",
+         {{"preset", PresetJson(BuildTwoScenePreset("shared-x"))}, {"presetId", "preview-item-x"}});
+    Send(controller, "getPresetRecents");
+    Expect(Latest(host, "presetRecents")->at("presetIds") == nlohmann::json::array({"r3", "r2", "r1"}),
+           "a preview is not recorded as recently played");
+
     for (const auto* id : {"r4", "r5"})
     {
         Store(controller, BuildTwoScenePreset(id));
