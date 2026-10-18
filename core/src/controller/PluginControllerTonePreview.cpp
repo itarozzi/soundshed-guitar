@@ -223,9 +223,14 @@ void PluginController::HandlePreviewPresetRequest(const nlohmann::json& payload)
     PointPresetAtStagedFiles(preset, staged);
     AppendSessionLog("Tone preview: " + std::to_string(staged.size()) + " file(s) staged for " + preset.name);
 
+    // The preview plays under the id the UI gave it ("preview-<item>"): the mixer keys the
+    // slot by the body's id, and a slot keyed by the shared preset's own id while the active
+    // id was the preview's left every knob turned during the preview with nothing to reach.
+    preset.id = payload.value("presetId", preset.id);
+
     nlohmann::json load;
     load["preset"] = nlohmann::json::parse(PresetStorage::SerializeToJson(preset));
-    load["presetId"] = payload.value("presetId", preset.id);
+    load["presetId"] = preset.id;
     HandlePresetLoadRequest(load);
 }
 } // namespace guitarfx

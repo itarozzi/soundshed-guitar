@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -245,6 +246,47 @@ void TestNextPreviewReplacesTheFiles()
     Expect(!firstFolder.empty() && !fs::exists(firstFolder), "the first preview's folder is gone");
 }
 
+/// A knob turned during a preview has to reach the engine: the slot plays under the id the UI
+/// gave the preview, which is the id its edits then name.
+void TestPreviewEditsReachTheSlot()
+{
+    TestHost host(Sandbox("edits"));
+    guitarfx::PluginController controller(host);
+    controller.Initialize();
+    controller.Prepare(48000.0, 256);
+
+    Preset preset;
+    preset.id = "shared-2";
+    preset.name = "Shared Gain";
+    preset.version = 2;
+    auto gain = Node("gain_1", guitarfx::EffectGuids::kGain);
+    gain.params["gain"] = 3.0;
+    preset.graph.nodes = {Node("__input__", guitarfx::kNodeTypeInput), gain,
+                          Node("__output__", guitarfx::kNodeTypeOutput)};
+    preset.graph.edges = {{"__input__", "gain_1", 0, 0, 1.0}, {"gain_1", "__output__", 0, 0, 1.0}};
+
+    controller.HandleUIMessage(
+        nlohmann::json{{"type", "previewPreset"},
+                       {"preset", nlohmann::json::parse(guitarfx::PresetStorage::SerializeToJson(preset))},
+                       {"presetId", "preview-item-2"}}
+            .dump());
+    // As the signal path sends it: no presetId, so the active id names the slot.
+    controller.HandleUIMessage(nlohmann::json{
+        {"type", "updateSignalPathNodeParam"}, {"nodeId", "gain_1"}, {"paramKey", "gain"}, {"value", -9.0}}
+                                   .dump());
+
+    const auto* processor = controller.GetMixer().GetNodeProcessor("preview-item-2", "gain_1");
+
+    if (!processor)
+    {
+        processor = controller.GetMixer().GetNodeProcessor("shared-2", "gain_1");
+    }
+
+    Expect(processor != nullptr, "the preview's gain node is running");
+    Expect(processor && std::abs(processor->GetParam("gain") - (-9.0)) < 1e-9,
+           "the knob turned during the preview reached the slot");
+}
+
 /// The blend library a UI opening now is sent: the ids it holds.
 std::vector<std::string> BlendLibraryIds(TestHost& host, guitarfx::PluginController& controller)
 {
@@ -343,6 +385,7 @@ int main()
 {
     TestPreviewPlaysStagedFilesOutsideTheLibrary();
     TestNextPreviewReplacesTheFiles();
+    TestPreviewEditsReachTheSlot();
     TestPreviewPlaysTheArchivesBlends();
 
     if (gFailures > 0)
