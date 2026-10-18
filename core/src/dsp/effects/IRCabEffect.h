@@ -6,6 +6,7 @@
 #include "dsp/EffectGuids.h"
 #include "dsp/RealtimeParallel.h"
 #include "dsp/RealtimeConvolver.h"
+#include "dsp/SimdFFT.h"
 #include "dsp/IRTypes.h"
 #include "dsp/IRWavLoader.h"
 #include "dsp/ImpulseResampler.h"
@@ -18,6 +19,7 @@
 #include <array>
 #include <atomic>
 #include <cmath>
+#include <complex>
 #include <cstdint>
 #include <filesystem>
 #include <memory>
@@ -96,6 +98,8 @@ class IRCabEffect : public EffectProcessor
         {
             InitializeConvolverB();
         }
+
+        RefreshBlendCorrelation();
     }
 
     void Reset() override
@@ -197,6 +201,13 @@ class IRCabEffect : public EffectProcessor
         // intentionally transparent when no cabinet IR has been selected.
         if (!mEnabled || mMix <= 0.0 || (!hasA && !hasB))
         {
+            // The speaker cools while nothing reaches it. Held over the bypass, its compression
+            // would come back still holding down a loud passage from before it.
+            if (mSpeakerDrive.IsActive())
+            {
+                mSpeakerDrive.Reset();
+            }
+
             if (outputs[0])
             {
                 std::copy_n(dryInL, numSamples, outputs[0]);
@@ -391,7 +402,8 @@ class IRCabEffect : public EffectProcessor
         double slotAGain, slotBGain, autoCompGain;
         // The outgoing side of a crossfade plays at the levels its own slots had: a slot added or
         // cleared fades from what was heard. Auto Gain Comp is applied after the crossfade, so
-        // the outgoing levels carry the ratio of its comp to the live one.
+        // the outgoing levels carry the ratio of its comp to the live one. That holds for a
+        // reload with the same slots too, since the comp depends on how alike the two IRs are.
         double prevSlotAGain, prevSlotBGain;
 
         if (useLRSplit)
@@ -404,16 +416,19 @@ class IRCabEffect : public EffectProcessor
         }
         else
         {
-            const SlotMix live = BlendedSlotMix(hasA, hasB);
+            // Where IR B sits against IR A this block, mid-glide included: how alike the two
+            // sound depends on it.
+            const double offsetSamples = mAlignment.CurrentOffsetSamples();
+            const SlotMix live = BlendedSlotMix(hasA, hasB, mBlendCorrelation, offsetSamples);
             slotAGain = live.slotAGain;
             slotBGain = live.slotBGain;
             autoCompGain = live.compGain;
             prevSlotAGain = slotAGain;
             prevSlotBGain = slotBGain;
 
-            if (transitionActive && (prevHasA != hasA || prevHasB != hasB))
+            if (transitionActive)
             {
-                const SlotMix outgoing = BlendedSlotMix(prevHasA, prevHasB);
+                const SlotMix outgoing = BlendedSlotMix(prevHasA, prevHasB, mPrevBlendCorrelation, offsetSamples);
                 const double compRatio = outgoing.compGain / autoCompGain;
                 prevSlotAGain = outgoing.slotAGain * compRatio;
                 prevSlotBGain = outgoing.slotBGain * compRatio;
@@ -802,6 +817,11 @@ class IRCabEffect : public EffectProcessor
         ClearPendingIf(mPendingNormalizeIR, mNormalizeIR ? 1 : 0);
         ClearPendingIf(mPendingTrimLeadingSilence, mTrimLeadingSilence ? 1 : 0);
         ClearPendingIf(mPendingQuality, static_cast<int>(mQuality));
+
+        // The pair's measurement goes with its convolvers, swapped the same way so the one
+        // displaced is freed with the work.
+        std::swap(mPrevBlendCorrelation, mBlendCorrelation);
+        std::swap(mBlendCorrelation, work->blendCorrelation);
         BeginResourceTransition();
     }
 
@@ -965,6 +985,7 @@ class IRCabEffect : public EffectProcessor
         UnloadConvolverPair(mConvolverBL, mConvolverBR);
         ApplyPendingRebuildSettings();
         const bool loaded = !mPrepared || InitializeConvolverA(); // else Prepare() builds it (see mPrepared)
+        RefreshBlendCorrelation();
 
         if (!loaded)
         {
@@ -1109,6 +1130,7 @@ class IRCabEffect : public EffectProcessor
             }
         }
 
+        RefreshBlendCorrelation();
         BeginResourceTransition();
         return loadedA || loadedB;
     }
@@ -1262,66 +1284,56 @@ class IRCabEffect : public EffectProcessor
         // Find smart truncation point based on energy
         const size_t energyTruncPoint = FindEnergyTruncationPoint(samples, 0.001f);
         const size_t truncLength = std::min({samples.size(), maxSamples, energyTruncPoint});
-
-        // Apply fade-out to avoid clicks (last 64 samples)
         std::vector<float> truncated(samples.begin(), samples.begin() + truncLength);
-
-        constexpr size_t kFadeLength = 64;
-
-        if (truncLength > kFadeLength)
-        {
-            for (size_t i = 0; i < kFadeLength; ++i)
-            {
-                const float fadeGain = static_cast<float>(kFadeLength - 1 - i) / static_cast<float>(kFadeLength - 1);
-                truncated[truncLength - kFadeLength + i] *= fadeGain;
-            }
-        }
-
+        ApplyTruncationFade(truncated);
         return truncated;
     }
 
-    void GetProcessedImpulseStereo(std::vector<float>& left, std::vector<float>& right) const
+    /// GetProcessedImpulse for a stereo IR: both channels are cut at one point, found from their
+    /// joint energy, with one fade. Cut apart, each at its own point, the longer channel was then
+    /// trimmed to the shorter's length with no fade: cut off mid-signal.
+    static void GetProcessedImpulseStereo(const std::vector<float>& left, const std::vector<float>& right,
+                                          double impulseSampleRate, IRQuality quality, double hostSampleRate,
+                                          size_t leadingSamples, std::vector<float>& outLeft,
+                                          std::vector<float>& outRight)
     {
-        left.clear();
-        right.clear();
+        const size_t length = std::min(left.size(), right.size());
+        outLeft.assign(left.begin(), left.begin() + static_cast<std::ptrdiff_t>(length));
+        outRight.assign(right.begin(), right.begin() + static_cast<std::ptrdiff_t>(length));
 
-        if (mImpulseL.empty() || mImpulseR.empty())
+        if (length == 0 || quality == IRQuality::Full)
         {
             return;
         }
 
-        if (mQuality == IRQuality::Full)
-        {
-            left = mImpulseL;
-            right = mImpulseR;
-            return;
-        }
-
-        const size_t maxSamples = GetMaxIRSamples(mQuality, mIRSampleRate);
-        const size_t length = std::min(mImpulseL.size(), mImpulseR.size());
+        const double qualitySampleRate = impulseSampleRate > 0.0 ? impulseSampleRate : hostSampleRate;
+        const size_t qualitySamples = GetMaxIRSamples(quality, qualitySampleRate);
+        const size_t maxSamples = qualitySamples > 0 ? qualitySamples + leadingSamples : 0;
 
         if (maxSamples == 0 || length <= maxSamples)
         {
-            left.assign(mImpulseL.begin(), mImpulseL.begin() + length);
-            right.assign(mImpulseR.begin(), mImpulseR.begin() + length);
             return;
         }
 
-        const size_t energyTruncPoint = FindEnergyTruncationPointStereo(mImpulseL, mImpulseR, 0.001f);
-        const size_t truncLength = std::min({length, maxSamples, energyTruncPoint});
+        const size_t truncLength = std::min({length, maxSamples, FindEnergyTruncationPointStereo(left, right, 0.001f)});
+        outLeft.resize(truncLength);
+        outRight.resize(truncLength);
+        ApplyTruncationFade(outLeft);
+        ApplyTruncationFade(outRight);
+    }
 
-        left.assign(mImpulseL.begin(), mImpulseL.begin() + truncLength);
-        right.assign(mImpulseR.begin(), mImpulseR.begin() + truncLength);
-
+    /// Fades the last 64 samples of a truncated impulse out, so the cut does not click.
+    static void ApplyTruncationFade(std::vector<float>& truncated)
+    {
         constexpr size_t kFadeLength = 64;
+        const size_t length = truncated.size();
 
-        if (truncLength > kFadeLength)
+        if (length > kFadeLength)
         {
             for (size_t i = 0; i < kFadeLength; ++i)
             {
                 const float fadeGain = static_cast<float>(kFadeLength - 1 - i) / static_cast<float>(kFadeLength - 1);
-                left[truncLength - kFadeLength + i] *= fadeGain;
-                right[truncLength - kFadeLength + i] *= fadeGain;
+                truncated[length - kFadeLength + i] *= fadeGain;
             }
         }
     }
@@ -1394,14 +1406,131 @@ class IRCabEffect : public EffectProcessor
         double leadingSilenceSeconds = 0.0;
     };
 
+    /// One slot's impulses as its convolvers were built from them, trimmed, truncated, resampled
+    /// and normalised: what it plays. Kept only until Auto Gain Comp has measured the pair
+    /// (RefreshBlendCorrelation). `right` is empty for a mono IR.
+    struct BuiltImpulse
+    {
+        std::vector<float> left;
+        std::vector<float> right;
+    };
+
+    /// What Auto Gain Comp needs to know about the two IRs it blends: each one's energy, and how
+    /// alike they are (their cross-correlation) at every IR B Offset. Measured when the
+    /// convolvers are built, never on the audio thread, which only reads it.
+    struct BlendCorrelation
+    {
+        double energyA = 0.0;
+        double energyB = 0.0;
+        int maxLag = 0;            // whole samples either side of no offset
+        std::vector<double> cross; // the sum of a[n] * b[n - lag], at cross[lag + maxLag]
+
+        [[nodiscard]] bool Valid() const noexcept
+        {
+            return !cross.empty() && energyA > 0.0 && energyB > 0.0;
+        }
+
+        /// The cross term with IR B `lagSamples` later than IR A, linear between whole lags.
+        [[nodiscard]] double CrossAt(double lagSamples) const noexcept
+        {
+            const double reach = static_cast<double>(maxLag);
+            const double position = std::clamp(lagSamples, -reach, reach) + reach;
+            const auto below = static_cast<size_t>(position);
+            const size_t above = std::min(below + 1, cross.size() - 1);
+            const double fraction = position - static_cast<double>(below);
+            return cross[below] + fraction * (cross[above] - cross[below]);
+        }
+    };
+
+    /// The most Auto Gain Comp lifts a blend, +6 dB: a pair inverted against each other can
+    /// cancel almost entirely, and lifting that without limit would be lifting noise.
+    static constexpr double kMaxBlendCompGain = 2.0;
+
+    /// Measures two slots' built impulses for Auto Gain Comp, at `hostRate`. A mono slot plays its
+    /// one impulse on both channels; the channels are averaged. Invalid unless both are given.
+    static BlendCorrelation ComputeBlendCorrelation(const BuiltImpulse& a, const BuiltImpulse& b, double hostRate)
+    {
+        BlendCorrelation result;
+
+        if (a.left.empty() || b.left.empty())
+        {
+            return result;
+        }
+
+        result.maxLag = static_cast<int>(std::ceil(IrSlotAlignment::kMaxOffsetMs * hostRate / 1000.0)) + 1;
+        result.cross.assign(static_cast<size_t>(2 * result.maxLag + 1), 0.0);
+        const int channels = a.right.empty() && b.right.empty() ? 1 : 2;
+        const double weight = 1.0 / static_cast<double>(channels);
+
+        for (int channel = 0; channel < channels; ++channel)
+        {
+            const auto& impulseA = channel == 1 && !a.right.empty() ? a.right : a.left;
+            const auto& impulseB = channel == 1 && !b.right.empty() ? b.right : b.left;
+            result.energyA += weight * ImpulseEnergy(impulseA);
+            result.energyB += weight * ImpulseEnergy(impulseB);
+            AccumulateCrossCorrelation(impulseA, impulseB, result.maxLag, weight, result.cross);
+        }
+
+        return result;
+    }
+
+    static double ImpulseEnergy(const std::vector<float>& impulse)
+    {
+        double sum = 0.0;
+
+        for (const float s : impulse)
+        {
+            sum += static_cast<double>(s) * s;
+        }
+
+        return sum;
+    }
+
+    /// Adds `weight` times the sum of a[n] * b[n - lag] to cross[lag + maxLag], for every lag
+    /// within maxLag, by FFT: a full-length IR has too many taps to correlate directly at every lag.
+    static void AccumulateCrossCorrelation(const std::vector<float>& a, const std::vector<float>& b, int maxLag,
+                                           double weight, std::vector<double>& cross)
+    {
+        // Long enough that no lag wraps round onto another.
+        const size_t needed = a.size() + b.size() + 2 * static_cast<size_t>(maxLag) + 1;
+        size_t size = 1;
+
+        while (size < needed)
+        {
+            size <<= 1;
+        }
+
+        SimdFFT fft(size);
+        std::vector<std::complex<float>> timeA(size), timeB(size), freqA(size), freqB(size);
+        std::copy(a.begin(), a.end(), timeA.begin());
+        std::copy(b.begin(), b.end(), timeB.begin());
+        fft.Forward(freqA.data(), timeA.data());
+        fft.Forward(freqB.data(), timeB.data());
+
+        for (size_t k = 0; k < size; ++k)
+        {
+            freqA[k] *= std::conj(freqB[k]);
+        }
+
+        fft.Inverse(timeA.data(), freqA.data()); // unscaled: divide by size
+        const double scale = weight / static_cast<double>(size);
+
+        for (int lag = -maxLag; lag <= maxLag; ++lag)
+        {
+            const size_t index = lag >= 0 ? static_cast<size_t>(lag) : size - static_cast<size_t>(-lag);
+            cross[static_cast<size_t>(lag + maxLag)] += scale * static_cast<double>(timeA[index].real());
+        }
+    }
+
     bool InitializeConvolverFromImpulse(const std::vector<float>& impulseL, const std::vector<float>& impulseR,
                                         bool isStereo, double impulseSampleRate, RealtimeConvolver& convolverL,
-                                        RealtimeConvolver& convolverR) const
+                                        RealtimeConvolver& convolverR, BuiltImpulse* built = nullptr) const
     {
         ConvolverBuildSettings settings{mSampleRate, mMaxBlockSize, mQuality, mNormalizeIR, mTrimLeadingSilence};
         settings.leadingSilenceSeconds =
             SharedLeadingSilence(settings, mImpulseL, mImpulseR, mIRSampleRate, mImpulseBL, mImpulseBR, mIRSampleRateB);
-        return BuildConvolverPair(settings, impulseL, impulseR, isStereo, impulseSampleRate, convolverL, convolverR);
+        return BuildConvolverPair(settings, impulseL, impulseR, isStereo, impulseSampleRate, convolverL, convolverR,
+                                  built);
     }
 
     /// With Trim Leading Silence on, the leading silence both slots lose, in seconds: the earlier of
@@ -1421,7 +1550,8 @@ class IRCabEffect : public EffectProcessor
 
     static bool BuildConvolverPair(const ConvolverBuildSettings& settings, const std::vector<float>& impulseL,
                                    const std::vector<float>& impulseR, bool isStereo, double impulseSampleRate,
-                                   RealtimeConvolver& convolverL, RealtimeConvolver& convolverR)
+                                   RealtimeConvolver& convolverL, RealtimeConvolver& convolverR,
+                                   BuiltImpulse* built = nullptr)
     {
         const double hostRate = settings.hostSampleRate;
 
@@ -1438,19 +1568,15 @@ class IRCabEffect : public EffectProcessor
 
         if (isStereo && !impulseR.empty())
         {
-            std::vector<float> processedL =
-                GetProcessedImpulse(impulseL, sourceRate, settings.quality, hostRate, trimAtSourceRate);
-            std::vector<float> processedR =
-                GetProcessedImpulse(impulseR, sourceRate, settings.quality, hostRate, trimAtSourceRate);
+            std::vector<float> processedL;
+            std::vector<float> processedR;
+            GetProcessedImpulseStereo(impulseL, impulseR, sourceRate, settings.quality, hostRate, trimAtSourceRate,
+                                      processedL, processedR);
 
             if (processedL.empty() || processedR.empty())
             {
                 return false;
             }
-
-            const size_t length = std::min(processedL.size(), processedR.size());
-            processedL.resize(length);
-            processedR.resize(length);
 
             if (std::abs(sourceRate - hostRate) > 1.0)
             {
@@ -1484,6 +1610,12 @@ class IRCabEffect : public EffectProcessor
             {
                 UnloadConvolverPair(convolverL, convolverR);
                 return false;
+            }
+
+            if (built)
+            {
+                built->left = std::move(processedL);
+                built->right = std::move(processedR);
             }
 
             return true;
@@ -1523,6 +1655,12 @@ class IRCabEffect : public EffectProcessor
             return false;
         }
 
+        if (built)
+        {
+            built->left = std::move(processedIR);
+            built->right.clear();
+        }
+
         return true;
     }
 
@@ -1539,6 +1677,19 @@ class IRCabEffect : public EffectProcessor
         MoveToOutgoing(mConvolverR, mPrevConvolverR);
         MoveToOutgoing(mConvolverBL, mPrevConvolverBL);
         MoveToOutgoing(mConvolverBR, mPrevConvolverBR);
+        mPrevBlendCorrelation = std::move(mBlendCorrelation);
+        mBlendCorrelation = BlendCorrelation();
+    }
+
+    /// After the live convolvers are built: measures the pair that will play for Auto Gain Comp,
+    /// then lets the built copies go. A load or Prepare builds both slots together, so the two
+    /// copies are always one pair; with either missing the comp falls back to unalike IRs.
+    void RefreshBlendCorrelation()
+    {
+        mBlendCorrelation =
+            SlotAReady() && SlotBReady() ? ComputeBlendCorrelation(mBuiltA, mBuiltB, mSampleRate) : BlendCorrelation();
+        mBuiltA = BuiltImpulse();
+        mBuiltB = BuiltImpulse();
     }
 
     /// A moved-from convolver keeps its flags but not its buffers, so `live` is replaced with an
@@ -1551,13 +1702,14 @@ class IRCabEffect : public EffectProcessor
 
     bool InitializeConvolverA()
     {
-        return InitializeConvolverFromImpulse(mImpulseL, mImpulseR, mIsStereo, mIRSampleRate, mConvolverL, mConvolverR);
+        return InitializeConvolverFromImpulse(mImpulseL, mImpulseR, mIsStereo, mIRSampleRate, mConvolverL, mConvolverR,
+                                              &mBuiltA);
     }
 
     bool InitializeConvolverB()
     {
         return InitializeConvolverFromImpulse(mImpulseBL, mImpulseBR, mIsStereoB, mIRSampleRateB, mConvolverBL,
-                                              mConvolverBR);
+                                              mConvolverBR, &mBuiltB);
     }
 
     // Returns the gain to apply to IR samples so that convolution is unity-gain for a broadband
@@ -1599,47 +1751,6 @@ class IRCabEffect : public EffectProcessor
         return static_cast<float>(rateCompensation / std::sqrt(sumSq));
     }
 
-    static double ComputeSignalEnergy(const std::vector<float>& samples)
-    {
-        if (samples.empty())
-        {
-            return 1.0;
-        }
-
-        double sum = 0.0;
-
-        for (const float sample : samples)
-        {
-            const double value = static_cast<double>(sample);
-            sum += value * value;
-        }
-
-        const double mean = sum / static_cast<double>(samples.size());
-        return std::max(1e-8, mean);
-    }
-
-    static double ComputeSignalEnergyStereo(const std::vector<float>& left, const std::vector<float>& right)
-    {
-        const size_t count = std::min(left.size(), right.size());
-
-        if (count == 0)
-        {
-            return ComputeSignalEnergy(left.empty() ? right : left);
-        }
-
-        double sum = 0.0;
-
-        for (size_t i = 0; i < count; ++i)
-        {
-            const double l = static_cast<double>(left[i]);
-            const double r = static_cast<double>(right[i]);
-            sum += (l * l + r * r) * 0.5;
-        }
-
-        const double mean = sum / static_cast<double>(count);
-        return std::max(1e-8, mean);
-    }
-
     /// A slot plays once its convolvers are built: both channels' for a stereo IR.
     [[nodiscard]] bool SlotAReady() const
     {
@@ -1661,29 +1772,47 @@ class IRCabEffect : public EffectProcessor
     };
 
     /// IR Blend crossfades two IRs. A lone IR, in either slot, is the blend all the way to it: it
-    /// plays in full whatever IR Blend says, as one IR in a cab should.
-    [[nodiscard]] SlotMix BlendedSlotMix(bool hasA, bool hasB) const
+    /// plays in full whatever IR Blend says, as one IR in a cab should. `correlation` is the pair's
+    /// (BlendCorrelation), and `offsetSamples` where IR B sits against IR A.
+    [[nodiscard]] SlotMix BlendedSlotMix(bool hasA, bool hasB, const BlendCorrelation& correlation,
+                                         double offsetSamples) const
     {
         const double blend = hasA && hasB ? std::clamp(mIRBlend, 0.0, 1.0) : (hasB ? 1.0 : 0.0);
         return {(1.0 - blend) * mSlotAGain * (mSlotAPolarityInverted ? -1.0 : 1.0),
-                blend * mSlotBGain * (mSlotBPolarityInverted ? -1.0 : 1.0), ComputeBlendCompGain(hasB, blend)};
+                blend * mSlotBGain * (mSlotBPolarityInverted ? -1.0 : 1.0),
+                ComputeBlendCompGain(hasA && hasB, blend, correlation, offsetSamples)};
     }
 
-    double ComputeBlendCompGain(bool hasB, double blend) const
+    /// Auto Gain Comp: the gain that keeps the blend as loud as the two IRs are on their own,
+    /// interpolated by IR Blend in power. The slots' Level is left out, so it still sets their
+    /// balance. Two IRs much alike (two mics on one speaker) sum close to amplitude, and the comp
+    /// barely lifts them; unalike ones sum in power, and at IR Blend 0.5 it lifts them 3 dB. Until
+    /// 2026-10-18 it took every pair as unalike, and played a two-mic blend up to ~2.6 dB loud.
+    [[nodiscard]] double ComputeBlendCompGain(bool both, double blend, const BlendCorrelation& correlation,
+                                              double offsetSamples) const
     {
-        if (!mAutoGainCompEnabled)
+        if (!mAutoGainCompEnabled || !both)
         {
-            return 1.0;
+            return 1.0; // a lone IR plays in full
         }
 
-        // With L2-normalised IRs every slot has unit energy in the convolver.
-        // The blend position (irBlend) linearly interpolates between A and B, so
-        // the combined energy is blendA² + blendB².  Normalising by its sqrt keeps
-        // output level constant as the user sweeps the blend knob.
         const double blendA = 1.0 - blend;
         const double blendB = blend;
-        const double energy = blendA * blendA + (hasB ? blendB * blendB : 0.0);
-        return 1.0 / std::sqrt(std::max(1e-8, energy));
+
+        if (!correlation.Valid())
+        {
+            // A pair not measured (not built yet): unit energy each, nothing alike.
+            const double energy = blendA * blendA + blendB * blendB;
+            return 1.0 / std::sqrt(std::max(1e-8, energy));
+        }
+
+        // The energies keep this right with Normalize off as well. Invert on one slot turns the
+        // likeness negative: the pair cancels, and the comp lifts it, as far as kMaxBlendCompGain.
+        const double polarity = mSlotAPolarityInverted != mSlotBPolarityInverted ? -1.0 : 1.0;
+        const double target = blendA * correlation.energyA + blendB * correlation.energyB;
+        const double actual = blendA * blendA * correlation.energyA + blendB * blendB * correlation.energyB +
+                              2.0 * blendA * blendB * polarity * correlation.CrossAt(offsetSamples);
+        return std::min(kMaxBlendCompGain, std::sqrt(target / std::max(actual, 1e-12 * target)));
     }
 
     /// Quality, Normalize and Trim Leading Silence are baked into the convolvers when they are built. With
@@ -1779,17 +1908,23 @@ class IRCabEffect : public EffectProcessor
                                                                   slotB.left, slotB.right, slotB.sampleRate);
 
             // Same slots as the rebuild SetParam used to do: A always, B only when it has an IR.
+            BuiltImpulse builtA;
+            BuiltImpulse builtB;
+
             if (!slotA.left.empty())
             {
                 BuildConvolverPair(settings, slotA.left, slotA.right, slotA.isStereo, slotA.sampleRate, convolverL,
-                                   convolverR);
+                                   convolverR, &builtA);
             }
 
             if (!slotB.left.empty())
             {
                 BuildConvolverPair(settings, slotB.left, slotB.right, slotB.isStereo, slotB.sampleRate, convolverBL,
-                                   convolverBR);
+                                   convolverBR, &builtB);
             }
+
+            // Quality, Normalize and the trim all change what the pair plays, so it is measured again.
+            blendCorrelation = ComputeBlendCorrelation(builtA, builtB, settings.hostSampleRate);
         }
 
         std::uint64_t generation = 0;
@@ -1800,6 +1935,7 @@ class IRCabEffect : public EffectProcessor
         RealtimeConvolver convolverR;
         RealtimeConvolver convolverBL;
         RealtimeConvolver convolverBR;
+        BlendCorrelation blendCorrelation;
     };
 
     enum class AirMode
@@ -2037,6 +2173,10 @@ class IRCabEffect : public EffectProcessor
     double mIRSampleRateB = 48000.0;
     bool mIsStereo = false;
     bool mIsStereoB = false;
+    BuiltImpulse mBuiltA; // what slot A's last build played, until RefreshBlendCorrelation reads it
+    BuiltImpulse mBuiltB;
+    BlendCorrelation mBlendCorrelation;     // the live pair, for Auto Gain Comp
+    BlendCorrelation mPrevBlendCorrelation; // the outgoing pair of a crossfade
 
     std::vector<float> mInputBufferL; // the clean input, which is also the dry signal
     std::vector<float> mInputBufferR;

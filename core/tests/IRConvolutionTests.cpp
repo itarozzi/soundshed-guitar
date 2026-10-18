@@ -17,6 +17,7 @@
 #include <iostream>
 #include <limits>
 #include <memory>
+#include <random>
 #include <stdexcept>
 #include <string>
 #include <system_error>
@@ -1000,6 +1001,72 @@ bool TestStereoIRRetention()
                       << channelR[i] << ")\n";
             return false;
         }
+    }
+
+    std::cout << "OK\n";
+    return true;
+}
+
+// A stereo IR shortened by Quality is cut at one point for both channels, with a fade. Each channel
+// used to be cut at its own energy point and then trimmed to the shorter one with no fade, so a
+// channel with a long tail was cut off mid-signal where the other's ended.
+bool TestStereoIRTruncatesBothChannelsTogether()
+{
+    std::cout << "Test: Stereo IR truncation cuts both channels at one point, with a fade... ";
+
+    std::vector<float> leftIR(2000);
+    std::vector<float> rightIR(2000);
+    std::mt19937 rng(7);
+    std::uniform_real_distribution<float> noise(-1.0f, 1.0f);
+
+    for (std::size_t n = 0; n < leftIR.size(); ++n)
+    {
+        leftIR[n] = noise(rng) * static_cast<float>(std::exp(-static_cast<double>(n) / 20.0));    // gone in ~70
+        rightIR[n] = noise(rng) * static_cast<float>(std::exp(-static_cast<double>(n) / 2000.0)); // still ringing
+    }
+
+    IRConvolutionTester tester;
+    tester.SetStereoImpulse(leftIR, rightIR);
+    tester.SetCabParam("normalizeIR", 0.0);
+    tester.SetCabParam("quality", 0.0); // Economy: 10 ms, 441 samples at 44.1 kHz
+
+    std::vector<double> response(2000, 0.0);
+    response[0] = 1.0;
+    tester.Convolve(response, 1);
+
+    // The last sample of the IR itself, above the FFT stages' rounding (~1e-8).
+    std::size_t last = 0;
+
+    for (std::size_t n = 0; n < response.size(); ++n)
+    {
+        if (std::abs(response[n]) > 1e-5)
+        {
+            last = n;
+        }
+    }
+
+    double tail = 0.0;
+    double body = 0.0;
+
+    for (std::size_t n = 0; n < 8 && last >= 128; ++n)
+    {
+        tail += std::abs(response[last - n]);
+    }
+
+    for (std::size_t n = last - 128; n < last - 64 && last >= 128; ++n)
+    {
+        body += std::abs(response[n]);
+    }
+
+    tail /= 8.0;
+    body /= 64.0;
+
+    // Cut where the left channel ended, the right one stopped near sample 325 at full level.
+    if (last < 430 || last >= 441 || tail > 0.2 * body)
+    {
+        std::cout << "FAILED (right channel ends at sample " << last << ", last 8 samples " << tail << " against "
+                  << body << " before the fade)\n";
+        return false;
     }
 
     std::cout << "OK\n";
@@ -2155,6 +2222,7 @@ int main()
     runTest(TestEmptyIR);
     runTest(TestStereoChannels);
     runTest(TestStereoIRRetention);
+    runTest(TestStereoIRTruncatesBothChannelsTogether);
     runTest(TestRealtimeLatency);
     runTest(TestAudioCleanness);
     runTest(TestLargeScaleRealtimeProcessing);

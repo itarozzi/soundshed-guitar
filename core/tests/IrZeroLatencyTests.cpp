@@ -292,6 +292,63 @@ bool TestSavedLowLatencyIsIgnored(const std::string& type)
     ok &= Expect(plainL == savedL && plainR == savedR, name + ": the output should be the same to the bit");
     return ok;
 }
+
+std::vector<float> Tone(double rmsDbfs, std::size_t length)
+{
+    const double amplitude = std::pow(10.0, rmsDbfs / 20.0) * std::sqrt(2.0);
+    std::vector<float> tone(length);
+
+    for (std::size_t n = 0; n < length; ++n)
+    {
+        tone[n] = static_cast<float>(
+            amplitude * std::sin(2.0 * 3.14159265358979323846 * 1000.0 * static_cast<double>(n) / kSampleRate));
+    }
+
+    return tone;
+}
+
+/// A bypassed cab passes nothing to Speaker Drive, so the speaker cools. Its compression used to
+/// freeze over the bypass instead, and came back still holding down the loud passage before it:
+/// -6 dB on quiet playing for about a second.
+bool TestSpeakerDriveCoolsWhileBypassed()
+{
+    std::cout << "IR Cabinet: Speaker Drive comes back from a bypass cooled" << std::endl;
+    auto cab = MakeEffect(EffectGuids::kCabIr, {{"speakerDrive", 1.0}}, 256);
+    auto fresh = MakeEffect(EffectGuids::kCabIr, {{"speakerDrive", 1.0}}, 256);
+
+    if (!Expect(cab != nullptr && fresh != nullptr, "the spike IR should load"))
+    {
+        return false;
+    }
+
+    std::vector<float> outL;
+    std::vector<float> outR;
+    Render(*cab, Tone(0.0, 48000), outL, outR, 64); // a loud second, at the compression's limit
+    cab->SetParam("enabled", 0.0);
+    Render(*cab, Tone(0.0, 640), outL, outR, 64);
+    cab->SetParam("enabled", 1.0);
+
+    const auto quiet = Tone(-30.0, 9600);
+    std::vector<float> afterL;
+    std::vector<float> freshL;
+    Render(*cab, quiet, afterL, outR, 64);
+    Render(*fresh, quiet, freshL, outR, 64);
+
+    // From 10 ms after the quiet playing reaches the spike, past the history from before.
+    double after = 0.0;
+    double expected = 0.0;
+
+    for (std::size_t n = kSpikeAt + 480; n < quiet.size(); ++n)
+    {
+        after += static_cast<double>(afterL[n]) * afterL[n];
+        expected += static_cast<double>(freshL[n]) * freshL[n];
+    }
+
+    const double differenceDb = 10.0 * std::log10(after / expected);
+    return Expect(std::abs(differenceDb) < 0.1, "quiet playing after the bypass should be as loud as on a fresh " +
+                                                    std::string("cab, but was ") + std::to_string(differenceDb) +
+                                                    " dB off");
+}
 } // namespace
 
 int main()
@@ -307,6 +364,7 @@ int main()
     }
 
     ok &= TestSpeakerDriveLeavesTheDryClean();
+    ok &= TestSpeakerDriveCoolsWhileBypassed();
 
     std::error_code ignored;
     fs::remove_all(TempDir(), ignored);

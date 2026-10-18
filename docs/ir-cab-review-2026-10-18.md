@@ -102,6 +102,30 @@ out nearer +1 dB. The comp also ignores IR A/B Level, and it is only valid with 
 take ρ as the dot product of the two built, normalised impulses at build time, then use
 `a² + b² + 2abρ`.
 
+**Fixed the same day:** whenever the convolvers are built (load, Prepare, a deferred Quality,
+Normalize or Trim rebuild), the effect measures the two impulses as built: each one's energy, and
+their cross-correlation at every whole-sample IR B Offset within ±10 ms. It does this by FFT, never
+on the audio thread. The comp is now `sqrt(target / actual)`:
+- `target = (1−β)·E_A + β·E_B`, a power interpolation of the two IRs' own levels.
+- `actual = (1−β)²E_A + β²E_B + 2β(1−β)·C(offset)`. The sign of `C` flips when exactly one slot is
+  inverted, and `C` is read at the offset the alignment is currently playing.
+
+The comp is capped at +6 dB, because an inverted pair can cancel entirely. Slot Levels are still
+left out, so they set the balance. The outgoing side of a crossfade uses its own pair's measurement,
+since a reload can change the comp with the same slots loaded. For unalike pairs the result is the
+old formula exactly. A pair that has not been measured falls back to it.
+
+`IRCabBlendCompTests` covers:
+- Two copies of one IR hold the lone level (they were +3.0 dB).
+- 421/906 match the power interpolation within 0.3 dB (they were +2.6 dB at 0.5).
+- Unalike pairs, and one IR offset ±1 ms against itself, still get the power comp.
+- Normalize off interpolates the IRs' own levels (an IR with a copy 6 dB down was +2.6 dB off).
+- An inverted pair is capped.
+- A load crossfades each side at its own comp.
+
+10 of its checks fail on the old header. Presets that blend two similar IRs with Auto Gain Comp on
+get quieter, by up to ~3 dB at IR Blend 0.5 (changelog).
+
 ### 5. Stereo IR truncation cuts one channel without a fade (low)
 
 When Quality is below Full, `BuildConvolverPair` truncates L and R separately. Each gets its own
@@ -109,16 +133,26 @@ energy point and its own 64-sample fade. Both are then cut to the shorter length
 is cut off mid-signal with no fade. `GetProcessedImpulseStereo()` already does the joint truncation,
 but nothing calls it.
 
+**Fixed the same day:** `GetProcessedImpulseStereo` is now a static helper that both stereo builds
+use. Both channels are cut at the joint energy point, each with the fade.
+`TestStereoIRTruncatesBothChannelsTogether` in `IRConvolutionTests` covers it. On the old code the
+right channel stopped at sample 322 at full level.
+
 ### 6. Speaker Drive keeps its detector state through bypass (low)
 
 With the cab disabled or at Mix 0, `Process()` returns before Speaker Drive runs, so its state freezes.
 Re-enable after a loud passage and finding 2's wind-up carries over: up to ~1-3 s at -6 dB.
 Switching Drive itself off and on is fine. The first sample at drive 0 clears the state.
 
+**Fixed the same day:** the bypass branch now resets Speaker Drive while it is active, so the speaker
+cools. `TestSpeakerDriveCoolsWhileBypassed` in `IrZeroLatencyTests` covers it. On the old code,
+quiet playing after the bypass came out -5.4 dB.
+
 ### 7. Smaller items
 
 - Dead code: `GetProcessedImpulseStereo`, `ComputeSignalEnergy` and `ComputeSignalEnergyStereo` are
-  never called.
+  never called. **Fixed:** the two energy helpers are gone, and `GetProcessedImpulseStereo` is now
+  used (finding 5).
 - The IR Cab leaves the excursion corner at the 180 Hz default. Simple Cab tunes it to the cabinet's
   resonance. An IR's low resonance peak could be estimated at build time. This is an enhancement.
 - `SpeakerDrive.h`'s comment says the cubic "makes only the third harmonic". That is true only below

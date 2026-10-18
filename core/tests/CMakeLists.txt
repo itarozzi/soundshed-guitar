@@ -53,6 +53,7 @@ set(TEST_SOURCES
     IdenticalInputFoldTests.cpp
     IRBuildOnPrepareTests.cpp
     IRCabAutomationRealtimeTests.cpp
+    IRCabBlendCompTests.cpp
     IRCabLoneSlotTests.cpp
     IRCabReloadTests.cpp
     IrAlignmentTests.cpp
