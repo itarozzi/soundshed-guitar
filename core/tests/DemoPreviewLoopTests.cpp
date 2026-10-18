@@ -392,11 +392,47 @@ bool TestMonoInputBusFoldsInsteadOfCrashing()
 }
 } // namespace
 
+/// A loop begins at its start. The wrap crossfade is for the seam, and a region armed with
+/// it in flight opened on the end of the loop smeared over its start, then played that start
+/// again.
+bool TestLoopStartsAtItsStartNotTheSeam()
+{
+    std::cout << "\nA loop starts at its start, not with the seam crossfade\n";
+    Fixture f;
+
+    const std::size_t total = 24000;
+    const std::size_t start = 4800;
+    const std::size_t end = 19200;
+    DemoPreviewServiceTestAccess::Seat(*f.svc, MakeRamp(total, start, end), MakeRamp(total, start, end), kSampleRate,
+                                       static_cast<double>(start) / kSampleRate, static_cast<double>(end) / kSampleRate,
+                                       false);
+
+    // Repeat switched on: the same region, now looping, as the riff preview's toggle does.
+    f.svc->SetPreviewRegion(static_cast<double>(start) / kSampleRate, static_cast<double>(end) / kSampleRate, true);
+
+    const bool hasFade = DemoPreviewServiceTestAccess::CarryLength(*f.svc) > 0;
+    const auto rendered = Render(*f.svc, 512, 1);
+
+    // The ramp is -1 at the loop's start; the seam crossfade opens on the +1 it fades out of.
+    const bool startsAtStart = !rendered.empty() && rendered.front() < -0.9f;
+
+    Report("Wrap crossfade present:", hasFade);
+    Report("Playback opens on the loop's first sample:", startsAtStart);
+    std::cout << "    first sample: " << (rendered.empty() ? 0.0f : rendered.front()) << "\n";
+
+    return hasFade && startsAtStart;
+}
+
 int main()
 {
     bool allPassed = true;
 
     if (!TestLoopWrapIsCrossfadedNotCut())
+    {
+        allPassed = false;
+    }
+
+    if (!TestLoopStartsAtItsStartNotTheSeam())
     {
         allPassed = false;
     }

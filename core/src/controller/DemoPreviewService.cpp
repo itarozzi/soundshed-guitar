@@ -230,6 +230,9 @@ void DemoPreviewService::SetPreviewRegion(double startSec, double endSec, bool l
     // same reason StartPreview does; the audio thread itself still only does an
     // atomic load and never blocks.
     std::lock_guard<std::mutex> lock(mDSPMutex);
+    // The new region's crossfade is not in flight: left where the old one's was, a Repeat
+    // switched on mid-play put the new seam into the next block.
+    mCarryPos = region ? region->carryL.size() : 0;
     std::atomic_store_explicit(&mPreviewRegion, region, std::memory_order_release);
 }
 
@@ -366,7 +369,9 @@ void DemoPreviewService::StartDecodedPreview(const std::vector<std::uint8_t>& de
     {
         std::lock_guard<std::mutex> lock(mDSPMutex);
         mDemoAudioCursor.store(region ? region->startFrame : 0, std::memory_order_release);
-        mCarryPos = 0;
+        // Past the carry: the wrap crossfade is for the seam, and a preview that opened with
+        // it smeared the end of the loop over its start and then played that start again.
+        mCarryPos = region ? region->carryL.size() : 0;
         std::atomic_store_explicit(&mPreviewRegion, region, std::memory_order_release);
         std::atomic_store_explicit(&mDemoAudioBuffer, buffer, std::memory_order_release);
         mDemoAudioActive.store(true, std::memory_order_release);
