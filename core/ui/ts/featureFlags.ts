@@ -18,6 +18,7 @@ export const Features = {
   BlendTools: "blendTools",
   EffectLayout: "effectLayouts",
   ResourceCleanup: "resourceCleanup",
+  FactoryPresetPacks: "factoryPresetPacks",
   FactoryPresetArchives: "factoryPresetArchives",
   DebugStateCapture: "debugStateCapture",
   EffectsPerformancePads: "effectsPerformancePads",
@@ -44,6 +45,13 @@ export interface FeatureGroupDefinition {
 const LEGACY_ADVANCED_OPTIONS_SETTING = "ui.advancedOptionsEnabled";
 
 export const FEATURE_DEFINITIONS: FeatureDefinition[] = [
+  {
+    id: Features.FactoryPresetPacks,
+    key: "features.factoryPresetPacks.enabled",
+    label: "Factory Preset Packs",
+    description: "Shows factory presets in the preset chooser. Switch off to hide them without deleting packs or changing the preset currently playing.",
+    defaultEnabled: true,
+  },
   {
     id: Features.Tone3000,
     key: "features.tone3000.enabled",
@@ -186,7 +194,7 @@ export const FEATURE_GROUPS: FeatureGroupDefinition[] = [
     id: "core",
     title: "Core Features",
     description: "These are the default features enabled in the app which you can optionally switch off.",
-    featureIds: [Features.Tone3000, Features.ResourceLibrary, Features.RiffLibrary, Features.ToneSharing, Features.Jam, Features.PracticeTool, Features.MultiRig],
+    featureIds: [Features.FactoryPresetPacks, Features.Tone3000, Features.ResourceLibrary, Features.RiffLibrary, Features.ToneSharing, Features.Jam, Features.PracticeTool, Features.MultiRig],
   },
   {
     id: "power",

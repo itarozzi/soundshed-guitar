@@ -13,7 +13,7 @@ import { renderSignalPathBar } from "../signalPath.js";
 import { uiState } from "../state.js";
 import type { Preset } from "../types.js";
 import { renderPresetDetails, renderPresetList } from "../views.js";
-import { activeTagFilters, filterPresets } from "./filter.js";
+import { activeTagFilters, filterPresets, refilterPresets } from "./filter.js";
 import { movePresetFolder, setActivePresetFolder, syncPresetFolderToolbarState } from "./folderControls.js";
 import { applyPresetFromLibrary, bindLoadButtons, requestSignalPathTest } from "./load.js";
 import { closePresetLibraryPopover, takePresetChooserOverride } from "./popover.js";
@@ -21,6 +21,8 @@ import { setPresetUIRenderer } from "./refresh.js";
 import { updatePresetFolderExportButtons } from "./toolbar.js";
 
 export function renderPresetUI(preset: Preset | null): void {
+  // Settings can arrive after the preset list, and saves can reset the filtered view.
+  refilterPresets();
   syncPresetFolderToolbarState();
 
   const visiblePresets = uiState.activePresetFolderId === PRESET_FOLDER_RECENTS_ID

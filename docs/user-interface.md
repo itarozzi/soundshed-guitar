@@ -415,6 +415,17 @@ on `<html>`; every rule in `css/compact/` keys off those attributes. The pre-pai
   library (folders over presets), the FX library (category chips over two columns) and the
   Tones sidebar stack their parts instead of placing them side by side.
 
+## Settings → Features
+
+**Factory Preset Packs** (`features.factoryPresetPacks.enabled`) is a default-on
+Core Feature. Switching it off hides presets identified by the engine's
+`presetList` as `source: "factory"` from the preset chooser, including search,
+folders, Favorites and Recents. The preference is saved and takes effect immediately.
+It does not delete packs, unload the currently playing preset, or prevent existing
+setlists and mixer slots from loading factory presets. Switching it on restores
+the entries. This is separate from the Power Feature **Factory Preset Archive Tools**,
+which controls development/authoring tools.
+
 ## Settings → Audio & MIDI
 
 The Settings panel's own tab strip (`core/ui/ts/settings/tabs.ts`, markup in

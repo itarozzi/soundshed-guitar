@@ -182,8 +182,9 @@ export function onPresetList(payload: IncomingPayload): void {
             ...existingCached,
             name: p.name,
             category: incomingCategory,
+            source: p.source,
           }
-        : { id: p.id, name: p.name, category: incomingCategory } as Preset;
+        : { id: p.id, name: p.name, category: incomingCategory, source: p.source } as Preset;
       cachePreset(nextPreset, p.id);
       nextPresets.push(nextPreset);
     }

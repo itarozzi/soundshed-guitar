@@ -2,6 +2,33 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { uiState } from "../ts/state.js";
 import { FEATURE_GROUPS, Features, isFeatureEnabled } from "../ts/featureFlags.js";
 
+describe("Factory Preset Packs feature flag", () => {
+  beforeEach(() => {
+    uiState.appSettings = {};
+  });
+
+  it("is on by default and listed under Core Features", () => {
+    expect(isFeatureEnabled(Features.FactoryPresetPacks)).toBe(true);
+    expect(FEATURE_GROUPS.find((group) => group.id === "core")?.featureIds).toContain(Features.FactoryPresetPacks);
+    expect(FEATURE_GROUPS.find((group) => group.id === "power")?.featureIds).not.toContain(Features.FactoryPresetPacks);
+  });
+
+  it("does not follow the legacy advanced-options or archive-authoring switches", () => {
+    uiState.appSettings = {
+      "ui.advancedOptionsEnabled": false,
+      "features.factoryPresetArchives.enabled": false,
+    };
+    expect(isFeatureEnabled(Features.FactoryPresetPacks)).toBe(true);
+  });
+
+  it("respects an explicitly saved preference", () => {
+    uiState.appSettings = { "features.factoryPresetPacks.enabled": false };
+    expect(isFeatureEnabled(Features.FactoryPresetPacks)).toBe(false);
+    uiState.appSettings = { "features.factoryPresetPacks.enabled": true };
+    expect(isFeatureEnabled(Features.FactoryPresetPacks)).toBe(true);
+  });
+});
+
 describe("Multi-Rig feature flag", () => {
   beforeEach(() => {
     uiState.appSettings = {} as typeof uiState.appSettings;

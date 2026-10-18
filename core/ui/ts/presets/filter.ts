@@ -10,6 +10,7 @@
  */
 
 import { getRecentPresets, loadFavoritePresetIds } from "../presets/favorites.js";
+import { Features, isFeatureEnabled } from "../featureFlags.js";
 import { collectPresetIds, findFolderById, isVirtualPresetFolderId } from "../presets/folders.js";
 import { PRESET_FOLDER_ALL_ID, PRESET_FOLDER_FAVORITES_ID, PRESET_FOLDER_RECENTS_ID, sortPresetsAlphabetically } from "../presets/sorting.js";
 import { getActivePresetForRender, uiState } from "../state.js";
@@ -34,6 +35,12 @@ export function getFilteredPresets(query: string): Preset[] {
 
   if (activeFolderId === PRESET_FOLDER_RECENTS_ID) {
     basePresets = getRecentPresets();
+  }
+
+  if (!isFeatureEnabled(Features.FactoryPresetPacks)) {
+    // Full preset bodies may not carry source; the engine's library index does.
+    const factoryIds = new Set(uiState.presets.filter((preset) => preset.source === "factory").map((preset) => preset.id));
+    basePresets = basePresets.filter((preset) => preset.source !== "factory" && !factoryIds.has(preset.id));
   }
 
   if (!isVirtualPresetFolderId(activeFolderId)) {
