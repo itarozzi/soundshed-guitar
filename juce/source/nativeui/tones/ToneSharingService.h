@@ -1,5 +1,6 @@
 #pragma once
 
+#include "nativeui/tones/HttpWorkers.h"
 #include "uiclient/ToneSharing.h"
 #include "uiclient/UiClient.h"
 
@@ -84,8 +85,8 @@ private:
 
     /// Runs on a worker; `json` requests retry once without a session the service refused.
     void request (const std::string& method, const std::string& url, const std::string& jsonBody, bool json, BytesCallback done);
-    static HttpResult perform (const std::string& method, const std::string& url, const std::string& jsonBody,
-                               const std::string& session, const std::atomic<bool>& isAlive);
+    /// One request, blocking, on a worker.
+    HttpResult perform (const std::string& method, const std::string& url, const std::string& jsonBody, const std::string& session);
 
     void installItem (const guitarfx::uiclient::tones::Tone& tone);
     void installPack (const guitarfx::uiclient::tones::Tone& tone);
@@ -99,7 +100,7 @@ private:
 
     NanoContext& context;
     std::shared_ptr<std::atomic<bool>> alive = std::make_shared<std::atomic<bool>> (true);
-    juce::ThreadPool pool { 3 };
+    HttpWorkers workers { 3 }; // destroyed before `alive` is read by anything still queued; cuts requests short
 
     std::optional<guitarfx::uiclient::tones::User> account;
     std::map<std::string, juce::Image> images;

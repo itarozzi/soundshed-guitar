@@ -31,60 +31,35 @@ ToneSharingService::ToneSharingService (NanoContext& contextIn) : context (conte
 
 ToneSharingService::~ToneSharingService()
 {
-    // Callbacks already queued see this and do nothing; a download in progress stops reading.
+    // Callbacks already queued see this and do nothing. The workers, destroyed next, cut short
+    // whatever is still in flight rather than waiting for the network to time out.
     alive->store (false);
-    pool.removeAllJobs (true, kConnectionTimeoutMs + 2000);
 }
 
 // ── Requests ────────────────────────────────────────────────────────────────────
 
 ToneSharingService::HttpResult ToneSharingService::perform (const std::string& method, const std::string& url,
-                                                            const std::string& jsonBody, const std::string& session,
-                                                            const std::atomic<bool>& isAlive)
+                                                            const std::string& jsonBody, const std::string& session)
 {
-    HttpResult result;
     juce::URL target (utf8 (url));
-    auto handling = juce::URL::ParameterHandling::inAddress;
     juce::String headers = "Accept: application/json\r\n";
 
     if (method != "GET")
     {
         // POST, PUT and DELETE all carry a JSON body; the service reads "{}" as no fields.
         target = target.withPOSTData (utf8 (jsonBody.empty() ? std::string ("{}") : jsonBody));
-        handling = juce::URL::ParameterHandling::inPostData;
         headers << "Content-Type: application/json\r\n";
     }
 
     if (! session.empty())
         headers << "x-session-id: " << utf8 (session) << "\r\n";
 
-    juce::StringPairArray responseHeaders;
-    const auto common = juce::URL::InputStreamOptions (handling)
-                            .withExtraHeaders (headers)
-                            .withConnectionTimeoutMs (kConnectionTimeoutMs)
-                            .withStatusCode (&result.status)
-                            .withResponseHeaders (&responseHeaders)
-                            .withNumRedirectsToFollow (5);
+    auto response = workers.perform (target, utf8 (method), headers, kConnectionTimeoutMs);
 
-    const auto stream = target.createInputStream (method != "GET" ? common.withHttpRequestCmd (utf8 (method)) : common);
-
-    if (stream == nullptr)
-        return result;
-
-    // Read in pieces so a download stops as soon as the service is torn down.
-    std::vector<char> buffer (64 * 1024);
-
-    while (isAlive.load())
-    {
-        const auto read = stream->read (buffer.data(), (int) buffer.size());
-
-        if (read <= 0)
-            break;
-
-        result.body.append (buffer.data(), (std::size_t) read);
-    }
-
-    result.sessionHeader = responseHeaders.getValue ("x-session-id", {}).toStdString();
+    HttpResult result;
+    result.status = response.status;
+    result.body = std::move (response.body);
+    result.sessionHeader = response.headers.getValue ("x-session-id", {}).toStdString();
     return result;
 }
 
@@ -94,15 +69,15 @@ void ToneSharingService::request (const std::string& method, const std::string& 
     const auto session = sessionId();
     auto flag = alive;
 
-    pool.addJob ([this, flag, method, url, jsonBody, session, json, done = std::move (done)] {
-        auto result = perform (method, url, jsonBody, session, *flag);
+    workers.run ([this, flag, method, url, jsonBody, session, json, done = std::move (done)] {
+        auto result = perform (method, url, jsonBody, session);
 
         // As the web UI does: a stored session the service no longer knows is dropped, and the
         // request asked again without it.
         const bool retried = json && result.status == 401 && ! session.empty() && flag->load();
 
         if (retried)
-            result = perform (method, url, jsonBody, {}, *flag);
+            result = perform (method, url, jsonBody, {});
 
         juce::MessageManager::callAsync ([this, flag, result = std::move (result), retried, done] {
             if (! flag->load())

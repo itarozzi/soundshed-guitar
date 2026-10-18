@@ -930,6 +930,35 @@ if(WIN32)
 
     add_test(NAME NanoMenuOptionsTests COMMAND NanoMenuOptionsTests)
 
+    # The Tones page's HTTP workers (source/nativeui/tones/HttpWorkers.h): destroying them must
+    # cut a request in flight short, not wait for the network to time out. juce_core only.
+    add_executable(HttpWorkersTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/HttpWorkersTests.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/source/nativeui/tones/HttpWorkers.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/source/nativeui/tones/HttpWorkers.h"
+    )
+
+    target_include_directories(HttpWorkersTests
+        PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/source"
+    )
+
+    target_link_libraries(HttpWorkersTests
+        PRIVATE
+            juce_core
+            juce::juce_recommended_config_flags
+            juce::juce_recommended_warning_flags
+    )
+
+    set_target_properties(HttpWorkersTests PROPERTIES
+        CXX_STANDARD 20
+        CXX_STANDARD_REQUIRED ON
+        FOLDER "GuitarFX/Tests"
+    )
+
+    add_test(NAME HttpWorkersTests COMMAND HttpWorkersTests)
+    set_tests_properties(HttpWorkersTests PROPERTIES TIMEOUT 120)
+
     # Offline renderer that automates external plugins' transpose parameter for
     # the transpose benchmark (see tools/transpose-benchmark/). Not a ctest.
     add_executable(TransposeExternalRender
