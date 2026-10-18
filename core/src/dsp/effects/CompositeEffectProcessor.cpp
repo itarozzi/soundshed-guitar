@@ -66,6 +66,15 @@ void CompositeEffectProcessor::Process(float** inputs, float** outputs, int numS
 
 void CompositeEffectProcessor::SetParam(const std::string& key, double value)
 {
+    // The host tempo, which the parent graph pushes because every composite is registered as
+    // wanting it: the inner graph hands it on to whatever inside is tempo-synced, as the parent
+    // does for its own nodes. Without it a synced delay or tremolo inside a custom effect ran at
+    // the default tempo whatever the host's.
+    if (key == "bpm")
+    {
+        mInnerExecutor.SetTempo(value);
+    }
+
     auto it = mParamMap.find(key);
 
     if (it != mParamMap.end())
@@ -254,6 +263,9 @@ void CompositeEffectLibrary::RegisterDefinition(const CompositeEffectDefinition&
     info.category = def.category;
     info.description = def.description;
     info.requiresResource = false;
+    // So the parent graph pushes the host tempo, which SetParam hands to the inner graph. An
+    // inner graph with nothing synced in it ignores it at the cost of one comparison.
+    info.requiresTempo = true;
 
     // Build parameter definitions from exposed parameters. A "log" curve is the log taper; an
     // "exp" one has no taper of its own yet, so it stays linear, as every curve was before.

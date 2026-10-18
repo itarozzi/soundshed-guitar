@@ -603,6 +603,46 @@ bool TestTempoReachesTempoAwareNodes()
     return rebuilt != nullptr && std::abs(rebuilt->GetParam("bpm") - 90.0) <= 1e-6;
 }
 
+/// A tempo-synced effect inside a custom effect follows the host tempo, as it would outside one:
+/// the composite type asks for the tempo and hands it to its inner graph. It ran at the default.
+bool TestTempoReachesInsideAComposite()
+{
+    using namespace guitarfx;
+    RegisterAllEffects();
+
+    CompositeEffectDefinition def;
+    def.id = "test-composite-tempo";
+    def.name = "Synced Composite";
+    def.category = "delay";
+    def.innerGraph = MakeTempoSyncedDelayGraph();
+    CompositeEffectLibrary library;
+    library.AddDefinition(def);
+
+    SignalGraph outer;
+    GraphNode in;
+    in.id = "in";
+    in.type = "input";
+    GraphNode composite;
+    composite.id = "composite";
+    composite.type = def.GetEffectTypeId();
+    GraphNode out;
+    out.id = "out";
+    out.type = "output";
+    outer.nodes = {in, composite, out};
+    outer.edges = {{"in", "composite"}, {"composite", "out"}};
+
+    SignalGraphExecutor exec;
+    exec.SetGraph(outer);
+    exec.Prepare(kSR, kBlock);
+    exec.SetTempo(132.0);
+
+    const auto* wrapped = dynamic_cast<const CompositeEffectProcessor*>(exec.GetNodeProcessor("composite"));
+    const EffectProcessor* inner = wrapped ? wrapped->GetInnerExecutor().GetNodeProcessor("delay") : nullptr;
+    const double heard = inner ? inner->GetParam("bpm") : 0.0;
+    std::cout << "    inner delay at " << heard << " bpm\n";
+    return std::abs(heard - 132.0) <= 1e-6;
+}
+
 /// A graph the executor cannot run -- a cycle, or an edge naming a node it does not have -- is
 /// invalid, and an invalid graph is silence rather than whatever part of it could be ordered.
 bool TestBrokenGraphsAreInvalid()
@@ -1356,6 +1396,21 @@ int main()
     {
         const bool ok = TestTempoReachesTempoAwareNodes();
         std::cout << "Tempo delivery to tempo-aware nodes:" << (ok ? "  PASS" : "  FAIL") << "\n";
+
+        if (ok)
+        {
+            ++passed;
+        }
+        else
+        {
+            ++failed;
+        }
+    }
+
+    // Case 14b: Tempo reaches a synced effect inside a composite
+    {
+        const bool ok = TestTempoReachesInsideAComposite();
+        std::cout << "Tempo delivery inside a composite:" << (ok ? "  PASS" : "  FAIL") << "\n";
 
         if (ok)
         {
