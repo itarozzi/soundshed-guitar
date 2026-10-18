@@ -104,7 +104,9 @@ function setBackingTracksTab(tab: BackingTracksTabId): void {
 
 async function runSearch(): Promise<void> {
   const jam = ensureJamState();
-  const query = normalizeSearchQuery(jam.query);
+  // The query as asked for: the input keeps writing jam.query while a reply is in flight.
+  const rawQuery = jam.query;
+  const query = normalizeSearchQuery(rawQuery);
   if (!query) {
     jam.error = "Enter a search term to find backing tracks.";
     jam.results = [];
@@ -112,8 +114,10 @@ async function runSearch(): Promise<void> {
     return;
   }
 
-  const cached = getCachedSearch(jam.query);
+  const cached = getCachedSearch(rawQuery);
   if (cached) {
+    // Supersedes a reply still in flight, which would otherwise replace these results.
+    searchRequestId += 1;
     jam.results = cached.results;
     jam.loading = false;
     jam.error = jam.results.length === 0 ? "No matching backing tracks found." : "";
@@ -144,7 +148,7 @@ async function runSearch(): Promise<void> {
     jam.results = results;
     jam.loading = false;
     jam.error = jam.results.length === 0 ? "No matching backing tracks found." : "";
-    persistSearchCache(jam.query, jam.results);
+    persistSearchCache(rawQuery, jam.results);
     appendLog(`jam search → ${query}`);
   } catch (error) {
     if (requestId !== searchRequestId) {
