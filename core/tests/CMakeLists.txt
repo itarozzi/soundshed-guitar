@@ -116,6 +116,7 @@ set(TEST_SOURCES
     RiffCaptureNoticeTests.cpp
     RingModEffectTests.cpp
     RotaryVibeEffectTests.cpp
+    NamResamplerLatencyTests.cpp
     SampleRateConverterTests.cpp
     SetlistMidiOutTests.cpp
     StorageMigrationTests.cpp

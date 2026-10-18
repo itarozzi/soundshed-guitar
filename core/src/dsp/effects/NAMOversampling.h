@@ -162,10 +162,13 @@ class NamOversamplingProcessor
             {
                 PrimeResampler();
             }
+
+            mLatencySamples = MeasureRoundTripLatency();
         }
         else
         {
             mResampler.reset();
+            mLatencySamples = 0;
         }
 
         model.SetTimeScale(mTimeScale);
@@ -213,9 +216,10 @@ class NamOversamplingProcessor
             });
     }
 
+    /// The delay the round trip through the resampler adds, as measured when it was prepared.
     [[nodiscard]] int GetLatencySamples() const noexcept
     {
-        return mResampler ? mResampler->GetLatency() : 0;
+        return mResampler ? mLatencySamples : 0;
     }
 
     [[nodiscard]] double GetRenderingSampleRate() const noexcept
@@ -239,6 +243,66 @@ class NamOversamplingProcessor
     }
 
   private:
+    /// The resampler's own GetLatency() counts only the upsampler's pre-roll, not the
+    /// downsampler's kernel or the anti-alias filters' delay, so it came out short whenever the
+    /// rates differ: 27 samples reported against 33 heard at 44.1 kHz with a 48 kHz model, 70
+    /// against 120 at 192 kHz, 91 against 210 with a linear-phase filter. The dry path of a NAM
+    /// amp at Mix below 1 and the lanes of a blend are aligned by this figure, so the shortfall
+    /// was a comb filter, and the host's delay compensation fell short by as much. Measured
+    /// here instead, once: a smooth pulse goes through with the model passed by, and the shift
+    /// of its first moment is the delay at low frequencies, where a guitar's energy is. Off the
+    /// audio thread; the resampler is reset afterwards.
+    [[nodiscard]] int MeasureRoundTripLatency()
+    {
+        const int fallback = mResampler->GetLatency();
+        const double sigma = std::max(2.0, 0.0005 * mHostSampleRate);
+        const double centre = 6.0 * sigma;
+        const auto length = static_cast<int>(std::ceil(2.0 * centre + 0.03 * mHostSampleRate));
+        std::vector<NAM_SAMPLE> input(static_cast<std::size_t>(length), static_cast<NAM_SAMPLE>(0.0));
+        std::vector<NAM_SAMPLE> output(static_cast<std::size_t>(length), static_cast<NAM_SAMPLE>(0.0));
+
+        for (int n = 0; n < length; ++n)
+        {
+            const double x = (static_cast<double>(n) - centre) / sigma;
+            input[static_cast<std::size_t>(n)] = static_cast<NAM_SAMPLE>(0.5 * std::exp(-0.5 * x * x));
+        }
+
+        for (int start = 0; start < length; start += mMaxBlockSize)
+        {
+            const int frames = std::min(mMaxBlockSize, length - start);
+            NAM_SAMPLE* inputPointers[1] = {input.data() + start};
+            NAM_SAMPLE* outputPointers[1] = {output.data() + start};
+            mResampler->ProcessBlock(
+                inputPointers, outputPointers, frames,
+                [](NAM_SAMPLE** in, NAM_SAMPLE** out, int numFrames) { std::copy_n(in[0], numFrames, out[0]); });
+        }
+
+        mResampler->Reset(mHostSampleRate, mMaxBlockSize);
+        double inputSum = 0.0;
+        double inputMoment = 0.0;
+        double outputSum = 0.0;
+        double outputMoment = 0.0;
+
+        for (int n = 0; n < length; ++n)
+        {
+            const auto in = static_cast<double>(input[static_cast<std::size_t>(n)]);
+            const auto out = static_cast<double>(output[static_cast<std::size_t>(n)]);
+            inputSum += in;
+            inputMoment += in * n;
+            outputSum += out;
+            outputMoment += out * n;
+        }
+
+        // A round trip that loses most of the pulse is not one to trust a moment from.
+        if (!IsFinite(outputMoment) || std::abs(outputSum) < 0.5 * inputSum)
+        {
+            return fallback;
+        }
+
+        const double delay = outputMoment / outputSum - inputMoment / inputSum;
+        return std::max(0, static_cast<int>(std::lround(delay)));
+    }
+
     void PrimeResampler()
     {
         if (!mResampler)
@@ -267,6 +331,7 @@ class NamOversamplingProcessor
     int mMaxBlockSize = 512;
     int mMaxRenderingBlockSize = 512;
     int mTimeScale = 1;
+    int mLatencySamples = 0;
     dsp::EAntiAliasFilterPhase mFilterPhase = dsp::EAntiAliasFilterPhase::MinimumPhaseCascadedFIR;
     bool mResamplingActive = false;
     bool mPrepared = false;
