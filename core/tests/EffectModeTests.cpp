@@ -5,7 +5,8 @@
  *   - Tremolo: Classic is unchanged; Harmonic moves the lows and highs in opposite phase;
  *     Pan moves the signal between the sides at constant power, and says it is stereo; Slicer
  *     steps through its pattern, a step each cycle, and Sync can make the steps short
- *   - Digital Delay: Reverse plays each slice backwards, at about the forward level
+ *   - Digital Delay: Reverse plays each slice backwards, at about the forward level; a Time
+ *     change or a tempo ramp glides the head, never steps it
  *   - Ambient Reverb: Shimmer brightens the tail and still lets it die away with every control
  *     up; Freeze holds the tail, ignores what is played over it, and lets go when turned off
  *   - Noise Gate: Swell fades a note in from silence, and again on a new pick while one rings
@@ -436,6 +437,79 @@ void TestReverseDelay()
     Check(finite && SecondsDb(out.right, 4.2, 5.0) > -60.0, "the longest reverse slice plays");
 }
 
+/// The largest sample-to-sample step of `x` from `from` on, over its peak there.
+double WorstStepOverPeak(const std::vector<float>& x, std::size_t from)
+{
+    float peak = 0.0f;
+    float worst = 0.0f;
+
+    for (std::size_t i = std::max<std::size_t>(from, 1); i < x.size(); ++i)
+    {
+        peak = std::max(peak, std::fabs(x[i]));
+        worst = std::max(worst, std::fabs(x[i] - x[i - 1]));
+    }
+
+    return worst / std::max(peak, 1.0e-9f);
+}
+
+void TestDigitalDelayTimeChanges()
+{
+    std::cout << "\nDigital Delay: Time changes" << std::endl;
+    // A 440 Hz sine, all wet: it steps by at most 2 pi 440 / 48000 = 0.058 of its peak per
+    // sample, and a glide at up to 1.5 times speed keeps it under 0.09. A head that jumps lands
+    // on another part of the cycle, a step of up to twice the peak.
+    const auto tone = Sine(440.0, 3.0);
+    const Params wet = {{"feedback", 0.0}, {"mix", 1.0}, {"highCut", 20000.0}, {"lowCut", 20.0}};
+    const std::size_t changeAt = static_cast<std::size_t>(kRate) / kBlock * kBlock;
+
+    guitarfx::DelayEffect knob;
+    Apply(knob, wet);
+    Apply(knob, {{"time", 300.0}});
+    const auto turned = Run(knob, tone, [&](std::size_t start) {
+        if (start == changeAt)
+        {
+            knob.SetParam("time", 310.0);
+        }
+    });
+    const double knobStep = WorstStepOverPeak(turned.left, changeAt);
+    Check(knobStep < 0.1, "turning Time while a note plays glides the head", Num(knobStep, 3) + " of the peak");
+
+    // Sync on, a quarter note, the tempo falling 120 to 100 bpm over two seconds, sent every block
+    // as the executor does (SignalGraphExecutor::SetTempo).
+    guitarfx::DelayEffect synced;
+    Apply(synced, wet);
+    Apply(synced, {{"syncMode", 1.0}, {"syncDivision", 4.0}, {"bpm", 120.0}});
+    const auto ramped = Run(synced, tone, [&](std::size_t start) {
+        const double t = std::min(1.0, static_cast<double>(start) / (2.0 * kRate));
+        synced.SetParam("bpm", 120.0 - 20.0 * t);
+    });
+    const double rampStep = WorstStepOverPeak(ramped.left, static_cast<std::size_t>(0.6 * kRate));
+    Check(rampStep < 0.1, "a tempo ramp with Sync on moves the head smoothly", Num(rampStep, 3) + " of the peak");
+
+    // A preset's stored Time applied after Prepare, before audio, does not glide from the default.
+    guitarfx::DelayEffect loaded;
+    loaded.Prepare(kRate, kBlock);
+    Apply(loaded, wet);
+    Apply(loaded, {{"time", 100.0}});
+    std::vector<float> click(static_cast<std::size_t>(0.3 * kRate), 0.0f);
+    click[0] = 1.0f;
+    std::vector<float> outL(click.size());
+    std::vector<float> outR(click.size());
+
+    for (std::size_t start = 0; start + kBlock <= click.size(); start += kBlock)
+    {
+        float* ins[2] = {click.data() + start, click.data() + start};
+        float* outs[2] = {outL.data() + start, outR.data() + start};
+        loaded.Process(ins, outs, kBlock);
+    }
+
+    const auto echo = static_cast<std::size_t>(
+        std::max_element(outL.begin(), outL.end(), [](float a, float b) { return std::fabs(a) < std::fabs(b); }) -
+        outL.begin());
+    Check(echo >= 4799 && echo <= 4801, "a stored Time applied before audio repeats at once at that Time",
+          std::to_string(echo) + " samples");
+}
+
 /// A 2 s phrase then silence, through an ambient reverb that is all wet.
 Stereo AmbientTail(const Params& params, double seconds)
 {
@@ -638,6 +712,7 @@ int main()
         std::cout << "Effect mode tests" << std::endl;
         TestTremolo();
         TestReverseDelay();
+        TestDigitalDelayTimeChanges();
         TestAmbient();
         TestGateSwell();
         TestNewModesAllocateNothing();

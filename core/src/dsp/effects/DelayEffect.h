@@ -3,6 +3,7 @@
 #include "dsp/EffectProcessor.h"
 #include "dsp/EffectRegistry.h"
 #include "dsp/EffectGuids.h"
+#include "dsp/effects/DelayLineSupport.h"
 #include "dsp/effects/FactoryPresetSupport.h"
 #include "dsp/effects/TempoSync.h"
 #include <algorithm>
@@ -20,6 +21,9 @@ namespace guitarfx
  * and out with a sin^2 window, cover each other's ends, so the windows sum to one and no slice
  * starts with a click. The repeats fed back through Feedback are reversed again, so they
  * alternate between backwards and forwards, as most reverse pedals' do.
+ *
+ * Time and Spread glide (kTimeGlideMs) rather than jump: a read head that moves in one step
+ * is a click, and with Sync on in a DAW a tempo ramp moves it every block.
  */
 class DelayEffect : public EffectProcessor
 {
@@ -46,6 +50,17 @@ class DelayEffect : public EffectProcessor
         mBufferL.assign(maxSamples, 0.0f);
         mBufferR.assign(maxSamples, 0.0f);
 
+        for (auto* glide : {&mDelayGlide, &mSpreadGlide})
+        {
+            glide->Prepare(sampleRate);
+            glide->SetTimeConstantMs(kTimeGlideMs);
+            glide->SetMaxStep(delay_line::kMaxGlideStep);
+        }
+
+        // The ducking follower's attack and release, about 21 and 208 ms whatever the rate.
+        mDuckAttack = static_cast<float>(1.0 - std::exp(-1000.0 / (sampleRate * kDuckAttackMs)));
+        mDuckRelease = static_cast<float>(1.0 - std::exp(-1000.0 / (sampleRate * kDuckReleaseMs)));
+
         UpdateDelaySamples();
         UpdateFilters();
         Reset();
@@ -61,6 +76,9 @@ class DelayEffect : public EffectProcessor
         mEnvelopeR = 0.0f;
         mReversePosL = 0.0;
         mReversePosR = 0.0;
+        mDelayGlide.Snap(mDelaySamples);
+        mSpreadGlide.Snap(mSpreadSamples);
+        mPrimed.store(false, std::memory_order_relaxed);
         mLpStateL = mLpStateR = 0.0f;
         mHpStateL = mHpStateR = 0.0f;
         mHpPrevInL = mHpPrevInR = 0.0f;
@@ -86,12 +104,20 @@ class DelayEffect : public EffectProcessor
         const bool hasRightInput = (inputs[1] != nullptr);
         const size_t bufSize = mBufferL.size();
         const double maxDelay = static_cast<double>(bufSize - 2);
+        const bool modulated = (modAmp > 0.0f);
+        mPrimed.store(true, std::memory_order_relaxed);
 
         for (int i = 0; i < numSamples; ++i)
         {
             // Per sample: modulate delay time, read interpolated taps, filter/drive
             // the feedback path, then mix ducked wet signal with dry input.
-            const float lfoVal = std::sin(mLfoPhase * 6.28318530f);
+            float lfoVal = 0.0f;
+
+            if (modulated)
+            {
+                lfoVal = std::sin(mLfoPhase * 6.28318530f);
+            }
+
             mLfoPhase += lfoStep;
 
             if (mLfoPhase >= 1.0f)
@@ -99,10 +125,12 @@ class DelayEffect : public EffectProcessor
                 mLfoPhase -= 1.0f;
             }
 
-            const double delayL = std::clamp(mDelaySamples + lfoVal * modAmp, 1.0, maxDelay);
-            const double delayR = std::clamp(mDelaySamples + mSpreadSamples + lfoVal * modAmp, 1.0, maxDelay);
-            const double sliceL = std::max(kMinReverseSlice, mDelaySamples);
-            const double sliceR = std::max(kMinReverseSlice, mDelaySamples + mSpreadSamples);
+            const double delaySamples = mDelayGlide.Next();
+            const double spreadSamples = mSpreadGlide.Next();
+            const double delayL = std::clamp(delaySamples + lfoVal * modAmp, 1.0, maxDelay);
+            const double delayR = std::clamp(delaySamples + spreadSamples + lfoVal * modAmp, 1.0, maxDelay);
+            const double sliceL = std::max(kMinReverseSlice, delaySamples);
+            const double sliceR = std::max(kMinReverseSlice, delaySamples + spreadSamples);
 
             const float inL = inputs[0] ? inputs[0][i] : 0.0f;
             const float inR = hasRightInput ? inputs[1][i] : inL;
@@ -127,20 +155,20 @@ class DelayEffect : public EffectProcessor
 
             if (std::abs(inL) > mEnvelopeL)
             {
-                mEnvelopeL += 0.001f * (std::abs(inL) - mEnvelopeL);
+                mEnvelopeL += mDuckAttack * (std::abs(inL) - mEnvelopeL);
             }
             else
             {
-                mEnvelopeL += 0.0001f * (std::abs(inL) - mEnvelopeL);
+                mEnvelopeL += mDuckRelease * (std::abs(inL) - mEnvelopeL);
             }
 
             if (std::abs(inR) > mEnvelopeR)
             {
-                mEnvelopeR += 0.001f * (std::abs(inR) - mEnvelopeR);
+                mEnvelopeR += mDuckAttack * (std::abs(inR) - mEnvelopeR);
             }
             else
             {
-                mEnvelopeR += 0.0001f * (std::abs(inR) - mEnvelopeR);
+                mEnvelopeR += mDuckRelease * (std::abs(inR) - mEnvelopeR);
             }
 
             const float duckGainL = 1.0f - ducking * std::min(mEnvelopeL * 4.0f, 1.0f);
@@ -183,7 +211,10 @@ class DelayEffect : public EffectProcessor
                 outputs[1][i] = inR * dry + delayedR * wet * duckGainR;
             }
 
-            mWritePos = (mWritePos + 1) % bufSize;
+            if (++mWritePos == bufSize)
+            {
+                mWritePos = 0;
+            }
         }
     }
 
@@ -380,13 +411,20 @@ class DelayEffect : public EffectProcessor
         return std::clamp(tempo_sync::DivisionDelayMs(mBpm, mSyncDivision), 1.0, 2000.0);
     }
 
-    // Read from circular buffer with linear interpolation.
+    // Read from circular buffer with linear interpolation. `delay` is at least 1 and at most
+    // bufSize - 2, so one conditional subtract wraps it: no integer division per read.
     [[nodiscard]] float ReadInterp(const std::vector<float>& buf, size_t bufSize, double delay) const
     {
         const size_t intD = static_cast<size_t>(delay);
         const float frac = static_cast<float>(delay - static_cast<double>(intD));
-        const size_t posA = (mWritePos + bufSize - intD) % bufSize;
-        const size_t posB = (mWritePos + bufSize - intD - 1) % bufSize;
+        size_t posA = mWritePos + bufSize - intD;
+
+        if (posA >= bufSize)
+        {
+            posA -= bufSize;
+        }
+
+        const size_t posB = (posA == 0) ? bufSize - 1 : posA - 1;
         return buf[posA] * (1.0f - frac) + buf[posB] * frac;
     }
 
@@ -430,6 +468,9 @@ class DelayEffect : public EffectProcessor
         return state;
     }
 
+    /// Retargets the glides. Until audio has run since Prepare or Reset they snap instead: the
+    /// executor applies a node's stored parameters after Prepare, and gliding then would give
+    /// every freshly loaded preset a pitch sweep from the default Time to its own.
     void UpdateDelaySamples()
     {
         const double delayMs = GetEffectiveDelayMs();
@@ -442,6 +483,16 @@ class DelayEffect : public EffectProcessor
             mDelaySamples = std::min(mDelaySamples, maxD);
             mSpreadSamples = std::min(mSpreadSamples, maxD - mDelaySamples);
         }
+
+        if (mPrimed.load(std::memory_order_relaxed))
+        {
+            mDelayGlide.SetTarget(mDelaySamples);
+            mSpreadGlide.SetTarget(mSpreadSamples);
+            return;
+        }
+
+        mDelayGlide.Snap(mDelaySamples);
+        mSpreadGlide.Snap(mSpreadSamples);
     }
 
     void UpdateFilters()
@@ -460,9 +511,20 @@ class DelayEffect : public EffectProcessor
     std::vector<float> mBufferL, mBufferR;
     size_t mWritePos = 0;
 
-    // Derived state
+    /// The time constant Time and Spread glide with: short enough to follow a tempo ramp and
+    /// a knob closely, long enough that the head never steps.
+    static constexpr double kTimeGlideMs = 40.0;
+    static constexpr double kDuckAttackMs = 20.8;
+    static constexpr double kDuckReleaseMs = 208.0;
+
+    // Derived state: the targets, and the glides that carry the read heads to them.
     double mDelaySamples = 0.0;
     double mSpreadSamples = 0.0;
+    delay_line::GlideRamp mDelayGlide;
+    delay_line::GlideRamp mSpreadGlide;
+    std::atomic<bool> mPrimed{false};
+    float mDuckAttack = 0.001f;
+    float mDuckRelease = 0.0001f;
 
     // Parameters
     double mDelayMs = 300.0;
