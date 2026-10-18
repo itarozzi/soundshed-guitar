@@ -165,12 +165,28 @@ export function commitSignalChainSnapshot(): void {
     describeGraphChange(current?.graph, context.graph, getNodeDisplayName),
   );
 
-  if (Date.now() < restoreSettleUntil) {
+  if (Date.now() < restoreSettleUntil && looksLikeRestoreEcho(current, context.graph)) {
     history.amendCurrent(snapshot);
   } else {
     history.push(snapshot);
   }
   refreshChainHistoryControls();
+}
+
+/**
+ * Whether a graph that differs from the entry under the cursor reads as the engine's echo of
+ * a restore rather than the user's next edit. An echo changes nothing a targeted node message
+ * could carry: a resource ref filled in, a key a migration added, an edge normalised. A knob
+ * turned, a config value or a bypass flipped on the same keys is an edit, and gets its own
+ * step even inside the settle window — amending would fold it into the restored entry, where
+ * nothing can undo it.
+ */
+function looksLikeRestoreEcho(current: ChainSnapshot | null, graph: SignalGraph): boolean {
+  if (!current) {
+    return true;
+  }
+  const changes = diffNodeStates(current.graph, graph);
+  return changes === null || changes.length === 0;
 }
 
 // ── Restoring ──────────────────────────────────────────────────────────────

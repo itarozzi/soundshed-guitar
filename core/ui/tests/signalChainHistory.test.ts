@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import type { GraphNode, SignalGraph } from "../ts/types";
+import { describe, expect, it, vi } from "vitest";
+import type { GraphNode, Preset, SignalGraph } from "../ts/types";
 import {
   ChainHistory,
   createSnapshot,
@@ -8,6 +8,21 @@ import {
   graphSignature,
   haveSameTopology,
 } from "../ts/signalPath/historyModel";
+
+// The wiring in history.ts, with the engine and the renderers stubbed: a restore is replayed as
+// node messages and patches the draft itself, so nothing here needs to answer.
+vi.mock("../ts/notifications.js", () => ({ showNotification: vi.fn() }));
+vi.mock("../ts/signalPath/commands.js", () => ({
+  sendSignalPathNodeBypassUpdate: vi.fn(),
+  sendSignalPathNodeConfigUpdate: vi.fn(),
+  sendSignalPathNodeParamUpdate: vi.fn(),
+}));
+vi.mock("../ts/signalPath/mixer.js", () => ({ pushScenePresetToBackend: vi.fn() }));
+vi.mock("../ts/signalPath/nodeLabels.js", () => ({ getNodeDisplayName: (n: GraphNode) => n.id }));
+vi.mock("../ts/signalPath/render.js", () => ({ requestNodeParamsRefresh: vi.fn(), requestSignalPathRender: vi.fn() }));
+const { uiState } = await import("../ts/state.js");
+const { pushScenePresetToBackend } = await import("../ts/signalPath/mixer.js");
+const { commitSignalChainSnapshot, initSignalChainHistory, redoSignalChain, undoSignalChain } = await import("../ts/signalPath/history.js");
 
 function node(id: string, overrides: Partial<GraphNode> = {}): GraphNode {
   return {
@@ -336,5 +351,47 @@ describe("engine-owned config keys", () => {
     expect(diffNodeStates(before, after)).toEqual([
       { nodeId: "plugin", params: [], config: [{ key: "pluginId", value: "vst-2" }], bypassed: null },
     ]);
+  });
+});
+
+describe("inside the restore settle window", () => {
+  // One module instance: a different preset id re-seeds the stacks for each scenario.
+  function editThenUndo(presetId: string): Preset {
+    const draft = { id: presetId, name: presetId, graph: baseGraph() } as Preset;
+    uiState.activePresetId = presetId;
+    uiState.activePresetDraft = draft;
+    initSignalChainHistory();
+    commitSignalChainSnapshot(); // seeds "Loaded" for this preset
+    draft.graph!.nodes[0].params.gain = 0.8;
+    commitSignalChainSnapshot();
+    expect(undoSignalChain()).toBe(true);
+    expect(draft.graph!.nodes[0].params.gain).toBe(0.5);
+    return draft;
+  }
+
+  it("the engine's echo of the restore is folded into the restored entry", () => {
+    const draft = editThenUndo("p-echo");
+
+    // The engine normalising what the restore sent it: a resource ref filled in.
+    draft.graph!.nodes[1].resources = [{ resourceType: "ir", resourceId: "ir-1" }] as never;
+    commitSignalChainSnapshot();
+
+    expect(undoSignalChain()).toBe(false);
+    expect(redoSignalChain()).toBe(true);
+    const restored = vi.mocked(pushScenePresetToBackend).mock.calls.at(-1)?.[0] as Preset;
+    expect(restored.graph?.nodes[0].params.gain).toBe(0.8);
+  });
+
+  it("a knob turned gets an undo step of its own", () => {
+    // It used to be written over the restored entry, where nothing could undo it, while redo
+    // still offered the undone edit.
+    const draft = editThenUndo("p-edit");
+
+    draft.graph!.nodes[1].params.time = 500;
+    commitSignalChainSnapshot();
+
+    expect(redoSignalChain()).toBe(false);
+    expect(undoSignalChain()).toBe(true);
+    expect(draft.graph!.nodes[1].params.time).toBe(300);
   });
 });
