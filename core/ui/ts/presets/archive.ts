@@ -1155,6 +1155,9 @@ export async function importPresetArchive(
 
   const latestPreset = importedPresets[importedPresets.length - 1];
   setActivePresetId(latestPreset.id);
+  // The saves above only put the presets in the library; the engine goes on playing what it
+  // was. The last one imported is what is shown, so it is loaded, by id, once it is stored.
+  postMessage({ type: "loadPreset", presetId: latestPreset.id });
   const importedPresetIds = importedPresets.map((preset) => preset.id);
   const topLevelFolderName = options.topLevelFolderName?.trim();
   
@@ -1331,6 +1334,8 @@ export async function importGeneratedPack(file: File, context: ArchiveImportCont
 
   const latestPreset = importedPresets[0];
   setActivePresetId(latestPreset.id);
+  // As importPresetArchive: the saves only stock the library, so the preset shown is loaded.
+  postMessage({ type: "loadPreset", presetId: latestPreset.id });
   assignImportedPresetsToTopLevelFolder(
     context.titleHint?.trim() || manifest.packId?.trim() || file.name.replace(/\.zip$/i, ""),
     importedPresets.map((preset) => preset.id),

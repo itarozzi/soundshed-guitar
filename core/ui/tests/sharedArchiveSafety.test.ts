@@ -108,6 +108,31 @@ describe("sanitizeImportedPreset", () => {
 });
 
 describe("importing a shared archive", () => {
+  it("saves what it imports, then loads the last preset so the engine plays what is shown", async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/models?") || url.includes("tone_id=")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: [{ id: "m1", model_url: "https://www.tone3000.com/api/v1/models/m1/download/m1.nam" }], page: 1, total_pages: 1 }),
+          text: async () => "",
+          headers: new Headers(),
+        } as Response;
+      }
+      return okBytes();
+    }) as typeof fetch;
+
+    const [preset] = await importPresetArchive(await archiveFile(), { source: "toneSharingApi", itemId: "item-1" }, {
+      suppressNotifications: true,
+    });
+
+    const saved = sent.findIndex((message) => message.type === "savePreset" && message.presetId === preset.id);
+    const loaded = sent.findIndex((message) => message.type === "loadPreset" && message.presetId === preset.id);
+    expect(saved).toBeGreaterThanOrEqual(0);
+    expect(loaded).toBeGreaterThan(saved);
+  });
+
   it("previews without downloading, importing or saving anything", async () => {
     const fetchMock = vi.fn(async () => okBytes());
     globalThis.fetch = fetchMock as typeof fetch;
