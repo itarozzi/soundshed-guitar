@@ -26,7 +26,8 @@ import { initPresetModalAdvancedActions, initPresetModalTabs, setPresetModalActi
 import { getFilteredPresets, populatePresetDropdown, renderActivePreset, updatePresetDropdownSelection } from "./filter.js";
 import { applyPresetFromLibrary } from "./load.js";
 import { closePresetExtraActionsMenu, togglePresetExtraActionsMenu } from "./popover.js";
-import { configureSavePresetModalLabels, createDefaultPreset, populateSavePresetModalFields, refuseSaveWhileEditingComposite, resolvePresetModalFolderId, updateSavePresetModalPeakInfo } from "./saveModal.js";
+import { configureSavePresetModalLabels, populateSavePresetModalFields, refuseSaveWhileEditingComposite, resolvePresetModalFolderId, updateSavePresetModalPeakInfo } from "./saveModal.js";
+import { initializeNewPresetMenu } from "./newPresetMenu.js";
 import { canModifyPreset, isActivePresetNewDraft, updatePresetActionButtons } from "./toolbar.js";
 import { stripGlobalSignalChainForSave } from "./validate.js";
 
@@ -244,7 +245,6 @@ document.addEventListener("presetDirtyChanged", () => {
 // Initialize preset action buttons
 export function initializePresetActionButtons(): void {
   const editBtn = document.getElementById("preset-edit-btn");
-  const newBtn = document.getElementById("preset-new-btn");
   const saveBtn = document.getElementById("preset-save-btn");
   const saveAsBtn = document.getElementById("preset-save-as-btn");
   const deleteBtn = document.getElementById("preset-delete-btn");
@@ -261,9 +261,7 @@ export function initializePresetActionButtons(): void {
     editBtn.addEventListener("click", openEditPresetModal);
   }
 
-  if (newBtn) {
-    newBtn.addEventListener("click", createDefaultPreset);
-  }
+  initializeNewPresetMenu();
 
   if (saveBtn) {
     saveBtn.addEventListener("click", saveOverwriteCurrentPreset);

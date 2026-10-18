@@ -101,9 +101,8 @@ GraphNode MakeNode(const std::string& id, const std::string& type, const std::st
     return node;
 }
 
-/// A new preset, as core/ui/ts/presetV2.ts's createEmptyPresetV2 has always built it: input,
-/// a bypassed gate and Neural FX, a Neural Amp, a bypassed IR cab, output.
-Preset BuildNewPreset()
+/// The basic template matches createEmptyPresetV2; the empty configuration keeps only its boundaries.
+Preset BuildNewPreset(bool empty)
 {
     Preset preset;
     preset.id = GenerateUserPresetId();
@@ -115,23 +114,26 @@ Preset BuildNewPreset()
 
     auto& graph = preset.graph;
     graph.nodes.push_back(MakeNode("__input__", kNodeTypeInput, "Input", "utility", true, {}));
-    graph.nodes.push_back(MakeNode("gate_0", EffectGuids::kDynamicsGate, "Noise Gate", "dynamics", false,
-                                   {{"threshold", -40.0}, {"attack", 0.5}, {"hold", 50.0}, {"release", 100.0}}));
-    graph.nodes.push_back(MakeNode("fx_0", EffectGuids::kFxNam, "Neural FX", "amp", false,
-                                   {{"inputGain", 0.0}, {"outputGain", 0.0}, {"useCalibration", 1.0}}));
-    graph.nodes.push_back(MakeNode("amp_0", EffectGuids::kAmpNamOptimized, "Neural Amp", "amp", true,
-                                   {{"inputGain", 0.0}, {"outputGain", 0.0}, {"useCalibration", 1.0}}));
-    graph.nodes.push_back(MakeNode("cab_0", EffectGuids::kCabIr, "IR Cab", "cab", false,
-                                   {{"mix", 1.0}, {"outputGain", 0.0}, {"quality", 1.0}}));
+
+    if (!empty)
+    {
+        graph.nodes.push_back(MakeNode("gate_0", EffectGuids::kDynamicsGate, "Noise Gate", "dynamics", false,
+                                       {{"threshold", -40.0}, {"attack", 0.5}, {"hold", 50.0}, {"release", 100.0}}));
+        graph.nodes.push_back(MakeNode("fx_0", EffectGuids::kFxNam, "Neural FX", "amp", false,
+                                       {{"inputGain", 0.0}, {"outputGain", 0.0}, {"useCalibration", 1.0}}));
+        graph.nodes.push_back(MakeNode("amp_0", EffectGuids::kAmpNamOptimized, "Neural Amp", "amp", true,
+                                       {{"inputGain", 0.0}, {"outputGain", 0.0}, {"useCalibration", 1.0}}));
+        graph.nodes.push_back(MakeNode("cab_0", EffectGuids::kCabIr, "IR Cab", "cab", false,
+                                       {{"mix", 1.0}, {"outputGain", 0.0}, {"quality", 1.0}}));
+    }
+
     graph.nodes.push_back(MakeNode("__output__", kNodeTypeOutput, "Output", "utility", true, {}));
 
-    const char* chain[] = {"__input__", "gate_0", "fx_0", "amp_0", "cab_0", "__output__"};
-
-    for (std::size_t i = 0; i + 1 < std::size(chain); ++i)
+    for (std::size_t i = 0; i + 1 < graph.nodes.size(); ++i)
     {
         GraphEdge edge;
-        edge.from = chain[i];
-        edge.to = chain[i + 1];
+        edge.from = graph.nodes[i].id;
+        edge.to = graph.nodes[i + 1].id;
         graph.edges.push_back(edge);
     }
 
@@ -283,19 +285,33 @@ void PluginController::HandleRemoveSceneRequest(const nlohmann::json& payload)
 
 // ── New preset ──────────────────────────────────────────────────────────────
 
-void PluginController::HandleNewPresetRequest(const nlohmann::json&)
+void PluginController::HandleNewPresetRequest(const nlohmann::json& payload)
 {
+    if (payload.contains("configuration") && !payload["configuration"].is_string())
+    {
+        ReportErrorToUI("Invalid preset configuration", "Expected \"empty\" or \"basic\"");
+        return;
+    }
+
+    const auto configuration = payload.value("configuration", std::string{"basic"});
+
+    if (configuration != "empty" && configuration != "basic")
+    {
+        ReportErrorToUI("Unknown preset configuration", configuration);
+        return;
+    }
+
     CaptureLiveHostedPluginStateIntoActivePreset();
-    ActivateNewPreset();
+    ActivateNewPreset(configuration == "empty");
 
     // Unsaved until the user saves it: its baseline is itself, so it opens clean.
     ResetActivePresetBaseline();
     SendActivePresetLoaded(true);
 }
 
-void PluginController::ActivateNewPreset()
+void PluginController::ActivateNewPreset(bool empty)
 {
-    Preset preset = BuildNewPreset();
+    Preset preset = BuildNewPreset(empty);
     NormalizePresetScenes(preset);
     (void)SetPresetActiveScene(preset, std::string{}, &mActiveSceneId);
     mActivePresetId = preset.id;

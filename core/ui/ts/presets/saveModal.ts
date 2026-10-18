@@ -155,12 +155,12 @@ function resolveNewPresetFolderId(): string {
 }
 
 /**
- * New: the engine builds the default preset and loads it unsaved, answering with
+ * New: the engine builds the chosen configuration and loads it unsaved, answering with
  * "presetLoaded" marked `created`, which adoptCreatedPreset files in the library.
  */
-export function createDefaultPreset(): void {
+export function createDefaultPreset(configuration: "empty" | "basic" = "basic"): void {
   newPresetFolderId = resolveNewPresetFolderId();
-  postMessage({ type: "newPreset" });
+  postMessage({ type: "newPreset", configuration });
 }
 
 /**

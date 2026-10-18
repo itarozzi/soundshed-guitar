@@ -640,6 +640,42 @@ void TestNewPresetUsesTheDefaultTemplate()
            "the gate and cab start bypassed");
 }
 
+void TestNewPresetConfigurations()
+{
+    TestHost host(Sandbox("new-configurations"));
+    guitarfx::PluginController controller(host);
+    controller.Initialize();
+
+    Send(controller, "newPreset", {{"configuration", "empty"}});
+    const auto& empty = *controller.GetActivePreset();
+    Expect(empty.graph.nodes.size() == 2 && empty.graph.FindNode("__input__") && empty.graph.FindNode("__output__"),
+           "an empty preset contains only the input and output");
+    Expect(empty.graph.edges.size() == 1 && empty.graph.edges.front().from == "__input__" &&
+               empty.graph.edges.front().to == "__output__",
+           "an empty preset passes input directly to output");
+    Expect(empty.scenes.size() == 1 && empty.scenes.front().graph.nodes.size() == 2,
+           "the initial scene keeps the empty graph");
+    const auto loaded = Latest(host, "presetLoaded");
+    Expect(loaded && loaded->value("created", false) && !loaded->value("activePresetDirty", true),
+           "the empty preset is new and clean");
+    const auto emptyId = empty.id;
+
+    for (const auto& configuration : {nlohmann::json("unknown"), nlohmann::json(42), nlohmann::json(nullptr)})
+    {
+        const auto before = host.sent.size();
+        Send(controller, "newPreset", {{"configuration", configuration}});
+        Expect(SentSince(host, before, "error") && !SentSince(host, before, "presetLoaded"),
+               "invalid configurations report an error without creating a preset");
+        Expect(controller.GetActivePreset()->id == emptyId, "invalid configurations leave the active preset alone");
+    }
+
+    Send(controller, "newPreset", {{"configuration", "basic"}});
+    const auto& basic = *controller.GetActivePreset();
+    Expect(basic.id != emptyId && basic.graph.nodes.size() == 6 && basic.graph.edges.size() == 5 &&
+               basic.graph.FindNode("amp_0"),
+           "the explicit basic configuration uses the existing template with a fresh id");
+}
+
 void TestOutputMuteSurvivesAPresetLoad()
 {
     TestHost host(Sandbox("mute"));
@@ -860,6 +896,7 @@ int main()
     TestImportWithoutABodyIsRefused();
     TestUnreadableSaveBodyIsRefused();
     TestNewPresetUsesTheDefaultTemplate();
+    TestNewPresetConfigurations();
     TestStartupAlwaysHasAPreset();
     TestOutputMuteSurvivesAPresetLoad();
     TestSelectSetlistMovesTheCursorOnly();

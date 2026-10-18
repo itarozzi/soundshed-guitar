@@ -644,7 +644,7 @@ export function renderPresetDetails(
         <div class="preset-actions">
           <button id="apply-preset" class="btn btn-primary">Apply Preset</button>
           <button id="add-preset-to-mixer" class="btn btn-primary" title="Add this preset to the active mixer">Add to Mixer</button>
-          <button id="create-default-preset" class="btn btn-primary" title="Create a new preset from defaults">New Preset</button>
+          <button id="create-default-preset" class="btn btn-primary" type="button" title="Choose a new preset configuration" aria-haspopup="menu" aria-expanded="false" aria-controls="new-preset-menu">New Preset &#9662;</button>
         </div>
       </div>
 

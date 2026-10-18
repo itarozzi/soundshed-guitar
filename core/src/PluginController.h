@@ -921,7 +921,7 @@ class PluginController
     /// else the first preset in the library, else a new unsaved one.
     void LoadFallbackPreset();
     /// Makes a new, unsaved preset (BuildNewPreset) the active one. The caller sets its baseline.
-    void ActivateNewPreset();
+    void ActivateNewPreset(bool empty = false);
     /// Standalone only: records the active preset as the one to restore next launch. A
     /// tone-sharing preview is never recorded; it lives only in memory.
     void RememberActivePresetAsLast();
