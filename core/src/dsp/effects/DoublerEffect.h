@@ -3,6 +3,7 @@
 #include "dsp/EffectProcessor.h"
 #include "dsp/EffectRegistry.h"
 #include "dsp/EffectGuids.h"
+#include "dsp/effects/DelayLineSupport.h"
 #include <algorithm>
 #include <cmath>
 #include <vector>
@@ -32,21 +33,28 @@ class DoublerEffect : public EffectProcessor
         mSampleRate = sampleRate;
         mMaxBlockSize = maxBlockSize;
 
-        // Room for the full 100 ms plus the sample being written: a delay as long as the
-        // buffer would read back the sample just written, which is no delay at all.
-        const size_t maxSamples = static_cast<size_t>(std::ceil(sampleRate * 0.1)) + 1;
+        // Room for the full 100 ms, the sample being written, and the one beyond it that a read
+        // between samples blends in: a delay as long as the buffer would read back the sample
+        // just written, which is no delay at all.
+        const size_t maxSamples = static_cast<size_t>(std::ceil(sampleRate * 0.1)) + 2;
         mBufferL.resize(maxSamples, 0.0f);
         mBufferR.resize(maxSamples, 0.0f);
+        mGlide.Prepare(sampleRate);
+        mGlide.SetTimeConstantMs(kGlideMs);
+        mGlide.SetMaxStep(delay_line::kMaxGlideStep);
 
         UpdateDelaySamples();
         Reset();
     }
 
+    /// The next block lands on Time at once: a node's stored settings are applied after
+    /// Prepare, and a fresh doubler should not glide to them.
     void Reset() override
     {
         std::fill(mBufferL.begin(), mBufferL.end(), 0.0f);
         std::fill(mBufferR.begin(), mBufferR.end(), 0.0f);
         mWriteIndex = 0;
+        mGlidePrimed = false;
     }
 
     void Process(float** inputs, float** outputs, int numSamples) override
@@ -65,7 +73,17 @@ class DoublerEffect : public EffectProcessor
             return;
         }
 
-        const int delaySamples = std::min(mDelaySamples, static_cast<int>(bufSize) - 1);
+        // Time glides, read between samples: a head that jumps from one whole sample to another
+        // clicks on every step of the knob.
+        const double target = std::min(static_cast<double>(mDelaySamples), static_cast<double>(bufSize) - 2.0);
+
+        if (!mGlidePrimed)
+        {
+            mGlide.Snap(target);
+            mGlidePrimed = true;
+        }
+
+        mGlide.SetTarget(target);
 
         for (int i = 0; i < numSamples; ++i)
         {
@@ -77,11 +95,13 @@ class DoublerEffect : public EffectProcessor
             mBufferL[mWriteIndex] = inL;
             mBufferR[mWriteIndex] = inR;
 
-            const int readIdx = static_cast<int>(mWriteIndex) - delaySamples;
-            const std::size_t safeReadIdx =
-                static_cast<std::size_t>((readIdx + static_cast<int>(bufSize)) % static_cast<int>(bufSize));
-            const float delayedL = mBufferL[safeReadIdx];
-            const float delayedR = mBufferR[safeReadIdx];
+            const double delay = std::max(0.0, mGlide.Next());
+            const auto whole = static_cast<std::size_t>(delay);
+            const auto fraction = static_cast<float>(delay - static_cast<double>(whole));
+            const std::size_t readA = (mWriteIndex + bufSize - whole) % bufSize;
+            const std::size_t readB = (readA == 0) ? bufSize - 1 : readA - 1;
+            const float delayedL = mBufferL[readA] + (mBufferL[readB] - mBufferL[readA]) * fraction;
+            const float delayedR = mBufferR[readA] + (mBufferR[readB] - mBufferR[readA]) * fraction;
 
             const float mixAmount = static_cast<float>(mMix);
 
@@ -147,9 +167,13 @@ class DoublerEffect : public EffectProcessor
         mDelaySamples = static_cast<int>(mSampleRate * mDelayMs * 0.001);
     }
 
+    static constexpr double kGlideMs = 30.0;
+
     double mDelayMs = 6.0; // Default 6ms delay
     double mMix = 0.3;     // Default mix level
     int mDelaySamples = 0;
+    delay_line::GlideRamp mGlide; ///< the read head's delay, in samples, gliding to Time
+    bool mGlidePrimed = false;    ///< false until the first block after Prepare or Reset
 
     std::vector<float> mBufferL;
     std::vector<float> mBufferR;

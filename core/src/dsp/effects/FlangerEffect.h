@@ -39,9 +39,12 @@ class FlangerEffect : public EffectProcessor
         mDelayBufferL.assign(mBufferSize, 0.0f);
         mDelayBufferR.assign(mBufferSize, 0.0f);
         UpdateFeedbackDamping();
+        mGlideCoef = static_cast<float>(1.0 - std::exp(-1000.0 / (kGlideMs * sampleRate)));
         Reset();
     }
 
+    /// The next block lands on Delay and Depth at once: a node's stored settings are applied
+    /// after Prepare, and a fresh flanger should not glide to them.
     void Reset() override
     {
         std::fill(mDelayBufferL.begin(), mDelayBufferL.end(), 0.0f);
@@ -50,6 +53,7 @@ class FlangerEffect : public EffectProcessor
         mPhase = 0.0;
         mFeedbackStateL = 0.0f;
         mFeedbackStateR = 0.0f;
+        mGlidePrimed = false;
     }
 
     void Process(float** inputs, float** outputs, int numSamples) override
@@ -91,6 +95,13 @@ class FlangerEffect : public EffectProcessor
 
         const double phaseInc = 2.0 * kPi * rateHz / std::max(1.0, mSampleRate);
 
+        if (!mGlidePrimed)
+        {
+            mDelayGlide = delayMs;
+            mDepthGlide = depthMs;
+            mGlidePrimed = true;
+        }
+
         for (int i = 0; i < numSamples; ++i)
         {
             const float inL = inputs[0] ? inputs[0][i] : 0.0f;
@@ -101,9 +112,11 @@ class FlangerEffect : public EffectProcessor
 
             const float modL = 0.5f * (1.0f + lfoL);
             const float modR = 0.5f * (1.0f + lfoR);
+            mDelayGlide += mGlideCoef * (delayMs - mDelayGlide);
+            mDepthGlide += mGlideCoef * (depthMs - mDepthGlide);
 
-            const float delayMsL = delayMs + depthMs * modL;
-            const float delayMsR = delayMs + depthMs * modR;
+            const float delayMsL = mDelayGlide + mDepthGlide * modL;
+            const float delayMsR = mDelayGlide + mDepthGlide * modR;
 
             const float delayedL = ReadDelaySafe(mDelayBufferL, delayMsL);
             const float delayedR = ReadDelaySafe(mDelayBufferR, delayMsR);
@@ -342,6 +355,14 @@ class FlangerEffect : public EffectProcessor
     float mFeedbackStateL = 0.0f;
     float mFeedbackStateR = 0.0f;
     float mFeedbackDampingCoef = 1.0f;
+
+    /// Delay and Depth glide with this time constant: each sets where the read head sits, and
+    /// a head moved in one step is a click, heard on every knob step or automation event.
+    static constexpr double kGlideMs = 30.0;
+    float mGlideCoef = 1.0f;
+    float mDelayGlide = 1.0f;  ///< the shortest delay of the sweep, in ms, gliding to Delay
+    float mDepthGlide = 2.0f;  ///< the sweep above it, in ms, gliding to Depth
+    bool mGlidePrimed = false; ///< false until the first block after Prepare or Reset
 };
 
 inline void RegisterFlangerEffect()

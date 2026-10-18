@@ -426,12 +426,9 @@ void SignalGraphExecutor::ProcessPlannedNode(PlannedNode& planned, int numSample
 
         if (isMixer && mixerEffect)
         {
-            if (mixerEffect->IsInputMuted(inputPort))
-            {
-                continue;
-            }
-
-            // ProcessInput applies the input's delay along with its level and pan.
+            // ProcessInput applies the input's delay along with its level and pan. A muted input
+            // goes through it too: its mute is a glide to silence, and its delay line has to
+            // keep up, or unmuting would replay what it held from before the mute.
             mixerEffect->ProcessInput(inputPort, sourceState->bufferLeft.data(), sourceState->bufferRight.data(),
                                       state->bufferLeft.data(), state->bufferRight.data(), numSamples, edgeGain);
         }

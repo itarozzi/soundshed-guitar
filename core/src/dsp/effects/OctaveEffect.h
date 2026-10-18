@@ -19,6 +19,10 @@ namespace guitarfx
  * seeks the stretchers onto real audio rather than replaying whatever they were
  * left holding. See SignalsmithSupport.h for the configuration policy and the
  * measurements behind both.
+ *
+ * Into and out of the bypass crossfades over kPathFadeSeconds, as Pitch Shift's does. The
+ * processing path runs the dry signal late by the stretchers' latency, so a hard switch (Mix
+ * leaving 0 on a pedal, say) jumped the audio 80 ms in time with a click.
  */
 class OctaveEffect : public EffectProcessor
 {
@@ -48,6 +52,7 @@ class OctaveEffect : public EffectProcessor
         UpdateToneCoefficient();
         mDry.Prepare(SignalsmithTotalLatencySamples(mUpStretch, mDownStretch),
                      std::max(mUpStretch.seekLength(), mDownStretch.seekLength()), maxBlockSize);
+        mPathFadeStep = 1.0f / std::max(1.0f, static_cast<float>(sampleRate * kPathFadeSeconds));
         Reset();
     }
 
@@ -65,6 +70,8 @@ class OctaveEffect : public EffectProcessor
         // Nothing has been fed yet, so the next wet block re-seeks both
         // stretchers onto whatever history has accumulated by then.
         mNeedsEngage = true;
+        // No fade from whatever path was playing before: there is nothing to fade from.
+        mPathGain = IsTransparent() ? 0.0f : 1.0f;
     }
 
     void Process(float** inputs, float** outputs, int numSamples) override
@@ -99,7 +106,9 @@ class OctaveEffect : public EffectProcessor
         float* leftInput = inputs[0] ? inputs[0] : mZero.data();
         float* rightInput = inputs[1] ? inputs[1] : leftInput;
 
-        if (IsTransparent())
+        const float pathTarget = IsTransparent() ? 0.0f : 1.0f;
+
+        if (pathTarget <= 0.0f && mPathGain <= 0.0f)
         {
             // The stretchers are idle but the history is not: it is what
             // re-engaging seeks onto, so keep recording the input.
@@ -145,15 +154,21 @@ class OctaveEffect : public EffectProcessor
             wetL = ApplyTone(wetL, mToneStateL);
             wetR = ApplyTone(wetR, mToneStateR);
 
+            // The processing path, faded against the live input while the bypass comes or goes.
+            const float bypass = 1.0f - mPathGain;
+
             if (outputs[0])
             {
-                outputs[0][i] = dryL * dryMix + wetL * wetMix;
+                outputs[0][i] = bypass * leftInput[i] + mPathGain * (dryL * dryMix + wetL * wetMix);
             }
 
             if (outputs[1])
             {
-                outputs[1][i] = dryR * dryMix + wetR * wetMix;
+                outputs[1][i] = bypass * rightInput[i] + mPathGain * (dryR * dryMix + wetR * wetMix);
             }
+
+            mPathGain = mPathGain < pathTarget ? std::min(pathTarget, mPathGain + mPathFadeStep)
+                                               : std::max(pathTarget, mPathGain - mPathFadeStep);
         }
     }
 
@@ -221,7 +236,7 @@ class OctaveEffect : public EffectProcessor
     {
         // Transparent dry path reports 0; wet path reports full Signalsmith latency
         // (input + output halves) for host delay compensation.
-        if (!mConfigured || IsTransparent())
+        if (!mConfigured || (IsTransparent() && mPathGain <= 0.0f))
         {
             return 0;
         }
@@ -232,6 +247,7 @@ class OctaveEffect : public EffectProcessor
   private:
     static constexpr double kPi = 3.14159265358979323846;
     static constexpr double kTonalityLimitHz = 16000.0;
+    static constexpr double kPathFadeSeconds = 0.010;
 
     [[nodiscard]] bool IsTransparent() const
     {
@@ -293,6 +309,8 @@ class OctaveEffect : public EffectProcessor
     int mMaxBlockSize = 0;
     bool mConfigured = false;
     bool mNeedsEngage = true;
+    float mPathGain = 1.0f;     ///< the processing path's share; the bypass has the rest
+    float mPathFadeStep = 0.0f; ///< how far it moves per sample, over kPathFadeSeconds
 
     float mOctaveUp = 0.6f;
     float mOctaveDown = 0.6f;

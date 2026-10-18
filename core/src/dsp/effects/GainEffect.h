@@ -3,12 +3,17 @@
 #include "dsp/EffectProcessor.h"
 #include "dsp/EffectRegistry.h"
 #include "dsp/EffectGuids.h"
+#include "dsp/LinearRamp.h"
+#include <algorithm>
+#include <atomic>
 #include <cmath>
 
 namespace guitarfx
 {
 /**
- * Linear gain stage driven by a dB parameter.
+ * Linear gain stage driven by a dB parameter. A change glides over kRampMs rather than
+ * stepping at a block edge: automation and MIDI set it on the audio thread, and a pedal on
+ * Gain moves in steps that would zipper.
  */
 class GainEffect : public EffectProcessor
 {
@@ -29,25 +34,76 @@ class GainEffect : public EffectProcessor
     {
         mSampleRate = sampleRate;
         mMaxBlockSize = maxBlockSize;
+        mRampSamples = std::max(1, static_cast<int>(std::lround(kRampMs * 0.001 * sampleRate)));
+        Reset();
     }
 
+    /// The next block lands on the gain at once: a node's stored gain is applied after
+    /// Prepare, and a fresh one should not fade from 0 dB.
     void Reset() override
     {
+        mPrimed = false;
+        mRemaining = 0;
     }
 
     void Process(float** inputs, float** outputs, int numSamples) override
     {
-        const float gain = static_cast<float>(std::pow(10.0, mGainDb / 20.0));
+        const double target = std::pow(10.0, mGainDb.load(std::memory_order_relaxed) / 20.0);
 
-        // Apply the same scalar to each available channel; missing channels stay untouched.
-        for (int ch = 0; ch < 2; ++ch)
+        if (!mPrimed)
         {
-            if (inputs[ch] && outputs[ch])
+            mGain.target = target;
+            mGain.Finish();
+            mPrimed = true;
+        }
+        else if (target != mGain.target)
+        {
+            mGain.target = target;
+            mRemaining = mRampSamples;
+            mGain.Begin(mRampSamples);
+        }
+
+        float* inL = inputs[0];
+        float* inR = inputs[1];
+        float* outL = (inL != nullptr) ? outputs[0] : nullptr;
+        float* outR = (inR != nullptr) ? outputs[1] : nullptr;
+        int i = 0;
+
+        // The glide, a sample at a time; missing channels stay untouched.
+        for (; i < numSamples && mRemaining > 0; ++i)
+        {
+            mGain.Advance();
+
+            if (--mRemaining == 0)
             {
-                for (int i = 0; i < numSamples; ++i)
-                {
-                    outputs[ch][i] = inputs[ch][i] * gain;
-                }
+                mGain.Finish();
+            }
+
+            const auto gain = static_cast<float>(mGain.current);
+
+            if (outL)
+            {
+                outL[i] = inL[i] * gain;
+            }
+
+            if (outR)
+            {
+                outR[i] = inR[i] * gain;
+            }
+        }
+
+        const auto gain = static_cast<float>(mGain.current);
+
+        for (; i < numSamples; ++i)
+        {
+            if (outL)
+            {
+                outL[i] = inL[i] * gain;
+            }
+
+            if (outR)
+            {
+                outR[i] = inR[i] * gain;
             }
         }
     }
@@ -56,7 +112,7 @@ class GainEffect : public EffectProcessor
     {
         if (key == "gain" || key == "gainDb")
         {
-            mGainDb = value;
+            mGainDb.store(value, std::memory_order_relaxed);
         }
     }
 
@@ -68,7 +124,7 @@ class GainEffect : public EffectProcessor
     {
         if (key == "gain" || key == "gainDb")
         {
-            return mGainDb;
+            return mGainDb.load(std::memory_order_relaxed);
         }
 
         return 0.0;
@@ -85,7 +141,13 @@ class GainEffect : public EffectProcessor
     }
 
   private:
-    double mGainDb = 0.0;
+    static constexpr double kRampMs = 10.0;
+
+    std::atomic<double> mGainDb{0.0};
+    LinearRamp<double> mGain{1.0, 1.0, 0.0};
+    int mRampSamples = 480;
+    int mRemaining = 0;
+    bool mPrimed = false;
 };
 
 // Register the effect

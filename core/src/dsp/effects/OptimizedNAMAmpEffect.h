@@ -132,6 +132,9 @@ class OptimizedNAMAmpEffect : public EffectProcessor
         mOutputBufferR.resize(static_cast<size_t>(maxBlockSize));
         mDryBufferL.resize(static_cast<size_t>(maxBlockSize));
         mDryBufferR.resize(static_cast<size_t>(maxBlockSize));
+        mInputGainCurve.resize(static_cast<size_t>(maxBlockSize));
+        mOutputGainCurve.resize(static_cast<size_t>(maxBlockSize));
+        mGainGlideSamples = std::max(1, static_cast<int>(std::lround(kGainGlideMs * 0.001 * sampleRate)));
 
         ConfigureModelProcessing();
         UpdateToneStack();
@@ -157,6 +160,8 @@ class OptimizedNAMAmpEffect : public EffectProcessor
         std::fill(mDryBufferR.begin(), mDryBufferR.end(), 0.0f);
         mDryDelayLeft.Reset();
         mDryDelayRight.Reset();
+        mInputGlide.primed = false;
+        mOutputGlide.primed = false;
 
         for (int ch = 0; ch < 2; ++ch)
         {
@@ -196,7 +201,8 @@ class OptimizedNAMAmpEffect : public EffectProcessor
             return;
         }
 
-        const float inputGainF = static_cast<float>(mInputGain);
+        mInputGlide.Fill(static_cast<float>(mInputGain), mGainGlideSamples, mInputGainCurve.data(), numSamples);
+        const float* inputGain = mInputGainCurve.data();
 
         for (int i = 0; i < numSamples; ++i)
         {
@@ -204,8 +210,8 @@ class OptimizedNAMAmpEffect : public EffectProcessor
             float inR = inputs[1] ? inputs[1][i] : inL;
             mDryBufferL[i] = inL;
             mDryBufferR[i] = inR;
-            mInputBufferL[i] = static_cast<NAM_SAMPLE>(inL * inputGainF);
-            mInputBufferR[i] = static_cast<NAM_SAMPLE>(inR * inputGainF);
+            mInputBufferL[i] = static_cast<NAM_SAMPLE>(inL * inputGain[i]);
+            mInputBufferR[i] = static_cast<NAM_SAMPLE>(inR * inputGain[i]);
         }
 
         if (mModelLeft && mEnabled)
@@ -232,9 +238,10 @@ class OptimizedNAMAmpEffect : public EffectProcessor
             mDryDelayLeft.Process(mDryBufferL.data(), numSamples);
             mDryDelayRight.Process(mDryBufferR.data(), numSamples);
 
-            const float outputGainF = static_cast<float>(mOutputGain);
+            mOutputGlide.Fill(static_cast<float>(mOutputGain), mGainGlideSamples, mOutputGainCurve.data(), numSamples);
+            const float* outputGain = mOutputGainCurve.data();
 
-            if (toneNeutral && wetOnly && NearlyEqual(mOutputGain, 1.0))
+            if (toneNeutral && wetOnly && NearlyEqual(mOutputGain, 1.0) && mOutputGlide.Settled())
             {
                 for (int i = 0; i < numSamples; ++i)
                 {
@@ -274,8 +281,8 @@ class OptimizedNAMAmpEffect : public EffectProcessor
                         outR = mPostDcBlocker[1].Process(outR);
                     }
 
-                    outL *= outputGainF;
-                    outR *= outputGainF;
+                    outL *= outputGain[i];
+                    outR *= outputGain[i];
 
                     if (!wetOnly)
                     {
@@ -310,7 +317,7 @@ class OptimizedNAMAmpEffect : public EffectProcessor
                     outL = mPostDcBlocker[0].Process(outL);
                 }
 
-                outL *= outputGainF;
+                outL *= outputGain[i];
 
                 if (!wetOnly)
                 {
@@ -328,7 +335,7 @@ class OptimizedNAMAmpEffect : public EffectProcessor
                     outR = mPostDcBlocker[1].Process(outR);
                 }
 
-                outR *= outputGainF;
+                outR *= outputGain[i];
 
                 if (!wetOnly)
                 {
@@ -510,13 +517,14 @@ class OptimizedNAMAmpEffect : public EffectProcessor
             return;
         }
 
-        const float inputGainF = static_cast<float>(mInputGain);
+        mInputGlide.Fill(static_cast<float>(mInputGain), mGainGlideSamples, mInputGainCurve.data(), numSamples);
+        const float* inputGain = mInputGainCurve.data();
 
         for (int i = 0; i < numSamples; ++i)
         {
             const float in = input[i];
             mDryBufferL[i] = in;
-            mInputBufferL[i] = static_cast<NAM_SAMPLE>(in * inputGainF);
+            mInputBufferL[i] = static_cast<NAM_SAMPLE>(in * inputGain[i]);
         }
 
         if (mModelLeft && mEnabled)
@@ -530,9 +538,10 @@ class OptimizedNAMAmpEffect : public EffectProcessor
             ProcessModelMono(numSamples);
             mDryDelayLeft.Process(mDryBufferL.data(), numSamples);
 
-            const float outputGainF = static_cast<float>(mOutputGain);
+            mOutputGlide.Fill(static_cast<float>(mOutputGain), mGainGlideSamples, mOutputGainCurve.data(), numSamples);
+            const float* outputGain = mOutputGainCurve.data();
 
-            if (toneNeutral && wetOnly && NearlyEqual(mOutputGain, 1.0))
+            if (toneNeutral && wetOnly && NearlyEqual(mOutputGain, 1.0) && mOutputGlide.Settled())
             {
                 for (int i = 0; i < numSamples; ++i)
                 {
@@ -560,7 +569,7 @@ class OptimizedNAMAmpEffect : public EffectProcessor
                         out = mPostDcBlocker[0].Process(out);
                     }
 
-                    out *= outputGainF;
+                    out *= outputGain[i];
 
                     if (!wetOnly)
                     {
@@ -586,7 +595,7 @@ class OptimizedNAMAmpEffect : public EffectProcessor
                     out = mPostDcBlocker[0].Process(out);
                 }
 
-                out *= outputGainF;
+                out *= outputGain[i];
 
                 if (!wetOnly)
                 {
@@ -971,6 +980,59 @@ class OptimizedNAMAmpEffect : public EffectProcessor
     double mAutoOutputGain = 1.0;
     double mInputGain = 1.0;
     double mOutputGain = 1.0;
+
+    /// A gain that glides to each new target over kGainGlideMs rather than stepping at a block
+    /// edge: Input and Output are automated and MIDI-mapped (an expression pedal as a volume
+    /// pedal), and set on the audio thread, so a step was zipper noise or a click. Fill() writes
+    /// a block's gain per sample; clearing primed makes the next block land on its target at once,
+    /// so a node's stored gains, applied after Prepare, do not fade in.
+    struct GainGlide
+    {
+        float current = 1.0f;
+        float target = 1.0f;
+        float step = 0.0f;
+        int remaining = 0;
+        bool primed = false;
+
+        void Fill(float next, int glideSamples, float* curve, int numSamples) noexcept
+        {
+            if (!primed)
+            {
+                current = next;
+                target = next;
+                remaining = 0;
+                primed = true;
+            }
+            else if (next != target)
+            {
+                target = next;
+                remaining = glideSamples;
+                step = (target - current) / static_cast<float>(glideSamples);
+            }
+
+            for (int i = 0; i < numSamples; ++i)
+            {
+                if (remaining > 0)
+                {
+                    current = (--remaining == 0) ? target : current + step;
+                }
+
+                curve[i] = current;
+            }
+        }
+
+        [[nodiscard]] bool Settled() const noexcept
+        {
+            return remaining == 0;
+        }
+    };
+
+    static constexpr double kGainGlideMs = 10.0;
+    GainGlide mInputGlide;
+    GainGlide mOutputGlide;
+    std::vector<float> mInputGainCurve;
+    std::vector<float> mOutputGainCurve;
+    int mGainGlideSamples = 480;
     double mMix = 1.0;
     // When true, input and output gains are auto-corrected using model metadata
     // dBu fields and the interface calibration level injected by the controller.

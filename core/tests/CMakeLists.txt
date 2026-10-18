@@ -43,6 +43,7 @@ set(TEST_SOURCES
     GlobalChainEngineTests.cpp
     GuitarToMidiEffectTests.cpp
     HarmonizerEffectTests.cpp
+    ParamGlideTests.cpp
     PresetRetirementTests.cpp
     DemoPreviewLoopTests.cpp
     HostedPluginCaptureLockTests.cpp

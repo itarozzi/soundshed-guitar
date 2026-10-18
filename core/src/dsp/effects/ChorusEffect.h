@@ -37,15 +37,19 @@ class ChorusEffect : public EffectProcessor
         mBufferSize = static_cast<int>(std::ceil(maxDelayMs * sampleRate / 1000.0)) + 2;
         mDelayBufferL.assign(mBufferSize, 0.0f);
         mDelayBufferR.assign(mBufferSize, 0.0f);
+        mGlideCoef = static_cast<float>(1.0 - std::exp(-1000.0 / (kGlideMs * sampleRate)));
         Reset();
     }
 
+    /// The next block lands on Delay and Depth at once: a node's stored settings are applied
+    /// after Prepare, and a fresh chorus should not glide to them.
     void Reset() override
     {
         std::fill(mDelayBufferL.begin(), mDelayBufferL.end(), 0.0f);
         std::fill(mDelayBufferR.begin(), mDelayBufferR.end(), 0.0f);
         mWriteIndex = 0;
         mPhase.store(0.0, std::memory_order_relaxed);
+        mGlidePrimed = false;
     }
 
     void Process(float** inputs, float** outputs, int numSamples) override
@@ -64,6 +68,13 @@ class ChorusEffect : public EffectProcessor
         const double phaseInc = 2.0 * kPi * rateHz / std::max(1.0, mSampleRate);
         double phase = mPhase.load(std::memory_order_relaxed);
 
+        if (!mGlidePrimed)
+        {
+            mDelayGlide = delayMs;
+            mDepthGlide = depthMs;
+            mGlidePrimed = true;
+        }
+
         for (int i = 0; i < numSamples; ++i)
         {
             const float inL = inputs[0] ? inputs[0][i] : 0.0f;
@@ -71,10 +82,12 @@ class ChorusEffect : public EffectProcessor
 
             const float lfoL = static_cast<float>(std::sin(phase));
             const float lfoR = static_cast<float>(std::sin(phase + kHalfPi));
+            mDelayGlide += mGlideCoef * (delayMs - mDelayGlide);
+            mDepthGlide += mGlideCoef * (depthMs - mDepthGlide);
 
-            // Bipolar modulation centred on delayMs; clamp to avoid zero/negative delay
-            const float delayMsL = std::max(0.1f, delayMs + depthMs * lfoL);
-            const float delayMsR = std::max(0.1f, delayMs + depthMs * lfoR);
+            // Bipolar modulation centred on the delay; clamp to avoid zero/negative delay
+            const float delayMsL = std::max(0.1f, mDelayGlide + mDepthGlide * lfoL);
+            const float delayMsR = std::max(0.1f, mDelayGlide + mDepthGlide * lfoR);
 
             const float delayedL = ReadDelay(mDelayBufferL, delayMsL);
             const float delayedR = ReadDelay(mDelayBufferR, delayMsR);
@@ -257,6 +270,14 @@ class ChorusEffect : public EffectProcessor
     std::atomic<int> mSyncDivision{4};
 
     std::atomic<double> mPhase{0.0};
+
+    /// Delay and Depth glide with this time constant: each sets where the read head sits, and
+    /// a head moved in one step is a click, heard on every knob step or automation event.
+    static constexpr double kGlideMs = 30.0;
+    float mGlideCoef = 1.0f;
+    float mDelayGlide = 15.0f; ///< the delay the read heads centre on, in ms, gliding to Delay
+    float mDepthGlide = 2.0f;  ///< the sweep either side of it, in ms, gliding to Depth
+    bool mGlidePrimed = false; ///< false until the first block after Prepare or Reset
 };
 
 inline void RegisterChorusEffect()
