@@ -11,6 +11,17 @@
 
 The UI is a web-based single-page application (SPA) hosted in a native WebView. Communication with the plugin uses a bidirectional JSON message protocol. The UI maintains local state synchronized with the engine via events.
 
+Opening a NAM/IR resource picker for a library resource with Tone3000 source metadata
+(`provider: "tone3000"` and `toneId`, or legacy `groupId`) opens the Tone3000 tab
+on that source pack with its models expanded. Pack identity and attribution come
+from saved library metadata; the models are fetched by tone ID through the existing
+API/proxy model-list endpoint, without needing a pack-detail request. The saved model architecture is used
+when available; otherwise the pack is opened without an architecture filter.
+Other resources retain the picker's remembered browsing state. This does not
+change the loaded model or start a preview. If the pack is unavailable, the picker
+shows an error and normal Search remains available. Disabling the Tone3000 feature
+keeps the existing Library/Folder behavior.
+
 ## Architecture
 
 ```

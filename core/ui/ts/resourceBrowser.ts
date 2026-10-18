@@ -24,6 +24,7 @@ import { deduplicateResourcesByHashAndPath, resolveResourceIdAlias } from "./res
 import { uiState } from "./state.js";
 import { isTone3000AuthReady, tone3000AuthenticatedFetch } from "./tone3000.js";
 import type { Tone3000Architecture } from "./tone3000ApiTypes.js";
+import { tone3000ToneFromResource } from "./tone3000Shared.js";
 import type { LibraryResource } from "./types.js";
 import { arrayBufferToBase64, copyTextToClipboard, escapeHtml, findResourceById } from "./utils.js";
 
@@ -647,6 +648,7 @@ export class ResourceBrowserModal {
       return;
     }
     
+    this.tone3000Tab.invalidateRequests();
     this.options = options;
     this.selectedResourceId = options.currentId ?? "";
     this.originalResourceId = options.currentId ?? ""; // Store original for cancel/revert
@@ -722,7 +724,12 @@ export class ResourceBrowserModal {
     }
     this.syncAvailableTabs();
     
-    this.setActiveTab(this.activeTab);
+    const currentResource = findResourceById(uiState.resourceLibrary[options.resourceType] ?? [], options.currentId ?? "");
+    const sourceTone = isFeatureEnabled(Features.Tone3000) ? tone3000ToneFromResource(currentResource) : null;
+    this.setActiveTab(sourceTone ? "tone3000" : this.activeTab, !sourceTone);
+    if (sourceTone) {
+      void this.tone3000Tab.openSourceTone(sourceTone, currentResource?.metadata?.architectureVersion);
+    }
     
     // Update select button state
     this.updateSelectButtonState();
@@ -737,6 +744,8 @@ export class ResourceBrowserModal {
     if (!this.modal) {
       return;
     }
+
+    this.tone3000Tab.invalidateRequests();
     
     // Cancel any active Tone3000 preview
     if (this.previewState?.active) {
@@ -781,6 +790,7 @@ export class ResourceBrowserModal {
     }
 
     if (!isFeatureEnabled(Features.Tone3000)) {
+      this.tone3000Tab.invalidateRequests();
       if (this.previewState?.active) {
         this.cancelPreview();
       }
@@ -819,7 +829,7 @@ export class ResourceBrowserModal {
     });
   }
   
-  private setActiveTab(tab: ResourceBrowserTab): void {
+  private setActiveTab(tab: ResourceBrowserTab, loadInitialResults = true): void {
     const resolvedTab = tab === "tone3000" && !isFeatureEnabled(Features.Tone3000) ? "library" : tab;
     this.activeTab = resolvedTab;
     
@@ -833,7 +843,7 @@ export class ResourceBrowserModal {
     });
     
     // Run initial Tone3000 search if switching to that tab
-    if (resolvedTab === "tone3000" && !this.tone3000Tab.tone3000Tones.length) {
+    if (loadInitialResults && resolvedTab === "tone3000" && !this.tone3000Tab.tone3000Tones.length) {
       void this.tone3000Tab.runTone3000Search();
     }
 
@@ -1782,18 +1792,7 @@ export class ResourceBrowserModal {
       showNotification("Resource saved", name || this.folderTab.folderFileDisplayName(path));
     }
   }
-  
 
-  
-  
-
-  
-
-  
-  
-  
-  
-  
   /** Bumped by every preview, so a download that is not the latest preview's is dropped. */
   private previewSequence = 0;
 

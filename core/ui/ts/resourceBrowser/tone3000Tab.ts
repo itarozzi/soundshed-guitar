@@ -260,6 +260,73 @@ export class Tone3000Tab {
   /** Bumped by every search, so a reply that is not the latest search's is dropped. */
   private tone3000SearchSequence = 0;
 
+  invalidateRequests(): void {
+    ++this.tone3000SearchSequence;
+    ++this.toneModelsGeneration;
+    if (this.expandedToneId && !this.toneModelsCache.has(this.expandedToneId)) {
+      this.expandedToneId = null;
+    }
+  }
+
+  async openSourceTone(tone: Tone3000Tone, architectureVersion?: string): Promise<void> {
+    const options = this.host.getOptions();
+    if (!this.tone3000List || !options) {
+      return;
+    }
+
+    this.invalidateRequests();
+    const sequence = this.tone3000SearchSequence;
+    const isStale = (): boolean => sequence !== this.tone3000SearchSequence || this.host.getOptions() !== options;
+    const architecture = options.resourceType === "nam"
+      && (architectureVersion === "1" || architectureVersion === "2" || architectureVersion === "custom")
+      ? architectureVersion : undefined;
+    if (this.tone3000Architecture) {
+      this.tone3000Architecture.value = architecture ?? "all";
+    }
+    if (this.tone3000Search) {
+      this.tone3000Search.value = "";
+    }
+    this.tone3000Query = "";
+    this.tone3000FavoritesOnly = false;
+    this.syncTone3000ModeUi();
+    this.tone3000Tones = [];
+    this.toneModelsCache.clear();
+    this.toneModelErrors.clear();
+    this.expandedToneId = null;
+    this.expandedToneSection = "models";
+    this.tone3000Page = 1;
+    this.tone3000TotalPages = 1;
+    this.tone3000List.innerHTML = `<div class="resource-browser-empty">Loading source pack...</div>`;
+    if (this.tone3000Status) {
+      this.tone3000Status.textContent = "";
+    }
+    this.updateTone3000Pagination(true);
+
+    try {
+      await ensureTone3000Session();
+      if (isStale()) {
+        return;
+      }
+      if (!isTone3000AuthReady()) {
+        throw new Error("Add a Tone3000 API key in Settings to browse.");
+      }
+      this.tone3000Tones = [tone];
+      await this.toggleToneExpanded(String(tone.id));
+      if (isStale()) {
+        return;
+      }
+      this.updateTone3000PaginationFromData({ page: 1, total: 1, total_pages: 1 }, 1);
+      this.host.saveState();
+    } catch (error) {
+      if (isStale()) {
+        return;
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      this.tone3000List.innerHTML = `<div class="resource-browser-empty">Could not open source pack: ${escapeHtml(message)} Use Search to browse other tones.</div>`;
+      this.updateTone3000PaginationFromData({ page: 1, total: 1, total_pages: 1 }, 1);
+    }
+  }
+
   async runTone3000Search(page = 1): Promise<void> {
     if (!this.tone3000List || !this.host.getOptions()) {
       return;
@@ -267,7 +334,8 @@ export class Tone3000Tab {
 
     // The picker is one modal shared by every slot: a model search still in flight when it is
     // opened for an IR slot (or the category, sort or page changes) could land last and fill it.
-    const sequence = ++this.tone3000SearchSequence;
+    this.invalidateRequests();
+    const sequence = this.tone3000SearchSequence;
     const isStale = (): boolean => sequence !== this.tone3000SearchSequence;
 
     this.syncTone3000ModeUi();
@@ -420,7 +488,7 @@ export class Tone3000Tab {
       .map((tone) => {
         const isExpanded = this.expandedToneId === String(tone.id);
         const imageUrl = this.getToneImageUrl(tone);
-        const modelCount = tone.models_count ?? 0;
+        const modelCount = this.toneModelsCache.get(String(tone.id))?.length ?? tone.models_count;
         
         const imageMarkup = imageUrl
           ? `<img class="resource-browser-tone-image" src="${escapeHtml(imageUrl)}" alt="" loading="lazy" />`
@@ -440,8 +508,8 @@ export class Tone3000Tab {
                 <div class="resource-browser-tone-meta">
                   <span>${escapeHtml(tone.gear ?? "")}</span>
                   <span>${escapeHtml(tone.platform ?? "")}</span>
-                  <span>${modelCount} models</span>
-                  <span>${tone.downloads_count ?? 0} downloads</span>
+                  ${modelCount != null ? `<span>${modelCount} models</span>` : ""}
+                  ${tone.downloads_count != null ? `<span>${tone.downloads_count} downloads</span>` : ""}
                   ${username ? `<span>${escapeHtml(username)}</span>` : ""}
                 </div>
               </div>

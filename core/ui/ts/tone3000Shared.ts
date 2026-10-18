@@ -3,8 +3,9 @@ import { postMessage } from "./bridge.js";
 import { tone3000AuthenticatedFetch } from "./tone3000.js";
 import { buildBlendModelMappingsFromNames } from "./blendUtils.js";
 import { arrayBufferToBase64 } from "./utils.js";
-import { remoteResourceMetadata } from "./remoteResources.js";
-import type { Tone3000Architecture, Tone3000Model, Tone3000Tone } from "./tone3000ApiTypes.js";
+import { normaliseLicenceId, remoteResourceMetadata } from "./remoteResources.js";
+import type { Tone3000Architecture, Tone3000License, Tone3000Model, Tone3000Tone } from "./tone3000ApiTypes.js";
+import type { LibraryResource } from "./types.js";
 import { fetchAllTone3000ModelPages, sortTone3000ModelsByName } from "./tone3000Api.js";
 
 interface JSZipObject {
@@ -84,6 +85,37 @@ export function backfillTone3000ResourceImages(tones: Tone3000Tone[]): void {
       });
     });
   }
+}
+
+/** The saved pack identity and attribution, usable even through proxies without a tone-detail endpoint. */
+export function tone3000ToneFromResource(resource: LibraryResource | undefined): Tone3000Tone | null {
+  const metadata = resource?.metadata;
+  if (metadata?.provider !== "tone3000") {
+    return null;
+  }
+  const toneId = metadata.toneId?.trim() || metadata.groupId?.trim();
+  if (!toneId) {
+    return null;
+  }
+  const licence = normaliseLicenceId(metadata.licence ?? metadata.license);
+  const licenses: Tone3000License[] = ["t3k", "cc-by", "cc-by-sa", "cc-by-nc", "cc-by-nc-sa", "cc-by-nd", "cc-by-nc-nd", "cco"];
+  const sourcePrefix = "https://www.tone3000.com/tones/";
+  return {
+    id: toneId,
+    title: metadata.toneTitle?.trim() || metadata.groupName?.trim() || `Tone3000 pack ${toneId}`,
+    description: resource?.description,
+    gear: metadata.gear || metadata.tone3000Category,
+    platform: metadata.platform,
+    license: licenses.find((value) => value === (licence === "cc0" ? "cco" : licence)),
+    slug: metadata.sourceUrl?.startsWith(sourcePrefix) ? metadata.sourceUrl.slice(sourcePrefix.length).split(/[?#]/)[0] : undefined,
+    images: metadata.imageUrl ? [metadata.imageUrl] : undefined,
+    user: {
+      id: metadata.creatorId ?? "",
+      username: metadata.authorUsername ?? "",
+      display_name: metadata.creatorName,
+      url: metadata.creatorUrl,
+    },
+  };
 }
 
 /// Sorted by name here, so the resource browser, its next/prev stepping and the
