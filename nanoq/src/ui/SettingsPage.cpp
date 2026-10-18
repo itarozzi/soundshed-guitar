@@ -6,6 +6,7 @@
 
 #include "Paths.h"
 #include "uiclient/ParamFormat.h"
+#include "util/PathEncoding.h"
 
 #include <algorithm>
 #include <cmath>
@@ -141,7 +142,10 @@ Ptr Shell::BuildSettingsPage()
     line("Product", "Soundshed Nano Q");
     line("Engine", mState.environment.version.empty() ? "Soundshed engine" : mState.environment.version);
     line("Interface", "QPlug and Elements (no JUCE)");
-    line("Profile", ProfileFolder().string());
+    // As UTF-8, which the text expects: path::string() converts through the ANSI code page on
+    // Windows, where a user name that page cannot spell throws, and opening Settings took the
+    // app down with it.
+    line("Profile", guitarfx::util::PathToUtf8(ProfileFolder()));
     {
         auto site = std::make_shared<Button>(mTheme, "soundshed.com", [&commands] { commands.OpenUrl(kWebsite); }, Button::Style::Flat);
         site->MinWidth(150);
