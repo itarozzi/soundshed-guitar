@@ -125,6 +125,22 @@ struct PracticeToolServiceTestAccess
         svc.RenderChunk(buffer, cursor);
     }
 
+    /// Hands the service a track, as LoadDecodedBytes does once it has resampled one.
+    static void SetBuffer(PracticeToolService& svc, const std::shared_ptr<PracticeToolService::TrackBuffer>& buffer)
+    {
+        std::atomic_store_explicit(&svc.mBuffer, buffer, std::memory_order_release);
+    }
+
+    static std::shared_ptr<PracticeToolService::TrackBuffer> Buffer(const PracticeToolService& svc)
+    {
+        return std::atomic_load_explicit(&svc.mBuffer, std::memory_order_acquire);
+    }
+
+    static std::shared_ptr<PracticeToolService::ActiveLoopBounds> Loop(const PracticeToolService& svc)
+    {
+        return std::atomic_load_explicit(&svc.mActiveLoop, std::memory_order_acquire);
+    }
+
     static constexpr double kTestSampleRate = 48000.0;
 };
 } // namespace guitarfx
@@ -563,11 +579,48 @@ bool TestTrackEndPlaysTheRingOut()
 }
 } // namespace
 
+/// A sample-rate change with a track loaded (a device switched, a project at another rate):
+/// the track follows the host rate rather than playing at the wrong speed and pitch, and the
+/// loop set on it follows too.
+bool TestRateChangeResamplesTheLoadedTrack()
+{
+    std::cout << "\n--- PracticeToolService Sample-Rate Change Test ---\n";
+
+    NullPluginHost host;
+    std::mutex dspMutex;
+    auto svc = MakeService(host, dspMutex);
+
+    // One second at the host rate, with a loop over its middle half.
+    PracticeToolServiceTestAccess::SetBuffer(*svc, MakeRampLoopBuffer(48000, 12000, 36000));
+    svc->SetLoopRegion(0.25, 0.75);
+
+    svc->Prepare(44100.0, 512);
+
+    const auto buffer = PracticeToolServiceTestAccess::Buffer(*svc);
+    const auto loop = PracticeToolServiceTestAccess::Loop(*svc);
+    const bool trackFollowed = buffer && std::abs(buffer->sampleRate - 44100.0) < 1e-9 &&
+                               buffer->totalFrames >= 44098 && buffer->totalFrames <= 44102;
+    const bool loopFollowed = loop && loop->startFrame >= 11023 && loop->startFrame <= 11027 &&
+                              loop->endFrame >= 33073 && loop->endFrame <= 33077;
+
+    std::cout << "  Track at the new rate:        " << (trackFollowed ? "PASS" : "FAIL") << " (rate "
+              << (buffer ? buffer->sampleRate : 0.0) << ", frames " << (buffer ? buffer->totalFrames : 0) << ")\n";
+    std::cout << "  Loop at the new rate:         " << (loopFollowed ? "PASS" : "FAIL") << " ("
+              << (loop ? loop->startFrame : 0) << " to " << (loop ? loop->endFrame : 0) << ")\n";
+
+    return trackFollowed && loopFollowed;
+}
+
 int main()
 {
     bool allPassed = true;
 
     if (!TestLoopWrapStaysInBoundsAndBlends())
+    {
+        allPassed = false;
+    }
+
+    if (!TestRateChangeResamplesTheLoadedTrack())
     {
         allPassed = false;
     }

@@ -80,10 +80,94 @@ void PracticeToolService::Prepare(double sampleRate, int maxBlockSize)
         mRenderThread = std::thread([this]() { RenderThreadLoop(); });
     }
 
+    FollowSampleRate(sampleRate);
+
     // Force the render thread to re-check the sample rate / reconfigure
     // signalsmith-stretch even if nothing else changed.
     mParamGeneration.fetch_add(1, std::memory_order_release);
     mRenderWake.notify_all();
+}
+
+void PracticeToolService::FollowSampleRate(double sampleRate)
+{
+    auto buffer = std::atomic_load_explicit(&mBuffer, std::memory_order_acquire);
+
+    if (!buffer || sampleRate <= 0.0 || buffer->sampleRate <= 0.0 || buffer->sampleRate == sampleRate)
+    {
+        return;
+    }
+
+    // The track was resampled to the host rate as it was loaded, so at a new rate (a device
+    // switched, a project at another rate) it played at the wrong speed and pitch, and a loop
+    // set in seconds landed elsewhere. Resampled again here, off the lock; the position and
+    // the loop follow it as times.
+    util::DecodedWav source;
+    source.sampleRate = buffer->sampleRate;
+    source.channels = buffer->channels;
+    source.channelSamples.reserve(buffer->channelSamples.size());
+
+    for (const auto& channel : buffer->channelSamples)
+    {
+        source.channelSamples.emplace_back(channel.begin(), channel.end());
+    }
+
+    auto resampled = util::ConvertToSampleRate(source, sampleRate);
+
+    if (resampled.empty() || resampled.front().empty())
+    {
+        return;
+    }
+
+    std::size_t minFrames = resampled.front().size();
+
+    for (const auto& channel : resampled)
+    {
+        minFrames = std::min(minFrames, channel.size());
+    }
+
+    if (minFrames == 0)
+    {
+        return;
+    }
+
+    for (auto& channel : resampled)
+    {
+        channel.resize(minFrames);
+    }
+
+    auto converted = std::make_shared<TrackBuffer>();
+    converted->path = buffer->path;
+    converted->title = buffer->title;
+    converted->sampleRate = sampleRate;
+    converted->channels = static_cast<int>(resampled.size());
+    converted->totalFrames = minFrames;
+    converted->channelSamples = std::move(resampled);
+
+    const double ratio = sampleRate / buffer->sampleRate;
+    std::shared_ptr<ActiveLoopBounds> loop;
+
+    if (const auto current = std::atomic_load_explicit(&mActiveLoop, std::memory_order_acquire))
+    {
+        loop = std::make_shared<ActiveLoopBounds>();
+        loop->startFrame = std::min(
+            static_cast<std::size_t>(std::llround(static_cast<double>(current->startFrame) * ratio)), minFrames - 1);
+        loop->endFrame =
+            std::min(static_cast<std::size_t>(std::llround(static_cast<double>(current->endFrame) * ratio)), minFrames);
+    }
+
+    const double positionSec =
+        static_cast<double>(mReadCursorFrames.load(std::memory_order_relaxed)) / buffer->sampleRate;
+
+    {
+        std::lock_guard<std::mutex> lock(mDSPMutex);
+        std::atomic_store_explicit(&mBuffer, converted, std::memory_order_release);
+        std::atomic_store_explicit(&mActiveLoop, loop, std::memory_order_release);
+        mEq.Reset();
+    }
+
+    // The render thread takes the new buffer as a jump to where playback was, at the new rate.
+    mPendingSeekSeconds.store(positionSec, std::memory_order_relaxed);
+    mSeekPending.store(true, std::memory_order_release);
 }
 
 void PracticeToolService::Shutdown()
@@ -306,7 +390,9 @@ void PracticeToolService::SetBalance(double balance)
 void PracticeToolService::SetLoopRegion(double startSec, double endSec, bool restart)
 {
     auto buffer = std::atomic_load_explicit(&mBuffer, std::memory_order_acquire);
-    const double sr = mSampleRate.load(std::memory_order_relaxed);
+    // The track's own rate, which is what the render thread counts its frames in.
+    const double sr =
+        buffer && buffer->sampleRate > 0.0 ? buffer->sampleRate : mSampleRate.load(std::memory_order_relaxed);
 
     auto bounds = std::make_shared<ActiveLoopBounds>();
     bounds->startFrame = PracticeToolSecondsToFrames(startSec, sr);
