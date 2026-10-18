@@ -42,6 +42,10 @@ private:
     juce::Viewport chipViewport;
     juce::Component chipStrip;
     TapList list { "effect-list" };
-    std::vector<const guitarfx::uiclient::EffectTypeInfo*> shown;
+
+    // Copies, not pointers into the client's catalog: a full state broadcast, which a preset
+    // change brings (a footswitch included), replaces that vector while the sheet is open.
+    std::vector<guitarfx::uiclient::EffectTypeInfo> shown;
+    guitarfx::uiclient::Subscription catalogSubscription;
 };
 } // namespace soundshed::nano

@@ -114,7 +114,7 @@ EffectPickerContent::EffectPickerContent (NanoContext& contextIn, std::string af
             return;
 
         const auto& theme = context.theme;
-        const auto* effect = shown[(std::size_t) row];
+        const auto& effect = shown[(std::size_t) row];
         auto area = bounds.reduced (4, 2);
 
         if (pressed)
@@ -124,21 +124,25 @@ EffectPickerContent::EffectPickerContent (NanoContext& contextIn, std::string af
         }
 
         area.reduce (10, 0);
-        const auto colour = juce::Colour (context.presentation.CategoryColour (effect->category));
-        context.icons->draw (g, context.presentation.IconFor (effect->type, effect->category),
+        const auto colour = juce::Colour (context.presentation.CategoryColour (effect.category));
+        context.icons->draw (g, context.presentation.IconFor (effect.type, effect.category),
                              area.removeFromLeft (28).toFloat().withSizeKeepingCentre (NanoTheme::iconSize, NanoTheme::iconSize),
                              colour.interpolatedWith (theme.text(), 0.25f));
         area.removeFromLeft (8);
         g.setColour (theme.text());
         g.setFont (context.font (NanoTheme::textBody + 1.0f));
-        g.drawFittedText (juce::String::fromUTF8 (effect->name.c_str()), area, juce::Justification::centredLeft, 1);
+        g.drawFittedText (juce::String::fromUTF8 (effect.name.c_str()), area, juce::Justification::centredLeft, 1);
     };
-    list.rowName = [this] (int row) { return "fx:" + juce::String::fromUTF8 (shown[(std::size_t) row]->name.c_str()); };
+    list.rowName = [this] (int row) { return "fx:" + juce::String::fromUTF8 (shown[(std::size_t) row].name.c_str()); };
     list.onTap = [this] (int row) {
         if (row >= 0 && row < (int) shown.size() && onPick)
-            onPick (shown[(std::size_t) row]->type);
+            onPick (shown[(std::size_t) row].type);
     };
     addAndMakeVisible (list);
+
+    // The catalog the rows copy from can change while the sheet is open (an effect preset pack
+    // installing, a full broadcast): the list follows it.
+    catalogSubscription = context.client.Subscribe (guitarfx::uiclient::Topic::Catalog, [this] { rebuild(); });
     rebuild();
 }
 
@@ -156,7 +160,7 @@ void EffectPickerContent::rebuild()
                                                 || lower (effect->category).find (text) != std::string::npos;
 
         if (matches)
-            shown.push_back (effect);
+            shown.push_back (*effect);
     }
 
     for (auto& chip : categoryChips)
