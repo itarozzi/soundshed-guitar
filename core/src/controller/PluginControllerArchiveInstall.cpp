@@ -140,7 +140,9 @@ void PluginController::HandleInstallPresetArchivesRequest(const nlohmann::json& 
         const auto bytes = util::DecodeBase64(archivePayload.value("data", ""));
         const std::string title = archivePayload.value("title", "");
         std::string error;
-        auto parsed = bytes.empty() ? std::nullopt : ParseFactoryPresetArchive(title.empty() ? "archive" : title, bytes, error);
+        auto parsed = bytes.empty() ? std::nullopt
+                                    : ParseFactoryPresetArchive(util::PathFromUtf8(title.empty() ? "archive" : title),
+                                                                bytes, error);
 
         if (!parsed)
         {
