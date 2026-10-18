@@ -738,10 +738,14 @@ document.addEventListener("keydown", (event: KeyboardEvent) => {
   if (isMidiPanelOpen && pendingKeyLearnSlotId) {
     const key = normalizeMappedKey(event.key);
 
-    // Refuse Space outright rather than storing a mapping that could never fire.
-    // Swallow the keystroke so it doesn't also scroll or re-trigger the button
-    // that started the learn, and leave learn armed for a usable key.
-    if (key === SPACEBAR_KEY) {
+    // Space is refused outright rather than stored as a mapping that could never fire, and a
+    // bare modifier is waited through (the key it is held for comes next); both are swallowed
+    // so they neither scroll nor re-trigger the Learn button. Escape backs out of learn.
+    if (key === "Escape") {
+      pendingKeyLearnSlotId = null;
+      renderKeyboardPanel();
+    }
+    if (key === "Escape" || key === SPACEBAR_KEY || ["Shift", "Control", "Alt", "Meta", "AltGraph", "CapsLock"].includes(key)) {
       event.preventDefault();
       return;
     }
@@ -776,8 +780,8 @@ document.addEventListener("keydown", (event: KeyboardEvent) => {
 
   const pressedKey = normalizeMappedKey(event.key);
 
-  // Space always passes through to the host, untouched.
-  if (pressedKey === SPACEBAR_KEY) return;
+  // Space always passes through to the host, untouched; so does a chord (Ctrl+Z is undo, not "z").
+  if (pressedKey === SPACEBAR_KEY || event.ctrlKey || event.metaKey || event.altKey) return;
 
   for (const slot of state.slots) {
     if (!slot.keyMap) continue;
