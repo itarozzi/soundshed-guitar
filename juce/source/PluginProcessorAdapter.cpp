@@ -285,7 +285,12 @@ PluginProcessorAdapter::PluginProcessorAdapter()
         mControlSurfaceDrain.startTimerHz (kControlSurfaceDrainHz);
 }
 
-PluginProcessorAdapter::~PluginProcessorAdapter() = default;
+PluginProcessorAdapter::~PluginProcessorAdapter()
+{
+    // Before the members go: a task posted to the message thread that runs after this finds
+    // nothing rather than a freed instance.
+    masterReference.clear();
+}
 
 // ════════════════════════════════════════════════════════════════════════
 // juce::AudioProcessor overrides
@@ -294,6 +299,11 @@ PluginProcessorAdapter::~PluginProcessorAdapter() = default;
 void PluginProcessorAdapter::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     mController.Prepare (sampleRate, samplesPerBlock);
+    // A second of latency covers any effect or hosted plugin here; more is clamped.
+    mBypassDelay.setSize (2, juce::jmax (1, static_cast<int> (sampleRate)));
+    mBypassDelay.clear();
+    mBypassDelayWritePos = 0;
+    mBypassDelayPrimed = false;
     mAudioActive.store (true, std::memory_order_release);
 }
 
@@ -346,6 +356,22 @@ void PluginProcessorAdapter::processBlock (juce::AudioBuffer<float>& buffer,
     juce::MidiBuffer& midiMessages)
 {
     juce::ScopedNoDenormals noDenormals;
+
+    // The play head may only be asked here, on the audio thread; the controller reads tempo
+    // and transport on the message thread (the metronome, a riff's tempo), so each block
+    // leaves them behind. Asking from the message thread is undefined in the AU wrapper.
+    if (auto* playHead = getPlayHead())
+    {
+        if (const auto position = playHead->getPosition())
+        {
+            const auto bpm = position->getBpm();
+            mHostTempoBpm.store (bpm.hasValue() ? *bpm : 0.0, std::memory_order_relaxed);
+            mHostPlaying.store (position->getIsPlaying(), std::memory_order_relaxed);
+        }
+    }
+
+    // Not bypassed: the next bypassed block starts its delay line afresh.
+    mBypassDelayPrimed = false;
 
     const auto totalInputCh = getTotalNumInputChannels();
     const auto totalOutputCh = getTotalNumOutputChannels();
@@ -410,6 +436,50 @@ void PluginProcessorAdapter::processBlockBypassed (juce::AudioBuffer<float>& buf
     // has the plugin bypassed.
     midiMessages.clear();
     juce::AudioProcessor::processBlockBypassed (buffer, midiMessages);
+
+    // The default passes the audio straight through. The host delays every other track by
+    // the latency this plugin reports (a pitch shifter, an oversampled amp, a hosted plugin),
+    // so a bypass that skipped it put this track early by that much: the bypassed signal is
+    // delayed to match, as the processed one is.
+    const int capacity = mBypassDelay.getNumSamples();
+    const int latency = juce::jmin (getLatencySamples(), capacity);
+
+    if (latency <= 0)
+        return;
+
+    if (! mBypassDelayPrimed)
+    {
+        // Entering bypass: whatever an earlier bypass left in the line is not this one's.
+        mBypassDelay.clear();
+        mBypassDelayWritePos = 0;
+        mBypassDelayPrimed = true;
+    }
+
+    const int numSamples = buffer.getNumSamples();
+    const int channels = juce::jmin (buffer.getNumChannels(), mBypassDelay.getNumChannels());
+
+    for (int ch = 0; ch < channels; ++ch)
+    {
+        float* data = buffer.getWritePointer (ch);
+        float* line = mBypassDelay.getWritePointer (ch);
+        int writePos = mBypassDelayWritePos;
+        int readPos = (writePos - latency + capacity) % capacity;
+
+        for (int i = 0; i < numSamples; ++i)
+        {
+            const float in = data[i];
+            data[i] = line[readPos];
+            line[writePos] = in;
+
+            if (++writePos == capacity)
+                writePos = 0;
+
+            if (++readPos == capacity)
+                readPos = 0;
+        }
+    }
+
+    mBypassDelayWritePos = (mBypassDelayWritePos + numSamples) % capacity;
 }
 
 #ifdef HAS_CLAP_JUCE_EXTENSIONS
@@ -569,7 +639,9 @@ const juce::String PluginProcessorAdapter::getName() const { return JucePlugin_N
 bool PluginProcessorAdapter::acceptsMidi() const { return true; }
 bool PluginProcessorAdapter::producesMidi() const { return true; } // must match NEEDS_MIDI_OUTPUT in juce/CMakeLists.txt
 bool PluginProcessorAdapter::isMidiEffect() const { return false; }
-double PluginProcessorAdapter::getTailLengthSeconds() const { return 0.0; }
+// Delays and reverbs ring on after the input stops. A host that was told zero here cut a tail
+// off at a region's end, or stopped calling the plugin while one was still sounding.
+double PluginProcessorAdapter::getTailLengthSeconds() const { return 10.0; }
 
 // The program calls come on whatever thread the host uses: AU's factory presets, LV2's program
 // presets. The getters read the setlist from the document store, which locks itself, and the
@@ -677,7 +749,11 @@ void PluginProcessorAdapter::SendMessageToUI (const std::string& jsonMessage)
     }
     else
     {
-        juce::MessageManager::callAsync ([this, msg]() { sendMessageToUI (msg); });
+        // A message still queued when the host removes the instance must find it gone.
+        juce::MessageManager::callAsync ([weakThis = juce::WeakReference<PluginProcessorAdapter> (this), msg]() {
+            if (auto* self = weakThis.get())
+                self->sendMessageToUI (msg);
+        });
     }
 }
 
@@ -688,9 +764,20 @@ void PluginProcessorAdapter::BrowseFileAsync (
 {
     if (!juce::MessageManager::getInstance()->isThisTheMessageThread())
     {
-        juce::MessageManager::callAsync ([this, type, title, callback = std::move (callback)]() mutable {
-            BrowseFileAsync (type, title, std::move (callback));
+        juce::MessageManager::callAsync ([weakThis = juce::WeakReference<PluginProcessorAdapter> (this), type, title,
+                                          callback = std::move (callback)]() mutable {
+            if (auto* self = weakThis.get())
+                self->BrowseFileAsync (type, title, std::move (callback));
         });
+        return;
+    }
+
+    // One dialog at a time. Replacing the chooser while its native dialog was open (a second
+    // click on Browse) destroyed it under that dialog, and the first request never answered.
+    if (mFileChooser != nullptr)
+    {
+        if (callback)
+            callback (guitarfx::BrowseFileResult{});
         return;
     }
 
@@ -787,16 +874,26 @@ void PluginProcessorAdapter::SaveFileAsync (
     std::function<void (const guitarfx::BrowseFileResult&)> callback)
 {
 #ifdef _WIN32
-    std::thread ([type, title, defaultName, callback = std::move (callback)]() mutable {
+    std::thread ([type, title, defaultName, callback = std::move (callback),
+                  weakThis = juce::WeakReference<PluginProcessorAdapter> (this)]() mutable {
         ScopedComInitializer com;
         guitarfx::BrowseFileResult result;
+
+        // The dialog runs on this thread; its answer goes back to the message thread, which
+        // is where the controller expects it (a render touches the live mixer, an export the
+        // store), and is dropped if the host has removed the instance meanwhile.
+        const auto deliver = [&weakThis, &callback] (const guitarfx::BrowseFileResult& answer) {
+            juce::MessageManager::callAsync ([weakThis, callback, answer]() {
+                if (weakThis.get() != nullptr && callback)
+                    callback (answer);
+            });
+        };
 
         Microsoft::WRL::ComPtr<IFileSaveDialog> dialog;
         HRESULT hr = CoCreateInstance (CLSID_FileSaveDialog, nullptr, CLSCTX_ALL, IID_PPV_ARGS (&dialog));
         if (FAILED (hr))
         {
-            if (callback)
-                callback (result);
+            deliver (result);
             return;
         }
 
@@ -875,17 +972,26 @@ void PluginProcessorAdapter::SaveFileAsync (
             }
         }
 
-        if (callback)
-            callback (result);
+        deliver (result);
     }).detach();
     return;
 #endif
 
     if (!juce::MessageManager::getInstance()->isThisTheMessageThread())
     {
-        juce::MessageManager::callAsync ([this, type, title, defaultName, callback = std::move (callback)]() mutable {
-            SaveFileAsync (type, title, defaultName, std::move (callback));
+        juce::MessageManager::callAsync ([weakThis = juce::WeakReference<PluginProcessorAdapter> (this), type, title,
+                                          defaultName, callback = std::move (callback)]() mutable {
+            if (auto* self = weakThis.get())
+                self->SaveFileAsync (type, title, defaultName, std::move (callback));
         });
+        return;
+    }
+
+    // One dialog at a time, as BrowseFileAsync.
+    if (mFileChooser != nullptr)
+    {
+        if (callback)
+            callback (guitarfx::BrowseFileResult{});
         return;
     }
 
@@ -1023,25 +1129,14 @@ void PluginProcessorAdapter::NotifyLatencyChanged (int newLatencySamples)
 
 double PluginProcessorAdapter::GetHostTempo() const
 {
-    if (auto* ph = const_cast<PluginProcessorAdapter*> (this)->getPlayHead())
-    {
-        if (auto pos = ph->getPosition())
-        {
-            if (auto bpm = pos->getBpm())
-                return *bpm;
-        }
-    }
-    return 120.0;
+    // What processBlock read from the play head; it is not asked here, off the audio thread.
+    const double bpm = mHostTempoBpm.load (std::memory_order_relaxed);
+    return bpm > 0.0 ? bpm : 120.0;
 }
 
 bool PluginProcessorAdapter::IsHostPlaying() const
 {
-    if (auto* ph = const_cast<PluginProcessorAdapter*> (this)->getPlayHead())
-    {
-        if (auto pos = ph->getPosition())
-            return pos->getIsPlaying();
-    }
-    return false;
+    return mHostPlaying.load (std::memory_order_relaxed);
 }
 
 bool PluginProcessorAdapter::IsStandalone() const

@@ -184,5 +184,18 @@ private:
     static constexpr int kControlSurfaceDrainHz = 30;
     juce::TimedCallback mControlSurfaceDrain { [this] { mController.DrainControlSurfaceRequests(); } };
 
+    // What the play head said on the last block. It may only be asked on the audio thread, and
+    // the controller asks for tempo and transport from the message thread.
+    std::atomic<double> mHostTempoBpm { 0.0 };
+    std::atomic<bool> mHostPlaying { false };
+
+    // Delays a bypassed block by the latency the host is compensating for, so bypass does not
+    // put this track early by that much. Sized in prepareToPlay; audio thread otherwise.
+    juce::AudioBuffer<float> mBypassDelay;
+    int mBypassDelayWritePos = 0;
+    bool mBypassDelayPrimed = false;
+
+    // For tasks posted to the message thread, which can run after this instance is gone.
+    JUCE_DECLARE_WEAK_REFERENCEABLE (PluginProcessorAdapter)
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PluginProcessorAdapter)
 };
