@@ -16,16 +16,20 @@ export const EQ_BAND_KEYS: ReadonlyArray<{ gain: string; freq: string; q: string
 
 export const EQ_BAND_LABELS: ReadonlyArray<string> = ["Low", "Low Mid", "High Mid", "High"];
 
+/** Each band's limits as ParametricEQEffect clamps them: the curve draws what the engine plays. */
 export const EQ_BAND_RANGES: ReadonlyArray<{
   freqMin: number; freqMax: number;
   hasQ: boolean; qMin: number; qMax: number; qDefault: number;
   shelfType: 'low' | 'high' | undefined;
 }> = [
   { freqMin: 20, freqMax: 500, hasQ: true, qMin: 0.1, qMax: 10, qDefault: 0.707, shelfType: 'low' },
-  { freqMin: 200, freqMax: 2000, hasQ: true, qMin: 0.1, qMax: 10, qDefault: 1.0, shelfType: undefined },
-  { freqMin: 1000, freqMax: 8000, hasQ: true, qMin: 0.1, qMax: 10, qDefault: 1.0, shelfType: undefined },
-  { freqMin: 4000, freqMax: 20000, hasQ: true, qMin: 0.1, qMax: 10, qDefault: 0.707, shelfType: 'high' },
+  { freqMin: 100, freqMax: 2000, hasQ: true, qMin: 0.1, qMax: 10, qDefault: 1.0, shelfType: undefined },
+  { freqMin: 500, freqMax: 8000, hasQ: true, qMin: 0.1, qMax: 10, qDefault: 1.0, shelfType: undefined },
+  { freqMin: 2000, freqMax: 16000, hasQ: true, qMin: 0.1, qMax: 10, qDefault: 0.707, shelfType: 'high' },
 ];
+
+/** The gain ParametricEQEffect clamps every band to. */
+export const EQ_BAND_GAIN_DB = 12;
 
 export const EQ_FREQ_DEFAULTS: ReadonlyArray<number> = [100, 400, 2000, 8000];
 
@@ -117,7 +121,7 @@ export function buildEqBandConfigsFromParams(
   return EQ_BAND_KEYS.map((keys, i) => {
     const range = EQ_BAND_RANGES[i];
     const freqDefault = EQ_FREQ_DEFAULTS[i];
-    const gainValue = normalize(params[keys.gain], 0, -18, 18);
+    const gainValue = normalize(params[keys.gain], 0, -EQ_BAND_GAIN_DB, EQ_BAND_GAIN_DB);
     const freqValue = normalize(params[keys.freq], freqDefault, range.freqMin, range.freqMax);
     const qValue = keys.q
       ? normalize(params[keys.q], range.qDefault, range.qMin, range.qMax)
@@ -132,8 +136,8 @@ export function buildEqBandConfigsFromParams(
       defaultQ: range.qDefault,
       freqMin: range.freqMin,
       freqMax: range.freqMax,
-      gainMin: -18,
-      gainMax: 18,
+      gainMin: -EQ_BAND_GAIN_DB,
+      gainMax: EQ_BAND_GAIN_DB,
       hasQ: range.hasQ,
       qMin: range.qMin,
       qMax: range.qMax,

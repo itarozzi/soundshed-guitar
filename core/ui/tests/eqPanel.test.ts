@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { EQ_BAND_KEYS, EQ_BAND_RANGES, EQ_FREQ_DEFAULTS } from "../ts/eqCurve.js";
+import { EQ_BAND_KEYS, EQ_BAND_RANGES, EQ_FREQ_DEFAULTS, buildEqBandConfigsFromParams } from "../ts/eqCurve.js";
 import { EqPanel, type EqPanelBinding } from "../ts/eqPanel.js";
 
 /** A binding backed by a plain dict, recording what the panel asks of it. */
@@ -204,5 +204,19 @@ describe("EqPanel spectrum", () => {
     const { bandsHost } = mountHost();
     new EqPanel({ bandsHost, canvas: document.createElement("canvas"), idPrefix: "test" }, makeBinding().binding);
     expect(sent).toEqual([]);
+  });
+});
+
+describe("parametric EQ curve limits", () => {
+  // ParametricEQEffect clamps each band to ±12 dB and to its own frequency range; a curve
+  // allowing more drew a +18 that played at +12, and a saved 3 kHz high shelf at 4 kHz.
+  it("are the engine's: ±12 dB and its band frequency ranges", () => {
+    expect(EQ_BAND_RANGES.map((range) => [range.freqMin, range.freqMax]))
+      .toEqual([[20, 500], [100, 2000], [500, 8000], [2000, 16000]]);
+
+    const configs = buildEqBandConfigsFromParams({ lowGain: 18, lowMidFreq: 150, highMidFreq: 600, highFreq: 3000 });
+    expect(configs.map((band) => [band.gainMin, band.gainMax])).toEqual([[-12, 12], [-12, 12], [-12, 12], [-12, 12]]);
+    expect(configs[0].gainDb).toBe(12);
+    expect(configs.slice(1).map((band) => band.freq)).toEqual([150, 600, 3000]);
   });
 });
