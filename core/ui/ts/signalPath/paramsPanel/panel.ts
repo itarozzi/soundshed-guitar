@@ -564,7 +564,7 @@ export function showNodeParamsPanel(node: GraphNode, preset: Preset): void {
   refreshNodeVisualizations(node);
 
   // Bind controls
-  bindNodeParamControls(node, preset);
+  bindNodeParamControls(node);
   // Every definition, not just the generic controls': the pickup design blocks hold pickers too.
   bindEnumPickerTriggers(nodeParamsPanelElement, node, typeInfo?.parameters ?? paramDefs);
   bindEffectPresetsButton(node);

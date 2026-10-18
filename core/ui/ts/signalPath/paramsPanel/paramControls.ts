@@ -7,11 +7,11 @@ import { GenericKnob, enhanceRangeInput } from "../../controls.js";
 import { enumLabel, wholeStepLabel } from "../../paramLabels.js";
 import { formatTaperedValue, parseParamTaper, taperPositionToValue } from "../../paramTaper.js";
 import { getNodeEffectInfo } from "../../presetV2.js";
-import { BLEND_MAPPING_EPS, buildParameterMapFromLegacy, getBlendState, normalizeBlendValue, updateBlendMatchSummary, updateBlendParamIndicators } from "../../signalPathBlend.js";
+import { getBlendParamSpec } from "../../blendUtils.js";
+import { BLEND_MAPPING_EPS, buildParameterMapFromLegacy, denormalizeBlendValue, getBlendState, normalizeBlendValue, updateBlendMatchSummary, updateBlendParamIndicators } from "../../signalPathBlend.js";
 import type { BlendParamSpec } from "../../signalPathBlend.js";
-import type { BlendMode, BlendModelMapping, GraphNode, Preset } from "../../types.js";
+import type { BlendMode, BlendModelMapping, GraphNode } from "../../types.js";
 import { sendSignalPathNodeParamUpdate } from "../commands.js";
-import { requestNodeParamsPanel } from "../render.js";
 import { nodeParamsPanelElement } from "../state.js";
 import { isPitchShiftRangeSetting, isPitchShiftType, reconcilePitchShiftParams, semitoneKnobRange } from "./pitchShiftRange.js";
 import { nodeParamKnobs } from "./state.js";
@@ -64,7 +64,7 @@ function syncPitchShiftRange(node: GraphNode, nodeId: string, changedKey: string
   nodeParamKnobs.get("semitones")?.setRange(range.min, range.max, range.step);
 }
 
-export function bindNodeParamControls(node: GraphNode, preset: Preset): void {
+export function bindNodeParamControls(node: GraphNode): void {
   // Bind slider inputs from custom layouts
   const sliders = nodeParamsPanelElement?.querySelectorAll(".node-param-slider");
   sliders?.forEach((sliderEl) => {
@@ -311,19 +311,22 @@ export function bindNodeParamControls(node: GraphNode, preset: Preset): void {
           const target: Record<string, number> = { ...node.params, [paramKey]: normalizedValue };
           const closest = findClosestBlendMappingForParam(paramKey, normalizedValue, target);
           if (closest) {
+            // The knobs are moved in place, this one included: rebuilding the panel would
+            // replace the knob being dragged and end the drag at the first mapping it reached.
             const params = buildParameterMapFromLegacy(closest);
-            let updated = false;
             blendState.paramIds.forEach((paramId) => {
               const mappedValue = params[paramId];
-              if (typeof mappedValue === "number" && node.params[paramId] !== mappedValue) {
+              if (typeof mappedValue !== "number") {
+                return;
+              }
+              if (node.params[paramId] !== mappedValue) {
                 node.params[paramId] = mappedValue;
                 sendSignalPathNodeParamUpdate(nodeId, paramId, mappedValue);
-                updated = true;
               }
+              nodeParamKnobs.get(paramId)?.setValue(denormalizeBlendValue(mappedValue, getBlendParamSpec(paramId)));
             });
-            if (updated) {
-              requestNodeParamsPanel(node, preset);
-            }
+            updateBlendParamIndicators(nodeParamsPanelElement, node, blendState);
+            updateBlendMatchSummary(nodeParamsPanelElement, node, blendState);
             return;
           }
         }
