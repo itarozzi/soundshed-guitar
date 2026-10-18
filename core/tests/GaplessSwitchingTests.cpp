@@ -573,7 +573,9 @@ void TestTailReleaseNeverReconnectsInput()
             {
                 mixer.PreparePresetSwap(MakeGainPreset("third", 0.0), "third", "third");
                 mixer.CommitPresetSwap();
-                mixer.SetPresetMute("third", true);
+                // Zero mix, as above: a mute ramps over the declick length, so it is not
+                // silence at once.
+                mixer.SetPresetMix("third", 0.0);
             }
 
             std::vector<float> output;
