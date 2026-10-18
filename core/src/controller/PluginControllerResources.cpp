@@ -989,7 +989,7 @@ void PluginController::HandleDeleteLibraryResourceRequest(const nlohmann::json& 
     if (shouldDeleteFile)
     {
         std::error_code ec;
-        std::filesystem::remove(resourcePath, ec);
+        std::filesystem::remove(util::LongPathSafe(resourcePath), ec);
 
         if (ec)
         {
@@ -1752,23 +1752,14 @@ void PluginController::HandleRequestResourceDataRequest(const nlohmann::json& pa
         return;
     }
 
-    std::ifstream input(*resolvedPath, std::ios::binary);
-
-    if (!input)
-    {
-        SendMessageToUI(nlohmann::json{
-            {"type", "resourceDataFailed"}, {"requestId", requestId}, {"message", "Failed to open resource file"}}
-                            .dump());
-        return;
-    }
-
-    std::vector<std::uint8_t> data((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+    // Long-path safe, as the model and IR loaders are: a library file past MAX_PATH is real.
+    const std::vector<std::uint8_t> data = util::ReadFileBytes(*resolvedPath);
 
     if (data.empty())
     {
-        SendMessageToUI(
-            nlohmann::json{{"type", "resourceDataFailed"}, {"requestId", requestId}, {"message", "Resource file empty"}}
-                .dump());
+        SendMessageToUI(nlohmann::json{
+            {"type", "resourceDataFailed"}, {"requestId", requestId}, {"message", "Failed to read resource file"}}
+                            .dump());
         return;
     }
 
@@ -1927,7 +1918,7 @@ void PluginController::HandleCleanupResourceLibraryRequest(const nlohmann::json&
         if (removeFiles && isUserFile)
         {
             std::error_code ec;
-            std::filesystem::remove(resourceOpt->filePath, ec);
+            std::filesystem::remove(util::LongPathSafe(resourceOpt->filePath), ec);
 
             if (ec)
             {
