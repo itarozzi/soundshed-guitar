@@ -500,6 +500,53 @@ bool TestNodeTypeConfigDefaultReachesCompositeInterior()
     return wrapped->GetInnerExecutor().GetNodeConfig("probe", "oversampling") == "2";
 }
 
+/// A composite's latency is its inner graph's: a pitch shifter inside one counts towards the
+/// chain's total, and so towards what the host is told, as it would outside one.
+bool TestCompositeReportsItsInnerLatency()
+{
+    using namespace guitarfx;
+    RegisterAllEffects();
+
+    CompositeEffectDefinition def;
+    def.id = "test-composite-latency";
+    def.name = "Latent Composite";
+    def.category = "utility";
+    def.innerGraph = MakeLatencySinglePath(1.0);
+
+    EffectTypeInfo info;
+    info.type = def.id;
+    info.displayName = def.name;
+    info.category = def.category;
+    EffectRegistry::Instance().Register(info.type, info,
+                                        [def]() { return std::make_unique<CompositeEffectProcessor>(def); });
+
+    SignalGraph outer;
+    GraphNode in;
+    in.id = "in";
+    in.type = "input";
+    GraphNode composite;
+    composite.id = "composite";
+    composite.type = def.id;
+    GraphNode out;
+    out.id = "out";
+    out.type = "output";
+    outer.nodes = {in, composite, out};
+    outer.edges = {{"in", "composite"}, {"composite", "out"}};
+
+    SignalGraphExecutor plain;
+    plain.SetGraph(MakeLatencySinglePath(1.0));
+    plain.Prepare(kSR, kBlock);
+
+    SignalGraphExecutor exec;
+    exec.SetGraph(outer);
+    exec.Prepare(kSR, kBlock);
+
+    const int inner = plain.GetTotalLatencySamples();
+    const int reported = exec.GetTotalLatencySamples();
+    std::cout << "    inner=" << inner << " via composite=" << reported << "\n";
+    return inner > 0 && reported == inner;
+}
+
 guitarfx::SignalGraph MakeTempoSyncedDelayGraph()
 {
     using namespace guitarfx;
@@ -1279,6 +1326,21 @@ int main()
     {
         const bool ok = TestNodeTypeConfigDefaultReachesCompositeInterior();
         std::cout << "Node-type config default (inside composite):" << (ok ? "  PASS" : "  FAIL") << "\n";
+
+        if (ok)
+        {
+            ++passed;
+        }
+        else
+        {
+            ++failed;
+        }
+    }
+
+    // Case 13b: A composite reports its inner graph's latency
+    {
+        const bool ok = TestCompositeReportsItsInnerLatency();
+        std::cout << "Composite latency (inner graph's):" << (ok ? "  PASS" : "  FAIL") << "\n";
 
         if (ok)
         {

@@ -64,6 +64,13 @@ class CompositeEffectProcessor : public EffectProcessor
         return mInnerExecutor.AnyNodeCanWiden();
     }
 
+    /// The inner graph's latency is this node's, so a pitch shifter or an oversampled amp
+    /// inside a composite counts towards what the host is told to compensate for.
+    [[nodiscard]] int GetLatencySamples() const override
+    {
+        return mInnerExecutor.GetTotalLatencySamples();
+    }
+
     /// The inner graph resolves its own layout from what this node is given.
     void SetInputLayout(ChannelLayout layout) override
     {
