@@ -45,6 +45,8 @@
     "core/src/storage/JsonStore.cpp": 1250,
     "core/src/controller/PluginControllerPresetArchive.cpp": 1250,
     "core/tests/JsonStoreConcurrencyTests.cpp": 1250,
-    "core/tests/PickupMatchEffectTests.cpp": 1000
+    "core/tests/MultiPresetMixerTests.cpp": 1250,
+    "core/tests/PickupMatchEffectTests.cpp": 1000,
+    "core/tests/PresetEditCommandsTests.cpp": 1000
   }
 }
