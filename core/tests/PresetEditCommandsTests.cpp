@@ -494,6 +494,60 @@ void TestRecentsKeepTheWebUiRules()
            "the list keeps four");
 }
 
+/// An archive or pack import saves each preset under an id of its own, naming no source and
+/// no mode: it joins the library, and the preset playing is neither re-keyed nor replaced.
+void TestImportSaveLeavesThePlayingPresetAlone()
+{
+    TestHost host(Sandbox("import-save"));
+    guitarfx::PluginController controller(host);
+    controller.Initialize();
+
+    Store(controller, BuildTwoScenePreset("playing"));
+    Send(controller, "loadPreset", {{"presetId", "playing"}});
+
+    auto imported = BuildTwoScenePreset("imported");
+    imported.name = "Imported";
+    Send(controller, "savePreset",
+         {{"presetId", "imported"}, {"name", "Imported"}, {"category", "User"}, {"preset", PresetJson(imported)}});
+
+    const auto saved = Latest(host, "presetSaved");
+    Expect(saved && saved->at("preset").value("id", std::string{}) == "imported",
+           "the import is answered with presetSaved for the imported preset");
+    Expect(controller.GetActivePreset() && controller.GetActivePreset()->id == "playing",
+           "the preset playing is still the working copy");
+    Expect(controller.GetMixer().GetActivePresetIds() == std::vector<std::string>{"playing"},
+           "the mixer slot keeps the playing preset's id");
+
+    Send(controller, "loadPreset", {{"presetId", "imported"}});
+    Expect(controller.GetActivePreset() && controller.GetActivePreset()->name == "Imported",
+           "the imported preset is in the library to load");
+}
+
+/// A body that cannot be read is refused, rather than taken as a request to save the preset
+/// playing under the import's name.
+void TestUnreadableSaveBodyIsRefused()
+{
+    TestHost host(Sandbox("unreadable-save"));
+    guitarfx::PluginController controller(host);
+    controller.Initialize();
+
+    Store(controller, BuildTwoScenePreset("playing"));
+    Send(controller, "loadPreset", {{"presetId", "playing"}});
+
+    Send(controller, "savePreset",
+         {{"presetId", "broken"}, {"name", "Broken"}, {"preset", {{"id", "broken"}, {"name", 5}}}});
+
+    Expect(!Latest(host, "presetSaved") ||
+               Latest(host, "presetSaved")->at("preset").value("id", std::string{}) != "broken",
+           "nothing is saved under the unreadable preset's id");
+    Expect(controller.GetActivePreset() && controller.GetActivePreset()->id == "playing",
+           "the preset playing is left alone");
+
+    Send(controller, "loadPreset", {{"presetId", "broken"}});
+    Expect(controller.GetActivePreset() && controller.GetActivePreset()->id == "playing",
+           "the unreadable preset never reached the library");
+}
+
 void TestNewPresetUsesTheDefaultTemplate()
 {
     TestHost host(Sandbox("new"));
@@ -739,6 +793,8 @@ int main()
     TestAutomationIsNotAnEdit();
     TestFavoriteAndRatingPatches();
     TestRecentsKeepTheWebUiRules();
+    TestImportSaveLeavesThePlayingPresetAlone();
+    TestUnreadableSaveBodyIsRefused();
     TestNewPresetUsesTheDefaultTemplate();
     TestStartupAlwaysHasAPreset();
     TestOutputMuteSurvivesAPresetLoad();

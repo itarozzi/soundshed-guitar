@@ -517,7 +517,8 @@ bool TestProgramChanges(PluginController& controller, TestHost& host)
                       {"setlists", nlohmann::json::array({{{"id", "set"}, {"name", "Set"}, {"slots", slots}}})},
                       {"activeSetlistId", "set"},
                       {"cursorIndex", 0}});
-    // Saving made B the working copy; a program step onto it would only move the cursor.
+    // Start from A, so the program step onto B below changes the working copy rather than
+    // only moving the cursor.
     LoadPreset(controller, kPresetA, 200);
     host.Pump();
 

@@ -252,6 +252,13 @@ void PluginController::HandleSavePresetRequest(const nlohmann::json& payload)
     if (payload.contains("preset") && payload["preset"].is_object())
     {
         payloadPreset = PresetStorage::DeserializeFromJson(payload["preset"].dump());
+
+        // A body that cannot be read is not a request to save the preset playing instead.
+        if (!payloadPreset)
+        {
+            ReportErrorToUI("Cannot save preset", "The preset could not be read");
+            return;
+        }
     }
 
     if (presetName.empty())
@@ -259,6 +266,14 @@ void PluginController::HandleSavePresetRequest(const nlohmann::json& payload)
         ReportErrorToUI("Cannot save preset", "Preset name is required");
         return;
     }
+
+    // An import (a preset archive, a pack, the Tone Builder) hands over a body under an id of
+    // its own, naming no source and no mode: it joins the library, and the preset playing is
+    // left as it is. Treating it as a save of the working copy re-keyed the playing slot to
+    // the imported id and made the imported body the working copy, so the editor showed the
+    // import while the slot went on playing the old graph.
+    const bool libraryOnly = payloadPreset && saveMode.empty() && !payload.contains("sourcePresetId") &&
+                             !presetIdOverride.empty() && !ResolveActivePresetSlotId(presetIdOverride);
 
     if (!payloadPreset)
     {
@@ -325,6 +340,25 @@ void PluginController::HandleSavePresetRequest(const nlohmann::json& payload)
         else
         {
             newPreset.globalSignalChain.reset();
+        }
+
+        if (libraryOnly)
+        {
+            if (!SaveUserPreset(newPreset))
+            {
+                ReportErrorToUI("Failed to save preset", "Could not write the preset to the library");
+                return;
+            }
+
+            TouchSharedSyncState({"presetLibrary"});
+            InvalidateResourceUsageIndex();
+
+            nlohmann::json reply;
+            reply["type"] = "presetSaved";
+            reply["preset"] = SerializePresetForUi(newPreset);
+            reply["sceneId"] = GetDefaultPresetSceneId(newPreset);
+            SendMessageToUI(reply.dump());
+            return;
         }
 
         const std::string requestedSceneId = payload.value("sceneId", mActiveSceneId);
