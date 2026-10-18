@@ -159,4 +159,45 @@ describe("layout designer: nothing is lost by accident", () => {
     expect(toggle.checked).toBe(false);
     layoutDesigner.close();
   });
+
+  // The sidebar's Remove and Delete buttons used to push no undo step, unlike the Delete key.
+  it("lets the sidebar's Remove Background be undone", () => {
+    layoutDesigner.open("delay_digital", layoutWith([{ layerIndex: 0, type: "color", value: "#111111" }]));
+    document.querySelector<HTMLElement>(".layout-designer-background.layer-0")!.click();
+    el("prop-delete-bg").click();
+    expect(document.querySelectorAll(".layout-designer-background")).toHaveLength(0);
+
+    el("layout-designer-undo").click();
+    expect(document.querySelectorAll(".layout-designer-background")).toHaveLength(1);
+    layoutDesigner.close();
+  });
+
+  it("lets the sidebar's Delete Label be undone", () => {
+    layoutDesigner.open("delay_digital", layoutWith());
+    el("layout-designer-add-label").click();
+    el("prop-delete-label").click();
+    expect(document.querySelectorAll(".layout-text-label")).toHaveLength(0);
+
+    el("layout-designer-undo").click();
+    expect(document.querySelectorAll(".layout-text-label")).toHaveLength(1);
+    layoutDesigner.close();
+  });
+
+  it("keeps redo through a press on an element that does not move it", () => {
+    // A press used to be an undo step from the mousedown, which cleared the redo stack: undo,
+    // then click to select something, and the undone edit was gone for good.
+    layoutDesigner.open("delay_digital", layoutWith());
+    el("layout-designer-add-label").click();
+    el("layout-designer-add-label").click();
+    el("layout-designer-undo").click();
+    expect(document.querySelectorAll(".layout-text-label")).toHaveLength(1);
+
+    const label = document.querySelector<HTMLElement>(".layout-text-label")!;
+    label.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, clientX: 10, clientY: 10, button: 0 }));
+    document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, clientX: 10, clientY: 10 }));
+
+    el("layout-designer-redo").click();
+    expect(document.querySelectorAll(".layout-text-label")).toHaveLength(2);
+    layoutDesigner.close();
+  });
 });

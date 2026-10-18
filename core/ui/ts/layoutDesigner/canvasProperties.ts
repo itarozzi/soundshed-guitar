@@ -357,6 +357,7 @@ export class CanvasProperties {
 
     deleteBtn?.addEventListener("click", () => {
       if (!layout) return;
+      this.host.pushUndoState();
       layout.backgrounds = layout.backgrounds.filter((b) => b.layerIndex !== bg.layerIndex);
       this.host.selectElement(null);
       this.host.renderCanvas();

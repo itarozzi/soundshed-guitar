@@ -117,6 +117,8 @@ export class LayoutDesignerModal {
 
   // Selection and drag state
   private selectedElement: SelectedElement = null;
+  /** The layout as it was when the drag began; becomes the undo step only if the drag moved something. */
+  private dragUndoSnapshot: string | null = null;
   private dragState: DragState = {
     active: false,
     element: null,
@@ -617,9 +619,9 @@ export class LayoutDesignerModal {
   // === Undo / Redo ===
 
   /** Snapshot the current layout state onto the undo stack. Call before any mutation. */
-  private pushUndoState(): void {
+  private pushUndoState(snapshot?: string): void {
     if (!this.layout) return;
-    this.undoStack.push(JSON.stringify(this.layout));
+    this.undoStack.push(snapshot ?? JSON.stringify(this.layout));
     if (this.undoStack.length > LayoutDesignerModal.MAX_UNDO) {
       this.undoStack.shift();
     }
@@ -1700,7 +1702,9 @@ export class LayoutDesignerModal {
   ): void {
     e.preventDefault();
 
-    this.pushUndoState();
+    // Not an undo step yet: a press that goes nowhere is a click to select, and pushing it
+    // would clear the redo stack.
+    this.dragUndoSnapshot = this.layout ? JSON.stringify(this.layout) : null;
     this.dragState = {
       active: true,
       element,
@@ -1809,6 +1813,14 @@ export class LayoutDesignerModal {
       const newX = parseInt(element.style.left) || 0;
       const newY = parseInt(element.style.top) || 0;
 
+      const resized = this.dragState.mode === "resize"
+        && ((parseInt(element.style.width) || 0) !== this.dragState.elementStartWidth
+          || (parseInt(element.style.height) || 0) !== this.dragState.elementStartHeight);
+      if ((newX !== this.dragState.elementStartX || newY !== this.dragState.elementStartY || resized)
+        && this.dragUndoSnapshot !== null) {
+        this.pushUndoState(this.dragUndoSnapshot);
+      }
+
       // Update model
       if (type === "control") {
         const control = this.layout.controls.find((c) => c.paramKey === id);
@@ -1843,6 +1855,7 @@ export class LayoutDesignerModal {
       }
     }
 
+    this.dragUndoSnapshot = null;
     this.dragState = {
       active: false,
       element: null,

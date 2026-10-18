@@ -233,6 +233,7 @@ export class ElementProperties {
 
     deleteBtn?.addEventListener("click", () => {
       if (!layout) return;
+      this.host.pushUndoState();
       layout.controls = layout.controls.filter((c) => c.paramKey !== control.paramKey);
       this.host.selectElement(null);
       this.host.renderCanvas();
@@ -412,6 +413,7 @@ export class ElementProperties {
 
     deleteBtn?.addEventListener("click", () => {
       if (!layout) return;
+      this.host.pushUndoState();
       layout.textLabels = layout.textLabels.filter((l) => l.id !== label.id);
       this.host.selectElement(null);
       this.host.renderCanvas();
@@ -608,6 +610,7 @@ export class ElementProperties {
 
     deleteBtn?.addEventListener("click", () => {
       if (!layout?.overlays) return;
+      this.host.pushUndoState();
       layout.overlays = layout.overlays.filter((item) => item.id !== overlay.id);
       this.host.selectElement(null);
       this.host.renderCanvas();
