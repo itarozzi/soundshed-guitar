@@ -115,6 +115,10 @@ class NoiseGateEffect : public EffectProcessor
             mDucking[channel] = false;
             mPick[static_cast<std::size_t>(channel)].Reset();
         }
+
+        mWasSwell = false;
+        mPickWarmUp[0] = 0;
+        mPickWarmUp[1] = 0;
     }
 
     [[nodiscard]] bool SupportsMonoProcessing() const override
@@ -132,6 +136,7 @@ class NoiseGateEffect : public EffectProcessor
         GuardState();
 
         const Coefficients coefficients = LoadCoefficients();
+        FollowModeChange(coefficients);
         const float* inputLeft = inputs[0];
         const float* inputRight = inputs[1];
         float* outputLeft = outputs[0];
@@ -151,14 +156,14 @@ class NoiseGateEffect : public EffectProcessor
             {
                 // One detector, one gain: whichever channel is loudest decides for both, so a
                 // stereo signal cannot end up with one side open and the other shut.
-                const bool pick = coefficients.swell && mPick[0].Process(0.5f * (left + right));
+                const bool pick = DetectPick(0, 0.5f * (left + right), coefficients);
                 leftGain = NextGain(std::max(leftLevel, rightLevel), coefficients, 0, pick);
                 rightGain = leftGain;
             }
             else
             {
-                const bool leftPick = coefficients.swell && mPick[0].Process(left);
-                const bool rightPick = coefficients.swell && mPick[1].Process(right);
+                const bool leftPick = DetectPick(0, left, coefficients);
+                const bool rightPick = DetectPick(1, right, coefficients);
                 leftGain = NextGain(leftLevel, coefficients, 0, leftPick);
                 rightGain = NextGain(rightLevel, coefficients, 1, rightPick);
             }
@@ -201,12 +206,13 @@ class NoiseGateEffect : public EffectProcessor
         GuardState();
 
         const Coefficients coefficients = LoadCoefficients();
+        FollowModeChange(coefficients);
         const bool learning = mLearner.BeginBlock();
 
         for (int i = 0; i < numSamples; ++i)
         {
             const float key = SidechainLevel(input[i], 0, coefficients);
-            const bool pick = coefficients.swell && mPick[0].Process(input[i]);
+            const bool pick = DetectPick(0, input[i], coefficients);
             output[i] = input[i] * NextGain(key, coefficients, 0, pick);
 
             if (learning)
@@ -475,6 +481,51 @@ class NoiseGateEffect : public EffectProcessor
         }
     }
 
+    /// Gate mode never moves Swell's position, so entering Swell from it started the fade from
+    /// wherever Swell last left it (silence, after a Reset): a note ringing through an open gate
+    /// dropped to the floor in one sample. Swell picks up from the gate's own gain instead. Nor
+    /// does Gate mode run the pick detectors, so they start over with no history, and their
+    /// picks wait until they have heard enough to tell a note already ringing from a new one.
+    /// The other way needs nothing, since the gate ramps from the gain Swell left.
+    void FollowModeChange(const Coefficients& coefficients)
+    {
+        if (coefficients.swell && !mWasSwell)
+        {
+            const float span = std::max(1.0e-6f, 1.0f - coefficients.floorGain);
+            const int warmUp = static_cast<int>(std::lround(PickAttackDetector::kHistorySeconds * mSampleRate));
+
+            for (int channel = 0; channel < 2; ++channel)
+            {
+                const float above = (mGain[channel] - coefficients.floorGain) / span;
+                mSwell[channel] = std::sqrt(std::clamp(above, 0.0f, 1.0f));
+                mDucking[channel] = false;
+                mPick[static_cast<std::size_t>(channel)].Reset();
+                mPickWarmUp[channel] = warmUp;
+            }
+        }
+
+        mWasSwell = coefficients.swell;
+    }
+
+    /// Swell's pick detector for one sample: never in Gate mode, and not while it warms up.
+    [[nodiscard]] bool DetectPick(int detector, float sample, const Coefficients& coefficients)
+    {
+        if (!coefficients.swell)
+        {
+            return false;
+        }
+
+        const bool pick = mPick[static_cast<std::size_t>(detector)].Process(sample);
+
+        if (mPickWarmUp[detector] > 0)
+        {
+            --mPickWarmUp[detector];
+            return false;
+        }
+
+        return pick;
+    }
+
     /// Two one-poles: the first state follows the low end, so what is left over is the
     /// high-passed signal, and the second smooths that above kSidechainLowPassHz. Rectified
     /// here rather than by the caller, because rectifying first would turn the hum this is
@@ -660,6 +711,8 @@ class NoiseGateEffect : public EffectProcessor
     // Swell's position through its fade, and whether a retrigger is dipping it.
     float mSwell[2] = {0.0f, 0.0f};
     bool mDucking[2] = {false, false};
+    bool mWasSwell = false;      ///< the mode the last block ran in
+    int mPickWarmUp[2] = {0, 0}; ///< samples before a fresh pick detector's picks count
     std::array<PickAttackDetector, 2> mPick;
     GateNoiseLearner mLearner;
 };

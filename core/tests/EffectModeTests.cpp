@@ -9,7 +9,8 @@
  *     change or a tempo ramp glides the head, never steps it
  *   - Ambient Reverb: Shimmer brightens the tail and still lets it die away with every control
  *     up; Freeze holds the tail, ignores what is played over it, and lets go when turned off
- *   - Noise Gate: Swell fades a note in from silence, and again on a new pick while one rings
+ *   - Noise Gate: Swell fades a note in from silence, and again on a new pick while one rings;
+ *     switching to Swell while a note rings through the open gate keeps it at its level
  */
 
 #include <algorithm>
@@ -644,6 +645,23 @@ void TestGateSwell()
     Check(std::fabs(beforePick) < 0.5 && afterPick < -15.0 && std::fabs(settled) < 0.5,
           "a new pick while the last note rings swells again",
           Num(beforePick, 2) + ", " + Num(afterPick, 1) + ", " + Num(settled, 2) + " dB");
+
+    // Switched from Gate to Swell while a note rings through the open gate: Swell starts where
+    // the gate is, so the note carries on. It used to start from Swell's last position, silence.
+    const auto held = Sine(330.0, 2.0, 0.2f);
+    const std::size_t switchAt = static_cast<std::size_t>(kRate) / kBlock * kBlock;
+    guitarfx::NoiseGateEffect switched;
+    Apply(switched, {{"mode", 0.0}, {"swell", 800.0}, {"threshold", -50.0}});
+    const auto carried = Run(switched, held, [&](std::size_t start) {
+                             if (start == switchAt)
+                             {
+                                 switched.SetParam("mode", 1.0);
+                             }
+                         }).left;
+    const double heldDb = PowerDb(held, 0, held.size());
+    const double justAfter = SecondsDb(carried, 1.0, 1.05) - heldDb;
+    Check(std::fabs(justAfter) < 0.5, "switching to Swell while a note rings keeps it at its level",
+          Num(justAfter, 2) + " dB in the 50 ms after");
 
     guitarfx::NoiseGateEffect quiet;
     Apply(quiet, {{"mode", 1.0}});
