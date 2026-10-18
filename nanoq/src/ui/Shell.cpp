@@ -53,6 +53,14 @@ Shell::Shell(UiSession& session)
 Shell::~Shell()
 {
     *mAlive = false;
+
+    // A dialog still open goes with the window, and so must what it asked of the engine: the
+    // tuner left on with the window closed kept the output muted, with nothing left to turn it
+    // off. The session, and so the engine, is still there (NanoQPresenter::on_detach).
+    mInstrumentSubs.clear();
+    if (auto closed = std::move(mOnOverlayClosed))
+        closed();
+
     mSubscriptions.clear();
 }
 
