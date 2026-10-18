@@ -198,8 +198,9 @@ class PracticeToolService
         Paused = 2
     };
 
-    /// Message thread, from Prepare(): a loaded track is resampled to a new host rate, with
-    /// its loop and position carried over, rather than playing at the wrong speed and pitch.
+    /// Message thread, from Prepare() and so under the DSP lock its caller holds: a loaded track
+    /// is resampled to a new host rate, with its loop and position carried over, rather than
+    /// playing at the wrong speed and pitch.
     void FollowSampleRate(double sampleRate);
 
     // ── Background render thread (everything below is render-thread-only

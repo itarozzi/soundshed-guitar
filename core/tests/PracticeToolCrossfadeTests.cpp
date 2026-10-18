@@ -16,12 +16,15 @@
 #include "IPluginHost.h"
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <iomanip>
 #include <iostream>
 #include <memory>
 #include <mutex>
+#include <thread>
 #include <vector>
 
 namespace guitarfx
@@ -611,6 +614,47 @@ bool TestRateChangeResamplesTheLoadedTrack()
     return trackFollowed && loopFollowed;
 }
 
+// The controller calls Prepare() with the DSP lock held, so a Prepare that takes the lock
+// itself relocks it. Held on this thread, MSVC's std::mutex would let the relock through and
+// hide it; held by another thread, a relock blocks on every platform, and the deadline reports
+// it instead of hanging the suite.
+bool TestPrepareUnderTheDspLockReturns()
+{
+    std::cout << "\n--- PracticeToolService Prepare Under The DSP Lock Test ---\n";
+
+    NullPluginHost host;
+    std::mutex dspMutex;
+    auto svc = MakeService(host, dspMutex);
+    PracticeToolServiceTestAccess::SetBuffer(*svc, MakeRampLoopBuffer(48000, 12000, 36000));
+
+    std::unique_lock<std::mutex> held(dspMutex);
+    std::atomic<bool> returned{false};
+    std::thread worker([&]() {
+        svc->Prepare(44100.0, 512);
+        returned.store(true, std::memory_order_release);
+    });
+
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+
+    while (!returned.load(std::memory_order_acquire) && std::chrono::steady_clock::now() < deadline)
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
+    const bool prepared = returned.load(std::memory_order_acquire);
+    held.unlock(); // a Prepare that did block can now finish, so the thread can be joined
+    worker.join();
+
+    const auto buffer = PracticeToolServiceTestAccess::Buffer(*svc);
+    const bool followed = buffer && std::abs(buffer->sampleRate - 44100.0) < 1e-9;
+
+    std::cout << "  Prepare returned under the lock: " << (prepared ? "PASS" : "FAIL") << "\n";
+    std::cout << "  Track followed the new rate:     " << (followed ? "PASS" : "FAIL") << " (rate "
+              << (buffer ? buffer->sampleRate : 0.0) << ")\n";
+
+    return prepared && followed;
+}
+
 int main()
 {
     bool allPassed = true;
@@ -621,6 +665,11 @@ int main()
     }
 
     if (!TestRateChangeResamplesTheLoadedTrack())
+    {
+        allPassed = false;
+    }
+
+    if (!TestPrepareUnderTheDspLockReturns())
     {
         allPassed = false;
     }

@@ -99,8 +99,10 @@ void PracticeToolService::FollowSampleRate(double sampleRate)
 
     // The track was resampled to the host rate as it was loaded, so at a new rate (a device
     // switched, a project at another rate) it played at the wrong speed and pitch, and a loop
-    // set in seconds landed elsewhere. Resampled again here, off the lock; the position and
-    // the loop follow it as times.
+    // set in seconds landed elsewhere. Resampled again here; the position and the loop follow
+    // it as times. Prepare() is called with the controller's DSP lock already held, so nothing
+    // here may take mDSPMutex: a same-thread relock of std::mutex hangs on libc++ and libstdc++
+    // (MSVC happens to let the owning thread through).
     util::DecodedWav source;
     source.sampleRate = buffer->sampleRate;
     source.channels = buffer->channels;
@@ -158,12 +160,9 @@ void PracticeToolService::FollowSampleRate(double sampleRate)
     const double positionSec =
         static_cast<double>(mReadCursorFrames.load(std::memory_order_relaxed)) / buffer->sampleRate;
 
-    {
-        std::lock_guard<std::mutex> lock(mDSPMutex);
-        std::atomic_store_explicit(&mBuffer, converted, std::memory_order_release);
-        std::atomic_store_explicit(&mActiveLoop, loop, std::memory_order_release);
-        mEq.Reset();
-    }
+    std::atomic_store_explicit(&mBuffer, converted, std::memory_order_release);
+    std::atomic_store_explicit(&mActiveLoop, loop, std::memory_order_release);
+    mEq.Reset();
 
     // The render thread takes the new buffer as a jump to where playback was, at the new rate.
     mPendingSeekSeconds.store(positionSec, std::memory_order_relaxed);
