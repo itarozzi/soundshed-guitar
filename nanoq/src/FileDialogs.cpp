@@ -11,6 +11,16 @@
 
 namespace nanoq
 {
+namespace
+{
+FileDialogHook gHook;
+} // namespace
+
+void SetFileDialogHookForTesting(FileDialogHook hook)
+{
+    gHook = std::move(hook);
+}
+
 #if defined(_WIN32)
 namespace
 {
@@ -116,29 +126,38 @@ guitarfx::BrowseFileResult RunDialog(bool save, guitarfx::BrowseFileType type, c
     return result;
 }
 } // namespace
+#endif
 
 void ShowOpenDialog(guitarfx::BrowseFileType type, const std::string& title,
                     std::function<void(const guitarfx::BrowseFileResult&)> done)
 {
+    if (gHook)
+    {
+        gHook(false, type, title, {}, std::move(done));
+        return;
+    }
+
+#if defined(_WIN32)
     std::thread([=, done = std::move(done)] { done(RunDialog(false, type, title, {})); }).detach();
+#else
+    done({});
+#endif
 }
 
 void ShowSaveDialog(guitarfx::BrowseFileType type, const std::string& title, const std::string& defaultName,
                     std::function<void(const guitarfx::BrowseFileResult&)> done)
 {
-    std::thread([=, done = std::move(done)] { done(RunDialog(true, type, title, defaultName)); }).detach();
-}
-#else
-void ShowOpenDialog(guitarfx::BrowseFileType, const std::string&,
-                    std::function<void(const guitarfx::BrowseFileResult&)> done)
-{
-    done({});
-}
+    if (gHook)
+    {
+        gHook(true, type, title, defaultName, std::move(done));
+        return;
+    }
 
-void ShowSaveDialog(guitarfx::BrowseFileType, const std::string&, const std::string&,
-                    std::function<void(const guitarfx::BrowseFileResult&)> done)
-{
+#if defined(_WIN32)
+    std::thread([=, done = std::move(done)] { done(RunDialog(true, type, title, defaultName)); }).detach();
+#else
+    (void) defaultName;
     done({});
-}
 #endif
+}
 } // namespace nanoq

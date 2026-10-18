@@ -48,6 +48,25 @@ public:
     /// Runs `fn` on the engine thread and waits for it. Never call it from the engine thread.
     void Call(const std::function<void()>& fn);
 
+    /// A way onto the engine thread for a thread the engine does not own and cannot wait for: a
+    /// file dialog's, which may still be up when the engine goes (the plugin removed, the project
+    /// closed, with the dialog open). Work posted once the engine has gone is dropped.
+    class Handle
+    {
+    public:
+        void Post(std::function<void()> fn);
+
+    private:
+        friend class Engine;
+        std::mutex mMutex;
+        Engine* mEngine = nullptr;
+    };
+
+    [[nodiscard]] std::shared_ptr<Handle> GetHandle() const
+    {
+        return mHandle;
+    }
+
     // ── The view's end ──────────────────────────────────────────────────────────
     /// A view is open (or not). Only while one is does the engine collect messages for it and
     /// run the controller's idle work.
@@ -85,6 +104,7 @@ private:
 
     std::unique_ptr<guitarfx::PluginController> mController;
     std::filesystem::path mAssetRoot;
+    std::shared_ptr<Handle> mHandle = std::make_shared<Handle>();
 
     std::thread mThread;
     std::thread::id mThreadId;

@@ -125,3 +125,25 @@ foreach(_format clap vst3 auv2 standalone)
     add_custom_command(TARGET ${_target} POST_BUILD ${_commands}
         COMMENT "Copying engine data into ${_target}" VERBATIM)
 endforeach()
+
+# ── Tests ───────────────────────────────────────────────────────────────────────
+# What can run with no host and no view: the engine and the threads it does not own. Built from
+# the sources they need rather than nanoq_impl, which would bring QPlug and Elements along.
+enable_testing()
+
+add_executable(NanoQEngineDialogTests
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/EngineDialogLifetimeTests.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/Engine.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/FileDialogs.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/Log.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/Paths.cpp")
+target_include_directories(NanoQEngineDialogTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_compile_definitions(NanoQEngineDialogTests PRIVATE
+    NANOQ_VERSION="${PROJECT_VERSION}"
+    NANOQ_ID="${NANOQ_ID}"
+    NANOQ_NAME="${NANOQ_NAME}")
+target_link_libraries(NanoQEngineDialogTests PRIVATE SoundshedGuitarCore SoundshedUiClient)
+if(WIN32)
+    target_link_libraries(NanoQEngineDialogTests PRIVATE ole32 uuid)
+endif()
+add_test(NAME NanoQEngineDialogTests COMMAND NanoQEngineDialogTests)

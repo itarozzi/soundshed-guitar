@@ -16,6 +16,7 @@ constexpr size_t kMaxOutbox = 4096;
 
 Engine::Engine()
 {
+    mHandle->mEngine = this;
     ApplyProfileOverride();
     mAssetRoot = guitarfx::ui::ResolveResourceRoot(ResourceCandidates());
 
@@ -27,6 +28,11 @@ Engine::Engine()
 
 Engine::~Engine()
 {
+    // First, so that a dialog's thread reporting from here on finds nobody to report to.
+    {
+        std::lock_guard<std::mutex> lock(mHandle->mMutex);
+        mHandle->mEngine = nullptr;
+    }
     {
         std::lock_guard<std::mutex> lock(mTaskMutex);
         mStopping = true;
@@ -89,6 +95,14 @@ void Engine::Post(std::function<void()> fn)
         mTasks.push_back(std::move(fn));
     }
     mWake.notify_one();
+}
+
+void Engine::Handle::Post(std::function<void()> fn)
+{
+    // Held while posting, so the engine cannot go between the check and the post.
+    std::lock_guard<std::mutex> lock(mMutex);
+    if (mEngine != nullptr)
+        mEngine->Post(std::move(fn));
 }
 
 void Engine::Call(const std::function<void()>& fn)
@@ -162,9 +176,11 @@ void Engine::SendMessageToUI(const std::string& jsonMessage)
 void Engine::BrowseFileAsync(guitarfx::BrowseFileType type, const std::string& title,
                              std::function<void(const guitarfx::BrowseFileResult&)> callback)
 {
-    // The callback is documented to fire on the message thread: bounce the result onto it.
-    ShowOpenDialog(type, title, [this, callback = std::move(callback)](const guitarfx::BrowseFileResult& result) {
-        Post([callback, result] { callback(result); });
+    // The callback is documented to fire on the message thread: bounce the result onto it. The
+    // dialog's thread is not the engine's to wait for and may outlive it (the plugin removed with
+    // the dialog still up), so it reaches the engine through the handle, not the engine itself.
+    ShowOpenDialog(type, title, [handle = mHandle, callback = std::move(callback)](const guitarfx::BrowseFileResult& result) {
+        handle->Post([callback, result] { callback(result); });
     });
 }
 
@@ -172,8 +188,8 @@ void Engine::SaveFileAsync(guitarfx::BrowseFileType type, const std::string& tit
                            std::function<void(const guitarfx::BrowseFileResult&)> callback)
 {
     ShowSaveDialog(type, title, defaultName,
-                   [this, callback = std::move(callback)](const guitarfx::BrowseFileResult& result) {
-                       Post([callback, result] { callback(result); });
+                   [handle = mHandle, callback = std::move(callback)](const guitarfx::BrowseFileResult& result) {
+                       handle->Post([callback, result] { callback(result); });
                    });
 }
 

@@ -15,4 +15,12 @@ void ShowOpenDialog(guitarfx::BrowseFileType type, const std::string& title,
 
 void ShowSaveDialog(guitarfx::BrowseFileType type, const std::string& title, const std::string& defaultName,
                     std::function<void(const guitarfx::BrowseFileResult&)> done);
+
+/// Tests: stands in for the native dialogs. The hook is given what a dialog would be, and `done`,
+/// which it may call from any thread and at any time, as a dialog's own thread does. Null puts
+/// the native dialogs back.
+using FileDialogHook = std::function<void(bool save, guitarfx::BrowseFileType type, const std::string& title,
+                                          const std::string& defaultName,
+                                          std::function<void(const guitarfx::BrowseFileResult&)> done)>;
+void SetFileDialogHookForTesting(FileDialogHook hook);
 } // namespace nanoq
