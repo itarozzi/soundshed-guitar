@@ -130,6 +130,8 @@ describe("importing a shared archive", () => {
     const saved = sent.findIndex((message) => message.type === "savePreset" && message.presetId === preset.id);
     const loaded = sent.findIndex((message) => message.type === "loadPreset" && message.presetId === preset.id);
     expect(saved).toBeGreaterThanOrEqual(0);
+    // An import's save stocks the library and leaves the preset playing alone.
+    expect(sent[saved]).toMatchObject({ saveMode: "import" });
     expect(loaded).toBeGreaterThan(saved);
   });
 

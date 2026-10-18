@@ -12,6 +12,7 @@ import { postMessage } from "../bridge.js";
 import { cachePresetInMemory } from "../presets/cache.js";
 import { assignImportedPresetsToTopLevelFolder } from "../presets/folderArchive.js";
 import { sanitizeImportedPreset } from "../presets/sanitize.js";
+import type { SavePresetMessage } from "../presets/savePresetMessage.js";
 import { cachePreset, putLibraryPresetFirst } from "../presetLibraryStore.js";
 import { importRemoteResourceAndWait } from "../remoteImport.js";
 import { remoteResourceMetadata } from "../remoteResources.js";
@@ -188,13 +189,14 @@ export function buildAndSaveProposal(jobId: string, proposal: ToneProposal, fold
   for (const preset of presets) {
     postMessage({
       type: "savePreset",
+      saveMode: "import",
       presetId: preset.id,
       name: preset.name,
       category: preset.category,
       description: preset.description,
       includeGlobalSignalChain: false,
       preset,
-    });
+    } satisfies SavePresetMessage);
     cachePresetInMemory(preset);
     putLibraryPresetFirst(preset);
     cachePreset(preset, preset.id);

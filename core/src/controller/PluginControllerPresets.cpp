@@ -267,13 +267,18 @@ void PluginController::HandleSavePresetRequest(const nlohmann::json& payload)
         return;
     }
 
-    // An import (a preset archive, a pack, the Tone Builder) hands over a body under an id of
-    // its own, naming no source and no mode: it joins the library, and the preset playing is
-    // left as it is. Treating it as a save of the working copy re-keyed the playing slot to
-    // the imported id and made the imported body the working copy, so the editor showed the
-    // import while the slot went on playing the old graph.
-    const bool libraryOnly = payloadPreset && saveMode.empty() && !payload.contains("sourcePresetId") &&
-                             !presetIdOverride.empty() && !ResolveActivePresetSlotId(presetIdOverride);
+    // An import (a preset archive, a pack, the Tone Builder) says so, and hands over the body
+    // to store under its own id: it joins the library, and the preset playing is left as it
+    // is. Saving it as the working copy would re-key the playing slot to the imported id and
+    // make the imported body the working copy, so the editor showed the import while the slot
+    // went on playing the old graph.
+    const bool importToLibrary = saveMode == "import";
+
+    if (importToLibrary && !payloadPreset)
+    {
+        ReportErrorToUI("Cannot save preset", "An import must carry the preset to store");
+        return;
+    }
 
     if (!payloadPreset)
     {
@@ -342,7 +347,7 @@ void PluginController::HandleSavePresetRequest(const nlohmann::json& payload)
             newPreset.globalSignalChain.reset();
         }
 
-        if (libraryOnly)
+        if (importToLibrary)
         {
             if (!SaveUserPreset(newPreset))
             {
@@ -353,10 +358,10 @@ void PluginController::HandleSavePresetRequest(const nlohmann::json& payload)
             TouchSharedSyncState({"presetLibrary"});
             InvalidateResourceUsageIndex();
 
+            // Not presetSaved: the UI takes that for the active preset changing.
             nlohmann::json reply;
-            reply["type"] = "presetSaved";
+            reply["type"] = "presetImported";
             reply["preset"] = SerializePresetForUi(newPreset);
-            reply["sceneId"] = GetDefaultPresetSceneId(newPreset);
             SendMessageToUI(reply.dump());
             return;
         }

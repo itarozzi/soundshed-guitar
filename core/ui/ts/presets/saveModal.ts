@@ -21,11 +21,12 @@ import { movePresetToFolder, populatePresetFolderSelect } from "./folderControls
 import { initPresetModalAdvancedActions, initPresetModalTabs, setPresetModalActiveTab, updatePresetModalJson, updatePresetModalReport } from "./inspectModal.js";
 import { populatePresetDropdown } from "./filter.js";
 import { requestPresetUIRender } from "./refresh.js";
+import type { SavePresetMode } from "./savePresetMessage.js";
 import { updatePresetActionButtons } from "./toolbar.js";
 import { stripGlobalSignalChainForSave, summarizePresetForSaveLog } from "./validate.js";
 
-// Save preset modal helpers
-export type SavePresetModalMode = "overwrite" | "save-as" | "save-new";
+// Save preset modal helpers: the modal saves the working copy, never an import.
+export type SavePresetModalMode = Exclude<SavePresetMode, "import">;
 
 export function configureSavePresetModalLabels(mode: SavePresetModalMode): void {
   const title = document.getElementById("save-preset-modal-title");

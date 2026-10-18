@@ -239,6 +239,7 @@
     "presetExportSaved",
     "presetFavorites",
     "presetFolders",
+    "presetImported",
     "presetLevelMeasured",
     "presetLevelMeasureFailed",
     "presetList",

@@ -124,6 +124,26 @@ export function onPresetSaved(payload: IncomingPayload): void {
   showNotification("Preset saved", (payload as { path?: string }).path ?? savedPreset?.name ?? "");
 }
 
+/**
+ * An import's save (`savePreset` with `saveMode` "import") is in the library: a preset archive,
+ * a pack or the Tone Builder stocking it. The preset playing did not change, so unlike a
+ * `presetSaved` this leaves the active id, the draft, the dirty flag and the echo guard alone:
+ * a pack of fifty presets must not flip the active preset fifty times, nor arm the guard
+ * against the state the import's closing `loadPreset` brings. The library's copy is replaced
+ * with the preset as the engine stored it, and listed if the import did not list it already.
+ */
+export function onPresetImported(payload: IncomingPayload): void {
+  const preset = (payload as { preset?: Preset }).preset;
+  if (!preset) {
+    return;
+  }
+  appendLog(`preset imported ← ${preset.name} (graphNodes=${preset.graph?.nodes?.length ?? 0}, scenes=${preset.scenes?.length ?? 0})`);
+  normalizePresetResources(preset);
+  markPresetStored(preset.id);
+  cachePresetInMemory(preset);
+  cachePreset(clonePreset(preset));
+}
+
 export function onPresetArchiveSessionStarted(payload: IncomingPayload): void {
   const sessionPayload = payload as { active?: boolean; archiveName?: string; archiveKey?: string; presetCount?: number };
   applyPresetArchiveSessionState({

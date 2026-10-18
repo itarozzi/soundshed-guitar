@@ -17,7 +17,7 @@ import { onCompositeDefinitionAdded, onCompositeDefinitionRemoved, onCompositeEd
 import { onLayoutExportFailed, onLayoutExportSaved, onLayoutImageSelected, onLayoutImagesLoaded, onLayoutLibraryLoaded, onLayoutSaveFailed, onLayoutSaved } from "./messages/layoutHandlers.js";
 import { onNavigateToToneSharingDeepLink } from "./messages/mixerHandlers.js";
 import { onPresetLevelMeasureFailed, onPresetLevelMeasured } from "./messages/presetLevelHandlers.js";
-import { onEffectPresets, onPresetArchiveSessionEnded, onPresetArchiveSessionFailed, onPresetArchiveSessionStarted, onPresetData, onPresetDirtyChanged, onPresetExportFailed, onPresetExportSaved, onPresetFavorites, onPresetFolders, onPresetList, onPresetLoaded, onPresetRatings, onPresetRecents, onPresetSaved, onSetlistCursorChanged, onSetlists } from "./messages/presetHandlers.js";
+import { onEffectPresets, onPresetArchiveSessionEnded, onPresetArchiveSessionFailed, onPresetArchiveSessionStarted, onPresetData, onPresetDirtyChanged, onPresetExportFailed, onPresetExportSaved, onPresetFavorites, onPresetFolders, onPresetImported, onPresetList, onPresetLoaded, onPresetRatings, onPresetRecents, onPresetSaved, onSetlistCursorChanged, onSetlists } from "./messages/presetHandlers.js";
 import { onBlendExportFailed, onBlendExportSaved, onHostedPluginResourceLoadCompleted, onHostedPluginResourceLoadFailed, onIrLoaded, onLibraryExportFailed, onLibraryExportSaved, onModelLoaded, onNodeResourceBrowseCancelled, onResourceCleanupResult, onResourceData, onResourceDataFailed, onResourceDeleteFailed, onResourceFolderListing, onResourceFolderListingFailed, onResourceFolderMetadata, onResourceFolderPicked, onResourceImported, onResourceImportFailed, onResourceRemoved, onResourceUsageInfo, onToneSharingPackDeleteFailed } from "./messages/resourceHandlers.js";
 import { onSharedSyncState, onSharedSyncUpdated } from "./messages/sharedSync.js";
 import { onGlobalSignalChainChanged, onSignalPathNodeConfigUpdated, onSignalPathNodeParamUpdated, onSignalPathTestResult, onSpatialPosition } from "./messages/signalPathHandlers.js";
@@ -80,6 +80,7 @@ const MESSAGE_HANDLERS: Record<string, MessageHandler> = {
   "presetExportSaved": onPresetExportSaved,
   "presetExportFailed": onPresetExportFailed,
   "presetSaved": onPresetSaved,
+  "presetImported": onPresetImported,
   "presetArchiveSessionStarted": onPresetArchiveSessionStarted,
   "presetArchiveSessionEnded": onPresetArchiveSessionEnded,
   "presetArchiveSessionFailed": onPresetArchiveSessionFailed,

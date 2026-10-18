@@ -201,8 +201,11 @@ bool Run(const fs::path& sandbox)
 
     for (const auto& preset : {BuildPreset(kPresetA, 2), BuildPreset(kPresetB, 1)})
     {
-        Send(controller,
-             {{"type", "savePreset"}, {"presetId", preset.id}, {"name", preset.name}, {"preset", PresetJson(preset)}});
+        Send(controller, {{"type", "savePreset"},
+                          {"saveMode", "import"},
+                          {"presetId", preset.id},
+                          {"name", preset.name},
+                          {"preset", PresetJson(preset)}});
     }
 
     const auto slots = nlohmann::json::array({{{"presetId", kPresetA}}, {{"presetId", kPresetB}}});

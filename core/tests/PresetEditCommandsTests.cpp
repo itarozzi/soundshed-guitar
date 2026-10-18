@@ -10,6 +10,7 @@
  */
 
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
@@ -119,6 +120,22 @@ std::optional<nlohmann::json> Latest(const TestHost& host, const std::string& ty
     }
 
     return std::nullopt;
+}
+
+/// Whether a message of `type` was sent after the first `from` messages.
+bool SentSince(const TestHost& host, std::size_t from, const std::string& type)
+{
+    for (std::size_t i = from; i < host.sent.size(); ++i)
+    {
+        auto parsed = nlohmann::json::parse(host.sent[i], nullptr, false);
+
+        if (parsed.is_object() && parsed.value("type", std::string{}) == type)
+        {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 void Send(guitarfx::PluginController& controller, const std::string& type, nlohmann::json payload = {})
@@ -501,8 +518,9 @@ void TestRecentsKeepTheWebUiRules()
            "the list keeps four");
 }
 
-/// An archive or pack import saves each preset under an id of its own, naming no source and
-/// no mode: it joins the library, and the preset playing is neither re-keyed nor replaced.
+/// An archive, pack or Tone Builder import saves each preset with saveMode "import": it joins
+/// the library, answered by presetImported rather than presetSaved, and the preset playing is
+/// neither re-keyed nor replaced, however many presets the import brings.
 void TestImportSaveLeavesThePlayingPresetAlone()
 {
     TestHost host(Sandbox("import-save"));
@@ -511,27 +529,61 @@ void TestImportSaveLeavesThePlayingPresetAlone()
 
     Store(controller, BuildTwoScenePreset("playing"));
     Send(controller, "loadPreset", {{"presetId", "playing"}});
+    const auto savedBefore = host.sent.size();
 
-    auto imported = BuildTwoScenePreset("imported");
-    imported.name = "Imported";
-    Send(controller, "savePreset",
-         {{"presetId", "imported"}, {"name", "Imported"}, {"category", "User"}, {"preset", PresetJson(imported)}});
+    for (const char* id : {"imported-1", "imported-2"})
+    {
+        auto imported = BuildTwoScenePreset(id);
+        imported.name = std::string{"Imported "} + id;
+        Send(controller, "savePreset",
+             {{"saveMode", "import"},
+              {"presetId", id},
+              {"name", imported.name},
+              {"category", "User"},
+              {"preset", PresetJson(imported)}});
 
-    const auto saved = Latest(host, "presetSaved");
-    Expect(saved && saved->at("preset").value("id", std::string{}) == "imported",
-           "the import is answered with presetSaved for the imported preset");
+        const auto reply = Latest(host, "presetImported");
+        Expect(reply && reply->at("preset").value("id", std::string{}) == id,
+               "the import is answered with presetImported for the imported preset");
+    }
+
+    Expect(!SentSince(host, savedBefore, "presetSaved"), "no import is answered with presetSaved");
     Expect(controller.GetActivePreset() && controller.GetActivePreset()->id == "playing",
            "the preset playing is still the working copy");
     Expect(controller.GetMixer().GetActivePresetIds() == std::vector<std::string>{"playing"},
            "the mixer slot keeps the playing preset's id");
 
-    Send(controller, "loadPreset", {{"presetId", "imported"}});
-    Expect(controller.GetActivePreset() && controller.GetActivePreset()->name == "Imported",
+    Send(controller, "loadPreset", {{"presetId", "imported-2"}});
+    Expect(controller.GetActivePreset() && controller.GetActivePreset()->name == "Imported imported-2",
            "the imported preset is in the library to load");
 }
 
-/// A body that cannot be read is refused, rather than taken as a request to save the preset
-/// playing under the import's name.
+/// An import names the body to store; one without a body is refused rather than taken as a
+/// request to save the preset playing under the import's name.
+void TestImportWithoutABodyIsRefused()
+{
+    TestHost host(Sandbox("import-no-body"));
+    guitarfx::PluginController controller(host);
+    controller.Initialize();
+
+    Store(controller, BuildTwoScenePreset("playing"));
+    Send(controller, "loadPreset", {{"presetId", "playing"}});
+
+    const auto before = host.sent.size();
+    Send(controller, "savePreset", {{"saveMode", "import"}, {"presetId", "bodiless"}, {"name", "Bodiless"}});
+
+    Expect(!SentSince(host, before, "presetImported") && !SentSince(host, before, "presetSaved"), "nothing is saved");
+    Expect(SentSince(host, before, "error"), "the import is refused with an error");
+    Expect(controller.GetActivePreset() && controller.GetActivePreset()->id == "playing",
+           "the preset playing is left alone");
+
+    Send(controller, "loadPreset", {{"presetId", "bodiless"}});
+    Expect(controller.GetActivePreset() && controller.GetActivePreset()->id == "playing",
+           "nothing reached the library under the import's id");
+}
+
+/// A body that cannot be read is refused, whatever the mode, rather than taken as a request to
+/// save the preset playing under the import's name.
 void TestUnreadableSaveBodyIsRefused()
 {
     TestHost host(Sandbox("unreadable-save"));
@@ -541,12 +593,16 @@ void TestUnreadableSaveBodyIsRefused()
     Store(controller, BuildTwoScenePreset("playing"));
     Send(controller, "loadPreset", {{"presetId", "playing"}});
 
+    const auto before = host.sent.size();
     Send(controller, "savePreset",
-         {{"presetId", "broken"}, {"name", "Broken"}, {"preset", {{"id", "broken"}, {"name", 5}}}});
+         {{"saveMode", "import"},
+          {"presetId", "broken"},
+          {"name", "Broken"},
+          {"preset", {{"id", "broken"}, {"name", 5}}}});
 
-    Expect(!Latest(host, "presetSaved") ||
-               Latest(host, "presetSaved")->at("preset").value("id", std::string{}) != "broken",
+    Expect(!SentSince(host, before, "presetImported") && !SentSince(host, before, "presetSaved"),
            "nothing is saved under the unreadable preset's id");
+    Expect(SentSince(host, before, "error"), "the save is refused with an error");
     Expect(controller.GetActivePreset() && controller.GetActivePreset()->id == "playing",
            "the preset playing is left alone");
 
@@ -801,6 +857,7 @@ int main()
     TestFavoriteAndRatingPatches();
     TestRecentsKeepTheWebUiRules();
     TestImportSaveLeavesThePlayingPresetAlone();
+    TestImportWithoutABodyIsRefused();
     TestUnreadableSaveBodyIsRefused();
     TestNewPresetUsesTheDefaultTemplate();
     TestStartupAlwaysHasAPreset();

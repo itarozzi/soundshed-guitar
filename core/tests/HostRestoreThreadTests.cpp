@@ -508,8 +508,11 @@ bool TestProgramChanges(PluginController& controller, TestHost& host)
     for (const auto* id : {kPresetA, kPresetB})
     {
         const auto preset = BuildPreset(id, 100, LatencyOf(id));
-        Send(controller,
-             {{"type", "savePreset"}, {"presetId", id}, {"name", preset.name}, {"preset", PresetJson(preset)}});
+        Send(controller, {{"type", "savePreset"},
+                          {"saveMode", "import"},
+                          {"presetId", id},
+                          {"name", preset.name},
+                          {"preset", PresetJson(preset)}});
     }
 
     const auto slots = nlohmann::json::array({{{"presetId", kPresetA}}, {{"presetId", kPresetB}}});

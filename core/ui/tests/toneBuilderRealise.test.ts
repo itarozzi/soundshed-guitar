@@ -117,7 +117,7 @@ describe("realising a proposal", () => {
     expect(presets[0].description).toBe("Crunch\n\nCaptures: Plexi by Ann.\n\nSources: Rig rundown (example.com).");
     expect(presets[0].description).not.toMatch(/cc-by|tone3000|licen/i);
     const save = posted.find((m) => m.type === "savePreset");
-    expect(save).toMatchObject({ presetId: presets[0].id, name: "Rhythm", category: "Tone Builder", includeGlobalSignalChain: false });
+    expect(save).toMatchObject({ saveMode: "import", presetId: presets[0].id, name: "Rhythm", category: "Tone Builder", includeGlobalSignalChain: false });
     expect(assignFolder).toHaveBeenCalledWith("Tone Builder – Test", [presets[0].id]);
   });
 

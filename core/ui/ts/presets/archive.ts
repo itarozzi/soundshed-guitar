@@ -20,6 +20,7 @@ import { sanitizeImportedPreset, sanitizePresetForArchive, getPresetArchiveSessi
 import { requestPresetFromBackend } from "./fetch.js";
 import { requestPresetLibraryRefresh } from "./refresh.js";
 import { cachePresetInMemory } from "./cache.js";
+import type { SavePresetMessage } from "./savePresetMessage.js";
 import { collectEffectPresetsForExport, finishEffectPresetsForArchive } from "./effectPresetExport.js";
 export function buildPresetImportSignature(preset: Preset): string {
   const json = JSON.stringify(preset ?? null);
@@ -1129,13 +1130,14 @@ export async function importPresetArchive(
     if (!previewOnly) {
       postMessage({
         type: "savePreset",
+        saveMode: "import",
         presetId: importedPreset.id,
         name: importedPreset.name,
         category: importedPreset.category,
         description: importedPreset.description,
         includeGlobalSignalChain: false,
         preset: importedPreset,
-      });
+      } satisfies SavePresetMessage);
 
       cachePresetInMemory(importedPreset);
       putLibraryPresetFirst(importedPreset);
@@ -1313,13 +1315,14 @@ export async function importGeneratedPack(file: File, context: ArchiveImportCont
 
     postMessage({
       type: "savePreset",
+      saveMode: "import",
       presetId: importedId,
       name: importedName,
       category: appPreset.category,
       description: appPreset.description,
       includeGlobalSignalChain: false,
       preset: appPreset,
-    });
+    } satisfies SavePresetMessage);
 
     cachePresetInMemory(appPreset);
     putLibraryPresetFirst(appPreset);

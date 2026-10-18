@@ -2985,6 +2985,8 @@ bool TestSaveGetDeletePresetWorkflow()
     const std::string saveId = "unit-test-preset";
     nlohmann::json save;
     save["type"] = "savePreset";
+    // Stocks the library under saveId, leaving the preset playing alone.
+    save["saveMode"] = "import";
     save["name"] = "Saved Preset";
     save["category"] = "Unit";
     save["description"] = "Preset management workflow test";
@@ -3084,6 +3086,8 @@ bool TestSaveAsCreatesNewPresetId()
 
     nlohmann::json saveSource;
     saveSource["type"] = "savePreset";
+    // Stocks the library with the source, leaving the preset playing alone.
+    saveSource["saveMode"] = "import";
     saveSource["name"] = "Source Preset";
     saveSource["category"] = "Unit";
     saveSource["description"] = "Original preset";
