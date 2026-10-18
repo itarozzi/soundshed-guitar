@@ -49,10 +49,11 @@ void PluginController::HandleSetParameterRequest(const nlohmann::json& payload)
         {"transpose", {"transpose.semitones", false, true}}, {"doublerEnabled", {"doubler.enabled", true, false}},
         {"doublerDelay", {"doubler.delay", false, false}},   {"eqEnabled", {"eq.enabled", true, false}},
         {"eqLowGain", {"eq.lowGain", false, false}},         {"eqLowFreq", {"eq.lowFreq", false, false}},
-        {"eqLowMidGain", {"eq.lowMidGain", false, false}},   {"eqLowMidFreq", {"eq.lowMidFreq", false, false}},
-        {"eqLowMidQ", {"eq.lowMidQ", false, false}},         {"eqHighMidGain", {"eq.highMidGain", false, false}},
-        {"eqHighMidFreq", {"eq.highMidFreq", false, false}}, {"eqHighMidQ", {"eq.highMidQ", false, false}},
-        {"eqHighGain", {"eq.highGain", false, false}},       {"eqHighFreq", {"eq.highFreq", false, false}},
+        {"eqLowQ", {"eq.lowQ", false, false}},               {"eqLowMidGain", {"eq.lowMidGain", false, false}},
+        {"eqLowMidFreq", {"eq.lowMidFreq", false, false}},   {"eqLowMidQ", {"eq.lowMidQ", false, false}},
+        {"eqHighMidGain", {"eq.highMidGain", false, false}}, {"eqHighMidFreq", {"eq.highMidFreq", false, false}},
+        {"eqHighMidQ", {"eq.highMidQ", false, false}},       {"eqHighGain", {"eq.highGain", false, false}},
+        {"eqHighFreq", {"eq.highFreq", false, false}},       {"eqHighQ", {"eq.highQ", false, false}},
     };
 
     const auto name = payload.value("name", std::string{});
@@ -224,6 +225,11 @@ void PluginController::HandleSetGlobalChainParamRequest(const nlohmann::json& pa
             mPresetMixer.SetGlobalEQBandFrequency(0, value.get<double>());
             persistGlobalFx = true;
         }
+        else if (path == "eq.lowQ")
+        {
+            mPresetMixer.SetGlobalEQBandQ(0, value.get<double>());
+            persistGlobalFx = true;
+        }
         else if (path == "eq.lowMidGain")
         {
             mPresetMixer.SetGlobalEQBandGain(1, value.get<double>());
@@ -262,6 +268,11 @@ void PluginController::HandleSetGlobalChainParamRequest(const nlohmann::json& pa
         else if (path == "eq.highFreq")
         {
             mPresetMixer.SetGlobalEQBandFrequency(3, value.get<double>());
+            persistGlobalFx = true;
+        }
+        else if (path == "eq.highQ")
+        {
+            mPresetMixer.SetGlobalEQBandQ(3, value.get<double>());
             persistGlobalFx = true;
         }
     }

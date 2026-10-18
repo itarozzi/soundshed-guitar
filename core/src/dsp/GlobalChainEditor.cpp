@@ -296,8 +296,9 @@ void GlobalChainEditor::SetEQBandFrequency(int band, double freq)
 
 void GlobalChainEditor::SetEQBandQ(int band, double q)
 {
-    static const char* kParamNames[] = {"", "lowMidQ", "highMidQ", ""};
-    if (band < 1 || band > 2)
+    // The shelves have a Q too: it sets their slope, and the UI's EQ panel offers it.
+    static const char* kParamNames[] = {"lowQ", "lowMidQ", "highMidQ", "highQ"};
+    if (band < 0 || band > 3)
     {
         return;
     }

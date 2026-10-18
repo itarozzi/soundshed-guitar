@@ -158,6 +158,9 @@ int main()
     editor.SetEQEnabled(true);
     editor.SetEQBandGain(2, 1.75);
     editor.SetEQBandQ(2, 1.4);
+    // The shelves take a Q too: the EQ panel offers it, and it used to be dropped.
+    editor.SetEQBandQ(0, 0.9);
+    editor.SetEQBandQ(3, 1.2);
     editor.SetDoublerEnabled(true);
     editor.SetDoublerDelay(200.0);
     editor.SetDoublerMix(-1.0);
@@ -170,9 +173,10 @@ int main()
     const auto* doubler = config.postChainGraph.FindNode("global_doubler");
     if (!gate->enabled || gate->params.at("threshold") != -48.0 || gate->params.at("attack") != 9.0 ||
         !transpose->enabled || transpose->params.at("semitones") != 12.0 || !eq->enabled ||
-        eq->params.at("highMidGain") != 1.75 || eq->params.at("highMidQ") != 1.4 || !doubler->enabled ||
-        doubler->params.at("time") != 100.0 || doubler->params.at("mix") != 0.0 || config.inputGain != -3.0 ||
-        config.outputGain != -6.0206 || std::abs(masterGain - 0.5) > 1e-4)
+        eq->params.at("highMidGain") != 1.75 || eq->params.at("highMidQ") != 1.4 || eq->params.count("lowQ") == 0 ||
+        eq->params.at("lowQ") != 0.9 || eq->params.count("highQ") == 0 || eq->params.at("highQ") != 1.2 ||
+        !doubler->enabled || doubler->params.at("time") != 100.0 || doubler->params.at("mix") != 0.0 ||
+        config.inputGain != -3.0 || config.outputGain != -6.0206 || std::abs(masterGain - 0.5) > 1e-4)
     {
         std::cerr << "Global chain edit rules changed\n";
         return 1;
