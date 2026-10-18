@@ -7,7 +7,7 @@ import type {
   BlendMode,
   BlendDefinition,
 } from "./types.js";
-import { uiState } from "./state.js";
+import { getActivePresetForRender } from "./state.js";
 import { postMessage } from "./bridge.js";
 import { GenericKnob } from "./controls.js";
 import {
@@ -259,8 +259,8 @@ export class BlendEditorModal {
     if (!nodeId) {
       return null;
     }
-    const presetId = uiState.activePresetId ?? "";
-    const preset = presetId ? uiState.presetCache.get(presetId) : undefined;
+    // The draft the params panel edits, not the library's saved copy: a Test knob writes this node.
+    const preset = getActivePresetForRender();
     return preset?.graph?.nodes.find((entry) => entry.id === nodeId) ?? null;
   }
 
