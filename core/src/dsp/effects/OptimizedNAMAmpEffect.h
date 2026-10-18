@@ -170,6 +170,12 @@ class OptimizedNAMAmpEffect : public EffectProcessor
 
     void Process(float** inputs, float** outputs, int numSamples) override
     {
+        ProcessBlock(inputs, outputs, numSamples);
+        ScrubNonFinite(outputs, 2, std::min(numSamples, mMaxBlockSize));
+    }
+
+    void ProcessBlock(float** inputs, float** outputs, int numSamples)
+    {
         EnsureLevelTargetsCurrent();
 
         // Clamp to allocated buffer size to prevent out-of-bounds writes
@@ -365,6 +371,38 @@ class OptimizedNAMAmpEffect : public EffectProcessor
         return true;
     }
 
+    /// A non-finite sample from upstream (a hosted plugin on a bad day) latches the tone stack's
+    /// and the DC blockers' recursive state, and a recurrent model's own, so the amp put out NaN,
+    /// or nothing, until its node was rebuilt. One check per block, on the last sample, which a
+    /// filter carries a NaN forward to: start over, prewarm included, since this is rare.
+    void ScrubNonFinite(float* const* outputs, int channels, int numSamples)
+    {
+        if (numSamples <= 0)
+        {
+            return;
+        }
+
+        for (int ch = 0; ch < channels; ++ch)
+        {
+            if (!outputs[ch] || IsFinite(outputs[ch][numSamples - 1]))
+            {
+                continue;
+            }
+
+            Reset();
+
+            for (int c = 0; c < channels; ++c)
+            {
+                if (outputs[c])
+                {
+                    std::fill_n(outputs[c], numSamples, 0.0f);
+                }
+            }
+
+            return;
+        }
+    }
+
     /// The right channel's model is only needed on a stereo connection. Told before the model
     /// loads when a chain is built, so a mono connection loads one model and prewarms one. When a
     /// running chain turns stereo (an input mode or a bus change), the right model is built off
@@ -449,6 +487,13 @@ class OptimizedNAMAmpEffect : public EffectProcessor
     }
 
     void ProcessMono(float* input, float* output, int numSamples) override
+    {
+        ProcessMonoBlock(input, output, numSamples);
+        float* outputs[1] = {output};
+        ScrubNonFinite(outputs, 1, std::min(numSamples, mMaxBlockSize));
+    }
+
+    void ProcessMonoBlock(float* input, float* output, int numSamples)
     {
         EnsureLevelTargetsCurrent();
 

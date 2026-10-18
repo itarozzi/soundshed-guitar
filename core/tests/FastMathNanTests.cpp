@@ -37,11 +37,14 @@
 #include "controller/TelemetryPublisher.h"
 #include "controller/internal/ControllerUtils.h"
 #include "controller/internal/SettingsKeys.h"
+#include "dsp/EffectGuids.h"
+#include "dsp/EffectRegistry.h"
 #include "dsp/FiniteCheck.h"
 #include "dsp/LevelTargets.h"
 #include "dsp/MultiPresetMixer.h"
 #include "dsp/RealtimeConvolver.h"
 #include "dsp/SignalGraphExecutor.h"
+#include "dsp/effects/BuiltinAmpEffect.h"
 #include "dsp/effects/BuiltinEffects.h"
 #include "dsp/effects/FlangerEffect.h"
 #include "dsp/effects/GraphicEQEffect.h"
@@ -761,7 +764,43 @@ bool TestRecursiveEffectsRecoverFromNonFiniteInput()
     noiseReduction.Prepare(kSampleRate, kBlock);
     noiseReduction.SetParam("hiss", 1.0);
 
+    // The built-in amp's stages are recursive filters with a sag envelope. One bad sample
+    // from upstream (a hosted plugin on a bad day) held them until the node was rebuilt.
+    BuiltinAmpEffect builtinAmp;
+    builtinAmp.Prepare(kSampleRate, kBlock);
+
+    // The NAM amp's tone stack and DC blocker are recursive too. Skipped without the fixture.
+    RegisterAllEffects();
+    std::unique_ptr<EffectProcessor> namAmp;
+    const fs::path namModel = CalibratedNamModelPath();
+
+    if (fs::exists(namModel))
+    {
+        namAmp = EffectRegistry::Instance().Create(EffectGuids::kAmpNamOptimized);
+
+        if (namAmp && namAmp->LoadResource(namModel))
+        {
+            namAmp->SetParam("bass", 8.0);
+            namAmp->Prepare(kSampleRate, kBlock);
+        }
+        else
+        {
+            namAmp.reset();
+        }
+    }
+
     bool passed = ExpectRecoversFromNonFiniteInput("parametric EQ", parametric);
+    passed = ExpectRecoversFromNonFiniteInput("built-in amp", builtinAmp) && passed;
+
+    if (namAmp)
+    {
+        passed = ExpectRecoversFromNonFiniteInput("NAM amp", *namAmp) && passed;
+    }
+    else
+    {
+        std::cout << "[SKIP] NAM amp: calibrated NAM model not found\n";
+    }
+
     passed = ExpectRecoversFromNonFiniteInput("graphic EQ", graphic) && passed;
     passed = ExpectRecoversFromNonFiniteInput("flanger", flanger) && passed;
     passed = ExpectRecoversFromNonFiniteInput("noise gate", gate) && passed;
