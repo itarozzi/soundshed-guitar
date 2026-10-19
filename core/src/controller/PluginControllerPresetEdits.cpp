@@ -756,7 +756,7 @@ void PluginController::FoldAutomationNodeChanges()
         if (bypassChanged)
         {
             MirrorActivePresetJson();
-            mPendingStateBroadcast = true;
+            mPendingPresetStateBroadcast = true;
         }
     }
 

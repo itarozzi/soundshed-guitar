@@ -46,6 +46,65 @@ void PluginController::SendCompositePresetListToUI()
     SendMessageToUI(msg.dump());
 }
 
+void PluginController::SendResourceLibraryToUI(bool onlyIfChanged)
+{
+    if (!mUIReady)
+    {
+        return;
+    }
+
+    const auto revision = mResourceLibrary.GetRevision();
+
+    if (onlyIfChanged && mResourceLibraryRevisionSent == revision)
+    {
+        return;
+    }
+
+    // Per-type entries for UI rendering. By far the largest payload the UI receives (~800 KB
+    // on a developer library), and it stats every file on disk to fill in "fileMissing", which
+    // is why it is not part of every state broadcast.
+    nlohmann::json libraryInfo = nlohmann::json::object();
+    auto allResources = mResourceLibrary.GetAllResources();
+    libraryInfo["totalCount"] = allResources.size();
+
+    for (const auto& resource : allResources)
+    {
+        const std::string type = resource.type;
+
+        if (!libraryInfo.contains(type) || !libraryInfo[type].is_array())
+        {
+            libraryInfo[type] = nlohmann::json::array();
+        }
+
+        nlohmann::json entry;
+        entry["id"] = resource.id;
+        entry["name"] = resource.name;
+        entry["category"] = resource.category;
+        entry["description"] = resource.description;
+        entry["tags"] = resource.tags;
+        entry["filePath"] = resource.filePath.empty() ? "" : util::PathToUtf8(resource.filePath);
+        entry["hash"] = resource.hash;
+
+        if (!resource.metadata.empty())
+        {
+            entry["metadata"] = resource.metadata;
+        }
+
+        const bool hasPath = !resource.filePath.empty();
+        const bool exists = hasPath && std::filesystem::exists(resource.filePath);
+        entry["fileMissing"] = !(hasPath && exists);
+
+        libraryInfo[type].push_back(entry);
+    }
+
+    nlohmann::json msg;
+    msg["type"] = "resourceLibrary";
+    msg["revision"] = revision;
+    msg["resourceLibrary"] = std::move(libraryInfo);
+    SendMessageToUI(msg.dump());
+    mResourceLibraryRevisionSent = revision;
+}
+
 void PluginController::BroadcastState(StateScope scope)
 {
     if (!mUIReady)
@@ -105,47 +164,8 @@ void PluginController::BroadcastState(StateScope scope)
     auto chainConfig = mPresetMixer.GetGlobalChainConfig();
     state["globalSignalChain"] = chainConfig;
 
-    // Resource library summary + per-type entries for UI rendering. By far the largest
-    // section, and it stats every file on disk to fill in "fileMissing", so it is only
-    // built for a full broadcast.
-    if (full)
-    {
-        nlohmann::json libraryInfo = nlohmann::json::object();
-        auto allResources = mResourceLibrary.GetAllResources();
-        libraryInfo["totalCount"] = allResources.size();
-
-        for (const auto& resource : allResources)
-        {
-            const std::string type = resource.type;
-
-            if (!libraryInfo.contains(type) || !libraryInfo[type].is_array())
-            {
-                libraryInfo[type] = nlohmann::json::array();
-            }
-
-            nlohmann::json entry;
-            entry["id"] = resource.id;
-            entry["name"] = resource.name;
-            entry["category"] = resource.category;
-            entry["description"] = resource.description;
-            entry["tags"] = resource.tags;
-            entry["filePath"] = resource.filePath.empty() ? "" : util::PathToUtf8(resource.filePath);
-            entry["hash"] = resource.hash;
-
-            if (!resource.metadata.empty())
-            {
-                entry["metadata"] = resource.metadata;
-            }
-
-            const bool hasPath = !resource.filePath.empty();
-            const bool exists = hasPath && std::filesystem::exists(resource.filePath);
-            entry["fileMissing"] = !(hasPath && exists);
-
-            libraryInfo[type].push_back(entry);
-        }
-
-        state["resourceLibrary"] = std::move(libraryInfo);
-    }
+    // The resource library is not part of the state: it goes as its own message, below, and
+    // only when it changed since this page last received it.
 
     // Active preset IDs — UI reads "activePresetIds" as string array
     const auto slotConfigs = SnapshotActivePresetConfigs();
@@ -261,6 +281,10 @@ void PluginController::BroadcastState(StateScope scope)
         state["automation"] = mAutomationSlots.GetSlotsJson();
     }
 
+    // Whatever the scope: an edit that only asks for a preset broadcast can still have added to
+    // the library (a node pointed at a new file). Sent first, so the chain the state draws can
+    // name its resources.
+    SendResourceLibraryToUI(true);
     SendMessageToUI(state.dump());
 
     // Also send supplementary data. Both are static libraries, not preset state.

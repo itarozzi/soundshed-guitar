@@ -924,12 +924,19 @@ export function applyPerformancePadAppSettings(settings = uiState.appSettings): 
   renderPerformancePads();
 }
 
-export function refreshPerformancePads(): void {
+/**
+ * Redraws the pads and, unless the caller has just drawn it, the signal path bar. A state
+ * or preset message draws the chain through renderActivePreset first, so they pass
+ * `signalPath: false` rather than build the whole chain twice.
+ */
+export function refreshPerformancePads(options: { signalPath?: boolean } = {}): void {
   if (!rootElement) {
     return;
   }
   renderPerformancePads();
-  renderSignalPathBar();
+  if (options.signalPath !== false) {
+    renderSignalPathBar();
+  }
 }
 
 export function initializePerformancePads(): void {

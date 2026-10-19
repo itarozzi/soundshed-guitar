@@ -16,6 +16,12 @@ bool MessageDispatcher::DispatchStateAndLists(PluginController& c, const nlohman
         return true;
     }
 
+    if (type == "requestResourceLibrary")
+    {
+        c.HandleResourceLibraryRequest();
+        return true;
+    }
+
     if (type == "captureDebugSnapshot")
     {
         c.HandleCaptureDebugSnapshotRequest(msg);

@@ -1516,9 +1516,16 @@ bool ContainsEntryWithId(const nlohmann::json& entries, const std::string& key, 
            });
 }
 
-/// The NAM models a state or sharedSyncState message lists.
-nlohmann::json ListedModels(const nlohmann::json& message)
+/// The NAM models in the last resourceLibrary message the controller sent its UI.
+nlohmann::json ListedModels(const TestHost& host)
 {
+    const auto message = LastSentMessage(host, "resourceLibrary");
+
+    if (!message.is_object())
+    {
+        return nlohmann::json::array();
+    }
+
     return message.value("resourceLibrary", nlohmann::json::object()).value("nam", nlohmann::json::array());
 }
 
@@ -1628,7 +1635,7 @@ bool TestEditorOpenCatchesUpOnChangesMadeWhileClosed()
         return false;
     }
 
-    if (!ContainsEntryWithId(ListedModels(state), "id", modelId))
+    if (!ContainsEntryWithId(ListedModels(host), "id", modelId))
     {
         std::cerr << "An editor opened after a model was imported elsewhere did not list it\n";
         return false;
@@ -1688,7 +1695,7 @@ bool TestReopenedEditorCatchesUpPastItsOwnWrite()
         return false;
     }
 
-    if (!ContainsEntryWithId(ListedModels(state), "id", modelId) ||
+    if (!ContainsEntryWithId(ListedModels(host), "id", modelId) ||
         !ContainsEntryWithId(state.value("blendLibrary", nlohmann::json::array()), "id", "blend-while-closed"))
     {
         std::cerr << "A reopened editor missed a model and blend added elsewhere while it was closed\n";
@@ -1904,7 +1911,7 @@ bool TestOwnWriteDoesNotHideAnotherInstancesChange()
     plugin.HandleUIMessage(nlohmann::json{{"type", "getSharedSyncState"}}.dump());
     const auto shared = LastSentMessage(host, "sharedSyncState");
 
-    if (modelId.empty() || !shared.is_object() || !ContainsEntryWithId(ListedModels(shared), "id", modelId))
+    if (modelId.empty() || !shared.is_object() || !ContainsEntryWithId(ListedModels(host), "id", modelId))
     {
         std::cerr << "The open editor's reload after the notice did not bring the other instance's model\n";
         return false;
@@ -4592,8 +4599,9 @@ bool TestLegacyMultiRigPresetsSurviveTheUpgrade()
     return true;
 }
 
-// A preset switch cannot change the resource library, riff library, app settings or effect
-// catalog, so its state broadcast must not carry them — they are ~99% of the full payload.
+// A preset switch cannot change the riff library, app settings or effect catalog, so its state
+// broadcast must not carry them. No state carries the resource library: it is a message of its
+// own, sent once to a page that loads and again only when the library changes.
 bool TestPresetSwitchBroadcastsLightState()
 {
     try
@@ -4614,10 +4622,38 @@ bool TestPresetSwitchBroadcastsLightState()
 
         const auto fullState = FindLatestMessageOfType(host.sentMessages, "state");
 
-        if (!fullState || !fullState->contains("resourceLibrary") || !fullState->contains("appSettings") ||
-            !fullState->contains("riffLibrary"))
+        if (!fullState || !fullState->contains("appSettings") || !fullState->contains("riffLibrary"))
         {
             std::cerr << "Startup broadcast was not a full state payload\n";
+            return false;
+        }
+
+        if (fullState->contains("resourceLibrary"))
+        {
+            std::cerr << "The full state still carries the resource library\n";
+            return false;
+        }
+
+        // The page that just loaded gets the library once, ahead of the state that names it.
+        const auto indexOf = [&](const std::string& type) {
+            for (size_t i = 0; i < host.sentMessages.size(); ++i)
+            {
+                const auto message = nlohmann::json::parse(host.sentMessages[i], nullptr, false);
+
+                if (message.is_object() && message.value("type", std::string{}) == type)
+                {
+                    return static_cast<long long>(i);
+                }
+            }
+
+            return -1LL;
+        };
+        const auto library = FindLatestMessageOfType(host.sentMessages, "resourceLibrary");
+
+        if (!library || !(*library)["resourceLibrary"].is_object() || !library->contains("revision") ||
+            indexOf("resourceLibrary") < 0 || indexOf("resourceLibrary") > indexOf("state"))
+        {
+            std::cerr << "A loading page was not sent the resource library before its first state\n";
             return false;
         }
 
@@ -4664,22 +4700,41 @@ bool TestPresetSwitchBroadcastsLightState()
         }
 
         if (FindLatestMessageOfType(host.sentMessages, "effectCatalog") ||
-            FindLatestMessageOfType(host.sentMessages, "compositeLibrary"))
+            FindLatestMessageOfType(host.sentMessages, "compositeLibrary") ||
+            FindLatestMessageOfType(host.sentMessages, "resourceLibrary"))
         {
             std::cerr << "Preset switch resent a static library the UI already has\n";
             return false;
         }
 
-        // An explicit state request must still produce the full payload.
+        // An explicit state request must still produce the full payload, but not the library
+        // again: the page has it at the current revision.
         host.sentMessages.clear();
         controller.HandleUIMessage(nlohmann::json{{"type", "requestState"}}.dump());
         controller.OnIdle();
 
         const auto refreshed = FindLatestMessageOfType(host.sentMessages, "state");
 
-        if (!refreshed || !refreshed->contains("resourceLibrary") || !refreshed->contains("appSettings"))
+        if (!refreshed || !refreshed->contains("appSettings"))
         {
             std::cerr << "Explicit state request did not return the full payload\n";
+            return false;
+        }
+
+        if (FindLatestMessageOfType(host.sentMessages, "resourceLibrary"))
+        {
+            std::cerr << "A state request resent an unchanged resource library\n";
+            return false;
+        }
+
+        // Asked for outright, the library comes whether or not it changed.
+        host.sentMessages.clear();
+        controller.HandleUIMessage(nlohmann::json{{"type", "requestResourceLibrary"}}.dump());
+        const auto requested = FindLatestMessageOfType(host.sentMessages, "resourceLibrary");
+
+        if (!requested || requested->value("revision", -1LL) != library->value("revision", -2LL))
+        {
+            std::cerr << "requestResourceLibrary did not answer with the library at its current revision\n";
             return false;
         }
 
@@ -4691,7 +4746,7 @@ bool TestPresetSwitchBroadcastsLightState()
 
         const auto merged = FindLatestMessageOfType(host.sentMessages, "state");
 
-        if (!merged || !merged->contains("resourceLibrary"))
+        if (!merged || !merged->contains("appSettings"))
         {
             std::cerr << "Full state request was downgraded by a concurrent preset switch\n";
             return false;

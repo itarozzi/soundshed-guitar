@@ -3,10 +3,9 @@
  * grouped-by-tone views behind it.
  */
 
-import { postMessage } from "../bridge.js";
+import { createDeferredView } from "../deferredView.js";
 import { Features, isFeatureEnabled } from "../featureFlags.js";
 import { renderIcon } from "../iconAssets.js";
-import { uiState } from "../state.js";
 import { escapeHtml } from "../utils.js";
 import { bindBlendCreateButtons, bindBlendDeleteButtons, bindBlendGroupDragHandlers } from "./blendGroups.js";
 import { libraryActiveTagFilters, libraryCategorySelect, libraryCreatorSelect, libraryResults, librarySearchInput, librarySourceSelect, librarySummary, libraryTagFilterBar, libraryTypeSelect, libraryViewSelect } from "./dom.js";
@@ -18,8 +17,6 @@ import { buildUsedResourceSet } from "./resourceUsage.js";
 let libraryFiltersInitialized = false;
 
 let libraryCreatorFilter = "all";
-
-let libraryStateRequestedAt = 0;
 
 export function initLibraryFilters(): void {
   if (libraryFiltersInitialized) {
@@ -91,20 +88,30 @@ export function renderLibraryFilterFacets(items: LibraryItem[]): void {
   }
 }
 
+/** Settings → Library → Resource Library is on screen. */
+function isLibraryViewShown(): boolean {
+  return Boolean(
+    libraryResults
+    && document.getElementById("panel-settings")?.classList.contains("active")
+    && document.getElementById("equipment-tab-library")?.classList.contains("active")
+    && document.getElementById("library-tab-resources")?.classList.contains("active"),
+  );
+}
+
+const libraryView = createDeferredView(isLibraryViewShown, () => renderLibraryView());
+
+/**
+ * Redraws the resource library if it is on screen; otherwise it redraws when next shown.
+ * For changes from elsewhere (a state, a feature toggle). The filter bar's own controls
+ * call renderLibraryView, since they can only be used while it is shown.
+ */
+export function refreshLibraryView(): void {
+  libraryView.request();
+}
+
 export function renderLibraryView(): void {
   if (!libraryResults) {
     return;
-  }
-
-  const resourcesHaveMissingFlags = Object.values(uiState.resourceLibrary ?? {}).some((entries) =>
-    (entries ?? []).some((entry) => typeof entry?.fileMissing === "boolean"),
-  );
-  if (!resourcesHaveMissingFlags) {
-    const now = Date.now();
-    if (now - libraryStateRequestedAt > 1000) {
-      libraryStateRequestedAt = now;
-      postMessage({ type: "requestState" });
-    }
   }
 
   const allItems = getLibraryItems();

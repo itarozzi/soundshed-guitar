@@ -8,6 +8,7 @@
 
 import { initBlendManager, renderBlendList } from "../blendManager.js";
 import { postMessage } from "../bridge.js";
+import { flushShownViews } from "../deferredView.js";
 import { initCompositeEditor, renderCompositeList } from "../compositeEditor.js";
 import { Features, areAdvancedLibraryFeaturesEnabled, isFeatureEnabled } from "../featureFlags.js";
 import { initLayoutManager, renderLayoutList } from "../layoutManager.js";
@@ -115,6 +116,7 @@ export function activateEquipmentTab(tabId: string): void {
     updateSignalDiagnosticsView();
   }
 
+  flushShownViews();
   updateSettingsViewState({ equipmentTab: resolvedTabId });
 }
 
@@ -151,8 +153,9 @@ export function activateLibraryTab(tabId: string): void {
     return;
   }
 
+  // The engine re-checks which files are missing each time the list is opened.
   if (resolvedTabId === "resources" && !isSettingsViewStateSuppressed()) {
-    postMessage({ type: "requestState" });
+    postMessage({ type: "requestResourceLibrary" });
   }
 
   if (resolvedTabId === "riffs") {
@@ -163,6 +166,7 @@ export function activateLibraryTab(tabId: string): void {
     initAdvancedSubTabs();
   }
 
+  flushShownViews();
   updateSettingsViewState({ libraryTab: resolvedTabId });
 }
 

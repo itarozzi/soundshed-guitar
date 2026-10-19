@@ -215,12 +215,6 @@ void UiClient::RegisterPresetHandlers()
                 s.environment.cpu = env.value("cpu", "");
             }
 
-            if (m.contains("resourceLibrary") && m["resourceLibrary"].is_object())
-            {
-                s.resources = parse::ResourceLibrary(m["resourceLibrary"]);
-                Notify(Topic::Resources);
-            }
-
             if (m.contains("metronome") && m["metronome"].is_object())
             {
                 ApplyMetronome(s.metronome, m["metronome"]);
@@ -393,6 +387,16 @@ void UiClient::RegisterPresetHandlers()
 
         s.activeSetlistId = m.value("activeSetlistId", "");
         Notify(Topic::Setlists);
+    });
+
+    // Not part of "state": the engine sends it when the library changed since this client last
+    // received it, and always right before the state that follows such a change.
+    On("resourceLibrary", [this](const nlohmann::json& m) {
+        if (m.contains("resourceLibrary") && m["resourceLibrary"].is_object())
+        {
+            mState.resources = parse::ResourceLibrary(m["resourceLibrary"]);
+            Notify(Topic::Resources);
+        }
     });
 
     On("riffLibraryState", [this](const nlohmann::json& m) {

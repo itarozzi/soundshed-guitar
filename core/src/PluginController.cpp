@@ -636,6 +636,8 @@ void PluginController::DrainControlSurfaceRequests()
 void PluginController::OnWebContentLoaded()
 {
     mUIReady = true;
+    // A page that just loaded has no resource library, whatever an earlier page was sent.
+    mResourceLibraryRevisionSent.reset();
 
     // Only an open editor polls for other instances' changes, so a plugin instance whose editor
     // was closed, or never opened, has missed every one since: a resource imported, a blend
@@ -680,6 +682,11 @@ void PluginController::ReportErrorToUI(const std::string& message, const std::st
 void PluginController::HandleStateRequest()
 {
     mPendingStateBroadcast = true;
+}
+
+void PluginController::HandleResourceLibraryRequest()
+{
+    SendResourceLibraryToUI(false);
 }
 
 void PluginController::HandleAudioDeviceRequest(const nlohmann::json& payload)

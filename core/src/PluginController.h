@@ -376,6 +376,9 @@ class PluginController
     // ── Internal handler methods ───────────────────────────────────
     // These are called by MessageDispatcher and operate on controller state.
     void HandleStateRequest();
+    /// `requestResourceLibrary`: sends the resource library now, whatever was sent before, so
+    /// its `fileMissing` flags are re-checked against the disk.
+    void HandleResourceLibraryRequest();
     void HandleCaptureDebugSnapshotRequest(const nlohmann::json& payload);
     void HandleDebugReportUiStateRequest(const nlohmann::json& payload);
     void HandlePresetLoadRequest(const nlohmann::json& payload);
@@ -584,11 +587,13 @@ class PluginController
     // ── Internal helpers ───────────────────────────────────────────
     /// How much of the app state a broadcast carries.
     ///
-    /// The full payload is ~510 KB on a real library — 90% of it the resource library,
-    /// which also costs one filesystem stat per entry to build. None of that changes when
-    /// the user switches preset, so preset/scene switches ask for `PresetOnly` (~8 KB) and
-    /// skip the effect-catalog and composite-library resends too. Every section the UI
-    /// reads is already guarded by a presence check, so omitting them is a no-op there.
+    /// The resource library is in neither: it goes as its own `resourceLibrary` message when
+    /// its revision moved (SendResourceLibraryToUI). The full payload still carries the app
+    /// settings, riff library, automation and the other app-wide sections, and is followed by
+    /// the effect-catalog and composite-library resends. None of that changes when the user
+    /// switches preset or edits the chain, so those ask for `PresetOnly` (~15 KB). Every
+    /// section the UI reads is already guarded by a presence check, so omitting them is a
+    /// no-op there.
     enum class StateScope
     {
         PresetOnly,
@@ -826,6 +831,9 @@ class PluginController
     void ReportErrorToUI(const std::string& message, const std::string& detail = {});
     void SendGlobalChainStateToUI();
     void SendCompositeLibraryToUI();
+    /// The `resourceLibrary` message. With `onlyIfChanged` it is skipped when this page already
+    /// has the library at its current revision, which is how every broadcast calls it.
+    void SendResourceLibraryToUI(bool onlyIfChanged);
     void SendCustomEffectLibraryToUI();
     void SendEffectCatalogToUI();
     void SendPresetListToUI();
@@ -1305,6 +1313,8 @@ class PluginController
 
     // UI state
     bool mUIReady = false;
+    /// The ResourceLibrary revision the page last received, or none since it loaded.
+    std::optional<std::uint64_t> mResourceLibraryRevisionSent;
     mutable std::uint64_t mSharedSyncVersionSeen = 0;
     mutable bool mSharedSyncVersionSeenInitialized = false;
     std::uint64_t mSharedSyncVersionHandled = 0;

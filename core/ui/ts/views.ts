@@ -732,9 +732,11 @@ function getPerformancePlotThemeColors(canvas: HTMLCanvasElement): {
   };
 }
 
+/** The sub-tab is remembered while Settings is closed, so Settings itself must be open too. */
 function isDSPPerformanceTabVisible(): boolean {
   const panel = document.getElementById("equipment-tab-performance");
-  return Boolean(panel && panel.classList.contains("active") && !panel.hasAttribute("hidden"));
+  return Boolean(panel && panel.classList.contains("active") && !panel.hasAttribute("hidden")
+    && document.getElementById("panel-settings")?.classList.contains("active"));
 }
 
 export function scheduleDSPPerformancePlotUpdate(): void {

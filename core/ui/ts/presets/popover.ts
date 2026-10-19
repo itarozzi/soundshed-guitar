@@ -7,6 +7,7 @@
  */
 
 import { getCompositePresetList } from "../bridge.js";
+import { flushShownViews } from "../deferredView.js";
 import { FEATURE_FLAGS_CHANGED_EVENT, Features, isFeatureEnabled } from "../featureFlags.js";
 import { presetSearchElement } from "../presets/dom.js";
 import { setFavoriteToggleState } from "../presets/favorites.js";
@@ -85,6 +86,8 @@ export function openPresetLibraryPopover(): void {
   presetLibraryPopover.classList.add("open");
   presetLibraryPopover.setAttribute("aria-hidden", "false");
   presetChooserLabel?.setAttribute("aria-expanded", "true");
+  // The rows are not kept up to date while the popover is closed.
+  flushShownViews();
   syncPresetHeaderPopoverLayer();
   revealActivePresetInChooser();
 }

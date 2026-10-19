@@ -152,7 +152,6 @@
   ],
   "resourceLibrary": [
     "messages/normalize.ts",
-    "messages/sharedSync.ts",
     "messages/stateHandlers.ts"
   ],
   "riffCapture": [

@@ -66,7 +66,8 @@ keeps the existing Library/Folder behavior.
 
 | Type | Payload | Description |
 |------|---------|-------------|
-| `state` | Full or preset-scoped state object | Complete sync on startup/major changes; preset/scene switches send a preset-scoped subset (see below) |
+| `state` | Full or preset-scoped state object | Complete sync on startup/major changes; preset/scene switches and chain edits send a preset-scoped subset (see below) |
+| `resourceLibrary` | `{revision, resourceLibrary: {totalCount, nam: [...], ir: [...], ...}}` | The resource library, which is not part of `state`. Each entry is `{id, name, category, description, tags, filePath, hash, metadata?, fileMissing}`, `fileMissing` checked against the disk as it is sent. Sent when the library changed since this page last received it (always right before the `state` or `sharedSyncState` that follows the change, whatever its scope), so a page gets it once at load and then only after an import, edit or delete; and on `requestResourceLibrary`. `revision` counts the engine's changes to its library; it restarts with the engine and is not comparable between instances |
 | `presetLoaded` | `{preset, sceneId, activePresetIds, activePresetDirty?, created?, parameters?}` | The active preset as the engine now holds it: after a load, a scene switch or a scene edit (`selectScene`, `addScene`, `renameScene`, `removeScene` all answer with it), a new preset, a setlist step or a program change. `activePresetDirty` is the engine's unsaved-changes flag (see `presetDirtyChanged`); a footswitch scene switch and a setlist step leave it out, and neither changes it. `created: true` marks the answer to `newPreset`: the UI files the unsaved preset in its library |
 | `presetDirtyChanged` | `{dirty}` | The active preset's unsaved-changes flag changed. The engine compares its working copy (the scenes; not the live state of a hosted plugin) with the preset as it was when it became the active one (a load of another preset, any load by id, `newPreset`) or was last saved, re-checking at most every 0.4 s while a UI is ready, so an edit put back clears it. A scene switch is not an edit, and neither is a value MIDI, DAW automation or the automation panel moves: the baseline follows it, except for a parameter the user has already changed by hand, which stays an edit until it is saved or put back. The engine owns this flag: the web UI may flag an edit at once, but only this message, or a different preset arriving, clears it |
 | `presetFavorites` | `{favorites: [presetId]}` | The favourite presets; the reply to `getPresetFavorites` and `setPresetFavorite` |
@@ -145,6 +146,7 @@ keeps the existing Library/Folder behavior.
 |------|---------|-------------|
 | `uiReady` | `{}` | WebView loaded and ready |
 | `requestState` | `{}` | Request full state sync |
+| `requestResourceLibrary` | `{}` | Send `resourceLibrary` now, even if this page has the current revision, with every `fileMissing` re-checked. Sent when Settings → Library → Resource Library is opened |
 | `setParameter` | `{name, value}` | Set one global FX value by flat name; alias for `setGlobalChainParam` |
 | `loadPreset` | `{presetId, sceneId?}` or `{preset, presetId?, sceneId?}` | Load a preset, on `sceneId` when it has a scene of that id (else its first). By id alone the engine reads the stored preset (user store, factory file or factory archive; an unknown id is refused with an `error`) and a load discards unsaved edits, even of the preset already playing. With a body, the body is loaded: for a preset the engine does not store (shared, tone-sharing, a new unsaved one), and for chain undo putting back an earlier graph of the preset being edited, which keeps its unsaved state. Answered by `presetLoaded` |
 | `previewPreset` | `{preset, presetId, resources?: [{resourceType, resourceId, name, data}], blends?: [blend definition]}` | Audition a shared tone without installing it. `resources` are the `nam`/`ir` files (base64) the library lacks, under the id the preset's nodes name them by: the archive's own, and Tone3000 models the UI fetched. The engine writes them to a temp folder of this preview's own (`<settings>/temp/tone-preview/`, replaced by the next preview), points those nodes at them by file path, clears any other file path the preset carries, and loads it as `loadPreset` with a body. `blends` are the archive's blend definitions under their own ids: each blend node naming one is filled in from it and stops naming it, so it plays without the blend joining the blend library; a node naming any other blend plays the library's. Nothing reaches the library or the store. Answered by `presetLoaded` |
@@ -295,14 +297,22 @@ Fields for what the engine owns rather than the UI:
 `state` comes in two scopes (`PluginController::StateScope`):
 
 - **Full** — everything above. Sent on startup, on an explicit `requestState`/`uiReady`, and
-  whenever library or settings state changes. On a real library this is ~510 KB, ~90% of it
-  `resourceLibrary`, which also costs one filesystem stat per entry to build. It is followed
-  by `compositeLibrary` and `effectCatalog` (~68 KB together).
-- **Preset-scoped** — sent when a preset or scene switch is the only thing that changed
-  (~10 KB, no supplementary messages). Carries `preset`, `activePresetId`, `activeSceneId`,
-  `activePresetIds`, `mixer`, `globalSignalChain` and `presetArchiveSession`; omits the
-  resource/riff/blend/custom-effect libraries, app settings, UI settings, UI view state,
-  metronome, environment and automation, none of which a preset switch can change.
+  whenever library or settings state changes. ~80 KB on a developer profile, the app settings
+  and the riff library the largest parts. It is followed by `compositeLibrary` and
+  `effectCatalog` (~68 KB together, and ~25 ms of UI work for the catalog).
+- **Preset-scoped** — sent when a preset or scene switch, or an edit to the active preset's
+  chain (add, remove, move, replace, bypass, rename, a node's config, mode or resource), is the
+  only thing that changed (~15 KB, no supplementary messages). Carries `preset`, `activePresetId`,
+  `activeSceneId`, `activePresetDirty`, `activePresetIds`, `mixer`, `globalSignalChain`,
+  `outputMuted` and `presetArchiveSession`; omits the riff/blend/custom-effect libraries,
+  app settings, UI settings, UI view state, metronome, environment and automation, none of
+  which those edits can change. Adding and removing a Multi-Rig slot sends it too.
+
+Neither scope carries the resource library (~800 KB with 440 NAM models, plus a file stat per
+entry). It goes as `resourceLibrary`, before the state, when `ResourceLibrary::GetRevision()`
+has moved since this page was last sent it (`SendResourceLibraryToUI`), so an edit that only
+asks for a preset-scoped broadcast still delivers a library it added to. A page that loads
+(`uiReady`) has received nothing, so it gets the library with its first state.
 
 Rules for anyone touching this:
 
@@ -345,8 +355,8 @@ window.IPlugReceiveData = function(jsonString) {
 
 ### Startup Sequence
 1. WebView loads UI application
-2. UI sends `requestState` message
-3. Engine sends `state` message with full snapshot
+2. UI sends `uiReady` (and `requestState`)
+3. Engine sends `resourceLibrary`, then the `state` message with a full snapshot
 4. UI renders initial state
 
 ### Parameter Updates
