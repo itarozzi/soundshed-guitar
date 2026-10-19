@@ -299,6 +299,9 @@ PluginProcessorAdapter::~PluginProcessorAdapter()
 void PluginProcessorAdapter::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     mController.Prepare (sampleRate, samplesPerBlock);
+#if JUCE_ANDROID
+    mAudioThreadPlacement.prepare (sampleRate);
+#endif
     // A second of latency covers any effect or hosted plugin here; more is clamped.
     mBypassDelay.setSize (2, juce::jmax (1, static_cast<int> (sampleRate)));
     mBypassDelay.clear();
@@ -315,6 +318,9 @@ void PluginProcessorAdapter::releaseResources()
     mAudioActive.store (false, std::memory_order_release);
     applyPendingDAWParamChanges (true);
     mController.Reset();
+#if JUCE_ANDROID
+    mAudioThreadPlacement.release();
+#endif
 }
 
 void PluginProcessorAdapter::applyPendingDAWParamChanges (bool mayBlock)
@@ -356,6 +362,9 @@ void PluginProcessorAdapter::processBlock (juce::AudioBuffer<float>& buffer,
     juce::MidiBuffer& midiMessages)
 {
     juce::ScopedNoDenormals noDenormals;
+#if JUCE_ANDROID
+    mAudioThreadPlacement.beginBlock();
+#endif
 
     // The play head may only be asked here, on the audio thread; the controller reads tempo
     // and transport on the message thread (the metronome, a riff's tempo), so each block
@@ -426,6 +435,9 @@ void PluginProcessorAdapter::processBlock (juce::AudioBuffer<float>& buffer,
     // The only MIDI this plugin sends: the preset name for the controller's display, and the
     // bank and setlist slot picked in the app. The incoming messages were cleared above.
     AddControllerMidiOutput (mController, midiMessages);
+#if JUCE_ANDROID
+    mAudioThreadPlacement.endBlock (numSamples);
+#endif
 }
 
 void PluginProcessorAdapter::processBlockBypassed (juce::AudioBuffer<float>& buffer,

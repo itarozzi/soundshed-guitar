@@ -9,6 +9,7 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
+#include "AndroidAudioThread.h"
 #include "IPluginHost.h"
 #include "PluginController.h"
 
@@ -167,6 +168,11 @@ private:
     // True from prepareToPlay to releaseResources. Only then does anything drain the
     // queue above, so only then does AutomationSlotParameter::setValue use it.
     std::atomic<bool> mAudioActive { false };
+
+   #if JUCE_ANDROID
+    // Keeps the callback off a phone's little cores (AndroidAudioThread.h).
+    soundshed::android_audio::AudioThreadPlacement mAudioThreadPlacement;
+   #endif
 
    #ifdef HAS_CLAP_JUCE_EXTENSIONS
     // A CLAP SysEx event points at its bytes, and the host reads them after process()

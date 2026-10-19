@@ -481,6 +481,59 @@ ordinary ones, so a callback spinning on a helper the scheduler has parked on a
 little core, or behind the callback on its own core, is a missed deadline; and
 at one-burst blocks the hand-off costs about as much as the work.
 
+### Audio thread placement
+
+Android chooses the cores for the AAudio callback, and on big.LITTLE phones it can choose
+badly. On a Galaxy S21 (Exynos 2100) the callback, a `SCHED_FIFO` thread in the top-app cpuset,
+never left the four Cortex-A55 little cores, while the A78 and X1 cores sat idle at their lowest
+clock. The cost of that, measured on the phone with `FusedWaveNetBenchmark` pinned to each core
+type (an A2 model, 96-frame blocks):
+
+| Core          | NAM core | Fused WaveNet |
+| ------------- | -------- | ------------- |
+| Cortex-A55    | 895 µs   | 463 µs        |
+| Cortex-A78    | 188 µs   | 93 µs         |
+| Cortex-X1     | 145 µs   | 65 µs         |
+
+The fused engine is about 2x on every core. The cluster makes a much bigger difference.
+
+`juce/source/AndroidAudioThread.{h,cpp}` places the callback thread on its first block (and again
+whenever AAudio creates a new thread):
+
+- **ADPF.** Where the device opens a performance hint session (API 33+, and only if the vendor
+  implements it), the session gets each block's budget and actual work time, and the scheduler
+  picks clocks and cores from those. The S21 does not implement it
+  (`adb shell dumpsys performance_hint` reports `HAL Support: false`), and many phones do not.
+  The functions are looked up at runtime because `minSdk` is 29. Oboe 1.10 has its own wrapper
+  (`AudioStream::setPerformanceHintEnabled`), but JUCE owns the stream and never calls it.
+- **Affinity.** Without a session, the thread is pinned to every core faster than the slowest
+  class, by the kernel's `cpu_capacity` (cpu4–7 on the S21), never by hard-coded core numbers.
+  Only cores in the process's own cpuset are used.
+
+On the S21, with the "Convoluted Acoustic Sim" preset, median DSP load went from 77% to 24–29%,
+p90 from 127% to 38–47%, and the peak from 190% to about 60%. The NAM node fell from 752 µs to
+232–291 µs. Pinning to the X1 alone was no better: it stayed at its minimum clock.
+
+`debug.soundshed.audio.cores` changes the policy without a rebuild, for A/B checks:
+
+```bash
+adb shell setprop debug.soundshed.audio.cores off     # old behaviour: the scheduler's choice
+adb shell setprop debug.soundshed.audio.cores big     # ADPF if any, and the big cores
+adb shell setprop debug.soundshed.audio.cores prime   # ADPF if any, and the fastest class only
+adb shell setprop debug.soundshed.audio.cores '""'    # back to the default (auto)
+adb shell am force-stop com.soundshed.guitar          # then relaunch
+```
+
+The choice is logged once per thread:
+
+```
+SoundshedGuitar: Audio thread 7212: performance hint unavailable, cores 4,5,6,7
+```
+
+To see it working, `ps -T -p <pid> -o TID,PSR,CMD` shows the `AAudio_1` thread's last core, and
+the release build's WebView exposes `webview_devtools_remote_<pid>`, so
+`tools/agent-ui-debug/cdp-tool.mjs` can read `dspPerformance` through `adb forward`.
+
 ### Sustained performance mode
 
 `MainActivity` asks for Android's sustained performance mode

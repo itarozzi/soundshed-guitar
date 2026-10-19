@@ -397,6 +397,8 @@ include(SharedCodeDefaults)
 # both products (Soundshed Guitar and Soundshed Guitar Nano, below); each adds its editor.
 set(CommonSourceFiles
     "${CMAKE_CURRENT_SOURCE_DIR}/source/Main.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/source/AndroidAudioThread.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/source/AndroidAudioThread.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/source/JuceHostedPluginEffect.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/source/JuceHostedPluginEffect.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/source/ControllerMidiOutput.h"
