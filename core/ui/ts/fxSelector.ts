@@ -17,7 +17,7 @@ import { getCompositeEffectEntries } from "./compositeEffects.js";
 import { getCustomEffectLibrary } from "./customEffects.js";
 import { getCustomLayout } from "./layoutRenderer.js";
 import type { ResourceRef } from "./types.js";
-import { escapeHtml } from "./utils.js";
+import { escapeHtml, safeImageDataUrl } from "./utils.js";
 
 // DOM Elements
 const fxSelectorPanel = document.getElementById("fx-selector-panel");
@@ -462,7 +462,7 @@ function renderFxItem(effect: FxLibraryItem, categoryColor: string): string {
           data-custom-effect-default-params="${escapeHtml(effect.customEffectId ? encodeDatasetJson(effect.defaultParams ?? {}) : "")}"
           data-effect-category="${escapeHtml(effect.category)}"
           style="--category-color: ${escapeHtml(categoryColor)}">
-      <div class="fx-item-icon">${(() => { const thumb = effect.blendId ? (getCustomLayout(effect.type, effect.blendId) ?? getCustomLayout(effect.type)) : getCustomLayout(effect.type); const url = thumb?.thumbnailDataUrl ?? effect.thumbnailDataUrl; return url ? `<img src="${escapeHtml(url)}" alt="" aria-hidden="true" class="fx-item-thumb" />` : getFxEffectIcon(effect.type); })()}</div>
+      <div class="fx-item-icon">${(() => { const thumb = effect.blendId ? (getCustomLayout(effect.type, effect.blendId) ?? getCustomLayout(effect.type)) : getCustomLayout(effect.type); const url = safeImageDataUrl(thumb?.thumbnailDataUrl ?? effect.thumbnailDataUrl); return url ? `<img src="${escapeHtml(url)}" alt="" aria-hidden="true" class="fx-item-thumb" />` : getFxEffectIcon(effect.type); })()}</div>
       <div class="fx-item-info">
         <div class="fx-item-name">${escapeHtml(effect.displayName)}</div>
         <div class="fx-item-type">${escapeHtml(effect.category)}</div>

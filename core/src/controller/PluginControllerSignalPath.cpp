@@ -1791,6 +1791,24 @@ void PluginController::RefreshWasmNodeDescriptor(GraphNode& node)
         return;
     }
 
+    // A module on a network share is never opened (WasmEffect::IsNetworkPath): drop the path here,
+    // on every preset load, so nothing downstream touches the share either.
+    for (auto& resource : node.resources)
+    {
+        if (!resource.filePath.empty() && WasmEffect::IsNetworkPath(resource.filePath))
+        {
+            AppendSessionLog("Custom Effect " + node.id + ": dropped a module path on a network share");
+            resource.filePath.clear();
+        }
+    }
+
+    // With Custom Effects off nothing can be inspected, and treating that as "no descriptor" would
+    // strip the module's parameters from the preset. Leave the node as it is until they are on.
+    if (!WasmEffect::IsHostingEnabled())
+    {
+        return;
+    }
+
     std::optional<WasmModuleDescriptor> previousDescriptor;
 
     if (const auto existingDescriptorIt = node.config.find(WasmEffect::kDescriptorConfigKey);

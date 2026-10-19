@@ -8,7 +8,7 @@ import type {
 } from "./types.js";
 import { addScene, postMessage, removeScene, renameScene, selectScene } from "./bridge.js";
 import { revealCompactNodeDetail } from "./compactStage.js";
-import { escapeHtml } from "./utils.js";
+import { escapeHtml, safeImageDataUrl } from "./utils.js";
 import { EffectTypeRegistry, getNodeEffectInfo } from "./presetV2.js";
 import { EffectGuids } from "./effectGuids.js";
 import { renderIcon } from "./iconAssets.js";
@@ -932,7 +932,10 @@ function renderNodeElement(node: GraphNode, options?: RenderNodeElementOptions):
     matchText: buildNodeLayoutMatchText(node),
     presetId: uiState.activePresetId,
   });
-  const thumbUrl = nodeLayout?.thumbnailDataUrl ?? nodeTypeInfo?.thumbnailDataUrl ?? (getEffectVisualizationEquipmentImage(node) || null);
+  // Layout and Custom Effect thumbnails are someone's own word, so inline images only; the
+  // equipment pictures are the app's own assets.
+  const thumbUrl = safeImageDataUrl(nodeLayout?.thumbnailDataUrl ?? nodeTypeInfo?.thumbnailDataUrl)
+    || (getEffectVisualizationEquipmentImage(node) || null);
   const thumbAvatar = thumbUrl
     ? `<span class="node-layout-thumb-wrap" aria-hidden="true"><img class="node-layout-thumb" src="${escapeHtml(thumbUrl)}" alt="" /><span class="node-layout-thumb-icon">${icon}</span></span>`
     : "";

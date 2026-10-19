@@ -150,7 +150,7 @@ set(TEST_SOURCES
 )
 
 if(GUITARFX_CORE_ENABLE_WASM_EFFECTS)
-    list(APPEND TEST_SOURCES WasmEffectHostTests.cpp)
+    list(APPEND TEST_SOURCES WasmEffectHostTests.cpp CustomEffectsSettingTests.cpp)
 endif()
 
 # SignalChainMutationStressTest is a concurrency fuzzer: it runs for ~15 minutes, seeds itself

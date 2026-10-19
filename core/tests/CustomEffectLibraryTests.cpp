@@ -96,6 +96,48 @@ bool TestRemoveEntry()
 
     return true;
 }
+// A Custom Effect's category and thumbnail are its module's word, and both reach UI markup.
+bool TestSanitisesCategoryAndThumbnail()
+{
+    using guitarfx::SanitizeCustomEffectCategory;
+    using guitarfx::SanitizeCustomEffectThumbnail;
+
+    const bool categories = SanitizeCustomEffectCategory("modulation") == "modulation" &&
+                            SanitizeCustomEffectCategory(" Pitch Shift ") == "Pitch Shift" &&
+                            SanitizeCustomEffectCategory("<img src=x>") == "utility" &&
+                            SanitizeCustomEffectCategory("") == "utility" &&
+                            SanitizeCustomEffectCategory(std::string(41, 'a')) == "utility";
+    const bool thumbnails = SanitizeCustomEffectThumbnail("data:image/png;base64,AAAA") == "data:image/png;base64,AAAA" &&
+                            SanitizeCustomEffectThumbnail("https://tracker.example/p.png").empty() &&
+                            SanitizeCustomEffectThumbnail("data:image/svg+xml;base64,PHN2Zz4=").empty() &&
+                            SanitizeCustomEffectThumbnail("data:image/png;base64,A\" onerror=\"x").empty();
+
+    guitarfx::CustomEffectLibrary library;
+    guitarfx::CustomEffectLibraryEntry entry;
+    entry.id = "hostile";
+    entry.name = "Hostile";
+    entry.category = "<iframe src=\"https://example.invalid\"></iframe>";
+    entry.thumbnailDataUrl = "https://tracker.example/p.png";
+    entry.baseEffectType = "b96693c3-b1f4-44f8-99b4-016620f89d95";
+    entry.moduleResourceType = "wasm";
+    entry.moduleResourceId = "m";
+    library.UpsertEntry(entry);
+    const auto* stored = library.GetEntry("hostile");
+    const bool upserted = stored && stored->category == "utility" && stored->thumbnailDataUrl.empty();
+
+    auto json = guitarfx::SerializeCustomEffectLibraryEntry(entry);
+    const auto loaded = guitarfx::DeserializeCustomEffectLibraryEntry(json);
+    const bool deserialised = loaded && loaded->category == "utility" && loaded->thumbnailDataUrl.empty();
+
+    if (!categories || !thumbnails || !upserted || !deserialised)
+    {
+        std::cerr << "Custom Effect category or thumbnail was not sanitised (categories " << categories
+                  << ", thumbnails " << thumbnails << ", upsert " << upserted << ", load " << deserialised << ").\n";
+        return false;
+    }
+
+    return true;
+}
 } // namespace
 
 int main()
@@ -109,6 +151,7 @@ int main()
 
     runTest(TestRoundTrip, "CustomEffectLibrary round-trips entries:");
     runTest(TestRemoveEntry, "CustomEffectLibrary removes entries:");
+    runTest(TestSanitisesCategoryAndThumbnail, "CustomEffectLibrary sanitises category and thumbnail:");
 
     return allPassed ? 0 : 1;
 }

@@ -1,3 +1,4 @@
+import { resolveEffectType, EffectGuids } from "../effectGuids.js";
 import { clonePreset, uiState } from "../state.js";
 import type { Preset, PresetArchiveSessionState } from "../types.js";
 export function getPresetArchiveSessionState(): PresetArchiveSessionState | null {
@@ -30,6 +31,15 @@ export function sanitizePresetForArchive(preset: Preset): Preset {
   delete (cleaned as Record<string, unknown>).global;
   delete (cleaned as Record<string, unknown>).globalSignalChain;
   return cleaned;
+}
+
+/**
+ * The resource types a shared archive, pack or Tone Sharing item may install: models and IRs,
+ * which are data. A Custom Effect module ("wasm") is code from whoever shared it. The engine
+ * applies the same rule (IsShareableResourceType) and refuses anything else.
+ */
+export function isShareableResourceType(type: unknown): boolean {
+  return type === "nam" || type === "ir";
 }
 
 /** A node id an imported preset may keep. The engine applies the same rule (IsSafeImportedNodeId). */
@@ -80,6 +90,16 @@ export function sanitizeImportedPreset(preset: Preset): Preset {
       for (const resource of [...(Array.isArray(node.resources) ? node.resources : []), legacyResource]) {
         if (resource && typeof resource === "object") {
           delete resource.filePath;
+        }
+      }
+      // A Custom Effect keeps its place but not its module, nor the descriptor cached from one: its
+      // name, category and thumbnail are whatever the archive wrote. As SanitizeImportedPreset does.
+      if (typeof node.type === "string" && resolveEffectType(node.type) === EffectGuids.kWasmHost) {
+        node.resources = (Array.isArray(node.resources) ? node.resources : []).map(() => ({ resourceType: "wasm" }));
+        delete (node as { resource?: unknown }).resource;
+        if (node.config && typeof node.config === "object") {
+          delete node.config.wasmGuestDescriptor;
+          delete node.config.customEffectId;
         }
       }
     }

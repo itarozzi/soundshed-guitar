@@ -11,7 +11,7 @@ import { CATEGORY_METADATA, getFxLibraryItems, getOrderedFxCategories, type FxLi
 import { getBadgeIcon } from "../iconAssets.js";
 import { getCustomLayout } from "../layoutRenderer.js";
 import { getUiZoom } from "../pointerDrag.js";
-import { escapeHtml } from "../utils.js";
+import { escapeHtml, safeImageDataUrl } from "../utils.js";
 import { getNodeIcon } from "./nodeTypes.js";
 import { signalPathNodesElement } from "./state.js";
 
@@ -50,12 +50,12 @@ function buildDropdownHtml(): string {
       dropdownHtml += `
         <div class="effect-dropdown-category" style="--category-color: ${escapeHtml(categoryColor)}">
           <div class="effect-dropdown-category-name">
-            ${categoryInfo?.name || categoryId}
+            ${escapeHtml(categoryInfo?.name || categoryId)}
           </div>
           ${effects.map((effect) => {
-              const thumb = effect.blendId
+              const thumb = safeImageDataUrl(effect.blendId
                 ? (getCustomLayout(effect.type, effect.blendId) ?? getCustomLayout(effect.type))?.thumbnailDataUrl
-                : (getCustomLayout(effect.type)?.thumbnailDataUrl ?? effect.thumbnailDataUrl);
+                : (getCustomLayout(effect.type)?.thumbnailDataUrl ?? effect.thumbnailDataUrl));
             const icon = thumb
               ? `<img src="${escapeHtml(thumb)}" alt="" aria-hidden="true" class="effect-dropdown-thumb" />`
               : `<span class="effect-dropdown-icon">${effect.blendId ? getBadgeIcon("blend", "Custom blend") : getNodeIcon(effect.type)}</span>`;

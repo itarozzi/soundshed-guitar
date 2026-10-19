@@ -21,11 +21,15 @@
 #include "dsp/LevelTargets.h"
 #include "dsp/NamModelCache.h"
 #include "dsp/effects/NAMSlimmableSettings.h"
+#if defined(GUITARFX_ENABLE_WASM_EFFECTS)
+    #include "dsp/effects/WasmEffect.h"
+#endif
 #include "presets/PresetStorage.h"
 
 #include <algorithm>
 #include <cmath>
 #include <fstream>
+#include <optional>
 
 using namespace guitarfx::controller_detail;
 
@@ -296,10 +300,42 @@ void PluginController::ApplyNamEngineSettingFromAppSettings()
 
     mNamEngineFused = fused;
 
-    // A built model keeps its engine, so rebuild every running slot as a chain edit does: the new
-    // effects build their models from the cache on the new engine. Every slot, not only those with
-    // a NAM node, because a composite can hold one out of sight of the preset graph. The setting
-    // changes rarely, and a rebuild crossfades.
+    // A built model keeps its engine, so rebuild: the new effects build their models from the
+    // cache on the new engine.
+    RebuildRunningSlotsAndGlobalChain();
+}
+
+void PluginController::ApplyCustomEffectsSettingFromAppSettings()
+{
+#if defined(GUITARFX_ENABLE_WASM_EFFECTS)
+    const auto readBool = [&](const char* key) -> std::optional<bool> {
+        const auto it = mAppSettings.find(key);
+        return it != mAppSettings.end() && it->is_boolean() ? std::optional<bool>(it->get<bool>()) : std::nullopt;
+    };
+
+    // The UI's rule for a legacyAdvanced feature (featureFlags.ts isFeatureEnabled).
+    const bool enabled =
+        readBool(kCustomEffectsFeatureSettingKey).value_or(readBool(kLegacyAdvancedOptionsSettingKey).value_or(false));
+    WasmEffect::SetHostingEnabled(enabled);
+
+    if (enabled == mCustomEffectsHosting)
+    {
+        return;
+    }
+
+    mCustomEffectsHosting = enabled;
+
+    // Custom Effects built while the gate was the other way either refused their module or loaded
+    // one that is now off; a rebuild loads or drops them to match.
+    RebuildRunningSlotsAndGlobalChain();
+#endif
+}
+
+void PluginController::RebuildRunningSlotsAndGlobalChain()
+{
+    // Rebuild every running slot as a chain edit does. Every slot, not only those holding the
+    // affected effect, because a composite can hold one out of sight of the preset graph. Callers
+    // are settings that change rarely, and a rebuild crossfades.
     for (const auto& slot : SnapshotActivePresetConfigs())
     {
         if (mActivePreset && slot.id == mActivePresetId)
@@ -405,6 +441,7 @@ bool PluginController::ApplySettingsToRuntime(SettingsApplyMode mode)
     settingsChanged |= ApplyPresetSwitchSettingsFromAppSettings();
     ApplyMultiCoreSettingFromAppSettings();
     ApplyNamEngineSettingFromAppSettings();
+    ApplyCustomEffectsSettingFromAppSettings();
     ApplyMonoOutputUnityFromAppSettings();
     ApplyInputModeSettingsFromAppSettings();
     ApplyGlobalFxSettingsFromAppSettings();

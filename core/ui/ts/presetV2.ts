@@ -8,6 +8,7 @@
 import type { Preset, GraphNode } from "./types.js";
 import type { ParamTaper } from "./paramTaper.js";
 import { EffectGuids, migrateLegacyEffectType, resolveEffectType } from "./effectGuids.js";
+import { safeImageDataUrl } from "./utils.js";
 
 export interface ParameterDef {
   key: string;
@@ -218,7 +219,8 @@ function buildWasmNodeEffectInfo(base: EffectTypeInfo, node: Pick<GraphNode, "co
       continue;
     }
     if (entry.key === "effect.category") {
-      category = entry.value;
+      // A short plain word, as the engine requires (SanitizeCustomEffectCategory); it ends up in markup.
+      category = /^[\w -]{1,40}$/.test(entry.value.trim()) ? entry.value.trim() : "utility";
       continue;
     }
     if (entry.key === "effect.description") {
@@ -307,6 +309,8 @@ function buildWasmNodeEffectInfo(base: EffectTypeInfo, node: Pick<GraphNode, "co
   if (!thumbnailDataUrl && thumbnailBase64) {
     thumbnailDataUrl = `data:${thumbnailMimeType};base64,${thumbnailBase64}`;
   }
+  // The module's own word, as is its category; a remote URL here would be fetched on every render.
+  thumbnailDataUrl = safeImageDataUrl(thumbnailDataUrl);
 
   return {
     ...base,

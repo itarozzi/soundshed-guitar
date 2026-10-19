@@ -795,6 +795,12 @@ class PluginController
     /// instance's NAM models were built on, rebuilds every running preset slot and the global
     /// chain, since a built model keeps its engine.
     void ApplyNamEngineSettingFromAppSettings();
+    /// Pushes the Custom Effects feature setting to WasmEffect's process-wide gate, and rebuilds
+    /// the running slots when that changes what this instance's Custom Effects were built under.
+    void ApplyCustomEffectsSettingFromAppSettings();
+    /// Rebuilds every running preset slot and the global chain from their current configs, for a
+    /// setting that changes how effects are built rather than what the presets say.
+    void RebuildRunningSlotsAndGlobalChain();
     /// The standalone follows the mono-output makeup setting; a plugin instance takes it once,
     /// when it is new, and after that owns the value (mMonoOutputUnityOwned).
     void ApplyMonoOutputUnityFromAppSettings();
@@ -1167,6 +1173,9 @@ class PluginController
     // Per instance: the engine is process-wide, so in a DAW the first instance to apply a change
     // flips it for all, and each other instance still has to rebuild its own models.
     bool mNamEngineFused = true;
+    // Whether Custom Effects could load when this instance's slots were last built
+    // (WasmEffect::IsHostingEnabled). Per instance for the same reason as mNamEngineFused.
+    bool mCustomEffectsHosting = false;
 
     /// True while the host renders offline (bounce/freeze/export). Set from any thread, read by
     /// the audio thread — see SetOfflineRendering().

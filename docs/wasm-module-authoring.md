@@ -49,6 +49,24 @@ The host provides these imports from module `host`:
   - `0` => the `.wasm` module itself
   - `1..N` => optional external binary resources
 
+## Limits and Trust
+
+A module is code from whoever wrote it, so the host bounds what it can do. It runs in Wasmtime (48.x LTS, Cranelift) with only the three `host.*` imports above: no WASI, no files, no network. On top of that:
+
+- **Time.** Every call has a deadline. `audiofx_process` gets, per block, four times the block's duration or 200 ms, whichever is longer. Instantiation (the start function), the descriptor exports, `audiofx_prepare` and `audiofx_get_latency_samples` get 5 s. `audiofx_reset` gets 200 ms, because it can run on the audio thread. A module that runs past its deadline traps, and the node passes audio through dry until it is loaded again.
+- **Memory.** 256 MiB of linear memory, one memory, and up to 100,000 table elements. A module that declares more fails to instantiate; `memory.grow` past the limit returns `-1`.
+- **Stack.** 256 KiB of wasm stack. Deep recursion traps instead of overflowing the audio thread's own stack.
+- **Size.** The module file is at most 32 MiB and the descriptor at most 2 MiB. Each descriptor value is cut at 1,000 characters.
+- **Features.** Threads, shared memory, GC, exceptions, stack switching and memory64 are off. SIMD, relaxed SIMD, bulk memory, multi-value, reference types and tail calls are on.
+- **What the descriptor can say.** `effect.category` must be 1-40 letters, digits, spaces, `-` or `_`, or it becomes `utility`. A thumbnail must be a base64 PNG, JPEG, GIF or WebP: anything else, an `https:` URL or SVG included, is dropped.
+
+Where modules come from:
+
+- **Custom Effects must be on** (Settings → Features → Power Features). While they are off, the engine compiles and runs no module, whatever a preset or project asks for.
+- **Shared files don't install modules, for now.** Preset archives, Tone Sharing items and packs install only NAM models and IRs. A Custom Effect node in a shared preset arrives without its module and passes audio through until you pick one of your own. Until module sharing is supported (it is planned, with a consent step; see `docs/wasm-effects-security-review-2026-10-19.md`), share the `.wasm` file itself; the person installing it browses to it on purpose.
+- **No network shares.** A module path on a network share (`\\server\share\...`) is refused before it is opened.
+- A DAW project cannot switch Custom Effects on: the setting is not restored from projects.
+
 ## Self-Description Format
 
 The descriptor is UTF-8 text stored in guest memory.
@@ -406,6 +424,8 @@ To self-describe a thumbnail, add either:
 or:
 
 - `effect.thumbnailDataUrl=data:image/png;base64,...`
+
+Only base64 PNG, JPEG, GIF and WebP are kept. A URL, or SVG, is dropped (see Limits and Trust).
 
 Example:
 

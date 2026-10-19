@@ -1,19 +1,26 @@
 #include "dsp/effects/WasmEffect.h"
 
 #include "dsp/FiniteCheck.h"
+#include "resources/CustomEffectLibrary.h"
 #include "util/FileIO.h"
 #include "util/PathEncoding.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
+#include <chrono>
+#include <condition_variable>
 #include <map>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <cwctype>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <sstream>
+#include <thread>
 #include <utility>
 
 #include <nlohmann/json.hpp>
@@ -24,6 +31,27 @@ namespace
 {
 constexpr std::size_t kModuleSlot = 0;
 constexpr std::size_t kTempoParamIndex = WasmEffect::kGuestMacroCount;
+
+// The shared engine's epoch advances once per tick; a deadline is a number of ticks.
+constexpr std::chrono::milliseconds kEpochTick{10};
+// Instantiation (the start function), the descriptor exports, prepare and the latency query run
+// off the audio thread and may do real work, such as reading a resource byte by byte.
+constexpr double kSetupBudgetSeconds = 5.0;
+// A block gets four times its own duration, and never less than this. Offline renders may run
+// slower than real time, so the budget is there to stop a hang, not to enforce real time.
+constexpr double kProcessMinBudgetSeconds = 0.2;
+constexpr double kProcessBudgetBlockMultiple = 4.0;
+
+// Strings a module declares about itself reach the UI and presets; bound their size.
+constexpr std::size_t kMaxDescriptorBytes = 2u * 1024u * 1024u;
+constexpr std::size_t kMaxDescriptorTextLength = 1000;
+
+std::atomic<bool> gHostingEnabled{false};
+
+std::string LimitDescriptorText(const std::string& value)
+{
+    return value.size() > kMaxDescriptorTextLength ? value.substr(0, kMaxDescriptorTextLength) : value;
+}
 
 float ClampFinite(float value, float fallback)
 {
@@ -203,6 +231,12 @@ std::string TakeTrapMessage(wasm_trap_t* trap)
         return {};
     }
 
+    if (wasmtime_trap_code_t code = 0; wasmtime_trap_code(trap, &code) && code == WASMTIME_TRAP_CODE_INTERRUPT)
+    {
+        wasm_trap_delete(trap);
+        return "the module ran past its time limit and was stopped";
+    }
+
     wasm_name_t message;
     wasm_trap_message(trap, &message);
     std::string text = CopyWasmMessage(message);
@@ -215,15 +249,29 @@ std::optional<WasmModuleDescriptor> BuildDescriptorFromEntries(const std::vector
                                                                std::string* error)
 {
     WasmModuleDescriptor descriptor;
-    descriptor.entries = entries;
 
     std::map<std::size_t, std::map<std::string, std::string>> parameterFields;
     std::map<std::size_t, std::map<std::string, std::string>> resourceFields;
     std::string thumbnailBase64;
     std::string thumbnailMimeType = "image/png";
 
-    for (const auto& entry : entries)
+    for (const auto& rawEntry : entries)
     {
+        // Every value is the module's own word, bound for UI markup and saved presets.
+        const WasmMetadataEntry entry{LimitDescriptorText(rawEntry.key),
+                                      rawEntry.key.rfind("effect.thumbnail", 0) == 0
+                                          ? rawEntry.value
+                                          : LimitDescriptorText(rawEntry.value)};
+
+        // The thumbnail keys are replaced by one checked effect.thumbnailDataUrl below; the UI reads
+        // these entries again from the node config, so they are kept only as sanitised here.
+        if (entry.key.rfind("effect.thumbnail", 0) != 0)
+        {
+            descriptor.entries.push_back(entry.key == "effect.category"
+                                             ? WasmMetadataEntry{entry.key, SanitizeCustomEffectCategory(entry.value)}
+                                             : entry);
+        }
+
         if (entry.key == "effect.name" || entry.key == "effect.title")
         {
             descriptor.displayName = entry.value;
@@ -244,7 +292,7 @@ std::optional<WasmModuleDescriptor> BuildDescriptorFromEntries(const std::vector
 
         if (entry.key == "effect.category")
         {
-            descriptor.category = entry.value.empty() ? "utility" : entry.value;
+            descriptor.category = SanitizeCustomEffectCategory(entry.value);
             continue;
         }
 
@@ -477,6 +525,13 @@ std::optional<WasmModuleDescriptor> BuildDescriptorFromEntries(const std::vector
         descriptor.thumbnailDataUrl = "data:" + thumbnailMimeType + ";base64," + thumbnailBase64;
     }
 
+    descriptor.thumbnailDataUrl = SanitizeCustomEffectThumbnail(descriptor.thumbnailDataUrl);
+
+    if (!descriptor.thumbnailDataUrl.empty())
+    {
+        descriptor.entries.push_back({"effect.thumbnailDataUrl", descriptor.thumbnailDataUrl});
+    }
+
     return descriptor;
 }
 
@@ -614,10 +669,136 @@ extern "C" wasm_trap_t* HostReadResourceByteRaw(void* env, wasmtime_caller_t* ca
 }
 } // namespace
 
+// One engine for every Custom Effect in the process, and a thread that advances its epoch each
+// tick so the deadline on every guest call means something. Held by shared_ptr from each effect:
+// the last one out stops the thread and frees the engine, so nothing outlives a plugin unload.
+class WasmSharedRuntime
+{
+  public:
+    static std::shared_ptr<WasmSharedRuntime> Acquire()
+    {
+        static std::mutex acquireMutex;
+        static std::weak_ptr<WasmSharedRuntime> current;
+        std::lock_guard<std::mutex> lock(acquireMutex);
+
+        if (auto runtime = current.lock())
+        {
+            return runtime;
+        }
+
+        auto runtime = std::shared_ptr<WasmSharedRuntime>(new WasmSharedRuntime());
+        current = runtime;
+        return runtime;
+    }
+
+    WasmSharedRuntime(const WasmSharedRuntime&) = delete;
+    WasmSharedRuntime& operator=(const WasmSharedRuntime&) = delete;
+
+    ~WasmSharedRuntime()
+    {
+        {
+            std::lock_guard<std::mutex> lock(mTickMutex);
+            mStopping = true;
+        }
+
+        mTickWake.notify_all();
+
+        if (mTicker.joinable())
+        {
+            mTicker.join();
+        }
+
+        if (mEngine)
+        {
+            wasm_engine_delete(mEngine);
+        }
+    }
+
+    [[nodiscard]] wasm_engine_t* Engine() const
+    {
+        return mEngine;
+    }
+
+  private:
+    WasmSharedRuntime()
+    {
+        wasm_config_t* config = wasm_config_new();
+
+        if (!config)
+        {
+            return;
+        }
+
+        wasmtime_config_epoch_interruption_set(config, true);
+        wasmtime_config_max_wasm_stack_set(config, WasmEffect::kMaxGuestStackBytes);
+        // Cranelift only: the April 2026 sandbox escape in the Winch backend is why.
+        wasmtime_config_strategy_set(config, WASMTIME_STRATEGY_CRANELIFT);
+        // Proposals an audio effect has no use for are off, so their runtime code is out of reach.
+        // GC, exceptions and stack switching have carried most of 2026's advisories.
+        wasmtime_config_wasm_threads_set(config, false);
+        wasmtime_config_shared_memory_set(config, false);
+        wasmtime_config_wasm_gc_set(config, false);
+        wasmtime_config_wasm_exceptions_set(config, false);
+        wasmtime_config_wasm_stack_switching_set(config, false);
+        wasmtime_config_wasm_memory64_set(config, false);
+
+        mEngine = wasm_engine_new_with_config(config);
+
+        if (mEngine)
+        {
+            mTicker = std::thread([this]() { TickLoop(); });
+        }
+    }
+
+    void TickLoop()
+    {
+        std::unique_lock<std::mutex> lock(mTickMutex);
+
+        while (!mTickWake.wait_for(lock, kEpochTick, [this]() { return mStopping; }))
+        {
+            wasmtime_engine_increment_epoch(mEngine);
+        }
+    }
+
+    wasm_engine_t* mEngine = nullptr;
+    std::mutex mTickMutex;
+    std::condition_variable mTickWake;
+    bool mStopping = false;
+    std::thread mTicker;
+};
+
+void WasmEffect::SetHostingEnabled(bool enabled)
+{
+    gHostingEnabled.store(enabled, std::memory_order_relaxed);
+}
+
+bool WasmEffect::IsHostingEnabled()
+{
+    return gHostingEnabled.load(std::memory_order_relaxed);
+}
+
+bool WasmEffect::IsNetworkPath(const std::filesystem::path& path)
+{
+    // \\server\share, //server/share and the \\?\UNC\ long form. A plain \\?\C:\ is local.
+    const std::wstring text = path.wstring();
+
+    if (text.size() < 2 || (text[0] != L'\\' && text[0] != L'/') || (text[1] != L'\\' && text[1] != L'/'))
+    {
+        return false;
+    }
+
+    std::wstring upper = text;
+    std::transform(upper.begin(), upper.end(), upper.begin(), [](wchar_t ch) { return std::towupper(ch); });
+    const bool deviceLocal = (upper.rfind(L"\\\\?\\", 0) == 0 || upper.rfind(L"\\\\.\\", 0) == 0) &&
+                             upper.rfind(L"\\\\?\\UNC\\", 0) != 0 && upper.rfind(L"\\\\.\\UNC\\", 0) != 0;
+    return !deviceLocal;
+}
+
 WasmEffect::WasmEffect()
 {
     ResetGuestDescriptor();
-    mEngine = wasm_engine_new();
+    mRuntime = WasmSharedRuntime::Acquire();
+    mEngine = mRuntime ? mRuntime->Engine() : nullptr;
 
     if (!mEngine)
     {
@@ -628,17 +809,46 @@ WasmEffect::WasmEffect()
 WasmEffect::~WasmEffect()
 {
     TeardownRuntime();
+    // The engine is the shared runtime's; dropping mRuntime releases it with the last effect.
+    mEngine = nullptr;
+}
 
-    if (mEngine)
+void WasmEffect::ArmGuestDeadline(double budgetSeconds)
+{
+    if (!mContext)
     {
-        wasm_engine_delete(mEngine);
-        mEngine = nullptr;
+        return;
     }
+
+    const double tickSeconds = std::chrono::duration<double>(kEpochTick).count();
+    // One more tick than the budget covers, since the current tick is already partly gone.
+    const auto ticks = static_cast<std::uint64_t>(std::ceil(budgetSeconds / tickSeconds)) + 1u;
+    wasmtime_context_set_epoch_deadline(mContext, ticks);
 }
 
 std::optional<WasmModuleDescriptor> WasmEffect::InspectModuleFile(const std::filesystem::path& modulePath,
                                                                   std::string* error)
 {
+    if (!IsHostingEnabled())
+    {
+        if (error)
+        {
+            *error = "Custom Effects are turned off in Settings, so this module was not inspected.";
+        }
+
+        return std::nullopt;
+    }
+
+    if (IsNetworkPath(modulePath))
+    {
+        if (error)
+        {
+            *error = "WASM modules are not loaded from network shares: " + util::PathToUtf8(modulePath);
+        }
+
+        return std::nullopt;
+    }
+
     if (!std::filesystem::exists(modulePath))
     {
         if (error)
@@ -777,6 +987,9 @@ void WasmEffect::Reset()
 
     wasm_trap_t* trap = nullptr;
 
+    // Reset can come from the audio thread, so it gets a block's budget, not setup's.
+    ArmGuestDeadline(kProcessMinBudgetSeconds);
+
     if (wasmtime_error_t* error = wasmtime_func_call(mContext, &mResetFunction, nullptr, 0, nullptr, 0, &trap))
     {
         SetError(std::string("WASM reset failed: ") + TakeErrorMessage(error));
@@ -812,6 +1025,14 @@ void WasmEffect::Process(float** inputs, float** outputs, int numSamples)
     const float dryMix = 1.0f - wetMix;
     const float inputGain = static_cast<float>(DbToLinear(mInputGainDb));
     const float outputGain = static_cast<float>(DbToLinear(mOutputGainDb));
+
+    if (mRuntimeReady)
+    {
+        // One deadline for the whole block: a guest that hangs traps, and the rest of the block
+        // and every block after it pass dry (InvokeProcess clears mRuntimeReady).
+        const double blockSeconds = mSampleRate > 0.0 ? static_cast<double>(numSamples) / mSampleRate : 0.0;
+        ArmGuestDeadline(std::max(kProcessMinBudgetSeconds, blockSeconds * kProcessBudgetBlockMultiple));
+    }
 
     for (int sample = 0; sample < numSamples; ++sample)
     {
@@ -968,6 +1189,21 @@ bool WasmEffect::LoadResources(const std::vector<ResourceRef>& refs, const std::
         return false;
     }
 
+    if (!IsHostingEnabled())
+    {
+        SetError("Custom Effects are turned off in Settings, so this module was not loaded.");
+        return false;
+    }
+
+    for (std::size_t i = 0; i < resourceCount; ++i)
+    {
+        if (IsNetworkPath(paths[i]))
+        {
+            SetError("WASM effect resources are not loaded from network shares: " + util::PathToUtf8(paths[i]));
+            return false;
+        }
+    }
+
     for (std::size_t i = 0; i < resourceCount; ++i)
     {
         const std::size_t slotIndex = ParseResourceSlotIndex(refs[i]).value_or(i);
@@ -1116,15 +1352,23 @@ bool WasmEffect::BuildRuntimeOnly()
         return false;
     }
 
+    if (!IsHostingEnabled())
+    {
+        SetError("Custom Effects are turned off in Settings, so this module was not loaded.");
+        return false;
+    }
+
     if (!mEngine)
     {
-        mEngine = wasm_engine_new();
+        SetError("Failed to create Wasmtime engine.");
+        return false;
+    }
 
-        if (!mEngine)
-        {
-            SetError("Failed to create Wasmtime engine.");
-            return false;
-        }
+    if (mModuleBytes.size() > kMaxModuleBytes)
+    {
+        SetError("WASM module is larger than the " + std::to_string(kMaxModuleBytes / (1024u * 1024u)) +
+                 " MB limit.");
+        return false;
     }
 
     if (wasmtime_error_t* error = wasmtime_module_new(mEngine, mModuleBytes.data(), mModuleBytes.size(), &mModule))
@@ -1151,6 +1395,10 @@ bool WasmEffect::BuildRuntimeOnly()
         TeardownRuntime();
         return false;
     }
+
+    // One instance with bounded memory and tables. Growth past a limit fails inside the guest
+    // (memory.grow returns -1); a module that declares more than the limit fails to instantiate.
+    wasmtime_store_limiter(mStore, kMaxGuestMemoryBytes, kMaxGuestTableElements, 1, 4, 1);
 
     mContext = wasmtime_store_context(mStore);
 
@@ -1237,6 +1485,9 @@ bool WasmEffect::BuildRuntimeOnly()
 
     wasm_trap_t* trap = nullptr;
 
+    // Instantiation runs the module's start function, so it is the first call that needs a deadline.
+    ArmGuestDeadline(kSetupBudgetSeconds);
+
     if (wasmtime_error_t* error = wasmtime_linker_instantiate(mLinker, mContext, mModule, &mInstance, &trap))
     {
         SetError(std::string("Failed to instantiate WASM module: ") + TakeErrorMessage(error));
@@ -1320,6 +1571,7 @@ bool WasmEffect::InvokePrepare()
     std::array<wasmtime_val_t, 1> results{};
 
     wasm_trap_t* trap = nullptr;
+    ArmGuestDeadline(kSetupBudgetSeconds);
 
     if (wasmtime_error_t* error = wasmtime_func_call(mContext, &mPrepareFunction, args.data(), args.size(),
                                                      results.data(), results.size(), &trap))
@@ -1408,6 +1660,7 @@ int WasmEffect::QueryLatencySamples()
     std::array<wasmtime_val_t, 1> results{};
 
     wasm_trap_t* trap = nullptr;
+    ArmGuestDeadline(kSetupBudgetSeconds);
 
     if (wasmtime_error_t* error =
             wasmtime_func_call(mContext, &mLatencyFunction, nullptr, 0, results.data(), results.size(), &trap))
@@ -1501,6 +1754,7 @@ bool WasmEffect::LoadGuestDescriptor()
     auto callI32Function = [&](wasmtime_func_t& function, const char* functionName) -> std::optional<int32_t> {
         std::array<wasmtime_val_t, 1> results{};
         wasm_trap_t* trap = nullptr;
+        ArmGuestDeadline(kSetupBudgetSeconds);
 
         if (wasmtime_error_t* error =
                 wasmtime_func_call(mContext, &function, nullptr, 0, results.data(), results.size(), &trap))
@@ -1568,6 +1822,13 @@ bool WasmEffect::LoadGuestDescriptor()
     {
         wasmtime_extern_delete(&memoryItem);
         SetError("WASM descriptor range falls outside exported guest memory.");
+        return false;
+    }
+
+    if (descriptorSize > kMaxDescriptorBytes)
+    {
+        wasmtime_extern_delete(&memoryItem);
+        SetError("WASM descriptor is larger than the 2 MB limit.");
         return false;
     }
 

@@ -23,6 +23,18 @@ export function escapeHtml(value: unknown): string {
     .replace(/'/g, "&#039;");
 }
 
+const SAFE_IMAGE_DATA_URL = /^data:image\/(png|jpeg|gif|webp);base64,[A-Za-z0-9+/=]*$/;
+
+/**
+ * The URL itself when it is an inline raster image, otherwise "". For thumbnails that come from a
+ * Custom Effect module, a shared preset or a layout: the CSP lets `<img>` load any https: URL, so
+ * a remote one would have the app fetch whatever address the author chose each time it renders.
+ * The engine applies the same rule (SanitizeCustomEffectThumbnail).
+ */
+export function safeImageDataUrl(url: unknown): string {
+  return typeof url === "string" && SAFE_IMAGE_DATA_URL.test(url) ? url : "";
+}
+
 export function arrayBufferToBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
   let binary = "";

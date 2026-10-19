@@ -7,12 +7,15 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -201,7 +204,8 @@ void AppendOp(ByteVector& target, const ByteVector& op)
 ByteVector MakeModule(const std::vector<FuncTypeDef>& types, const std::vector<ImportFuncDef>& imports,
                       const std::vector<GlobalDef>& globals, const std::vector<DefinedFuncDef>& definedFunctions,
                       const std::vector<std::pair<std::string, uint32_t>>& exports, bool exportMemory = false,
-                      const std::vector<DataSegmentDef>& dataSegments = {})
+                      const std::vector<DataSegmentDef>& dataSegments = {}, uint32_t memoryMinPages = 1,
+                      std::optional<uint32_t> startFunction = std::nullopt)
 {
     ByteVector module{0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00};
 
@@ -262,7 +266,7 @@ ByteVector MakeModule(const std::vector<FuncTypeDef>& types, const std::vector<I
         ByteVector memoryPayload;
         AppendU32Leb(memoryPayload, 1);
         AppendU8(memoryPayload, 0x00);
-        AppendU32Leb(memoryPayload, 1);
+        AppendU32Leb(memoryPayload, memoryMinPages);
         AppendBytes(module, MakeSection(5, memoryPayload));
     }
 
@@ -300,6 +304,13 @@ ByteVector MakeModule(const std::vector<FuncTypeDef>& types, const std::vector<I
     }
 
     AppendBytes(module, MakeSection(7, exportPayload));
+
+    if (startFunction)
+    {
+        ByteVector startPayload;
+        AppendU32Leb(startPayload, *startFunction);
+        AppendBytes(module, MakeSection(8, startPayload));
+    }
 
     ByteVector codePayload;
     AppendU32Leb(codePayload, static_cast<uint32_t>(definedFunctions.size()));
@@ -940,12 +951,370 @@ bool TestResetStatefulModule(const TempDir& tempDir)
 
     return true;
 }
+
+// Modules that misbehave on purpose. A module is code from whoever shared it, so each of these
+// must end in a trap or a refused load, never a hang or a crash.
+enum class HostileKind
+{
+    LoopingProcess,
+    RecursiveProcess,
+    LoopingStart,
+    HugeMemory,
+};
+
+ByteVector MakeHostileModule(HostileKind kind)
+{
+    const std::vector<FuncTypeDef> types = {
+        {{WasmValueType::F32, WasmValueType::I32, WasmValueType::I32}, {WasmValueType::I32}},
+        {{}, {}},
+        {{WasmValueType::F32, WasmValueType::F32}, {WasmValueType::F32, WasmValueType::F32}},
+        {{}, {WasmValueType::I32}},
+    };
+
+    // loop (br 0) end; unreachable — the unreachable makes the body valid for any result type.
+    const ByteVector foreverOps = {0x03, 0x40, 0x0c, 0x00, 0x0b, 0x00};
+
+    ByteVector processOps;
+
+    switch (kind)
+    {
+        case HostileKind::LoopingProcess:
+            processOps = foreverOps;
+            break;
+        case HostileKind::RecursiveProcess:
+            AppendOp(processOps, LocalGet(0));
+            AppendOp(processOps, LocalGet(1));
+            AppendOp(processOps, Call(2));
+            break;
+        default:
+            AppendOp(processOps, LocalGet(0));
+            AppendOp(processOps, LocalGet(1));
+            break;
+    }
+
+    std::vector<DefinedFuncDef> functions = {
+        {0, I32Const(0)},
+        {1, {}},
+        {2, processOps},
+        {3, I32Const(0)},
+    };
+    std::optional<uint32_t> startFunction;
+
+    if (kind == HostileKind::LoopingStart)
+    {
+        functions.push_back({1, foreverOps});
+        startFunction = 4;
+    }
+
+    // 4097 pages is one page past the store's 256 MiB limit.
+    const bool hugeMemory = kind == HostileKind::HugeMemory;
+    return MakeModule(types, {}, {}, functions,
+                      {
+                          {"audiofx_prepare", 0},
+                          {"audiofx_reset", 1},
+                          {"audiofx_process", 2},
+                          {"audiofx_get_latency_samples", 3},
+                      },
+                      hugeMemory, {}, hugeMemory ? 4097u : 1u, startFunction);
+}
+
+std::unique_ptr<EffectProcessor> LoadModuleFile(const std::filesystem::path& modulePath, bool& loaded)
+{
+    auto effect = CreateWasmHost();
+    loaded = false;
+
+    if (!effect)
+    {
+        return nullptr;
+    }
+
+    ResourceRef moduleRef;
+    moduleRef.resourceType = "wasm";
+    moduleRef.filePath = modulePath.string();
+    loaded = effect->LoadResources({moduleRef}, {modulePath});
+    return effect;
+}
+
+double SecondsSince(std::chrono::steady_clock::time_point start)
+{
+    return std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+}
+
+// The guest's process runs on the audio thread; one that never returns must be stopped by its
+// deadline and the node must pass the input through dry from then on.
+bool TestHostileProcessIsStopped(const TempDir& tempDir, HostileKind kind, const char* label)
+{
+    const auto modulePath = tempDir.root / (std::string(label) + ".wasm");
+
+    if (!WriteBytes(modulePath, MakeHostileModule(kind)))
+    {
+        std::cerr << "Failed to write the " << label << " module.\n";
+        return false;
+    }
+
+    bool loaded = false;
+    auto effect = LoadModuleFile(modulePath, loaded);
+
+    if (!effect || !loaded)
+    {
+        std::cerr << "The " << label << " module failed to load: "
+                  << (effect ? effect->GetConfig("lastError") : std::string{}) << "\n";
+        return false;
+    }
+
+    effect->Prepare(kSampleRate, kBlockSize);
+
+    std::array<float, kBlockSize> leftIn{};
+    std::array<float, kBlockSize> rightIn{};
+    std::array<float, kBlockSize> leftOut{};
+    std::array<float, kBlockSize> rightOut{};
+    leftIn.fill(0.25f);
+    rightIn.fill(-0.5f);
+    float* inputs[] = {leftIn.data(), rightIn.data()};
+    float* outputs[] = {leftOut.data(), rightOut.data()};
+
+    const auto start = std::chrono::steady_clock::now();
+    effect->Process(inputs, outputs, kBlockSize);
+    effect->Process(inputs, outputs, kBlockSize);
+    const double elapsed = SecondsSince(start);
+
+    // The block budget is 0.2 s; allow for a slow CI machine, but not for a hang.
+    if (elapsed > 2.0)
+    {
+        std::cerr << "The " << label << " module held Process for " << elapsed << " s.\n";
+        return false;
+    }
+
+    if (!NearlyEqual(leftOut[kBlockSize - 1], 0.25f) || !NearlyEqual(rightOut[kBlockSize - 1], -0.5f))
+    {
+        std::cerr << "The " << label << " module did not leave the node passing dry.\n";
+        return false;
+    }
+
+    if (effect->GetConfig("lastError").empty())
+    {
+        std::cerr << "The " << label << " module's trap was not reported.\n";
+        return false;
+    }
+
+    return true;
+}
+
+bool TestLoopingStartFunctionIsStopped(const TempDir& tempDir)
+{
+    const auto modulePath = tempDir.root / "looping_start.wasm";
+
+    if (!WriteBytes(modulePath, MakeHostileModule(HostileKind::LoopingStart)))
+    {
+        std::cerr << "Failed to write the looping-start module.\n";
+        return false;
+    }
+
+    // Inspection runs on the message thread when a preset loads; the start function must not
+    // freeze it. The setup budget is 5 s.
+    const auto start = std::chrono::steady_clock::now();
+    std::string error;
+    const auto descriptor = WasmEffect::InspectModuleFile(modulePath, &error);
+    const double elapsed = SecondsSince(start);
+
+    if (descriptor || error.find("time limit") == std::string::npos)
+    {
+        std::cerr << "A looping start function was not stopped by its deadline: " << error << "\n";
+        return false;
+    }
+
+    if (elapsed > 15.0)
+    {
+        std::cerr << "A looping start function held inspection for " << elapsed << " s.\n";
+        return false;
+    }
+
+    return true;
+}
+
+bool TestHugeMemoryIsRefused(const TempDir& tempDir)
+{
+    const auto modulePath = tempDir.root / "huge_memory.wasm";
+
+    if (!WriteBytes(modulePath, MakeHostileModule(HostileKind::HugeMemory)))
+    {
+        std::cerr << "Failed to write the huge-memory module.\n";
+        return false;
+    }
+
+    bool loaded = false;
+    auto effect = LoadModuleFile(modulePath, loaded);
+
+    if (loaded)
+    {
+        std::cerr << "A module asking for more than the memory limit was instantiated.\n";
+        return false;
+    }
+
+    return true;
+}
+
+bool TestNetworkPathsAreRefused(const TempDir& tempDir)
+{
+    const std::vector<std::pair<std::filesystem::path, bool>> cases = {
+        {std::filesystem::path(L"\\\\server\\share\\fx.wasm"), true},
+        {std::filesystem::path(L"//server/share/fx.wasm"), true},
+        {std::filesystem::path(L"\\\\?\\UNC\\server\\share\\fx.wasm"), true},
+        {std::filesystem::path(L"\\\\?\\C:\\fx.wasm"), false},
+        {std::filesystem::path(L"C:\\fx.wasm"), false},
+        {tempDir.root / "fx.wasm", false},
+    };
+
+    for (const auto& [path, network] : cases)
+    {
+        if (WasmEffect::IsNetworkPath(path) != network)
+        {
+            std::cerr << "IsNetworkPath got " << path.string() << " wrong.\n";
+            return false;
+        }
+    }
+
+    bool loaded = false;
+    auto effect = LoadModuleFile(std::filesystem::path(L"\\\\server.invalid\\share\\fx.wasm"), loaded);
+
+    if (loaded || !effect || effect->GetConfig("lastError").find("network") == std::string::npos)
+    {
+        std::cerr << "A module on a network share was not refused up front.\n";
+        return false;
+    }
+
+    std::string error;
+
+    if (WasmEffect::InspectModuleFile(std::filesystem::path(L"\\\\server.invalid\\share\\fx.wasm"), &error) ||
+        error.find("network") == std::string::npos)
+    {
+        std::cerr << "Inspecting a module on a network share was not refused up front.\n";
+        return false;
+    }
+
+    return true;
+}
+
+bool TestHostingGate(const TempDir& tempDir)
+{
+    const auto modulePath = tempDir.root / "gated_gain.wasm";
+
+    if (!WriteBytes(modulePath, MakeGainModule()))
+    {
+        std::cerr << "Failed to write the gated gain module.\n";
+        return false;
+    }
+
+    WasmEffect::SetHostingEnabled(false);
+    bool loaded = false;
+    auto effect = LoadModuleFile(modulePath, loaded);
+    std::string error;
+    const auto descriptor = WasmEffect::InspectModuleFile(modulePath, &error);
+    WasmEffect::SetHostingEnabled(true);
+
+    if (loaded || descriptor)
+    {
+        std::cerr << "A module loaded while Custom Effects were turned off.\n";
+        return false;
+    }
+
+    auto enabledEffect = LoadModuleFile(modulePath, loaded);
+
+    if (!loaded)
+    {
+        std::cerr << "The gain module did not load once Custom Effects were turned back on.\n";
+        return false;
+    }
+
+    return true;
+}
+
+ByteVector MakeDescriptorModule(const ByteVector& descriptorBlob)
+{
+    const std::vector<FuncTypeDef> types = {
+        {{WasmValueType::F32, WasmValueType::I32, WasmValueType::I32}, {WasmValueType::I32}},
+        {{}, {}},
+        {{WasmValueType::F32, WasmValueType::F32}, {WasmValueType::F32, WasmValueType::F32}},
+        {{}, {WasmValueType::I32}},
+    };
+
+    ByteVector processOps;
+    AppendOp(processOps, LocalGet(0));
+    AppendOp(processOps, LocalGet(1));
+
+    const std::vector<DefinedFuncDef> functions = {
+        {0, I32Const(0)},
+        {1, {}},
+        {2, processOps},
+        {3, I32Const(0)},
+        {3, I32Const(0)},
+        {3, I32Const(static_cast<int32_t>(descriptorBlob.size()))},
+    };
+
+    return MakeModule(types, {}, {}, functions,
+                      {
+                          {"audiofx_prepare", 0},
+                          {"audiofx_reset", 1},
+                          {"audiofx_process", 2},
+                          {"audiofx_get_latency_samples", 3},
+                          {"audiofx_descriptor_ptr", 4},
+                          {"audiofx_descriptor_len", 5},
+                      },
+                      true, {{0, descriptorBlob}});
+}
+
+// A module's category and thumbnail end up in UI markup and in the Custom Effect library.
+bool TestHostileDescriptorIsSanitised(const TempDir& tempDir)
+{
+    const auto modulePath = tempDir.root / "hostile_descriptor.wasm";
+    const ByteVector blob = BuildDescriptorBlob({
+        {"effect.name", "Looks Normal"},
+        {"effect.category", "<iframe src=\"https://example.invalid\"></iframe>"},
+        {"effect.thumbnailDataUrl", "https://example.invalid/pixel.png"},
+        {"param.0.id", "amount"},
+    });
+
+    if (!WriteBytes(modulePath, MakeDescriptorModule(blob)))
+    {
+        std::cerr << "Failed to write the hostile-descriptor module.\n";
+        return false;
+    }
+
+    std::string error;
+    const auto descriptor = WasmEffect::InspectModuleFile(modulePath, &error);
+
+    if (!descriptor)
+    {
+        std::cerr << "Failed to inspect the hostile-descriptor module: " << error << "\n";
+        return false;
+    }
+
+    if (descriptor->category != "utility" || !descriptor->thumbnailDataUrl.empty())
+    {
+        std::cerr << "A hostile category or thumbnail URL survived descriptor parsing.\n";
+        return false;
+    }
+
+    for (const auto& entry : descriptor->entries)
+    {
+        if ((entry.key == "effect.category" && entry.value != "utility") ||
+            entry.key.rfind("effect.thumbnail", 0) == 0)
+        {
+            std::cerr << "The stored descriptor entries still carry '" << entry.key << "' unsanitised.\n";
+            return false;
+        }
+    }
+
+    return true;
+}
 } // namespace
 } // namespace guitarfx
 
 int main()
 {
     guitarfx::RegisterAllEffects();
+    // The app sets this from the Custom Effects feature setting.
+    guitarfx::WasmEffect::SetHostingEnabled(true);
 
     guitarfx::TempDir tempDir;
     bool allPassed = true;
@@ -956,6 +1325,17 @@ int main()
     allPassed = guitarfx::TestSignalGraphStereoModule(tempDir) && allPassed;
     allPassed = guitarfx::TestResourceBackedModule(tempDir) && allPassed;
     allPassed = guitarfx::TestResetStatefulModule(tempDir) && allPassed;
+    allPassed = guitarfx::TestHostileProcessIsStopped(tempDir, guitarfx::HostileKind::LoopingProcess,
+                                                      "looping_process") &&
+                allPassed;
+    allPassed = guitarfx::TestHostileProcessIsStopped(tempDir, guitarfx::HostileKind::RecursiveProcess,
+                                                      "recursive_process") &&
+                allPassed;
+    allPassed = guitarfx::TestLoopingStartFunctionIsStopped(tempDir) && allPassed;
+    allPassed = guitarfx::TestHugeMemoryIsRefused(tempDir) && allPassed;
+    allPassed = guitarfx::TestNetworkPathsAreRefused(tempDir) && allPassed;
+    allPassed = guitarfx::TestHostingGate(tempDir) && allPassed;
+    allPassed = guitarfx::TestHostileDescriptorIsSanitised(tempDir) && allPassed;
 
     if (!allPassed)
     {

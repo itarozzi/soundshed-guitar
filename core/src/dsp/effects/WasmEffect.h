@@ -7,6 +7,7 @@
 #include <array>
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -40,11 +41,32 @@ struct WasmModuleDescriptor
     std::vector<ExposedResource> exposedResources;
 };
 
+class WasmSharedRuntime;
+
+// Hosts a Custom Effect: a WASM module, which is code from whoever wrote or shared it. It runs in
+// Wasmtime with three read-only host imports and no WASI, so it cannot reach files or the network.
+// What is left is bounded here: every call into the guest has an epoch deadline (a guest that
+// loops traps and the node bypasses), the store caps memory and tables, the wasm stack is capped
+// below the smallest audio-thread stack, and modules load only while Custom Effects are enabled.
 class WasmEffect final : public EffectProcessor
 {
   public:
     static constexpr std::size_t kGuestMacroCount = 8;
     static constexpr const char* kDescriptorConfigKey = "wasmGuestDescriptor";
+
+    static constexpr std::size_t kMaxModuleBytes = 32u * 1024u * 1024u;
+    static constexpr std::int64_t kMaxGuestMemoryBytes = 256ll * 1024 * 1024;
+    static constexpr std::int64_t kMaxGuestTableElements = 100000;
+    static constexpr std::size_t kMaxGuestStackBytes = 256u * 1024u;
+
+    // Process-wide, from the Custom Effects feature setting. While it is off no module is compiled
+    // or run, whatever a preset, archive or project asks for.
+    static void SetHostingEnabled(bool enabled);
+    [[nodiscard]] static bool IsHostingEnabled();
+
+    // A module path on a network share is refused before anything touches it: opening one would
+    // fetch code from another machine, and on Windows send the user's credentials to it.
+    [[nodiscard]] static bool IsNetworkPath(const std::filesystem::path& path);
 
     WasmEffect();
     ~WasmEffect() override;
@@ -106,6 +128,7 @@ class WasmEffect final : public EffectProcessor
     bool RebuildRuntime();
     bool BuildRuntimeOnly();
     bool LoadFunctionExport(const char* exportName, wasmtime_func_t& outFunction, bool required, bool& found);
+    void ArmGuestDeadline(double budgetSeconds);
     bool InvokePrepare();
     bool InvokeProcess(float inputLeft, float inputRight, float& outputLeft, float& outputRight);
     int QueryLatencySamples();
@@ -130,6 +153,8 @@ class WasmEffect final : public EffectProcessor
     std::vector<std::vector<uint8_t>> mResourceBytesBySlot;
     std::filesystem::path mModulePath;
 
+    // Shared by every Custom Effect; mEngine is its engine, kept here for the many call sites.
+    std::shared_ptr<WasmSharedRuntime> mRuntime;
     wasm_engine_t* mEngine = nullptr;
     wasmtime_store_t* mStore = nullptr;
     wasmtime_context_t* mContext = nullptr;

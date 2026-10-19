@@ -38,6 +38,13 @@
 * A new **Mouse wheel adjusts controls** switch in Settings → General → UI. Turn it off and the scroll wheel stops changing knobs, sliders and the metronome tempo as the pointer passes over them, and just scrolls the page.
 * On a large display the footer's Setlists, Tuner, MIDI and Rec buttons are labelled, not just icons. A smaller window, or a higher UI zoom, keeps the icons alone.
 
+### Custom Effects
+* A Custom Effect is a small program, so for now shared files don't carry one. Preset archives, Tone Sharing items and packs install only NAM models and IRs. A Custom Effect in a shared preset arrives in place but empty, passing your sound through until you choose a module of your own. Until sharing modules is supported, share the `.wasm` file itself.
+* Custom Effects run only while **Custom Effects** is on in Settings → Features → Power Features. Before, that switch only hid them, and a preset or DAW project that used one still ran it. A DAW project can't turn the switch on either.
+* A Custom Effect that hangs or goes wrong can no longer freeze your audio, the app or your DAW. Each one has a time limit, a memory limit and a stack limit; one that goes past them is stopped and passes your sound through dry. Modules on a network share are not opened.
+* A Custom Effect's category and picture are now always shown as plain text and an image stored inside the module. Before, the category could add elements of its own to the Add Effect menu, and the picture could be a web address the app fetched each time it showed it.
+* Custom Effects run on Wasmtime 48.0.6, a long-term-support release that will keep getting security fixes, up from 43.0.1. Each build checks the runtime download against its known checksum.
+
 ### Performance
 * Amps and cabs are much lighter on your CPU than in 1.6.0. With a mono guitar at 48 kHz and a 64-sample buffer on Windows, a NAM amp uses about a third of the CPU it did, the IR Cab about 30% and the Heavy American about a sixth. A preset with a NAM amp and an IR Cab uses about 40% of what it did.
 * The IR Cab and IR Reverb use about half the CPU they did, on computers and Android phones alike, from short cab IRs to 10-second reverbs, and sound the same. Their heaviest buffers are lighter still, so they are less likely to cause a crackle at small buffer sizes.

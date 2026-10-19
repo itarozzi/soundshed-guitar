@@ -1,12 +1,13 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
+const library = vi.hoisted(() => ({
+  items: [] as Array<{ type: string; displayName: string; category: string; thumbnailDataUrl?: string }>,
+}));
+
 vi.mock("../ts/fxSelector.js", () => ({
   CATEGORY_METADATA: {},
-  getFxLibraryItems: () => [
-    { type: "wah", displayName: "Wah", category: "filter" },
-    { type: "octave", displayName: "Octave", category: "pitch" },
-  ],
-  getOrderedFxCategories: () => ["filter", "pitch"],
+  getFxLibraryItems: () => library.items,
+  getOrderedFxCategories: () => [...new Set(library.items.map((item) => item.category))],
 }));
 vi.mock("../ts/iconAssets.js", () => ({ getBadgeIcon: () => "" }));
 vi.mock("../ts/layoutRenderer.js", () => ({ getCustomLayout: () => undefined }));
@@ -73,11 +74,31 @@ function openFrom(from: string, to: string, onChoose: (item: HTMLElement) => voi
 const nextTask = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
 
 beforeEach(() => {
+  library.items = [
+    { type: "wah", displayName: "Wah", category: "filter" },
+    { type: "octave", displayName: "Octave", category: "pitch" },
+  ];
   document.querySelectorAll(".effect-selection-dropdown").forEach((dropdown) => dropdown.remove());
   document.body.innerHTML = `<div id="signal-path-nodes">${addButton("__input__", "amp", 300, 200)}${addButton("amp", "__output__", 500, 200)}</div>`;
 });
 
 describe("add effect dropdown", () => {
+  it("shows a Custom Effect's own category and thumbnail as text and inline images only", () => {
+    // A Custom Effect's category and thumbnail are its module's word (its descriptor).
+    library.items.push({
+      type: "wasm",
+      displayName: "Custom",
+      category: `<iframe src="https://example.invalid"></iframe>`,
+      thumbnailDataUrl: "https://tracker.example/pixel.png",
+    });
+
+    const dropdown = openFrom("amp", "__output__");
+
+    expect(dropdown.querySelector("iframe")).toBeNull();
+    expect(dropdown.textContent).toContain(`<iframe src="https://example.invalid"></iframe>`);
+    expect(dropdown.querySelector('img[src^="https:"]')).toBeNull();
+  });
+
   it("opens below the + button it was opened from", () => {
     const dropdown = openFrom("amp", "__output__");
     expect(dropdown.style.left).toBe("500px");

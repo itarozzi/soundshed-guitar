@@ -174,6 +174,14 @@ void PluginController::HandleImportRemoteResourceRequest(const nlohmann::json& p
         return;
     }
 
+    // Every sender is an archive, a pack or a provider download: someone else's file. A Custom
+    // Effect module would be code installed from it, so only models and IRs are taken.
+    if (!IsShareableResourceType(resourceType))
+    {
+        fail("Only models and IRs can be imported from a shared file; \"" + resourceType + "\" was skipped");
+        return;
+    }
+
     const std::vector<std::uint8_t> bytes = util::DecodeBase64(data);
 
     if (bytes.empty())

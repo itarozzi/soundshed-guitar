@@ -66,6 +66,15 @@ inline constexpr bool kMultiCorePluginDefault = false;
 inline constexpr const char* kNamFusedEngineSettingKey = "audio.nam.fusedEngine";
 inline constexpr bool kNamFusedEngineDefault = true;
 
+// ── Custom Effects ──────────────────────────────────────────────────
+// Whether WASM Custom Effects may load at all (WasmEffect::SetHostingEnabled). A module is code,
+// so this is the engine's gate, not just the UI's: off, no module is compiled or run whatever a
+// preset or project asks for. The feature flag's key, with the UI's fallback to the legacy
+// "advanced options" switch (featureFlags.ts); both absent means off. Neither is taken from a
+// DAW project, which could otherwise switch code on for whoever opens it.
+inline constexpr const char* kCustomEffectsFeatureSettingKey = "features.customEffects.enabled";
+inline constexpr const char* kLegacyAdvancedOptionsSettingKey = "ui.advancedOptionsEnabled";
+
 // ── NAM quality ─────────────────────────────────────────────────────
 // Each setting has a matching per-node config key: the app-wide setting is
 // pushed down onto every NAM node, and a node may then carry its own value.

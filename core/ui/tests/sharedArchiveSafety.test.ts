@@ -316,3 +316,64 @@ describe("the page's Content-Security-Policy", () => {
     expect(html).not.toMatch(/alpine|x-data|x-on:/i);
   });
 });
+
+describe("Custom Effects in something shared", () => {
+  const WASM_HOST = "b96693c3-b1f4-44f8-99b4-016620f89d95";
+
+  function presetWithCustomEffect(): Preset {
+    const preset = hostilePreset();
+    preset.graph!.nodes.splice(1, 0, {
+      id: "fx-1",
+      type: WASM_HOST,
+      displayName: "Custom",
+      category: "",
+      bypassed: false,
+      params: {},
+      config: { wasmGuestDescriptor: JSON.stringify([{ key: "effect.category", value: HOSTILE }]), customEffectId: "theirs" },
+      resources: [{ resourceType: "wasm", resourceId: "their-module" }],
+    } as never);
+    return preset;
+  }
+
+  it("keeps the node but not its module or the descriptor the archive wrote", () => {
+    const node = sanitizeImportedPreset(presetWithCustomEffect()).graph!.nodes.find((n) => n.type === WASM_HOST)!;
+
+    expect(node.resources).toEqual([{ resourceType: "wasm" }]);
+    expect(node.config).toEqual({});
+  });
+
+  it("installs no module from an archive, whatever it calls the type", async () => {
+    const zip = new JSZip();
+    zip.file("preset.json", JSON.stringify({
+      formatVersion: 1,
+      preset: presetWithCustomEffect(),
+      resources: [
+        { id: "their-module", name: "Fx", type: "wasm", fileName: "fx.wasm", hash: "h1" },
+        { id: "their-plugin", name: "Plug", type: "plugin", fileName: "plug.vst3", hash: "h2" },
+        { id: "bundled-ir", name: "Cab", type: "ir", fileName: "cab.wav", hash: "not-in-library" },
+      ],
+    }));
+    zip.file("resources/fx.wasm", new Uint8Array([0, 0x61, 0x73, 0x6d]));
+    zip.file("resources/plug.vst3", new Uint8Array([1]));
+    zip.file("resources/cab.wav", new Uint8Array([1, 2, 3]));
+    const file = new File([await zip.generateAsync({ type: "uint8array" })], "shared.soundshed.preset");
+    globalThis.fetch = vi.fn(async () => okBytes()) as typeof fetch;
+
+    await importPresetArchive(file, { source: "toneSharingApi", itemId: "item-2" }, { suppressNotifications: true });
+
+    const imported = sent.filter((message) => message.type === "importRemoteResource").map((message) => message.resourceType);
+    expect(imported).toEqual(["ir"]);
+  });
+});
+
+describe("safeImageDataUrl", () => {
+  it("keeps inline raster images and nothing else", async () => {
+    const { safeImageDataUrl } = await import("../ts/utils.js");
+
+    expect(safeImageDataUrl("data:image/png;base64,dGVzdA==")).toBe("data:image/png;base64,dGVzdA==");
+    expect(safeImageDataUrl("https://tracker.example/pixel.png")).toBe("");
+    expect(safeImageDataUrl("data:image/svg+xml;base64,PHN2Zz4=")).toBe("");
+    expect(safeImageDataUrl(`data:image/png;base64,x" onerror="alert(1)`)).toBe("");
+    expect(safeImageDataUrl(undefined)).toBe("");
+  });
+});

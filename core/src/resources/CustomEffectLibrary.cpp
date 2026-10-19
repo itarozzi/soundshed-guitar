@@ -2,7 +2,10 @@
 #include "util/FileIO.h"
 
 #include <algorithm>
+#include <cctype>
+#include <cstddef>
 #include <fstream>
+#include <string_view>
 
 namespace guitarfx
 {
@@ -10,6 +13,53 @@ bool CustomEffectLibraryEntry::IsValid() const
 {
     return !id.empty() && !name.empty() && !baseEffectType.empty() && !moduleResourceType.empty() &&
            !moduleResourceId.empty();
+}
+
+std::string SanitizeCustomEffectCategory(const std::string& category)
+{
+    constexpr std::size_t kMaxCategoryLength = 40;
+    const auto first = category.find_first_not_of(' ');
+    const auto last = category.find_last_not_of(' ');
+    const std::string trimmed = first == std::string::npos ? std::string{} : category.substr(first, last - first + 1);
+    const bool plain = std::all_of(trimmed.begin(), trimmed.end(), [](unsigned char ch) {
+        return std::isalnum(ch) != 0 || ch == ' ' || ch == '-' || ch == '_';
+    });
+
+    return trimmed.empty() || trimmed.size() > kMaxCategoryLength || !plain ? std::string{"utility"} : trimmed;
+}
+
+std::string SanitizeCustomEffectThumbnail(const std::string& dataUrl)
+{
+    constexpr std::size_t kMaxThumbnailLength = 1024 * 1024;
+    static constexpr const char* kAllowedPrefixes[] = {
+        "data:image/png;base64,",
+        "data:image/jpeg;base64,",
+        "data:image/gif;base64,",
+        "data:image/webp;base64,",
+    };
+
+    if (dataUrl.size() > kMaxThumbnailLength)
+    {
+        return {};
+    }
+
+    for (const char* prefix : kAllowedPrefixes)
+    {
+        const std::string_view prefixView(prefix);
+
+        if (dataUrl.rfind(prefixView, 0) != 0)
+        {
+            continue;
+        }
+
+        const bool base64 = std::all_of(dataUrl.begin() + static_cast<std::ptrdiff_t>(prefixView.size()), dataUrl.end(),
+                                        [](unsigned char ch) {
+                                            return std::isalnum(ch) != 0 || ch == '+' || ch == '/' || ch == '=';
+                                        });
+        return base64 ? dataUrl : std::string{};
+    }
+
+    return {};
 }
 
 nlohmann::json SerializeCustomEffectLibraryEntry(const CustomEffectLibraryEntry& entry)
@@ -94,13 +144,13 @@ std::optional<CustomEffectLibraryEntry> DeserializeCustomEffectLibraryEntry(cons
     CustomEffectLibraryEntry entry;
     entry.id = json.value("id", "");
     entry.name = json.value("name", "");
-    entry.category = json.value("category", "");
+    entry.category = SanitizeCustomEffectCategory(json.value("category", ""));
     entry.description = json.value("description", "");
     entry.baseEffectType = json.value("baseEffectType", "");
     entry.moduleResourceType = json.value("moduleResourceType", "");
     entry.moduleResourceId = json.value("moduleResourceId", "");
     entry.latestRevisionId = json.value("latestRevisionId", "");
-    entry.thumbnailDataUrl = json.value("thumbnailDataUrl", "");
+    entry.thumbnailDataUrl = SanitizeCustomEffectThumbnail(json.value("thumbnailDataUrl", ""));
     entry.origin = json.value("origin", "");
     entry.createdAt = json.value("createdAt", "");
     entry.updatedAt = json.value("updatedAt", "");
@@ -152,16 +202,20 @@ void CustomEffectLibrary::Clear()
 
 void CustomEffectLibrary::UpsertEntry(const CustomEffectLibraryEntry& entry)
 {
+    CustomEffectLibraryEntry sanitized = entry;
+    sanitized.category = SanitizeCustomEffectCategory(entry.category);
+    sanitized.thumbnailDataUrl = SanitizeCustomEffectThumbnail(entry.thumbnailDataUrl);
+
     auto it = std::find_if(mEntries.begin(), mEntries.end(),
                            [&](const CustomEffectLibraryEntry& existing) { return existing.id == entry.id; });
 
     if (it != mEntries.end())
     {
-        *it = entry;
+        *it = std::move(sanitized);
     }
     else
     {
-        mEntries.push_back(entry);
+        mEntries.push_back(std::move(sanitized));
     }
 }
 

@@ -306,11 +306,21 @@ endif()
 # Wasmtime C API — embedded WebAssembly runtime used by the generic WASM effect host
 if(GUITARFX_CORE_ENABLE_WASM_EFFECTS AND NOT TARGET guitarfx_wasmtime)
     include(FetchContent)
-    set(GUITARFX_WASMTIME_VERSION "43.0.1")
+    # Wasmtime runs modules shared by other people, so stay on a supported line: 48 is the LTS
+    # (security fixes until 2028-08). Bumping the version means new hashes below; GitHub lists
+    # each asset's SHA-256: gh api repos/bytecodealliance/wasmtime/releases/tags/v<ver>
+    set(GUITARFX_WASMTIME_VERSION "48.0.6")
+    set(_guitarfx_wasmtime_sha256_x86_64-windows "3df46ba35b4a4a6dec72e9b3f9494eb458a68df8e418761fadfd294a56f32970")
+    set(_guitarfx_wasmtime_sha256_aarch64-windows "376823543c8dc1b869b16b2e793ff13786ca9626373e9eff254a08e76614b747")
+    set(_guitarfx_wasmtime_sha256_x86_64-macos "0eff843c8d126b0303d76b2a949187e98d4bd45dcea51d43e53440ee227063c4")
+    set(_guitarfx_wasmtime_sha256_aarch64-macos "34db573f929de089163fbd61fb6ffd89da74a09ba20f737d009aaa70e734f5ef")
+    set(_guitarfx_wasmtime_sha256_x86_64-linux "8da74b225e159dcd901055bc5185248052af544d06bcdff8b3fe2d81ef4ca68f")
+    set(_guitarfx_wasmtime_sha256_aarch64-linux "dc5aefa8219e83a7d91a543de444e390a5daf4be45482fb2e7d3d57778072b1b")
     guitarfx_get_wasmtime_bundle(_guitarfx_wasmtime_platform _guitarfx_wasmtime_ext _guitarfx_wasmtime_static_lib)
 
     FetchContent_Declare(guitarfx_wasmtime_src
         URL "https://github.com/bytecodealliance/wasmtime/releases/download/v${GUITARFX_WASMTIME_VERSION}/wasmtime-v${GUITARFX_WASMTIME_VERSION}-${_guitarfx_wasmtime_platform}-c-api.${_guitarfx_wasmtime_ext}"
+        URL_HASH "SHA256=${_guitarfx_wasmtime_sha256_${_guitarfx_wasmtime_platform}}"
         DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
 
     if(POLICY CMP0169)

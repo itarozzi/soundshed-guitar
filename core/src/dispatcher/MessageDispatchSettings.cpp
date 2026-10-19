@@ -63,6 +63,11 @@ bool MessageDispatcher::DispatchSettings(PluginController& c, const nlohmann::js
             c.ApplyNamEngineSettingFromAppSettings();
         }
 
+        if (key == "features.customEffects.enabled" || key == "ui.advancedOptionsEnabled")
+        {
+            c.ApplyCustomEffectsSettingFromAppSettings();
+        }
+
         if (key == "audio.dsp.monoOutputUnity")
         {
             // The standalone takes it now; a plugin instance keeps the value it has, and the

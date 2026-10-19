@@ -144,11 +144,20 @@ void RemapPresetArchiveReferences(Preset& preset, const std::unordered_map<std::
 /// writes node ids into markup and selectors, so an id with anything else is replaced.
 [[nodiscard]] bool IsSafeImportedNodeId(std::string_view id);
 
+/// The resource types a preset archive, Tone Sharing item or remote import may install: NAM models
+/// and impulse responses, which are data. A Custom Effect module ("wasm") is code from whoever
+/// shared it, and any other type is unknown, so neither is taken from someone else's archive.
+/// Sharing modules is planned: this is the one place to let "wasm" through once an install asks
+/// for consent (see docs/wasm-effects-security-review-2026-10-19.md). "plugin" stays out.
+[[nodiscard]] bool IsShareableResourceType(std::string_view resourceType);
+
 /// Makes a preset read from an archive safe to store and show. A node id that fails
 /// IsSafeImportedNodeId gets a fresh one — the same across the graph, every scene and the
 /// global chain — and the edges follow; an edge naming no node is dropped. Resource file paths
 /// are cleared: they name a file on the sharer's machine, or wherever the archive likes (a UNC
-/// path would have the engine open a remote share).
+/// path would have the engine open a remote share). A Custom Effect node keeps its place in the
+/// chain but loses its module and the descriptor cached from it, so it passes audio through until
+/// the user picks a module of their own.
 void SanitizeImportedPreset(Preset& preset);
 
 [[nodiscard]] std::filesystem::path ResolveFactoryPresetDirectory(const IPluginHost& host,

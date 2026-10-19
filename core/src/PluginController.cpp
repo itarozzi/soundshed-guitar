@@ -52,6 +52,9 @@ PluginController::PluginController(IPluginHost& host) : mHost(host)
     // In a DAW another instance may already have switched the process-wide engine; this one's
     // models will be built on whatever it is now.
     mNamEngineFused = nammodelcache::IsFusedEngineEnabled();
+#if defined(GUITARFX_ENABLE_WASM_EFFECTS)
+    mCustomEffectsHosting = WasmEffect::IsHostingEnabled();
+#endif
 
     // Every service publishes through these two. `this` outlives them all.
     const auto sendToUI = [this](const std::string& json) { SendMessageToUI(json); };

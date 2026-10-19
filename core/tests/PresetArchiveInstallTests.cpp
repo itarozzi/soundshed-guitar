@@ -737,9 +737,81 @@ void TestDeleteTakesOutWhatItAdded()
 }
 } // namespace
 
+// A Custom Effect module is code. One in a shared archive must not reach the library, and the
+// preset's Custom Effect node must come in with no module and no descriptor of the archive's making.
+void TestCustomEffectModulesAreNotInstalled()
+{
+    TestHost host(Sandbox("custom-effect"));
+    guitarfx::PluginController controller(host);
+    controller.Initialize();
+
+    auto preset = BuildPreset("shared-custom", "Custom", "sha-c");
+    GraphNode fx;
+    fx.id = "fx_1";
+    fx.type = "wasm_host";
+    fx.resources.push_back({"wasm", "their-module"});
+    fx.config["wasmGuestDescriptor"] = R"([{"key":"effect.category","value":"<iframe src=x>"}])";
+    fx.config["customEffectId"] = "theirs";
+    preset.graph.nodes.insert(preset.graph.nodes.begin() + 2, fx);
+
+    const nlohmann::json resources = nlohmann::json::array({
+        {{"id", "sha-c"}, {"name", "Model"}, {"type", "nam"}, {"fileName", "sha-c-model.nam"}, {"hash", "sha-c"}},
+        {{"id", "their-module"}, {"name", "Fx"}, {"type", "wasm"}, {"fileName", "fx.wasm"}, {"hash", "fx"}},
+    });
+    const Bytes zip = BuildZip({{"preset.json", ToBytes(nlohmann::json{{"formatVersion", 1},
+                                                                       {"preset", PresetJson(preset)},
+                                                                       {"resources", resources},
+                                                                       {"blends", nlohmann::json::array()}}
+                                                            .dump())},
+                                {"resources/sha-c-model.nam", kModelA},
+                                {"resources/fx.wasm", Bytes{0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00}}});
+
+    Send(controller, "installPresetArchives",
+         {{"requestId", "r-custom"},
+          {"entry", {{"id", "tone-sharing-api:item:custom"}, {"title", "Custom"}, {"source", "toneSharingApi"}}},
+          {"archives", {Archive(zip, "Custom")}}});
+
+    Expect(LibraryCount(controller, "nam") == 1, "the archive's model still installs");
+    Expect(LibraryCount(controller, "wasm") == 0, "the archive's Custom Effect module does not");
+
+    const auto reply = Latest(host, "presetArchivesInstalled");
+    const auto presetIds = reply ? reply->value("presetIds", nlohmann::json::array()) : nlohmann::json::array();
+    const auto stored = presetIds.size() == 1 ? StoredPreset(host, controller, presetIds[0].get<std::string>())
+                                              : std::nullopt;
+    Expect(stored.has_value(), "the preset with a Custom Effect still installs");
+
+    if (stored)
+    {
+        const auto node = std::find_if(stored->graph.nodes.begin(), stored->graph.nodes.end(),
+                                       [](const GraphNode& n) { return n.id == "fx_1"; });
+        Expect(node != stored->graph.nodes.end(), "the Custom Effect node keeps its place");
+
+        if (node != stored->graph.nodes.end())
+        {
+            Expect(std::none_of(node->resources.begin(), node->resources.end(),
+                                [](const guitarfx::ResourceRef& r) { return !r.resourceId.empty(); }),
+                   "the Custom Effect node names no module");
+            Expect(!node->config.contains("wasmGuestDescriptor") && !node->config.contains("customEffectId"),
+                   "the Custom Effect node carries no descriptor from the archive");
+        }
+    }
+
+    // The web UI's own import path ends in importRemoteResource.
+    Send(controller, "importRemoteResource",
+         {{"requestId", "r-remote"},
+          {"provider", "presetArchive"},
+          {"resourceType", "wasm"},
+          {"resourceId", "remote-module"},
+          {"data", guitarfx::util::EncodeBase64(Bytes{0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00})}});
+
+    Expect(LibraryCount(controller, "wasm") == 0, "a remote import of a Custom Effect module is refused");
+    Expect(Latest(host, "resourceImportFailed").has_value(), "the refused import is reported as failed");
+}
+
 int main()
 {
     TestInstallOnePreset();
+    TestCustomEffectModulesAreNotInstalled();
     TestHostileNodeIdsAndPathsAreCleaned();
     TestSecondInstallReusesTheModel();
     TestReusesAnOlderImportOfTheSameFile();

@@ -5,6 +5,8 @@
 #include "controller/internal/EffectPresetArchiveSupport.h"
 #include "controller/internal/NamResourceMetadata.h"
 #include "controller/internal/RemoteResourceRefs.h"
+#include "dsp/EffectGuids.h"
+#include "dsp/EffectRegistry.h"
 #include "presets/PresetStorage.h"
 #include "resources/ResourceLibrary.h"
 #include "storage/JsonStore.h"
@@ -487,7 +489,10 @@ std::optional<ParsedFactoryPresetArchive> ParseFactoryPresetArchive(const std::f
             resource.fileName = resourceJson.value("fileName", "");
             resource.hash = resourceJson.value("hash", "");
 
-            if (resource.type.empty() || resource.id.empty() || resource.fileName.empty())
+            // Installs and sessions are whatever someone shared: a Custom Effect module in one would
+            // be code run from a download. Factory packs carry only models and IRs anyway.
+            if (resource.type.empty() || resource.id.empty() || resource.fileName.empty() ||
+                !IsShareableResourceType(resource.type))
             {
                 continue;
             }
@@ -635,6 +640,11 @@ bool IsSafeImportedNodeId(std::string_view id)
     });
 }
 
+bool IsShareableResourceType(std::string_view resourceType)
+{
+    return resourceType == "nam" || resourceType == "ir";
+}
+
 void SanitizeImportedPreset(guitarfx::Preset& preset)
 {
     std::vector<guitarfx::SignalGraph*> graphs{&preset.graph};
@@ -691,6 +701,20 @@ void SanitizeImportedPreset(guitarfx::Preset& preset)
             for (auto& resource : node.resources)
             {
                 resource.filePath.clear();
+            }
+
+            if (guitarfx::EffectRegistry::Instance().Resolve(node.type) == guitarfx::EffectGuids::kWasmHost)
+            {
+                for (auto& resource : node.resources)
+                {
+                    resource = guitarfx::ResourceRef{};
+                    resource.resourceType = "wasm";
+                }
+
+                // WasmEffect::kDescriptorConfigKey: the UI reads the module's name, category and
+                // thumbnail from it, and here it is whatever the archive wrote.
+                node.config.erase("wasmGuestDescriptor");
+                node.config.erase("customEffectId");
             }
         }
 

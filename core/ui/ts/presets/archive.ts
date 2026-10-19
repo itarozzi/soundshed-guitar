@@ -16,7 +16,7 @@ import { buildArchiveRemoteRef, importArchiveRemoteResources, prepareArchiveRemo
 import type { RemoteResourceRef } from "../remoteResources.js";
 import { applyImportedPresetFolders, assignImportedPresetsToTopLevelFolder, buildArchivePresetFoldersForExport, getPresetFolderExportName, getPresetsForFolderId } from "./folderArchive.js";
 import { PRESET_FOLDER_ALL_ID } from "./sorting.js";
-import { sanitizeImportedPreset, sanitizePresetForArchive, getPresetArchiveSessionState } from "./sanitize.js";
+import { isShareableResourceType, sanitizeImportedPreset, sanitizePresetForArchive, getPresetArchiveSessionState } from "./sanitize.js";
 import { requestPresetFromBackend } from "./fetch.js";
 import { requestPresetLibraryRefresh } from "./refresh.js";
 import { cachePresetInMemory } from "./cache.js";
@@ -1014,7 +1014,7 @@ export async function importPresetArchive(
 
   const idMap = new Map<string, string>();
   const importedResources: Array<{ type: string; id: string }> = [];
-  for (const resource of resourcesToImport) {
+  for (const resource of resourcesToImport.filter((entry) => isShareableResourceType(entry.type))) {
     const fileName = resource.fileName ?? "";
     const existing = getLibraryResourceByHash(resource.type, resource.hash);
     if (existing) {
@@ -1236,7 +1236,7 @@ export async function importGeneratedPack(file: File, context: ArchiveImportCont
   const importedResources: Array<{ type: string; id: string }> = [];
   for (const item of index.items) {
     const blobEntry = zip.file(item.filePath);
-    if (!blobEntry) {
+    if (!blobEntry || !isShareableResourceType(item.resourceType)) {
       resourcesSkipped++;
       continue;
     }

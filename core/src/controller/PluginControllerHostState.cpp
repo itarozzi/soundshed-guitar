@@ -430,7 +430,12 @@ void PluginController::RestoreHostState(const std::string& json)
                 // Projects saved before account settings were left out still carry them.
                 // Taking one would put this instance on a key, sign-in or Tone3000 mode
                 // from whenever the project was saved, instead of the user's current one.
-                if (!IsAccountSettingKey(it.key()))
+                // The Custom Effects switches decide whether WASM code runs at all, so a
+                // project someone sends cannot turn them on either.
+                const bool customEffectsSwitch =
+                    it.key() == kCustomEffectsFeatureSettingKey || it.key() == kLegacyAdvancedOptionsSettingKey;
+
+                if (!IsAccountSettingKey(it.key()) && !customEffectsSwitch)
                 {
                     mAppSettings[it.key()] = it.value();
                 }

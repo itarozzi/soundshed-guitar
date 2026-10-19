@@ -37,7 +37,7 @@
     "core/src/dsp/effects/PickupMatchEffect.h": 1250,
     "core/src/dsp/effects/IRReverbEffect.h": 1250,
     "core/src/controller/PluginControllerHostedPlugins.cpp": 1250,
-    "core/tests/WasmEffectHostTests.cpp": 1250,
+    "core/tests/WasmEffectHostTests.cpp": 1750,
     "core/src/presets/PresetStorage.cpp": 1250,
     "core/src/controller/PluginControllerLayouts.cpp": 1250,
     "core/tests/FastMathNanTests.cpp": 1250,
@@ -47,6 +47,7 @@
     "core/tests/JsonStoreConcurrencyTests.cpp": 1250,
     "core/tests/MultiPresetMixerTests.cpp": 1250,
     "core/tests/PickupMatchEffectTests.cpp": 1000,
-    "core/tests/PresetEditCommandsTests.cpp": 1000
+    "core/tests/PresetEditCommandsTests.cpp": 1000,
+    "core/tests/PresetArchiveInstallTests.cpp": 1250
   }
 }

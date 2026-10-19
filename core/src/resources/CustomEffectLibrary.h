@@ -32,6 +32,13 @@ struct CustomEffectLibraryEntry
     [[nodiscard]] bool IsValid() const;
 };
 
+// A Custom Effect's category and thumbnail come from its module (the guest descriptor), which is
+// code from whoever wrote it, and both end up in UI markup. A category is a short plain word or it
+// is "utility"; a thumbnail is an inline raster image or nothing, so it can never make the app
+// fetch a URL.
+[[nodiscard]] std::string SanitizeCustomEffectCategory(const std::string& category);
+[[nodiscard]] std::string SanitizeCustomEffectThumbnail(const std::string& dataUrl);
+
 [[nodiscard]] nlohmann::json SerializeCustomEffectLibraryEntry(const CustomEffectLibraryEntry& entry);
 [[nodiscard]] std::optional<CustomEffectLibraryEntry> DeserializeCustomEffectLibraryEntry(const nlohmann::json& json,
                                                                                           std::string* error = nullptr);
