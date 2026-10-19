@@ -353,10 +353,16 @@ walking `getWindow().getDecorView()`, and an `OnApplyWindowInsetsListener` on
 the decor view is doubly useless — `DecorView` does not dispatch to a listener
 set on itself, so that callback never arrives at all.
 
-The two call sites are in the vendored `JuceWebViewClasses.java`:
+The call sites are in the vendored `JuceWebViewClasses.java`:
 `Client.onPageFinished`, because the values are inline styles that a navigation
-discards and JUCE always navigates once after creating the view; and the
-`onSizeChanged` override, which is what rotation looks like from there.
+discards and JUCE always navigates once after creating the view; the
+`onSizeChanged` override, which is what rotation looks like from there; and
+`SafeAreaInsets.watch` in the constructor, for insets that change while the
+view keeps its size. That last one matters more than it sounds: an app launched
+or resumed behind the lock screen reads a top inset of 0, because the lock screen
+owns the status bar then, and the status bar appears over the header on unlock
+without the view being resized. `watch` follows both the view's insets listener
+and its window's layout passes, and only pushes values that changed.
 
 ## Audio
 
@@ -508,7 +514,11 @@ whenever AAudio creates a new thread):
   (`AudioStream::setPerformanceHintEnabled`), but JUCE owns the stream and never calls it.
 - **Affinity.** Without a session, the thread is pinned to every core faster than the slowest
   class, by the kernel's `cpu_capacity` (cpu4–7 on the S21), never by hard-coded core numbers.
-  Only cores in the process's own cpuset are used.
+  Android moves the app between cpusets as it comes and goes: `top-app` (0–7) in front,
+  `background` (0–2 on the S21) behind the lock screen or another app. The kernel narrows a pin to
+  what the cpuset allows, and the 5.4 kernel on the S21 throws it away on every move, resetting
+  the thread to the new cpuset. So the pin is read back a few times a second (one cheap system
+  call) and set again when it has been lost; while the cpuset holds no big core at all, it waits.
 
 On the S21, with the "Convoluted Acoustic Sim" preset, median DSP load went from 77% to 24–29%,
 p90 from 127% to 38–47%, and the peak from 190% to about 60%. The NAM node fell from 752 µs to
@@ -524,10 +534,12 @@ adb shell setprop debug.soundshed.audio.cores '""'    # back to the default (aut
 adb shell am force-stop com.soundshed.guitar          # then relaunch
 ```
 
-The choice is logged once per thread:
+The choice is logged once per thread, and each re-pin after a cpuset move:
 
 ```
-SoundshedGuitar: Audio thread 7212: performance hint unavailable, cores 4,5,6,7
+SoundshedGuitar: Audio thread 7212: performance hint unavailable
+SoundshedGuitar: Audio thread 7212: pinned to cores 4,5,6,7
+SoundshedGuitar: Audio thread 7212: cannot pin, cpuset allows cores 0,1,2
 ```
 
 To see it working, `ps -T -p <pid> -o TID,PSR,CMD` shows the `AAudio_1` thread's last core, and

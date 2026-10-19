@@ -59,7 +59,8 @@
 //      JUCE leaves the view on WRAP_CONTENT and never measures it, which makes
 //      every percentage and vh height in the page resolve to 0.
 //
-//   3. two calls to com.soundshed.guitar.SafeAreaInsets.apply()
+//   3. two calls to com.soundshed.guitar.SafeAreaInsets.apply() and one to
+//      SafeAreaInsets.watch()
 //      The activity cannot reach this WebView — JUCE gives its peer view a
 //      window of its own through WindowManager — so the safe-area insets are
 //      published from here instead. The logic lives in SafeAreaInsets; these
@@ -377,6 +378,12 @@ public class JuceWebViewClasses
 
             setWebViewClient (new Client (nativeInterface));
             addJavascriptInterface (new WebAppInterface (nativeInterface, initScripts), "__JUCE__");
+
+            // ---- Soundshed patch ----------------------------------------
+            // The status bar comes and goes without the view changing size
+            // (unlocking, say), so follow the insets themselves too.
+            com.soundshed.guitar.SafeAreaInsets.watch (this);
+            // -------------------------------------------------------------
         }
 
         // ---- Soundshed patch --------------------------------------------

@@ -3,10 +3,14 @@ package com.soundshed.guitar;
 import android.graphics.Insets;
 import android.os.Build;
 import android.util.Log;
+import android.view.View;
+import android.view.ViewTreeObserver;
 import android.view.WindowInsets;
 import android.webkit.WebView;
 
 import java.util.Locale;
+import java.util.Map;
+import java.util.WeakHashMap;
 
 /**
  * Publishes the window's safe-area insets into the web UI as CSS custom
@@ -32,18 +36,67 @@ import java.util.Locale;
  * its own (see {@code juce_Windowing_android.cpp}). The WebView is therefore not
  * reachable by walking {@code getWindow().getDecorView()} from
  * {@link MainActivity}; the only thing holding both the insets and the page is
- * the WebView itself. It is called from the two places that matter: after a page
- * finishes loading (a navigation discards the inline styles, and JUCE always
- * navigates once after creating the view) and when the view is resized (rotation).
+ * the WebView itself. It is called after a page finishes loading (a navigation
+ * discards the inline styles, and JUCE always navigates once after creating the
+ * view), when the view is resized (rotation), and from {@link #watch} whenever
+ * the insets change on their own (the status bar appearing on unlock).
  */
 public final class SafeAreaInsets
 {
     private static final String TAG = "SoundshedGuitar";
 
+    // What each view's page was last given. UI thread only.
+    private static final Map<WebView, String> lastScripts = new WeakHashMap<>();
+
     private SafeAreaInsets() {}
+
+    /**
+     * Re-applies the insets whenever they change without the view being resized
+     * or the page reloaded. The status bar appearing on unlock is the case that
+     * matters: an app launched or resumed behind the lock screen reads a top
+     * inset of 0, and the status bar then lands on the header.
+     *
+     * <p>Two hooks, because neither alone is certain to fire for a window JUCE
+     * adds through WindowManager: the view's own insets listener, and its
+     * window's layout pass, which an inset change brings. Both only push
+     * values that differ from the last ones.
+     */
+    public static void watch (final WebView view)
+    {
+        view.setOnApplyWindowInsetsListener (new View.OnApplyWindowInsetsListener()
+        {
+            @Override
+            public WindowInsets onApplyWindowInsets (View v, WindowInsets insets)
+            {
+                // After the WebView's own handling, so the insets are current.
+                final WindowInsets result = v.onApplyWindowInsets (insets);
+                applyIfChanged (view);
+                return result;
+            }
+        });
+
+        view.getViewTreeObserver().addOnGlobalLayoutListener (new ViewTreeObserver.OnGlobalLayoutListener()
+        {
+            @Override
+            public void onGlobalLayout()
+            {
+                applyIfChanged (view);
+            }
+        });
+    }
 
     /** Reads the current insets from {@code view} and applies them to its page. */
     public static void apply (WebView view)
+    {
+        apply (view, true);
+    }
+
+    private static void applyIfChanged (WebView view)
+    {
+        apply (view, false);
+    }
+
+    private static void apply (WebView view, boolean always)
     {
         if (view == null)
             return;
@@ -88,6 +141,12 @@ public final class SafeAreaInsets
                         + "s.setProperty('--ssg-safe-left','" + toCssPx (left, density) + "');"
                         + "s.setProperty('--ssg-safe-right','" + toCssPx (right, density) + "');"
                         + "document.documentElement.dataset.ssgSafeAreas='1';})();";
+
+        // A layout pass happens all the time; only a change goes to the page.
+        if (! always && script.equals (lastScripts.get (view)))
+            return;
+
+        lastScripts.put (view, script);
 
         Log.i (TAG, "Safe-area insets (px): top=" + top + " bottom=" + bottom
                 + " left=" + left + " right=" + right + " density=" + density);

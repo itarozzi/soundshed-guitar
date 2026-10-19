@@ -161,21 +161,17 @@ void AudioThreadPlacement::prepare (double sampleRate)
     else
         mPolicy = Policy::automatic;
 
-    // Only cores this process may use: a cpuset narrower than the device (a backgrounded app's,
-    // say) is respected rather than fought.
-    cpu_set_t allowed;
-    CPU_ZERO (&allowed);
-
-    if (sched_getaffinity (0, sizeof (allowed), &allowed) != 0)
-        CPU_ZERO (&allowed);
-
+    // Every core, not just the ones this process may use now: Android moves the app between
+    // cpusets as it comes and goes (cpu0-2 only, behind the lock screen, on a Galaxy S21), and a
+    // set worked out in the background would be the little cores alone. The kernel narrows a pin
+    // to whatever the cpuset allows, and checkAffinity() pins again when that changes.
     const auto capacities = ReadCoreCapacities();
     long slowest = 0;
     long fastest = 0;
 
     for (std::size_t cpu = 0; cpu < capacities.size(); ++cpu)
     {
-        if (capacities[cpu] <= 0 || !CPU_ISSET (static_cast<int> (cpu), &allowed))
+        if (capacities[cpu] <= 0)
             continue;
 
         slowest = slowest == 0 ? capacities[cpu] : std::min (slowest, capacities[cpu]);
@@ -187,7 +183,7 @@ void AudioThreadPlacement::prepare (double sampleRate)
 
     for (std::size_t cpu = 0; cpu < capacities.size(); ++cpu)
     {
-        if (capacities[cpu] <= 0 || !CPU_ISSET (static_cast<int> (cpu), &allowed))
+        if (capacities[cpu] <= 0)
             continue;
 
         if (capacities[cpu] > slowest)
@@ -215,6 +211,8 @@ void AudioThreadPlacement::beginBlock() noexcept
     // Bionic caches the tid in the thread, so this costs no system call.
     if (gettid() != mPlacedTid)
         placeCurrentThread();
+    else if (mPin != nullptr && --mBlocksUntilAffinityCheck <= 0)
+        checkAffinity();
 
     if (mSession != nullptr)
         mBlockStartNanos = NowNanos();
@@ -243,6 +241,8 @@ void AudioThreadPlacement::placeCurrentThread() noexcept
     // and affinity are system calls, not real-time safe, but this runs only on that first block.
     const pid_t tid = gettid();
     mPlacedTid = tid;
+    mPin = nullptr;
+    mPinState = PinState::unknown;
     closeSession();
 
     if (mPolicy == Policy::off)
@@ -262,29 +262,54 @@ void AudioThreadPlacement::placeCurrentThread() noexcept
         }
     }
 
-    const cpu_set_t* pin = nullptr;
-
     if (mPolicy == Policy::prime && mHavePrimeCores)
-        pin = &mPrimeCores;
+        mPin = &mPrimeCores;
     else if (mPolicy == Policy::big && mHaveBigCores)
-        pin = &mBigCores;
+        mPin = &mBigCores;
     else if (mPolicy == Policy::automatic && mSession == nullptr && mHaveBigCores)
-        pin = &mBigCores;
+        mPin = &mBigCores;
 
-    char cores[96] = "all";
-    bool pinned = false;
+    __android_log_print (ANDROID_LOG_INFO, kLogTag, "Audio thread %d: performance hint %s%s", tid,
+                         mSession != nullptr ? "on" : "unavailable",
+                         mPin != nullptr ? "" : ", cores left to the scheduler");
 
-    if (pin != nullptr)
+    if (mPin != nullptr)
+        checkAffinity();
+}
+
+void AudioThreadPlacement::checkAffinity() noexcept
+{
+    // A few times a second. Android moves the app between cpusets as it goes to the background
+    // and back, and on older kernels (5.4 on a Galaxy S21) each move resets every thread's
+    // affinity to the new cpuset, so a pin set once does not last. Reading it back is one cheap
+    // system call; setting it again only happens after such a move.
+    mBlocksUntilAffinityCheck = std::max (1, static_cast<int> (mSampleRate / (4.0 * 96.0)));
+
+    cpu_set_t current;
+    CPU_ZERO (&current);
+
+    if (sched_getaffinity (0, sizeof (current), &current) != 0)
+        return;
+
+    if (mPinState == PinState::pinned && CPU_EQUAL (&current, &mPinnedAs))
+        return;
+
+    // Fails while the cpuset holds none of the wanted cores (the background one), and is tried
+    // again at the next check; otherwise the kernel narrows it to the cores the cpuset allows.
+    const bool pinned = sched_setaffinity (0, sizeof (cpu_set_t), mPin) == 0
+                        && sched_getaffinity (0, sizeof (mPinnedAs), &mPinnedAs) == 0;
+    const auto state = pinned ? PinState::pinned : PinState::refused;
+
+    if (state != mPinState || pinned)
     {
-        pinned = sched_setaffinity (0, sizeof (cpu_set_t), pin) == 0;
-
-        if (pinned)
-            FormatCores (*pin, cores, sizeof (cores));
+        char cores[96] = "";
+        FormatCores (pinned ? mPinnedAs : current, cores, sizeof (cores));
+        __android_log_print (ANDROID_LOG_INFO, kLogTag, pinned ? "Audio thread %d: pinned to cores %s"
+                                                                : "Audio thread %d: cannot pin, cpuset allows cores %s",
+                             mPlacedTid, cores);
     }
 
-    __android_log_print (ANDROID_LOG_INFO, kLogTag, "Audio thread %d: performance hint %s, cores %s%s", tid,
-                         mSession != nullptr ? "on" : "unavailable", cores,
-                         pin != nullptr && !pinned ? " (pinning refused)" : "");
+    mPinState = state;
 }
 
 void AudioThreadPlacement::closeSession() noexcept
