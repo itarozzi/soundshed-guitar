@@ -272,3 +272,62 @@ the phone is in both builds; the convolver alone does not show it. Against the b
 output nulls at -130 dB on synthetic IRs at 37-, 64-, 96- and 512-sample blocks and -144 dB on the
 reverb, and IRs that keep the boundary layout are bit-identical. At 1024-sample blocks the mean is
 also equal or lower.
+
+## Real-input FFTs and NEON (2026-10-19)
+
+Every stage used to run complex FFTs of its real frames and keep complex spectra of 2P bins
+for a partition of P, and `SimdFFT` had SSE paths only, so on arm64 the butterflies and the
+multiply-accumulate ran scalar. Now:
+
+- Each stage runs `RealFFT` (`core/src/dsp/RealFFT.h`): the 2P real samples as a P-point complex
+  FFT plus one split pass, and spectra of P packed bins (bin 0 holds the two real bins, DC and
+  Nyquist). That halves the transform, the multiply-accumulate and the memory the delay line and
+  the IR spectra take. The transform reads the overlap-save frame from its two halves, so the
+  frame is never built, runs the first butterfly stage as it loads, and writes its spectrum
+  straight into the delay line.
+- `SimdFFT` has NEON paths: butterflies four at a time (de-interleaved with `vld2q`, two at a
+  time in the second stage), and a multiply-accumulate of eight bins a step. The first stage,
+  whose twiddle is 1, is a plain add and subtract on every architecture. The split passes are
+  SSE and NEON too, four pairs at a time.
+- The spread engine's phases follow the new transform (the frame phase is gone), with weights
+  measured again on x64 and on the A78, which agree to within a few units: relative to a
+  butterfly's 10, a multiply-accumulate bin costs 6, the forward split pair 15 and the inverse
+  one, which scatters to bit-reversed places, 19.
+
+One convolver on a synthetic IR, µs per block, the spread commit (04d4e241) against this:
+
+| | IR | block | before mean / p50 / p99 / p99.9 | after mean / p50 / p99 / p99.9 |
+| --- | --- | --- | --- | --- |
+| S21 A78 | 2048 | 96 | 10.6 / 4.4 / 29.2 / 33.6 | 5.2 / 3.6 / 8.5 / 16.4 |
+| S21 A78 | 8192 | 96 | 15.3 / 9.2 / 31.4 / 38.9 | 7.4 / 5.8 / 10.7 / 20.2 |
+| S21 A78 | 24000 | 96 | 20.7 / 14.3 / 51.3 / 65.1 | 11.4 / 9.5 / 21.2 / 32.7 |
+| S21 A78 | 0.8 s | 96 | 26.8 / 26.4 / 33.3 / 45.2 | 13.0 / 12.8 / 15.0 / 28.1 |
+| S21 A78 | 3 s | 96 | 33.8 / 34.0 / 39.7 / 59.4 | 15.6 / 15.3 / 20.8 / 35.2 |
+| S21 A78 | 6 s | 96 | 41.4 / 41.4 / 58.6 / 69.1 | 20.0 / 19.8 / 24.6 / 43.4 |
+| S21 A78 | 10 s | 96 | 51.5 / 51.1 / 72.5 / 84.2 | 27.1 / 27.4 / 31.1 / 53.7 |
+| S21 A78 | 3 s | 37 | 13.6 / 13.5 / 16.7 / 36.3 | 6.3 / 6.1 / 9.2 / 24.3 |
+| S21 A78 | 3 s | 64 | 22.6 / 22.7 / 27.0 / 53.3 | 10.6 / 10.3 / 14.5 / 29.9 |
+| S21 A78 | 3 s | 512 | 177.5 / 177.8 / 205.9 / 213.6 | 82.4 / 81.7 / 101.0 / 111.5 |
+| x64 AVX2 | 2048 | 96 | 3.0 / 1.3 / 6.2 / 13.0 | 1.6 / 1.1 / 2.7 / 7.6 |
+| x64 AVX2 | 8192 | 96 | 4.5 / 2.7 / 8.1 / 15.8 | 2.4 / 1.8 / 3.5 / 5.8 |
+| x64 AVX2 | 24000 | 96 | 5.8 / 4.0 / 14.1 / 22.0 | 3.4 / 2.8 / 6.1 / 12.1 |
+| x64 AVX2 | 0.8 s | 96 | 7.3 / 7.2 / 13.1 / 22.1 | 4.0 / 3.8 / 5.3 / 11.4 |
+| x64 AVX2 | 3 s | 96 | 8.8 / 8.5 / 15.6 / 21.0 | 4.8 / 4.7 / 8.8 / 9.7 |
+| x64 AVX2 | 10 s | 96 | 19.5 / 20.1 / 37.6 / 54.8 | 7.0 / 6.7 / 11.8 / 15.8 |
+| x64 AVX2 | 3 s | 64 | 7.1 / 6.8 / 13.5 / 29.2 | 3.6 / 3.4 / 7.4 / 20.8 |
+| x64 AVX2 | 3 s | 512 | 50.7 / 51.0 / 74.9 / 96.2 | 26.1 / 25.6 / 36.0 / 44.7 |
+
+(A78: NDK clang++ -O3 -ffast-math, pinned with `taskset 20`, 20-30 s per run, baseline and new
+interleaved. x64: MSVC /O2 /fp:fast /arch:AVX2, two interleaved rounds of 20 s; the 10 s row is
+the first round, as the second was disturbed.) Most of the gain is the halved work; on x64 the
+10 s IR gains more (2.8x) because its spectra no longer outgrow the caches as soon. The cab-length IRs (2048-24,000 samples, the boundary layout) gain the most at the
+p99, as their boundary FFTs are what got cheaper. Against the spread commit the output nulls at
+-124 to -135 dB on x64 and -127 to -137 dB on the A78 (2048- to 480,000-sample IRs, 37- to
+512-sample blocks).
+
+What is left on the A78, for the 3 s IR at 96-sample blocks (15.6 µs): the 512-tap FIR head is
+about 4.8 µs of it, the multiply-accumulates about 5.8 (1 ns a bin, bound by streaming the
+spectra), and the transforms about 3.3. A shorter head for the spread layout, or an FIR kernel that
+vectorises across outputs rather than taps (it is load-bound now, at about 5 multiply-adds a
+cycle of the 8 the A78 can do), is the next place to look; then a radix-4 butterfly, which would
+halve the passes over the work buffer.

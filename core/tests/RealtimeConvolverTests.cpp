@@ -16,15 +16,20 @@
  *  - Processing in place (output buffer == input buffer) gives the same output.
  *  - A long IR's spread stages, which compute each block over the next block's
  *    samples, finish every block in time under ragged chunks and reset cleanly.
+ *  - The transforms under it (SimdFFT, and RealFFT on top) match a direct DFT, their
+ *    stepped forms match the whole ones exactly, and the multiply-accumulates are right.
+ *    Each architecture's SIMD paths run only on it, so run this on arm64 too.
  */
 
 #include <algorithm>
 #include <cmath>
+#include <complex>
 #include <cstddef>
 #include <iostream>
 #include <random>
 #include <vector>
 
+#include "dsp/RealFFT.h"
 #include "dsp/RealtimeConvolver.h"
 
 #ifndef M_PI
@@ -485,6 +490,262 @@ bool TestSpreadStagesRaggedAndReset()
     std::cout << "OK (worst error " << err << ")\n";
     return true;
 }
+
+// Direct DFT in double: X[k] = sum_n x[n] e^(-2 pi i k n / N), or e^(+...) for the inverse.
+std::vector<std::complex<double>> ReferenceDft(const std::vector<std::complex<double>>& x, bool inverse)
+{
+    const std::size_t n = x.size();
+    std::vector<std::complex<double>> out(n);
+
+    for (std::size_t k = 0; k < n; ++k)
+    {
+        std::complex<double> sum = 0.0;
+
+        for (std::size_t t = 0; t < n; ++t)
+        {
+            const double angle =
+                (inverse ? 2.0 : -2.0) * M_PI * static_cast<double>((k * t) % n) / static_cast<double>(n);
+            sum += x[t] * std::complex<double>(std::cos(angle), std::sin(angle));
+        }
+
+        out[k] = sum;
+    }
+
+    return out;
+}
+
+// SimdFFT against the direct DFT both ways, at sizes that reach each of its paths (the first
+// stage's add/subtract, the 2-wide second stage, 4-wide later stages, and the scalar tail of a
+// range that is not a multiple of 4). Then the stepped transform, cut into slices of two
+// butterflies, must give Forward()'s output exactly.
+bool TestComplexFftMatchesDft()
+{
+    std::cout << "Test: complex FFT matches the DFT, stepped matches whole... ";
+
+    double worst = 0.0;
+
+    for (const std::size_t n : {2u, 4u, 8u, 16u, 64u, 512u, 2048u})
+    {
+        guitarfx::SimdFFT fft(n);
+        std::mt19937 rng(static_cast<unsigned>(n));
+        std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
+        std::vector<std::complex<float>> in(n);
+        std::vector<std::complex<double>> ref(n);
+
+        for (std::size_t i = 0; i < n; ++i)
+        {
+            in[i] = {dist(rng), dist(rng)};
+            ref[i] = {in[i].real(), in[i].imag()};
+        }
+
+        for (const bool inverse : {false, true})
+        {
+            std::vector<std::complex<float>> out(n);
+
+            if (inverse)
+            {
+                fft.Inverse(out.data(), in.data());
+            }
+            else
+            {
+                fft.Forward(out.data(), in.data());
+            }
+
+            const std::vector<std::complex<double>> expected = ReferenceDft(ref, inverse);
+            double err = 0.0;
+
+            for (std::size_t k = 0; k < n; ++k)
+            {
+                err = std::max(err, std::abs(std::complex<double>(out[k].real(), out[k].imag()) - expected[k]));
+            }
+
+            err /= std::sqrt(static_cast<double>(n)); // the outputs grow as sqrt(n)
+            worst = std::max(worst, err);
+
+            if (!(err < 1e-5))
+            {
+                std::cout << "FAILED (size " << n << (inverse ? " inverse" : " forward") << ": error " << err << ")\n";
+                return false;
+            }
+
+            // The same transform in slices of two butterflies.
+            fft.LoadBitReversed(in.data(), 0, n);
+
+            for (std::size_t stage = 1; stage <= fft.GetNumStages(); ++stage)
+            {
+                for (std::size_t b = 0; b < n / 2; b += 2)
+                {
+                    fft.RunButterflies(stage, b, std::min(n / 2, b + 2), inverse);
+                }
+            }
+
+            if (!std::equal(out.begin(), out.end(), fft.GetResult()))
+            {
+                std::cout << "FAILED (size " << n << (inverse ? " inverse" : " forward") << ": stepped differs)\n";
+                return false;
+            }
+        }
+    }
+
+    std::cout << "OK (worst error " << worst << ")\n";
+    return true;
+}
+
+// RealFFT's packed spectrum against the direct DFT of the real input, its inverse back to the
+// input, and its stepped transform, in slices of two butterflies and four split-pass pairs,
+// against Forward() and Inverse() exactly.
+bool TestRealFftMatchesDft()
+{
+    std::cout << "Test: real FFT matches the DFT, round trips, stepped matches whole... ";
+
+    double worst = 0.0;
+
+    for (const std::size_t n : {4u, 8u, 16u, 32u, 256u, 1024u, 4096u})
+    {
+        guitarfx::RealFFT fft(n);
+        const std::size_t half = n / 2;
+        std::mt19937 rng(static_cast<unsigned>(n) + 7u);
+        std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
+        std::vector<float> x(n);
+        std::vector<std::complex<double>> ref(n);
+
+        for (std::size_t i = 0; i < n; ++i)
+        {
+            x[i] = dist(rng);
+            ref[i] = x[i];
+        }
+
+        std::vector<std::complex<float>> spectrum(half);
+        fft.Forward(spectrum.data(), x.data(), x.data() + half);
+
+        const std::vector<std::complex<double>> expected = ReferenceDft(ref, false);
+        const double scale = std::sqrt(static_cast<double>(n));
+        double err =
+            std::abs(spectrum[0].real() - expected[0].real()) + std::abs(spectrum[0].imag() - expected[half].real());
+
+        for (std::size_t k = 1; k < half; ++k)
+        {
+            err = std::max(err, std::abs(std::complex<double>(spectrum[k].real(), spectrum[k].imag()) - expected[k]));
+        }
+
+        err /= scale;
+
+        // Inverse: unscaled, so n times the input.
+        fft.Inverse(spectrum.data());
+        double roundTrip = 0.0;
+
+        for (std::size_t i = 0; i < n; ++i)
+        {
+            roundTrip = std::max(roundTrip, std::abs(fft.GetResult()[i] / static_cast<double>(n) - x[i]));
+        }
+
+        worst = std::max({worst, err, roundTrip});
+
+        if (!(err < 1e-5) || !(roundTrip < 1e-5))
+        {
+            std::cout << "FAILED (size " << n << ": spectrum error " << err << ", round trip " << roundTrip << ")\n";
+            return false;
+        }
+
+        const std::vector<float> inverseWhole(fft.GetResult(), fft.GetResult() + n);
+        const std::size_t quarter = n / 4;
+        std::vector<std::complex<float>> stepped(half);
+
+        for (std::size_t b = 0; b < quarter; b += 2)
+        {
+            fft.LoadInput(x.data(), x.data() + half, b, std::min(quarter, b + 2));
+        }
+
+        for (std::size_t stage = 2; stage <= fft.GetNumStages(); ++stage)
+        {
+            for (std::size_t b = 0; b < quarter; b += 2)
+            {
+                fft.RunButterflies(stage, b, std::min(quarter, b + 2), false);
+            }
+        }
+
+        for (std::size_t b = 0; b < quarter; b += 4)
+        {
+            fft.StoreSpectrum(stepped.data(), b, std::min(quarter, b + 4));
+        }
+
+        if (stepped != spectrum)
+        {
+            // `spectrum` still holds Forward()'s output: Inverse() reads it and leaves it alone.
+            std::cout << "FAILED (size " << n << ": stepped forward differs)\n";
+            return false;
+        }
+
+        for (std::size_t b = 0; b < quarter; b += 4)
+        {
+            fft.LoadSpectrum(spectrum.data(), b, std::min(quarter, b + 4));
+        }
+
+        for (std::size_t stage = 1; stage <= fft.GetNumStages(); ++stage)
+        {
+            for (std::size_t b = 0; b < quarter; b += 2)
+            {
+                fft.RunButterflies(stage, b, std::min(quarter, b + 2), true);
+            }
+        }
+
+        if (!std::equal(inverseWhole.begin(), inverseWhole.end(), fft.GetResult()))
+        {
+            std::cout << "FAILED (size " << n << ": stepped inverse differs)\n";
+            return false;
+        }
+    }
+
+    std::cout << "OK (worst error " << worst << ")\n";
+    return true;
+}
+
+// The complex multiply-accumulate against plain std::complex arithmetic at every length up to
+// 19, so the SIMD loops' remainders are covered, and the packed one's bin 0 as two real products.
+bool TestMultiplyAccumulate()
+{
+    std::cout << "Test: complex and packed multiply-accumulate... ";
+
+    std::mt19937 rng(321u);
+    std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
+
+    for (std::size_t count = 1; count <= 19; ++count)
+    {
+        std::vector<std::complex<float>> a(count), b(count), acc(count), packed;
+
+        for (std::size_t i = 0; i < count; ++i)
+        {
+            a[i] = {dist(rng), dist(rng)};
+            b[i] = {dist(rng), dist(rng)};
+            acc[i] = {dist(rng), dist(rng)};
+        }
+
+        packed = acc;
+        std::vector<std::complex<float>> got = acc;
+        guitarfx::SimdFFT::ComplexMultiplyAccumulate(got.data(), a.data(), b.data(), count);
+        guitarfx::RealFFT::MultiplyAccumulate(packed.data(), a.data(), b.data(), count);
+
+        for (std::size_t i = 0; i < count; ++i)
+        {
+            const std::complex<double> ad(a[i].real(), a[i].imag());
+            const std::complex<double> bd(b[i].real(), b[i].imag());
+            const std::complex<double> cd(acc[i].real(), acc[i].imag());
+            const std::complex<double> expected = cd + ad * bd;
+            const std::complex<double> expectedPacked =
+                i == 0 ? cd + std::complex<double>(ad.real() * bd.real(), ad.imag() * bd.imag()) : expected;
+
+            if (std::abs(std::complex<double>(got[i].real(), got[i].imag()) - expected) > 1e-5 ||
+                std::abs(std::complex<double>(packed[i].real(), packed[i].imag()) - expectedPacked) > 1e-5)
+            {
+                std::cout << "FAILED (count " << count << ", bin " << i << ")\n";
+                return false;
+            }
+        }
+    }
+
+    std::cout << "OK\n";
+    return true;
+}
 } // anonymous namespace
 
 int main()
@@ -513,6 +774,9 @@ int main()
     runTest(TestInPlaceMatchesOutOfPlace);
     runTest(TestResetClearsState);
     runTest(TestSpreadStagesRaggedAndReset);
+    runTest(TestComplexFftMatchesDft);
+    runTest(TestRealFftMatchesDft);
+    runTest(TestMultiplyAccumulate);
 
     std::cout << "\n================================================\n";
     std::cout << "Results: " << passed << "/" << (passed + failed) << " tests passed.\n";

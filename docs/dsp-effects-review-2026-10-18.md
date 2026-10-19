@@ -109,8 +109,11 @@ These are ranked most severe first. Line numbers are as of d1524dce.
 
 ### Performance (no audible defect)
 
-- **`RealtimeConvolver`** runs complex FFTs on real input: a real FFT would roughly halve the
-  IR Cab's and IR Reverb's convolution cost (3 s stereo reverb about 1.4% of a core).
+- ~~**`RealtimeConvolver`** runs complex FFTs on real input: a real FFT would roughly halve the
+  IR Cab's and IR Reverb's convolution cost (3 s stereo reverb about 1.4% of a core).~~ Fixed
+  2026-10-19: real-input FFTs (`RealFFT.h`) and NEON paths in `SimdFFT`; the convolver's mean
+  cost halved on a Galaxy S21's A78 (docs/plans/zero-latency-ir-cab.md, *Real-input FFTs and
+  NEON*).
 - **Signal Analyzer.**
   - It computes the Hann window inside every Goertzel bin: 64 `cos()` per sample, about 3.3%
     of a core at 48 kHz/128, against 0.6% hoisted.

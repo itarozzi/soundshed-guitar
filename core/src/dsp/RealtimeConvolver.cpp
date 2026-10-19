@@ -1,6 +1,6 @@
 #include "RealtimeConvolver.h"
 #include "FiniteCheck.h"
-#include "SimdFFT.h"
+#include "RealFFT.h"
 
 #include <algorithm>
 #include <cmath>
@@ -117,15 +117,18 @@ bool RealtimeConvolver::BuildUniform(const std::vector<float>& irSamples, size_t
     mIsNonUniform = false;
     mSpread = false;
 
-    if (irSamples.empty() || partitionSize == 0)
+    // The real FFT needs at least 4 points.
+    if (irSamples.empty() || partitionSize < 2)
     {
         return false;
     }
 
     mPartitionSize = partitionSize;
 
-    // FFT size is 2x partition for linear convolution
+    // FFT size is 2x partition for linear convolution. The input and the IR are real, so each
+    // spectrum is half that many packed bins (RealFFT.h).
     mFFTSize = mPartitionSize * 2;
+    mNumBins = mFFTSize / 2;
 
     // Calculate partitions needed
     mNumPartitions = (irSamples.size() + mPartitionSize - 1) / mPartitionSize;
@@ -133,38 +136,30 @@ bool RealtimeConvolver::BuildUniform(const std::vector<float>& irSamples, size_t
     // Create FFT plan
     try
     {
-        mFFT = std::make_unique<SimdFFT>(mFFTSize);
+        mFFT = std::make_unique<RealFFT>(mFFTSize);
     }
     catch (...)
     {
         return false;
     }
 
-    // Allocate all working buffers ONCE
-    mFFTInputBuffer.resize(mFFTSize);
-    mFFTOutputBuffer.resize(mFFTSize);
-    mAccumulator.resize(mFFTSize);
+    mAccumulator.resize(mNumBins);
 
-    // Pre-compute FFT of each IR partition
+    // Pre-compute FFT of each IR partition: the partition, then as many zeros.
     mIRPartitionsFFT.resize(mNumPartitions);
+    std::vector<float> segment(mPartitionSize);
+    const std::vector<float> zeros(mPartitionSize, 0.0f);
 
     for (size_t p = 0; p < mNumPartitions; ++p)
     {
-        // Clear input buffer
-        std::fill(mFFTInputBuffer.begin(), mFFTInputBuffer.end(), std::complex<float>(0.0f, 0.0f));
-
-        // Copy IR partition into FIRST half
         const size_t irStart = p * mPartitionSize;
         const size_t irEnd = std::min(irStart + mPartitionSize, irSamples.size());
+        std::fill(segment.begin(), segment.end(), 0.0f);
+        std::copy(irSamples.begin() + static_cast<std::ptrdiff_t>(irStart),
+                  irSamples.begin() + static_cast<std::ptrdiff_t>(irEnd), segment.begin());
 
-        for (size_t i = irStart; i < irEnd; ++i)
-        {
-            mFFTInputBuffer[i - irStart] = std::complex<float>(irSamples[i], 0.0f);
-        }
-
-        // Compute and store FFT
-        mIRPartitionsFFT[p].resize(mFFTSize);
-        mFFT->Forward(mIRPartitionsFFT[p].data(), mFFTInputBuffer.data());
+        mIRPartitionsFFT[p].resize(mNumBins);
+        mFFT->Forward(mIRPartitionsFFT[p].data(), segment.data(), zeros.data());
     }
 
     // Allocate delay line for input FFTs
@@ -172,7 +167,7 @@ bool RealtimeConvolver::BuildUniform(const std::vector<float>& irSamples, size_t
 
     for (auto& fft : mInputFFTDelayLine)
     {
-        fft.assign(mFFTSize, std::complex<float>(0.0f, 0.0f));
+        fft.assign(mNumBins, std::complex<float>(0.0f, 0.0f));
     }
 
     mDelayLineIndex = 0;
@@ -430,8 +425,8 @@ void RealtimeConvolver::AccumulatePartitionsUpTo(size_t target)
         // Measured from the newest frame as of this block's start, partition p's frame
         // is (p - 1) slots older.
         const size_t delayIdx = (mPreAccumAnchor + mNumPartitions - (p - 1)) % mNumPartitions;
-        SimdFFT::ComplexMultiplyAccumulate(mAccumulator.data(), mInputFFTDelayLine[delayIdx].data(),
-                                           mIRPartitionsFFT[p].data(), mFFTSize);
+        RealFFT::MultiplyAccumulate(mAccumulator.data(), mInputFFTDelayLine[delayIdx].data(),
+                                    mIRPartitionsFFT[p].data(), mNumBins);
         ++mPreAccumPartition;
     }
 }
@@ -443,30 +438,21 @@ void RealtimeConvolver::ProcessBlock()
     // samples than it takes to walk the whole partition list.
     AccumulatePartitionsUpTo(mNumPartitions);
 
-    // Prepare FFT input: [previous samples | current samples]
-    // This is the correct overlap-save arrangement for linear convolution
-    for (size_t i = 0; i < mPartitionSize; ++i)
-    {
-        mFFTInputBuffer[i] = std::complex<float>(static_cast<float>(mPreviousInputBlock[i]), 0.0f);
-        mFFTInputBuffer[mPartitionSize + i] = std::complex<float>(static_cast<float>(mInputBuffer[i]), 0.0f);
-    }
+    // Forward FFT of [previous samples | current samples], the overlap-save frame, straight into
+    // the delay line. This is the slot the accumulation pass never reads, so the frame it
+    // replaces (the oldest) is already spent.
+    auto& currentSlot = mInputFFTDelayLine[mDelayLineIndex];
+    mFFT->Forward(currentSlot.data(), mPreviousInputBlock.data(), mInputBuffer.data());
 
     // Save current input for next block
     std::copy(mInputBuffer.begin(), mInputBuffer.end(), mPreviousInputBlock.begin());
 
-    // Forward FFT of input block
-    mFFT->Forward(mFFTOutputBuffer.data(), mFFTInputBuffer.data());
-
-    // Store in delay line. This is the slot the accumulation pass never reads, so the
-    // frame it replaces (the oldest) is already spent.
-    auto& currentSlot = mInputFFTDelayLine[mDelayLineIndex];
-    std::copy(mFFTOutputBuffer.begin(), mFFTOutputBuffer.end(), currentSlot.begin());
-
     // Partition 0 is the only one that needs the frame that just closed.
-    SimdFFT::ComplexMultiplyAccumulate(mAccumulator.data(), currentSlot.data(), mIRPartitionsFFT[0].data(), mFFTSize);
+    RealFFT::MultiplyAccumulate(mAccumulator.data(), currentSlot.data(), mIRPartitionsFFT[0].data(), mNumBins);
 
     // Inverse FFT
-    mFFT->Inverse(mFFTInputBuffer.data(), mAccumulator.data());
+    mFFT->Inverse(mAccumulator.data());
+    const float* result = mFFT->GetResult();
 
     // Overlap-Save output extraction:
     // The first N samples contain circular convolution artifacts - DISCARD them
@@ -476,7 +462,7 @@ void RealtimeConvolver::ProcessBlock()
     for (size_t i = 0; i < mPartitionSize; ++i)
     {
         // Keep only the SECOND half of the IFFT output (valid linear convolution)
-        float sample = mFFTInputBuffer[mPartitionSize + i].real() * scale;
+        float sample = result[mPartitionSize + i] * scale;
 
         // Safety: clamp to reasonable audio range to prevent numeric instability
         if (!IsFinite(sample))
@@ -493,7 +479,7 @@ void RealtimeConvolver::ProcessBlock()
 
     // Open the next block's accumulation against the frame just stored, and hand the
     // write cursor on to the slot that frame will displace.
-    SimdFFT::ClearBuffer(mAccumulator.data(), mFFTSize);
+    SimdFFT::ClearBuffer(mAccumulator.data(), mNumBins);
     mPreAccumAnchor = mDelayLineIndex;
     mPreAccumPartition = 1;
     mDelayLineIndex = (mDelayLineIndex + 1) % mNumPartitions;

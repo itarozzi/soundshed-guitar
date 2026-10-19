@@ -1,17 +1,14 @@
 #pragma once
 
 /**
- * SIMD-optimized FFT for x64 processors (Intel/AMD)
+ * SIMD radix-2 complex FFT: SSE3 on x86, NEON on arm64, scalar elsewhere.
  *
- * Uses SSE2 intrinsics which are available on ALL x64 CPUs.
- * AVX path available for newer CPUs (automatically detected).
- *
- * Key optimizations:
- * - SSE2 packed double operations (2 doubles per instruction)
- * - Pre-computed twiddle factors
- * - Cache-friendly memory access patterns
- * - Minimized branch mispredictions
+ * - Pre-computed twiddle factors, interleaved [re, im] per stage
+ * - The first stage (twiddle 1) is a plain add/subtract pass
+ * - NEON de-interleaves with vld2q: four butterflies or multiply-accumulates per step
  * - Aligned memory allocations
+ *
+ * RealFFT.h builds a real-input transform of twice the size on one of these.
  */
 
 #include <algorithm>
@@ -24,6 +21,8 @@
 
 #if defined(_M_IX86) || defined(_M_X64) || defined(__i386__) || defined(__x86_64__)
     #define GUITARFX_ARCH_X86 1
+#elif defined(__aarch64__) || defined(_M_ARM64)
+    #define GUITARFX_ARCH_ARM64 1
 #endif
 
 #if defined(GUITARFX_ARCH_X86) && defined(_MSC_VER)
@@ -32,6 +31,13 @@
 #elif defined(GUITARFX_ARCH_X86)
     #include <x86intrin.h>
     #include <cstdlib>
+#elif defined(GUITARFX_ARCH_ARM64)
+    #include <arm_neon.h>
+    #if defined(_MSC_VER)
+        #include <malloc.h>
+    #else
+        #include <cstdlib>
+    #endif
 #else
     #include <cstdlib>
 #endif
@@ -264,6 +270,48 @@ class SimdFFT
             acc[i] += a[i] * b[i];
         }
 
+#elif defined(GUITARFX_ARCH_ARM64)
+        // NEON: vld2q splits 4 complex<float> into [re x4] and [im x4], so each product is four
+        // fused multiply-adds with no shuffles. Two such groups per iteration.
+        const float* pa = reinterpret_cast<const float*>(a);
+        const float* pb = reinterpret_cast<const float*>(b);
+        float* pacc = reinterpret_cast<float*>(acc);
+
+        size_t i = 0;
+
+        for (; i + 7 < count; i += 8)
+        {
+            const float32x4x2_t a0 = vld2q_f32(pa + i * 2);
+            const float32x4x2_t b0 = vld2q_f32(pb + i * 2);
+            const float32x4x2_t a1 = vld2q_f32(pa + i * 2 + 8);
+            const float32x4x2_t b1 = vld2q_f32(pb + i * 2 + 8);
+            float32x4x2_t c0 = vld2q_f32(pacc + i * 2);
+            float32x4x2_t c1 = vld2q_f32(pacc + i * 2 + 8);
+
+            c0.val[0] = vfmsq_f32(vfmaq_f32(c0.val[0], a0.val[0], b0.val[0]), a0.val[1], b0.val[1]);
+            c0.val[1] = vfmaq_f32(vfmaq_f32(c0.val[1], a0.val[0], b0.val[1]), a0.val[1], b0.val[0]);
+            c1.val[0] = vfmsq_f32(vfmaq_f32(c1.val[0], a1.val[0], b1.val[0]), a1.val[1], b1.val[1]);
+            c1.val[1] = vfmaq_f32(vfmaq_f32(c1.val[1], a1.val[0], b1.val[1]), a1.val[1], b1.val[0]);
+
+            vst2q_f32(pacc + i * 2, c0);
+            vst2q_f32(pacc + i * 2 + 8, c1);
+        }
+
+        for (; i + 3 < count; i += 4)
+        {
+            const float32x4x2_t av = vld2q_f32(pa + i * 2);
+            const float32x4x2_t bv = vld2q_f32(pb + i * 2);
+            float32x4x2_t cv = vld2q_f32(pacc + i * 2);
+            cv.val[0] = vfmsq_f32(vfmaq_f32(cv.val[0], av.val[0], bv.val[0]), av.val[1], bv.val[1]);
+            cv.val[1] = vfmaq_f32(vfmaq_f32(cv.val[1], av.val[0], bv.val[1]), av.val[1], bv.val[0]);
+            vst2q_f32(pacc + i * 2, cv);
+        }
+
+        for (; i < count; ++i)
+        {
+            acc[i] += a[i] * b[i];
+        }
+
 #else
 
         for (size_t i = 0; i < count; ++i)
@@ -316,6 +364,10 @@ class SimdFFT
     }
 
   private:
+    // Reads and writes the work buffer in bit-reversed order directly, so its input and output
+    // passes need no extra copy.
+    friend class RealFFT;
+
     static float* AllocateAligned(size_t count)
     {
 #ifdef _MSC_VER
@@ -401,6 +453,12 @@ class SimdFFT
     // group (each m = 2^stage points wide), and within a group by twiddle index j.
     void ButterflyRange(float* data, size_t stage, size_t begin, size_t end, bool inverse) const
     {
+        if (stage == 1)
+        {
+            FirstStageRange(data, begin, end);
+            return;
+        }
+
         const size_t m = size_t{1} << stage;
         const size_t halfM = m >> 1;
         const float* twiddles = mTwiddleBuffers[stage - 1];
@@ -451,9 +509,66 @@ class SimdFFT
                 _mm_storeu_ps(data + idx0h, _mm_sub_ps(u, twt));
             }
 
+#elif defined(GUITARFX_ARCH_ARM64)
+
+            // NEON: 4 butterflies per iteration, de-interleaved by vld2q into [re x4] and [im x4]
+            // so the twiddle multiply is plain fused multiply-adds. Needs halfM >= 4.
+            const float32x4_t sign = vdupq_n_f32(invSign);
+
+            for (; j + 3 < jEnd; j += 4)
+            {
+                const size_t idx = (k + j) * 2;
+                const size_t idxh = (k + j + halfM) * 2;
+
+                const float32x4x2_t w = vld2q_f32(twiddles + j * 2);
+                const float32x4_t wr = w.val[0];
+                const float32x4_t wi = vmulq_f32(w.val[1], sign);
+                const float32x4x2_t t = vld2q_f32(data + idxh);
+                float32x4x2_t u = vld2q_f32(data + idx);
+
+                const float32x4_t twr = vfmsq_f32(vmulq_f32(t.val[0], wr), t.val[1], wi);
+                const float32x4_t twi = vfmaq_f32(vmulq_f32(t.val[0], wi), t.val[1], wr);
+
+                float32x4x2_t h;
+                h.val[0] = vsubq_f32(u.val[0], twr);
+                h.val[1] = vsubq_f32(u.val[1], twi);
+                u.val[0] = vaddq_f32(u.val[0], twr);
+                u.val[1] = vaddq_f32(u.val[1], twi);
+                vst2q_f32(data + idx, u);
+                vst2q_f32(data + idxh, h);
+            }
+
+            // The second stage (halfM == 2): both butterflies of a group in one interleaved register.
+            static constexpr float kAlternate[4] = {-1.0f, 1.0f, -1.0f, 1.0f};
+            static constexpr float kConjugate[4] = {1.0f, -1.0f, 1.0f, -1.0f};
+
+            for (; j + 1 < jEnd; j += 2)
+            {
+                const size_t idx = (k + j) * 2;
+                const size_t idxh = (k + j + halfM) * 2;
+
+                float32x4_t tw = vld1q_f32(twiddles + j * 2); // [wr0, wi0, wr1, wi1]
+
+                if (inverse)
+                {
+                    tw = vmulq_f32(tw, vld1q_f32(kConjugate));
+                }
+
+                const float32x4_t t = vld1q_f32(data + idxh);
+                const float32x4_t u = vld1q_f32(data + idx);
+                const float32x4_t tr = vtrn1q_f32(t, t);    // [tr0, tr0, tr1, tr1]
+                const float32x4_t ti = vtrn2q_f32(t, t);    // [ti0, ti0, ti1, ti1]
+                const float32x4_t twSwap = vrev64q_f32(tw); // [wi0, wr0, wi1, wr1]
+
+                // [tr*wr - ti*wi, tr*wi + ti*wr] for both
+                const float32x4_t twt = vfmaq_f32(vmulq_f32(tr, tw), vmulq_f32(ti, vld1q_f32(kAlternate)), twSwap);
+                vst1q_f32(data + idx, vaddq_f32(u, twt));
+                vst1q_f32(data + idxh, vsubq_f32(u, twt));
+            }
+
 #endif
 
-            // The rest: every butterfly without SSE, else the first stage (halfM == 1) or an odd range end
+            // The rest: every butterfly without SIMD, else an odd range end
             for (; j < jEnd; ++j)
             {
                 const size_t idx = (k + j) * 2;
@@ -475,6 +590,56 @@ class SimdFFT
                 data[idxh] = ur - twr;
                 data[idxh + 1] = ui - twi;
             }
+        }
+    }
+
+    // The first stage's butterflies [begin, end): its twiddle is 1 both ways, so butterfly b is
+    // the sum and difference of points 2b and 2b + 1, with no multiply.
+    static void FirstStageRange(float* data, size_t begin, size_t end)
+    {
+        size_t b = begin;
+
+#if defined(GUITARFX_ARCH_X86)
+
+        for (; b + 1 < end; b += 2)
+        {
+            const __m128 a = _mm_loadu_ps(data + b * 4);     // [p0, p1]
+            const __m128 c = _mm_loadu_ps(data + b * 4 + 4); // [p2, p3]
+            const __m128 u = _mm_movelh_ps(a, c);            // [p0, p2]
+            const __m128 t = _mm_movehl_ps(c, a);            // [p1, p3]
+            const __m128 lo = _mm_add_ps(u, t);
+            const __m128 hi = _mm_sub_ps(u, t);
+            _mm_storeu_ps(data + b * 4, _mm_movelh_ps(lo, hi));
+            _mm_storeu_ps(data + b * 4 + 4, _mm_movehl_ps(hi, lo));
+        }
+
+#elif defined(GUITARFX_ARCH_ARM64)
+
+        for (; b + 1 < end; b += 2)
+        {
+            const float32x4_t a = vld1q_f32(data + b * 4);     // [p0, p1]
+            const float32x4_t c = vld1q_f32(data + b * 4 + 4); // [p2, p3]
+            const float32x4_t u = vcombine_f32(vget_low_f32(a), vget_low_f32(c));
+            const float32x4_t t = vcombine_f32(vget_high_f32(a), vget_high_f32(c));
+            const float32x4_t lo = vaddq_f32(u, t);
+            const float32x4_t hi = vsubq_f32(u, t);
+            vst1q_f32(data + b * 4, vcombine_f32(vget_low_f32(lo), vget_low_f32(hi)));
+            vst1q_f32(data + b * 4 + 4, vcombine_f32(vget_high_f32(lo), vget_high_f32(hi)));
+        }
+
+#endif
+
+        for (; b < end; ++b)
+        {
+            float* p = data + b * 4;
+            const float ur = p[0];
+            const float ui = p[1];
+            const float tr = p[2];
+            const float ti = p[3];
+            p[0] = ur + tr;
+            p[1] = ui + ti;
+            p[2] = ur - tr;
+            p[3] = ui - ti;
         }
     }
 

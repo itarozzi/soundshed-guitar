@@ -39,7 +39,8 @@
 * On a large display the footer's Setlists, Tuner, MIDI and Rec buttons are labelled, not just icons. A smaller window, or a higher UI zoom, keeps the icons alone.
 
 ### Performance
-* Amps and cabs are much lighter on your CPU than in 1.6.0. With a mono guitar at 48 kHz and a 64-sample buffer on Windows, a NAM amp uses about a third of the CPU it did, the IR Cab about 40% and the Heavy American about a sixth. A preset with a NAM amp and an IR Cab uses about 40% of what it did.
+* Amps and cabs are much lighter on your CPU than in 1.6.0. With a mono guitar at 48 kHz and a 64-sample buffer on Windows, a NAM amp uses about a third of the CPU it did, the IR Cab about 30% and the Heavy American about a sixth. A preset with a NAM amp and an IR Cab uses about 40% of what it did.
+* The IR Cab and IR Reverb use about half the CPU they did, on computers and Android phones alike, from short cab IRs to 10-second reverbs, and sound the same. Their heaviest buffers are lighter still, so they are less likely to cause a crackle at small buffer sizes.
 * Soundshed Guitar now stops processing when nothing is being played, such as on a muted DAW track, an empty one, or with your guitar's volume rolled off, and uses next to no CPU until you play again. It waits for delay repeats and reverb tails to die away first, and the first note you play comes through in full.
 * A new **Use Multiple CPU Cores** switch in Settings → Performance. It is off by default in the plugin: your DAW already spreads its tracks across your cores, and the extra threads competed with it, which could cause crackles and dropouts. It stays on in the standalone app. The standalone app and the plugin keep separate settings, and the plugin's applies to every instance.
 * When multiple cores are in use, the extra threads now get the same high priority as the audio thread. Before, a busy computer, or a DAW minimised on macOS, could hold them up, which used more CPU and could cause crackles.

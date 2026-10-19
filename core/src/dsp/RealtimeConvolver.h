@@ -7,7 +7,7 @@
 
 namespace guitarfx
 {
-class SimdFFT;
+class RealFFT;
 }
 
 namespace guitarfx
@@ -27,6 +27,9 @@ namespace guitarfx
  * A long IR's larger stages start at twice their partition, which leaves them a
  * partition of slack, and spend it spreading their FFTs too: each one computes a
  * block's output over the samples of the block after it.
+ *
+ * The input and the IR are real, so every stage runs real-input FFTs (RealFFT.h):
+ * half a complex FFT's work, and half the spectrum bins to multiply and store.
  *
  * Until 2026-10 a Low Latency switch could run the whole IR as one uniform engine
  * instead, 256 to 2048 samples late. It saved little CPU on short IRs and cost more
@@ -119,10 +122,11 @@ class RealtimeConvolver
 
     // Partition configuration
     size_t mPartitionSize = 0;
-    size_t mFFTSize = 0;
+    size_t mFFTSize = 0; // real FFT size, twice the partition
+    size_t mNumBins = 0; // complex bins in a packed real spectrum (RealFFT.h): mFFTSize / 2
     size_t mNumPartitions = 0;
 
-    // IR in frequency domain (pre-computed at SetImpulse time)
+    // IR in frequency domain (pre-computed at SetImpulse time), packed real spectra
     std::vector<std::vector<std::complex<float>>> mIRPartitionsFFT;
 
     // Input delay line (frequency domain) - circular buffer
@@ -136,10 +140,8 @@ class RealtimeConvolver
     size_t mInputBufferPos = 0;
     size_t mOutputBufferReadPos = 0;
 
-    // Pre-allocated working buffers (NO allocations in ProcessBlock)
-    std::vector<std::complex<float>> mFFTInputBuffer;  // Input to FFT
-    std::vector<std::complex<float>> mFFTOutputBuffer; // Output from FFT
-    std::vector<std::complex<float>> mAccumulator;     // Freq domain accumulator
+    // Freq domain accumulator, pre-allocated (NO allocations in ProcessBlock)
+    std::vector<std::complex<float>> mAccumulator;
 
     // Accumulation schedule. mAccumulator is built up across the block rather than in
     // one burst at the block boundary: mPreAccumAnchor is the delay-line slot holding
@@ -163,7 +165,7 @@ class RealtimeConvolver
     size_t mJobCost = 0;
 
     // FFT plan
-    std::unique_ptr<SimdFFT> mFFT;
+    std::unique_ptr<RealFFT> mFFT;
 
     // --- Zero-latency non-uniform (Gardner-style) engine ---
     // The FIR above covers the IR's head. Each stage here is a uniform engine for the IR

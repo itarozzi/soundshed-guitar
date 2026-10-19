@@ -1228,6 +1228,13 @@ of its median (it was 40x), at the same average CPU or less, with the same outpu
 rounding (docs/plans/zero-latency-ir-cab.md, *Per-callback cost of a long IR*). The cab's IRs are
 shorter than that and keep the layout they had.
 
+**Real-input FFTs.** Every FFT stage, cab or reverb, transforms its real samples with a real-input
+FFT (`RealFFT.h`), half the work of the complex FFT it replaced, and keeps half the spectrum, and
+the FFT and multiply-accumulate have NEON paths for arm64 as well as SSE. Since 2026-10-19 the
+convolver costs about half what it did on x64 and on a Galaxy S21's big cores, from cab IRs to 10 s
+reverbs, with the same output to float rounding (docs/plans/zero-latency-ir-cab.md, *Real-input
+FFTs and NEON*).
+
 ### Algorithmic Reverbs
 Room, chamber, and advanced reverb share a common algorithmic engine. Spring and ambient use dedicated processors because their topology and voicing diverge more strongly from the shared room/chamber design:
 

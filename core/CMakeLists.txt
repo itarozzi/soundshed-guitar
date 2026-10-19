@@ -582,6 +582,7 @@ set(GUITARFX_CORE_SOURCES
     src/dsp/PresetInstance.cpp
     src/dsp/PresetVoicePool.h
     src/dsp/PresetVoicePool.cpp
+    src/dsp/RealFFT.h
     src/dsp/RealtimeConvolver.h
     src/dsp/RealtimeConvolver.cpp
     src/dsp/RealtimeConvolverSpread.cpp

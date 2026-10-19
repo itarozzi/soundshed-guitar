@@ -3,7 +3,7 @@
 // BuildNonUniform in RealtimeConvolver.cpp for where the layout uses it.
 #include "RealtimeConvolver.h"
 #include "FiniteCheck.h"
-#include "SimdFFT.h"
+#include "RealFFT.h"
 
 #include <algorithm>
 
@@ -11,13 +11,14 @@ namespace guitarfx
 {
 namespace
 {
-// The spread engine's work for one block, in order: build the frame, forward FFT it into the
-// delay line, multiply-accumulate every partition, inverse FFT, write the output and clear the
-// accumulator for the next block. Each phase is a run of items, done a grain at a time; an
-// item's cost is its rough time relative to the others, so the work lands evenly in time.
+// The spread engine's work for one block, in order: forward FFT the frame into the delay line
+// (load it with the first butterfly stage, the other stages, the split pass that stores the
+// spectrum), multiply-accumulate every partition, inverse FFT (the split pass undone, every
+// stage), write the output and clear the accumulator for the next block. Each phase is a run of
+// items, done a grain at a time; an item's cost is its rough time relative to the others, so the
+// work lands evenly in time. RealFFT.h has the transform's steps.
 enum SpreadPhase : size_t
 {
-    kSpreadFrame,
     kSpreadLoad,
     kSpreadButterflies,
     kSpreadStore,
@@ -29,29 +30,36 @@ enum SpreadPhase : size_t
     kSpreadDone
 };
 
-// Per-item costs, measured on x64 (AVX2 Release, FFT sizes 512-8192) in units of ~0.07 ns: the
-// bit-reversed loads gather, and a butterfly is about twice a multiply-accumulate item. Wrong
-// weights put a job's cheap-looking phases in too few callbacks: with them all 1-2 the first
-// callback after a 4096-sample boundary did four times its share.
-constexpr size_t kSpreadPhaseCost[kSpreadDone] = {6, 12, 9, 2, 4, 12, 9, 4, 1};
+// Per-item costs relative to a butterfly's 10, measured 2026-10-19 at real FFT sizes 512-8192 on
+// x64 (AVX2 Release) and a Galaxy S21's A78 (NEON, clang -O3 -ffast-math), which agree to within
+// a few units: a butterfly is 0.46 ns on x64 and 1.45 ns on the A78, a multiply-accumulate bin
+// 0.6 of one, a split-pass pair 1.5 (store) and 2 (load, which scatters). Wrong weights put a
+// job's cheap-looking phases in too few callbacks: with them all 1-2 the first callback after a
+// 4096-sample boundary did four times its share.
+constexpr size_t kSpreadPhaseCost[kSpreadDone] = {12, 10, 15, 6, 19, 10, 3, 1};
 
 // Items per slice. Every phase's length is a multiple of it, and it keeps the slices on the
 // even butterflies and 4-aligned multiplies the SIMD paths take whole.
 constexpr size_t kSpreadGrain = 64;
 
-size_t SpreadPhaseItems(size_t phase, size_t fftSize, size_t numStages, size_t numPartitions)
+// Items in a phase, for a transform of `numBins` complex points (half the real FFT size, and
+// the partition size) with `numStages` butterfly stages of numBins / 2 each.
+size_t SpreadPhaseItems(size_t phase, size_t numBins, size_t numStages, size_t numPartitions)
 {
     switch (phase)
     {
     case kSpreadButterflies:
+        return (numStages - 1) * (numBins / 2); // the first stage ran with the load
     case kSpreadInverseButterflies:
-        return numStages * (fftSize / 2);
+        return numStages * (numBins / 2);
     case kSpreadMultiply:
-        return numPartitions * fftSize;
-    case kSpreadOutput:
-        return fftSize / 2;
+        return numPartitions * numBins;
+    case kSpreadLoad:
+    case kSpreadStore:
+    case kSpreadInverseLoad:
+        return numBins / 2; // butterflies, or the split pass's pairs
     default:
-        return fftSize;
+        return numBins; // the output's samples, the accumulator's bins
     }
 }
 
@@ -64,7 +72,8 @@ float SanitizeSpreadOutput(float sample)
 
 bool RealtimeConvolver::InitSpread()
 {
-    if (mPartitionSize % kSpreadGrain != 0)
+    // The shortest phases are half a partition long.
+    if (mPartitionSize % (2 * kSpreadGrain) != 0)
     {
         return false;
     }
@@ -75,7 +84,7 @@ bool RealtimeConvolver::InitSpread()
 
     for (size_t phase = 0; phase < kSpreadDone; ++phase)
     {
-        mJobCost += kSpreadPhaseCost[phase] * SpreadPhaseItems(phase, mFFTSize, mFFT->GetNumStages(), mNumPartitions);
+        mJobCost += kSpreadPhaseCost[phase] * SpreadPhaseItems(phase, mNumBins, mFFT->GetNumStages(), mNumPartitions);
     }
 
     ResetSpread();
@@ -114,7 +123,7 @@ void RealtimeConvolver::ProcessSpreadBoundary()
     // The frame goes to the oldest slot, which the new block is the first not to read.
     mJobSlot = mDelayLineIndex;
     mDelayLineIndex = (mDelayLineIndex + 1) % mNumPartitions;
-    mJobPhase = kSpreadFrame;
+    mJobPhase = kSpreadLoad;
     mJobPos = 0;
     mJobDone = 0;
 
@@ -126,7 +135,7 @@ void RealtimeConvolver::RunSpreadJobTo(size_t target)
     while (mJobDone < target && mJobPhase < kSpreadDone)
     {
         const size_t cost = kSpreadPhaseCost[mJobPhase];
-        const size_t items = SpreadPhaseItems(mJobPhase, mFFTSize, mFFT->GetNumStages(), mNumPartitions);
+        const size_t items = SpreadPhaseItems(mJobPhase, mNumBins, mFFT->GetNumStages(), mNumPartitions);
         const size_t wanted = (target - mJobDone + cost - 1) / cost;
         const size_t slice = (wanted + kSpreadGrain - 1) / kSpreadGrain * kSpreadGrain;
         const size_t end = std::min(items, mJobPos + slice);
@@ -145,56 +154,64 @@ void RealtimeConvolver::RunSpreadJobTo(size_t target)
 
 void RealtimeConvolver::RunSpreadPhase(size_t phase, size_t begin, size_t end)
 {
-    const size_t halfFft = mFFTSize / 2;
+    const size_t stageItems = mNumBins / 2;
 
     switch (phase)
     {
-    case kSpreadFrame:
-        // [previous block | current block], the overlap-save frame ProcessBlock() builds.
-        for (size_t i = begin; i < end; ++i)
-        {
-            const float sample = i < mPartitionSize ? mPreviousInputBlock[i] : mSpreadCurrentBlock[i - mPartitionSize];
-            mFFTInputBuffer[i] = std::complex<float>(sample, 0.0f);
-        }
-
-        break;
-
     case kSpreadLoad:
-        mFFT->LoadBitReversed(mFFTInputBuffer.data(), begin, end);
+        // [previous block | current block], the overlap-save frame ProcessBlock() transforms.
+        mFFT->LoadInput(mPreviousInputBlock.data(), mSpreadCurrentBlock.data(), begin, end);
         break;
 
     case kSpreadInverseLoad:
-        mFFT->LoadBitReversed(mAccumulator.data(), begin, end);
+        mFFT->LoadSpectrum(mAccumulator.data(), begin, end);
         break;
 
     case kSpreadButterflies:
-    case kSpreadInverseButterflies:
-        // Items run stage by stage, halfFft butterflies each.
+    case kSpreadInverseButterflies: {
+        // Items run stage by stage, stageItems butterflies each, from stage 2 forward (LoadInput
+        // ran the first) and stage 1 inverse.
+        const bool inverse = phase == kSpreadInverseButterflies;
+        const size_t firstStage = inverse ? 1 : 2;
+
         for (size_t pos = begin; pos < end;)
         {
-            const size_t stage = pos / halfFft;
-            const size_t first = pos - stage * halfFft;
-            const size_t last = std::min(halfFft, first + (end - pos));
-            mFFT->RunButterflies(stage + 1, first, last, phase == kSpreadInverseButterflies);
+            const size_t stage = pos / stageItems;
+            const size_t first = pos - stage * stageItems;
+            const size_t last = std::min(stageItems, first + (end - pos));
+            mFFT->RunButterflies(stage + firstStage, first, last, inverse);
             pos += last - first;
         }
 
         break;
+    }
 
     case kSpreadStore:
-        std::copy(mFFT->GetResult() + begin, mFFT->GetResult() + end, mInputFFTDelayLine[mJobSlot].begin() + begin);
+        mFFT->StoreSpectrum(mInputFFTDelayLine[mJobSlot].data(), begin, end);
         break;
 
     case kSpreadMultiply:
         // Partition p pairs with the frame p blocks back from this one, which is in mJobSlot.
         for (size_t pos = begin; pos < end;)
         {
-            const size_t p = pos / mFFTSize;
-            const size_t first = pos - p * mFFTSize;
-            const size_t count = std::min(mFFTSize - first, end - pos);
+            const size_t p = pos / mNumBins;
+            const size_t first = pos - p * mNumBins;
+            const size_t count = std::min(mNumBins - first, end - pos);
             const size_t slot = (mJobSlot + mNumPartitions - p) % mNumPartitions;
-            SimdFFT::ComplexMultiplyAccumulate(mAccumulator.data() + first, mInputFFTDelayLine[slot].data() + first,
-                                               mIRPartitionsFFT[p].data() + first, count);
+            std::complex<float>* acc = mAccumulator.data() + first;
+            const std::complex<float>* frame = mInputFFTDelayLine[slot].data() + first;
+            const std::complex<float>* ir = mIRPartitionsFFT[p].data() + first;
+
+            // Bin 0 is packed (two real bins), so a slice that starts there takes the packed multiply.
+            if (first == 0)
+            {
+                RealFFT::MultiplyAccumulate(acc, frame, ir, count);
+            }
+            else
+            {
+                SimdFFT::ComplexMultiplyAccumulate(acc, frame, ir, count);
+            }
+
             pos += count;
         }
 
@@ -203,11 +220,11 @@ void RealtimeConvolver::RunSpreadPhase(size_t phase, size_t begin, size_t end)
     case kSpreadOutput: {
         // The second half of the inverse transform is the valid linear convolution.
         const float scale = 1.0f / static_cast<float>(mFFTSize);
-        const std::complex<float>* result = mFFT->GetResult() + mPartitionSize;
+        const float* result = mFFT->GetResult() + mPartitionSize;
 
         for (size_t i = begin; i < end; ++i)
         {
-            mSpreadOutput[i] = SanitizeSpreadOutput(result[i].real() * scale);
+            mSpreadOutput[i] = SanitizeSpreadOutput(result[i] * scale);
         }
 
         break;
