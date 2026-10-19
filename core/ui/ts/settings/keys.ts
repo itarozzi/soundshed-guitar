@@ -34,6 +34,9 @@ export const DSP_MONO_OUTPUT_UNITY_SETTING = "audio.dsp.monoOutputUnity";
 
 export const PRESET_SWITCH_TAIL_SETTING = "audio.presetSwitch.tailBars";
 
+/** Fast NAM Engine: the fused WaveNet pass where a model's shape allows; absent means on. */
+export const NAM_FUSED_ENGINE_SETTING = "audio.nam.fusedEngine";
+
 export const NAM_SLIMMABLE_SIZE_SETTING = "audio.nam.slimmableSize";
 
 export const NAM_OVERSAMPLING_SETTING = "audio.nam.oversampling";

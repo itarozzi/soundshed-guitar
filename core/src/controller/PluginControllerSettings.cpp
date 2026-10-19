@@ -19,6 +19,7 @@
 #include "controller/internal/SettingsKeys.h"
 #include "dsp/EffectGuids.h"
 #include "dsp/LevelTargets.h"
+#include "dsp/NamModelCache.h"
 #include "dsp/effects/NAMSlimmableSettings.h"
 #include "presets/PresetStorage.h"
 
@@ -279,6 +280,63 @@ bool PluginController::ApplyNamQualitySettings()
     return settingsChanged;
 }
 
+void PluginController::ApplyNamEngineSettingFromAppSettings()
+{
+    const auto it = mAppSettings.find(kNamFusedEngineSettingKey);
+    const bool wanted = it != mAppSettings.end() && it->is_boolean() ? it->get<bool>() : kNamFusedEngineDefault;
+    nammodelcache::SetFusedEngineSettingEnabled(wanted);
+
+    // What models built now get, after the test override and GUITARFX_NAM_ENGINE have had their say.
+    const bool fused = nammodelcache::IsFusedEngineEnabled();
+
+    if (fused == mNamEngineFused)
+    {
+        return;
+    }
+
+    mNamEngineFused = fused;
+
+    // A built model keeps its engine, so rebuild every running slot as a chain edit does: the new
+    // effects build their models from the cache on the new engine. Every slot, not only those with
+    // a NAM node, because a composite can hold one out of sight of the preset graph. The setting
+    // changes rarely, and a rebuild crossfades.
+    for (const auto& slot : SnapshotActivePresetConfigs())
+    {
+        if (mActivePreset && slot.id == mActivePresetId)
+        {
+            CaptureLiveHostedPluginStateIntoActivePreset();
+            ApplyActivePresetInItsSlot();
+            mPendingStateBroadcast = true;
+            continue;
+        }
+
+        const auto cached = mMixerPresetJsonCache.find(slot.id);
+
+        if (cached == mMixerPresetJsonCache.end())
+        {
+            continue;
+        }
+
+        if (auto slotPreset = PresetStorage::DeserializeFromJson(cached->second))
+        {
+            CaptureMixerSlotHostedPluginState(*slotPreset, slot.id);
+            ReplaceActiveMixerPresetInPlace(*slotPreset, slot.id, slot.name);
+        }
+    }
+
+    // The global chain's config is unchanged, so it has to be told to rebuild. Built off the lock,
+    // installed under it, as ApplyGlobalFxSettingsFromAppSettings does.
+    mPresetMixer.MarkGlobalChainForRebuild();
+    mPresetMixer.PrepareGlobalChainSwap(mPresetMixer.GetGlobalChainConfig());
+
+    {
+        std::lock_guard<std::mutex> lock(mDSPMutex);
+        mPresetMixer.CommitGlobalChainSwap();
+    }
+
+    UpdateHostLatency();
+}
+
 void PluginController::SetOfflineRendering(bool offline)
 {
     // Only the mode is recorded. 1.6.0 also raised NAM to full size and 2x oversampling for
@@ -346,6 +404,7 @@ bool PluginController::ApplySettingsToRuntime(SettingsApplyMode mode)
     settingsChanged |= ApplyDspLevelTargetSettingsFromAppSettings();
     settingsChanged |= ApplyPresetSwitchSettingsFromAppSettings();
     ApplyMultiCoreSettingFromAppSettings();
+    ApplyNamEngineSettingFromAppSettings();
     ApplyMonoOutputUnityFromAppSettings();
     ApplyInputModeSettingsFromAppSettings();
     ApplyGlobalFxSettingsFromAppSettings();

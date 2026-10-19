@@ -29,6 +29,7 @@
 #include "controller/PracticeToolService.h"
 #include "controller/internal/ControllerUtils.h"
 #include "dsp/EffectRegistry.h"
+#include "dsp/NamModelCache.h"
 #include "dsp/effects/BuiltinEffects.h"
 #include "util/PathEncoding.h"
 
@@ -47,6 +48,10 @@ namespace guitarfx
 PluginController::PluginController(IPluginHost& host) : mHost(host)
 {
     RegisterAllEffects();
+
+    // In a DAW another instance may already have switched the process-wide engine; this one's
+    // models will be built on whatever it is now.
+    mNamEngineFused = nammodelcache::IsFusedEngineEnabled();
 
     // Every service publishes through these two. `this` outlives them all.
     const auto sendToUI = [this](const std::string& json) { SendMessageToUI(json); };

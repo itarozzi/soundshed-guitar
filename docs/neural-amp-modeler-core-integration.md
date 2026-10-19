@@ -244,12 +244,26 @@ By hand, on a machine the workflow cannot reach:
    Android needs either the test targets built with the NDK and run over adb, or a measurement in
    the app.
 
-**Switching it off.** Launching with the environment variable `GUITARFX_NAM_ENGINE=core` makes
-every model the NAM core's, for A/B listening and support. Tests and tools call
-`nammodelcache::SetFusedEngineEnabled(false)`. Models already built keep the engine they were
-built with. The session log says which engine a run used, once, on the first model load
-(`[NamModelCache] NAM engine: ...`), and `nammodelcache::GetStats()` counts `fusedBuilds` and
-`coreBuilds`.
+**Switching it off.** There are three switches. The first one set wins:
+
+1. Tests and tools call `nammodelcache::SetFusedEngineEnabled`.
+2. Launching with the environment variable `GUITARFX_NAM_ENGINE=core` makes every model the NAM
+   core's, for A/B listening and support. It can only turn the engine off.
+3. Users have **Fast NAM Engine** in Settings → DSP Performance (`audio.nam.fusedEngine`, on when
+   absent). The UI is `core/ui/ts/settings/namEngine.ts`, and the engine side is
+   `PluginController::ApplyNamEngineSettingFromAppSettings`, which passes it to
+   `nammodelcache::SetFusedEngineSettingEnabled`. There is one key for the standalone and plugins,
+   because the engine is process-wide: every instance in a DAW shares it.
+
+Models already built keep the engine they were built with. So when the effective engine changes,
+each controller rebuilds its running preset slots (as a chain edit does) and its global chain. Each
+controller tracks the engine its own models were built on (`mNamEngineFused`), so in a DAW every
+instance rebuilds, not only the one that applied the change. `NamEngineSettingTests` checks the
+default, the rebuild on each engine, and the stored value at startup.
+
+The session log says which engine a run used, once, on the first model load
+(`[NamModelCache] NAM engine: ...`), and adds a line whenever the setting changes.
+`nammodelcache::GetStats()` counts `fusedBuilds` and `coreBuilds`.
 
 ### 3. Factory registration guard
 

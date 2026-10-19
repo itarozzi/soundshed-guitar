@@ -164,8 +164,10 @@ void EnableFastTanhOnce()
     (void)enabled;
 }
 
-// -1 until SetFusedEngineEnabled is called; the environment decides until then.
+// -1 until SetFusedEngineEnabled is called; the environment and then the app setting decide
+// until then.
 std::atomic<int> gFusedEngineOverride{-1};
+std::atomic<bool> gFusedEngineSetting{true};
 
 bool FusedEngineFromEnvironment()
 {
@@ -274,6 +276,24 @@ void SetFusedEngineEnabled(const bool enabled)
     gFusedEngineOverride.store(enabled ? 1 : 0, std::memory_order_relaxed);
 }
 
+void SetFusedEngineSettingEnabled(const bool enabled)
+{
+    const bool was = gFusedEngineSetting.exchange(enabled, std::memory_order_relaxed);
+
+    // LogEngineOnce names the engine the first models ran on; a later change gets its own line.
+    if (was != enabled)
+    {
+        util::AppendSessionLog(std::string("[NamModelCache] Fast NAM Engine setting ") + (enabled ? "on" : "off") +
+                               (IsFusedEngineEnabled() == enabled ? "" : ", outranked by a forced engine"));
+    }
+}
+
+bool IsNamCoreForcedByEnvironment()
+{
+    static const bool forced = !FusedEngineFromEnvironment();
+    return forced;
+}
+
 bool IsFusedEngineEnabled()
 {
     const int forced = gFusedEngineOverride.load(std::memory_order_relaxed);
@@ -283,8 +303,12 @@ bool IsFusedEngineEnabled()
         return forced != 0;
     }
 
-    static const bool fromEnvironment = FusedEngineFromEnvironment();
-    return fromEnvironment;
+    if (IsNamCoreForcedByEnvironment())
+    {
+        return false;
+    }
+
+    return gFusedEngineSetting.load(std::memory_order_relaxed);
 }
 
 std::unique_ptr<::nam::DSP> GetModel(const std::filesystem::path& path)

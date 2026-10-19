@@ -49,13 +49,21 @@ std::unique_ptr<::nam::DSP> GetModel(const std::filesystem::path& path);
 
 /**
  * Whether GetModel builds fused models where the shape allows, or always the NAM core's. On by
- * default where this build has a fused kernel (fusedwavenet::IsAvailable()). Setting the
- * environment variable GUITARFX_NAM_ENGINE=core before launch turns it off for the process, for
- * A/B listening and support; tests and tools can also set it here. Models already built keep
- * the engine they were built with, so a change takes effect at the next model load.
+ * default where this build has a fused kernel (fusedwavenet::IsAvailable()). Three layers decide,
+ * the first that is set winning:
+ * 1. SetFusedEngineEnabled, for tests and tools.
+ * 2. The environment variable GUITARFX_NAM_ENGINE=core, set before launch, for A/B listening and
+ *    support. It can only turn the engine off.
+ * 3. SetFusedEngineSettingEnabled, the app's "Fast NAM Engine" setting (audio.nam.fusedEngine).
+ * The engine is process-wide: every plugin instance in a DAW shares it. Models already built keep
+ * the engine they were built with, so a change takes effect at the next model load
+ * (PluginController::ApplyNamEngineSettingFromAppSettings rebuilds the running presets for it).
  */
 void SetFusedEngineEnabled(bool enabled);
+void SetFusedEngineSettingEnabled(bool enabled);
 [[nodiscard]] bool IsFusedEngineEnabled();
+/// Whether GUITARFX_NAM_ENGINE=core is set, which outranks the app setting.
+[[nodiscard]] bool IsNamCoreForcedByEnvironment();
 
 /// Maximum bytes of parsed model data to retain. Setting a lower budget evicts immediately.
 void SetBudgetBytes(std::size_t bytes);

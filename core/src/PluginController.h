@@ -791,6 +791,10 @@ class PluginController
     bool ApplyPresetSwitchSettingsFromAppSettings();
     /// Pushes this host's multi-core setting (standalone or plugin key) to the mixer.
     void ApplyMultiCoreSettingFromAppSettings();
+    /// Pushes the Fast NAM Engine setting to the model cache. When that changes the engine this
+    /// instance's NAM models were built on, rebuilds every running preset slot and the global
+    /// chain, since a built model keeps its engine.
+    void ApplyNamEngineSettingFromAppSettings();
     /// The standalone follows the mono-output makeup setting; a plugin instance takes it once,
     /// when it is new, and after that owns the value (mMonoOutputUnityOwned).
     void ApplyMonoOutputUnityFromAppSettings();
@@ -1159,6 +1163,10 @@ class PluginController
     /// setting when it is new, or restored from its project (absent there means off, the level
     /// every project saved before the setting existed was made with). Not used in standalone.
     bool mMonoOutputUnityOwned = false;
+    // The engine this instance's NAM models were last built on (nammodelcache::IsFusedEngineEnabled).
+    // Per instance: the engine is process-wide, so in a DAW the first instance to apply a change
+    // flips it for all, and each other instance still has to rebuild its own models.
+    bool mNamEngineFused = true;
 
     /// True while the host renders offline (bounce/freeze/export). Set from any thread, read by
     /// the audio thread — see SetOfflineRendering().

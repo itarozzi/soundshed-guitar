@@ -293,9 +293,11 @@ run the fused pass on its NEON kernel, which measured 1.1-2.4x the NAM core on A
 1.5-2.4x on arm64 Linux and 2.3-6.6x on Windows on ARM (`GUITARFX_FUSED_WAVENET_NEON`,
 docs/neural-amp-modeler-core-integration.md).
 
-Launching with `GUITARFX_NAM_ENGINE=core` in the environment puts every model on the NAM core, for
-A/B listening and support; the session log names the engine on the first model load. The details are
-in [neural-amp-modeler-core-integration.md](neural-amp-modeler-core-integration.md).
+Turning off **Fast NAM Engine** in Settings → DSP Performance (`audio.nam.fusedEngine`, on by
+default) puts every model on the NAM core and rebuilds the running presets. Launching with
+`GUITARFX_NAM_ENGINE=core` in the environment does the same and outranks the setting, for A/B
+listening and support. The session log names the engine on the first model load. The details are in
+[neural-amp-modeler-core-integration.md](neural-amp-modeler-core-integration.md).
 
 #### NAM quality (per-instance setting)
 

@@ -28,6 +28,14 @@
                 </label>
               </div>
               <div class="settings-hint">Spreads heavy chains (stereo NAM and IR, split chains, several presets at once) over extra helper threads. On by default in the standalone app. Off by default in a DAW, which already shares its tracks across your cores: there the extra threads compete with it and can cause crackles. The standalone app and the plugin keep separate settings, and the plugin's applies to every instance.</div>
+              <div class="settings-row">
+                <label for="nam-fused-engine-toggle">Fast NAM Engine</label>
+                <label class="toggle-switch">
+                  <input type="checkbox" id="nam-fused-engine-toggle" />
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+              <div class="settings-hint">Runs NAM amp and effect models on Soundshed's optimised engine, which typically uses a half to a fifth of the CPU of the standard NAM engine for the same sound. Turn it off to compare the two, or if a model behaves differently. Changing it rebuilds the running presets, and in a DAW it applies to every instance.</div>
             </div>
             <div class="performance-section">
               <h3>NAM Processing Quality</h3>

@@ -80,6 +80,7 @@ set(TEST_SOURCES
     MultiPresetMixerTests.cpp
     MultiRigEditWorkflowTests.cpp
     NamCalibrationProbe.cpp
+    NamEngineSettingTests.cpp
     NamModelCacheTests.cpp
     NamQualityPolicyTests.cpp
     NamResamplerResetTests.cpp

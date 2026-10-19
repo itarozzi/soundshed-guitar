@@ -58,6 +58,14 @@ inline constexpr const char* kMultiCorePluginSettingKey = "audio.processing.mult
 inline constexpr bool kMultiCoreStandaloneDefault = true;
 inline constexpr bool kMultiCorePluginDefault = false;
 
+// ── NAM engine ──────────────────────────────────────────────────────
+// "Fast NAM Engine": whether NAM models run on the fused WaveNet pass where their shape allows
+// (dsp/nam/FusedWaveNet.h), or always on the NAM core. One key for the standalone and plugins:
+// the engine is process-wide (nammodelcache::SetFusedEngineSettingEnabled), so every instance in a
+// DAW shares it anyway. GUITARFX_NAM_ENGINE=core outranks it. Absent means on.
+inline constexpr const char* kNamFusedEngineSettingKey = "audio.nam.fusedEngine";
+inline constexpr bool kNamFusedEngineDefault = true;
+
 // ── NAM quality ─────────────────────────────────────────────────────
 // Each setting has a matching per-node config key: the app-wide setting is
 // pushed down onto every NAM node, and a node may then carry its own value.
