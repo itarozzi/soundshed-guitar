@@ -38,7 +38,7 @@ Front-end projects host the shared core engine and UI bridge.
 ### Audio Engine Layer
 Real-time DSP processing with zero allocations in the audio callback.
 - **Signal Graph Executor**: Routes audio through effect nodes in topological order
-- **NAM DSP Manager**: Loads/runs neural amp models with pre-warming
+- **NAM DSP Manager**: Loads/runs neural amp models with pre-warming. `NamModelCache` parses each file once and builds WaveNets on the fused forward pass (`core/src/dsp/nam/FusedWaveNet.h`, 2-5x the NAM core's speed), and other shapes on the NAM core. See docs/neural-amp-modeler-core-integration.md
 - **IR Manager**: Partitioned FFT convolution for cabinet simulation
 - **Effect Processors**: Registered effect types (gate, EQ, delay, reverb, etc.)
 

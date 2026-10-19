@@ -1,14 +1,15 @@
-name: NEON benchmark
+name: Fused Benchmark
 
-# Times the fused WaveNet's NEON kernel against the NAM core on arm64 hardware, and checks its output
-# there: Apple silicon (macOS, Apple clang), arm64 Linux (ubuntu-24.04-arm, GCC, as the Linux release
-# builds) and Windows on ARM (windows-11-arm, MSVC). arm64 builds run NAM models on that kernel by
-# default (GUITARFX_FUSED_WAVENET_NEON, core/CMakeLists.txt), which this workflow's first run, on
-# Apple silicon only, decided: 1.7-2.5x the NAM core on standard and A2 full models, 1.1-1.3x on A2
-# lite. The Linux and Windows jobs time the same kernel on non-Apple Arm cores (the Runner step
-# records which), and on Windows as MSVC's ARM64 back end compiles it, to confirm that default per
-# platform or narrow it. Android is not covered: GitHub hosts no Android devices. Re-run it after
-# changing the kernel.
+# Times the fused WaveNet pass (core/src/dsp/nam/FusedWaveNet.h) against the NAM core it stands in
+# for, and checks its output, on each kernel's real hardware:
+# - arm64, NEON kernel: Apple silicon (macOS, Apple clang), arm64 Linux (ubuntu-24.04-arm, GCC, as
+#   the Linux release builds) and Windows on ARM (windows-11-arm, MSVC). arm64 builds run NAM models
+#   on it by default (GUITARFX_FUSED_WAVENET_NEON, core/CMakeLists.txt). The 2026-10-19 run measured
+#   1.1-2.4x the NAM core on Apple silicon, 1.5-2.4x on arm64 Linux and 2.3-6.6x on Windows on ARM.
+# - x64, AVX2 kernel (or SSE, with x64_simd set to avx or sse2): Intel macOS (macos-15-intel), x64
+#   Linux (ubuntu-24.04, GCC) and x64 Windows (windows-2025, MSVC), at the SIMD level the release
+#   builds ship (GUITARFX_CORE_SIMD_LEVEL, core/cmake/GuitarfxSimdLevel.cmake).
+# Android is not covered: GitHub hosts no Android devices. Re-run it after changing a kernel.
 #
 # Manual only. The runners are shared VMs, so read the speedup column: both engines run in one
 # process with their rounds interleaved, so a busy host slows both alike. The absolute times say
@@ -19,25 +20,30 @@ on:
   workflow_dispatch:
     inputs:
       platforms:
-        description: "Platforms to time, comma-separated: macos, linux, windows (or all)"
+        description: >-
+          Platforms to time, comma-separated: macos-arm64, linux-arm64, windows-arm64, macos-x64,
+          linux-x64, windows-x64, or the groups arm64, x64 and all (macos, linux and windows alone
+          mean arm64)
         required: false
-        default: "macos,linux,windows"
+        default: "all"
         type: string
-      macos_runner:
-        description: "Apple silicon runner label: macos-15, macos-14, macos-26, or a larger runner such as macos-15-xlarge"
+      runners:
+        description: >-
+          Runner overrides, 'platform=label' separated by ';', e.g. 'macos-arm64=macos-15-xlarge'.
+          Defaults: macos-15, ubuntu-24.04-arm, windows-11-arm, macos-15-intel, ubuntu-24.04,
+          windows-2025
         required: false
-        default: macos-15
+        default: ""
         type: string
-      linux_runner:
-        description: "arm64 Linux runner label: ubuntu-24.04-arm, ubuntu-22.04-arm, or a larger arm64 runner"
+      x64_simd:
+        description: "x64 SIMD level: avx2 runs the AVX2 kernel, as the release builds; avx or sse2 run the SSE one"
         required: false
-        default: ubuntu-24.04-arm
-        type: string
-      windows_runner:
-        description: "Windows on ARM runner label: windows-11-arm, or a larger arm64 runner"
-        required: false
-        default: windows-11-arm
-        type: string
+        default: avx2
+        type: choice
+        options:
+          - avx2
+          - avx
+          - sse2
       blocks:
         description: "Host block sizes, comma-separated"
         required: false
@@ -63,12 +69,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: neon-benchmark-${{ github.ref }}
+  group: fused-benchmark-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  # Turns the platforms input into the benchmark job's matrix, so a run can time one platform or any
-  # mix of them.
+  # Turns the platforms and runners inputs into the benchmark job's matrix, so a run can time one
+  # platform or any mix of them.
   plan:
     name: Plan
     runs-on: ubuntu-latest
@@ -81,52 +87,119 @@ jobs:
         shell: bash
         env:
           PLATFORMS: ${{ inputs.platforms }}
-          MACOS_RUNNER: ${{ inputs.macos_runner }}
-          LINUX_RUNNER: ${{ inputs.linux_runner }}
-          WINDOWS_RUNNER: ${{ inputs.windows_runner }}
+          RUNNERS: ${{ inputs.runners }}
+          X64_SIMD: ${{ inputs.x64_simd }}
         run: |
           set -euo pipefail
-          if [ "$(echo "$PLATFORMS" | tr -d ' ')" = all ]; then
-            PLATFORMS="macos,linux,windows"
-          fi
-          entries=""
-          seen=" "
-          IFS=',' read -r -a names <<< "$PLATFORMS"
-          for name in ${names[@]+"${names[@]}"}; do
-            name="$(echo "$name" | tr -d ' ' | tr '[:upper:]' '[:lower:]')"
-            if [ -z "$name" ]; then
+          all_arm64="macos-arm64 linux-arm64 windows-arm64"
+          all_x64="macos-x64 linux-x64 windows-x64"
+
+          # One platform name, lower-cased, with the old arm64-only names mapped on.
+          canonical() {
+            local name
+            name="$(echo "$1" | tr -d ' ' | tr '[:upper:]' '[:lower:]')"
+            case "$name" in
+              macos | linux | windows) echo "$name-arm64" ;;
+              *) echo "$name" ;;
+            esac
+          }
+
+          case "$X64_SIMD" in
+            avx2) x64_kernel=AVX2 ;;
+            avx | sse2) x64_kernel=SSE ;;
+            *)
+              echo "::error::Unknown x64_simd '$X64_SIMD': use avx2, avx or sse2"
+              exit 1
+              ;;
+          esac
+
+          declare -A runner=(
+            [macos-arm64]=macos-15
+            [linux-arm64]=ubuntu-24.04-arm
+            [windows-arm64]=windows-11-arm
+            [macos-x64]=macos-15-intel
+            [linux-x64]=ubuntu-24.04
+            [windows-x64]=windows-2025
+          )
+          declare -A label=(
+            [macos-arm64]="Apple silicon macOS"
+            [linux-arm64]="arm64 Linux"
+            [windows-arm64]="Windows on ARM"
+            [macos-x64]="Intel macOS"
+            [linux-x64]="x64 Linux"
+            [windows-x64]="x64 Windows"
+          )
+
+          IFS=';' read -r -a overrides <<< "$RUNNERS"
+          for pair in ${overrides[@]+"${overrides[@]}"}; do
+            pair="$(echo "$pair" | tr -d ' ')"
+            if [ -z "$pair" ]; then
               continue
             fi
-            case "$name" in
-              macos)   runner="$MACOS_RUNNER";   label="Apple silicon macOS" ;;
-              linux)   runner="$LINUX_RUNNER";   label="arm64 Linux" ;;
-              windows) runner="$WINDOWS_RUNNER"; label="Windows on ARM" ;;
+            case "$pair" in
+              *=*) ;;
               *)
-                echo "::error::Unknown platform '$name': use macos, linux or windows"
+                echo "::error::'$pair' is not platform=label (the runners input)"
                 exit 1
                 ;;
             esac
+            key="$(canonical "${pair%%=*}")"
+            if [ -z "${runner[$key]+set}" ]; then
+              echo "::error::Unknown platform '${pair%%=*}' in the runners input"
+              exit 1
+            fi
+            runner[$key]="${pair#*=}"
+          done
+
+          selected=()
+          IFS=',' read -r -a names <<< "$PLATFORMS"
+          for name in ${names[@]+"${names[@]}"}; do
+            name="$(canonical "$name")"
+            case "$name" in
+              "") ;;
+              all) selected+=($all_arm64 $all_x64) ;;
+              arm64) selected+=($all_arm64) ;;
+              x64) selected+=($all_x64) ;;
+              *)
+                if [ -z "${label[$name]+set}" ]; then
+                  echo "::error::Unknown platform '$name': use macos-arm64, linux-arm64, windows-arm64, macos-x64, linux-x64, windows-x64, arm64, x64 or all"
+                  exit 1
+                fi
+                selected+=("$name")
+                ;;
+            esac
+          done
+
+          entries=""
+          seen=" "
+          for name in ${selected[@]+"${selected[@]}"}; do
             case "$seen" in
               *" $name "*) continue ;;
             esac
             seen="$seen$name "
+            label_runner="${runner[$name]}"
             # A plain label, so it needs no escaping in the JSON below.
-            case "$runner" in
+            case "$label_runner" in
               "" | *[!A-Za-z0-9._-]*)
-                echo "::error::'$runner' is not a runner label (the $name runner input)"
+                echo "::error::'$label_runner' is not a runner label (the $name runner)"
                 exit 1
                 ;;
             esac
-            entries="$entries${entries:+,}{\"platform\":\"$name\",\"label\":\"$label\",\"runner\":\"$runner\"}"
+            arch="${name##*-}"
+            kernel=NEON
+            if [ "$arch" = x64 ]; then
+              kernel="$x64_kernel"
+            fi
+            entries="$entries${entries:+,}{\"platform\":\"$name\",\"os\":\"${name%-*}\",\"arch\":\"$arch\",\"kernel\":\"$kernel\",\"label\":\"${label[$name]}\",\"runner\":\"$label_runner\"}"
           done
           if [ -z "$entries" ]; then
-            echo "::error::No platforms selected: set platforms to some of macos, linux, windows"
+            echo "::error::No platforms selected: set platforms to some of arm64, x64, or the platform names"
             exit 1
           fi
           echo "matrix={\"include\":[$entries]}" | tee -a "$GITHUB_OUTPUT"
 
-  neon:
-    name: NEON vs NAM core (${{ matrix.label }}, ${{ matrix.runner }})
+  bench:
+    name: ${{ matrix.kernel }} vs NAM core (${{ matrix.label }}, ${{ matrix.runner }})
     needs: plan
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
@@ -136,15 +209,21 @@ jobs:
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
 
     # bash everywhere, Git Bash on Windows, so every platform runs the same steps. The macOS one can
-    # be bash 3.2: no mapfile, no ${x,,}, and empty arrays only through ${a[@]+"${a[@]}"}.
+    # be bash 3.2: no mapfile, no ${x,,}, no associative arrays, and empty arrays only through
+    # ${a[@]+"${a[@]}"}.
     defaults:
       run:
         shell: bash
 
+    # TARGET_OS, not OS: Windows already defines OS.
     env:
-      BUILD_DIR: core/build-neon
-      OUT_DIR: neon-benchmark
+      BUILD_DIR: core/build-fused
+      OUT_DIR: fused-benchmark
       PLATFORM: ${{ matrix.platform }}
+      TARGET_OS: ${{ matrix.os }}
+      ARCH: ${{ matrix.arch }}
+      KERNEL: ${{ matrix.kernel }}
+      X64_SIMD: ${{ inputs.x64_simd }}
       PLATFORM_LABEL: ${{ matrix.label }}
       RUNNER_LABEL: ${{ matrix.runner }}
 
@@ -156,8 +235,8 @@ jobs:
       - name: Eigen submodule
         run: git submodule update --init --depth 1 Dependencies/eigen
 
-      # The release builds use CMake 3.25 or later. On arm64 Linux, take the distribution's CMake and
-      # GCC when the image lacks them or its CMake is older; macOS and Windows images have both.
+      # The release builds use CMake 3.25 or later. On Linux, take the distribution's CMake and GCC
+      # when the image lacks them or its CMake is older; macOS and Windows images have both.
       - name: Toolchain
         run: |
           set -euo pipefail
@@ -167,7 +246,7 @@ jobs:
             [ "$#" -eq 2 ] || return 1
             [ "$1" -gt 3 ] || { [ "$1" -eq 3 ] && [ "$2" -ge 25 ]; }
           }
-          if [ "$PLATFORM" = linux ]; then
+          if [ "$TARGET_OS" = linux ]; then
             need=""
             cmake_ok || need="$need cmake"
             command -v g++ > /dev/null 2>&1 || need="$need g++"
@@ -191,14 +270,19 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$OUT_DIR"
-          case "$PLATFORM" in
+          case "$TARGET_OS" in
             macos)
               arch="$(uname -m)"
               jobs="$(sysctl -n hw.ncpu)"
               {
                 echo "uname: $(uname -mrs)"
                 echo "cpu: $(sysctl -n machdep.cpu.brand_string)"
-                echo "cores: $jobs logical, $(sysctl -n hw.perflevel0.physicalcpu 2>/dev/null || echo '?') performance"
+                if [ "$ARCH" = arm64 ]; then
+                  echo "cores: $jobs logical, $(sysctl -n hw.perflevel0.physicalcpu 2>/dev/null || echo '?') performance"
+                else
+                  echo "cores: $jobs logical, $(sysctl -n hw.physicalcpu) physical"
+                  echo "features: $(sysctl -n machdep.cpu.features machdep.cpu.leaf7_features 2>/dev/null | tr '\n' ' ')"
+                fi
                 echo "memory: $(( $(sysctl -n hw.memsize) / 1073741824 )) GB"
                 echo "os: $(sw_vers -productName) $(sw_vers -productVersion) ($(sw_vers -buildVersion))"
               } > "$OUT_DIR/runner.txt"
@@ -214,7 +298,9 @@ jobs:
               {
                 echo "uname: $(uname -mrs)"
                 echo "cpu: $(lscpu_field 'Vendor ID') $(lscpu_field 'Model name')"
-                echo "cpu part: $(sed -n 's/^CPU part[[:space:]]*:[[:space:]]*//p' /proc/cpuinfo | sort -u | tr '\n' ' ')"
+                if [ "$ARCH" = arm64 ]; then
+                  echo "cpu part: $(sed -n 's/^CPU part[[:space:]]*:[[:space:]]*//p' /proc/cpuinfo | sort -u | tr '\n' ' ')"
+                fi
                 echo "cores: $jobs online, $(lscpu_field 'Thread(s) per core') thread(s) per core"
                 echo "memory: $(awk '/^MemTotal:/ { printf "%.0f", $2 / 1048576 }' /proc/meminfo) GB"
                 echo "os: $(. /etc/os-release && echo "${PRETTY_NAME:-unknown}")"
@@ -228,7 +314,7 @@ jobs:
             windows)
               jobs="${NUMBER_OF_PROCESSORS:-4}"
               # The PowerShell sits at this block's left margin, where <<'PS1' needs its end marker.
-              ps1="$RUNNER_TEMP/neon-runner.ps1"
+              ps1="$RUNNER_TEMP/fused-runner.ps1"
               cat > "$ps1" <<'PS1'
           $ErrorActionPreference = "Stop"
           $cpus = @(Get-CimInstance Win32_Processor)
@@ -243,7 +329,7 @@ jobs:
           "os: {0} {1}" -f $os.Caption, $os.Version
           PS1
               # Every Win32_Processor property, as plain lines: Format-List colours its output in pwsh.
-              dump_ps1="$RUNNER_TEMP/neon-cpuinfo.ps1"
+              dump_ps1="$RUNNER_TEMP/fused-cpuinfo.ps1"
               cat > "$dump_ps1" <<'PS1'
           Get-CimInstance Win32_Processor | ForEach-Object {
               $_.CimInstanceProperties | ForEach-Object { "{0}: {1}" -f $_.Name, $_.Value }
@@ -257,54 +343,71 @@ jobs:
               "$ps_exe" -NoProfile -NonInteractive -File "$dump_ps1" | tr -d '\r' > "$OUT_DIR/cpuinfo.txt"
               ;;
             *)
-              echo "::error::Unknown platform '$PLATFORM'"
+              echo "::error::Unknown OS '$TARGET_OS'"
               exit 1
               ;;
           esac
           cmake --version | sed -n 1p >> "$OUT_DIR/runner.txt"
           cat "$OUT_DIR/runner.txt"
           echo "JOBS=$jobs" >> "$GITHUB_ENV"
-          case "$arch" in
-            arm64 | aarch64 | Arm64 | ARM64) ;;
+          case "$ARCH:$arch" in
+            arm64:arm64 | arm64:aarch64 | arm64:Arm64 | arm64:ARM64) ;;
+            x64:x86_64 | x64:amd64 | x64:X64 | x64:x64) ;;
             *)
-              echo "::error::$RUNNER_LABEL is not an arm64 runner (${arch:-unknown})"
+              echo "::error::$RUNNER_LABEL is not an $ARCH runner (${arch:-unknown})"
               exit 1
               ;;
           esac
 
       # Release, as the app ships (-O3 -ffast-math, or /Ox /fp:fast on MSVC, from
-      # guitarfx_apply_release_optimizations), with the NEON kernel on. No web UI bundle and no WASM
-      # host: neither touches NAM. Per platform:
-      # - macOS: arm64 only, the app's 11.0 minimum.
-      # - Linux: GCC, with -fsigned-char as juce/CMakeLists.txt and android/CMakeLists.txt add it. Plain
-      #   char is unsigned on arm64 Linux, and the WDL headers under the NAM resampler (pulled in
+      # guitarfx_apply_release_optimizations), with the NEON kernel on for arm64 and the x64_simd
+      # level for x64. No web UI bundle and no WASM host: neither touches NAM. Per platform:
+      # - macOS: one architecture per job, at the app's 11.0 minimum.
+      # - Linux: GCC. On arm64 also -fsigned-char, as juce/CMakeLists.txt and android/CMakeLists.txt
+      #   add it: plain char is unsigned there, and the WDL headers under the NAM resampler (pulled in
       #   through PluginController.h) refuse to compile unless it is signed.
-      # - Windows: the newest Visual Studio generator with -A ARM64, as the arm64 release builds; the
-      #   core keys MSVC ARM64 settings (/arch:armv8.x, minimp3 without SIMD) off that platform name.
+      # - Windows: the newest Visual Studio generator with -A ARM64 or -A x64, as the release builds;
+      #   the core keys MSVC ARM64 settings (/arch:armv8.x, minimp3 without SIMD) off that platform name.
       - name: Configure
         run: |
           set -euo pipefail
           case "$PLATFORM" in
-            macos)
+            macos-arm64)
               platform_flags=(-DCMAKE_BUILD_TYPE=Release
                               -DCMAKE_OSX_ARCHITECTURES=arm64
                               -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0)
               ;;
-            linux)
+            macos-x64)
+              platform_flags=(-DCMAKE_BUILD_TYPE=Release
+                              -DCMAKE_OSX_ARCHITECTURES=x86_64
+                              -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0)
+              ;;
+            linux-arm64)
               platform_flags=(-DCMAKE_BUILD_TYPE=Release
                               -DCMAKE_C_COMPILER=gcc
                               -DCMAKE_CXX_COMPILER=g++
                               -DCMAKE_C_FLAGS=-fsigned-char
                               -DCMAKE_CXX_FLAGS=-fsigned-char)
               ;;
-            windows)
+            linux-x64)
+              platform_flags=(-DCMAKE_BUILD_TYPE=Release
+                              -DCMAKE_C_COMPILER=gcc
+                              -DCMAKE_CXX_COMPILER=g++)
+              ;;
+            windows-arm64)
               platform_flags=(-A ARM64)
+              ;;
+            windows-x64)
+              platform_flags=(-A x64)
               ;;
             *)
               echo "::error::Unknown platform '$PLATFORM'"
               exit 1
               ;;
           esac
+          if [ "$ARCH" = x64 ]; then
+            platform_flags+=("-DGUITARFX_CORE_SIMD_LEVEL=$X64_SIMD")
+          fi
           cmake -S core -B "$BUILD_DIR" ${platform_flags[@]+"${platform_flags[@]}"} \
             -DGUITARFX_CORE_BUILD_TESTS=ON \
             -DGUITARFX_FUSED_WAVENET_NEON=ON \
@@ -324,6 +427,9 @@ jobs:
           {
             echo "generator: $generator"
             echo "compiler: $compiler"
+            if [ "$ARCH" = x64 ]; then
+              echo "simd level: $X64_SIMD"
+            fi
           } | tee -a "$OUT_DIR/runner.txt"
 
           # Multi-config generators put each configuration's executables in a folder of its own.
@@ -332,7 +438,7 @@ jobs:
             *) exe_dir="$BUILD_DIR/tests" ;;
           esac
           exe_suffix=""
-          if [ "$PLATFORM" = windows ]; then
+          if [ "$TARGET_OS" = windows ]; then
             exe_suffix=".exe"
           fi
           {
@@ -347,14 +453,14 @@ jobs:
           cmake --build "$BUILD_DIR" --config Release --parallel "$JOBS" \
             --target FusedWaveNetTests FusedWaveNetBenchmark NAMPerformanceBenchmark
 
-      # Correctness on real NEON first: every test model within 100 dB of the NAM core, bit-identical
-      # across host block patterns.
+      # Correctness on the real kernel first: every test model within 100 dB of the NAM core,
+      # bit-identical across host block patterns.
       - name: FusedWaveNetTests
         run: |
           set -euo pipefail
           "$EXE_DIR/FusedWaveNetTests${EXE_SUFFIX:-}" 2>&1 | tee "$OUT_DIR/FusedWaveNetTests.txt"
-          if ! grep -q "Fused WaveNet kernel: NEON" "$OUT_DIR/FusedWaveNetTests.txt"; then
-            echo "::error::The NEON kernel is not in this build, so nothing was tested on it"
+          if ! grep -q "Fused WaveNet kernel: $KERNEL" "$OUT_DIR/FusedWaveNetTests.txt"; then
+            echo "::error::The $KERNEL kernel is not in this build, so nothing was tested on it"
             exit 1
           fi
 
@@ -381,7 +487,7 @@ jobs:
             done
           fi
           "$EXE_DIR/FusedWaveNetBenchmark${EXE_SUFFIX:-}" \
-            --require-kernel NEON \
+            --require-kernel "$KERNEL" \
             --block "$BLOCKS" --rounds "$ROUNDS" --seconds "$SECONDS_PER_ROUND" \
             --markdown "$OUT_DIR/FusedWaveNetBenchmark.md" \
             --json "$OUT_DIR/FusedWaveNetBenchmark.json" \
@@ -401,7 +507,7 @@ jobs:
         if: ${{ !cancelled() }}
         run: |
           {
-            echo "## NEON benchmark: $PLATFORM_LABEL ($RUNNER_LABEL)"
+            echo "## Fused benchmark: $PLATFORM_LABEL, $KERNEL ($RUNNER_LABEL)"
             echo
             echo '```'
             cat "$OUT_DIR/runner.txt" 2>/dev/null || true
@@ -420,6 +526,6 @@ jobs:
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
         with:
-          name: neon-benchmark-${{ matrix.platform }}-${{ matrix.runner }}-${{ github.run_number }}
+          name: fused-benchmark-${{ matrix.platform }}-${{ matrix.runner }}-${{ github.run_number }}
           path: ${{ env.OUT_DIR }}
           if-no-files-found: warn

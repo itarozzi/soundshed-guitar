@@ -1,6 +1,9 @@
 # NeuralAmpModelerCore Integration Summary
 
 This document summarizes how `NeuralAmpModelerCore` is currently defined and used in Soundshed Guitar.
+Most models do not run on the NAM core's own forward pass. WaveNets run on our fused pass instead
+(see "Model loading" and "How the fused pass works" below). The NAM core supplies the parsed-model
+types and version checks, and runs every other shape.
 
 ## Assumptions
 
@@ -95,19 +98,84 @@ time. Then, for each model it builds:
 Both apply the file's metadata (loudness, input and output level) as `nam::create_dsp` does, and
 both run fast tanh: `GetModel` switches the NAM core to it before the first model is built.
 
+#### How the fused pass works
+
+NAM models are small: 16, 8 or 4 channels per layer. The NAM core runs each layer as Eigen matrix
+products, and Eigen repacks both operands for every product, which at these sizes costs more than
+the multiply (13-16 GMAC/s on a whole model, 3.7-4.9 on the narrow layers). Faster instructions
+would not fix that, so the fused pass changes the data layout instead
+(docs/nam-dsp-performance-review-2026-10-16.md has the measurements). The code is
+`FusedWaveNet.h`/`.cpp` (the forward pass), `FusedWaveNetPack.cpp` (shape detection and packing)
+and `FusedWaveNetSimd.h` (the kernels), all in `core/src/dsp/nam/`, namespace
+`guitarfx::fusedwavenet`.
+
+- **Time across the lanes.** Every activation buffer is channel-major: one contiguous row of frames
+  per channel. A vector holds 8 consecutive frames of one channel, so any channel count fills the
+  lanes. The NAM core vectorises across channels, which leaves lanes idle on 4- and 8-channel
+  layers.
+- **One kernel for every product.** The dilated conv, the layer 1x1, the rechannel and the head all
+  go through one register-tiled GEMM (4 outputs x 3 vectors of 8 frames on AVX2 and NEON, 4 x 2 on
+  SSE, where each vector is two registers). Every tile size gives the same bits. Conv weights
+  are packed `[tap][input][output]`, so a layer's taps and channels flatten into K x C input rows
+  and the dilated conv is a single product with nothing repacked per block. The input mixin, the
+  activation and the head-sum accumulate are done together in one pass over the conv output.
+- **Mirrored power-of-two rings.** Each layer's history is a ring whose first columns are mirrored
+  past its end, so every tap reads one contiguous window, whatever the dilation, with no wrap
+  branch. `Ring::TapRows` hands the kernel one row pointer per tap and channel.
+- **Padded 8-frame lanes.** A block is rounded up to whole lanes. The padded frames compute on stale
+  history and are never written to a ring or output, so every real frame takes exactly the same
+  arithmetic whatever the host block size. That is why the output is bit-identical across host
+  block patterns (the NAM core's is not), and `FusedWaveNetTests` checks it.
+- **128-frame chunks.** Larger host blocks run in chunks of `FusedWaveNet::kChunkFrames`, so the
+  working rows stay in L1 (a standard model fell to 465 ns/sample at 1024 without it). Chunking
+  changes no arithmetic.
+- **One-pass prewarm.** WaveNet has no feedback, so after silence longer than the receptive field
+  every history holds one constant column. `prewarm()` computes that column layer by layer in one
+  8-frame pass and fills each ring with it, instead of running `PrewarmSamples()` frames of silence.
+  The state is bit-identical to a real prewarm (`PrewarmByRunning()` exists for the tests that check
+  this), and it takes under 0.4 ms where the NAM core's took 2-37 ms.
+- **Packed once, shared.** `Pack()` turns a parsed file into immutable `Weights`, held by
+  `shared_ptr<const>` in the cache entry. Every instance, stereo lane and oversampling-phase clone
+  (`CloneForPhase`) shares them, and owns only its rings and scratch rows. Building a model from
+  packed weights takes 0.03-0.15 ms.
+- **Containers.** `FusedContainer` behaves as `nam::container::ContainerModel`: the active submodel
+  processes, and `SetSlimmableSize` (thread-safe, not real-time safe) resets the one being switched
+  to. `SetTimeScale` multiplies every temporal dilation, the heads' included, for oversampling.
+
+When changing it:
+
+- Keep each output's sum in source order in every kernel. The block-size invariance and the
+  agreement between kernels depend on it, which is why the target builds with
+  `-fno-associative-math` on clang and GCC, and why the NEON tile uses named accumulators.
+- `Pack()` must return nullptr for any shape the pass does not compute exactly. The NAM core then
+  runs that model, so returning nullptr is always safe.
+- Run `FusedWaveNetTests` in MSVC Release and in clang-cl, since fast-math is where this code breaks.
+  Use `FusedWaveNetBenchmark` or `NAMPerformanceBenchmark` for speed, and `tools/audio-ab` for a
+  null against HEAD.
+
 The fused pass needs a vector kernel (`core/src/dsp/nam/FusedWaveNetSimd.h`): AVX2 with FMA on the
 avx2 tier, two SSE halves on other x86-64 builds, and two NEON halves with fused multiply-adds on
 arm64 (macOS, Windows on ARM, Linux, Android). A plain C++ version measured 0.3x the NAM core, so
 nothing else runs the fused pass.
 
-**The NEON kernel is on by default.** Timed on a GitHub Apple silicon runner by
-`.github/workflows/neon-benchmark.yml` (Apple clang 17, 48 kHz, model alone), it ran 1.7-2.5x the
-NAM core on a standard and an A2 full model and 1.1-1.3x on A2 lite at host blocks of 32 to 512,
-with output 117-120 dB from the NAM core's and FusedWaveNetTests passing on the hardware. The same
-workflow also times it on GitHub's arm64 Linux runner (`ubuntu-24.04-arm`, GCC) and its Windows on
-ARM runner (`windows-11-arm`, MSVC); neither has been run yet, and Android has not been timed at all
-(see below). Configuring the core with `-DGUITARFX_FUSED_WAVENET_NEON=OFF` puts every arm64 model
-back on the NAM core (docs/nam-dsp-performance-review-2026-10-16.md, recommendation 3). Its
+**The NEON kernel is on by default.** The first timing, on a GitHub Apple silicon runner (Apple
+clang 17), measured 1.7-2.5x the NAM core on a standard and an A2 full model and 1.1-1.3x on A2 lite.
+The run on 2026-10-19 (`.github/workflows/fused-benchmark.yml`, run 39190932112) covered all three
+arm64 platforms. It used the model alone at 48 kHz, host blocks of 32 to 512, and a standard JCM800
+capture plus an A2 model at full (1.0) and lite (0.0) size:
+
+| Platform (CPU, compiler) | Standard | A2 full | A2 lite | Match |
+|---|---:|---:|---:|---:|
+| Apple silicon macOS (M1 VM, Apple clang 21) | 1.8-2.2x | 2.0-2.4x | 1.1-1.2x | 118.9-119.9 dB |
+| arm64 Linux (Neoverse N2, GCC 13.3) | 1.7-1.9x | 2.1-2.4x | 1.5-1.8x | 116.5-119.8 dB |
+| Windows on ARM (Cobalt 100, MSVC 19.51) | 5.3-5.4x | 6.5-6.6x | 2.3-2.9x | 116.9-120.0 dB |
+
+`FusedWaveNetTests` passed on all three, and the fused pass won every case. The fused times on
+Windows match Linux on the same Neoverse N2 cores (49-52 µs per 64-sample standard block). Windows's larger speedup comes from the NAM core running about 3x slower under MSVC. That is
+most likely Eigen getting no NEON code under MSVC ARM64, but it is not verified. The macOS runner was
+noisy (worst round 2.7x the best for the NAM core), so trust its speedups less. Android has not been
+timed at all (see below). Configuring the core with `-DGUITARFX_FUSED_WAVENET_NEON=OFF` puts every
+arm64 model back on the NAM core (docs/nam-dsp-performance-review-2026-10-16.md, recommendation 3). Its
 register tile is 4 outputs x 3 vectors of 8 frames, as on AVX2: 24 accumulators, 6 input registers
 and one holding the four outputs' weights, 31 of NEON's 32. The accumulators are named variables
 rather than an array, because MSVC's ARM64 back end stores an array of them back to the stack on
@@ -130,20 +198,34 @@ Checked without ARM hardware (2026-10-16):
 - The x86-64 kernels are untouched: MSVC compiles `FusedWaveNet.cpp` to the same instructions as
   before for AVX2 and SSE.
 
-Emulation says nothing about speed. `.github/workflows/neon-benchmark.yml` times the kernel on
-hardware. Dispatch it with `platforms` set to any of `macos`, `linux` and `windows` (all three by
-default). Each platform builds the core in Release with the kernel on:
+Emulation says nothing about speed. The **Fused Benchmark** workflow
+(`.github/workflows/fused-benchmark.yml`, manual) times every fused kernel on hardware, against the
+NAM core in the same process. Set `platforms` to any of these, comma-separated, or to the groups
+`arm64`, `x64` or `all` (the default). The bare names `macos`, `linux` and `windows` mean the arm64
+ones, as in the old NEON benchmark workflow.
 
-- macOS with Apple clang;
-- arm64 Linux with GCC and `-fsigned-char`, which the core needs there as the JUCE build does,
-  since WDL's headers under the NAM resampler refuse unsigned char;
-- Windows with MSVC ARM64 through the Visual Studio generator. MSVC compiles the kernel differently
-  from clang and GCC, so Windows needs its own run.
+| Platform | Default runner | Compiler | Kernel |
+|---|---|---|---|
+| `macos-arm64` | `macos-15` | Apple clang | NEON |
+| `linux-arm64` | `ubuntu-24.04-arm` | GCC, with `-fsigned-char` | NEON |
+| `windows-arm64` | `windows-11-arm` | MSVC ARM64 (Visual Studio generator) | NEON |
+| `macos-x64` | `macos-15-intel` | Apple clang | AVX2 |
+| `linux-x64` | `ubuntu-24.04` | GCC | AVX2 |
+| `windows-x64` | `windows-2025` | MSVC x64 (Visual Studio generator) | AVX2 |
 
-Each runs `FusedWaveNetTests` and `FusedWaveNetBenchmark --require-kernel NEON`, and writes the
-same table to the run's summary under its own heading, with the CPU it ran on. GitHub's arm64
-runners are cloud VMs on server-class Arm cores, so the Linux figures stand in for Android phones
-only loosely.
+- Each job builds the core in Release, as the app ships, with no web UI or WASM host.
+- x64 jobs build at `GUITARFX_CORE_SIMD_LEVEL` = the `x64_simd` input. `avx2`, the default and what
+  the release builds ship, runs the AVX2 kernel. `avx` or `sse2` runs the SSE kernel.
+- `runners` overrides a platform's runner, e.g. `macos-arm64=macos-15-xlarge;linux-x64=ubuntu-22.04`.
+- arm64 Linux needs `-fsigned-char`, as the JUCE build does, because WDL's headers under the NAM
+  resampler refuse unsigned char.
+- MSVC compiles the kernels differently from clang and GCC, so Windows needs its own runs.
+
+Each job checks that the runner is the architecture it asked for. It then runs `FusedWaveNetTests`
+and `FusedWaveNetBenchmark --require-kernel <kernel>`, so a build that silently fell back to the NAM
+core fails. It writes the table to the run's summary under its own heading, with the CPU it ran on,
+and the raw output to an artifact (`gh run download <run id>` fetches them all). GitHub's runners are
+cloud VMs on server-class cores, so the arm64 Linux figures stand in for Android phones only loosely.
 
 By hand, on a machine the workflow cannot reach:
 

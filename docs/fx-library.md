@@ -289,8 +289,8 @@ bit-identical whatever the host block size. Its weights are packed once per file
 node and channel, so building a cached model and preparing it takes about 0.4 ms, where the NAM core
 took 14 ms for a standard model and 24 ms for an A2 one (`NAMPerformanceBenchmark`). Other architectures
 (LSTM, ConvNet) and WaveNet options it does not compute run on the NAM core, as before. arm64 builds
-run the fused pass on its NEON kernel, which on Apple silicon measured 1.7-2.5x the NAM core on
-standard and A2 full models and 1.1-1.3x on A2 lite (`GUITARFX_FUSED_WAVENET_NEON`,
+run the fused pass on its NEON kernel, which measured 1.1-2.4x the NAM core on Apple silicon,
+1.5-2.4x on arm64 Linux and 2.3-6.6x on Windows on ARM (`GUITARFX_FUSED_WAVENET_NEON`,
 docs/neural-amp-modeler-core-integration.md).
 
 Launching with `GUITARFX_NAM_ENGINE=core` in the environment puts every model on the NAM core, for

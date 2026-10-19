@@ -2,9 +2,9 @@
 // model alone, at real-time block sizes, and writes the result as a Markdown table and as JSON.
 //
 // Written to decide whether arm64 could run the fused pass by default, which it now does
-// (GUITARFX_FUSED_WAVENET_NEON, core/CMakeLists.txt). .github/workflows/neon-benchmark.yml runs this
-// on Apple silicon, arm64 Linux and Windows on ARM. It works on any build with a fused kernel (AVX2,
-// SSE, NEON).
+// (GUITARFX_FUSED_WAVENET_NEON, core/CMakeLists.txt). .github/workflows/fused-benchmark.yml runs this
+// on arm64 and x64 macOS, Linux and Windows. It works on any build with a fused kernel (AVX2, SSE,
+// NEON).
 //
 // Both engines are built by NamModelCache, as the app builds them, and run in the same process with
 // rounds interleaved (and their order alternated), so a shared or noisy machine moves both alike.

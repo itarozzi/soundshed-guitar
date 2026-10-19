@@ -181,6 +181,11 @@ merging, and verification of both saved data and the audio path.
 5. NAM calibration policy: interface calibration input level is injected for all
    calibratable NAM nodes with valid model resources; per-node `useCalibration`
    still controls whether metadata-based auto-gain is active.
+6. Every NAM model is built by `nammodelcache::GetModel`. WaveNets run on our fused
+   forward pass (`core/src/dsp/nam/FusedWaveNet.h`), and everything else runs on the NAM
+   core. `GUITARFX_NAM_ENGINE=core` forces the NAM core for A/B tests.
+   docs/neural-amp-modeler-core-integration.md, "How the fused pass works", explains the
+   design and what a change must keep intact.
 
 ## Realtime Safety and Validation
 
