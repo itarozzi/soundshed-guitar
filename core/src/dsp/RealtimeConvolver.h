@@ -7,7 +7,7 @@
 
 namespace guitarfx
 {
-class SimdFFT;
+class RealFFT;
 }
 
 namespace guitarfx
@@ -24,6 +24,12 @@ namespace guitarfx
  * Each FFT stage spreads a block's partition multiplies across the samples of
  * that block rather than doing them all at the block boundary, so per-callback
  * cost stays flat even when the host block is much smaller than the partition.
+ * A long IR's larger stages start at twice their partition, which leaves them a
+ * partition of slack, and spend it spreading their FFTs too: each one computes a
+ * block's output over the samples of the block after it.
+ *
+ * The input and the IR are real, so every stage runs real-input FFTs (RealFFT.h):
+ * half a complex FFT's work, and half the spectrum bins to multiply and store.
  *
  * Until 2026-10 a Low Latency switch could run the whole IR as one uniform engine
  * instead, 256 to 2048 samples late. It saved little CPU on short IRs and cost more
@@ -87,7 +93,18 @@ class RealtimeConvolver
 
     // Builds a uniformly-partitioned overlap-save engine with an explicit partition size (power
     // of two), a partition late. Each FFT stage of the non-uniform engine is one of these.
-    bool BuildUniform(const std::vector<float>& irSamples, size_t partitionSize);
+    // `spread` makes it two partitions late, and computes each block's output over the samples
+    // of the next block instead of all at once at its boundary.
+    bool BuildUniform(const std::vector<float>& irSamples, size_t partitionSize, bool spread = false);
+
+    // The spread engine (RealtimeConvolverSpread.cpp): at each boundary it finishes the block in
+    // flight, plays it, and starts on the block that just closed; RunSpreadJobTo() moves that
+    // work on as samples arrive. InitSpread() finishes BuildUniform for it.
+    bool InitSpread();
+    void ResetSpread();
+    void ProcessSpreadBoundary();
+    void RunSpreadJobTo(size_t target);
+    void RunSpreadPhase(size_t phase, size_t begin, size_t end);
 
     // Builds and processes the zero-latency non-uniform (Gardner-style) engine.
     bool BuildNonUniform(const std::vector<float>& irSamples);
@@ -105,10 +122,11 @@ class RealtimeConvolver
 
     // Partition configuration
     size_t mPartitionSize = 0;
-    size_t mFFTSize = 0;
+    size_t mFFTSize = 0; // real FFT size, twice the partition
+    size_t mNumBins = 0; // complex bins in a packed real spectrum (RealFFT.h): mFFTSize / 2
     size_t mNumPartitions = 0;
 
-    // IR in frequency domain (pre-computed at SetImpulse time)
+    // IR in frequency domain (pre-computed at SetImpulse time), packed real spectra
     std::vector<std::vector<std::complex<float>>> mIRPartitionsFFT;
 
     // Input delay line (frequency domain) - circular buffer
@@ -122,10 +140,8 @@ class RealtimeConvolver
     size_t mInputBufferPos = 0;
     size_t mOutputBufferReadPos = 0;
 
-    // Pre-allocated working buffers (NO allocations in ProcessBlock)
-    std::vector<std::complex<float>> mFFTInputBuffer;  // Input to FFT
-    std::vector<std::complex<float>> mFFTOutputBuffer; // Output from FFT
-    std::vector<std::complex<float>> mAccumulator;     // Freq domain accumulator
+    // Freq domain accumulator, pre-allocated (NO allocations in ProcessBlock)
+    std::vector<std::complex<float>> mAccumulator;
 
     // Accumulation schedule. mAccumulator is built up across the block rather than in
     // one burst at the block boundary: mPreAccumAnchor is the delay-line slot holding
@@ -134,8 +150,22 @@ class RealtimeConvolver
     size_t mPreAccumAnchor = 0;
     size_t mPreAccumPartition = 0;
 
+    // Spread engine (BuildUniform with `spread`). The block in flight is the frame
+    // [mPreviousInputBlock | mSpreadCurrentBlock], stored in delay-line slot mJobSlot; its output
+    // goes to mSpreadOutput, which becomes mOutputBuffer at the next boundary. mJobPhase and
+    // mJobPos say how far through its phases (see RealtimeConvolver.cpp) the work is, and
+    // mJobDone how many of its mJobCost cost units that is.
+    bool mSpread = false;
+    std::vector<float> mSpreadCurrentBlock;
+    std::vector<float> mSpreadOutput;
+    size_t mJobSlot = 0;
+    size_t mJobPhase = 0;
+    size_t mJobPos = 0;
+    size_t mJobDone = 0;
+    size_t mJobCost = 0;
+
     // FFT plan
-    std::unique_ptr<SimdFFT> mFFT;
+    std::unique_ptr<RealFFT> mFFT;
 
     // --- Zero-latency non-uniform (Gardner-style) engine ---
     // The FIR above covers the IR's head. Each stage here is a uniform engine for the IR

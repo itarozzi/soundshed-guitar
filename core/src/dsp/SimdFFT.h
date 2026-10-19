@@ -1,19 +1,17 @@
 #pragma once
 
 /**
- * SIMD-optimized FFT for x64 processors (Intel/AMD)
+ * SIMD radix-2 complex FFT: SSE3 on x86, NEON on arm64, scalar elsewhere.
  *
- * Uses SSE2 intrinsics which are available on ALL x64 CPUs.
- * AVX path available for newer CPUs (automatically detected).
- *
- * Key optimizations:
- * - SSE2 packed double operations (2 doubles per instruction)
- * - Pre-computed twiddle factors
- * - Cache-friendly memory access patterns
- * - Minimized branch mispredictions
+ * - Pre-computed twiddle factors, interleaved [re, im] per stage
+ * - The first stage (twiddle 1) is a plain add/subtract pass
+ * - NEON de-interleaves with vld2q: four butterflies or multiply-accumulates per step
  * - Aligned memory allocations
+ *
+ * RealFFT.h builds a real-input transform of twice the size on one of these.
  */
 
+#include <algorithm>
 #include <vector>
 #include <complex>
 #include <cmath>
@@ -23,6 +21,8 @@
 
 #if defined(_M_IX86) || defined(_M_X64) || defined(__i386__) || defined(__x86_64__)
     #define GUITARFX_ARCH_X86 1
+#elif defined(__aarch64__) || defined(_M_ARM64)
+    #define GUITARFX_ARCH_ARM64 1
 #endif
 
 #if defined(GUITARFX_ARCH_X86) && defined(_MSC_VER)
@@ -31,6 +31,13 @@
 #elif defined(GUITARFX_ARCH_X86)
     #include <x86intrin.h>
     #include <cstdlib>
+#elif defined(GUITARFX_ARCH_ARM64)
+    #include <arm_neon.h>
+    #if defined(_MSC_VER)
+        #include <malloc.h>
+    #else
+        #include <cstdlib>
+    #endif
 #else
     #include <cstdlib>
 #endif
@@ -170,6 +177,39 @@ class SimdFFT
         }
     }
 
+    // --- Stepped transform ---
+    // One transform taken a slice at a time, so its cost can be spread over several audio
+    // callbacks: LoadBitReversed over [0, size), then RunButterflies over every stage from 1 to
+    // GetNumStages() in order, each over [0, size / 2), then read GetResult(). The arithmetic is
+    // Forward()/Inverse()'s exactly (unscaled), as long as butterfly ranges start and end on even
+    // indices. Shares the work buffer with Forward()/Inverse(), so one transform at a time.
+
+    void LoadBitReversed(const std::complex<float>* input, size_t begin, size_t end) const
+    {
+        for (size_t i = begin; i < end; ++i)
+        {
+            const size_t ri = mBitReversed[i];
+            mWorkBuffer[i * 2] = input[ri].real();
+            mWorkBuffer[i * 2 + 1] = input[ri].imag();
+        }
+    }
+
+    void RunButterflies(size_t stage, size_t begin, size_t end, bool inverse) const
+    {
+        ButterflyRange(mWorkBuffer, stage, begin, end, inverse);
+    }
+
+    /// The transform's output, valid once the last stage has run.
+    [[nodiscard]] const std::complex<float>* GetResult() const noexcept
+    {
+        return reinterpret_cast<const std::complex<float>*>(mWorkBuffer);
+    }
+
+    [[nodiscard]] size_t GetNumStages() const noexcept
+    {
+        return mLog2Size;
+    }
+
     /**
      * SIMD-optimized complex multiply-accumulate for convolution
      * acc[k] += a[k] * b[k] for all k
@@ -230,6 +270,48 @@ class SimdFFT
             acc[i] += a[i] * b[i];
         }
 
+#elif defined(GUITARFX_ARCH_ARM64)
+        // NEON: vld2q splits 4 complex<float> into [re x4] and [im x4], so each product is four
+        // fused multiply-adds with no shuffles. Two such groups per iteration.
+        const float* pa = reinterpret_cast<const float*>(a);
+        const float* pb = reinterpret_cast<const float*>(b);
+        float* pacc = reinterpret_cast<float*>(acc);
+
+        size_t i = 0;
+
+        for (; i + 7 < count; i += 8)
+        {
+            const float32x4x2_t a0 = vld2q_f32(pa + i * 2);
+            const float32x4x2_t b0 = vld2q_f32(pb + i * 2);
+            const float32x4x2_t a1 = vld2q_f32(pa + i * 2 + 8);
+            const float32x4x2_t b1 = vld2q_f32(pb + i * 2 + 8);
+            float32x4x2_t c0 = vld2q_f32(pacc + i * 2);
+            float32x4x2_t c1 = vld2q_f32(pacc + i * 2 + 8);
+
+            c0.val[0] = vfmsq_f32(vfmaq_f32(c0.val[0], a0.val[0], b0.val[0]), a0.val[1], b0.val[1]);
+            c0.val[1] = vfmaq_f32(vfmaq_f32(c0.val[1], a0.val[0], b0.val[1]), a0.val[1], b0.val[0]);
+            c1.val[0] = vfmsq_f32(vfmaq_f32(c1.val[0], a1.val[0], b1.val[0]), a1.val[1], b1.val[1]);
+            c1.val[1] = vfmaq_f32(vfmaq_f32(c1.val[1], a1.val[0], b1.val[1]), a1.val[1], b1.val[0]);
+
+            vst2q_f32(pacc + i * 2, c0);
+            vst2q_f32(pacc + i * 2 + 8, c1);
+        }
+
+        for (; i + 3 < count; i += 4)
+        {
+            const float32x4x2_t av = vld2q_f32(pa + i * 2);
+            const float32x4x2_t bv = vld2q_f32(pb + i * 2);
+            float32x4x2_t cv = vld2q_f32(pacc + i * 2);
+            cv.val[0] = vfmsq_f32(vfmaq_f32(cv.val[0], av.val[0], bv.val[0]), av.val[1], bv.val[1]);
+            cv.val[1] = vfmaq_f32(vfmaq_f32(cv.val[1], av.val[0], bv.val[1]), av.val[1], bv.val[0]);
+            vst2q_f32(pacc + i * 2, cv);
+        }
+
+        for (; i < count; ++i)
+        {
+            acc[i] += a[i] * b[i];
+        }
+
 #else
 
         for (size_t i = 0; i < count; ++i)
@@ -282,6 +364,10 @@ class SimdFFT
     }
 
   private:
+    // Reads and writes the work buffer in bit-reversed order directly, so its input and output
+    // passes need no extra copy.
+    friend class RealFFT;
+
     static float* AllocateAligned(size_t count)
     {
 #ifdef _MSC_VER
@@ -359,76 +445,201 @@ class SimdFFT
         // Cooley-Tukey iterative FFT with SIMD butterflies (float/SSE3)
         for (size_t stage = 1; stage <= mLog2Size; ++stage)
         {
-            const size_t m = size_t{1} << stage;
-            const size_t halfM = m >> 1;
-            const float* twiddles = mTwiddleBuffers[stage - 1];
-            const float invSign = inverse ? -1.0f : 1.0f;
+            ButterflyRange(data, stage, 0, mSize / 2, inverse);
+        }
+    }
 
-            for (size_t k = 0; k < mSize; k += m)
-            {
-                // SIMD butterfly processing
-                size_t j = 0;
+    // Butterflies [begin, end) of one stage, numbered in the order FFTCore runs them: group by
+    // group (each m = 2^stage points wide), and within a group by twiddle index j.
+    void ButterflyRange(float* data, size_t stage, size_t begin, size_t end, bool inverse) const
+    {
+        if (stage == 1)
+        {
+            FirstStageRange(data, begin, end);
+            return;
+        }
+
+        const size_t m = size_t{1} << stage;
+        const size_t halfM = m >> 1;
+        const float* twiddles = mTwiddleBuffers[stage - 1];
+        const float invSign = inverse ? -1.0f : 1.0f;
+
+        // Butterfly b is twiddle j = b % halfM of the group starting at point k = (b / halfM) * m.
+        size_t k = (begin >> (stage - 1)) << stage;
+        size_t jStart = begin & (halfM - 1);
+
+        for (size_t b = begin; b < end; k += m, jStart = 0)
+        {
+            size_t j = jStart;
+            const size_t jEnd = std::min(halfM, j + (end - b));
+            b += jEnd - j;
 
 #if defined(GUITARFX_ARCH_X86)
 
-                // SSE3: process 2 butterflies per iteration using one __m128 per pair.
-                // idx0 and idx1=idx0+2 are adjacent; idx0h and idx1h=idx0h+2 are adjacent,
-                // so we can load/store 2 complex floats in a single 128-bit op.
-                for (; j + 1 < halfM; j += 2)
+            // SSE3: process 2 butterflies per iteration using one __m128 per pair.
+            // idx0 and idx1=idx0+2 are adjacent; idx0h and idx1h=idx0h+2 are adjacent,
+            // so we can load/store 2 complex floats in a single 128-bit op.
+            for (; j + 1 < jEnd; j += 2)
+            {
+                const size_t idx0 = (k + j) * 2;
+                const size_t idx0h = (k + j + halfM) * 2;
+
+                // Load twiddles for butterfly j and j+1: [wr0,wi0,wr1,wi1]
+                __m128 tw = _mm_loadu_ps(twiddles + j * 2);
+
+                // Negate imaginary parts of twiddle for inverse FFT: [wr0,-wi0,wr1,-wi1]
+                if (inverse)
                 {
-                    const size_t idx0 = (k + j) * 2;
-                    const size_t idx0h = (k + j + halfM) * 2;
-
-                    // Load twiddles for butterfly j and j+1: [wr0,wi0,wr1,wi1]
-                    __m128 tw = _mm_loadu_ps(twiddles + j * 2);
-
-                    // Negate imaginary parts of twiddle for inverse FFT: [wr0,-wi0,wr1,-wi1]
-                    if (inverse)
-                    {
-                        const __m128 signMask = _mm_set_ps(-1.0f, 1.0f, -1.0f, 1.0f);
-                        tw = _mm_mul_ps(tw, signMask);
-                    }
-
-                    // Load t = [tr0,ti0,tr1,ti1] and u = [ur0,ui0,ur1,ui1]
-                    __m128 t = _mm_loadu_ps(data + idx0h);
-                    __m128 u = _mm_loadu_ps(data + idx0);
-
-                    // Complex multiply t * tw for both pairs using MOVELDUP/MOVEHDUP (SSE3)
-                    __m128 tr = _mm_moveldup_ps(t);                                   // [tr0,tr0,tr1,tr1]
-                    __m128 ti = _mm_movehdup_ps(t);                                   // [ti0,ti0,ti1,ti1]
-                    __m128 tw_swap = _mm_shuffle_ps(tw, tw, _MM_SHUFFLE(2, 3, 0, 1)); // [wi0,wr0,wi1,wr1]
-                    __m128 twt = _mm_addsub_ps(_mm_mul_ps(tr, tw), _mm_mul_ps(ti, tw_swap));
-
-                    // Butterfly: lo = u+twt, hi = u-twt
-                    _mm_storeu_ps(data + idx0, _mm_add_ps(u, twt));
-                    _mm_storeu_ps(data + idx0h, _mm_sub_ps(u, twt));
+                    const __m128 signMask = _mm_set_ps(-1.0f, 1.0f, -1.0f, 1.0f);
+                    tw = _mm_mul_ps(tw, signMask);
                 }
+
+                // Load t = [tr0,ti0,tr1,ti1] and u = [ur0,ui0,ur1,ui1]
+                __m128 t = _mm_loadu_ps(data + idx0h);
+                __m128 u = _mm_loadu_ps(data + idx0);
+
+                // Complex multiply t * tw for both pairs using MOVELDUP/MOVEHDUP (SSE3)
+                __m128 tr = _mm_moveldup_ps(t);                                   // [tr0,tr0,tr1,tr1]
+                __m128 ti = _mm_movehdup_ps(t);                                   // [ti0,ti0,ti1,ti1]
+                __m128 tw_swap = _mm_shuffle_ps(tw, tw, _MM_SHUFFLE(2, 3, 0, 1)); // [wi0,wr0,wi1,wr1]
+                __m128 twt = _mm_addsub_ps(_mm_mul_ps(tr, tw), _mm_mul_ps(ti, tw_swap));
+
+                // Butterfly: lo = u+twt, hi = u-twt
+                _mm_storeu_ps(data + idx0, _mm_add_ps(u, twt));
+                _mm_storeu_ps(data + idx0h, _mm_sub_ps(u, twt));
+            }
+
+#elif defined(GUITARFX_ARCH_ARM64)
+
+            // NEON: 4 butterflies per iteration, de-interleaved by vld2q into [re x4] and [im x4]
+            // so the twiddle multiply is plain fused multiply-adds. Needs halfM >= 4.
+            const float32x4_t sign = vdupq_n_f32(invSign);
+
+            for (; j + 3 < jEnd; j += 4)
+            {
+                const size_t idx = (k + j) * 2;
+                const size_t idxh = (k + j + halfM) * 2;
+
+                const float32x4x2_t w = vld2q_f32(twiddles + j * 2);
+                const float32x4_t wr = w.val[0];
+                const float32x4_t wi = vmulq_f32(w.val[1], sign);
+                const float32x4x2_t t = vld2q_f32(data + idxh);
+                float32x4x2_t u = vld2q_f32(data + idx);
+
+                const float32x4_t twr = vfmsq_f32(vmulq_f32(t.val[0], wr), t.val[1], wi);
+                const float32x4_t twi = vfmaq_f32(vmulq_f32(t.val[0], wi), t.val[1], wr);
+
+                float32x4x2_t h;
+                h.val[0] = vsubq_f32(u.val[0], twr);
+                h.val[1] = vsubq_f32(u.val[1], twi);
+                u.val[0] = vaddq_f32(u.val[0], twr);
+                u.val[1] = vaddq_f32(u.val[1], twi);
+                vst2q_f32(data + idx, u);
+                vst2q_f32(data + idxh, h);
+            }
+
+            // The second stage (halfM == 2): both butterflies of a group in one interleaved register.
+            static constexpr float kAlternate[4] = {-1.0f, 1.0f, -1.0f, 1.0f};
+            static constexpr float kConjugate[4] = {1.0f, -1.0f, 1.0f, -1.0f};
+
+            for (; j + 1 < jEnd; j += 2)
+            {
+                const size_t idx = (k + j) * 2;
+                const size_t idxh = (k + j + halfM) * 2;
+
+                float32x4_t tw = vld1q_f32(twiddles + j * 2); // [wr0, wi0, wr1, wi1]
+
+                if (inverse)
+                {
+                    tw = vmulq_f32(tw, vld1q_f32(kConjugate));
+                }
+
+                const float32x4_t t = vld1q_f32(data + idxh);
+                const float32x4_t u = vld1q_f32(data + idx);
+                const float32x4_t tr = vtrn1q_f32(t, t);    // [tr0, tr0, tr1, tr1]
+                const float32x4_t ti = vtrn2q_f32(t, t);    // [ti0, ti0, ti1, ti1]
+                const float32x4_t twSwap = vrev64q_f32(tw); // [wi0, wr0, wi1, wr1]
+
+                // [tr*wr - ti*wi, tr*wi + ti*wr] for both
+                const float32x4_t twt = vfmaq_f32(vmulq_f32(tr, tw), vmulq_f32(ti, vld1q_f32(kAlternate)), twSwap);
+                vst1q_f32(data + idx, vaddq_f32(u, twt));
+                vst1q_f32(data + idxh, vsubq_f32(u, twt));
+            }
 
 #endif
 
-                // Handle remaining butterfly (if halfM is odd)
-                for (; j < halfM; ++j)
-                {
-                    const size_t idx = (k + j) * 2;
-                    const size_t idxh = (k + j + halfM) * 2;
+            // The rest: every butterfly without SIMD, else an odd range end
+            for (; j < jEnd; ++j)
+            {
+                const size_t idx = (k + j) * 2;
+                const size_t idxh = (k + j + halfM) * 2;
 
-                    const float wr = twiddles[j * 2];
-                    const float wi = twiddles[j * 2 + 1] * invSign;
+                const float wr = twiddles[j * 2];
+                const float wi = twiddles[j * 2 + 1] * invSign;
 
-                    const float ur = data[idx];
-                    const float ui = data[idx + 1];
-                    const float tr = data[idxh];
-                    const float ti = data[idxh + 1];
+                const float ur = data[idx];
+                const float ui = data[idx + 1];
+                const float tr = data[idxh];
+                const float ti = data[idxh + 1];
 
-                    const float twr = tr * wr - ti * wi;
-                    const float twi = tr * wi + ti * wr;
+                const float twr = tr * wr - ti * wi;
+                const float twi = tr * wi + ti * wr;
 
-                    data[idx] = ur + twr;
-                    data[idx + 1] = ui + twi;
-                    data[idxh] = ur - twr;
-                    data[idxh + 1] = ui - twi;
-                }
+                data[idx] = ur + twr;
+                data[idx + 1] = ui + twi;
+                data[idxh] = ur - twr;
+                data[idxh + 1] = ui - twi;
             }
+        }
+    }
+
+    // The first stage's butterflies [begin, end): its twiddle is 1 both ways, so butterfly b is
+    // the sum and difference of points 2b and 2b + 1, with no multiply.
+    static void FirstStageRange(float* data, size_t begin, size_t end)
+    {
+        size_t b = begin;
+
+#if defined(GUITARFX_ARCH_X86)
+
+        for (; b + 1 < end; b += 2)
+        {
+            const __m128 a = _mm_loadu_ps(data + b * 4);     // [p0, p1]
+            const __m128 c = _mm_loadu_ps(data + b * 4 + 4); // [p2, p3]
+            const __m128 u = _mm_movelh_ps(a, c);            // [p0, p2]
+            const __m128 t = _mm_movehl_ps(c, a);            // [p1, p3]
+            const __m128 lo = _mm_add_ps(u, t);
+            const __m128 hi = _mm_sub_ps(u, t);
+            _mm_storeu_ps(data + b * 4, _mm_movelh_ps(lo, hi));
+            _mm_storeu_ps(data + b * 4 + 4, _mm_movehl_ps(hi, lo));
+        }
+
+#elif defined(GUITARFX_ARCH_ARM64)
+
+        for (; b + 1 < end; b += 2)
+        {
+            const float32x4_t a = vld1q_f32(data + b * 4);     // [p0, p1]
+            const float32x4_t c = vld1q_f32(data + b * 4 + 4); // [p2, p3]
+            const float32x4_t u = vcombine_f32(vget_low_f32(a), vget_low_f32(c));
+            const float32x4_t t = vcombine_f32(vget_high_f32(a), vget_high_f32(c));
+            const float32x4_t lo = vaddq_f32(u, t);
+            const float32x4_t hi = vsubq_f32(u, t);
+            vst1q_f32(data + b * 4, vcombine_f32(vget_low_f32(lo), vget_low_f32(hi)));
+            vst1q_f32(data + b * 4 + 4, vcombine_f32(vget_high_f32(lo), vget_high_f32(hi)));
+        }
+
+#endif
+
+        for (; b < end; ++b)
+        {
+            float* p = data + b * 4;
+            const float ur = p[0];
+            const float ui = p[1];
+            const float tr = p[2];
+            const float ti = p[3];
+            p[0] = ur + tr;
+            p[1] = ui + ti;
+            p[2] = ur - tr;
+            p[3] = ui - ti;
         }
     }
 

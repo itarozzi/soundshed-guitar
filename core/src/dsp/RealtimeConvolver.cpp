@@ -1,9 +1,10 @@
 #include "RealtimeConvolver.h"
 #include "FiniteCheck.h"
-#include "SimdFFT.h"
+#include "RealFFT.h"
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstring>
 
 namespace guitarfx
@@ -54,6 +55,20 @@ float SanitizeOutput(float sample)
 {
     return IsFinite(sample) ? std::clamp(sample, -100.0f, 100.0f) : 0.0f;
 }
+
+// The smallest tail partition for which the non-uniform engine spreads its stages' FFTs (see
+// BuildNonUniform). An IR with a shorter tail (up to 32,768 samples, so every cab IR) keeps the
+// layout it always had: its largest FFT is 1024 points, cheap enough to run at a boundary.
+// Spreading only the stages from 1024 samples on, and leaving a 512 stage at its boundary, cost
+// the same on average and left that stage's burst every 512 samples in the p90.
+constexpr size_t kSpreadMinTailPartition = 1024;
+
+// How much each spread stage's partition grows on the last: 16 takes the 256 first stage straight
+// to a tail of up to 4096. Fewer, longer stages trade FFTs for multiply-accumulates, which
+// vectorise better. Measured 2026-10-19 on 0.8-6 s IRs at 64-1024-sample blocks: doubling (the
+// boundary layout's growth) cost 10-20% more than the boundary layout on x64 and 20-25% more on a
+// Galaxy S21's A78; 16 costs 0-25% less than it on x64 and 0-23% less on the A78. 4 is between.
+constexpr size_t kSpreadStageGrowth = 16;
 } // namespace
 
 RealtimeConvolver::RealtimeConvolver() = default;
@@ -69,6 +84,7 @@ bool RealtimeConvolver::SetImpulse(const std::vector<float>& irSamples)
     mInitialized = false;
     mUseDirectConvolution = false;
     mIsNonUniform = false;
+    mSpread = false;
     mNonUniformStages.clear();
 
     if (irSamples.empty())
@@ -94,21 +110,25 @@ bool RealtimeConvolver::SetImpulse(const std::vector<float>& irSamples)
     return BuildNonUniform(irSamples);
 }
 
-bool RealtimeConvolver::BuildUniform(const std::vector<float>& irSamples, size_t partitionSize)
+bool RealtimeConvolver::BuildUniform(const std::vector<float>& irSamples, size_t partitionSize, bool spread)
 {
     mInitialized = false;
     mUseDirectConvolution = false;
     mIsNonUniform = false;
+    mSpread = false;
 
-    if (irSamples.empty() || partitionSize == 0)
+    // The real FFT needs at least 4 points.
+    if (irSamples.empty() || partitionSize < 2)
     {
         return false;
     }
 
     mPartitionSize = partitionSize;
 
-    // FFT size is 2x partition for linear convolution
+    // FFT size is 2x partition for linear convolution. The input and the IR are real, so each
+    // spectrum is half that many packed bins (RealFFT.h).
     mFFTSize = mPartitionSize * 2;
+    mNumBins = mFFTSize / 2;
 
     // Calculate partitions needed
     mNumPartitions = (irSamples.size() + mPartitionSize - 1) / mPartitionSize;
@@ -116,38 +136,30 @@ bool RealtimeConvolver::BuildUniform(const std::vector<float>& irSamples, size_t
     // Create FFT plan
     try
     {
-        mFFT = std::make_unique<SimdFFT>(mFFTSize);
+        mFFT = std::make_unique<RealFFT>(mFFTSize);
     }
     catch (...)
     {
         return false;
     }
 
-    // Allocate all working buffers ONCE
-    mFFTInputBuffer.resize(mFFTSize);
-    mFFTOutputBuffer.resize(mFFTSize);
-    mAccumulator.resize(mFFTSize);
+    mAccumulator.resize(mNumBins);
 
-    // Pre-compute FFT of each IR partition
+    // Pre-compute FFT of each IR partition: the partition, then as many zeros.
     mIRPartitionsFFT.resize(mNumPartitions);
+    std::vector<float> segment(mPartitionSize);
+    const std::vector<float> zeros(mPartitionSize, 0.0f);
 
     for (size_t p = 0; p < mNumPartitions; ++p)
     {
-        // Clear input buffer
-        std::fill(mFFTInputBuffer.begin(), mFFTInputBuffer.end(), std::complex<float>(0.0f, 0.0f));
-
-        // Copy IR partition into FIRST half
         const size_t irStart = p * mPartitionSize;
         const size_t irEnd = std::min(irStart + mPartitionSize, irSamples.size());
+        std::fill(segment.begin(), segment.end(), 0.0f);
+        std::copy(irSamples.begin() + static_cast<std::ptrdiff_t>(irStart),
+                  irSamples.begin() + static_cast<std::ptrdiff_t>(irEnd), segment.begin());
 
-        for (size_t i = irStart; i < irEnd; ++i)
-        {
-            mFFTInputBuffer[i - irStart] = std::complex<float>(irSamples[i], 0.0f);
-        }
-
-        // Compute and store FFT
-        mIRPartitionsFFT[p].resize(mFFTSize);
-        mFFT->Forward(mIRPartitionsFFT[p].data(), mFFTInputBuffer.data());
+        mIRPartitionsFFT[p].resize(mNumBins);
+        mFFT->Forward(mIRPartitionsFFT[p].data(), segment.data(), zeros.data());
     }
 
     // Allocate delay line for input FFTs
@@ -155,7 +167,7 @@ bool RealtimeConvolver::BuildUniform(const std::vector<float>& irSamples, size_t
 
     for (auto& fft : mInputFFTDelayLine)
     {
-        fft.assign(mFFTSize, std::complex<float>(0.0f, 0.0f));
+        fft.assign(mNumBins, std::complex<float>(0.0f, 0.0f));
     }
 
     mDelayLineIndex = 0;
@@ -174,6 +186,11 @@ bool RealtimeConvolver::BuildUniform(const std::vector<float>& irSamples, size_t
     std::fill(mAccumulator.begin(), mAccumulator.end(), std::complex<float>(0.0f, 0.0f));
     mPreAccumAnchor = 0;
     mPreAccumPartition = mNumPartitions;
+
+    if (spread && !InitSpread())
+    {
+        return false;
+    }
 
     mInitialized = true;
     return true;
@@ -195,6 +212,16 @@ bool RealtimeConvolver::BuildUniform(const std::vector<float>& irSamples, size_t
 // needs any delay, and the FIR plus all the stages is the full convolution with
 // no latency. Only the head could not be done this way, since it would need P == 0.
 //
+// P == off leaves a stage no slack: the block that closes at a boundary is wanted
+// from that same sample, so its forward and inverse FFTs run in one callback. With
+// a 4096-sample tail, every 4096 samples all the stages close together, and that
+// callback cost several times the median (2026-10, IR Reverb on a phone: p90 3-4x,
+// max 7x). So once the tail partition reaches kSpreadMinTailPartition, every stage
+// after the FIR is a spread engine instead: two partitions late, so it starts at
+// twice its partition (off == 2P), and running to twice the next stage's partition
+// so that one does too. A 3 s IR with a 4096 tail is then the FIR to 512, one
+// 256-sample stage of 30 partitions to 8192, and the tail from there.
+//
 // Until 2026-10 the head was an FFT stage at a base block of 64-256 samples
 // following the host block, and every other stage went through a shared delay
 // line of that length, so the engine ran that many samples late. The FIR costs
@@ -213,13 +240,13 @@ bool RealtimeConvolver::BuildNonUniform(const std::vector<float>& irSamples)
     // can only reach from underneath. Both are powers of two.
     const size_t maxPartition = TailPartitionForIR(n);
 
-    // Build a single-block uniform stage covering irSamples[off, off+len).
-    auto addStage = [&](size_t off, size_t len, size_t partition) -> bool {
+    // Build a uniform stage covering irSamples[off, off+len).
+    auto addStage = [&](size_t off, size_t len, size_t partition, bool spread) -> bool {
         auto stage = std::make_unique<RealtimeConvolver>();
         std::vector<float> slice(irSamples.begin() + static_cast<std::ptrdiff_t>(off),
                                  irSamples.begin() + static_cast<std::ptrdiff_t>(std::min(off + len, n)));
 
-        if (!stage->BuildUniform(slice, partition))
+        if (!stage->BuildUniform(slice, partition, spread))
         {
             return false;
         }
@@ -231,35 +258,53 @@ bool RealtimeConvolver::BuildNonUniform(const std::vector<float>& irSamples)
     // Head segment: the direct-form FIR, no latency.
     BuildFir(irSamples.data(), head);
 
-    // Geometrically growing segments until the partition reaches maxPartition.
+    const bool spread = maxPartition >= kSpreadMinTailPartition;
     size_t off = head;
 
-    while (off < n && off < maxPartition)
+    if (spread)
     {
-        const size_t partition = off; // P == off: the stage's own latency is its offset
+        // Spread segments, off == 2P, each running to twice the next one's partition so that
+        // one starts at off == 2P too, until the partition reaches maxPartition.
+        size_t partition = head / 2;
 
-        if (!addStage(off, partition, partition))
+        while (off < n && partition < maxPartition)
         {
-            return false;
-        }
+            const size_t nextPartition = std::min(partition * kSpreadStageGrowth, maxPartition);
 
-        off += partition;
+            if (!addStage(off, 2 * nextPartition - off, partition, true))
+            {
+                return false;
+            }
+
+            off = 2 * nextPartition;
+            partition = nextPartition;
+        }
+    }
+    else
+    {
+        // Geometrically growing segments until the partition reaches maxPartition.
+        while (off < n && off < maxPartition)
+        {
+            const size_t partition = off; // P == off: the stage's own latency is its offset
+
+            if (!addStage(off, partition, partition, false))
+            {
+                return false;
+            }
+
+            off += partition;
+        }
     }
 
     // Efficient tail: one multi-partition uniform engine for the remainder.
     if (off < n)
     {
-        // off == maxPartition here, so the tail engine partition is maxPartition and it
-        // needs no delay either.
-        std::vector<float> tail(irSamples.begin() + static_cast<std::ptrdiff_t>(off), irSamples.end());
-        auto stage = std::make_unique<RealtimeConvolver>();
-
-        if (!stage->BuildUniform(tail, maxPartition))
+        // off == maxPartition here, or 2 * maxPartition when spread, so the tail engine's own
+        // latency is its offset and it needs no delay either.
+        if (!addStage(off, n - off, maxPartition, spread))
         {
             return false;
         }
-
-        mNonUniformStages.push_back(std::move(stage));
     }
 
     // Aggregate reporting + scratch buffers.
@@ -380,8 +425,8 @@ void RealtimeConvolver::AccumulatePartitionsUpTo(size_t target)
         // Measured from the newest frame as of this block's start, partition p's frame
         // is (p - 1) slots older.
         const size_t delayIdx = (mPreAccumAnchor + mNumPartitions - (p - 1)) % mNumPartitions;
-        SimdFFT::ComplexMultiplyAccumulate(mAccumulator.data(), mInputFFTDelayLine[delayIdx].data(),
-                                           mIRPartitionsFFT[p].data(), mFFTSize);
+        RealFFT::MultiplyAccumulate(mAccumulator.data(), mInputFFTDelayLine[delayIdx].data(),
+                                    mIRPartitionsFFT[p].data(), mNumBins);
         ++mPreAccumPartition;
     }
 }
@@ -393,30 +438,21 @@ void RealtimeConvolver::ProcessBlock()
     // samples than it takes to walk the whole partition list.
     AccumulatePartitionsUpTo(mNumPartitions);
 
-    // Prepare FFT input: [previous samples | current samples]
-    // This is the correct overlap-save arrangement for linear convolution
-    for (size_t i = 0; i < mPartitionSize; ++i)
-    {
-        mFFTInputBuffer[i] = std::complex<float>(static_cast<float>(mPreviousInputBlock[i]), 0.0f);
-        mFFTInputBuffer[mPartitionSize + i] = std::complex<float>(static_cast<float>(mInputBuffer[i]), 0.0f);
-    }
+    // Forward FFT of [previous samples | current samples], the overlap-save frame, straight into
+    // the delay line. This is the slot the accumulation pass never reads, so the frame it
+    // replaces (the oldest) is already spent.
+    auto& currentSlot = mInputFFTDelayLine[mDelayLineIndex];
+    mFFT->Forward(currentSlot.data(), mPreviousInputBlock.data(), mInputBuffer.data());
 
     // Save current input for next block
     std::copy(mInputBuffer.begin(), mInputBuffer.end(), mPreviousInputBlock.begin());
 
-    // Forward FFT of input block
-    mFFT->Forward(mFFTOutputBuffer.data(), mFFTInputBuffer.data());
-
-    // Store in delay line. This is the slot the accumulation pass never reads, so the
-    // frame it replaces (the oldest) is already spent.
-    auto& currentSlot = mInputFFTDelayLine[mDelayLineIndex];
-    std::copy(mFFTOutputBuffer.begin(), mFFTOutputBuffer.end(), currentSlot.begin());
-
     // Partition 0 is the only one that needs the frame that just closed.
-    SimdFFT::ComplexMultiplyAccumulate(mAccumulator.data(), currentSlot.data(), mIRPartitionsFFT[0].data(), mFFTSize);
+    RealFFT::MultiplyAccumulate(mAccumulator.data(), currentSlot.data(), mIRPartitionsFFT[0].data(), mNumBins);
 
     // Inverse FFT
-    mFFT->Inverse(mFFTInputBuffer.data(), mAccumulator.data());
+    mFFT->Inverse(mAccumulator.data());
+    const float* result = mFFT->GetResult();
 
     // Overlap-Save output extraction:
     // The first N samples contain circular convolution artifacts - DISCARD them
@@ -426,7 +462,7 @@ void RealtimeConvolver::ProcessBlock()
     for (size_t i = 0; i < mPartitionSize; ++i)
     {
         // Keep only the SECOND half of the IFFT output (valid linear convolution)
-        float sample = mFFTInputBuffer[mPartitionSize + i].real() * scale;
+        float sample = result[mPartitionSize + i] * scale;
 
         // Safety: clamp to reasonable audio range to prevent numeric instability
         if (!IsFinite(sample))
@@ -443,7 +479,7 @@ void RealtimeConvolver::ProcessBlock()
 
     // Open the next block's accumulation against the frame just stored, and hand the
     // write cursor on to the slot that frame will displace.
-    SimdFFT::ClearBuffer(mAccumulator.data(), mFFTSize);
+    SimdFFT::ClearBuffer(mAccumulator.data(), mNumBins);
     mPreAccumAnchor = mDelayLineIndex;
     mPreAccumPartition = 1;
     mDelayLineIndex = (mDelayLineIndex + 1) % mNumPartitions;
@@ -490,7 +526,14 @@ void RealtimeConvolver::Process(const float* input, float* output, int numSample
         // If output buffer exhausted, process next block
         if (mOutputBufferReadPos >= mPartitionSize)
         {
-            ProcessBlock();
+            if (mSpread)
+            {
+                ProcessSpreadBoundary();
+            }
+            else
+            {
+                ProcessBlock();
+            }
         }
 
         // Output available samples
@@ -507,7 +550,13 @@ void RealtimeConvolver::Process(const float* input, float* output, int numSample
 
         // Keep the accumulation as far through the partition list as the block is
         // through its samples, so the cost lands evenly instead of all at the boundary.
-        if (mNumPartitions > 1)
+        if (mSpread)
+        {
+            // 64-bit: a long IR's job cost times a partition overflows a 32-bit size_t.
+            RunSpreadJobTo(
+                static_cast<size_t>(static_cast<std::uint64_t>(mJobCost) * mOutputBufferReadPos / mPartitionSize));
+        }
+        else if (mNumPartitions > 1)
         {
             AccumulatePartitionsUpTo(1 + ((mNumPartitions - 1) * mOutputBufferReadPos) / mPartitionSize);
         }
@@ -601,5 +650,11 @@ void RealtimeConvolver::Reset()
     std::fill(mPreviousInputBlock.begin(), mPreviousInputBlock.end(), 0.0f);
     mInputBufferPos = 0;
     mOutputBufferReadPos = mPartitionSize;
+
+    // Drop the block in flight too, so the first boundary after the reset plays silence.
+    if (mSpread)
+    {
+        ResetSpread();
+    }
 }
 } // namespace guitarfx
