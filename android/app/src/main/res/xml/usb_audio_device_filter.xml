@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  USB devices that offer to open the app when attached (MainActivity's
+  USB_DEVICE_ATTACHED filter). Class 1 is USB Audio; Android matches it against
+  the interfaces too, so composite interfaces (device class 0 or 239) qualify.
+-->
+<resources>
+    <usb-device class="1" />
+</resources>

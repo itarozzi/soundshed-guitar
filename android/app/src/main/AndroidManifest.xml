@@ -55,6 +55,18 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="soundshed" />
             </intent-filter>
+
+            <!--
+              Offers the app when a USB audio interface is plugged in, beside any
+              other app that claims one. Audio flows through AAudio either way;
+              this only puts us in the "Open with" choice.
+            -->
+            <intent-filter>
+                <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
+                android:resource="@xml/usb_audio_device_filter" />
         </activity>
     </application>
 </manifest>

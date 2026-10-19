@@ -70,7 +70,7 @@ android {
         }
 
         // The launcher name, so the two installs can be told apart side by side.
-        manifestPlaceholders["appLabel"] = if (nanoProduct) "Soundshed Guitar Nano" else "@string/app_name"
+        manifestPlaceholders["appLabel"] = if (nanoProduct) "Soundshed Nano" else "@string/app_name"
 
         // Nano lays itself out for portrait as well (a tab bar and slider rows), so it turns
         // with the phone, following the user's auto-rotate setting. Soundshed Guitar's web UI
