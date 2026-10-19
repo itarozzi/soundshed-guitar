@@ -348,7 +348,11 @@
   border-radius: inherit;
   transform-origin: left center;
   transform: scaleX(var(--meter-fill-scale, 0));
-  transition: transform 0.12s ease-out;
+  /* No easing: the value moves 20+ times a second, so a transition restarted on every
+     frame and kept the page animating between updates (a third of the main thread's
+     time while playing). Like the VU segments, it steps at the telemetry rate. Its own
+     layer means each step is a compositor transform, not a repaint of the rail. */
+  will-change: transform;
   background: linear-gradient(90deg, rgba(72, 222, 170, 0.55) 0%, rgba(255, 94, 94, 0.92) 100%);
 }
 

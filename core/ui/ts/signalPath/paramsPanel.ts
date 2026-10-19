@@ -7,6 +7,6 @@
  */
 
 export { showNodeParamsPanel } from "./paramsPanel/panel.js";
-export { buildDefaultParamControlsHtml, formatParamLabel, isToggleParam } from "./paramsPanel/paramControls.js";
+export { buildDefaultParamControlsHtml, formatParamLabel, isToggleParam, showEngineParamChange } from "./paramsPanel/paramControls.js";
 export { applySpatialPositionUpdate } from "./paramsPanel/spatial.js";
 export { collapseSplitTitle } from "./paramsPanel/splitBranches.js";

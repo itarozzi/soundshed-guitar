@@ -57,6 +57,7 @@ import { openReplaceChooser, syncReplaceChooser } from "./signalPath/replaceChoo
 export { applySignalPathNodeBypassState, isToggleableSignalPathNode } from "./signalPath/bypass.js";
 export { applySpatialPositionUpdate, buildDefaultParamControlsHtml } from "./signalPath/paramsPanel.js";
 export { closeEffectPresetsFlyout, refreshEffectPresetsFlyout } from "./signalPath/effectPresets.js";
+export { showEngineNodeParamChange } from "./signalPath/engineParamChange.js";
 export { initSignalPathResize } from "./signalPath/layout.js";
 export { getSignalPathScrollHeight, scheduleSignalPathLayoutAdapt, setSignalPathScrollHeight, updateSignalPathLayoutAdapt } from "./signalPath/layout.js";
 export { handleHostedPluginResourceLoadCompleted, handleHostedPluginResourceLoadFailed, handleNodeResourceBrowseCancelled } from "./signalPath/hostedPlugins.js";

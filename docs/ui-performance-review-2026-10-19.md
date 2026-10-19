@@ -333,3 +333,73 @@ windows playing the muted demo loop. Same window, profile and preset. Mean of si
 Renderer plus GPU while playing went from ~49% of a core to ~22%. The GPU process ran
 hotter on these fresh launches than in the first session's measurements (~14.5%), but
 the before/after runs alternated, so the comparison holds.
+
+## Second pass 2026-10-19: what was left, measured
+
+Measured on a Release build with items 1–4 in (the items 3–4 branch's Standalone), same
+method: interleaved fresh launches, demo loop muted.
+
+**Remaining playing cost** was renderer ~10%, GPU ~12%, main thread ~5.5%. The compositor
+still presented ~58 frames/s although telemetry changes the page ~26 times a second.
+Live CSS A/B:
+- the selected-node meter fill's `transform` transition (on `.default-effect-shell-meter::after`)
+  restarted on every update and kept the page animating between them: removing it took
+  the main thread from ~5.8% to ~3.9% and style recalc from 1.1% to 0.5%;
+- the VU segments' glow (`box-shadow` on `.vu-seg.active`): no clear effect, left alone;
+- the "Animate signal flow" option (on in this profile, off by default): not measured
+  cleanly (the override missed its `::before`), left alone.
+
+Snapping the fill without easing raised GPU time (11.0% → 14.2%), because the fill lost
+its compositor layer and was repainted on every update. `will-change: transform` on it
+brought GPU back down (12.6% → 10.0% over three interleaved pairs).
+
+**Memory while minimised:** simulated critical memory pressure (CDP
+`Memory.simulatePressureNotification`) freed nothing; a forced JS purge freed ~15 MB of
+renderer memory (98 → 83 MB) and nothing in the GPU process (198 MB). That is ~4% of what
+a minimised window holds, and it would need a JUCE patch to reach
+`MemoryUsageTargetLevel`, so it was not done. The forced purge also left the page with no
+JavaScript context, so purging is no option either.
+
+**MIDI and host automation** (`signalPathNodeParamUpdated`, up to 30 Hz per parameter
+from `PluginControllerPresetEdits.cpp`) rebuilt the selected node's whole params panel on
+every message, including for changes to other nodes and echoes of an unchanged value.
+Replaying 30 Hz updates on a 7-knob NAM panel, the page went from 1% to 15–16% main
+thread, 25 layouts/s.
+
+### Done
+
+- `css/signal-path/params-panel.css`: the meter fill steps without easing, on its own
+  layer (`will-change: transform`).
+- `ts/signalPath/engineParamChange.ts` (new) and `messages/signalPathHandlers.ts`: an
+  engine-side change draws nothing for a node that is not selected or a value the UI
+  already had; otherwise `showEngineParamChange` (`paramsPanel/paramControls.ts`) moves
+  that knob in place and refreshes the node's visualisations. A change no knob can show
+  alone (a toggle, menu or slider; a blend parameter; a pitch shift range setting)
+  rebuilds the panel at most every 100 ms. `tests/engineParamChange.test.ts` covers the four
+  cases. A side effect: automation no longer replaces a knob the user is dragging.
+
+Before is the items 1–4 build, after adds these; two interleaved rounds each:
+
+| Playing (6 windows) | Before | After |
+| --- | --- | --- |
+| Renderer process | 9.2% | 7.0% |
+| GPU process | 11.3% | 8.0% |
+| Renderer main thread | 5.4% | 3.6% |
+| Style recalcs/s | 42 | 23 |
+
+| Automation, 30 Hz on one knob | Before | After |
+| --- | --- | --- |
+| Handler time per message (median) | 1.8 ms | 0.2 ms |
+| Renderer main thread | 16.3% | 6.6% |
+| Renderer process | 26.9% | 11.8% |
+| GPU process | 21.5% | 11.8% |
+
+What remains under automation is the knob's own display update (~27 layouts/s), and while
+playing the 26 Hz telemetry redraw of the VU meters and the opt-in signal flow animation.
+Neither has a measured cause above the 10% bar yet.
+
+### Still open from the list, not measured
+
+Long lists (the resource browser's Library tab rebuilt per search keypress, unbounded Tone
+Sharing paging and thumbnail object URLs), fonts and unused images (package size), and the
+per-view items in CPU section 5. None was measured in this pass.

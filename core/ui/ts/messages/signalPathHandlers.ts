@@ -8,7 +8,7 @@ import { appendLog } from "../logging.js";
 import { showNotification } from "../notifications.js";
 import { renderActivePreset } from "../presets.js";
 import { setNodeParam } from "../presetV2.js";
-import { applySpatialPositionUpdate, refreshSelectedNodeParams, renderSignalPathBar } from "../signalPath.js";
+import { applySpatialPositionUpdate, refreshSelectedNodeParams, renderSignalPathBar, showEngineNodeParamChange } from "../signalPath.js";
 import { shouldMarkSignalPathNodeConfigUpdateDirty } from "../signalPathConfigUpdates.js";
 import { getActivePresetForRender, setActivePresetDraft, setPresetDirty, uiState } from "../state.js";
 import type { GlobalSignalChainConfig, Preset } from "../types.js";
@@ -124,14 +124,13 @@ export function onSignalPathNodeParamUpdated(payload: IncomingPayload): void {
   const update = payload as { nodeId?: string; key?: string; value?: number };
   if (typeof update.nodeId === "string" && typeof update.key === "string" && typeof update.value === "number") {
     const preset = getActivePresetForRender();
-    if (preset) {
-      try {
-        setNodeParam(preset, update.nodeId, update.key, update.value);
-      } catch {
-        // Node not in the active preset draft — ignore silently.
-      }
+    const node = preset?.graph?.nodes.find((n) => n.id === update.nodeId);
+    if (!preset || !node) {
+      return; // Not in the active preset draft.
     }
-    refreshSelectedNodeParams();
+    const changed = node.params[update.key] !== update.value;
+    setNodeParam(preset, update.nodeId, update.key, update.value);
+    showEngineNodeParamChange(node, update.key, update.value, changed);
   }
 }
 

@@ -355,3 +355,24 @@ export function bindNodeParamControls(node: GraphNode): void {
     updateBlendMatchSummary(nodeParamsPanelElement, node, blendState);
   }
 }
+
+/**
+ * Shows a value the engine changed (MIDI or host automation, up to 30 times a second) on the
+ * open panel's knob, without rebuilding the panel. `node.params` must already hold it.
+ * Returns false when the knob cannot show it alone and the caller should rebuild: no knob
+ * for it (a toggle, menu or slider), a blend parameter (its knob shows a mapped value, and
+ * the match indicators follow it), or a pitch shift range setting (other knobs follow it).
+ */
+export function showEngineParamChange(node: GraphNode, key: string, value: number): boolean {
+  const knob = nodeParamKnobs.get(key);
+  const element = Array.from(nodeParamsPanelElement?.querySelectorAll<HTMLElement>(".node-param-knob") ?? [])
+    .find((candidate) => candidate.dataset.paramKey === key && candidate.dataset.nodeId === node.id);
+  if (!knob || !element || element.dataset.blendParam === "true"
+    || (isPitchShiftType(node.type) && isPitchShiftRangeSetting(key))) {
+    return false;
+  }
+
+  knob.setValue(value);
+  refreshNodeVisualizations(node);
+  return true;
+}

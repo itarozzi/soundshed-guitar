@@ -114,7 +114,7 @@ export function updateSelectedNodePeakMeter(): void {
     : {
       inactive: false,
       clipped: metrics.clipped || metrics.peakDbfs >= -0.3,
-      // Hundredths: the fill eases between values anyway, and finer steps are sub-pixel.
+      // Hundredths: finer steps are sub-pixel on a rail this size.
       scale: normalizePeakDbfsForShellMeter(metrics.peakDbfs).toFixed(2),
     };
 
