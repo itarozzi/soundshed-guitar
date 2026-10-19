@@ -14,6 +14,8 @@
  *    rather than done in one burst at the block boundary, still completes when
  *    the host feeds irregular chunk sizes.
  *  - Processing in place (output buffer == input buffer) gives the same output.
+ *  - A long IR's spread stages, which compute each block over the next block's
+ *    samples, finish every block in time under ragged chunks and reset cleanly.
  */
 
 #include <algorithm>
@@ -275,16 +277,18 @@ bool TestRaggedBlockSizesMatchReference()
 
 // With no latency, the response to an impulse is the IR itself from the very first sample. IR
 // lengths sit either side of each place the layout changes: the FIR alone (up to 256), the FIR
-// plus one 256 tail partition, growing stages, and a 512-tap FIR with a 4096 tail. Odd block
-// sizes put every partition boundary mid-call, and a second impulse well into the stream checks
-// the alignment does not depend on where the blocks fall.
+// plus one 256 tail partition, growing stages, and from 32,769 the spread stages (a 2048 tail at
+// 70,000, a 4096 tail at 140,000). Odd block sizes put every partition boundary mid-call, and a
+// second impulse well into the stream checks the alignment does not depend on where the blocks
+// fall.
 bool TestZeroLatencyImpulseIsTheIR()
 {
     std::cout << "Test: zero-latency impulse response is the IR... ";
 
     double worst = 0.0;
 
-    for (const std::size_t length : std::vector<std::size_t>{1, 100, 256, 257, 480, 2064, 8160, 24000, 70000})
+    for (const std::size_t length :
+         std::vector<std::size_t>{1, 100, 256, 257, 480, 2064, 8160, 24000, 32768, 32769, 70000, 140000})
     {
         const std::vector<float> ir = MakeIR(length);
         const std::size_t secondAt = length + 1237; // after the first response has died away
@@ -411,6 +415,76 @@ bool TestResetClearsState()
     std::cout << "OK\n";
     return true;
 }
+
+// A long IR's stages compute each block over the samples of the next (the spread engine), a
+// slice per call in proportion to how far that block has filled. Ragged chunks, from one sample
+// to more than a partition, must still have every block finished when it is due, and a Reset()
+// with a block half computed must leave nothing of it behind.
+bool TestSpreadStagesRaggedAndReset()
+{
+    std::cout << "Test: spread stages under ragged chunks and a mid-block reset... ";
+
+    const std::size_t length = 70000;
+    const std::vector<float> ir = MakeIR(length);
+    const std::size_t secondAt = length + 1237;
+    std::vector<float> input(secondAt + length + 300, 0.0f);
+    input[0] = 1.0f;
+    input[secondAt] = -0.5f;
+
+    guitarfx::RealtimeConvolver conv;
+
+    if (!conv.SetImpulse(ir))
+    {
+        std::cout << "FAILED (SetImpulse returned false)\n";
+        return false;
+    }
+
+    const std::vector<double> got = RunConvolverRaggedly(conv, input, 2718u);
+    double err = 0.0;
+
+    for (std::size_t n = 0; n < got.size(); ++n)
+    {
+        double expected = n < length ? static_cast<double>(ir[n]) : 0.0;
+
+        if (n >= secondAt && n - secondAt < length)
+        {
+            expected += -0.5 * static_cast<double>(ir[n - secondAt]);
+        }
+
+        err = std::max(err, std::abs(got[n] - expected));
+    }
+
+    if (!(err < 1e-5))
+    {
+        std::cout << "FAILED (ragged: worst error " << err << ")\n";
+        return false;
+    }
+
+    // Stop 1000 samples in, mid-block for every stage, with noise in flight; after the reset the
+    // impulse run must match a fresh convolver's.
+    guitarfx::RealtimeConvolver fresh;
+    fresh.SetImpulse(ir);
+    const std::vector<double> expected = RunConvolver(fresh, input, 96);
+
+    RunConvolver(conv, MakeNoise(1000, 99u), 96);
+    conv.Reset();
+    const std::vector<double> afterReset = RunConvolver(conv, input, 96);
+    double resetErr = 0.0;
+
+    for (std::size_t n = 0; n < expected.size(); ++n)
+    {
+        resetErr = std::max(resetErr, std::abs(afterReset[n] - expected[n]));
+    }
+
+    if (resetErr != 0.0)
+    {
+        std::cout << "FAILED (after reset: differs from a fresh run by " << resetErr << ")\n";
+        return false;
+    }
+
+    std::cout << "OK (worst error " << err << ")\n";
+    return true;
+}
 } // anonymous namespace
 
 int main()
@@ -438,6 +512,7 @@ int main()
     runTest(TestRaggedBlockSizesMatchReference);
     runTest(TestInPlaceMatchesOutOfPlace);
     runTest(TestResetClearsState);
+    runTest(TestSpreadStagesRaggedAndReset);
 
     std::cout << "\n================================================\n";
     std::cout << "Results: " << passed << "/" << (passed + failed) << " tests passed.\n";

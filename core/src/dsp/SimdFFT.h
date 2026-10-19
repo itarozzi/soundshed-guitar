@@ -14,6 +14,7 @@
  * - Aligned memory allocations
  */
 
+#include <algorithm>
 #include <vector>
 #include <complex>
 #include <cmath>
@@ -168,6 +169,39 @@ class SimdFFT
         {
             output[i] = std::complex<float>(mWorkBuffer[i * 2], mWorkBuffer[i * 2 + 1]);
         }
+    }
+
+    // --- Stepped transform ---
+    // One transform taken a slice at a time, so its cost can be spread over several audio
+    // callbacks: LoadBitReversed over [0, size), then RunButterflies over every stage from 1 to
+    // GetNumStages() in order, each over [0, size / 2), then read GetResult(). The arithmetic is
+    // Forward()/Inverse()'s exactly (unscaled), as long as butterfly ranges start and end on even
+    // indices. Shares the work buffer with Forward()/Inverse(), so one transform at a time.
+
+    void LoadBitReversed(const std::complex<float>* input, size_t begin, size_t end) const
+    {
+        for (size_t i = begin; i < end; ++i)
+        {
+            const size_t ri = mBitReversed[i];
+            mWorkBuffer[i * 2] = input[ri].real();
+            mWorkBuffer[i * 2 + 1] = input[ri].imag();
+        }
+    }
+
+    void RunButterflies(size_t stage, size_t begin, size_t end, bool inverse) const
+    {
+        ButterflyRange(mWorkBuffer, stage, begin, end, inverse);
+    }
+
+    /// The transform's output, valid once the last stage has run.
+    [[nodiscard]] const std::complex<float>* GetResult() const noexcept
+    {
+        return reinterpret_cast<const std::complex<float>*>(mWorkBuffer);
+    }
+
+    [[nodiscard]] size_t GetNumStages() const noexcept
+    {
+        return mLog2Size;
     }
 
     /**
@@ -359,75 +393,87 @@ class SimdFFT
         // Cooley-Tukey iterative FFT with SIMD butterflies (float/SSE3)
         for (size_t stage = 1; stage <= mLog2Size; ++stage)
         {
-            const size_t m = size_t{1} << stage;
-            const size_t halfM = m >> 1;
-            const float* twiddles = mTwiddleBuffers[stage - 1];
-            const float invSign = inverse ? -1.0f : 1.0f;
+            ButterflyRange(data, stage, 0, mSize / 2, inverse);
+        }
+    }
 
-            for (size_t k = 0; k < mSize; k += m)
-            {
-                // SIMD butterfly processing
-                size_t j = 0;
+    // Butterflies [begin, end) of one stage, numbered in the order FFTCore runs them: group by
+    // group (each m = 2^stage points wide), and within a group by twiddle index j.
+    void ButterflyRange(float* data, size_t stage, size_t begin, size_t end, bool inverse) const
+    {
+        const size_t m = size_t{1} << stage;
+        const size_t halfM = m >> 1;
+        const float* twiddles = mTwiddleBuffers[stage - 1];
+        const float invSign = inverse ? -1.0f : 1.0f;
+
+        // Butterfly b is twiddle j = b % halfM of the group starting at point k = (b / halfM) * m.
+        size_t k = (begin >> (stage - 1)) << stage;
+        size_t jStart = begin & (halfM - 1);
+
+        for (size_t b = begin; b < end; k += m, jStart = 0)
+        {
+            size_t j = jStart;
+            const size_t jEnd = std::min(halfM, j + (end - b));
+            b += jEnd - j;
 
 #if defined(GUITARFX_ARCH_X86)
 
-                // SSE3: process 2 butterflies per iteration using one __m128 per pair.
-                // idx0 and idx1=idx0+2 are adjacent; idx0h and idx1h=idx0h+2 are adjacent,
-                // so we can load/store 2 complex floats in a single 128-bit op.
-                for (; j + 1 < halfM; j += 2)
+            // SSE3: process 2 butterflies per iteration using one __m128 per pair.
+            // idx0 and idx1=idx0+2 are adjacent; idx0h and idx1h=idx0h+2 are adjacent,
+            // so we can load/store 2 complex floats in a single 128-bit op.
+            for (; j + 1 < jEnd; j += 2)
+            {
+                const size_t idx0 = (k + j) * 2;
+                const size_t idx0h = (k + j + halfM) * 2;
+
+                // Load twiddles for butterfly j and j+1: [wr0,wi0,wr1,wi1]
+                __m128 tw = _mm_loadu_ps(twiddles + j * 2);
+
+                // Negate imaginary parts of twiddle for inverse FFT: [wr0,-wi0,wr1,-wi1]
+                if (inverse)
                 {
-                    const size_t idx0 = (k + j) * 2;
-                    const size_t idx0h = (k + j + halfM) * 2;
-
-                    // Load twiddles for butterfly j and j+1: [wr0,wi0,wr1,wi1]
-                    __m128 tw = _mm_loadu_ps(twiddles + j * 2);
-
-                    // Negate imaginary parts of twiddle for inverse FFT: [wr0,-wi0,wr1,-wi1]
-                    if (inverse)
-                    {
-                        const __m128 signMask = _mm_set_ps(-1.0f, 1.0f, -1.0f, 1.0f);
-                        tw = _mm_mul_ps(tw, signMask);
-                    }
-
-                    // Load t = [tr0,ti0,tr1,ti1] and u = [ur0,ui0,ur1,ui1]
-                    __m128 t = _mm_loadu_ps(data + idx0h);
-                    __m128 u = _mm_loadu_ps(data + idx0);
-
-                    // Complex multiply t * tw for both pairs using MOVELDUP/MOVEHDUP (SSE3)
-                    __m128 tr = _mm_moveldup_ps(t);                                   // [tr0,tr0,tr1,tr1]
-                    __m128 ti = _mm_movehdup_ps(t);                                   // [ti0,ti0,ti1,ti1]
-                    __m128 tw_swap = _mm_shuffle_ps(tw, tw, _MM_SHUFFLE(2, 3, 0, 1)); // [wi0,wr0,wi1,wr1]
-                    __m128 twt = _mm_addsub_ps(_mm_mul_ps(tr, tw), _mm_mul_ps(ti, tw_swap));
-
-                    // Butterfly: lo = u+twt, hi = u-twt
-                    _mm_storeu_ps(data + idx0, _mm_add_ps(u, twt));
-                    _mm_storeu_ps(data + idx0h, _mm_sub_ps(u, twt));
+                    const __m128 signMask = _mm_set_ps(-1.0f, 1.0f, -1.0f, 1.0f);
+                    tw = _mm_mul_ps(tw, signMask);
                 }
+
+                // Load t = [tr0,ti0,tr1,ti1] and u = [ur0,ui0,ur1,ui1]
+                __m128 t = _mm_loadu_ps(data + idx0h);
+                __m128 u = _mm_loadu_ps(data + idx0);
+
+                // Complex multiply t * tw for both pairs using MOVELDUP/MOVEHDUP (SSE3)
+                __m128 tr = _mm_moveldup_ps(t);                                   // [tr0,tr0,tr1,tr1]
+                __m128 ti = _mm_movehdup_ps(t);                                   // [ti0,ti0,ti1,ti1]
+                __m128 tw_swap = _mm_shuffle_ps(tw, tw, _MM_SHUFFLE(2, 3, 0, 1)); // [wi0,wr0,wi1,wr1]
+                __m128 twt = _mm_addsub_ps(_mm_mul_ps(tr, tw), _mm_mul_ps(ti, tw_swap));
+
+                // Butterfly: lo = u+twt, hi = u-twt
+                _mm_storeu_ps(data + idx0, _mm_add_ps(u, twt));
+                _mm_storeu_ps(data + idx0h, _mm_sub_ps(u, twt));
+            }
 
 #endif
 
-                // Handle remaining butterfly (if halfM is odd)
-                for (; j < halfM; ++j)
-                {
-                    const size_t idx = (k + j) * 2;
-                    const size_t idxh = (k + j + halfM) * 2;
+            // The rest: every butterfly without SSE, else the first stage (halfM == 1) or an odd range end
+            for (; j < jEnd; ++j)
+            {
+                const size_t idx = (k + j) * 2;
+                const size_t idxh = (k + j + halfM) * 2;
 
-                    const float wr = twiddles[j * 2];
-                    const float wi = twiddles[j * 2 + 1] * invSign;
+                const float wr = twiddles[j * 2];
+                const float wi = twiddles[j * 2 + 1] * invSign;
 
-                    const float ur = data[idx];
-                    const float ui = data[idx + 1];
-                    const float tr = data[idxh];
-                    const float ti = data[idxh + 1];
+                const float ur = data[idx];
+                const float ui = data[idx + 1];
+                const float tr = data[idxh];
+                const float ti = data[idxh + 1];
 
-                    const float twr = tr * wr - ti * wi;
-                    const float twi = tr * wi + ti * wr;
+                const float twr = tr * wr - ti * wi;
+                const float twi = tr * wi + ti * wr;
 
-                    data[idx] = ur + twr;
-                    data[idx + 1] = ui + twi;
-                    data[idxh] = ur - twr;
-                    data[idxh + 1] = ui - twi;
-                }
+                data[idx] = ur + twr;
+                data[idx + 1] = ui + twi;
+                data[idxh] = ur - twr;
+                data[idxh + 1] = ui - twi;
             }
         }
     }

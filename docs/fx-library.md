@@ -1219,6 +1219,15 @@ cost 1.8-3.7x the CPU of the zero-latency convolver at every block up to 512, so
 was retired with the IR Cabinet's. A preset or MIDI binding that still sets `lowLatency` is
 ignored.
 
+**Even cost per block.** An IR over 32,768 samples (0.68 s at 48 kHz) runs its FFT stages spread:
+each stage computes a block's output over the samples of the next block, instead of doing both
+FFTs in the callback where its partition closes. Until 2026-10-19 every stage closed together every
+4096 samples, and that callback cost 5-10x the median; on a Galaxy S21's big cores the reverb was
+the main source of the app's DSP load peaks. Spread, a 3 s IR at 96-sample blocks has a p99 within 1.2x
+of its median (it was 40x), at the same average CPU or less, with the same output to float
+rounding (docs/plans/zero-latency-ir-cab.md, *Per-callback cost of a long IR*). The cab's IRs are
+shorter than that and keep the layout they had.
+
 ### Algorithmic Reverbs
 Room, chamber, and advanced reverb share a common algorithmic engine. Spring and ambient use dedicated processors because their topology and voicing diverge more strongly from the shared room/chamber design:
 

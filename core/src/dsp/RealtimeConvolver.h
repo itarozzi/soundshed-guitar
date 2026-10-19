@@ -24,6 +24,9 @@ namespace guitarfx
  * Each FFT stage spreads a block's partition multiplies across the samples of
  * that block rather than doing them all at the block boundary, so per-callback
  * cost stays flat even when the host block is much smaller than the partition.
+ * A long IR's larger stages start at twice their partition, which leaves them a
+ * partition of slack, and spend it spreading their FFTs too: each one computes a
+ * block's output over the samples of the block after it.
  *
  * Until 2026-10 a Low Latency switch could run the whole IR as one uniform engine
  * instead, 256 to 2048 samples late. It saved little CPU on short IRs and cost more
@@ -87,7 +90,18 @@ class RealtimeConvolver
 
     // Builds a uniformly-partitioned overlap-save engine with an explicit partition size (power
     // of two), a partition late. Each FFT stage of the non-uniform engine is one of these.
-    bool BuildUniform(const std::vector<float>& irSamples, size_t partitionSize);
+    // `spread` makes it two partitions late, and computes each block's output over the samples
+    // of the next block instead of all at once at its boundary.
+    bool BuildUniform(const std::vector<float>& irSamples, size_t partitionSize, bool spread = false);
+
+    // The spread engine (RealtimeConvolverSpread.cpp): at each boundary it finishes the block in
+    // flight, plays it, and starts on the block that just closed; RunSpreadJobTo() moves that
+    // work on as samples arrive. InitSpread() finishes BuildUniform for it.
+    bool InitSpread();
+    void ResetSpread();
+    void ProcessSpreadBoundary();
+    void RunSpreadJobTo(size_t target);
+    void RunSpreadPhase(size_t phase, size_t begin, size_t end);
 
     // Builds and processes the zero-latency non-uniform (Gardner-style) engine.
     bool BuildNonUniform(const std::vector<float>& irSamples);
@@ -133,6 +147,20 @@ class RealtimeConvolver
     // is the next IR partition still to be folded in.
     size_t mPreAccumAnchor = 0;
     size_t mPreAccumPartition = 0;
+
+    // Spread engine (BuildUniform with `spread`). The block in flight is the frame
+    // [mPreviousInputBlock | mSpreadCurrentBlock], stored in delay-line slot mJobSlot; its output
+    // goes to mSpreadOutput, which becomes mOutputBuffer at the next boundary. mJobPhase and
+    // mJobPos say how far through its phases (see RealtimeConvolver.cpp) the work is, and
+    // mJobDone how many of its mJobCost cost units that is.
+    bool mSpread = false;
+    std::vector<float> mSpreadCurrentBlock;
+    std::vector<float> mSpreadOutput;
+    size_t mJobSlot = 0;
+    size_t mJobPhase = 0;
+    size_t mJobPos = 0;
+    size_t mJobDone = 0;
+    size_t mJobCost = 0;
 
     // FFT plan
     std::unique_ptr<SimdFFT> mFFT;

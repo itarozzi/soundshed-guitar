@@ -227,3 +227,48 @@ adventurekid, Voxengo, EMT-140 and a few others):
   the multiplies stay.
 - **The real-FFT follow-up (step 5) pays most here.** A long reverb IR's cost is mostly FFT
   stages; a cab IR's is mostly the FIR head.
+
+## Per-callback cost of a long IR (2026-10-19)
+
+The layout above makes every stage's partition equal its offset (P == off), so a stage has no
+slack: the block that closes at a boundary is wanted from that sample on, and its forward and
+inverse FFTs run in that callback. The multiplies were already spread over the block; the FFTs
+were not. With a 4096 tail every stage closes together every 4096 samples. On a Galaxy S21's A78
+cores (release APK, 96-frame blocks, "Convoluted Acoustic Sim") the IR Reverb ran a median of
+116-129 µs and a p90 of 325-500 µs, max 750-870, and was about 60% of the chain's load peaks.
+
+Once the tail partition reaches 1024 (an IR over 32,768 samples), every stage after the FIR is now
+a *spread* engine (`RealtimeConvolverSpread.cpp`): two partitions late, so it starts at off == 2P,
+and it computes each block over the samples of the next one, a slice per callback in proportion to
+how far that block has filled. The slices are weighted by measured per-item costs (a bit-reversed
+load is about 2x a butterfly, a butterfly about 2x a multiply-accumulate on x64); with flat weights
+the callback after a 4096 boundary did 4x its share. `SimdFFT` gained a stepped transform
+(`LoadBitReversed`, `RunButterflies`, `GetResult`) with exactly the arithmetic of `Forward` and
+`Inverse`, which now run through it.
+
+Doubling the partition from stage to stage, as the boundary layout does, cost 10-25% more on
+average than that layout. Growing 16x per stage, which for every tail up to 4096 means a single
+256-sample stage of 2-30 partitions from 512 to twice the tail partition, then the tail, trades FFTs
+for multiply-accumulates and costs less than the boundary layout did. A 3 s IR is the FIR to 512,
+a 256 stage of 30 partitions to 8192, and the 4096 tail from there.
+
+One convolver on a synthetic IR, 96-sample blocks, µs per block:
+
+| | IR | before p50 / p90 / p99 / max | after p50 / p90 / p99 / max | mean before → after |
+| --- | --- | --- | --- | --- |
+| S21 A78 | 0.8 s | 13 / 52 / 136 / 290 | 27 / 30 / 36 / 315 | 27.2 → 27.7 |
+| S21 A78 | 1.5 s | 14 / 53 / 310 / 356 | 29 / 32 / 35 / 159 | 34.5 → 29.1 |
+| S21 A78 | 3 s | 15 / 54 / 659 / 924 | 34 / 37 / 41 / 93 | 44.2 → 34.3 |
+| S21 A78 | 6 s | 24 / 63 / 674 / 773 | 42 / 45 / 60 / 103 | 51.8 → 41.9 |
+| S21 A78 | 10 s | 33 / 73 / 679 / 934 | 52 / 56 / 73 / 281 | 61.9 → 52.1 |
+| x64 AVX2 | 0.8 s | 4.0 / 17.6 / 38 / 140 | 7.5 / 8.3 / 15 / 77 | 8.0 → 7.7 |
+| x64 AVX2 | 3 s | 4.9 / 22.5 / 179 / 271 | 9.4 / 13.8 / 24 / 101 | 13.1 → 10.3 |
+| x64 AVX2 | 10 s | 16.4 / 40.5 / 197 / 418 | 21.2 / 28.9 / 54 / 169 | 25.5 → 21.9 |
+
+The whole effect with the preset's Parking Garage IR (stereo, Standard quality, the dual lane on),
+96-sample blocks: on the A78 p50 / p90 / p99 went from 35 / 111 / 285 to 64 / 70 / 83 µs at the same
+mean (63 → 65), and on x64 from 11 / 32 / 54 to 14 / 20 / 33. The occasional max of 300 µs or so on
+the phone is in both builds; the convolver alone does not show it. Against the boundary layout the
+output nulls at -130 dB on synthetic IRs at 37-, 64-, 96- and 512-sample blocks and -144 dB on the
+reverb, and IRs that keep the boundary layout are bit-identical. At 1024-sample blocks the mean is
+also equal or lower.

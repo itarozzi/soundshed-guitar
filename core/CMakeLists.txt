@@ -584,6 +584,7 @@ set(GUITARFX_CORE_SOURCES
     src/dsp/PresetVoicePool.cpp
     src/dsp/RealtimeConvolver.h
     src/dsp/RealtimeConvolver.cpp
+    src/dsp/RealtimeConvolverSpread.cpp
     src/dsp/SilenceSleepGate.h
     src/dsp/SimdFFT.h
     src/dsp/SpectrumTap.h
