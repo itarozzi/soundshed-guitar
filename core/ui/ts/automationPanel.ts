@@ -191,6 +191,7 @@ function openMidiModal(): void {
   syncControllerDisplayToggle();
   syncSetlistMidiOutControls();
   requestAutomationState();
+  renderAutomationPanel();
   renderKeyboardPanel();
   // Steal focus so keyboard events aren't consumed by buttons/inputs
   if (document.activeElement instanceof HTMLElement) {
@@ -208,8 +209,7 @@ function closeMidiModal(): void {
   cancelMidiLearn();
   pendingKeyLearnSlotId = null;
   editingSlotId = null;
-  renderAutomationPanel();
-  renderKeyboardPanel();
+  // Nothing to redraw: both lists render only while the modal is open, and again when it opens.
 }
 
 // ── Tabs ──────────────────────────────────────────────────────────────────
@@ -297,7 +297,7 @@ function isTextEntryElement(element: HTMLElement | null): boolean {
 
 function renderAutomationPanel(): void {
   const container = document.getElementById("automation-slots-list");
-  if (!container) return;
+  if (!container || document.getElementById("midi-modal")?.style.display !== "flex") return;
 
   const state = uiState.automation;
   if (!state) {
@@ -616,7 +616,7 @@ function describeMappedKey(key: string): string {
 
 function renderKeyboardPanel(): void {
   const container = document.getElementById("keyboard-slots-list");
-  if (!container) return;
+  if (!container || document.getElementById("midi-modal")?.style.display !== "flex") return;
 
   const state = uiState.automation;
   if (!state) {

@@ -43,12 +43,27 @@ export function getDeduplicatedLibraryResources(
   };
 }
 
+/**
+ * Alias maps from deduplicating a whole resource list, by list. The chain asks for one per
+ * node on every render, and the library lists are replaced (never mutated) when they change,
+ * so the list itself is the cache key.
+ */
+const canonicalAliasCache = new WeakMap<LibraryResource[], Map<string, string>>();
+
 export function getCanonicalLibraryResourceId(resourceType: string | undefined, resourceId: string): string {
   if (!resourceId) {
     return resourceId;
   }
 
-  const { aliasById } = getDeduplicatedLibraryResources(resourceType);
+  const resources = resourceType ? uiState.resourceLibrary[resourceType] : undefined;
+  if (!resources) {
+    return resolveResourceIdAlias(resourceId, getDeduplicatedLibraryResources(resourceType).aliasById);
+  }
+  let aliasById = canonicalAliasCache.get(resources);
+  if (!aliasById) {
+    aliasById = getDeduplicatedLibraryResources(resourceType).aliasById;
+    canonicalAliasCache.set(resources, aliasById);
+  }
   return resolveResourceIdAlias(resourceId, aliasById);
 }
 

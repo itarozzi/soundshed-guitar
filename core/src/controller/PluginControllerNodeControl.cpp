@@ -160,7 +160,7 @@ void PluginController::ResetNamNodeLevelState(const std::string& nodeId)
     }
 
     MirrorActivePresetJson();
-    mPendingStateBroadcast = true;
+    mPendingPresetStateBroadcast = true;
 
     if (!mActivePresetId.empty())
     {

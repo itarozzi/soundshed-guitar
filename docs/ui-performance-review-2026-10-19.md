@@ -1,9 +1,9 @@
 # UI CPU and memory review (2026-10-19)
 
 Where the WebView2 UI spends CPU and memory, measured in the running Standalone, and
-what to change. Items 1 and 2 of the recommended order were done the same day; see
-"Done 2026-10-19" at the end for the before/after numbers. Item 5 was dropped after
-measuring (see Memory finding 1).
+what to change. Items 1 to 4 of the recommended order were done the same day; see the
+two "Done 2026-10-19" sections at the end for the before/after numbers. Item 5 was dropped
+after measuring (see Memory finding 1).
 
 ## How it was measured
 
@@ -287,8 +287,8 @@ frees it when the page finishes loading, so it is transient.
 | --- | --- | --- | --- |
 | 1 | Drop `backdrop-filter` from `.node-params-panel` (and per-row blurs) | GPU process −50% while playing (measured) | CSS lines |
 | 2 | Diff-before-write in `updateSelectedNodePeakMeter`; no colour transitions on meters | idle style recalcs 16/s → ~0; main thread −1 point while playing (measured) | small |
-| 3 | Skip rendering hidden views on `state` (library, preset list, riffs, automation); fix `isDSPPerformanceTabVisible` | ~45 ms off every state broadcast (profiled) | medium |
-| 4 | `resourceLibrary` (and layout images) out of `state`; `PresetOnly` scope for graph edits | most of the remaining ~60 ms GC per state, ~90% of the bytes, engine serialisation too | medium, touches protocol |
+| 3 | ~~Skip rendering hidden views on `state` (library, preset list, riffs, automation); fix `isDSPPerformanceTabVisible`~~ **done** | per-state UI JS 34 → 12.5 ms (measured) | medium |
+| 4 | ~~`resourceLibrary` out of `state`; `PresetOnly` scope for graph edits~~ **done** (layout images were never in `state`) | state 890 → 80 KB; `requestState` round trip 98 → 27 ms; a bypass toggle 100 → 13 ms (measured) | medium, touches protocol |
 | 5 | ~~Resize equipment PNGs and the splash icon~~ | dropped: the panel needs their resolution (Memory finding 1) | — |
 | 6 | Per-area render signatures in `onState`; single chain render | the rest of the state cost | larger |
 | 7 | `MemoryUsageTargetLevel` low when hidden | memory back while the window is minimised | JUCE patch |
@@ -333,6 +333,92 @@ windows playing the muted demo loop. Same window, profile and preset. Mean of si
 Renderer plus GPU while playing went from ~49% of a core to ~22%. The GPU process ran
 hotter on these fresh launches than in the first session's measurements (~14.5%), but
 the before/after runs alternated, so the comparison holds.
+
+## Done 2026-10-19: items 3 and 4
+
+**Item 3, hidden views (UI only).**
+- `ts/deferredView.ts`: a view that renders straight away when it is shown and otherwise
+  only marks itself out of date; `flushShownViews()` renders the out-of-date ones that are now
+  shown. Panel switches (`switchMainPanel`), the Settings equipment and library tabs, and
+  opening the preset popover call it.
+- Settings → Library → Resource Library (`settings/libraryView.ts`): `refreshLibraryView()`
+  from a state or a feature toggle is deferred; the filter controls still render directly.
+- Preset popover (`presets/library.ts`): the rows and folder tree are deferred; the details
+  pane and the chain still render on every state.
+- Jam riff library (`riffLibrary.ts`): `applyRiffLibraryState` renders only while the riffs
+  section or the capture modal is up. Showing the section already re-rendered it.
+- MIDI & Automation modal (`automationPanel.ts`): both lists render only while the modal is
+  open, and opening it renders them.
+- `isDSPPerformanceTabVisible()` also requires `#panel-settings` to be active. Checked: 0 DOM
+  mutations in that tab over 2.5 s with Settings closed, ~320 with it open.
+- The chain is drawn once per state: `refreshPerformancePads({ signalPath: false })` after
+  `renderActivePreset` in `onState` and `onPresetLoaded`.
+- The profile also showed the chain's node labels deduplicating the whole resource library once
+  per node (`getCanonicalLibraryResourceId`, ~12 ms per state). Its alias map is now cached per
+  library list (`WeakMap`, keyed by the list, which is replaced rather than mutated on change).
+- Profiled per state after item 3: GC fell from ~73 ms to ~5 ms. Most of the garbage was the
+  hidden library's 3,272 elements being rebuilt, not the parse.
+
+**Item 4, the resource library as its own message (engine and UI).**
+- `ResourceLibrary::GetRevision()` counts changes. `SendResourceLibraryToUI(onlyIfChanged)`
+  sends `resourceLibrary {revision, resourceLibrary}` when the revision moved since this page last
+  received it. `BroadcastState` calls it before the state in **both** scopes, so an edit that asks
+  only for a preset broadcast but added to the library still delivers it.
+  `HandleGetSharedSyncStateRequest` calls it too. `uiReady` forgets what was sent, so a reloaded
+  page gets the library again. `requestResourceLibrary` sends it unconditionally, re-checking
+  `fileMissing`; the UI sends it when the Resource Library tab opens, where it used to send
+  `requestState`. The UI's "no fileMissing flags, so request a state" fallback in
+  `renderLibraryView` is gone.
+- `PresetOnly` for preset graph edits: every `BroadcastState()` in
+  `PluginControllerSignalPath.cpp` (add, split, collapse, branch count, replace, reorder, delete,
+  channel mode) and its queued broadcasts (bypass, rename, node config, node resource), plus the NAM
+  level reset, automation's bypass fold (MIDI footswitches), and Multi-Rig add/remove slot. Those
+  also stop resending `effectCatalog` and `compositeLibrary`, and the `inputModeChanged` echo
+  that applying `appSettings` caused.
+- The native UI client (Nano) reads the library from the new message.
+- `layoutLibrary` was never part of `state`: `layoutLibraryLoaded` is its own message, and the
+  images already come lazily through `requestLayoutImages`. Serving them by URL stays with item 8.
+
+**Measured.** Three copies of the Release Standalone, launched alternately twice (fresh launch
+each, same profile and window, machine idle): *base* = the 14:47 build with HEAD's UI, *item 3* =
+the same exe with the item 3 UI, *item 4* = a Release build of this change with its UI. Ten
+`requestState` round trips each from `dist/bridge.js` over CDP, 2.5 s apart. The Debug State
+Capture snapshot (a 1.5 s debounce after each message) was suppressed in all three, since users do
+not have it. Medians, rounds 1 / 2:
+
+| `requestState` | Base | Item 3 | Item 4 |
+| --- | --- | --- | --- |
+| `state` size | 890 KB | 890 KB | 80 KB |
+| UI JS in `IPlugReceiveData` per `state` | 33.9 / 33.0 ms | 12.5 / 13.2 ms | 11.6 / 11.8 ms |
+| Sent → `state` handled | 98.5 / 97.9 ms | 74.4 / 76.2 ms | 28.6 / 24.9 ms |
+| Renderer main-thread task time per request | 78 / 76 ms | 43 / 47 ms | 46 / 47 ms |
+
+"Sent → handled" covers the engine's idle-loop pickup and serialisation, the bridge and the UI;
+item 4 takes ~50 ms out of it, the 800 KB built, stat-ed, escaped and parsed on every broadcast. The
+task-time row includes style, layout and paint, the `effectCatalog` (~8–10 ms) and
+`compositeLibrary` that every full state still brings, and telemetry, so it moves less.
+
+A graph edit, the first chain node's bypass toggled off and on five times (ten edits):
+
+| Bypass toggle | Base | Item 3 | Item 4 |
+| --- | --- | --- | --- |
+| UI JS per edit (all replies, telemetry excluded) | 47.1 / 51.3 ms | 20.1 / 20.9 ms | 5.1 / 5.1 ms |
+| Bytes per edit | 1.16 MB | 1.16 MB | 15 KB |
+| Edit sent → `state` handled | 98.1 / 107.5 ms | 81.6 / 72.7 ms | 12.7 / 14.6 ms |
+| Replies | `state`, `compositeLibrary`, `effectCatalog`, `inputModeChanged`, `presetDirtyChanged` | same | `state`, `presetDirtyChanged` |
+
+With Debug State Capture on, as in Chris's profile, the base cost ~90 ms per state in
+`IPlugReceiveData` rather than ~34: the snapshot's garbage was collected inside the next state.
+Item 3 alone brought that case to ~13 ms.
+
+Checked live in the item 4 build: the Resource Library lists all 172 groups when opened after a
+state arrived while it was hidden; the preset popover's rows appear on open and its active row
+follows a preset switch made while it was closed; the riff library shows all 27 riffs; the MIDI
+modal lists the slots and keys; no page errors. `npm run verify` and the smoke test pass.
+
+**Still open:** a full state (startup, settings and library edits, `requestState`) still resends
+`effectCatalog` (~8–10 ms of UI per state) and `compositeLibrary`; per-area render signatures
+(item 6) remain the next step for what is left of the ~12 ms.
 
 ## Second pass 2026-10-19: what was left, measured
 

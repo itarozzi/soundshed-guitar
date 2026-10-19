@@ -30,6 +30,7 @@ import { normalizePresetScenes } from "../presetScenes.js";
 import { migratePresetNodeTypes } from "../presetV2.js";
 import { applyRiffLibraryState } from "../riffLibrary.js";
 import { refreshSettingsView } from "../settings.js";
+import { refreshLibraryView } from "../settings/libraryView.js";
 import { applyMonoOutputUnityInstance } from "../settings/monoOutputUnity.js";
 import { applyEnginePresetDirty, clonePreset, setActivePresetDraft, setActivePresetIsNew, setActivePresetSnapshot, uiState } from "../state.js";
 import { replaceMixerState } from "../mixerStore.js";
@@ -53,11 +54,6 @@ export function onState(payload: IncomingPayload): void {
         ? ((parameters as { parameters: [] }).parameters as [])
         : [],
     };
-  }
-  // Process resource library
-  const resourceLibrary = (payload as { resourceLibrary?: Record<string, unknown[]> }).resourceLibrary;
-  if (resourceLibrary) {
-    uiState.resourceLibrary = resourceLibrary as ResourceLibrary;
   }
   const missingNodeResources = (payload as { missingNodeResources?: Array<{ nodeId?: string; resourceType?: string; resourceId?: string; filePath?: string }> }).missingNodeResources;
   if (Array.isArray(missingNodeResources)) {
@@ -231,11 +227,28 @@ export function onState(payload: IncomingPayload): void {
     }
   }
   renderActivePreset();
-  refreshPerformancePads();
+  // renderActivePreset has just drawn the chain.
+  refreshPerformancePads({ signalPath: false });
   syncControlsFromState();
   updatePresetActionButtons();
   updatePresetDropdownSelection();
   refreshSettingsView();
+}
+
+/**
+ * The resource library, which is not part of `state`: the engine sends it when it changed
+ * since this page last received it (right before the state that follows the change), and
+ * when asked with `requestResourceLibrary`. `revision` counts the engine's library edits.
+ */
+export function onResourceLibrary(payload: IncomingPayload): void {
+  const library = (payload as { resourceLibrary?: unknown }).resourceLibrary;
+  if (!library || typeof library !== "object") {
+    return;
+  }
+  uiState.resourceLibrary = library as ResourceLibrary;
+  const revision = (payload as { revision?: unknown }).revision;
+  appendLog(`resource library ← revision ${typeof revision === "number" ? revision : "?"}`);
+  refreshLibraryView();
 }
 
 export function onError(payload: IncomingPayload): void {

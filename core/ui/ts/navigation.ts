@@ -1,6 +1,7 @@
 import { getNavigationViewState, mergeNavigationViewState } from "./navigationState.js";
 import { postMessage } from "./bridge.js";
 import { isCompact } from "./compactMode.js";
+import { flushShownViews } from "./deferredView.js";
 import { applyCompactStage, isCompactStage, setCompactStage, setCompactStageDetailLabel } from "./compactStage.js";
 import { initSettingsPanel, refreshTone3000ApiKeyField, activateEquipmentTab, activateLibraryTab, activateAdvancedSubTab, setSettingsViewStateSuppressed } from "./settings.js";
 import { ensureTone3000Session } from "./tone3000.js";
@@ -174,6 +175,7 @@ export function switchMainPanel(panelId: string): void {
     applyPlayViewMode("pads");
   }
 
+  flushShownViews();
   updateUiViewState({ mainPanel: effectivePanelId });
 }
 

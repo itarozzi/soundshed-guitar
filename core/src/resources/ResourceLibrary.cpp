@@ -169,6 +169,7 @@ void ResourceLibrary::AddResource(const LibraryResource& resource)
 {
     const auto key = MakeKey(resource.type, resource.id);
     mResources[key] = resource;
+    ++mRevision;
 }
 
 void ResourceLibrary::UpdateResource(const std::string& type, const std::string& id, const LibraryResource& updated)
@@ -178,18 +179,24 @@ void ResourceLibrary::UpdateResource(const std::string& type, const std::string&
     if (mResources.count(key))
     {
         mResources[key] = updated;
+        ++mRevision;
     }
 }
 
 void ResourceLibrary::RemoveResource(const std::string& type, const std::string& id)
 {
     const auto key = MakeKey(type, id);
-    mResources.erase(key);
+
+    if (mResources.erase(key) > 0)
+    {
+        ++mRevision;
+    }
 }
 
 void ResourceLibrary::Clear()
 {
     mResources.clear();
+    ++mRevision;
 }
 
 std::optional<LibraryResource> ResourceLibrary::LookupResource(const std::string& type, const std::string& id) const
@@ -416,6 +423,7 @@ std::string ResourceLibrary::MakeStoreId(const std::string& type, const std::str
 void ResourceLibrary::LoadFromStore(storage::JsonStore& store, const std::filesystem::path& resourcesRoot)
 {
     mResources.clear();
+    ++mRevision;
 
     // Rows imported from a legacy index carry that index's own convention, and
     // older builds wrote paths relative to resources/indexes/ rather than to

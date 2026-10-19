@@ -22,7 +22,6 @@
 
 #include "controller/internal/ControllerUtils.h"
 #include "resources/ResourceLibrary.h"
-#include "util/PathEncoding.h"
 
 using namespace guitarfx::controller_detail;
 
@@ -217,43 +216,6 @@ void PluginController::HandleGetSharedSyncStateRequest()
         state["presetArchiveSession"]["presetCount"] = mPresetArchiveSession->presetCount;
     }
 
-    // Resource library summary + per-type entries for UI rendering
-    nlohmann::json libraryInfo = nlohmann::json::object();
-    auto allResources = mResourceLibrary.GetAllResources();
-    libraryInfo["totalCount"] = allResources.size();
-
-    for (const auto& resource : allResources)
-    {
-        const std::string type = resource.type;
-
-        if (!libraryInfo.contains(type) || !libraryInfo[type].is_array())
-        {
-            libraryInfo[type] = nlohmann::json::array();
-        }
-
-        nlohmann::json entry;
-        entry["id"] = resource.id;
-        entry["name"] = resource.name;
-        entry["category"] = resource.category;
-        entry["description"] = resource.description;
-        entry["tags"] = resource.tags;
-        entry["filePath"] = resource.filePath.empty() ? "" : util::PathToUtf8(resource.filePath);
-        entry["hash"] = resource.hash;
-
-        if (!resource.metadata.empty())
-        {
-            entry["metadata"] = resource.metadata;
-        }
-
-        const bool hasPath = !resource.filePath.empty();
-        const bool exists = hasPath && std::filesystem::exists(resource.filePath);
-        entry["fileMissing"] = !(hasPath && exists);
-
-        libraryInfo[type].push_back(entry);
-    }
-
-    state["resourceLibrary"] = std::move(libraryInfo);
-
     {
         nlohmann::json customEffects = nlohmann::json::array();
 
@@ -265,6 +227,8 @@ void PluginController::HandleGetSharedSyncStateRequest()
         state["customEffectLibrary"] = std::move(customEffects);
     }
 
+    // The resource library has a message of its own, sent when the catch-up above reloaded it.
+    SendResourceLibraryToUI(true);
     SendMessageToUI(state.dump());
 
     // Send auxiliary shared datasets over their existing message contracts.

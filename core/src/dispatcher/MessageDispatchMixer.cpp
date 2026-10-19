@@ -40,7 +40,7 @@ bool MessageDispatcher::DispatchMixerAndMonitoring(PluginController& c, const nl
         }
         // Send updated mixer state (including presetGraphs) back to the UI
         // so it can display the signal chain for the newly-added slot.
-        c.BroadcastState();
+        c.BroadcastState(PluginController::StateScope::PresetOnly);
         return true;
     }
 
@@ -53,7 +53,7 @@ bool MessageDispatcher::DispatchMixerAndMonitoring(PluginController& c, const nl
             c.RemoveActivePreset(presetId);
         }
 
-        c.BroadcastState();
+        c.BroadcastState(PluginController::StateScope::PresetOnly);
         return true;
     }
 

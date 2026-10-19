@@ -27,7 +27,7 @@ import { initMultiCoreToggle, refreshMultiCoreToggle } from "./settings/multiCor
 import { initNamEngineToggle, refreshNamEngineToggle } from "./settings/namEngine.js";
 import { initMonoOutputUnityToggle, refreshMonoOutputUnityToggle } from "./settings/monoOutputUnity.js";
 import { initLibraryExport } from "./settings/libraryExport.js";
-import { initLibraryFilters, renderLibraryView } from "./settings/libraryView.js";
+import { initLibraryFilters, refreshLibraryView } from "./settings/libraryView.js";
 import { initEquipmentTabs, initLibraryTabs } from "./settings/tabs.js";
 import { applyTone3000ModeVisibility, clearApiKey, initTone3000ProxyHealthCheck, initTone3000UseSoundshedApiToggle, refreshTone3000ApiKeyField, saveApiKey, updateTone3000ApiModeStatus, updateTone3000ProxyHealthStatus } from "./settings/tone3000Settings.js";
 import { refreshSettingsUpdateBanner, updateCurrentVersionDisplay } from "./settings/updateBanner.js";
@@ -205,6 +205,6 @@ export function refreshSettingsView(): void {
   syncFeatureVisibility();
   updateSignalDiagnosticsView();
   updateCurrentVersionDisplay();
-  renderLibraryView();
+  refreshLibraryView();
   refreshSettingsUpdateBanner();
 }

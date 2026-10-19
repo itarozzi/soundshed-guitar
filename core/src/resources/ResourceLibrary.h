@@ -2,6 +2,7 @@
 
 #include "storage/JsonStore.h"
 
+#include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <map>
@@ -62,6 +63,13 @@ class ResourceLibrary
     [[nodiscard]] std::vector<std::pair<std::string, std::string>> GetResourcePathIndex() const;
     [[nodiscard]] bool HasResource(const std::string& type, const std::string& id) const;
 
+    /// Counts every change to the contents, so a caller can tell whether the library it last
+    /// sent somewhere is still current without comparing the entries themselves.
+    [[nodiscard]] std::uint64_t GetRevision() const
+    {
+        return mRevision;
+    }
+
     // Resolution
     [[nodiscard]] std::optional<std::filesystem::path> ResolveResource(const ResourceRef& ref) const;
 
@@ -97,6 +105,7 @@ class ResourceLibrary
   private:
     // Key: "type:id"
     std::map<std::string, LibraryResource> mResources;
+    std::uint64_t mRevision = 0;
 
     [[nodiscard]] static std::string MakeKey(const std::string& type, const std::string& id);
 };

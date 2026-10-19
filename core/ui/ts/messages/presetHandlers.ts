@@ -67,7 +67,8 @@ export function onPresetLoaded(payload: IncomingPayload): void {
     };
   }
   renderActivePreset();
-  refreshPerformancePads();
+  // renderActivePreset has just drawn the chain.
+  refreshPerformancePads({ signalPath: false });
   syncControlsFromState();
   updatePresetActionButtons();
 }

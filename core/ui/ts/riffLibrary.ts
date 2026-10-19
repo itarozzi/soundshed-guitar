@@ -258,7 +258,21 @@ export function applyRiffLibraryState(library: Partial<RiffLibrary>): void {
   if (activeRiffTakePreviewId && !isLibraryTakeId(activeRiffTakePreviewId)) {
     activeRiffTakePreviewId = "";
   }
-  renderRiffLibraryPanel();
+  // Every full state carries the library. While neither the Jam riffs section nor the
+  // capture modal is up, the list is left alone: showing the section renders it.
+  if (isRiffLibraryShown() || isRiffCaptureModalOpen()) {
+    renderRiffLibraryPanel();
+  }
+}
+
+function isRiffLibraryShown(): boolean {
+  const section = document.getElementById("jam-section-panel-riffs");
+  return Boolean(section && !section.hidden && document.getElementById("panel-jam")?.classList.contains("active"));
+}
+
+function isRiffCaptureModalOpen(): boolean {
+  const modal = document.getElementById("riff-capture-modal");
+  return Boolean(modal && modal.style.display !== "none" && modal.style.display !== "");
 }
 
 export function applyRiffCaptureState(capture: Partial<RiffCaptureState>): void {

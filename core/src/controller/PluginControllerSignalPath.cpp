@@ -138,7 +138,7 @@ void PluginController::HandleUpdateSignalPathNodeBypassRequest(const nlohmann::j
         mPresetMixer.SetNodeEnabled(presetId, nodeId, enabled);
     }
     MirrorActivePresetJson();
-    mPendingStateBroadcast = true;
+    mPendingPresetStateBroadcast = true;
 }
 
 void PluginController::HandleRenameSignalPathNodeRequest(const nlohmann::json& payload)
@@ -201,7 +201,7 @@ void PluginController::HandleRenameSignalPathNodeRequest(const nlohmann::json& p
 
     SyncActivePresetSceneGraph();
     MirrorActivePresetJson();
-    mPendingStateBroadcast = true;
+    mPendingPresetStateBroadcast = true;
     NotifyHostStateChanged();
 }
 
@@ -257,7 +257,7 @@ void PluginController::HandleSetSignalPathNodeChannelModeRequest(const nlohmann:
     // crossfades in like any structural edit.
     SyncActivePresetSceneGraph();
     ApplyActivePresetInItsSlot();
-    BroadcastState();
+    BroadcastState(StateScope::PresetOnly);
 }
 
 std::string PluginController::ReadLiveNodeConfig(const std::string& presetId, const std::string& nodeId,
@@ -367,7 +367,7 @@ void PluginController::HandleUpdateSignalPathNodeConfigRequest(const nlohmann::j
             // whatever slot the payload named.
             SyncActivePresetSceneGraph();
             MirrorActivePresetJson();
-            mPendingStateBroadcast = true;
+            mPendingPresetStateBroadcast = true;
             notifyStateChanged = true;
         }
     }
@@ -601,7 +601,7 @@ void PluginController::HandleUpdateNodeResourceRequest(const nlohmann::json& pay
         {
             SyncActivePresetSceneGraph();
             ApplyActivePresetInItsSlot();
-            mPendingStateBroadcast = true;
+            mPendingPresetStateBroadcast = true;
             appliedPreset = true;
         }
 
@@ -658,7 +658,7 @@ void PluginController::HandleUpdateNodeResourceRequest(const nlohmann::json& pay
             {
                 SyncActivePresetSceneGraph();
                 ApplyActivePresetInItsSlot();
-                mPendingStateBroadcast = true;
+                mPendingPresetStateBroadcast = true;
                 appliedPreset = true;
             }
 
@@ -906,7 +906,7 @@ void PluginController::HandleAddSignalPathNodeRequest(const nlohmann::json& payl
         {
             SyncActivePresetSceneGraph();
             ApplyActivePresetInItsSlot();
-            BroadcastState();
+            BroadcastState(StateScope::PresetOnly);
         }
 
         return;
@@ -1017,7 +1017,7 @@ void PluginController::HandleAddSignalPathNodeRequest(const nlohmann::json& payl
     {
         SyncActivePresetSceneGraph();
         ApplyActivePresetInItsSlot();
-        BroadcastState();
+        BroadcastState(StateScope::PresetOnly);
     }
 }
 
@@ -1120,7 +1120,7 @@ void PluginController::HandleSplitSignalPathEdgeRequest(const nlohmann::json& pa
     {
         SyncActivePresetSceneGraph();
         ApplyActivePresetInItsSlot();
-        BroadcastState();
+        BroadcastState(StateScope::PresetOnly);
     }
 }
 
@@ -1168,7 +1168,7 @@ void PluginController::HandleCollapseSignalPathSplitRequest(const nlohmann::json
     {
         SyncActivePresetSceneGraph();
         ApplyActivePresetInItsSlot();
-        BroadcastState();
+        BroadcastState(StateScope::PresetOnly);
     }
 }
 
@@ -1215,7 +1215,7 @@ void PluginController::HandleSetSplitBranchCountRequest(const nlohmann::json& pa
     {
         SyncActivePresetSceneGraph();
         ApplyActivePresetInItsSlot();
-        BroadcastState();
+        BroadcastState(StateScope::PresetOnly);
     }
 }
 
@@ -1335,7 +1335,7 @@ void PluginController::HandleReplaceSignalPathNodeRequest(const nlohmann::json& 
     {
         SyncActivePresetSceneGraph();
         ApplyActivePresetInItsSlot();
-        BroadcastState();
+        BroadcastState(StateScope::PresetOnly);
     }
 }
 
@@ -1524,7 +1524,7 @@ void PluginController::HandleReorderSignalPathNodeRequest(const nlohmann::json& 
     {
         SyncActivePresetSceneGraph();
         ApplyActivePresetInItsSlot();
-        BroadcastState();
+        BroadcastState(StateScope::PresetOnly);
     }
 }
 
@@ -1598,7 +1598,7 @@ void PluginController::HandleDeleteSignalPathNodeRequest(const nlohmann::json& p
     {
         SyncActivePresetSceneGraph();
         ApplyActivePresetInItsSlot();
-        BroadcastState();
+        BroadcastState(StateScope::PresetOnly);
     }
 }
 
@@ -1716,7 +1716,7 @@ bool PluginController::UpdateResourceForNodeType(const std::string& nodeType, co
                 ApplyActivePresetInItsSlot();
             }
 
-            mPendingStateBroadcast = true;
+            mPendingPresetStateBroadcast = true;
             return true;
         }
     }
@@ -1772,7 +1772,7 @@ bool PluginController::UpdateResourceForNodeId(const std::string& nodeId, const 
     if (applyPreset && mActivePreset)
     {
         ApplyActivePresetInItsSlot();
-        mPendingStateBroadcast = true;
+        mPendingPresetStateBroadcast = true;
     }
 
     return true;

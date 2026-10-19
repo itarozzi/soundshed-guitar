@@ -18,7 +18,7 @@ import { refreshSettingsView } from "../settings.js";
 import { uiState } from "../state.js";
 import { applySharedTone3000Settings } from "../tone3000.js";
 import { applyToneSharingAppSettings } from "../toneSharingPanel.js";
-import type { AppSettings, BlendLibrary, CustomEffectLibrary, PresetArchiveSessionState, ResourceLibrary, UiSettings } from "../types.js";
+import type { AppSettings, BlendLibrary, CustomEffectLibrary, PresetArchiveSessionState, UiSettings } from "../types.js";
 import { triggerUpdateCheck } from "../updateCheck.js";
 import type { IncomingPayload } from "./types.js";
 
@@ -62,7 +62,6 @@ export function onSharedSyncState(payload: IncomingPayload): void {
   const sharedPayload = payload as {
     appSettings?: Record<string, unknown>;
     uiSettings?: UiSettings;
-    resourceLibrary?: Record<string, unknown[]>;
     blendLibrary?: unknown[];
     customEffectLibrary?: unknown[];
     presetArchiveSession?: PresetArchiveSessionState | null;
@@ -87,10 +86,6 @@ export function onSharedSyncState(payload: IncomingPayload): void {
     uiState.uiSettings = sharedPayload.uiSettings;
     // The engine keeps the recents there; the blob this UI sends back must carry them.
     applyPresetRecentsFromBackend(sharedPayload.uiSettings.presetRecents);
-  }
-
-  if (sharedPayload.resourceLibrary) {
-    uiState.resourceLibrary = sharedPayload.resourceLibrary as ResourceLibrary;
   }
 
   if (Array.isArray(sharedPayload.blendLibrary)) {
