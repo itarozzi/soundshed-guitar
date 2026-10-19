@@ -140,6 +140,7 @@ export function normalizeImportedLayout(raw: unknown): EffectLayout | null {
         ? {
             ...(style as LayoutControl["style"]),
             labelColor: optionalString(style.labelColor),
+            valueColor: optionalString(style.valueColor),
             accentColor: optionalString(style.accentColor),
             knobImageId: optionalString(style.knobImageId),
           }
@@ -189,6 +190,8 @@ export function normalizeImportedLayout(raw: unknown): EffectLayout | null {
       typeof raw.containerTheme === "string" && CONTAINER_THEMES.has(raw.containerTheme)
         ? (raw.containerTheme as EffectLayout["containerTheme"])
         : undefined,
+    controlLabelColor: optionalString(raw.controlLabelColor),
+    controlValueColor: optionalString(raw.controlValueColor),
     useDefaultControls: raw.useDefaultControls === true ? true : undefined,
     defaultControlsOffset: optionalPoint(raw.defaultControlsOffset, 0),
     defaultControlsScale: optionalPoint(raw.defaultControlsScale, 1),

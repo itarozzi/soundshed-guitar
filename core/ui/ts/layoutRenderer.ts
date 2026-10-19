@@ -102,7 +102,7 @@ export function renderCustomLayout(
   const h = Math.round(layout.dimensions.height);
   const backgrounds = renderBackgrounds(layout.backgrounds);
   const overlays = renderOverlays(node, layout.overlays ?? []);
-  const controls = renderControls(node, layout.controls, paramDefs, resourceControls);
+  const controls = renderControls(node, layout, paramDefs, resourceControls);
   const labels = renderTextLabels(layout.textLabels);
   const themeClass = layout.containerTheme ? ` theme-${layout.containerTheme}` : '';
 
@@ -202,6 +202,51 @@ export function safeCssValue(value: unknown, fallback: string): string {
   return trimmed;
 }
 
+type LayoutTextColorDefaults = Pick<EffectLayout, "controlLabelColor" | "controlValueColor">;
+
+/**
+ * A control's label and value colours: its own, else the layout's default, else null
+ * (the theme's colour).
+ */
+export function resolveControlTextColors(
+  layout: LayoutTextColorDefaults,
+  control?: LayoutControl,
+): { label: string | null; value: string | null } {
+  const pick = (own: unknown, fallback: unknown) => safeCssValue(own, "") || safeCssValue(fallback, "") || null;
+  return {
+    label: pick(control?.style?.labelColor, layout.controlLabelColor),
+    value: pick(control?.style?.valueColor, layout.controlValueColor),
+  };
+}
+
+/** Give a designer placeholder's label and value the colours the control renders with. */
+export function colorControlPlaceholder(el: HTMLElement, layout: LayoutTextColorDefaults, control: LayoutControl): void {
+  const { label, value } = resolveControlTextColors(layout, control);
+  if (label) {
+    el.querySelectorAll<HTMLElement>(".control-label").forEach((span) => { span.style.color = label; });
+  }
+  if (value) {
+    el.querySelector<HTMLElement>(".control-value")?.style.setProperty("color", value);
+  }
+}
+
+/** A colour for an `<input type="color">`, which takes only #rrggbb. */
+export function colorInputValue(color: string | null | undefined, fallback: string): string {
+  return color && /^#[0-9a-f]{6}$/i.test(color) ? color : fallback;
+}
+
+/**
+ * Classes and custom properties for the default-controls wrapper of a backdrop
+ * layout, so the layout's default label and value colours reach those controls too.
+ */
+export function defaultControlsColorAttrs(layout: LayoutTextColorDefaults): { classes: string; style: string } {
+  const { label, value } = resolveControlTextColors(layout);
+  return {
+    classes: `${label ? " has-layout-label-color" : ""}${value ? " has-layout-value-color" : ""}`,
+    style: `${label ? ` --layout-label-color: ${label};` : ""}${value ? ` --layout-value-color: ${value};` : ""}`,
+  };
+}
+
 /** A finite number from a layout (whose JSON may hold anything), else `fallback`. */
 function layoutNumber(value: unknown, fallback: number): number {
   const number = typeof value === "number" ? value : Number(value);
@@ -244,7 +289,7 @@ export function renderCustomLayoutPreviewLayers(
   paramDefs: BlendParamDef[],
   resourceControls: LayoutResourceControlDef[] = []
 ): string {
-  const controls = renderControls(node, layout.controls, paramDefs, resourceControls);
+  const controls = renderControls(node, layout, paramDefs, resourceControls);
   const labels = renderTextLabels(layout.textLabels);
 
   return `
@@ -288,6 +333,7 @@ export function renderCustomLayoutBackdrop(
   const wrapperStyle = hasTransformOrOffset
     ? `position: absolute; left: ${Math.round(offsetX)}px; top: ${Math.round(offsetY)}px; transform: scale(${scaleX}, ${scaleY}); transform-origin: top left; z-index: 2; ${wrapperWidth}`
     : `position: relative; z-index: 2; ${wrapperWidth}`;
+  const colors = defaultControlsColorAttrs(layout);
 
   return `
     <div class="custom-layout-scale-outer" style="position: relative; width: 100%; overflow: hidden; height: ${h}px;">
@@ -312,7 +358,7 @@ export function renderCustomLayoutBackdrop(
         <div class="custom-layout-labels" style="position: absolute; inset: 0; z-index: 3; pointer-events: none; margin: 0; padding: 0;">
           ${labels}
         </div>
-        <div class="custom-layout-default-controls" style="${escapeHtml(wrapperStyle)}">
+        <div class="custom-layout-default-controls${escapeHtml(colors.classes)}" style="${escapeHtml(wrapperStyle + colors.style)}">
           ${innerHtml}
         </div>
       </div>
@@ -378,13 +424,13 @@ function renderBackgrounds(backgrounds: LayoutBackground[]): string {
  */
 function renderControls(
   node: GraphNode,
-  controls: LayoutControl[],
+  layout: EffectLayout,
   paramDefs: BlendParamDef[],
   resourceControls: LayoutResourceControlDef[]
 ): string {
   const resourceByKey = new Map(resourceControls.map((resource) => [resource.resourceControlKey, resource]));
 
-  return controls
+  return layout.controls
     .map((control) => {
       const isResourceControl =
         control.bindingType === "resource"
@@ -430,7 +476,9 @@ function renderControls(
       // A class-name suffix, and the JSON behind it is not held to its type.
       const knobStyle = /^[\w-]+$/.test(String(control.style?.knobStyle ?? "")) ? control.style!.knobStyle! : "default";
       const hideLabel = control.style?.hideLabel === true;
-      const labelColor = safeCssValue(control.style?.labelColor, "var(--text-dark-secondary)");
+      const textColors = resolveControlTextColors(layout, control);
+      const labelColor = textColors.label ?? "var(--text-dark-secondary)";
+      const valueColor = textColors.value ?? "var(--text-tertiary)";
 
       const isToggle = !isResourceControl && (control.type === "toggle" || unit === "toggle");
       const isEnum = !isResourceControl && unit === "enum" && Array.isArray(labels);
@@ -668,7 +716,7 @@ function renderControls(
       }
 
       if (!isResourceControl && showValue) {
-        controlHtml += `<span class="node-param-value" style="font-size: 9px; color: var(--text-tertiary); margin-top: 2px;">${displayValue}</span>`;
+        controlHtml += `<span class="node-param-value" style="font-size: 9px; color: ${escapeHtml(valueColor)}; margin-top: 2px;">${displayValue}</span>`;
       }
 
       return `<div class="custom-layout-control" style="${escapeHtml(controlStyle)}">${controlHtml}</div>`;

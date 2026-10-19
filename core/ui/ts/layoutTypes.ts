@@ -68,10 +68,12 @@ export interface LayoutControl {
     labelPosition?: LabelPosition;
     /** Whether to hide the built-in label */
     hideLabel?: boolean;
-    /** Label text color (CSS) */
+    /** Label text color (CSS); unset uses the layout's controlLabelColor */
     labelColor?: string;
     /** Whether to show value display */
     showValue?: boolean;
+    /** Value text color (CSS); unset uses the layout's controlValueColor */
+    valueColor?: string;
     /** Value display position */
     valuePosition?: LabelPosition;
     /** Knob style preset */
@@ -185,6 +187,12 @@ export interface EffectLayout {
    * theme (e.g. a light-coloured backdrop that needs dark text).
    */
   containerTheme?: 'light' | 'dark' | 'classic';
+  /**
+   * Default label and value text colours (CSS) for every control in the layout, the
+   * default controls included. A control's own style.labelColor / style.valueColor wins.
+   */
+  controlLabelColor?: string;
+  controlValueColor?: string;
   /** Creation timestamp */
   createdAt?: string;
   /** Last modified timestamp */

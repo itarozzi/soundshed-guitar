@@ -63,6 +63,16 @@
   font-weight: 600;
 }
 
+/* A layout's default label/value colours, set by the author, beat every theme's. */
+.has-layout-label-color .node-param-label,
+.has-layout-label-color .node-param-group-title {
+  color: var(--layout-label-color) !important;
+}
+
+.has-layout-value-color .node-param-value {
+  color: var(--layout-value-color) !important;
+}
+
 .custom-layout-control {
   box-sizing: border-box;
   pointer-events: auto;

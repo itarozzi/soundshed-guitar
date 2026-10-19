@@ -11,6 +11,7 @@ import { snapToGrid } from "../layoutTypes.js";
 import type { KnobStylePreset, LabelPosition, LayoutControl, LayoutRectangleOverlay, LayoutTextLabel } from "../layoutTypes.js";
 import { getLayoutImageUrl } from "./images.js";
 import type { LayoutPropertiesHost } from "./propertiesHost.js";
+import { colorInputValue, resolveControlTextColors } from "../layoutRenderer.js";
 import { escapeHtml } from "../utils.js";
 
 export class ElementProperties {
@@ -35,6 +36,8 @@ export class ElementProperties {
     const bindingLabel = isResourceControl
       ? `${resourceDef?.displayName || paramKey} (${resourceDef?.resourceType || "resource"})`
       : (paramDef?.name || paramKey);
+    // What the control renders with, the layout's defaults included.
+    const textColors = resolveControlTextColors(layout, control);
 
     const typeOptions = isResourceControl
       ? `<option value="dropdown" selected>Dropdown</option>`
@@ -82,6 +85,13 @@ export class ElementProperties {
           <span class="layout-property-label">Show Value</span>
           <div class="layout-property-input">
             <input type="checkbox" id="prop-show-value" ${control.style?.showValue !== false ? "checked" : ""}>
+          </div>
+        </div>
+        <div class="layout-property-row">
+          <span class="layout-property-label">Value Color</span>
+          <div class="layout-property-input">
+            <input type="color" id="prop-value-color" value="${escapeHtml(colorInputValue(textColors.value, "#a0a0a0"))}">
+            ${control.style?.valueColor ? `<button id="prop-value-color-reset" title="Use the layout's default value colour">Default</button>` : ""}
           </div>
         </div>
       </div>
@@ -141,7 +151,8 @@ export class ElementProperties {
         <div class="layout-property-row">
           <span class="layout-property-label">Color</span>
           <div class="layout-property-input">
-            <input type="color" id="prop-label-color" value="${escapeHtml(control.style?.labelColor || "#ffffff")}">
+            <input type="color" id="prop-label-color" value="${escapeHtml(colorInputValue(textColors.label, "#ffffff"))}">
+            ${control.style?.labelColor ? `<button id="prop-label-color-reset" title="Use the layout's default label colour">Default</button>` : ""}
           </div>
         </div>
       </div>
@@ -170,6 +181,7 @@ export class ElementProperties {
     const labelOverrideInput = document.getElementById("prop-label-override") as HTMLInputElement;
     const labelPosSelect = document.getElementById("prop-label-position") as HTMLSelectElement;
     const labelColorInput = document.getElementById("prop-label-color") as HTMLInputElement;
+    const valueColorInput = document.getElementById("prop-value-color") as HTMLInputElement;
     const knobStyleSelect = document.getElementById("prop-knob-style") as HTMLSelectElement;
     const showValueCheck = document.getElementById("prop-show-value") as HTMLInputElement;
     const deleteBtn = document.getElementById("prop-delete-control") as HTMLButtonElement;
@@ -216,7 +228,27 @@ export class ElementProperties {
       if (!control.style) control.style = {};
       control.style.labelColor = labelColorInput.value;
       this.host.renderCanvas();
+      this.host.renderSidebar(); // Show the Default button
     });
+
+    valueColorInput?.addEventListener("change", () => {
+      if (!control.style) control.style = {};
+      control.style.valueColor = valueColorInput.value;
+      this.host.renderCanvas();
+      this.host.renderSidebar();
+    });
+
+    const bindColorReset = (id: string, key: "labelColor" | "valueColor") => {
+      document.getElementById(id)?.addEventListener("click", () => {
+        if (!control.style) return;
+        this.host.pushUndoState();
+        delete control.style[key];
+        this.host.renderCanvas();
+        this.host.renderSidebar();
+      });
+    };
+    bindColorReset("prop-label-color-reset", "labelColor");
+    bindColorReset("prop-value-color-reset", "valueColor");
 
     knobStyleSelect?.addEventListener("change", () => {
       if (!control.style) control.style = {};

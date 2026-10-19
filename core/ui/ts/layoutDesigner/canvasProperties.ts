@@ -8,6 +8,7 @@
 import type { LayoutBackground } from "../layoutTypes.js";
 import { getLayoutImageUrl } from "./images.js";
 import type { LayoutPropertiesHost } from "./propertiesHost.js";
+import { colorInputValue } from "../layoutRenderer.js";
 import { escapeHtml } from "../utils.js";
 
 export class CanvasProperties {
@@ -80,6 +81,23 @@ export class CanvasProperties {
           </div>
         </div>
       </div>
+      <div class="layout-property-group">
+        <div class="layout-property-group-title">Control Text</div>
+        <div class="layout-property-row">
+          <span class="layout-property-label">Label Color</span>
+          <div class="layout-property-input">
+            <input type="color" id="prop-layout-label-color" value="${escapeHtml(colorInputValue(layout.controlLabelColor, "#ffffff"))}" title="Label colour for every control that does not set its own">
+            ${layout.controlLabelColor ? `<button id="prop-layout-label-color-reset" title="Use the theme's label colour">Theme</button>` : ""}
+          </div>
+        </div>
+        <div class="layout-property-row">
+          <span class="layout-property-label">Value Color</span>
+          <div class="layout-property-input">
+            <input type="color" id="prop-layout-value-color" value="${escapeHtml(colorInputValue(layout.controlValueColor, "#a0a0a0"))}" title="Value colour for every control that does not set its own">
+            ${layout.controlValueColor ? `<button id="prop-layout-value-color-reset" title="Use the theme's value colour">Theme</button>` : ""}
+          </div>
+        </div>
+      </div>
       ${backdropSections}
     `;
 
@@ -92,6 +110,25 @@ export class CanvasProperties {
       layout.containerTheme = val === '' ? undefined : val;
       this.host.renderCanvas();
     });
+
+    // Default control text colours; a control's own colour still wins
+    const bindTextColor = (id: string, key: "controlLabelColor" | "controlValueColor") => {
+      const input = document.getElementById(id) as HTMLInputElement | null;
+      input?.addEventListener("change", () => {
+        this.host.pushSidebarUndoOnce();
+        layout[key] = input.value;
+        this.host.renderCanvas();
+        this.host.renderSidebar(); // Show the Theme button
+      });
+      document.getElementById(`${id}-reset`)?.addEventListener("click", () => {
+        this.host.pushUndoState();
+        delete layout[key];
+        this.host.renderCanvas();
+        this.host.renderSidebar();
+      });
+    };
+    bindTextColor("prop-layout-label-color", "controlLabelColor");
+    bindTextColor("prop-layout-value-color", "controlValueColor");
 
     if (!isBackdrop) return;
 

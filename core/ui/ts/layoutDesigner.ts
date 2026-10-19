@@ -13,7 +13,7 @@ import { getLayoutImageUrl } from "./layoutDesigner/images.js";
 import { isDialogOpen, showConfirm } from "./dialogs.js";
 import type { CopiedTextLabelPayload, DragState, LayoutResourceCandidate, SelectedElement } from "./layoutDesigner/types.js";
 import { ensureLayoutImagesLoaded } from "./layoutImages.js";
-import { colorWithAlpha, renderCustomLayoutPreviewLayers, safeCssValue } from "./layoutRenderer.js";
+import { colorControlPlaceholder, colorWithAlpha, defaultControlsColorAttrs, renderCustomLayoutPreviewLayers, safeCssValue } from "./layoutRenderer.js";
 import type { LayoutResourceControlDef } from "./layoutRenderer.js";
 import { DEFAULT_LAYOUT_DIMENSIONS, LAYOUT_DIMENSION_LIMITS, LAYOUT_GRID_SIZE, MAX_BACKGROUND_LAYERS, generateLabelId, generateLayoutId, generateOverlayId, layoutLookupKey, nextFreeBackgroundLayer, normalizeBackgroundLayers, snapToGrid } from "./layoutTypes.js";
 import type { EffectLayout, LayoutBackground, LayoutControl, LayoutImageRef, LayoutLibraryEntry, LayoutRectangleOverlay, LayoutTextLabel } from "./layoutTypes.js";
@@ -869,9 +869,10 @@ export class LayoutDesignerModal {
     // Use the same class structure as runtime (custom-layout-backdrop + theme) so that
     // .custom-layout-backdrop.theme-* CSS rules apply identically in designer and runtime.
     const themeClass = this.layout.containerTheme ? ` theme-${this.layout.containerTheme}` : '';
+    const colors = defaultControlsColorAttrs(this.layout);
 
     this.controlsLayer.innerHTML = `
-      <div class="layout-default-controls-preview custom-layout-backdrop${escapeHtml(themeClass)}" style="${escapeHtml(wrapperStyle)} pointer-events: none;">
+      <div class="layout-default-controls-preview custom-layout-backdrop${escapeHtml(themeClass)}${escapeHtml(colors.classes)}" style="${escapeHtml(wrapperStyle + colors.style)} pointer-events: none;">
         ${innerHtml}
       </div>
     `;
@@ -1124,6 +1125,7 @@ export class LayoutDesignerModal {
     }
 
     el.innerHTML = html;
+    colorControlPlaceholder(el, this.layout ?? {}, control);
 
     // Click to select
     el.addEventListener("click", (e) => {

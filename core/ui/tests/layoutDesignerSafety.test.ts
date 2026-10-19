@@ -183,6 +183,39 @@ describe("layout designer: nothing is lost by accident", () => {
     layoutDesigner.close();
   });
 
+  it("sets the layout's label and value colours, and a control's own over them", async () => {
+    const layout = layoutWith();
+    layout.controls = [{ paramKey: "time", type: "knob", position: { x: 0, y: 0 } }];
+    layoutDesigner.open("delay_digital", layout);
+    const pick = (id: string, color: string) => {
+      const input = el<HTMLInputElement>(id);
+      input.value = color;
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    };
+    const placeholder = () => document.querySelector<HTMLElement>(".layout-control-placeholder")!;
+
+    pick("prop-layout-label-color", "#112233");
+    pick("prop-layout-value-color", "#445566");
+    expect(placeholder().querySelector<HTMLElement>(".control-label")!.style.color).toBe("rgb(17, 34, 51)");
+    expect(placeholder().querySelector<HTMLElement>(".control-value")!.style.color).toBe("rgb(68, 85, 102)");
+
+    placeholder().click();
+    expect(el<HTMLInputElement>("prop-value-color").value).toBe("#445566"); // shows the inherited colour
+    pick("prop-value-color", "#ffffff");
+    expect(placeholder().querySelector<HTMLElement>(".control-value")!.style.color).toBe("rgb(255, 255, 255)");
+    el("prop-value-color-reset").click();
+    expect(placeholder().querySelector<HTMLElement>(".control-value")!.style.color).toBe("rgb(68, 85, 102)");
+    pick("prop-value-color", "#ffffff");
+
+    el("layout-designer-save").click();
+    await flush();
+    const saved = sentSaves().at(-1)?.layout;
+    expect([saved?.controlLabelColor, saved?.controlValueColor]).toEqual(["#112233", "#445566"]);
+    expect(saved?.controls[0].style).toMatchObject({ valueColor: "#ffffff" });
+    expect(saved?.controls[0].style?.labelColor).toBeUndefined();
+    layoutDesigner.handleSaveResult({ layoutId: "layout-under-test", ok: true });
+  });
+
   it("keeps redo through a press on an element that does not move it", () => {
     // A press used to be an undo step from the mousedown, which cleared the redo stack: undo,
     // then click to select something, and the undone edit was gone for good.
