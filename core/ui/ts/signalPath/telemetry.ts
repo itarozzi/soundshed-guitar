@@ -80,6 +80,22 @@ export function normalizePeakDbfsForShellMeter(peakDbfs: number): number {
   return Math.max(0, Math.min(1, normalized));
 }
 
+/** What each rail last showed, so a frame that changes nothing writes nothing. */
+interface PeakMeterShown {
+  inactive: boolean;
+  clipped: boolean;
+  scale: string;
+}
+
+/** Keyed by element, so a re-rendered panel's fresh rail starts with a full write. */
+const peakMeterShown = new WeakMap<HTMLElement, PeakMeterShown>();
+
+/**
+ * Runs on every diagnostics frame, silent or not, so it writes only what changed: rewriting
+ * the classes and title each frame restyled the page ~17 times a second with no audio. The
+ * title is only kept current while the pointer is over the rail, which is the only time it
+ * can show; the frame after the pointer arrives fills it in, well inside the tooltip delay.
+ */
 export function updateSelectedNodePeakMeter(): void {
   const rail = nodeParamsPanelElement?.querySelector(".default-effect-shell-rail") as HTMLElement | null;
   if (!rail) {
@@ -92,23 +108,36 @@ export function updateSelectedNodePeakMeter(): void {
   }
 
   const metrics = getSelectedNodeDiagnostics();
-  rail.classList.remove("is-inactive", "is-clipped");
+  const inactive = !metrics || !Number.isFinite(metrics.peakDbfs);
+  const next: PeakMeterShown = inactive
+    ? { inactive: true, clipped: false, scale: "0" }
+    : {
+      inactive: false,
+      clipped: metrics.clipped || metrics.peakDbfs >= -0.3,
+      // Hundredths: the fill eases between values anyway, and finer steps are sub-pixel.
+      scale: normalizePeakDbfsForShellMeter(metrics.peakDbfs).toFixed(2),
+    };
 
-  if (!metrics || !Number.isFinite(metrics.peakDbfs)) {
-    rail.classList.add("is-inactive");
-    rail.title = "No diagnostics data for this node";
-    meter.style.setProperty("--meter-fill-scale", "0");
-    return;
+  const shown = peakMeterShown.get(rail);
+  if (shown?.inactive !== next.inactive) {
+    rail.classList.toggle("is-inactive", next.inactive);
   }
-
-  const normalized = normalizePeakDbfsForShellMeter(metrics.peakDbfs);
-  meter.style.setProperty("--meter-fill-scale", normalized.toFixed(3));
-
-  if (metrics.clipped || metrics.peakDbfs >= -0.3) {
-    rail.classList.add("is-clipped");
+  if (shown?.clipped !== next.clipped) {
+    rail.classList.toggle("is-clipped", next.clipped);
   }
+  if (shown?.scale !== next.scale) {
+    meter.style.setProperty("--meter-fill-scale", next.scale);
+  }
+  peakMeterShown.set(rail, next);
 
-  rail.title = `Node peak: ${metrics.peakDbfs.toFixed(1)} dBFS · Headroom: ${metrics.headroomDb.toFixed(1)} dB`;
+  if (!shown || rail.matches(":hover")) {
+    const title = inactive
+      ? "No diagnostics data for this node"
+      : `Node peak: ${metrics.peakDbfs.toFixed(1)} dBFS · Headroom: ${metrics.headroomDb.toFixed(1)} dB`;
+    if (rail.title !== title) {
+      rail.title = title;
+    }
+  }
 }
 
 /** The selected node's readout averages; reset when the selection moves. */

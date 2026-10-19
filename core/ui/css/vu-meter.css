@@ -58,7 +58,8 @@
   height: 5px;
   border-radius: var(--radius-xs);
   background: var(--vu-seg-off, rgb(139 138 138 / 18%));
-  transition: background 60ms linear;
+  /* No colour transition: a background transition runs on the main thread, so
+     segments flipping at the telemetry rate kept the page rendering every frame. */
 }
 
 /* Segment colours when active */
