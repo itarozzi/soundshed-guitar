@@ -546,6 +546,80 @@ To see it working, `ps -T -p <pid> -o TID,PSR,CMD` shows the `AAudio_1` thread's
 the release build's WebView exposes `webview_devtools_remote_<pid>`, so
 `tools/agent-ui-debug/cdp-tool.mjs` can read `dspPerformance` through `adb forward`.
 
+### Big-core clock floor (Samsung)
+
+Pinning the callback to the big cores was half of it. On the S21 the `energy_step` governor
+(Samsung's EMS) then holds the A78 cluster at 533–832 MHz, because one 96-frame block every
+2 ms at about a fifth of the budget looks idle to it. It only raises a cluster's clock once a
+core there is roughly 70–75% busy. At those clocks the same DSP takes two to three times as
+long, and the worst block in each UI frame (`peakDspLoadPercent`) sits near 90% of the
+deadline. The S21 has no ADPF and no sustained performance mode, and the governor accepts but
+ignores per-thread `uclamp_min`. Battery saver is not the cause either: it caps the big cores
+at 2080 MHz, which the callback never reaches, and the clocks collapse the same way with it off.
+
+What the governor does honour is a minimum-frequency request, and Samsung's Galaxy Performance
+SDK lets any foreground app make one. The phone carries the SDK itself:
+`/system/framework/perfsdk.jar`, the `perfsdkserver` daemon, and
+`libperfsdk.performance.samsung.so`. That library is a public vendor library, so the manifest
+declares it with `<uses-native-library android:required="false">`. `ClockFloor.java` loads the
+SDK classes from the system jar rather than bundling them. While the activity is resumed, it
+asks for a CPU minimum (`CustomParams.TYPE_CPU_MIN`) and renews it every 500 ms, because the SDK
+refuses requests longer than 1 s. On pause it drops the floor. On a phone without the jar it
+does nothing.
+
+The SDK's five levels map, on the S21, to 1248, 1456, 1768, 1768 and 1768 MHz on the A78 and
+X1 clusters, and they hold the A55s at 1170 MHz. The default is level 1. Measured with
+"Convoluted Acoustic Sim", 20 s per run, screen on, battery saver off (µs p50 unless noted;
+peak is the p50 of each UI frame's worst block):
+
+| Clock floor              | A78 MHz p50 | IR Reverb | NAM     | DSP total | Load p50 | Peak p50 |
+| ------------------------ | ----------- | --------- | ------- | --------- | -------- | -------- |
+| none                     | 728–832     | 148       | 340–348 | 673–693   | 34–35%   | 89–92%   |
+| level 0 (1248 MHz)       | 1248        | 98        | 175     | 354       | 18%      | 43%      |
+| level 1 (1456 MHz)       | 1456        | 90–93     | 149–154 | 316–317   | 16%      | 39–41%   |
+| level 2 (1768 MHz)       | 1768        | 83–86     | 124–125 | 268–269   | 13%      | 32–34%   |
+
+With battery saver on, the default floor held as well (DSP total 231 µs, peak 27%, against
+487 µs and 86% without the floor).
+
+Power, estimated from the phone's own power profile
+(`dumpsys batterystats --power-profile`, mA per active A78 core at each clock): the callback
+costs about 48 mA with no floor (35% duty at 728 MHz) and about 32 mA at level 1 (16% duty at
+1456 MHz). The work finishes sooner at the higher clock, so the floor is roughly neutral by
+that model. The model leaves out the extra leakage of idle cores at the higher voltage, and the
+A55s held at 1170 MHz add a few mA for the UI threads. Over three minutes per mode the AP and
+skin temperatures (`dumpsys thermalservice`) showed no sustained rise. Battery drain itself
+cannot be read while the phone is on USB.
+
+Rejected: a keep-warm spin. Spinning at the end of each block until 70% or 90% of the budget
+has passed does lift the clock (to about 1248 and 1872 MHz), and so does a helper thread
+spinning on a sibling A78. But because the governor wants a core 70–75% busy, any spin costs
+most of a core: about +77 mA for 1.25 GHz, +180–280 mA (6–7% of the 3880 mAh battery per hour)
+for 1.9–2.1 GHz, against roughly nothing for the SDK floor. Below 70% duty, the spin buys no
+clock at all.
+
+`debug.soundshed.audio.clock` changes it without a rebuild:
+
+```bash
+adb shell setprop debug.soundshed.audio.clock off       # no floor
+adb shell setprop debug.soundshed.audio.clock sperf:2   # level 0-4
+adb shell setprop debug.soundshed.audio.clock '""'      # back to the default (level 1)
+adb shell am force-stop com.soundshed.guitar            # then relaunch
+```
+
+The log says what happened:
+
+```
+SoundshedGuitar: Clock floor: Samsung performance SDK, level 1
+SoundshedGuitar: Clock floor: Samsung performance SDK did not initialise
+```
+
+"Did not initialise" can appear once right after a quick restart, while `perfsdkserver` is still
+tearing down the previous process's session. The floor tries again every 2 s, up to four more
+times. To see the floor itself, read
+`/sys/devices/system/cpu/cpufreq/policy4/scaling_min_freq`: it reads 533000 without the floor
+and the level's frequency with it.
+
 ### Sustained performance mode
 
 `MainActivity` asks for Android's sustained performance mode

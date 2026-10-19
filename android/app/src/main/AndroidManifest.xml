@@ -31,6 +31,9 @@
        
         android:theme="@style/SoundshedTheme">
 
+        <!-- Samsung's performance SDK (ClockFloor.java, experimental); absent elsewhere. -->
+        <uses-native-library android:name="libperfsdk.performance.samsung.so" android:required="false" />
+
         <activity
             android:name="com.soundshed.guitar.MainActivity"
             android:exported="true"

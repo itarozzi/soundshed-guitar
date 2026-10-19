@@ -34,6 +34,8 @@ public class MainActivity extends Activity
 
     private static final int REQUEST_RECORD_AUDIO = 1001;
 
+    private ClockFloor clockFloor;
+
     @Override
     protected void onCreate (Bundle savedInstanceState)
     {
@@ -42,11 +44,33 @@ public class MainActivity extends Activity
         super.onCreate (savedInstanceState);
 
         requestSustainedPerformance();
+        clockFloor = new ClockFloor (this);
 
         // Without RECORD_AUDIO the audio device opens with no input and the amp
         // has nothing to process.
         if (checkSelfPermission (Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED)
             requestPermissions (new String[] { Manifest.permission.RECORD_AUDIO }, REQUEST_RECORD_AUDIO);
+    }
+
+    @Override
+    protected void onResume()
+    {
+        super.onResume();
+        clockFloor.hold();
+    }
+
+    @Override
+    protected void onPause()
+    {
+        clockFloor.release();
+        super.onPause();
+    }
+
+    @Override
+    protected void onDestroy()
+    {
+        clockFloor.close();
+        super.onDestroy();
     }
 
     /**
