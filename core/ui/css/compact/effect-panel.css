@@ -152,6 +152,7 @@ html[data-density="compact"] .default-effect-shell-meta {
   flex: none;
   flex-wrap: nowrap;
   gap: 6px;
+  --effect-shell-control-height: 26px;
 }
 
 /*
@@ -176,33 +177,19 @@ html[data-density="compact"] .default-effect-shell-meta {
   }
 }
 
+/* The chips, bypass switch and icon buttons take their height from
+   --effect-shell-control-height, set on the row above. */
 html[data-density="compact"] .default-effect-shell-chip {
-  min-height: 26px;
   padding: 0 9px;
-}
-
-/* The bypass switch grows to 26px with the chips. Its thumb is placed 4px from the
-   top of a 20px switch, so it is re-centred rather than left riding high. */
-html[data-density="compact"] .default-effect-shell-toggle {
-  min-height: 26px;
-}
-
-html[data-density="compact"] .default-effect-shell-toggle-track {
-  top: calc(50% - 6px);
-}
-
-html[data-density="compact"] .default-effect-shell-toggle-label {
-  line-height: 24px;
 }
 
 html[data-density="compact"] .default-effect-shell-meta .effect-visualization-toolbar-btn {
   width: 26px;
-  height: 26px;
   border-radius: var(--radius-md);
 }
 
 /* The desktop row shrinks these icons to 13px for its 20px buttons; at 26px they
-   return to the toolbar's usual 15px. */
+   return to the toolbar's usual 15px. The DSP stats gauge scales with the row instead. */
 html[data-density="compact"] .default-effect-shell-meta .effect-visualization-toolbar-icon {
   width: 15px;
   height: 15px;
@@ -401,14 +388,12 @@ html[data-density="compact"] .default-effect-shell .knob {
 }
 
 @media (pointer: coarse) {
-  html[data-density="compact"] .default-effect-shell-chip,
-  html[data-density="compact"] .default-effect-shell-toggle,
-  html[data-density="compact"] .default-effect-shell .node-param-tab {
-    min-height: 30px;
+  html[data-density="compact"] .default-effect-shell-meta {
+    --effect-shell-control-height: 30px;
   }
 
-  html[data-density="compact"] .default-effect-shell-toggle-label {
-    line-height: 28px;
+  html[data-density="compact"] .default-effect-shell .node-param-tab {
+    min-height: 30px;
   }
 
   html[data-density="compact"] .default-effect-shell-meta .effect-visualization-toolbar-btn,

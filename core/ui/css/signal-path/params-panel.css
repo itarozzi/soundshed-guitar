@@ -160,11 +160,15 @@
   justify-content: flex-end;
   gap: 8px;
   flex-wrap: wrap;
+  /* One height for every control in the row (DSP stats, Presets, Channels, the bypass
+     switch, the layout split), so none of them sits taller or shorter than the switch.
+     The compact sheet raises it to 26px, or 30px for touch. */
+  --effect-shell-control-height: 20px;
 }
 
 /* Channels: how the effect takes a stereo input. As tall as the chips beside it. */
 .default-effect-shell-meta .node-channel-mode-select {
-  height: 20px;
+  height: var(--effect-shell-control-height);
   padding: 0 4px;
   font-size: 11px;
   color: var(--text-secondary);
@@ -174,11 +178,10 @@
 }
 
 /* Icon buttons in the header row (DSP stats, the layout split toggle) stand as tall as the
-   20px chips and bypass switch beside them. The compact sheet raises all of them to 26px
-   together, and its selector outweighs this one. */
+   chips and bypass switch beside them. */
 .default-effect-shell-meta .effect-visualization-toolbar-btn {
   width: 24px;
-  height: 20px;
+  height: var(--effect-shell-control-height);
   border-radius: var(--radius-md);
 }
 
@@ -190,7 +193,7 @@
 .default-effect-shell-chip {
   display: inline-flex;
   align-items: center;
-  min-height: 20px;
+  height: var(--effect-shell-control-height);
   padding: 0 8px;
   border-radius: var(--radius-pill);
   border: 1px solid rgba(190, 204, 236, 0.12);
@@ -220,6 +223,13 @@
   color: var(--text-muted);
 }
 
+/* With no frame, the gauge itself is what the eye measures, so it fills the row's height
+   rather than reading as a small glyph beside the framed controls. */
+.default-effect-shell-meta .effect-visualization-toolbar-btn.default-effect-shell-dsp-toggle .effect-visualization-toolbar-icon {
+  width: calc(var(--effect-shell-control-height) - 2px);
+  height: calc(var(--effect-shell-control-height) - 2px);
+}
+
 .default-effect-shell-meta .effect-visualization-toolbar-btn.default-effect-shell-dsp-toggle:hover {
   border-color: var(--border-light);
   color: var(--text-primary);
@@ -235,7 +245,7 @@
 .default-effect-shell-toggle {
   position: relative;
   width: 38px;
-  min-height: 20px;
+  height: var(--effect-shell-control-height);
   padding: 0 18px 0 5px;
   border: 1px solid var(--color-accent-dark);
   border-radius: var(--radius-pill);
@@ -248,13 +258,14 @@
   letter-spacing: 0.08em;
   text-transform: uppercase;
   cursor: pointer;
-  transition: 0.3s;
+  /* Not `all`: a density change would otherwise animate the height. */
+  transition: background 0.3s, border-color 0.3s, box-shadow 0.3s, color 0.3s, padding 0.3s;
 }
 
 .default-effect-shell-toggle-track {
   position: absolute;
   left: 3px;
-  top: 4px;
+  top: calc(50% - 6px);
   width: 12px;
   height: 12px;
   border-radius: 50%;
@@ -265,7 +276,7 @@
 
 .default-effect-shell-toggle-label {
   display: block;
-  line-height: 18px;
+  line-height: calc(var(--effect-shell-control-height) - 2px);
   text-align: left;
 }
 
