@@ -402,7 +402,7 @@
   /* Reserve the thin horizontal scrollbar's track below the signal nodes. */
   padding: 8px 12px 16px;
   /* A soft pool of light where the chain sits. */
-  background: radial-gradient(ellipse 60% 85% at 50% 50%, color-mix(in srgb, var(--color-accent) 5%, transparent) 0%, transparent 100%);
+  background: radial-gradient(ellipse 60% 85% at 50% 50%, color-mix(in srgb, #ffffff 5%, transparent) 0%, transparent 100%);
 }
 
 .signal-path-bar.fx-library-collapsed:not(.mix-tab-active) .signal-path-scroll {
