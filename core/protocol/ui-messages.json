@@ -292,7 +292,8 @@
     "tunerReferenceChanged",
     "tunerStarted",
     "tunerStopped",
-    "tunerUpdate"
+    "tunerUpdate",
+    "windowChromeState"
   ],
   "engineOnlyRequests": {
     "getPerformanceStats": "A pull for tests and scripted debugging (MixerInstanceLockTests drives the telemetry read with it); the UI takes the pushed dspPerformance feed.",

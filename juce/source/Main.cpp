@@ -276,10 +276,15 @@ public:
             });
 
 #if !JUCE_ANDROID
-            // The page sends its header colours whenever the theme changes.
-            adapter->setWindowChromeHandler ([this] (const juce::var& message) {
+            // The page sends its header colours whenever the theme changes, and is told
+            // whether the caption took them, so it can drop the title it would repeat.
+            // Answered even when nothing changed: a reloaded page sends the same colours.
+            adapter->setWindowChromeHandler ([this, adapter] (const juce::var& message) {
                 if (const auto colours = soundshed::WindowChromeColours::fromVar (message))
                     setWindowChrome (*colours);
+
+                adapter->SendMessageToUI (mCustomCaption ? R"({"type":"windowChromeState","customCaption":true})"
+                                                         : R"({"type":"windowChromeState","customCaption":false})");
             });
 #endif
         }
@@ -519,7 +524,7 @@ private:
             return;
 
         mWindowChrome = colours;
-        soundshed::applyWindowChrome (*this, colours);
+        mCustomCaption = soundshed::applyWindowChrome (*this, colours);
     }
 
     std::unique_ptr<juce::StandalonePluginHolder> mPluginHolder;
@@ -535,6 +540,7 @@ private:
 
     // What the title bar was last given (setWindowChrome), kept in the window state file.
     std::optional<soundshed::WindowChromeColours> mWindowChrome;
+    bool mCustomCaption = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainWindow)
 };

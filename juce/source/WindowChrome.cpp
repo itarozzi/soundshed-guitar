@@ -47,12 +47,12 @@ namespace soundshed
         return juce::var (object.get());
     }
 
-    void applyWindowChrome (juce::Component& window, const WindowChromeColours& colours)
+    bool applyWindowChrome (juce::Component& window, const WindowChromeColours& colours)
     {
 #if JUCE_WINDOWS
         auto* hwnd = static_cast<HWND> (window.getWindowHandle());
         if (hwnd == nullptr)
-            return;
+            return false;
 
         // By number rather than by name: the names for these need a Windows 11 SDK.
         constexpr DWORD useImmersiveDarkMode = 20; // Windows 10 20H1 and later
@@ -70,17 +70,19 @@ namespace soundshed
         // Windows 10 refuses these (E_INVALIDARG), leaving it the light/dark switch above.
         const auto setColour = [hwnd] (DWORD attribute, juce::Colour colour) {
             const COLORREF ref = RGB (colour.getRed(), colour.getGreen(), colour.getBlue());
-            DwmSetWindowAttribute (hwnd, attribute, &ref, sizeof (ref));
+            return SUCCEEDED (DwmSetWindowAttribute (hwnd, attribute, &ref, sizeof (ref)));
         };
 
-        setColour (captionColour, colours.caption);
+        const auto captionTaken = setColour (captionColour, colours.caption);
         setColour (textColour, colours.text);
         setColour (borderColour, colours.border);
 
         // Windows 10 repaints a shown caption in its new mode only once the frame changes.
         SetWindowPos (hwnd, nullptr, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+        return captionTaken;
 #else
         juce::ignoreUnused (window, colours);
+        return false;
 #endif
     }
 } // namespace soundshed

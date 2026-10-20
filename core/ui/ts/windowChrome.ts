@@ -5,6 +5,7 @@
  * system's bar, so there the message is dropped.
  */
 import { postMessage } from "./bridge.js";
+import type { IncomingPayload } from "./messages/types.js";
 
 let lastSent = "";
 let swatch: CanvasRenderingContext2D | null = null;
@@ -69,6 +70,17 @@ export function sendWindowChrome(): void {
   lastSent = payload;
 
   postMessage({ type: "setWindowChrome", ...chrome });
+}
+
+/**
+ * The window's answer to each send: `customCaption` is true when the native title bar took
+ * the header's colour (Windows 11). The bar then reads as part of the header and already
+ * says "Soundshed Guitar", so `html[data-window-chrome="custom"]` hides the header's own
+ * title (css/navigation.css).
+ */
+export function onWindowChromeState(payload: IncomingPayload): void {
+  if (payload.customCaption === true) document.documentElement.dataset.windowChrome = "custom";
+  else delete document.documentElement.dataset.windowChrome;
 }
 
 /**

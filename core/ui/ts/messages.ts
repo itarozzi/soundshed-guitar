@@ -25,6 +25,7 @@ import { onAmpCabStateChanged, onAppInfo, onAppSettingChanged, onError, onInputM
 import { onDspPerformance, onSld, onSldA, onSldL, onSldRoster, onSldS } from "./messages/telemetry.js";
 import { onTunerLiveModeChanged, onTunerReferenceChanged, onTunerStarted, onTunerStopped, onTunerUpdate } from "./messages/tunerHandlers.js";
 import type { MessageHandler } from "./messages/types.js";
+import { onWindowChromeState } from "./windowChrome.js";
 
 export { handleMixerStateMessage } from "./messages/mixerHandlers.js";
 
@@ -105,6 +106,7 @@ const MESSAGE_HANDLERS: Record<string, MessageHandler> = {
   "midiLog": onMidiLog,
   "midiLearnCapture": onMidiLearnCapture,
   "theme": onTheme,
+  "windowChromeState": onWindowChromeState,
   "tunerUpdate": onTunerUpdate,
   "tunerStarted": onTunerStarted,
   "gateLearnStatus": onGateLearnStatus,

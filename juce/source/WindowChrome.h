@@ -25,6 +25,7 @@ namespace soundshed
     /// Recolours the window's native title bar. Windows 11 takes all three colours; Windows
     /// 10 can only switch its caption between light and dark, which follows the caption's
     /// brightness. Elsewhere this does nothing: macOS and Linux keep the system's bar, and
-    /// Android has none.
-    void applyWindowChrome (juce::Component& window, const WindowChromeColours& colours);
+    /// Android has none. True if the caption took the colour itself, which is when the page
+    /// drops its own title ("windowChromeState").
+    bool applyWindowChrome (juce::Component& window, const WindowChromeColours& colours);
 } // namespace soundshed

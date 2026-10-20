@@ -29,6 +29,12 @@
   user-select: none;
 }
 
+/* The native title bar has the header's colour and already says "Soundshed Guitar"
+   (windowChrome.ts), so a second copy just under it only repeats it. */
+html[data-window-chrome="custom"] .app-title {
+  display: none;
+}
+
 .icon-bar-spacer {
   flex: 1;
 }
