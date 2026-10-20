@@ -57,7 +57,10 @@ export function readWindowChrome(): { caption: string; text: string; border: str
   let text = toOpaqueHex(barStyle.color, caption);
   if (!text || contrast(text, caption) < 3) text = luminance(caption) < 0.18 ? "#f2f2f2" : "#1a1a1a";
 
-  const border = toOpaqueHex(barStyle.borderBottomColor, caption) ?? caption;
+  // A theme can give the window frame its own colour (--window-border); otherwise it
+  // follows the line under the header.
+  const frame = getComputedStyle(document.body).getPropertyValue("--window-border").trim();
+  const border = toOpaqueHex(frame || barStyle.borderBottomColor, caption) ?? caption;
   return { caption, text, border };
 }
 

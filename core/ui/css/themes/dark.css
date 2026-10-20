@@ -55,7 +55,12 @@
   --border-dark-light: #4a4a58;
   --border-dark-medium: #3a3a48;
   --border-dark-strong: #5a5a68;
-  
+
+  /* The Windows frame round the standalone window (ts/windowChrome.ts). The
+     header's own border is near black, which lost the window among other dark
+     ones; this grey keeps its edge visible. */
+  --window-border: #4a4a55;
+
   /* Controls */
   --control-bg: #2e2e3a;
   --control-knob-bg: #2e2e3a;
