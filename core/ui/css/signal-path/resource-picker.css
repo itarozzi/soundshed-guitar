@@ -1,7 +1,8 @@
 /* ── Resource slot picker (the model or IR a node has loaded) ── */
 
 /* A button: loaded, it names the resource and carries a caret, so it reads as
-   something that opens a list. Empty, it is the slot's call to action. */
+   something that opens a list, and wears the accent at rest so it reads as
+   somewhere to click; hover deepens it. Empty, it is the slot's call to action. */
 .resource-picker-label {
   flex: 1;
   min-width: 0;
@@ -10,9 +11,9 @@
   gap: 8px;
   margin: 0;
   padding: 6px 8px 6px 10px;
-  border: 1px solid transparent;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 45%, transparent);
   border-radius: var(--radius-sm);
-  background: #3a3a4a99;
+  background: color-mix(in srgb, var(--color-accent) 10%, #3a3a4a99);
   color: var(--text-dark-primary);
   font: inherit;
   font-size: 12px;
@@ -23,8 +24,8 @@
 }
 
 .resource-picker-label:hover {
-  border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
-  background-color: color-mix(in srgb, var(--color-accent) 10%, #3a3a4a99);
+  border-color: color-mix(in srgb, var(--color-accent) 70%, transparent);
+  background-color: color-mix(in srgb, var(--color-accent) 16%, #3a3a4a99);
 }
 
 .resource-picker-label:focus-visible {
@@ -55,7 +56,7 @@
 .resource-picker-label-caret {
   width: 12px;
   height: 12px;
-  opacity: 0.55;
+  opacity: 0.8;
   transition: opacity 0.15s ease;
 }
 

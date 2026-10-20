@@ -112,8 +112,8 @@
 .custom-layout-resource-selector .resource-picker-label {
   padding: 5px 8px;
   font-size: 11px;
-  border-color: var(--border-dark-medium);
-  background: var(--bg-dark-tertiary);
+  border-color: color-mix(in srgb, var(--color-accent) 45%, var(--border-dark-medium));
+  background: color-mix(in srgb, var(--color-accent) 10%, var(--bg-dark-tertiary));
 }
 
 .custom-layout-resource-selector .resource-browse-btn {
