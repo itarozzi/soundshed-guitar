@@ -4,7 +4,9 @@
 .signal-path-bar {
   --signal-path-scroll-height: 96px;
   display: grid;
-  grid-template-rows: auto 1fr;
+  /* One row: the body. The collapse chevron floats over it (navigation.css), and
+     the row animating from 1fr to 0fr is the collapse. */
+  grid-template-rows: 1fr;
   transition: grid-template-rows 0.22s ease;
   border-bottom: none;
   padding: 0;
@@ -16,7 +18,7 @@
 }
 
 .signal-path-bar.is-collapsed {
-  grid-template-rows: auto 0fr;
+  grid-template-rows: 0fr;
 }
 
 /* Body wraps all collapsible content; clips to 0 when the bar is collapsed */
@@ -32,7 +34,8 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 4px 12px;
+  /* Clear of the floated collapse chevron (navigation.css). */
+  padding: 4px 12px 4px 28px;
   background: linear-gradient(90deg, var(--accent-primary, #4a90d9) 0%, var(--accent-secondary, #6a5acd) 100%);
   color: #fff;
   font-size: 0.8rem;

@@ -52,25 +52,6 @@ body.signal-path-resizing * {
   user-select: none !important;
 }
 
-.signal-path-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 8px 12px 10px;
-  border-top: 1px solid var(--border-light);
-  border-bottom: 1px solid var(--border-light);
-  background: var(--bg-secondary);
-}
-
-.signal-path-toolbar.scene-toolbar-empty {
-  display: none;
-}
-
-.signal-path-scene-toolbar {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
 .signal-path-add-menu {
   position: absolute;
   right: 12px;
@@ -165,16 +146,6 @@ body.signal-path-resizing * {
     padding-right: 12px;
     padding-bottom: 16px;
   }
-
-  .signal-path-toolbar {
-    flex-wrap: wrap;
-    align-items: stretch;
-  }
-
-  .signal-path-scene-toolbar {
-    width: 100%;
-  }
-
 }
 
 .signal-path-nodes {
@@ -367,13 +338,14 @@ body.signal-path-resizing * {
   height: 100%;
   width: auto;
   object-fit: cover;
-  border-radius: 3px;
+  border-radius: var(--radius-md);
   opacity: 0.85;
   border: 1px solid rgba(255, 255, 255, 0.12);
 }
 
 /* One dark rig photo looks much like another, so the effect's own accented icon
-   sits in the middle of the artwork to say what the node actually is. */
+   sits in the middle of the artwork to say what the node actually is: large
+   enough to read, translucent enough to leave the artwork showing. */
 .node-layout-thumb-icon {
   position: absolute;
   top: 50%;
@@ -382,17 +354,18 @@ body.signal-path-resizing * {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 14px;
-  height: 14px;
+  width: 22px;
+  height: 22px;
   border-radius: var(--radius-pill);
-  background: rgba(9, 11, 17, 0.78);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.55);
+  background: rgba(9, 11, 17, 0.4);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
   color: var(--node-accent-strong);
+  opacity: 0.85;
 }
 
 .node-layout-thumb-icon .fx-effect-icon {
-  width: 9px;
-  height: 9px;
+  width: 14px;
+  height: 14px;
 }
 
 .signal-node.bypassed {
@@ -590,8 +563,11 @@ body.signal-path-resizing * {
   opacity: 0.6;
 }
 
+/* The delete and bypass buttons sit above the layout thumbnail (z-index 1),
+   which overhangs the node's top edge where they live. */
 .signal-node-delete {
   position: absolute;
+  z-index: 2;
   top: 2px;
   left: 2px;
   width: 16px;
@@ -611,6 +587,7 @@ body.signal-path-resizing * {
 
 .signal-node-bypass {
   position: absolute;
+  z-index: 2;
   top: 2px;
   right: 2px;
   width: 16px;

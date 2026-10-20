@@ -21,6 +21,7 @@
         <span class="composite-edit-banner-hint">Use the signal chain below to add/remove/configure effects</span>
       </div>
       <div class="signal-path-visualizer">
+        <div class="signal-path-scene-badges" id="signal-path-scene-badges" role="toolbar" aria-label="Scenes" hidden></div>
         <div class="signal-path-scroll scrollbar-thin">
           <div class="signal-path-nodes" id="signal-path-nodes">
             <!-- Signal path nodes will be rendered here by JavaScript (or x-for in future) -->
@@ -75,9 +76,6 @@
         tabindex="0"
       >
         <span class="signal-path-resize-handle-grip" aria-hidden="true"></span>
-      </div>
-      <div class="signal-path-toolbar" id="signal-path-toolbar">
-        <div class="signal-path-scene-toolbar" id="signal-path-scene-toolbar"></div>
       </div>
       </div>
     </section>

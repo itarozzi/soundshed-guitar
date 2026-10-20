@@ -24,7 +24,7 @@ import { resolveNodeDropAction, type NodeDropTarget } from "./signalPathDropTarg
 import { resolveLayoutForNode } from "./layoutPreferences.js";
 import { layoutDesigner } from "./layoutDesigner.js";
 import { closeLayoutPicker } from "./layoutPicker.js";
-import { findPresetScene, normalizePresetScenes, selectPresetScene } from "./presetScenes.js";
+import { normalizePresetScenes, selectPresetScene } from "./presetScenes.js";
 import { isNodeBypassed } from "./graphNodes.js";
 import {
   getLastSelectedNodeCategory,
@@ -54,6 +54,7 @@ import { updateSignalPathClipIndicators } from "./signalPath/telemetry.js";
 import { reanchorAddEffectDropdown, showAddEffectDropdown } from "./signalPath/addEffectDropdown.js";
 import { initSignalPathAddMenu, updateSignalPathAddMenuAvailability } from "./signalPath/addMenu.js";
 import { openReplaceChooser, syncReplaceChooser } from "./signalPath/replaceChooser.js";
+import { clearSceneBadges, renderSceneBadges, type SceneBadgeActions } from "./signalPath/sceneBadges.js";
 export { applySignalPathNodeBypassState, isToggleableSignalPathNode } from "./signalPath/bypass.js";
 export { applySpatialPositionUpdate, buildDefaultParamControlsHtml } from "./signalPath/paramsPanel.js";
 export { closeEffectPresetsFlyout, refreshEffectPresetsFlyout } from "./signalPath/effectPresets.js";
@@ -550,23 +551,20 @@ function renderSignalPathBarContent(): void {
   }
 
   const signalPathBar = document.getElementById("signal-path-bar");
-  const sceneToolbarHost = document.getElementById("signal-path-scene-toolbar");
-  const toolbarRow = document.getElementById("signal-path-toolbar");
   signalPathBar?.classList.toggle("mix-tab-active", isMixTabActive());
   signalPathBar?.classList.toggle("preset-loading", Boolean(uiState.presetLoadingId));
 
   // Show/hide composite edit mode banner
   updateCompositeEditBanner();
 
-  // Render preset selection tabs and scene controls in a single bar.
+  // Render the mixer's preset tabs (the scene badges follow once the chain is drawn).
   renderMixerPresetTabs();
 
   // Show inline mixer panel instead of signal chain when Mix tab is active
   const scroll = document.querySelector<HTMLElement>(".signal-path-scroll");
   if (isMixTabActive()) {
     if (scroll) scroll.hidden = true;
-    if (sceneToolbarHost) sceneToolbarHost.innerHTML = "";
-    toolbarRow?.classList.add("scene-toolbar-empty");
+    clearSceneBadges();
     updateSignalPathAddMenuAvailability(false);
     // Pin the mixer to the same height as the full-size signal chain,
     // independent of whichever compact/full density was active before
@@ -593,8 +591,7 @@ function renderSignalPathBarContent(): void {
     // Only before the engine's first state: it always has an active preset after that (a new
     // one when nothing else loads), so there is never a "no preset" chain to draw.
     if (signalPathNodesElement) signalPathNodesElement.innerHTML = "";
-    if (sceneToolbarHost) sceneToolbarHost.innerHTML = "";
-    toolbarRow?.classList.add("scene-toolbar-empty");
+    clearSceneBadges();
     updateSignalPathAddMenuAvailability(false);
     updateEffectVisualization();
     return;
@@ -620,17 +617,9 @@ function renderSignalPathBarContent(): void {
     bindAddButtonHandlers();
   }
 
-  if (sceneToolbarHost) {
-    const activeSceneId = normalizePresetScenes(editablePreset, uiState.activePresetSceneId ?? undefined);
-    setActivePresetSceneId(activeSceneId);
-    const sceneMarkup = buildPresetScenePanelMarkup(editablePreset, activeSceneId ?? "");
-    sceneToolbarHost.innerHTML = sceneMarkup;
-    toolbarRow?.classList.toggle("scene-toolbar-empty", !sceneMarkup);
-    const scenePanel = sceneToolbarHost.querySelector<HTMLElement>(".mixer-preset-scene-panel");
-    if (scenePanel) {
-      bindPresetScenePanel(scenePanel, editablePreset);
-    }
-  }
+  const activeSceneId = normalizePresetScenes(editablePreset, uiState.activePresetSceneId ?? undefined);
+  setActivePresetSceneId(activeSceneId);
+  renderSceneBadges(editablePreset, activeSceneId ?? "", !isCompositeEditMode(), sceneBadgeActions(editablePreset));
 
   updateSignalPathClipIndicators();
   if (!getSelectedNodeId()) {
@@ -1219,29 +1208,6 @@ function updateCompositeEditBanner(): void {
   }
 }
 
-function buildPresetScenePanelMarkup(preset: Preset, activeSceneId: string): string {
-  const scenes = preset.scenes ?? [];
-  if (scenes.length <= 1) {
-    return "";
-  }
-
-  const activeScene = findPresetScene(preset, activeSceneId) ?? scenes[0] ?? null;
-  const tabsHtml = scenes.map((scene) => {
-    const active = scene.id === activeSceneId;
-    return `<button class="preset-scene-tab${active ? " active" : ""}" type="button" data-scene-id="${escapeHtml(scene.id)}">${escapeHtml(scene.title)}</button>`;
-  }).join("");
-
-  return `
-    <div class="mixer-preset-scene-panel" data-scene-panel-for="${escapeHtml(preset.id)}">
-      <div class="preset-scene-tab-strip">${tabsHtml}</div>
-      <div class="preset-scene-controls">
-        <input class="preset-scene-title-input" type="text" value="${escapeHtml(activeScene?.title ?? "")}" maxlength="80" placeholder="Scene title" />
-        <button class="preset-scene-action" type="button" data-scene-action="remove" title="Remove scene" ${scenes.length <= 1 ? "disabled" : ""}>Remove</button>
-      </div>
-    </div>
-  `;
-}
-
 // Scene edits are engine commands: the engine changes its working copy and answers with
 // "presetLoaded", which re-renders this bar, and reports the unsaved change itself.
 
@@ -1256,35 +1222,30 @@ function addSceneFromToolbar(): void {
   addScene(uiState.activePresetSceneId);
 }
 
-function bindPresetScenePanel(panel: HTMLElement, renderedPreset: Preset): void {
-  panel.querySelectorAll<HTMLButtonElement>(".preset-scene-tab").forEach((button) => {
-    button.addEventListener("click", () => {
-      const nextSceneId = button.dataset.sceneId ?? "";
-      if (!nextSceneId || nextSceneId === uiState.activePresetSceneId) {
+function sceneBadgeActions(renderedPreset: Preset): SceneBadgeActions {
+  return {
+    select(sceneId) {
+      if (!sceneId || sceneId === uiState.activePresetSceneId) {
         return;
       }
       // Draw the switch now; the engine's reply confirms it once the scene is built. In a
       // multi-preset mix the engine rebuilds only this preset's slot.
       const editablePreset = getEditableSignalPathPreset(renderedPreset);
-      setActivePresetSceneId(selectPresetScene(editablePreset, nextSceneId));
-      selectScene(nextSceneId);
+      setActivePresetSceneId(selectPresetScene(editablePreset, sceneId));
+      selectScene(sceneId);
       renderSignalPathBar();
-    });
-  });
-
-  const titleInput = panel.querySelector<HTMLInputElement>(".preset-scene-title-input");
-  titleInput?.addEventListener("change", () => {
-    const sceneId = uiState.activePresetSceneId;
-    if (sceneId) {
-      renameScene(sceneId, titleInput.value);
-    }
-  });
-
-  panel.querySelector<HTMLButtonElement>("[data-scene-action='remove']")?.addEventListener("click", () => {
-    // Makes sure the engine is editing the preset on screen (a focused mixer slot).
-    getEditableSignalPathPreset(renderedPreset);
-    removeScene(uiState.activePresetSceneId ?? "");
-  });
+    },
+    rename(sceneId, title) {
+      getEditableSignalPathPreset(renderedPreset);
+      renameScene(sceneId, title);
+    },
+    remove(sceneId) {
+      // Makes sure the engine is editing the preset on screen (a focused mixer slot).
+      getEditableSignalPathPreset(renderedPreset);
+      removeScene(sceneId);
+    },
+    add: addSceneFromToolbar,
+  };
 }
 
 initSignalPathAddMenu({ onAddScene: addSceneFromToolbar });

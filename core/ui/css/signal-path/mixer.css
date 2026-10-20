@@ -13,7 +13,8 @@
   display: flex;
   align-items: stretch;
   gap: 0;
-  padding: 4px 12px 0;
+  /* Clear of the floated collapse chevron (navigation.css). */
+  padding: 4px 12px 0 28px;
   overflow-x: auto;
   scrollbar-width: none;
 }
@@ -80,94 +81,149 @@
   color: #e05050;
 }
 
-.mixer-preset-scene-panel {
+/* ── Scene badges ─────────────────────────────────────────────────────
+ * The preset's scenes as small pills in a translucent tray floated over the
+ * chain's top-left corner, beside the collapse chevron, taking no space of
+ * their own (ts/signalPath/sceneBadges.ts). The tray is only as wide as its
+ * badges and scrolls sideways if a preset has more than fit.
+ */
+.signal-path-scene-badges {
+  position: absolute;
+  top: 3px;
+  left: 26px;
+  max-width: calc(100% - 72px);
+  z-index: 3;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 0;
-  background: transparent;
-  flex-wrap: wrap;
-  width: 100%;
-}
-
-.preset-scene-tab-strip {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+  gap: 3px;
+  padding: 2px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--bg-secondary) 72%, transparent);
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.14);
   overflow-x: auto;
   scrollbar-width: none;
-  flex: 1 1 auto;
 }
 
-.preset-scene-tab-strip::-webkit-scrollbar {
+.signal-path-scene-badges::-webkit-scrollbar {
   display: none;
 }
 
-.preset-scene-tab {
-  border: 1px solid var(--border-medium);
-  background: var(--overlay-light);
-  color: var(--text-secondary);
-  border-radius: var(--radius-pill);
-  padding: 5px 12px;
-  font-size: 11px;
-  font-weight: 600;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background 0.12s, color 0.12s, border-color 0.12s;
+.signal-path-scene-badges[hidden],
+.signal-path-bar.is-collapsed .signal-path-scene-badges,
+.signal-path-bar.mix-tab-active .signal-path-scene-badges {
+  display: none;
 }
 
-.preset-scene-tab:hover {
-  background: var(--overlay-medium);
-  color: var(--text-primary);
-}
-
-.preset-scene-tab.active {
-  background: var(--color-primary);
-  border-color: var(--color-primary);
-  color: #fff;
-}
-
-.preset-scene-controls {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-left: auto;
+.scene-badge,
+.scene-badge-add {
+  --scene-badge-height: 18px;
   flex: 0 0 auto;
-  justify-content: flex-end;
-  min-width: 220px;
-}
-
-.preset-scene-title-input {
-  min-width: 140px;
-  max-width: 240px;
-  flex: 1;
-  border: 1px solid var(--border-medium);
-  background: var(--overlay-light);
-  color: var(--text-primary);
-  border-radius: var(--radius-md);
-  padding: 6px 10px;
-  font-size: 12px;
-}
-
-.preset-scene-action {
-  border: 1px solid var(--border-medium);
-  background: var(--overlay-light);
-  color: var(--text-secondary);
-  border-radius: var(--radius-md);
-  padding: 6px 10px;
-  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  height: var(--scene-badge-height);
+  border: 1px solid color-mix(in srgb, var(--border-medium) 70%, transparent);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--bg-elevated) 60%, transparent);
+  color: var(--text-muted);
+  font-size: 10px;
   font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  transition: color 0.12s ease, background 0.12s ease, border-color 0.12s ease;
+}
+
+.scene-badge:hover,
+.scene-badge-add:hover {
+  color: var(--text-secondary);
+  border-color: var(--border-strong);
+}
+
+.scene-badge.is-active {
+  color: var(--color-accent);
+  border-color: color-mix(in srgb, var(--color-accent) 55%, transparent);
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+}
+
+/* The + badge is a button of its own, so it keeps the badge font size set above
+   and takes only the family; the label and × sit inside a badge and inherit it. */
+.scene-badge-label,
+.scene-badge-close {
+  font: inherit;
+  color: inherit;
+}
+
+.scene-badge-label,
+.scene-badge-close,
+.scene-badge-add {
   cursor: pointer;
 }
 
-.preset-scene-action:hover:not(:disabled) {
-  background: var(--overlay-medium);
-  color: var(--text-primary);
+.scene-badge-label {
+  height: 100%;
+  max-width: 160px;
+  padding: 0 3px 0 8px;
+  border: 0;
+  background: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.preset-scene-action:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
+.scene-badge-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(var(--scene-badge-height) - 4px);
+  height: calc(var(--scene-badge-height) - 4px);
+  margin-right: 1px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  font-size: 12px;
+  opacity: 0.55;
+}
+
+.scene-badge-close:hover {
+  opacity: 1;
+  color: var(--color-error);
+  background: color-mix(in srgb, var(--color-error) 18%, transparent);
+}
+
+.scene-badge-add {
+  justify-content: center;
+  font-family: inherit;
+  min-width: var(--scene-badge-height);
+  padding: 0 6px;
+  border-style: dashed;
+}
+
+.scene-badge-input {
+  height: calc(var(--scene-badge-height) - 4px);
+  min-width: 0;
+  margin: 0 1px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  outline: none;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font: inherit;
+}
+
+.scene-badge-label:focus-visible,
+.scene-badge-close:focus-visible,
+.scene-badge-add:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+@media (pointer: coarse) {
+  .scene-badge,
+  .scene-badge-add {
+    --scene-badge-height: 26px;
+    font-size: 11px;
+  }
 }
 
 /* ── Inline mixer panel (shown when Mix tab active) ──────────────────

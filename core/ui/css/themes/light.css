@@ -429,19 +429,32 @@
 
 
 /* ===== From signal-path.css ===== */
+/* Flat cards: no accent wash, foot shade, inner highlight or lit icon well. */
 .theme-light .signal-node {
   border-width: 2px;
   border-color: var(--node-accent-border);
+  background: var(--bg-card);
+  box-shadow: 0 1px 3px rgb(37 44 61 / 0.12);
+}
+
+.theme-light .signal-node:hover {
+  box-shadow: 0 4px 10px -2px rgb(37 44 61 / 0.2);
 }
 
 .theme-light .signal-node.selected,
 .theme-light .signal-node:focus {
-  
   border-color: var(--node-accent-strong);
   box-shadow:
-    inset 0 1px 0 color-mix(in srgb, white 7%, var(--node-accent-soft)),
     0 0 0 1px color-mix(in srgb, var(--node-accent-strong) 28%, transparent),
     0 0 12px color-mix(in srgb, var(--node-accent-strong) 22%, transparent);
+}
+
+.theme-light .signal-node:not(.has-thumb) .node-icon {
+  background: color-mix(in srgb, var(--node-accent-strong) 12%, transparent);
+}
+
+.theme-light .node-icon .fx-effect-icon {
+  filter: none;
 }
 
 .theme-light .signal-path-add-menu-trigger {

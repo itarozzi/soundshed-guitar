@@ -394,11 +394,10 @@ html[data-density="compact"] .signal-path-collapse-btn {
 }
 
 /*
-  One row, sized by its content. The bar ships as `auto 1fr`, where the first row
-  is the collapse chevron; floating that chevron empties the row but leaves the
-  body in the `1fr` one, which stretches it to fill the bar — and since the bar
-  takes its height from the body's own scrollHeight, each frame made the last one
-  taller. `auto` breaks the loop.
+  One row, sized by its content. The bar ships as one `1fr` row so its collapse
+  can animate, but here the stage stretches the bar, and `1fr` stretches the body
+  with it — and since the bar takes its height from the body's own scrollHeight,
+  each frame made the last one taller. `auto` breaks the loop.
 */
 html[data-density="compact"] .signal-path-bar {
   grid-template-rows: auto;
