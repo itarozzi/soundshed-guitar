@@ -457,6 +457,11 @@
   filter: none;
 }
 
+/* The underglow strip reads as a bowed bottom edge on a flat card. */
+.theme-light .signal-node::after {
+  content: none;
+}
+
 .theme-light .signal-path-add-menu-trigger {
   border-color: var(--border-medium);
   background: var(--bg-elevated);
