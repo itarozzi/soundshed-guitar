@@ -19,7 +19,7 @@
  *     tools/transpose-benchmark/build_external_passes.py.
  *
  * Usage:
- *   TransposeExternalRender [--list-params] [--all-demo-audio]
+ *   TransposeExternalRender [--list-params] [--all-demo-audio | --input-dir <dir>]
  *                           [--plugin <pluginId>] [--collection <path>]
  *                           [snapshotDir]
  *     --list-params    print each configured plugin's parameters (index, name,
@@ -27,6 +27,8 @@
  *                      transposeParameter config.
  *     --all-demo-audio render all demo inputs (default: first riff only, to
  *                      match the TransposeBenchmark default).
+ *     --input-dir <dir> render every .wav and .mp3 in <dir> instead; pass the
+ *                      same folder the snapshot's TransposeBenchmark run used.
  *     --plugin <id>    only process the plugin with this pluginId.
  *     --collection     path to external-plugins.json (default: found by
  *                      walking up from cwd to tools/transpose-benchmark/).
@@ -49,6 +51,7 @@
 #include <juce_events/juce_events.h>
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -84,6 +87,54 @@ const std::vector<std::string> kDemoSamples = {
     "guitar-riff-02.wav",
     "DI_Guitar_L.mp3",
 };
+
+// UTF-8 for a path piece, so non-ASCII file names survive into the manifest and render names.
+std::string PathToUtf8(const fs::path& path)
+{
+    const auto value = path.u8string();
+    return std::string(value.begin(), value.end());
+}
+
+struct InputSample
+{
+    std::string name; // file name: the manifest's "sample", and the stem names the renders
+    fs::path path;
+};
+
+// Every .wav and .mp3 directly inside dir, in file-name order, keeping the first of any two
+// with one stem. Matches core/tests/TransposeBenchmark.cpp so renders pair with its references.
+std::vector<InputSample> ListInputDirSamples(const fs::path& dir)
+{
+    std::vector<InputSample> samples;
+    std::error_code ec;
+    for (const auto& entry : fs::directory_iterator(dir, ec))
+    {
+        if (!entry.is_regular_file())
+            continue;
+        std::string ext = PathToUtf8(entry.path().extension());
+        std::transform(ext.begin(), ext.end(), ext.begin(),
+            [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if (ext == ".wav" || ext == ".mp3")
+            samples.push_back({PathToUtf8(entry.path().filename()), entry.path()});
+    }
+    std::sort(samples.begin(), samples.end(),
+        [](const InputSample& a, const InputSample& b) { return a.name < b.name; });
+
+    std::vector<InputSample> unique;
+    std::vector<std::string> stems;
+    for (auto& sample : samples)
+    {
+        const std::string stem = PathToUtf8(sample.path.stem());
+        if (std::find(stems.begin(), stems.end(), stem) != stems.end())
+        {
+            std::cerr << "WARN: skipping " << sample.name << " (another input has the stem " << stem << ")\n";
+            continue;
+        }
+        stems.push_back(stem);
+        unique.push_back(std::move(sample));
+    }
+    return unique;
+}
 
 const fs::path kCollectionRelPath = fs::path("tools") / "transpose-benchmark" / "external-plugins.json";
 
@@ -648,9 +699,11 @@ void PrintPluginParameters(const ExternalPluginJob& job, juce::AudioPluginInstan
 void PrintUsage(const char* argv0)
 {
     std::cout << "Usage: " << argv0
-              << " [--list-params] [--all-demo-audio] [--plugin <pluginId>] [--collection <path>] [snapshotDir]\n"
+              << " [--list-params] [--all-demo-audio | --input-dir <dir>] [--plugin <pluginId>]"
+                 " [--collection <path>] [snapshotDir]\n"
               << "  --list-params     list each configured plugin's parameters and exit\n"
               << "  --all-demo-audio  render all demo inputs (default: first riff only)\n"
+              << "  --input-dir <dir> render every .wav and .mp3 in <dir> instead of the demo inputs\n"
               << "  --plugin <id>     only process the plugin with this pluginId\n"
               << "  --collection      path to external-plugins.json\n"
               << "  snapshotDir       TransposeBenchmark snapshot directory (required unless --list-params)\n";
@@ -661,6 +714,7 @@ int main(int argc, char** argv)
 {
     bool listParams = false;
     bool renderAllDemoAudio = false;
+    fs::path inputDir;
     std::string pluginFilter;
     fs::path collectionPath;
     std::vector<std::string> positionalArgs;
@@ -675,6 +729,15 @@ int main(int argc, char** argv)
         else if (arg == "--all-demo-audio")
         {
             renderAllDemoAudio = true;
+        }
+        else if (arg == "--input-dir")
+        {
+            if (i + 1 >= argc)
+            {
+                std::cerr << "ERROR: --input-dir requires a directory argument\n";
+                return 1;
+            }
+            inputDir = fs::path(argv[++i]);
         }
         else if (arg == "--plugin")
         {
@@ -715,6 +778,38 @@ int main(int argc, char** argv)
     {
         std::cerr << "ERROR: too many positional arguments\n";
         return 1;
+    }
+
+    if (renderAllDemoAudio && !inputDir.empty())
+    {
+        std::cerr << "ERROR: --all-demo-audio and --input-dir cannot be combined\n";
+        return 1;
+    }
+
+    std::vector<InputSample> samplesToRender;
+    if (!inputDir.empty())
+    {
+        if (!fs::is_directory(inputDir))
+        {
+            std::cerr << "ERROR: input directory does not exist: " << inputDir << '\n';
+            return 1;
+        }
+        samplesToRender = ListInputDirSamples(inputDir);
+        if (samplesToRender.empty())
+        {
+            std::cerr << "ERROR: no .wav or .mp3 files in " << inputDir << '\n';
+            return 1;
+        }
+    }
+    else
+    {
+        const fs::path demoDir(GUITARFX_DEMO_AUDIO_DIR);
+        for (const auto& name : kDemoSamples)
+        {
+            samplesToRender.push_back({name, demoDir / name});
+            if (!renderAllDemoAudio)
+                break;
+        }
     }
 
     fs::path snapshotDir;
@@ -770,13 +865,6 @@ int main(int argc, char** argv)
     }
 
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
-
-    const fs::path demoDir(GUITARFX_DEMO_AUDIO_DIR);
-    std::vector<std::string> demoSamplesToRender;
-    if (renderAllDemoAudio)
-        demoSamplesToRender = kDemoSamples;
-    else
-        demoSamplesToRender.push_back(kDemoSamples.front());
 
     int failures = 0;
     int rendered = 0;
@@ -865,13 +953,12 @@ int main(int argc, char** argv)
             continue;
         }
 
-        for (const auto& sampleName : demoSamplesToRender)
+        for (const auto& [sampleName, samplePath] : samplesToRender)
         {
-            const auto audio = LoadDemoSample(demoDir / sampleName);
+            const auto audio = LoadDemoSample(samplePath);
             if (!audio)
             {
-                std::cerr << "WARN: skipping demo sample (missing or undecodable): "
-                          << (demoDir / sampleName) << '\n';
+                std::cerr << "WARN: skipping input sample (missing or undecodable): " << samplePath << '\n';
                 continue;
             }
 
@@ -899,7 +986,7 @@ int main(int argc, char** argv)
                 }
             }
 
-            const std::string sampleStem = SanitizeForFilename(fs::path(sampleName).stem().string());
+            const std::string sampleStem = SanitizeForFilename(PathToUtf8(samplePath.stem()));
 
             for (const int semitones : job.semitones)
             {
@@ -935,6 +1022,7 @@ int main(int argc, char** argv)
                 nlohmann::json entry;
                 entry["sample"] = sampleName;
                 entry["semitones"] = semitones;
+                entry["sampleRate"] = audio->sampleRate;
                 entry["wav"] = "external/" + wavFile;
                 entry["parameterValue"] = *normalized;
                 entry["parameterText"] = resultingText;

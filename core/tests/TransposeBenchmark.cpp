@@ -15,13 +15,15 @@
  * comparing one or more snapshots (e.g. different git revisions).
  *
  * Usage:
- *   TransposeBenchmark [--all-demo-audio] [outputRoot] [snapshotLabel]
+ *   TransposeBenchmark [--all-demo-audio | --input-dir <dir>] [outputRoot] [snapshotLabel]
  *     --all-demo-audio  render all demo inputs (default renders first riff only)
+ *     --input-dir <dir> render every .wav and .mp3 in <dir> instead (e.g. bass or chord DIs)
  *     outputRoot    default: transpose-benchmark-out (relative to cwd)
  *     snapshotLabel default: snapshot-<UTC timestamp>
  */
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -44,6 +46,7 @@
 #include "dsp/EffectRegistry.h"
 #include "dsp/effects/BuiltinEffects.h"
 #include "util/AudioDecoder.h"
+#include "util/PathEncoding.h"
 #include "util/Wav.h"
 
 #ifndef GUITARFX_DEMO_AUDIO_DIR
@@ -113,6 +116,59 @@ const std::vector<std::string> kDemoSamples = {
     "guitar-riff-02.wav",
     "DI_Guitar_L.mp3",
 };
+
+struct InputSample
+{
+    std::string name; // file name: the report's "sample", and the stem names the renders
+    fs::path path;
+};
+
+// Every .wav and .mp3 directly inside dir, in file-name order. Two files with one stem would
+// write the same render names, so only the first is kept.
+std::vector<InputSample> ListInputDirSamples(const fs::path& dir)
+{
+    std::vector<InputSample> samples;
+    std::error_code ec;
+
+    for (const auto& entry : fs::directory_iterator(dir, ec))
+    {
+        if (!entry.is_regular_file())
+        {
+            continue;
+        }
+
+        std::string ext = guitarfx::util::PathToUtf8(entry.path().extension());
+        std::transform(ext.begin(), ext.end(), ext.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+        if (ext == ".wav" || ext == ".mp3")
+        {
+            samples.push_back({guitarfx::util::PathToUtf8(entry.path().filename()), entry.path()});
+        }
+    }
+
+    std::sort(samples.begin(), samples.end(),
+              [](const InputSample& a, const InputSample& b) { return a.name < b.name; });
+
+    std::vector<InputSample> unique;
+    std::vector<std::string> stems;
+
+    for (auto& sample : samples)
+    {
+        const std::string stem = guitarfx::util::PathToUtf8(sample.path.stem());
+
+        if (std::find(stems.begin(), stems.end(), stem) != stems.end())
+        {
+            std::cerr << "WARN: skipping " << sample.name << " (another input has the stem " << stem << ")\n";
+            continue;
+        }
+
+        stems.push_back(stem);
+        unique.push_back(std::move(sample));
+    }
+
+    return unique;
+}
 
 const fs::path kExternalPluginsCollectionRelPath = fs::path("tools") / "transpose-benchmark" / "external-plugins.json";
 
@@ -994,6 +1050,7 @@ std::vector<ExternalPluginVariant> ParseExternalPluginVariants(const nlohmann::j
 int main(int argc, char** argv)
 {
     bool renderAllDemoAudio = false;
+    fs::path inputDir;
     std::vector<std::string> positionalArgs;
     positionalArgs.reserve(static_cast<size_t>(std::max(0, argc - 1)));
 
@@ -1007,10 +1064,24 @@ int main(int argc, char** argv)
             continue;
         }
 
+        if (arg == "--input-dir")
+        {
+            if (i + 1 >= argc)
+            {
+                std::cerr << "ERROR: --input-dir requires a directory argument\n";
+                return 1;
+            }
+
+            inputDir = fs::path(argv[++i]);
+            continue;
+        }
+
         if (arg == "-h" || arg == "--help")
         {
-            std::cout << "Usage: " << argv[0] << " [--all-demo-audio] [outputRoot] [snapshotLabel]\n"
+            std::cout << "Usage: " << argv[0]
+                      << " [--all-demo-audio | --input-dir <dir>] [outputRoot] [snapshotLabel]\n"
                       << "  --all-demo-audio  render all demo inputs (default renders first riff only)\n"
+                      << "  --input-dir <dir> render every .wav and .mp3 in <dir> instead of the demo inputs\n"
                       << "  outputRoot        default: transpose-benchmark-out\n"
                       << "  snapshotLabel     default: snapshot-<UTC timestamp>\n";
             return 0;
@@ -1028,6 +1099,18 @@ int main(int argc, char** argv)
     if (positionalArgs.size() > 2)
     {
         std::cerr << "ERROR: too many positional arguments\n";
+        return 1;
+    }
+
+    if (renderAllDemoAudio && !inputDir.empty())
+    {
+        std::cerr << "ERROR: --all-demo-audio and --input-dir cannot be combined\n";
+        return 1;
+    }
+
+    if (!inputDir.empty() && !fs::is_directory(inputDir))
+    {
+        std::cerr << "ERROR: input directory does not exist: " << inputDir << '\n';
         return 1;
     }
 
@@ -1108,35 +1191,47 @@ int main(int argc, char** argv)
     const fs::path demoDir(GUITARFX_DEMO_AUDIO_DIR);
     int failures = 0;
 
-    std::vector<std::string> demoSamplesToRender;
+    std::vector<InputSample> samplesToRender;
 
-    if (renderAllDemoAudio)
+    if (!inputDir.empty())
     {
-        demoSamplesToRender = kDemoSamples;
+        samplesToRender = ListInputDirSamples(inputDir);
+
+        if (samplesToRender.empty())
+        {
+            std::cerr << "ERROR: no .wav or .mp3 files in " << inputDir << '\n';
+            return 1;
+        }
+    }
+    else if (renderAllDemoAudio)
+    {
+        for (const auto& name : kDemoSamples)
+        {
+            samplesToRender.push_back({name, demoDir / name});
+        }
     }
     else if (!kDemoSamples.empty())
     {
-        demoSamplesToRender.push_back(kDemoSamples.front());
+        samplesToRender.push_back({kDemoSamples.front(), demoDir / kDemoSamples.front()});
     }
 
-    if (demoSamplesToRender.empty())
+    if (samplesToRender.empty())
     {
         std::cerr << "ERROR: no demo samples configured\n";
         return 1;
     }
 
-    for (const auto& sampleName : demoSamplesToRender)
+    for (const auto& [sampleName, samplePath] : samplesToRender)
     {
-        const fs::path samplePath = demoDir / sampleName;
         const auto audio = LoadDemoSample(samplePath);
 
         if (!audio)
         {
-            std::cerr << "WARN: skipping demo sample (missing or undecodable): " << samplePath << '\n';
+            std::cerr << "WARN: skipping input sample (missing or undecodable): " << samplePath << '\n';
             continue;
         }
 
-        const std::string sampleStem = SanitizeForFilename(fs::path(sampleName).stem().string());
+        const std::string sampleStem = SanitizeForFilename(guitarfx::util::PathToUtf8(samplePath.stem()));
 
         // Dry reference for the report.
         const std::string referenceFile = "reference_" + sampleStem + ".wav";
