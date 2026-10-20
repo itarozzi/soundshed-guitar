@@ -30,6 +30,7 @@ import {
   type BlendParamSpec,
 } from "./blendUtils.js";
 import { BlendEditorModal } from "./blendEditor.js";
+import { resourceBrowserModal } from "./resourceBrowser.js";
 import { escapeHtml, findResourceById } from "./utils.js";
 import { renderIcon } from "./iconAssets.js";
 import { Features, isFeatureEnabled } from "./featureFlags.js";
@@ -400,6 +401,19 @@ export function getBlendEntriesForCategory(categoryId: string): Array<{ id: stri
 const blendEditorModal = new BlendEditorModal({
   getBlendLibrary: () => uiState.blendLibrary ?? ([] as BlendLibrary),
   getResourceLibrary: () => uiState.resourceLibrary,
+  // Models from any pack: a Tone3000 pick or Import All comes back into the blend.
+  canPickFromTone3000: () => isFeatureEnabled(Features.Tone3000),
+  pickModelsFromTone3000: ({ onSelect, onImportMany }) => {
+    resourceBrowserModal.open({
+      resourceType: "nam",
+      contextKey: "blend-models",
+      title: "Add Models to the Blend",
+      hint: "Select adds one model; Import All adds the whole tone.",
+      initialTab: "tone3000",
+      onSelect,
+      onImportMany,
+    });
+  },
 });
 
 export function initializeBlendEditorModal(): void {

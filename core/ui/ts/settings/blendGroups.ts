@@ -3,7 +3,8 @@
  * out of a tone group, deleting one, and dragging models between them.
  */
 
-import { buildBlendModelMappingsFromIds } from "../blendUtils.js";
+import { BLEND_EDITOR_OPEN_EVENT, buildBlendModelMappingsFromIds, findBlendForToneGroup, type BlendEditorOpenDetail } from "../blendUtils.js";
+import type { BlendDefinition } from "../types.js";
 import { postMessage } from "../bridge.js";
 import { showConfirm } from "../dialogs.js";
 import { showNotification } from "../notifications.js";
@@ -26,7 +27,7 @@ export function bindBlendCreateButtons(groups: ToneGroup[]): void {
       if (!group) {
         return;
       }
-      void createBlendFromGroup(group);
+      createBlendFromGroup(group);
     });
   });
 }
@@ -115,39 +116,27 @@ export function bindBlendGroupDragHandlers(groups: ToneGroup[]): void {
   });
 }
 
-export async function createBlendFromGroup(group: ToneGroup): Promise<void> {
-  const id = typeof crypto !== "undefined" && "randomUUID" in crypto
-    ? crypto.randomUUID()
-    : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  const name = prompt("Blend name", group.title) ?? group.title;
-  if (!name.trim()) {
-    return;
-  }
-
-  const snapMode = await showConfirm("Snap between models? Click OK for snap, Cancel for interpolate.", "Blend Mode");
-
-  const category = normalizeBlendCategory(group.gear);
+/**
+ * Opens the blend editor on the group's models: the blend already made from exactly them, or a
+ * new one, which the editor places from the models' names and saves only on Save.
+ */
+export function createBlendFromGroup(group: ToneGroup): void {
   if (!group.modelIds.length) {
     showNotification("Blend creation failed", "No amp models found in this group.");
     return;
   }
-
-  const modelMappings = buildBlendModelMappingsFromIds(group.modelIds, uiState.resourceLibrary);
-  const blend = {
-    id,
-    name: name.trim(),
-    category,
-    models: modelMappings.map((mapping) => mapping.id),
-    modelMappings,
-    blendMode: snapMode ? "snap" : "interpolate",
-    toneGroupId: group.groupId,
-    toneGroupTitle: group.title,
+  const existing = findBlendForToneGroup(uiState.blendLibrary ?? [], group.groupId, group.modelIds);
+  const blend: BlendDefinition = existing ?? {
+    id: typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    name: group.title,
+    category: normalizeBlendCategory(group.gear),
+    models: [...group.modelIds],
+    modelMappings: [],
+    blendMode: "interpolate",
   };
-
-  postMessage({
-    type: "saveBlendDefinition",
-    blend,
-  });
+  document.dispatchEvent(new CustomEvent<BlendEditorOpenDetail>(BLEND_EDITOR_OPEN_EVENT, { detail: { blend } }));
 }
 
 export function normalizeBlendCategory(category?: string): string {

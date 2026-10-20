@@ -57,7 +57,7 @@ Modals (all extracted to modals/):
 - eq-modal.html
 - blend-editor-modal.html
 - resource-browser-modal.html
-- blend-model-browser-modal.html
+- blend-add-models-modal.html
 - save-preset-modal.html
 - tone-sharing-pack-view-modal.html
 - tone-sharing-publish-modal.html

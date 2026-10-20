@@ -26,6 +26,11 @@ export type ResourceBrowserOptions = {
   toneGroupId?: string | null;
   toneGroupTitle?: string | null;
   onSelect: (resourceId: string) => void;
+  /// The tab to open on, rather than the one this slot last used.
+  initialTab?: "library" | "folder" | "tone3000";
+  /// Set by the blend editor: the Tone3000 tab's Import All hands back every model of the
+  /// tone, in order, and offers no Create Blend of its own.
+  onImportMany?: (resourceIds: string[]) => void;
   onPreview?: (filePath: string, tempResourceId: string) => void;
   onConfirmImport?: (resourceId: string) => void;
 };

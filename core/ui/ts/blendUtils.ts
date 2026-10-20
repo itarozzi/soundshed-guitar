@@ -170,7 +170,20 @@ const PARAM_REGEX: Record<string, RegExp> = {
   bass: /(^|[^a-z0-9])b(?:ass)?\s*([-+]?\d{1,2})(?:\b|[^a-z0-9])/i,
   contour: /(^|[^a-z0-9])c(?:ontour)?\s*([-+]?\d{1,2})(?:\b|[^a-z0-9])/i,
   presence: /(^|[^a-z0-9])p(?:res(?:ence)?)?\s*([-+]?\d{1,2})(?:\b|[^a-z0-9])/i,
+  // "T" is Treble on an amp and Tone on a pedal; the editor picks one by the models' gear.
+  tone: /(^|[^a-z0-9])t(?:one)?\s*([-+]?\d{1,2})(?:\b|[^a-z0-9])/i,
+  level: /(^|[^a-z0-9])l(?:evel|vl)?\s*([-+]?\d{1,2})(?:\b|[^a-z0-9])/i,
 };
+
+/** The name with every parameter token ("G5", "Tone 3") taken out, for grouping a pack's voicings. */
+export function stripParamTokensFromName(name: string): string {
+  let stripped = ` ${name} `;
+  Object.values(PARAM_REGEX).forEach((regex) => {
+    const global = new RegExp(regex.source, "gi");
+    stripped = stripped.replace(global, (_match, lead: string) => `${lead} `);
+  });
+  return stripped.replace(/\s+/g, " ").replace(/[\s\-_|·,]+$/u, "").trim();
+}
 
 export function inferParamValueFromName(name: string, parameterId: string): number | null {
   if (!name || !parameterId) {

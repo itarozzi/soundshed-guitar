@@ -11,6 +11,7 @@
  *  - saving a blend rebuilds every playing slot that uses it, so the edit is heard, and a
  *    snap override set on the node survives that;
  *  - a value for a parameter no model was captured at changes nothing;
+ *  - a row's level trim reaches its model and is heard;
  *  - a preset added to the mixer as a second slot plays its blend's models, not dry input;
  *  - a model a blend plays, and a blend a preset plays, cannot be deleted.
  * The models are generated Linear NAMs, each a plain gain, so the output level says which
@@ -416,6 +417,38 @@ bool Run()
         }
 
         SignalDriver driver(controller);
+
+        // ── A row's level trim reaches its model, and is heard ─────────────────
+        {
+            nlohmann::json trimmedQuiet = EditorMapping(quiet, 0.0);
+            trimmedQuiet["levelTrimDb"] = 6.0;
+            SaveBlend(controller, "untrimmed", {EditorMapping(quiet, 0.0), EditorMapping(loud, 1.0)});
+            SaveBlend(controller, "trimmed", {trimmedQuiet, EditorMapping(loud, 1.0)});
+
+            LoadPreset(controller, BuildPreset(kPresetId, {BlendNode("blend", "untrimmed", 0.0)}));
+            SetNodeParam(controller, kPresetId, "blend", "gain", 0.0);
+            driver.Settle();
+            const double plain = driver.MeasureGain();
+
+            LoadPreset(controller, BuildPreset(kPresetId, {BlendNode("blend", "trimmed", 0.0)}));
+            SetNodeParam(controller, kPresetId, "blend", "gain", 0.0);
+            const auto& active = controller.GetActivePreset();
+            const auto* node = active ? active->graph.FindNode("blend") : nullptr;
+            const auto* quietRef = node ? FindRef(*node, quiet) : nullptr;
+            const auto* loudRef = node ? FindRef(*node, loud) : nullptr;
+            passed = Check(quietRef && quietRef->levelTrimDb && Near(*quietRef->levelTrimDb, 6.0, 1e-9) && loudRef &&
+                               !loudRef->levelTrimDb,
+                           "trim: a row's levelTrimDb reaches its model only") &&
+                     passed;
+
+            driver.Settle();
+            const double trimmed = driver.MeasureGain();
+            const double want = std::pow(10.0, 6.0 / 20.0);
+            passed = Check(Near(Ratio(trimmed, plain), want, 0.1),
+                           "trim: +6 dB on the playing model is heard (x" + Describe(Ratio(trimmed, plain)) +
+                               ", want x" + Describe(want) + ")") &&
+                     passed;
+        }
 
         // ── With nothing captured, Blend sweeps the models in list order ────────
         SaveBlend(controller, "listed", {EditorMapping(quiet, std::nullopt), EditorMapping(loud, std::nullopt)});

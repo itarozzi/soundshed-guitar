@@ -1,0 +1,24 @@
+<div id="blend-add-models-modal" class="modal" style="display: none;">
+      <div class="modal-content blend-add-models-modal" role="dialog" aria-modal="true" aria-labelledby="blend-add-models-title">
+        <div class="modal-header">
+          <h3 id="blend-add-models-title">Add Models</h3>
+          <button class="modal-close" id="blend-add-models-close" type="button" aria-label="Close">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="blend-add-models-filters">
+            <input type="search" id="blend-add-models-search" placeholder="Search models…" aria-label="Search models" />
+            <select id="blend-add-models-pack" aria-label="Pack"></select>
+            <button class="btn btn-secondary" id="blend-add-models-tone3000" type="button" title="Find models on Tone3000 and import them into the blend">Tone3000…</button>
+          </div>
+          <div class="blend-add-models-bar">
+            <label><input type="checkbox" id="blend-add-models-all" /> Select all shown</label>
+            <span id="blend-add-models-count"></span>
+          </div>
+          <div id="blend-add-models-list" class="blend-add-models-list"></div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" id="blend-add-models-cancel" type="button">Cancel</button>
+          <button class="btn btn-primary" id="blend-add-models-confirm" type="button" disabled>Add</button>
+        </div>
+      </div>
+    </div>

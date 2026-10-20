@@ -4,6 +4,7 @@
 #include "presets/PresetTypes.h"
 
 #include <algorithm>
+#include <cmath>
 #include <map>
 #include <optional>
 #include <unordered_set>
@@ -12,6 +13,10 @@ namespace guitarfx::controller_detail
 {
 namespace
 {
+/// The editor offers the same range; a hand-edited definition is held to it.
+constexpr double kMinBlendLevelTrimDb = -24.0;
+constexpr double kMaxBlendLevelTrimDb = 24.0;
+
 /// One model of a definition's `modelMappings`, placed on the blend sweep.
 ResourceRef BuildMappedModelRef(const nlohmann::json& mapping, std::size_t index, std::size_t count)
 {
@@ -27,6 +32,17 @@ ResourceRef BuildMappedModelRef(const nlohmann::json& mapping, std::size_t index
             {
                 ref.parameters[key] = value.get<double>();
             }
+        }
+    }
+
+    // A trim evens out models captured at different levels, from other packs most often.
+    if (mapping.contains("levelTrimDb") && mapping["levelTrimDb"].is_number())
+    {
+        const double trimDb = mapping["levelTrimDb"].get<double>();
+
+        if (std::isfinite(trimDb) && trimDb != 0.0)
+        {
+            ref.levelTrimDb = std::clamp(trimDb, kMinBlendLevelTrimDb, kMaxBlendLevelTrimDb);
         }
     }
 

@@ -25,10 +25,10 @@ import type { BlendDefinition } from "../ts/types.js";
 const tone: Tone3000Tone = { id: 42, title: "Test Amp", gear: "amp" };
 const models = ["G2", "G5", "G8"].map((name, index) => ({ id: index + 1, name, model_url: `https://x/${index + 1}.nam` })) as unknown as Tone3000Model[];
 
-function makeImporter(options: { imported?: string[]; failing?: string[] } = {}) {
+function makeImporter(options: { imported?: string[]; failing?: string[]; onImportMany?: (ids: string[]) => void } = {}) {
   const imported = new Map((options.imported ?? []).map((id) => [id, `tone3000:${id}`]));
   const downloads: string[] = [];
-  let browserOptions: ResourceBrowserOptions | null = { resourceType: "nam", nodeId: "n1", onSelect: () => {} } as unknown as ResourceBrowserOptions;
+  let browserOptions: ResourceBrowserOptions | null = { resourceType: "nam", nodeId: "n1", onSelect: () => {}, onImportMany: options.onImportMany } as unknown as ResourceBrowserOptions;
   const navigation = {
     findImportedTone3000ResourceId: (_type: string, modelId: string) => imported.get(modelId) ?? "",
     downloadAndImportTone3000Model: async (_tone: Tone3000Tone, model: Tone3000Model) => {
@@ -148,5 +148,20 @@ describe("Tone3000 Import All and Create Blend", () => {
     expect(toolbar).not.toContain("resource-browser-tone-import-all");
     expect(toolbar).toContain("Create Blend");
     expect(complete.renderToolbar(tone, models, "ir")).not.toContain("Create Blend");
+  });
+
+  it("opened by the blend editor, adds the whole tone to the blend instead of making one", async () => {
+    uiState.appSettings = { ...uiState.appSettings, [getFeatureSettingKey(Features.BlendTools)]: true };
+    const added: string[][] = [];
+    const { importer, downloads, closeModal } = makeImporter({ imported: ["1", "2", "3"], onImportMany: (ids) => added.push(ids) });
+    const toolbar = importer.renderToolbar(tone, models, "nam");
+    expect(toolbar).toContain("Add All to Blend");
+    expect(toolbar).not.toContain("Create Blend");
+
+    await importer.importAll(tone, models, false);
+    expect(downloads).toEqual([]);
+    expect(closeModal).toHaveBeenCalledOnce();
+    expect(added).toEqual([["tone3000:1", "tone3000:2", "tone3000:3"]]);
+    expect(sent.some((message) => message.type === "saveBlendDefinition")).toBe(false);
   });
 });

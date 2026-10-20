@@ -1,11 +1,11 @@
 import { uiState } from "./state.js";
 import { postMessage } from "./bridge.js";
 import { tone3000AuthenticatedFetch } from "./tone3000.js";
-import { buildBlendModelMappingsFromNames } from "./blendUtils.js";
+import { addModels, definitionFromEditState, type BlendEditState } from "./blendEditor/editState.js";
 import { arrayBufferToBase64 } from "./utils.js";
 import { normaliseLicenceId, remoteResourceMetadata } from "./remoteResources.js";
 import type { Tone3000Architecture, Tone3000License, Tone3000Model, Tone3000Tone } from "./tone3000ApiTypes.js";
-import type { LibraryResource } from "./types.js";
+import type { BlendDefinition, LibraryResource } from "./types.js";
 import { fetchAllTone3000ModelPages, sortTone3000ModelsByName } from "./tone3000Api.js";
 
 interface JSZipObject {
@@ -209,31 +209,36 @@ export async function importTone3000Models(
 }
 
 /**
- * A blend of a tone's models, mapped by what each model's name says it was captured at
- * ("G5" for gain 5). The names come from the import itself: the resource library has not
- * heard about these models yet when the blend is made.
+ * A blend of a tone's models, placed the way the blend editor places added models: by what
+ * the names say they were captured at ("G5" for gain 5), on the parameters that differ, or on
+ * the Sweep when the names say nothing. The names come from the import itself: the resource
+ * library has not heard about these models yet when the blend is made.
  */
-export function createTone3000BlendDefinition(tone: Tone3000Tone, modelIds: string[], modelNames: Record<string, string> = {}) {
+export function createTone3000BlendDefinition(tone: Tone3000Tone, modelIds: string[], modelNames: Record<string, string> = {}): BlendDefinition {
   const id = typeof crypto !== "undefined" && "randomUUID" in crypto
     ? crypto.randomUUID()
     : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  const name = `${tone.title ?? tone.name ?? "Tone3000"} Blend`;
-  const category = normalizeBlendCategory(tone.gear);
-  const libraryNames = new Map((uiState.resourceLibrary.nam ?? []).map((resource) => [resource.id, resource.name]));
-  const modelMappings = buildBlendModelMappingsFromNames(modelIds.map((id) => ({
+  const known = (uiState.resourceLibrary.nam ?? []).filter((resource) => !modelIds.includes(resource.id) || !modelNames[resource.id]);
+  const fresh = modelIds
+    .filter((modelId) => modelNames[modelId] || !known.some((resource) => resource.id === modelId))
+    .map((modelId) => ({
+      id: modelId,
+      name: modelNames[modelId] || modelId,
+      category: tone.gear ?? "",
+      metadata: { gear: tone.gear ?? "", toneId: String(tone.id), toneTitle: tone.title ?? tone.name ?? "" },
+    }) as unknown as LibraryResource);
+  const library = { ...uiState.resourceLibrary, nam: [...known, ...fresh] };
+  const state: BlendEditState = {
     id,
-    name: modelNames[id] || libraryNames.get(id),
-    category,
-  })));
-
-  return {
-    id,
-    name,
-    category,
-    models: modelMappings.map((mapping) => mapping.id),
-    modelMappings,
-    blendMode: "interpolate" as const,
+    name: `${tone.title ?? tone.name ?? "Tone3000"} Blend`,
+    category: normalizeBlendCategory(tone.gear),
+    mode: "interpolate",
+    axis: "sweep",
+    params: [],
+    rows: [],
   };
+  addModels(state, modelIds, library);
+  return definitionFromEditState(state, library);
 }
 
 /** What a capture filed under this gear covers, in the provider-neutral words (remoteResources.ts). */

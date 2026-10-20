@@ -3,12 +3,16 @@ export type AttachmentType = "audiofx" | "ir" | (string & {});
 import type { LayoutLibrary } from "./layoutTypes.js";
 import type { CompositeEffectDefinition } from "./compositeTypes.js";
 import type { PracticeToolState } from "./practiceTool/types.js";
+import type { BlendLibrary } from "./blendTypes.js";
 
 // The Practice Tool's own shapes live with the feature; re-exported here so
 // every importer keeps using ./types.js, exactly as practiceTool.ts fronts its
 // runtime modules. Type-only, so nothing is imported at runtime, and a new
 // shape there is exported here without touching this list.
 export type * from "./practiceTool/types.js";
+
+// Blend definitions, as the engine stores them (blendTypes.ts); re-exported the same way.
+export type * from "./blendTypes.js";
 
 export interface Attachment {
   type: AttachmentType;
@@ -305,33 +309,6 @@ export interface ResourceLibrary {
   wasm?: LibraryResource[];
   [key: string]: LibraryResource[] | undefined;
 }
-
-export type BlendMode = "snap" | "interpolate";
-
-export interface BlendModelMapping {
-  id: string;
-  parameterId?: string;
-  parameterValue?: number;
-  parameters?: Record<string, number>;
-}
-
-export interface BlendDefinition {
-  id: string;
-  name: string;
-  category: string;
-  models: string[];
-  blendMode?: BlendMode;
-  controlMap?: Record<string, number>;
-  modelMappings?: BlendModelMapping[];
-  parameters?: string[];
-  toneGroupId?: string;
-  toneGroupTitle?: string;
-  /** Registered from a bundled factory archive: it cannot be deleted, and saving an edit
-   * keeps the user's copy in its place. */
-  factory?: boolean;
-}
-
-export type BlendLibrary = BlendDefinition[];
 
 export interface CustomEffectDescriptorSummary {
   displayName?: string;

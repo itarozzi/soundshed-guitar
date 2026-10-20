@@ -1,73 +1,38 @@
 <div id="blend-editor-modal" class="modal" style="display: none;">
-      <div class="modal-content blend-editor-modal">
+      <div class="modal-content blend-editor-modal" role="dialog" aria-modal="true" aria-labelledby="blend-editor-title">
         <div class="modal-header">
-          <h3>Edit Blend</h3>
-          <button class="modal-close" id="blend-editor-modal-close">×</button>
+          <h3 id="blend-editor-title">Edit Blend</h3>
+          <button class="modal-close" id="blend-editor-modal-close" type="button" aria-label="Close">×</button>
         </div>
-        <div class="modal-body">
-          <div class="blend-tabs tab-bar">
-            <button class="blend-tab-btn tab-btn active" data-blend-tab="settings" type="button">Blend Settings</button>
-            <button class="blend-tab-btn tab-btn" data-blend-tab="test" type="button">Test Blend</button>
-          </div>
-          <div class="blend-tab-panel active" data-blend-tab-panel="settings">
-            <div class="form-group">
-              <label for="blend-editor-name-input">Blend Name</label>
-              <input type="text" id="blend-editor-name-input" placeholder="My Blend" />
+        <div class="modal-body blend-editor-body">
+          <div class="blend-editor-head">
+            <input type="text" id="blend-editor-name-input" class="blend-editor-name" placeholder="Blend name" aria-label="Blend name" />
+            <div class="blend-segmented" role="group" aria-label="Blend mode">
+              <button type="button" data-blend-mode="interpolate" title="Crossfade between the two nearest models">Interpolate</button>
+              <button type="button" data-blend-mode="snap" title="Play the nearest model">Snap</button>
             </div>
-            <div class="form-group">
-              <label for="blend-editor-category-select">Category</label>
-              <select id="blend-editor-category-select">
-                <option value="pedal">Pedal</option>
-                <option value="preamp">Preamp</option>
-                <option value="amp" selected>Amp</option>
-                <option value="full-rig">Full Rig</option>
-                <option value="cab">Cab</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label for="blend-editor-mode-select">Blend Mode</label>
-              <select id="blend-editor-mode-select">
-                <option value="interpolate" selected>Interpolate</option>
-                <option value="snap">Snap</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label>Mapped Parameters</label>
-              <div id="blend-parameter-list" class="blend-parameter-list"></div>
-              <div class="blend-parameter-controls">
-                <select id="blend-parameter-add-select"></select>
-                <button class="btn btn-secondary" id="blend-parameter-add-btn" type="button">Add Parameter</button>
-                <button class="btn btn-secondary" id="blend-parameter-auto-btn" type="button">Auto Map</button>
-              </div>
-            </div>
-            <div class="form-group">
-              <label>Models</label>
-              <div id="blend-model-list" class="blend-model-list"></div>
-              <button class="btn btn-secondary blend-add-model" id="blend-add-model-btn" type="button">Add Model</button>
+            <div class="blend-segmented" role="group" aria-label="Place models by">
+              <button type="button" data-blend-axis="params" title="Place each model at the settings it was captured at; the node gets a knob for each">Parameters</button>
+              <button type="button" data-blend-axis="sweep" title="Place the models in list order; the node gets one Blend knob that sweeps through them">Sweep</button>
             </div>
           </div>
-          <div class="blend-tab-panel" data-blend-tab-panel="test">
-            <div class="form-group">
-              <label>Matched Model</label>
-              <div class="blend-match-summary">
-                <span id="blend-match-name">—</span>
-                <span id="blend-match-details" class="blend-match-details"></span>
-              </div>
-            </div>
-            <div class="form-group">
-              <label>Test Parameters</label>
-              <p id="blend-test-note" class="blend-test-note"></p>
-              <div id="blend-test-controls" class="blend-test-controls"></div>
-            </div>
+          <div id="blend-editor-table" class="blend-editor-table-wrap"></div>
+          <ul id="blend-editor-warnings" class="blend-editor-warnings"></ul>
+          <div class="blend-editor-tools">
+            <button class="btn btn-secondary" id="blend-add-models-btn" type="button">+ Add Models</button>
+            <button class="btn btn-secondary" id="blend-fill-names-btn" type="button" title="Fill empty values from the models' names, such as G5 for Gain 5">Fill from Names</button>
+            <button class="btn btn-secondary" id="blend-match-levels-btn" type="button" title="Set each model's level trim from the loudness in its file">Match Levels</button>
           </div>
+          <div class="blend-editor-try">
+            <span class="blend-editor-try-label">Try</span>
+            <div id="blend-test-controls" class="blend-test-controls"></div>
+            <div id="blend-match-line" class="blend-editor-playing"></div>
+          </div>
+          <p id="blend-test-note" class="blend-test-note"></p>
         </div>
         <div class="modal-footer">
-          <input type="file" id="blend-import-input" accept=".namz" style="display: none;" />
-          <button class="btn btn-secondary" id="blend-editor-export">Export .namz</button>
-          <button class="btn btn-secondary" id="blend-editor-import">Import .namz</button>
-          <button class="btn btn-secondary" id="blend-editor-cancel">Cancel</button>
-          <button class="btn btn-secondary" id="blend-editor-apply" title="Save and keep editing, so the change can be heard">Apply</button>
-          <button class="btn btn-primary" id="blend-editor-save">Save Blend</button>
+          <button class="btn btn-secondary" id="blend-editor-cancel" type="button">Cancel</button>
+          <button class="btn btn-primary" id="blend-editor-save" type="button">Save</button>
         </div>
       </div>
     </div>

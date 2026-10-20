@@ -7,9 +7,17 @@ import type { BlendDefinition, Preset } from "./types.js";
 import { EffectGuids } from "./effectGuids.js";
 import { escapeHtml } from "./utils.js";
 import { collectBlendModelIds } from "./blendUtils.js";
+import { exportBlendArchive, importBlendArchive } from "./blendArchive.js";
 
 const blendList = document.getElementById("blend-list");
 const blendSearchInput = document.getElementById("blend-search-input") as HTMLInputElement | null;
+const blendImportInput = document.getElementById("blend-import-input") as HTMLInputElement | null;
+
+function newBlendId(): string {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
 
 let initialized = false;
 let searchFilter = "";
@@ -21,6 +29,21 @@ export function initBlendManager(): void {
   blendSearchInput?.addEventListener("input", () => {
     searchFilter = blendSearchInput.value.toLowerCase();
     renderBlendList();
+  });
+
+  // A new blend is saved only by the editor's Save.
+  document.getElementById("blend-new-btn")?.addEventListener("click", () => {
+    openBlendEditorWithDefinition({ id: newBlendId(), name: "New Blend", category: "amp", models: [], modelMappings: [], blendMode: "interpolate" });
+  });
+  document.getElementById("blend-import-btn")?.addEventListener("click", () => blendImportInput?.click());
+  blendImportInput?.addEventListener("change", () => {
+    const file = blendImportInput.files?.[0];
+    blendImportInput.value = "";
+    if (file) {
+      void importBlendArchive(file, uiState.resourceLibrary).then((name) => {
+        showNotification(name ? "Blend imported" : "Import failed", name ?? "The file is not a blend archive.");
+      });
+    }
   });
 
   renderBlendList();
@@ -73,6 +96,7 @@ export function renderBlendList(): void {
           </div>
           <div class="composite-list-actions">
             <button class="blend-edit-btn advanced-action-btn" data-blend-id="${escapeHtml(blend.id)}" title="Edit">Edit</button>
+            <button class="blend-export-btn advanced-action-btn" data-blend-id="${escapeHtml(blend.id)}" title="Export as .namz with its models">Export</button>
             ${deleteButton}
           </div>
         </div>
@@ -91,6 +115,15 @@ export function renderBlendList(): void {
       }
       const clone = JSON.parse(JSON.stringify(blend)) as BlendDefinition;
       openBlendEditorWithDefinition(clone);
+    });
+  });
+
+  blendList.querySelectorAll(".blend-export-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const blend = (uiState.blendLibrary ?? []).find((entry) => entry.id === (btn as HTMLElement).dataset.blendId);
+      if (blend) {
+        void exportBlendArchive(blend, uiState.resourceLibrary);
+      }
     });
   });
 

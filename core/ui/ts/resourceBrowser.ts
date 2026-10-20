@@ -727,7 +727,7 @@ export class ResourceBrowserModal {
     
     const currentResource = findResourceById(uiState.resourceLibrary[options.resourceType] ?? [], options.currentId ?? "");
     const sourceTone = isFeatureEnabled(Features.Tone3000) ? tone3000ToneFromResource(currentResource) : null;
-    this.setActiveTab(sourceTone ? "tone3000" : this.activeTab, !sourceTone);
+    this.setActiveTab(sourceTone ? "tone3000" : (options.initialTab ?? this.activeTab), !sourceTone);
     if (sourceTone) {
       void this.tone3000Tab.openSourceTone(sourceTone, currentResource?.metadata?.architectureVersion);
     }

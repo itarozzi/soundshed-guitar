@@ -1,95 +1,105 @@
-import type {
-  BlendLibrary,
-  BlendModelMapping,
-  GraphNode,
-  ResourceLibrary,
-  LibraryResource,
-  BlendMode,
-  BlendDefinition,
-} from "./types.js";
-import { getActivePresetForRender } from "./state.js";
+/**
+ * The blend editor: one screen to name a blend, choose its models and where each sits, and
+ * try it. The data lives in `blendEditor/editState.ts`, the table markup in
+ * `blendEditor/table.ts`, and adding models in `blendEditor/addModels.ts`; this file owns the
+ * modal, its events and the Try strip.
+ *
+ * Opened from a node (not a factory blend), every edit is saved shortly after it is made, so
+ * it is heard on that node as it is made; Cancel puts the saved copy back.
+ */
+
+import { requestResourceData } from "./archiveUtils.js";
+import { describeBlendMix, getBlendParamSpec, normalizeBlendValue, denormalizeBlendValue } from "./blendUtils.js";
 import { postMessage } from "./bridge.js";
 import { GenericKnob } from "./controls.js";
-import {
-  BLEND_PARAM_SPECS,
-  buildBlendModelMappingsFromIds,
-  buildParameterMapFromLegacy,
-  collectBlendModelIds,
-  denormalizeBlendValue,
-  describeBlendMix,
-  getBlendParamSpec,
-  inferParamValueFromName,
-  mappedBlendParamIds,
-  normalizeBlendValue,
-  type BlendParamSpec,
-} from "./blendUtils.js";
+import { showConfirm } from "./dialogs.js";
+import { showNotification } from "./notifications.js";
 import { sendSignalPathNodeParamUpdate } from "./signalPath/commands.js";
 import { requestNodeParamsRefresh } from "./signalPath/render.js";
+import { getActivePresetForRender } from "./state.js";
+import type { BlendDefinition, BlendLibrary, BlendMode, GraphNode, ResourceLibrary } from "./types.js";
+import { escapeHtml } from "./utils.js";
+import { BlendAddModelsDialog } from "./blendEditor/addModels.js";
+import {
+  addModels,
+  addParam,
+  blendWarnings,
+  clampTrim,
+  definitionFromEditState,
+  editStateFromDefinition,
+  fillValuesFromNames,
+  groupByVoicing,
+  libraryModel,
+  matchLevels,
+  readNamLoudness,
+  removeParam,
+  setAxis,
+  sortRows,
+  type BlendEditState,
+} from "./blendEditor/editState.js";
+import { renderBlendTable, renderBlendWarnings } from "./blendEditor/table.js";
 
-/** The Test view's knob for the Blend sweep, shown when no model is captured at any setting. */
+/** The Try knob for the Blend sweep, shown on the Sweep axis. */
 const BLEND_SWEEP_PARAM = "blend";
-import { arrayBufferToBase64, buildArchiveFileName, generateResourceId, requestResourceData, sanitizeFilename } from "./archiveUtils.js";
-import { escapeHtml, sha256HexFromBase64, findResourceById } from "./utils.js";
-import { deduplicateResourcesByHashAndPath } from "./resourceDedup.js";
+/** How long after the last edit it is saved to be heard on the node. */
+const AUDITION_DELAY_MS = 400;
 
 type BlendEditorDependencies = {
   getBlendLibrary: () => BlendLibrary;
   getResourceLibrary: () => ResourceLibrary;
+  /** Opens the resource picker on Tone3000: a pick, or an Import All, comes back as models to add. */
+  pickModelsFromTone3000?: (handlers: { onSelect: (id: string) => void; onImportMany: (ids: string[]) => void }) => void;
+  canPickFromTone3000?: () => boolean;
 };
+
+function newBlendId(): string {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function decodeBase64Text(data: string): string {
+  const binary = atob(data);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return new TextDecoder().decode(bytes);
+}
 
 export class BlendEditorModal {
   private readonly deps: BlendEditorDependencies;
   private initialized = false;
-  private activeParams: string[] = [];
 
   private modal = document.getElementById("blend-editor-modal") as HTMLElement | null;
+  private title = document.getElementById("blend-editor-title");
   private nameInput = document.getElementById("blend-editor-name-input") as HTMLInputElement | null;
-  private modeSelect = document.getElementById("blend-editor-mode-select") as HTMLSelectElement | null;
-  private categorySelect = document.getElementById("blend-editor-category-select") as HTMLSelectElement | null;
-  private modelList = document.getElementById("blend-model-list");
-  private addModelBtn = document.getElementById("blend-add-model-btn") as HTMLButtonElement | null;
-  private saveBtn = document.getElementById("blend-editor-save") as HTMLButtonElement | null;
-  private applyBtn = document.getElementById("blend-editor-apply") as HTMLButtonElement | null;
-  private testNote = document.getElementById("blend-test-note") as HTMLElement | null;
-  private cancelBtn = document.getElementById("blend-editor-cancel") as HTMLButtonElement | null;
-  private closeBtn = document.getElementById("blend-editor-modal-close") as HTMLButtonElement | null;
-  private paramList = document.getElementById("blend-parameter-list");
-  private paramSelect = document.getElementById("blend-parameter-add-select") as HTMLSelectElement | null;
-  private paramAddBtn = document.getElementById("blend-parameter-add-btn") as HTMLButtonElement | null;
-  private exportBtn = document.getElementById("blend-editor-export") as HTMLButtonElement | null;
-  private importBtn = document.getElementById("blend-editor-import") as HTMLButtonElement | null;
-  private importInput = document.getElementById("blend-import-input") as HTMLInputElement | null;
-  private paramAutoBtn = document.getElementById("blend-parameter-auto-btn") as HTMLButtonElement | null;
-  private matchName = document.getElementById("blend-match-name") as HTMLElement | null;
-  private matchDetails = document.getElementById("blend-match-details") as HTMLElement | null;
-  private tabButtons = Array.from(document.querySelectorAll(".blend-tab-btn")) as HTMLButtonElement[];
-  private tabPanels = Array.from(document.querySelectorAll(".blend-tab-panel")) as HTMLElement[];
-  private testControls = document.getElementById("blend-test-controls") as HTMLElement | null;
-  private modelBrowserModal = document.getElementById("blend-model-browser-modal") as HTMLElement | null;
-  private modelBrowserTitle = document.getElementById("blend-model-browser-title") as HTMLElement | null;
-  private modelBrowserClose = document.getElementById("blend-model-browser-close") as HTMLButtonElement | null;
-  private modelBrowserCancel = document.getElementById("blend-model-browser-cancel") as HTMLButtonElement | null;
-  private modelBrowserSearch = document.getElementById("blend-model-browser-search") as HTMLInputElement | null;
-  private modelBrowserScope = document.getElementById("blend-model-browser-scope") as HTMLSelectElement | null;
-  private modelBrowserCategory = document.getElementById("blend-model-browser-category") as HTMLSelectElement | null;
-  private modelBrowserList = document.getElementById("blend-model-browser-list") as HTMLElement | null;
-  private modelBrowserGroupLabel = document.getElementById("blend-model-browser-group") as HTMLElement | null;
+  private table = document.getElementById("blend-editor-table");
+  private warnings = document.getElementById("blend-editor-warnings");
+  private fillBtn = document.getElementById("blend-fill-names-btn") as HTMLButtonElement | null;
+  private matchBtn = document.getElementById("blend-match-levels-btn") as HTMLButtonElement | null;
+  private testControls = document.getElementById("blend-test-controls");
+  private matchLine = document.getElementById("blend-match-line");
+  private testNote = document.getElementById("blend-test-note");
 
+  private readonly addDialog: BlendAddModelsDialog;
+  private state: BlendEditState | null = null;
+  /** The saved definition when the editor opened, put back by Cancel after a live audition. */
+  private original: BlendDefinition | null = null;
+  private liveAudition = false;
+  private auditioned = false;
+  private auditionTimer: ReturnType<typeof setTimeout> | null = null;
   private testParams: Record<string, number> = {};
-  private testKnobs: Map<string, GenericKnob> = new Map();
-  private activeTab: "settings" | "test" = "settings";
-  private activeToneGroupId: string | null = null;
-  private activeToneGroupTitle: string | null = null;
-  private browserToneGroupId: string | null = null;
-  private browserToneGroupTitle: string | null = null;
-  private browserResourceType: string = "nam";
-  private browserCurrentId: string = "";
-  private browserOnSelect: ((resourceId: string) => void) | null = null;
-  /** Given by openWithDefinition's caller; called with the blend when Save closes the editor (not on Apply). */
+  /** Given by openWithDefinition's caller; called with the blend when Save closes the editor. */
   private onSaved: ((blend: BlendDefinition) => void) | null = null;
 
   constructor(deps: BlendEditorDependencies) {
     this.deps = deps;
+    this.addDialog = new BlendAddModelsDialog({
+      getResourceLibrary: () => this.deps.getResourceLibrary(),
+      openTone3000: deps.pickModelsFromTone3000 ? () => this.pickFromTone3000() : undefined,
+      canOpenTone3000: deps.canPickFromTone3000,
+    });
   }
 
   initialize(): void {
@@ -98,1408 +108,515 @@ export class BlendEditorModal {
     }
     this.initialized = true;
 
-    this.closeBtn?.addEventListener("click", () => this.close());
-    this.cancelBtn?.addEventListener("click", () => this.close());
-    this.addModelBtn?.addEventListener("click", () => this.addModelRow());
-    this.saveBtn?.addEventListener("click", () => this.save());
-    this.applyBtn?.addEventListener("click", () => this.save(false));
-    this.paramAddBtn?.addEventListener("click", () => this.addParameter());
-    this.paramAutoBtn?.addEventListener("click", () => this.autoMapParameters());
-    this.exportBtn?.addEventListener("click", () => void this.exportBlendArchive());
-    this.importBtn?.addEventListener("click", () => this.importInput?.click());
-    this.importInput?.addEventListener("change", () => void this.importBlendArchive());
-    this.modeSelect?.addEventListener("change", () => {
-      this.updateMatchedModel();
-      this.updateTestMappedIndicators(this.collectCurrentMappings());
+    document.getElementById("blend-editor-modal-close")?.addEventListener("click", () => this.close());
+    document.getElementById("blend-editor-cancel")?.addEventListener("click", () => this.close());
+    document.getElementById("blend-editor-save")?.addEventListener("click", () => this.save());
+    document.getElementById("blend-add-models-btn")?.addEventListener("click", () => this.openAddModels());
+    this.fillBtn?.addEventListener("click", () => this.edit(() => {
+      fillValuesFromNames(this.state!, this.library());
+      sortRows(this.state!);
+    }));
+    this.matchBtn?.addEventListener("click", () => void this.matchLevels());
+    this.nameInput?.addEventListener("input", () => {
+      if (this.state && this.nameInput) {
+        this.state.name = this.nameInput.value;
+      }
     });
 
-    this.modelBrowserClose?.addEventListener("click", () => this.closeModelBrowser());
-    this.modelBrowserCancel?.addEventListener("click", () => this.closeModelBrowser());
-    this.modelBrowserSearch?.addEventListener("input", () => this.renderModelBrowserList());
-    this.modelBrowserScope?.addEventListener("change", () => this.renderModelBrowserList());
-    this.modelBrowserCategory?.addEventListener("change", () => this.renderModelBrowserList());
-    this.modelBrowserList?.addEventListener("click", (event) => this.handleModelBrowserClick(event));
-
-    this.tabButtons.forEach((button) => {
-      button.addEventListener("click", () => {
-        const tabId = button.dataset.blendTab === "test" ? "test" : "settings";
-        this.setActiveTab(tabId);
-      });
+    this.modal?.querySelectorAll<HTMLButtonElement>("[data-blend-mode]").forEach((button) => {
+      button.addEventListener("click", () => this.edit(() => {
+        this.state!.mode = button.dataset.blendMode === "snap" ? "snap" : "interpolate";
+      }));
+    });
+    this.modal?.querySelectorAll<HTMLButtonElement>("[data-blend-axis]").forEach((button) => {
+      button.addEventListener("click", () => this.edit(() => {
+        setAxis(this.state!, button.dataset.blendAxis === "sweep" ? "sweep" : "params", this.library());
+      }));
     });
 
-    if (this.paramSelect) {
-      this.paramSelect.innerHTML = BLEND_PARAM_SPECS.map((spec) => `<option value="${escapeHtml(spec.id)}">${spec.label}</option>`).join("");
-    }
-
+    this.bindTable();
+    this.warnings?.addEventListener("click", (event) => {
+      if ((event.target as HTMLElement | null)?.closest("[data-action='split-voicings']")) {
+        void this.splitByVoicing();
+      }
+    });
     this.modal?.addEventListener("mousedown", (event) => {
       if (event.target === this.modal) {
         this.close();
       }
     });
-
-    this.modelBrowserModal?.addEventListener("mousedown", (event) => {
-      if (event.target === this.modelBrowserModal) {
-        this.closeModelBrowser();
-      }
-    });
   }
 
+  /** Edit the blend a node plays; its knobs are the Try knobs, so the blend is heard. */
   open(node: GraphNode): void {
-    const blendId = (node as unknown as { config?: Record<string, string> }).config?.blendId;
-    if (!blendId || !this.modal) {
+    const blendId = node.config?.blendId;
+    const blend = blendId ? this.deps.getBlendLibrary().find((entry) => entry.id === blendId) : undefined;
+    if (!blend) {
       return;
     }
-
-    this.initialize();
-
-    const blend = this.deps.getBlendLibrary().find((entry) => entry.id === blendId);
-    const category = blend?.category ?? node.category ?? "amp";
-    const mappings = blend?.modelMappings?.length
-      ? blend.modelMappings
-      : buildBlendModelMappingsFromIds(blend?.models ?? [], this.deps.getResourceLibrary());
-
-    this.activeParams = resolveActiveParams(blend, mappings);
-    this.setActiveToneGroupFromBlend(blend, mappings);
-
-    if (this.nameInput) {
-      this.nameInput.value = blend?.name ?? blendId;
-    }
-    if (this.modeSelect) {
-      this.modeSelect.value = blend?.blendMode ?? "interpolate";
-    }
-    if (this.categorySelect) {
-      const options = Array.from(this.categorySelect.options).map((opt) => opt.value);
-      this.categorySelect.value = options.includes(category) ? category : "amp";
-    }
-
-    this.modal.dataset.blendId = blendId;
-    this.modal.dataset.nodeId = node.id;
-    this.setTestNote(
-      "These are the node's own knobs, so you hear the blend as last saved. Apply to hear your edits.",
-    );
-
-    this.setActiveTab("settings");
-
-    this.renderParameterList();
-    this.renderModelList(mappings, category);
-    this.syncTestParams(node, mappings);
-    this.renderTestControls(node, mappings);
-    this.updateMatchedModel();
-    this.modal.style.display = "flex";
+    this.begin(blend, node.id);
   }
 
+  /** Edit a definition: a saved blend, or a new one that is saved only by Save. */
   openWithDefinition(blend: BlendDefinition, onSaved?: (blend: BlendDefinition) => void): void {
+    this.begin(blend, null, onSaved);
+  }
+
+  private begin(blend: BlendDefinition, nodeId: string | null, onSaved?: (blend: BlendDefinition) => void): void {
     if (!this.modal) {
       return;
     }
-
     this.initialize();
+
+    const saved = this.deps.getBlendLibrary().find((entry) => entry.id === blend.id);
+    const copy = JSON.parse(JSON.stringify(blend)) as BlendDefinition;
+    this.original = saved ? (JSON.parse(JSON.stringify(saved)) as BlendDefinition) : null;
+    this.state = editStateFromDefinition(copy, this.library());
+    if (!copy.modelMappings?.length && copy.models?.length) {
+      // A blend made from a list of models: the editor places them, as Add Models does.
+      this.state.rows = [];
+      addModels(this.state, copy.models, this.library());
+    }
+    // Knob order: the engine sorts the models the same way, so this changes nothing heard.
+    sortRows(this.state);
     this.onSaved = onSaved ?? null;
-
-    const category = blend.category ?? "amp";
-    const mappings = blend.modelMappings?.length
-      ? blend.modelMappings
-      : buildBlendModelMappingsFromIds(blend.models ?? [], this.deps.getResourceLibrary());
-
-    this.activeParams = resolveActiveParams(blend, mappings);
-    this.setActiveToneGroupFromBlend(blend, mappings);
-
-    if (this.nameInput) {
-      this.nameInput.value = blend.name ?? blend.id;
-    }
-    if (this.modeSelect) {
-      this.modeSelect.value = blend.blendMode ?? "interpolate";
-    }
-    if (this.categorySelect) {
-      const options = Array.from(this.categorySelect.options).map((opt) => opt.value);
-      this.categorySelect.value = options.includes(category) ? category : "amp";
-    }
-
-    this.modal.dataset.blendId = blend.id;
-    delete this.modal.dataset.nodeId;
-    this.setTestNote("Shows which models these settings pick. Open the blend from its node in the chain to hear it.");
-
-    this.setActiveTab("settings");
-    // Reset transient test state *before* rendering so renderModelList -> renderTestControls seeds fresh from mappings
+    this.auditioned = false;
     this.testParams = {};
-    this.testKnobs.clear();
-    if (this.testControls) {
-      this.testControls.innerHTML = "";
+    // A factory blend saved is a copy of the user's own, so it is heard only on Save.
+    this.liveAudition = Boolean(nodeId) && Boolean(saved) && !saved?.factory;
+
+    if (nodeId) {
+      this.modal.dataset.nodeId = nodeId;
+    } else {
+      delete this.modal.dataset.nodeId;
     }
-    this.renderParameterList();
-    this.renderModelList(mappings, category);
-    // Do not force match to '—' here; updateMatchedModel (called from render) will compute best match from mappings+test
+    if (this.title) {
+      this.title.textContent = saved ? "Edit Blend" : "New Blend";
+    }
+    if (this.nameInput) {
+      this.nameInput.value = this.state.name;
+    }
+    if (this.testNote) {
+      this.testNote.textContent = this.liveAudition
+        ? "Changes play on the node as you make them. Cancel puts the saved blend back."
+        : nodeId
+          ? "Save to hear changes on the node."
+          : "The Try knobs show which models play. Open the blend from a node to hear it.";
+    }
+
+    this.render();
     this.modal.style.display = "flex";
+  }
+
+  private library(): ResourceLibrary {
+    return this.deps.getResourceLibrary();
   }
 
   private close(): void {
     if (!this.modal) {
       return;
     }
+    if (this.auditionTimer) {
+      clearTimeout(this.auditionTimer);
+      this.auditionTimer = null;
+    }
+    // Live edits were saved as they were made; leaving without Save puts the saved copy back.
+    if (this.auditioned && this.original) {
+      postMessage({ type: "saveBlendDefinition", blend: this.original });
+    }
     if (this.modal.dataset.nodeId) {
-      // The Test view moves the node's knobs; the params panel shows them where they are now.
+      // The Try knobs move the node's knobs; the params panel shows them where they are now.
       requestNodeParamsRefresh();
     }
+    this.addDialog.close();
     this.modal.style.display = "none";
-    delete this.modal.dataset.blendId;
     delete this.modal.dataset.nodeId;
-    if (this.modelList) {
-      this.modelList.innerHTML = "";
-    }
-    this.activeParams = [];
-    this.testParams = {};
-    this.testKnobs.clear();
-    this.activeToneGroupId = null;
-    this.activeToneGroupTitle = null;
+    this.state = null;
+    this.original = null;
+    this.auditioned = false;
     this.onSaved = null;
-    this.closeModelBrowser();
   }
 
   private getActiveNode(): GraphNode | null {
-    if (!this.modal) {
-      return null;
-    }
-    const nodeId = this.modal.dataset.nodeId ?? "";
+    const nodeId = this.modal?.dataset.nodeId ?? "";
     if (!nodeId) {
       return null;
     }
-    // The draft the params panel edits, not the library's saved copy: a Test knob writes this node.
+    // The draft the params panel edits, not the library's saved copy: a Try knob writes this node.
     const preset = getActivePresetForRender();
     return preset?.graph?.nodes.find((entry) => entry.id === nodeId) ?? null;
   }
 
-  private setActiveTab(tabId: "settings" | "test"): void {
-    this.activeTab = tabId;
-    this.tabButtons.forEach((button) => {
-      const isActive = (button.dataset.blendTab ?? "settings") === tabId;
-      button.classList.toggle("active", isActive);
-    });
-    this.tabPanels.forEach((panel) => {
-      const isActive = (panel.dataset.blendTabPanel ?? "settings") === tabId;
-      panel.classList.toggle("active", isActive);
-    });
-    this.updateMatchedModel();
-  }
-
-  private renderParameterList(): void {
-    if (!this.paramList) {
+  /** Applies a change to the blend, redraws, and saves it for the node to play if live. */
+  private edit(change: () => void, redraw = true): void {
+    if (!this.state) {
       return;
     }
-    this.paramList.innerHTML = this.activeParams
-      .map((paramId) => {
-        const spec = getBlendParamSpec(paramId);
-        const label = spec?.label ?? paramId;
-        return `
-          <span class="blend-param-chip" data-param-id="${escapeHtml(paramId)}">
-            ${escapeHtml(label)}
-            <button type="button" class="blend-param-remove">×</button>
-          </span>
-        `;
-      })
-      .join("");
-
-    const chips = this.paramList.querySelectorAll(".blend-param-remove");
-    chips.forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const chip = (btn as HTMLElement).closest(".blend-param-chip") as HTMLElement | null;
-        const paramId = chip?.dataset.paramId ?? "";
-        if (!paramId) {
-          return;
-        }
-        this.activeParams = this.activeParams.filter((entry) => entry !== paramId);
-        if (!this.activeParams.length) {
-          this.activeParams = ["gain"];
-        }
-        this.renderParameterList();
-        this.renderModelList(this.collectCurrentMappings(), this.categorySelect?.value ?? "amp");
-        const activeNode = this.getActiveNode();
-        this.renderTestControls(activeNode, this.collectCurrentMappings());
-        this.updateMatchedModel();
-      });
-    });
-  }
-
-  private addParameter(): void {
-    const next = this.paramSelect?.value ?? "";
-    if (!next || this.activeParams.includes(next)) {
-      return;
-    }
-    this.activeParams = [...this.activeParams, next];
-    this.renderParameterList();
-    this.renderModelList(this.collectCurrentMappings(), this.categorySelect?.value ?? "amp");
-    const activeNode = this.getActiveNode();
-    this.renderTestControls(activeNode, this.collectCurrentMappings());
-    this.updateMatchedModel();
-  }
-
-  private autoMapParameters(): void {
-    if (!this.modelList) {
-      return;
-    }
-
-    const rows = Array.from(this.modelList.querySelectorAll(".blend-model-row"));
-    const modelIds = rows
-      .map((row) => this.getRowModelId(row))
-      .filter((id) => Boolean(id));
-
-    if (!modelIds.length) {
-      return;
-    }
-
-    const resources = this.deps.getResourceLibrary().nam ?? [];
-    const paramSet = new Set<string>();
-    const mappings: BlendModelMapping[] = modelIds.map((id) => {
-      const match = resources.find((res) => res.id === id);
-      const parameters: Record<string, number> = {};
-      BLEND_PARAM_SPECS.forEach((spec) => {
-        const value = inferParamValueFromName(match?.name ?? "", spec.id);
-        if (value !== null) {
-          parameters[spec.id] = value;
-          paramSet.add(spec.id);
-        }
-      });
-      return { id, parameters };
-    });
-
-    const params = Array.from(paramSet);
-    this.activeParams = params.length ? params : ["gain"];
-    this.renderParameterList();
-    this.renderModelList(mappings, this.categorySelect?.value ?? "amp");
-    const activeNode = this.getActiveNode();
-    this.renderTestControls(activeNode, mappings);
-    this.updateMatchedModel();
-  }
-
-  private async exportBlendArchive(): Promise<void> {
-    if (!this.modal) {
-      return;
-    }
-    const blendId = this.modal.dataset.blendId ?? "";
-    const blend = this.deps.getBlendLibrary().find((entry) => entry.id === blendId);
-    if (!blend) {
-      return;
-    }
-
-    const zipLib = window.JSZip;
-    if (!zipLib) {
-      return;
-    }
-
-    const zip = new zipLib();
-    const resourcesFolder = zip.folder("resources");
-    if (!resourcesFolder) {
-      return;
-    }
-
-    const resources = this.deps.getResourceLibrary().nam ?? [];
-    const exportResources: Array<{ id: string; name: string; category: string; type: string; fileName: string; hash?: string }> = [];
-
-    for (const modelId of collectBlendModelIds(blend)) {
-      const resource = resources.find((res) => res.id === modelId);
-      if (!resource) {
-        continue;
-      }
-      const fileName = buildArchiveFileName(resource, "nam");
-      const data = await requestResourceData("nam", resource.id);
-      if (!data) {
-        continue;
-      }
-      const hash = await sha256HexFromBase64(data);
-      resourcesFolder.file(fileName, data, { base64: true });
-      exportResources.push({
-        id: resource.id,
-        name: resource.name,
-        category: resource.category,
-        type: "nam",
-        fileName,
-        hash,
-      });
-    }
-
-    const archive = {
-      formatVersion: 1,
-      blend: {
-        ...blend,
-      },
-      resources: exportResources,
-    };
-
-    zip.file("blend.json", JSON.stringify(archive, null, 2));
-    const blob = await zip.generateAsync({ type: "blob" });
-    const buffer = await blob.arrayBuffer();
-    const data = arrayBufferToBase64(buffer);
-    postMessage({
-      type: "saveBlendArchive",
-      fileName: `${sanitizeFilename(blend.name || blend.id || "blend")}.namz`,
-      data,
-    });
-  }
-
-  private async importBlendArchive(): Promise<void> {
-    const file = this.importInput?.files?.[0];
-    if (!file) {
-      return;
-    }
-
-    if (this.importInput) {
-      this.importInput.value = "";
-    }
-
-    const zipLib = window.JSZip;
-    if (!zipLib) {
-      return;
-    }
-
-    const buffer = await file.arrayBuffer();
-    const zip = await zipLib.loadAsync(buffer);
-    const blendEntry = zip.file("blend.json");
-    if (!blendEntry) {
-      return;
-    }
-
-    const blendText = await blendEntry.async("text");
-    const archive = JSON.parse(blendText) as {
-      blend?: BlendLibrary[number];
-      resources?: Array<{ id?: string; fileName?: string; name?: string; category?: string; type?: string; hash?: string }>;
-    };
-
-    const zipFiles = Object.values(zip.files) as JSZipObject[];
-    const fileMap = new Map<string, JSZipObject>();
-    zipFiles.forEach((entry) => {
-      if (!entry.dir) {
-        const name = entry.name.replace(/^resources\//, "");
-        fileMap.set(name, entry);
-      }
-    });
-
-    const idMap = new Map<string, string>();
-    const resourcesToImport = archive.resources ?? [];
-
-    for (const resource of resourcesToImport) {
-      const fileName = resource.fileName ?? "";
-      const existing = getLibraryResourceByHash(this.deps.getResourceLibrary(), "nam", resource.hash);
-      if (existing) {
-        idMap.set(resource.id ?? fileName, existing.id);
-        continue;
-      }
-
-      const entry = fileMap.get(fileName);
-      if (!entry) {
-        continue;
-      }
-      const dataBuffer = await entry.async("arraybuffer");
-      const data = arrayBufferToBase64(dataBuffer);
-      const newId = generateResourceId(fileName);
-      idMap.set(resource.id ?? fileName, newId);
-
-      postMessage({
-        type: "importRemoteResource",
-        provider: "blendArchive",
-        resourceType: "nam",
-        resourceId: newId,
-        name: resource.name ?? fileName,
-        description: "",
-        category: resource.category ?? "",
-        subfolder: "blend-imports",
-        fileName,
-        hash: resource.hash ?? "",
-        metadata: {
-          provider: "blendArchive",
-          sourceFile: fileName,
-        },
-        data,
-      });
-    }
-
-    const originalBlend = archive.blend;
-    if (!originalBlend) {
-      return;
-    }
-
-    const newBlendId = generateResourceId(originalBlend.id || originalBlend.name || "blend");
-    const remapId = (id: string) => idMap.get(id) ?? id;
-    const models = (originalBlend.models ?? []).map(remapId);
-    const modelMappings = (originalBlend.modelMappings ?? []).map((mapping) => ({
-      ...mapping,
-      id: remapId(mapping.id),
-    }));
-
-    postMessage({
-      type: "saveBlendDefinition",
-      blend: {
-        ...originalBlend,
-        id: newBlendId,
-        models,
-        modelMappings,
-      },
-    });
-  }
-
-  private setActiveToneGroupFromBlend(blend: BlendDefinition | undefined, mappings: BlendModelMapping[]): void {
-    const blendGroupId = blend?.toneGroupId?.trim() ?? "";
-    const blendGroupTitle = blend?.toneGroupTitle?.trim() ?? "";
-    if (blendGroupId) {
-      this.activeToneGroupId = blendGroupId;
-      this.activeToneGroupTitle = blendGroupTitle || blendGroupId;
-      return;
-    }
-
-    const inferred = this.inferToneGroupFromMappings(mappings);
-    this.activeToneGroupId = inferred.id;
-    this.activeToneGroupTitle = inferred.title;
-  }
-
-  private inferToneGroupFromMappings(mappings: BlendModelMapping[]): { id: string | null; title: string | null } {
-    const resources = this.deps.getResourceLibrary().nam ?? [];
-    for (const mapping of mappings) {
-      if (!mapping.id) {
-        continue;
-      }
-      const match = resources.find((res) => res.id === mapping.id);
-      const toneId = match?.metadata?.toneId ?? match?.metadata?.groupId ?? "";
-      const toneTitle = match?.metadata?.toneTitle ?? match?.metadata?.groupName ?? "";
-      if (toneId) {
-        return { id: toneId, title: toneTitle || toneId };
-      }
-    }
-    return { id: null, title: null };
-  }
-
-  private updateModelBrowserGroupLabel(): void {
-    if (!this.modelBrowserGroupLabel) {
-      return;
-    }
-    const label = this.browserToneGroupTitle || this.browserToneGroupId || "None";
-    this.modelBrowserGroupLabel.textContent = label;
-  }
-
-  private updateModelBrowserCategoryOptions(): void {
-    if (!this.modelBrowserCategory) {
-      return;
-    }
-    const resources = this.deps.getResourceLibrary()[this.browserResourceType] ?? [];
-    
-    // Deduplicate resources first
-    const dedupResult = deduplicateResourcesByHashAndPath(resources, {
-      preferredResourceIds: this.browserCurrentId ? [this.browserCurrentId] : [],
-    });
-    const dedupedResources = dedupResult.deduped;
-    
-    const categories = Array.from(new Set(
-      dedupedResources.map((res) => (res.category ?? "").trim() || "Uncategorized"),
-    )).sort((a, b) => a.localeCompare(b));
-
-    const previous = this.modelBrowserCategory.value || "all";
-    const options = ["<option value=\"all\">All types</option>"]
-      .concat(categories.map((category) => `
-        <option value="${escapeHtml(category)}">${escapeHtml(category)}</option>
-      `.trim()))
-      .join("");
-
-    this.modelBrowserCategory.innerHTML = options;
-    if (previous !== "all" && categories.includes(previous)) {
-      this.modelBrowserCategory.value = previous;
+    change();
+    if (redraw) {
+      this.render();
     } else {
-      this.modelBrowserCategory.value = "all";
+      this.renderStatus();
     }
+    this.scheduleAudition();
   }
 
-  public openResourceBrowser(options: {
-    resourceType: string;
-    currentId?: string;
-    toneGroupId?: string | null;
-    toneGroupTitle?: string | null;
-    onSelect: (resourceId: string) => void;
-  }): void {
-    this.initialize();
-    if (!this.modelBrowserModal) {
+  private scheduleAudition(): void {
+    if (!this.liveAudition || !this.state) {
       return;
     }
-
-    this.browserResourceType = options.resourceType;
-    this.browserCurrentId = options.currentId ?? "";
-    this.browserOnSelect = options.onSelect;
-    this.browserToneGroupId = options.resourceType === "nam" ? options.toneGroupId ?? null : null;
-    this.browserToneGroupTitle = options.resourceType === "nam" ? options.toneGroupTitle ?? null : null;
-
-    if (this.modelBrowserSearch) {
-      this.modelBrowserSearch.value = "";
-      this.modelBrowserSearch.placeholder = options.resourceType === "ir"
-        ? "Search IRs..."
-        : options.resourceType === "nam"
-          ? "Search models..."
-          : "Search resources...";
+    if (this.auditionTimer) {
+      clearTimeout(this.auditionTimer);
     }
-
-    if (this.modelBrowserTitle) {
-      this.modelBrowserTitle.textContent = options.resourceType === "ir"
-        ? "Select IR"
-        : options.resourceType === "nam"
-          ? "Select Model"
-          : "Select Resource";
-    }
-
-    if (this.modelBrowserScope) {
-      const hasGroup = options.resourceType === "nam" && Boolean(this.browserToneGroupId);
-      this.modelBrowserScope.disabled = !hasGroup;
-      this.modelBrowserScope.value = hasGroup ? "group" : "all";
-    }
-
-    this.updateModelBrowserGroupLabel();
-    this.updateModelBrowserCategoryOptions();
-    this.renderModelBrowserList();
-    this.modelBrowserModal.style.display = "flex";
-    requestAnimationFrame(() => this.scrollSelectedModelBrowserItemIntoView());
+    this.auditionTimer = setTimeout(() => {
+      this.auditionTimer = null;
+      if (this.state?.rows.length) {
+        postMessage({ type: "saveBlendDefinition", blend: this.currentDefinition() });
+        this.auditioned = true;
+      }
+    }, AUDITION_DELAY_MS);
   }
 
-  private scrollSelectedModelBrowserItemIntoView(): void {
-    if (!this.modelBrowserList || !this.browserCurrentId) {
+  private currentDefinition(): BlendDefinition {
+    const definition = definitionFromEditState(this.state!, this.library());
+    if (!definition.name) {
+      definition.name = this.original?.name || "Blend";
+    }
+    return definition;
+  }
+
+  private render(): void {
+    if (!this.state) {
       return;
     }
-
-    const selectedItem = this.modelBrowserList.querySelector(
-      `.blend-model-browser-item[data-model-id="${CSS.escape(this.browserCurrentId)}"]`,
-    ) as HTMLElement | null;
-    selectedItem?.scrollIntoView({ behavior: "instant", block: "center" });
-  }
-
-  private openModelBrowser(row: HTMLElement): void {
-    this.openResourceBrowser({
-      resourceType: "nam",
-      currentId: this.getRowModelId(row),
-      toneGroupId: this.activeToneGroupId,
-      toneGroupTitle: this.activeToneGroupTitle,
-      onSelect: (resourceId) => {
-        this.setRowModel(row, resourceId);
-        const activeNode = this.getActiveNode();
-        this.renderTestControls(activeNode, this.collectCurrentMappings());
-        this.updateMatchedModel();
-      },
+    this.modal?.querySelectorAll<HTMLButtonElement>("[data-blend-mode]").forEach((button) => {
+      button.classList.toggle("is-active", button.dataset.blendMode === this.state!.mode);
+      button.setAttribute("aria-pressed", String(button.dataset.blendMode === this.state!.mode));
     });
-  }
-
-  private closeModelBrowser(): void {
-    if (!this.modelBrowserModal) {
-      return;
-    }
-    this.modelBrowserModal.style.display = "none";
-    this.browserOnSelect = null;
-    this.browserCurrentId = "";
-    this.browserToneGroupId = null;
-    this.browserToneGroupTitle = null;
-  }
-
-  private renderModelBrowserList(): void {
-    if (!this.modelBrowserList) {
-      return;
-    }
-
-    const resources = this.deps.getResourceLibrary()[this.browserResourceType] ?? [];
-    
-    // Deduplicate resources by hash and file path
-    const dedupResult = deduplicateResourcesByHashAndPath(resources, {
-      preferredResourceIds: this.browserCurrentId ? [this.browserCurrentId] : [],
+    this.modal?.querySelectorAll<HTMLButtonElement>("[data-blend-axis]").forEach((button) => {
+      button.classList.toggle("is-active", button.dataset.blendAxis === this.state!.axis);
+      button.setAttribute("aria-pressed", String(button.dataset.blendAxis === this.state!.axis));
     });
-    const dedupedResources = dedupResult.deduped;
-    
-    const query = (this.modelBrowserSearch?.value ?? "").trim().toLowerCase();
-    const scope = this.modelBrowserScope?.value ?? "group";
-    const category = this.modelBrowserCategory?.value ?? "all";
-    const currentId = this.browserCurrentId;
+    if (this.table) {
+      this.table.innerHTML = renderBlendTable(this.state, this.library());
+    }
+    this.renderTryControls();
+    this.renderStatus();
+  }
 
-    let filtered = dedupedResources.slice();
-    if (scope === "group" && this.browserResourceType === "nam") {
-      if (!this.browserToneGroupId) {
-        this.modelBrowserList.innerHTML = "<div class=\"blend-model-browser-empty\">No tone group is associated with this selection.</div>";
+  /** What changes with every value typed: warnings, the tools that apply, and the playing line. */
+  private renderStatus(): void {
+    if (!this.state) {
+      return;
+    }
+    if (this.warnings) {
+      this.warnings.innerHTML = renderBlendWarnings(blendWarnings(this.state, this.library()));
+    }
+    if (this.fillBtn) {
+      this.fillBtn.disabled = this.state.axis !== "params" || !this.state.rows.length;
+    }
+    if (this.matchBtn) {
+      this.matchBtn.disabled = this.state.rows.length < 2;
+    }
+    this.updatePlaying();
+  }
+
+  private bindTable(): void {
+    this.table?.addEventListener("input", (event) => {
+      const input = event.target as HTMLInputElement | null;
+      const row = this.state?.rows[Number(input?.dataset.index)];
+      if (!input || !row) {
         return;
       }
-      filtered = filtered.filter((res) => {
-        const toneId = res.metadata?.toneId ?? res.metadata?.groupId ?? "";
-        return toneId === this.browserToneGroupId;
-      });
-    }
-
-    if (category !== "all") {
-      filtered = filtered.filter((res) => ((res.category ?? "").trim() || "Uncategorized") === category);
-    }
-
-    if (query) {
-      filtered = filtered.filter((res) => {
-        const haystack = `${res.name} ${res.id} ${res.category} ${res.description} ${res.filePath}`.toLowerCase();
-        return haystack.includes(query);
-      });
-    }
-
-    filtered.sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id));
-
-    if (!filtered.length) {
-      this.modelBrowserList.innerHTML = "<div class=\"blend-model-browser-empty\">No models match the current filters.</div>";
-      return;
-    }
-
-    // Resolve currentId through aliases in case it's a hidden duplicate
-    const resolvedCurrentId = dedupResult.aliasById.get(currentId) ?? currentId;
-
-    this.modelBrowserList.innerHTML = filtered
-      .map((res) => {
-        const title = res.name?.trim() || res.id;
-        const categoryLabel = (res.category ?? "").trim() || "Uncategorized";
-        // Check if current ID matches this resource, or if current ID is aliased to this resource
-        const isSelected = res.id === currentId || res.id === resolvedCurrentId;
-        const selectedClass = isSelected ? "blend-model-browser-item is-selected" : "blend-model-browser-item";
-        return `
-          <div class="${selectedClass}" data-model-id="${escapeHtml(res.id)}">
-            <div>
-              <div class="item-title">${escapeHtml(title)}</div>
-              <div class="item-meta">
-                <span>${escapeHtml(categoryLabel)}</span>
-                <span>${escapeHtml(res.id)}</span>
-              </div>
-            </div>
-          </div>
-        `;
-      })
-      .join("");
-  }
-
-  private handleModelBrowserClick(event: Event): void {
-    const target = event.target as HTMLElement | null;
-    if (!target) {
-      return;
-    }
-    const item = target.closest(".blend-model-browser-item") as HTMLElement | null;
-    if (!item) {
-      return;
-    }
-    const modelId = item.dataset.modelId ?? "";
-    if (!modelId) {
-      return;
-    }
-    this.browserOnSelect?.(modelId);
-    this.closeModelBrowser();
-  }
-
-  private getRowModelId(row: Element): string {
-    return (row as HTMLElement).dataset.modelId?.trim() ?? "";
-  }
-
-  private setRowModel(row: HTMLElement, modelId: string): void {
-    row.dataset.modelId = modelId;
-    const labelInfo = this.getModelLabel(modelId);
-    const labelEl = row.querySelector(".blend-model-selected") as HTMLElement | null;
-    if (labelEl) {
-      labelEl.textContent = labelInfo.label;
-      labelEl.title = labelInfo.title;
-      labelEl.classList.toggle("is-missing", labelInfo.isMissing);
-    }
-  }
-
-  private getModelLabel(modelId: string): { label: string; title: string; isMissing: boolean } {
-    if (!modelId) {
-      return { label: "No model selected", title: "No model selected", isMissing: false };
-    }
-    const match = getLibraryResource(this.deps.getResourceLibrary(), "nam", modelId);
-    if (match) {
-      const label = match.name?.trim() || modelId;
-      return { label, title: label, isMissing: false };
-    }
-    const missing = `Missing: ${modelId}`;
-    return { label: missing, title: missing, isMissing: true };
-  }
-
-  private renderModelList(mappings: BlendModelMapping[], category: string): void {
-    if (!this.modelList) {
-      return;
-    }
-
-    if (!mappings.length) {
-      mappings = [{ id: "" }];
-    }
-
-    this.modelList.innerHTML = mappings
-      .map((mapping, index) => {
-        const parameters = mapping.parameters ?? buildParameterMapFromLegacy(mapping);
-        const labelInfo = this.getModelLabel(mapping.id);
-        const labelClass = labelInfo.isMissing ? "blend-model-selected is-missing" : "blend-model-selected";
-        return `
-          <div class="blend-model-row" data-index="${index}" data-model-id="${escapeHtml(mapping.id)}">
-            <div class="blend-model-header">
-              <button class="blend-model-browse" type="button">Browse</button>
-              <div class="${labelClass}" title="${escapeHtml(labelInfo.title)}">${escapeHtml(labelInfo.label)}</div>
-              <button class="blend-model-auto" type="button">Auto</button>
-              <button class="blend-model-remove" type="button">Remove</button>
-            </div>
-            <div class="blend-model-params">
-              ${this.activeParams.map((paramId) => renderParamInput(paramId, parameters)).join("")}
-            </div>
-          </div>
-        `;
-      })
-      .join("");
-
-    this.bindModelRowEvents(category);
-    const activeNode = this.getActiveNode();
-    this.renderTestControls(activeNode, mappings);
-    this.updateMatchedModel();
-  }
-
-  private buildModelOptions(selectedId: string): string {
-    const resources = this.deps.getResourceLibrary().nam ?? [];
-    const options = resources
-      .slice()
-      .sort((a, b) => a.name.localeCompare(b.name))
-      .map((res) => {
-        const selected = res.id === selectedId ? "selected" : "";
-        return `<option value="${escapeHtml(res.id)}" ${selected}>${escapeHtml(res.name)}</option>`;
-      })
-      .join("");
-
-    const selectedMissing = selectedId && !resources.some((res) => res.id === selectedId);
-    const missingOption = selectedMissing
-      ? `<option value="${escapeHtml(selectedId)}" selected>Missing: ${escapeHtml(selectedId)}</option>`
-      : "";
-
-    return `
-      <option value="">-- Select model --</option>
-      ${missingOption}
-      ${options}
-    `;
-  }
-
-  private bindModelRowEvents(_category: string): void {
-    if (!this.modelList) {
-      return;
-    }
-
-    const rows = this.modelList.querySelectorAll(".blend-model-row");
-    rows.forEach((row) => {
-      const browseBtn = row.querySelector(".blend-model-browse") as HTMLButtonElement | null;
-      const labelBtn = row.querySelector(".blend-model-selected") as HTMLElement | null;
-      const autoBtn = row.querySelector(".blend-model-auto") as HTMLButtonElement | null;
-      const removeBtn = row.querySelector(".blend-model-remove") as HTMLButtonElement | null;
-
-      const applyAuto = (force: boolean) => {
-        const currentId = this.getRowModelId(row);
-        if (!currentId) {
-          return;
+      if (input.classList.contains("blend-cell-value")) {
+        const paramId = input.dataset.paramId ?? "";
+        const value = Number.parseFloat(input.value);
+        if (Number.isFinite(value)) {
+          row.values[paramId] = normalizeBlendValue(value, getBlendParamSpec(paramId));
+        } else {
+          delete row.values[paramId];
         }
-        const match = getLibraryResource(this.deps.getResourceLibrary(), "nam", currentId);
-        this.activeParams.forEach((paramId) => {
-          const input = row.querySelector(`.blend-model-param-value[data-param-id="${paramId}"]`) as HTMLInputElement | null;
-          if (!input) {
-            return;
+        this.renderStatus();
+      } else if (input.classList.contains("blend-cell-trim")) {
+        row.levelTrimDb = clampTrim(Number.parseFloat(input.value) || 0);
+      }
+    });
+    // Heard on commit (Enter or leaving the field), not on every keystroke: each save rebuilds the node.
+    this.table?.addEventListener("change", (event) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.matches(".blend-cell-value, .blend-cell-trim")) {
+        this.edit(() => undefined, false);
+      } else if (target?.matches(".blend-param-add")) {
+        const paramId = (target as HTMLSelectElement).value;
+        this.edit(() => addParam(this.state!, paramId, this.library()));
+      }
+    });
+    this.table?.addEventListener("click", (event) => {
+      const button = (event.target as HTMLElement | null)?.closest("button");
+      if (!button || !this.state) {
+        return;
+      }
+      const index = Number(button.dataset.index);
+      if (button.classList.contains("blend-row-remove")) {
+        this.edit(() => this.state!.rows.splice(index, 1));
+      } else if (button.classList.contains("blend-row-move")) {
+        const target = index + Number(button.dataset.move);
+        this.edit(() => {
+          const rows = this.state!.rows;
+          if (target >= 0 && target < rows.length) {
+            [rows[index], rows[target]] = [rows[target], rows[index]];
           }
-          if (input.value.trim() && !force) {
-            return;
-          }
-          const inferred = inferParamValueFromName(match?.name ?? "", paramId);
-          if (inferred === null) {
-            return;
-          }
-          const spec = getBlendParamSpec(paramId);
-          input.value = spec ? denormalizeValue(inferred, spec) : inferred.toFixed(2);
         });
-      };
-
-      browseBtn?.addEventListener("click", () => this.openModelBrowser(row as HTMLElement));
-      labelBtn?.addEventListener("click", () => this.openModelBrowser(row as HTMLElement));
-      autoBtn?.addEventListener("click", () => applyAuto(true));
-      removeBtn?.addEventListener("click", () => {
-        row.remove();
-        const activeNode = this.getActiveNode();
-        this.renderTestControls(activeNode, this.collectCurrentMappings());
-        this.updateMatchedModel();
-      });
-
-      autoBtn?.addEventListener("click", () => this.updateMatchedModel());
-      row.querySelectorAll(".blend-model-param-value").forEach((input) => {
-        input.addEventListener("input", () => this.updateMatchedModel());
-      });
+      } else if (button.classList.contains("blend-param-remove")) {
+        this.edit(() => removeParam(this.state!, button.dataset.paramId ?? ""));
+      }
     });
   }
 
-  private addModelRow(): void {
-    if (!this.modelList) {
+  private openAddModels(): void {
+    if (!this.state) {
       return;
     }
-
-    const category = this.categorySelect?.value ?? "amp";
-    const index = this.modelList.querySelectorAll(".blend-model-row").length;
-    const row = document.createElement("div");
-    row.className = "blend-model-row";
-    row.dataset.index = index.toString();
-    row.dataset.modelId = "";
-    row.innerHTML = `
-      <div class="blend-model-header">
-        <button class="blend-model-browse" type="button">Browse</button>
-        <div class="blend-model-selected" title="No model selected">No model selected</div>
-        <button class="blend-model-auto" type="button">Auto</button>
-        <button class="blend-model-remove" type="button">Remove</button>
-      </div>
-      <div class="blend-model-params">
-        ${this.activeParams.map((paramId) => renderParamInput(paramId, {})).join("")}
-      </div>
-    `;
-    this.modelList.appendChild(row);
-    this.bindModelRowEvents(category);
-    const activeNode = this.getActiveNode();
-    this.renderTestControls(activeNode, this.collectCurrentMappings());
-    this.updateMatchedModel();
+    this.addDialog.open(this.state.rows.map((row) => row.id), (ids) => this.addToBlend(ids));
   }
 
-  private setTestNote(text: string): void {
-    if (this.testNote) {
-      this.testNote.textContent = text;
-    }
-  }
-
-  /**
-   * The knobs the Test view shows: one per parameter some model is captured at, as the node
-   * shows them, or the Blend sweep when there are none.
-   */
-  private testParamIds(mappings: BlendModelMapping[]): string[] {
-    const mapped = mappedBlendParamIds({ parameters: this.activeParams } as BlendDefinition, mappings);
-    return mapped.length ? mapped : [BLEND_SWEEP_PARAM];
-  }
-
-  /** Opened from a node, the Test knobs are that node's knobs, so the blend is heard. */
-  private auditionOnNode(paramIds: string[]): void {
-    const node = this.getActiveNode();
-    if (!node) {
+  private addToBlend(ids: string[]): void {
+    if (!this.state) {
       return;
     }
+    let added = 0;
+    this.edit(() => {
+      added = addModels(this.state!, ids, this.library());
+    });
+    if (added) {
+      showNotification(`Added ${added} model${added === 1 ? "" : "s"}`, this.state.name);
+    }
+  }
+
+  private pickFromTone3000(): void {
+    this.deps.pickModelsFromTone3000?.({
+      onSelect: (id) => this.addToBlend([id]),
+      onImportMany: (ids) => this.addToBlend(ids),
+    });
+  }
+
+  /** Trims from the loudness each model file states, to their median. */
+  private async matchLevels(): Promise<void> {
+    const state = this.state;
+    if (!state || state.rows.length < 2) {
+      return;
+    }
+    if (this.matchBtn) {
+      this.matchBtn.disabled = true;
+      this.matchBtn.textContent = "Matching…";
+    }
+    const loudness = new Map<string, number>();
+    for (const row of state.rows) {
+      const data = libraryModel(this.library(), row.id) ? await requestResourceData("nam", row.id) : undefined;
+      const value = data ? readNamLoudness(decodeBase64Text(data)) : null;
+      if (value !== null) {
+        loudness.set(row.id, value);
+      }
+    }
+    if (this.matchBtn) {
+      this.matchBtn.textContent = "Match Levels";
+    }
+    if (this.state !== state) {
+      return;
+    }
+    let matched = 0;
+    this.edit(() => {
+      matched = matchLevels(state, loudness);
+    });
+    const unknown = state.rows.length - loudness.size;
+    showNotification(
+      matched ? `Matched ${matched} model levels` : "Levels not matched",
+      matched
+        ? unknown ? `${unknown} model${unknown === 1 ? " has" : "s have"} no loudness in its file and kept its trim.` : state.name
+        : "Fewer than two of these model files state their loudness. Set the Level trims by ear.",
+    );
+  }
+
+  /** Saves one blend per voicing; the editor stays on the first, which keeps this blend's id. */
+  private async splitByVoicing(): Promise<void> {
+    const state = this.state;
+    if (!state) {
+      return;
+    }
+    const voicings = groupByVoicing(state, this.library());
+    if (voicings.length < 2) {
+      return;
+    }
+    const name = state.name.trim() || "Blend";
+    const confirmed = await showConfirm(
+      `Split "${name}" into ${voicings.length} blends, one for each voicing (${voicings.map((voicing) => voicing.label).join(", ")})? Each is saved now.`,
+      "Split by Voicing",
+      { ok: "Split", cancel: "Keep One Blend" },
+    );
+    if (!confirmed || this.state !== state) {
+      return;
+    }
+    const definitions = voicings.map((voicing, index) => definitionFromEditState({
+      ...state,
+      id: index === 0 ? state.id : newBlendId(),
+      name: `${name} – ${voicing.label}`,
+      rows: voicing.rows,
+    }, this.library()));
+    definitions.forEach((blend) => postMessage({ type: "saveBlendDefinition", blend }));
+    showNotification(`Saved ${definitions.length} blends`, definitions.map((blend) => blend.name).join(", "));
+
+    const [first] = definitions;
+    this.original = JSON.parse(JSON.stringify(first)) as BlendDefinition;
+    this.auditioned = false;
+    this.state = editStateFromDefinition(first, this.library());
+    if (this.nameInput) {
+      this.nameInput.value = this.state.name;
+    }
+    if (this.title) {
+      this.title.textContent = "Edit Blend";
+    }
+    this.render();
+  }
+
+  private save(): void {
+    if (!this.state || !this.modal) {
+      return;
+    }
+    if (!this.state.name.trim()) {
+      this.nameInput?.focus();
+      showNotification("Name the blend", "A blend needs a name to be saved.");
+      return;
+    }
+    if (!this.state.rows.length) {
+      showNotification("Add models", "A blend needs models to be saved.");
+      return;
+    }
+    if (this.auditionTimer) {
+      clearTimeout(this.auditionTimer);
+      this.auditionTimer = null;
+    }
+    const blend = this.currentDefinition();
+    postMessage({ type: "saveBlendDefinition", blend });
+    const onSaved = this.onSaved;
+    // Saved: nothing for Cancel to put back.
+    this.auditioned = false;
+    this.close();
+    onSaved?.(blend);
+  }
+
+  // ── Try strip ─────────────────────────────────────────────────────────────
+
+  private tryParamIds(): string[] {
+    const state = this.state;
+    if (!state || state.axis === "sweep") {
+      return [BLEND_SWEEP_PARAM];
+    }
+    const captured = state.params.filter((paramId) => state.rows.some((row) => typeof row.values[paramId] === "number"));
+    return captured.length ? captured : [BLEND_SWEEP_PARAM];
+  }
+
+  /** Where a Try knob starts: the node's own value, else the middle of the captured values. */
+  private startingValue(paramId: string): number {
+    const nodeValue = this.getActiveNode()?.params?.[paramId];
+    if (typeof nodeValue === "number") {
+      return nodeValue;
+    }
+    if (paramId === BLEND_SWEEP_PARAM) {
+      return 0;
+    }
+    const values = (this.state?.rows ?? [])
+      .map((row) => row.values[paramId])
+      .filter((value): value is number => typeof value === "number")
+      .sort((a, b) => a - b);
+    if (!values.length) {
+      return 0.5;
+    }
+    const mid = Math.floor(values.length / 2);
+    return values.length % 2 ? values[mid] : (values[mid - 1] + values[mid]) / 2;
+  }
+
+  private renderTryControls(): void {
+    if (!this.testControls || !this.state) {
+      return;
+    }
+    const paramIds = this.tryParamIds();
+    const next: Record<string, number> = {};
     paramIds.forEach((paramId) => {
-      const value = this.testParams[paramId];
-      if (typeof value === "number" && node.params[paramId] !== value) {
-        node.params[paramId] = value;
-        sendSignalPathNodeParamUpdate(node.id, paramId, value);
-      }
+      next[paramId] = typeof this.testParams[paramId] === "number" ? this.testParams[paramId] : this.startingValue(paramId);
     });
-  }
+    this.testParams = next;
 
-  private syncTestParams(node: GraphNode | null | undefined, mappings: BlendModelMapping[]): void {
-    const specs = new Map(BLEND_PARAM_SPECS.map((spec) => [spec.id, spec]));
-    const defaultNormalized = (paramId: string): number => {
-      const nodeValue = node && node.params ? node.params[paramId] : undefined;
-      if (typeof nodeValue === "number") {
-        return nodeValue;
-      }
-      const values: number[] = [];
-      mappings.forEach((mapping) => {
-        const params = buildParameterMapFromLegacy(mapping);
-        const value = params[paramId];
-        if (typeof value === "number") {
-          values.push(value);
-        }
-      });
-      if (values.length) {
-        const sorted = values.slice().sort((a, b) => a - b);
-        const mid = Math.floor(sorted.length / 2);
-        return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
-      }
-      const spec = specs.get(paramId);
-      return spec ? normalizeBlendValue((spec.min + spec.max) / 2, spec) : 0.5;
-    };
-
-    const nextParams: Record<string, number> = {};
-    this.testParamIds(mappings).forEach((paramId) => {
-      const existing = this.testParams[paramId];
-      nextParams[paramId] = typeof existing === "number" ? existing : defaultNormalized(paramId);
-    });
-    this.testParams = nextParams;
-  }
-
-  private renderTestControls(node: GraphNode | null | undefined, mappings: BlendModelMapping[]): void {
-    if (!this.testControls) {
-      return;
-    }
-
-    this.syncTestParams(node, mappings);
-    this.testKnobs.clear();
-    const testParamIds = this.testParamIds(mappings);
-
-    this.testControls.innerHTML = testParamIds
+    this.testControls.innerHTML = paramIds
       .map((paramId) => {
-        const isSweep = paramId === BLEND_SWEEP_PARAM;
-        const spec = getBlendParamSpec(paramId);
-        const label = isSweep ? "Blend" : spec?.label ?? paramId;
-        const normalizedValue = this.testParams[paramId] ?? 0;
-        const displayValue = spec ? Number.parseFloat(denormalizeValue(normalizedValue, spec)) : normalizedValue;
-        const min = isSweep ? 0 : spec?.min ?? -1;
-        const max = isSweep ? 1 : spec?.max ?? 1;
+        const spec = paramId === BLEND_SWEEP_PARAM ? null : getBlendParamSpec(paramId);
+        const display = spec ? denormalizeBlendValue(this.testParams[paramId], spec) : this.testParams[paramId];
         return `
           <div class="knob-control">
-            <span class="knob-label">${escapeHtml(label)}</span>
-            <div
-              class="knob blend-test-knob"
-              data-param-id="${escapeHtml(paramId)}"
-              data-value="${displayValue.toFixed(2)}"
-              data-min="${min}"
-              data-max="${max}"
-            >
-              <div class="knob-mapped-points"></div>
+            <span class="knob-label">${escapeHtml(spec?.label ?? "Blend")}</span>
+            <div class="knob blend-test-knob" data-param-id="${escapeHtml(paramId)}" data-value="${display.toFixed(2)}"
+                 data-min="${spec?.min ?? 0}" data-max="${spec?.max ?? 1}">
               <div class="knob-indicator"></div>
             </div>
-            <span class="knob-value">${displayValue.toFixed(2)}</span>
-          </div>
-        `;
+            <span class="knob-value">${display.toFixed(1)}</span>
+          </div>`;
       })
       .join("");
 
-    const knobElements = this.testControls.querySelectorAll(".blend-test-knob");
-    knobElements.forEach((knobElement) => {
-      const knob = knobElement as HTMLElement;
-      const valueDisplay = knob.parentElement?.querySelector(".knob-value") as HTMLElement | null;
+    this.testControls.querySelectorAll<HTMLElement>(".blend-test-knob").forEach((knob) => {
       const paramId = knob.dataset.paramId ?? "";
-      const min = knob.dataset.min ? parseFloat(knob.dataset.min) : -1;
-      const max = knob.dataset.max ? parseFloat(knob.dataset.max) : 1;
-      const spec = getBlendParamSpec(paramId);
-      const defaultValue: number = spec
-        ? Number.parseFloat(denormalizeValue(this.testParams[paramId] ?? 0, spec))
-        : Number(this.testParams[paramId] ?? 0);
-      const sensitivity = (max - min) / 200;
-
-      const knobInstance = new GenericKnob({
+      const spec = paramId === BLEND_SWEEP_PARAM ? null : getBlendParamSpec(paramId);
+      const min = spec?.min ?? 0;
+      const max = spec?.max ?? 1;
+      new GenericKnob({
         knobElement: knob,
         paramId: `blend_test_${paramId}`,
         minValue: min,
         maxValue: max,
-        defaultValue,
+        defaultValue: spec ? denormalizeBlendValue(this.testParams[paramId], spec) : this.testParams[paramId],
         displayFormat: (value) => value.toFixed(1),
-        valueDisplay,
+        valueDisplay: knob.parentElement?.querySelector(".knob-value") as HTMLElement | null,
         labelElement: knob.parentElement?.querySelector(".knob-label") as HTMLElement | null,
-        stepValue: 0.1,
-        sensitivity,
+        stepValue: spec ? 0.1 : 0.01,
+        sensitivity: (max - min) / 200,
         sendParameter: false,
         onValueChange: (value) => {
           const normalized = spec ? normalizeBlendValue(value, spec) : value;
-          const blendMode = (this.modeSelect?.value ?? "interpolate") as BlendMode;
-
-          if (blendMode === "snap") {
-            const target: Record<string, number> = { ...this.testParams, [paramId]: normalized };
-            const closest = findClosestBlendMappingForParam(paramId, normalized, mappings, this.activeParams, target);
-            if (closest) {
-              const params = buildParameterMapFromLegacy(closest);
-              this.activeParams.forEach((activeParamId) => {
-                const mappedValue = params[activeParamId];
-                if (typeof mappedValue === "number") {
-                  this.testParams[activeParamId] = mappedValue;
-                }
-              });
-
-              this.activeParams.forEach((activeParamId) => {
-                const targetValue = this.testParams[activeParamId];
-                const targetSpec = getBlendParamSpec(activeParamId);
-                const display = typeof targetValue === "number"
-                  ? (targetSpec ? Number.parseFloat(denormalizeValue(targetValue, targetSpec)) : targetValue)
-                  : 0;
-                this.testKnobs.get(activeParamId)?.setValue(display);
-              });
-
-              this.updateMatchedModel();
-              this.updateTestMappedIndicators(mappings);
-              this.auditionOnNode(testParamIds);
-              return;
-            }
-          }
-
           this.testParams[paramId] = normalized;
-          this.updateMatchedModel();
-          this.updateTestMappedIndicators(mappings);
-          this.auditionOnNode([paramId]);
+          this.updatePlaying();
+          // Opened from a node, the Try knobs are its knobs, so the blend is heard.
+          const node = this.getActiveNode();
+          if (node && node.params[paramId] !== normalized) {
+            node.params[paramId] = normalized;
+            sendSignalPathNodeParamUpdate(node.id, paramId, normalized);
+          }
         },
       });
-
-      if (paramId) {
-        this.testKnobs.set(paramId, knobInstance);
-      }
-    });
-
-    this.updateTestMappedIndicators(mappings);
-  }
-
-  private updateTestMappedIndicators(mappings: BlendModelMapping[]): void {
-    if (!this.testControls) {
-      return;
-    }
-
-    const target: Record<string, number> = {};
-    this.testParamIds(mappings).forEach((paramId) => {
-      const value = this.testParams[paramId];
-      if (typeof value === "number") {
-        target[paramId] = value;
-      }
-    });
-
-    const knobElements = this.testControls.querySelectorAll(".blend-test-knob");
-    knobElements.forEach((knobElement) => {
-      const knob = knobElement as HTMLElement;
-      const paramId = knob.dataset.paramId ?? "";
-      const min = knob.dataset.min ? parseFloat(knob.dataset.min) : -1;
-      const max = knob.dataset.max ? parseFloat(knob.dataset.max) : 1;
-      const spec = getBlendParamSpec(paramId);
-      const points = buildBlendMappedPoints(paramId, mappings, this.activeParams, target, spec);
-      renderMappedPointElements(knob, points, min, max);
     });
   }
 
-  private updateMatchedModel(): void {
-    if (!this.matchName || !this.modal) {
+  /** The model playing at the Try knobs, by the engine's own rule (blendUtils.selectBlendMix). */
+  private updatePlaying(): void {
+    if (!this.matchLine || !this.state) {
       return;
     }
-
-    // Computed from the mappings being edited and the Test knobs, whether or not the editor
-    // was opened from a node, by the same rule the engine uses.
-    const mappings: BlendModelMapping[] = this.collectCurrentMappings();
+    const definition = definitionFromEditState(this.state, this.library());
     const target: Record<string, number> = {};
-    this.testParamIds(mappings).forEach((paramId) => {
-      const value = this.testParams[paramId];
-      if (typeof value === "number" && paramId !== BLEND_SWEEP_PARAM) {
+    Object.entries(this.testParams).forEach(([paramId, value]) => {
+      if (paramId !== BLEND_SWEEP_PARAM) {
         target[paramId] = value;
       }
     });
-
-    // A node can override the blend's mode; opened from one, the Test view follows it.
     const override = this.getActiveNode()?.config?.blendModeOverride;
-    const blendMode: BlendMode = override === "snap" || override === "interpolate"
-      ? override
-      : (this.modeSelect?.value ?? "interpolate") as BlendMode;
-    const library = this.deps.getResourceLibrary();
+    const mode: BlendMode = override === "snap" || override === "interpolate" ? override : this.state.mode;
     const summary = describeBlendMix(
-      mappings,
+      definition.modelMappings ?? [],
       target,
       this.testParams[BLEND_SWEEP_PARAM] ?? 0,
-      blendMode,
-      (modelId) => getLibraryResource(library, "nam", modelId)?.name ?? modelId,
+      mode,
+      (modelId) => libraryModel(this.library(), modelId)?.name ?? modelId,
     );
-
-    this.matchName.textContent = summary.name;
-    if (this.matchDetails) {
-      this.matchDetails.textContent = summary.details;
-    }
+    const line = definition.modelMappings?.length ? summary.details || `Playing: ${summary.name}` : "";
+    this.matchLine.textContent = line;
+    this.matchLine.title = line;
   }
-
-  /** Saves the blend. Apply keeps the editor open, so an edit can be heard and tested. */
-  private save(close = true): void {
-    if (!this.modal) {
-      return;
-    }
-    const blendId = this.modal.dataset.blendId ?? "";
-    if (!blendId) {
-      return;
-    }
-
-    const name = (this.nameInput?.value ?? "").trim();
-    if (!name) {
-      return;
-    }
-
-    const category = (this.categorySelect?.value ?? "amp").trim();
-    const blendMode = (this.modeSelect?.value ?? "interpolate") as "snap" | "interpolate";
-
-    const modelMappings: BlendModelMapping[] = [];
-    const rows = this.modelList?.querySelectorAll(".blend-model-row") ?? [];
-    rows.forEach((row) => {
-      const modelId = this.getRowModelId(row);
-      if (!modelId) {
-        return;
-      }
-
-      const parameters: Record<string, number> = {};
-      this.activeParams.forEach((paramId) => {
-        const input = row.querySelector(`.blend-model-param-value[data-param-id="${paramId}"]`) as HTMLInputElement | null;
-        const raw = input?.value?.trim() ?? "";
-        const numeric = raw ? Number.parseFloat(raw) : NaN;
-        if (Number.isNaN(numeric)) {
-          return;
-        }
-        const spec = getBlendParamSpec(paramId);
-        parameters[paramId] = spec ? normalizeBlendValue(numeric, spec) : numeric;
-      });
-
-      const primaryParam = this.activeParams[0] ?? "";
-      const primaryValue = primaryParam && primaryParam in parameters ? parameters[primaryParam] : undefined;
-
-      const mapping: BlendModelMapping = {
-        id: modelId,
-      };
-      if (primaryParam) {
-        mapping.parameterId = primaryParam;
-      }
-      if (primaryValue !== undefined) {
-        mapping.parameterValue = primaryValue;
-      }
-      if (Object.keys(parameters).length) {
-        mapping.parameters = parameters;
-      }
-      modelMappings.push(mapping);
-    });
-
-    const models = modelMappings.map((mapping) => mapping.id);
-    const blendPayload: BlendDefinition = {
-      id: blendId,
-      name,
-      category,
-      parameters: this.activeParams.slice(),
-      models,
-      modelMappings,
-      blendMode,
-      toneGroupId: this.activeToneGroupId ?? undefined,
-      toneGroupTitle: this.activeToneGroupTitle ?? undefined,
-    };
-
-    postMessage({
-      type: "saveBlendDefinition",
-      blend: blendPayload,
-    });
-
-    if (close) {
-      const onSaved = this.onSaved;
-      this.close();
-      onSaved?.(blendPayload);
-    }
-  }
-
-  private collectCurrentMappings(): BlendModelMapping[] {
-    if (!this.modelList) {
-      return [];
-    }
-    const rows = this.modelList.querySelectorAll(".blend-model-row");
-    const mappings: BlendModelMapping[] = [];
-    rows.forEach((row) => {
-      const modelId = this.getRowModelId(row);
-      if (!modelId) {
-        return;
-      }
-      const parameters: Record<string, number> = {};
-      this.activeParams.forEach((paramId) => {
-        const input = row.querySelector(`.blend-model-param-value[data-param-id="${paramId}"]`) as HTMLInputElement | null;
-        const raw = input?.value?.trim() ?? "";
-        const numeric = raw ? Number.parseFloat(raw) : NaN;
-        if (Number.isNaN(numeric)) {
-          return;
-        }
-        const spec = getBlendParamSpec(paramId);
-        parameters[paramId] = spec ? normalizeBlendValue(numeric, spec) : numeric;
-      });
-      mappings.push({ id: modelId, parameters });
-    });
-    return mappings;
-  }
-}
-
-const BLEND_MAPPING_EPS = 1e-4;
-
-type BlendMappedPoint = {
-  normalized: number;
-  display: number;
-  isSelectable: boolean;
-  isSelected: boolean;
-};
-
-function hasCloseValue(values: number[], value: number, eps = BLEND_MAPPING_EPS): boolean {
-  return values.some((existing) => Math.abs(existing - value) <= eps);
-}
-
-function addUniqueValue(values: number[], value: number, eps = BLEND_MAPPING_EPS): void {
-  if (!hasCloseValue(values, value, eps)) {
-    values.push(value);
-  }
-}
-
-function buildBlendMappedPoints(
-  paramId: string,
-  mappings: BlendModelMapping[],
-  activeParams: string[],
-  target: Record<string, number>,
-  spec: BlendParamSpec | null,
-): BlendMappedPoint[] {
-  if (!paramId) {
-    return [];
-  }
-
-  const normalizedValues: number[] = [];
-  const selectableValues: number[] = [];
-
-  mappings.forEach((mapping) => {
-    const params = buildParameterMapFromLegacy(mapping);
-    const mappedValue = params[paramId];
-    if (typeof mappedValue === "number") {
-      addUniqueValue(normalizedValues, mappedValue);
-    }
-  });
-
-  mappings.forEach((mapping) => {
-    const params = buildParameterMapFromLegacy(mapping);
-    const mappedValue = params[paramId];
-    if (typeof mappedValue !== "number") {
-      return;
-    }
-    let matches = true;
-    activeParams.forEach((activeParamId) => {
-      if (activeParamId === paramId) {
-        return;
-      }
-      const targetValue = target[activeParamId];
-      const otherValue = params[activeParamId];
-      if (typeof targetValue !== "number" || typeof otherValue !== "number") {
-        matches = false;
-        return;
-      }
-      if (Math.abs(otherValue - targetValue) > BLEND_MAPPING_EPS) {
-        matches = false;
-      }
-    });
-    if (matches) {
-      addUniqueValue(selectableValues, mappedValue);
-    }
-  });
-
-  const targetValue = target[paramId];
-  return normalizedValues
-    .slice()
-    .sort((a, b) => a - b)
-    .map((value) => {
-      const display = spec ? Number.parseFloat(denormalizeValue(value, spec)) : value;
-      return {
-        normalized: value,
-        display,
-        isSelectable: hasCloseValue(selectableValues, value),
-        isSelected: typeof targetValue === "number" && Math.abs(targetValue - value) <= BLEND_MAPPING_EPS,
-      };
-    });
-}
-
-function findClosestBlendMappingForParam(
-  paramId: string,
-  targetValue: number,
-  mappings: BlendModelMapping[],
-  activeParams: string[],
-  target: Record<string, number>,
-): BlendModelMapping | null {
-  let best: BlendModelMapping | null = null;
-  let bestDelta = Number.POSITIVE_INFINITY;
-  let bestSecondary = Number.POSITIVE_INFINITY;
-
-  mappings.forEach((mapping) => {
-    const params = buildParameterMapFromLegacy(mapping);
-    const mappedValue = params[paramId];
-    if (typeof mappedValue !== "number") {
-      return;
-    }
-
-    const delta = Math.abs(mappedValue - targetValue);
-    let secondary = 0;
-
-    activeParams.forEach((activeParamId) => {
-      if (activeParamId === paramId) {
-        return;
-      }
-      const targetOther = target[activeParamId];
-      const mappedOther = params[activeParamId];
-      if (typeof targetOther !== "number" || typeof mappedOther !== "number") {
-        secondary += 4;
-        return;
-      }
-      const diff = mappedOther - targetOther;
-      secondary += diff * diff;
-    });
-
-    const isBetter = delta < bestDelta - BLEND_MAPPING_EPS
-      || (Math.abs(delta - bestDelta) <= BLEND_MAPPING_EPS && secondary < bestSecondary);
-
-    if (isBetter) {
-      best = mapping;
-      bestDelta = delta;
-      bestSecondary = secondary;
-    }
-  });
-
-  return best;
-}
-
-function renderMappedPointElements(
-  knob: HTMLElement,
-  points: BlendMappedPoint[],
-  min: number,
-  max: number,
-): void {
-  let container = knob.querySelector(".knob-mapped-points") as HTMLElement | null;
-  if (!container) {
-    container = document.createElement("div");
-    container.className = "knob-mapped-points";
-    knob.prepend(container);
-  }
-
-  container.innerHTML = "";
-  const range = max - min;
-  const safeRange = range !== 0 ? range : 1;
-
-  points.forEach((point) => {
-    const angle = ((point.display - min) / safeRange) * 270 - 135;
-    const el = document.createElement("span");
-    el.className = "knob-mapped-point";
-    if (point.isSelectable) {
-      el.classList.add("is-selectable");
-    }
-    if (point.isSelected) {
-      el.classList.add("is-selected");
-    }
-    el.style.setProperty("--mapped-angle", `${angle}deg`);
-    container.appendChild(el);
-  });
-
-  knob.classList.toggle("has-mapped-points", points.length > 0);
-}
-
-function resolveActiveParams(blend: BlendLibrary[number] | undefined, mappings: BlendModelMapping[]): string[] {
-  const params = new Set<string>();
-  if (blend?.parameters?.length) {
-    blend.parameters.forEach((param) => params.add(param));
-  }
-  mappings.forEach((mapping) => {
-    if (mapping.parameters) {
-      Object.keys(mapping.parameters).forEach((param) => params.add(param));
-    }
-    if (mapping.parameterId) {
-      params.add(mapping.parameterId);
-    }
-  });
-  if (!params.size) {
-    params.add("gain");
-  }
-  return Array.from(params);
-}
-
-function renderParamInput(paramId: string, parameters: Record<string, number>): string {
-  const spec = getBlendParamSpec(paramId);
-  const label = spec?.label ?? paramId;
-  const value = typeof parameters[paramId] === "number"
-    ? (spec ? denormalizeValue(parameters[paramId], spec) : parameters[paramId].toFixed(2))
-    : "";
-  const step = spec ? "0.1" : "0.01";
-  return `
-    <label class="blend-model-param">
-      <span>${escapeHtml(label)}</span>
-      <input class="blend-model-param-value" data-param-id="${escapeHtml(paramId)}" type="number" step="${step}" placeholder="Value" value="${escapeHtml(value)}" />
-    </label>
-  `;
-}
-
-function getLibraryResource(library: ResourceLibrary, resourceType: string, resourceId: string): LibraryResource | undefined {
-  if (!resourceType || !resourceId) return undefined;
-  const resources = library[resourceType] || [];
-  return findResourceById(resources, resourceId);
-}
-
-function getLibraryResourceByHash(library: ResourceLibrary, resourceType: string, hash?: string): LibraryResource | undefined {
-  if (!resourceType || !hash) return undefined;
-  const resources = library[resourceType] || [];
-  const normalized = hash.toLowerCase();
-  return resources.find((res) => res.hash?.toLowerCase() === normalized);
-}
-
-/** A captured value as the editor shows it: on the parameter's own scale, to one decimal. */
-function denormalizeValue(value: number, spec: BlendParamSpec): string {
-  return denormalizeBlendValue(value, spec).toFixed(1);
 }

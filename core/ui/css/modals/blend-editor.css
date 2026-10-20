@@ -1,18 +1,421 @@
-/* Blend Editor Modal */
+/* Blend editor: one screen. Name, mode and axis on top, the model table, warnings and tools,
+   then the Try strip. The modal's chrome (header, body, footer colours) is in save-preset.css
+   with the other dark modals. */
 .blend-editor-modal {
-  width: 860px;
+  width: 920px;
   max-width: 98vw;
   background: var(--modal-bg);
   border: 1px solid var(--modal-border);
   box-shadow: var(--shadow-xl);
 }
 
+.blend-editor-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.blend-editor-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.blend-editor-name {
+  flex: 1 1 240px;
+  min-width: 0;
+  padding: 7px 10px;
+  border: 1px solid var(--border-dark-medium);
+  border-radius: var(--radius-md);
+  background: var(--bg-dark-secondary);
+  color: var(--text-dark-primary);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.blend-segmented {
+  display: inline-flex;
+  border: 1px solid var(--border-dark-medium);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.blend-segmented button {
+  padding: 6px 10px;
+  border: 0;
+  background: var(--bg-dark-secondary);
+  color: var(--text-dark-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.blend-segmented button + button {
+  border-left: 1px solid var(--border-dark-medium);
+}
+
+.blend-segmented button.is-active {
+  background: color-mix(in srgb, var(--color-accent) 22%, var(--bg-dark-secondary));
+  color: var(--text-dark-primary);
+}
+
+/* The table scrolls inside the editor so the tools and Try strip stay in view. */
+.blend-editor-table-wrap {
+  max-height: min(46vh, 420px);
+  overflow: auto;
+  border: 1px solid var(--border-dark-medium);
+  border-radius: var(--radius-md);
+}
+
+.blend-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  color: var(--text-dark-primary);
+}
+
+.blend-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 6px 8px;
+  background: var(--bg-dark-secondary);
+  border-bottom: 1px solid var(--border-dark-medium);
+  color: var(--text-dark-secondary);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.blend-table td {
+  padding: 3px 8px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border-dark-medium) 50%, transparent);
+}
+
+.blend-table tbody tr:hover {
+  background: color-mix(in srgb, var(--bg-dark-secondary) 60%, transparent);
+}
+
+.blend-col-model {
+  width: 100%;
+}
+
+.blend-cell-model {
+  max-width: 0;
+}
+
+.blend-model-name {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.blend-model-name.is-missing {
+  color: var(--color-error);
+}
+
+/* Same-named A1 and A2 captures are told apart by this tag. */
+.blend-model-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.blend-model-cell .blend-model-name {
+  flex: 1;
+  min-width: 0;
+}
+
+.blend-model-arch {
+  flex: none;
+  padding: 0 5px;
+  border: 1px solid var(--border-dark-medium);
+  border-radius: var(--radius-pill);
+  color: var(--text-dark-muted);
+  font-size: 10px;
+}
+
+.blend-col-add {
+  width: 1%;
+}
+
+.blend-param-add {
+  width: 44px;
+}
+
+.blend-cell-value,
+.blend-cell-trim {
+  width: 64px;
+  padding: 3px 6px;
+  border: 1px solid var(--border-dark-medium);
+  border-radius: var(--radius-sm);
+  background: var(--bg-dark-primary);
+  color: var(--text-dark-primary);
+  font-size: 12px;
+}
+
+.blend-cell-value:placeholder-shown,
+.blend-cell-trim:placeholder-shown {
+  color: var(--text-dark-muted);
+}
+
+.blend-param-remove {
+  margin-left: 4px;
+  padding: 0 3px;
+  border: 0;
+  background: transparent;
+  color: var(--text-dark-muted);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.blend-param-remove:hover {
+  color: var(--color-error);
+}
+
+.blend-param-add {
+  padding: 2px 4px;
+  border: 1px dashed var(--border-dark-medium);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-dark-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.blend-cell-actions {
+  white-space: nowrap;
+  text-align: right;
+}
+
+.blend-cell-actions button {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-dark-muted);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.blend-cell-actions button:hover:not(:disabled) {
+  background: var(--bg-dark-tertiary);
+  color: var(--text-dark-primary);
+}
+
+.blend-cell-actions .blend-row-remove:hover {
+  color: var(--color-error);
+}
+
+.blend-cell-actions button:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.blend-table-empty {
+  padding: 24px 12px;
+  color: var(--text-dark-muted);
+  text-align: center;
+}
+
+.blend-editor-warnings {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.blend-editor-warnings:empty {
+  display: none;
+}
+
+.blend-editor-warning {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border: 1px solid color-mix(in srgb, var(--color-warning, #e0a040) 45%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-warning, #e0a040) 10%, transparent);
+  color: var(--text-dark-primary);
+  font-size: 12px;
+}
+
+.blend-editor-warning span {
+  flex: 1;
+}
+
+.blend-warning-action {
+  flex: none;
+  padding: 3px 8px;
+  border: 1px solid var(--border-dark-medium);
+  border-radius: var(--radius-sm);
+  background: var(--bg-dark-secondary);
+  color: var(--text-dark-primary);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.blend-editor-tools {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.blend-editor-try {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  border: 1px solid var(--border-dark-medium);
+  border-radius: var(--radius-md);
+  background: var(--bg-dark-secondary);
+}
+
+.blend-editor-try-label {
+  color: var(--text-dark-secondary);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.blend-test-controls {
+  display: flex;
+  gap: 12px;
+}
+
+.blend-test-controls .knob-control {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.blend-editor-playing {
+  flex: 1 1 240px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-dark-muted);
+  font-size: 12px;
+}
+
 .blend-test-note {
-  margin: 0 0 8px;
+  margin: 0;
   font-size: 11px;
   color: var(--text-dark-muted);
 }
 
 .blend-test-note:empty {
   display: none;
+}
+
+/* Add Models: a ticked list of the library, narrowed by search or pack. */
+.blend-add-models-modal {
+  width: 640px;
+  max-width: 96vw;
+  background: var(--modal-bg);
+  border: 1px solid var(--modal-border);
+  box-shadow: var(--shadow-xl);
+}
+
+.blend-add-models-filters {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.blend-add-models-filters input,
+.blend-add-models-filters select {
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--border-dark-medium);
+  border-radius: var(--radius-md);
+  background: var(--bg-dark-secondary);
+  color: var(--text-dark-primary);
+  font-size: 12px;
+}
+
+.blend-add-models-filters input {
+  flex: 1 1 200px;
+}
+
+.blend-add-models-filters select {
+  flex: 0 1 220px;
+}
+
+.blend-add-models-bar {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  color: var(--text-dark-secondary);
+  font-size: 12px;
+}
+
+.blend-add-models-list {
+  max-height: min(52vh, 460px);
+  overflow-y: auto;
+  border: 1px solid var(--border-dark-medium);
+  border-radius: var(--radius-md);
+}
+
+.blend-add-models-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border-dark-medium) 50%, transparent);
+  color: var(--text-dark-primary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.blend-add-models-item:hover {
+  background: var(--bg-dark-secondary);
+}
+
+.blend-add-models-item.is-in-blend {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.blend-add-models-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.blend-add-models-meta {
+  flex: none;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-dark-muted);
+  font-size: 11px;
+}
+
+.blend-add-models-empty {
+  padding: 20px;
+  color: var(--text-dark-muted);
+  text-align: center;
+}
+
+.blend-add-models-modal .modal-body {
+  background: var(--bg-dark-primary);
 }

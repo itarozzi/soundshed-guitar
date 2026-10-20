@@ -9,7 +9,8 @@
  *  - a knob on a captured setting runs one model, between two runs two, and a model that
  *    has faded out stops running;
  *  - a target for a parameter no model was captured at changes nothing;
- *  - the node's blendModeOverride wins over the definition's blendMode, and "" follows it.
+ *  - the node's blendModeOverride wins over the definition's blendMode, and "" follows it;
+ *  - a model's level trim scales its own share of the mix.
  */
 
 #include <algorithm>
@@ -243,6 +244,38 @@ bool TestStereoMatchesMono(const fs::path& quiet, const fs::path& loud)
                  "stereo: both channels carry the mix (" + Describe(left) + ", " + Describe(right) + ")");
 }
 
+/// A model's level trim scales its share of the mix, and only its own.
+bool TestLevelTrim(const fs::path& quiet, const fs::path& loud)
+{
+    MultiModelNAMAmpEffect effect;
+    effect.SetConfig("blendMode", "snap");
+    effect.SetParam("useCalibration", 0.0);
+    effect.Prepare(kSampleRate, kBlock);
+
+    ResourceRef trimmed = CapturedAt(0.0);
+    trimmed.levelTrimDb = 6.0;
+    effect.LoadResources({trimmed, CapturedAt(1.0)}, {quiet, loud});
+
+    std::vector<float> in(kBlock, kInput), out(kBlock);
+    const auto settle = [&](double gain) {
+        effect.SetParam("gain", gain);
+
+        for (int b = 0; b < BlocksFor(0.5); ++b)
+        {
+            effect.ProcessMono(in.data(), out.data(), kBlock);
+        }
+
+        return out.back() / kInput;
+    };
+
+    const double trimmedLevel = settle(0.0);
+    const double untrimmedLevel = settle(1.0);
+    const double expected = kQuietGain * std::pow(10.0, 6.0 / 20.0);
+    return Check(std::abs(trimmedLevel - expected) < 0.005 && std::abs(untrimmedLevel - kLoudGain) < 0.005,
+                 "level trim: +6 dB doubles that model only (" + Describe(trimmedLevel) + ", " +
+                     Describe(untrimmedLevel) + ")");
+}
+
 bool Run()
 {
     const fs::path sandbox = fs::temp_directory_path() / "guitarfx-blend-effect-tests";
@@ -258,6 +291,7 @@ bool Run()
     passed = TestUnmappedParameterIgnored(quiet, loud) && passed;
     passed = TestBlendModeOverride(quiet, loud) && passed;
     passed = TestStereoMatchesMono(quiet, loud) && passed;
+    passed = TestLevelTrim(quiet, loud) && passed;
 
     fs::remove_all(sandbox, ec);
     return passed;

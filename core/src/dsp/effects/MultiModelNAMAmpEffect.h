@@ -430,6 +430,7 @@ class MultiModelNAMAmpEffect : public EffectProcessor
             instance.parameterId = ref.parameterId;
             instance.parameterValue = ref.parameterValue.value_or(static_cast<double>(i));
             instance.parameters = ref.parameters;
+            instance.levelGain = ref.levelTrimDb ? static_cast<float>(std::pow(10.0, *ref.levelTrimDb / 20.0)) : 1.0f;
 
             if (instance.parameters.empty() && !ref.parameterId.empty() && ref.parameterValue.has_value())
             {
@@ -517,6 +518,9 @@ class MultiModelNAMAmpEffect : public EffectProcessor
 
         std::optional<double> inputLevel;
         std::optional<double> outputLevel;
+
+        /// The definition's level trim for this model, as a gain; 1 without one.
+        float levelGain = 1.0f;
 
         // Mixing state, audio thread only.
         double desired = 0.0;    // share of the mix the selection asks for
@@ -816,11 +820,12 @@ class MultiModelNAMAmpEffect : public EffectProcessor
             }
 
             double gain = model.gain;
+            const float levelGain = model.levelGain;
 
             for (int i = 0; i < numSamples; ++i)
             {
                 gain += std::clamp(model.target - gain, -mRampStep, mRampStep);
-                const auto g = static_cast<float>(gain);
+                const auto g = static_cast<float>(gain) * levelGain;
                 mMixBufferL[i] += model.outputBufferL[i] * g;
 
                 if (stereo)

@@ -90,13 +90,20 @@ export class Tone3000BulkImporter {
         ? `All ${models.length} models imported`
         : `${imported} of ${models.length} models imported`;
 
-    const importButton = remaining > 0
+    // Opened by the blend editor, Import All adds the whole tone to that blend, imported or not.
+    const forBlend = Boolean(this.host.getOptions()?.onImportMany);
+    const importButton = forBlend
+      ? `<button class="resource-browser-tone-import-all" type="button" data-tone-id="${toneId}"
+                 title="Import any of the ${models.length} models not in your library, and add them all to the blend" ${busy ? "disabled" : ""}>
+           Add All to Blend
+         </button>`
+      : remaining > 0
       ? `<button class="resource-browser-tone-import-all" type="button" data-tone-id="${toneId}"
                  title="Import the ${remaining} model${remaining === 1 ? "" : "s"} not in your library yet" ${busy ? "disabled" : ""}>
            ${imported ? "Import Remaining" : "Import All"}
          </button>`
       : "";
-    const blendButton = resourceType === "nam" && isFeatureEnabled(Features.BlendTools)
+    const blendButton = resourceType === "nam" && isFeatureEnabled(Features.BlendTools) && !forBlend
       ? `<button class="resource-browser-tone-create-blend" type="button" data-tone-id="${toneId}"
                  title="${remaining ? "Import every model, then open" : "Open"} a blend of them in the blend editor" ${busy ? "disabled" : ""}>
            Create Blend
@@ -178,7 +185,11 @@ export class Tone3000BulkImporter {
       }
     }
 
-    if (createBlend) {
+    if (options.onImportMany) {
+      const ids = models.map((model) => resourceIds.get(String(model.id))).filter((id): id is string => Boolean(id));
+      this.host.closeModal();
+      options.onImportMany(ids);
+    } else if (createBlend) {
       this.openBlend(tone, models, resourceIds, options);
     }
   }

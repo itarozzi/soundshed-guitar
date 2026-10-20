@@ -157,7 +157,7 @@ The blend library holds these (document store, `storage::ItemType::kBlend`). An
 | `modelMappings` | BlendModelMapping[] | No | Per model, what it was captured at; wins over `models` |
 | `blendMode` | string | No | `interpolate` (default) or `snap` |
 | `parameters` | string[] | No | The parameters the editor shows, in order |
-| `toneGroupId` / `toneGroupTitle` | string | No | The tone group it was made from |
+| `toneGroupId` / `toneGroupTitle` | string | No | The tone group every model comes from; absent when the models come from more than one |
 | `factory` | bool | No | Set on blends registered from a factory archive; never stored |
 
 **BlendModelMapping**
@@ -168,9 +168,10 @@ The blend library holds these (document store, `storage::ItemType::kBlend`). An
 | `parameterId` | string | The primary parameter (the editor writes the first shown) |
 | `parameterValue` | float | The primary parameter's captured value, normalised 0..1 |
 | `parameters` | map[string, float] | Every captured value, normalised 0..1 |
+| `levelTrimDb` | float | Level trim in dB (-24..24), to even out models captured at different levels; absent means 0 |
 
 A model with no captured value keeps its list position on the Blend sweep and is given
-no `parameterId`. Node config for a blend node: `blendId`, `blendMode` (rewritten from
+no `parameterId`; a blend whose `parameters` is empty is played by the sweep alone. Node config for a blend node: `blendId`, `blendMode` (rewritten from
 the definition on every build) and `blendModeOverride` (the node's own mode; empty
 follows the definition).
 
