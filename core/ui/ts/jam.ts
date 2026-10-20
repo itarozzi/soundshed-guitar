@@ -279,6 +279,8 @@ export function initializeJamPanel(): void {
   initialized = true;
   bindPanelActions();
   window.addEventListener("resize", () => renderFloatingPlayer());
+  // A zoom change moves the dock slot without firing resize.
+  window.addEventListener("uiSettingsApplied", () => renderFloatingPlayer());
   document.addEventListener(FEATURE_FLAGS_CHANGED_EVENT, handleFeatureFlagsChanged);
   applyJamAppSettings();
 }

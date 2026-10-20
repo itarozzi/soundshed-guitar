@@ -11,6 +11,7 @@ import type { JamVideoSummary } from "../types.js";
 import { escapeHtml } from "../utils.js";
 import { getApiBaseUrl } from "../apiConfig.js";
 import { getXMarkSvg, renderIcon } from "../iconAssets.js";
+import { getUiZoom } from "../pointerDrag.js";
 import { renderJamPanel } from "./panel.js";
 import {
   PLAYER_MINIMIZED_WIDTH,
@@ -106,10 +107,11 @@ function bindFloatingPlayerDrag(panel: HTMLElement, handle: HTMLElement): void {
     const startY = event.clientY;
     const initialX = jam.player.x;
     const initialY = jam.player.y;
+    const zoom = getUiZoom();
 
     const onMove = (moveEvent: MouseEvent) => {
-      jam.player.x = initialX + (moveEvent.clientX - startX);
-      jam.player.y = initialY + (moveEvent.clientY - startY);
+      jam.player.x = initialX + (moveEvent.clientX - startX) / zoom;
+      jam.player.y = initialY + (moveEvent.clientY - startY) / zoom;
       clampPlayerPosition(jam.player);
       panel.style.left = `${jam.player.x}px`;
       panel.style.top = `${jam.player.y}px`;
@@ -141,12 +143,13 @@ function bindFloatingPlayerDrag(panel: HTMLElement, handle: HTMLElement): void {
     const startY = touch.clientY;
     const initialX = jam.player.x;
     const initialY = jam.player.y;
+    const zoom = getUiZoom();
 
     const onMove = (moveEvent: TouchEvent) => {
       const touch = moveEvent.touches[0];
       if (!touch) return;
-      jam.player.x = initialX + (touch.clientX - startX);
-      jam.player.y = initialY + (touch.clientY - startY);
+      jam.player.x = initialX + (touch.clientX - startX) / zoom;
+      jam.player.y = initialY + (touch.clientY - startY) / zoom;
       clampPlayerPosition(jam.player);
       panel.style.left = `${jam.player.x}px`;
       panel.style.top = `${jam.player.y}px`;
@@ -180,9 +183,15 @@ export function renderFloatingPlayer(): void {
 
   const dockActive = jam.player.minimized;
   setDockHostActive(dockActive);
+  // The panel is position: fixed inside the zoomed body, so its left, top and
+  // width are body pixels; the dock rect and the viewport are not.
+  const zoom = getUiZoom();
+  const viewportWidth = window.innerWidth / zoom;
   const dockRect = jam.player.minimized ? getDockHostRect() : null;
-  const rawWidth = jam.player.minimized ? Math.round(dockRect?.width ?? PLAYER_MINIMIZED_WIDTH) : jam.player.width;
-  const width = Math.max(160, Math.min(rawWidth, window.innerWidth - PLAYER_PADDING * 2));
+  const rawWidth = jam.player.minimized
+    ? Math.round(dockRect ? dockRect.width / zoom : PLAYER_MINIMIZED_WIDTH)
+    : jam.player.width;
+  const width = Math.max(160, Math.min(rawWidth, viewportWidth - PLAYER_PADDING * 2));
   const video = jam.player.currentVideo;
   // Embed via a first-party wrapper page served from our API origin. The app
   // WebView has an opaque origin on WebKit (macOS/Linux); YouTube refuses to
@@ -237,10 +246,10 @@ export function renderFloatingPlayer(): void {
     if (dockRect) {
       // Keep the docked bar fully on-screen so its restore/close icons stay
       // reachable even when the header is tight and the dock host overflows.
-      const maxLeft = Math.max(PLAYER_PADDING, window.innerWidth - width - PLAYER_PADDING);
-      const dockedLeft = Math.min(Math.max(PLAYER_PADDING, Math.round(dockRect.left)), maxLeft);
+      const maxLeft = Math.max(PLAYER_PADDING, viewportWidth - width - PLAYER_PADDING);
+      const dockedLeft = Math.min(Math.max(PLAYER_PADDING, Math.round(dockRect.left / zoom)), maxLeft);
       panel.style.left = `${dockedLeft}px`;
-      panel.style.top = `${Math.round(dockRect.top)}px`;
+      panel.style.top = `${Math.round(dockRect.top / zoom)}px`;
     } else {
       panel.style.left = `${jam.player.x}px`;
       panel.style.top = `${jam.player.y}px`;

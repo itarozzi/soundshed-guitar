@@ -12,6 +12,7 @@ import { updateAppSetting } from "../appSettingsStore.js";
 import { uiState } from "../state.js";
 import type { AppSettingValue, JamPlayerState, JamState, JamVideoSummary } from "../types.js";
 import { Features, isFeatureEnabled } from "../featureFlags.js";
+import { getUiZoom } from "../pointerDrag.js";
 
 export const API_KEY_SETTING = "jam.youtubeApiKey";
 export const FAVORITES_SETTING = "jam.favorites";
@@ -145,8 +146,10 @@ export function normalizePlayerState(value: unknown, current: JamPlayerState): J
 
 export function clampPlayerPosition(state: JamPlayerState): void {
   const width = state.minimized ? PLAYER_MINIMIZED_WIDTH : state.width;
-  const maxX = Math.max(PLAYER_PADDING, window.innerWidth - width - PLAYER_PADDING);
-  const maxY = Math.max(PLAYER_PADDING, window.innerHeight - 80);
+  // x and y are in the zoomed body's pixels, the viewport is not.
+  const zoom = getUiZoom();
+  const maxX = Math.max(PLAYER_PADDING, window.innerWidth / zoom - width - PLAYER_PADDING);
+  const maxY = Math.max(PLAYER_PADDING, window.innerHeight / zoom - 80);
   if (!Number.isFinite(state.x) || state.x <= 0) {
     state.x = maxX;
   }
