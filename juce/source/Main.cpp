@@ -4,6 +4,7 @@
 #include "ProductInfo.h"
 #include "ProfileFolder.h"
 #include "StandaloneAudioSettings.h"
+#include "WindowChrome.h"
 #include "editor/SoundshedEditorBase.h"
 #include <juce_audio_devices/juce_audio_devices.h>
 #include <juce_audio_processors/juce_audio_processors.h>
@@ -202,6 +203,12 @@ public:
         // screen, and the window fills it.
         setResizable (false, false);
 #else
+        // Last run's theme colours, so the title bar matches from the first frame rather
+        // than switching once the page has loaded and sent them again. After
+        // setUsingNativeTitleBar(), which makes the window a new native peer.
+        if (state.chrome.has_value())
+            setWindowChrome (*state.chrome);
+
         setResizable (true, true);
         setResizeLimits (minWindowWidth, minWindowHeight, maxWindowSize, maxWindowSize);
 #endif
@@ -267,6 +274,14 @@ public:
                 if (mAudioSettings != nullptr)
                     mAudioSettings->handleRequest (requestJson);
             });
+
+#if !JUCE_ANDROID
+            // The page sends its header colours whenever the theme changes.
+            adapter->setWindowChromeHandler ([this] (const juce::var& message) {
+                if (const auto colours = soundshed::WindowChromeColours::fromVar (message))
+                    setWindowChrome (*colours);
+            });
+#endif
         }
 
 #if JUCE_ANDROID
@@ -302,7 +317,10 @@ public:
     ~MainWindow() override
     {
         if (auto* adapter = getAdapter())
+        {
             adapter->setAudioDeviceRequestHandler (nullptr);
+            adapter->setWindowChromeHandler (nullptr);
+        }
 
         mAudioSettings = nullptr;
 
@@ -383,6 +401,7 @@ private:
         int width = soundshed::product::defaultWindowWidth;
         int height = soundshed::product::defaultWindowHeight;
         bool maximized = false;
+        std::optional<soundshed::WindowChromeColours> chrome;
     };
 
     static bool hasCommandLineFlag (const juce::String& flag)
@@ -456,6 +475,8 @@ private:
                     state.height = static_cast<int> (obj->getProperty (heightId));
                 if (obj->hasProperty (maximizedId))
                     state.maximized = static_cast<bool> (obj->getProperty (maximizedId));
+
+                state.chrome = soundshed::WindowChromeColours::fromVar (obj->getProperty ("chrome"));
             }
         }
 
@@ -487,7 +508,18 @@ private:
         state->setProperty ("width", mLastNonMaximizedBounds.getWidth());
         state->setProperty ("height", mLastNonMaximizedBounds.getHeight());
         state->setProperty ("maximized", isFullScreen());
+        if (mWindowChrome.has_value())
+            state->setProperty ("chrome", mWindowChrome->toVar());
         file.replaceWithText (juce::JSON::toString (juce::var (state)));
+    }
+
+    void setWindowChrome (const soundshed::WindowChromeColours& colours)
+    {
+        if (mWindowChrome == colours)
+            return;
+
+        mWindowChrome = colours;
+        soundshed::applyWindowChrome (*this, colours);
     }
 
     std::unique_ptr<juce::StandalonePluginHolder> mPluginHolder;
@@ -500,6 +532,10 @@ private:
 #endif
 
     juce::Rectangle<int> mLastNonMaximizedBounds { 0, 0, soundshed::product::defaultWindowWidth, soundshed::product::defaultWindowHeight };
+
+    // What the title bar was last given (setWindowChrome), kept in the window state file.
+    std::optional<soundshed::WindowChromeColours> mWindowChrome;
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainWindow)
 };
 

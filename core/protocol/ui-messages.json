@@ -155,6 +155,7 @@
     "setSplitBranchCount",
     "setTheme",
     "setUserInputCalibrationTrainingActive",
+    "setWindowChrome",
     "startPresetArchiveSession",
     "startRiffCapture",
     "stopDemoAudio",

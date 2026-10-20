@@ -1128,6 +1128,11 @@ void PluginProcessorAdapter::setAudioDeviceRequestHandler (AudioDeviceRequestHan
     mAudioDeviceRequestHandler = std::move (handler);
 }
 
+void PluginProcessorAdapter::setWindowChromeHandler (WindowChromeHandler handler)
+{
+    mWindowChromeHandler = std::move (handler);
+}
+
 void PluginProcessorAdapter::NotifyStateChanged()
 {
     updateHostDisplay (juce::AudioProcessor::ChangeDetails().withNonParameterStateChanged (true));
@@ -1266,6 +1271,14 @@ void PluginProcessorAdapter::handleWebMessage (const juce::String& message)
             const auto url = obj->getProperty (urlId).toString();
             if (url.startsWith ("https://") || url.startsWith ("http://"))
                 juce::URL (url).launchInDefaultBrowser();
+            return;
+        }
+
+        // The window's business, not the engine's.
+        if (obj->getProperty (typeId).toString() == "setWindowChrome")
+        {
+            if (mWindowChromeHandler)
+                mWindowChromeHandler (parsed);
             return;
         }
     }

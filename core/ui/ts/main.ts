@@ -29,6 +29,7 @@ import { startUiSettingsTracking } from "./windowSettings.js";
 import { renderFooterDemoAudio } from "./demoAudio.js";
 import { initDensitySelect, initDiagnosticsToggle, initThemeSelect, initZoomControls, initUserInputCalibrationControls } from "./settings.js";
 import { postMessage } from "./bridge.js";
+import { initWindowChrome } from "./windowChrome.js";
 import { initializeMetronome } from "./metronome.js";
 import { initializeAutomationPanel, requestAutomationState } from "./automationPanel.js";
 import { initializeMidiLearnMenu } from "./midiLearnMenu.js";
@@ -310,6 +311,7 @@ async function bootstrap(): Promise<void> {
 
   postMessage({ type: "uiReady" });
   postMessage({ type: "getEffectCatalog" });
+  initWindowChrome();
   postMessage({ type: "getTheme" });
   requestAutomationState();
   postMessage({ type: "uiVisibility", visible: !document.hidden });

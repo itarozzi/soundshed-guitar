@@ -132,6 +132,13 @@ public:
     using AudioDeviceRequestHandler = std::function<void (const std::string& requestJson)>;
     void setAudioDeviceRequestHandler (AudioDeviceRequestHandler handler);
 
+    // ── Standalone window chrome ───────────────────────────────────
+    /// Where "setWindowChrome" messages go: the page's colours for the native title bar.
+    /// The standalone app's window installs this; in a plugin the host owns the window and
+    /// the message is dropped. Message thread only.
+    using WindowChromeHandler = std::function<void (const juce::var& message)>;
+    void setWindowChromeHandler (WindowChromeHandler handler);
+
     // ── Accessors ──────────────────────────────────────────────────
     [[nodiscard]] guitarfx::PluginController& getController() { return mController; }
 
@@ -151,6 +158,7 @@ private:
     std::mutex mWebMessageMutex;
 
     AudioDeviceRequestHandler mAudioDeviceRequestHandler;
+    WindowChromeHandler mWindowChromeHandler;
 
     std::filesystem::path mAssetRoot;
     std::unique_ptr<juce::FileChooser> mFileChooser;
