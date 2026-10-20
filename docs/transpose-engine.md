@@ -52,7 +52,7 @@ per sample, so the output does not depend on the block size.
   tells a pick from strings beating, and from the spiky high band of a low note), or 1.6x the
   loudest if the rise is sudden (15 dB within a millisecond or two: a quiet pick straight after a
   louder note that was damped). On a pick the tap jumps to 2-4 ms behind the input with a 2 ms
-  fade, wherever it had drifted. An attack may cut into a crossfade that is still running: the fade in progress is frozen and faded out as one signal. Shifting up,
+  fade, wherever it had drifted. An attack may cut into a crossfade that is still running: the fade in progress is frozen and faded out as one signal. One that is already bringing the tap to the front just finishes over the attack fade; left to run, a poor match's 50 ms fade played the pick at its low gain. The engine's detector has a 12 ms refractory against the 35 ms other users keep for one detection per note. A pick often comes as a small burst and then the main one 10-40 ms later (the pick brushing the string, a strum reaching the next strings). The longer refractory reported only the first, and the main burst came at whatever delay the tap had drifted to by then. On the whole demo DI, 27% of picks had only an earlier burst detected; with 12 ms, 9%. Shifting up,
   the tap eats input faster than it arrives and must soon jump back, so an attack is landed deep
   enough that that jump can stay clear of the pick's first 6 ms (capped at 16 ms deep); the pick
   then comes slightly later rather than twice.

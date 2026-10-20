@@ -24,6 +24,12 @@ namespace guitarfx
  * kHistorySeconds, skipping the most recent kSkipSeconds so a rising attack is never compared
  * with itself. After a detection the history is set to the attack's level, so the same attack
  * cannot fire twice, and kRefractorySeconds must pass before another can.
+ *
+ * A pick often comes as two bursts a few tens of milliseconds apart (the pick brushing the string
+ * before it sounds, a strum reaching the next strings), and the refractory reports only the
+ * first. That suits a user that wants one detection per note. A user that has to keep every
+ * burst on time can pass a shorter refractory to Prepare(); the history still stops one burst
+ * firing twice as it rises.
  */
 class PickAttackDetector
 {
@@ -45,14 +51,14 @@ class PickAttackDetector
     /// Nothing quieter than this counts (power; about -70 dBFS in the high band).
     static constexpr double kSilence = 1.0e-7;
 
-    void Prepare(double sampleRate)
+    void Prepare(double sampleRate, double refractorySeconds = kRefractorySeconds)
     {
         mHighPass = biquad::HighPass(kHighPassHz, biquad::kButterworthQ, sampleRate);
         mFastCoefficient = std::exp(-1.0 / (kFastSeconds * sampleRate));
         mCellLength = std::max(1, static_cast<int>(std::lround(sampleRate * 0.001)));
         mSkipCells = std::max(1, static_cast<int>(std::lround(kSkipSeconds * 1000.0)));
         mHistoryCells = std::clamp(static_cast<int>(std::lround(kHistorySeconds * 1000.0)), mSkipCells + 1, kMaxCells);
-        mRefractory = static_cast<int>(std::lround(kRefractorySeconds * sampleRate));
+        mRefractory = static_cast<int>(std::lround(refractorySeconds * sampleRate));
         Reset();
     }
 

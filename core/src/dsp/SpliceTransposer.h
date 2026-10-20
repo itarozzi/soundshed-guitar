@@ -37,10 +37,13 @@ namespace guitarfx
  *  - Attacks. A pick attack (PickAttackDetector) moves the tap to the newest audio at once, with
  *    a kAttackFadeSeconds fade, so attacks arrive a few milliseconds late wherever the tap had
  *    drifted. An attack may cut into a crossfade that is still running: the fade in progress is
- *    frozen and faded out as one signal. Shifting up, the tap eats input faster than it arrives
- *    and must jump back soon after an attack, so it lands an attack deep enough that the next
- *    jump can stay clear of the pick's first kAttackProtectSeconds, up to
- *    kAttackLatencyCapSeconds; the pick is then heard a little later rather than twice.
+ *    frozen and faded out as one signal; one already bringing a tap to the front just finishes
+ *    over the attack fade. Every burst of a pick counts (kAttackRefractorySeconds), so a pick
+ *    that follows a smaller burst is not left to arrive at the drifted delay. Shifting up, the
+ *    tap eats input faster than it arrives and must jump back soon after an attack, so it lands
+ *    an attack deep enough that the next jump can stay clear of the pick's first
+ *    kAttackProtectSeconds, up to kAttackLatencyCapSeconds; the pick is then heard a little
+ *    later rather than twice.
  *
  * The felt latency is set by the attacks. NominalLatencySamples(), the tap's mean delay, is the
  * figure to report to a host and to align a dry signal to.
@@ -71,6 +74,10 @@ class SpliceTransposer
     static constexpr double kAttackSpanSeconds = 0.002;
     static constexpr double kAttackProtectSeconds = 0.006;
     static constexpr double kAttackLatencyCapSeconds = 0.016;
+    /// The detector's refractory. Its own 35 ms reports one burst per note, so a pick's main burst
+    /// after a smaller one (the pick brushing the string, a strum's next strings) was heard up to
+    /// a drifted window late; every burst moves the tap.
+    static constexpr double kAttackRefractorySeconds = 0.012;
     /// How long after an attack an upshift's jumps keep clear of it.
     static constexpr double kAttackWatchSeconds = 0.060;
     /// The longest jump on offer, as a share of the window: 0.82 of 30 ms holds a low E1 period.
@@ -101,7 +108,7 @@ class SpliceTransposer
         mLeft.assign(mCapacity, 0.0f);
         mRight.assign(mCapacity, 0.0f);
         mHistory.Prepare(sampleRate, mCapacity, kAnalysisRateHz, kCorrelationSeconds, kCorrelationSeconds);
-        mDetector.Prepare(sampleRate);
+        mDetector.Prepare(sampleRate, kAttackRefractorySeconds);
 
         SetWindowSeconds(mWindowSeconds);
         Reset();
@@ -509,6 +516,15 @@ class SpliceTransposer
         const bool nearEnough = mRate > 1.0 ? (mDelay >= landLow - mAttackSpan && mDelay <= landHigh + mAttackSpan)
                                             : mDelay <= landHigh + mAttackSpan;
 
+        if (nearEnough && mFading && !mOutgoingPair)
+        {
+            // A drift splice has just moved the tap to the front but is still fading it in, up to
+            // a poor match's 50 ms: the pick would be heard at the fade's low gain. Finish the
+            // fade at an attack's pace instead.
+            FinishFadeForAttack();
+            return;
+        }
+
         if (nearEnough || (mFading && mOutgoingPair))
         {
             return;
@@ -519,6 +535,21 @@ class SpliceTransposer
         const double jump = BestMatchJump(TapPosition(), mDelay - landHigh, mDelay - landLow, match);
         BeginFade(mDelay - jump, mAttackFade, match, true);
         ++mAttackSplices;
+    }
+
+    /// Brings in the tap a fade is moving to over an attack fade: the fade in progress is frozen
+    /// and faded out as one signal, and the tap itself carries on where it is.
+    void FinishFadeForAttack() noexcept
+    {
+        float gainIn = 0.0f;
+        float gainOut = 0.0f;
+        FadeGains(gainIn, gainOut);
+        // The frozen pair is the tap itself at gainIn plus the old tap at gainOut: its
+        // correlation with the tap, for the new fade's gains.
+        const double in = gainIn;
+        const double out = gainOut;
+        const double pair = std::sqrt(std::max(in * in + out * out + 2.0 * in * out * mFadeCorrelation, 1.0e-9));
+        BeginFade(mDelay, mAttackFade, (in + out * mFadeCorrelation) / pair, true);
     }
 
     /// Crossfades from what is playing now to a tap at `destination`. With `interrupt`, a fade
