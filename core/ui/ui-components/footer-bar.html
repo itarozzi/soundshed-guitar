@@ -18,13 +18,13 @@
       <!-- Signal-chain undo/redo and the A/B pair. Outside footer-actions-panel so
            it stays on the bar at every width — it is a performance control, not an option. -->
       <div id="footer-chain-history" class="footer-chain-history" aria-label="Signal chain history">
-        <button class="footer-chain-step-btn" id="footer-chain-undo" type="button" aria-label="Undo signal chain change" title="Nothing to undo (Ctrl+Z)" disabled>
+        <button class="footer-btn footer-icon-btn footer-chain-step-btn" id="footer-chain-undo" type="button" aria-label="Undo signal chain change" title="Nothing to undo (Ctrl+Z)" disabled>
           <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
             <path d="M9 7 4 12l5 5" />
             <path d="M4 12h9a6 6 0 0 1 0 12h-1" />
           </svg>
         </button>
-        <button class="footer-chain-step-btn" id="footer-chain-redo" type="button" aria-label="Redo signal chain change" title="Nothing to redo (Ctrl+Shift+Z)" disabled>
+        <button class="footer-btn footer-icon-btn footer-chain-step-btn" id="footer-chain-redo" type="button" aria-label="Redo signal chain change" title="Nothing to redo (Ctrl+Shift+Z)" disabled>
           <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
             <path d="M15 7l5 5-5 5" />
             <path d="M20 12h-9a6 6 0 0 0 0 12h1" />
@@ -34,7 +34,7 @@
           <button class="footer-ab-btn is-active" id="footer-chain-slot-a" type="button" aria-pressed="true" title="Chain A">A</button>
           <button class="footer-ab-btn" id="footer-chain-slot-b" type="button" aria-pressed="false" title="Chain B">B</button>
         </div>
-        <button class="footer-chain-step-btn footer-chain-copy-btn" id="footer-chain-copy" type="button" aria-label="Copy the live chain to the other slot" title="Copy chain A to B" disabled>
+        <button class="footer-btn footer-icon-btn footer-chain-step-btn footer-chain-copy-btn" id="footer-chain-copy" type="button" aria-label="Copy the live chain to the other slot" title="Copy chain A to B" disabled>
           <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
             <path d="M4 8h13l-3.5-3.5" />
             <path d="M20 16H7l3.5 3.5" />
@@ -43,7 +43,7 @@
       </div>
       <button
         id="footer-actions-toggle"
-        class="footer-actions-toggle"
+        class="footer-btn footer-actions-toggle"
         type="button"
         aria-expanded="false"
         aria-controls="footer-actions-panel"
@@ -93,7 +93,7 @@
           </button>
         </div>
         <div class="footer-group footer-tempo-group" aria-label="Tempo">
-          <button class="bpm-display metronome-only" id="footer-bpm-btn" type="button" title="Set BPM">
+          <button class="footer-btn bpm-display metronome-only" id="footer-bpm-btn" type="button" title="Set BPM">
             <span id="footer-bpm-value">120.0</span> BPM
           </button>
           <div class="footer-bpm-panel metronome-only" id="footer-bpm-panel" aria-hidden="true">
@@ -105,7 +105,7 @@
           </div>
           <button class="footer-btn" id="footer-tap-btn" type="button">TAP</button>
           <button
-            class="footer-btn footer-metronome-btn metronome-only"
+            class="footer-btn footer-icon-btn footer-metronome-btn metronome-only"
             id="footer-metronome-btn"
             type="button"
             aria-label="Metronome"
@@ -118,8 +118,8 @@
               <path d="M12 10.5l2.75-1.75" />
             </svg>
           </button>
-          <button class="footer-metronome-play-btn metronome-only" id="footer-metronome-toggle" type="button" aria-label="Start metronome" aria-pressed="false" title="Start metronome">
-            <svg class="footer-metronome-play-icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+          <button class="footer-btn footer-icon-btn footer-metronome-play-btn metronome-only" id="footer-metronome-toggle" type="button" aria-label="Start metronome" aria-pressed="false" title="Start metronome">
+            <span class="footer-metronome-play-icon" aria-hidden="true"><svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg></span>
           </button>
         </div>
         <div class="footer-group footer-view-group footer-right" aria-label="View options">

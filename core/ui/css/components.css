@@ -187,63 +187,6 @@
   height: 15px;
 }
 
-/* Footer tool icons */
-.footer-icon-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  flex-shrink: 0;
-}
-
-.footer-tool-icon {
-  width: 17px;
-  height: 17px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.8;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  flex-shrink: 0;
-}
-
-.footer-midi-pin {
-  fill: currentColor;
-  stroke: none;
-}
-
-.footer-record-icon {
-  color: #ff4d55;
-  fill: currentColor;
-  stroke: none;
-}
-
-/* Footer tool labels: icons alone until the tools group has room to spell them
-   out, which on the desktop shell means a large display. The query is on the
-   group rather than the viewport because UI zoom is `zoom` on body, which a
-   media query cannot see (see ts/compactMode.ts). */
-.footer-tools-group {
-  container: footer-tools / inline-size;
-}
-
-.footer-tool-label {
-  display: none;
-}
-
-@container footer-tools (min-width: 330px) {
-  html:not([data-density="compact"]) .footer-tools-group .footer-icon-btn {
-    width: auto;
-    gap: 6px;
-    padding: 0 10px 0 8px;
-  }
-
-  html:not([data-density="compact"]) .footer-tool-label {
-    display: inline;
-  }
-}
-
 /* ---------- Tabs ---------- */
 .tab-bar {
   display: flex;

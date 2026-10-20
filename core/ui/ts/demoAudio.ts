@@ -381,10 +381,10 @@ function renderFooterDemoAudioControls(): string {
       <select id="footer-demo-audio-select" class="footer-demo-select themed-select" title="Select demo audio">
         ${options}
       </select>
-      <button id="footer-play-demo-audio" class="footer-play-btn" title="Play demo audio">
+      <button id="footer-play-demo-audio" class="footer-btn footer-icon-btn footer-play-btn" title="Play demo audio">
         ${getPlaySvg()}
       </button>
-      <button id="footer-demo-audio-repeat" class="footer-repeat-btn" title="Repeat demo audio" aria-pressed="false">
+      <button id="footer-demo-audio-repeat" class="footer-btn footer-icon-btn footer-repeat-btn" title="Repeat demo audio" aria-pressed="false">
         <svg viewBox="0 0 24 24" aria-hidden="true">
           <path d="M7 6h9a4 4 0 0 1 0 8h-3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
           <path d="M7 6L4 9l3 3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
@@ -395,7 +395,7 @@ function renderFooterDemoAudioControls(): string {
       <div class="footer-demo-actions-wrap demo-actions-wrap">
         <button
           id="footer-demo-audio-actions-button"
-          class="footer-demo-actions-button"
+          class="footer-btn footer-icon-btn footer-demo-actions-button"
           type="button"
           title="Demo audio actions"
           aria-label="Demo audio actions"
@@ -403,7 +403,11 @@ function renderFooterDemoAudioControls(): string {
           aria-expanded="false"
           aria-controls="footer-demo-audio-actions-menu"
         >
-          <span aria-hidden="true">...</span>
+          <svg class="footer-more-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <circle cx="6" cy="12" r="1.6" />
+            <circle cx="12" cy="12" r="1.6" />
+            <circle cx="18" cy="12" r="1.6" />
+          </svg>
         </button>
         <div class="demo-audio-actions-menu footer-demo-audio-actions-menu" id="footer-demo-audio-actions-menu" role="menu" aria-hidden="true">
           <label class="demo-render-rate-control" title="Render sample rate">
@@ -425,7 +429,7 @@ function renderFooterDemoAudioControls(): string {
       </div>
       <button
         id="footer-capture-debug-state-btn"
-        class="footer-debug-capture-btn"
+        class="footer-btn footer-icon-btn footer-debug-capture-btn"
         type="button"
         title="Capture the current UI and backend debug state"
         aria-label="Capture debug state"

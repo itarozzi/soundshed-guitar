@@ -1,0 +1,573 @@
+/*
+ * The footer bar: chain history and A/B on the left, then (in the actions panel)
+ * demo audio, tools, tempo and view options. At compact density, or at a narrow
+ * width, the actions panel folds into the OPTIONS popover (see css/compact/shell.css).
+ *
+ * Every control here is one family: a `.footer-btn` (text, or square with
+ * `.footer-icon-btn`), a select, or the A/B segmented switch. All of them take
+ * their size, radius and colours from the tokens on `.footer-bar`, so a density
+ * resizes the bar by changing `--footer-btn-size` and a theme restyles it by
+ * redefining the colour tokens, not by restyling each button.
+ */
+
+.footer-bar {
+  --footer-btn-size: 28px;
+  --footer-icon-size: 16px;
+  /* Filled glyphs (play, stop) look larger than a stroked icon of the same box. */
+  --footer-glyph-size: 13px;
+  --footer-radius: var(--radius-md);
+
+  --footer-fg: var(--text-dark-tertiary);
+  --footer-fg-strong: var(--text-dark-primary);
+  --footer-fg-disabled: var(--text-dark-disabled);
+  /* Hover and press tints come from the text colour, so they read on a light
+     footer and a dark one without a per-theme value. */
+  --footer-hover-bg: color-mix(in srgb, var(--footer-fg-strong) 10%, transparent);
+  --footer-press-bg: color-mix(in srgb, var(--footer-fg-strong) 17%, transparent);
+  --footer-divider: color-mix(in srgb, var(--footer-fg) 24%, transparent);
+  --footer-field-bg: var(--bg-dark-secondary);
+  --footer-field-border: var(--border-dark-medium);
+  --footer-field-border-hover: var(--border-dark-strong);
+  --footer-on-bg: color-mix(in srgb, var(--color-accent) 24%, var(--bg-dark-secondary));
+  --footer-on-border: color-mix(in srgb, var(--color-accent) 62%, transparent);
+  --footer-on-fg: var(--text-dark-primary);
+  --footer-focus: color-mix(in srgb, var(--color-accent) 70%, transparent);
+
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 42px;
+  padding: 7px 18px;
+  background: var(--bg-footer);
+  color: var(--footer-fg);
+  font-size: 11px;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 20;
+}
+
+/* The light theme paints the footer white, so it reads the light text and border
+   tokens rather than the dark-surface ones. */
+.theme-light .footer-bar {
+  --footer-fg: var(--text-secondary);
+  --footer-fg-strong: var(--text-primary);
+  --footer-fg-disabled: color-mix(in srgb, var(--text-muted) 55%, transparent);
+  --footer-field-bg: var(--bg-elevated);
+  --footer-field-border: var(--border-medium);
+  --footer-field-border-hover: var(--border-strong);
+  --footer-on-bg: color-mix(in srgb, var(--color-accent) 12%, var(--bg-elevated));
+  --footer-on-border: color-mix(in srgb, var(--color-accent) 56%, var(--border-medium));
+  --footer-on-fg: var(--color-accent-dark);
+
+  border-top: 1px solid var(--border-light);
+  box-shadow: 0 -8px 20px color-mix(in srgb, var(--text-primary) 6%, transparent);
+}
+
+.theme-classic .footer-bar {
+  border-top: 1px solid var(--border-dark-medium);
+  box-shadow:
+    inset 0 1px 0 var(--overlay-light),
+    inset 0 -1px 0 var(--overlay-dark);
+}
+
+/* ── Layout ───────────────────────────────────────────────────────────────── */
+
+.footer-compact-shortcuts {
+  display: none;
+  align-items: center;
+  gap: 4px;
+}
+
+.footer-actions-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  min-width: 0;
+}
+
+.footer-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.footer-demo-group {
+  justify-content: flex-start;
+}
+
+.footer-demo-audio-container {
+  min-width: 0;
+}
+
+.footer-group + .footer-group {
+  padding-left: 16px;
+  border-left: 1px solid var(--footer-divider);
+}
+
+.footer-tools-group,
+.footer-tempo-group {
+  justify-content: center;
+}
+
+.footer-tempo-group {
+  position: relative;
+}
+
+.footer-right {
+  margin-left: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.footer-view-group {
+  flex-shrink: 1;
+  justify-content: flex-end;
+}
+
+.footer-zoom-control,
+.footer-theme-select {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.footer-demo-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.footer-demo-actions-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.footer-demo-audio-actions-menu {
+  right: 0;
+  min-width: 180px;
+  z-index: 60;
+}
+
+/* ── Buttons ──────────────────────────────────────────────────────────────── */
+
+.footer-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: var(--footer-btn-size);
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: var(--footer-radius);
+  background: transparent;
+  color: var(--footer-fg);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.footer-btn:hover:not(:disabled, .is-active, [aria-pressed="true"], [aria-expanded="true"]) {
+  background: var(--footer-hover-bg);
+  color: var(--footer-fg-strong);
+}
+
+.footer-btn:active:not(:disabled) {
+  background: var(--footer-press-bg);
+}
+
+.footer-btn:is(.is-active, [aria-pressed="true"], [aria-expanded="true"]) {
+  border-color: var(--footer-on-border);
+  background: var(--footer-on-bg);
+  color: var(--footer-on-fg);
+}
+
+.footer-btn:focus-visible,
+.footer-ab-btn:focus-visible {
+  outline: 2px solid var(--footer-focus);
+  outline-offset: 1px;
+}
+
+.footer-btn:disabled {
+  color: var(--footer-fg-disabled);
+  cursor: not-allowed;
+}
+
+/* Square, icon-only. */
+.footer-icon-btn {
+  width: var(--footer-btn-size);
+  height: var(--footer-btn-size);
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.footer-btn svg {
+  display: block;
+  width: var(--footer-icon-size);
+  height: var(--footer-icon-size);
+  flex-shrink: 0;
+}
+
+.footer-tool-icon,
+.footer-metronome-icon,
+.footer-chain-step-btn svg,
+.footer-more-icon {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.footer-play-btn svg,
+.footer-metronome-play-icon svg {
+  width: var(--footer-glyph-size);
+  height: var(--footer-glyph-size);
+}
+
+.footer-metronome-play-icon {
+  display: inline-flex;
+}
+
+.footer-midi-pin,
+.footer-more-icon circle {
+  fill: currentColor;
+  stroke: none;
+}
+
+.footer-record-icon {
+  color: var(--color-danger);
+  fill: currentColor;
+  stroke: none;
+}
+
+/* Opens the actions popover, like a select opens its list, so it is drawn as a
+   field rather than a bare button. Shown only when the panel is folded away. */
+.footer-actions-toggle {
+  display: none;
+  border-color: var(--footer-field-border);
+  background: var(--footer-field-bg);
+  color: var(--footer-fg-strong);
+  font-weight: 700;
+}
+
+.footer-actions-toggle:hover:not([aria-expanded="true"]) {
+  border-color: var(--footer-field-border-hover);
+}
+
+.bpm-display {
+  gap: 0.35em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Footer tool labels: icons alone until the tools group has room to spell them
+   out, which on the desktop shell means a large display. The query is on the
+   group rather than the viewport because UI zoom is `zoom` on body, which a
+   media query cannot see (see ts/compactMode.ts). */
+.footer-tools-group {
+  container: footer-tools / inline-size;
+}
+
+.footer-tool-label {
+  display: none;
+}
+
+@container footer-tools (min-width: 330px) {
+  html:not([data-density="compact"]) .footer-tools-group .footer-icon-btn {
+    width: auto;
+    padding: 0 10px 0 8px;
+  }
+
+  html:not([data-density="compact"]) .footer-tool-label {
+    display: inline;
+  }
+}
+
+/* ── Selects ──────────────────────────────────────────────────────────────── */
+
+.footer-demo-select {
+  height: var(--footer-btn-size);
+  padding: 0 9px;
+  border-radius: var(--footer-radius);
+  border: 1px solid var(--footer-field-border);
+  background: var(--footer-field-bg);
+  color: var(--footer-fg-strong);
+  font-size: 11px;
+  min-width: 0;
+  max-width: 180px;
+  cursor: pointer;
+}
+
+.footer-demo-select:hover {
+  border-color: var(--footer-field-border-hover);
+}
+
+.footer-demo-select:focus {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent) 22%, transparent);
+}
+
+.zoom-level-select {
+  min-width: 82px;
+}
+
+/* ── Signal-chain undo/redo and the A/B switch ───────────────────────────────
+ *
+ * Sits outside .footer-actions-panel, so unlike the tools/tempo/view groups it
+ * is never collapsed into the OPTIONS popover — the A/B switch is reached mid
+ * performance and has to stay on the bar at every width.
+ */
+
+.footer-chain-history {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  padding-right: 10px;
+  border-right: 1px solid var(--footer-divider);
+}
+
+.footer-chain-history.is-unavailable {
+  opacity: 0.45;
+}
+
+/* The A/B pair reads as one switch: a field-style track with two halves. */
+.footer-ab-switch {
+  display: inline-flex;
+  align-items: stretch;
+  height: var(--footer-btn-size);
+  margin: 0 2px;
+  padding: 2px;
+  gap: 2px;
+  border: 1px solid var(--footer-field-border);
+  border-radius: var(--footer-radius);
+  background: var(--footer-field-bg);
+}
+
+.footer-ab-btn {
+  min-width: 24px;
+  padding: 0 7px;
+  border: 1px solid transparent;
+  border-radius: calc(var(--footer-radius) - 2px);
+  background: transparent;
+  color: var(--footer-fg);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.footer-ab-btn:hover:not(:disabled, .is-active) {
+  background: var(--footer-hover-bg);
+  color: var(--footer-fg-strong);
+}
+
+.footer-ab-btn.is-active {
+  border-color: var(--footer-on-border);
+  background: var(--footer-on-bg);
+  color: var(--footer-on-fg);
+}
+
+.footer-ab-btn:disabled {
+  color: var(--footer-fg-disabled);
+  cursor: not-allowed;
+}
+
+/* ── Tempo ────────────────────────────────────────────────────────────────── */
+
+.footer-bpm-panel {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  display: none;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-color);
+  background: var(--bg-panel);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+  z-index: 50;
+}
+
+.footer-bpm-panel.open {
+  display: flex;
+}
+
+.footer-bpm-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.footer-bpm-field input {
+  padding: 6px 8px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Narrow windows ───────────────────────────────────────────────────────── */
+
+@media (max-width: 1040px) {
+  .footer-bar {
+    padding-inline: 12px;
+  }
+
+  .footer-actions-panel {
+    gap: 10px;
+  }
+
+  .footer-demo-select {
+    max-width: 150px;
+  }
+
+  .footer-group + .footer-group {
+    padding-left: 10px;
+  }
+
+  .footer-chain-history {
+    padding-right: 8px;
+  }
+}
+
+@media (max-width: 820px) {
+  .footer-demo-select {
+    max-width: 120px;
+  }
+
+  .zoom-level-select {
+    min-width: 68px;
+  }
+}
+
+/* A full-density window this narrow (density pinned to full) folds the actions
+   panel into the OPTIONS popover too; compact density does the same in
+   css/compact/shell.css. */
+@media (max-width: 680px) {
+  .footer-bar {
+    justify-content: space-between;
+    min-height: 38px;
+    padding: 5px 10px;
+  }
+
+  .footer-compact-shortcuts,
+  .footer-actions-toggle {
+    display: inline-flex;
+  }
+
+  .footer-actions-panel {
+    position: absolute;
+    right: 10px;
+    bottom: calc(100% + 8px);
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    width: min(360px, calc(100vw - 20px));
+    max-height: min(72vh, 520px);
+    overflow: auto;
+    padding: 10px;
+    border: 1px solid var(--footer-field-border);
+    border-radius: var(--radius-2xl);
+    background: var(--bg-footer);
+    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.32);
+    z-index: var(--z-popover, 900);
+  }
+
+  .footer-bar:not(.footer-actions-open) .footer-actions-panel,
+  .footer-actions-panel[aria-hidden="true"] {
+    display: none;
+  }
+
+  .footer-group {
+    align-items: center;
+    justify-content: flex-start;
+    flex: none;
+    width: 100%;
+  }
+
+  .footer-group + .footer-group {
+    padding-top: 8px;
+    padding-left: 0;
+    border-top: 1px solid var(--footer-divider);
+    border-left: none;
+  }
+
+  .footer-demo-group,
+  .footer-view-group {
+    display: flex;
+    flex: none;
+  }
+
+  .footer-demo-controls {
+    flex-wrap: wrap;
+    width: 100%;
+  }
+
+  .footer-demo-select {
+    flex: 1 1 138px;
+    max-width: none;
+  }
+
+  .footer-tools-group,
+  .footer-tempo-group,
+  .footer-view-group {
+    flex-wrap: wrap;
+  }
+
+  .footer-zoom-control,
+  .footer-theme-select {
+    flex: 1 1 112px;
+  }
+
+  .zoom-level-select,
+  .footer-theme-select .footer-demo-select {
+    width: 100%;
+    max-width: none;
+  }
+
+  .footer-bpm-panel {
+    position: static;
+    width: 100%;
+    margin-top: 4px;
+    transform: none;
+  }
+
+  /* The copy control is the one part of the chain group that can wait for a
+     wider window. */
+  .footer-chain-copy-btn {
+    display: none;
+  }
+
+  /* With the panel folded away, nothing follows the chain group to divide from. */
+  .footer-chain-history {
+    padding-right: 0;
+    border-right: none;
+  }
+}
+
+@media (max-width: 680px) and (pointer: coarse) {
+  .footer-bar {
+    --footer-btn-size: 34px;
+  }
+}

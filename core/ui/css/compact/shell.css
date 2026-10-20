@@ -436,6 +436,7 @@ html[data-density="compact"] .signal-path-scroll {
  */
 
 html[data-density="compact"] .footer-bar {
+  --footer-btn-size: 26px;
   justify-content: space-between;
   min-height: 32px;
   padding: 3px calc(8px + var(--ssg-safe-right)) calc(3px + var(--ssg-safe-bottom))
@@ -448,9 +449,7 @@ html[data-density="compact"] .footer-actions-toggle {
   display: inline-flex;
 }
 
-html[data-density="compact"] .footer-compact-shortcuts .footer-btn,
 html[data-density="compact"] .footer-actions-toggle {
-  min-height: 26px;
   padding-inline: 8px;
   font-size: 10px;
 }
@@ -468,7 +467,7 @@ html[data-density="compact"] .footer-actions-panel {
   max-height: min(72vh, 520px);
   overflow: auto;
   padding: 10px;
-  border: 1px solid var(--border-dark-medium);
+  border: 1px solid var(--footer-field-border);
   border-radius: var(--radius-2xl);
   background: var(--bg-footer);
   box-shadow: 0 14px 34px rgba(0, 0, 0, 0.32);
@@ -496,7 +495,7 @@ html[data-density="compact"] .footer-group {
 html[data-density="compact"] .footer-group + .footer-group {
   padding-top: 8px;
   padding-left: 0;
-  border-top: 1px solid color-mix(in srgb, var(--text-dark-disabled) 34%, transparent);
+  border-top: 1px solid var(--footer-divider);
   border-left: none;
 }
 
@@ -546,6 +545,8 @@ html[data-density="compact"] .footer-bpm-panel {
 
 html[data-density="compact"] .footer-chain-history {
   gap: 2px;
+  padding-right: 0;
+  border-right: none;
 }
 
 html[data-density="compact"] .notification-toast {
@@ -556,37 +557,19 @@ html[data-density="compact"] .notification-toast {
  *
  * A compact display is usually a touched one. 38 of the 73 controls on screen at
  * 640x400 were under 28px before this; nothing that takes a tap is allowed to be.
+ * The footer's controls all size off --footer-btn-size (css/footer.css).
  */
 
-html[data-density="compact"] .footer-btn,
-html[data-density="compact"] .footer-play-btn,
-html[data-density="compact"] .footer-repeat-btn,
-html[data-density="compact"] .footer-debug-capture-btn,
-html[data-density="compact"] .footer-demo-actions-button,
-html[data-density="compact"] .footer-metronome-btn,
-html[data-density="compact"] .footer-metronome-play-btn,
-html[data-density="compact"] .footer-chain-step-btn,
-html[data-density="compact"] .footer-ab-btn {
-  min-height: 26px;
-}
-
 @media (pointer: coarse) {
-  html[data-density="compact"] .footer-compact-shortcuts .footer-btn,
-  html[data-density="compact"] .footer-actions-toggle,
-  html[data-density="compact"] .footer-btn,
-  html[data-density="compact"] .bpm-display.metronome-only,
-  html[data-density="compact"] .footer-demo-select,
+  html[data-density="compact"] .footer-bar {
+    --footer-btn-size: 32px;
+  }
+
   html[data-density="compact"] .preset-action-btn,
   html[data-density="compact"] .control-bar-tab {
     min-height: 32px;
   }
 
-  html[data-density="compact"] .footer-play-btn,
-  html[data-density="compact"] .footer-repeat-btn,
-  html[data-density="compact"] .footer-debug-capture-btn,
-  html[data-density="compact"] .footer-demo-actions-button,
-  html[data-density="compact"] .footer-metronome-btn,
-  html[data-density="compact"] .footer-metronome-play-btn,
   html[data-density="compact"] .preset-nav-btn,
   html[data-density="compact"] .nav-settings-btn {
     width: 32px !important;
