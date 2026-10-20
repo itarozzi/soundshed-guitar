@@ -561,7 +561,13 @@
 }
 
 .default-effect-shell .params-controls {
-  gap: 18px;
+  gap: 12px;
+}
+
+/* Under Main/Advanced, the same gap above the groups as the section keeps
+   at its sides and foot. */
+.default-effect-shell .node-param-tab-panel {
+  padding-top: 16px;
 }
 
 .default-effect-shell .node-param-group-block,
@@ -577,9 +583,12 @@
   box-shadow: var(--panel-inset-shadow);
 }
 
+/* Kept tight so groups share a row on a narrow window and wrap only when
+   they have to; a group is as wide as its knobs and title need. */
 .default-effect-shell .node-param-group-block {
-  min-width: 220px;
-  gap: 14px;
+  min-width: 0;
+  gap: 10px;
+  padding: 12px 14px;
 }
 
 .default-effect-shell .node-param-group-title,
@@ -594,12 +603,12 @@
 }
 
 .default-effect-shell .node-param-group-items {
-  gap: 16px;
+  gap: 10px 12px;
 }
 
 .default-effect-shell .node-param-group {
   gap: 8px;
-  min-width: 86px;
+  min-width: 66px;
 }
 
 .default-effect-shell .node-param-label {

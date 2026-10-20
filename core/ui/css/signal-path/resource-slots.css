@@ -95,10 +95,6 @@
     grid-template-columns: minmax(0, 1fr) auto;
   }
 
-  .default-effect-shell .node-param-group-block {
-    min-width: 100%;
-  }
-
   /* A thumbnail this small still fits, so it stays on rather than disappearing
      the way the old full-width band had to. */
   .default-effect-shell:has(.default-effect-shell-content.has-equipment-image) .default-effect-shell-header {
