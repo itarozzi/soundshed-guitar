@@ -7,6 +7,7 @@ import { initSettingsPanel, refreshTone3000ApiKeyField, activateEquipmentTab, ac
 import { ensureTone3000Session } from "./tone3000.js";
 import { handleJamPanelActivated, initializeJamPanel } from "./jam.js";
 import { initializeToneSharingPanel } from "./toneSharingPanel.js";
+import { scheduleSignalPathLayoutAdapt } from "./signalPath/layout.js";
 import type { UiViewState } from "./types.js";
 import { isJamEnabled } from "./buildFlags.js";
 import { Features, isFeatureEnabled, isJamExperienceEnabled } from "./featureFlags.js";
@@ -147,6 +148,9 @@ export function switchMainPanel(panelId: string): void {
 
   if (signalPathBar) {
     signalPathBar.style.display = isFullHeight ? "none" : "";
+    if (!isFullHeight) {
+      scheduleSignalPathLayoutAdapt();
+    }
   }
   if (mainContent) {
     mainContent.classList.toggle("full-height", isFullHeight);

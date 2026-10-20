@@ -67,6 +67,12 @@ export function updateSignalPathLayoutAdapt(): void {
   const nodes = signalPathNodesElement;
   const wrap = applySignalChainWrapState(bar);
 
+  // Hidden behind another main panel, the chain measures 0 and would be pinned to the
+  // minimum height; switchMainPanel measures it again when Play comes back.
+  if (bar && bar.getClientRects().length === 0) {
+    return;
+  }
+
   if (!bar || !scroll || !nodes || scroll.hidden || isMixTabActive()) {
     bar?.removeAttribute("data-density");
     return;
