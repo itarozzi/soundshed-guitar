@@ -204,7 +204,7 @@ function fxItemNodeOptions(payload: FxPointerDragPayload): SignalPathNodeOptions
 }
 
 /** Puts an FX library effect in a node's place: dropped on it, or chosen in the library opened to replace it. */
-function replaceNodeWithFxItem(node: GraphNode, preset: Preset, payload: FxPointerDragPayload): void {
+export function replaceNodeWithFxItem(node: GraphNode, preset: Preset, payload: FxPointerDragPayload): void {
   const options = fxItemNodeOptions(payload);
   applyOptimisticNodeReplacement(node, payload.effectType, preset, options);
   sendReplaceSignalPathNode(node.id, payload.effectType, options);

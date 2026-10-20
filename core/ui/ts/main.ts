@@ -35,6 +35,7 @@ import { initializeAutomationPanel, requestAutomationState } from "./automationP
 import { initializeMidiLearnMenu } from "./midiLearnMenu.js";
 import { initializeToneBuilderPanel } from "./toneBuilder/panel.js";
 import { initializeBlendEditorModal, initSignalPathResize, renderSignalPathBar, createNamIrGlobalFileDropHandler } from "./signalPath.js";
+import { initBlendNodeReplacement } from "./signalPath/blendReplacement.js";
 // Imported past the signalPath.ts facade on purpose: that file is at its pinned
 // size ceiling (check:sizes), and history.ts is a new sibling rather than code
 // split out of it, so there is no original module path to preserve.
@@ -279,6 +280,7 @@ async function bootstrap(): Promise<void> {
     });
   }
   initializeBlendEditorModal();
+  initBlendNodeReplacement();
   initFxSelector();
   startUiSettingsTracking();
   // Re-apply after settings tracking starts so host-restored height is respected.

@@ -55,6 +55,7 @@ export class ResourceBrowserModal {
       cancelPreview: (restoreOriginal) => this.cancelPreview(restoreOriginal),
       selectAndImportModel: (toneId, modelId, modelUrl, modelName) =>
         this.selectAndImportModel(toneId, modelId, modelUrl, modelName),
+      closeModal: () => this.close(),
       renderFavoritesPrompt: () => this.renderFavoritesPrompt(),
       saveState: () => this.saveCurrentStateForResourceType(),
     });

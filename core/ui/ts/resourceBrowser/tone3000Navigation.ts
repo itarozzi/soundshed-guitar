@@ -279,26 +279,7 @@ export class Tone3000Navigator {
     }
 
     try {
-      const response = await tone3000AuthenticatedFetch(model.model_url);
-      if (!response.ok) {
-        throw new Error(`Download failed: ${response.status}`);
-      }
-
-      const buffer = await response.arrayBuffer();
-      const contentType = response.headers.get("content-type") ?? "";
-      const isZip = contentType.includes("zip") || model.model_url.toLowerCase().endsWith(".zip");
-      const resourceId = await this.importTone3000Resource(
-        tone,
-        modelId,
-        displayName,
-        model.architecture_version ?? "",
-        buffer,
-        isZip,
-        resourceType,
-        state.importCategory,
-      );
-
-      this.tone3000ImportedResourceIds.set(`${resourceType}:${modelId}`, resourceId);
+      const resourceId = await this.downloadAndImportTone3000Model(tone, model, resourceType, state.importCategory);
       showNotification("Imported", displayName);
       return { resourceId, displayName };
     } catch (error) {
@@ -307,13 +288,47 @@ export class Tone3000Navigator {
     }
   }
 
+  /// Downloads one model and imports it, remembering the resource id so neither
+  /// next/prev nor the tab's Import All fetches it again. Throws on failure.
+  async downloadAndImportTone3000Model(
+    tone: Tone3000Tone,
+    model: Tone3000Model,
+    resourceType: ResourceType,
+    importCategory?: string,
+  ): Promise<string> {
+    const modelId = String(model.id);
+    const displayName = model.name?.trim() || tone.title?.trim() || modelId;
+    const response = await tone3000AuthenticatedFetch(model.model_url);
+    if (!response.ok) {
+      throw new Error(`Download failed: ${response.status}`);
+    }
+
+    const buffer = await response.arrayBuffer();
+    const contentType = response.headers.get("content-type") ?? "";
+    const isZip = contentType.includes("zip") || model.model_url.toLowerCase().endsWith(".zip");
+    const resourceId = await this.importTone3000Resource(
+      tone,
+      modelId,
+      displayName,
+      model.architecture_version ?? "",
+      buffer,
+      isZip,
+      resourceType,
+      importCategory,
+    );
+
+    this.tone3000ImportedResourceIds.set(`${resourceType}:${modelId}`, resourceId);
+    return resourceId;
+  }
+
   findImportedTone3000ResourceId(resourceType: ResourceType, modelId: string): string {
     const justImported = this.tone3000ImportedResourceIds.get(`${resourceType}:${modelId}`);
     if (justImported) {
       return justImported;
     }
 
-    const resources = uiState.resourceLibrary[resourceType] ?? [];
+    // A library entry whose file has gone is no copy to reuse: it has to be fetched again.
+    const resources = (uiState.resourceLibrary[resourceType] ?? []).filter((resource) => !resource.fileMissing);
     const direct = findResourceById(resources, `tone3000:${modelId}`);
     if (direct) {
       return direct.id;

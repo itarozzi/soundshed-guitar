@@ -85,6 +85,8 @@ export class BlendEditorModal {
   private browserResourceType: string = "nam";
   private browserCurrentId: string = "";
   private browserOnSelect: ((resourceId: string) => void) | null = null;
+  /** Given by openWithDefinition's caller; called with the blend when Save closes the editor (not on Apply). */
+  private onSaved: ((blend: BlendDefinition) => void) | null = null;
 
   constructor(deps: BlendEditorDependencies) {
     this.deps = deps;
@@ -186,12 +188,13 @@ export class BlendEditorModal {
     this.modal.style.display = "flex";
   }
 
-  openWithDefinition(blend: BlendDefinition): void {
+  openWithDefinition(blend: BlendDefinition, onSaved?: (blend: BlendDefinition) => void): void {
     if (!this.modal) {
       return;
     }
 
     this.initialize();
+    this.onSaved = onSaved ?? null;
 
     const category = blend.category ?? "amp";
     const mappings = blend.modelMappings?.length
@@ -248,6 +251,7 @@ export class BlendEditorModal {
     this.testKnobs.clear();
     this.activeToneGroupId = null;
     this.activeToneGroupTitle = null;
+    this.onSaved = null;
     this.closeModelBrowser();
   }
 
@@ -1250,7 +1254,9 @@ export class BlendEditorModal {
     });
 
     if (close) {
+      const onSaved = this.onSaved;
       this.close();
+      onSaved?.(blendPayload);
     }
   }
 

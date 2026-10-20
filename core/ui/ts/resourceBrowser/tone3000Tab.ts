@@ -16,6 +16,7 @@ import type { Tone3000Architecture, Tone3000Model, Tone3000Tone } from "../tone3
 import { backfillTone3000ResourceImages, fetchTone3000Models, getTone3000ImageUrl } from "../tone3000Shared.js";
 import { escapeHtml } from "../utils.js";
 import { TONE3000_IR_GEAR_OPTIONS } from "./slot.js";
+import { Tone3000BulkImporter } from "./tone3000BulkImport.js";
 import { Tone3000Navigator } from "./tone3000Navigation.js";
 import type { PersistedResourceBrowserState, PreviewLoadingState, PreviewState, ResourceBrowserOptions, ResourceType } from "./types.js";
 
@@ -41,6 +42,8 @@ export interface Tone3000TabHost {
   startPreview(toneId: string, modelId: string, modelUrl: string): Promise<void>;
   cancelPreview(restoreOriginal?: boolean): void;
   selectAndImportModel(toneId: string, modelId: string, modelUrl: string, modelName: string): Promise<void>;
+  /** Close the picker, reverting any preview; Create Blend leaves it for the blend editor. */
+  closeModal(): void;
   /** The "sign in to see favourites" placeholder, shared with the Library tab. */
   renderFavoritesPrompt(): string;
   /** Persist the per-resource-type state after a filter change. */
@@ -60,6 +63,14 @@ export class Tone3000Tab {
     getNavigationView: (contextKey) => this.host.getNavigationView(contextKey),
     getTones: () => this.tone3000Tones,
     getModelsCache: () => this.toneModelsCache,
+  });
+
+  /** A tone's Import All and Create Blend, and which of its models are in the library. */
+  private readonly bulkImport = new Tone3000BulkImporter({
+    navigation: this.navigation,
+    getOptions: () => this.host.getOptions(),
+    closeModal: () => this.host.closeModal(),
+    render: () => this.renderTone3000List(),
   });
 
   constructor(private readonly host: Tone3000TabHost) {}
@@ -129,9 +140,6 @@ export class Tone3000Tab {
 
     this.tone3000List?.addEventListener("click", (event) => this.handleTone3000Click(event));
   }
-
-
-
 
   // Tone3000 tab elements
   private tone3000ModeSearchTab: HTMLButtonElement | null = null;
@@ -488,7 +496,9 @@ export class Tone3000Tab {
       .map((tone) => {
         const isExpanded = this.expandedToneId === String(tone.id);
         const imageUrl = this.getToneImageUrl(tone);
-        const modelCount = this.toneModelsCache.get(String(tone.id))?.length ?? tone.models_count;
+        const cachedModels = this.toneModelsCache.get(String(tone.id));
+        const modelCount = cachedModels?.length ?? tone.models_count;
+        const resourceType = this.host.getOptions()?.resourceType ?? "nam";
         
         const imageMarkup = imageUrl
           ? `<img class="resource-browser-tone-image" src="${escapeHtml(imageUrl)}" alt="" loading="lazy" />`
@@ -511,6 +521,7 @@ export class Tone3000Tab {
                   ${modelCount != null ? `<span>${modelCount} models</span>` : ""}
                   ${tone.downloads_count != null ? `<span>${tone.downloads_count} downloads</span>` : ""}
                   ${username ? `<span>${escapeHtml(username)}</span>` : ""}
+                  ${this.bulkImport.renderToneBadge(tone, cachedModels, resourceType)}
                 </div>
               </div>
               <button class="resource-browser-tone-expand" type="button" data-tone-id="${escapeHtml(String(tone.id))}">
@@ -573,22 +584,26 @@ export class Tone3000Tab {
     const loadingModelId = previewLoading?.toneId === String(tone.id) ? previewLoading.modelId : null;
     // A preview plays through the node, so a browser opened without one can only select.
     const canPreview = Boolean(this.host.getOptions()?.nodeId);
+    const resourceType = this.host.getOptions()?.resourceType ?? "nam";
 
     return `
       <div class="resource-browser-tone-models">
+        ${this.bulkImport.renderToolbar(tone, models, resourceType)}
         ${models.map((model) => {
           const isPreviewing = String(model.id) === previewingModelId;
           const isLoadingPreview = String(model.id) === loadingModelId;
+          const isImported = this.bulkImport.isModelImported(resourceType, model);
           const previewClass = isPreviewing
             ? "resource-browser-model is-previewing"
             : isLoadingPreview
               ? "resource-browser-model is-preview-loading"
               : "resource-browser-model";
           const previewLabel = isPreviewing ? `${getStopSvg()} Stop` : isLoadingPreview ? "Loading..." : `Preview`;
-          
+
           return `
-            <div class="${previewClass}" data-model-id="${escapeHtml(String(model.id))}">
+            <div class="${previewClass}${isImported ? " is-imported" : ""}" data-model-id="${escapeHtml(String(model.id))}">
               <span class="resource-browser-model-name">${escapeHtml(model.name)}</span>
+              ${isImported ? `<span class="resource-browser-model-imported" title="Already in your library">Imported</span>` : ""}
               <div class="resource-browser-model-actions">
                 <button class="resource-browser-model-preview" type="button" 
                         data-tone-id="${escapeHtml(String(tone.id))}" 
@@ -691,6 +706,17 @@ export class Tone3000Tab {
       return;
     }
     
+    const importAllBtn = target.closest(".resource-browser-tone-import-all, .resource-browser-tone-create-blend") as HTMLButtonElement | null;
+    if (importAllBtn) {
+      const toneId = importAllBtn.dataset.toneId ?? "";
+      const tone = this.tone3000Tones.find((t) => String(t.id) === toneId);
+      const models = this.toneModelsCache.get(toneId);
+      if (tone && models) {
+        await this.bulkImport.importAll(tone, models, importAllBtn.classList.contains("resource-browser-tone-create-blend"));
+      }
+      return;
+    }
+
     // Handle preview button
     const previewBtn = target.closest(".resource-browser-model-preview") as HTMLButtonElement | null;
     if (previewBtn) {

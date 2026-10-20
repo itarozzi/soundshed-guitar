@@ -16,12 +16,15 @@ import type {
   LibraryResource,
 } from "./types.js";
 import {
+  BLEND_EDITOR_OPEN_EVENT,
+  BLEND_SAVED_FROM_NODE_EVENT,
   buildBlendModelMappingsFromIds,
   buildParameterMapFromLegacy,
   denormalizeBlendValue,
   describeBlendMix,
   getBlendParamSpec,
   mappedBlendParamIds,
+  type BlendEditorOpenDetail,
   type BlendKnobBinding,
   type BlendMatchSummary,
   type BlendParamSpec,
@@ -405,6 +408,18 @@ const blendEditorModal = new BlendEditorModal({
 
 export function initializeBlendEditorModal(): void {
   blendEditorModal.initialize();
+  document.addEventListener(BLEND_EDITOR_OPEN_EVENT, (event) => {
+    const { blend, sourceNode } = (event as CustomEvent<Partial<BlendEditorOpenDetail> | undefined>).detail ?? {};
+    if (!blend) {
+      return;
+    }
+    // Made from a node: once saved, the signal path offers the blend in that node's place.
+    blendEditorModal.openWithDefinition(blend, sourceNode
+      ? (saved) => document.dispatchEvent(new CustomEvent<BlendEditorOpenDetail>(BLEND_SAVED_FROM_NODE_EVENT, {
+        detail: { blend: saved, sourceNode },
+      }))
+      : undefined);
+  });
 }
 
 export function openBlendEditorWithDefinition(blend: BlendDefinition): void {

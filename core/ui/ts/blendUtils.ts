@@ -9,6 +9,32 @@ import type { ParameterDef } from "./presetV2.js";
  * The engine (MultiModelNAMAmpEffect, controller/internal/BlendSupport) decides which models
  * play; selectBlendMix() mirrors that rule so what the UI says is playing is what is heard.
  */
+
+/**
+ * Opens the blend editor on the blend in the event's `BlendEditorOpenDetail`. A document event,
+ * so a module the editor's imports reach (the resource browser) can open it without importing it.
+ */
+export const BLEND_EDITOR_OPEN_EVENT = "blend-editor:open-definition";
+
+/**
+ * The blend in the event's `BlendEditorOpenDetail` has been saved from the editor opened on it,
+ * which was started from `sourceNode`. The signal path offers the blend in that node's place
+ * (signalPath/blendReplacement.ts).
+ */
+export const BLEND_SAVED_FROM_NODE_EVENT = "blend-editor:saved-from-node";
+
+/** The NAM node a blend was started from (Create Blend in its model picker). */
+export interface BlendSourceNode {
+  presetId: string;
+  nodeId: string;
+}
+
+export interface BlendEditorOpenDetail {
+  blend: BlendDefinition;
+  /** Set when the blend was made from a node: saving it offers the blend in that node's place. */
+  sourceNode?: BlendSourceNode;
+}
+
 export type BlendParamSpec = {
   id: string;
   label: string;
