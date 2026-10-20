@@ -539,6 +539,26 @@ void TestOutput()
 
     Check(maxDiff < 1.0e-6, "with every voice off the guitar passes undelayed", Num(maxDiff, 8));
 
+    // Mix: 0 the guitar alone, 1 the harmony alone, and between the centre and 1 the guitar fades.
+    const auto mixDry = Render(tone, {{"mode", 1.0}, {"dry", 1.0}, {"mix", 0.0}});
+    const auto mixWet = Render(tone, {{"mode", 1.0}, {"dry", 1.0}, {"mix", 1.0}});
+    const auto mixThreeQuarters = Render(tone, {{"mode", 1.0}, {"dry", 1.0}, {"mix", 0.75}});
+    double dryDiff = 0.0;
+    double wetDiff = 0.0;
+    double blendDiff = 0.0;
+
+    for (std::size_t i = 0; i < tone.size(); ++i)
+    {
+        dryDiff = std::max(dryDiff, static_cast<double>(std::abs(mixDry.left[i] - tone[i])));
+        wetDiff = std::max(wetDiff, static_cast<double>(std::abs(mixWet.left[i] - centre.left[i])));
+        blendDiff = std::max(blendDiff,
+                             static_cast<double>(std::abs(mixThreeQuarters.left[i] - (0.5f * tone[i] + centre.left[i]))));
+    }
+
+    Check(dryDiff < 1.0e-6, "Mix 0 is the guitar alone, with a voice on", Num(dryDiff, 8));
+    Check(wetDiff < 1.0e-6, "Mix 1 is the harmony alone", Num(wetDiff, 8));
+    Check(blendDiff < 1.0e-5, "Mix 0.75 is the full harmony over the guitar at half", Num(blendDiff, 8));
+
     HarmonizerEffect fx;
     fx.Prepare(kRate, kBlock);
     Check(fx.GetLatencySamples() == 0, "reports no latency: the guitar is not delayed");

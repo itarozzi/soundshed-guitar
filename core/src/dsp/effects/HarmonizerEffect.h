@@ -59,7 +59,8 @@ namespace guitarfx
  * Per voice: Level, Pan (the mid panned at equal power; any side the input already had narrows
  * as it goes), Detune in cents, and Delay, for a voice that plays behind like a double-tracked
  * part. Humanize gives every voice a slow random drift in pitch and timing of its own. High Cut
- * smooths the harmony only.
+ * smooths the harmony only. Mix balances the guitar against the harmony: centred, both play at
+ * Dry and Harmony; 0 is the guitar alone, 1 the harmony alone (harmonizer::MixDryGain).
  *
  * Every voice's history is written on every sample, on or off, so a voice that starts plays
  * what is coming in now. Nothing allocates or locks after Prepare(); SetParam only stores the
@@ -383,8 +384,9 @@ class HarmonizerEffect : public EffectProcessor
             }
         }
 
-        mDryTarget = static_cast<float>(Value(kDry));
-        mHarmonyTarget = static_cast<float>(std::pow(10.0, Value(kHarmonyLevel) / 20.0));
+        const double mix = Value(kMix);
+        mDryTarget = static_cast<float>(Value(kDry) * MixDryGain(mix));
+        mHarmonyTarget = static_cast<float>(std::pow(10.0, Value(kHarmonyLevel) / 20.0) * MixHarmonyGain(mix));
 
         const double cutoff = Value(kHighCut);
         const double ceiling = kMaxHighCutFraction * mSampleRate;

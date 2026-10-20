@@ -2317,6 +2317,7 @@ its parameter table and presets in `HarmonizerSupport.h`.
 | `voiceNDelay` (Delay, advanced) | 0–100 | 0 | ms |
 | `dry` (Dry) | 0.0–1.0 | 1.0 | — |
 | `harmonyLevel` (Harmony) | -24..+6 | 0 | dB |
+| `mix` (Mix) | 0.0 guitar only – 0.5 both – 1.0 harmony only | 0.5 | — |
 | `highCut` (High Cut, log taper) | 1000–20000; 19.5 kHz and up is off | 20000 | Hz |
 | `humanize` (Humanize, advanced) | 0.0–1.0 | 0.0 | — |
 

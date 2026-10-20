@@ -71,6 +71,19 @@ constexpr double kHumanizeIntervalSeconds = 0.35;
 constexpr double kHumanizeSmoothingSeconds = 0.25;
 /// Level, pan and the voice delay follow their parameters with this time constant.
 constexpr double kControlSmoothingMs = 20.0;
+/// Mix balances the guitar against the harmony without moving either level at the centre: from
+/// the centre down the harmony fades out, from the centre up the guitar does, so 0 is the guitar
+/// alone and 1 the harmony alone.
+[[nodiscard]] constexpr double MixDryGain(double mix) noexcept
+{
+    return mix <= 0.5 ? 1.0 : 2.0 * (1.0 - mix);
+}
+
+[[nodiscard]] constexpr double MixHarmonyGain(double mix) noexcept
+{
+    return mix >= 0.5 ? 1.0 : 2.0 * mix;
+}
+
 /// A High Cut at or above this is off: the harmony is left unfiltered.
 constexpr double kHighCutOffHz = 19500.0;
 constexpr double kMaxHighCutFraction = 0.45;
@@ -99,6 +112,7 @@ enum Param : std::size_t
     kVoiceFirst,
     kDry = kVoiceFirst + kVoiceFieldCount * kVoiceCount,
     kHarmonyLevel,
+    kMix,
     kHighCut,
     kHumanize,
     kParamCount
@@ -152,6 +166,8 @@ inline constexpr std::array<EffectParamSpec, kParamCount> kParams = {{
     {"voice4Delay", "Delay", 0.0, 0.0, kMaxVoiceDelayMs, "ms", "Voice 4", true, 0.0, {}},
     {"dry", "Dry", 1.0, 0.0, 1.0, "amount", "Output", false, 0.0, {}},
     {"harmonyLevel", "Harmony", 0.0, -24.0, 6.0, "dB", "Output", false, 0.0, {}},
+    // Centred: the guitar and the harmony both at their own levels, as before Mix existed.
+    {"mix", "Mix", 0.5, 0.0, 1.0, "amount", "Output", false, 0.0, {}},
     LogTaper({"highCut", "High Cut", 20000.0, 1000.0, 20000.0, "Hz", "Output", false, 0.0, {}}),
     {"humanize", "Humanize", 0.0, 0.0, 1.0, "amount", "Output", true, 0.0, {}},
 }};
