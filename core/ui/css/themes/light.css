@@ -9,80 +9,100 @@
   --color-accent-dark: #964118;
   --color-accent-rgb: 181, 82, 30;
 
-  /* Background Colors - Simplified */
-  --bg-primary: #f9fafb;
-  --bg-secondary: #ffffff;
-  --bg-tertiary: #f3f4f6;
-  --bg-surface: #ffffff;
-  --bg-elevated: #ffffff;
+  /* Background Colors — a cool blue-grey field with controls raised a step
+     lighter, rather than white on white. Bars, page and panels sit within a
+     few points of each other; cards, inputs and knob faces are the pale
+     "raised" tone. Text tokens below keep ≥4.5:1 against the darkest field. */
+  --bg-primary: #d5dbe7;
+  --bg-secondary: #dbe0eb;
+  --bg-tertiary: #cfd5e3;
+  --bg-surface: #ebeef5;
+  --bg-elevated: #eff1f8;
 
-  --bg-panel: #f3f4f6;
-  --bg-card: #ffffff;
-  --bg-input: #ffffff;
+  --bg-panel: #ccd3e1;
+  --bg-card: #ebeef5;
+  --bg-input: #f3f5f9;
 
   --bg-dark-primary: #2e2e38;
   --bg-dark-secondary: #282832;
   --bg-dark-tertiary: #242430;
   --bg-dark-surface: #36363e;
 
-  --bg-footer: #ffffff;
+  --bg-footer: var(--bg-secondary);
   --bg-header-dark: #3a3a40;
 
-  /* FX Library - Simplified gradients */
-  --bg-fx-primary: #f3f4f6;
-  --bg-fx-secondary: #f9fafb;
-  --bg-fx-categories: #f0f1f3;
+  /* FX Library */
+  --bg-fx-primary: #cfd5e3;
+  --bg-fx-secondary: #dbe0eb;
+  --bg-fx-categories: #ccd3e1;
 
-  /* Text Colors — ≥4.5:1 contrast on light backgrounds */
-  --text-primary: #111318;
-  --text-secondary: #4b5563;
-  --text-tertiary: #6a6a78;
-  --text-muted: #6a7280;
+  /* Text Colors — ≥4.5:1 contrast on the field (#ccd3e1 at its darkest) */
+  --text-primary: #12171f;
+  --text-secondary: #3c434e;
+  --text-tertiary: #4c535f;
+  --text-muted: #4f5662;
 
-  /* Borders - Cleaner hierarchy */
-  --border-light: #e5e7eb;
-  --border-medium: #d1d5db;
-  --border-strong: #bcc1cc;
-  --border-dark: #a8b0be;
-  --border-darker: #9099a8;
+  /* Borders — blue-grey, darker than the field so edges read */
+  --border-light: #c3cad8;
+  --border-medium: #b6bdcd;
+  --border-strong: #a3abbd;
+  --border-dark: #9299ab;
+  --border-darker: #7c8498;
 
-  /* Knob value arc fades up from white into the base ring colour; the end stop
-     is left to fall back to --knob-ring-color. */
-  --knob-ring-start: #ffffff;
+  /* Knobs: pale raised face, blue-grey track, ink value arc. */
+  --control-bg: #eff1f8;
+  --control-knob-bg: #eff1f8;
+  --control-border: #b6bdcd;
+  --control-indicator: #171c24;
+  --knob-border-highlight: rgba(255, 255, 255, 0.9);
+  --knob-border-shadow: rgba(37, 44, 61, 0.18);
+  --knob-ring-color: #171c24;
+  --knob-ring-start: #171c24;
+  --knob-ring-end: #171c24;
+  --knob-ring-track: #b7becf;
 
-  /* Browser Shell - Updated for cleaner look */
-  --bg-browser-shell: rgba(250, 250, 251, 0.95);
-  --bg-browser-header: rgba(249, 250, 251, 0.98);
-  --bg-browser-sidebar: rgba(245, 246, 248, 0.96);
-  --bg-browser-card: rgba(255, 255, 255, 0.95);
-  --bg-browser-input: rgba(255, 255, 255, 0.98);
+  --toggle-bg: #b6bdcd;
+  --toggle-border: #a3abbd;
+
+  /* Shadows — tinted to the field instead of neutral black */
+  --shadow-sm: 0 1px 2px rgba(37, 44, 61, 0.1);
+  --shadow-md: 0 4px 12px rgba(37, 44, 61, 0.12);
+  --shadow-lg: 0 8px 24px rgba(37, 44, 61, 0.14);
+  --shadow-xl: 0 16px 40px rgba(37, 44, 61, 0.18);
+
+  /* Browser Shell */
+  --bg-browser-shell: rgba(213, 219, 231, 0.96);
+  --bg-browser-header: rgba(219, 224, 235, 0.98);
+  --bg-browser-sidebar: rgba(204, 211, 225, 0.96);
+  --bg-browser-card: rgba(235, 238, 245, 0.96);
+  --bg-browser-input: rgba(243, 245, 249, 0.98);
   --bg-browser-hover: rgba(181, 82, 30, 0.08);
   --bg-browser-selected: rgba(181, 82, 30, 0.12);
-  --border-browser: rgba(229, 231, 235, 0.8);
-  --border-browser-strong: rgba(209, 213, 219, 0.9);
+  --border-browser: rgba(182, 189, 205, 0.85);
+  --border-browser-strong: rgba(163, 171, 189, 0.95);
 
   /* Shared UI Tokens */
   --accent-primary: var(--color-accent);
-  --bg-control: #f3f4f6;
-  --button-bg: #ffffff;
-  --button-text: #111318;
-  --button-border: #d1d5db;
-  --button-bg-hover: #f9fafb;
-  --button-border-hover: #bcc1cc;
+  --bg-control: #cfd5e3;
+  --button-bg: #eff1f8;
+  --button-text: #12171f;
+  --button-border: #b6bdcd;
+  --button-bg-hover: #f5f7fb;
+  --button-border-hover: #a3abbd;
 
   /* Modal Surface Tokens */
-  --modal-bg: #ffffff;
-  --modal-bg-raised: #f9fafb;
-  --modal-text: #111318;
-  --modal-text-secondary: #4b5563;
-  --modal-text-muted: #8a91a2;
-  --modal-border: #e5e7eb;
-  --modal-border-medium: #d1d5db;
-  --modal-close-hover: rgba(0, 0, 0, 0.06);
-  --modal-input-bg: #ffffff;
-  --modal-input-text: #111318;
-  --modal-input-border: #d1d5db;
-  --modal-input-placeholder: #a0a8b3;
+  --modal-bg: #e2e6f0;
+  --modal-bg-raised: #ebeef5;
+  --modal-text: #12171f;
+  --modal-text-secondary: #3c434e;
+  --modal-text-muted: #4f5662;
+  --modal-border: #c3cad8;
+  --modal-border-medium: #b6bdcd;
+  --modal-close-hover: rgba(37, 44, 61, 0.08);
+  --modal-input-bg: #f3f5f9;
+  --modal-input-text: #12171f;
+  --modal-input-border: #b6bdcd;
+  --modal-input-placeholder: #6e7583;
 
   --eq-curve-grid: rgba(17, 19, 24, 0.12);
   --eq-curve-response: rgba(104, 136, 168, 0.96);
@@ -108,12 +128,12 @@
   /* misc */
   --color-preset-favorite: #c27c7c;
 
-  --panel-inset-bg: linear-gradient(180deg, #e9edf3 0%, #f1f4f8 100%);
-  --panel-inset-border: rgba(17, 24, 39, 0.14);
+  --panel-inset-bg: linear-gradient(180deg, #cdd4e2 0%, #d5dbe7 100%);
+  --panel-inset-border: rgba(37, 44, 61, 0.16);
   --panel-inset-shadow:
-    inset 0 2px 5px rgba(17, 24, 39, 0.12),
-    inset 0 1px 1px rgba(17, 24, 39, 0.1),
-    0 1px 0 rgba(255, 255, 255, 0.95);
+    inset 0 2px 5px rgba(37, 44, 61, 0.14),
+    inset 0 1px 1px rgba(37, 44, 61, 0.1),
+    0 1px 0 rgba(255, 255, 255, 0.7);
 }
 
 .theme-light select {
@@ -153,7 +173,7 @@
 .theme-light .tone-sharing-pack-hero {
   /* Protect text at the edges while leaving the artwork visible in the middle. */
   background-image:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.94) 0%, rgba(255, 255, 255, 0.86) 34%, rgba(255, 255, 255, 0.24) 60%, rgba(255, 255, 255, 0.92) 100%),
+    linear-gradient(180deg, rgba(235, 238, 245, 0.94) 0%, rgba(235, 238, 245, 0.86) 34%, rgba(235, 238, 245, 0.24) 60%, rgba(235, 238, 245, 0.92) 100%),
     var(--tone-pack-thumbnail);
   background-size: cover;
   background-position: center;
@@ -169,7 +189,7 @@
 }
 
 .theme-light .tone-sharing-card-item-actions {
-  background: rgba(255, 255, 255, 0.9);
+  background: color-mix(in srgb, var(--bg-card) 92%, transparent);
 }
 
 .theme-light .tone-sharing-card-stat,
@@ -178,36 +198,13 @@
 }
 
 
-/* ===== From settings.css ===== */
-.theme-light .settings-row select,
-.theme-light .settings-section select {
-  color-scheme: light;
-}
-
-.theme-light .equipment-library-filters select {
-  color-scheme: light;
-}
-
-
-/* ===== From modals.css ===== */
-.theme-light .save-preset-modal .form-group select {
-  color-scheme: light;
-}
-
-
 /* ===== From performance-pads.css ===== */
-.theme-light .performance-pad-view {
-  background:
-    radial-gradient(circle at 18% 0%, color-mix(in srgb, var(--color-accent) 10%, transparent), transparent 34%),
-    linear-gradient(180deg, #fffdf9 0%, var(--bg-primary) 100%);
-}
-
 .theme-light .performance-mode-switch,
 .theme-light .performance-bank-btn,
 .theme-light .performance-bank-current,
 .theme-light .performance-effect-context,
 .theme-light .performance-assignment-panel {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(247, 243, 238, 0.96) 100%);
+  background: linear-gradient(180deg, var(--bg-elevated) 0%, var(--bg-card) 100%);
   border: 1px solid color-mix(in srgb, var(--color-accent) 12%, var(--border-medium));
   box-shadow:
     0 8px 24px rgba(17, 19, 24, 0.08),
@@ -215,7 +212,7 @@
 }
 
 .theme-light .performance-pad {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.99) 0%, rgba(243, 244, 246, 0.98) 100%);
+  background: linear-gradient(180deg, var(--bg-elevated) 0%, var(--bg-card) 100%);
   border: 1px solid color-mix(in srgb, var(--color-accent) 10%, var(--border-medium));
   box-shadow:
     0 10px 24px rgba(17, 19, 24, 0.08),
@@ -242,7 +239,7 @@
 .theme-light .performance-header-action,
 .theme-light .performance-bank-inline-btn,
 .theme-light .performance-pad-assign-btn {
-  background: rgba(255, 255, 255, 0.98);
+  background: var(--bg-elevated);
   border-color: color-mix(in srgb, var(--color-accent) 18%, var(--border-medium));
   color: var(--text-secondary);
   box-shadow:
@@ -261,21 +258,15 @@
 }
 
 .theme-light .performance-bank-editor-field input {
-  background: rgba(255, 255, 255, 0.98);
-  border-color: var(--border-medium);
-  color: var(--text-primary);
-}
-
-.theme-light .save-preset-modal .form-group select option,
-.theme-light .save-preset-modal .form-group select optgroup {
   background: var(--bg-input);
+  border-color: var(--border-medium);
   color: var(--text-primary);
 }
 
 
 /* ===== From amp.css ===== */
 .theme-light .effect-visualization {
-  background-color: #f3f4f6;
+  background-color: var(--bg-tertiary);
   border: 1px solid var(--border-light);
   box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.06);
 }
@@ -300,7 +291,7 @@
 /* ===== From jam.css ===== */
 .theme-light .jam-search-row input {
   border-color: var(--border-medium);
-  background: #ffffff;
+  background: var(--bg-input);
   color: var(--text-primary);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
@@ -321,7 +312,7 @@
 }
 
 .theme-light .jam-result-card {
-  background: #ffffff;
+  background: var(--bg-card);
   border-color: var(--border-light);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 }
@@ -351,13 +342,13 @@
 }
 
 .theme-light .jam-floating-player {
-  background: #ffffff;
+  background: var(--bg-card);
   border-color: var(--border-light);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
 }
 
 .theme-light .jam-floating-player-header {
-  background: #f9fafb;
+  background: var(--bg-elevated);
 }
 
 .theme-light .jam-floating-player-channel {
@@ -381,7 +372,7 @@
 }
 
 .theme-light .preset-action-btn:hover {
-  background: #f9fafb;
+  background: var(--bg-elevated);
   border-color: var(--border-medium);
   color: var(--text-primary);
 }
@@ -498,13 +489,13 @@
 
 .theme-light .effect-visualization .node-params-panel {
   border-color: var(--border-light);
-  background: #ffffff;
+  background: var(--bg-card);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
 }
 
 .theme-light .default-effect-shell {
   border-color: var(--border-light);
-  background: #f9fafb;
+  background: var(--bg-secondary);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
 }
 
@@ -527,13 +518,13 @@
 .theme-light .default-effect-shell .resource-clear-btn,
 .theme-light .default-effect-shell .resource-browse-btn,
 .theme-light .default-effect-shell .blend-open-btn {
-  background: #ffffff;
+  background: var(--bg-card);
   border-color: var(--border-light);
   color: var(--text-primary);
 }
 
 .theme-light .default-effect-shell .default-effect-section {
-  background: #ffffff;
+  background: var(--bg-card);
   border-color: var(--border-light);
 }
 
@@ -638,7 +629,7 @@
 }
 
 .theme-light .effect-visualization .mixer-inputs-section {
-  background: #ffffff;
+  background: var(--bg-card);
   border-color: var(--border-light);
 }
 
@@ -648,7 +639,7 @@
 }
 
 .theme-light .effect-visualization .mixer-input-group {
-  background: #ffffff;
+  background: var(--bg-card);
   border-color: var(--border-light);
 }
 
@@ -680,7 +671,7 @@
 }
 
 .theme-light .eq-curve-canvas {
-  background: #f3f4f6;
+  background: var(--bg-tertiary);
 }
 
 .theme-light .node-param-label {
@@ -700,14 +691,14 @@
 .theme-light .parallel-branch {
   background:
     linear-gradient(90deg,
-      color-mix(in srgb, var(--parallel-branch-accent, var(--color-primary)) 4%, rgba(255, 255, 255, 0.55)) 0%,
-      rgba(255, 255, 255, 0.42) 100%);
+      color-mix(in srgb, var(--parallel-branch-accent, var(--color-primary)) 4%, rgba(235, 238, 245, 0.55)) 0%,
+      rgba(235, 238, 245, 0.42) 100%);
   border: 1px solid color-mix(in srgb, var(--parallel-branch-accent, var(--color-primary)) 10%, rgba(128, 148, 180, 0.14));
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--parallel-branch-accent, var(--color-primary)) 4%, transparent);
 }
 
 .theme-light .default-effect-shell .plugin-host-list {
-  background: #ffffff;
+  background: var(--bg-card);
   border-color: var(--border-light);
 }
 
@@ -754,7 +745,7 @@
 }
 
 .theme-light .effect-selection-dropdown {
-  background: #ffffff;
+  background: var(--bg-elevated);
   border: 1px solid var(--border-light);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
   color: var(--text-primary);
@@ -763,7 +754,7 @@
 .theme-light .effect-dropdown-header {
   color: var(--text-primary);
   border-bottom: 1px solid var(--border-light);
-  background: #f9fafb;
+  background: var(--bg-elevated);
 }
 
 .theme-light .effect-dropdown-category {
@@ -802,7 +793,7 @@
 .custom-layout-backdrop.theme-light .resource-picker-btn,
 .custom-layout-backdrop.theme-light .resource-clear-btn,
 .custom-layout-backdrop.theme-light .resource-browse-btn {
-  background: #ffffff;
+  background: var(--bg-card);
   border-color: var(--border-light);
   color: var(--text-primary);
 }
@@ -811,14 +802,14 @@
 .custom-layout-backdrop.theme-light .eq-visualizer,
 .custom-layout-backdrop.theme-light .mixer-inputs-section,
 .custom-layout-backdrop.theme-light .node-resource-selector {
-  background: #ffffff;
+  background: var(--bg-card);
   border-color: var(--border-light);
 }
 
 
 /* ===== Notification Toast ===== */
 .theme-light .notification-toast {
-  background: #ffffff;
+  background: var(--bg-card);
   color: var(--text-primary);
   border-color: var(--border-light);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);

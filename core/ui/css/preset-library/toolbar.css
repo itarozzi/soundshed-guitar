@@ -369,16 +369,35 @@
   --icon-url: url("/images/icons/heart-filled.svg");
 }
 
+/* Colours come from --preset-nav-* so a light theme can give these dark
+   arrows on a raised face; the fallbacks are the dark themes' overlays. */
 .preset-nav-btn {
   width: 28px;
   height: 28px;
   min-height: 28px;
   border-radius: var(--radius-lg);
-  border: 1px solid rgba(255,255,255,0.08) !important;
-  background: rgba(255,255,255,0.05) !important;
-  color: var(--text-dark-secondary) !important;
+  border: 1px solid var(--preset-nav-border, rgba(255,255,255,0.08)) !important;
+  background: var(--preset-nav-bg, rgba(255,255,255,0.05)) !important;
+  color: var(--preset-nav-fg, var(--text-dark-secondary)) !important;
+  box-shadow: var(--preset-nav-shadow, none);
   flex-shrink: 0;
   font-size: 13px;
+}
+
+.preset-nav-btn:hover {
+  border-color: var(--preset-nav-border-hover, rgba(255,255,255,0.16)) !important;
+  background: var(--preset-nav-bg-hover, rgba(255,255,255,0.1)) !important;
+  color: var(--preset-nav-fg-hover, var(--text-dark-primary)) !important;
+}
+
+.theme-light .preset-group {
+  --preset-nav-bg: var(--bg-elevated);
+  --preset-nav-border: var(--border-medium);
+  --preset-nav-fg: var(--text-secondary);
+  --preset-nav-shadow: var(--shadow-sm), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  --preset-nav-bg-hover: var(--button-bg-hover);
+  --preset-nav-border-hover: var(--border-strong);
+  --preset-nav-fg-hover: var(--text-primary);
 }
 
 /* Preset history (back/forward through recently loaded presets). Disabled at the

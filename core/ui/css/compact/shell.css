@@ -226,7 +226,7 @@ html[data-density="compact"] .preset-chooser-label {
 }
 
 /* Load history is a keyboard shortcut and a footer control; it need not be here. */
-html[data-density="compact"] .preset-history-btn,
+html[data-density="compact"] .preset-history,
 html[data-density="compact"] .preset-selector-status {
   display: none;
 }

@@ -8,9 +8,7 @@
   min-height: 0;
   gap: var(--performance-section-gap);
   padding: var(--performance-shell-padding);
-  background:
-    radial-gradient(circle at 18% 0%, color-mix(in srgb, var(--color-accent) 12%, transparent), transparent 32%),
-    linear-gradient(180deg, var(--bg-dark-primary) 0%, var(--bg-primary) 100%);
+  background: var(--bg-primary);
   color: var(--text-primary);
   overflow-x: hidden;
   overflow-y: auto;
