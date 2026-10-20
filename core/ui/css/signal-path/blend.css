@@ -228,69 +228,100 @@
   border-color: var(--color-primary);
 }
 
-/* ===== Blend live-view info block (match summary + mode override) ===== */
+/* ===== Blend live-view info block =====
+   Two lines under the caption: the blend's name with its edit pencil and the blend mode
+   beside it, then one small line naming the model playing. */
 
 .blend-info-block {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
+}
+
+.blend-info-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
 }
 
 .blend-info-block .blend-info-name {
-  font-size: 12px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
   font-weight: 600;
   color: var(--text-dark-primary);
-  word-break: break-word;
 }
 
-.blend-info-block .blend-match-summary {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 8px 10px;
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--border-dark-light);
-  background: var(--bg-dark-secondary);
-  color: var(--text-dark-primary);
-  font-size: 12px;
-}
-
-.blend-info-block .blend-match-name {
-  font-weight: 600;
-}
-
-.blend-info-block .blend-match-details {
-  color: var(--text-dark-muted);
-  font-size: 11px;
-}
-
-.blend-info-controls {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.blend-mode-label {
-  font-size: 12px;
-  color: var(--text-dark-secondary);
-}
-
-.blend-mode-select {
-  padding: 4px 8px;
-  font-size: 12px;
-  background: var(--bg-dark-secondary);
-  border: 1px solid var(--border-dark-medium);
+/* The edit pencil: quiet beside the name until pointed at, as the panel title's is. */
+.blend-info-edit-btn {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
   border-radius: var(--radius-sm);
-  color: var(--text-dark-primary);
+  background: transparent;
+  color: inherit;
+  opacity: 0.5;
   cursor: pointer;
 }
 
-.blend-info-block.is-missing .blend-match-summary {
-  border-color: var(--status-error-border);
-  background: var(--status-error-bg);
+.blend-info-edit-btn:hover,
+.blend-info-edit-btn:focus-visible {
+  opacity: 1;
+  color: var(--color-accent);
 }
 
-.blend-info-block.is-missing .blend-match-name {
+.blend-info-edit-icon {
+  width: 12px;
+  height: 12px;
+  background-color: currentColor;
+  -webkit-mask: var(--icon-url) center / contain no-repeat;
+  mask: var(--icon-url) center / contain no-repeat;
+}
+
+.blend-info-block .blend-mode-select {
+  flex: none;
+  margin-left: auto;
+  max-width: 50%;
+  padding: 2px 6px;
+  font-size: 11px;
+  background: var(--bg-dark-secondary);
+  border: 1px solid var(--border-dark-medium);
+  border-radius: var(--radius-sm);
+  color: var(--text-dark-secondary);
+  cursor: pointer;
+}
+
+.blend-info-block .blend-match-line {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--text-dark-muted);
+}
+
+.blend-info-block.is-missing .blend-info-name {
   color: var(--color-error);
+}
+
+/* The light theme: its own ink and inputs, as the rules above are the dark themes' colours. */
+.theme-light .blend-info-block:not(.is-missing) .blend-info-name {
+  color: var(--text-primary);
+}
+
+.theme-light .blend-info-block .blend-match-line {
+  color: var(--text-muted);
+}
+
+.theme-light .blend-info-block .blend-mode-select {
+  background: var(--bg-input);
+  border-color: var(--border-medium);
+  color: var(--text-primary);
 }

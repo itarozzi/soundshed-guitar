@@ -31,6 +31,7 @@ import {
 } from "./blendUtils.js";
 import { BlendEditorModal } from "./blendEditor.js";
 import { escapeHtml, findResourceById } from "./utils.js";
+import { renderIcon } from "./iconAssets.js";
 import { Features, isFeatureEnabled } from "./featureFlags.js";
 
 export {
@@ -353,18 +354,13 @@ export function updateBlendMatchSummary(
   if (!panel) {
     return;
   }
-  const nameEl = panel.querySelector(".blend-match-name") as HTMLElement | null;
-  const detailsEl = panel.querySelector(".blend-match-details") as HTMLElement | null;
-  if (!nameEl && !detailsEl) {
+  const lineEl = panel.querySelector(".blend-info-block:not(.is-missing) .blend-match-line") as HTMLElement | null;
+  if (!lineEl) {
     return;
   }
-  const summary = computeBlendMatchSummary(node, blendState);
-  if (nameEl) {
-    nameEl.textContent = summary.name;
-  }
-  if (detailsEl) {
-    detailsEl.textContent = summary.details;
-  }
+  const line = formatBlendMatchLine(computeBlendMatchSummary(node, blendState));
+  lineEl.textContent = line;
+  lineEl.title = line;
 }
 
 // ---------------------------------------------------------------------------
@@ -432,7 +428,7 @@ export function bindBlendEditorControls(panel: HTMLElement | null, node: GraphNo
     return;
   }
 
-  const openButton = panel?.querySelector(".blend-open-btn") as HTMLButtonElement | null;
+  const openButton = panel?.querySelector(".blend-info-edit-btn, .blend-open-btn") as HTMLButtonElement | null;
   openButton?.addEventListener("click", () => {
     blendEditorModal.open(node);
   });
@@ -445,18 +441,29 @@ export function bindBlendEditorControls(panel: HTMLElement | null, node: GraphNo
 const BLEND_MODE_LABELS: Record<BlendMode, string> = { interpolate: "Interpolate", snap: "Snap" };
 
 /**
- * Render the blend info block shown in the live effect panel: matched model
- * summary (same format as the Test view) plus a blend mode override control.
- * The summary text is updated in place by `updateBlendMatchSummary` as the
- * mapped param knobs are turned.
+ * The one small line under the blend's name: the model playing, or the two being mixed
+ * ("Mix: A 60% / B 40%", which names both).
+ */
+export function formatBlendMatchLine(summary: BlendMatchSummary): string {
+  return summary.details || `Playing: ${summary.name}`;
+}
+
+/**
+ * Render the blend info block shown in the live effect panel: the blend's name with an edit
+ * pencil and the blend mode override beside it, and under them one small line naming the
+ * model playing (same rule as the Test view). The line is updated in place by
+ * `updateBlendMatchSummary` as the mapped param knobs are turned.
  */
 export function renderBlendInfoHtml(node: GraphNode, blendState: BlendState): string {
   const summary = computeBlendMatchSummary(node, blendState);
-  const blendName = escapeHtml(blendState.blend?.name ?? "");
   const modelCount = blendState.mappings.length;
   const nodeId = escapeHtml(node.id);
+  // Missing, the name row says so and the line under it says what the node does meanwhile.
+  const name = blendState.missing ? summary.name : (blendState.blend?.name || "Blend");
+  const matchLine = blendState.missing ? summary.details : formatBlendMatchLine(summary);
+  const nameTitle = blendState.missing ? name : `${name} · ${modelCount} model${modelCount === 1 ? "" : "s"}`;
   const editBlendButton = isFeatureEnabled(Features.BlendTools) && !blendState.missing
-    ? `<button class="blend-open-btn" data-node-id="${nodeId}" type="button">Edit Blend</button>`
+    ? `<button class="blend-info-edit-btn" data-node-id="${nodeId}" type="button" title="Edit blend" aria-label="Edit blend">${renderIcon("pencil", "blend-info-edit-icon")}</button>`
     : "";
   const option = (value: BlendMode | "", label: string): string =>
     `<option value="${value}" ${blendState.blendModeOverride === value ? "selected" : ""}>${label}</option>`;
@@ -464,21 +471,16 @@ export function renderBlendInfoHtml(node: GraphNode, blendState: BlendState): st
   return `
     <div class="node-resource-selector blend-info-block${blendState.missing ? " is-missing" : ""}" data-node-id="${nodeId}">
       <label>Blend</label>
-      ${blendName ? `<div class="blend-info-name">${blendName}</div>` : ""}
-      <div class="blend-match-summary">
-        <span class="blend-match-name">${escapeHtml(summary.name)}</span>
-        <span class="blend-match-details">${escapeHtml(summary.details)}</span>
-      </div>
-      <div class="blend-info-controls">
-        <label class="blend-mode-label" for="blend-mode-select-${nodeId}">Blend Mode</label>
-        <select id="blend-mode-select-${nodeId}" class="blend-mode-select" data-node-id="${nodeId}">
-          ${option("", `Blend default (${BLEND_MODE_LABELS[blendState.definitionBlendMode]})`)}
+      <div class="blend-info-row">
+        <span class="blend-info-name" title="${escapeHtml(nameTitle)}">${escapeHtml(name)}</span>
+        ${editBlendButton}
+        <select class="blend-mode-select" data-node-id="${nodeId}" title="Blend mode" aria-label="Blend mode">
+          ${option("", `Default (${BLEND_MODE_LABELS[blendState.definitionBlendMode]})`)}
           ${option("interpolate", BLEND_MODE_LABELS.interpolate)}
           ${option("snap", BLEND_MODE_LABELS.snap)}
         </select>
-        ${editBlendButton}
       </div>
-      <div class="resource-path-info">Models: ${modelCount}</div>
+      <div class="blend-match-line" title="${escapeHtml(matchLine)}">${escapeHtml(matchLine)}</div>
     </div>
   `;
 }
