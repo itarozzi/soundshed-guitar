@@ -272,29 +272,36 @@ export function formatAnalyzerNumeric(value: number, unit: string, fractionDigit
  * what the analyzer measures as a hint when the two disagree. A stereo input whose second side
  * is silent, or carries the same signal, is still processed as two sides; the hint says so, so
  * the player can switch the input to mono rather than wonder why.
+ *
+ * The hint is returned apart from the mode because it comes and goes with the signal: it has a
+ * line of its own under the mode, always reserved, so the tile does not change height (and push
+ * the spectrogram below it around) when the measurement flips.
  */
-export function formatAnalyzerChannelMode(levels: InputAnalyzerLevelTelemetry, configuredChannels?: number): string {
+export function formatAnalyzerChannelMode(
+  levels: InputAnalyzerLevelTelemetry,
+  configuredChannels?: number,
+): { mode: string; hint: string } {
   const measuredStereo = typeof levels.channelMode === "string"
     ? levels.channelMode.toLowerCase() === "stereo"
     : Boolean(levels.stereo);
   const activeChannels = levels.activeChannelCount;
 
   if (configuredChannels === 1) {
-    return "Mono";
+    return { mode: "Mono", hint: "" };
   }
 
   if (configuredChannels === 2) {
     if (Number.isFinite(activeChannels) && activeChannels === 1) {
-      return "Stereo · one side silent";
+      return { mode: "Stereo", hint: "one side silent" };
     }
-    return measuredStereo ? "Stereo" : "Stereo · sides identical";
+    return { mode: "Stereo", hint: measuredStereo ? "" : "sides identical" };
   }
 
-  const label = measuredStereo ? "Stereo" : "Mono";
+  const mode = measuredStereo ? "Stereo" : "Mono";
   if (Number.isFinite(activeChannels) && (activeChannels as number) > 0) {
-    return `${label} (${activeChannels} ch)`;
+    return { mode, hint: `${activeChannels} ch` };
   }
-  return label;
+  return { mode, hint: "" };
 }
 
 export function formatAnalyzerLufs(value: number | undefined, enabled = true): string {
@@ -435,6 +442,7 @@ export function updateSelectedNodeAnalyzerPanel(): void {
   const shortTermLufsEl = analyzerPanel.querySelector<HTMLElement>('[data-analyzer-field="shortTermLufs"]');
   const integratedLufsEl = analyzerPanel.querySelector<HTMLElement>('[data-analyzer-field="integratedLufs"]');
   const channelModeEl = analyzerPanel.querySelector<HTMLElement>('[data-analyzer-field="channelMode"]');
+  const channelHintEl = analyzerPanel.querySelector<HTMLElement>('[data-analyzer-field="channelHint"]');
   const peakDbfsEl = analyzerPanel.querySelector<HTMLElement>('[data-analyzer-field="peakDbfs"]');
   const rmsDbfsEl = analyzerPanel.querySelector<HTMLElement>('[data-analyzer-field="rmsDbfs"]');
   const updatedAtEl = analyzerPanel.querySelector<HTMLElement>(".input-analyzer-updated");
@@ -451,6 +459,7 @@ export function updateSelectedNodeAnalyzerPanel(): void {
     if (shortTermLufsEl) shortTermLufsEl.textContent = "—";
     if (integratedLufsEl) integratedLufsEl.textContent = "—";
     if (channelModeEl) channelModeEl.textContent = "—";
+    if (channelHintEl) channelHintEl.textContent = "";
     if (peakDbfsEl) peakDbfsEl.textContent = "—";
     if (rmsDbfsEl) rmsDbfsEl.textContent = "—";
     if (updatedAtEl) updatedAtEl.textContent = "Waiting for live analyzer data…";
@@ -471,7 +480,9 @@ export function updateSelectedNodeAnalyzerPanel(): void {
   if (momentaryLufsEl) momentaryLufsEl.textContent = formatAnalyzerLufs(levels.momentaryLufs, levels.loudnessValid !== false);
   if (shortTermLufsEl) shortTermLufsEl.textContent = formatAnalyzerLufs(levels.shortTermLufs, levels.loudnessValid !== false);
   if (integratedLufsEl) integratedLufsEl.textContent = formatAnalyzerLufs(levels.integratedLufs, levels.loudnessValid !== false);
-  if (channelModeEl) channelModeEl.textContent = formatAnalyzerChannelMode(levels, diagnostics?.channelCount);
+  const channels = formatAnalyzerChannelMode(levels, diagnostics?.channelCount);
+  if (channelModeEl) channelModeEl.textContent = channels.mode;
+  if (channelHintEl) channelHintEl.textContent = channels.hint;
   if (peakDbfsEl) peakDbfsEl.textContent = formatAnalyzerNumeric(percentFsToDbfs(levels.peakPercent), "dBFS");
   if (rmsDbfsEl) rmsDbfsEl.textContent = formatAnalyzerNumeric(percentFsToDbfs(levels.rmsPercent), "dBFS");
 

@@ -433,7 +433,7 @@ export function showNodeParamsPanel(node: GraphNode, preset: Preset): void {
         <div class="input-analyzer-stat"><span class="input-analyzer-label">Momentary (LUFS)</span><span class="input-analyzer-value" data-analyzer-field="momentaryLufs">—</span></div>
         <div class="input-analyzer-stat"><span class="input-analyzer-label">Short-term (LUFS)</span><span class="input-analyzer-value" data-analyzer-field="shortTermLufs">—</span></div>
         <div class="input-analyzer-stat"><span class="input-analyzer-label">Integrated (LUFS)</span><span class="input-analyzer-value" data-analyzer-field="integratedLufs">—</span></div>
-        <div class="input-analyzer-stat"><span class="input-analyzer-label">Channels</span><span class="input-analyzer-value" data-analyzer-field="channelMode">—</span></div>
+        <div class="input-analyzer-stat"><span class="input-analyzer-label">Channels</span><span class="input-analyzer-value" data-analyzer-field="channelMode">—</span><span class="input-analyzer-hint" data-analyzer-field="channelHint"></span></div>
       </div>
       <div class="input-analyzer-spectrogram-wrap">
         <canvas class="input-analyzer-spectrogram-canvas" aria-label="Live spectrogram"></canvas>

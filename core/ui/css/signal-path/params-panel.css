@@ -701,10 +701,25 @@
   color: rgba(194, 203, 222, 0.66);
 }
 
+/* Tabular digits so a reading's unit stays put as its number changes width. */
 .input-analyzer-value {
   font-size: 12px;
   font-weight: 700;
+  font-variant-numeric: tabular-nums;
   color: rgba(239, 244, 255, 0.94);
+}
+
+/* The Channels tile's measurement hint ("sides identical"). Its line is reserved even
+   when empty, and it never wraps, so the hint coming and going can't change the tile's
+   height and shift the spectrogram below it. */
+.input-analyzer-hint {
+  min-height: 12px;
+  font-size: 10px;
+  line-height: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: rgba(194, 203, 222, 0.66);
 }
 
 .input-analyzer-spectrogram-wrap {
