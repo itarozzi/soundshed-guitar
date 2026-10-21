@@ -83,6 +83,8 @@ class InputAnalyzerEffect : public EffectProcessor
 
         mSampleRate = sampleRate;
         mMaxBlockSize = maxBlockSize;
+        mStereoReleaseSamples = std::max<std::uint64_t>(1, static_cast<std::uint64_t>(kStereoReleaseSeconds * sampleRate));
+        mChannelHoldSamples = std::max<std::uint64_t>(1, static_cast<std::uint64_t>(kChannelHoldSeconds * sampleRate));
         ConfigureLoudnessAnalysis();
         Reset();
     }
@@ -102,6 +104,13 @@ class InputAnalyzerEffect : public EffectProcessor
         mActiveChannelCount.store(0, std::memory_order_relaxed);
         mStereoSignal.store(false, std::memory_order_relaxed);
         mStereoLatched = false;
+        mStereoLeftMeanSquare = 0.0;
+        mStereoRightMeanSquare = 0.0;
+        mStereoDiffMeanSquare = 0.0;
+        mStereoMatchedSamples = 0;
+        mSamplesSeen = 0;
+        mLeftLastActiveEnd = 0;
+        mRightLastActiveEnd = 0;
         mGeneratedAtMs.store(0, std::memory_order_relaxed);
         mSmoothedPeakLinear = 0.0;
         mSmoothedRmsLinear = 0.0;
@@ -207,22 +216,39 @@ class InputAnalyzerEffect : public EffectProcessor
         const bool rightActive = rightIn && rightPeak > kActiveChannelThreshold;
         const bool hasActiveSignal = leftActive || rightActive;
 
+        // Silence says nothing about the layout, so the channel and stereo readings below keep
+        // what they had through it; only the levels go quiet.
         if (!hasActiveSignal)
         {
             mActiveChannelCount.store(0, std::memory_order_relaxed);
             mStereoSignal.store(false, std::memory_order_relaxed);
-            mStereoLatched = false;
             mTelemetryValid.store(false, std::memory_order_relaxed);
             return;
         }
 
-        // Determine whether the measured signal carries distinct left/right
-        // content. A single active channel, or two channels with effectively
-        // identical (dual-mono) content, is reported as mono. Hysteresis on the
-        // side-to-reference energy ratio prevents flicker near the threshold.
-        bool stereoSignal = false;
+        const std::uint64_t blockEnd = mSamplesSeen + static_cast<std::uint64_t>(numSamples);
+        mSamplesSeen = blockEnd;
 
-        if (leftActive && rightActive)
+        // A side counts as active while it has carried signal within the hold, so the gap between
+        // notes, or a moment where one side of a stereo source goes quiet, is not "one side silent".
+        const auto heldActive = [&](bool activeNow, std::uint64_t& lastActiveEnd) {
+            if (activeNow)
+            {
+                lastActiveEnd = blockEnd;
+            }
+            return lastActiveEnd != 0 && blockEnd - lastActiveEnd < mChannelHoldSamples;
+        };
+        const bool leftHeld = heldActive(leftActive, mLeftLastActiveEnd);
+        const bool rightHeld = heldActive(rightActive, mRightLastActiveEnd);
+        const int heldChannelCount = (leftHeld ? 1 : 0) + (rightHeld ? 1 : 0);
+
+        // Whether the two sides carry different content, from their energies averaged over a
+        // window rather than one block: a block is ~1 ms, and its ratio swings across the
+        // thresholds on content that is mostly shared (a stereo reverb or chorus tail). A side
+        // that is silent while the other plays is different content too. Stereo is taken as
+        // soon as the window shows it and kept until the sides have matched for the release
+        // time, so the reading follows the source rather than the last block.
+        if (leftIn && rightIn)
         {
             double diffSumSquares = 0.0;
 
@@ -233,18 +259,32 @@ class InputAnalyzerEffect : public EffectProcessor
             }
 
             const double inv = 1.0 / static_cast<double>(numSamples);
-            const double leftRms = std::sqrt(leftSumSquares * inv);
-            const double rightRms = std::sqrt(rightSumSquares * inv);
-            const double diffRms = std::sqrt(diffSumSquares * inv);
-            const double referenceRms = std::max(leftRms, rightRms);
-            const double ratio = referenceRms > kMinLinear ? diffRms / referenceRms : 0.0;
-            mStereoLatched = mStereoLatched ? ratio > kStereoExitRatio : ratio > kStereoEnterRatio;
-            stereoSignal = mStereoLatched;
+            const double deltaSeconds = (mSampleRate > 0.0) ? static_cast<double>(numSamples) / mSampleRate : 0.0;
+            const double keep = BallisticAlpha(deltaSeconds, kStereoWindowSeconds);
+            mStereoLeftMeanSquare = keep * mStereoLeftMeanSquare + (1.0 - keep) * leftSumSquares * inv;
+            mStereoRightMeanSquare = keep * mStereoRightMeanSquare + (1.0 - keep) * rightSumSquares * inv;
+            mStereoDiffMeanSquare = keep * mStereoDiffMeanSquare + (1.0 - keep) * diffSumSquares * inv;
+
+            const double referenceRms = std::sqrt(std::max(mStereoLeftMeanSquare, mStereoRightMeanSquare));
+            const double ratio = referenceRms > kMinLinear ? std::sqrt(mStereoDiffMeanSquare) / referenceRms : 0.0;
+
+            if (ratio > kStereoEnterRatio || (mStereoLatched && ratio > kStereoExitRatio))
+            {
+                mStereoLatched = true;
+                mStereoMatchedSamples = 0;
+            }
+            else if (mStereoLatched)
+            {
+                mStereoMatchedSamples += static_cast<std::uint64_t>(numSamples);
+                mStereoLatched = mStereoMatchedSamples < mStereoReleaseSamples;
+            }
         }
         else
         {
             mStereoLatched = false;
         }
+
+        const bool stereoSignal = mStereoLatched && heldChannelCount == 2;
 
         const double peak = std::max(leftPeak, rightPeak);
         const double sumSquares = (leftActive ? leftSumSquares : 0.0) + (rightActive ? rightSumSquares : 0.0);
@@ -270,7 +310,7 @@ class InputAnalyzerEffect : public EffectProcessor
         mRmsDbu.store(rmsDbu, std::memory_order_relaxed);
         mRmsDbv.store(rmsDbv, std::memory_order_relaxed);
         mRmsVolts.store(std::max(0.0, rmsVolts), std::memory_order_relaxed);
-        mActiveChannelCount.store(static_cast<int>(activeChannelCount), std::memory_order_relaxed);
+        mActiveChannelCount.store(heldChannelCount, std::memory_order_relaxed);
         mStereoSignal.store(stereoSignal, std::memory_order_relaxed);
 
         UpdateLoudnessAnalysis(leftIn, rightIn, numSamples);
@@ -423,6 +463,12 @@ class InputAnalyzerEffect : public EffectProcessor
     static constexpr double kRmsReleaseSeconds = 0.35;
     static constexpr double kStereoEnterRatio = 0.05;
     static constexpr double kStereoExitRatio = 0.02;
+    /// Time constant of the side energies the stereo ratio is taken from.
+    static constexpr double kStereoWindowSeconds = 0.15;
+    /// How long the sides must match before a stereo reading falls back to identical sides.
+    static constexpr double kStereoReleaseSeconds = 2.0;
+    /// How long a side counts as active after its last signal.
+    static constexpr double kChannelHoldSeconds = 2.0;
     static constexpr double kMomentaryWindowSeconds = loudness::kBlockSeconds;
     static constexpr double kShortTermWindowSeconds = 3.0;
     static constexpr double kLoudnessHopSeconds = loudness::kHopSeconds;
@@ -661,6 +707,16 @@ class InputAnalyzerEffect : public EffectProcessor
     double mSmoothedPeakLinear = 0.0;
     double mSmoothedRmsLinear = 0.0;
     bool mStereoLatched = false;
+    double mStereoLeftMeanSquare = 0.0;
+    double mStereoRightMeanSquare = 0.0;
+    double mStereoDiffMeanSquare = 0.0;
+    std::uint64_t mStereoMatchedSamples = 0;
+    std::uint64_t mStereoReleaseSamples = 1;
+    // Samples processed with signal, and where each side last had any (0: never).
+    std::uint64_t mSamplesSeen = 0;
+    std::uint64_t mLeftLastActiveEnd = 0;
+    std::uint64_t mRightLastActiveEnd = 0;
+    std::uint64_t mChannelHoldSamples = 1;
     std::size_t mMomentaryWindowSamples = 1;
     std::size_t mShortTermWindowSamples = 1;
     std::size_t mLoudnessHopSamples = 1;

@@ -64,6 +64,7 @@ set(TEST_SOURCES
     IRReverbAutomationRealtimeTests.cpp
     IRReverbQualityTests.cpp
     ImpulseResamplerTests.cpp
+    InputAnalyzerChannelTests.cpp
     LayoutStorageWorkflowTests.cpp
     LoudnessTests.cpp
     LoudnessTapTests.cpp
