@@ -903,8 +903,10 @@ void SignalGraphExecutor::Process(float** inputs, float** outputs, int numSample
         NodeState& state = *planned.state;
         std::fill(state.bufferLeft.begin(), state.bufferLeft.begin() + numSamples, 0.0f);
         std::fill(state.bufferRight.begin(), state.bufferRight.begin() + numSamples, 0.0f);
+        // channelCount is left as the last block published it; it is zeroed after the plan has
+        // run for a node that got no input (below), never here, or a reader catching the block
+        // part-way through sees 0 for a node that is about to run.
         state.hasInput = false;
-        state.channelCount.store(0, std::memory_order_relaxed);
         state.notesLastBlock = state.notesThisBlock;
         state.notesThisBlock = false;
 
@@ -1011,6 +1013,15 @@ void SignalGraphExecutor::Process(float** inputs, float** outputs, int numSample
                 ProcessPlannedNode(mPlan[static_cast<size_t>(planIndex)], numSamples, diagnosticsEnabled,
                                    collectLevels);
             }
+        }
+    }
+
+    // A node that ran has published its channel count; one that got no input reads 0.
+    for (auto& planned : mPlan)
+    {
+        if (!planned.state->hasInput)
+        {
+            planned.state->channelCount.store(0, std::memory_order_relaxed);
         }
     }
 

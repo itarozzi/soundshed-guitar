@@ -25,6 +25,7 @@
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <iostream>
 #include <limits>
 #include <map>
@@ -619,6 +620,90 @@ void TestStereoNeverReadsTheAudio()
     Check(steadyWithGuitar && steadyAlone, "every node stays stereo while the right input comes and goes");
     Check(leak <= kSameSides, "nothing on the left reaches the right; apart by " + std::to_string(leak));
 }
+
+/// A pass-through that calls a hook while the executor is part-way through its block.
+class MidBlockProbe final : public guitarfx::PassthroughProcessor
+{
+  public:
+    static inline std::function<void()> sHook;
+
+    void Process(float** inputs, float** outputs, int numSamples) override
+    {
+        if (sHook)
+        {
+            sHook();
+        }
+
+        PassthroughProcessor::Process(inputs, outputs, numSamples);
+    }
+
+    [[nodiscard]] bool KeepsChannelsSeparate() const override
+    {
+        return false;
+    }
+};
+
+/// The telemetry thread reads channel counts whenever it likes. A node that runs every block must
+/// never read as "did not run" (0) because the read landed before it had run in the current block:
+/// the Signal Analyzer's Channels tile flickered between its layout and a fallback reading when a
+/// late node's count was zeroed at the start of each block.
+void TestChannelCountsHoldThroughTheBlock()
+{
+    using namespace guitarfx::EffectGuids;
+    constexpr const char* kProbeType = "channel_layout_test_mid_block_probe";
+    guitarfx::EffectTypeInfo info;
+    info.type = kProbeType;
+    info.displayName = "Mid-block probe";
+    info.category = "utility";
+    guitarfx::EffectRegistry::Instance().Register(info.type, info, [] { return std::make_unique<MidBlockProbe>(); });
+
+    for (const ChannelLayout layout : {ChannelLayout::Mono, ChannelLayout::Stereo})
+    {
+        SignalGraphExecutor executor;
+        executor.SetInputLayout(layout);
+        executor.SetGraph(Chain({{"probe", kProbeType}, {"amp", kAmpBuiltin}, {"eq", kEqGraphic}}));
+        executor.Prepare(kSampleRate, kBlock);
+
+        // What the probe, running first, sees of the nodes after it, which have not yet run in
+        // this block but ran in every block before.
+        int zeroReads = 0;
+        int reads = 0;
+        int block = 0;
+        MidBlockProbe::sHook = [&]() {
+            if (block == 0)
+            {
+                return; // nothing has run yet
+            }
+
+            for (const auto& level : executor.GetNodeSignalLevels())
+            {
+                if (level.nodeId == "amp" || level.nodeId == "eq")
+                {
+                    ++reads;
+                    zeroReads += level.channelCount == 0 ? 1 : 0;
+                }
+            }
+        };
+
+        std::vector<float> inL(kBlock, 0.1f), inR(kBlock, 0.1f), outL(kBlock), outR(kBlock);
+        float* ins[2] = {inL.data(), inR.data()};
+        float* outs[2] = {outL.data(), outR.data()};
+
+        for (block = 0; block < 4; ++block)
+        {
+            executor.Process(ins, outs, kBlock);
+        }
+
+        MidBlockProbe::sHook = nullptr;
+        Check(reads > 0 && zeroReads == 0,
+              std::string(layout == ChannelLayout::Mono ? "mono" : "stereo") +
+                  " input: a node later in the chain never reads 0 channels mid-block; " +
+                  std::to_string(zeroReads) + " of " + std::to_string(reads) + " reads did");
+
+        const auto counts = ChannelCounts(Chain({{"amp", kAmpBuiltin}}), layout);
+        Check(counts.count("amp") && counts.at("amp") != 0, "and a node that ran reads its layout after the block");
+    }
+}
 } // namespace
 
 int main()
@@ -634,6 +719,7 @@ int main()
     TestBypassedWidenerLeavesChainMono();
     TestBypassLayoutChangesDoNotClick();
     TestNamRightModelComesInWithoutAClick();
+    TestChannelCountsHoldThroughTheBlock();
 
     if (gFailures > 0)
     {

@@ -428,7 +428,8 @@ class SignalGraphExecutor
         std::atomic<int> clipCount{0};
         /// Channels the node carried last block: 0 for a node that had no input, else 1 or 2 by
         /// its resolved output layout. Published every block, so the message thread never reads
-        /// hasInput.
+        /// hasInput. Only ever holds a finished block's value: a node writes it when it runs, and
+        /// Process() zeroes it at the end of a block in which the node did not.
         std::atomic<int> channelCount{0};
         // Last block's processing time, or kNodeDidNotRunUs when the node did not run. Published
         // here rather than into a map so the audio thread never allocates; GetPerformanceStats()
