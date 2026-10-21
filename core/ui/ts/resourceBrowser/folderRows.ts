@@ -10,7 +10,7 @@
 import { uiState } from "../state.js";
 import { escapeHtml, findResourceById } from "../utils.js";
 import { getPlaySvg } from "../iconAssets.js";
-import { formatBytes, getResourceTags, normalizeNamArchitectureBadge, splitTagValues } from "./helpers.js";
+import { DOUBLE_CLICK_SELECTS_ATTR, formatBytes, formatGearDescription, getResourceTags, normalizeNamArchitectureBadge, renderResourceMetaParts, splitTagValues } from "./helpers.js";
 import type { FolderListingFile, ResourceType } from "./types.js";
 
 /** What a row needs to know about the tab around it. */
@@ -75,7 +75,7 @@ export function renderFolderTagFilters(bar: HTMLElement | null, availableTags: s
 
   const chips = availableTags.map((tag) => {
     const active = activeTags.has(tag);
-    return `<button class="preset-tag-filter-chip${active ? " is-active" : ""}" type="button" data-tag="${escapeHtml(tag)}">${escapeHtml(tag)}</button>`;
+    return `<button class="preset-tag-filter-chip${active ? " active" : ""}" type="button" data-tag="${escapeHtml(tag)}">${escapeHtml(tag)}</button>`;
   }).join("");
 
   bar.innerHTML = clearChip + chips;
@@ -103,38 +103,28 @@ export function renderFolderFileDetails(file: FolderListingFile): string {
 
 export function renderFolderFileRow(file: FolderListingFile, state: FolderRowState): string {
   const metadata = file.metadata ?? {};
-  const typeLabel = file.resourceType === "ir" ? "IR / Cab" : "NAM";
   const match = folderFileLibraryMatch(file);
-  const badges: string[] = [`<span>${escapeHtml(typeLabel)}</span>`];
-  const tags = getFolderFileTags(file);
-
-  if (file.resourceType === "nam") {
-    const architecture = normalizeNamArchitectureBadge(
-      metadata.architectureVersion
-      || metadata.architecture_version
-      || metadata.architecture
-      || "",
-    );
-    if (architecture) badges.push(`<span class="resource-browser-architecture-badge" title="Model architecture">${escapeHtml(architecture)}</span>`);
-    const gear = [metadata.gearMake, metadata.gearModel].filter(Boolean).join(" ");
-    if (gear) badges.push(`<span class="resource-browser-gear-desc" title="${escapeHtml(gear)}">${escapeHtml(gear)}</span>`);
-    const toneType = metadata.toneType ?? "";
-    if (toneType) badges.push(`<span class="resource-browser-tone-type">${escapeHtml(toneType.replace(/_/g, " "))}</span>`);
-    if (metadata.sampleRate) badges.push(`<span>${escapeHtml(metadata.sampleRate)} Hz</span>`);
-  } else {
-    if (metadata.sampleRate) badges.push(`<span>${escapeHtml(metadata.sampleRate)} Hz</span>`);
-    if (metadata.channels) badges.push(`<span>${escapeHtml(metadata.channels)} ch</span>`);
-    if (metadata.durationSec) badges.push(`<span>${escapeHtml(metadata.durationSec)} s</span>`);
-  }
-
-  if (file.metadataPending && badges.length <= 1) {
-    badges.push(`<span class="resource-browser-meta-pending" title="Reading metadata…">…</span>`);
-  }
-  if (tags.length) {
-    const tagPills = tags
-      .map((tag) => `<span class="resource-browser-tag-pill">${escapeHtml(tag)}</span>`)
-      .join("");
-    badges.push(`<span class="resource-browser-tag-list">${tagPills}</span>`);
+  // The type only says something when it is not what the browser was opened for:
+  // those files are listed, but cannot be selected.
+  const typeLabel = state.wantedResourceType === file.resourceType ? "" : file.resourceType === "ir" ? "IR / Cab" : "NAM";
+  const isNam = file.resourceType === "nam";
+  const extra: string[] = [];
+  if (!isNam && metadata.channels) extra.push(`${metadata.channels} ch`);
+  if (!isNam && metadata.durationSec) extra.push(`${metadata.durationSec} s`);
+  if (metadata.sampleRate) extra.push(`${metadata.sampleRate} Hz`);
+  const architecture = isNam
+    ? normalizeNamArchitectureBadge(metadata.architectureVersion || metadata.architecture_version || metadata.architecture || "")
+    : "";
+  let metaParts = renderResourceMetaParts({
+    category: typeLabel,
+    architecture,
+    gear: isNam ? formatGearDescription(metadata.gearMake, metadata.gearModel) : "",
+    toneType: isNam ? metadata.toneType : "",
+    extra,
+    tags: getFolderFileTags(file),
+  });
+  if (file.metadataPending && !metaParts) {
+    metaParts = `<span class="resource-browser-meta-pending" title="Reading metadata…">…</span>`;
   }
 
   const isFav = Boolean(match.id) && state.isResourceFavorite(match.id);
@@ -144,8 +134,8 @@ export function renderFolderFileRow(file: FolderListingFile, state: FolderRowSta
   const isPreviewing = state.previewPath === file.path;
   const isSelected = state.selectedPath === file.path;
   const selectPreviewBtn = typeMatches
-    ? `<button class="resource-browser-action-icon-btn resource-browser-folder-select-preview${isSelected ? " is-active" : ""}" type="button" data-path="${escapeHtml(file.path)}" title="Select in effect (does not close modal)" aria-label="Select in effect" aria-pressed="${isSelected ? "true" : "false"}">${getPlaySvg()}</button>`
-    : "";
+    ? `<button class="resource-browser-action-icon-btn resource-browser-folder-select-preview${isSelected ? " is-active" : ""}" type="button" ${DOUBLE_CLICK_SELECTS_ATTR} data-path="${escapeHtml(file.path)}" title="Select in effect (does not close modal)" aria-label="Select in effect" aria-pressed="${isSelected ? "true" : "false"}">${getPlaySvg()}</button>`
+    : `<span class="resource-browser-item-action-spacer" aria-hidden="true"></span>`;
 
   const isExpanded = state.expandedPath === file.path;
   const detailsBtn = `<button class="resource-browser-action-icon-btn resource-browser-item-details-btn" type="button" data-path="${escapeHtml(file.path)}" title="${isExpanded ? "Hide details" : "Show details"}" aria-expanded="${isExpanded ? "true" : "false"}" aria-label="File details">ℹ</button>`;
@@ -156,7 +146,7 @@ export function renderFolderFileRow(file: FolderListingFile, state: FolderRowSta
         <div class="results-item resource-browser-item resource-browser-folder-file-row">
           <div class="results-item-main resource-browser-item-info">
             <div class="results-item-title resource-browser-item-title">${escapeHtml(file.name)}</div>
-            <div class="results-item-meta resource-browser-item-meta">${badges.join("")}</div>
+            <div class="results-item-meta resource-browser-item-meta">${metaParts}</div>
           </div>
           <div class="resource-browser-item-actions">
             ${favBtn}

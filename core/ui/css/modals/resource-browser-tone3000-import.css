@@ -1,14 +1,14 @@
 /* Resource browser, Tone3000 tab: which of a tone's models are already in the library,
-   and the whole-tone Import All and Create Blend actions (resourceBrowser/tone3000BulkImport.ts). */
+   and the whole-tone Import All and Create Blend actions (resourceBrowser/tone3000BulkImport.ts).
+   The buttons share the tab's text-button look from resource-browser.css. */
 .resource-browser-tone-imported,
 .resource-browser-model-imported {
   color: var(--color-success);
-  font-weight: 600;
 }
 
 .resource-browser-model-imported {
   flex: none;
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .resource-browser-tone-models-toolbar {
@@ -17,36 +17,17 @@
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 8px;
-  padding-bottom: 2px;
+  padding: 2px 6px 6px;
 }
 
 .resource-browser-tone-models-status {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--modal-text-muted);
 }
 
 .resource-browser-tone-models-toolbar-actions {
   display: flex;
   gap: 6px;
-}
-
-.resource-browser-tone-import-all,
-.resource-browser-tone-create-blend {
-  padding: 5px 10px;
-  border-radius: 5px;
-  border: 1px solid var(--border-browser);
-  background: var(--bg-browser-input);
-  color: var(--modal-text);
-  font-size: 10px;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.resource-browser-tone-import-all:hover:not(:disabled),
-.resource-browser-tone-create-blend:hover:not(:disabled) {
-  border-color: var(--color-primary);
-  background: var(--color-primary);
-  color: white;
 }
 
 .resource-browser-tone-import-all:disabled,

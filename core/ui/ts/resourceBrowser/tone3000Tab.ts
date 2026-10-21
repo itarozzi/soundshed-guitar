@@ -9,14 +9,15 @@
  * It reaches back into the modal only through `Tone3000TabHost`.
  */
 
-import { getStopSvg } from "../iconAssets.js";
 import { ensureTone3000Session, isTone3000AuthReady, isTone3000ByokEnabled, tone3000AuthenticatedFetch } from "../tone3000.js";
 import { buildTone3000FavoritesUrl, buildTone3000SearchUrl, extractTone3000Tones, parseTone3000Pagination } from "../tone3000Api.js";
 import type { Tone3000Architecture, Tone3000Model, Tone3000Tone } from "../tone3000ApiTypes.js";
 import { backfillTone3000ResourceImages, fetchTone3000Models, getTone3000ImageUrl } from "../tone3000Shared.js";
 import { escapeHtml } from "../utils.js";
+import { isDoubleClickExempt, isSecondClickOfDouble } from "./helpers.js";
 import { TONE3000_IR_GEAR_OPTIONS } from "./slot.js";
 import { Tone3000BulkImporter } from "./tone3000BulkImport.js";
+import { renderToneDetails, renderToneMetaParts, renderToneModelRow } from "./tone3000Rows.js";
 import { Tone3000Navigator } from "./tone3000Navigation.js";
 import type { PersistedResourceBrowserState, PreviewLoadingState, PreviewState, ResourceBrowserOptions, ResourceType } from "./types.js";
 
@@ -139,7 +140,11 @@ export class Tone3000Tab {
     });
 
     this.tone3000List?.addEventListener("click", (event) => this.handleTone3000Click(event));
+    this.tone3000List?.addEventListener("dblclick", (event) => void this.handleTone3000DoubleClick(event));
   }
+
+  /** The model row the last click landed on, for a double click whose second click lands on a repainted list. */
+  private lastClickedModelSelect: { data: DOMStringMap; at: number } | null = null;
 
   // Tone3000 tab elements
   private tone3000ModeSearchTab: HTMLButtonElement | null = null;
@@ -507,25 +512,19 @@ export class Tone3000Tab {
         const expandedClass = isExpanded ? "resource-browser-tone is-expanded" : "resource-browser-tone";
         const expandedContentHtml = isExpanded ? this.renderToneExpandedContent(tone) : "";
         const displayTitle = tone.title || tone.name || "Untitled Tone";
-        const username = tone.user?.username ?? "";
-        
+        const metaParts = renderToneMetaParts(tone, modelCount, this.tone3000FavoritesOnly);
+        const toggleLabel = isExpanded ? "Hide models" : "Show models";
+
         return `
           <div class="${expandedClass}" data-tone-id="${escapeHtml(String(tone.id))}">
             <div class="resource-browser-tone-header">
               ${imageMarkup}
               <div class="resource-browser-tone-info">
                 <div class="resource-browser-tone-title">${escapeHtml(displayTitle)}</div>
-                <div class="resource-browser-tone-meta">
-                  <span>${escapeHtml(tone.gear ?? "")}</span>
-                  <span>${escapeHtml(tone.platform ?? "")}</span>
-                  ${modelCount != null ? `<span>${modelCount} models</span>` : ""}
-                  ${tone.downloads_count != null ? `<span>${tone.downloads_count} downloads</span>` : ""}
-                  ${username ? `<span>${escapeHtml(username)}</span>` : ""}
-                  ${this.bulkImport.renderToneBadge(tone, cachedModels, resourceType)}
-                </div>
+                <div class="resource-browser-tone-meta">${metaParts}${this.bulkImport.renderToneBadge(tone, cachedModels, resourceType)}</div>
               </div>
-              <button class="resource-browser-tone-expand" type="button" data-tone-id="${escapeHtml(String(tone.id))}">
-                ${isExpanded ? "▲ Hide" : "▼ Show"}
+              <button class="resource-browser-tone-expand" type="button" data-tone-id="${escapeHtml(String(tone.id))}" title="${toggleLabel}" aria-label="${toggleLabel}" aria-expanded="${isExpanded ? "true" : "false"}">
+                <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
               </button>
             </div>
             ${expandedContentHtml}
@@ -558,7 +557,7 @@ export class Tone3000Tab {
           >Details</button>
         </div>
         <div class="resource-browser-tone-section-panel" role="tabpanel">
-          ${modelsActive ? this.renderToneModels(tone) : this.renderToneDetails(tone)}
+          ${modelsActive ? this.renderToneModels(tone) : renderToneDetails(tone)}
         </div>
       </div>
     `;
@@ -589,74 +588,12 @@ export class Tone3000Tab {
     return `
       <div class="resource-browser-tone-models">
         ${this.bulkImport.renderToolbar(tone, models, resourceType)}
-        ${models.map((model) => {
-          const isPreviewing = String(model.id) === previewingModelId;
-          const isLoadingPreview = String(model.id) === loadingModelId;
-          const isImported = this.bulkImport.isModelImported(resourceType, model);
-          const previewClass = isPreviewing
-            ? "resource-browser-model is-previewing"
-            : isLoadingPreview
-              ? "resource-browser-model is-preview-loading"
-              : "resource-browser-model";
-          const previewLabel = isPreviewing ? `${getStopSvg()} Stop` : isLoadingPreview ? "Loading..." : `Preview`;
-
-          return `
-            <div class="${previewClass}${isImported ? " is-imported" : ""}" data-model-id="${escapeHtml(String(model.id))}">
-              <span class="resource-browser-model-name">${escapeHtml(model.name)}</span>
-              ${isImported ? `<span class="resource-browser-model-imported" title="Already in your library">Imported</span>` : ""}
-              <div class="resource-browser-model-actions">
-                <button class="resource-browser-model-preview" type="button" 
-                        data-tone-id="${escapeHtml(String(tone.id))}" 
-                        data-model-id="${escapeHtml(String(model.id))}"
-                        data-model-url="${escapeHtml(model.model_url)}"
-                        ${isLoadingPreview ? "disabled" : ""}
-                        ${canPreview ? "" : "hidden"}>
-                  ${previewLabel}
-                </button>
-                <button class="resource-browser-model-select" type="button"
-                        data-tone-id="${escapeHtml(String(tone.id))}"
-                        data-model-id="${escapeHtml(String(model.id))}"
-                        data-model-url="${escapeHtml(model.model_url)}"
-                        data-model-name="${escapeHtml(model.name)}">
-                  Select
-                </button>
-              </div>
-            </div>
-          `;
-        }).join("")}
-      </div>
-    `;
-  }
-
-  private renderToneDetails(tone: Tone3000Tone): string {
-    const description = tone.description?.trim() || "No description provided.";
-    const tags = Array.isArray(tone.tags)
-      ? tone.tags.map((tag) => tag?.name?.trim()).filter((name): name is string => Boolean(name))
-      : [];
-    const infoRows = [
-      ["Gear", tone.gear ?? "Unknown"],
-      ["Platform", tone.platform ?? "Unknown"],
-      ["Models", String(tone.models_count ?? 0)],
-      ["Downloads", String(tone.downloads_count ?? 0)],
-      ["Author", tone.user?.username ?? "Unknown"],
-    ];
-
-    return `
-      <div class="resource-browser-tone-details-panel">
-        <div class="resource-browser-tone-metadata">
-          ${infoRows.map(([label, value]) => `
-            <span class="resource-browser-tone-metadata-badge">
-              <span class="resource-browser-tone-metadata-label">${escapeHtml(label)}</span>
-              <span class="resource-browser-tone-metadata-value">${escapeHtml(value)}</span>
-            </span>
-          `).join("")}
-        </div>
-        <div class="resource-browser-tone-details-description">${escapeHtml(description)}</div>
-        <div class="resource-browser-tone-details-tags">
-          ${tags.length
-            ? tags.map((tag) => `<span class="resource-browser-tone-details-tag">${escapeHtml(tag)}</span>`).join("")
-            : `<span class="resource-browser-tone-details-tag is-empty">No tags</span>`}
-        </div>
+        ${models.map((model) => renderToneModelRow(tone, model, {
+          isPreviewing: String(model.id) === previewingModelId,
+          isLoadingPreview: String(model.id) === loadingModelId,
+          isImported: this.bulkImport.isModelImported(resourceType, model),
+          canPreview,
+        })).join("")}
       </div>
     `;
   }
@@ -717,33 +654,64 @@ export class Tone3000Tab {
       return;
     }
 
-    // Handle preview button
-    const previewBtn = target.closest(".resource-browser-model-preview") as HTMLButtonElement | null;
-    if (previewBtn) {
-      const toneId = previewBtn.dataset.toneId ?? "";
-      const modelId = previewBtn.dataset.modelId ?? "";
-      const modelUrl = previewBtn.dataset.modelUrl ?? "";
-      
-      const previewState = this.host.getPreviewState();
-      if (previewState?.toneId === toneId && previewState.modelId === modelId) {
-        this.host.cancelPreview();
-      } else {
-        await this.host.startPreview(toneId, modelId, modelUrl);
-      }
+    // What is left is a model row: its preview or Select button, or the row itself.
+    const modelRow = target.closest(".resource-browser-model") as HTMLElement | null;
+    const rowSelectBtn = modelRow?.querySelector<HTMLButtonElement>(".resource-browser-model-select");
+    if (!modelRow || !rowSelectBtn) {
       return;
     }
-    
-    // Handle select button
-    const selectBtn = target.closest(".resource-browser-model-select") as HTMLButtonElement | null;
-    if (selectBtn) {
-      const toneId = selectBtn.dataset.toneId ?? "";
-      const modelId = selectBtn.dataset.modelId ?? "";
-      const modelUrl = selectBtn.dataset.modelUrl ?? "";
-      const modelName = selectBtn.dataset.modelName ?? "";
-      
+    this.lastClickedModelSelect = { data: { ...rowSelectBtn.dataset }, at: Date.now() };
+    if (isSecondClickOfDouble(event)) {
+      return;
+    }
+
+    if (target.closest(".resource-browser-model-select")) {
+      const { toneId = "", modelId = "", modelUrl = "", modelName = "" } = rowSelectBtn.dataset;
       await this.host.selectAndImportModel(toneId, modelId, modelUrl, modelName);
       return;
     }
+
+    // A click on the row previews it, as a click on a row does in the library and
+    // folder tabs. The preview button does the same, and stops the one playing.
+    const previewBtn = modelRow.querySelector<HTMLButtonElement>(".resource-browser-model-preview");
+    if (!previewBtn || previewBtn.hidden) {
+      return;
+    }
+    const toneId = previewBtn.dataset.toneId ?? "";
+    const modelId = previewBtn.dataset.modelId ?? "";
+    const loading = this.host.getPreviewLoading();
+    if (loading?.toneId === toneId && loading.modelId === modelId) {
+      return;
+    }
+    const previewState = this.host.getPreviewState();
+    if (previewState?.toneId === toneId && previewState.modelId === modelId) {
+      if (target.closest(".resource-browser-model-preview")) {
+        this.host.cancelPreview();
+      }
+      return;
+    }
+    await this.host.startPreview(toneId, modelId, previewBtn.dataset.modelUrl ?? "");
+  }
+
+  /// A double click on a model row takes it, the same as Select. The first click
+  /// of the pair started a preview, which repaints the list, so the second click
+  /// may land on a fresh row or on the list itself: what the first click hit is
+  /// the model the user meant.
+  private async handleTone3000DoubleClick(event: Event): Promise<void> {
+    const target = event.target as HTMLElement | null;
+    if (!target || isDoubleClickExempt(target) || target.closest(".resource-browser-tone-header, .resource-browser-tone-section-tabs")) {
+      return;
+    }
+    const rowSelectBtn = target.closest(".resource-browser-model")?.querySelector<HTMLButtonElement>(".resource-browser-model-select");
+    const recent = this.lastClickedModelSelect && Date.now() - this.lastClickedModelSelect.at < 1000
+      ? this.lastClickedModelSelect.data
+      : null;
+    // Only a row, or the bare list a repaint left under the pointer, means "this model".
+    const selection = rowSelectBtn ? { ...rowSelectBtn.dataset } : target === this.tone3000List ? recent : null;
+    if (!selection?.toneId || !selection.modelId) {
+      return;
+    }
+    await this.host.selectAndImportModel(selection.toneId, selection.modelId, selection.modelUrl ?? "", selection.modelName ?? "");
   }
 
   private async toggleToneExpanded(toneId: string): Promise<void> {

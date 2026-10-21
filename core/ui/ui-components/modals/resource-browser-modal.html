@@ -27,19 +27,19 @@
               <select id="resource-browser-library-creator">
                 <option value="all">All Creators</option>
               </select>
-              <div class="resource-browser-library-favorites-tabs" role="tablist" aria-label="Favourite filter">
-                <button class="resource-browser-library-favorites-tab active" id="resource-browser-library-favorites-all" type="button" aria-pressed="true">All</button>
-                <button class="resource-browser-library-favorites-tab" id="resource-browser-library-favorites-only" type="button" aria-pressed="false">Favourites</button>
+              <div class="resource-browser-segmented" role="group" aria-label="Favourite filter">
+                <button class="resource-browser-segment active" id="resource-browser-library-favorites-all" type="button" aria-pressed="true">All</button>
+                <button class="resource-browser-segment" id="resource-browser-library-favorites-only" type="button" aria-pressed="false">Favourites</button>
               </div>
               <div class="resource-browser-library-nav" aria-label="Browse selected resource">
-                <button class="preset-action-btn resource-browser-nav-btn" id="resource-browser-library-prev" type="button" title="Previous resource" aria-label="Previous resource" disabled>
-                  <span class="resource-nav-icon" style="--icon-url: url('/images/icons/chevron-left.svg')" aria-hidden="true"></span>
+                <button class="resource-browser-toolbar-icon-btn" id="resource-browser-library-prev" type="button" title="Previous resource" aria-label="Previous resource" disabled>
+                  <span class="resource-browser-icon" style="--icon-url: url('/images/icons/chevron-left.svg')" aria-hidden="true"></span>
                 </button>
-                <button class="preset-action-btn resource-browser-nav-btn" id="resource-browser-library-next" type="button" title="Next resource" aria-label="Next resource" disabled>
-                  <span class="resource-nav-icon" style="--icon-url: url('/images/icons/chevron-right.svg')" aria-hidden="true"></span>
+                <button class="resource-browser-toolbar-icon-btn" id="resource-browser-library-next" type="button" title="Next resource" aria-label="Next resource" disabled>
+                  <span class="resource-browser-icon" style="--icon-url: url('/images/icons/chevron-right.svg')" aria-hidden="true"></span>
                 </button>
               </div>
-              <button class="btn btn-secondary" id="resource-browser-library-browse" type="button">File…</button>
+              <button class="btn btn-secondary" id="resource-browser-library-browse" type="button" title="Add a model file from disk">File…</button>
             </div>
             <div class="resource-browser-tag-filter-bar preset-tag-filter-bar" id="resource-browser-library-tag-filters"></div>
             <div id="resource-browser-library-list" class="results results--compact resource-browser-list"></div>
@@ -51,24 +51,28 @@
               <select id="resource-browser-folder-root" title="Saved folders">
                 <option value="">No folder selected</option>
               </select>
-              <button class="btn btn-secondary" id="resource-browser-folder-add" type="button" title="Add a folder">+ Add Folder</button>
-              <button class="resource-browser-action-icon-btn resource-browser-folder-remove-btn" id="resource-browser-folder-remove" type="button" title="Remove the selected folder" aria-label="Remove folder">🗑️</button>
+              <button class="resource-browser-toolbar-icon-btn" id="resource-browser-folder-remove" type="button" title="Remove this folder from the list (its files stay on disk)" aria-label="Remove folder">
+                <span class="resource-browser-icon" style="--icon-url: url('/images/icons/trash.svg')" aria-hidden="true"></span>
+              </button>
+              <button class="btn btn-secondary" id="resource-browser-folder-add" type="button" title="Add a folder">Add Folder…</button>
               <input type="text" id="resource-browser-folder-search" placeholder="Filter files…" />
             </div>
             <div class="resource-browser-folder-breadcrumb">
-              <button class="btn btn-secondary" id="resource-browser-folder-up" type="button" title="Up one level">↑ Up</button>
+              <button class="resource-browser-toolbar-icon-btn" id="resource-browser-folder-up" type="button" title="Up one level" aria-label="Up one level">
+                <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"></polyline></svg>
+              </button>
               <span id="resource-browser-folder-path" class="resource-browser-folder-path"></span>
+              <div id="resource-browser-folder-status" class="resource-browser-status"></div>
             </div>
             <div class="resource-browser-tag-filter-bar preset-tag-filter-bar" id="resource-browser-folder-tag-filters"></div>
-            <div id="resource-browser-folder-status" class="resource-browser-status"></div>
             <div id="resource-browser-folder-list" class="results results--compact resource-browser-list resource-browser-folder-list"></div>
           </div>
           
           <!-- Tone3000 Tab Panel -->
           <div class="resource-browser-tab-panel" data-tab-panel="tone3000">
-            <div class="resource-browser-tone3000-mode-tabs">
-              <button class="resource-browser-tone3000-mode-tab active" id="resource-browser-tone3000-mode-search-tab" type="button" aria-pressed="true">Search</button>
-              <button class="resource-browser-tone3000-mode-tab" id="resource-browser-tone3000-mode-favorites-tab" type="button" aria-pressed="false" title="Favorites are available only when using your own Tone3000 API key">Favourites</button>
+            <div class="resource-browser-segmented resource-browser-tone3000-mode-tabs" role="group" aria-label="Tone3000 view">
+              <button class="resource-browser-segment active" id="resource-browser-tone3000-mode-search-tab" type="button" aria-pressed="true">Search</button>
+              <button class="resource-browser-segment" id="resource-browser-tone3000-mode-favorites-tab" type="button" aria-pressed="false" title="Favorites are available only when using your own Tone3000 API key">Favourites</button>
             </div>
             <div class="resource-browser-filters" id="resource-browser-tone3000-search-controls">
               <input type="text" id="resource-browser-tone3000-search" placeholder="Search amps and pedals…" />

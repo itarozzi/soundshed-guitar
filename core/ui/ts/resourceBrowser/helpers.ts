@@ -1,9 +1,10 @@
 /**
  * Small pure helpers the browser leans on: reading loosely-typed library fields,
- * and the two formatting details the rows need.
+ * and the formatting details the rows need.
  */
 
 import type { LibraryResource } from "../types.js";
+import { escapeHtml } from "../utils.js";
 
 export function normalizeFilterValue(value: string): string {
   return value.trim().replace(/\s+/g, " ").toLowerCase();
@@ -105,14 +106,25 @@ export function getResourceLibraryFacets(resources: LibraryResource[]): { tags: 
   };
 }
 
+/// Marks a row button whose double click takes the resource, as one on the row
+/// does: the play, preview and Select buttons, which only ever lead there.
+export const DOUBLE_CLICK_SELECTS_ATTR = "data-double-click-selects";
+
 /// Controls inside a result row (favourite, edit, delete, attribution links)
 /// own their own clicks, and the expanded details panel is text the user may
 /// well be double clicking to select, so neither means "take this resource".
 export function isDoubleClickExempt(target: HTMLElement): boolean {
+  const control = target.closest("button, a, input, select, textarea");
   return Boolean(
-    target.closest("button, a, input, select, textarea")
+    (control && !control.hasAttribute(DOUBLE_CLICK_SELECTS_ATTR))
     || target.closest(".resource-browser-item-details-panel"),
   );
+}
+
+/// The second click of a double click. Its dblclick takes the resource, so the
+/// click itself must not restart, or stop, the preview the first one began.
+export function isSecondClickOfDouble(event: Event): boolean {
+  return (event as MouseEvent).detail > 1;
 }
 
 export function sanitizeFilename(raw: string): string {
@@ -167,4 +179,56 @@ export function normalizeNamArchitectureBadge(raw: string): string {
     return "A1";
   }
   return "";
+}
+
+/**
+ * The gear a model was captured from. Make and model often overlap ("Diezel" and
+ * "Diezel Herbert", or the same text in both), and the row should not say it twice.
+ */
+export function formatGearDescription(make: string | undefined, model: string | undefined): string {
+  const gearMake = (make ?? "").trim();
+  const gearModel = (model ?? "").trim();
+  if (gearMake && gearModel.toLowerCase().startsWith(gearMake.toLowerCase())) {
+    return gearModel;
+  }
+  return [gearMake, gearModel].filter(Boolean).join(" ");
+}
+
+export interface ResourceMetaParts {
+  category?: string;
+  creator?: string;
+  architecture?: string;
+  gear?: string;
+  toneType?: string;
+  /** Plain values such as a sample rate or a duration, shown as they are. */
+  extra?: string[];
+  tags?: string[];
+}
+
+/**
+ * The one line of metadata under a row's title, the same in the library and the
+ * folder tab. Each part is a span; the stylesheet puts the separators between them,
+ * so an empty part leaves no stray dot behind.
+ */
+export function renderResourceMetaParts(parts: ResourceMetaParts): string {
+  const spans: string[] = [];
+  const plain = (value: string | undefined, className = "", title = ""): void => {
+    const text = (value ?? "").trim();
+    if (!text) return;
+    const classAttr = className ? ` class="${escapeHtml(className)}"` : "";
+    const titleAttr = title ? ` title="${escapeHtml(title)}"` : "";
+    spans.push(`<span${classAttr}${titleAttr}>${escapeHtml(text)}</span>`);
+  };
+
+  plain(parts.category);
+  if (parts.creator?.trim()) plain(`by ${parts.creator.trim()}`, "resource-browser-creator");
+  plain(parts.architecture, "resource-browser-architecture-badge", "Model architecture");
+  plain(parts.gear, "resource-browser-gear-desc", parts.gear);
+  plain((parts.toneType ?? "").replace(/_/g, " "), "resource-browser-tone-type");
+  (parts.extra ?? []).forEach((value) => plain(value));
+  if (parts.tags?.length) {
+    const pills = parts.tags.map((tag) => `<span class="resource-browser-tag-pill">${escapeHtml(tag)}</span>`).join("");
+    spans.push(`<span class="resource-browser-tag-list" title="Tags">${pills}</span>`);
+  }
+  return spans.join("");
 }

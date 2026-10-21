@@ -15,7 +15,7 @@ import { getPlaySvg } from "./iconAssets.js";
 import { showNotification } from "./notifications.js";
 import { FolderTab } from "./resourceBrowser/folderTab.js";
 import { folderFileLibraryMatch } from "./resourceBrowser/folderRows.js";
-import { normalizeArchitectureBadge, getResourceCreator, getResourceLibraryFacets, getResourceTags, isDoubleClickExempt, normalizeFilterValue, normalizeNamArchitectureBadge, resolveLibraryCategoryFromHint, splitTagValues } from "./resourceBrowser/helpers.js";
+import { DOUBLE_CLICK_SELECTS_ATTR, normalizeArchitectureBadge, formatGearDescription, renderResourceMetaParts, getResourceCreator, getResourceLibraryFacets, getResourceTags, isDoubleClickExempt, isSecondClickOfDouble, normalizeFilterValue, normalizeNamArchitectureBadge, resolveLibraryCategoryFromHint, splitTagValues } from "./resourceBrowser/helpers.js";
 import { DEFAULT_RESOURCE_CONTEXT_KEY, RESOURCE_FAVORITES_SETTING } from "./resourceBrowser/settings.js";
 import { TONE3000_IR_GEAR_OPTIONS, slotImportCategory, slotLibraryCategoryHint, slotStateKey, slotTitle, slotTone3000IrGear } from "./resourceBrowser/slot.js";
 import { Tone3000Tab } from "./resourceBrowser/tone3000Tab.js";
@@ -150,6 +150,7 @@ export class ResourceBrowserModal {
   private libraryResourceAliases: Map<string, Map<string, string>> = new Map(); // Maps resourceType -> (aliasId -> canonicalId)
   private lastNavigationViewByContext: Map<string, "library" | "folder" | "tone3000"> = new Map();
   private previewLoading: PreviewLoadingState | null = null;
+  private tone3000SelectInFlight = false;
   /// Per slot (slotStateKey), not per resource type: the cab and reverb pickers both browse IRs.
   private persistedStateBySlot: Map<string, PersistedResourceBrowserState> = new Map();
   private resourceUsageInfo: Map<string, { inUse: boolean; presetName?: string }> = new Map();
@@ -318,7 +319,7 @@ export class ResourceBrowserModal {
     const deleteBtn = row.querySelector<HTMLButtonElement>(".resource-browser-item-delete-btn");
     if (deleteBtn) {
       deleteBtn.disabled = isInUse;
-      deleteBtn.title = "Delete from resource library";
+      deleteBtn.title = isInUse ? "In use, so it cannot be deleted" : "Delete from resource library";
     }
   };
 
@@ -1167,7 +1168,7 @@ export class ResourceBrowserModal {
 
     if (this.libraryTagFilterBar) {
       if (!tags.length) {
-        this.libraryTagFilterBar.innerHTML = `<span class="resource-browser-empty">No tags available for these resources.</span>`;
+        this.libraryTagFilterBar.innerHTML = "";
         return;
       }
 
@@ -1300,20 +1301,9 @@ export class ResourceBrowserModal {
         const isSelected = res.id === currentId || res.id === resolvedCurrentId;
         const selectedClass = isSelected ? "results-item resource-browser-item is-selected" : "results-item resource-browser-item";
         const metadata = res.metadata ?? {};
-        const provider = metadata.provider ?? "";
-        const providerBadge = provider ? `<span class="resource-browser-provider">${escapeHtml(provider)}</span>` : "";
-        const authorUsername = metadata.authorUsername ?? metadata.modeledBy ?? "";
-        const sourceUrl = metadata.sourceUrl ?? "";
-        const authorBadge = authorUsername ? `<span class="resource-browser-author">by: ${escapeHtml(authorUsername)}</span>` : "";
-        const sourceLinkBadge = sourceUrl.startsWith("https://www.tone3000.com/") ? `<a class="resource-browser-attribution-link" href="${escapeHtml(sourceUrl)}" target="_blank" rel="noopener noreferrer">↗ tone3000</a>` : "";
-        const tags = getResourceTags(res);
-        const tagsBadge = tags.length
-          ? `<span class="resource-browser-tag-list">${tags.map((tag) => `<span class="resource-browser-tag-pill">${escapeHtml(tag)}</span>`).join("")}</span>`
-          : "";
-        const creator = getResourceCreator(res);
-        const creatorBadge = creator
-          ? `<span class="resource-browser-creator">by ${escapeHtml(creator)}</span>`
-          : "";
+        // One quiet line: what it is, who made it, and how it sounds. The provider,
+        // source link and IDs live in the details panel. The category is left out
+        // while the list is filtered to it, as every row would repeat it.
         const architecture = resourceType === "nam"
           ? normalizeArchitectureBadge(
             metadata.architectureVersion
@@ -1322,19 +1312,14 @@ export class ResourceBrowserModal {
             || "",
           )
           : "";
-        const architectureBadge = architecture
-          ? `<span class="resource-browser-architecture-badge" title="Model architecture">${escapeHtml(architecture)}</span>`
-          : "";
-        const gearMake = metadata.gearMake ?? "";
-        const gearModel = metadata.gearModel ?? "";
-        const gearDesc = [gearMake, gearModel].filter(Boolean).join(" ");
-        const gearDescBadge = gearDesc
-          ? `<span class="resource-browser-gear-desc" title="${escapeHtml(gearDesc)}">${escapeHtml(gearDesc)}</span>`
-          : "";
-        const toneType = metadata.toneType ?? "";
-        const toneTypeBadge = toneType
-          ? `<span class="resource-browser-tone-type">${escapeHtml(toneType.replace(/_/g, " "))}</span>`
-          : "";
+        const metaParts = renderResourceMetaParts({
+          category: category === "all" ? categoryLabel : "",
+          creator: getResourceCreator(res),
+          architecture,
+          gear: formatGearDescription(metadata.gearMake, metadata.gearModel),
+          toneType: metadata.toneType,
+          tags: getResourceTags(res),
+        });
         const isFav = this.isResourceFavorite(res.id);
         const favoriteAction = `<button class="resource-browser-action-icon-btn resource-browser-item-fav-toggle${isFav ? " is-active" : ""}" type="button" data-resource-id="${escapeHtml(res.id)}" title="${isFav ? "Remove from favourites" : "Add to favourites"}" aria-label="Toggle favourite">${isFav ? "★" : "☆"}</button>`;
         const providerNormalized = (metadata.provider ?? "").trim().toLowerCase();
@@ -1347,7 +1332,7 @@ export class ResourceBrowserModal {
         const usage = this.resourceUsageInfo.get(usageKey);
         const isInUse = usage?.inUse ?? false;
         const deleteDisabled = isInUse ? " disabled" : "";
-        const deleteAction = `<button class="resource-browser-action-icon-btn resource-browser-item-delete-btn"${deleteDisabled} type="button" data-resource-id="${escapeHtml(res.id)}" title="Delete from resource library" aria-label="Delete from resource library"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg></button>`;
+        const deleteAction = `<button class="resource-browser-action-icon-btn resource-browser-item-delete-btn"${deleteDisabled} type="button" data-resource-id="${escapeHtml(res.id)}" title="${isInUse ? "In use, so it cannot be deleted" : "Delete from resource library"}" aria-label="Delete from resource library"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg></button>`;
 
         const isDetailsExpanded = this.expandedLibraryItemId === res.id;
         const entryClass = `resource-browser-library-entry${isDetailsExpanded ? " is-details-expanded" : ""}`;
@@ -1356,18 +1341,14 @@ export class ResourceBrowserModal {
             <div class="${selectedClass} resource-browser-item-row" data-resource-id="${escapeHtml(res.id)}">
               <div class="results-item-main resource-browser-item-info">
                 <div class="results-item-title resource-browser-item-title">${escapeHtml(title)}</div>
-                <div class="results-item-meta resource-browser-item-meta">
-                  <span>${escapeHtml(categoryLabel)}</span>
-                  ${creatorBadge}
-                  ${architectureBadge}${gearDescBadge}${toneTypeBadge}${providerBadge}${authorBadge}${sourceLinkBadge}${tagsBadge}
-                </div>
+                <div class="results-item-meta resource-browser-item-meta">${metaParts}</div>
               </div>
               <div class="resource-browser-item-actions">
                 ${favoriteAction}
                 ${editAction}
                 <button class="resource-browser-action-icon-btn resource-browser-item-details-btn" type="button" data-resource-id="${escapeHtml(res.id)}" title="${isDetailsExpanded ? "Hide details" : "Show details"}" aria-expanded="${isDetailsExpanded ? "true" : "false"}" aria-label="Resource details">ℹ</button>
                 ${deleteAction}
-                <button class="resource-browser-action-icon-btn resource-browser-item-select${isSelected ? " is-active" : ""}" type="button" title="Select in effect" aria-label="Select in effect" aria-pressed="${isSelected ? "true" : "false"}">${getPlaySvg()}</button>
+                <button class="resource-browser-action-icon-btn resource-browser-item-select${isSelected ? " is-active" : ""}" type="button" ${DOUBLE_CLICK_SELECTS_ATTR} title="Select in effect" aria-label="Select in effect" aria-pressed="${isSelected ? "true" : "false"}">${getPlaySvg()}</button>
               </div>
             </div>
             ${isDetailsExpanded ? this.renderLibraryItemDetailsPanel(res) : ""}
@@ -1593,15 +1574,15 @@ export class ResourceBrowserModal {
     }
     
     const item = target.closest(".resource-browser-item") as HTMLElement | null;
-    if (!item) {
+    if (!item || isSecondClickOfDouble(event)) {
       return;
     }
-    
+
     const resourceId = item.dataset.resourceId ?? "";
     if (!resourceId) {
       return;
     }
-    
+
     // Cancel any active Tone3000 preview when selecting from library
     if (this.previewState?.active) {
       this.cancelPreview();
@@ -1919,7 +1900,21 @@ export class ResourceBrowserModal {
     // resource type (an IR import of .nam bytes) and select into the new node, closing it.
     const options = this.options;
     const isStale = (): boolean => this.options !== options;
-    
+
+    // Select and a double click on the row can both ask while a download is in; one is enough.
+    if (this.tone3000SelectInFlight) {
+      return;
+    }
+
+    // Already in the library: take that copy without downloading it again, as next/prev does.
+    const importedId = this.tone3000Tab.navigation.findImportedTone3000ResourceId(options.resourceType, modelId);
+    if (importedId) {
+      this.tone3000Tab.navigation.captureTone3000NavigationState();
+      this.selectedResourceId = importedId;
+      this.confirmSelection();
+      return;
+    }
+
     if (!isTone3000AuthReady()) {
       showNotification("Import failed", "No Tone3000 session");
       return;
@@ -1939,7 +1934,8 @@ export class ResourceBrowserModal {
     if (this.tone3000Tab.tone3000Status) {
       this.tone3000Tab.tone3000Status.textContent = "Importing...";
     }
-    
+
+    this.tone3000SelectInFlight = true;
     try {
       // Download the model
       const response = await tone3000AuthenticatedFetch(modelUrl);
@@ -1993,6 +1989,8 @@ export class ResourceBrowserModal {
       if (this.tone3000Tab.tone3000Status) {
         this.tone3000Tab.tone3000Status.textContent = "";
       }
+    } finally {
+      this.tone3000SelectInFlight = false;
     }
   }
 

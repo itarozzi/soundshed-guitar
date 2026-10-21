@@ -9,6 +9,7 @@
  */
 
 import { escapeHtml } from "../utils.js";
+import { renderIcon } from "../iconAssets.js";
 import type { FolderRowState } from "./folderRows.js";
 import { renderFolderFileRow } from "./folderRows.js";
 import {
@@ -117,7 +118,7 @@ export class FolderVirtualList {
       <div class="resource-browser-folder-entry" data-kind="dir" data-path="${escapeHtml(entry.dir.path)}">
         <div class="results-item resource-browser-item resource-browser-folder-dir-row">
           <div class="results-item-main resource-browser-item-info">
-            <div class="results-item-title resource-browser-item-title">📁 ${escapeHtml(entry.dir.name)}</div>
+            <div class="results-item-title resource-browser-item-title">${renderIcon("folder", "resource-browser-icon")}<span>${escapeHtml(entry.dir.name)}</span></div>
           </div>
         </div>
       </div>

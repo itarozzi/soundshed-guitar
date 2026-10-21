@@ -15,10 +15,10 @@ export const FOLDER_LAST_LOCATIONS_SETTING = "resources.folderBrowser.lastLocati
 
 export const DEFAULT_RESOURCE_CONTEXT_KEY = "default";
 
-export const FOLDER_VIRTUAL_GAP = 6;
+export const FOLDER_VIRTUAL_GAP = 2;
 
 export const FOLDER_VIRTUAL_OVERSCAN = 6;
 
-export const FOLDER_VIRTUAL_ESTIMATED_DIR_HEIGHT = 44;
+export const FOLDER_VIRTUAL_ESTIMATED_DIR_HEIGHT = 36;
 
-export const FOLDER_VIRTUAL_ESTIMATED_FILE_HEIGHT = 62;
+export const FOLDER_VIRTUAL_ESTIMATED_FILE_HEIGHT = 44;
