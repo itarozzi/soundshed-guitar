@@ -46,10 +46,33 @@ import { setNodeParamsPanelRenderer } from "../render.js";
 import { nodeParamKnobs, paramsPanelInteractions } from "./state.js";
 import { refreshNodeVisualizations } from "./visualizations.js";
 
+/// The node the panel was last drawn for, and which file each of its slots
+/// pointed at. Blend values are left out: they move with a knob mid-drag.
+let drawnResourcesKey = "";
+
+function nodeResourcesKey(node: GraphNode): string {
+  const slots = (node.resources ?? []).map((ref) => [ref.resourceType, ref.resourceId || ref.id, ref.filePath, ref.embeddedId].join(":"));
+  return `${node.id}|${slots.join("|")}`;
+}
+
+/// Redraws the panel when it shows this node but not the resources it has now.
+/// The chain's re-render keeps the selected node's panel as it is, so a state
+/// update that swaps its model (a pick from the resource browser landing, say)
+/// would otherwise leave the old model, or a preview's temp file, on screen.
+export function redrawNodeParamsPanelIfOutOfDate(node: GraphNode, preset: Preset): void {
+  const outOfDate = Boolean(nodeParamsPanelElement?.classList.contains("visible"))
+    && drawnResourcesKey.startsWith(`${node.id}|`)
+    && drawnResourcesKey !== nodeResourcesKey(node);
+  if (outOfDate) {
+    showNodeParamsPanel(node, preset);
+  }
+}
+
 export function showNodeParamsPanel(node: GraphNode, preset: Preset): void {
   if (!nodeParamsPanelElement) {
     return;
   }
+  drawnResourcesKey = nodeResourcesKey(node);
 
   // Tear down any existing interactive EQ curve before replacing panel content
   if (paramsPanelInteractions.eq) {

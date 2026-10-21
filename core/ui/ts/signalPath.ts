@@ -47,7 +47,7 @@ import { SIGNAL_PATH_FULL_HEIGHT, scheduleSignalPathLayoutAdapt } from "./signal
 import { renderBoundaryNode, renderConnectorWrapper, renderSignalChainRow, signalChainLineAt } from "./signalPath/chainRow.js";
 import type { EdgeRef } from "./signalPath/graph.js";
 import { buildGraphMaps, normalizeEdge, parseEdgeFromDataset, pickPrimaryOutgoingEdge, sortEdgesByPort } from "./signalPath/graph.js";
-import { collapseSplitTitle, showNodeParamsPanel } from "./signalPath/paramsPanel.js";
+import { collapseSplitTitle, redrawNodeParamsPanelIfOutOfDate, showNodeParamsPanel } from "./signalPath/paramsPanel.js";
 import { buildMissingResourceTooltip, buildNodeLayoutMatchText, getMissingResourceEntries, getNodeArchitectureBadge, getNodeDisplayName, getNodeResourceDisplayName, getNodeUserTitle } from "./signalPath/nodeLabels.js";
 import { isProtectedSignalPathNode, isToggleableSignalPathNode, toggleSignalPathNodeBypass } from "./signalPath/bypass.js";
 import { updateSignalPathClipIndicators } from "./signalPath/telemetry.js";
@@ -394,7 +394,7 @@ function selectNodeForPreset(preset: Preset, presetChanged: boolean): void {
   // Keep the current node only while rendering the same preset.
   const currentNode = getSelectedNodeId() ? nodes.find((node) => node.id === getSelectedNodeId()) : undefined;
   if (!presetChanged && currentNode) {
-    return;
+    return redrawNodeParamsPanelIfOutOfDate(currentNode, preset);
   }
 
   const matchesCategory = (node: GraphNode): boolean => {
