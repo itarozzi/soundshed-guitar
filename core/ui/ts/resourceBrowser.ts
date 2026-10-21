@@ -17,6 +17,8 @@ import { FolderTab } from "./resourceBrowser/folderTab.js";
 import { folderFileLibraryMatch } from "./resourceBrowser/folderRows.js";
 import { DOUBLE_CLICK_SELECTS_ATTR, normalizeArchitectureBadge, formatGearDescription, renderResourceMetaParts, getResourceCreator, getResourceLibraryFacets, getResourceTags, isDoubleClickExempt, isSecondClickOfDouble, normalizeFilterValue, normalizeNamArchitectureBadge, resolveLibraryCategoryFromHint, splitTagValues } from "./resourceBrowser/helpers.js";
 import { DEFAULT_RESOURCE_CONTEXT_KEY, RESOURCE_FAVORITES_SETTING } from "./resourceBrowser/settings.js";
+import { LibraryPackGrouping } from "./resourceBrowser/libraryPacks.js";
+import { renderLibraryItemDetailsPanel } from "./resourceBrowser/libraryDetails.js";
 import { TONE3000_IR_GEAR_OPTIONS, slotImportCategory, slotLibraryCategoryHint, slotStateKey, slotTitle, slotTone3000IrGear } from "./resourceBrowser/slot.js";
 import { Tone3000Tab } from "./resourceBrowser/tone3000Tab.js";
 import type { LibraryFilterSnapshot, NavigationCacheOptions, PersistedResourceBrowserState, PreviewLoadingState, PreviewState, ResourceBrowserOptions, ResourceBrowserTab, ResourceImportedDetail, ResourceNavigationResult, ResourceNavigationState, ResourceType } from "./resourceBrowser/types.js";
@@ -135,6 +137,7 @@ export class ResourceBrowserModal {
   private libraryFavoritesAllBtn: HTMLButtonElement | null = null;
   private libraryFavoritesOnlyBtn: HTMLButtonElement | null = null;
   private libraryFavoritesOnly = false;
+  private readonly packGrouping = new LibraryPackGrouping(() => this.renderLibraryList());
   private libraryNavPrevBtn: HTMLButtonElement | null = null;
   private libraryNavNextBtn: HTMLButtonElement | null = null;
   private libraryBrowseBtn: HTMLButtonElement | null = null;
@@ -1065,7 +1068,7 @@ export class ResourceBrowserModal {
 
     return {
       resourceType,
-      items: filtered.map((res) => ({ resourceId: res.id })),
+      items: this.packGrouping.order(filtered, (id) => this.isResourceFavorite(id)).map((res) => ({ resourceId: res.id })),
     };
   }
 
@@ -1270,7 +1273,7 @@ export class ResourceBrowserModal {
     
     const navigationState: ResourceNavigationState = {
       resourceType,
-      items: filtered.map((res) => ({ resourceId: res.id })),
+      items: this.packGrouping.order(filtered, (id) => this.isResourceFavorite(id)).map((res) => ({ resourceId: res.id })),
     };
     const cacheKey = this.buildLibraryNavigationCacheKey(resourceType, category);
     this.libraryNavigationStates.set(cacheKey, navigationState);
@@ -1291,9 +1294,9 @@ export class ResourceBrowserModal {
     }
 
     // Usage info is queried lazily as items scroll into view (see observeVisibleUsage).
-    this.libraryList.innerHTML = filtered
-      .map((res) => {
-        const title = res.name?.trim() || res.id;
+    const packOptions = { selectedId: resolveResourceIdAlias(currentId, this.libraryResourceAliases.get(resourceType) ?? new Map()), openAll: Boolean(query) || this.libraryFavoritesOnly, isFavorite: (id: string) => this.isResourceFavorite(id) };
+    this.libraryList.innerHTML = this.packGrouping.render(this.libraryList, filtered, packOptions, (res, titleInPack) => {
+        const title = titleInPack ?? (res.name?.trim() || res.id);
         const categoryLabel = (res.category ?? "").trim() || "Uncategorized";
         // Check if current ID matches this resource, or if current ID is aliased to this resource
         const aliasMap = this.libraryResourceAliases.get(resourceType) || new Map();
@@ -1351,11 +1354,10 @@ export class ResourceBrowserModal {
                 <button class="resource-browser-action-icon-btn resource-browser-item-select${isSelected ? " is-active" : ""}" type="button" ${DOUBLE_CLICK_SELECTS_ATTR} title="Select in effect" aria-label="Select in effect" aria-pressed="${isSelected ? "true" : "false"}">${getPlaySvg()}</button>
               </div>
             </div>
-            ${isDetailsExpanded ? this.renderLibraryItemDetailsPanel(res) : ""}
+            ${isDetailsExpanded ? renderLibraryItemDetailsPanel(res, { tone3000Title: isFeatureEnabled(Features.Tone3000) ? tone3000ToneFromResource(res)?.title : undefined }) : ""}
           </div>
         `;
-      })
-      .join("");
+      });
 
     this.observeVisibleUsage(resourceType);
     this.updateLibraryNavigationButtons();
@@ -1409,101 +1411,20 @@ export class ResourceBrowserModal {
     });
   }
 
-  private renderLibraryItemDetailsPanel(res: LibraryResource): string {
-    const METADATA_LABELS: Record<string, string> = {
-      provider: "Provider",
-      authorUsername: "Author",
-      modeledBy: "Modeled By",
-      sourceUrl: "Source",
-      architectureVersion: "Architecture",
-      architecture_version: "Architecture",
-      architecture: "Architecture",
-      namFileVersion: "NAM File Version",
-      sampleRate: "Sample Rate (Hz)",
-      namName: "Model Name",
-      gearMake: "Gear Make",
-      gearModel: "Gear Model",
-      gear_type: "Gear Type",
-      toneType: "Tone Type",
-      inputLevelDbu: "Input Level (dBu)",
-      outputLevelDbu: "Output Level (dBu)",
-      modelDate: "Model Date",
-      trainingFinalLoss: "Training Final Loss",
-      archive: "Pack Archive",
-      factoryArchiveKey: "Pack",
-      factoryArchiveHash: "Pack Hash",
-      originalId: "Source ID",
-      sourceFileName: "Source File",
-    };
-
-    const metadata = res.metadata ?? {};
-    const description = (res.description ?? "").trim();
-    const rows: string[] = [];
-
-    rows.push(`
-      <tr>
-        <td class="resource-browser-details-label">ID</td>
-        <td class="resource-browser-details-value resource-browser-details-mono">${escapeHtml(res.id)}</td>
-      </tr>
-    `);
-
-    const filePath = (res.filePath ?? "").trim();
-    if (filePath) {
-      rows.push(`
-        <tr>
-          <td class="resource-browser-details-label">File Path</td>
-          <td class="resource-browser-details-value">
-            <span class="resource-browser-details-path-group">
-              <button class="resource-browser-action-icon-btn resource-browser-local-path-copy-btn" type="button" data-resource-id="${escapeHtml(res.id)}" title="Copy local file path" aria-label="Copy local file path"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
-              <span class="resource-browser-details-mono">${escapeHtml(filePath)}</span>
-            </span>
-          </td>
-        </tr>
-      `);
-    }
-
-    const tags = getResourceTags(res);
-    if (tags.length > 0) {
-      rows.push(`
-        <tr>
-          <td class="resource-browser-details-label">Tags</td>
-          <td class="resource-browser-details-value">${tags.map((tag) => `<span class="resource-browser-tag-pill">${escapeHtml(tag)}</span>`).join(" ")}</td>
-        </tr>
-      `);
-    }
-
-    for (const [key, value] of Object.entries(metadata)) {
-      if (!value) continue;
-      const label = METADATA_LABELS[key] ?? key.replace(/_/g, " ").replace(/([A-Z])/g, " $1").trim();
-      let displayValue: string;
-      if (key === "sourceUrl" && value.startsWith("http")) {
-        displayValue = `<a class="resource-browser-details-link" href="${escapeHtml(value)}" target="_blank" rel="noopener noreferrer">${escapeHtml(value)}</a>`;
-      } else {
-        displayValue = escapeHtml(value);
-      }
-      rows.push(`
-        <tr>
-          <td class="resource-browser-details-label">${escapeHtml(label)}</td>
-          <td class="resource-browser-details-value">${displayValue}</td>
-        </tr>
-      `);
-    }
-
-    return `
-      <div class="resource-browser-item-details-panel">
-        ${description ? `<p class="resource-browser-details-description">${escapeHtml(description)}</p>` : ""}
-        <table class="resource-browser-details-table">
-          <tbody>
-            ${rows.join("")}
-          </tbody>
-        </table>
-      </div>
-    `;
-  }
-
   private async handleLibraryClick(event: Event): Promise<void> {
     const target = event.target as HTMLElement | null;
     if (!target) {
+      return;
+    }
+
+    const toneButton = target.closest(".resource-browser-details-tone3000-btn") as HTMLButtonElement | null;
+    if (toneButton) {
+      const resource = findResourceById(uiState.resourceLibrary[this.options?.resourceType ?? "nam"] ?? [], toneButton.dataset.resourceId ?? "");
+      const tone = tone3000ToneFromResource(resource);
+      if (tone && isFeatureEnabled(Features.Tone3000)) {
+        this.setActiveTab("tone3000", false);
+        void this.tone3000Tab.openSourceTone(tone, resource?.metadata?.architectureVersion);
+      }
       return;
     }
 

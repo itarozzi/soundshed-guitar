@@ -5,6 +5,9 @@
 
 export const RESOURCE_FAVORITES_SETTING = "resources.favorites";
 
+// The Library tab groups models from one pack unless this is false (absent means on).
+export const LIBRARY_GROUP_PACKS_SETTING = "resources.library.groupPacks";
+
 export const FOLDER_ROOTS_SETTING = "resources.folderBrowser.roots";
 
 export const FOLDER_ACTIVE_ROOT_SETTING = "resources.folderBrowser.activeRootId";

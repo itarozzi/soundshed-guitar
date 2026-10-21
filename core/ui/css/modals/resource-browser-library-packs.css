@@ -1,0 +1,81 @@
+/* Resource browser, Library tab: models from one pack as one collapsible group
+   (resourceBrowser/libraryPacks.ts), and the toolbar button that turns grouping off. */
+
+.resource-browser-group-toggle.is-active {
+  background: var(--bg-browser-hover);
+  color: var(--modal-text);
+}
+
+.resource-browser-pack {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* Drawn like a folder row: the pack's name and how many models it holds. */
+.resource-browser-pack-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 36px;
+  padding: 5px 12px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--rb-row-bg);
+  color: var(--modal-text);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.resource-browser-pack-header:hover {
+  background: var(--bg-browser-hover);
+}
+
+.resource-browser-pack-chevron {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  background-color: var(--modal-text-muted);
+  -webkit-mask: url("/images/icons/chevron-right.svg") center / contain no-repeat;
+  mask: url("/images/icons/chevron-right.svg") center / contain no-repeat;
+  transition: transform 0.15s ease;
+}
+
+.resource-browser-pack.is-open .resource-browser-pack-chevron {
+  transform: rotate(90deg);
+}
+
+.resource-browser-pack-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resource-browser-pack-count {
+  flex: none;
+  padding: 0 7px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-browser-input);
+  color: var(--modal-text-muted);
+  font-size: 10px;
+  line-height: 18px;
+}
+
+/* A closed pack still says it holds what is loaded, by the selected rows' own tint. */
+.resource-browser-pack.holds-selected:not(.is-open) .resource-browser-pack-header {
+  background: var(--bg-browser-selected);
+}
+
+/* The pack's models sit a step in, under its name. */
+.resource-browser-pack-items {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-left: 16px;
+}

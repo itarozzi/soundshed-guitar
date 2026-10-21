@@ -324,13 +324,12 @@
   background: var(--bg-browser-hover);
 }
 
-/* What is loaded in the effect right now: a tint and an accent edge. */
+/* What is loaded in the effect right now: a tint, no accent edge. */
 .resource-browser-item.is-selected,
 .resource-browser-folder-entry.is-previewing .resource-browser-folder-file-row,
 .resource-browser-model.is-previewing,
 .resource-browser-model.is-preview-loading {
   background: var(--bg-browser-selected);
-  box-shadow: inset 2px 0 0 var(--color-primary);
 }
 
 .resource-browser-item-info,
@@ -539,6 +538,23 @@
   border-bottom-right-radius: var(--radius-md);
   background: var(--rb-row-bg);
   border-top: 1px solid var(--rb-divider);
+}
+
+/* A Tone3000 model's way back to its tone on the Tone3000 tab. */
+.resource-browser-details-tone3000-btn {
+  margin: 0 0 8px;
+  padding: 4px 10px;
+  border: 1px solid var(--border-browser);
+  border-radius: var(--radius-md);
+  background: var(--bg-browser-input);
+  color: var(--modal-text);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.resource-browser-details-tone3000-btn:hover {
+  background: var(--bg-browser-hover);
 }
 
 .resource-browser-details-description {
