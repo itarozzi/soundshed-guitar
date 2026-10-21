@@ -357,14 +357,16 @@
   width: 100%;
   height: 100%;
   border-radius: inherit;
-  transform-origin: left center;
-  transform: scaleX(var(--meter-fill-scale, 0));
-  /* No easing: the value moves 20+ times a second, so a transition restarted on every
-     frame and kept the page animating between updates (a third of the main thread's
-     time while playing). Like the VU segments, it steps at the telemetry rate. Its own
-     layer means each step is a compositor transform, not a repaint of the rail. */
-  will-change: transform;
-  background: linear-gradient(90deg, rgba(72, 222, 170, 0.55) 0%, rgba(255, 94, 94, 0.92) 100%);
+  /* The level sizes the gradient, so a step is a repaint of this 4px strip, the same
+     paint-only change as a VU segment lighting. Moving it any other way cost more: a
+     transform (scaleX or translateX, layered or not) or a width change made Blink
+     re-layerize the whole page on every step, ~0.9 ms each and over a quarter of the
+     page's main thread while playing; seeking a paused Web Animation avoided that but
+     added a main frame per step. No easing either: a transition restarted on every
+     frame kept the page animating between updates. Like the VU segments, it steps at
+     the telemetry rate. */
+  background: linear-gradient(90deg, rgba(72, 222, 170, 0.55) 0%, rgba(255, 94, 94, 0.92) 100%)
+    no-repeat 0 0 / calc(var(--meter-fill-scale, 0) * 100%) 100%;
 }
 
 .default-effect-shell-rail.is-inactive {

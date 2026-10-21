@@ -489,3 +489,59 @@ Neither has a measured cause above the 10% bar yet.
 Long lists (the resource browser's Library tab rebuilt per search keypress, unbounded Tone
 Sharing paging and thumbnail object URLs), fonts and unused images (package size), and the
 per-view items in CPU section 5. None was measured in this pass.
+
+## Third pass 2026-10-21: the effect header meter
+
+The selected-node meter (`.default-effect-shell-meter`) still cost a large share of the
+main thread while playing, although it wrote only one custom property per changed frame.
+Measured on the Release Standalone (`47f65b6d`), demo loop muted, by removing the rail's
+class so `updateSelectedNodePeakMeter` returns early (detached) and comparing with it in
+place (attached), six interleaved 8 s rounds each:
+
+| Playing, shipped meter | Attached | Detached |
+| --- | --- | --- |
+| Renderer main thread | 7.6% | 5.5% |
+| Renderer process | 13.3% | 10.8% |
+| Meter writes/s | 15.7 | 0 |
+
+Style time barely moved (+0.2 points) and the number of style passes was the same: the
+writes land in frames the VU ladders already draw. A trace showed the cost was
+`PaintArtifactCompositor::Update`, Blink's full re-layerization, running once per write
+(16/s attached, 1.5/s detached) at ~0.9–1.4 ms each. A transform change set from style
+takes that slow path even on its own `will-change` layer.
+
+Driving the fill other ways at the telemetry rate, inside the same frames (main-frame
+time, ms/s):
+
+| Fill driven by | Main frame | Frames/s | Re-layerize |
+| --- | --- | --- | --- |
+| nothing | 45 | 26 | 2.2 |
+| `transform: scaleX(var)` (shipped) | 58 | 27 | 11.5 |
+| `translateX`, no `will-change`, or `width` | as shipped | | |
+| paused Web Animation, seeking `currentTime` | 57 | 38 | 1.7 |
+| `background-size: calc(var * 100%) 100%` | 51 | 26 | 1.5 |
+
+The animation seek avoids the re-layerize, but each seek restarts the compositor
+animation and its start notification costs an extra main frame, so it is a wash.
+`background-size` is a paint-only change of a 4 px strip, the same fast path the VU
+segments' colour changes take.
+
+### Done
+
+- `css/signal-path/params-panel.css`: the fill's gradient is sized by
+  `--meter-fill-scale` instead of scaled by a transform; no layer. Nothing in the
+  TypeScript changed.
+
+Same method, the new fill against the shipped one (each attached minus detached):
+
+| Meter cost while playing | Shipped | `background-size` |
+| --- | --- | --- |
+| Renderer main thread | +0.8 to +2.1 points | +0.06 points |
+| Renderer process | +0.8 to +2.5 points | −0.03 points |
+| GPU process | −0.1 to +1.1 points | +0.4 points (noise ±2) |
+
+The shipped figure is two runs on different launches; the spread is run-to-run noise.
+
+**Rule of thumb for this WebView:** a value streamed at telemetry rate should change
+paint (a background size or colour), not a transform, a layout property or an
+animation's current time.
