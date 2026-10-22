@@ -903,10 +903,12 @@ void SignalGraphExecutor::Process(float** inputs, float** outputs, int numSample
         NodeState& state = *planned.state;
         std::fill(state.bufferLeft.begin(), state.bufferLeft.begin() + numSamples, 0.0f);
         std::fill(state.bufferRight.begin(), state.bufferRight.begin() + numSamples, 0.0f);
-        // channelCount is left as the last block published it; it is zeroed after the plan has
-        // run for a node that got no input (below), never here, or a reader catching the block
-        // part-way through sees 0 for a node that is about to run.
+        // channelCount, the level meters and the processing time are left as the last block
+        // published them; they are cleared after the plan has run for a node that did not run
+        // (below), never here, or a reader catching the block part-way through sees "did not
+        // run" for a node that is about to.
         state.hasInput = false;
+        state.timedThisBlock = false;
         state.notesLastBlock = state.notesThisBlock;
         state.notesThisBlock = false;
 
@@ -914,20 +916,6 @@ void SignalGraphExecutor::Process(float** inputs, float** outputs, int numSample
         {
             state.widenHoldSamples = std::max(0, state.widenHoldSamples - numSamples);
             widenHoldEnded = widenHoldEnded || state.widenHoldSamples == 0;
-        }
-
-        if (diagnosticsEnabled)
-        {
-            // "Did not run this block" has to be reset every block, even when the level
-            // meters are not being refreshed.
-            state.processingTimeUs.store(kNodeDidNotRunUs, std::memory_order_relaxed);
-        }
-
-        if (collectLevels)
-        {
-            state.peak.store(0.0, std::memory_order_relaxed);
-            state.rms.store(0.0, std::memory_order_relaxed);
-            state.clipCount.store(0, std::memory_order_relaxed);
         }
     }
 
@@ -1016,12 +1004,28 @@ void SignalGraphExecutor::Process(float** inputs, float** outputs, int numSample
         }
     }
 
-    // A node that ran has published its channel count; one that got no input reads 0.
+    // A node that ran has published its channel count and, on a metering block, its levels; one
+    // that got no input reads 0 channels and silence. A node that was not timed (bypassed, or no
+    // input) reads as not having run, even on a block whose levels are not refreshed.
     for (auto& planned : mPlan)
     {
-        if (!planned.state->hasInput)
+        NodeState& state = *planned.state;
+
+        if (!state.hasInput)
         {
-            planned.state->channelCount.store(0, std::memory_order_relaxed);
+            state.channelCount.store(0, std::memory_order_relaxed);
+
+            if (collectLevels)
+            {
+                state.peak.store(0.0, std::memory_order_relaxed);
+                state.rms.store(0.0, std::memory_order_relaxed);
+                state.clipCount.store(0, std::memory_order_relaxed);
+            }
+        }
+
+        if (diagnosticsEnabled && !state.timedThisBlock)
+        {
+            state.processingTimeUs.store(kNodeDidNotRunUs, std::memory_order_relaxed);
         }
     }
 

@@ -511,6 +511,7 @@ void SignalGraphExecutor::ProcessPlannedNode(PlannedNode& planned, int numSample
         const auto nodeEnd = std::chrono::high_resolution_clock::now();
         const std::chrono::duration<double, std::micro> nodeDuration(nodeEnd - nodeStart);
         state->processingTimeUs.store(nodeDuration.count(), std::memory_order_relaxed);
+        state->timedThisBlock = true;
     };
 
     // Note routing, for a node about to run. A source that did not run last block starts afresh,

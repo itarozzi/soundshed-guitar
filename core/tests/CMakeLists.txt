@@ -88,6 +88,7 @@ set(TEST_SOURCES
     NamResourceMetadataTests.cpp
     NAMDualLaneBenchmark.cpp
     NAMPerformanceBenchmark.cpp
+    NodeTelemetryHoldTests.cpp
     NoiseGateTests.cpp
     NoiseGateLearnTests.cpp
     NoiseReductionEffectTests.cpp

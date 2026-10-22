@@ -404,6 +404,9 @@ class SignalGraphExecutor
         std::vector<float> twinScratchLeft;
         std::vector<float> twinScratchRight;
         bool hasInput = false;
+        /// Whether the node was timed this block, so Process() can publish "did not run" once the
+        /// plan has run rather than at the start of the block. Audio thread only, like hasInput.
+        bool timedThisBlock = false;
         /// The resolved layout of what reaches this node and of what it puts out (see the class
         /// comment). Written only when the layout is resolved, under the DSP lock once running.
         bool inputStereo = false;
@@ -423,6 +426,9 @@ class SignalGraphExecutor
             Right,
         };
         MonoFold monoFold = MonoFold::None;
+        /// The level meters, refreshed on metering blocks only. Like channelCount, they only ever
+        /// hold a finished block's value: a node writes them when it runs, and Process() zeroes
+        /// them at the end of a metering block in which the node got no input.
         std::atomic<double> peak{0.0};
         std::atomic<double> rms{0.0};
         std::atomic<int> clipCount{0};
@@ -437,7 +443,9 @@ class SignalGraphExecutor
         // run" has to stay distinct from any real time so a bypassed node is left out of the stats
         // map. It used to be NaN, but the Release builds' fast floating-point semantics fold
         // std::isfinite to true, so the NaN went out as a time. One atomic rather than a time and a
-        // flag, so a reader can never pair halves from two different blocks.
+        // flag, so a reader can never pair halves from two different blocks. Written when the node
+        // is timed, and set to kNodeDidNotRunUs at the end of a block in which it was not (see
+        // timedThisBlock), never at the start, so a reader mid-block sees the last block's time.
         std::atomic<double> processingTimeUs{kNodeDidNotRunUs};
         /// The executor's spectrum tap while this is the watched node, else null. The tap
         /// outlives every node that points at it; see mSpectrumTap.
