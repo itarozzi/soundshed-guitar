@@ -36,13 +36,6 @@
   }
 }
 
-.node-params-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 12px;
-}
-
 .node-params-body {
   display: flex;
   flex-direction: column;
@@ -308,10 +301,6 @@
   transform: translateX(18px);
 }
 
-.default-effect-shell-toggle:not(.bypassed) .default-effect-shell-toggle-label {
-  text-align: left;
-}
-
 .default-effect-shell-toggle.bypassed .default-effect-shell-toggle-label {
   text-align: right;
 }
@@ -527,19 +516,6 @@
   padding: 16px;
 }
 
-.default-effect-shell.neural-model-effect .neural-model-resource-selector > .node-resource-selector {
-  gap: 6px;
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-}
-
-.default-effect-shell.neural-model-effect .neural-model-resource-selector .resource-controls {
-  gap: 8px;
-}
-
 .default-effect-shell .effect-inline-resource-selectors {
   display: flex;
   flex-wrap: wrap;
@@ -547,9 +523,8 @@
   margin-bottom: 14px;
 }
 
+.default-effect-shell.neural-model-effect .neural-model-resource-selector > .node-resource-selector,
 .default-effect-shell .effect-inline-resource-selectors .node-resource-selector {
-  flex: 1 1 280px;
-  min-width: 0;
   gap: 6px;
   padding: 0;
   border: 0;
@@ -558,6 +533,12 @@
   box-shadow: none;
 }
 
+.default-effect-shell .effect-inline-resource-selectors .node-resource-selector {
+  flex: 1 1 280px;
+  min-width: 0;
+}
+
+.default-effect-shell.neural-model-effect .neural-model-resource-selector .resource-controls,
 .default-effect-shell .effect-inline-resource-selectors .resource-controls {
   gap: 8px;
 }
@@ -629,7 +610,11 @@
 }
 
 .default-effect-shell .resource-nav-btn,
-.custom-layout-resource-selector .resource-nav-btn {
+.custom-layout-resource-selector .resource-nav-btn,
+.default-effect-shell .resource-picker-btn,
+.default-effect-shell .resource-clear-btn,
+.default-effect-shell .resource-browse-btn,
+.default-effect-shell .blend-open-btn {
   border-radius: var(--radius-xl);
   border-color: rgba(192, 203, 229, 0.16);
   background: linear-gradient(180deg, rgba(72, 79, 100, 0.9) 0%, rgba(38, 43, 57, 0.96) 100%);
@@ -637,7 +622,11 @@
 }
 
 .default-effect-shell .resource-nav-btn:hover,
-.custom-layout-resource-selector .resource-nav-btn:hover {
+.custom-layout-resource-selector .resource-nav-btn:hover,
+.default-effect-shell .resource-picker-btn:hover,
+.default-effect-shell .resource-clear-btn:hover,
+.default-effect-shell .resource-browse-btn:hover,
+.default-effect-shell .blend-open-btn:hover {
   border-color: rgba(255, 190, 120, 0.36);
 }
 
@@ -722,12 +711,13 @@
   color: rgba(194, 203, 222, 0.66);
 }
 
-.input-analyzer-spectrogram-wrap {
+.input-analyzer-spectrogram-wrap,
+.input-analyzer-bark-wrap {
+  padding: 8px;
   border-radius: var(--radius-2xl);
   border: 1px solid rgba(170, 183, 214, 0.14);
   background: linear-gradient(180deg, rgba(9, 12, 19, 0.92) 0%, rgba(11, 14, 22, 0.86) 100%);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
-  padding: 8px;
 }
 
 .input-analyzer-spectrogram-canvas {
@@ -740,11 +730,6 @@
 .input-analyzer-bark-wrap {
   display: grid;
   gap: 6px;
-  padding: 8px;
-  border-radius: var(--radius-2xl);
-  border: 1px solid rgba(170, 183, 214, 0.14);
-  background: linear-gradient(180deg, rgba(9, 12, 19, 0.92) 0%, rgba(11, 14, 22, 0.86) 100%);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
 .input-analyzer-bark-title {
@@ -786,21 +771,4 @@
   line-height: 1.35;
   color: rgba(255, 232, 195, 0.82);
   overflow-wrap: anywhere;
-}
-
-.default-effect-shell .resource-picker-btn,
-.default-effect-shell .resource-clear-btn,
-.default-effect-shell .resource-browse-btn,
-.default-effect-shell .blend-open-btn {
-  border-radius: var(--radius-xl);
-  border-color: rgba(192, 203, 229, 0.16);
-  background: linear-gradient(180deg, rgba(72, 79, 100, 0.9) 0%, rgba(38, 43, 57, 0.96) 100%);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
-}
-
-.default-effect-shell .resource-picker-btn:hover,
-.default-effect-shell .resource-clear-btn:hover,
-.default-effect-shell .resource-browse-btn:hover,
-.default-effect-shell .blend-open-btn:hover {
-  border-color: rgba(255, 190, 120, 0.36);
 }
