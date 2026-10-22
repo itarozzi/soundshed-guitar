@@ -6,6 +6,7 @@
  * object and pushing it back into the header and the profile form.
  */
 
+import { recheckToneBuilderForAccount } from "../toneBuilder/availability.js";
 import { apiFetch, buildApiUrl, isToneSharingAdmin, toneSharingFetch, updateToneSharingSession } from "./api.js";
 import { loadBrowse, loadMine } from "./browse.js";
 import { element, setText } from "./dom.js";
@@ -213,6 +214,7 @@ export async function verifyCode(): Promise<void> {
     toneSharingState.user = data.user;
     setProfileFieldsFromUser(data.user);
     updateToneSharingSession(data.sessionId);
+    recheckToneBuilderForAccount();
     authCodeRequested = false;
     updateAuthButtonVisibility();
     setText("tone-sharing-auth-status", `Signed in as ${data.user.email}`);
@@ -230,6 +232,7 @@ export async function signOut(): Promise<void> {
   }
 
   updateToneSharingSession("");
+  recheckToneBuilderForAccount();
   toneSharingState.user = null;
   setProfileFieldsFromUser(null);
   authCodeRequested = false;
