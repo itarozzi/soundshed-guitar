@@ -646,6 +646,27 @@ export class ResourceBrowserModal {
     ) as HTMLElement | null;
     selectedItem?.scrollIntoView({ behavior: "instant", block: "center" });
   }
+
+  /// The Tone3000 tone a model came from would not open (refused, failed, or no models left),
+  /// so the model is shown where it can still be used: the Library, selected and in view. A
+  /// remembered search or the Favourites filter that would hide it is cleared.
+  private fallBackToLibrary(reason: string | null): void {
+    if (!reason || !this.options) {
+      return;
+    }
+    showNotification("Tone3000 pack unavailable", `${reason} Showing the model in your library instead.`);
+    this.setActiveTab("library");
+    this.renderLibraryList();
+    if (this.selectedResourceId && !this.libraryList?.querySelector(".resource-browser-item-row.is-selected")) {
+      if (this.librarySearch) {
+        this.librarySearch.value = "";
+      }
+      this.libraryFavoritesOnly = false;
+      this.syncLibraryFavoritesUi();
+      this.renderLibraryList();
+    }
+    requestAnimationFrame(() => this.scrollSelectedLibraryItemIntoView());
+  }
   
   open(options: ResourceBrowserOptions): void {
     this.initialize();
@@ -733,7 +754,7 @@ export class ResourceBrowserModal {
     const sourceTone = isFeatureEnabled(Features.Tone3000) ? tone3000ToneFromResource(currentResource) : null;
     this.setActiveTab(sourceTone ? "tone3000" : (options.initialTab ?? this.activeTab), !sourceTone);
     if (sourceTone) {
-      void this.tone3000Tab.openSourceTone(sourceTone, currentResource?.metadata?.architectureVersion);
+      void this.tone3000Tab.openSourceTone(sourceTone, currentResource?.metadata?.architectureVersion).then((reason) => this.fallBackToLibrary(reason));
     }
     
     // Update select button state
@@ -1423,7 +1444,7 @@ export class ResourceBrowserModal {
       const tone = tone3000ToneFromResource(resource);
       if (tone && isFeatureEnabled(Features.Tone3000)) {
         this.setActiveTab("tone3000", false);
-        void this.tone3000Tab.openSourceTone(tone, resource?.metadata?.architectureVersion);
+        void this.tone3000Tab.openSourceTone(tone, resource?.metadata?.architectureVersion).then((reason) => this.fallBackToLibrary(reason));
       }
       return;
     }

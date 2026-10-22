@@ -281,10 +281,15 @@ export class Tone3000Tab {
     }
   }
 
-  async openSourceTone(tone: Tone3000Tone, architectureVersion?: string): Promise<void> {
+  /**
+   * Shows the one tone a model came from, with its models. Resolves to why it could not be
+   * shown (no session, the model list refused or failed, no models left), so the picker can
+   * fall back to the model in the Library; null once shown, or once the picker has moved on.
+   */
+  async openSourceTone(tone: Tone3000Tone, architectureVersion?: string): Promise<string | null> {
     const options = this.host.getOptions();
     if (!this.tone3000List || !options) {
-      return;
+      return null;
     }
 
     this.invalidateRequests();
@@ -318,7 +323,7 @@ export class Tone3000Tab {
     try {
       await ensureTone3000Session();
       if (isStale()) {
-        return;
+        return null;
       }
       if (!isTone3000AuthReady()) {
         throw new Error("Add a Tone3000 API key in Settings to browse.");
@@ -326,17 +331,24 @@ export class Tone3000Tab {
       this.tone3000Tones = [tone];
       await this.toggleToneExpanded(String(tone.id));
       if (isStale()) {
-        return;
+        return null;
       }
       this.updateTone3000PaginationFromData({ page: 1, total: 1, total_pages: 1 }, 1);
       this.host.saveState();
+      // A refused or failed model list (a 403 most often) is shown inside the tone, not thrown.
+      const failure = this.toneModelErrors.get(String(tone.id));
+      if (failure || !this.toneModelsCache.get(String(tone.id))?.length) {
+        return failure ? `Its models could not be loaded (${failure}).` : "It has no models to show.";
+      }
+      return null;
     } catch (error) {
       if (isStale()) {
-        return;
+        return null;
       }
       const message = error instanceof Error ? error.message : String(error);
       this.tone3000List.innerHTML = `<div class="resource-browser-empty">Could not open source pack: ${escapeHtml(message)} Use Search to browse other tones.</div>`;
       this.updateTone3000PaginationFromData({ page: 1, total: 1, total_pages: 1 }, 1);
+      return message;
     }
   }
 
