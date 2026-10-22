@@ -132,6 +132,15 @@ export async function enrichAttachment(attachment: Attachment): Promise<Attachme
 }
 
 /**
+ * The scene a library load should open on: the one playing now when the preset is reloaded,
+ * else none, so a different preset starts on its first scene. Carrying the scene id across
+ * presets made next/previous land on a scene that depended on the preset just left.
+ */
+function sceneToKeepFor(presetId: string): string | null {
+  return presetId === uiState.activePresetId ? uiState.activePresetSceneId ?? null : null;
+}
+
+/**
  * Loads a preset the engine stores (user, factory or factory archive) by id alone: the engine
  * reads it and answers with "presetLoaded", which carries the preset for the cache, the draft
  * and the render. With a full copy cached it is drawn at once, loading, as a body load drew it;
@@ -140,10 +149,11 @@ export async function enrichAttachment(attachment: Attachment): Promise<Attachme
  */
 function loadStoredPreset(presetId: string): void {
   clearNotification();
+  const keptSceneId = sceneToKeepFor(presetId);
   const cached = uiState.presetCache.get(presetId) ?? null;
   if (cached && hasGraphNodes(cached)) {
     const draft = stripLegacyGlobals(cached);
-    setActivePresetSceneId(normalizePresetScenes(draft, uiState.activePresetSceneId ?? undefined));
+    setActivePresetSceneId(normalizePresetScenes(draft, keptSceneId));
     setActivePresetId(presetId);
     setActivePresetIsNew(false);
     setActivePresetSnapshot(draft);
@@ -156,10 +166,8 @@ function loadStoredPreset(presetId: string): void {
   setPresetLoadingId(presetId);
   requestPresetUIRender(clonePreset(getActivePresetForRender()));
   updatePresetActionButtons();
-  // The scene playing now is kept when the preset has one of the same id, as a body load
-  // does; the engine falls back to the preset's first scene.
-  const sceneId = uiState.activePresetSceneId;
-  postMessage({ type: "loadPreset", presetId, ...(sceneId ? { sceneId } : {}) });
+  // With no scene sent the engine opens the preset's first scene.
+  postMessage({ type: "loadPreset", presetId, ...(keptSceneId ? { sceneId: keptSceneId } : {}) });
   recordPresetInHistory(presetId);
 }
 
@@ -195,7 +203,7 @@ export async function applyPresetFromLibrary(presetId: string): Promise<void> {
       attachments,
       ...(hasGlobalChain && resolvedChain ? { globalSignalChain: resolvedChain } : {}),
     };
-    const sceneId = normalizePresetScenes(presetPayload, uiState.activePresetSceneId ?? undefined);
+    const sceneId = normalizePresetScenes(presetPayload, sceneToKeepFor(presetPayload.id));
     setActivePresetSceneId(sceneId);
 
     if (hasGlobalChain && resolvedChain) {

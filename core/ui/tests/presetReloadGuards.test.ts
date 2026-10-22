@@ -133,8 +133,9 @@ describe("loading a preset the engine stores", () => {
   it("sends only its id, drawing the cached copy at once", async () => {
     await applyPresetFromLibrary("clean");
 
-    // "clean" has no scene-2, so it opens on its first scene, as a body load would.
-    expect(sent("loadPreset")).toEqual([{ type: "loadPreset", presetId: "clean", sceneId: "scene-1" }]);
+    // Another preset opens on its first scene, whichever scene was playing before.
+    expect(sent("loadPreset")).toEqual([{ type: "loadPreset", presetId: "clean" }]);
+    expect(uiState.activePresetSceneId).toBe("scene-1");
     expect(uiState.activePresetId).toBe("clean");
     expect(uiState.activePresetDraft?.id).toBe("clean");
     expect(uiState.presetLoadingId).toBe("clean");
@@ -143,9 +144,23 @@ describe("loading a preset the engine stores", () => {
   it("with only the library's summary, keeps the playing preset on screen until the engine answers", async () => {
     await applyPresetFromLibrary("listed-only");
 
-    expect(sent("loadPreset")).toEqual([{ type: "loadPreset", presetId: "listed-only", sceneId: "scene-2" }]);
+    expect(sent("loadPreset")).toEqual([{ type: "loadPreset", presetId: "listed-only" }]);
     expect(uiState.activePresetId).toBe("wah-tone");
     expect(uiState.presetLoadingId).toBe("listed-only");
+  });
+
+  it("reloading the preset playing keeps its scene", async () => {
+    const twoScenes = preset("wah-tone");
+    twoScenes.scenes = [
+      { id: "scene-1", title: "Scene 1", graph: twoScenes.graph },
+      { id: "scene-2", title: "Scene 2", graph: twoScenes.graph },
+    ];
+    uiState.presetCache.set("wah-tone", twoScenes);
+
+    await applyPresetFromLibrary("wah-tone");
+
+    expect(sent("loadPreset")).toEqual([{ type: "loadPreset", presetId: "wah-tone", sceneId: "scene-2" }]);
+    expect(uiState.activePresetSceneId).toBe("scene-2");
   });
 
   it("still sends the body of a preset the engine does not store", async () => {
