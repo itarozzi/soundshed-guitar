@@ -322,6 +322,14 @@ message(STATUS "Using pinned JUCE version ${_guitarfx_detected_juce_version}")
 # On Github Actions, JUCE checkout provisioning is handled by the workflow checkout step.
 add_subdirectory(JUCE)
 
+# JUCE's recommended LTO flags, except for MSVC ARM64. There, link-time code generation
+# (/GL + /LTCG) of the Standalone fails with internal compiler error C1001 in
+# juce_Path.h under MSVC 14.51 (VS 2026), so ARM64 links without it. x64 keeps LTO.
+add_library(guitarfx_lto_flags INTERFACE)
+if(NOT (MSVC AND _guitarfx_windows_target_arch MATCHES "^(arm64|arm64ec|aarch64)$"))
+    target_link_libraries(guitarfx_lto_flags INTERFACE juce::juce_recommended_lto_flags)
+endif()
+
 # Add CLAP format
 if(POLICY CMP0177)
     cmake_policy(SET CMP0177 NEW)
@@ -497,7 +505,7 @@ target_link_libraries(SharedCode
     juce_gui_basics
     juce_gui_extra
     juce::juce_recommended_config_flags
-    juce::juce_recommended_lto_flags
+    guitarfx_lto_flags
     juce::juce_recommended_warning_flags)
 
 # Link the JUCE plugin targets our SharedCode target
@@ -617,7 +625,7 @@ if(WIN32)
             juce_gui_basics
             juce_gui_extra
             juce::juce_recommended_config_flags
-            juce::juce_recommended_lto_flags
+            guitarfx_lto_flags
             juce::juce_recommended_warning_flags
     )
 
@@ -660,7 +668,7 @@ if(WIN32)
             juce_gui_basics
             juce_gui_extra
             juce::juce_recommended_config_flags
-            juce::juce_recommended_lto_flags
+            guitarfx_lto_flags
             juce::juce_recommended_warning_flags
     )
 
@@ -704,7 +712,7 @@ if(WIN32)
             juce_gui_basics
             juce_gui_extra
             juce::juce_recommended_config_flags
-            juce::juce_recommended_lto_flags
+            guitarfx_lto_flags
             juce::juce_recommended_warning_flags
     )
 
@@ -746,7 +754,7 @@ if(WIN32)
             juce_gui_basics
             juce_gui_extra
             juce::juce_recommended_config_flags
-            juce::juce_recommended_lto_flags
+            guitarfx_lto_flags
             juce::juce_recommended_warning_flags
     )
 
@@ -789,7 +797,7 @@ if(WIN32)
             juce_gui_basics
             juce_gui_extra
             juce::juce_recommended_config_flags
-            juce::juce_recommended_lto_flags
+            guitarfx_lto_flags
             juce::juce_recommended_warning_flags
     )
 
@@ -836,7 +844,7 @@ if(WIN32)
             juce_gui_basics
             juce_gui_extra
             juce::juce_recommended_config_flags
-            juce::juce_recommended_lto_flags
+            guitarfx_lto_flags
             juce::juce_recommended_warning_flags
     )
 
@@ -995,7 +1003,7 @@ if(WIN32)
             juce_gui_basics
             juce_gui_extra
             juce::juce_recommended_config_flags
-            juce::juce_recommended_lto_flags
+            guitarfx_lto_flags
             juce::juce_recommended_warning_flags
     )
 
@@ -1039,7 +1047,7 @@ if(APPLE)
             juce_gui_basics
             juce_gui_extra
             juce::juce_recommended_config_flags
-            juce::juce_recommended_lto_flags
+            guitarfx_lto_flags
             juce::juce_recommended_warning_flags
     )
 
