@@ -135,6 +135,8 @@ export interface ToneBuilderJob {
   /** The pack artwork drawn for this job, once it is done. */
   artwork?: { available: boolean; regenerations: number; remaining: number } | null;
   error: { code: string; message: string } | null;
+  /** Where its presets were published on Tone Sharing, as Soundshed; null until they are. */
+  published?: { itemIds: string[]; packId: string | null; publishedAt: string } | null;
   /** Present once the job is done. */
   brief?: ToneBrief;
   dossier?: RigDossier;

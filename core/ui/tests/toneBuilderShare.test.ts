@@ -3,53 +3,62 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Preset } from "../ts/types.js";
 
 const apiFetch = vi.fn();
-const createItem = vi.fn();
+const uploadArchives = vi.fn();
 vi.mock("../ts/toneSharingPanel/api.js", () => ({ apiFetch }));
-vi.mock("../ts/toneSharingPanel/consent.js", () => ({ ensurePublishConsent: vi.fn() }));
 const uploadAsset = vi.fn().mockResolvedValue("asset-thumb");
-vi.mock("../ts/toneSharingPanel/itemUpload.js", () => ({ createToneSharingPresetItem: createItem, uploadToneSharingAsset: uploadAsset }));
+vi.mock("../ts/toneSharingPanel/itemUpload.js", () => ({ uploadPresetArchives: uploadArchives, uploadToneSharingAsset: uploadAsset }));
 vi.mock("../ts/toneSharingPanel/images.js", () => ({ buildPackImageVariants: async () => ({ small: { blob: new Blob(["small"]) }, large: { blob: new Blob(["large"]) } }) }));
 
-const { sharePresets } = await import("../ts/toneBuilder/share.js");
+const { publishToneBuilderPresets } = await import("../ts/toneBuilder/share.js");
 
 const preset = (id: string, name: string) => ({ id, name, description: `About ${name}` }) as unknown as Preset;
 
 afterEach(() => {
   apiFetch.mockReset();
-  createItem.mockReset();
+  uploadArchives.mockReset();
+  uploadAsset.mockClear();
 });
 
-describe("sharing Tone Builder presets", () => {
-  it("submits each preset and gathers two or more into a pack", async () => {
-    createItem.mockImplementation(async (p: Preset) => ({ id: `itm-${p.id}` }));
-    apiFetch.mockImplementation(async (path: string) => (path === "/packs" ? { pack: { id: "pak-1" } } : {}));
-    const result = await sharePresets([preset("a", "Rhythm"), preset("b", "Lead")], "AC/DC – Back in Black", "Notes", () => {}, new Blob(["jpeg"], { type: "image/jpeg" }));
+describe("publishing Tone Builder presets", () => {
+  it("uploads each preset's archives and the artwork, then hands them to the job's publish", async () => {
+    uploadArchives.mockImplementation(async (p: Preset) => ({ payloadAssetId: `pub-${p.id}`, privatePayloadAssetId: `priv-${p.id}` }));
+    apiFetch.mockResolvedValue({ published: { itemIds: ["itm-a", "itm-b"], packId: "pak-1" }, alreadyPublished: false });
+    const progress: string[] = [];
+    const result = await publishToneBuilderPresets(
+      "tbj_1",
+      [{ key: "rhythm", preset: preset("a", "Rhythm") }, { key: "lead", preset: preset("b", "Lead") }],
+      (message) => progress.push(message),
+      new Blob(["jpeg"], { type: "image/jpeg" }),
+    );
 
-    expect(result).toEqual({ itemIds: ["itm-a", "itm-b"], packId: "pak-1", failed: [] });
-    expect(createItem).toHaveBeenCalledWith(expect.objectContaining({ id: "a" }), { title: "Rhythm", description: "About Rhythm" });
-    const paths = apiFetch.mock.calls.map((call) => `${call[1]?.method ?? "GET"} ${call[0]}`);
-    expect(paths).toEqual([
-      "POST /items/itm-a/publish",
-      "POST /items/itm-b/publish",
-      "POST /packs",
-      "POST /packs/pak-1/items",
-      "POST /packs/pak-1/publish",
-    ]);
-    expect(JSON.parse(apiFetch.mock.calls[3][1].body)).toEqual({ itemIds: ["itm-a", "itm-b"] });
+    expect(result).toEqual({ itemIds: ["itm-a", "itm-b"], packId: "pak-1", alreadyPublished: false });
     expect(uploadAsset).toHaveBeenCalledWith("thumbnail", expect.any(Blob));
-    expect(JSON.parse(apiFetch.mock.calls[2][1].body)).toEqual({ title: "AC/DC – Back in Black", description: "Notes", thumbnailAssetId: "asset-thumb" });
+    expect(apiFetch).toHaveBeenCalledTimes(1);
+    const [path, init] = apiFetch.mock.calls[0];
+    expect(path).toBe("/tone-builder/jobs/tbj_1/publish");
+    expect(init.method).toBe("POST");
+    // Only which archive is which preset: the service writes the titles, text and tags itself.
+    expect(JSON.parse(init.body)).toEqual({
+      presets: [
+        { key: "rhythm", payloadAssetId: "pub-a", privatePayloadAssetId: "priv-a" },
+        { key: "lead", payloadAssetId: "pub-b", privatePayloadAssetId: "priv-b" },
+      ],
+      thumbnailAssetId: "asset-thumb",
+    });
+    expect(progress).toEqual(["Publishing 1 of 2: Rhythm", "Publishing 2 of 2: Lead", "Publishing on Tone Sharing"]);
   });
 
-  it("shares one preset without a pack, and reports a failure without stopping the rest", async () => {
-    createItem.mockImplementationOnce(async () => {
-      throw new Error("upload refused");
-    }).mockImplementationOnce(async () => ({ id: "itm-b" }));
-    apiFetch.mockResolvedValue({});
-    const result = await sharePresets([preset("a", "Rhythm"), preset("b", "Lead")], "T", "", () => {});
+  it("publishes without a thumbnail when there is no artwork, and fails as a whole when an upload fails", async () => {
+    uploadArchives.mockResolvedValueOnce({ payloadAssetId: "pub-a", privatePayloadAssetId: "priv-a" });
+    apiFetch.mockResolvedValue({ published: { itemIds: ["itm-a"], packId: null }, alreadyPublished: true });
+    const result = await publishToneBuilderPresets("tbj_2", [{ key: "rhythm", preset: preset("a", "Rhythm") }], () => {});
+    expect(result.alreadyPublished).toBe(true);
+    expect(JSON.parse(apiFetch.mock.calls[0][1].body).thumbnailAssetId).toBeNull();
+    expect(uploadAsset).not.toHaveBeenCalled();
 
-    expect(result.itemIds).toEqual(["itm-b"]);
-    expect(result.packId).toBeNull();
-    expect(result.failed).toEqual([{ name: "Rhythm", message: "upload refused" }]);
-    expect(apiFetch.mock.calls.map((call) => call[0])).toEqual(["/items/itm-b/publish"]);
+    apiFetch.mockClear();
+    uploadArchives.mockRejectedValueOnce(new Error("upload refused"));
+    await expect(publishToneBuilderPresets("tbj_3", [{ key: "rhythm", preset: preset("a", "Rhythm") }], () => {})).rejects.toThrow("upload refused");
+    expect(apiFetch).not.toHaveBeenCalled();
   });
 });

@@ -17,7 +17,7 @@ import { openPackModal } from "./packEditor.js";
 import { previewPreset } from "./preview.js";
 import { copyToneSharingShareLink } from "./shareLinks.js";
 import { browseState, toneSharingState } from "./state.js";
-import { Features, isFeatureEnabled } from "../featureFlags.js";
+import { isToneBuilderOffered } from "../toneBuilder/availability.js";
 
 export function bindBrowseActions(): void {
   const feed = element<HTMLElement>("tone-sharing-feed");
@@ -208,7 +208,7 @@ export function bindBrowseModeButtons(): void {
   });
   const syncToneBuilderButtonVisibility = () => {
     if (toneBuilderButton) {
-      toneBuilderButton.style.display = isFeatureEnabled(Features.ToneBuilder) ? "" : "none";
+      toneBuilderButton.style.display = isToneBuilderOffered() ? "" : "none";
     }
   };
 

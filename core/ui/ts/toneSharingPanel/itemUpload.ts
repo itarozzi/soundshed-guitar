@@ -49,6 +49,14 @@ export function hasPublishableSignalChain(preset: Preset): boolean {
   return hasInput && hasOutput && hasEffect;
 }
 
+/** Builds the preset's public and private archives and uploads both; returns their asset ids. */
+export async function uploadPresetArchives(preset: Preset): Promise<{ payloadAssetId: string; privatePayloadAssetId: string }> {
+  const archiveBlobs = await getToneSharingHostActions().buildToneSharingPresetArchiveBlobs(clonePreset(preset));
+  const payloadAssetId = await uploadToneSharingAsset("item_payload", archiveBlobs.publicBlob);
+  const privatePayloadAssetId = await uploadToneSharingAsset("item_payload", archiveBlobs.privateBlob);
+  return { payloadAssetId, privatePayloadAssetId };
+}
+
 /**
  * Uploads the preset's public and private archives and creates an item for them.
  * The item is left a draft; the caller decides whether to submit it.
@@ -57,9 +65,7 @@ export async function createToneSharingPresetItem(
   preset: Preset,
   meta: { title: string; description: string; tags?: string[] },
 ): Promise<ToneSharingItem> {
-  const archiveBlobs = await getToneSharingHostActions().buildToneSharingPresetArchiveBlobs(clonePreset(preset));
-  const payloadAssetId = await uploadToneSharingAsset("item_payload", archiveBlobs.publicBlob);
-  const privatePayloadAssetId = await uploadToneSharingAsset("item_payload", archiveBlobs.privateBlob);
+  const { payloadAssetId, privatePayloadAssetId } = await uploadPresetArchives(preset);
 
   const result = await apiFetch<{ item: ToneSharingItem }>("/items", {
     method: "POST",

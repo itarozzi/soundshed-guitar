@@ -16,6 +16,7 @@
  */
 
 import { FEATURE_FLAGS_CHANGED_EVENT, Features, isFeatureEnabled } from "./featureFlags.js";
+import { isToneBuilderOffered, refreshToneBuilderStatus, TONE_BUILDER_STATUS_EVENT } from "./toneBuilder/availability.js";
 import { loadAuthSession } from "./toneSharingPanel/account.js";
 import { normalizeSettingString } from "./toneSharingPanel/api.js";
 import { bindAdminEditModal } from "./toneSharingPanel/adminEdit.js";
@@ -117,17 +118,24 @@ export function initializeToneSharingPanel(): void {
   bindBrowseModeButtons();
   bindBrowseActions();
   bindAdminEditModal();
+  // The Tone Builder button follows its feature flag and the service's kill switch.
+  const syncToneBuilderButton = () => {
+    const toneBuilderButton = element<HTMLButtonElement>("tone-sharing-tone-builder");
+    if (toneBuilderButton) {
+      toneBuilderButton.style.display = isToneBuilderOffered() ? "" : "none";
+    }
+  };
   document.addEventListener(FEATURE_FLAGS_CHANGED_EVENT, (event) => {
     const detail = (event as CustomEvent<{ featureId?: string }>).detail;
     if (detail?.featureId === Features.ToneBuilder) {
-      const toneBuilderButton = element<HTMLButtonElement>("tone-sharing-tone-builder");
-      if (toneBuilderButton) {
-        toneBuilderButton.style.display = isFeatureEnabled(Features.ToneBuilder) ? "" : "none";
-      }
+      syncToneBuilderButton();
+      if (isFeatureEnabled(Features.ToneBuilder)) void refreshToneBuilderStatus();
     }
   });
+  document.addEventListener(TONE_BUILDER_STATUS_EVENT, syncToneBuilderButton);
 
   void (async () => {
+    if (isFeatureEnabled(Features.ToneBuilder)) void refreshToneBuilderStatus();
     await loadAuthSession();
     await Promise.all([loadBrowse(), loadMine()]);
     await openSharedTargetFromLocation();

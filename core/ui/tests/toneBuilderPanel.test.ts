@@ -17,18 +17,23 @@ const applyPreset = vi.fn();
 
 vi.mock("../ts/toneSharingPanel.js", () => ({ ensureToneSharingSignedIn: signedIn, openToneSharingSignInModal: openSignIn }));
 vi.mock("../ts/navigation.js", () => ({ switchMainPanel: vi.fn() }));
-vi.mock("../ts/notifications.js", () => ({ showNotification: vi.fn() }));
+vi.mock("../ts/notifications.js", () => ({ showNotification: (...args: unknown[]) => showNotification(...args) }));
 vi.mock("../ts/presets/load.js", () => ({ applyPresetFromLibrary: applyPreset }));
 vi.mock("../ts/toneBuilder/appInventory.js", () => ({ readAppBuildInventory: () => ({ effects: [], resources: [] }) }));
 vi.mock("../ts/toneBuilder/service.js", () => ({ ensureEffectCatalogue, startToneBuilderJob, waitForToneBuilderJob }));
+// One balanced spec per built preset, so each preset is published under its proposal key.
+const balanceProposal = vi.fn(async () => ({ specs: [{ key: "r" }], report: [] }));
 vi.mock("../ts/toneBuilder/realise.js", async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   downloadProposalCaptures,
   buildAndSaveProposal,
+  balanceProposal,
 }));
-const confirmSharingConsent = vi.fn();
-const sharePresets = vi.fn();
-vi.mock("../ts/toneBuilder/share.js", () => ({ confirmSharingConsent, sharePresets }));
+const publishToneBuilderPresets = vi.fn();
+vi.mock("../ts/toneBuilder/share.js", () => ({ publishToneBuilderPresets }));
+const refreshToneBuilderStatus = vi.fn();
+vi.mock("../ts/toneBuilder/availability.js", () => ({ refreshToneBuilderStatus }));
+const showNotification = vi.fn();
 const findCommunityMatches = vi.fn().mockResolvedValue([]);
 const apiFetch = vi.fn();
 const toneSharingFetch = vi.fn();
@@ -67,9 +72,15 @@ const doneJob = {
 const modal = (): HTMLElement | null => document.getElementById("tone-builder-modal");
 const click = (action: string): void => modal()?.querySelector<HTMLElement>(`[data-tone-builder-action="${action}"]`)?.click();
 
+const OPEN = { enabled: true, available: true, reason: null, message: null };
+refreshToneBuilderStatus.mockResolvedValue(OPEN);
+publishToneBuilderPresets.mockResolvedValue({ itemIds: ["itm-1"], packId: null, alreadyPublished: false });
+
 afterEach(() => {
   vi.clearAllMocks();
   findCommunityMatches.mockResolvedValue([]);
+  refreshToneBuilderStatus.mockResolvedValue(OPEN);
+  publishToneBuilderPresets.mockResolvedValue({ itemIds: ["itm-1"], packId: null, alreadyPublished: false });
 });
 
 describe("the Tone Builder", () => {
@@ -99,7 +110,7 @@ describe("the Tone Builder", () => {
     click("build");
     await vi.waitFor(() => expect(modal()?.textContent).toContain("saved to"));
     expect(downloadProposalCaptures.mock.calls[0][0].map((ref: { ref: string }) => ref.ref)).toEqual(["tone3000:1"]);
-    expect(buildAndSaveProposal).toHaveBeenCalledWith("job-1", doneJob.proposal, "Tone Builder – AC/DC – Back in Black", []);
+    expect(buildAndSaveProposal).toHaveBeenCalledWith("job-1", doneJob.proposal, "Tone Builder – AC/DC – Back in Black", [{ key: "r" }]);
 
     click("open-first");
     await vi.waitFor(() => expect(applyPreset).toHaveBeenCalledWith("p1"));
@@ -155,14 +166,12 @@ describe("the Tone Builder", () => {
     await vi.waitFor(() => expect(modal()?.textContent).toContain("No valid presets"));
     expect(document.getElementById("tone-builder-artist")).not.toBeNull();
   });
-it("sends the chosen thinking level and shares the result when asked", async () => {
+  it("sends the chosen thinking level and publishes the result as Soundshed without asking", async () => {
     signedIn.mockResolvedValue(true);
     ensureEffectCatalogue.mockResolvedValue("hash");
     startToneBuilderJob.mockResolvedValue({ jobId: "job-3" });
     waitForToneBuilderJob.mockResolvedValue(doneJob);
     buildAndSaveProposal.mockReturnValue({ presets: [{ id: "p1", name: "Rhythm" }], folderName: "F" });
-    confirmSharingConsent.mockResolvedValue(undefined);
-    sharePresets.mockResolvedValue({ itemIds: ["itm-1"], packId: null, failed: [] });
 
     document.dispatchEvent(new CustomEvent("tone-builder:open", { detail: { artist: "Dick Dale" } }));
     await vi.waitFor(() => expect(document.getElementById("tone-builder-thinking")).not.toBeNull());
@@ -174,27 +183,47 @@ it("sends the chosen thinking level and shares the result when asked", async () 
     await vi.waitFor(() => expect(modal()?.textContent).toContain("Rhythm"));
     expect(startToneBuilderJob.mock.calls[0][0].options).toEqual({ thinking: "quick" });
 
-    (document.getElementById("tone-builder-share") as HTMLInputElement).checked = true;
+    // No choice to make: the review says the presets will be published.
+    expect(document.getElementById("tone-builder-share")).toBeNull();
+    expect(modal()?.textContent).toContain("published on Tone Sharing as Soundshed");
     click("build");
-    await vi.waitFor(() => expect(modal()?.textContent).toContain("sent to Tone Sharing for approval"));
-    expect(confirmSharingConsent).toHaveBeenCalled();
-    expect(sharePresets.mock.calls[0][0]).toEqual([{ id: "p1", name: "Rhythm" }]);
+    await vi.waitFor(() => expect(modal()?.textContent).toContain("Published on Tone Sharing as Soundshed: 1 preset(s)."));
+    expect(publishToneBuilderPresets.mock.calls[0][0]).toBe("job-1");
+    expect(publishToneBuilderPresets.mock.calls[0][1]).toEqual([{ key: "r", preset: { id: "p1", name: "Rhythm" } }]);
   });
 
-  it("builds nothing when sharing consent is refused", async () => {
+  it("keeps the built presets and offers to publish again when publishing fails", async () => {
     signedIn.mockResolvedValue(true);
     ensureEffectCatalogue.mockResolvedValue("hash");
     startToneBuilderJob.mockResolvedValue({ jobId: "job-4" });
     waitForToneBuilderJob.mockResolvedValue(doneJob);
-    confirmSharingConsent.mockRejectedValue(new Error("Publishing consent declined"));
+    buildAndSaveProposal.mockReturnValue({ presets: [{ id: "p1", name: "Rhythm" }], folderName: "F" });
+    publishToneBuilderPresets.mockRejectedValueOnce(new Error("Upload failed (500)"));
     document.dispatchEvent(new CustomEvent("tone-builder:open", { detail: { artist: "X" } }));
     await vi.waitFor(() => expect(document.getElementById("tone-builder-artist")).not.toBeNull());
     click("research");
-    await vi.waitFor(() => expect(document.getElementById("tone-builder-share")).not.toBeNull());
-    (document.getElementById("tone-builder-share") as HTMLInputElement).checked = true;
+    await vi.waitFor(() => expect(modal()?.textContent).toContain("Rhythm"));
     click("build");
-    await vi.waitFor(() => expect(modal()?.textContent).toContain("Sharing needs your consent first"));
-    expect(downloadProposalCaptures).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(modal()?.textContent).toContain("Publishing on Tone Sharing failed: Upload failed (500)"));
+    expect(modal()?.textContent).toContain("1 preset(s) saved to");
+
+    // Closed and opened again, the presets are still waiting to be published.
+    click("close");
+    document.dispatchEvent(new CustomEvent("tone-builder:open", { detail: {} }));
+    await vi.waitFor(() => expect(modal()?.style.display).toBe("flex"));
+    click("publish-retry");
+    await vi.waitFor(() => expect(modal()?.textContent).toContain("Published on Tone Sharing as Soundshed"));
+    expect(publishToneBuilderPresets).toHaveBeenCalledTimes(2);
+    expect(modal()?.querySelector("[data-tone-builder-action=publish-retry]")).toBeNull();
+  });
+
+  it("does not open for a new tone while the service is switched off or at its daily limit", async () => {
+    signedIn.mockResolvedValue(true);
+    refreshToneBuilderStatus.mockResolvedValue({ enabled: true, available: false, reason: "spend-limit", message: "The Tone Builder has reached today's limit. Try again tomorrow." });
+    click("close");
+    document.dispatchEvent(new CustomEvent("tone-builder:open", { detail: { artist: "X" } }));
+    await vi.waitFor(() => expect(showNotification).toHaveBeenCalledWith("Tone Builder unavailable", "The Tone Builder has reached today's limit. Try again tomorrow."));
+    expect(modal()?.style.display).toBe("none");
   });
 
   it("offers what Tone Sharing already has before researching, and builds anyway on request", async () => {
@@ -224,7 +253,7 @@ it("sends the chosen thinking level and shares the result when asked", async () 
     expect(findCommunityMatches).toHaveBeenCalledTimes(1);
   });
 
-  it("shows the pack artwork and text, redraws it, and shares it as the pack thumbnail", async () => {
+  it("shows the pack artwork and text, redraws it, and publishes it as the pack thumbnail", async () => {
     signedIn.mockResolvedValue(true);
     ensureEffectCatalogue.mockResolvedValue("hash");
     startToneBuilderJob.mockResolvedValue({ jobId: "job-6" });
@@ -233,8 +262,6 @@ it("sends the chosen thinking level and shares the result when asked", async () 
     toneSharingFetch.mockImplementation(async () => new Response(new Blob(["jpeg"], { type: "image/jpeg" })));
     apiFetch.mockResolvedValue({ artwork: { available: true, regenerations: 1, remaining: 4 } });
     buildAndSaveProposal.mockReturnValue({ presets: [{ id: "p1", name: "Rhythm" }], folderName: "F" });
-    confirmSharingConsent.mockResolvedValue(undefined);
-    sharePresets.mockResolvedValue({ itemIds: ["itm-1"], packId: null, failed: [] });
 
     document.dispatchEvent(new CustomEvent("tone-builder:open", { detail: { artist: "Dick Dale", song: "Misirlou" } }));
     await vi.waitFor(() => expect(document.getElementById("tone-builder-artist")).not.toBeNull());
@@ -251,12 +278,11 @@ it("sends the chosen thinking level and shares the result when asked", async () 
     await vi.waitFor(() => expect(modal()?.textContent).toContain("New artwork (4 left)"));
     expect(apiFetch).toHaveBeenCalledWith("/tone-builder/jobs/job-6/artwork", { method: "POST" });
 
-    (document.getElementById("tone-builder-share") as HTMLInputElement).checked = true;
+    // The service writes the published text from the job itself; the app sends the artwork.
     click("build");
-    await vi.waitFor(() => expect(sharePresets).toHaveBeenCalled());
-    const [, title, description, , artwork] = sharePresets.mock.calls[0];
-    expect(title).toBe("Dick Dale – Misirlou");
-    expect(description).toBe("Surf at full volume.\n\nSources: Fender history (fender.com).");
+    await vi.waitFor(() => expect(publishToneBuilderPresets).toHaveBeenCalled());
+    const [jobId, , , artwork] = publishToneBuilderPresets.mock.calls[0];
+    expect(jobId).toBe("job-6");
     expect(artwork).toBeInstanceOf(Blob);
   });
 });

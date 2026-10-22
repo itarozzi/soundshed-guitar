@@ -84,7 +84,7 @@ export const FEATURE_DEFINITIONS: FeatureDefinition[] = [
     id: Features.ToneBuilder,
     key: "features.toneBuilder.enabled",
     label: "AI Tone Builder",
-    description: "Adds a Tone Builder button to Tone Sharing: it checks the community presets first, then researches a tone, picks NAM captures and IRs, and builds ready-to-play presets.",
+    description: "Adds a Tone Builder button to Tone Sharing: it checks the community presets first, then researches a tone, picks NAM captures and IRs, and builds ready-to-play presets, which are published on Tone Sharing as Soundshed for everyone.",
     defaultEnabled: false,
   },
   {

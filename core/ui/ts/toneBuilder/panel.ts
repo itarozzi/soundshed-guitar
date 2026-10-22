@@ -2,11 +2,12 @@
  * The Tone Builder: name an artist, song or style, and the tone builder service researches the
  * rig, picks NAM captures and IRs, and proposes presets. The user reviews what it chose — every
  * capture with its creator and licence, every built-in stand-in for gear no capture covers —
- * before anything is downloaded, then the presets are built, saved and filed in a folder.
+ * before anything is downloaded, then the presets are built, saved, filed in a folder and
+ * published on Tone Sharing as Soundshed (share.ts). Publishing is not optional.
  *
  * Opened from AI Tone Search by a "tone-builder:open" document event (so neither feature imports
- * the other), behind the toneBuilder feature flag. Needs a Tone Sharing sign-in: the service is
- * metered per account.
+ * the other), behind the toneBuilder feature flag and the service's kill switch (availability.ts).
+ * Needs a Tone Sharing sign-in: the service is metered per account.
  */
 
 import { switchMainPanel } from "../navigation.js";
@@ -21,14 +22,16 @@ import { TARGET_LUFS } from "./levels.js";
 import type { SceneBalance, SceneMeasure } from "./levels.js";
 import { balanceProposal, buildAndSaveProposal, collectProposalCaptures, downloadProposalCaptures, isCaptureInstalled, planCaptureDownloads } from "./realise.js";
 import { ensureEffectCatalogue, startToneBuilderJob, waitForToneBuilderJob } from "./service.js";
-import { confirmSharingConsent, sharePresets } from "./share.js";
+import { publishToneBuilderPresets } from "./share.js";
+import { refreshToneBuilderStatus } from "./availability.js";
 import { findCommunityMatches } from "./communityCheck.js";
 import { packText } from "./text.js";
 import { apiFetch, toneSharingFetch } from "../toneSharingPanel/api.js";
 import type { CommunityMatch } from "./communityCheck.js";
 import { downloadAsset } from "../toneSharingPanel/assets.js";
 import { previewPreset } from "../toneSharingPanel/preview.js";
-import type { ToneBuilderShareResult } from "./share.js";
+import type { ToneBuilderPublishResult } from "./share.js";
+import type { Preset } from "../types.js";
 
 export const TONE_BUILDER_OPEN_EVENT = "tone-builder:open";
 
@@ -42,8 +45,9 @@ interface PanelState {
   instrument: "guitar" | "bass";
   openOnly: boolean;
   thinking: ThinkingLevel;
-  share: boolean;
   shareSummary: string;
+  /** Built presets whose publishing failed, kept so it can be tried again. */
+  publishPending: Array<{ key: string; preset: Preset }> | null;
   status: string;
   error: string;
   job: ToneBuilderJob | null;
@@ -63,7 +67,7 @@ interface PanelState {
 }
 
 const state: PanelState = {
-  stage: "brief", artist: "", song: "", notes: "", instrument: "guitar", openOnly: false, thinking: "thorough", share: false, shareSummary: "",
+  stage: "brief", artist: "", song: "", notes: "", instrument: "guitar", openOnly: false, thinking: "thorough", shareSummary: "", publishPending: null,
   status: "", error: "", job: null, savedPresetIds: [], folderName: "", levelReport: [], abort: null, matches: [], checkedSubject: "", artworkUrl: null, artworkBlob: null, artworkRemaining: 0, artworkBusy: false,
 };
 
@@ -92,7 +96,16 @@ export async function openToneBuilder(artist = "", song = ""): Promise<void> {
     openToneSharingSignInModal();
     return;
   }
-  if (state.stage !== "running" && state.stage !== "building") {
+  // Work under way, or presets still to publish, carries on; a new tone needs the service to be open.
+  const resuming = state.stage === "running" || state.stage === "building" || (state.stage === "done" && state.publishPending !== null);
+  if (!resuming) {
+    const status = await refreshToneBuilderStatus();
+    if (status && !status.available) {
+      showNotification("Tone Builder unavailable", status.message ?? "The Tone Builder is not taking new tones right now.");
+      return;
+    }
+  }
+  if (!resuming) {
     Object.assign(state, { stage: "brief", status: "", error: "", job: null, savedPresetIds: [] });
     if (artist) state.artist = artist;
     if (song) state.song = song;
@@ -161,6 +174,9 @@ async function runAction(action: string, target: HTMLElement): Promise<void> {
     render();
   } else if (action === "redraw-artwork") {
     await redrawArtwork();
+  } else if (action === "publish-retry") {
+    await publish();
+    render();
   } else if (action === "build-anyway") {
     await research();
   } else if (action === "install-match" || action === "preview-match") {
@@ -248,17 +264,7 @@ async function build(): Promise<void> {
     render();
     return;
   }
-  state.share = (document.getElementById("tone-builder-share") as HTMLInputElement | null)?.checked ?? false;
-  if (state.share) {
-    try {
-      await confirmSharingConsent();
-    } catch (error) {
-      state.error = `Sharing needs your consent first: ${(error as Error).message}`;
-      render();
-      return;
-    }
-  }
-  Object.assign(state, { stage: "building", error: "", status: "", shareSummary: "" });
+  Object.assign(state, { stage: "building", error: "", status: "", shareSummary: "", publishPending: null });
   render();
   try {
     await downloadProposalCaptures(toFetch, (done, total, ref) => {
@@ -275,21 +281,39 @@ async function build(): Promise<void> {
     state.folderName = `Tone Builder – ${subjectLabel()}`;
     const { presets } = buildAndSaveProposal(job.jobId, proposal, state.folderName, specs);
     state.savedPresetIds = presets.map((preset) => preset.id);
-    if (state.share) {
-      const pack = packText(proposal, subjectLabel(), job.dossier?.summary ?? "");
-      const shared = await sharePresets(presets, pack.title, pack.description, (message) => {
-        state.status = message;
-        render();
-      }, state.artworkBlob);
-      state.shareSummary = shareSummary(shared);
-    }
-    state.stage = "done";
-    showNotification("Presets built", `${presets.length} saved to "${state.folderName}"`);
+    // Built in spec order, so each preset's key is its spec's.
+    state.publishPending = job.published ? null : presets.map((preset, index) => ({ key: specs[index].key, preset }));
+    if (job.published) state.shareSummary = "Already published on Tone Sharing.";
   } catch (error) {
     state.stage = "review";
     state.error = `Build failed: ${(error as Error).message}`;
+    render();
+    return;
   }
+  // The presets are saved; publishing them is the last step, and is tried again if it fails.
+  await publish();
+  state.stage = "done";
+  showNotification("Presets built", `${state.savedPresetIds.length} saved to "${state.folderName}"`);
   render();
+}
+
+/** Publishes the built presets on Tone Sharing as Soundshed. Every Tone Builder result is published. */
+async function publish(): Promise<void> {
+  const job = state.job;
+  const pending = state.publishPending;
+  if (!job || !pending) return;
+  state.error = "";
+  try {
+    const published = await publishToneBuilderPresets(job.jobId, pending, (message) => {
+      state.status = message;
+      render();
+    }, state.artworkBlob);
+    state.publishPending = null;
+    state.shareSummary = publishSummary(published);
+  } catch (error) {
+    state.shareSummary = "";
+    state.error = `Publishing on Tone Sharing failed: ${(error as Error).message}`;
+  }
 }
 
 function renderPackPreview(proposal: ToneProposal): string {
@@ -405,15 +429,9 @@ const THINKING_LEVELS: Array<{ id: ThinkingLevel; label: string; hint: string }>
   { id: "deep", label: "Deep", hint: "The longest research, for obscure rigs; slower and costs more." },
 ];
 
-function shareSummary(shared: ToneBuilderShareResult): string {
-  const parts: string[] = [];
-  if (shared.itemIds.length) {
-    parts.push(`${shared.itemIds.length} preset(s)${shared.packId ? " and a pack" : ""} sent to Tone Sharing for approval.`);
-  }
-  if (shared.failed.length) {
-    parts.push(`Not shared: ${shared.failed.map((f) => `${f.name} (${f.message})`).join("; ")}.`);
-  }
-  return parts.join(" ");
+function publishSummary(published: ToneBuilderPublishResult): string {
+  if (published.alreadyPublished) return "Already published on Tone Sharing.";
+  return `Published on Tone Sharing as Soundshed: ${published.itemIds.length} preset(s)${published.packId ? " in a pack" : ""}.`;
 }
 
 /** Most of the demo DI is enough to judge a scene's level, and keeps a pack of scenes quick. */
@@ -468,8 +486,8 @@ function renderReview(proposal: ToneProposal): string {
     </ul>
     ${gaps.length ? `<details><summary>What the research could not confirm (${gaps.length})</summary><ul>${gaps.map((gap) => `<li>${escapeHtml(gap)}</li>`).join("")}</ul></details>` : ""}
     ${warnings.length ? `<details><summary>Checks to look at (${warnings.length})</summary><ul>${warnings.map((w) => `<li>${escapeHtml(w)}</li>`).join("")}</ul></details>` : ""}
-    <p class="tone-builder-muted">${toFetch.length ? `${toFetch.length} capture(s) will be downloaded from their providers.` : "Everything needed is already in your library."}</p>
-    <label class="tone-builder-check"><input id="tone-builder-share" type="checkbox"${state.share ? " checked" : ""} /> Share the finished presets on Tone Sharing under your account (sent for approval)</label>`;
+    <p class="tone-builder-muted">${toFetch.length ? `${toFetch.length} capture(s) will be downloaded from their providers.` : "Everything needed is already in your library."}
+      The finished presets are published on Tone Sharing as Soundshed, for everyone to use.</p>`;
 }
 
 function render(): void {
@@ -499,7 +517,7 @@ function render(): void {
         <p class="tone-builder-muted tone-builder-hint">${escapeHtml(THINKING_LEVELS.find((level) => level.id === state.thinking)?.hint ?? "")}</p>
         <label class="tone-builder-check"><input id="tone-builder-open-only" type="checkbox"${state.openOnly ? " checked" : ""} /> Only openly licensed captures</label>
       </div>
-      <p class="tone-builder-muted">Research takes a minute or two. Nothing is downloaded until you have reviewed what it picks.</p>`;
+      <p class="tone-builder-muted">Research takes a minute or two. Nothing is downloaded until you have reviewed what it picks. The presets it builds are published on Tone Sharing as Soundshed.</p>`;
     footer = `<button type="button" class="btn btn-secondary" data-tone-builder-action="close">Cancel</button>
       <button type="button" class="btn btn-primary" data-tone-builder-action="research">Research tone</button>`;
   } else if (state.stage === "running" || state.stage === "building") {
@@ -524,6 +542,7 @@ function render(): void {
       <p class="tone-builder-muted">${state.levelReport.length - unbalanced.length} of ${state.levelReport.length} scene(s) balanced to ${TARGET_LUFS} LUFS on the demo DI.</p>
       ${unbalanced.length ? `<ul class="tone-builder-steps">${unbalanced.map((scene) => `<li>${escapeHtml(`${scene.presetKey} / ${scene.sceneKey}: ${scene.note ?? (scene.lufs !== null ? `${scene.lufs.toFixed(1)} LUFS after correction` : "not measured")}`)}</li>`).join("")}</ul>` : ""}`;
     footer = `<button type="button" class="btn btn-secondary" data-tone-builder-action="close">Close</button>
+      ${state.publishPending ? `<button type="button" class="btn btn-secondary" data-tone-builder-action="publish-retry">Try publishing again</button>` : ""}
       <button type="button" class="btn btn-primary" data-tone-builder-action="open-first">Play the first one</button>`;
   }
   modal.innerHTML = `
