@@ -1,6 +1,7 @@
 #pragma once
 
 #include "dsp/FiniteCheck.h"
+#include "dsp/StereoInputHistory.h"
 
 #include <algorithm>
 #include <cmath>
@@ -77,15 +78,13 @@ class TimeDomainPitchShifter
         // search span long, plus the correlation window behind it. 100 ms leaves room for all of
         // that at any shift.
         const auto history = static_cast<std::size_t>(Samples(0.1) + 64);
-        mCapacity = NextPowerOfTwo(history);
-        mMask = mCapacity - 1;
-        mLeft.assign(mCapacity, 0.0f);
-        mRight.assign(mCapacity, 0.0f);
-        mMaxDelay = static_cast<double>(mCapacity) - 8.0;
+        mInput.Prepare(history);
+        const std::size_t capacity = mInput.Capacity();
+        mMaxDelay = static_cast<double>(capacity) - 8.0;
 
-        mMonoLength = mCapacity;
+        mMonoLength = capacity;
         mMono.assign(2 * mMonoLength, 0.0f);
-        mDecimatedLength = mCapacity / static_cast<std::size_t>(mDecimation) + 1;
+        mDecimatedLength = capacity / static_cast<std::size_t>(mDecimation) + 1;
         mDecimated.assign(2 * mDecimatedLength, 0.0f);
 
         Reset();
@@ -94,11 +93,9 @@ class TimeDomainPitchShifter
     /// Forgets the input history and puts the tap back to start.
     void Reset()
     {
-        std::fill(mLeft.begin(), mLeft.end(), 0.0f);
-        std::fill(mRight.begin(), mRight.end(), 0.0f);
+        mInput.Reset();
         std::fill(mMono.begin(), mMono.end(), 0.0f);
         std::fill(mDecimated.begin(), mDecimated.end(), 0.0f);
-        mWritten = 0;
         mMonoPos = 0;
         mDecimatedPos = 0;
         mDecimatedWritten = 0;
@@ -138,10 +135,7 @@ class TimeDomainPitchShifter
         left = IsFinite(left) ? left : 0.0f;
         right = IsFinite(right) ? right : 0.0f;
 
-        const std::size_t index = static_cast<std::size_t>(mWritten) & mMask;
-        mLeft[index] = left;
-        mRight[index] = right;
-        ++mWritten;
+        mInput.Write(left, right);
 
         const float mono = 0.5f * (left + right);
         mMono[mMonoPos] = mono;
@@ -197,13 +191,13 @@ class TimeDomainPitchShifter
 
         float left = 0.0f;
         float right = 0.0f;
-        ReadStereo(mMain, left, right);
+        mInput.Read(mMain, left, right);
 
         if (mFading)
         {
             float oldLeft = 0.0f;
             float oldRight = 0.0f;
-            ReadStereo(mOld, oldLeft, oldRight);
+            mInput.Read(mOld, oldLeft, oldRight);
 
             const double t = (static_cast<double>(mFadePosition) + 0.5) / static_cast<double>(mFadeLength);
             const double fadeIn = 0.5 - 0.5 * std::cos(kPi * t);
@@ -234,10 +228,7 @@ class TimeDomainPitchShifter
     /// The input from `delaySamples` ago: a dry path aligned with the nominal latency.
     void ReadDelayed(int delaySamples, float& left, float& right) const noexcept
     {
-        const auto delay = static_cast<std::int64_t>(std::clamp(delaySamples, 0, static_cast<int>(mMask)));
-        const std::size_t index = static_cast<std::size_t>(mWritten - 1 - delay) & mMask;
-        left = mLeft[index];
-        right = mRight[index];
+        mInput.ReadDelayed(delaySamples, left, right);
     }
 
   private:
@@ -248,18 +239,6 @@ class TimeDomainPitchShifter
     [[nodiscard]] int Samples(double seconds) const noexcept
     {
         return static_cast<int>(std::lround(seconds * mSampleRate));
-    }
-
-    [[nodiscard]] static std::size_t NextPowerOfTwo(std::size_t value) noexcept
-    {
-        std::size_t power = 1;
-
-        while (power < value)
-        {
-            power <<= 1;
-        }
-
-        return power;
     }
 
     // Shifting up, the delay shrinks by (r - 1) a sample, and the tap being faded out keeps
@@ -339,7 +318,7 @@ class TimeDomainPitchShifter
 
         // Coarse search on the decimated copy. A decimated sample's delay is counted from the
         // newest complete one, which is up to one decimation step older than the newest input.
-        const std::int64_t pending = mWritten - mDecimatedWritten * mDecimation;
+        const std::int64_t pending = mInput.Written() - mDecimatedWritten * mDecimation;
         const auto toDecimated = [&](std::int64_t delay) {
             return std::max<std::int64_t>(0, (delay - pending) / mDecimation);
         };
@@ -379,7 +358,7 @@ class TimeDomainPitchShifter
 
         // Refine at the full rate, one decimation step either side.
         const auto monoAvailable = static_cast<std::int64_t>(
-            std::min<std::int64_t>(mWritten, static_cast<std::int64_t>(mMonoLength)) - mRefineLength);
+            std::min<std::int64_t>(mInput.Written(), static_cast<std::int64_t>(mMonoLength)) - mRefineLength);
 
         if (fromSample <= monoAvailable)
         {
@@ -444,29 +423,6 @@ class TimeDomainPitchShifter
         return energy > 1.0e-18 ? static_cast<double>(ab) / std::sqrt(energy) : 0.0;
     }
 
-    void ReadStereo(double delay, float& left, float& right) const noexcept
-    {
-        const auto whole = static_cast<std::int64_t>(delay);
-        const auto t = static_cast<float>(delay - static_cast<double>(whole));
-        // Newest to oldest around the read point: delays whole-1, whole, whole+1, whole+2.
-        const std::int64_t newest = mWritten - 1 - whole;
-        const std::size_t i0 = static_cast<std::size_t>(newest + 1) & mMask;
-        const std::size_t i1 = static_cast<std::size_t>(newest) & mMask;
-        const std::size_t i2 = static_cast<std::size_t>(newest - 1) & mMask;
-        const std::size_t i3 = static_cast<std::size_t>(newest - 2) & mMask;
-        left = Hermite(mLeft[i0], mLeft[i1], mLeft[i2], mLeft[i3], t);
-        right = Hermite(mRight[i0], mRight[i1], mRight[i2], mRight[i3], t);
-    }
-
-    /// Catmull-Rom between y0 (t = 0) and y1 (t = 1).
-    [[nodiscard]] static float Hermite(float ym1, float y0, float y1, float y2, float t) noexcept
-    {
-        const float c1 = 0.5f * (y1 - ym1);
-        const float c2 = ym1 - 2.5f * y0 + 2.0f * y1 - 0.5f * y2;
-        const float c3 = 0.5f * (y2 - ym1) + 1.5f * (y0 - y1);
-        return ((c3 * t + c2) * t + c1) * t + y0;
-    }
-
     /// How much correlation a candidate a whole search span further away has to give up to lose
     /// to the nearest one.
     static constexpr double kShorterDelayBias = 0.1;
@@ -483,11 +439,7 @@ class TimeDomainPitchShifter
     double mGlideCoefficient = 0.005;
     double mMaxDelay = 4096.0;
 
-    std::vector<float> mLeft;
-    std::vector<float> mRight;
-    std::size_t mCapacity = 0;
-    std::size_t mMask = 0;
-    std::int64_t mWritten = 0;
+    StereoInputHistory mInput;
 
     std::vector<float> mMono;
     std::size_t mMonoLength = 0;

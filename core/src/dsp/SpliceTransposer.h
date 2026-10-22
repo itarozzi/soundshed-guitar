@@ -2,13 +2,13 @@
 
 #include "dsp/FiniteCheck.h"
 #include "dsp/PickAttackDetector.h"
+#include "dsp/StereoInputHistory.h"
 #include "dsp/WaveformHistory.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <vector>
 
 namespace guitarfx
 {
@@ -102,12 +102,9 @@ class SpliceTransposer
         // The deepest read: a downshift tap still fading out past the end of the longest window,
         // plus the correlation window behind a candidate.
         const double reach = Seconds(kMaxWindowSeconds + kUnmatchedFadeSeconds + kCorrelationSeconds + 0.02) + 64.0;
-        mCapacity = NextPowerOfTwo(static_cast<std::size_t>(reach));
-        mMask = mCapacity - 1;
-        mMaxDelay = static_cast<double>(mCapacity) - Seconds(kCorrelationSeconds) - 16.0;
-        mLeft.assign(mCapacity, 0.0f);
-        mRight.assign(mCapacity, 0.0f);
-        mHistory.Prepare(sampleRate, mCapacity, kAnalysisRateHz, kCorrelationSeconds, kCorrelationSeconds);
+        mInput.Prepare(static_cast<std::size_t>(reach));
+        mMaxDelay = static_cast<double>(mInput.Capacity()) - Seconds(kCorrelationSeconds) - 16.0;
+        mHistory.Prepare(sampleRate, mInput.Capacity(), kAnalysisRateHz, kCorrelationSeconds, kCorrelationSeconds);
         mDetector.Prepare(sampleRate, kAttackRefractorySeconds);
 
         SetWindowSeconds(mWindowSeconds);
@@ -127,11 +124,9 @@ class SpliceTransposer
     /// Forgets the input history and puts the tap back to start.
     void Reset()
     {
-        std::fill(mLeft.begin(), mLeft.end(), 0.0f);
-        std::fill(mRight.begin(), mRight.end(), 0.0f);
+        mInput.Reset();
         mHistory.Reset();
         mDetector.Reset();
-        mWritten = 0;
         mSemitones = mTargetSemitones;
         mRate = std::exp2(mSemitones / 12.0);
         UpdateGeometry();
@@ -179,10 +174,7 @@ class SpliceTransposer
         left = IsFinite(left) ? left : 0.0f;
         right = IsFinite(right) ? right : 0.0f;
 
-        const std::size_t index = static_cast<std::size_t>(mWritten) & mMask;
-        mLeft[index] = left;
-        mRight[index] = right;
-        ++mWritten;
+        mInput.Write(left, right);
 
         const float mono = 0.5f * (left + right);
         mHistory.Write(mono);
@@ -270,19 +262,19 @@ class SpliceTransposer
 
         float left = 0.0f;
         float right = 0.0f;
-        ReadStereo(mDelay, left, right);
+        mInput.Read(mDelay, left, right);
 
         if (mFading)
         {
             float oldLeft = 0.0f;
             float oldRight = 0.0f;
-            ReadStereo(mOutgoing, oldLeft, oldRight);
+            mInput.Read(mOutgoing, oldLeft, oldRight);
 
             if (mOutgoingPair)
             {
                 float pairLeft = 0.0f;
                 float pairRight = 0.0f;
-                ReadStereo(mOutgoingSecond, pairLeft, pairRight);
+                mInput.Read(mOutgoingSecond, pairLeft, pairRight);
                 oldLeft = oldLeft * mOutgoingGain + pairLeft * mOutgoingSecondGain;
                 oldRight = oldRight * mOutgoingGain + pairRight * mOutgoingSecondGain;
             }
@@ -312,10 +304,7 @@ class SpliceTransposer
     /// The input from `delaySamples` ago: a dry path aligned with the nominal latency.
     void ReadDelayed(int delaySamples, float& left, float& right) const noexcept
     {
-        const auto delay = static_cast<std::int64_t>(std::clamp(delaySamples, 0, static_cast<int>(mMask)));
-        const std::size_t index = static_cast<std::size_t>(static_cast<std::int64_t>(mWritten) - 1 - delay) & mMask;
-        left = mLeft[index];
-        right = mRight[index];
+        mInput.ReadDelayed(delaySamples, left, right);
     }
 
   private:
@@ -345,18 +334,6 @@ class SpliceTransposer
     [[nodiscard]] double Seconds(double seconds) const noexcept
     {
         return std::round(seconds * mSampleRate);
-    }
-
-    [[nodiscard]] static std::size_t NextPowerOfTwo(std::size_t value) noexcept
-    {
-        std::size_t power = 1;
-
-        while (power < value)
-        {
-            power <<= 1;
-        }
-
-        return power;
     }
 
     /// Where splices may land and when they are due, for the current shift and window.
@@ -724,29 +701,6 @@ class SpliceTransposer
         return jump;
     }
 
-    void ReadStereo(double delay, float& left, float& right) const noexcept
-    {
-        const auto whole = static_cast<std::int64_t>(delay);
-        const auto t = static_cast<float>(delay - static_cast<double>(whole));
-        // Newest to oldest around the read point: delays whole-1, whole, whole+1, whole+2.
-        const std::int64_t newest = static_cast<std::int64_t>(mWritten) - 1 - whole;
-        const std::size_t i0 = static_cast<std::size_t>(newest + 1) & mMask;
-        const std::size_t i1 = static_cast<std::size_t>(newest) & mMask;
-        const std::size_t i2 = static_cast<std::size_t>(newest - 1) & mMask;
-        const std::size_t i3 = static_cast<std::size_t>(newest - 2) & mMask;
-        left = Hermite(mLeft[i0], mLeft[i1], mLeft[i2], mLeft[i3], t);
-        right = Hermite(mRight[i0], mRight[i1], mRight[i2], mRight[i3], t);
-    }
-
-    /// Catmull-Rom between y0 (t = 0) and y1 (t = 1).
-    [[nodiscard]] static float Hermite(float ym1, float y0, float y1, float y2, float t) noexcept
-    {
-        const float c1 = 0.5f * (y1 - ym1);
-        const float c2 = ym1 - 2.5f * y0 + 2.0f * y1 - 0.5f * y2;
-        const float c3 = 0.5f * (y2 - ym1) + 1.5f * (y0 - y1);
-        return ((c3 * t + c2) * t + c1) * t + y0;
-    }
-
     double mSampleRate = 48000.0;
     double mFloor = 96.0;
     double mWindowSeconds = kDefaultWindowSeconds;
@@ -770,11 +724,7 @@ class SpliceTransposer
     double mGlideCoefficient = 0.005;
     double mMaxDelay = 8192.0;
 
-    std::vector<float> mLeft;
-    std::vector<float> mRight;
-    std::size_t mCapacity = 0;
-    std::size_t mMask = 0;
-    std::uint64_t mWritten = 0;
+    StereoInputHistory mInput;
     WaveformHistory mHistory;
     PickAttackDetector mDetector;
 
