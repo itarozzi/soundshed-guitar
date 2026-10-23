@@ -1,0 +1,26 @@
+{
+  "description": "A stored layout with more background layers than the designer makes today, one per image size mode, with offsets and opacities, plus one whose image id is in no folder.",
+  "kind": "stored",
+  "images": [
+    { "imageId": "wood_1773000000001", "fileName": "wood_1773000000001.jpg", "dataUrl": "data:image/jpeg;base64,V09PRA==" },
+    { "imageId": "grille_1773000000002", "fileName": "grille_1773000000002.png", "dataUrl": "data:image/png;base64,R1JJTEw=" },
+    { "imageId": "logo_1773000000003", "fileName": "logo_1773000000003.svg", "dataUrl": "data:image/svg+xml;base64,TE9HTw==" }
+  ],
+  "data": {
+    "effectType": "delay_digital",
+    "layoutId": "layout-1773000000000-bg0001",
+    "version": 1,
+    "dimensions": { "width": 1024, "height": 768 },
+    "backgrounds": [
+      { "layerIndex": 0, "type": "image", "value": "wood_1773000000001", "size": "tile", "opacity": 1 },
+      { "layerIndex": 1, "type": "image", "value": "grille_1773000000002", "size": "custom", "scale": 0.5, "offsetX": 128, "offsetY": -16, "opacity": 0.6 },
+      { "layerIndex": 2, "type": "image", "value": "logo_1773000000003", "size": "contain" },
+      { "layerIndex": 3, "type": "image", "value": "grille_1773000000002", "size": "stretch" },
+      { "layerIndex": 4, "type": "image", "value": "wood_1773000000001" },
+      { "layerIndex": 5, "type": "image", "value": "missing_1773000000009", "size": "cover" }
+    ],
+    "controls": [],
+    "overlays": [],
+    "textLabels": []
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "description": "A backdrop layout (useDefaultControls) with an offset and an uneven scale for the default controls, a light container theme, default text colours, overlays and labels. A controls array is kept, as stored layouts can have one the renderer ignores.",
+  "kind": "stored",
+  "images": [
+    { "imageId": "plate_1775000000001", "fileName": "plate_1775000000001.webp", "dataUrl": "data:image/webp;base64,UExBVEU=" }
+  ],
+  "data": {
+    "effectType": "delay_digital",
+    "layoutId": "layout-1775000000000-bd0001",
+    "version": 1,
+    "dimensions": { "width": 696, "height": 440 },
+    "useDefaultControls": true,
+    "defaultControlsOffset": { "x": 24, "y": 96 },
+    "defaultControlsScale": { "x": 1.25, "y": 0.9 },
+    "containerTheme": "light",
+    "controlLabelColor": "#202020",
+    "controlValueColor": "#505050",
+    "backgrounds": [
+      { "layerIndex": 0, "type": "image", "value": "plate_1775000000001", "size": "cover" }
+    ],
+    "controls": [
+      { "paramKey": "time", "type": "knob", "position": { "x": 0, "y": 0 } }
+    ],
+    "overlays": [
+      { "id": "overlay-1775000000002-bypassed", "position": { "x": 600, "y": 24 }, "size": { "width": 72, "height": 24 }, "style": { "visibilityMode": "bypassed", "backgroundColor": "#888", "backgroundOpacity": 0.5 } },
+      { "id": "overlay-1775000000003-default", "position": { "x": 16, "y": 16 }, "size": { "width": 128, "height": 48 } }
+    ],
+    "textLabels": [
+      { "id": "label-1775000000004", "text": "PLATE", "position": { "x": 300, "y": 24 }, "fontSize": 28, "fontWeight": "bold", "textAlign": "center" }
+    ]
+  }
+}

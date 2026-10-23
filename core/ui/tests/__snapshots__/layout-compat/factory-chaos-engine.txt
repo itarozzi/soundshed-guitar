@@ -1,0 +1,20 @@
+# Factory layout chaos-engine, as bundled
+## enabled
+<div class="custom-layout-scale-outer"> {position: relative; width: 100%; overflow: hidden; height: 600px}
+  <div class="custom-layout-container custom-layout-backdrop theme-classic" data-design-h="600" data-design-w="696"> {position: relative; width: 696px; height: 600px; overflow: hidden; border-radius: 8px; margin: 0; padding: 0; box-sizing: border-box; transform-origin: top left}
+    <div class="custom-layout-bg"> {position: absolute; inset: 0; z-index: 0; background-image: url(<image:chaos-engine_17726216187144984>); background-size: 100%; background-position: 0px 0px; background-repeat: no-repeat}
+    <div class="custom-layout-overlay" data-toggle-bypass="true"> {position: absolute; left: 256px; top: 344px; width: 80px; height: 80px; background-color: rgba(0, 0, 0, 0); border: 0px solid #ffffff; border-radius: 0px; z-index: 4; box-sizing: border-box; pointer-events: auto; cursor: pointer}
+    <div class="custom-layout-labels"> {position: absolute; inset: 0; z-index: 3; pointer-events: none; margin: 0; padding: 0}
+    <div class="custom-layout-default-controls"> {position: absolute; left: 126px; top: 102px; transform: scale(0.7, 0.7); transform-origin: top left; z-index: 2; width: 696px}
+      <div class="default-controls-stub">
+        "default controls"
+
+## bypassed
+<div class="custom-layout-scale-outer"> {position: relative; width: 100%; overflow: hidden; height: 600px}
+  <div class="custom-layout-container custom-layout-backdrop theme-classic" data-design-h="600" data-design-w="696"> {position: relative; width: 696px; height: 600px; overflow: hidden; border-radius: 8px; margin: 0; padding: 0; box-sizing: border-box; transform-origin: top left}
+    <div class="custom-layout-bg"> {position: absolute; inset: 0; z-index: 0; background-image: url(<image:chaos-engine_17726216187144984>); background-size: 100%; background-position: 0px 0px; background-repeat: no-repeat}
+    <div class="custom-layout-overlay" data-toggle-bypass="true"> {position: absolute; left: 256px; top: 344px; width: 80px; height: 80px; background-color: rgba(0, 0, 0, 0); border: 0px solid #ffffff; border-radius: 0px; z-index: 4; box-sizing: border-box; pointer-events: auto; cursor: pointer}
+    <div class="custom-layout-labels"> {position: absolute; inset: 0; z-index: 3; pointer-events: none; margin: 0; padding: 0}
+    <div class="custom-layout-default-controls"> {position: absolute; left: 126px; top: 102px; transform: scale(0.7, 0.7); transform-origin: top left; z-index: 2; width: 696px}
+      <div class="default-controls-stub">
+        "default controls"

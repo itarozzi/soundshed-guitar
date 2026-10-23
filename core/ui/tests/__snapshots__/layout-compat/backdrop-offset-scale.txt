@@ -1,0 +1,25 @@
+# A backdrop layout (useDefaultControls) with an offset and an uneven scale for the default controls, a light container theme, default text colours, overlays and labels. A controls array is kept, as stored layouts can have one the renderer ignores.
+## enabled
+<div class="custom-layout-scale-outer"> {position: relative; width: 100%; overflow: hidden; height: 440px}
+  <div class="custom-layout-container custom-layout-backdrop theme-light" data-design-h="440" data-design-w="696"> {position: relative; width: 696px; height: 440px; overflow: hidden; border-radius: 8px; margin: 0; padding: 0; box-sizing: border-box; transform-origin: top left}
+    <div class="custom-layout-bg"> {position: absolute; inset: 0; z-index: 0; background-image: url(<image:plate_1775000000001>); background-size: cover; background-position: 0px 0px; background-repeat: no-repeat}
+    <div class="custom-layout-overlay" data-toggle-bypass="false"> {position: absolute; left: 16px; top: 16px; width: 128px; height: 48px; background-color: rgba(0, 0, 0, 0.25); border: 1px solid #ffffff; border-radius: 0px; z-index: 1; box-sizing: border-box; pointer-events: none; cursor: default}
+    <div class="custom-layout-labels"> {position: absolute; inset: 0; z-index: 3; pointer-events: none; margin: 0; padding: 0}
+      <span class="custom-layout-text-label"> {position: absolute; left: 300px; top: 24px; font-size: 28px; font-weight: bold; color: var(--text-dark-primary); text-align: center; pointer-events: none}
+        "PLATE"
+    <div class="custom-layout-default-controls has-layout-label-color has-layout-value-color"> {position: absolute; left: 24px; top: 96px; transform: scale(1.25, 0.9); transform-origin: top left; z-index: 2; width: 696px; --layout-label-color: #202020; --layout-value-color: #505050}
+      <div class="default-controls-stub">
+        "default controls"
+
+## bypassed
+<div class="custom-layout-scale-outer"> {position: relative; width: 100%; overflow: hidden; height: 440px}
+  <div class="custom-layout-container custom-layout-backdrop theme-light" data-design-h="440" data-design-w="696"> {position: relative; width: 696px; height: 440px; overflow: hidden; border-radius: 8px; margin: 0; padding: 0; box-sizing: border-box; transform-origin: top left}
+    <div class="custom-layout-bg"> {position: absolute; inset: 0; z-index: 0; background-image: url(<image:plate_1775000000001>); background-size: cover; background-position: 0px 0px; background-repeat: no-repeat}
+    <div class="custom-layout-overlay" data-toggle-bypass="false"> {position: absolute; left: 600px; top: 24px; width: 72px; height: 24px; background-color: rgba(136, 136, 136, 0.5); border: 1px solid #ffffff; border-radius: 0px; z-index: 1; box-sizing: border-box; pointer-events: none; cursor: default}
+    <div class="custom-layout-overlay" data-toggle-bypass="false"> {position: absolute; left: 16px; top: 16px; width: 128px; height: 48px; background-color: rgba(0, 0, 0, 0.25); border: 1px solid #ffffff; border-radius: 0px; z-index: 1; box-sizing: border-box; pointer-events: none; cursor: default}
+    <div class="custom-layout-labels"> {position: absolute; inset: 0; z-index: 3; pointer-events: none; margin: 0; padding: 0}
+      <span class="custom-layout-text-label"> {position: absolute; left: 300px; top: 24px; font-size: 28px; font-weight: bold; color: var(--text-dark-primary); text-align: center; pointer-events: none}
+        "PLATE"
+    <div class="custom-layout-default-controls has-layout-label-color has-layout-value-color"> {position: absolute; left: 24px; top: 96px; transform: scale(1.25, 0.9); transform-origin: top left; z-index: 2; width: 696px; --layout-label-color: #202020; --layout-value-color: #505050}
+      <div class="default-controls-stub">
+        "default controls"

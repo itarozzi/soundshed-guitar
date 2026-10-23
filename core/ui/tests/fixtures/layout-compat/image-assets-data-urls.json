@@ -1,0 +1,26 @@
+{
+  "description": "A layout saved by an older build that embedded its images as data URLs in imageAssets. The renderer has never read imageAssets: the background shows only when the library holds the id.",
+  "kind": "stored",
+  "images": [
+    { "imageId": "embedded_1774000000001", "fileName": "embedded_1774000000001.png", "dataUrl": "data:image/png;base64,RU1CRUQ=" }
+  ],
+  "data": {
+    "effectType": "delay_digital",
+    "layoutId": "layout-1774000000000-ia0001",
+    "version": 1,
+    "dimensions": { "width": 400, "height": 280 },
+    "backgrounds": [
+      { "layerIndex": 0, "type": "image", "value": "embedded_1774000000001", "size": "cover" },
+      { "layerIndex": 1, "type": "image", "value": "only-embedded_1774000000002", "size": "cover" }
+    ],
+    "controls": [
+      { "paramKey": "time", "type": "knob", "position": { "x": 160, "y": 104 }, "style": { "knobStyle": "custom", "knobImageId": "only-embedded_1774000000002" } }
+    ],
+    "overlays": [],
+    "textLabels": [],
+    "imageAssets": [
+      { "imageId": "embedded_1774000000001", "fileName": "embedded_1774000000001.png", "dataUrl": "data:image/png;base64,RU1CRUQ=", "type": "background" },
+      { "imageId": "only-embedded_1774000000002", "fileName": "only-embedded_1774000000002.png", "dataUrl": "data:image/png;base64,T05MWQ==", "type": "knob" }
+    ]
+  }
+}

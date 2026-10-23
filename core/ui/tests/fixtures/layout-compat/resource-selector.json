@@ -1,0 +1,20 @@
+{
+  "description": "A stored layout with model and IR resource selectors (one by the legacy __resource__ key alone, one with bindingType), one for a slot the effect no longer offers, and a knob beside them.",
+  "kind": "stored",
+  "images": [],
+  "data": {
+    "effectType": "amp_nam",
+    "layoutId": "layout-1776000000000-rs0001",
+    "version": 1,
+    "dimensions": { "width": 560, "height": 240 },
+    "backgrounds": [{ "layerIndex": 0, "type": "color", "value": "#222" }],
+    "controls": [
+      { "paramKey": "__resource__:nam:0", "type": "dropdown", "position": { "x": 16, "y": 16 }, "size": { "width": 320, "height": 64 } },
+      { "paramKey": "__resource__:ir:1", "bindingType": "resource", "resourceType": "ir", "resourceIndex": 1, "type": "dropdown", "position": { "x": 16, "y": 112 }, "labelOverride": "Cabinet", "allowBrowseFile": false },
+      { "paramKey": "__resource__:nam:7", "bindingType": "resource", "type": "dropdown", "position": { "x": 16, "y": 200 } },
+      { "paramKey": "level", "type": "knob", "position": { "x": 440, "y": 32 } }
+    ],
+    "overlays": [],
+    "textLabels": []
+  }
+}

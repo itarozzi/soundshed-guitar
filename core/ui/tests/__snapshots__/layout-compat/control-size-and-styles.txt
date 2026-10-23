@@ -1,0 +1,120 @@
+# A stored layout whose controls set size (applied today as wrapper width only), every label position, hidden labels and values, each built-in knob style, accent and label colours, and a control for a parameter the effect no longer has.
+## enabled
+<div class="custom-layout-scale-outer"> {position: relative; width: 100%; overflow: hidden; height: 360px}
+  <div class="custom-layout-container" data-design-h="360" data-design-w="640"> {position: relative; width: 640px; height: 360px; overflow: hidden; border-radius: 8px; margin: 0; padding: 0; box-sizing: border-box; transform-origin: top left}
+    <div class="custom-layout-bg"> {position: absolute; inset: 0; z-index: 0; background: linear-gradient(180deg, #333 0%, #111 100%)}
+    <div class="custom-layout-controls"> {position: absolute; inset: 0; z-index: 2; margin: 0; padding: 0; pointer-events: none}
+      <div class="custom-layout-control"> {position: absolute; left: 16px; top: 16px; display: flex; flex-direction: column; align-items: center; width: 96px}
+        <span class="custom-control-label"> {font-size: 10px; color: #ccddee; margin-bottom: 4px}
+          "Time"
+        <div class="knob node-param-knob custom-knob-default" data-default="350" data-max="2000" data-min="1" data-node-id="node-fixture" data-param-key="time" data-taper="log" data-unit="ms" data-value="500">
+          <div class="knob-indicator">
+        <span class="node-param-value"> {font-size: 9px; color: #99aabb; margin-top: 2px}
+          "500ms"
+      <div class="custom-layout-control"> {position: absolute; left: 128px; top: 16px; display: flex; flex-direction: column; align-items: center; width: 64px}
+        <div class="knob node-param-knob custom-knob-minimal" data-default="0.4" data-max="1" data-min="0" data-node-id="node-fixture" data-param-key="feedback" data-unit="amount" data-value="0.35">
+          <div class="knob-indicator">
+        <span class="custom-control-label"> {font-size: 10px; color: #ff0000; margin-top: 4px}
+          "Feedback"
+        <span class="node-param-value"> {font-size: 9px; color: #00ff00; margin-top: 2px}
+          "0.35"
+      <div class="custom-layout-control"> {position: absolute; left: 216px; top: 24px; display: flex; flex-direction: column; align-items: center; width: 160px}
+        <input class="custom-layout-slider node-param-slider" data-default="0.5" data-node-id="node-fixture" data-param-key="mix" data-value="0.7" max="1" min="0" step="0.01" type="range" value="0.7">
+        <span class="node-param-value"> {font-size: 9px; color: #99aabb; margin-top: 2px}
+          "0.70"
+      <div class="custom-layout-control"> {position: absolute; left: 400px; top: 24px; display: flex; flex-direction: column; align-items: center; width: 48px}
+        <label class="toggle-switch">
+          <input checked="" class="node-param-toggle" data-node-id="node-fixture" data-param-key="sync" type="checkbox">
+          <span class="toggle-slider">
+        <span class="node-param-value"> {font-size: 9px; color: #99aabb; margin-top: 2px}
+          "On"
+      <div class="custom-layout-control"> {position: absolute; left: 16px; top: 160px; display: flex; flex-direction: column; align-items: center}
+        <input class="custom-layout-slider node-param-slider" data-default="1" data-labels="Digital|Tape|Analog" data-node-id="node-fixture" data-param-key="mode" data-value="2" max="2" min="0" step="1" type="range" value="2">
+      <div class="custom-layout-control"> {position: absolute; left: 216px; top: 160px; display: flex; flex-direction: column; align-items: center}
+        <span class="custom-control-label"> {font-size: 10px; color: #ccddee; margin-bottom: 4px}
+          "Level"
+        <div class="knob node-param-knob custom-knob-custom" data-default="0" data-max="12" data-min="-24" data-node-id="node-fixture" data-param-key="level" data-unit="dB" data-value="-3.5">
+          <div class="knob-indicator">
+        <span class="node-param-value"> {font-size: 9px; color: #99aabb; margin-top: 2px}
+          "-3.5dB"
+      <div class="custom-layout-control"> {position: absolute; left: 320px; top: 160px; display: flex; flex-direction: column; align-items: center}
+        <span class="custom-control-label"> {font-size: 10px; color: #ccddee; margin-bottom: 4px}
+          "Cutoff"
+        <input class="custom-layout-slider node-param-slider" data-default="4000" data-max="20000" data-min="20" data-node-id="node-fixture" data-param-key="cutoff" data-taper="log" data-value="1200" max="1" min="0" step="any" type="range" value="0.5927170834612145">
+        <span class="node-param-value"> {font-size: 9px; color: #99aabb; margin-top: 2px}
+          "1.20kHz"
+      <div class="custom-layout-control"> {position: absolute; left: 480px; top: 160px; display: flex; flex-direction: column; align-items: center}
+        <span class="custom-control-label"> {font-size: 10px; color: #ccddee; margin-bottom: 4px}
+          "Cutoff"
+        <div class="knob node-param-knob custom-knob-default" data-default="4000" data-max="20000" data-min="20" data-node-id="node-fixture" data-param-key="cutoff" data-taper="log" data-unit="Hz" data-value="1200">
+          <div class="knob-indicator">
+        <span class="node-param-value"> {font-size: 9px; color: #99aabb; margin-top: 2px}
+          "1.20kHz"
+      <div class="custom-layout-control"> {position: absolute; left: 480px; top: 280px; display: flex; flex-direction: column; align-items: center}
+        <span class="custom-control-label"> {font-size: 10px; color: #ccddee; margin-bottom: 4px}
+          "Mode"
+        <div class="knob node-param-knob custom-knob-default" data-default="1" data-labels="Digital|Tape|Analog" data-max="2" data-min="0" data-node-id="node-fixture" data-param-key="mode" data-step="1" data-unit="enum" data-value="2">
+          <div class="knob-indicator">
+        <span class="node-param-value"> {font-size: 9px; color: #99aabb; margin-top: 2px}
+          "Analog"
+    <div class="custom-layout-labels"> {position: absolute; inset: 0; z-index: 3; pointer-events: none; margin: 0; padding: 0}
+
+## bypassed
+<div class="custom-layout-scale-outer"> {position: relative; width: 100%; overflow: hidden; height: 360px}
+  <div class="custom-layout-container" data-design-h="360" data-design-w="640"> {position: relative; width: 640px; height: 360px; overflow: hidden; border-radius: 8px; margin: 0; padding: 0; box-sizing: border-box; transform-origin: top left}
+    <div class="custom-layout-bg"> {position: absolute; inset: 0; z-index: 0; background: linear-gradient(180deg, #333 0%, #111 100%)}
+    <div class="custom-layout-controls"> {position: absolute; inset: 0; z-index: 2; margin: 0; padding: 0; pointer-events: none}
+      <div class="custom-layout-control"> {position: absolute; left: 16px; top: 16px; display: flex; flex-direction: column; align-items: center; width: 96px}
+        <span class="custom-control-label"> {font-size: 10px; color: #ccddee; margin-bottom: 4px}
+          "Time"
+        <div class="knob node-param-knob custom-knob-default" data-default="350" data-max="2000" data-min="1" data-node-id="node-fixture" data-param-key="time" data-taper="log" data-unit="ms" data-value="500">
+          <div class="knob-indicator">
+        <span class="node-param-value"> {font-size: 9px; color: #99aabb; margin-top: 2px}
+          "500ms"
+      <div class="custom-layout-control"> {position: absolute; left: 128px; top: 16px; display: flex; flex-direction: column; align-items: center; width: 64px}
+        <div class="knob node-param-knob custom-knob-minimal" data-default="0.4" data-max="1" data-min="0" data-node-id="node-fixture" data-param-key="feedback" data-unit="amount" data-value="0.35">
+          <div class="knob-indicator">
+        <span class="custom-control-label"> {font-size: 10px; color: #ff0000; margin-top: 4px}
+          "Feedback"
+        <span class="node-param-value"> {font-size: 9px; color: #00ff00; margin-top: 2px}
+          "0.35"
+      <div class="custom-layout-control"> {position: absolute; left: 216px; top: 24px; display: flex; flex-direction: column; align-items: center; width: 160px}
+        <input class="custom-layout-slider node-param-slider" data-default="0.5" data-node-id="node-fixture" data-param-key="mix" data-value="0.7" max="1" min="0" step="0.01" type="range" value="0.7">
+        <span class="node-param-value"> {font-size: 9px; color: #99aabb; margin-top: 2px}
+          "0.70"
+      <div class="custom-layout-control"> {position: absolute; left: 400px; top: 24px; display: flex; flex-direction: column; align-items: center; width: 48px}
+        <label class="toggle-switch">
+          <input checked="" class="node-param-toggle" data-node-id="node-fixture" data-param-key="sync" type="checkbox">
+          <span class="toggle-slider">
+        <span class="node-param-value"> {font-size: 9px; color: #99aabb; margin-top: 2px}
+          "On"
+      <div class="custom-layout-control"> {position: absolute; left: 16px; top: 160px; display: flex; flex-direction: column; align-items: center}
+        <input class="custom-layout-slider node-param-slider" data-default="1" data-labels="Digital|Tape|Analog" data-node-id="node-fixture" data-param-key="mode" data-value="2" max="2" min="0" step="1" type="range" value="2">
+      <div class="custom-layout-control"> {position: absolute; left: 216px; top: 160px; display: flex; flex-direction: column; align-items: center}
+        <span class="custom-control-label"> {font-size: 10px; color: #ccddee; margin-bottom: 4px}
+          "Level"
+        <div class="knob node-param-knob custom-knob-custom" data-default="0" data-max="12" data-min="-24" data-node-id="node-fixture" data-param-key="level" data-unit="dB" data-value="-3.5">
+          <div class="knob-indicator">
+        <span class="node-param-value"> {font-size: 9px; color: #99aabb; margin-top: 2px}
+          "-3.5dB"
+      <div class="custom-layout-control"> {position: absolute; left: 320px; top: 160px; display: flex; flex-direction: column; align-items: center}
+        <span class="custom-control-label"> {font-size: 10px; color: #ccddee; margin-bottom: 4px}
+          "Cutoff"
+        <input class="custom-layout-slider node-param-slider" data-default="4000" data-max="20000" data-min="20" data-node-id="node-fixture" data-param-key="cutoff" data-taper="log" data-value="1200" max="1" min="0" step="any" type="range" value="0.5927170834612145">
+        <span class="node-param-value"> {font-size: 9px; color: #99aabb; margin-top: 2px}
+          "1.20kHz"
+      <div class="custom-layout-control"> {position: absolute; left: 480px; top: 160px; display: flex; flex-direction: column; align-items: center}
+        <span class="custom-control-label"> {font-size: 10px; color: #ccddee; margin-bottom: 4px}
+          "Cutoff"
+        <div class="knob node-param-knob custom-knob-default" data-default="4000" data-max="20000" data-min="20" data-node-id="node-fixture" data-param-key="cutoff" data-taper="log" data-unit="Hz" data-value="1200">
+          <div class="knob-indicator">
+        <span class="node-param-value"> {font-size: 9px; color: #99aabb; margin-top: 2px}
+          "1.20kHz"
+      <div class="custom-layout-control"> {position: absolute; left: 480px; top: 280px; display: flex; flex-direction: column; align-items: center}
+        <span class="custom-control-label"> {font-size: 10px; color: #ccddee; margin-bottom: 4px}
+          "Mode"
+        <div class="knob node-param-knob custom-knob-default" data-default="1" data-labels="Digital|Tape|Analog" data-max="2" data-min="0" data-node-id="node-fixture" data-param-key="mode" data-step="1" data-unit="enum" data-value="2">
+          <div class="knob-indicator">
+        <span class="node-param-value"> {font-size: 9px; color: #99aabb; margin-top: 2px}
+          "Analog"
+    <div class="custom-layout-labels"> {position: absolute; inset: 0; z-index: 3; pointer-events: none; margin: 0; padding: 0}

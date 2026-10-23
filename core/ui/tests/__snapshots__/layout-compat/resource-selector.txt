@@ -1,0 +1,106 @@
+# A stored layout with model and IR resource selectors (one by the legacy __resource__ key alone, one with bindingType), one for a slot the effect no longer offers, and a knob beside them.
+## enabled
+<div class="custom-layout-scale-outer"> {position: relative; width: 100%; overflow: hidden; height: 240px}
+  <div class="custom-layout-container" data-design-h="240" data-design-w="560"> {position: relative; width: 560px; height: 240px; overflow: hidden; border-radius: 8px; margin: 0; padding: 0; box-sizing: border-box; transform-origin: top left}
+    <div class="custom-layout-bg"> {position: absolute; inset: 0; z-index: 0; background-color: #222}
+    <div class="custom-layout-controls"> {position: absolute; inset: 0; z-index: 2; margin: 0; padding: 0; pointer-events: none}
+      <div class="custom-layout-control"> {position: absolute; left: 16px; top: 16px; display: flex; flex-direction: column; align-items: center; width: 320px}
+        <span class="custom-control-label"> {font-size: 10px; color: var(--text-dark-secondary); margin-bottom: 4px}
+          "Model"
+        <div class="node-resource-selector custom-layout-resource-selector" data-node-id="node-fixture" data-resource-index="0" data-resource-type="nam">
+          <div class="resource-controls">
+            <button class="resource-picker-btn" data-node-id="node-fixture" data-resource-index="0" data-resource-type="nam">
+              "Browse"
+            <button aria-label="Previous resource" class="preset-action-btn resource-nav-btn resource-nav-prev-btn" data-nav-direction="prev" data-node-id="node-fixture" data-resource-index="0" data-resource-type="nam" disabled="" title="Previous resource" type="button">
+              <span aria-hidden="true" class="resource-nav-icon"> {--icon-url: url('/images/icons/arrow-left.svg')}
+            <button aria-haspopup="dialog" class="resource-picker-label" data-node-id="node-fixture" data-resource-index="0" data-resource-type="nam" title="Plexi Crunch" type="button">
+              <span class="resource-picker-label-text">
+                "Plexi Crunch"
+              <span aria-hidden="true" class="resource-picker-label-caret"> {--icon-url: url('/images/icons/chevron-down.svg')}
+            <button aria-label="Next resource" class="preset-action-btn resource-nav-btn resource-nav-next-btn" data-nav-direction="next" data-node-id="node-fixture" data-resource-index="0" data-resource-type="nam" disabled="" title="Next resource" type="button">
+              <span aria-hidden="true" class="resource-nav-icon"> {--icon-url: url('/images/icons/arrow-right.svg')}
+            <button class="resource-browse-btn" data-accept=".nam,.json" data-node-id="node-fixture" data-resource-index="0" data-resource-type="nam" title="Browse for file...">
+              <span aria-hidden="true" class="resource-browse-icon"> {--icon-url: url('/images/icons/folder.svg')}
+          <div class="resource-path-info" title="D:/NAM/plexi crunch.nam">
+            "D:/NAM/plexi crunch.nam"
+      <div class="custom-layout-control"> {position: absolute; left: 16px; top: 112px; display: flex; flex-direction: column; align-items: center}
+        <span class="custom-control-label"> {font-size: 10px; color: var(--text-dark-secondary); margin-bottom: 4px}
+          "Cabinet"
+        <div class="node-resource-selector custom-layout-resource-selector" data-node-id="node-fixture" data-resource-index="1" data-resource-type="ir">
+          <div class="resource-controls">
+            <button class="resource-picker-btn" data-node-id="node-fixture" data-resource-index="1" data-resource-type="ir">
+              "Browse"
+            <button aria-label="Previous resource" class="preset-action-btn resource-nav-btn resource-nav-prev-btn" data-nav-direction="prev" data-node-id="node-fixture" data-resource-index="1" data-resource-type="ir" disabled="" title="Previous resource" type="button">
+              <span aria-hidden="true" class="resource-nav-icon"> {--icon-url: url('/images/icons/arrow-left.svg')}
+            <button aria-haspopup="dialog" class="resource-picker-label is-empty is-optional" data-node-id="node-fixture" data-optional="true" data-resource-index="1" data-resource-type="ir" title="Add a second IR, or drop a .wav file here" type="button">
+              <span aria-hidden="true" class="resource-picker-label-icon"> {--icon-url: url('/images/icons/plus.svg')}
+              <span class="resource-picker-label-body">
+                <span class="resource-picker-label-text">
+                  "Add a second IR"
+                <span class="resource-picker-label-hint">
+                  "or drop a .wav file here"
+              <span aria-hidden="true" class="resource-picker-label-action">
+                "Browse"
+            <button aria-label="Next resource" class="preset-action-btn resource-nav-btn resource-nav-next-btn" data-nav-direction="next" data-node-id="node-fixture" data-resource-index="1" data-resource-type="ir" disabled="" title="Next resource" type="button">
+              <span aria-hidden="true" class="resource-nav-icon"> {--icon-url: url('/images/icons/arrow-right.svg')}
+      <div class="custom-layout-control"> {position: absolute; left: 440px; top: 32px; display: flex; flex-direction: column; align-items: center}
+        <span class="custom-control-label"> {font-size: 10px; color: var(--text-dark-secondary); margin-bottom: 4px}
+          "Level"
+        <div class="knob node-param-knob custom-knob-default" data-default="0" data-max="12" data-min="-24" data-node-id="node-fixture" data-param-key="level" data-unit="dB" data-value="-3.5">
+          <div class="knob-indicator">
+        <span class="node-param-value"> {font-size: 9px; color: var(--text-tertiary); margin-top: 2px}
+          "-3.5dB"
+    <div class="custom-layout-labels"> {position: absolute; inset: 0; z-index: 3; pointer-events: none; margin: 0; padding: 0}
+
+## bypassed
+<div class="custom-layout-scale-outer"> {position: relative; width: 100%; overflow: hidden; height: 240px}
+  <div class="custom-layout-container" data-design-h="240" data-design-w="560"> {position: relative; width: 560px; height: 240px; overflow: hidden; border-radius: 8px; margin: 0; padding: 0; box-sizing: border-box; transform-origin: top left}
+    <div class="custom-layout-bg"> {position: absolute; inset: 0; z-index: 0; background-color: #222}
+    <div class="custom-layout-controls"> {position: absolute; inset: 0; z-index: 2; margin: 0; padding: 0; pointer-events: none}
+      <div class="custom-layout-control"> {position: absolute; left: 16px; top: 16px; display: flex; flex-direction: column; align-items: center; width: 320px}
+        <span class="custom-control-label"> {font-size: 10px; color: var(--text-dark-secondary); margin-bottom: 4px}
+          "Model"
+        <div class="node-resource-selector custom-layout-resource-selector" data-node-id="node-fixture" data-resource-index="0" data-resource-type="nam">
+          <div class="resource-controls">
+            <button class="resource-picker-btn" data-node-id="node-fixture" data-resource-index="0" data-resource-type="nam">
+              "Browse"
+            <button aria-label="Previous resource" class="preset-action-btn resource-nav-btn resource-nav-prev-btn" data-nav-direction="prev" data-node-id="node-fixture" data-resource-index="0" data-resource-type="nam" disabled="" title="Previous resource" type="button">
+              <span aria-hidden="true" class="resource-nav-icon"> {--icon-url: url('/images/icons/arrow-left.svg')}
+            <button aria-haspopup="dialog" class="resource-picker-label" data-node-id="node-fixture" data-resource-index="0" data-resource-type="nam" title="Plexi Crunch" type="button">
+              <span class="resource-picker-label-text">
+                "Plexi Crunch"
+              <span aria-hidden="true" class="resource-picker-label-caret"> {--icon-url: url('/images/icons/chevron-down.svg')}
+            <button aria-label="Next resource" class="preset-action-btn resource-nav-btn resource-nav-next-btn" data-nav-direction="next" data-node-id="node-fixture" data-resource-index="0" data-resource-type="nam" disabled="" title="Next resource" type="button">
+              <span aria-hidden="true" class="resource-nav-icon"> {--icon-url: url('/images/icons/arrow-right.svg')}
+            <button class="resource-browse-btn" data-accept=".nam,.json" data-node-id="node-fixture" data-resource-index="0" data-resource-type="nam" title="Browse for file...">
+              <span aria-hidden="true" class="resource-browse-icon"> {--icon-url: url('/images/icons/folder.svg')}
+          <div class="resource-path-info" title="D:/NAM/plexi crunch.nam">
+            "D:/NAM/plexi crunch.nam"
+      <div class="custom-layout-control"> {position: absolute; left: 16px; top: 112px; display: flex; flex-direction: column; align-items: center}
+        <span class="custom-control-label"> {font-size: 10px; color: var(--text-dark-secondary); margin-bottom: 4px}
+          "Cabinet"
+        <div class="node-resource-selector custom-layout-resource-selector" data-node-id="node-fixture" data-resource-index="1" data-resource-type="ir">
+          <div class="resource-controls">
+            <button class="resource-picker-btn" data-node-id="node-fixture" data-resource-index="1" data-resource-type="ir">
+              "Browse"
+            <button aria-label="Previous resource" class="preset-action-btn resource-nav-btn resource-nav-prev-btn" data-nav-direction="prev" data-node-id="node-fixture" data-resource-index="1" data-resource-type="ir" disabled="" title="Previous resource" type="button">
+              <span aria-hidden="true" class="resource-nav-icon"> {--icon-url: url('/images/icons/arrow-left.svg')}
+            <button aria-haspopup="dialog" class="resource-picker-label is-empty is-optional" data-node-id="node-fixture" data-optional="true" data-resource-index="1" data-resource-type="ir" title="Add a second IR, or drop a .wav file here" type="button">
+              <span aria-hidden="true" class="resource-picker-label-icon"> {--icon-url: url('/images/icons/plus.svg')}
+              <span class="resource-picker-label-body">
+                <span class="resource-picker-label-text">
+                  "Add a second IR"
+                <span class="resource-picker-label-hint">
+                  "or drop a .wav file here"
+              <span aria-hidden="true" class="resource-picker-label-action">
+                "Browse"
+            <button aria-label="Next resource" class="preset-action-btn resource-nav-btn resource-nav-next-btn" data-nav-direction="next" data-node-id="node-fixture" data-resource-index="1" data-resource-type="ir" disabled="" title="Next resource" type="button">
+              <span aria-hidden="true" class="resource-nav-icon"> {--icon-url: url('/images/icons/arrow-right.svg')}
+      <div class="custom-layout-control"> {position: absolute; left: 440px; top: 32px; display: flex; flex-direction: column; align-items: center}
+        <span class="custom-control-label"> {font-size: 10px; color: var(--text-dark-secondary); margin-bottom: 4px}
+          "Level"
+        <div class="knob node-param-knob custom-knob-default" data-default="0" data-max="12" data-min="-24" data-node-id="node-fixture" data-param-key="level" data-unit="dB" data-value="-3.5">
+          <div class="knob-indicator">
+        <span class="node-param-value"> {font-size: 9px; color: var(--text-tertiary); margin-top: 2px}
+          "-3.5dB"
+    <div class="custom-layout-labels"> {position: absolute; inset: 0; z-index: 3; pointer-events: none; margin: 0; padding: 0}

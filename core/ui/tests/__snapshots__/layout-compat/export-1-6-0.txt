@@ -1,0 +1,95 @@
+# An archive's layout.json as the 1.6.0 exporter wrote it (formatVersion 1, layout fields 1.6.0 had, an image manifest). Rendered as stored and after import.
+## enabled
+<div class="custom-layout-scale-outer"> {position: relative; width: 100%; overflow: hidden; height: 320px}
+  <div class="custom-layout-container theme-dark" data-design-h="320" data-design-w="480"> {position: relative; width: 480px; height: 320px; overflow: hidden; border-radius: 8px; margin: 0; padding: 0; box-sizing: border-box; transform-origin: top left}
+    <div class="custom-layout-bg"> {position: absolute; inset: 0; z-index: 0; background-color: #1b2a4a}
+    <div class="custom-layout-bg"> {position: absolute; inset: 0; z-index: 1; background-image: url(<image:pedal-face_1771000000001>); background-size: cover; background-position: 0px 8px; background-repeat: no-repeat; opacity: 0.85}
+    <div class="custom-layout-overlay" data-toggle-bypass="false"> {position: absolute; left: 416px; top: 16px; width: 16px; height: 16px; background-color: rgba(255, 32, 32, 0.9); border: 1px solid #400000; border-radius: 8px; z-index: 1; box-sizing: border-box; pointer-events: none; cursor: default}
+    <div class="custom-layout-overlay" data-toggle-bypass="true"> {position: absolute; left: 192px; top: 240px; width: 96px; height: 64px; background-color: rgba(0, 0, 0, 0); border: 0px solid #ffffff; border-radius: 0px; z-index: 4; box-sizing: border-box; pointer-events: auto; cursor: pointer}
+    <div class="custom-layout-controls"> {position: absolute; inset: 0; z-index: 2; margin: 0; padding: 0; pointer-events: none}
+      <div class="custom-layout-control"> {position: absolute; left: 40px; top: 64px; display: flex; flex-direction: column; align-items: center}
+        <span class="custom-control-label"> {font-size: 10px; color: var(--text-dark-secondary); margin-bottom: 4px}
+          "Time"
+        <div class="knob node-param-knob custom-knob-custom" data-custom-knob-image="true" data-default="350" data-max="2000" data-min="1" data-node-id="node-fixture" data-param-key="time" data-taper="log" data-unit="ms" data-value="500"> {background-image: none}
+          <div class="custom-knob-face"> {background-image: url(<image:chicken-head_1771000000002>)}
+          <div class="knob-indicator">
+        <span class="node-param-value"> {font-size: 9px; color: var(--text-tertiary); margin-top: 2px}
+          "500ms"
+      <div class="custom-layout-control"> {position: absolute; left: 136px; top: 64px; display: flex; flex-direction: column; align-items: center}
+        <div class="knob node-param-knob custom-knob-pedal" data-default="0.4" data-max="1" data-min="0" data-node-id="node-fixture" data-param-key="feedback" data-unit="amount" data-value="0.35">
+          <div class="knob-indicator">
+        <span class="custom-control-label"> {font-size: 10px; color: var(--text-dark-secondary); margin-top: 4px}
+          "Feedback"
+        <span class="node-param-value"> {font-size: 9px; color: var(--text-tertiary); margin-top: 2px}
+          "0.35"
+      <div class="custom-layout-control"> {position: absolute; left: 232px; top: 80px; display: flex; flex-direction: column; align-items: center}
+        <span class="custom-control-label"> {font-size: 10px; color: var(--text-dark-secondary); margin-bottom: 4px}
+          "Blend"
+        <input class="custom-layout-slider node-param-slider" data-default="0.5" data-node-id="node-fixture" data-param-key="mix" data-value="0.7" max="1" min="0" step="0.01" type="range" value="0.7">
+        <span class="node-param-value"> {font-size: 9px; color: var(--text-tertiary); margin-top: 2px}
+          "0.70"
+      <div class="custom-layout-control"> {position: absolute; left: 360px; top: 72px; display: flex; flex-direction: column; align-items: center}
+        <span class="custom-control-label"> {font-size: 10px; color: var(--text-dark-secondary); margin-bottom: 4px}
+          "Sync"
+        <label class="toggle-switch">
+          <input checked="" class="node-param-toggle" data-node-id="node-fixture" data-param-key="sync" type="checkbox">
+          <span class="toggle-slider">
+      <div class="custom-layout-control"> {position: absolute; left: 40px; top: 200px; display: flex; flex-direction: column; align-items: center}
+        <span class="custom-control-label"> {font-size: 10px; color: var(--text-dark-secondary); margin-bottom: 4px}
+          "Mode"
+        <div class="knob node-param-knob custom-knob-amp" data-default="1" data-labels="Digital|Tape|Analog" data-max="2" data-min="0" data-node-id="node-fixture" data-param-key="mode" data-step="1" data-unit="enum" data-value="2">
+          <div class="knob-indicator">
+        <span class="node-param-value"> {font-size: 9px; color: var(--text-tertiary); margin-top: 2px}
+          "Analog"
+    <div class="custom-layout-labels"> {position: absolute; inset: 0; z-index: 3; pointer-events: none; margin: 0; padding: 0}
+      <span class="custom-layout-text-label"> {position: absolute; left: 160px; top: 12px; font-size: 22px; font-weight: bold; font-family: Georgia, serif; color: #f0f0ff; text-align: center; pointer-events: none}
+        "BLUE ECHO"
+      <span class="custom-layout-text-label"> {position: absolute; left: 176px; top: 40px; font-size: 10px; font-weight: normal; color: var(--text-dark-primary); text-align: left; pointer-events: none}
+        "digital delay"
+
+## bypassed
+<div class="custom-layout-scale-outer"> {position: relative; width: 100%; overflow: hidden; height: 320px}
+  <div class="custom-layout-container theme-dark" data-design-h="320" data-design-w="480"> {position: relative; width: 480px; height: 320px; overflow: hidden; border-radius: 8px; margin: 0; padding: 0; box-sizing: border-box; transform-origin: top left}
+    <div class="custom-layout-bg"> {position: absolute; inset: 0; z-index: 0; background-color: #1b2a4a}
+    <div class="custom-layout-bg"> {position: absolute; inset: 0; z-index: 1; background-image: url(<image:pedal-face_1771000000001>); background-size: cover; background-position: 0px 8px; background-repeat: no-repeat; opacity: 0.85}
+    <div class="custom-layout-overlay" data-toggle-bypass="true"> {position: absolute; left: 192px; top: 240px; width: 96px; height: 64px; background-color: rgba(0, 0, 0, 0); border: 0px solid #ffffff; border-radius: 0px; z-index: 4; box-sizing: border-box; pointer-events: auto; cursor: pointer}
+    <div class="custom-layout-controls"> {position: absolute; inset: 0; z-index: 2; margin: 0; padding: 0; pointer-events: none}
+      <div class="custom-layout-control"> {position: absolute; left: 40px; top: 64px; display: flex; flex-direction: column; align-items: center}
+        <span class="custom-control-label"> {font-size: 10px; color: var(--text-dark-secondary); margin-bottom: 4px}
+          "Time"
+        <div class="knob node-param-knob custom-knob-custom" data-custom-knob-image="true" data-default="350" data-max="2000" data-min="1" data-node-id="node-fixture" data-param-key="time" data-taper="log" data-unit="ms" data-value="500"> {background-image: none}
+          <div class="custom-knob-face"> {background-image: url(<image:chicken-head_1771000000002>)}
+          <div class="knob-indicator">
+        <span class="node-param-value"> {font-size: 9px; color: var(--text-tertiary); margin-top: 2px}
+          "500ms"
+      <div class="custom-layout-control"> {position: absolute; left: 136px; top: 64px; display: flex; flex-direction: column; align-items: center}
+        <div class="knob node-param-knob custom-knob-pedal" data-default="0.4" data-max="1" data-min="0" data-node-id="node-fixture" data-param-key="feedback" data-unit="amount" data-value="0.35">
+          <div class="knob-indicator">
+        <span class="custom-control-label"> {font-size: 10px; color: var(--text-dark-secondary); margin-top: 4px}
+          "Feedback"
+        <span class="node-param-value"> {font-size: 9px; color: var(--text-tertiary); margin-top: 2px}
+          "0.35"
+      <div class="custom-layout-control"> {position: absolute; left: 232px; top: 80px; display: flex; flex-direction: column; align-items: center}
+        <span class="custom-control-label"> {font-size: 10px; color: var(--text-dark-secondary); margin-bottom: 4px}
+          "Blend"
+        <input class="custom-layout-slider node-param-slider" data-default="0.5" data-node-id="node-fixture" data-param-key="mix" data-value="0.7" max="1" min="0" step="0.01" type="range" value="0.7">
+        <span class="node-param-value"> {font-size: 9px; color: var(--text-tertiary); margin-top: 2px}
+          "0.70"
+      <div class="custom-layout-control"> {position: absolute; left: 360px; top: 72px; display: flex; flex-direction: column; align-items: center}
+        <span class="custom-control-label"> {font-size: 10px; color: var(--text-dark-secondary); margin-bottom: 4px}
+          "Sync"
+        <label class="toggle-switch">
+          <input checked="" class="node-param-toggle" data-node-id="node-fixture" data-param-key="sync" type="checkbox">
+          <span class="toggle-slider">
+      <div class="custom-layout-control"> {position: absolute; left: 40px; top: 200px; display: flex; flex-direction: column; align-items: center}
+        <span class="custom-control-label"> {font-size: 10px; color: var(--text-dark-secondary); margin-bottom: 4px}
+          "Mode"
+        <div class="knob node-param-knob custom-knob-amp" data-default="1" data-labels="Digital|Tape|Analog" data-max="2" data-min="0" data-node-id="node-fixture" data-param-key="mode" data-step="1" data-unit="enum" data-value="2">
+          <div class="knob-indicator">
+        <span class="node-param-value"> {font-size: 9px; color: var(--text-tertiary); margin-top: 2px}
+          "Analog"
+    <div class="custom-layout-labels"> {position: absolute; inset: 0; z-index: 3; pointer-events: none; margin: 0; padding: 0}
+      <span class="custom-layout-text-label"> {position: absolute; left: 160px; top: 12px; font-size: 22px; font-weight: bold; font-family: Georgia, serif; color: #f0f0ff; text-align: center; pointer-events: none}
+        "BLUE ECHO"
+      <span class="custom-layout-text-label"> {position: absolute; left: 176px; top: 40px; font-size: 10px; font-weight: normal; color: var(--text-dark-primary); text-align: left; pointer-events: none}
+        "digital delay"

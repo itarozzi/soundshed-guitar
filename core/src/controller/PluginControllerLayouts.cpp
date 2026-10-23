@@ -642,219 +642,27 @@ nlohmann::json PluginController::BuildLayoutImages()
 {
     nlohmann::json images = nlohmann::json::array();
 
-    // Helper: load all images from a directory into the image list.
-    const auto appendImagesFromDir = [&images](const std::filesystem::path& imagesDir) {
-        if (!std::filesystem::exists(imagesDir))
-        {
-            return;
-        }
-
-        for (const auto& entry : std::filesystem::directory_iterator(imagesDir))
-        {
-            if (!entry.is_regular_file())
-            {
-                continue;
-            }
-
-            const std::string mimeType = LayoutImageMimeType(entry.path().extension());
-
-            if (mimeType.empty())
-            {
-                continue;
-            }
-
-            std::ifstream imageFile(entry.path(), std::ios::binary);
-
-            if (!imageFile)
-            {
-                continue;
-            }
-
-            std::vector<std::uint8_t> imageData((std::istreambuf_iterator<char>(imageFile)),
-                                                std::istreambuf_iterator<char>());
-            imageFile.close();
-
-            const std::string dataUrl = "data:" + mimeType + ";base64," + util::EncodeBase64(imageData);
-            const std::string imageId = util::PathToUtf8(entry.path().stem());
-            bool replaced = false;
-
-            for (auto& existing : images)
-            {
-                if (existing.is_object() && existing.value("imageId", std::string{}) == imageId)
-                {
-                    existing["fileName"] = util::PathToUtf8(entry.path().filename());
-                    existing["dataUrl"] = dataUrl;
-                    replaced = true;
-                    break;
-                }
-            }
-
-            if (!replaced)
-            {
-                nlohmann::json imageRef;
-                imageRef["imageId"] = imageId;
-                imageRef["fileName"] = util::PathToUtf8(entry.path().filename());
-                imageRef["dataUrl"] = dataUrl;
-                images.push_back(imageRef);
-            }
-        }
-    };
-
-    // Images saved before every layout had an id went to one shared folder. Listed first, so a
-    // layout's own copy of the same image wins.
-    appendImagesFromDir(ResolveLegacyLayoutImagesDir(mFileSystem));
-
-    // User layout images: one images/ folder per associated layoutId.
-    nlohmann::json settings = LoadEffectLayoutsSettings(mFileSystem);
-
-    if (settings.contains("associations") && settings["associations"].is_object())
+    // One entry per id, resolved as every other reader of an image id resolves it.
+    for (const auto& source :
+         CollectLayoutImageSources(mFileSystem, ResolveFactoryLayoutsDir(mHost.GetBundledAssetsPath())))
     {
-        for (auto it = settings["associations"].begin(); it != settings["associations"].end(); ++it)
+        std::ifstream imageFile(source.path, std::ios::binary);
+
+        if (!imageFile)
         {
-            const auto& assocEntry = it.value();
-
-            if (!assocEntry.is_object())
-            {
-                continue;
-            }
-
-            const auto ids = assocEntry.value("layoutIds", nlohmann::json::array());
-
-            if (!ids.is_array())
-            {
-                continue;
-            }
-
-            for (const auto& id : ids)
-            {
-                if (!id.is_string())
-                {
-                    continue;
-                }
-
-                const std::string layoutId = id.get<std::string>();
-                appendImagesFromDir(ResolveLayoutDir(mFileSystem, layoutId) / "images");
-            }
+            AppendSessionLog("Could not read layout image " + util::PathToUtf8(source.path));
+            continue;
         }
-    }
 
-    // Factory layout images: referenced via each layout's manifest.
-    {
-        const auto bundledRoot = mHost.GetBundledAssetsPath();
-        const auto factoryLayoutsDir = ResolveFactoryLayoutsDir(bundledRoot);
+        const std::vector<std::uint8_t> imageData((std::istreambuf_iterator<char>(imageFile)),
+                                                  std::istreambuf_iterator<char>());
+        const std::string mimeType = LayoutImageMimeType(source.path.extension());
 
-        if (std::filesystem::exists(factoryLayoutsDir))
-        {
-            for (const auto& layoutFolder : std::filesystem::directory_iterator(factoryLayoutsDir))
-            {
-                if (!layoutFolder.is_directory())
-                {
-                    continue;
-                }
-
-                const auto layoutJsonPath = layoutFolder.path() / "layout.json";
-
-                if (!std::filesystem::exists(layoutJsonPath))
-                {
-                    continue;
-                }
-
-                try
-                {
-                    std::ifstream input(layoutJsonPath);
-
-                    if (!input)
-                    {
-                        continue;
-                    }
-
-                    nlohmann::json archive;
-                    input >> archive;
-
-                    if (!archive.is_object() || !archive.contains("images") || !archive["images"].is_array())
-                    {
-                        continue;
-                    }
-
-                    const auto imagesDir = layoutFolder.path() / "images";
-
-                    if (!std::filesystem::exists(imagesDir))
-                    {
-                        continue;
-                    }
-
-                    for (const auto& imgRef : archive["images"])
-                    {
-                        if (!imgRef.is_object())
-                        {
-                            continue;
-                        }
-
-                        const std::string imageId = imgRef.value("imageId", "");
-                        const std::string fileName = imgRef.value("fileName", "");
-
-                        if (imageId.empty() || fileName.empty())
-                        {
-                            continue;
-                        }
-
-                        const auto imgPath = imagesDir / util::PathFromUtf8(fileName);
-
-                        if (!std::filesystem::exists(imgPath))
-                        {
-                            continue;
-                        }
-
-                        std::ifstream imgFile(imgPath, std::ios::binary);
-
-                        if (!imgFile)
-                        {
-                            continue;
-                        }
-
-                        std::vector<std::uint8_t> imgData((std::istreambuf_iterator<char>(imgFile)),
-                                                          std::istreambuf_iterator<char>());
-                        imgFile.close();
-
-                        const std::string mimeType = LayoutImageMimeType(imgPath.extension());
-
-                        if (mimeType.empty())
-                        {
-                            continue;
-                        }
-
-                        const std::string dataUrl = "data:" + mimeType + ";base64," + util::EncodeBase64(imgData);
-
-                        bool replaced = false;
-
-                        for (auto& existing : images)
-                        {
-                            if (existing.is_object() && existing.value("imageId", std::string{}) == imageId)
-                            {
-                                existing["fileName"] = fileName;
-                                existing["dataUrl"] = dataUrl;
-                                replaced = true;
-                                break;
-                            }
-                        }
-
-                        if (!replaced)
-                        {
-                            nlohmann::json imageRef;
-                            imageRef["imageId"] = imageId;
-                            imageRef["fileName"] = fileName;
-                            imageRef["dataUrl"] = dataUrl;
-                            images.push_back(imageRef);
-                        }
-                    }
-                }
-                catch (const std::exception& e)
-                {
-                    AppendSessionLog("Failed to load factory layout images from " +
-                                     util::PathToUtf8(layoutFolder.path()) + ": " + e.what());
-                }
-            }
-        }
+        nlohmann::json imageRef;
+        imageRef["imageId"] = source.imageId;
+        imageRef["fileName"] = util::PathToUtf8(source.path.filename());
+        imageRef["dataUrl"] = "data:" + mimeType + ";base64," + util::EncodeBase64(imageData);
+        images.push_back(std::move(imageRef));
     }
 
     return images;

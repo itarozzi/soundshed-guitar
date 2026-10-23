@@ -1,0 +1,47 @@
+{
+  "description": "An archive's layout.json as the 1.6.0 exporter wrote it (formatVersion 1, layout fields 1.6.0 had, an image manifest). Rendered as stored and after import.",
+  "kind": "archive",
+  "images": [
+    { "imageId": "pedal-face_1771000000001", "fileName": "pedal-face_1771000000001.png", "dataUrl": "data:image/png;base64,QkFDSw==" },
+    { "imageId": "chicken-head_1771000000002", "fileName": "chicken-head_1771000000002.png", "dataUrl": "data:image/png;base64,S05PQg==" }
+  ],
+  "data": {
+    "formatVersion": 1,
+    "createdAt": "2026-10-05T09:12:44.120Z",
+    "layout": {
+      "effectType": "delay_digital",
+      "layoutId": "layout-1771000000000-ab12cd",
+      "version": 1,
+      "name": "Blue Echo",
+      "author": "Test Author",
+      "dimensions": { "width": 480, "height": 320 },
+      "backgrounds": [
+        { "layerIndex": 0, "type": "color", "value": "#1b2a4a" },
+        { "layerIndex": 1, "type": "image", "value": "pedal-face_1771000000001", "size": "cover", "opacity": 0.85, "offsetX": 0, "offsetY": 8 }
+      ],
+      "controls": [
+        { "paramKey": "time", "type": "knob", "position": { "x": 40, "y": 64 }, "style": { "labelPosition": "top", "knobStyle": "custom", "knobImageId": "chicken-head_1771000000002", "showValue": true } },
+        { "paramKey": "feedback", "type": "knob", "position": { "x": 136, "y": 64 }, "style": { "labelPosition": "bottom", "knobStyle": "pedal" } },
+        { "paramKey": "mix", "type": "slider", "position": { "x": 232, "y": 80 }, "labelOverride": "Blend" },
+        { "paramKey": "sync", "type": "toggle", "position": { "x": 360, "y": 72 }, "style": { "showValue": false } },
+        { "paramKey": "mode", "type": "knob", "position": { "x": 40, "y": 200 }, "style": { "knobStyle": "amp" } }
+      ],
+      "overlays": [
+        { "id": "overlay-1771000000003-led", "position": { "x": 416, "y": 16 }, "size": { "width": 16, "height": 16 }, "style": { "visibilityMode": "enabled", "backgroundColor": "#ff2020", "backgroundOpacity": 0.9, "borderColor": "#400000", "borderWidth": 1, "borderRadius": 8 } },
+        { "id": "overlay-1771000000004-sw", "position": { "x": 192, "y": 240 }, "size": { "width": 96, "height": 64 }, "style": { "visibilityMode": "always", "toggleBypassOnClick": true, "backgroundColor": "#000000", "backgroundOpacity": 0, "borderWidth": 0 } }
+      ],
+      "textLabels": [
+        { "id": "label-1771000000005-title", "text": "BLUE ECHO", "position": { "x": 160, "y": 12 }, "fontSize": 22, "fontWeight": "bold", "fontFamily": "Georgia, serif", "color": "#f0f0ff", "textAlign": "center" },
+        { "id": "label-1771000000006-sub", "text": "digital delay", "position": { "x": 176, "y": 40 }, "fontSize": 10 }
+      ],
+      "containerTheme": "dark",
+      "createdAt": "2026-10-01T10:00:00.000Z",
+      "modifiedAt": "2026-10-05T09:12:40.000Z",
+      "thumbnailDataUrl": "data:image/jpeg;base64,VEhVTUI="
+    },
+    "images": [
+      { "imageId": "pedal-face_1771000000001", "fileName": "pedal-face_1771000000001.png", "type": "background" },
+      { "imageId": "chicken-head_1771000000002", "fileName": "chicken-head_1771000000002.png", "type": "knob" }
+    ]
+  }
+}

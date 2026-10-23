@@ -1,0 +1,24 @@
+# A stored layout with more background layers than the designer makes today, one per image size mode, with offsets and opacities, plus one whose image id is in no folder.
+## enabled
+<div class="custom-layout-scale-outer"> {position: relative; width: 100%; overflow: hidden; height: 768px}
+  <div class="custom-layout-container" data-design-h="768" data-design-w="1024"> {position: relative; width: 1024px; height: 768px; overflow: hidden; border-radius: 8px; margin: 0; padding: 0; box-sizing: border-box; transform-origin: top left}
+    <div class="custom-layout-bg"> {position: absolute; inset: 0; z-index: 0; background-image: url(<image:wood_1773000000001>); background-size: tile; background-position: 0px 0px; background-repeat: repeat}
+    <div class="custom-layout-bg"> {position: absolute; inset: 0; z-index: 1; background-image: url(<image:grille_1773000000002>); background-size: 50%; background-position: 128px -16px; background-repeat: no-repeat; opacity: 0.6}
+    <div class="custom-layout-bg"> {position: absolute; inset: 0; z-index: 2; background-image: url(<image:logo_1773000000003>); background-size: contain; background-position: 0px 0px; background-repeat: no-repeat}
+    <div class="custom-layout-bg"> {position: absolute; inset: 0; z-index: 3; background-image: url(<image:grille_1773000000002>); background-size: 100% 100%; background-position: 0px 0px; background-repeat: no-repeat}
+    <div class="custom-layout-bg"> {position: absolute; inset: 0; z-index: 4; background-image: url(<image:wood_1773000000001>); background-size: cover; background-position: 0px 0px; background-repeat: no-repeat}
+    <div class="custom-layout-bg"> {position: absolute; inset: 0; z-index: 5}
+    <div class="custom-layout-controls"> {position: absolute; inset: 0; z-index: 2; margin: 0; padding: 0; pointer-events: none}
+    <div class="custom-layout-labels"> {position: absolute; inset: 0; z-index: 3; pointer-events: none; margin: 0; padding: 0}
+
+## bypassed
+<div class="custom-layout-scale-outer"> {position: relative; width: 100%; overflow: hidden; height: 768px}
+  <div class="custom-layout-container" data-design-h="768" data-design-w="1024"> {position: relative; width: 1024px; height: 768px; overflow: hidden; border-radius: 8px; margin: 0; padding: 0; box-sizing: border-box; transform-origin: top left}
+    <div class="custom-layout-bg"> {position: absolute; inset: 0; z-index: 0; background-image: url(<image:wood_1773000000001>); background-size: tile; background-position: 0px 0px; background-repeat: repeat}
+    <div class="custom-layout-bg"> {position: absolute; inset: 0; z-index: 1; background-image: url(<image:grille_1773000000002>); background-size: 50%; background-position: 128px -16px; background-repeat: no-repeat; opacity: 0.6}
+    <div class="custom-layout-bg"> {position: absolute; inset: 0; z-index: 2; background-image: url(<image:logo_1773000000003>); background-size: contain; background-position: 0px 0px; background-repeat: no-repeat}
+    <div class="custom-layout-bg"> {position: absolute; inset: 0; z-index: 3; background-image: url(<image:grille_1773000000002>); background-size: 100% 100%; background-position: 0px 0px; background-repeat: no-repeat}
+    <div class="custom-layout-bg"> {position: absolute; inset: 0; z-index: 4; background-image: url(<image:wood_1773000000001>); background-size: cover; background-position: 0px 0px; background-repeat: no-repeat}
+    <div class="custom-layout-bg"> {position: absolute; inset: 0; z-index: 5}
+    <div class="custom-layout-controls"> {position: absolute; inset: 0; z-index: 2; margin: 0; padding: 0; pointer-events: none}
+    <div class="custom-layout-labels"> {position: absolute; inset: 0; z-index: 3; pointer-events: none; margin: 0; padding: 0}

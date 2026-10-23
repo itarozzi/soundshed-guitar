@@ -63,14 +63,32 @@ inline constexpr std::size_t kMaxLayoutImageBytes = 16u * 1024u * 1024u;
 /// write something else under an image's name.
 [[nodiscard]] bool LooksLikeLayoutImage(const std::vector<std::uint8_t>& bytes, const std::filesystem::path& extension);
 
+/// One image a layout can draw on: its id and the file that holds it.
+struct LayoutImageSource
+{
+    std::string imageId;
+    std::filesystem::path path;
+};
+
+/// Every image a layout can draw on, each id once, in the order the library first lists it.
+/// Ids are shared by every layout, and when two folders hold the same id the later one wins, in
+/// this order: the legacy shared folder, then each indexed layout's folder in index order, then
+/// the factory layouts. That is the file the UI has always shown for an id, so everything that
+/// reads an image by id resolves it here. With `includeUnindexed`, layout folders the index does
+/// not list (a layout never saved, or one a delete left behind) come first, so they only supply an
+/// id found nowhere else. `excludeImagesDir` is left out entirely.
+[[nodiscard]] std::vector<LayoutImageSource>
+CollectLayoutImageSources(const FileSystem& fileSystem, const std::filesystem::path& factoryLayoutsDir,
+                          bool includeUnindexed = false, const std::filesystem::path& excludeImagesDir = {});
+
 /// The image ids a layout document draws on: image background layers and custom knob faces,
 /// each once, in the order they appear.
 [[nodiscard]] std::vector<std::string> CollectLayoutImageIds(const nlohmann::json& layout);
 
-/// Copies each of `imageIds` that `layoutId`'s own images folder lacks into it, from wherever
-/// it is found: another layout's folder, the legacy shared folder, or a factory layout. A layout
-/// can pick any image in the library, and without its own copy it loses that image when the
-/// layout it came from is deleted. Returns the ids found nowhere.
+/// Copies each of `imageIds` that `layoutId`'s own images folder lacks into it, from the file
+/// CollectLayoutImageSources resolves the id to, which is the one the user saw. A layout can pick
+/// any image in the library, and without its own copy it loses that image when the layout it came
+/// from is deleted. Returns the ids found nowhere.
 std::vector<std::string> CopyMissingLayoutImages(const FileSystem& fileSystem,
                                                  const std::filesystem::path& factoryLayoutsDir,
                                                  const std::string& layoutId, const std::vector<std::string>& imageIds,

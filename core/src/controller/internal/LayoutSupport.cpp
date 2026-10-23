@@ -114,7 +114,7 @@ std::filesystem::path ResolveFactoryLayoutsDir(const std::filesystem::path& bund
 
 namespace
 {
-using ImageSources = std::map<std::string, std::filesystem::path>;
+using ImageSources = std::vector<LayoutImageSource>;
 
 std::string LowerAscii(std::string value)
 {
@@ -176,6 +176,24 @@ bool IsBareFileName(const std::string& name)
     return !path.has_root_path() && !path.has_parent_path() && path.filename() == path;
 }
 
+/// Points `imageId` at `path`: a later folder replaces an earlier one's file but keeps the id's
+/// place in the list, as the library always has.
+void PutImage(ImageSources& sources, const std::string& imageId, const std::filesystem::path& path)
+{
+    const auto existing = std::find_if(sources.begin(), sources.end(), [&imageId](const LayoutImageSource& source) {
+        return source.imageId == imageId;
+    });
+
+    if (existing != sources.end())
+    {
+        existing->path = path;
+    }
+    else
+    {
+        sources.push_back({imageId, path});
+    }
+}
+
 /// Image files in `imagesDir`, by stem: how user layouts and the legacy folder name them.
 void AddImagesByStem(ImageSources& sources, const std::filesystem::path& imagesDir)
 {
@@ -192,7 +210,7 @@ void AddImagesByStem(ImageSources& sources, const std::filesystem::path& imagesD
 
         if (entry.is_regular_file(entryEc) && !LayoutImageMimeType(entry.path().extension()).empty())
         {
-            sources[util::PathToUtf8(entry.path().stem())] = entry.path();
+            PutImage(sources, util::PathToUtf8(entry.path().stem()), entry.path());
         }
     }
 }
@@ -239,44 +257,92 @@ void AddFactoryImages(ImageSources& sources, const std::filesystem::path& factor
 
             if (std::filesystem::is_regular_file(path, fileEc) && !LayoutImageMimeType(path.extension()).empty())
             {
-                sources[imageId] = path;
+                PutImage(sources, imageId, path);
             }
         }
     }
 }
 
-/// Every image a layout could have picked, except those already in `excludeImagesDir`.
-/// Lowest priority first, so for one id a user layout's file wins over the legacy folder's,
-/// and that over a factory one, as in BuildLayoutImages.
-ImageSources CollectImageSources(const FileSystem& fileSystem, const std::filesystem::path& factoryLayoutsDir,
-                                 const std::filesystem::path& excludeImagesDir)
+/// The images folder of every layout the index lists, in index order: each association's
+/// layoutIds in turn. A layout listed twice (under an effect type and a blend of it) appears twice.
+std::vector<std::filesystem::path> IndexedLayoutImageDirs(const FileSystem& fileSystem)
 {
-    ImageSources sources;
-    AddFactoryImages(sources, factoryLayoutsDir);
-    AddImagesByStem(sources, ResolveLegacyLayoutImagesDir(fileSystem));
+    std::vector<std::filesystem::path> dirs;
+    const auto settings = LoadEffectLayoutsSettings(fileSystem);
+    const auto associations = settings.find("associations");
 
-    const auto contentDir = fileSystem.ResolveSettingsDirectory() / "layouts" / "content";
-    std::error_code ec;
-
-    if (!std::filesystem::is_directory(contentDir, ec))
+    if (associations == settings.end() || !associations->is_object())
     {
-        return sources;
+        return dirs;
     }
 
-    for (const auto& layoutDir : std::filesystem::directory_iterator(contentDir, ec))
+    for (const auto& entry : *associations)
     {
-        std::error_code dirEc;
-        const auto imagesDir = layoutDir.path() / "images";
+        const auto ids = entry.is_object() ? entry.find("layoutIds") : entry.end();
 
-        if (layoutDir.is_directory(dirEc) && imagesDir != excludeImagesDir)
+        if (!entry.is_object() || ids == entry.end() || !ids->is_array())
+        {
+            continue;
+        }
+
+        for (const auto& id : *ids)
+        {
+            if (id.is_string())
+            {
+                dirs.push_back(ResolveLayoutDir(fileSystem, id.get<std::string>()) / "images");
+            }
+        }
+    }
+
+    return dirs;
+}
+} // namespace
+
+std::vector<LayoutImageSource> CollectLayoutImageSources(const FileSystem& fileSystem,
+                                                         const std::filesystem::path& factoryLayoutsDir,
+                                                         bool includeUnindexed,
+                                                         const std::filesystem::path& excludeImagesDir)
+{
+    ImageSources sources;
+    const auto indexedDirs = IndexedLayoutImageDirs(fileSystem);
+
+    if (includeUnindexed)
+    {
+        const auto contentDir = fileSystem.ResolveSettingsDirectory() / "layouts" / "content";
+        std::error_code ec;
+
+        if (std::filesystem::is_directory(contentDir, ec))
+        {
+            for (const auto& layoutDir : std::filesystem::directory_iterator(contentDir, ec))
+            {
+                std::error_code dirEc;
+                const auto imagesDir = layoutDir.path() / "images";
+
+                if (layoutDir.is_directory(dirEc) && imagesDir != excludeImagesDir &&
+                    std::find(indexedDirs.begin(), indexedDirs.end(), imagesDir) == indexedDirs.end())
+                {
+                    AddImagesByStem(sources, imagesDir);
+                }
+            }
+        }
+    }
+
+    if (ResolveLegacyLayoutImagesDir(fileSystem) != excludeImagesDir)
+    {
+        AddImagesByStem(sources, ResolveLegacyLayoutImagesDir(fileSystem));
+    }
+
+    for (const auto& imagesDir : indexedDirs)
+    {
+        if (imagesDir != excludeImagesDir)
         {
             AddImagesByStem(sources, imagesDir);
         }
     }
 
+    AddFactoryImages(sources, factoryLayoutsDir);
     return sources;
 }
-} // namespace
 
 std::string LayoutImageMimeType(const std::filesystem::path& extension)
 {
@@ -432,12 +498,18 @@ std::vector<std::string> CopyMissingLayoutImages(const FileSystem& fileSystem,
     }
 
     const auto destDir = ResolveLayoutDir(fileSystem, layoutId) / "images";
-    ImageSources own;
-    std::optional<ImageSources> elsewhere;
+    std::map<std::string, std::filesystem::path> own;
+    std::optional<std::map<std::string, std::filesystem::path>> elsewhere;
 
     try
     {
-        AddImagesByStem(own, destDir);
+        ImageSources listed;
+        AddImagesByStem(listed, destDir);
+
+        for (auto& source : listed)
+        {
+            own.emplace(std::move(source.imageId), std::move(source.path));
+        }
     }
     catch (const std::exception& e)
     {
@@ -455,7 +527,14 @@ std::vector<std::string> CopyMissingLayoutImages(const FileSystem& fileSystem,
         {
             if (!elsewhere)
             {
-                elsewhere = CollectImageSources(fileSystem, factoryLayoutsDir, destDir);
+                // Unindexed folders too: an image picked from a layout that was never saved still
+                // has to be copied before that folder is tidied away.
+                elsewhere.emplace();
+
+                for (auto& source : CollectLayoutImageSources(fileSystem, factoryLayoutsDir, true, destDir))
+                {
+                    elsewhere->emplace(std::move(source.imageId), std::move(source.path));
+                }
             }
 
             const auto found = elsewhere->find(imageId);

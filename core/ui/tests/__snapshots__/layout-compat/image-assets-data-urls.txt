@@ -1,0 +1,30 @@
+# A layout saved by an older build that embedded its images as data URLs in imageAssets. The renderer has never read imageAssets: the background shows only when the library holds the id.
+## enabled
+<div class="custom-layout-scale-outer"> {position: relative; width: 100%; overflow: hidden; height: 280px}
+  <div class="custom-layout-container" data-design-h="280" data-design-w="400"> {position: relative; width: 400px; height: 280px; overflow: hidden; border-radius: 8px; margin: 0; padding: 0; box-sizing: border-box; transform-origin: top left}
+    <div class="custom-layout-bg"> {position: absolute; inset: 0; z-index: 0; background-image: url(<image:embedded_1774000000001>); background-size: cover; background-position: 0px 0px; background-repeat: no-repeat}
+    <div class="custom-layout-bg"> {position: absolute; inset: 0; z-index: 1}
+    <div class="custom-layout-controls"> {position: absolute; inset: 0; z-index: 2; margin: 0; padding: 0; pointer-events: none}
+      <div class="custom-layout-control"> {position: absolute; left: 160px; top: 104px; display: flex; flex-direction: column; align-items: center}
+        <span class="custom-control-label"> {font-size: 10px; color: var(--text-dark-secondary); margin-bottom: 4px}
+          "Time"
+        <div class="knob node-param-knob custom-knob-custom" data-default="350" data-max="2000" data-min="1" data-node-id="node-fixture" data-param-key="time" data-taper="log" data-unit="ms" data-value="500">
+          <div class="knob-indicator">
+        <span class="node-param-value"> {font-size: 9px; color: var(--text-tertiary); margin-top: 2px}
+          "500ms"
+    <div class="custom-layout-labels"> {position: absolute; inset: 0; z-index: 3; pointer-events: none; margin: 0; padding: 0}
+
+## bypassed
+<div class="custom-layout-scale-outer"> {position: relative; width: 100%; overflow: hidden; height: 280px}
+  <div class="custom-layout-container" data-design-h="280" data-design-w="400"> {position: relative; width: 400px; height: 280px; overflow: hidden; border-radius: 8px; margin: 0; padding: 0; box-sizing: border-box; transform-origin: top left}
+    <div class="custom-layout-bg"> {position: absolute; inset: 0; z-index: 0; background-image: url(<image:embedded_1774000000001>); background-size: cover; background-position: 0px 0px; background-repeat: no-repeat}
+    <div class="custom-layout-bg"> {position: absolute; inset: 0; z-index: 1}
+    <div class="custom-layout-controls"> {position: absolute; inset: 0; z-index: 2; margin: 0; padding: 0; pointer-events: none}
+      <div class="custom-layout-control"> {position: absolute; left: 160px; top: 104px; display: flex; flex-direction: column; align-items: center}
+        <span class="custom-control-label"> {font-size: 10px; color: var(--text-dark-secondary); margin-bottom: 4px}
+          "Time"
+        <div class="knob node-param-knob custom-knob-custom" data-default="350" data-max="2000" data-min="1" data-node-id="node-fixture" data-param-key="time" data-taper="log" data-unit="ms" data-value="500">
+          <div class="knob-indicator">
+        <span class="node-param-value"> {font-size: 9px; color: var(--text-tertiary); margin-top: 2px}
+          "500ms"
+    <div class="custom-layout-labels"> {position: absolute; inset: 0; z-index: 3; pointer-events: none; margin: 0; padding: 0}

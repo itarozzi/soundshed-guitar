@@ -12,6 +12,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <map>
 #include <mutex>
 #include <optional>
 #include <set>
@@ -179,6 +180,11 @@ std::vector<std::uint8_t> PngBytes()
 std::vector<std::uint8_t> JpegBytes()
 {
     return {0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 'J', 'F', 'I', 'F', 0x00};
+}
+
+std::vector<std::uint8_t> GifBytes()
+{
+    return {'G', 'I', 'F', '8', '9', 'a', 0x01, 0x00, 0x01, 0x00};
 }
 
 void WriteBytes(const fs::path& path, const std::vector<std::uint8_t>& bytes)
@@ -402,6 +408,90 @@ bool TestLoaderListsLegacyAndUpperCaseImages()
     return true;
 }
 
+/// The image the library lists for each id, keyed by id, as its data URL's MIME prefix.
+std::map<std::string, std::string> ListedImageTypes(TestHost& host, guitarfx::PluginController& controller)
+{
+    controller.HandleUIMessage(R"({"type":"requestLayoutImages"})");
+    const auto loaded = host.WaitForMessage("layoutImagesLoaded");
+    std::map<std::string, std::string> types;
+
+    for (const auto& image : loaded ? loaded->value("images", nlohmann::json::array()) : nlohmann::json::array())
+    {
+        const std::string dataUrl = image.value("dataUrl", "");
+        types[image.value("imageId", "")] = dataUrl.substr(0, dataUrl.find(';'));
+    }
+
+    return types;
+}
+
+/// One id held by several folders resolves to one file everywhere. The library has always shown
+/// the factory's copy over a user layout's, and a user layout's over the legacy folder's, so that
+/// stays; a save now copies that same file rather than a different folder's. A layout folder the
+/// index does not list is never shown, but can still supply an id found nowhere else.
+bool TestSharedImageIdsResolveAsTheLibraryShowsThem()
+{
+    const fs::path sandbox = FreshSandbox("shared-ids");
+    const ScopedPlatformRoot root(sandbox);
+    const fs::path content = ContentDir(sandbox);
+    const fs::path factory = sandbox / "ui" / "assets" / "layouts" / "factory-one";
+
+    WriteBytes(factory / "images" / "factory-file.png", PngBytes());
+    {
+        std::ofstream manifest(factory / "layout.json");
+        manifest << nlohmann::json{{"formatVersion", 1},
+                                   {"layout", {{"effectType", "fx_factory"}, {"version", 1}}},
+                                   {"images", {{{"imageId", "dup_1"}, {"fileName", "factory-file.png"}}}}}
+                        .dump();
+    }
+
+    WriteBytes(content / "images" / "dup_1.gif", GifBytes());
+    WriteBytes(content / "images" / "lu_1.gif", GifBytes());
+    WriteBytes(content / "U" / "images" / "dup_1.jpg", JpegBytes());
+    WriteBytes(content / "U" / "images" / "lu_1.jpg", JpegBytes());
+    WriteBytes(content / "Orphan" / "images" / "orphan_1.png", PngBytes());
+    WriteBytes(content / "Orphan" / "images" / "lu_1.png", PngBytes());
+
+    TestHost host(sandbox);
+    guitarfx::PluginController controller(host);
+    SaveLayout(controller, "U", "fx_u", {});
+
+    const auto listed = ListedImageTypes(host, controller);
+
+    if (listed.count("dup_1") == 0 || listed.at("dup_1") != "data:image/png" || listed.count("lu_1") == 0 ||
+        listed.at("lu_1") != "data:image/jpeg" || listed.count("orphan_1") != 0)
+    {
+        std::cerr << "The library resolved shared ids differently from before:";
+
+        for (const auto& [id, type] : listed)
+        {
+            std::cerr << " " << id << "=" << type;
+        }
+
+        std::cerr << "\n";
+        return false;
+    }
+
+    SaveLayout(controller, "V", "fx_v", {"dup_1", "lu_1", "orphan_1"});
+    const fs::path own = content / "V" / "images";
+
+    if (!fs::is_regular_file(own / "dup_1.png") || fs::exists(own / "dup_1.jpg") ||
+        !fs::is_regular_file(own / "lu_1.jpg") || fs::exists(own / "lu_1.png") ||
+        !fs::is_regular_file(own / "orphan_1.png"))
+    {
+        std::cerr << "A save copied a different file from the one the library shows:";
+
+        for (const auto& entry : fs::directory_iterator(own))
+        {
+            std::cerr << " " << entry.path().filename().string();
+        }
+
+        std::cerr << "\n";
+        return false;
+    }
+
+    return true;
+}
+
 /// A save the engine cannot complete says so, naming the layout, rather than claiming success.
 bool TestFailedSaveIsReported()
 {
@@ -475,6 +565,7 @@ int main()
         {"Imported image names stay in the layout folder", TestImportedImageNamesStayInTheLayoutFolder},
         {"Borrowed images survive deleting their layout", TestBorrowedImagesSurviveDeletingTheirLayout},
         {"Loader lists legacy and upper-case images", TestLoaderListsLegacyAndUpperCaseImages},
+        {"Shared image ids resolve as the library shows them", TestSharedImageIdsResolveAsTheLibraryShowsThem},
         {"A failed save is reported", TestFailedSaveIsReported},
         {"Delete removes the layout from every key", TestDeleteRemovesTheLayoutFromEveryKey},
     };

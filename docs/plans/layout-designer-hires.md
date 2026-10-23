@@ -1,0 +1,366 @@
+# Layout Designer: high-resolution art and scale-to-fit
+
+Status: plan, nothing built. Written 2026-10-23 against `da542757`.
+
+Goal: custom effect layouts can use very large, high-resolution images for
+backgrounds, knobs and other art, and the whole layout scales to whatever space
+the panel has, up as well as down, staying sharp on high-DPI screens.
+
+**Priority constraint: every layout made before this work keeps loading and
+rendering exactly as it does now.** That covers user layouts, the factory
+layout, exported `.sgfxlayout.zip` files and the preference rules that point at
+layouts. See [Compatibility](#compatibility-with-existing-layouts) before
+changing anything below. Every item in this plan is written to that rule.
+
+## Where things stand
+
+| Area | Today | Problem for high-res art |
+|---|---|---|
+| Image transport | `BuildLayoutImages()` (`PluginControllerLayouts.cpp:641`) reads **every** image of every user and factory layout, base64-encodes it and sends the lot in one `layoutImagesLoaded` message. Browse (`HandleBrowseLayoutImageRequest`) copies the file, then reads it back and sends it as a data URL too. | A 12 MB PNG becomes a 16 MB string, gets copied through `json::dump`, WebView2 `postMessage`, `JSON.parse` and `uiState`. Ten such images means hundreds of MB of strings in the UI process before anything is drawn. |
+| Runtime render | `renderBackgrounds()` (`layoutRenderer.ts:372`) writes the data URL into an inline `style` string, which goes through `escapeHtml` and `innerHTML` on **every** panel render. The custom knob face does the same. | Each re-render (bypass toggle, panel redraw) re-serialises and re-parses the multi-MB string. |
+| Size cap | `kMaxLayoutImageBytes` = 16 MB (`LayoutSupport.h:50`). | Rules out large lossless art. The cap exists because bytes cross the bridge. |
+| `layout-images/` URL | Both resolvers fall back to `layout-images/<fileName>`, and `layoutImageCssUrl` already allows it. | No route serves it: `PluginEditor::getResource` only maps into `resources/ui/`, so the fallback 404s. It is a half-built version of the fix. |
+| Canvas size | `LAYOUT_DIMENSION_LIMITS` max 1024 × 768. `sanitizeLayout` clamps to it on import. | A layout authored at 2048 × 1024 is silently clamped, leaving controls off-canvas. |
+| Runtime scaling | `applyCustomLayoutScaling` (`layoutOverlay.ts:25`) only scales **down** and only by **width**. Wider panel = native size, centred. | It can't fill a big panel, and it ignores height, so a tall layout overflows a short panel. |
+| Knobs | `.knob` is a fixed 38 × 38 px (`controls.css`). `control.size` only sets the wrapper width. The designer has no size field or resize handles for controls. A custom knob image is one picture, rotated, clipped to a circle with `inset: 4px`. | A 512 px knob render is drawn at 30 px. Rotating a lit render spins its highlights and shadow. Drop shadows are clipped. |
+| Control text | Label 10 px, value 9 px, label `max-width: 80px`, all hard-coded in the renderer and CSS. | On a 2048-wide design scaled to fit, labels become unreadable. |
+| Export | `layoutStore.ts` builds the zip from `img.dataUrl`. Import sends each image back as base64 (`HandleSaveLayoutImageRequest`). | Depends on every image being held in memory as a data URL. |
+
+Things that are already fine: the UI CSP allows `'self'` images and fonts, so a
+same-origin image route needs no CSP change. Same-origin images don't taint
+the thumbnail canvas. The native Nano UI does not draw custom layouts, so this
+is WebView-only work.
+
+## Compatibility with existing layouts
+
+### What exists today
+
+| Data | Where | Shape |
+|---|---|---|
+| User layouts | The store (`storage::ItemType::kLayout`), indexed by `layouts/indexes/effect-layouts.json` | `version: 1`, the `EffectLayout` fields in `layoutTypes.ts`, often with an embedded `thumbnailDataUrl` |
+| User images | `layouts/content/<layoutId>/images/<imageId>.<ext>` (file stem = image id) | Any of PNG, JPEG, GIF, WebP, SVG |
+| Legacy images | `layouts/content/images/`, from before every layout had an id | Same naming |
+| Borrowed images | A layout may reference an image id that lives in **another** layout's folder or the legacy folder. Ids are global, not per layout. | Resolved by id across all folders |
+| Factory layouts | `ui/assets/layouts/<folder>/layout.json` (`chaos-engine` today) | The archive shape below. Image file names differ from ids, so the manifest maps them. Uses `useDefaultControls` and a `size: "custom"` background |
+| Exported archives | `.sgfxlayout.zip` | `layout.json` = `{ formatVersion: 1, createdAt, layout, images: [{ imageId, fileName, type }] }` plus `images/<fileName>` |
+| Preference rules and per-instance references | Point at a `layoutId` | Ids must never change |
+| `control.size` | Already in saved layouts | The designer draws it as width and height. The runtime applies only the width, to the control's wrapper |
+
+What older apps do with newer data. This matters for sharing an archive with
+someone on 1.6.0, and for a user who downgrades:
+
+- 1.6.0's importer runs `sanitizeLayout`. That clamps `dimensions` to
+  1024 × 768, snaps controls and overlays to the 8 px grid, and keeps unknown
+  fields. It never checks `version` or `formatVersion`.
+- It reads only `images/<fileName>` entries named in the manifest, and turns
+  each into a data URL.
+- Its folder scans (`directory_iterator`) are not recursive.
+
+UI↔engine messages (`layoutImagesLoaded`, `layoutImageSelected` and so on) are
+not a compatibility surface: the UI and the engine always ship in the same build.
+They can change freely. Only stored data and archives need compatibility.
+
+### Rules
+
+1. **Read old, never rewrite on load.** Migration is in memory only:
+   normalise on read (as `normalizeBackgroundLayers` already does), and
+   write back only when the user saves an edit. Never rename, re-encode,
+   move or delete an existing image file or layout id.
+2. **Absent means today.** Every new field is optional, and its absence gives
+   exactly the current rendering:
+   - no `scaling` gives fit-width, no upscale, centred
+   - no knob diameter gives 38 px
+   - no text sizes gives 10 px labels, 9 px values and the 80 px label cap
+   - no `gridSize` gives 8 px snapping in `sanitizeLayout`
+   - no `knobImage` gives today's `knobStyle` / `knobImageId` rotate
+3. **Never reinterpret an existing field.** In particular `control.size` keeps
+   its current meaning (wrapper width at runtime). Knob diameter, slider length
+   and so on go in **new** fields. Applying `size` to the knob itself would
+   resize controls in layouts that already set it.
+4. **Same id, same image.** Ids are shared by every layout, and every reader
+   resolves one with `CollectLayoutImageSources` (`LayoutSupport.h`). Settled
+   in phase 0:
+   - When folders clash on an id, the later one wins, in this order: the legacy
+     shared folder, then each indexed layout's folder in index order, then the
+     factory layouts.
+   - That is the order the UI has always **shown**. Before phase 0, a save's
+     copy step let a user layout's copy win over the factory's instead, so it
+     could copy a different file from the one on screen. It now copies the
+     shown file.
+   - Layout folders the index doesn't list (a layout never saved, or one a
+     delete left behind) are never shown, but the save-copy step still reads
+     them, at the lowest priority, so they only supply ids found nowhere else.
+   - Pinned by `TestSharedImageIdsResolveAsTheLibraryShowsThem` in
+     `core/tests/LayoutStorageWorkflowTests.cpp`. The new image route uses the
+     same function.
+5. **New files go where old code doesn't look.** Renditions go in
+   `images/renditions/`, a subfolder. The non-recursive scans in old and new
+   builds don't list them, so they never appear as extra images in the picker.
+   They are optional: a missing rendition falls back to the original. Old
+   layouts get renditions lazily, the first time an image is drawn larger than
+   some threshold, not by a bulk migration.
+6. **Data URLs keep working.** Anything carrying a `dataUrl` (old library
+   entries, old `imageAssets`) still renders. The renderer keeps accepting
+   `data:image/` URLs alongside the new route.
+7. **`version` means the oldest schema that can render the layout.** A layout
+   saved by the new app stays `version: 1` unless it uses a v2 feature. Then
+   it is `2`, plus a `requires: ["filmstrip", "upscale", ...]` list, so a later
+   app can say what it can't show rather than guessing.
+8. **Degrade gracefully in older apps**, since they can't be changed:
+   - Filmstrip knobs: write `knobImage` only, and leave `knobStyle` as a
+     built-in style. 1.6.0 then shows a standard knob rather than a whole
+     filmstrip squashed into a circle.
+   - Layered knobs: also write the rotating cap as `knobImageId` with
+     `knobStyle: "custom"`, so 1.6.0 shows the cap rotating.
+   - Canvases above 1024 × 768: older importers clamp them. On export, the
+     designer warns that the layout needs the new version.
+9. **Archives stay `formatVersion: 1`-readable.**
+   - Keep `layout.json` and the `images/<fileName>` entries old importers read.
+     For an image over 16 MB or 4096 px, put a down-sized copy at
+     `images/<fileName>` and the original at `originals/<fileName>`, with an
+     `original` field on its manifest entry. New importers prefer the
+     original. Old ones get a working image.
+   - Never export renditions. The importer regenerates them.
+   - New importers keep accepting every older archive, including ones whose
+     layouts carry `imageAssets` with embedded data URLs.
+
+### Proving it
+
+Built in phase 0:
+
+- **UI golden render test**, `core/ui/tests/layoutCompat.test.ts`. Fixtures are
+  in `core/ui/tests/fixtures/layout-compat/`, and snapshots in
+  `core/ui/tests/__snapshots__/layout-compat/`.
+  - Each fixture is rendered enabled and bypassed, through
+    `renderCustomLayout` or `renderCustomLayoutBackdrop` as the params panel
+    would.
+  - Snapshots are in a canonical form: attributes sorted, each style's
+    declarations kept in order, whitespace collapsed. Layout image URLs are
+    written as the image id they resolve, so serving images by route leaves
+    them unchanged. Reformatting a template doesn't change a snapshot.
+    Changing what a layout draws does.
+  - Fixtures:
+    - the factory `chaos-engine` layout (read from `assets/`)
+    - a 1.6.0-format archive, rendered as stored and after
+      `prepareLayoutImport`, with the import result recorded
+    - controls with `control.size`, every label position, hidden labels and
+      values, each knob style, and a parameter the effect no longer has
+    - six background layers, covering every size mode, offsets, opacity and a
+      missing image
+    - a layout whose images exist only in `imageAssets` data URLs
+    - a backdrop with offset, uneven scale, light theme and default text
+      colours
+    - model and IR resource selectors, including a slot the effect lacks
+  - The same file pins `applyCustomLayoutScaling`: native size and centred at
+    or above the design width, never larger, and a uniform shrink by width
+    below it.
+  - The 1.6.0 archive is built to the shape 1.6.0's exporter writes
+    (`git show 1.6.0:core/ui/ts/layoutDesigner/layoutStore.ts`), using only
+    fields 1.6.0 had. It is not a file exported by a real 1.6.0 build.
+- **Engine image precedence**, `TestSharedImageIdsResolveAsTheLibraryShowsThem`.
+  It covers legacy, indexed, unindexed and factory folders clashing on one id,
+  what the library lists, and what a save copies. Borrowed and legacy images
+  were already covered by `TestBorrowedImagesSurviveDeletingTheirLayout` and
+  `TestLoaderListsLegacyAndUpperCaseImages`.
+
+Behaviours the snapshots pin that look accidental but must be kept:
+
+- `size: "tile"` writes `background-size: tile`, which is invalid CSS. The
+  browser drops it and tiles at natural size, which is the intended look.
+  Phase 3 must keep that look, not "fix" it into something else.
+- Background layers with `layerIndex` 2 and up get that z-index, so layers 4
+  and 5 paint above the controls (z 2) and labels (z 3). The designer only makes
+  layers 0 and 1, but stored or imported layouts can hold more.
+
+Still to do (each later phase):
+
+- **Live check**: screenshot each fixture in the running app over CDP at a few
+  panel widths before and after each phase, and diff the pixels. The baseline
+  screenshots have not been taken yet. Take them before phase 1 changes
+  anything.
+- **Round trip with real builds**: export from the new app, import into a 1.6.0
+  build. It must load, with the degradations in rule 8 and nothing worse.
+  Import a real 1.6.0 export into the new app: it must be unchanged. A real
+  1.6.0 export should also replace or join the hand-built archive fixture.
+
+## Changes needed
+
+### 1. Serve layout images by URL, not by message (prerequisite)
+
+This is the change that makes large images workable at all. Everything else
+builds on it.
+
+- Add a route to `PluginEditor::getResource`, keyed by **image id**:
+  `layout-images/id/<imageId>`. The editor asks the controller to resolve it
+  with `CollectLayoutImageSources` (compatibility rule 4), the same lookup the
+  library uses. It must not look in the requesting layout's folder first,
+  which would differ from what users have always seen when ids clash. Old
+  layouts that borrow images resolve to the same files as today. The lookup
+  only ever returns files inside a layout's `images/` folder or a factory
+  manifest's. Cache it, since it lists folders.
+- `layoutImagesLoaded` and `layoutImageSelected` carry metadata only:
+  `{ imageId, layoutId, fileName, url, width, height, bytes }`. Read width and
+  height from the file header (PNG IHDR, JPEG SOF, WebP VP8/VP8L/VP8X, GIF
+  LSD, SVG `viewBox`), with no decode. The designer needs them for "fit canvas
+  to image", filmstrip frame maths and oversize warnings.
+- `getLayoutImageUrl` in both `layoutRenderer.ts` and `layoutDesigner/images.ts`
+  returns the URL. Fold the two copies into one module while doing it.
+  `LayoutImageRef.dataUrl` stays optional for old imports only.
+- Export: either fetch each URL as a blob in the UI and add it to the zip, or
+  have the engine write the zip from disk. The engine option is better because
+  bytes never cross the bridge. Import: the engine already unpacks and
+  validates. Make it write image files straight from the archive rather than
+  having the UI send base64 back through `HandleSaveLayoutImageRequest`.
+- Once nothing crosses the bridge, raise `kMaxLayoutImageBytes` for originals
+  (64 MB, say). The real limit becomes decoded pixels, covered in §3.
+- Things to check: which thread JUCE calls the resource provider on for each
+  backend, since a 50 MB synchronous read on the message thread would stall it.
+  Whether WebView2 caches custom-scheme responses, or re-requests on each
+  `innerHTML` render. If it re-requests, add an in-process LRU of recently
+  served bytes, or switch to item 4 below.
+
+### 2. Logical canvas and scale-to-fit
+
+- Treat `dimensions` as a logical design size, separate from image pixel size.
+  Raise `LAYOUT_DIMENSION_LIMITS` to around 4096 × 4096 in the designer **and**
+  in `sanitizeLayout`. Raising a maximum changes nothing for layouts already
+  inside the old limits. Keep the minimums and the rounding as they are.
+- Add a `scaling` block to `EffectLayout`:
+  ```ts
+  scaling?: {
+    mode: "fit-width" | "fit" | "fixed";   // default "fit-width" = today's behaviour
+    minScale?: number;                      // e.g. 0.25
+    maxScale?: number;                      // default 1 = today's behaviour (no upscale)
+    align?: "start" | "center";
+  };
+  ```
+  In `applyCustomLayoutScaling`, `fit` uses
+  `min(outerW / designW, availableH / designH)`, clamped to min/max. Allow scale
+  above 1 when `maxScale > 1`. Available height comes from the params panel's
+  own box, with a `ResizeObserver` on that too, not only the outer width.
+- Keep `transform: scale()` on the container. Chromium re-rasterises
+  transformed content at the final scale, so text and SVG stay sharp. **Never**
+  add `will-change: transform` there: that rasterises once at 1× and stretches
+  the bitmap, which goes blurry when scaled up.
+- Pointer maths: knob drags and the designer already divide by zoom. Check the
+  runtime knob drag under a scale above 1, and that body-level popovers still
+  divide by `getUiZoom` (see the body-level popover note).
+- Grid: keep 8 px as the default, but make it a per-layout setting, and let Alt
+  turn snapping off while dragging. On a 2048-wide design, 8 px steps are fine.
+  On a 400-wide one, people want 4 px or 2 px.
+
+### 3. Resolution-matched renditions
+
+A 6000 × 4000 background on a 600 px panel decodes to about 96 MB of RGBA and is
+resampled on every paint. On the S21 that is the difference between working and
+not working.
+
+- On import or browse, generate downscaled copies of the original: longest edge
+  1024, 2048 and 4096, only where smaller than the source. Store them as
+  `images/renditions/<imageId>@1024.webp` and so on: a subfolder, never next to
+  the original (compatibility rule 5). The original is never modified, and is
+  kept for re-export and future re-renditions. Skip SVG. Existing images get
+  renditions lazily, the first time they are drawn.
+- Where to generate them: the core has no image codec and JUCE's is only on the
+  editor side. The UI can do it everywhere it runs, with
+  `createImageBitmap(blob, { resizeWidth, resizeQuality: "high" })` then
+  `OffscreenCanvas.convertToBlob({ type: "image/webp", quality: 0.92 })`.
+  That's one bounded transfer per rendition at import time, which is acceptable.
+  PNG output for art with hard alpha edges, if WebP shows fringing.
+- At render time, pick the smallest rendition at least
+  `designPx × effectiveScale × devicePixelRatio` for the element's drawn size,
+  and swap it on scale changes (debounced). Backgrounds and knob faces both go
+  through one `resolveLayoutImage(imageId, drawnCssPx)` helper.
+- Preload before showing: when a panel opens, `new Image()` plus `decode()` the
+  chosen renditions, then swap the panel in. That avoids the blank-then-pop of a
+  large CSS background decoding on first paint.
+- Designer warnings: flag an image larger than about 2× its largest drawn size
+  at `maxScale`, which only wastes memory. Flag a filmstrip taller than 16384 px,
+  which goes over GPU texture limits.
+
+### 4. Controls that suit high-res art
+
+- **Control size.** Add **new** fields (e.g. `style.knobDiameter`,
+  `style.sliderLength`, `style.toggleSize`) rather than reusing `control.size`,
+  which old layouts already set with a different meaning (compatibility
+  rule 3). Absent means today's 38 px knob and 80 px slider. Add fields and
+  corner handles to the designer, which overlays already have and controls
+  don't. Scale the indicator, ring width and tick from the diameter rather than
+  fixed px.
+- **Filmstrip knobs**, the standard plugin-skin format:
+  ```ts
+  knobImage?: {
+    imageId: string;
+    mode: "rotate" | "filmstrip";
+    frames?: number;                 // filmstrip
+    columns?: number;                // sprite sheet, to stay under texture limits
+    minAngle?: number; maxAngle?: number;  // rotate; default -135..135
+  };
+  ```
+  `knob.ts` already sets `--knob-pct`. A filmstrip picks
+  `frame = round(pct × (frames − 1))` and sets `background-position`. That is a
+  repaint of one small layer, cheaper than a rotate.
+- **Layered knobs**: a static base (skirt, shadow), a rotating cap, an optional
+  static glare on top. The lighting stays put while the cap turns. This is the
+  `rotate` mode with up to three image ids.
+- Make the circle clip and `inset: 4px` optional for image knobs, so shadows
+  and non-round knobs work. They stay **on** by default, so existing custom
+  knobs are drawn exactly as now.
+- **Image toggles and switches**: two frames, or a two-frame strip, for
+  footswitches, toggles and LEDs. **Image sliders**: separate track and thumb
+  images.
+- **Per-layout text defaults**: `controlLabelFontSize`, `controlValueFontSize`
+  and font family, with per-control overrides, the same pattern as the existing
+  `controlLabelColor`. Replace the hard-coded 10 px / 9 px and the
+  `max-width: 80px` cap with the control's own width.
+
+## Further additions to make it more useful
+
+In rough order of value:
+
+1. **Image elements.** Positioned, sized images (logo, screws, panel graphics,
+   LED glows) with z-order and the same `visibilityMode` the rectangle overlays
+   have (always / enabled / bypassed). That gives a proper bypass LED and lit
+   footswitch, and lifts the two-background-layer limit for decoration.
+2. **Asset panel.** Every image the layout uses, with pixel size, file size,
+   decoded memory and which elements use it. Replace an image while keeping its
+   references, remove unused images, and see the oversize warnings from §3.
+3. **Preview at size.** Designer toolbar presets for panel widths and heights,
+   1× / 2× DPR and the compact layout, showing the effective scale and which
+   rendition would load. That's what users actually see, rather than only
+   zoom.
+4. **Arrangement tools.** Multi-select, align and distribute, arrow-key nudge
+   (Shift for a grid step), snap to other elements' edges and centres, rulers
+   with draggable guides, lock and hide per element, and a layers list.
+5. **Custom fonts.** WOFF2 files in the layout package, served by the same
+   route and registered with `FontFace`. The CSP's `font-src 'self'` already
+   allows it.
+6. **Size variants**, maybe later. An optional compact variant (a second set of
+   control positions, or a second layout) chosen when the panel is below a width
+   the layout sets. That beats scaling a wide pedal down to illegibility in the
+   compact layout.
+7. **Schema version 2**, as compatibility rule 7 describes. `version: 2` and
+   a `requires` list only when a layout uses a v2 feature. v1 is read as is,
+   with no stored migration. Archives follow rule 9.
+
+## Suggested order
+
+| Phase | Scope | Unblocks |
+|---|---|---|
+| 0 | **Done** 2026-10-23, except the live screenshot baseline: compatibility fixtures, golden render snapshots and scaling pins, captured on today's code. Image-id precedence settled in one shared lookup (rule 4). | A baseline every later phase is checked against |
+| 1 | §1: image route, metadata-only messages, file-based export and import, intrinsic size, higher byte cap | Large images load at all, and panel renders stop copying MBs |
+| 2 | §2: limits, `scaling` modes with upscale and height fit, grid setting, per-layout text sizes | Layouts fill the space they have |
+| 3 | §3: renditions, DPR-aware selection, preload | Memory and paint cost bounded, Android viable |
+| 4 | §4: control sizing and handles, filmstrip and layered knobs, image toggles and sliders, image elements | Real skeuomorphic skins |
+| 5 | Asset panel, preview at size, arrangement tools, fonts | Editor ergonomics |
+
+Phases 1–3 touch `PluginControllerLayouts.cpp`, `LayoutSupport`,
+`PluginEditor.cpp`, `layoutRenderer.ts`, `layoutOverlay.ts`, `layoutTypes.ts`
+and `layoutDesigner/*`. Phase 4 also touches `knob.ts`, `controls.css` and
+`custom-layouts.css`.
+
+Test notes: unit-test the route's path validation alongside the existing
+`IsSafeLayoutImageFileName` tests, and the header-size reader on each format.
+Measure before and after with the UI render-cost probe: CDP heap, plus process
+CPU while toggling bypass on a layout with two 4K backgrounds. Check scale
+above 1 knob drags and popovers live over CDP.

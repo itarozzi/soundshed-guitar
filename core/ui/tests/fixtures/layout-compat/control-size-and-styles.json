@@ -1,0 +1,29 @@
+{
+  "description": "A stored layout whose controls set size (applied today as wrapper width only), every label position, hidden labels and values, each built-in knob style, accent and label colours, and a control for a parameter the effect no longer has.",
+  "kind": "stored",
+  "images": [],
+  "data": {
+    "effectType": "delay_digital",
+    "layoutId": "layout-1772000000000-sz0001",
+    "version": 1,
+    "name": "Sizes",
+    "dimensions": { "width": 640, "height": 360 },
+    "backgrounds": [{ "layerIndex": 0, "type": "gradient", "value": "linear-gradient(180deg, #333 0%, #111 100%)" }],
+    "controls": [
+      { "paramKey": "time", "type": "knob", "position": { "x": 16, "y": 16 }, "size": { "width": 96, "height": 96 }, "style": { "labelPosition": "top", "knobStyle": "default", "accentColor": "#ffaa00" } },
+      { "paramKey": "feedback", "type": "knob", "position": { "x": 128, "y": 16 }, "size": { "width": 64, "height": 80 }, "style": { "labelPosition": "bottom", "knobStyle": "minimal", "labelColor": "#ff0000", "valueColor": "#00ff00" } },
+      { "paramKey": "mix", "type": "slider", "position": { "x": 216, "y": 24 }, "size": { "width": 160, "height": 24 }, "style": { "labelPosition": "left" } },
+      { "paramKey": "sync", "type": "toggle", "position": { "x": 400, "y": 24 }, "size": { "width": 48, "height": 32 }, "style": { "labelPosition": "right", "hideLabel": true } },
+      { "paramKey": "mode", "type": "slider", "position": { "x": 16, "y": 160 }, "style": { "labelPosition": "none", "showValue": false } },
+      { "paramKey": "level", "type": "knob", "position": { "x": 216, "y": 160 }, "style": { "knobStyle": "custom" } },
+      { "paramKey": "cutoff", "type": "slider", "position": { "x": 320, "y": 160 } },
+      { "paramKey": "cutoff", "type": "knob", "position": { "x": 480, "y": 160 } },
+      { "paramKey": "removed_param", "type": "knob", "position": { "x": 560, "y": 16 } },
+      { "paramKey": "mode", "type": "dropdown", "position": { "x": 480, "y": 280 } }
+    ],
+    "overlays": [],
+    "textLabels": [],
+    "controlLabelColor": "#ccddee",
+    "controlValueColor": "#99aabb"
+  }
+}
