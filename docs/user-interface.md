@@ -736,6 +736,20 @@ a dialog over them closes just the dialog.
   away (deleted, or another preset shown) leaves an ordinary library. An effect dropped on the
   node meanwhile retitles it. A splitter or mixer cannot be replaced, so double-clicking one
   opens the ordinary library.
+- **The + chooser.** A + between two nodes opens the same library as a flyout hung from that
+  button (`signalPath/addEffectDropdown.ts`): one effect per row, a click (or Enter, or Enter
+  in the search for its first match) adds it at that point and closes the flyout. Its effects
+  can be dragged too. It follows its + across re-renders, closes once that insertion point is
+  gone, and closes on Escape or a click outside. Both are one `FxBrowser`
+  (`fxLibrary/fxBrowser.ts`) over one catalogue (`fxLibrary/catalog.ts`), so they list the
+  same effects, blends, custom effects and composites.
+- **Favourites and Recent.** Every effect has a star; the rail's first two tabs list the
+  starred effects (in the order they were starred) and the last 12 put in the chain by a
+  drop, a pick or a replacement (most recent first). Both are keys in the UI settings
+  (`uiSettings.fxFavorites`, `uiSettings.fxRecents`; `fxLibrary/favorites.ts`), so they are
+  shared between instances like the other UI settings. A key whose blend or custom effect has
+  been deleted is skipped, not removed. The flyout opens on Favourites when there are any,
+  else Recent when it has anything, else the category last browsed there.
 
 ### Wrapping the chain (`core/ui/ts/signalPath/chainRow.ts`, `css/signal-path/wrap.css`)
 

@@ -158,6 +158,9 @@ export interface UiSettings {
   signalPathWrap?: boolean;
   signalPathWrapCompact?: boolean;
   presetRecents?: string[];
+  /** The FX library's starred effects and recently used ones, as fxLibrary/favorites.ts keys them. */
+  fxFavorites?: string[];
+  fxRecents?: string[];
 }
 
 export interface UiViewState {

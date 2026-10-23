@@ -11,6 +11,7 @@ import { applyStoredInputChannel } from "../inputMode.js";
 import { handleCustomEffectLibrary } from "../customEffects.js";
 import { applyStoredDemoAudioSelection } from "../demoAudio.js";
 import { refreshFxSelector } from "../fxSelector.js";
+import { adoptFxMarksFromEngine } from "../fxLibrary/favorites.js";
 import { applyJamAppSettings } from "../jam.js";
 import { applyPerformancePadAppSettings, refreshPerformancePads } from "../performancePads.js";
 import { applyPresetArchiveSessionState, applyPresetRecentsFromAppSettings, applyPresetRecentsFromBackend } from "../presets.js";
@@ -86,6 +87,7 @@ export function onSharedSyncState(payload: IncomingPayload): void {
     uiState.uiSettings = sharedPayload.uiSettings;
     // The engine keeps the recents there; the blob this UI sends back must carry them.
     applyPresetRecentsFromBackend(sharedPayload.uiSettings.presetRecents);
+    adoptFxMarksFromEngine(sharedPayload.uiSettings.fxFavorites, sharedPayload.uiSettings.fxRecents);
   }
 
   if (Array.isArray(sharedPayload.blendLibrary)) {

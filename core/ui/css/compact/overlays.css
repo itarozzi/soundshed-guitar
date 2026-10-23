@@ -60,6 +60,12 @@ html[data-density="compact"]:not([data-compact-split])[data-main-panel="visualiz
     white-space: nowrap;
   }
 
+  html[data-density="compact"] .fx-category-divider {
+    width: 1px;
+    height: auto;
+    margin: 4px 2px;
+  }
+
   html[data-density="compact"] .fx-selector-effects-list {
     padding: 8px;
   }

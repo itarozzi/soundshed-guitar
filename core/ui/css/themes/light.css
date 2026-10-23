@@ -762,42 +762,6 @@
   color: rgba(69, 83, 110, 0.78);
 }
 
-.theme-light .effect-selection-dropdown {
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-light);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
-  color: var(--text-primary);
-}
-
-.theme-light .effect-dropdown-header {
-  color: var(--text-primary);
-  border-bottom: 1px solid var(--border-light);
-  background: var(--bg-elevated);
-}
-
-.theme-light .effect-dropdown-category {
-  border-bottom: 1px solid var(--border-light);
-}
-
-.theme-light .effect-dropdown-category-name {
-  color: var(--text-secondary);
-}
-
-.theme-light .effect-dropdown-item,
-.theme-light .effect-dropdown-name {
-  color: var(--text-primary);
-}
-
-.theme-light .effect-dropdown-item:hover {
-  background: rgba(181, 82, 30, 0.08);
-  border-color: rgba(181, 82, 30, 0.32);
-  box-shadow: inset 0 0 0 1px rgba(181, 82, 30, 0.12);
-}
-
-.theme-light .effect-dropdown-thumb {
-  border-color: var(--border-light);
-}
-
 /* Theme-light controls inside a custom backdrop */
 .custom-layout-backdrop.theme-light .node-param-label,
 .custom-layout-backdrop.theme-light .node-param-group-title {

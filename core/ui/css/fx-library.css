@@ -361,8 +361,11 @@
 }
 
 .fx-item-badge {
-  width: 16px;
+  width: auto;
+  min-width: 16px;
   height: 16px;
+  font-size: 9px;
+  color: var(--text-muted);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -384,4 +387,227 @@
   letter-spacing: 0.4px;
   background: var(--color-success-glow);
   color: var(--color-success-light);
+}
+
+.fx-selector-empty {
+  flex: 1 1 100%;
+  padding: 20px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+/* ===== Favourites and Recent ===== */
+
+.fx-category-divider {
+  height: 1px;
+  margin: 6px 12px;
+  background: var(--border-light);
+}
+
+/* Inline SVGs, not the mask icons .fx-category-icon draws (base.css). */
+.fx-category-glyph {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--category-color, var(--text-secondary));
+}
+
+.fx-category-glyph svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+}
+
+.fx-category-mark[data-category="favorites"] .fx-category-glyph svg {
+  fill: currentColor;
+}
+
+/* The star on each effect: shown on hover or focus, and always once starred. */
+.fx-item {
+  position: relative;
+}
+
+.fx-item-fav {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  margin: -4px -6px -4px 0;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+
+.fx-item-fav svg {
+  fill: none;
+}
+
+.fx-item:hover .fx-item-fav,
+.fx-item:focus-within .fx-item-fav,
+.fx-item-fav:focus-visible,
+.fx-item.is-favorite .fx-item-fav {
+  opacity: 1;
+}
+
+.fx-item-fav:hover,
+.fx-item-fav:focus-visible {
+  color: var(--text-primary);
+  background: var(--overlay-light);
+}
+
+.fx-item-fav:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 0;
+}
+
+.fx-item.is-favorite .fx-item-fav {
+  color: var(--color-accent);
+}
+
+.fx-item.is-favorite .fx-item-fav svg {
+  fill: currentColor;
+}
+
+/* No hover on a touch screen, so the star is always there to tap. */
+@media (hover: none) {
+  .fx-item-fav {
+    opacity: 1;
+  }
+}
+
+/* ===== The chooser a + in the chain opens ===== */
+
+.fx-flyout {
+  position: fixed;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-xl);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+  z-index: 1000;
+  animation: fxFlyoutIn 0.15s ease-out;
+}
+
+@keyframes fxFlyoutIn {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fx-flyout-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px 6px 14px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-light);
+  flex-shrink: 0;
+}
+
+.fx-flyout-title {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.fx-flyout .fx-selector-search {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+
+.fx-flyout .fx-selector-search input {
+  padding: 6px 10px;
+}
+
+.fx-flyout .fx-selector-categories {
+  width: 164px;
+  padding: 6px 0;
+}
+
+.fx-flyout .fx-category {
+  padding: 7px 10px;
+  margin: 1px 6px;
+}
+
+/* One effect per row: a list to pick from, not cards to drag. */
+.fx-flyout .fx-selector-effects-list {
+  padding: 8px;
+  gap: 4px;
+}
+
+.fx-flyout .fx-item {
+  flex: 1 1 100%;
+  min-width: 0;
+  padding: 7px 10px;
+  cursor: pointer;
+}
+
+.fx-flyout .fx-item:hover {
+  transform: none;
+  box-shadow: none;
+}
+
+.fx-flyout .fx-item:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+.fx-flyout .fx-item-name {
+  font-size: 12px;
+}
+
+.fx-flyout .fx-item-type {
+  font-size: 9px;
+}
+
+/* Too narrow for a rail beside the list: the tabs become a row of chips above it. */
+@media (max-width: 480px) {
+  .fx-flyout .fx-selector-content {
+    flex-direction: column;
+  }
+
+  .fx-flyout .fx-selector-categories {
+    display: flex;
+    flex: none;
+    gap: 4px;
+    width: auto;
+    padding: 6px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-right: none;
+    border-bottom: 1px solid var(--border-light);
+    scrollbar-width: none;
+  }
+
+  .fx-flyout .fx-category {
+    flex: none;
+    margin: 0;
+    white-space: nowrap;
+  }
+
+  .fx-flyout .fx-category-divider {
+    width: 1px;
+    height: auto;
+    margin: 4px 2px;
+  }
 }

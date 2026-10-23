@@ -1,25 +1,29 @@
 /**
- * The effect chooser a + button between two nodes opens: every effect by category, in a
- * list that floats below (or above) the button it was opened from.
+ * The effect chooser a + button between two nodes opens: the FX library's browser (its
+ * Favourites and Recent tabs, the categories and the search) in a flyout that floats below
+ * (or above) the button it was opened from, where a click adds the effect.
  *
  * The chooser only presents the choice. What choosing an effect does is the caller's,
  * handed in as `onChoose`, so this module never needs the signal path renderer.
  */
 
 import { EffectGuids } from "../effectGuids.js";
-import { CATEGORY_METADATA, getFxLibraryItems, getOrderedFxCategories, type FxLibraryItem } from "../fxSelector.js";
-import { getBadgeIcon } from "../iconAssets.js";
-import { getCustomLayout } from "../layoutRenderer.js";
+import type { FxPointerDragPayload } from "../fxLibrary/catalog.js";
+import { FxBrowser, preferredMarkTab } from "../fxLibrary/fxBrowser.js";
 import { getUiZoom } from "../pointerDrag.js";
-import { escapeHtml, safeImageDataUrl } from "../utils.js";
-import { getNodeIcon } from "./nodeTypes.js";
 import { signalPathNodesElement } from "./state.js";
 
 /** The open chooser, if any. */
 let openDropdown: { close: () => void; reposition: () => void } | null = null;
 
+/** The category last browsed here, opened next time when there are no favourites or recents. */
+let lastCategory: string | undefined;
+
 /** The data attributes that say which insertion point a + button stands for. */
 const ADD_BUTTON_POSITION_KEYS = ["edgeFrom", "edgeTo", "edgeFromPort", "edgeToPort", "insertAfter"] as const;
+
+/** The mixer joins a split; it is never added on its own. */
+const EXCLUDED_TYPES = [EffectGuids.kMixer];
 
 /** The + button a re-render put in place of `previous`: the one for the same insertion point. */
 function findReplacementAddButton(previous: HTMLElement): HTMLElement | null {
@@ -27,75 +31,52 @@ function findReplacementAddButton(previous: HTMLElement): HTMLElement | null {
   return buttons.find((button) => ADD_BUTTON_POSITION_KEYS.every((key) => button.dataset[key] === previous.dataset[key])) ?? null;
 }
 
-function buildDropdownHtml(): string {
-  const dropdownItems = getFxLibraryItems({ excludeTypes: [EffectGuids.kMixer] });
-  const effectsByCategory = new Map<string, FxLibraryItem[]>();
-
-  dropdownItems.forEach((effect) => {
-    if (!effectsByCategory.has(effect.category)) {
-      effectsByCategory.set(effect.category, []);
-    }
-    effectsByCategory.get(effect.category)!.push(effect);
-  });
-
-  const categoryOrder = getOrderedFxCategories(dropdownItems);
-
-  let dropdownHtml = '<div class="effect-dropdown-header">Add Effect</div>';
-
-  categoryOrder.forEach((categoryId) => {
-    const effects = effectsByCategory.get(categoryId) ?? [];
-    if (effects.length > 0) {
-      const categoryInfo = CATEGORY_METADATA[categoryId];
-      const categoryColor = categoryInfo?.color || "var(--color-accent)";
-      dropdownHtml += `
-        <div class="effect-dropdown-category" style="--category-color: ${escapeHtml(categoryColor)}">
-          <div class="effect-dropdown-category-name">
-            ${escapeHtml(categoryInfo?.name || categoryId)}
-          </div>
-          ${effects.map((effect) => {
-              const thumb = safeImageDataUrl(effect.blendId
-                ? (getCustomLayout(effect.type, effect.blendId) ?? getCustomLayout(effect.type))?.thumbnailDataUrl
-                : (getCustomLayout(effect.type)?.thumbnailDataUrl ?? effect.thumbnailDataUrl));
-            const icon = thumb
-              ? `<img src="${escapeHtml(thumb)}" alt="" aria-hidden="true" class="effect-dropdown-thumb" />`
-              : `<span class="effect-dropdown-icon">${effect.blendId ? getBadgeIcon("blend", "Custom blend") : getNodeIcon(effect.type)}</span>`;
-              return `
-              <div class="effect-dropdown-item"
-                data-effect-type="${escapeHtml(effect.type)}"
-                data-blend-id="${escapeHtml(effect.blendId ?? "")}"
-                data-blend-name="${escapeHtml(effect.blendId ? effect.displayName : "")}"
-                data-blend-category="${escapeHtml(effect.blendCategory ?? "") }"
-                data-effect-category="${escapeHtml(effect.category ?? "utility") }"
-                data-custom-effect-id="${escapeHtml(effect.customEffectId ?? "") }"
-                data-custom-effect-resource-type="${escapeHtml(effect.moduleResourceType ?? "") }"
-                data-custom-effect-resource-id="${escapeHtml(effect.moduleResourceId ?? "") }"
-                data-custom-effect-default-params="${escapeHtml(encodeURIComponent(JSON.stringify(effect.defaultParams ?? {})))}"
-                style="--category-color: ${escapeHtml(categoryColor)}">
-              ${icon}
-              <span class="effect-dropdown-name">${escapeHtml(effect.displayName)}</span>
-            </div>
-          `;
-          }).join('')}
-        </div>
-      `;
-    }
-  });
-
-  return dropdownHtml;
-}
+const DROPDOWN_HTML = `
+  <div class="fx-flyout-header">
+    <span class="fx-flyout-title" id="fx-flyout-title">Add Effect</span>
+    <div class="fx-selector-search">
+      <input type="text" placeholder="Search effects…" aria-label="Search effects" />
+    </div>
+  </div>
+  <div class="fx-selector-content">
+    <div class="fx-selector-categories scrollbar-thin"></div>
+    <div class="fx-selector-effects-list scrollbar-thin"></div>
+  </div>
+`;
 
 /**
  * Opens the chooser under `button`, replacing any chooser already open. Choosing an effect
- * hands its `.effect-dropdown-item` row, whose data attributes describe the effect, to
- * `onChoose`, then closes the chooser.
+ * hands what it carries into the chain to `onChoose`, then closes the chooser. Its effects
+ * can be dragged into the chain as well, as from the docked library.
  */
-export function showAddEffectDropdown(button: HTMLElement, onChoose: (item: HTMLElement) => void): void {
+export function showAddEffectDropdown(button: HTMLElement, onChoose: (payload: FxPointerDragPayload) => void): void {
   openDropdown?.close();
 
   const dropdown = document.createElement("div");
-  dropdown.className = "effect-selection-dropdown";
-  dropdown.innerHTML = buildDropdownHtml();
+  dropdown.className = "fx-flyout";
+  dropdown.setAttribute("role", "dialog");
+  dropdown.setAttribute("aria-labelledby", "fx-flyout-title");
+  dropdown.innerHTML = DROPDOWN_HTML;
   document.body.appendChild(dropdown);
+
+  const search = dropdown.querySelector<HTMLInputElement>(".fx-selector-search input");
+  const browser = new FxBrowser({
+    categories: dropdown.querySelector<HTMLElement>(".fx-selector-categories")!,
+    list: dropdown.querySelector<HTMLElement>(".fx-selector-effects-list")!,
+    search,
+    tab: preferredMarkTab(EXCLUDED_TYPES) ?? lastCategory,
+    excludeTypes: EXCLUDED_TYPES,
+    getPick: () => ({
+      onPick: (payload) => {
+        closeDropdown();
+        onChoose(payload);
+      },
+    }),
+    onTabChange: (tab) => {
+      lastCategory = tab;
+    },
+  });
+  browser.render();
 
   // Every render of the chain replaces its + buttons, and a detached button measures as a
   // zero rect, which put the chooser in the window's top-left corner. Follow the button
@@ -125,8 +106,8 @@ export function showAddEffectDropdown(button: HTMLElement, onChoose: (item: HTML
     const viewportWidth = window.innerWidth / uiZoom;
     const viewportHeight = window.innerHeight / uiZoom;
 
-    dropdown.style.maxWidth = `${Math.min(300, viewportWidth - margin * 2)}px`;
-    dropdown.style.maxHeight = `${Math.min(500, viewportHeight - margin * 2)}px`;
+    dropdown.style.width = `${Math.min(560, viewportWidth - margin * 2)}px`;
+    dropdown.style.height = `${Math.min(440, viewportHeight - margin * 2)}px`;
     const dropdownWidth = dropdown.offsetWidth;
     const dropdownHeight = dropdown.offsetHeight;
     const left = Math.max(
@@ -143,7 +124,7 @@ export function showAddEffectDropdown(button: HTMLElement, onChoose: (item: HTML
     dropdown.style.top = `${Math.round(top)}px`;
   };
 
-  // Scrolling the list inside the chooser does not move the button it hangs from.
+  // Scrolling the lists inside the chooser does not move the button it hangs from.
   const onScroll = (event: Event): void => {
     if (event.target instanceof Node && dropdown.contains(event.target)) {
       return;
@@ -151,9 +132,22 @@ export function showAddEffectDropdown(button: HTMLElement, onChoose: (item: HTML
     positionDropdown();
   };
 
+  // Starring an effect redraws the list under the click, so by the time the click reaches
+  // the document its target is detached. The path it took still runs through the chooser.
   const closeOnOutsideClick = (event: MouseEvent): void => {
-    if (!dropdown.contains(event.target as Node)) {
+    if (!event.composedPath().includes(dropdown)) {
       closeDropdown();
+    }
+  };
+
+  const closeOnEscape = (event: KeyboardEvent): void => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      const target = anchor;
+      closeDropdown();
+      if (target.isConnected) {
+        target.focus();
+      }
     }
   };
 
@@ -163,6 +157,7 @@ export function showAddEffectDropdown(button: HTMLElement, onChoose: (item: HTML
     window.removeEventListener("resize", positionDropdown);
     window.removeEventListener("scroll", onScroll, true);
     document.removeEventListener("click", closeOnOutsideClick);
+    browser.destroy();
     dropdown.remove();
     if (openDropdown === handle) {
       openDropdown = null;
@@ -173,15 +168,12 @@ export function showAddEffectDropdown(button: HTMLElement, onChoose: (item: HTML
   positionDropdown();
   window.addEventListener("resize", positionDropdown);
   window.addEventListener("scroll", onScroll, true);
+  dropdown.addEventListener("keydown", closeOnEscape);
 
-  dropdown.querySelectorAll<HTMLElement>(".effect-dropdown-item").forEach((item) => {
-    item.addEventListener("click", () => {
-      if (item.dataset.effectType) {
-        onChoose(item);
-        closeDropdown();
-      }
-    });
-  });
+  // Typing filters at once; on a touch screen the keyboard would cover the list, so not there.
+  if (!window.matchMedia?.("(pointer: coarse)").matches) {
+    search?.focus({ preventScroll: true });
+  }
 
   // Close when clicking outside. Deferred past the click that opened the chooser, and not
   // registered at all if something closed it in the meantime.

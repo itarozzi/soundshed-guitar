@@ -19,6 +19,8 @@ import {
   type SignalPathEdgeRef,
   type SignalPathNodeOptions,
 } from "./fxSelector.js";
+import { fxPayloadIdentity } from "./fxLibrary/catalog.js";
+import { recordFxRecent } from "./fxLibrary/favorites.js";
 import { beginPointerDrag, type PointerDragGesture } from "./pointerDrag.js";
 import { resolveNodeDropAction, type NodeDropTarget } from "./signalPathDropTargets.js";
 import { resolveLayoutForNode } from "./layoutPreferences.js";
@@ -103,32 +105,6 @@ type CustomEffectDragPayload = {
   defaultParams?: Record<string, number>;
 };
 
-function normalizeCustomEffectDefaultParams(value: unknown): Record<string, number> {
-  if (!value || typeof value !== "object") {
-    return {};
-  }
-
-  const result: Record<string, number> = {};
-  Object.entries(value as Record<string, unknown>).forEach(([key, rawValue]) => {
-    if (typeof rawValue === "number") {
-      result[key] = rawValue;
-    }
-  });
-  return result;
-}
-
-function parseCustomEffectDefaultParamsDataset(value: string | undefined): Record<string, number> {
-  if (!value) {
-    return {};
-  }
-
-  try {
-    return normalizeCustomEffectDefaultParams(JSON.parse(decodeURIComponent(value)));
-  } catch {
-    return {};
-  }
-}
-
 function buildCustomEffectNodeOptions(payload: CustomEffectDragPayload): SignalPathNodeOptions {
   const params = payload.defaultParams ?? {};
   return {
@@ -211,6 +187,9 @@ export function replaceNodeWithFxItem(node: GraphNode, preset: Preset, payload: 
 }
 
 function applyFxDrop(target: FxDropTarget | null, payload: FxPointerDragPayload): void {
+  if (target) {
+    recordFxRecent(fxPayloadIdentity(payload));
+  }
   if (target?.kind === "node") {
     replaceNodeWithFxItem(target.node, target.preset, payload);
   } else if (target) {
@@ -1261,39 +1240,14 @@ function bindAddButtonHandlers(): void {
     button.addEventListener("click", (e: Event) => {
       e.stopPropagation();
       const edge = parseEdgeFromDataset(button as HTMLElement);
-      showAddEffectDropdown(button as HTMLElement, (item) => addEffectFromDropdownItem(item, edge));
+      showAddEffectDropdown(button as HTMLElement, (payload) =>
+        sendAddEffectAtEdgeOrFallback(payload.effectType, edge, edge?.from ?? "__input__", fxItemNodeOptions(payload)));
     });
   });
 
   // The render that called this replaced every + button, including the one an open
   // effect chooser hangs from.
   reanchorAddEffectDropdown();
-}
-
-/** Adds the effect a chooser row describes at the insertion point its + button stands for. */
-function addEffectFromDropdownItem(item: HTMLElement, edge: EdgeRef | null): void {
-  const { effectType, blendId, blendName, blendCategory, customEffectId } = item.dataset;
-  if (!effectType) {
-    return;
-  }
-  if (customEffectId) {
-    const payload: CustomEffectDragPayload = {
-      customEffectId,
-      baseEffectType: effectType,
-      name: item.querySelector(".effect-dropdown-name")?.textContent ?? "Custom Effect",
-      category: item.dataset.effectCategory ?? "utility",
-      moduleResourceType: item.dataset.customEffectResourceType ?? "",
-      moduleResourceId: item.dataset.customEffectResourceId ?? "",
-      defaultParams: parseCustomEffectDefaultParamsDataset(item.dataset.customEffectDefaultParams),
-    };
-    sendAddEffectAtEdgeOrFallback(effectType, edge, edge?.from ?? "__input__", buildCustomEffectNodeOptions(payload));
-  } else {
-    sendAddEffectAtEdgeOrFallback(effectType, edge, edge?.from ?? "__input__", {
-      config: blendId ? { blendId } : undefined,
-      label: blendName || undefined,
-      category: blendCategory || undefined,
-    });
-  }
 }
 
 type ResourceGroupPayload = {
