@@ -203,12 +203,6 @@ public:
         // screen, and the window fills it.
         setResizable (false, false);
 #else
-        // Last run's theme colours, so the title bar matches from the first frame rather
-        // than switching once the page has loaded and sent them again. After
-        // setUsingNativeTitleBar(), which makes the window a new native peer.
-        if (state.chrome.has_value())
-            setWindowChrome (*state.chrome);
-
         setResizable (true, true);
         setResizeLimits (minWindowWidth, minWindowHeight, maxWindowSize, maxWindowSize);
 #endif
@@ -296,6 +290,15 @@ public:
         // microphone permission, and any later reopen.
         mPluginHolder->deviceManager.addChangeListener (this);
         applyAndroidBufferSize (*mPluginHolder);
+#endif
+
+#if !JUCE_ANDROID
+        // Last run's theme colours, so the title bar matches from the first frame rather
+        // than switching once the page has loaded and sent them again. Last of the window
+        // set-up: setUsingNativeTitleBar() and each setResizable() that changes the style
+        // make a new native peer, which starts with the system's colours.
+        if (state.chrome.has_value())
+            setWindowChrome (*state.chrome);
 #endif
 
         setVisible (true);
@@ -520,10 +523,14 @@ private:
 
     void setWindowChrome (const soundshed::WindowChromeColours& colours)
     {
-        if (mWindowChrome == colours)
+        // The colours live on the native window, so a recreated peer (a style change, kiosk
+        // mode) needs them again even when they are the same.
+        auto* handle = getWindowHandle();
+        if (mWindowChrome == colours && handle == mChromeWindowHandle)
             return;
 
         mWindowChrome = colours;
+        mChromeWindowHandle = handle;
         mCustomCaption = soundshed::applyWindowChrome (*this, colours);
     }
 
@@ -540,6 +547,7 @@ private:
 
     // What the title bar was last given (setWindowChrome), kept in the window state file.
     std::optional<soundshed::WindowChromeColours> mWindowChrome;
+    void* mChromeWindowHandle = nullptr; // the native window they were applied to
     bool mCustomCaption = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainWindow)
