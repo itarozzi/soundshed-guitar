@@ -172,12 +172,40 @@ Behaviours the snapshots pin that look accidental but must be kept:
   and 5 paint above the controls (z 2) and labels (z 3). The designer only makes
   layers 0 and 1, but stored or imported layouts can hold more.
 
+- **Live baseline**, `tools/agent-ui-debug/layout-compat-baseline.mjs`, with
+  57 screenshots and a manifest in `docs/plans/layout-designer-hires-baseline/`.
+  They were taken 2026-10-23 on `0a0f7435`, in WebView2 155.
+  - Each fixture is drawn by the running app's own renderer, `GenericKnob`
+    and `applyCustomLayoutScaling`, inside the params panel's shell
+    wrappers, in a temporary overlay. Nothing touches the profile's layouts.
+  - Shots: panel widths 360, 520, 760 and 1200 at 1×, and 360 and 1200 at
+    2×. Bypassed versions where overlays change. Each background layer of
+    `background-image-modes` is also shot on its own, because the cover layer
+    hides the others in the full stack.
+  - Images are drawn by the script (labelled grids, pointer knobs, an SVG
+    logo); the factory layout uses its real image. So the baseline covers
+    rendering, CSS and scaling, not how the engine finds files on disk.
+  - Repeatability: two full re-runs matched exactly (0 of 57 differ). Each
+    shot is clipped to the layout's own box, moved onto whole pixels. A shot
+    is kept only once two screenshots in a row agree, and `--compare` retakes
+    a mismatch twice before reporting it. Without these, the shell's 1 px
+    highlight, a fractional clip edge and raster tile seams each varied by a
+    few levels between runs.
+  - Run it against an app copy launched with:
+    `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="--remote-debugging-port=9333
+    --disable-features=CalculateNativeWinOcclusion
+    --disable-backgrounding-occluded-windows --disable-renderer-backgrounding
+    --disable-background-timer-throttling"`.
+    Without those switches, a covered or minimised window stops painting, and
+    the run hangs or shoots stale frames. The script refuses to run while the
+    page reports itself hidden.
+  - To check a later phase:
+    `node tools/agent-ui-debug/layout-compat-baseline.mjs --port 9333 --out <scratch dir> --compare docs/plans/layout-designer-hires-baseline`.
+    Exit code 1 and a `.diff.png` per changed shot mean something an old
+    layout draws has changed.
+
 Still to do (each later phase):
 
-- **Live check**: screenshot each fixture in the running app over CDP at a few
-  panel widths before and after each phase, and diff the pixels. The baseline
-  screenshots have not been taken yet. Take them before phase 1 changes
-  anything.
 - **Round trip with real builds**: export from the new app, import into a 1.6.0
   build. It must load, with the degradations in rule 8 and nothing worse.
   Import a real 1.6.0 export into the new app: it must be unchanged. A real
@@ -347,7 +375,7 @@ In rough order of value:
 
 | Phase | Scope | Unblocks |
 |---|---|---|
-| 0 | **Done** 2026-10-23, except the live screenshot baseline: compatibility fixtures, golden render snapshots and scaling pins, captured on today's code. Image-id precedence settled in one shared lookup (rule 4). | A baseline every later phase is checked against |
+| 0 | **Done** 2026-10-23: compatibility fixtures, golden render snapshots, scaling pins and the live screenshot baseline, captured on today's code. Image-id precedence settled in one shared lookup (rule 4). | A baseline every later phase is checked against |
 | 1 | §1: image route, metadata-only messages, file-based export and import, intrinsic size, higher byte cap | Large images load at all, and panel renders stop copying MBs |
 | 2 | §2: limits, `scaling` modes with upscale and height fit, grid setting, per-layout text sizes | Layouts fill the space they have |
 | 3 | §3: renditions, DPR-aware selection, preload | Memory and paint cost bounded, Android viable |
