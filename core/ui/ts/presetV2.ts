@@ -399,7 +399,8 @@ const EFFECT_STUBS: EffectStub[] = [
   { type: EffectGuids.kReverbAdvanced },
   { type: EffectGuids.kReverbIr },
   { type: EffectGuids.kReverbAmbient },
-  { type: EffectGuids.kReverbVerbal },
+  // Off for now: not offered anywhere until it has been listened to; presets that hold one still load.
+  { type: EffectGuids.kReverbVerbal, catalogHidden: true },
   // Modulation
   { type: EffectGuids.kChorus },
   { type: EffectGuids.kFlanger },

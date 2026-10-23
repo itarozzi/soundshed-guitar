@@ -1,7 +1,7 @@
 /**
  * Which effects the FX library offers: the experimental ones only with Experimental Effects on,
  * Guitar to MIDI, which no longer is, always, and Pickup Match, which lives in the global chain
- * for now, never.
+ * for now, and Verbal, which is off for now, never.
  */
 import { beforeEach, describe, expect, it } from "vitest";
 import { EffectGuids } from "../ts/effectGuids.js";
@@ -38,6 +38,14 @@ describe("FX library catalog", () => {
     ] });
     expect(EffectTypeRegistry.get(EffectGuids.kPickupMatch)?.displayName).toBe("Pickup Match");
     expect(offered()).not.toContain(EffectGuids.kPickupMatch);
+  });
+
+  it("never offers Verbal, which is off for now", () => {
+    onEffectCatalog({ type: "effectCatalog", catalog: [
+      { type: EffectGuids.kReverbVerbal, name: "Verbal", category: "reverb", parameters: [] },
+    ] });
+    expect(EffectTypeRegistry.get(EffectGuids.kReverbVerbal)?.displayName).toBe("Verbal");
+    expect(offered()).not.toContain(EffectGuids.kReverbVerbal);
   });
 
   it("adds the experimental transposes when the feature is on", () => {
