@@ -1,0 +1,121 @@
+/* Layout designer tools: the images-in-layout list, align buttons and the panel-size preview
+   (layoutDesigner/layoutAssets.ts, alignTools.ts, sizePreview.ts). */
+
+.layout-asset-row {
+  padding: 6px 0;
+  border-top: 1px solid var(--border-dark-medium);
+}
+
+.layout-asset-row:first-of-type {
+  border-top: 0;
+}
+
+.layout-asset-head {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.layout-asset-thumb {
+  flex: 0 0 40px;
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+  border-radius: var(--radius-sm);
+  background: var(--bg-dark-tertiary);
+}
+
+.layout-asset-thumb-missing {
+  display: inline-block;
+  outline: 1px dashed var(--color-error);
+}
+
+.layout-asset-text {
+  min-width: 0;
+  font-size: 11px;
+}
+
+.layout-asset-name {
+  color: var(--text-dark-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.layout-asset-facts,
+.layout-asset-uses {
+  color: var(--text-dark-muted);
+}
+
+.layout-asset-warning {
+  margin: 4px 0;
+  font-size: 11px;
+  color: var(--color-error);
+}
+
+.layout-align-buttons {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+}
+
+.layout-align-buttons button {
+  font-size: 11px;
+}
+
+.layout-size-preview {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.82);
+  overflow: auto;
+}
+
+.layout-size-preview-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  color: var(--text-dark-primary);
+  font-size: 12px;
+}
+
+.layout-size-preview-bar button.active {
+  background: var(--accent-primary);
+  color: var(--text-on-accent);
+}
+
+.layout-size-preview-title {
+  font-weight: 600;
+  margin-right: 6px;
+}
+
+.layout-size-preview-report {
+  color: var(--text-dark-secondary);
+  margin-left: 6px;
+}
+
+.layout-size-preview-close {
+  margin-left: auto;
+}
+
+.layout-size-preview-panel {
+  flex: 0 0 auto;
+  overflow-y: auto;
+  border: 1px dashed var(--border-dark-medium);
+  background: var(--bg-dark-primary);
+}
+
+.layout-size-preview-stub {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 120px;
+  margin: 8px;
+  border: 1px dashed var(--border-dark-medium);
+  color: var(--text-dark-muted);
+}

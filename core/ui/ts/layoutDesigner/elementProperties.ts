@@ -8,7 +8,13 @@
  */
 
 import { layoutGridSize, snapToGrid } from "../layoutTypes.js";
+import { bindAlignGroup, renderAlignGroup } from "./alignTools.js";
 import { bindControlImageGroup, bindOverlayImageGroup, renderControlImageGroup, renderOverlayImageGroup } from "./controlImageProperties.js";
+
+/** An element on the designer canvas, where it is drawn at the layout's own size. */
+function onCanvas(selector: string): HTMLElement | null {
+  return document.querySelector<HTMLElement>(`#layout-designer-canvas ${selector}`);
+}
 import type { KnobStylePreset, LabelPosition, LayoutControl, LayoutRectangleOverlay, LayoutTextLabel } from "../layoutTypes.js";
 import { getLayoutImageUrl } from "./images.js";
 import type { LayoutPropertiesHost } from "./propertiesHost.js";
@@ -170,6 +176,7 @@ export class ElementProperties {
         </div>
       </div>
 
+      ${renderAlignGroup()}
       ${styleSection}
       ${renderControlImageGroup(control, isResourceControl, (purpose, selected) => this.host.renderImageOptionsHtml(purpose, selected))}
 
@@ -180,6 +187,7 @@ export class ElementProperties {
 
     // Bind property change handlers
     this.bindControlPropertyHandlers(control);
+    bindAlignGroup(this.host, () => onCanvas(`.layout-control-placeholder[data-param-key="${CSS.escape(control.paramKey)}"]`), control.position);
     bindControlImageGroup(control, this.host);
   }
 
@@ -405,12 +413,14 @@ export class ElementProperties {
       </div>
 
       <div class="layout-property-group">
+        ${renderAlignGroup()}
         <button id="prop-delete-label" style="width: 100%; background: rgba(255,100,100,0.2); color: #ff6b6b;">Delete Label</button>
       </div>
     `;
 
     // Bind property handlers
     this.bindLabelPropertyHandlers(label);
+    bindAlignGroup(this.host, () => onCanvas(`[data-label-id="${CSS.escape(label.id)}"]`), label.position);
   }
 
   private bindLabelPropertyHandlers(label: LayoutTextLabel): void {
@@ -573,6 +583,7 @@ export class ElementProperties {
         </div>
       </div>
 
+      ${renderAlignGroup()}
       ${renderOverlayImageGroup(overlay, (purpose, selected) => this.host.renderImageOptionsHtml(purpose, selected))}
 
       <div class="layout-property-group">
@@ -581,6 +592,7 @@ export class ElementProperties {
     `;
 
     this.bindOverlayPropertyHandlers(overlay);
+    bindAlignGroup(this.host, () => onCanvas(`[data-overlay-id="${CSS.escape(overlay.id)}"]`), overlay.position);
     bindOverlayImageGroup(overlay, this.host);
   }
 

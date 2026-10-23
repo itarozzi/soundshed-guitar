@@ -547,6 +547,44 @@ In rough order of value:
    a `requires` list only when a layout uses a v2 feature. v1 is read as is,
    with no stored migration. Archives follow rule 9.
 
+**Built (phase 5).** Each item is in its own module, since
+`layoutDesigner.ts` is pinned at its size, and hooks into the property
+panels:
+
+- **Images in this Layout** (`layoutDesigner/layoutAssets.ts`), on the canvas
+  panel.
+  - Each image the layout draws on, with a thumbnail, pixel size, file size,
+    memory when decoded, smaller copies, and every use ("Background 1",
+    "Drive: filmstrip", "Rectangle image"). Uses come from
+    `visitLayoutImageRefs`, which export, import and the engine also follow.
+  - Warnings for a decode over 64 MB, a filmstrip taller than 16,384 px, and
+    an image missing from the library.
+  - Replace swaps an image everywhere the layout uses it, in one undo step.
+- **Preview at panel size** (`layoutDesigner/sizePreview.ts`). The layout as
+  the params panel draws it, by the real renderer and
+  `applyCustomLayoutScaling`, in a Narrow 360 × 480, Laptop 760 × 520,
+  Desktop 1200 × 700 or Large 1800 × 1000 panel. It reports the scale reached
+  and the image copies loaded. Closing it gives the shared scaling observers
+  back to the live panel.
+- **Align to Canvas** (`layoutDesigner/alignTools.ts`). Left, centre, right,
+  top, middle or bottom for the selected control, label or rectangle, using
+  its drawn size on the designer canvas (label and value included).
+- **Live check** on the real designer, opened on a copy of the profile's
+  "Deluxe" layout and closed without saving:
+  - the images list showed its 3 images with sizes and uses
+  - the preview reported 66% at Laptop and 27% at Narrow
+  - Align Centre put the Input Gain control's centre within 1 px of the
+    1024 px canvas's centre
+- **Not done**, each a follow-up:
+  - multi-select with align and distribute across several elements (needs
+    the designer's selection model, in the pinned `layoutDesigner.ts`)
+  - snapping to other elements, and rulers with guides
+  - a lock and hide toggle per element, and a layers list
+  - custom fonts (the engine would need to serve and package font files the
+    way it does images)
+  - compact size variants
+  - drawing image controls in the designer's edit-mode placeholders
+
 ## Suggested order
 
 | Phase | Scope | Unblocks |
@@ -556,7 +594,7 @@ In rough order of value:
 | 2 | **Done** 2026-10-23. Old layouts unchanged (snapshots and 0 of 57 live shots). A layout that opts in grows to fill the real panel, or fits its height. §2: limits, `scaling` modes with upscale and height fit, grid setting, per-layout text sizes | Layouts fill the space they have |
 | 3 | **Done** 2026-10-23. Only images over 2048 px get copies; a 6000 × 4000 image's copies were made, kept and drawn live. §3: renditions, DPR-aware selection, preload | Memory and paint cost bounded, Android viable |
 | 4 | **Done** 2026-10-23. Image knobs, toggles, sliders and overlays drawn and dragged live; older apps get fallbacks. §4: control sizing and handles, filmstrip and layered knobs, image toggles and sliders, image elements | Real skeuomorphic skins |
-| 5 | Asset panel, preview at size, arrangement tools, fonts | Editor ergonomics |
+| 5 | **Done in part** 2026-10-23: images-in-layout panel, preview at panel size, align to canvas. Multi-select, guides, fonts and variants remain. Asset panel, preview at size, arrangement tools, fonts | Editor ergonomics |
 
 Phases 1–3 touch `PluginControllerLayouts.cpp`, `LayoutSupport`,
 `PluginEditor.cpp`, `layoutRenderer.ts`, `layoutOverlay.ts`, `layoutTypes.ts`

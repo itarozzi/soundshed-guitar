@@ -438,27 +438,31 @@ export function normalizeBackgroundLayers(layout: EffectLayout): EffectLayout {
  * glare), image toggles, image sliders and image overlays. `visit` gets each reference's id and a
  * setter for it. Export, import and the engine's copy on save (CollectLayoutImageIds) must agree.
  */
-function visitLayoutImageRefs(layout: EffectLayout, visit: (id: string, set: (id: string) => void) => void): void {
+export function visitLayoutImageRefs(
+  layout: EffectLayout,
+  visit: (id: string, set: (id: string) => void, where: string) => void,
+): void {
   for (const bg of layout.backgrounds ?? []) {
-    if (bg.type === "image" && bg.value) visit(bg.value, (id) => { bg.value = id; });
+    if (bg.type === "image" && bg.value) visit(bg.value, (id) => { bg.value = id; }, `Background ${Number(bg.layerIndex) + 1}`);
   }
-  const visitField = <T extends object>(owner: T | undefined, key: keyof T) => {
+  const visitField = <T extends object>(owner: T | undefined, key: keyof T, where: string) => {
     const id = owner?.[key];
-    if (owner && typeof id === "string" && id) visit(id, (next) => { (owner as Record<keyof T, unknown>)[key] = next; });
+    if (owner && typeof id === "string" && id) visit(id, (next) => { (owner as Record<keyof T, unknown>)[key] = next; }, where);
   };
   for (const control of layout.controls ?? []) {
     const style = control.style;
-    visitField(style, "knobImageId");
-    visitField(style?.knobImage, "imageId");
-    visitField(style?.knobImage, "baseImageId");
-    visitField(style?.knobImage, "glareImageId");
-    visitField(style?.toggleImage, "onImageId");
-    visitField(style?.toggleImage, "offImageId");
-    visitField(style?.sliderImage, "trackImageId");
-    visitField(style?.sliderImage, "thumbImageId");
+    const name = control.labelOverride || control.paramKey;
+    visitField(style, "knobImageId", `${name}: knob face`);
+    visitField(style?.knobImage, "imageId", `${name}: ${style?.knobImage?.mode === "filmstrip" ? "filmstrip" : "turning face"}`);
+    visitField(style?.knobImage, "baseImageId", `${name}: knob base`);
+    visitField(style?.knobImage, "glareImageId", `${name}: knob glare`);
+    visitField(style?.toggleImage, "onImageId", `${name}: on`);
+    visitField(style?.toggleImage, "offImageId", `${name}: off`);
+    visitField(style?.sliderImage, "trackImageId", `${name}: track`);
+    visitField(style?.sliderImage, "thumbImageId", `${name}: thumb`);
   }
   for (const overlay of layout.overlays ?? []) {
-    visitField(overlay.style, "imageId");
+    visitField(overlay.style, "imageId", "Rectangle image");
   }
 }
 

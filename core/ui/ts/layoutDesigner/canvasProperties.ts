@@ -7,7 +7,9 @@
 
 import type { LayoutBackground, LayoutScaling } from "../layoutTypes.js";
 import { getLayoutImageUrl } from "./images.js";
+import { bindLayoutAssetsGroup, renderLayoutAssetsGroup } from "./layoutAssets.js";
 import type { LayoutPropertiesHost } from "./propertiesHost.js";
+import { openLayoutSizePreview } from "./sizePreview.js";
 import { colorInputValue } from "../layoutRenderer.js";
 import { escapeHtml } from "../utils.js";
 
@@ -166,6 +168,13 @@ export class CanvasProperties {
           </div>
         </div>
       </div>
+      <div class="layout-property-group">
+        <div class="layout-property-group-title">Preview</div>
+        <div class="layout-property-row">
+          <button id="prop-size-preview" title="See the layout as the effect panel draws it at different window sizes">Preview at panel size…</button>
+        </div>
+      </div>
+      ${renderLayoutAssetsGroup(layout, (selected) => this.host.renderImageOptionsHtml("background", selected))}
       ${backdropSections}
     `;
 
@@ -254,6 +263,9 @@ export class CanvasProperties {
         next[key] = input.value.trim() === "" || !Number.isFinite(value) ? undefined : Math.max(min, Math.min(8, value));
       }));
     }
+
+    document.getElementById("prop-size-preview")?.addEventListener("click", () => openLayoutSizePreview(layout, this.host.getParamDefs()));
+    bindLayoutAssetsGroup(layout, this.host, sidebarContent);
 
     if (!isBackdrop) return;
 
