@@ -14,6 +14,7 @@
 #include <future>
 #include <chrono>
 #include <tuple>
+#include <utility>
 
 namespace guitarfx
 {
@@ -119,6 +120,8 @@ void SignalGraphExecutor::SetGraph(const SignalGraph& graph)
     mGraph = graph;
     mPrepared = false;
     mNodeStates.clear();
+    // Arranged for processors that are gone now.
+    mPendingHandOvers.clear();
 
     // CreateProcessors applies node params in map order, so a node carrying one parameter
     // under two spellings would let the key that sorts later decide the value. Fold them
@@ -394,6 +397,19 @@ void SignalGraphExecutor::CreateProcessors()
 
         if (state.processor)
         {
+            // Before configuring, so a processor taking its predecessor's instance over knows
+            // not to make one of its own when the configuration names the same thing.
+            if (mHandOverSource)
+            {
+                const auto previousIt = mHandOverSource->mNodeStates.find(node.id);
+
+                if (previousIt != mHandOverSource->mNodeStates.end() && previousIt->second.type == node.type &&
+                    previousIt->second.processor && state.processor->ExpectHandOver(*previousIt->second.processor))
+                {
+                    mPendingHandOvers.push_back({node.id, previousIt->second.processor.get()});
+                }
+            }
+
             ConfigureNodeProcessor(*state.processor, node, &resourceWorkItems);
             state.processor->SetDualMono(mDualMono);
 
@@ -673,6 +689,43 @@ bool SignalGraphExecutor::AnyNodeRequiresMainThreadLoad() const
     for (const auto& entry : mNodeStates)
     {
         if (entry.second.processor && entry.second.processor->RequiresMainThreadLoad())
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+void SignalGraphExecutor::CompleteHandOvers(const std::function<bool(const EffectProcessor*)>& isAlive)
+{
+    // Taken first: completing one can run the plugin's code, and nothing of this list may be
+    // left for a second pass to repeat.
+    auto pending = std::exchange(mPendingHandOvers, {});
+
+    for (const auto& handOver : pending)
+    {
+        const auto it = mNodeStates.find(handOver.nodeId);
+
+        if (it == mNodeStates.end() || !it->second.processor)
+        {
+            continue;
+        }
+
+        it->second.processor->CompleteHandOver(isAlive(handOver.previous) ? handOver.previous : nullptr);
+    }
+}
+
+bool SignalGraphExecutor::OwnsProcessor(const EffectProcessor* processor) const
+{
+    if (!processor)
+    {
+        return false;
+    }
+
+    for (const auto& [id, state] : mNodeStates)
+    {
+        if (state.processor.get() == processor)
         {
             return true;
         }

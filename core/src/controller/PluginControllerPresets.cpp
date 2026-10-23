@@ -820,6 +820,9 @@ void PluginController::ApplyPreset(const Preset& preset)
         InjectNamInterfaceCalibrationIntoSlot(initialSlotId, *mActivePreset);
     }
 
+    // A rebuild of the preset already running (a chain edit, a scene) carries its hosted
+    // plugins over from the chain it replaced, rather than having made each one again.
+    mPresetMixer.CompleteInstanceHandOvers();
     NotifyHostStateChanged();
 }
 

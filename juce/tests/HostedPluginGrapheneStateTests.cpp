@@ -630,6 +630,77 @@ bool TestControllerPresetSaveLoadRoundTrip()
     return true;
 }
 
+/// Editing the chain around a hosted plugin keeps the plugin's instance: the rebuilt node takes
+/// it over from the chain it replaced, state and all, rather than making a new one. Every edit
+/// used to re-create every plugin in the chain.
+bool TestControllerChainEditKeepsHostedPluginInstance()
+{
+    const fs::path sandbox = fs::temp_directory_path() / "guitarfx-hosted-plugin-tests" / "controller-edit-keeps-instance";
+    std::error_code ec;
+    fs::remove_all(sandbox, ec);
+    fs::create_directories(sandbox, ec);
+    SetSettingsEnvRoot(sandbox);
+
+    guitarfx::RegisterJuceHostedPluginEffect();
+
+    TestHost host(sandbox);
+    guitarfx::PluginController controller(host);
+    controller.Initialize();
+    controller.Prepare(kSampleRate, kBlockSize);
+
+    const auto preset = BuildHostedPluginPreset("graphene-controller-edit", "Graphene Controller Edit");
+    controller.HandleUIMessage(nlohmann::json{
+        {"type", "loadPreset"},
+        {"presetId", preset.id},
+        {"preset", nlohmann::json::parse(guitarfx::PresetStorage::SerializeToJson(preset))}
+    }.dump());
+
+    auto* effect = RequireHostedEffect(controller, preset.id, kPluginNodeId);
+    auto* plugin = effect != nullptr ? RequirePlugin(*effect) : nullptr;
+    if (plugin == nullptr)
+    {
+        Fail("Controller edit preset did not load Graphene");
+        return false;
+    }
+
+    const auto mutation = MutatePluginState(*plugin);
+    if (!mutation.changedProgram && !mutation.changedParameter)
+    {
+        Fail("Controller edit preset could not mutate Graphene state");
+        return false;
+    }
+    const PluginSnapshot before = CaptureSnapshot(*effect, *plugin);
+
+    // An edit elsewhere in the chain: a Gain ahead of the plugin.
+    controller.HandleUIMessage(nlohmann::json{
+        {"type", "addSignalPathNode"},
+        {"effectType", guitarfx::EffectGuids::kGain},
+        {"insertAfter", "__input__"}
+    }.dump());
+
+    auto* rebuiltEffect = RequireHostedEffect(controller, preset.id, kPluginNodeId);
+    if (rebuiltEffect == nullptr || rebuiltEffect == effect)
+    {
+        Fail("Adding a node did not rebuild the chain");
+        return false;
+    }
+
+    if (RequirePlugin(*rebuiltEffect) != plugin)
+    {
+        Fail("Adding a node re-created the hosted plugin instead of keeping its instance");
+        return false;
+    }
+
+    const PluginSnapshot after = CaptureSnapshot(*rebuiltEffect, *plugin);
+    if (!CompareSnapshots(before, after))
+    {
+        Fail("The kept instance lost its state across the edit: " + DescribeSnapshotDifference(before, after));
+        return false;
+    }
+
+    return true;
+}
+
 bool TestControllerAutoCapturesHostedPluginStateOnParameterChange(const std::string& parameterNeedle)
 {
     const fs::path sandbox = fs::temp_directory_path() / "guitarfx-hosted-plugin-tests" / ("controller-auto-capture-" + parameterNeedle);
@@ -962,6 +1033,7 @@ int main()
 
     run("Hosted effect full snapshot round-trip", TestHostedPluginSnapshotRoundTrip());
     run("Controller preset save/load full snapshot round-trip", TestControllerPresetSaveLoadRoundTrip());
+    run("Controller chain edit keeps the hosted plugin instance", TestControllerChainEditKeepsHostedPluginInstance());
     run("Controller auto-captures hosted state on parameter change: Blue Amp Tight",
         TestControllerAutoCapturesHostedPluginStateOnParameterChange("Blue Amp Tight"));
     run("Controller auto-captures hosted state after state restore: Blue Amp Tight",

@@ -39,12 +39,22 @@ namespace guitarfx
         bool LoadResources (const std::vector<ResourceRef>& refs,
             const std::vector<std::filesystem::path>& paths) override;
         [[nodiscard]] bool RequiresResource() const override { return true; }
-        [[nodiscard]] bool HasResource() const override { return mPlugin != nullptr; }
+        // A node waiting for its predecessor's instance has its plugin, for every purpose but
+        // processing, which waits the few moments until the hand-over completes.
+        [[nodiscard]] bool HasResource() const override { return mPlugin != nullptr || mAwaitingHandOver; }
         // Plugin scanning and instantiation must run on the JUCE message thread
         // (AU and VST3 enforce this). Prevents deadlock when called from std::async.
         [[nodiscard]] bool RequiresMainThreadLoad() const noexcept override { return true; }
         [[nodiscard]] std::filesystem::path GetResourcePath() const override { return mPluginPath; }
         [[nodiscard]] int GetLatencySamples() const override;
+
+        // A chain edit rebuilds every node, and a rebuilt Plugin Host takes over the plugin
+        // instance its predecessor for the node holds, if the node still names the same plugin,
+        // rather than making another: for some plugins that is seconds and hundreds of MB, paid
+        // for every plugin in the chain on every edit. Its editor window, listeners and the notes
+        // it is playing go with it. See EffectProcessor::ExpectHandOver.
+        bool ExpectHandOver (EffectProcessor& previous) override;
+        void CompleteHandOver (EffectProcessor* previous) override;
 
         [[nodiscard]] std::string GetType() const override { return "plugin_host"; }
         [[nodiscard]] std::string GetCategory() const override { return "utility"; }
@@ -61,14 +71,22 @@ namespace guitarfx
         // Installs a plugin instance directly, bypassing scanning, and wires up the same
         // listeners a real load would. Lets the state-plumbing tests (capture guards,
         // gesture coalescing) run against a stub instead of a real plugin binary.
-        void InstallHostedPluginForTesting (std::unique_ptr<juce::AudioPluginInstance> plugin);
+        // `path` is the plugin file the instance is taken to have come from, for a hand-over.
+        void InstallHostedPluginForTesting (std::unique_ptr<juce::AudioPluginInstance> plugin,
+                                            const std::filesystem::path& path = {});
         [[nodiscard]] std::string GetPendingPluginStateForTesting() const { return mPluginStateBase64; }
+        [[nodiscard]] bool IsAwaitingHandOverForTesting() const { return mAwaitingHandOver; }
         [[nodiscard]] const juce::AudioPluginFormatManager& GetPluginFormatsForTesting() const { return mSharedFormats->manager; }
 #endif
 
     private:
         void EnsureFormatsAdded();
         bool LoadPluginFromPath (const std::filesystem::path& path);
+        // True, having taken the expected plugin's identity, when `resolvedPath` names the
+        // plugin ExpectHandOver() was offered; the load is then left to CompleteHandOver().
+        bool DeferLoadToHandOver (const std::filesystem::path& resolvedPath);
+        void TakeInstanceFrom (JuceHostedPluginEffect& previous);
+        [[nodiscard]] std::function<void()> MakeEditorClosedCallback();
         bool ConfigurePluginBuses (juce::AudioPluginInstance& plugin) const;
         void PrepareLoadedPlugin();
         void UpdateWorkBufferForPlugin();
@@ -141,6 +159,26 @@ namespace guitarfx
         // The state last restored into the current mPlugin, so preparing it straight after a
         // load does not restore the same state a second time. Cleared with the instance.
         std::string mAppliedPluginStateBase64;
+        // The state the last capture read from the live instance, which is what a node rebuilt
+        // straight after a capture carries: a hand-over that brings it back restores nothing.
+        // Written by the capture, on the message thread.
+        mutable std::string mLastCapturedPluginStateBase64;
+
+        // The plugin a rebuilt node expects to take over from its predecessor, recorded by
+        // ExpectHandOver(). Copied, so nothing here points at the predecessor.
+        struct HandOverExpectation
+        {
+            bool active = false;
+            std::filesystem::path path;
+            std::string format;
+            std::string identifier;
+            juce::PluginDescription description;
+            int latencySamples = 0;
+        };
+        HandOverExpectation mHandOverExpected;
+        // The node's configuration named that plugin, so the load waits for CompleteHandOver().
+        bool mAwaitingHandOver = false;
+
         std::string mLastError;
         std::string mLastErrorCode;
         RuntimeConfigChangedCallback mRuntimeConfigChangedCallback;

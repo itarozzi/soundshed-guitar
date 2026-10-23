@@ -9,6 +9,7 @@
 #include "dsp/SilenceSleepGate.h"
 #include "dsp/SpectrumTap.h"
 #include "dsp/StereoFadeIn.h"
+#include <functional>
 #include <map>
 #include <memory>
 #include <string>
@@ -121,6 +122,30 @@ class SignalGraphExecutor
     {
         mResourceLibrary = library;
     }
+
+    /// The running chain this one is being built to replace, for the next SetGraph() only: a
+    /// node there with the same id and type is offered to the new node's processor, which may
+    /// take its instance over rather than make its own (EffectProcessor::ExpectHandOver). Null
+    /// for none. Message thread; `running` must outlive the SetGraph() call.
+    void SetHandOverSource(const SignalGraphExecutor* running)
+    {
+        mHandOverSource = running;
+    }
+
+    /// Whether some node is still waiting for its predecessor's instance.
+    [[nodiscard]] bool HasPendingHandOvers() const noexcept
+    {
+        return !mPendingHandOvers.empty();
+    }
+
+    /// Message thread, without the DSP lock, once this chain is installed: completes every
+    /// hand-over SetGraph() arranged, then forgets them. `isAlive` says whether a predecessor's
+    /// processor still exists; one that has gone is not touched, and its node makes its own
+    /// instance.
+    void CompleteHandOvers(const std::function<bool(const EffectProcessor*)>& isAlive);
+
+    /// Whether `processor` is one of this graph's node processors.
+    [[nodiscard]] bool OwnsProcessor(const EffectProcessor* processor) const;
 
     void Prepare(double sampleRate, int maxBlockSize);
     void Reset();
@@ -578,6 +603,17 @@ class SignalGraphExecutor
 
     std::map<std::string, NodeState> mNodeStates;
     std::vector<PendingResourceLoad> mPendingResourceLoads;
+
+    /// See SetHandOverSource(). Read only by CreateProcessors().
+    const SignalGraphExecutor* mHandOverSource = nullptr;
+
+    /// A node whose processor is waiting to take over its predecessor's instance.
+    struct PendingHandOver
+    {
+        std::string nodeId;
+        EffectProcessor* previous = nullptr;
+    };
+    std::vector<PendingHandOver> mPendingHandOvers;
 
     // Config applied to every node of a given type at creation — see SetNodeTypeConfigDefault().
     std::map<std::string, std::map<std::string, std::string>> mNodeTypeConfigDefaults;

@@ -106,6 +106,13 @@ class MultiPresetMixer
     // must be destroyed here rather than on a reaper that may wait for their editor UI.
     void CollectRetiredMainThread();
 
+    // Message thread only, without the DSP lock, straight after a commit that replaced a running
+    // slot: the hosted plugins of the chain just installed take over the instances their nodes
+    // had in the chain it replaced (SignalGraphExecutor::SetHandOverSource). Until then those
+    // nodes pass their input through, so a commit is followed by this as soon as the lock is
+    // released. CollectRetiredMainThread() runs it too, for a commit that was not.
+    void CompleteInstanceHandOvers();
+
     // Seamless preset swap: build the new executor off the DSP lock, then commit atomically.
     // PreparePresetSwap does the expensive work (effect creation, resource loading, Prepare).
     // CommitPresetSwap installs the pre-built instance, fades it in, and hands the outgoing

@@ -619,6 +619,20 @@ JUCE-only utility effect that hosts an external plugin supported by JUCE's plugi
   change, say) leaves the plugin as it is rather than putting back the last capture.
 - Pointing a node at a different plugin drops the previous plugin's chunk and identity keys;
   a chunk is only ever carried across a rebuild when the plugin identity still matches.
+- A rebuild keeps the instance. Every chain edit (adding, removing or moving a node, a split,
+  a resource, a scene) builds the whole chain again, and each Plugin Host in it that still names
+  the same plugin takes over the instance its node had, editor window, listeners and sounding
+  notes included, instead of creating one (`EffectProcessor::ExpectHandOver`). It used to
+  create one, so an edit cost the instantiation of every plugin in the chain, seconds and
+  hundreds of MB each for heavy amp sims, with the old instances alive alongside the new until
+  they faded out. Now an edit costs only the plugin it adds. The node is configured with the
+  state just captured from that instance, so nothing is restored; a different chunk (a scene
+  of its own, an effect preset, an undo) is restored onto it. Only the running slot with the
+  same id hands over, so another preset never inherits a plugin. The instance moves once the
+  new chain is installed (`MultiPresetMixer::CompleteInstanceHandOvers`, off the DSP lock);
+  until then the new node passes its input through, and after it the old one does for the rest
+  of its ~21 ms fade-out. If the old node has gone by then, the new one loads the plugin itself.
+  Plugin Hosts inside a blend or custom effect are still created again.
 - Every mixer slot persists its own state, not just the one holding the editing focus.
 - In a DAW, all of this rides in the project via `SerializeState`. In standalone, the store's
   preset stays authoritative for the graph, and only the plugin chunks are recovered from the

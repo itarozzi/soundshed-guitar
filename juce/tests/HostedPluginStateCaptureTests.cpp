@@ -7,13 +7,15 @@
 //   * a capture per parameter tick during a knob drag, each one a full getStateInformation()
 //     on the message thread.
 // And one on the restore side: every load restoring the same state twice, before and after
-// the prepare that follows it.
+// the prepare that follows it. Then the hand-over a chain rebuild makes: the rebuilt node takes
+// its predecessor's instance rather than making its own (EffectProcessor::ExpectHandOver).
 
 #include "JuceHostedPluginEffect.h"
 
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_events/juce_events.h>
 
+#include <filesystem>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -406,6 +408,179 @@ bool TestPrepareDoesNotRestoreStateTwice()
     return true;
 }
 
+/// Where the stub is taken to have been loaded from. It need not exist: a hand-over never
+/// opens the file, and a load that does open it fails cleanly.
+std::filesystem::path StubPluginPath()
+{
+    return std::filesystem::temp_directory_path() / "soundshed-hand-over-stub.vst3";
+}
+
+/// A node rebuilt with its chain takes over the instance its predecessor holds: nothing is
+/// created, the state it was configured with (captured from that instance just before the
+/// rebuild) is not restored again, the predecessor passes its input through from then on,
+/// and the instance's notifications reach the new node, not the old one.
+bool TestRebuiltNodeTakesOverItsPredecessorsInstance()
+{
+    auto previous = std::make_unique<guitarfx::JuceHostedPluginEffect>();
+    auto plugin = std::make_unique<StubPluginInstance>("state-live");
+    auto* raw = plugin.get();
+    previous->InstallHostedPluginForTesting(std::move(plugin), StubPluginPath());
+    previous->Prepare(48000.0, 512);
+    const int writesBefore = raw->StateWriteCount();
+
+    // What the controller folds into the preset before every rebuild.
+    const auto captured = previous->GetConfig(kStateConfigKey);
+
+    guitarfx::JuceHostedPluginEffect rebuilt;
+    CapturedRuntimeConfig published;
+    rebuilt.SetRuntimeConfigChangedCallback([&published](const std::string& key, const std::string& value) {
+        published.changes.emplace_back(key, value);
+    });
+
+    if (!rebuilt.ExpectHandOver(*previous))
+    {
+        Fail("a node rebuilt over a loaded predecessor did not expect its instance");
+        return false;
+    }
+
+    rebuilt.SetConfig(kStateConfigKey, captured);
+
+    if (!rebuilt.LoadResource(StubPluginPath()) || !rebuilt.IsAwaitingHandOverForTesting()
+        || !rebuilt.HasResource() || rebuilt.GetHostedPluginForTesting() != nullptr)
+    {
+        Fail("loading the predecessor's plugin did not wait for the hand-over");
+        return false;
+    }
+
+    rebuilt.Prepare(48000.0, 512);
+    rebuilt.CompleteHandOver(previous.get());
+
+    if (rebuilt.GetHostedPluginForTesting() != raw || previous->GetHostedPluginForTesting() != nullptr)
+    {
+        Fail("the instance did not move to the rebuilt node");
+        return false;
+    }
+
+    if (raw->StateWriteCount() != writesBefore || raw->StateText() != "state-live")
+    {
+        Fail("the hand-over restored state the instance already had: "
+             + std::to_string(raw->StateWriteCount() - writesBefore) + " write(s)");
+        return false;
+    }
+
+    // The predecessor, still fading out in the old chain, passes its input through.
+    std::vector<float> inL(64, 0.25f), inR(64, 0.25f), outL(64, 0.0f), outR(64, 0.0f);
+    float* inputs[2] = {inL.data(), inR.data()};
+    float* outputs[2] = {outL.data(), outR.data()};
+    previous->Process(inputs, outputs, 64);
+
+    if (outL[10] != 0.25f || outR[10] != 0.25f)
+    {
+        Fail("the predecessor did not pass its input through after the hand-over");
+        return false;
+    }
+
+    // Retired chains are destroyed later. Its listeners must already be off the instance, or
+    // the next notification would reach a node that is gone.
+    previous.reset();
+    raw->SetStateText("state-changed");
+    raw->Parameter()->setValueNotifyingHost(0.9f);
+
+    if (published.LastStateValue() == "<none>")
+    {
+        Fail("a change on the instance did not reach the node that took it over");
+        return false;
+    }
+
+    return true;
+}
+
+/// A rebuilt node configured with a state the instance does not hold (an effect preset, a
+/// scene of its own) restores it onto the instance it takes over.
+bool TestHandOverRestoresStateTheInstanceDoesNotHold()
+{
+    const auto otherState = EncodedStateOf("state-other");
+
+    guitarfx::JuceHostedPluginEffect previous;
+    auto plugin = std::make_unique<StubPluginInstance>("state-live");
+    auto* raw = plugin.get();
+    previous.InstallHostedPluginForTesting(std::move(plugin), StubPluginPath());
+    previous.Prepare(48000.0, 512);
+    (void) previous.GetConfig(kStateConfigKey);
+
+    guitarfx::JuceHostedPluginEffect rebuilt;
+    rebuilt.ExpectHandOver(previous);
+    rebuilt.SetConfig(kStateConfigKey, otherState);
+    rebuilt.LoadResource(StubPluginPath());
+    rebuilt.Prepare(48000.0, 512);
+    rebuilt.CompleteHandOver(&previous);
+
+    if (rebuilt.GetHostedPluginForTesting() != raw || raw->StateText() != "state-other")
+    {
+        Fail("a state the instance did not hold was not restored on hand-over: plugin holds '"
+             + raw->StateText().toStdString() + "'");
+        return false;
+    }
+
+    return true;
+}
+
+/// A node that now names another plugin loads that one, and the predecessor keeps its own.
+bool TestNodeNamingAnotherPluginDoesNotTakeTheInstance()
+{
+    guitarfx::JuceHostedPluginEffect previous;
+    auto plugin = std::make_unique<StubPluginInstance>("state-live");
+    auto* raw = plugin.get();
+    previous.InstallHostedPluginForTesting(std::move(plugin), StubPluginPath());
+    previous.Prepare(48000.0, 512);
+
+    guitarfx::JuceHostedPluginEffect rebuilt;
+    rebuilt.ExpectHandOver(previous);
+    // Does not exist, so this load fails, but it is a load of its own.
+    rebuilt.LoadResource(std::filesystem::temp_directory_path() / "soundshed-hand-over-other.vst3");
+
+    if (rebuilt.IsAwaitingHandOverForTesting())
+    {
+        Fail("a node naming another plugin waited for its predecessor's instance");
+        return false;
+    }
+
+    rebuilt.CompleteHandOver(&previous);
+
+    if (previous.GetHostedPluginForTesting() != raw || rebuilt.GetHostedPluginForTesting() != nullptr)
+    {
+        Fail("a node naming another plugin took its predecessor's instance");
+        return false;
+    }
+
+    return true;
+}
+
+/// A predecessor gone by the time the chain is installed: the node loads the plugin itself,
+/// as a node with no predecessor would, rather than being left without one.
+bool TestHandOverWithoutPredecessorLoadsItself()
+{
+    guitarfx::JuceHostedPluginEffect rebuilt;
+    {
+        guitarfx::JuceHostedPluginEffect previous;
+        previous.InstallHostedPluginForTesting(std::make_unique<StubPluginInstance>("state-live"), StubPluginPath());
+        rebuilt.ExpectHandOver(previous);
+        rebuilt.LoadResource(StubPluginPath());
+    }
+
+    rebuilt.CompleteHandOver(nullptr);
+
+    // The stub's file does not exist, so the load it falls back to fails, and says so.
+    if (rebuilt.IsAwaitingHandOverForTesting() || rebuilt.HasResource()
+        || rebuilt.GetConfig("lastErrorCode") != "file-not-found")
+    {
+        Fail("a hand-over with no predecessor did not fall back to a load of its own");
+        return false;
+    }
+
+    return true;
+}
+
 } // namespace
 
 int main()
@@ -425,6 +600,10 @@ int main()
     run("Gesture coalesces captures", TestGestureCoalescesCaptures());
     run("Unbalanced gesture end does not wedge capture", TestUnbalancedGestureEndDoesNotWedgeCapture());
     run("Prepare does not restore state twice", TestPrepareDoesNotRestoreStateTwice());
+    run("Rebuilt node takes over its predecessor's instance", TestRebuiltNodeTakesOverItsPredecessorsInstance());
+    run("Hand-over restores state the instance does not hold", TestHandOverRestoresStateTheInstanceDoesNotHold());
+    run("Node naming another plugin does not take the instance", TestNodeNamingAnotherPluginDoesNotTakeTheInstance());
+    run("Hand-over without a predecessor loads the plugin itself", TestHandOverWithoutPredecessorLoadsItself());
 
     std::cout << "\nHosted plugin state capture tests: " << passed << " passed, " << failed << " failed\n";
     return failed == 0 ? 0 : 1;

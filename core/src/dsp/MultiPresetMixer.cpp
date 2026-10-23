@@ -247,7 +247,21 @@ std::unique_ptr<PresetInstance> MultiPresetMixer::BuildInstance(const Preset& pr
     // Before SetGraph, so the plan is built for the layout it will run with.
     inst->executor.SetInputLayout(mRigInputLayout.load(std::memory_order_acquire));
     inst->executor.SetDualMono(mGraphsDualMono.load(std::memory_order_acquire));
+
+    // A rebuild of a running slot (a chain edit, a scene) lets each hosted plugin take over the
+    // instance its node already has instead of making another: every edit used to re-create
+    // every plugin in the chain, seconds and hundreds of MB each for some. Only the live slot
+    // answering to this id, so another preset's node never hands its plugin over. The handover
+    // itself waits for CompleteInstanceHandOvers(), once this instance is installed.
+    const PresetInstance* running = nullptr;
+    {
+        const PresetVoicePool::ReadScope scope(mVoices);
+        running = mVoices.Find(id);
+    }
+
+    inst->executor.SetHandOverSource(running ? &running->executor : nullptr);
     inst->executor.SetGraph(normalizedPreset.graph); // CreateProcessors + LoadResources here
+    inst->executor.SetHandOverSource(nullptr);
     inst->executor.SetSignalDiagnosticsEnabled(mTelemetry.IsEnabled());
     inst->complexityScore = EstimateGraphComplexityScore(inst->executor.GetNodeTypes());
     // Only time-based nodes (delay, reverb) and opaque hosted ones earn a ring-out: anything else
@@ -333,7 +347,14 @@ bool MultiPresetMixer::ReplaceActivePresetInPlace(const Preset& preset, const st
     }
 
     PreparePresetSwap(preset, presetId, name);
-    return CommitPresetReplacement(presetId);
+
+    if (!CommitPresetReplacement(presetId))
+    {
+        return false;
+    }
+
+    CompleteInstanceHandOvers();
+    return true;
 }
 
 bool MultiPresetMixer::CommitPresetReplacement(const std::string& presetId)
@@ -909,7 +930,50 @@ MultiPresetMixer::~MultiPresetMixer()
 
 void MultiPresetMixer::CollectRetiredMainThread()
 {
+    // First: a hand-over still pending takes its instance from a retired chain, which must not
+    // be destroyed before it has.
+    CompleteInstanceHandOvers();
     mReaper.CollectMainThread();
+}
+
+void MultiPresetMixer::CompleteInstanceHandOvers()
+{
+    // Gathered under a ReadScope, then completed outside it: completing runs plugin code (a load,
+    // when the predecessor is gone) and must not hold the audio thread's collection off meanwhile.
+    std::vector<SignalGraphExecutor*> pending;
+    {
+        const PresetVoicePool::ReadScope scope(mVoices);
+
+        for (const auto& inst : mVoices.Instances())
+        {
+            if (inst->executor.HasPendingHandOvers())
+            {
+                pending.push_back(&inst->executor);
+            }
+        }
+    }
+
+    // A predecessor is alive while some instance still holds it: a retired chain stays in the pool
+    // until it has faded, and chains with hosted nodes are destroyed only by CollectMainThread(),
+    // on this thread, after this.
+    const auto isAlive = [this](const EffectProcessor* processor) {
+        const PresetVoicePool::ReadScope scope(mVoices);
+
+        for (const auto& inst : mVoices.Instances())
+        {
+            if (inst->executor.OwnsProcessor(processor))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    };
+
+    for (auto* executor : pending)
+    {
+        executor->CompleteHandOvers(isAlive);
+    }
 }
 
 void MultiPresetMixer::StartWorkers()

@@ -690,6 +690,12 @@ namespace guitarfx
                     mOnClose();
             }
 
+            // The window, and the editor in it, move to the node that takes its plugin over.
+            void SetOnClose (std::function<void()> onClose)
+            {
+                mOnClose = std::move (onClose);
+            }
+
         private:
             std::function<void()> mOnClose;
 
@@ -938,7 +944,162 @@ namespace guitarfx
 
     int JuceHostedPluginEffect::GetLatencySamples() const
     {
-        return mPlugin ? mPlugin->getLatencySamples() : 0;
+        if (mPlugin)
+            return mPlugin->getLatencySamples();
+        return mAwaitingHandOver ? mHandOverExpected.latencySamples : 0;
+    }
+
+    bool JuceHostedPluginEffect::ExpectHandOver (EffectProcessor& previous)
+    {
+        mHandOverExpected = {};
+        mAwaitingHandOver = false;
+
+        auto* predecessor = dynamic_cast<JuceHostedPluginEffect*> (&previous);
+        if (predecessor == nullptr || predecessor == this || !predecessor->mPlugin)
+            return false;
+
+        mHandOverExpected.active = true;
+        mHandOverExpected.path = predecessor->mPluginPath;
+        mHandOverExpected.format = predecessor->mPluginFormat;
+        mHandOverExpected.identifier = predecessor->mPluginIdentifier;
+        mHandOverExpected.description = predecessor->mPluginDescription;
+        mHandOverExpected.latencySamples = predecessor->mPlugin->getLatencySamples();
+        return true;
+    }
+
+    bool JuceHostedPluginEffect::DeferLoadToHandOver (const std::filesystem::path& resolvedPath)
+    {
+        if (!mHandOverExpected.active)
+            return false;
+
+        // A stored identifier picks one plugin out of a shell file holding several; with none,
+        // the file alone names it, as a load would take the first plugin in it.
+        const bool samePlugin = resolvedPath == mHandOverExpected.path
+                                && (mPluginIdentifier.empty() || mPluginIdentifier == mHandOverExpected.identifier);
+
+        if (!samePlugin)
+        {
+            // The node now names another plugin, so it loads that one, and its predecessor's
+            // instance retires with the old chain.
+            mHandOverExpected = {};
+            mAwaitingHandOver = false;
+            return false;
+        }
+
+        mPluginPath = mHandOverExpected.path;
+        mPluginFormat = mHandOverExpected.format;
+        mPluginIdentifier = mHandOverExpected.identifier;
+        mPluginDescription = mHandOverExpected.description;
+        mLastError.clear();
+        mLastErrorCode.clear();
+        mAwaitingHandOver = true;
+        AppendHostedPluginTrace ("LoadPluginFromPath awaiting hand-over path=" + ToDisplayPath (resolvedPath)
+                                 + ", identifier=" + mPluginIdentifier);
+        return true;
+    }
+
+    void JuceHostedPluginEffect::CompleteHandOver (EffectProcessor* previous)
+    {
+        const bool awaiting = std::exchange (mAwaitingHandOver, false);
+        mHandOverExpected = {};
+
+        if (!awaiting)
+            return;
+
+        auto* predecessor = dynamic_cast<JuceHostedPluginEffect*> (previous);
+        const bool canTake = predecessor != nullptr && predecessor != this && predecessor->mPlugin
+                             && predecessor->mPluginPath == mPluginPath
+                             && predecessor->mPluginIdentifier == mPluginIdentifier;
+
+        if (canTake)
+        {
+            TakeInstanceFrom (*predecessor);
+            return;
+        }
+
+        // Gone, or no longer holding that plugin: load it as the node would have.
+        AppendHostedPluginTrace ("CompleteHandOver predecessor unavailable, loading path=" + ToDisplayPath (mPluginPath));
+        LoadPluginFromPath (mPluginPath);
+    }
+
+    void JuceHostedPluginEffect::TakeInstanceFrom (JuceHostedPluginEffect& previous)
+    {
+        // The predecessor lets go of the instance first: listeners off it, any capture it had
+        // queued cancelled (this node runs one instead), and the instance taken under its process
+        // lock, so its Process() is passing through by the time the instance is anywhere else.
+        const bool captureWasPending = previous.isUpdatePending();
+        previous.cancelPendingUpdate();
+        previous.DetachHostedPluginParameterListeners();
+        if (previous.mHostedPluginListenerAttached && previous.mPlugin)
+            previous.mPlugin->removeListener (&previous);
+        previous.mHostedPluginListenerAttached = false;
+        previous.mActiveGestureDepth.store (0, std::memory_order_release);
+
+        std::unique_ptr<juce::AudioPluginInstance> plugin;
+        NotePlayer notes;
+        {
+            const juce::SpinLock::ScopedLockType lock (previous.mPluginProcessLock);
+            plugin = std::move (previous.mPlugin);
+            notes = previous.mNotePlayer;
+        }
+
+        auto window = std::move (previous.mEditorWindow);
+        if (window != nullptr)
+            static_cast<HostedPluginEditorWindow&> (*window).SetOnClose (MakeEditorClosedCallback());
+        if (sActiveHostedPluginEditorOwner == &previous)
+            sActiveHostedPluginEditorOwner = window != nullptr ? this : nullptr;
+
+        // What the instance holds right now, as far as anything here knows. This node was
+        // configured with the state captured from it just before the rebuild, so that is
+        // usually what it brings, and restoring it again would be a setStateInformation per
+        // plugin per edit for nothing. A state that is none of these (an effect preset applied,
+        // a scene of its own) is restored.
+        const bool stateIsLive = mPluginStateBase64.empty()
+                                 || mPluginStateBase64 == previous.mLastCapturedPluginStateBase64
+                                 || mPluginStateBase64 == previous.mAppliedPluginStateBase64;
+        if (mPluginStateBase64.empty())
+            mPluginStateBase64 = previous.mPluginStateBase64;
+        mLastCapturedPluginStateBase64 = previous.mLastCapturedPluginStateBase64;
+        const bool samePreparation = previous.mPrepared && previous.mSampleRate == mSampleRate
+                                     && previous.mMaxBlockSize == mMaxBlockSize;
+        previous.mAppliedPluginStateBase64.clear();
+
+        {
+            const juce::SpinLock::ScopedLockType lock (mPluginProcessLock);
+            mPlugin = std::move (plugin);
+            mNotePlayer = notes;
+            // Sized for the instance's channels before Process() can reach it.
+            UpdateWorkBufferForPlugin();
+        }
+        mEditorWindow = std::move (window);
+        AttachHostedPluginListeners();
+        mLastError.clear();
+        mLastErrorCode.clear();
+
+        AppendHostedPluginTrace ("TakeInstanceFrom plugin=" + FromJuceString (mPlugin->getName())
+                                 + ", stateIsLive=" + std::string { stateIsLive ? "true" : "false" }
+                                 + ", samePreparation=" + std::string { samePreparation ? "true" : "false" }
+                                 + ", editorOpen=" + std::string { mEditorWindow ? "true" : "false" });
+
+        if (stateIsLive)
+            mAppliedPluginStateBase64 = mPluginStateBase64;
+
+        if (!samePreparation)
+            PrepareLoadedPlugin(); // restores the state too, when it is not the live one
+        else if (!stateIsLive)
+            ApplyPendingPluginState();
+
+        if (captureWasPending)
+            triggerAsyncUpdate();
+    }
+
+    std::function<void()> JuceHostedPluginEffect::MakeEditorClosedCallback()
+    {
+        return [this]() {
+            if (sActiveHostedPluginEditorOwner == this)
+                sActiveHostedPluginEditorOwner = nullptr;
+            ScheduleAutoCapture (false);
+        };
     }
 
     bool JuceHostedPluginEffect::LoadPluginFromPath (const std::filesystem::path& path)
@@ -964,6 +1125,9 @@ namespace guitarfx
         // on fresh picks, so paths arriving from presets, synced libraries or a
         // hand-edited entry are normalized identically.
         const std::filesystem::path resolvedPath = pluginpath::ResolvePluginBundlePath (path);
+
+        if (DeferLoadToHandOver (resolvedPath))
+            return true;
 
         AppendHostedPluginTrace ("LoadPluginFromPath begin path=" + ToDisplayPath (resolvedPath)
                                  + ", pendingStateLength=" + std::to_string (mPluginStateBase64.size())
@@ -1486,7 +1650,9 @@ namespace guitarfx
             // save. Every host asks for state while processBlock() runs, and plugins are
             // written to cope with that. mPlugin itself is only swapped on this thread.
             const auto snapshot = CaptureHostedPluginStateSnapshot (*mPlugin);
-            return EncodeHostedPluginStateBase64 (snapshot);
+            auto encoded = EncodeHostedPluginStateBase64 (snapshot);
+            mLastCapturedPluginStateBase64 = encoded;
+            return encoded;
         };
 
         if (juce::MessageManager::getInstance()->isThisTheMessageThread())
@@ -1571,13 +1737,16 @@ namespace guitarfx
 
         // Whatever the next instance holds, it has not been given this state yet.
         mAppliedPluginStateBase64.clear();
+        mLastCapturedPluginStateBase64.clear();
     }
 
 #if defined(GUITARFX_ENABLE_PLUGIN_HOST_TEST_API)
-    void JuceHostedPluginEffect::InstallHostedPluginForTesting (std::unique_ptr<juce::AudioPluginInstance> plugin)
+    void JuceHostedPluginEffect::InstallHostedPluginForTesting (std::unique_ptr<juce::AudioPluginInstance> plugin,
+                                                                const std::filesystem::path& path)
     {
         ClosePluginEditor();
         ReleaseHostedPlugin();
+        mPluginPath = path;
         {
             const juce::SpinLock::ScopedLockType lock (mPluginProcessLock);
             mPlugin = std::move (plugin);
@@ -1702,11 +1871,7 @@ namespace guitarfx
                 const auto title = mPluginDescription.name.isNotEmpty()
                                        ? mPluginDescription.name
                                        : mPlugin->getName();
-                mEditorWindow = std::make_unique<HostedPluginEditorWindow> (title, editor, [this]() {
-                    if (sActiveHostedPluginEditorOwner == this)
-                        sActiveHostedPluginEditorOwner = nullptr;
-                    ScheduleAutoCapture (false);
-                });
+                mEditorWindow = std::make_unique<HostedPluginEditorWindow> (title, editor, MakeEditorClosedCallback());
                 sActiveHostedPluginEditorOwner = this;
             }
             catch (const std::exception& ex)

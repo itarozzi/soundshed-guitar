@@ -289,15 +289,21 @@ bool PluginController::ReplaceMixerSlotInstance(const Preset& slotPreset, const 
 {
     UpdatePresetSwapTailBudget();
     mPresetMixer.PreparePresetSwap(slotPreset, presetId, name);
-    std::lock_guard<std::mutex> lock(mDSPMutex);
 
-    if (!mPresetMixer.CommitPresetReplacement(presetId))
     {
-        return false;
+        std::lock_guard<std::mutex> lock(mDSPMutex);
+
+        if (!mPresetMixer.CommitPresetReplacement(presetId))
+        {
+            return false;
+        }
+
+        AttachRuntimeConfigCallbacks(presetId, slotPreset);
+        InjectNamInterfaceCalibrationIntoSlot(presetId, slotPreset);
     }
 
-    AttachRuntimeConfigCallbacks(presetId, slotPreset);
-    InjectNamInterfaceCalibrationIntoSlot(presetId, slotPreset);
+    // The slot's hosted plugins move over from the chain it replaced.
+    mPresetMixer.CompleteInstanceHandOvers();
     return true;
 }
 

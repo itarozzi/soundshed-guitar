@@ -814,6 +814,50 @@ if(WIN32)
         TIMEOUT 600
     )
 
+    # How many hosted plugins a chain holds, series and split, with audio running. Loads real
+    # plugins from this machine and takes minutes, so it is built on demand and not registered
+    # with ctest. See the header of the source file for its arguments.
+    add_executable(HostedPluginChainStressTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/HostedPluginChainStressTests.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/source/JuceHostedPluginEffect.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/source/JuceHostedPluginEffect.h"
+    )
+
+    target_include_directories(HostedPluginChainStressTests
+        PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/source"
+    )
+
+    target_compile_definitions(HostedPluginChainStressTests
+        PRIVATE
+            JUCE_PLUGINHOST_VST3=1
+            JUCE_PLUGINHOST_LV2=1
+            JUCE_VST3_CAN_REPLACE_VST2=0
+            JUCE_MODAL_LOOPS_PERMITTED=1
+            GUITARFX_ENABLE_PLUGIN_HOST_TEST_API=1
+            _CRT_SECURE_NO_WARNINGS
+    )
+
+    target_link_libraries(HostedPluginChainStressTests
+        PRIVATE
+            SoundshedGuitarCore
+            nlohmann_json::nlohmann_json
+            juce_audio_utils
+            juce_audio_processors
+            juce_dsp
+            juce_gui_basics
+            juce_gui_extra
+            juce::juce_recommended_config_flags
+            guitarfx_lto_flags
+            juce::juce_recommended_warning_flags
+    )
+
+    set_target_properties(HostedPluginChainStressTests PROPERTIES
+        CXX_STANDARD 20
+        CXX_STANDARD_REQUIRED ON
+        FOLDER "GuitarFX/Tests"
+    )
+
     add_executable(NamCalibrationProbeGatewayTests
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/NamCalibrationProbeGatewayTests.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/source/JuceHostedPluginEffect.cpp"

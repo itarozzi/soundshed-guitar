@@ -187,6 +187,30 @@ class EffectProcessor
         return false;
     }
 
+    // ── Carrying an instance across a rebuild ──────────────────────────────────────
+    // Every chain edit builds the whole chain again, and the running one keeps playing until
+    // the new one is installed. A processor whose instance is expensive to make (a hosted
+    // plugin: seconds, and hundreds of MB, for some) can take over the one its predecessor
+    // for the same node holds instead of making another (SignalGraphExecutor::SetHandOverSource).
+
+    // Message thread, while the new chain is built, before this node is configured. `previous`
+    // is the running chain's processor for the same node id and type. True if this processor
+    // may take its instance over once configured, and CompleteHandOver() must then follow.
+    virtual bool ExpectHandOver(EffectProcessor& previous)
+    {
+        (void)previous;
+        return false;
+    }
+
+    // Message thread, without the DSP lock, once the chain this processor belongs to has been
+    // installed. `previous` is the processor ExpectHandOver() was given, or null if it has gone
+    // since, in which case the processor makes its own instance after all. A processor that
+    // was configured for something else in the meantime ignores this.
+    virtual void CompleteHandOver(EffectProcessor* previous)
+    {
+        (void)previous;
+    }
+
     [[nodiscard]] virtual std::filesystem::path GetResourcePath() const
     {
         return {};
