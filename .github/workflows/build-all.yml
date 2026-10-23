@@ -5,7 +5,8 @@ name: Build All Platforms
 # workflow_call trigger for this. The platforms build in parallel, and one failing
 # does not stop the others.
 #
-# Everything here belongs to this run, including the artifacts. publish-release.yml
+# Everything here belongs to this run, including the artifacts, which the combine
+# job gathers into a single download. publish-release.yml
 # looks for artifacts only in the individual build workflows' runs, so it does not
 # see builds made here.
 
@@ -99,3 +100,35 @@ jobs:
     with:
       upload_to_r2: ${{ inputs.upload_to_r2 }}
     secrets: inherit
+
+  # Folds every platform's build into one artifact, so a run downloads as one zip
+  # instead of one per platform. Each build keeps its own folder: the container and
+  # native Linux builds produce zips with the same file name. The per-platform
+  # artifacts are deleted once merged; validation logs are left as they are.
+  combine:
+    name: Combine artifacts
+    needs: [windows, macos, linux, linux-native]
+    # Still runs when a platform failed or was not picked, so the builds that did
+    # succeed are collected.
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout VERSION
+        uses: actions/checkout@v7
+        with:
+          sparse-checkout: juce/VERSION
+          sparse-checkout-cone-mode: false
+
+      - name: Read version
+        id: version
+        run: echo "version=$(tr -d '[:space:]' < juce/VERSION)" >> "$GITHUB_OUTPUT"
+
+      - name: Merge build artifacts
+        uses: actions/upload-artifact/merge@v7
+        with:
+          name: SoundshedGuitar-${{ steps.version.outputs.version }}-all-platforms
+          pattern: "{windows-*,macos-*,linux-*}"
+          separate-directories: true
+          delete-merged: true
+          # The installers and zips are already compressed.
+          compression-level: 0
