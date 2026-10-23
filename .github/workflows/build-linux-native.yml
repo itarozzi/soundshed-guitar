@@ -100,6 +100,9 @@ jobs:
           ldd --version | sed -n 1p
 
       - name: Build Linux distribution
+        env:
+          # Bundled into the build at configure time; empty leaves Jam search unavailable.
+          GUITARFX_JAM_YOUTUBE_API_KEY: ${{ secrets.JAM_YOUTUBE_API_KEY }}
         run: |
           set -euo pipefail
           chmod +x ./build_linux.sh

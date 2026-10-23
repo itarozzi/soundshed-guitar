@@ -811,11 +811,31 @@ elseif(GUITARFX_CORE_BUILD_WEB_UI)
     message(WARNING "npm not found; core UI TypeScript build will be skipped.")
 endif()
 
+# Keys bundled into the build come from the environment (CI passes repository
+# secrets), never from the source tree. Without one the matching feature says
+# it is unavailable. A generated header, not a compile definition, so the key
+# stays off compiler command lines.
+if(NOT DEFINED GUITARFX_JAM_YOUTUBE_API_KEY)
+    set(GUITARFX_JAM_YOUTUBE_API_KEY "$ENV{GUITARFX_JAM_YOUTUBE_API_KEY}")
+endif()
+string(STRIP "${GUITARFX_JAM_YOUTUBE_API_KEY}" GUITARFX_JAM_YOUTUBE_API_KEY)
+if(GUITARFX_JAM_YOUTUBE_API_KEY MATCHES "[\"\\\\]")
+    message(FATAL_ERROR "GUITARFX_JAM_YOUTUBE_API_KEY contains a quote or backslash")
+endif()
+if(GUITARFX_JAM_YOUTUBE_API_KEY STREQUAL "")
+    message(STATUS "Jam YouTube API key: not set; Jam search will be unavailable")
+else()
+    message(STATUS "Jam YouTube API key: bundled")
+endif()
+configure_file("${GUITARFX_CORE_ROOT}/config/BundledApiKeys.h.in"
+               "${CMAKE_CURRENT_BINARY_DIR}/generated/BundledApiKeys.h" @ONLY)
+
 target_include_directories(SoundshedGuitarCore
     PUBLIC
         "${GUITARFX_CORE_ROOT}/src"
     PRIVATE
         "${GUITARFX_CORE_ROOT}/config"
+        "${CMAKE_CURRENT_BINARY_DIR}/generated"
 )
 
 # Framework-agnostic core target includes only core headers

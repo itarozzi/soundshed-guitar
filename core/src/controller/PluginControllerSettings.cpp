@@ -9,6 +9,7 @@
 
 #include "PluginController.h"
 
+#include "BundledApiKeys.h" // generated at configure time
 #include "controller/MetronomeService.h"
 
 #include "controller/internal/ControllerUtils.h"

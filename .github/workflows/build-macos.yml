@@ -92,6 +92,9 @@ jobs:
         run: npm install -g typescript
       
       - name: Build universal artifacts (no pkg)
+        env:
+          # Bundled into the build at configure time; empty leaves Jam search unavailable.
+          GUITARFX_JAM_YOUTUBE_API_KEY: ${{ secrets.JAM_YOUTUBE_API_KEY }}
         run: |
           chmod +x ./build_macos.sh
           ./build_macos.sh --universal --no-pkg

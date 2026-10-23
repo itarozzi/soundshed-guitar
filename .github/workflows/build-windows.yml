@@ -113,6 +113,9 @@ jobs:
 
       - name: Build Windows installer
         shell: pwsh
+        env:
+          # Bundled into the build at configure time; empty leaves Jam search unavailable.
+          GUITARFX_JAM_YOUTUBE_API_KEY: ${{ secrets.JAM_YOUTUBE_API_KEY }}
         run: |
           $ErrorActionPreference = 'Stop'
           $env:GUITARFX_WINDOWS_CMAKE_GENERATOR = 'Visual Studio 18 2026'

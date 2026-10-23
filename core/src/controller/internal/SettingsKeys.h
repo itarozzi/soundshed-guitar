@@ -15,8 +15,8 @@
 namespace guitarfx::controller_detail
 {
 // ── Jam panel ───────────────────────────────────────────────────────
+// Its bundled value is in the generated BundledApiKeys.h.
 inline constexpr const char* kJamYouTubeApiKeySettingKey = "jam.youtubeApiKey";
-inline constexpr const char* kBundledJamYouTubeApiKey = "";
 
 // ── Tone3000 ────────────────────────────────────────────────────────
 // Whether Tone3000 requests go through the Soundshed proxy, which needs no API key. An
