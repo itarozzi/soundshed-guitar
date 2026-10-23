@@ -8,6 +8,25 @@
   max-height: 94vh;
   display: flex;
   flex-direction: column;
+
+  /* The designer's frame (toolbar, sidebar, footer, inputs, the workspace round the canvas)
+     follows the modal tokens, so it matches every other dialog in each theme. What is drawn on
+     the canvas keeps the app's own colours, as the effect panel draws it. */
+  --ld-chrome-bg: var(--modal-bg-raised);
+  --ld-panel-bg: var(--modal-bg);
+  --ld-workspace-bg: var(--bg-primary);
+  --ld-canvas-bg: var(--bg-secondary);
+  --ld-text: var(--modal-text);
+  --ld-text-secondary: var(--modal-text-secondary);
+  --ld-text-muted: var(--modal-text-muted);
+  --ld-border: var(--modal-border-medium);
+  --ld-border-strong: var(--modal-border);
+  --ld-input-bg: var(--modal-input-bg);
+  --ld-input-text: var(--modal-input-text);
+  --ld-input-border: var(--modal-input-border);
+  --ld-input-placeholder: var(--modal-input-placeholder);
+  --ld-grid-line: color-mix(in srgb, var(--modal-text) 7%, transparent);
+  --ld-grid-line-strong: color-mix(in srgb, var(--modal-text) 16%, transparent);
 }
 
 .layout-designer-body {
@@ -24,8 +43,8 @@
   flex-wrap: wrap;
   gap: 6px 8px;
   padding: 8px 16px;
-  background: var(--bg-dark-tertiary);
-  border-bottom: 1px solid var(--border-dark-medium);
+  background: var(--ld-chrome-bg);
+  border-bottom: 1px solid var(--ld-border);
 }
 
 .layout-designer-toolbar-group {
@@ -33,53 +52,32 @@
   align-items: center;
   gap: 4px;
   padding-right: 12px;
-  border-right: 1px solid var(--border-dark-light);
+  border-right: 1px solid var(--ld-border);
 }
 
 .layout-designer-toolbar-group:last-child {
   border-right: none;
 }
 
-.layout-designer-toolbar button {
-  display: flex;
-  align-items: center;
-  justify-content: center;
+/* Toolbar buttons are the canonical .btn .btn-secondary .btn-sm; these add the designer's bits. */
+.layout-designer-toolbar .btn {
   gap: 4px;
-  padding: 6px 10px;
-  border: 1px solid var(--border-dark-medium);
-  border-radius: var(--radius-sm);
-  background: var(--bg-dark-secondary);
-  color: var(--text-dark-secondary);
-  font-size: 12px;
-  cursor: pointer;
-  transition: all 0.15s;
 }
 
-.layout-designer-toolbar button:hover {
-  background: var(--bg-dark-tertiary);
-  color: var(--text-dark-primary);
-  border-color: var(--border-dark-light);
-}
-
-.layout-designer-toolbar button:active {
-  background: var(--bg-dark-quaternary);
-}
-
-.layout-designer-toolbar button.active {
-  background: var(--accent-primary);
-  color: var(--text-on-accent);
-  border-color: var(--accent-primary);
-}
-
-.layout-designer-toolbar button:disabled {
-  opacity: 0.35;
-  cursor: default;
-  pointer-events: none;
-}
-
-.layout-designer-toolbar button svg {
+.layout-designer-toolbar .btn svg {
   width: 14px;
   height: 14px;
+}
+
+.layout-designer-toolbar .btn.active {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+  color: var(--text-on-accent);
+}
+
+.layout-designer-toolbar .btn:disabled {
+  opacity: 0.4;
+  pointer-events: none;
 }
 
 .layout-designer-zoom-group {
@@ -93,29 +91,63 @@
   min-width: 40px;
   text-align: center;
   font-size: 11px;
-  color: var(--text-dark-secondary);
+  color: var(--ld-text-secondary);
   font-variant-numeric: tabular-nums;
 }
 
 .layout-designer-toolbar-label {
   font-size: 11px;
-  color: var(--text-dark-muted);
+  color: var(--ld-text-muted);
   margin-right: 4px;
+}
+
+.layout-designer-checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ld-text-secondary);
+  cursor: pointer;
+}
+
+/* Every text-like input in the designer's frame: name, size, position and property fields. */
+.layout-designer-name-input,
+.layout-dimensions-inputs input,
+.layout-position-inputs input,
+.layout-property-input input:not([type="checkbox"]):not([type="range"]):not([type="color"]),
+.layout-property-input select {
+  padding: 4px 8px;
+  background: var(--ld-input-bg);
+  border: 1px solid var(--ld-input-border);
+  border-radius: var(--radius-sm);
+  color: var(--ld-input-text);
+  font-family: inherit;
+  font-size: 11px;
+}
+
+.layout-designer-name-input::placeholder,
+.layout-property-input input::placeholder {
+  color: var(--ld-input-placeholder);
+}
+
+.layout-designer-name-input:focus,
+.layout-dimensions-inputs input:focus,
+.layout-position-inputs input:focus,
+.layout-property-input input:focus,
+.layout-property-input select:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+}
+
+/* Native checkboxes and sliders take the accent, as they do in Settings. */
+.layout-designer-content input[type="checkbox"],
+.layout-designer-content input[type="range"] {
+  accent-color: var(--color-primary);
 }
 
 .layout-designer-name-input {
   width: 190px;
-  padding: 5px 8px;
-  border: 1px solid var(--border-dark-medium);
-  border-radius: var(--radius-sm);
-  background: var(--bg-dark-secondary);
-  color: var(--text-dark-primary);
   font-size: 12px;
-}
-
-.layout-designer-name-input:focus {
-  outline: none;
-  border-color: var(--accent-primary);
 }
 
 /* Canvas area */
@@ -126,7 +158,7 @@
   align-items: center;
   justify-content: flex-start;
   padding: 16px;
-  background: var(--bg-dark-primary);
+  background: var(--ld-workspace-bg);
   overflow: auto;
   min-width: 0;
 }
@@ -138,8 +170,8 @@
 
 .layout-designer-canvas {
   position: relative;
-  background: var(--bg-dark-secondary);
-  border: 2px solid var(--border-dark-medium);
+  background: var(--ld-canvas-bg);
+  border: 2px solid var(--ld-border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   overflow: hidden;
@@ -159,16 +191,16 @@
   bottom: 0;
   pointer-events: none;
   background-image:
-    linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+    linear-gradient(to right, var(--ld-grid-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--ld-grid-line) 1px, transparent 1px);
   background-size: 8px 8px;
   z-index: 1;
 }
 
 .layout-designer-grid.grid-visible {
   background-image:
-    linear-gradient(to right, rgba(255, 255, 255, 0.08) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(255, 255, 255, 0.08) 1px, transparent 1px);
+    linear-gradient(to right, var(--ld-grid-line-strong) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--ld-grid-line-strong) 1px, transparent 1px);
 }
 
 /* Background layers */
@@ -182,6 +214,7 @@
   background-position: center;
   background-repeat: no-repeat;
   cursor: pointer;
+  z-index: 0;
 }
 
 .layout-designer-background:hover {
@@ -192,14 +225,6 @@
 .layout-designer-background.selected {
   outline: 2px solid var(--accent-dark);
   outline-offset: -2px;
-}
-
-.layout-designer-background.layer-0 {
-  z-index: 0;
-}
-
-.layout-designer-background.layer-1 {
-  z-index: 0;
 }
 
 /* Rectangle overlays */
@@ -251,14 +276,21 @@
   opacity: 0.85;
 }
 
-/* Control placeholders */
-.layout-designer-controls {
+/* Controls, drawn by the runtime renderer (layoutDesigner/controlPreview.ts). The layer carries
+   the effect panel's wrapper class, .default-effect-shell, so the panel's rules for a layout's
+   controls (value text, buttons, the model selector, compact sizes) apply here as they do in
+   the app; the wrapper's own box is undone. */
+.layout-designer-canvas .layout-designer-controls.default-effect-shell {
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  inset: 0;
   z-index: 2;
+  display: block;
+  gap: 0;
+  padding: 0;
+  background: none;
+  box-shadow: none;
+  overflow: visible;
+  filter: none;
   pointer-events: none;
 }
 
@@ -277,6 +309,10 @@
   pointer-events: auto;
 }
 
+.layout-control-placeholder * {
+  pointer-events: none;
+}
+
 .layout-control-placeholder:hover {
   outline: 1px solid rgba(var(--accent-primary-rgb), 0.5);
   outline-offset: 2px;
@@ -293,126 +329,14 @@
   z-index: 100;
 }
 
-.layout-control-placeholder .control-label {
-  font-size: 10px;
-  color: var(--text-dark-secondary);
-  margin-bottom: 4px;
-  text-align: center;
-  max-width: 80px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.layout-control-placeholder .control-label.position-bottom {
-  order: 1;
-  margin-bottom: 0;
-  margin-top: 4px;
-}
-
-.layout-control-placeholder .control-label.position-left,
-.layout-control-placeholder .control-label.position-right {
-  writing-mode: vertical-rl;
-  text-orientation: mixed;
-}
-
-.layout-control-placeholder .control-knob {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  background: var(--control-knob-bg);
-  border: 2px solid var(--border-light);
-  box-shadow:
-    0 2px 4px var(--overlay-dark),
-    inset 0 1px 0 rgba(255,255,255,0.5);
-  position: relative;
-}
-
-.layout-control-placeholder .control-knob.is-custom-image {
-  background-color: transparent;
-  background-position: center;
-  background-repeat: no-repeat;
-  background-size: contain;
-  border: none;
-  box-shadow: none;
-}
-
-.layout-control-placeholder .control-knob::after {
-  content: "";
-  width: 3px;
-  height: 10px;
-  background: #4a4a58;
-  border-radius: var(--radius-xs);
-  position: absolute;
-  top: 5px;
-  left: 50%;
-  transform: translateX(-50%);
-  transform-origin: center 15px;
-}
-
-.layout-control-placeholder .control-knob.is-custom-image::after {
-  content: none;
-}
-
-.layout-control-placeholder .control-toggle {
-  width: 36px;
-  height: 20px;
-  border-radius: 20px;
-  background: var(--toggle-bg);
-  border: 1px solid var(--toggle-border);
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35);
-}
-
-.layout-control-placeholder .control-slider {
-  width: 80px;
-  height: 4px;
-  display: flex;
-  align-items: center;
-  margin: 8px 0;
-}
-
-.layout-control-placeholder .control-slider-track {
-  width: 100%;
-  height: 4px;
-  border-radius: var(--radius-xs);
-  background: rgba(255, 255, 255, 0.15);
-  position: relative;
-}
-
-.layout-control-placeholder .control-slider-thumb {
-  position: absolute;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: var(--accent-primary);
-  border: 2px solid rgba(255, 255, 255, 0.3);
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-}
-
-.layout-control-placeholder .control-dropdown {
-  min-width: 120px;
-  max-width: 180px;
-  height: 28px;
-  padding: 0 10px;
+/* A control the panel would not draw: its parameter or resource slot is not on this effect. */
+.layout-control-missing {
+  padding: 4px 8px;
+  border: 1px dashed var(--color-error);
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border-dark-medium);
-  background: var(--bg-dark-tertiary);
-  color: var(--text-dark-primary);
-  font-size: 11px;
-  line-height: 26px;
-  text-align: left;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  font-size: 10px;
+  color: var(--color-error);
   white-space: nowrap;
-  box-sizing: border-box;
-}
-
-.layout-control-placeholder .control-value {
-  font-size: 9px;
-  color: var(--text-dark-muted);
-  margin-top: 2px;
 }
 
 /* Text label placeholders */
@@ -457,8 +381,8 @@
 .layout-designer-sidebar {
   width: 240px;
   min-width: 240px;
-  background: var(--bg-dark-secondary);
-  border-left: 1px solid var(--border-dark-medium);
+  background: var(--ld-panel-bg);
+  border-left: 1px solid var(--ld-border);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -468,15 +392,16 @@
   padding: 12px 16px;
   font-size: 12px;
   font-weight: 600;
-  color: var(--text-dark-primary);
-  background: var(--bg-dark-tertiary);
-  border-bottom: 1px solid var(--border-dark-medium);
+  color: var(--ld-text);
+  background: var(--ld-chrome-bg);
+  border-bottom: 1px solid var(--ld-border);
 }
 
 .layout-designer-sidebar-content {
   flex: 1;
   overflow-y: auto;
   padding: 12px;
+  color: var(--ld-text);
 }
 
 .layout-designer-sidebar-empty {
@@ -484,7 +409,7 @@
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: var(--text-dark-muted);
+  color: var(--ld-text-muted);
   font-size: 12px;
   text-align: center;
   padding: 16px;
@@ -498,7 +423,7 @@
 .layout-property-group-title {
   font-size: 11px;
   font-weight: 600;
-  color: var(--text-dark-muted);
+  color: var(--ld-text-muted);
   text-transform: uppercase;
   letter-spacing: 0.5px;
   margin-bottom: 8px;
@@ -514,39 +439,59 @@
 .layout-property-label {
   flex: 0 0 60px;
   font-size: 11px;
-  color: var(--text-dark-secondary);
+  color: var(--ld-text-secondary);
 }
 
+/* Plain values (a binding's name, a slider's percentage) read at the same size as the fields. */
 .layout-property-input {
   flex: 1;
   min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--ld-text);
 }
 
-.layout-property-input input,
+.layout-property-input input:not([type="checkbox"]):not([type="range"]):not([type="color"]),
 .layout-property-input select {
   width: 100%;
-  padding: 4px 8px;
-  background: var(--bg-dark-primary);
-  border: 1px solid var(--border-dark-medium);
-  border-radius: var(--radius-sm);
-  color: var(--text-dark-primary);
-  font-size: 11px;
+  min-width: 0;
 }
 
-.layout-property-input input:focus,
-.layout-property-input select:focus {
-  outline: none;
-  border-color: var(--accent-primary);
-}
-
-.layout-property-input input[type="number"] {
-  width: 60px;
+.layout-property-input input[type="range"] {
+  width: 80px;
+  flex: 0 0 auto;
 }
 
 .layout-property-input input[type="color"] {
   width: 32px;
   height: 24px;
   padding: 2px;
+  border: 1px solid var(--ld-input-border);
+  border-radius: var(--radius-sm);
+  background: var(--ld-input-bg);
+  cursor: pointer;
+}
+
+/* Hints and inline checkbox labels in the sidebar */
+.layout-property-hint {
+  margin-bottom: 8px;
+  font-size: 11px;
+  color: var(--ld-text-muted);
+}
+
+.layout-property-hint.is-small {
+  margin: 6px 0 0;
+  font-size: 10px;
+}
+
+.layout-inline-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--ld-text-secondary);
   cursor: pointer;
 }
 
@@ -561,19 +506,19 @@
   align-items: center;
   gap: 4px;
   font-size: 11px;
-  color: var(--text-dark-muted);
+  color: var(--ld-text-muted);
 }
 
 .layout-position-inputs input {
-  width: 50px;
+  width: 56px;
 }
 
 /* Image thumbnail */
 .layout-image-preview {
   width: 100%;
   aspect-ratio: 16/9;
-  background: var(--bg-dark-primary);
-  border: 1px solid var(--border-dark-medium);
+  background: var(--ld-input-bg);
+  border: 1px solid var(--ld-border);
   border-radius: var(--radius-sm);
   overflow: hidden;
   display: flex;
@@ -589,74 +534,18 @@
 }
 
 .layout-image-preview-placeholder {
-  color: var(--text-dark-muted);
+  color: var(--ld-text-muted);
   font-size: 11px;
 }
 
 .layout-image-actions {
   display: flex;
   gap: 4px;
+  margin-top: 8px;
 }
 
-.layout-image-actions button {
+.layout-image-actions .btn {
   flex: 1;
-  padding: 4px 8px;
-  font-size: 11px;
-  border: 1px solid var(--border-dark-medium);
-  border-radius: var(--radius-sm);
-  background: var(--bg-dark-primary);
-  color: var(--text-dark-secondary);
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.layout-image-actions button:hover {
-  background: var(--bg-dark-tertiary);
-  color: var(--text-dark-primary);
-}
-
-/* Control list in sidebar */
-.layout-controls-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.layout-controls-list-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
-  background: var(--bg-dark-primary);
-  border: 1px solid var(--border-dark-medium);
-  border-radius: var(--radius-sm);
-  font-size: 11px;
-  color: var(--text-dark-secondary);
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.layout-controls-list-item:hover {
-  border-color: var(--border-dark-light);
-  color: var(--text-dark-primary);
-}
-
-.layout-controls-list-item.selected {
-  border-color: var(--accent-primary);
-  background: rgba(var(--accent-primary-rgb), 0.1);
-}
-
-.layout-controls-list-item .control-type-icon {
-  width: 16px;
-  height: 16px;
-  opacity: 0.6;
-}
-
-.layout-controls-list-item .control-name {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 /* Canvas dimension inputs */
@@ -671,56 +560,15 @@
   align-items: center;
   gap: 4px;
   font-size: 11px;
-  color: var(--text-dark-muted);
+  color: var(--ld-text-muted);
 }
 
 .layout-dimensions-inputs input {
-  width: 60px;
+  width: 64px;
 }
 
 .layout-dimensions-inputs .dimension-separator {
-  color: var(--text-dark-muted);
-}
-
-/* Background layer controls */
-.layout-background-layer {
-  padding: 8px;
-  background: var(--bg-dark-primary);
-  border: 1px solid var(--border-dark-medium);
-  border-radius: var(--radius-sm);
-  margin-bottom: 8px;
-}
-
-.layout-background-layer-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 8px;
-}
-
-.layout-background-layer-title {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-dark-secondary);
-}
-
-.layout-background-layer-remove {
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: var(--text-dark-muted);
-  cursor: pointer;
-  border-radius: var(--radius-sm);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.layout-background-layer-remove:hover {
-  background: rgba(255, 100, 100, 0.2);
-  color: #ff6b6b;
+  color: var(--ld-text-muted);
 }
 
 /* Footer actions */
@@ -729,8 +577,8 @@
   justify-content: space-between;
   align-items: center;
   padding: 12px 16px;
-  background: var(--bg-dark-secondary);
-  border-top: 1px solid var(--border-dark-medium);
+  background: var(--ld-chrome-bg);
+  border-top: 1px solid var(--ld-border);
 }
 
 .layout-designer-footer-left {
@@ -743,37 +591,35 @@
   gap: 8px;
 }
 
-.layout-designer-delete-btn {
+/* .modal-footer button paints every footer button with the primary fill and outranks .btn-secondary;
+   give the designer's secondary actions back the canonical neutral look. */
+.layout-designer-footer .btn-secondary {
+  background: var(--button-bg);
+  border: 1px solid var(--button-border);
+  color: var(--button-text);
+}
+
+.layout-designer-footer .btn-secondary:hover {
+  background: var(--button-bg-hover);
+  border-color: var(--button-border-hover);
+}
+
+.layout-designer-footer .btn-primary {
+  background: linear-gradient(180deg, var(--color-accent) 0%, var(--color-accent-dark) 100%);
+  border: 1px solid var(--color-accent-dark);
+}
+
+/* Destructive actions: the footer's Delete and the sidebar's Remove buttons. */
+.layout-designer-footer .layout-danger-btn,
+.layout-danger-btn {
   color: var(--color-error);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-error) 70%, transparent);
+  border-color: color-mix(in srgb, var(--color-error) 70%, transparent);
 }
 
-.layout-designer-delete-btn:hover {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--color-error) 14%, var(--bg-secondary)) 0%, color-mix(in srgb, var(--color-error) 22%, var(--bg-tertiary)) 100%);
-  color: #fff;
-}
-
-/* Zoom controls */
-.layout-zoom-controls {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.layout-zoom-controls button {
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.layout-zoom-controls span {
-  min-width: 40px;
-  text-align: center;
-  font-size: 11px;
-  color: var(--text-dark-secondary);
+.layout-designer-footer .layout-danger-btn:hover,
+.layout-danger-btn:hover {
+  background: color-mix(in srgb, var(--color-error) 16%, var(--ld-panel-bg, var(--modal-bg-raised)));
+  border-color: var(--color-error);
 }
 
 /* Preview mode */
@@ -789,6 +635,10 @@
 .layout-designer-canvas.preview-mode .layout-text-label {
   border-color: transparent;
   cursor: default;
+}
+
+.layout-designer-canvas.preview-mode .layout-rectangle-overlay.is-bypass-toggle {
+  z-index: 4;
 }
 
 .layout-designer-canvas.preview-mode .layout-designer-grid {
@@ -810,35 +660,3 @@
 .layout-resize-handle.top-right { top: -4px; right: -4px; cursor: nesw-resize; }
 .layout-resize-handle.bottom-left { bottom: -4px; left: -4px; cursor: nesw-resize; }
 .layout-resize-handle.bottom-right { bottom: -4px; right: -4px; cursor: nwse-resize; }
-
-/* Keyboard shortcut hints */
-.layout-shortcut-hint {
-  position: fixed;
-  bottom: 80px;
-  left: 50%;
-  transform: translateX(-50%);
-  padding: 8px 16px;
-  background: rgba(0, 0, 0, 0.8);
-  border-radius: var(--radius-sm);
-  font-size: 11px;
-  color: var(--text-dark-secondary);
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.2s;
-  z-index: 1000;
-}
-
-.layout-shortcut-hint.visible {
-  opacity: 1;
-}
-
-.layout-shortcut-hint kbd {
-  display: inline-block;
-  padding: 2px 6px;
-  margin: 0 2px;
-  background: var(--bg-dark-tertiary);
-  border: 1px solid var(--border-dark-medium);
-  border-radius: 3px;
-  font-family: monospace;
-  font-size: 10px;
-}

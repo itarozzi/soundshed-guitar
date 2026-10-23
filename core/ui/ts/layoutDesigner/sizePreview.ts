@@ -59,9 +59,9 @@ export function openLayoutSizePreview(layout: EffectLayout, paramDefs: Parameter
   dialog.innerHTML = `
     <div class="layout-size-preview-bar">
       <span class="layout-size-preview-title">Preview at panel size</span>
-      ${PREVIEW_PANELS.map((panel, index) => `<button type="button" data-preview-panel="${index}">${escapeHtml(`${panel.label} ${panel.width} × ${panel.height}`)}</button>`).join("")}
+      ${PREVIEW_PANELS.map((panel, index) => `<button type="button" class="btn btn-secondary btn-sm" data-preview-panel="${index}">${escapeHtml(`${panel.label} ${panel.width} × ${panel.height}`)}</button>`).join("")}
       <span class="layout-size-preview-report" aria-live="polite"></span>
-      <button type="button" class="layout-size-preview-close" aria-label="Close preview">Close</button>
+      <button type="button" class="btn btn-secondary btn-sm layout-size-preview-close" aria-label="Close preview">Close</button>
     </div>
     <div class="layout-size-preview-panel"></div>`;
   document.body.appendChild(dialog);

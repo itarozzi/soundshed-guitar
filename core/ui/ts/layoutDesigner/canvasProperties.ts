@@ -60,11 +60,11 @@ export class CanvasProperties {
           </div>
         </div>
         <div class="layout-property-row">
-          <button id="prop-dc-scale-reset" style="font-size: 11px;">Reset to 1:1</button>
+          <button type="button" class="btn btn-secondary btn-sm" id="prop-dc-scale-reset">Reset to 1:1</button>
         </div>
       </div>
     ` : `
-      <div class="layout-designer-sidebar-empty" style="font-size:11px; padding: 6px 0 0;">
+      <div class="layout-property-hint">
         Select a control, label, background, or rectangle to edit its properties.
       </div>
     `;
@@ -90,14 +90,14 @@ export class CanvasProperties {
           <span class="layout-property-label">Label Color</span>
           <div class="layout-property-input">
             <input type="color" id="prop-layout-label-color" value="${escapeHtml(colorInputValue(layout.controlLabelColor, "#ffffff"))}" title="Label colour for every control that does not set its own">
-            ${layout.controlLabelColor ? `<button id="prop-layout-label-color-reset" title="Use the theme's label colour">Theme</button>` : ""}
+            ${layout.controlLabelColor ? `<button type="button" class="btn btn-secondary btn-sm" id="prop-layout-label-color-reset" title="Use the theme's label colour">Theme</button>` : ""}
           </div>
         </div>
         <div class="layout-property-row">
           <span class="layout-property-label">Value Color</span>
           <div class="layout-property-input">
             <input type="color" id="prop-layout-value-color" value="${escapeHtml(colorInputValue(layout.controlValueColor, "#a0a0a0"))}" title="Value colour for every control that does not set its own">
-            ${layout.controlValueColor ? `<button id="prop-layout-value-color-reset" title="Use the theme's value colour">Theme</button>` : ""}
+            ${layout.controlValueColor ? `<button type="button" class="btn btn-secondary btn-sm" id="prop-layout-value-color-reset" title="Use the theme's value colour">Theme</button>` : ""}
           </div>
         </div>
         <div class="layout-property-row">
@@ -171,7 +171,7 @@ export class CanvasProperties {
       <div class="layout-property-group">
         <div class="layout-property-group-title">Preview</div>
         <div class="layout-property-row">
-          <button id="prop-size-preview" title="See the layout as the effect panel draws it at different window sizes">Preview at panel size…</button>
+          <button type="button" class="btn btn-secondary btn-sm" id="prop-size-preview" title="See the layout as the effect panel draws it at different window sizes">Preview at panel size…</button>
         </div>
       </div>
       ${renderLayoutAssetsGroup(layout, (selected) => this.host.renderImageOptionsHtml("background", selected))}
@@ -381,7 +381,7 @@ export class CanvasProperties {
           </div>
         </div>
         <div class="layout-image-actions">
-          <button id="prop-browse-bg-image">Browse...</button>
+          <button type="button" class="btn btn-secondary btn-sm" id="prop-browse-bg-image">Browse...</button>
         </div>
       </div>
 
@@ -403,7 +403,7 @@ export class CanvasProperties {
         <div class="layout-property-row">
           <span class="layout-property-label">Scale</span>
           <div class="layout-property-input">
-            <input type="range" id="prop-bg-scale" min="10" max="300" value="${(bg.scale || 1) * 100}" style="width: 80px;">
+            <input type="range" id="prop-bg-scale" min="10" max="300" value="${(bg.scale || 1) * 100}">
             <span id="prop-bg-scale-value">${Math.round((bg.scale || 1) * 100)}%</span>
           </div>
         </div>
@@ -428,14 +428,14 @@ export class CanvasProperties {
         <div class="layout-property-row">
           <span class="layout-property-label">Opacity</span>
           <div class="layout-property-input">
-            <input type="range" id="prop-bg-opacity" min="0" max="100" value="${(bg.opacity ?? 1) * 100}" style="width: 80px;">
+            <input type="range" id="prop-bg-opacity" min="0" max="100" value="${(bg.opacity ?? 1) * 100}">
             <span id="prop-bg-opacity-value">${Math.round((bg.opacity ?? 1) * 100)}%</span>
           </div>
         </div>
       </div>
 
       <div class="layout-property-group">
-        <button id="prop-delete-bg" style="width: 100%; background: rgba(255,100,100,0.2); color: #ff6b6b;">Remove Background</button>
+        <button type="button" class="btn btn-secondary btn-sm btn-block layout-danger-btn" id="prop-delete-bg">Remove Background</button>
       </div>
     `;
 

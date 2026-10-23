@@ -4,7 +4,7 @@
  */
 
 import { enumLabel, wholeStepLabel } from "./paramLabels.js";
-import { formatTaperedValue, type ParamTaper } from "./paramTaper.js";
+import { formatTaperedValue, parseParamTaper, type ParamTaper } from "./paramTaper.js";
 
 /**
  * Format a parameter value for display.
@@ -38,4 +38,38 @@ export function formatParamValue(
     return `${value.toFixed(1)}${unit}`;
   }
   return value.toFixed(2);
+}
+
+/**
+ * How a bound knob shows its value: read from the knob's data attributes, as the params panel
+ * binds it, so the layout designer draws the same text as the panel. It differs from
+ * formatParamValue, which the markup carries until the knob is bound: two decimals with any unit,
+ * pan as C/L/R, and a blend knob to one decimal.
+ */
+export function knobValueFormatter(knob: HTMLElement): (value: number) => string {
+  const min = parseFloat(knob.dataset.min || "0");
+  const unit = knob.dataset.unit || "amount";
+  const step = knob.dataset.step ? parseFloat(knob.dataset.step) : undefined;
+  const labels = (knob.dataset.labels || "").split("|").filter(Boolean);
+  const isEnum = unit === "enum" && labels.length > 0;
+  const isBlendParam = knob.dataset.blendParam === "true";
+  const taper = parseParamTaper(knob.dataset.taper);
+  return (rawValue) => {
+    if (isEnum) {
+      return enumLabel(rawValue, labels, min, step) ?? `${Math.round(rawValue)}`;
+    }
+    if (isBlendParam) {
+      return rawValue.toFixed(1);
+    }
+    if (unit === "pan") {
+      if (Math.abs(rawValue) < 0.01) return "C";
+      return rawValue < 0
+        ? `L${Math.abs(rawValue * 100).toFixed(0)}`
+        : `R${(rawValue * 100).toFixed(0)}`;
+    }
+    if (taper === "log") {
+      return formatTaperedValue(rawValue, unit);
+    }
+    return wholeStepLabel(rawValue, unit, step) ?? `${rawValue.toFixed(2)}${unit === "amount" ? "" : unit}`;
+  };
 }

@@ -136,7 +136,7 @@ export function renderCustomLayout(
 }
 
 /** A layout's own image at the width it is drawn, as a CSS url(), or null when it cannot be drawn. */
-function imageResolverFor(layout: EffectLayout): ImageCssResolver {
+export function imageResolverFor(layout: EffectLayout): ImageCssResolver {
   return (imageId, drawnWidth) => {
     const url = getLayoutImageUrl(imageId, drawnWidth * layoutLargestScale(layout));
     const css = url ? layoutImageCssUrl(url) : "none";
@@ -224,17 +224,6 @@ export function resolveControlTextColors(
     label: pick(control?.style?.labelColor, layout.controlLabelColor),
     value: pick(control?.style?.valueColor, layout.controlValueColor),
   };
-}
-
-/** Give a designer placeholder's label and value the colours the control renders with. */
-export function colorControlPlaceholder(el: HTMLElement, layout: LayoutTextColorDefaults, control: LayoutControl): void {
-  const { label, value } = resolveControlTextColors(layout, control);
-  if (label) {
-    el.querySelectorAll<HTMLElement>(".control-label").forEach((span) => { span.style.color = label; });
-  }
-  if (value) {
-    el.querySelector<HTMLElement>(".control-value")?.style.setProperty("color", value);
-  }
 }
 
 /** A colour for an `<input type="color">`, which takes only #rrggbb. */

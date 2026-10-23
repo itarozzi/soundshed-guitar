@@ -13,8 +13,9 @@ import { getLayoutImageUrl, imageOptionsHtml, reusableLayoutImages } from "./lay
 import { isDialogOpen, showConfirm } from "./dialogs.js";
 import type { CopiedTextLabelPayload, DragState, LayoutResourceCandidate, SelectedElement } from "./layoutDesigner/types.js";
 import { ensureLayoutImagesLoaded } from "./layoutImages.js";
-import { colorControlPlaceholder, colorWithAlpha, defaultControlsColorAttrs, renderCustomLayoutPreviewLayers, safeCssValue } from "./layoutRenderer.js";
-import type { LayoutResourceControlDef } from "./layoutRenderer.js";
+import { bindPreviewKnobs, controlPreviewElement, designerPreviewNode, designerResourceDefs } from "./layoutDesigner/controlPreview.js";
+import { overlayImageStyle } from "./layoutControlImages.js";
+import { colorWithAlpha, defaultControlsColorAttrs, imageResolverFor, renderCustomLayoutPreviewLayers, safeCssValue } from "./layoutRenderer.js";
 import { DEFAULT_LAYOUT_DIMENSIONS, LAYOUT_DIMENSION_LIMITS, MAX_BACKGROUND_LAYERS, generateLabelId, generateLayoutId, generateOverlayId, layoutLookupKey, nextFreeBackgroundLayer, normalizeBackgroundLayers, layoutGridSize, snapToGrid } from "./layoutTypes.js";
 import type { EffectLayout, LayoutBackground, LayoutControl, LayoutLibraryEntry, LayoutRectangleOverlay, LayoutTextLabel } from "./layoutTypes.js";
 import { showNotification } from "./notifications.js";
@@ -22,7 +23,6 @@ import { EffectTypeRegistry } from "./presetV2.js";
 import type { ParameterDef } from "./presetV2.js";
 import { buildDefaultParamControlsHtml } from "./parameterControlMarkup.js";
 import { uiState } from "./state.js";
-import type { GraphNode } from "./types.js";
 import { escapeHtml } from "./utils.js";
 
 export class LayoutDesignerModal {
@@ -788,29 +788,13 @@ export class LayoutDesignerModal {
       return;
     }
 
-    const previewNode = {
-      id: "layout-designer-preview",
-      type: this.effectType,
-      params: Object.fromEntries(this.paramDefs.map((paramDef) => [paramDef.key, paramDef.default ?? 0])),
-    } as unknown as GraphNode;
-
-    const resourceControls: LayoutResourceControlDef[] = this.resourceCandidates.map((candidate) => ({
-      resourceControlKey: candidate.controlKey,
-      displayName: candidate.displayName,
-      resourceType: candidate.resourceType,
-      resourceIndex: candidate.resourceIndex,
-      exposedResourceId: candidate.exposedResourceId,
-      allowBrowseFile: candidate.allowBrowseFile,
-      currentDisplayName: candidate.displayName,
-      currentFilePath: "",
-      isMissing: false,
-    }));
-
+    const previewNode = designerPreviewNode(this.effectType, this.paramDefs);
     this.controlsLayer.innerHTML = `
       <div class="layout-runtime-preview" style="position: absolute; inset: 0; pointer-events: none;">
-        ${renderCustomLayoutPreviewLayers(previewNode, this.layout, this.paramDefs, resourceControls)}
+        ${renderCustomLayoutPreviewLayers(previewNode, this.layout, this.paramDefs, designerResourceDefs(this.resourceCandidates))}
       </div>
     `;
+    bindPreviewKnobs(this.controlsLayer);
   }
 
   /**
@@ -897,8 +881,8 @@ export class LayoutDesignerModal {
     // Remove existing background layers
     this.canvas.querySelectorAll(".layout-designer-background").forEach((el) => el.remove());
 
-    // Render each background layer
-    this.layout.backgrounds.forEach((bg) => {
+    // Render each background layer, lowest layer first as the runtime stacks them
+    [...this.layout.backgrounds].sort((a, b) => a.layerIndex - b.layerIndex).forEach((bg) => {
       const isSelected = this.selectedElement?.type === "background" && this.selectedElement.layerIndex === bg.layerIndex;
       const layer = document.createElement("div");
       layer.className = `layout-designer-background layer-${bg.layerIndex}${isSelected ? " selected" : ""}`;
@@ -971,7 +955,7 @@ export class LayoutDesignerModal {
     const fill = colorWithAlpha(backgroundColor, backgroundOpacity);
 
     const el = document.createElement("div");
-    el.className = `layout-rectangle-overlay${isSelected ? " selected" : ""}`;
+    el.className = `layout-rectangle-overlay${toggleBypassOnClick ? " is-bypass-toggle" : ""}${isSelected ? " selected" : ""}`;
     el.dataset.overlayId = overlay.id;
     el.style.left = `${overlay.position.x}px`;
     el.style.top = `${overlay.position.y}px`;
@@ -980,6 +964,9 @@ export class LayoutDesignerModal {
     el.style.backgroundColor = fill;
     el.style.border = `${borderWidth}px solid ${borderColor}`;
     el.style.borderRadius = `${borderRadius}px`;
+    if (this.layout) {
+      el.style.cssText += overlayImageStyle(overlay, imageResolverFor(this.layout));
+    }
 
     if (toggleBypassOnClick && !this.previewMode) {
       const badgeEl = document.createElement("span");
@@ -1042,12 +1029,8 @@ export class LayoutDesignerModal {
     this.renderSidebar();
   }
 
+  /** A draggable placeholder holding the control as the runtime draws it. */
   private createControlElement(control: LayoutControl): HTMLElement {
-    const isResourceControl = this.isResourceControl(control);
-    const paramDef = isResourceControl ? undefined : this.paramDefs.find((p) => p.key === control.paramKey);
-    const resourceDef = isResourceControl ? this.resourceCandidates.find((candidate) => candidate.controlKey === control.paramKey) : undefined;
-    // Markup-escaped: an imported layout supplies labelOverride and paramKey.
-    const label = escapeHtml(control.labelOverride || resourceDef?.displayName || paramDef?.name || control.paramKey);
     const isSelected =
       this.selectedElement?.type === "control" && this.selectedElement.paramKey === control.paramKey;
 
@@ -1057,48 +1040,19 @@ export class LayoutDesignerModal {
     el.style.left = `${control.position.x}px`;
     el.style.top = `${control.position.y}px`;
 
-    if (control.size) {
-      el.style.width = `${control.size.width}px`;
-      el.style.height = `${control.size.height}px`;
-    }
-
-    const labelPos = control.style?.labelPosition || "top";
-    const hideLabel = control.style?.hideLabel === true || labelPos === "none";
-    const showValue = control.style?.showValue !== false;
-
-    // Build control HTML
-    let html = "";
-
-    if (!hideLabel && labelPos === "top") {
-      html += `<span class="control-label">${label}</span>`;
-    }
-
-    if (isResourceControl || control.type === "dropdown") {
-      html += `<div class="control-dropdown">${label}</div>`;
-    } else if (control.type === "toggle") {
-      html += `<div class="control-toggle"></div>`;
-    } else if (control.type === "slider") {
-      html += `<div class="control-slider"><div class="control-slider-track"><div class="control-slider-thumb"></div></div></div>`;
+    const drawn = this.layout
+      ? controlPreviewElement(control, this.layout, designerPreviewNode(this.effectType, this.paramDefs), this.paramDefs, designerResourceDefs(this.resourceCandidates))
+      : null;
+    if (drawn) {
+      el.appendChild(drawn);
     } else {
-      const knobStyle = control.style?.knobStyle || "default";
-      const knobImageUrl = knobStyle === "custom" && control.style?.knobImageId
-        ? getLayoutImageUrl(control.style.knobImageId)
-        : null;
-      const customKnobClass = knobImageUrl ? " is-custom-image" : "";
-      const customKnobStyle = knobImageUrl ? ` style="background-image: url('${escapeHtml(knobImageUrl)}');"` : "";
-      html += `<div class="control-knob${customKnobClass}" data-style="${escapeHtml(knobStyle)}"${customKnobStyle}></div>`;
+      // The panel draws nothing for it (no such parameter or slot on this effect); keep it selectable.
+      const missing = document.createElement("div");
+      missing.className = "layout-control-missing";
+      missing.title = "Not shown in the panel: this effect has no such parameter";
+      missing.textContent = control.labelOverride || control.paramKey;
+      el.appendChild(missing);
     }
-
-    if (!hideLabel && labelPos === "bottom") {
-      html += `<span class="control-label position-bottom">${label}</span>`;
-    }
-
-    if (!isResourceControl && showValue) {
-      html += `<span class="control-value">0.00</span>`;
-    }
-
-    el.innerHTML = html;
-    colorControlPlaceholder(el, this.layout ?? {}, control);
 
     // Click to select
     el.addEventListener("click", (e) => {
@@ -1297,7 +1251,7 @@ export class LayoutDesignerModal {
     this.sidebarContent.innerHTML = `
       <div class="layout-property-group">
         <div class="layout-property-group-title">Add Background Layer ${targetLayerIndex + 1}</div>
-        <div style="font-size: 11px; color: var(--text-dark-muted); margin-bottom: 8px;">Choose an existing image resource or browse for a new file</div>
+        <div class="layout-property-hint">Choose an existing image resource or browse for a new file</div>
         <div class="layout-property-row">
           <span class="layout-property-label">Use Existing</span>
           <div class="layout-property-input">
@@ -1307,12 +1261,12 @@ export class LayoutDesignerModal {
           </div>
         </div>
         ${images.length > 0 ? `
-        <div style="font-size: 10px; color: var(--text-dark-muted); margin-top: 6px;">
+        <div class="layout-property-hint is-small">
           Found ${images.length} reusable image${images.length === 1 ? "" : "s"}
         </div>
         ` : ""}
-        <div class="layout-image-actions" style="margin-top: 8px;">
-          <button id="layout-add-bg-browse">Browse...</button>
+        <div class="layout-image-actions">
+          <button type="button" class="btn btn-secondary btn-sm" id="layout-add-bg-browse">Browse...</button>
         </div>
       </div>
     `;
@@ -1411,55 +1365,31 @@ export class LayoutDesignerModal {
     this.sidebarContent.innerHTML = `
       <div class="layout-property-group">
         <div class="layout-property-group-title">Add Parameter Control</div>
-        <div style="font-size: 11px; color: var(--text-dark-muted); margin-bottom: 8px;">Click a parameter or resource selector to add it to the layout</div>
+        <div class="layout-property-hint">Click a parameter or resource selector to add it to the layout</div>
         ${availableParams
           .map(
             (p) => `
           <button
+            type="button"
             class="layout-add-control-btn"
             data-param-key="${escapeHtml(p.key)}"
-            style="
-              display: block;
-              width: 100%;
-              padding: 6px 10px;
-              margin-bottom: 4px;
-              background: rgba(255, 255, 255, 0.05);
-              border: 1px solid rgba(255, 255, 255, 0.1);
-              border-radius: 4px;
-              color: var(--text-dark-primary);
-              font-size: 12px;
-              cursor: pointer;
-              text-align: left;
-            "
           >
-            ${escapeHtml(p.name || p.key)} <span style="opacity: 0.5; font-size: 10px;">${escapeHtml(p.unit || "")}</span>
+            ${escapeHtml(p.name || p.key)} <span class="layout-add-control-unit">${escapeHtml(p.unit || "")}</span>
           </button>
         `
           )
           .join("")}
         ${availableResources.length > 0 ? `
-          <div style="margin: 10px 0 6px; font-size: 11px; color: var(--text-dark-muted);">Resource Selectors</div>
+          <div class="layout-property-hint layout-add-control-heading">Resource Selectors</div>
           ${availableResources
             .map(
               (resource) => `
             <button
+              type="button"
               class="layout-add-control-btn"
               data-resource-key="${escapeHtml(resource.controlKey)}"
-              style="
-                display: block;
-                width: 100%;
-                padding: 6px 10px;
-                margin-bottom: 4px;
-                background: rgba(255, 255, 255, 0.05);
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 4px;
-                color: var(--text-dark-primary);
-                font-size: 12px;
-                cursor: pointer;
-                text-align: left;
-              "
             >
-              ${escapeHtml(resource.displayName)} <span style="opacity: 0.5; font-size: 10px;">${escapeHtml(resource.resourceType)}</span>
+              ${escapeHtml(resource.displayName)} <span class="layout-add-control-unit">${escapeHtml(resource.resourceType)}</span>
             </button>
           `,
             )

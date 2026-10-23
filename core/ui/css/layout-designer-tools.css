@@ -1,9 +1,47 @@
-/* Layout designer tools: the images-in-layout list, align buttons and the panel-size preview
-   (layoutDesigner/layoutAssets.ts, alignTools.ts, sizePreview.ts). */
+/* Layout designer tools: the add-control list, the images-in-layout list, align buttons and the
+   panel-size preview (layoutDesigner.ts, layoutDesigner/layoutAssets.ts, alignTools.ts,
+   sizePreview.ts). Sidebar pieces use the designer's --ld-* tokens (layout-designer.css); the
+   preview dialog sits outside the designer, so it uses the modal tokens directly. */
 
+/* Add Control: one row per parameter or resource that is not on the canvas yet. */
+.layout-add-control-btn {
+  display: block;
+  width: 100%;
+  margin-bottom: 4px;
+  padding: 6px 10px;
+  border: 1px solid var(--ld-border);
+  border-radius: var(--radius-sm);
+  background: var(--ld-input-bg);
+  color: var(--ld-text);
+  font-family: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.layout-add-control-btn:hover {
+  border-color: var(--accent-primary);
+}
+
+.layout-add-control-btn:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 1px;
+}
+
+.layout-add-control-unit {
+  font-size: 10px;
+  color: var(--ld-text-muted);
+}
+
+.layout-add-control-heading {
+  margin-top: 10px;
+}
+
+/* Images in this layout */
 .layout-asset-row {
   padding: 6px 0;
-  border-top: 1px solid var(--border-dark-medium);
+  border-top: 1px solid var(--ld-border);
 }
 
 .layout-asset-row:first-of-type {
@@ -22,7 +60,7 @@
   height: 40px;
   object-fit: contain;
   border-radius: var(--radius-sm);
-  background: var(--bg-dark-tertiary);
+  background: var(--ld-input-bg);
 }
 
 .layout-asset-thumb-missing {
@@ -36,7 +74,7 @@
 }
 
 .layout-asset-name {
-  color: var(--text-dark-primary);
+  color: var(--ld-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -44,7 +82,7 @@
 
 .layout-asset-facts,
 .layout-asset-uses {
-  color: var(--text-dark-muted);
+  color: var(--ld-text-muted);
 }
 
 .layout-asset-warning {
@@ -53,16 +91,18 @@
   color: var(--color-error);
 }
 
+/* Align to canvas */
 .layout-align-buttons {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 4px;
 }
 
-.layout-align-buttons button {
-  font-size: 11px;
+.layout-align-buttons .btn {
+  padding-inline: 4px;
 }
 
+/* Preview at panel size */
 .layout-size-preview {
   position: fixed;
   inset: 0;
@@ -71,7 +111,7 @@
   flex-direction: column;
   gap: 8px;
   padding: 12px;
-  background: rgba(0, 0, 0, 0.82);
+  background: var(--overlay-darker, rgba(0, 0, 0, 0.82));
   overflow: auto;
 }
 
@@ -80,12 +120,17 @@
   flex-wrap: wrap;
   gap: 6px;
   align-items: center;
-  color: var(--text-dark-primary);
+  padding: 8px 12px;
+  border: 1px solid var(--modal-border-medium);
+  border-radius: var(--radius-md);
+  background: var(--modal-bg-raised);
+  color: var(--modal-text);
   font-size: 12px;
 }
 
-.layout-size-preview-bar button.active {
+.layout-size-preview-bar .btn.active {
   background: var(--accent-primary);
+  border-color: var(--accent-primary);
   color: var(--text-on-accent);
 }
 
@@ -95,7 +140,7 @@
 }
 
 .layout-size-preview-report {
-  color: var(--text-dark-secondary);
+  color: var(--modal-text-secondary);
   margin-left: 6px;
 }
 
@@ -106,8 +151,9 @@
 .layout-size-preview-panel {
   flex: 0 0 auto;
   overflow-y: auto;
-  border: 1px dashed var(--border-dark-medium);
-  background: var(--bg-dark-primary);
+  border: 1px dashed var(--modal-border);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
 }
 
 .layout-size-preview-stub {
@@ -116,6 +162,6 @@
   justify-content: center;
   height: 120px;
   margin: 8px;
-  border: 1px dashed var(--border-dark-medium);
-  color: var(--text-dark-muted);
+  border: 1px dashed var(--modal-border);
+  color: var(--modal-text-muted);
 }

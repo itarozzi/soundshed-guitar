@@ -6,6 +6,7 @@
 import { GenericKnob, enhanceRangeInput } from "../../controls.js";
 import { enumLabel, wholeStepLabel } from "../../paramLabels.js";
 import { formatTaperedValue, parseParamTaper, taperPositionToValue } from "../../paramTaper.js";
+import { knobValueFormatter } from "../../paramValueFormat.js";
 import { getNodeEffectInfo } from "../../presetV2.js";
 import { getBlendParamSpec } from "../../blendUtils.js";
 import { BLEND_MAPPING_EPS, buildParameterMapFromLegacy, denormalizeBlendValue, getBlendState, normalizeBlendValue, updateBlendMatchSummary, updateBlendParamIndicators } from "../../signalPathBlend.js";
@@ -241,12 +242,9 @@ export function bindNodeParamControls(node: GraphNode): void {
     const paramKey = knob.dataset.paramKey;
     const min = parseFloat(knob.dataset.min || "0");
     const max = parseFloat(knob.dataset.max || "1");
-    const unit = knob.dataset.unit || "amount";
     const defaultValue = parseFloat(knob.dataset.default || knob.dataset.value || "0");
     const sensitivity = (max - min) / 200;
     const step = knob.dataset.step ? parseFloat(knob.dataset.step) : undefined;
-    const labels = (knob.dataset.labels || "").split("|").filter(Boolean);
-    const isEnum = unit === "enum" && labels.length > 0;
     const isBlendParam = knob.dataset.blendParam === "true";
     const taper = parseParamTaper(knob.dataset.taper);
     const blendSpecMin = knob.dataset.blendSpecMin ? parseFloat(knob.dataset.blendSpecMin) : 0;
@@ -267,25 +265,7 @@ export function bindNodeParamControls(node: GraphNode): void {
       return Math.max(lo, Math.min(hi, snapped));
     };
 
-    const formatValue = (rawValue: number): string => {
-      if (isEnum) {
-        return enumLabel(rawValue, labels, min, step) ?? `${Math.round(rawValue)}`;
-      }
-      if (isBlendParam) {
-        return rawValue.toFixed(1);
-      }
-      // Special formatting for pan values
-      if (unit === "pan") {
-        if (Math.abs(rawValue) < 0.01) return "C";
-        return rawValue < 0 
-          ? `L${Math.abs(rawValue * 100).toFixed(0)}`
-          : `R${(rawValue * 100).toFixed(0)}`;
-      }
-      if (taper === "log") {
-        return formatTaperedValue(rawValue, unit);
-      }
-      return wholeStepLabel(rawValue, unit, step) ?? `${rawValue.toFixed(2)}${unit === "amount" ? "" : unit}`;
-    };
+    const formatValue = knobValueFormatter(knob);
 
     const knobInstance = new GenericKnob({
       knobElement: knob,

@@ -40,7 +40,7 @@ export function renderAlignGroup(): string {
       <div class="layout-property-group">
         <div class="layout-property-group-title">Align to Canvas</div>
         <div class="layout-align-buttons">
-          ${BUTTONS.map(({ edge, label }) => `<button type="button" data-align="${escapeHtml(edge)}" title="Align to the canvas ${escapeHtml(label.toLowerCase())}">${escapeHtml(label)}</button>`).join("")}
+          ${BUTTONS.map(({ edge, label }) => `<button type="button" class="btn btn-secondary btn-sm" data-align="${escapeHtml(edge)}" title="Align to the canvas ${escapeHtml(label.toLowerCase())}">${escapeHtml(label)}</button>`).join("")}
         </div>
       </div>`;
 }

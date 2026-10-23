@@ -9,6 +9,7 @@ import { postMessage } from "../ts/bridge.js";
 import { initializeDialogModals } from "../ts/dialogs.js";
 import { layoutDesigner } from "../ts/layoutDesigner.js";
 import type { EffectLayout, LayoutBackground } from "../ts/layoutTypes.js";
+import { EffectTypeRegistry } from "../ts/presetV2.js";
 import { uiState } from "../ts/state.js";
 
 const MODALS = path.resolve(__dirname, "../ui-components/modals");
@@ -51,6 +52,15 @@ describe("layout designer: nothing is lost by accident", () => {
       fs.readFileSync(path.join(MODALS, "dialog-modal.html"), "utf8"),
     ].join("\n");
     initializeDialogModals();
+    // The designer draws a control as the panel does, which draws only the effect's own parameters.
+    const delay = EffectTypeRegistry.resolve("delay_digital");
+    EffectTypeRegistry.register(delay, {
+      type: delay,
+      displayName: "Digital Delay",
+      category: "delay",
+      requiresResource: false,
+      parameters: [{ key: "time", name: "Time", default: 0.3, min: 0, max: 2, unit: "s" }],
+    });
     HTMLCanvasElement.prototype.getContext = (() => null) as typeof HTMLCanvasElement.prototype.getContext;
   });
 
@@ -196,15 +206,15 @@ describe("layout designer: nothing is lost by accident", () => {
 
     pick("prop-layout-label-color", "#112233");
     pick("prop-layout-value-color", "#445566");
-    expect(placeholder().querySelector<HTMLElement>(".control-label")!.style.color).toBe("rgb(17, 34, 51)");
-    expect(placeholder().querySelector<HTMLElement>(".control-value")!.style.color).toBe("rgb(68, 85, 102)");
+    expect(placeholder().querySelector<HTMLElement>(".custom-control-label")!.style.color).toBe("rgb(17, 34, 51)");
+    expect(placeholder().querySelector<HTMLElement>(".node-param-value")!.style.color).toBe("rgb(68, 85, 102)");
 
     placeholder().click();
     expect(el<HTMLInputElement>("prop-value-color").value).toBe("#445566"); // shows the inherited colour
     pick("prop-value-color", "#ffffff");
-    expect(placeholder().querySelector<HTMLElement>(".control-value")!.style.color).toBe("rgb(255, 255, 255)");
+    expect(placeholder().querySelector<HTMLElement>(".node-param-value")!.style.color).toBe("rgb(255, 255, 255)");
     el("prop-value-color-reset").click();
-    expect(placeholder().querySelector<HTMLElement>(".control-value")!.style.color).toBe("rgb(68, 85, 102)");
+    expect(placeholder().querySelector<HTMLElement>(".node-param-value")!.style.color).toBe("rgb(68, 85, 102)");
     pick("prop-value-color", "#ffffff");
 
     el("layout-designer-save").click();

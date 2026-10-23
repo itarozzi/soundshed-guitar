@@ -84,8 +84,8 @@ export class ElementProperties {
           </div>
         </div>
         <div class="layout-image-actions">
-          <button id="prop-browse-knob-image">Browse...</button>
-          ${control.style?.knobImageId ? `<button id="prop-clear-knob-image">Clear</button>` : ""}
+          <button type="button" class="btn btn-secondary btn-sm" id="prop-browse-knob-image">Browse...</button>
+          ${control.style?.knobImageId ? `<button type="button" class="btn btn-secondary btn-sm" id="prop-clear-knob-image">Clear</button>` : ""}
         </div>
         ` : ""}
         <div class="layout-property-row">
@@ -98,7 +98,7 @@ export class ElementProperties {
           <span class="layout-property-label">Value Color</span>
           <div class="layout-property-input">
             <input type="color" id="prop-value-color" value="${escapeHtml(colorInputValue(textColors.value, "#a0a0a0"))}">
-            ${control.style?.valueColor ? `<button id="prop-value-color-reset" title="Use the layout's default value colour">Default</button>` : ""}
+            ${control.style?.valueColor ? `<button type="button" class="btn btn-secondary btn-sm" id="prop-value-color-reset" title="Use the layout's default value colour">Default</button>` : ""}
           </div>
         </div>
       </div>
@@ -159,7 +159,7 @@ export class ElementProperties {
           <span class="layout-property-label">Color</span>
           <div class="layout-property-input">
             <input type="color" id="prop-label-color" value="${escapeHtml(colorInputValue(textColors.label, "#ffffff"))}">
-            ${control.style?.labelColor ? `<button id="prop-label-color-reset" title="Use the layout's default label colour">Default</button>` : ""}
+            ${control.style?.labelColor ? `<button type="button" class="btn btn-secondary btn-sm" id="prop-label-color-reset" title="Use the layout's default label colour">Default</button>` : ""}
           </div>
         </div>
         <div class="layout-property-row">
@@ -181,7 +181,7 @@ export class ElementProperties {
       ${renderControlImageGroup(control, isResourceControl, (purpose, selected) => this.host.renderImageOptionsHtml(purpose, selected))}
 
       <div class="layout-property-group">
-        <button id="prop-delete-control" style="width: 100%; background: rgba(255,100,100,0.2); color: #ff6b6b;">Remove from Layout</button>
+        <button type="button" class="btn btn-secondary btn-sm btn-block layout-danger-btn" id="prop-delete-control">Remove from Layout</button>
       </div>
     `;
 
@@ -414,7 +414,7 @@ export class ElementProperties {
 
       <div class="layout-property-group">
         ${renderAlignGroup()}
-        <button id="prop-delete-label" style="width: 100%; background: rgba(255,100,100,0.2); color: #ff6b6b;">Delete Label</button>
+        <button type="button" class="btn btn-secondary btn-sm btn-block layout-danger-btn" id="prop-delete-label">Delete Label</button>
       </div>
     `;
 
@@ -524,7 +524,7 @@ export class ElementProperties {
         <div class="layout-property-row">
           <span class="layout-property-label">On Click</span>
           <div class="layout-property-input">
-            <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-dark-secondary);">
+            <label class="layout-inline-check">
               <input type="checkbox" id="prop-overlay-toggle-bypass" ${toggleBypassOnClick ? "checked" : ""}>
               Toggle Bypass
             </label>
@@ -559,7 +559,7 @@ export class ElementProperties {
         <div class="layout-property-row">
           <span class="layout-property-label">Fill Opacity</span>
           <div class="layout-property-input">
-            <input type="range" id="prop-overlay-bg-opacity" min="0" max="100" value="${backgroundOpacity}" style="width: 80px;">
+            <input type="range" id="prop-overlay-bg-opacity" min="0" max="100" value="${backgroundOpacity}">
             <span id="prop-overlay-bg-opacity-value">${backgroundOpacity}%</span>
           </div>
         </div>
@@ -587,7 +587,7 @@ export class ElementProperties {
       ${renderOverlayImageGroup(overlay, (purpose, selected) => this.host.renderImageOptionsHtml(purpose, selected))}
 
       <div class="layout-property-group">
-        <button id="prop-delete-overlay" style="width: 100%; background: rgba(255,100,100,0.2); color: #ff6b6b;">Delete Rectangle</button>
+        <button type="button" class="btn btn-secondary btn-sm btn-block layout-danger-btn" id="prop-delete-overlay">Delete Rectangle</button>
       </div>
     `;
 

@@ -2,7 +2,7 @@
   "budget": 800,
   "allowed": {
     "ts/resourceBrowser.ts": 2139,
-    "ts/layoutDesigner.ts": 2109,
+    "ts/layoutDesigner.ts": 2014,
     "ts/presets/archive.ts": 1369,
     "css/tone-sharing.css": 1238,
     "ts/signalPath.ts": 1410,
@@ -13,7 +13,6 @@
     "css/modals/resource-browser.css": 932,
     "css/themes/light.css": 872,
     "ts/performancePads.ts": 965,
-    "css/controls.css": 940,
-    "css/layout-designer.css": 845
+    "css/controls.css": 940
   }
 }
