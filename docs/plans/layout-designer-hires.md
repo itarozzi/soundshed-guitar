@@ -247,6 +247,39 @@ builds on it.
   `innerHTML` render. If it re-requests, add an in-process LRU of recently
   served bytes, or switch to item 4 below.
 
+**Built (phase 1).**
+
+- **Route.** `PluginEditor::getResource` serves `layout-images/id/<id>` through
+  `PluginController::ResolveLayoutImageResource`.
+  - The id is percent-encoded by `LayoutImageUrl`. `LayoutImageIdFromResourcePath`
+    decodes it and refuses a separator, `.`, `..` or a bad escape.
+  - Resolution uses `CollectLayoutImageSources`, with unindexed folders at the
+    lowest priority, so an image just picked for an unsaved layout shows at
+    once. Indexed ids resolve exactly as the library lists them.
+  - The id-to-file map is cached behind a mutex. It's rebuilt after
+    `LoadLayoutLibrary` (which every save, delete and import ends in), after
+    an image is written, and once on a miss.
+- **Messages.** The message shapes are unchanged, but entries carry `url`,
+  `width`, `height` and `bytes` instead of `dataUrl`. `ReadLayoutImageSize`
+  reads PNG, GIF, JPEG (walking markers past a large EXIF block), all three
+  WebP kinds and SVG (attributes, else `viewBox`). The URL carries
+  `?v=<mtime>`, so a file replaced under the same id is fetched again.
+- **UI.**
+  - `resolveLayoutImageUrl` in `layoutImages.ts` is the one lookup for the
+    renderer and the designer. A data URL still wins where there is one: an
+    image imported this session, or an older entry.
+  - Export fetches each image's URL into the zip. The archive format is
+    unchanged.
+  - The thumbnail draws from the same URL.
+  - The dead `layout-images/<fileName>` fallback is gone. It was never served,
+    so nothing that drew before draws differently.
+- **Limit.** `kMaxLayoutImageBytes` and the UI's `MAX_LAYOUT_IMAGE_BYTES` are
+  now 64 MB. Import still sends each image once as base64; a 20 MB one is
+  covered by `TestLargeImportedImagesAreStored`.
+- **Compatibility.** `layoutCompat.test.ts` renders every fixture a second
+  time with its images listed by URL only, as the engine now sends them, and
+  requires the same snapshot. They match.
+
 ### 2. Logical canvas and scale-to-fit
 
 - Treat `dimensions` as a logical design size, separate from image pixel size.
@@ -376,7 +409,7 @@ In rough order of value:
 | Phase | Scope | Unblocks |
 |---|---|---|
 | 0 | **Done** 2026-10-23: compatibility fixtures, golden render snapshots, scaling pins and the live screenshot baseline, captured on today's code. Image-id precedence settled in one shared lookup (rule 4). | A baseline every later phase is checked against |
-| 1 | §1: image route, metadata-only messages, file-based export and import, intrinsic size, higher byte cap | Large images load at all, and panel renders stop copying MBs |
+| 1 | **Done** 2026-10-23. Live check: the real library's 20 images all served with the listed type, bytes and size; the list is one 4.3 KB message instead of about 25 MB of base64; 0 of 57 baseline shots differ. §1: image route, metadata-only messages, file-based export and import, intrinsic size, higher byte cap | Large images load at all, and panel renders stop copying MBs |
 | 2 | §2: limits, `scaling` modes with upscale and height fit, grid setting, per-layout text sizes | Layouts fill the space they have |
 | 3 | §3: renditions, DPR-aware selection, preload | Memory and paint cost bounded, Android viable |
 | 4 | §4: control sizing and handles, filmstrip and layered knobs, image toggles and sliders, image elements | Real skeuomorphic skins |

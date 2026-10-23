@@ -115,7 +115,7 @@ function canonicalMarkup(html: string, images: LayoutImageRef[]): string {
   const urlToId = new Map<string, string>();
   for (const image of images) {
     if (image.dataUrl) urlToId.set(image.dataUrl, image.imageId);
-    if (image.fileName) urlToId.set(`layout-images/${image.fileName}`, image.imageId);
+    if (image.url) urlToId.set(image.url, image.imageId);
   }
 
   const host = document.createElement("div");
@@ -172,6 +172,21 @@ describe("layouts made before the high-resolution work render as they always hav
       await expect(renderBothStates(layout, fixture.images, fixture.description)).toMatchFileSnapshot(
         `${SNAPSHOT_DIR}/${name}.txt`,
       );
+    });
+
+    // The engine lists images by URL now, with no data URL: the same layout must draw the same.
+    it(`${name} (images listed by URL, as the engine sends them)`, async () => {
+      const fixture = readFixture(name);
+      const layout = (fixture.kind === "archive" ? (fixture.data as { layout: unknown }).layout : fixture.data) as EffectLayout;
+      const byUrl = fixture.images.map(({ imageId, fileName }) => ({
+        imageId,
+        fileName,
+        url: `layout-images/id/${encodeURIComponent(imageId)}?v=1`,
+        width: 800,
+        height: 500,
+        bytes: 1024,
+      }));
+      await expect(renderBothStates(layout, byUrl, fixture.description)).toMatchFileSnapshot(`${SNAPSHOT_DIR}/${name}.txt`);
     });
   }
 

@@ -69,16 +69,29 @@ export function onLayoutImagesLoaded(payload: IncomingPayload): void {
 
 export function onLayoutImageSelected(payload: IncomingPayload): void {
   console.log("[Messages] layoutImageSelected received:", payload);
-  const imgPayload = payload as { purpose?: string; imageId?: string; fileName?: string; dataUrl?: string; layerIndex?: number; paramKey?: string };
+  const imgPayload = payload as {
+    purpose?: string;
+    imageId?: string;
+    fileName?: string;
+    url?: string;
+    width?: number;
+    height?: number;
+    bytes?: number;
+    layerIndex?: number;
+    paramKey?: string;
+  };
   if (imgPayload.purpose && imgPayload.imageId && imgPayload.fileName) {
     // Add image to layout library so it can be resolved
     if (uiState.layoutLibrary) {
       const existingIdx = uiState.layoutLibrary.images.findIndex(img => img.imageId === imgPayload.imageId);
-      const imageEntry = { 
-        imageId: imgPayload.imageId, 
-        fileName: imgPayload.fileName, 
-        dataUrl: imgPayload.dataUrl,
-        type: imgPayload.purpose as "background" | "knob" | "general" 
+      const imageEntry: LayoutImageRef = {
+        imageId: imgPayload.imageId,
+        fileName: imgPayload.fileName,
+        url: imgPayload.url,
+        width: imgPayload.width,
+        height: imgPayload.height,
+        bytes: imgPayload.bytes,
+        type: imgPayload.purpose as "background" | "knob" | "general"
       };
       if (existingIdx >= 0) {
         uiState.layoutLibrary.images[existingIdx] = imageEntry;

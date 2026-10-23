@@ -12,6 +12,7 @@
 #include <fstream>
 #include <map>
 #include <optional>
+#include <sstream>
 #include <string_view>
 #include <system_error>
 
@@ -441,6 +442,348 @@ bool LooksLikeLayoutImage(const std::vector<std::uint8_t>& bytes, const std::fil
     }
 
     return false;
+}
+
+std::string LayoutImageUrl(const std::string& imageId, std::uint64_t version)
+{
+    static constexpr char kHex[] = "0123456789ABCDEF";
+    std::string url = "layout-images/id/";
+
+    for (const char c : imageId)
+    {
+        const auto byte = static_cast<unsigned char>(c);
+
+        if (std::isalnum(byte) != 0 || c == '-' || c == '_' || c == '.' || c == '~')
+        {
+            url += c;
+        }
+        else
+        {
+            url += '%';
+            url += kHex[byte >> 4];
+            url += kHex[byte & 0x0F];
+        }
+    }
+
+    return url + "?v=" + std::to_string(version);
+}
+
+std::string LayoutImageIdFromResourcePath(const std::string& path)
+{
+    static constexpr std::string_view kPrefix = "layout-images/id/";
+
+    if (path.size() <= kPrefix.size() || path.compare(0, kPrefix.size(), kPrefix) != 0)
+    {
+        return {};
+    }
+
+    const auto hexValue = [](char c) -> int {
+        if (c >= '0' && c <= '9')
+        {
+            return c - '0';
+        }
+
+        if (c >= 'a' && c <= 'f')
+        {
+            return c - 'a' + 10;
+        }
+
+        if (c >= 'A' && c <= 'F')
+        {
+            return c - 'A' + 10;
+        }
+
+        return -1;
+    };
+
+    std::string id;
+
+    for (std::size_t i = kPrefix.size(); i < path.size(); ++i)
+    {
+        const char c = path[i];
+
+        if (c == '/' || c == '\\' || c == '?' || c == '#')
+        {
+            return {};
+        }
+
+        if (c != '%')
+        {
+            id += c;
+            continue;
+        }
+
+        const int high = i + 2 < path.size() ? hexValue(path[i + 1]) : -1;
+        const int low = i + 2 < path.size() ? hexValue(path[i + 2]) : -1;
+
+        if (high < 0 || low < 0)
+        {
+            return {};
+        }
+
+        id += static_cast<char>((high << 4) | low);
+        i += 2;
+    }
+
+    // An id is a file stem: nothing that could name another folder once decoded.
+    return id.find_first_of("/\\") == std::string::npos && id != "." && id != ".." ? id : std::string{};
+}
+
+namespace
+{
+std::uint32_t BigEndian(const std::vector<std::uint8_t>& b, std::size_t at, std::size_t count)
+{
+    std::uint32_t value = 0;
+
+    for (std::size_t i = 0; i < count; ++i)
+    {
+        value = (value << 8) | b[at + i];
+    }
+
+    return value;
+}
+
+std::uint32_t LittleEndian(const std::vector<std::uint8_t>& b, std::size_t at, std::size_t count)
+{
+    std::uint32_t value = 0;
+
+    for (std::size_t i = count; i > 0; --i)
+    {
+        value = (value << 8) | b[at + i - 1];
+    }
+
+    return value;
+}
+
+/// A JPEG's frame size, walking its markers from the file so a large EXIF block is skipped
+/// rather than read.
+std::optional<LayoutImageSize> ReadJpegSize(std::ifstream& input)
+{
+    input.seekg(2);
+
+    while (input)
+    {
+        int byte = input.get();
+
+        if (byte != 0xFF)
+        {
+            return std::nullopt;
+        }
+
+        while (byte == 0xFF)
+        {
+            byte = input.get();
+        }
+
+        if (byte < 0)
+        {
+            return std::nullopt;
+        }
+
+        const auto marker = static_cast<std::uint8_t>(byte);
+
+        if (marker == 0x01 || (marker >= 0xD0 && marker <= 0xD8))
+        {
+            continue; // Markers with no length.
+        }
+
+        if (marker == 0xD9 || marker == 0xDA)
+        {
+            return std::nullopt; // End of image, or scan data with no frame header before it.
+        }
+
+        std::array<char, 2> lengthBytes{};
+
+        if (!input.read(lengthBytes.data(), 2))
+        {
+            return std::nullopt;
+        }
+
+        const auto length = static_cast<std::uint16_t>((static_cast<std::uint8_t>(lengthBytes[0]) << 8) |
+                                                       static_cast<std::uint8_t>(lengthBytes[1]));
+        const bool isFrame = marker >= 0xC0 && marker <= 0xCF && marker != 0xC4 && marker != 0xC8 && marker != 0xCC;
+
+        if (isFrame)
+        {
+            std::array<char, 5> frame{};
+
+            if (!input.read(frame.data(), 5))
+            {
+                return std::nullopt;
+            }
+
+            const auto height = static_cast<std::uint32_t>((static_cast<std::uint8_t>(frame[1]) << 8) |
+                                                           static_cast<std::uint8_t>(frame[2]));
+            const auto width = static_cast<std::uint32_t>((static_cast<std::uint8_t>(frame[3]) << 8) |
+                                                          static_cast<std::uint8_t>(frame[4]));
+            return width > 0 && height > 0 ? std::optional<LayoutImageSize>({width, height}) : std::nullopt;
+        }
+
+        if (length < 2)
+        {
+            return std::nullopt;
+        }
+
+        input.seekg(length - 2, std::ios::cur);
+    }
+
+    return std::nullopt;
+}
+
+/// The number at the start of an SVG length ("640", "640px", "48.5"), or 0.
+std::uint32_t SvgLength(const std::string& value)
+{
+    std::size_t used = 0;
+
+    try
+    {
+        const double number = std::stod(value, &used);
+        return used > 0 && number > 0 && number < 1e6 ? static_cast<std::uint32_t>(number + 0.5) : 0;
+    }
+    catch (...)
+    {
+        return 0;
+    }
+}
+
+/// The value of attribute `name` in an SVG start tag, or empty.
+std::string SvgAttribute(const std::string& tag, const std::string& name)
+{
+    std::size_t at = 0;
+
+    while ((at = tag.find(name, at)) != std::string::npos)
+    {
+        const bool startsWord = at == 0 || std::isspace(static_cast<unsigned char>(tag[at - 1])) != 0;
+        std::size_t next = at + name.size();
+
+        while (next < tag.size() && std::isspace(static_cast<unsigned char>(tag[next])) != 0)
+        {
+            ++next;
+        }
+
+        if (startsWord && next < tag.size() && tag[next] == '=')
+        {
+            ++next;
+
+            while (next < tag.size() && std::isspace(static_cast<unsigned char>(tag[next])) != 0)
+            {
+                ++next;
+            }
+
+            if (next < tag.size() && (tag[next] == '"' || tag[next] == '\''))
+            {
+                const auto end = tag.find(tag[next], next + 1);
+                return end == std::string::npos ? std::string{} : tag.substr(next + 1, end - next - 1);
+            }
+        }
+
+        at += name.size();
+    }
+
+    return {};
+}
+
+std::optional<LayoutImageSize> ReadSvgSize(const std::vector<std::uint8_t>& head)
+{
+    const std::string text(head.begin(), head.end());
+    const auto open = LowerAscii(text).find("<svg");
+
+    if (open == std::string::npos)
+    {
+        return std::nullopt;
+    }
+
+    const auto close = text.find('>', open);
+    const std::string tag = text.substr(open, close == std::string::npos ? std::string::npos : close - open);
+    const std::uint32_t width = SvgLength(SvgAttribute(tag, "width"));
+    const std::uint32_t height = SvgLength(SvgAttribute(tag, "height"));
+
+    if (width > 0 && height > 0)
+    {
+        return LayoutImageSize{width, height};
+    }
+
+    std::istringstream viewBox(SvgAttribute(tag, "viewBox"));
+    double minX = 0;
+    double minY = 0;
+    double boxWidth = 0;
+    double boxHeight = 0;
+
+    if (viewBox >> minX >> minY >> boxWidth >> boxHeight && boxWidth > 0 && boxHeight > 0)
+    {
+        return LayoutImageSize{static_cast<std::uint32_t>(boxWidth + 0.5), static_cast<std::uint32_t>(boxHeight + 0.5)};
+    }
+
+    return std::nullopt;
+}
+} // namespace
+
+std::optional<LayoutImageSize> ReadLayoutImageSize(const std::filesystem::path& path)
+{
+    try
+    {
+        std::ifstream input(path, std::ios::binary);
+
+        if (!input)
+        {
+            return std::nullopt;
+        }
+
+        std::vector<std::uint8_t> head(4096);
+        input.read(reinterpret_cast<char*>(head.data()), static_cast<std::streamsize>(head.size()));
+        head.resize(static_cast<std::size_t>(input.gcount()));
+        input.clear();
+
+        const auto sized = [](std::uint32_t width, std::uint32_t height) -> std::optional<LayoutImageSize> {
+            return width > 0 && height > 0 ? std::optional<LayoutImageSize>({width, height}) : std::nullopt;
+        };
+
+        if (StartsWith(head, 0, "\x89PNG\r\n\x1a\n") && head.size() >= 24 && StartsWith(head, 12, "IHDR"))
+        {
+            return sized(BigEndian(head, 16, 4), BigEndian(head, 20, 4));
+        }
+
+        if ((StartsWith(head, 0, "GIF87a") || StartsWith(head, 0, "GIF89a")) && head.size() >= 10)
+        {
+            return sized(LittleEndian(head, 6, 2), LittleEndian(head, 8, 2));
+        }
+
+        if (StartsWith(head, 0, "RIFF") && StartsWith(head, 8, "WEBP") && head.size() >= 30)
+        {
+            if (StartsWith(head, 12, "VP8 "))
+            {
+                return sized(LittleEndian(head, 26, 2) & 0x3FFF, LittleEndian(head, 28, 2) & 0x3FFF);
+            }
+
+            if (StartsWith(head, 12, "VP8L"))
+            {
+                const std::uint32_t bits = LittleEndian(head, 21, 4);
+                return sized((bits & 0x3FFF) + 1, ((bits >> 14) & 0x3FFF) + 1);
+            }
+
+            if (StartsWith(head, 12, "VP8X"))
+            {
+                return sized(LittleEndian(head, 24, 3) + 1, LittleEndian(head, 27, 3) + 1);
+            }
+
+            return std::nullopt;
+        }
+
+        if (StartsWith(head, 0, "\xFF\xD8\xFF"))
+        {
+            return ReadJpegSize(input);
+        }
+
+        if (LowerExtension(path.extension()) == ".svg")
+        {
+            return ReadSvgSize(head);
+        }
+    }
+    catch (...)
+    {
+    }
+
+    return std::nullopt;
 }
 
 std::vector<std::string> CollectLayoutImageIds(const nlohmann::json& layout)

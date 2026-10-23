@@ -365,6 +365,15 @@ class PluginController
     /// drop their unsaved edits.
     void ApplyActivePresetInItsSlot();
 
+    /// The file a layout image id resolves to, as the layout library resolves it
+    /// (CollectLayoutImageSources), for the editor's `layout-images/id/<id>` resource route.
+    /// Safe from any thread; the lookup is cached and rebuilt when layouts or images change.
+    [[nodiscard]] std::optional<std::filesystem::path> ResolveLayoutImageFile(const std::string& imageId);
+    /// The file and MIME type for a UI resource path of the form `layout-images/id/<id>` (no
+    /// query), or nullopt when the path is not one or names no image.
+    [[nodiscard]] std::optional<std::pair<std::filesystem::path, std::string>>
+    ResolveLayoutImageResource(const std::string& resourcePath);
+
     // ── Signal path test ───────────────────────────────────────────
     /// Injects a test tone and reports what reached the output. Returns false
     /// if the host has no sample rate yet. See controller/SignalTestService.h.
@@ -957,9 +966,14 @@ class PluginController
     void SaveCustomEffectLibrary() const;
     void LoadCompositeLibrary();
     void LoadLayoutLibrary();
-    // Builds the (potentially heavy) base64-encoded layout image list on demand.
-    // Kept out of the startup LoadLayoutLibrary payload so app load stays lightweight.
+    /// Every layout image's id, file name, URL, pixel size and byte size. The UI fetches the
+    /// pixels from the URL, so this carries no image data.
     [[nodiscard]] nlohmann::json BuildLayoutImages();
+    /// One image's entry as BuildLayoutImages lists it.
+    [[nodiscard]] static nlohmann::json LayoutImageEntry(const std::string& imageId, const std::filesystem::path& path);
+    /// Drops the cached id → file lookup ResolveLayoutImageFile keeps; call after any write to a
+    /// layout's images or the layout index.
+    void InvalidateLayoutImageIndex();
     /// False when the document store refused the write; the caller reports it.
     [[nodiscard]] bool SaveLayoutToFile(const std::string& layoutId, const nlohmann::json& layoutJson);
     [[nodiscard]] nlohmann::json LoadUiStorageJson(const std::string& filename, const nlohmann::json& fallback) const;
@@ -1068,6 +1082,9 @@ class PluginController
     std::unordered_set<std::string> mTrackedFactoryArchivePresetIds;
     std::unordered_map<std::string, std::string> mFactoryArchivePresetAliases;
     CompositeEffectLibrary mCompositeLibrary;
+    /// ResolveLayoutImageFile's cache: id → file, built on first use after an invalidation.
+    std::mutex mLayoutImageIndexMutex;
+    std::optional<std::map<std::string, std::filesystem::path>> mLayoutImageIndex;
     FileSystem mFileSystem;
     ModelHasher mHasher;
 

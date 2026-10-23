@@ -23,7 +23,7 @@ export const LAYOUT_IMAGE_MIME_TYPES: Readonly<Record<string, string>> = {
 };
 
 /** Largest image the engine stores for a layout; it refuses anything bigger. */
-export const MAX_LAYOUT_IMAGE_BYTES = 16 * 1024 * 1024;
+export const MAX_LAYOUT_IMAGE_BYTES = 64 * 1024 * 1024;
 
 /** An image from the archive, renamed and ready to register and send to the engine. */
 export interface ImportedLayoutImage {

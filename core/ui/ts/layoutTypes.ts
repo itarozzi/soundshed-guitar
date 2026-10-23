@@ -11,8 +11,18 @@ export interface LayoutImageRef {
   imageId: string;
   /** Original filename for display */
   fileName?: string;
-  /** Base64 data URL for WebView access (data:image/...) */
+  /**
+   * Base64 data URL. The engine no longer sends one; it is set only for an image imported in
+   * this session (until the library reloads) and by older layouts' embedded data.
+   */
   dataUrl?: string;
+  /** Where the WebView loads the image from: `layout-images/id/<id>?v=<version>`. */
+  url?: string;
+  /** Pixel size the file declares, when the engine could read it. */
+  width?: number;
+  height?: number;
+  /** File size in bytes. */
+  bytes?: number;
   /** Image type/category */
   type?: "background" | "knob" | "general";
 }

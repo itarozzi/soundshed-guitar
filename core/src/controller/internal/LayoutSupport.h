@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -45,9 +46,30 @@ bool SaveEffectLayoutsSettings(const FileSystem& fileSystem, const nlohmann::jso
 /// The factory layouts shipped with the app: one folder each, holding layout.json and images/.
 [[nodiscard]] std::filesystem::path ResolveFactoryLayoutsDir(const std::filesystem::path& bundledAssetsRoot);
 
-/// Largest image a layout takes, from the file picker or an imported archive. Every image is
-/// sent to the UI base64-encoded, so this also bounds that message.
-inline constexpr std::size_t kMaxLayoutImageBytes = 16u * 1024u * 1024u;
+/// Largest image a layout takes, from the file picker or an imported archive. The UI loads
+/// images by URL (LayoutImageUrl), so this bounds only the one base64 message an archive's
+/// image arrives in when a layout is imported.
+inline constexpr std::size_t kMaxLayoutImageBytes = 64u * 1024u * 1024u;
+
+/// The URL the UI draws image `imageId` from: `layout-images/id/<id>` with the id
+/// percent-encoded (everything but A-Z a-z 0-9 - _ . ~), and `?v=<version>` so a file that
+/// changes under the same id is fetched again. The editor's resource provider serves it.
+[[nodiscard]] std::string LayoutImageUrl(const std::string& imageId, std::uint64_t version);
+
+/// The image id in a `layout-images/id/<id>` resource path (no query), percent-decoded, or
+/// empty when the path is not one.
+[[nodiscard]] std::string LayoutImageIdFromResourcePath(const std::string& path);
+
+/// Pixel size an image file declares, read from its header without decoding it.
+struct LayoutImageSize
+{
+    std::uint32_t width = 0;
+    std::uint32_t height = 0;
+};
+
+/// The pixel size in a PNG, JPEG, GIF or WebP header, or an SVG's width and height attributes
+/// (else its viewBox); nullopt when the file cannot be read or declares none.
+[[nodiscard]] std::optional<LayoutImageSize> ReadLayoutImageSize(const std::filesystem::path& path);
 
 /// MIME type of an image a layout can use, from its extension in any case (".JPG" as ".jpg"),
 /// or empty for a type layouts do not take.

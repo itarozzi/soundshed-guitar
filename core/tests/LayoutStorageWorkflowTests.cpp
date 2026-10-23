@@ -6,6 +6,7 @@
 // picked another layout's image lost it when that layout was deleted. These drive the real
 // message handlers against a sandboxed profile.
 
+#include <algorithm>
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
@@ -23,6 +24,7 @@
 
 #include "IPluginHost.h"
 #include "PluginController.h"
+#include "controller/internal/LayoutSupport.h"
 #include "util/Base64.h"
 #include "util/FileSystem.h"
 #include "util/PathEncoding.h"
@@ -393,9 +395,11 @@ bool TestLoaderListsLegacyAndUpperCaseImages()
 
     for (const auto& image : loaded ? loaded->value("images", nlohmann::json::array()) : nlohmann::json::array())
     {
-        const std::string dataUrl = image.value("dataUrl", "");
-        jpeg = jpeg || (image.value("imageId", "") == "SHOUT_1" && dataUrl.rfind("data:image/jpeg;base64,", 0) == 0);
-        png = png || (image.value("imageId", "") == "legacy_1" && dataUrl.rfind("data:image/png;base64,", 0) == 0);
+        const std::string url = image.value("url", "");
+        jpeg = jpeg || (image.value("imageId", "") == "SHOUT_1" && image.value("fileName", "") == "SHOUT_1.JPG" &&
+                        url.rfind("layout-images/id/SHOUT_1?v=", 0) == 0);
+        png = png || (image.value("imageId", "") == "legacy_1" && image.value("fileName", "") == "legacy_1.png" &&
+                      url.rfind("layout-images/id/legacy_1?v=", 0) == 0);
     }
 
     if (!jpeg || !png)
@@ -408,7 +412,7 @@ bool TestLoaderListsLegacyAndUpperCaseImages()
     return true;
 }
 
-/// The image the library lists for each id, keyed by id, as its data URL's MIME prefix.
+/// The file the library lists for each id, keyed by id, as that file's extension.
 std::map<std::string, std::string> ListedImageTypes(TestHost& host, guitarfx::PluginController& controller)
 {
     controller.HandleUIMessage(R"({"type":"requestLayoutImages"})");
@@ -417,8 +421,7 @@ std::map<std::string, std::string> ListedImageTypes(TestHost& host, guitarfx::Pl
 
     for (const auto& image : loaded ? loaded->value("images", nlohmann::json::array()) : nlohmann::json::array())
     {
-        const std::string dataUrl = image.value("dataUrl", "");
-        types[image.value("imageId", "")] = dataUrl.substr(0, dataUrl.find(';'));
+        types[image.value("imageId", "")] = fs::path(image.value("fileName", "")).extension().string();
     }
 
     return types;
@@ -457,8 +460,8 @@ bool TestSharedImageIdsResolveAsTheLibraryShowsThem()
 
     const auto listed = ListedImageTypes(host, controller);
 
-    if (listed.count("dup_1") == 0 || listed.at("dup_1") != "data:image/png" || listed.count("lu_1") == 0 ||
-        listed.at("lu_1") != "data:image/jpeg" || listed.count("orphan_1") != 0)
+    if (listed.count("dup_1") == 0 || listed.at("dup_1") != ".png" || listed.count("lu_1") == 0 ||
+        listed.at("lu_1") != ".jpg" || listed.count("orphan_1") != 0)
     {
         std::cerr << "The library resolved shared ids differently from before:";
 
@@ -468,6 +471,20 @@ bool TestSharedImageIdsResolveAsTheLibraryShowsThem()
         }
 
         std::cerr << "\n";
+        return false;
+    }
+
+    // The route the UI loads images from resolves an id to the same file the library lists, and
+    // also reaches an unindexed folder's image (one picked for a layout not saved yet).
+    const auto served = [&controller](const std::string& id) {
+        const auto file = controller.ResolveLayoutImageFile(id);
+        return file ? file->filename().string() : std::string("(none)");
+    };
+
+    if (served("dup_1") != "factory-file.png" || served("lu_1") != "lu_1.jpg" || served("orphan_1") != "orphan_1.png")
+    {
+        std::cerr << "The image route resolved differently from the library: dup_1=" << served("dup_1")
+                  << " lu_1=" << served("lu_1") << " orphan_1=" << served("orphan_1") << "\n";
         return false;
     }
 
@@ -486,6 +503,179 @@ bool TestSharedImageIdsResolveAsTheLibraryShowsThem()
         }
 
         std::cerr << "\n";
+        return false;
+    }
+
+    return true;
+}
+
+/// A PNG header declaring `width` x `height`: enough for the size reader and the type check.
+std::vector<std::uint8_t> PngOfSize(std::uint32_t width, std::uint32_t height, std::size_t totalBytes = 33)
+{
+    std::vector<std::uint8_t> bytes = {0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13, 'I', 'H', 'D', 'R'};
+
+    for (const auto value : {width, height})
+    {
+        for (int shift = 24; shift >= 0; shift -= 8)
+        {
+            bytes.push_back(static_cast<std::uint8_t>(value >> shift));
+        }
+    }
+
+    bytes.resize(std::max(bytes.size(), totalBytes), 0);
+    return bytes;
+}
+
+/// The library lists images by URL with their pixel and byte size, and nothing else of them;
+/// the route serves each URL's file with its type, and refuses paths that are not an image id.
+bool TestImagesAreListedByUrlAndServedByTheRoute()
+{
+    const fs::path sandbox = FreshSandbox("image-route");
+    const ScopedPlatformRoot root(sandbox);
+
+    TestHost host(sandbox);
+    guitarfx::PluginController controller(host);
+    const std::string spaced = "my knob (v2)_17";
+    SaveImage(controller, "R", "bg_1", "bg_1.png", PngOfSize(3840, 2160));
+    WriteBytes(ContentDir(sandbox) / "R" / "images" / (spaced + ".png"), PngOfSize(512, 512));
+    SaveLayout(controller, "R", "fx_r", {"bg_1", spaced});
+
+    controller.HandleUIMessage(R"({"type":"requestLayoutImages"})");
+    const auto loaded = host.WaitForMessage("layoutImagesLoaded");
+    std::map<std::string, nlohmann::json> byId;
+
+    for (const auto& image : loaded ? loaded->value("images", nlohmann::json::array()) : nlohmann::json::array())
+    {
+        byId[image.value("imageId", "")] = image;
+    }
+
+    const auto& bg = byId["bg_1"];
+
+    if (bg.contains("dataUrl") || bg.value("url", "").rfind("layout-images/id/bg_1?v=", 0) != 0 ||
+        bg.value("width", 0) != 3840 || bg.value("height", 0) != 2160 || bg.value("bytes", 0) != 33)
+    {
+        std::cerr << "The image entry is not URL, size and bytes: " << bg.dump() << "\n";
+        return false;
+    }
+
+    const std::string spacedUrl = byId[spaced].value("url", "");
+
+    if (spacedUrl.rfind("layout-images/id/my%20knob%20%28v2%29_17?v=", 0) != 0)
+    {
+        std::cerr << "An id with spaces and brackets was not percent-encoded: " << spacedUrl << "\n";
+        return false;
+    }
+
+    const auto served = controller.ResolveLayoutImageResource(spacedUrl.substr(0, spacedUrl.find('?')));
+
+    if (!served || served->first.filename().string() != spaced + ".png" || served->second != "image/png")
+    {
+        std::cerr << "The route did not serve the encoded id's file\n";
+        return false;
+    }
+
+    for (const std::string refused : {"layout-images/id/", "layout-images/id/..", "layout-images/id/%2E%2E",
+                                      "layout-images/id/a%2Fb", "layout-images/id/a/b", "layout-images/id/%zz",
+                                      "layout-images/bg_1.png", "layout-images/id/not_an_image"})
+    {
+        if (controller.ResolveLayoutImageResource(refused))
+        {
+            std::cerr << "The route served " << refused << "\n";
+            return false;
+        }
+    }
+
+    return true;
+}
+
+/// Each format's header gives the size without the file being decoded: PNG, GIF, a JPEG with a
+/// large EXIF block before its frame, all three WebP kinds, and SVG by attributes or viewBox.
+bool TestImageSizesAreReadFromHeaders()
+{
+    using guitarfx::controller_detail::ReadLayoutImageSize;
+    const fs::path dir = FreshSandbox("image-sizes");
+    const auto check = [&dir](const std::string& name, const std::vector<std::uint8_t>& bytes, std::uint32_t width,
+                              std::uint32_t height) {
+        WriteBytes(dir / name, bytes);
+        const auto size = ReadLayoutImageSize(dir / name);
+
+        if (!size || size->width != width || size->height != height)
+        {
+            std::cerr << name << ": expected " << width << "x" << height << ", read "
+                      << (size ? std::to_string(size->width) + "x" + std::to_string(size->height) : "nothing") << "\n";
+            return false;
+        }
+
+        return true;
+    };
+    const auto text = [](const std::string& s) { return std::vector<std::uint8_t>(s.begin(), s.end()); };
+    const auto webp = [](const char (&chunk)[5]) {
+        std::vector<std::uint8_t> bytes = {'R', 'I', 'F', 'F', 0, 0, 0, 0, 'W', 'E', 'B', 'P'};
+        bytes.insert(bytes.end(), chunk, chunk + 4);
+        return bytes;
+    };
+
+    std::vector<std::uint8_t> jpeg = {0xFF, 0xD8, 0xFF, 0xE1, 0xC0, 0x02}; // APP1 of 0xC002 bytes
+    jpeg.resize(jpeg.size() + 0xC000, 0x00);
+    for (const std::uint8_t b : {0xFF, 0xC0, 0x00, 0x11, 0x08, 0x05, 0xA0, 0x0F, 0x00, 0x03})
+    {
+        jpeg.push_back(b); // SOF0: 8-bit, 1440 high, 3840 wide
+    }
+    jpeg.resize(jpeg.size() + 16, 0);
+
+    std::vector<std::uint8_t> vp8 = webp("VP8 ");
+    vp8.resize(26, 0);
+    for (const std::uint8_t b : {0x80, 0x07, 0x38, 0x04})
+    {
+        vp8.push_back(b); // 1920 x 1080
+    }
+    vp8.resize(40, 0);
+
+    std::vector<std::uint8_t> vp8l = webp("VP8L");
+    vp8l.resize(21, 0);
+    // 14-bit width-1 then 14-bit height-1, little-endian: 1024 x 768.
+    const std::uint32_t bits = (1024 - 1) | ((768 - 1) << 14);
+    for (int i = 0; i < 4; ++i)
+    {
+        vp8l.push_back(static_cast<std::uint8_t>(bits >> (8 * i)));
+    }
+    vp8l.resize(40, 0);
+
+    std::vector<std::uint8_t> vp8x = webp("VP8X");
+    vp8x.resize(24, 0);
+    for (const std::uint8_t b : {0xFF, 0x1D, 0x00, 0x6F, 0x17, 0x00})
+    {
+        vp8x.push_back(b); // 7680 x 6000
+    }
+    vp8x.resize(40, 0);
+
+    return check("a.png", PngOfSize(4096, 3072), 4096, 3072) &&
+           check("a.gif", {'G', 'I', 'F', '8', '9', 'a', 0x40, 0x01, 0xF0, 0x00, 0, 0}, 320, 240) &&
+           check("a.jpg", jpeg, 3840, 1440) && check("vp8.webp", vp8, 1920, 1080) &&
+           check("vp8l.webp", vp8l, 1024, 768) && check("vp8x.webp", vp8x, 7680, 6000) &&
+           check("attrs.svg", text("<?xml version=\"1.0\"?>\n<svg xmlns=\"http://www.w3.org/2000/svg\" "
+                                   "stroke-width=\"3\" width=\"640px\" height='480'><rect/></svg>"),
+                 640, 480) &&
+           check("box.svg", text("<svg viewBox=\"0 0 1200.4 300\"></svg>"), 1200, 300);
+}
+
+/// An imported image well over the old 16 MB limit is stored, and one over 64 MB is refused.
+bool TestLargeImportedImagesAreStored()
+{
+    const fs::path sandbox = FreshSandbox("large-images");
+    const ScopedPlatformRoot root(sandbox);
+    const fs::path images = ContentDir(sandbox) / "L" / "images";
+
+    TestHost host(sandbox);
+    guitarfx::PluginController controller(host);
+    SaveImage(controller, "L", "big_1", "big_1.png", PngOfSize(8000, 8000, 20u * 1024u * 1024u));
+    SaveImage(controller, "L", "huge_1", "huge_1.png", PngOfSize(8000, 8000, 65u * 1024u * 1024u));
+
+    std::error_code ec;
+
+    if (fs::file_size(images / "big_1.png", ec) != 20u * 1024u * 1024u || fs::exists(images / "huge_1.png"))
+    {
+        std::cerr << "Expected the 20 MB image stored and the 65 MB one refused\n";
         return false;
     }
 
@@ -566,6 +756,9 @@ int main()
         {"Borrowed images survive deleting their layout", TestBorrowedImagesSurviveDeletingTheirLayout},
         {"Loader lists legacy and upper-case images", TestLoaderListsLegacyAndUpperCaseImages},
         {"Shared image ids resolve as the library shows them", TestSharedImageIdsResolveAsTheLibraryShowsThem},
+        {"Images are listed by URL and served by the route", TestImagesAreListedByUrlAndServedByTheRoute},
+        {"Image sizes are read from headers", TestImageSizesAreReadFromHeaders},
+        {"Large imported images are stored", TestLargeImportedImagesAreStored},
         {"A failed save is reported", TestFailedSaveIsReported},
         {"Delete removes the layout from every key", TestDeleteRemovesTheLayoutFromEveryKey},
     };

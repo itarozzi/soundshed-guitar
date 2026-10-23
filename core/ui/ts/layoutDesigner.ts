@@ -996,7 +996,7 @@ export class LayoutDesignerModal {
 
   private getReusableLayoutImages(purpose: "background" | "knob", selectedImageId?: string): LayoutImageRef[] {
     const images = uiState.layoutLibrary?.images ?? [];
-    const available = images.filter((img) => Boolean(img.imageId) && (Boolean(img.dataUrl) || Boolean(img.fileName)));
+    const available = images.filter((img) => Boolean(img.imageId) && (Boolean(img.dataUrl) || Boolean(img.url) || Boolean(img.fileName)));
     const preferredType = purpose === "background" ? "background" : "knob";
     const compatible = available.filter((img) => {
       if (img.imageId === selectedImageId) {

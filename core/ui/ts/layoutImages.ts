@@ -1,14 +1,26 @@
 /**
- * Lazy loader for layout background images.
+ * Layout images: the list of them, requested on demand, and where each one loads from.
  *
- * Layout images (base64-encoded backgrounds) are heavy and only needed by the
- * layout designer/manager, so they are no longer shipped in the startup
- * `layoutLibraryLoaded` payload. This module requests them on demand the first
- * time the designer or manager is shown, and lets callers force a refresh after
- * the layout library is reloaded (e.g. after saving a new image).
+ * The engine lists images by URL (`layout-images/id/<id>`), served by the editor's resource
+ * provider, so the list is small; it still arrives separately from `layoutLibraryLoaded`, the
+ * first time something draws a layout, and is refreshed after the library reloads.
  */
 
 import { postMessage } from "./bridge.js";
+import { uiState } from "./state.js";
+
+/**
+ * Where image `imageId` loads from, or null when the library does not hold it. A data URL
+ * wins where there is one (an image imported this session, an older layout's embedded data):
+ * it is the image itself.
+ */
+export function resolveLayoutImageUrl(imageId: string): string | null {
+  const image = uiState.layoutLibrary?.images.find((img) => img.imageId === imageId);
+  if (!image) {
+    return null;
+  }
+  return image.dataUrl || image.url || null;
+}
 
 let loaded = false;
 let pending = false;

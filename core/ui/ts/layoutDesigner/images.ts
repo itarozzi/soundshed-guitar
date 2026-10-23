@@ -1,24 +1,14 @@
 /**
  * Resolving a layout image id to something the WebView can actually load.
  *
- * A base64 data URL is preferred where one exists: the designer draws onto a
- * canvas, and a file path would have to survive the layout being exported and
- * imported on another machine.
+ * The lookup itself is resolveLayoutImageUrl (layoutImages.ts), shared with the runtime
+ * renderer so the designer and the params panel always draw the same file for an id.
  */
 
-import { uiState } from "../state.js";
+import { resolveLayoutImageUrl } from "../layoutImages.js";
 
 export function getLayoutImageUrl(imageId: string): string | null {
-  const image = uiState.layoutLibrary?.images.find((img) => img.imageId === imageId);
-  if (image) {
-    if (image.dataUrl) {
-      return image.dataUrl;
-    }
-    if (image.fileName) {
-      return `layout-images/${image.fileName}`;
-    }
-  }
-  return null;
+  return resolveLayoutImageUrl(imageId);
 }
 
 /** Load an image so it can be drawn onto the thumbnail canvas. */

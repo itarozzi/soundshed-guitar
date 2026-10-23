@@ -17,7 +17,7 @@ import { showNotification } from "../notifications.js";
 import { uiState } from "../state.js";
 import { arrayBufferToBase64 } from "../utils.js";
 import { LAYOUT_LIBRARY_CHANGED_EVENT } from "./events.js";
-import { loadThumbnailImage } from "./images.js";
+import { getLayoutImageUrl, loadThumbnailImage } from "./images.js";
 import { prepareLayoutImport } from "./layoutImport.js";
 
 /**
@@ -292,10 +292,10 @@ export class LayoutStore {
         ctx.fillStyle = bg.value;
         ctx.fillRect(0, 0, scaledW, scaledH);
       } else if (bg.type === "image") {
-        const imageRef = uiState.layoutLibrary?.images.find((img) => img.imageId === bg.value);
-        if (imageRef?.dataUrl) {
+        const imageUrl = getLayoutImageUrl(bg.value);
+        if (imageUrl) {
           try {
-            const imgEl = await loadThumbnailImage(imageRef.dataUrl);
+            const imgEl = await loadThumbnailImage(imageUrl);
             ctx.drawImage(imgEl, 0, 0, scaledW, scaledH);
           } catch { /* ignore failed image */ }
         }
@@ -383,17 +383,24 @@ export class LayoutStore {
       const images = uiState.layoutLibrary?.images ?? [];
       for (const imageId of referencedImageIds) {
         const img = images.find((i) => i.imageId === imageId);
-        if (!img?.dataUrl) continue;
+        const url = getLayoutImageUrl(imageId);
+        if (!img || !url) continue;
 
-        // Extract base64 data from data URL (data:image/png;base64,...)
-        const match = img.dataUrl.match(/^data:image\/([^;]+);base64,(.+)$/);
-        if (!match) continue;
+        // The bytes as the engine serves them (or the data URL of an image imported this session).
+        let blob: Blob;
+        try {
+          const response = await fetch(url);
+          if (!response.ok) continue;
+          blob = await response.blob();
+        } catch {
+          continue;
+        }
 
-        const ext = match[1] === "jpeg" ? "jpg" : match[1];
-        const base64Data = match[2];
+        const subtype = blob.type.replace(/^image\//, "").replace(/\+xml$/, "");
+        const ext = subtype === "jpeg" ? "jpg" : subtype || "png";
         const fileName = img.fileName || `${imageId}.${ext}`;
 
-        imagesFolder.file(fileName, base64Data, { base64: true });
+        imagesFolder.file(fileName, await blob.arrayBuffer());
         imageManifest.push({
           imageId: img.imageId,
           fileName,

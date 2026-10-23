@@ -10,7 +10,7 @@ import { renderIcon } from "./iconAssets.js";
 import { enumLabel, wholeStepLabel } from "./paramLabels.js";
 import { effectiveTaper, formatTaperedValue, valueToTaperPosition, type ParamTaper } from "./paramTaper.js";
 import { escapeHtml } from "./utils.js";
-import { ensureLayoutImagesLoaded } from "./layoutImages.js";
+import { ensureLayoutImagesLoaded, resolveLayoutImageUrl } from "./layoutImages.js";
 import { resourceBrowserModal } from "./resourceBrowser.js";
 import { getResourcePickerLabelClass, getResourcePickerLabelTitle, renderResourcePickerLabelContent } from "./resourcePickerLabel.js";
 import type {
@@ -72,19 +72,12 @@ export function getCustomLayout(effectType: string, blendId?: string): EffectLay
  * Get a layout image URL by imageId
  */
 function getLayoutImageUrl(imageId: string): string | null {
-  const image = uiState.layoutLibrary?.images.find((img) => img.imageId === imageId);
-  if (image) {
-    // Prefer data URL (base64) for WebView access
-    if (image.dataUrl) {
-      return image.dataUrl;
-    }
-    if (image.fileName) {
-      return `layout-images/${image.fileName}`;
-    }
+  const url = resolveLayoutImageUrl(imageId);
+  if (url) {
+    return url;
   }
-  // Layout images are fetched on demand to keep app startup light. If they have not
-  // been loaded yet, request them; the layoutImagesLoaded handler re-renders so the
-  // background resolves on the next pass.
+  // The image list arrives on demand. If it has not been loaded yet, request it; the
+  // layoutImagesLoaded handler re-renders so the background resolves on the next pass.
   ensureLayoutImagesLoaded();
   return null;
 }

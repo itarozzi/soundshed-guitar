@@ -639,6 +639,19 @@ std::optional<juce::WebBrowserComponent::Resource> PluginEditor::getResource (co
         return std::nullopt;
     }
 
+    // Layout images live in the profile, not the UI bundle: the controller says which file an
+    // image id is, resolved as the layout library resolves it.
+    if (urlToRetrieve.startsWith ("layout-images/"))
+    {
+        if (const auto image = processorRef.getController().ResolveLayoutImageResource (urlToRetrieve.toStdString()))
+        {
+            return juce::WebBrowserComponent::Resource { readFileToVector (soundshed::toJuceFile (image->first)),
+                                                         juce::String (image->second) };
+        }
+
+        return std::nullopt;
+    }
+
     if (resourceRoot.exists())
     {
         const auto file = resourceRoot.getChildFile ("ui").getChildFile (urlToRetrieve);

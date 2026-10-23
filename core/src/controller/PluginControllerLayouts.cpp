@@ -334,7 +334,7 @@ void PluginController::HandleBrowseLayoutImageRequest(const nlohmann::json& payl
 
             if (!sizeEc && size > kMaxLayoutImageBytes)
             {
-                ReportErrorToUI("Image import failed", "The image is larger than 16 MB");
+                ReportErrorToUI("Image import failed", "The image is larger than 64 MB");
                 return;
             }
 
@@ -353,30 +353,16 @@ void PluginController::HandleBrowseLayoutImageRequest(const nlohmann::json& payl
             try
             {
                 std::filesystem::copy_file(selectedPath, destPath, std::filesystem::copy_options::overwrite_existing);
+                InvalidateLayoutImageIndex();
 
-                std::ifstream imageFile(destPath, std::ios::binary);
-
-                if (!imageFile)
-                {
-                    ReportErrorToUI("Image import failed", "Failed to read copied image file");
-                    return;
-                }
-
-                std::vector<std::uint8_t> imageData((std::istreambuf_iterator<char>(imageFile)),
-                                                    std::istreambuf_iterator<char>());
-                imageFile.close();
-
-                const std::string dataUrl = "data:" + mimeType + ";base64," + util::EncodeBase64(imageData);
-
-                SendMessageToUI(nlohmann::json{
-                    {"type", "layoutImageSelected"},
-                    {"purpose", purpose},
-                    {"imageId", imageId},
-                    {"fileName", destFilename},
-                    {"dataUrl", dataUrl},
-                    {"layerIndex", layerIndex},
-                    {"paramKey",
-                     paramKey}}.dump());
+                // The UI fetches the pixels from the entry's URL; the layout may not be saved yet,
+                // which ResolveLayoutImageFile allows for.
+                auto message = LayoutImageEntry(imageId, destPath);
+                message["type"] = "layoutImageSelected";
+                message["purpose"] = purpose;
+                message["layerIndex"] = layerIndex;
+                message["paramKey"] = paramKey;
+                SendMessageToUI(message.dump());
             }
             catch (const std::exception& e)
             {
@@ -416,7 +402,7 @@ void PluginController::HandleSaveLayoutImageRequest(const nlohmann::json& payloa
     {
         AppendSessionLog("SaveLayoutImage: refused " + fileName + " (" + std::to_string(decodedBytes.size()) +
                          " bytes): not an image of its type, or too large");
-        ReportErrorToUI("Image import failed", "The layout's image is not a supported image, or is larger than 16 MB");
+        ReportErrorToUI("Image import failed", "The layout's image is not a supported image, or is larger than 64 MB");
         return;
     }
 
@@ -426,6 +412,7 @@ void PluginController::HandleSaveLayoutImageRequest(const nlohmann::json& payloa
 
     if (WriteFile(destPath, decodedBytes))
     {
+        InvalidateLayoutImageIndex();
         AppendSessionLog("Layout image saved from import: " + util::PathToUtf8(destPath));
     }
     else
@@ -437,13 +424,15 @@ void PluginController::HandleSaveLayoutImageRequest(const nlohmann::json& payloa
 
 void PluginController::LoadLayoutLibrary()
 {
+    // Every save, delete and import ends here, so the next image request sees the new folders.
+    InvalidateLayoutImageIndex();
+
     nlohmann::json library;
     library["byEffectType"] = nlohmann::json::object();
     library["defaults"] = nlohmann::json::object();
-    // Layout images (base64-encoded backgrounds) are intentionally omitted here to keep
-    // app startup lightweight; they are loaded on demand via BuildLayoutImages() when the
-    // layout designer/manager requests them. Per-layout thumbnailDataUrl values remain
-    // embedded in each layout entry below since they are used for signal-path node avatars.
+    // The image list comes separately, on request (BuildLayoutImages), and lists images by URL.
+    // Per-layout thumbnailDataUrl values remain embedded in each layout entry below since they
+    // are used for signal-path node avatars.
     library["images"] = nlohmann::json::array();
 
     // Build user layout library from the associations index.
@@ -646,26 +635,92 @@ nlohmann::json PluginController::BuildLayoutImages()
     for (const auto& source :
          CollectLayoutImageSources(mFileSystem, ResolveFactoryLayoutsDir(mHost.GetBundledAssetsPath())))
     {
-        std::ifstream imageFile(source.path, std::ios::binary);
-
-        if (!imageFile)
-        {
-            AppendSessionLog("Could not read layout image " + util::PathToUtf8(source.path));
-            continue;
-        }
-
-        const std::vector<std::uint8_t> imageData((std::istreambuf_iterator<char>(imageFile)),
-                                                  std::istreambuf_iterator<char>());
-        const std::string mimeType = LayoutImageMimeType(source.path.extension());
-
-        nlohmann::json imageRef;
-        imageRef["imageId"] = source.imageId;
-        imageRef["fileName"] = util::PathToUtf8(source.path.filename());
-        imageRef["dataUrl"] = "data:" + mimeType + ";base64," + util::EncodeBase64(imageData);
-        images.push_back(std::move(imageRef));
+        images.push_back(LayoutImageEntry(source.imageId, source.path));
     }
 
     return images;
+}
+
+nlohmann::json PluginController::LayoutImageEntry(const std::string& imageId, const std::filesystem::path& path)
+{
+    std::error_code ec;
+    const auto modified = std::filesystem::last_write_time(path, ec);
+    const auto version = ec ? 0 : static_cast<std::uint64_t>(modified.time_since_epoch().count());
+    const auto bytes = std::filesystem::file_size(path, ec);
+
+    nlohmann::json entry{{"imageId", imageId},
+                         {"fileName", util::PathToUtf8(path.filename())},
+                         {"url", LayoutImageUrl(imageId, version)},
+                         {"bytes", ec ? 0 : bytes}};
+
+    if (const auto size = ReadLayoutImageSize(path))
+    {
+        entry["width"] = size->width;
+        entry["height"] = size->height;
+    }
+
+    return entry;
+}
+
+std::optional<std::filesystem::path> PluginController::ResolveLayoutImageFile(const std::string& imageId)
+{
+    if (imageId.empty())
+    {
+        return std::nullopt;
+    }
+
+    std::lock_guard<std::mutex> lock(mLayoutImageIndexMutex);
+
+    const auto build = [this] {
+        std::map<std::string, std::filesystem::path> index;
+
+        // Unindexed folders too, at the lowest priority: an image just picked for a layout that
+        // has not been saved yet lives in one, and the designer draws it straight away.
+        for (auto& source :
+             CollectLayoutImageSources(mFileSystem, ResolveFactoryLayoutsDir(mHost.GetBundledAssetsPath()), true))
+        {
+            index.emplace(std::move(source.imageId), std::move(source.path));
+        }
+
+        return index;
+    };
+
+    if (!mLayoutImageIndex)
+    {
+        mLayoutImageIndex = build();
+    }
+
+    auto found = mLayoutImageIndex->find(imageId);
+    std::error_code ec;
+
+    // Folders change outside the handlers that invalidate (a file removed by hand); look again once.
+    if (found == mLayoutImageIndex->end() || !std::filesystem::is_regular_file(found->second, ec))
+    {
+        mLayoutImageIndex = build();
+        found = mLayoutImageIndex->find(imageId);
+    }
+
+    return found != mLayoutImageIndex->end() ? std::optional<std::filesystem::path>(found->second) : std::nullopt;
+}
+
+std::optional<std::pair<std::filesystem::path, std::string>>
+PluginController::ResolveLayoutImageResource(const std::string& resourcePath)
+{
+    const auto file = ResolveLayoutImageFile(LayoutImageIdFromResourcePath(resourcePath));
+    const std::string mimeType = file ? LayoutImageMimeType(file->extension()) : std::string{};
+
+    if (!file || mimeType.empty())
+    {
+        return std::nullopt;
+    }
+
+    return std::make_pair(*file, mimeType);
+}
+
+void PluginController::InvalidateLayoutImageIndex()
+{
+    std::lock_guard<std::mutex> lock(mLayoutImageIndexMutex);
+    mLayoutImageIndex.reset();
 }
 
 void PluginController::HandleRequestLayoutImagesRequest()
