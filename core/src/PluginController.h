@@ -457,6 +457,8 @@ class PluginController
     void HandleExportEffectLayoutRequest(const nlohmann::json& payload);
     void HandleBrowseLayoutImageRequest(const nlohmann::json& payload);
     void HandleSaveLayoutImageRequest(const nlohmann::json& payload);
+    /// Stores a smaller copy of a large layout image, made by the UI, in the renditions folder.
+    void HandleSaveLayoutImageRenditionRequest(const nlohmann::json& payload);
     void HandleRequestLayoutImagesRequest();
     void HandleCleanupResourceLibraryRequest(const nlohmann::json& payload);
     void HandleSaveCompositeDefinitionRequest(const nlohmann::json& payload);
@@ -969,8 +971,8 @@ class PluginController
     /// Every layout image's id, file name, URL, pixel size and byte size. The UI fetches the
     /// pixels from the URL, so this carries no image data.
     [[nodiscard]] nlohmann::json BuildLayoutImages();
-    /// One image's entry as BuildLayoutImages lists it.
-    [[nodiscard]] static nlohmann::json LayoutImageEntry(const std::string& imageId, const std::filesystem::path& path);
+    /// One image's entry as BuildLayoutImages lists it, with the smaller copies kept for it.
+    [[nodiscard]] nlohmann::json LayoutImageEntry(const std::string& imageId, const std::filesystem::path& path) const;
     /// Drops the cached id → file lookup ResolveLayoutImageFile keeps; call after any write to a
     /// layout's images or the layout index.
     void InvalidateLayoutImageIndex();

@@ -444,39 +444,37 @@ bool LooksLikeLayoutImage(const std::vector<std::uint8_t>& bytes, const std::fil
     return false;
 }
 
-std::string LayoutImageUrl(const std::string& imageId, std::uint64_t version)
+namespace
+{
+/// `value` with everything but A-Z a-z 0-9 - _ . ~ percent-encoded, for one URL path segment.
+std::string PercentEncode(const std::string& value)
 {
     static constexpr char kHex[] = "0123456789ABCDEF";
-    std::string url = "layout-images/id/";
+    std::string encoded;
 
-    for (const char c : imageId)
+    for (const char c : value)
     {
         const auto byte = static_cast<unsigned char>(c);
 
         if (std::isalnum(byte) != 0 || c == '-' || c == '_' || c == '.' || c == '~')
         {
-            url += c;
+            encoded += c;
         }
         else
         {
-            url += '%';
-            url += kHex[byte >> 4];
-            url += kHex[byte & 0x0F];
+            encoded += '%';
+            encoded += kHex[byte >> 4];
+            encoded += kHex[byte & 0x0F];
         }
     }
 
-    return url + "?v=" + std::to_string(version);
+    return encoded;
 }
 
-std::string LayoutImageIdFromResourcePath(const std::string& path)
+/// One percent-encoded path segment decoded into an image id, or empty when it holds a separator,
+/// a bad escape, or decodes to something that could name another folder.
+std::string DecodeImageIdSegment(std::string_view segment)
 {
-    static constexpr std::string_view kPrefix = "layout-images/id/";
-
-    if (path.size() <= kPrefix.size() || path.compare(0, kPrefix.size(), kPrefix) != 0)
-    {
-        return {};
-    }
-
     const auto hexValue = [](char c) -> int {
         if (c >= '0' && c <= '9')
         {
@@ -498,9 +496,9 @@ std::string LayoutImageIdFromResourcePath(const std::string& path)
 
     std::string id;
 
-    for (std::size_t i = kPrefix.size(); i < path.size(); ++i)
+    for (std::size_t i = 0; i < segment.size(); ++i)
     {
-        const char c = path[i];
+        const char c = segment[i];
 
         if (c == '/' || c == '\\' || c == '?' || c == '#')
         {
@@ -513,8 +511,8 @@ std::string LayoutImageIdFromResourcePath(const std::string& path)
             continue;
         }
 
-        const int high = i + 2 < path.size() ? hexValue(path[i + 1]) : -1;
-        const int low = i + 2 < path.size() ? hexValue(path[i + 2]) : -1;
+        const int high = i + 2 < segment.size() ? hexValue(segment[i + 1]) : -1;
+        const int low = i + 2 < segment.size() ? hexValue(segment[i + 2]) : -1;
 
         if (high < 0 || low < 0)
         {
@@ -527,6 +525,104 @@ std::string LayoutImageIdFromResourcePath(const std::string& path)
 
     // An id is a file stem: nothing that could name another folder once decoded.
     return id.find_first_of("/\\") == std::string::npos && id != "." && id != ".." ? id : std::string{};
+}
+
+constexpr std::string_view kImageRoutePrefix = "layout-images/id/";
+constexpr std::string_view kRenditionRoutePrefix = "layout-images/rendition/";
+} // namespace
+
+std::string LayoutImageUrl(const std::string& imageId, std::uint64_t version)
+{
+    return std::string(kImageRoutePrefix) + PercentEncode(imageId) + "?v=" + std::to_string(version);
+}
+
+std::string LayoutImageIdFromResourcePath(const std::string& path)
+{
+    if (path.size() <= kImageRoutePrefix.size() || path.compare(0, kImageRoutePrefix.size(), kImageRoutePrefix) != 0)
+    {
+        return {};
+    }
+
+    return DecodeImageIdSegment(std::string_view(path).substr(kImageRoutePrefix.size()));
+}
+
+std::uint64_t LayoutImageVersion(const std::filesystem::path& file)
+{
+    std::error_code ec;
+    const auto modified = std::filesystem::last_write_time(file, ec);
+    return ec ? 0 : static_cast<std::uint64_t>(modified.time_since_epoch().count());
+}
+
+bool IsLayoutRenditionEdge(int edge)
+{
+    return edge == 1024 || edge == 2048 || edge == 4096;
+}
+
+std::filesystem::path ResolveLayoutRenditionsDir(const FileSystem& fileSystem)
+{
+    return fileSystem.ResolveSettingsDirectory() / "layouts" / "renditions";
+}
+
+std::string LayoutRenditionFileName(const std::string& imageId, int edge, std::uint64_t version)
+{
+    // FNV-1a of the original id: SanitizeFilename can map two ids to one name.
+    std::uint32_t hash = 2166136261u;
+
+    for (const char c : imageId)
+    {
+        hash = (hash ^ static_cast<unsigned char>(c)) * 16777619u;
+    }
+
+    static constexpr char kHex[] = "0123456789abcdef";
+    std::string hashText;
+
+    for (int shift = 28; shift >= 0; shift -= 4)
+    {
+        hashText += kHex[(hash >> shift) & 0x0F];
+    }
+
+    return util::SanitizeFilename(imageId) + "-" + hashText + "@" + std::to_string(edge) + "-" +
+           std::to_string(version) + ".webp";
+}
+
+std::string LayoutRenditionUrl(const std::string& imageId, int edge, std::uint64_t version)
+{
+    return std::string(kRenditionRoutePrefix) + PercentEncode(imageId) + "/" + std::to_string(edge) +
+           "?v=" + std::to_string(version);
+}
+
+std::optional<std::pair<std::string, int>> LayoutRenditionFromResourcePath(const std::string& path)
+{
+    if (path.size() <= kRenditionRoutePrefix.size() ||
+        path.compare(0, kRenditionRoutePrefix.size(), kRenditionRoutePrefix) != 0)
+    {
+        return std::nullopt;
+    }
+
+    const std::string_view rest = std::string_view(path).substr(kRenditionRoutePrefix.size());
+    const auto slash = rest.rfind('/');
+
+    if (slash == std::string_view::npos || slash == 0 || slash + 1 >= rest.size())
+    {
+        return std::nullopt;
+    }
+
+    const std::string_view edgeText = rest.substr(slash + 1);
+
+    if (edgeText.size() > 4 || !std::all_of(edgeText.begin(), edgeText.end(), [](char c) { return c >= '0' && c <= '9'; }))
+    {
+        return std::nullopt;
+    }
+
+    const int edge = std::stoi(std::string(edgeText));
+    std::string id = DecodeImageIdSegment(rest.substr(0, slash));
+
+    if (id.empty() || !IsLayoutRenditionEdge(edge))
+    {
+        return std::nullopt;
+    }
+
+    return std::make_pair(std::move(id), edge);
 }
 
 namespace

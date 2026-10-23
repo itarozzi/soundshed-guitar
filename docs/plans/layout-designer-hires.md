@@ -93,12 +93,15 @@ They can change freely. Only stored data and archives need compatibility.
    - Pinned by `TestSharedImageIdsResolveAsTheLibraryShowsThem` in
      `core/tests/LayoutStorageWorkflowTests.cpp`. The new image route uses the
      same function.
-5. **New files go where old code doesn't look.** Renditions go in
-   `images/renditions/`, a subfolder. The non-recursive scans in old and new
-   builds don't list them, so they never appear as extra images in the picker.
-   They are optional: a missing rendition falls back to the original. Old
-   layouts get renditions lazily, the first time an image is drawn larger than
-   some threshold, not by a bulk migration.
+5. **New files go where old code doesn't look.** Renditions go in one cache
+   folder, `layouts/renditions/`, outside every layout's own folder (built in
+   phase 3; the first draft put them in each layout's `images/renditions/`).
+   No build, old or new, lists that folder as layout images; factory images
+   can have copies too; and losing a copy only costs making it again. Copies
+   are optional: a missing copy falls back to the original. Old layouts get
+   copies lazily, the first time a large image is drawn, not by a bulk
+   migration. Only images longer than 2048 px get copies at all, so every
+   smaller image is still drawn from its own file, pixel for pixel.
 6. **Data URLs keep working.** Anything carrying a `dataUrl` (old library
    entries, old `imageAssets`) still renders. The renderer keeps accepting
    `data:image/` URLs alongside the new route.
@@ -378,6 +381,58 @@ not working.
   at `maxScale`, which only wastes memory. Flag a filmstrip taller than 16384 px,
   which goes over GPU texture limits.
 
+**Built (phase 3).**
+
+- **Which images get copies.** Only images longer than 2048 px on their
+  longest edge (`RENDITION_MIN_SOURCE_EDGE`). They get copies at 1024, 2048
+  and 4096 px, each only when smaller than the original. Every smaller image
+  is drawn from its own file, as before. All 20 images in the real profile
+  are ≤ 1774 px, so none of them changes.
+- **Making them.** The WebView makes the copies, since the engine has no image
+  codecs (`layoutRenditionMaker.ts`): `createImageBitmap` with
+  `resizeQuality: "high"`, then WebP at quality 0.92, once per file version
+  per session, the first time a large image is drawn.
+- **Storing and serving them.** The engine's
+  `HandleSaveLayoutImageRenditionRequest` stores a copy in
+  `layouts/renditions/` only if all of these hold:
+  - its version matches the source file's current write time
+  - its edge is one of the kept sizes, and smaller than the source
+  - it is WebP, and its header declares exactly that edge
+  
+  Saving a copy removes copies of older versions at that size. The image list
+  carries `version` (a string, past 2^53) and `renditions`. The route
+  `layout-images/rendition/<id>/<edge>` serves a copy only while it matches
+  the current file.
+- **Choosing one.** The renderer passes how wide each image is drawn at the
+  layout's largest: background size mode × `maxScale`, or the 30 px knob
+  face. `resolveLayoutImageUrl` then picks the smallest copy with a pixel for
+  every device pixel at the window's `devicePixelRatio`.
+- **Live check** with a 6000 × 4000 test image:
+  - The 1024, 2048 and 4096 copies were made and stored in 2.3 s, and served
+    as WebP at their listed sizes.
+  - The 1024 copy decodes in 17 ms against 77 ms for the original.
+  - Against the browser's own downscale of the original, the mean difference
+    is 5.1 levels in 255, with no pixel more than 24 apart.
+  - A 600 × 400 cover background drew from the 2048 copy at the window's
+    1.75 DPR.
+- **Baseline: the WebView2 runtime updated from 155 to 156** between the
+  phase 2 and phase 3 checks.
+  - On 156, one shot (`resource-selector--w360--1x`) differs from the
+    committed 155 baseline, by 6 pixels on the anti-aliasing of the app's own
+    folder icon.
+  - The phase 0 build shot on 156 matches phase 3 on that shot, so the
+    runtime caused it, not the code.
+  - Comparing two separate launches on 156 also showed a sub-pixel shift in
+    one scaled background image (`backdrop-offset-scale--w1200`). Its markup
+    snapshot is identical and phase 3 matched the committed baseline there,
+    so that is run-to-run variance too.
+  - Compare against the committed baseline. When a shot differs, check it
+    against the phase 0 build on the same runtime before calling it a
+    regression.
+- **Not done.** Preloading before a panel swap. The designer still draws
+  originals: it's the authoring view, one layout at a time. There are no
+  oversize warnings yet.
+
 ### 4. Controls that suit high-res art
 
 - **Control size.** Add **new** fields (e.g. `style.knobDiameter`,
@@ -450,7 +505,7 @@ In rough order of value:
 | 0 | **Done** 2026-10-23: compatibility fixtures, golden render snapshots, scaling pins and the live screenshot baseline, captured on today's code. Image-id precedence settled in one shared lookup (rule 4). | A baseline every later phase is checked against |
 | 1 | **Done** 2026-10-23. Live check: the real library's 20 images all served with the listed type, bytes and size; the list is one 4.3 KB message instead of about 25 MB of base64; 0 of 57 baseline shots differ. §1: image route, metadata-only messages, file-based export and import, intrinsic size, higher byte cap | Large images load at all, and panel renders stop copying MBs |
 | 2 | **Done** 2026-10-23. Old layouts unchanged (snapshots and 0 of 57 live shots). A layout that opts in grows to fill the real panel, or fits its height. §2: limits, `scaling` modes with upscale and height fit, grid setting, per-layout text sizes | Layouts fill the space they have |
-| 3 | §3: renditions, DPR-aware selection, preload | Memory and paint cost bounded, Android viable |
+| 3 | **Done** 2026-10-23. Only images over 2048 px get copies; a 6000 × 4000 image's copies were made, kept and drawn live. §3: renditions, DPR-aware selection, preload | Memory and paint cost bounded, Android viable |
 | 4 | §4: control sizing and handles, filmstrip and layered knobs, image toggles and sliders, image elements | Real skeuomorphic skins |
 | 5 | Asset panel, preview at size, arrangement tools, fonts | Editor ergonomics |
 

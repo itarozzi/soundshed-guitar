@@ -641,16 +641,17 @@ nlohmann::json PluginController::BuildLayoutImages()
     return images;
 }
 
-nlohmann::json PluginController::LayoutImageEntry(const std::string& imageId, const std::filesystem::path& path)
+nlohmann::json PluginController::LayoutImageEntry(const std::string& imageId, const std::filesystem::path& path) const
 {
     std::error_code ec;
-    const auto modified = std::filesystem::last_write_time(path, ec);
-    const auto version = ec ? 0 : static_cast<std::uint64_t>(modified.time_since_epoch().count());
+    const auto version = LayoutImageVersion(path);
     const auto bytes = std::filesystem::file_size(path, ec);
 
+    // The version goes as a string: clock ticks are past what a JavaScript number holds exactly.
     nlohmann::json entry{{"imageId", imageId},
                          {"fileName", util::PathToUtf8(path.filename())},
                          {"url", LayoutImageUrl(imageId, version)},
+                         {"version", std::to_string(version)},
                          {"bytes", ec ? 0 : bytes}};
 
     if (const auto size = ReadLayoutImageSize(path))
@@ -659,7 +660,104 @@ nlohmann::json PluginController::LayoutImageEntry(const std::string& imageId, co
         entry["height"] = size->height;
     }
 
+    // Smaller copies made for this version of the file; a copy of an older version is not listed.
+    nlohmann::json renditions = nlohmann::json::array();
+    const auto renditionsDir = ResolveLayoutRenditionsDir(mFileSystem);
+
+    for (const int edge : {1024, 2048, 4096})
+    {
+        const auto copy = renditionsDir / util::PathFromUtf8(LayoutRenditionFileName(imageId, edge, version));
+        const auto size = std::filesystem::is_regular_file(copy, ec) ? ReadLayoutImageSize(copy) : std::nullopt;
+
+        if (size)
+        {
+            renditions.push_back({{"edge", edge},
+                                  {"width", size->width},
+                                  {"height", size->height},
+                                  {"url", LayoutRenditionUrl(imageId, edge, version)}});
+        }
+    }
+
+    if (!renditions.empty())
+    {
+        entry["renditions"] = std::move(renditions);
+    }
+
     return entry;
+}
+
+void PluginController::HandleSaveLayoutImageRenditionRequest(const nlohmann::json& payload)
+{
+    const std::string imageId = payload.value("imageId", "");
+    const std::string versionText = payload.value("version", "");
+    const int edge = payload.value("edge", 0);
+    const std::string dataEncoded = payload.value("data", "");
+    const auto source = ResolveLayoutImageFile(imageId);
+
+    // A copy for a file that has since changed, or of a size not kept, is dropped quietly: the UI
+    // makes copies in the background and will make them again for the new file.
+    if (!source || !IsLayoutRenditionEdge(edge) || dataEncoded.empty() ||
+        versionText != std::to_string(LayoutImageVersion(*source)))
+    {
+        AppendSessionLog("SaveLayoutImageRendition: dropped a copy of " + imageId + " at " + std::to_string(edge));
+        return;
+    }
+
+    const auto sourceSize = ReadLayoutImageSize(*source);
+    const auto bytes = util::DecodeBase64(dataEncoded);
+
+    if (!sourceSize || static_cast<std::uint32_t>(edge) >= std::max(sourceSize->width, sourceSize->height) ||
+        bytes.empty() || bytes.size() > kMaxLayoutImageBytes || !LooksLikeLayoutImage(bytes, ".webp"))
+    {
+        AppendSessionLog("SaveLayoutImageRendition: refused a copy of " + imageId + " at " + std::to_string(edge));
+        return;
+    }
+
+    const auto version = LayoutImageVersion(*source);
+    const auto dir = ResolveLayoutRenditionsDir(mFileSystem);
+    [[maybe_unused]] const auto ensured = mFileSystem.EnsureDirectory(dir);
+    const auto fileName = LayoutRenditionFileName(imageId, edge, version);
+    const auto dest = dir / util::PathFromUtf8(fileName);
+
+    if (!WriteFile(dest, bytes))
+    {
+        AppendSessionLog("SaveLayoutImageRendition: could not write " + util::PathToUtf8(dest));
+        return;
+    }
+
+    // The copy must be what it says: a WebP whose longest edge is the one asked for.
+    const auto written = ReadLayoutImageSize(dest);
+    std::error_code ec;
+
+    if (!written || std::max(written->width, written->height) != static_cast<std::uint32_t>(edge))
+    {
+        std::filesystem::remove(dest, ec);
+        AppendSessionLog("SaveLayoutImageRendition: removed a copy of " + imageId + " that is not " +
+                         std::to_string(edge) + " px");
+        return;
+    }
+
+    // Copies of the file's earlier versions at this size are no use any more.
+    const std::string stalePrefix = fileName.substr(0, fileName.rfind('-') + 1);
+
+    for (const auto& entry : std::filesystem::directory_iterator(dir, ec))
+    {
+        const std::string name = util::PathToUtf8(entry.path().filename());
+
+        if (name != fileName && name.rfind(stalePrefix, 0) == 0)
+        {
+            std::error_code removeEc;
+            std::filesystem::remove(entry.path(), removeEc);
+        }
+    }
+
+    SendMessageToUI(nlohmann::json{{"type", "layoutImageRenditionSaved"},
+                                   {"imageId", imageId},
+                                   {"edge", edge},
+                                   {"width", written->width},
+                                   {"height", written->height},
+                                   {"url", LayoutRenditionUrl(imageId, edge, version)}}
+                        .dump());
 }
 
 std::optional<std::filesystem::path> PluginController::ResolveLayoutImageFile(const std::string& imageId)
@@ -706,6 +804,24 @@ std::optional<std::filesystem::path> PluginController::ResolveLayoutImageFile(co
 std::optional<std::pair<std::filesystem::path, std::string>>
 PluginController::ResolveLayoutImageResource(const std::string& resourcePath)
 {
+    // A smaller copy: served only while it was made from the image's current file.
+    if (const auto rendition = LayoutRenditionFromResourcePath(resourcePath))
+    {
+        const auto source = ResolveLayoutImageFile(rendition->first);
+        const auto copy = source ? ResolveLayoutRenditionsDir(mFileSystem) /
+                                       util::PathFromUtf8(LayoutRenditionFileName(
+                                           rendition->first, rendition->second, LayoutImageVersion(*source)))
+                                 : std::filesystem::path{};
+        std::error_code ec;
+
+        if (!source || !std::filesystem::is_regular_file(copy, ec))
+        {
+            return std::nullopt;
+        }
+
+        return std::make_pair(copy, std::string("image/webp"));
+    }
+
     const auto file = ResolveLayoutImageFile(LayoutImageIdFromResourcePath(resourcePath));
     const std::string mimeType = file ? LayoutImageMimeType(file->extension()) : std::string{};
 

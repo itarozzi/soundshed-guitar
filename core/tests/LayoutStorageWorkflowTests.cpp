@@ -18,6 +18,7 @@
 #include <optional>
 #include <set>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <nlohmann/json.hpp>
@@ -682,6 +683,129 @@ bool TestLargeImportedImagesAreStored()
     return true;
 }
 
+/// A WebP (VP8X) header declaring `width` x `height`.
+std::vector<std::uint8_t> WebpOfSize(std::uint32_t width, std::uint32_t height)
+{
+    std::vector<std::uint8_t> bytes = {'R', 'I', 'F', 'F', 0, 0, 0, 0, 'W', 'E', 'B', 'P', 'V', 'P', '8', 'X'};
+    bytes.resize(24, 0);
+
+    for (const auto value : {width - 1, height - 1})
+    {
+        for (int shift = 0; shift < 24; shift += 8)
+        {
+            bytes.push_back(static_cast<std::uint8_t>(value >> shift));
+        }
+    }
+
+    bytes.resize(64, 0);
+    return bytes;
+}
+
+/// The library's entry for one image.
+nlohmann::json ListedImage(TestHost& host, guitarfx::PluginController& controller, const std::string& imageId)
+{
+    controller.HandleUIMessage(R"({"type":"requestLayoutImages"})");
+    const auto loaded = host.WaitForMessage("layoutImagesLoaded");
+
+    for (const auto& image : loaded ? loaded->value("images", nlohmann::json::array()) : nlohmann::json::array())
+    {
+        if (image.value("imageId", "") == imageId)
+        {
+            return image;
+        }
+    }
+
+    return nlohmann::json::object();
+}
+
+void SaveRendition(guitarfx::PluginController& controller, const std::string& imageId, const std::string& version,
+                   int edge, const std::vector<std::uint8_t>& bytes)
+{
+    controller.HandleUIMessage(nlohmann::json{{"type", "saveLayoutImageRendition"},
+                                              {"imageId", imageId},
+                                              {"version", version},
+                                              {"edge", edge},
+                                              {"data", guitarfx::util::EncodeBase64(bytes)}}
+                                   .dump());
+}
+
+/// A smaller copy the UI makes of a large image is kept for that version of the file, listed with
+/// the image and served by its route; copies that are stale, the wrong size or not WebP are not.
+bool TestRenditionsAreStoredListedAndServed()
+{
+    const fs::path sandbox = FreshSandbox("renditions");
+    const ScopedPlatformRoot root(sandbox);
+    const fs::path copies = sandbox / "data" / "v1" / "layouts" / "renditions";
+
+    TestHost host(sandbox);
+    guitarfx::PluginController controller(host);
+    SaveImage(controller, "R", "huge_1", "huge_1.png", PngOfSize(6000, 4000));
+    SaveImage(controller, "R", "mid_1", "mid_1.png", PngOfSize(3000, 2000));
+    SaveLayout(controller, "R", "fx_r", {"huge_1", "mid_1"});
+
+    const std::string version = ListedImage(host, controller, "huge_1").value("version", "");
+    SaveRendition(controller, "huge_1", version, 1024, WebpOfSize(1024, 683));
+
+    const auto saved = host.WaitForMessage("layoutImageRenditionSaved");
+    const auto listed = ListedImage(host, controller, "huge_1");
+    const auto renditions = listed.value("renditions", nlohmann::json::array());
+
+    if (!saved || saved->value("edge", 0) != 1024 || renditions.size() != 1 || renditions[0].value("width", 0) != 1024 ||
+        renditions[0].value("url", "").rfind("layout-images/rendition/huge_1/1024?v=" + version, 0) != 0)
+    {
+        std::cerr << "The copy was not listed with the image: " << listed.dump() << "\n";
+        return false;
+    }
+
+    const auto served = controller.ResolveLayoutImageResource("layout-images/rendition/huge_1/1024");
+
+    if (!served || served->second != "image/webp" || served->first.parent_path() != copies)
+    {
+        std::cerr << "The copy's route did not serve it\n";
+        return false;
+    }
+
+    const std::size_t keptBefore = static_cast<std::size_t>(std::distance(fs::directory_iterator(copies), {}));
+    SaveRendition(controller, "huge_1", "12345", 2048, WebpOfSize(2048, 1365));     // stale version
+    SaveRendition(controller, "huge_1", version, 1500, WebpOfSize(1500, 1000));     // a size not kept
+    SaveRendition(controller, "huge_1", version, 2048, PngOfSize(2048, 1365));      // not WebP
+    SaveRendition(controller, "huge_1", version, 2048, WebpOfSize(1024, 683));      // not the size it says
+    const std::string midVersion = ListedImage(host, controller, "mid_1").value("version", "");
+    SaveRendition(controller, "mid_1", midVersion, 4096, WebpOfSize(4096, 2731));   // not smaller than its source
+    const std::size_t keptAfter = static_cast<std::size_t>(std::distance(fs::directory_iterator(copies), {}));
+
+    if (keptAfter != keptBefore || controller.ResolveLayoutImageResource("layout-images/rendition/huge_1/2048") ||
+        controller.ResolveLayoutImageResource("layout-images/rendition/huge_1/1500") ||
+        controller.ResolveLayoutImageResource("layout-images/rendition/..%2Fx/1024"))
+    {
+        std::cerr << "A copy that should have been refused was kept or served\n";
+        return false;
+    }
+
+    // A new file under the same id: its old copy is no longer listed or served, and is removed
+    // once a copy of the new file is saved.
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    SaveImage(controller, "R", "huge_1", "huge_1.png", PngOfSize(6000, 4000, 40));
+    const auto replaced = ListedImage(host, controller, "huge_1");
+
+    if (replaced.contains("renditions") || controller.ResolveLayoutImageResource("layout-images/rendition/huge_1/1024"))
+    {
+        std::cerr << "The old file's copy is still offered: " << replaced.dump() << "\n";
+        return false;
+    }
+
+    SaveRendition(controller, "huge_1", replaced.value("version", ""), 1024, WebpOfSize(1024, 683));
+    const auto left = static_cast<std::size_t>(std::distance(fs::directory_iterator(copies), {}));
+
+    if (left != 1 || !controller.ResolveLayoutImageResource("layout-images/rendition/huge_1/1024"))
+    {
+        std::cerr << "Expected only the new file's copy to remain, found " << left << " files\n";
+        return false;
+    }
+
+    return true;
+}
+
 /// A save the engine cannot complete says so, naming the layout, rather than claiming success.
 bool TestFailedSaveIsReported()
 {
@@ -759,6 +883,7 @@ int main()
         {"Images are listed by URL and served by the route", TestImagesAreListedByUrlAndServedByTheRoute},
         {"Image sizes are read from headers", TestImageSizesAreReadFromHeaders},
         {"Large imported images are stored", TestLargeImportedImagesAreStored},
+        {"Renditions are stored, listed and served", TestRenditionsAreStoredListedAndServed},
         {"A failed save is reported", TestFailedSaveIsReported},
         {"Delete removes the layout from every key", TestDeleteRemovesTheLayoutFromEveryKey},
     };

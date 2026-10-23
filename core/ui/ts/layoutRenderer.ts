@@ -10,7 +10,7 @@ import { renderIcon } from "./iconAssets.js";
 import { enumLabel, wholeStepLabel } from "./paramLabels.js";
 import { effectiveTaper, formatTaperedValue, valueToTaperPosition, type ParamTaper } from "./paramTaper.js";
 import { escapeHtml } from "./utils.js";
-import { ensureLayoutImagesLoaded, resolveLayoutImageUrl } from "./layoutImages.js";
+import { backgroundImageDrawnWidth, ensureLayoutImagesLoaded, knobFaceDrawnWidth, resolveLayoutImageUrl } from "./layoutImages.js";
 import { layoutCanGrow, scalingAttribute } from "./layoutScaling.js";
 import { resourceBrowserModal } from "./resourceBrowser.js";
 import { getResourcePickerLabelClass, getResourcePickerLabelTitle, renderResourcePickerLabelContent } from "./resourcePickerLabel.js";
@@ -72,8 +72,8 @@ export function getCustomLayout(effectType: string, blendId?: string): EffectLay
 /**
  * Get a layout image URL by imageId
  */
-function getLayoutImageUrl(imageId: string): string | null {
-  const url = resolveLayoutImageUrl(imageId);
+function getLayoutImageUrl(imageId: string, drawnWidth?: number): string | null {
+  const url = resolveLayoutImageUrl(imageId, drawnWidth);
   if (url) {
     return url;
   }
@@ -94,7 +94,7 @@ export function renderCustomLayout(
 ): string {
   const w = Math.round(layout.dimensions.width);
   const h = Math.round(layout.dimensions.height);
-  const backgrounds = renderBackgrounds(layout.backgrounds);
+  const backgrounds = renderBackgrounds(layout.backgrounds, layout);
   const overlays = renderOverlays(node, layout.overlays ?? []);
   const controls = renderControls(node, layout, paramDefs, resourceControls);
   const labels = renderTextLabels(layout.textLabels);
@@ -316,7 +316,7 @@ export function renderCustomLayoutBackdrop(
 ): string {
   const w = Math.round(layout.dimensions.width);
   const h = Math.round(layout.dimensions.height);
-  const backgrounds = renderBackgrounds(layout.backgrounds);
+  const backgrounds = renderBackgrounds(layout.backgrounds, layout);
   const overlays = renderOverlays(node, layout.overlays ?? []);
   const labels = renderTextLabels(layout.textLabels);
   const themeClass = layout.containerTheme ? ` theme-${layout.containerTheme}` : '';
@@ -369,7 +369,7 @@ export function renderCustomLayoutBackdrop(
 /**
  * Render background layers
  */
-function renderBackgrounds(backgrounds: LayoutBackground[]): string {
+function renderBackgrounds(backgrounds: LayoutBackground[], layout: EffectLayout): string {
   return backgrounds
     .sort((a, b) => a.layerIndex - b.layerIndex)
     .map((bg) => {
@@ -384,7 +384,7 @@ function renderBackgrounds(backgrounds: LayoutBackground[]): string {
       } else if (bg.type === "gradient") {
         style += `background: ${safeCssValue(bg.value, "none")};`;
       } else if (bg.type === "image") {
-        const url = getLayoutImageUrl(bg.value);
+        const url = getLayoutImageUrl(bg.value, backgroundImageDrawnWidth(bg, layout));
         if (url) {
           // Determine background-size
           let bgSize: string = safeCssValue(bg.size, "cover");
@@ -688,7 +688,7 @@ function renderControls(
       } else {
         // Knob
         const knobImageId = control.style?.knobImageId;
-        const knobImageUrl = knobImageId ? getLayoutImageUrl(knobImageId) : null;
+        const knobImageUrl = knobImageId ? getLayoutImageUrl(knobImageId, knobFaceDrawnWidth(layout)) : null;
         const useCustomKnobImage = knobStyle === "custom" && !!knobImageUrl;
         const knobBg = useCustomKnobImage
           ? `background-image: none;`

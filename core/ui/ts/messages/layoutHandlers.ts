@@ -108,6 +108,23 @@ export function onLayoutImageSelected(payload: IncomingPayload): void {
   }
 }
 
+/** A smaller copy of a large image was kept: list it, so the next draw can use it. */
+export function onLayoutImageRenditionSaved(payload: IncomingPayload): void {
+  const saved = payload as { imageId?: string; edge?: number; width?: number; height?: number; url?: string };
+  const image = uiState.layoutLibrary?.images.find((img) => img.imageId === saved.imageId);
+  if (!image || typeof saved.edge !== "number" || !saved.url || !saved.width || !saved.height) {
+    return;
+  }
+  const rendition = { edge: saved.edge, width: saved.width, height: saved.height, url: saved.url };
+  image.renditions = [...(image.renditions ?? []).filter((r) => r.edge !== rendition.edge), rendition]
+    .sort((a, b) => a.edge - b.edge);
+  appendLog(`Layout image copy kept: ${saved.imageId} at ${saved.edge} px`);
+  // The largest copy arrives last; draw again once it is in.
+  if (!image.width || !image.height || rendition.edge >= Math.max(...image.renditions.map((r) => r.edge))) {
+    refreshSelectedNodeParams();
+  }
+}
+
 export function onLayoutExportSaved(payload: IncomingPayload): void {
   const exportPayload = payload as { path?: string };
   if (exportPayload.path) {

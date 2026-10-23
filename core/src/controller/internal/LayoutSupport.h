@@ -14,6 +14,7 @@
 #include <functional>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <nlohmann/json.hpp>
@@ -60,7 +61,32 @@ inline constexpr std::size_t kMaxLayoutImageBytes = 64u * 1024u * 1024u;
 /// empty when the path is not one.
 [[nodiscard]] std::string LayoutImageIdFromResourcePath(const std::string& path);
 
-/// Pixel size an image file declares, read from its header without decoding it.
+/// The version a layout image's URLs carry: its file's last-write time in clock ticks, so a file
+/// replaced under the same id is fetched again and its smaller copies are made again. 0 when the
+/// time cannot be read.
+[[nodiscard]] std::uint64_t LayoutImageVersion(const std::filesystem::path& file);
+
+/// True for a longest edge a smaller copy of a large layout image is kept at: 1024, 2048 or 4096.
+[[nodiscard]] bool IsLayoutRenditionEdge(int edge);
+
+/// Where smaller copies of large layout images are kept: one folder for every layout's images and
+/// the factory's, outside every layout's own folder, so older builds never list them and losing
+/// one costs only the time to make it again.
+[[nodiscard]] std::filesystem::path ResolveLayoutRenditionsDir(const FileSystem& fileSystem);
+
+/// File name of image `imageId`'s copy at `edge` px for source `version`: the id made safe for a
+/// file name plus a hash of the original id (two ids that sanitise alike stay apart), the edge
+/// and the version, as WebP.
+[[nodiscard]] std::string LayoutRenditionFileName(const std::string& imageId, int edge, std::uint64_t version);
+
+/// The URL the UI draws that copy from: `layout-images/rendition/<id>/<edge>?v=<version>`.
+[[nodiscard]] std::string LayoutRenditionUrl(const std::string& imageId, int edge, std::uint64_t version);
+
+/// The image id and edge in a `layout-images/rendition/<id>/<edge>` resource path (no query), or
+/// nullopt when the path is not one.
+[[nodiscard]] std::optional<std::pair<std::string, int>> LayoutRenditionFromResourcePath(const std::string& path);
+
+/// The pixel size an image file declares, read from its header without decoding it.
 struct LayoutImageSize
 {
     std::uint32_t width = 0;

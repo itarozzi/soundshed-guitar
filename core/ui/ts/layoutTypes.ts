@@ -5,9 +5,10 @@
  * background images, control positioning, and text labels.
  */
 
+import type { LayoutImageRendition } from "./layoutRenditions.js";
 import type { LayoutScaling } from "./layoutScaling.js";
 
-export type { LayoutScaling };
+export type { LayoutImageRendition, LayoutScaling };
 
 /** Image reference for layout backgrounds and knobs */
 export interface LayoutImageRef {
@@ -27,6 +28,10 @@ export interface LayoutImageRef {
   height?: number;
   /** File size in bytes. */
   bytes?: number;
+  /** The file's version (its write time), which the URLs carry; a string, as it is past 2^53. */
+  version?: string;
+  /** Smaller copies of a large image, made for this version (layoutRenditions.ts). */
+  renditions?: LayoutImageRendition[];
   /** Image type/category */
   type?: "background" | "knob" | "general";
 }

@@ -156,6 +156,12 @@ bool MessageDispatcher::DispatchLibraryAndComposite(PluginController& c, const n
         return true;
     }
 
+    if (type == "saveLayoutImageRendition")
+    {
+        c.HandleSaveLayoutImageRenditionRequest(msg);
+        return true;
+    }
+
     if (type == "requestLayoutImages")
     {
         c.HandleRequestLayoutImagesRequest();
