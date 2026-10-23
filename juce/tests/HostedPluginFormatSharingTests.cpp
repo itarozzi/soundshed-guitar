@@ -6,13 +6,19 @@
 //
 // Loads a plugin path that does not exist, which sets the formats up and then fails cleanly, so
 // this runs on any machine.
+//
+// Also the description cache the formats carry (HostedPluginDescriptionCache), against fake
+// plugin files in a sandboxed settings folder: what a VST3 scan found is found again, after a
+// restart too, until the plugin's files change.
 
 #include "JuceHostedPluginEffect.h"
 
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_events/juce_events.h>
 
+#include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -120,6 +126,126 @@ bool TestFormatsAreReleasedWithTheLastPluginHost()
     return true;
 }
 
+// ── The description cache ───────────────────────────────────────────────────────────────
+
+/// A sandbox for the cache file, which lives under the settings directory.
+std::filesystem::path UseCacheSandbox()
+{
+    const auto root = std::filesystem::temp_directory_path() / "guitarfx-hosted-plugin-tests" / "description-cache";
+    std::error_code ec;
+    std::filesystem::remove_all(root, ec);
+    std::filesystem::create_directories(root, ec);
+#ifdef _WIN32
+    _wputenv_s(L"APPDATA", root.wstring().c_str());
+#else
+    setenv("HOME", root.string().c_str(), 1);
+#endif
+    return root;
+}
+
+void WriteFile(const std::filesystem::path& file, const std::string& contents)
+{
+    std::filesystem::create_directories(file.parent_path());
+    std::ofstream(file, std::ios::binary | std::ios::trunc) << contents;
+}
+
+juce::OwnedArray<juce::PluginDescription> FakeScan(const std::filesystem::path& plugin)
+{
+    juce::OwnedArray<juce::PluginDescription> found;
+    auto* description = found.add(new juce::PluginDescription());
+    description->name = "Fake";
+    description->pluginFormatName = "VST3";
+    description->fileOrIdentifier = juce::String(plugin.wstring().c_str());
+    description->uniqueId = 1234;
+    return found;
+}
+
+/// A scanned plugin is found again, by this process and by the next one (a fresh cache reads
+/// the file), until the plugin changes; then it is scanned again.
+bool TestDescriptionCacheRemembersUntilThePluginChanges()
+{
+    const auto root = UseCacheSandbox();
+    const auto plugin = root / "plugins" / "Fake.vst3";
+    WriteFile(plugin, "binary-v1");
+
+    guitarfx::HostedPluginDescriptionCache cache;
+    if (!cache.Find(plugin).empty())
+    {
+        Fail("an empty cache found a plugin");
+        return false;
+    }
+
+    cache.Store(plugin, FakeScan(plugin));
+    const auto found = cache.Find(plugin);
+    if (found.size() != 1 || found.front().name != "Fake" || found.front().uniqueId != 1234)
+    {
+        Fail("a stored description was not found again");
+        return false;
+    }
+
+    guitarfx::HostedPluginDescriptionCache restarted;
+    if (restarted.Find(plugin).size() != 1)
+    {
+        Fail("a stored description did not survive a restart");
+        return false;
+    }
+
+    WriteFile(plugin, "binary-v2, updated in place");
+    if (!restarted.Find(plugin).empty())
+    {
+        Fail("a plugin that changed was still taken from the cache");
+        return false;
+    }
+
+    cache.Store(plugin, FakeScan(plugin));
+    cache.Forget(plugin);
+    if (!cache.Find(plugin).empty() || !guitarfx::HostedPluginDescriptionCache().Find(plugin).empty())
+    {
+        Fail("a forgotten description was still found");
+        return false;
+    }
+
+    return true;
+}
+
+/// A bundle is told apart by the binaries inside it, which an update replaces while the bundle
+/// folder itself stays put.
+bool TestDescriptionCacheWatchesABundlesBinaries()
+{
+    const auto root = UseCacheSandbox();
+    const auto bundle = root / "plugins" / "Bundle.vst3";
+    const auto binary = bundle / "Contents" / "x86_64-win" / "Bundle.vst3";
+    WriteFile(binary, "binary-v1");
+    WriteFile(bundle / "Contents" / "Resources" / "Snapshots" / "image.png", "not part of the fingerprint");
+
+    guitarfx::HostedPluginDescriptionCache cache;
+    cache.Store(bundle, FakeScan(bundle));
+    if (cache.Find(bundle).size() != 1)
+    {
+        Fail("a stored bundle was not found again");
+        return false;
+    }
+
+    WriteFile(binary, "binary-v2, a longer build");
+    if (!cache.Find(bundle).empty())
+    {
+        Fail("a bundle whose binary changed was still taken from the cache");
+        return false;
+    }
+
+    // A folder with no binary in it is no plugin to remember.
+    const auto empty = root / "plugins" / "Empty.vst3";
+    std::filesystem::create_directories(empty / "Contents");
+    cache.Store(empty, FakeScan(empty));
+    if (!cache.Find(empty).empty())
+    {
+        Fail("a bundle with no binaries was cached");
+        return false;
+    }
+
+    return true;
+}
+
 } // namespace
 
 int main()
@@ -137,6 +263,8 @@ int main()
     run("Formats are not set up at construction", TestFormatsAreNotSetUpAtConstruction());
     run("Live Plugin Hosts share one set of formats", TestLivePluginHostsShareOneSetOfFormats());
     run("Formats are released with the last Plugin Host", TestFormatsAreReleasedWithTheLastPluginHost());
+    run("Description cache remembers until the plugin changes", TestDescriptionCacheRemembersUntilThePluginChanges());
+    run("Description cache watches a bundle's binaries", TestDescriptionCacheWatchesABundlesBinaries());
 
     std::cout << "\nHosted plugin format sharing tests: " << passed << " passed, " << failed << " failed\n";
     return failed == 0 ? 0 : 1;

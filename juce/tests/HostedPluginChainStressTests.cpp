@@ -11,7 +11,7 @@
 // Not registered with ctest: it loads real plugins from this machine and takes minutes.
 //
 // Usage: HostedPluginChainStressTests [--max N] [--block B] [--scenario series|ui|split|preset|all]
-//                                     [--settle-ms MS] [plugin.vst3 ...]
+//                                     [--settle-ms MS] [--keep-sandbox] [plugin.vst3 ...]
 // With no plugins named, GUITARFX_STRESS_PLUGINS (';'-separated) is used, else every .vst3 in
 // the Kilohearts folder. Plugins are reused round-robin when N is larger than the list.
 
@@ -603,6 +603,7 @@ std::vector<fs::path> DefaultPlugins()
 int main(int argc, char** argv)
 {
     std::string scenario = "all";
+    bool keepSandbox = false;
     std::vector<fs::path> plugins;
     for (int i = 1; i < argc; ++i)
     {
@@ -613,6 +614,8 @@ int main(int argc, char** argv)
             gBlockSize = std::max(16, std::atoi(argv[++i]));
         else if (arg == "--settle-ms" && i + 1 < argc)
             gSettleMs = std::max(0, std::atoi(argv[++i]));
+        else if (arg == "--keep-sandbox")
+            keepSandbox = true;
         else if (arg == "--scenario" && i + 1 < argc)
             scenario = argv[++i];
         else
@@ -638,7 +641,10 @@ int main(int argc, char** argv)
 
     const fs::path sandbox = fs::temp_directory_path() / "guitarfx-hosted-plugin-tests" / "chain-stress";
     std::error_code ec;
-    fs::remove_all(sandbox, ec);
+    // Kept, the previous run's settings and caches (the plugin description cache) stay, as an
+    // app restart finds them.
+    if (!keepSandbox)
+        fs::remove_all(sandbox, ec);
     fs::create_directories(sandbox, ec);
     SetSettingsEnvRoot(sandbox);
 

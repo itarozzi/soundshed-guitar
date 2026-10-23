@@ -1206,11 +1206,33 @@ namespace guitarfx
             }
         };
 
-        scanWithFormats (formatHint);
+        // Where a load spends its time, for the trace at the end: the phases differ by orders of
+        // magnitude between plugins, and a slow load is otherwise a single opaque number.
+        const auto now = [] { return juce::Time::getMillisecondCounterHiRes(); };
+        const double scanStart = now();
 
-        // A stale or mismatched format hint must not block loading; rescan with every format.
-        if (descriptions.isEmpty() && formatHint.isNotEmpty())
-            scanWithFormats ({});
+        // A VST3 scanned before is not scanned again (HostedPluginDescriptionCache). Only VST3:
+        // an Audio Unit is named by an identifier rather than a file, and an LV2 bundle's
+        // descriptions come from its manifest, which is cheap to read anyway.
+        const bool cacheable = formatHint.equalsIgnoreCase ("VST3");
+        if (cacheable)
+        {
+            for (const auto& cached : mSharedFormats->descriptions.Find (resolvedPath))
+                descriptions.add (new juce::PluginDescription (cached));
+        }
+        const bool fromCache = !descriptions.isEmpty();
+
+        if (!fromCache)
+        {
+            scanWithFormats (formatHint);
+
+            // A stale or mismatched format hint must not block loading; rescan with every format.
+            if (descriptions.isEmpty() && formatHint.isNotEmpty())
+                scanWithFormats ({});
+
+            if (cacheable && !descriptions.isEmpty() && descriptions.getFirst()->pluginFormatName.equalsIgnoreCase ("VST3"))
+                mSharedFormats->descriptions.Store (resolvedPath, descriptions);
+        }
 
         if (descriptions.isEmpty())
         {
@@ -1276,8 +1298,22 @@ namespace guitarfx
         // Loading is already on the JUCE message thread. Keep creation synchronous:
         // createPluginInstanceAsync requires a nested dispatch loop here, which caused
         // valid AU/VST3 initializations to hit an artificial timeout.
+        const double instantiateStart = now();
         auto instance = formatManager.createPluginInstance (*selected, mSampleRate, mMaxBlockSize, error);
+
+        // A remembered description the plugin can no longer be made from (replaced by a build the
+        // fingerprint missed, say) is dropped, and the load starts again with a scan.
+        if (!instance && fromCache)
+        {
+            AppendHostedPluginTrace ("LoadPluginFromPath cached description failed, rescanning path="
+                                     + ToDisplayPath (resolvedPath) + ", juceError='" + FromJuceString (error) + "'");
+            mSharedFormats->descriptions.Forget (resolvedPath);
+            formatsLock.reset();
+            return LoadPluginFromPath (path);
+        }
+
         formatsLock.reset();
+        const double instantiateEnd = now();
 
         if (!instance)
         {
@@ -1356,7 +1392,18 @@ namespace guitarfx
             AppendHostedPluginTrace ("LoadPluginFromPath applying pending state length=" + std::to_string (mPluginStateBase64.size()));
             ApplyPluginStateBase64 (mPluginStateBase64);
         }
+        const double stateEnd = now();
         PrepareLoadedPlugin();
+        const double prepareEnd = now();
+
+        const auto ms = [] (double from, double to) { return std::to_string (static_cast<long long> (std::lround (to - from))); };
+        AppendHostedPluginTrace ("LoadPluginFromPath timings ms plugin=" + FromJuceString (mPluginDescription.name)
+                                 + ", scan=" + ms (scanStart, instantiateStart)
+                                 + (fromCache ? " (cached)" : "")
+                                 + ", instantiate=" + ms (instantiateStart, instantiateEnd)
+                                 + ", busesAndState=" + ms (instantiateEnd, stateEnd)
+                                 + ", prepare=" + ms (stateEnd, prepareEnd)
+                                 + ", total=" + ms (scanStart, prepareEnd));
         return true;
     }
 

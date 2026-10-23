@@ -645,6 +645,17 @@ JUCE-only utility effect that hosts an external plugin supported by JUCE's plugi
   until then the new node passes its input through, and after it the old one does for the rest
   of its ~21 ms fade-out. If the old node has gone by then, the new one loads the plugin itself.
   Plugin Hosts inside a blend or custom effect are still created again.
+- A VST3 is scanned once. Most VST3s ship no `moduleinfo.json`, so JUCE can describe one only
+  by loading its binary and creating and initialising a component of each class in it, which it
+  then throws away and unloads before making the real instance. That scan was 80-95% of a first
+  load for heavy amp sims (Guitar Rig 7 7.8 s of 8.4 s, BIAS FX 2 7.2 s of 7.6 s, measured
+  2026-10-23). What it found is kept in `<settings>/cache/hosted-plugin-descriptions.xml`
+  (`HostedPluginDescriptionCache`), keyed by path and fingerprinted by the plugin's binaries'
+  names, sizes and modification times, so an update in place is scanned again. A load with a
+  cached description goes straight to creating the instance: twelve heavy plugins went from
+  31.5 s to 5.8 s. A cached description the plugin can no longer be created from is dropped and
+  the load rescans. The `LoadPluginFromPath timings ms` line in the session log gives each
+  load's scan, instantiate, state and prepare times.
 - Every mixer slot persists its own state, not just the one holding the editing focus.
 - In a DAW, all of this rides in the project via `SerializeState`. In standalone, the store's
   preset stays authoritative for the graph, and only the plugin chunks are recovered from the

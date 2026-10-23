@@ -2,6 +2,7 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
+#include "HostedPluginDescriptionCache.h"
 #include "dsp/EffectProcessor.h"
 #include "dsp/NoteEvents.h"
 
@@ -129,6 +130,9 @@ namespace guitarfx
             juce::CriticalSection lock;
             juce::AudioPluginFormatManager manager;
             bool added = false;
+            // What scanning each VST3 found, so a load can skip the scan (the larger part of
+            // most first loads). Under `lock`, like the manager.
+            HostedPluginDescriptionCache descriptions;
         };
 
         // Declared ahead of mPlugin so a plugin instance is always destroyed before the
