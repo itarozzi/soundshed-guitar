@@ -18,6 +18,7 @@ import type { ParamLabelInfo, ParameterDef } from "../../presetV2.js";
 import type { GraphNode } from "../../types.js";
 import { escapeHtml } from "../../utils.js";
 import { sendSignalPathNodeParamUpdate } from "../commands.js";
+import { refreshNodeParamVisibility } from "./paramVisibility.js";
 import { refreshNodeVisualizations } from "./visualizations.js";
 
 const VIEWPORT_MARGIN = 8;
@@ -121,6 +122,7 @@ function commitNodeParam(node: GraphNode): EnumPickerCommit {
   return (def, value) => {
     node.params[def.key] = value;
     sendSignalPathNodeParamUpdate(node.id, def.key, value);
+    refreshNodeParamVisibility(node);
     refreshNodeVisualizations(node);
   };
 }

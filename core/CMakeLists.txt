@@ -630,6 +630,14 @@ set(GUITARFX_CORE_SOURCES
     src/dsp/effects/DelayEffect.h
     src/dsp/effects/ReverbEffect.h
     src/dsp/effects/SpringReverbEffect.h
+    src/dsp/reverb/ReverbBlocks.h
+    src/dsp/reverb/FdnTank.h
+    src/dsp/reverb/VerbalParams.h
+    src/dsp/reverb/VerbalStages.h
+    src/dsp/reverb/VerbalSpring.h
+    src/dsp/reverb/VerbalEngine.h
+    src/dsp/reverb/VerbalPresets.h
+    src/dsp/reverb/VerbalEffect.h
     src/dsp/effects/CompressorEffect.h
     src/dsp/effects/LimiterEffect.h
     src/dsp/effects/OptimizedNAMAmpEffect.h

@@ -21,6 +21,7 @@
 #include "dsp/effects/ReverbEffect.h"
 #include "dsp/effects/SpringReverbEffect.h"
 #include "dsp/effects/AmbientReverbEffect.h"
+#include "dsp/reverb/VerbalEffect.h"
 #include "dsp/effects/CompressorEffect.h"
 #include "dsp/effects/OverdriveEffect.h"
 #include "dsp/effects/DistortionEffect.h"
@@ -136,6 +137,7 @@ inline void RegisterAllEffects()
     RegisterSpringReverbEffect();
     RegisterIRReverbEffect();
     RegisterAmbientReverbEffect();
+    RegisterVerbalEffect();
 
     // Modulation effects
     RegisterPitchShiftEffect();

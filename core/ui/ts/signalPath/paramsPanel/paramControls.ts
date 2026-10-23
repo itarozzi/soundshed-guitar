@@ -14,6 +14,7 @@ import type { BlendMode, BlendModelMapping, GraphNode } from "../../types.js";
 import { sendSignalPathNodeParamUpdate } from "../commands.js";
 import { nodeParamsPanelElement } from "../state.js";
 import { isPitchShiftRangeSetting, isPitchShiftType, reconcilePitchShiftParams, semitoneKnobRange } from "./pitchShiftRange.js";
+import { refreshNodeParamVisibility } from "./paramVisibility.js";
 import { nodeParamKnobs } from "./state.js";
 import { refreshNodeVisualizations } from "./visualizations.js";
 
@@ -157,6 +158,7 @@ export function bindNodeParamControls(node: GraphNode): void {
         node.params[paramKey] = value;
         sendSignalPathNodeParamUpdate(nodeId, paramKey, value);
         syncPitchShiftRange(node, nodeId, paramKey);
+        refreshNodeParamVisibility(node);
 
         // Handle standard toggle labels
         const valueLabel = input.closest(".node-param-group")?.querySelector(".node-param-value") as HTMLElement | null;
@@ -334,6 +336,7 @@ export function bindNodeParamControls(node: GraphNode): void {
         node.params[paramKey] = normalizedValue;
         sendSignalPathNodeParamUpdate(nodeId, paramKey, normalizedValue);
         syncPitchShiftRange(node, nodeId, paramKey);
+        refreshNodeParamVisibility(node);
 
         refreshNodeVisualizations(node);
 
@@ -373,6 +376,7 @@ export function showEngineParamChange(node: GraphNode, key: string, value: numbe
   }
 
   knob.setValue(value);
+  refreshNodeParamVisibility(node);
   refreshNodeVisualizations(node);
   return true;
 }

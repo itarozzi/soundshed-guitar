@@ -51,6 +51,7 @@ export const EffectGuids = {
   kReverbAdvanced:       "92558944-f0da-4d97-ab75-bed8b63abc31",
   kReverbIr:             "497d3c9d-ed6b-4c71-8e6d-0f9d61564dbc",
   kReverbAmbient:        "b3f5445e-0cb9-43a3-ac2f-9216fb8e42dc",
+  kReverbVerbal:         "db5be015-42c7-4bc2-a890-cad6478a6c93",
 
   // Modulation
   kChorus:               "decdd132-029a-46a5-a362-edcde007a450",
@@ -125,6 +126,7 @@ export const EFFECT_ALIAS_MAP: Record<string, string> = {
   reverb_advanced:       EffectGuids.kReverbAdvanced,
   reverb_ir:             EffectGuids.kReverbIr,
   reverb_ambient:        EffectGuids.kReverbAmbient,
+  reverb_verbal:         EffectGuids.kReverbVerbal,
   chorus:                EffectGuids.kChorus,
   flanger:               EffectGuids.kFlanger,
   phaser:                EffectGuids.kPhaser,

@@ -879,9 +879,10 @@ bool TestAlgorithmicReverbsStaySilentOnSilence()
 {
     std::cout << "\n--- Algorithmic Reverb Silence Test ---\n";
 
-    const std::array<const char*, 5> reverbTypes = {
-        guitarfx::EffectGuids::kReverbRoom, guitarfx::EffectGuids::kReverbChamber, guitarfx::EffectGuids::kReverbSpring,
-        guitarfx::EffectGuids::kReverbAdvanced, guitarfx::EffectGuids::kReverbAmbient};
+    const std::array<const char*, 6> reverbTypes = {
+        guitarfx::EffectGuids::kReverbRoom,    guitarfx::EffectGuids::kReverbChamber,
+        guitarfx::EffectGuids::kReverbSpring,  guitarfx::EffectGuids::kReverbAdvanced,
+        guitarfx::EffectGuids::kReverbAmbient, guitarfx::EffectGuids::kReverbVerbal};
 
     auto& registry = guitarfx::EffectRegistry::Instance();
     constexpr int kBlocksToProcess = 12;

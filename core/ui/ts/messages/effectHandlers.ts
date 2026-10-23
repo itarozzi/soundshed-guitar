@@ -20,6 +20,7 @@ import { showNotification } from "../notifications.js";
 import { parseParamTaper } from "../paramTaper.js";
 import { renderActivePreset } from "../presets.js";
 import { EffectTypeRegistry, parseParamLabelInfo } from "../presetV2.js";
+import { parseParamVisibleWhen } from "../signalPath/paramsPanel/paramVisibility.js";
 import { refreshSelectedNodeParams, renderSignalPathBar } from "../signalPath.js";
 import { enterCompositeEditState, exitCompositeEditState, getActivePresetForRender, uiState, updateCompositeEditState } from "../state.js";
 import type { CompositePreset, CustomEffectLibrary } from "../types.js";
@@ -123,6 +124,7 @@ export function onEffectCatalog(payload: IncomingPayload): void {
                 taper?: unknown;
                 labelInfo?: unknown;
                 control?: unknown;
+                visibleWhen?: unknown;
               };
               const key = typeof p.key === "string" ? p.key : "";
               const existingParam = key ? existingParamsByKey.get(key) : undefined;
@@ -144,6 +146,7 @@ export function onEffectCatalog(payload: IncomingPayload): void {
                 // Like the taper, declared afresh each time: a stale list could misname the labels.
                 labelInfo: parseParamLabelInfo(p.labelInfo, labels?.length ?? 0),
                 control: typeof p.control === "string" ? p.control : undefined,
+                visibleWhen: parseParamVisibleWhen(p.visibleWhen),
               };
             })
             .filter((param) => param.key !== "")

@@ -278,6 +278,11 @@ nlohmann::json SerializeEffectParameter(const ParameterDef& param)
         json["control"] = param.control;
     }
 
+    if (!param.visibleWhenKey.empty())
+    {
+        json["visibleWhen"] = {{"key", param.visibleWhenKey}, {"values", param.visibleWhenValues}};
+    }
+
     return json;
 }
 

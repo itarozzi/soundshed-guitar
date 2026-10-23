@@ -79,6 +79,7 @@ All UUID constants are defined in `core/src/dsp/EffectGuids.h`. The table below 
 | `kReverbAdvanced` | `92558944-f0da-4d97-ab75-bed8b63abc31` | `reverb_advanced` |
 | `kReverbIr` | `497d3c9d-ed6b-4c71-8e6d-0f9d61564dbc` | `reverb_ir` |
 | `kReverbAmbient` | `b3f5445e-0cb9-43a3-ac2f-9216fb8e42dc` | `reverb_ambient` |
+| `kReverbVerbal` | `db5be015-42c7-4bc2-a890-cad6478a6c93` | `reverb_verbal` |
 | `kChorus` | `decdd132-029a-46a5-a362-edcde007a450` | `chorus` |
 | `kFlanger` | `1a3f3793-7e80-4e3d-ab7b-3ce3ce032fe7` | `flanger` |
 | `kPhaser` | `3aa9dc81-31c2-40d5-9b1b-b0b9d1295e9b` | `phaser` |
@@ -162,7 +163,18 @@ back to linear on both sides.
 
 Log-taper parameters: `ring_mod` `frequency`; `delay_digital` `highCut` and `lowCut`; `cab_ir`
 `lowCutHz` and `highCutHz`; `reverb_advanced` `lowCut` and `highCut`; `harmonizer` `highCut`;
-`vibe` `rate`; `tremolo` `crossover`; `dynamics_gate` `swell`.
+`vibe` `rate`; `tremolo` `crossover`; `dynamics_gate` `swell`; `reverb_verbal` `decay`, `preDelay`,
+`riseTime`, `echoTime` and `shapeTime`.
+
+### Conditional controls
+A parameter that means nothing in some modes can say when it shows: `ParameterDef::visibleWhenKey`
+names an enum parameter and `visibleWhenValues` the values it shows for (on an `EffectParamSpec`,
+`visibleKey` and `visibleFor`). The catalog sends `"visibleWhen": {"key", "values"}`, and the params
+panel (`core/ui/ts/signalPath/paramsPanel/paramVisibility.ts`) draws such a control hidden while the
+condition fails and re-checks on every change, from the panel, a picker or the engine (MIDI, host
+automation), hiding a group block left with nothing to show. It is display only: the parameter
+keeps its value, and presets and automation still set it. Verbal's machine-only controls use it;
+the native UI shows every control.
 
 ### Effect pickers
 An enum with too many choices to dial through can ask to be drawn as a picker. It sets
@@ -1259,8 +1271,18 @@ Room, chamber, and advanced reverb share a common algorithmic engine. Spring and
 - `reverb_spring`
 - `reverb_advanced`
 - `reverb_ambient`
+- `reverb_verbal` (twelve machines on its own engine, below)
 
 Each effect exposes the controls most relevant to that style rather than sharing one universal surface.
+
+**Shared blocks.** `core/src/dsp/reverb/ReverbBlocks.h` holds what the reverbs share: the
+division-free delay reads (`ReadDelay`, `ReadDelayLinear`), the rotating-phasor LFO, the RT60 to
+loop-gain law, the spring tanks' in-loop `ChirpDispersion`, a fractional Schroeder allpass, the
+three-band loop damping and the 16-point Hadamard mix. Room, Chamber, Advanced, Spring and Ambient
+read their delays through it (Spring and Ambient used to wrap with `%`) and Spring disperses through
+it, bit for bit as before (checked under strict floating point). All five scrub a non-finite input
+sample to silence, so one bad sample from upstream no longer latches the tank silent until a
+reload, and clear the tank if something non-finite reaches it anyway.
 
 **Wet level.** Each carries a fixed makeup gain on its wet path: Room +10.3 dB, Chamber +14.3,
 Advanced +13.5 (whatever its Character), Spring +13.5, and Ambient +12.4 on the late reverb alone,
@@ -1403,6 +1425,109 @@ from there at the Decay setting. Map it to a footswitch.
 
 Factory presets: Wide Bloom (default), Tight Ambience, Lead Halo, Dark Swell, Cloud, Infinite Wash,
 Shimmer (an octave up), Fifth Halo and Deep Shimmer (an octave down, an organ-like swell).
+
+#### Verbal (`reverb_verbal`)
+
+Twelve reverb machines behind one set of controls: **Room** (Studio or Club), **Hall** (Concert or
+Arena, with a Mid EQ), **Plate** (Small or Large), **Spring** (1-3 springs, Dwell), **Swell**,
+**Bloom**, **Cloud**, **Choir**, **Shimmer**, **Tape Echo**, **Nonlinear** and **Reflections**.
+The code is in `core/src/dsp/reverb/`: `VerbalEffect.h` (the effect), `VerbalEngine.h` (one
+machine running), `FdnTank.h` (the shared late reverb), `VerbalStages.h` (diffusers, early
+reflections, the room model, formants, the swell envelope, the shaped generator),
+`VerbalSpring.h`, `VerbalParams.h` (every range and label) and `VerbalPresets.h`.
+
+Common controls:
+
+| Parameter | Range | Default | Unit |
+|-----------|-------|---------|------|
+| `machine` | Room … Reflections (a picker) | Hall | — |
+| `decay` | 0.2–60, log taper | 3.0 | s |
+| `preDelay` | 1–1500, log taper | 20 | ms |
+| `tone` | 0.0–1.0 | 0.6 | — |
+| `mod` | 0.0–1.0 | 0.4 | — |
+| `lowEnd` | 0.0–1.0 (0.5 neutral) | 0.5 | — |
+| `mix` | 0.0–1.0 | 0.35 | — |
+| `hold` | Off / On | Off | — |
+| `holdMode` | Infinite / Freeze | Infinite | — |
+| `outputGain` | -12..+12 (advanced) | 0 | dB |
+
+Each machine's own controls sit in the Machine group and show only under that machine
+(`visibleWhen`, see Conditional controls): Room `roomSize`, `diffusion`; Hall `hallSize`, `midEq`;
+Plate `plateSize`; Spring `dwell`, `springs`; Swell `riseTime` (0.08-4 s), `swellMode` (Wet/Dry);
+Bloom `bloomLength`, `bloomFeedback`; Cloud `diffusion`; Choir `vowel`, `resonance`; Shimmer
+`shimmerMode` (Input/Regen/Input + Regen), `shift1` (28 intervals, -Oct to +2 Oct), `shift2` (Off
+or the same), `shimmerAmount`; Tape Echo `echoTime` (200-1500 ms), `echoFeedback`, `heads` (3/4/6),
+`spacing` (Even/Uneven), `diffusion`; Nonlinear `shapeTime` (50-2000 ms), `shape` (Swoosh,
+Reverse, Ramp, Gate, Gauss, Bounce), `shapeFeedback`, `lateLevel`, `modSpeed`, `diffusion`;
+Reflections `size` (100-1000 sq ft), `roomShape` (Square/Rectangle/Oblong), `listenerX`,
+`listenerY`. A machine's settings are the node's: changing machine keeps every value.
+
+**The tank.** Every machine but Spring runs through `FdnTank`: sixteen modulated delay lines mixed
+by an orthonormal Hadamard matrix, their lengths spread per machine and kept coprime. Each line's
+loss is solved from the decay asked for in three bands, so **Decay is the measured RT60**: Hall,
+Room, Plate, Bloom and Swell measure within 3% of the knob from 0.6 to 16 s (VerbalTests holds Hall
+and Room to 12% from 1 to 8 s). Low End sets the low band's decay (0.55x to 1.25x the mid's) and a
+shelf on the output; Tone the high band's decay and an output low-pass whose range is the machine's.
+The two outputs are orthogonal sums of the lines, so the tail is uncorrelated left to right even
+from a mono input (|r| under 0.1), and the late-tail ringing metric (reverb-level-and-ringing in
+the dev notes) reads 0.02-0.06 on the tank machines. The Cloud runs about twice its Decay, by
+design: its eight-stage input diffuser cascade is an early reverb of its own, and at Diffusion 0
+those stages are plain delays, so the attack is grainy.
+
+**Mix** adds the reverb to an untouched dry: the dry stays at unity to 0.9 and fades out over the
+last tenth, so the top of the knob is fully wet. The wet is -24 dB at 0.1, -10 dB at 0.5 and unity
+from 0.9. Each machine's wet level is set so that at full Mix a guitar comes out within about 2 dB
+of where the same kind of reverb sits in a dedicated multi-machine pedal reverb, -11 dB for
+Reflections to +4 dB for Cloud.
+
+**Hold.** Infinite pulls every band's loop gain to one over about 30 ms and keeps the input open,
+so what is played joins the held tail; a soft ceiling in the tank (RailClip at 0.9 to 1.4) bounds
+it. Freeze does the same and also closes the input over 20 ms, so the held tail sits under what is
+played next. Held, the modulation drops to 30% of its depth so the tail does not smear away.
+Releasing either lets the tail decay from where it is.
+
+**Changing machine** hands the tail to the effect's second engine, which rings out at the old
+machine's decay while the first starts the new one: no cut, no click. A change made while an earlier
+tail is still ringing is applied in place instead, since clearing that engine mid-tail would click.
+The incoming engine's buffers are cleared on the audio thread, which is the one costly step and
+happens only on a deliberate machine change. Size changes glide the tank's lengths over about
+120 ms rather than flushing it.
+
+**Machines.**
+- *Spring*: one to three loops a side, each dispersing on every pass through the shared
+  `ChirpDispersion` the Spring Reverb uses. Dwell is a tank preamp from clean to a hard rail: at
+  Overdrive a -36 dBFS pick comes out about 14 dB hotter than at Clean, and everything from
+  -24 dBFS up lands within a couple of dB. Low End's first half is the steep low cut of a real
+  tank's drive circuit.
+- *Swell*: a gain that restarts at each picked note and rises over Rise Time. Wet swells the
+  reverb in behind the dry; Dry swells everything, like a volume pedal ahead of the reverb.
+- *Bloom*: eight long allpasses ahead of the tank, with feedback round them. Length moves the
+  envelope's peak from about 230 to 790 ms; Feedback stretches the tail up to about 4x.
+- *Choir*: the tail through a vowel's first three formants and the singer's formant (2.8 kHz), in
+  parallel state-variable band-passes; the double vowels glide between their two, Random wanders
+  over five, Resonance is the Q.
+- *Shimmer*: two pitch voices (`GrainPitchShifter`, 60 ms) on the tank input, in its loop, or both,
+  band-limited and soft-limited in the loop so the climb settles. Intervals land within about
+  ±0.3 semitones.
+- *Tape Echo*: one tape with 3, 4 or 6 heads (Even at k/N of Echo Time, Uneven scattered), wow and
+  flutter from `TapeTransport` at Mod's depth, Low End and Tone inside the feedback loop with
+  asymmetric tape saturation, and the heads diffused into the tank by Diffusion. Feedback 0.83
+  rings for about 15 s at 400 ms. Decay sets the wash.
+- *Nonlinear*: 48 taps over Time, their levels following the Shape, feedback round the generator
+  so the shape repeats, and a late tank at Late Level with Decay as its RT60.
+- *Reflections*: an image-source model of a 9 ft high room, up to fourth order on the floor plan,
+  the strongest 64 images kept, each arriving at each ear with its own delay and level. X pans the
+  dry and moves the reflections; Y further back makes the reflections louder against a quieter,
+  more central dry. Damping (Tone) is the walls' absorption and darkens the later orders. Mod
+  drifts the whole pattern against the dry.
+
+**Cost.** 20-70 µs per 128-sample block at 48 kHz on x64 for every machine except Reflections
+(about 110), measured in the Release harness. The tank machines allocate about 3.5 MB per engine,
+two engines per node.
+
+Factory presets: Concert Hall (default), Studio Room, Club Room, Arena, Studio Plate, Small Plate,
+Surf Spring, Combo Spring, Violin Swell, Slow Bloom, Cloud Nine, Choir, Octave Shimmer, Fifth
+Shimmer, Tape Echo Wash, Reverse Reverb, Gated and Small Room Reflections.
 
 ### Simple Cabinet (`cab_simple`)
 Filter-based cabinet with no IR required: five cabinet types, a mic with type, position and

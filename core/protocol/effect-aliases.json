@@ -120,6 +120,10 @@
       "guid": "b3f5445e-0cb9-43a3-ac2f-9216fb8e42dc",
       "aliases": ["reverb_ambient"]
     },
+    "kReverbVerbal": {
+      "guid": "db5be015-42c7-4bc2-a890-cad6478a6c93",
+      "aliases": ["reverb_verbal"]
+    },
     "kChorus": {
       "guid": "decdd132-029a-46a5-a362-edcde007a450",
       "aliases": ["chorus"]

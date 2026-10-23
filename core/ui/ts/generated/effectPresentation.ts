@@ -158,6 +158,7 @@ export const EFFECTS: Readonly<Record<string, EffectPresentation>> = {
   [EffectGuids.kReverbAdvanced]: { icon: "reverb-advanced" },
   [EffectGuids.kReverbIr]: { icon: "reverb" },
   [EffectGuids.kReverbAmbient]: { icon: "reverb-ambient" },
+  [EffectGuids.kReverbVerbal]: { icon: "reverb-advanced" },
   [EffectGuids.kSynthSaw]: { icon: "note" },
   [EffectGuids.kGain]: { icon: "megaphone" },
   [EffectGuids.kSplitter]: { icon: "split" },

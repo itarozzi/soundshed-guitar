@@ -40,6 +40,7 @@ import { bindChannelModeControl, renderChannelModeControl } from "./channelMode.
 import { bindEnumPickerTriggers, buildEnumPickerTriggerHtml, isPickerParam } from "./enumPicker.js";
 import { buildPickupDesignSectionHtml, buildPickupResponseSectionHtml, isPickupMatchNode, PICKUP_DESIGN_PARAM_KEYS } from "./pickupResponse.js";
 import { bindNodeParamControls, bindParamTabs, formatParamLabel, isToggleParam } from "./paramControls.js";
+import { applyParamVisibility, isParamVisible, withParamVisibility } from "./paramVisibility.js";
 import { isPitchShiftType, semitoneKnobRange } from "./pitchShiftRange.js";
 import { buildNodeResourceSelector, preloadResourceNavigationCaches } from "./resourceSelector.js";
 import { setNodeParamsPanelRenderer } from "../render.js";
@@ -151,7 +152,11 @@ export function showNodeParamsPanel(node: GraphNode, preset: Preset): void {
 
   const isPitchShift = isPitchShiftType(node.type);
 
-  const renderParamControl = (paramDef: BlendParamDef): string => {
+  // A control another setting can hide carries its condition, and starts hidden if it fails.
+  const renderParamControl = (paramDef: BlendParamDef): string =>
+    withParamVisibility(renderParamControlBody(paramDef), paramDef, isParamVisible(paramDef, node.params, paramDefs));
+
+  const renderParamControlBody = (paramDef: BlendParamDef): string => {
     const key = paramDef.key;
     const rawValue = node.params[key];
     const label = paramDef.name || formatParamLabel(key);
@@ -585,6 +590,7 @@ export function showNodeParamsPanel(node: GraphNode, preset: Preset): void {
   `;
 
   refreshNodeVisualizations(node);
+  applyParamVisibility(nodeParamsPanelElement, node.params, paramDefs);
 
   // Bind controls
   bindNodeParamControls(node);

@@ -27,6 +27,14 @@ export interface ParameterDef {
   labelInfo?: ParamLabelInfo[];
   /** "picker" draws an enum as a dropdown flyout instead of a knob. */
   control?: string;
+  /** Shown only while another parameter holds one of these values. See paramVisibility.ts. */
+  visibleWhen?: ParamVisibleWhen;
+}
+
+/** The enum `key` must hold one of `values` for a parameter to be shown. */
+export interface ParamVisibleWhen {
+  key: string;
+  values: number[];
 }
 
 /**
@@ -391,6 +399,7 @@ const EFFECT_STUBS: EffectStub[] = [
   { type: EffectGuids.kReverbAdvanced },
   { type: EffectGuids.kReverbIr },
   { type: EffectGuids.kReverbAmbient },
+  { type: EffectGuids.kReverbVerbal },
   // Modulation
   { type: EffectGuids.kChorus },
   { type: EffectGuids.kFlanger },

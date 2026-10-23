@@ -64,6 +64,7 @@ constexpr const char* kReverbSpring = "0df83b32-23d0-4530-a50e-e0824a5ccf01";
 constexpr const char* kReverbAdvanced = "92558944-f0da-4d97-ab75-bed8b63abc31";
 constexpr const char* kReverbIr = "497d3c9d-ed6b-4c71-8e6d-0f9d61564dbc";
 constexpr const char* kReverbAmbient = "b3f5445e-0cb9-43a3-ac2f-9216fb8e42dc";
+constexpr const char* kReverbVerbal = "db5be015-42c7-4bc2-a890-cad6478a6c93";
 
 // ── Modulation ────────────────────────────────────────────────────────
 constexpr const char* kChorus = "decdd132-029a-46a5-a362-edcde007a450";

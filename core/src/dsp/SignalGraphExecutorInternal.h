@@ -113,7 +113,7 @@ inline int ScoreNodeTypeForParallelWork(const std::string& type)
     }
 
     if (type == EffectGuids::kReverbAdvanced || type == EffectGuids::kReverbAmbient ||
-        type == EffectGuids::kReverbRoom || type == EffectGuids::kReverbSpring)
+        type == EffectGuids::kReverbRoom || type == EffectGuids::kReverbSpring || type == EffectGuids::kReverbVerbal)
     {
         return 6;
     }

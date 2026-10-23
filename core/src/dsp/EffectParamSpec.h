@@ -33,6 +33,8 @@ struct EffectParamSpec
     double step = 0.0;                        ///< 0 = continuous
     std::span<const char* const> labels = {}; ///< an enum's choices, in value order
     ParamTaper taper = ParamTaper::Linear;    ///< set with LogTaper(), which checks the range
+    const char* visibleKey = nullptr;         ///< shown only while this enum...
+    std::span<const int> visibleFor = {};     ///< ...holds one of these values (ParameterDef::visibleWhenKey)
 };
 
 /// `spec` on a log taper, for a range that spans decades, a frequency most often: equal
@@ -112,6 +114,13 @@ template <std::size_t N>
         def.step = spec.step;
         def.labels.assign(spec.labels.begin(), spec.labels.end());
         def.taper = spec.taper;
+
+        if (spec.visibleKey != nullptr)
+        {
+            def.visibleWhenKey = spec.visibleKey;
+            def.visibleWhenValues.assign(spec.visibleFor.begin(), spec.visibleFor.end());
+        }
+
         defs.push_back(std::move(def));
     }
 

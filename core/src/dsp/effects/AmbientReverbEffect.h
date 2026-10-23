@@ -6,6 +6,7 @@
 #include "dsp/FiniteCheck.h"
 #include "dsp/effects/GrainPitchShifter.h"
 #include "dsp/effects/ReverbPresets.h"
+#include "dsp/reverb/ReverbBlocks.h"
 
 #include <algorithm>
 #include <array>
@@ -162,8 +163,9 @@ class AmbientReverbEffect : public EffectProcessor
 
         for (int sampleIndex = 0; sampleIndex < numSamples; ++sampleIndex)
         {
-            const float inL = inputs && inputs[0] ? inputs[0][sampleIndex] : 0.0f;
-            const float inR = inputs && inputs[1] ? inputs[1][sampleIndex] : inL;
+            // Scrubbed: one non-finite sample from upstream would otherwise ring round the combs for good.
+            const float inL = reverb::ScrubNonFinite(inputs && inputs[0] ? inputs[0][sampleIndex] : 0.0f);
+            const float inR = reverb::ScrubNonFinite(inputs && inputs[1] ? inputs[1][sampleIndex] : inL);
 
             mFeedback += (mFeedbackTarget - mFeedback) * mSmoothCoeff;
             mDamp += (mDampTarget - mDamp) * mSmoothCoeff;
@@ -329,8 +331,10 @@ class AmbientReverbEffect : public EffectProcessor
             }
         }
 
-        // The shimmer loop is the one place a value too large to be audio could circulate.
-        if (!IsFinite(mShimmerReturn.Left()) || !IsFinite(mShimmerReturn.Right()))
+        // The shimmer loop is the one place a value too large to be audio could circulate; the
+        // combs are checked too, for a value that reached them before the input was scrubbed.
+        if (!IsFinite(mShimmerReturn.Left()) || !IsFinite(mShimmerReturn.Right()) ||
+            !IsFinite(mCombFilterStateL[0] + mCombFilterStateR[0]))
         {
             Reset();
         }
@@ -528,30 +532,16 @@ class AmbientReverbEffect : public EffectProcessor
         return static_cast<float>(std::max(1.0, ms * mSampleRate * 0.001));
     }
 
+    // Delay reads go through the shared reverb::ReadDelay / ReadDelayLinear, which wrap with a
+    // compare rather than the integer division a `%` costs on each of the ~52 reads a sample.
     static float ReadFromDelay(const std::vector<float>& buffer, size_t writePos, size_t delaySamples)
     {
-        if (buffer.empty())
-        {
-            return 0.0f;
-        }
-
-        const size_t back = std::min(delaySamples, buffer.size() - 1);
-        const size_t readPos = (writePos + buffer.size() - back) % buffer.size();
-        return buffer[readPos];
+        return reverb::ReadDelay(buffer, writePos, delaySamples);
     }
 
-    float ReadFromDelayFractional(const std::vector<float>& buffer, size_t writePos, float delaySamples) const
+    static float ReadFromDelayFractional(const std::vector<float>& buffer, size_t writePos, float delaySamples)
     {
-        if (buffer.empty())
-        {
-            return 0.0f;
-        }
-
-        const size_t delayFloor = static_cast<size_t>(delaySamples);
-        const float frac = delaySamples - static_cast<float>(delayFloor);
-        const float sample0 = ReadFromDelay(buffer, writePos, delayFloor);
-        const float sample1 = ReadFromDelay(buffer, writePos, delayFloor + 1);
-        return sample0 + frac * (sample1 - sample0);
+        return reverb::ReadDelayLinear(buffer, writePos, delaySamples);
     }
 
     float ProcessAllpass(std::vector<float>& buffer, size_t& writePos, float delaySamples, float input, float gain)

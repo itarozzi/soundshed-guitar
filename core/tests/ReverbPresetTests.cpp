@@ -2,7 +2,7 @@
  * @file ReverbPresetTests.cpp
  * @brief The algorithmic reverbs' factory presets (core/src/dsp/effects/ReverbPresets.h).
  *
- * For Room, Chamber, Advanced, Spring and Ambient Reverb:
+ * For Room, Chamber, Advanced, Spring and Ambient Reverb, and Verbal:
  *   - each ships factory presets, each with a unique id and a name
  *   - exactly one is the default, it comes first, and it is the parameter defaults, so a node
  *     added fresh and one set to the default preset agree
@@ -28,6 +28,7 @@
 #include "dsp/effects/AmbientReverbEffect.h"
 #include "dsp/effects/ReverbEffect.h"
 #include "dsp/effects/SpringReverbEffect.h"
+#include "dsp/reverb/VerbalEffect.h"
 
 namespace
 {
@@ -65,11 +66,10 @@ struct Reverb
     const char* type;
 };
 
-constexpr Reverb kReverbs[] = {{"Room", guitarfx::EffectGuids::kReverbRoom},
-                               {"Chamber", guitarfx::EffectGuids::kReverbChamber},
-                               {"Advanced", guitarfx::EffectGuids::kReverbAdvanced},
-                               {"Spring", guitarfx::EffectGuids::kReverbSpring},
-                               {"Ambient", guitarfx::EffectGuids::kReverbAmbient}};
+constexpr Reverb kReverbs[] = {
+    {"Room", guitarfx::EffectGuids::kReverbRoom},         {"Chamber", guitarfx::EffectGuids::kReverbChamber},
+    {"Advanced", guitarfx::EffectGuids::kReverbAdvanced}, {"Spring", guitarfx::EffectGuids::kReverbSpring},
+    {"Ambient", guitarfx::EffectGuids::kReverbAmbient},   {"Verbal", guitarfx::EffectGuids::kReverbVerbal}};
 
 // Output is the player's level, so presets leave it alone.
 bool PresetSets(const std::string& id)
@@ -180,11 +180,11 @@ struct Rendered
     double peak = 0.0;
     double energy = 0.0;
     double early = 0.0; // tail energy 0.15-0.35 s after the burst ends
-    double late = 0.0;  // and 0.95-1.15 s after
+    double late = 0.0;  // and 0.2 s from lateFromS after (0.95 s unless asked)
 };
 
 // A 50 ms burst of noise at -12 dBFS rms, then 1.2 s of tail.
-Rendered Render(const std::string& type, const std::map<std::string, double>& params)
+Rendered Render(const std::string& type, const std::map<std::string, double>& params, double lateFromS = 0.95)
 {
     auto& registry = guitarfx::EffectRegistry::Instance();
     auto effect = registry.Create(type);
@@ -203,7 +203,7 @@ Rendered Render(const std::string& type, const std::map<std::string, double>& pa
     effect->Prepare(kSampleRate, kBlockSize);
 
     const auto burst = static_cast<std::size_t>(kSampleRate * 0.05);
-    const auto total = burst + static_cast<std::size_t>(kSampleRate * 1.2);
+    const auto total = burst + static_cast<std::size_t>(kSampleRate * std::max(1.2, lateFromS + 0.25));
     std::vector<float> inL(kBlockSize), inR(kBlockSize), outL(kBlockSize), outR(kBlockSize);
     float* inputs[2] = {inL.data(), inR.data()};
     float* outputs[2] = {outL.data(), outR.data()};
@@ -247,7 +247,7 @@ Rendered Render(const std::string& type, const std::map<std::string, double>& pa
             {
                 r.early += e;
             }
-            else if (t >= 0.95 && t < 1.15)
+            else if (t >= lateFromS && t < lateFromS + 0.2)
             {
                 r.late += e;
             }
@@ -268,23 +268,33 @@ void TestPresetsRun(const Reverb& reverb)
         return;
     }
 
-    const auto reference = Render(reverb.type, info->presets.front().parameters);
+    // Verbal runs to long, slow-building tails (the Cloud swells for half a second before it
+    // decays), so its tail is read three seconds on rather than one.
+    const bool verbal = std::string(reverb.type) == guitarfx::EffectGuids::kReverbVerbal;
+    const double lateFromS = verbal ? 2.95 : 0.95;
+    const auto reference = Render(reverb.type, info->presets.front().parameters, lateFromS);
     bool sound = true;
     std::string problem;
 
     for (const auto& preset : info->presets)
     {
-        const auto r = Render(reverb.type, preset.parameters);
+        const auto r = Render(reverb.type, preset.parameters, lateFromS);
         const double levelDb = 10.0 * std::log10(std::max(r.energy, 1e-30) / std::max(reference.energy, 1e-30));
         const double decayDb = 10.0 * std::log10(std::max(r.late, 1e-30) / std::max(r.early, 1e-30));
         std::cout << "    " << preset.displayName << ": level " << std::round(levelDb * 10.0) / 10.0
-                  << " dB against the default, tail " << std::round(decayDb * 10.0) / 10.0 << " dB over 0.8 s"
-                  << std::endl;
+                  << " dB against the default, tail " << std::round(decayDb * 10.0) / 10.0 << " dB over "
+                  << (lateFromS - 0.15) << " s" << std::endl;
 
         // The bounds catch a gross mistake, not a voicing: a preset jumping far from the default's
         // level, a tail that holds or grows (the longest decays about 3 dB over this span), or a
         // burst at -12 dBFS rms coming out near full scale.
-        if (!r.finite || r.peak > 1.0 || levelDb < -9.0 || levelDb > 9.0 || decayDb > -1.0)
+        // Verbal's Swell in Dry mode swells the dry too, and a 50 ms burst is over before it has
+        // risen: its level is not comparable, so only the rest is held to it.
+        const auto machine = preset.parameters.find("machine");
+        const bool swell = verbal && machine != preset.parameters.end() && machine->second == 4.0;
+        const bool levelOk = swell || (levelDb >= -9.0 && levelDb <= 9.0);
+
+        if (!r.finite || r.peak > 1.0 || !levelOk || decayDb > -1.0)
         {
             sound = false;
             problem = preset.id;
@@ -383,6 +393,7 @@ int main()
     guitarfx::RegisterReverbEffect();
     guitarfx::RegisterSpringReverbEffect();
     guitarfx::RegisterAmbientReverbEffect();
+    guitarfx::RegisterVerbalEffect();
 
     for (const auto& reverb : kReverbs)
     {
@@ -394,9 +405,10 @@ int main()
 
     for (const auto& reverb : kReverbs)
     {
-        // Spring and Ambient are their own effects, with no Mix-zero shortcut.
+        // Spring, Ambient and Verbal are their own effects, with no Mix-zero shortcut.
         if (std::string(reverb.type) != guitarfx::EffectGuids::kReverbSpring &&
-            std::string(reverb.type) != guitarfx::EffectGuids::kReverbAmbient)
+            std::string(reverb.type) != guitarfx::EffectGuids::kReverbAmbient &&
+            std::string(reverb.type) != guitarfx::EffectGuids::kReverbVerbal)
         {
             TestMixUpFromZeroStartsClean(reverb);
         }

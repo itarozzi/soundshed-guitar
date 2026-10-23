@@ -53,6 +53,11 @@ struct ParameterDef
     // the value is still the label's index.
     std::vector<ParamLabelInfo> labelInfo;
     std::string control; // "" = the unit's usual control; "picker" = a dropdown flyout
+    // Shown only while the enum `visibleWhenKey` holds one of `visibleWhenValues`: a control that
+    // means nothing in the current mode, such as one reverb machine's knob under another. Display
+    // only; the parameter is still set, saved and automated. Empty key means always shown.
+    std::string visibleWhenKey;
+    std::vector<int> visibleWhenValues;
 };
 
 /// `def` on a log taper, for an effect that declares its parameters inline. The range must be

@@ -117,6 +117,7 @@ set(TEST_SOURCES
     RealtimeTaskPoolTests.cpp
     ResourceLoadBenchmark.cpp
     ReverbPresetTests.cpp
+    VerbalTests.cpp
     RiffCaptureNoticeTests.cpp
     RingModEffectTests.cpp
     RotaryVibeEffectTests.cpp

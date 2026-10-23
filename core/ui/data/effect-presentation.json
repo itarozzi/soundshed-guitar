@@ -298,6 +298,10 @@
       "guid": "b3f5445e-0cb9-43a3-ac2f-9216fb8e42dc",
       "icon": "reverb-ambient"
     },
+    "kReverbVerbal": {
+      "guid": "db5be015-42c7-4bc2-a890-cad6478a6c93",
+      "icon": "reverb-advanced"
+    },
     "kSynthSaw": {
       "guid": "608e846e-0e60-4064-9c83-37c0df573c38",
       "icon": "note"
