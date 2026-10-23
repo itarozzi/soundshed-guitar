@@ -10,6 +10,7 @@
 
 import { appendLog } from "./logging.js";
 import { setParameter } from "./bridge.js";
+import { filmstripBackground, filmstripFrame, filmstripFrameCount, knobFaceAngle } from "./layoutKnobImages.js";
 import { effectiveTaper, taperPositionToValue, valueToTaperPosition, type ParamTaper } from "./paramTaper.js";
 import { clampValue, countStepDecimals, deriveRangeStep } from "./utils.js";
 import { isWheelAdjustEnabled } from "./wheelAdjust.js";
@@ -421,7 +422,20 @@ export class GenericKnob {
     }
     const customFace = this.knobElement.querySelector(".custom-knob-face") as HTMLElement | null;
     if (customFace) {
-      customFace.style.transform = `rotate(${rotation}deg)`;
+      // A filmstrip shows the frame for the position; a face turns over its own range, or the
+      // -135..135 every custom face always used (layoutKnobImages.ts).
+      const { knobImage, frames, columns, minAngle, maxAngle } = this.knobElement.dataset;
+      const frameCount = knobImage === "filmstrip" ? filmstripFrameCount(Number(frames)) : 0;
+      if (frameCount) {
+        const { size, position } = filmstripBackground(filmstripFrame(pct, frameCount), frameCount, Number(columns) || 1);
+        customFace.style.backgroundSize = size;
+        customFace.style.backgroundPosition = position;
+      } else {
+        const angle = minAngle !== undefined && maxAngle !== undefined
+          ? knobFaceAngle(pct, Number(minAngle), Number(maxAngle))
+          : rotation;
+        customFace.style.transform = `rotate(${angle}deg)`;
+      }
     }
   }
 

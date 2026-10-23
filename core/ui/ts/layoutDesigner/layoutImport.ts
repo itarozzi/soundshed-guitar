@@ -9,7 +9,7 @@
  */
 
 import type { EffectLayout, LayoutBackground, LayoutControl, LayoutImageRef, LayoutRectangleOverlay, LayoutTextLabel } from "../layoutTypes.js";
-import { DEFAULT_LAYOUT_DIMENSIONS, normalizeBackgroundLayers, sanitizeLayout } from "../layoutTypes.js";
+import { DEFAULT_LAYOUT_DIMENSIONS, normalizeBackgroundLayers, renameLayoutImageIds, sanitizeLayout } from "../layoutTypes.js";
 import { arrayBufferToBase64 } from "../utils.js";
 
 /** Image types a layout takes, by extension, with the MIME type each is served as. */
@@ -262,13 +262,7 @@ export async function prepareLayoutImport(
 
   // Point the layout at the renamed images. An id the manifest did not carry is left as it
   // is: it may name an image already in this library (an archive exported on this machine).
-  for (const bg of layout.backgrounds) {
-    if (bg.type === "image" && renamed.has(bg.value)) bg.value = renamed.get(bg.value)!;
-  }
-  for (const control of layout.controls) {
-    const knobImageId = control.style?.knobImageId;
-    if (knobImageId && renamed.has(knobImageId)) control.style!.knobImageId = renamed.get(knobImageId);
-  }
+  renameLayoutImageIds(layout, renamed);
 
   // The layout open in the designer, refilled: saving overwrites that layout and no other.
   layout.layoutId = target.layoutId;

@@ -9,10 +9,20 @@
  * fields and draw what they understand (docs/plans/layout-designer-hires.md, rule 7).
  */
 
+import { usableKnobImage } from "./layoutControlImages.js";
 import { LEGACY_DIMENSION_LIMITS, type EffectLayout } from "./layoutTypes.js";
 
 /** The features, in the order they are listed. */
-export const LAYOUT_FEATURES = ["large-canvas", "scaling", "text-style"] as const;
+export const LAYOUT_FEATURES = [
+  "large-canvas",
+  "scaling",
+  "text-style",
+  "control-size",
+  "knob-image",
+  "image-toggle",
+  "image-slider",
+  "image-overlay",
+] as const;
 export type LayoutFeature = (typeof LAYOUT_FEATURES)[number];
 
 function isSet(value: unknown): boolean {
@@ -43,11 +53,44 @@ export function layoutRequirements(layout: EffectLayout): LayoutFeature[] {
     used.add("text-style");
   }
 
+  for (const control of layout.controls) {
+    const style = control.style;
+    if (isSet(style?.knobDiameter) || isSet(style?.sliderLength) || isSet(style?.toggleWidth) || isSet(style?.toggleHeight)) {
+      used.add("control-size");
+    }
+    if (usableKnobImage(style?.knobImage)) used.add("knob-image");
+    if (style?.toggleImage?.onImageId && style.toggleImage.offImageId) used.add("image-toggle");
+    if (style?.sliderImage?.trackImageId || style?.sliderImage?.thumbImageId) used.add("image-slider");
+  }
+  if ((layout.overlays ?? []).some((overlay) => overlay.style?.imageId)) {
+    used.add("image-overlay");
+  }
+
   return LAYOUT_FEATURES.filter((feature) => used.has(feature));
 }
 
-/** Sets `version` and `requires` from what `layout` uses, as saving does. */
+/**
+ * What an older app draws for an image knob, written beside it: a turning face is also a
+ * custom-image knob (knobStyle "custom" + knobImageId), which older apps turn the same way; a
+ * filmstrip, which they would squash into a circle, falls back to a standard knob.
+ */
+function writeKnobImageFallbacks(layout: EffectLayout): void {
+  for (const control of layout.controls) {
+    const knobImage = usableKnobImage(control.style?.knobImage);
+    if (!knobImage || !control.style) continue;
+    if (knobImage.mode === "rotate") {
+      control.style.knobStyle = "custom";
+      control.style.knobImageId = knobImage.imageId;
+    } else {
+      if (control.style.knobStyle === "custom") control.style.knobStyle = "default";
+      delete control.style.knobImageId;
+    }
+  }
+}
+
+/** Sets `version` and `requires` from what `layout` uses, and the older apps' fallbacks, as saving does. */
 export function stampLayoutRequirements(layout: EffectLayout): EffectLayout {
+  writeKnobImageFallbacks(layout);
   const requires = layoutRequirements(layout);
   if (requires.length) {
     layout.version = 2;

@@ -469,6 +469,55 @@ not working.
   `controlLabelColor`. Replace the hard-coded 10 px / 9 px and the
   `max-width: 80px` cap with the control's own width.
 
+**Built (phase 4).**
+
+- **Sizes.** `style.knobDiameter`, `sliderLength`, `toggleWidth` and
+  `toggleHeight`. A styled knob at another diameter is zoomed from its 38 px
+  design, so its ring and pointer keep their proportions. An image knob is
+  drawn at the diameter directly.
+- **Image knobs.** `style.knobImage` (`layoutKnobImages.ts`) with `mode`
+  either `"rotate"` or `"filmstrip"`.
+  - Filmstrip: `frames`, and `columns` for a sheet.
+  - Rotate: `minAngle` and `maxAngle`, and `clip` (default on, as custom faces
+    always were).
+  - Either mode: a still `baseImageId` and `glareImageId`.
+  - `knob.ts` moves a filmstrip to the frame for the value, or turns a face
+    over its range. A legacy custom face still turns −135° to 135°.
+- **Image toggles and sliders.** A toggle gets two pictures swapped by
+  `:checked`. A slider's track and thumb come through custom properties
+  holding absolute URLs, since a relative `url()` in a custom property
+  resolves against the stylesheet.
+- **Image elements** are rectangle overlays with `style.imageId` and
+  `imageFit`, so they inherit the overlay's drag, resize and bypass
+  visibility in the designer. The first image a rectangle gets clears its
+  fill and border, so older apps, which ignore the image, draw nothing there.
+- **Fallbacks for older apps,** written on save (`stampLayoutRequirements`):
+  - A turning face is also written as `knobStyle: "custom"` plus
+    `knobImageId`, so 1.6.0 shows the cap turning.
+  - A filmstrip drops any custom knob style, so 1.6.0 shows a standard knob
+    rather than a squashed strip.
+  - New `requires` entries: `control-size`, `knob-image`, `image-toggle`,
+    `image-slider` and `image-overlay`.
+- **Image references.** Every new reference is listed by `layoutImageIds`
+  (export), renamed by `renameLayoutImageIds` (import), and collected by the
+  engine's `CollectLayoutImageIds` (the copy on save; pinned by
+  `TestImageControlReferencesAreCopiedOnSave`). A layout keeps all its images
+  when the layout they came from is deleted.
+- **Designer.** An "Image & Size" group per control (knob, toggle or slider
+  fields) and an Image group on rectangles, in
+  `layoutDesigner/controlImageProperties.ts`.
+- **Live check.**
+  - The filmstrip stepped frames with fixed lighting, at 0, half and full
+    travel.
+  - The layered knob turned its cap under a still tick ring and glare.
+  - The toggle swapped LEDs, and the slider and logo overlay drew.
+  - A real 150 px mouse drag moved the filmstrip to its last frame.
+  - Old layouts are unchanged: snapshots identical, and the live baseline
+    differs only by the known runtime icon shot.
+- **Not done.** The designer's edit-mode placeholders don't draw image knobs,
+  toggles or sliders; preview mode does, through the real renderer. There are
+  no oversize warnings for a filmstrip taller than 16384 px.
+
 ## Further additions to make it more useful
 
 In rough order of value:
@@ -506,7 +555,7 @@ In rough order of value:
 | 1 | **Done** 2026-10-23. Live check: the real library's 20 images all served with the listed type, bytes and size; the list is one 4.3 KB message instead of about 25 MB of base64; 0 of 57 baseline shots differ. §1: image route, metadata-only messages, file-based export and import, intrinsic size, higher byte cap | Large images load at all, and panel renders stop copying MBs |
 | 2 | **Done** 2026-10-23. Old layouts unchanged (snapshots and 0 of 57 live shots). A layout that opts in grows to fill the real panel, or fits its height. §2: limits, `scaling` modes with upscale and height fit, grid setting, per-layout text sizes | Layouts fill the space they have |
 | 3 | **Done** 2026-10-23. Only images over 2048 px get copies; a 6000 × 4000 image's copies were made, kept and drawn live. §3: renditions, DPR-aware selection, preload | Memory and paint cost bounded, Android viable |
-| 4 | §4: control sizing and handles, filmstrip and layered knobs, image toggles and sliders, image elements | Real skeuomorphic skins |
+| 4 | **Done** 2026-10-23. Image knobs, toggles, sliders and overlays drawn and dragged live; older apps get fallbacks. §4: control sizing and handles, filmstrip and layered knobs, image toggles and sliders, image elements | Real skeuomorphic skins |
 | 5 | Asset panel, preview at size, arrangement tools, fonts | Editor ergonomics |
 
 Phases 1–3 touch `PluginControllerLayouts.cpp`, `LayoutSupport`,

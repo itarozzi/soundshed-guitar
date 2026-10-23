@@ -12,7 +12,7 @@ import { postMessage } from "../bridge.js";
 import type { EffectLayout, LayoutLibraryEntry } from "../layoutTypes.js";
 import type { ParameterDef } from "../presetV2.js";
 import type { SelectedElement } from "./types.js";
-import { DEFAULT_LAYOUT_DIMENSIONS, createEmptyLayout, generateLayoutId, layoutLookupKey, snapToGrid } from "../layoutTypes.js";
+import { DEFAULT_LAYOUT_DIMENSIONS, createEmptyLayout, generateLayoutId, layoutImageIds, layoutLookupKey, snapToGrid } from "../layoutTypes.js";
 import { stampLayoutRequirements } from "../layoutRequirements.js";
 import { showNotification } from "../notifications.js";
 import { uiState } from "../state.js";
@@ -365,18 +365,8 @@ export class LayoutStore {
 
     const zip = new zipLib();
 
-    // Collect all image IDs referenced by this layout
-    const referencedImageIds = new Set<string>();
-    for (const bg of layout.backgrounds) {
-      if (bg.type === "image" && bg.value) {
-        referencedImageIds.add(bg.value);
-      }
-    }
-    for (const control of layout.controls) {
-      if (control.style?.knobImageId) {
-        referencedImageIds.add(control.style.knobImageId);
-      }
-    }
+    // Every image the layout draws on, the image knobs, toggles, sliders and overlays included.
+    const referencedImageIds = layoutImageIds(layout);
 
     // Add referenced images to zip
     const imagesFolder = zip.folder("images");

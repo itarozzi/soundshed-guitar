@@ -806,6 +806,75 @@ bool TestRenditionsAreStoredListedAndServed()
     return true;
 }
 
+/// Images an image knob, toggle, slider or overlay draws on are the layout's like any other: a
+/// save copies each into its own folder, so they survive the layout they came from.
+bool TestImageControlReferencesAreCopiedOnSave()
+{
+    const fs::path sandbox = FreshSandbox("image-controls");
+    const ScopedPlatformRoot root(sandbox);
+    const fs::path own = ContentDir(sandbox) / "B" / "images";
+
+    TestHost host(sandbox);
+    guitarfx::PluginController controller(host);
+    const std::vector<std::string> ids = {"strip_1", "skirt_1", "glare_1", "on_1", "off_1", "rail_1", "cap_1", "logo_1"};
+
+    for (const auto& id : ids)
+    {
+        SaveImage(controller, "A", id, id + ".png", PngOfSize(64, 64));
+    }
+
+    SaveLayout(controller, "A", "fx_a", {});
+
+    const nlohmann::json layout{
+        {"effectType", "fx_b"},
+        {"layoutId", "B"},
+        {"version", 2},
+        {"dimensions", {{"width", 400}, {"height", 280}}},
+        {"backgrounds", nlohmann::json::array()},
+        {"controls",
+         {{{"paramKey", "a"},
+           {"type", "knob"},
+           {"position", {{"x", 0}, {"y", 0}}},
+           {"style",
+            {{"knobImage", {{"mode", "filmstrip"}, {"imageId", "strip_1"}, {"frames", 64}, {"baseImageId", "skirt_1"},
+                            {"glareImageId", "glare_1"}}}}}},
+          {{"paramKey", "b"},
+           {"type", "toggle"},
+           {"position", {{"x", 0}, {"y", 0}}},
+           {"style", {{"toggleImage", {{"onImageId", "on_1"}, {"offImageId", "off_1"}}}}}},
+          {{"paramKey", "c"},
+           {"type", "slider"},
+           {"position", {{"x", 0}, {"y", 0}}},
+           {"style", {{"sliderImage", {{"trackImageId", "rail_1"}, {"thumbImageId", "cap_1"}}}}}}}},
+        {"overlays", {{{"id", "o"}, {"position", {{"x", 0}, {"y", 0}}}, {"size", {{"width", 10}, {"height", 10}}},
+                       {"style", {{"imageId", "logo_1"}}}}}},
+        {"textLabels", nlohmann::json::array()}};
+
+    if (guitarfx::controller_detail::CollectLayoutImageIds(layout) != ids)
+    {
+        std::cerr << "CollectLayoutImageIds missed an image control's image\n";
+        return false;
+    }
+
+    controller.HandleUIMessage(nlohmann::json{{"type", "saveEffectLayout"},
+                                              {"effectType", "fx_b"},
+                                              {"blendId", ""},
+                                              {"layoutId", "B"},
+                                              {"layout", layout}}
+                                   .dump());
+
+    for (const auto& id : ids)
+    {
+        if (!fs::is_regular_file(own / (id + ".png")))
+        {
+            std::cerr << "Saving did not copy " << id << " into the layout's own folder\n";
+            return false;
+        }
+    }
+
+    return true;
+}
+
 /// A save the engine cannot complete says so, naming the layout, rather than claiming success.
 bool TestFailedSaveIsReported()
 {
@@ -884,6 +953,7 @@ int main()
         {"Image sizes are read from headers", TestImageSizesAreReadFromHeaders},
         {"Large imported images are stored", TestLargeImportedImagesAreStored},
         {"Renditions are stored, listed and served", TestRenditionsAreStoredListedAndServed},
+        {"Image control references are copied on save", TestImageControlReferencesAreCopiedOnSave},
         {"A failed save is reported", TestFailedSaveIsReported},
         {"Delete removes the layout from every key", TestDeleteRemovesTheLayoutFromEveryKey},
     };

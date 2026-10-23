@@ -1,0 +1,179 @@
+/**
+ * Markup for controls drawn from a layout's own images: image knobs (a turning face or a
+ * filmstrip, with an optional base and glare that stay still), image toggles and image sliders,
+ * and the size a control is drawn at.
+ *
+ * Every function here returns nothing for a control that does not use the feature, so a control
+ * from a layout made before these existed renders exactly as it always did. Image URLs come from
+ * `resolve`, which applies the renderer's own checks; anything it refuses draws nothing.
+ */
+
+import { filmstripBackground, filmstripFrame, filmstripFrameCount, knobFaceAngle, type LayoutKnobImage } from "./layoutKnobImages.js";
+import { escapeHtml } from "./utils.js";
+
+/** The knob size every knob was drawn at before knobDiameter existed. */
+export const DEFAULT_KNOB_DIAMETER = 38;
+
+/** Resolves an image id to a CSS url(...) value for something drawn `drawnWidth` px across, or null. */
+export type ImageCssResolver = (imageId: string, drawnWidth: number) => string | null;
+
+/** A size (px) from a layout within [min, max], or undefined when it is not a finite number. */
+export function layoutSize(value: unknown, min: number, max: number): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? Math.max(min, Math.min(max, Math.round(value))) : undefined;
+}
+
+/** A knob's image setup when it is usable, else null (the knob then draws as it always did). */
+export function usableKnobImage(value: unknown): LayoutKnobImage | null {
+  if (!value || typeof value !== "object") return null;
+  const knobImage = value as LayoutKnobImage;
+  if (typeof knobImage.imageId !== "string" || !knobImage.imageId) return null;
+  if (knobImage.mode === "filmstrip") return filmstripFrameCount(knobImage.frames) ? knobImage : null;
+  return knobImage.mode === "rotate" ? knobImage : null;
+}
+
+/**
+ * The attributes, style and children of an image knob at `diameter` px showing `position` (0..1),
+ * or null when `knobImage` is not usable or its face image cannot be drawn.
+ */
+export function imageKnobMarkup(
+  knobImage: LayoutKnobImage,
+  diameter: number,
+  position: number,
+  resolve: ImageCssResolver,
+): { attributes: string; style: string; children: string } | null {
+  // A filmstrip's picture is as wide as its columns of frames.
+  const columns = Number.isInteger(knobImage.columns) && knobImage.columns! > 0 ? knobImage.columns! : 1;
+  const face = resolve(knobImage.imageId, knobImage.mode === "filmstrip" ? diameter * columns : diameter);
+  if (!face) return null;
+  const layer = (className: string, imageId: string | undefined) => {
+    const url = imageId ? resolve(imageId, diameter) : null;
+    return url ? `<div class="${escapeHtml(className)}" style="${escapeHtml(`background-image: ${url};`)}"></div>` : "";
+  };
+
+  let attributes = ` data-custom-knob-image="true" data-knob-image="${knobImage.mode}"`;
+  let faceStyle = `background-image: ${face};`;
+  if (knobImage.mode === "filmstrip") {
+    const frames = filmstripFrameCount(knobImage.frames);
+    const { size, position: at } = filmstripBackground(filmstripFrame(position, frames), frames, columns);
+    attributes += ` data-frames="${frames}" data-columns="${columns}"`;
+    faceStyle += ` background-size: ${size}; background-position: ${at};`;
+  } else {
+    const minAngle = Number.isFinite(knobImage.minAngle) ? knobImage.minAngle! : -135;
+    const maxAngle = Number.isFinite(knobImage.maxAngle) ? knobImage.maxAngle! : 135;
+    attributes += ` data-min-angle="${minAngle}" data-max-angle="${maxAngle}"`;
+    faceStyle += ` transform: rotate(${knobFaceAngle(position, minAngle, maxAngle)}deg);`;
+  }
+  const faceClass = `custom-knob-face${knobImage.mode === "filmstrip" ? " is-filmstrip" : ""}${knobImage.clip === false ? " no-clip" : ""}`;
+
+  return {
+    attributes,
+    style: `background-image: none; width: ${diameter}px; height: ${diameter}px;`,
+    children: layer("custom-knob-base", knobImage.baseImageId)
+      + `<div class="${escapeHtml(faceClass)}" style="${escapeHtml(faceStyle)}"></div>`
+      + layer("custom-knob-glare", knobImage.glareImageId),
+  };
+}
+
+/**
+ * Style that draws a styled (not image) knob at `diameter` px: the whole knob, ring and pointer
+ * included, zoomed from its 38 px design, so it keeps its proportions. Empty at 38 px.
+ */
+export function knobDiameterStyle(diameter: number): string {
+  return diameter === DEFAULT_KNOB_DIAMETER ? "" : ` zoom: ${Math.round((diameter / DEFAULT_KNOB_DIAMETER) * 10000) / 10000};`;
+}
+
+/** The on and off pictures of an image toggle, or empty when it has none it can draw. */
+export function imageToggleChildren(
+  toggleImage: { onImageId?: unknown; offImageId?: unknown } | undefined,
+  width: number,
+  resolve: ImageCssResolver,
+): string {
+  if (!toggleImage || typeof toggleImage !== "object") return "";
+  const on = typeof toggleImage.onImageId === "string" ? resolve(toggleImage.onImageId, width) : null;
+  const off = typeof toggleImage.offImageId === "string" ? resolve(toggleImage.offImageId, width) : null;
+  if (!on || !off) return "";
+  return `<span class="custom-toggle-image custom-toggle-off" style="${escapeHtml(`background-image: ${off};`)}"></span>`
+    + `<span class="custom-toggle-image custom-toggle-on" style="${escapeHtml(`background-image: ${on};`)}"></span>`;
+}
+
+/**
+ * Custom properties that draw an image slider's track and thumb, or empty when it has neither.
+ * The pseudo-elements read them through var(), so each URL is made absolute first: a relative
+ * url() inside a custom property would resolve against the stylesheet, not the page.
+ */
+export function imageSliderStyle(
+  sliderImage: { trackImageId?: unknown; thumbImageId?: unknown } | undefined,
+  length: number,
+  resolve: ImageCssResolver,
+): string {
+  if (!sliderImage || typeof sliderImage !== "object") return "";
+  const absolute = (css: string | null) => {
+    const url = css?.match(/^url\("(.*)"\)$/)?.[1];
+    if (!url) return null;
+    try {
+      return `url("${new URL(url, document.baseURI).href}")`;
+    } catch {
+      return null;
+    }
+  };
+  const track = typeof sliderImage.trackImageId === "string" ? absolute(resolve(sliderImage.trackImageId, length)) : null;
+  const thumb = typeof sliderImage.thumbImageId === "string" ? absolute(resolve(sliderImage.thumbImageId, 48)) : null;
+  return `${track ? ` --slider-track-image: ${track};` : ""}${thumb ? ` --slider-thumb-image: ${thumb};` : ""}`;
+}
+
+// ---- What the renderer calls: each returns nothing for a control without the feature ----
+
+/** The parts of a layout control's style these read. */
+interface ControlImageStyle {
+  knobDiameter?: unknown;
+  sliderLength?: unknown;
+  toggleWidth?: unknown;
+  toggleHeight?: unknown;
+  knobImage?: unknown;
+  toggleImage?: { onImageId?: unknown; offImageId?: unknown };
+  sliderImage?: { trackImageId?: unknown; thumbImageId?: unknown };
+}
+
+/** The knob's drawn diameter: its knobDiameter (16 to 512 px), else the original 38. */
+export function knobDiameter(style: ControlImageStyle | undefined): number {
+  return layoutSize(style?.knobDiameter, 16, 512) ?? DEFAULT_KNOB_DIAMETER;
+}
+
+/** An image knob's markup at `position` (0..1), or null to draw the knob as it always was. */
+export function imageKnob(style: ControlImageStyle | undefined, position: number, resolve: ImageCssResolver) {
+  const knobImage = usableKnobImage(style?.knobImage);
+  return knobImage ? imageKnobMarkup(knobImage, knobDiameter(style), position, resolve) : null;
+}
+
+/** Extra style for a styled knob drawn at its knobDiameter; empty at the original size. */
+export function styledKnobSizeStyle(style: ControlImageStyle | undefined): string {
+  return knobDiameterStyle(knobDiameter(style));
+}
+
+/** An image toggle's class, size and pictures, or null to draw the original switch. */
+export function imageToggle(style: ControlImageStyle | undefined, resolve: ImageCssResolver): { style: string; children: string } | null {
+  const width = layoutSize(style?.toggleWidth, 8, 512) ?? 36;
+  const height = layoutSize(style?.toggleHeight, 8, 512) ?? 20;
+  const children = imageToggleChildren(style?.toggleImage, width, resolve);
+  return children ? { style: `width: ${width}px; height: ${height}px;`, children } : null;
+}
+
+/** ` data-image-slider style="…"` for a slider with a length or images of its own, else empty. */
+export function sliderAttributes(style: ControlImageStyle | undefined, resolve: ImageCssResolver): string {
+  const length = layoutSize(style?.sliderLength, 24, 2048);
+  const images = imageSliderStyle(style?.sliderImage, length ?? 80, resolve);
+  const css = `${length ? `width: ${length}px;` : ""}${images}`;
+  return css ? `${images ? " data-image-slider" : ""} style="${escapeHtml(css.trim())}"` : "";
+}
+
+/** Style that draws a rectangle overlay's image, or empty for one without an image. */
+export function overlayImageStyle(
+  overlay: { size: { width: number }; style?: { imageId?: unknown; imageFit?: unknown } },
+  resolve: ImageCssResolver,
+): string {
+  const imageId = overlay.style?.imageId;
+  const url = typeof imageId === "string" && imageId ? resolve(imageId, overlay.size.width) : null;
+  if (!url) return "";
+  const fit = overlay.style?.imageFit === "cover" ? "cover" : overlay.style?.imageFit === "stretch" ? "100% 100%" : "contain";
+  return ` background-image: ${url}; background-size: ${fit}; background-position: center; background-repeat: no-repeat;`;
+}

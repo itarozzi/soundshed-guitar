@@ -7,10 +7,14 @@
 import { uiState } from "./state.js";
 import { blendKnobDataAttributes, denormalizeBlendValue, type BlendParamDef } from "./blendUtils.js";
 import { renderIcon } from "./iconAssets.js";
-import { enumLabel, wholeStepLabel } from "./paramLabels.js";
-import { effectiveTaper, formatTaperedValue, valueToTaperPosition, type ParamTaper } from "./paramTaper.js";
+import { effectiveTaper, valueToTaperPosition } from "./paramTaper.js";
 import { escapeHtml } from "./utils.js";
-import { backgroundImageDrawnWidth, ensureLayoutImagesLoaded, knobFaceDrawnWidth, resolveLayoutImageUrl } from "./layoutImages.js";
+import { formatParamValue } from "./paramValueFormat.js";
+
+// Shared with the signal-path renderer and the designer preview, which import it from here.
+export { formatParamValue };
+import { backgroundImageDrawnWidth, ensureLayoutImagesLoaded, knobFaceDrawnWidth, layoutLargestScale, resolveLayoutImageUrl } from "./layoutImages.js";
+import { imageKnob, imageToggle, overlayImageStyle, sliderAttributes, styledKnobSizeStyle, type ImageCssResolver } from "./layoutControlImages.js";
 import { layoutCanGrow, scalingAttribute } from "./layoutScaling.js";
 import { resourceBrowserModal } from "./resourceBrowser.js";
 import { getResourcePickerLabelClass, getResourcePickerLabelTitle, renderResourcePickerLabelContent } from "./resourcePickerLabel.js";
@@ -95,7 +99,7 @@ export function renderCustomLayout(
   const w = Math.round(layout.dimensions.width);
   const h = Math.round(layout.dimensions.height);
   const backgrounds = renderBackgrounds(layout.backgrounds, layout);
-  const overlays = renderOverlays(node, layout.overlays ?? []);
+  const overlays = renderOverlays(node, layout.overlays ?? [], imageResolverFor(layout));
   const controls = renderControls(node, layout, paramDefs, resourceControls);
   const labels = renderTextLabels(layout.textLabels);
   const themeClass = layout.containerTheme ? ` theme-${layout.containerTheme}` : '';
@@ -131,7 +135,16 @@ export function renderCustomLayout(
   `;
 }
 
-function renderOverlays(node: GraphNode, overlays: LayoutRectangleOverlay[]): string {
+/** A layout's own image at the width it is drawn, as a CSS url(), or null when it cannot be drawn. */
+function imageResolverFor(layout: EffectLayout): ImageCssResolver {
+  return (imageId, drawnWidth) => {
+    const url = getLayoutImageUrl(imageId, drawnWidth * layoutLargestScale(layout));
+    const css = url ? layoutImageCssUrl(url) : "none";
+    return css === "none" ? null : css;
+  };
+}
+
+function renderOverlays(node: GraphNode, overlays: LayoutRectangleOverlay[], resolveImage: ImageCssResolver): string {
   const bypassed = isNodeBypassed(node);
   return overlays
     .map((overlay) => {
@@ -164,7 +177,7 @@ function renderOverlays(node: GraphNode, overlays: LayoutRectangleOverlay[]): st
             top: ${Math.round(overlay.position.y)}px;
             width: ${Math.round(overlay.size.width)}px;
             height: ${Math.round(overlay.size.height)}px;
-            background-color: ${escapeHtml(isVisible ? fill : "transparent")};
+            background-color: ${escapeHtml(isVisible ? fill : "transparent")};${escapeHtml(isVisible ? overlayImageStyle(overlay, resolveImage) : "")}
             border: ${escapeHtml(isVisible ? `${borderWidth}px solid ${borderColor}` : "0 solid transparent")};
             border-radius: ${borderRadius}px;
             z-index: ${toggleBypassOnClick ? 4 : 1};
@@ -317,7 +330,7 @@ export function renderCustomLayoutBackdrop(
   const w = Math.round(layout.dimensions.width);
   const h = Math.round(layout.dimensions.height);
   const backgrounds = renderBackgrounds(layout.backgrounds, layout);
-  const overlays = renderOverlays(node, layout.overlays ?? []);
+  const overlays = renderOverlays(node, layout.overlays ?? [], imageResolverFor(layout));
   const labels = renderTextLabels(layout.textLabels);
   const themeClass = layout.containerTheme ? ` theme-${layout.containerTheme}` : '';
 
@@ -429,6 +442,7 @@ function renderControls(
   resourceControls: LayoutResourceControlDef[]
 ): string {
   const resourceByKey = new Map(resourceControls.map((resource) => [resource.resourceControlKey, resource]));
+  const resolveImage = imageResolverFor(layout);
 
   return layout.controls
     .map((control) => {
@@ -641,10 +655,11 @@ function renderControls(
         `;
       } else if (isToggle) {
         const checked = value >= 0.5;
+        const toggleImage = imageToggle(control.style, resolveImage);
         controlHtml += `
-          <label class="toggle-switch">
+          <label class="toggle-switch${toggleImage ? " custom-image-toggle" : ""}"${toggleImage ? ` style="${escapeHtml(toggleImage.style)}"` : ""}>
             <input class="node-param-toggle" type="checkbox" data-node-id="${escapeHtml(node.id)}" data-param-key="${escapeHtml(key)}" ${checked ? "checked" : ""}>
-            <span class="toggle-slider"></span>
+            ${toggleImage ? toggleImage.children : `<span class="toggle-slider"></span>`}
           </label>
         `;
       } else if (control.type === "slider" && taper === "log") {
@@ -664,6 +679,7 @@ function renderControls(
             min="0"
             max="1"
             step="any"
+            ${sliderAttributes(control.style, resolveImage)}
             value="${valueToTaperPosition(value, min ?? 0, max ?? 1, taper)}"
           >
         `;
@@ -683,17 +699,22 @@ function renderControls(
             value="${value}"
             ${isEnum ? `data-labels="${escapeHtml(labels?.join("|") ?? "")}"` : ""}
             ${blendAttrs}
+            ${sliderAttributes(control.style, resolveImage)}
           >
         `;
       } else {
-        // Knob
+        // Knob. A knobImage (a turning face or a filmstrip) wins; without one it draws as it always did.
+        const position = taper === "log" ? valueToTaperPosition(value, min ?? 0, max ?? 1, taper)
+          : ((max ?? 1) > (min ?? 0) ? (value - (min ?? 0)) / ((max ?? 1) - (min ?? 0)) : 0);
+        const imageKnobParts = imageKnob(control.style, position, resolveImage);
         const knobImageId = control.style?.knobImageId;
-        const knobImageUrl = knobImageId ? getLayoutImageUrl(knobImageId, knobFaceDrawnWidth(layout)) : null;
+        const knobImageUrl = !imageKnobParts && knobImageId ? getLayoutImageUrl(knobImageId, knobFaceDrawnWidth(layout)) : null;
         const useCustomKnobImage = knobStyle === "custom" && !!knobImageUrl;
-        const knobBg = useCustomKnobImage
-          ? `background-image: none;`
-          : "";
-        const customKnobAttr = useCustomKnobImage ? `data-custom-knob-image="true"` : "";
+        const sizeStyle = styledKnobSizeStyle(control.style);
+        const knobBg = imageKnobParts ? imageKnobParts.style
+          : useCustomKnobImage ? `background-image: none;${sizeStyle}` : sizeStyle.trim();
+        const customKnobAttr = imageKnobParts ? imageKnobParts.attributes.trim()
+          : useCustomKnobImage ? `data-custom-knob-image="true"` : "";
 
         controlHtml += `
           <div 
@@ -710,9 +731,9 @@ function renderControls(
             ${taper === "log" ? `data-taper="log"` : ""}
             ${blendAttrs}
             ${customKnobAttr}
-            style="${knobBg}"
+            style="${escapeHtml(knobBg)}"
           >
-            ${useCustomKnobImage ? `<div class="custom-knob-face" style="background-image: url('${escapeHtml(knobImageUrl)}');"></div>` : ""}
+            ${imageKnobParts ? imageKnobParts.children : useCustomKnobImage ? `<div class="custom-knob-face" style="background-image: url('${escapeHtml(knobImageUrl)}');"></div>` : ""}
             <div class="knob-indicator"></div>
           </div>
         `;
@@ -752,38 +773,4 @@ function renderTextLabels(labels: LayoutTextLabel[]): string {
       return `<span class="custom-layout-text-label" style="${escapeHtml(style)}">${escapeHtml(label.text)}</span>`;
     })
     .join("");
-}
-
-/**
- * Format a parameter value for display.
- * Returns just the number for generic "amount" units to keep labels compact.
- * Exported so the signal-path renderer and designer preview share identical formatting.
- * A log-taper value, which can run from 1.25 to 18,000, is shown to about three figures, and
- * one that moves in whole steps as a whole number with its unit (wholeStepLabel).
- */
-export function formatParamValue(
-  value: number,
-  unit?: string,
-  labels?: string[],
-  taper?: ParamTaper,
-  min = 0,
-  step?: number,
-): string {
-  if (unit === "toggle") {
-    return value >= 0.5 ? "On" : "Off";
-  }
-  if (unit === "enum" && Array.isArray(labels)) {
-    return enumLabel(value, labels, min, step) ?? `${Math.round(value)}`;
-  }
-  if (taper === "log") {
-    return formatTaperedValue(value, unit);
-  }
-  const whole = wholeStepLabel(value, unit, step);
-  if (whole !== undefined) {
-    return whole;
-  }
-  if (unit === "dB" || unit === "ms" || unit === "Hz") {
-    return `${value.toFixed(1)}${unit}`;
-  }
-  return value.toFixed(2);
 }

@@ -10,6 +10,7 @@
 #include <cctype>
 #include <cstddef>
 #include <fstream>
+#include <initializer_list>
 #include <map>
 #include <optional>
 #include <sstream>
@@ -917,6 +918,37 @@ std::vector<std::string> CollectLayoutImageIds(const nlohmann::json& layout)
             if (control.is_object() && style != control.end() && style->is_object())
             {
                 add(StringField(*style, "knobImageId"));
+
+                // Image knobs, toggles and sliders; the UI's layoutImageIds lists the same places.
+                for (const auto& [group, keys] :
+                     std::initializer_list<std::pair<const char*, std::initializer_list<const char*>>>{
+                         {"knobImage", {"imageId", "baseImageId", "glareImageId"}},
+                         {"toggleImage", {"onImageId", "offImageId"}},
+                         {"sliderImage", {"trackImageId", "thumbImageId"}}})
+                {
+                    const auto object = style->find(group);
+
+                    if (object != style->end() && object->is_object())
+                    {
+                        for (const char* key : keys)
+                        {
+                            add(StringField(*object, key));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (const auto overlays = layout.find("overlays"); overlays != layout.end() && overlays->is_array())
+    {
+        for (const auto& overlay : *overlays)
+        {
+            const auto style = overlay.is_object() ? overlay.find("style") : overlay.end();
+
+            if (overlay.is_object() && style != overlay.end() && style->is_object())
+            {
+                add(StringField(*style, "imageId"));
             }
         }
     }

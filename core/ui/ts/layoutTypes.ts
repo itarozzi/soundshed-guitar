@@ -5,10 +5,11 @@
  * background images, control positioning, and text labels.
  */
 
+import type { LayoutKnobImage } from "./layoutKnobImages.js";
 import type { LayoutImageRendition } from "./layoutRenditions.js";
 import type { LayoutScaling } from "./layoutScaling.js";
 
-export type { LayoutImageRendition, LayoutScaling };
+export type { LayoutImageRendition, LayoutKnobImage, LayoutScaling };
 
 /** Image reference for layout backgrounds and knobs */
 export interface LayoutImageRef {
@@ -105,6 +106,20 @@ export interface LayoutControl {
     labelFontSize?: number;
     /** Value text size (px); unset uses the layout's controlValueFontSize, else 9. */
     valueFontSize?: number;
+    /**
+     * Drawn size (px) of the control itself. Unset: the original sizes (38 px knob, 80 px slider,
+     * 36 x 20 toggle). Not `size`, which older layouts already set to mean the wrapper's width.
+     */
+    knobDiameter?: number;
+    sliderLength?: number;
+    toggleWidth?: number;
+    toggleHeight?: number;
+    /** A knob drawn from images: a turning face or a filmstrip (layoutKnobImages.ts). Wins over knobStyle. */
+    knobImage?: LayoutKnobImage;
+    /** A toggle drawn as two pictures, one for off and one for on. */
+    toggleImage?: { onImageId?: string; offImageId?: string };
+    /** A slider drawn with a track picture and a thumb picture. */
+    sliderImage?: { trackImageId?: string; thumbImageId?: string };
   };
   /** Custom label text (overrides param name) */
   labelOverride?: string;
@@ -154,6 +169,13 @@ export interface LayoutRectangleOverlay {
     borderWidth?: number;
     /** Corner radius (pixels) */
     borderRadius?: number;
+    /**
+     * An image drawn in the rectangle (a logo, a lit LED, a footswitch), shown and hidden with
+     * it by visibilityMode. Older apps ignore it and draw the rectangle's own fill.
+     */
+    imageId?: string;
+    /** How the image fills the rectangle; default "contain". */
+    imageFit?: "contain" | "cover" | "stretch";
   };
 }
 
@@ -409,6 +431,50 @@ export function normalizeBackgroundLayers(layout: EffectLayout): EffectLayout {
       .map((bg, index) => ({ ...bg, layerIndex: index }));
   }
   return layout;
+}
+
+/**
+ * Where a layout refers to images: background layers, custom knob faces, image knobs (face, base,
+ * glare), image toggles, image sliders and image overlays. `visit` gets each reference's id and a
+ * setter for it. Export, import and the engine's copy on save (CollectLayoutImageIds) must agree.
+ */
+function visitLayoutImageRefs(layout: EffectLayout, visit: (id: string, set: (id: string) => void) => void): void {
+  for (const bg of layout.backgrounds ?? []) {
+    if (bg.type === "image" && bg.value) visit(bg.value, (id) => { bg.value = id; });
+  }
+  const visitField = <T extends object>(owner: T | undefined, key: keyof T) => {
+    const id = owner?.[key];
+    if (owner && typeof id === "string" && id) visit(id, (next) => { (owner as Record<keyof T, unknown>)[key] = next; });
+  };
+  for (const control of layout.controls ?? []) {
+    const style = control.style;
+    visitField(style, "knobImageId");
+    visitField(style?.knobImage, "imageId");
+    visitField(style?.knobImage, "baseImageId");
+    visitField(style?.knobImage, "glareImageId");
+    visitField(style?.toggleImage, "onImageId");
+    visitField(style?.toggleImage, "offImageId");
+    visitField(style?.sliderImage, "trackImageId");
+    visitField(style?.sliderImage, "thumbImageId");
+  }
+  for (const overlay of layout.overlays ?? []) {
+    visitField(overlay.style, "imageId");
+  }
+}
+
+/** Every image id `layout` draws on, each once, in the order they appear. */
+export function layoutImageIds(layout: EffectLayout): string[] {
+  const ids: string[] = [];
+  visitLayoutImageRefs(layout, (id) => { if (!ids.includes(id)) ids.push(id); });
+  return ids;
+}
+
+/** Points every image reference in `layout` that `renamed` holds at its new id. */
+export function renameLayoutImageIds(layout: EffectLayout, renamed: ReadonlyMap<string, string>): void {
+  visitLayoutImageRefs(layout, (id, set) => {
+    const next = renamed.get(id);
+    if (next) set(next);
+  });
 }
 
 /** Generate a unique ID for layout elements */

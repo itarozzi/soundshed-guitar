@@ -228,3 +228,70 @@
   cursor: pointer;
   border: 2px solid rgba(255, 255, 255, 0.3);
 }
+
+/* Controls drawn from a layout's own images (layoutControlImages.ts). Each rule matches only the
+   markup those features add, so controls of layouts made before them draw as they always did. */
+
+/* Image knobs: a still base, the face (turning, or a filmstrip frame), a still glare. */
+.knob .custom-knob-base,
+.knob .custom-knob-glare {
+  position: absolute;
+  inset: 0;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: contain;
+  pointer-events: none;
+}
+
+.knob .custom-knob-base {
+  z-index: 0;
+}
+
+.knob .custom-knob-glare {
+  z-index: 3;
+}
+
+.knob .custom-knob-face.no-clip,
+.knob .custom-knob-face.is-filmstrip {
+  inset: 0;
+  border-radius: 0;
+}
+
+/* Image toggles: the off picture, swapped for the on picture while checked. */
+.toggle-switch.custom-image-toggle {
+  display: inline-block;
+  cursor: pointer;
+}
+
+.custom-image-toggle .custom-toggle-image {
+  position: absolute;
+  inset: 0;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: contain;
+  pointer-events: none;
+}
+
+.custom-image-toggle .custom-toggle-on,
+.custom-image-toggle input:checked ~ .custom-toggle-off {
+  display: none;
+}
+
+.custom-image-toggle input:checked ~ .custom-toggle-on {
+  display: block;
+}
+
+/* Image sliders: track and thumb pictures from custom properties (absolute URLs). */
+.custom-layout-slider[data-image-slider] {
+  height: 16px;
+  border-radius: 0;
+  background: var(--slider-track-image, linear-gradient(rgba(255, 255, 255, 0.15), rgba(255, 255, 255, 0.15))) center / 100% 100% no-repeat;
+}
+
+.custom-layout-slider[data-image-slider]::-webkit-slider-thumb {
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 0;
+  background: var(--slider-thumb-image, var(--accent-primary)) center / contain no-repeat;
+}

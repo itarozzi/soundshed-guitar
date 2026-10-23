@@ -8,6 +8,7 @@
  */
 
 import { layoutGridSize, snapToGrid } from "../layoutTypes.js";
+import { bindControlImageGroup, bindOverlayImageGroup, renderControlImageGroup, renderOverlayImageGroup } from "./controlImageProperties.js";
 import type { KnobStylePreset, LabelPosition, LayoutControl, LayoutRectangleOverlay, LayoutTextLabel } from "../layoutTypes.js";
 import { getLayoutImageUrl } from "./images.js";
 import type { LayoutPropertiesHost } from "./propertiesHost.js";
@@ -170,6 +171,7 @@ export class ElementProperties {
       </div>
 
       ${styleSection}
+      ${renderControlImageGroup(control, isResourceControl, (purpose, selected) => this.host.renderImageOptionsHtml(purpose, selected))}
 
       <div class="layout-property-group">
         <button id="prop-delete-control" style="width: 100%; background: rgba(255,100,100,0.2); color: #ff6b6b;">Remove from Layout</button>
@@ -178,6 +180,7 @@ export class ElementProperties {
 
     // Bind property change handlers
     this.bindControlPropertyHandlers(control);
+    bindControlImageGroup(control, this.host);
   }
 
   private bindControlPropertyHandlers(control: LayoutControl): void {
@@ -570,12 +573,15 @@ export class ElementProperties {
         </div>
       </div>
 
+      ${renderOverlayImageGroup(overlay, (purpose, selected) => this.host.renderImageOptionsHtml(purpose, selected))}
+
       <div class="layout-property-group">
         <button id="prop-delete-overlay" style="width: 100%; background: rgba(255,100,100,0.2); color: #ff6b6b;">Delete Rectangle</button>
       </div>
     `;
 
     this.bindOverlayPropertyHandlers(overlay);
+    bindOverlayImageGroup(overlay, this.host);
   }
 
   private bindOverlayPropertyHandlers(overlay: LayoutRectangleOverlay): void {

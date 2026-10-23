@@ -129,8 +129,9 @@ struct LayoutImageSource
 CollectLayoutImageSources(const FileSystem& fileSystem, const std::filesystem::path& factoryLayoutsDir,
                           bool includeUnindexed = false, const std::filesystem::path& excludeImagesDir = {});
 
-/// The image ids a layout document draws on: image background layers and custom knob faces,
-/// each once, in the order they appear.
+/// The image ids a layout document draws on, each once, in the order they appear: image background
+/// layers, custom knob faces, image knobs (face, base, glare), image toggles and sliders, and image
+/// overlays. The UI's layoutImageIds (layoutTypes.ts) lists the same places.
 [[nodiscard]] std::vector<std::string> CollectLayoutImageIds(const nlohmann::json& layout);
 
 /// Copies each of `imageIds` that `layoutId`'s own images folder lacks into it, from the file

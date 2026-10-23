@@ -39,7 +39,7 @@ export function resolveLayoutImageUrl(imageId: string, drawnWidth?: number): str
 }
 
 /** How large a layout is ever drawn relative to its own size: its maxScale if it may grow, else 1. */
-function largestScale(layout: Pick<EffectLayout, "scaling">): number {
+export function layoutLargestScale(layout: Pick<EffectLayout, "scaling">): number {
   return layoutCanGrow(layout.scaling) ? Math.min(8, layout.scaling!.maxScale!) : 1;
 }
 
@@ -48,12 +48,12 @@ export function backgroundImageDrawnWidth(bg: LayoutBackground, layout: Pick<Eff
   const image = uiState.layoutLibrary?.images.find((img) => img.imageId === bg.value);
   if (!image?.width || !image.height) return undefined;
   const { width, height } = layout.dimensions;
-  return backgroundDrawnWidth(bg.size, bg.scale, width, height, image.width, image.height) * largestScale(layout);
+  return backgroundDrawnWidth(bg.size, bg.scale, width, height, image.width, image.height) * layoutLargestScale(layout);
 }
 
 /** CSS pixels across which a custom knob face is drawn at the layout's largest (38 px knob, 4 px inset). */
 export function knobFaceDrawnWidth(layout: Pick<EffectLayout, "scaling">): number {
-  return 30 * largestScale(layout);
+  return 30 * layoutLargestScale(layout);
 }
 
 let loaded = false;
