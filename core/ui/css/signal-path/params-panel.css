@@ -450,6 +450,18 @@
   margin-inline: auto;
 }
 
+/* A layout whose scaling lets it grow past its own size (data-layout-grows) needs room to: the
+   panel and its section are otherwise only as wide as the layout itself. Layouts that cannot
+   grow, which is every layout made before scaling existed, keep the fit-content sizing above. */
+.effect-visualization .node-params-panel:has(.custom-layout-scale-outer[data-layout-grows]) {
+  width: 100%;
+}
+
+.default-effect-shell.has-custom-layout .default-effect-section-custom-layout:has(.custom-layout-scale-outer[data-layout-grows]),
+.default-effect-shell.has-custom-layout .default-effect-section-controls:has(.custom-layout-scale-outer[data-layout-grows]) {
+  width: 100%;
+}
+
 /* The equipment artwork is the panel's backdrop, not a photo in a frame: it
    fills the box edge to edge and the panel's radius plus `overflow: hidden`
    round its corners. The gradients below show only while the artwork loads. */

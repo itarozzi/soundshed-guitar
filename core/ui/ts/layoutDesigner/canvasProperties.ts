@@ -5,7 +5,7 @@
  * per-layer blend settings rather than a flat form.
  */
 
-import type { LayoutBackground } from "../layoutTypes.js";
+import type { LayoutBackground, LayoutScaling } from "../layoutTypes.js";
 import { getLayoutImageUrl } from "./images.js";
 import type { LayoutPropertiesHost } from "./propertiesHost.js";
 import { colorInputValue } from "../layoutRenderer.js";
@@ -25,6 +25,7 @@ export class CanvasProperties {
     const offsetY = layout.defaultControlsOffset?.y ?? 0;
     const scaleX = layout.defaultControlsScale?.x ?? 1;
     const scaleY = layout.defaultControlsScale?.y ?? 1;
+    const scaling = layout.scaling ?? {};
 
     const backdropSections = isBackdrop ? `
       <div class="layout-property-group">
@@ -97,6 +98,73 @@ export class CanvasProperties {
             ${layout.controlValueColor ? `<button id="prop-layout-value-color-reset" title="Use the theme's value colour">Theme</button>` : ""}
           </div>
         </div>
+        <div class="layout-property-row">
+          <span class="layout-property-label">Label Size</span>
+          <div class="layout-property-input">
+            <input type="number" id="prop-layout-label-size" min="6" max="96" step="1" placeholder="10" value="${layout.controlLabelFontSize ?? ""}" title="Label text size (px) for every control that does not set its own">
+          </div>
+        </div>
+        <div class="layout-property-row">
+          <span class="layout-property-label">Value Size</span>
+          <div class="layout-property-input">
+            <input type="number" id="prop-layout-value-size" min="6" max="96" step="1" placeholder="9" value="${layout.controlValueFontSize ?? ""}" title="Value text size (px) for every control that does not set its own">
+          </div>
+        </div>
+        <div class="layout-property-row">
+          <span class="layout-property-label">Font</span>
+          <div class="layout-property-input">
+            <input type="text" id="prop-layout-font" placeholder="Theme font" value="${escapeHtml(layout.controlFontFamily ?? "")}" title="CSS font family for control labels and values">
+          </div>
+        </div>
+        <div class="layout-property-row">
+          <span class="layout-property-label">Label Width</span>
+          <div class="layout-property-input">
+            <input type="number" id="prop-layout-label-width" min="16" max="2048" step="8" placeholder="80" value="${layout.controlLabelMaxWidth ?? ""}" title="Widest a control label may be (px) before it is cut short">
+          </div>
+        </div>
+      </div>
+      <div class="layout-property-group">
+        <div class="layout-property-group-title">Fit to Panel</div>
+        <div class="layout-property-row">
+          <span class="layout-property-label">Mode</span>
+          <div class="layout-property-input">
+            <select id="prop-scaling-mode" title="How the layout is sized in the effect panel">
+              <option value="" ${!scaling.mode || scaling.mode === "fit-width" ? "selected" : ""}>Fit width</option>
+              <option value="fit" ${scaling.mode === "fit" ? "selected" : ""}>Fit width and height</option>
+              <option value="fixed" ${scaling.mode === "fixed" ? "selected" : ""}>Fixed size</option>
+            </select>
+          </div>
+        </div>
+        <div class="layout-property-row">
+          <span class="layout-property-label">Max Scale</span>
+          <div class="layout-property-input">
+            <input type="number" id="prop-scaling-max" min="0.25" max="8" step="0.25" placeholder="1" value="${scaling.maxScale ?? ""}" title="Largest the layout is drawn, as a multiple of its own size. Above 1 it grows to fill a larger panel.">
+          </div>
+        </div>
+        <div class="layout-property-row">
+          <span class="layout-property-label">Min Scale</span>
+          <div class="layout-property-input">
+            <input type="number" id="prop-scaling-min" min="0" max="8" step="0.05" placeholder="0" value="${scaling.minScale ?? ""}" title="Smallest the layout is drawn; below it the panel scrolls sideways">
+          </div>
+        </div>
+        <div class="layout-property-row">
+          <span class="layout-property-label">Align</span>
+          <div class="layout-property-input">
+            <select id="prop-scaling-align">
+              <option value="" ${scaling.align !== "start" ? "selected" : ""}>Centre</option>
+              <option value="start" ${scaling.align === "start" ? "selected" : ""}>Left</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="layout-property-group">
+        <div class="layout-property-group-title">Grid</div>
+        <div class="layout-property-row">
+          <span class="layout-property-label">Snap (px)</span>
+          <div class="layout-property-input">
+            <input type="number" id="prop-grid-size" min="1" max="64" step="1" placeholder="8" value="${layout.gridSize ?? ""}" title="Snap step for dragging and placing. Hold Alt while dragging to place freely.">
+          </div>
+        </div>
       </div>
       ${backdropSections}
     `;
@@ -129,6 +197,63 @@ export class CanvasProperties {
     };
     bindTextColor("prop-layout-label-color", "controlLabelColor");
     bindTextColor("prop-layout-value-color", "controlValueColor");
+
+    // An emptied field removes the setting, so the layout falls back to the original default.
+    const bindOptionalNumber = (id: string, apply: (value: number | undefined) => void, min: number, max: number) => {
+      const input = document.getElementById(id) as HTMLInputElement | null;
+      input?.addEventListener("change", () => {
+        this.host.pushSidebarUndoOnce();
+        const value = parseFloat(input.value);
+        apply(input.value.trim() === "" || !Number.isFinite(value) ? undefined : Math.max(min, Math.min(max, value)));
+        this.host.renderCanvas();
+      });
+    };
+    const setOrDelete = <K extends "controlLabelFontSize" | "controlValueFontSize" | "controlLabelMaxWidth" | "gridSize">(key: K) =>
+      (value: number | undefined) => {
+        if (value === undefined) delete layout[key];
+        else layout[key] = (key === "gridSize" ? Math.round(value) : value) as never;
+      };
+    bindOptionalNumber("prop-layout-label-size", setOrDelete("controlLabelFontSize"), 6, 96);
+    bindOptionalNumber("prop-layout-value-size", setOrDelete("controlValueFontSize"), 6, 96);
+    bindOptionalNumber("prop-layout-label-width", setOrDelete("controlLabelMaxWidth"), 16, 2048);
+    bindOptionalNumber("prop-grid-size", setOrDelete("gridSize"), 1, 64);
+
+    const fontInput = document.getElementById("prop-layout-font") as HTMLInputElement | null;
+    fontInput?.addEventListener("change", () => {
+      this.host.pushSidebarUndoOnce();
+      const font = fontInput.value.trim();
+      if (font) layout.controlFontFamily = font;
+      else delete layout.controlFontFamily;
+      this.host.renderCanvas();
+    });
+
+    // Fit to Panel: a scaling block only while it holds something, so an untouched layout keeps none.
+    const updateScaling = (change: (scaling: LayoutScaling) => void) => {
+      this.host.pushSidebarUndoOnce();
+      const next = { ...(layout.scaling ?? {}) };
+      change(next);
+      for (const key of Object.keys(next) as (keyof typeof next)[]) {
+        if (next[key] === undefined) delete next[key];
+      }
+      if (Object.keys(next).length) layout.scaling = next;
+      else delete layout.scaling;
+      this.host.renderCanvas();
+    };
+    const modeSelect = document.getElementById("prop-scaling-mode") as HTMLSelectElement | null;
+    modeSelect?.addEventListener("change", () => updateScaling((next) => {
+      next.mode = modeSelect.value === "fit" || modeSelect.value === "fixed" ? modeSelect.value : undefined;
+    }));
+    const alignSelect = document.getElementById("prop-scaling-align") as HTMLSelectElement | null;
+    alignSelect?.addEventListener("change", () => updateScaling((next) => {
+      next.align = alignSelect.value === "start" ? "start" : undefined;
+    }));
+    for (const [id, key, min] of [["prop-scaling-max", "maxScale", 0.25], ["prop-scaling-min", "minScale", 0]] as const) {
+      const input = document.getElementById(id) as HTMLInputElement | null;
+      input?.addEventListener("change", () => updateScaling((next) => {
+        const value = parseFloat(input.value);
+        next[key] = input.value.trim() === "" || !Number.isFinite(value) ? undefined : Math.max(min, Math.min(8, value));
+      }));
+    }
 
     if (!isBackdrop) return;
 

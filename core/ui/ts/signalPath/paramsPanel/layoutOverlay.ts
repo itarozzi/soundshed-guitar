@@ -3,6 +3,7 @@
  * and the bypass hotspots on top.
  */
 
+import { computeLayoutScale, type LayoutScaling } from "../../layoutScaling.js";
 import type { GraphNode, Preset } from "../../types.js";
 import { toggleSignalPathNodeBypass } from "../bypass.js";
 import { nodeParamsPanelElement } from "../state.js";
@@ -11,14 +12,45 @@ let overlayBypassClickCleanup: (() => void) | null = null;
 
 let layoutScaleObserverCleanups: (() => void)[] = [];
 
+/** A layout's `scaling` block, as the renderer writes it on the container; undefined when absent or unreadable. */
+function readScaling(inner: HTMLElement): LayoutScaling | undefined {
+  const raw = inner.dataset.layoutScaling;
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return parsed && typeof parsed === "object" ? (parsed as LayoutScaling) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The nearest ancestor that scrolls vertically, which bounds the height a "fit" layout may take. */
+function scrollingAncestor(element: HTMLElement): HTMLElement | null {
+  for (let node = element.parentElement; node; node = node.parentElement) {
+    const overflowY = getComputedStyle(node).overflowY;
+    if ((overflowY === "auto" || overflowY === "scroll") && node.clientHeight > 0) {
+      return node;
+    }
+  }
+  return null;
+}
+
+/** Height from the layout's top to the bottom of what can be seen without scrolling. */
+function availableHeightBelow(outer: HTMLElement, scroller: HTMLElement | null): number {
+  const top = outer.getBoundingClientRect().top;
+  const bottom = scroller ? scroller.getBoundingClientRect().top + scroller.clientHeight : window.innerHeight;
+  return bottom - top - 8;
+}
+
 /**
  * Apply uniform CSS-transform scaling to custom layout containers so that
  * background images and control placements always match the design canvas,
  * regardless of the available panel width.
  *
- * When the panel is wider than the design, the layout is centred at its native
- * size. When it is narrower, the entire layout (backgrounds + controls + labels)
- * is scaled down proportionally as a single unit so nothing diverges.
+ * The whole layout (backgrounds + controls + labels) scales as a single unit so
+ * nothing diverges. How much is computeLayoutScale's call: a layout with no
+ * `scaling` block is drawn at its native size, centred, when the panel is wider,
+ * and shrunk to the panel's width when it is narrower, as every layout always was.
  *
  * Uses ResizeObserver so the scale stays correct if the panel is resized.
  */
@@ -38,23 +70,31 @@ export function applyCustomLayoutScaling(container: HTMLElement | null): void {
     const designH = parseInt(inner.dataset.designH ?? "0", 10);
     if (!designW || !designH) return;
 
+    const scaling = readScaling(inner);
+    const scroller = scaling?.mode === "fit" ? scrollingAncestor(outer) : null;
+
     const applyScale = () => {
       const outerW = outer.offsetWidth;
       if (!outerW) return;
 
-      if (outerW >= designW) {
-        // Enough space: render at native size, centred.
-        inner.style.transform = "";
-        inner.style.marginLeft = "auto";
-        inner.style.marginRight = "auto";
-        outer.style.height = `${designH}px`;
-      } else {
-        // Scale the whole layout down to fit, preserving all proportions.
-        const scale = outerW / designW;
-        inner.style.transform = `scale(${scale})`;
-        inner.style.marginLeft = "0";
-        inner.style.marginRight = "0";
-        outer.style.height = `${Math.round(designH * scale)}px`;
+      const { scale, centred, overflows } = computeLayoutScale({
+        designWidth: designW,
+        designHeight: designH,
+        availableWidth: outerW,
+        availableHeight: scaling?.mode === "fit" ? availableHeightBelow(outer, scroller) : undefined,
+        scaling,
+      });
+
+      // The container's stylesheet pins its margin to 0 (!important), so a scaled layout that
+      // sits in the middle is moved there by the transform. Without a scaling block that never
+      // happens: a layout at its own size is centred by its fit-content section, as it always was.
+      const offset = centred && scale !== 1 ? (outerW - designW * scale) / 2 : 0;
+      inner.style.transform = scale === 1 ? "" : `${offset ? `translateX(${offset}px) ` : ""}scale(${scale})`;
+      inner.style.marginLeft = centred ? "auto" : "0";
+      inner.style.marginRight = centred ? "auto" : "0";
+      outer.style.height = scale === 1 ? `${designH}px` : `${Math.round(designH * scale)}px`;
+      if (scaling) {
+        outer.style.overflowX = overflows ? "auto" : "hidden";
       }
     };
 
@@ -62,6 +102,9 @@ export function applyCustomLayoutScaling(container: HTMLElement | null): void {
 
     const ro = new ResizeObserver(applyScale);
     ro.observe(outer);
+    if (scroller) {
+      ro.observe(scroller);
+    }
     layoutScaleObserverCleanups.push(() => ro.disconnect());
   });
 }

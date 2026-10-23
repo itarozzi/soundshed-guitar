@@ -11,6 +11,7 @@ import { enumLabel, wholeStepLabel } from "./paramLabels.js";
 import { effectiveTaper, formatTaperedValue, valueToTaperPosition, type ParamTaper } from "./paramTaper.js";
 import { escapeHtml } from "./utils.js";
 import { ensureLayoutImagesLoaded, resolveLayoutImageUrl } from "./layoutImages.js";
+import { layoutCanGrow, scalingAttribute } from "./layoutScaling.js";
 import { resourceBrowserModal } from "./resourceBrowser.js";
 import { getResourcePickerLabelClass, getResourcePickerLabelTitle, renderResourcePickerLabelContent } from "./resourcePickerLabel.js";
 import type {
@@ -100,11 +101,11 @@ export function renderCustomLayout(
   const themeClass = layout.containerTheme ? ` theme-${layout.containerTheme}` : '';
 
   return `
-    <div class="custom-layout-scale-outer" style="position: relative; width: 100%; overflow: hidden; height: ${h}px;">
+    <div class="custom-layout-scale-outer"${layoutCanGrow(layout.scaling) ? " data-layout-grows" : ""} style="position: relative; width: 100%; overflow: hidden; height: ${h}px;">
       <div 
         class="custom-layout-container${escapeHtml(themeClass)}" 
         data-design-w="${w}"
-        data-design-h="${h}"
+        data-design-h="${h}"${scalingAttribute(layout)}
         style="
           position: relative;
           width: ${w}px;
@@ -246,6 +247,12 @@ function layoutNumber(value: unknown, fallback: number): number {
   return Number.isFinite(number) ? number : fallback;
 }
 
+/** A text size (px) from a layout, clamped to something legible and sane, or `fallback`. */
+function textSize(own: unknown, layoutDefault: unknown, fallback: number): number {
+  const size = layoutNumber(own, layoutNumber(layoutDefault, fallback));
+  return Math.max(6, Math.min(96, size));
+}
+
 /** url() for a layout's own image — data, blob or bundled file — or `none` for anything else. */
 function layoutImageCssUrl(url: string): string {
   return /^(data:image\/|blob:|layout-images\/)/.test(url) && !/["\\\r\n]/.test(url) ? `url("${url}")` : "none";
@@ -329,11 +336,11 @@ export function renderCustomLayoutBackdrop(
   const colors = defaultControlsColorAttrs(layout);
 
   return `
-    <div class="custom-layout-scale-outer" style="position: relative; width: 100%; overflow: hidden; height: ${h}px;">
+    <div class="custom-layout-scale-outer"${layoutCanGrow(layout.scaling) ? " data-layout-grows" : ""} style="position: relative; width: 100%; overflow: hidden; height: ${h}px;">
       <div
         class="custom-layout-container custom-layout-backdrop${escapeHtml(themeClass)}"
         data-design-w="${w}"
-        data-design-h="${h}"
+        data-design-h="${h}"${scalingAttribute(layout)}
         style="
           position: relative;
           width: ${w}px;
@@ -472,6 +479,13 @@ function renderControls(
       const textColors = resolveControlTextColors(layout, control);
       const labelColor = textColors.label ?? "var(--text-dark-secondary)";
       const valueColor = textColors.value ?? "var(--text-tertiary)";
+      // Unset, these give the sizes every layout was drawn with and add nothing to the style.
+      const labelSize = textSize(control.style?.labelFontSize, layout.controlLabelFontSize, 10);
+      const valueSize = textSize(control.style?.valueFontSize, layout.controlValueFontSize, 9);
+      const fontFamily = layout.controlFontFamily ? safeCssValue(layout.controlFontFamily, "") : "";
+      const fontStyle = fontFamily ? ` font-family: ${fontFamily};` : "";
+      const labelMaxWidth = layoutNumber(layout.controlLabelMaxWidth, 0);
+      const labelWidthStyle = labelMaxWidth > 0 ? ` max-width: ${Math.round(labelMaxWidth)}px;` : "";
 
       const isToggle = !isResourceControl && (control.type === "toggle" || unit === "toggle");
       const isEnum = !isResourceControl && unit === "enum" && Array.isArray(labels);
@@ -489,7 +503,7 @@ function renderControls(
       let controlHtml = "";
 
       if (!hideLabel && labelPosition === "top") {
-        controlHtml += `<span class="custom-control-label" style="font-size: 10px; color: ${escapeHtml(labelColor)}; margin-bottom: 4px;">${escapeHtml(label)}</span>`;
+        controlHtml += `<span class="custom-control-label" style="font-size: ${labelSize}px; color: ${escapeHtml(labelColor)}; margin-bottom: 4px;${escapeHtml(fontStyle + labelWidthStyle)}">${escapeHtml(label)}</span>`;
       }
 
       if (isResourceControl) {
@@ -705,11 +719,11 @@ function renderControls(
       }
 
       if (!hideLabel && labelPosition === "bottom") {
-        controlHtml += `<span class="custom-control-label" style="font-size: 10px; color: ${escapeHtml(labelColor)}; margin-top: 4px;">${escapeHtml(label)}</span>`;
+        controlHtml += `<span class="custom-control-label" style="font-size: ${labelSize}px; color: ${escapeHtml(labelColor)}; margin-top: 4px;${escapeHtml(fontStyle + labelWidthStyle)}">${escapeHtml(label)}</span>`;
       }
 
       if (!isResourceControl && showValue) {
-        controlHtml += `<span class="node-param-value" style="font-size: 9px; color: ${escapeHtml(valueColor)}; margin-top: 2px;">${displayValue}</span>`;
+        controlHtml += `<span class="node-param-value" style="font-size: ${valueSize}px; color: ${escapeHtml(valueColor)}; margin-top: 2px;${escapeHtml(fontStyle)}">${displayValue}</span>`;
       }
 
       return `<div class="custom-layout-control" style="${escapeHtml(controlStyle)}">${controlHtml}</div>`;

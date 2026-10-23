@@ -5,6 +5,10 @@
  * background images, control positioning, and text labels.
  */
 
+import type { LayoutScaling } from "./layoutScaling.js";
+
+export type { LayoutScaling };
+
 /** Image reference for layout backgrounds and knobs */
 export interface LayoutImageRef {
   /** Unique ID for the image in the layout library */
@@ -92,6 +96,10 @@ export interface LayoutControl {
     knobImageId?: string;
     /** Color override for control accent */
     accentColor?: string;
+    /** Label text size (px); unset uses the layout's controlLabelFontSize, else 10. */
+    labelFontSize?: number;
+    /** Value text size (px); unset uses the layout's controlValueFontSize, else 9. */
+    valueFontSize?: number;
   };
   /** Custom label text (overrides param name) */
   labelOverride?: string;
@@ -203,6 +211,24 @@ export interface EffectLayout {
    */
   controlLabelColor?: string;
   controlValueColor?: string;
+  /**
+   * Default label and value text size (px), font family (CSS) and label width cap (px) for the
+   * layout's positioned controls; a control's own style.labelFontSize / valueFontSize wins.
+   * Unset: 10 px labels, 9 px values, the theme's font, labels capped at 80 px.
+   */
+  controlLabelFontSize?: number;
+  controlValueFontSize?: number;
+  controlFontFamily?: string;
+  controlLabelMaxWidth?: number;
+  /** How the layout fits the params panel (layoutScaling.ts). Unset: the original fit-width rule. */
+  scaling?: LayoutScaling;
+  /** The designer's snap step (px), also used when the layout is imported. Unset: LAYOUT_GRID_SIZE. */
+  gridSize?: number;
+  /**
+   * Features an older app cannot draw, set on save with version 2 (layoutRequirements.ts). A
+   * layout that uses none of them stays version 1 and has no list.
+   */
+  requires?: string[];
   /** Creation timestamp */
   createdAt?: string;
   /** Last modified timestamp */
@@ -247,10 +273,19 @@ export const DEFAULT_LAYOUT_DIMENSIONS = {
 /** Minimum/maximum canvas dimensions */
 export const LAYOUT_DIMENSION_LIMITS = {
   minWidth: 200,
-  maxWidth: 1024,
+  maxWidth: 4096,
   minHeight: 150,
-  maxHeight: 768,
+  maxHeight: 4096,
 };
+
+/** The canvas size every layout fitted in before the limits were raised; larger needs a newer app. */
+export const LEGACY_DIMENSION_LIMITS = { maxWidth: 1024, maxHeight: 768 };
+
+/** A layout's snap step: its gridSize when that is a whole number from 1 to 64, else LAYOUT_GRID_SIZE. */
+export function layoutGridSize(layout: Pick<EffectLayout, "gridSize"> | null | undefined): number {
+  const size = layout?.gridSize;
+  return typeof size === "number" && Number.isInteger(size) && size >= 1 && size <= 64 ? size : LAYOUT_GRID_SIZE;
+}
 
 /**
  * Build the layout library lookup key.
@@ -277,12 +312,16 @@ export function snapToGrid(value: number, gridSize: number = LAYOUT_GRID_SIZE): 
  * Call this after importing an external layout to prevent sub-pixel drift.
  */
 export function sanitizeLayout(layout: EffectLayout): EffectLayout {
+  // The layout's own grid; one that never chose a grid snaps to 8 px as every layout did.
+  const grid = layoutGridSize(layout);
+  const snap = (value: number) => snapToGrid(value, grid);
+
   // Dimensions — snap to grid, clamped within limits
   layout.dimensions = {
-    width: snapToGrid(
+    width: snap(
       Math.max(LAYOUT_DIMENSION_LIMITS.minWidth, Math.min(LAYOUT_DIMENSION_LIMITS.maxWidth, layout.dimensions.width))
     ),
-    height: snapToGrid(
+    height: snap(
       Math.max(LAYOUT_DIMENSION_LIMITS.minHeight, Math.min(LAYOUT_DIMENSION_LIMITS.maxHeight, layout.dimensions.height))
     ),
   };
@@ -290,13 +329,13 @@ export function sanitizeLayout(layout: EffectLayout): EffectLayout {
   // Controls
   for (const control of layout.controls ?? []) {
     control.position = {
-      x: snapToGrid(control.position.x),
-      y: snapToGrid(control.position.y),
+      x: snap(control.position.x),
+      y: snap(control.position.y),
     };
     if (control.size) {
       control.size = {
-        width: snapToGrid(control.size.width),
-        height: snapToGrid(control.size.height),
+        width: snap(control.size.width),
+        height: snap(control.size.height),
       };
     }
   }
@@ -304,12 +343,12 @@ export function sanitizeLayout(layout: EffectLayout): EffectLayout {
   // Overlays
   for (const overlay of layout.overlays ?? []) {
     overlay.position = {
-      x: snapToGrid(overlay.position.x),
-      y: snapToGrid(overlay.position.y),
+      x: snap(overlay.position.x),
+      y: snap(overlay.position.y),
     };
     overlay.size = {
-      width: snapToGrid(overlay.size.width),
-      height: snapToGrid(overlay.size.height),
+      width: snap(overlay.size.width),
+      height: snap(overlay.size.height),
     };
   }
 

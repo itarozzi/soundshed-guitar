@@ -9,14 +9,14 @@ import { postMessage } from "./bridge.js";
 import { CanvasProperties } from "./layoutDesigner/canvasProperties.js";
 import { LayoutStore } from "./layoutDesigner/layoutStore.js";
 import { ElementProperties } from "./layoutDesigner/elementProperties.js";
-import { getLayoutImageUrl } from "./layoutDesigner/images.js";
+import { getLayoutImageUrl, imageOptionsHtml, reusableLayoutImages } from "./layoutDesigner/images.js";
 import { isDialogOpen, showConfirm } from "./dialogs.js";
 import type { CopiedTextLabelPayload, DragState, LayoutResourceCandidate, SelectedElement } from "./layoutDesigner/types.js";
 import { ensureLayoutImagesLoaded } from "./layoutImages.js";
 import { colorControlPlaceholder, colorWithAlpha, defaultControlsColorAttrs, renderCustomLayoutPreviewLayers, safeCssValue } from "./layoutRenderer.js";
 import type { LayoutResourceControlDef } from "./layoutRenderer.js";
-import { DEFAULT_LAYOUT_DIMENSIONS, LAYOUT_DIMENSION_LIMITS, LAYOUT_GRID_SIZE, MAX_BACKGROUND_LAYERS, generateLabelId, generateLayoutId, generateOverlayId, layoutLookupKey, nextFreeBackgroundLayer, normalizeBackgroundLayers, snapToGrid } from "./layoutTypes.js";
-import type { EffectLayout, LayoutBackground, LayoutControl, LayoutImageRef, LayoutLibraryEntry, LayoutRectangleOverlay, LayoutTextLabel } from "./layoutTypes.js";
+import { DEFAULT_LAYOUT_DIMENSIONS, LAYOUT_DIMENSION_LIMITS, MAX_BACKGROUND_LAYERS, generateLabelId, generateLayoutId, generateOverlayId, layoutLookupKey, nextFreeBackgroundLayer, normalizeBackgroundLayers, layoutGridSize, snapToGrid } from "./layoutTypes.js";
+import type { EffectLayout, LayoutBackground, LayoutControl, LayoutLibraryEntry, LayoutRectangleOverlay, LayoutTextLabel } from "./layoutTypes.js";
 import { showNotification } from "./notifications.js";
 import { EffectTypeRegistry } from "./presetV2.js";
 import type { ParameterDef } from "./presetV2.js";
@@ -83,7 +83,7 @@ export class LayoutDesignerModal {
     renderCanvas: () => this.renderCanvas(),
     renderSidebar: () => this.renderSidebar(),
     selectElement: (element) => this.selectElement(element),
-    renderImageOptionsHtml: (purpose, selectedImageId) => this.renderImageOptionsHtml(purpose, selectedImageId),
+    renderImageOptionsHtml: (purpose, selectedImageId) => imageOptionsHtml(purpose, selectedImageId),
     browseBackgroundImage: (layerIndex) => this.browseBackgroundImage(layerIndex),
     browseKnobImage: (control) => this.browseKnobImage(control),
     isResourceControl: (control) => this.isResourceControl(control),
@@ -100,7 +100,7 @@ export class LayoutDesignerModal {
     renderCanvas: () => this.renderCanvas(),
     renderSidebar: () => this.renderSidebar(),
     selectElement: (element) => this.selectElement(element),
-    renderImageOptionsHtml: (purpose, selectedImageId) => this.renderImageOptionsHtml(purpose, selectedImageId),
+    renderImageOptionsHtml: (purpose, selectedImageId) => imageOptionsHtml(purpose, selectedImageId),
     browseBackgroundImage: (layerIndex) => this.browseBackgroundImage(layerIndex),
     browseKnobImage: (control) => this.browseKnobImage(control),
     isResourceControl: (control) => this.isResourceControl(control),
@@ -690,11 +690,11 @@ export class LayoutDesignerModal {
     if (!this.layout || !this.widthInput || !this.heightInput) return;
 
     this.pushUndoState();
-    const width = snapToGrid(Math.max(
+    const width = this.snap(Math.max(
       LAYOUT_DIMENSION_LIMITS.minWidth,
       Math.min(LAYOUT_DIMENSION_LIMITS.maxWidth, parseInt(this.widthInput.value) || DEFAULT_LAYOUT_DIMENSIONS.width)
     ));
-    const height = snapToGrid(Math.max(
+    const height = this.snap(Math.max(
       LAYOUT_DIMENSION_LIMITS.minHeight,
       Math.min(LAYOUT_DIMENSION_LIMITS.maxHeight, parseInt(this.heightInput.value) || DEFAULT_LAYOUT_DIMENSIONS.height)
     ));
@@ -729,6 +729,15 @@ export class LayoutDesignerModal {
     this.nameInput.placeholder = this.fallbackLayoutName || "Untitled layout";
   }
 
+  /** The layout's snap step (its gridSize, else 8 px). */
+  private gridSize(): number {
+    return layoutGridSize(this.layout);
+  }
+
+  private snap(value: number): number {
+    return snapToGrid(value, this.gridSize());
+  }
+
   private updateCanvasSize(): void {
     if (!this.canvas || !this.layout) return;
     // Canvas element stays at design dimensions; zoom is applied via CSS transform
@@ -736,6 +745,10 @@ export class LayoutDesignerModal {
     this.canvas.style.height = `${this.layout.dimensions.height}px`;
     this.canvas.style.transform = `scale(${this.zoom})`;
     this.canvas.style.transformOrigin = "top left";
+    if (this.grid) {
+      const step = this.gridSize();
+      this.grid.style.backgroundSize = `${step}px ${step}px`;
+    }
     // Wrapper takes the zoomed dimensions so parent container scrolls correctly
     if (this.canvasWrapper) {
       this.canvasWrapper.style.width = `${Math.round(this.layout.dimensions.width * this.zoom)}px`;
@@ -994,46 +1007,6 @@ export class LayoutDesignerModal {
     return el;
   }
 
-  private getReusableLayoutImages(purpose: "background" | "knob", selectedImageId?: string): LayoutImageRef[] {
-    const images = uiState.layoutLibrary?.images ?? [];
-    const available = images.filter((img) => Boolean(img.imageId) && (Boolean(img.dataUrl) || Boolean(img.url) || Boolean(img.fileName)));
-    const preferredType = purpose === "background" ? "background" : "knob";
-    const compatible = available.filter((img) => {
-      if (img.imageId === selectedImageId) {
-        return true;
-      }
-      if (!img.type || img.type === "general") {
-        return true;
-      }
-      return img.type === preferredType;
-    });
-    return [...compatible].sort((a, b) => {
-      const aPriority = a.type === preferredType ? 0 : a.imageId === selectedImageId ? 1 : 2;
-      const bPriority = b.type === preferredType ? 0 : b.imageId === selectedImageId ? 1 : 2;
-      if (aPriority !== bPriority) {
-        return aPriority - bPriority;
-      }
-      const aName = (a.fileName || a.imageId).toLowerCase();
-      const bName = (b.fileName || b.imageId).toLowerCase();
-      return aName.localeCompare(bName);
-    });
-  }
-
-  private renderImageOptionsHtml(purpose: "background" | "knob", selectedImageId?: string): string {
-    const images = this.getReusableLayoutImages(purpose, selectedImageId);
-    const options = [
-      `<option value="">Select existing image...</option>`,
-      ...images.map((img) => {
-        const selected = selectedImageId && img.imageId === selectedImageId ? "selected" : "";
-        const typeLabel = img.type ? ` [${img.type}]` : "";
-        // Both can come from an imported archive's manifest.
-        const name = img.fileName || img.imageId;
-        return `<option value="${escapeHtml(img.imageId)}" ${selected}>${escapeHtml(name)}${escapeHtml(typeLabel)}</option>`;
-      }),
-    ];
-    return options.join("");
-  }
-
   private renderControls(): void {
     if (!this.controlsLayer || !this.layout) return;
 
@@ -1262,7 +1235,7 @@ export class LayoutDesignerModal {
     const newLabel: LayoutTextLabel = {
       id: generateLabelId(),
       text: "New Label",
-      position: { x: snapToGrid(this.layout.dimensions.width / 2 - 40), y: snapToGrid(20) },
+      position: { x: this.snap(this.layout.dimensions.width / 2 - 40), y: this.snap(20) },
       fontSize: 14,
       fontWeight: "normal",
       color: "#ffffff",
@@ -1281,8 +1254,8 @@ export class LayoutDesignerModal {
     const newOverlay: LayoutRectangleOverlay = {
       id: generateOverlayId(),
       position: {
-        x: snapToGrid(this.layout.dimensions.width / 2 - 80),
-        y: snapToGrid(this.layout.dimensions.height / 2 - 50),
+        x: this.snap(this.layout.dimensions.width / 2 - 80),
+        y: this.snap(this.layout.dimensions.height / 2 - 50),
       },
       size: {
         width: 160,
@@ -1318,7 +1291,7 @@ export class LayoutDesignerModal {
       return;
     }
 
-    const images = this.getReusableLayoutImages("background");
+    const images = reusableLayoutImages("background");
 
     this.selectedElement = null;
     this.sidebarContent.innerHTML = `
@@ -1329,7 +1302,7 @@ export class LayoutDesignerModal {
           <span class="layout-property-label">Use Existing</span>
           <div class="layout-property-input">
             <select id="layout-add-bg-image-select">
-              ${this.renderImageOptionsHtml("background")}
+              ${imageOptionsHtml("background")}
             </select>
           </div>
         </div>
@@ -1522,8 +1495,8 @@ export class LayoutDesignerModal {
       bindingType: "parameter",
       type: paramDef.unit === "toggle" ? "toggle" : "knob",
       position: {
-        x: snapToGrid(this.layout.dimensions.width / 2 - 24),
-        y: snapToGrid(this.layout.dimensions.height / 2 - 24),
+        x: this.snap(this.layout.dimensions.width / 2 - 24),
+        y: this.snap(this.layout.dimensions.height / 2 - 24),
       },
       style: {
         labelPosition: "top",
@@ -1555,8 +1528,8 @@ export class LayoutDesignerModal {
       exposedResourceId: resource.exposedResourceId,
       allowBrowseFile: resource.allowBrowseFile,
       position: {
-        x: snapToGrid(this.layout.dimensions.width / 2 - 90),
-        y: snapToGrid(this.layout.dimensions.height / 2 - 18),
+        x: this.snap(this.layout.dimensions.width / 2 - 90),
+        y: this.snap(this.layout.dimensions.height / 2 - 18),
       },
       size: {
         width: 180,
@@ -1727,6 +1700,8 @@ export class LayoutDesignerModal {
 
   private onDocumentMouseMove(e: MouseEvent): void {
     if (!this.dragState.active || !this.dragState.element || !this.layout) return;
+    // Alt places an element freely; otherwise it snaps to the layout's grid.
+    const snapAt = (value: number): number => (e.altKey ? Math.round(value) : this.snap(value));
 
     const dx = e.clientX - this.dragState.startX;
     const dy = e.clientY - this.dragState.startY;
@@ -1740,25 +1715,25 @@ export class LayoutDesignerModal {
 
       switch (this.dragState.resizeHandle) {
         case "top-left":
-          newX = snapToGrid(this.dragState.elementStartX + dx / this.zoom);
-          newY = snapToGrid(this.dragState.elementStartY + dy / this.zoom);
-          newWidth = snapToGrid(this.dragState.elementStartWidth - dx / this.zoom);
-          newHeight = snapToGrid(this.dragState.elementStartHeight - dy / this.zoom);
+          newX = snapAt(this.dragState.elementStartX + dx / this.zoom);
+          newY = snapAt(this.dragState.elementStartY + dy / this.zoom);
+          newWidth = snapAt(this.dragState.elementStartWidth - dx / this.zoom);
+          newHeight = snapAt(this.dragState.elementStartHeight - dy / this.zoom);
           break;
         case "top-right":
-          newY = snapToGrid(this.dragState.elementStartY + dy / this.zoom);
-          newWidth = snapToGrid(this.dragState.elementStartWidth + dx / this.zoom);
-          newHeight = snapToGrid(this.dragState.elementStartHeight - dy / this.zoom);
+          newY = snapAt(this.dragState.elementStartY + dy / this.zoom);
+          newWidth = snapAt(this.dragState.elementStartWidth + dx / this.zoom);
+          newHeight = snapAt(this.dragState.elementStartHeight - dy / this.zoom);
           break;
         case "bottom-left":
-          newX = snapToGrid(this.dragState.elementStartX + dx / this.zoom);
-          newWidth = snapToGrid(this.dragState.elementStartWidth - dx / this.zoom);
-          newHeight = snapToGrid(this.dragState.elementStartHeight + dy / this.zoom);
+          newX = snapAt(this.dragState.elementStartX + dx / this.zoom);
+          newWidth = snapAt(this.dragState.elementStartWidth - dx / this.zoom);
+          newHeight = snapAt(this.dragState.elementStartHeight + dy / this.zoom);
           break;
         case "bottom-right":
         default:
-          newWidth = snapToGrid(this.dragState.elementStartWidth + dx / this.zoom);
-          newHeight = snapToGrid(this.dragState.elementStartHeight + dy / this.zoom);
+          newWidth = snapAt(this.dragState.elementStartWidth + dx / this.zoom);
+          newHeight = snapAt(this.dragState.elementStartHeight + dy / this.zoom);
           break;
       }
 
@@ -1787,8 +1762,8 @@ export class LayoutDesignerModal {
       return;
     }
 
-    const newX = snapToGrid(this.dragState.elementStartX + dx / this.zoom);
-    const newY = snapToGrid(this.dragState.elementStartY + dy / this.zoom);
+    const newX = snapAt(this.dragState.elementStartX + dx / this.zoom);
+    const newY = snapAt(this.dragState.elementStartY + dy / this.zoom);
     const dragWidth = this.dragState.type === "overlay"
       ? (parseInt(this.dragState.element.style.width) || this.dragState.elementStartWidth || 60)
       : 60;
@@ -1930,7 +1905,7 @@ export class LayoutDesignerModal {
     // Arrow keys for nudging
     if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) {
       e.preventDefault();
-      const nudge = e.shiftKey ? LAYOUT_GRID_SIZE : 1;
+      const nudge = e.shiftKey ? this.gridSize() : 1;
       this.nudgeSelectedElement(e.key, nudge);
     }
 
@@ -1996,15 +1971,15 @@ export class LayoutDesignerModal {
     const sourcePosition = selectedLabel
       ? this.layout.textLabels.find((item) => item.id === selectedLabel.id)?.position
       : undefined;
-    const pasteOffset = LAYOUT_GRID_SIZE * 2;
+    const pasteOffset = this.gridSize() * 2;
     const basePosition = sourcePosition ?? this.copiedTextLabel.position;
     const nextX = Math.max(0, Math.min(
       this.layout.dimensions.width,
-      snapToGrid(basePosition.x + pasteOffset),
+      this.snap(basePosition.x + pasteOffset),
     ));
     const nextY = Math.max(0, Math.min(
       this.layout.dimensions.height,
-      snapToGrid(basePosition.y + pasteOffset),
+      this.snap(basePosition.y + pasteOffset),
     ));
 
     const newLabel: LayoutTextLabel = {

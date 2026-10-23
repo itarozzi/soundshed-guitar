@@ -13,6 +13,7 @@ import type { EffectLayout, LayoutLibraryEntry } from "../layoutTypes.js";
 import type { ParameterDef } from "../presetV2.js";
 import type { SelectedElement } from "./types.js";
 import { DEFAULT_LAYOUT_DIMENSIONS, createEmptyLayout, generateLayoutId, layoutLookupKey, snapToGrid } from "../layoutTypes.js";
+import { stampLayoutRequirements } from "../layoutRequirements.js";
 import { showNotification } from "../notifications.js";
 import { uiState } from "../state.js";
 import { arrayBufferToBase64 } from "../utils.js";
@@ -185,6 +186,8 @@ export class LayoutStore {
     }
 
     layout.modifiedAt = new Date().toISOString();
+    // Version 1 unless the layout uses something an older app cannot draw.
+    stampLayoutRequirements(layout);
 
     // Ensure blendId is stored in the layout itself
     if (this.host.getBlendId()) {

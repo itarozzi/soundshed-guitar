@@ -7,7 +7,7 @@
  * changes, and rebinding on every keystroke would drop focus mid-edit.
  */
 
-import { snapToGrid } from "../layoutTypes.js";
+import { layoutGridSize, snapToGrid } from "../layoutTypes.js";
 import type { KnobStylePreset, LabelPosition, LayoutControl, LayoutRectangleOverlay, LayoutTextLabel } from "../layoutTypes.js";
 import { getLayoutImageUrl } from "./images.js";
 import type { LayoutPropertiesHost } from "./propertiesHost.js";
@@ -155,6 +155,18 @@ export class ElementProperties {
             ${control.style?.labelColor ? `<button id="prop-label-color-reset" title="Use the layout's default label colour">Default</button>` : ""}
           </div>
         </div>
+        <div class="layout-property-row">
+          <span class="layout-property-label">Size</span>
+          <div class="layout-property-input">
+            <input type="number" id="prop-label-size" min="6" max="96" step="1" placeholder="${layout?.controlLabelFontSize ?? 10}" value="${control.style?.labelFontSize ?? ""}" title="Label text size (px); empty uses the layout's">
+          </div>
+        </div>
+        <div class="layout-property-row">
+          <span class="layout-property-label">Value Size</span>
+          <div class="layout-property-input">
+            <input type="number" id="prop-value-size" min="6" max="96" step="1" placeholder="${layout?.controlValueFontSize ?? 9}" value="${control.style?.valueFontSize ?? ""}" title="Value text size (px); empty uses the layout's">
+          </div>
+        </div>
       </div>
 
       ${styleSection}
@@ -196,13 +208,13 @@ export class ElementProperties {
     });
 
     posXInput?.addEventListener("change", () => {
-      control.position.x = snapToGrid(parseInt(posXInput.value) || 0);
+      control.position.x = snapToGrid(parseInt(posXInput.value) || 0, layoutGridSize(this.host.getLayout()));
       posXInput.value = String(control.position.x);
       this.host.renderCanvas();
     });
 
     posYInput?.addEventListener("change", () => {
-      control.position.y = snapToGrid(parseInt(posYInput.value) || 0);
+      control.position.y = snapToGrid(parseInt(posYInput.value) || 0, layoutGridSize(this.host.getLayout()));
       posYInput.value = String(control.position.y);
       this.host.renderCanvas();
     });
@@ -249,6 +261,19 @@ export class ElementProperties {
     };
     bindColorReset("prop-label-color-reset", "labelColor");
     bindColorReset("prop-value-color-reset", "valueColor");
+
+    // An emptied size removes the control's own, so the layout's default applies again.
+    for (const [id, key] of [["prop-label-size", "labelFontSize"], ["prop-value-size", "valueFontSize"]] as const) {
+      const input = document.getElementById(id) as HTMLInputElement | null;
+      input?.addEventListener("change", () => {
+        this.host.pushSidebarUndoOnce();
+        if (!control.style) control.style = {};
+        const value = parseFloat(input.value);
+        if (input.value.trim() === "" || !Number.isFinite(value)) delete control.style[key];
+        else control.style[key] = Math.max(6, Math.min(96, value));
+        this.host.renderCanvas();
+      });
+    }
 
     knobStyleSelect?.addEventListener("change", () => {
       if (!control.style) control.style = {};
@@ -407,13 +432,13 @@ export class ElementProperties {
     });
 
     posXInput?.addEventListener("change", () => {
-      label.position.x = snapToGrid(parseInt(posXInput.value) || 0);
+      label.position.x = snapToGrid(parseInt(posXInput.value) || 0, layoutGridSize(this.host.getLayout()));
       posXInput.value = String(label.position.x);
       this.host.renderCanvas();
     });
 
     posYInput?.addEventListener("change", () => {
-      label.position.y = snapToGrid(parseInt(posYInput.value) || 0);
+      label.position.y = snapToGrid(parseInt(posYInput.value) || 0, layoutGridSize(this.host.getLayout()));
       posYInput.value = String(label.position.y);
       this.host.renderCanvas();
     });
@@ -574,7 +599,7 @@ export class ElementProperties {
     const deleteBtn = document.getElementById("prop-delete-overlay") as HTMLButtonElement;
 
     xInput?.addEventListener("change", () => {
-      overlay.position.x = snapToGrid(parseInt(xInput.value) || 0);
+      overlay.position.x = snapToGrid(parseInt(xInput.value) || 0, layoutGridSize(this.host.getLayout()));
       xInput.value = String(overlay.position.x);
       this.host.renderCanvas();
     });
@@ -592,19 +617,19 @@ export class ElementProperties {
     });
 
     yInput?.addEventListener("change", () => {
-      overlay.position.y = snapToGrid(parseInt(yInput.value) || 0);
+      overlay.position.y = snapToGrid(parseInt(yInput.value) || 0, layoutGridSize(this.host.getLayout()));
       yInput.value = String(overlay.position.y);
       this.host.renderCanvas();
     });
 
     widthInput?.addEventListener("change", () => {
-      overlay.size.width = Math.max(16, snapToGrid(parseInt(widthInput.value) || 16));
+      overlay.size.width = Math.max(16, snapToGrid(parseInt(widthInput.value) || 16, layoutGridSize(this.host.getLayout())));
       widthInput.value = String(overlay.size.width);
       this.host.renderCanvas();
     });
 
     heightInput?.addEventListener("change", () => {
-      overlay.size.height = Math.max(16, snapToGrid(parseInt(heightInput.value) || 16));
+      overlay.size.height = Math.max(16, snapToGrid(parseInt(heightInput.value) || 16, layoutGridSize(this.host.getLayout())));
       heightInput.value = String(overlay.size.height);
       this.host.renderCanvas();
     });

@@ -310,6 +310,45 @@ builds on it.
   turn snapping off while dragging. On a 2048-wide design, 8 px steps are fine.
   On a 400-wide one, people want 4 px or 2 px.
 
+**Built (phase 2).**
+
+- **Scaling maths.** `layoutScaling.ts` holds `computeLayoutScale`, the pure
+  scale and placement rule. With no `scaling` block it reproduces the
+  original rule exactly. `applyCustomLayoutScaling` uses it. Fit mode
+  measures down to the bottom of the nearest scrolling ancestor (in the app,
+  `.visualization-panel`) and watches it for resizes.
+- **Two things the live check found**, both handled only for layouts with a
+  `scaling` block:
+  - The panel and its custom-layout section are `fit-content`, so a layout
+    never had room to grow. The renderer marks a layout whose scaling lets it
+    grow (`maxScale > 1`, not fixed) with `data-layout-grows`, and
+    `params-panel.css` widens the panel and section to the stage width with
+    `:has()` only then.
+  - `.custom-layout-container` pins `margin: 0 !important`, so the original
+    "margin: auto" centring was always a no-op. Centring at native size comes
+    from the `fit-content` section. A scaled layout that should sit in the
+    middle is moved there by the transform (`translateX(…) scale(…)`).
+- **Text.** `controlLabelFontSize`, `controlValueFontSize`,
+  `controlFontFamily` and `controlLabelMaxWidth` on the layout, plus
+  `style.labelFontSize` and `style.valueFontSize` per control. Unset, the
+  renderer writes the original style strings byte for byte.
+- **Grid and canvas.** `gridSize` sets the designer's snap step, the drawn
+  grid, the Shift-arrow nudge and the paste offset. Alt drags without
+  snapping, and `sanitizeLayout` snaps imports to the same grid. The canvas
+  limit is 4096 × 4096 in the designer, its inputs and `sanitizeLayout`.
+- **Version stamping.** `layoutRequirements.ts` stamps `version: 2` and
+  `requires` (`large-canvas`, `scaling`, `text-style`) on save only when one
+  is used, and stamps `version: 1` with no list otherwise.
+- **Designer.** A "Fit to Panel" group, a grid size and the text defaults on
+  the canvas panel, and label and value sizes on each control. An emptied
+  field removes the setting. The image picker lists each image's pixel size.
+- **Checks.**
+  - The compatibility snapshots are unchanged, and the live baseline shows
+    0 of 57 shots changed.
+  - In the real params panel, a 400 × 280 user layout given `maxScale: 2`
+    filled the 1,585 px stage at 2×, centred. Given fit mode, it drew at
+    1.66× within the panel's 640 px height. With no block, it was unchanged.
+
 ### 3. Resolution-matched renditions
 
 A 6000 × 4000 background on a 600 px panel decodes to about 96 MB of RGBA and is
@@ -410,7 +449,7 @@ In rough order of value:
 |---|---|---|
 | 0 | **Done** 2026-10-23: compatibility fixtures, golden render snapshots, scaling pins and the live screenshot baseline, captured on today's code. Image-id precedence settled in one shared lookup (rule 4). | A baseline every later phase is checked against |
 | 1 | **Done** 2026-10-23. Live check: the real library's 20 images all served with the listed type, bytes and size; the list is one 4.3 KB message instead of about 25 MB of base64; 0 of 57 baseline shots differ. §1: image route, metadata-only messages, file-based export and import, intrinsic size, higher byte cap | Large images load at all, and panel renders stop copying MBs |
-| 2 | §2: limits, `scaling` modes with upscale and height fit, grid setting, per-layout text sizes | Layouts fill the space they have |
+| 2 | **Done** 2026-10-23. Old layouts unchanged (snapshots and 0 of 57 live shots). A layout that opts in grows to fill the real panel, or fits its height. §2: limits, `scaling` modes with upscale and height fit, grid setting, per-layout text sizes | Layouts fill the space they have |
 | 3 | §3: renditions, DPR-aware selection, preload | Memory and paint cost bounded, Android viable |
 | 4 | §4: control sizing and handles, filmstrip and layered knobs, image toggles and sliders, image elements | Real skeuomorphic skins |
 | 5 | Asset panel, preview at size, arrangement tools, fonts | Editor ergonomics |
