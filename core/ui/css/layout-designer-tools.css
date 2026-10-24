@@ -38,6 +38,68 @@
   margin-top: 10px;
 }
 
+/* Layers: everything in the layout, front-most first, picked to edit (layersList.ts). */
+.layout-designer-layers {
+  flex: 0 0 auto;
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--ld-border);
+}
+
+.layout-layer-heading {
+  margin: 6px 6px 2px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ld-text-muted);
+}
+
+.layout-layer-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 3px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--ld-text);
+  font-family: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.layout-layer-item:hover {
+  background: var(--ld-input-bg);
+}
+
+.layout-layer-item.is-selected {
+  border-color: var(--accent-primary);
+  background: color-mix(in srgb, var(--accent-primary) 14%, transparent);
+}
+
+.layout-layer-item:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 1px;
+}
+
+.layout-layer-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.layout-layer-kind {
+  flex: 0 0 auto;
+  font-size: 10px;
+  color: var(--ld-text-muted);
+}
+
 /* Images in this layout */
 .layout-asset-row {
   padding: 6px 0;

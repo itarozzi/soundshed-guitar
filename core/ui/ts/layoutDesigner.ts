@@ -13,6 +13,7 @@ import { getLayoutImageUrl, imageOptionsHtml, reusableLayoutImages } from "./lay
 import { isDialogOpen, showConfirm } from "./dialogs.js";
 import type { CopiedTextLabelPayload, DragState, LayoutResourceCandidate, SelectedElement } from "./layoutDesigner/types.js";
 import { ensureLayoutImagesLoaded } from "./layoutImages.js";
+import { bindLayersList, renderLayersList, type LayersListHost } from "./layoutDesigner/layersList.js";
 import { appendWidthHandle, clampControlWidth, measuredMinWidth, previewControlWidth, setControlWidth } from "./layoutDesigner/controlWidth.js";
 import { bindPreviewKnobs, controlPreviewElement, defaultControlsPreviewHtml, designerPreviewNode, designerResourceDefs } from "./layoutDesigner/controlPreview.js";
 import { overlayImageStyle } from "./layoutControlImages.js";
@@ -170,6 +171,14 @@ export class LayoutDesignerModal {
   private controlsLayer: HTMLElement | null = null;
   private sidebar: HTMLElement | null = null;
   private sidebarContent: HTMLElement | null = null;
+  private layersList: HTMLElement | null = null;
+  private readonly layersHost: LayersListHost = {
+    getLayout: () => this.layout,
+    getParamDefs: () => this.paramDefs,
+    getResourceCandidates: () => this.resourceCandidates,
+    getSelected: () => this.selectedElement,
+    select: (element) => this.selectElement(element),
+  };
   private titleEl: HTMLElement | null = null;
 
   // Toolbar buttons
@@ -228,6 +237,8 @@ export class LayoutDesignerModal {
     this.controlsLayer = document.getElementById("layout-designer-controls");
     this.sidebar = document.getElementById("layout-designer-sidebar");
     this.sidebarContent = document.getElementById("layout-designer-sidebar-content");
+    this.layersList = document.getElementById("layout-designer-layers");
+    bindLayersList(this.layersList, this.layersHost);
 
     // Toolbar buttons
     this.gridToggleBtn = document.getElementById("layout-designer-grid-toggle") as HTMLButtonElement;
@@ -531,7 +542,6 @@ export class LayoutDesignerModal {
     this.onCloseCallback = callback;
   }
 
-
   /**
    * Carry on as a new copy of this layout: the next save makes a new layout, and the original
    * keeps what it last saved. Undo stops at the copy, so it cannot step back onto the original.
@@ -601,7 +611,6 @@ export class LayoutDesignerModal {
 
     this.store.deleteCurrentLayout(current.key, current.entries, current.entry);
   }
-
 
   /**
    * Replace the design with the auto-generated one, keeping the layout's identity. Without
@@ -803,7 +812,6 @@ export class LayoutDesignerModal {
     this.renderControls();
     this.renderTextLabels();
   }
-
 
   private renderRuntimePreview(): void {
     if (!this.controlsLayer || !this.layout) return;
@@ -1113,6 +1121,7 @@ export class LayoutDesignerModal {
   private renderSidebar(): void {
     if (!this.sidebarContent) return;
     this.sidebarUndoPushed = false;
+    renderLayersList(this.layersList, this.layersHost);
 
     if (!this.selectedElement) {
       this.canvasProperties.renderCanvasProperties();
@@ -1129,13 +1138,6 @@ export class LayoutDesignerModal {
       this.canvasProperties.renderBackgroundProperties(this.selectedElement.layerIndex);
     }
   }
-
-
-
-
-
-
-
 
   private addTextLabel(): void {
     if (!this.layout) return;
@@ -1188,8 +1190,6 @@ export class LayoutDesignerModal {
     this.selectElement({ type: "overlay", id: newOverlay.id });
     this.renderCanvas();
   }
-
-
 
   private showAddBackgroundMenu(): void {
     if (!this.layout || !this.sidebarContent) return;
