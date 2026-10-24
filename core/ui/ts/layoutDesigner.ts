@@ -13,15 +13,15 @@ import { getLayoutImageUrl, imageOptionsHtml, reusableLayoutImages } from "./lay
 import { isDialogOpen, showConfirm } from "./dialogs.js";
 import type { CopiedTextLabelPayload, DragState, LayoutResourceCandidate, SelectedElement } from "./layoutDesigner/types.js";
 import { ensureLayoutImagesLoaded } from "./layoutImages.js";
-import { bindPreviewKnobs, controlPreviewElement, designerPreviewNode, designerResourceDefs } from "./layoutDesigner/controlPreview.js";
+import { bindPreviewKnobs, controlPreviewElement, defaultControlsPreviewHtml, designerPreviewNode, designerResourceDefs } from "./layoutDesigner/controlPreview.js";
 import { overlayImageStyle } from "./layoutControlImages.js";
-import { colorWithAlpha, defaultControlsColorAttrs, imageResolverFor, renderCustomLayoutPreviewLayers, safeCssValue } from "./layoutRenderer.js";
+import { colorWithAlpha, imageResolverFor, renderCustomLayoutPreviewLayers, safeCssValue } from "./layoutRenderer.js";
+import { copyOfLayout } from "./layoutPreferences.js";
 import { DEFAULT_LAYOUT_DIMENSIONS, LAYOUT_DIMENSION_LIMITS, MAX_BACKGROUND_LAYERS, generateLabelId, generateLayoutId, generateOverlayId, layoutLookupKey, nextFreeBackgroundLayer, normalizeBackgroundLayers, layoutGridSize, snapToGrid } from "./layoutTypes.js";
 import type { EffectLayout, LayoutBackground, LayoutControl, LayoutLibraryEntry, LayoutRectangleOverlay, LayoutTextLabel } from "./layoutTypes.js";
 import { showNotification } from "./notifications.js";
 import { EffectTypeRegistry } from "./presetV2.js";
 import type { ParameterDef } from "./presetV2.js";
-import { buildDefaultParamControlsHtml } from "./parameterControlMarkup.js";
 import { uiState } from "./state.js";
 import { escapeHtml } from "./utils.js";
 
@@ -161,6 +161,7 @@ export class LayoutDesignerModal {
   private deleteBtn: HTMLButtonElement | null = null;
   private exportBtn: HTMLButtonElement | null = null;
   private importBtn: HTMLButtonElement | null = null;
+  private duplicateBtn: HTMLButtonElement | null = null;
   private importFileInput: HTMLInputElement | null = null;
   private canvas: HTMLElement | null = null;
   private canvasWrapper: HTMLElement | null = null;
@@ -218,6 +219,7 @@ export class LayoutDesignerModal {
     this.deleteBtn = document.getElementById("layout-designer-delete") as HTMLButtonElement;
     this.exportBtn = document.getElementById("layout-designer-export") as HTMLButtonElement;
     this.importBtn = document.getElementById("layout-designer-import") as HTMLButtonElement;
+    this.duplicateBtn = document.getElementById("layout-designer-duplicate") as HTMLButtonElement;
     this.importFileInput = document.getElementById("layout-designer-import-file") as HTMLInputElement;
     this.canvas = document.getElementById("layout-designer-canvas");
     this.canvasWrapper = document.getElementById("layout-designer-canvas-wrapper");
@@ -263,6 +265,7 @@ export class LayoutDesignerModal {
     this.deleteBtn?.addEventListener("click", () => { void this.confirmDeleteCurrentLayout(); });
     this.exportBtn?.addEventListener("click", () => this.store.exportLayout());
     this.importBtn?.addEventListener("click", () => this.importFileInput?.click());
+    this.duplicateBtn?.addEventListener("click", () => this.duplicateCurrentLayout());
     this.importFileInput?.addEventListener("change", () => this.store.handleImportFileSelected());
 
     // Modal backdrop click
@@ -527,6 +530,27 @@ export class LayoutDesignerModal {
     this.onCloseCallback = callback;
   }
 
+
+  /**
+   * Carry on as a new copy of this layout: the next save makes a new layout, and the original
+   * keeps what it last saved. Undo stops at the copy, so it cannot step back onto the original.
+   */
+  private duplicateCurrentLayout(): void {
+    if (!this.layout || this.saveBtn?.disabled) return;
+    this.applyLayoutName();
+    const copy = copyOfLayout(this.layout, this.effectType, this.blendId || undefined);
+    this.layout = copy;
+    this.isNewLayout = true;
+    this.isFactoryLayout = false;
+    this.undoStack = [];
+    this.redoStack = [];
+    this.updateUndoRedoButtons();
+    this.updateDeleteButtonVisibility();
+    this.updateNameInput();
+    this.renderCanvas();
+    this.renderSidebar();
+    showNotification(`Now editing “${copy.name}”. Save to keep it; the original keeps its last save.`);
+  }
 
   private updateDeleteButtonVisibility(): void {
     if (!this.deleteBtn) {
@@ -797,82 +821,11 @@ export class LayoutDesignerModal {
     bindPreviewKnobs(this.controlsLayer);
   }
 
-  /**
-   * Render the real default controls preview inside the designer canvas for useDefaultControls layouts.
-   * Applies the configured offset and scale so the user can visually dial them in.
-   * Mirrors the Main / Advanced tab split used by the runtime signal-path panel.
-   */
+  /** The real default controls, for a useDefaultControls layout (defaultControlsPreviewHtml). */
   private renderDefaultControlsPreview(): void {
     if (!this.controlsLayer || !this.layout) return;
-
-    // Mirror the main/advanced split from renderNodeParamsPanel
-    let advancedDefs = this.paramDefs.filter((p) => Boolean(p.advanced));
-    let mainDefs = this.paramDefs.filter((p) => !p.advanced);
-    if (mainDefs.length === 0) {
-      mainDefs = this.paramDefs;
-      advancedDefs = [];
-    }
-    const hasAdvancedTab = advancedDefs.length > 0;
-
-    const innerHtml = hasAdvancedTab ? `
-      <div class="node-param-tabs" role="tablist" aria-label="Parameter Groups">
-        <button class="node-param-tab is-active" data-tab="main" type="button" role="tab" aria-selected="true">Main</button>
-        <button class="node-param-tab" data-tab="advanced" type="button" role="tab" aria-selected="false">Advanced</button>
-      </div>
-      <div class="node-param-tab-panels">
-        <div class="node-param-tab-panel is-active" data-tab="main" role="tabpanel">
-          <div class="params-controls">
-            ${buildDefaultParamControlsHtml(mainDefs, "layout-designer-preview")}
-          </div>
-        </div>
-        <div class="node-param-tab-panel" data-tab="advanced" role="tabpanel">
-          <div class="params-controls">
-            ${buildDefaultParamControlsHtml(advancedDefs, "layout-designer-preview")}
-          </div>
-        </div>
-      </div>
-    ` : `
-      <div class="params-controls">
-        ${buildDefaultParamControlsHtml(mainDefs, "layout-designer-preview")}
-      </div>
-    `;
-
-    const offsetX = this.layout.defaultControlsOffset?.x ?? 0;
-    const offsetY = this.layout.defaultControlsOffset?.y ?? 0;
-    const scaleX = this.layout.defaultControlsScale?.x ?? 1;
-    const scaleY = this.layout.defaultControlsScale?.y ?? 1;
-
-    // Second-pass runtime parity: in the live panel, the custom layout sits inside a
-    // padded section and may be auto-scaled down to fit narrower widths. Mirror that
-    // fit behavior in the designer preview so default-controls wrapping/overflow is
-    // closer to what users will see at runtime.
-    const canvasViewport = document.getElementById("layout-designer-canvas-container") as HTMLElement | null;
-    const viewportWidth = canvasViewport?.clientWidth ?? this.layout.dimensions.width;
-    const runtimeSectionHorizontalPadding = 36; // 18px left + 18px right in .default-effect-section-controls
-    const runtimeAvailableWidth = Math.max(1, viewportWidth - runtimeSectionHorizontalPadding);
-    const runtimeFitScale = Math.min(1, runtimeAvailableWidth / this.layout.dimensions.width);
-
-    const effectiveOffsetX = Math.round(offsetX * runtimeFitScale);
-    const effectiveOffsetY = Math.round(offsetY * runtimeFitScale);
-    const effectiveScaleX = scaleX * runtimeFitScale;
-    const effectiveScaleY = scaleY * runtimeFitScale;
-    const hasTransformOrOffset = effectiveOffsetX !== 0 || effectiveOffsetY !== 0 || effectiveScaleX !== 1 || effectiveScaleY !== 1;
-    // Pin wrapper to canvas width so flex-wrap break points are identical in the runtime panel.
-    const wrapperWidth = `width: ${this.layout.dimensions.width}px;`;
-    const wrapperStyle = hasTransformOrOffset
-      ? `position: absolute; left: ${effectiveOffsetX}px; top: ${effectiveOffsetY}px; transform: scale(${effectiveScaleX}, ${effectiveScaleY}); transform-origin: top left; z-index: 2; ${wrapperWidth}`
-      : `position: relative; z-index: 2; ${wrapperWidth}`;
-
-    // Use the same class structure as runtime (custom-layout-backdrop + theme) so that
-    // .custom-layout-backdrop.theme-* CSS rules apply identically in designer and runtime.
-    const themeClass = this.layout.containerTheme ? ` theme-${this.layout.containerTheme}` : '';
-    const colors = defaultControlsColorAttrs(this.layout);
-
-    this.controlsLayer.innerHTML = `
-      <div class="layout-default-controls-preview custom-layout-backdrop${escapeHtml(themeClass)}${escapeHtml(colors.classes)}" style="${escapeHtml(wrapperStyle + colors.style)} pointer-events: none;">
-        ${innerHtml}
-      </div>
-    `;
+    const viewport = document.getElementById("layout-designer-canvas-container");
+    this.controlsLayer.innerHTML = defaultControlsPreviewHtml(this.layout, this.paramDefs, viewport?.clientWidth ?? this.layout.dimensions.width);
   }
 
   private renderBackgrounds(): void {

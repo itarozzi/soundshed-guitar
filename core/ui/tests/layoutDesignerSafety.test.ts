@@ -226,6 +226,31 @@ describe("layout designer: nothing is lost by accident", () => {
     layoutDesigner.handleSaveResult({ layoutId: "layout-under-test", ok: true });
   });
 
+  it("duplicates into a new layout, leaving the original as it was saved", async () => {
+    const original = layoutWith();
+    original.controls = [{ paramKey: "time", type: "knob", position: { x: 8, y: 8 } }];
+    uiState.layoutLibrary.byEffectType.delay_digital = [{ layoutId: "layout-under-test", layout: structuredClone(original), isDefault: true }];
+    layoutDesigner.open("delay_digital", original);
+    expect(el("layout-designer-delete").hidden).toBe(false);
+
+    el("layout-designer-add-label").click(); // an edit made before duplicating goes to the copy
+    el("layout-designer-duplicate").click();
+    expect(el<HTMLInputElement>("layout-designer-name").value).toBe("Echo Face (copy)");
+    expect(el<HTMLButtonElement>("layout-designer-undo").disabled).toBe(true); // cannot undo back onto the original
+    expect(el("layout-designer-delete").hidden).toBe(true);
+
+    el("layout-designer-save").click();
+    await flush();
+    const sent = sentSaves().at(-1);
+    expect(sent?.layoutId).toBeTruthy();
+    expect(sent?.layoutId).not.toBe("layout-under-test");
+    expect(sent?.layout?.name).toBe("Echo Face (copy)");
+    expect(sent?.layout?.textLabels).toHaveLength(1);
+    expect(sent?.layout?.controls).toHaveLength(1);
+    expect(uiState.layoutLibrary.byEffectType.delay_digital[0].layout.textLabels).toHaveLength(0);
+    layoutDesigner.handleSaveResult({ layoutId: sent?.layoutId, ok: true });
+  });
+
   it("keeps redo through a press on an element that does not move it", () => {
     // A press used to be an undo step from the mousedown, which cleared the redo stack: undo,
     // then click to select something, and the undone edit was gone for good.

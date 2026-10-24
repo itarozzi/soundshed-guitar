@@ -4,7 +4,7 @@
   <div class="custom-layout-container" data-design-h="240" data-design-w="560"> {position: relative; width: 560px; height: 240px; overflow: hidden; border-radius: 8px; margin: 0; padding: 0; box-sizing: border-box; transform-origin: top left}
     <div class="custom-layout-bg"> {position: absolute; inset: 0; z-index: 0; background-color: #222}
     <div class="custom-layout-controls"> {position: absolute; inset: 0; z-index: 2; margin: 0; padding: 0; pointer-events: none}
-      <div class="custom-layout-control"> {position: absolute; left: 16px; top: 16px; display: flex; flex-direction: column; align-items: center; width: 320px}
+      <div class="custom-layout-control"> {position: absolute; left: 16px; top: 16px; display: flex; flex-direction: column; align-items: center; width: 320px; max-width: 544px}
         <span class="custom-control-label"> {font-size: 10px; color: var(--text-dark-secondary); margin-bottom: 4px}
           "Model"
         <div class="node-resource-selector custom-layout-resource-selector" data-node-id="node-fixture" data-resource-index="0" data-resource-type="nam">
@@ -23,7 +23,7 @@
               <span aria-hidden="true" class="resource-browse-icon"> {--icon-url: url('/images/icons/folder.svg')}
           <div class="resource-path-info" title="D:/NAM/plexi crunch.nam">
             "D:/NAM/plexi crunch.nam"
-      <div class="custom-layout-control"> {position: absolute; left: 16px; top: 112px; display: flex; flex-direction: column; align-items: center}
+      <div class="custom-layout-control"> {position: absolute; left: 16px; top: 112px; display: flex; flex-direction: column; align-items: center; max-width: 544px}
         <span class="custom-control-label"> {font-size: 10px; color: var(--text-dark-secondary); margin-bottom: 4px}
           "Cabinet"
         <div class="node-resource-selector custom-layout-resource-selector" data-node-id="node-fixture" data-resource-index="1" data-resource-type="ir">
@@ -57,7 +57,7 @@
   <div class="custom-layout-container" data-design-h="240" data-design-w="560"> {position: relative; width: 560px; height: 240px; overflow: hidden; border-radius: 8px; margin: 0; padding: 0; box-sizing: border-box; transform-origin: top left}
     <div class="custom-layout-bg"> {position: absolute; inset: 0; z-index: 0; background-color: #222}
     <div class="custom-layout-controls"> {position: absolute; inset: 0; z-index: 2; margin: 0; padding: 0; pointer-events: none}
-      <div class="custom-layout-control"> {position: absolute; left: 16px; top: 16px; display: flex; flex-direction: column; align-items: center; width: 320px}
+      <div class="custom-layout-control"> {position: absolute; left: 16px; top: 16px; display: flex; flex-direction: column; align-items: center; width: 320px; max-width: 544px}
         <span class="custom-control-label"> {font-size: 10px; color: var(--text-dark-secondary); margin-bottom: 4px}
           "Model"
         <div class="node-resource-selector custom-layout-resource-selector" data-node-id="node-fixture" data-resource-index="0" data-resource-type="nam">
@@ -76,7 +76,7 @@
               <span aria-hidden="true" class="resource-browse-icon"> {--icon-url: url('/images/icons/folder.svg')}
           <div class="resource-path-info" title="D:/NAM/plexi crunch.nam">
             "D:/NAM/plexi crunch.nam"
-      <div class="custom-layout-control"> {position: absolute; left: 16px; top: 112px; display: flex; flex-direction: column; align-items: center}
+      <div class="custom-layout-control"> {position: absolute; left: 16px; top: 112px; display: flex; flex-direction: column; align-items: center; max-width: 544px}
         <span class="custom-control-label"> {font-size: 10px; color: var(--text-dark-secondary); margin-bottom: 4px}
           "Cabinet"
         <div class="node-resource-selector custom-layout-resource-selector" data-node-id="node-fixture" data-resource-index="1" data-resource-type="ir">

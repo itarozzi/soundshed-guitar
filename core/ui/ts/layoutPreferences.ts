@@ -25,7 +25,7 @@
 
 import { updateAppSetting } from "./appSettingsStore.js";
 import { uiState } from "./state.js";
-import { layoutLookupKey } from "./layoutTypes.js";
+import { duplicateLayout, layoutLookupKey } from "./layoutTypes.js";
 import type { EffectLayout, LayoutLibraryEntry } from "./layoutTypes.js";
 
 /** App-settings key holding the serialized rule list. */
@@ -218,6 +218,11 @@ export function getAvailableLayoutEntries(effectType: string, blendId?: string):
     }
   }
   return entries;
+}
+
+/** A new copy of `layout`, named apart from the layouts the node can already pick (duplicateLayout). */
+export function copyOfLayout(layout: EffectLayout, effectType: string, blendId?: string): EffectLayout {
+  return duplicateLayout(layout, getAvailableLayoutEntries(effectType, blendId).map((entry) => entry.layout.name ?? ""));
 }
 
 /** Finds a layout by id across a node's lookup keys. */

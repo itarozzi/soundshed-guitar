@@ -7,12 +7,15 @@
  */
 
 import { GenericKnob } from "../knob.js";
-import { renderCustomLayoutPreviewLayers } from "../layoutRenderer.js";
+import { defaultControlsColorAttrs, renderCustomLayoutPreviewLayers } from "../layoutRenderer.js";
 import type { LayoutResourceControlDef } from "../layoutRenderer.js";
 import type { EffectLayout, LayoutControl } from "../layoutTypes.js";
 import { parseParamTaper } from "../paramTaper.js";
 import { knobValueFormatter } from "../paramValueFormat.js";
+import { buildDefaultParamControlsHtml } from "../parameterControlMarkup.js";
+import type { ParameterDef } from "../presetV2.js";
 import type { GraphNode } from "../types.js";
+import { escapeHtml } from "../utils.js";
 import type { LayoutResourceCandidate } from "./types.js";
 
 type PreviewParamDefs = Parameters<typeof renderCustomLayoutPreviewLayers>[2];
@@ -43,8 +46,8 @@ export function designerResourceDefs(candidates: LayoutResourceCandidate[]): Lay
 
 /**
  * One control as the runtime draws it, placed at the top left of its container rather than at
- * its layout position; null when the runtime would not draw it (its parameter or resource slot
- * is not on this effect).
+ * its layout position (drawn there first, so a width that depends on it is the runtime's); null
+ * when the runtime would not draw it (its parameter or resource slot is not on this effect).
  */
 export function controlPreviewElement(
   control: LayoutControl,
@@ -53,7 +56,7 @@ export function controlPreviewElement(
   paramDefs: PreviewParamDefs,
   resources: LayoutResourceControlDef[],
 ): HTMLElement | null {
-  const single: EffectLayout = { ...layout, controls: [{ ...control, position: { x: 0, y: 0 } }], textLabels: [] };
+  const single: EffectLayout = { ...layout, controls: [control], textLabels: [] };
   const template = document.createElement("template");
   template.innerHTML = renderCustomLayoutPreviewLayers(node, single, paramDefs, resources);
   const element = template.content.querySelector<HTMLElement>(".custom-layout-control");
@@ -86,4 +89,79 @@ export function bindPreviewKnobs(root: HTMLElement): void {
     // Out of the tab order: the designer's arrow keys move the selection, not a knob.
     knob.tabIndex = -1;
   });
+}
+
+/**
+ * The real default controls for a useDefaultControls layout, as the designer canvas shows them:
+ * at the configured offset and scale, so they can be dialled in, and with the Main / Advanced
+ * tab split of the signal-path panel. `viewportWidth` is the canvas area's width, for the
+ * panel's fit-to-width scale.
+ */
+export function defaultControlsPreviewHtml(layout: EffectLayout, paramDefs: ParameterDef[], viewportWidth: number): string {
+  // Mirror the main/advanced split from renderNodeParamsPanel
+  let advancedDefs = paramDefs.filter((p) => Boolean(p.advanced));
+  let mainDefs = paramDefs.filter((p) => !p.advanced);
+  if (mainDefs.length === 0) {
+    mainDefs = paramDefs;
+    advancedDefs = [];
+  }
+  const hasAdvancedTab = advancedDefs.length > 0;
+
+  const innerHtml = hasAdvancedTab ? `
+    <div class="node-param-tabs" role="tablist" aria-label="Parameter Groups">
+      <button class="node-param-tab is-active" data-tab="main" type="button" role="tab" aria-selected="true">Main</button>
+      <button class="node-param-tab" data-tab="advanced" type="button" role="tab" aria-selected="false">Advanced</button>
+    </div>
+    <div class="node-param-tab-panels">
+      <div class="node-param-tab-panel is-active" data-tab="main" role="tabpanel">
+        <div class="params-controls">
+          ${buildDefaultParamControlsHtml(mainDefs, "layout-designer-preview")}
+        </div>
+      </div>
+      <div class="node-param-tab-panel" data-tab="advanced" role="tabpanel">
+        <div class="params-controls">
+          ${buildDefaultParamControlsHtml(advancedDefs, "layout-designer-preview")}
+        </div>
+      </div>
+    </div>
+  ` : `
+    <div class="params-controls">
+      ${buildDefaultParamControlsHtml(mainDefs, "layout-designer-preview")}
+    </div>
+  `;
+
+  const offsetX = layout.defaultControlsOffset?.x ?? 0;
+  const offsetY = layout.defaultControlsOffset?.y ?? 0;
+  const scaleX = layout.defaultControlsScale?.x ?? 1;
+  const scaleY = layout.defaultControlsScale?.y ?? 1;
+
+  // Second-pass runtime parity: in the live panel, the custom layout sits inside a
+  // padded section and may be auto-scaled down to fit narrower widths. Mirror that
+  // fit behavior in the designer preview so default-controls wrapping/overflow is
+  // closer to what users will see at runtime.
+  const runtimeSectionHorizontalPadding = 36; // 18px left + 18px right in .default-effect-section-controls
+  const runtimeAvailableWidth = Math.max(1, viewportWidth - runtimeSectionHorizontalPadding);
+  const runtimeFitScale = Math.min(1, runtimeAvailableWidth / layout.dimensions.width);
+
+  const effectiveOffsetX = Math.round(offsetX * runtimeFitScale);
+  const effectiveOffsetY = Math.round(offsetY * runtimeFitScale);
+  const effectiveScaleX = scaleX * runtimeFitScale;
+  const effectiveScaleY = scaleY * runtimeFitScale;
+  const hasTransformOrOffset = effectiveOffsetX !== 0 || effectiveOffsetY !== 0 || effectiveScaleX !== 1 || effectiveScaleY !== 1;
+  // Pin wrapper to canvas width so flex-wrap break points are identical in the runtime panel.
+  const wrapperWidth = `width: ${layout.dimensions.width}px;`;
+  const wrapperStyle = hasTransformOrOffset
+    ? `position: absolute; left: ${effectiveOffsetX}px; top: ${effectiveOffsetY}px; transform: scale(${effectiveScaleX}, ${effectiveScaleY}); transform-origin: top left; z-index: 2; ${wrapperWidth}`
+    : `position: relative; z-index: 2; ${wrapperWidth}`;
+
+  // Use the same class structure as runtime (custom-layout-backdrop + theme) so that
+  // .custom-layout-backdrop.theme-* CSS rules apply identically in designer and runtime.
+  const themeClass = layout.containerTheme ? ` theme-${layout.containerTheme}` : '';
+  const colors = defaultControlsColorAttrs(layout);
+
+  return `
+    <div class="layout-default-controls-preview custom-layout-backdrop${escapeHtml(themeClass)}${escapeHtml(colors.classes)}" style="${escapeHtml(wrapperStyle + colors.style)} pointer-events: none;">
+      ${innerHtml}
+    </div>
+  `;
 }

@@ -42,9 +42,10 @@ export interface LayoutPickerContext {
   onApplied: () => void;
   /**
    * Opens the layout designer: `null` designs a brand-new layout for this effect
-   * type, a layout id edits that layout. Omit to hide the design actions.
+   * type, a layout id edits that layout, or with `asCopy` a new copy of it. Omit to hide
+   * the design actions.
    */
-  onDesignLayout?: (layoutId: string | null) => void;
+  onDesignLayout?: (layoutId: string | null, asCopy?: boolean) => void;
 }
 
 /** Pencil glyph for the per-layout edit buttons. */
@@ -52,6 +53,14 @@ const EDIT_ICON_SVG = `
   <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
     <path d="M4 20h4l10-10-4-4L4 16v4z" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linejoin="round" />
     <path d="M14 6l4 4" stroke="currentColor" stroke-width="1.6" fill="none" />
+  </svg>
+`;
+
+/** Two overlapping sheets for the per-layout duplicate buttons. */
+const DUPLICATE_ICON_SVG = `
+  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+    <rect x="8" y="8" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.6" fill="none" />
+    <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" stroke="currentColor" stroke-width="1.6" fill="none" />
   </svg>
 `;
 
@@ -127,6 +136,12 @@ function renderEditButtonHtml(entry: LayoutLibraryEntry, extraClass = ""): strin
   return `<button type="button" class="layout-picker-option-edit${escapeHtml(extraClass ? ` ${extraClass}` : "")}" data-layout-id="${escapeHtml(entry.layoutId)}" title="${title}" aria-label="${title}">${EDIT_ICON_SVG}</button>`;
 }
 
+/** Styled as the edit button; opens a new copy of the layout in the designer. */
+function renderDuplicateButtonHtml(entry: LayoutLibraryEntry): string {
+  const title = escapeHtml(`Duplicate “${entry.layout.name || "(Unnamed layout)"}” as a new layout`);
+  return `<button type="button" class="layout-picker-option-edit layout-picker-option-duplicate" data-layout-id="${escapeHtml(entry.layoutId)}" title="${title}" aria-label="${title}">${DUPLICATE_ICON_SVG}</button>`;
+}
+
 function renderDropdownItemHtml(entry: LayoutLibraryEntry, isSelected: boolean, canDesign: boolean): string {
   return `
     <div class="layout-picker-dropdown-row">
@@ -137,7 +152,7 @@ function renderDropdownItemHtml(entry: LayoutLibraryEntry, isSelected: boolean, 
         aria-selected="${isSelected ? "true" : "false"}"
         data-layout-id="${escapeHtml(entry.layoutId)}"
       >${renderEntryChoiceHtml(entry)}</button>
-      ${canDesign ? renderEditButtonHtml(entry) : ""}
+      ${canDesign ? renderDuplicateButtonHtml(entry) + renderEditButtonHtml(entry) : ""}
     </div>
   `;
 }
@@ -224,7 +239,7 @@ function renderPopoverInner(context: LayoutPickerContext, activeTab: LayoutPicke
           ${entries.map((entry) => renderDropdownItemHtml(entry, entry.layoutId === selectedEntry.layoutId, canDesign)).join("")}
         </div>
       </details>
-      ${canDesign ? renderEditButtonHtml(selectedEntry, "layout-picker-dropdown-edit") : ""}
+      ${canDesign ? renderDuplicateButtonHtml(selectedEntry) + renderEditButtonHtml(selectedEntry, "layout-picker-dropdown-edit") : ""}
     </div>
   `
     : `<div class="layout-picker-empty">No custom layouts for this effect yet.</div>`;
@@ -557,7 +572,7 @@ export function openLayoutPicker(anchor: HTMLElement, context: LayoutPickerConte
         const layoutId = btn.dataset.layoutId;
         if (!layoutId) return;
         close();
-        context.onDesignLayout?.(layoutId);
+        context.onDesignLayout?.(layoutId, btn.classList.contains("layout-picker-option-duplicate"));
       });
     });
 

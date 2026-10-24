@@ -92,7 +92,10 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* No wider than its control, which a long name would otherwise stretch past the layout's
+   edge (the renderer caps a resource control at the room left): the name ends in an ellipsis. */
 .custom-layout-resource-selector {
+  max-width: 100%;
   padding: 0;
   margin: 0;
   gap: 4px;

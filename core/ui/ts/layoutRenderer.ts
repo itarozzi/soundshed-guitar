@@ -501,6 +501,7 @@ function renderControls(
         flex-direction: column;
         align-items: center;
         ${control.size ? `width: ${Math.round(control.size.width)}px;` : ""}
+        ${isResourceControl ? resourceMaxWidthStyle(layout, control) : ""}
       `;
 
       let controlHtml = "";
@@ -739,6 +740,16 @@ function renderControls(
       return `<div class="custom-layout-control" style="${escapeHtml(controlStyle)}">${controlHtml}</div>`;
     })
     .join("");
+}
+
+/**
+ * A resource selector grows with the loaded resource's name; held to the room left before the
+ * layout's right edge, the name ends in an ellipsis instead of pushing the arrows and browse
+ * button out of the layout.
+ */
+function resourceMaxWidthStyle(layout: EffectLayout, control: LayoutControl): string {
+  const room = Math.round(layoutNumber(layout.dimensions.width, 0) - layoutNumber(control.position.x, 0));
+  return room > 0 ? `max-width: ${room}px;` : "";
 }
 
 /**

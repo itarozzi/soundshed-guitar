@@ -486,6 +486,26 @@ export function generateLayoutId(): string {
   return `layout-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+/**
+ * A copy of `layout` to build a new one from: its own id, so saving it never touches the
+ * original, and a name that says it is a copy and is not one of `takenNames` ("Amp (copy)",
+ * then "Amp (copy 2)"). Images are shared by id, so the copy draws the same ones.
+ */
+export function duplicateLayout(layout: EffectLayout, takenNames: string[] = []): EffectLayout {
+  const copy = JSON.parse(JSON.stringify(layout)) as EffectLayout;
+  copy.layoutId = generateLayoutId();
+  const base = (layout.name ?? "").replace(/\s*\(copy(?: \d+)?\)$/, "").trim() || "Layout";
+  const taken = new Set(takenNames.map((name) => name.trim()));
+  let name = `${base} (copy)`;
+  for (let n = 2; taken.has(name); n++) {
+    name = `${base} (copy ${n})`;
+  }
+  copy.name = name;
+  copy.createdAt = new Date().toISOString();
+  delete copy.modifiedAt;
+  return copy;
+}
+
 /** Generate a unique ID for text labels */
 export function generateLabelId(): string {
   return `label-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;

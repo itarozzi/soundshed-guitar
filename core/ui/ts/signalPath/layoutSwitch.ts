@@ -8,7 +8,7 @@ import { escapeHtml } from "../utils.js";
 import { showNotification } from "../notifications.js";
 import { getNodeEffectInfo } from "../presetV2.js";
 import { renderIcon } from "../iconAssets.js";
-import { findLayoutById, selectStandardControls } from "../layoutPreferences.js";
+import { copyOfLayout, findLayoutById, selectStandardControls } from "../layoutPreferences.js";
 import type { EffectLayout } from "../layoutTypes.js";
 import { closeLayoutPicker, hasSelectableLayouts, openLayoutPicker } from "../layoutPicker.js";
 import { layoutDesigner } from "../layoutDesigner.js";
@@ -105,7 +105,7 @@ export function bindLayoutSwitchButton(node: GraphNode, preset: Preset): void {
         requestSignalPathRender();
       },
       onDesignLayout: isFeatureEnabled(Features.EffectLayout)
-        ? (layoutId) => openLayoutDesignerForNode(node, effectType, blendId, layoutId)
+        ? (layoutId, asCopy) => openLayoutDesignerForNode(node, effectType, blendId, layoutId, asCopy)
         : undefined,
     });
   });
@@ -114,13 +114,15 @@ export function bindLayoutSwitchButton(node: GraphNode, preset: Preset): void {
 /**
  * Opens the layout designer for a node, from the layout picker.
  * `layoutId` is null to start a fresh auto-generated layout (so an effect type can
- * hold several), or an existing layout id to edit that one.
+ * hold several), or an existing layout id to edit that one, or with `asCopy` to start a
+ * new layout from a copy of it.
  */
 export function openLayoutDesignerForNode(
   node: GraphNode,
   effectType: string,
   blendId: string,
   layoutId: string | null,
+  asCopy = false,
 ): void {
   let existingLayout: EffectLayout | null = null;
   if (layoutId) {
@@ -128,6 +130,9 @@ export function openLayoutDesignerForNode(
     if (!existingLayout) {
       showNotification("That layout is no longer available");
       return;
+    }
+    if (asCopy) {
+      existingLayout = copyOfLayout(existingLayout, effectType, blendId || undefined);
     }
   }
 

@@ -14,6 +14,7 @@ import { showNotification } from "./notifications.js";
 import { appendLog } from "./logging.js";
 import { showConfirm } from "./dialogs.js";
 import { ensureLayoutImagesLoaded } from "./layoutImages.js";
+import { copyOfLayout } from "./layoutPreferences.js";
 import type { LayoutLibraryEntry } from "./layoutTypes.js";
 import { escapeHtml } from "./utils.js";
 
@@ -121,6 +122,7 @@ export function renderLayoutList(): void {
         </div>
         <div class="layout-list-actions">
           <button class="layout-edit-btn advanced-action-btn" data-layout-key="${escapeHtml(key)}" data-layout-id="${escapeHtml(entry.layoutId)}" data-effect-type="${escapeHtml(layout.effectType)}" data-blend-id="${escapeHtml(layout.blendId ?? "")}" title="Edit in designer">Edit</button>
+          <button class="layout-duplicate-btn advanced-action-btn" data-layout-key="${escapeHtml(key)}" data-layout-id="${escapeHtml(entry.layoutId)}" data-effect-type="${escapeHtml(layout.effectType)}" data-blend-id="${escapeHtml(layout.blendId ?? "")}" title="Start a new layout from a copy of this one">Duplicate</button>
           ${isFactory
             ? ""
             : `<button class="layout-delete-btn advanced-action-btn danger" data-layout-key="${escapeHtml(key)}" data-layout-id="${escapeHtml(entry.layoutId)}" title="Delete layout">Delete</button>`}
@@ -130,14 +132,14 @@ export function renderLayoutList(): void {
     .join("");
 
   // Bind handlers
-  layoutList.querySelectorAll(".layout-edit-btn").forEach((btn) => {
+  layoutList.querySelectorAll(".layout-edit-btn, .layout-duplicate-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
       const el = btn as HTMLElement;
       const key = el.dataset.layoutKey ?? "";
       const layoutId = el.dataset.layoutId ?? "";
       const effectType = el.dataset.effectType ?? "";
       const blendId = el.dataset.blendId || undefined;
-      openLayoutInDesigner(key, layoutId, effectType, blendId);
+      openLayoutInDesigner(key, layoutId, effectType, blendId, el.classList.contains("layout-duplicate-btn"));
     });
   });
 
@@ -161,6 +163,7 @@ function openLayoutInDesigner(
   layoutId: string,
   effectType: string,
   blendId?: string,
+  asCopy = false,
 ): void {
   const library = uiState.layoutLibrary;
   if (!library) return;
@@ -172,7 +175,9 @@ function openLayoutInDesigner(
     return;
   }
 
-  layoutDesigner.open(effectType, entry.layout, {
+  // A copy has its own id, so the designer treats it as a new layout and the original is untouched.
+  const layout = asCopy ? copyOfLayout(entry.layout, effectType, blendId) : entry.layout;
+  layoutDesigner.open(effectType, layout, {
     blendId,
     blendName: blendId ? `blend ${blendId}` : undefined,
   });
