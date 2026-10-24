@@ -13,6 +13,7 @@ import { getLayoutImageUrl, imageOptionsHtml, reusableLayoutImages } from "./lay
 import { isDialogOpen, showConfirm } from "./dialogs.js";
 import type { CopiedTextLabelPayload, DragState, LayoutResourceCandidate, SelectedElement } from "./layoutDesigner/types.js";
 import { ensureLayoutImagesLoaded } from "./layoutImages.js";
+import { appendWidthHandle, clampControlWidth, measuredMinWidth, previewControlWidth, setControlWidth } from "./layoutDesigner/controlWidth.js";
 import { bindPreviewKnobs, controlPreviewElement, defaultControlsPreviewHtml, designerPreviewNode, designerResourceDefs } from "./layoutDesigner/controlPreview.js";
 import { overlayImageStyle } from "./layoutControlImages.js";
 import { colorWithAlpha, imageResolverFor, renderCustomLayoutPreviewLayers, safeCssValue } from "./layoutRenderer.js";
@@ -998,6 +999,7 @@ export class LayoutDesignerModal {
       : null;
     if (drawn) {
       el.appendChild(drawn);
+      if (isSelected && !this.previewMode && this.isResourceControl(control)) appendWidthHandle(el);
     } else {
       // The panel draws nothing for it (no such parameter or slot on this effect); keep it selectable.
       const missing = document.createElement("div");
@@ -1540,7 +1542,7 @@ export class LayoutDesignerModal {
     if (placeholder) {
       const paramKey = placeholder.dataset.paramKey;
       if (paramKey) {
-        this.startDrag(e, placeholder, "control", paramKey, "move");
+        this.startDrag(e, placeholder, "control", paramKey, resizeHandle?.dataset.controlHandle ? "resize" : "move");
       }
     } else if (textLabel) {
       const labelId = textLabel.dataset.labelId;
@@ -1570,7 +1572,7 @@ export class LayoutDesignerModal {
       startY: e.clientY,
       elementStartX: parseInt(element.style.left) || 0,
       elementStartY: parseInt(element.style.top) || 0,
-      elementStartWidth: parseInt(element.style.width) || 0,
+      elementStartWidth: parseInt(element.style.width) || element.offsetWidth,
       elementStartHeight: parseInt(element.style.height) || 0,
       type,
       mode,
@@ -1645,6 +1647,12 @@ export class LayoutDesignerModal {
       return;
     }
 
+    if (this.dragState.type === "control" && this.dragState.mode === "resize") {
+      const control = this.layout.controls.find((c) => c.paramKey === this.dragState.id);
+      if (control) previewControlWidth(this.dragState.element, clampControlWidth(this.layout, control, snapAt(this.dragState.elementStartWidth + dx / this.zoom), measuredMinWidth(this.dragState.element)));
+      return;
+    }
+
     const newX = snapAt(this.dragState.elementStartX + dx / this.zoom);
     const newY = snapAt(this.dragState.elementStartY + dy / this.zoom);
     const dragWidth = this.dragState.type === "overlay"
@@ -1673,8 +1681,11 @@ export class LayoutDesignerModal {
       const newX = parseInt(element.style.left) || 0;
       const newY = parseInt(element.style.top) || 0;
 
-      const resized = this.dragState.mode === "resize"
-        && ((parseInt(element.style.width) || 0) !== this.dragState.elementStartWidth
+      // A control's width drag leaves its width on the placeholder (previewControlWidth).
+      const controlWidth = Number(element.dataset.dragWidth) || 0;
+      const resized = this.dragState.mode === "resize" && (type === "control"
+        ? controlWidth > 0 && controlWidth !== this.dragState.elementStartWidth
+        : (parseInt(element.style.width) || 0) !== this.dragState.elementStartWidth
           || (parseInt(element.style.height) || 0) !== this.dragState.elementStartHeight);
       if ((newX !== this.dragState.elementStartX || newY !== this.dragState.elementStartY || resized)
         && this.dragUndoSnapshot !== null) {
@@ -1686,6 +1697,10 @@ export class LayoutDesignerModal {
         const control = this.layout.controls.find((c) => c.paramKey === id);
         if (control) {
           control.position = { x: newX, y: newY };
+          if (resized) {
+            setControlWidth(control, controlWidth);
+            this.renderCanvas();
+          }
         }
       } else if (type === "label") {
         const label = this.layout.textLabels.find((l) => l.id === id);

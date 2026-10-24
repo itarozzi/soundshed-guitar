@@ -10,6 +10,7 @@
 import { layoutGridSize, snapToGrid } from "../layoutTypes.js";
 import { bindAlignGroup, renderAlignGroup } from "./alignTools.js";
 import { bindControlImageGroup, bindOverlayImageGroup, renderControlImageGroup, renderOverlayImageGroup } from "./controlImageProperties.js";
+import { bindWidthGroup, renderWidthGroup } from "./controlWidth.js";
 
 /** An element on the designer canvas, where it is drawn at the layout's own size. */
 function onCanvas(selector: string): HTMLElement | null {
@@ -176,6 +177,7 @@ export class ElementProperties {
         </div>
       </div>
 
+      ${isResourceControl ? renderWidthGroup(control) : ""}
       ${renderAlignGroup()}
       ${styleSection}
       ${renderControlImageGroup(control, isResourceControl, (purpose, selected) => this.host.renderImageOptionsHtml(purpose, selected))}
@@ -189,6 +191,7 @@ export class ElementProperties {
     this.bindControlPropertyHandlers(control);
     bindAlignGroup(this.host, () => onCanvas(`.layout-control-placeholder[data-param-key="${CSS.escape(control.paramKey)}"]`), control.position);
     bindControlImageGroup(control, this.host);
+    if (isResourceControl) bindWidthGroup(this.host, control, () => onCanvas(`.layout-control-placeholder[data-param-key="${CSS.escape(control.paramKey)}"]`));
   }
 
   private bindControlPropertyHandlers(control: LayoutControl): void {

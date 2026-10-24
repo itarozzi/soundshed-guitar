@@ -92,78 +92,28 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* No wider than its control, which a long name would otherwise stretch past the layout's
-   edge (the renderer caps a resource control at the room left): the name ends in an ellipsis. */
+/* A resource slot placed in a layout is the params panel's own (resourceSlotMarkup.ts), with
+   the panel's styles, laid flat as the panel lays its model slot (params-panel.css). It is no
+   wider than its control, which the renderer caps at the room left before the layout's edge, so
+   a long name ends in an ellipsis; and its label sizes to its text, as nothing stretches it. */
 .custom-layout-resource-selector {
   max-width: 100%;
-  padding: 0;
   margin: 0;
-  gap: 4px;
 }
 
-.custom-layout-resource-selector .resource-controls {
-  gap: 6px;
-  width: 100%;
+.custom-layout-resource-selector :is(.resource-picker-label, .resource-picker-label-body, .resource-picker-label-text) {
+  flex-basis: auto;
 }
 
-.custom-layout-resource-selector .resource-picker-btn {
-  min-width: 62px;
-  padding: 5px 8px;
-  font-size: 10px;
-}
-
+/* Never squeezed to nothing: a width too narrow for the buttons runs past it instead, and the
+   designer keeps a set width above this plus the buttons (controlWidth.ts). */
 .custom-layout-resource-selector .resource-picker-label {
-  padding: 5px 8px;
-  font-size: 11px;
-  border-color: color-mix(in srgb, var(--color-accent) 45%, var(--border-dark-medium));
-  background: color-mix(in srgb, var(--color-accent) 10%, var(--bg-dark-tertiary));
+  min-width: 64px;
 }
 
-.custom-layout-resource-selector .resource-browse-btn {
-  min-width: 28px;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border-dark-medium);
-  background: var(--bg-dark-tertiary);
-  color: var(--text-dark-secondary);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.custom-layout-resource-selector .resource-clear-btn {
-  min-width: 28px;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border-dark-medium);
-  background: var(--bg-dark-tertiary);
-  color: var(--text-dark-secondary);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.custom-layout-resource-selector .resource-browse-btn:hover {
-  color: var(--text-dark-primary);
-  border-color: var(--accent-primary);
-}
-
-.custom-layout-resource-selector .resource-clear-btn:hover {
-  color: var(--text-dark-primary);
-  border-color: #be6f66;
-}
-
-.custom-layout-resource-selector .resource-path-info {
-  font-size: 10px;
-  color: var(--text-dark-muted);
-  padding: 0 2px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+/* Given a width (the room the layout's art leaves for the name), the slot fills it. */
+.custom-layout-control.has-width > .custom-layout-resource-selector {
+  width: 100%;
 }
 
 .custom-layout-bg {

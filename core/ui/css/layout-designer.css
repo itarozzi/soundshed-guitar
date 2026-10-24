@@ -656,6 +656,16 @@
   z-index: 10;
 }
 
+/* A resource selector's width handle, on the selected selector's right edge (controlWidth.ts). */
+.layout-control-placeholder > .layout-width-handle {
+  top: 50%;
+  right: -4px;
+  height: 18px;
+  margin-top: -9px;
+  cursor: ew-resize;
+  pointer-events: auto;
+}
+
 .layout-resize-handle.top-left { top: -4px; left: -4px; cursor: nwse-resize; }
 .layout-resize-handle.top-right { top: -4px; right: -4px; cursor: nesw-resize; }
 .layout-resize-handle.bottom-left { bottom: -4px; left: -4px; cursor: nesw-resize; }

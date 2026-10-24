@@ -146,8 +146,8 @@
 }
 
 /* The call to action is the button now: a Browse beside it, or a disabled clear, is noise. */
-.node-resource-selector:not(.custom-layout-resource-selector) > .resource-controls:has(> .resource-picker-label.is-empty) > .resource-clear-btn,
-.node-resource-selector:not(.custom-layout-resource-selector) > .resource-controls:has(> .resource-picker-label.is-empty:not(.is-optional)) > .resource-picker-btn {
+.node-resource-selector > .resource-controls:has(> .resource-picker-label.is-empty) > .resource-clear-btn,
+.node-resource-selector > .resource-controls:has(> .resource-picker-label.is-empty:not(.is-optional)) > .resource-picker-btn {
   display: none;
 }
 

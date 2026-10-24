@@ -16,8 +16,7 @@ export { formatParamValue };
 import { backgroundImageDrawnWidth, ensureLayoutImagesLoaded, knobFaceDrawnWidth, layoutLargestScale, resolveLayoutImageUrl } from "./layoutImages.js";
 import { imageKnob, imageToggle, overlayImageStyle, sliderAttributes, styledKnobSizeStyle, type ImageCssResolver } from "./layoutControlImages.js";
 import { layoutCanGrow, scalingAttribute } from "./layoutScaling.js";
-import { resourceBrowserModal } from "./resourceBrowser.js";
-import { getResourcePickerLabelClass, getResourcePickerLabelTitle, renderResourcePickerLabelContent } from "./resourcePickerLabel.js";
+import { isLibraryPickerType, libraryPickerControlsHtml, libraryPickerNavigation, librarySlotHasBrowseButton } from "./resourceSlotMarkup.js";
 import type {
   EffectLayout,
   LayoutControl,
@@ -44,6 +43,12 @@ export interface LayoutResourceControlDef {
   currentFilePath?: string;
   isMissing?: boolean;
   isOptional?: boolean;
+  /**
+   * The slot's controls as the params panel draws them (its .resource-controls row and what goes
+   * under it), so a layout draws the very same; without it a model or IR slot is drawn by
+   * libraryPickerControlsHtml.
+   */
+  controlsHtml?: string;
 }
 
 /**
@@ -510,138 +515,14 @@ function renderControls(
         controlHtml += `<span class="custom-control-label" style="font-size: ${labelSize}px; color: ${escapeHtml(labelColor)}; margin-bottom: 4px;${escapeHtml(fontStyle + labelWidthStyle)}">${escapeHtml(label)}</span>`;
       }
 
-      if (isResourceControl) {
-        const browseAccept = resourceDef?.resourceType === "nam"
-          ? ".nam,.json"
-          : resourceDef?.resourceType === "ir"
-            ? ".wav"
-            : "*";
-        const labelState = {
-          resourceType: resourceDef?.resourceType ?? "",
-          displayName: resourceDef?.currentDisplayName ?? "",
-          isMissing: resourceDef?.isMissing,
-          isOptional: resourceDef?.isOptional,
-        };
-        const exposedResourceAttr = resourceDef?.exposedResourceId
-          ? `data-exposed-resource-id="${escapeHtml(resourceDef.exposedResourceId)}"`
-          : "";
-        const resourceIndex = resourceDef?.resourceIndex ?? 0;
-        const isPluginResource = resourceDef?.resourceType === "plugin";
-        const currentResourceId = resourceDef?.currentResourceId ?? "";
-        const currentFilePath = resourceDef?.currentFilePath ?? "";
-        const navOptions = {
-          categoryHint: resourceDef?.navigationCategoryHint,
-          contextKey: resourceDef?.navigationContextKey,
-        };
-        const navResourceType = resourceDef?.resourceType === "nam" || resourceDef?.resourceType === "ir"
-          ? resourceDef.resourceType as "nam" | "ir"
-          : null;
-        // Tone3000 result sets wrap, so there is always a step available; the
-        // neighbour itself is only resolved (fetched) once the button is used.
-        const tone3000NavActive = navResourceType
-          ? resourceBrowserModal.isTone3000NavigationActive(navResourceType, navOptions)
-          : false;
-        const prevSelection = navResourceType && !tone3000NavActive
-          ? resourceBrowserModal.getAdjacentResourceSelection(navResourceType, currentResourceId, currentFilePath, -1, navOptions)
-          : null;
-        const nextSelection = navResourceType && !tone3000NavActive
-          ? resourceBrowserModal.getAdjacentResourceSelection(navResourceType, currentResourceId, currentFilePath, 1, navOptions)
-          : null;
-        const prevDisabled = tone3000NavActive || prevSelection ? "" : " disabled";
-        const nextDisabled = tone3000NavActive || nextSelection ? "" : " disabled";
-        const pluginLoadingIndicator = isPluginResource
-          ? `
-              <div
-                class="plugin-host-loading"
-                data-node-id="${escapeHtml(node.id)}"
-                data-resource-index="${resourceIndex}"
-                role="status"
-                aria-live="polite"
-                hidden
-              >
-                <span class="plugin-host-loading-spinner" aria-hidden="true"></span>
-                <span class="plugin-host-loading-label">Loading plugin...</span>
-              </div>
-            `
-          : "";
-
+      if (isResourceControl && resourceDef) {
         controlHtml += `
           <div
             class="node-resource-selector custom-layout-resource-selector"
             data-node-id="${escapeHtml(node.id)}"
-            ${navResourceType ? `data-resource-type="${navResourceType}" data-resource-index="${resourceIndex}"` : ""}
-          >
-            <div class="resource-controls">
-              <button
-                class="resource-picker-btn"
-                data-node-id="${escapeHtml(node.id)}"
-                data-resource-type="${escapeHtml(resourceDef?.resourceType ?? "")}"
-                data-resource-index="${resourceIndex}"
-                ${exposedResourceAttr}
-              >Browse</button>
-              ${resourceDef?.resourceType === "nam" || resourceDef?.resourceType === "ir" ? `
-                <button
-                  type="button"
-                  class="preset-action-btn resource-nav-btn resource-nav-prev-btn"
-                  data-node-id="${escapeHtml(node.id)}"
-                  data-resource-type="${resourceDef?.resourceType ?? ""}"
-                  data-resource-index="${resourceIndex}"
-                  ${exposedResourceAttr}
-                  data-nav-direction="prev"
-                  title="Previous resource"
-                  aria-label="Previous resource"${prevDisabled}
-                >${renderIcon("arrow-left", "resource-nav-icon")}</button>
-              ` : ""}
-              ${navResourceType ? `
-                <button
-                  type="button"
-                  class="${escapeHtml(getResourcePickerLabelClass(labelState))}"
-                  data-node-id="${escapeHtml(node.id)}"
-                  data-resource-type="${navResourceType}"
-                  data-resource-index="${resourceIndex}"
-                  ${exposedResourceAttr}
-                  ${resourceDef?.isOptional ? `data-optional="true"` : ""}
-                  title="${escapeHtml(getResourcePickerLabelTitle(labelState))}"
-                  aria-haspopup="dialog"
-                >${renderResourcePickerLabelContent(labelState)}</button>
-              ` : `
-                <div
-                  class="resource-picker-label"
-                  data-node-id="${escapeHtml(node.id)}"
-                  data-resource-type="${escapeHtml(resourceDef?.resourceType ?? "")}"
-                  data-resource-index="${resourceIndex}"
-                  ${exposedResourceAttr}
-                  title="${escapeHtml(resourceDef?.currentDisplayName || "No resource selected")}"
-                >${escapeHtml(resourceDef?.currentDisplayName || "No resource selected")}</div>
-              `}
-              ${resourceDef?.resourceType === "nam" || resourceDef?.resourceType === "ir" ? `
-                <button
-                  type="button"
-                  class="preset-action-btn resource-nav-btn resource-nav-next-btn"
-                  data-node-id="${escapeHtml(node.id)}"
-                  data-resource-type="${resourceDef?.resourceType ?? ""}"
-                  data-resource-index="${resourceIndex}"
-                  ${exposedResourceAttr}
-                  data-nav-direction="next"
-                  title="Next resource"
-                  aria-label="Next resource"${nextDisabled}
-                >${renderIcon("arrow-right", "resource-nav-icon")}</button>
-              ` : ""}
-              ${(resourceDef?.allowBrowseFile ?? true) ? `
-                <button
-                  class="resource-browse-btn"
-                  data-node-id="${escapeHtml(node.id)}"
-                  data-resource-type="${escapeHtml(resourceDef?.resourceType ?? "")}"
-                  data-resource-index="${resourceIndex}"
-                  ${exposedResourceAttr}
-                  data-accept="${browseAccept}"
-                  title="Browse for file..."
-                >${renderIcon(isPluginResource ? "plus" : "folder", "resource-browse-icon")}</button>
-              ` : ""}
-              ${pluginLoadingIndicator}
-            </div>
-            ${resourceDef?.currentFilePath ? `<div class="resource-path-info" title="${escapeHtml(resourceDef.currentFilePath)}">${escapeHtml(resourceDef.currentFilePath)}</div>` : ""}
-          </div>
+            data-resource-index="${resourceDef.resourceIndex}"
+            data-resource-type="${escapeHtml(resourceDef.resourceType)}"
+          >${resourceSlotControlsHtml(node, resourceDef)}</div>
         `;
       } else if (isToggle) {
         const checked = value >= 0.5;
@@ -737,9 +618,51 @@ function renderControls(
         controlHtml += `<span class="node-param-value" style="font-size: ${valueSize}px; color: ${escapeHtml(valueColor)}; margin-top: 2px;${escapeHtml(fontStyle)}">${displayValue}</span>`;
       }
 
-      return `<div class="custom-layout-control" style="${escapeHtml(controlStyle)}">${controlHtml}</div>`;
+      // A resource slot given a width fills it (custom-layouts.css), its name ending in an ellipsis.
+      const sizedClass = isResourceControl && control.size ? " has-width" : "";
+      return `<div class="custom-layout-control${sizedClass}" style="${escapeHtml(controlStyle)}">${controlHtml}</div>`;
     })
     .join("");
+}
+
+/**
+ * A placed resource slot's controls: the params panel's own markup when it passed it; else a
+ * model or IR slot drawn as the panel draws one (with arrows unless it is a composite's slot,
+ * as there); else, for another kind outside the panel, its name and a browse button.
+ */
+function resourceSlotControlsHtml(node: GraphNode, def: LayoutResourceControlDef): string {
+  if (typeof def.controlsHtml === "string") return def.controlsHtml;
+  const labelState = { resourceType: def.resourceType, displayName: def.currentDisplayName, isMissing: def.isMissing, isOptional: def.isOptional };
+  const currentResourceId = def.currentResourceId ?? "";
+  const currentFilePath = def.currentFilePath ?? "";
+  if (isLibraryPickerType(def.resourceType)) {
+    const navOptions = { categoryHint: def.navigationCategoryHint, contextKey: def.navigationContextKey };
+    return libraryPickerControlsHtml({
+      nodeId: node.id,
+      resourceType: def.resourceType,
+      resourceIndex: def.resourceIndex,
+      includeIndexAttr: true,
+      exposedResourceId: def.exposedResourceId,
+      labelState,
+      hasCurrentSelection: Boolean(currentResourceId || currentFilePath),
+      showBrowseButton: librarySlotHasBrowseButton(node.type),
+      navigation: def.exposedResourceId ? null : libraryPickerNavigation(def.resourceType, currentResourceId, currentFilePath, navOptions),
+      currentFilePath,
+    });
+  }
+  const attrs = [
+    `data-node-id="${escapeHtml(node.id)}"`,
+    `data-resource-type="${escapeHtml(def.resourceType)}"`,
+    `data-resource-index="${def.resourceIndex}"`,
+    def.exposedResourceId ? `data-exposed-resource-id="${escapeHtml(def.exposedResourceId)}"` : "",
+  ].filter(Boolean).join(" ");
+  const name = def.currentDisplayName || "No resource selected";
+  return `
+    <div class="resource-controls">
+      <div class="resource-picker-label" ${attrs} title="${escapeHtml(name)}">${escapeHtml(name)}</div>
+      ${(def.allowBrowseFile ?? true) ? `<button class="resource-browse-btn" ${attrs} title="Browse for file...">${renderIcon(def.resourceType === "plugin" ? "plus" : "folder", "resource-browse-icon")}</button>` : ""}
+    </div>
+  `;
 }
 
 /**

@@ -4,7 +4,7 @@
   <div class="custom-layout-container" data-design-h="240" data-design-w="560"> {position: relative; width: 560px; height: 240px; overflow: hidden; border-radius: 8px; margin: 0; padding: 0; box-sizing: border-box; transform-origin: top left}
     <div class="custom-layout-bg"> {position: absolute; inset: 0; z-index: 0; background-color: #222}
     <div class="custom-layout-controls"> {position: absolute; inset: 0; z-index: 2; margin: 0; padding: 0; pointer-events: none}
-      <div class="custom-layout-control"> {position: absolute; left: 16px; top: 16px; display: flex; flex-direction: column; align-items: center; width: 320px; max-width: 544px}
+      <div class="custom-layout-control has-width"> {position: absolute; left: 16px; top: 16px; display: flex; flex-direction: column; align-items: center; width: 320px; max-width: 544px}
         <span class="custom-control-label"> {font-size: 10px; color: var(--text-dark-secondary); margin-bottom: 4px}
           "Model"
         <div class="node-resource-selector custom-layout-resource-selector" data-node-id="node-fixture" data-resource-index="0" data-resource-type="nam">
@@ -19,8 +19,8 @@
               <span aria-hidden="true" class="resource-picker-label-caret"> {--icon-url: url('/images/icons/chevron-down.svg')}
             <button aria-label="Next resource" class="preset-action-btn resource-nav-btn resource-nav-next-btn" data-nav-direction="next" data-node-id="node-fixture" data-resource-index="0" data-resource-type="nam" disabled="" title="Next resource" type="button">
               <span aria-hidden="true" class="resource-nav-icon"> {--icon-url: url('/images/icons/arrow-right.svg')}
-            <button class="resource-browse-btn" data-accept=".nam,.json" data-node-id="node-fixture" data-resource-index="0" data-resource-type="nam" title="Browse for file...">
-              <span aria-hidden="true" class="resource-browse-icon"> {--icon-url: url('/images/icons/folder.svg')}
+            <button class="resource-clear-btn" data-node-id="node-fixture" data-resource-index="0" data-resource-type="nam" title="Clear selected resource">
+              <span aria-hidden="true" class="resource-clear-icon"> {--icon-url: url('/images/icons/close.svg')}
           <div class="resource-path-info" title="D:/NAM/plexi crunch.nam">
             "D:/NAM/plexi crunch.nam"
       <div class="custom-layout-control"> {position: absolute; left: 16px; top: 112px; display: flex; flex-direction: column; align-items: center; max-width: 544px}
@@ -43,6 +43,8 @@
                 "Browse"
             <button aria-label="Next resource" class="preset-action-btn resource-nav-btn resource-nav-next-btn" data-nav-direction="next" data-node-id="node-fixture" data-resource-index="1" data-resource-type="ir" disabled="" title="Next resource" type="button">
               <span aria-hidden="true" class="resource-nav-icon"> {--icon-url: url('/images/icons/arrow-right.svg')}
+            <button class="resource-clear-btn" data-node-id="node-fixture" data-resource-index="1" data-resource-type="ir" disabled="" title="Clear selected resource">
+              <span aria-hidden="true" class="resource-clear-icon"> {--icon-url: url('/images/icons/close.svg')}
       <div class="custom-layout-control"> {position: absolute; left: 440px; top: 32px; display: flex; flex-direction: column; align-items: center}
         <span class="custom-control-label"> {font-size: 10px; color: var(--text-dark-secondary); margin-bottom: 4px}
           "Level"
@@ -57,7 +59,7 @@
   <div class="custom-layout-container" data-design-h="240" data-design-w="560"> {position: relative; width: 560px; height: 240px; overflow: hidden; border-radius: 8px; margin: 0; padding: 0; box-sizing: border-box; transform-origin: top left}
     <div class="custom-layout-bg"> {position: absolute; inset: 0; z-index: 0; background-color: #222}
     <div class="custom-layout-controls"> {position: absolute; inset: 0; z-index: 2; margin: 0; padding: 0; pointer-events: none}
-      <div class="custom-layout-control"> {position: absolute; left: 16px; top: 16px; display: flex; flex-direction: column; align-items: center; width: 320px; max-width: 544px}
+      <div class="custom-layout-control has-width"> {position: absolute; left: 16px; top: 16px; display: flex; flex-direction: column; align-items: center; width: 320px; max-width: 544px}
         <span class="custom-control-label"> {font-size: 10px; color: var(--text-dark-secondary); margin-bottom: 4px}
           "Model"
         <div class="node-resource-selector custom-layout-resource-selector" data-node-id="node-fixture" data-resource-index="0" data-resource-type="nam">
@@ -72,8 +74,8 @@
               <span aria-hidden="true" class="resource-picker-label-caret"> {--icon-url: url('/images/icons/chevron-down.svg')}
             <button aria-label="Next resource" class="preset-action-btn resource-nav-btn resource-nav-next-btn" data-nav-direction="next" data-node-id="node-fixture" data-resource-index="0" data-resource-type="nam" disabled="" title="Next resource" type="button">
               <span aria-hidden="true" class="resource-nav-icon"> {--icon-url: url('/images/icons/arrow-right.svg')}
-            <button class="resource-browse-btn" data-accept=".nam,.json" data-node-id="node-fixture" data-resource-index="0" data-resource-type="nam" title="Browse for file...">
-              <span aria-hidden="true" class="resource-browse-icon"> {--icon-url: url('/images/icons/folder.svg')}
+            <button class="resource-clear-btn" data-node-id="node-fixture" data-resource-index="0" data-resource-type="nam" title="Clear selected resource">
+              <span aria-hidden="true" class="resource-clear-icon"> {--icon-url: url('/images/icons/close.svg')}
           <div class="resource-path-info" title="D:/NAM/plexi crunch.nam">
             "D:/NAM/plexi crunch.nam"
       <div class="custom-layout-control"> {position: absolute; left: 16px; top: 112px; display: flex; flex-direction: column; align-items: center; max-width: 544px}
@@ -96,6 +98,8 @@
                 "Browse"
             <button aria-label="Next resource" class="preset-action-btn resource-nav-btn resource-nav-next-btn" data-nav-direction="next" data-node-id="node-fixture" data-resource-index="1" data-resource-type="ir" disabled="" title="Next resource" type="button">
               <span aria-hidden="true" class="resource-nav-icon"> {--icon-url: url('/images/icons/arrow-right.svg')}
+            <button class="resource-clear-btn" data-node-id="node-fixture" data-resource-index="1" data-resource-type="ir" disabled="" title="Clear selected resource">
+              <span aria-hidden="true" class="resource-clear-icon"> {--icon-url: url('/images/icons/close.svg')}
       <div class="custom-layout-control"> {position: absolute; left: 440px; top: 32px; display: flex; flex-direction: column; align-items: center}
         <span class="custom-control-label"> {font-size: 10px; color: var(--text-dark-secondary); margin-bottom: 4px}
           "Level"

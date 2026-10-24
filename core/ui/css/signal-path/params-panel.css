@@ -536,6 +536,7 @@
 }
 
 .default-effect-shell.neural-model-effect .neural-model-resource-selector > .node-resource-selector,
+.default-effect-shell .custom-layout-control > .node-resource-selector.custom-layout-resource-selector,
 .default-effect-shell .effect-inline-resource-selectors .node-resource-selector {
   gap: 6px;
   padding: 0;
@@ -551,6 +552,7 @@
 }
 
 .default-effect-shell.neural-model-effect .neural-model-resource-selector .resource-controls,
+.default-effect-shell .custom-layout-control > .custom-layout-resource-selector .resource-controls,
 .default-effect-shell .effect-inline-resource-selectors .resource-controls {
   gap: 8px;
 }
