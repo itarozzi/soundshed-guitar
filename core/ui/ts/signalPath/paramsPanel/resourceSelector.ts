@@ -22,6 +22,7 @@ import { getNodeResourceDisplayName } from "../nodeLabels.js";
 import { getNodeResourceAtIndex } from "../nodeResources.js";
 import { collectPreferredNodeResourceIds, getDeduplicatedLibraryResources } from "../nodeTypes.js";
 import { resolveResourceContextKey, resolveResourceNavigationCategoryHint } from "../resourceContext.js";
+import { buildIrSlotListHtml } from "./irSlotList.js";
 
 /**
  * Warms the resource browser's navigation cache so a node's prev/next buttons
@@ -33,8 +34,12 @@ export function preloadResourceNavigationCaches(node: GraphNode, preset: Preset,
     const rt = typeInfo.resourceType;
     if (rt === "nam" || rt === "ir") {
       const categoryHint = resolveResourceNavigationCategoryHint(node, preset, rt);
-      const contextKey = resolveResourceContextKey(node, rt);
-      navCacheRequests.set(`${rt}:${categoryHint ?? ""}`, { resourceType: rt, categoryHint, contextKey });
+      // The cabinet's IR B steps through a list of its own.
+      const slotCount = EffectTypeRegistry.resolve(node.type) === EffectGuids.kCabIr ? 2 : 1;
+      for (let index = 0; index < slotCount; index++) {
+        const contextKey = resolveResourceContextKey(node, rt, index);
+        navCacheRequests.set(`${rt}:${categoryHint ?? ""}:${contextKey}`, { resourceType: rt, categoryHint, contextKey });
+      }
     }
   }
   (typeInfo?.exposedResources ?? []).forEach((er) => {
@@ -77,8 +82,11 @@ export function buildNodeResourceSelector(
   const hideRedundantLibraryBrowseButton = !librarySlotHasBrowseButton(node.type);
   const customLayoutResourceControls: LayoutResourceControlDef[] = [];
   const exposedResources = typeInfo?.exposedResources ?? [];
+  // The cabinet's two IRs are slots of the node itself, not of an inner node, so they step with
+  // arrows as a lone slot does, and its IR list sits between them.
+  const isCabIr = EffectTypeRegistry.resolve(node.type) === EffectGuids.kCabIr;
   if (exposedResources.length > 0) {
-    resourceSelector = exposedResources
+    const exposedSlots = exposedResources
       .map((exposedResource, exposedResourceIndex) => {
         const resourceType = exposedResource.resourceType;
         const resourceIndex = exposedResource.resourceIndex ?? exposedResourceIndex;
@@ -116,8 +124,11 @@ export function buildNodeResourceSelector(
           ? resolveResourceNavigationCategoryHint(node, preset, resourceType)
           : undefined;
         const navigationContextKey = isLibraryPicker
-          ? resolveResourceContextKey(node, resourceType)
+          ? resolveResourceContextKey(node, resourceType, resourceIndex)
           : undefined;
+        const navigation = isCabIr && isLibraryPickerType(resourceType)
+          ? libraryPickerNavigation(resourceType, current.id ?? "", current.filePath ?? "", { categoryHint: navigationCategoryHint, contextKey: navigationContextKey })
+          : null;
         const resourceOptions = resources.map((res: LibraryResource) => {
           const selected = resolvedCurrentId === res.id && !current.filePath ? "selected" : "";
           return `<option value="${escapeHtml(res.id)}" ${selected}>${escapeHtml(res.name)}</option>`;
@@ -147,7 +158,7 @@ export function buildNodeResourceSelector(
             labelState,
             hasCurrentSelection,
             showBrowseButton: !hideRedundantLibraryBrowseButton,
-            navigation: null,
+            navigation,
             currentFilePath: current.filePath,
           })
           : `
@@ -217,8 +228,10 @@ export function buildNodeResourceSelector(
             ${controlsHtml}
           </div>
         `;
-      })
-      .join("");
+      });
+    resourceSelector = isCabIr && exposedSlots.length === 2
+      ? `${exposedSlots[0]}${buildIrSlotListHtml(node, preset)}${exposedSlots[1]}`
+      : exposedSlots.join("");
   } else if (typeInfo?.requiresResource && typeInfo.resourceType) {
     const resourceType = typeInfo.resourceType;
     const preferredResourceIds = collectPreferredNodeResourceIds(node, resourceType);
@@ -268,7 +281,7 @@ export function buildNodeResourceSelector(
         ? resolveResourceNavigationCategoryHint(node, preset, navResourceType)
         : undefined;
       const navigationContextKey = navResourceType
-        ? resolveResourceContextKey(node, navResourceType)
+        ? resolveResourceContextKey(node, navResourceType, index)
         : undefined;
       const navOptions = { categoryHint: navigationCategoryHint, contextKey: navigationContextKey };
       const navigation = navResourceType
@@ -383,7 +396,8 @@ export function buildNodeResourceSelector(
       } else if (node.type === EffectGuids.kCabIr) {
         const irSlotA = buildSelector(0, "IR A", true);
         const irSlotB = buildSelector(1, "IR B", true);
-        resourceSelector = `${irSlotA}${irSlotB}`;
+        // The IR list sits between the slots it drags onto.
+        resourceSelector = `${irSlotA}${buildIrSlotListHtml(node, preset)}${irSlotB}`;
       } else {
         resourceSelector = buildSelector(0, resourceType === "nam" ? "Model" : resourceType === "ir" ? "IR" : resourceType === "plugin" ? "Plugin" : "Resource", false);
       }

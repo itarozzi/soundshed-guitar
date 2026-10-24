@@ -43,6 +43,7 @@ import { bindNodeParamControls, bindParamTabs, formatParamLabel, isToggleParam }
 import { applyParamVisibility, isParamVisible, withParamVisibility } from "./paramVisibility.js";
 import { isPitchShiftType, semitoneKnobRange } from "./pitchShiftRange.js";
 import { buildNodeResourceSelector, preloadResourceNavigationCaches } from "./resourceSelector.js";
+import { bindIrSlotList, isIrSlotListOpen } from "./irSlotList.js";
 import { setNodeParamsPanelRenderer } from "../render.js";
 import { nodeParamKnobs, paramsPanelInteractions } from "./state.js";
 import { refreshNodeVisualizations } from "./visualizations.js";
@@ -389,7 +390,7 @@ export function showNodeParamsPanel(node: GraphNode, preset: Preset): void {
   );
   const placeCabIrResourcesInControls = node.type === EffectGuids.kCabIr && !layoutIncludesResourceControls && Boolean(resourceSelector);
   const cabIrResourceSelectors = placeCabIrResourcesInControls
-    ? `<div class="effect-inline-resource-selectors cab-ir-resource-selectors">${resourceSelector}</div>`
+    ? `<div class="effect-inline-resource-selectors cab-ir-resource-selectors${isIrSlotListOpen() ? " has-slot-list" : ""}">${resourceSelector}</div>`
     : "";
   const shellTitle = escapeHtml(getNodeDisplayName(node));
   // A renamed node keeps its automatic name to hand, on hover.
@@ -604,6 +605,7 @@ export function showNodeParamsPanel(node: GraphNode, preset: Preset): void {
   bindSplitBranchControls(node, preset);
   bindLayoutOverlayBypassToggles(node, preset);
   bindResourceControls(node, preset);
+  bindIrSlotList(node, preset);
   bindEquipmentImageFallback();
   bindHostedPluginActionControls(node);
   bindHostedPluginListControls(node);

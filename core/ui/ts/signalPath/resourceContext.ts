@@ -6,6 +6,7 @@ import { EffectTypeRegistry, getNodeEffectInfo } from "../presetV2.js";
 import { EffectGuids } from "../effectGuids.js";
 import { getNodeCategory } from "./nodeTypes.js";
 import { hasCabIrInSameSignalPath } from "./chainRules.js";
+import { withResourceSlotContext } from "../resourceBrowser/settings.js";
 export function resolveResourceBrowserTone3000CategoryFilter(
   node: GraphNode,
   preset: Preset,
@@ -60,12 +61,18 @@ export function resolveResourceNavigationCategoryHint(
 /// and next/prev navigation are remembered per effect role rather than globally.
 /// Deliberately coarser than the category hint: a NAM Amp keeps one remembered
 /// folder whether or not it is currently acting as a full rig.
-export function resolveResourceContextKey(node: GraphNode, resourceType: "nam" | "ir"): string {
+///
+/// The IR Cabinet's second slot is a context of its own ("ir-cab#1"), so IR A and IR B each
+/// step through the list they were last picked from: the library, a folder or a Tone3000 set.
+export function resolveResourceContextKey(node: GraphNode, resourceType: "nam" | "ir", resourceIndex = 0): string {
   if (resourceType === "nam") {
     return EffectTypeRegistry.resolve(node.type) === EffectGuids.kFxNam ? "nam-fx" : "nam-amp";
   }
 
-  return resolveResourceBrowserLibraryCategoryHint(node, resourceType) === "reverb"
-    ? "ir-reverb"
+  if (resolveResourceBrowserLibraryCategoryHint(node, resourceType) === "reverb") {
+    return "ir-reverb";
+  }
+  return resourceIndex > 0 && EffectTypeRegistry.resolve(node.type) === EffectGuids.kCabIr
+    ? withResourceSlotContext("ir-cab", resourceIndex)
     : "ir-cab";
 }

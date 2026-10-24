@@ -12,7 +12,7 @@
 import { updateAppSetting } from "../appSettingsStore.js";
 import { uiState } from "../state.js";
 import type { AppSettingValue } from "../types.js";
-import { FOLDER_ACTIVE_ROOT_SETTING, FOLDER_LAST_LOCATIONS_SETTING, FOLDER_ROOTS_SETTING } from "./settings.js";
+import { FOLDER_ACTIVE_ROOT_SETTING, FOLDER_LAST_LOCATIONS_SETTING, FOLDER_ROOTS_SETTING, resourceRoleContextKey } from "./settings.js";
 import type { FolderLocation, FolderRoot } from "./types.js";
 
 export function getFolderRoots(): FolderRoot[] {
@@ -85,6 +85,18 @@ export function rememberFolderLocation(contextKey: string, path: string): void {
   setFolderLastLocations(locations);
 }
 
+/// A slot handed another slot's folder list reopens its browser in that folder too.
+export function copyFolderLocation(fromContextKey: string, toContextKey: string): void {
+  const locations = getFolderLastLocations();
+  const source = locations[fromContextKey] ?? locations[resourceRoleContextKey(fromContextKey)];
+  const existing = locations[toContextKey];
+  if (!source || (existing && existing.rootId === source.rootId && existing.path === source.path)) {
+    return;
+  }
+  locations[toContextKey] = { ...source };
+  setFolderLastLocations(locations);
+}
+
 export function normalizeFolderPath(value: string): string {
   return value.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
 }
@@ -104,7 +116,8 @@ export function resolveFolderStartLocation(contextKey: string): { root: FolderRo
     return { root: null, path: "" };
   }
 
-  const remembered = getFolderLastLocations()[contextKey];
+  const locations = getFolderLastLocations();
+  const remembered = locations[contextKey] ?? locations[resourceRoleContextKey(contextKey)];
   if (remembered) {
     const rememberedRoot = roots.find((r) => r.id === remembered.rootId);
     if (rememberedRoot) {

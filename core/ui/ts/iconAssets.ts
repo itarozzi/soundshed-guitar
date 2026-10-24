@@ -32,6 +32,7 @@ export type IconKey =
   | "note"
   | "gear"
   | "folder"
+  | "list"
   | "flask"
   | "microscope"
   | "link"

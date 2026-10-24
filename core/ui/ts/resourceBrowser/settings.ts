@@ -18,6 +18,18 @@ export const FOLDER_LAST_LOCATIONS_SETTING = "resources.folderBrowser.lastLocati
 
 export const DEFAULT_RESOURCE_CONTEXT_KEY = "default";
 
+/// A slot after a node's first browses as a context of its own, "<role>#<index>", so its
+/// next/prev and remembered folder are its own. Where it has none yet it starts from the role's.
+const SLOT_CONTEXT_SEPARATOR = "#";
+
+export function withResourceSlotContext(roleContextKey: string, resourceIndex: number): string {
+  return resourceIndex > 0 ? `${roleContextKey}${SLOT_CONTEXT_SEPARATOR}${resourceIndex}` : roleContextKey;
+}
+
+export function resourceRoleContextKey(contextKey: string): string {
+  return contextKey.split(SLOT_CONTEXT_SEPARATOR)[0];
+}
+
 export const FOLDER_VIRTUAL_GAP = 2;
 
 export const FOLDER_VIRTUAL_OVERSCAN = 6;

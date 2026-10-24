@@ -73,7 +73,7 @@ export function bindResourceControls(node: GraphNode, preset: Preset): void {
 
     const navOptions = {
       categoryHint: resolveResourceNavigationCategoryHint(node, preset, resourceType),
-      contextKey: resolveResourceContextKey(node, resourceType),
+      contextKey: resolveResourceContextKey(node, resourceType, resourceIndex),
     };
     const tone3000NavActive = resourceBrowserModal.isTone3000NavigationActive(resourceType, navOptions);
     if (prevButton) {
@@ -164,7 +164,7 @@ export function bindResourceControls(node: GraphNode, preset: Preset): void {
         exposedResourceId,
         libraryCategoryHint,
         tone3000CategoryFilter,
-        contextKey: resolveResourceContextKey(node, resourceType),
+        contextKey: resolveResourceContextKey(node, resourceType, resourceIndex),
         onSelect: (resourceId) => {
           // An explicit pick supersedes any in-flight next/prev step.
           pendingResourceNavSelections.set(
@@ -289,7 +289,7 @@ export function bindResourceControls(node: GraphNode, preset: Preset): void {
 
       const navOptions = {
         categoryHint: resolveResourceNavigationCategoryHint(node, preset, resourceType),
-        contextKey: resolveResourceContextKey(node, resourceType),
+        contextKey: resolveResourceContextKey(node, resourceType, resourceIndex),
       };
 
       // Stepping a Tone3000 result set fetches (and imports) the neighbour, so

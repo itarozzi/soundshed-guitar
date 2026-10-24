@@ -18,6 +18,7 @@ import { folderFileLibraryMatch } from "./resourceBrowser/folderRows.js";
 import { DOUBLE_CLICK_SELECTS_ATTR, normalizeArchitectureBadge, formatGearDescription, renderResourceMetaParts, getResourceCreator, getResourceLibraryFacets, getResourceTags, isDoubleClickExempt, isSecondClickOfDouble, normalizeFilterValue, normalizeNamArchitectureBadge, resolveLibraryCategoryFromHint, splitTagValues } from "./resourceBrowser/helpers.js";
 import { DEFAULT_RESOURCE_CONTEXT_KEY, RESOURCE_FAVORITES_SETTING } from "./resourceBrowser/settings.js";
 import { LibraryPackGrouping } from "./resourceBrowser/libraryPacks.js";
+import { NavigationLists } from "./resourceBrowser/navigationListing.js";
 import { renderLibraryItemDetailsPanel } from "./resourceBrowser/libraryDetails.js";
 import { TONE3000_IR_GEAR_OPTIONS, slotImportCategory, slotLibraryCategoryHint, slotStateKey, slotTitle, slotTone3000IrGear } from "./resourceBrowser/slot.js";
 import { Tone3000Tab } from "./resourceBrowser/tone3000Tab.js";
@@ -43,6 +44,9 @@ export class ResourceBrowserModal {
 
   /** The Tone3000 tab, on the same terms as the Folder tab. */
   private readonly tone3000Tab: Tone3000Tab;
+
+  /** Each slot's next/prev list as rows, for the lists drawn beside the slots. */
+  readonly navigationLists: NavigationLists;
 
   constructor() {
     this.tone3000Tab = new Tone3000Tab({
@@ -76,6 +80,8 @@ export class ResourceBrowserModal {
       updateSelectButtonState: () => this.updateSelectButtonState(),
       rememberNavigationView: (contextKey, view) => this.lastNavigationViewByContext.set(contextKey, view),
     });
+    this.navigationLists = new NavigationLists({ views: this.lastNavigationViewByContext, folderStates: this.folderTab.folderNavigationStates,
+      navigator: this.tone3000Tab.navigation, getLibraryState: (type, options) => this.getOrBuildLibraryNavigationState(type, options) });
   }
 
   /**
@@ -325,9 +331,6 @@ export class ResourceBrowserModal {
       deleteBtn.title = isInUse ? "In use, so it cannot be deleted" : "Delete from resource library";
     }
   };
-
-
-
 
   private initialize(): void {
     if (this.initialized) {
@@ -582,10 +585,6 @@ export class ResourceBrowserModal {
     this.activeTab = persisted.activeTab;
     this.tone3000Tab.restoreTone3000Results(persisted);
   }
-
-
-
-
 
   private syncLibraryFavoritesUi(): void {
     if (this.libraryFavoritesAllBtn) {
@@ -986,9 +985,10 @@ export class ResourceBrowserModal {
     };
   }
 
-  private buildLibraryNavigationCacheKey(resourceType: ResourceType, categoryHint?: string): string {
+  /// Per context as well as category: each slot filters by what its own browser was left showing.
+  private buildLibraryNavigationCacheKey(resourceType: ResourceType, categoryHint?: string, contextKey?: string): string {
     const normalizedHint = (categoryHint ?? "").trim().toLowerCase();
-    return normalizedHint ? `${resourceType}:${normalizedHint}` : resourceType;
+    return `${normalizedHint ? `${resourceType}:${normalizedHint}` : resourceType}@${contextKey || DEFAULT_RESOURCE_CONTEXT_KEY}`;
   }
 
   private dispatchLibraryNavigationCacheUpdated(resourceType: ResourceType, categoryHint?: string): void {
@@ -1095,7 +1095,7 @@ export class ResourceBrowserModal {
 
   public preloadLibraryNavigationCache(resourceType: ResourceType, options?: NavigationCacheOptions): void {
     const categoryHint = options?.categoryHint;
-    const cacheKey = this.buildLibraryNavigationCacheKey(resourceType, categoryHint);
+    const cacheKey = this.buildLibraryNavigationCacheKey(resourceType, categoryHint, options?.contextKey);
     if (this.pendingLibraryNavigationRefreshes.has(cacheKey)) {
       return;
     }
@@ -1296,13 +1296,13 @@ export class ResourceBrowserModal {
       resourceType,
       items: this.packGrouping.order(filtered, (id) => this.isResourceFavorite(id)).map((res) => ({ resourceId: res.id })),
     };
-    const cacheKey = this.buildLibraryNavigationCacheKey(resourceType, category);
+    const cacheKey = this.buildLibraryNavigationCacheKey(resourceType, category, this.folderTab.folderContextKey);
     this.libraryNavigationStates.set(cacheKey, navigationState);
     // The caller looks this list up by category *hint* ("amp", "cab"), which the
     // modal has already resolved to a concrete category ("Amps"). Register under
     // the hint too so node-panel next/prev sees exactly what the modal is showing.
     const hint = slotLibraryCategoryHint(this.options);
-    const hintCacheKey = this.buildLibraryNavigationCacheKey(resourceType, hint);
+    const hintCacheKey = this.buildLibraryNavigationCacheKey(resourceType, hint, this.folderTab.folderContextKey);
     if (hintCacheKey !== cacheKey) {
       this.libraryNavigationStates.set(hintCacheKey, navigationState);
     }
@@ -1962,7 +1962,7 @@ export class ResourceBrowserModal {
     resourceType: ResourceType,
     options?: NavigationCacheOptions,
   ): ResourceNavigationState | null {
-    const cacheKey = this.buildLibraryNavigationCacheKey(resourceType, options?.categoryHint);
+    const cacheKey = this.buildLibraryNavigationCacheKey(resourceType, options?.categoryHint, options?.contextKey);
     let state = this.libraryNavigationStates.get(cacheKey) ?? null;
     if (!state) {
       state = this.buildLibraryNavigationState(resourceType, options);
@@ -1978,10 +1978,10 @@ export class ResourceBrowserModal {
     if (!options?.categoryHint) {
       return null;
     }
-    const unfilteredKey = this.buildLibraryNavigationCacheKey(resourceType);
+    const unfilteredKey = this.buildLibraryNavigationCacheKey(resourceType, undefined, options.contextKey);
     let unfiltered = this.libraryNavigationStates.get(unfilteredKey) ?? null;
     if (!unfiltered) {
-      unfiltered = this.buildLibraryNavigationState(resourceType);
+      unfiltered = this.buildLibraryNavigationState(resourceType, { contextKey: options.contextKey });
       this.libraryNavigationStates.set(unfilteredKey, unfiltered);
     }
     return unfiltered.items.length ? unfiltered : null;

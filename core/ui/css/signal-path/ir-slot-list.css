@@ -1,0 +1,319 @@
+/* ── The IR Cabinet's IR list, between IR A and IR B (irSlotList.ts) ── */
+
+/* Closed: a button between the two slots, level with their controls: below the slots' labels,
+   not at their foot, where a loaded file's path can sit. */
+.cab-ir-resource-selectors > .ir-slot-list:not(.is-open) {
+  display: flex;
+  flex: none;
+  align-self: flex-start;
+  margin-top: 18px;
+}
+
+.ir-slot-list-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 29px;
+  padding: 0;
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-md);
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.ir-slot-list-toggle:hover {
+  border-color: var(--color-accent);
+  color: var(--text-primary);
+}
+
+.ir-slot-list-toggle:focus-visible,
+.ir-slot-list-source:focus-visible,
+.ir-slot-list-assign:focus-visible,
+.ir-slot-list-tone-btn:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* The compact slot's label sits beside its controls, so the button centres on them, as tall as
+   their arrows. */
+html[data-density="compact"] .cab-ir-resource-selectors > .ir-slot-list:not(.is-open) {
+  align-self: center;
+  margin-top: 0;
+}
+
+html[data-density="compact"] .ir-slot-list:not(.is-open) .ir-slot-list-toggle {
+  width: 28px;
+  height: 26px;
+}
+
+.ir-slot-list-toggle.is-close {
+  width: 26px;
+  height: 26px;
+  flex: none;
+}
+
+.ir-slot-list-toggle-icon {
+  width: 15px;
+  height: 15px;
+  background-color: currentColor;
+  -webkit-mask: var(--icon-url) center / contain no-repeat;
+  mask: var(--icon-url) center / contain no-repeat;
+}
+
+/* Open: the slots and the list stack (A, list, B) until there is room for all three on a
+   line, list in the middle. :root outranks the compact density's slot widths. */
+:root .default-effect-section-controls > .cab-ir-resource-selectors.has-slot-list {
+  flex: 1 1 100%;
+}
+
+.cab-ir-resource-selectors.has-slot-list {
+  container: ir-slot-pair / inline-size;
+}
+
+:root .default-effect-shell .cab-ir-resource-selectors.has-slot-list > :is(.node-resource-selector, .ir-slot-list) {
+  flex: 1 1 100%;
+}
+
+@container ir-slot-pair (min-width: 720px) {
+  :root .default-effect-shell .cab-ir-resource-selectors.has-slot-list > .node-resource-selector {
+    flex: 1 1 0;
+  }
+
+  :root .default-effect-shell .cab-ir-resource-selectors.has-slot-list > .ir-slot-list {
+    flex: 1.3 1 0;
+  }
+}
+
+.ir-slot-list.is-open {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--panel-inset-border);
+  border-radius: var(--radius-md);
+  background: var(--panel-inset-bg);
+  box-shadow: var(--panel-inset-shadow);
+}
+
+.ir-slot-list-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ir-slot-list-sources {
+  display: flex;
+  flex: 1 1 auto;
+  gap: 4px;
+  min-width: 0;
+}
+
+.ir-slot-list-source {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 4px 8px;
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.ir-slot-list-source.is-active {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.ir-slot-list-title {
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 11px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ir-slot-list-count {
+  opacity: 0.7;
+  font-variant-numeric: tabular-nums;
+}
+
+.ir-slot-list-search {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: 4px 8px;
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 11px;
+}
+
+.ir-slot-list-search:focus {
+  border-color: var(--color-accent);
+  outline: none;
+}
+
+.ir-slot-list-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 220px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.ir-slot-list-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 26px;
+  padding: 2px 4px 2px 8px;
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 11px;
+  cursor: grab;
+  user-select: none;
+}
+
+.ir-slot-list-row:hover {
+  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+}
+
+.ir-slot-list-row.is-loaded {
+  background: color-mix(in srgb, var(--color-accent) 14%, transparent);
+}
+
+.ir-slot-list-row.dragging {
+  opacity: 0.45;
+}
+
+.ir-slot-list-row-text,
+.ir-slot-list-tone-btn {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.ir-slot-list-row-name,
+.ir-slot-list-row-detail {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ir-slot-list-row-detail {
+  color: var(--text-secondary);
+  font-size: 10px;
+}
+
+.ir-slot-list-tone-btn {
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ir-slot-list-row.is-tone .ir-slot-list-row-detail {
+  color: var(--color-accent);
+}
+
+.ir-slot-list-row-loaded {
+  flex: none;
+  padding: 0 5px;
+  border-radius: var(--radius-pill);
+  background: var(--color-accent);
+  color: var(--bg-input);
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 16px;
+}
+
+.ir-slot-list-assign {
+  flex: none;
+  width: 22px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.ir-slot-list-assign:hover {
+  border-color: var(--color-accent);
+  color: var(--text-primary);
+}
+
+.ir-slot-list-row [aria-busy="true"],
+.ir-slot-list-tone-btn[aria-busy="true"] {
+  opacity: 0.5;
+  cursor: progress;
+}
+
+.ir-slot-list-empty {
+  padding: 8px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+/* While a row is dragged, the slots it can land on say so. */
+body.ir-slot-list-dragging .cab-ir-resource-selectors .node-resource-selector .resource-picker-label {
+  border-style: dashed;
+  border-color: var(--color-accent);
+}
+
+body.ir-slot-list-dragging .cab-ir-resource-selectors .node-resource-selector.drag-over .resource-picker-label {
+  border-style: solid;
+  background: color-mix(in srgb, var(--color-accent) 24%, transparent);
+}
+
+body.ir-slot-list-dragging,
+body.ir-slot-list-dragging * {
+  cursor: grabbing !important;
+}
+
+body.ir-slot-list-dragging > .ir-slot-list-drag-preview {
+  position: fixed;
+  z-index: 1000;
+  box-sizing: border-box;
+  width: auto !important; /* pointerDrag.ts sizes the clone to its source, inline */
+  max-width: 260px;
+  margin: 0;
+  padding: 4px 12px;
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-pill);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
+  font-size: 12px;
+  font-weight: 700;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+
+body.ir-slot-list-dragging > .ir-slot-list-drag-preview > :not(.ir-slot-list-row-text),
+body.ir-slot-list-dragging > .ir-slot-list-drag-preview .ir-slot-list-row-detail {
+  display: none;
+}

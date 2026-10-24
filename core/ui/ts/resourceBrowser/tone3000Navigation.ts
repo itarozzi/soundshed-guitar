@@ -216,6 +216,21 @@ export class Tone3000Navigator {
     return this.resolveTone3000ModelResource(state, target.tone, target.model);
   }
 
+  /// A listed tone's models, fetched for a list that draws one row per model.
+  async ensureListedToneModels(state: Tone3000NavigationState, toneId: string): Promise<void> {
+    const tone = state.tones.find((candidate) => String(candidate.id) === toneId);
+    if (tone) {
+      await this.ensureTone3000NavigationModels(state, tone);
+    }
+  }
+
+  /// A listed model as a library resource, importing it first if it is not one yet.
+  async resolveListedModel(state: Tone3000NavigationState, toneId: string, modelId: string): Promise<ResourceNavigationResult | null> {
+    const tone = state.tones.find((candidate) => String(candidate.id) === toneId);
+    const model = tone ? (await this.ensureTone3000NavigationModels(state, tone)).find((candidate) => String(candidate.id) === modelId) : undefined;
+    return tone && model ? this.resolveTone3000ModelResource(state, tone, model) : null;
+  }
+
   /// The tone/model ids of the loaded resource are recorded in import metadata;
   /// the resource id (`tone3000:<modelId>`) is the fallback for resources
   /// imported before that metadata existed.
