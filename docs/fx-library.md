@@ -1439,9 +1439,6 @@ Shimmer (an octave up), Fifth Halo and Deep Shimmer (an octave down, an organ-li
 
 #### Verbal (`reverb_verbal`)
 
-**Off for now.** The engine registers it, so presets that hold one still load, but no effect picker
-offers it: `presetV2.ts` marks it `catalogHidden`, and the Nano and NanoQ pickers skip it.
-
 Twelve reverb machines behind one set of controls: **Room** (Studio or Club), **Hall** (Concert or
 Arena, with a Mid EQ), **Plate** (Small or Large), **Spring** (1-3 springs, Dwell), **Swell**,
 **Bloom**, **Cloud**, **Choir**, **Shimmer**, **Tape Echo**, **Nonlinear** and **Reflections**.

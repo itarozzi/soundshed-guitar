@@ -211,9 +211,6 @@ std::vector<const EffectTypeInfo*> Shell::OfferedEffects() const
         if (info.type == guids::kMixer || info.type == guids::kAmpNamBlend || info.type == guids::kPluginHost ||
             info.type == guids::kGuitarToMidi || info.type.rfind("composite:", 0) == 0)
             continue;
-        // Verbal is off for now, as in presetV2.ts.
-        if (info.type == guids::kReverbVerbal)
-            continue;
         if (info.type == guids::kWasmHost && !showCustom)
             continue;
         // Pickup Match is experimental, behind a feature of its own.

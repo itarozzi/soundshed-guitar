@@ -43,10 +43,6 @@ std::vector<const EffectTypeInfo*> EffectPickerContent::offeredEffects (const Na
             || info.type == guids::kGuitarToMidi || info.type.rfind ("composite:", 0) == 0)
             continue;
 
-        // Verbal is off for now, as in presetV2.ts.
-        if (info.type == guids::kReverbVerbal)
-            continue;
-
         if (info.type == guids::kWasmHost && ! showCustom)
             continue;
 
