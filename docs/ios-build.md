@@ -23,7 +23,7 @@ Everything else is shared with the desktop and Android builds:
 
 | File | iOS-specific part |
 | ---- | ----------------- |
-| `juce/CMakeLists.txt` | `SSG_MOBILE`, Standalone-only formats, no plugin hosting, WASM off, iOS 16.5 floor, the Info.plist options, a flat-bundle resource copy of only the shipped UI folders |
+| `juce/CMakeLists.txt` | `SSG_MOBILE`, Standalone-only formats, no plugin hosting, WASM off, the iOS minimums (15.0, and 16.2 for Soundshed Guitar), the Info.plist options, a flat-bundle resource copy of only the shipped UI folders |
 | `juce/cmake/SoundshedNano.cmake` | Nano's Info.plist options (all orientations) and its resource copy |
 | `juce/source/Main.cpp` | `SOUNDSHED_MOBILE` window handling; `setFullScreen (true)`; the 128-frame default buffer |
 | `juce/source/LaunchCurtain.*` | Compiled out on mobile |
@@ -40,9 +40,40 @@ Everything else is shared with the desktop and Android builds:
 | CMake | 4.2 | JUCE needs ≥ 3.25 |
 | Node / npm | as for desktop | Builds `core/ui/dist` before the WebView app is packaged |
 
-The deployment target is **iOS 16.5**. That is the WebKit floor, as macOS's 11.0
-is: the UI's `color-mix()` and CSS nesting need Safari 16.5, and on iOS Safari's
-WebKit is the system's. Nano could go lower, but it shares the build tree.
+### Minimum iOS versions
+
+| App | Minimum | Set by | Oldest devices |
+| --- | ------- | ------ | -------------- |
+| Soundshed Guitar | iOS / iPadOS **16.2** | WebKit: `color-mix()` | iPhone 8 and X; iPad 5th gen, iPad Air 3, iPad mini 5 |
+| Nano | iOS / iPadOS **15.0** | Device reach (the code needs 13) | iPhone 6s, SE (1st gen) and 7; iPad Air 2, iPad mini 4, iPad 5th gen |
+
+The build tree's `CMAKE_OSX_DEPLOYMENT_TARGET` is 15.0, so the core, JUCE's
+modules and Nano all build for it. Soundshed Guitar's app target raises its own
+minimum (`XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET`) to 16.2, and Xcode writes
+each app's minimum into its `MinimumOSVersion`. An app may link libraries built
+for an older iOS than its own minimum, which is why the tree takes the lower of
+the two.
+
+**Soundshed Guitar: 16.2.** A `WKWebView` is the system's WebKit, so the iOS
+version is the browser version. The UI uses `color-mix()` throughout (271 uses,
+no fallback), which Safari got in 16.2. The rest is older or degrades:
+`:has()` and `structuredClone` 15.4, container queries 16.0; `text-wrap:
+balance` (17.5) and `<link rel="modulepreload">` (17.0) are ignored by older
+WebKit, at the cost of a less even heading or a slower first load. The
+TypeScript targets ES2019. The UI has no CSS nesting, whatever older comments
+said. Going below 16 would mean replacing every `color-mix()` with a fixed
+colour, to reach 15.4.
+
+**Nano: 15.0.** With no WebView, the only library floor in the code is
+`std::filesystem`, from iOS 13 (JUCE 9 and Xcode 26 both go down to 12). But
+iOS 13, 14 and 15 run on exactly the same devices, so 13 would add risk and no
+users; 16 is what dropped the iPhone 6s/7 generation and the iPad Air 2 and mini 4.
+Whether their A8X/A9/A10 chips can run a NAM model inside the audio deadline is
+untested: judge that on a device, in a release build, before promising it.
+
+Raising either is one line in `juce/CMakeLists.txt`. An existing build tree keeps
+its cached `CMAKE_OSX_DEPLOYMENT_TARGET`, so after changing the default there,
+reconfigure with `-U CMAKE_OSX_DEPLOYMENT_TARGET` (or delete `ios/build`).
 
 ## Building
 
@@ -174,6 +205,14 @@ CSS.
 | Orientations | Landscape only, as on Android | All (portrait upside-down on iPad only) |
 | iPad multitasking | Off (`REQUIRES_FULL_SCREEN`) | On |
 | Status bar | Hidden | System default |
+
+The status bar is hidden by putting the window in JUCE's kiosk mode, which on
+iOS means "full screen, no status bar". `STATUS_BAR_HIDDEN` alone does nothing
+at runtime: JUCE turns on view-controller-based status bar appearance, which
+makes iOS ignore the plist's `UIStatusBarHidden`, and JUCE's view controller
+hides the bar only for the kiosk component. Without it the iPad's clock and
+battery sit on top of the header's title and settings button. The plist key
+still keeps the bar off the launch screen.
 
 An iPad app that allows Split View must allow every orientation, so the WebView
 app's landscape lock and its opting out of multitasking go together. Nano lays

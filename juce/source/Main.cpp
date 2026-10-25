@@ -337,7 +337,17 @@ public:
         // stays clear of the camera housing and the home indicator) and takes it again
         // whenever the display changes, which is what a rotation looks like from here.
         // It is what JUCE's own StandaloneFilterWindow does on iOS.
-        setFullScreen (true);
+        //
+        // Soundshed Guitar also hides the status bar, which on an iPad otherwise draws its
+        // clock and battery over the header's title and settings button. The Info.plist's
+        // UIStatusBarHidden cannot do it: JUCE turns on view-controller-based status bar
+        // appearance, and its view controller hides the bar only for the kiosk component.
+        // On iOS, kiosk mode is exactly that plus setFullScreen (true). Nano keeps the bar
+        // and lays itself out below it (NanoEditor::systemInsets).
+        if (soundshed::product::isNano)
+            setFullScreen (true);
+        else
+            juce::Desktop::getInstance().setKioskModeComponent (this, false);
 #endif
     }
 
@@ -351,6 +361,11 @@ public:
         }
 
         mAudioSettings = nullptr;
+
+        // JUCE asserts if a kiosk component leaves the desktop still in kiosk mode (iOS, or
+        // --kiosk on a desktop).
+        if (juce::Desktop::getInstance().getKioskModeComponent() == this)
+            juce::Desktop::getInstance().setKioskModeComponent (nullptr, false);
 
 #if JUCE_ANDROID
         if (mPluginHolder != nullptr)

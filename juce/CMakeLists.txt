@@ -94,16 +94,18 @@ if(APPLE)
 endif()
 
 # Oldest macOS the build runs on. 11.0 is the floor anyway for Apple Silicon, and
-# the UI's color-mix() and CSS nesting need the WebKit from Safari 16.5, which
-# Big Sur gets and Catalina (10.15, the old target) doesn't.
+# the UI's color-mix() (used throughout, with no fallback) needs the WebKit from
+# Safari 16.2, which Big Sur gets and Catalina (10.15, the old target) doesn't.
 # Must be set before project(); a value set on the command line or in the
 # environment still wins. Keep juce/packaging/distribution.xml.template in step.
 #
-# On iOS the same variable is the minimum iOS version, and the same WebKit floor
-# applies: Safari 16.5 is iOS 16.5. Nano has no WebView but shares the build.
+# On iOS the same variable is the minimum iOS version for the whole tree: 15.0, the
+# oldest iOS that runs on every device iOS 13 does (iPhone 6s/SE, iPad Air 2, iPad mini 4).
+# Nano has no WebView, and its code needs only iOS 13 (std::filesystem). Soundshed Guitar's
+# app target raises its own minimum to the WebKit floor below, where the target exists.
 if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
     if(NOT CMAKE_OSX_DEPLOYMENT_TARGET AND NOT DEFINED ENV{IPHONEOS_DEPLOYMENT_TARGET})
-        set(CMAKE_OSX_DEPLOYMENT_TARGET "16.5" CACHE STRING "Minimum iOS version" FORCE)
+        set(CMAKE_OSX_DEPLOYMENT_TARGET "15.0" CACHE STRING "Minimum iOS version" FORCE)
     endif()
 elseif(NOT CMAKE_OSX_DEPLOYMENT_TARGET AND NOT DEFINED ENV{MACOSX_DEPLOYMENT_TARGET})
     set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version" FORCE)
@@ -439,6 +441,15 @@ if(NOT SSG_MOBILE)
     clap_juce_extensions_plugin(TARGET "${PROJECT_NAME}"
         CLAP_ID "${BUNDLE_ID}"
         CLAP_FEATURES audio-effect)
+endif()
+
+# The WebView app's iOS minimum: the system WebKit is its browser, and color-mix() arrived
+# in Safari (so iOS) 16.2. The libraries it links (the core, JUCE's shared code) build for
+# the tree's 15.0, which an app with a higher minimum links without complaint. Xcode writes
+# this into the app's MinimumOSVersion, so the App Store keeps it off older devices.
+if(IOS)
+    set_target_properties(${PROJECT_NAME}_Standalone PROPERTIES
+        XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET "16.2")
 endif()
 
 # Enable fast math, C++20 and a few other target defaults
