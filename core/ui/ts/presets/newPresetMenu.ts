@@ -119,11 +119,20 @@ export function initializeNewPresetMenu(): void {
       closeMenu();
     }
   });
+  // Only a scroll that moves the button the menu hangs from closes it. Any scroll
+  // elsewhere in the page (a list, the log, the chain settling its layout) used to
+  // close it too, and one landing between the press on a template and its click
+  // lost the choice. The window losing focus no longer closes it either: choosing a
+  // template did nothing in the macOS WKWebView, and a blur arriving with the press
+  // would do exactly that. Outside presses, Escape and focus moving away still close it.
   document.addEventListener("scroll", (event) => {
-    if (!(event.target instanceof Node) || !menu?.contains(event.target)) {
+    const target = event.target;
+    if (!menu || !anchor || (target instanceof Node && menu.contains(target))) {
+      return;
+    }
+    if (target === document || (target instanceof Node && target.contains(anchor))) {
       closeMenu();
     }
   }, true);
   window.addEventListener("resize", () => closeMenu());
-  window.addEventListener("blur", () => closeMenu());
 }

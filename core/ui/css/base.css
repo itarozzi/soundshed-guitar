@@ -27,6 +27,35 @@ html, body {
   overflow: hidden;
 }
 
+/* An iPhone held landscape (the only way the app runs there) otherwise enlarges
+   text to its own idea of readable, which breaks every fixed-height row. */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/*
+  A touch screen is an instrument here, not a page. #app is .prevent-select, and a
+  held press on a knob, pad or node must not raise the iOS callout (Copy, Look Up)
+  either, nor a tap flash the grey highlight.
+*/
+@media (pointer: coarse) {
+  #app {
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+/* Fields keep selection: inside a user-select: none subtree iOS WebKit cannot
+   place the caret or select what was typed. */
+#app input:not([type="range"], [type="checkbox"], [type="radio"], [type="button"]),
+#app textarea,
+#app [contenteditable="true"] {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+
 [hidden] {
   display: none !important;
 }

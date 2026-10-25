@@ -3,7 +3,10 @@
 
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- No page zoom: a WKWebView would otherwise pinch- and double-tap-zoom the whole app
+       and zoom into any field under 16px when it takes focus, and stay there. The UI has
+       its own zoom setting. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
   <title>Soundshed Guitar</title>
   <script>
     /*

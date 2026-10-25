@@ -53,16 +53,28 @@
   padding: 0;
 }
 
-.signal-connector-wrapper:hover::after,
 .signal-connector-wrapper:focus-within::after,
 .signal-connector-wrapper.drag-over::after {
   opacity: 0;
   transform: translate(-50%, -50%) scale(0.6);
 }
 
-.signal-connector-wrapper:hover .signal-add-btn,
 .signal-add-btn:focus {
   opacity: 1;
+}
+
+/* Hover only where there is one: iOS WebKit holds back a tap's click when the
+   tap's hover brings a button into view, so the + took two taps. On a touch
+   screen the dot stays and the button over it takes the first tap. */
+@media (hover: hover) {
+  .signal-connector-wrapper:hover::after {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.6);
+  }
+
+  .signal-connector-wrapper:hover .signal-add-btn {
+    opacity: 1;
+  }
 }
 
 .signal-add-btn:hover {

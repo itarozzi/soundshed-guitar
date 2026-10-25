@@ -453,6 +453,18 @@ on `<html>`; every rule in `css/compact/` keys off those attributes. The pre-pai
   the FX library, whose effects are added by dragging (`signalPath/addMenu.ts`). The library
   would have to open over the chain it drops onto, and on a touch screen a drag that starts
   upwards scrolls its list instead.
+- **Landscape phones.** An iPhone gives the WebView 667x375 (SE) to about 814x409 (Pro Max)
+  once JUCE has taken the safe area off, 354px tall at the least (13 mini), so check there.
+  The looper strip is one row, the preset library's tags are one row that scrolls sideways,
+  and on the rail its folder toolbar sits under the folder tree so the preset list runs the
+  full height. Small controls grow an invisible hit area under `(pointer: coarse)`
+  (`css/compact/shell.css`).
+- **Touch screens.** Nothing that takes a tap may appear on `:hover` alone: iOS WebKit plays a
+  tap as a hover first and, when that hover brings a button into view, holds the click back,
+  so the tap only reveals it. Put such reveals under `@media (hover: hover)` (the chain's
+  node buttons and + buttons do; on a touch screen the node buttons show on the selected
+  node). There is no page zoom (the viewport meta), no text-size adjustment, and no callout
+  on a held press; fields stay selectable.
 - **Narrow (≤ 540px).** The preset name takes the whole first line of the top strip, and
   Controls and the preset actions share the second. Below 600px the effect header, the preset
   library (folders over presets), the FX library (category chips over two columns) and the

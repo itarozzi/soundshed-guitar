@@ -229,6 +229,13 @@
   color: var(--looper-fg-strong);
 }
 
+/* WebKit (iOS, macOS) still draws its own disclosure triangle through
+   list-style: none. */
+.looper-options > summary::-webkit-details-marker,
+.looper-projects-menu > summary::-webkit-details-marker {
+  display: none;
+}
+
 .looper-options-body {
   position: absolute;
   right: 0;
@@ -344,6 +351,34 @@ html[data-density="compact"] .looper-clear-btn,
 html[data-density="compact"] .looper-layer-count,
 html[data-density="compact"] .looper-layer-slider {
   display: none;
+}
+
+/* The readout goes beside the waveform rather than under it, so the strip is one
+   34px row: stacked, it was 61px of a 354px landscape phone, on every panel. */
+html[data-density="compact"] .looper-display {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 8px;
+  row-gap: 2px;
+  align-items: center;
+  min-width: 0;
+}
+
+html[data-density="compact"] .looper-wave {
+  grid-column: 1;
+  height: 26px;
+}
+
+html[data-density="compact"] .looper-progress {
+  grid-column: 1;
+}
+
+html[data-density="compact"] .looper-readout {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  flex-direction: column;
+  gap: 0;
+  line-height: 1.25;
 }
 
 html[data-density="compact"] .looper-layers {
