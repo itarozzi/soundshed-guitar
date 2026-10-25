@@ -1,7 +1,8 @@
 /**
  * @file RiffCaptureNoticeTests.cpp
- * @brief Riff capture's audio-thread half tells the UI nothing itself: it raises notices, and the
- *        message thread builds and sends the messages (PluginController::PublishRiffCaptureNotices).
+ * @brief Riff capture's audio-thread half tells the UI nothing itself: the recorder (RiffRecorder,
+ *        the looper's recorder) publishes what it has done, and the message thread builds and sends
+ *        the messages (PluginController::PublishRiffCaptureNotices).
  *
  *  - processing a whole armed take sends nothing until the message thread's idle tick, which
  *    then sends started, one progress and stopped, in that order, with the take's numbers

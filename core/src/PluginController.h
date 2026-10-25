@@ -15,7 +15,7 @@
 #include "IPluginHost.h"
 #include "MessageHandlerRegistry.h"
 #include "automation/AutomationSlotTable.h"
-#include "controller/RiffCaptureNotices.h"
+#include "controller/RiffTake.h"
 #include "controller/SetlistMidiOut.h"
 #include "dsp/MultiPresetMixer.h"
 #include "dsp/effects/CompositeEffectProcessor.h"
@@ -65,6 +65,7 @@ class TunerService;
 class GateLearnService;
 class PracticeToolService;
 class HostStateRelay;
+class RiffRecorder;
 
 /// How ApplySettingsToRuntime() treats settings a plugin instance owns rather than shares.
 enum class SettingsApplyMode
@@ -1021,12 +1022,19 @@ class PluginController
     [[nodiscard]] std::string BuildRiffId() const;
     [[nodiscard]] std::string BuildTimestampUtcIso() const;
     [[nodiscard]] std::optional<nlohmann::json> FindRiffTakeById(const std::string& takeId) const;
+    /// Hands `left` and `right` (each the longest take allowed) to the recorder and starts `take`,
+    /// counting in and then recording, or listening for the first note when `armed`. False when a
+    /// take is already counting in, armed or recording.
+    bool BeginRiffRecording(std::shared_ptr<RiffTake> take, std::vector<float> left, std::vector<float> right,
+                            bool armed, double samplesPerBar);
     void FinalizeRiffCapture(bool canceled);
-    /// Audio thread, under the DSP lock. Only reached while a capture is armed or
-    /// running — see ProcessAudioLocked. Defined in PluginControllerRiffs.cpp.
-    void ProcessRiffCaptureBlock(float** inputs, int numSamples);
-    /// Message thread: sends what ProcessRiffCaptureBlock raised (RiffCaptureNotices).
+    /// Message thread: what the take being recorded has done since the last call — started (an
+    /// armed take heard its first note), progressed, filled up — sent to the UI. The recorder
+    /// publishes it; nothing is sent from the audio thread.
     void PublishRiffCaptureNotices();
+    /// Message thread: the recorder's take is over. Its audio becomes the take to trim, preview or
+    /// save, and the UI is told it stopped.
+    void FinishRecordedRiff();
 
     /// Atomic: readers see the old file or all of the new one (util::WriteFileAtomic).
     /// Defined in PluginControllerStorage.cpp.
@@ -1229,7 +1237,6 @@ class PluginController
     // stay on the controller because their callers are spread across the
     // riff, demo and broadcast paths, and because ActivateRiffGuidance is
     // where a RiffCaptureConfig is translated into the service's own terms.
-    struct RiffCaptureConfig;
     [[nodiscard]] double GetEffectiveTempoBpm() const;
     void ActivateRiffGuidance(const RiffCaptureConfig& config, bool forPreview);
     void DeactivateRiffGuidance(bool previewOnly = false);
@@ -1260,58 +1267,20 @@ class PluginController
     /// Idle-tick divider for the practice tool's transport updates.
     int mPracticeToolUpdateCounter = 0;
 
-    struct RiffCaptureConfig
-    {
-        double tempoBpm = 120.0;
-        int timeSigNum = 4;
-        int timeSigDen = 4;
-        int bars = 1;
-        int countInBars = 1;
-        bool metronomeClickEnabled = true;
-        std::string patternType = "click";
-        std::string patternId;
-        std::string beatPattern; // e.g. "HLLL" (H=High L=Low S=Silent)
-        std::string presetId;
-        std::string presetName;
-    };
-
-    struct RiffCaptureRuntime
-    {
-        bool active = false;
-        bool complete = false;
-        // ARM: click playing, waiting for input signal to trigger recording
-        bool armed = false;
-        bool armCountInComplete = false;
-        std::size_t armCountInIndex = 0; // samples counted during arm count-in
-        float armThreshold = 0.001f;     // ~-60 dBFS input level to trigger
-        std::string takeId;
-        RiffCaptureConfig config;
-        std::vector<float> left;
-        std::vector<float> right;
-        std::size_t writeIndex = 0;
-        std::size_t targetSamples = 0;
-        std::size_t countInSamples = 0;
-        double sampleRate = 0.0;
-        int bitsPerSample = 16;
-        // Live waveform during recording (256 peak buckets for up to 16 bars). Written by the
-        // audio thread and read by the message thread as it publishes progress.
-        std::vector<std::atomic<float>> livePeaks;
-        RiffCaptureNotices notices;
-        std::size_t livePeakBucketSize = 1;
-        std::size_t lastProgressSample = 0;
-        std::size_t armPostCountInSamples = 0; // samples elapsed in detection phase after count-in
-        std::chrono::steady_clock::time_point startedAt;
-        std::chrono::steady_clock::time_point endedAt;
-    };
-
     mutable std::mutex mRiffLibraryMutex;
     nlohmann::json mRiffLibraryIndex = nlohmann::json::object();
-    /// Published under mDSPMutex. Active captures are mutated only while that lock
-    /// is held; completed captures are treated as immutable and replaced wholesale.
-    std::shared_ptr<RiffCaptureRuntime> mRiffCapture;
-    /// Message thread: the capture whose notices PublishRiffCaptureNotices() still owes the UI,
-    /// held apart from mRiffCapture so a handler that replaces that one cannot drop the last.
-    std::shared_ptr<RiffCaptureRuntime> mRiffNoticeCapture;
+    /// The finished take waiting to be trimmed, previewed or saved (RiffTake.h). Swapped under
+    /// mDSPMutex, as it always has been, and replaced whole, never edited.
+    std::shared_ptr<RiffTake> mRiffCapture;
+    /// Riff capture's recorder, the looper's own (RiffRecorder.h). Started, closed and released
+    /// holding mDSPMutex; processed by the audio thread under it.
+    std::unique_ptr<RiffRecorder> mRiffRecorder;
+    /// Message thread: the take mRiffRecorder is recording — its id and settings, no audio yet —
+    /// and what PublishRiffCaptureNotices() has told the UI about it.
+    std::shared_ptr<RiffTake> mRiffRecordingTake;
+    bool mRiffRecordingArmed = false;
+    bool mRiffStartedSent = false;
+    std::int64_t mRiffProgressSent = 0;
 
     // Resource preview state (for temp loading from Tone3000)
     struct PreviewState

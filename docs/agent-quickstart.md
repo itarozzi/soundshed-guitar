@@ -18,6 +18,9 @@ If you only load a few files, use these:
 - Application controller and UI bridge: core/src/PluginController.cpp, core/src/UiBridge.cpp
   (the controller is split across core/src/controller/ — see "Where controller code lives" below)
 - DSP graph executor: core/src/dsp/SignalGraphExecutor.h
+- Looper: core/src/dsp/looper/LooperEngine.h, the realtime half (layers of DI and wet, playback,
+  Armed and Bars); a stage of the mixer between the global post-chain and master gain.
+  docs/plans/looper.md is the design and says what is built
 - Mixer: core/src/dsp/MultiPresetMixer.h runs the per-block signal flow and composes
   PresetVoicePool (preset instances from install to retirement, and the swap, tail and
   crossfade rules), GlobalChainEngine (the global pre/post executors, rebuilt and
@@ -47,7 +50,7 @@ instead of scrolling one enormous one:
 | `controller/PluginControllerSignalPath.cpp`     | Node graph shape: add, remove, reorder; composite edit target |
 | `controller/PluginControllerResources.cpp`      | Resource library: import, edit, delete, usage index   |
 | `controller/PluginControllerCustomEffects.cpp`  | Blends, custom effects, composites                    |
-| `controller/PluginControllerRiffs.cpp`          | Riff capture (including its audio-thread block), editing, playback, library index |
+| `controller/PluginControllerRiffs.cpp`          | Riff capture (recorded by `RiffRecorder`, the looper's recorder with playback off), editing, playback, library index |
 | `controller/PluginControllerBroadcast.cpp`      | `BroadcastState` and the `Send*ToUI` pushes           |
 | `controller/PluginControllerSettings.cpp`       | App settings load/apply/persist                       |
 | `controller/PluginControllerHostedPlugins.cpp`  | Third-party plugin state capture and restore          |

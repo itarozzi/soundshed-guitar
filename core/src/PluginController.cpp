@@ -27,6 +27,7 @@
 #include "controller/TunerService.h"
 #include "controller/GateLearnService.h"
 #include "controller/PracticeToolService.h"
+#include "controller/RiffRecorder.h"
 #include "controller/internal/ControllerUtils.h"
 #include "dsp/EffectRegistry.h"
 #include "dsp/NamModelCache.h"
@@ -82,6 +83,7 @@ PluginController::PluginController(IPluginHost& host) : mHost(host)
     mDemoPreview = std::make_unique<DemoPreviewService>(mHost, mPresetMixer, mDSPMutex, mSignalTest->ActiveFlag(),
                                                         onError, sendToUI);
     mPracticeTool = std::make_unique<PracticeToolService>(mHost, mDSPMutex, onError, sendToUI);
+    mRiffRecorder = std::make_unique<RiffRecorder>();
     mPracticeTool->RegisterMessageHandlers(mMessageHandlers);
     mHostStateRelay = std::make_unique<HostStateRelay>(mHost);
 }
@@ -252,6 +254,7 @@ void PluginController::Prepare(double sampleRate, int blockSize)
         channelCountsChanged = mPresetMixer.GetInputChannelCount() != inputsBefore ||
                                mPresetMixer.GetOutputChannelCount() != outputsBefore;
         mPresetMixer.Prepare(sampleRate, blockSize);
+        mRiffRecorder->Prepare(sampleRate, blockSize);
 
         if (mPracticeTool)
         {
@@ -324,12 +327,11 @@ void PluginController::ProcessAudioLocked(float** inputs, float** outputs, int n
     // The block's MIDI first, so a footswitch pressed before it lands on it and not the next.
     DrainQueuedMidiLocked();
 
-    // Riff capture runs ahead of the chain: it records the dry input. The guard is
-    // here rather than inside so a session that is not capturing — every ordinary
-    // block — costs one predicted branch and no call.
-    if (mRiffCapture && (mRiffCapture->armed || mRiffCapture->active))
+    // Riff capture runs ahead of the demo clip and the chain: it records the raw input. A take
+    // that fills up stops the guidance click on the block it ends, as it always has.
+    if (mRiffRecorder->HasTake() && mRiffRecorder->Process(inputs, numSamples))
     {
-        ProcessRiffCaptureBlock(inputs, numSamples);
+        DeactivateRiffGuidance(false);
     }
 
     // Mix in demo audio preview if active

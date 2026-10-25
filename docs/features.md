@@ -458,7 +458,11 @@ Built-in test signals for non-destructive preset auditioning without live guitar
 
 Record and playback of user guitar takes for offline preset editing.
 
-- **Capture**: Record live guitar input in sync with the metronome.
+- **Capture**: Record live guitar input in sync with the metronome. Takes are recorded by the
+  looper's recorder (`controller/RiffRecorder.h`: a `LooperEngine` of its own, playback off), fed
+  the raw input ahead of the demo clip, so a take is what the guitar played. An armed take starts
+  10 ms before the first note, and waits for a note above the hum it measures while it waits.
+  Takes and the library index are stored as they always were.
 - **Waveform visualization**: Rendered waveform of captured audio.
 - **Trim**: Select playback region by dragging markers on the waveform (shared
   gesture — see `core/ui/ts/waveform/`).

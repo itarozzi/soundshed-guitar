@@ -492,6 +492,9 @@ set(GUITARFX_CORE_SOURCES
     src/controller/HostStateRelay.cpp
     src/controller/PracticeToolService.h
     src/controller/PracticeToolService.cpp
+    src/controller/RiffRecorder.h
+    src/controller/RiffRecorder.cpp
+    src/controller/RiffTake.h
     src/controller/PracticeToolServiceRender.cpp
     src/controller/PracticeToolServiceMessages.cpp
     src/controller/MetronomeService.h
@@ -586,6 +589,13 @@ set(GUITARFX_CORE_SOURCES
     src/dsp/GlobalChainEngine.cpp
     src/dsp/MixerTelemetry.h
     src/dsp/MixerTelemetry.cpp
+    src/dsp/TransportClock.h
+    src/dsp/looper/LooperEngine.h
+    src/dsp/looper/LooperEngineInternal.h
+    src/dsp/looper/LooperEngine.cpp
+    src/dsp/looper/LooperEngineActions.cpp
+    src/dsp/looper/LooperEngineLayers.cpp
+    src/dsp/looper/LooperEnginePlayback.cpp
     src/dsp/TunerEngine.h
     src/dsp/TunerEngine.cpp
     src/dsp/PresetInstance.h

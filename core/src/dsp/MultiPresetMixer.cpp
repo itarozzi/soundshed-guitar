@@ -1007,6 +1007,7 @@ void MultiPresetMixer::Prepare(double sampleRate, int maxBlockSize)
     mFoldOutL.resize(static_cast<size_t>(maxBlockSize), 0.0f);
     mFoldOutR.resize(static_cast<size_t>(maxBlockSize), 0.0f);
     mTuner->Prepare(sampleRate);
+    mLooper.Prepare(sampleRate, maxBlockSize);
     // Starts unfolded: the rebuild below lays every graph out for that.
     mIdenticalInput.Prepare(sampleRate);
     mInputFolded.store(false, std::memory_order_release);
@@ -1181,6 +1182,11 @@ void MultiPresetMixer::ProcessStereoBlock(float** inputs, float** outputs, int n
         processInR = mTempInR.data();
     }
 
+    // The looper's DI: the selected input in Mono, both in Stereo, before calibration — a layer
+    // stores its calibration instead, so a DI exported as a riff is not calibrated twice on replay.
+    mLooper.NoteInput(processInL, mEffectiveInputMode == InputMode::Mono ? nullptr : processInR, numSamples,
+                      mUserInputCalibrationGainLinear);
+
     if (std::abs(mUserInputCalibrationGainLinear - 1.0f) > 1.0e-4f)
     {
         if (processInL)
@@ -1217,7 +1223,7 @@ void MultiPresetMixer::ProcessStereoBlock(float** inputs, float** outputs, int n
         // The folded input in Mono; input 1 otherwise.
         mTuner->Process(processInL ? processInL : processInR, numSamples);
 
-        // If not in live tuner mode, mute the output
+        // If not in live tuner mode, mute the output. A loop keeps time, silently.
         if (!mTuner->IsLiveMode())
         {
             if (outputs[0])
@@ -1230,6 +1236,7 @@ void MultiPresetMixer::ProcessStereoBlock(float** inputs, float** outputs, int n
                 std::fill(outputs[1], outputs[1] + numSamples, 0.0f);
             }
 
+            FinishOutputBlock(outputs, numSamples, outputGain, BlockExit::TunerMuted, 0.0, diagnosticsEnabled);
             return;
         }
     }
@@ -1243,9 +1250,11 @@ void MultiPresetMixer::ProcessStereoBlock(float** inputs, float** outputs, int n
         SilenceSleepGate::PeakOf(inputs ? inputs[0] : nullptr, inputs ? inputs[1] : nullptr, numSamples);
     const auto preTraits = mGlobalChain.Pre().GetSleepTraits();
     const auto postTraits = mGlobalChain.Post().GetSleepTraits();
+    // A looper armed, counting in, recording or writing a tail needs the chains to hear the first
+    // note; a loop that only plays does not keep them awake.
     bool sleepAllowed = mSleepOnSilenceEnabled.load(std::memory_order_acquire) &&
                         !mHoldAwake.load(std::memory_order_acquire) && !mTuner->IsEnabled() &&
-                        !preTraits.keepsAwake && !postTraits.keepsAwake;
+                        !preTraits.keepsAwake && !postTraits.keepsAwake && !mLooper.WantsChainsAwake();
     bool sleepCanRingOut = preTraits.canRingOut || postTraits.canRingOut;
 
     for (const auto& inst : mVoices.Instances())
@@ -1280,10 +1289,9 @@ void MultiPresetMixer::ProcessStereoBlock(float** inputs, float** outputs, int n
             {
                 inst->executor.NoteBlockSkipped();
             }
-
-            mTelemetry.Record(MixerTelemetry::Stage::Output, outputs[0], outputs[1], numSamples);
         }
 
+        FinishOutputBlock(outputs, numSamples, outputGain, BlockExit::Asleep, 0.0, diagnosticsEnabled);
         return;
     }
 
@@ -1622,6 +1630,29 @@ void MultiPresetMixer::ProcessStereoBlock(float** inputs, float** outputs, int n
                              SilenceSleepGate::PeakOf(mPostChainOutL.data(), mPostChainOutR.data(), numSamples),
                              numSamples, sleepCanRingOut);
 
+    FinishOutputBlock(outputs, numSamples, outputGain, BlockExit::Processed, blockDspUs, diagnosticsEnabled);
+}
+
+void MultiPresetMixer::FinishOutputBlock(float** outputs, int numSamples, float outputGain, BlockExit exit,
+                                         double blockDspUs, bool diagnosticsEnabled)
+{
+    // ==========================================================================
+    // LOOPER: records what the chains made (silence if they did not run), then
+    // adds its playback. The metronome and the backing track come later, so a
+    // layer never holds them.
+    // ==========================================================================
+    const bool looped = mLooper.Process(outputs[0], outputs[1], numSamples, exit == BlockExit::TunerMuted);
+
+    if (exit != BlockExit::Processed && !looped)
+    {
+        if (exit == BlockExit::Asleep && diagnosticsEnabled)
+        {
+            mTelemetry.Record(MixerTelemetry::Stage::Output, outputs[0], outputs[1], numSamples);
+        }
+
+        return;
+    }
+
     // ==========================================================================
     // FINAL OUTPUT STAGE: Master gain, limiter
     // ==========================================================================
@@ -1658,7 +1689,7 @@ void MultiPresetMixer::ProcessStereoBlock(float** inputs, float** outputs, int n
         // only move this one block into the next span.
         const double realTimeUs = (static_cast<double>(numSamples) / mSampleRate) * 1e6;
 
-        if (realTimeUs > 0.0)
+        if (realTimeUs > 0.0 && exit == BlockExit::Processed)
         {
             const double loadPercent = (blockDspUs / realTimeUs) * 100.0;
 

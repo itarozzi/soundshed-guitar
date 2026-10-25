@@ -14,7 +14,7 @@
     "core/src/dsp/MultiPresetMixer.cpp": 2250,
     "core/src/dsp/SignalGraphExecutor.cpp": 2250,
     "core/src/dsp/effects/WasmEffect.cpp": 2250,
-    "core/src/controller/PluginControllerRiffs.cpp": 2250,
+    "core/src/controller/PluginControllerRiffs.cpp": 2000,
     "core/tests/SynthSawEffectTests.cpp": 1750,
     "core/src/dsp/effects/ReverbEffect.h": 1750,
     "core/tests/SignalGraphExecutorTests.cpp": 1750,

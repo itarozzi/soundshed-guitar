@@ -116,13 +116,21 @@ graph invalid, and an invalid graph outputs silence.
 
 ### Processing Loop
 1. Measure raw input diagnostics.
-2. Apply the input mode (Mono takes input 1, input 2 or both summed onto both channels) and the
-   active input levelling gain.
+2. Apply the input mode (Mono takes input 1, input 2 or both summed onto both channels). The
+   looper's DI tap is here, ahead of calibration (`LooperEngine::NoteInput`): one channel in Mono,
+   two otherwise, with the calibration gain stored per layer. Then the active input levelling gain.
 3. Measure processed input diagnostics.
 4. Process global pre-chain (Pickup Match, noise gate and transpose).
 5. For each preset: process the preset graph, then mix outputs with pan and mix gain. The pan is
    equal-power, so a preset at the default centre pan is 3.01 dB down on each side.
 6. Process global post-chain (for example EQ and doubler).
+6a. The looper (`dsp/looper/LooperEngine.h`): it records the post-chain output as the recording
+   layer's wet sound, moved back by the chain latency, then adds the audible layers' playback. It
+   runs on every block, also when the chains sleep (it records silence) and when the tuner mutes (it
+   keeps time, silently, and punches a take out); `MultiPresetMixer::FinishOutputBlock` is the one
+   end all three exits share. Playback alone never keeps the chains awake; a looper armed, counting
+   in, recording or writing a tail does. The metronome and the practice tool are added after the
+   mixer, so a layer never holds them.
 7. Apply master gain (with the mono-output makeup below, when it is on), then final output
    protection if enabled.
 8. On a mono output, fold the stereo mix into its one channel.

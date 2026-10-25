@@ -68,6 +68,8 @@ set(TEST_SOURCES
     LayoutStorageWorkflowTests.cpp
     LoudnessTests.cpp
     LoudnessTapTests.cpp
+    LooperEngineTests.cpp
+    MixerLooperTests.cpp
     PracticeToolCrossfadeTests.cpp
     MessageDispatchTypeErrorTests.cpp
     MessageHandlerRegistryTests.cpp
@@ -119,6 +121,7 @@ set(TEST_SOURCES
     ReverbPresetTests.cpp
     VerbalTests.cpp
     RiffCaptureNoticeTests.cpp
+    RiffRecorderTests.cpp
     RingModEffectTests.cpp
     RotaryVibeEffectTests.cpp
     NamResamplerLatencyTests.cpp

@@ -14,6 +14,7 @@
 #include "dsp/MixerTelemetry.h"
 #include "dsp/RealtimeParallel.h"
 #include "dsp/TunerEngine.h"
+#include "dsp/looper/LooperEngine.h"
 
 #include <algorithm>
 #include <array>
@@ -286,6 +287,13 @@ class MultiPresetMixer
     [[nodiscard]] bool IsSleepingOnSilence() const noexcept
     {
         return mSleepGate.IsAsleep();
+    }
+
+    /// The looper: a stage between the global post-chain and master gain, so no preset swap or chain
+    /// rebuild touches a layer. dsp/looper/LooperEngine.h says which thread may call what.
+    [[nodiscard]] looper::LooperEngine& Looper() noexcept
+    {
+        return mLooper;
     }
 
     // Global input settings
@@ -737,6 +745,16 @@ class MultiPresetMixer
     /// `outputGain` scales the final output stage with the master gain, ahead of the meters and
     /// the limiter: the mono fold's makeup (SetMonoOutputUnity), 1 otherwise.
     void ProcessStereoBlock(float** inputs, float** outputs, int numSamples, float outputGain = 1.0f);
+    /// How ProcessStereoBlock left a block: chains run, asleep on silence, or muted by the tuner.
+    enum class BlockExit
+    {
+        Processed,
+        Asleep,
+        TunerMuted,
+    };
+    /// Every block's end: the looper records and plays, then master gain, meters and limiter.
+    void FinishOutputBlock(float** outputs, int numSamples, float outputGain, BlockExit exit, double blockDspUs,
+                           bool diagnosticsEnabled);
 
     // Temporary buffers for input processing
     std::vector<float> mTempInL, mTempInR;
@@ -747,6 +765,7 @@ class MultiPresetMixer
 
     // By pointer so the destructor can stop it first, ahead of everything it reports on.
     std::unique_ptr<TunerEngine> mTuner;
+    looper::LooperEngine mLooper;
 
     MixerTelemetry mTelemetry;
 
