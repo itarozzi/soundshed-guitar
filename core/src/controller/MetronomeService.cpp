@@ -14,18 +14,6 @@ namespace guitarfx
 {
 namespace
 {
-/// The beat pulse is one atomic word so the message thread reads a beat that
-/// actually happened rather than a mix of two. 14 bits of sequence is ~4500
-/// bars of 4/4 between polls at 60 Hz — the counter can wrap, the comparison
-/// cannot get confused by it.
-constexpr std::uint32_t kBeatPulseSeqMask = 0x3FFFu;
-
-constexpr std::uint32_t PackBeatPulse(std::uint32_t seq, int beatIndex, int beatsPerBar, BeatLevel level)
-{
-    return ((seq & kBeatPulseSeqMask) << 18) | ((static_cast<std::uint32_t>(level) & 0x3u) << 16) |
-           ((static_cast<std::uint32_t>(beatsPerBar) & 0xFFu) << 8) | (static_cast<std::uint32_t>(beatIndex) & 0xFFu);
-}
-
 const char* BeatLevelName(BeatLevel level)
 {
     switch (level)
@@ -39,22 +27,6 @@ const char* BeatLevelName(BeatLevel level)
     case BeatLevel::Normal:
     default:
         return "normal";
-    }
-}
-
-/// Pitch offset for the synthesised fallback beep, so accents still read as
-/// accents on an install whose samples are missing.
-double FallbackClickFrequency(ClickVoice voice)
-{
-    switch (voice)
-    {
-    case ClickVoice::High:
-        return kMetronomeClickFrequencyHz * 1.5;
-    case ClickVoice::Sub:
-        return kMetronomeClickFrequencyHz * 1.25;
-    case ClickVoice::Low:
-    default:
-        return kMetronomeClickFrequencyHz;
     }
 }
 
@@ -192,167 +164,6 @@ bool MetronomeService::ConsumeBeatPulse(BeatPulse& pulse)
     pulse.beatsPerBar = static_cast<int>((packed >> 8) & 0xFFu);
     pulse.level = static_cast<BeatLevel>((packed >> 16) & 0x3u);
     return true;
-}
-
-void MetronomeService::Render(float** outputs, int numSamples)
-{
-    if (!outputs || !outputs[0] || !outputs[1])
-    {
-        return;
-    }
-
-    if (!mHost.IsStandalone())
-    {
-        return;
-    }
-
-    const bool guidanceActive = mGuidanceActive;
-
-    if (!guidanceActive && !mEnabled.load(std::memory_order_relaxed))
-    {
-        return;
-    }
-
-    const auto plan =
-        guidanceActive ? mGuidanceBarPlan : std::atomic_load_explicit(&mBarPlan, std::memory_order_acquire);
-
-    if (!plan || plan->beats.empty())
-    {
-        return;
-    }
-
-    if (mResetPending.exchange(false, std::memory_order_acq_rel))
-    {
-        mSamplesUntilTick = 0.0;
-        mClickSamplesRemaining = 0;
-        mClickPhase = 0.0;
-        mBeatIndex = 0;
-        mTickIndex = 0;
-        mClickSamplePosition = 0;
-        mTickVoice = ClickVoice::Low;
-        mTickGain = 1.0f;
-    }
-
-    const double sampleRate = mHost.GetSampleRate();
-
-    if (sampleRate <= 0.0)
-    {
-        return;
-    }
-
-    const double bpm =
-        guidanceActive ? ClampValue(mGuidanceBpm, kMetronomeMinBpm, kMetronomeMaxBpm) : EffectiveTempoBpm();
-    const auto beatsPerBar = static_cast<int>(plan->beats.size());
-    const int ticksPerBeat = std::max(1, plan->ticksPerBeat);
-    const double samplesPerBeat = sampleRate * (60.0 / std::max(1.0, bpm)) * std::max(0.125, plan->beatScale);
-    const double samplesPerTick = samplesPerBeat / static_cast<double>(ticksPerBeat);
-    const int clickSamples = std::max(1, static_cast<int>(sampleRate * kMetronomeClickSeconds));
-
-    const double volumeDb =
-        ClampValue(mVolumeDb.load(std::memory_order_relaxed), kMetronomeMinVolumeDb, kMetronomeMaxVolumeDb);
-    const double volume = ClampValue(LinearFromDb(volumeDb), 0.0, LinearFromDb(kMetronomeMaxVolumeDb));
-    const double pan = ClampValue(mPan.load(std::memory_order_relaxed), -1.0, 1.0);
-    const double panAngle = (pan + 1.0) * (kTwoPi / 8.0);
-    const double panLeft = std::cos(panAngle);
-    const double panRight = std::sin(panAngle);
-
-    const auto clickSampleSet =
-        guidanceActive ? mGuidanceClickSamples : std::atomic_load_explicit(&mClickSamples, std::memory_order_acquire);
-    const bool hasSampleClick = clickSampleSet && !clickSampleSet->Empty();
-
-    for (int frame = 0; frame < numSamples; ++frame)
-    {
-        if (mSamplesUntilTick <= 0.0)
-        {
-            const bool onBeat = (mTickIndex == 0);
-            const int beatIndex = std::min(mBeatIndex, beatsPerBar - 1);
-            const auto& beat = plan->beats[static_cast<std::size_t>(beatIndex)];
-            const bool silent = onBeat && beat.silent;
-
-            mTickVoice = onBeat ? beat.voice : ClickVoice::Sub;
-            mTickGain = onBeat ? beat.gain : plan->subGain;
-
-            if (onBeat)
-            {
-                mBeatPulse.store(PackBeatPulse(++mBeatPulseSeq, beatIndex, beatsPerBar, beat.level),
-                                 std::memory_order_release);
-            }
-
-            if (silent)
-            {
-                mClickSamplesRemaining = 0;
-            }
-            else if (hasSampleClick)
-            {
-                const auto* selected = clickSampleSet->Voice(mTickVoice);
-                mClickSamplesRemaining = selected ? static_cast<int>(selected->front().size()) : 0;
-                mClickSamplePosition = 0;
-            }
-            else
-            {
-                mClickSamplesRemaining = clickSamples;
-                mClickPhase = 0.0;
-                mClickPhaseIncrement = kTwoPi * FallbackClickFrequency(mTickVoice) / sampleRate;
-            }
-
-            ++mTickIndex;
-
-            if (mTickIndex >= ticksPerBeat)
-            {
-                mTickIndex = 0;
-                mBeatIndex = (beatIndex + 1) % beatsPerBar;
-            }
-
-            mSamplesUntilTick += samplesPerTick;
-        }
-
-        float clickSampleL = 0.0f;
-        float clickSampleR = 0.0f;
-
-        if (mClickSamplesRemaining > 0)
-        {
-            if (hasSampleClick)
-            {
-                const auto* selected = clickSampleSet->Voice(mTickVoice);
-
-                if (selected != nullptr)
-                {
-                    const auto index = static_cast<std::size_t>(mClickSamplePosition);
-
-                    if (mClickSamplePosition >= 0 && index < selected->front().size())
-                    {
-                        clickSampleL = (*selected)[0][index];
-                        clickSampleR = selected->size() > 1 ? (*selected)[1][index] : clickSampleL;
-                    }
-                }
-
-                ++mClickSamplePosition;
-                --mClickSamplesRemaining;
-            }
-            else
-            {
-                const double envelope = static_cast<double>(mClickSamplesRemaining) / static_cast<double>(clickSamples);
-                const auto clickSample = static_cast<float>(std::sin(mClickPhase) * envelope);
-                clickSampleL = clickSample;
-                clickSampleR = clickSample;
-                mClickPhase += mClickPhaseIncrement;
-
-                if (mClickPhase >= kTwoPi)
-                {
-                    mClickPhase -= kTwoPi;
-                }
-
-                --mClickSamplesRemaining;
-            }
-
-            clickSampleL *= mTickGain;
-            clickSampleR *= mTickGain;
-        }
-
-        outputs[0][frame] += clickSampleL * static_cast<float>(volume * panLeft);
-        outputs[1][frame] += clickSampleR * static_cast<float>(volume * panRight);
-        mSamplesUntilTick -= 1.0;
-    }
 }
 
 void MetronomeService::RefreshBarPlan()
@@ -521,9 +332,25 @@ void MetronomeService::RefreshClickSamples(double sampleRate)
     std::atomic_store_explicit(&mClickSamples, std::move(samples), std::memory_order_release);
 }
 
-MetronomeService::RequestOutcome MetronomeService::ApplyRequest(const nlohmann::json& payload)
+MetronomeService::RequestOutcome MetronomeService::ApplyRequest(const nlohmann::json& request)
 {
     RequestOutcome outcome;
+
+    // A Bars loop holds the tempo and meter it was recorded at (SetTempoLocked).
+    nlohmann::json unlocked;
+    const bool locked = mTempoLocked.load(std::memory_order_relaxed) && request.is_object();
+
+    if (locked)
+    {
+        unlocked = request;
+
+        for (const char* key : {"bpm", "timeSigNum", "timeSigDen", "grouping"})
+        {
+            unlocked.erase(key);
+        }
+    }
+
+    const nlohmann::json& payload = locked ? unlocked : request;
 
     if (!mHost.IsStandalone())
     {
@@ -695,6 +522,7 @@ void MetronomeService::AppendStateTo(nlohmann::json& target) const
     target["timeSigDen"] = mTimeSigDen;
     target["grouping"] = mGrouping;
     target["subdivision"] = mSubdivision;
+    target["tempoLocked"] = mTempoLocked.load(std::memory_order_relaxed);
 
     nlohmann::json clickTypes = nlohmann::json::array();
 

@@ -235,6 +235,54 @@ void AutomationSlotTable::InitializeRegistry(
         mRegistry.Register(e);
     }
 
+    // looper.* — the looper's transport as triggers, for a footswitch or a key. Apply runs holding
+    // the DSP lock (the audio thread for MIDI and the DAW), where the engine takes a press directly.
+    // Not in kDefaultSlots, which fixes the VST3 parameter order.
+    {
+        static constexpr std::pair<const char*, looper::LooperAction> kLooperTriggers[] = {
+            {"recPlayDub", looper::LooperAction::RecPlayDub}, {"stop", looper::LooperAction::Stop},
+            {"undo", looper::LooperAction::Undo},             {"redo", looper::LooperAction::Redo},
+            {"clear", looper::LooperAction::Clear},
+        };
+        static constexpr const char* kLooperLabels[] = {"Looper Rec/Play/Dub", "Looper Stop", "Looper Undo",
+                                                       "Looper Redo", "Looper Clear"};
+
+        for (std::size_t i = 0; i < std::size(kLooperTriggers); ++i)
+        {
+            ParamRegistryEntry e;
+            e.address = std::string("looper.") + kLooperTriggers[i].first;
+            e.label = kLooperLabels[i];
+            e.minValue = 0.0;
+            e.maxValue = 1.0;
+            e.isTrigger = true;
+            e.get = []() { return 0.0; };
+            e.apply = [this, action = kLooperTriggers[i].second](double, bool) {
+                if (mMixer)
+                {
+                    mMixer->Looper().Press(action);
+                }
+            };
+            mRegistry.Register(e);
+        }
+    }
+
+    // looper.level — every layer's level together
+    {
+        ParamRegistryEntry e;
+        e.address = "looper.level";
+        e.label = "Looper Level";
+        e.minValue = 0.0;
+        e.maxValue = 1.0;
+        e.get = [this]() { return mMixer ? static_cast<double>(mMixer->Looper().Settings().level.load()) : 1.0; };
+        e.apply = [this](double v, bool) {
+            if (mMixer)
+            {
+                mMixer->Looper().Settings().level.store(static_cast<float>(v));
+            }
+        };
+        mRegistry.Register(e);
+    }
+
     // setlist.preset1..N — one trigger parameter per preset slot in the current bank
     for (int i = 1; i <= kSetlistPresetsPerBank; ++i)
     {

@@ -186,6 +186,14 @@ void StandaloneAudioSettings::changeListenerCallback (juce::ChangeBroadcaster*)
     sendState();
 }
 
+int StandaloneAudioSettings::deviceLatencySamples() const
+{
+    auto* device = mDeviceManager.getCurrentAudioDevice();
+    return device != nullptr && device->isOpen()
+               ? device->getInputLatencyInSamples() + device->getOutputLatencyInSamples()
+               : 0;
+}
+
 //==============================================================================
 void StandaloneAudioSettings::handleRequest (const std::string& requestJson)
 {

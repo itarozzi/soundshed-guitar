@@ -1128,6 +1128,16 @@ void PluginProcessorAdapter::setAudioDeviceRequestHandler (AudioDeviceRequestHan
     mAudioDeviceRequestHandler = std::move (handler);
 }
 
+void PluginProcessorAdapter::setDeviceLatencyQuery (DeviceLatencyQuery query)
+{
+    mDeviceLatencyQuery = std::move (query);
+}
+
+int PluginProcessorAdapter::GetDeviceLatencySamples() const
+{
+    return mDeviceLatencyQuery ? mDeviceLatencyQuery() : 0;
+}
+
 void PluginProcessorAdapter::setWindowChromeHandler (WindowChromeHandler handler)
 {
     mWindowChromeHandler = std::move (handler);

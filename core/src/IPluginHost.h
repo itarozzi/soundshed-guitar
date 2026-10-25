@@ -123,6 +123,14 @@ class IPluginHost
     {
     }
 
+    /// Message thread: the audio device's input plus output latency in samples, as the driver reports
+    /// it. A note played along with the output reaches the input this much later, which the looper
+    /// takes off. 0 in a plugin, where the host compensates.
+    [[nodiscard]] virtual int GetDeviceLatencySamples() const
+    {
+        return 0;
+    }
+
     /// Get the DAW/host tempo in BPM, if available.
     [[nodiscard]] virtual double GetHostTempo() const
     {

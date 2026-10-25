@@ -269,6 +269,10 @@ public:
                     mAudioSettings->handleRequest (requestJson);
             });
 
+            adapter->setDeviceLatencyQuery ([this] {
+                return mAudioSettings != nullptr ? mAudioSettings->deviceLatencySamples() : 0;
+            });
+
 #if !JUCE_ANDROID
             // The page sends its header colours whenever the theme changes, and is told
             // whether the caption took them, so it can drop the title it would repeat.
@@ -327,6 +331,7 @@ public:
         if (auto* adapter = getAdapter())
         {
             adapter->setAudioDeviceRequestHandler (nullptr);
+            adapter->setDeviceLatencyQuery (nullptr);
             adapter->setWindowChromeHandler (nullptr);
         }
 

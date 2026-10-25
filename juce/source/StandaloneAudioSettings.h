@@ -68,6 +68,8 @@ public:
 
     /// One "audioDevice" message from the UI, as JSON text.
     void handleRequest (const std::string& requestJson);
+    /// The open device's input plus output latency in samples, 0 with none open. Message thread.
+    [[nodiscard]] int deviceLatencySamples() const;
 
 private:
     void changeListenerCallback (juce::ChangeBroadcaster*) override;

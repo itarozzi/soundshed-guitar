@@ -211,6 +211,11 @@ class LooperEngine
     {
         return mMix[static_cast<std::size_t>(slot)];
     }
+
+    const LayerMix& Mix(int slot) const noexcept
+    {
+        return mMix[static_cast<std::size_t>(slot)];
+    }
     /// A consistent view of what the last block left, or false when the engine was publishing.
     bool ReadSnapshot(LooperSnapshot& out) const;
     /// The notices raised since the last call.
@@ -232,6 +237,13 @@ class LooperEngine
     {
         return mLiveRecorded.load(std::memory_order_relaxed);
     }
+    /// Blocks the engine has processed. A command enqueued when this read b has been applied once it
+    /// reads b + 2: the block running at the time may have drained the queue just before it.
+    [[nodiscard]] std::uint64_t BlocksProcessed() const noexcept
+    {
+        return mBlocksProcessed.load(std::memory_order_acquire);
+    }
+
     [[nodiscard]] std::int64_t PublishedPlayhead() const noexcept
     {
         return mPublishedPlayhead.load(std::memory_order_relaxed);
@@ -502,6 +514,7 @@ class LooperEngine
     std::atomic<std::int64_t> mPublishedArmWait{0};
     std::atomic<std::int64_t> mPublishedArmLead{0};
     std::atomic<std::uint32_t> mNotices{0};
+    std::atomic<std::uint64_t> mBlocksProcessed{0};
     std::array<std::atomic<float>, kPeakBuckets> mLivePeaksWet{};
     std::array<std::atomic<float>, kPeakBuckets> mLivePeaksDi{};
     std::atomic<std::int64_t> mLiveBucketSamples{1};

@@ -20,9 +20,22 @@ recommended.
   migrate until Phase 4 adds `loops/` and the `looper-projects` document beside them.
   `RiffRecorderTests` checks takes sample for sample.
 
-**Not built yet:** Phase 2 (`LooperService`, the metronome link, messages, registry entries),
-Phase 3 (the UI), Phase 4 (projects), Phase 5 (re-tone). Nothing drives the mixer's looper yet, and
-an idle engine costs one check per block.
+- **Phase 2, the service and control.** `core/src/controller/LooperService.{h,cpp}` and
+  `LooperServiceMessages.cpp`: buffers (shared, freed once no snapshot refers to them and every
+  offer has surely been applied, `LooperEngine::BlocksProcessed`), the spare, the memory budget
+  (redo dropped first), the looper.* settings, `looperState`/`looperLayers`/`looperWaveforms`, and
+  `looperCommand`/`setLooper`/`setLooperLayer`/`removeLooperLayer`/`getLooperState`. The metronome
+  publishes `TransportClock`, restarts at a sample offset (`RequestReset(offset)`), locks its tempo
+  under a Bars loop, and mutes the click through a take (`SetClickSuppressed`); its click moved to
+  `MetronomeServiceRender.cpp`. `IPluginHost::GetDeviceLatencySamples()` (the standalone reports
+  input + output). Registry triggers `looper.recPlayDub/stop/undo/redo/clear` and `looper.level`.
+  `LooperServiceTests`.
+
+**Not built yet:** Phase 3 (the UI), Phase 4 (projects), Phase 5 (re-tone).
+
+**Phase 2 limits:** a Bars take started from MIDI with the metronome off counts in silently (the
+guidance click is switched on the message thread, for a UI press). The looper level a footswitch
+sets is not saved.
 
 **Where the build differs from the text below:**
 - **Riff capture is a second engine, not a session of the mixer's.** Its DI is the raw input, and

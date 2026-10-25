@@ -19,6 +19,7 @@
 // atomics. The transport cursor is touched only by Render(); the message
 // thread asks for a restart with RequestReset() rather than writing it.
 
+#include <algorithm>
 #include <atomic>
 #include <cstdint>
 #include <filesystem>
@@ -30,6 +31,7 @@
 
 #include "controller/MetronomeClickLibrary.h"
 #include "controller/internal/MetronomeSupport.h"
+#include "dsp/TransportClock.h"
 
 namespace guitarfx
 {
@@ -96,10 +98,39 @@ class MetronomeService
 
     // ── Transport ───────────────────────────────────────────────────
 
-    /// Restarts the beat cursor on the next block. Safe from any thread.
-    void RequestReset()
+    /// Restarts the beat cursor on bar 1, `sampleOffset` samples into the next block Render() runs.
+    /// Safe from any thread. The looper asks from the mixer, ahead of Render() in the same block, so
+    /// a count-in or a re-phase lands on the sample it names.
+    void RequestReset(int sampleOffset = 0)
     {
+        mResetOffset.store(std::max(0, sampleOffset), std::memory_order_relaxed);
         mResetPending.store(true, std::memory_order_release);
+    }
+
+    /// The bar grid as the click plays it, written by Render() every block (TransportClock.h). The
+    /// tempo is there while the click is off too.
+    [[nodiscard]] const TransportClock& Clock() const noexcept
+    {
+        return mClock;
+    }
+
+    /// While set, requests to change the tempo or the meter are ignored: a Bars loop is locked to
+    /// what it was recorded at. AppendStateTo() reports it as `tempoLocked`.
+    void SetTempoLocked(bool locked) noexcept
+    {
+        mTempoLocked.store(locked, std::memory_order_relaxed);
+    }
+
+    [[nodiscard]] bool IsTempoLocked() const noexcept
+    {
+        return mTempoLocked.load(std::memory_order_relaxed);
+    }
+
+    /// Audio thread: while set, the click keeps time but is not heard (a looper take with
+    /// looper.clickWhileRecording off).
+    void SetClickSuppressed(bool suppressed) noexcept
+    {
+        mClickSuppressed.store(suppressed, std::memory_order_relaxed);
     }
 
     /// Clears the cursor outright. Message thread only, and only while the
@@ -128,6 +159,21 @@ class MetronomeService
     [[nodiscard]] const std::string& BeatPattern() const
     {
         return mBeatPattern;
+    }
+
+    [[nodiscard]] bool IsEnabled() const noexcept
+    {
+        return mEnabled.load(std::memory_order_relaxed);
+    }
+
+    [[nodiscard]] int TimeSigNum() const noexcept
+    {
+        return mTimeSigNum;
+    }
+
+    [[nodiscard]] int TimeSigDen() const noexcept
+    {
+        return mTimeSigDen;
     }
 
     // ── Riff capture guidance ───────────────────────────────────────
@@ -166,6 +212,9 @@ class MetronomeService
     /// Stores the meter settings back so a reload starts where we left off.
     void StoreMeterToAppSettings();
 
+    /// Audio thread: the beat cursor back to bar 1, beat 1.
+    void ResetCursor();
+
     IPluginHost& mHost;
     nlohmann::json& mAppSettings;
     MetronomeClickLibrary mClickLibrary;
@@ -188,6 +237,10 @@ class MetronomeService
 
     // Beat cursor. Audio thread only, apart from mResetPending and mBeatPulse.
     std::atomic<bool> mResetPending{false};
+    std::atomic<int> mResetOffset{0};
+    std::atomic<bool> mTempoLocked{false};
+    std::atomic<bool> mClickSuppressed{false};
+    TransportClock mClock; // written by Render()
     std::atomic<std::uint32_t> mBeatPulse{0};
     std::uint32_t mBeatPulseSeq = 0;     // audio thread
     std::uint32_t mLastBeatPulseSeq = 0; // message thread

@@ -64,6 +64,7 @@ class TelemetryPublisher;
 class TunerService;
 class GateLearnService;
 class PracticeToolService;
+class LooperService;
 class HostStateRelay;
 class RiffRecorder;
 
@@ -1263,6 +1264,8 @@ class PluginController
     std::unique_ptr<GateLearnService> mGateLearn;
     std::unique_ptr<DemoPreviewService> mDemoPreview;
     std::unique_ptr<PracticeToolService> mPracticeTool;
+    /// The looper's message-thread half (LooperService.h): answers the looper messages itself.
+    std::unique_ptr<LooperService> mLooper;
     std::unique_ptr<HostStateRelay> mHostStateRelay;
     /// Idle-tick divider for the practice tool's transport updates.
     int mPracticeToolUpdateCounter = 0;

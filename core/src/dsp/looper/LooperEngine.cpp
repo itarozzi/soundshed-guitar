@@ -133,6 +133,7 @@ bool LooperEngine::Process(float* outL, float* outR, int numSamples, bool muted)
                 Publish();
             }
 
+            mBlocksProcessed.fetch_add(1, std::memory_order_release);
             return false;
         }
 
@@ -244,6 +245,7 @@ bool LooperEngine::Process(float* outL, float* outR, int numSamples, bool muted)
     }
 
     Publish();
+    mBlocksProcessed.fetch_add(1, std::memory_order_release);
     return added;
 }
 

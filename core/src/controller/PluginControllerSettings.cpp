@@ -10,6 +10,7 @@
 #include "PluginController.h"
 
 #include "BundledApiKeys.h" // generated at configure time
+#include "controller/LooperService.h"
 #include "controller/MetronomeService.h"
 
 #include "controller/internal/ControllerUtils.h"
@@ -438,6 +439,11 @@ bool PluginController::ApplySettingsToRuntime(SettingsApplyMode mode)
     bool settingsChanged = false;
 
     mMetronome->ApplySettingsFromAppSettings();
+    if (mLooper)
+    {
+        mLooper->ApplySettingsFromAppSettings();
+    }
+
     settingsChanged |= ApplyDspLevelTargetSettingsFromAppSettings();
     settingsChanged |= ApplyPresetSwitchSettingsFromAppSettings();
     ApplyMultiCoreSettingFromAppSettings();

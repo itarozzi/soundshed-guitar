@@ -115,6 +115,7 @@ public:
     void NotifyStateChanged() override;
     void NotifyDeferredStateRestored() override;
     void NotifyLatencyChanged (int latencySamples) override;
+    [[nodiscard]] int GetDeviceLatencySamples() const override;
     [[nodiscard]] double GetHostTempo() const override;
     [[nodiscard]] bool IsHostPlaying() const override;
     [[nodiscard]] bool IsStandalone() const override;
@@ -131,6 +132,9 @@ public:
     /// Message thread only, like the requests.
     using AudioDeviceRequestHandler = std::function<void (const std::string& requestJson)>;
     void setAudioDeviceRequestHandler (AudioDeviceRequestHandler handler);
+    /// The standalone's answer to GetDeviceLatencySamples(), set while it owns the device.
+    using DeviceLatencyQuery = std::function<int()>;
+    void setDeviceLatencyQuery (DeviceLatencyQuery query);
 
     // ── Standalone window chrome ───────────────────────────────────
     /// Where "setWindowChrome" messages go: the page's colours for the native title bar.
@@ -158,6 +162,7 @@ private:
     std::mutex mWebMessageMutex;
 
     AudioDeviceRequestHandler mAudioDeviceRequestHandler;
+    DeviceLatencyQuery mDeviceLatencyQuery;
     WindowChromeHandler mWindowChromeHandler;
 
     std::filesystem::path mAssetRoot;

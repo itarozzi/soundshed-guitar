@@ -301,12 +301,20 @@
     "getPerformanceStats": "A pull for tests and scripted debugging (MixerInstanceLockTests drives the telemetry read with it); the UI takes the pushed dspPerformance feed.",
     "getSignalDiagnostics": "A pull for tests and scripted debugging; the UI takes the pushed sld feed and asks for a roster with setSignalDiagnosticsEnabled.",
     "setMasterGain": "Kept for older UIs and scripted use; the UI mutes with setOutputMuted, which the mixer applies after the output gain so a chain rebuild cannot undo it, and sets levels with setGlobalChainParam output.gain.",
-    "splitSignalPathEdge": "The engine can split an edge into parallel lanes; the UI has no gesture for it yet, though it can show and collapse an existing split."
+    "splitSignalPathEdge": "The engine can split an edge into parallel lanes; the UI has no gesture for it yet, though it can show and collapse an existing split.",
+    "getLooperState": "Phase 3 of docs/plans/looper.md adds the UI that sends it; until then the looper is driven by tests and scripted use.",
+    "looperCommand": "Phase 3 of docs/plans/looper.md adds the UI that sends it; until then the looper is driven by tests and scripted use.",
+    "removeLooperLayer": "Phase 3 of docs/plans/looper.md adds the UI that sends it; until then the looper is driven by tests and scripted use.",
+    "setLooper": "Phase 3 of docs/plans/looper.md adds the UI that sends it; until then the looper is driven by tests and scripted use.",
+    "setLooperLayer": "Phase 3 of docs/plans/looper.md adds the UI that sends it; until then the looper is driven by tests and scripted use."
   },
   "sentButUnhandled": {
     "debugSnapshot": "Not a message: the type tag inside the debug snapshot file written to disk. The UI is told with debugSnapshotWritten.",
     "riffCaptureArmed": "Confirms armRiffCapture; the UI enters the armed state itself when it sends the request.",
-    "toneSharingPackDeleted": "Confirms deleteImportedToneSharingPack; the UI removes the pack from its list before asking, so there is nothing to update."
+    "toneSharingPackDeleted": "Confirms deleteImportedToneSharingPack; the UI removes the pack from its list before asking, so there is nothing to update.",
+    "looperLayers": "Phase 3 of docs/plans/looper.md adds the UI that handles it; until then only tests read it.",
+    "looperState": "Phase 3 of docs/plans/looper.md adds the UI that handles it; until then only tests read it.",
+    "looperWaveforms": "Phase 3 of docs/plans/looper.md adds the UI that handles it; until then only tests read it."
   },
   "handledButNeverSent": {},
   "undocumented": [

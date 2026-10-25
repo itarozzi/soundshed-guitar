@@ -69,6 +69,7 @@ set(TEST_SOURCES
     LoudnessTests.cpp
     LoudnessTapTests.cpp
     LooperEngineTests.cpp
+    LooperServiceTests.cpp
     MixerLooperTests.cpp
     PracticeToolCrossfadeTests.cpp
     MessageDispatchTypeErrorTests.cpp

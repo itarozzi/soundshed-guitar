@@ -15,6 +15,7 @@
  * struct the audio thread can read without parsing anything.
  */
 
+#include <cstdint>
 #include <array>
 #include <cctype>
 #include <cstddef>
@@ -424,4 +425,17 @@ inline MetronomeBarPlan BuildBarPlan(int timeSigNum, int timeSigDen, const std::
 
     return plan;
 }
+
+/// The beat pulse is one atomic word so the message thread reads a beat that
+/// actually happened rather than a mix of two. 14 bits of sequence is ~4500
+/// bars of 4/4 between polls at 60 Hz — the counter can wrap, the comparison
+/// cannot get confused by it.
+inline constexpr std::uint32_t kBeatPulseSeqMask = 0x3FFFu;
+
+inline constexpr std::uint32_t PackBeatPulse(std::uint32_t seq, int beatIndex, int beatsPerBar, BeatLevel level)
+{
+    return ((seq & kBeatPulseSeqMask) << 18) | ((static_cast<std::uint32_t>(level) & 0x3u) << 16) |
+           ((static_cast<std::uint32_t>(beatsPerBar) & 0xFFu) << 8) | (static_cast<std::uint32_t>(beatIndex) & 0xFFu);
+}
+
 } // namespace guitarfx::controller_detail

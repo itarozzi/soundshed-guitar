@@ -26,6 +26,7 @@
 #include "controller/TelemetryPublisher.h"
 #include "controller/TunerService.h"
 #include "controller/GateLearnService.h"
+#include "controller/LooperService.h"
 #include "controller/PracticeToolService.h"
 #include "controller/RiffRecorder.h"
 #include "controller/internal/ControllerUtils.h"
@@ -84,6 +85,13 @@ PluginController::PluginController(IPluginHost& host) : mHost(host)
                                                         onError, sendToUI);
     mPracticeTool = std::make_unique<PracticeToolService>(mHost, mDSPMutex, onError, sendToUI);
     mRiffRecorder = std::make_unique<RiffRecorder>();
+    const auto looperTone = [this]() {
+        return LooperService::Tone{mActivePresetId, mActivePreset ? mActivePreset->name : "", mActiveSceneId};
+    };
+    mLooper = std::make_unique<LooperService>(mHost, mPresetMixer, *mMetronome, mDSPMutex, mAppSettings,
+                                              [this]() { SaveAppSettings(); }, looperTone,
+                                              [this]() { mPendingStateBroadcast = true; }, sendToUI);
+    mLooper->RegisterMessageHandlers(mMessageHandlers);
     mPracticeTool->RegisterMessageHandlers(mMessageHandlers);
     mHostStateRelay = std::make_unique<HostStateRelay>(mHost);
 }
@@ -255,6 +263,7 @@ void PluginController::Prepare(double sampleRate, int blockSize)
                                mPresetMixer.GetOutputChannelCount() != outputsBefore;
         mPresetMixer.Prepare(sampleRate, blockSize);
         mRiffRecorder->Prepare(sampleRate, blockSize);
+        mLooper->Prepare(sampleRate, blockSize);
 
         if (mPracticeTool)
         {
@@ -327,8 +336,7 @@ void PluginController::ProcessAudioLocked(float** inputs, float** outputs, int n
     // The block's MIDI first, so a footswitch pressed before it lands on it and not the next.
     DrainQueuedMidiLocked();
 
-    // Riff capture runs ahead of the demo clip and the chain: it records the raw input. A take
-    // that fills up stops the guidance click on the block it ends, as it always has.
+    // Riff capture records the raw input, ahead of the demo clip; a take that fills up stops the click.
     if (mRiffRecorder->HasTake() && mRiffRecorder->Process(inputs, numSamples))
     {
         DeactivateRiffGuidance(false);
@@ -362,6 +370,7 @@ void PluginController::ProcessAudioLocked(float** inputs, float** outputs, int n
 
     // Main DSP processing
     mPresetMixer.Process(inputs, outputs, numSamples);
+    mLooper->AfterMixer(); // a looper count-in or Bars wrap restarts this block's click
 
     // Add metronome click on top of processed audio (standalone only)
     mMetronome->Render(outputs, numSamples);
@@ -431,6 +440,7 @@ void PluginController::OnIdle()
     ApplyDeferredNodeRebuilds();
     PollSharedSyncState();
     PublishRiffCaptureNotices();
+    mLooper->OnIdle();
 
     // Has the editor's reported size settled? Commit it as the remembered size and tell
     // the host its saved state is stale so the project keeps it. Deferred by one idle tick

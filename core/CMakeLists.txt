@@ -492,6 +492,9 @@ set(GUITARFX_CORE_SOURCES
     src/controller/HostStateRelay.cpp
     src/controller/PracticeToolService.h
     src/controller/PracticeToolService.cpp
+    src/controller/LooperService.h
+    src/controller/LooperService.cpp
+    src/controller/LooperServiceMessages.cpp
     src/controller/RiffRecorder.h
     src/controller/RiffRecorder.cpp
     src/controller/RiffTake.h
@@ -499,6 +502,7 @@ set(GUITARFX_CORE_SOURCES
     src/controller/PracticeToolServiceMessages.cpp
     src/controller/MetronomeService.h
     src/controller/MetronomeService.cpp
+    src/controller/MetronomeServiceRender.cpp
     src/controller/MetronomeClickLibrary.h
     src/controller/MetronomeClickLibrary.cpp
     src/controller/SignalTestService.h
