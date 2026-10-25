@@ -220,17 +220,26 @@ itself out for narrow and portrait windows already.
 
 ### Deep links
 
-**Tone-sharing links (`soundshed://`) do not open the iOS app yet.** Two things
-are missing:
+**Tone-sharing links (`soundshed://`) open the iOS app but do not reach it
+yet.**
 
-- The scheme never reaches the Info.plist, on iOS or on macOS.
-  `juce/CMakeLists.txt` passes it as `XCODE_EXTRA_PLIST_ENTRIES`, which is not a
-  `juce_add_plugin` keyword (JUCE's is `PLIST_TO_MERGE`), and the built macOS
-  app's Info.plist has no `CFBundleURLTypes` either.
-- On macOS JUCE hands an opened URL to `anotherInstanceStarted`. Its iOS app
-  delegate implements no `application:openURL:options:` (nor the scene
-  equivalent), so even with the scheme registered the URL would not reach the
-  app. That needs a JUCE patch or swizzling JUCE's delegate class.
+- The scheme is registered. `juce/CMakeLists.txt` adds `CFBundleURLTypes` to
+  the Standalone's generated Info.plist after `juce_add_plugin`, on macOS and
+  iOS alike. JUCE's `PLIST_TO_MERGE` would have put it in every format's
+  plist, so it isn't used. (It used to be passed as
+  `XCODE_EXTRA_PLIST_ENTRIES`, which `juce_add_plugin` silently ignores, so no
+  build had the scheme.) Nano registers no scheme.
+- What's still missing is routing. On macOS JUCE's app delegate takes the
+  `kAEGetURL` Apple event and hands the URL to `anotherInstanceStarted` in
+  `juce/source/Main.cpp`. On iOS, JUCE runs its app through a scene delegate
+  (`JuceAppSceneDelegate` in `juce_Windowing_ios.mm`). It implements neither
+  `scene:openURLContexts:` (link opened while the app runs) nor reads
+  `connectionOptions.URLContexts` in `scene:willConnectToSession:options:`
+  (link that launches the app), and the app delegate has no
+  `application:openURL:options:`. So a link brings the app to the front and
+  the URL is dropped. A fix needs a JUCE patch, or a category or
+  `class_addMethod` on `JuceAppSceneDelegate` that forwards the URL to
+  `anotherInstanceStarted`.
 
 ## Audio
 
