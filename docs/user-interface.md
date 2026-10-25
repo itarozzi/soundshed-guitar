@@ -459,6 +459,12 @@ on `<html>`; every rule in `css/compact/` keys off those attributes. The pre-pai
   and on the rail its folder toolbar sits under the folder tree so the preset list runs the
   full height. Small controls grow an invisible hit area under `(pointer: coarse)`
   (`css/compact/shell.css`).
+- **Tones and Jam put results first** (`css/compact/panels.css`). A Tones section scrolls as
+  one, so its note, search and paging move away with the results; the community search is
+  one line; a feed of one row drops the heading its chip already says; pack cards are 150px.
+  Jam shows four smaller backing-track cards to a row; Riff Library lists the riffs straight
+  after New Riff, with the storage path last; and the Practice Tool drops its title and how-to
+  lines and has a 130px waveform.
 - **Touch screens.** Nothing that takes a tap may appear on `:hover` alone: iOS WebKit plays a
   tap as a hover first and, when that hover brings a button into view, holds the click back,
   so the tap only reveals it. Put such reveals under `@media (hover: hover)` (the chain's

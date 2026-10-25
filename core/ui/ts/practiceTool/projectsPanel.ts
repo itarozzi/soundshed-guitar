@@ -141,6 +141,8 @@ export function renderPracticeToolProjects(): void {
   }
   if (hint) {
     hint.textContent = buildHintText(projects);
+    // With no project picked the line only explains; compact density hides it then.
+    hint.toggleAttribute("data-instructional", !projects.some((project) => project.id === selectedProjectId));
   }
   renderPracticeToolProjectLinks(selectedProjectId);
 }
