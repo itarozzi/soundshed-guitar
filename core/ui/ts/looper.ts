@@ -18,7 +18,9 @@ import {
   sendLooperLayer,
   sendLooperSettings,
   sendRecoverLooperSession,
+  sendAddRiffAsLooperLayer,
   sendRemoveLooperLayer,
+  sendRetoneLooperLayers,
   sendSaveLooperProject,
 } from "./bridge.js";
 import { showConfirm } from "./dialogs.js";
@@ -51,6 +53,8 @@ const NOTICES: Record<string, string> = {
   loadFailed: "That loop could not be opened.",
   exported: "Layer saved as a WAV file.",
   exportFailed: "The layer could not be saved as a WAV file.",
+  retoneFailed: "That preset cannot be rendered offline.",
+  riffFailed: "That riff could not be read.",
 };
 
 let strip: HTMLElement | null = null;
@@ -73,7 +77,7 @@ function shapeKey(): string {
   }
 
   const { positionSec: _p, armWaitingSec: _a, recordedSec: _r, barIndex: _b, memoryMb: _m, notice: _n, ...shape } = status;
-  const layers = getLooperLayers().map((l) => [l.id, l.title, l.muted, l.solo, l.recording, l.presetName, l.toneChanged]);
+  const layers = getLooperLayers().map((l) => [l.id, l.title, l.muted, l.solo, l.recording, l.presetName, l.toneChanged, l.wetSource, l.canRevert, l.retoneProgress]);
   const projects = getLooperProjects().map((p) => [p.id, p.title, p.layerCount]);
   return JSON.stringify([shape, isLooperLayersOpen() ? layers : layers.length, projects]);
 }
@@ -97,7 +101,7 @@ function render(full: boolean): void {
   }
 
   if (status?.notice && status.notice !== lastNotice) {
-    showNotification(NOTICES[status.notice] ?? status.notice);
+    showNotification(NOTICES[status.notice] ?? status.notice, status.noticeDetail ?? "");
   }
 
   lastNotice = status?.notice ?? "";
@@ -200,6 +204,18 @@ function handleClick(event: MouseEvent): void {
     return;
   }
 
+  const riffTake = target.closest<HTMLElement>("[data-looper-add-riff]")?.dataset.looperAddRiff;
+
+  if (riffTake) {
+    sendAddRiffAsLooperLayer(riffTake);
+    return;
+  }
+
+  if (target.closest("[data-looper-retone-all]")) {
+    sendRetoneLooperLayers("all");
+    return;
+  }
+
   if (target.closest("[data-looper-recover]")) {
     sendRecoverLooperSession();
     return;
@@ -249,6 +265,10 @@ function handleClick(event: MouseEvent): void {
     sendLooperLayer(id, { solo: !layer.solo });
   } else if (target.closest("[data-looper-layer-remove]")) {
     sendRemoveLooperLayer(id);
+  } else if (target.closest("[data-looper-layer-retone]")) {
+    sendRetoneLooperLayers([id]);
+  } else if (target.closest("[data-looper-layer-revert]")) {
+    sendRetoneLooperLayers([id], true);
   } else {
     const exportAs = target.closest<HTMLElement>("[data-looper-layer-export]")?.dataset.looperLayerExport;
 

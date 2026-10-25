@@ -5,6 +5,7 @@
  * is all that changes while the loop runs.
  */
 
+import { uiState } from "../state.js";
 import { escapeHtml } from "../utils.js";
 import { renderLooperLayers, updateLooperLayerControls } from "./layers.js";
 import {
@@ -114,10 +115,18 @@ function renderProjectMenu(status: LooperStatus): string {
       </li>`;
   }).join("");
   const list = rows ? `<ul class="looper-project-list">${rows}</ul>` : `<p class="looper-project-empty">No saved loops yet.</p>`;
+  // Riffs come in as a layer, rendered through the current rig (or as the loop, when there is none).
+  const riffRows = (uiState.riffLibrary?.riffs ?? []).map((riff) => {
+    const take = riff.takes.find((t) => t.id === riff.preferredTakeId) ?? riff.takes[riff.takes.length - 1];
+    return take
+      ? `<li class="looper-riff-row"><button type="button" class="looper-project-open" data-looper-add-riff="${escapeHtml(take.id)}" title="Add as a layer">${escapeHtml(riff.title || "Riff")}</button></li>`
+      : "";
+  }).join("");
+  const riffs = riffRows ? `<p class="looper-projects-heading">Add a riff as a layer</p><ul class="looper-project-list">${riffRows}</ul>` : "";
   return `
     <details class="looper-projects-menu" data-looper-projects>
       <summary title="Saved loops">Loops</summary>
-      <div class="looper-projects-body">${recover}${list}</div>
+      <div class="looper-projects-body">${recover}${list}${riffs}</div>
     </details>`;
 }
 

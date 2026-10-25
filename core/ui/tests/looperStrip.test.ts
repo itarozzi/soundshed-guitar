@@ -158,6 +158,38 @@ describe("the looper strip", () => {
     expect(sent).toContainEqual({ type: "exportLooperLayer", layerId: "L1", as: "riff" });
   });
 
+  it("re-amps a layer, reverts it, re-amps them all, and adds a riff as a layer", () => {
+    uiState.riffLibrary = { path: "", riffs: [{ id: "r1", title: "Intro riff", categories: [], tags: [], takes: [{ id: "t1" } as never] }] };
+    state({ state: "playing", playing: true, lengthSec: 8, layerCount: 1 });
+    onLooperLayers({
+      type: "looperLayers",
+      layers: [{ id: "L1", title: "Layer 1", order: 1, wetSource: "reamp", canRevert: true, tone: { presetName: "Lead" } }],
+    });
+
+    if (strip.querySelector(".looper-layers")?.hasAttribute("hidden")) {
+      strip.querySelector<HTMLButtonElement>("[data-looper-layers]")?.click();
+    }
+
+    strip.querySelector<HTMLButtonElement>("[data-looper-layer-retone]")?.click();
+    strip.querySelector<HTMLButtonElement>("[data-looper-layer-revert]")?.click();
+    strip.querySelector<HTMLButtonElement>("[data-looper-retone-all]")?.click();
+    expect(sent).toContainEqual({ type: "retoneLooperLayer", layerIds: ["L1"] });
+    expect(sent).toContainEqual({ type: "retoneLooperLayer", layerIds: ["L1"], revert: true });
+    expect(sent).toContainEqual({ type: "retoneLooperLayer", layerIds: "all" });
+
+    onLooperLayers({
+      type: "looperLayers",
+      layers: [{ id: "L1", title: "Layer 1", order: 1, retone: { progress: 0.4 }, tone: { presetName: "Lead" } }],
+    });
+    const chip = strip.querySelector<HTMLButtonElement>("[data-looper-layer-retone]");
+    expect(chip?.textContent).toContain("Re-amping 40%");
+    expect(chip?.disabled).toBe(true);
+
+    onLooperProjects({ type: "looperProjects", projects: [] });
+    strip.querySelector<HTMLButtonElement>('[data-looper-add-riff="t1"]')?.click();
+    expect(sent).toContainEqual({ type: "addRiffAsLooperLayer", takeId: "t1" });
+  });
+
   it("explains a refused press once", () => {
     state({ notice: "noSpare" });
     state({ notice: "noSpare" });

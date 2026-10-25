@@ -111,6 +111,7 @@ struct LooperCommand
         DropRedo,     ///< The redo stack is dropped, to give its memory back
         ReplaceAudio, ///< `slot` plays and keeps `audio` from now on (its own copy, or a re-tone)
         LoadLoop,     ///< The loop is replaced by `loop`, Stopped, with nothing to undo
+        AddLayer,     ///< `loop`'s one layer is added (as an undoable step); a new loop if empty
     };
 
     Type type = Type::Action;
@@ -123,6 +124,9 @@ struct LooperCommand
     /// ReplaceAudio: the layer meant (its serial), so a swap made off the audio thread can never
     /// land on a newer layer that took the slot meanwhile.
     std::uint32_t serial = 0;
+    /// ReplaceAudio: the layer's tail from now on, when not negative. A re-toned layer sounds over
+    /// the whole loop; reverting puts back the tail it was recorded with.
+    std::int64_t ringOut = -1;
 };
 
 /// Read on the audio thread when a take starts, written from anywhere.
@@ -419,7 +423,8 @@ class LooperEngine
     /// No loop playing, nothing armed, counting in or being written.
     [[nodiscard]] bool IsIdle() const noexcept;
     void ApplyCommand(const LooperCommand& command);
-    void ReplaceAudio(int slot, std::uint32_t serial, const LayerAudio* audio, bool crossfade);
+    void ReplaceAudio(const LooperCommand& command);
+    void AddLayer(const LoopImage* image);
     void LoadLoop(const LoopImage* image);
     void ApplyAction(LooperAction action, int at);
     void StepSample(int i, float wetL, float wetR, bool muted);

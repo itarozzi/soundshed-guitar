@@ -497,6 +497,10 @@ set(GUITARFX_CORE_SOURCES
     src/controller/LooperServiceMessages.cpp
     src/controller/LooperServiceProjects.cpp
     src/controller/LooperServiceExport.cpp
+    src/controller/LooperServiceRetone.cpp
+    src/controller/LooperRender.h
+    src/controller/LooperRender.cpp
+    src/controller/PluginControllerLooper.cpp
     src/controller/LooperProjectFiles.h
     src/controller/LooperProjectFiles.cpp
     src/controller/LooperWorker.h

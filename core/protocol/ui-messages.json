@@ -2,6 +2,7 @@
   "$comment": "Every UI↔engine message type. Checked by tools/check-protocol.mjs; see docs/user-interface.md for payloads.",
   "uiToEngine": [
     "addActivePreset",
+    "addRiffAsLooperLayer",
     "addScene",
     "addSignalPathNode",
     "analyzeIrAlignment",
@@ -106,6 +107,7 @@
     "requestResourceData",
     "requestResourceLibrary",
     "requestState",
+    "retoneLooperLayer",
     "runSignalPathTest",
     "saveBlendArchive",
     "saveBlendDefinition",

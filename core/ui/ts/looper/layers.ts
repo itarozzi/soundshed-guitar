@@ -13,7 +13,15 @@ function layerHue(order: number): number {
 
 function renderRow(layer: LooperLayer): string {
   const id = escapeHtml(layer.id);
-  const tone = layer.presetName ? escapeHtml(layer.presetName) : "—";
+  const tone = layer.retoneProgress !== undefined
+    ? `Re-amping ${Math.round(layer.retoneProgress * 100)}%`
+    : layer.presetName ? escapeHtml(layer.presetName) : "—";
+  const toneTitle = layer.wetSource === "reamp"
+    ? "Re-amped through this preset. Click to re-amp with the current rig."
+    : "Played through this preset. Click to re-amp with the current rig.";
+  const revert = layer.canRevert
+    ? `<button type="button" class="looper-layer-revert" data-looper-layer-revert title="Back to the recorded tone" aria-label="Back to the recorded tone">↺</button>`
+    : "";
   const changed = layer.toneChanged
     ? `<span class="looper-tone-changed" title="The preset or scene changed during this take">•</span>`
     : "";
@@ -31,7 +39,7 @@ function renderRow(layer: LooperLayer): string {
     <div class="looper-layer-row" data-layer-id="${id}" style="--looper-layer-hue: ${layerHue(layer.order)}">
       <span class="looper-layer-swatch" aria-hidden="true"></span>
       ${title}
-      <span class="looper-tone-chip" title="Played through">${tone}${changed}</span>
+      <button type="button" class="looper-tone-chip${layer.wetSource === "reamp" ? " is-reamped" : ""}" data-looper-layer-retone title="${escapeHtml(toneTitle)}"${layer.recording || layer.retoneProgress !== undefined ? " disabled" : ""}>${tone}${changed}</button>${revert}
       ${recording}
       <label class="looper-layer-slider">Level ${level}</label>
       <label class="looper-layer-slider">Balance ${balance}</label>
@@ -44,7 +52,8 @@ export function renderLooperLayers(layers: readonly LooperLayer[]): string {
     return `<p class="looper-layers-empty">No layers yet. Press Rec and play.</p>`;
   }
 
-  return layers.map(renderRow).join("");
+  const all = `<div class="looper-layers-head"><button type="button" class="looper-retone-all" data-looper-retone-all>Re-amp all with the current rig</button></div>`;
+  return all + layers.map(renderRow).join("");
 }
 
 /** The engine's level and balance into each row's sliders, except one being dragged or focused. */

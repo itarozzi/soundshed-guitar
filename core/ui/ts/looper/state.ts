@@ -50,6 +50,8 @@ export interface LooperStatus {
   /** How much of the take being recorded there is so far. */
   recordedSec?: number;
   notice?: string;
+  /** More about a notice, such as why a preset cannot be rendered offline. */
+  noticeDetail?: string;
   projectId: string;
   projectTitle: string;
   /** The loop differs from the project it was saved as or loaded from (or was never saved). */
@@ -82,6 +84,13 @@ export interface LooperLayer {
   solo: boolean;
   presetName: string;
   toneChanged: boolean;
+  /** "live" as played, or "reamp" rendered through a preset later. */
+  wetSource: "live" | "reamp";
+  /** A re-tone replaced the recorded tone, which can come back. */
+  canRevert: boolean;
+  /** A re-tone in progress, 0..1. */
+  retoneProgress?: number;
+  riffId: string;
 }
 
 export interface LooperPeaks {
@@ -171,6 +180,7 @@ export function parseLooperStatus(payload: Record<string, unknown>): LooperStatu
     countInBeatsLeft: optional(payload.countInBeatsLeft),
     armWaitingSec: optional(payload.armWaitingSec),
     recordedSec: optional(payload.recordedSec),
+    noticeDetail: typeof payload.noticeDetail === "string" ? payload.noticeDetail : undefined,
     projectId: str(payload.projectId),
     projectTitle: str(payload.projectTitle),
     dirty: bool(payload.dirty),
@@ -202,7 +212,13 @@ export function parseLooperLayers(value: unknown): LooperLayer[] {
       solo: bool(layer.solo),
       presetName: str(tone.presetName),
       toneChanged: bool(layer.toneChanged),
-    };
+      wetSource: layer.wetSource === "reamp" ? "reamp" : "live",
+      canRevert: bool(layer.canRevert),
+      retoneProgress: layer.retone && typeof layer.retone === "object"
+        ? num((layer.retone as Record<string, unknown>).progress, 0)
+        : undefined,
+      riffId: str(layer.riffId),
+    } as LooperLayer;
   }).filter((layer) => layer.id !== "");
 }
 

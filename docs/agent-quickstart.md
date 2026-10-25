@@ -20,6 +20,7 @@ If you only load a few files, use these:
 - DSP graph executor: core/src/dsp/SignalGraphExecutor.h
 - Looper: core/src/dsp/looper/LooperEngine.h, the realtime half (layers of DI and wet, playback,
   Armed and Bars); a stage of the mixer between the global post-chain and master gain.
+  core/src/controller/LooperService.h is the rest (see the services table).
   docs/plans/looper.md is the design and says what is built
 - Mixer: core/src/dsp/MultiPresetMixer.h runs the per-block signal flow and composes
   PresetVoicePool (preset instances from install to retirement, and the swap, tail and
@@ -81,6 +82,7 @@ Prefer adding to one of these over adding another member to the controller:
 | Service (`core/src/controller/`) | Owns                                                                 |
 | -------------------------------- | -------------------------------------------------------------------- |
 | `MetronomeService`               | Click track and riff-capture guidance click — one engine, guidance overrides it. Meter/accents/subdivision are resolved into an immutable bar plan (`MetronomeSupport.h`); the sounds come from `MetronomeClickLibrary` |
+| `LooperService`                  | The looper's message-thread half: its buffers (freed only once no snapshot or offer can reach them), settings, the `looperState`/`looperLayers`/`looperWaveforms` feeds, the metronome link (tempo lock, count-in, click suppression), projects in the riff library's `loops/` with crash recovery (`LooperServiceProjects.cpp`, `LooperServiceExport.cpp`), and re-tone and riffs as layers (`LooperServiceRetone.cpp`, rendered by `LooperRender.cpp` on its `LooperWorker`) |
 | `TelemetryPublisher`             | The three metering feeds, their rate limits and the diagnostics roster |
 | `ControlSurfaceQueue`            | MIDI in, and setlist/scene requests parked for the message thread     |
 | `PracticeToolService`            | Backing-track playback with tempo/pitch shift and its own EQ — split across `PracticeToolService.cpp` (lifecycle, loading, transport, audio-thread mix), `PracticeToolServiceRender.cpp` (the background render thread) and `PracticeToolServiceMessages.cpp` (its twelve UI messages) |

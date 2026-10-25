@@ -71,6 +71,7 @@ set(TEST_SOURCES
     LooperEngineTests.cpp
     LooperServiceTests.cpp
     LooperProjectTests.cpp
+    LooperRetoneTests.cpp
     MixerLooperTests.cpp
     PracticeToolCrossfadeTests.cpp
     MessageDispatchTypeErrorTests.cpp

@@ -471,3 +471,46 @@ html[data-density="compact"] .looper-project,
 html[data-density="compact"] .looper-layer-export {
   display: none;
 }
+
+/* Re-tone: the tone chip re-amps the layer through the current rig. */
+.looper-tone-chip {
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--looper-border);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--looper-fg-strong);
+  font: inherit;
+  cursor: pointer;
+}
+
+.looper-tone-chip.is-reamped {
+  border-color: color-mix(in srgb, var(--color-accent) 62%, transparent);
+}
+
+.looper-tone-chip:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.looper-layer-revert,
+.looper-retone-all {
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--looper-border);
+  border-radius: var(--radius-md);
+  background: var(--looper-field-bg);
+  color: var(--looper-fg-strong);
+  font: inherit;
+  cursor: pointer;
+}
+
+.looper-layers-head {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.looper-projects-heading {
+  margin: 8px 0 4px;
+  font-weight: 700;
+}

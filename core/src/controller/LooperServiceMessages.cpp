@@ -357,6 +357,11 @@ nlohmann::json LooperService::BuildState() const
     if (!mPendingNotice.empty())
     {
         state["notice"] = mPendingNotice;
+
+        if (!mNoticeDetail.empty())
+        {
+            state["noticeDetail"] = mNoticeDetail;
+        }
     }
 
     return state;
@@ -406,7 +411,16 @@ nlohmann::json LooperService::BuildLayers() const
              {"diChannels", slot.diChannels},
              {"tone", {{"presetId", tone.presetId}, {"presetName", tone.presetName}, {"sceneId", tone.sceneId}}},
              {"toneChanged", meta != mLayers.end() && meta->second.toneChanged},
-             {"wetSource", "live"}});
+             {"wetSource", meta != mLayers.end() && meta->second.reamped ? "reamp" : "live"},
+             {"canRevert", meta != mLayers.end() && meta->second.recorded != nullptr},
+             {"riffId", meta != mLayers.end() ? meta->second.riffId : std::string{}}});
+
+        if (meta != mLayers.end() && meta->second.retoneProgress)
+        {
+            // Rounded, so the list is sent again as it moves on, but not on every idle tick.
+            const float progress = meta->second.retoneProgress->load(std::memory_order_relaxed);
+            layers.back()["retone"] = {{"progress", std::round(progress * 20.0f) / 20.0f}};
+        }
     }
 
     return layers;
@@ -435,6 +449,10 @@ void LooperService::RegisterMessageHandlers(MessageHandlerRegistry& registry)
     registry.Register("recoverLooperSession", [this](const nlohmann::json&) { HandleRecoverSession(); });
     registry.Register("dismissLooperRecovery", [this](const nlohmann::json&) { HandleDismissRecovery(); });
     registry.Register("exportLooperLayer", [this](const nlohmann::json& payload) { HandleExportLayer(payload); });
+    registry.Register("retoneLooperLayer", [this](const nlohmann::json& payload) { HandleRetone(payload); });
+    registry.Register("addRiffAsLooperLayer", [this](const nlohmann::json& payload) {
+        HandleAddRiff(payload.value("takeId", std::string{}));
+    });
     registry.Register("getLooperState", [this](const nlohmann::json&) {
         // Everything again on the next idle tick, waveforms included.
         mLastState.clear();

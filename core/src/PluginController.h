@@ -65,6 +65,10 @@ class TunerService;
 class GateLearnService;
 class PracticeToolService;
 class LooperService;
+namespace looper_render
+{
+struct Graphs;
+}
 class HostStateRelay;
 class RiffRecorder;
 
@@ -623,8 +627,16 @@ class PluginController
                                        const GlobalSignalChainConfig& chainConfig);
     /// measurePresetLevel's message-thread half (PluginControllerPresetLevel.cpp): the preset
     /// resolved, prepared and built into a graph of its own for mPresetLevelMeter to render.
-    /// Nullopt with `failure` ({message, ...}) filled when it cannot be.
-    std::optional<PresetLevelJob> BuildPresetLevelJob(const nlohmann::json& payload, nlohmann::json& failure);
+    /// Nullopt with `failure` ({message, ...}) filled when it cannot be. The looper's re-tone builds
+    /// its rig the same way, `forPlayer`: a stereo input and this player's NAM interface calibration
+    /// rather than the reference level, so it renders as the live rig plays.
+    std::optional<PresetLevelJob> BuildPresetLevelJob(const nlohmann::json& payload, nlohmann::json& failure,
+                                                      bool forPlayer = false);
+    /// The looper's render graphs (PluginControllerLooper.cpp): the preset and scene asked for (the
+    /// active ones when empty) with the global chains in force. Null with `error` set when it cannot
+    /// be rendered offline.
+    std::unique_ptr<looper_render::Graphs> BuildLooperRenderGraphs(const std::string& presetId,
+                                                                   const std::string& sceneId, std::string& error);
     /// Builds a new instance for an active mixer slot from `slotPreset`, as it is, off the DSP
     /// lock, and swaps it in for the running one under the lock, which keeps the slot's mix
     /// settings. Leaves the slot's cache entry and the host latency to the caller. Returns false

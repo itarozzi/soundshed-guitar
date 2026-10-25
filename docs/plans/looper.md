@@ -46,7 +46,21 @@ recommended.
   is copied out of the capture buffer when it finishes. Saved loops are listed in the strip's
   Loops menu (open, delete, recover), not in the riff library panel. `LooperProjectTests`.
 
-**Not built yet:** Phase 5 (re-tone, and adding a riff as a layer, which needs its render).
+- **Phase 5, re-tone.** `controller/LooperRender.{h,cpp}` (two passes, latency removed, the rig's
+  pan law, helpers refused), `LooperServiceRetone.cpp`, `PluginControllerLooper.cpp` (the graphs:
+  `BuildPresetLevelJob(..., forPlayer)` for the rig, with a stereo input and the player's NAM
+  calibration, plus the global chains in force). A re-toned layer sounds across the whole loop
+  (`ReplaceAudio`'s ring-out override); the engine gained `AddLayer` for a riff added as an
+  undoable layer. `LooperRetoneTests`: a re-amp through the same rig matches the live take
+  (correlation over 0.99, level within 0.5 dB), revert, and a riff added as a layer.
+
+**All phases built.** What is left, each its own decision: the performance-pads looper row; a riff
+  library panel Loops list (the strip's Loops menu does it now); keeping the recorded tone of a
+  re-toned layer across save and load (revert lasts the session; `recorded.wav` is not written);
+  a choice of preset other than the active one for re-tone in the UI (the message takes one); the
+  pad/trim/new-project choice when a riff's length differs from the loop (it is fitted); the
+  count-in click for a Bars take started from MIDI with the metronome off; WASM nodes in a
+  re-tone (not checked); plus Phase 7's list.
 
 **Phase 2 limits:** a Bars take started from MIDI with the metronome off counts in silently (the
 guidance click is switched on the message thread, for a UI press). The looper level a footswitch

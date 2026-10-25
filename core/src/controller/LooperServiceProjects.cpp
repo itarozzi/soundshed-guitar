@@ -83,7 +83,8 @@ std::shared_ptr<LooperService::Buffer> LooperService::FindBuffer(const looper::L
     return nullptr;
 }
 
-void LooperService::Swap(int slot, std::uint32_t serial, const std::shared_ptr<Buffer>& buffer, bool crossfade)
+void LooperService::Swap(int slot, std::uint32_t serial, const std::shared_ptr<Buffer>& buffer, bool crossfade,
+                         std::int64_t ringOut)
 {
     buffer->appliedAfter = mEngine.BlocksProcessed() + 2;
     LooperCommand command;
@@ -92,6 +93,7 @@ void LooperService::Swap(int slot, std::uint32_t serial, const std::shared_ptr<B
     command.serial = serial;
     command.audio = &buffer->audio;
     command.crossfade = crossfade;
+    command.ringOut = ringOut;
     mEngine.Enqueue(command);
 }
 
@@ -204,7 +206,8 @@ nlohmann::json LooperService::ProjectJson(const std::string& id, const std::stri
              {"balance", mix.balance.load()},
              {"muted", mix.muted.load()},
              {"solo", mix.solo.load()},
-             {"wetSource", "live"},
+             {"wetSource", meta.reamped ? "reamp" : "live"},
+             {"riffId", meta.riffId},
              {"tone", ToneJson(meta.tone)},
              {"toneChanged", meta.toneChanged}});
     }
@@ -224,32 +227,36 @@ void LooperService::ProjectsOnIdle(const LooperSnapshot& snapshot)
     PrepareSession();
     const std::uint64_t blocks = mEngine.BlocksProcessed();
 
-    // A loaded project's layers, once the engine has them: their names, tones and keys go on.
-    if (mPendingImage && !mPendingMetas.empty())
+    // Layers sent to the engine (a load, a riff added), once it has them: found by their audio,
+    // their names, tones and keys go on. Ones it refused are given up on.
+    if (!mPendingMetas.empty())
     {
-        bool applied = true;
-
-        for (std::size_t i = 0; i < mPendingMetas.size(); ++i)
+        for (auto it = mPendingMetas.begin(); it != mPendingMetas.end();)
         {
-            applied = applied && snapshot.slots[i].audio == mPendingImage->layers[i].audio;
+            const auto slot = std::find_if(snapshot.slots.begin(), snapshot.slots.end(),
+                                           [&](const SlotInfo& s) { return s.audio == it->first && s.status != SlotStatus::Free; });
+
+            if (slot != snapshot.slots.end())
+            {
+                mLayers[slot->serial] = it->second;
+                it = mPendingMetas.erase(it);
+            }
+            else
+            {
+                ++it;
+            }
         }
 
-        if (applied)
+        if (mPendingMetas.empty() && mMarkSavedOnMap)
         {
-            mLayers.clear();
+            mSavedKey = ProjectKey();
+            mMarkSavedOnMap = false;
+        }
 
-            for (std::size_t i = 0; i < mPendingMetas.size(); ++i)
-            {
-                mLayers[snapshot.slots[i].serial] = mPendingMetas[i];
-            }
-
+        if (blocks >= mPendingImageApplied + 8)
+        {
             mPendingMetas.clear();
-
-            if (mMarkSavedOnMap)
-            {
-                mSavedKey = ProjectKey();
-                mMarkSavedOnMap = false;
-            }
+            mMarkSavedOnMap = false;
         }
     }
 
@@ -560,6 +567,8 @@ void LooperService::LoadFrom(const fs::path& folder, const std::string& projectI
             meta.tone = {tone.value("presetId", std::string{}), tone.value("presetName", std::string{}),
                          tone.value("sceneId", std::string{})};
             meta.toneChanged = layer.value("toneChanged", false);
+            meta.reamped = layer.value("wetSource", std::string{}) == "reamp";
+            meta.riffId = layer.value("riffId", std::string{});
             meta.copiedOut = true;
             metas.push_back(std::move(meta));
             buffers.push_back(std::move(buffer));
@@ -609,7 +618,14 @@ void LooperService::LoadFrom(const fs::path& folder, const std::string& projectI
             mEngine.Enqueue(command);
             mPendingImage = std::move(loaded);
             mPendingImageApplied = applied;
-            mPendingMetas = metas;
+            mPendingMetas.clear();
+            mLayers.clear();
+
+            for (std::size_t i = 0; i < metas.size() && i < buffers.size(); ++i)
+            {
+                mPendingMetas.emplace_back(&buffers[i]->audio, metas[i]);
+            }
+
             mLayerNumber = static_cast<int>(metas.size());
             mProjectId = recovering ? std::string{} : projectId;
             mProjectTitle = recovering ? std::string{} : details.value("title", std::string{});

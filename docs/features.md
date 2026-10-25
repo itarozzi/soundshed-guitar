@@ -454,6 +454,16 @@ Built-in test signals for non-destructive preset auditioning without live guitar
 - Engine sends `previewStarted`, `previewComplete`, `previewStopped` notifications.
   A looping preview never reports `previewComplete`: it runs until stopped.
 
+### Looper
+
+A phrase looper docked above the footer (standalone, behind the Looper feature flag): record a
+loop, layer overdubs on it (held across the wrap, one layer per pass), and mix, mute, solo,
+balance or remove each layer, with undo and redo. Press or Armed starts, Free or Bars lengths, a
+count-in on the metronome. Each layer keeps its DI and the tone it was played with; a layer can be
+re-amped later through another preset, offline, and put back. Loops are saved as looper projects
+in the riff library, an unsaved one is recovered after a crash, a layer exports as a riff or a WAV,
+and a riff comes in as a layer. docs/plans/looper.md is the design.
+
 ### Riff Library
 
 Record and playback of user guitar takes for offline preset editing.

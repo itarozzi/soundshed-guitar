@@ -91,7 +91,7 @@ nlohmann::json FindMissingResources(const Preset& preset, const ResourceLibrary&
 } // namespace
 
 std::optional<PresetLevelJob> PluginController::BuildPresetLevelJob(const nlohmann::json& payload,
-                                                                    nlohmann::json& failure)
+                                                                    nlohmann::json& failure, bool forPlayer)
 {
     const auto fail = [&failure](const std::string& message) -> std::optional<PresetLevelJob> {
         failure["message"] = message;
@@ -179,7 +179,8 @@ std::optional<PresetLevelJob> PluginController::BuildPresetLevelJob(const nlohma
     const auto clipFile = FindDemoClipFile(clipId, nullptr);
     std::error_code ec;
 
-    if (clipFile.empty() || !std::filesystem::is_regular_file(clipFile, ec))
+    // A re-tone plays the player's own DI, not a clip.
+    if (!forPlayer && (clipFile.empty() || !std::filesystem::is_regular_file(clipFile, ec)))
     {
         return fail("Unknown demo clip: " + clipId);
     }
@@ -201,7 +202,7 @@ std::optional<PresetLevelJob> PluginController::BuildPresetLevelJob(const nlohma
     }
 
     // Built and prepared here, off the DSP lock, as a preset load builds a slot.
-    job.executor = mPresetMixer.BuildDetachedExecutor(*preset, ChannelLayout::Mono);
+    job.executor = mPresetMixer.BuildDetachedExecutor(*preset, forPlayer ? ChannelLayout::Stereo : ChannelLayout::Mono);
 
     if (!job.executor->IsValid())
     {
@@ -220,8 +221,11 @@ std::optional<PresetLevelJob> PluginController::BuildPresetLevelJob(const nlohma
     {
         if (IsNamCalibratableEffectType(node.type))
         {
-            job.executor->SetNodeParam(node.id, "calibrationInputLevel", kNamInterfaceCalibrationLevelDbuDefault);
-            job.executor->SetNodeParam(node.id, "calibrationInputLevelEnabled", 1.0);
+            const bool playerOff = forPlayer && !mNamInterfaceCalibrationLevelDbu.has_value();
+            job.executor->SetNodeParam(node.id, "calibrationInputLevel",
+                                       forPlayer && mNamInterfaceCalibrationLevelDbu ? *mNamInterfaceCalibrationLevelDbu
+                                                                                     : kNamInterfaceCalibrationLevelDbuDefault);
+            job.executor->SetNodeParam(node.id, "calibrationInputLevelEnabled", playerOff ? 0.0 : 1.0);
         }
     }
 

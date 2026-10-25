@@ -38,6 +38,10 @@ namespace guitarfx
 {
 class IPluginHost;
 class LooperWorker;
+namespace looper_render
+{
+struct Graphs;
+}
 class MessageHandlerRegistry;
 class MetronomeService;
 class MultiPresetMixer;
@@ -100,6 +104,17 @@ class LooperService
         std::function<nlohmann::json()> loadIndex;
         std::function<bool(const nlohmann::json&)> saveIndex;
         std::function<void(std::shared_ptr<RiffTake>)> offerRiffTake;
+        /// Re-tone's graphs: the preset and scene (the active ones when empty) with the global chains.
+        /// Message thread. Null with the reason in `error` when it cannot be rendered offline.
+        std::function<std::unique_ptr<looper_render::Graphs>(const std::string& presetId,
+                                                             const std::string& sceneId, std::string& error)>
+            buildRender;
+        /// A riff take's audio at `sampleRate`, two channels, and its riff's title. Worker thread.
+        std::function<bool(const std::string& takeId, double sampleRate, std::vector<std::vector<float>>& audio,
+                           std::string& title)>
+            loadRiffTake;
+        /// The input calibration in force, for a riff added as a layer (riffs are stored raw).
+        std::function<float()> calibrationGain;
     };
 
     void SetProjectHooks(ProjectHooks hooks);
@@ -143,6 +158,12 @@ class LooperService
     /// exportLooperLayer: {layerId, as: "riff" | "wetWav"}.
     void HandleExportLayer(const nlohmann::json& payload);
     void SendProjectList();
+
+    // Re-tone (LooperServiceRetone.cpp).
+    /// retoneLooperLayer: {layerIds: [...] | "all", presetId?, sceneId?, revert?}.
+    void HandleRetone(const nlohmann::json& payload);
+    /// addRiffAsLooperLayer: {takeId}. A new loop of the take's length when there is none.
+    void HandleAddRiff(const std::string& takeId);
     /// True while the session writer, a save or a load is still working (tests wait on it).
     [[nodiscard]] bool ProjectWorkPending() const;
 
@@ -164,6 +185,14 @@ class LooperService
         std::string key;            ///< Its name on disk, kept across save and load
         bool sessionWritten = false; ///< Its files are in the session folder
         bool copiedOut = false;      ///< A first layer moved out of the capture buffer
+        bool reamped = false;        ///< Its wet sound was rendered, not played live
+        std::string riffId;          ///< The riff take it came from, if one
+        /// The live recording a re-tone replaced, kept so the recorded tone can come back.
+        std::shared_ptr<Buffer> recorded;
+        std::int64_t recordedRingOut = 0;
+        Tone recordedTone;
+        /// A re-tone in progress (0..1), shared with the worker; null when none is.
+        std::shared_ptr<std::atomic<float>> retoneProgress;
     };
 
     void ProjectsOnIdle(const looper::LooperSnapshot& snapshot);
@@ -176,7 +205,8 @@ class LooperService
     [[nodiscard]] std::string ProjectKey() const;
     void LoadFrom(const std::filesystem::path& folder, const std::string& projectId, bool recovering);
     void UpdateIndex(const nlohmann::json& entry, const std::string& removeId);
-    void Swap(int slot, std::uint32_t serial, const std::shared_ptr<Buffer>& buffer, bool crossfade);
+    void Swap(int slot, std::uint32_t serial, const std::shared_ptr<Buffer>& buffer, bool crossfade,
+              std::int64_t ringOut = -1);
 
     void StoreSettings();
     void ApplySettingsToEngine();
@@ -235,7 +265,12 @@ class LooperService
     bool mMarkSavedOnMap = false;
     std::unique_ptr<looper::LoopImage> mPendingImage;
     std::uint64_t mPendingImageApplied = 0;
-    std::vector<LayerMeta> mPendingMetas;
+    /// Layers sent to the engine (a load, a riff added) whose names, tones and keys go on once it has
+    /// them, found by their audio.
+    std::vector<std::pair<const looper::LayerAudio*, LayerMeta>> mPendingMetas;
+    std::string mNoticeDetail;
+    /// Images a command points at (a riff added), kept until the engine has surely applied it.
+    std::vector<std::pair<std::unique_ptr<looper::LoopImage>, std::uint64_t>> mHeldImages;
 
     std::string mLastState;
     std::string mLastLayers;

@@ -11,6 +11,7 @@
 #include "controller/MetronomeService.h"
 
 #include "controller/DemoPreviewService.h"
+#include "controller/LooperRender.h"
 #include "controller/LooperService.h"
 #include "controller/RiffRecorder.h"
 
@@ -20,6 +21,7 @@
 #include "controller/internal/RiffSupport.h"
 #include "util/AudioDecoder.h"
 #include "util/Base64.h"
+#include "util/FileIO.h"
 #include "util/PathEncoding.h"
 #include "util/PathSanitizer.h"
 #include "util/Wav.h"
@@ -1339,6 +1341,33 @@ void PluginController::CreateLooper(const std::function<void(const std::string&)
         msg["timeSigNum"] = take->config.timeSigNum;
         msg["timeSigDen"] = take->config.timeSigDen;
         SendMessageToUI(msg.dump());
+    };
+    hooks.buildRender = [this](const std::string& presetId, const std::string& sceneId, std::string& error) {
+        return BuildLooperRenderGraphs(presetId, sceneId, error);
+    };
+    hooks.calibrationGain = [this]() {
+        return static_cast<float>(std::pow(10.0, mPresetMixer.GetUserInputCalibrationGainDb() / 20.0));
+    };
+    // A riff take's audio for the looper's worker: found in the riff index, decoded and resampled.
+    hooks.loadRiffTake = [this](const std::string& takeId, double sampleRate, std::vector<std::vector<float>>& audio,
+                                std::string& title) {
+        const auto take = FindRiffTakeById(takeId);
+
+        if (!take || !take->contains("filePath") || !(*take)["filePath"].is_string())
+        {
+            return false;
+        }
+
+        const auto decoded = util::DecodePcmWav(util::ReadFileBytes(util::PathFromUtf8((*take)["filePath"].get<std::string>())));
+
+        if (!decoded || decoded->channelSamples.empty())
+        {
+            return false;
+        }
+
+        audio = util::ConvertToSampleRate(*decoded, sampleRate);
+        title = take->value("title", std::string("Riff"));
+        return !audio.empty();
     };
     mLooper->SetProjectHooks(std::move(hooks));
 }

@@ -566,3 +566,13 @@ export function sendDismissLooperRecovery(): void {
 export function sendExportLooperLayer(layerId: string, as: "riff" | "wetWav"): void {
   postMessage({ type: "exportLooperLayer", layerId, as });
 }
+
+/** Re-tone layers through the current rig (or back to their recorded tone, `revert`). */
+export function sendRetoneLooperLayers(layerIds: string[] | "all", revert = false): void {
+  postMessage({ type: "retoneLooperLayer", layerIds, ...(revert ? { revert } : {}) });
+}
+
+/** A riff take as a new layer, rendered through the current rig. */
+export function sendAddRiffAsLooperLayer(takeId: string): void {
+  postMessage({ type: "addRiffAsLooperLayer", takeId });
+}

@@ -352,8 +352,10 @@ void LooperEngine::SnapGains(int slotIndex)
     slot.gainR = targetsR[static_cast<std::size_t>(slotIndex)];
 }
 
-void LooperEngine::ReplaceAudio(int slotIndex, std::uint32_t serial, const LayerAudio* audio, bool crossfade)
+void LooperEngine::ReplaceAudio(const LooperCommand& command)
 {
+    const int slotIndex = command.slot;
+    const LayerAudio* audio = command.audio;
     if (slotIndex < 0 || slotIndex >= kMaxLayers || !audio || !audio->wet[0] || audio->capacity < mLength)
     {
         return;
@@ -363,7 +365,7 @@ void LooperEngine::ReplaceAudio(int slotIndex, std::uint32_t serial, const Layer
 
     // Only a finished layer: nothing writes to it any more.
     if (slot.status == SlotStatus::Free || slot.status == SlotStatus::Recording || !slot.final ||
-        slot.serial != serial)
+        slot.serial != command.serial)
     {
         return;
     }
@@ -371,7 +373,7 @@ void LooperEngine::ReplaceAudio(int slotIndex, std::uint32_t serial, const Layer
     slot.fadeFrom = nullptr;
     slot.fadeLeft = 0;
 
-    if (crossfade && mPlaying && slot.audio)
+    if (command.crossfade && mPlaying && slot.audio)
     {
         slot.fadeFrom = slot.audio;
         slot.fadeFromHead = slot.head;
@@ -382,6 +384,57 @@ void LooperEngine::ReplaceAudio(int slotIndex, std::uint32_t serial, const Layer
     slot.audio = audio;
     slot.head = 0;
     slot.capacity = mLength;
+
+    if (command.ringOut >= 0)
+    {
+        slot.ringOut = std::min(command.ringOut, mLength);
+    }
+}
+
+void LooperEngine::AddLayer(const LoopImage* image)
+{
+    if (!image || image->layerCount < 1)
+    {
+        return;
+    }
+
+    if (mLength <= 0)
+    {
+        LoadLoop(image);
+        return;
+    }
+
+    const LoopLayerImage& layer = image->layers[0];
+    ClearRedo();
+    const int slotIndex = FindFreeSlot();
+
+    if (slotIndex < 0 || !layer.audio || !layer.audio->wet[0] || layer.audio->capacity < mLength)
+    {
+        Raise(kNoticeNoSlot);
+        return;
+    }
+
+    Slot& slot = mSlots[static_cast<std::size_t>(slotIndex)];
+    slot = Slot{};
+    slot.status = SlotStatus::Visible;
+    slot.audio = layer.audio;
+    slot.capacity = mLength;
+    slot.serial = mNextSerial++;
+    slot.spanStart = std::clamp<std::int64_t>(layer.spanStart, 0, mLength - 1);
+    slot.spanLength = std::clamp<std::int64_t>(layer.spanLength, 1, mLength);
+    slot.ringOut = std::clamp<std::int64_t>(layer.ringOut, 0, mLength);
+    slot.latency = layer.latencySamples;
+    slot.calibrationGain = layer.calibrationGain;
+    slot.diChannels = layer.diChannels;
+    slot.final = true;
+    LayerMix& mix = mMix[static_cast<std::size_t>(slotIndex)];
+    mix.level.store(layer.level, std::memory_order_relaxed);
+    mix.balance.store(layer.balance, std::memory_order_relaxed);
+    mix.muted.store(layer.muted, std::memory_order_relaxed);
+    mix.solo.store(layer.solo, std::memory_order_relaxed);
+    mHistory[static_cast<std::size_t>(mHistoryCount++)] = {EntryKind::Recorded, slotIndex};
+    AfterVisibilityChange();
+    Raise(kNoticeLayerClosed);
 }
 
 void LooperEngine::LoadLoop(const LoopImage* image)

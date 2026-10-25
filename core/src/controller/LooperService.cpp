@@ -191,12 +191,22 @@ void LooperService::OnIdle()
                            [audio](const looper::SlotInfo& slot) { return slot.audio == audio; });
     };
 
+    // A re-toned layer's recorded tone is kept too, so it can come back.
+    const auto kept = [this](const std::shared_ptr<Buffer>& buffer) {
+        return std::any_of(mLayers.begin(), mLayers.end(),
+                           [&](const auto& entry) { return entry.second.recorded == buffer; });
+    };
+
     mBuffers.erase(std::remove_if(mBuffers.begin(), mBuffers.end(),
                                   [&](const std::shared_ptr<Buffer>& buffer) {
                                       return buffer != mWantedCapture && buffer != mOfferedSpare &&
-                                             blocks >= buffer->appliedAfter && !referenced(&buffer->audio);
+                                             blocks >= buffer->appliedAfter && !referenced(&buffer->audio) &&
+                                             !kept(buffer);
                                   }),
                    mBuffers.end());
+    mHeldImages.erase(std::remove_if(mHeldImages.begin(), mHeldImages.end(),
+                                     [blocks](const auto& held) { return blocks >= held.second; }),
+                      mHeldImages.end());
 
     ProjectsOnIdle(snapshot);
     TrackLayers(snapshot);
@@ -406,6 +416,7 @@ void LooperService::SendFeeds(const LooperSnapshot& snapshot)
         state["type"] = "looperState";
         mSendMessage(state.dump());
         mPendingNotice.clear();
+        mNoticeDetail.clear();
     }
 
     nlohmann::json layers = BuildLayers();
