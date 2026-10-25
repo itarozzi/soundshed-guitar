@@ -36,11 +36,19 @@ juce_add_plugin("${NANO_TARGET}"
     NEEDS_MIDI_OUTPUT TRUE
     MICROPHONE_PERMISSION_ENABLED TRUE
     MICROPHONE_PERMISSION_TEXT "Soundshed Guitar Nano needs microphone access to process live audio input."
+    # iOS and iPadOS (ignored elsewhere). Unlike Soundshed Guitar, Nano lays itself out for
+    # portrait too (a tab bar and slider rows), as it does on Android, so every orientation
+    # and iPad multitasking are allowed. Status bar and home indicator are kept clear by
+    # NanoEditor::systemInsets.
+    TARGETED_DEVICE_FAMILY "1,2"
+    IPHONE_SCREEN_ORIENTATIONS UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
+    IPAD_SCREEN_ORIENTATIONS UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
+    BACKGROUND_AUDIO_ENABLED TRUE
     PRODUCT_NAME "${NANO_PRODUCT_NAME}")
 
 add_library(NanoSharedCode INTERFACE)
 
-if(NOT CMAKE_SYSTEM_NAME STREQUAL "Android")
+if(NOT SSG_MOBILE)
     clap_juce_extensions_plugin(TARGET "${NANO_TARGET}"
         CLAP_ID "${NANO_BUNDLE_ID}"
         CLAP_FEATURES audio-effect)
@@ -73,6 +81,7 @@ target_compile_definitions(NanoSharedCode
     VERSION="${CURRENT_VERSION}"
     PRODUCT_NAME_WITHOUT_VERSION="${NANO_PRODUCT_NAME}"
     SOUNDSHED_NATIVE_UI=1
+    SOUNDSHED_MOBILE=${SSG_MOBILE_DEFINE}
 )
 
 if(GUITARFX_JUCE_ASIO_USE_EXTERNAL_SDK)
@@ -113,7 +122,10 @@ function(soundshed_copy_nano_resources FORMAT_TARGET)
         return()
     endif()
 
-    if(APPLE)
+    if(IOS)
+        # Flat iOS bundle: ui/ beside the executable (see soundshed_copy_ui_resources).
+        set(_dst_base "$<TARGET_BUNDLE_DIR:${FORMAT_TARGET}>/ui")
+    elseif(APPLE)
         set(_dst_base "$<TARGET_BUNDLE_DIR:${FORMAT_TARGET}>/Contents/Resources/ui")
     else()
         set(_dst_base "$<TARGET_FILE_DIR:${FORMAT_TARGET}>/resources/ui")

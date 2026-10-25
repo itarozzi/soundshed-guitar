@@ -80,7 +80,7 @@ Web-based SPA in a native WebView container.
   them is a semaphore post, not a lock. A claim is one compare-exchange on a word holding the
   dispatch's generation, task count and next index, so a helper that stalls past the end of one
   dispatch cannot claim into the next. Helpers set flush-to-zero as the audio thread does.
-  Android runs without them (`kParallelDspSupported`, see android-build.md).
+  Android and iOS run without them (`kParallelDspSupported`, see android-build.md and ios-build.md).
 - UI → Background: Task queue
 - Background → UI: Completion callbacks
 - Host → state: a DAW may ask for the plugin's state on any thread. `SerializeState` builds

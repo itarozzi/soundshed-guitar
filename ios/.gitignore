@@ -1,0 +1,2 @@
+# The Xcode build tree made by build.sh (or cmake -B ios/build).
+/build/

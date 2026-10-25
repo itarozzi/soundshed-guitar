@@ -24,13 +24,26 @@ set(COMPANY_NAME "Soundshed")
 # Change me! Used for the MacOS bundle identifier (and signing)
 set(BUNDLE_ID "com.soundshed.guitar")
 
+# A phone or tablet: Android (android/, docs/android-build.md) or iOS and iPadOS
+# (ios/, docs/ios-build.md). The app owns the screen, there is one instance and no
+# window manager, and there are no desktop plugin formats. Known before project()
+# because CMAKE_SYSTEM_NAME comes from the command line (or Gradle's toolchain).
+if(CMAKE_SYSTEM_NAME STREQUAL "Android" OR CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    set(SSG_MOBILE ON)
+    set(SSG_MOBILE_DEFINE 1)
+else()
+    set(SSG_MOBILE OFF)
+    set(SSG_MOBILE_DEFINE 0)
+endif()
+
 # Change me! Set the plugin formats you want built
 # Valid choices: AAX Unity VST VST3 AU AUv3 Standalone LV2
 #
 # Android has no plugin host to load AU/VST3/AAX into, and JUCE emits every
 # format as its own shared library, so the standalone app is the only format
-# worth building there.
-if(CMAKE_SYSTEM_NAME STREQUAL "Android")
+# worth building there. iOS could take an AUv3 as well, but the standalone app is
+# the port; an AUv3 is a separate piece of work (docs/ios-build.md).
+if(SSG_MOBILE)
     set(FORMATS Standalone)
 else()
     set(FORMATS Standalone AU AAX VST3)
@@ -45,8 +58,9 @@ set(GUITARFX_LV2_URI "urn:soundshed:guitar" CACHE STRING "Stable LV2 URI for Sou
 
 # Hosting third-party plugins needs a desktop plugin format on disk. Android has
 # none, so the format manager is compiled with no formats registered and the
-# "add a plugin" paths simply find nothing.
-if(CMAKE_SYSTEM_NAME STREQUAL "Android")
+# "add a plugin" paths simply find nothing. iOS has AUv3 hosting, which this app
+# has never been built or tested against, so it is off there too.
+if(SSG_MOBILE)
     set(GUITARFX_PLUGINHOST_ENABLED 0)
 else()
     set(GUITARFX_PLUGINHOST_ENABLED 1)
@@ -84,7 +98,14 @@ endif()
 # Big Sur gets and Catalina (10.15, the old target) doesn't.
 # Must be set before project(); a value set on the command line or in the
 # environment still wins. Keep juce/packaging/distribution.xml.template in step.
-if(NOT CMAKE_OSX_DEPLOYMENT_TARGET AND NOT DEFINED ENV{MACOSX_DEPLOYMENT_TARGET})
+#
+# On iOS the same variable is the minimum iOS version, and the same WebKit floor
+# applies: Safari 16.5 is iOS 16.5. Nano has no WebView but shares the build.
+if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    if(NOT CMAKE_OSX_DEPLOYMENT_TARGET AND NOT DEFINED ENV{IPHONEOS_DEPLOYMENT_TARGET})
+        set(CMAKE_OSX_DEPLOYMENT_TARGET "16.5" CACHE STRING "Minimum iOS version" FORCE)
+    endif()
+elseif(NOT CMAKE_OSX_DEPLOYMENT_TARGET AND NOT DEFINED ENV{MACOSX_DEPLOYMENT_TARGET})
     set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version" FORCE)
 endif()
 
@@ -139,6 +160,16 @@ endif()
 
 # Configures universal binaries and decides which version of macOS to support
 include(PamplejuceMacOS)
+
+# Wasmtime publishes no iOS C API bundle (and iOS forbids the JIT it would need),
+# so, as on Android, the generic WASM effect host is unavailable. The SIMD level
+# matters only for the x86_64 simulator on an Intel Mac, where the host's CPU is not
+# known when the project is generated.
+if(IOS)
+    set(GUITARFX_CORE_ENABLE_WASM_EFFECTS OFF CACHE BOOL "Build the generic WASM effect host" FORCE)
+    set(GUITARFX_CORE_SIMD_LEVEL "sse2" CACHE STRING "" FORCE)
+    message(STATUS "iOS build detected; disabling WASM effects (no Wasmtime C API bundle for iOS).")
+endif()
 
 if(APPLE AND CMAKE_OSX_ARCHITECTURES MATCHES ";")
     set(GUITARFX_CORE_ENABLE_WASM_EFFECTS OFF CACHE BOOL "Build the generic WASM effect host" FORCE)
@@ -339,6 +370,20 @@ add_subdirectory(modules/clap-juce-extensions EXCLUDE_FROM_ALL)
 # Add any other modules you want modules here, before the juce_add_plugin call
 # juce_add_module(modules/my_module)
 
+# iOS and iPadOS app options (ignored on every other platform). Landscape only, as on
+# Android: the UI is a desktop layout and portrait leaves the signal chain room for
+# barely two nodes. Full screen, so iPad Split View cannot squeeze it either (an iPad
+# app that allows multitasking must allow every orientation). No status bar: on an
+# iPad it would take the header's top strip for a clock. Background audio keeps the
+# amp running while another app plays a backing track.
+set(GUITARFX_IOS_APP_OPTIONS
+    TARGETED_DEVICE_FAMILY "1,2"
+    IPHONE_SCREEN_ORIENTATIONS UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
+    IPAD_SCREEN_ORIENTATIONS UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
+    REQUIRES_FULL_SCREEN TRUE
+    STATUS_BAR_HIDDEN TRUE
+    BACKGROUND_AUDIO_ENABLED TRUE)
+
 # See `docs/CMake API.md` in the JUCE repo for all config options
 juce_add_plugin("${PROJECT_NAME}"
     # Icons for the standalone app
@@ -378,6 +423,7 @@ juce_add_plugin("${PROJECT_NAME}"
     MICROPHONE_PERMISSION_ENABLED TRUE
     MICROPHONE_PERMISSION_TEXT "Soundshed Guitar needs microphone access to record and process live audio input."
     XCODE_EXTRA_PLIST_ENTRIES "${GUITARFX_XCODE_EXTRA_PLIST_ENTRIES}"
+    ${GUITARFX_IOS_APP_OPTIONS}
 
     # The name of your final executable
     # This is how it's listed in the DAW
@@ -389,7 +435,7 @@ juce_add_plugin("${PROJECT_NAME}"
 # Without running into ODR violations
 add_library(SharedCode INTERFACE)
 
-if(NOT CMAKE_SYSTEM_NAME STREQUAL "Android")
+if(NOT SSG_MOBILE)
     clap_juce_extensions_plugin(TARGET "${PROJECT_NAME}"
         CLAP_ID "${BUNDLE_ID}"
         CLAP_FEATURES audio-effect)
@@ -484,6 +530,9 @@ target_compile_definitions(SharedCode
 
     # The WebView editor (juce/source/ProductInfo.h)
     SOUNDSHED_NATIVE_UI=0
+
+    # Android or iOS: the window fills the screen, one instance, no launch curtain
+    SOUNDSHED_MOBILE=${SSG_MOBILE_DEFINE}
 )
 
 if(GUITARFX_JUCE_ASIO_USE_EXTERNAL_SDK)
@@ -531,6 +580,9 @@ else()
     message(WARNING "npm not found – TypeScript UI bundle will not be rebuilt automatically")
 endif()
 
+# The parts of core/ui the iOS app ships (the same list as android/app/build.gradle.kts).
+set(GUITARFX_IOS_UI_DIRS dist css images data assets metronome ui-components presets demo)
+
 # Helper: create a post-build step that copies the runtime UI bundle for a
 # given JUCE format target.
 function(soundshed_copy_ui_resources FORMAT_TARGET)
@@ -543,17 +595,41 @@ function(soundshed_copy_ui_resources FORMAT_TARGET)
         add_dependencies(${FORMAT_TARGET} SoundshedBuildTypeScript)
     endif()
 
-    if(APPLE)
+    if(IOS)
+        # An iOS bundle is flat, the executable at its root, so ui/ goes there too and
+        # PluginProcessorAdapter::locateAssetsRoot looks beside the executable. Not
+        # resources/ui: a root directory called "resources" makes codesign take an iOS
+        # bundle for a macOS one ("code object is not signed at all").
+        set(_dst_base "$<TARGET_BUNDLE_DIR:${FORMAT_TARGET}>/ui")
+    elseif(APPLE)
         set(_dst_base "$<TARGET_BUNDLE_DIR:${FORMAT_TARGET}>/Contents/Resources/ui")
     else()
         set(_dst_base "$<TARGET_FILE_DIR:${FORMAT_TARGET}>/resources/ui")
     endif()
 
-    add_custom_command(TARGET ${FORMAT_TARGET} POST_BUILD
-        COMMENT "Copying core UI resources for ${FORMAT_TARGET}"
-        COMMAND ${CMAKE_COMMAND} -E copy_directory "${_UI_SRC_DIR}" "${_dst_base}"
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_GUITARFX_GENERATED_UI_DIR}/build-flags.js" "${_dst_base}/build-flags.js"
-    )
+    if(IOS)
+        # Only what ships, as Android's stageUiAssets does: the whole of core/ui
+        # includes node_modules, the TypeScript sources and the tests, which an app
+        # bundle has to carry to the device and sign file by file.
+        set(_copy_commands)
+        foreach(_dir IN LISTS GUITARFX_IOS_UI_DIRS)
+            list(APPEND _copy_commands
+                COMMAND ${CMAKE_COMMAND} -E copy_directory "${_UI_SRC_DIR}/${_dir}" "${_dst_base}/${_dir}")
+        endforeach()
+
+        add_custom_command(TARGET ${FORMAT_TARGET} POST_BUILD
+            COMMENT "Copying core UI resources for ${FORMAT_TARGET}"
+            ${_copy_commands}
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_UI_SRC_DIR}/index.html" "${_dst_base}/index.html"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_GUITARFX_GENERATED_UI_DIR}/build-flags.js" "${_dst_base}/build-flags.js"
+        )
+    else()
+        add_custom_command(TARGET ${FORMAT_TARGET} POST_BUILD
+            COMMENT "Copying core UI resources for ${FORMAT_TARGET}"
+            COMMAND ${CMAKE_COMMAND} -E copy_directory "${_UI_SRC_DIR}" "${_dst_base}"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_GUITARFX_GENERATED_UI_DIR}/build-flags.js" "${_dst_base}/build-flags.js"
+        )
+    endif()
 
     if(WIN32 AND NOT GUITARFX_WEBVIEW2_STATIC_LINKING AND EXISTS "${GUITARFX_WEBVIEW2_LOADER_DLL}")
         add_custom_command(TARGET ${FORMAT_TARGET} POST_BUILD
@@ -1058,7 +1134,7 @@ if(WIN32)
     )
 endif()
 
-if(APPLE)
+if(APPLE AND NOT IOS)
     enable_testing()
 
     add_executable(HostedPluginBatchScanTests

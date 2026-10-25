@@ -175,10 +175,16 @@ endif()
 if((NOT DEFINED stftpitchshift_SOURCE_DIR OR NOT EXISTS "${stftpitchshift_SOURCE_DIR}/cpp/StftPitchShift/STFT.h")
    AND GUITARFX_CORE_FETCH_DEPS)
     include(FetchContent)
+    # Only its headers are used (below), so its own project, a library, a command-line
+    # tool and examples, is never added: SOURCE_SUBDIR names a directory with no
+    # CMakeLists.txt, which leaves FetchContent fetching the sources and nothing more.
+    # Adding it also broke the iOS configure, where an executable is a bundle and the
+    # tool's install() gives no bundle destination.
     FetchContent_Declare(stftpitchshift
         # Pinned to main as of 2025-09-13.
         GIT_REPOSITORY https://github.com/jurihock/stftPitchShift.git
-        GIT_TAG 1a4f21f6c300a785cce860e374fd63cb5e9ba154)
+        GIT_TAG 1a4f21f6c300a785cce860e374fd63cb5e9ba154
+        SOURCE_SUBDIR cpp/StftPitchShift/headers-only)
     FetchContent_MakeAvailable(stftpitchshift)
 endif()
 
