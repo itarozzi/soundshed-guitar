@@ -19,12 +19,14 @@
 // Threads: everything here is the message thread, except AfterMixer(), which the audio callback
 // calls between the mixer and the metronome.
 
+#include "controller/RiffTake.h"
 #include "dsp/looper/LooperEngine.h"
 
 #include <nlohmann/json.hpp>
 
 #include <atomic>
 #include <cstdint>
+#include <filesystem>
 #include <functional>
 #include <map>
 #include <memory>
@@ -35,6 +37,7 @@
 namespace guitarfx
 {
 class IPluginHost;
+class LooperWorker;
 class MessageHandlerRegistry;
 class MetronomeService;
 class MultiPresetMixer;
@@ -89,6 +92,20 @@ class LooperService
     LooperService(const LooperService&) = delete;
     LooperService& operator=(const LooperService&) = delete;
 
+    /// What projects need from the controller: where the riff library is, its looper-projects
+    /// index in the document store, and a way to hand a layer's DI to riff capture as a take.
+    struct ProjectHooks
+    {
+        std::function<std::filesystem::path()> libraryPath;
+        std::function<nlohmann::json()> loadIndex;
+        std::function<bool(const nlohmann::json&)> saveIndex;
+        std::function<void(std::shared_ptr<RiffTake>)> offerRiffTake;
+    };
+
+    void SetProjectHooks(ProjectHooks hooks);
+    /// Finishes the job in hand and stops the worker. Called before the controller goes.
+    void Shutdown();
+
     void RegisterMessageHandlers(MessageHandlerRegistry& registry);
 
     /// Reads looper.* from the app settings, writing back what it normalised, and applies it.
@@ -115,6 +132,20 @@ class LooperService
     void HandleSetLayer(const nlohmann::json& payload);
     void HandleRemoveLayer(const std::string& layerId);
 
+    // Projects (LooperServiceProjects.cpp).
+    /// saveLooperProject: {projectId?, title?}. Without an id, the loaded project, else a new one.
+    void HandleSaveProject(const nlohmann::json& payload);
+    void HandleLoadProject(const std::string& projectId);
+    void HandleDeleteProject(const std::string& projectId);
+    void HandleRenameProject(const std::string& projectId, const std::string& title);
+    void HandleRecoverSession();
+    void HandleDismissRecovery();
+    /// exportLooperLayer: {layerId, as: "riff" | "wetWav"}.
+    void HandleExportLayer(const nlohmann::json& payload);
+    void SendProjectList();
+    /// True while the session writer, a save or a load is still working (tests wait on it).
+    [[nodiscard]] bool ProjectWorkPending() const;
+
     /// The state the UI is sent, as it stands (also what tests read).
     [[nodiscard]] nlohmann::json BuildState() const;
     [[nodiscard]] nlohmann::json BuildLayers() const;
@@ -130,7 +161,22 @@ class LooperService
         Tone tone;
         bool toneChanged = false;
         bool peaksSent = false;
+        std::string key;            ///< Its name on disk, kept across save and load
+        bool sessionWritten = false; ///< Its files are in the session folder
+        bool copiedOut = false;      ///< A first layer moved out of the capture buffer
     };
+
+    void ProjectsOnIdle(const looper::LooperSnapshot& snapshot);
+    void PrepareSession();
+    [[nodiscard]] std::filesystem::path LoopsRoot() const;
+    [[nodiscard]] std::shared_ptr<Buffer> FindBuffer(const looper::LayerAudio* audio) const;
+    [[nodiscard]] nlohmann::json ProjectJson(const std::string& id, const std::string& title,
+                                             bool onlyWritten = true) const;
+    [[nodiscard]] std::vector<std::string> SavedLayerKeys() const;
+    [[nodiscard]] std::string ProjectKey() const;
+    void LoadFrom(const std::filesystem::path& folder, const std::string& projectId, bool recovering);
+    void UpdateIndex(const nlohmann::json& entry, const std::string& removeId);
+    void Swap(int slot, std::uint32_t serial, const std::shared_ptr<Buffer>& buffer, bool crossfade);
 
     void StoreSettings();
     void ApplySettingsToEngine();
@@ -176,6 +222,20 @@ class LooperService
     bool mGuidanceForCountIn = false;
     bool mTempoLocked = false;
     std::string mPendingNotice;
+
+    // Projects.
+    ProjectHooks mHooks;
+    std::unique_ptr<LooperWorker> mWorker;
+    bool mSessionPrepared = false;
+    bool mRecoverable = false;
+    std::string mProjectId;
+    std::string mProjectTitle;
+    std::string mSavedKey;   ///< ProjectKey() when last saved or loaded
+    std::string mSessionKey; ///< ProjectKey() when the session's project.json was last written
+    bool mMarkSavedOnMap = false;
+    std::unique_ptr<looper::LoopImage> mPendingImage;
+    std::uint64_t mPendingImageApplied = 0;
+    std::vector<LayerMeta> mPendingMetas;
 
     std::string mLastState;
     std::string mLastLayers;

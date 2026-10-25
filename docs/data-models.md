@@ -367,3 +367,17 @@ V2: {"graph": {"nodes": [input, effect1, effect2, output], "edges": [...]}}
 - [FX Library](fx-library.md) — Effect types and parameters
 - [Network API](network-api.md) — Remote preset operations
 - [Composite Effects](composite-effects.md) — Composite effect definitions and data model
+
+## Looper projects
+
+A looper project lives in the riff library folder: `loops/<projectId>/project.json` and
+`loops/<projectId>/layers/<layerKey>.di.wav` / `.wet.wav` (32-bit float; the DI over the layer's span,
+one or two channels; the wet sound over the span and its tail, stereo). `project.json` holds
+`version`, `id`, `title`, `modified`, `sampleRate`, `lengthSamples`, for a Bars loop `tempoBpm`,
+`timeSigNum`, `timeSigDen` and `bars`, and per layer `id` (the layer key), `title`, `order`,
+`firstLayer`, `startSample`, `lengthSamples`, `ringOutSamples`, `diChannels`, `calibrationGainDb`,
+`latencySamples`, `level`, `balance`, `muted`, `solo`, `wetSource`, `tone {presetId, presetName,
+sceneId}` and `toneChanged`. The `looper-projects` storage document indexes them (`{projects: [{id,
+title, modified, lengthSec, layerCount, tempoBpm?, bars?}]}`), apart from `riff-library`, whose
+schema is unchanged. `loops/.session/` is the loop in progress, written as layers finish; a launch
+moves what the last run left there to `loops/.recover/`.

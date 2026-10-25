@@ -15,6 +15,8 @@ namespace guitarfx::controller_detail
 inline constexpr const char* kRiffLibraryPathSettingKey = "riffLibrary.path";
 inline constexpr const char* kRiffLibraryDefaultFolder = "riff-library";
 inline constexpr const char* kRiffLibraryDocumentId = "riff-library";
+/// The looper's projects in the riff library, apart from the riff index so its schema is unchanged.
+inline constexpr const char* kLooperProjectsDocumentId = "looper-projects";
 
 /// Resolves a stored (usually library-relative) take path to an absolute one.
 [[nodiscard]] std::filesystem::path ResolveRiffTakePathForRuntime(const std::filesystem::path& storedPath,

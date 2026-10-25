@@ -1029,6 +1029,10 @@ class PluginController
     bool BeginRiffRecording(std::shared_ptr<RiffTake> take, std::vector<float> left, std::vector<float> right,
                             bool armed, double samplesPerBar);
     void FinalizeRiffCapture(bool canceled);
+    /// Constructs the looper's service and connects it to the riff library: its folder, the
+    /// looper-projects index, and a layer exported as a riff arriving as the take to save.
+    /// Defined in PluginControllerRiffs.cpp.
+    void CreateLooper(const std::function<void(const std::string&)>& sendToUI);
     /// Message thread: what the take being recorded has done since the last call — started (an
     /// armed take heard its first note), progressed, filled up — sent to the UI. The recorder
     /// publishes it; nothing is sent from the audio thread.

@@ -55,6 +55,12 @@ void LooperEngine::ApplyCommand(const LooperCommand& command)
     case LooperCommand::Type::DropRedo:
         ClearRedo();
         break;
+    case LooperCommand::Type::ReplaceAudio:
+        ReplaceAudio(command.slot, command.serial, command.audio, command.crossfade);
+        break;
+    case LooperCommand::Type::LoadLoop:
+        LoadLoop(command.loop);
+        break;
     }
 }
 

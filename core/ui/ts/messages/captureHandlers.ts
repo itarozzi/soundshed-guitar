@@ -85,6 +85,8 @@ export function onRiffCaptureStopped(payload: IncomingPayload): void {
         ? "Riff take loaded for edit"
       : source === "trim"
         ? "Riff cropped to markers"
+      : source === "looper"
+        ? "Loop layer ready to save as a riff (Jam → Riff Library)"
         : "Riff capture complete",
   );
 }

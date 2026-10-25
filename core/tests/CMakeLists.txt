@@ -70,6 +70,7 @@ set(TEST_SOURCES
     LoudnessTapTests.cpp
     LooperEngineTests.cpp
     LooperServiceTests.cpp
+    LooperProjectTests.cpp
     MixerLooperTests.cpp
     PracticeToolCrossfadeTests.cpp
     MessageDispatchTypeErrorTests.cpp

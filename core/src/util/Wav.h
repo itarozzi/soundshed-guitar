@@ -37,6 +37,11 @@ struct DecodedWav
 [[nodiscard]] std::vector<std::uint8_t> Encode16BitWav(std::span<const std::vector<float>* const> channels,
                                                        int sampleRate);
 
+/// 32-bit IEEE float WAV bytes, 1 to 8 channels, samples as they are (not clamped): a looper
+/// project keeps its headroom and nothing is dithered. Empty for empty or mismatched channels.
+[[nodiscard]] std::vector<std::uint8_t> Encode32BitFloatWav(std::span<const std::vector<float>* const> channels,
+                                                            int sampleRate);
+
 /// Writes the bytes produced by EncodeStereo16BitWav to disk, creating parent
 /// directories as needed. Returns false on invalid input or any I/O failure.
 [[nodiscard]] bool WriteStereo16BitWav(const std::filesystem::path& path, const std::vector<float>& left,

@@ -50,6 +50,22 @@ export interface LooperStatus {
   /** How much of the take being recorded there is so far. */
   recordedSec?: number;
   notice?: string;
+  projectId: string;
+  projectTitle: string;
+  /** The loop differs from the project it was saved as or loaded from (or was never saved). */
+  dirty: boolean;
+  /** The last session ended with an unsaved loop, which can be recovered. */
+  recoverable: boolean;
+}
+
+export interface LooperProject {
+  id: string;
+  title: string;
+  modified: string;
+  lengthSec: number;
+  layerCount: number;
+  tempoBpm?: number;
+  bars?: number;
 }
 
 export interface LooperLayer {
@@ -103,6 +119,7 @@ let status: LooperStatus | null = null;
 let layers: LooperLayer[] = [];
 const layerPeaks = new Map<string, LooperPeaks>();
 let livePeaks: LooperLivePeaks | null = null;
+let projects: LooperProject[] = [];
 let stripOpen = false;
 let layersOpen = false;
 
@@ -154,6 +171,10 @@ export function parseLooperStatus(payload: Record<string, unknown>): LooperStatu
     countInBeatsLeft: optional(payload.countInBeatsLeft),
     armWaitingSec: optional(payload.armWaitingSec),
     recordedSec: optional(payload.recordedSec),
+    projectId: str(payload.projectId),
+    projectTitle: str(payload.projectTitle),
+    dirty: bool(payload.dirty),
+    recoverable: bool(payload.recoverable),
     notice: typeof payload.notice === "string" ? payload.notice : undefined,
   };
 }
@@ -243,6 +264,33 @@ export function getLayerPeaks(id: string): LooperPeaks | undefined {
 
 export function getLivePeaks(): LooperLivePeaks | null {
   return livePeaks;
+}
+
+export function parseLooperProjects(value: unknown): LooperProject[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.map((entry) => {
+    const project = entry && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
+    return {
+      id: str(project.id),
+      title: str(project.title),
+      modified: str(project.modified),
+      lengthSec: num(project.lengthSec, 0),
+      layerCount: num(project.layerCount, 0),
+      tempoBpm: optional(project.tempoBpm),
+      bars: optional(project.bars),
+    };
+  }).filter((project) => project.id !== "");
+}
+
+export function setLooperProjects(next: LooperProject[]): void {
+  projects = next;
+}
+
+export function getLooperProjects(): readonly LooperProject[] {
+  return projects;
 }
 
 export function isLooperStripOpen(): boolean {

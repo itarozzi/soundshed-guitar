@@ -73,21 +73,56 @@ enum class LooperAction : std::uint8_t
     Clear,
 };
 
+/// One layer of a saved loop, as LoadLoop installs it. `audio` is exactly the loop's length or longer.
+struct LoopLayerImage
+{
+    const LayerAudio* audio = nullptr;
+    std::int64_t spanStart = 0;
+    std::int64_t spanLength = 0;
+    std::int64_t ringOut = 0;
+    int latencySamples = 0;
+    float calibrationGain = 1.0f;
+    int diChannels = 1;
+    bool firstLayer = false;
+    float level = 1.0f;
+    float balance = 0.0f;
+    bool muted = false;
+    bool solo = false;
+};
+
+/// A whole loop to install in one command (a project loaded). Owned by the service, read when the
+/// command applies; the engine copies what it needs.
+struct LoopImage
+{
+    std::int64_t length = 0;
+    bool barsLoop = false;
+    int layerCount = 0;
+    std::array<LoopLayerImage, kMaxLayers> layers{};
+};
+
 struct LooperCommand
 {
     enum class Type : std::uint8_t
     {
-        Action,      ///< `action`
-        SetCapture,  ///< `audio` becomes the capture buffer, once nothing records into the old one
-        SetSpare,    ///< `audio` becomes the spare layer buffer (at least the loop's length)
-        RemoveLayer, ///< `slot` is hidden, as an undoable step
-        DropRedo,    ///< The redo stack is dropped, to give its memory back
+        Action,       ///< `action`
+        SetCapture,   ///< `audio` becomes the capture buffer, once nothing records into the old one
+        SetSpare,     ///< `audio` becomes the spare layer buffer (at least the loop's length)
+        RemoveLayer,  ///< `slot` is hidden, as an undoable step
+        DropRedo,     ///< The redo stack is dropped, to give its memory back
+        ReplaceAudio, ///< `slot` plays and keeps `audio` from now on (its own copy, or a re-tone)
+        LoadLoop,     ///< The loop is replaced by `loop`, Stopped, with nothing to undo
     };
 
     Type type = Type::Action;
     LooperAction action = LooperAction::RecPlayDub;
     int slot = -1;
     const LayerAudio* audio = nullptr;
+    const LoopImage* loop = nullptr;
+    /// ReplaceAudio: crossfade from the old audio over kSwapSeconds instead of switching at once.
+    bool crossfade = false;
+    /// ReplaceAudio: the layer meant (its serial), so a swap made off the audio thread can never
+    /// land on a newer layer that took the slot meanwhile.
+    std::uint32_t serial = 0;
 };
 
 /// Read on the audio thread when a take starts, written from anywhere.
@@ -145,6 +180,7 @@ struct SlotInfo
     int diChannels = 1;
     bool firstLayer = false;
     bool final = false; ///< Nothing will write to it again
+    const LayerAudio* fadingFrom = nullptr; ///< Audio a ReplaceAudio is crossfading away from
 };
 
 struct LooperSnapshot
@@ -189,6 +225,7 @@ class LooperEngine
     static constexpr float kArmFloorTriggerPeak = 0.063f; ///< -24 dBFS: plainly playing, even mid-measure
     static constexpr float kArmOverFloor = 3.98f;         ///< +12 dB
     static constexpr double kMinLayerSeconds = 0.050;
+    static constexpr double kSwapSeconds = 0.008; ///< ReplaceAudio's crossfade
 
     LooperEngine();
 
@@ -313,6 +350,10 @@ class LooperEngine
         bool final = false;
         bool freeWhenSilent = false;
         int audibleFrom = 0; ///< First sample of this block it may be heard on
+        const LayerAudio* fadeFrom = nullptr; ///< ReplaceAudio's crossfade: the audio going
+        std::int64_t fadeFromHead = 0;
+        std::int64_t fadeFromCapacity = 0;
+        std::int64_t fadeLeft = 0;
         float gainL = 0.0f;
         float gainR = 0.0f;
     };
@@ -369,6 +410,7 @@ class LooperEngine
         std::atomic<int> diChannels{1};
         std::atomic<bool> firstLayer{false};
         std::atomic<bool> final{false};
+        std::atomic<const LayerAudio*> fadingFrom{nullptr};
     };
 
     static constexpr int kMaxWriters = 4;
@@ -377,6 +419,8 @@ class LooperEngine
     /// No loop playing, nothing armed, counting in or being written.
     [[nodiscard]] bool IsIdle() const noexcept;
     void ApplyCommand(const LooperCommand& command);
+    void ReplaceAudio(int slot, std::uint32_t serial, const LayerAudio* audio, bool crossfade);
+    void LoadLoop(const LoopImage* image);
     void ApplyAction(LooperAction action, int at);
     void StepSample(int i, float wetL, float wetR, bool muted);
     void WriteSample(Writer& w, float diL, float diR, float wetL, float wetR);
@@ -444,6 +488,7 @@ class LooperEngine
     std::int64_t mQuietSamples = 960;
     std::int64_t mArmFloorSamples = 9600;
     std::int64_t mMinLayerSamples = 2400;
+    std::int64_t mSwapSamples = 384;
     std::vector<float> mDiL, mDiR;
 
     // Audio thread.

@@ -11,6 +11,7 @@
 #include "controller/MetronomeService.h"
 
 #include "controller/DemoPreviewService.h"
+#include "controller/LooperService.h"
 #include "controller/RiffRecorder.h"
 
 #include "controller/internal/ControllerUtils.h"
@@ -1303,6 +1304,43 @@ std::optional<nlohmann::json> PluginController::FindRiffTakeById(const std::stri
     }
 
     return std::nullopt;
+}
+
+void PluginController::CreateLooper(const std::function<void(const std::string&)>& sendToUI)
+{
+    const auto tone = [this]() {
+        return LooperService::Tone{mActivePresetId, mActivePreset ? mActivePreset->name : "", mActiveSceneId};
+    };
+    mLooper = std::make_unique<LooperService>(mHost, mPresetMixer, *mMetronome, mDSPMutex, mAppSettings,
+                                              [this]() { SaveAppSettings(); }, tone,
+                                              [this]() { mPendingStateBroadcast = true; }, sendToUI);
+    mLooper->RegisterMessageHandlers(mMessageHandlers);
+
+    LooperService::ProjectHooks hooks;
+    hooks.libraryPath = [this]() { return ResolveRiffLibraryPath(); };
+    hooks.loadIndex = [this]() {
+        return Store().Get(storage::ItemType::kDocument, kLooperProjectsDocumentId).value_or(nlohmann::json::object());
+    };
+    hooks.saveIndex = [this](const nlohmann::json& index) {
+        return Store().Put(storage::ItemType::kDocument, kLooperProjectsDocumentId, index);
+    };
+    // A layer exported as a riff becomes the take waiting to be saved, as an imported WAV does.
+    hooks.offerRiffTake = [this](std::shared_ptr<RiffTake> take) {
+        std::shared_ptr<RiffTake> retired;
+        {
+            std::lock_guard<std::mutex> lock(mDSPMutex);
+            retired = std::move(mRiffCapture);
+            mRiffCapture = take;
+        }
+
+        nlohmann::json msg = BuildRiffStoppedMessage(*take);
+        msg["source"] = "looper";
+        msg["tempoBpm"] = take->config.tempoBpm;
+        msg["timeSigNum"] = take->config.timeSigNum;
+        msg["timeSigDen"] = take->config.timeSigDen;
+        SendMessageToUI(msg.dump());
+    };
+    mLooper->SetProjectHooks(std::move(hooks));
 }
 
 bool PluginController::BeginRiffRecording(std::shared_ptr<RiffTake> take, std::vector<float> left,

@@ -23,6 +23,9 @@ function renderRow(layer: LooperLayer): string {
   const mute = `<button type="button" class="looper-layer-flag${layer.muted ? " is-on" : ""}" data-looper-layer-mute aria-pressed="${layer.muted}" title="Mute">M</button>`;
   const solo = `<button type="button" class="looper-layer-flag${layer.solo ? " is-on" : ""}" data-looper-layer-solo aria-pressed="${layer.solo}" title="Solo">S</button>`;
   const remove = `<button type="button" class="looper-layer-remove" data-looper-layer-remove title="Remove layer" aria-label="Remove layer">×</button>`;
+  const exportButtons = layer.recording
+    ? ""
+    : `<button type="button" class="looper-layer-export" data-looper-layer-export="riff" title="Send this layer's DI to the riff library as a take">Riff</button><button type="button" class="looper-layer-export" data-looper-layer-export="wetWav" title="Save this layer's sound as a WAV file">WAV</button>`;
   const title = `<input type="text" class="looper-layer-title" value="${escapeHtml(layer.title)}" maxlength="80" data-looper-layer-title aria-label="Layer name" />`;
   return `
     <div class="looper-layer-row" data-layer-id="${id}" style="--looper-layer-hue: ${layerHue(layer.order)}">
@@ -32,7 +35,7 @@ function renderRow(layer: LooperLayer): string {
       ${recording}
       <label class="looper-layer-slider">Level ${level}</label>
       <label class="looper-layer-slider">Balance ${balance}</label>
-      ${mute}${solo}${remove}
+      ${mute}${solo}${exportButtons}${remove}
     </div>`;
 }
 

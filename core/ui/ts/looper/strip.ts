@@ -10,6 +10,7 @@ import { renderLooperLayers, updateLooperLayerControls } from "./layers.js";
 import {
   getLivePeaks,
   getLooperLayers,
+  getLooperProjects,
   getLooperStatus,
   getLayerPeaks,
   isLooperLayersOpen,
@@ -93,6 +94,40 @@ function renderModes(status: LooperStatus): string {
     </div>`;
 }
 
+function renderProjectMenu(status: LooperStatus): string {
+  const recover = status.recoverable
+    ? `<div class="looper-project-recover">
+         <span>The last session ended with an unsaved loop.</span>
+         <button type="button" data-looper-recover>Recover</button>
+         <button type="button" data-looper-dismiss>Discard</button>
+       </div>`
+    : "";
+  const rows = getLooperProjects().map((project) => {
+    const id = escapeHtml(project.id);
+    const current = project.id === status.projectId ? " is-current" : "";
+    const detail = `${project.lengthSec.toFixed(1)} s · ${project.layerCount} layer${project.layerCount === 1 ? "" : "s"}${project.bars ? ` · ${project.bars} bars` : ""}`;
+    return `
+      <li class="looper-project-row${current}" data-project-id="${id}">
+        <button type="button" class="looper-project-open" data-looper-open title="Open">${escapeHtml(project.title || "Untitled loop")}</button>
+        <span class="looper-project-detail">${escapeHtml(detail)}</span>
+        <button type="button" class="looper-project-delete" data-looper-delete title="Delete" aria-label="Delete loop">×</button>
+      </li>`;
+  }).join("");
+  const list = rows ? `<ul class="looper-project-list">${rows}</ul>` : `<p class="looper-project-empty">No saved loops yet.</p>`;
+  return `
+    <details class="looper-projects-menu" data-looper-projects>
+      <summary title="Saved loops">Loops</summary>
+      <div class="looper-projects-body">${recover}${list}</div>
+    </details>`;
+}
+
+function renderProject(status: LooperStatus): string {
+  const dirty = status.dirty ? `<span class="looper-dirty" title="Not saved">•</span>` : "";
+  const title = `<input type="text" class="looper-project-title" maxlength="120" placeholder="Untitled loop" value="${escapeHtml(status.projectTitle)}" data-looper-title aria-label="Loop name" />`;
+  const save = `<button type="button" class="looper-save-btn" data-looper-save${status.layerCount === 0 ? " disabled" : ""}>Save</button>`;
+  return `<div class="looper-project">${title}${dirty}${save}${renderProjectMenu(status)}</div>`;
+}
+
 /** The strip, drawn whole into `root`. */
 export function renderLooperStrip(root: HTMLElement): void {
   const status = getLooperStatus();
@@ -129,6 +164,7 @@ export function renderLooperStrip(root: HTMLElement): void {
         </div>
         ${countIn}
       </div>
+      ${renderProject(status)}
       ${renderModes(status)}
       <button type="button" class="looper-layers-toggle" data-looper-layers aria-expanded="${layersOpen}">Layers</button>
     </div>

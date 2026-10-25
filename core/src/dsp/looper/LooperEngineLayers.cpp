@@ -1,4 +1,5 @@
-// LooperEngine: the transport, undo and redo, and the slots layers live in. See LooperEngine.h and docs/plans/looper.md.
+// LooperEngine: the transport, undo and redo, the slots layers live in, and swapping a layer's audio
+// or loading a whole loop into them. See LooperEngine.h and docs/plans/looper.md.
 
 #include "dsp/looper/LooperEngine.h"
 #include "dsp/looper/LooperEngineInternal.h"
@@ -349,5 +350,88 @@ void LooperEngine::SnapGains(int slotIndex)
     Slot& slot = mSlots[static_cast<std::size_t>(slotIndex)];
     slot.gainL = targetsL[static_cast<std::size_t>(slotIndex)];
     slot.gainR = targetsR[static_cast<std::size_t>(slotIndex)];
+}
+
+void LooperEngine::ReplaceAudio(int slotIndex, std::uint32_t serial, const LayerAudio* audio, bool crossfade)
+{
+    if (slotIndex < 0 || slotIndex >= kMaxLayers || !audio || !audio->wet[0] || audio->capacity < mLength)
+    {
+        return;
+    }
+
+    Slot& slot = mSlots[static_cast<std::size_t>(slotIndex)];
+
+    // Only a finished layer: nothing writes to it any more.
+    if (slot.status == SlotStatus::Free || slot.status == SlotStatus::Recording || !slot.final ||
+        slot.serial != serial)
+    {
+        return;
+    }
+
+    slot.fadeFrom = nullptr;
+    slot.fadeLeft = 0;
+
+    if (crossfade && mPlaying && slot.audio)
+    {
+        slot.fadeFrom = slot.audio;
+        slot.fadeFromHead = slot.head;
+        slot.fadeFromCapacity = slot.capacity;
+        slot.fadeLeft = mSwapSamples;
+    }
+
+    slot.audio = audio;
+    slot.head = 0;
+    slot.capacity = mLength;
+}
+
+void LooperEngine::LoadLoop(const LoopImage* image)
+{
+    if (!image || image->length <= 0)
+    {
+        return;
+    }
+
+    FinishClear();
+    mLength = image->length;
+    mBarsLoop = image->barsLoop;
+
+    for (int i = 0; i < std::min(image->layerCount, kMaxLayers); ++i)
+    {
+        const LoopLayerImage& layer = image->layers[static_cast<std::size_t>(i)];
+
+        if (!layer.audio || !layer.audio->wet[0] || layer.audio->capacity < mLength)
+        {
+            continue;
+        }
+
+        Slot& slot = mSlots[static_cast<std::size_t>(i)];
+        slot = Slot{};
+        slot.status = SlotStatus::Visible;
+        slot.audio = layer.audio;
+        slot.capacity = mLength;
+        slot.serial = mNextSerial++;
+        slot.spanStart = std::clamp<std::int64_t>(layer.spanStart, 0, mLength - 1);
+        slot.spanLength = std::clamp<std::int64_t>(layer.spanLength, 1, mLength);
+        slot.ringOut = std::clamp<std::int64_t>(layer.ringOut, 0, mLength);
+        slot.latency = layer.latencySamples;
+        slot.calibrationGain = layer.calibrationGain;
+        slot.diChannels = layer.diChannels;
+        slot.firstLayer = layer.firstLayer;
+        slot.final = true;
+        LayerMix& mix = mMix[static_cast<std::size_t>(i)];
+        mix.level.store(layer.level, std::memory_order_relaxed);
+        mix.balance.store(layer.balance, std::memory_order_relaxed);
+        mix.muted.store(layer.muted, std::memory_order_relaxed);
+        mix.solo.store(layer.solo, std::memory_order_relaxed);
+    }
+
+    if (VisibleCount() == 0)
+    {
+        FinishClear();
+        return;
+    }
+
+    mState = LooperState::Stopped;
+    Raise(kNoticeStateChanged);
 }
 } // namespace guitarfx::looper

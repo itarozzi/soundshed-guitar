@@ -12,7 +12,7 @@ import { onGateLearnStatus } from "./gateLearn.js";
 import { onAudioDeviceLevels, onAudioDeviceState } from "./messages/audioDeviceHandlers.js";
 import { onDemoAudioRenderFailed, onDemoAudioRenderSaved, onMetronomeBeat, onPracticeToolFileLoaded, onPracticeToolPlaybackEnded, onPracticeToolTransportState, onPreviewComplete, onPreviewStarted, onPreviewStopped, onRiffCaptureCanceled, onRiffCaptureProgress, onRiffCaptureStarted, onRiffCaptureStopped, onRiffLibraryState, onRiffSaved } from "./messages/captureHandlers.js";
 import { onAutomation, onMidiLearnCapture, onMidiLog } from "./messages/controlSurfaceHandlers.js";
-import { onLooperLayers, onLooperState, onLooperWaveforms } from "./messages/looperHandlers.js";
+import { onLooperLayers, onLooperProjectSaved, onLooperProjects, onLooperState, onLooperWaveforms } from "./messages/looperHandlers.js";
 import { DEBUG_SNAPSHOT_SKIP_TYPES, onCaptureDebugSnapshot, onDebugSnapshotWritten, scheduleUiDebugSnapshot } from "./messages/debugSnapshot.js";
 import { onCompositeDefinitionAdded, onCompositeDefinitionRemoved, onCompositeEditModeExited, onCompositeEditState, onCompositeLibrary, onCompositePresetList, onCompositePresetLoaded, onCompositePresetSaved, onCustomEffectLibrary, onCustomEffectSaved, onEffectCatalog, onEffectResponse, onGeneratedCustomEffectBundleExportFailed, onGeneratedCustomEffectBundleExportSaved, onIrAlignment, onSimpleCabIrMatch } from "./messages/effectHandlers.js";
 import { onLayoutExportFailed, onLayoutExportSaved, onLayoutImageRenditionSaved, onLayoutImageSelected, onLayoutImagesLoaded, onLayoutLibraryLoaded, onLayoutSaveFailed, onLayoutSaved } from "./messages/layoutHandlers.js";
@@ -52,6 +52,8 @@ const MESSAGE_HANDLERS: Record<string, MessageHandler> = {
   "looperState": onLooperState,
   "looperLayers": onLooperLayers,
   "looperWaveforms": onLooperWaveforms,
+  "looperProjects": onLooperProjects,
+  "looperProjectSaved": onLooperProjectSaved,
   "resourceCleanupResult": onResourceCleanupResult,
   "presetLoaded": onPresetLoaded,
   "presetDirtyChanged": onPresetDirtyChanged,

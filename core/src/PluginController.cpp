@@ -85,13 +85,7 @@ PluginController::PluginController(IPluginHost& host) : mHost(host)
                                                         onError, sendToUI);
     mPracticeTool = std::make_unique<PracticeToolService>(mHost, mDSPMutex, onError, sendToUI);
     mRiffRecorder = std::make_unique<RiffRecorder>();
-    const auto looperTone = [this]() {
-        return LooperService::Tone{mActivePresetId, mActivePreset ? mActivePreset->name : "", mActiveSceneId};
-    };
-    mLooper = std::make_unique<LooperService>(mHost, mPresetMixer, *mMetronome, mDSPMutex, mAppSettings,
-                                              [this]() { SaveAppSettings(); }, looperTone,
-                                              [this]() { mPendingStateBroadcast = true; }, sendToUI);
-    mLooper->RegisterMessageHandlers(mMessageHandlers);
+    CreateLooper(sendToUI);
     mPracticeTool->RegisterMessageHandlers(mMessageHandlers);
     mHostStateRelay = std::make_unique<HostStateRelay>(mHost);
 }

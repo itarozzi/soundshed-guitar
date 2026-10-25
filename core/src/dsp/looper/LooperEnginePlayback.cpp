@@ -47,6 +47,7 @@ bool LooperEngine::ReadSnapshot(LooperSnapshot& out) const
             s.diChannels = p.diChannels.load(std::memory_order_relaxed);
             s.firstLayer = p.firstLayer.load(std::memory_order_relaxed);
             s.final = p.final.load(std::memory_order_relaxed);
+            s.fadingFrom = p.fadingFrom.load(std::memory_order_relaxed);
         }
 
         std::atomic_thread_fence(std::memory_order_acquire);
@@ -94,6 +95,7 @@ void LooperEngine::Publish()
         p.diChannels.store(s.diChannels, std::memory_order_relaxed);
         p.firstLayer.store(s.firstLayer, std::memory_order_relaxed);
         p.final.store(s.final, std::memory_order_relaxed);
+        p.fadingFrom.store(s.fadeFrom, std::memory_order_relaxed);
     }
 
     mPublishedCountIn.store(mState == LooperState::CountIn ? mCountInLeft : 0, std::memory_order_relaxed);
@@ -168,6 +170,9 @@ bool LooperEngine::MixPlayback(float* outL, float* outR, int numSamples)
             slot.firstLayer ? mLength : std::min(mLength, slot.spanLength + slot.ringOut);
         float gl = slot.gainL;
         float gr = slot.gainR;
+        // A ReplaceAudio crossfade: the old audio and the new, mixed sample by sample.
+        const float* oldL = slot.fadeFrom ? slot.fadeFrom->wet[0] : nullptr;
+        const float* oldR = slot.fadeFrom && slot.fadeFrom->wet[1] ? slot.fadeFrom->wet[1] : oldL;
 
         for (int i = from; i < numSamples;)
         {
@@ -185,6 +190,45 @@ bool LooperEngine::MixPlayback(float* outL, float* outR, int numSamples)
             {
                 gl = MoveTowards(gl, tl, step * static_cast<float>(count));
                 gr = MoveTowards(gr, tr, step * static_cast<float>(count));
+            }
+            else if (oldL && slot.fadeLeft > 0)
+            {
+                const std::int64_t oldIndex = Wrap(slot.fadeFromHead + pos, slot.fadeFromCapacity);
+
+                for (int k = 0; k < count; ++k)
+                {
+                    gl = MoveTowards(gl, tl, step);
+                    gr = MoveTowards(gr, tr, step);
+                    float l = wetL[index + k];
+                    float r = wetR[index + k];
+
+                    if (slot.fadeLeft > 0)
+                    {
+                        const float x = 1.0f - static_cast<float>(slot.fadeLeft) / static_cast<float>(mSwapSamples);
+                        const auto o = static_cast<std::size_t>(Wrap(oldIndex + k, slot.fadeFromCapacity));
+                        l = l * x + oldL[o] * (1.0f - x);
+                        r = r * x + oldR[o] * (1.0f - x);
+                        --slot.fadeLeft;
+                    }
+
+                    if (outL)
+                    {
+                        outL[i + k] += l * gl;
+                    }
+
+                    if (outR)
+                    {
+                        outR[i + k] += r * gr;
+                    }
+                }
+
+                added = true;
+
+                if (slot.fadeLeft <= 0)
+                {
+                    slot.fadeFrom = nullptr;
+                    oldL = nullptr;
+                }
             }
             else if (gl == tl && gr == tr)
             {

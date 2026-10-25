@@ -316,7 +316,11 @@ std::vector<std::uint8_t> EncodeStereo16BitWav(const std::vector<float>& left, c
     return Encode16BitWav(channels, sampleRate);
 }
 
-std::vector<std::uint8_t> Encode16BitWav(std::span<const std::vector<float>* const> channels, int sampleRate)
+namespace
+{
+/// Interleaved WAV bytes: 16-bit PCM, clamped to [-1, 1], or 32-bit IEEE float, as it is.
+std::vector<std::uint8_t> EncodeInterleavedWav(std::span<const std::vector<float>* const> channels, int sampleRate,
+                                               bool asFloat)
 {
     if (channels.empty() || channels.size() > 8 || sampleRate <= 0)
     {
@@ -332,7 +336,7 @@ std::vector<std::uint8_t> Encode16BitWav(std::span<const std::vector<float>* con
     }
 
     const auto channelCount = static_cast<std::uint16_t>(channels.size());
-    constexpr std::uint16_t kBitsPerSample = 16;
+    const std::uint16_t kBitsPerSample = asFloat ? 32 : 16;
     const std::uint16_t blockAlign = channelCount * (kBitsPerSample / 8);
     constexpr std::uint32_t kHeaderSize = 44u;
 
@@ -361,7 +365,7 @@ std::vector<std::uint8_t> Encode16BitWav(std::span<const std::vector<float>* con
     pushChars("WAVE", 4);
     pushChars("fmt ", 4);
     pushU32(16u);
-    pushU16(kWavFormatPcm);
+    pushU16(asFloat ? kWavFormatIeeeFloat : kWavFormatPcm);
     pushU16(channelCount);
     pushU32(static_cast<std::uint32_t>(sampleRate));
     pushU32(static_cast<std::uint32_t>(sampleRate) * blockAlign);
@@ -370,7 +374,15 @@ std::vector<std::uint8_t> Encode16BitWav(std::span<const std::vector<float>* con
     pushChars("data", 4);
     pushU32(dataSize);
 
-    const auto pushSample = [&pushU16](float sample) {
+    const auto pushSample = [&](float sample) {
+        if (asFloat)
+        {
+            std::uint32_t word = 0;
+            std::memcpy(&word, &sample, sizeof(word));
+            pushU32(word);
+            return;
+        }
+
         const float clamped = std::clamp(sample, -1.0f, 1.0f);
         pushU16(static_cast<std::uint16_t>(static_cast<std::int16_t>(std::lround(clamped * 32767.0f))));
     };
@@ -384,6 +396,17 @@ std::vector<std::uint8_t> Encode16BitWav(std::span<const std::vector<float>* con
     }
 
     return bytes;
+}
+} // namespace
+
+std::vector<std::uint8_t> Encode16BitWav(std::span<const std::vector<float>* const> channels, int sampleRate)
+{
+    return EncodeInterleavedWav(channels, sampleRate, false);
+}
+
+std::vector<std::uint8_t> Encode32BitFloatWav(std::span<const std::vector<float>* const> channels, int sampleRate)
+{
+    return EncodeInterleavedWav(channels, sampleRate, true);
 }
 
 bool WriteStereo16BitWav(const std::filesystem::path& path, const std::vector<float>& left,

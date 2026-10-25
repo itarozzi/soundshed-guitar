@@ -349,6 +349,11 @@ nlohmann::json LooperService::BuildState() const
         state["armWaitingSec"] = std::round(static_cast<double>(mEngine.ArmWaitingSamples()) / rate * 10.0) / 10.0;
     }
 
+    state["projectId"] = mProjectId;
+    state["projectTitle"] = mProjectTitle;
+    state["dirty"] = s.visibleLayers > 0 && ProjectKey() != mSavedKey;
+    state["recoverable"] = mRecoverable;
+
     if (!mPendingNotice.empty())
     {
         state["notice"] = mPendingNotice;
@@ -416,6 +421,20 @@ void LooperService::RegisterMessageHandlers(MessageHandlerRegistry& registry)
     registry.Register("removeLooperLayer", [this](const nlohmann::json& payload) {
         HandleRemoveLayer(payload.value("layerId", std::string{}));
     });
+    registry.Register("saveLooperProject", [this](const nlohmann::json& payload) { HandleSaveProject(payload); });
+    registry.Register("loadLooperProject", [this](const nlohmann::json& payload) {
+        HandleLoadProject(payload.value("projectId", std::string{}));
+    });
+    registry.Register("deleteLooperProject", [this](const nlohmann::json& payload) {
+        HandleDeleteProject(payload.value("projectId", std::string{}));
+    });
+    registry.Register("renameLooperProject", [this](const nlohmann::json& payload) {
+        HandleRenameProject(payload.value("projectId", std::string{}), payload.value("title", std::string{}));
+    });
+    registry.Register("getLooperProjects", [this](const nlohmann::json&) { SendProjectList(); });
+    registry.Register("recoverLooperSession", [this](const nlohmann::json&) { HandleRecoverSession(); });
+    registry.Register("dismissLooperRecovery", [this](const nlohmann::json&) { HandleDismissRecovery(); });
+    registry.Register("exportLooperLayer", [this](const nlohmann::json& payload) { HandleExportLayer(payload); });
     registry.Register("getLooperState", [this](const nlohmann::json&) {
         // Everything again on the next idle tick, waveforms included.
         mLastState.clear();

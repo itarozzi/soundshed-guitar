@@ -39,7 +39,14 @@ recommended.
   **Left out:** the performance-pads looper row (`performancePads.ts` is at its size pin; the strip
   stays over the Play panel, so the transport is never a menu away).
 
-**Not built yet:** Phase 4 (projects), Phase 5 (re-tone).
+- **Phase 4, projects and the riff library.** `controller/LooperServiceProjects.cpp`,
+  `LooperServiceExport.cpp`, `LooperProjectFiles.{h,cpp}` and `LooperWorker.h`; `util::Encode32BitFloatWav`.
+  The engine gained `ReplaceAudio` (a layer's audio swapped, with an optional 8 ms crossfade, only
+  for the layer whose serial it names) and `LoadLoop` (a whole loop in one command). A first layer
+  is copied out of the capture buffer when it finishes. Saved loops are listed in the strip's
+  Loops menu (open, delete, recover), not in the riff library panel. `LooperProjectTests`.
+
+**Not built yet:** Phase 5 (re-tone, and adding a riff as a layer, which needs its render).
 
 **Phase 2 limits:** a Bars take started from MIDI with the metronome off counts in silently (the
 guidance click is switched on the message thread, for a UI press). The looper level a footswitch

@@ -6,6 +6,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../ts/notifications.js", () => ({ clearNotification: vi.fn(), showNotification: vi.fn() }));
+vi.mock("../ts/dialogs.js", () => ({ showConfirm: vi.fn(async () => true) }));
 
 document.body.innerHTML = `
   <div class="looper-strip" id="looper-strip" hidden></div>
@@ -22,7 +23,8 @@ window.IPlugSendMsg = (payload: string) => {
 const { uiState } = await import("../ts/state.js");
 const { FEATURE_FLAGS_CHANGED_EVENT } = await import("../ts/featureFlags.js");
 const { initializeLooper } = await import("../ts/looper.js");
-const { onLooperLayers, onLooperState } = await import("../ts/messages/looperHandlers.js");
+const { onLooperLayers, onLooperProjects, onLooperState } = await import("../ts/messages/looperHandlers.js");
+const { showConfirm } = await import("../ts/dialogs.js");
 const { showNotification } = await import("../ts/notifications.js");
 
 const strip = document.getElementById("looper-strip") as HTMLElement;
@@ -122,6 +124,38 @@ describe("the looper strip", () => {
     expect(sent).toContainEqual({ type: "setLooperLayer", layerId: "L1", muted: true });
     expect(sent).toContainEqual({ type: "setLooperLayer", layerId: "L1", level: 0.5 });
     expect(sent).toContainEqual({ type: "removeLooperLayer", layerId: "L1" });
+  });
+
+  it("saves the loop under the name typed, and opens, deletes and exports", async () => {
+    state({ state: "playing", playing: true, lengthSec: 8, layerCount: 1, dirty: true });
+    onLooperProjects({ type: "looperProjects", projects: [{ id: "p1", title: "Verse", lengthSec: 8, layerCount: 2 }] });
+    const title = strip.querySelector<HTMLInputElement>("[data-looper-title]");
+
+    if (title) {
+      title.value = "Chorus";
+    }
+
+    strip.querySelector<HTMLButtonElement>("[data-looper-save]")?.click();
+    expect(sent).toContainEqual({ type: "saveLooperProject", title: "Chorus" });
+
+    const row = strip.querySelector<HTMLElement>('.looper-project-row[data-project-id="p1"]');
+    expect(row?.textContent).toContain("Verse");
+    row?.querySelector<HTMLButtonElement>("[data-looper-open]")?.click();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(vi.mocked(showConfirm)).toHaveBeenCalled();
+    expect(sent).toContainEqual({ type: "loadLooperProject", projectId: "p1" });
+    row?.querySelector<HTMLButtonElement>("[data-looper-delete]")?.click();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(sent).toContainEqual({ type: "deleteLooperProject", projectId: "p1" });
+
+    onLooperLayers({ type: "looperLayers", layers: [{ id: "L1", title: "Layer 1", order: 1, tone: {} }] });
+    if (strip.querySelector(".looper-layers")?.hasAttribute("hidden")) {
+      strip.querySelector<HTMLButtonElement>("[data-looper-layers]")?.click();
+    }
+    strip.querySelector<HTMLButtonElement>('[data-looper-layer-export="riff"]')?.click();
+    expect(sent).toContainEqual({ type: "exportLooperLayer", layerId: "L1", as: "riff" });
   });
 
   it("explains a refused press once", () => {

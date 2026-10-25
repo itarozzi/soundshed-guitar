@@ -7,11 +7,26 @@
  * reports. docs/plans/looper.md is the design.
  */
 
-import { requestLooperState, sendLooperCommand, sendLooperLayer, sendLooperSettings, sendRemoveLooperLayer } from "./bridge.js";
+import {
+  requestLooperProjects,
+  requestLooperState,
+  sendDeleteLooperProject,
+  sendDismissLooperRecovery,
+  sendExportLooperLayer,
+  sendLoadLooperProject,
+  sendLooperCommand,
+  sendLooperLayer,
+  sendLooperSettings,
+  sendRecoverLooperSession,
+  sendRemoveLooperLayer,
+  sendSaveLooperProject,
+} from "./bridge.js";
+import { showConfirm } from "./dialogs.js";
 import { FEATURE_FLAGS_CHANGED_EVENT, Features, isFeatureEnabled } from "./featureFlags.js";
 import { registerLooperRenderer } from "./looper/refresh.js";
 import {
   getLooperLayers,
+  getLooperProjects,
   getLooperStatus,
   isLooperLayersOpen,
   isLooperStripOpen,
@@ -31,6 +46,11 @@ const NOTICES: Record<string, string> = {
   tooShort: "Too short to loop.",
   memory: "The looper is out of memory. Remove or undo some layers, or raise its memory limit.",
   unknownCommand: "The looper did not understand that press.",
+  nothingToSave: "There is no loop to save yet.",
+  saveFailed: "The loop could not be saved.",
+  loadFailed: "That loop could not be opened.",
+  exported: "Layer saved as a WAV file.",
+  exportFailed: "The layer could not be saved as a WAV file.",
 };
 
 let strip: HTMLElement | null = null;
@@ -54,7 +74,8 @@ function shapeKey(): string {
 
   const { positionSec: _p, armWaitingSec: _a, recordedSec: _r, barIndex: _b, memoryMb: _m, notice: _n, ...shape } = status;
   const layers = getLooperLayers().map((l) => [l.id, l.title, l.muted, l.solo, l.recording, l.presetName, l.toneChanged]);
-  return JSON.stringify([shape, isLooperLayersOpen() ? layers : layers.length]);
+  const projects = getLooperProjects().map((p) => [p.id, p.title, p.layerCount]);
+  return JSON.stringify([shape, isLooperLayersOpen() ? layers : layers.length, projects]);
 }
 
 function render(full: boolean): void {
@@ -96,12 +117,21 @@ function render(full: boolean): void {
   const shape = shapeKey();
 
   if (full || shape !== lastShape) {
-    const optionsOpen = strip.querySelector<HTMLDetailsElement>("details.looper-options")?.open ?? false;
+    // What a redraw would lose: which menus are open, and a loop name being typed.
+    const open = Array.from(strip.querySelectorAll<HTMLDetailsElement>("details")).filter((d) => d.open).map((d) => d.className);
+    const title = strip.querySelector<HTMLInputElement>("[data-looper-title]");
+    const typing = title && document.activeElement === title ? title.value : null;
     renderLooperStrip(strip);
-    const options = strip.querySelector<HTMLDetailsElement>("details.looper-options");
 
-    if (options) {
-      options.open = optionsOpen;
+    for (const details of Array.from(strip.querySelectorAll<HTMLDetailsElement>("details"))) {
+      details.open = open.includes(details.className);
+    }
+
+    const nextTitle = strip.querySelector<HTMLInputElement>("[data-looper-title]");
+
+    if (typing !== null && nextTitle) {
+      nextTitle.value = typing;
+      nextTitle.focus();
     }
 
     lastShape = shape;
@@ -125,7 +155,58 @@ function handleClick(event: MouseEvent): void {
   const commandButton = target.closest<HTMLElement>("[data-looper-command]");
 
   if (commandButton) {
-    sendLooperCommand(commandButton.dataset.looperCommand ?? "");
+    const command = commandButton.dataset.looperCommand ?? "";
+
+    if (command === "clear" && status.dirty) {
+      void showConfirm("Clear the loop? It has not been saved.", "Clear loop", { ok: "Clear" }).then((ok) => {
+        if (ok) {
+          sendLooperCommand(command);
+        }
+      });
+      return;
+    }
+
+    sendLooperCommand(command);
+    return;
+  }
+
+  if (target.closest("[data-looper-save]")) {
+    sendSaveLooperProject(strip?.querySelector<HTMLInputElement>("[data-looper-title]")?.value.trim() ?? "");
+    return;
+  }
+
+  const projectId = target.closest<HTMLElement>(".looper-project-row")?.dataset.projectId ?? "";
+
+  if (projectId && target.closest("[data-looper-open]")) {
+    if (!status.dirty) {
+      sendLoadLooperProject(projectId);
+      return;
+    }
+
+    void showConfirm("Open this loop? The one playing has not been saved.", "Open loop", { ok: "Open" }).then((ok) => {
+      if (ok) {
+        sendLoadLooperProject(projectId);
+      }
+    });
+    return;
+  }
+
+  if (projectId && target.closest("[data-looper-delete]")) {
+    void showConfirm("Delete this saved loop?", "Delete loop", { ok: "Delete" }).then((ok) => {
+      if (ok) {
+        sendDeleteLooperProject(projectId);
+      }
+    });
+    return;
+  }
+
+  if (target.closest("[data-looper-recover]")) {
+    sendRecoverLooperSession();
+    return;
+  }
+
+  if (target.closest("[data-looper-dismiss]")) {
+    sendDismissLooperRecovery();
     return;
   }
 
@@ -168,6 +249,12 @@ function handleClick(event: MouseEvent): void {
     sendLooperLayer(id, { solo: !layer.solo });
   } else if (target.closest("[data-looper-layer-remove]")) {
     sendRemoveLooperLayer(id);
+  } else {
+    const exportAs = target.closest<HTMLElement>("[data-looper-layer-export]")?.dataset.looperLayerExport;
+
+    if (exportAs === "riff" || exportAs === "wetWav") {
+      sendExportLooperLayer(id, exportAs);
+    }
   }
 }
 
@@ -231,11 +318,21 @@ export function initializeLooper(): void {
   button?.addEventListener("click", () => {
     setLooperStripOpen(!isLooperStripOpen());
     render(true);
+
+    if (isLooperStripOpen()) {
+      requestLooperProjects();
+    }
   });
 
   strip?.addEventListener("click", handleClick);
   strip?.addEventListener("input", handleInput);
   strip?.addEventListener("change", handleChange);
+  // The saved loops are asked for when their menu opens.
+  strip?.addEventListener("toggle", (event) => {
+    if (event.target instanceof HTMLDetailsElement && event.target.open && event.target.matches("[data-looper-projects]")) {
+      requestLooperProjects();
+    }
+  }, true);
   document.addEventListener(FEATURE_FLAGS_CHANGED_EVENT, () => render(true));
   // The first state is asked for by main.ts after uiReady, once replies have somewhere to go.
 }

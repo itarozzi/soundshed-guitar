@@ -532,3 +532,37 @@ export function sendRemoveLooperLayer(layerId: string): void {
 export function requestLooperState(): void {
   postMessage({ type: "getLooperState" });
 }
+
+/** Saves the loop as a looper project: the loaded one (renamed, when `title` differs), else a new one. */
+export function sendSaveLooperProject(title: string): void {
+  postMessage({ type: "saveLooperProject", title });
+}
+
+export function sendLoadLooperProject(projectId: string): void {
+  postMessage({ type: "loadLooperProject", projectId });
+}
+
+export function sendDeleteLooperProject(projectId: string): void {
+  postMessage({ type: "deleteLooperProject", projectId });
+}
+
+export function sendRenameLooperProject(projectId: string, title: string): void {
+  postMessage({ type: "renameLooperProject", projectId, title });
+}
+
+export function requestLooperProjects(): void {
+  postMessage({ type: "getLooperProjects" });
+}
+
+export function sendRecoverLooperSession(): void {
+  postMessage({ type: "recoverLooperSession" });
+}
+
+export function sendDismissLooperRecovery(): void {
+  postMessage({ type: "dismissLooperRecovery" });
+}
+
+/** A layer as a riff take (its DI) to save in the riff library, or its wet sound to a WAV file. */
+export function sendExportLooperLayer(layerId: string, as: "riff" | "wetWav"): void {
+  postMessage({ type: "exportLooperLayer", layerId, as });
+}

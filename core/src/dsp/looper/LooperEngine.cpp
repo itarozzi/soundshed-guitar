@@ -44,6 +44,7 @@ void LooperEngine::Prepare(double sampleRate, int maxBlockSize)
     mQuietSamples = ToSamples(kRingOutQuietSeconds, rate);
     mArmFloorSamples = ToSamples(kArmFloorSeconds, rate);
     mMinLayerSamples = ToSamples(kMinLayerSeconds, rate);
+    mSwapSamples = ToSamples(kSwapSeconds, rate);
     mDiL.assign(static_cast<std::size_t>(mMaxBlock), 0.0f);
     mDiR.assign(static_cast<std::size_t>(mMaxBlock), 0.0f);
     Publish();
@@ -209,6 +210,9 @@ bool LooperEngine::Process(float* outL, float* outR, int numSamples, bool muted)
         {
             mSlots[s].gainL = targetsL[s];
             mSlots[s].gainR = targetsR[s];
+            // Nothing heard, so a swap's crossfade has nothing to smooth.
+            mSlots[s].fadeFrom = nullptr;
+            mSlots[s].fadeLeft = 0;
         }
     }
 

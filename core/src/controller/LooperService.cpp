@@ -4,6 +4,7 @@
 #include "controller/LooperService.h"
 
 #include "IPluginHost.h"
+#include "controller/LooperWorker.h"
 #include "controller/MetronomeService.h"
 #include "dsp/MultiPresetMixer.h"
 
@@ -197,6 +198,7 @@ void LooperService::OnIdle()
                                   }),
                    mBuffers.end());
 
+    ProjectsOnIdle(snapshot);
     TrackLayers(snapshot);
     LinkMetronome(snapshot);
 
