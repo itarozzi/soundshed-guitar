@@ -1321,6 +1321,17 @@ std::filesystem::path PluginProcessorAdapter::locateAssetsRoot() const
         candidates.push_back (androidDataDir / "resources");
 #endif
 
+#if JUCE_IOS
+    // An iOS bundle is flat: the executable sits at its root, beside ui/. Not under
+    // "resources/" as on desktop: a directory of that name at the root of an iOS bundle makes
+    // codesign take it for a macOS bundle and refuse to sign it. The editor and Nano both take
+    // this root before their own guesses.
+    const auto bundleDir = soundshed::toStdPath (
+        juce::File::getSpecialLocation (juce::File::currentExecutableFile).getParentDirectory());
+    if (!bundleDir.empty())
+        candidates.push_back (bundleDir);
+#endif
+
     const auto cwd = soundshed::toStdPath (juce::File::getCurrentWorkingDirectory());
     if (!cwd.empty())
     {

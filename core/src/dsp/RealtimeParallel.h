@@ -14,6 +14,10 @@
     #include <immintrin.h>
 #endif
 
+#if defined(__APPLE__)
+    #include <TargetConditionals.h>
+#endif
+
 namespace guitarfx
 {
 namespace rtparallel
@@ -26,7 +30,12 @@ namespace rtparallel
 /// At one-burst blocks the hand-off also costs about as much as the work. The
 /// dual-lane executor below, the graph executor's level workers and the mixer's
 /// per-preset workers all key off this.
-#if defined(__ANDROID__)
+///
+/// iOS: the same shape. The render callback is a time-constraint thread and the
+/// helpers are not; they would have to join the device's audio workgroup to be
+/// scheduled with it, and the phone's efficiency cores make a parked helper the
+/// usual case rather than the exception.
+#if defined(__ANDROID__) || (defined(__APPLE__) && TARGET_OS_IPHONE)
 inline constexpr bool kParallelDspSupported = false;
 #else
 inline constexpr bool kParallelDspSupported = true;

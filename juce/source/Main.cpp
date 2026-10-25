@@ -161,6 +161,14 @@ namespace
 } // namespace
 #endif
 
+#if JUCE_IOS
+namespace
+{
+    // The default buffer size on iOS; see createPluginHolder().
+    constexpr int kDefaultIosBufferFrames = 128;
+} // namespace
+#endif
+
 //==============================================================================
 class MainWindow : public juce::DocumentWindow
 #if JUCE_ANDROID
@@ -170,7 +178,7 @@ class MainWindow : public juce::DocumentWindow
 public:
     MainWindow (const juce::String& appName,
         std::unique_ptr<juce::StandalonePluginHolder> pluginHolderIn
-#if !JUCE_ANDROID
+#if ! SOUNDSHED_MOBILE
         ,
         std::unique_ptr<LaunchCurtain> launchCurtain
 #endif
@@ -180,7 +188,7 @@ public:
               juce::DocumentWindow::allButtons),
           mPluginHolder (std::move (pluginHolderIn))
     {
-#if !JUCE_ANDROID
+#if ! SOUNDSHED_MOBILE
         // Already on screen, put up by the app before the plugin holder (see LaunchCurtain
         // for why covering MainWindow cannot wait until after the editor exists).
         const auto state = loadWindowState();
@@ -193,14 +201,14 @@ public:
         }
 #endif
 
-        // On Android this also matters for layout, not just looks: it is what
-        // stops ResizableWindow reserving a border and insetting the content by
-        // a pixel. Android peers have no decoration to draw anyway.
+        // On Android and iOS this also matters for layout, not just looks: it is
+        // what stops ResizableWindow reserving a border and insetting the content
+        // by a pixel. Mobile peers have no decoration to draw anyway.
         setUsingNativeTitleBar (true);
 
-#if JUCE_ANDROID
-        // There is no window manager to negotiate with — the activity owns the
-        // screen, and the window fills it.
+#if SOUNDSHED_MOBILE
+        // There is no window manager to negotiate with — the activity (or the iOS
+        // scene) owns the screen, and the window fills it.
         setResizable (false, false);
 #else
         setResizable (true, true);
@@ -216,7 +224,7 @@ public:
             if (editor != nullptr)
             {
                 setContentOwned (editor, true);
-#if !JUCE_ANDROID
+#if ! SOUNDSHED_MOBILE
                 setResizable (editor->isResizable(), true);
 
                 if (auto* soundshedEditor = dynamic_cast<soundshed::editor::SoundshedEditorBase*> (editor))
@@ -228,21 +236,21 @@ public:
                     dismissLaunchCurtain();
 #endif
             }
-#if !JUCE_ANDROID
+#if ! SOUNDSHED_MOBILE
             else
             {
                 dismissLaunchCurtain();
             }
 #endif
         }
-#if !JUCE_ANDROID
+#if ! SOUNDSHED_MOBILE
         else
         {
             dismissLaunchCurtain();
         }
 #endif
 
-#if !JUCE_ANDROID
+#if ! SOUNDSHED_MOBILE
         centreWithSize (state.width, state.height);
 
         if (state.maximized || hasCommandLineFlag ("--fullscreen"))
@@ -257,7 +265,7 @@ public:
         mPluginHolder->startPlaying();
 
         // The audio and MIDI device controls in the Settings panel. They stand in for
-        // JUCE's own dialog, which on Android cannot share the screen with the WebView.
+        // JUCE's own dialog, which on Android and iOS cannot share the screen with the WebView.
         if (auto* adapter = getAdapter())
         {
             mAudioSettings = std::make_unique<StandaloneAudioSettings> (*mPluginHolder, [adapter] (const juce::String& json) {
@@ -273,7 +281,7 @@ public:
                 return mAudioSettings != nullptr ? mAudioSettings->deviceLatencySamples() : 0;
             });
 
-#if !JUCE_ANDROID
+#if ! SOUNDSHED_MOBILE
             // The page sends its header colours whenever the theme changes, and is told
             // whether the caption took them, so it can drop the title it would repeat.
             // Answered even when nothing changed: a reloaded page sends the same colours.
@@ -296,7 +304,7 @@ public:
         applyAndroidBufferSize (*mPluginHolder);
 #endif
 
-#if !JUCE_ANDROID
+#if ! SOUNDSHED_MOBILE
         // Last run's theme colours, so the title bar matches from the first frame rather
         // than switching once the page has loaded and sent them again. Last of the window
         // set-up: setUsingNativeTitleBar() and each setResizable() that changes the style
@@ -323,6 +331,13 @@ public:
         // collapses the window to 0x0 — the peer already covers the activity, so
         // there is no separate full-screen state to ask for.
         setBounds (juce::Desktop::getInstance().getDisplays().getPrimaryDisplay()->userArea);
+#elif JUCE_IOS
+        // The opposite of Android: on iOS full screen is exactly what is wanted. The peer
+        // takes the display's user area (the screen less the safe-area insets, so the UI
+        // stays clear of the camera housing and the home indicator) and takes it again
+        // whenever the display changes, which is what a rotation looks like from here.
+        // It is what JUCE's own StandaloneFilterWindow does on iOS.
+        setFullScreen (true);
 #endif
     }
 
@@ -423,7 +438,7 @@ private:
     }
 
 public:
-#if !JUCE_ANDROID
+#if ! SOUNDSHED_MOBILE
     // Mirrors the centreWithSize()/setFullScreen() pair in the constructor, which only runs
     // once this window has an editor sized to show - too late for the curtain, which needs
     // to be up before that work (and the flicker it causes) even starts.
@@ -442,7 +457,7 @@ public:
 #endif
 
 private:
-#if !JUCE_ANDROID
+#if ! SOUNDSHED_MOBILE
     void dismissLaunchCurtain()
     {
         if (mLaunchCurtain == nullptr)
@@ -544,7 +559,7 @@ private:
     // After the holder, so it goes first: it listens to the holder's device manager.
     std::unique_ptr<StandaloneAudioSettings> mAudioSettings;
 
-#if !JUCE_ANDROID
+#if ! SOUNDSHED_MOBILE
     std::unique_ptr<LaunchCurtain> mLaunchCurtain;
 #endif
 
@@ -591,7 +606,7 @@ public:
             return;
         }
 
-#if ! JUCE_ANDROID
+#if ! SOUNDSHED_MOBILE
         mStandaloneLock = std::make_unique<juce::InterProcessLock> (soundshed::product::standaloneLockName);
 
         if (! mStandaloneLock->enter (0))
@@ -609,7 +624,7 @@ public:
         }
 #endif
 
-#if ! JUCE_ANDROID
+#if ! SOUNDSHED_MOBILE
         // Before the plugin holder, whose constructor initialises the engine and opens the
         // audio device on this thread: a window now, and (Windows) the WebView's browser
         // process booting meanwhile. Nano draws natively and has no WebView to warm up.
@@ -706,6 +721,14 @@ private:
         }
 
         const auto* preferredSetupOptions = preferredSetup.has_value() ? &*preferredSetup : nullptr;
+#elif JUCE_IOS
+        // JUCE asks iOS for 256 frames (512 in the simulator): a media-app default, about
+        // 6 ms of output buffering before the input side is counted. Every iPhone and iPad
+        // this deployment target runs on holds 128 frames; 64 is worth trying on a recent
+        // one, from Settings > Audio Device. As on Android, a saved setup wins over this.
+        juce::AudioDeviceManager::AudioDeviceSetup preferredSetup;
+        preferredSetup.bufferSize = kDefaultIosBufferFrames;
+        const auto* preferredSetupOptions = &preferredSetup;
 #else
         const juce::AudioDeviceManager::AudioDeviceSetup* preferredSetupOptions = nullptr;
 #endif

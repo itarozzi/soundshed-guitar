@@ -8,7 +8,7 @@
 // WebView2 only, and only where JUCE's web browser is built in (not Nano, which draws natively).
 #define SOUNDSHED_LAUNCH_WEBVIEW_WARMUP (JUCE_WINDOWS && JUCE_WEB_BROWSER)
 
-#if ! JUCE_ANDROID
+#if ! SOUNDSHED_MOBILE
 
 #if SOUNDSHED_LAUNCH_WEBVIEW_WARMUP
 class LaunchWebViewWarmup;

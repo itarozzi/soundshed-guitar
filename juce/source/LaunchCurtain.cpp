@@ -7,7 +7,7 @@
  #include <juce_gui_extra/juce_gui_extra.h>
 #endif
 
-#if ! JUCE_ANDROID
+#if ! SOUNDSHED_MOBILE
 
 #if SOUNDSHED_LAUNCH_WEBVIEW_WARMUP
 //==============================================================================
