@@ -1,0 +1,349 @@
+/*
+ * The looper strip (ts/looper.ts): docked above the footer, so the transport is never a menu away.
+ * Its states must read from across a room: Rec is red, Dub amber, Play green, and Armed pulses.
+ * Colours come from the theme's footer surface tokens, so it sits with the footer in every theme.
+ */
+
+.looper-strip {
+  --looper-bg: var(--bg-footer);
+  --looper-fg: var(--text-dark-secondary, var(--text-dark-tertiary));
+  --looper-fg-strong: var(--text-dark-primary);
+  --looper-field-bg: var(--bg-dark-secondary);
+  --looper-border: var(--border-dark-medium);
+  --looper-rec: #d9444c;
+  --looper-dub: #e0a12a;
+  --looper-play: #3fa864;
+  --looper-wave: color-mix(in srgb, var(--color-accent) 70%, var(--looper-fg-strong));
+  --looper-wave-live: var(--looper-rec);
+  --looper-grid: color-mix(in srgb, var(--looper-fg) 30%, transparent);
+  --looper-playhead: var(--looper-fg-strong);
+
+  flex-shrink: 0;
+  position: relative;
+  z-index: 19;
+  padding: 6px 18px;
+  background: var(--looper-bg);
+  border-top: 1px solid var(--looper-border);
+  color: var(--looper-fg);
+  font-size: 11px;
+}
+
+.theme-light .looper-strip {
+  --looper-fg: var(--text-secondary);
+  --looper-fg-strong: var(--text-primary);
+  --looper-field-bg: var(--bg-elevated);
+  --looper-border: var(--border-medium);
+}
+
+.looper-strip[hidden] {
+  display: none;
+}
+
+.looper-strip-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.looper-transport {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.looper-btn,
+.looper-segment,
+.looper-step,
+.looper-tempo-chip,
+.looper-layers-toggle,
+.looper-layer-flag,
+.looper-layer-remove {
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--looper-border);
+  border-radius: var(--radius-md);
+  background: var(--looper-field-bg);
+  color: var(--looper-fg-strong);
+  font: inherit;
+  cursor: pointer;
+}
+
+.looper-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.looper-recPlayDub-btn {
+  min-width: 78px;
+  height: 34px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: var(--looper-rec);
+  border-color: transparent;
+  color: #fff;
+}
+
+.looper-strip[data-looper-state="recording"] .looper-recPlayDub-btn,
+.looper-strip[data-looper-state="overdubbing"] .looper-recPlayDub-btn,
+.looper-strip[data-looper-state="stopped"] .looper-recPlayDub-btn {
+  background: var(--looper-play);
+}
+
+.looper-strip[data-looper-state="playing"] .looper-recPlayDub-btn,
+.looper-strip[data-looper-state="overdubArmed"] .looper-recPlayDub-btn {
+  background: var(--looper-dub);
+}
+
+.looper-display {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 160px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.looper-wave {
+  width: 100%;
+  height: 30px;
+  border-radius: var(--radius-sm, 4px);
+  background: var(--looper-field-bg);
+}
+
+.looper-progress {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--looper-field-bg);
+  overflow: hidden;
+}
+
+.looper-progress-fill {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--looper-fg-strong);
+}
+
+.looper-readout {
+  display: flex;
+  gap: 12px;
+  white-space: nowrap;
+}
+
+.looper-status {
+  color: var(--looper-fg-strong);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.looper-strip[data-looper-state="recording"] .looper-status,
+.looper-strip[data-looper-state="overdubbing"] .looper-status {
+  color: var(--looper-rec);
+}
+
+.looper-strip[data-looper-state="armed"] .looper-status,
+.looper-strip[data-looper-state="overdubArmed"] .looper-status {
+  color: var(--looper-dub);
+  animation: looper-pulse 1s ease-in-out infinite;
+}
+
+@keyframes looper-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+.looper-countin {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 34px;
+  font-weight: 800;
+  color: var(--looper-dub);
+  background: color-mix(in srgb, var(--looper-bg) 70%, transparent);
+  pointer-events: none;
+}
+
+.looper-modes {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.looper-segmented {
+  display: inline-flex;
+}
+
+.looper-segment {
+  border-radius: 0;
+}
+
+.looper-segment:first-child {
+  border-radius: var(--radius-md) 0 0 var(--radius-md);
+}
+
+.looper-segment:last-child {
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  border-left: none;
+}
+
+.looper-segment.is-on,
+.looper-layer-flag.is-on {
+  background: color-mix(in srgb, var(--color-accent) 30%, var(--looper-field-bg));
+  border-color: color-mix(in srgb, var(--color-accent) 62%, transparent);
+}
+
+.looper-bars-stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.looper-step {
+  width: 26px;
+  padding: 0;
+}
+
+.looper-tempo-chip.is-locked::before {
+  content: "🔒 ";
+}
+
+.looper-options {
+  position: relative;
+}
+
+.looper-options > summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 6px 8px;
+  border: 1px solid var(--looper-border);
+  border-radius: var(--radius-md);
+  color: var(--looper-fg-strong);
+}
+
+.looper-options-body {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 220px;
+  padding: 10px 12px;
+  border: 1px solid var(--looper-border);
+  border-radius: var(--radius-md);
+  background: var(--looper-bg);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.looper-options-body label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.looper-options-body input[type="number"] {
+  width: 60px;
+}
+
+.looper-layers {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 40vh;
+  margin-top: 6px;
+  overflow-y: auto;
+}
+
+.looper-layers[hidden] {
+  display: none;
+}
+
+.looper-layer-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: var(--radius-md);
+  background: var(--looper-field-bg);
+}
+
+.looper-layer-swatch {
+  width: 10px;
+  height: 20px;
+  border-radius: 3px;
+  background: hsl(var(--looper-layer-hue) 60% 55%);
+}
+
+.looper-layer-title {
+  width: 120px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--looper-fg-strong);
+  font: inherit;
+}
+
+.looper-layer-title:focus {
+  border-color: var(--looper-border);
+}
+
+.looper-tone-chip {
+  min-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.looper-tone-changed {
+  margin-left: 4px;
+  color: var(--looper-dub);
+}
+
+.looper-layer-rec {
+  color: var(--looper-rec);
+  font-weight: 700;
+}
+
+.looper-layer-slider {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.looper-layer-slider input {
+  width: 90px;
+}
+
+.looper-layer-flag,
+.looper-layer-remove {
+  width: 28px;
+  padding: 0;
+}
+
+.looper-layers-empty {
+  margin: 4px 0;
+}
+
+/* Compact density: the state button, Stop and Undo, and the waveform. */
+html[data-density="compact"] .looper-strip {
+  padding: 4px 8px;
+}
+
+html[data-density="compact"] .looper-modes,
+html[data-density="compact"] .looper-redo-btn,
+html[data-density="compact"] .looper-clear-btn,
+html[data-density="compact"] .looper-layer-count,
+html[data-density="compact"] .looper-layer-slider {
+  display: none;
+}
+
+html[data-density="compact"] .looper-layers {
+  max-height: 60vh;
+}

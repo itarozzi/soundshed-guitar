@@ -22,6 +22,7 @@ export const Features = {
   FactoryPresetArchives: "factoryPresetArchives",
   DebugStateCapture: "debugStateCapture",
   EffectsPerformancePads: "effectsPerformancePads",
+  Looper: "looper",
 } as const;
 
 export type FeatureId = typeof Features[keyof typeof Features];
@@ -189,6 +190,14 @@ export const FEATURE_DEFINITIONS: FeatureDefinition[] = [
   },
 ];
 
+FEATURE_DEFINITIONS.push({
+  id: Features.Looper,
+  key: "features.looper.enabled",
+  label: "Looper",
+  description: "Standalone: a phrase looper docked above the footer. Record a loop, layer overdubs on it, and mix, mute or remove each layer. Each layer keeps the tone it was played with. Adds a Loop button to the footer.",
+  defaultEnabled: false,
+});
+
 export const FEATURE_GROUPS: FeatureGroupDefinition[] = [
   {
     id: "core",
@@ -200,7 +209,7 @@ export const FEATURE_GROUPS: FeatureGroupDefinition[] = [
     id: "power",
     title: "Power Features",
     description: "These features are optional and may be under development or designed for advanced users.",
-    featureIds: [Features.ToneBuilder, Features.ExperimentalEffects, Features.PickupMatch, Features.CustomEffects, Features.CompositeEffects, Features.BlendTools, Features.EffectLayout, Features.ResourceCleanup, Features.FactoryPresetArchives, Features.DebugStateCapture, Features.EffectsPerformancePads],
+    featureIds: [Features.ToneBuilder, Features.ExperimentalEffects, Features.PickupMatch, Features.CustomEffects, Features.CompositeEffects, Features.BlendTools, Features.EffectLayout, Features.ResourceCleanup, Features.FactoryPresetArchives, Features.DebugStateCapture, Features.EffectsPerformancePads, Features.Looper],
   },
 ];
 

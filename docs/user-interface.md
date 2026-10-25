@@ -945,6 +945,26 @@ appends " (copy)" so the two are distinguishable in the picker.
   factory layouts). Before a delete removes a layout's folder, every other layout takes its own
   copy of what it borrowed.
 
+## Looper strip (`core/ui/ts/looper.ts`, `core/ui/ts/looper/`)
+
+Behind the Looper feature flag (Settings → Features, power group) and only in the standalone app
+(`looperState.available`). The flag drives the engine: the strip sends `setLooper {enabled}` when
+the two disagree. The footer's Loop button opens a strip docked above the footer, so it stays over
+every panel: the one-button transport (Rec, then Play, then Dub), Stop, Undo, Redo and Clear; a
+summary waveform of the audible layers (scaled to the loudest moment) with the take being recorded
+over it, bar lines and the playhead; the state, time, bar and layer count; Press | Armed and
+Free | Bars with a bar stepper; a tempo chip (locked under a Bars loop) that opens the metronome;
+and Options (count-in, click while recording, after a Bars take, longest loop, timing offset). A
+count-in shows the beats left in large type, and Armed pulses.
+
+Layers opens a row per layer, newest first: name (editable), the preset it was played through
+(with a marker when the preset or scene changed during the take), level, balance, mute, solo and
+remove. The strip redraws its markup only when its shape changes (`shapeKey` in `looper.ts`); while
+the loop runs it moves the time, bar and playhead in place, and a slider being dragged is left
+alone. At compact density only the transport's state button, Stop and Undo and the waveform
+remain. The first `getLooperState` is sent after `uiReady`, since replies sent before the page
+registers its receiver are lost.
+
 ## Jam Panel Notes
 
 ### Practice Tool (`core/ui/ts/practiceTool.ts`, `core/ui/ts/practiceTool/`)

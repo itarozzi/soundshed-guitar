@@ -339,6 +339,11 @@ nlohmann::json LooperService::BuildState() const
             static_cast<int>(std::ceil(static_cast<double>(mEngine.CountInSamplesLeft()) / samplesPerBeat));
     }
 
+    if (s.state == LooperState::Recording || s.state == LooperState::Overdubbing)
+    {
+        state["recordedSec"] = static_cast<double>(mEngine.LiveRecordedSamples()) / rate;
+    }
+
     if (s.state == LooperState::Armed || s.state == LooperState::OverdubArmed)
     {
         state["armWaitingSec"] = std::round(static_cast<double>(mEngine.ArmWaitingSamples()) / rate * 10.0) / 10.0;

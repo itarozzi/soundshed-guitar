@@ -1,6 +1,6 @@
 # Looper
 
-Status: **plan, revision 3** (2026-10-22). **Phase 1 and Phase 6 built** (2026-10-25, not committed):
+Status: **plan, revision 3** (2026-10-22). **Phases 1, 2, 3 and 6 built** (2026-10-25):
 see [Implementation status](#implementation-status). The decisions marked **(decide)** were taken as
 recommended.
 
@@ -31,7 +31,15 @@ recommended.
   input + output). Registry triggers `looper.recPlayDub/stop/undo/redo/clear` and `looper.level`.
   `LooperServiceTests`.
 
-**Not built yet:** Phase 3 (the UI), Phase 4 (projects), Phase 5 (re-tone).
+- **Phase 3, the UI.** `core/ui/ts/looper.ts` and `core/ui/ts/looper/` (state, strip, layers,
+  waveform, refresh), `messages/looperHandlers.ts`, the senders in `bridge.ts`, `css/looper.css`, the
+  Looper feature flag and the footer's Loop button (docs/user-interface.md, "Looper strip").
+  `tests/looperStrip.test.ts`. Checked in the running app: a free loop, an overdub held across
+  three wraps (three layers), undo, and the flag switching the engine off and freeing its memory.
+  **Left out:** the performance-pads looper row (`performancePads.ts` is at its size pin; the strip
+  stays over the Play panel, so the transport is never a menu away).
+
+**Not built yet:** Phase 4 (projects), Phase 5 (re-tone).
 
 **Phase 2 limits:** a Bars take started from MIDI with the metronome off counts in silently (the
 guidance click is switched on the message thread, for a UI press). The looper level a footswitch

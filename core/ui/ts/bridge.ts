@@ -506,3 +506,29 @@ export function sendGlobalChainParam(paramPath: string, value: number | boolean)
 export function requestGlobalChainState(): void {
   postMessage({ type: "getGlobalChain" });
 }
+
+// ── Looper (standalone) ──────────────────────────────────────────────────
+
+/** A looper transport press: recPlayDub, record, play, overdub, stop, undo, redo or clear. */
+export function sendLooperCommand(command: string): void {
+  postMessage({ type: "looperCommand", command });
+}
+
+/** Looper settings, any of setLooper's fields. */
+export function sendLooperSettings(settings: Record<string, unknown>): void {
+  postMessage({ type: "setLooper", ...settings });
+}
+
+/** One layer's mix or name. */
+export function sendLooperLayer(layerId: string, update: Record<string, unknown>): void {
+  postMessage({ type: "setLooperLayer", layerId, ...update });
+}
+
+export function sendRemoveLooperLayer(layerId: string): void {
+  postMessage({ type: "removeLooperLayer", layerId });
+}
+
+/** Everything about the looper again: its state, its layers and every waveform. */
+export function requestLooperState(): void {
+  postMessage({ type: "getLooperState" });
+}

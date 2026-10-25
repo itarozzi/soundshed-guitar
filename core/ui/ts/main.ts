@@ -28,7 +28,7 @@ import { themeSwitcher } from "./theme-switcher.js";
 import { startUiSettingsTracking } from "./windowSettings.js";
 import { renderFooterDemoAudio } from "./demoAudio.js";
 import { initDensitySelect, initDiagnosticsToggle, initThemeSelect, initZoomControls, initUserInputCalibrationControls } from "./settings.js";
-import { postMessage } from "./bridge.js";
+import { postMessage, requestLooperState } from "./bridge.js";
 import { initWindowChrome } from "./windowChrome.js";
 import { initializeMetronome } from "./metronome.js";
 import { initializeAutomationPanel, requestAutomationState } from "./automationPanel.js";
@@ -52,6 +52,7 @@ import { applyBuildFlags } from "./buildFlags.js";
 import { hideSplashScreen, initSplashScreen } from "./splash.js";
 import { FEATURE_FLAGS_CHANGED_EVENT } from "./featureFlags.js";
 import { initializePerformancePads } from "./performancePads.js";
+import { initializeLooper } from "./looper.js";
 import { initializeSetlistPadPresetDrop } from "./setlistPadDrop.js";
 import { configureToneSharingHostActions } from "./toneSharingPanel/hostActions.js";
 const eqModal = document.getElementById("eq-modal");
@@ -297,6 +298,7 @@ async function bootstrap(): Promise<void> {
   initFooterActionsPopup();
   initializePlayFooterPadsToggle();
   initializePerformancePads();
+  initializeLooper();
   initializeSetlistPadPresetDrop();
   // Signal-chain undo/redo + A/B. Bound after the footer exists and before the
   // first preset lands, so the initial chain seeds the stacks.
@@ -312,6 +314,8 @@ async function bootstrap(): Promise<void> {
   console.log("[JS] IPlugReceiveData registered on window");
 
   postMessage({ type: "uiReady" });
+  // Asked for once something is listening: what the looper sent earlier went nowhere.
+  requestLooperState();
   postMessage({ type: "getEffectCatalog" });
   initWindowChrome();
   postMessage({ type: "getTheme" });

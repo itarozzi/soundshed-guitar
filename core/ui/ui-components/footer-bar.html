@@ -1,3 +1,5 @@
+<!-- The looper strip (ts/looper.ts): docked above the footer, so it stays over every panel. -->
+<div class="looper-strip" id="looper-strip" hidden></div>
 <footer class="footer-bar film-grain">
       <div class="footer-compact-shortcuts" aria-label="Quick tools">
         <button class="footer-btn footer-icon-btn" id="footer-compact-pads-btn" type="button" aria-label="Setlists" aria-pressed="false" title="Setlists">
@@ -90,6 +92,13 @@
               <circle cx="12" cy="12" r="7" />
             </svg>
             <span class="footer-tool-label">Rec</span>
+          </button>
+          <button class="footer-btn footer-icon-btn" id="footer-looper-btn" type="button" aria-label="Looper" aria-pressed="false" title="Looper" hidden>
+            <svg class="footer-tool-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M18.5 12a6.5 6.5 0 1 1-2-4.7" />
+              <path d="M17 3.5v4h-4" />
+            </svg>
+            <span class="footer-tool-label">Loop</span>
           </button>
         </div>
         <div class="footer-group footer-tempo-group" aria-label="Tempo">
