@@ -96,6 +96,7 @@ struct LoopImage
 {
     std::int64_t length = 0;
     bool barsLoop = false;
+    double clickBar = 0.0; ///< LooperSnapshot::clickBar
     int layerCount = 0;
     std::array<LoopLayerImage, kMaxLayers> layers{};
 };
@@ -194,6 +195,9 @@ struct LooperSnapshot
     std::int64_t playhead = 0;
     bool playing = false;
     bool barsLoop = false;
+    /// Where in the bar the loop starts (0..1), as the click ran when its first take was played:
+    /// the click follows the loop from there.
+    double clickBar = 0.0;
     bool canUndo = false;
     bool canRedo = false;
     int visibleLayers = 0;
@@ -323,13 +327,12 @@ class LooperEngine
     /// Whether the chains must keep running through silence: armed, counting in, recording, or
     /// writing a tail. The mixer's sleep gate asks before it decides.
     [[nodiscard]] bool WantsChainsAwake() const noexcept;
-    /// The sample in the block just processed where the metronome should restart its bar (a count-in
-    /// started, or a Bars loop wrapped), or -1. Cleared by the call.
-    int TakeMetronomeReset() noexcept
+    /// What the click does in the block just processed (TransportClock.h). Cleared by the call.
+    LoopClickSync TakeClickSync() noexcept
     {
-        const int offset = mMetronomeReset;
-        mMetronomeReset = -1;
-        return offset;
+        const LoopClickSync sync = mClickSync;
+        mClickSync = {};
+        return sync;
     }
     [[nodiscard]] LooperState State() const noexcept
     {
@@ -444,6 +447,10 @@ class LooperEngine
     void DiscardRecording();
     void CancelFirstLayer();
     void StartPlaying(int at, std::int64_t playhead);
+    /// The block's click: silent while stopped, else on the loop's place in the bar.
+    void BeginClickSync() noexcept;
+    /// The loop's place in the bar (0..1) at `playhead`, or -1 with no tempo.
+    [[nodiscard]] double ClickBarAt(std::int64_t playhead) const noexcept;
     void BeginStop();
     void BeginClear();
     void FinishClear();
@@ -544,7 +551,8 @@ class LooperEngine
     // This block's playback window.
     int mPlayFrom = -1;
     std::int64_t mPlayheadAtPlayFrom = 0;
-    int mMetronomeReset = -1;
+    LoopClickSync mClickSync;
+    double mClickBar = 0.0; ///< LooperSnapshot::clickBar
 
     // Published.
     bool mDirty = true;
@@ -554,6 +562,7 @@ class LooperEngine
     std::atomic<std::int64_t> mPublishedPlayhead{0};
     std::atomic<bool> mPublishedPlaying{false};
     std::atomic<bool> mPublishedBars{false};
+    std::atomic<double> mPublishedClickBar{0.0};
     std::atomic<bool> mPublishedCanUndo{false};
     std::atomic<bool> mPublishedCanRedo{false};
     std::atomic<int> mPublishedVisible{0};

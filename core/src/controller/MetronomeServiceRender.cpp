@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <utility>
 
 using namespace guitarfx::controller_detail;
 
@@ -16,6 +17,11 @@ namespace guitarfx
 {
 namespace
 {
+/// How far the click may stray from a loop it follows before it is put back (a millisecond): beyond
+/// rounding, it was switched on or retimed mid-loop. Also how recently a tick must have played for a
+/// re-phase onto it not to play it again.
+constexpr double kLoopChaseSamples = 48.0;
+
 /// Pitch offset for the synthesised fallback beep, so accents still read as
 /// accents on an install whose samples are missing.
 double FallbackClickFrequency(ClickVoice voice)
@@ -47,6 +53,7 @@ void MetronomeService::Render(float** outputs, int numSamples)
 
     const bool guidanceActive = mGuidanceActive;
     const bool running = guidanceActive || mEnabled.load(std::memory_order_relaxed);
+    const LoopClickSync sync = std::exchange(mLoopSync, LoopClickSync{});
     const auto plan =
         guidanceActive ? mGuidanceBarPlan : std::atomic_load_explicit(&mBarPlan, std::memory_order_acquire);
     const double sampleRate = mHost.GetSampleRate();
@@ -69,16 +76,46 @@ void MetronomeService::Render(float** outputs, int numSamples)
     mClock.samplesPerBeat.store(samplesPerBeat, std::memory_order_relaxed);
     mClock.samplesPerBar.store(samplesPerBar, std::memory_order_relaxed);
 
-    if (!running)
+    // Off, or held silent by a stopped loop: nothing plays, and nothing is in phase with the grid.
+    if (!running || (sync.following && sync.silentUntil >= numSamples))
     {
+        mClickSamplesRemaining = 0;
+        mSamplesSinceTick = 1.0e9; // so the first tick when it plays again is not taken as played
+
         mClock.running.store(false, std::memory_order_relaxed);
         return;
     }
 
     // A restart lands on the sample it was asked for; one past this block waits for the next.
     int resetAt = -1;
+    double resetBar = -1.0; // -1: bar 1, beat 1
+    const bool reset = mResetPending.exchange(false, std::memory_order_acq_rel);
 
-    if (mResetPending.exchange(false, std::memory_order_acq_rel))
+    // A loop decides where the bar is; the metronome's own restarts (on enable, on a tempo change)
+    // give way to it, and its place in the bar is kept every block.
+    if (sync.following)
+    {
+        if (sync.barAtStart >= 0.0)
+        {
+            const double cursor = CursorSamplesIntoBar(samplesPerTick, ticksPerBeat, samplesPerBar);
+            const double target = sync.barAtStart * samplesPerBar;
+            const double apart = std::abs(cursor - target);
+
+            if (std::min(apart, samplesPerBar - apart) > kLoopChaseSamples)
+            {
+                ResetCursorAt(target, samplesPerTick, ticksPerBeat, beatsPerBar);
+            }
+        }
+
+        resetAt = sync.resetAt;
+        resetBar = sync.resetBar;
+    }
+    else if (sync.resetAt >= 0)
+    {
+        resetAt = sync.resetAt;
+        resetBar = sync.resetBar;
+    }
+    else if (reset)
     {
         const int offset = mResetOffset.load(std::memory_order_relaxed);
 
@@ -92,10 +129,7 @@ void MetronomeService::Render(float** outputs, int numSamples)
         }
     }
 
-    if (resetAt == 0)
-    {
-        ResetCursor();
-    }
+    const int silentUntil = sync.following ? std::max(0, sync.silentUntil) : 0;
     const int clickSamples = std::max(1, static_cast<int>(sampleRate * kMetronomeClickSeconds));
 
     const double volumeDb =
@@ -116,9 +150,22 @@ void MetronomeService::Render(float** outputs, int numSamples)
 
     for (int frame = 0; frame < numSamples; ++frame)
     {
-        if (frame == resetAt && frame > 0)
+        if (frame == resetAt)
         {
-            ResetCursor();
+            if (resetBar < 0.0)
+            {
+                ResetCursor();
+            }
+            else
+            {
+                ResetCursorAt(resetBar * samplesPerBar, samplesPerTick, ticksPerBeat, beatsPerBar);
+            }
+        }
+
+        // A loop starting mid-block: silent until it does.
+        if (frame < silentUntil)
+        {
+            continue;
         }
 
         if (mSamplesUntilTick <= 0.0)
@@ -130,6 +177,8 @@ void MetronomeService::Render(float** outputs, int numSamples)
 
             mTickVoice = onBeat ? beat.voice : ClickVoice::Sub;
             mTickGain = onBeat ? beat.gain : plan->subGain;
+
+            mSamplesSinceTick = 0.0;
 
             if (onBeat)
             {
@@ -211,13 +260,41 @@ void MetronomeService::Render(float** outputs, int numSamples)
         outputs[0][frame] += clickSampleL * gainLeft;
         outputs[1][frame] += clickSampleR * gainRight;
         mSamplesUntilTick -= 1.0;
+        mSamplesSinceTick += 1.0;
     }
 
-    // Where the next block starts in the bar: the next tick's place, less the time until it.
-    const double nextTick = static_cast<double>(mBeatIndex * ticksPerBeat + mTickIndex) * samplesPerTick;
-    const double since = std::fmod(std::fmod(nextTick - mSamplesUntilTick, samplesPerBar) + samplesPerBar, samplesPerBar);
-    mClock.samplesSinceBar.store(since, std::memory_order_relaxed);
+    // Where the next block starts in the bar.
+    mClock.samplesSinceBar.store(CursorSamplesIntoBar(samplesPerTick, ticksPerBeat, samplesPerBar),
+                                 std::memory_order_relaxed);
     mClock.running.store(true, std::memory_order_relaxed);
+}
+
+double MetronomeService::CursorSamplesIntoBar(double samplesPerTick, int ticksPerBeat, double samplesPerBar) const
+{
+    // The next tick's place, less the time until it.
+    const double nextTick = static_cast<double>(mBeatIndex * ticksPerBeat + mTickIndex) * samplesPerTick;
+    return std::fmod(std::fmod(nextTick - mSamplesUntilTick, samplesPerBar) + samplesPerBar, samplesPerBar);
+}
+
+void MetronomeService::ResetCursorAt(double samplesIntoBar, double samplesPerTick, int ticksPerBeat, int beatsPerBar)
+{
+    // The next tick at or after the place asked for; the one on this very sample counts.
+    const auto next = static_cast<long long>(std::ceil(samplesIntoBar / samplesPerTick - 1.0e-9));
+    double until = std::max(0.0, static_cast<double>(next) * samplesPerTick - samplesIntoBar);
+    long long tick = next;
+
+    // A tick due now that the old cursor played a moment ago (a re-phase onto where it already was).
+    if (until < 1.0 && mSamplesSinceTick < kLoopChaseSamples)
+    {
+        ++tick;
+        until += samplesPerTick;
+    }
+
+    const long long ticksPerBar = static_cast<long long>(ticksPerBeat) * beatsPerBar;
+    const long long inBar = ((tick % ticksPerBar) + ticksPerBar) % ticksPerBar;
+    mBeatIndex = static_cast<int>(inBar / ticksPerBeat);
+    mTickIndex = static_cast<int>(inBar % ticksPerBeat);
+    mSamplesUntilTick = until;
 }
 
 void MetronomeService::ResetCursor()

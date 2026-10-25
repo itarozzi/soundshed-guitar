@@ -324,6 +324,8 @@ nlohmann::json LooperService::BuildState() const
     state["layerCount"] = s.visibleLayers;
     state["memoryMb"] = static_cast<double>(HeldBytes()) / (1024.0 * 1024.0);
     state["tempoLocked"] = mTempoLocked;
+    state["click"] = mMetronome.IsEnabled();
+    state["clickBar"] = s.clickBar;
     state["settings"] = SettingsToJson(mSettings);
 
     if (s.barsLoop && samplesPerBar > 1.0)

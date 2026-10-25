@@ -148,6 +148,7 @@ bool LooperEngine::Process(float* outL, float* outR, int numSamples, bool muted)
     }
 
     mDiNoted = false;
+    BeginClickSync();
     mPlayFrom = mPlaying ? 0 : -1;
     mPlayheadAtPlayFrom = mPlayhead;
 
@@ -258,14 +259,16 @@ void LooperEngine::StepSample(int i, float wetL, float wetR, bool muted)
     const float diL = mDiL[static_cast<std::size_t>(i)];
     const float diR = mDiChannels > 1 ? mDiR[static_cast<std::size_t>(i)] : diL;
 
-    // The loop wrapped at the end of the last sample: a Bars loop puts the metronome back on bar 1.
+    // The loop wrapped at the end of the last sample: the click goes back to the loop's start, which
+    // keeps it in step with a loop that is not whole bars (a Bars loop is on bar 1 again).
     if (mWrapPending)
     {
         mWrapPending = false;
 
-        if (mBarsLoop && mMetronomeReset < 0)
+        if (const double bar = ClickBarAt(0); bar >= 0.0 && mClickSync.resetAt < 0)
         {
-            mMetronomeReset = i;
+            mClickSync.resetAt = i;
+            mClickSync.resetBar = bar;
         }
     }
 

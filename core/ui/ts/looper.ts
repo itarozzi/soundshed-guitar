@@ -22,6 +22,7 @@ import {
   sendRemoveLooperLayer,
   sendRetoneLooperLayers,
   sendSaveLooperProject,
+  setMetronome,
 } from "./bridge.js";
 import { showConfirm } from "./dialogs.js";
 import { FEATURE_FLAGS_CHANGED_EVENT, Features, isFeatureEnabled } from "./featureFlags.js";
@@ -238,6 +239,11 @@ function handleClick(event: MouseEvent): void {
   if (step) {
     const bars = Math.min(64, Math.max(1, status.settings.bars + Number(step.dataset.looperBars ?? 0)));
     sendLooperSettings({ bars });
+    return;
+  }
+
+  if (target.closest("[data-looper-click]")) {
+    setMetronome({ enabled: !status.click });
     return;
   }
 

@@ -304,7 +304,8 @@ void LooperEngine::StartFirstLayer(int at)
     if (armed && everyTake && countIn > 0)
     {
         // Counted in, then listening from the downbeat.
-        mMetronomeReset = at;
+        mClickSync.resetAt = at;
+        mClickSync.resetBar = 0.0;
         mCountInLeft = countIn;
         mPendingArm = countIn;
         mState = LooperState::CountIn;
@@ -321,7 +322,8 @@ void LooperEngine::StartFirstLayer(int at)
     {
         // The press restarts the metronome's bar, counts in, and records from the downbeat; the
         // record window sits D later, where a note played on that downbeat arrives.
-        mMetronomeReset = at;
+        mClickSync.resetAt = at;
+        mClickSync.resetBar = 0.0;
         mCountInLeft = countIn;
         mClosePlayhead = mAlign;
         mPendingStart = countIn + mAlign;
@@ -336,7 +338,25 @@ void LooperEngine::StartFirstLayer(int at)
 
 void LooperEngine::StartFirstWriter(int at, std::int64_t recAbs)
 {
-    (void)at;
+    // Where the loop starts in the metronome's bar: the grid as the player heard it when they played
+    // its first sample, D before it reached the DI tap. A Bars take starts on bar 1. A free take
+    // played to the click is played back on it too: its playhead starts D in, as a Bars take's does.
+    mClickBar = 0.0;
+
+    if (!mFirstBars && mClock && mClock->running.load(std::memory_order_relaxed))
+    {
+        const double samplesPerBar = mClock->samplesPerBar.load(std::memory_order_relaxed);
+
+        if (samplesPerBar > 1.0)
+        {
+            const double since = mClock->samplesSinceBar.load(std::memory_order_relaxed) + static_cast<double>(at) -
+                                 static_cast<double>(recAbs) - static_cast<double>(mAlign);
+            const double bar = since / samplesPerBar;
+            mClickBar = bar - std::floor(bar);
+            mClosePlayhead = mAlign;
+        }
+    }
+
     const int slotIndex = FindFreeSlot();
     Writer* w = NewWriter();
 

@@ -93,6 +93,18 @@ describe("the looper strip", () => {
     expect(sent).toContainEqual({ type: "setLooper", bars: 5 });
   });
 
+  it("switches the loop's click, which is the metronome", () => {
+    state({ click: false });
+    const toggle = () => strip.querySelector<HTMLButtonElement>("[data-looper-click]");
+    expect(toggle()?.getAttribute("aria-pressed")).toBe("false");
+    toggle()?.click();
+    expect(sent).toContainEqual({ type: "setMetronome", enabled: true });
+    state({ click: true });
+    expect(toggle()?.getAttribute("aria-pressed")).toBe("true");
+    toggle()?.click();
+    expect(sent).toContainEqual({ type: "setMetronome", enabled: false });
+  });
+
   it("shows the count-in in large type and the state the loop is in", () => {
     state({ state: "countIn", countInBeatsLeft: 3 }, { length: "bars" });
     expect(strip.querySelector(".looper-countin")?.textContent).toBe("3");

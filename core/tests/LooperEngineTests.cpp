@@ -547,6 +547,56 @@ void TestStopAndClear()
     Check(snap.capture == &rig.capture->audio, "the capture buffer stays");
 }
 
+/// A free take played to a running click: the loop starts where the player heard the bar, D before
+/// its first sample reached the DI tap, and plays back on that grid. The click is held while the loop
+/// is stopped, and restarted on the loop's place in the bar when it plays and when it wraps.
+void TestFreeTakeOnTheClickKeepsItsPlaceInTheBar()
+{
+    Rig rig;
+    const double spb = 48000.0;
+    const int align = 300;
+    rig.clock.samplesPerBar.store(spb);
+    rig.clock.samplesPerBeat.store(spb / 4.0);
+    rig.clock.running.store(true);
+    rig.engine.Settings().alignSamples.store(align);
+    const std::int64_t press = 10048;
+    const std::int64_t length = 70016;
+    rig.RunTo(press);
+    rig.Press(LooperAction::Record);
+    rig.RunTo(press + length);
+    rig.Press(LooperAction::Play);
+    rig.Run(64);
+    const auto snap = rig.Snap();
+    const double clickBar = static_cast<double>(press - align) / spb;
+    const auto frac = [](double x) { return x - std::floor(x); };
+    Check(snap.length == length && std::abs(snap.clickBar - clickBar) < 1e-9,
+          "the loop starts where the bar was as the player heard it: " + std::to_string(snap.clickBar));
+    Check(snap.playhead == align + 64, "a take played to the click plays back D in, as a Bars take does");
+    Check(!rig.metronomeResets.empty() && rig.metronomeResets.back() == press + length &&
+              std::abs(rig.metronomeResetBars.back() - frac(clickBar + align / spb)) < 1e-9,
+          "the click is put on the loop's place as it closes");
+
+    rig.Press(LooperAction::Stop);
+    rig.Run(2000);
+    rig.Run(64);
+    Check(rig.lastClickSync.following && rig.lastClickSync.silentUntil >= 64 && rig.lastClickSync.resetAt < 0,
+          "the click is held while the loop is stopped");
+
+    rig.metronomeResets.clear();
+    rig.metronomeResetBars.clear();
+    rig.Press(LooperAction::Play);
+    rig.Run(64);
+    Check(rig.lastClickSync.following && rig.lastClickSync.silentUntil == 0 && rig.lastClickSync.resetAt == 0 &&
+              std::abs(rig.lastClickSync.resetBar - clickBar) < 1e-9,
+          "Play restarts the click on the loop's start");
+    Check(std::abs(rig.lastClickSync.barAtStart - clickBar) < 1e-9, "and keeps it there");
+    rig.Run(length - 64);
+    rig.Run(64);
+    Check(rig.metronomeResets.size() == 2 && rig.metronomeResets.back() == rig.now - 64 &&
+              std::abs(rig.metronomeResetBars.back() - clickBar) < 1e-9,
+          "a wrap of a loop that is not whole bars puts it back on the loop's start");
+}
+
 /// Nothing the audio thread does for any command allocates.
 void TestNoAllocationOnTheAudioThread()
 {
@@ -609,6 +659,7 @@ int main()
     TestRingOut();
     TestTunerMutePunchesOutAndKeepsTime();
     TestStopAndClear();
+    TestFreeTakeOnTheClickKeepsItsPlaceInTheBar();
     TestNoAllocationOnTheAudioThread();
 
     if (gFailures > 0)

@@ -56,6 +56,7 @@
 .looper-segment,
 .looper-step,
 .looper-tempo-chip,
+.looper-click-toggle,
 .looper-layers-toggle,
 .looper-layer-flag,
 .looper-layer-remove {
@@ -194,6 +195,7 @@
 }
 
 .looper-segment.is-on,
+.looper-click-toggle.is-on,
 .looper-layer-flag.is-on {
   background: color-mix(in srgb, var(--color-accent) 30%, var(--looper-field-bg));
   border-color: color-mix(in srgb, var(--color-accent) 62%, transparent);

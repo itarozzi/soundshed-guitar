@@ -79,6 +79,8 @@ struct Rig
     double barOrigin = 0.0; // when the clock runs, a bar line sits here
     std::vector<float> outL, outR;
     std::vector<int> metronomeResets; // absolute sample of each requested restart
+    std::vector<double> metronomeResetBars; // ...and where in the bar it lands
+    LoopClickSync lastClickSync;          // the last block's
 
     Rig(double rate = 48000.0, int blockSize = 64, int chainLatency = 100, double captureSeconds = 4.0)
         : sampleRate(rate), block(blockSize), latency(chainLatency)
@@ -131,14 +133,23 @@ struct Rig
             engine.NoteInput(d.data(), nullptr, n, 1.0f);
             engine.Process(l.data(), r.data(), n, muted);
 
-            if (const int reset = engine.TakeMetronomeReset(); reset >= 0)
+            lastClickSync = engine.TakeClickSync();
+
+            if (lastClickSync.resetAt >= 0)
             {
-                metronomeResets.push_back(static_cast<int>(now) + reset);
+                metronomeResets.push_back(static_cast<int>(now) + lastClickSync.resetAt);
+                metronomeResetBars.push_back(lastClickSync.resetBar);
             }
 
             outL.insert(outL.end(), l.begin(), l.begin() + n);
             outR.insert(outR.end(), r.begin(), r.begin() + n);
             now += n;
+
+            // As the metronome does: ready for the next block, and for a press between blocks.
+            if (spb > 0.0)
+            {
+                clock.samplesSinceBar.store(std::fmod(std::fmod(static_cast<double>(now) - barOrigin, spb) + spb, spb));
+            }
             samples -= n;
 
             if (autoSpare)

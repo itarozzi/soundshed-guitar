@@ -133,6 +133,13 @@ class MetronomeService
         mClickSuppressed.store(suppressed, std::memory_order_relaxed);
     }
 
+    /// Audio thread, between the looper's block and Render(): what the looper asks of this block's
+    /// click (TransportClock.h). Render() uses it once; a block without one runs free.
+    void SetLoopClickSync(const LoopClickSync& sync) noexcept
+    {
+        mLoopSync = sync;
+    }
+
     /// Clears the cursor outright. Message thread only, and only while the
     /// audio thread is not running (Prepare holds the DSP lock).
     void ResetTransport();
@@ -214,6 +221,11 @@ class MetronomeService
 
     /// Audio thread: the beat cursor back to bar 1, beat 1.
     void ResetCursor();
+    /// Audio thread: the beat cursor `samplesIntoBar` into the bar. A tick it would play on the
+    /// sample that one just played is not played twice.
+    void ResetCursorAt(double samplesIntoBar, double samplesPerTick, int ticksPerBeat, int beatsPerBar);
+    /// Audio thread: how far into the bar the cursor is, in samples.
+    [[nodiscard]] double CursorSamplesIntoBar(double samplesPerTick, int ticksPerBeat, double samplesPerBar) const;
 
     IPluginHost& mHost;
     nlohmann::json& mAppSettings;
@@ -244,7 +256,9 @@ class MetronomeService
     std::atomic<std::uint32_t> mBeatPulse{0};
     std::uint32_t mBeatPulseSeq = 0;     // audio thread
     std::uint32_t mLastBeatPulseSeq = 0; // message thread
+    LoopClickSync mLoopSync;             // audio thread, for the next Render()
     double mSamplesUntilTick = 0.0;
+    double mSamplesSinceTick = 1.0e9;    // since the last tick played
     int mClickSamplesRemaining = 0;
     double mClickPhase = 0.0;
     double mClickPhaseIncrement = 0.0;

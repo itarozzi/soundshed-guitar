@@ -97,6 +97,8 @@ struct Session
     PluginController& controller;
     bool playing = false;
     std::size_t phase = 0;
+    /// When set, the left output of every block is appended here (sample i is input sample i).
+    std::vector<float>* capture = nullptr;
 
     void Send(const nlohmann::json& message)
     {
@@ -124,6 +126,11 @@ struct Session
             float* inputs[2] = {l.data(), r.data()};
             float* outputs[2] = {ol.data(), orr.data()};
             controller.ProcessAudio(inputs, outputs, kBlock);
+
+            if (capture)
+            {
+                capture->insert(capture->end(), ol.begin(), ol.end());
+            }
 
             if (b % 4 == 3)
             {

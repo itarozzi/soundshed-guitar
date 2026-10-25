@@ -85,11 +85,14 @@ function renderModes(status: LooperStatus): string {
   const tempo = status.tempoBpm ?? null;
   const lock = status.tempoLocked ? " is-locked" : "";
   const tempoTitle = status.tempoLocked ? "Tempo locked to the loop" : "Open the metronome";
+  const clickTitle = "The metronome as the loop's click: it stops with the loop and starts again in time with it. Saved with the loop.";
+  const click = `<button type="button" class="looper-click-toggle${status.click ? " is-on" : ""}" data-looper-click aria-pressed="${status.click}" title="${escapeHtml(clickTitle)}">Click</button>`;
   return `
     <div class="looper-modes">
       <span class="looper-segmented" role="group" aria-label="Start">${segment("start", "press", "Press", s.start)}${segment("start", "armed", "Armed", s.start)}</span>
       <span class="looper-segmented" role="group" aria-label="Length">${segment("length", "free", "Free", s.length)}${segment("length", "bars", "Bars", s.length)}</span>
       ${bars}
+      ${click}
       <button type="button" class="looper-tempo-chip${lock}" data-looper-tempo title="${tempoTitle}">${tempo ? `${tempo.toFixed(0)} BPM` : "Tempo"}</button>
       ${renderOptions(status)}
     </div>`;

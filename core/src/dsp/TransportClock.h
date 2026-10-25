@@ -26,4 +26,24 @@ struct TransportClock
     /// Whether the metronome is clicking this grid. With it off, nothing is in phase with it.
     std::atomic<bool> running{false};
 };
+
+/// What the looper asks of the click for one block, handed from the looper's Process() to the
+/// metronome's Render() in the same callback. A loop with a length owns the click: it is silent
+/// while the loop is stopped and kept on the loop's own place in the bar while it plays, so a
+/// Stop then Play (or a wrap of a loop that is not whole bars) never leaves the two apart.
+/// Positions in the bar are fractions, 0..1, so a tempo change keeps them meaningful.
+struct LoopClickSync
+{
+    /// A loop has a length: the click follows it, and the metronome's own restarts (on enable,
+    /// on a tempo change) give way to it.
+    bool following = false;
+    /// Following: silent before this sample (the loop stopped; a play starting at `resetAt`).
+    int silentUntil = 0;
+    /// Following: the loop's place in the bar at the block's first sample, or -1.
+    double barAtStart = -1.0;
+    /// A restart at this sample (a count-in, a play starting, a wrap), or -1...
+    int resetAt = -1;
+    /// ...landing at this place in the bar.
+    double resetBar = 0.0;
+};
 } // namespace guitarfx

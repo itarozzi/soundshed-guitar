@@ -5,6 +5,7 @@
 #include "dsp/looper/LooperEngineInternal.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace guitarfx::looper
 {
@@ -24,6 +25,58 @@ void LooperEngine::StartPlaying(int at, std::int64_t playhead)
     mPlayhead = mLength > 0 ? Wrap(playhead, mLength) : 0;
     mPlayFrom = at;
     mPlayheadAtPlayFrom = mPlayhead;
+
+    // The click starts with the loop, on the loop's place in the bar, and is silent until then.
+    // A first layer closing finds it there already, unless its length is not whole bars.
+    if (const double bar = ClickBarAt(mPlayhead); bar >= 0.0)
+    {
+        if (mClickSync.following && mClickSync.silentUntil > at)
+        {
+            mClickSync.silentUntil = at;
+        }
+
+        mClickSync.following = true;
+        mClickSync.resetAt = at;
+        mClickSync.resetBar = bar;
+    }
+}
+
+void LooperEngine::BeginClickSync() noexcept
+{
+    // Kept: a restart asked for since the last block (a press between blocks, or one applied while
+    // idle, may have counted in or started the loop).
+    mClickSync.following = false;
+    mClickSync.silentUntil = 0;
+    mClickSync.barAtStart = -1.0;
+
+    if (mLength <= 0)
+    {
+        return;
+    }
+
+    mClickSync.following = true;
+
+    if (mPlaying && !mStopping)
+    {
+        mClickSync.barAtStart = ClickBarAt(mPlayhead);
+    }
+    else
+    {
+        mClickSync.silentUntil = mMaxBlock;
+    }
+}
+
+double LooperEngine::ClickBarAt(std::int64_t playhead) const noexcept
+{
+    const double samplesPerBar = mClock ? mClock->samplesPerBar.load(std::memory_order_relaxed) : 0.0;
+
+    if (samplesPerBar <= 1.0)
+    {
+        return -1.0;
+    }
+
+    const double bar = mClickBar + static_cast<double>(playhead) / samplesPerBar;
+    return bar - std::floor(bar);
 }
 
 void LooperEngine::BeginStop()
@@ -109,6 +162,7 @@ void LooperEngine::FinishClear()
     mStopping = false;
     mClearing = false;
     mBarsLoop = false;
+    mClickBar = 0.0;
     mFirstBars = false;
     mTargetLength = 0;
     mDeferredOverdub = false;
@@ -447,6 +501,7 @@ void LooperEngine::LoadLoop(const LoopImage* image)
     FinishClear();
     mLength = image->length;
     mBarsLoop = image->barsLoop;
+    mClickBar = image->barsLoop ? 0.0 : image->clickBar;
 
     for (int i = 0; i < std::min(image->layerCount, kMaxLayers); ++i)
     {

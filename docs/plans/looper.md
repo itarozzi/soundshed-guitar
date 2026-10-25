@@ -54,6 +54,20 @@ recommended.
   undoable layer. `LooperRetoneTests`: a re-amp through the same rig matches the live take
   (correlation over 0.99, level within 0.5 dB), revert, and a riff added as a layer.
 
+- **The loop's click** (after Phase 5, at Chris's request). The metronome follows a loop with a
+  length: silent while it is stopped, restarted on the loop's place in the bar when it plays, put
+  back on it at every wrap, and kept there block by block (so switching it on or retiming it
+  mid-loop lands in time). The bar is always the metronome's (tempo, time signature, beat scale);
+  the loop keeps only where in it the loop starts, `clickBar`, measured as the first take starts
+  recording, on the grid as the player heard it (D earlier). A free take played to the click plays
+  back D in, as a Bars take does, so it is on the click too. The engine hands a `LoopClickSync`
+  (`dsp/TransportClock.h`) to `MetronomeService::SetLoopClickSync` every block. A project keeps
+  `click` (the metronome on or off), `clickBar` and the tempo and meter, and opening it sets the
+  metronome to match. The strip's Click toggle is the metronome's on/off. `LooperClickTests` finds
+  every click in the output and checks it against the loop's playhead: after Stop and Play, after
+  switching it on mid-loop, after a tempo change, after reopening a project, and for a Bars loop.
+  A loop that is not whole bars restarts the bar at its wrap: one short or long beat there.
+
 **All phases built.** What is left, each its own decision: the performance-pads looper row; a riff
   library panel Loops list (the strip's Loops menu does it now); keeping the recorded tone of a
   re-toned layer across save and load (revert lasts the session; `recorded.wav` is not written);

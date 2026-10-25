@@ -373,8 +373,10 @@ V2: {"graph": {"nodes": [input, effect1, effect2, output], "edges": [...]}}
 A looper project lives in the riff library folder: `loops/<projectId>/project.json` and
 `loops/<projectId>/layers/<layerKey>.di.wav` / `.wet.wav` (32-bit float; the DI over the layer's span,
 one or two channels; the wet sound over the span and its tail, stereo). `project.json` holds
-`version`, `id`, `title`, `modified`, `sampleRate`, `lengthSamples`, for a Bars loop `tempoBpm`,
-`timeSigNum`, `timeSigDen` and `bars`, and per layer `id` (the layer key), `title`, `order`,
+`version`, `id`, `title`, `modified`, `sampleRate`, `lengthSamples`, `click` (the metronome was on:
+opening the project switches it to match), `clickBar` (where in the metronome's bar the loop starts,
+0..1), the metronome's `tempoBpm`, `timeSigNum` and `timeSigDen` for a Bars loop or a loop saved
+with the click on, `bars` for a Bars loop, and per layer `id` (the layer key), `title`, `order`,
 `firstLayer`, `startSample`, `lengthSamples`, `ringOutSamples`, `diChannels`, `calibrationGainDb`,
 `latencySamples`, `level`, `balance`, `muted`, `solo`, `wetSource`, `tone {presetId, presetName,
 sceneId}` and `toneChanged`. The `looper-projects` storage document indexes them (`{projects: [{id,

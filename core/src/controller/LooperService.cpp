@@ -385,10 +385,8 @@ void LooperService::LinkMetronome(const LooperSnapshot& snapshot)
 
 void LooperService::AfterMixer() noexcept
 {
-    if (const int reset = mEngine.TakeMetronomeReset(); reset >= 0)
-    {
-        mMetronome.RequestReset(reset);
-    }
+    // A loop owns the click: silent while it is stopped, on its place in the bar while it plays.
+    mMetronome.SetLoopClickSync(mEngine.TakeClickSync());
 
     const LooperState state = mEngine.State();
     const bool taking = state == LooperState::Recording || state == LooperState::Overdubbing;

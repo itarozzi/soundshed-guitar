@@ -130,8 +130,8 @@ class LooperService
     /// Buffers, the engine's latency and alignment, the metronome link, and the UI feeds.
     void OnIdle();
 
-    /// Audio thread, after the mixer and before the metronome renders: a metronome restart the
-    /// looper asked for this block, and the click muted through a take when the settings say so.
+    /// Audio thread, after the mixer and before the metronome renders: how the click follows the
+    /// loop this block (LoopClickSync), and the click muted through a take when the settings say so.
     void AfterMixer() noexcept;
 
     [[nodiscard]] const Settings& GetSettings() const noexcept

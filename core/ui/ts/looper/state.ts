@@ -41,6 +41,8 @@ export interface LooperStatus {
   layerCount: number;
   memoryMb: number;
   tempoLocked: boolean;
+  /** The metronome is on: the loop's click, which follows the loop's transport. */
+  click: boolean;
   settings: LooperSettings;
   bars?: number;
   barIndex?: number;
@@ -173,6 +175,7 @@ export function parseLooperStatus(payload: Record<string, unknown>): LooperStatu
     layerCount: num(payload.layerCount, 0),
     memoryMb: num(payload.memoryMb, 0),
     tempoLocked: bool(payload.tempoLocked),
+    click: bool(payload.click),
     settings: parseLooperSettings(payload.settings),
     bars: optional(payload.bars),
     barIndex: optional(payload.barIndex),

@@ -25,6 +25,7 @@ bool LooperEngine::ReadSnapshot(LooperSnapshot& out) const
         out.playhead = mPublishedPlayhead.load(std::memory_order_relaxed);
         out.playing = mPublishedPlaying.load(std::memory_order_relaxed);
         out.barsLoop = mPublishedBars.load(std::memory_order_relaxed);
+        out.clickBar = mPublishedClickBar.load(std::memory_order_relaxed);
         out.canUndo = mPublishedCanUndo.load(std::memory_order_relaxed);
         out.canRedo = mPublishedCanRedo.load(std::memory_order_relaxed);
         out.visibleLayers = mPublishedVisible.load(std::memory_order_relaxed);
@@ -73,6 +74,7 @@ void LooperEngine::Publish()
     mPublishedPlayhead.store(mPlayhead, std::memory_order_relaxed);
     mPublishedPlaying.store(mPlaying, std::memory_order_relaxed);
     mPublishedBars.store(mBarsLoop, std::memory_order_relaxed);
+    mPublishedClickBar.store(mClickBar, std::memory_order_relaxed);
     mPublishedCanUndo.store(mHistoryCount > 0, std::memory_order_relaxed);
     mPublishedCanRedo.store(mRedoCount > 0, std::memory_order_relaxed);
     mPublishedVisible.store(VisibleCount(), std::memory_order_relaxed);

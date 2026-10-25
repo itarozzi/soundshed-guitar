@@ -157,11 +157,21 @@ nlohmann::json LooperService::ProjectJson(const std::string& id, const std::stri
                               {"sampleRate", rate},
                               {"lengthSamples", mSnapshot.length}};
 
-    if (mSnapshot.barsLoop && samplesPerBar > 1.0)
+    // The click is the loop's: whether it plays, where in the bar the loop starts, and the
+    // metronome's tempo and meter that bar is (a Bars loop's always, for it is sized by them).
+    const bool click = mMetronome.IsEnabled();
+    project["click"] = click;
+    project["clickBar"] = mSnapshot.clickBar;
+
+    if ((mSnapshot.barsLoop || click) && samplesPerBar > 1.0)
     {
         project["tempoBpm"] = mMetronome.EffectiveTempoBpm();
         project["timeSigNum"] = mMetronome.TimeSigNum();
         project["timeSigDen"] = mMetronome.TimeSigDen();
+    }
+
+    if (mSnapshot.barsLoop && samplesPerBar > 1.0)
+    {
         project["bars"] = static_cast<int>(std::lround(static_cast<double>(mSnapshot.length) / samplesPerBar));
     }
 
@@ -453,6 +463,10 @@ void LooperService::HandleSaveProject(const nlohmann::json& payload)
     if (project.contains("tempoBpm"))
     {
         entry["tempoBpm"] = project["tempoBpm"];
+    }
+
+    if (project.contains("bars"))
+    {
         entry["bars"] = project["bars"];
     }
 
@@ -576,6 +590,9 @@ void LooperService::LoadFrom(const fs::path& folder, const std::string& projectI
 
         image->length = length;
         image->barsLoop = project && project->contains("bars");
+        image->clickBar = project && project->contains("clickBar") && (*project)["clickBar"].is_number()
+                              ? std::clamp((*project)["clickBar"].get<double>(), 0.0, 1.0)
+                              : 0.0;
         nlohmann::json details = project ? *project : nlohmann::json::object();
         auto shared = std::make_shared<std::unique_ptr<looper::LoopImage>>(std::move(image));
 
@@ -597,7 +614,9 @@ void LooperService::LoadFrom(const fs::path& folder, const std::string& projectI
                 mBuffers.push_back(buffer);
             }
 
-            // A Bars project brings its tempo and meter, and holds them while it is loaded.
+            // A project brings its click: the metronome's tempo and meter (a Bars project holds them
+            // while it is loaded), and whether it plays. Projects from before the click kept it leave
+            // the metronome as it is.
             if (details.contains("tempoBpm"))
             {
                 mMetronome.SetTempoLocked(false);
@@ -610,6 +629,16 @@ void LooperService::LoadFrom(const fs::path& folder, const std::string& projectI
                 {
                     mSaveSettings();
                 }
+            }
+
+            if (details.contains("click") && details["click"].is_boolean())
+            {
+                (void)mMetronome.ApplyRequest({{"enabled", details["click"].get<bool>()}});
+            }
+
+            if ((details.contains("tempoBpm") || details.contains("click")) && mMetronomeStateChanged)
+            {
+                mMetronomeStateChanged();
             }
 
             LooperCommand command;
