@@ -2465,6 +2465,8 @@ bool TestPitchShiftLatencySpecific()
     }
 
     effect->Prepare(kTestSampleRate, kTestBlockSize);
+    // The Signalsmith engine's in+out latency; Low Latency's is PitchShiftEngineTests'.
+    effect->SetParam("engine", 0.0);
     effect->SetParam("mix", 1.0);
     effect->SetParam("stepMode", 1.0);
     effect->SetParam("minSemitones", -2.0);

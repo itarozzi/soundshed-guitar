@@ -2,6 +2,7 @@
 #include "dsp/EffectRegistry.h"
 #include "dsp/effects/BuiltinAmpLegacyMigration.h"
 #include "dsp/effects/DriveLegacyMigration.h"
+#include "dsp/effects/PitchEngineLegacyMigration.h"
 #include "dsp/effects/WahLegacyMigration.h"
 
 #include <algorithm>
@@ -130,6 +131,7 @@ void MigrateLegacyNodeParams(GraphNode& node)
     drive_legacy::MigrateParams(node.type, node.params);
     amp_legacy::MigrateParams(node.type, node.params);
     wah_legacy::MigrateParams(node.type, node.params);
+    pitch_engine_legacy::MigrateParams(node.type, node.params);
 }
 
 void EnsurePresetBoundaryGainNodes(SignalGraph& graph)

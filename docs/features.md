@@ -94,12 +94,12 @@ Level calibrated so the pedal matches bypass loudness. See the FX library's Driv
 
 | Type ID | Name | Key Parameters |
 |---------|------|----------------|
-| `pitch_shift` | Pitch Shift | `semitones` (-12..+12 st), `mix`, `engine` (0 High Quality: Signalsmith Stretch, 80 ms; 1 Low Latency: time domain, 16 ms, follows a pedal instantly), `stepMode` (snap to semitone, 0/1), `minSemitones`/`maxSemitones` (-12..+12, the range automation and an expression pedal sweep) |
+| `pitch_shift` | Pitch Shift | `semitones` (-12..+12 st), `mix`, `engine` (0 High Quality: Signalsmith Stretch, 80 ms; 1 Low Latency, the default: time domain, 16 ms, follows a pedal instantly; a node saved without it loads on High Quality), `stepMode` (snap to semitone, 0/1), `minSemitones`/`maxSemitones` (-12..+12, the range automation and an expression pedal sweep) |
 | `transpose` | Transpose | `semitones` (-24..+12 st), `mix` — optimized for integer steps, uses Signalsmith Stretch |
 | `transpose_hybrid` | Transpose (Hybrid) | `semitones` (-15..0 st), `mix`, `transientAssist`, `transientHoldMs`, `brightness` — dual-band hybrid path with medium/deep-shift quality STFT sustain shifting, latency-aligned transient assist, and smoothed live reconfiguration |
 | `transpose_stft` | Transpose (STFT) | `semitones` (-12..+12 st), `mix` — STFT phase-vocoder alternative for A/B comparison |
 | `harmonizer` | Harmonizer | `mode` (Scale: intervals in scale steps that follow the notes played, in `key` and `scale`; Fixed: semitones, works on chords), `tracking` (Clean / Fast), four voices each with `On`, `Interval`, `Semitones`, `Level`, `Pan`, `Detune`, `Delay`; `dry`, `harmonyLevel`, `mix`, `highCut`, `glide`, `humanize` — four SpliceTransposer voices, the guitar undelayed |
-| `octave` | Octave Effect | `octaveUp`, `octaveDown`, `tone`, `mix` — uses Signalsmith Stretch for fixed +/-12 semitone voices |
+| `octave` | Octave Effect | `octaveUp`, `octaveDown`, `tone`, `mix`, `engine` (0 High Quality: Signalsmith Stretch, 80 ms; 1 Low Latency, the default: time domain, 16 ms; a node saved without it loads on High Quality) — fixed +/-12 semitone voices |
 
 ### 2.7 Delay
 

@@ -11,6 +11,8 @@
  *     never moves faster than the tone itself, where a hard switch jumped by the full swing
  *   - a re-engaged Low Latency engine does not replay audio from before its bypass
  *   - none of it allocates on the audio thread, including the engine switch and the splices
+ *   - Low Latency is the default, and a Pitch Shift or Octave node stored without an engine,
+ *     from before it was, loads on High Quality as it played then
  */
 
 #include <algorithm>
@@ -18,14 +20,20 @@
 #include <cstdio>
 #include <functional>
 #include <iostream>
+#include <map>
 #include <string>
 #include <vector>
+
+#include <nlohmann/json.hpp>
 
 #include "dsp/EffectGuids.h"
 #include "dsp/EffectRegistry.h"
 #include "dsp/effects/BuiltinEffects.h"
 #include "dsp/effects/PitchShiftEffect.h"
 #include "helpers/AudioThreadAllocations.h"
+#include "presets/PresetStorage.h"
+#include "presets/PresetTypes.h"
+#include "presets/PresetTypesJson.h"
 
 namespace
 {
@@ -469,13 +477,77 @@ void TestRegistration()
         }
     }
 
-    Check(engine != nullptr && engine->defaultValue == 0.0 && engine->labels.size() == 2,
-          "Registered, defaulting to High Quality so older presets sound the same");
+    Check(engine != nullptr && engine->defaultValue == 1.0 && engine->labels.size() == 2,
+          "Registered, defaulting to Low Latency");
 
     PitchShiftEffect effect;
-    Check(effect.GetParam("engine") == 0.0, "A fresh node is on High Quality");
-    effect.SetParam("engine", 1.0);
-    Check(effect.GetParam("engine") == 1.0, "and reads back Low Latency once set");
+    Check(effect.GetParam("engine") == 1.0, "A fresh node is on Low Latency");
+    effect.SetParam("engine", 0.0);
+    Check(effect.GetParam("engine") == 0.0, "and reads back High Quality once set");
+}
+
+/// A node as a preset stored it.
+nlohmann::json NodeJson(const std::string& id, const std::string& type, const std::map<std::string, double>& params)
+{
+    nlohmann::json node = {{"id", id}, {"type", type}, {"params", nlohmann::json::object()}};
+
+    for (const auto& [key, value] : params)
+    {
+        node["params"][key] = value;
+    }
+
+    return node;
+}
+
+double StoredEngine(const guitarfx::SignalGraph& graph, const std::string& id)
+{
+    for (const auto& node : graph.nodes)
+    {
+        if (node.id == id)
+        {
+            const auto it = node.params.find("engine");
+            return it != node.params.end() ? it->second : -1.0;
+        }
+    }
+
+    return -1.0;
+}
+
+void TestStoredNodes()
+{
+    std::cout << "\n--- Nodes stored before the Low Latency default stay on High Quality ---\n";
+    const nlohmann::json presetJson = {
+        {"id", "legacy-preset"},
+        {"name", "Legacy"},
+        {"graph",
+         {{"nodes",
+           {NodeJson("ps", guitarfx::EffectGuids::kPitchShift, {{"semitones", -12.0}}),
+            NodeJson("ps-alias", "pitch_shift", {{"semitones", 7.0}}),
+            NodeJson("oct", guitarfx::EffectGuids::kOctave, {{"octaveUp", 0.5}}),
+            NodeJson("oct-alias", "octave", {}),
+            NodeJson("ps-new", guitarfx::EffectGuids::kPitchShift, {{"semitones", 5.0}, {"engine", 1.0}}),
+            NodeJson("oct-new", guitarfx::EffectGuids::kOctave, {{"engine", 1.0}}),
+            NodeJson("ps-hq", guitarfx::EffectGuids::kPitchShift, {{"engine", 0.0}})}},
+          {"edges", nlohmann::json::array()}}}};
+    const auto preset = guitarfx::PresetStorage::DeserializeFromJson(presetJson.dump());
+    Check(preset.has_value(), "The preset loads");
+
+    if (preset)
+    {
+        const auto& graph = preset->graph;
+        Check(StoredEngine(graph, "ps") == 0.0 && StoredEngine(graph, "ps-alias") == 0.0,
+              "A Pitch Shift node without an engine loads on High Quality, by id or alias");
+        Check(StoredEngine(graph, "oct") == 0.0 && StoredEngine(graph, "oct-alias") == 0.0,
+              "and so does an Octave node");
+        Check(StoredEngine(graph, "ps-new") == 1.0 && StoredEngine(graph, "oct-new") == 1.0 &&
+                  StoredEngine(graph, "ps-hq") == 0.0,
+              "while a node that names its engine keeps it");
+    }
+
+    // The path a composite's inner graph and the global chain are read by.
+    const auto graph = guitarfx::DeserializeSignalGraph(
+        {{"nodes", {NodeJson("inner", "octave", {})}}, {"edges", nlohmann::json::array()}});
+    Check(StoredEngine(graph, "inner") == 0.0, "so is one in a composite's inner graph or the global chain");
 }
 } // namespace
 
@@ -483,6 +555,7 @@ int main()
 {
     std::cout << "Pitch Shift engine tests\n";
     TestRegistration();
+    TestStoredNodes();
     TestStepLag();
     TestPitchAccuracy();
     TestTransparencyAndAlignment();

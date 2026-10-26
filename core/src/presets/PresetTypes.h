@@ -374,7 +374,8 @@ void CanonicalizeNodeParams(GraphNode& node);
  * American: a node from before its rebuild gets the Output that keeps it as loud as it was (see
  * BuiltinAmpLegacyMigration.h). And the Auto-Wah, folded into the Wah: its node is given the wah's
  * parameters, on the Envelope control, with the sweep and level the old filter actually had (see
- * WahLegacyMigration.h).
+ * WahLegacyMigration.h). And Pitch Shift and Octave: a node from before their Low Latency default
+ * stays on High Quality (see PitchEngineLegacyMigration.h).
  */
 void MigrateLegacyNodeParams(GraphNode& node);
 

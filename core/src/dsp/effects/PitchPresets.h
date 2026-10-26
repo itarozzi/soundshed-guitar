@@ -167,13 +167,15 @@ namespace guitarfx::pitch_presets
 [[nodiscard]] inline std::vector<EffectPresetDefinition> PitchShift(const std::vector<ParameterDef>& params)
 {
     const factory_presets::Builder b(params, {});
+    constexpr double kHighQuality = 0.0;
     constexpr double kLowLatency = 1.0;
 
     return {
         b.Defaults("full-range", "Full Range"),
         b.Make("octave-down", "Octave Down", {{"semitones", -12.0}, {"engine", kLowLatency}, {"maxSemitones", 0.0}}),
         // High Quality, as it is played on chords.
-        b.Make("octave-up-blend", "Octave Up Blend", {{"semitones", 12.0}, {"mix", 0.4}, {"minSemitones", 0.0}}),
+        b.Make("octave-up-blend", "Octave Up Blend",
+               {{"semitones", 12.0}, {"mix", 0.4}, {"engine", kHighQuality}, {"minSemitones", 0.0}}),
         b.Make("fifth-harmony", "Fifth Harmony",
                {{"semitones", 7.0}, {"mix", 0.5}, {"engine", kLowLatency}, {"minSemitones", 0.0}}),
         // Heel dry, toe an octave up, gliding.
