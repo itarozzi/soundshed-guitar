@@ -164,8 +164,14 @@ namespace
 #if JUCE_IOS
 namespace
 {
-    // The default buffer size on iOS; see createPluginHolder().
+    // The default buffer size on iOS; see createPluginHolder(). An iOS 12 (legacy) build runs on
+    // A7 and A8 devices, two cores and far slower ones: on an iPad mini 2 at 48 kHz, 64 frames
+    // glitched with the load readout well short of full, and 256 (5.3 ms) played much better.
+   #if defined (__ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__) && __ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__ < 130000
+    constexpr int kDefaultIosBufferFrames = 256;
+   #else
     constexpr int kDefaultIosBufferFrames = 128;
+   #endif
 } // namespace
 #endif
 

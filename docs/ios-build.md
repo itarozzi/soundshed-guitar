@@ -220,9 +220,10 @@ three consequences, all met putting Nano on an iPad mini 2:
   `logs/soundshed-startup.log` and `data/v1/logs/session-log.txt` included.
 
 **Performance.** An A7 is several times slower than anything the normal build
-targets. Expect a standard NAM WaveNet model to be beyond it at 128 frames; try
-lighter models (nano or feather), a larger buffer in Settings > Audio Device,
-and judge it only in a release build on the device itself.
+targets. A legacy build defaults to a 256-frame buffer (see "Buffer size"
+under Audio); at 64 an iPad mini 2 glitched. Heavier presets may still
+want lighter NAM models (nano or feather). Judge it only in a release build on
+the device itself.
 
 ## How it differs from the desktop builds
 
@@ -348,6 +349,18 @@ JUCE asks iOS for 256 frames (512 in the Simulator). `createPluginHolder` asks
 for **128** instead, as the preferred setup for any open without a saved setup;
 a size chosen in Settings > Audio Device wins from then on, as on Android. 64 is
 worth trying on a recent device.
+
+An iOS 12 (legacy) build asks for **256** (5.3 ms at 48 kHz). On an iPad mini 2
+a 64-frame buffer (1.33 ms) glitched while the load readout was well short of
+full: the readout is an average, and one block over its deadline is a dropout,
+which the A7's two cores leave little room to absorb. 256 played much better;
+128 (2.7 ms) is untested there.
+
+The audio thread's priority is not a lever. JUCE renders inside Core Audio's
+RemoteIO callback, on the system's real-time I/O thread, and nothing in the app
+waits on another thread from it: parallel DSP is off on iOS, and NAM's
+oversampler, which can split work over threads and spin waiting for them, is
+never asked to (the core leaves its factor at 1).
 
 ### Background audio
 
