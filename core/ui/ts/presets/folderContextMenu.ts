@@ -1,7 +1,7 @@
 /**
- * Right-click on a folder in the preset chooser's folder tree. It offers
- * "Create Pack…", which starts a new Tone Sharing draft pack holding the folder's
- * presets (its subfolders' included).
+ * Right-click on a folder in the preset chooser's folder tree, or a long press on
+ * a touch screen (touchLongPress.ts). It offers "Create Pack…", which starts a new
+ * Tone Sharing draft pack holding the folder's presets (its subfolders' included).
  *
  * The menu hangs from <body> so the popover's clipping can't trap it, which means
  * its position is divided by the app's CSS zoom.
@@ -11,6 +11,7 @@ import { switchMainPanel } from "../navigation.js";
 import { showNotification } from "../notifications.js";
 import { getUiZoom } from "../pointerDrag.js";
 import { clonePreset, uiState } from "../state.js";
+import { initializeTouchLongPress } from "../touchLongPress.js";
 import { ensureToneSharingSignedIn, openFolderPackModal, openToneSharingSignInModal } from "../toneSharingPanel.js";
 import type { Preset } from "../types.js";
 import { escapeHtml } from "../utils.js";
@@ -52,6 +53,7 @@ function bindDismissListeners(): void {
  * the rows need no listener of their own.
  */
 export function initializePresetFolderMenu(): void {
+  initializeTouchLongPress();
   presetFolderTreeElement?.addEventListener("contextmenu", (event) => {
     const row = event.target instanceof Element ? event.target.closest<HTMLElement>(".preset-folder-item[data-folder-id]") : null;
     const folderId = row?.dataset.folderId ?? "";

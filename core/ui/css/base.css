@@ -67,9 +67,31 @@ p {
 }
 
 .prevent-select {
+  /* A long press opens our own menus (touchLongPress.ts), not the iOS callout. */
+  -webkit-touch-callout: none;
   -webkit-user-select: none; /* Safari */
   -ms-user-select: none; /* IE 10 and IE 11 */
   user-select: none; /* Standard syntax */
+}
+
+/* The clone pointerDrag.ts drags for a list row: a setlist slot, a preset folder,
+   an equipment library group. */
+.list-drag-preview {
+  position: fixed !important;
+  z-index: 1000;
+  /* pointerDrag.ts sizes the clone to its row, inline; a full-width library row would cover the chain. */
+  max-width: min(320px, 80vw);
+  overflow: hidden;
+  margin: 0;
+  pointer-events: none;
+  opacity: 0.92;
+  transform: translate(-50%, -50%);
+  /* Opaque: some of these rows have no background of their own, and the clone sits over others. */
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-md);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
 }
 
 #app {

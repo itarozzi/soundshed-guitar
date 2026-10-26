@@ -16,10 +16,27 @@
  * capture phase rather than on the dragged element, so a drag survives the
  * source element being replaced mid-gesture (any backend state broadcast
  * re-renders the signal path by replacing `innerHTML`).
+ *
+ * A source in a scrolling list sets `touchHoldMs`: on a touch screen the finger
+ * then has to rest that long before it picks the item up, and a swipe sooner is
+ * left to the browser, so the list still scrolls. That is the only way an iPhone
+ * drags these: its WKWebView has HTML5 drag-and-drop switched off.
  */
 
 /** Movement required before a press turns into a drag rather than a click. */
 export const POINTER_DRAG_THRESHOLD_PX = 6;
+
+/**
+ * The `touchHoldMs` of a source in a scrolling list: long enough that a swipe
+ * scrolls, short of the long press that opens a menu (touchLongPress.ts).
+ */
+export const TOUCH_DRAG_HOLD_MS = 250;
+
+/** How close to an `autoScroll` list's top or bottom edge the pointer scrolls it. */
+export const AUTO_SCROLL_EDGE_PX = 28;
+
+/** The fastest an `autoScroll` list scrolls, in pixels a frame, with the pointer at its edge. */
+const AUTO_SCROLL_MAX_STEP_PX = 12;
 
 export interface PointerDragTarget {
   /** Element highlighted while hovered, and used to detect target changes. */
@@ -46,6 +63,19 @@ export interface PointerDragSpec<TTarget extends PointerDragTarget> {
   matchPreviewHeight?: boolean;
   /** Class applied to `document.body` while the drag is active. */
   bodyClass?: string;
+  /**
+   * For a touch press, how long it has to stay within the movement threshold
+   * before it can turn into a drag. Moving sooner gives the gesture up, to the
+   * browser's scrolling. Unset, a touch drags at once, which suits a source that
+   * opts out of panning with `touch-action`. Mouse and pen never wait.
+   */
+  touchHoldMs?: number;
+  /**
+   * A list scrolled while the pointer is held near its top or bottom edge, as a
+   * native drag scrolls one, so a target out of view can still be reached. The
+   * element itself or, when it does not scroll, its nearest ancestor that does.
+   */
+  autoScroll?: HTMLElement | null;
   /** Resolve the drop target under the pointer, or null when there is none. */
   resolveTarget: (event: PointerEvent) => TTarget | null;
   /** Add or remove the drop-target highlight. */
@@ -67,6 +97,16 @@ interface PointerDragSession<TTarget extends PointerDragTarget> {
   lastX: number;
   lastY: number;
   active: boolean;
+  /** False while a touch press is still waiting out `touchHoldMs`. */
+  held: boolean;
+  /** A touch hold has picked the item up: the page must not scroll under the drag. */
+  blockTouchScroll: boolean;
+  holdTimer: number | null;
+  /** The latest move, replayed to find the target again after an auto-scroll. */
+  lastEvent: PointerEvent | null;
+  /** What `autoScroll` resolved to, found when the drag starts. */
+  scroller: HTMLElement | null;
+  scrollFrame: number | null;
   preview: HTMLElement | null;
   target: TTarget | null;
 }
@@ -122,7 +162,7 @@ function clearTarget(active: PointerDragSession<PointerDragTarget>): void {
  * listener is removed by that click or by the next press, whichever lands
  * first — no timer, so there is no window in which a genuine click is eaten.
  */
-function swallowNextClick(): void {
+export function swallowNextClick(): void {
   const remove = (): void => {
     document.removeEventListener("click", onClick, true);
     document.removeEventListener("pointerdown", remove, true);
@@ -140,6 +180,12 @@ function endSession(cancelled: boolean): void {
   const active = session;
   if (!active) return;
   session = null;
+  if (active.holdTimer !== null) {
+    window.clearTimeout(active.holdTimer);
+  }
+  if (active.scrollFrame !== null) {
+    window.cancelAnimationFrame(active.scrollFrame);
+  }
 
   const { spec } = active;
   const target = active.target;
@@ -175,12 +221,18 @@ function onPointerMove(event: PointerEvent): void {
   if (!active.active) {
     const distance = Math.hypot(event.clientX - active.startX, event.clientY - active.startY);
     if (distance < POINTER_DRAG_THRESHOLD_PX) return;
+    if (!active.held) {
+      // Moved before the hold was up: a scroll, not a drag.
+      endSession(true);
+      return;
+    }
     active.active = true;
     active.spec.source.classList.add("dragging");
     if (active.spec.bodyClass) {
       document.body.classList.add(active.spec.bodyClass);
     }
     active.preview = createPreview(active, event);
+    active.scroller = findScroller(active.spec.autoScroll ?? null);
   }
 
   event.preventDefault();
@@ -188,6 +240,14 @@ function onPointerMove(event: PointerEvent): void {
     positionPreview(active.preview, event);
   }
 
+  active.lastEvent = event;
+  retarget(active, event);
+  if (active.scrollFrame === null && autoScrollStep(active) !== 0) {
+    active.scrollFrame = window.requestAnimationFrame(() => runAutoScroll(active));
+  }
+}
+
+function retarget(active: PointerDragSession<PointerDragTarget>, event: PointerEvent): void {
   const next = active.spec.resolveTarget(event);
   if (active.target?.element === next?.element) return;
   clearTarget(active);
@@ -195,6 +255,50 @@ function onPointerMove(event: PointerEvent): void {
   if (next) {
     active.spec.setTargetHighlight(next, true);
   }
+}
+
+function findScroller(element: HTMLElement | null): HTMLElement | null {
+  for (let current = element; current; current = current.parentElement) {
+    const { overflowY } = window.getComputedStyle(current);
+    if ((overflowY === "auto" || overflowY === "scroll") && current.scrollHeight > current.clientHeight) {
+      return current;
+    }
+  }
+  return null;
+}
+
+/** How far the `autoScroll` list should move this frame: negative is up, 0 is not at all. */
+function autoScrollStep(active: PointerDragSession<PointerDragTarget>): number {
+  const list = active.scroller;
+  if (!list?.isConnected) return 0;
+  const rect = list.getBoundingClientRect();
+  if (active.lastX < rect.left || active.lastX > rect.right) return 0;
+  // A list taller than the window has its edge zones where the pointer can reach them.
+  const top = Math.max(rect.top, 0);
+  const bottom = Math.min(rect.bottom, window.innerHeight);
+  // Eased, so the zone's inner part, often over the first or last row in view, barely moves
+  // the list, and only the edge itself runs it at full speed.
+  const depth = (edgeDistance: number): number =>
+    Math.round(AUTO_SCROLL_MAX_STEP_PX * Math.max(0, 1 - edgeDistance / AUTO_SCROLL_EDGE_PX) ** 2);
+  if (active.lastY < top + AUTO_SCROLL_EDGE_PX && list.scrollTop > 0) {
+    return -depth(Math.max(0, active.lastY - top));
+  }
+  if (active.lastY > bottom - AUTO_SCROLL_EDGE_PX && list.scrollTop + list.clientHeight < list.scrollHeight) {
+    return depth(Math.max(0, bottom - active.lastY));
+  }
+  return 0;
+}
+
+/** Scrolls a frame at a time while the pointer rests in an edge zone, re-finding the target under it. */
+function runAutoScroll(active: PointerDragSession<PointerDragTarget>): void {
+  active.scrollFrame = null;
+  const step = autoScrollStep(active);
+  if (session !== active || step === 0 || !active.scroller) return;
+  active.scroller.scrollTop += step;
+  if (active.lastEvent) {
+    retarget(active, active.lastEvent);
+  }
+  active.scrollFrame = window.requestAnimationFrame(() => runAutoScroll(active));
 }
 
 function onPointerUp(event: PointerEvent): void {
@@ -207,11 +311,23 @@ function onPointerCancel(event: PointerEvent): void {
   endSession(true);
 }
 
+/**
+ * Once a touch hold has picked an item up, the finger's movement is the drag's.
+ * Left alone, the browser would scroll the list and cancel the pointer stream.
+ */
+function onTouchMove(event: TouchEvent): void {
+  if (session?.blockTouchScroll && event.cancelable) {
+    event.preventDefault();
+  }
+}
+
 function bindDocumentListeners(): void {
   if (documentListenersBound) return;
   document.addEventListener("pointermove", onPointerMove, true);
   document.addEventListener("pointerup", onPointerUp, true);
   document.addEventListener("pointercancel", onPointerCancel, true);
+  // Not passive, or preventDefault() could not stop the scroll.
+  document.addEventListener("touchmove", onTouchMove, { capture: true, passive: false });
   documentListenersBound = true;
 }
 
@@ -231,7 +347,8 @@ export function beginPointerDrag<TTarget extends PointerDragTarget>(
     endSession(true);
   }
 
-  session = {
+  const waitForHold = event.pointerType === "touch" && (spec.touchHoldMs ?? 0) > 0;
+  const started: PointerDragSession<PointerDragTarget> = {
     spec: spec as unknown as PointerDragSpec<PointerDragTarget>,
     pointerId: event.pointerId,
     startX: event.clientX,
@@ -239,13 +356,35 @@ export function beginPointerDrag<TTarget extends PointerDragTarget>(
     lastX: event.clientX,
     lastY: event.clientY,
     active: false,
+    held: !waitForHold,
+    blockTouchScroll: false,
+    holdTimer: null,
+    lastEvent: null,
+    scroller: null,
+    scrollFrame: null,
     preview: null,
     target: null,
   };
+  if (waitForHold) {
+    started.holdTimer = window.setTimeout(() => {
+      started.holdTimer = null;
+      started.held = true;
+      started.blockTouchScroll = true;
+    }, spec.touchHoldMs);
+  }
+  session = started;
   // Capture keeps events flowing to us if the pointer leaves the source; when a
   // re-render detaches the source the capture is released implicitly and the
   // document listeners above keep the drag alive regardless.
   spec.source.setPointerCapture?.(event.pointerId);
+}
+
+/**
+ * Give up the press being tracked, if any, without a drop: a long press that
+ * opened a menu (touchLongPress.ts) has taken the gesture over.
+ */
+export function cancelPointerDrag(): void {
+  endSession(true);
 }
 
 /** Test hook: drop any in-flight drag and its listeners. */
@@ -254,5 +393,6 @@ export function resetPointerDragForTests(): void {
   document.removeEventListener("pointermove", onPointerMove, true);
   document.removeEventListener("pointerup", onPointerUp, true);
   document.removeEventListener("pointercancel", onPointerCancel, true);
+  document.removeEventListener("touchmove", onTouchMove, true);
   documentListenersBound = false;
 }

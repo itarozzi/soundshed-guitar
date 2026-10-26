@@ -3,7 +3,14 @@
  * out of a tone group, deleting one, and dragging models between them.
  */
 
-import { BLEND_EDITOR_OPEN_EVENT, buildBlendModelMappingsFromIds, findBlendForToneGroup, type BlendEditorOpenDetail } from "../blendUtils.js";
+import {
+  BLEND_EDITOR_OPEN_EVENT,
+  RESOURCE_GROUP_DRAG_START_EVENT,
+  buildBlendModelMappingsFromIds,
+  findBlendForToneGroup,
+  type BlendEditorOpenDetail,
+  type ResourceGroupDragStartDetail,
+} from "../blendUtils.js";
 import type { BlendDefinition } from "../types.js";
 import { postMessage } from "../bridge.js";
 import { showConfirm } from "../dialogs.js";
@@ -88,30 +95,31 @@ export function bindBlendGroupDragHandlers(groups: ToneGroup[]): void {
     return;
   }
 
+  // Dragged by pointer (pointerDrag.ts, started by the signal path), which an iPhone can do
+  // and HTML5 drag-and-drop it cannot. The buttons and the tone3000 link keep their presses.
   items.forEach((item) => {
-    item.addEventListener("dragstart", (event: DragEvent) => {
+    item.addEventListener("pointerdown", (event: PointerEvent) => {
+      if (event.target instanceof Element && event.target.closest("button, a")) {
+        return;
+      }
       const groupId = item.dataset.groupId ?? "";
       const group = groups.find((entry) => entry.groupId === groupId);
-      if (!group || !event.dataTransfer) {
+      if (!group) {
         return;
       }
 
-      const payload = {
-        groupId: group.groupId,
-        title: group.title,
-        category: normalizeBlendCategory(group.gear),
-        modelIds: group.modelIds,
-        modelMappings: buildBlendModelMappingsFromIds(group.modelIds, uiState.resourceLibrary),
+      const detail: ResourceGroupDragStartDetail = {
+        source: item,
+        pointerEvent: event,
+        payload: {
+          groupId: group.groupId,
+          title: group.title,
+          category: normalizeBlendCategory(group.gear),
+          modelIds: group.modelIds,
+          modelMappings: buildBlendModelMappingsFromIds(group.modelIds, uiState.resourceLibrary),
+        },
       };
-      event.dataTransfer.setData("application/x-resource-group", JSON.stringify(payload));
-      event.dataTransfer.effectAllowed = "copy";
-      item.classList.add("dragging");
-      document.body.classList.add("fx-dragging");
-    });
-
-    item.addEventListener("dragend", () => {
-      item.classList.remove("dragging");
-      document.body.classList.remove("fx-dragging");
+      document.dispatchEvent(new CustomEvent<ResourceGroupDragStartDetail>(RESOURCE_GROUP_DRAG_START_EVENT, { detail }));
     });
   });
 }
