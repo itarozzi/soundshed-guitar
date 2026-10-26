@@ -237,6 +237,48 @@ void TestABarsLoopAfterStopAndPlay(const fs::path& sandbox)
     s.Run(0.2);
     s.Send({{"type", "setLooper"}, {"length", "free"}});
 }
+/// An armed Bars take started half way into a bar starts on that beat, and the click follows it.
+void TestAnArmedTakeOnABeat(const fs::path& sandbox)
+{
+    LooperHost host(sandbox, std::this_thread::get_id(), kSampleRate, kBlock);
+    PluginController controller(host);
+    controller.Initialize();
+    controller.Prepare(kSampleRate, kBlock);
+    host.Pump();
+    std::vector<float> out;
+    Session s{host, controller};
+    s.capture = &out;
+
+    s.Send({{"type", "setMetronome"}, {"enabled", true}, {"bpm", kBpm}, {"timeSigNum", 4}, {"timeSigDen", 4}});
+    s.Send({{"type", "setLooper"}, {"enabled", true}, {"maxSeconds", 30}, {"length", "bars"}, {"bars", 1},
+            {"start", "armed"}, {"countInBars", 0}, {"clickWhileRecording", true}});
+    s.Run(0.3);
+    s.Command("recPlayDub");
+    // A bar is a second at 240 BPM, from the click starting at the first block: play on its third beat.
+    s.Run(1.5 - static_cast<double>(s.phase) / kSampleRate + 0.02);
+    s.playing = true;
+    s.Run(1.3);
+    s.playing = false;
+    s.Run(0.2);
+    const auto state = s.State();
+    const double clickBar = state.value("clickBar", -1.0);
+    Check(state.value("state", std::string{}) == "playing" && std::abs(clickBar - 0.5) < 0.01,
+          "an armed take played on the third beat starts on it: " + state.dump().substr(0, 260));
+    // Muted, so the click is all there is to hear.
+    const auto layers = host.Last("looperLayers")["layers"];
+    s.Send({{"type", "setLooperLayer"}, {"layerId", layers.empty() ? std::string{} : layers[0].value("id", std::string{})}, {"muted", true}});
+    s.Command("stop");
+    s.Run(0.61);
+    const std::size_t from = s.phase;
+    s.Command("play");
+    s.Run(0.05);
+    const Loop loop = Read(s);
+    s.Run(2.0);
+    CheckOnTheLoop(out, loop, from, s.phase, kBpm, "an armed take on a beat after Stop and Play");
+    s.Command("clear");
+    s.Run(0.2);
+    s.Send({{"type", "setLooper"}, {"length", "free"}, {"start", "press"}});
+}
 } // namespace
 
 int main()
@@ -250,6 +292,7 @@ int main()
 
     TestTheClickFollowsTheLoop(sandbox);
     TestABarsLoopAfterStopAndPlay(sandbox);
+    TestAnArmedTakeOnABeat(sandbox);
     fs::remove_all(sandbox, ec);
 
     if (gFailures > 0)

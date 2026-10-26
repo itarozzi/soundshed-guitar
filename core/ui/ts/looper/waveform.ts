@@ -75,9 +75,16 @@ export function drawLooperWaveform(
 
   context.fillStyle = cssColor(canvas, "--looper-grid", "rgba(255,255,255,0.18)");
 
-  if (status.bars && status.bars > 1) {
-    for (let bar = 1; bar < status.bars; ++bar) {
-      context.fillRect(Math.round((bar / status.bars) * width), 0, 1, height);
+  // The metronome's bar lines: a loop that starts on a later beat has them that far in.
+  if (status.bars && status.bars > 0) {
+    const offset = status.clickBar > 0 && status.clickBar < 1 ? status.clickBar : 0;
+
+    for (let bar = 1; bar <= status.bars; ++bar) {
+      const at = (bar - offset) / status.bars;
+
+      if (at > 0 && at < 1) {
+        context.fillRect(Math.round(at * width), 0, 1, height);
+      }
     }
   }
 

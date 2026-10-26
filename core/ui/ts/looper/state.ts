@@ -43,6 +43,8 @@ export interface LooperStatus {
   tempoLocked: boolean;
   /** The metronome is on: the loop's click, which follows the loop's transport. */
   click: boolean;
+  /** Where in the metronome's bar the loop starts, 0..1: an armed take starts on a beat. */
+  clickBar: number;
   settings: LooperSettings;
   bars?: number;
   barIndex?: number;
@@ -176,6 +178,7 @@ export function parseLooperStatus(payload: Record<string, unknown>): LooperStatu
     memoryMb: num(payload.memoryMb, 0),
     tempoLocked: bool(payload.tempoLocked),
     click: bool(payload.click),
+    clickBar: num(payload.clickBar, 0),
     settings: parseLooperSettings(payload.settings),
     bars: optional(payload.bars),
     barIndex: optional(payload.barIndex),
