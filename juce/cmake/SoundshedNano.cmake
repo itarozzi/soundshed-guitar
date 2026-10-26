@@ -105,6 +105,13 @@ target_link_libraries(NanoSharedCode
 
 target_link_libraries("${NANO_TARGET}" PRIVATE NanoSharedCode)
 
+# An Xcode scheme for the standalone app, as XcodePrettify.cmake makes for Soundshed Guitar's
+# targets: xcodebuild honours a -destination (a device to run on, or to register for signing)
+# only together with a scheme.
+if(TARGET ${NANO_TARGET}_Standalone)
+    set_target_properties(${NANO_TARGET}_Standalone PROPERTIES XCODE_GENERATE_SCHEME ON)
+endif()
+
 if(GUITARFX_IPP_AVAILABLE)
     guitarfx_enable_ipp_for_target(NanoSharedCode)
 endif()

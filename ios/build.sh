@@ -2,7 +2,7 @@
 # ios/build.sh — build Soundshed Guitar or Soundshed Guitar Nano for iOS and iPadOS, and
 # optionally install and launch it in the Simulator. See docs/ios-build.md.
 #
-# Usage: ios/build.sh [guitar|nano] [sim|device] [debug|release] [run] [reconfigure]
+# Usage: ios/build.sh [guitar|nano] [sim|device] [debug|release] [run] [reconfigure] [legacy]
 #
 #   guitar | nano    Which app: the WebView app (default) or Nano, the native UI.
 #   sim | device     The Simulator (default) or an iPhone/iPad. A device build needs a
@@ -13,6 +13,9 @@
 #                    (SSG_IOS_SIMULATOR is its UDID; an iPad by default), install the app
 #                    and launch it.
 #   reconfigure      Re-run CMake's configure step before building.
+#   legacy           Build for iOS 12 (the iPad mini 2, iPad Air 1, iPhone 5s/6) in a tree of
+#                    its own, ios/build-legacy: std::filesystem is built into the app, and the
+#                    WebView app's UI is not expected to look right on iOS 12's WebKit.
 #
 # Arguments may appear in any order. The build tree is ios/build (Xcode generator), one
 # tree for both apps and both SDKs; open ios/build/SoundshedGuitar.xcodeproj to work in Xcode.
@@ -28,6 +31,7 @@ PLATFORM=sim
 CONFIG=Debug
 RUN=false
 RECONFIGURE=false
+LEGACY=false
 
 for arg in "$@"; do
     case "$(printf '%s' "$arg" | tr '[:upper:]' '[:lower:]')" in
@@ -39,8 +43,9 @@ for arg in "$@"; do
         release) CONFIG=Release ;;
         run) RUN=true ;;
         reconfigure) RECONFIGURE=true ;;
+        legacy) LEGACY=true ;;
         -h|--help)
-            sed -n '2,20p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+            sed -n '2,22p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
             exit 0
             ;;
         *)
@@ -49,6 +54,10 @@ for arg in "$@"; do
             ;;
     esac
 done
+
+if [[ "$LEGACY" == true ]]; then
+    BUILD_DIR="${SCRIPT_DIR}/build-legacy"
+fi
 
 if [[ "$PRODUCT" == nano ]]; then
     TARGET=SoundshedGuitarNano_Standalone
@@ -75,6 +84,9 @@ if [[ "$RECONFIGURE" == true || ! -f "${BUILD_DIR}/CMakeCache.txt" ]]; then
         -DCMAKE_SYSTEM_NAME=iOS
         -DGUITARFX_BUILD_NANO=ON
     )
+    if [[ "$LEGACY" == true ]]; then
+        configure_args+=(-DCMAKE_OSX_DEPLOYMENT_TARGET=12.0 -DGUITARFX_IOS_WEBVIEW_DEPLOYMENT_TARGET=12.0)
+    fi
     if [[ -n "${SSG_IOS_DEVELOPMENT_TEAM:-}" ]]; then
         configure_args+=(-DCMAKE_XCODE_ATTRIBUTE_DEVELOPMENT_TEAM="${SSG_IOS_DEVELOPMENT_TEAM}")
     fi
@@ -93,7 +105,8 @@ else
         echo "A device build needs a development team: SSG_IOS_DEVELOPMENT_TEAM=<team id> ios/build.sh device reconfigure" >&2
         exit 2
     fi
-    xcode_args=(-sdk "$SDK" ARCHS=arm64 -allowProvisioningUpdates)
+    # Lets Xcode create the development certificate and profile, and register the device.
+    xcode_args=(-sdk "$SDK" ARCHS=arm64 -allowProvisioningUpdates -allowProvisioningDeviceRegistration)
     if [[ -n "${SSG_IOS_DEVELOPMENT_TEAM:-}" ]]; then
         xcode_args+=(DEVELOPMENT_TEAM="${SSG_IOS_DEVELOPMENT_TEAM}")
     fi

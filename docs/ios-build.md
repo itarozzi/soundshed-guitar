@@ -16,7 +16,11 @@ iOS when configured with `-DCMAKE_SYSTEM_NAME=iOS` and the Xcode generator, and
 ios/
   build.sh      Configures ios/build (Xcode), builds either app for the Simulator or a
                 device, and optionally installs and launches it in the Simulator
-  .gitignore    Ignores ios/build
+  cmake/IosFilesystemBackDeploy.cmake
+                std::filesystem for iOS 12 (legacy) builds
+  compat/libcxx-filesystem/
+                LLVM 20.1.8's libc++ <filesystem> sources and the prelude that uses them
+  .gitignore    Ignores ios/build and ios/build-legacy
 ```
 
 Everything else is shared with the desktop and Android builds:
@@ -71,9 +75,13 @@ users; 16 is what dropped the iPhone 6s/7 generation and the iPad Air 2 and mini
 Whether their A8X/A9/A10 chips can run a NAM model inside the audio deadline is
 untested: judge that on a device, in a release build, before promising it.
 
-Raising either is one line in `juce/CMakeLists.txt`. An existing build tree keeps
-its cached `CMAKE_OSX_DEPLOYMENT_TARGET`, so after changing the default there,
-reconfigure with `-U CMAKE_OSX_DEPLOYMENT_TARGET` (or delete `ios/build`).
+For iOS 12 devices (the iPad mini 2 and its generation) there is a separate
+legacy build; see "iOS 12 (legacy) builds" below.
+
+Raising either minimum is one line in `juce/CMakeLists.txt`. An existing build
+tree keeps its cached `CMAKE_OSX_DEPLOYMENT_TARGET`, so after changing the
+default there, reconfigure with `-U CMAKE_OSX_DEPLOYMENT_TARGET` (or delete
+`ios/build`).
 
 ## Building
 
@@ -84,7 +92,7 @@ ios/build.sh guitar release run   # Release build in the Simulator
 ```
 
 Arguments may appear in any order: `guitar|nano`, `sim|device`, `debug|release`,
-`run`, `reconfigure`. The first run configures `ios/build`, which takes a few
+`run`, `reconfigure`, `legacy`. The first run configures `ios/build`, which takes a few
 minutes (it fetches the core's dependencies and builds JUCE's `juceaide`); later
 runs only build. The app lands in
 `ios/build/<Target>_artefacts/<Config>/Standalone/`. That folder is the same for
@@ -103,10 +111,8 @@ The Simulator runs the host's architecture, so on an Intel Mac the Simulator
 build is x86_64 and on Apple silicon it is arm64; `build.sh` passes `uname -m`.
 
 To work in Xcode instead, open `ios/build/SoundshedGuitar.xcodeproj` after the
-first configure and pick the `SoundshedGuitar_Standalone` scheme. Nano has no
-generated scheme (`juce/cmake/XcodePrettify.cmake` makes them for Soundshed
-Guitar's targets only): use Product > Scheme > New Scheme and pick
-`SoundshedGuitarNano_Standalone`, or build it with `ios/build.sh nano`.
+first configure and pick the `SoundshedGuitar_Standalone` or
+`SoundshedGuitarNano_Standalone` scheme.
 
 **Use a release build for anything to do with audio**, as on Android: a debug
 build compiles the DSP unoptimised.
@@ -129,6 +135,79 @@ Install with Xcode (Window > Devices and Simulators) or
 Distribution (TestFlight, the App Store) needs an archive and a distribution
 profile; see "Archiving for iOS" in JUCE's `docs/CMake API.md`. Nothing here
 sets that up yet.
+
+### iOS 12 (legacy) builds
+
+For devices that stop at iOS 12: the iPad mini 2 and 3, the iPad Air (1st
+gen), the iPhone 5s and 6. Their A7 and A8 chips are 64-bit ARMv8.0, and the
+DSP uses no later instructions (no dot-product, FP16 or matrix intrinsics), so
+the same code runs there.
+
+```bash
+ios/build.sh legacy nano                                          # Simulator, to check it builds and runs
+SSG_IOS_DEVELOPMENT_TEAM=<team id> ios/build.sh legacy nano device release reconfigure
+```
+
+`legacy` uses a build tree of its own, `ios/build-legacy`, with
+`CMAKE_OSX_DEPLOYMENT_TARGET=12.0` and `GUITARFX_IOS_WEBVIEW_DEPLOYMENT_TARGET=12.0`,
+so both apps' minimum is 12.0 and the normal tree keeps 15.0 and 16.2.
+
+**Nano is the one to use on these devices.** Soundshed Guitar builds and
+installs, but its UI is drawn by iOS 12's WebKit (Safari 12), which has no
+`color-mix()`, `:has()` or container queries, so expect missing colours and
+broken layout.
+
+**`std::filesystem` is built into the app.** It is the one thing the code needs
+that iOS 12 lacks: Apple's libc++ added it to the system library in iOS 13, and
+the core, NAM and the JUCE adapter use it throughout. Below a 13.0 minimum,
+`ios/cmake/IosFilesystemBackDeploy.cmake`:
+
+- force-includes `ios/compat/libcxx-filesystem/FilesystemBackDeploy.h` into
+  every C++ and Objective-C++ file. It lifts libc++'s "unavailable before iOS
+  13" mark from `<filesystem>` alone. Every other mark stays, so anything else
+  too new for iOS 12 still fails to compile instead of failing to load;
+- builds LLVM 20.1.8's `libcxx/src/filesystem` (the release Xcode 26's libc++
+  headers come from) as `guitarfx_libcxx_filesystem`, and links it into every
+  target, so the symbols resolve inside the binary.
+
+Precompiled headers are off in a legacy build: clang uses one only when its
+`-include` comes first, and Xcode puts the core's after the prelude's.
+
+The build warns that NAM's oversampler calls `os_workgroup_leave` (iOS 14)
+without a guard. It is harmless: that call is reached only after
+`os_workgroup_join` succeeded inside an `iOS 14.0` availability check.
+
+The C++20 synchronisation library (`std::atomic::wait`, `<semaphore>`,
+`<barrier>`) needs iOS 14 and is not used. If it ever is, a legacy build stops
+with an "unavailable" error rather than shipping something that cannot load.
+
+**Installing.** Xcode 26 builds and signs for iOS 12 but will not use an iOS 12
+device as a destination ("Could not locate Developer Disk Image"), and that has
+three consequences, all met putting Nano on an iPad mini 2:
+
+- **Register the device by hand.** `-allowProvisioningDeviceRegistration` only
+  registers a device Xcode accepts as a destination, so add the UDID at
+  developer.apple.com (Certificates, IDs & Profiles > Devices). `ios-deploy -c`
+  prints it.
+- **Then make Xcode drop its cached profile.** The next build may reuse the team
+  profile it made before the device was registered (it lives in
+  `~/Library/Developer/Xcode/UserData/Provisioning Profiles/`), and the install
+  then fails with "A valid provisioning profile for this executable was not
+  found". Move that file aside and rebuild; Xcode fetches one that includes the
+  device. `security cms -D -i "<app>/embedded.mobileprovision" | grep <UDID>`
+  shows whether a build has it.
+- **Install with `ios-deploy`, and launch on the device.**
+  `ios-deploy --id <UDID> --bundle <path to .app> --nostart` installs
+  (`xcrun devicectl` handles iOS 17 and later only). Launching from the Mac
+  needs the developer disk image, so open the app on the device. To read its
+  logs afterwards, `ios-deploy --id <UDID> --bundle_id <bundle id>
+  --download="/Library/Soundshed Guitar" --to <dir>` copies the profile,
+  `logs/soundshed-startup.log` and `data/v1/logs/session-log.txt` included.
+
+**Performance.** An A7 is several times slower than anything the normal build
+targets. Expect a standard NAM WaveNet model to be beyond it at 128 frames; try
+lighter models (nano or feather), a larger buffer in Settings > Audio Device,
+and judge it only in a release build on the device itself.
 
 ## How it differs from the desktop builds
 

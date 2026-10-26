@@ -169,6 +169,10 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
                         $<$<COMPILE_LANG_AND_ID:C,GNU,Clang>:-fsigned-char>)
 endif()
 
+# iOS below 13 (ios/build.sh legacy): std::filesystem built into the app. A no-op otherwise.
+# Before the core, so that it reaches every target.
+include("${CMAKE_CURRENT_LIST_DIR}/../ios/cmake/IosFilesystemBackDeploy.cmake")
+
 # Shared core library (framework-agnostic DSP, presets, resources, controller)
 set(GUITARFX_CORE_FETCH_DEPS ON CACHE BOOL "" FORCE)
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../core
@@ -448,9 +452,13 @@ endif()
 # in Safari (so iOS) 16.2. The libraries it links (the core, JUCE's shared code) build for
 # the tree's 15.0, which an app with a higher minimum links without complaint. Xcode writes
 # this into the app's MinimumOSVersion, so the App Store keeps it off older devices.
-if(IOS)
+# A legacy build for an iOS 12 device (ios/build.sh legacy) lowers it to the tree's minimum,
+# and accepts a UI that older WebKit draws wrongly.
+set(GUITARFX_IOS_WEBVIEW_DEPLOYMENT_TARGET "16.2" CACHE STRING
+    "Minimum iOS for Soundshed Guitar (the WebView app); the WebKit floor is 16.2")
+if(IOS AND CMAKE_OSX_DEPLOYMENT_TARGET VERSION_LESS GUITARFX_IOS_WEBVIEW_DEPLOYMENT_TARGET)
     set_target_properties(${PROJECT_NAME}_Standalone PROPERTIES
-        XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET "16.2")
+        XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET "${GUITARFX_IOS_WEBVIEW_DEPLOYMENT_TARGET}")
 endif()
 
 # Enable fast math, C++20 and a few other target defaults

@@ -100,3 +100,18 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+## LLVM libc++ (`<filesystem>` implementation)
+
+Used only by iOS 12 (legacy) builds of the iOS apps, which compile libc++'s
+`<filesystem>` implementation into the app because iOS 12's system library
+does not provide it (see `ios/compat/libcxx-filesystem/README.md`).
+
+Source: https://github.com/llvm/llvm-project, `libcxx/src/filesystem/`
+
+Revision: `llvmorg-20.1.8`
+
+Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+The full licence text is in `ios/compat/libcxx-filesystem/LICENSE.TXT`.
