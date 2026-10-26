@@ -52,6 +52,16 @@ file(GLOB_RECURSE NANOQ_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/s
 # The CLAP entry is compiled by clap-wrapper once per format, not into the impl library.
 list(FILTER NANOQ_SOURCES EXCLUDE REGEX "clap_entry[.]cpp$")
 
+# macOS: the open and save dialogs are AppKit panels (src/FileDialogs_mac.mm), built with ARC so
+# the panel outlives the call that shows it.
+if(APPLE)
+    enable_language(OBJCXX)
+    set(NANOQ_APPLE_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/FileDialogs_mac.mm")
+    set_source_files_properties(${NANOQ_APPLE_SOURCES} PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+    set(NANOQ_APPLE_FRAMEWORKS "-framework AppKit" "-framework UniformTypeIdentifiers")
+    list(APPEND NANOQ_SOURCES ${NANOQ_APPLE_SOURCES})
+endif()
+
 add_library(nanoq_impl STATIC ${NANOQ_SOURCES})
 target_include_directories(nanoq_impl PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
@@ -65,6 +75,9 @@ target_compile_definitions(nanoq_impl PRIVATE
 # q_plug is PRIVATE on purpose (see Q's example CMakeLists): the format modules link it but must
 # not inherit its compile options. clap is PUBLIC because the entry shim needs it.
 target_link_libraries(nanoq_impl PRIVATE q_plug SoundshedGuitarCore SoundshedUiClient PUBLIC clap)
+if(APPLE)
+    target_link_libraries(nanoq_impl PRIVATE ${NANOQ_APPLE_FRAMEWORKS})
+endif()
 q_plug_add_host(nanoq_impl SoundshedNanoQ)
 
 make_clapfirst_plugins(
@@ -143,6 +156,10 @@ target_compile_definitions(NanoQEngineDialogTests PRIVATE
     NANOQ_ID="${NANOQ_ID}"
     NANOQ_NAME="${NANOQ_NAME}")
 target_link_libraries(NanoQEngineDialogTests PRIVATE SoundshedGuitarCore SoundshedUiClient)
+if(APPLE)
+    target_sources(NanoQEngineDialogTests PRIVATE ${NANOQ_APPLE_SOURCES})
+    target_link_libraries(NanoQEngineDialogTests PRIVATE ${NANOQ_APPLE_FRAMEWORKS})
+endif()
 if(WIN32)
     target_link_libraries(NanoQEngineDialogTests PRIVATE ole32 uuid)
 endif()

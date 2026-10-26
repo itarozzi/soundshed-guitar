@@ -16,6 +16,12 @@ namespace
 FileDialogHook gHook;
 } // namespace
 
+#if defined(__APPLE__)
+// FileDialogs_mac.mm: NSOpenPanel and NSSavePanel on the main thread.
+void RunAppleDialog(bool save, guitarfx::BrowseFileType type, const std::string& title, const std::string& defaultName,
+                    std::function<void(const guitarfx::BrowseFileResult&)> done);
+#endif
+
 void SetFileDialogHookForTesting(FileDialogHook hook)
 {
     gHook = std::move(hook);
@@ -139,6 +145,8 @@ void ShowOpenDialog(guitarfx::BrowseFileType type, const std::string& title,
 
 #if defined(_WIN32)
     std::thread([=, done = std::move(done)] { done(RunDialog(false, type, title, {})); }).detach();
+#elif defined(__APPLE__)
+    RunAppleDialog(false, type, title, {}, std::move(done));
 #else
     done({});
 #endif
@@ -155,6 +163,8 @@ void ShowSaveDialog(guitarfx::BrowseFileType type, const std::string& title, con
 
 #if defined(_WIN32)
     std::thread([=, done = std::move(done)] { done(RunDialog(true, type, title, defaultName)); }).detach();
+#elif defined(__APPLE__)
+    RunAppleDialog(true, type, title, defaultName, std::move(done));
 #else
     (void) defaultName;
     done({});

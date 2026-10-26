@@ -1,6 +1,7 @@
 # Soundshed Nano Q: Soundshed Nano without JUCE
 
-Status: **first working build, 2026-10-09. Windows verified; macOS and Linux not yet.** Branch
+Status: **first working build, 2026-10-09. Windows verified; macOS builds and runs (2026-10-26, Intel,
+Xcode 26.3); Linux not yet.** Branch
 `nano-q`, in `nanoq/`. Soundshed Guitar Nano ([native-ui.md](native-ui.md)) is untouched and
 still the shipping native product.
 
@@ -82,6 +83,19 @@ place instead, so a drag is never interrupted by the value it just set coming ba
 nanoq\build.cmd Release          # configures (first time: ~5 min, fetches Q, Elements, clap-wrapper, NAM, ...) and builds
 ```
 
+On macOS, with Xcode's command-line tools and Ninja:
+
+```bash
+cmake -S nanoq -B nanoq/build/Release -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build nanoq/build/Release
+SOUNDSHED_NANOQ_PROFILE=/tmp/nanoq-profile "nanoq/build/Release/products/Soundshed Nano Q.app/Contents/MacOS/Soundshed Nano Q"
+```
+
+It needs no changes to build there: Elements takes its Cocoa host and Artist its Quartz 2D
+backend, for the host's architecture. The products are `Soundshed Nano Q.app`, `.clap`,
+`.component` (AUv2) and `.vst3`, with the engine data in each bundle's `Contents/Resources/ui`.
+`SOUNDSHED_NANOQ_PROFILE` runs it on a throwaway data root instead of the real profile.
+
 Products land in `nanoq/build/Release/products/`: `CLAP/`, `VST3/`, and
 `Standalone-nanoq_standalone/`, each beside its fonts and the engine's runtime data
 (`<name> Resources/` next to a CLAP or the exe, `Contents/Resources` in a VST3), the same
@@ -134,7 +148,9 @@ node tools/validate-plugins.mjs --artefacts nanoq/build/Release/products --produ
 | **Tones page** (tone sharing) | **Not done.** Needs an HTTP client: core has none (JUCE's `URL` did it). Windows could use WinHTTP, macOS NSURLSession, Linux libcurl, plus image decoding for pack pictures |
 | **Effect icons** | **Not done.** Artist cannot draw SVG; needs a small SVG path renderer |
 | UI scale setting, wrapped chain layout, touch long-press, compact (phone) layout | Not done; Nano Q targets desktop plugin windows first |
-| macOS and Linux builds | **Untested.** A Linux compile in a container was started and abandoned (see the session notes); QPlug documents both platforms |
+| macOS build | **Builds and runs** (2026-10-26): all four products, the engine starts and loads the default preset, the window draws correctly, `NanoQEngineDialogTests` passes. Open and save dialogs are AppKit panels (`FileDialogs_mac.mm`) and open; before, macOS reported every dialog as cancelled. Apple silicon not yet built |
+| Linux build | **Untested.** A Linux compile in a container was started and abandoned (see the session notes); QPlug documents it |
+| iOS / iPadOS | **Not possible as is.** Elements has no iOS host (GTK, X11, Wayland, Cocoa, Win32, headless), Artist's Quartz backend uses AppKit for fonts, images and text, and QPlug's standalone plays through RtAudio, which has no iOS backend. A port needs a UIKit host for Elements, those parts of Artist on UIKit/Core Text, and an iOS app shell (AVAudioSession, RemoteIO) |
 | Resource browsing (NAM and IR models) | Not in JUCE Nano yet either (its phase 4) |
 | CI | None yet; `nanoq/build.cmd` and the validator command above are what a workflow would run |
 
