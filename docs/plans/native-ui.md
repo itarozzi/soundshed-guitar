@@ -96,7 +96,9 @@ there.
 - **Riff capture and the riff library.** Includes the capture dialog, trim, save and the
   library page. Favourite riffs still play in the demo list.
 - **JAM tab:** YouTube backing tracks, Scales, Practice Tool.
-- **TONES tab:** tone sharing, packs, publishing, AI tone search, account.
+- **TONES tab:** publishing, pack authoring and AI tone search. Browsing and installing shared
+  presets and packs, and signing in, were added to Nano as its Tones page on 2026-09-24
+  (see [HTTP and Tone3000](#3-http-and-tone3000-phase-4)).
 - **Authoring tools:** custom effect designer, layout designer, blend editor, composite editor, automation mapping editor (MIDI learn is kept), preset pack import/export, library cleanup.
 - **Diagnostics:** DSP performance page, signal diagnostics table, feature-flag page.
 - **Multi-Rig editing:** building and saving Multi-Rigs.
@@ -384,6 +386,30 @@ replaces is deleted then (architecture decision 3). The old message forms keep w
 backward compatibility.
 
 ### 3. HTTP and Tone3000 (phase 4)
+
+**Built, 2026-10-27: shared with Nano Q, in the client library rather than the engine.** What
+follows the list below is the original design; what exists is:
+
+- **`core/src/net/Http.h`** (built into `SoundshedUiClient`, no UI framework): `HttpTransport`
+  (one blocking request with a `CancelToken`), a transport per platform (WinHTTP;
+  NSURLSession on Apple; elsewhere one that reports no network), and `HttpWorkers`, which cut
+  every request in flight short when destroyed, so quitting never waits on a network timeout.
+- **`core/src/uiclient/ToneService`**: tone sharing (browse, account, install, remove) and
+  Tone3000 through Soundshed's relay (`api-guitar.soundshed.com/v1/resourcesearch`, no
+  personal key; Tone3000's own model URLs are rewritten onto it, `tone3000::ThroughRelay`). The
+  engine's `installPresetArchives` refuses an archive whose Tone3000 models are not in the
+  library and has no HTTP, so `Install` fetches and imports each missing model first, then
+  installs. Its `Host` gives it `post` (to the UI thread) and `toast`.
+- **Nano** hands ToneService its own transport, `nativeui/tones/JuceHttpTransport` on
+  `juce::URL` (a cancel cancels the `WebInputStream`), so Android has a network too; `post` is
+  `juce::MessageManager::callAsync`, and `nativeui/tones/ToneImages` decodes the picture bytes
+  with `juce::ImageFileFormat`. `views/TonesPage` and `sheets/ToneSheets` use it; Nano's own
+  `ToneSharingService` and `HttpWorkers` are gone. `JuceHttpTransportTests` covers the cut-short
+  and a POST round trip. Checked live on a throwaway profile (`APPDATA`): "Skillet - Monster",
+  which names a Tone3000 model the profile lacked, installed, fetched the model and loaded.
+- **Not done:** Nano has no Tone3000 browser tab yet (ToneService has search, models and
+  import for it); the web UI still uses its TypeScript Tone3000 and tone sharing code; Android
+  and iOS runs of the Tones page are unchecked.
 
 - **`IHttpClient`** (`core/src/net/`):
   - Async requests on a worker, with cancel, a size cap and progress.

@@ -46,14 +46,14 @@ ToneDetailContent::ToneDetailContent (NanoContext& contextIn, ShellActions& acti
     addAndMakeVisible (primaryButton);
     addAndMakeVisible (linkButton);
 
-    service.addListener (this);
+    serviceListener = service.AddListener ([this] { refreshButtons(); });
     settingsSubscription = context.client.Subscribe (guitarfx::uiclient::Topic::Session, [this] { refreshButtons(); });
     installsSubscription = context.client.Subscribe (guitarfx::uiclient::Topic::Tones, [this] { refreshButtons(); });
 
     // A pack lists what is in it.
     if (tone.IsPack())
     {
-        service.get (tones::PackPath (tone.id), [safe = juce::Component::SafePointer<ToneDetailContent> (this)] (const auto& response) {
+        service.Get (tones::PackPath (tone.id), [safe = juce::Component::SafePointer<ToneDetailContent> (this)] (const auto& response) {
             if (safe == nullptr)
                 return;
 
@@ -72,7 +72,7 @@ ToneDetailContent::ToneDetailContent (NanoContext& contextIn, ShellActions& acti
 
 ToneDetailContent::~ToneDetailContent()
 {
-    service.removeListener (this);
+    service.RemoveListener (serviceListener);
 }
 
 std::string ToneDetailContent::installedPresetId() const
@@ -92,7 +92,7 @@ void ToneDetailContent::refreshButtons()
     const auto entryId = tones::EntryIdFor (tone);
     const auto& installs = context.state().toneInstalls;
     const auto install = installs.find (entryId);
-    const bool installing = service.isDownloading (entryId)
+    const bool installing = service.IsDownloading (entryId)
                             || (install != installs.end() && install->second.status == guitarfx::uiclient::ToneInstall::Status::Installing);
 
     if (installing)
@@ -117,7 +117,7 @@ void ToneDetailContent::onPrimary()
         return;
     }
 
-    service.install (tone);
+    service.Install (tone);
     refreshButtons();
 }
 
@@ -129,7 +129,7 @@ void ToneDetailContent::paint (juce::Graphics& g)
     // The pack's picture, or an icon on a tile, beside who shared it.
     auto header = area.removeFromTop (72);
     const auto tile = header.removeFromLeft (72).toFloat();
-    const auto picture = tone.thumbnailUrl.empty() ? juce::Image() : service.image (tone.thumbnailUrl);
+    const auto picture = tone.thumbnailUrl.empty() ? juce::Image() : context.toneImages->get (tone.thumbnailUrl);
 
     if (picture.isValid())
     {
@@ -314,7 +314,7 @@ void SignInContent::sendCode()
     email = typed.toStdString();
     setBusy (true, "Sending a code...");
 
-    service.requestCode (email, [safe = juce::Component::SafePointer<SignInContent> (this)] (const auto& response) {
+    service.RequestCode (email, [safe = juce::Component::SafePointer<SignInContent> (this)] (const auto& response) {
         if (safe == nullptr)
             return;
 
@@ -350,7 +350,7 @@ void SignInContent::signIn()
 
     setBusy (true, "Signing in...");
 
-    service.verifyCode (email, code.toStdString(), [safe = juce::Component::SafePointer<SignInContent> (this)] (const auto& response) {
+    service.VerifyCode (email, code.toStdString(), [safe = juce::Component::SafePointer<SignInContent> (this)] (const auto& response) {
         if (safe == nullptr)
             return;
 
@@ -364,7 +364,7 @@ void SignInContent::signIn()
         }
 
         auto& context = safe->context;
-        const auto name = safe->service.user() ? utf8 (safe->service.user()->Label()) : juce::String();
+        const auto name = safe->service.Account() ? utf8 (safe->service.Account()->Label()) : juce::String();
 
         if (safe->actions.closeSheet)
             safe->actions.closeSheet();

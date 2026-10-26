@@ -85,7 +85,7 @@ TonesPage::TonesPage (NanoContext& contextIn, ShellActions& actionsIn)
     };
     addAndMakeVisible (list);
 
-    service.addListener (this);
+    serviceListener = service.AddListener ([this] { toneServiceChanged(); });
 
     // What is installed lives in a setting (Session); installs in flight in toneInstalls.
     sessionSubscription = context.client.Subscribe (guitarfx::uiclient::Topic::Session, [this] { rebuildRows(); });
@@ -97,7 +97,7 @@ TonesPage::TonesPage (NanoContext& contextIn, ShellActions& actionsIn)
 
 TonesPage::~TonesPage()
 {
-    service.removeListener (this);
+    service.RemoveListener (serviceListener);
 }
 
 void TonesPage::activate()
@@ -105,7 +105,7 @@ void TonesPage::activate()
     if (! activated)
     {
         activated = true;
-        service.refreshAccount();
+        service.RefreshAccount();
     }
 
     if (tab != Tab::Installed && ! feedFor (tab).loaded && ! feedFor (tab).loading)
@@ -153,7 +153,7 @@ void TonesPage::load (Tab which, bool nextPage)
                                              : (which == Tab::Presets ? tones::ItemsPath (page, query, tag) : tones::PacksPath (page));
 
     // The views are rebuilt on a theme change: an answer can outlive this page.
-    service.get (path, [safe = juce::Component::SafePointer<TonesPage> (this), which, generation, page] (const ToneSharingService::Response& response) {
+    service.Get (path, [safe = juce::Component::SafePointer<TonesPage> (this), which, generation, page] (const guitarfx::uiclient::ToneService::Response& response) {
         if (safe == nullptr)
             return;
 
@@ -311,7 +311,7 @@ juce::String TonesPage::statusOf (const tones::Tone& tone) const
     const auto& installs = context.state().toneInstalls;
     const auto install = installs.find (entryId);
 
-    if (service.isDownloading (entryId)
+    if (service.IsDownloading (entryId)
         || (install != installs.end() && install->second.status == guitarfx::uiclient::ToneInstall::Status::Installing))
         return "Installing...";
 
@@ -378,7 +378,7 @@ void TonesPage::paintToneRow (juce::Graphics& g, const tones::Tone& tone, juce::
 
     // The pack's picture, or an icon on a tile.
     const auto tile = area.removeFromLeft (40).withSizeKeepingCentre (40, 40).toFloat();
-    const auto picture = tone.thumbnailUrl.empty() ? juce::Image() : service.image (tone.thumbnailUrl);
+    const auto picture = tone.thumbnailUrl.empty() ? juce::Image() : context.toneImages->get (tone.thumbnailUrl);
 
     if (picture.isValid())
     {
@@ -531,7 +531,7 @@ void TonesPage::longPressRow (int row, juce::Rectangle<int> screenBounds)
     juce::PopupMenu menu;
     menu.addSectionHeader (utf8 (tone.title));
     menu.addItem ("Open", [this, tone] { openTone (tone); });
-    menu.addItem ("Install", ! installed && statusOf (tone).isEmpty(), false, [this, tone] { service.install (tone); });
+    menu.addItem ("Install", ! installed && statusOf (tone).isEmpty(), false, [this, tone] { service.Install (tone); });
     menu.addItem ("Copy link", [this, tone] { copyToneLink (context, tone); });
     context.showMenu (menu, juce::PopupMenu::Options().withTargetScreenArea (screenBounds).withStandardItemHeight (context.touch ? 40 : 28));
 }
@@ -575,7 +575,7 @@ void TonesPage::showInstalledMenu (const tones::InstalledEntry& entry, juce::Rec
         actions.confirm ("Remove \"" + title + "\"",
                          (count == 1 ? juce::String ("Its preset") : "Its " + juce::String ((int) count) + " presets")
                              + " will be deleted, with the models and IRs nothing else uses. This cannot be undone.",
-                         "Remove", [this, id = entry.id] { context.commands.DeleteInstalledPresetArchive (id); });
+                         "Remove", [this, id = entry.id] { service.Remove (id); });
     });
 
     // A tap has no row bounds to hand: the menu opens at the finger.
@@ -608,7 +608,7 @@ void TonesPage::showTagMenu()
 
 void TonesPage::onAccountButton()
 {
-    const auto& user = service.user();
+    const auto& user = service.Account();
 
     if (! user)
     {
@@ -620,29 +620,25 @@ void TonesPage::onAccountButton()
 
     juce::PopupMenu menu;
     menu.addSectionHeader ("Signed in as " + utf8 (user->Label()));
-    menu.addItem ("Sign out", [this] { service.signOut(); });
+    menu.addItem ("Sign out", [this] { service.SignOut(); });
     context.showMenu (menu, &accountButton);
 }
 
 void TonesPage::updateAccountButton()
 {
-    const auto& user = service.user();
-    accountButton.setText (user ? utf8 (user->Label()) : juce::String ("Sign in"));
-    resized();
+    const auto& user = service.Account();
+    const auto text = user ? utf8 (user->Label()) : juce::String ("Sign in");
+
+    if (text != accountButton.getText())
+    {
+        accountButton.setText (text);
+        resized();
+    }
 }
 
-void TonesPage::accountChanged()
+void TonesPage::toneServiceChanged()
 {
     updateAccountButton();
-}
-
-void TonesPage::imagesChanged()
-{
-    list.updateContent();
-}
-
-void TonesPage::downloadsChanged()
-{
     list.updateContent();
 }
 

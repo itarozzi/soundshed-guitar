@@ -2,7 +2,7 @@
 
 #include "nativeui/NanoContext.h"
 #include "nativeui/ShellActions.h"
-#include "nativeui/tones/ToneSharingService.h"
+#include "nativeui/tones/ToneImages.h"
 #include "nativeui/widgets/IconButton.h"
 #include "nativeui/widgets/TapList.h"
 
@@ -14,14 +14,15 @@
 namespace soundshed::nano
 {
 /// Tones: presets and packs the community shares through Soundshed's tone sharing service,
-/// and the ones installed from it - Soundshed Guitar's TONES panel for a small screen.
+/// and the ones installed from it - Soundshed Guitar's TONES panel for a small screen. The
+/// requests go through guitarfx::uiclient::ToneService, shared with Nano Q, which also fetches the
+/// Tone3000 models a shared preset names before installing it.
 ///
 /// Featured, Presets (searchable, by tag) and Packs come from the service a page at a time;
 /// Installed is the toneSharing.installedPacks setting both products keep. A tap opens a tone
 /// to install it or copy its link; an installed one can be loaded or removed. Signing in is
 /// optional here (browsing and installing need no account) and shared with Soundshed Guitar.
 class TonesPage final : public juce::Component,
-                        private ToneSharingService::Listener,
                         private juce::Timer
 {
 public:
@@ -93,16 +94,16 @@ private:
     /// "Installed", "Installing...", or empty, for a tone's row and sheet.
     [[nodiscard]] juce::String statusOf (const guitarfx::uiclient::tones::Tone& tone) const;
 
-    void accountChanged() override;
-    void imagesChanged() override;
-    void downloadsChanged() override;
+    /// The account, a picture or a download changed.
+    void toneServiceChanged();
     void timerCallback() override;
 
     Feed& feedFor (Tab which) { return which == Tab::Featured ? featured : (which == Tab::Presets ? presets : packs); }
 
     NanoContext& context;
     ShellActions& actions;
-    ToneSharingService& service;
+    guitarfx::uiclient::ToneService& service;
+    int serviceListener = 0;
     Tab tab = Tab::Featured;
     bool activated = false;
 

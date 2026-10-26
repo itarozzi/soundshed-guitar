@@ -1,6 +1,7 @@
 #include "nativeui/NanoContext.h"
 
-#include "nativeui/tones/ToneSharingService.h"
+#include "nativeui/tones/JuceHttpTransport.h"
+#include "nativeui/tones/ToneImages.h"
 #include "nativeui/widgets/MenuOptions.h"
 
 #include "util/PathEncoding.h"
@@ -29,7 +30,15 @@ NanoContext::NanoContext (PluginProcessorAdapter& processorIn)
         guitarfx::util::PathFromUtf8 (uiRoot.getChildFile ("data").getChildFile ("effect-presentation.json").getFullPathName().toStdString()));
     lookAndFeel = std::make_unique<NanoLookAndFeel> (theme, uiRoot.getChildFile ("fonts"));
     icons = std::make_unique<IconCache> (uiRoot.getChildFile ("images").getChildFile ("icons"));
-    tones = std::make_unique<ToneSharingService> (*this);
+
+    guitarfx::uiclient::ToneService::Host host;
+    host.post = [] (std::function<void()> fn) { juce::MessageManager::callAsync (std::move (fn)); };
+    host.toast = [this] (const std::string& title, const std::string& detail, bool isError) {
+        if (showToast)
+            showToast (juce::String::fromUTF8 (title.c_str()), juce::String::fromUTF8 (detail.c_str()), isError);
+    };
+    tones = std::make_unique<guitarfx::uiclient::ToneService> (client, commands, std::move (host), makeJuceHttpTransport());
+    toneImages = std::make_unique<ToneImages> (*tones);
 
 #if JUCE_ANDROID || JUCE_IOS
     touch = true;

@@ -1082,34 +1082,38 @@ if(WIN32)
 
     add_test(NAME NanoMenuOptionsTests COMMAND NanoMenuOptionsTests)
 
-    # The Tones page's HTTP workers (source/nativeui/tones/HttpWorkers.h): destroying them must
-    # cut a request in flight short, not wait for the network to time out. juce_core only.
-    add_executable(HttpWorkersTests
-        "${CMAKE_CURRENT_SOURCE_DIR}/tests/HttpWorkersTests.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/source/nativeui/tones/HttpWorkers.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/source/nativeui/tones/HttpWorkers.h"
+    # Nano's HTTP transport on juce::URL (source/nativeui/tones/JuceHttpTransport.h) under core's
+    # net::HttpWorkers: destroying the workers must cut a request in flight short, not wait for
+    # the network to time out. juce_core and core's Http.cpp only.
+    add_executable(JuceHttpTransportTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/JuceHttpTransportTests.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/source/nativeui/tones/JuceHttpTransport.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/source/nativeui/tones/JuceHttpTransport.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../core/src/net/Http.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../core/src/net/Http.h"
     )
 
-    target_include_directories(HttpWorkersTests
+    target_include_directories(JuceHttpTransportTests
         PRIVATE
             "${CMAKE_CURRENT_SOURCE_DIR}/source"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../core/src"
     )
 
-    target_link_libraries(HttpWorkersTests
+    target_link_libraries(JuceHttpTransportTests
         PRIVATE
             juce_core
             juce::juce_recommended_config_flags
             juce::juce_recommended_warning_flags
     )
 
-    set_target_properties(HttpWorkersTests PROPERTIES
+    set_target_properties(JuceHttpTransportTests PROPERTIES
         CXX_STANDARD 20
         CXX_STANDARD_REQUIRED ON
         FOLDER "GuitarFX/Tests"
     )
 
-    add_test(NAME HttpWorkersTests COMMAND HttpWorkersTests)
-    set_tests_properties(HttpWorkersTests PROPERTIES TIMEOUT 120)
+    add_test(NAME JuceHttpTransportTests COMMAND JuceHttpTransportTests)
+    set_tests_properties(JuceHttpTransportTests PROPERTIES TIMEOUT 120)
 
     # Offline renderer that automates external plugins' transpose parameter for
     # the transpose benchmark (see tools/transpose-benchmark/). Not a ctest.

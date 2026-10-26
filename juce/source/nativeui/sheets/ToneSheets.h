@@ -2,7 +2,7 @@
 
 #include "nativeui/NanoContext.h"
 #include "nativeui/ShellActions.h"
-#include "nativeui/tones/ToneSharingService.h"
+#include "nativeui/tones/ToneImages.h"
 #include "nativeui/widgets/IconButton.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
@@ -17,8 +17,7 @@ void copyToneLink (NanoContext& context, const guitarfx::uiclient::tones::Tone& 
 
 /// One shared preset or pack: who shared it, what it is, what a pack holds, and the button
 /// that installs it - or, once installed, loads it.
-class ToneDetailContent final : public juce::Component,
-                                private ToneSharingService::Listener
+class ToneDetailContent final : public juce::Component
 {
 public:
     ToneDetailContent (NanoContext& context, ShellActions& actions, guitarfx::uiclient::tones::Tone tone);
@@ -32,12 +31,10 @@ private:
     void onPrimary();
     [[nodiscard]] std::string installedPresetId() const;
 
-    void imagesChanged() override { repaint(); }
-    void downloadsChanged() override { refreshButtons(); }
-
     NanoContext& context;
     ShellActions& actions;
-    ToneSharingService& service;
+    guitarfx::uiclient::ToneService& service;
+    int serviceListener = 0; // a picture or a download changed: refreshButtons()
     guitarfx::uiclient::tones::Tone tone;
     std::optional<guitarfx::uiclient::tones::PackDetail> pack;
     juce::String packError;
@@ -67,7 +64,7 @@ private:
 
     NanoContext& context;
     ShellActions& actions;
-    ToneSharingService& service;
+    guitarfx::uiclient::ToneService& service;
     bool codeSent = false;
     bool busy = false;
     juce::String status;

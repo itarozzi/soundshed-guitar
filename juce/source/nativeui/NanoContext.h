@@ -12,9 +12,14 @@
 
 #include <memory>
 
+namespace guitarfx::uiclient
+{
+class ToneService;
+}
+
 namespace soundshed::nano
 {
-class ToneSharingService;
+class ToneImages;
 
 /// What every Nano view needs: the engine client and its commands, the theme, the icons and
 /// the effect presentation table. Owned by the editor and outlives every view.
@@ -33,9 +38,12 @@ public:
     std::unique_ptr<NanoLookAndFeel> lookAndFeel;
     std::unique_ptr<IconCache> icons;
 
-    /// Soundshed's tone sharing service (the Tones page). Declared after the client, which it
-    /// listens to, so it goes first.
-    std::unique_ptr<ToneSharingService> tones;
+    /// Soundshed's tone sharing service and Tone3000 through Soundshed's relay (the Tones page):
+    /// the one Nano Q uses, on JUCE's HTTP. Declared after the client, which it listens to, so it
+    /// goes first.
+    std::unique_ptr<guitarfx::uiclient::ToneService> tones;
+    /// Its pictures, decoded (declared after it: goes first).
+    std::unique_ptr<ToneImages> toneImages;
 
     /// Whether the primary input is touch (phones, tablets, touch screens): bigger targets.
     bool touch = false;
