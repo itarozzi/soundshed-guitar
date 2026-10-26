@@ -17,7 +17,8 @@ FileDialogHook gHook;
 } // namespace
 
 #if defined(__APPLE__)
-// FileDialogs_mac.mm: NSOpenPanel and NSSavePanel on the main thread.
+// FileDialogs_mac.mm: NSOpenPanel and NSSavePanel on the main thread. FileDialogs_ios.mm: a
+// document picker, open only.
 void RunAppleDialog(bool save, guitarfx::BrowseFileType type, const std::string& title, const std::string& defaultName,
                     std::function<void(const guitarfx::BrowseFileResult&)> done);
 #endif

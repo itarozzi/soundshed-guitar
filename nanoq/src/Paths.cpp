@@ -11,6 +11,7 @@
 #else
 #include <dlfcn.h>
  #if defined(__APPLE__)
+  #include <TargetConditionals.h>
   #include <mach-o/dyld.h>
  #endif
 #endif
@@ -87,6 +88,11 @@ std::vector<std::filesystem::path> ResourceCandidates()
     if (dir.empty())
         return out;
 
+#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
+    // An iOS app bundle is flat: ui/ sits beside the executable, at the bundle's root. Not in a
+    // folder called resources there, which makes codesign take the bundle for a macOS one.
+    out.push_back(dir);
+#endif
     // Next to the binary (standalone, CLAP, a Windows VST3 folder's x86_64-win), then up through
     // a macOS bundle's Contents/MacOS -> Contents/Resources and a VST3 folder's Contents.
     out.push_back(dir / (std::string(NANOQ_NAME) + " Resources")); // CLAP and the standalone app

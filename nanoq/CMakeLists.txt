@@ -8,11 +8,20 @@
 #   cmake -S nanoq -B nanoq/build -G Ninja -DCMAKE_BUILD_TYPE=Release
 #   cmake --build nanoq/build
 # See docs/plans/nano-q.md.
+#
+# iOS and iPadOS: the Xcode generator with -DCMAKE_SYSTEM_NAME=iOS, through nanoq/ios/build.sh,
+# which builds the app in nanoq/ios/cmake/NanoQIos.cmake instead of the plugin formats. See
+# docs/plans/nano-q-ios.md.
 
 cmake_minimum_required(VERSION 3.22)
 
-# Before project(): Artist needs std::filesystem, from macOS 10.15, and its prebuilt bundles target 11.0.
-set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version")
+# Before project(). macOS: Artist needs std::filesystem, from 10.15, and its prebuilt bundles target
+# 11.0. iOS: 15.0, as Soundshed Guitar Nano (docs/ios-build.md); a legacy build passes 12.0.
+if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "15.0" CACHE STRING "Minimum iOS version")
+else()
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version")
+endif()
 
 project(SoundshedNanoQ VERSION 1.7.0 LANGUAGES C CXX)
 
@@ -25,14 +34,54 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
 include(FetchContent)
 
+if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    set(NANOQ_IOS ON)
+else()
+    set(NANOQ_IOS OFF)
+endif()
+
 # ── Q, with QPlug and Elements ──────────────────────────────────────────────────
 # Pinned to a commit, like every fetched dependency in this repo (tools/check-dependency-pins.mjs).
 set(Q_BUILD_PLUG ON CACHE BOOL "" FORCE)
 set(Q_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(Q_BUILD_TEST OFF CACHE BOOL "" FORCE)
+
+# iOS: the libraries are patched for UIKit (nanoq/ios/patches, applied by nanoq/ios/cmake/
+# ApplyPatch.cmake), and Q's IO library is left out: RtAudio and libremidi have no iOS backend,
+# and the app plays through RemoteIO instead. A desktop build fetches them as published.
+set(_nanoq_q_patch)
+if(NANOQ_IOS)
+    set(Q_BUILD_IO OFF CACHE BOOL "" FORCE)
+    set(_nanoq_q_patch PATCH_COMMAND ${CMAKE_COMMAND}
+        -DPATCH=${CMAKE_CURRENT_SOURCE_DIR}/ios/patches/q.patch
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/ios/cmake/ApplyPatch.cmake)
+endif()
 FetchContent_Declare(q
     GIT_REPOSITORY https://github.com/cycfi/q.git
-    GIT_TAG a08c4ca573bb92346ed616bdb6f850c864f59ab4)
+    GIT_TAG a08c4ca573bb92346ed616bdb6f850c864f59ab4
+    ${_nanoq_q_patch})
+
+# Elements is Q's to fetch (q_plug/CMakeLists.txt). An iOS build declares it first, at the same
+# commit, with Artist's patch: the first declaration of a name is the one FetchContent uses.
+# When Q's pin moves, move this with it.
+if(NANOQ_IOS)
+    FetchContent_Declare(cycfi_elements
+        GIT_REPOSITORY https://github.com/cycfi/elements.git
+        GIT_TAG 046ec674e249817b8712c25826ce4e1f3c60b74a
+        GIT_SUBMODULES lib/artist
+        GIT_SUBMODULES_RECURSE OFF
+        SOURCE_SUBDIR do-not-add
+        PATCH_COMMAND ${CMAKE_COMMAND}
+            -DPATCH=${CMAKE_CURRENT_SOURCE_DIR}/ios/patches/elements.patch
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/ios/cmake/ApplyPatch.cmake)
+
+    # As Soundshed Guitar's iOS build (juce/CMakeLists.txt): Wasmtime has no iOS C API bundle and
+    # iOS allows no JIT, and the SIMD level matters only to the x86_64 Simulator.
+    set(GUITARFX_CORE_ENABLE_WASM_EFFECTS OFF CACHE BOOL "" FORCE)
+    set(GUITARFX_CORE_SIMD_LEVEL "sse2" CACHE STRING "" FORCE)
+    # Below iOS 13 (ios/build.sh legacy): std::filesystem built into the app. Before the core.
+    include("${CMAKE_CURRENT_SOURCE_DIR}/../ios/cmake/IosFilesystemBackDeploy.cmake")
+endif()
 
 # ── The engine ──────────────────────────────────────────────────────────────────
 # nlohmann_json first, so that core and Q share one copy.
@@ -53,8 +102,17 @@ file(GLOB_RECURSE NANOQ_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/s
 list(FILTER NANOQ_SOURCES EXCLUDE REGEX "clap_entry[.]cpp$")
 
 # macOS: the open and save dialogs are AppKit panels (src/FileDialogs_mac.mm), built with ARC so
-# the panel outlives the call that shows it.
-if(APPLE)
+# the panel outlives the call that shows it. iOS: a document picker (src/FileDialogs_ios.mm), and
+# QPlug's view glue for UIKit.
+if(NANOQ_IOS)
+    set(NANOQ_APPLE_SOURCES
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/FileDialogs_ios.mm"
+        "${CMAKE_CURRENT_SOURCE_DIR}/ios/q_plug_host_view.mm")
+    set_source_files_properties(${NANOQ_APPLE_SOURCES} PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+    # UniformTypeIdentifiers is iOS 14: weak, so a legacy (iOS 12) build still loads.
+    set(NANOQ_APPLE_FRAMEWORKS "-framework UIKit" "-weak_framework UniformTypeIdentifiers")
+    list(APPEND NANOQ_SOURCES ${NANOQ_APPLE_SOURCES})
+elseif(APPLE)
     enable_language(OBJCXX)
     set(NANOQ_APPLE_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/FileDialogs_mac.mm")
     set_source_files_properties(${NANOQ_APPLE_SOURCES} PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
@@ -78,7 +136,34 @@ target_link_libraries(nanoq_impl PRIVATE q_plug SoundshedGuitarCore SoundshedUiC
 if(APPLE)
     target_link_libraries(nanoq_impl PRIVATE ${NANOQ_APPLE_FRAMEWORKS})
 endif()
+# iOS: Elements has no UIKit host of its own. QPlug compiles the host layer from this property, so
+# pointing it at Nano Q's (nanoq/ios/elements_host) is all it takes.
+if(NANOQ_IOS)
+    set_property(GLOBAL PROPERTY Q_PLUG_ELEMENTS_HOST_SOURCES
+        "${CMAKE_CURRENT_SOURCE_DIR}/ios/elements_host/base_view.mm"
+        "${CMAKE_CURRENT_SOURCE_DIR}/ios/elements_host/key.mm")
+endif()
 q_plug_add_host(nanoq_impl SoundshedNanoQ)
+
+# Fonts Nano Q draws with. Elements finds fonts only beside the plugin. Inter's static cuts are the
+# ones Nano uses (juce/source/nativeui/theme/fonts, made by tools/gen-nano-fonts.mjs); Open Sans
+# stays for anything Elements draws itself.
+get_property(_nanoq_elements GLOBAL PROPERTY Q_PLUG_ELEMENTS_SOURCE_DIR)
+set(_nanoq_fonts "${CMAKE_CURRENT_SOURCE_DIR}/../juce/source/nativeui/theme/fonts")
+set(ELEMENTS_FONTS
+    "${_nanoq_fonts}/Inter-Regular.ttf"
+    "${_nanoq_fonts}/Inter-Medium.ttf"
+    "${_nanoq_fonts}/Inter-SemiBold.ttf"
+    "${_nanoq_elements}/resources/fonts/OpenSans-Regular.ttf")
+
+# The engine's runtime data: factory presets, layouts, metronome clicks and demo audio from ui/ in
+# its resource root, the same data Soundshed Guitar Nano ships (juce/cmake/SoundshedNano.cmake).
+set(_NANOQ_UI_DATA_DIRS presets assets metronome demo data images)
+
+if(NANOQ_IOS)
+    include("${CMAKE_CURRENT_SOURCE_DIR}/ios/cmake/NanoQIos.cmake")
+    return()
+endif()
 
 make_clapfirst_plugins(
     TARGET_NAME nanoq
@@ -103,23 +188,11 @@ q_plug_separate_import_libs(nanoq)
 q_plug_fix_auv2_plist(nanoq)
 
 # ── Fonts and runtime data ──────────────────────────────────────────────────────
-# Elements finds fonts only beside the plugin. Inter's static cuts are the ones Nano uses
-# (juce/source/nativeui/theme/fonts, made by tools/gen-nano-fonts.mjs); Open Sans stays for
-# anything Elements draws itself.
-get_property(_nanoq_elements GLOBAL PROPERTY Q_PLUG_ELEMENTS_SOURCE_DIR)
-set(_nanoq_fonts "${CMAKE_CURRENT_SOURCE_DIR}/../juce/source/nativeui/theme/fonts")
-set(ELEMENTS_FONTS
-    "${_nanoq_fonts}/Inter-Regular.ttf"
-    "${_nanoq_fonts}/Inter-Medium.ttf"
-    "${_nanoq_fonts}/Inter-SemiBold.ttf"
-    "${_nanoq_elements}/resources/fonts/OpenSans-Regular.ttf")
 q_plug_add_resources(nanoq)
 
-# The engine reads factory presets, layouts, metronome clicks and demo audio from ui/ in its
-# resource root, the same data Soundshed Guitar Nano ships (juce/cmake/SoundshedNano.cmake).
-# It lands where the fonts do: "<name> Resources" beside a CLAP or the standalone app, and
-# Contents/Resources inside a VST3 or AU bundle. Nano Q's own code finds either (Paths.cpp).
-set(_NANOQ_UI_DATA_DIRS presets assets metronome demo data images)
+# The engine's data lands where the fonts do: "<name> Resources" beside a CLAP or the standalone
+# app, and Contents/Resources inside a VST3 or AU bundle. Nano Q's own code finds either
+# (Paths.cpp).
 foreach(_format clap vst3 auv2 standalone)
     set(_target nanoq_${_format})
     if(NOT TARGET ${_target})

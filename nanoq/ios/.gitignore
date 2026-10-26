@@ -1,0 +1,2 @@
+# The iOS 12 build tree made by build.sh legacy (nanoq/.gitignore covers build/).
+/build-legacy/

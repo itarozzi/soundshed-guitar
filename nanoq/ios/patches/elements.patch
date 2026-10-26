@@ -1,0 +1,379 @@
+diff --git a/lib/artist/CMakeLists.txt b/lib/artist/CMakeLists.txt
+index 1a296b8..b3003ae 100644
+--- a/lib/artist/CMakeLists.txt
++++ b/lib/artist/CMakeLists.txt
+@@ -132,7 +132,9 @@ if (MSVC AND ARTIST_DIRECT2D AND MSVC_VERSION LESS 1944)
+       "\"MSVC v143\" C++ build tools, or build with clang-cl.")
+ endif()
+ 
+-if (APPLE)
++# iOS: the SDK and Xcode's ARCHS choose the architecture when the app is built
++# (x86_64 or arm64 for the Simulator, arm64 for a device), not at configure.
++if (APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    if (NOT CMAKE_OSX_ARCHITECTURES)
+       set(CMAKE_OSX_ARCHITECTURES ${CMAKE_SYSTEM_PROCESSOR})
+    endif()
+diff --git a/lib/artist/lib/impl/macos/quartz2d/canvas.mm b/lib/artist/lib/impl/macos/quartz2d/canvas.mm
+index 86d06ed..6fadf04 100755
+--- a/lib/artist/lib/impl/macos/quartz2d/canvas.mm
++++ b/lib/artist/lib/impl/macos/quartz2d/canvas.mm
+@@ -6,7 +6,7 @@
+ #include <artist/canvas.hpp>
+ #include <artist/canvas_layer.hpp>
+ #include <artist/detail/font_cache.hpp>
+-#include <Quartz/Quartz.h>
++#include "quartz.hpp"
+ #include <stack>
+ #include <variant>
+ #include "osx_utils.hpp"
+@@ -706,18 +706,15 @@ void round_rect(canvas& c, rect bounds, float radius)
+       // Quartz takes the shadow in base space: pixels for a bitmap context,
+       // points for a window. Scale a bitmap's to the image's units.
+       auto k = CGBitmapContextGetWidth(ctx) != 0? _state->scale() : 1.0f;
++      // A CGColor in device RGB, the space the fill and stroke colors are
++      // set in (CGContextSetRGBFillColor), with no NSColor, which iOS lacks.
++      auto space = CGColorSpaceCreateDeviceRGB();
++      CGFloat const components[] = {c.red, c.green, c.blue, c.alpha};
++      auto color = CGColorCreate(space, components);
++      CGColorSpaceRelease(space);
+       CGContextSetShadowWithColor(
+-         ctx, CGSizeMake(offset.x * k, -offset.y * k), blur * k,
+-         [
+-            [NSColor
+-               colorWithRed : c.red
+-                      green : c.green
+-                      blue  : c.blue
+-                      alpha : c.alpha
+-            ]
+-            CGColor
+-         ]
+-      );
++         ctx, CGSizeMake(offset.x * k, -offset.y * k), blur * k, color);
++      CGColorRelease(color);
+    }
+ 
+    void canvas::global_composite_operation(composite_op_enum mode)
+@@ -794,9 +791,11 @@ CTLineRef measure_text(
+        , CGFloat& width, CGFloat& ascent, CGFloat& descent, CGFloat& leading
+       )
+       {
+-         NSFont* font = (__bridge NSFont*) font_.impl();
++         // A CTFontRef: NSFont is toll-free bridged to it on macOS, and on
++         // iOS it is what font.mm makes.
++         auto font = CTFontRef(font_.impl());
+          CFStringRef keys[] = {kCTFontAttributeName, kCTForegroundColorFromContextAttributeName};
+-         CFTypeRef   values[] = {(__bridge const void*)font, kCFBooleanTrue};
++         CFTypeRef   values[] = {font, kCFBooleanTrue};
+ 
+          CFDictionaryRef font_attributes = CFDictionaryCreate(
+             kCFAllocatorDefault, (const void**)&keys,
+diff --git a/lib/artist/lib/impl/macos/quartz2d/canvas_layer.mm b/lib/artist/lib/impl/macos/quartz2d/canvas_layer.mm
+index 163c51b..1b05f34 100644
+--- a/lib/artist/lib/impl/macos/quartz2d/canvas_layer.mm
++++ b/lib/artist/lib/impl/macos/quartz2d/canvas_layer.mm
+@@ -4,7 +4,7 @@
+    Distributed under the MIT License [ https://opensource.org/licenses/MIT ]
+ =============================================================================*/
+ #include <artist/canvas_layer.hpp>
+-#include <Quartz/Quartz.h>
++#include "quartz.hpp"
+ #include "image_impl.hpp"
+ #include <algorithm>
+ #include <cmath>
+diff --git a/lib/artist/lib/impl/macos/quartz2d/font.mm b/lib/artist/lib/impl/macos/quartz2d/font.mm
+index c320d0b..d297379 100644
+--- a/lib/artist/lib/impl/macos/quartz2d/font.mm
++++ b/lib/artist/lib/impl/macos/quartz2d/font.mm
+@@ -5,7 +5,7 @@
+ =============================================================================*/
+ #include <artist/font.hpp>
+ #include <artist/detail/font_cache.hpp>
+-#include <Quartz/Quartz.h>
++#include "quartz.hpp"
+ #include <algorithm>
+ #include <sstream>
+ #include <cmath>
+@@ -40,6 +40,130 @@ inline void trim(std::string& s)
+ 
+    namespace
+    {
++#if TARGET_OS_IPHONE
++      // iOS has no NSFontManager, so the font is matched with Core Text:
++      // every face of the first family that has any, scored against the
++      // weight, slant and width asked for. Returns a retained CTFontRef.
++
++      // Core Text's weight trait, -1 to 1, as a CSS weight, 100 to 900. The
++      // pairs are the values Core Text reports for the standard weights
++      // (NSFontWeight*), and Artist's weights are CSS weights over 10.
++      float css_weight(float trait)
++      {
++         static constexpr float traits[] = {-0.8f, -0.6f, -0.4f, 0.0f, 0.23f, 0.3f, 0.4f, 0.56f, 0.62f};
++         if (trait <= traits[0])
++            return 100;
++         for (int i = 1; i != 9; ++i)
++         {
++            if (trait <= traits[i])
++            {
++               auto t = (trait - traits[i-1]) / (traits[i] - traits[i-1]);
++               return 100 * i + 100 * t;
++            }
++         }
++         return 900;
++      }
++
++      float number_trait(CFDictionaryRef traits, CFStringRef key)
++      {
++         auto num = traits? (CFNumberRef) CFDictionaryGetValue(traits, key) : nullptr;
++         float val = 0;
++         if (num)
++            CFNumberGetValue(num, kCFNumberFloatType, &val);
++         return val;
++      }
++
++      CTFontDescriptorRef match_face(CFArrayRef faces, font_descr const& descr)
++      {
++         float const want_weight = descr._weight * 10.0f;
++         bool const want_italic = descr._slant != slant_normal;
++         int const want_width =
++            descr._stretch <= condensed? -1 : descr._stretch >= expanded? 1 : 0;
++
++         CTFontDescriptorRef best = nullptr;
++         float best_score = 0;
++         for (CFIndex i = 0, n = CFArrayGetCount(faces); i != n; ++i)
++         {
++            auto face = (CTFontDescriptorRef) CFArrayGetValueAtIndex(faces, i);
++            auto traits = (CFDictionaryRef)
++               CTFontDescriptorCopyAttribute(face, kCTFontTraitsAttribute);
++            auto symbolic = (CTFontSymbolicTraits) number_trait(traits, kCTFontSymbolicTrait);
++            auto weight = css_weight(number_trait(traits, kCTFontWeightTrait));
++            auto width = number_trait(traits, kCTFontWidthTrait);
++            if (traits)
++               CFRelease(traits);
++
++            bool const italic = symbolic & kCTFontItalicTrait;
++            int const width_class = width < -0.1f? -1 : width > 0.1f? 1 : 0;
++
++            // Slant and width outrank weight: a light italic is a better
++            // answer for a bold italic than an upright bold is.
++            float score = std::abs(weight - want_weight)
++               + (italic != want_italic? 1000 : 0)
++               + (width_class != want_width? 2000 : 0);
++            if (!best || score < best_score)
++            {
++               best = face;
++               best_score = score;
++            }
++         }
++         return best;
++      }
++
++      font_impl_ptr make_font_impl(font_descr const& descr)
++      {
++         std::istringstream str(std::string{descr._families});
++         std::string family;
++
++         while (getline(str, family, ','))
++         {
++            trim(family);
++            auto name = CFStringCreateWithCString(
++               nullptr, family.c_str(), kCFStringEncodingUTF8);
++            if (!name)
++               continue;
++
++            CFStringRef keys[] = {kCTFontFamilyNameAttribute};
++            CFTypeRef values[] = {name};
++            auto attributes = CFDictionaryCreate(
++               nullptr, (void const**) keys, (void const**) values, 1,
++               &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
++            auto family_descr = CTFontDescriptorCreateWithAttributes(attributes);
++            auto mandatory = CFSetCreate(
++               nullptr, (void const**) keys, 1, &kCFTypeSetCallBacks);
++            auto faces = CTFontDescriptorCreateMatchingFontDescriptors(
++               family_descr, mandatory);
++            CFRelease(mandatory);
++            CFRelease(family_descr);
++            CFRelease(attributes);
++            CFRelease(name);
++
++            if (!faces)
++               continue;
++            CTFontRef font = nullptr;
++            if (auto face = match_face(faces, descr))
++               font = CTFontCreateWithFontDescriptor(face, descr._size, nullptr);
++            CFRelease(faces);
++            if (font)
++               return (font_impl_ptr) font;
++         }
++
++         // None of the families is installed: the system's UI font, made
++         // bold for a bold weight.
++         auto font = CTFontCreateUIFontForLanguage(
++            kCTFontUIFontSystem, descr._size, nullptr);
++         if (font && descr._weight >= semi_bold)
++         {
++            if (auto bold = CTFontCreateCopyWithSymbolicTraits(
++               font, descr._size, nullptr, kCTFontBoldTrait, kCTFontBoldTrait))
++            {
++               CFRelease(font);
++               font = bold;
++            }
++         }
++         return (font_impl_ptr) font;
++      }
++#else
+       // Returns a retained NSFont.
+       font_impl_ptr make_font_impl(font_descr const& descr)
+       {
+@@ -80,6 +204,7 @@ font_impl_ptr make_font_impl(font_descr const& descr)
+                          weight : weight
+             ];
+       }
++#endif
+    }
+ 
+    font::font()
+@@ -133,6 +258,39 @@ font_impl_ptr make_font_impl(font_descr const& descr)
+       return *this;
+    }
+ 
++#if TARGET_OS_IPHONE
++   // A CTFontRef, measured with Core Text: NSString's sizeWithAttributes is
++   // UIKit's on iOS, and Artist does not link it.
++   font::metrics_info font::metrics() const
++   {
++      auto font = CTFontRef(_ptr);
++      return {
++         float(CTFontGetAscent(font)),
++         float(CTFontGetDescent(font)),
++         float(CTFontGetLeading(font))
++      };
++   }
++
++   float font::measure_text(std::string_view str) const
++   {
++      auto text = detail::cf_string(str);
++      if (!text)
++         return 0;   // not UTF-8
++      CFStringRef keys[] = {kCTFontAttributeName};
++      CFTypeRef values[] = {CTFontRef(_ptr)};
++      auto attributes = CFDictionaryCreate(
++         nullptr, (void const**) keys, (void const**) values, 1,
++         &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
++      auto attr_string = CFAttributedStringCreate(nullptr, text, attributes);
++      auto line = CTLineCreateWithAttributedString(attr_string);
++      auto width = CTLineGetTypographicBounds(line, nullptr, nullptr, nullptr);
++      CFRelease(line);
++      CFRelease(attr_string);
++      CFRelease(text);
++      CFRelease(attributes);
++      return float(width);
++   }
++#else
+    font::metrics_info font::metrics() const
+    {
+       NSFont* font = (__bridge NSFont*) _ptr;
+@@ -151,6 +309,7 @@ font_impl_ptr make_font_impl(font_descr const& descr)
+       const auto textSize = [text sizeWithAttributes : attr];
+       return textSize.width;
+    }
++#endif
+ }
+ 
+ 
+diff --git a/lib/artist/lib/impl/macos/quartz2d/image.mm b/lib/artist/lib/impl/macos/quartz2d/image.mm
+index 03522f9..7b625f5 100755
+--- a/lib/artist/lib/impl/macos/quartz2d/image.mm
++++ b/lib/artist/lib/impl/macos/quartz2d/image.mm
+@@ -4,7 +4,7 @@
+    Distributed under the MIT License [ https://opensource.org/licenses/MIT ]
+ =============================================================================*/
+ #include "image_impl.hpp"
+-#include <Quartz/Quartz.h>
++#include "quartz.hpp"
+ #include <ImageIO/ImageIO.h>
+ #include <string>
+ #include <vector>
+diff --git a/lib/artist/lib/impl/macos/quartz2d/image_impl.hpp b/lib/artist/lib/impl/macos/quartz2d/image_impl.hpp
+index 511500c..7dde8f5 100644
+--- a/lib/artist/lib/impl/macos/quartz2d/image_impl.hpp
++++ b/lib/artist/lib/impl/macos/quartz2d/image_impl.hpp
+@@ -7,7 +7,7 @@
+ #define ARTIST_QUARTZ2D_IMAGE_IMPL_HPP
+ 
+ #include <artist/image.hpp>
+-#include <Quartz/Quartz.h>
++#include "quartz.hpp"
+ #include <vector>
+ #include <stdexcept>
+ 
+diff --git a/lib/artist/lib/impl/macos/quartz2d/osx_utils.hpp b/lib/artist/lib/impl/macos/quartz2d/osx_utils.hpp
+index b8e76d4..19c0a51 100755
+--- a/lib/artist/lib/impl/macos/quartz2d/osx_utils.hpp
++++ b/lib/artist/lib/impl/macos/quartz2d/osx_utils.hpp
+@@ -6,7 +6,7 @@
+ #if !defined(ARTIST_DETAIL_OSX_UTILS_MARCH_17_2020)
+ #define ARTIST_DETAIL_OSX_UTILS_MARCH_17_2020
+ 
+-#include <Quartz/Quartz.h>
++#include "quartz.hpp"
+ #include <string_view>
+ #include <infra/support.hpp>
+ 
+diff --git a/lib/artist/lib/impl/macos/quartz2d/path.mm b/lib/artist/lib/impl/macos/quartz2d/path.mm
+index f5508c9..e71138c 100755
+--- a/lib/artist/lib/impl/macos/quartz2d/path.mm
++++ b/lib/artist/lib/impl/macos/quartz2d/path.mm
+@@ -4,7 +4,7 @@
+    Distributed under the MIT License [ https://opensource.org/licenses/MIT ]
+ =============================================================================*/
+ #include <artist/path.hpp>
+-#include <Quartz/Quartz.h>
++#include "quartz.hpp"
+ 
+ namespace cycfi::artist
+ {
+diff --git a/lib/artist/lib/impl/macos/quartz2d/quartz.hpp b/lib/artist/lib/impl/macos/quartz2d/quartz.hpp
+new file mode 100644
+index 0000000..33ec86f
+--- /dev/null
++++ b/lib/artist/lib/impl/macos/quartz2d/quartz.hpp
+@@ -0,0 +1,23 @@
++/*=============================================================================
++   Copyright (c) 2016-2023 Joel de Guzman
++
++   Distributed under the MIT License [ https://opensource.org/licenses/MIT ]
++=============================================================================*/
++#if !defined(ARTIST_DETAIL_QUARTZ_HEADERS_OCTOBER_26_2026)
++#define ARTIST_DETAIL_QUARTZ_HEADERS_OCTOBER_26_2026
++
++// Quartz 2D, Core Text and ImageIO. On macOS the Quartz umbrella brings them
++// (and AppKit); iOS has the three frameworks but no umbrella and no AppKit.
++#include <TargetConditionals.h>
++#if TARGET_OS_IPHONE
++# include <CoreGraphics/CoreGraphics.h>
++# include <CoreText/CoreText.h>
++# include <ImageIO/ImageIO.h>
++# if defined(__OBJC__)
++#  import <Foundation/Foundation.h>
++# endif
++#else
++# include <Quartz/Quartz.h>
++#endif
++
++#endif
+diff --git a/lib/artist/lib/impl/macos/quartz2d/text_run.mm b/lib/artist/lib/impl/macos/quartz2d/text_run.mm
+index 0eefb39..74c5f65 100644
+--- a/lib/artist/lib/impl/macos/quartz2d/text_run.mm
++++ b/lib/artist/lib/impl/macos/quartz2d/text_run.mm
+@@ -155,9 +155,9 @@
+          return;
+       clear_rows();
+ 
+-      NSFont* font = (__bridge NSFont*) _font.impl();
++      auto font = CTFontRef(_font.impl());
+       CFStringRef keys[] = {kCTFontAttributeName, kCTForegroundColorFromContextAttributeName};
+-      CFTypeRef   values[] = {(__bridge const void*)font, kCFBooleanTrue};
++      CFTypeRef   values[] = {font, kCFBooleanTrue};
+ 
+       CFDictionaryRef font_attributes = CFDictionaryCreate(
+          kCFAllocatorDefault, (const void**)&keys,

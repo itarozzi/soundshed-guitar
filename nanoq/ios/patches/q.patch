@@ -1,0 +1,68 @@
+diff --git a/q_plug/CMakeLists.txt b/q_plug/CMakeLists.txt
+index 9063f71..adab8f2 100644
+--- a/q_plug/CMakeLists.txt
++++ b/q_plug/CMakeLists.txt
+@@ -24,8 +24,16 @@ set(q_plug_VERSION "${q_plug_VERSION}" CACHE INTERNAL "")
+ # everywhere. Examples pass this to make_clapfirst_plugins, and ask it for
+ # a standalone app as well, which hosts the CLAP with its own audio and
+ # MIDI devices through RtAudio and RtMidi, fetched at configure time.
+-set(formats CLAP VST3)
+-if(APPLE)
++# iOS takes none of them: a plugin there is linked into the app that hosts
++# it, which is the plugin's own business, and clap-wrapper is not added.
++if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
++   set(Q_PLUG_IOS ON)
++   set(formats)
++else()
++   set(Q_PLUG_IOS OFF)
++   set(formats CLAP VST3)
++endif()
++if(APPLE AND NOT Q_PLUG_IOS)
+    list(APPEND formats AUV2)
+ endif()
+ set(Q_PLUG_PLUGIN_FORMATS "${formats}" CACHE INTERNAL "")
+@@ -68,6 +76,12 @@ FetchContent_Declare(
+    GIT_SHALLOW ON
+ )
+ set(JSON_BuildTests OFF CACHE INTERNAL "")
++if(Q_PLUG_IOS)
++   # The CLAP headers without clap-wrapper, which would otherwise add them.
++   FetchContent_MakeAvailable(clap cycfi_elements nlohmann_json)
++   add_library(clap INTERFACE)
++   target_include_directories(clap INTERFACE "${clap_SOURCE_DIR}/include")
++else()
+ FetchContent_MakeAvailable(clap clap_wrapper cycfi_elements
+    nlohmann_json)
+ 
+@@ -81,6 +95,7 @@ set(CLAP_SDK_ROOT "${clap_SOURCE_DIR}" CACHE PATH "" FORCE)
+ 
+ add_subdirectory(${clap_wrapper_SOURCE_DIR} ${clap_wrapper_BINARY_DIR}
+    EXCLUDE_FROM_ALL)
++endif()
+ 
+ # The standalone app plays through RtAudio. q_io already brings the same
+ # release clap-wrapper would download, and the two would clash, so the
+@@ -110,7 +125,7 @@ target_link_libraries(q_plug PUBLIC libq clap nlohmann_json::nlohmann_json)
+ # target, so there is a single infra. Direct2D draws with
+ # system libraries only, so Windows needs neither vcpkg nor pkg-config.
+ 
+-if(NOT WIN32)
++if(NOT WIN32 AND NOT Q_PLUG_IOS)
+    find_package(PkgConfig)
+    if(NOT PkgConfig_FOUND)
+       message(FATAL_ERROR
+@@ -150,7 +165,13 @@ endif()
+ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_sources(q_plug PRIVATE src/linux/host_view.cpp)
+ endif()
+-if(APPLE)
++# iOS: the app supplies the view glue for UIKit, and links UIKit itself.
++if(Q_PLUG_IOS)
++   target_link_libraries(q_plug PUBLIC
++      "-framework UIKit" "-framework Foundation" "-framework QuartzCore"
++      "-framework CoreGraphics" "-framework CoreText"
++      "-framework CoreFoundation" "-framework ImageIO")
++elseif(APPLE)
+    target_sources(q_plug PRIVATE src/macos/host_view.mm)
+    # Elements and Artist leave the Apple frameworks to the application
+    # (ElementsConfigApp.cmake); here the plugin modules are the application.

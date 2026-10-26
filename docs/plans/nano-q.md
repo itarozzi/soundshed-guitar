@@ -150,7 +150,7 @@ node tools/validate-plugins.mjs --artefacts nanoq/build/Release/products --produ
 | UI scale setting, wrapped chain layout, touch long-press, compact (phone) layout | Not done; Nano Q targets desktop plugin windows first |
 | macOS build | **Builds and runs** (2026-10-26): all four products, the engine starts and loads the default preset, the window draws correctly, `NanoQEngineDialogTests` passes. Open and save dialogs are AppKit panels (`FileDialogs_mac.mm`) and open; before, macOS reported every dialog as cancelled. Apple silicon not yet built |
 | Linux build | **Untested.** A Linux compile in a container was started and abandoned (see the session notes); QPlug documents it |
-| iOS / iPadOS | **Not possible as is.** Elements has no iOS host (GTK, X11, Wayland, Cocoa, Win32, headless), Artist's Quartz backend uses AppKit for fonts, images and text, and QPlug's standalone plays through RtAudio, which has no iOS backend. A port needs a UIKit host for Elements, those parts of Artist on UIKit/Core Text, and an iOS app shell (AVAudioSession, RemoteIO) |
+| iOS / iPadOS | **Runs in the iPad Simulator** (2026-10-26): a UIKit host for Elements (`nanoq/ios/elements_host`), Artist's Quartz backend on Core Text (`nanoq/ios/patches`, applied at configure in iOS builds only) and an app that hosts the CLAP and plays it through RemoteIO (`nanoq/ios/app`). Built with `nanoq/ios/build.sh`. Device builds and what is left: [nano-q-ios.md](nano-q-ios.md) |
 | Resource browsing (NAM and IR models) | Not in JUCE Nano yet either (its phase 4) |
 | CI | None yet; `nanoq/build.cmd` and the validator command above are what a workflow would run |
 

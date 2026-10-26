@@ -10,7 +10,8 @@ namespace nanoq
 /// Native open and save dialogs, run on a thread of their own so the engine and the view never
 /// wait on them. `done` is called from that thread; the caller hands the result on.
 /// Windows and macOS (FileDialogs_mac.mm, where `done` comes from the panel's completion handler on
-/// the main thread); elsewhere the dialog reports that nothing was chosen.
+/// the main thread); iOS opens through a document picker (FileDialogs_ios.mm) and cannot save yet;
+/// elsewhere the dialog reports that nothing was chosen.
 void ShowOpenDialog(guitarfx::BrowseFileType type, const std::string& title,
                     std::function<void(const guitarfx::BrowseFileResult&)> done);
 
