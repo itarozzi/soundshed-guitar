@@ -7,6 +7,7 @@
 // gestures through a callback. Layout - rows, columns, margins, scrolling - is Elements' own.
 
 #include "ui/Theme.h"
+#include "ui/TextDraw.h"
 
 #include <elements.hpp>
 
@@ -16,16 +17,13 @@
 
 namespace nanoq::ui
 {
+class Icons;
+
 /// A line of text. Truncated with an ellipsis when the space is short; it never wraps.
 class Text : public el::element
 {
 public:
-    enum class Align
-    {
-        Left,
-        Centre,
-        Right
-    };
+    using Align = HAlign;
 
     Text(const Theme& theme, std::string text, float size = metrics::kTextSize, Weight weight = Weight::Regular);
 
@@ -84,6 +82,10 @@ public:
     Button& MinWidth(float w);
     Button& Dot(bool show);
     Button& TextSize(float size);
+    /// Takes the room it is given, from MinWidth up, and cuts its text to fit, where by default
+    /// a button is as wide as its text.
+    Button& Flexible(bool flexible);
+    Button& Alignment(HAlign align);
 
     [[nodiscard]] bool IsOn() const
     {
@@ -103,6 +105,8 @@ private:
     bool mDown = false;
     float mMinWidth = 0.0f;
     float mSize = metrics::kTextSize;
+    bool mFlexible = false;
+    HAlign mAlign = HAlign::Centre;
 };
 
 /// One effect parameter: its name, its value as text, and a track to drag. The value is
@@ -251,9 +255,15 @@ public:
     /// A right click (a long press on touch screens, later) asks for the row's own menu.
     std::function<void()> onMenu;
 
+    /// An icon at the left, in `tint`.
+    ListRow& Icon(Icons* icons, std::string name, el::color tint);
+
 private:
     const Theme& mTheme;
     std::string mText, mSecondary;
+    Icons* mIcons = nullptr;
+    std::string mIcon;
+    el::color mTint;
     bool mSelected, mHeading;
     std::function<void()> mOnClick;
     bool mHover = false, mDown = false;

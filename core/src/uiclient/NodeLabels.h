@@ -2,8 +2,8 @@
 
 /**
  * NodeLabels.h - What a node is called on screen, as core/ui/ts/signalPath/nodeLabels.ts
- * names it: Input and Output by role; an effect that plays a resource by the resource
- * (a NAM model, an IR); otherwise its label, or its effect type's name.
+ * names it: Input and Output by role; a name the user gave it; an effect that plays a
+ * resource by the resource (a NAM model, an IR); otherwise its label, or its effect type's name.
  */
 
 #include "uiclient/ClientState.h"

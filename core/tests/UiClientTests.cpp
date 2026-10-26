@@ -15,6 +15,7 @@
 #include <filesystem>
 #include <functional>
 #include <iostream>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -695,6 +696,124 @@ void TestParamFormatting()
     Expect(SnapParamValue(stepped, 6.4) == 7.5 && SnapParamValue(stepped, 42) == 10, "values snap to the step and clamp");
 }
 
+/// A parameter shown only under some values of another (Verbal's machine controls), and the
+/// "picker" an enum asks for, as the engine describes them.
+void TestParamVisibility()
+{
+    const auto json = nlohmann::json::parse(R"({"key": "diffusion", "name": "Diffusion", "unit": "amount", "min": 0, "max": 1,
+        "default": 0.6, "control": "picker", "visibleWhen": {"key": "machine", "values": [0, 6, 9]}})");
+    const auto param = parse::EffectParam(json);
+    Expect(param.control == "picker", "an enum's control is read");
+    Expect(param.visibleWhenKey == "machine" && param.visibleWhenValues == std::vector<int>{0, 6, 9}, "visibleWhen is read");
+
+    uiclient::EffectTypeInfo type;
+    type.parameters = {parse::EffectParam(nlohmann::json::parse(R"({"key": "machine", "unit": "enum", "min": 0, "max": 11, "default": 1})")),
+                       param};
+
+    GraphNode node = Node("verbal_1", "verbal");
+    Expect(!IsParamVisible(param, node, &type), "without a value the controlling parameter's default decides (1: hidden)");
+    node.params["machine"] = 6.2;
+    Expect(IsParamVisible(param, node, &type), "a value it lists shows it, rounded as the web UI rounds it");
+    node.params["machine"] = 2.0;
+    Expect(!IsParamVisible(param, node, &type), "any other value hides it");
+    Expect(IsParamVisible(type.parameters[0], node, &type), "a parameter with no condition always shows");
+
+    const auto empty = parse::EffectParam(nlohmann::json::parse(R"({"key": "x", "visibleWhen": {"key": "machine", "values": []}})"));
+    Expect(empty.visibleWhenKey.empty(), "a condition with no values is no condition");
+}
+
+/// The chain edits Nano Q's chain strip makes: replace, rename, and the parallel block's
+/// branch count and per-branch insert, each answered by the engine's rebuilt chain.
+void TestChainEditCommands()
+{
+    LoopbackHost host(Sandbox("chain-edits"));
+    PluginController controller(host);
+    controller.Initialize();
+
+    UiClient client([&controller](const std::string& json) { controller.HandleUIMessage(json); });
+    host.client = &client;
+    UiCommands commands(client);
+
+    const auto preset = BuildPreset("pe", "Edits");
+    client.Send("savePreset", {{"saveMode", "overwrite"}, {"presetId", preset.id}, {"name", preset.name},
+                               {"preset", nlohmann::json::parse(PresetStorage::SerializeToJson(preset))}});
+    client.Start();
+    Pump(controller, client);
+    commands.LoadPreset("pe");
+    Pump(controller, client);
+
+    const auto& state = client.State();
+    auto graph = [&state]() -> const SignalGraph& { return state.activePreset->graph; };
+    auto firstOfType = [&graph](const std::string& type) -> const GraphNode* {
+        for (const auto& node : graph().nodes)
+        {
+            if (EffectRegistry::Instance().Resolve(node.type) == type)
+            {
+                return &node;
+            }
+        }
+        return nullptr;
+    };
+
+    commands.ReplaceNode("gain_1", EffectGuids::kOverdrive);
+    Pump(controller, client);
+    const auto* drive = firstOfType(EffectGuids::kOverdrive);
+    // The engine replaces in place: the node keeps its id, and so its place in the chain.
+    Expect(drive != nullptr && drive->id == "gain_1" && firstOfType(EffectGuids::kGain) == nullptr,
+           "ReplaceNode puts the new effect in the node's place");
+    const std::string driveId = drive != nullptr ? drive->id : std::string();
+
+    commands.RenameNode(driveId, "Lead boost");
+    Pump(controller, client);
+    Expect(graph().FindNode(driveId) && graph().FindNode(driveId)->title == "Lead boost", "RenameNode names the node");
+    Expect(NodeDisplayName(state, *graph().FindNode(driveId)) == "Lead boost", "and the name is what the chain shows");
+
+    commands.AddNode(EffectGuids::kSplitter, driveId);
+    Pump(controller, client);
+    const auto* splitter = firstOfType(EffectGuids::kSplitter);
+    Expect(splitter != nullptr, "a splitter is added");
+    const std::string splitterId = splitter != nullptr ? splitter->id : std::string();
+
+    auto branchEdges = [&graph, &splitterId] {
+        std::vector<GraphEdge> out;
+        for (const auto& edge : graph().edges)
+        {
+            if (edge.from == splitterId)
+            {
+                out.push_back(edge);
+            }
+        }
+        return out;
+    };
+
+    commands.SetSplitBranchCount(splitterId, 3);
+    Pump(controller, client);
+    Expect(branchEdges().size() == 3, "SetSplitBranchCount gives the split three branches");
+
+    // The second branch is empty: its one edge runs from the splitter straight to the mixer.
+    std::optional<GraphEdge> second;
+    for (const auto& edge : branchEdges())
+    {
+        if (edge.fromPort == 1)
+        {
+            second = edge;
+        }
+    }
+    Expect(second.has_value(), "the split has a branch on port 1");
+    if (second)
+    {
+        commands.AddNodeOnEdge(EffectGuids::kGain, *second);
+        Pump(controller, client);
+        const auto* added = firstOfType(EffectGuids::kGain);
+        bool onBranch = false;
+        for (const auto& edge : branchEdges())
+        {
+            onBranch = onBranch || (added != nullptr && edge.fromPort == 1 && edge.to == added->id);
+        }
+        Expect(onBranch, "AddNodeOnEdge inserts into that branch, which an add after a node cannot name");
+    }
+}
+
 void TestInstruments()
 {
     TunerModel tuner;
@@ -757,6 +876,8 @@ int main()
     TestNodeArchitectureBadge();
     TestPresetBrowse();
     TestParamFormatting();
+    TestParamVisibility();
+    TestChainEditCommands();
     TestInstruments();
     TestEffectPresentationTable();
     TestLayoutDecisions();

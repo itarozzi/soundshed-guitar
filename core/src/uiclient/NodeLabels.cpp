@@ -81,6 +81,12 @@ std::string NodeDisplayName(const ClientState& state, const GraphNode& node)
         return "Output";
     }
 
+    // A name the user gave the node comes first, as the web UI's getNodeUserTitle.
+    if (const auto title = Trim(node.title); !title.empty())
+    {
+        return title;
+    }
+
     const auto* typeInfo = state.FindEffectType(node.type);
 
     if (typeInfo != nullptr && typeInfo->requiresResource)

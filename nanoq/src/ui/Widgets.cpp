@@ -1,5 +1,6 @@
 #include "ui/Widgets.h"
 
+#include "ui/Graphics.h"
 #include "ui/Layout.h"
 
 #include <elements/support/text_utils.hpp>
@@ -13,56 +14,6 @@ namespace nanoq::ui
 namespace
 {
 using cycfi::artist::canvas;
-
-// Cuts `text` to fit `width`, ending it with an ellipsis. Measures, so proportional fonts fit exactly.
-std::string Ellipsize(canvas& cnv, const std::string& text, const el::font_descr& font, float width)
-{
-    if (text.empty() || el::measure_text(cnv, text, font).x <= width)
-        return text;
-
-    static const std::string kEllipsis = "\xE2\x80\xA6";
-    std::string cut = text;
-    while (!cut.empty())
-    {
-        // Drop one whole UTF-8 character from the end.
-        do
-            cut.pop_back();
-        while (!cut.empty() && (static_cast<unsigned char>(cut.back()) & 0xC0) == 0x80);
-
-        if (el::measure_text(cnv, cut + kEllipsis, font).x <= width)
-            return cut + kEllipsis;
-    }
-    return kEllipsis;
-}
-
-float LineHeight(canvas& cnv, const el::font_descr& font)
-{
-    return el::measure_text(cnv, "Ag", font).y;
-}
-
-void FillText(canvas& cnv, const std::string& text, const el::font_descr& font, el::color colour, el::rect bounds,
-              Text::Align align)
-{
-    auto state = cnv.new_state();
-    cnv.font(font);
-    cnv.fill_style(colour);
-
-    float x = bounds.left;
-    int flags = canvas::left;
-    if (align == Text::Align::Centre)
-    {
-        x = bounds.left + bounds.width() * 0.5f;
-        flags = canvas::center;
-    }
-    else if (align == Text::Align::Right)
-    {
-        x = bounds.right;
-        flags = canvas::right;
-    }
-
-    cnv.text_align(flags | canvas::middle);
-    cnv.fill_text(text, el::point{x, bounds.top + bounds.height() * 0.5f});
-}
 } // namespace
 
 // ── Text ────────────────────────────────────────────────────────────────────────
@@ -122,8 +73,10 @@ el::view_limits Button::limits(const el::basic_context& ctx) const
 {
     const auto font = Font(Weight::Medium).size(mSize);
     const auto size = el::measure_text(ctx.canvas, mText, font);
-    const float w = std::max(mMinWidth, size.x + 2.0f * metrics::kPad + (mDot ? 14.0f : 0.0f));
     const float h = metrics::kRowHeight;
+    if (mFlexible)
+        return {{mMinWidth, h}, {el::full_extent, h}};
+    const float w = std::max(mMinWidth, size.x + 2.0f * metrics::kPad + (mDot ? 14.0f : 0.0f));
     return {{w, h}, {w, h}};
 }
 
@@ -198,7 +151,7 @@ void Button::draw(const el::context& ctx)
 
     const auto font = Font(Weight::Medium).size(mSize);
     textBounds = textBounds.inset(metrics::kPad * 0.5f, 0.0f);
-    FillText(cnv, Ellipsize(cnv, mText, font, textBounds.width()), font, ink, textBounds, Text::Align::Centre);
+    FillText(cnv, Ellipsize(cnv, mText, font, textBounds.width()), font, ink, textBounds, mAlign);
 }
 
 bool Button::click(const el::context& ctx, el::mouse_button btn)
@@ -265,6 +218,18 @@ Button& Button::MinWidth(float w)
 Button& Button::Dot(bool show)
 {
     mDot = show;
+    return *this;
+}
+
+Button& Button::Flexible(bool flexible)
+{
+    mFlexible = flexible;
+    return *this;
+}
+
+Button& Button::Alignment(HAlign align)
+{
+    mAlign = align;
     return *this;
 }
 
@@ -671,8 +636,22 @@ void ListRow::draw(const el::context& ctx)
     const auto textFont = Font(mSelected ? Weight::SemiBold : Weight::Medium).size(metrics::kTextSize);
     auto textBounds = b.inset(12.0f, 0.0f);
     textBounds.right -= secondaryWidth + (secondaryWidth > 0.0f ? 12.0f : 0.0f);
+    if (mIcons != nullptr && !mIcon.empty())
+    {
+        const float mid = b.top + b.height() * 0.5f;
+        mIcons->Draw(cnv, mIcon, el::rect{textBounds.left, mid - 9.0f, textBounds.left + 18.0f, mid + 9.0f}, mTint);
+        textBounds.left += 28.0f;
+    }
     FillText(cnv, Ellipsize(cnv, mText, textFont, textBounds.width()), textFont, mTheme.Text(), textBounds,
              Text::Align::Left);
+}
+
+ListRow& ListRow::Icon(Icons* icons, std::string name, el::color tint)
+{
+    mIcons = icons;
+    mIcon = std::move(name);
+    mTint = tint;
+    return *this;
 }
 
 bool ListRow::click(const el::context& ctx, el::mouse_button btn)

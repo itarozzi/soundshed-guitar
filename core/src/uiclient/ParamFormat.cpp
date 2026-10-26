@@ -149,4 +149,25 @@ double NodeParamValue(const GraphNode& node, const EffectParamInfo& param)
     const auto it = node.params.find(param.key);
     return it != node.params.end() ? it->second : param.defaultValue;
 }
+
+bool IsParamVisible(const EffectParamInfo& param, const GraphNode& node, const EffectTypeInfo* type)
+{
+    if (param.visibleWhenKey.empty())
+    {
+        return true;
+    }
+
+    double raw = 0.0;
+    if (const auto it = node.params.find(param.visibleWhenKey); it != node.params.end())
+    {
+        raw = it->second;
+    }
+    else if (const auto* controlling = type != nullptr ? type->FindParam(param.visibleWhenKey) : nullptr)
+    {
+        raw = controlling->defaultValue;
+    }
+
+    const auto value = static_cast<int>(std::llround(raw));
+    return std::find(param.visibleWhenValues.begin(), param.visibleWhenValues.end(), value) != param.visibleWhenValues.end();
+}
 } // namespace guitarfx::uiclient

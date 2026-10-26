@@ -130,6 +130,10 @@ void Shell::OpenNodeMenu(const std::string& nodeId)
                                      }});
             }
         }
+        if (guitarfx::uiclient::IsSplitterType(node->type))
+            items.insert(items.begin(), {"Show branches", false, false, [this, nodeId] { SelectNode(nodeId); }});
+        else
+            items.insert(items.begin(), {"Show branch levels", false, false, [this, nodeId] { SelectNode(nodeId); }});
         OpenMenu("Parallel lanes", std::move(items));
         return;
     }
@@ -150,6 +154,10 @@ void Shell::OpenNodeMenu(const std::string& nodeId)
                                  mSession.Commands().MoveNode(nodeId, t);
                          }});
 
+    items.push_back({"Replace with...", false, false, [this, nodeId] { OpenEffectPicker({}, nodeId); }});
+    items.push_back({"Rename...", false, false, [this, nodeId] { RenameNodeWithPrompt(nodeId); }});
+    if (!node->title.empty())
+        items.push_back({"Use the automatic name", false, false, [&commands, nodeId] { commands.RenameNode(nodeId, {}); }});
     items.push_back({"Add effect after...", false, false, [this, nodeId] { OpenEffectPicker(nodeId); }});
     items.push_back({"Remove...", false, false, [this, nodeId, name] {
                          OpenConfirm("Remove effect", "Remove " + name + " from this preset?", "Remove", [this, nodeId] {

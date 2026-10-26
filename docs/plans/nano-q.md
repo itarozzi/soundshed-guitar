@@ -72,7 +72,14 @@ place instead, so a drag is never interrupted by the value it just set coming ba
 - **No standalone flag.** `RunningAsStandalone()`: clap-wrapper's standalone links the plugin
   into its own executable.
 - **No main-thread handle.** The engine thread, above.
-- **No SVG.** Artist draws no SVG, so effect icons are not drawn yet (the category colour is).
+- **No SVG files.** Artist parses SVG path data but not SVG documents. `ui/Graphics.*` reads the
+  subset the icons in `core/ui/images/icons` use (path, line, circle, ellipse, rect, polyline,
+  polygon, groups with transforms, `style` declarations) into Artist paths once per icon and
+  draws them in one colour, as the web UI's icons take `currentColor`. A grey in a many-toned
+  icon (the Inkscape guitar) draws that colour fainter. Artist's `canvas::transform(...)` *sets*
+  the matrix on every backend rather than adding to it, so a shape's transform is composed onto
+  `canvas::transform()` by hand. The same file loads the equipment artwork (PNG, JPEG) once per
+  file.
 - **Tile layout traps.** A column is as wide as its narrowest child's *maximum* width, and a
   scroller reports its content's height as its maximum. `Row`, `Col`, `VScroll` and `HScroll`
   in `ui/Layout.h` correct for both.
@@ -116,6 +123,19 @@ of the web UI; Nano Q turns it off, so building it needs no Node.
 | `window-shot.ps1 -Out png [-Resize WxH]` | DPI-aware `PrintWindow` capture, which works when the window is behind others |
 | `click.ps1 -X -Y [-ToX -ToY] [-Wheel n] [-Right] [-Hover] [-Text s]` | Posts mouse and character messages straight to the view window, in capture coordinates; leaves the user's pointer alone |
 
+**Driving it on any platform: `SOUNDSHED_NANOQ_DRIVE`.** macOS ignores mouse events posted to a
+window that is not in front, so `click.ps1` has no Mac equivalent. With
+`SOUNDSHED_NANOQ_DRIVE=<file>` set, Nano Q checks that file every tick; if it exists, its lines are
+played into the Elements view and the file is deleted (`src/ui/DevDriver.*`). A script writes the
+file, waits for it to disappear, then captures the window (`screencapture -l <window id>` on
+macOS). Coordinates are the view's: logical pixels from its top-left, below the title bar.
+
+```text
+click 590 157          left click              double 395 170     double click
+right 590 157          right click             move 380 165       pointer moves (hover)
+drag 10 10 200 10      press, move, release    scroll 600 500 -40 wheel (negative: down)
+```
+
 **Always run with a profile argument.** The engine's data root is not where the host says: it
 comes from the `APPDATA` environment variable through core's `FileSystem`. Nano Q's
 `SOUNDSHED_NANOQ_PROFILE` calls `FileSystem::SetPlatformRootOverride`, which is what keeps a
@@ -137,8 +157,9 @@ node tools/validate-plugins.mjs --artefacts nanoq/build/Release/products --produ
 | Standalone app | Runs; audio device settings are clap-wrapper's own window (Alt+Space) |
 | Top bar: preset name, previous/next, save, preset menu | Done |
 | Scenes strip | Done (select); add, rename, remove from the preset menu |
-| Chain strip: select, bypass, add (picker with categories), remove, move, parallel lanes | Done; the right-click menu is the only card menu (no long press yet) |
-| Effect page: bypass, Main/Advanced, sliders, switches, enum steppers, effect presets | Done |
+| Chain strip, drawn as the web UI's (2026-10-26) | Done: input and output as cards, each effect a card with its icon (or the equipment picture for a model or IR node), name in capitals, effect, NAM badge, signal light from the node's telemetry, OFF and missing-file marks; a power button on hover bypasses; a double click replaces (the picker opens on the node's category with its effect marked Current); a cable with a + between every pair inserts on that edge of the graph, so into any parallel branch too, empty ones included; parallel blocks drawn between a split rail and a join rail, the split selectable; the chain wraps onto more lines with a cable back under each (`ui/ChainStrip.cpp`, `ui/ChainWidgets.h`), up to 40% of the window and then scrolls. Right-click menu adds Replace, Rename, Use the automatic name. No drag-to-reorder yet |
+| Effect page, drawn as the web UI's effect view (2026-10-26) | Done: on the category's gradient (`visualBackground`), a header with the light, the name (a tap renames), category and effect, Presets (with Save current settings) and the on/off switch; the equipment artwork at the left when the window has room; parameters in boxed groups laid out as they fit; a parameter's `visibleWhen` honoured (the page redraws when the controlling value changes); an enum of more than six choices, or one the engine marks `picker`, opens a list grouped by its `labelInfo`; a splitter shows Branches (2 to 4, fewer than the branches holding effects disabled) and Back to one lane (`ui/EffectPage.cpp`, `ui/NodeControls.cpp`) |
+| Model and IR slots | Done: Model (NAM), IR, and the IR Cabinet's IR A and optional IR B: the loaded resource, previous and next through the library (by category, then name), the library as a list by category, Browse (the engine's file dialog; the file joins the library) and clear for an optional slot. Not the web UI's category filter, Tone3000 results, or the IR list between IR A and IR B |
 | Presets page: search, All/Favourites/Recents/Folders, favourite, delete, load with unsaved-changes confirm | Done |
 | Setlists: choose, step, jump to a slot | Done (editing is in Soundshed Guitar, as in Nano) |
 | Input and output sheet (global chain) | Done |
@@ -146,12 +167,13 @@ node tools/validate-plugins.mjs --artefacts nanoq/build/Release/products --produ
 | Settings: theme, limiter, preset switch tails, NAM quality, oversampling, anti-alias | Done |
 | Toasts for the engine's notifications | Done |
 | **Tones page** (tone sharing) | **Not done.** Needs an HTTP client: core has none (JUCE's `URL` did it). Windows could use WinHTTP, macOS NSURLSession, Linux libcurl, plus image decoding for pack pictures |
-| **Effect icons** | **Not done.** Artist cannot draw SVG; needs a small SVG path renderer |
+| Effect icons | Done: the shared SVGs, on chain cards, the effect page and the effect picker |
 | UI scale setting, wrapped chain layout, touch long-press, compact (phone) layout | Not done; Nano Q targets desktop plugin windows first |
 | macOS build | **Builds and runs** (2026-10-26): all four products, the engine starts and loads the default preset, the window draws correctly, `NanoQEngineDialogTests` passes. Open and save dialogs are AppKit panels (`FileDialogs_mac.mm`) and open; before, macOS reported every dialog as cancelled. Apple silicon not yet built |
 | Linux build | **Untested.** A Linux compile in a container was started and abandoned (see the session notes); QPlug documents it |
 | iOS / iPadOS | **Runs in the iPad Simulator** (2026-10-26): a UIKit host for Elements (`nanoq/ios/elements_host`), Artist's Quartz backend on Core Text (`nanoq/ios/patches`, applied at configure in iOS builds only) and an app that hosts the CLAP and plays it through RemoteIO (`nanoq/ios/app`). Built with `nanoq/ios/build.sh`. Device builds and what is left: [nano-q-ios.md](nano-q-ios.md) |
-| Resource browsing (NAM and IR models) | Not in JUCE Nano yet either (its phase 4) |
+| Resource browsing (NAM and IR models) | The slots above. No folder browser, search, favourites or Tone3000 import |
+| **Not yet at parity with the web UI's chain and effect view** | Undo/redo and A/B; drag to reorder or onto another line; the NAM badge for a model whose library row lacks `architectureVersion` (the web UI reads the model file for it); artwork from a model's own metadata (an http URL); custom effect layouts (Layout Designer); the EQ curve and spectrum, cabinet and Pickup Match response curves, IR alignment, Gate Learn, the spatial panner; channel mode; per-input mixer levels as their own control (they show as the mixer's knobs); blends, composites and hosted plugins; the cables' live-signal animation |
 | CI | None yet; `nanoq/build.cmd` and the validator command above are what a workflow would run |
 
 ## Decisions and open questions

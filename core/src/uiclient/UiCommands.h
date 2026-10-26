@@ -51,9 +51,25 @@ public:
     void SetNodeBypassed(const std::string& nodeId, bool bypassed);
     void SetNodeParam(const std::string& nodeId, const std::string& key, double value);
     void AddNode(const std::string& effectType, const std::string& afterNodeId);
+    /// Adds an effect on one edge of the graph: the way into a parallel branch, which "after a
+    /// node" cannot name.
+    void AddNodeOnEdge(const std::string& effectType, const GraphEdge& edge);
     void RemoveNode(const std::string& nodeId);
     void MoveNode(const std::string& nodeId, const std::string& afterNodeId);
     void CollapseSplit(const std::string& splitterId);
+    /// Gives a split 2 to 4 branches; the engine adds empty ones and removes only empty ones.
+    void SetSplitBranchCount(const std::string& splitterId, int count);
+    /// Puts another effect in the node's place, as the web UI's FX library replace does.
+    void ReplaceNode(const std::string& nodeId, const std::string& effectType);
+    /// The node's own name; empty hands it back its automatic one.
+    void RenameNode(const std::string& nodeId, const std::string& title);
+    /// Loads a library resource (a NAM model, an IR) into one of the node's slots. An empty
+    /// `resourceId` clears the slot. `resourceIndex` -1 is the node's only (first) slot.
+    void SetNodeResource(const std::string& nodeId, const std::string& resourceType, const std::string& resourceId,
+                         int resourceIndex = -1);
+    /// Asks the engine to show a file dialog and load the chosen file into the node's slot,
+    /// adding it to the library.
+    void BrowseNodeResource(const std::string& nodeId, const std::string& resourceType, int resourceIndex = -1);
     /// A factory preset is sent as parameter changes; a saved one is applied by the engine,
     /// which restores its resources and config as well.
     void ApplyEffectPreset(const std::string& nodeId, const EffectPresetInfo& preset);

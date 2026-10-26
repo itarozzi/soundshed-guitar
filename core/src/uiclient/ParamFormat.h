@@ -42,4 +42,9 @@ namespace guitarfx::uiclient
 
 /// The value a node holds for a parameter, or the parameter's default.
 [[nodiscard]] double NodeParamValue(const GraphNode& node, const EffectParamInfo& param);
+
+/// Whether the parameter's control is shown for the node's current values: its `visibleWhen`
+/// holds, as the web UI's isParamVisible decides it. `type` supplies the controlling
+/// parameter's default when the node does not hold a value for it.
+[[nodiscard]] bool IsParamVisible(const EffectParamInfo& param, const GraphNode& node, const EffectTypeInfo* type);
 } // namespace guitarfx::uiclient

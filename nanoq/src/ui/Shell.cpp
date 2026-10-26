@@ -40,7 +40,9 @@ std::string PresetTitle(const guitarfx::uiclient::ClientState& state)
 
 
 Shell::Shell(UiSession& session)
-    : mSession(session), mState(session.Client().MutableState()), mTheme(session.GetTheme())
+    : mSession(session), mState(session.Client().MutableState()), mTheme(session.GetTheme()),
+      mIcons(session.GetEngine().GetBundledAssetsPath() / "ui" / "images" / "icons"),
+      mImages(session.GetEngine().GetBundledAssetsPath() / "ui")
 {
     // The effect icons, colours and artwork: one table for every UI (core/ui/data/effect-presentation.json).
     mPresentation = guitarfx::uiclient::EffectPresentation::Load(session.GetEngine().GetBundledAssetsPath() / "ui" / "data" /
@@ -239,6 +241,8 @@ void Shell::OnTick()
             mLoadText->Set(text);
             mSession.View().refresh(*mLoadText);
         }
+
+        SyncChainLights();
     }
 }
 

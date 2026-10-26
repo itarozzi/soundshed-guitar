@@ -64,6 +64,12 @@ struct EffectParamInfo
     // subgroup, so a menu can nest them. Empty, or one entry per label.
     std::vector<std::string> labelGroups;
     std::vector<std::string> labelSubgroups;
+    // "picker" for an enum with too many labels to step through; empty for the default control.
+    std::string control;
+    // Shown only while the parameter `visibleWhenKey` holds one of `visibleWhenValues` (rounded):
+    // one reverb machine's knobs under Verbal's Machine. Empty key: always shown.
+    std::string visibleWhenKey;
+    std::vector<int> visibleWhenValues;
 };
 
 struct EffectPresetInfo

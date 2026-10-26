@@ -9,6 +9,7 @@
 // updated in place instead, because rebuilding them would be visible: the meters (20 Hz) and
 // the values on the sliders of the page being shown (a rebuild would drop a drag).
 
+#include "ui/Graphics.h"
 #include "ui/Layout.h"
 #include "ui/UiSession.h"
 #include "ui/Widgets.h"
@@ -18,6 +19,7 @@
 
 #include <functional>
 #include <map>
+#include <optional>
 #include <set>
 #include <string>
 #include <vector>
@@ -38,7 +40,12 @@ struct MenuItem
     bool selected = false;
     bool heading = false;
     std::function<void()> onChoose;
+    std::string detail; // muted, at the right
+    std::string icon;   // an icon name (images/icons), drawn at the left in `tint`
+    std::uint32_t tint = 0;
 };
+
+class NodeCard; // ChainStrip.cpp
 
 class Shell
 {
@@ -93,6 +100,8 @@ private:
     // ChainStrip.cpp
     Ptr BuildChain();
     [[nodiscard]] std::string ChainSignature() const;
+    /// Moves each card's signal light to what the telemetry feed says. UI thread, per tick.
+    void SyncChainLights();
 
     [[nodiscard]] std::string SceneSignature() const;
 
@@ -101,6 +110,11 @@ private:
     Ptr BuildEffectPage();
     void SyncEffectValues();
     void OpenEffectPresets();
+    void OpenResourcePicker(const std::string& nodeId, const std::string& resourceType, int resourceIndex);
+    void OpenEnumPicker(const std::string& nodeId, const guitarfx::uiclient::EffectParamInfo& info);
+    [[nodiscard]] Ptr BuildResourceSlot(const guitarfx::GraphNode& node, const std::string& resourceType, int resourceIndex,
+                                        const std::string& label, bool optional);
+    [[nodiscard]] Ptr BuildSplitBranches(const guitarfx::GraphNode& splitter);
 
     // PresetsPage.cpp
     Ptr BuildPresetsPage();
@@ -123,7 +137,12 @@ private:
                     std::function<void(const std::string&)> onSubmit);
     void OpenConfirm(const std::string& title, const std::string& detail, const std::string& confirmLabel,
                      std::function<void()> onYes);
-    void OpenEffectPicker(const std::string& afterNodeId);
+    /// Adds the chosen effect after `afterNodeId`, or, with `replaceNodeId`, puts it in that
+    /// node's place.
+    void OpenEffectPicker(const std::string& afterNodeId, const std::string& replaceNodeId = {});
+    /// Adds the chosen effect on this edge of the graph.
+    void OpenEffectPickerOnEdge(const guitarfx::GraphEdge& edge);
+    void ExpectAddedNode();
     void ShowToast(const std::string& title, const std::string& detail, bool isError);
     [[nodiscard]] std::vector<const guitarfx::uiclient::EffectTypeInfo*> OfferedEffects() const;
 
@@ -137,6 +156,7 @@ private:
     // Menus.cpp
     void OpenPresetMenu();
     void OpenNodeMenu(const std::string& nodeId);
+    void RenameNodeWithPrompt(const std::string& nodeId);
     void SaveActivePreset(bool asNew);
     [[nodiscard]] std::string MoveTarget(const std::string& nodeId, int direction) const;
     [[nodiscard]] std::string LastNodeBeforeOutput() const;
@@ -144,6 +164,8 @@ private:
     UiSession& mSession;
     guitarfx::uiclient::ClientState& mState;
     Theme& mTheme;
+    Icons mIcons;
+    Images mImages;
 
     Ptr mRoot;
     SlotPtr mBgSlot, mTopSlot, mSceneSlot, mChainSlot, mPageSlot, mTransportSlot;
@@ -155,6 +177,7 @@ private:
     bool mShowingStarting = false;
     std::string mAppliedTheme;
     std::string mChainSignature;
+    std::vector<std::pair<std::string, std::shared_ptr<NodeCard>>> mChainCards; // node id, card: for the lights
     guitarfx::uiclient::PresetQuery mQuery;
     bool mShowSetlists = false;
     std::shared_ptr<el::basic_input_box> mSearchBox; // kept across rebuilds, with what was typed
@@ -186,6 +209,7 @@ private:
     std::function<void()> mOnOverlayClosed;                       // runs when the overlay closes
     std::vector<guitarfx::uiclient::Subscription> mInstrumentSubs; // an open dialog's live feeds
     std::string mPickerCategory;
+    std::optional<guitarfx::GraphEdge> mPickerEdge; // the open picker adds on this edge, not after a node
     guitarfx::uiclient::EffectPresentation mPresentation;
 
     // After adding an effect, the node that appears next is selected and shown.

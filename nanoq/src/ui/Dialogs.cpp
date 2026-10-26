@@ -4,6 +4,7 @@
 #include "ui/Shell.h"
 
 #include "dsp/EffectGuids.h"
+#include "uiclient/NodeLabels.h"
 
 #include <algorithm>
 #include <chrono>
@@ -97,13 +98,16 @@ void Shell::OpenMenu(const std::string& title, std::vector<MenuItem> items)
     for (auto& item : items)
     {
         auto choose = item.onChoose;
-        rows.push_back(std::make_shared<ListRow>(mTheme, item.label, std::string(), item.selected, item.heading || !choose,
-                                                 [this, choose] {
-                                                     // Close first: the choice may open another dialog.
-                                                     CloseOverlay();
-                                                     if (choose)
-                                                         choose();
-                                                 }));
+        auto row = std::make_shared<ListRow>(mTheme, item.label, item.detail, item.selected, item.heading || !choose,
+                                             [this, choose] {
+                                                 // Close first: the choice may open another dialog.
+                                                 CloseOverlay();
+                                                 if (choose)
+                                                     choose();
+                                             });
+        if (!item.icon.empty())
+            row->Icon(&mIcons, item.icon, item.tint != 0 ? Theme::Argb(item.tint) : mTheme.TextSecondary());
+        rows.push_back(row);
     }
 
     const auto view = mSession.View().size();
@@ -223,9 +227,38 @@ std::vector<const EffectTypeInfo*> Shell::OfferedEffects() const
     return offered;
 }
 
-void Shell::OpenEffectPicker(const std::string& afterNodeId)
+void Shell::ExpectAddedNode()
 {
+    // The node that appears next is the one to show.
+    mSelectAddedUntil = UiSession::Now() + 5.0;
+    mNodesBeforeAdd.clear();
+    if (mState.activePreset)
+        for (const auto& n : mState.activePreset->graph.nodes)
+            mNodesBeforeAdd.insert(n.id);
+}
+
+void Shell::OpenEffectPickerOnEdge(const guitarfx::GraphEdge& edge)
+{
+    OpenEffectPicker(edge.from);
+    mPickerEdge = edge; // after: opening the picker forgets any edge a previous one had
+}
+
+void Shell::OpenEffectPicker(const std::string& afterNodeId, const std::string& replaceNodeId)
+{
+    mPickerEdge.reset();
     const auto offered = OfferedEffects();
+
+    // Replacing opens on the node's own category, with its effect marked (fxSelector.ts).
+    std::string currentType;
+    if (!replaceNodeId.empty() && mState.activePreset)
+    {
+        const auto* node = mState.activePreset->graph.FindNode(replaceNodeId);
+        if (node == nullptr || guitarfx::uiclient::IsSplitterType(node->type) || guitarfx::uiclient::IsMixerType(node->type))
+            return;
+        currentType = node->type;
+        if (const auto* type = mState.FindEffectType(node->type))
+            mPickerCategory = type->category;
+    }
 
     // Categories that have something in them, in the shared table's order.
     std::vector<std::string> categories;
@@ -246,21 +279,41 @@ void Shell::OpenEffectPicker(const std::string& afterNodeId)
         mPickerCategory = categories.front();
 
     // A category picked, or the one before: the dialog is rebuilt around the new choice.
-    auto show = [this, afterNodeId, offered, categories] {
+    auto show = [this, afterNodeId, replaceNodeId, currentType, offered, categories] {
+        // The categories, wrapped onto as many rows as the dialog needs (widths estimated from
+        // the text: a chip is about 7 px a letter plus its padding).
+        const auto viewSize = mSession.View().size();
+        const float room = DialogWidth(viewSize, 560.0f) - 32.0f;
+        std::vector<Ptr> chipRows;
         std::vector<Ptr> chips;
+        float used = 0.0f;
         for (const auto& id : categories)
         {
             const auto* look = mPresentation.Category(id);
-            auto chip = std::make_shared<Button>(mTheme, look != nullptr ? look->name : id,
-                                                 [this, id, afterNodeId] {
+            const std::string label = look != nullptr ? look->name : id;
+            const float width = static_cast<float>(label.size()) * 7.0f + 2.0f * metrics::kPad + 4.0f;
+            if (!chips.empty() && used + width > room)
+            {
+                chips.push_back(Stretch());
+                chipRows.push_back(FixedHeight(40, Row(chips)));
+                chips.clear();
+                used = 0.0f;
+            }
+            used += width;
+            auto chip = std::make_shared<Button>(mTheme, label,
+                                                 [this, id, afterNodeId, replaceNodeId] {
                                                      mPickerCategory = id;
-                                                     OpenEffectPicker(afterNodeId);
+                                                     const auto edge = mPickerEdge;
+                                                     OpenEffectPicker(afterNodeId, replaceNodeId);
+                                                     mPickerEdge = edge;
                                                  },
                                                  Button::Style::Flat);
             chip->Selected(id == mPickerCategory).TextSize(metrics::kSmallText);
             chips.push_back(chip);
             chips.push_back(HGap(4));
         }
+        chips.push_back(Stretch());
+        chipRows.push_back(FixedHeight(40, Row(chips)));
 
         std::vector<Ptr> rows;
         for (const auto* effect : offered)
@@ -268,22 +321,37 @@ void Shell::OpenEffectPicker(const std::string& afterNodeId)
             if (effect->category != mPickerCategory)
                 continue;
             const std::string type = effect->type;
-            rows.push_back(std::make_shared<ListRow>(mTheme, effect->name, std::string(), false, false, [this, type, afterNodeId] {
-                CloseOverlay();
-                // The node that appears next is the one to show.
-                mSelectAddedUntil = UiSession::Now() + 5.0;
-                mNodesBeforeAdd.clear();
-                if (mState.activePreset)
-                    for (const auto& n : mState.activePreset->graph.nodes)
-                        mNodesBeforeAdd.insert(n.id);
-                mSession.Commands().AddNode(type, afterNodeId);
-            }));
+            const bool current = type == currentType;
+            auto row = std::make_shared<ListRow>(mTheme, effect->name, current ? "Current" : std::string(), current, false,
+                                                 [this, type, afterNodeId, replaceNodeId, current] {
+                                                     CloseOverlay();
+                                                     if (current)
+                                                         return; // a model or settings are not reset by accident
+                                                     if (!replaceNodeId.empty())
+                                                     {
+                                                         // The replacement is a new node; its controls come up.
+                                                         ExpectAddedNode();
+                                                         mSession.Commands().ReplaceNode(replaceNodeId, type);
+                                                         return;
+                                                     }
+                                                     ExpectAddedNode();
+                                                     if (mPickerEdge)
+                                                         mSession.Commands().AddNodeOnEdge(type, *mPickerEdge);
+                                                     else
+                                                         mSession.Commands().AddNode(type, afterNodeId);
+                                                 });
+            row->Icon(&mIcons, mPresentation.IconFor(type, effect->category), Theme::Argb(mPresentation.CategoryColour(effect->category)));
+            rows.push_back(row);
         }
 
-        auto heading = std::make_shared<Text>(mTheme, "Add effect", 15.0f, Weight::SemiBold);
+        std::string title = "Add effect";
+        if (!replaceNodeId.empty() && mState.activePreset)
+            if (const auto* node = mState.activePreset->graph.FindNode(replaceNodeId))
+                title = "Replace " + guitarfx::uiclient::NodeDisplayName(mState, *node);
+        auto heading = std::make_shared<Text>(mTheme, title, 15.0f, Weight::SemiBold);
         const auto view = mSession.View().size();
         ShowOverlay(Pad(16, 14, 16, 12,
-                        Col({FixedHeight(30, heading), FixedHeight(44, HScroll(Row(chips))), VGap(6), VScroll(Col(rows))})),
+                        Col({FixedHeight(30, heading), Col(chipRows), VGap(6), VScroll(Col(rows))})),
                     DialogWidth(view, 560.0f), std::max(240.0f, view.y - 80.0f));
     };
     show();

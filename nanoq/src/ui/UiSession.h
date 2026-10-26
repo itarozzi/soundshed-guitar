@@ -9,6 +9,7 @@
 // between UI events and never inside the call that sent a request.
 
 #include "Engine.h"
+#include "ui/DevDriver.h"
 #include "ui/Theme.h"
 #include "uiclient/UiClient.h"
 #include "uiclient/UiCommands.h"
@@ -52,5 +53,6 @@ private:
     guitarfx::uiclient::UiCommands mCommands{mClient};
     Theme mTheme;
     std::shared_ptr<bool> mAlive = std::make_shared<bool>(true);
+    std::optional<DevDriver> mDriver = DevDriver::FromEnvironment();
 };
 } // namespace nanoq::ui

@@ -56,5 +56,8 @@ void UiSession::Pump()
 
     if (onTick)
         onTick();
+
+    if (mDriver)
+        mDriver->Poll(mView);
 }
 } // namespace nanoq::ui

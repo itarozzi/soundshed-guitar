@@ -6,6 +6,8 @@
 
 #include "presets/PresetStorage.h"
 
+#include <cmath>
+
 namespace guitarfx::uiclient::parse
 {
 std::vector<std::string> StringArray(const nlohmann::json& object, const char* key)
@@ -107,6 +109,27 @@ EffectParamInfo EffectParam(const nlohmann::json& param)
             const bool isObject = entry.is_object();
             info.labelGroups.push_back(isObject ? entry.value("group", std::string{}) : std::string{});
             info.labelSubgroups.push_back(isObject ? entry.value("subgroup", std::string{}) : std::string{});
+        }
+    }
+
+    info.control = param.value("control", std::string{});
+
+    if (const auto found = param.find("visibleWhen"); found != param.end() && found->is_object())
+    {
+        info.visibleWhenKey = found->value("key", std::string{});
+        if (const auto values = found->find("values"); values != found->end() && values->is_array())
+        {
+            for (const auto& value : *values)
+            {
+                if (value.is_number())
+                {
+                    info.visibleWhenValues.push_back(static_cast<int>(std::llround(value.get<double>())));
+                }
+            }
+        }
+        if (info.visibleWhenValues.empty())
+        {
+            info.visibleWhenKey.clear();
         }
     }
 

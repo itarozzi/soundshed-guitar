@@ -200,6 +200,13 @@ void UiCommands::AddNode(const std::string& effectType, const std::string& after
     mClient.Send("addSignalPathNode", {{"effectType", effectType}, {"insertAfter", afterNodeId}});
 }
 
+void UiCommands::AddNodeOnEdge(const std::string& effectType, const GraphEdge& edge)
+{
+    mClient.Send("addSignalPathNode",
+                 {{"effectType", effectType},
+                  {"edge", {{"from", edge.from}, {"to", edge.to}, {"fromPort", edge.fromPort}, {"toPort", edge.toPort}}}});
+}
+
 void UiCommands::RemoveNode(const std::string& nodeId)
 {
     mClient.Send("deleteSignalPathNode", {{"nodeId", nodeId}});
@@ -216,6 +223,48 @@ void UiCommands::MoveNode(const std::string& nodeId, const std::string& afterNod
 void UiCommands::CollapseSplit(const std::string& splitterId)
 {
     mClient.Send("collapseSignalPathSplit", {{"splitterId", splitterId}});
+}
+
+void UiCommands::SetSplitBranchCount(const std::string& splitterId, int count)
+{
+    mClient.Send("setSplitBranchCount", {{"splitterId", splitterId}, {"count", count}});
+}
+
+void UiCommands::ReplaceNode(const std::string& nodeId, const std::string& effectType)
+{
+    mClient.Send("replaceSignalPathNode", {{"nodeId", nodeId}, {"newEffectType", effectType}});
+}
+
+void UiCommands::RenameNode(const std::string& nodeId, const std::string& title)
+{
+    mClient.Send("renameSignalPathNode", {{"nodeId", nodeId}, {"title", title}});
+}
+
+void UiCommands::SetNodeResource(const std::string& nodeId, const std::string& resourceType, const std::string& resourceId,
+                                 int resourceIndex)
+{
+    // As the web UI's resource picker sends it: a library entry by id, with no file path (the
+    // engine resolves it); an empty id and path clears the slot.
+    nlohmann::json payload = {{"nodeId", nodeId}, {"resourceType", resourceType}, {"resourceId", resourceId}, {"filePath", ""}};
+
+    if (resourceIndex >= 0)
+    {
+        payload["resourceIndex"] = resourceIndex;
+    }
+
+    mClient.Send("updateNodeResource", std::move(payload));
+}
+
+void UiCommands::BrowseNodeResource(const std::string& nodeId, const std::string& resourceType, int resourceIndex)
+{
+    nlohmann::json payload = {{"nodeId", nodeId}, {"resourceType", resourceType}};
+
+    if (resourceIndex >= 0)
+    {
+        payload["resourceIndex"] = resourceIndex;
+    }
+
+    mClient.Send("browseNodeResource", std::move(payload));
 }
 
 void UiCommands::ApplyEffectPreset(const std::string& nodeId, const EffectPresetInfo& preset)
