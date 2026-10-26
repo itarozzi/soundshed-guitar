@@ -152,10 +152,25 @@ SSG_IOS_DEVELOPMENT_TEAM=<team id> ios/build.sh legacy nano device release recon
 `CMAKE_OSX_DEPLOYMENT_TARGET=12.0` and `GUITARFX_IOS_WEBVIEW_DEPLOYMENT_TARGET=12.0`,
 so both apps' minimum is 12.0 and the normal tree keeps 15.0 and 16.2.
 
-**Nano is the one to use on these devices.** Soundshed Guitar builds and
-installs, but its UI is drawn by iOS 12's WebKit (Safari 12), which has no
-`color-mix()`, `:has()` or container queries, so expect missing colours and
-broken layout.
+**Both apps run.** Soundshed Guitar's UI is drawn by iOS 12's WebKit
+(Safari 12.1), which lacks several things the UI uses. `core/ui/ts/legacyWebKit.ts`,
+the first module `main.ts` imports, supplies the ones that would stop it:
+`matchMedia().addEventListener` (the first, which failed the bootstrap),
+`ResizeObserver`, `structuredClone`, `replaceChildren`, `crypto.randomUUID`, and
+Pointer Events, made from touch events, without which no knob, slider or drag
+responds. Each is installed only where it is missing, so other WebViews are
+untouched. On an iPad mini 2 the page boots, taps and drags arrive as pointer
+events, and preset changes reach the engine. What it cannot supply is CSS:
+there is no `color-mix()`, `:has()`, container queries or flexbox `gap`, so
+colours and spacing are off in places. Nano draws natively and has none of
+this.
+
+Its compiled scripts are already Safari 12 syntax (TypeScript targets ES2019).
+To check after a change, run each `core/ui/dist/*.js` through
+`esbuild --target=safari12 --supported:template-literal=true` and compare it
+with `--target=esnext`: any difference is syntax Safari 12 cannot parse. A
+failure at startup shows on the splash screen and is written to the session
+log as "UI bootstrap error"; `ios-deploy --download` (below) fetches it.
 
 **`std::filesystem` is built into the app.** It is the one thing the code needs
 that iOS 12 lacks: Apple's libc++ added it to the system library in iOS 13, and

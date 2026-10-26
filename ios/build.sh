@@ -15,7 +15,7 @@
 #   reconfigure      Re-run CMake's configure step before building.
 #   legacy           Build for iOS 12 (the iPad mini 2, iPad Air 1, iPhone 5s/6) in a tree of
 #                    its own, ios/build-legacy: std::filesystem is built into the app, and the
-#                    WebView app's UI is not expected to look right on iOS 12's WebKit.
+#                    WebView app runs with stand-ins for what iOS 12's WebKit lacks.
 #
 # Arguments may appear in any order. The build tree is ios/build (Xcode generator), one
 # tree for both apps and both SDKs; open ios/build/SoundshedGuitar.xcodeproj to work in Xcode.

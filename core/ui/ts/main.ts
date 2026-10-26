@@ -1,3 +1,5 @@
+// First, so that it runs before any other module: stand-ins for what iOS 12's WebKit lacks.
+import "./legacyWebKit.js";
 import { initializeControls, initializeAmpCabPowerControls, refreshEqModalVisualization } from "./controls.js";
 import { initializeInputModeControls } from "./inputMode.js";
 import { initializeOutputStatusReadout } from "./outputStatus.js";
