@@ -102,6 +102,22 @@
 			"problemMatcher": "$msCompile"
 		},
 		{
+			"label": "Build Soundshed Nano Q Release",
+			"type": "process",
+			"command": "cmd.exe",
+			"args": [
+				"/c",
+				"nanoq\\build.cmd",
+				"Release",
+				"nanoq_all"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "build",
+			"problemMatcher": "$msCompile"
+		},
+		{
 			"label": "Build SoundshedGuitar (JUCE) VST3 Release",
 			"type": "shell",
 			"command": "cmake",
