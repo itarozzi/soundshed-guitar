@@ -44,7 +44,7 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 
 function harness(apiFetch: (path: string) => Promise<unknown>) {
   const feed = { innerHTML: "" };
-  const browseState = { mode: "featured", activeSharedTarget: null as null | { kind: string; id: string }, featuredHiddenPresetCount: 0, requestVersion: 0 };
+  const browseState = { mode: "review", activeSharedTarget: null as null | { kind: string; id: string }, requestVersion: 0 };
   const rendered: Array<{ titles: string[] }> = [];
   const context = {
     apiFetch,
@@ -55,9 +55,7 @@ function harness(apiFetch: (path: string) => Promise<unknown>) {
     resetBrowseCollections: () => { browseState.requestVersion++; },
     updateActiveSharedFilter: vi.fn(),
     updateCommunityPresetSearchUi: vi.fn(),
-    updateFeaturedMoreLink: vi.fn(),
     updateBrowseFooter: vi.fn(),
-    applyFeaturedLayout: (rows: unknown[]) => ({ rows, hiddenPresetCount: 0 }),
     buildSingleRow: (title: string) => ({ title }),
     renderFeedRows: vi.fn(async (rows: Array<{ title: string }>) => { rendered.push({ titles: rows.map((row) => row.title) }); }),
     loadStandardBrowsePage: vi.fn(async () => { rendered.push({ titles: ["items page"] }); }),
@@ -73,29 +71,37 @@ function harness(apiFetch: (path: string) => Promise<unknown>) {
 }
 
 describe("Tone Sharing browse", () => {
-  it("drops a featured reply that lands after the switch to another tab", async () => {
-    const home = deferred<{ rows: Array<{ title: string }> }>();
-    const { browseState, rendered, actions } = harness((path) => (path === "/home" ? home.promise : Promise.resolve({})));
+  // The review queue's two lists stand in for any slow tab.
+  const slowReview = () => {
+    const pending = deferred<unknown>();
+    const api = (path: string) => (path.endsWith("/pending/list")
+      ? pending.promise
+      : Promise.resolve(path.startsWith("/items") ? { items: [] } : { packs: [] }));
+    return { pending, api };
+  };
 
-    const featured = actions.loadBrowse();
+  it("drops a slow tab's reply that lands after the switch to another tab", async () => {
+    const { pending, api } = slowReview();
+    const { browseState, rendered, actions } = harness(api);
+
+    const review = actions.loadBrowse();
     browseState.mode = "items";
     await actions.loadBrowse();
-    home.resolve({ rows: [{ title: "Featured row" }] });
-    await featured;
+    pending.resolve({ items: [], packs: [] });
+    await review;
 
     expect(rendered).toEqual([{ titles: ["items page"] }]);
   });
 
-  it("drops a featured reply that lands after the switch to My Content", async () => {
-    const home = deferred<{ rows: Array<{ title: string }> }>();
-    const { browseState, rendered, actions } = harness((path) =>
-      path === "/home" ? home.promise : Promise.resolve(path.startsWith("/items") ? { items: [] } : { packs: [] }));
+  it("drops a slow tab's reply that lands after the switch to My Content", async () => {
+    const { pending, api } = slowReview();
+    const { browseState, rendered, actions } = harness(api);
 
-    const featured = actions.loadBrowse();
+    const review = actions.loadBrowse();
     browseState.mode = "mine";
     await actions.loadMine();
-    home.resolve({ rows: [{ title: "Featured row" }] });
-    await featured;
+    pending.resolve({ items: [], packs: [] });
+    await review;
 
     expect(rendered).toEqual([{ titles: ["My Presets on Tone Sharing", "My Packs on Tone Sharing"] }]);
   });

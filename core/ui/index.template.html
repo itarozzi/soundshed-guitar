@@ -3,7 +3,10 @@
 
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- No page zoom: a WKWebView would otherwise pinch- and double-tap-zoom the whole app
+       and zoom into any field under 16px when it takes focus, and stay there. The UI has
+       its own zoom setting. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
   <title>Soundshed Guitar</title>
   <script>
     /*
@@ -161,6 +164,7 @@
   <link rel="stylesheet" href="css/audio-device-settings.css" />
   <link rel="stylesheet" href="css/tone-sharing.css" />
   <link rel="stylesheet" href="css/tone-sharing-admin.css" />
+  <link rel="stylesheet" href="css/tone-sharing-list.css" />
   <link rel="stylesheet" href="css/jam.css" />
   <!-- Practice Tool is a Jam-panel section; its rules were split out of
        jam.css and must stay immediately after it to keep the cascade. -->

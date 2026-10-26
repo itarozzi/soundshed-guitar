@@ -10,7 +10,7 @@ import { confirmAndDelete, openAdminEditModal, refreshAfterAdminChange, setFeatu
 import { deleteAsset, downloadAsset, moderateTarget } from "./assets.js";
 import { loadBrowse, loadMine } from "./browse.js";
 import { element, setUploadStatus } from "./dom.js";
-import { updateActiveSharedFilter, updateCommunityPresetSearchUi, updateFeaturedMoreLink } from "./feed.js";
+import { updateActiveSharedFilter, updateCommunityPresetSearchUi } from "./feed.js";
 import { buildInstalledPackDeletionPlan, deleteInstalledPackById } from "./installedPacks.js";
 import { clearPackDetail, viewPack } from "./packDetail.js";
 import { openPackModal } from "./packEditor.js";
@@ -142,7 +142,7 @@ export function bindBrowseActions(): void {
         restoreBusy();
         syncFeatureToggleButton(button, featured);
         setUploadStatus(featured ? "Featured on the home page." : "Removed from the home page.");
-        if (browseState.mode === "featured") {
+        if (browseState.mode === "items" || browseState.mode === "packs") {
           await loadBrowse();
         }
       } catch (error) {
@@ -192,9 +192,10 @@ export function bindBrowseActions(): void {
 }
 
 export function bindBrowseModeButtons(): void {
+  // Presets is the community presets, under the featured packs until something is searched;
+  // pressing it again clears the search.
   const modes: Array<{ id: string; mode: typeof browseState.mode }> = [
-    { id: "tone-sharing-browse-featured", mode: "featured" },
-    { id: "tone-sharing-browse-items", mode: "items" },
+    { id: "tone-sharing-browse-presets", mode: "items" },
     { id: "tone-sharing-browse-packs", mode: "packs" },
     { id: "tone-sharing-browse-review", mode: "review" },
     { id: "tone-sharing-browse-installed", mode: "installed" },
@@ -231,6 +232,10 @@ export function bindBrowseModeButtons(): void {
     button.addEventListener("click", async () => {
       browseState.activeSharedTarget = null;
       updateActiveSharedFilter();
+      if (entry.mode === "items") {
+        browseState.searchQuery = "";
+        browseState.tagFilter = "";
+      }
       browseState.mode = entry.mode;
       setActive();
       clearPackDetail();
@@ -239,7 +244,6 @@ export function bindBrowseModeButtons(): void {
       } else {
         await loadBrowse();
       }
-      updateFeaturedMoreLink();
     });
   }
 

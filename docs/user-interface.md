@@ -453,6 +453,25 @@ on `<html>`; every rule in `css/compact/` keys off those attributes. The pre-pai
   the FX library, whose effects are added by dragging (`signalPath/addMenu.ts`). The library
   would have to open over the chain it drops onto, and on a touch screen a drag that starts
   upwards scrolls its list instead.
+- **Landscape phones.** An iPhone gives the WebView 667x375 (SE) to about 814x409 (Pro Max)
+  once JUCE has taken the safe area off, 354px tall at the least (13 mini), so check there.
+  The looper strip is one row, the preset library's tags are one row that scrolls sideways,
+  and on the rail its folder toolbar sits under the folder tree so the preset list runs the
+  full height. Small controls grow an invisible hit area under `(pointer: coarse)`
+  (`css/compact/shell.css`).
+- **Tones and Jam put results first** (`css/compact/panels.css`). A Tones section scrolls as
+  one, so its search and paging move away with the results; the community search is one
+  line; a feed of one row drops the heading its chip already says; pack cards are 150px; and
+  the List layout (Tones Panel Notes) fits many more results.
+  Jam shows four smaller backing-track cards to a row; Riff Library lists the riffs straight
+  after New Riff, with the storage path last; and the Practice Tool drops its title and how-to
+  lines and has a 130px waveform.
+- **Touch screens.** Nothing that takes a tap may appear on `:hover` alone: iOS WebKit plays a
+  tap as a hover first and, when that hover brings a button into view, holds the click back,
+  so the tap only reveals it. Put such reveals under `@media (hover: hover)` (the chain's
+  node buttons and + buttons do; on a touch screen the node buttons show on the selected
+  node). There is no page zoom (the viewport meta), no text-size adjustment, and no callout
+  on a held press; fields stay selectable.
 - **Narrow (≤ 540px).** The preset name takes the whole first line of the top strip, and
   Controls and the preset actions share the second. Below 600px the effect header, the preset
   library (folders over presets), the FX library (category chips over two columns) and the
@@ -976,6 +995,20 @@ the loop runs it moves the time, bar and playhead in place, and a slider being d
 alone. At compact density only the transport's state button, Stop and Undo and the waveform
 remain. The first `getLooperState` is sent after `uiReady`, since replies sent before the page
 registers its receiver are lost.
+
+## Tones Panel Notes
+
+**Presets** (browse mode `items`) is the community preset search, and an empty search is its
+default list: the newest presets from `/items`, paged with Load More. While nothing is searched
+or tagged, the featured packs from `/home` sit over that list as a strip that scrolls sideways;
+`/home`'s preset rows are not shown, the list covers them (`featuredPackRows` and
+`loadStandardBrowsePage` in `toneSharingPanel/feed.ts`). A failed `/home` leaves the list on its
+own. There is no separate Featured or Community Presets section any more.
+
+**Cards or List.** The switch under the sections (beside the chips at compact density) lays
+every section's results out as cards or as one line each (title, chips, creator, actions), so a
+small screen shows many more. The choice is the `toneSharing.feedLayout` app setting and a
+class on the feed (`applyFeedLayout`); its styles are `css/tone-sharing-list.css`.
 
 ## Jam Panel Notes
 

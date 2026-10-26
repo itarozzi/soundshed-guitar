@@ -501,7 +501,7 @@ void LooperEngine::LoadLoop(const LoopImage* image)
     FinishClear();
     mLength = image->length;
     mBarsLoop = image->barsLoop;
-    mClickBar = image->barsLoop ? 0.0 : image->clickBar;
+    mClickBar = image->clickBar;
 
     for (int i = 0; i < std::min(image->layerCount, kMaxLayers); ++i)
     {

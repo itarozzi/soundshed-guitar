@@ -194,15 +194,6 @@
   min-width: 110px;
 }
 
-.tone-sharing-featured-more {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 8px 0;
-  border-bottom: 1px solid color-mix(in srgb, var(--border-light), transparent 20%);
-}
-
 .tone-sharing-card {
   background: color-mix(in srgb, var(--bg-panel), #000 8%);
   border: 1px solid var(--border-medium);
@@ -372,6 +363,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  -webkit-backdrop-filter: blur(6px);
   backdrop-filter: blur(6px);
   z-index: 2;
   transition: background 0.15s;
@@ -1100,11 +1092,6 @@
   .tone-sharing-browse-nav {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  }
-
-  .tone-sharing-featured-more {
-    flex-direction: column;
-    align-items: flex-start;
   }
 
   .tone-sharing-community-search {

@@ -137,6 +137,125 @@ html[data-density="compact"] .tone-sharing-toolbar {
   padding: 6px 0;
 }
 
+/*
+  Results first. A landscape phone gives Tones and Jam ~270px under the chips, and
+  everything above the results stayed put while only the results scrolled: the
+  Featured note, the community search with its own label line, a heading that
+  repeated the chip, and the paging row under the feed. On Community Presets that
+  left the cards 93px. Here the section scrolls as one, so all of it moves out of
+  the way, and the copy that only repeats the chip or explains goes.
+*/
+html[data-density="compact"] .tone-sharing-tone-builder-btn {
+  flex: none;
+  white-space: nowrap;
+}
+
+html[data-density="compact"] #panel-sharing .tone-sharing-main {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+html[data-density="compact"] #panel-sharing .tone-sharing-feed {
+  flex: none;
+  overflow: visible;
+  padding-top: 6px;
+}
+
+/* One line: the field says what it searches. */
+html[data-density="compact"] .tone-sharing-community-search {
+  flex-wrap: nowrap;
+  align-items: center;
+  padding: 4px 0 0;
+}
+
+html[data-density="compact"] .tone-sharing-community-search label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+html[data-density="compact"] .tone-sharing-community-search input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+html[data-density="compact"] .tone-sharing-community-search select {
+  flex: 0 1 120px;
+  min-width: 0;
+}
+
+html[data-density="compact"] .tone-sharing-community-search .tone-sharing-toolbar-btn {
+  flex: none;
+  white-space: nowrap;
+}
+
+/* A feed of one row is the section the chip names; several (Featured) keep theirs. */
+html[data-density="compact"] .tone-sharing-feed > .tone-sharing-row:only-child > .tone-sharing-row-title {
+  display: none;
+}
+
+/* A pack card was 210px of artwork before its actions, taller than the feed. Its
+   title, description and creator need about 150. */
+html[data-density="compact"] .tone-sharing-pack-hero {
+  min-height: 150px;
+}
+
+/* Backing tracks: four smaller cards to a row on a landscape phone, not three. */
+html[data-density="compact"] .jam-results {
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+html[data-density="compact"] .jam-section-panel,
+html[data-density="compact"] .jam-tab-panel {
+  gap: 10px;
+}
+
+/*
+  Riff Library: the saved riffs started below the fold, under a drop hint (no drop
+  on a phone), a heading the chip repeats, and the storage path. The riffs come
+  straight after New Riff, and the storage path goes last.
+*/
+html[data-density="compact"] .jam-riff-panel {
+  gap: 10px;
+}
+
+html[data-density="compact"] .jam-riff-panel > .settings-section:first-child > h3,
+html[data-density="compact"] .jam-riff-panel label[for="riff-open-capture-modal"],
+html[data-density="compact"] .jam-riff-panel .riff-drop-hint,
+html[data-density="compact"] .jam-riff-panel .settings-hint {
+  display: none;
+}
+
+html[data-density="compact"] .jam-riff-panel > .settings-section:nth-child(2) {
+  order: 2;
+}
+
+html[data-density="compact"] .jam-riff-panel > .settings-section:nth-child(3) {
+  order: 1;
+}
+
+/* Practice Tool: the chip names it, and the how-to lines go; the project line stays
+   once a project is picked, when it says what the project holds (or that its track
+   must be reopened). */
+html[data-density="compact"] .practice-tool-titlebar > h3,
+html[data-density="compact"] .practice-tool-project-hint[data-instructional],
+html[data-density="compact"] .practice-tool-transport-col > .settings-hint {
+  display: none;
+}
+
+html[data-density="compact"] .practice-tool-panel {
+  gap: 10px;
+}
+
+/* 200px of waveform was most of the section; the transport and loops sat below it. */
+html[data-density="compact"] .practice-tool-waveform {
+  height: 130px;
+}
+
 /* ── Settings ─────────────────────────────────────────────────────────────────
  *
  * The section rail already stacks at 980px. What is left is the row grid: a

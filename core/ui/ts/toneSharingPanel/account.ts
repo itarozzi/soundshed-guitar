@@ -145,7 +145,7 @@ export function updateAuthButtonVisibility(): void {
     reviewButton.style.display = isToneSharingAdmin() ? "" : "none";
   }
   if (!isToneSharingAdmin() && browseState.mode === "review") {
-    browseState.mode = "featured";
+    browseState.mode = "items";
   }
   if (!signedIn) {
     setText("tone-sharing-profile-status", "");

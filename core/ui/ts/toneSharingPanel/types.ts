@@ -118,6 +118,8 @@ export type ToneSharingRow = {
   id: string;
   slug: string;
   title: string;
+  /** One line that scrolls sideways rather than a grid that wraps: the featured packs over Presets. */
+  strip?: boolean;
   items: Array<{
     id: string;
     kind: "item" | "pack";
@@ -179,7 +181,8 @@ export type ToneSharingShareTarget = {
 };
 
 /** Which feed the browse area is showing. */
-export type BrowseMode = "featured" | "items" | "packs" | "installed" | "mine" | "review";
+/** "items" is the Presets section: the community presets, with the featured packs over them while nothing is searched. */
+export type BrowseMode = "items" | "packs" | "installed" | "mine" | "review";
 
 export type BrowseCollectionState = {
   page: number;
@@ -188,6 +191,8 @@ export type BrowseCollectionState = {
   loadingMore: boolean;
   items: ToneSharingItem[];
   packs: ToneSharingPack[];
+  /** The /home rows of featured packs that Presets shows over its results while nothing is searched. */
+  featuredRows: ToneSharingRow[];
 };
 
 export type ToneActionIcon = "preview" | "download" | "share" | "view" | "approve" | "reject" | "edit" | "delete" | "feature";

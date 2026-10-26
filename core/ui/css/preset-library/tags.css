@@ -29,6 +29,31 @@
   color: var(--bg-primary, #fff);
 }
 
+/* A landscape phone has ~350px for the whole library: the tags wrapped onto two
+   lines and left the preset list one card. One line that scrolls sideways. */
+html[data-density="compact"] .preset-library-popover .preset-tag-filter-bar {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+  flex-shrink: 0;
+}
+
+html[data-density="compact"] .preset-library-popover .preset-tag-filter-bar::-webkit-scrollbar {
+  display: none;
+}
+
+html[data-density="compact"] .preset-library-popover .preset-tag-filter-chip {
+  flex: none;
+  white-space: nowrap;
+}
+
+@media (pointer: coarse) {
+  html[data-density="compact"] .preset-library-popover .preset-tag-filter-chip {
+    min-height: 28px;
+    padding: 0 12px;
+  }
+}
+
 .preset-item-tags {
   display: flex;
   flex-wrap: wrap;

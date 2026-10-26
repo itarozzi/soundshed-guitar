@@ -142,6 +142,9 @@ struct LooperSettings
     std::atomic<bool> countInEveryTake{false};
     std::atomic<bool> afterRecordOverdub{false}; ///< looper.afterRecord == "overdub"
     std::atomic<float> armThreshold{0.00316f};   ///< looper.armThresholdDb as a peak (-50 dBFS)
+    /// With the click running, an armed take starts on the metronome beat nearest its first note.
+    /// Off for riff capture, which trims its take itself.
+    std::atomic<bool> armedOnTheBeat{true};
     /// D: how much later a note played in time with the output reaches the DI tap (the device's
     /// output and input latency, plus looper.alignOffsetMs). Overdubs and Bars takes are moved by it.
     std::atomic<int> alignSamples{0};

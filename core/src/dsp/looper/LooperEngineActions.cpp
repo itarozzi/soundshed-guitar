@@ -339,11 +339,11 @@ void LooperEngine::StartFirstLayer(int at)
 void LooperEngine::StartFirstWriter(int at, std::int64_t recAbs)
 {
     // Where the loop starts in the metronome's bar: the grid as the player heard it when they played
-    // its first sample, D before it reached the DI tap. A Bars take starts on bar 1. A free take
-    // played to the click is played back on it too: its playhead starts D in, as a Bars take's does.
+    // its first sample, D before it reached the DI tap (bar 1 for a counted-in take, the snapped beat
+    // for an armed one). A take played to the click is played back on it: its playhead starts D in.
     mClickBar = 0.0;
 
-    if (!mFirstBars && mClock && mClock->running.load(std::memory_order_relaxed))
+    if (mClock && mClock->running.load(std::memory_order_relaxed))
     {
         const double samplesPerBar = mClock->samplesPerBar.load(std::memory_order_relaxed);
 
@@ -405,28 +405,32 @@ void LooperEngine::TriggerFirstLayer(int at)
     std::int64_t back = std::min(mPreRollSamples, mRingWritten);
     mClosePlayhead = 0;
 
-    // Bars with the click running: the take snaps to the bar line nearest the first note, on the
-    // grid as the player hears it (D later at the DI tap).
-    if (mFirstBars && mClock && mClock->running.load(std::memory_order_relaxed))
+    // With the click running, the take starts on the metronome beat nearest the first note, on the
+    // grid as the player hears it (D later at the DI tap): back to it for a note played late, waiting
+    // for it for one played early. A Bars take is whole bars from there; the loop keeps which beat
+    // it starts on (clickBar), and the click follows it.
+    if (mSettings.armedOnTheBeat.load(std::memory_order_relaxed) && mClock &&
+        mClock->running.load(std::memory_order_relaxed))
     {
-        const double samplesPerBar = mClock->samplesPerBar.load(std::memory_order_relaxed);
+        const double samplesPerBeat = mClock->samplesPerBeat.load(std::memory_order_relaxed);
 
-        if (samplesPerBar > 1.0)
+        if (samplesPerBeat > 1.0)
         {
             const double since =
                 mClock->samplesSinceBar.load(std::memory_order_relaxed) + static_cast<double>(at) - mAlign;
-            const double x = std::fmod(std::fmod(since, samplesPerBar) + samplesPerBar, samplesPerBar);
+            const double x = std::fmod(std::fmod(since, samplesPerBeat) + samplesPerBeat, samplesPerBeat);
             const auto behind = static_cast<std::int64_t>(std::llround(x));
-            const auto ahead = static_cast<std::int64_t>(std::llround(samplesPerBar - x));
-            mClosePlayhead = Wrap(mAlign, mTargetLength);
+            const auto ahead = static_cast<std::int64_t>(std::llround(samplesPerBeat - x));
+            mClosePlayhead = mTargetLength > 0 ? Wrap(mAlign, mTargetLength) : mAlign;
 
-            if (x <= 0.5 * samplesPerBar && behind <= mRingWritten)
+            if (x <= 0.5 * samplesPerBeat && behind <= mRingWritten)
             {
                 back = behind;
             }
-            else if (ahead > 0 && ahead < mTargetLength)
+            else if (ahead > 0 && (mTargetLength == 0 || ahead < mTargetLength))
             {
-                mPendingStart = ahead;
+                // Counted from the next sample: this one's countdown has already run.
+                mPendingStart = ahead - 1;
                 mPublishedArmLead.store(mRingWritten + ahead, std::memory_order_relaxed);
                 return;
             }

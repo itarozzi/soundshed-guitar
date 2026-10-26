@@ -50,6 +50,7 @@ void RiffRecorder::Prepare(double sampleRate, int maxBlockSize)
     auto& settings = mEngine.Settings();
     settings.playbackEnabled.store(false);
     settings.lengthBars.store(false);
+    settings.armedOnTheBeat.store(false);
     settings.countInEveryTake.store(true);
     settings.afterRecordOverdub.store(false);
     settings.alignSamples.store(0);

@@ -41,7 +41,7 @@ afterEach(() => {
   deleteAsset.mockReset();
   showConfirm.mockReset();
   requestBrowseReload.mockReset();
-  browseState.mode = "featured";
+  browseState.mode = "items";
   browseCollections.items = [];
 });
 

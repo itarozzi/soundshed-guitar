@@ -6,12 +6,12 @@
 import { escapeHtml } from "../utils.js";
 import { apiFetch, isToneSharingAdmin } from "./api.js";
 import { element, setUploadStatus } from "./dom.js";
-import { applyFeaturedLayout, buildSingleRow, loadStandardBrowsePage, renderFeedRows, resetBrowseCollections, updateActiveSharedFilter, updateBrowseFooter, updateCommunityPresetSearchUi, updateFeaturedMoreLink } from "./feed.js";
+import { buildSingleRow, loadStandardBrowsePage, renderFeedRows, resetBrowseCollections, updateActiveSharedFilter, updateBrowseFooter, updateCommunityPresetSearchUi } from "./feed.js";
 import { renderInstalledPacks } from "./installedPacks.js";
 import { clearPackDetail, viewPack } from "./packDetail.js";
 import { setBrowseLoaders } from "./refresh.js";
 import { browseState, toneSharingState } from "./state.js";
-import type { ToneSharingItem, ToneSharingPack, ToneSharingRow } from "./types.js";
+import type { ToneSharingItem, ToneSharingPack } from "./types.js";
 
 export async function loadBrowse(): Promise<void> {
   const feed = element<HTMLElement>("tone-sharing-feed");
@@ -22,15 +22,13 @@ export async function loadBrowse(): Promise<void> {
   feed.innerHTML = `<div class="tone-sharing-status">Loading...</div>`;
   resetBrowseCollections();
   // Every reply is checked against this, and rendered with it, before it is shown: switching tab
-  // starts another load, and a slow reply for the old tab (/home most often) used to land last and
+  // starts another load, and a slow reply for the old tab used to land last and
   // replace the new tab's feed under the new tab's name. renderFeedRows' own default version is
   // read when it is called, after the await, so it could never catch that.
   const loadVersion = browseState.requestVersion;
   const isStale = (): boolean => browseState.requestVersion !== loadVersion;
-  browseState.featuredHiddenPresetCount = 0;
   updateActiveSharedFilter();
   updateCommunityPresetSearchUi();
-  updateFeaturedMoreLink();
   updateBrowseFooter();
 
   try {
@@ -40,7 +38,6 @@ export async function loadBrowse(): Promise<void> {
         if (isStale()) return;
         await renderFeedRows([buildSingleRow("Shared Preset", [itemResult.item], "item")], loadVersion);
         if (isStale()) return;
-        updateFeaturedMoreLink();
         setUploadStatus(`Opened shared preset: ${itemResult.item.title}`);
         return;
       }
@@ -52,19 +49,7 @@ export async function loadBrowse(): Promise<void> {
       if (isStale()) return;
       await viewPack(packId);
       if (isStale()) return;
-      updateFeaturedMoreLink();
       setUploadStatus(`Opened shared pack: ${packResult.pack.title}`);
-      return;
-    }
-
-    if (browseState.mode === "featured") {
-      const home = await apiFetch<{ rows: ToneSharingRow[] }>("/home");
-      if (isStale()) return;
-      const featured = applyFeaturedLayout(home.rows);
-      browseState.featuredHiddenPresetCount = featured.hiddenPresetCount;
-      await renderFeedRows(featured.rows, loadVersion);
-      if (isStale()) return;
-      updateFeaturedMoreLink();
       return;
     }
 
@@ -103,8 +88,6 @@ export async function loadBrowse(): Promise<void> {
     await loadMine();
   } catch (error) {
     if (isStale()) return;
-    browseState.featuredHiddenPresetCount = 0;
-    updateFeaturedMoreLink();
     feed.innerHTML = `<div class="tone-sharing-status">Load failed: ${escapeHtml((error as Error).message)}</div>`;
   }
 }
@@ -155,7 +138,7 @@ export async function loadMine(): Promise<void> {
 
 export async function refreshBrowseResultsAfterInstall(): Promise<void> {
   try {
-    if (browseState.mode === "featured" || browseState.mode === "items" || browseState.mode === "packs") {
+    if (browseState.mode === "items" || browseState.mode === "packs") {
       await loadBrowse();
     } else if (browseState.mode === "installed") {
       await renderInstalledPacks();

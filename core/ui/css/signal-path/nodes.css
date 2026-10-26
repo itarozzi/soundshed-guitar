@@ -611,7 +611,35 @@ body.signal-path-resizing * {
   height: 10px;
 }
 
-.signal-node:hover .signal-node-bypass,
+/*
+  The bypass and delete buttons come up on hover only where there is a hover. iOS
+  WebKit plays a tap as a hover first, and when that hover brings a button into
+  view it holds the tap's click back, so the first tap on a node only showed its
+  buttons and selecting it took a second. A touch screen shows them on the
+  selected node instead, which a tap sets in its click.
+*/
+@media (hover: hover) {
+  .signal-node:hover .signal-node-bypass,
+  .signal-node:hover .signal-node-delete {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (hover: none) {
+  .signal-node.selected .signal-node-bypass,
+  .signal-node.selected .signal-node-delete {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  /* Unseen, both were still there to tap in the node's corners. */
+  .signal-node:not(.selected) .signal-node-delete,
+  .signal-node:not(.selected, .bypassed) .signal-node-bypass {
+    visibility: hidden;
+  }
+}
+
 .signal-node:focus-within .signal-node-bypass,
 .signal-node.bypassed .signal-node-bypass {
   opacity: 1;
@@ -635,7 +663,6 @@ body.signal-path-resizing * {
   outline-offset: 1px;
 }
 
-.signal-node:hover .signal-node-delete,
 .signal-node:focus-within .signal-node-delete {
   opacity: 1;
   transform: scale(1);

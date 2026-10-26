@@ -136,3 +136,42 @@ html[data-density="compact"] .preset-library-popover.open .preset-list {
     border-bottom: 1px solid var(--border-dark);
   }
 }
+
+/*
+  A landscape phone leaves the folders and presets ~150px, and the folder toolbar
+  over the preset list took 40px of it: the list showed one card. The toolbar is
+  about folders, so on the rail it goes under the folder tree and the list runs the
+  full height beside both.
+*/
+@media (min-width: 601px) {
+  html[data-density="compact"][data-compact-layout="rail"] .preset-library-popover.open #preset-library-presets-panel {
+    grid-template-rows: minmax(0, 1fr) auto;
+    row-gap: 6px;
+  }
+
+  html[data-density="compact"][data-compact-layout="rail"] .preset-library-popover.open #preset-library-presets-panel .preset-list-column {
+    display: contents;
+  }
+
+  html[data-density="compact"][data-compact-layout="rail"] .preset-library-popover.open .preset-folder-tree {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  html[data-density="compact"][data-compact-layout="rail"] .preset-library-popover.open .preset-folder-toolbar {
+    grid-column: 1;
+    grid-row: 2;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  html[data-density="compact"][data-compact-layout="rail"] .preset-library-popover.open #preset-folder-name {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  html[data-density="compact"][data-compact-layout="rail"] .preset-library-popover.open .preset-list {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+}
