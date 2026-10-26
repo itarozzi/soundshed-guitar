@@ -6,8 +6,9 @@
                 <button id="tone-sharing-account-btn" type="button" class="tone-sharing-account-chip">Sign In</button>
               </div>
               <div class="tone-sharing-browse-nav" role="navigation" aria-label="Tone sharing sections">
-                <button id="tone-sharing-browse-featured" type="button" class="tone-sharing-nav-btn tab-btn tab-btn-vertical active">Featured</button>
-                <button id="tone-sharing-browse-items" type="button" class="tone-sharing-nav-btn tab-btn tab-btn-vertical">Community Presets</button>
+                <!-- Presets: the community presets, searchable and paged, under the featured packs
+                     until something is searched (toneSharingPanel/feed.ts). -->
+                <button id="tone-sharing-browse-presets" type="button" class="tone-sharing-nav-btn tab-btn tab-btn-vertical active">Presets</button>
                 <button id="tone-sharing-browse-packs" type="button" class="tone-sharing-nav-btn tab-btn tab-btn-vertical">Packs</button>
                 <button id="tone-sharing-browse-review" type="button" class="tone-sharing-nav-btn tab-btn tab-btn-vertical" style="display: none;">Review Queue</button>
                 <button id="tone-sharing-browse-installed" type="button" class="tone-sharing-nav-btn tab-btn tab-btn-vertical">Installed</button>
@@ -15,6 +16,18 @@
               </div>
               <button id="tone-sharing-tone-builder" type="button" class="tone-sharing-toolbar-btn tone-sharing-tone-builder-btn" style="display: none;" title="Research a tone and build ready-to-play presets">Tone Builder…</button>
               <button id="tone-sharing-open-pack-modal" type="button" class="tone-sharing-toolbar-btn tone-sharing-create-pack-btn" disabled>+ Create Pack</button>
+              <!-- Cards or a list, for every section; the list fits many more on a small screen.
+                   applyFeedLayout() in toneSharingPanel/feed.ts keeps aria-pressed in step. -->
+              <div class="tone-sharing-layout-switch" role="group" aria-label="Show results as">
+                <button type="button" class="tone-sharing-layout-btn" data-tone-sharing-layout="cards" aria-pressed="true" title="Show as cards">
+                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="4" width="7" height="7" rx="1.5" /><rect x="13" y="4" width="7" height="7" rx="1.5" /><rect x="4" y="13" width="7" height="7" rx="1.5" /><rect x="13" y="13" width="7" height="7" rx="1.5" /></svg>
+                  <span class="tone-sharing-layout-label">Cards</span>
+                </button>
+                <button type="button" class="tone-sharing-layout-btn" data-tone-sharing-layout="list" aria-pressed="false" title="Show as a list">
+                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 6h11M9 12h11M9 18h11" /><circle cx="5" cy="6" r="1.2" /><circle cx="5" cy="12" r="1.2" /><circle cx="5" cy="18" r="1.2" /></svg>
+                  <span class="tone-sharing-layout-label">List</span>
+                </button>
+              </div>
               <p class="tone-sharing-share-hint">Share a preset in 3 steps: load it, click Publish, then use Share on its card after approval.</p>
             </aside>
             <div class="tone-sharing-main">
@@ -26,11 +39,7 @@
                 <label for="tone-sharing-community-search-input">Search community presets</label>
                 <input id="tone-sharing-community-search-input" type="text" placeholder="Name, description, creator, or tag" autocomplete="off" />
                 <select id="tone-sharing-community-tag-filter" aria-label="Filter presets by tag"><option value="">All tags</option></select>
-                <button id="tone-sharing-community-search-clear" type="button" class="tone-sharing-toolbar-btn">Clear filters</button>
-              </div>
-              <div class="tone-sharing-featured-more" id="tone-sharing-featured-more" style="display: none;">
-                <span id="tone-sharing-featured-more-label" class="tone-sharing-status">More presets available in Community Presets.</span>
-                <button id="tone-sharing-featured-more-btn" type="button" class="tone-sharing-toolbar-btn">Browse Community Presets</button>
+                <button id="tone-sharing-community-search-clear" type="button" class="tone-sharing-toolbar-btn">Clear</button>
               </div>
               <div class="tone-sharing-feed" id="tone-sharing-feed"></div>
               <div class="tone-sharing-feed-footer tone-sharing-feed-footer--hidden" id="tone-sharing-feed-footer">

@@ -1,5 +1,5 @@
 /**
- * Right-click → "MIDI Learn…" on the controls a MIDI mapping can drive: the input
+ * Right-click (a long press on a touch screen, touchLongPress.ts) → "MIDI Learn…" on the controls a MIDI mapping can drive: the input
  * and output level knobs, effect parameters — the chain's Input and Output node gains
  * included — and the setlist pads and bank controls.
  *
@@ -34,6 +34,7 @@ import { showNotification } from "./notifications.js";
 import { EffectTypeRegistry } from "./presetV2.js";
 import { getActivePresetForRender, uiState } from "./state.js";
 import type { AutomationSlot, GraphNode } from "./types.js";
+import { initializeTouchLongPress } from "./touchLongPress.js";
 import { escapeHtml } from "./utils.js";
 
 /** How far inside the window the menu's edges are kept. */
@@ -50,6 +51,7 @@ export function initializeMidiLearnMenu(): void {
   initialized = true;
 
   document.addEventListener("contextmenu", handleContextMenu);
+  initializeTouchLongPress();
   // Capture phase, so a control that stops the event still closes the menu.
   document.addEventListener("pointerdown", (event) => {
     if (menuElement && !menuElement.contains(event.target as Node | null)) {

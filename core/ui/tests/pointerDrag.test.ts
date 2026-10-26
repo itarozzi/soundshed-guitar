@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  AUTO_SCROLL_EDGE_PX,
   POINTER_DRAG_THRESHOLD_PX,
+  TOUCH_DRAG_HOLD_MS,
   beginPointerDrag,
+  cancelPointerDrag,
   isPointerDragActive,
   resetPointerDragForTests,
   type PointerDragGesture,
@@ -154,5 +157,170 @@ describe("beginPointerDrag", () => {
     dropZone.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 
     expect(onClick).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("beginPointerDrag with a touch hold", () => {
+  function touchEvent(type: string, x: number, y: number): PointerEvent {
+    const event = pointerEvent(type, x, y);
+    Object.defineProperty(event, "pointerType", { value: "touch" });
+    return event;
+  }
+
+  function startTouchDrag(press = touchEvent("pointerdown", 100, 100)): void {
+    const event = press;
+    source.dispatchEvent(event);
+    beginPointerDrag<TestTarget>(event, {
+      source,
+      sourceSelector: ".draggable",
+      previewClass: "drag-preview",
+      touchHoldMs: TOUCH_DRAG_HOLD_MS,
+      resolveTarget: () => ({ element: dropZone }),
+      setTargetHighlight: () => undefined,
+      onDrop: (target, gesture) => drops.push({ target, gesture }),
+    });
+  }
+
+  function touchMove(): TouchEvent {
+    const event = new Event("touchmove", { bubbles: true, cancelable: true }) as TouchEvent;
+    document.dispatchEvent(event);
+    return event;
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("leaves a swipe that moves before the hold is up to the browser's scrolling", () => {
+    startTouchDrag();
+    expect(touchMove().defaultPrevented).toBe(false);
+    document.dispatchEvent(touchEvent("pointermove", 100, 140));
+    vi.advanceTimersByTime(TOUCH_DRAG_HOLD_MS);
+    document.dispatchEvent(touchEvent("pointermove", 100, 180));
+    document.dispatchEvent(touchEvent("pointerup", 100, 180));
+
+    expect(isPointerDragActive()).toBe(false);
+    expect(drops).toEqual([]);
+    expect(touchMove().defaultPrevented).toBe(false);
+  });
+
+  it("picks the item up once the finger has rested, and keeps the page from scrolling", () => {
+    startTouchDrag();
+    document.dispatchEvent(touchEvent("pointermove", 102, 101));
+    vi.advanceTimersByTime(TOUCH_DRAG_HOLD_MS);
+    expect(touchMove().defaultPrevented).toBe(true);
+
+    document.dispatchEvent(touchEvent("pointermove", 100, 160));
+    expect(isPointerDragActive()).toBe(true);
+    document.dispatchEvent(touchEvent("pointerup", 100, 160));
+
+    expect(drops).toHaveLength(1);
+    expect(drops[0].target?.element).toBe(dropZone);
+    expect(touchMove().defaultPrevented).toBe(false);
+  });
+
+  it("does not make a mouse wait", () => {
+    startTouchDrag(pointerEvent("pointerdown", 100, 100));
+    document.dispatchEvent(pointerEvent("pointermove", 160, 100));
+    expect(isPointerDragActive()).toBe(true);
+  });
+
+  it("drops nothing when cancelled, as a menu opened by a long press does", () => {
+    startTouchDrag();
+    vi.advanceTimersByTime(TOUCH_DRAG_HOLD_MS);
+    cancelPointerDrag();
+    document.dispatchEvent(touchEvent("pointermove", 100, 160));
+    document.dispatchEvent(touchEvent("pointerup", 100, 160));
+
+    expect(drops).toEqual([]);
+    expect(touchMove().defaultPrevented).toBe(false);
+  });
+});
+
+describe("beginPointerDrag with autoScroll", () => {
+  let list: HTMLElement;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    list = document.createElement("div");
+    list.style.overflowY = "auto";
+    document.body.appendChild(list);
+    // jsdom lays nothing out: a 100 px tall list at the top of the page, with 400 px of rows.
+    list.getBoundingClientRect = () => ({ left: 0, right: 200, top: 0, bottom: 100, width: 200, height: 100, x: 0, y: 0, toJSON: () => ({}) });
+    Object.defineProperty(list, "clientHeight", { value: 100 });
+    Object.defineProperty(list, "scrollHeight", { value: 400 });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function startListDrag(resolveTarget: (event: PointerEvent) => TestTarget | null = () => null, autoScroll: HTMLElement = list): void {
+    const event = pointerEvent("pointerdown", 100, 50);
+    source.dispatchEvent(event);
+    beginPointerDrag<TestTarget>(event, {
+      source,
+      sourceSelector: ".draggable",
+      previewClass: "drag-preview",
+      autoScroll,
+      resolveTarget,
+      setTargetHighlight: () => undefined,
+      onDrop: (target, gesture) => drops.push({ target, gesture }),
+    });
+  }
+
+  it("scrolls the list while the pointer rests near its bottom edge, and stops when it leaves", () => {
+    startListDrag();
+    document.dispatchEvent(pointerEvent("pointermove", 100, 70));
+    vi.advanceTimersByTime(100);
+    expect(list.scrollTop).toBe(0);
+
+    document.dispatchEvent(pointerEvent("pointermove", 100, 100 - AUTO_SCROLL_EDGE_PX / 2));
+    vi.advanceTimersByTime(100);
+    const scrolled = list.scrollTop;
+    expect(scrolled).toBeGreaterThan(0);
+
+    document.dispatchEvent(pointerEvent("pointermove", 100, 50));
+    vi.advanceTimersByTime(100);
+    expect(list.scrollTop).toBe(scrolled);
+  });
+
+  it("scrolls back up from the top edge, and finds the target again as rows pass under the pointer", () => {
+    list.scrollTop = 200;
+    const seen: number[] = [];
+    startListDrag(() => {
+      seen.push(list.scrollTop);
+      return { element: dropZone };
+    });
+    document.dispatchEvent(pointerEvent("pointermove", 100, 2));
+    vi.advanceTimersByTime(200);
+
+    expect(list.scrollTop).toBeLessThan(200);
+    expect(new Set(seen).size).toBeGreaterThan(2);
+  });
+
+  it("scrolls the nearest scrolling ancestor of a list that does not scroll itself", () => {
+    const rows = document.createElement("div");
+    list.appendChild(rows);
+    startListDrag(undefined, rows);
+    document.dispatchEvent(pointerEvent("pointermove", 100, 98));
+    vi.advanceTimersByTime(100);
+    expect(list.scrollTop).toBeGreaterThan(0);
+  });
+
+  it("leaves the list alone when the pointer is beside it, and once the drag ends", () => {
+    startListDrag();
+    document.dispatchEvent(pointerEvent("pointermove", 300, 98));
+    vi.advanceTimersByTime(100);
+    expect(list.scrollTop).toBe(0);
+
+    document.dispatchEvent(pointerEvent("pointermove", 100, 98));
+    document.dispatchEvent(pointerEvent("pointerup", 100, 98));
+    vi.advanceTimersByTime(100);
+    expect(list.scrollTop).toBe(0);
   });
 });

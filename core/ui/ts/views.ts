@@ -15,6 +15,7 @@ import type { DSPPerformanceStats, GraphEdge, GraphNode, Preset, PresetFolder, S
 import { Features, isFeatureEnabled } from "./featureFlags.js";
 import { createVuMeter } from "./vuMeter.js";
 import { PRESET_FOLDER_ALL_ID, PRESET_FOLDER_FAVORITES_ID, PRESET_FOLDER_RECENTS_ID } from "./presets/sorting.js";
+import { beginPresetFolderDrag } from "./presets/folderDrag.js";
 
 const presetListElement = document.getElementById("preset-list");
 const presetDetailsElement = document.getElementById("preset-details");
@@ -309,7 +310,7 @@ export function renderPresetList(
           const count = folder.presetIds.length;
           const childMarkup = folder.children?.length ? renderFolderTree(folder.children, depth + 1, folder.id) : "";
           return `
-            <div class="preset-folder-item ${activeId === folder.id ? "active" : ""}" data-folder-id="${escapeHtml(folder.id)}" data-parent-id="${escapeHtml(parentId)}" data-depth="${depth}" draggable="true">
+            <div class="preset-folder-item ${activeId === folder.id ? "active" : ""}" data-folder-id="${escapeHtml(folder.id)}" data-parent-id="${escapeHtml(parentId)}" data-depth="${depth}">
               ${indent}
               <span class="folder-name">${escapeHtml(folder.name)}</span>
               <span class="folder-count">${count}</span>
@@ -347,45 +348,10 @@ export function renderPresetList(
         }
       });
 
-      // Only a folder's own drag; a file from the OS is left for the global importer.
-      item.addEventListener("dragover", (event) => {
-        if (!Array.from(event.dataTransfer?.types ?? []).includes("application/x-preset-folder")) return;
-        event.preventDefault();
-        item.classList.add("drag-over");
-      });
-
-      item.addEventListener("dragleave", () => {
-        item.classList.remove("drag-over");
-      });
-
-      item.addEventListener("dragstart", (event) => {
-        const folderId = item.dataset.folderId ?? "";
-        if (!folderId || folderId === PRESET_FOLDER_RECENTS_ID || folderId === PRESET_FOLDER_FAVORITES_ID || folderId === PRESET_FOLDER_ALL_ID) {
-          return;
-        }
-        event.dataTransfer?.setData("application/x-preset-folder", folderId);
-        event.dataTransfer?.setDragImage(item, 20, 20);
-      });
-
-      // A preset lands here by pointer (presets/drag.ts); the only native drag is a folder's own.
-      item.addEventListener("drop", (event) => {
-        item.classList.remove("drag-over");
-        const folderDragId = event.dataTransfer?.getData("application/x-preset-folder") ?? "";
-        const folderId = item.dataset.folderId ?? PRESET_FOLDER_ALL_ID;
-        if (folderDragId) {
-          event.preventDefault();
-          if (folderId === PRESET_FOLDER_RECENTS_ID || folderId === PRESET_FOLDER_FAVORITES_ID) {
-            return;
-          }
-          const offsetX = (event as DragEvent).offsetX ?? 0;
-          const parentId = item.dataset.parentId ?? PRESET_FOLDER_ALL_ID;
-          const depth = Number(item.dataset.depth ?? "0");
-          const isIndentDrop = depth > 0 && offsetX < 16;
-          const targetParentId = folderId === PRESET_FOLDER_ALL_ID
-            ? PRESET_FOLDER_ALL_ID
-            : (isIndentDrop ? parentId : folderId);
-          onMoveFolder(folderDragId, targetParentId);
-        }
+      // Folders move by pointer (presets/folderDrag.ts), and presets land on them by pointer
+      // too (presets/drag.ts). A file from the OS is left for the global importer.
+      item.addEventListener("pointerdown", (event) => {
+        beginPresetFolderDrag(event, item, presetFolderTreeElement, onMoveFolder);
       });
     });
   }

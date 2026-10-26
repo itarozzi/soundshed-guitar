@@ -1,6 +1,12 @@
 import { uiState, getActivePresetForRender, getSignalPathPreset, isCompositeEditMode } from "./state.js";
 import { setActivePresetSceneId } from "./presetLibraryStore.js";
-import { buildBlendModelMappingsFromIds, findBlendForToneGroup } from "./blendUtils.js";
+import {
+  RESOURCE_GROUP_DRAG_START_EVENT,
+  buildBlendModelMappingsFromIds,
+  findBlendForToneGroup,
+  type ResourceGroupDragPayload,
+  type ResourceGroupDragStartDetail,
+} from "./blendUtils.js";
 import type {
   BlendModelMapping,
   GraphNode,
@@ -21,7 +27,7 @@ import {
 } from "./fxSelector.js";
 import { fxPayloadIdentity } from "./fxLibrary/catalog.js";
 import { recordFxRecent } from "./fxLibrary/favorites.js";
-import { beginPointerDrag, type PointerDragGesture } from "./pointerDrag.js";
+import { TOUCH_DRAG_HOLD_MS, beginPointerDrag, type PointerDragGesture } from "./pointerDrag.js";
 import { resolveNodeDropAction, type NodeDropTarget } from "./signalPathDropTargets.js";
 import { resolveLayoutForNode } from "./layoutPreferences.js";
 import { layoutDesigner } from "./layoutDesigner.js";
@@ -218,6 +224,33 @@ document.addEventListener("fx-pointer-drag-start", (event: Event) => {
     setTargetHighlight: (target, highlighted) =>
       setSignalPathDropHighlight(target.element, target.kind, highlighted),
     onDrop: (target) => applyFxDrop(target, detail.payload),
+  });
+});
+
+/**
+ * An equipment library group lands where an FX library item does: in a node's place, or on
+ * a connection. The library scrolls, so a touch rests on the group before it picks it up.
+ */
+document.addEventListener(RESOURCE_GROUP_DRAG_START_EVENT, (event: Event) => {
+  const detail = (event as CustomEvent<ResourceGroupDragStartDetail>).detail;
+  if (!detail?.source || !detail.payload?.modelIds?.length) return;
+
+  beginPointerDrag<FxDropTarget>(detail.pointerEvent, {
+    source: detail.source,
+    sourceSelector: ".equipment-library-group",
+    previewClass: "list-drag-preview",
+    bodyClass: "fx-dragging",
+    touchHoldMs: TOUCH_DRAG_HOLD_MS,
+    resolveTarget: resolveFxDropTarget,
+    setTargetHighlight: (target, highlighted) =>
+      setSignalPathDropHighlight(target.element, target.kind, highlighted),
+    onDrop: (target) => {
+      if (target?.kind === "node") {
+        handleResourceGroupDrop(detail.payload, target.node.id, target.node.type === EffectGuids.kAmpNamBlend);
+      } else if (target) {
+        handleResourceGroupDrop(detail.payload, null, false, target.edge);
+      }
+    },
   });
 });
 
@@ -825,9 +858,6 @@ function renderGraphSignalPath(preset: Preset): void {
   bindNodeClickHandlers(preset);
   syncReplaceChooser(preset);
 
-  // Bind drop handlers for connectors (to insert between nodes)
-  bindConnectorDropHandlers(preset);
-
   // Bind split/collapse buttons
 }
 
@@ -1056,23 +1086,14 @@ function bindNodeClickHandlers(preset: Preset): void {
       beginNodePointerDrag(event, el);
     });
 
-    // Native drag-and-drop still handles the two drags that do not originate
-    // from a pointer press inside the signal path: files from the OS, and
-    // resource groups from the equipment library.
-    // Each handler takes only the drags it can use and leaves the rest, a preset pack from the OS
-    // above all, to the global importer, which skips a drop something else has already taken.
+    // Native drag-and-drop still handles the one drag that does not start inside the
+    // WebView: a file from the OS. It takes only the files it can use and leaves the rest,
+    // a preset pack above all, to the global importer, which skips a drop already taken.
     el.addEventListener("dragover", (e: DragEvent) => {
       const nodeId = el.dataset.nodeId;
       if (!nodeId) return;
 
       const types = Array.from(e.dataTransfer?.types ?? []);
-      if (types.includes("application/x-resource-group")) {
-        e.preventDefault();
-        el.classList.add("drag-over");
-        if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
-        return;
-      }
-
       if (types.includes("Files")) {
         const node = preset.graph?.nodes.find((n) => n.id === nodeId);
         if (node && isNamOrCabIrNode(node)) {
@@ -1092,14 +1113,6 @@ function bindNodeClickHandlers(preset: Preset): void {
       const targetNodeId = el.dataset.nodeId;
       if (!targetNodeId || !preset.graph) return;
 
-      const resourceGroupPayload = e.dataTransfer?.getData("application/x-resource-group");
-      if (resourceGroupPayload) {
-        e.preventDefault();
-        const targetNode = preset.graph.nodes.find((n) => n.id === targetNodeId);
-        handleResourceGroupDrop(resourceGroupPayload, targetNodeId, targetNode?.type === EffectGuids.kAmpNamBlend);
-        return;
-      }
-
       const file = Array.from(e.dataTransfer?.files ?? [])[0];
       if (!file) return;
       const targetNode = preset.graph.nodes.find((n) => n.id === targetNodeId);
@@ -1116,44 +1129,6 @@ function bindNodeClickHandlers(preset: Preset): void {
       if (el.dataset.nodeId && (e.key === "Delete" || e.key === "Backspace")) {
         e.preventDefault();
         el.querySelector<HTMLElement>(".signal-node-delete")?.click();
-      }
-    });
-  });
-}
-
-function bindConnectorDropHandlers(preset: Preset): void {
-  const wrapperElements = signalPathNodesElement?.querySelectorAll(".signal-connector-wrapper");
-  if (!wrapperElements || !preset.graph) {
-    return;
-  }
-
-  wrapperElements.forEach((element) => {
-    const el = element as HTMLElement;
-
-    // FX library items are dragged with pointer events (see beginPointerDrag);
-    // the only native drag that lands here comes from the equipment library.
-    const setHighlight = (highlighted: boolean): void => {
-      el.classList.toggle("drag-over", highlighted);
-      el.querySelector(".signal-connector")?.classList.toggle("drag-over", highlighted);
-    };
-
-    el.addEventListener("dragover", (e: DragEvent) => {
-      if (!Array.from(e.dataTransfer?.types ?? []).includes("application/x-resource-group")) return;
-      e.preventDefault();
-      setHighlight(true);
-      if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
-    });
-
-    el.addEventListener("dragleave", () => {
-      setHighlight(false);
-    });
-
-    el.addEventListener("drop", (e: DragEvent) => {
-      setHighlight(false);
-      const resourceGroupPayload = e.dataTransfer?.getData("application/x-resource-group");
-      if (resourceGroupPayload && preset.graph) {
-        e.preventDefault();
-        handleResourceGroupDrop(resourceGroupPayload, null, false, parseEdgeFromDataset(el));
       }
     });
   });
@@ -1250,27 +1225,13 @@ function bindAddButtonHandlers(): void {
   reanchorAddEffectDropdown();
 }
 
-type ResourceGroupPayload = {
-  groupId: string;
-  title: string;
-  category: string;
-  modelIds: string[];
-  modelMappings?: BlendModelMapping[];
-};
-
 function handleResourceGroupDrop(
-  payloadRaw: string,
+  payload: ResourceGroupDragPayload,
   targetNodeId: string | null,
   updateOnly: boolean,
   edge?: SignalPathEdgeRef | null,
 ): void {
-  let payload: ResourceGroupPayload | null = null;
-  try {
-    payload = JSON.parse(payloadRaw) as ResourceGroupPayload;
-  } catch {
-    payload = null;
-  }
-  if (!payload || !payload.modelIds?.length) {
+  if (!payload.modelIds?.length) {
     return;
   }
 

@@ -375,9 +375,12 @@ a press, or at the wrap if Overdub is held.
     atomic, never by releasing guidance state there.
 - **Armed start.**
   - With the metronome off, the first note is bar 1.
-  - With it running, the layer snaps to the bar line nearest the first note on the
-    latency-corrected grid. That can be up to half a bar back, which the ring already
-    holds.
+  - With it running, the layer snaps to the metronome beat nearest the first note on
+    the latency-corrected grid (changed from the nearest bar line, 2026-10-26: a phrase
+    started on beat 3 began up to half a bar early, in silence). Back to the beat for a
+    late note, which the ring already holds; waiting for it for an early one. A Bars take
+    is whole bars from that beat, and the loop keeps the beat it starts on (`clickBar`).
+    Free and Bars alike; not riff capture (`armedOnTheBeat` off).
 
 ### Staying in time with the click
 
@@ -804,7 +807,7 @@ design.
 | 5 | Plugin builds | Standalone only |
 | 6 | Armed and Bars in v1 | **Decided (rev 2):** yes |
 | 7 | Metronome tempo while a Bars loop or project is loaded | Locked |
-| 8 | Bars + armed with the click running | Snap to the nearest bar line |
+| 8 | Armed with the click running | Snap to the nearest beat (was the nearest bar line) |
 | 9 | After a Bars first layer | Play; Overdub as a setting |
 | 10 | Arm threshold | 12 dB over the measured floor, never below -50 dBFS |
 | 11 | Riff capture | **Decided (rev 3):** re-implement the recorder, extend the library |

@@ -12,7 +12,7 @@
  * knowing its markup.
  */
 
-import { beginPointerDrag, type PointerDragTarget } from "../pointerDrag.js";
+import { TOUCH_DRAG_HOLD_MS, beginPointerDrag, type PointerDragTarget } from "../pointerDrag.js";
 import { uiState } from "../state.js";
 import { presetChooserLabel, presetFolderTreeElement, presetLibraryPopover, presetListElement, setlistSlotsElement } from "./dom.js";
 import { movePresetToFolder } from "./folderControls.js";
@@ -83,6 +83,8 @@ export function beginPresetDrag(event: PointerEvent, source: HTMLElement, source
     sourceSelector,
     previewClass: "preset-drag-preview",
     bodyClass: "preset-dragging",
+    // The list scrolls under a finger that does not rest on a row first.
+    touchHoldMs: TOUCH_DRAG_HOLD_MS,
     resolveTarget: resolvePresetDropTarget,
     setTargetHighlight: (target, highlighted) => target.element.classList.toggle("drag-over", highlighted),
     // After the release rather than during it. A drop on a folder re-renders the list the row came

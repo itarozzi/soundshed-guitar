@@ -460,7 +460,8 @@ A phrase looper docked above the footer (standalone, behind the Looper feature f
 loop, layer overdubs on it (held across the wrap, one layer per pass), and mix, mute, solo,
 balance or remove each layer, with undo and redo. Press or Armed starts, Free or Bars lengths, a
 count-in on the metronome. The metronome is the loop's click: it stops when the loop stops and
-starts again in time with it, and whether it is on is saved with the loop. Each layer keeps its DI and the tone it was played with; a layer can be
+starts again in time with it, and whether it is on is saved with the loop. An Armed take on the
+click starts on the beat nearest the first note. Each layer keeps its DI and the tone it was played with; a layer can be
 re-amped later through another preset, offline, and put back. Loops are saved as looper projects
 in the riff library, an unsaved one is recovered after a crash, a layer exports as a riff or a WAV,
 and a riff comes in as a layer. docs/plans/looper.md is the design.

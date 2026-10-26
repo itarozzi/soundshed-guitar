@@ -35,6 +35,29 @@ export interface BlendEditorOpenDetail {
   sourceNode?: BlendSourceNode;
 }
 
+/**
+ * A press on an equipment library group, with the `ResourceGroupDragStartDetail` to drag. The
+ * library owns the rows but not the graph, so the signal path decides what dropping one means:
+ * a blend of the group's models, in a node's place or on a connection. "fx-pointer-drag-start"
+ * is the FX library's equivalent.
+ */
+export const RESOURCE_GROUP_DRAG_START_EVENT = "resource-group-pointer-drag-start";
+
+/** The equipment library group being dragged onto the chain. */
+export interface ResourceGroupDragPayload {
+  groupId: string;
+  title: string;
+  category: string;
+  modelIds: string[];
+  modelMappings?: BlendModelMapping[];
+}
+
+export interface ResourceGroupDragStartDetail {
+  source: HTMLElement;
+  pointerEvent: PointerEvent;
+  payload: ResourceGroupDragPayload;
+}
+
 export type BlendParamSpec = {
   id: string;
   label: string;

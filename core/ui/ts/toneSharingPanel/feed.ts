@@ -7,6 +7,7 @@
  * rendered over the newer results.
  */
 
+import { getAppSetting } from "../appSettingsStore.js";
 import { escapeHtml, idAccentColor } from "../utils.js";
 import { featureToggleButton, renderToneIconButton } from "./actionButtons.js";
 import { apiFetch, isToneSharingAdmin } from "./api.js";
@@ -15,7 +16,7 @@ import { buildModerationBadge, canFeature, formatCompactMetric, getToneSharingDi
 import { observePackThumbnails } from "./images.js";
 import { buildInstalledToneSharingLookup } from "./presetLinks.js";
 import { requestBrowseReload } from "./refresh.js";
-import { FEATURED_PRESET_MAX, SHOW_TONE_SHARING_STATS, browseCollections, browseState, previewState } from "./state.js";
+import { SHOW_TONE_SHARING_STATS, browseCollections, browseState, previewState, storageKeys } from "./state.js";
 import type { ToneSharingItem, ToneSharingPack, ToneSharingRow } from "./types.js";
 
 let communitySearchTimer: ReturnType<typeof setTimeout> | undefined;
@@ -40,14 +41,33 @@ export function updateCommunityPresetSearchUi(): void {
   clearButton.disabled = browseState.searchQuery.length === 0 && !browseState.tagFilter;
 }
 
+export type FeedLayout = "cards" | "list";
+
+export function getFeedLayout(): FeedLayout {
+  return getAppSetting(storageKeys.feedLayout) === "list" ? "list" : "cards";
+}
+
+/**
+ * Cards or a list. The list is one line per preset or pack, for a small screen to show many
+ * more of them; it is the feed's class, so it holds for every section and re-render.
+ */
+export function applyFeedLayout(): void {
+  const layout = getFeedLayout();
+  element<HTMLElement>("tone-sharing-feed")?.classList.toggle("tone-sharing-feed--list", layout === "list");
+  document.querySelectorAll<HTMLButtonElement>("[data-tone-sharing-layout]").forEach((button) => {
+    button.setAttribute("aria-pressed", button.dataset.toneSharingLayout === layout ? "true" : "false");
+  });
+}
+
 export async function renderFeedRows(rows: ToneSharingRow[], requestVersion = browseState.requestVersion): Promise<void> {
   const feed = element<HTMLElement>("tone-sharing-feed");
   if (!feed) {
     return;
   }
 
-  const useTiledLayout = browseState.mode === "featured" || browseState.mode === "items" || browseState.mode === "packs";
+  const useTiledLayout = browseState.mode === "items" || browseState.mode === "packs";
   feed.classList.toggle("tone-sharing-feed--tiled", useTiledLayout);
+  applyFeedLayout();
   const installedLookup = buildInstalledToneSharingLookup();
   // My Content already has the owner's edit and delete; admins get theirs everywhere else.
   const adminTools = isToneSharingAdmin() && browseState.mode !== "installed";
@@ -178,7 +198,7 @@ export async function renderFeedRows(rows: ToneSharingRow[], requestVersion = br
       );
 
       return `
-        <div class="tone-sharing-row">
+        <div class="tone-sharing-row${row.strip ? " tone-sharing-row--strip" : ""}">
           <div class="tone-sharing-row-title">${escapeHtml(row.title)}</div>
           <div class="tone-sharing-row-track">
             ${itemHtml.join("")}
@@ -277,12 +297,14 @@ export function resetBrowseCollections(): void {
   browseCollections.loadingMore = false;
   browseCollections.items = [];
   browseCollections.packs = [];
+  browseCollections.featuredRows = [];
 }
 
 export async function renderStandardBrowseCollection(): Promise<void> {
   if (browseState.mode === "items") {
     const items = browseCollections.items;
-    if (!items.length && (browseState.searchQuery.trim().length > 0 || browseState.tagFilter)) {
+    const searching = browseState.searchQuery.trim().length > 0 || Boolean(browseState.tagFilter);
+    if (!items.length && searching) {
       const feed = element<HTMLElement>("tone-sharing-feed");
       if (feed) {
         feed.innerHTML = `<div class="tone-sharing-status">No community presets match${browseState.searchQuery.trim() ? ` "${escapeHtml(browseState.searchQuery.trim())}"` : ""}${browseState.tagFilter ? ` with the tag "${escapeHtml(browseState.tagFilter)}"` : ""}.</div>`;
@@ -291,9 +313,12 @@ export async function renderStandardBrowseCollection(): Promise<void> {
       return;
     }
 
-    await renderFeedRows(items.length > 0
-      ? [buildSingleRow(browseState.searchQuery.trim() || browseState.tagFilter ? "Search Results" : "Latest Presets", items, "item")]
-      : []);
+    // Presets opens on the featured packs over the community presets; a search replaces both.
+    const rows = searching ? [] : [...browseCollections.featuredRows];
+    if (items.length > 0) {
+      rows.push(buildSingleRow(searching ? "Search Results" : "Community Presets", items, "item"));
+    }
+    await renderFeedRows(rows);
     return;
   }
 
@@ -309,8 +334,17 @@ export async function loadStandardBrowsePage(page: number, append = false): Prom
   if (browseState.mode === "items") {
     const query = browseState.searchQuery.trim();
     const tagParam = browseState.tagFilter ? `&tag=${encodeURIComponent(browseState.tagFilter)}` : "";
-    const response = await apiFetch<{ page?: number; pageSize?: number; items: ToneSharingItem[] }>(`/items?page=${page}&pageSize=${pageSize}&q=${encodeURIComponent(query)}${tagParam}`);
+    // The featured packs come with the first page of the unsearched results. They are a garnish:
+    // a /home that fails leaves the presets to show on their own.
+    const withFeatured = page === 1 && !append && !query && !browseState.tagFilter;
+    const [response, home] = await Promise.all([
+      apiFetch<{ page?: number; pageSize?: number; items: ToneSharingItem[] }>(`/items?page=${page}&pageSize=${pageSize}&q=${encodeURIComponent(query)}${tagParam}`),
+      withFeatured ? apiFetch<{ rows?: ToneSharingRow[] }>("/home").catch(() => null) : Promise.resolve(null),
+    ]);
     if (requestVersion !== browseState.requestVersion || browseState.mode !== "items" || browseState.activeSharedTarget !== null) return;
+    if (!append) {
+      browseCollections.featuredRows = Array.isArray(home?.rows) ? featuredPackRows(home.rows) : [];
+    }
     browseCollections.page = response.page ?? page;
     browseCollections.pageSize = response.pageSize ?? pageSize;
     browseCollections.items = append ? [...browseCollections.items, ...response.items] : response.items.slice();
@@ -371,53 +405,15 @@ export function buildSingleRow(title: string, entries: Array<{ id: string; title
   };
 }
 
-export function applyFeaturedLayout(rows: ToneSharingRow[]): { rows: ToneSharingRow[]; hiddenPresetCount: number } {
-  const packRows = rows.filter((row) => row.items.some((item) => item.kind === "pack"));
-  const presetRows = rows.filter((row) => row.items.some((item) => item.kind === "item"));
-  const ordered = [...packRows, ...presetRows];
-
-  let remainingPresets = FEATURED_PRESET_MAX;
-  let hiddenPresetCount = 0;
-
-  const nextRows = ordered
-    .map((row) => {
-      const packs = row.items.filter((item) => item.kind === "pack");
-      const presets = row.items.filter((item) => item.kind === "item");
-      const selectedPresets = presets.slice(0, Math.max(remainingPresets, 0));
-      remainingPresets -= selectedPresets.length;
-      hiddenPresetCount += Math.max(0, presets.length - selectedPresets.length);
-
-      const nextItems = [...packs, ...selectedPresets];
-      if (!nextItems.length) {
-        return null;
-      }
-      return {
-        ...row,
-        items: nextItems,
-      };
-    })
-    .filter((row): row is ToneSharingRow => row !== null);
-
-  return { rows: nextRows, hiddenPresetCount };
-}
-
-export function updateFeaturedMoreLink(): void {
-  const ctaRow = element<HTMLElement>("tone-sharing-featured-more");
-  const ctaLabel = element<HTMLElement>("tone-sharing-featured-more-label");
-  if (!ctaRow || !ctaLabel) {
-    return;
-  }
-
-  const shouldShow = browseState.mode === "featured" && browseState.featuredHiddenPresetCount > 0;
-  ctaRow.style.display = shouldShow ? "flex" : "none";
-  if (!shouldShow) {
-    return;
-  }
-
-  const hiddenLabel = browseState.featuredHiddenPresetCount === 1
-    ? "1 preset hidden"
-    : `${browseState.featuredHiddenPresetCount} presets hidden`;
-  ctaLabel.textContent = `${hiddenLabel}. Browse Presets to see everything.`;
+/**
+ * The featured packs of /home, each row a strip: over the presets they are a line to scroll
+ * along, not a grid to scroll past. Its preset rows are left out: Presets lists those itself,
+ * searchable and paged.
+ */
+export function featuredPackRows(rows: ToneSharingRow[]): ToneSharingRow[] {
+  return rows
+    .map((row) => ({ ...row, strip: true, items: row.items.filter((item) => item.kind === "pack") }))
+    .filter((row) => row.items.length > 0);
 }
 
 export function scheduleCommunitySearch(delay = 250): void {

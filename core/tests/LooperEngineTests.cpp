@@ -381,6 +381,7 @@ void TestBarsArmedSnapsToTheNearestBarLine()
         Rig rig;
         const double spb = 48000.0;
         rig.clock.samplesPerBar.store(spb);
+        rig.clock.samplesPerBeat.store(spb / 4.0);
         rig.clock.running.store(true);
         rig.barOrigin = 0.0;
         rig.engine.Settings().lengthBars.store(true);
@@ -409,6 +410,73 @@ void TestBarsArmedSnapsToTheNearestBarLine()
         else
         {
             Check(Rig::DiAt(layers[0], 48000, 0) == 0.4f, "a note just before the bar line: the take starts on it");
+        }
+    }
+}
+
+/// An armed take on a running click starts on the beat nearest its first note, not the bar: a note
+/// played late goes back to its beat, one played early waits for the next, and the loop keeps which
+/// beat it starts on. A free armed take is snapped the same way.
+void TestArmedTakeStartsOnTheNearestBeat()
+{
+    const double spb = 48000.0;
+    const double beat = spb / 4.0;
+    const std::int64_t barLine = 96000;
+
+    for (const bool bars : {true, false})
+    {
+        for (const double beats : {1.3, 1.8})
+        {
+            Rig rig;
+            rig.clock.samplesPerBar.store(spb);
+            rig.clock.samplesPerBeat.store(beat);
+            rig.clock.running.store(true);
+            rig.engine.Settings().lengthBars.store(bars);
+            rig.engine.Settings().bars.store(1);
+            rig.engine.Settings().startArmed.store(true);
+            const auto note = barLine + static_cast<std::int64_t>(beats * beat);
+            const auto onBeat = static_cast<std::int64_t>(std::llround(beats));
+            const auto start = barLine + onBeat * static_cast<std::int64_t>(beat);
+            // Short bursts: the first note, and one 5000 samples after the beat the take starts on.
+            rig.di = [&](std::int64_t t) {
+                return (t >= note && t < note + 1000) || (t >= start + 5000 && t < start + 6000) ? 0.4f : 0.0f;
+            };
+            rig.RunTo(1000);
+            rig.Press(LooperAction::Record);
+
+            if (!bars)
+            {
+                rig.RunTo(start + 30000);
+                rig.Press(LooperAction::Play);
+            }
+
+            rig.RunTo(start + 48000 + 64);
+            const std::string name = std::string(bars ? "Bars" : "free") + ", a note " + std::to_string(beats) + " beats in";
+            const auto layers = rig.Layers();
+            Check(layers.size() == 1, name + ": one layer");
+
+            if (layers.size() != 1)
+            {
+                continue;
+            }
+
+            const auto length = rig.Snap().length;
+            Check(std::abs(rig.Snap().clickBar - static_cast<double>(onBeat) / 4.0) < 1e-9,
+                  name + ": the loop starts on beat " + std::to_string(onBeat + 1) + ": " + std::to_string(rig.Snap().clickBar));
+            Check(Rig::DiAt(layers[0], length, 5000) == 0.4f && Rig::DiAt(layers[0], length, 4999) == 0.0f,
+                  name + ": the take starts on that beat");
+
+            if (note > start - 1)
+            {
+                const auto in = note - start;
+                Check(Rig::DiAt(layers[0], length, in) == 0.4f && Rig::DiAt(layers[0], length, in - 1) == 0.0f,
+                      name + ": the late note sits after the beat, where it was played");
+            }
+
+            if (bars)
+            {
+                Check(length == static_cast<std::int64_t>(spb), name + ": a whole bar long");
+            }
         }
     }
 }
@@ -656,6 +724,7 @@ int main()
     TestArmedStartsOnTheFirstNoteWithPreRoll();
     TestBarsCountsInAndClosesOnTheSample();
     TestBarsArmedSnapsToTheNearestBarLine();
+    TestArmedTakeStartsOnTheNearestBeat();
     TestRingOut();
     TestTunerMutePunchesOutAndKeepsTime();
     TestStopAndClear();

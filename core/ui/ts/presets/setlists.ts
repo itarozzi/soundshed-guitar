@@ -7,6 +7,7 @@ import { generateResourceId } from "../archiveUtils.js";
 import { postMessage } from "../bridge.js";
 import { showConfirm } from "../dialogs.js";
 import { showNotification } from "../notifications.js";
+import { TOUCH_DRAG_HOLD_MS, beginPointerDrag, type PointerDragTarget } from "../pointerDrag.js";
 import { setPresetDirty, uiState } from "../state.js";
 import { setPresetLoadingId } from "../presetLibraryStore.js";
 import type { Setlist } from "../types.js";
@@ -310,7 +311,7 @@ export function renderSetlistPanel(): void {
         const presetName = uiState.presetCache.get(slot.presetId)?.name ?? slot.presetId;
         const isActive = index === cursorIdx ? " active" : "";
         return `
-          <div class="setlist-slot${isActive}" data-slot-index="${index}" draggable="true">
+          <div class="setlist-slot${isActive}" data-slot-index="${index}">
             <span class="setlist-slot-title">${escapeHtml(presetName)}</span>
             <button class="setlist-slot-remove" data-slot-index="${index}" type="button">×</button>
           </div>
@@ -337,35 +338,47 @@ export function renderSetlistPanel(): void {
       }
     });
 
-    slotEl.addEventListener("dragstart", (event) => {
-      const index = slotEl.dataset.slotIndex ?? "";
-      event.dataTransfer?.setData("application/x-setlist-slot", index);
-      event.dataTransfer?.setDragImage(slotEl, 20, 20);
-    });
-
-    // Only a slot's own drag is taken here. Any other (a pack dropped from Explorer) is left for
-    // the global importer; it used to be swallowed, and Number("") is 0, so it moved slot 0.
-    const isSlotDrag = (event: DragEvent): boolean =>
-      Array.from(event.dataTransfer?.types ?? []).includes("application/x-setlist-slot");
-
-    slotEl.addEventListener("dragover", (event) => {
-      if (isSlotDrag(event)) {
-        event.preventDefault();
+    // Reordered by pointer (pointerDrag.ts), so an iPhone, which has no HTML5 drag, can do it.
+    // A pack dropped from Explorer is a native drag, and left for the global importer.
+    slotEl.addEventListener("pointerdown", (event) => {
+      if (!(event.target instanceof Element) || !event.target.closest(".setlist-slot-remove")) {
+        beginSetlistSlotDrag(event, slotEl);
       }
     });
+  });
+}
 
-    slotEl.addEventListener("drop", (event) => {
-      const raw = event.dataTransfer?.getData("application/x-setlist-slot") ?? "";
-      if (!isSlotDrag(event) || raw === "") {
-        return;
+/** A slot a dragged one can land on, with its index read when the pointer reached it. */
+interface SetlistSlotDropTarget extends PointerDragTarget {
+  index: number;
+}
+
+function beginSetlistSlotDrag(event: PointerEvent, slotEl: HTMLElement): void {
+  const fromIndex = Number(slotEl.dataset.slotIndex ?? -1);
+  if (!(fromIndex >= 0)) {
+    return;
+  }
+  beginPointerDrag<SetlistSlotDropTarget>(event, {
+    source: slotEl,
+    sourceSelector: ".setlist-slot",
+    previewClass: "list-drag-preview",
+    touchHoldMs: TOUCH_DRAG_HOLD_MS,
+    autoScroll: setlistSlotsElement,
+    resolveTarget: (moveEvent) => {
+      const element = document.elementFromPoint(moveEvent.clientX, moveEvent.clientY)?.closest<HTMLElement>(".setlist-slot[data-slot-index]");
+      const index = Number(element?.dataset.slotIndex ?? -1);
+      return element && setlistSlotsElement?.contains(element) && index >= 0 && index !== fromIndex
+        ? { element, index }
+        : null;
+    },
+    setTargetHighlight: (target, highlighted) => target.element.classList.toggle("drag-over", highlighted),
+    // After the release, as presets/drag.ts explains: the move re-renders the slots.
+    onDrop: (target) => {
+      if (target) {
+        const toIndex = target.index;
+        window.setTimeout(() => moveSetlistSlot(fromIndex, toIndex), 0);
       }
-      event.preventDefault();
-      const fromIndex = Number(raw);
-      const toIndex = Number(slotEl.dataset.slotIndex ?? -1);
-      if (fromIndex >= 0 && toIndex >= 0) {
-        moveSetlistSlot(fromIndex, toIndex);
-      }
-    });
+    },
   });
 }
 

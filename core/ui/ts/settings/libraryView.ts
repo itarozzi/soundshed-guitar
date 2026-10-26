@@ -230,7 +230,7 @@ export function renderGroupedLibraryView(filtered: LibraryItem[], totalCount: nu
         ? `<span class="equipment-library-used" title="${usedCount} used by presets or blends">${renderIcon("link", "equipment-library-used-icon")}</span>`
         : "";
       return `
-        <div class="results-item equipment-library-item equipment-library-group" draggable="true" data-group-id="${escapeHtml(group.groupId)}">
+        <div class="results-item equipment-library-item equipment-library-group" data-group-id="${escapeHtml(group.groupId)}">
           <div class="results-item-main equipment-library-item-main">
             <div class="results-item-title equipment-library-item-title">${escapeHtml(group.title)}${usedBadge}</div>
             <div class="results-item-meta equipment-library-item-meta">

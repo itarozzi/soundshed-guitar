@@ -331,7 +331,10 @@ nlohmann::json LooperService::BuildState() const
     if (s.barsLoop && samplesPerBar > 1.0)
     {
         state["bars"] = static_cast<int>(std::lround(static_cast<double>(s.length) / samplesPerBar));
-        state["barIndex"] = static_cast<int>(static_cast<double>(s.playhead) / samplesPerBar) + 1;
+        // On the metronome's bar lines, which a loop starting on a later beat is part way into.
+        const int bars = static_cast<int>(std::lround(static_cast<double>(s.length) / samplesPerBar));
+        state["barIndex"] =
+            static_cast<int>(std::floor(s.clickBar + static_cast<double>(s.playhead) / samplesPerBar)) % std::max(1, bars) + 1;
         state["tempoBpm"] = mMetronome.EffectiveTempoBpm();
     }
 
