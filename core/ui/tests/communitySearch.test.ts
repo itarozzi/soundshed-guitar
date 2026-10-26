@@ -6,14 +6,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 // Exercise the feed's private request handlers without booting the native audio bridge.
 const source = ts.createSourceFile("panel.ts", readFileSync(new URL("../ts/toneSharingPanel/feed.ts", import.meta.url), "utf8"), ts.ScriptTarget.Latest, true);
-const names = new Set(["loadStandardBrowsePage", "resetBrowseCollections", "scheduleCommunitySearch"]);
+const names = new Set(["featuredPackRows", "loadStandardBrowsePage", "resetBrowseCollections", "scheduleCommunitySearch"]);
 // `export` is stripped because the extracted text is run as a plain script, not a module.
 const handlers = source.statements.filter(node => ts.isFunctionDeclaration(node) && names.has(node.name?.text ?? "")).map(node => node.getText(source).replace(/^export /, "")).join("\n");
 function harness(apiFetch = vi.fn().mockResolvedValue({ items: [] })) {
   const context = {
     apiFetch, communitySearchTimer: undefined,
-    browseState: { mode: "items", activeSharedTarget: null, featuredHiddenPresetCount: 0, searchQuery: "", tagFilter: "", requestVersion: 0 },
-    browseCollections: { page: 1, pageSize: 36, items: [], packs: [], hasMore: false, loadingMore: false },
+    browseState: { mode: "items", activeSharedTarget: null, searchQuery: "", tagFilter: "", requestVersion: 0 },
+    browseCollections: { page: 1, pageSize: 36, items: [], packs: [], featuredRows: [] as unknown[], hasMore: false, loadingMore: false },
     renderStandardBrowseCollection: vi.fn(), updateBrowseFooter: vi.fn(),
     element: () => ({ innerHTML: "" }), requestBrowseReload: vi.fn(), setTimeout, clearTimeout,
   };
@@ -37,8 +37,46 @@ describe("community search requests", () => {
     context.browseState.searchQuery = "";
     actions.resetBrowseCollections();
     await actions.loadStandardBrowsePage(1);
-    expect(api).toHaveBeenLastCalledWith("/items?page=1&pageSize=36&q=");
+    expect(api).toHaveBeenCalledWith("/items?page=1&pageSize=36&q=");
     expect(context.browseCollections.items).toHaveLength(1);
+  });
+  it("puts the featured packs over the unsearched first page only, without /home's presets", async () => {
+    const home = {
+      rows: [
+        { title: "Latest Packs", items: [{ id: "p1", kind: "pack" }] },
+        { title: "Latest Presets", items: [{ id: "i1", kind: "item" }] },
+        { title: "Mixed", items: [{ id: "i2", kind: "item" }, { id: "p2", kind: "pack" }] },
+      ],
+    };
+    const api = vi.fn(async (path: string) => (path === "/home" ? home : { items: [{ id: "i9" }] }));
+    const { context, actions } = harness(api);
+    await actions.loadStandardBrowsePage(1);
+    expect(api).toHaveBeenCalledWith("/home");
+    expect(context.browseCollections.featuredRows).toEqual([
+      { title: "Latest Packs", strip: true, items: [{ id: "p1", kind: "pack" }] },
+      { title: "Mixed", strip: true, items: [{ id: "p2", kind: "pack" }] },
+    ]);
+
+    await actions.loadStandardBrowsePage(2, true);
+    expect(context.browseCollections.featuredRows).toHaveLength(2);
+    expect(api.mock.calls.filter(([path]) => path === "/home")).toHaveLength(1);
+
+    context.browseState.searchQuery = "plexi";
+    actions.resetBrowseCollections();
+    await actions.loadStandardBrowsePage(1);
+    expect(api.mock.calls.filter(([path]) => path === "/home")).toHaveLength(1);
+    expect(context.browseCollections.featuredRows).toEqual([]);
+  });
+  it("shows the presets alone when /home fails", async () => {
+    const api = vi.fn(async (path: string) => {
+      if (path === "/home") throw new Error("down");
+      return { items: [{ id: "i1" }] };
+    });
+    const { context, actions } = harness(api);
+    await actions.loadStandardBrowsePage(1);
+    expect(context.browseCollections.items).toHaveLength(1);
+    expect(context.browseCollections.featuredRows).toEqual([]);
+    expect(context.renderStandardBrowseCollection).toHaveBeenCalled();
   });
   it("keeps tag filters across pages, combines search, and can remove the tag", async () => {
     const api = vi.fn().mockResolvedValue({ items: [] });

@@ -161,24 +161,6 @@ html[data-density="compact"] #panel-sharing .tone-sharing-feed {
   padding-top: 6px;
 }
 
-html[data-density="compact"] .tone-sharing-featured-more {
-  flex-direction: row;
-  align-items: center;
-  padding: 4px 0;
-  font-size: 12px;
-}
-
-html[data-density="compact"] #tone-sharing-featured-more-label {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-html[data-density="compact"] .tone-sharing-featured-more .tone-sharing-toolbar-btn {
-  flex: none;
-}
-
 /* One line: the field says what it searches. */
 html[data-density="compact"] .tone-sharing-community-search {
   flex-wrap: nowrap;

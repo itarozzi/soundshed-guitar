@@ -1,0 +1,190 @@
+/* ===== Tones: the Cards/List switch, and the list layout =====
+ *
+ * The list is a line per preset or pack: title, its chips and creator, and the
+ * actions at the end. A landscape phone shows four or five cards in the height a
+ * list gives fifteen lines. It is a class on the feed (applyFeedLayout in
+ * ts/toneSharingPanel/feed.ts), so it holds across sections and re-renders. The
+ * rules go through #tone-sharing-feed to outrank the compact card sizes in
+ * css/compact/panels.css, which load after this sheet.
+ */
+
+.tone-sharing-layout-switch {
+  display: flex;
+  flex: none;
+  padding: 2px;
+  gap: 2px;
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-lg);
+  background: var(--bg-control);
+}
+
+.tone-sharing-layout-btn {
+  display: inline-flex;
+  flex: 1 1 0;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 26px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.tone-sharing-layout-btn svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+}
+
+.tone-sharing-layout-btn[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--accent-primary) 22%, var(--bg-secondary));
+  color: var(--text-primary);
+}
+
+.tone-sharing-layout-btn:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 1px;
+}
+
+/* Beside the section chips on a small screen, the icons say it. */
+html[data-density="compact"] .tone-sharing-layout-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+html[data-density="compact"] .tone-sharing-layout-btn {
+  padding: 0 7px;
+}
+
+@media (pointer: coarse) {
+  .tone-sharing-layout-btn {
+    min-height: 32px;
+  }
+}
+
+/* ── Strips: the featured packs over Presets ────────────────────────────────
+ * One line that scrolls sideways in either layout. As a wrapping grid, eight
+ * packs filled a phone's screen before the first preset. */
+
+#tone-sharing-feed .tone-sharing-row--strip .tone-sharing-row-track {
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(168px, 198px);
+  grid-template-columns: none;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  overscroll-behavior-x: contain;
+}
+
+/* Outranks the list's own one-column track below, which would otherwise win as a later rule. */
+#tone-sharing-feed.tone-sharing-feed--list .tone-sharing-row--strip .tone-sharing-row-track {
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(320px, 380px);
+  grid-template-columns: none;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+/* A strip's lines are short: the title and the actions. */
+#tone-sharing-feed.tone-sharing-feed--list .tone-sharing-row--strip .tone-sharing-card-bottom-meta {
+  display: none;
+}
+
+/* ── The list ────────────────────────────────────────────────────────────── */
+
+#tone-sharing-feed.tone-sharing-feed--list .tone-sharing-row-track {
+  grid-auto-flow: row;
+  grid-auto-columns: initial;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+  overflow-x: visible;
+  padding-bottom: 0;
+}
+
+#tone-sharing-feed.tone-sharing-feed--list .tone-sharing-card-item {
+  flex-direction: row;
+  align-items: center;
+  min-height: 0;
+  border-radius: var(--radius-lg);
+}
+
+#tone-sharing-feed.tone-sharing-feed--list .tone-sharing-card-item-content {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px 10px;
+}
+
+#tone-sharing-feed.tone-sharing-feed--list .tone-sharing-card-item-header {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+#tone-sharing-feed.tone-sharing-feed--list .tone-sharing-card-item-title {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#tone-sharing-feed.tone-sharing-feed--list .tone-sharing-card-item-meta {
+  flex: none;
+  flex-wrap: nowrap;
+}
+
+/* A preset's or pack's blurb and tags are for the cards; an installed pack keeps its counts. */
+#tone-sharing-feed.tone-sharing-feed--list :is([data-kind="item"], [data-kind="pack"]) .tone-sharing-card-item-description,
+#tone-sharing-feed.tone-sharing-feed--list .tone-sharing-card-item-description ~ .tone-sharing-card-item-description,
+#tone-sharing-feed.tone-sharing-feed--list .tone-sharing-card-tags,
+#tone-sharing-feed.tone-sharing-feed--list .tone-sharing-card-item-stats {
+  display: none;
+}
+
+#tone-sharing-feed.tone-sharing-feed--list .tone-sharing-card-item-description {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#tone-sharing-feed.tone-sharing-feed--list .tone-sharing-card-bottom-meta {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin: 0 0 0 auto;
+}
+
+#tone-sharing-feed.tone-sharing-feed--list .tone-sharing-card-creator {
+  min-width: 0;
+}
+
+#tone-sharing-feed.tone-sharing-feed--list .tone-sharing-card-item-actions {
+  flex: none;
+  flex-wrap: nowrap;
+  margin: 0;
+  padding: 4px 8px;
+  border-top: 0;
+  background: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* A phone held upright: the title and actions first; the creator goes. */
+@media (max-width: 600px) {
+  #tone-sharing-feed.tone-sharing-feed--list .tone-sharing-card-bottom-meta {
+    display: none;
+  }
+}

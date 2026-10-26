@@ -3,6 +3,7 @@
  * at startup that is not a card action.
  */
 
+import { updateAppSetting } from "../appSettingsStore.js";
 import { showNotification } from "../notifications.js";
 import { STANDARD_TAGS, renderTagChips } from "../presetTags.js";
 import { escapeHtml } from "../utils.js";
@@ -11,13 +12,20 @@ import { setActionButtonBusy, syncFeatureToggleButton, syncPackPreviewButtons } 
 import { confirmAndDelete, openAdminEditModal, refreshAfterAdminChange, setFeatured } from "./adminEdit.js";
 import { downloadAsset } from "./assets.js";
 import { element, setUploadStatus } from "./dom.js";
-import { loadStandardBrowsePage, scheduleCommunitySearch, updateBrowseFooter, updateCommunityPresetSearchUi } from "./feed.js";
+import { applyFeedLayout, loadStandardBrowsePage, scheduleCommunitySearch, updateBrowseFooter, updateCommunityPresetSearchUi } from "./feed.js";
 import { clearPackDetail } from "./packDetail.js";
 import { closePackModal, openPackModal, savePack } from "./packEditor.js";
 import { clearPreviewPreset, previewPreset } from "./preview.js";
 import { closeToneSharingPublishPresetModal, uploadAndPublishItem } from "./publish.js";
 import { clearActiveSharedFilter, copyToneSharingShareLink } from "./shareLinks.js";
-import { browseCollections, browseState } from "./state.js";
+import { browseCollections, browseState, storageKeys } from "./state.js";
+
+/** Presets shows the search's results; an empty search is its default list, under the featured packs. */
+function searchPresets(delay?: number): void {
+  if (browseState.mode === "items" && browseState.activeSharedTarget === null) {
+    scheduleCommunitySearch(delay);
+  }
+}
 
 export function bindTopControls(): void {
   // Account chip opens sign-in modal
@@ -40,7 +48,7 @@ export function bindTopControls(): void {
     tagFilter.addEventListener("change", () => {
       browseState.tagFilter = tagFilter.value;
       updateCommunityPresetSearchUi();
-      if (browseState.mode === "items" && browseState.activeSharedTarget === null) scheduleCommunitySearch(0);
+      searchPresets(0);
     });
   }
   const communitySearchClearButton = element<HTMLButtonElement>("tone-sharing-community-search-clear");
@@ -54,9 +62,7 @@ export function bindTopControls(): void {
 
       browseState.searchQuery = nextValue;
       updateCommunityPresetSearchUi();
-      if (browseState.mode === "items" && browseState.activeSharedTarget === null) {
-        scheduleCommunitySearch();
-      }
+      searchPresets();
     });
   }
   communitySearchClearButton?.addEventListener("click", () => {
@@ -69,13 +75,21 @@ export function bindTopControls(): void {
     browseState.tagFilter = "";
     if (communitySearchInput) {
       communitySearchInput.value = "";
-      communitySearchInput.focus();
+      // Not on a touch screen, where focus brings the keyboard up over the results.
+      if (window.matchMedia?.("(pointer: fine)").matches) {
+        communitySearchInput.focus();
+      }
     }
     updateCommunityPresetSearchUi();
-    if (browseState.mode === "items" && browseState.activeSharedTarget === null) {
-      scheduleCommunitySearch();
-    }
+    searchPresets(0);
   });
+  document.querySelectorAll<HTMLButtonElement>("[data-tone-sharing-layout]").forEach((button) => {
+    button.addEventListener("click", () => {
+      updateAppSetting(storageKeys.feedLayout, button.dataset.toneSharingLayout === "list" ? "list" : "cards");
+      applyFeedLayout();
+    });
+  });
+  applyFeedLayout();
   element<HTMLButtonElement>("tone-sharing-load-more")?.addEventListener("click", () => {
     if (browseCollections.loadingMore || !browseCollections.hasMore || browseState.activeSharedTarget !== null || browseState.mode !== "items") {
       return;
@@ -135,10 +149,6 @@ export function bindTopControls(): void {
         browseCollections.loadingMore = false;
         updateBrowseFooter();
       });
-  });
-  element<HTMLButtonElement>("tone-sharing-featured-more-btn")?.addEventListener("click", () => {
-    const presetsButton = element<HTMLButtonElement>("tone-sharing-browse-items");
-    presetsButton?.click();
   });
   element<HTMLButtonElement>("tone-sharing-signin-modal-close")?.addEventListener("click", () => {
     closeSignInModal();

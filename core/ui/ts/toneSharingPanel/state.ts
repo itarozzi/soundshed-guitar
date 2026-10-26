@@ -13,13 +13,13 @@ import type { BrowseCollectionState, BrowseMode, InstalledPackMetadata, ToneShar
 
 export const storageKeys = {
   sessionId: "toneSharing.sessionId",
+  /** "cards" or "list": how the Tones feed lays out its results. */
+  feedLayout: "toneSharing.feedLayout",
   installedPacks: "toneSharing.installedPacks",
   publishConsent: "toneSharing.publishConsent"
 };
 
 export const TONE_SHARING_PUBLISH_CONSENT_VERSION = 1;
-
-export const FEATURED_PRESET_MAX = 10;
 
 export const SHOW_TONE_SHARING_STATS = false;
 
@@ -38,13 +38,13 @@ export const browseCollections: BrowseCollectionState = {
   loadingMore: false,
   items: [],
   packs: [],
+  featuredRows: [],
 };
 
 /** Which browse tab the panel is showing, and the query behind it. */
 export const browseState = {
-  mode: "featured" as BrowseMode,
+  mode: "items" as BrowseMode,
   activeSharedTarget: null as ToneSharingShareTarget | null,
-  featuredHiddenPresetCount: 0,
   searchQuery: "",
   tagFilter: "",
   /**
