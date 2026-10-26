@@ -7,6 +7,7 @@
 #include "uiclient/NodeLabels.h"
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <utility>
 #include <set>
@@ -278,82 +279,124 @@ void Shell::OpenEffectPicker(const std::string& afterNodeId, const std::string& 
     if (mPickerCategory.empty() || std::find(categories.begin(), categories.end(), mPickerCategory) == categories.end())
         mPickerCategory = categories.front();
 
-    // A category picked, or the one before: the dialog is rebuilt around the new choice.
-    auto show = [this, afterNodeId, replaceNodeId, currentType, offered, categories] {
-        // The categories, wrapped onto as many rows as the dialog needs (widths estimated from
-        // the text: a chip is about 7 px a letter plus its padding).
-        const auto viewSize = mSession.View().size();
-        const float room = DialogWidth(viewSize, 560.0f) - 32.0f;
-        std::vector<Ptr> chipRows;
-        std::vector<Ptr> chips;
-        float used = 0.0f;
+    // The web UI's chooser (fx-selector-panel.html): a title and a search over two columns, the
+    // categories with their counts at the left and the chosen one's effects at the right. Both
+    // columns are slots refilled in place, so the search box keeps its focus while typing.
+    struct PickerState
+    {
+        std::string search;
+        SlotPtr left = MakeSlot();
+        SlotPtr right = MakeSlot();
+        std::function<void()> fill;
+        std::weak_ptr<PickerState> self;
+    };
+    auto state = std::make_shared<PickerState>();
+    auto* s = state.get();
+    s->self = state;
+
+    auto choose = [this, afterNodeId, replaceNodeId, currentType](const std::string& type) {
+        CloseOverlay();
+        if (type == currentType)
+            return; // a model or settings are not reset by accident
+        ExpectAddedNode();
+        if (!replaceNodeId.empty())
+        {
+            // The replacement is a new node; its controls come up.
+            mSession.Commands().ReplaceNode(replaceNodeId, type);
+            return;
+        }
+        if (mPickerEdge)
+            mSession.Commands().AddNodeOnEdge(type, *mPickerEdge);
+        else
+            mSession.Commands().AddNode(type, afterNodeId);
+    };
+
+    s->fill = [this, s, offered, categories, currentType, choose] {
+        const auto lower = [](std::string text) {
+            std::transform(text.begin(), text.end(), text.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            return text;
+        };
+        const auto query = lower(s->search);
+
+        std::vector<Ptr> left;
         for (const auto& id : categories)
         {
+            const auto count = std::count_if(offered.begin(), offered.end(), [&id](const EffectTypeInfo* e) { return e->category == id; });
             const auto* look = mPresentation.Category(id);
-            const std::string label = look != nullptr ? look->name : id;
-            const float width = static_cast<float>(label.size()) * 7.0f + 2.0f * metrics::kPad + 4.0f;
-            if (!chips.empty() && used + width > room)
-            {
-                chips.push_back(Stretch());
-                chipRows.push_back(FixedHeight(40, Row(chips)));
-                chips.clear();
-                used = 0.0f;
-            }
-            used += width;
-            auto chip = std::make_shared<Button>(mTheme, label,
-                                                 [this, id, afterNodeId, replaceNodeId] {
-                                                     mPickerCategory = id;
-                                                     const auto edge = mPickerEdge;
-                                                     OpenEffectPicker(afterNodeId, replaceNodeId);
-                                                     mPickerEdge = edge;
-                                                 },
-                                                 Button::Style::Flat);
-            chip->Selected(id == mPickerCategory).TextSize(metrics::kSmallText);
-            chips.push_back(chip);
-            chips.push_back(HGap(4));
+            auto row = std::make_shared<CategoryRow>(mTheme, mIcons, look != nullptr ? look->icon : std::string("gear"),
+                                                     look != nullptr ? look->name : id, static_cast<int>(count),
+                                                     Theme::Argb(mPresentation.CategoryColour(id)), query.empty() && id == mPickerCategory);
+            row->onClick = [this, s, id] {
+                mPickerCategory = id;
+                s->search.clear();
+                // Refilled once this click is over: the row being clicked is in the column that
+                // the refill replaces, and must outlive its own handler.
+                mSession.View().post([alive = std::weak_ptr<bool>(mAlive), this, weak = s->self] {
+                    const auto state = weak.lock();
+                    if (alive.lock() && state && state->fill)
+                        state->fill();
+                });
+            };
+            left.push_back(row);
+            left.push_back(VGap(2));
         }
-        chips.push_back(Stretch());
-        chipRows.push_back(FixedHeight(40, Row(chips)));
 
-        std::vector<Ptr> rows;
+        std::vector<Ptr> right;
         for (const auto* effect : offered)
         {
-            if (effect->category != mPickerCategory)
+            const bool match = query.empty() ? effect->category == mPickerCategory : lower(effect->name).find(query) != std::string::npos;
+            if (!match)
                 continue;
-            const std::string type = effect->type;
-            const bool current = type == currentType;
-            auto row = std::make_shared<ListRow>(mTheme, effect->name, current ? "Current" : std::string(), current, false,
-                                                 [this, type, afterNodeId, replaceNodeId, current] {
-                                                     CloseOverlay();
-                                                     if (current)
-                                                         return; // a model or settings are not reset by accident
-                                                     if (!replaceNodeId.empty())
-                                                     {
-                                                         // The replacement is a new node; its controls come up.
-                                                         ExpectAddedNode();
-                                                         mSession.Commands().ReplaceNode(replaceNodeId, type);
-                                                         return;
-                                                     }
-                                                     ExpectAddedNode();
-                                                     if (mPickerEdge)
-                                                         mSession.Commands().AddNodeOnEdge(type, *mPickerEdge);
-                                                     else
-                                                         mSession.Commands().AddNode(type, afterNodeId);
-                                                 });
-            row->Icon(&mIcons, mPresentation.IconFor(type, effect->category), Theme::Argb(mPresentation.CategoryColour(effect->category)));
-            rows.push_back(row);
+            const auto* look = mPresentation.Category(effect->category);
+            std::shared_ptr<cycfi::artist::image> thumb;
+            if (effect->requiresResource || !effect->resourceType.empty())
+                thumb = mImages.Find(mPresentation.EquipmentImage(effect->type, effect->category));
+            auto row = std::make_shared<EffectRow>(mTheme, mIcons, mPresentation.IconFor(effect->type, effect->category), thumb, effect->name,
+                                                   look != nullptr ? look->name : effect->category,
+                                                   Theme::Argb(mPresentation.CategoryColour(effect->category)), effect->type == currentType);
+            row->onClick = [choose, type = effect->type] { choose(type); };
+            right.push_back(row);
+            right.push_back(VGap(4));
+        }
+        if (right.empty())
+        {
+            auto none = std::make_shared<Text>(mTheme, "No effects match.", 12.0f);
+            none->Colour(mTheme.TextMuted());
+            right.push_back(FixedHeight(30, PadXY(8, 0, none)));
         }
 
-        std::string title = "Add effect";
-        if (!replaceNodeId.empty() && mState.activePreset)
-            if (const auto* node = mState.activePreset->graph.FindNode(replaceNodeId))
-                title = "Replace " + guitarfx::uiclient::NodeDisplayName(mState, *node);
-        auto heading = std::make_shared<Text>(mTheme, title, 15.0f, Weight::SemiBold);
-        const auto view = mSession.View().size();
-        ShowOverlay(Pad(16, 14, 16, 12,
-                        Col({FixedHeight(30, heading), Col(chipRows), VGap(6), VScroll(Col(rows))})),
-                    DialogWidth(view, 560.0f), std::max(240.0f, view.y - 80.0f));
+        Fill(*s->left, VScroll(Col(left)));
+        Fill(*s->right, VScroll(Pad(0, 0, 10, 0, Col(right))));
+        mSession.View().layout();
+        mSession.View().refresh();
     };
-    show();
+    s->fill();
+
+    std::string title = "ADD EFFECT";
+    if (!replaceNodeId.empty() && mState.activePreset)
+        if (const auto* node = mState.activePreset->graph.FindNode(replaceNodeId))
+            title = Upper("Replace " + guitarfx::uiclient::NodeDisplayName(mState, *node));
+    auto heading = std::make_shared<Text>(mTheme, title, 12.0f, Weight::SemiBold);
+    heading->Colour(mTheme.TextOnDark());
+
+    auto [searchElement, searchBox] = el::input_box("Search effects...", Font(Weight::Regular), 1.0f);
+    searchBox->on_text = [s](std::string_view text) {
+        s->search = std::string(text);
+        s->fill();
+    };
+
+    const auto view = mSession.View().size();
+    const float stageWidth = view.x - metrics::kRailWidth;
+    const float width = std::min(560.0f, stageWidth - 24.0f);
+    const float height = std::min(438.0f, view.y - 60.0f);
+    const float x = metrics::kRailWidth + (stageWidth - width) * 0.5f;
+    const float titleWidth = std::min(width * 0.45f, MeasureTextWidth(title, Font(Weight::SemiBold).size(12.0f)) + 4.0f);
+
+    auto panel = Pad(10, 8, 6, 10,
+                     Col({FixedHeight(30, Row({HGap(4), FixedWidth(titleWidth, heading), HGap(14), el::share(std::move(searchElement)), HGap(4)})),
+                          VGap(10), Row({FixedWidth(156, s->left), HGap(10), s->right})}));
+    ShowPopover(panel, el::rect{x, 2.0f, x + width, 2.0f}, width, height);
+    // The state lives as long as the chooser.
+    mOnOverlayClosed = [state] { state->fill = nullptr; };
 }
 } // namespace nanoq::ui

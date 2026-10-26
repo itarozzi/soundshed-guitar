@@ -17,13 +17,13 @@ void Shell::LoadWithConfirm(const std::string& presetId)
 {
     if (presetId == mState.activePresetId)
     {
-        ShowPage(Page::Effect);
+        ShowPage(Page::Chain);
         return;
     }
 
     const auto load = [this, presetId] {
         mSession.Commands().LoadPreset(presetId);
-        ShowPage(Page::Effect);
+        ShowPage(Page::Chain);
     };
 
     if (!mState.activePresetDirty)

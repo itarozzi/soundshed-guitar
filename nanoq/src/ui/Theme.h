@@ -52,6 +52,15 @@ public:
     [[nodiscard]] el::color Success() const noexcept { return Argb(T().success); }
     [[nodiscard]] el::color Error() const noexcept { return Argb(T().error); }
     [[nodiscard]] el::color Warning() const noexcept { return Argb(T().warning); }
+    [[nodiscard]] el::color Tertiary() const noexcept { return Argb(T().bgTertiary); }
+    [[nodiscard]] el::color Footer() const noexcept { return Argb(T().bgFooter); }
+    [[nodiscard]] el::color Header() const noexcept { return Argb(T().bgHeader); }
+    [[nodiscard]] el::color TextOnDark() const noexcept { return Argb(T().textOnDark); }
+    [[nodiscard]] el::color ControlBorder() const noexcept { return Argb(T().controlBorder); }
+    [[nodiscard]] el::color KnobRingStart() const noexcept { return Argb(T().knobRingStart); }
+    [[nodiscard]] el::color KnobRingEnd() const noexcept { return Argb(T().knobRingEnd); }
+    [[nodiscard]] el::color KnobRingTrack() const noexcept { return Argb(T().knobRingTrack); }
+    [[nodiscard]] el::color ToggleBg() const noexcept { return Argb(T().toggleBg); }
 
     /// The accent as a fill. On the dark themes the token is a bright orange that glares as a
     /// block of colour, so fills take it a fifth of the way into the panel colour.
@@ -95,5 +104,10 @@ inline constexpr float kBarHeight = 48.0f;
 inline constexpr float kRowHeight = 40.0f;
 inline constexpr float kTextSize = 14.0f;
 inline constexpr float kSmallText = 12.0f;
+
+// The web UI's compact rail layout: a 60 px rail, a 40 px preset bar, a 32 px footer.
+inline constexpr float kRailWidth = 60.0f;
+inline constexpr float kTopBarHeight = 40.0f;
+inline constexpr float kFooterHeight = 32.0f;
 } // namespace metrics
 } // namespace nanoq::ui

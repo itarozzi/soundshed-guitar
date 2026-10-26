@@ -11,6 +11,7 @@
 //   click x y          a left click             double x y    a double click
 //   right x y          a right click            move x y      the pointer moves there
 //   drag x1 y1 x2 y2   press, move, release     scroll x y dy a wheel turn (dy > 0 is up)
+//   shot <file.png>    draws the view offscreen into a PNG (works while the window is hidden)
 
 #include <elements.hpp>
 

@@ -38,6 +38,21 @@ void DevDriver::Poll(el::view& view)
 
     for (const auto& line : lines)
     {
+        if (line.rfind("shot ", 0) == 0)
+        {
+            // Drawn offscreen, so it works while the window is hidden or the session is locked
+            // (a GPU window then captures black).
+            const auto size = view.size();
+            cycfi::artist::image img{size.x, size.y};
+            {
+                cycfi::artist::offscreen_image offscreen{img};
+                cycfi::artist::canvas cnv{offscreen.context()};
+                view.draw(cnv);
+            }
+            img.save_png(line.substr(5));
+            continue;
+        }
+
         std::istringstream words(line);
         std::string verb;
         float x = 0.0f, y = 0.0f;

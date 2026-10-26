@@ -74,15 +74,10 @@ Ptr Shell::BuildResourceSlot(const guitarfx::GraphNode& node, const std::string&
     if (name.empty())
         name = optional ? "None" : "Choose...";
 
-    auto heading = std::make_shared<Text>(mTheme, Upper(label), 11.0f, Weight::SemiBold);
-    heading->Colour(mTheme.TextSecondary());
-    std::vector<Ptr> headingRow{heading};
-    if (missing)
-    {
-        auto warning = std::make_shared<Text>(mTheme, "\xE2\x9A\xA0  File missing", 11.0f, Weight::SemiBold);
-        warning->Colour(mTheme.Warning()).Alignment(Text::Align::Right);
-        headingRow.push_back(warning);
-    }
+    // The row the web UI draws (.resource-slot-row): the slot's name in small capitals, previous,
+    // the loaded resource (a tap opens the library, where Browse is too), next, and clear.
+    auto heading = std::make_shared<Text>(mTheme, Upper(label), 9.0f, Weight::SemiBold);
+    heading->Colour(el::rgba(220, 227, 243, 173)).Fixed(true);
 
     // Previous and next wrap round the library; with nothing loaded they start at either end.
     auto step = [this, nodeId, resourceType, resourceIndex](int delta) {
@@ -100,41 +95,23 @@ Ptr Shell::BuildResourceSlot(const guitarfx::GraphNode& node, const std::string&
         };
     };
 
-    auto prev = std::make_shared<Button>(mTheme, "\xE2\x80\xB9", step(-1), Button::Style::Plain);
-    prev->MinWidth(40).TextSize(18).Enabled(!list.empty());
-    auto next = std::make_shared<Button>(mTheme, "\xE2\x80\xBA", step(1), Button::Style::Plain);
-    next->MinWidth(40).TextSize(18).Enabled(!list.empty());
+    auto slate = [this](const char* icon, std::function<void()> onClick, bool enabled) {
+        auto b = std::make_shared<IconButton>(mTheme, mIcons, icon, IconButton::Look::Slate);
+        b->Size(26, 26).IconSize(13).Disabled(!enabled);
+        b->onClick = std::move(onClick);
+        return b;
+    };
 
-    auto choose = std::make_shared<Button>(mTheme, name + "  \xE2\x96\xBE",
-                                           [this, nodeId, resourceType, resourceIndex] {
-                                               OpenResourcePicker(nodeId, resourceType, resourceIndex);
-                                           },
-                                           Button::Style::Plain);
-    choose->Flexible(true).MinWidth(120).Selected(at >= 0);
+    auto choose = std::make_shared<SelectField>(mTheme, mIcons, missing ? name + "  (file missing)" : name, at >= 0 || ref != nullptr, missing);
+    choose->onClick = [this, nodeId, resourceType, resourceIndex] { OpenResourcePicker(nodeId, resourceType, resourceIndex); };
 
-    auto browse = std::make_shared<Button>(mTheme, "Browse...",
-                                           [&commands, nodeId, resourceType, resourceIndex] {
-                                               commands.BrowseNodeResource(nodeId, resourceType, resourceIndex);
-                                           },
-                                           Button::Style::Plain);
-    browse->TextSize(metrics::kSmallText);
+    auto clear = slate("x", [&commands, nodeId, resourceType, resourceIndex] {
+        commands.SetNodeResource(nodeId, resourceType, {}, resourceIndex);
+    }, ref != nullptr);
 
-    std::vector<Ptr> row{prev, HGap(6), choose, HGap(6), next};
-    if (optional)
-    {
-        auto clear = std::make_shared<Button>(mTheme, "\xE2\x9C\x95",
-                                              [&commands, nodeId, resourceType, resourceIndex] {
-                                                  commands.SetNodeResource(nodeId, resourceType, {}, resourceIndex);
-                                              },
-                                              Button::Style::Plain);
-        clear->MinWidth(40).Enabled(ref != nullptr);
-        row.push_back(HGap(6));
-        row.push_back(clear);
-    }
-    row.push_back(HGap(6));
-    row.push_back(browse);
-
-    return Col({FixedHeight(20, Row(headingRow)), VGap(4), FixedHeight(metrics::kRowHeight, Row(row))});
+    return Row({FixedWidth(std::max(46.0f, MeasureTextWidth(Upper(label), Font(Weight::SemiBold).size(9.0f)) + 4.0f), heading), HGap(10),
+                slate("ui-prev", step(-1), !list.empty()), HGap(6), choose, HGap(6), slate("ui-next", step(1), !list.empty()), HGap(6),
+                clear});
 }
 
 void Shell::OpenResourcePicker(const std::string& nodeId, const std::string& resourceType, int resourceIndex)
@@ -196,6 +173,7 @@ void Shell::OpenEnumPicker(const std::string& nodeId, const EffectParamInfo& inf
         }
         MenuItem item{info.labels[i], static_cast<int>(i) == current, false, [this, nodeId, info, i] {
                           mSession.Commands().SetNodeParam(nodeId, info.key, EnumLabelValue(info, i));
+                          NoteChainEdit();
                           Mark(kValues | kPage);
                       }};
         if (i < info.labelSubgroups.size())

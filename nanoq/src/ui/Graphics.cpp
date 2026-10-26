@@ -531,6 +531,30 @@ const SvgIcon* Icons::Find(const std::string& name)
     return it->second ? &*it->second : nullptr;
 }
 
+float MeasureTextWidth(const std::string& text, const el::font_descr& font)
+{
+    // Kept for the life of the process and never destroyed: the drawing backend may already be
+    // gone when static destructors run.
+    static auto* image = new artist::image(1.0f, 1.0f);
+    static auto* offscreen = new artist::offscreen_image(*image);
+    static auto* cnv = new artist::canvas(offscreen->context());
+    return el::measure_text(*cnv, text, font).x;
+}
+
+void Icons::Add(const std::string& name, const std::string& svg)
+{
+    std::optional<SvgIcon> icon;
+    try
+    {
+        icon = ParseSvgIcon(svg);
+    }
+    catch (...)
+    {
+        icon.reset();
+    }
+    mIcons[name] = std::move(icon);
+}
+
 void Icons::Draw(artist::canvas& cnv, const std::string& name, el::rect bounds, el::color colour)
 {
     const auto* icon = Find(name);

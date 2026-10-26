@@ -1,7 +1,10 @@
 #pragma once
 
-// Shell - the frame every page sits in: the top bar, the scene strip, the chain strip, the
-// page, and the transport bar. Soundshed Nano's layout, drawn with Elements.
+// Shell - the frame every page sits in, laid out as the web UI's compact landscape layout
+// (html[data-compact-layout="rail"]): a rail at the left that switches between the Chain and
+// Effect stages (the two halves of the Play tab, which take turns at this size) and opens
+// Settings; the preset bar along the top; the stage; and the footer with its Options sheet.
+// Presets and Settings take the stage's place when open.
 //
 // The UI is rebuilt from the client's state, region by region, rather than patched: what a
 // region shows is a pure function of ClientState, so a change just marks the regions it
@@ -11,8 +14,10 @@
 
 #include "ui/Graphics.h"
 #include "ui/Layout.h"
+#include "ui/ShellWidgets.h"
 #include "ui/UiSession.h"
 #include "ui/Widgets.h"
+#include "uiclient/ChainHistory.h"
 #include "uiclient/ChainLayout.h"
 #include "uiclient/EffectPresentation.h"
 #include "uiclient/PresetBrowse.h"
@@ -28,6 +33,7 @@ namespace nanoq::ui
 {
 enum class Page
 {
+    Chain,
     Effect,
     Presets,
     Settings
@@ -74,7 +80,8 @@ private:
         kTransport = 1u << 4,
         kValues = 1u << 5, // the effect page's slider values only
         kSettings = 1u << 6, // the settings page's controls only
-        kAll = kTopBar | kScenes | kChain | kPage | kTransport
+        kRail = 1u << 7,
+        kAll = kTopBar | kScenes | kChain | kPage | kTransport | kRail
     };
 
     void Mark(unsigned bits)
@@ -87,10 +94,29 @@ private:
     void Rebuild();
 
     // Shell.cpp
+    Ptr BuildRail();
     Ptr BuildTopBar();
     Ptr BuildScenes();
     Ptr BuildTransport();
     Ptr BuildStarting();
+    Ptr BuildChainStage();
+    /// A small panel beside `anchor` (a control's bounds), closed by a tap anywhere else.
+    void ShowPopover(Ptr panel, el::rect anchor, float width, float height, bool above = false);
+    /// A drop-down list under `anchor`, as the web UI's menus open from their buttons.
+    void OpenDropdown(el::rect anchor, std::vector<MenuItem> items, float width = 180.0f);
+    void OpenOptions(el::rect anchor);
+    void OpenNewPresetMenu(el::rect anchor);
+    void LoadRandomPreset();
+
+    // The chain's undo/redo and A/B (ShellFrame.cpp), as the web UI's footer (history.ts).
+    /// An edit happened, or may have: the chain is compared and recorded once it stays still.
+    void NoteChainEdit();
+    void CommitChainHistory();
+    void ApplyChainSnapshot(const guitarfx::uiclient::ChainSnapshot& target);
+    void UndoChain();
+    void RedoChain();
+    void SetChainSlot(guitarfx::uiclient::ChainHistory::Slot slot);
+    void CopyChainSlot();
     void ShowPage(Page page);
     void SelectNode(const std::string& nodeId);
     void EnsureSelection();
@@ -152,9 +178,10 @@ private:
     void OpenTuner();
     void OpenMetronome();
     void OpenControls();
+    void OpenGlobalEq(el::rect anchor); // Controls.cpp
 
     // Menus.cpp
-    void OpenPresetMenu();
+    void OpenPresetMenu(std::optional<el::rect> anchor = std::nullopt);
     void OpenNodeMenu(const std::string& nodeId);
     void RenameNodeWithPrompt(const std::string& nodeId);
     void SaveActivePreset(bool asNew);
@@ -168,9 +195,15 @@ private:
     Images mImages;
 
     Ptr mRoot;
-    SlotPtr mBgSlot, mTopSlot, mSceneSlot, mChainSlot, mPageSlot, mTransportSlot;
+    SlotPtr mBgSlot, mRailSlot, mTopSlot, mSceneSlot, mChainSlot, mPageSlot, mTransportSlot;
 
-    Page mPage = Page::Effect;
+    Page mPage = Page::Chain;
+    bool mWrapChain = true; // the web UI's signalPathWrapCompact, on unless turned off
+
+    guitarfx::uiclient::ChainHistory mHistory;
+    std::string mHistoryContext;     // presetId::sceneId the stacks describe; a change re-seeds them
+    double mHistoryCommitAt = 0.0;   // when to compare the chain again, 0 for no pending edit
+    double mHistorySettleUntil = 0.0; // the engine's echo of a restore is not a new edit until then
     std::string mSelectedNode;
     bool mShowAdvanced = false;
     unsigned mDirty = kAll;
@@ -189,15 +222,17 @@ private:
     struct ParamControl
     {
         guitarfx::uiclient::EffectParamInfo info;
-        std::shared_ptr<ParamKnob> knob;
-        std::shared_ptr<Button> toggle; // toggles and enums
+        std::shared_ptr<ParamKnob> knob;      // continuous values, and enums short enough to turn through
+        std::shared_ptr<ParamToggle> toggle;  // on/off
+        std::shared_ptr<IconButton> picker;   // an enum the engine asks to show as a list
     };
 
     std::string mEffectSignature;
     std::string mSceneSignature;
     std::vector<ParamControl> mControls;
     std::vector<std::function<void()>> mSettingsSyncs; // the settings page's controls, patched in place
-    std::shared_ptr<Button> mBypass;
+    std::shared_ptr<PowerSwitch> mBypass;
+    std::shared_ptr<HeaderLed> mHeaderLed;
 
     // The meters, and the labels beside them.
     std::shared_ptr<MeterBar> mInMeter, mOutMeter;

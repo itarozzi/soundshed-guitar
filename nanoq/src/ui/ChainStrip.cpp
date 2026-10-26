@@ -17,6 +17,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <map>
 
 namespace nanoq::ui
 {
@@ -33,6 +34,17 @@ struct Segment
     float width = 0.0f;
     float height = kCardHeight;
 };
+
+/// A node class's accent on the chain (css/signal-path/nodes.css, .signal-node.amp and the rest):
+/// not the library's category colours, which are brighter.
+el::color NodeAccent(const std::string& nodeClass)
+{
+    static const std::map<std::string, std::uint32_t> kAccents{
+        {"amp", 0xf0a24c},        {"cab", 0xaeb9d0},   {"eq", 0x61b4d6},     {"dynamics", 0xcf7575},
+        {"modulation", 0x8c79db}, {"delay", 0x64c2aa}, {"reverb", 0x7fa4ee}, {"utility", 0x97a1b4}};
+    const auto it = kAccents.find(nodeClass);
+    return Theme::Argb(0xff000000u | (it != kAccents.end() ? it->second : 0x97a1b4u));
+}
 } // namespace
 
 std::string Shell::ChainSignature() const
@@ -94,7 +106,8 @@ Ptr Shell::BuildChain()
         {
             look.name = input ? "Input" : "Output";
             look.icon = input ? "guitar" : "output";
-            look.tint = input ? mTheme.Success() : mTheme.TextSecondary();
+            // --node-input and --node-output.
+            look.tint = input ? mTheme.Success() : el::rgba(104, 136, 168, 255);
             look.width = kBoundaryWidth;
             look.canBypass = false;
             look.boundary = input ? NodeCard::Boundary::Input : NodeCard::Boundary::Output;
@@ -113,7 +126,7 @@ Ptr Shell::BuildChain()
                 look.detail.clear();
             look.badge = NodeArchitectureBadge(mState, *node);
             look.icon = mPresentation.IconFor(node->type, category);
-            look.tint = Theme::Argb(mPresentation.CategoryColour(category));
+            look.tint = NodeAccent(mPresentation.NodeClass(category));
             look.enabled = node->enabled;
             look.missing = isMissing(nodeId);
             look.canBypass = !IsMixerType(node->type) && !IsSplitterType(node->type);
@@ -243,9 +256,10 @@ Ptr Shell::BuildChain()
         segments.push_back(std::move(output));
     }
 
-    // ── Lines: as many segments as fit the width, never fewer than one ──
-    const float viewWidth = mSession.View().size().x;
-    const float room = std::max(200.0f, viewWidth - 2.0f * kSidePad - 2.0f * kWireEndWidth);
+    // ── Lines: as many segments as fit the width, never fewer than one; one line, scrolling
+    // sideways, with the wrap switched off ──
+    const float viewWidth = mSession.View().size().x - metrics::kRailWidth;
+    const float room = mWrapChain ? std::max(200.0f, viewWidth - 2.0f * kSidePad - 2.0f * kWireEndWidth) : 1e9f;
 
     struct Line
     {
@@ -264,14 +278,20 @@ Ptr Shell::BuildChain()
         line.height = std::max(line.height, segment.height);
     }
 
-    // Each line starts at the same place, with room for the cable in on the left.
+    // The lines are centred as one block, as the web UI centres the chain in its stage; each line
+    // starts at the same place, with room for the cable in on the left.
+    float widest = 0.0f;
+    for (const auto& line : lines)
+        widest = std::max(widest, line.width);
+    const float indent = std::max(kSidePad, (viewWidth - widest - 2.0f * kWireEndWidth) * 0.5f);
+
     std::vector<Ptr> rows;
     float total = 0.0f;
     for (std::size_t i = 0; i < lines.size(); ++i)
     {
         const auto& line = lines[i];
         const bool first = i == 0, last = i + 1 == lines.size();
-        std::vector<Ptr> row{HGap(kSidePad)};
+        std::vector<Ptr> row{HGap(indent)};
         row.push_back(first ? HGap(kWireEndWidth) : std::static_pointer_cast<el::element>(std::make_shared<WireEnd>(mTheme, false)));
         for (const auto* segment : line.segments)
             for (const auto& part : segment->parts)
@@ -284,22 +304,27 @@ Ptr Shell::BuildChain()
 
         if (!last)
         {
-            const float from = kSidePad + kWireEndWidth + line.width + kWireEndWidth * 0.5f;
-            const float to = kSidePad + kWireEndWidth * 0.5f;
+            const float from = indent + kWireEndWidth + line.width + kWireEndWidth * 0.5f;
+            const float to = indent + kWireEndWidth * 0.5f;
             rows.push_back(std::make_shared<ReturnRoute>(mTheme, from, to));
             total += kRouteHeight;
         }
     }
 
-    // As tall as its lines, up to 40% of the window (the effect page needs the rest); it scrolls
-    // beyond that.
-    const float content = total + 24.0f;
-    const float height = std::min(content, std::max(kCardHeight + 24.0f, mSession.View().size().y * 0.4f));
-    Ptr body = PadXY(0, 12, Col(rows));
-    if (content > height)
-        body = VScroll(body);
+    // The block sits in the middle of the stage, between the scene chips and the add button; it
+    // scrolls when taller than that, and sideways when the wrap is off.
     SyncChainLights();
-    return FixedHeight(height, Fill(mTheme.Panel(), body));
+    const float stageHeight = mSession.View().size().y - metrics::kTopBarHeight - metrics::kFooterHeight - 24.0f - 44.0f;
+    if (!mWrapChain)
+    {
+        const float lineWidth = 2.0f * indent + 2.0f * kWireEndWidth + widest;
+        auto block = FixedWidth(lineWidth, Col(rows));
+        return Col({std::make_shared<el::element>(), FixedHeight(total + 24.0f, HScroll(PadXY(0, 12, block))),
+                    std::make_shared<el::element>()});
+    }
+    if (total + 24.0f > stageHeight)
+        return VScroll(PadXY(0, 12, Col(rows)));
+    return Col({std::make_shared<el::element>(), FixedHeight(total, Col(rows)), std::make_shared<el::element>()});
 }
 
 void Shell::SyncChainLights()

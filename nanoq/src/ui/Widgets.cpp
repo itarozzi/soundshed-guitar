@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdio>
 
 namespace nanoq::ui
 {
@@ -363,10 +364,11 @@ void ParamSlider::Update(double normalised, std::string valueText)
 
 namespace
 {
-constexpr float kKnobCellWidth = 84.0f;
-constexpr float kKnobNameHeight = 18.0f;
-constexpr float kKnobValueHeight = 18.0f;
-constexpr float kKnobDiameter = 46.0f;
+// The web UI's node-param-group: a 9 px capital label, a 34 px knob, a 10 px value.
+constexpr float kKnobCellWidth = 60.0f;
+constexpr float kKnobNameHeight = 12.0f;
+constexpr float kKnobValueHeight = 13.0f;
+constexpr float kKnobDiameter = 34.0f;
 constexpr float kKnobDragPixels = 200.0f;
 // A 270 degree sweep, open at the bottom: 7 o'clock round to 5 o'clock.
 constexpr float kKnobStart = 3.14159265f * 0.75f;
@@ -377,7 +379,7 @@ ParamKnob::ParamKnob(const Theme& theme, std::string name) : mTheme(theme), mNam
 
 el::view_limits ParamKnob::limits(const el::basic_context&) const
 {
-    const float h = kKnobNameHeight + kKnobDiameter + kKnobValueHeight + 10.0f;
+    const float h = kKnobNameHeight + kKnobDiameter + kKnobValueHeight + 4.0f;
     return {{kKnobCellWidth, h}, {kKnobCellWidth, h}};
 }
 
@@ -385,29 +387,33 @@ void ParamKnob::draw(const el::context& ctx)
 {
     auto& cnv = ctx.canvas;
     const auto b = ctx.bounds;
-    const auto font = Font(Weight::Medium).size(metrics::kSmallText);
+    const bool light = mTheme.IsLight();
+    // The web UI's .node-param-label and .node-param-value.
+    const auto labelFont = Font(Weight::SemiBold).size(9.0f);
+    const auto valueFont = Font(Weight::SemiBold).size(10.0f);
+    const el::color labelInk = light ? mTheme.TextSecondary() : el::rgba(201, 209, 225, 184);
+    const el::color valueInk = light ? mTheme.Text() : el::rgba(231, 236, 246, 194);
 
-    const auto nameBounds = el::rect{b.left, b.top + 2.0f, b.right, b.top + 2.0f + kKnobNameHeight};
-    FillText(cnv, Ellipsize(cnv, mName, font, nameBounds.width() - 4.0f), font, mTheme.TextSecondary(), nameBounds,
+    const auto nameBounds = el::rect{b.left, b.top, b.right, b.top + kKnobNameHeight};
+    FillText(cnv, Ellipsize(cnv, Upper(mName), labelFont, nameBounds.width() + 6.0f), labelFont, labelInk, nameBounds,
              Text::Align::Centre);
 
     const float cx = (b.left + b.right) * 0.5f;
-    const float cy = nameBounds.bottom + 4.0f + kKnobDiameter * 0.5f;
+    const float cy = nameBounds.bottom + 2.0f + kKnobDiameter * 0.5f;
     const float r = kKnobDiameter * 0.5f;
     const float v = static_cast<float>(std::clamp(mValue, 0.0, 1.0));
 
-    // The groove, and the travel in the accent (from the left end, or from the centre of a
-    // bipolar control: the default sitting at the middle).
-    constexpr float kArcWidth = 4.0f;
+    // The ring: a faint track all the way round, and the travel over it, shading from the ring's
+    // start colour into its end colour as the web UI's conic gradient does (from the left end, or
+    // from the centre of a bipolar control: the default sitting at the middle).
+    constexpr float kArcWidth = 3.0f;
     const float arcR = r - kArcWidth * 0.5f;
     {
         auto state = cnv.new_state();
         cnv.line_width(kArcWidth);
-        cnv.line_cap(canvas::round);
-
-        cnv.stroke_style(mTheme.Input());
+        cnv.stroke_style(mTheme.KnobRingTrack());
         cnv.begin_path();
-        cnv.arc(cx, cy, arcR, kKnobStart, kKnobStart + kKnobSweep);
+        cnv.arc(cx, cy, arcR, 0.0f, 2.0f * 3.14159265f);
         cnv.stroke();
 
         const float from = (mDefault > 0.4 && mDefault < 0.6) ? static_cast<float>(mDefault) : 0.0f;
@@ -415,19 +421,37 @@ void ParamKnob::draw(const el::context& ctx)
         const float hi = std::max(from, v);
         if (hi - lo > 0.002f)
         {
-            cnv.stroke_style(mTheme.AccentFill());
-            cnv.begin_path();
-            cnv.arc(cx, cy, arcR, kKnobStart + kKnobSweep * lo, kKnobStart + kKnobSweep * hi);
-            cnv.stroke();
+            const auto start = mTheme.KnobRingStart(), end = mTheme.KnobRingEnd();
+            constexpr int kSteps = 24;
+            for (int i = 0; i < kSteps; ++i)
+            {
+                const float t0 = lo + (hi - lo) * static_cast<float>(i) / kSteps;
+                const float t1 = lo + (hi - lo) * static_cast<float>(i + 1) / kSteps;
+                // The shade follows the position on the dial, not the slice of travel drawn.
+                const float mix = std::clamp(t1 / std::max(0.001f, hi), 0.0f, 1.0f);
+                cnv.stroke_style(el::color{start.red + (end.red - start.red) * mix, start.green + (end.green - start.green) * mix,
+                                           start.blue + (end.blue - start.blue) * mix, 1.0f});
+                cnv.begin_path();
+                cnv.arc(cx, cy, arcR, kKnobStart + kKnobSweep * t0, kKnobStart + kKnobSweep * t1 + 0.01f);
+                cnv.stroke();
+            }
         }
     }
 
-    // The cap, with its pointer.
-    const float capR = r - kArcWidth - 3.0f;
-    cnv.fill_style((mDragging || mHover) ? mTheme.Elevated() : mTheme.Card());
-    cnv.add_circle(cycfi::artist::circle(el::point{cx, cy}, capR));
-    cnv.fill();
-    cnv.stroke_style(mTheme.BorderStrong());
+    // The cap: a dark dome inside the ring, with a white pointer.
+    const float capR = r - kArcWidth - 1.5f;
+    {
+        auto state = cnv.new_state();
+        cycfi::artist::canvas::radial_gradient dome{el::point{cx, cy - capR * 0.4f}, 0.0f, el::point{cx, cy}, capR};
+        const auto top = light ? el::rgba(250, 250, 252, 255) : el::rgba(58, 58, 68, 255);
+        const auto bottom = light ? el::rgba(214, 216, 224, 255) : el::rgba(22, 22, 28, 255);
+        dome.add_color_stop(0.0f, (mDragging || mHover) ? top.level(1.15f) : top);
+        dome.add_color_stop(1.0f, bottom);
+        cnv.fill_style(dome);
+        cnv.add_circle(cycfi::artist::circle(el::point{cx, cy}, capR));
+        cnv.fill();
+    }
+    cnv.stroke_style(light ? el::rgba(0, 0, 0, 40) : el::rgba(0, 0, 0, 140));
     cnv.line_width(1.0f);
     cnv.add_circle(cycfi::artist::circle(el::point{cx, cy}, capR));
     cnv.stroke();
@@ -436,17 +460,17 @@ void ParamKnob::draw(const el::context& ctx)
     const float c = std::cos(angle), s = std::sin(angle);
     {
         auto state = cnv.new_state();
-        cnv.stroke_style(mTheme.Text());
-        cnv.line_width(2.5f);
+        cnv.stroke_style(light ? mTheme.Text() : el::rgba(240, 240, 248, 255));
+        cnv.line_width(2.0f);
         cnv.line_cap(canvas::round);
         cnv.begin_path();
-        cnv.move_to(cx + c * capR * 0.35f, cy + s * capR * 0.35f);
+        cnv.move_to(cx + c * capR * 0.40f, cy + s * capR * 0.40f);
         cnv.line_to(cx + c * capR * 0.85f, cy + s * capR * 0.85f);
         cnv.stroke();
     }
 
-    const auto valueBounds = el::rect{b.left, b.bottom - kKnobValueHeight - 2.0f, b.right, b.bottom - 2.0f};
-    FillText(cnv, Ellipsize(cnv, mValueText, font, valueBounds.width() - 4.0f), font, mTheme.Text(), valueBounds,
+    const auto valueBounds = el::rect{b.left, b.bottom - kKnobValueHeight, b.right, b.bottom};
+    FillText(cnv, Ellipsize(cnv, mValueText, valueFont, valueBounds.width() + 6.0f), valueFont, valueInk, valueBounds,
              Text::Align::Centre);
 }
 
@@ -559,6 +583,8 @@ MeterBar::MeterBar(const Theme& theme) : mTheme(theme) {}
 
 el::view_limits MeterBar::limits(const el::basic_context&) const
 {
+    if (mVertical)
+        return {{30.0f, 84.0f}, {30.0f, 84.0f}};
     return {{60.0f, 8.0f}, {el::full_extent, 8.0f}};
 }
 
@@ -566,6 +592,35 @@ void MeterBar::draw(const el::context& ctx)
 {
     auto& cnv = ctx.canvas;
     const auto b = ctx.bounds;
+    if (mVertical)
+    {
+        // The peak over a column of eight segments, lit from the bottom: green, then amber in
+        // the top two, red when it clips.
+        std::string text = "-\xE2\x88\x9E dB"; // -inf
+        if (mPeakDb > -60.0)
+        {
+            char number[16];
+            std::snprintf(number, sizeof(number), "%.0f dB", mPeakDb);
+            text = number;
+        }
+        FillText(cnv, text, Font(Weight::SemiBold).size(9.0f), mTheme.TextSecondary(), el::rect{b.left - 6.0f, b.top, b.right + 6.0f, b.top + 12.0f},
+                 Text::Align::Centre);
+        constexpr int kSegments = 8;
+        const float level = static_cast<float>(std::clamp((mPeakDb + 60.0) / 60.0, 0.0, 1.0));
+        const int lit = static_cast<int>(std::ceil(level * kSegments - 0.01f));
+        const float top = b.top + 16.0f, h = (b.bottom - top) / kSegments;
+        const float cx = (b.left + b.right) * 0.5f;
+        for (int i = 0; i < kSegments; ++i)
+        {
+            const el::rect seg{cx - 6.0f, b.bottom - (i + 1) * h + 1.0f, cx + 6.0f, b.bottom - i * h - 1.0f};
+            el::color colour = el::rgba(46, 46, 56, 255);
+            if (i < lit)
+                colour = mClipped ? mTheme.Error() : (i >= kSegments - 2 ? mTheme.Warning() : mTheme.Success());
+            cnv.fill_style(colour);
+            cnv.fill_round_rect(seg, 1.5f);
+        }
+        return;
+    }
     cnv.fill_style(mTheme.Input());
     cnv.fill_round_rect(b, b.height() * 0.5f);
 
@@ -581,8 +636,9 @@ void MeterBar::draw(const el::context& ctx)
 
 bool MeterBar::Set(double peakDb, bool clipped)
 {
-    // Quarter-decibel steps are invisible; skipping them saves a redraw per frame.
-    const bool changed = std::abs(peakDb - mPeakDb) >= 0.25 || clipped != mClipped;
+    // Quarter-decibel steps are invisible (a whole decibel, read as a number); skipping them
+    // saves a redraw per frame.
+    const bool changed = std::abs(peakDb - mPeakDb) >= (mVertical ? 1.0 : 0.25) || clipped != mClipped;
     if (changed)
     {
         mPeakDb = peakDb;

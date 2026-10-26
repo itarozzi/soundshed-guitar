@@ -1,5 +1,6 @@
 #include "ui/Shell.h"
 
+#include "ui/ShellIcons.h"
 #include "uiclient/NodeLabels.h"
 
 #include <algorithm>
@@ -9,36 +10,6 @@ namespace nanoq::ui
 {
 using guitarfx::uiclient::Topic;
 
-namespace
-{
-constexpr float kBarHeight = 56.0f;
-
-// The web UI's settings for the demo clip, shared with Soundshed Guitar and Nano.
-constexpr const char* kDemoClipSetting = "demoAudio.selectedId";
-constexpr const char* kDemoRenderRateSetting = "demoAudio.renderSampleRate";
-constexpr const char* kDemoRepeatSetting = "nativeUi.demoRepeat";
-
-bool BoolSetting(const nlohmann::json& settings, const char* key, bool fallback)
-{
-    return settings.contains(key) && settings[key].is_boolean() ? settings[key].get<bool>() : fallback;
-}
-
-double NumberSetting(const nlohmann::json& settings, const char* key, double fallback)
-{
-    return settings.contains(key) && settings[key].is_number() ? settings[key].get<double>() : fallback;
-}
-
-std::string PresetTitle(const guitarfx::uiclient::ClientState& state)
-{
-    if (const auto* summary = state.FindPresetSummary(state.activePresetId))
-        return summary->name;
-    if (state.activePreset && !state.activePreset->name.empty())
-        return state.activePreset->name;
-    return "No preset";
-}
-} // namespace
-
-
 Shell::Shell(UiSession& session)
     : mSession(session), mState(session.Client().MutableState()), mTheme(session.GetTheme()),
       mIcons(session.GetEngine().GetBundledAssetsPath() / "ui" / "images" / "icons"),
@@ -47,6 +18,7 @@ Shell::Shell(UiSession& session)
     // The effect icons, colours and artwork: one table for every UI (core/ui/data/effect-presentation.json).
     mPresentation = guitarfx::uiclient::EffectPresentation::Load(session.GetEngine().GetBundledAssetsPath() / "ui" / "data" /
                                                                   "effect-presentation.json");
+    AddShellIcons(mIcons);
     ApplyElementsTheme();
     BuildRoot();
     Subscribe();
@@ -85,21 +57,26 @@ void Shell::Subscribe()
     on(Topic::GlobalChain, kTransport);
     on(Topic::Mixer, kTransport);
     on(Topic::Demo, kTransport);
+
+    // Every change the engine reports to the preset may be an edit for the chain's history.
+    mSubscriptions.push_back(client.Subscribe(Topic::ActivePreset, [this] { NoteChainEdit(); }));
 }
 
 void Shell::BuildRoot()
 {
+    mRailSlot = MakeSlot();
     mTopSlot = MakeSlot();
     mSceneSlot = MakeSlot();
     mChainSlot = MakeSlot();
     mPageSlot = MakeSlot();
     mTransportSlot = MakeSlot();
 
-    // The page stretches between the bars at either end; the background is its own slot because
-    // a theme change repaints it.
+    // The rail down the left; beside it the preset bar, the stage and the footer. The stage
+    // stretches between the bars; the background is its own slot because a theme change
+    // repaints it.
     mBgSlot = MakeSlot();
     Fill(*mBgSlot, el::share(el::box(mTheme.Background())));
-    mRoot = Over(Col({mTopSlot, mSceneSlot, mChainSlot, mPageSlot, mTransportSlot}), mBgSlot);
+    mRoot = Over(Row({FixedWidth(metrics::kRailWidth, mRailSlot), Col({mTopSlot, mPageSlot, mTransportSlot})}), mBgSlot);
 }
 
 void Shell::Rebuild()
@@ -119,6 +96,7 @@ void Shell::Rebuild()
     {
         if (!mShowingStarting)
         {
+            Fill(*mRailSlot, Fill(mTheme.Bar(), std::make_shared<el::element>()));
             Fill(*mTopSlot, std::make_shared<el::element>());
             Fill(*mSceneSlot, std::make_shared<el::element>());
             Fill(*mChainSlot, std::make_shared<el::element>());
@@ -178,6 +156,8 @@ void Shell::Rebuild()
             mSceneSignature = signature;
     }
 
+    if (mDirty & kRail)
+        Fill(*mRailSlot, BuildRail());
     if (mDirty & kTopBar)
         Fill(*mTopSlot, BuildTopBar());
     if (mDirty & kScenes)
@@ -188,6 +168,9 @@ void Shell::Rebuild()
     {
         switch (mPage)
         {
+        case Page::Chain:
+            Fill(*mPageSlot, BuildChainStage());
+            break;
         case Page::Effect:
             Fill(*mPageSlot, BuildEffectPage());
             break;
@@ -206,7 +189,7 @@ void Shell::Rebuild()
     if ((mDirty & kSettings) && mPage == Page::Settings)
         SyncSettings();
 
-    const bool structural = (mDirty & (kTopBar | kScenes | kChain | kPage | kTransport)) != 0;
+    const bool structural = (mDirty & (kTopBar | kScenes | kChain | kPage | kTransport | kRail)) != 0;
     mDirty = 0;
 
     if (structural)
@@ -218,6 +201,8 @@ void Shell::Rebuild()
 
 void Shell::OnTick()
 {
+    if (mHistoryCommitAt > 0.0 && UiSession::Now() >= mHistoryCommitAt)
+        CommitChainHistory();
     if (mDirty != 0)
         Rebuild();
 
@@ -297,7 +282,7 @@ void Shell::SelectAddedNode()
             mSelectAddedUntil = 0.0;
             mSelectedNode = node.id;
             mPage = Page::Effect;
-            mDirty |= kChain | kPage | kTopBar;
+            mDirty |= kChain | kPage | kTopBar | kRail;
             mChainSignature.clear();
             return;
         }
@@ -308,7 +293,7 @@ void Shell::SelectNode(const std::string& nodeId)
 {
     mSelectedNode = nodeId;
     mPage = Page::Effect;
-    Mark(kChain | kPage | kTopBar);
+    Mark(kChain | kPage | kTopBar | kRail);
     mChainSignature.clear();
 }
 
@@ -317,50 +302,16 @@ void Shell::ShowPage(Page page)
     if (page == mPage)
         return;
     mPage = page;
-    Mark(kTopBar | kPage);
+    Mark(kTopBar | kPage | kRail);
 }
 
-// ── The top bar ─────────────────────────────────────────────────────────────────
+// ── Starting ────────────────────────────────────────────────────────────────────
 
 Ptr Shell::BuildStarting()
 {
     auto text = std::make_shared<Text>(mTheme, "Starting the engine...", 16.0f, Weight::Medium);
     text->Colour(mTheme.TextMuted()).Alignment(Text::Align::Centre);
     return Fill(mTheme.Background(), el::share(el::align_center(el::align_middle(el::hold_any(text)))));
-}
-
-Ptr Shell::BuildTopBar()
-{
-    auto& commands = mSession.Commands();
-    const bool dirty = mState.activePresetDirty;
-
-    auto prev = std::make_shared<Button>(mTheme, "\xE2\x80\xB9", [&commands] { commands.StepPreset(-1); }, Button::Style::Flat);
-    prev->MinWidth(40).TextSize(20);
-    auto next = std::make_shared<Button>(mTheme, "\xE2\x80\xBA", [&commands] { commands.StepPreset(1); }, Button::Style::Flat);
-    next->MinWidth(40).TextSize(20);
-
-    auto name = std::make_shared<Button>(mTheme, PresetTitle(mState), [this] { ShowPage(Page::Presets); },
-                                         Button::Style::Flat);
-    name->MinWidth(260).Selected(mPage == Page::Presets);
-
-    // Save: a user preset is overwritten, a factory one is saved as a copy (SaveActivePreset).
-    auto save = std::make_shared<Button>(mTheme, dirty ? "Save" : "Saved", [this] { SaveActivePreset(false); },
-                                         dirty ? Button::Style::Primary : Button::Style::Plain);
-    save->Enabled(dirty).MinWidth(72);
-
-    auto more = std::make_shared<Button>(mTheme, "⋯", [this] { OpenPresetMenu(); }, Button::Style::Flat);
-    more->MinWidth(44).TextSize(20);
-
-    auto tab = [this](const char* label, Page page) {
-        auto b = std::make_shared<Button>(mTheme, label, [this, page] { ShowPage(page); }, Button::Style::Flat);
-        b->Selected(mPage == page).MinWidth(84);
-        return b;
-    };
-
-    auto bar = Row({HGap(8), prev, name, next, HGap(8), save, more, Stretch(), tab("Effects", Page::Effect),
-                    tab("Presets", Page::Presets), tab("Settings", Page::Settings), HGap(8)});
-
-    return FixedHeight(kBarHeight, Fill(mTheme.Bar(), PadXY(0, 8, bar)));
 }
 
 std::string Shell::SceneSignature() const
@@ -372,139 +323,5 @@ std::string Shell::SceneSignature() const
     for (const auto& scene : mState.activePreset->scenes)
         s += "|" + scene.id + ":" + scene.title;
     return s;
-}
-
-Ptr Shell::BuildScenes()
-{
-    const auto& preset = mState.activePreset;
-    if (!preset || preset->scenes.size() < 2)
-        return VGap(0);
-
-    std::vector<Ptr> items{HGap(12)};
-    int index = 1;
-    for (const auto& scene : preset->scenes)
-    {
-        const auto id = scene.id;
-        auto label = scene.title.empty() ? "Scene " + std::to_string(index) : scene.title;
-        auto b = std::make_shared<Button>(mTheme, label, [this, id] { mSession.Commands().SelectScene(id); },
-                                          Button::Style::Plain);
-        b->Selected(id == mState.activeSceneId).MinWidth(96);
-        items.push_back(b);
-        items.push_back(HGap(6));
-        ++index;
-    }
-    items.push_back(Stretch());
-
-    return FixedHeight(48, Fill(mTheme.Panel(), PadXY(0, 4, Row(items))));
-}
-
-// ── The transport bar ───────────────────────────────────────────────────────────
-
-Ptr Shell::BuildTransport()
-{
-    auto& commands = mSession.Commands();
-    const bool muted = mState.outputMuted;
-
-    mInMeter = std::make_shared<MeterBar>(mTheme);
-    mOutMeter = std::make_shared<MeterBar>(mTheme);
-    mLoadText = std::make_shared<Text>(mTheme, "DSP 0%", metrics::kSmallText, Weight::Medium);
-    mLoadText->Colour(mTheme.TextSecondary());
-
-    auto label = [this](const char* text) {
-        auto t = std::make_shared<Text>(mTheme, text, metrics::kSmallText, Weight::Medium);
-        t->Colour(mTheme.TextMuted()).Fixed(true);
-        return t;
-    };
-
-    auto mute = std::make_shared<Button>(mTheme, muted ? "Muted" : "Mute", [&commands, muted] { commands.SetOutputMuted(!muted); },
-                                         muted ? Button::Style::Primary : Button::Style::Plain);
-    mute->MinWidth(80).TextSize(metrics::kSmallText);
-
-    auto io = std::make_shared<Button>(mTheme, "Input / Output", [this] { OpenControls(); }, Button::Style::Plain);
-    io->MinWidth(120).TextSize(metrics::kSmallText);
-    auto tuner = std::make_shared<Button>(mTheme, "Tuner", [this] { OpenTuner(); }, Button::Style::Plain);
-    tuner->MinWidth(72).TextSize(metrics::kSmallText);
-    auto metronome = std::make_shared<Button>(mTheme, "Metronome", [this] { OpenMetronome(); }, Button::Style::Plain);
-    metronome->MinWidth(96).TextSize(metrics::kSmallText);
-
-    // Demo audio: the clip (a tap opens the list), play/stop and repeat.
-    const auto* clip = SelectedDemoClip();
-    const bool playing = mState.demo.playing;
-    const bool repeat = BoolSetting(mState.appSettings, kDemoRepeatSetting, false);
-
-    auto clipButton = std::make_shared<Button>(mTheme, clip != nullptr ? clip->title : "Demo", [this] { OpenDemoClips(); },
-                                               Button::Style::Plain);
-    clipButton->MinWidth(120).TextSize(metrics::kSmallText).Enabled(clip != nullptr);
-    auto play = std::make_shared<Button>(
-        mTheme, playing ? "Stop" : "Play",
-        [this, playing] {
-            auto& cmds = mSession.Commands();
-            if (playing)
-            {
-                cmds.StopDemo();
-                return;
-            }
-            if (const auto* c = SelectedDemoClip())
-            {
-                if (c->takeId.empty())
-                    cmds.PreviewDemoClip(c->id, BoolSetting(mState.appSettings, kDemoRepeatSetting, false));
-                else
-                    cmds.PreviewRiff(c->takeId);
-            }
-        },
-        playing ? Button::Style::Primary : Button::Style::Plain);
-    play->MinWidth(56).TextSize(metrics::kSmallText).Enabled(clip != nullptr);
-    auto loop = std::make_shared<Button>(
-        mTheme, "Loop",
-        [this, repeat] { mSession.Commands().SetSetting(kDemoRepeatSetting, !repeat); }, Button::Style::Plain);
-    loop->MinWidth(52).TextSize(metrics::kSmallText).On(repeat).Dot(true);
-
-    auto bar = Row({HGap(12), label("IN"), HGap(6), FixedWidth(64, PadXY(0, 16, mInMeter)), HGap(12), label("OUT"), HGap(6),
-                    FixedWidth(64, PadXY(0, 16, mOutMeter)), HGap(12), FixedWidth(64, mLoadText), Stretch(), clipButton,
-                    HGap(6), play, HGap(6), loop, HGap(16), io, HGap(6), tuner, HGap(6), metronome, HGap(6), mute, HGap(12)});
-
-    return FixedHeight(48, Fill(mTheme.Bar(), PadXY(0, 4, bar)));
-}
-
-const guitarfx::uiclient::DemoClip* Shell::SelectedDemoClip() const
-{
-    const auto selected = mState.appSettings.value(kDemoClipSetting, std::string{});
-    for (const auto* list : {&mState.demo.clips, &mState.demo.riffClips})
-        for (const auto& clip : *list)
-            if (clip.id == selected)
-                return &clip;
-    return mState.demo.clips.empty() ? nullptr : &mState.demo.clips.front();
-}
-
-void Shell::OpenDemoClips()
-{
-    const auto* current = SelectedDemoClip();
-    std::vector<MenuItem> items;
-
-    for (const auto* list : {&mState.demo.clips, &mState.demo.riffClips})
-    {
-        if (list == &mState.demo.riffClips && !list->empty())
-            items.push_back({"Favourite riffs", false, true, {}});
-        for (const auto& clip : *list)
-            items.push_back({clip.title, current != nullptr && current->id == clip.id, false,
-                             [this, id = clip.id] { mSession.Commands().SetSetting(kDemoClipSetting, id); }});
-    }
-
-    if (current != nullptr)
-    {
-        items.push_back({"Render", false, true, {}});
-        items.push_back({"Render this clip through the preset", false, false, [this] {
-                             const auto* c = SelectedDemoClip();
-                             if (c == nullptr)
-                                 return;
-                             const int rate = static_cast<int>(NumberSetting(mState.appSettings, kDemoRenderRateSetting, 0.0));
-                             if (c->takeId.empty())
-                                 mSession.Commands().RenderDemoClip(c->id, rate);
-                             else
-                                 mSession.Commands().RenderRiffTake(c->takeId, rate);
-                         }});
-    }
-
-    OpenMenu("Demo audio", std::move(items));
 }
 } // namespace nanoq::ui

@@ -113,6 +113,14 @@ class AutomationSlotTable
     /// Get the param registry info for UI.
     [[nodiscard]] std::vector<ParamRegistryInfo> GetRegistryInfo() const;
 
+    /// Stores each continuous `global.*` slot's target value (the input and output trims) as
+    /// the slot's value, so a host reads the trim as it is rather than 0, the value a slot
+    /// holds until something writes it, which is the trim's -40 dB floor. A host that saves its
+    /// parameters with the session and sets them back on load (QPlug does) would otherwise put
+    /// the trims there. Stepped and trigger slots (the setlist) are left alone: setting them
+    /// back on a load would switch presets. Message thread, after a trim changes.
+    void SyncGlobalSlotValues();
+
     /// Find a slot by ID. Returns nullptr if not found.
     AutomationSlot* FindSlot(const std::string& slotId);
     [[nodiscard]] const AutomationSlot* FindSlot(const std::string& slotId) const;

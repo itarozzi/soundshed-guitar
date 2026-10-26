@@ -1,12 +1,15 @@
-// "Input and output": the global chain around every preset. Input level, mono and dual mono,
-// the noise gate, a global transpose, a four band EQ, the doubler, output level, mute and the
-// output limiter. A dialog that stays open while it is adjusted, patched in place.
+// Controls: the global chain around every preset, as the web UI's compact Controls strip drops it
+// under the preset bar (ui-components/control-bar.html): the input meter and level, with which
+// inputs feed it; the noise gate; a global transpose; the four band EQ; the doubler; the output
+// level and meter, and mute. It stays open while it is adjusted, patched in place. The output
+// limiter is in Settings.
 
 #include "ui/Shell.h"
 
 #include "uiclient/ParamFormat.h"
 
 #include <cmath>
+#include <cstdio>
 #include <functional>
 
 namespace nanoq::ui
@@ -16,8 +19,6 @@ using guitarfx::uiclient::Topic;
 
 namespace
 {
-constexpr const char* kLimiterSetting = "audio.dsp.outputLimiterEnabled";
-
 EffectParamInfo Param(const char* key, const char* name, const char* unit, double lo, double hi, double def, double step = 0.0)
 {
     EffectParamInfo info;
@@ -44,6 +45,13 @@ bool NodeEnabled(const guitarfx::SignalGraph& graph, const char* id)
     const auto* node = graph.FindNode(id);
     return node != nullptr && node->enabled;
 }
+
+std::string Decibels(double v)
+{
+    char text[24];
+    std::snprintf(text, sizeof(text), "%+.1f dB", v);
+    return text;
+}
 } // namespace
 
 void Shell::OpenControls()
@@ -51,177 +59,184 @@ void Shell::OpenControls()
     auto& commands = mSession.Commands();
     auto syncs = std::make_shared<std::vector<std::function<void()>>>();
     const auto chain = [this]() -> const guitarfx::GlobalSignalChainConfig& { return mState.globalChain; };
+    using Read = std::function<double()>;
+    using Write = std::function<void(double)>;
+    using Format = std::function<std::string(double)>;
 
-    std::vector<Ptr> page;
-
-    auto heading = [this, &page](const char* text) {
-        auto t = std::make_shared<Text>(mTheme, text, 11.0f, Weight::SemiBold);
-        t->Colour(mTheme.TextMuted());
-        page.push_back(FixedHeight(30, PadXY(4, 6, t)));
-    };
-
-    // A row of switches, then a row of sliders.
-    struct Section
-    {
-        std::vector<Ptr> switches;
-        std::vector<Ptr> sliders;
-    };
-    Section section;
-
-    auto flush = [&] {
-        if (!section.switches.empty())
-        {
-            std::vector<Ptr> row;
-            for (auto& s : section.switches)
-            {
-                row.push_back(s);
-                row.push_back(HGap(8));
-            }
-            row.push_back(Stretch());
-            page.push_back(FixedHeight(44, Row(row)));
-        }
-        if (!section.sliders.empty())
-        {
-            std::vector<Ptr> row;
-            for (auto& s : section.sliders)
-            {
-                if (!row.empty())
-                    row.push_back(HGap(16));
-                row.push_back(s);
-            }
-            if (row.size() == 1)
-            {
-                // A lone slider keeps a column's width rather than spanning the dialog.
-                row.push_back(HGap(16));
-                row.push_back(Stretch());
-            }
-            page.push_back(FixedHeight(60, Row(row)));
-        }
-        section = {};
-    };
-
-    auto addSwitch = [&](const std::string& text, std::function<bool()> read, std::function<void(bool)> write) {
-        auto button = std::make_shared<Button>(mTheme, text, [read, write] { write(!read()); }, Button::Style::Plain);
-        button->Dot(true).MinWidth(150);
-        section.switches.push_back(button);
-        syncs->push_back([this, button, read, text] {
-            button->On(read());
-            mSession.View().refresh(*button);
-        });
-    };
-
-    auto addSlider = [&](const EffectParamInfo& info, std::function<double()> read, std::function<void(double)> write,
-                         std::function<std::string(double)> format = {}) {
-        auto slider = std::make_shared<ParamSlider>(mTheme, info.name);
-        slider->onChange = [info, write](double position) {
-            write(guitarfx::uiclient::SnapParamValue(info, guitarfx::uiclient::ParamPositionToValue(info, position)));
+    // A cell of the strip: its label (with a switch beside it for a stage that turns off) over a
+    // knob and its value, and, for the input, its mode under that.
+    auto knobCell = [&](const char* label, const EffectParamInfo& info, Read read, Write write, Format format,
+                        std::function<bool()> readOn = {}, std::function<void(bool)> writeOn = {}, Ptr below = nullptr) -> Ptr {
+        auto knob = std::make_shared<ParamKnob>(mTheme, "");
+        knob->DefaultPosition(guitarfx::uiclient::ParamValueToPosition(info, info.defaultValue));
+        knob->onChange = [info, write, format, k = knob.get()](double position) {
+            const double v = guitarfx::uiclient::SnapParamValue(info, guitarfx::uiclient::ParamPositionToValue(info, position));
+            k->SetValueText(format(v));
+            write(v);
         };
-        slider->onReset = [info, write] { write(info.defaultValue); };
-        section.sliders.push_back(slider);
-        syncs->push_back([this, slider, info, read, format] {
+        knob->onReset = [info, write] { write(info.defaultValue); };
+        syncs->push_back([this, knob, info, read, format] {
             const double v = read();
-            slider->Update(guitarfx::uiclient::ParamValueToPosition(info, v),
-                           format ? format(v) : guitarfx::uiclient::FormatParamValue(info, v));
-            mSession.View().refresh(*slider);
+            knob->Update(guitarfx::uiclient::ParamValueToPosition(info, v), format(v));
+            mSession.View().refresh(*knob);
         });
+
+        auto title = std::make_shared<Text>(mTheme, label, 9.0f, Weight::SemiBold);
+        title->Colour(el::rgba(201, 209, 225, 200)).Fixed(true);
+        std::vector<Ptr> head{Stretch(), title};
+        if (readOn)
+        {
+            auto toggle = std::make_shared<MiniSwitch>(mTheme, readOn());
+            toggle->onClick = [readOn, writeOn] { writeOn(!readOn()); };
+            syncs->push_back([this, toggle, readOn] {
+                toggle->Set(readOn());
+                mSession.View().refresh(*toggle);
+            });
+            head.push_back(HGap(5));
+            head.push_back(toggle);
+        }
+        head.push_back(Stretch());
+
+        // The knob draws no name of its own: the label row sits over the space it leaves.
+        auto top = Over(Col({FixedHeight(12, Row(head)), std::make_shared<el::element>()}), Row({Stretch(), knob, Stretch()}));
+        std::vector<Ptr> cell{FixedHeight(67, top)};
+        if (below)
+        {
+            cell.push_back(VGap(1));
+            cell.push_back(FixedHeight(16, Row({Stretch(), below, Stretch()})));
+        }
+        cell.push_back(std::make_shared<el::element>());
+        return FixedWidth(84, Col(cell));
     };
 
-    // ── Input ──
-    heading("INPUT");
-    addSlider(Param("inputGain", "Level", "dB", -12.0, 12.0, 0.0), [chain] { return chain().inputGain; },
-              [&commands](double v) { commands.SetGlobalChainParam("input.gain", v); });
-
-    // In the standalone app the player picks mono (input 1, input 2 or both summed), stereo or
-    // dual mono; in a DAW the track decides mono or stereo, and dual mono is the one choice left.
-    if (mState.environment.standalone)
-    {
-        addSwitch("Mono input", [chain] { return chain().monoMode; },
-                  [this, chain](bool mono) { mSession.Commands().SetInputMode(mono, chain().inputChannel, chain().dualMono); });
-        addSwitch("Input 2", [chain] { return chain().inputChannel == 1; },
-                  [this, chain](bool right) { mSession.Commands().SetInputMode(chain().monoMode, right ? 1 : 0, chain().dualMono); });
-        addSwitch("Both inputs summed", [chain] { return chain().inputChannel == 2; },
-                  [this, chain](bool sum) { mSession.Commands().SetInputMode(chain().monoMode, sum ? 2 : 0, chain().dualMono); });
-    }
-    addSwitch("Dual mono", [chain] { return chain().dualMono; }, [this, chain](bool dual) {
+    // ── IN: the level, and which inputs feed it ──
+    auto inputModeLabel = [chain, this] {
+        const auto& c = chain();
+        if (c.dualMono)
+            return std::string("Dual mono");
+        if (!c.monoMode)
+            return std::string(mState.environment.standalone ? "Stereo" : "Track");
+        return std::string(c.inputChannel == 1 ? "Mono In 2" : c.inputChannel == 2 ? "Mono In 1+2" : "Mono In 1");
+    };
+    auto mode = std::make_shared<IconButton>(mTheme, mIcons, "");
+    mode->Size(70, 16).Label(inputModeLabel(), 10.0f).Caret(true).Ink(mTheme.TextSecondary());
+    mode->onClick = [this, chain, m = mode.get()] {
+        auto set = [this](bool mono, int channel, bool dual) {
+            return [this, mono, channel, dual] { mSession.Commands().SetInputMode(mono, channel, dual); };
+        };
+        const auto& c = chain();
+        std::vector<MenuItem> items;
+        // In the standalone app the player picks mono (input 1, input 2 or both summed), stereo or
+        // dual mono; in a DAW the track decides mono or stereo, and dual mono is the one choice left.
+        if (mState.environment.standalone)
+        {
+            items.push_back({"Mono In 1", c.monoMode && !c.dualMono && c.inputChannel == 0, false, set(true, 0, false)});
+            items.push_back({"Mono In 2", c.monoMode && !c.dualMono && c.inputChannel == 1, false, set(true, 1, false)});
+            items.push_back({"Mono In 1+2", c.monoMode && !c.dualMono && c.inputChannel == 2, false, set(true, 2, false)});
+            items.push_back({"Stereo", !c.monoMode && !c.dualMono, false, set(false, c.inputChannel, false)});
+        }
+        else
+        {
+            items.push_back({"As the track", !c.dualMono, false, set(c.monoMode, c.inputChannel, false)});
+        }
         // Dual mono needs both inputs kept apart, so it turns mono off.
-        mSession.Commands().SetInputMode(dual ? false : chain().monoMode, chain().inputChannel, dual);
+        items.push_back({"Dual mono", c.dualMono, false, set(false, c.inputChannel, true)});
+        OpenDropdown(m->Bounds(), std::move(items), 150.0f);
+    };
+    syncs->push_back([this, mode, inputModeLabel] {
+        mode->Label(inputModeLabel(), 10.0f);
+        mSession.View().refresh(*mode);
     });
-    flush();
 
-    // ── Noise gate ──
-    heading("NOISE GATE");
-    addSwitch("On", [chain] { return NodeEnabled(chain().preChainGraph, "global_gate"); },
-              [&commands](bool on) { commands.SetGlobalChainToggle("gate.enabled", on); });
-    addSlider(Param("threshold", "Threshold", "dB", -90.0, 0.0, -60.0, 1.0),
-              [chain] { return NodeParam(chain().preChainGraph, "global_gate", "threshold", -60.0); },
-              [&commands](double v) { commands.SetGlobalChainParam("gate.threshold", v); });
-    flush();
+    auto in = knobCell("IN", Param("inputGain", "In", "dB", -12.0, 12.0, 0.0), [chain] { return chain().inputGain; },
+                       [&commands](double v) { commands.SetGlobalChainParam("input.gain", v); }, Decibels, {}, {}, mode);
 
-    // ── Transpose ──
-    heading("TRANSPOSE");
-    addSlider(Param("semitones", "Semitones", " st", -12.0, 12.0, 0.0, 1.0),
-              [chain] {
-                  return NodeEnabled(chain().preChainGraph, "global_transpose")
-                             ? NodeParam(chain().preChainGraph, "global_transpose", "semitones", 0.0)
-                             : 0.0;
-              },
-              [&commands](double v) {
-                  // As the web UI's knob: the transpose runs only while it transposes.
-                  const auto semitones = std::round(v);
-                  commands.SetGlobalChainParam("transpose.semitones", semitones);
-                  commands.SetGlobalChainToggle("transpose.enabled", semitones != 0.0);
-              },
-              [](double v) {
-                  const int semitones = static_cast<int>(std::lround(v));
-                  return std::string(semitones > 0 ? "+" : "") + std::to_string(semitones) + " st";
-              });
-    flush();
+    // ── GATE ──
+    auto gate = knobCell("GATE", Param("threshold", "Gate", "dB", -90.0, 0.0, -60.0, 1.0),
+                         [chain] { return NodeParam(chain().preChainGraph, "global_gate", "threshold", -60.0); },
+                         [&commands](double v) { commands.SetGlobalChainParam("gate.threshold", v); },
+                         [](double v) { return std::to_string(static_cast<int>(std::lround(v))) + " dB"; },
+                         [chain] { return NodeEnabled(chain().preChainGraph, "global_gate"); },
+                         [&commands](bool on) { commands.SetGlobalChainToggle("gate.enabled", on); });
 
-    // ── Global EQ ──
-    heading("GLOBAL EQ");
-    addSwitch("On", [chain] { return NodeEnabled(chain().postChainGraph, "global_eq"); },
-              [&commands](bool on) { commands.SetGlobalChainToggle("eq.enabled", on); });
-    for (const auto& [key, name] : std::initializer_list<std::pair<const char*, const char*>>{
-             {"lowGain", "Low"}, {"lowMidGain", "Low mid"}, {"highMidGain", "High mid"}, {"highGain", "High"}})
-    {
-        const std::string path = std::string("eq.") + key;
-        addSlider(Param(key, name, "dB", -12.0, 12.0, 0.0),
-                  [chain, key = key] { return NodeParam(chain().postChainGraph, "global_eq", key, 0.0); },
-                  [&commands, path](double v) { commands.SetGlobalChainParam(path, v); });
-        if (section.sliders.size() == 2)
-            flush(); // the EQ bands, two to a row
-    }
-    flush();
+    // ── TRANSPOSE: as the web UI's knob, the transpose runs only while it transposes ──
+    auto transpose = knobCell(
+        "TRANSPOSE", Param("semitones", "Transpose", " st", -12.0, 12.0, 0.0, 1.0),
+        [chain] {
+            return NodeEnabled(chain().preChainGraph, "global_transpose") ? NodeParam(chain().preChainGraph, "global_transpose", "semitones", 0.0)
+                                                                          : 0.0;
+        },
+        [&commands](double v) {
+            const auto semitones = std::round(v);
+            commands.SetGlobalChainParam("transpose.semitones", semitones);
+            commands.SetGlobalChainToggle("transpose.enabled", semitones != 0.0);
+        },
+        [](double v) {
+            const int semitones = static_cast<int>(std::lround(v));
+            return std::string(semitones > 0 ? "+" : "") + std::to_string(semitones) + " st";
+        });
 
-    // ── Doubler ──
-    heading("DOUBLER");
-    addSwitch("On", [chain] { return NodeEnabled(chain().postChainGraph, "global_doubler"); },
-              [&commands](bool on) { commands.SetGlobalChainToggle("doubler.enabled", on); });
-    addSlider(Param("time", "Delay", "ms", 0.5, 50.0, 6.0),
-              [chain] { return NodeParam(chain().postChainGraph, "global_doubler", "time", 6.0); },
-              [&commands](double v) { commands.SetGlobalChainParam("doubler.delay", v); });
-    addSlider(Param("mix", "Mix", "amount", 0.0, 1.0, 0.5),
-              [chain] { return NodeParam(chain().postChainGraph, "global_doubler", "mix", 0.5); },
-              [&commands](double v) { commands.SetGlobalChainParam("doubler.mix", v); });
-    flush();
+    // ── EQ: its switch, and a button that opens its four bands ──
+    auto eqButton = std::make_shared<IconButton>(mTheme, mIcons, "sliders", IconButton::Look::Boxed);
+    eqButton->Size(46, 46).IconSize(18).Ink(mTheme.TextSecondary());
+    eqButton->onClick = [this, b = eqButton.get()] { OpenGlobalEq(b->Bounds()); };
+    auto eqOn = std::make_shared<MiniSwitch>(mTheme, NodeEnabled(chain().postChainGraph, "global_eq"));
+    eqOn->onClick = [this, chain] {
+        mSession.Commands().SetGlobalChainToggle("eq.enabled", !NodeEnabled(chain().postChainGraph, "global_eq"));
+    };
+    syncs->push_back([this, eqOn, chain] {
+        eqOn->Set(NodeEnabled(chain().postChainGraph, "global_eq"));
+        mSession.View().refresh(*eqOn);
+    });
+    auto eqTitle = std::make_shared<Text>(mTheme, "EQ", 9.0f, Weight::SemiBold);
+    eqTitle->Colour(el::rgba(201, 209, 225, 200)).Fixed(true);
+    auto eq = FixedWidth(72, Col({FixedHeight(12, Row({Stretch(), eqTitle, HGap(5), eqOn, Stretch()})), VGap(8),
+                                  FixedHeight(46, Row({Stretch(), eqButton, Stretch()})), std::make_shared<el::element>()}));
 
-    // ── Output ──
-    heading("OUTPUT");
-    addSlider(Param("outputGain", "Level", "dB", -12.0, 12.0, 0.0), [chain] { return chain().outputGain; },
-              [&commands](double v) { commands.SetGlobalChainParam("output.gain", v); });
-    addSwitch("Mute", [this] { return mState.outputMuted; }, [&commands](bool muted) { commands.SetOutputMuted(muted); });
-    addSwitch("Limiter", [this] { return mState.appSettings.value(kLimiterSetting, false); },
-              [&commands](bool on) { commands.SetSetting(kLimiterSetting, on); });
-    flush();
+    // ── DOUBLER ──
+    auto doubler = knobCell("DOUBLER", Param("time", "Doubler", "ms", 0.5, 50.0, 6.0),
+                            [chain] { return NodeParam(chain().postChainGraph, "global_doubler", "time", 6.0); },
+                            [&commands](double v) { commands.SetGlobalChainParam("doubler.delay", v); },
+                            [](double v) {
+                                char text[24];
+                                std::snprintf(text, sizeof(text), "%.2f ms", v);
+                                return std::string(text);
+                            },
+                            [chain] { return NodeEnabled(chain().postChainGraph, "global_doubler"); },
+                            [&commands](bool on) { commands.SetGlobalChainToggle("doubler.enabled", on); });
 
-    auto title = std::make_shared<Text>(mTheme, "Input and output", 15.0f, Weight::SemiBold);
-    auto done = std::make_shared<Button>(mTheme, "Done", [this] { CloseOverlay(); }, Button::Style::Plain);
-    done->MinWidth(88);
+    // ── OUT, with mute under its meter ──
+    auto out = knobCell("OUT", Param("outputGain", "Out", "dB", -12.0, 12.0, 0.0), [chain] { return chain().outputGain; },
+                        [&commands](double v) { commands.SetGlobalChainParam("output.gain", v); }, Decibels);
+
+    auto inMeter = std::make_shared<MeterBar>(mTheme);
+    inMeter->Vertical(true);
+    auto outMeter = std::make_shared<MeterBar>(mTheme);
+    outMeter->Vertical(true);
+    auto mute = std::make_shared<IconButton>(mTheme, mIcons, mState.outputMuted ? "ui-mute" : "ui-speaker");
+    mute->Size(20, 18).IconSize(12).Lit(mState.outputMuted);
+    mute->onClick = [this] { mSession.Commands().SetOutputMuted(!mState.outputMuted); };
+
+    auto strip = Row({Stretch(), Col({FixedHeight(84, inMeter), std::make_shared<el::element>()}), HGap(14), in, gate, transpose, Stretch(),
+                      eq, doubler, out, HGap(14),
+                      Col({FixedHeight(84, outMeter), VGap(2), FixedHeight(18, Row({Stretch(), mute, Stretch()})), std::make_shared<el::element>()}),
+                      Stretch()});
 
     const auto view = mSession.View().size();
-    ShowOverlay(Pad(16, 14, 16, 12,
-                    Col({Row({FixedHeight(30, title), Stretch(nullptr, 0.001), done}), VScroll(Col(page))})),
-                std::min(620.0f, std::max(320.0f, view.x - 48.0f)), std::max(280.0f, view.y - 60.0f));
+    ShowPopover(Pad(8, 10, 8, 6, strip), el::rect{metrics::kRailWidth + 6.0f, 0.0f, view.x - 6.0f, metrics::kTopBarHeight - 6.0f},
+                view.x - metrics::kRailWidth - 12.0f, 124.0f);
+
+    // The meters move while the strip is open (OnTick), and stop with it.
+    mInMeter = inMeter;
+    mOutMeter = outMeter;
+    mOnOverlayClosed = [this] {
+        mInMeter.reset();
+        mOutMeter.reset();
+    };
+    syncs->push_back([this, mute] {
+        mute->Lit(mState.outputMuted);
+        mSession.View().refresh(*mute);
+    });
 
     auto sync = [syncs] {
         for (auto& fn : *syncs)
@@ -229,6 +244,48 @@ void Shell::OpenControls()
     };
     mInstrumentSubs.push_back(mSession.Client().Subscribe(Topic::GlobalChain, sync));
     mInstrumentSubs.push_back(mSession.Client().Subscribe(Topic::Session, sync));
+    sync();
+}
+
+void Shell::OpenGlobalEq(el::rect anchor)
+{
+    auto& commands = mSession.Commands();
+    auto syncs = std::make_shared<std::vector<std::function<void()>>>();
+    const auto chain = [this]() -> const guitarfx::GlobalSignalChainConfig& { return mState.globalChain; };
+
+    std::vector<Ptr> knobs{Stretch()};
+    for (const auto& [key, name] : std::initializer_list<std::pair<const char*, const char*>>{
+             {"lowGain", "Low"}, {"lowMidGain", "Low Mid"}, {"highMidGain", "High Mid"}, {"highGain", "High"}})
+    {
+        const auto info = Param(key, name, "dB", -12.0, 12.0, 0.0);
+        const std::string path = std::string("eq.") + key;
+        auto knob = std::make_shared<ParamKnob>(mTheme, name);
+        knob->DefaultPosition(0.5);
+        knob->onChange = [info, path, &commands, k = knob.get()](double position) {
+            const double v = guitarfx::uiclient::SnapParamValue(info, guitarfx::uiclient::ParamPositionToValue(info, position));
+            k->SetValueText(guitarfx::uiclient::FormatParamValue(info, v));
+            commands.SetGlobalChainParam(path, v);
+        };
+        knob->onReset = [path, &commands] { commands.SetGlobalChainParam(path, 0.0); };
+        syncs->push_back([this, knob, info, chain, key = key] {
+            const double v = NodeParam(chain().postChainGraph, "global_eq", key, 0.0);
+            knob->Update(guitarfx::uiclient::ParamValueToPosition(info, v), guitarfx::uiclient::FormatParamValue(info, v));
+            mSession.View().refresh(*knob);
+        });
+        knobs.push_back(knob);
+        knobs.push_back(HGap(10));
+    }
+    knobs.back() = Stretch();
+
+    auto title = std::make_shared<Text>(mTheme, "GLOBAL EQ", 9.0f, Weight::SemiBold);
+    title->Colour(el::rgba(220, 227, 243, 173));
+    ShowPopover(Pad(12, 10, 12, 10, Col({FixedHeight(14, title), VGap(6), FixedHeight(63, Row(knobs))})), anchor, 300.0f, 110.0f);
+
+    auto sync = [syncs] {
+        for (auto& fn : *syncs)
+            fn();
+    };
+    mInstrumentSubs.push_back(mSession.Client().Subscribe(Topic::GlobalChain, sync));
     sync();
 }
 } // namespace nanoq::ui

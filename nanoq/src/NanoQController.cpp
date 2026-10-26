@@ -61,17 +61,28 @@ void NanoQController::BuildParameters()
     for (std::size_t i = static_cast<std::size_t>(stable); i < defaults.size(); ++i)
         addSlot(defaults[i]);
 
-    mParams.reserve(layout.size());
-    for (std::size_t i = 0; i < layout.size(); ++i)
+    for (const auto& [id, name] : layout)
     {
-        mSlotIds.push_back(layout[i].first);
-        mNames.push_back(layout[i].second);
-        // Ids are positions (1-based: CLAP ids are free, and 0 reads as "none" in some hosts).
-        mParams.push_back(parameter{static_cast<parameter::id_type>(i + 1), mNames.back().c_str(), 0.0}.range(0.0, 1.0).dont_save());
+        mSlotIds.push_back(id);
+        mNames.push_back(name);
     }
 
     // Before the host has the plugin, so before any thread can read a value.
     controller.BindDawParameters(mSlotIds);
+
+    // Each parameter's default is its value as the engine starts. QPlug's state load sets every
+    // parameter to its default, then to the value the session saved (controller::state), both
+    // through set_parameter: a default of 0, or a 0 saved from a trim's slot that never held the
+    // trim, put the input and output trims at their -40 dB floor on every load, the standalone's
+    // start and a DAW project alike. The trims' slots now hold the trims
+    // (AutomationSlotTable::SyncGlobalSlotValues).
+    mParams.reserve(layout.size());
+    for (std::size_t i = 0; i < layout.size(); ++i)
+    {
+        const double init = std::clamp(static_cast<double>(controller.GetDawParameterValue(static_cast<int>(i))), 0.0, 1.0);
+        // Ids are positions (1-based: CLAP ids are free, and 0 reads as "none" in some hosts).
+        mParams.push_back(parameter{static_cast<parameter::id_type>(i + 1), mNames[i].c_str(), init}.range(0.0, 1.0).dont_save());
+    }
     mPending.reserve(mSlotIds.size() * 8);
 }
 

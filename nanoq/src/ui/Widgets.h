@@ -217,11 +217,18 @@ private:
     std::string mText;
 };
 
-/// A horizontal level bar: -60 dB to 0 dB, with a clip tint.
+/// A level bar: -60 dB to 0 dB, with a clip tint. Horizontal, or with Vertical() the web UI's
+/// Controls strip meter: a column of segments under the peak in dB.
 class MeterBar : public el::element
 {
 public:
     explicit MeterBar(const Theme& theme);
+
+    MeterBar& Vertical(bool vertical)
+    {
+        mVertical = vertical;
+        return *this;
+    }
 
     el::view_limits limits(const el::basic_context& ctx) const override;
     void draw(const el::context& ctx) override;
@@ -233,6 +240,7 @@ private:
     const Theme& mTheme;
     double mPeakDb = -120.0;
     bool mClipped = false;
+    bool mVertical = false;
 };
 
 /// One row of a list: text at the left, a muted secondary text at the right. With `heading` it

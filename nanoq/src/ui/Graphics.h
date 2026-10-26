@@ -64,6 +64,10 @@ public:
     /// Draws `name` (or, if it is missing, the gear) into `bounds`.
     void Draw(artist::canvas& cnv, const std::string& name, el::rect bounds, el::color colour);
 
+    /// Adds an icon from SVG text under `name`, for the ones the web UI writes inline in its
+    /// markup rather than keeping as files.
+    void Add(const std::string& name, const std::string& svg);
+
 private:
     std::filesystem::path mFolder;
     std::map<std::string, std::optional<SvgIcon>> mIcons;
@@ -83,6 +87,10 @@ private:
     std::filesystem::path mFolder;
     std::map<std::string, std::shared_ptr<artist::image>> mImages;
 };
+
+/// The width `text` takes in `font`, measured on a small offscreen canvas: for laying out a row
+/// before it is drawn. UI thread.
+[[nodiscard]] float MeasureTextWidth(const std::string& text, const el::font_descr& font);
 
 /// Draws `image` as large as fits `bounds` (contain), centred, with its aspect kept.
 void DrawImageFitted(artist::canvas& cnv, const artist::image& image, el::rect bounds);

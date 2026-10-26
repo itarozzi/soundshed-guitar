@@ -194,7 +194,7 @@ void Shell::SaveActivePreset(bool asNew)
                });
 }
 
-void Shell::OpenPresetMenu()
+void Shell::OpenPresetMenu(std::optional<el::rect> anchor)
 {
     auto& commands = mSession.Commands();
     const auto* summary = mState.FindPresetSummary(mState.activePresetId);
@@ -259,6 +259,9 @@ void Shell::OpenPresetMenu()
             items.push_back({"Delete preset...", false, false, [this, presetId] { DeleteWithConfirm(presetId); }});
     }
 
-    OpenMenu("Preset", std::move(items));
+    if (anchor)
+        OpenDropdown(*anchor, std::move(items), 200.0f);
+    else
+        OpenMenu("Preset", std::move(items));
 }
 } // namespace nanoq::ui

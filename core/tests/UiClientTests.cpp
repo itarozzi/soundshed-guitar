@@ -26,6 +26,7 @@
 #include "dsp/EffectRegistry.h"
 #include "dsp/effects/GraphicEQEffect.h"
 #include "presets/PresetStorage.h"
+#include "uiclient/ChainHistory.h"
 #include "uiclient/ChainLayout.h"
 #include "uiclient/EffectPresentation.h"
 #include "uiclient/Instruments.h"
@@ -447,6 +448,53 @@ void TestFactoryPresetParameterOrder()
 }
 
 /// The tone sharing service as the web UI reads it (core/ui/ts/toneSharingPanel/).
+// The chain's undo/redo and A/B (ChainHistory), as the web UI's historyModel.ts.
+void TestChainHistory()
+{
+    SignalGraph graph;
+    graph.nodes.push_back(GraphNode{"in", kNodeTypeInput});
+    GraphNode gate{"gate", "noise_gate"};
+    gate.params["threshold"] = -60.0;
+    graph.nodes.push_back(gate);
+    graph.nodes.push_back(GraphNode{"out", kNodeTypeOutput});
+    graph.edges = {GraphEdge{"in", "gate"}, GraphEdge{"gate", "out"}};
+
+    // A turned knob and a bypass are node messages; a node added is a reload.
+    auto turned = graph;
+    turned.FindNode("gate")->params["threshold"] = -40.0;
+    turned.FindNode("gate")->enabled = false;
+    const auto diff = DiffNodeStates(graph, turned);
+    Expect(diff && diff->size() == 1 && diff->front().params.size() == 1 && diff->front().bypassed == true,
+           "history: a knob and a bypass replay as node messages");
+    auto grown = graph;
+    grown.nodes.insert(grown.nodes.begin() + 2, GraphNode{"comp", "compressor"});
+    Expect(!DiffNodeStates(graph, grown), "history: an added node needs the whole chain");
+    Expect(DescribeGraphChange(&graph, grown, {}) == "Add compressor", "history: an addition is described");
+
+    // Key order and engine-owned config do not count as edits.
+    auto blob = graph;
+    blob.FindNode("gate")->config["pluginStateBase64"] = "xyz";
+    Expect(GraphSignature(blob) == GraphSignature(graph), "history: a plugin's own state is not an edit");
+
+    ChainHistory history;
+    Expect(!history.IsSeeded() && !history.CanUndo(), "history: nothing before it is seeded");
+    history.Reset(MakeSnapshot(graph, "p", "", "Loaded"));
+    history.Push(MakeSnapshot(graph, "p", "", "same")); // unchanged: no step
+    Expect(!history.CanUndo(), "history: an unchanged graph records nothing");
+    history.Push(MakeSnapshot(turned, "p", "", "Noise gate off"));
+    Expect(history.CanUndo() && history.UndoLabel() == "Noise gate off", "history: an edit is a step");
+    const auto* back = history.Undo();
+    Expect(back != nullptr && back->signature == GraphSignature(graph) && history.CanRedo(), "history: undo returns the state before");
+
+    // A branch from a past position drops the redo; B keeps its own stack.
+    history.Push(MakeSnapshot(grown, "p", "", "Add compressor"));
+    Expect(!history.CanRedo(), "history: a new edit after undo drops the redo");
+    const auto* b = history.SetActiveSlot(ChainHistory::Slot::B);
+    Expect(b != nullptr && b->signature == GraphSignature(graph) && !history.CanUndo(), "history: B starts as loaded");
+    history.SetActiveSlot(ChainHistory::Slot::A);
+    Expect(history.CopyActiveToOther() && history.EditCount(ChainHistory::Slot::B) == 1, "history: copying A over B is a step in B");
+}
+
 void TestToneSharing()
 {
     using namespace guitarfx::uiclient::tones;
@@ -882,6 +930,7 @@ int main()
     TestEffectPresentationTable();
     TestLayoutDecisions();
     TestToneSharing();
+    TestChainHistory();
 
     if (gFailures > 0)
     {

@@ -19,39 +19,52 @@ namespace nanoq::ui
 {
 namespace chain
 {
-constexpr float kCardHeight = 80.0f;
-constexpr float kBoundaryWidth = 84.0f;
-constexpr float kConnectorWidth = 30.0f;
+// The web UI's .signal-node: 72 px square at the least, 86 px tall when its artwork sits over
+// its top edge; a row is tall enough for either, with the artwork's overhang.
+constexpr float kCardHeight = 92.0f; // a row of the chain, and a parallel lane
+constexpr float kPlainCardHeight = 72.0f;
+constexpr float kThumbCardHeight = 86.0f;
+constexpr float kBoundaryWidth = 72.0f;
+constexpr float kConnectorWidth = 36.0f;
 constexpr float kRailWidth = 30.0f;
-constexpr float kLaneGap = 10.0f;
+constexpr float kLaneGap = 8.0f;
 constexpr float kWireEndWidth = 14.0f; // where a line's cable turns down, or the next one's comes in
-constexpr float kRouteHeight = 18.0f;  // the cable back under a line
+constexpr float kRouteHeight = 16.0f;  // the cable back under a line
 constexpr float kSidePad = 12.0f;
-constexpr float kPowerSize = 18.0f;
+constexpr float kPowerSize = 16.0f;
 
 /// A card's width for its text, estimated from its length so the wrap can be worked out before
-/// anything is measured: Inter at these sizes runs about 7.4 px a capital and 6 px a small letter.
+/// anything is measured: the 10 px capitals run about 6.6 px a letter and the 9 px detail about
+/// 5.2, inside 12 px of padding each side (min-width 72, the text at most 160).
 inline float CardWidthFor(const std::string& name, const std::string& detail)
 {
     const auto chars = [](const std::string& s) {
         return static_cast<float>(std::count_if(s.begin(), s.end(), [](char c) { return (static_cast<unsigned char>(c) & 0xC0) != 0x80; }));
     };
-    const float wanted = std::max(chars(name) * 7.4f, chars(detail) * 6.0f) + 30.0f;
-    return std::clamp(wanted, 100.0f, 190.0f);
+    const float wanted = std::min(160.0f, std::max(chars(name) * 6.6f, chars(detail) * 5.2f)) + 24.0f;
+    return std::clamp(wanted, 72.0f, 185.0f);
 }
 
-/// The cable's colour.
+/// The cable's colour (--signal-route-main: the secondary text with a fifth of green).
 inline el::color CableColour(const Theme& theme)
 {
-    return theme.TextMuted().opacity(0.55f);
+    const auto t = theme.TextSecondary(), g = theme.Success();
+    return el::color{t.red * 0.78f + g.red * 0.22f, t.green * 0.78f + g.green * 0.22f, t.blue * 0.78f + g.blue * 0.22f, 1.0f};
+}
+
+/// `a` mixed into `b` by `amount` (CSS color-mix).
+inline el::color Mix(el::color a, el::color b, float amount)
+{
+    return el::color{a.red * amount + b.red * (1.0f - amount), a.green * amount + b.green * (1.0f - amount),
+                     a.blue * amount + b.blue * (1.0f - amount), a.alpha * amount + b.alpha * (1.0f - amount)};
 }
 
 /// The card's bounds inside whatever height the row gives it: centred, so every card and cable
 /// in a row shares one centre line.
-inline el::rect CardRect(const el::rect& bounds, float height = kCardHeight)
+inline el::rect CardRect(const el::rect& bounds, float height = kPlainCardHeight)
 {
     const float top = bounds.top + std::max(0.0f, (bounds.height() - height) * 0.5f);
-    return el::rect{bounds.left, top, bounds.right, top + height}.inset(1.5f, 1.5f);
+    return el::rect{bounds.left, top, bounds.right, top + height}.inset(0.5f, 0.5f);
 }
 } // namespace chain
 
@@ -102,105 +115,177 @@ public:
     void draw(const el::context& ctx) override
     {
         auto& cnv = ctx.canvas;
-        const auto r = CardRect(ctx.bounds);
+        const auto r = CardRect(ctx.bounds, CardHeight());
         const auto tint = mLook.tint;
         const bool on = mLook.enabled;
+        const bool boundary = mLook.boundary != Boundary::None;
+        constexpr float kRadius = 10.0f;
+        const el::color face = mTheme.Card();
 
-        // The face: the card colour with the category's tint washed down from the top, and its
-        // border in the tint; the selected card in the accent, with a glow.
+        // A bypassed card fades and greys (opacity .45, saturate .35): drawn here by mixing each
+        // colour toward the stage behind it.
+        const float fade = on ? 1.0f : 0.45f;
+        const auto ghost = [&](el::color c) { return on ? c : Mix(Mix(c, el::color{0.5f, 0.5f, 0.55f, c.alpha}, 0.35f), mTheme.Bar(), fade); };
+
+        // The shadow under it, and for the selected card a glow in its colour.
         {
             auto state = cnv.new_state();
             if (mLook.selected)
-                cnv.shadow_style(14.0f, mTheme.Accent().opacity(0.45f));
-            cnv.fill_style(mLook.selected ? mTheme.Elevated() : mTheme.Card());
-            cnv.fill_round_rect(r, 10.0f);
+                cnv.shadow_style(el::point{0.0f, 0.0f}, 22.0f, tint.opacity(0.24f));
+            else
+                cnv.shadow_style(el::point{0.0f, 3.0f}, 8.0f, el::rgba(0, 0, 0, on ? 90 : 40));
+            cnv.fill_style(ghost(face));
+            cnv.fill_round_rect(r, kRadius);
         }
+        // A wash of the category colour from the top, and a shade at the foot.
         {
             auto state = cnv.new_state();
-            artist::canvas::linear_gradient wash{r.top_left(), r.bottom_left()};
-            wash.add_color_stop(0.0f, tint.opacity(on ? 0.22f : 0.08f));
+            const el::point top{r.left + r.width() * 0.5f, r.top};
+            artist::canvas::radial_gradient wash{top, 0.0f, top, std::max(r.width() * 0.6f, r.height() * 0.7f)};
+            wash.add_color_stop(0.0f, tint.opacity(0.16f * fade));
             wash.add_color_stop(1.0f, tint.opacity(0.0f));
             cnv.fill_style(wash);
-            cnv.fill_round_rect(r, 10.0f);
+            cnv.fill_round_rect(r, kRadius);
+
+            artist::canvas::linear_gradient shade{r.top_left(), r.bottom_left()};
+            shade.add_color_stop(0.55f, el::rgba(0, 0, 0, 0));
+            shade.add_color_stop(1.0f, el::rgba(0, 0, 0, 26));
+            cnv.fill_style(shade);
+            cnv.fill_round_rect(r, kRadius);
         }
-        cnv.stroke_style(mLook.selected ? mTheme.Accent() : (on ? tint.opacity(0.65f) : mTheme.Border()));
+
+        // The border: the category colour mixed into the border colour, full strength with an inner
+        // ring when selected; red when its file is missing.
+        const el::color border = mLook.missing    ? el::rgba(232, 76, 76, 153)
+                               : mLook.selected   ? tint
+                               : boundary         ? Mix(tint, mTheme.Border(), 0.6f)
+                                                  : Mix(tint, mTheme.Border(), 0.42f);
+        cnv.stroke_style(ghost(border));
         cnv.line_width(mLook.selected ? 2.0f : 1.0f);
-        cnv.stroke_round_rect(r, 10.0f);
+        cnv.stroke_round_rect(mLook.selected ? r.inset(0.5f, 0.5f) : r, kRadius);
+        if (mLook.selected)
+        {
+            cnv.stroke_style(tint.opacity(0.36f));
+            cnv.line_width(1.0f);
+            cnv.stroke_round_rect(r.inset(-1.0f, -1.0f), kRadius + 1.0f);
+        }
+        // The highlight along the top edge.
+        cnv.stroke_style(Mix(el::rgba(255, 255, 255, 255), tint, 0.08f).opacity(0.18f * fade));
+        cnv.line_width(1.0f);
+        cnv.begin_path();
+        cnv.move_to(r.left + kRadius, r.top + 1.5f);
+        cnv.line_to(r.right - kRadius, r.top + 1.5f);
+        cnv.stroke();
 
-        const el::color ink = on ? mTheme.Text() : mTheme.TextMuted();
-
-        // The picture: the effect's artwork when it has some, else its icon.
-        const el::rect picture{r.left + r.width() * 0.5f - 17.0f, r.top + 8.0f, r.left + r.width() * 0.5f + 17.0f, r.top + 32.0f};
-        if (mLook.thumbnail)
+        // The underglow: a strip of the category colour along the foot, wider when selected.
+        if (on)
         {
             auto state = cnv.new_state();
-            cnv.begin_path();
-            cnv.add_round_rect(picture, 4.0f);
-            cnv.clip();
-            cnv.fill_style(mTheme.Background());
-            cnv.fill_rect(picture);
-            DrawImageCovering(cnv, *mLook.thumbnail, picture);
+            const float inset = r.width() * (mLook.selected ? 0.10f : 0.22f);
+            const el::rect strip{r.left + inset, r.bottom - 1.0f, r.right - inset, r.bottom + 1.0f};
+            artist::canvas::linear_gradient glow{strip.top_left(), strip.top_right()};
+            const float strength = mLook.selected ? 1.0f : (mLight == Light::Live || mHover ? 0.9f : 0.5f);
+            glow.add_color_stop(0.0f, tint.opacity(0.0f));
+            glow.add_color_stop(0.5f, tint.opacity(strength));
+            glow.add_color_stop(1.0f, tint.opacity(0.0f));
+            cnv.shadow_style(el::point{0.0f, 0.0f}, 10.0f, tint.opacity(0.24f * strength));
+            cnv.fill_style(glow);
+            cnv.fill_round_rect(strip, 1.0f);
+        }
+
+        const float cx = r.left + r.width() * 0.5f;
+        float y = r.top + 8.0f;
+
+        // The picture: the artwork over the top edge with the icon in a dark disc on it, or the
+        // icon in a round badge of the category colour.
+        if (mLook.thumbnail)
+        {
+            const auto& image = *mLook.thumbnail;
+            const auto size = image.size();
+            const float h = 32.0f;
+            const float w = size.y > 0.0f ? std::clamp(h * size.x / size.y, 24.0f, 64.0f) : h;
+            const el::rect picture{cx - w * 0.5f, r.top - 8.0f, cx + w * 0.5f, r.top - 8.0f + h};
+            {
+                auto state = cnv.new_state();
+                cnv.begin_path();
+                cnv.add_round_rect(picture, 6.0f);
+                cnv.clip();
+                DrawImageCovering(cnv, image, picture);
+                cnv.fill_style(mTheme.Bar().opacity(on ? 0.15f : 0.6f));
+                cnv.fill_rect(picture);
+            }
+            cnv.stroke_style(el::rgba(255, 255, 255, 31));
+            cnv.line_width(1.0f);
+            cnv.stroke_round_rect(picture.inset(0.5f, 0.5f), 6.0f);
+            const auto c = artist::center_point(picture);
+            cnv.fill_style(el::rgba(9, 11, 17, 102));
+            cnv.add_circle(artist::circle(c, 11.0f));
+            cnv.fill();
+            mIcons.Draw(cnv, mLook.icon, el::rect{c.x - 7.0f, c.y - 7.0f, c.x + 7.0f, c.y + 7.0f}, ghost(tint).opacity(0.85f));
+            y += 24.0f + 4.0f;
         }
         else
         {
-            const el::rect iconBox{picture.left + 6.0f, picture.top, picture.right - 6.0f, picture.bottom};
-            mIcons.Draw(cnv, mLook.icon, iconBox, on ? tint : mTheme.TextMuted());
+            const el::point c{cx, y + 15.0f};
+            auto state = cnv.new_state();
+            artist::canvas::radial_gradient badge{el::point{c.x, c.y - 3.5f}, 0.0f, el::point{c.x, c.y - 3.5f}, 15.0f * 1.1f};
+            badge.add_color_stop(0.0f, tint.opacity(0.28f * fade));
+            badge.add_color_stop(0.72f, tint.opacity(0.07f * fade));
+            cnv.fill_style(badge);
+            cnv.add_circle(artist::circle(c, 15.0f));
+            cnv.fill();
+            cnv.stroke_style(tint.opacity(0.24f * fade));
+            cnv.line_width(1.0f);
+            cnv.add_circle(artist::circle(c, 14.5f));
+            cnv.stroke();
+            mIcons.Draw(cnv, mLook.icon, el::rect{c.x - 8.0f, c.y - 8.0f, c.x + 8.0f, c.y + 8.0f}, ghost(tint));
+            y += 30.0f + 4.0f;
         }
 
         // The name, in capitals as the web UI's are, the effect under it, and the model's badge.
-        const auto nameFont = Font(Weight::SemiBold).size(11.5f);
-        const auto detailFont = Font(Weight::Regular).size(10.5f);
-        const float textWidth = r.width() - 14.0f;
-        float y = r.top + 44.0f;
-        FillText(cnv, Ellipsize(cnv, Upper(mLook.name), nameFont, textWidth), nameFont, ink,
-                 el::rect{r.left + 7.0f, y - 7.0f, r.right - 7.0f, y + 7.0f}, HAlign::Centre);
+        const el::color ink = ghost(mTheme.Text());
+        const auto nameFont = Font(Weight::Medium).size(10.0f);
+        const auto detailFont = Font(Weight::Medium).size(9.0f);
+        const float textWidth = std::min(160.0f, r.width() - 16.0f);
+        FillText(cnv, Ellipsize(cnv, Upper(mLook.name), nameFont, textWidth), nameFont, ink, el::rect{r.left + 6.0f, y, r.right - 6.0f, y + 12.0f},
+                 HAlign::Centre);
         y += 14.0f;
         if (!mLook.detail.empty())
         {
-            FillText(cnv, Ellipsize(cnv, mLook.detail, detailFont, textWidth), detailFont, mTheme.TextMuted(),
-                     el::rect{r.left + 7.0f, y - 6.0f, r.right - 7.0f, y + 6.0f}, HAlign::Centre);
+            FillText(cnv, Ellipsize(cnv, mLook.detail, detailFont, textWidth), detailFont, ghost(Mix(tint, mTheme.TextMuted(), 0.26f)),
+                     el::rect{r.left + 6.0f, y, r.right - 6.0f, y + 11.0f}, HAlign::Centre);
             y += 13.0f;
         }
         if (!mLook.badge.empty())
         {
-            const auto badgeFont = Font(Weight::SemiBold).size(9.5f);
-            const float w = el::measure_text(cnv, mLook.badge, badgeFont).x + 10.0f;
-            const el::rect pill{r.left + (r.width() - w) * 0.5f, y - 6.0f, r.left + (r.width() + w) * 0.5f, y + 6.0f};
-            cnv.fill_style(mTheme.Success().opacity(0.16f));
-            cnv.fill_round_rect(pill, 6.0f);
-            FillText(cnv, mLook.badge, badgeFont, mTheme.Success(), pill, HAlign::Centre);
+            const auto badgeFont = Font(Weight::SemiBold).size(8.0f);
+            const float w = el::measure_text(cnv, mLook.badge, badgeFont).x + 12.0f;
+            const el::rect pill{cx - w * 0.5f, y, cx + w * 0.5f, y + 13.0f};
+            cnv.fill_style(el::rgba(56, 118, 98, 71));
+            cnv.fill_round_rect(pill, 6.5f);
+            cnv.stroke_style(el::rgba(128, 230, 188, 92));
+            cnv.line_width(1.0f);
+            cnv.stroke_round_rect(pill.inset(0.5f, 0.5f), 6.5f);
+            FillText(cnv, mLook.badge, badgeFont, el::rgba(186, 255, 226, 255), pill, HAlign::Centre);
         }
 
-        // Off: a pill saying so. On: the signal light.
-        if (!on && mLook.canBypass)
+        // The signal light, bottom right.
+        if (on && mLight != Light::None)
         {
-            const auto font = Font(Weight::SemiBold).size(9.0f);
-            const el::rect pill{r.right - 30.0f, r.top + 6.0f, r.right - 6.0f, r.top + 18.0f};
-            cnv.fill_style(mTheme.TextMuted().opacity(0.25f));
-            cnv.fill_round_rect(pill, 6.0f);
-            FillText(cnv, "OFF", font, mTheme.TextSecondary(), pill, HAlign::Centre);
-        }
-        else if (mLight != Light::None)
-        {
-            const el::color colour = mLight == Light::Clip ? mTheme.Error()
-                                   : mLight == Light::Live ? mTheme.Success()
-                                                           : mTheme.Success().opacity(0.3f);
+            const el::color colour = mLight == Light::Clip ? mTheme.Error() : el::rgba(72, 224, 120, 255);
             const el::point c{r.right - 9.0f, r.bottom - 9.0f};
-            if (mLight == Light::Live || mLight == Light::Clip)
-            {
-                cnv.fill_style(colour.opacity(0.25f));
-                cnv.add_circle(artist::circle(c, 6.0f));
-                cnv.fill();
-            }
-            cnv.fill_style(colour);
-            cnv.add_circle(artist::circle(c, 3.2f));
+            auto state = cnv.new_state();
+            if (mLight != Light::Idle)
+                cnv.shadow_style(el::point{0.0f, 0.0f}, 6.0f, colour.opacity(0.8f));
+            cnv.fill_style(mLight == Light::Idle ? colour.opacity(0.35f) : colour);
+            cnv.add_circle(artist::circle(c, 3.0f));
             cnv.fill();
         }
 
         if (mLook.missing)
         {
-            const auto font = Font(Weight::SemiBold).size(13.0f);
-            FillText(cnv, "\xE2\x9A\xA0", font, mTheme.Warning(), el::rect{r.right - 24.0f, r.top + 20.0f, r.right - 6.0f, r.top + 36.0f},
+            const auto font = Font(Weight::SemiBold).size(9.0f);
+            FillText(cnv, "\xE2\x9A\xA0", font, el::rgba(255, 102, 102, 255), el::rect{r.left + 4.0f, r.bottom - 15.0f, r.left + 16.0f, r.bottom - 3.0f},
                      HAlign::Centre);
         }
 
@@ -208,7 +293,7 @@ public:
         if (mLook.canBypass && (mHover || !on))
         {
             const auto p = PowerRect(r);
-            cnv.fill_style(mHoverPower ? mTheme.Elevated() : mTheme.Background().opacity(0.6f));
+            cnv.fill_style(mHoverPower ? mTheme.Elevated() : el::rgba(9, 11, 17, 170));
             cnv.add_circle(artist::circle(artist::center_point(p), kPowerSize * 0.5f));
             cnv.fill();
             mIcons.Draw(cnv, "output", p.inset(3.0f, 3.0f), on ? mTheme.Success() : mTheme.TextSecondary());
@@ -226,7 +311,7 @@ public:
         if (btn.state != el::mouse_button::left)
             return false;
 
-        const auto r = CardRect(ctx.bounds);
+        const auto r = CardRect(ctx.bounds, CardHeight());
         if (btn.down)
         {
             mDown = true;
@@ -258,7 +343,7 @@ public:
     bool cursor(const el::context& ctx, el::point p, el::cursor_tracking status) override
     {
         const bool inside = status != el::cursor_tracking::leaving;
-        const bool power = inside && mLook.canBypass && PowerRect(CardRect(ctx.bounds)).inset(-4.0f, -4.0f).includes(p);
+        const bool power = inside && mLook.canBypass && PowerRect(CardRect(ctx.bounds, CardHeight())).inset(-4.0f, -4.0f).includes(p);
         if (inside != mHover || power != mHoverPower)
         {
             mHover = inside;
@@ -295,6 +380,11 @@ public:
     std::function<void()> onSelect, onToggle, onMenu, onReplace;
 
 private:
+    [[nodiscard]] float CardHeight() const
+    {
+        return mLook.thumbnail ? kThumbCardHeight : kPlainCardHeight;
+    }
+
     static el::rect PowerRect(const el::rect& card)
     {
         return el::rect{card.left + 6.0f, card.top + 6.0f, card.left + 6.0f + kPowerSize, card.top + 6.0f + kPowerSize};
@@ -328,33 +418,67 @@ public:
         const auto b = ctx.bounds;
         const float y = b.top + b.height() * 0.5f;
 
-        cnv.stroke_style(CableColour(mTheme));
-        cnv.line_width(2.0f);
+        // The cable (.signal-connector: 3 px, the route colour at 55%) with an arrowhead into
+        // what it feeds, in the full colour.
+        const auto route = CableColour(mTheme);
+        cnv.stroke_style(route.opacity(0.55f));
+        cnv.line_width(3.0f);
+        cnv.line_cap(artist::canvas::round);
         cnv.begin_path();
-        cnv.move_to(b.left, y);
-        cnv.line_to(b.right, y);
+        cnv.move_to(b.left + 1.5f, y);
+        cnv.line_to(b.right - 1.5f, y);
+        cnv.stroke();
+        cnv.stroke_style(route);
+        cnv.line_width(1.5f);
+        cnv.begin_path();
+        cnv.move_to(b.right - 4.5f, y - 3.5f);
+        cnv.line_to(b.right - 1.0f, y);
+        cnv.line_to(b.right - 4.5f, y + 3.5f);
         cnv.stroke();
 
         if (!mOnAdd)
             return;
 
-        const el::point c{b.left + kConnectorWidth * 0.5f, y};
-        cnv.fill_style(mHover ? mTheme.AccentFill() : mTheme.Elevated());
-        cnv.add_circle(artist::circle(c, mHover ? 9.0f : 7.0f));
-        cnv.fill();
-        cnv.stroke_style(mHover ? mTheme.Accent() : mTheme.BorderStrong());
-        cnv.line_width(1.0f);
-        cnv.add_circle(artist::circle(c, mHover ? 9.0f : 7.0f));
-        cnv.stroke();
+        const el::point c = PlusCentre(b);
+        if (mHover)
+        {
+            // The add button (.signal-add-btn): 24 px, raised, a bold +.
+            auto state = cnv.new_state();
+            artist::canvas::linear_gradient fill{el::point{c.x, c.y - 11.0f}, el::point{c.x, c.y + 11.0f}};
+            fill.add_color_stop(0.0f, el::rgba(58, 58, 68, 255));
+            fill.add_color_stop(1.0f, el::rgba(32, 32, 42, 255));
+            cnv.fill_style(fill);
+            cnv.add_circle(artist::circle(c, 11.0f));
+            cnv.fill();
+            cnv.stroke_style(el::rgba(74, 74, 88, 255));
+            cnv.line_width(2.0f);
+            cnv.add_circle(artist::circle(c, 11.0f));
+            cnv.stroke();
+            cnv.stroke_style(mTheme.TextSecondary());
+            cnv.line_width(2.0f);
+            cnv.begin_path();
+            cnv.move_to(c.x - 4.5f, c.y);
+            cnv.line_to(c.x + 4.5f, c.y);
+            cnv.move_to(c.x, c.y - 4.5f);
+            cnv.line_to(c.x, c.y + 4.5f);
+            cnv.stroke();
+            return;
+        }
 
-        const float arm = mHover ? 4.5f : 3.5f;
-        cnv.stroke_style(mHover ? mTheme.OnAccent() : mTheme.TextSecondary());
-        cnv.line_width(1.5f);
+        // At rest, a small ringed + on the cable (.signal-connector-wrapper::after).
+        cnv.fill_style(Mix(mTheme.Bar(), el::rgba(0, 0, 0, 0), 0.72f));
+        cnv.add_circle(artist::circle(c, 5.5f));
+        cnv.fill();
+        cnv.stroke_style(route.opacity(0.68f * 0.7f));
+        cnv.line_width(1.0f);
+        cnv.add_circle(artist::circle(c, 4.5f));
+        cnv.stroke();
+        cnv.stroke_style(route.opacity(0.7f));
         cnv.begin_path();
-        cnv.move_to(c.x - arm, c.y);
-        cnv.line_to(c.x + arm, c.y);
-        cnv.move_to(c.x, c.y - arm);
-        cnv.line_to(c.x, c.y + arm);
+        cnv.move_to(c.x - 2.5f, c.y);
+        cnv.line_to(c.x + 2.5f, c.y);
+        cnv.move_to(c.x, c.y - 2.5f);
+        cnv.line_to(c.x, c.y + 2.5f);
         cnv.stroke();
     }
 
@@ -384,10 +508,16 @@ public:
     }
 
 private:
+    /// Where the + sits: two fifths along the cable (--signal-add-anchor-x: 40%).
+    static el::point PlusCentre(const el::rect& b)
+    {
+        return el::point{b.left + kConnectorWidth * 0.4f, b.top + b.height() * 0.5f};
+    }
+
     bool HitsPlus(const el::context& ctx, el::point p) const
     {
-        const float y = ctx.bounds.top + ctx.bounds.height() * 0.5f;
-        return std::abs(p.x - (ctx.bounds.left + kConnectorWidth * 0.5f)) <= 12.0f && std::abs(p.y - y) <= 12.0f;
+        const auto c = PlusCentre(ctx.bounds);
+        return std::abs(p.x - c.x) <= 14.0f && std::abs(p.y - c.y) <= 14.0f;
     }
 
     const Theme& mTheme;
@@ -423,8 +553,8 @@ public:
         const float outside = mJoin ? b.right : b.left;
         const float inside = mJoin ? b.left : b.right;
 
-        cnv.stroke_style(CableColour(mTheme));
-        cnv.line_width(2.0f);
+        cnv.stroke_style(CableColour(mTheme).opacity(0.55f));
+        cnv.line_width(3.0f);
         cnv.line_join(artist::canvas::round_join);
         cnv.begin_path();
         cnv.move_to(outside, mid);
@@ -510,8 +640,8 @@ public:
         const auto b = ctx.bounds;
         const float mid = b.top + b.height() * 0.5f;
         const float x = b.left + kWireEndWidth * 0.5f;
-        cnv.stroke_style(CableColour(mTheme));
-        cnv.line_width(2.0f);
+        cnv.stroke_style(CableColour(mTheme).opacity(0.55f));
+        cnv.line_width(3.0f);
         cnv.begin_path();
         if (mOut)
         {
@@ -550,8 +680,8 @@ public:
         const auto b = ctx.bounds;
         const float mid = b.top + b.height() * 0.5f;
         const float from = b.left + mFrom, to = b.left + mTo;
-        cnv.stroke_style(CableColour(mTheme));
-        cnv.line_width(2.0f);
+        cnv.stroke_style(CableColour(mTheme).opacity(0.55f));
+        cnv.line_width(3.0f);
         cnv.begin_path();
         cnv.move_to(from, b.top);
         cnv.arc_to(el::point{from, mid}, el::point{to, mid}, 6.0f);

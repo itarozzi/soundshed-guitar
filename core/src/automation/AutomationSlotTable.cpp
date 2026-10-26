@@ -456,6 +456,7 @@ void AutomationSlotTable::BindDawParameters(const std::vector<std::string>& slot
     {
         AttachDawValue(slot);
     }
+    SyncGlobalSlotValues();
 }
 
 float AutomationSlotTable::GetDawParameterValue(int parameterIndex) const
@@ -466,6 +467,21 @@ float AutomationSlotTable::GetDawParameterValue(int parameterIndex) const
     }
 
     return mDawValues[static_cast<std::size_t>(parameterIndex)].load(std::memory_order_relaxed);
+}
+
+void AutomationSlotTable::SyncGlobalSlotValues()
+{
+    for (auto& slot : mSlots)
+    {
+        const auto* entry = mRegistry.Find(slot.address);
+        if (entry == nullptr || !entry->get || entry->isTrigger || entry->isStepped || entry->maxValue <= entry->minValue)
+        {
+            continue;
+        }
+
+        const double normalized = (entry->get() - entry->minValue) / (entry->maxValue - entry->minValue);
+        slot.StoreValue(static_cast<float>(std::clamp(normalized, 0.0, 1.0)));
+    }
 }
 
 void AutomationSlotTable::AttachDawValue(AutomationSlot& slot)

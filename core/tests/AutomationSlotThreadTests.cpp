@@ -342,10 +342,21 @@ bool TestParametersFollowSlots(PluginController& controller, OtherInstance& othe
     const std::string label = "parameters: ";
     const auto value = [&controller](int parameter) { return controller.GetDawParameterValue(parameter); };
 
+    // The input level's slot holds the trim (-40..+20 dB) from the start, not 0, which a host
+    // that saves and restores its parameters (QPlug) would set back as -40 dB; and it follows
+    // the trim when the trim changes.
+    bool passed = Check(Near(value(kInputLevel), 40.0f / 60.0f),
+                        label + "the input level starts at the trim's 0 dB (" + Show(value(kInputLevel)) + ")");
+    Send(controller, {{"type", "setGlobalChainParam"}, {"path", "input.gain"}, {"value", -10.0}});
+    passed = Check(Near(value(kInputLevel), 30.0f / 60.0f),
+                   label + "and follows the trim to -10 dB (" + Show(value(kInputLevel)) + ")") &&
+             passed;
+    Send(controller, {{"type", "setGlobalChainParam"}, {"path", "input.gain"}, {"value", 0.0}});
+
     (void)controller.DeserializeState(HostState(true));
-    bool passed =
-        Check(Near(value(kInputLevel), kInputLevelA) && Near(value(kMidiSlot), 0.5f),
-              label + "a restore sets them (" + Show(value(kInputLevel)) + ", " + Show(value(kMidiSlot)) + ")");
+    passed = Check(Near(value(kInputLevel), kInputLevelA) && Near(value(kMidiSlot), 0.5f),
+                   label + "a restore sets them (" + Show(value(kInputLevel)) + ", " + Show(value(kMidiSlot)) + ")") &&
+             passed;
 
     controller.EnqueueMidi(Cc(127));
     controller.ProcessQueuedMidi();

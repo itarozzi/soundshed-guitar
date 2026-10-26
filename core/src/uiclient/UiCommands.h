@@ -50,6 +50,12 @@ public:
     // ── Signal chain ────────────────────────────────────────────────────────
     void SetNodeBypassed(const std::string& nodeId, bool bypassed);
     void SetNodeParam(const std::string& nodeId, const std::string& key, double value);
+    /// A node's string config (updateSignalPathNodeConfig), mirrored at once as SetNodeParam is.
+    void SetNodeConfig(const std::string& nodeId, const std::string& key, const std::string& value);
+    /// Loads the active preset with `graph` as its chain, in its scene and its own: what the
+    /// chain's undo does when the change it reverses rebuilt the chain (history.ts,
+    /// applyWholeGraph). The engine compares the result with the preset as saved for dirty.
+    void LoadActivePresetWithGraph(const SignalGraph& graph);
     void AddNode(const std::string& effectType, const std::string& afterNodeId);
     /// Adds an effect on one edge of the graph: the way into a parallel branch, which "after a
     /// node" cannot name.

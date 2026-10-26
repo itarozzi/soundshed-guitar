@@ -4,6 +4,8 @@
 
 #include "uiclient/UiCommands.h"
 
+#include "presets/PresetStorage.h"
+
 #include <algorithm>
 #include <set>
 
@@ -176,6 +178,37 @@ void UiCommands::SelectSetlist(const std::string& setlistId)
 void UiCommands::SetNodeBypassed(const std::string& nodeId, bool bypassed)
 {
     mClient.Send("updateSignalPathNodeBypass", {{"nodeId", nodeId}, {"bypassed", bypassed}});
+}
+
+void UiCommands::SetNodeConfig(const std::string& nodeId, const std::string& key, const std::string& value)
+{
+    auto& state = mClient.MutableState();
+    if (state.activePreset)
+        if (auto* node = state.activePreset->graph.FindNode(nodeId))
+            node->config[key] = value;
+
+    mClient.Send("updateSignalPathNodeConfig", {{"nodeId", nodeId}, {"key", key}, {"value", value}, {"persist", true}, {"capture", false}});
+}
+
+void UiCommands::LoadActivePresetWithGraph(const SignalGraph& graph)
+{
+    const auto& state = mClient.State();
+    if (!state.activePreset)
+        return;
+
+    Preset preset = *state.activePreset;
+    preset.graph = graph;
+    for (auto& scene : preset.scenes)
+        if (scene.id == state.activeSceneId)
+            scene.graph = graph;
+
+    const auto body = nlohmann::json::parse(PresetStorage::SerializeToJson(preset), nullptr, false);
+    if (body.is_discarded())
+        return;
+    nlohmann::json payload = {{"preset", body}};
+    if (!state.activeSceneId.empty())
+        payload["sceneId"] = state.activeSceneId;
+    mClient.Send("loadPreset", payload);
 }
 
 void UiCommands::SetNodeParam(const std::string& nodeId, const std::string& key, double value)
