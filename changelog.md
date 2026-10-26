@@ -1,6 +1,15 @@
 # Changelog
 
 ## Unreleased
+* New Verbal reverb effect 
+* IR Cab now has optional IR list for easy pairing
+* Many updates to the custom layout editor enabling better custom layout designs
+* Riff capture records on the new looper's recorder. An armed take now keeps the 10 ms before your first note, so the pick attack isn't cut, and waits for a note louder than your pickup's hum instead of a fixed level that a single coil's hum could set off. Your riff library and saved takes are unchanged.
+
+## 1.7.1 (Oct 23,2026)
+* Minor fixes: Window chrome style, plugin hosting performance fixes, fix Jam search tab
+
+## 1.7.0 (Oct 22,2026)
 
 ### MIDI
 * The app can now tell your MIDI device when you pick a bank or a setlist slot in the app, so a controller or a second unit following along shows the same selection. Turn on **Send a program change to the MIDI device** in the MIDI & Automation panel's Mappings tab and choose the channel. Picking a slot sends its setlist's bank number as Bank Select, then a Program Change for the slot (slot 1 is program 0); picking a setlist sends its Bank Select alone. Choose CC0 + CC32, CC0 only or CC32 only to suit your device, or no Bank Select at all. Changes made from the MIDI device itself or from your DAW are not sent back to it.
