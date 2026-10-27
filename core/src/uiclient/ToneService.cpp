@@ -572,6 +572,34 @@ void ToneService::ImportTone3000(const tone3000::Tone& tone, const tone3000::Mod
     });
 }
 
+void ToneService::DownloadTone3000(const tone3000::Model& model, const std::string& resourceType, DownloadCallback callback)
+{
+    if (model.modelUrl.empty())
+    {
+        callback({}, "Tone3000 gave no download for this model");
+        return;
+    }
+    Request("GET", tone3000::ThroughRelay(model.modelUrl), {}, false, [resourceType, callback](const HttpResult& result) {
+        if (result.status != 200 || result.body.empty())
+        {
+            callback({}, result.status == 0 ? result.error : "The download failed (" + std::to_string(result.status) + ")");
+            return;
+        }
+        std::string bytes = result.body;
+        if (IsZip(bytes))
+        {
+            const auto unzipped = UnzipModel(bytes, resourceType);
+            if (!unzipped)
+            {
+                callback({}, "The download holds no model");
+                return;
+            }
+            bytes = unzipped->second;
+        }
+        callback(Base64(bytes), {});
+    });
+}
+
 void ToneService::FetchRemoteRef(const tone3000::RemoteRef& ref, std::function<void(const std::string&, const std::string&)> done)
 {
     const auto download = [this, done](const std::string& url) {

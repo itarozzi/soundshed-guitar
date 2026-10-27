@@ -702,6 +702,45 @@ void UiCommands::PatchUiSettings(const nlohmann::json& patch)
     mClient.Send("uiSettingsChanged", {{"patch", patch}});
 }
 
+void UiCommands::SetResourceFavorite(const std::string& resourceId, bool favorite)
+{
+    mClient.Send("setResourceFavorite", {{"resourceId", resourceId}, {"favorite", favorite}});
+}
+
+void UiCommands::UpdateLibraryResource(const std::string& resourceType, const std::string& resourceId, const std::string& name,
+                                       const std::string& category, const std::vector<std::string>& tags)
+{
+    mClient.Send("updateLibraryResource",
+                 {{"resourceType", resourceType}, {"resourceId", resourceId}, {"name", name}, {"category", category}, {"tags", tags}});
+}
+
+void UiCommands::DeleteLibraryResource(const std::string& resourceType, const std::string& resourceId)
+{
+    mClient.Send("deleteLibraryResource", {{"resourceType", resourceType}, {"resourceId", resourceId}});
+}
+
+void UiCommands::QueryResourceUsage(const std::string& resourceType, const std::string& resourceId)
+{
+    mClient.Send("queryResourceUsage", {{"resourceType", resourceType}, {"resourceId", resourceId}});
+}
+
+void UiCommands::PreviewRemoteResource(const std::string& resourceType, const std::string& tempResourceId, const std::string& nodeId,
+                                       int resourceIndex, bool isZip, const std::string& base64)
+{
+    mClient.Send("previewRemoteResource", {{"resourceType", resourceType},
+                                           {"tempResourceId", tempResourceId},
+                                           {"nodeId", nodeId},
+                                           {"resourceIndex", std::max(0, resourceIndex)},
+                                           {"isZip", isZip},
+                                           {"data", base64}});
+}
+
+void UiCommands::CancelPreviewResource(const std::string& nodeId, int resourceIndex, bool restoreOriginal)
+{
+    mClient.Send("cancelPreviewResource",
+                 {{"nodeId", nodeId}, {"resourceIndex", std::max(0, resourceIndex)}, {"restoreOriginal", restoreOriginal}});
+}
+
 void UiCommands::AudioDevice(const std::string& action, nlohmann::json payload)
 {
     if (!payload.is_object())

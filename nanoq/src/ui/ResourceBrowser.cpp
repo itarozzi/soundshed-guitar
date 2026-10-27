@@ -17,8 +17,11 @@
 #include "dsp/EffectGuids.h"
 #include "uiclient/FeatureFlags.h"
 #include "uiclient/NodeLabels.h"
+#include "uiclient/ResourceIndex.h"
 
 #include <algorithm>
+#include <map>
+#include <optional>
 #include <cctype>
 
 namespace nanoq::ui
@@ -91,7 +94,8 @@ public:
     bool selected = false;
     bool heading = false;                    // a group's caption
     bool indent = false;                     // a model under its tone
-    std::function<void()> onClick, onDouble, onButton;
+    int star = -1;                           // -1: none; 0 or 1: the favourite star, off or on
+    std::function<void()> onClick, onDouble, onButton, onStar, onMenu;
 
     el::view_limits limits(const el::basic_context&) const override
     {
@@ -103,6 +107,7 @@ public:
     {
         auto& cnv = ctx.canvas;
         auto b = ctx.bounds;
+        bounds = b;
         if (heading)
         {
             cnv.fill_style(mTheme.Pick(el::rgba(255, 255, 255, mHover ? 14 : 8), mTheme.Text().opacity(mHover ? 0.08f : 0.05f)));
@@ -154,6 +159,17 @@ public:
         }
 
         float right = face.right - 12.0f;
+        if (star >= 0)
+        {
+            const float cy = face.top + face.height() * 0.5f;
+            mStar = el::rect{right - 16.0f, cy - 8.0f, right, cy + 8.0f};
+            mIcons.Draw(cnv, "star", mStar, star > 0 ? mTheme.Accent() : mTheme.TextMuted().opacity(mHover ? 0.8f : 0.4f));
+            right = mStar.left - 10.0f;
+        }
+        else
+        {
+            mStar = {};
+        }
         if (!button.empty())
         {
             const auto font = Font(Weight::SemiBold).size(11.0f);
@@ -198,8 +214,20 @@ public:
 
     bool click(const el::context& ctx, el::mouse_button btn) override
     {
+        if (btn.state == el::mouse_button::right && onMenu)
+        {
+            if (btn.down)
+                onMenu();
+            return true;
+        }
         if (btn.state != el::mouse_button::left || btn.down)
             return btn.state == el::mouse_button::left;
+        if (star >= 0 && mStar.inset(-6.0f, -6.0f).includes(btn.pos))
+        {
+            if (onStar)
+                onStar();
+            return true;
+        }
         if (!button.empty() && mButton.includes(btn.pos))
         {
             if (onButton)
@@ -237,7 +265,10 @@ private:
     Icons& mIcons;
     std::string mTitle, mDetail;
     bool mHover = false, mHoverButton = false;
-    el::rect mButton;
+    el::rect mButton, mStar;
+
+public:
+    el::rect bounds; // where it was last drawn, for a menu to hang from
 };
 
 /// The tab strip's tabs (.resource-browser-tab-btn): 13 px, the open one in the accent and underlined.
@@ -340,6 +371,10 @@ void Shell::OpenResourceBrowser(const std::string& nodeId, const std::string& re
         Tab tab = Tab::Library;
 
         std::string query, category;   // Library
+        std::string arch, creator;     // "" for all
+        std::vector<std::string> tags;
+        bool favouritesOnly = false;
+        std::map<std::string, bool> openPacks; // a pack the user opened or closed
         std::string filter;            // Folder
         std::string rootId;
         std::string t3Query, t3Gear, t3Sort = "downloads-all-time", t3Arch;
@@ -348,6 +383,9 @@ void Shell::OpenResourceBrowser(const std::string& nodeId, const std::string& re
         std::string t3Error;
         std::vector<t3::Tone> t3Tones;
         std::string t3Open; // the tone showing its models
+        std::string t3Hearing; // a Tone3000 model being auditioned (previewRemoteResource), not imported
+        std::optional<t3::Tone> t3HearingTone;
+        std::optional<t3::Model> t3HearingModel;
         std::vector<t3::Model> t3Models;
         bool t3ModelsLoading = false;
 
@@ -392,6 +430,14 @@ void Shell::OpenResourceBrowser(const std::string& nodeId, const std::string& re
 
     auto& commands = mSession.Commands();
     const auto preview = [this, b](const std::string& id, const std::string& path) {
+        // A choice from the library or a folder ends a Tone3000 audition, the slot taking it.
+        if (!b->t3Hearing.empty())
+        {
+            mSession.Commands().CancelPreviewResource(b->nodeId, b->index, false);
+            b->t3Hearing.clear();
+            b->t3HearingTone.reset();
+            b->t3HearingModel.reset();
+        }
         b->previewed = true;
         b->selectedId = id;
         b->selectedPath = path;
@@ -403,38 +449,27 @@ void Shell::OpenResourceBrowser(const std::string& nodeId, const std::string& re
     };
 
     // ── Library ─────────────────────────────────────────────────────────────────
+    // The web UI's Library tab (resourceBrowser.ts), from uiclient::ResourceIndex: each file
+    // once, the filters, favourites first, and packs grouped when that is on.
     const auto libraryList = [this, b, preview, refillList]() -> Ptr {
-        std::vector<const LibraryResource*> entries;
-        if (const auto it = mState.resources.find(b->resourceType); it != mState.resources.end())
-            for (const auto& r : it->second)
-            {
-                const auto q = Lower(b->query);
-                const auto haystack = Lower(r.name + " " + r.category + " " + MetaText(r.metadata, "creatorName") + " " +
-                                            MetaText(r.metadata, "authorUsername"));
-                if ((q.empty() || haystack.find(q) != std::string::npos) && (b->category.empty() || r.category == b->category))
-                    entries.push_back(&r);
-            }
-        std::stable_sort(entries.begin(), entries.end(), [](const LibraryResource* x, const LibraryResource* y) {
-            return x->category != y->category ? x->category < y->category : Lower(x->name) < Lower(y->name);
-        });
+        ResourceFilter filter;
+        filter.query = b->query;
+        filter.category = b->category.empty() ? std::string("all") : b->category;
+        filter.architecture = b->arch.empty() ? std::string("all") : b->arch;
+        filter.creator = b->creator.empty() ? std::string("all") : b->creator;
+        filter.tags = b->tags;
+        filter.favouritesOnly = b->favouritesOnly;
+        const auto entries = FilterLibrary(mState, b->resourceType, filter, b->selectedId);
 
-        std::vector<Ptr> rows;
-        std::string category = "\x01";
-        for (const auto* r : entries)
-        {
-            if (r->category != category)
-            {
-                category = r->category;
-                const auto count = std::count_if(entries.begin(), entries.end(), [&](const LibraryResource* e) { return e->category == category; });
-                auto head = std::make_shared<BrowserRow>(mTheme, mIcons, category.empty() ? "Uncategorised" : category, "");
-                head->heading = true;
-                head->icon = "ui-caret";
-                head->note = std::to_string(count);
-                rows.push_back(head);
-            }
-            auto row = std::make_shared<BrowserRow>(mTheme, mIcons, r->name, Describe(r->metadata, r->fileMissing ? "file missing" : ""));
-            row->indent = true;
+        const auto rowFor = [this, b, preview, refillList](const LibraryResource* r, const std::string& title) {
+            auto row = std::make_shared<BrowserRow>(mTheme, mIcons, title, Describe(r->metadata, r->category));
             row->selected = r->id == b->selectedId || (!b->selectedPath.empty() && r->filePath == b->selectedPath);
+            row->star = IsResourceFavorite(mState, r->id) ? 1 : 0;
+            row->onStar = [this, refillList, id = r->id] {
+                mSession.Commands().SetResourceFavorite(id, !IsResourceFavorite(mState, id));
+                refillList();
+            };
+            row->onMenu = [this, b, id = r->id, rowPtr = row.get()] { OpenLibraryResourceMenu(b->resourceType, id, rowPtr->bounds); };
             row->onClick = [preview, refillList, id = r->id] {
                 preview(id, {});
                 refillList();
@@ -443,11 +478,60 @@ void Shell::OpenResourceBrowser(const std::string& nodeId, const std::string& re
                 preview(id, {});
                 CloseOverlay();
             };
-            rows.push_back(row);
+            return row;
+        };
+
+        std::vector<Ptr> rows;
+        if (IsPackGroupingEnabled(mState))
+        {
+            for (const auto& entry : GroupLibraryByPack(mState, entries))
+            {
+                if (!entry.pack)
+                {
+                    const auto* r = entry.items.front();
+                    rows.push_back(rowFor(r, r->name.empty() ? r->id : r->name));
+                    continue;
+                }
+                // A pack is open while the user leaves it open, and by default when it holds the
+                // choice or the list is searched or narrowed to favourites.
+                const auto key = entry.pack->key;
+                const bool holdsSelected =
+                    std::any_of(entry.items.begin(), entry.items.end(), [b](const LibraryResource* r) { return r->id == b->selectedId; });
+                const auto toggled = b->openPacks.find(key);
+                const bool open = toggled != b->openPacks.end() ? toggled->second
+                                                                : (holdsSelected || !b->query.empty() || b->favouritesOnly);
+                auto head = std::make_shared<BrowserRow>(mTheme, mIcons, entry.pack->title, "");
+                head->heading = true;
+                head->icon = open ? "ui-caret" : "ui-chevron-right";
+                head->note = std::to_string(entry.items.size());
+                head->onClick = [b, refillList, key, open] {
+                    b->openPacks[key] = !open;
+                    refillList();
+                };
+                rows.push_back(head);
+                if (open)
+                    for (const auto* r : entry.items)
+                    {
+                        auto row = rowFor(r, NameWithinPack(r->name.empty() ? r->id : r->name, *entry.pack));
+                        row->indent = true;
+                        rows.push_back(row);
+                    }
+            }
+        }
+        else
+        {
+            for (const auto* r : entries)
+                rows.push_back(rowFor(r, r->name.empty() ? r->id : r->name));
         }
         if (rows.empty())
         {
-            auto none = std::make_shared<Text>(mTheme, b->query.empty() ? "The library has none yet." : "Nothing matches.", 12.0f);
+            const bool narrowed = !b->query.empty() || !b->category.empty() || !b->arch.empty() || !b->creator.empty() ||
+                                  !b->tags.empty() || b->favouritesOnly;
+            auto none = std::make_shared<Text>(mTheme,
+                                               !narrowed ? "The library has none yet."
+                                                         : std::string("No ") + (b->resourceType == "ir" ? "IRs" : "models") +
+                                                               " match the current filters.",
+                                               12.0f);
             none->Colour(mTheme.TextMuted()).Alignment(Text::Align::Centre);
             rows.push_back(FixedHeight(60, none));
         }
@@ -466,26 +550,90 @@ void Shell::OpenResourceBrowser(const std::string& nodeId, const std::string& re
                     b->fillList(); // the list is its own slot: the box keeps its focus
             };
         }
-        std::set<std::string> categories;
-        if (const auto it = mState.resources.find(b->resourceType); it != mState.resources.end())
-            for (const auto& r : it->second)
-                categories.insert(r.category);
-        auto category = std::make_shared<IconButton>(mTheme, mIcons, "", IconButton::Look::Boxed);
-        category->Size(150, 30).Label(b->category.empty() ? std::string("All categories") : b->category, 11.0f).Caret(true);
-        category->onClick = [this, b, categories, refillList, c = category.get()] {
-            std::vector<MenuItem> items{{"All categories", b->category.empty(), false, [b, refillList] {
-                                             b->category.clear();
-                                             b->fillControls();
-                                             refillList();
-                                         }}};
-            for (const auto& name : categories)
-                if (!name.empty())
-                    items.push_back({name, b->category == name, false, [b, name, refillList] {
-                                         b->category = name;
+        // A drop-down button whose choice refills the controls and the list.
+        const auto chooser = [this, b, refillList](const std::string& label, float width, std::vector<std::pair<std::string, std::string>> choices,
+                                                   std::string* target) {
+            auto button = std::make_shared<IconButton>(mTheme, mIcons, "", IconButton::Look::Boxed);
+            button->Size(width, 30).Label(label, 11.0f).Caret(true);
+            button->onClick = [this, b, refillList, choices, target, c = button.get()] {
+                std::vector<MenuItem> items;
+                for (const auto& [text, value] : choices)
+                    items.push_back({text, *target == value, false, [b, refillList, target, value] {
+                                         *target = value;
                                          b->fillControls();
                                          refillList();
                                      }});
-            OpenDropdown(c->Bounds(), std::move(items), 200.0f);
+                OpenDropdown(c->Bounds(), std::move(items), 220.0f);
+            };
+            return button;
+        };
+
+        std::vector<std::pair<std::string, std::string>> categories{{"All categories", ""}};
+        for (const auto& name : LibraryCategories(mState, b->resourceType))
+            categories.emplace_back(name, name);
+        std::vector<Ptr> row{b->searchElement, HGap(8),
+                             chooser(b->category.empty() ? "All categories" : b->category, 140, categories, &b->category)};
+        if (b->resourceType == "nam")
+        {
+            row.push_back(HGap(6));
+            row.push_back(chooser(b->arch.empty() ? "A1 / A2" : b->arch, 84, {{"A1 and A2", ""}, {"A1", "A1"}, {"A2", "A2"}}, &b->arch));
+        }
+
+        // Creators and tags: the facets of what the library holds (getResourceLibraryFacets).
+        std::vector<const LibraryResource*> all;
+        if (const auto it = mState.resources.find(b->resourceType); it != mState.resources.end())
+            for (const auto* r : DeduplicateResources(it->second).deduped)
+                all.push_back(r);
+        const auto facets = LibraryFacets(all);
+        if (!facets.creators.empty())
+        {
+            std::vector<std::pair<std::string, std::string>> creators{{"All creators", ""}};
+            for (const auto& c : facets.creators)
+                creators.emplace_back(c, c);
+            row.push_back(HGap(6));
+            row.push_back(chooser(b->creator.empty() ? "All creators" : b->creator, 120, creators, &b->creator));
+        }
+        if (!facets.tags.empty())
+        {
+            auto tags = std::make_shared<IconButton>(mTheme, mIcons, "", IconButton::Look::Boxed);
+            tags->Size(76, 30).Label(b->tags.empty() ? std::string("Tags") : "Tags (" + std::to_string(b->tags.size()) + ")", 11.0f).Caret(true);
+            tags->onClick = [this, b, refillList, list = facets.tags, c = tags.get()] {
+                std::vector<MenuItem> items{{"All tags", b->tags.empty(), false, [b, refillList] {
+                                                 b->tags.clear();
+                                                 b->fillControls();
+                                                 refillList();
+                                             }}};
+                for (const auto& tag : list)
+                {
+                    const bool on = std::find(b->tags.begin(), b->tags.end(), tag) != b->tags.end();
+                    items.push_back({tag, on, false, [b, refillList, tag, on] {
+                                         if (on)
+                                             b->tags.erase(std::remove(b->tags.begin(), b->tags.end(), tag), b->tags.end());
+                                         else
+                                             b->tags.push_back(tag);
+                                         b->fillControls();
+                                         refillList();
+                                     }});
+                }
+                OpenDropdown(c->Bounds(), std::move(items), 200.0f);
+            };
+            row.push_back(HGap(6));
+            row.push_back(tags);
+        }
+
+        auto favourites = std::make_shared<IconButton>(mTheme, mIcons, "star", IconButton::Look::Boxed);
+        favourites->Size(30, 30).IconSize(14).Ink(b->favouritesOnly ? mTheme.Accent() : mTheme.TextSecondary());
+        favourites->onClick = [b, refillList] {
+            b->favouritesOnly = !b->favouritesOnly;
+            b->fillControls();
+            refillList();
+        };
+        const bool grouped = IsPackGroupingEnabled(mState);
+        auto group = std::make_shared<IconButton>(mTheme, mIcons, "ui-folder", IconButton::Look::Boxed);
+        group->Size(30, 30).IconSize(14).Ink(grouped ? mTheme.Accent() : mTheme.TextSecondary());
+        group->onClick = [this, refillList, grouped] {
+            mSession.Commands().SetSetting("resources.library.groupPacks", !grouped);
+            refillList();
         };
         auto file = std::make_shared<IconButton>(mTheme, mIcons, "", IconButton::Look::Boxed);
         file->Size(64, 30).Label("File...", 11.0f);
@@ -493,7 +641,8 @@ void Shell::OpenResourceBrowser(const std::string& nodeId, const std::string& re
             commands.BrowseNodeResource(b->nodeId, b->resourceType, b->index);
             b->previewed = true; // a file chosen there is the new choice; Cancel puts back the old
         };
-        return Row({b->searchElement, HGap(8), category, HGap(8), file});
+        row.insert(row.end(), {HGap(6), favourites, HGap(4), group, HGap(6), file});
+        return Row(row);
     };
 
     // ── Folder ──────────────────────────────────────────────────────────────────
@@ -711,6 +860,32 @@ void Shell::OpenResourceBrowser(const std::string& nodeId, const std::string& re
             };
             rows.push_back(row);
 
+            // The web UI's Import All: every model of the open tone into the library.
+            if (b->t3Open == tone.id && !b->t3Models.empty())
+            {
+                const auto missing = std::count_if(b->t3Models.begin(), b->t3Models.end(), [this, b](const t3::Model& m) {
+                    return t3::FindImported(mState, b->resourceType, m) == nullptr;
+                });
+                if (missing > 0)
+                {
+                    auto all = std::make_shared<BrowserRow>(mTheme, mIcons, "Import all " + std::to_string(missing) + " into the library", "");
+                    all->indent = true;
+                    all->icon = "ui-download";
+                    all->onClick = [this, b, tone, refillList] {
+                        for (const auto& m : b->t3Models)
+                            if (t3::FindImported(mState, b->resourceType, m) == nullptr && !mSession.Tones().IsImporting(m.id))
+                                mSession.Tones().ImportTone3000(tone, m, b->resourceType, b->resourceType == "ir" ? b->role.gear : std::string(),
+                                                                [this, refillList](const std::string&, const std::string& error) {
+                                                                    if (!error.empty())
+                                                                        ShowToast("Could not import a model", error, true);
+                                                                    refillList();
+                                                                });
+                        refillList();
+                    };
+                    rows.push_back(all);
+                }
+            }
+
             if (b->t3Open != tone.id)
                 continue;
             if (b->t3ModelsLoading)
@@ -743,6 +918,34 @@ void Shell::OpenResourceBrowser(const std::string& nodeId, const std::string& re
                 }
                 else
                 {
+                    // A click plays it on the slot without importing it (the web UI's preview);
+                    // Select (or OK while it plays) imports it and keeps it.
+                    modelRow->selected = b->t3Hearing == model.id;
+                    if (b->t3Hearing == model.id)
+                        modelRow->note = "Playing";
+                    modelRow->onClick = [this, b, tone, model, refillList] {
+                        b->t3Hearing = model.id;
+                        b->t3HearingTone = tone;
+                        b->t3HearingModel = model;
+                        b->previewed = true;
+                        b->selectedId.clear();
+                        b->selectedPath.clear();
+                        refillList();
+                        if (b->fillFooter)
+                            b->fillFooter();
+                        mSession.Tones().DownloadTone3000(model, b->resourceType,
+                                                          [this, b, id = model.id](const std::string& base64, const std::string& error) {
+                                                              if (b->t3Hearing != id)
+                                                                  return;
+                                                              if (!error.empty())
+                                                              {
+                                                                  ShowToast("Could not play the model", error, true);
+                                                                  return;
+                                                              }
+                                                              mSession.Commands().PreviewRemoteResource(b->resourceType, "tone3000-preview:" + id,
+                                                                                                        b->nodeId, b->index, false, base64);
+                                                          });
+                    };
                     modelRow->button = "Select";
                     modelRow->onButton = [this, b, tone, model, preview, refillList] {
                         mSession.Tones().ImportTone3000(tone, model, b->resourceType, b->resourceType == "ir" ? b->role.gear : std::string(),
@@ -883,6 +1086,13 @@ void Shell::OpenResourceBrowser(const std::string& nodeId, const std::string& re
         auto cancel = std::make_shared<IconButton>(mTheme, mIcons, "", IconButton::Look::Primary);
         cancel->Size(64, 30).Label("Cancel", 11.5f);
         cancel->onClick = [this, b] {
+            // A Tone3000 audition ends and the engine puts back what the slot held.
+            if (!b->t3Hearing.empty())
+            {
+                mSession.Commands().CancelPreviewResource(b->nodeId, b->index, true);
+                b->t3Hearing.clear();
+                b->previewed = false;
+            }
             // Put back what the slot held before anything was heard.
             if (b->previewed)
             {
@@ -900,6 +1110,25 @@ void Shell::OpenResourceBrowser(const std::string& nodeId, const std::string& re
         auto ok = std::make_shared<IconButton>(mTheme, mIcons, "", IconButton::Look::Primary);
         ok->Size(44, 30).Label("OK", 11.5f).Disabled(!b->previewed);
         ok->onClick = [this, b] {
+            // A Tone3000 model being auditioned is imported and kept.
+            if (!b->t3Hearing.empty() && b->t3HearingTone && b->t3HearingModel)
+            {
+                const auto nodeId = b->nodeId, resourceType = b->resourceType;
+                const int index = b->index;
+                mSession.Commands().CancelPreviewResource(nodeId, index, false);
+                mSession.Tones().ImportTone3000(*b->t3HearingTone, *b->t3HearingModel, resourceType,
+                                                resourceType == "ir" ? b->role.gear : std::string(),
+                                                [this, nodeId, resourceType, index](const std::string& id, const std::string& error) {
+                                                    if (!error.empty())
+                                                        ShowToast("Could not import the model", error, true);
+                                                    else
+                                                        mSession.Commands().SetNodeResource(nodeId, resourceType, id, index);
+                                                });
+                b->t3Hearing.clear();
+                b->previewed = false;
+                CloseOverlay();
+                return;
+            }
             // A file heard from a folder joins the library (in place), or picks the entry it is.
             if (b->previewed && b->selectedId.empty() && !b->selectedPath.empty())
             {
@@ -1051,5 +1280,97 @@ void Shell::OpenResourceBrowser(const std::string& nodeId, const std::string& re
         state->searchTone3000 = nullptr;
     };
     (void)commands;
+}
+
+void Shell::OpenInlinePrompt(el::rect anchor, const std::string& title, const std::string& initial,
+                             std::function<void(const std::string&)> onSubmit)
+{
+    // A prompt on the drop-down layer, so it stacks over a dialog (the resource chooser) rather
+    // than taking its place as OpenPrompt does.
+    auto heading = std::make_shared<Text>(mTheme, title, 12.5f, Weight::SemiBold);
+    auto [boxElement, box] = el::input_box("", Font(Weight::Regular), 1.0f);
+    box->set_text(initial);
+    auto submit = [this, box, onSubmit] {
+        auto text = box->get_utf8();
+        const auto first = text.find_first_not_of(" \t");
+        const auto last = text.find_last_not_of(" \t");
+        text = first == std::string::npos ? std::string() : text.substr(first, last - first + 1);
+        CloseDropdown();
+        onSubmit(text);
+    };
+    box->on_enter = [submit](std::string_view) {
+        submit();
+        return true;
+    };
+    box->on_escape = [this] { CloseDropdown(); };
+    auto ok = std::make_shared<Button>(mTheme, "OK", submit, Button::Style::Primary);
+    ok->MinWidth(64);
+    auto panel = PadXY(10, 8, Col({FixedHeight(22, heading), FixedHeight(36, Row({el::share(std::move(boxElement)), HGap(6), ok}))}));
+    CloseDropdown();
+    mDropdown = KeyLayer(PlacePanel(panel, anchor, 320.0f, 84.0f, anchor.top > ViewSize().y * 0.6f, [this] { CloseDropdown(); }));
+    mSession.View().add(mDropdown);
+}
+
+void Shell::OpenLibraryResourceMenu(const std::string& resourceType, const std::string& resourceId, el::rect anchor)
+{
+    // The web UI's row actions (resourceBrowser.ts): details, edit, copy the path, delete.
+    const auto* r = mState.FindLibraryResource(resourceType, resourceId);
+    if (r == nullptr)
+        return;
+    const std::string name = r->name.empty() ? r->id : r->name;
+    const std::string category = r->category;
+    const std::string path = r->filePath;
+    const auto tags = ResourceTags(*r);
+    mSession.Commands().QueryResourceUsage(resourceType, resourceId);
+
+    std::vector<MenuItem> items;
+    std::string detail = "Id " + r->id;
+    if (const auto creator = ResourceCreator(*r); !creator.empty())
+        detail += "  \xC2\xB7  by " + creator;
+    if (!tags.empty())
+    {
+        detail += "  \xC2\xB7 ";
+        for (const auto& t : tags)
+            detail += " #" + t;
+    }
+    items.push_back({name, false, true, {}});
+    items.push_back({detail, false, true, {}});
+    items.push_back({"Rename...", false, false, [this, resourceType, resourceId, name, category, tags, anchor] {
+                         mSession.View().post([this, alive = std::weak_ptr<bool>(mAlive), resourceType, resourceId, name, category, tags, anchor] {
+                             if (alive.lock())
+                                 OpenInlinePrompt(anchor, "Name", name, [this, resourceType, resourceId, category, tags](const std::string& entered) {
+                                     if (!entered.empty())
+                                         mSession.Commands().UpdateLibraryResource(resourceType, resourceId, entered, category, tags);
+                                 });
+                         });
+                     }});
+    items.push_back({"Change category...", false, false, [this, resourceType, resourceId, name, category, tags, anchor] {
+                         mSession.View().post([this, alive = std::weak_ptr<bool>(mAlive), resourceType, resourceId, name, category, tags, anchor] {
+                             if (alive.lock())
+                                 OpenInlinePrompt(anchor, "Category", category, [this, resourceType, resourceId, name, tags](const std::string& entered) {
+                                     mSession.Commands().UpdateLibraryResource(resourceType, resourceId, name, entered, tags);
+                                 });
+                         });
+                     }});
+    if (!path.empty())
+        items.push_back({"Copy the file's path", false, false, [path] { el::clipboard(path); }});
+    items.push_back({"Delete...", false, false, [this, resourceType, resourceId, name, anchor] {
+                         // Asked once more, on the same layer; the engine refuses one in use.
+                         mSession.View().post([this, alive = std::weak_ptr<bool>(mAlive), resourceType, resourceId, name, anchor] {
+                             if (!alive.lock())
+                                 return;
+                             const auto usage = mState.resourceUsage.find(resourceType + ":" + resourceId);
+                             std::vector<MenuItem> confirm{{"Delete " + name + " from the library?", false, true, {}}};
+                             if (usage != mState.resourceUsage.end() && usage->second.inUse)
+                                 confirm.push_back({usage->second.detail + ": it cannot be deleted while in use.", false, true, {}});
+                             else
+                                 confirm.push_back({"Delete", false, false, [this, resourceType, resourceId] {
+                                                        mSession.Commands().DeleteLibraryResource(resourceType, resourceId);
+                                                    }});
+                             confirm.push_back({"Cancel", false, false, [] {}});
+                             OpenDropdown(anchor, std::move(confirm), 300.0f);
+                         });
+                     }});
+    OpenDropdown(anchor, std::move(items), 300.0f);
 }
 } // namespace nanoq::ui

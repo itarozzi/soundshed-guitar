@@ -216,6 +216,8 @@ std::vector<const EffectTypeInfo*> Shell::OfferedEffects() const
     const bool showCustom = IsFeatureEnabled(mState, Feature::CustomEffects);
     const bool showPickupMatch = IsFeatureEnabled(mState, Feature::PickupMatch);
 
+    // Guitar to MIDI only plays a plugin host's instrument: offered where the engine has one.
+    const bool canHostPlugins = mState.FindEffectType(guids::kPluginHost) != nullptr;
     std::vector<const EffectTypeInfo*> offered;
     for (const auto& info : mState.catalog)
     {
@@ -224,6 +226,8 @@ std::vector<const EffectTypeInfo*> Shell::OfferedEffects() const
         // plugin host's instrument) is offered where the engine can host plugins: the catalog
         // lists it only there.
         if (info.type == guids::kMixer || info.type == guids::kAmpNamBlend || info.type.rfind("composite:", 0) == 0)
+            continue;
+        if (info.type == guids::kGuitarToMidi && !canHostPlugins)
             continue;
         if (info.type == guids::kWasmHost && !showCustom)
             continue;

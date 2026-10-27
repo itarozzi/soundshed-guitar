@@ -11,6 +11,7 @@
 #include "uiclient/ChainLayout.h"
 #include "uiclient/NodeLabels.h"
 #include "uiclient/ParamFormat.h"
+#include "uiclient/ResourceIndex.h"
 
 #include <algorithm>
 #include <cctype>
@@ -22,17 +23,23 @@ using namespace guitarfx::uiclient;
 
 namespace
 {
-/// The library's entries of one type in the order the picker lists them and previous/next
-/// steps: by category, then by name.
-std::vector<const LibraryResource*> OrderedResources(const ClientState& state, const std::string& resourceType)
+/// The library's entries of one type in the order the chooser lists them, which previous/next
+/// steps through (uiclient::ResourceIndex, as the web UI's library navigation): each file once,
+/// favourites first, by name, packs together; within the category of what the slot plays, as
+/// the web UI steps within the slot's category.
+std::vector<const LibraryResource*> OrderedResources(const ClientState& state, const std::string& resourceType,
+                                                     const std::string& currentId = {})
 {
-    std::vector<const LibraryResource*> list;
-    if (const auto it = state.resources.find(resourceType); it != state.resources.end())
-        for (const auto& resource : it->second)
-            list.push_back(&resource);
-    std::stable_sort(list.begin(), list.end(), [](const LibraryResource* a, const LibraryResource* b) {
-        return a->category != b->category ? a->category < b->category : a->name < b->name;
-    });
+    ResourceFilter filter;
+    if (const auto* current = currentId.empty() ? nullptr : state.FindLibraryResource(resourceType, currentId))
+    {
+        const auto first = current->category.find_first_not_of(" 	");
+        if (first != std::string::npos)
+            filter.category = current->category.substr(first, current->category.find_last_not_of(" 	") - first + 1);
+    }
+    auto list = NavigationOrder(state, FilterLibrary(state, resourceType, filter, currentId));
+    if (list.empty() && filter.category != "all")
+        list = NavigationOrder(state, FilterLibrary(state, resourceType, ResourceFilter{}, currentId));
     return list;
 }
 
@@ -73,7 +80,7 @@ Ptr Shell::BuildResourceSlot(const guitarfx::GraphNode& node, const std::string&
     auto& commands = mSession.Commands();
     const std::string nodeId = node.id;
     const auto* ref = SlotRef(node, resourceIndex);
-    const auto list = OrderedResources(mState, resourceType);
+    const auto list = OrderedResources(mState, resourceType, ref != nullptr ? ref->resourceId : std::string());
     const int at = IndexIn(list, ref);
     const bool missing = ref != nullptr && std::find(mState.missingNodeResources.begin(), mState.missingNodeResources.end(),
                                                      nodeId) != mState.missingNodeResources.end();
@@ -93,7 +100,8 @@ Ptr Shell::BuildResourceSlot(const guitarfx::GraphNode& node, const std::string&
             const auto* n = SelectedNode();
             if (n == nullptr || n->id != nodeId)
                 return;
-            const auto ordered = OrderedResources(mState, resourceType);
+            const auto* current = SlotRef(*n, resourceIndex);
+            const auto ordered = OrderedResources(mState, resourceType, current != nullptr ? current->resourceId : std::string());
             if (ordered.empty())
                 return;
             const int count = static_cast<int>(ordered.size());
@@ -346,5 +354,53 @@ Ptr Shell::BuildBlendInfo(const guitarfx::GraphNode& node)
                                        11.0f);
     note->Colour(mTheme.TextMuted());
     return Col({FixedHeight(26, Row(row)), VGap(4), FixedHeight(16, note)});
+}
+
+Ptr Shell::BuildIrList(const guitarfx::GraphNode& node)
+{
+    // The web UI's IR list between the IR Cabinet's slots (paramsPanel/irSlotList.ts): the list
+    // IR A steps through (the library, in its category), each row with A and B to load it into
+    // either slot; the IRs playing are marked. Hidden or shown for every cabinet at once.
+    const std::string nodeId = node.id;
+    const auto* a = SlotRef(node, 0);
+    const auto* b = SlotRef(node, 1);
+    const auto list = OrderedResources(mState, "ir", a != nullptr ? a->resourceId : std::string());
+
+    auto toggle = std::make_shared<Button>(mTheme, mShowIrList ? "Hide the IR list" : "Show the IR list (" + std::to_string(list.size()) + ")",
+                                           [this] {
+                                               mShowIrList = !mShowIrList;
+                                               mEffectSignature.clear();
+                                               Mark(kPage);
+                                           },
+                                           Button::Style::Flat);
+    toggle->TextSize(metrics::kSmallText);
+    if (!mShowIrList)
+        return FixedHeight(28, Row({toggle, Stretch()}));
+
+    std::vector<Ptr> rows;
+    for (const auto* r : list)
+    {
+        const bool inA = a != nullptr && a->resourceId == r->id;
+        const bool inB = b != nullptr && b->resourceId == r->id;
+        auto name = std::make_shared<Text>(mTheme, r->name.empty() ? r->id : r->name, 11.5f, inA || inB ? Weight::SemiBold : Weight::Regular);
+        name->Colour(inA || inB ? mTheme.Ink() : mTheme.TextSecondary());
+        const auto slotButton = [this, nodeId, id = r->id](const char* label, int index, bool on) {
+            auto button = std::make_shared<IconButton>(mTheme, mIcons, "", IconButton::Look::Chip);
+            button->Size(26, 22).Label(label, 10.0f).Ink(on ? mTheme.Accent() : mTheme.TextSecondary());
+            button->onClick = [this, nodeId, id, index] {
+                mSession.Commands().SetNodeResource(nodeId, "ir", id, index);
+                NoteChainEdit();
+            };
+            return button;
+        };
+        rows.push_back(FixedHeight(26, Row({HGap(8), name, HGap(6), slotButton("A", 0, inA), HGap(4), slotButton("B", 1, inB), HGap(6)})));
+    }
+    if (rows.empty())
+    {
+        auto none = std::make_shared<Text>(mTheme, "The library has no IRs yet.", 11.5f);
+        none->Colour(mTheme.TextMuted());
+        rows.push_back(FixedHeight(26, PadXY(8, 0, none)));
+    }
+    return Col({FixedHeight(28, Row({toggle, Stretch()})), FixedHeight(150, VScroll(Col(rows)))});
 }
 } // namespace nanoq::ui

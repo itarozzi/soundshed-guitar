@@ -101,6 +101,10 @@ public:
     /// with its library id; a model already imported answers at once.
     void ImportTone3000(const tone3000::Tone& tone, const tone3000::Model& model, const std::string& resourceType,
                         const std::string& category, ImportCallback callback);
+    /// The model's file (an IR zip: its first .wav), base64, without importing it: what an
+    /// audition plays (UiCommands::PreviewRemoteResource), as the web UI's preview fetches it.
+    using DownloadCallback = std::function<void(const std::string& base64, const std::string& error)>;
+    void DownloadTone3000(const tone3000::Model& model, const std::string& resourceType, DownloadCallback callback);
     [[nodiscard]] bool IsImporting(const std::string& modelId) const
     {
         return mImporting.count(modelId) > 0;

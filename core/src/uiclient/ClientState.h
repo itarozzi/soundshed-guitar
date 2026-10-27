@@ -336,6 +336,13 @@ struct ClientState
 
     std::map<std::string, std::vector<LibraryResource>> resources; // by resource type
     std::vector<BlendSummary> blends;
+    /// What uses each library resource, by "type:id", as queryResourceUsage answered.
+    struct ResourceUsage
+    {
+        bool inUse = false;
+        std::string detail; // e.g. "Used by preset Clean Bass"
+    };
+    std::map<std::string, ResourceUsage> resourceUsage;
 
     GlobalSignalChainConfig globalChain;
     bool outputMuted = false;

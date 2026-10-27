@@ -606,6 +606,7 @@ Ptr Shell::BuildEffectPage()
                 tabsPlaced = true;
             }
             addToSection(a, 26.0f);
+            addToSection(BuildIrList(*node), mShowIrList ? 28.0f + 150.0f : 28.0f);
             addToSection(BuildResourceSlot(*node, rt, 1, "IR B", true), 26.0f);
         }
         else

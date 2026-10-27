@@ -135,6 +135,20 @@ public:
     /// place rather than copied; with a node, loads it into that node's slot too.
     void SaveLocalLibraryResource(const std::string& resourceType, const std::string& filePath, const std::string& name,
                                   const nlohmann::json& metadata, const std::string& nodeId = {}, int resourceIndex = -1);
+    /// Stars or unstars a library resource (the shared resources.favorites setting).
+    void SetResourceFavorite(const std::string& resourceId, bool favorite);
+    /// Renames, recategorises or retags a library resource (updateLibraryResource).
+    void UpdateLibraryResource(const std::string& resourceType, const std::string& resourceId, const std::string& name,
+                               const std::string& category, const std::vector<std::string>& tags);
+    /// Deletes one; the engine refuses one in use (resourceDeleteFailed), else resourceRemoved.
+    void DeleteLibraryResource(const std::string& resourceType, const std::string& resourceId);
+    /// Asks what uses a resource; answered into ClientState::resourceUsage.
+    void QueryResourceUsage(const std::string& resourceType, const std::string& resourceId);
+    /// Plays downloaded bytes (base64) on a node's slot without importing them, until
+    /// CancelPreviewResource or a selection takes the slot.
+    void PreviewRemoteResource(const std::string& resourceType, const std::string& tempResourceId, const std::string& nodeId,
+                               int resourceIndex, bool isZip, const std::string& base64);
+    void CancelPreviewResource(const std::string& nodeId, int resourceIndex, bool restoreOriginal = true);
     /// Lists a folder's model and IR files (resourceFolderListing, then resourceFolderMetadata).
     void ListResourceFolder(const std::string& path);
     /// Asks the engine for a folder dialog; the folder picked comes back as resourceFolderPicked.

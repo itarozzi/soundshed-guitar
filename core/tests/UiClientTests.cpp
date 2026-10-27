@@ -41,6 +41,7 @@
 #include "uiclient/ParamFormat.h"
 #include "uiclient/PresetBrowse.h"
 #include "uiclient/PresetTrail.h"
+#include "uiclient/ResourceIndex.h"
 #include "uiclient/Tone3000.h"
 #include "uiclient/ToneSharing.h"
 #include "uiclient/UiClient.h"
@@ -1068,6 +1069,57 @@ void TestPresetTrail()
     Expect(back == static_cast<int>(kPresetTrailLimit) - 1, "at most ten are kept");
 }
 
+// The resource chooser's list, as resourceDedup.ts, renderLibraryList and libraryPacks.ts make it.
+void TestResourceIndex()
+{
+    const auto res = [](const char* id, const char* name, const char* hash, nlohmann::json meta = nlohmann::json::object()) {
+        uiclient::LibraryResource r;
+        r.id = id;
+        r.type = "nam";
+        r.name = name;
+        r.hash = hash;
+        r.category = "Amps";
+        r.filePath = std::string("C:/m/") + id + ".nam";
+        r.metadata = std::move(meta);
+        return r;
+    };
+    ClientState state;
+    auto& list = state.resources["nam"];
+    list.push_back(res("a1", "Crunch", "H1", {{"architectureVersion", "1"}}));
+    list.push_back(res("a2", "Crunch", "h1", {{"architectureVersion", "2"}}));
+    list.push_back(res("b", "Clean Bass", "H2", {{"creatorName", "Ann"}, {"tags", "clean; vintage"}, {"toneId", "7"}, {"toneTitle", "Tweed"}}));
+    list.push_back(res("c", "Tweed Deluxe", "H3", {{"toneId", "7"}, {"toneTitle", "Tweed"}}));
+    list.push_back(res("z", "Zed", "H4"));
+
+    const auto dedup = DeduplicateResources(list);
+    Expect(dedup.deduped.size() == 4 && dedup.aliasById.at("a1") == "a2", "one entry per hash, ignoring case; A2 over A1 of the same name");
+    Expect(DeduplicateResources(list, {"a1"}).aliasById.at("a2") == "a1", "a preferred id is kept over its duplicate");
+    Expect(ResourceTags(list[2]) == std::vector<std::string>{"clean", "vintage"} && ResourceCreator(list[2]) == "Ann", "tags from metadata, and the creator");
+
+    ResourceFilter filter;
+    filter.tags = {"CLEAN"};
+    Expect(FilterLibrary(state, "nam", filter).size() == 1, "a tag filter ignores case");
+    filter = {};
+    filter.architecture = "A2";
+    Expect(FilterLibrary(state, "nam", filter).size() == 1, "the architecture filter");
+    filter = {};
+    filter.query = "ann";
+    Expect(FilterLibrary(state, "nam", filter).size() == 1, "the search covers the creator");
+
+    state.appSettings["resources.favorites"] = nlohmann::json::array({"z"});
+    const auto ordered = FilterLibrary(state, "nam", ResourceFilter{});
+    Expect(!ordered.empty() && ordered.front()->id == "z", "favourites first, then by name");
+
+    const auto groups = GroupLibraryByPack(state, ordered);
+    Expect(groups.size() == 3 && groups[0].items.front()->id == "z" &&
+               std::count_if(groups.begin(), groups.end(), [](const LibraryEntry& g) { return g.pack && g.items.size() == 2; }) == 1,
+           "a pack groups its tone's models; a favourite's entry first");
+    Expect(NameWithinPack("Tweed Deluxe", *LibraryPackOf(list[3])) == "Deluxe", "the pack's title comes off the model's name");
+    state.appSettings["resources.library.groupPacks"] = false;
+    Expect(NavigationOrder(state, ordered).size() == ordered.size() && NavigationOrder(state, ordered)[1] == ordered[1],
+           "ungrouped, previous/next follows the list as it is");
+}
+
 int main()
 {
     TestClientMirrorsTheEngine();
@@ -1079,6 +1131,7 @@ int main()
     TestChainDropRules();
     TestFeatureFlagsAndFxMarks();
     TestPresetTrail();
+    TestResourceIndex();
     TestNodeArchitectureBadge();
     TestPresetBrowse();
     TestParamFormatting();

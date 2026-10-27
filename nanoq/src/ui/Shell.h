@@ -233,6 +233,8 @@ private:
     [[nodiscard]] Ptr BuildPluginHost(const guitarfx::GraphNode& node);
     /// A blend node's blend and its mode (NodeControls.cpp).
     [[nodiscard]] Ptr BuildBlendInfo(const guitarfx::GraphNode& node);
+    /// The IR Cabinet's IR list between its slots (NodeControls.cpp).
+    [[nodiscard]] Ptr BuildIrList(const guitarfx::GraphNode& node);
 
     // PresetsPage.cpp
     Ptr BuildPresetsPage();
@@ -268,6 +270,11 @@ private:
 
     // ResourceBrowser.cpp: the model and IR chooser, as the web UI's resource browser
     void OpenResourceBrowser(const std::string& nodeId, const std::string& resourceType, int resourceIndex);
+    /// A library row's menu: details, rename, recategorise, copy the path, delete.
+    void OpenLibraryResourceMenu(const std::string& resourceType, const std::string& resourceId, el::rect anchor);
+    /// A one-line prompt on the drop-down layer, so it stacks over a dialog.
+    void OpenInlinePrompt(el::rect anchor, const std::string& title, const std::string& initial,
+                          std::function<void(const std::string&)> onSubmit);
 
     // SettingsPage.cpp
     Ptr BuildSettingsPage();
@@ -358,6 +365,7 @@ private:
     double mHistorySettleUntil = 0.0; // the engine's echo of a restore is not a new edit until then
     std::string mSelectedNode;
     bool mShowAdvanced = false;
+    bool mShowIrList = false; // the IR Cabinet's list between its slots, for every cabinet
     unsigned mDirty = kAll;
     bool mShowingStarting = false;
     std::string mAppliedTheme;

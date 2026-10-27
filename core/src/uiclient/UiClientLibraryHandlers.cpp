@@ -235,6 +235,20 @@ void UiClient::RegisterLibraryHandlers()
         PostNotification({Notification::Kind::Error, m.value("message", "Could not delete"), m.value("detail", "")});
     });
 
+    On("resourceUsageInfo", [this](const nlohmann::json& m) {
+        ClientState::ResourceUsage usage;
+        usage.inUse = m.value("inUse", false);
+        usage.detail = m.value("detail", std::string());
+        if (usage.detail.empty() && usage.inUse)
+        {
+            const auto preset = m.value("presetName", std::string());
+            const auto blend = m.value("blendName", std::string());
+            usage.detail = !preset.empty() ? "Used by preset " + preset : !blend.empty() ? "Used by blend " + blend : "In use";
+        }
+        MutableState().resourceUsage[m.value("resourceType", std::string()) + ":" + m.value("id", std::string())] = usage;
+        Notify(Topic::Resources);
+    });
+
     On("hostedPluginResourceLoadFailed", [this](const nlohmann::json& m) {
         MutableState().pluginLoadsPending.erase(m.value("nodeId", ""));
         Notify(Topic::ActivePreset);
