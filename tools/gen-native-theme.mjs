@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /**
- * The web UI's theme colours, for Soundshed Guitar Nano's native UI.
+ * The web UI's theme colours, for Soundshed Nano Q's native UI.
  *
  * Soundshed Guitar draws its three themes (light, dark, classic) from CSS custom properties:
  * the defaults on :root in core/ui/css/variables.css, overridden per theme in
- * core/ui/css/themes/<theme>.css. Nano cannot read CSS, so this resolves the tokens it uses
+ * core/ui/css/themes/<theme>.css. Nano Q cannot read CSS, so this resolves the tokens it uses
  * for each theme - following var() references, and taking a gradient's first stop - and
- * writes them as ARGB constants to core/src/uiclient/ThemeTokens.generated.h, which both native
- * UIs (Soundshed Guitar Nano and Nano Q) draw with.
+ * writes them as ARGB constants to core/src/uiclient/ThemeTokens.generated.h, which
+ * Nano Q draws with.
  * Both products then change colour together, and the theme a user picks in either applies
  * to both (it is the shared "theme" app setting).
  *

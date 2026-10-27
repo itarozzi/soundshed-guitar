@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
-# ios/build.sh — build Soundshed Guitar or Soundshed Guitar Nano for iOS and iPadOS, and
-# optionally install and launch it in the Simulator. See docs/ios-build.md.
+# ios/build.sh — build Soundshed Guitar for iOS and iPadOS, and optionally install and
+# launch it in the Simulator. See docs/ios-build.md. (Nano Q builds with nanoq/ios/build.sh.)
 #
-# Usage: ios/build.sh [guitar|nano] [sim|device] [debug|release] [run] [reconfigure] [legacy]
+# Usage: ios/build.sh [sim|device] [debug|release] [run] [reconfigure] [legacy]
 #
-#   guitar | nano    Which app: the WebView app (default) or Nano, the native UI.
 #   sim | device     The Simulator (default) or an iPhone/iPad. A device build needs a
 #                    development team: SSG_IOS_DEVELOPMENT_TEAM=<team id>.
 #   debug | release  Build configuration (default debug). Judge nothing about audio from
@@ -18,7 +17,7 @@
 #                    WebView app runs with stand-ins for what iOS 12's WebKit lacks.
 #
 # Arguments may appear in any order. The build tree is ios/build (Xcode generator), one
-# tree for both apps and both SDKs; open ios/build/SoundshedGuitar.xcodeproj to work in Xcode.
+# tree for both SDKs; open ios/build/SoundshedGuitar.xcodeproj to work in Xcode.
 
 set -euo pipefail
 
@@ -26,7 +25,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 BUILD_DIR="${SCRIPT_DIR}/build"
 
-PRODUCT=guitar
 PLATFORM=sim
 CONFIG=Debug
 RUN=false
@@ -35,8 +33,6 @@ LEGACY=false
 
 for arg in "$@"; do
     case "$(printf '%s' "$arg" | tr '[:upper:]' '[:lower:]')" in
-        guitar) PRODUCT=guitar ;;
-        nano) PRODUCT=nano ;;
         sim|simulator) PLATFORM=sim ;;
         device|ios) PLATFORM=device ;;
         debug) CONFIG=Debug ;;
@@ -45,7 +41,7 @@ for arg in "$@"; do
         reconfigure) RECONFIGURE=true ;;
         legacy) LEGACY=true ;;
         -h|--help)
-            sed -n '2,22p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+            sed -n '2,20p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
             exit 0
             ;;
         *)
@@ -59,15 +55,9 @@ if [[ "$LEGACY" == true ]]; then
     BUILD_DIR="${SCRIPT_DIR}/build-legacy"
 fi
 
-if [[ "$PRODUCT" == nano ]]; then
-    TARGET=SoundshedGuitarNano_Standalone
-    APP_NAME="Soundshed Guitar Nano"
-    BUNDLE_ID=com.soundshed.guitar.nano
-else
-    TARGET=SoundshedGuitar_Standalone
-    APP_NAME="Soundshed Guitar"
-    BUNDLE_ID=com.soundshed.guitar
-fi
+TARGET=SoundshedGuitar_Standalone
+APP_NAME="Soundshed Guitar"
+BUNDLE_ID=com.soundshed.guitar
 
 if [[ "$RUN" == true && "$PLATFORM" != sim ]]; then
     echo "'run' installs into the Simulator only. For a device, install from Xcode or with" >&2
@@ -82,7 +72,6 @@ if [[ "$RECONFIGURE" == true || ! -f "${BUILD_DIR}/CMakeCache.txt" ]]; then
     configure_args=(
         -S "${REPO_ROOT}/juce" -B "${BUILD_DIR}" -G Xcode
         -DCMAKE_SYSTEM_NAME=iOS
-        -DGUITARFX_BUILD_NANO=ON
     )
     if [[ "$LEGACY" == true ]]; then
         configure_args+=(-DCMAKE_OSX_DEPLOYMENT_TARGET=12.0 -DGUITARFX_IOS_WEBVIEW_DEPLOYMENT_TARGET=12.0)

@@ -1,7 +1,7 @@
 #pragma once
 
 /**
- * Http.h - HTTP for the native UIs (Soundshed Guitar Nano, Nano Q), with no UI framework in it.
+ * Http.h - HTTP for the native UIs (Soundshed Nano Q, Nano Q), with no UI framework in it.
  *
  * The engine itself makes no requests; the UIs do, for tone sharing and Tone3000. Each platform
  * has a transport of its own (WinHTTP on Windows, NSURLSession on macOS and iOS); a product that

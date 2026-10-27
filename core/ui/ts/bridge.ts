@@ -89,7 +89,7 @@ export function setPresetSolo(presetId: string, solo: boolean): void {
 
 // ── Edits the engine makes itself ─────────────────────────────────────────────
 // Each names one change and the engine applies it to its own copy, replying with the
-// result (docs/user-interface.md), so the web UI and Soundshed Guitar Nano cannot make
+// result (docs/user-interface.md), so the web UI and Soundshed Nano Q cannot make
 // the same edit two different ways.
 
 /** Switches the active preset's scene; answered by "presetLoaded". */

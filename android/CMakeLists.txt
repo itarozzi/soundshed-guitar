@@ -72,7 +72,7 @@ ssg_provision_msvc_host_environment()
 add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../juce" "${CMAKE_BINARY_DIR}/ssg")
 
 # --- Android target fixups --------------------------------------------------
-# The WebView app unless Gradle asks for Soundshed Guitar Nano (-Pssg.product=nano).
+# The WebView app's standalone target (app/build.gradle.kts passes it).
 if(NOT DEFINED SSG_ANDROID_TARGET)
     set(SSG_ANDROID_TARGET "SoundshedGuitar_Standalone")
 endif()

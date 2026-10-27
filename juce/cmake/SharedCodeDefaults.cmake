@@ -1,5 +1,5 @@
 # Applied to each product's shared-code interface library: set SOUNDSHED_SHARED_CODE_TARGET
-# (SharedCode for Soundshed Guitar, NanoSharedCode for Soundshed Guitar Nano) and include this.
+# (SharedCode for Soundshed Guitar) and include this.
 if(NOT SOUNDSHED_SHARED_CODE_TARGET)
     set(SOUNDSHED_SHARED_CODE_TARGET SharedCode)
 endif()

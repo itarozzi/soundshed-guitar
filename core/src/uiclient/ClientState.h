@@ -3,7 +3,7 @@
 /**
  * ClientState.h - What the native UI knows about the engine.
  *
- * Soundshed Guitar Nano's views never ask the controller directly: they read this mirror,
+ * Soundshed Nano Q's views never ask the controller directly: they read this mirror,
  * which UiClient keeps up to date from the same JSON messages the WebView UI receives, and
  * they change things by sending the same messages the WebView UI sends (UiCommands). The
  * engine stays the only writer of anything persisted (docs/plans/native-ui.md, rule C3).

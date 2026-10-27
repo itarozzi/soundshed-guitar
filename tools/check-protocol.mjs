@@ -9,10 +9,11 @@
  * the two together, so routes outlived the UI code that used them, replies went to
  * handlers that no longer existed, and the protocol doc fell behind.
  *
- * Soundshed Guitar Nano's native UI is a second client of the same protocol: it sends through
- * UiClient::Send("type", ...) (and its editors through sendUiMessage(processor, "type", ...))
- * and handles replies registered with On("type", ...), in core/src/uiclient and
- * juce/source/{nativeui,editor}. "The UI" below means both clients together.
+ * Soundshed Nano Q's native UI is a second client of the same protocol: it sends through
+ * UiClient::Send("type", ...) (and raw requests such as R"({"type":"uiVisibility",...})";
+ * the JUCE editor through sendUiMessage(processor, "type", ...)) and handles replies
+ * registered with On("type", ...), in core/src/uiclient, nanoq/src and juce/source/editor.
+ * "The UI" below means both clients together.
  *
  * core/protocol/ui-messages.json is the list. This check reads what each side
  * actually does and fails when either disagrees with it:
@@ -118,17 +119,21 @@ function uiHandles() {
   return new Map([...table.matchAll(/^\s*"([A-Za-z0-9_]+)"\s*:/gm)].map((m) => [m[1], rel(file)]));
 }
 
-/** Soundshed Guitar Nano's client: what it sends, and what it registers handlers for. */
+/** Soundshed Nano Q's client: what it sends, and what it registers handlers for. */
 function nativeClientFiles() {
   return [
     ...walk(path.join(ROOT, 'core/src/uiclient'), /\.cpp$/),
-    ...walk(path.join(ROOT, 'juce/source/nativeui'), /\.cpp$/),
+    ...walk(path.join(ROOT, 'nanoq/src'), /\.(cpp|mm)$/),
     ...walk(path.join(ROOT, 'juce/source/editor'), /\.cpp$/),
   ];
 }
 
 function nativeSends() {
-  return collect(nativeClientFiles(), [/\bSend\(\s*"([A-Za-z0-9_]+)"/g, /\bsendUiMessage\s*\([^,]+,\s*"([A-Za-z0-9_]+)"/g]);
+  return collect(nativeClientFiles(), [
+    /\bSend\(\s*"([A-Za-z0-9_]+)"/g,
+    /\bsendUiMessage\s*\([^,]+,\s*"([A-Za-z0-9_]+)"/g,
+    /\{"type"\s*:\s*"([A-Za-z0-9_]+)"/g,
+  ]);
 }
 
 function nativeHandles() {

@@ -62,7 +62,7 @@ export function renderIcon(icon: IconKey, className: string, title?: string): st
 }
 
 // Which icon each category and effect shows comes from core/ui/data/effect-presentation.json,
-// shared with Soundshed Guitar Nano. Typing the icons as IconKey here is what makes the
+// shared with Soundshed Nano Q. Typing the icons as IconKey here is what makes the
 // compiler catch an icon named in the table that renderIcon does not know.
 
 export function getFxCategoryIcon(categoryId: string): string {

@@ -208,8 +208,8 @@ merging, and verification of both saved data and the audio path.
 - Android APK: `cd android && ./gradlew assembleDebug` — see `docs/android-build.md`
   for the toolchain versions, the `-Pssg.abis` switch, and what the Android build
   leaves out (WASM effects, plugin hosting, ASIO).
-- iOS / iPadOS app (macOS host with Xcode): `ios/build.sh [guitar|nano] [sim|device] [debug|release] [run]`
-  — see `docs/ios-build.md`. `ios/build.sh nano run` builds Nano for the Simulator, boots an
+- iOS / iPadOS app (macOS host with Xcode): `ios/build.sh [sim|device] [debug|release] [run]`
+  — see `docs/ios-build.md`. `ios/build.sh run` builds for the Simulator, boots an
   iPad and launches it. Mobile-only C++ goes behind `SOUNDSHED_MOBILE` (Android or iOS);
   keep `JUCE_ANDROID` for what really is Android-only (Oboe, `dlsym` entry, insets).
 - UI build: cd core/ui && npm run build

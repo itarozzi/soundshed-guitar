@@ -16,7 +16,7 @@ import { getCustomEffectLibrary } from "../customEffects.js";
 export type FxItemIdentity = { effectType: string; blendId?: string; customEffectId?: string };
 
 // Category display metadata — id → { name, color }, in the FX library's order. It comes from
-// core/ui/data/effect-presentation.json, which Soundshed Guitar Nano reads too; the actual
+// core/ui/data/effect-presentation.json, which Soundshed Nano Q reads too; the actual
 // category list is derived at render time from what the effect registry contains.
 export const CATEGORY_METADATA: Record<string, { name: string; color: string }> = Object.fromEntries(
   CATEGORY_ORDER.map((id) => [id, { name: CATEGORIES[id].name, color: CATEGORIES[id].color }]),

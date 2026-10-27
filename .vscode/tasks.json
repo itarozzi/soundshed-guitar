@@ -71,37 +71,6 @@
 			"problemMatcher": "$msCompile"
 		},
 		{
-			"label": "Build SoundshedGuitarNano (JUCE) Debug",
-			"type": "shell",
-			"command": "cmake",
-			"args": [
-				"--build",
-				"${workspaceFolder}/juce/builds",
-				"--config",
-				"Debug",
-				"--target",
-				"SoundshedGuitarNano_Standalone"
-			],
-			"group": "build",
-			"problemMatcher": "$msCompile"
-		},
-		{
-			"label": "Build SoundshedGuitarNano (JUCE) Standalone Release",
-			"type": "shell",
-			"command": "cmake",
-			"args": [
-				"--build",
-				"${workspaceFolder}/juce/builds",
-				"--config",
-				"Release",
-				"--target",
-				"SoundshedGuitarNano_Standalone",
-				"--parallel"
-			],
-			"group": "build",
-			"problemMatcher": "$msCompile"
-		},
-		{
 			"label": "Build Soundshed Nano Q Release",
 			"type": "process",
 			"command": "cmd.exe",

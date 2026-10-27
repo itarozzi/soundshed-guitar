@@ -94,8 +94,8 @@ bool MessageDispatcher::DispatchSettings(PluginController& c, const nlohmann::js
 
     if (type == "uiSettingsChanged")
     {
-        // "native" is Soundshed Guitar Nano's part of the blob. The web UI sends the whole
-        // blob it knows, which never includes it, so a replace keeps it; Nano sends a merge
+        // "native" is Soundshed Nano Q's part of the blob. The web UI sends the whole
+        // blob it knows, which never includes it, so a replace keeps it; Nano Q sends a merge
         // patch of its own part (docs/plans/native-ui.md, rule C4).
         if (msg.contains("patch") && msg["patch"].is_object())
         {

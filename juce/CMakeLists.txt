@@ -83,8 +83,8 @@ endif()
 #
 # On iOS the same variable is the minimum iOS version for the whole tree: 15.0, the
 # oldest iOS that runs on every device iOS 13 does (iPhone 6s/SE, iPad Air 2, iPad mini 4).
-# Nano has no WebView, and its code needs only iOS 13 (std::filesystem). Soundshed Guitar's
-# app target raises its own minimum to the WebKit floor below, where the target exists.
+# Soundshed Guitar's app target raises its own minimum to the WebKit floor below, where the
+# target exists.
 if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
     if(NOT CMAKE_OSX_DEPLOYMENT_TARGET AND NOT DEFINED ENV{IPHONEOS_DEPLOYMENT_TARGET})
         set(CMAKE_OSX_DEPLOYMENT_TARGET "15.0" CACHE STRING "Minimum iOS version" FORCE)
@@ -423,8 +423,7 @@ juce_add_plugin("${PROJECT_NAME}"
 # format's plist, and a plugin bundle has no business claiming the scheme. juceaide writes
 # the plist at configure time and CMake copies it into the bundle at generate time, so
 # patching JUCE's generated copy here lands in the built app. plutil -replace keeps it the
-# same however often this reconfigures. Nano does not register it (registersProtocolHandler
-# in ProductInfo.h), so Launch Services never has two apps to choose between.
+# same however often this reconfigures.
 if(APPLE AND TARGET ${PROJECT_NAME}_Standalone)
     get_target_property(_standalone_plist ${PROJECT_NAME}_Standalone MACOSX_BUNDLE_INFO_PLIST)
     execute_process(
@@ -467,8 +466,7 @@ include(SharedCodeDefaults)
 
 # JUCE-specific source files.  Shared DSP, presets, resources, models, network
 # and utility code are now provided by the SoundshedGuitarCore library.
-# Only the JUCE adapter and editor sources are compiled here. The common set goes into
-# both products (Soundshed Guitar and Soundshed Guitar Nano, below); each adds its editor.
+# Only the JUCE adapter and editor sources are compiled here.
 set(CommonSourceFiles
     "${CMAKE_CURRENT_SOURCE_DIR}/source/Main.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/source/AndroidAudioThread.h"
@@ -547,9 +545,6 @@ target_compile_definitions(SharedCode
 
     # JucePlugin_Name is for some reason doesn't use the nicer PRODUCT_NAME
     PRODUCT_NAME_WITHOUT_VERSION="Soundshed Guitar"
-
-    # The WebView editor (juce/source/ProductInfo.h)
-    SOUNDSHED_NATIVE_UI=0
 
     # Android or iOS: the window fills the screen, one instance, no launch curtain
     SOUNDSHED_MOBILE=${SSG_MOBILE_DEFINE}
@@ -686,8 +681,6 @@ if(GUITARFX_IPP_AVAILABLE)
     guitarfx_enable_ipp_for_target(SharedCode)
     guitarfx_enable_ipp_for_target(SoundshedGuitarCore)
 endif()
-
-include(SoundshedNano)
 
 # Everything related to the tests target
 if(WIN32)
@@ -1054,66 +1047,6 @@ if(WIN32)
     )
 
     add_test(NAME JucePathConversionTests COMMAND JucePathConversionTests)
-
-    # The options every Nano menu opens with (source/nativeui/widgets/MenuOptions.h): a menu
-    # must know when the control that opened it has gone. Header-only, so no plugin or core.
-    add_executable(NanoMenuOptionsTests
-        "${CMAKE_CURRENT_SOURCE_DIR}/tests/NanoMenuOptionsTests.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/source/nativeui/widgets/MenuOptions.h"
-    )
-
-    target_include_directories(NanoMenuOptionsTests
-        PRIVATE
-            "${CMAKE_CURRENT_SOURCE_DIR}/source"
-    )
-
-    target_link_libraries(NanoMenuOptionsTests
-        PRIVATE
-            juce_gui_basics
-            juce::juce_recommended_config_flags
-            juce::juce_recommended_warning_flags
-    )
-
-    set_target_properties(NanoMenuOptionsTests PROPERTIES
-        CXX_STANDARD 20
-        CXX_STANDARD_REQUIRED ON
-        FOLDER "GuitarFX/Tests"
-    )
-
-    add_test(NAME NanoMenuOptionsTests COMMAND NanoMenuOptionsTests)
-
-    # Nano's HTTP transport on juce::URL (source/nativeui/tones/JuceHttpTransport.h) under core's
-    # net::HttpWorkers: destroying the workers must cut a request in flight short, not wait for
-    # the network to time out. juce_core and core's Http.cpp only.
-    add_executable(JuceHttpTransportTests
-        "${CMAKE_CURRENT_SOURCE_DIR}/tests/JuceHttpTransportTests.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/source/nativeui/tones/JuceHttpTransport.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/source/nativeui/tones/JuceHttpTransport.h"
-        "${CMAKE_CURRENT_SOURCE_DIR}/../core/src/net/Http.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/../core/src/net/Http.h"
-    )
-
-    target_include_directories(JuceHttpTransportTests
-        PRIVATE
-            "${CMAKE_CURRENT_SOURCE_DIR}/source"
-            "${CMAKE_CURRENT_SOURCE_DIR}/../core/src"
-    )
-
-    target_link_libraries(JuceHttpTransportTests
-        PRIVATE
-            juce_core
-            juce::juce_recommended_config_flags
-            juce::juce_recommended_warning_flags
-    )
-
-    set_target_properties(JuceHttpTransportTests PROPERTIES
-        CXX_STANDARD 20
-        CXX_STANDARD_REQUIRED ON
-        FOLDER "GuitarFX/Tests"
-    )
-
-    add_test(NAME JuceHttpTransportTests COMMAND JuceHttpTransportTests)
-    set_tests_properties(JuceHttpTransportTests PROPERTIES TIMEOUT 120)
 
     # Offline renderer that automates external plugins' transpose parameter for
     # the transpose benchmark (see tools/transpose-benchmark/). Not a ctest.

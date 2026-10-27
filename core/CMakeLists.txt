@@ -982,10 +982,10 @@ target_precompile_headers(SoundshedGuitarCore PRIVATE
 # ---------------------------------------------------------------------------
 # UI client library
 # ---------------------------------------------------------------------------
-# What Soundshed Guitar Nano's native UI knows about the engine: the message protocol from
+# What Soundshed Nano Q's native UI knows about the engine: the message protocol from
 # the UI's side, the state it mirrors, and the presentation logic that is not drawing
 # (docs/plans/native-ui.md). JUCE-free, so ctest covers it against a real headless
-# PluginController; the views that use it live in juce/source/nativeui. A library of its own
+# PluginController; the views that use it live in nanoq/src/ui. A library of its own
 # so the engine does not carry it.
 file(GLOB GUITARFX_UICLIENT_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/uiclient/*.cpp"

@@ -185,7 +185,6 @@ The catalog sends both, and the value is still the label's index.
 - **Web UI** (`signalPath/paramsPanel/enumPicker.ts`): draws a trigger with the current choice's
   picture and name. Its flyout has a tile per group, a search box, and the choices under subgroup
   headings. Pictures come from `pickerIcons.ts`, by name.
-- **Nano:** nests its menu by group, then subgroup.
 - **Custom layouts:** still draw a knob.
 
 Used by `pickup_match` `source`, `target` and the two design types.
@@ -1006,7 +1005,7 @@ It is edited in the input levelling flyout (the chevron under the input meter), 
 - a global Pickup Match left on is switched off (`pickup.enabled` false), so nothing the player can't
   see changes the sound. This waits for the engine's app settings, since the flag reads as its
   default until they arrive (`haveAppSettingsArrived` in `appSettingsStore.ts`);
-- the Nano's effect pickers leave the effect out. The web UI's pickers leave it out either way (see above).
+- Nano Q's effect picker leaves the effect out. The web UI's pickers leave it out either way (see above).
 
 A preset that already holds a Pickup Match node still loads, plays and edits it with the flag off.
 
@@ -2295,7 +2294,7 @@ The gate is judged in double precision. In float, a phase just under the end of 
 
 `numSteps` is an enum from 2, so both UIs count its labels from the parameter's minimum
 (`enumLabel` in `paramLabels.ts`, `EnumLabelIndex` in `uiclient/ParamFormat.h`). Indexed by the
-value, 4 showed "6", and Nano's menu set 2 for any of "2", "3" or "4".
+value, 4 showed "6", and the JUCE Nano's menu set 2 for any of "2", "3" or "4".
 
 **Factory presets** (`PitchPresets.h`) leave out Pitch Trigger and its Pitch, which decide when it
 plays, and set all eight custom steps, mirroring a built-in pattern where they use one. Major Arp
@@ -2317,7 +2316,7 @@ three more features, each of which used to run a brute-force YIN of its own.
 
 ### Guitar to MIDI (`guitar_to_midi`)
 Turns single notes into MIDI for a virtual instrument in a Plugin Host downstream of it in the
-same chain. It makes no sound of its own: Guitar Thru passes the guitar on or mutes it. The Nano
+same chain. It makes no sound of its own: Guitar Thru passes the guitar on or mutes it. Nano Q
 does not offer it, since it cannot add the Plugin Host it needs.
 
 | Parameter | Range | Default | Unit |

@@ -15,8 +15,8 @@ namespace soundshed::editor
 /// tools/check-protocol.mjs see these sends.
 void sendUiMessage (PluginProcessorAdapter& processor, const char* type, nlohmann::json payload = nlohmann::json::object());
 
-/// Everything an editor does that has nothing to do with how it draws: shared by the
-/// WebView editor (Soundshed Guitar) and the native one (Soundshed Guitar Nano).
+/// Everything an editor does that has nothing to do with how it draws (the WebView editor,
+/// PluginEditor, is the one built on it).
 ///
 ///  - Drives PluginController::OnIdle() at 60 Hz. Nothing else ticks it while an editor is
 ///    open, and the telemetry rate dividers assume that rate.
@@ -49,9 +49,9 @@ public:
 
     /// For the standalone's MainWindow, to drop its launch curtain once the editor has
     /// something worth looking at: calls `callback` once, from notifyReadyToShow(), or now if
-    /// that has already happened. Nano's editor is ready as its constructor returns, before
-    /// MainWindow can ask, and a callback that only waited kept its curtain up for the whole
-    /// eight-second timeout. Unused, and never called, inside a plugin host.
+    /// that has already happened, so an editor that is ready before MainWindow asks does not
+    /// keep the curtain up for the whole eight-second timeout. Unused, and never called,
+    /// inside a plugin host.
     void whenReadyToShow (std::function<void()> callback);
 
 protected:

@@ -16,7 +16,7 @@ export function getNodeIcon(nodeType: string): string {
   return getFxEffectIcon(nodeType);
 }
 
-/** The chain node's colour class (core/ui/data/effect-presentation.json, shared with Nano). */
+/** The chain node's colour class (core/ui/data/effect-presentation.json, shared with Nano Q). */
 export function getCategoryClass(category: string): string {
   return NODE_CLASSES[category] || DEFAULT_NODE_CLASS;
 }

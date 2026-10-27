@@ -13,11 +13,7 @@
 #include "ProfileFolder.h"
 #include "editor/UiResourcePrefetch.h"
 
-#if SOUNDSHED_NATIVE_UI
- #include "nativeui/NanoEditor.h"
-#else
- #include "PluginEditor.h"
-#endif
+#include "PluginEditor.h"
 #include "UiBridge.h"
 
 #include "ControllerMidiOutput.h"
@@ -267,7 +263,7 @@ PluginProcessorAdapter::PluginProcessorAdapter()
 #endif
     mAssetRoot = locateAssetsRoot();
     // The standalone's page loads once the engine and audio device are up; read its files meanwhile.
-    if (! soundshed::product::isNano && wrapperType == wrapperType_Standalone && ! mAssetRoot.empty())
+    if (wrapperType == wrapperType_Standalone && ! mAssetRoot.empty())
         soundshed::editor::prefetchUiResources (soundshed::toJuceFile (mAssetRoot).getChildFile ("ui"));
     mController.Initialize();
     registerAutomationParameters();
@@ -628,9 +624,8 @@ void PluginProcessorAdapter::registerAutomationParameters()
 
 juce::AudioProcessorEditor* PluginProcessorAdapter::createEditor()
 {
-    // Only Soundshed Guitar owns soundshed:// links (they open tone sharing).
-    if constexpr (soundshed::product::registersProtocolHandler)
-        ensureStandaloneProtocolHandlerRegistration();
+    // soundshed:// links open tone sharing.
+    ensureStandaloneProtocolHandlerRegistration();
 
 #if JUCE_LINUX
     // JUCE's LV2 manifest helper instantiates the editor in headless CI just to query
@@ -639,11 +634,7 @@ juce::AudioProcessorEditor* PluginProcessorAdapter::createEditor()
         return new HeadlessLv2ManifestEditor (*this);
 #endif
 
-#if SOUNDSHED_NATIVE_UI
-    return new soundshed::nano::NanoEditor (*this);
-#else
     return new PluginEditor (*this);
-#endif
 }
 
 bool PluginProcessorAdapter::hasEditor() const { return true; }
@@ -1324,8 +1315,8 @@ std::filesystem::path PluginProcessorAdapter::locateAssetsRoot() const
 #if JUCE_IOS
     // An iOS bundle is flat: the executable sits at its root, beside ui/. Not under
     // "resources/" as on desktop: a directory of that name at the root of an iOS bundle makes
-    // codesign take it for a macOS bundle and refuse to sign it. The editor and Nano both take
-    // this root before their own guesses.
+    // codesign take it for a macOS bundle and refuse to sign it. The editor takes this root
+    // before its own guesses.
     const auto bundleDir = soundshed::toStdPath (
         juce::File::getSpecialLocation (juce::File::currentExecutableFile).getParentDirectory());
     if (!bundleDir.empty())

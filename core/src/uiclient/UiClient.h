@@ -6,7 +6,7 @@
  * The engine talks to every UI the same way: JSON messages out through
  * IPluginHost::SendMessageToUI, JSON requests in through PluginController::HandleUIMessage
  * (core/protocol/ui-messages.json is the list). The WebView UI parses them in TypeScript;
- * Soundshed Guitar Nano parses them here, into ClientState, and views subscribe to the parts
+ * Soundshed Nano Q parses them here, into ClientState, and views subscribe to the parts
  * they draw.
  *
  * Message thread only. Incoming messages are queued by Enqueue() and applied by

@@ -2,8 +2,9 @@
 
 Status: **first working build, 2026-10-09. Windows verified; macOS builds and runs (2026-10-26, Intel,
 Xcode 26.3); Linux not yet.** Branch
-`nano-q`, in `nanoq/`. Soundshed Guitar Nano ([native-ui.md](native-ui.md)) is untouched and
-still the shipping native product.
+`nano-q`, in `nanoq/`. **Nano Q is now the native UI** (2026-10-27): Soundshed Guitar Nano, the
+JUCE native UI it was ported from ([native-ui.md](native-ui.md)), was removed from the tree, so
+work on a native UI goes here. The parity plan is [nano-q-parity.md](nano-q-parity.md).
 
 **Soundshed Nano Q** is Soundshed Nano rebuilt on [Cycfi Q](https://github.com/cycfi/q)'s
 **QPlug** plugin framework and its **Elements** GUI library, with no JUCE anywhere in the
@@ -22,9 +23,9 @@ through `core/src/uiclient`: the same JSON messages the web UI sends, parsed int
 |---|---|
 | Audio and MIDI callbacks, plugin formats (VST3, AU, CLAP, standalone) | QPlug, which builds one CLAP and has clap-wrapper make the VST3, AUv2 and a standalone app from it |
 | File dialogs, thread hops, message thread, paths (`PluginProcessorAdapter` as `IPluginHost`) | `nanoq/src/Engine.*`, `FileDialogs.*`, `Paths.*` |
-| The 10,000 lines of Components in `juce/source/nativeui` | `nanoq/src/ui/`, Elements elements drawn from the same theme tokens |
+| The 10,000 lines of Components in `juce/source/nativeui` (since removed) | `nanoq/src/ui/`, Elements elements drawn from the same theme tokens |
 
-Nothing is reused from `juce/`. The two things both native UIs draw with live in core: the
+Nothing is reused from `juce/`. The two things the native UIs drew with live in core: the
 generated colour tokens (`core/src/uiclient/ThemeTokens.generated.h`, a plain header made from
 the web UI's CSS by `tools/gen-native-theme.mjs`) and the static Inter cuts
 (`core/nativeui/fonts`, made by `tools/gen-nano-fonts.mjs`), so a theme looks the same in every
@@ -178,7 +179,7 @@ node tools/validate-plugins.mjs --artefacts nanoq/build/Release/products --produ
 | iOS / iPadOS | **Runs in the iPad Simulator** (2026-10-26): a UIKit host for Elements (`nanoq/ios/elements_host`), Artist's Quartz backend on Core Text (`nanoq/ios/patches`, applied at configure in iOS builds only) and an app that hosts the CLAP and plays it through RemoteIO (`nanoq/ios/app`). Built with `nanoq/ios/build.sh`. Device builds and what is left: [nano-q-ios.md](nano-q-ios.md) |
 | Resource chooser, as the web UI's resource browser (2026-10-26) | Done (`ui/ResourceBrowser.cpp`): Select Amp Model / Pedal Model / IR Cabinet / Reverb IR, with Resource Library (search, category, File...), Folder (the folders the user added, shared with Soundshed Guitar through `resources.folderBrowser.*`; Add Folder..., a file heard where it is and added to the library in place on OK) and Tone 3000 (search by gear, sort and architecture through the relay, a tone opens to its A1 and A2 models, Select downloads, imports and loads one). A click is heard at once; Cancel puts back what the slot held. Not done: favourites, the creator filter, pack grouping, Tone3000 previews and Import All |
 | Chain undo/redo and A/B (2026-10-26) | Done, as the web UI's (history.ts): `core/src/uiclient/ChainHistory` keeps two stacks of snapshots; an edit is recorded once the chain is still for 320 ms; a restore of the same chain with other settings goes back as node messages, anything else reloads the preset with the target chain (`UiCommands::LoadActivePresetWithGraph`), and the engine's echo within 1.5 s is not a new step. No Ctrl+Z yet |
-| **Not yet at parity with the web UI's chain and effect view** | Drag to reorder or onto another line; effect favourites and recents in the chooser; the NAM badge for a model whose library row lacks `architectureVersion` (the web UI reads the model file for it); artwork from a model's own metadata (an http URL) and the layout thumbnails some effects show on their cards; custom effect layouts (Layout Designer); the effect header's DSP status and layout switch; the EQ curve and spectrum, cabinet and Pickup Match response curves, IR alignment, Gate Learn (the noise floor and Learn), the spatial panner; channel mode; per-input mixer levels as their own control; blends, composites and hosted plugins; the cables' live-signal animation; the Presets and Settings pages keep their older look (the web UI's preset chooser is a dialog with folders and tags) |
+| **Not yet at parity with the web UI's chain and effect view** (the full gap list and the phases to close it: [nano-q-parity.md](nano-q-parity.md)) | Drag to reorder or onto another line; effect favourites and recents in the chooser; the NAM badge for a model whose library row lacks `architectureVersion` (the web UI reads the model file for it); artwork from a model's own metadata (an http URL) and the layout thumbnails some effects show on their cards; custom effect layouts (Layout Designer); the effect header's DSP status and layout switch; the EQ curve and spectrum, cabinet and Pickup Match response curves, IR alignment, Gate Learn (the noise floor and Learn), the spatial panner; channel mode; per-input mixer levels as their own control; blends, composites and hosted plugins; the cables' live-signal animation; the Presets and Settings pages keep their older look (the web UI's preset chooser is a dialog with folders and tags) |
 | CI | None yet; `nanoq/build.cmd` and the validator command above are what a workflow would run |
 
 ## Decisions and open questions
@@ -189,6 +190,6 @@ node tools/validate-plugins.mjs --artefacts nanoq/build/Release/products --produ
   way, even though a DAW project cannot move between them (different plugin ids).
 - **Elements, not a bespoke UI toolkit.** Elements brings a window host for each platform (Win32,
   Cocoa, X11), a Direct2D/Quartz/Cairo drawing layer, text input and scrolling.
-- **HTTP is shared (2026-10-26).** `core/src/net/Http.h` (built into `SoundshedUiClient`): a transport per platform (WinHTTP; NSURLSession on Apple platforms, picked when Objective-C++ is enabled before core is added; elsewhere a transport that reports no network) behind `HttpTransport`, so a product can hand in its own, and `HttpWorkers` that cancel requests in flight when destroyed. `uiclient/ToneService` does tone sharing and Tone3000 with no UI framework in it, for Nano Q and the JUCE Nano (since 2026-10-27, on its own `juce::URL` transport, `nativeui/tones/JuceHttpTransport`). Tone3000 always goes through Soundshed's relay (`api-guitar.soundshed.com/v1/resourcesearch`), whose own model URLs it rewrites (`tone3000::ThroughRelay`). The Apple transport has not been compiled yet.
+- **HTTP is shared (2026-10-26).** `core/src/net/Http.h` (built into `SoundshedUiClient`): a transport per platform (WinHTTP; NSURLSession on Apple platforms, picked when Objective-C++ is enabled before core is added; elsewhere a transport that reports no network) behind `HttpTransport`, so a product can hand in its own, and `HttpWorkers` that cancel requests in flight when destroyed. `uiclient/ToneService` does tone sharing and Tone3000 with no UI framework in it, for Nano Q (and, until its removal on 2026-10-27, the JUCE Nano). Tone3000 always goes through Soundshed's relay (`api-guitar.soundshed.com/v1/resourcesearch`), whose own model URLs it rewrites (`tone3000::ThroughRelay`). The Apple transport has not been compiled yet.
 - **Open: QPlug is new (Q 1.5).** Its API may change between minor releases; Q is pinned to a
   commit, and `clap_entry.cpp` leans on its `q_plug_entry_*` symbols.

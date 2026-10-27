@@ -23,9 +23,6 @@ plugins {
 val juceModules = rootProject.file("../juce/JUCE/modules")
 val uiSrcDir = rootProject.file("../core/ui")
 
-/** Nano's fonts: static cuts of the web UI's Inter (tools/gen-nano-fonts.mjs). */
-val nanoFontsDir = rootProject.file("../core/nativeui/fonts")
-
 /** ABIs to build, from the ssg.abis property (see gradle.properties). */
 val targetAbis: List<String> =
     (project.findProperty("ssg.abis") as String? ?: "arm64-v8a")
@@ -34,14 +31,7 @@ val targetAbis: List<String> =
 /** Kept in step with juce/VERSION so the APK matches the desktop build. */
 val appVersionName: String = rootProject.file("../juce/VERSION").readText().trim()
 
-/**
- * Which product the APK carries, from the ssg.product property (see gradle.properties):
- * "guitar", the WebView app, or "nano", Soundshed Guitar Nano, the native UI that will
- * replace it (docs/plans/native-ui.md). Until that switch a Nano build installs beside the
- * WebView app under the ".nano" id, with its own throwaway profile.
- */
-val nanoProduct: Boolean = (project.findProperty("ssg.product") as String? ?: "guitar") == "nano"
-val nativeTarget: String = if (nanoProduct) "SoundshedGuitarNano_Standalone" else "SoundshedGuitar_Standalone"
+val nativeTarget = "SoundshedGuitar_Standalone"
 
 android {
     namespace = "com.soundshed.guitar"
@@ -65,17 +55,10 @@ android {
 
         ndk { abiFilters += targetAbis }
 
-        if (nanoProduct) {
-            applicationIdSuffix = ".nano"
-        }
+        manifestPlaceholders["appLabel"] = "@string/app_name"
 
-        // The launcher name, so the two installs can be told apart side by side.
-        manifestPlaceholders["appLabel"] = if (nanoProduct) "Soundshed Nano" else "@string/app_name"
-
-        // Nano lays itself out for portrait as well (a tab bar and slider rows), so it turns
-        // with the phone, following the user's auto-rotate setting. Soundshed Guitar's web UI
-        // is built for landscape and stays there.
-        manifestPlaceholders["screenOrientation"] = if (nanoProduct) "user" else "landscape"
+        // The web UI is built for landscape and stays there.
+        manifestPlaceholders["screenOrientation"] = "landscape"
 
         externalNativeBuild {
             cmake {
@@ -83,7 +66,6 @@ android {
                 arguments += listOf(
                     "-DANDROID_STL=c++_shared",
                     "-DSSG_ANDROID_TARGET=$nativeTarget",
-                    "-DGUITARFX_BUILD_NANO=${if (nanoProduct) "ON" else "OFF"}",
                 )
             }
         }
@@ -185,19 +167,11 @@ android {
 // (see SoundshedApp.java).
 // ---------------------------------------------------------------------------
 
-/**
- * Subdirectories of core/ui that ship with the app. Nano has no web UI: it takes what the
- * engine and the native views read (as juce/cmake/SoundshedNano.cmake copies on desktop),
- * plus its static Inter fonts, staged as ui/fonts.
- */
-val uiAssetDirs = if (nanoProduct) {
-    listOf("images", "data", "assets", "metronome", "presets", "demo")
-} else {
-    listOf(
-        "dist", "css", "images", "data", "assets", "metronome",
-        "ui-components", "presets", "demo",
-    )
-}
+/** Subdirectories of core/ui that ship with the app. */
+val uiAssetDirs = listOf(
+    "dist", "css", "images", "data", "assets", "metronome",
+    "ui-components", "presets", "demo",
+)
 
 @CacheableTask
 abstract class StageUiAssets @Inject constructor(
@@ -211,10 +185,6 @@ abstract class StageUiAssets @Inject constructor(
      */
     @get:Internal
     abstract val uiSource: DirectoryProperty
-
-    /** Nano's fonts (not the web UI's variable ones); covered by [sourceFiles]. */
-    @get:Internal
-    abstract val fontsSource: DirectoryProperty
 
     /** The subset of core/ui that is packaged — the real up-to-date inputs. */
     @get:InputFiles
@@ -233,23 +203,14 @@ abstract class StageUiAssets @Inject constructor(
     @get:Input
     abstract val jamEnabled: Property<Boolean>
 
-    /** False for Nano: no index.html or build flags, and the fonts go to ui/fonts. */
-    @get:Input
-    abstract val webUi: Property<Boolean>
-
     @TaskAction
     fun stage() {
         val src = uiSource.get().asFile
         val dest = outputDir.get().asFile.resolve("ui")
-        val web = webUi.get()
 
         fs.sync {
             into(dest)
-            if (web) {
-                from(src) { include("index.html") }
-            } else {
-                from(fontsSource.get().asFile) { into("fonts") }
-            }
+            from(src) { include("index.html") }
             subdirectories.get().forEach { dir ->
                 from(File(src, dir)) { into(dir) }
             }
@@ -259,19 +220,17 @@ abstract class StageUiAssets @Inject constructor(
         // generates it from juce/cmake/ui-build-flags.js.in; nothing in core/ui
         // produces it, so without this the Android build 404s on every launch and
         // the UI runs with its build flags undefined.
-        if (web) {
-            dest.resolve("build-flags.js").writeText(
-                """
-                window.SOUNDSHED_BUILD_FLAGS = Object.freeze({
-                  jamEnabled: ${jamEnabled.get()}
-                });
+        dest.resolve("build-flags.js").writeText(
+            """
+            window.SOUNDSHED_BUILD_FLAGS = Object.freeze({
+              jamEnabled: ${jamEnabled.get()}
+            });
 
-                if (document.documentElement) {
-                  document.documentElement.dataset.jamEnabled = window.SOUNDSHED_BUILD_FLAGS.jamEnabled ? "true" : "false";
-                }
-                """.trimIndent() + "\n"
-            )
-        }
+            if (document.documentElement) {
+              document.documentElement.dataset.jamEnabled = window.SOUNDSHED_BUILD_FLAGS.jamEnabled ? "true" : "false";
+            }
+            """.trimIndent() + "\n"
+        )
 
         // The runtime compares this against its unpacked copy to decide whether
         // the assets need re-extracting, so it has to change whenever the staged
@@ -325,18 +284,14 @@ val buildUiBundle = tasks.register<Exec>("buildUiBundle") {
 }
 
 val stageUiAssets = tasks.register<StageUiAssets>("stageUiAssets") {
-    description = "Copies the built web UI (or Nano's assets) into the APK asset staging directory."
+    description = "Copies the built web UI into the APK asset staging directory."
     group = "build"
-    if (!nanoProduct) {
-        dependsOn(buildUiBundle)
-    }
+    dependsOn(buildUiBundle)
     uiSource.set(uiSrcDir)
-    fontsSource.set(nanoFontsDir)
     subdirectories.set(uiAssetDirs)
-    webUi.set(!nanoProduct)
     // Mirrors GUITARFX_ENABLE_JAM, which defaults to ON in juce/CMakeLists.txt.
     jamEnabled.set((project.findProperty("ssg.jam") as String? ?: "true").toBoolean())
-    sourceFiles.from(if (nanoProduct) nanoFontsDir else File(uiSrcDir, "index.html"))
+    sourceFiles.from(File(uiSrcDir, "index.html"))
     uiAssetDirs.forEach { sourceFiles.from(File(uiSrcDir, it)) }
     // Version-derived so an upgrade forces a re-extract on device.
     stamp.set("$appVersionName-${uiAssetDirs.size}")

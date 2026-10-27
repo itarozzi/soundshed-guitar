@@ -1,8 +1,8 @@
-// Writes static instances of the web UI's variable Inter for Soundshed Guitar Nano.
+// Writes static instances of the web UI's variable Inter for Soundshed Nano Q.
 //
 // JUCE 8 cannot choose a variable font's weight. Given Inter's variable font, DirectWrite
 // hands JUCE the family's first named instance, Thin, while HarfBuzz lays the text out with
-// the default instance's (Regular's) advances: hairline glyphs, loosely spaced. So Nano ships
+// the default instance's (Regular's) advances: hairline glyphs, loosely spaced. So the native UI ships
 // one static font per weight instead, cut from the same file the web UI uses. HarfBuzz's own
 // instancer does the cutting (glyf/gvar, metrics, kerning and all), from the copy of HarfBuzz
 // that JUCE already carries, so nothing is downloaded. That copy has no repacker (the graph/
@@ -27,14 +27,14 @@ struct Instance
     float weight;
 };
 
-// The weights Nano draws with: body text, emphasis, and headings and values.
+// The weights Nano Q draws with: body text, emphasis, and headings and values.
 constexpr Instance kInstances[] = {
     { "Inter-Regular.ttf", 400.0f },
     { "Inter-Medium.ttf", 500.0f },
     { "Inter-SemiBold.ttf", 600.0f },
 };
 
-// Inter's text optical size. Nano's text runs 10-20 px, where the display cut is too tight.
+// Inter's text optical size. Nano Q's text runs 10-20 px, where the display cut is too tight.
 constexpr float kOpticalSize = 14.0f;
 
 bool writeBlob (hb_blob_t* blob, const std::string& path)

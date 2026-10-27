@@ -1,5 +1,11 @@
 # Soundshed Guitar Nano: a native, WebView-free UI for small displays
 
+> **Retired, 2026-10-27.** Soundshed Guitar Nano (the JUCE native UI in
+> `juce/source/nativeui`) was removed; Soundshed Nano Q ([nano-q.md](nano-q.md),
+> [nano-q-parity.md](nano-q-parity.md)) replaces it. This plan stays for its rules (C1-C4,
+> which code still cites), the drift policy and the TypeScript-to-core porting list, which
+> Nano Q's parity work follows.
+
 Status: **proposed, 2026-09-23. Nothing built.** Packaging, scope, Android, platforms and
 the drift policy were decided the same day (see [Decisions](#decisions)). Only the scope
 switches are still open.

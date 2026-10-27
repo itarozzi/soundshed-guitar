@@ -346,7 +346,7 @@ Rules for anyone touching this:
 - The periodic telemetry feeds (`sld` at 20 Hz, `dspPerformance`) only
   drive on-screen meters and are suppressed while the UI reports itself hidden via
   `uiVisibility`, which also switches the DSP's signal diagnostics off. The page cannot
-  report its own teardown, so the JUCE editor (`SoundshedEditorBase`, for Nano too) sends `uiVisibility {visible:false}` to the
+  report its own teardown, so the JUCE editor (`SoundshedEditorBase`) sends `uiVisibility {visible:false}` to the
   controller itself when it is destroyed, and `{visible:true}` when a new one opens.
   A minimised window, or an editor a host hides, is not a teardown: the WebView editor keeps
   the page loaded (`withKeepPageLoadedWhenBrowserIsHidden`, where JUCE's default would swap in
@@ -411,7 +411,7 @@ treated as a one-scene preset automatically.
 ### Edits the engine makes
 
 Some edits used to be made by the web UI to its own copy of a preset or document, which it then
-sent back whole. So that Soundshed Guitar and Soundshed Guitar Nano cannot make the same edit two
+sent back whole. So that Soundshed Guitar and Soundshed Nano Q cannot make the same edit two
 different ways, the engine now makes them, asked by name (docs/plans/native-ui.md, "Engine-owned
 edits"): the scene commands, `newPreset`, `loadPreset` by id, `setPresetFavorite`,
 `setPresetRating`, `selectSetlist`, `setResourceFavorite` and `setOutputMuted`. The engine also
@@ -731,7 +731,7 @@ and dragging one handle past the other was broken in both, differently.
 
 ## Effect presentation (`core/ui/data/effect-presentation.json`)
 
-How each effect and category looks is one data file, shared with Soundshed Guitar Nano so the
+How each effect and category looks is one data file, shared with Soundshed Nano Q so the
 two UIs cannot drift: the FX library's categories (order, name, colour), the icon for each
 category and effect, the chain node's colour class, the gear categories shown as amps, the FX
 library category a blend is listed under, and the effect view's background gradient and stock
@@ -743,7 +743,7 @@ artwork. Effects are keyed by their `EffectGuids` constant, with the guid alongs
   classes, `getNodeCategory`) and `signalPath/visualization.ts` build their tables from it. The
   file's images are relative to `core/ui`; the web UI prefixes them with `../`, and turns each
   `visualBackground` pair into `linear-gradient(145deg, <first> 0%, <second> 100%)`.
-- **Nano:** `core/src/uiclient/EffectPresentation.cpp` reads the file at run time.
+- **Nano Q:** `core/src/uiclient/EffectPresentation.cpp` reads the file at run time.
 - **Checks:** `npm run check:presentation` (part of `npm run verify`, and in CI) runs
   `tools/check-effect-presentation.mjs`. It fails when an effect's name or guid is not in
   `core/src/dsp/EffectGuids.h`, a category the file refers to is not defined, a colour is not
@@ -797,8 +797,7 @@ more lines instead of scrolling it sideways. The choice is remembered per displa
 full density it is `uiSettings.signalPathWrap`, off unless set; at compact density (small
 displays) it is `uiSettings.signalPathWrapCompact`, on unless set to false. The toggle changes
 the one for the density on screen, and the chain follows as a window crosses the compact
-threshold. Both are the web UI's own; Soundshed Guitar Nano's chain page has
-`nativeUi.chainWrap`.
+threshold. Both are the web UI's own.
 
 - **Segments.** The main row is built from `.signal-chain-segment`s: the input, then each
   connector with what it leads into. A splitter's segment also carries its parallel block and

@@ -1,5 +1,5 @@
 /**
- * UiClientTests.cpp - Soundshed Guitar Nano's client library, against a real engine.
+ * UiClientTests.cpp - Soundshed Nano Q's client library, against a real engine.
  *
  * The client talks to a headless PluginController over the same JSON messages the WebView UI
  * uses, in process (the controller's outbound messages are queued into the client, the
@@ -311,7 +311,7 @@ std::vector<std::string> FactoryPresetApplyOrder(const EffectPresetDefinition& p
     return keys;
 }
 
-/// Every Graphic EQ profile, applied from the catalog the way Nano's presets menu does, leaves
+/// Every Graphic EQ profile, applied from the catalog the way a native UI's presets menu does, leaves
 /// the node - the engine's graph, the live DSP and the client's mirror - holding exactly that
 /// profile's band count and band values, whichever layout it switched from.
 void TestGraphicEqFactoryProfilesApplyExactly()

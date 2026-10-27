@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /**
- * The fonts Soundshed Guitar Nano draws with: static Inter Regular, Medium and SemiBold, cut
- * from the web UI's variable Inter (core/ui/css/fonts) into core/nativeui/fonts, which both native
- * UIs (Soundshed Guitar Nano and Nano Q) ship.
+ * The fonts Soundshed Nano Q draws with: static Inter Regular, Medium and SemiBold, cut
+ * from the web UI's variable Inter (core/ui/css/fonts) into core/nativeui/fonts.
  *
- * JUCE 8 cannot pick a variable font's weight - on Windows it draws Inter's first named
- * instance, Thin - so Nano needs one static file per weight. tools/nano-fonts/
+ * They were cut for the JUCE Nano (since removed): JUCE 8 cannot pick a variable font's
+ * weight - on Windows it draws Inter's first named instance, Thin - so it needed one static
+ * file per weight. Nano Q draws with the same files. tools/nano-fonts/
  * make-inter-instances.cpp makes them with HarfBuzz's instancer, compiled here from the copy
  * of HarfBuzz inside juce/JUCE. That copy leaves out the subsetter's repacker, so the build
  * swaps it for a stub that stops the run if a table ever needs repacking.

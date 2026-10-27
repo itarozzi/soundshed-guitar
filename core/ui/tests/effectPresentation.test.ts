@@ -1,7 +1,7 @@
 /**
  * The web UI's effect presentation now comes from core/ui/data/effect-presentation.json
- * (through the generated ts/generated/effectPresentation.ts), shared with Soundshed Guitar
- * Nano. These hold what it produces to the tables the web UI hard-coded before, so moving
+ * (through the generated ts/generated/effectPresentation.ts), shared with Soundshed
+ * Nano Q. These hold what it produces to the tables the web UI hard-coded before, so moving
  * onto the shared file changed nothing anyone sees.
  */
 import { describe, expect, it } from "vitest";

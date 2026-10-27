@@ -3,7 +3,7 @@
  * them out again (controller/PluginControllerArchiveInstall.cpp).
  *
  * Each test builds real zips in the web UI's archive format (preset.json or presets.json plus
- * resources/<file>), sends them to a headless controller as Soundshed Guitar Nano does, and
+ * resources/<file>), sends them to a headless controller as Soundshed Nano Q does, and
  * checks the library, the presets, the folders and the toneSharing.installedPacks entry the
  * web UI reads.
  */

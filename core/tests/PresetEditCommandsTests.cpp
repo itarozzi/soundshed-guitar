@@ -726,7 +726,7 @@ void TestUiSettingsKeepNanosPart()
     const auto state = Latest(host, "state");
     Expect(state && state->at("uiSettings").value("zoom", 0.0) == 1.1, "the web UI's whole-blob write lands");
     Expect(state && state->at("uiSettings")["native"].value("scale", 0.0) == 1.25,
-           "and keeps Nano's part, which it never sends");
+           "and keeps Nano Q's part, which it never sends");
 }
 
 void TestDemoClipsPlayById()

@@ -160,7 +160,7 @@ set(ELEMENTS_FONTS
     "${_nanoq_elements}/resources/fonts/OpenSans-Regular.ttf")
 
 # The engine's runtime data: factory presets, layouts, metronome clicks and demo audio from ui/ in
-# its resource root, the same data Soundshed Guitar Nano ships (juce/cmake/SoundshedNano.cmake).
+# its resource root (the web UI itself is not shipped).
 set(_NANOQ_UI_DATA_DIRS presets assets metronome demo data images)
 
 if(NANOQ_IOS)

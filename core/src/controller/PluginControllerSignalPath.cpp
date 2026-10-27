@@ -1139,7 +1139,7 @@ void PluginController::HandleCollapseSignalPathSplitRequest(const nlohmann::json
     const std::string splitterId = payload.value("splitterId", "");
     std::string mixerId = payload.value("mixerId", "");
 
-    // Soundshed Guitar Nano names only the splitter; the graph says where it joins.
+    // Soundshed Nano Q names only the splitter; the graph says where it joins.
     if (mixerId.empty() && !splitterId.empty())
     {
         mixerId = FindSplitJoinMixerId(*targetGraph, splitterId);

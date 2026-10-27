@@ -2,9 +2,9 @@
 
 The iOS app is the JUCE **Standalone** target built for iOS, as the Android app
 is ([android-build.md](android-build.md)). It runs the same `SoundshedGuitarCore`
-DSP engine and, for Soundshed Guitar, the same web UI in a `WKWebView`; Soundshed
-Guitar Nano draws its native JUCE UI. One universal app per product covers iPhone
-and iPad.
+DSP engine and the same web UI in a `WKWebView`. One universal app covers iPhone
+and iPad. (Soundshed Nano Q, the native UI, has its own iOS build:
+[plans/nano-q-ios.md](plans/nano-q-ios.md).)
 
 There is no separate project to keep in step: `juce/CMakeLists.txt` builds for
 iOS when configured with `-DCMAKE_SYSTEM_NAME=iOS` and the Xcode generator, and
@@ -14,7 +14,7 @@ iOS when configured with `-DCMAKE_SYSTEM_NAME=iOS` and the Xcode generator, and
 
 ```
 ios/
-  build.sh      Configures ios/build (Xcode), builds either app for the Simulator or a
+  build.sh      Configures ios/build (Xcode), builds the app for the Simulator or a
                 device, and optionally installs and launches it in the Simulator
   cmake/IosFilesystemBackDeploy.cmake
                 std::filesystem for iOS 12 (legacy) builds
@@ -28,7 +28,6 @@ Everything else is shared with the desktop and Android builds:
 | File | iOS-specific part |
 | ---- | ----------------- |
 | `juce/CMakeLists.txt` | `SSG_MOBILE`, Standalone-only formats, no plugin hosting, WASM off, the iOS minimums (15.0, and 16.2 for Soundshed Guitar), the Info.plist options, a flat-bundle resource copy of only the shipped UI folders |
-| `juce/cmake/SoundshedNano.cmake` | Nano's Info.plist options (all orientations) and its resource copy |
 | `juce/source/Main.cpp` | `SOUNDSHED_MOBILE` window handling; `setFullScreen (true)`; the 128-frame default buffer |
 | `juce/source/LaunchCurtain.*` | Compiled out on mobile |
 | `juce/source/PluginProcessorAdapter.cpp` | `locateAssetsRoot` also looks beside the executable |
@@ -49,14 +48,12 @@ Everything else is shared with the desktop and Android builds:
 | App | Minimum | Set by | Oldest devices |
 | --- | ------- | ------ | -------------- |
 | Soundshed Guitar | iOS / iPadOS **16.2** | WebKit: `color-mix()` | iPhone 8 and X; iPad 5th gen, iPad Air 3, iPad mini 5 |
-| Nano | iOS / iPadOS **15.0** | Device reach (the code needs 13) | iPhone 6s, SE (1st gen) and 7; iPad Air 2, iPad mini 4, iPad 5th gen |
 
-The build tree's `CMAKE_OSX_DEPLOYMENT_TARGET` is 15.0, so the core, JUCE's
-modules and Nano all build for it. Soundshed Guitar's app target raises its own
-minimum (`XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET`) to 16.2, and Xcode writes
-each app's minimum into its `MinimumOSVersion`. An app may link libraries built
-for an older iOS than its own minimum, which is why the tree takes the lower of
-the two.
+The build tree's `CMAKE_OSX_DEPLOYMENT_TARGET` is 15.0, so the core and JUCE's
+modules build for it. Soundshed Guitar's app target raises its own minimum
+(`XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET`) to 16.2, and Xcode writes it into
+the app's `MinimumOSVersion`. An app may link libraries built for an older iOS
+than its own minimum.
 
 **Soundshed Guitar: 16.2.** A `WKWebView` is the system's WebKit, so the iOS
 version is the browser version. The UI uses `color-mix()` throughout (271 uses,
@@ -68,17 +65,10 @@ TypeScript targets ES2019. The UI has no CSS nesting, whatever older comments
 said. Going below 16 would mean replacing every `color-mix()` with a fixed
 colour, to reach 15.4.
 
-**Nano: 15.0.** With no WebView, the only library floor in the code is
-`std::filesystem`, from iOS 13 (JUCE 9 and Xcode 26 both go down to 12). But
-iOS 13, 14 and 15 run on exactly the same devices, so 13 would add risk and no
-users; 16 is what dropped the iPhone 6s/7 generation and the iPad Air 2 and mini 4.
-Whether their A8X/A9/A10 chips can run a NAM model inside the audio deadline is
-untested: judge that on a device, in a release build, before promising it.
-
 For iOS 12 devices (the iPad mini 2 and its generation) there is a separate
 legacy build; see "iOS 12 (legacy) builds" below.
 
-Raising either minimum is one line in `juce/CMakeLists.txt`. An existing build
+Raising the minimum is one line in `juce/CMakeLists.txt`. An existing build
 tree keeps its cached `CMAKE_OSX_DEPLOYMENT_TARGET`, so after changing the
 default there, reconfigure with `-U CMAKE_OSX_DEPLOYMENT_TARGET` (or delete
 `ios/build`).
@@ -86,12 +76,12 @@ default there, reconfigure with `-U CMAKE_OSX_DEPLOYMENT_TARGET` (or delete
 ## Building
 
 ```bash
-ios/build.sh                      # Soundshed Guitar, Simulator, Debug
-ios/build.sh nano run             # Nano, Simulator, then boot an iPad, install and launch
-ios/build.sh guitar release run   # Release build in the Simulator
+ios/build.sh                      # Simulator, Debug
+ios/build.sh run                  # Simulator, then boot an iPad, install and launch
+ios/build.sh release run          # Release build in the Simulator
 ```
 
-Arguments may appear in any order: `guitar|nano`, `sim|device`, `debug|release`,
+Arguments may appear in any order: `sim|device`, `debug|release`,
 `run`, `reconfigure`, `legacy`. The first run configures `ios/build`, which takes a few
 minutes (it fetches the core's dependencies and builds JUCE's `juceaide`); later
 runs only build. The app lands in
@@ -111,8 +101,7 @@ The Simulator runs the host's architecture, so on an Intel Mac the Simulator
 build is x86_64 and on Apple silicon it is arm64; `build.sh` passes `uname -m`.
 
 To work in Xcode instead, open `ios/build/SoundshedGuitar.xcodeproj` after the
-first configure and pick the `SoundshedGuitar_Standalone` or
-`SoundshedGuitarNano_Standalone` scheme.
+first configure and pick the `SoundshedGuitar_Standalone` scheme.
 
 **Use a release build for anything to do with audio**, as on Android: a debug
 build compiles the DSP unoptimised.
@@ -128,7 +117,7 @@ SSG_IOS_DEVELOPMENT_TEAM=<team id> ios/build.sh device release reconfigure
 
 The team id is written into the build tree, so later device builds need only
 `ios/build.sh device release`. `-allowProvisioningUpdates` lets Xcode create the
-development profiles for `com.soundshed.guitar` and `com.soundshed.guitar.nano`.
+development profile for `com.soundshed.guitar`.
 Install with Xcode (Window > Devices and Simulators) or
 `xcrun devicectl device install app --device <id> <path to .app>`.
 
@@ -144,15 +133,15 @@ DSP uses no later instructions (no dot-product, FP16 or matrix intrinsics), so
 the same code runs there.
 
 ```bash
-ios/build.sh legacy nano                                          # Simulator, to check it builds and runs
-SSG_IOS_DEVELOPMENT_TEAM=<team id> ios/build.sh legacy nano device release reconfigure
+ios/build.sh legacy                                          # Simulator, to check it builds and runs
+SSG_IOS_DEVELOPMENT_TEAM=<team id> ios/build.sh legacy device release reconfigure
 ```
 
 `legacy` uses a build tree of its own, `ios/build-legacy`, with
 `CMAKE_OSX_DEPLOYMENT_TARGET=12.0` and `GUITARFX_IOS_WEBVIEW_DEPLOYMENT_TARGET=12.0`,
-so both apps' minimum is 12.0 and the normal tree keeps 15.0 and 16.2.
+so the app's minimum is 12.0 and the normal tree keeps 15.0 and 16.2.
 
-**Both apps run.** Soundshed Guitar's UI is drawn by iOS 12's WebKit
+**It runs.** Soundshed Guitar's UI is drawn by iOS 12's WebKit
 (Safari 12.1), which lacks several things the UI uses. `core/ui/ts/legacyWebKit.ts`,
 the first module `main.ts` imports, supplies the ones that would stop it:
 `matchMedia().addEventListener` (the first, which failed the bootstrap),
@@ -162,8 +151,7 @@ responds. Each is installed only where it is missing, so other WebViews are
 untouched. On an iPad mini 2 the page boots, taps and drags arrive as pointer
 events, and preset changes reach the engine. What it cannot supply is CSS:
 there is no `color-mix()`, `:has()`, container queries or flexbox `gap`, so
-colours and spacing are off in places. Nano draws natively and has none of
-this.
+colours and spacing are off in places.
 
 Its compiled scripts are already Safari 12 syntax (TypeScript targets ES2019).
 To check after a change, run each `core/ui/dist/*.js` through
@@ -198,7 +186,7 @@ with an "unavailable" error rather than shipping something that cannot load.
 
 **Installing.** Xcode 26 builds and signs for iOS 12 but will not use an iOS 12
 device as a destination ("Could not locate Developer Disk Image"), and that has
-three consequences, all met putting Nano on an iPad mini 2:
+three consequences, all met putting the (since removed) JUCE Nano on an iPad mini 2:
 
 - **Register the device by hand.** `-allowProvisioningDeviceRegistration` only
   registers a device Xcode accepts as a destination, so add the UDID at
@@ -230,7 +218,7 @@ the device itself.
 ### Formats
 
 Only the Standalone is built (`FORMATS` is `Standalone` whenever `SSG_MOBILE` is
-on). iOS could take an **AUv3** of each product, which would let the engine run
+on). iOS could take an **AUv3**, which would let the engine run
 inside AUM, GarageBand, Logic for iPad and the like. That is a separate piece of
 work: an app extension needs its own bundle id, an app group if it is to share
 the profile with the app, and an editor that copes with the host's view sizes.
@@ -253,9 +241,8 @@ been built or tested against that, so the format manager registers nothing.
 An iOS bundle is flat: the executable sits at the bundle's root, next to its
 resources, rather than in `Contents/MacOS`. The post-build step copies the UI to
 `<App>.app/ui`, and `PluginProcessorAdapter::locateAssetsRoot` adds the
-executable's own directory as a candidate on iOS. The WebView editor and Nano's
-`NanoContext` take the adapter's root before their own guesses, so that one
-lookup covers all three.
+executable's own directory as a candidate on iOS. The WebView editor takes the
+adapter's root before its own guesses, so that one lookup covers both.
 
 It is not `<App>.app/resources/ui`, which every existing lookup would have found
 unchanged: a directory called `resources` at the root of an iOS bundle makes
@@ -282,8 +269,8 @@ storage on, and sizes itself from its frame.
 `HOME/Library` resolves to the same place, so the profile is
 `<container>/Library/Soundshed Guitar` and no override is needed.
 
-Each iOS app has its own container, so **Soundshed Guitar and Nano do not share
-a profile on iOS** the way they do on desktop. Sharing one would need an app
+Each iOS app has its own container, so **Soundshed Guitar and Nano Q do not
+share a profile on iOS** the way they do on desktop. Sharing one would need an app
 group (`APP_GROUPS_ENABLED`, `APP_GROUP_IDS`) and the profile moved into the
 group container.
 
@@ -295,11 +282,11 @@ the screen less its safe-area insets, and takes it again on every display change
 so rotation and the iPhone's camera housing are handled by JUCE rather than by
 CSS.
 
-| | Soundshed Guitar | Nano |
-| - | ---------------- | ---- |
-| Orientations | Landscape only, as on Android | All (portrait upside-down on iPad only) |
-| iPad multitasking | Off (`REQUIRES_FULL_SCREEN`) | On |
-| Status bar | Hidden | System default |
+| | Soundshed Guitar |
+| - | ---------------- |
+| Orientations | Landscape only, as on Android |
+| iPad multitasking | Off (`REQUIRES_FULL_SCREEN`) |
+| Status bar | Hidden |
 
 The status bar is hidden by putting the window in JUCE's kiosk mode, which on
 iOS means "full screen, no status bar". `STATUS_BAR_HIDDEN` alone does nothing
@@ -310,8 +297,7 @@ battery sit on top of the header's title and settings button. The plist key
 still keeps the bar off the launch screen.
 
 An iPad app that allows Split View must allow every orientation, so the WebView
-app's landscape lock and its opting out of multitasking go together. Nano lays
-itself out for narrow and portrait windows already.
+app's landscape lock and its opting out of multitasking go together.
 
 ### Deep links
 
@@ -323,7 +309,7 @@ yet.**
   iOS alike. JUCE's `PLIST_TO_MERGE` would have put it in every format's
   plist, so it isn't used. (It used to be passed as
   `XCODE_EXTRA_PLIST_ENTRIES`, which `juce_add_plugin` silently ignores, so no
-  build had the scheme.) Nano registers no scheme.
+  build had the scheme.)
 - What's still missing is routing. On macOS JUCE's app delegate takes the
   `kAEGetURL` Apple event and hands the URL to `anotherInstanceStarted` in
   `juce/source/Main.cpp`. On iOS, JUCE runs its app through a scene delegate

@@ -348,12 +348,8 @@ public:
         // clock and battery over the header's title and settings button. The Info.plist's
         // UIStatusBarHidden cannot do it: JUCE turns on view-controller-based status bar
         // appearance, and its view controller hides the bar only for the kiosk component.
-        // On iOS, kiosk mode is exactly that plus setFullScreen (true). Nano keeps the bar
-        // and lays itself out below it (NanoEditor::systemInsets).
-        if (soundshed::product::isNano)
-            setFullScreen (true);
-        else
-            juce::Desktop::getInstance().setKioskModeComponent (this, false);
+        // On iOS, kiosk mode is exactly that plus setFullScreen (true).
+        juce::Desktop::getInstance().setKioskModeComponent (this, false);
 #endif
     }
 
@@ -440,7 +436,7 @@ private:
     }
 #endif
 
-    // The product's own limits (ProductInfo.h): Nano goes smaller than Soundshed Guitar.
+    // The product's own limits (ProductInfo.h).
     static constexpr int minWindowWidth = soundshed::product::minEditorWidth;
     static constexpr int minWindowHeight = soundshed::product::minEditorHeight;
     static constexpr int maxWindowSize = 8192;
@@ -635,9 +631,9 @@ public:
             // Not systemRequestedQuit(): there is no window or plugin state to save yet.
             juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon,
                                                     getApplicationName(),
-                                                    "Soundshed Guitar or Soundshed Guitar Nano is already running.\n\n"
-                                                    "They share one profile and one audio device, so only one can run at a "
-                                                    "time. Close the other one, then start this again.",
+                                                    "Soundshed Guitar is already running.\n\n"
+                                                    "Two copies would share one profile and one audio device, so only one "
+                                                    "can run at a time. Close the other one, then start this again.",
                                                     "OK",
                                                     nullptr,
                                                     juce::ModalCallbackFunction::create ([] (int) { quit(); }));
@@ -648,9 +644,8 @@ public:
 #if ! SOUNDSHED_MOBILE
         // Before the plugin holder, whose constructor initialises the engine and opens the
         // audio device on this thread: a window now, and (Windows) the WebView's browser
-        // process booting meanwhile. Nano draws natively and has no WebView to warm up.
-        auto launchCurtain = std::make_unique<LaunchCurtain> (MainWindow::launchCurtainBounds(),
-                                                              ! soundshed::product::isNano);
+        // process booting meanwhile.
+        auto launchCurtain = std::make_unique<LaunchCurtain> (MainWindow::launchCurtainBounds(), true);
         mMainWindow = std::make_unique<MainWindow> (getApplicationName(), createPluginHolder(), std::move (launchCurtain));
 #else
         mMainWindow = std::make_unique<MainWindow> (getApplicationName(), createPluginHolder());

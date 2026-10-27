@@ -4,7 +4,7 @@
  *
  * core/ui/data/effect-presentation.json says how each effect and category looks, for both
  * Soundshed Guitar's web UI (through the generated core/ui/ts/generated/effectPresentation.ts)
- * and Soundshed Guitar Nano (core/src/uiclient/EffectPresentation.cpp, which reads it at run
+ * and Soundshed Nano Q (core/src/uiclient/EffectPresentation.cpp, which reads it at run
  * time). Nothing else would notice a table entry that has drifted, so this fails when:
  *
  *   - an effect's name is not an EffectGuids constant in core/src/dsp/EffectGuids.h, or its

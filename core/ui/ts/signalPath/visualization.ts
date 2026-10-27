@@ -14,7 +14,7 @@ import { getCanonicalLibraryResourceId, getNodeCategory, handleNamIrFileDrop, in
 export let effectVisualizationDropCleanup: (() => void) | null = null;
 
 // Backgrounds and stock artwork come from core/ui/data/effect-presentation.json, which
-// Soundshed Guitar Nano reads too. Its images are relative to core/ui; the web UI has always
+// Soundshed Nano Q reads too. Its images are relative to core/ui; the web UI has always
 // addressed them one level up.
 const WEB_IMAGE_PREFIX = "../";
 
