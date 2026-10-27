@@ -184,8 +184,9 @@ export function sendEffectResponseRequest(
   effectType: string,
   params: Record<string, number>,
   points: number,
+  bands = false,
 ): void {
-  postMessage({ type: "getEffectResponse", requestId, effectType, params, points });
+  postMessage({ type: "getEffectResponse", requestId, effectType, params, points, ...(bands ? { bands: true } : {}) });
 }
 
 /** Renders an effect with these parameters as an IR into the library; answered by

@@ -13,7 +13,7 @@
  * imports practiceTool.ts either.
  */
 
-import { EQ_BAND_KEYS, EQ_BAND_RANGES, EQ_FREQ_DEFAULTS } from "../eqCurve.js";
+import { EQ_BAND_KEYS, EQ_BAND_RANGES, EQ_FREQ_DEFAULTS } from "../eqBands.js";
 import type { PracticeToolEqState } from "../types.js";
 
 /** Every parameter key the engine's EQ accepts, in band order. */

@@ -8,8 +8,10 @@
  * would. This module only keeps track of requests and replies; panels draw.
  *
  * A curve is asked for on every knob move, so curve requests are coalesced: one
- * is in flight at a time, and whatever changes while it is out are folded into a
- * single follow-up carrying the newest parameters.
+ * is in flight at a time on each lane (one lane per plot), and whatever changes
+ * while it is out are folded into a single follow-up carrying the newest
+ * parameters. Plots on different lanes (the Global EQ beside a node's EQ) do not
+ * hold each other back.
  */
 
 import { sendEffectResponseRequest, sendExportEffectAsIr, sendMatchSimpleCabToIr } from "./bridge.js";
@@ -29,6 +31,9 @@ export interface ResponseCurve {
   /** Named figures the curve leaves out, for an effect that gives them (Pickup Match's
    * designed pickups). Absent otherwise. */
   summary?: Readonly<Record<string, number>>;
+  /** Each band's own curve at the same frequencies, for an EQ asked with `bands`; their
+   * sum is `magnitudesDb`. Absent otherwise. */
+  bandsDb?: ReadonlyArray<readonly number[]>;
 }
 
 /** Called with the curve, or null when the engine has none for this effect. */
@@ -38,11 +43,29 @@ interface CurveRequest {
   effectType: string;
   params: Record<string, number>;
   listener: ResponseListener;
+  lane: string;
+  bands: boolean;
 }
 
+interface Lane {
+  inFlight: { id: string; request: CurveRequest; timer: ReturnType<typeof setTimeout> } | null;
+  queued: CurveRequest | null;
+}
+
+/** The lane a request goes on unless it names one. */
+const DEFAULT_LANE = "default";
+
 let requestCounter = 0;
-let inFlight: { id: string; request: CurveRequest; timer: ReturnType<typeof setTimeout> } | null = null;
-let queued: CurveRequest | null = null;
+const lanes = new Map<string, Lane>();
+
+function laneFor(name: string): Lane {
+  let lane = lanes.get(name);
+  if (!lane) {
+    lane = { inFlight: null, queued: null };
+    lanes.set(name, lane);
+  }
+  return lane;
+}
 
 function nextRequestId(kind: string): string {
   requestCounter += 1;
@@ -50,41 +73,104 @@ function nextRequestId(kind: string): string {
 }
 
 function sendCurveRequest(request: CurveRequest): void {
+  const lane = laneFor(request.lane);
   const id = nextRequestId("response");
   const timer = setTimeout(() => {
-    if (inFlight?.id === id) {
-      inFlight = null;
-      sendQueued();
+    if (lane.inFlight?.id === id) {
+      lane.inFlight = null;
+      sendQueued(lane);
     }
   }, EFFECT_RESPONSE_TIMEOUT_MS);
-  inFlight = { id, request, timer };
-  sendEffectResponseRequest(id, request.effectType, request.params, EFFECT_RESPONSE_POINTS);
+  lane.inFlight = { id, request, timer };
+  sendEffectResponseRequest(id, request.effectType, request.params, EFFECT_RESPONSE_POINTS, request.bands);
 }
 
-function sendQueued(): void {
-  const next = queued;
-  queued = null;
+function sendQueued(lane: Lane): void {
+  const next = lane.queued;
+  lane.queued = null;
   if (next) {
     sendCurveRequest(next);
   }
 }
 
+export interface ResponseRequestOptions {
+  /** Requests on one lane wait for each other; give each plot its own. */
+  lane?: string;
+  /** Ask for each band's curve too (`bandsDb`), for an EQ. */
+  bands?: boolean;
+}
+
 /**
  * Asks for the response of `effectType` with `params`. The listener is called
- * once, with the curve. While another request is out this one waits, and a later
- * call replaces it: only the newest parameters are worth drawing.
+ * once, with the curve. While another request on the same lane is out this one
+ * waits, and a later call replaces it: only the newest parameters are worth drawing.
  */
 export function requestEffectResponse(
   effectType: string,
   params: Record<string, number>,
   listener: ResponseListener,
+  options: ResponseRequestOptions = {},
 ): void {
-  const request: CurveRequest = { effectType, params: { ...params }, listener };
-  if (inFlight) {
-    queued = request;
+  const request: CurveRequest = {
+    effectType,
+    params: { ...params },
+    listener,
+    lane: options.lane ?? DEFAULT_LANE,
+    bands: options.bands === true,
+  };
+  const lane = laneFor(request.lane);
+  if (lane.inFlight) {
+    lane.queued = request;
     return;
   }
   sendCurveRequest(request);
+}
+
+/** What a plot asks the engine to draw: the effect and its parameters. */
+export interface ResponseQuery {
+  effectType: string;
+  params: Record<string, number>;
+}
+
+interface TrackedPlot {
+  lane: string;
+  key: string;
+  curve: ResponseCurve | null;
+  redraw: () => void;
+}
+
+let plotCounter = 0;
+const trackedPlots = new WeakMap<object, TrackedPlot>();
+
+/**
+ * The engine's latest curve for the plot `owner` (a canvas, a panel), or null
+ * until the first arrives. When `query` differs from the one last asked about,
+ * the newer is asked for on the plot's own lane and `redraw` is called once it
+ * arrives, so a plot draws what it has now and again when the engine answers.
+ */
+export function trackedEffectResponse(
+  owner: object,
+  query: ResponseQuery,
+  redraw: () => void,
+  options: { bands?: boolean } = {},
+): ResponseCurve | null {
+  let plot = trackedPlots.get(owner);
+  if (!plot) {
+    plotCounter += 1;
+    plot = { lane: `plot-${plotCounter}`, key: "", curve: null, redraw };
+    trackedPlots.set(owner, plot);
+  }
+  plot.redraw = redraw;
+  const key = JSON.stringify([query.effectType, Object.entries(query.params).sort(([a], [b]) => a.localeCompare(b)), options.bands === true]);
+  if (key !== plot.key) {
+    plot.key = key;
+    const tracked = plot;
+    requestEffectResponse(query.effectType, query.params, (curve) => {
+      tracked.curve = curve;
+      tracked.redraw();
+    }, { lane: plot.lane, bands: options.bands });
+  }
+  return plot.curve;
 }
 
 function numberArray(value: unknown): number[] | null {
@@ -106,20 +192,30 @@ function parseSummary(value: unknown): { summary?: Record<string, number> } {
 
 /** Handles an "effectResponse" reply. Returns false for one nobody is waiting for. */
 export function applyEffectResponse(payload: Record<string, unknown>): boolean {
-  if (!inFlight || payload.requestId !== inFlight.id) {
+  const lane = Array.from(lanes.values()).find((candidate) => candidate.inFlight?.id === payload.requestId);
+  if (!lane?.inFlight) {
     return false;
   }
-  const { request, timer } = inFlight;
+  const { request, timer } = lane.inFlight;
   clearTimeout(timer);
-  inFlight = null;
+  lane.inFlight = null;
 
   const frequencies = numberArray(payload.frequencies);
   const magnitudesDb = numberArray(payload.magnitudesDb);
   const valid = payload.supported === true && frequencies !== null && magnitudesDb !== null
     && frequencies.length >= 2 && frequencies.length === magnitudesDb.length;
-  request.listener(valid ? { frequencies, magnitudesDb, ...parseSummary(payload.summary) } : null);
-  sendQueued();
+  request.listener(valid ? { frequencies, magnitudesDb, ...parseSummary(payload.summary), ...parseBands(payload.bandsDb, frequencies.length) } : null);
+  sendQueued(lane);
   return true;
+}
+
+/** The reply's band curves, as a spreadable `{ bandsDb }`, when every one is complete. */
+function parseBands(value: unknown, length: number): { bandsDb?: number[][] } {
+  if (!Array.isArray(value)) {
+    return {};
+  }
+  const bands = value.map(numberArray);
+  return bands.every((band): band is number[] => band !== null && band.length === length) ? { bandsDb: bands } : {};
 }
 
 /** The curve's level at `freq`, interpolated linearly in log frequency and held

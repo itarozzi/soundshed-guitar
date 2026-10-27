@@ -7,6 +7,7 @@
     #define M_PI 3.14159265358979323846
 #endif
 
+#include "dsp/BiquadDesign.h"
 #include "dsp/EffectProcessor.h"
 #include "dsp/EffectRegistry.h"
 #include "dsp/EffectGuids.h"
@@ -14,6 +15,7 @@
 #include "dsp/effects/FactoryPresetSupport.h"
 #include <algorithm>
 #include <array>
+#include <vector>
 
 namespace guitarfx
 {
@@ -312,7 +314,60 @@ class ParametricEQEffect : public EffectProcessor
         return "eq";
     }
 
+    /// The curve the bands make, from the coefficients they play with: the plots draw what is
+    /// heard, at the rate the effect was prepared at (the analysis prepares at 48 kHz).
+    [[nodiscard]] bool GetFrequencyResponse(std::span<const double> frequenciesHz,
+                                            std::span<double> magnitudesDb) const override
+    {
+        if (frequenciesHz.size() != magnitudesDb.size())
+        {
+            return false;
+        }
+
+        const auto sections = PlayingSections();
+
+        for (std::size_t i = 0; i < frequenciesHz.size(); ++i)
+        {
+            magnitudesDb[i] = biquad::CascadeMagnitudeDb(sections, frequenciesHz[i], mSampleRate);
+        }
+
+        return true;
+    }
+
+    [[nodiscard]] std::vector<std::vector<double>> GetBandResponses(std::span<const double> frequenciesHz) const override
+    {
+        std::vector<std::vector<double>> curves;
+
+        for (const auto& section : PlayingSections())
+        {
+            auto& curve = curves.emplace_back(frequenciesHz.size());
+
+            for (std::size_t i = 0; i < frequenciesHz.size(); ++i)
+            {
+                curve[i] = biquad::CascadeMagnitudeDb(std::array{section}, frequenciesHz[i], mSampleRate);
+            }
+        }
+
+        return curves;
+    }
+
   private:
+    /// The bands that play, as the sections Process applies.
+    [[nodiscard]] std::vector<BiquadCoefficients> PlayingSections() const
+    {
+        std::vector<BiquadCoefficients> sections;
+
+        for (const auto& band : mBands)
+        {
+            if (band.enabled)
+            {
+                sections.push_back({band.b0, band.b1, band.b2, band.a1, band.a2});
+            }
+        }
+
+        return sections;
+    }
+
     // Holds all parameters, computed biquad coefficients, and delay-line state
     // for a single second-order IIR section.
     struct Band

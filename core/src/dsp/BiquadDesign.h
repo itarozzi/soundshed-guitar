@@ -2,6 +2,7 @@
 
 #include "dsp/BiquadFrequency.h"
 #include "dsp/LinearRamp.h"
+#include <algorithm>
 #include <cmath>
 #include <complex>
 
@@ -163,6 +164,22 @@ struct Angle
                                                    double sampleRate) noexcept
 {
     return Response(c, std::polar(1.0, -2.0 * kPi * frequencyHz / sampleRate));
+}
+
+/// The magnitude in dB, at `frequencyHz`, of `sections` applied one after another: what an
+/// EQ's plot draws. Floored at -240 dB.
+template <typename Sections>
+[[nodiscard]] double CascadeMagnitudeDb(const Sections& sections, double frequencyHz, double sampleRate) noexcept
+{
+    const std::complex<double> z1 = std::polar(1.0, -2.0 * kPi * frequencyHz / sampleRate);
+    std::complex<double> response(1.0, 0.0);
+
+    for (const BiquadCoefficients& c : sections)
+    {
+        response *= Response(c, z1);
+    }
+
+    return 20.0 * std::log10(std::max(std::abs(response), 1.0e-12));
 }
 
 /// One channel's memory for a section, in transposed direct form II.

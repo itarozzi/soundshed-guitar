@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type * as EffectResponseModule from "../ts/effectResponse.js";
 
 type ResponseModule = typeof EffectResponseModule;
-type SentMessage = { type: string; requestId?: string; effectType?: string; params?: Record<string, number>; resourceId?: string; name?: string };
+type SentMessage = { type: string; requestId?: string; effectType?: string; params?: Record<string, number>; resourceId?: string; name?: string; bands?: boolean };
 
 let effectResponse: ResponseModule;
 let sent: SentMessage[];
@@ -95,6 +95,52 @@ describe("response curve requests", () => {
     const requests = sentOfType("getEffectResponse");
     expect(requests).toHaveLength(2);
     expect(requests[1].params).toEqual({ bass: 0.9 });
+  });
+
+  it("keeps each lane's requests apart, so one plot never holds back another", () => {
+    const globalEq = vi.fn();
+    const nodeEq = vi.fn();
+    effectResponse.requestEffectResponse("eq_parametric", { lowGain: 3 }, globalEq, { lane: "global" });
+    effectResponse.requestEffectResponse("eq_parametric", { lowGain: -3 }, nodeEq, { lane: "node" });
+    const requests = sentOfType("getEffectResponse");
+    expect(requests).toHaveLength(2);
+
+    effectResponse.applyEffectResponse(reply(requests[1]));
+    effectResponse.applyEffectResponse(reply(requests[0]));
+    expect(globalEq).toHaveBeenCalledTimes(1);
+    expect(nodeEq).toHaveBeenCalledTimes(1);
+  });
+
+  it("asks for the band curves when told to, and passes complete ones on", () => {
+    const listener = vi.fn();
+    effectResponse.requestEffectResponse("eq_parametric", {}, listener, { bands: true });
+    const [request] = sentOfType("getEffectResponse");
+    expect(request.bands).toBe(true);
+
+    effectResponse.applyEffectResponse(reply(request, { bandsDb: [[0, 3, 0, 0], [0, 3, 0, -30]] }));
+    expect(listener).toHaveBeenCalledWith(expect.objectContaining({ bandsDb: [[0, 3, 0, 0], [0, 3, 0, -30]] }));
+
+    const short = vi.fn();
+    effectResponse.requestEffectResponse("eq_parametric", {}, short, { bands: true });
+    effectResponse.applyEffectResponse(reply(sentOfType("getEffectResponse")[1], { bandsDb: [[0, 1]] }));
+    expect(short.mock.calls[0][0]).not.toHaveProperty("bandsDb");
+  });
+
+  it("tracks a plot's curve: asks again only when the query changes, and redraws on the answer", () => {
+    const plot = {};
+    const redraw = vi.fn();
+    const query = { effectType: "eq_graphic", params: { bandCount: 5, band1Gain: 6 } };
+    expect(effectResponse.trackedEffectResponse(plot, query, redraw)).toBeNull();
+    expect(effectResponse.trackedEffectResponse(plot, { effectType: "eq_graphic", params: { band1Gain: 6, bandCount: 5 } }, redraw)).toBeNull();
+    expect(sentOfType("getEffectResponse")).toHaveLength(1);
+
+    effectResponse.applyEffectResponse(reply(sentOfType("getEffectResponse")[0]));
+    expect(redraw).toHaveBeenCalledTimes(1);
+    expect(effectResponse.trackedEffectResponse(plot, query, redraw)).toEqual({ frequencies: [20, 200, 2000, 20000], magnitudesDb: [0, 6, 0, -30] });
+    expect(sentOfType("getEffectResponse")).toHaveLength(1);
+
+    effectResponse.trackedEffectResponse(plot, { effectType: "eq_graphic", params: { bandCount: 5, band1Gain: 7 } }, redraw);
+    expect(sentOfType("getEffectResponse")).toHaveLength(2);
   });
 });
 

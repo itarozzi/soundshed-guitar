@@ -1269,6 +1269,108 @@ bool TestParametricEQBandShapes()
     return passed;
 }
 
+// The curves the EQ plots draw come from the engine (getEffectResponse): each must be what the
+// effect plays, measured with a sine, and its bands' curves must add up to it.
+bool TestEqResponsesMatchProcessing()
+{
+    std::cout << "\n--- EQ responses match processing ---\n";
+    bool passed = true;
+
+    const auto measureDb = [](guitarfx::EffectProcessor& effect, double frequency) {
+        effect.Reset();
+        std::vector<float> input(kTestBlockSize);
+        std::vector<float> output(kTestBlockSize);
+        float* inputs[] = {input.data(), input.data()};
+        float* outputs[] = {output.data(), nullptr};
+        double inputEnergy = 0.0;
+        double outputEnergy = 0.0;
+
+        for (int block = 0; block < 96; ++block)
+        {
+            for (int i = 0; i < kTestBlockSize; ++i)
+            {
+                input[i] = static_cast<float>(
+                    0.1 * std::sin(2.0 * kPi * frequency * (block * kTestBlockSize + i) / kTestSampleRate));
+            }
+
+            effect.Process(inputs, outputs, kTestBlockSize);
+
+            if (block >= 48)
+            {
+                for (int i = 0; i < kTestBlockSize; ++i)
+                {
+                    inputEnergy += input[i] * input[i];
+                    outputEnergy += output[i] * output[i];
+                }
+            }
+        }
+
+        return 10.0 * std::log10(outputEnergy / inputEnergy);
+    };
+
+    const auto check = [&](const char* label, guitarfx::EffectProcessor& effect, std::size_t expectedBands) {
+        const std::vector<double> frequencies = {60.0, 180.0, 400.0, 1000.0, 2500.0, 6000.0, 12000.0};
+        std::vector<double> magnitudes(frequencies.size());
+        bool ok = effect.GetFrequencyResponse(frequencies, magnitudes);
+        const auto bands = effect.GetBandResponses(frequencies);
+        ok = ok && bands.size() == expectedBands;
+
+        for (std::size_t i = 0; ok && i < frequencies.size(); ++i)
+        {
+            const double measured = measureDb(effect, frequencies[i]);
+            double bandSum = 0.0;
+
+            for (const auto& band : bands)
+            {
+                bandSum += band[i];
+            }
+
+            const bool pointOk = std::abs(measured - magnitudes[i]) < 0.15 && std::abs(bandSum - magnitudes[i]) < 1.0e-6;
+            std::cout << "  " << label << " " << frequencies[i] << " Hz: reported=" << magnitudes[i]
+                      << ", measured=" << measured << ", bands=" << bandSum << (pointOk ? " PASS\n" : " FAIL\n");
+            ok = ok && pointOk;
+        }
+
+        if (bands.size() != expectedBands)
+        {
+            std::cout << "  " << label << ": " << bands.size() << " band curves, expected " << expectedBands << " FAIL\n";
+        }
+
+        return ok;
+    };
+
+    guitarfx::ParametricEQEffect parametric;
+    parametric.Prepare(kTestSampleRate, kTestBlockSize);
+    parametric.SetParam("lowGain", 6.0);
+    parametric.SetParam("lowMidGain", -8.0);
+    parametric.SetParam("lowMidFreq", 500.0);
+    parametric.SetParam("highMidGain", 4.0);
+    parametric.SetParam("highMidQ", 3.0);
+    parametric.SetParam("highGain", -5.0);
+    parametric.SetParam("highShape", 1.0);
+    passed = check("parametric", parametric, 4) && passed;
+
+    auto graphic = guitarfx::EffectRegistry::Instance().Create(guitarfx::EffectGuids::kEqGraphic);
+    passed = passed && graphic != nullptr;
+
+    if (graphic)
+    {
+        graphic->Prepare(kTestSampleRate, kTestBlockSize);
+        graphic->SetParam("bandCount", 5.0);
+
+        for (int band = 1; band <= 5; ++band)
+        {
+            graphic->SetParam("band" + std::to_string(band) + "Enabled", 1.0);
+            graphic->SetParam("band" + std::to_string(band) + "Gain", band % 2 == 0 ? -6.0 : 7.0);
+        }
+
+        graphic->SetParam("band3Enabled", 0.0);
+        passed = check("graphic", *graphic, 4) && passed;
+    }
+
+    return passed;
+}
+
 bool TestParametricEQClippingStability()
 {
     std::cout << "\n--- Parametric EQ Clipping Stability Test ---\n";
@@ -2805,6 +2907,11 @@ int main()
     }
 
     if (!TestGraphicEQProfilesAndStability())
+    {
+        return 1;
+    }
+
+    if (!TestEqResponsesMatchProcessing())
     {
         return 1;
     }

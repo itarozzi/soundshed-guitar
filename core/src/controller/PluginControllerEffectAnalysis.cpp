@@ -204,6 +204,27 @@ void PluginController::HandleGetEffectResponseRequest(const nlohmann::json& payl
         reply["frequencies"] = frequencies;
         reply["magnitudesDb"] = std::move(rounded);
 
+        // Each band's own curve, for a plot that shades them (the EQs).
+        if (const auto bands = payload.find("bands"); bands != payload.end() && bands->is_boolean() && bands->get<bool>())
+        {
+            nlohmann::json bandCurves = nlohmann::json::array();
+
+            for (const auto& curve : effect_analysis::BandResponsesDb(EffectRegistry::Instance().Resolve(requestedType),
+                                                                      ParseParams(payload), frequencies))
+            {
+                nlohmann::json values = nlohmann::json::array();
+
+                for (const double db : curve)
+                {
+                    values.push_back(RoundCentibel(db));
+                }
+
+                bandCurves.push_back(std::move(values));
+            }
+
+            reply["bandsDb"] = std::move(bandCurves);
+        }
+
         // What the curve leaves out, for an effect that says (EffectProcessor::DescribeSettings).
         if (const auto effect = effect_analysis::CreateConfigured(EffectRegistry::Instance().Resolve(requestedType),
                                                                   ParseParams(payload)))

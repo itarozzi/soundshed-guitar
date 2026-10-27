@@ -1,10 +1,11 @@
 /**
  * The static response plot: the frequency axis, the grid, the live spectrum
- * behind the curve, and the curve. An EQ draws the combined response of its
- * bands (drawEqCurve); the Simple Cabinet draws the response the engine reports
- * for it (drawResponsePlot). EqCurveInteraction (eqCurve.ts) draws its handles
+ * behind the curve, and the curve. Every curve is the one the engine reports
+ * (getEffectResponse): an EQ's through drawEqCurve, the Simple Cabinet's
+ * through drawResponsePlot. EqCurveInteraction (eqCurve.ts) draws its handles
  * on top of this; the graphic EQ draws only this.
  */
+import { responseDbAt, trackedEffectResponse, type ResponseQuery } from "./effectResponse.js";
 import type { EqSpectrum } from "./eqSpectrum.js";
 
 export type EqBand = { freq: number; gainDb: number; q: number; shelfType?: 'low' | 'high' };
@@ -283,19 +284,18 @@ export function drawResponsePlot(
   traceCurve(magnitudeDbAt);
 }
 
-/** Draws an EQ's combined band response over the grid and the live spectrum,
- * on the standard log axis unless given another. */
+/** Draws an EQ's response, as the engine reports it for `query`, over the grid
+ * and the live spectrum, on the standard log axis unless given another. Until the
+ * engine answers it draws the last curve it had (nothing, the first time) and
+ * draws again when the answer comes. */
 export function drawEqCurve(
   canvas: HTMLCanvasElement,
-  bands: EqBand[],
+  query: ResponseQuery,
   spectrum: EqSpectrum | null = null,
   axisOverride: EqFrequencyAxis | null = null,
 ): void {
-  const sampleRate = 44100;
-  drawResponsePlot(canvas, (freq) => {
-    const magnitude = bands.reduce((acc, band) => acc * bandMagnitude(freq, band, sampleRate), 1.0);
-    return 20 * Math.log10(Math.max(1e-6, magnitude));
-  }, { spectrum, axis: axisOverride });
+  const curve = trackedEffectResponse(canvas, query, () => drawEqCurve(canvas, query, spectrum, axisOverride));
+  drawResponsePlot(canvas, curve ? (freq) => responseDbAt(curve, freq) : () => Number.NaN, { spectrum, axis: axisOverride });
 }
 
 function peakingMagnitude(freq: number, band: EqBand, sampleRate: number): number {

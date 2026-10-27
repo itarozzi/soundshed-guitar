@@ -193,7 +193,10 @@ performance review: 20 Hz redraws were the expensive part in the web UI).
 - **Engine EQ responses.** `GetFrequencyResponse` for the parametric and graphic EQs (only
   Simple Cab and Pickup Match implement it today). The web UI moves its EQ curves onto
   `getEffectResponse` and `eqPlot.ts:288-385` (fixed at 44.1 kHz) is deleted: native-ui.md
-  phase 5, still open.
+  phase 5, still open. **Done 2026-10-27:** both EQs report their curve and each band's
+  (`GetBandResponses`, `bandsDb`), checked against processing in EffectProcessorTests; every
+  web EQ plot draws them (one request lane per plot). The filter helpers left in `eqPlot.ts`
+  serve only the IR alignment panel's sum, which moves into the engine with that panel.
 - **uiclient feeds:** `setSpectrumWatch`/`sldS`, `setLoudnessWatch`/`sldL`, `sldA`,
   `spatialPosition`, `getEffectResponse`/`effectResponse` (coalesced as `effectResponse.ts`
   does), `gateLearn`/`gateLearnStatus`, `analyzeIrAlignment`, `matchSimpleCabToIr`,

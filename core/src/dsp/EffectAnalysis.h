@@ -35,6 +35,12 @@ inline constexpr double kSampleRate = 48000.0;
                                                                      const std::map<std::string, double>& params,
                                                                      const std::vector<double>& frequencies);
 
+/// Each band's curve in dB at each of `frequencies` (EffectProcessor::GetBandResponses):
+/// empty when the type is unknown or has no bands.
+[[nodiscard]] std::vector<std::vector<double>> BandResponsesDb(const std::string& type,
+                                                               const std::map<std::string, double>& params,
+                                                               const std::vector<double>& frequencies);
+
 /// The impulse response, `length` samples per channel at kSampleRate, or nothing when the
 /// type is unknown or has no linear response. The impulse goes in quietly and the result is
 /// scaled back up, so level-dependent stages (speaker drive) stay out of it, as the

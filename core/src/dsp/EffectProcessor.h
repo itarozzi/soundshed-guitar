@@ -234,6 +234,15 @@ class EffectProcessor
         return false;
     }
 
+    /// One curve per band, in dB at each of `frequenciesHz`, for an effect whose plot shades
+    /// each band's part of the response (an EQ; getEffectResponse with `bands`). The bands are
+    /// those that play, in the order the effect lists them; their product is
+    /// GetFrequencyResponse. Empty for effects without bands.
+    [[nodiscard]] virtual std::vector<std::vector<double>> GetBandResponses(std::span<const double> /*frequenciesHz*/) const
+    {
+        return {};
+    }
+
     /// Named figures about the current settings that the response curve does not show, sent
     /// with it (getEffectResponse): Pickup Match's designed pickups, their inductance and
     /// capacitance, say. Asked of a fresh instance built for analysis, on the message thread.

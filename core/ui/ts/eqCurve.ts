@@ -1,39 +1,14 @@
 import type { EqSpectrum } from "./eqSpectrum.js";
-import { EQ_CURVE_MAX_FREQ, EQ_CURVE_MIN_FREQ, bandMagnitude, drawEqCurve, eqCurveFreqToX, getEqCurveThemeColors, type EqBand } from "./eqPlot.js";
+import { responseDbAt, trackedEffectResponse, type ResponseCurve } from "./effectResponse.js";
+import { EQ_BAND_GAIN_DB, EQ_BAND_KEYS, EQ_BAND_LABELS, EQ_BAND_RANGES, EQ_FREQ_DEFAULTS, GRAPHIC_EQ_FREQUENCIES } from "./eqBands.js";
+import { EQ_CURVE_MAX_FREQ, EQ_CURVE_MIN_FREQ, drawResponsePlot, eqCurveFreqToX, getEqCurveThemeColors } from "./eqPlot.js";
 
 // The plot itself lives in eqPlot.ts; its entry point stays importable from here.
 export { drawEqCurve } from "./eqPlot.js";
 
-// ===== Shared 4-band parametric EQ constants =====
+// ===== Shared EQ band constants (eqBands.ts) =====
 
-/** Canonical param keys for each EQ band (matches ParametricEQEffect). */
-export const EQ_BAND_KEYS: ReadonlyArray<{ gain: string; freq: string; q: string | null; shape?: string }> = [
-  { gain: "lowGain", freq: "lowFreq", q: "lowQ", shape: "lowShape" },
-  { gain: "lowMidGain", freq: "lowMidFreq", q: "lowMidQ" },
-  { gain: "highMidGain", freq: "highMidFreq", q: "highMidQ" },
-  { gain: "highGain", freq: "highFreq", q: "highQ", shape: "highShape" },
-];
-
-export const EQ_BAND_LABELS: ReadonlyArray<string> = ["Low", "Low Mid", "High Mid", "High"];
-
-/** Each band's limits as ParametricEQEffect clamps them: the curve draws what the engine plays. */
-export const EQ_BAND_RANGES: ReadonlyArray<{
-  freqMin: number; freqMax: number;
-  hasQ: boolean; qMin: number; qMax: number; qDefault: number;
-  shelfType: 'low' | 'high' | undefined;
-}> = [
-  { freqMin: 20, freqMax: 500, hasQ: true, qMin: 0.1, qMax: 10, qDefault: 0.707, shelfType: 'low' },
-  { freqMin: 100, freqMax: 2000, hasQ: true, qMin: 0.1, qMax: 10, qDefault: 1.0, shelfType: undefined },
-  { freqMin: 500, freqMax: 8000, hasQ: true, qMin: 0.1, qMax: 10, qDefault: 1.0, shelfType: undefined },
-  { freqMin: 2000, freqMax: 16000, hasQ: true, qMin: 0.1, qMax: 10, qDefault: 0.707, shelfType: 'high' },
-];
-
-/** The gain ParametricEQEffect clamps every band to. */
-export const EQ_BAND_GAIN_DB = 12;
-
-export const EQ_FREQ_DEFAULTS: ReadonlyArray<number> = [100, 400, 2000, 8000];
-
-export const GRAPHIC_EQ_FREQUENCIES = [31.25, 62.5, 125, 250, 500, 1000, 2000, 4000, 8000, 16000] as const;
+export { EQ_BAND_GAIN_DB, EQ_BAND_KEYS, EQ_BAND_LABELS, EQ_BAND_RANGES, EQ_FREQ_DEFAULTS, GRAPHIC_EQ_FREQUENCIES } from "./eqBands.js";
 
 function graphicEqFrequencyValue(params: Record<string, number | undefined>, index: number): number {
   const value = params[`band${index + 1}Freq`];
@@ -63,45 +38,25 @@ export function clampGraphicEqFrequency(
   return Math.max(min, Math.min(max, frequency));
 }
 
-export function buildGraphicEqBandConfigs(params: Record<string, number | undefined>): EqBandConfig[] {
-  const bandCount = Math.max(5, Math.min(10, Math.round(params.bandCount ?? 10)));
-  return GRAPHIC_EQ_FREQUENCIES.slice(0, bandCount).flatMap((defaultFreq, index) => {
-    const number = index + 1;
-    if ((params[`band${number}Enabled`] ?? 1) < 0.5) return [];
-    return [{
-      freq: Math.max(20, Math.min(20000, params[`band${number}Freq`] ?? defaultFreq)),
-      gainDb: Math.max(-18, Math.min(18, params[`band${number}Gain`] ?? 0)),
-      q: Math.max(0.2, Math.min(8, params[`band${number}Q`] ?? 1.0)),
-      defaultFreq,
-      defaultGainDb: 0,
-      defaultQ: 1.0,
-      freqMin: 20,
-      freqMax: 20000,
-      gainMin: -18,
-      gainMax: 18,
-      hasQ: false,
-      qMin: 0.2,
-      qMax: 8,
-      shelfType: undefined,
-      label: `${Math.round(defaultFreq)} Hz`,
-    }];
-  });
+/** The graphic EQ as the engine plays it, for drawEqCurve: its parameters as they stand. */
+export function graphicEqResponseQuery(params: Record<string, number | undefined>): { effectType: string; params: Record<string, number> } {
+  const defined = Object.entries(params).filter((entry): entry is [string, number] => typeof entry[1] === "number" && Number.isFinite(entry[1]));
+  return { effectType: "eq_graphic", params: Object.fromEntries(defined) };
 }
 
-export function graphicEqBandChangeToParams(
-  params: Record<string, number | undefined>,
-  activeBandIndex: number,
-  freq: number,
-  gainDb: number,
-): Record<string, number> {
-  const activeBandNumbers = GRAPHIC_EQ_FREQUENCIES
-    .slice(0, Math.max(5, Math.min(10, Math.round(params.bandCount ?? 10))))
-    .map((_, index) => index + 1)
-    .filter((number) => (params[`band${number}Enabled`] ?? 1) >= 0.5);
-  const bandNumber = activeBandNumbers[activeBandIndex];
-  return bandNumber
-    ? { [`band${bandNumber}Freq`]: clampGraphicEqFrequency(params, bandNumber, freq), [`band${bandNumber}Gain`]: gainDb }
-    : {};
+/** The parametric EQ the bands of an EqCurveInteraction describe, for the engine to draw:
+ * a shelf band's shape is 0, a bell 1 (ParametricEQEffect's lowShape and highShape). */
+export function parametricEqResponseQuery(bands: ReadonlyArray<Pick<EqBandConfig, "freq" | "gainDb" | "q" | "shelfType">>): { effectType: string; params: Record<string, number> } {
+  const params: Record<string, number> = {};
+  EQ_BAND_KEYS.forEach((keys, index) => {
+    const band = bands[index];
+    if (!band) return;
+    params[keys.gain] = band.gainDb;
+    params[keys.freq] = band.freq;
+    if (keys.q) params[keys.q] = band.q;
+    if (keys.shape) params[keys.shape] = band.shelfType ? 0 : 1;
+  });
+  return { effectType: "eq_parametric", params };
 }
 
 /**
@@ -230,7 +185,6 @@ export class EqCurveInteraction {
   private readonly MAX_FREQ = EQ_CURVE_MAX_FREQ;
   private readonly MIN_DB = -18;
   private readonly MAX_DB = 18;
-  private readonly SAMPLE_RATE = 44100;
   private readonly HIT_SLOP = 4;
 
   private boundPointerDown: (e: PointerEvent) => void;
@@ -307,12 +261,11 @@ export class EqCurveInteraction {
       this.canvas.height = height;
     }
 
-    // Draw base curve (clears canvas, draws grid + combined response)
-    const eqBands: EqBand[] = this.bands.map(b => ({ freq: b.freq, gainDb: b.gainDb, q: b.q, shelfType: b.shelfType }));
-    drawEqCurve(this.canvas, eqBands, this.spectrum);
-
-    // Draw per-band shaded fills and individual response curves
-    this.drawBandOverlays(ctx);
+    // The engine's curve for these bands (drawn again when a newer one arrives), over the
+    // grid and spectrum; then each band's own part of it, shaded.
+    const curve = trackedEffectResponse(this, parametricEqResponseQuery(this.bands), () => this.draw(), { bands: true });
+    drawResponsePlot(this.canvas, curve ? (freq) => responseDbAt(curve, freq) : () => Number.NaN, { spectrum: this.spectrum });
+    if (curve) this.drawBandOverlays(ctx, curve);
 
     // Compute handle positions and render them
     this.handles = [];
@@ -352,12 +305,14 @@ export class EqCurveInteraction {
 
   // --- Drawing helpers ---
 
-  private drawBandOverlays(ctx: CanvasRenderingContext2D): void {
+  private drawBandOverlays(ctx: CanvasRenderingContext2D, curve: ResponseCurve): void {
     const zeroY = this.dbToY(0);
 
     for (let i = 0; i < this.bands.length; i++) {
       const band = this.bands[i];
-      if (Math.abs(band.gainDb) < 0.05) continue;
+      const bandDb = curve.bandsDb?.[i];
+      if (Math.abs(band.gainDb) < 0.05 || !bandDb) continue;
+      const bandCurve: ResponseCurve = { frequencies: curve.frequencies, magnitudesDb: bandDb };
 
       const color = BAND_COLORS[i % BAND_COLORS.length];
 
@@ -368,8 +323,7 @@ export class EqCurveInteraction {
 
       for (let px = 0; px <= this.plotWidth; px++) {
         const freq = this.xToFreq(this.PADDING + px);
-        const mag = bandMagnitude(freq, band, this.SAMPLE_RATE);
-        const db = 20 * Math.log10(Math.max(1e-6, mag));
+        const db = responseDbAt(bandCurve, freq);
         ctx.lineTo(this.PADDING + px, this.dbToY(db));
       }
 
@@ -384,8 +338,7 @@ export class EqCurveInteraction {
 
       for (let px = 0; px <= this.plotWidth; px++) {
         const freq = this.xToFreq(this.PADDING + px);
-        const mag = bandMagnitude(freq, band, this.SAMPLE_RATE);
-        const db = 20 * Math.log10(Math.max(1e-6, mag));
+        const db = responseDbAt(bandCurve, freq);
         const y = this.dbToY(db);
         if (px === 0) ctx.moveTo(this.PADDING, y);
         else ctx.lineTo(this.PADDING + px, y);

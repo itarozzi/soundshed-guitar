@@ -4,7 +4,7 @@
  */
 
 import { EffectGuids } from "../../effectGuids.js";
-import { EqCurveInteraction, GRAPHIC_EQ_FREQUENCIES, buildEqBandConfigsFromParams, buildGraphicEqBandConfigs, clampGraphicEqFrequency, drawEqCurve, eqBandChangeToParams, graphicEqFrequencyBounds } from "../../eqCurve.js";
+import { EqCurveInteraction, GRAPHIC_EQ_FREQUENCIES, buildEqBandConfigsFromParams, clampGraphicEqFrequency, drawEqCurve, eqBandChangeToParams, graphicEqFrequencyBounds, graphicEqResponseQuery } from "../../eqCurve.js";
 import { anchoredFrequencyAxis, type EqFrequencyAxis } from "../../eqPlot.js";
 import { EffectTypeRegistry, getNodeEffectInfo } from "../../presetV2.js";
 import { getActivePresetForRender } from "../../state.js";
@@ -56,17 +56,15 @@ export function updateEqVisualization(node: GraphNode): void {
 
   fitCanvasToLayout(canvas);
 
-  const bandConfigs = isGraphicEqNode
-    ? buildGraphicEqBandConfigs(node.params ?? {})
-    : buildEqBandConfigsFromParams(node.params ?? {});
-
   if (isGraphicEqNode) {
     const watcher = ensureNodeSpectrumWatcher(canvas, node.id, (spectrum) => {
-      drawEqCurve(canvas, buildGraphicEqBandConfigs(node.params ?? {}), spectrum, graphicEqSliderAxis(canvas, node));
+      drawEqCurve(canvas, graphicEqResponseQuery(node.params ?? {}), spectrum, graphicEqSliderAxis(canvas, node));
     });
-    drawEqCurve(canvas, bandConfigs, watcher.spectrum, graphicEqSliderAxis(canvas, node));
+    drawEqCurve(canvas, graphicEqResponseQuery(node.params ?? {}), watcher.spectrum, graphicEqSliderAxis(canvas, node));
     return;
   }
+
+  const bandConfigs = buildEqBandConfigsFromParams(node.params ?? {});
 
   if (paramsPanelInteractions.eq) {
     // Update existing interaction in place

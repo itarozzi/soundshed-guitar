@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { EQ_BAND_KEYS, EQ_BAND_RANGES, EQ_FREQ_DEFAULTS, buildEqBandConfigsFromParams } from "../ts/eqCurve.js";
+import { EQ_BAND_KEYS, EQ_BAND_RANGES, EQ_FREQ_DEFAULTS, buildEqBandConfigsFromParams, graphicEqResponseQuery, parametricEqResponseQuery } from "../ts/eqCurve.js";
 import { EqPanel, type EqPanelBinding } from "../ts/eqPanel.js";
 
 /** A binding backed by a plain dict, recording what the panel asks of it. */
@@ -229,6 +229,21 @@ describe("EqPanel spectrum", () => {
     const { bandsHost } = mountHost();
     new EqPanel({ bandsHost, canvas: document.createElement("canvas"), idPrefix: "test" }, makeBinding().binding);
     expect(sent).toEqual([]);
+  });
+});
+
+describe("the curve's engine query", () => {
+  it("describes the bands as the parametric EQ's parameters, a bell shape as 1", () => {
+    const bands = buildEqBandConfigsFromParams({ lowGain: 4, lowMidFreq: 600, highShape: 1, highQ: 2 });
+    const query = parametricEqResponseQuery(bands);
+    expect(query.effectType).toBe("eq_parametric");
+    expect(query.params).toMatchObject({ lowGain: 4, lowShape: 0, lowMidFreq: 600, highShape: 1, highQ: 2 });
+    expect(buildEqBandConfigsFromParams(query.params)).toEqual(bands);
+  });
+
+  it("passes the graphic EQ's parameters through, leaving out any that are not numbers", () => {
+    expect(graphicEqResponseQuery({ bandCount: 5, band1Gain: 3, band2Gain: undefined, band3Gain: Number.NaN }))
+      .toEqual({ effectType: "eq_graphic", params: { bandCount: 5, band1Gain: 3 } });
   });
 });
 
