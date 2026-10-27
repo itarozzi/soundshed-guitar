@@ -150,6 +150,37 @@ target_link_libraries(nanoq_impl PRIVATE q_plug SoundshedGuitarCore SoundshedUiC
 if(APPLE)
     target_link_libraries(nanoq_impl PRIVATE ${NANOQ_APPLE_FRAMEWORKS})
 endif()
+
+# Windows: the Jam tab's YouTube player and scale explorer are web pages, shown in a WebView2
+# child window (src/WebView_win.cpp). The SDK comes from NuGet at the version the JUCE build uses;
+# the loader links statically, so no WebView2Loader.dll has to sit beside the plugin. Without it
+# the Jam tab opens those pages in the browser instead.
+if(WIN32)
+    set(NANOQ_WEBVIEW2_VERSION "1.0.3856.49" CACHE STRING "WebView2 NuGet package version")
+    set(_nanoq_wv2 "${CMAKE_BINARY_DIR}/_deps/microsoft.web.webview2/${NANOQ_WEBVIEW2_VERSION}")
+    if(NOT EXISTS "${_nanoq_wv2}/build/native/include/WebView2.h")
+        set(_nanoq_wv2_pkg "${CMAKE_BINARY_DIR}/_deps/microsoft.web.webview2.${NANOQ_WEBVIEW2_VERSION}.nupkg")
+        file(DOWNLOAD "https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/${NANOQ_WEBVIEW2_VERSION}" "${_nanoq_wv2_pkg}"
+             STATUS _nanoq_wv2_status TLS_VERIFY ON)
+        list(GET _nanoq_wv2_status 0 _nanoq_wv2_code)
+        if(_nanoq_wv2_code EQUAL 0)
+            file(ARCHIVE_EXTRACT INPUT "${_nanoq_wv2_pkg}" DESTINATION "${_nanoq_wv2}")
+        endif()
+    endif()
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(ARM64|arm64|aarch64)$" OR CMAKE_GENERATOR_PLATFORM MATCHES "^(ARM64|arm64)$")
+        set(_nanoq_wv2_arch arm64)
+    else()
+        set(_nanoq_wv2_arch x64)
+    endif()
+    set(_nanoq_wv2_lib "${_nanoq_wv2}/build/native/${_nanoq_wv2_arch}/WebView2LoaderStatic.lib")
+    if(EXISTS "${_nanoq_wv2}/build/native/include/WebView2.h" AND EXISTS "${_nanoq_wv2_lib}")
+        target_include_directories(nanoq_impl PRIVATE "${_nanoq_wv2}/build/native/include")
+        target_link_libraries(nanoq_impl PRIVATE "${_nanoq_wv2_lib}" version)
+        target_compile_definitions(nanoq_impl PRIVATE NANOQ_WEBVIEW2=1)
+    else()
+        message(WARNING "WebView2 SDK not found: the Jam tab opens its web pages in the browser")
+    endif()
+endif()
 # iOS: Elements has no UIKit host of its own. QPlug compiles the host layer from this property, so
 # pointing it at Nano Q's (nanoq/ios/elements_host) is all it takes.
 if(NANOQ_IOS)

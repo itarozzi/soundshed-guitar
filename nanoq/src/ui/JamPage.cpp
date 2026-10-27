@@ -5,14 +5,20 @@
 // Backing tracks are YouTube videos: the search is the shared ToneService's, with the engine's
 // bundled key, and the results, the one cached search and the favourites are kept in the web UI's
 // own settings (core/src/uiclient/Jam.h), so a favourite starred in either product shows in both.
-// A track plays in YouTube's embedded player, which is web content; with no web view it opens in
-// the browser. The Practice Tool is PracticeToolPage.cpp's.
+// A track plays in YouTube's embedded player, which is web content: a web view of its own beside
+// the results (nanoq/src/WebView.h), playing on while other pages are shown, with a bar over them
+// to bring it back or stop it. Scales, the scale explorer, is a web page too. Where there is no
+// web view (not Windows, or no WebView2 Runtime) both open in the browser. The Practice Tool is
+// PracticeToolPage.cpp's.
 
 #include "ui/Shell.h"
 
+#include "Log.h"
+#include "Paths.h"
 #include "uiclient/FeatureFlags.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace nanoq::ui
 {
@@ -20,9 +26,53 @@ namespace jam = guitarfx::uiclient::jam;
 using guitarfx::uiclient::Feature;
 using guitarfx::uiclient::IsFeatureEnabled;
 
+/// Where a web view goes: an empty dark area the layout keeps for it. It notes where it was last
+/// drawn, which is where the native view is put; Elements' drawing is under that view.
+class WebViewSlot final : public el::element
+{
+public:
+    WebViewSlot(const Theme& theme, float width, float height, std::string text)
+        : mTheme(theme), mWidth(width), mHeight(height), mText(std::move(text))
+    {
+    }
+
+    el::view_limits limits(const el::basic_context&) const override
+    {
+        if (mWidth <= 0.0f)
+            return {{60.0f, mHeight}, {el::full_extent, mHeight > 0.0f ? mHeight : el::full_extent}};
+        return {{mWidth, mHeight}, {mWidth, mHeight}};
+    }
+
+    void draw(const el::context& ctx) override
+    {
+        mBounds = ctx.bounds;
+        mDrawn = true;
+        auto& cnv = ctx.canvas;
+        cnv.fill_style(el::rgba(0, 0, 0, 255));
+        cnv.fill_round_rect(ctx.bounds, 6.0f);
+        FillText(cnv, mText, Font(Weight::Regular).size(11.0f), mTheme.TextMuted(), ctx.bounds, HAlign::Centre);
+    }
+
+    /// Where it was drawn, in the view's coordinates; nothing before its first draw.
+    [[nodiscard]] std::optional<el::rect> Bounds() const
+    {
+        return mDrawn ? std::optional<el::rect>(mBounds) : std::nullopt;
+    }
+
+private:
+    const Theme& mTheme;
+    float mWidth, mHeight;
+    std::string mText;
+    el::rect mBounds;
+    bool mDrawn = false;
+};
+
 namespace
 {
 constexpr float kCardGap = 10.0f;
+constexpr float kPlayerGap = 12.0f;
+constexpr float kBarHeight = 40.0f;
+constexpr float kBarAboveFooter = 40.0f;
 constexpr float kCardMin = 220.0f; // .jam-results: minmax(220px, 1fr)
 
 /// One backing track as a card (.jam-result-card): the thumbnail with a play mark over it, the
@@ -233,13 +283,14 @@ std::string Shell::JamPageSignature() const
 {
     const auto sections = JamSections();
     std::string s = std::to_string(static_cast<int>(mJamSection)) + "|" + std::to_string(sections.size()) + "|" +
-                    std::to_string(static_cast<int>(ViewSize().x / 16.0f)) + "x" + std::to_string(static_cast<int>(ViewSize().y / 16.0f));
+                    std::to_string(static_cast<int>(ViewSize().x / 16.0f)) + "x" + std::to_string(static_cast<int>(ViewSize().y / 16.0f)) +
+                    (mJamWebViewUnavailable ? "|nw" : "");
     switch (mJamSection)
     {
     case JamSection::Search:
     case JamSection::Favorites:
     {
-        s += "|" + mJamQuery + (mJamLoading ? "|l" : "|") + mJamError;
+        s += "|" + mJamQuery + (mJamLoading ? "|l" : "|") + mJamError + "|v" + (mJamVideo ? mJamVideo->videoId : std::string());
         const auto favorites = jam::Favorites(mState.appSettings);
         for (const auto& v : mJamSection == JamSection::Search ? mJamResults : favorites)
             s += "|" + v.videoId + (jam::IsFavorite(favorites, v.videoId) ? "*" : "");
@@ -318,10 +369,168 @@ void Shell::ToggleJamFavorite(const jam::Video& video)
     Mark(kPage);
 }
 
+nanoq::WebView* Shell::JamWebView(bool scales)
+{
+    auto& view = scales ? mScalesView : mJamPlayerView;
+    if (view && view->Failed())
+    {
+        view.reset();
+        mJamWebViewUnavailable = true;
+    }
+    if (!view && !mJamWebViewUnavailable)
+    {
+        nanoq::WebView::Options options;
+        // Beside the profile's other folders, so the player keeps its cookies (YouTube's consent).
+        options.dataFolder = ProfileFolder() / "webview";
+        options.allowNavigation = [](const std::string& url) { return jam::StaysInWebView(url); };
+        options.openExternal = [this, alive = std::weak_ptr<bool>(mAlive)](const std::string& url) {
+            if (alive.lock())
+                mSession.Commands().OpenUrl(url);
+        };
+        view = nanoq::WebView::Create(static_cast<void*>(mSession.View().host()), std::move(options));
+        if (!view)
+            mJamWebViewUnavailable = true;
+    }
+    return view.get();
+}
+
 void Shell::PlayJamVideo(const jam::Video& video)
 {
-    // No web view of our own here: YouTube plays it in the browser.
-    mSession.Commands().OpenUrl(jam::WatchUrl(video.videoId));
+    auto* player = JamWebView(false);
+    if (player == nullptr)
+    {
+        // No web view here: YouTube plays it in the browser.
+        mSession.Commands().OpenUrl(jam::WatchUrl(video.videoId));
+        return;
+    }
+    mJamVideo = video;
+    player->Navigate(jam::EmbedUrl(video.videoId));
+    Mark(kPage);
+}
+
+void Shell::CloseJamPlayer()
+{
+    mJamVideo.reset();
+    // Gone, not hidden: a hidden player would play on.
+    mJamPlayerView.reset();
+    Mark(kPage);
+}
+
+Ptr Shell::BuildJamPlayer(float width)
+{
+    // The web UI's floating player (.jam-floating-player), docked beside the results: the title
+    // and channel over the video, with the favourite star and close.
+    const auto& video = *mJamVideo;
+    auto title = std::make_shared<Text>(mTheme, video.title, 12.0f, Weight::SemiBold);
+    title->Colour(mTheme.Ink());
+    auto channel = std::make_shared<Text>(mTheme, video.channelTitle, 10.5f);
+    channel->Colour(mTheme.TextSecondary());
+    const bool favorite = jam::IsFavorite(jam::Favorites(mState.appSettings), video.videoId);
+    auto star = std::make_shared<IconButton>(mTheme, mIcons, "", IconButton::Look::Ghost);
+    star->Size(30, 30).Label(favorite ? "\xE2\x98\x85" : "\xE2\x98\x86", 15.0f);
+    if (favorite)
+        star->Ink(el::rgba(245, 190, 60, 255));
+    star->onClick = [this, video] { ToggleJamFavorite(video); };
+    auto youtube = std::make_shared<IconButton>(mTheme, mIcons, "ui-share", IconButton::Look::Ghost);
+    youtube->Size(30, 30).IconSize(13);
+    youtube->onClick = [this, video] { mSession.Commands().OpenUrl(jam::WatchUrl(video.videoId)); };
+    auto close = std::make_shared<IconButton>(mTheme, mIcons, "", IconButton::Look::Ghost);
+    close->Size(30, 30).Label("\xC3\x97", 16.0f);
+    close->onClick = [this] { CloseJamPlayer(); };
+
+    auto slot = std::make_shared<WebViewSlot>(mTheme, width, std::floor(width * 9.0f / 16.0f), "Loading the player...");
+    mJamPlayerSlot = slot;
+    auto hint = std::make_shared<Paragraph>(mTheme, "It plays on while you use the rest of the app; a bar over the other pages stops it.", width,
+                                            10.5f);
+    hint->Colour(mTheme.TextMuted());
+    return Col({FixedHeight(36, Row({Col({FixedHeight(18, title), FixedHeight(16, channel)}), HGap(4), star, youtube, close})), VGap(6),
+                FixedHeight(std::floor(width * 9.0f / 16.0f), slot), VGap(8), FixedHeight(30, hint), Stretch()});
+}
+
+void Shell::SyncJamWebViews()
+{
+    // A native window sits over everything Elements draws: it shows only while its slot is on
+    // screen with nothing (a dialog, a drop-down, a toast) opened over the page.
+    const bool covered = mOverlay != nullptr || mDropdown != nullptr;
+    const float scale = mSession.View().scale();
+    const float dpi = nanoq::WebView::PixelScale(static_cast<void*>(mSession.View().host()));
+    const auto place = [&](nanoq::WebView* web, const std::weak_ptr<WebViewSlot>& weak, bool wanted) {
+        if (web == nullptr)
+            return;
+        const auto slot = weak.lock();
+        const auto bounds = slot ? slot->Bounds() : std::nullopt;
+        if (!wanted || covered || !bounds)
+        {
+            web->Show(false);
+            return;
+        }
+        const float k = scale * dpi;
+        const int x = static_cast<int>(std::lround(bounds->left * k));
+        const int y = static_cast<int>(std::lround(bounds->top * k));
+        web->Place(x, y, static_cast<int>(std::lround(bounds->right * k)) - x, static_cast<int>(std::lround(bounds->bottom * k)) - y);
+        web->Show(true);
+    };
+    const bool jam = mPage == Page::Jam;
+    if (mJamPlayerView)
+        place(mJamPlayerView.get(), mJamPlayerSlot,
+              jam && mJamVideo && (mJamSection == JamSection::Search || mJamSection == JamSection::Favorites));
+    if (mScalesView)
+        // A toast lands on the page it fills.
+        place(mScalesView.get(), mScalesSlot, jam && mJamSection == JamSection::Scales && mToast == nullptr);
+    // Whether the player is making sound, in the log: what tells a hidden player still plays.
+    if (const bool audible = mJamPlayerView && mJamPlayerView->PlayingAudio(); audible != mJamPlayerAudible)
+    {
+        mJamPlayerAudible = audible;
+        nanoq::Log(std::string("Jam player ") + (audible ? "playing" : "silent") + (mPage == Page::Jam ? "" : " (on another page)"));
+    }
+    // A view that could not start: its page goes to the browser from now on.
+    if ((mJamPlayerView && mJamPlayerView->Failed()) || (mScalesView && mScalesView->Failed()))
+    {
+        if (mJamPlayerView && mJamPlayerView->Failed() && mJamVideo)
+            mSession.Commands().OpenUrl(jam::WatchUrl(mJamVideo->videoId));
+        mJamPlayerView.reset();
+        mScalesView.reset();
+        mJamVideo.reset();
+        mJamWebViewUnavailable = true;
+        Mark(kPage);
+    }
+}
+
+void Shell::SyncJamPlayerBar()
+{
+    // Away from the Jam tab, a bar over the page says what plays, with Show and Stop.
+    const bool wanted = mJamVideo && mJamPlayerView && mPage != Page::Jam;
+    const auto signature = wanted ? mJamVideo->videoId + "|" + mAppliedTheme + "|" + std::to_string(static_cast<int>(ViewSize().x / 40.0f)) : std::string();
+    if (signature == mJamPlayerBarShown)
+        return;
+    mJamPlayerBarShown = signature;
+    if (mJamPlayerBar)
+        RemoveLayer(std::exchange(mJamPlayerBar, nullptr));
+    if (!wanted)
+        return;
+
+    auto icon = std::make_shared<IconButton>(mTheme, mIcons, "ui-jam", IconButton::Look::Ghost);
+    icon->Size(24, 24).IconSize(14).Ink(mTheme.Accent());
+    auto text = std::make_shared<Text>(mTheme, "Backing track: " + mJamVideo->title, metrics::kSmallText, Weight::Medium);
+    auto show = std::make_shared<IconButton>(mTheme, mIcons, "", IconButton::Look::Boxed);
+    show->Size(64, 28).Label("Show", 10.5f);
+    show->onClick = [this] {
+        // The player shows beside Search and Favourites.
+        if (mJamSection != JamSection::Favorites)
+            mJamSection = JamSection::Search;
+        ShowPage(Page::Jam);
+    };
+    auto stop = std::make_shared<IconButton>(mTheme, mIcons, "ui-stop", IconButton::Look::Primary);
+    stop->Size(70, 28).IconSize(12).Label("Stop", 10.5f);
+    stop->onClick = [this] { CloseJamPlayer(); };
+
+    const float width = std::min(520.0f, std::max(300.0f, ViewSize().x - 24.0f));
+    auto content = PadXY(10, 6, Row({icon, HGap(6), text, HGap(8), show, HGap(6), stop}));
+    auto face = Over(content, el::share(Surface(mTheme.Elevated(), mTheme.Accent().opacity(0.55f), 10.0f)));
+    mJamPlayerBar = el::share(el::align_bottom(el::align_center(
+        el::margin({0.0f, 0.0f, 0.0f, kBarAboveFooter}, el::hold_any(FixedWidth(width, FixedHeight(kBarHeight, Expand(face))))))));
+    mSession.View().add(mJamPlayerBar, false);
+    mSession.View().refresh();
 }
 
 Ptr Shell::BuildBackingTracks(float width)
@@ -489,11 +698,31 @@ Ptr Shell::BuildJamPage()
     {
     case JamSection::Search:
     case JamSection::Favorites:
-        content = KeptVScroll(Pad(12, 10, 14, 0, BuildBackingTracks(contentWidth)), mJamScroll);
+        if (mJamVideo)
+        {
+            // The player beside the results, as wide as leaves two columns of cards when it can.
+            const float playerWidth = std::floor(std::clamp(stageWidth * 0.42f, 280.0f, 460.0f));
+            const float resultsWidth = contentWidth - playerWidth - kPlayerGap;
+            content = Row({KeptVScroll(Pad(12, 10, 14, 0, BuildBackingTracks(resultsWidth)), mJamScroll),
+                           FixedWidth(playerWidth + 12.0f, Pad(0, 10, 12, 0, BuildJamPlayer(playerWidth)))});
+        }
+        else
+        {
+            content = KeptVScroll(Pad(12, 10, 14, 0, BuildBackingTracks(contentWidth)), mJamScroll);
+        }
         break;
     case JamSection::Scales:
     {
-        // The scale explorer is a web page; with no web view it opens in the browser.
+        if (auto* web = JamWebView(true))
+        {
+            // The page fills the section, under the chips.
+            web->Navigate(jam::kScalesUrl);
+            auto slot = std::make_shared<WebViewSlot>(mTheme, 0.0f, 0.0f, "Loading the scale explorer...");
+            mScalesSlot = slot;
+            content = Pad(0, 0, 0, 0, slot);
+            break;
+        }
+        // No web view here: the scale explorer opens in the browser.
         auto open = std::make_shared<IconButton>(mTheme, mIcons, "", IconButton::Look::Accent);
         open->Size(170, 32).Label("Open the scale explorer", 11.5f);
         open->onClick = [this] { mSession.Commands().OpenUrl(jam::kScalesUrl); };
@@ -531,5 +760,7 @@ void Shell::SyncJam()
     }
     if (mPage == Page::Jam && mJamSection == JamSection::Practice)
         SyncPracticeTool();
+    SyncJamWebViews();
+    SyncJamPlayerBar();
 }
 } // namespace nanoq::ui

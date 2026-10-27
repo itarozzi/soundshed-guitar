@@ -18,6 +18,7 @@
 // updated in place instead, because rebuilding them would be visible: the meters (20 Hz) and
 // the values on the sliders of the page being shown (a rebuild would drop a drag).
 
+#include "WebView.h"
 #include "ui/Graphics.h"
 #include "ui/KeyRouter.h"
 #include "ui/Layout.h"
@@ -68,6 +69,7 @@ struct MenuItem
     std::uint32_t tint = 0;
 };
 
+class WebViewSlot; // JamPage.cpp
 class NodeCard;  // ChainWidgets.h
 class Connector; // ChainWidgets.h
 namespace chain
@@ -478,6 +480,21 @@ private:
     /// An audio file dropped on the Practice Tool loads as its track.
     bool DropPracticeTrack(const std::vector<std::string>& paths);
     [[nodiscard]] Ptr BuildBackingTracks(float width);
+    // The YouTube player and the scale explorer are web pages: each shows in a web view of its
+    // own (nanoq/src/WebView.h) placed over an empty slot in the layout, or, where there is none,
+    // in the browser. The player keeps playing on other pages, with a bar over them to stop it.
+    [[nodiscard]] Ptr BuildJamPlayer(float width);
+    [[nodiscard]] nanoq::WebView* JamWebView(bool scales);
+    void CloseJamPlayer();
+    void SyncJamWebViews();
+    void SyncJamPlayerBar();
+    std::optional<guitarfx::uiclient::jam::Video> mJamVideo; // what the player holds
+    std::unique_ptr<nanoq::WebView> mJamPlayerView, mScalesView;
+    bool mJamWebViewUnavailable = false;
+    bool mJamPlayerAudible = false; // the player was making sound at the last tick
+    std::weak_ptr<WebViewSlot> mJamPlayerSlot, mScalesSlot;
+    Ptr mJamPlayerBar;
+    std::string mJamPlayerBarShown;
     void RunJamSearch();
     void ToggleJamFavorite(const guitarfx::uiclient::jam::Video& video);
     void PlayJamVideo(const guitarfx::uiclient::jam::Video& video);
