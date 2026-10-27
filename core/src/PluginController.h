@@ -453,6 +453,8 @@ class PluginController
     void HandleRequestResourceDataRequest(const nlohmann::json& payload);
     void HandleSaveBlendArchiveRequest(const nlohmann::json& payload);
     void HandleSavePresetArchiveRequest(const nlohmann::json& payload);
+    // controller/PluginControllerArchiveExport.cpp: presets written as a preset archive
+    void HandleExportPresetArchiveRequest(const nlohmann::json& payload);
     void HandleSaveLibraryArchiveRequest(const nlohmann::json& payload);
     // controller/PluginControllerArchiveInstall.cpp: tones downloaded from tone sharing
     void HandleInstallPresetArchivesRequest(const nlohmann::json& payload);

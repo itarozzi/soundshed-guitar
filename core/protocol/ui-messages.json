@@ -328,6 +328,7 @@
     "windowChromeState"
   ],
   "engineOnlyRequests": {
+    "exportPresetArchive": "The engine builds preset archives itself (PresetArchiveExportTests drives it) so a UI without JSZip can export; the native UI and the web UI move onto it next, the web UI dropping its TypeScript archive builder for savePresetArchive.",
     "getPerformanceStats": "A pull for tests and scripted debugging (MixerInstanceLockTests drives the telemetry read with it); the UI takes the pushed dspPerformance feed.",
     "getSignalDiagnostics": "A pull for tests and scripted debugging; the UI takes the pushed sld feed and asks for a roster with setSignalDiagnosticsEnabled.",
     "setMasterGain": "Kept for older UIs and scripted use; the UI mutes with setOutputMuted, which the mixer applies after the output gain so a chain rebuild cannot undo it, and sets levels with setGlobalChainParam output.gain.",
@@ -404,8 +405,6 @@
     "presetArchiveSessionFailed",
     "presetArchiveSessionStarted",
     "presetData",
-    "presetExportFailed",
-    "presetExportSaved",
     "presetFolders",
     "previewRiffTake",
     "queryResourceUsage",

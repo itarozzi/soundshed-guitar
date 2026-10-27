@@ -543,6 +543,7 @@ set(GUITARFX_CORE_SOURCES
     src/controller/PluginControllerTuner.cpp
     src/controller/PluginControllerSettings.cpp
     src/controller/PluginControllerArchiveInstall.cpp
+    src/controller/PluginControllerArchiveExport.cpp
     src/controller/PluginControllerTonePreview.cpp
     src/controller/PluginControllerPresetArchive.cpp
     src/controller/PluginControllerRiffs.cpp
@@ -750,6 +751,8 @@ set(GUITARFX_CORE_SOURCES
     src/util/PathEncoding.h
     src/util/SessionLog.h
     src/util/SessionLog.cpp
+    src/util/Sha256.h
+    src/util/Sha256.cpp
     src/util/Utf8.h
     src/util/Wav.h
     src/util/Wav.cpp
