@@ -9,8 +9,7 @@
   ],
   "activePresetFolderId": [
     "presets/folderControls.ts",
-    "presets/folders.ts",
-    "toneSharingPanel/installedPacks.ts"
+    "presets/folders.ts"
   ],
   "activePresetId": [
     "presetLibraryStore.ts",
@@ -130,22 +129,19 @@
   ],
   "presetFavorites": [
     "presets/favorites.ts",
-    "presets/recents.ts",
-    "toneSharingPanel/installedPacks.ts"
+    "presets/recents.ts"
   ],
   "presetFolders": [
     "presets/folderArchive.ts",
     "presets/folderControls.ts",
-    "presets/folders.ts",
-    "toneSharingPanel/installedPacks.ts"
+    "presets/folders.ts"
   ],
   "presetLoadingId": [
     "presetLibraryStore.ts"
   ],
   "presetRatings": [
     "presets/favorites.ts",
-    "presets/recents.ts",
-    "toneSharingPanel/installedPacks.ts"
+    "presets/recents.ts"
   ],
   "presets": [
     "presetLibraryStore.ts"

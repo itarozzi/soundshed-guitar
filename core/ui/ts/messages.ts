@@ -23,6 +23,7 @@ import { onBlendExportFailed, onBlendExportSaved, onHostedPluginResourceLoadComp
 import { onSharedSyncState, onSharedSyncUpdated } from "./messages/sharedSync.js";
 import { onGlobalSignalChainChanged, onSignalPathNodeConfigUpdated, onSignalPathNodeParamUpdated, onSignalPathTestResult, onSpatialPosition } from "./messages/signalPathHandlers.js";
 import { onAmpCabStateChanged, onAppInfo, onAppSettingChanged, onError, onInputModeChanged, onOutputMutedChanged, onResourceLibrary, onState, onTheme } from "./messages/stateHandlers.js";
+import { onInstalledPresetArchiveDeleted, onPresetArchivesInstalled, onPresetArchivesInstallFailed } from "./toneSharingPanel/install.js";
 import { onDspPerformance, onSld, onSldA, onSldL, onSldRoster, onSldS } from "./messages/telemetry.js";
 import { onTunerLiveModeChanged, onTunerReferenceChanged, onTunerStarted, onTunerStopped, onTunerUpdate } from "./messages/tunerHandlers.js";
 import type { MessageHandler } from "./messages/types.js";
@@ -70,6 +71,9 @@ const MESSAGE_HANDLERS: Record<string, MessageHandler> = {
   "resourceImportFailed": onResourceImportFailed,
   "resourceRemoved": onResourceRemoved,
   "toneSharingPackDeleteFailed": onToneSharingPackDeleteFailed,
+  "presetArchivesInstalled": onPresetArchivesInstalled,
+  "presetArchivesInstallFailed": onPresetArchivesInstallFailed,
+  "installedPresetArchiveDeleted": onInstalledPresetArchiveDeleted,
   "resourceDeleteFailed": onResourceDeleteFailed,
   "resourceUsageInfo": onResourceUsageInfo,
   "resourceFolderPicked": onResourceFolderPicked,

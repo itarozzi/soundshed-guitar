@@ -2,12 +2,13 @@
  * PluginControllerArchiveInstall.cpp - Installing tones downloaded from tone sharing into the
  * user's library, and removing them again.
  *
- * A UI downloads a shared preset, or each preset of a pack, and hands the zips over whole
- * ("installPresetArchives"). They are unpacked the way the web UI's importPresetArchive does
- * it (core/ui/ts/presets/archive.ts): models and IRs into the resource library, blends, the
- * presets under new ids, and a folder for a pack. What was added is recorded in the
- * toneSharing.installedPacks setting both UIs read, in the web UI's schema, so the install
- * can be listed and taken out again ("deleteInstalledPresetArchive").
+ * A UI (the web UI's Tones panel, Nano Q's) downloads a shared preset, or each preset of a
+ * pack, and hands the zips over whole ("installPresetArchives"). They are unpacked as the web
+ * UI's file import does it (importPresetArchive in core/ui/ts/presets/archive.ts): models and
+ * IRs into the resource library, blends, the presets under new ids, and a folder for a pack.
+ * What was added is recorded in the toneSharing.installedPacks setting both UIs read, in the
+ * web UI's schema, so the install can be listed and taken out again
+ * ("deleteInstalledPresetArchive").
  *
  * Where it differs from that path, on purpose: a model or IR the library already holds is
  * reused rather than copied again (matched on the engine's own content hash); the running
@@ -71,7 +72,8 @@ void EraseIds(nlohmann::json& array, const std::unordered_set<std::string>& ids)
                 array.end());
 }
 
-/// Takes the presets out of every folder, and drops a folder they leave empty.
+/// Takes the presets out of every folder, and drops a folder they leave empty: one that held
+/// some of them, or held only subfolders that went with them.
 void PrunePresetFolders(nlohmann::json& folders, const std::unordered_set<std::string>& presetIds)
 {
     if (!folders.is_array())
@@ -89,21 +91,70 @@ void PrunePresetFolders(nlohmann::json& folders, const std::unordered_set<std::s
         }
 
         auto& ids = folder["presetIds"];
-        const bool hadPresets = ids.is_array() && !ids.empty();
+        const auto idsBefore = ids.is_array() ? ids.size() : 0;
         EraseIds(ids, presetIds);
 
         auto& children = folder["children"];
+        const auto childrenBefore = children.is_array() ? children.size() : 0;
         PrunePresetFolders(children, presetIds);
 
-        const bool empty = (!ids.is_array() || ids.empty()) && (!children.is_array() || children.empty());
+        const auto idsAfter = ids.is_array() ? ids.size() : 0;
+        const auto childrenAfter = children.is_array() ? children.size() : 0;
+        const bool emptied = idsAfter == 0 && childrenAfter == 0 && (idsBefore > 0 || childrenBefore > 0);
 
-        if (!(hadPresets && empty))
+        if (!emptied)
         {
             kept.push_back(std::move(folder));
         }
     }
 
     folders = std::move(kept);
+}
+
+/// The folders a pack's own archive lays its presets out in (`presetFolders`), rebuilt under the
+/// pack's folder with the installed presets' ids. A folder left with nothing in it is skipped.
+nlohmann::json BuildPackSubfolders(const nlohmann::json& source, const std::string& parentId,
+                                   const std::unordered_map<std::string, std::string>& presetIds,
+                                   std::unordered_set<std::string>& placed)
+{
+    nlohmann::json result = nlohmann::json::array();
+
+    if (!source.is_array())
+    {
+        return result;
+    }
+
+    for (const auto& node : source)
+    {
+        const std::string name = node.is_object() ? node.value("name", "") : std::string{};
+
+        if (name.empty())
+        {
+            continue;
+        }
+
+        auto folder = MakePresetFolderEntry(parentId + "::" + GenerateGuidV4String(), name);
+
+        for (const auto& id : node.value("presetIds", nlohmann::json::array()))
+        {
+            if (const auto mapped = id.is_string() ? presetIds.find(id.get<std::string>()) : presetIds.end();
+                mapped != presetIds.end())
+            {
+                folder["presetIds"].push_back(mapped->second);
+                placed.insert(mapped->second);
+            }
+        }
+
+        folder["children"] =
+            BuildPackSubfolders(node.value("children", nlohmann::json::array()), folder.value("id", ""), presetIds, placed);
+
+        if (!folder["presetIds"].empty() || !folder["children"].empty())
+        {
+            result.push_back(std::move(folder));
+        }
+    }
+
+    return result;
 }
 } // namespace
 
@@ -115,6 +166,8 @@ void PluginController::HandleInstallPresetArchivesRequest(const nlohmann::json& 
     const std::string entryTitle = entryPayload.value("title", "");
     const std::string folderName = payload.value("folder", "");
     const nlohmann::json archivesPayload = payload.value("archives", nlohmann::json::array());
+    const bool allowMissingRemote = payload.value("allowMissingRemote", false);
+    const nlohmann::json fetchedPayload = payload.value("fetchedResources", nlohmann::json::array());
 
     const auto fail = [&](const std::string& message, const std::string& detail) {
         ReportErrorToUI(message, detail);
@@ -184,7 +237,9 @@ void PluginController::HandleInstallPresetArchivesRequest(const nlohmann::json& 
         }
     }
 
-    if (!missingRemote.empty())
+    // A UI that has already tried to fetch them may install without the ones it could not have
+    // (a model its creator removed or hid): their slots stay empty, and the reply names them.
+    if (!missingRemote.empty() && !allowMissingRemote)
     {
         const auto join = [](const std::vector<std::string>& items) {
             std::string joined;
@@ -209,6 +264,10 @@ void PluginController::HandleInstallPresetArchivesRequest(const nlohmann::json& 
     std::vector<std::string> presetIds;
     nlohmann::json presetSignatures = nlohmann::json::object();
     std::unordered_set<std::string> recordedResources;
+    nlohmann::json packSubfolders = nlohmann::json::array();
+    std::unordered_set<std::string> presetsInSubfolders;
+    const std::string packId = entryPayload.value("packId", "");
+    const std::string packFolderId = kPackFolderIdPrefix + (packId.empty() ? GenerateGuidV4String() : packId);
     bool blendsChanged = false;
 
     if (!mBlendLibrary.is_array())
@@ -330,9 +389,11 @@ void PluginController::HandleInstallPresetArchivesRequest(const nlohmann::json& 
         }
 
         const bool onePreset = archive.parsed.presets.size() == 1;
+        std::unordered_map<std::string, std::string> presetIdMap;
 
         for (auto preset : archive.parsed.presets)
         {
+            const std::string archivePresetId = preset.id;
             RemapPresetArchiveReferences(preset, resourceIds, blendIds);
 
             // The web UI's archives also name a model or IR in these older config keys.
@@ -392,12 +453,40 @@ void PluginController::HandleInstallPresetArchivesRequest(const nlohmann::json& 
             presetSignatures[preset.id] = mHasher.HashBytes(
                 std::span(reinterpret_cast<const std::uint8_t*>(presetJson.data()), presetJson.size()));
             presetIds.push_back(preset.id);
+
+            if (!archivePresetId.empty())
+            {
+                presetIdMap[archivePresetId] = preset.id;
+            }
+        }
+
+        if (!folderName.empty())
+        {
+            for (auto& folder : BuildPackSubfolders(archive.parsed.presetFolders, packFolderId, presetIdMap,
+                                                    presetsInSubfolders))
+            {
+                packSubfolders.push_back(std::move(folder));
+            }
         }
     }
 
     if (blendsChanged)
     {
         SaveBlendLibrary();
+    }
+
+    // The models the UI fetched for this install's remote references just before sending it: they
+    // were added for it, so they are recorded with it and leave with it.
+    for (const auto& fetched : fetchedPayload)
+    {
+        const std::string type = fetched.is_object() ? fetched.value("type", "") : std::string{};
+        const std::string id = fetched.is_object() ? fetched.value("id", "") : std::string{};
+
+        if (!type.empty() && !id.empty() && mResourceLibrary.LookupResource(type, id).has_value() &&
+            recordedResources.insert(ResourceKey(type, id)).second)
+        {
+            installedResources.push_back({{"type", type}, {"id", id}});
+        }
     }
 
     // ── A pack gets a folder of its own ─────────────────────────────────────────
@@ -413,10 +502,19 @@ void PluginController::HandleInstallPresetArchivesRequest(const nlohmann::json& 
             folders = nlohmann::json::array();
         }
 
-        const std::string packId = entryPayload.value("packId", "");
-        const std::string folderId = kPackFolderIdPrefix + (packId.empty() ? GenerateGuidV4String() : packId);
+        const std::string& folderId = packFolderId;
         auto folder = MakePresetFolderEntry(folderId, folderName);
-        folder["presetIds"] = presetIds;
+
+        // The pack's own subfolders, when its archive has them; the rest sit in the pack's folder.
+        for (const auto& id : presetIds)
+        {
+            if (!presetsInSubfolders.contains(id))
+            {
+                folder["presetIds"].push_back(id);
+            }
+        }
+
+        folder["children"] = packSubfolders;
 
         const auto existing = std::find_if(folders.begin(), folders.end(), [&](const nlohmann::json& candidate) {
             return candidate.is_object() && candidate.value("id", "") == folderId;
@@ -455,9 +553,15 @@ void PluginController::HandleInstallPresetArchivesRequest(const nlohmann::json& 
         {"blends", installedBlends},
     };
 
-    if (const std::string packId = entryPayload.value("packId", ""); !packId.empty())
+    if (!packId.empty())
     {
         entry["packId"] = packId;
+    }
+
+    // Shown on the web UI's Installed card.
+    if (const std::string archiveFileName = entryPayload.value("archiveFileName", ""); !archiveFileName.empty())
+    {
+        entry["archiveFileName"] = archiveFileName;
     }
 
     auto installed = mAppSettings.value(kInstalledPacksSettingKey, nlohmann::json::array());
@@ -487,12 +591,18 @@ void PluginController::HandleInstallPresetArchivesRequest(const nlohmann::json& 
 
     SendMessageToUI(nlohmann::json{{"type", "appSettingChanged"}, {"key", kInstalledPacksSettingKey}, {"value", installed}}
                         .dump());
-    SendMessageToUI(nlohmann::json{{"type", "presetArchivesInstalled"},
-                                   {"requestId", requestId},
-                                   {"entryId", entryId},
-                                   {"presetIds", presetIds},
-                                   {"resourceCount", installedResources.size()}}
-                        .dump());
+    nlohmann::json installedReply = {{"type", "presetArchivesInstalled"},
+                                     {"requestId", requestId},
+                                     {"entryId", entryId},
+                                     {"presetIds", presetIds},
+                                     {"resourceCount", installedResources.size()}};
+
+    if (!missingRemote.empty())
+    {
+        installedReply["missingRemote"] = missingRemote;
+    }
+
+    SendMessageToUI(installedReply.dump());
     AppendSessionLog("Installed " + entryId + ": " + std::to_string(presetIds.size()) + " preset(s), " +
                      std::to_string(installedResources.size()) + " resource(s)");
 }
@@ -511,9 +621,15 @@ void PluginController::HandleDeleteInstalledPresetArchiveRequest(const nlohmann:
         return e.is_object() && e.value("id", "") == entryId;
     });
 
+    // Still answered, removing nothing, so a UI waiting on it (one whose list was out of date)
+    // can drop the entry and stop waiting.
     if (entryIt == installed.end())
     {
         ReportErrorToUI("Not installed", entryId);
+        SendMessageToUI(nlohmann::json{{"type", "installedPresetArchiveDeleted"},
+                                       {"id", entryId},
+                                       {"presetIds", nlohmann::json::array()}}
+                            .dump());
         return;
     }
 

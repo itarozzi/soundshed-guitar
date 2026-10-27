@@ -6,12 +6,12 @@
 import { showPrompt } from "../dialogs.js";
 import { uiState } from "../state.js";
 import { apiFetch, parseApiErrorMessage, toneSharingFetch } from "./api.js";
-import { buildPackArchiveFromDetails } from "./archive.js";
-import { resolveCreatorProfileHandle } from "./format.js";
-import { getToneSharingHostActions } from "./hostActions.js";
+import { installDownloadedArchives } from "./install.js";
+import type { DownloadedArchive } from "./install.js";
+import { syncInstalledPacksFromAppSettings } from "./installedPacks.js";
 import { requestBrowseRefreshAfterInstall } from "./refresh.js";
 import { toneSharingState } from "./state.js";
-import type { ToneSharingItem, ToneSharingPack, ToneSharingPackDetails } from "./types.js";
+import type { ToneSharingItem, ToneSharingPackDetails } from "./types.js";
 
 export async function moderateTarget(kind: "item" | "pack", id: string, action: "approve" | "reject"): Promise<void> {
   // Cancel still rejects, without a reason, as it did when this was window.prompt().
@@ -30,6 +30,23 @@ function hasInstallStateChanged(beforeInstalledSnapshot: string, beforePresetCou
   return beforePresetCount !== uiState.presets.length || beforeInstalledSnapshot !== JSON.stringify(toneSharingState.installedPacks);
 }
 
+/** A pack with no archive of its own (409): each of its presets, downloaded one by one. */
+async function downloadPackItems(details: ToneSharingPackDetails): Promise<DownloadedArchive[]> {
+  const downloads: DownloadedArchive[] = [];
+  for (const item of [...details.items].sort((a, b) => a.sortOrder - b.sortOrder)) {
+    const response = await toneSharingFetch(`/items/${item.itemId}/download`);
+    if (!response.ok) {
+      throw new Error(`Failed to download pack item ${item.title}: ${await parseApiErrorMessage(response)}`);
+    }
+    downloads.push({ title: item.title || "Imported Preset", data: await response.arrayBuffer() });
+  }
+  if (downloads.length === 0) {
+    throw new Error("Pack has no importable presets");
+  }
+  return downloads;
+}
+
+/** Downloads a shared preset or pack and has the engine install it (install.ts). */
 export async function downloadAsset(kind: "item" | "pack", id: string): Promise<void> {
   const installedSnapshotBefore = JSON.stringify(toneSharingState.installedPacks);
   const presetCountBefore = uiState.presets.length;
@@ -46,65 +63,53 @@ export async function downloadAsset(kind: "item" | "pack", id: string): Promise<
   const fileName = fileMatch?.[1] || `${kind}-${id}${kind === "pack" ? ".zip" : ""}`;
 
   if (kind === "pack") {
-    let packMeta: ToneSharingPack | null = null;
+    let details: ToneSharingPackDetails | null = null;
     try {
-      const packResponse = await apiFetch<{ pack: ToneSharingPack }>(`/packs/${id}`);
-      packMeta = packResponse.pack;
-    } catch {
-      packMeta = null;
+      details = await apiFetch<ToneSharingPackDetails>(`/packs/${id}`);
+    } catch (error) {
+      // Only the title is wanted from it when the pack has an archive of its own.
+      if (!response.ok) {
+        throw error;
+      }
     }
 
-    let importBlob: Blob;
-    let importFileName = fileName;
-    if (response.ok) {
-      importBlob = await response.blob();
-    } else {
-      const details = await apiFetch<ToneSharingPackDetails>(`/packs/${id}`);
-      const synthesized = await buildPackArchiveFromDetails(details);
-      importBlob = synthesized.blob;
-      importFileName = synthesized.fileName;
-    }
-
-    const importFile = new File([importBlob], importFileName, { type: importBlob.type || "application/zip" });
-    await getToneSharingHostActions().importPackWithConfirmation(importFile, {
-      source: "toneSharingApi",
-      packId: id,
-      creatorId: packMeta?.creatorUserId ?? undefined,
-      creatorHandle: resolveCreatorProfileHandle((packMeta ?? {}) as unknown as Record<string, unknown>) ?? undefined,
-      titleHint: packMeta?.title ?? importFileName.replace(/\.zip$/i, ""),
+    const title = details?.pack.title || fileName.replace(/\.zip$/i, "");
+    const downloads = response.ok || !details
+      ? [{ title, data: await response.arrayBuffer() }]
+      : await downloadPackItems(details);
+    await installDownloadedArchives({
+      entry: {
+        id: `tone-sharing-api:${id}`,
+        title,
+        source: "toneSharingApi",
+        packId: id,
+        ...(response.ok ? { archiveFileName: fileName } : {}),
+      },
+      folder: title,
+      downloads,
+      confirm: true,
     });
-
-    if (hasInstallStateChanged(installedSnapshotBefore, presetCountBefore)) {
-      await requestBrowseRefreshAfterInstall();
+  } else {
+    let itemMeta: ToneSharingItem | null = null;
+    try {
+      const itemResponse = await apiFetch<{ item: ToneSharingItem }>(`/items/${id}`);
+      itemMeta = itemResponse.item;
+    } catch {
+      itemMeta = null;
     }
-    return;
+
+    const title = itemMeta?.title ?? fileName.replace(/\.(soundshed\.preset|soundshed\.presets|preset|zip)$/i, "");
+    const presetIds = await installDownloadedArchives({
+      entry: { id: `tone-sharing-api:item:${id}`, title, source: "toneSharingApi", archiveFileName: fileName },
+      downloads: [{ title, data: await response.arrayBuffer() }],
+    });
+    if (presetIds?.length === 0) {
+      throw new Error("Downloaded preset archive contained no importable presets");
+    }
   }
 
-  const blob = await response.blob();
-
-  let itemMeta: ToneSharingItem | null = null;
-  try {
-    const itemResponse = await apiFetch<{ item: ToneSharingItem }>(`/items/${id}`);
-    itemMeta = itemResponse.item;
-  } catch {
-    itemMeta = null;
-  }
-
-  // Import the preset (and bundled resources) directly with the preset-archive
-  // pipeline so failures propagate to the caller with a clear status message.
-  const importFile = new File([blob], fileName, { type: blob.type || "application/octet-stream" });
-  const importedPresets = await getToneSharingHostActions().importPresetArchive(importFile, {
-    source: "toneSharingApi",
-    itemId: id,
-    creatorId: itemMeta?.creatorUserId ?? undefined,
-    creatorHandle: resolveCreatorProfileHandle((itemMeta ?? {}) as unknown as Record<string, unknown>) ?? undefined,
-    titleHint: itemMeta?.title ?? fileName.replace(/\.(soundshed\.preset|soundshed\.presets|preset|zip)$/i, ""),
-  });
-
-  if (importedPresets.length === 0) {
-    throw new Error("Downloaded preset archive contained no importable presets");
-  }
-
+  // The engine recorded the install in its app setting, which reached uiState before its answer.
+  syncInstalledPacksFromAppSettings();
   if (hasInstallStateChanged(installedSnapshotBefore, presetCountBefore)) {
     await requestBrowseRefreshAfterInstall();
   }

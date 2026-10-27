@@ -13,12 +13,13 @@ import {
   handleDroppedPresetPack,
   renderActivePreset,
   populatePresetDropdown,
-  importPackWithConfirmation,
   importPresetArchive,
   buildToneSharingPresetArchiveBlobs,
   requestSignalPathTest,
   applyPresetFromLibrary,
 } from "./presets.js";
+import { buildImportSummaryMessage } from "./presets/archive.js";
+import { importArchiveRemoteResources, readArchiveRemoteRefs } from "./presets/remoteArchiveResources.js";
 import { initCompactMode, isCompact } from "./compactMode.js";
 import { initCompactStage } from "./compactStage.js";
 import { installFetchLogger, renderLogEntries } from "./logging.js";
@@ -183,10 +184,12 @@ function initFooterActionsPopup(): void {
 
 async function bootstrap(): Promise<void> {
   configureToneSharingHostActions({
+    buildImportSummaryMessage,
     buildToneSharingPresetArchiveBlobs,
-    importPackWithConfirmation,
+    importArchiveRemoteResources,
     importPresetArchive,
     populatePresetDropdown,
+    readArchiveRemoteRefs,
     renderActivePreset,
     switchMainPanel,
   });

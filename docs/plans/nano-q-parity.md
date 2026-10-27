@@ -151,6 +151,9 @@ presets.
 - **Tone Sharing installs in the web UI move onto `installPresetArchives`** and
   `deleteInstalledPresetArchive`, the clearest drift-policy breach left (the web UI still
   unzips in TypeScript, `presets/archive.ts:945`, `toneSharingPanel/installedPacks.ts`).
+  **Done 2026-10-27** (`toneSharingPanel/install.ts`): the web UI fetches the Tone3000 models
+  an archive names, then sends the archives whole (`allowMissingRemote`, `fetchedResources`).
+  A pack or preset dropped as a file still imports in TypeScript (`importPresetArchive`).
 - **Preview a preset** (`previewPreset` and restore), used by Tones too.
 - **Setlist editing and the pads view** (4/6/8 pads, banks, hold to assign, drop onto a pad).
 - **File drop**, if Elements' hosts deliver it (spike first; the Win32 and Cocoa hosts are

@@ -1,24 +1,24 @@
 /**
- * The record of which community packs are installed locally: registering one,
- * reconciling it against the preset library, rendering the Installed tab, and
- * working out what deleting a pack would actually remove.
- *
- * Deletion is planned before it is performed — presets shared with another pack,
- * or resources still referenced elsewhere, have to survive it.
+ * The record of which community packs are installed locally: registering one
+ * (a pack imported from a file), reconciling it against the preset library,
+ * rendering the Installed tab, and asking the engine to remove one. The engine
+ * writes the entries of what it installs (install.ts), and decides what removing
+ * one takes with it.
  */
 
 import { updateAppSetting } from "../appSettingsStore.js";
 import { postMessage } from "../bridge.js";
-import { clonePreset, uiState } from "../state.js";
-import { removeLibraryPresets, setActivePresetId } from "../presetLibraryStore.js";
-import type { AppSettingValue, Preset, PresetFolder } from "../types.js";
+import { uiState } from "../state.js";
+import { setActivePresetId } from "../presetLibraryStore.js";
+import type { AppSettingValue } from "../types.js";
 import { escapeHtml } from "../utils.js";
 import { renderToneIconButton } from "./actionButtons.js";
 import { element } from "./dom.js";
 import { getToneSharingHostActions } from "./hostActions.js";
+import { requestInstalledPackRemoval } from "./install.js";
 import { clearPackDetail } from "./packDetail.js";
 import { browseState, storageKeys, toneSharingState } from "./state.js";
-import type { InstalledPackDeletionPlan, InstalledPackMetadata, InstalledPackSource } from "./types.js";
+import type { InstalledPackMetadata, InstalledPackSource } from "./types.js";
 
 export function normalizeInstalledPackMetadata(raw: unknown): InstalledPackMetadata | null {
   if (!raw || typeof raw !== "object") {
@@ -56,6 +56,10 @@ export function normalizeInstalledPackMetadata(raw: unknown): InstalledPackMetad
           .map(([presetId, signature]) => [presetId.trim(), String(signature).trim()])
       )
     : {};
+  // The blends the engine's install added: kept so that writing the list back does not lose them.
+  const blends = Array.isArray(value.blends)
+    ? value.blends.filter((entry): entry is string => typeof entry === "string" && entry.length > 0)
+    : undefined;
 
   if (!id || !title) {
     return null;
@@ -72,7 +76,18 @@ export function normalizeInstalledPackMetadata(raw: unknown): InstalledPackMetad
     presetIds: Array.from(new Set(presetIds)),
     presetSignatures,
     resources,
+    ...(blends ? { blends } : {}),
   };
+}
+
+/** Takes the installed list from the app setting the engine keeps (after it installed or removed one). */
+export function syncInstalledPacksFromAppSettings(): void {
+  const persisted = uiState.appSettings?.[storageKeys.installedPacks];
+  toneSharingState.installedPacks = Array.isArray(persisted)
+    ? persisted
+        .map((entry) => normalizeInstalledPackMetadata(entry))
+        .filter((entry): entry is InstalledPackMetadata => entry !== null)
+    : [];
 }
 
 export function persistInstalledPacks(): void {
@@ -198,210 +213,37 @@ export async function renderInstalledPacks(): Promise<void> {
   `;
 }
 
-export function removePresetIdsFromFolders(folder: PresetFolder, toRemove: Set<string>): void {
-  if (Array.isArray(folder.presetIds)) {
-    folder.presetIds = folder.presetIds.filter((presetId) => !toRemove.has(presetId));
-  }
-  if (Array.isArray(folder.children)) {
-    folder.children.forEach((child) => removePresetIdsFromFolders(child, toRemove));
-  }
-}
-
-export function pruneEmptyPresetFolders(folders: PresetFolder[]): PresetFolder[] {
-  return folders
-    .map((folder) => {
-      const nextChildren = pruneEmptyPresetFolders(folder.children ?? []);
-      const nextPresetIds = folder.presetIds ?? [];
-      return {
-        ...folder,
-        children: nextChildren,
-        presetIds: nextPresetIds,
-      };
-    })
-    .filter((folder) => (folder.presetIds?.length ?? 0) > 0 || (folder.children?.length ?? 0) > 0);
-}
-
-export function presetFolderExistsById(folders: PresetFolder[], folderId: string): boolean {
-  for (const folder of folders) {
-    if (folder.id === folderId) {
-      return true;
-    }
-    if (presetFolderExistsById(folder.children ?? [], folderId)) {
-      return true;
-    }
-  }
-  return false;
-}
-
-export function collectPresetResourceKeys(preset: Preset): Set<string> {
-  const keys = new Set<string>();
-  const addKey = (type: unknown, id: unknown): void => {
-    if (typeof type !== "string" || typeof id !== "string") {
-      return;
-    }
-    const resolvedType = type.trim();
-    const resolvedId = id.trim();
-    if (!resolvedType || !resolvedId) {
-      return;
-    }
-    keys.add(`${resolvedType}:${resolvedId}`);
-  };
-
-  const graphs = [preset.graph, ...(Array.isArray(preset.scenes) ? preset.scenes.map((scene) => scene.graph) : [])]
-    .filter((graph): graph is NonNullable<typeof preset.graph> => Boolean(graph));
-
-  for (const graph of graphs) {
-    for (const node of graph.nodes ?? []) {
-      for (const res of node.resources ?? []) {
-        addKey(res.resourceType ?? res.type, res.resourceId ?? res.id);
-      }
-    }
-  }
-
-  addKey("nam", preset.audioFxModelId);
-  addKey("ir", preset.irId);
-
-  for (const attachment of preset.attachments ?? []) {
-    const attachmentType = attachment.type === "audiofx"
-      ? "nam"
-      : attachment.type === "ir"
-        ? "ir"
-        : attachment.type;
-    addKey(attachmentType, attachment.id);
-  }
-
-  return keys;
-}
-
-export function buildInstalledPackDeletionPlan(pack: InstalledPackMetadata): InstalledPackDeletionPlan {
-  const removablePresetIds: string[] = [];
-  const preservedPresetIds: string[] = [];
-  const missingPresetIds: string[] = [];
-  const removablePresetResourceKeys = new Set<string>();
-
-  const uniquePackPresetIds = Array.from(new Set(pack.presetIds));
-  for (const presetId of uniquePackPresetIds) {
-    const preset = uiState.presetCache.get(presetId) ?? uiState.presets.find((entry) => entry.id === presetId) ?? null;
-    if (!preset) {
-      // Preset not in UI state — still queue for disk deletion.
-      missingPresetIds.push(presetId);
-      removablePresetIds.push(presetId);
-      continue;
-    }
-
-    // All pack presets are removable; the user confirms deletion explicitly.
-    removablePresetIds.push(presetId);
-    const resourceKeys = collectPresetResourceKeys(preset);
-    resourceKeys.forEach((key) => removablePresetResourceKeys.add(key));
-  }
-
-  const toRemove = new Set(removablePresetIds);
-  const remainingResourceKeys = new Set<string>();
-  uiState.presets.forEach((preset) => {
-    if (toRemove.has(preset.id)) {
-      return;
-    }
-    collectPresetResourceKeys(preset).forEach((key) => remainingResourceKeys.add(key));
-  });
-
-  const uniquePackResources = Array.from(new Map(pack.resources.map((entry) => [`${entry.type}:${entry.id}`, entry])).values());
-  const removableResourceEntries = uniquePackResources.filter((entry) => {
-    const key = `${entry.type}:${entry.id}`;
-    return removablePresetResourceKeys.has(key) && !remainingResourceKeys.has(key);
-  });
-  const removableResourceKeys = new Set(removableResourceEntries.map((entry) => `${entry.type}:${entry.id}`));
-  const preservedResourceEntries = uniquePackResources.filter((entry) => !removableResourceKeys.has(`${entry.type}:${entry.id}`));
-
-  return {
-    removablePresetIds,
-    preservedPresetIds,
-    missingPresetIds,
-    removableResourceEntries,
-    preservedResourceEntries,
-  };
-}
-
-export async function deleteInstalledPackById(id: string, planned?: InstalledPackDeletionPlan): Promise<InstalledPackDeletionPlan> {
+/**
+ * Has the engine take an installed pack out ("deleteInstalledPresetArchive"): its presets, and
+ * them out of folders, favourites and ratings; the blends, models and IRs it added that nothing
+ * else uses; and its entry. Resolves with the presets removed.
+ */
+export async function deleteInstalledPackById(id: string): Promise<string[]> {
   const pack = toneSharingState.installedPacks.find((entry) => entry.id === id);
   if (!pack) {
     throw new Error("Installed pack not found");
   }
 
-  const plan = planned ?? buildInstalledPackDeletionPlan(pack);
-  const presetIds = plan.removablePresetIds;
-  const resourceEntries = plan.removableResourceEntries;
+  const removed = await requestInstalledPackRemoval(id);
 
-  for (const presetId of presetIds) {
-    postMessage({ type: "deletePreset", presetId });
+  // The engine goes on playing a removed preset until another loads; the UI moves on to one.
+  if (uiState.activePresetId && removed.includes(uiState.activePresetId)) {
+    const nextPreset = uiState.presets[0] ?? null;
+    setActivePresetId(nextPreset?.id ?? null);
+    if (nextPreset) {
+      postMessage({ type: "loadPreset", presetId: nextPreset.id });
+    }
   }
+  getToneSharingHostActions().populatePresetDropdown();
+  getToneSharingHostActions().renderActivePreset();
 
-  if (presetIds.length > 0) {
-    const toRemove = new Set(presetIds);
-    removeLibraryPresets(toRemove);
-
-    if (Array.isArray(uiState.presetFolders)) {
-      uiState.presetFolders.forEach((folder) => removePresetIdsFromFolders(folder, toRemove));
-      uiState.presetFolders = pruneEmptyPresetFolders(uiState.presetFolders);
-
-      const activeFolderId = uiState.activePresetFolderId ?? "__all__";
-      const isVirtualFolder = activeFolderId === "__all__" || activeFolderId === "__favorites__" || activeFolderId === "__recents__";
-      const resolvedActiveFolderId = isVirtualFolder || presetFolderExistsById(uiState.presetFolders, activeFolderId)
-        ? activeFolderId
-        : "__all__";
-      uiState.activePresetFolderId = resolvedActiveFolderId;
-
-      postMessage({
-        type: "setPresetFolders",
-        folders: uiState.presetFolders,
-        activeFolderId: resolvedActiveFolderId,
-      });
-    }
-
-    if (uiState.presetFavorites) {
-      const nextFavorites = new Set(uiState.presetFavorites);
-      presetIds.forEach((presetId) => nextFavorites.delete(presetId));
-      uiState.presetFavorites = nextFavorites;
-      postMessage({ type: "setPresetFavorites", favorites: Array.from(nextFavorites) });
-    }
-
-    if (uiState.presetRatings) {
-      const nextRatings = { ...uiState.presetRatings };
-      presetIds.forEach((presetId) => {
-        delete nextRatings[presetId];
-      });
-      uiState.presetRatings = nextRatings;
-      postMessage({ type: "setPresetRatings", ratings: nextRatings });
-    }
-
-    if (uiState.activePresetId && toRemove.has(uiState.activePresetId)) {
-      const nextPreset = uiState.presets[0] ?? null;
-      if (nextPreset) {
-        setActivePresetId(nextPreset.id);
-        postMessage({ type: "loadPreset", preset: clonePreset(nextPreset), presetId: nextPreset.id });
-      } else {
-        setActivePresetId(null);
-      }
-    }
-
-    getToneSharingHostActions().populatePresetDropdown();
-    getToneSharingHostActions().renderActivePreset();
-  }
-
-  if (resourceEntries.length > 0) {
-    postMessage({
-      type: "cleanupResourceLibrary",
-      scope: "all",
-      removeFiles: true,
-      resources: resourceEntries,
-    });
-  }
-
-  toneSharingState.installedPacks = toneSharingState.installedPacks.filter((entry) => entry.id !== id);
-  reconcileInstalledPacksWithPresetLibrary();
+  // An entry from before the engine installed packs may name an archive kept on disk.
   if (pack.archivePath) {
     postMessage({ type: "deleteImportedToneSharingPack", path: pack.archivePath });
   }
-  persistInstalledPacks();
+
+  syncInstalledPacksFromAppSettings();
+  toneSharingState.installedPacks = toneSharingState.installedPacks.filter((entry) => entry.id !== id);
   await renderInstalledPacks();
-  return plan;
+  return removed;
 }

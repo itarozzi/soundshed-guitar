@@ -735,6 +735,172 @@ void TestDeleteTakesOutWhatItAdded()
     const auto favorites = Latest(host, "presetFavorites");
     Expect(favorites && favorites->value("favorites", nlohmann::json::array()).empty(), "and its favourite");
 }
+/// The web UI installs even when a model it tried to fetch could not be had (its creator removed
+/// or hid it): it says so, and the engine leaves that slot empty and names the model back.
+void TestMissingRemoteModelsCanBeAllowed()
+{
+    TestHost host(Sandbox("remote-allowed"));
+    guitarfx::PluginController controller(host);
+    controller.Initialize();
+
+    const nlohmann::json extra = {
+        {"tone3000Resources",
+         {{{"id", "t3k-gone"}, {"name", "Removed Amp"}, {"type", "nam"}, {"toneId", "1"}, {"modelId", "2"}}}}};
+    const auto zip = SinglePresetArchive(BuildPreset("p", "Partly There", "sha-a"), "sha-a", kModelA, extra);
+    host.sent.clear();
+    Send(controller, "installPresetArchives",
+         {{"requestId", "r-allow"},
+          {"allowMissingRemote", true},
+          {"entry", {{"id", "tone-sharing-api:item:partly"}, {"title", "Partly There"}, {"archiveFileName", "partly.zip"}}},
+          {"archives", {Archive(zip, "Partly There")}}});
+
+    const auto reply = Latest(host, "presetArchivesInstalled");
+    Expect(reply.has_value() && !Latest(host, "presetArchivesInstallFailed").has_value(),
+           "with allowMissingRemote the install goes ahead");
+
+    if (reply)
+    {
+        const auto missing = reply->value("missingRemote", nlohmann::json::array());
+        Expect(missing.size() == 1 && missing[0] == "Removed Amp", "and the reply names the model it lacks");
+        Expect(reply->value("presetIds", nlohmann::json::array()).size() == 1, "the preset is installed");
+    }
+
+    const auto entries = InstalledEntries(controller);
+    Expect(!entries.empty() && entries[0].value("archiveFileName", "") == "partly.zip",
+           "the entry keeps the archive's file name for the Installed list");
+}
+
+/// Models the UI fetched for an install's remote references are recorded with it, so removing the
+/// install takes them out again; a resource the library does not hold is not recorded.
+void TestFetchedResourcesLeaveWithTheInstall()
+{
+    TestHost host(Sandbox("fetched"));
+    guitarfx::PluginController controller(host);
+    controller.Initialize();
+
+    Send(controller, "importRemoteResource",
+         {{"provider", "tone3000"},
+          {"resourceType", "nam"},
+          {"resourceId", "tone3000:456"},
+          {"name", "Fetched Amp"},
+          {"fileName", "fetched.nam"},
+          {"metadata", {{"provider", "tone3000"}, {"providerKey", "456"}, {"toneId", "123"}, {"modelId", "456"}}},
+          {"data", guitarfx::util::EncodeBase64(kModelB)}});
+
+    const nlohmann::json extra = {
+        {"remoteResources", {{{"id", "tone3000:456"}, {"type", "nam"}, {"name", "Fetched Amp"}, {"provider", "tone3000"},
+                              {"providerKey", "456"}, {"providerData", {{"toneId", "123"}, {"modelId", "456"}}}}}}};
+    auto preset = BuildPreset("p", "Fetched", "sha-a");
+    preset.graph.nodes[1].resources = {{"nam", "tone3000:456"}};
+    const auto zip = SinglePresetArchive(preset, "sha-a", kModelA, extra);
+    host.sent.clear();
+    Send(controller, "installPresetArchives",
+         {{"requestId", "r-fetched"},
+          {"entry", {{"id", "tone-sharing-api:item:fetched"}, {"title", "Fetched"}}},
+          {"fetchedResources", {{{"type", "nam"}, {"id", "tone3000:456"}}, {{"type", "nam"}, {"id", "not-in-library"}}}},
+          {"archives", {Archive(zip, "Fetched")}}});
+
+    Expect(Latest(host, "presetArchivesInstalled").has_value(), "the install succeeds");
+    const auto entries = InstalledEntries(controller);
+    const auto resources = entries.empty() ? nlohmann::json::array() : entries[0].value("resources", nlohmann::json::array());
+    const auto recorded = [&](const std::string& id) {
+        return std::any_of(resources.begin(), resources.end(), [&](const nlohmann::json& r) { return r.value("id", "") == id; });
+    };
+    Expect(recorded("tone3000:456"), "the fetched model is recorded with the install");
+    Expect(!recorded("not-in-library"), "a resource the library lacks is not");
+    Expect(resources.size() == 2, "beside the archive's own model");
+
+    Send(controller, "deleteInstalledPresetArchive", {{"id", "tone-sharing-api:item:fetched"}});
+    Expect(!controller.GetResourceLibrary().LookupResource("nam", "tone3000:456").has_value(),
+           "removing the install removes the model fetched for it");
+}
+
+/// A pack's own archive may lay its presets out in folders: they are rebuilt under the pack's folder,
+/// and removing the pack takes the whole tree.
+void TestPackArchiveFoldersAreKept()
+{
+    TestHost host(Sandbox("pack-folders"));
+    guitarfx::PluginController controller(host);
+    controller.Initialize();
+
+    const nlohmann::json root = {
+        {"formatVersion", 1},
+        {"presets",
+         {PresetJson(BuildPreset("p1", "Chug", "sha-a")), PresetJson(BuildPreset("p2", "Gallop", "sha-a")),
+          PresetJson(BuildPreset("p3", "Solo", "sha-a"))}},
+        {"resources",
+         {{{"id", "sha-a"}, {"name", "Model"}, {"type", "nam"}, {"fileName", "sha-a-model.nam"}, {"hash", "sha-a"}}}},
+        {"blends", nlohmann::json::array()},
+        {"presetFolders",
+         {{{"name", "Rhythm"}, {"presetIds", {"p1", "p2"}}}, {{"name", "Lead"}, {"presetIds", {"p3", "unknown"}}}}},
+    };
+    const auto zip = BuildZip({{"presets.json", ToBytes(root.dump())}, {"resources/sha-a-model.nam", kModelA}});
+    host.sent.clear();
+    Send(controller, "installPresetArchives",
+         {{"entry", {{"id", "tone-sharing-api:pack-f"}, {"title", "Foldered"}, {"packId", "pack-f"}}},
+          {"folder", "Foldered"},
+          {"archives", {Archive(zip, "Foldered")}}});
+
+    const auto reply = Latest(host, "presetArchivesInstalled");
+    const auto presetIds = reply ? reply->value("presetIds", nlohmann::json::array()) : nlohmann::json::array();
+    Expect(presetIds.size() == 3, "the pack's three presets install");
+
+    const auto folders = Latest(host, "presetFolders");
+    std::optional<nlohmann::json> pack;
+
+    for (const auto& folder : folders ? folders->value("folders", nlohmann::json::array()) : nlohmann::json::array())
+    {
+        if (folder.value("id", "") == "tone-sharing::pack-f")
+        {
+            pack = folder;
+        }
+    }
+
+    Expect(pack.has_value(), "the pack gets its folder");
+
+    if (pack && presetIds.size() == 3)
+    {
+        const auto children = pack->value("children", nlohmann::json::array());
+        Expect(pack->value("presetIds", nlohmann::json::array()).empty(), "every preset sits in one of the pack's subfolders");
+        Expect(children.size() == 2 && children[0].value("name", "") == "Rhythm" && children[1].value("name", "") == "Lead",
+               "the archive's folders are rebuilt under it");
+
+        if (children.size() == 2)
+        {
+            Expect(children[0].value("presetIds", nlohmann::json::array()) ==
+                       nlohmann::json::array({presetIds[0], presetIds[1]}),
+                   "holding the installed presets by their new ids");
+            Expect(children[1].value("presetIds", nlohmann::json::array()) == nlohmann::json::array({presetIds[2]}),
+                   "and naming no preset the archive lacks");
+        }
+    }
+
+    host.sent.clear();
+    Send(controller, "deleteInstalledPresetArchive", {{"id", "tone-sharing-api:pack-f"}});
+    const auto after = Latest(host, "presetFolders");
+    bool left = false;
+
+    for (const auto& folder : after ? after->value("folders", nlohmann::json::array()) : nlohmann::json::array())
+    {
+        left = left || folder.value("id", "") == "tone-sharing::pack-f";
+    }
+
+    Expect(after.has_value() && !left, "removing the pack drops its folder, emptied through its subfolders");
+}
+
+void TestDeletingAnUnknownInstallIsAnswered()
+{
+    TestHost host(Sandbox("delete-unknown"));
+    guitarfx::PluginController controller(host);
+    controller.Initialize();
+    host.sent.clear();
+    Send(controller, "deleteInstalledPresetArchive", {{"id", "tone-sharing-api:item:never"}});
+
+    const auto deleted = Latest(host, "installedPresetArchiveDeleted");
+    Expect(deleted && deleted->value("id", "") == "tone-sharing-api:item:never" &&
+               deleted->value("presetIds", nlohmann::json::array()).empty(),
+           "removing an install the engine does not know is still answered, removing nothing");
+}
 } // namespace
 
 // A Custom Effect module is code. One in a shared archive must not reach the library, and the
@@ -822,6 +988,10 @@ int main()
     TestBothListsNameTheModelOnce();
     TestUnreadableDownloadIsRefused();
     TestDeleteTakesOutWhatItAdded();
+    TestMissingRemoteModelsCanBeAllowed();
+    TestFetchedResourcesLeaveWithTheInstall();
+    TestPackArchiveFoldersAreKept();
+    TestDeletingAnUnknownInstallIsAnswered();
 
     if (gFailures > 0)
     {

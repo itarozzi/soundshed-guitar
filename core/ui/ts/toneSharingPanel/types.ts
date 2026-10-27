@@ -5,8 +5,6 @@
  * bottom of the feature's dependency graph.
  */
 
-import type { RemoteResourceRef } from "../remoteResources.js";
-
 export type ToneSharingUser = {
   id: string;
   email: string;
@@ -67,46 +65,6 @@ export type ToneSharingPackDetails = {
   items: Array<{ itemId: string; sortOrder: number; title: string; type: string; moderationStatus?: string; description?: string | null; tags?: string[] | null }>;
 };
 
-export type ItemArchiveResource = {
-  id: string;
-  name?: string;
-  category?: string;
-  type: string;
-  fileName: string;
-  hash?: string;
-};
-
-export type Tone3000ResourceRef = {
-  id: string;
-  name?: string;
-  category?: string;
-  type: string;
-  toneId?: string;
-  modelId?: string;
-  modelUrl?: string;
-  creatorId?: string;
-  creatorName?: string;
-};
-
-export type ItemArchive = {
-  formatVersion: number;
-  preset: Record<string, unknown>;
-  resources: ItemArchiveResource[];
-  blends?: Array<Record<string, unknown>>;
-  remoteResources?: RemoteResourceRef[];
-  tone3000Resources?: Tone3000ResourceRef[];
-};
-
-export type ItemCollectionArchive = {
-  formatVersion: number;
-  createdAt: string;
-  presets: Array<Record<string, unknown>>;
-  resources: ItemArchiveResource[];
-  blends?: Array<Record<string, unknown>>;
-  remoteResources?: RemoteResourceRef[];
-  tone3000Resources?: Tone3000ResourceRef[];
-};
-
 export type ShareConsentStatus = {
   consentType: string;
   version: number;
@@ -154,14 +112,6 @@ export type InstalledPackResourceRef = {
   id: string;
 };
 
-export type InstalledPackDeletionPlan = {
-  removablePresetIds: string[];
-  preservedPresetIds: string[];
-  missingPresetIds: string[];
-  removableResourceEntries: InstalledPackResourceRef[];
-  preservedResourceEntries: InstalledPackResourceRef[];
-};
-
 export type InstalledPackMetadata = {
   id: string;
   title: string;
@@ -173,6 +123,8 @@ export type InstalledPackMetadata = {
   presetIds: string[];
   presetSignatures?: Record<string, string>;
   resources: InstalledPackResourceRef[];
+  /** Blends the engine's install added (it removes them with the pack). */
+  blends?: string[];
 };
 
 export type ToneSharingShareTarget = {

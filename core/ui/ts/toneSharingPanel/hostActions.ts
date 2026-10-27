@@ -4,18 +4,21 @@
  */
 
 import type {
+  buildImportSummaryMessage,
   buildToneSharingPresetArchiveBlobs,
-  importPackWithConfirmation,
   importPresetArchive,
 } from "../presets/archive.js";
+import type { importArchiveRemoteResources, readArchiveRemoteRefs } from "../presets/remoteArchiveResources.js";
 import type { populatePresetDropdown, renderActivePreset } from "../presets/filter.js";
 import type { switchMainPanel } from "../navigation.js";
 
 export interface ToneSharingHostActions {
+  buildImportSummaryMessage: typeof buildImportSummaryMessage;
   buildToneSharingPresetArchiveBlobs: typeof buildToneSharingPresetArchiveBlobs;
-  importPackWithConfirmation: typeof importPackWithConfirmation;
+  importArchiveRemoteResources: typeof importArchiveRemoteResources;
   importPresetArchive: typeof importPresetArchive;
   populatePresetDropdown: typeof populatePresetDropdown;
+  readArchiveRemoteRefs: typeof readArchiveRemoteRefs;
   renderActivePreset: typeof renderActivePreset;
   switchMainPanel: typeof switchMainPanel;
 }

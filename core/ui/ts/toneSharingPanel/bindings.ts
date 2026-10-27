@@ -11,7 +11,7 @@ import { deleteAsset, downloadAsset, moderateTarget } from "./assets.js";
 import { loadBrowse, loadMine } from "./browse.js";
 import { element, setUploadStatus } from "./dom.js";
 import { updateActiveSharedFilter, updateCommunityPresetSearchUi } from "./feed.js";
-import { buildInstalledPackDeletionPlan, deleteInstalledPackById } from "./installedPacks.js";
+import { deleteInstalledPackById } from "./installedPacks.js";
 import { clearPackDetail, viewPack } from "./packDetail.js";
 import { openPackModal } from "./packEditor.js";
 import { previewPreset } from "./preview.js";
@@ -42,18 +42,11 @@ export function bindBrowseActions(): void {
     if (button.dataset.action === "delete-installed") {
       const title = card.querySelector(".tone-sharing-card-item-title")?.textContent?.trim() || id;
       const pack = toneSharingState.installedPacks.find((entry) => entry.id === id);
-      const plan = pack ? buildInstalledPackDeletionPlan(pack) : null;
       const presetCount = pack?.presetIds.length ?? 0;
       const resourceCount = pack?.resources.length ?? 0;
       const archiveLine = pack?.archiveFileName ? `\nArchive: ${pack.archiveFileName}` : "";
-      const summaryLines = plan
-        ? `\nPresets to remove: ${plan.removablePresetIds.length}`
-          + (plan.missingPresetIds.length > 0 ? ` (${plan.missingPresetIds.length} already missing from library)` : "")
-          + `\nLinked resources to remove: ${plan.removableResourceEntries.length}`
-          + (plan.preservedResourceEntries.length > 0 ? `\nResources kept (used by other presets): ${plan.preservedResourceEntries.length}` : "")
-        : "";
       const confirmed = await showConfirm(
-        `Delete installed pack "${title}"?\nPresets in pack: ${presetCount}\nResources in pack: ${resourceCount}${summaryLines}${archiveLine}\n\nAll presets from this pack will be removed. Resources still in use by other presets will be kept.`,
+        `Delete installed pack "${title}"?\nPresets in pack: ${presetCount}\nResources in pack: ${resourceCount}${archiveLine}\n\nAll presets from this pack will be removed. Resources still in use by other presets will be kept.`,
         "Delete Installed Pack",
       );
       if (!confirmed) {
@@ -62,8 +55,8 @@ export function bindBrowseActions(): void {
 
       try {
         setUploadStatus("Deleting installed pack...");
-        const result = await deleteInstalledPackById(id, plan ?? undefined);
-        setUploadStatus(`Installed pack deleted. Removed ${result.removablePresetIds.length} preset(s) and ${result.removableResourceEntries.length} resource(s).`);
+        const removed = await deleteInstalledPackById(id);
+        setUploadStatus(`Installed pack deleted. Removed ${removed.length} preset(s).`);
       } catch (error) {
         setUploadStatus(`Delete failed: ${(error as Error).message}`);
       }
