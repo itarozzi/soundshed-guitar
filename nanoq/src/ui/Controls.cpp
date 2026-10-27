@@ -6,6 +6,8 @@
 
 #include "ui/Shell.h"
 
+#include "dsp/EffectGuids.h"
+
 #include "uiclient/ParamFormat.h"
 
 #include <cmath>
@@ -152,12 +154,16 @@ Shell::ControlCells Shell::BuildControlCells(std::vector<guitarfx::uiclient::Sub
                        [&commands](double v) { commands.SetGlobalChainParam("input.gain", v); }, Decibels, {}, {}, mode);
 
     // ── GATE ──
+    // ── GATE: Threshold and on/off here; everything else, and Learn, behind Settings ──
+    auto gateSettings = std::make_shared<IconButton>(mTheme, mIcons, "");
+    gateSettings->Size(70, 16).Label("Settings", 10.0f).Caret(true).Ink(mTheme.TextSecondary());
+    gateSettings->onClick = [this, g = gateSettings.get()] { OpenGlobalGate(g->Bounds()); };
     auto gate = knobCell("GATE", Param("threshold", "Gate", "dB", -90.0, 0.0, -60.0, 1.0),
                          [chain] { return NodeParam(chain().preChainGraph, "global_gate", "threshold", -60.0); },
                          [&commands](double v) { commands.SetGlobalChainParam("gate.threshold", v); },
                          [](double v) { return std::to_string(static_cast<int>(std::lround(v))) + " dB"; },
                          [chain] { return NodeEnabled(chain().preChainGraph, "global_gate"); },
-                         [&commands](bool on) { commands.SetGlobalChainToggle("gate.enabled", on); });
+                         [&commands](bool on) { commands.SetGlobalChainToggle("gate.enabled", on); }, gateSettings);
 
     // ── TRANSPOSE: as the web UI's knob, the transpose runs only while it transposes ──
     auto transpose = knobCell(
@@ -271,41 +277,130 @@ void Shell::OpenControls()
 
 void Shell::OpenGlobalEq(el::rect anchor)
 {
+    // The web UI's Global EQ dialog (eqPanel.ts): the curve over the output's spectrum, with a
+    // handle per band, then each band's Gain, Freq and Q, and Shelf or Bell for the outer two.
+    // Whatever overlay is up goes first, so its close cannot take this dialog's plot with it.
+    CloseOverlay();
     auto& commands = mSession.Commands();
     auto syncs = std::make_shared<std::vector<std::function<void()>>>();
-    const auto chain = [this]() -> const guitarfx::GlobalSignalChainConfig& { return mState.globalChain; };
+    const auto eqParams = [this]() -> std::map<std::string, double> {
+        if (const auto* node = mState.globalChain.postChainGraph.FindNode("global_eq"))
+            return node->params;
+        return {};
+    };
+    const auto* type = mState.FindEffectType(guitarfx::EffectGuids::kEqParametric);
 
-    std::vector<Ptr> knobs{Stretch()};
-    for (const auto& [key, name] : std::initializer_list<std::pair<const char*, const char*>>{
-             {"lowGain", "Low"}, {"lowMidGain", "Low Mid"}, {"highMidGain", "High Mid"}, {"highGain", "High"}})
+    EqPlotSource source;
+    source.effectType = guitarfx::EffectGuids::kEqParametric;
+    source.address = {"post", "global_eq", {}};
+    source.feedKeys = {"post::global_eq"};
+    source.read = eqParams;
+    // The engine does not echo a global chain edit, so the knobs are moved from the mirrored state.
+    source.write = [&commands, syncs](const std::string& key, double value, bool) {
+        commands.SetGlobalChainParam("eq." + key, value);
+        for (auto& fn : *syncs)
+            fn();
+    };
+    auto plot = MakeEqPlot(std::move(source), true);
+
+    std::vector<Ptr> bandRow{Stretch()};
+    const std::pair<const char*, const char*> bands[] = {{"low", "Low"}, {"lowMid", "Low Mid"}, {"highMid", "High Mid"}, {"high", "High"}};
+    for (const auto& [prefix, label] : bands)
     {
-        const auto info = Param(key, name, "dB", -12.0, 12.0, 0.0);
-        const std::string path = std::string("eq.") + key;
-        auto knob = std::make_shared<ParamKnob>(mTheme, name);
-        knob->DefaultPosition(0.5);
-        knob->onChange = [info, path, &commands, k = knob.get()](double position) {
-            const double v = guitarfx::uiclient::SnapParamValue(info, guitarfx::uiclient::ParamPositionToValue(info, position));
-            k->SetValueText(guitarfx::uiclient::FormatParamValue(info, v));
-            commands.SetGlobalChainParam(path, v);
-        };
-        knob->onReset = [path, &commands] { commands.SetGlobalChainParam(path, 0.0); };
-        syncs->push_back([this, knob, info, chain, key = key] {
-            const double v = NodeParam(chain().postChainGraph, "global_eq", key, 0.0);
-            knob->Update(guitarfx::uiclient::ParamValueToPosition(info, v), guitarfx::uiclient::FormatParamValue(info, v));
-            mSession.View().refresh(*knob);
-        });
-        knobs.push_back(knob);
-        knobs.push_back(HGap(10));
+        std::vector<Ptr> knobs;
+        for (const char* suffix : {"Gain", "Freq", "Q"})
+        {
+            const std::string key = std::string(prefix) + suffix;
+            const auto it = type != nullptr ? std::find_if(type->parameters.begin(), type->parameters.end(),
+                                                           [&key](const guitarfx::uiclient::EffectParamInfo& p) { return p.key == key; })
+                                            : decltype(type->parameters.begin()){};
+            if (type == nullptr || it == type->parameters.end())
+                continue;
+            const auto info = *it;
+            auto knob = std::make_shared<ParamKnob>(mTheme, suffix);
+            knob->DefaultPosition(guitarfx::uiclient::ParamValueToPosition(info, info.defaultValue));
+            knob->onChange = [this, info, key, &commands, k = knob.get()](double position) {
+                const double v = guitarfx::uiclient::SnapParamValue(info, guitarfx::uiclient::ParamPositionToValue(info, position));
+                k->SetValueText(guitarfx::uiclient::FormatParamValue(info, v));
+                commands.SetGlobalChainParam("eq." + key, v);
+                if (mOverlayPlot)
+                    SyncEqPlot(*mOverlayPlot);
+            };
+            knob->onReset = [this, info, key, &commands] {
+                commands.SetGlobalChainParam("eq." + key, info.defaultValue);
+                if (mOverlayPlot)
+                    SyncEqPlot(*mOverlayPlot);
+            };
+            syncs->push_back([this, knob, info, key, eqParams] {
+                const auto params = eqParams();
+                const auto found = params.find(key);
+                const double v = found != params.end() ? found->second : info.defaultValue;
+                knob->Update(guitarfx::uiclient::ParamValueToPosition(info, v), guitarfx::uiclient::FormatParamValue(info, v));
+                mSession.View().refresh(*knob);
+            });
+            if (!knobs.empty())
+                knobs.push_back(HGap(4));
+            knobs.push_back(knob);
+        }
+
+        // The outer bands are shelves unless set to bells (lowShape/highShape: 0 shelf, 1 bell).
+        Ptr heading;
+        auto name = std::make_shared<Text>(mTheme, Upper(label), 9.0f, Weight::SemiBold);
+        name->Colour(mTheme.Pick(el::rgba(220, 227, 243, 173), mTheme.TextSecondary()));
+        const std::string band = prefix;
+        if (band == "low" || band == "high")
+        {
+            const std::string shapeKey = band + "Shape";
+            auto shape = std::make_shared<IconButton>(mTheme, mIcons, "", IconButton::Look::Chip);
+            shape->Size(52, 18).Caret(true);
+            shape->onClick = [this, shapeKey, eqParams, &commands, s = shape.get()] {
+                const auto params = eqParams();
+                const auto found = params.find(shapeKey);
+                const bool bell = found != params.end() && found->second >= 0.5;
+                OpenDropdown(s->Bounds(),
+                             {{"Shelf", !bell, false, [this, shapeKey, &commands] {
+                                   commands.SetGlobalChainParam("eq." + shapeKey, 0.0);
+                                   if (mOverlayPlot)
+                                       SyncEqPlot(*mOverlayPlot);
+                               }},
+                              {"Bell", bell, false, [this, shapeKey, &commands] {
+                                   commands.SetGlobalChainParam("eq." + shapeKey, 1.0);
+                                   if (mOverlayPlot)
+                                       SyncEqPlot(*mOverlayPlot);
+                               }}},
+                             120.0f);
+            };
+            syncs->push_back([this, shape, shapeKey, eqParams] {
+                const auto params = eqParams();
+                const auto found = params.find(shapeKey);
+                shape->Label(found != params.end() && found->second >= 0.5 ? "Bell" : "Shelf", 10.0f);
+                mSession.View().refresh(*shape);
+            });
+            heading = Row({name, HGap(6), shape, Stretch()});
+        }
+        else
+        {
+            heading = Row({name, Stretch()});
+        }
+        const float width = 3.0f * 60.0f + 8.0f;
+        bandRow.push_back(FixedWidth(width, Col({FixedHeight(18, heading), VGap(4), FixedHeight(63, Row(knobs))})));
+        bandRow.push_back(HGap(16));
     }
-    knobs.back() = Stretch();
+    bandRow.back() = Stretch();
 
     auto title = std::make_shared<Text>(mTheme, "GLOBAL EQ", 9.0f, Weight::SemiBold);
     title->Colour(mTheme.Pick(el::rgba(220, 227, 243, 173), mTheme.TextSecondary()));
-    ShowPopover(Pad(12, 10, 12, 10, Col({FixedHeight(14, title), VGap(6), FixedHeight(63, Row(knobs))})), anchor, 300.0f, 110.0f);
+    const float width = std::min(4.0f * (3.0f * 60.0f + 8.0f) + 3.0f * 16.0f + 24.0f, ViewSize().x - 24.0f);
+    ShowPopover(Pad(12, 10, 12, 10, Col({FixedHeight(14, title), VGap(6), FixedHeight(160, plot), VGap(10), FixedHeight(85, Row(bandRow))})),
+                anchor, width, 14.0f + 6.0f + 160.0f + 10.0f + 85.0f + 20.0f);
+    // The dialog's plot goes with it, and the spectrum watch back to the effect editor's.
+    mOnOverlayClosed = [this] { mOverlayPlot.reset(); };
 
-    auto sync = [syncs] {
+    auto sync = [this, syncs] {
         for (auto& fn : *syncs)
             fn();
+        if (mOverlayPlot)
+            SyncEqPlot(*mOverlayPlot);
     };
     mInstrumentSubs.push_back(mSession.Client().Subscribe(Topic::GlobalChain, sync));
     sync();

@@ -113,6 +113,38 @@ std::vector<float> DecodeFloat32Base64(const std::string& text)
     return samples;
 }
 
+std::string GateLearnStatusText(const GateLearnStatus* status, double floorDb)
+{
+    // Whole dB with a true minus sign, as the web UI writes them.
+    const auto db = [](double value) {
+        const long rounded = std::lround(value);
+        return (rounded < 0 ? std::string("\xE2\x88\x92") + std::to_string(-rounded) : std::to_string(rounded)) + " dB";
+    };
+
+    if (status == nullptr || status->state.empty())
+        return "Mute the strings, then Learn.";
+    if (status->state == "listening")
+        return "Listening\xE2\x80\xA6 keep the strings quiet";
+    if (status->state == "done")
+    {
+        if (!status->noiseFloorDb || !status->thresholdDb)
+            return "Threshold set";
+        const auto noise = *status->noiseFloorDb < floorDb ? "under " + db(floorDb) : db(*status->noiseFloorDb);
+        return "Noise " + noise + " \xC2\xB7 threshold set to " + db(*status->thresholdDb);
+    }
+    if (status->state == "failed")
+    {
+        if (status->reason == "playing")
+            return "Heard playing. Mute the strings and try again.";
+        if (status->reason == "noSignal")
+            return "No audio reached the gate. Is the audio device running?";
+        return "This gate is not in the running chain.";
+    }
+    if (status->state == "cancelled")
+        return "Learn cancelled.";
+    return "Mute the strings, then Learn.";
+}
+
 std::optional<ResponseCurve> ParseResponseCurve(const nlohmann::json& reply)
 {
     if (!reply.value("supported", false))

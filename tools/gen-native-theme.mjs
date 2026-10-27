@@ -58,6 +58,12 @@ const TOKENS = [
   ['knobRingEnd', ['--knob-ring-end', '--knob-ring-color']],
   ['knobRingTrack', ['--knob-ring-track']],
   ['toggleBg', ['--toggle-bg']],
+  ['eqCurveGrid', ['--eq-curve-grid']],
+  ['eqCurveResponse', ['--eq-curve-response']],
+  ['eqCurveHandleStroke', ['--eq-curve-handle-stroke']],
+  ['eqCurveSpectrumFillTop', ['--eq-curve-spectrum-fill-top']],
+  ['eqCurveSpectrumFillBottom', ['--eq-curve-spectrum-fill-bottom']],
+  ['eqCurveSpectrumLine', ['--eq-curve-spectrum-line']],
 ];
 
 const THEMES = [

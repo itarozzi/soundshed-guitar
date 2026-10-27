@@ -552,6 +552,24 @@ void UiCommands::SaveEffectPreset(const std::string& nodeId, const std::string& 
 
 void UiCommands::SetGlobalChainParam(const std::string& path, double value)
 {
+    // The Global EQ's bands and the global gate's settings are mirrored at once, as the web UI
+    // writes those nodes, so a curve dragged in a plot or a Learn meter reads the value it was
+    // just given; the engine does not echo them.
+    if (path.rfind("eq.", 0) == 0 && path != "eq.enabled")
+    {
+        if (auto* node = mClient.MutableState().globalChain.postChainGraph.FindNode("global_eq"))
+        {
+            node->params[path.substr(3)] = value;
+        }
+    }
+    else if (path.rfind("gate.", 0) == 0 && path != "gate.enabled")
+    {
+        if (auto* node = mClient.MutableState().globalChain.preChainGraph.FindNode("global_gate"))
+        {
+            node->params[path.substr(5)] = value;
+        }
+    }
+
     mClient.Send("setGlobalChainParam", {{"path", path}, {"value", value}});
 }
 

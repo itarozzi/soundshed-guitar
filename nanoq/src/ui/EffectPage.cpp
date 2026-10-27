@@ -269,6 +269,7 @@ Ptr Shell::BuildEffectPage()
     mControls.clear();
     mBypass.reset();
     mHeaderLed.reset();
+    mEffectPlot.reset();
 
     const auto* node = SelectedNode();
     if (node == nullptr)
@@ -629,6 +630,13 @@ Ptr Shell::BuildEffectPage()
     if (!tabsPlaced)
         if (auto t = tabs())
             addToSection(Row({t, Stretch()}), 26.0f);
+    // An EQ's curve over its input's spectrum, above its knobs, as the web UI shows it.
+    if (!boundary && IsEqPlotType(node->type))
+        addToSection(MakeEqPlot(NodeEqPlotSource(*node), false), 170.0f);
+    if (node->type == guitarfx::EffectGuids::kCabSimple)
+        addToSection(BuildCabTools(*node), 28.0f);
+    if (node->type == guitarfx::EffectGuids::kDynamicsGate)
+        addToSection(BuildGateLearn(NodeGateLearnTarget(*node)), 60.0f);
 
     // The groups, laid into rows as they fit the section.
     {
@@ -744,6 +752,10 @@ void Shell::SyncEffectValues()
         mBypass->Set(node->enabled);
         mSession.View().refresh(*mBypass);
     }
+
+    if (mEffectPlot)
+        SyncEqPlot(*mEffectPlot);
+    SyncGateLearn(); // the meter follows Threshold and Hysteresis
 }
 
 void Shell::OpenEffectPresets()

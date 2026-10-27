@@ -43,6 +43,12 @@ struct ThemeTokens
     std::uint32_t knobRingEnd; // --knob-ring-end
     std::uint32_t knobRingTrack; // --knob-ring-track
     std::uint32_t toggleBg; // --toggle-bg
+    std::uint32_t eqCurveGrid; // --eq-curve-grid
+    std::uint32_t eqCurveResponse; // --eq-curve-response
+    std::uint32_t eqCurveHandleStroke; // --eq-curve-handle-stroke
+    std::uint32_t eqCurveSpectrumFillTop; // --eq-curve-spectrum-fill-top
+    std::uint32_t eqCurveSpectrumFillBottom; // --eq-curve-spectrum-fill-bottom
+    std::uint32_t eqCurveSpectrumLine; // --eq-curve-spectrum-line
 };
 
 inline constexpr ThemeTokens kLight {
@@ -79,6 +85,12 @@ inline constexpr ThemeTokens kLight {
     0xff171c24, // knobRingEnd
     0xffb7becf, // knobRingTrack
     0xffb6bdcd, // toggleBg
+    0x1f111318, // eqCurveGrid
+    0xf56888a8, // eqCurveResponse
+    0xd1111318, // eqCurveHandleStroke
+    0x333a4a60, // eqCurveSpectrumFillTop
+    0x083a4a60, // eqCurveSpectrumFillBottom
+    0x573a4a60, // eqCurveSpectrumLine
 };
 
 inline constexpr ThemeTokens kDark {
@@ -115,6 +127,12 @@ inline constexpr ThemeTokens kDark {
     0xff117c1e, // knobRingEnd
     0x12ffffff, // knobRingTrack
     0xff50505e, // toggleBg
+    0x14ffffff, // eqCurveGrid
+    0xf078b0e0, // eqCurveResponse
+    0xe6ffffff, // eqCurveHandleStroke
+    0x38aac8e8, // eqCurveSpectrumFillTop
+    0x08aac8e8, // eqCurveSpectrumFillBottom
+    0x5cbed6f0, // eqCurveSpectrumLine
 };
 
 inline constexpr ThemeTokens kClassic {
@@ -151,6 +169,12 @@ inline constexpr ThemeTokens kClassic {
     0xffb9c500, // knobRingEnd
     0x26fff4dc, // knobRingTrack
     0xff4a403a, // toggleBg
+    0x1ff5f1e8, // eqCurveGrid
+    0xf0f0a010, // eqCurveResponse
+    0xe02a1f15, // eqCurveHandleStroke
+    0x38f5e2c0, // eqCurveSpectrumFillTop
+    0x08f5e2c0, // eqCurveSpectrumFillBottom
+    0x5cf5e2c0, // eqCurveSpectrumLine
 };
 
 } // namespace guitarfx::uiclient::theme

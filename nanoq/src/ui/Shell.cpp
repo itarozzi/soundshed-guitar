@@ -77,6 +77,11 @@ void Shell::Subscribe()
     on(Topic::GlobalChain, kTransport);
     on(Topic::Mixer, kTransport);
     on(Topic::Demo, kTransport);
+    // Gate Learn's progress and result.
+    mSubscriptions.push_back(client.Subscribe(Topic::Analysis, [this] {
+        if (!mGateLearnViews.empty())
+            SyncGateLearn();
+    }));
 
     // Every change the engine reports to the preset may be an edit for the chain's history.
     mSubscriptions.push_back(client.Subscribe(Topic::ActivePreset, [this] {
@@ -361,6 +366,9 @@ void Shell::OnTick()
 
         SyncChainLights();
     }
+
+    SyncEqPlotFeeds();
+    SyncIrExport();
 }
 
 // ── Selection and pages ─────────────────────────────────────────────────────────

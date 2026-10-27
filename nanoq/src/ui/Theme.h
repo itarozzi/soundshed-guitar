@@ -59,6 +59,13 @@ public:
     [[nodiscard]] el::color ControlBorder() const noexcept { return Argb(T().controlBorder); }
     [[nodiscard]] el::color KnobRingStart() const noexcept { return Argb(T().knobRingStart); }
     [[nodiscard]] el::color KnobRingEnd() const noexcept { return Argb(T().knobRingEnd); }
+    // The response plots (the web UI's --eq-curve-* properties).
+    [[nodiscard]] el::color PlotGrid() const noexcept { return Argb(T().eqCurveGrid); }
+    [[nodiscard]] el::color PlotCurve() const noexcept { return Argb(T().eqCurveResponse); }
+    [[nodiscard]] el::color PlotHandleStroke() const noexcept { return Argb(T().eqCurveHandleStroke); }
+    [[nodiscard]] el::color PlotSpectrumTop() const noexcept { return Argb(T().eqCurveSpectrumFillTop); }
+    [[nodiscard]] el::color PlotSpectrumBottom() const noexcept { return Argb(T().eqCurveSpectrumFillBottom); }
+    [[nodiscard]] el::color PlotSpectrumLine() const noexcept { return Argb(T().eqCurveSpectrumLine); }
     [[nodiscard]] el::color KnobRingTrack() const noexcept { return Argb(T().knobRingTrack); }
     [[nodiscard]] el::color ToggleBg() const noexcept { return Argb(T().toggleBg); }
 

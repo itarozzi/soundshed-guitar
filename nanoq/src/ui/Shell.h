@@ -21,6 +21,7 @@
 #include "ui/Graphics.h"
 #include "ui/KeyRouter.h"
 #include "ui/Layout.h"
+#include "ui/ResponsePlot.h"
 #include "ui/ShellWidgets.h"
 #include "ui/UiSession.h"
 #include "ui/Widgets.h"
@@ -236,6 +237,57 @@ private:
     /// The IR Cabinet's IR list between its slots (NodeControls.cpp).
     [[nodiscard]] Ptr BuildIrList(const guitarfx::GraphNode& node);
 
+    // EqPlot.cpp: the EQ curves, in the effect editor and the Global EQ dialog.
+    struct EqPlotSource
+    {
+        std::string effectType;
+        guitarfx::uiclient::NodeAddress address; // where the spectrum watch points
+        std::vector<std::string> feedKeys;       // where its spectrum arrives (ClientState::analysis)
+        std::function<std::map<std::string, double>()> read;
+        std::function<void(const std::string& key, double value, bool commit)> write;
+    };
+    struct EqPlotState
+    {
+        std::shared_ptr<ResponsePlot> plot;
+        EqPlotSource source;
+        std::string lastQuery; // the parameters last asked about
+    };
+    [[nodiscard]] static bool IsEqPlotType(const std::string& type);
+    [[nodiscard]] Ptr MakeEqPlot(EqPlotSource source, bool overlay);
+    void SyncEqPlot(EqPlotState& state);
+    void SyncEqPlotFeeds();
+    [[nodiscard]] EqPlotSource NodeEqPlotSource(const guitarfx::GraphNode& node);
+    // GateLearn.cpp: the noise gate's Learn, in a gate node's editor and the global gate's settings.
+    struct GateLearnTarget
+    {
+        guitarfx::uiclient::NodeAddress address;
+        std::function<double()> threshold, hysteresis;
+        double minDb = -80.0, maxDb = 0.0; // the threshold's range: the meter's ends
+        std::function<void(double thresholdDb)> apply;
+        std::function<void()> ensureEnabled; // a bypassed gate hears nothing
+    };
+    struct GateLearnView
+    {
+        GateLearnTarget target;
+        std::weak_ptr<el::element> meter;
+        std::weak_ptr<IconButton> button;
+        std::weak_ptr<Text> status, low, high;
+    };
+    [[nodiscard]] Ptr BuildGateLearn(GateLearnTarget target);
+    void SyncGateLearn();
+    [[nodiscard]] GateLearnTarget NodeGateLearnTarget(const guitarfx::GraphNode& node);
+    void OpenGlobalGate(el::rect anchor);
+    std::vector<GateLearnView> mGateLearnViews;
+    std::map<std::string, std::string> mGateLearnSeen; // each gate's Learn state when last looked at
+
+    /// The Simple Cabinet's Match an IR and Export as IR.
+    [[nodiscard]] Ptr BuildCabTools(const guitarfx::GraphNode& node);
+    void SyncIrExport();
+    std::string mPendingIrExport; // the request id of an export as IR still out
+    std::weak_ptr<Text> mIrExportStatus;
+    std::optional<EqPlotState> mEffectPlot;  // the effect editor's
+    std::optional<EqPlotState> mOverlayPlot; // a dialog's (the Global EQ)
+
     // PresetsPage.cpp
     Ptr BuildPresetsPage();
     Ptr BuildPresetListContent();
@@ -269,7 +321,9 @@ private:
     [[nodiscard]] std::shared_ptr<artist::image> RemoteImage(const std::string& url);
 
     // ResourceBrowser.cpp: the model and IR chooser, as the web UI's resource browser
-    void OpenResourceBrowser(const std::string& nodeId, const std::string& resourceType, int resourceIndex);
+    void OpenResourceBrowser(const std::string& nodeId, const std::string& resourceType, int resourceIndex,
+                             std::function<void(const std::string& resourceId)> onPick = {}, const std::string& title = {},
+                             const std::string& category = {});
     /// A library row's menu: details, rename, recategorise, copy the path, delete.
     void OpenLibraryResourceMenu(const std::string& resourceType, const std::string& resourceId, el::rect anchor);
     /// A one-line prompt on the drop-down layer, so it stacks over a dialog.

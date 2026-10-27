@@ -346,8 +346,13 @@ SlotRole RoleFor(const ClientState& state, const guitarfx::GraphNode& node, cons
 }
 } // namespace
 
-void Shell::OpenResourceBrowser(const std::string& nodeId, const std::string& resourceType, int resourceIndex)
+void Shell::OpenResourceBrowser(const std::string& nodeId, const std::string& resourceType, int resourceIndex,
+                                std::function<void(const std::string& resourceId)> onPick, const std::string& title,
+                                const std::string& category)
 {
+    // With onPick the chooser only picks a library entry for the caller (the Simple Cabinet's
+    // Match an IR): nothing is loaded into the node, and only the library is offered, filtered
+    // to `category` (the web UI's libraryCategoryHint).
     const auto* node = mState.activePreset ? mState.activePreset->graph.FindNode(nodeId) : nullptr;
     if (node == nullptr)
         return;
@@ -397,6 +402,7 @@ void Shell::OpenResourceBrowser(const std::string& nodeId, const std::string& re
         std::vector<Subscription> subscriptions;
         int toneListener = 0;
         std::weak_ptr<Browser> self;
+        std::function<void(const std::string&)> onPick; // pick only: what to do with the choice
     };
 
     auto state = std::make_shared<Browser>();
@@ -406,11 +412,13 @@ void Shell::OpenResourceBrowser(const std::string& nodeId, const std::string& re
     b->resourceType = resourceType;
     b->index = resourceIndex;
     b->role = RoleFor(mState, *node, resourceType, resourceIndex);
+    b->onPick = std::move(onPick);
+    b->category = category;
     b->t3Gear = b->role.gear;
     if (resourceType == "nam")
         b->t3Arch = "2";
     const auto slot = static_cast<std::size_t>(std::max(0, resourceIndex));
-    if (slot < node->resources.size())
+    if (!b->onPick && slot < node->resources.size())
     {
         b->original = node->resources[slot];
         b->hadOriginal = b->original.IsLibraryRef() || b->original.IsFilePath();
@@ -441,6 +449,11 @@ void Shell::OpenResourceBrowser(const std::string& nodeId, const std::string& re
         b->previewed = true;
         b->selectedId = id;
         b->selectedPath = path;
+        if (b->onPick)
+        {
+            b->fillFooter();
+            return;
+        }
         if (!id.empty())
             mSession.Commands().SetNodeResource(b->nodeId, b->resourceType, id, b->index);
         else
@@ -474,9 +487,12 @@ void Shell::OpenResourceBrowser(const std::string& nodeId, const std::string& re
                 preview(id, {});
                 refillList();
             };
-            row->onDouble = [this, preview, id = r->id] {
+            row->onDouble = [this, b, preview, id = r->id] {
                 preview(id, {});
+                auto pick = b->onPick;
                 CloseOverlay();
+                if (pick)
+                    pick(id);
             };
             return row;
         };
@@ -641,7 +657,9 @@ void Shell::OpenResourceBrowser(const std::string& nodeId, const std::string& re
             commands.BrowseNodeResource(b->nodeId, b->resourceType, b->index);
             b->previewed = true; // a file chosen there is the new choice; Cancel puts back the old
         };
-        row.insert(row.end(), {HGap(6), favourites, HGap(4), group, HGap(6), file});
+        row.insert(row.end(), {HGap(6), favourites, HGap(4), group});
+        if (!b->onPick)
+            row.insert(row.end(), {HGap(6), file});
         return Row(row);
     };
 
@@ -1046,8 +1064,10 @@ void Shell::OpenResourceBrowser(const std::string& nodeId, const std::string& re
             return t;
         };
         // Tone 3000 can be switched off in Settings > Features, as in the web UI.
-        std::vector<Ptr> tabs{HGap(4), tab("Resource Library", Tab::Library), tab("Folder", Tab::Folder)};
-        if (guitarfx::uiclient::IsFeatureEnabled(mState, guitarfx::uiclient::Feature::Tone3000))
+        std::vector<Ptr> tabs{HGap(4), tab("Resource Library", Tab::Library)};
+        if (!b->onPick)
+            tabs.push_back(tab("Folder", Tab::Folder));
+        if (!b->onPick && guitarfx::uiclient::IsFeatureEnabled(mState, guitarfx::uiclient::Feature::Tone3000))
             tabs.push_back(tab("Tone 3000", Tab::Tone3000));
         tabs.push_back(Stretch());
         Fill(*b->tabs, Row(tabs));
@@ -1094,7 +1114,7 @@ void Shell::OpenResourceBrowser(const std::string& nodeId, const std::string& re
                 b->previewed = false;
             }
             // Put back what the slot held before anything was heard.
-            if (b->previewed)
+            if (b->previewed && !b->onPick)
             {
                 if (b->hadOriginal && b->original.IsLibraryRef())
                     mSession.Commands().SetNodeResource(b->nodeId, b->resourceType, b->original.resourceId, b->index);
@@ -1110,6 +1130,15 @@ void Shell::OpenResourceBrowser(const std::string& nodeId, const std::string& re
         auto ok = std::make_shared<IconButton>(mTheme, mIcons, "", IconButton::Look::Primary);
         ok->Size(44, 30).Label("OK", 11.5f).Disabled(!b->previewed);
         ok->onClick = [this, b] {
+            if (b->onPick)
+            {
+                auto pick = b->onPick;
+                const auto id = b->selectedId;
+                CloseOverlay();
+                if (!id.empty())
+                    pick(id);
+                return;
+            }
             // A Tone3000 model being auditioned is imported and kept.
             if (!b->t3Hearing.empty() && b->t3HearingTone && b->t3HearingModel)
             {
@@ -1245,13 +1274,13 @@ void Shell::OpenResourceBrowser(const std::string& nodeId, const std::string& re
     b->fillList();
     b->fillFooter();
 
-    auto title = std::make_shared<Text>(mTheme, b->role.title, 13.5f, Weight::SemiBold);
-    title->Colour(mTheme.Ink());
+    auto heading = std::make_shared<Text>(mTheme, title.empty() ? b->role.title : title, 13.5f, Weight::SemiBold);
+    heading->Colour(mTheme.Ink());
     auto close = std::make_shared<IconButton>(mTheme, mIcons, "x", IconButton::Look::Ghost);
     close->Size(28, 28).IconSize(12);
     close->onClick = [this, b] {
         // The x is Cancel, as in the web UI.
-        if (b->previewed)
+        if (b->previewed && !b->onPick)
         {
             if (b->hadOriginal && b->original.IsLibraryRef())
                 mSession.Commands().SetNodeResource(b->nodeId, b->resourceType, b->original.resourceId, b->index);
@@ -1267,7 +1296,7 @@ void Shell::OpenResourceBrowser(const std::string& nodeId, const std::string& re
     const float width = std::min(944.0f, view.x - 16.0f);
     const float height = std::max(320.0f, view.y - 12.0f);
     auto rule = FixedHeight(1, Fill(mTheme.Text().opacity(0.07f), std::make_shared<el::element>()));
-    auto panel = Col({FixedHeight(46, Pad(16, 9, 10, 9, Row({title, close}))), rule,
+    auto panel = Col({FixedHeight(46, Pad(16, 9, 10, 9, Row({heading, close}))), rule,
                       Pad(16, 10, 16, 0, Col({FixedHeight(38, b->tabs), FixedHeight(1, Fill(mTheme.Text().opacity(0.07f), std::make_shared<el::element>())), VGap(12),
                                               b->controls, VGap(10), b->list})),
                       FixedHeight(1, Fill(mTheme.Text().opacity(0.07f), std::make_shared<el::element>())),

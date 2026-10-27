@@ -14,6 +14,8 @@
  * or from Tick when a request goes unanswered.
  */
 
+#include "uiclient/ClientState.h"
+
 #include <nlohmann/json.hpp>
 
 #include <functional>
@@ -86,6 +88,10 @@ struct NodeAddress
 /// Little-endian float32 samples, base64'd (irAlignment.ts decodeFloat32Base64). Empty for
 /// text that is not.
 [[nodiscard]] std::vector<float> DecodeFloat32Base64(const std::string& text);
+
+/// The line under a noise gate's Learn meter (gateLearn.ts statusText): what it is doing, or
+/// what it heard and set. `floorDb` is the meter's bottom; quieter noise reads as under it.
+[[nodiscard]] std::string GateLearnStatusText(const GateLearnStatus* status, double floorDb);
 
 /// Parses an effectResponse reply; nothing when it is not supported or malformed.
 [[nodiscard]] std::optional<ResponseCurve> ParseResponseCurve(const nlohmann::json& reply);
