@@ -208,6 +208,9 @@ private:
 
     // ChainStrip.cpp
     Ptr BuildChain();
+    /// Whether the full layout's chain is drawn as icon tiles: the bar under it dragged up
+    /// past the cards' height, as the web UI's splitter does (signalPath/layout.ts).
+    [[nodiscard]] bool IconChain() const;
     [[nodiscard]] std::string ChainSignature() const;
     /// Moves each card's signal light to what the telemetry feed says. UI thread, per tick.
     void SyncChainLights();
@@ -509,6 +512,9 @@ private:
     float mChainAreaHeight = 0.0f; // the full layout's chain, as tall as its lines
     float mChainAreaLimit = 0.0f;  // how tall it may grow, once the bar under it is dragged
     float mChainDragStart = -1.0f; // the chain's room when that drag began
+    bool mLibraryExportAll = false; // Settings > Library: the whole library, not only what presets use
+    int mChainIcons = -1;          // the chain as icon tiles (1) or cards (0); -1 follows the setting
+    bool mChainDragIcons = false;  // which it was when that drag began
     std::vector<guitarfx::uiclient::Subscription> mHeaderSubs; // the control bar's live values
     guitarfx::uiclient::PresetTrail mPresetTrail;
     std::shared_ptr<guitarfx::uiclient::TapTempo> mTapTempo;

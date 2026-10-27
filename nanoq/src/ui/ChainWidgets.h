@@ -86,6 +86,10 @@ constexpr float kWireEndWidth = 14.0f; // where a line's cable turns down, or th
 constexpr float kRouteHeight = 16.0f;  // the cable back under a line
 constexpr float kSidePad = 12.0f;
 constexpr float kPowerSize = 16.0f;
+// The chain dragged short (nodes-compact.css): each card a 40 px tile with only its icon, in a
+// 48 px row.
+constexpr float kIconCardSize = 40.0f;
+constexpr float kIconRowHeight = 48.0f;
 
 /// A card's width for its text, estimated from its length so the wrap can be worked out before
 /// anything is measured: the 10 px capitals run about 6.6 px a letter and the 9 px detail about
@@ -156,6 +160,7 @@ public:
         bool selected = false;
         bool missing = false;
         bool canBypass = true;
+        bool iconOnly = false; // a 40 px tile with the icon (or the artwork) and nothing else
         Boundary boundary = Boundary::None;
     };
 
@@ -171,7 +176,7 @@ public:
 
     el::view_limits limits(const el::basic_context&) const override
     {
-        return {{mLook.width, kCardHeight}, {mLook.width, el::full_extent}};
+        return {{mLook.width, mLook.iconOnly ? kIconRowHeight : kCardHeight}, {mLook.width, el::full_extent}};
     }
 
     void draw(const el::context& ctx) override
@@ -270,80 +275,108 @@ public:
             cnv.fill_round_rect(strip, 1.0f);
         }
 
-        const float cx = r.left + r.width() * 0.5f;
-        float y = r.top + 8.0f;
-
-        // The picture: the artwork over the top edge with the icon in a dark disc on it, or the
-        // icon in a round badge of the category colour.
-        if (mLook.thumbnail)
+        // Icon-only: the icon fills the tile, or the artwork does in a 26 px square, with no
+        // name, effect or badge (nodes-compact.css).
+        if (mLook.iconOnly)
         {
-            const auto& image = *mLook.thumbnail;
-            const auto size = image.size();
-            const float h = 32.0f;
-            const float w = size.y > 0.0f ? std::clamp(h * size.x / size.y, 24.0f, 64.0f) : h;
-            const el::rect picture{cx - w * 0.5f, r.top - 8.0f, cx + w * 0.5f, r.top - 8.0f + h};
+            const auto c = artist::center_point(r);
+            if (mLook.thumbnail)
             {
+                const el::rect picture{c.x - 13.0f, c.y - 13.0f, c.x + 13.0f, c.y + 13.0f};
                 auto state = cnv.new_state();
                 cnv.begin_path();
-                cnv.add_round_rect(picture, 6.0f);
+                cnv.add_round_rect(picture, 4.0f);
                 cnv.clip();
-                DrawImageCovering(cnv, image, picture);
-                cnv.fill_style(mTheme.Bar().opacity(on ? 0.15f : 0.6f));
-                cnv.fill_rect(picture);
+                DrawImageCovering(cnv, *mLook.thumbnail, picture);
+                if (!on)
+                {
+                    cnv.fill_style(mTheme.Bar().opacity(0.6f));
+                    cnv.fill_rect(picture);
+                }
             }
-            cnv.stroke_style(el::rgba(255, 255, 255, 31));
-            cnv.line_width(1.0f);
-            cnv.stroke_round_rect(picture.inset(0.5f, 0.5f), 6.0f);
-            const auto c = artist::center_point(picture);
-            cnv.fill_style(el::rgba(9, 11, 17, 102));
-            cnv.add_circle(artist::circle(c, 11.0f));
-            cnv.fill();
-            mIcons.Draw(cnv, mLook.icon, el::rect{c.x - 7.0f, c.y - 7.0f, c.x + 7.0f, c.y + 7.0f}, ghost(tint).opacity(0.85f));
-            y += 24.0f + 4.0f;
+            else
+            {
+                mIcons.Draw(cnv, mLook.icon, el::rect{c.x - 8.0f, c.y - 8.0f, c.x + 8.0f, c.y + 8.0f}, ghost(tint));
+            }
         }
         else
         {
-            const el::point c{cx, y + 15.0f};
-            auto state = cnv.new_state();
-            artist::canvas::radial_gradient badge{el::point{c.x, c.y - 3.5f}, 0.0f, el::point{c.x, c.y - 3.5f}, 15.0f * 1.1f};
-            badge.add_color_stop(0.0f, tint.opacity(0.28f * fade));
-            badge.add_color_stop(0.72f, tint.opacity(0.07f * fade));
-            cnv.fill_style(badge);
-            cnv.add_circle(artist::circle(c, 15.0f));
-            cnv.fill();
-            cnv.stroke_style(tint.opacity(0.24f * fade));
-            cnv.line_width(1.0f);
-            cnv.add_circle(artist::circle(c, 14.5f));
-            cnv.stroke();
-            mIcons.Draw(cnv, mLook.icon, el::rect{c.x - 8.0f, c.y - 8.0f, c.x + 8.0f, c.y + 8.0f}, ghost(tint));
-            y += 30.0f + 4.0f;
-        }
+            const float cx = r.left + r.width() * 0.5f;
+            float y = r.top + 8.0f;
 
-        // The name, in capitals as the web UI's are, the effect under it, and the model's badge.
-        const el::color ink = ghost(mTheme.Text());
-        const auto nameFont = Font(Weight::Medium).size(10.0f);
-        const auto detailFont = Font(Weight::Medium).size(9.0f);
-        const float textWidth = std::min(160.0f, r.width() - 16.0f);
-        FillText(cnv, Ellipsize(cnv, Upper(mLook.name), nameFont, textWidth), nameFont, ink, el::rect{r.left + 6.0f, y, r.right - 6.0f, y + 12.0f},
-                 HAlign::Centre);
-        y += 14.0f;
-        if (!mLook.detail.empty())
-        {
-            FillText(cnv, Ellipsize(cnv, mLook.detail, detailFont, textWidth), detailFont, ghost(Mix(tint, mTheme.TextMuted(), 0.26f)),
-                     el::rect{r.left + 6.0f, y, r.right - 6.0f, y + 11.0f}, HAlign::Centre);
-            y += 13.0f;
-        }
-        if (!mLook.badge.empty())
-        {
-            const auto badgeFont = Font(Weight::SemiBold).size(8.0f);
-            const float w = el::measure_text(cnv, mLook.badge, badgeFont).x + 12.0f;
-            const el::rect pill{cx - w * 0.5f, y, cx + w * 0.5f, y + 13.0f};
-            cnv.fill_style(el::rgba(56, 118, 98, 71));
-            cnv.fill_round_rect(pill, 6.5f);
-            cnv.stroke_style(el::rgba(128, 230, 188, 92));
-            cnv.line_width(1.0f);
-            cnv.stroke_round_rect(pill.inset(0.5f, 0.5f), 6.5f);
-            FillText(cnv, mLook.badge, badgeFont, el::rgba(186, 255, 226, 255), pill, HAlign::Centre);
+            // The picture: the artwork over the top edge with the icon in a dark disc on it, or the
+            // icon in a round badge of the category colour.
+            if (mLook.thumbnail)
+            {
+                const auto& image = *mLook.thumbnail;
+                const auto size = image.size();
+                const float h = 32.0f;
+                const float w = size.y > 0.0f ? std::clamp(h * size.x / size.y, 24.0f, 64.0f) : h;
+                const el::rect picture{cx - w * 0.5f, r.top - 8.0f, cx + w * 0.5f, r.top - 8.0f + h};
+                {
+                    auto state = cnv.new_state();
+                    cnv.begin_path();
+                    cnv.add_round_rect(picture, 6.0f);
+                    cnv.clip();
+                    DrawImageCovering(cnv, image, picture);
+                    cnv.fill_style(mTheme.Bar().opacity(on ? 0.15f : 0.6f));
+                    cnv.fill_rect(picture);
+                }
+                cnv.stroke_style(el::rgba(255, 255, 255, 31));
+                cnv.line_width(1.0f);
+                cnv.stroke_round_rect(picture.inset(0.5f, 0.5f), 6.0f);
+                const auto c = artist::center_point(picture);
+                cnv.fill_style(el::rgba(9, 11, 17, 102));
+                cnv.add_circle(artist::circle(c, 11.0f));
+                cnv.fill();
+                mIcons.Draw(cnv, mLook.icon, el::rect{c.x - 7.0f, c.y - 7.0f, c.x + 7.0f, c.y + 7.0f}, ghost(tint).opacity(0.85f));
+                y += 24.0f + 4.0f;
+            }
+            else
+            {
+                const el::point c{cx, y + 15.0f};
+                auto state = cnv.new_state();
+                artist::canvas::radial_gradient badge{el::point{c.x, c.y - 3.5f}, 0.0f, el::point{c.x, c.y - 3.5f}, 15.0f * 1.1f};
+                badge.add_color_stop(0.0f, tint.opacity(0.28f * fade));
+                badge.add_color_stop(0.72f, tint.opacity(0.07f * fade));
+                cnv.fill_style(badge);
+                cnv.add_circle(artist::circle(c, 15.0f));
+                cnv.fill();
+                cnv.stroke_style(tint.opacity(0.24f * fade));
+                cnv.line_width(1.0f);
+                cnv.add_circle(artist::circle(c, 14.5f));
+                cnv.stroke();
+                mIcons.Draw(cnv, mLook.icon, el::rect{c.x - 8.0f, c.y - 8.0f, c.x + 8.0f, c.y + 8.0f}, ghost(tint));
+                y += 30.0f + 4.0f;
+            }
+
+            // The name, in capitals as the web UI's are, the effect under it, and the model's badge.
+            const el::color ink = ghost(mTheme.Text());
+            const auto nameFont = Font(Weight::Medium).size(10.0f);
+            const auto detailFont = Font(Weight::Medium).size(9.0f);
+            const float textWidth = std::min(160.0f, r.width() - 16.0f);
+            FillText(cnv, Ellipsize(cnv, Upper(mLook.name), nameFont, textWidth), nameFont, ink, el::rect{r.left + 6.0f, y, r.right - 6.0f, y + 12.0f},
+                     HAlign::Centre);
+            y += 14.0f;
+            if (!mLook.detail.empty())
+            {
+                FillText(cnv, Ellipsize(cnv, mLook.detail, detailFont, textWidth), detailFont, ghost(Mix(tint, mTheme.TextMuted(), 0.26f)),
+                         el::rect{r.left + 6.0f, y, r.right - 6.0f, y + 11.0f}, HAlign::Centre);
+                y += 13.0f;
+            }
+            if (!mLook.badge.empty())
+            {
+                const auto badgeFont = Font(Weight::SemiBold).size(8.0f);
+                const float w = el::measure_text(cnv, mLook.badge, badgeFont).x + 12.0f;
+                const el::rect pill{cx - w * 0.5f, y, cx + w * 0.5f, y + 13.0f};
+                cnv.fill_style(el::rgba(56, 118, 98, 71));
+                cnv.fill_round_rect(pill, 6.5f);
+                cnv.stroke_style(el::rgba(128, 230, 188, 92));
+                cnv.line_width(1.0f);
+                cnv.stroke_round_rect(pill.inset(0.5f, 0.5f), 6.5f);
+                FillText(cnv, mLook.badge, badgeFont, el::rgba(186, 255, 226, 255), pill, HAlign::Centre);
+            }
+
         }
 
         // The signal light, bottom right.
@@ -359,7 +392,7 @@ public:
             cnv.fill();
         }
 
-        if (mLook.missing)
+        if (mLook.missing && !mLook.iconOnly)
         {
             const auto font = Font(Weight::SemiBold).size(9.0f);
             FillText(cnv, "\xE2\x9A\xA0", font, el::rgba(255, 102, 102, 255), el::rect{r.left + 4.0f, r.bottom - 15.0f, r.left + 16.0f, r.bottom - 3.0f},
@@ -485,11 +518,16 @@ public:
 private:
     [[nodiscard]] float CardHeight() const
     {
+        if (mLook.iconOnly)
+            return kIconCardSize;
         return mLook.thumbnail ? kThumbCardHeight : kPlainCardHeight;
     }
 
-    static el::rect PowerRect(const el::rect& card)
+    [[nodiscard]] el::rect PowerRect(const el::rect& card) const
     {
+        // On a tile it sits over the corner, clear of the icon.
+        if (mLook.iconOnly)
+            return el::rect{card.left - 5.0f, card.top - 5.0f, card.left - 5.0f + kPowerSize, card.top - 5.0f + kPowerSize};
         return el::rect{card.left + 6.0f, card.top + 6.0f, card.left + 6.0f + kPowerSize, card.top + 6.0f + kPowerSize};
     }
 
@@ -524,7 +562,13 @@ public:
 
     el::view_limits limits(const el::basic_context&) const override
     {
-        return {{kConnectorWidth, kCardHeight}, {mStretch ? el::full_extent : kConnectorWidth, el::full_extent}};
+        return {{kConnectorWidth, mRowHeight}, {mStretch ? el::full_extent : kConnectorWidth, el::full_extent}};
+    }
+
+    /// The row it sits in: the cards' (kCardHeight), or the tiles' (kIconRowHeight).
+    void RowHeight(float height)
+    {
+        mRowHeight = height;
     }
 
     /// The node whose signal this cable carries (its edge's source), or "" for a drawing-only one.
@@ -699,6 +743,7 @@ private:
     bool mHover = false;
     std::shared_ptr<HitMap> mHits;
     std::optional<guitarfx::GraphEdge> mEdge;
+    float mRowHeight = kCardHeight;
 };
 
 /// Where a parallel block splits (or joins): the cable from the main line meets a rail that
@@ -710,6 +755,12 @@ public:
     Rail(const Theme& theme, Icons& icons, int lanes, bool join, bool selected, std::function<void()> onSelect)
         : mTheme(theme), mIcons(icons), mLanes(lanes), mJoin(join), mSelected(selected), mOnSelect(std::move(onSelect))
     {
+    }
+
+    /// Each lane's height: the cards' (kCardHeight), or the tiles' (kIconRowHeight).
+    void RowHeight(float height)
+    {
+        mRowHeight = height;
     }
 
     el::view_limits limits(const el::basic_context&) const override
@@ -734,13 +785,13 @@ public:
         cnv.begin_path();
         cnv.move_to(outside, mid);
         cnv.line_to(x, mid);
-        const float first = top + kCardHeight * 0.5f;
-        const float last = top + Height() - kCardHeight * 0.5f;
+        const float first = top + mRowHeight * 0.5f;
+        const float last = top + Height() - mRowHeight * 0.5f;
         cnv.move_to(x, first);
         cnv.line_to(x, last);
         for (int i = 0; i < mLanes; ++i)
         {
-            const float y = first + static_cast<float>(i) * (kCardHeight + kLaneGap);
+            const float y = first + static_cast<float>(i) * (mRowHeight + kLaneGap);
             cnv.move_to(x, y);
             cnv.line_to(inside, y);
         }
@@ -786,12 +837,13 @@ public:
 private:
     [[nodiscard]] float Height() const
     {
-        return static_cast<float>(mLanes) * kCardHeight + static_cast<float>(std::max(0, mLanes - 1)) * kLaneGap;
+        return static_cast<float>(mLanes) * mRowHeight + static_cast<float>(std::max(0, mLanes - 1)) * kLaneGap;
     }
 
     const Theme& mTheme;
     Icons& mIcons;
     int mLanes;
+    float mRowHeight = kCardHeight;
     bool mJoin, mSelected;
     std::function<void()> mOnSelect;
     bool mHover = false;

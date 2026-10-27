@@ -126,6 +126,12 @@ bool MessageDispatcher::DispatchLibraryAndComposite(PluginController& c, const n
         return true;
     }
 
+    if (type == "exportLibraryArchive")
+    {
+        c.HandleExportLibraryArchiveRequest(msg);
+        return true;
+    }
+
     if (type == "saveLibraryArchive")
     {
         c.HandleSaveLibraryArchiveRequest(msg);

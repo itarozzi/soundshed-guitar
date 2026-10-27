@@ -231,6 +231,19 @@ void UiClient::RegisterLibraryHandlers()
         PostNotification({Notification::Kind::Error, "Import failed", m.value("message", "")});
     });
 
+    // exportLibraryArchive's answer, and what it could not carry, as the web UI shows them.
+    On("libraryExportSaved", [this](const nlohmann::json& m) {
+        PostNotification({Notification::Kind::Info, "Library exported", m.value("path", "")});
+        if (const auto warnings = m.find("warnings"); warnings != m.end() && warnings->is_array())
+            for (const auto& warning : *warnings)
+                if (warning.is_string() && !warning.get<std::string>().empty())
+                    PostNotification({Notification::Kind::Error, "Export warning", warning.get<std::string>()});
+    });
+
+    On("libraryExportFailed", [this](const nlohmann::json& m) {
+        PostNotification({Notification::Kind::Error, "Library export failed", m.value("message", "")});
+    });
+
     On("resourceDeleteFailed", [this](const nlohmann::json& m) {
         PostNotification({Notification::Kind::Error, m.value("message", "Could not delete"), m.value("detail", "")});
     });

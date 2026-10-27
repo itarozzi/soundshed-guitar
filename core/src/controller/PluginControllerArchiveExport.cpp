@@ -1,6 +1,7 @@
 /**
  * PluginControllerArchiveExport.cpp - Exporting presets as a preset archive
- * ("exportPresetArchive").
+ * ("exportPresetArchive"), and the library as a library archive ("exportLibraryArchive",
+ * at the end of the file).
  *
  * One preset becomes a `.soundshed.preset` zip (preset.json); several, or any number with
  * `collection`, become a `.soundshed.presets` zip (presets.json) that also carries their folder
@@ -875,6 +876,41 @@ std::string Plural(std::size_t count, const std::string& one, const std::string&
 {
     return std::to_string(count) + " " + (count == 1 ? one : many);
 }
+
+/// archiveUtils.ts buildArchiveFileName: the library file's own name, or the id (else the name)
+/// sanitized with the type's extension. A name already used in the same folder gets "-2", "-3"
+/// before its extension, where JSZip would have written one file over the other.
+std::string LibraryArchiveFileName(const LibraryResource& resource, const std::string& type,
+                                   std::unordered_set<std::string>& used)
+{
+    std::string name = resource.filePath.empty() ? std::string{} : util::PathToUtf8(resource.filePath.filename());
+
+    if (name.empty())
+    {
+        name = SanitizeArchiveName(!resource.id.empty() ? resource.id : !resource.name.empty() ? resource.name : "resource",
+                                   "resource") +
+               DefaultExtension(type);
+    }
+
+    if (used.insert(type + "/" + ToLowerAscii(name)).second)
+    {
+        return name;
+    }
+
+    const auto dot = name.rfind('.');
+    const std::string stem = dot != std::string::npos && dot > 0 ? name.substr(0, dot) : name;
+    const std::string extension = dot != std::string::npos && dot > 0 ? name.substr(dot) : std::string{};
+
+    for (int n = 2;; ++n)
+    {
+        std::string candidate = stem + "-" + std::to_string(n) + extension;
+
+        if (used.insert(type + "/" + ToLowerAscii(candidate)).second)
+        {
+            return candidate;
+        }
+    }
+}
 } // namespace
 
 void PluginController::HandleExportPresetArchiveRequest(const nlohmann::json& payload)
@@ -1251,4 +1287,194 @@ void PluginController::HandleExportPresetArchiveRequest(const nlohmann::json& pa
                              " resource(s))");
         });
 }
+/// The library as one archive, `.soundshed-library.zip`: the user's presets, every blend, and the
+/// models and IRs they use (resources "used", the default) or the whole library ("all"), in the
+/// layout the web UI's libraryExport.ts wrote with JSZip: library.json, {formatVersion: 1,
+/// createdAt, resourceMode, presets, blends, resources}, with each file under resources/nam/ or
+/// resources/ir/ by its own name and listed as {id, name, category, type, fileName, hash, tags}.
+/// Unlike a preset archive it keeps every id as the library has it: it is the library backed up,
+/// not a pack to share. Presets are as the UI is sent them, the one being edited from its working
+/// copy; factory presets kept in the user's store (mTrackedFactoryArchivePresetIds) are left out.
+void PluginController::HandleExportLibraryArchiveRequest(const nlohmann::json& payload)
+{
+    const auto fail = [this](const std::string& message) {
+        SendMessageToUI(nlohmann::json{{"type", "libraryExportFailed"}, {"message", message}}.dump());
+    };
+
+    const std::string resourceMode = payload.value("resources", std::string{}) == "all" ? "all" : "used";
+    std::vector<std::string> warnings;
+
+    std::vector<nlohmann::json> presets;
+
+    for (const auto& stored : LoadAllUserPresets())
+    {
+        if (mTrackedFactoryArchivePresetIds.contains(stored.id))
+        {
+            continue;
+        }
+
+        const bool editing = ResolveActivePresetSlotId(stored.id) && mActivePreset;
+        presets.push_back(SerializePresetForUi(editing ? *mActivePreset : stored));
+    }
+
+    const nlohmann::json blends = mBlendLibrary.is_array() ? mBlendLibrary : nlohmann::json::array();
+
+    if (presets.empty() && blends.empty())
+    {
+        fail("No presets or blends available");
+        return;
+    }
+
+    // ── Which models and IRs ────────────────────────────────────────────────────
+    std::vector<std::pair<std::string, LibraryResource>> entries;
+
+    if (resourceMode == "all")
+    {
+        for (const char* type : {"nam", "ir"})
+        {
+            for (auto& resource : mResourceLibrary.GetResourcesByType(type))
+            {
+                entries.emplace_back(type, std::move(resource));
+            }
+        }
+    }
+    else
+    {
+        // The blends the presets play, and through them their models (resourceUsage.ts).
+        std::vector<std::string> blendIds;
+        std::unordered_set<std::string> seenBlendIds;
+
+        for (const auto& preset : presets)
+        {
+            CollectPresetBlendIds(preset, blendIds, seenBlendIds);
+        }
+
+        nlohmann::json playedBlends = nlohmann::json::array();
+
+        for (const auto& blend : blends)
+        {
+            if (blend.is_object() && seenBlendIds.contains(StringField(blend, "id")))
+            {
+                playedBlends.push_back(blend);
+            }
+        }
+
+        RefCollector refs;
+
+        for (const auto& preset : presets)
+        {
+            refs.AddPreset(preset, playedBlends);
+        }
+
+        for (const auto& ref : refs.Refs())
+        {
+            if (ref.type != "nam" && ref.type != "ir")
+            {
+                continue;
+            }
+
+            if (auto resource = FindLibraryResource(mResourceLibrary, ref.type, ref.id))
+            {
+                entries.emplace_back(ref.type, std::move(*resource));
+            }
+        }
+    }
+
+    // ── The files ───────────────────────────────────────────────────────────────
+    nlohmann::json exportResources = nlohmann::json::array();
+    std::vector<std::pair<std::string, std::vector<std::uint8_t>>> files{{"nam/", {}}, {"ir/", {}}};
+    std::unordered_set<std::string> usedNames;
+    std::size_t missing = 0;
+
+    for (const auto& [type, resource] : entries)
+    {
+        ResourceRef lookup;
+        lookup.resourceType = type;
+        lookup.resourceId = resource.id;
+        const auto path = ResolveResourceRef(lookup);
+        auto bytes = path && !path->empty() ? util::ReadFileBytes(*path) : std::vector<std::uint8_t>{};
+
+        if (bytes.empty())
+        {
+            ++missing;
+            continue;
+        }
+
+        const std::string fileName = LibraryArchiveFileName(resource, type, usedNames);
+        exportResources.push_back({{"id", resource.id},
+                                   {"name", resource.name},
+                                   {"category", resource.category},
+                                   {"type", type},
+                                   {"fileName", fileName},
+                                   {"hash", util::Sha256Hex(bytes)},
+                                   {"tags", resource.tags}});
+        files.emplace_back(type + "/" + fileName, std::move(bytes));
+    }
+
+    if (missing > 0)
+    {
+        warnings.push_back(Plural(missing, "resource", "resources") + " could not be read");
+    }
+
+    const nlohmann::json archive = {{"formatVersion", 1},
+                                    {"createdAt", IsoTimestampWithMilliseconds()},
+                                    {"resourceMode", resourceMode},
+                                    {"presets", presets},
+                                    {"blends", blends},
+                                    {"resources", exportResources}};
+
+    auto zipBytes = BuildArchiveZip(files, "library.json", DumpArchiveJson(archive));
+
+    if (!zipBytes)
+    {
+        fail("Unable to create archive");
+        return;
+    }
+
+    const std::size_t presetCount = presets.size();
+    const std::size_t resourceCount = exportResources.size();
+
+    // As saveLibraryArchive saves the web UI's bytes, and answered the same way.
+    mHost.SaveFileAsync(
+        BrowseFileType::ArchiveFile, "Save Library Export", "Soundshed-Library.soundshed-library.zip",
+        [this, bytes = std::move(*zipBytes), warnings, presetCount, resourceCount](const BrowseFileResult& result) {
+            if (!result.success)
+            {
+                SendMessageToUI(nlohmann::json{{"type", "libraryExportFailed"}, {"message", "Save cancelled"}}.dump());
+                return;
+            }
+
+            // A bare name chosen in the dialog gets the archive's extension.
+            auto chosenPath = result.path;
+            const std::string chosenName = ToLowerAscii(util::PathToUtf8(chosenPath.filename()));
+
+            if (chosenName.size() < 4 || chosenName.compare(chosenName.size() - 4, 4, ".zip") != 0)
+            {
+                chosenPath += util::PathFromUtf8(".soundshed-library.zip");
+            }
+
+            if (!WriteFile(chosenPath, bytes))
+            {
+                SendMessageToUI(
+                    nlohmann::json{{"type", "libraryExportFailed"}, {"message", "Failed to save file"}}.dump());
+                return;
+            }
+
+            nlohmann::json reply = {{"type", "libraryExportSaved"},
+                                    {"path", util::PathToUtf8(chosenPath)},
+                                    {"presetCount", presetCount},
+                                    {"resourceCount", resourceCount}};
+
+            if (!warnings.empty())
+            {
+                reply["warnings"] = warnings;
+            }
+
+            SendMessageToUI(reply.dump());
+            AppendSessionLog("Library export saved: " + util::PathToUtf8(chosenPath) + " (" +
+                             std::to_string(presetCount) + " preset(s), " + std::to_string(resourceCount) +
+                             " resource(s))");
+        });
+}
+
 } // namespace guitarfx

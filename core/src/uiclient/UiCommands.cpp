@@ -507,6 +507,11 @@ std::string UiCommands::ImportRemoteResource(nlohmann::json payload)
     return requestId;
 }
 
+void UiCommands::ExportLibraryArchive(bool allResources)
+{
+    mClient.Send("exportLibraryArchive", {{"resources", allResources ? "all" : "used"}});
+}
+
 void UiCommands::SaveLocalLibraryResource(const std::string& resourceType, const std::string& filePath, const std::string& name,
                                           const nlohmann::json& metadata, const std::string& nodeId, int resourceIndex)
 {

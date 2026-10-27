@@ -6,6 +6,7 @@
 
 #include "ui/Shell.h"
 
+#include "ui/ChainWidgets.h"
 #include "ui/FrameParts.h"
 #include "ui/ShellWidgets.h"
 
@@ -279,19 +280,32 @@ Ptr Shell::BuildPlayStage()
     auto chain = Over(Col({mSceneSlot, mChainSlot, FixedHeight(30, Pad(0, 0, 0, 6, Row({Stretch(), add, HGap(14)})))}),
                       std::make_shared<StageBackdrop>(mTheme));
     // The bar between them is dragged to give the chain more room or less (kept in Nano Q's
-    // own UI settings, as chainAreaHeight).
+    // own UI settings, as chainAreaHeight). Dragged 12 px past the cards' least height the
+    // chain turns to icon tiles, and 12 px down from them back to cards, as the web UI's
+    // splitter switches its two modes (signalPath/layout.ts, chainIcons here).
     auto handle = std::make_shared<SplitHandle>(mTheme);
     handle->onDrag = [this](float dy, bool done) {
+        constexpr float kModeGesture = 12.0f;
         if (mChainDragStart < 0.0f)
+        {
             mChainDragStart = mChainAreaHeight - 24.0f - 30.0f;
-        mChainAreaLimit = std::max(1.0f, mChainDragStart + dy);
+            mChainDragIcons = IconChain();
+        }
+        const float wanted = mChainDragStart + dy;
+        const bool icons = mChainDragIcons ? dy < kModeGesture : wanted < kCardHeight + 24.0f - kModeGesture;
+        mChainIcons = icons ? 1 : 0;
+        if (!icons)
+            mChainAreaLimit = std::max(1.0f, wanted);
         mChainSignature.clear();
         mEffectSignature.clear();
         Mark(kChain | kPage);
         if (done)
         {
             mChainDragStart = -1.0f;
-            mSession.Commands().PatchNativeUiSettings({{"chainAreaHeight", std::round(mChainAreaLimit)}});
+            nlohmann::json patch{{"chainIcons", icons}};
+            if (!icons)
+                patch["chainAreaHeight"] = std::round(mChainAreaLimit);
+            mSession.Commands().PatchNativeUiSettings(patch);
         }
     };
     return Col({chain, FixedHeight(10, handle), mEffectSlot});

@@ -163,6 +163,10 @@ public:
     void DeleteLibraryResource(const std::string& resourceType, const std::string& resourceId);
     /// Asks what uses a resource; answered into ClientState::resourceUsage.
     void QueryResourceUsage(const std::string& resourceType, const std::string& resourceId);
+    /// Writes the library as one archive through a save dialog (exportLibraryArchive): the
+    /// user's presets, every blend, and the models and IRs they use, or with `allResources`
+    /// the whole library. The answer comes back as a notification.
+    void ExportLibraryArchive(bool allResources);
     /// Plays downloaded bytes (base64) on a node's slot without importing them, until
     /// CancelPreviewResource or a selection takes the slot.
     void PreviewRemoteResource(const std::string& resourceType, const std::string& tempResourceId, const std::string& nodeId,

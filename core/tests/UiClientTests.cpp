@@ -1792,6 +1792,29 @@ void TestGlobalChainEditsMirror()
     Expect(client.State().globalChain.outputGain == -3.0, "the engine's output level matches");
 }
 
+// Library export goes to the engine (exportLibraryArchive), and its answer comes back as a
+// notification; this host's save dialog is always cancelled.
+void TestLibraryExportAnswer()
+{
+    LoopbackHost host(Sandbox("library-export"));
+    PluginController controller(host);
+    controller.Initialize();
+    UiClient client([&controller](const std::string& json) { controller.HandleUIMessage(json); });
+    host.client = &client;
+    UiCommands commands(client);
+    client.Start();
+    Pump(controller, client);
+    (void)client.TakeNotifications();
+
+    commands.ExportLibraryArchive(true);
+    Pump(controller, client);
+    const auto notes = client.TakeNotifications();
+    const bool failed = std::any_of(notes.begin(), notes.end(), [](const Notification& n) {
+        return n.kind == Notification::Kind::Error && n.title == "Library export failed" && !n.detail.empty();
+    });
+    Expect(failed, "a cancelled or refused library export is told as a notification");
+}
+
 int main()
 {
     TestClientMirrorsTheEngine();
@@ -1810,6 +1833,7 @@ int main()
     TestMetronomeMeters();
     TestUpdateCheckVersions();
     TestGlobalChainEditsMirror();
+    TestLibraryExportAnswer();
     TestIrAlignmentResponse();
     TestAutomation();
     TestInputLevelling();

@@ -14,6 +14,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace nanoq::ui
 {
@@ -51,6 +52,27 @@ private:
     el::color mColour;
     Align mAlign = Align::Left;
     bool mFixed = false;
+};
+
+/// Text wrapped at word breaks to a fixed width, as tall as its lines.
+class Paragraph : public el::element
+{
+public:
+    Paragraph(const Theme& theme, std::string text, float width, float size = metrics::kTextSize);
+
+    el::view_limits limits(const el::basic_context& ctx) const override;
+    void draw(const el::context& ctx) override;
+
+    Paragraph& Colour(el::color c);
+
+private:
+    [[nodiscard]] std::vector<std::string> Lines(cycfi::artist::canvas& cnv) const;
+
+    const Theme& mTheme;
+    std::string mText;
+    float mWidth;
+    float mSize;
+    el::color mColour;
 };
 
 /// A push button or, with Toggle(), a switch. Text, or text with a leading dot for a state.

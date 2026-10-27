@@ -37,7 +37,7 @@ struct Segment
 {
     std::vector<Ptr> parts;
     float width = 0.0f;
-    float height = kCardHeight;
+    float height = 0.0f; // past the row's own, for a parallel block
 };
 
 /// A node class's accent on the chain (css/signal-path/nodes.css, .signal-node.amp and the rest):
@@ -70,7 +70,17 @@ std::string Shell::ChainSignature() const
         s += "|" + edge.from + ">" + edge.to + "#" + std::to_string(edge.fromPort);
     for (const auto& missing : mState.missingNodeResources)
         s += "|!" + missing;
-    return s + "|" + MixerSignature();
+    return s + "|" + MixerSignature() + (IconChain() ? "|icons" : "");
+}
+
+bool Shell::IconChain() const
+{
+    if (!mWide)
+        return false;
+    if (mChainIcons >= 0)
+        return mChainIcons == 1;
+    const auto native = mState.uiSettings.find("native");
+    return native != mState.uiSettings.end() && native->is_object() && native->value("chainIcons", false);
 }
 
 Ptr Shell::BuildChain()
@@ -87,6 +97,8 @@ Ptr Shell::BuildChain()
 
     const auto& graph = mState.activePreset->graph;
     const auto layout = BuildChainLayout(graph);
+    const bool icons = IconChain();
+    const float rowHeight = icons ? kIconRowHeight : kCardHeight;
 
     // The input and output are nodes of the graph (their trim is edited like a parameter); a
     // graph that lacks one still gets its card, under the layout's own id.
@@ -106,7 +118,7 @@ Ptr Shell::BuildChain()
     };
 
     // A card for a node of the graph; its width is returned too, for the wrap.
-    auto makeCard = [this, &graph, &isMissing, &inputId, &outputId](const std::string& nodeId, float& width) -> Ptr {
+    auto makeCard = [this, &graph, &isMissing, &inputId, &outputId, icons](const std::string& nodeId, float& width) -> Ptr {
         NodeCard::Look look;
         const auto* node = graph.FindNode(nodeId);
         const bool input = nodeId == inputId || (node != nullptr && IsBoundaryNode(*node) && node->type == guitarfx::kNodeTypeInput);
@@ -150,6 +162,11 @@ Ptr Shell::BuildChain()
             return HGap(0);
         }
 
+        if (icons)
+        {
+            look.iconOnly = true;
+            look.width = kIconCardSize;
+        }
         look.selected = nodeId == mSelectedNode;
         width = look.width;
         const bool canBypass = look.canBypass;
@@ -184,8 +201,9 @@ Ptr Shell::BuildChain()
         return [this, from] { OpenEffectPicker(from); };
     };
     // A cable with its +, which knows its edge of the graph so a dragged card can land on it.
-    auto cable = [this, &graph, &plus](const std::string& from, const std::string& to, int fromPort = -1, bool stretch = false) {
+    auto cable = [this, &graph, &plus, rowHeight](const std::string& from, const std::string& to, int fromPort = -1, bool stretch = false) {
         auto connector = std::make_shared<Connector>(mTheme, plus(from, to, fromPort), stretch);
+        connector->RowHeight(rowHeight);
         for (const auto& edge : graph.edges)
             if (edge.from == from && edge.to == to && (fromPort < 0 || edge.fromPort == fromPort))
             {
@@ -211,7 +229,11 @@ Ptr Shell::BuildChain()
         Segment segment;
         // Into a parallel block's mixer the cable is drawing only: the branches are its inputs.
         if (afterParallel)
-            segment.parts.push_back(std::make_shared<Connector>(mTheme, std::function<void()>{}));
+        {
+            auto drawing = std::make_shared<Connector>(mTheme, std::function<void()>{});
+            drawing->RowHeight(rowHeight);
+            segment.parts.push_back(drawing);
+        }
         else
             segment.parts.push_back(cable(previous, item.kind == ChainItem::Kind::Node ? item.nodeId : item.splitNodeId));
         segment.width = kConnectorWidth;
@@ -262,19 +284,22 @@ Ptr Shell::BuildChain()
             lanesWidth = std::max(lanesWidth, std::max(laneWidth, 2.0f * kConnectorWidth));
             if (!lanes.empty())
                 lanes.push_back(VGap(kLaneGap));
-            lanes.push_back(FixedHeight(kCardHeight, Row(lane)));
+            lanes.push_back(FixedHeight(rowHeight, Row(lane)));
         }
 
         const auto splitId = item.splitNodeId;
-        segment.parts.push_back(std::make_shared<Rail>(mTheme, mIcons, laneCount, false, splitId == mSelectedNode,
-                                                       [this, splitId] {
-                                                           SelectNode(splitId);
-                                                           mChainFocused = true;
-                                                       }));
+        auto split = std::make_shared<Rail>(mTheme, mIcons, laneCount, false, splitId == mSelectedNode, [this, splitId] {
+            SelectNode(splitId);
+            mChainFocused = true;
+        });
+        auto join = std::make_shared<Rail>(mTheme, mIcons, laneCount, true, false, std::function<void()>{});
+        split->RowHeight(rowHeight);
+        join->RowHeight(rowHeight);
+        segment.parts.push_back(split);
         segment.parts.push_back(FixedWidth(lanesWidth, Col(lanes)));
-        segment.parts.push_back(std::make_shared<Rail>(mTheme, mIcons, laneCount, true, false, std::function<void()>{}));
+        segment.parts.push_back(join);
         segment.width += kRailWidth * 2.0f + lanesWidth;
-        segment.height = static_cast<float>(laneCount) * kCardHeight + static_cast<float>(laneCount - 1) * kLaneGap;
+        segment.height = static_cast<float>(laneCount) * rowHeight + static_cast<float>(laneCount - 1) * kLaneGap;
         // The mixer that joins the branches follows as a node item of its own.
         segments.push_back(std::move(segment));
     }
@@ -297,7 +322,7 @@ Ptr Shell::BuildChain()
     {
         std::vector<const Segment*> segments;
         float width = 0.0f;
-        float height = kCardHeight;
+        float height = 0.0f;
     };
     std::vector<Line> lines(1);
     for (const auto& segment : segments)
@@ -307,7 +332,7 @@ Ptr Shell::BuildChain()
         auto& line = lines.back();
         line.segments.push_back(&segment);
         line.width += segment.width;
-        line.height = std::max(line.height, segment.height);
+        line.height = std::max({line.height, segment.height, rowHeight});
     }
 
     // The lines are centred as one block, as the web UI centres the chain in its stage; each line
@@ -353,11 +378,14 @@ Ptr Shell::BuildChain()
         const float wanted = total + 24.0f;
         // Unless the bar under it was dragged (chainAreaHeight), up to a third of the window;
         // never less than a line, nor so much that the editor has no room.
+        // As tiles it is as tall as its lines again: the drag that made them only chose them.
         float limit = mChainAreaLimit;
         if (limit <= 0.0f)
             if (const auto native = mState.uiSettings.find("native"); native != mState.uiSettings.end() && native->is_object())
                 limit = native->value("chainAreaHeight", 0.0f);
-        const float floor = kCardHeight + 24.0f;
+        if (icons)
+            limit = 0.0f;
+        const float floor = rowHeight + 24.0f;
         const float most = limit > 0.0f ? std::clamp(limit, floor, std::max(floor, ViewSize().y - 360.0f))
                                          : std::max(floor, ViewSize().y / 3.0f);
         // Dragged, the chain gets that room whatever it holds (centred in it, or scrolling).

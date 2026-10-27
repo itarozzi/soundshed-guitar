@@ -39,6 +39,64 @@ void Text::draw(const el::context& ctx)
     FillText(ctx.canvas, shown, font, mColour, ctx.bounds, mAlign);
 }
 
+Paragraph::Paragraph(const Theme& theme, std::string text, float width, float size)
+    : mTheme(theme), mText(std::move(text)), mWidth(width), mSize(size), mColour(theme.TextSecondary())
+{
+}
+
+std::vector<std::string> Paragraph::Lines(cycfi::artist::canvas& cnv) const
+{
+    // As many words as fit each line; a word wider than the line has one to itself.
+    const auto font = Font(Weight::Regular).size(mSize);
+    std::vector<std::string> lines;
+    std::string line;
+    std::size_t i = 0;
+    while (i < mText.size())
+    {
+        const auto space = mText.find(' ', i);
+        const auto word = mText.substr(i, space == std::string::npos ? std::string::npos : space - i);
+        i = space == std::string::npos ? mText.size() : space + 1;
+        if (word.empty())
+            continue;
+        const auto joined = line.empty() ? word : line + " " + word;
+        if (!line.empty() && el::measure_text(cnv, joined, font).x > mWidth)
+        {
+            lines.push_back(line);
+            line = word;
+        }
+        else
+        {
+            line = joined;
+        }
+    }
+    if (!line.empty())
+        lines.push_back(line);
+    return lines;
+}
+
+el::view_limits Paragraph::limits(const el::basic_context& ctx) const
+{
+    const float h = static_cast<float>(std::max<std::size_t>(1, Lines(ctx.canvas).size())) * (mSize + 5.0f);
+    return {{mWidth, h}, {mWidth, h}};
+}
+
+void Paragraph::draw(const el::context& ctx)
+{
+    const auto font = Font(Weight::Regular).size(mSize);
+    float y = ctx.bounds.top;
+    for (const auto& line : Lines(ctx.canvas))
+    {
+        FillText(ctx.canvas, line, font, mColour, el::rect{ctx.bounds.left, y, ctx.bounds.right, y + mSize + 5.0f}, HAlign::Left);
+        y += mSize + 5.0f;
+    }
+}
+
+Paragraph& Paragraph::Colour(el::color c)
+{
+    mColour = c;
+    return *this;
+}
+
 Text& Text::Set(std::string text)
 {
     mText = std::move(text);

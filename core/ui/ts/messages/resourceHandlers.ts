@@ -172,8 +172,14 @@ export function onBlendExportFailed(payload: IncomingPayload): void {
 }
 
 export function onLibraryExportSaved(payload: IncomingPayload): void {
-  const info = payload as { path?: string };
+  const info = payload as { path?: string; warnings?: unknown };
   showNotification("Library exported", info.path ?? "");
+  // What exportLibraryArchive could not carry: a model or IR it could not read.
+  for (const warning of Array.isArray(info.warnings) ? info.warnings : []) {
+    if (typeof warning === "string" && warning.length > 0) {
+      showNotification("Export warning", warning);
+    }
+  }
 }
 
 export function onLibraryExportFailed(payload: IncomingPayload): void {

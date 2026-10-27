@@ -26,6 +26,7 @@ constexpr const char* kNamSlimmableSizeSetting = "audio.nam.slimmableSize";
 constexpr const char* kNamOversamplingSetting = "audio.nam.oversampling";
 constexpr const char* kNamAntiAliasPhaseSetting = "audio.nam.antiAliasPhase";
 constexpr const char* kWebsite = "https://soundshed.com";
+constexpr const char* kGuides = "https://guitar.soundshed.com";
 
 double NumberSetting(const nlohmann::json& settings, const char* key, double fallback)
 {
@@ -199,6 +200,21 @@ Ptr Shell::BuildSettingsPage()
         note("Off, searches use your own Tone3000 API key, set in Soundshed Guitar's Settings.");
     }
 
+    // ── Library: the web UI's Export Presets & Blends ──
+    heading("LIBRARY");
+    choice("Export resources", {"Used by presets", "Whole library"}, [this] { return mLibraryExportAll ? 1 : 0; },
+           [this](int i) {
+               mLibraryExportAll = i == 1;
+               SyncSettings();
+           });
+    {
+        auto exportButton = std::make_shared<Button>(mTheme, "Export Library...",
+                                                     [this, &commands] { commands.ExportLibraryArchive(mLibraryExportAll); });
+        exportButton->MinWidth(180);
+        page.push_back(FixedHeight(44, Row({label(""), exportButton, Stretch()})));
+    }
+    note("Your presets and every blend, with their models and IRs or the whole library, as a .soundshed-library.zip.");
+
     // ── Software updates ──
     heading("SOFTWARE UPDATES");
     toggle("Updates", "Check for a new version at startup", [boolOr] { return boolOr("app.updateCheckEnabled", true); },
@@ -220,6 +236,39 @@ Ptr Shell::BuildSettingsPage()
                [&commands, key](bool on) { commands.SetSetting(key, on); });
     }
     note("Shared with Soundshed Guitar. Some features (the AI Tone Builder, Jam, the editors) are there only.");
+
+    // ── Help: the web UI's Help tab, told for this app ──
+    heading("HELP");
+    auto topic = [this, &page](const char* title, const char* text) {
+        auto t = std::make_shared<Text>(mTheme, title, metrics::kTextSize, Weight::SemiBold);
+        page.push_back(FixedHeight(26, PadXY(0, 6, t)));
+        page.push_back(Row({el::share(el::hold_any(std::make_shared<Paragraph>(mTheme, text, 520.0f))), Stretch()}));
+        page.push_back(VGap(10));
+    };
+    topic("Signal chain",
+          "Click a card to edit its effect, and drag it to move it, onto a cable or into a branch. The power button "
+          "bypasses an effect: it stays in the preset, faded, and is saved with it; Delete takes it out. In the full "
+          "layout, drag the bar under the chain up for icon tiles and down again for cards.");
+    topic("Presets and scenes",
+          "Scenes are variations stored inside one preset, so switching between them does not reload it. Multi-Rig "
+          "runs two or more presets at once, as tabs over the chain with a Mix tab; saving the mix stores it as a "
+          "Multi-Rig preset.");
+    topic("Keys",
+          "Ctrl+Z and Ctrl+Y undo and redo chain edits. Space bypasses the effect clicked last, or taps the tempo; "
+          "Delete removes it; F2 renames the scene; Esc closes a menu or dialog.");
+    topic("Library and sharing",
+          "Tone3000 results come through the Soundshed API by default; your own Tone3000 key is set in Soundshed "
+          "Guitar's Settings. Tones installed from tone sharing bring the models they need with them.");
+    topic("Performance",
+          "DSP load measures the audio thread against its block deadline, not the whole CPU, so it can sit near 100% "
+          "while the machine reports a low overall load. In an effect's DSP readouts a blank figure means it did not "
+          "run in the last block (bypassed, or fed no signal) rather than a measured zero.");
+    {
+        auto guides = std::make_shared<Button>(mTheme, "guitar.soundshed.com", [&commands] { commands.OpenUrl(kGuides); },
+                                               Button::Style::Flat);
+        guides->MinWidth(190);
+        page.push_back(FixedHeight(44, Row({label("Guides and release notes"), guides, Stretch()})));
+    }
 
     // ── About ──
     heading("ABOUT");

@@ -777,10 +777,153 @@ void TestRoundTrip(const Exports& exports)
 }
 } // namespace
 
+/// exportLibraryArchive: the user's presets, every blend, and the models and IRs they use (or the
+/// whole library), as the web UI's libraryExport.ts laid it out, with every id kept.
+void TestLibraryExport()
+{
+    TestHost host(Sandbox("library"));
+    guitarfx::PluginController controller(host);
+    controller.Initialize();
+
+    Send(controller, "installPresetArchives",
+         {{"requestId", "seed"},
+          {"entry", {{"id", "tone-sharing-api:pack-seed"}, {"title", "Seed Pack"}, {"packId", "seed"}}},
+          {"folder", "Seed Pack"},
+          {"archives", {Archive(SeedPack(), "Seed Pack")}}});
+    const auto installed = Latest(host, "presetArchivesInstalled");
+    const auto presetIds = installed ? installed->value("presetIds", nlohmann::json::array()) : nlohmann::json::array();
+    Expect(presetIds.size() == 2, "the seed pack installs two presets for the library export");
+
+    if (presetIds.size() != 2)
+    {
+        return;
+    }
+
+    // Without "Lead", nothing plays model B or the blend.
+    const std::string chugId = presetIds[0].get<std::string>();
+    const std::string leadId = presetIds[1].get<std::string>();
+    Send(controller, "deletePreset", {{"presetId", leadId}});
+    const std::string hashA = guitarfx::util::Sha256Hex(kModelA);
+    const std::string hashB = guitarfx::util::Sha256Hex(kModelB);
+
+    // ── Cancelled ───────────────────────────────────────────────────────────────
+    host.sent.clear();
+    host.savePath.clear();
+    Send(controller, "exportLibraryArchive");
+    auto failed = Latest(host, "libraryExportFailed");
+    Expect(failed && failed->value("message", "") == "Save cancelled", "a cancelled library export is answered as saveLibraryArchive's is");
+    Expect(host.lastDefaultName == "Soundshed-Library.soundshed-library.zip",
+           "the dialog suggests the web UI's library file name (got " + host.lastDefaultName + ")");
+
+    const auto exportTo = [&](const std::string& name, nlohmann::json request) -> std::optional<Bytes> {
+        host.sent.clear();
+        host.savePath = ExportDir() / name;
+        Send(controller, "exportLibraryArchive", std::move(request));
+        const auto saved = Latest(host, "libraryExportSaved");
+        Expect(saved.has_value(), name + " is answered with libraryExportSaved");
+
+        if (!saved)
+        {
+            return std::nullopt;
+        }
+
+        const fs::path path = guitarfx::util::PathFromUtf8(saved->value("path", ""));
+        Expect(path.filename() == name + ".soundshed-library.zip",
+               "a bare saved name gets the library extension (got " + saved->value("path", "") + ")");
+        Expect(!saved->contains("warnings"), name + " has no warnings");
+        return guitarfx::util::ReadFileBytes(path);
+    };
+
+    // The resources an archive lists, by hash, each checked against its file.
+    const auto listed = [](const Bytes& zip, const nlohmann::json& manifest) {
+        std::vector<std::string> hashes;
+
+        for (const auto& resource : manifest.value("resources", nlohmann::json::array()))
+        {
+            const std::string type = resource.value("type", "");
+            const auto bytes = guitarfx::controller_detail::ExtractZipEntry(zip, "resources/" + type + "/" + resource.value("fileName", ""));
+            Expect(bytes && guitarfx::util::Sha256Hex(*bytes) == resource.value("hash", ""),
+                   "resources/" + type + "/" + resource.value("fileName", "") + " holds the listed file");
+            Expect(resource.contains("id") && resource.contains("name") && resource.contains("category") &&
+                       resource["tags"].is_array(),
+                   "each resource is listed with its id, name, category and tags");
+            hashes.push_back(resource.value("hash", ""));
+        }
+
+        return hashes;
+    };
+
+    // ── The resources the presets use ───────────────────────────────────────────
+    if (const auto zip = exportTo("library-used", nlohmann::json::object()))
+    {
+        const auto names = ZipEntryNames(*zip);
+        Expect(names.size() >= 4 && names[0] == "resources/" && names[1] == "resources/nam/" && names[2] == "resources/ir/" &&
+                   names.back() == "library.json",
+               "laid out as JSZip laid it out: the folders, the files, then library.json");
+
+        if (const auto manifest = ZipJson(*zip, "library.json"))
+        {
+            Expect(manifest->value("formatVersion", 0) == 1 && manifest->contains("createdAt") &&
+                       manifest->value("resourceMode", "") == "used",
+                   "formatVersion 1, createdAt and resourceMode used");
+
+            bool hasChug = false, hasLead = false;
+            std::string chugModel;
+
+            for (const auto& preset : manifest->value("presets", nlohmann::json::array()))
+            {
+                hasChug = hasChug || preset.value("id", "") == chugId;
+                hasLead = hasLead || preset.value("id", "") == leadId;
+
+                if (preset.value("id", "") == chugId)
+                    if (const auto* amp = NodeById(preset, "amp_1"))
+                        chugModel = At(At(*amp, "resources"), 0).value("resourceId", "");
+            }
+
+            Expect(hasChug && !hasLead, "the user's presets, without the deleted one");
+            Expect(manifest->value("blends", nlohmann::json::array()).size() == 1, "and every blend");
+
+            const auto hashes = listed(*zip, *manifest);
+            Expect(std::find(hashes.begin(), hashes.end(), hashA) != hashes.end() &&
+                       std::find(hashes.begin(), hashes.end(), hashB) == hashes.end(),
+                   "model A, which Chug plays, and not model B, which nothing plays");
+
+            bool keptId = false;
+
+            for (const auto& resource : manifest->value("resources", nlohmann::json::array()))
+                keptId = keptId || (resource.value("hash", "") == hashA && resource.value("id", "") == chugModel && !chugModel.empty());
+
+            Expect(keptId, "the library's own id is kept, the one Chug's node names");
+        }
+        else
+        {
+            Expect(false, "library.json can be read back");
+        }
+    }
+
+    // ── The whole library ───────────────────────────────────────────────────────
+    if (const auto zip = exportTo("library-all", {{"resources", "all"}}))
+    {
+        if (const auto manifest = ZipJson(*zip, "library.json"))
+        {
+            Expect(manifest->value("resourceMode", "") == "all", "resourceMode all");
+            const auto hashes = listed(*zip, *manifest);
+            Expect(std::find(hashes.begin(), hashes.end(), hashA) != hashes.end() &&
+                       std::find(hashes.begin(), hashes.end(), hashB) != hashes.end(),
+                   "every model in the library, used or not");
+        }
+        else
+        {
+            Expect(false, "the whole library's library.json can be read back");
+        }
+    }
+}
+
 int main()
 {
     TestSha256();
     const auto exports = TestExport();
+    TestLibraryExport();
 
     if (!exports.single.empty() && !exports.collection.empty())
     {
