@@ -205,6 +205,28 @@ void UiClient::RegisterPresetHandlers()
             s.uiSettings = m.value("uiSettings", nlohmann::json::object());
             s.uiViewState = m.value("uiViewState", nlohmann::json::object());
 
+            // The blends a blend node can name: their name, mode and how many models they hold.
+            s.blends.clear();
+            if (m.contains("blendLibrary") && m["blendLibrary"].is_array())
+            {
+                for (const auto& b : m["blendLibrary"])
+                {
+                    if (!b.is_object() || !b.contains("id") || !b["id"].is_string())
+                        continue;
+                    BlendSummary blend;
+                    blend.id = b["id"].get<std::string>();
+                    blend.name = b.value("name", blend.id);
+                    if (b.value("blendMode", std::string()) == "snap")
+                        blend.blendMode = "snap";
+                    const auto mappings = b.find("modelMappings");
+                    const auto models = b.find("models");
+                    blend.modelCount = mappings != b.end() && mappings->is_array() && !mappings->empty() ? mappings->size()
+                                       : models != b.end() && models->is_array()                       ? models->size()
+                                                                                                       : 0;
+                    s.blends.push_back(std::move(blend));
+                }
+            }
+
             if (m.contains("environment") && m["environment"].is_object())
             {
                 const auto& env = m["environment"];

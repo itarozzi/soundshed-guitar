@@ -19,6 +19,7 @@
 #include <cstdint>
 #include <map>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -93,6 +94,15 @@ struct EffectTypeInfo
     std::vector<EffectPresetInfo> presets;
 
     [[nodiscard]] const EffectParamInfo* FindParam(const std::string& key) const;
+};
+
+/// A blend of NAM models (the blend library, state.blendLibrary): what a blend node plays.
+struct BlendSummary
+{
+    std::string id;
+    std::string name;
+    std::string blendMode = "interpolate"; // "interpolate" or "snap"
+    std::size_t modelCount = 0;
 };
 
 struct LibraryResource
@@ -294,6 +304,10 @@ struct ClientState
     nlohmann::json uiViewState = nlohmann::json::object();
     std::string theme = "dark";
 
+    /// Nodes whose third-party plugin is loading: from the request until the engine answers
+    /// (hostedPluginResourceLoadCompleted or Failed) or the file dialog is cancelled.
+    std::set<std::string> pluginLoadsPending;
+
     // The active preset (the engine's working copy) and where it came from.
     std::optional<Preset> activePreset;
     std::string activePresetId;
@@ -319,6 +333,7 @@ struct ClientState
     std::map<std::string, std::vector<EffectPresetInfo>> factoryPackEffectPresets;
 
     std::map<std::string, std::vector<LibraryResource>> resources; // by resource type
+    std::vector<BlendSummary> blends;
 
     GlobalSignalChainConfig globalChain;
     bool outputMuted = false;

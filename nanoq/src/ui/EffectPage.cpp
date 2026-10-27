@@ -202,6 +202,11 @@ std::string Shell::EffectPageSignature() const
                 s += IsParamVisible(param, *node, type) ? "v" : "h";
     }
 
+    // A blend node shows its blend and mode.
+    for (const char* key : {"blendId", "blendModeOverride"})
+        if (const auto c = node->config.find(key); c != node->config.end())
+            s += std::string("|") + key + "=" + c->second;
+    s += "|blends" + std::to_string(mState.blends.size());
     // The model and IR slots show what is loaded and what the library holds.
     for (const auto& ref : node->resources)
         s += "|r" + ref.resourceType + ":" + ref.resourceId + ":" + guitarfx::util::PathToUtf8(ref.filePath);
@@ -209,6 +214,10 @@ std::string Shell::EffectPageSignature() const
     {
         const auto it = mState.resources.find(type->resourceType);
         s += "|lib" + std::to_string(it != mState.resources.end() ? it->second.size() : 0);
+        // A plugin host also shows whether it is loading and which plugins are starred.
+        if (type->resourceType == "plugin")
+            s += std::string(mState.pluginLoadsPending.count(node->id) > 0 ? "|loading" : "") + "|fav" +
+                 mState.appSettings.value("plugins.hostFavorites", nlohmann::json::array()).dump();
     }
     if (std::find(mState.missingNodeResources.begin(), mState.missingNodeResources.end(), node->id) != mState.missingNodeResources.end())
         s += "|missing";
@@ -241,6 +250,7 @@ Ptr Shell::BuildEffectPage()
     const auto* type = mState.FindEffectType(node->type);
     const auto category = NodeCategory(mState, *node);
     const auto tint = Theme::Argb(mPresentation.CategoryColour(category));
+    const bool hasPlugin = !boundary && type != nullptr && type->resourceType == "plugin";
     const bool hasSlots = !boundary && type != nullptr && !type->resourceType.empty() && type->resourceType != "plugin" &&
                           node->type != guitarfx::EffectGuids::kAmpNamBlend;
 
@@ -399,7 +409,7 @@ Ptr Shell::BuildEffectPage()
         groupsWidth += groupWidth(g) + (groupsWidth > 0.0f ? kGroupGap : 0.0f);
     const float maxPanel = std::max(kPanelMinWidth, stageWidth - 20.0f);
     const float panelWidth =
-        hasSlots ? maxPanel : std::clamp(groupsWidth + 2.0f * (kPanelPad + kSectionPad), kPanelMinWidth, maxPanel);
+        (hasSlots || hasPlugin) ? maxPanel : std::clamp(groupsWidth + 2.0f * (kPanelPad + kSectionPad), kPanelMinWidth, maxPanel);
     const float sectionInner = panelWidth - 2.0f * (kPanelPad + kSectionPad);
 
     // ── Header ──
@@ -560,6 +570,10 @@ Ptr Shell::BuildEffectPage()
     }
     if (IsSplitterType(node->type))
         addToSection(BuildSplitBranches(*node), 96.0f);
+    if (hasPlugin)
+        addToSection(BuildPluginHost(*node), 28.0f + 8.0f + 168.0f);
+    if (node->type == guitarfx::EffectGuids::kAmpNamBlend)
+        addToSection(BuildBlendInfo(*node), 46.0f);
     if (!tabsPlaced)
         if (auto t = tabs())
             addToSection(Row({t, Stretch()}), 26.0f);

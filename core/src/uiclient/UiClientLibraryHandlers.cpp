@@ -236,7 +236,19 @@ void UiClient::RegisterLibraryHandlers()
     });
 
     On("hostedPluginResourceLoadFailed", [this](const nlohmann::json& m) {
+        MutableState().pluginLoadsPending.erase(m.value("nodeId", ""));
+        Notify(Topic::ActivePreset);
         PostNotification({Notification::Kind::Error, "Plugin failed to load", m.value("message", "")});
+    });
+
+    // A plugin loaded, or the file dialog for one was cancelled: the node is no longer loading.
+    On("hostedPluginResourceLoadCompleted", [this](const nlohmann::json& m) {
+        MutableState().pluginLoadsPending.erase(m.value("nodeId", ""));
+        Notify(Topic::ActivePreset);
+    });
+    On("nodeResourceBrowseCancelled", [this](const nlohmann::json& m) {
+        if (MutableState().pluginLoadsPending.erase(m.value("nodeId", "")) > 0)
+            Notify(Topic::ActivePreset);
     });
 }
 } // namespace guitarfx::uiclient

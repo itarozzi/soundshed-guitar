@@ -302,6 +302,12 @@ void UiCommands::SetNodeResource(const std::string& nodeId, const std::string& r
         payload["resourceIndex"] = resourceIndex;
     }
 
+    // A third-party plugin takes a while to load; the engine says when it has.
+    if (resourceType == "plugin" && !resourceId.empty())
+    {
+        mClient.MutableState().pluginLoadsPending.insert(nodeId);
+    }
+
     mClient.Send("updateNodeResource", std::move(payload));
 }
 
@@ -365,6 +371,11 @@ void UiCommands::BrowseNodeResource(const std::string& nodeId, const std::string
     if (resourceIndex >= 0)
     {
         payload["resourceIndex"] = resourceIndex;
+    }
+
+    if (resourceType == "plugin")
+    {
+        mClient.MutableState().pluginLoadsPending.insert(nodeId);
     }
 
     mClient.Send("browseNodeResource", std::move(payload));

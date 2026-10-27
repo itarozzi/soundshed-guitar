@@ -13,6 +13,8 @@
 #include "uiclient/ParamFormat.h"
 
 #include <algorithm>
+#include <cctype>
+#include <set>
 
 namespace nanoq::ui
 {
@@ -42,6 +44,12 @@ const guitarfx::ResourceRef* SlotRef(const guitarfx::GraphNode& node, int resour
         return nullptr;
     const auto& ref = node.resources[index];
     return ref.IsLibraryRef() || ref.IsFilePath() ? &ref : nullptr;
+}
+
+std::string Lower(std::string text)
+{
+    std::transform(text.begin(), text.end(), text.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return text;
 }
 
 /// Where the slot's resource sits in `list`, or -1.
@@ -204,5 +212,139 @@ void Shell::RenameNodeWithPrompt(const std::string& nodeId)
 
     OpenPrompt("Rename effect", NodeDisplayName(mState, *node), "Rename",
                [this, nodeId](const std::string& entered) { mSession.Commands().RenameNode(nodeId, entered); });
+}
+
+Ptr Shell::BuildPluginHost(const guitarfx::GraphNode& node)
+{
+    // The web UI's plugin host (signalPath/hostedPlugins.ts): the scanned plugins, favourites
+    // first then by name, a click loads one; the star keeps it at the top (plugins.hostFavorites,
+    // shared); Open Plugin shows the plugin's own window; Browse... loads one from a file.
+    constexpr const char* kFavouritesSetting = "plugins.hostFavorites";
+    const std::string nodeId = node.id;
+    const auto* ref = SlotRef(node, 0);
+    const bool loading = mState.pluginLoadsPending.count(nodeId) > 0;
+
+    std::set<std::string> favourites;
+    if (const auto it = mState.appSettings.find(kFavouritesSetting); it != mState.appSettings.end() && it->is_array())
+        for (const auto& v : *it)
+            if (v.is_string())
+                favourites.insert(v.get<std::string>());
+
+    std::vector<const LibraryResource*> plugins;
+    if (const auto it = mState.resources.find("plugin"); it != mState.resources.end())
+        for (const auto& r : it->second)
+            plugins.push_back(&r);
+    std::stable_sort(plugins.begin(), plugins.end(), [&favourites](const LibraryResource* a, const LibraryResource* b) {
+        const bool fa = favourites.count(a->id) > 0, fb = favourites.count(b->id) > 0;
+        if (fa != fb)
+            return fa;
+        return Lower(a->name) < Lower(b->name);
+    });
+
+    // What is loaded, and the two actions.
+    std::string current = "No plugin loaded";
+    if (ref != nullptr)
+    {
+        current = guitarfx::util::PathToUtf8(ref->filePath.filename());
+        for (const auto* p : plugins)
+            if (p->id == ref->resourceId)
+                current = p->name;
+    }
+    auto name = std::make_shared<Text>(mTheme, loading ? "Loading plugin..." : current, 12.0f, Weight::SemiBold);
+    name->Colour(loading ? mTheme.TextMuted() : mTheme.Ink());
+    auto open = std::make_shared<Button>(mTheme, "Open Plugin", [this, nodeId] {
+        mSession.Commands().SetNodeConfig(nodeId, "showPluginEditor", "1");
+    });
+    open->Enabled(ref != nullptr && !loading);
+    auto browse = std::make_shared<Button>(mTheme, "Browse...", [this, nodeId] { mSession.Commands().BrowseNodeResource(nodeId, "plugin", 0); });
+    auto top = Row({name, HGap(8), open, HGap(6), browse});
+
+    std::vector<Ptr> rows;
+    for (const auto* p : plugins)
+    {
+        const bool selected = ref != nullptr && ref->resourceId == p->id;
+        std::string format = guitarfx::util::PathToUtf8(std::filesystem::path(p->filePath).extension());
+        if (!format.empty() && format.front() == '.')
+            format.erase(0, 1);
+        auto row = std::make_shared<ListRow>(mTheme, p->name, Upper(format), selected, false, [this, nodeId, id = p->id] {
+            mSession.Commands().SetNodeResource(nodeId, "plugin", id, 0);
+            NoteChainEdit();
+            Mark(kPage);
+        });
+        const bool fav = favourites.count(p->id) > 0;
+        auto star = std::make_shared<IconButton>(mTheme, mIcons, "star");
+        star->Size(26, 26).IconSize(13).Ink(fav ? mTheme.Accent() : mTheme.TextMuted());
+        star->onClick = [this, id = p->id, favourites] {
+            auto next = favourites;
+            if (!next.erase(id))
+                next.insert(id);
+            mSession.Commands().SetSetting(kFavouritesSetting, nlohmann::json(std::vector<std::string>(next.begin(), next.end())));
+            Mark(kPage);
+        };
+        rows.push_back(FixedHeight(30, Row({row, HGap(4), FixedWidth(26, star)})));
+    }
+    if (rows.empty())
+    {
+        auto none = std::make_shared<Text>(mTheme, "No plugins found. Soundshed Guitar scans for them; or Browse... for one.", 11.5f);
+        none->Colour(mTheme.TextMuted());
+        rows.push_back(FixedHeight(30, none));
+    }
+
+    return Col({FixedHeight(28, top), VGap(8), FixedHeight(168, VScroll(Col(rows)))});
+}
+
+Ptr Shell::BuildBlendInfo(const guitarfx::GraphNode& node)
+{
+    // The web UI's blend block (signalPathBlend.ts renderBlendInfoHtml): the blend's name and
+    // how many models it holds, and the node's own choice of blend mode beside the blend's.
+    const std::string nodeId = node.id;
+    const auto blendIt = node.config.find("blendId");
+    const std::string blendId = blendIt != node.config.end() ? blendIt->second : std::string();
+    const BlendSummary* blend = nullptr;
+    for (const auto& b : mState.blends)
+        if (b.id == blendId)
+            blend = &b;
+
+    const auto overrideIt = node.config.find("blendModeOverride");
+    const std::string modeOverride =
+        overrideIt != node.config.end() && (overrideIt->second == "snap" || overrideIt->second == "interpolate") ? overrideIt->second
+                                                                                                                : std::string();
+    const auto modeName = [](const std::string& mode) { return mode == "snap" ? std::string("Snap") : std::string("Interpolate"); };
+    const std::string definitionMode = blend != nullptr ? blend->blendMode : "interpolate";
+
+    auto heading = std::make_shared<Text>(mTheme, "BLEND", 9.0f, Weight::SemiBold);
+    heading->Colour(mTheme.TextMuted()).Fixed(true);
+    std::string title = blend != nullptr ? blend->name : "Blend not found";
+    if (blend != nullptr)
+        title += "  Â·  " + std::to_string(blend->modelCount) + (blend->modelCount == 1 ? " model" : " models");
+    auto name = std::make_shared<Text>(mTheme, title, 12.0f, Weight::SemiBold);
+    name->Colour(blend != nullptr ? mTheme.Ink() : mTheme.Error());
+
+    std::vector<Ptr> row{heading, HGap(10), name};
+    if (blend != nullptr)
+    {
+        auto mode = std::make_shared<IconButton>(mTheme, mIcons, "", IconButton::Look::Chip);
+        mode->Size(150, 26).Label(modeOverride.empty() ? "Default (" + modeName(definitionMode) + ")" : modeName(modeOverride), 11.0f).Caret(true);
+        mode->onClick = [this, nodeId, modeOverride, definitionMode, modeName, m = mode.get()] {
+            std::vector<MenuItem> items;
+            const std::pair<std::string, std::string> choices[] = {
+                {"Default (" + modeName(definitionMode) + ")", ""}, {"Interpolate", "interpolate"}, {"Snap", "snap"}};
+            for (const auto& [text, value] : choices)
+                items.push_back({text, modeOverride == value, false, [this, nodeId, value] {
+                                     mSession.Commands().SetNodeConfig(nodeId, "blendModeOverride", value);
+                                     NoteChainEdit();
+                                 }});
+            OpenDropdown(m->Bounds(), std::move(items), 170.0f);
+        };
+        row.push_back(HGap(8));
+        row.push_back(FixedWidth(150, mode));
+    }
+
+    auto note = std::make_shared<Text>(mTheme,
+                                       blend != nullptr ? "Its blends are edited in Soundshed Guitar."
+                                                        : "This node plays its input dry until it is given a blend.",
+                                       11.0f);
+    note->Colour(mTheme.TextMuted());
+    return Col({FixedHeight(26, Row(row)), VGap(4), FixedHeight(16, note)});
 }
 } // namespace nanoq::ui

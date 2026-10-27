@@ -217,11 +217,11 @@ std::vector<const EffectTypeInfo*> Shell::OfferedEffects() const
     std::vector<const EffectTypeInfo*> offered;
     for (const auto& info : mState.catalog)
     {
-        // As core/ui/ts/fxSelector.ts's getCatalogEffects. The plugin host and composites need
-        // pickers of their own, which live in Soundshed Guitar; Guitar to MIDI only plays a
-        // plugin host's instrument, so it goes with it.
-        if (info.type == guids::kMixer || info.type == guids::kAmpNamBlend || info.type == guids::kPluginHost ||
-            info.type == guids::kGuitarToMidi || info.type.rfind("composite:", 0) == 0)
+        // As core/ui/ts/fxSelector.ts's getCatalogEffects. Composites need a picker of their own,
+        // which lives in Soundshed Guitar. The plugin host (and Guitar to MIDI, which only plays a
+        // plugin host's instrument) is offered where the engine can host plugins: the catalog
+        // lists it only there.
+        if (info.type == guids::kMixer || info.type == guids::kAmpNamBlend || info.type.rfind("composite:", 0) == 0)
             continue;
         if (info.type == guids::kWasmHost && !showCustom)
             continue;

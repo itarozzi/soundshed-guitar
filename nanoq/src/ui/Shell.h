@@ -221,6 +221,10 @@ private:
     [[nodiscard]] Ptr BuildResourceSlot(const guitarfx::GraphNode& node, const std::string& resourceType, int resourceIndex,
                                         const std::string& label, bool optional);
     [[nodiscard]] Ptr BuildSplitBranches(const guitarfx::GraphNode& splitter);
+    /// A third-party plugin node's list, Open Plugin and Browse (NodeControls.cpp).
+    [[nodiscard]] Ptr BuildPluginHost(const guitarfx::GraphNode& node);
+    /// A blend node's blend and its mode (NodeControls.cpp).
+    [[nodiscard]] Ptr BuildBlendInfo(const guitarfx::GraphNode& node);
 
     // PresetsPage.cpp
     Ptr BuildPresetsPage();
