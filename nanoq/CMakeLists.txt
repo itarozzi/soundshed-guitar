@@ -25,6 +25,12 @@ endif()
 
 project(SoundshedNanoQ VERSION 1.7.0 LANGUAGES C CXX)
 
+# Objective-C++ before the engine is added: the native UIs' shared HTTP (core/src/net) uses
+# NSURLSession on Apple platforms, and core picks its transport by the languages enabled.
+if(APPLE)
+    enable_language(OBJCXX)
+endif()
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)

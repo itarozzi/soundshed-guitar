@@ -11,12 +11,17 @@
 #include "Engine.h"
 #include "ui/DevDriver.h"
 #include "ui/Theme.h"
+#include "uiclient/ToneService.h"
 #include "uiclient/UiClient.h"
 #include "uiclient/UiCommands.h"
 
 #include <elements.hpp>
 
+#include <functional>
 #include <memory>
+#include <mutex>
+#include <string>
+#include <vector>
 
 namespace nanoq::ui
 {
@@ -35,6 +40,14 @@ public:
     [[nodiscard]] Theme& GetTheme() { return mTheme; }
     [[nodiscard]] cycfi::elements::view& View() { return mView; }
     [[nodiscard]] Engine& GetEngine() { return mEngine; }
+    /// Tone sharing and Tone3000 over the network (core/src/uiclient/ToneService.h).
+    [[nodiscard]] guitarfx::uiclient::ToneService& Tones() { return *mTones; }
+
+    /// Runs `fn` on the UI thread at the next pump. Any thread.
+    void PostToUi(std::function<void()> fn);
+
+    /// Shows a transient message; the shell sets it.
+    std::function<void(const std::string& title, const std::string& detail, bool isError)> onToast;
 
     /// Called after every batch of engine messages has been applied, on the UI thread. The
     /// shell uses it to rebuild what the state changed; views subscribe to topics instead.
@@ -54,5 +67,15 @@ private:
     Theme mTheme;
     std::shared_ptr<bool> mAlive = std::make_shared<bool>(true);
     std::optional<DevDriver> mDriver = DevDriver::FromEnvironment();
+
+    // Work handed to the UI thread from others (the tone service's answers), run at each pump.
+    struct PostQueue
+    {
+        std::mutex mutex;
+        std::vector<std::function<void()>> pending;
+    };
+    std::shared_ptr<PostQueue> mPosted = std::make_shared<PostQueue>();
+    // Last: destroyed first, so its workers stop before anything they post to goes.
+    std::unique_ptr<guitarfx::uiclient::ToneService> mTones;
 };
 } // namespace nanoq::ui

@@ -125,7 +125,8 @@ public:
         Soft,
         Boxed,
         Accent,
-        Chip,  // the effect header's Presets (.default-effect-shell-chip)
+        Chip,    // the effect header's Presets (.default-effect-shell-chip)
+        Primary, // a dialog's confirming button: filled with the accent
         Slate, // a model slot's previous, next and clear
     };
 
@@ -213,6 +214,12 @@ public:
             radius = 6.0f;
             fill = mHover ? mTheme.Elevated() : mTheme.Bar();
             line = el::rgba(58, 58, 72, 255);
+            break;
+        case Look::Primary:
+            radius = 6.0f;
+            fill = mTheme.Accent().level(mHover ? 1.06f : 0.92f);
+            line = mTheme.Accent();
+            ink = el::rgba(255, 255, 255, 255);
             break;
         case Look::Chip:
             radius = 6.0f;

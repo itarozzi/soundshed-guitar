@@ -12,10 +12,13 @@
 //   right x y          a right click            move x y      the pointer moves there
 //   drag x1 y1 x2 y2   press, move, release     scroll x y dy a wheel turn (dy > 0 is up)
 //   shot <file.png>    draws the view offscreen into a PNG (works while the window is hidden)
+//   setting <key> <json>  sets an app setting, as the UI would (to seed a test profile)
 
 #include <elements.hpp>
 
 #include <filesystem>
+#include <functional>
+#include <string>
 #include <optional>
 
 namespace nanoq::ui
@@ -28,6 +31,9 @@ public:
 
     /// Plays and deletes the command file, if one is waiting. UI thread.
     void Poll(cycfi::elements::view& view);
+
+    /// Called with `setting` lines' key and JSON value; the session sends them to the engine.
+    std::function<void(const std::string& key, const std::string& json)> onSetting;
 
 private:
     explicit DevDriver(std::filesystem::path file) : mFile(std::move(file)) {}

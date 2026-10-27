@@ -70,7 +70,81 @@ void UiClient::RegisterLibraryHandlers()
         entry.name = m.value("name", entry.name.empty() ? id : entry.name);
         entry.filePath = m.value("filePath", entry.filePath);
         entry.fileMissing = false;
+
+        if (const auto requestId = m.value("requestId", ""); !requestId.empty())
+            mState.resourceImports[requestId] = {ResourceImport::Status::Imported, type, id, {}};
         Notify(Topic::Resources);
+    });
+
+    On("resourceImportFailed", [this](const nlohmann::json& m) {
+        if (const auto requestId = m.value("requestId", ""); !requestId.empty())
+        {
+            auto& import = mState.resourceImports[requestId];
+            import.status = ResourceImport::Status::Failed;
+            import.detail = m.value("detail", m.value("message", std::string("The import failed")));
+            Notify(Topic::Resources);
+        }
+    });
+
+    // ── The resource browser's folders (ResourceFolderScanner) ──
+    On("resourceFolderListing", [this](const nlohmann::json& m) {
+        ResourceFolderListing listing;
+        listing.path = m.value("path", "");
+        listing.parent = m.value("parent", "");
+        listing.name = m.value("name", "");
+        listing.truncated = m.value("truncated", false);
+        for (const auto& d : m.value("dirs", nlohmann::json::array()))
+            if (d.is_object())
+                listing.dirs.push_back({d.value("name", ""), d.value("path", "")});
+        for (const auto& f : m.value("files", nlohmann::json::array()))
+        {
+            if (!f.is_object())
+                continue;
+            ResourceFolderListing::File file;
+            file.name = f.value("name", "");
+            file.path = f.value("path", "");
+            file.resourceType = f.value("resourceType", "");
+            file.sizeBytes = f.value("sizeBytes", std::int64_t{0});
+            file.inLibrary = f.value("alreadyInLibrary", false);
+            file.libraryId = f.value("libraryId", "");
+            if (const auto meta = f.find("metadata"); meta != f.end() && meta->is_object())
+                file.metadata = *meta;
+            listing.files.push_back(std::move(file));
+        }
+        mState.resourceFolder = std::move(listing);
+        Notify(Topic::ResourceFolders);
+    });
+
+    On("resourceFolderMetadata", [this](const nlohmann::json& m) {
+        // Parsed in batches after the listing: the files' metadata, by path.
+        if (m.value("path", "") != mState.resourceFolder.path)
+            return;
+        for (const auto& item : m.value("items", nlohmann::json::array()))
+        {
+            if (!item.is_object())
+                continue;
+            const auto path = item.value("path", "");
+            for (auto& file : mState.resourceFolder.files)
+                if (file.path == path)
+                    if (const auto meta = item.find("metadata"); meta != item.end() && meta->is_object())
+                        file.metadata = *meta;
+        }
+        Notify(Topic::ResourceFolders);
+    });
+
+    On("resourceFolderListingFailed", [this](const nlohmann::json& m) {
+        mState.resourceFolder = {};
+        mState.resourceFolder.path = m.value("path", "");
+        mState.resourceFolder.error = m.value("message", std::string("The folder could not be read"));
+        Notify(Topic::ResourceFolders);
+    });
+
+    On("resourceFolderPicked", [this](const nlohmann::json& m) {
+        if (m.value("success", false))
+        {
+            mState.pickedResourceFolder = m.value("path", "");
+            Notify(Topic::ResourceFolders);
+        }
     });
 
     On("resourceRemoved", [this](const nlohmann::json& m) {

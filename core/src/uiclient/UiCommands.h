@@ -76,6 +76,24 @@ public:
     /// Asks the engine to show a file dialog and load the chosen file into the node's slot,
     /// adding it to the library.
     void BrowseNodeResource(const std::string& nodeId, const std::string& resourceType, int resourceIndex = -1);
+    /// Loads a file into a node's slot by path, as the resource browser's Folder tab previews
+    /// one, without adding it to the library.
+    void SetNodeResourceFile(const std::string& nodeId, const std::string& resourceType, const std::string& filePath,
+                             int resourceIndex = -1);
+
+    // ── The resource library ────────────────────────────────────────────────
+    /// Stores downloaded bytes in the library (importRemoteResource: provider, resourceType,
+    /// resourceId, name, category, subfolder, fileName, metadata, data as base64). Returns the
+    /// request id the answer comes back under (ClientState::resourceImports).
+    std::string ImportRemoteResource(nlohmann::json payload);
+    /// Adds a file where it is to the library (saveLocalLibraryResource), so it is referenced in
+    /// place rather than copied; with a node, loads it into that node's slot too.
+    void SaveLocalLibraryResource(const std::string& resourceType, const std::string& filePath, const std::string& name,
+                                  const nlohmann::json& metadata, const std::string& nodeId = {}, int resourceIndex = -1);
+    /// Lists a folder's model and IR files (resourceFolderListing, then resourceFolderMetadata).
+    void ListResourceFolder(const std::string& path);
+    /// Asks the engine for a folder dialog; the folder picked comes back as resourceFolderPicked.
+    void BrowseResourceFolder();
     /// A factory preset is sent as parameter changes; a saved one is applied by the engine,
     /// which restores its resources and config as well.
     void ApplyEffectPreset(const std::string& nodeId, const EffectPresetInfo& preset);

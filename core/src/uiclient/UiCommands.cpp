@@ -288,6 +288,59 @@ void UiCommands::SetNodeResource(const std::string& nodeId, const std::string& r
     mClient.Send("updateNodeResource", std::move(payload));
 }
 
+void UiCommands::SetNodeResourceFile(const std::string& nodeId, const std::string& resourceType, const std::string& filePath,
+                                     int resourceIndex)
+{
+    nlohmann::json payload = {{"nodeId", nodeId}, {"resourceType", resourceType}, {"resourceId", ""}, {"filePath", filePath}};
+    if (resourceIndex >= 0)
+        payload["resourceIndex"] = resourceIndex;
+    mClient.Send("updateNodeResource", std::move(payload));
+}
+
+std::string UiCommands::ImportRemoteResource(nlohmann::json payload)
+{
+    static int sequence = 0;
+    auto requestId = payload.value("requestId", std::string());
+    if (requestId.empty())
+    {
+        requestId = "nativeImport-" + std::to_string(++sequence);
+        payload["requestId"] = requestId;
+    }
+    mClient.MutableState().resourceImports[requestId] = {ResourceImport::Status::Importing, payload.value("resourceType", ""),
+                                                         payload.value("resourceId", ""), {}};
+    mClient.Send("importRemoteResource", std::move(payload));
+    return requestId;
+}
+
+void UiCommands::SaveLocalLibraryResource(const std::string& resourceType, const std::string& filePath, const std::string& name,
+                                          const nlohmann::json& metadata, const std::string& nodeId, int resourceIndex)
+{
+    nlohmann::json payload = {{"resourceType", resourceType},
+                              {"filePath", filePath},
+                              {"name", name},
+                              {"category", ""},
+                              {"tags", nlohmann::json::array()},
+                              {"description", ""},
+                              {"metadata", metadata}};
+    if (!nodeId.empty())
+    {
+        payload["nodeId"] = nodeId;
+        if (resourceIndex >= 0)
+            payload["resourceIndex"] = resourceIndex;
+    }
+    mClient.Send("saveLocalLibraryResource", std::move(payload));
+}
+
+void UiCommands::ListResourceFolder(const std::string& path)
+{
+    mClient.Send("listResourceFolder", {{"path", path}});
+}
+
+void UiCommands::BrowseResourceFolder()
+{
+    mClient.Send("browseResourceFolder");
+}
+
 void UiCommands::BrowseNodeResource(const std::string& nodeId, const std::string& resourceType, int resourceIndex)
 {
     nlohmann::json payload = {{"nodeId", nodeId}, {"resourceType", resourceType}};

@@ -63,6 +63,8 @@ void Shell::ShowOverlay(Ptr panel, float width, float height)
 
 void Shell::CloseOverlay()
 {
+    CloseDropdown();
+
     // A dialog with live feeds (tuner, metronome) stops listening, and tells the engine it is
     // done, whether it was closed by its button or by a tap outside it.
     mInstrumentSubs.clear();

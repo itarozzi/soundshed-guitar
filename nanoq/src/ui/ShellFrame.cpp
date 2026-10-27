@@ -151,6 +151,7 @@ Ptr Shell::BuildRail()
 
     auto rail = Col({VGap(6), FixedHeight(46, tab("ui-chain", "Chain", Page::Chain)), VGap(4),
                      FixedHeight(46, tab("ui-effect", "Effect", Page::Effect)), VGap(4),
+                     FixedHeight(46, tab("ui-tones", "Tones", Page::Tones)), VGap(4),
                      FixedHeight(46, tab("ui-presets", "Presets", Page::Presets)), std::make_shared<el::element>(),
                      FixedHeight(42, Row({HGap(9), settings, Stretch()})), VGap(6)});
     return Fill(mTheme.Bar(), rail);
@@ -603,10 +604,8 @@ void Shell::CopyChainSlot()
 
 // ── Popovers and drop-downs ─────────────────────────────────────────────────────
 
-void Shell::ShowPopover(Ptr panel, el::rect anchor, float width, float height, bool above)
+Ptr Shell::PlacePanel(Ptr panel, el::rect anchor, float width, float height, bool above, std::function<void()> onOutside)
 {
-    CloseOverlay();
-
     const auto view = mSession.View().size();
     width = std::min(width, view.x - 16.0f);
     height = std::min(height, view.y - 16.0f);
@@ -619,8 +618,25 @@ void Shell::ShowPopover(Ptr panel, el::rect anchor, float width, float height, b
     auto face = Over(std::move(panel), el::share(Surface(mTheme.Bar(), el::rgba(58, 58, 72, 255), 10.0f)));
     auto placed = Pad(x, y, std::max(0.0f, view.x - x - width), std::max(0.0f, view.y - y - height),
                       FixedWidth(width, FixedHeight(height, Expand(face))));
-    mOverlay = Over(placed, std::make_shared<ClickCatcher>([this] { CloseOverlay(); }));
+    return Over(placed, std::make_shared<ClickCatcher>(std::move(onOutside)));
+}
+
+void Shell::ShowPopover(Ptr panel, el::rect anchor, float width, float height, bool above)
+{
+    CloseOverlay();
+    mOverlay = PlacePanel(std::move(panel), anchor, width, height, above, [this] { CloseOverlay(); });
     mSession.View().add(mOverlay);
+}
+
+void Shell::CloseDropdown()
+{
+    if (!mDropdown)
+        return;
+    // As CloseOverlay: taken out once the event that closed it is done.
+    auto dropdown = std::move(mDropdown);
+    mDropdown.reset();
+    auto& view = mSession.View();
+    view.post([&view, dropdown] { view.remove(dropdown); });
 }
 
 void Shell::OpenDropdown(el::rect anchor, std::vector<MenuItem> items, float width)
@@ -634,8 +650,9 @@ void Shell::OpenDropdown(el::rect anchor, std::vector<MenuItem> items, float wid
         auto row = std::make_shared<MenuRow>(mTheme, item.label, item.selected, heading, ink);
         auto choose = item.onChoose;
         row->onClick = [this, choose] {
-            // Close first: the choice may open another dialog.
-            CloseOverlay();
+            // Close first: the choice may open another dialog. Only the list closes: a list
+            // opened from a dialog (a filter, a folder) leaves the dialog open.
+            CloseDropdown();
             if (choose)
                 choose();
         };
@@ -647,7 +664,9 @@ void Shell::OpenDropdown(el::rect anchor, std::vector<MenuItem> items, float wid
     Ptr list = Col(rows);
     if (height > maxHeight)
         list = VScroll(list);
-    ShowPopover(PadXY(6, 6, list), anchor, width, std::min(height, std::max(120.0f, maxHeight)));
+    CloseDropdown();
+    mDropdown = PlacePanel(PadXY(6, 6, list), anchor, width, std::min(height, std::max(120.0f, maxHeight)), false, [this] { CloseDropdown(); });
+    mSession.View().add(mDropdown);
 }
 
 // ── Demo audio ──────────────────────────────────────────────────────────────────

@@ -13,7 +13,11 @@ using guitarfx::uiclient::Topic;
 Shell::Shell(UiSession& session)
     : mSession(session), mState(session.Client().MutableState()), mTheme(session.GetTheme()),
       mIcons(session.GetEngine().GetBundledAssetsPath() / "ui" / "images" / "icons"),
-      mImages(session.GetEngine().GetBundledAssetsPath() / "ui")
+      mImages(session.GetEngine().GetBundledAssetsPath() / "ui"), mRemoteImages([] {
+          std::error_code ec;
+          const auto temp = std::filesystem::temp_directory_path(ec);
+          return (ec ? std::filesystem::path(".") : temp) / "soundshed-nanoq-images";
+      }())
 {
     // The effect icons, colours and artwork: one table for every UI (core/ui/data/effect-presentation.json).
     mPresentation = guitarfx::uiclient::EffectPresentation::Load(session.GetEngine().GetBundledAssetsPath() / "ui" / "data" /
@@ -22,11 +26,24 @@ Shell::Shell(UiSession& session)
     ApplyElementsTheme();
     BuildRoot();
     Subscribe();
+
+    // The tone service's news (a picture arrived, a download moved on): the Tones page's cards
+    // read it as they draw, so a redraw shows it. Its messages show as toasts.
+    mToneListener = mSession.Tones().AddListener([this] {
+        if (mPage == Page::Tones)
+        {
+            Mark(kPage); // rebuilt only if a card's state changed (TonesPageSignature)
+            mSession.View().refresh();
+        }
+    });
+    mSession.onToast = [this](const std::string& title, const std::string& detail, bool isError) { ShowToast(title, detail, isError); };
 }
 
 Shell::~Shell()
 {
     *mAlive = false;
+    mSession.Tones().RemoveListener(mToneListener);
+    mSession.onToast = nullptr;
 
     // A dialog still open goes with the window, and so must what it asked of the engine: the
     // tuner left on with the window closed kept the output muted, with nothing left to turn it
@@ -54,6 +71,7 @@ void Shell::Subscribe()
     on(Topic::Setlists, kPage);
     on(Topic::Catalog, kChain | kPage);
     on(Topic::Resources, kChain | kPage);
+    on(Topic::Tones, kPage);
     on(Topic::GlobalChain, kTransport);
     on(Topic::Mixer, kTransport);
     on(Topic::Demo, kTransport);
@@ -142,9 +160,20 @@ void Shell::Rebuild()
         else
             mEffectSignature = signature;
     }
+    else if ((mDirty & kPage) && mPage == Page::Tones)
+    {
+        // The Tones page scrolls; it is rebuilt (back to the top) only when what it lists changed.
+        mEffectSignature.clear();
+        const auto signature = TonesPageSignature();
+        if (signature == mTonesSignature)
+            mDirty &= ~kPage;
+        else
+            mTonesSignature = signature;
+    }
     else if (mDirty & kPage)
     {
         mEffectSignature.clear();
+        mTonesSignature.clear();
     }
 
     if (mDirty & kScenes)
@@ -173,6 +202,9 @@ void Shell::Rebuild()
             break;
         case Page::Effect:
             Fill(*mPageSlot, BuildEffectPage());
+            break;
+        case Page::Tones:
+            Fill(*mPageSlot, BuildTonesPage());
             break;
         case Page::Presets:
             Fill(*mPageSlot, BuildPresetsPage());

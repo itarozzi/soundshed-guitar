@@ -239,8 +239,15 @@ Ptr Shell::BuildEffectPage()
 
     for (const auto& info : params)
     {
-        if (groups.empty() || groups.back().name != info.group)
+        // A group gathers every control of its name, where they are apart in the list too
+        // (a NAM amp's Input and Output both in Level), as the web UI groups them.
+        auto group = std::find_if(groups.begin(), groups.end(), [&info](const Group& g) { return g.name == info.group; });
+        if (group == groups.end())
+        {
             groups.push_back({info.group, {}});
+            group = std::prev(groups.end());
+        }
+        auto& target = *group;
 
         ParamControl control;
         control.info = info;
@@ -253,7 +260,7 @@ Ptr Shell::BuildEffectPage()
             control.picker->onClick = [this, nodeId, info] { OpenEnumPicker(nodeId, info); };
             auto label = std::make_shared<Text>(mTheme, Upper(info.name), 9.0f, Weight::SemiBold);
             label->Colour(el::rgba(201, 209, 225, 184)).Alignment(Text::Align::Centre);
-            groups.back().cells.emplace_back(kPickerWidth, Sized(kPickerWidth, kCellHeight, Col({FixedHeight(12, label), VGap(12),
+            target.cells.emplace_back(kPickerWidth, Sized(kPickerWidth, kCellHeight, Col({FixedHeight(12, label), VGap(12),
                                                                                                FixedHeight(26, control.picker),
                                                                                                std::make_shared<el::element>()})));
         }
@@ -270,7 +277,7 @@ Ptr Shell::BuildEffectPage()
                 NoteChainEdit();
                 Mark(kValues | kPage);
             };
-            groups.back().cells.emplace_back(kCellWidth, control.toggle);
+            target.cells.emplace_back(kCellWidth, control.toggle);
         }
         else
         {
@@ -292,7 +299,7 @@ Ptr Shell::BuildEffectPage()
                 NoteChainEdit();
                 Mark(kValues);
             };
-            groups.back().cells.emplace_back(kCellWidth, control.knob);
+            target.cells.emplace_back(kCellWidth, control.knob);
         }
 
         mControls.push_back(std::move(control));

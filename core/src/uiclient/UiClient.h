@@ -55,6 +55,7 @@ enum class Topic
     Demo,
     Notifications,
     Tones, // tone sharing installs (what is installed is the toneSharing.installedPacks setting: Session)
+    ResourceFolders, // the resource browser's folder listing, and a folder just picked to add
     Count
 };
 

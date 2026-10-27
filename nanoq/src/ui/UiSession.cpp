@@ -17,13 +17,41 @@ UiSession::UiSession(Engine& engine, cycfi::elements::view& view)
     // Tells the engine a UI is showing, which is what turns the meter and diagnostics feeds on.
     mEngine.SendRequest(R"({"type":"uiVisibility","visible":true})");
 
+    guitarfx::uiclient::ToneService::Host host;
+    host.post = [queue = std::weak_ptr<PostQueue>(mPosted)](std::function<void()> fn) {
+        if (const auto q = queue.lock())
+        {
+            std::lock_guard<std::mutex> lock(q->mutex);
+            q->pending.push_back(std::move(fn));
+        }
+    };
+    host.toast = [this](const std::string& title, const std::string& detail, bool isError) {
+        if (onToast)
+            onToast(title, detail, isError);
+    };
+    mTones = std::make_unique<guitarfx::uiclient::ToneService>(mClient, mCommands, std::move(host));
+
+    if (mDriver)
+        mDriver->onSetting = [this](const std::string& key, const std::string& json) {
+            const auto value = nlohmann::json::parse(json, nullptr, false);
+            if (!value.is_discarded())
+                mCommands.SetSetting(key, value);
+        };
+
     mClient.Start();
     Schedule();
+}
+
+void UiSession::PostToUi(std::function<void()> fn)
+{
+    std::lock_guard<std::mutex> lock(mPosted->mutex);
+    mPosted->pending.push_back(std::move(fn));
 }
 
 UiSession::~UiSession()
 {
     *mAlive = false;
+    mTones.reset();
     mEngine.SendRequest(R"({"type":"uiVisibility","visible":false})");
     mEngine.SetViewAttached(false);
 }
@@ -53,6 +81,14 @@ void UiSession::Pump()
 
     mClient.Tick(Now());
     mClient.DrainPending();
+
+    std::vector<std::function<void()>> posted;
+    {
+        std::lock_guard<std::mutex> lock(mPosted->mutex);
+        posted.swap(mPosted->pending);
+    }
+    for (auto& fn : posted)
+        fn();
 
     if (onTick)
         onTick();

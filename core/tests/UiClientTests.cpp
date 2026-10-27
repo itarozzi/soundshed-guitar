@@ -10,6 +10,7 @@
  */
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
@@ -17,6 +18,7 @@
 #include <iostream>
 #include <optional>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <nlohmann/json.hpp>
@@ -26,6 +28,7 @@
 #include "dsp/EffectRegistry.h"
 #include "dsp/effects/GraphicEQEffect.h"
 #include "presets/PresetStorage.h"
+#include "net/Http.h"
 #include "uiclient/ChainHistory.h"
 #include "uiclient/ChainLayout.h"
 #include "uiclient/EffectPresentation.h"
@@ -34,6 +37,7 @@
 #include "uiclient/NodeLabels.h"
 #include "uiclient/ParamFormat.h"
 #include "uiclient/PresetBrowse.h"
+#include "uiclient/Tone3000.h"
 #include "uiclient/ToneSharing.h"
 #include "uiclient/UiClient.h"
 #include "uiclient/UiClientParsing.h"
@@ -495,6 +499,71 @@ void TestChainHistory()
     Expect(history.CopyActiveToOther() && history.EditCount(ChainHistory::Slot::B) == 1, "history: copying A over B is a step in B");
 }
 
+// Tone3000 through Soundshed's relay (Tone3000.h), and the HTTP workers' cancelling (net/Http.h).
+void TestTone3000AndHttp()
+{
+    namespace t3 = tone3000;
+    Expect(t3::Url(t3::TonesSearchPath("Super Reverb", "full-rig", "newest", "2", 3)) ==
+               "https://api-guitar.soundshed.com/v1/resourcesearch/tones/search?page=3&page_size=20&query=Super%20Reverb&gear=full-rig&sort=newest&architecture=2",
+           "tone3000: a search path");
+    Expect(t3::ModelsPath("87866", 1, "2") == "/models?tone_id=87866&page=1&page_size=100&architecture=2", "tone3000: a models path");
+    Expect(t3::ThroughRelay("https://www.tone3000.com/api/v1/models/742072/download/x.nam") ==
+               "https://api-guitar.soundshed.com/v1/resourcesearch/models/742072/download/x.nam",
+           "tone3000: a model download goes through the relay");
+    Expect(t3::ThroughRelay("https://cdn.example.com/x.nam") == "https://cdn.example.com/x.nam", "tone3000: other URLs stay");
+
+    const auto tones = t3::ParseTones(nlohmann::json::parse(
+        R"({"data":[{"id":87866,"title":"Mesa","gear":"amp-cab","models_count":2,"images":["https://img/x.png"],
+            "user":{"id":"u1","username":"mad","display_name":"Mad Hatter"}}],"page":2,"page_size":20,"total":41,"total_pages":3})"));
+    Expect(tones.items.size() == 1 && tones.items[0].id == "87866" && tones.items[0].creatorName == "Mad Hatter" &&
+               tones.items[0].imageUrl == "https://img/x.png" && tones.page == 2 && tones.totalPages == 3,
+           "tone3000: tones parse, ids as text");
+    const auto models = t3::ParseModels(nlohmann::json::parse(
+        R"({"data":[{"id":742072,"name":"Red Modern","model_url":"https://www.tone3000.com/api/v1/models/742072/download/a.nam","tone_id":87866,"architecture_version":"2"}],"total_pages":0})"));
+    Expect(models.items.size() == 1 && models.items[0].architecture == "2" && models.totalPages == 1, "tone3000: models parse");
+
+    const auto payload = t3::ImportPayload(tones.items[0], models.items[0], "nam", "", "AAAA");
+    Expect(payload.value("resourceId", "") == "tone3000:742072" && payload["metadata"].value("modelId", "") == "742072" &&
+               payload["metadata"].value("captureScope", "") == "amp+cab" && payload.value("category", "") == "amp-cab",
+           "tone3000: an import is named as the web UI names it");
+
+    ClientState state;
+    guitarfx::uiclient::LibraryResource imported;
+    imported.id = "elsewhere";
+    imported.type = "nam";
+    imported.metadata = {{"provider", "tone3000"}, {"modelId", "742072"}};
+    state.resources["nam"].push_back(imported);
+    Expect(t3::FindImported(state, "nam", models.items[0]) != nullptr, "tone3000: an import is found by the model id it records");
+
+    // A transport that blocks until cancelled: destroying the workers cuts it short at once.
+    struct Blocking final : net::HttpTransport
+    {
+        std::atomic<bool> started{false};
+        net::HttpResponse Perform(const net::HttpRequest&, net::CancelToken& cancel) override
+        {
+            std::atomic<bool> aborted{false};
+            if (!cancel.SetAbort([&aborted] { aborted = true; }))
+                return {};
+            started = true;
+            while (!aborted.load())
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            cancel.ClearAbort();
+            return {};
+        }
+    };
+    auto transport = std::make_shared<Blocking>();
+    std::atomic<bool> cut{false};
+    const auto began = std::chrono::steady_clock::now();
+    {
+        net::HttpWorkers workers(transport, 2);
+        workers.Run([&workers, &cut] { cut = workers.Perform(net::HttpRequest{}).cancelled; });
+        while (!transport->started.load())
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    Expect(cut.load() && std::chrono::steady_clock::now() - began < std::chrono::seconds(5),
+           "http: destroying the workers cancels a request in flight");
+}
+
 void TestToneSharing()
 {
     using namespace guitarfx::uiclient::tones;
@@ -931,6 +1000,7 @@ int main()
     TestLayoutDecisions();
     TestToneSharing();
     TestChainHistory();
+    TestTone3000AndHttp();
 
     if (gFailures > 0)
     {

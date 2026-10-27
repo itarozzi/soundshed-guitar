@@ -103,7 +103,7 @@ Ptr Shell::BuildResourceSlot(const guitarfx::GraphNode& node, const std::string&
     };
 
     auto choose = std::make_shared<SelectField>(mTheme, mIcons, missing ? name + "  (file missing)" : name, at >= 0 || ref != nullptr, missing);
-    choose->onClick = [this, nodeId, resourceType, resourceIndex] { OpenResourcePicker(nodeId, resourceType, resourceIndex); };
+    choose->onClick = [this, nodeId, resourceType, resourceIndex] { OpenResourceBrowser(nodeId, resourceType, resourceIndex); };
 
     auto clear = slate("x", [&commands, nodeId, resourceType, resourceIndex] {
         commands.SetNodeResource(nodeId, resourceType, {}, resourceIndex);
@@ -112,45 +112,6 @@ Ptr Shell::BuildResourceSlot(const guitarfx::GraphNode& node, const std::string&
     return Row({FixedWidth(std::max(46.0f, MeasureTextWidth(Upper(label), Font(Weight::SemiBold).size(9.0f)) + 4.0f), heading), HGap(10),
                 slate("ui-prev", step(-1), !list.empty()), HGap(6), choose, HGap(6), slate("ui-next", step(1), !list.empty()), HGap(6),
                 clear});
-}
-
-void Shell::OpenResourcePicker(const std::string& nodeId, const std::string& resourceType, int resourceIndex)
-{
-    const auto* node = mState.activePreset ? mState.activePreset->graph.FindNode(nodeId) : nullptr;
-    if (node == nullptr)
-        return;
-
-    const auto list = OrderedResources(mState, resourceType);
-    const int at = IndexIn(list, SlotRef(*node, resourceIndex));
-    const std::string icon = resourceType == "ir" ? "speaker" : resourceType == "nam" ? "amp" : "package";
-
-    std::vector<MenuItem> items;
-    items.push_back({"Browse for a file...", false, false, [this, nodeId, resourceType, resourceIndex] {
-                         mSession.Commands().BrowseNodeResource(nodeId, resourceType, resourceIndex);
-                     }, {}, "folder"});
-
-    std::string category = "\x01"; // no category yet
-    for (std::size_t i = 0; i < list.size(); ++i)
-    {
-        const auto* resource = list[i];
-        if (resource->category != category)
-        {
-            category = resource->category;
-            items.push_back({category.empty() ? "UNCATEGORISED" : Upper(category), false, true, {}});
-        }
-        MenuItem item{resource->name, static_cast<int>(i) == at, false,
-                      [this, nodeId, resourceType, resourceIndex, id = resource->id] {
-                          mSession.Commands().SetNodeResource(nodeId, resourceType, id, resourceIndex);
-                      }};
-        item.detail = resource->fileMissing ? "missing" : std::string();
-        item.icon = icon;
-        items.push_back(std::move(item));
-    }
-
-    if (list.empty())
-        items.push_back({"The library has none yet", false, true, {}});
-
-    OpenMenu(resourceType == "ir" ? "Impulse responses" : resourceType == "nam" ? "Models" : "Resources", std::move(items));
 }
 
 void Shell::OpenEnumPicker(const std::string& nodeId, const EffectParamInfo& info)

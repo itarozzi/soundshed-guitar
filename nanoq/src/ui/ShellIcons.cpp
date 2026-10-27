@@ -26,6 +26,18 @@ void AddShellIcons(Icons& icons)
     icons.Add("ui-effect", Svg("0 0 24 24", 1.8f,
                                R"(<circle cx="12" cy="13.5" r="7"/><path d="M12 13.5 16 9.5"/>)"
                                R"(<path d="M12 3v1.5M4.2 6.2l1.1 1.1M19.8 6.2l-1.1 1.1"/>)"));
+    icons.Add("ui-tones", Svg("0 0 24 24", 1.8f,
+                              R"(<path d="M9 17.5V5.5l11-2v12"/><circle cx="6.5" cy="17.5" r="2.5"/><circle cx="17.5" cy="15.5" r="2.5"/>)"));
+    icons.Add("ui-download", Svg("0 0 24 24", 2.0f, R"(<path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/>)"));
+    icons.Add("ui-share", Svg("0 0 24 24", 2.0f,
+                              R"(<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>)"
+                              R"(<path d="M8.6 10.7l6.8-4.4"/><path d="M8.6 13.3l6.8 4.4"/>)"));
+    icons.Add("ui-eye", Svg("0 0 24 24", 2.0f, R"(<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>)"));
+    icons.Add("ui-trash", Svg("0 0 24 24", 2.0f,
+                              R"(<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/>)"));
+    icons.Add("ui-folder", Svg("0 0 24 24", 1.8f, R"(<path d="M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2.5h8.5A1.5 1.5 0 0 1 21 9v9.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z"/>)"));
+    icons.Add("ui-up", Svg("0 0 24 24", 2.0f, R"(<polyline points="6 15 12 9 18 15"/>)"));
+    icons.Add("ui-chevron-right", Svg("0 0 24 24", 2.0f, R"(<polyline points="9 6 15 12 9 18"/>)"));
     icons.Add("ui-presets", Svg("0 0 24 24", 1.8f,
                                 R"(<path d="M4 6h16M4 12h16M4 18h10"/>)"));
     icons.Add("ui-gear", Svg("0 0 24 24", 1.5f,

@@ -92,6 +92,23 @@ private:
 /// before it is drawn. UI thread.
 [[nodiscard]] float MeasureTextWidth(const std::string& text, const el::font_descr& font);
 
+/// Pictures downloaded at run time (tone sharing packs, Tone3000 tones, avatars), from bytes the
+/// caller fetched. Artist reads pictures from files, so each is written once to a cache folder
+/// and loaded from there. UI thread.
+class RemoteImages
+{
+public:
+    explicit RemoteImages(std::filesystem::path cacheFolder) : mFolder(std::move(cacheFolder)) {}
+
+    /// The picture for `url`, given its bytes: null when `bytes` is null (still fetching) or the
+    /// picture cannot be decoded.
+    [[nodiscard]] std::shared_ptr<artist::image> Find(const std::string& url, const std::string* bytes);
+
+private:
+    std::filesystem::path mFolder;
+    std::map<std::string, std::shared_ptr<artist::image>> mImages; // a null entry: tried, failed
+};
+
 /// Draws `image` as large as fits `bounds` (contain), centred, with its aspect kept.
 void DrawImageFitted(artist::canvas& cnv, const artist::image& image, el::rect bounds);
 

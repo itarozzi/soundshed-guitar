@@ -35,6 +35,7 @@ enum class Page
 {
     Chain,
     Effect,
+    Tones,
     Presets,
     Settings
 };
@@ -102,6 +103,9 @@ private:
     Ptr BuildChainStage();
     /// A small panel beside `anchor` (a control's bounds), closed by a tap anywhere else.
     void ShowPopover(Ptr panel, el::rect anchor, float width, float height, bool above = false);
+    /// The panel placed beside `anchor`, over a layer that calls `onOutside` when tapped.
+    [[nodiscard]] Ptr PlacePanel(Ptr panel, el::rect anchor, float width, float height, bool above, std::function<void()> onOutside);
+    void CloseDropdown();
     /// A drop-down list under `anchor`, as the web UI's menus open from their buttons.
     void OpenDropdown(el::rect anchor, std::vector<MenuItem> items, float width = 180.0f);
     void OpenOptions(el::rect anchor);
@@ -136,7 +140,6 @@ private:
     Ptr BuildEffectPage();
     void SyncEffectValues();
     void OpenEffectPresets();
-    void OpenResourcePicker(const std::string& nodeId, const std::string& resourceType, int resourceIndex);
     void OpenEnumPicker(const std::string& nodeId, const guitarfx::uiclient::EffectParamInfo& info);
     [[nodiscard]] Ptr BuildResourceSlot(const guitarfx::GraphNode& node, const std::string& resourceType, int resourceIndex,
                                         const std::string& label, bool optional);
@@ -149,6 +152,25 @@ private:
     void LoadWithConfirm(const std::string& presetId);
     void DeleteWithConfirm(const std::string& presetId);
     void OpenPresetRowMenu(const guitarfx::uiclient::PresetSummary& preset);
+
+    // TonesPage.cpp: tone sharing, as the web UI's Tones tab
+    enum class TonesTab
+    {
+        Presets,
+        Packs,
+        Installed
+    };
+    Ptr BuildTonesPage();
+    [[nodiscard]] std::string TonesPageSignature() const;
+    /// Asks the service for the open tab's tones: page 1 afresh, or with `more` the next page.
+    void LoadTones(bool more);
+    void OpenToneAccount(el::rect anchor);
+    void OpenPackDetail(const guitarfx::uiclient::tones::Tone& pack);
+    void ShareTone(const guitarfx::uiclient::tones::Tone& tone);
+    [[nodiscard]] std::shared_ptr<artist::image> RemoteImage(const std::string& url);
+
+    // ResourceBrowser.cpp: the model and IR chooser, as the web UI's resource browser
+    void OpenResourceBrowser(const std::string& nodeId, const std::string& resourceType, int resourceIndex);
 
     // SettingsPage.cpp
     Ptr BuildSettingsPage();
@@ -200,6 +222,22 @@ private:
     Page mPage = Page::Chain;
     bool mWrapChain = true; // the web UI's signalPathWrapCompact, on unless turned off
 
+    // The Tones page: what it shows, and what the service last answered.
+    TonesTab mTonesTab = TonesTab::Presets;
+    std::string mTonesQuery, mTonesTag;
+    int mTonesPage = 1;
+    bool mTonesMore = false;     // another page of presets to load, or of packs to step to
+    bool mTonesLoading = false;
+    bool mTonesLoaded = false;   // the open tab has been asked for since it was opened
+    int mTonesGeneration = 0;    // answers to an older request are dropped
+    std::string mTonesError;
+    std::vector<guitarfx::uiclient::tones::Tone> mToneItems, mTonePacks, mToneHomePacks;
+    std::shared_ptr<el::basic_input_box> mTonesSearchBox;
+    Ptr mTonesSearchElement;
+    int mToneListener = 0;
+    std::string mTonesSignature;
+    RemoteImages mRemoteImages;
+
     guitarfx::uiclient::ChainHistory mHistory;
     std::string mHistoryContext;     // presetId::sceneId the stacks describe; a change re-seeds them
     double mHistoryCommitAt = 0.0;   // when to compare the chain again, 0 for no pending edit
@@ -239,6 +277,7 @@ private:
     std::shared_ptr<Text> mLoadText;
 
     Ptr mOverlay;
+    Ptr mDropdown; // a drop-down list: a layer of its own, so one opened from a dialog stacks over it
     Ptr mToast;
     std::shared_ptr<bool> mAlive = std::make_shared<bool>(true);
     std::function<void()> mOnOverlayClosed;                       // runs when the overlay closes

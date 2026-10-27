@@ -38,6 +38,14 @@ void DevDriver::Poll(el::view& view)
 
     for (const auto& line : lines)
     {
+        if (line.rfind("setting ", 0) == 0)
+        {
+            const auto rest = line.substr(8);
+            const auto space = rest.find(' ');
+            if (space != std::string::npos && onSetting)
+                onSetting(rest.substr(0, space), rest.substr(space + 1));
+            continue;
+        }
         if (line.rfind("shot ", 0) == 0)
         {
             // Drawn offscreen, so it works while the window is hidden or the session is locked

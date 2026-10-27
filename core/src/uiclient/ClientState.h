@@ -16,6 +16,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <cstdint>
 #include <map>
 #include <optional>
 #include <string>
@@ -244,6 +245,46 @@ struct ToneInstall
     std::vector<std::string> presetIds; // what it installed
 };
 
+/// The engine's answer to an importRemoteResource, by the request id it was sent with.
+struct ResourceImport
+{
+    enum class Status
+    {
+        Importing,
+        Imported,
+        Failed
+    };
+
+    Status status = Status::Importing;
+    std::string resourceType;
+    std::string resourceId; // the library id it was stored under
+    std::string detail;     // why it failed
+};
+
+/// One folder of model and IR files, as the engine lists it for the resource browser's Folder
+/// tab (listResourceFolder, ResourceFolderScanner).
+struct ResourceFolderListing
+{
+    struct Dir
+    {
+        std::string name, path;
+    };
+    struct File
+    {
+        std::string name, path, resourceType;
+        std::int64_t sizeBytes = 0;
+        bool inLibrary = false;
+        std::string libraryId;
+        nlohmann::json metadata = nlohmann::json::object(); // filled in by resourceFolderMetadata
+    };
+
+    std::string path, parent, name;
+    std::vector<Dir> dirs;
+    std::vector<File> files;
+    bool truncated = false;
+    std::string error; // resourceFolderListingFailed
+};
+
 struct ClientState
 {
     bool haveState = false;
@@ -290,6 +331,9 @@ struct ClientState
     DemoState demo;
 
     std::map<std::string, ToneInstall> toneInstalls;
+    std::map<std::string, ResourceImport> resourceImports; // by request id (Topic::Resources)
+    ResourceFolderListing resourceFolder;                  // the folder last listed (Topic::ResourceFolders)
+    std::string pickedResourceFolder;                       // a folder the user just picked to add, until taken
 
     [[nodiscard]] const EffectTypeInfo* FindEffectType(const std::string& type) const;
     [[nodiscard]] const PresetSummary* FindPresetSummary(const std::string& id) const;

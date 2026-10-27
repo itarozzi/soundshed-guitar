@@ -991,8 +991,27 @@ file(GLOB GUITARFX_UICLIENT_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/uiclient/*.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/uiclient/*.h")
 
+# HTTP for the native UIs (src/net/Http.h): the portable workers, and this platform's transport.
+# WinHTTP on Windows, NSURLSession on Apple platforms where Objective-C++ is enabled; elsewhere a
+# transport that reports no network, which a product replaces with its own (HttpTransport).
+list(APPEND GUITARFX_UICLIENT_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/net/Http.h" "${CMAKE_CURRENT_SOURCE_DIR}/src/net/Http.cpp")
+get_property(_guitarfx_languages GLOBAL PROPERTY ENABLED_LANGUAGES)
+if(WIN32)
+    list(APPEND GUITARFX_UICLIENT_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/net/HttpWin.cpp")
+elseif(APPLE AND "OBJCXX" IN_LIST _guitarfx_languages)
+    list(APPEND GUITARFX_UICLIENT_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/net/HttpApple.mm")
+    set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/src/net/HttpApple.mm" PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+else()
+    list(APPEND GUITARFX_UICLIENT_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/net/HttpNone.cpp")
+endif()
+
 add_library(SoundshedUiClient STATIC ${GUITARFX_UICLIENT_SOURCES})
 target_link_libraries(SoundshedUiClient PUBLIC SoundshedGuitarCore)
+if(WIN32)
+    target_link_libraries(SoundshedUiClient PRIVATE winhttp)
+elseif(APPLE AND "OBJCXX" IN_LIST _guitarfx_languages)
+    target_link_libraries(SoundshedUiClient PRIVATE "-framework Foundation")
+endif()
 target_include_directories(SoundshedUiClient PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_compile_options(SoundshedUiClient PRIVATE $<TARGET_PROPERTY:SoundshedGuitarCore,COMPILE_OPTIONS>)
 guitarfx_apply_release_optimizations(SoundshedUiClient)

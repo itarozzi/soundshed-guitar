@@ -531,6 +531,40 @@ const SvgIcon* Icons::Find(const std::string& name)
     return it->second ? &*it->second : nullptr;
 }
 
+std::shared_ptr<artist::image> RemoteImages::Find(const std::string& url, const std::string* bytes)
+{
+    if (url.empty())
+        return nullptr;
+    if (const auto it = mImages.find(url); it != mImages.end())
+        return it->second;
+    if (bytes == nullptr)
+        return nullptr; // still on its way: asked again when it arrives
+    std::shared_ptr<artist::image> image;
+    if (!bytes->empty())
+    {
+        // Named by the URL's hash; the decoder reads the format from the bytes.
+        std::error_code ec;
+        std::filesystem::create_directories(mFolder, ec);
+        const auto file = mFolder / (std::to_string(std::hash<std::string>{}(url)) + ".img");
+        {
+            std::ofstream out(file, std::ios::binary | std::ios::trunc);
+            out.write(bytes->data(), static_cast<std::streamsize>(bytes->size()));
+        }
+        try
+        {
+            image = std::make_shared<artist::image>(file);
+            if (image->size().x <= 0.0f)
+                image.reset();
+        }
+        catch (...)
+        {
+            image.reset();
+        }
+    }
+    mImages[url] = image;
+    return image;
+}
+
 float MeasureTextWidth(const std::string& text, const el::font_descr& font)
 {
     // Kept for the life of the process and never destroyed: the drawing backend may already be
