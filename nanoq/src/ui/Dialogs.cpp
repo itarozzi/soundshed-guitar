@@ -113,7 +113,7 @@ void Shell::OpenMenu(const std::string& title, std::vector<MenuItem> items)
         rows.push_back(row);
     }
 
-    const auto view = mSession.View().size();
+    const auto view = ViewSize();
     const float wanted = 64.0f + static_cast<float>(items.size()) * metrics::kRowHeight;
     const float height = std::clamp(wanted, 120.0f, std::max(120.0f, view.y - 80.0f));
 
@@ -151,7 +151,7 @@ void Shell::OpenPrompt(const std::string& title, const std::string& initial, con
     cancel->MinWidth(88);
     ok->MinWidth(88);
 
-    const auto view = mSession.View().size();
+    const auto view = ViewSize();
     ShowOverlay(Pad(16, 14, 16, 14,
                     Col({FixedHeight(30, heading), FixedHeight(44, PadXY(0, 4, el::share(std::move(boxElement)))), VGap(12),
                          FixedHeight(44, Row({Stretch(), cancel, HGap(8), ok}))})),
@@ -173,7 +173,7 @@ void Shell::OpenConfirm(const std::string& title, const std::string& detail, con
     cancel->MinWidth(88);
     yes->MinWidth(88);
 
-    const auto view = mSession.View().size();
+    const auto view = ViewSize();
     ShowOverlay(Pad(16, 14, 16, 14,
                     Col({FixedHeight(30, heading), FixedHeight(26, body), VGap(14), FixedHeight(44, Row({Stretch(), cancel, HGap(8), yes}))})),
                 DialogWidth(view, 460.0f), 170.0f);
@@ -387,11 +387,11 @@ void Shell::OpenEffectPicker(const std::string& afterNodeId, const std::string& 
         s->fill();
     };
 
-    const auto view = mSession.View().size();
-    const float stageWidth = view.x - metrics::kRailWidth;
+    const auto view = ViewSize();
+    const float stageWidth = view.x - StageLeft();
     const float width = std::min(560.0f, stageWidth - 24.0f);
     const float height = std::min(438.0f, view.y - 60.0f);
-    const float x = metrics::kRailWidth + (stageWidth - width) * 0.5f;
+    const float x = StageLeft() + (stageWidth - width) * 0.5f;
     const float titleWidth = std::min(width * 0.45f, MeasureTextWidth(title, Font(Weight::SemiBold).size(12.0f)) + 4.0f);
 
     auto panel = Pad(10, 8, 6, 10,

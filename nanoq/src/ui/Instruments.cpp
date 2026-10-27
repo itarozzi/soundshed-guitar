@@ -152,7 +152,7 @@ void Shell::OpenTuner()
     auto close = std::make_shared<Button>(mTheme, "Done", [this] { CloseOverlay(); }, Button::Style::Primary);
     close->MinWidth(88);
 
-    const auto view = mSession.View().size();
+    const auto view = ViewSize();
     ShowOverlay(Pad(16, 14, 16, 14,
                     Col({Row({FixedHeight(30, heading), Stretch(nullptr, 0.001), close}), face, VGap(8),
                          FixedHeight(44, Row({mute, Stretch(), down, FixedWidth(120, reference), up}))})),
@@ -321,7 +321,7 @@ void Shell::OpenMetronome()
                      FixedHeight(44, Row(beatRow)), VGap(6), FixedHeight(44, Row({meter, HGap(8), subdivision, HGap(8), click, Stretch()})),
                      VGap(6), volume});
 
-    const auto view = mSession.View().size();
+    const auto view = ViewSize();
     ShowOverlay(Pad(16, 14, 16, 14, page), std::min(560.0f, std::max(320.0f, view.x - 48.0f)),
                 std::min(500.0f, std::max(320.0f, view.y - 60.0f)));
 

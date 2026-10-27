@@ -1028,7 +1028,7 @@ void Shell::OpenResourceBrowser(const std::string& nodeId, const std::string& re
         CloseOverlay();
     };
 
-    const auto view = mSession.View().size();
+    const auto view = ViewSize();
     const float width = std::min(944.0f, view.x - 16.0f);
     const float height = std::max(320.0f, view.y - 12.0f);
     auto rule = FixedHeight(1, Fill(mTheme.Text().opacity(0.07f), std::make_shared<el::element>()));

@@ -54,7 +54,8 @@ std::string Shell::ChainSignature() const
 
     // The width decides where lines wrap, so a resize past a break redraws.
     std::string s = mSelectedNode + "|" + mState.activePresetId + "|" + mState.activeSceneId + "|" +
-                    std::to_string(static_cast<int>(mSession.View().size().x / 16.0f));
+                    std::to_string(static_cast<int>(ViewSize().x / 16.0f)) + "x" +
+                    std::to_string(mWide ? static_cast<int>(ViewSize().y / 24.0f) : 0);
     for (const auto& node : mState.activePreset->graph.nodes)
     {
         s += "|" + node.id + ":" + node.type + ":" + (node.enabled ? "1" : "0") + ":" +
@@ -258,7 +259,7 @@ Ptr Shell::BuildChain()
 
     // ── Lines: as many segments as fit the width, never fewer than one; one line, scrolling
     // sideways, with the wrap switched off ──
-    const float viewWidth = mSession.View().size().x - metrics::kRailWidth;
+    const float viewWidth = StageWidth();
     const float room = mWrapChain ? std::max(200.0f, viewWidth - 2.0f * kSidePad - 2.0f * kWireEndWidth) : 1e9f;
 
     struct Line
@@ -314,7 +315,23 @@ Ptr Shell::BuildChain()
     // The block sits in the middle of the stage, between the scene chips and the add button; it
     // scrolls when taller than that, and sideways when the wrap is off.
     SyncChainLights();
-    const float stageHeight = mSession.View().size().y - metrics::kTopBarHeight - metrics::kFooterHeight - 24.0f - 44.0f;
+    if (mWide)
+    {
+        // The full layout's chain is as tall as its lines, up to a third of the window, so the
+        // editor under it keeps the rest; past that it scrolls.
+        const float wanted = total + 24.0f;
+        const float most = std::max(kCardHeight + 24.0f, ViewSize().y / 3.0f);
+        mChainAreaHeight = std::min(wanted, most) + 24.0f + 30.0f; // the scene chips, the add button
+        if (!mWrapChain)
+        {
+            const float lineWidth = 2.0f * indent + 2.0f * kWireEndWidth + widest;
+            return FixedHeight(wanted, HScroll(PadXY(0, 12, FixedWidth(lineWidth, Col(rows)))));
+        }
+        if (wanted > most)
+            return FixedHeight(most, VScroll(PadXY(0, 12, Col(rows))));
+        return FixedHeight(wanted, PadXY(0, 12, Col(rows)));
+    }
+    const float stageHeight = ViewSize().y - metrics::kTopBarHeight - metrics::kFooterHeight - 24.0f - 44.0f;
     if (!mWrapChain)
     {
         const float lineWidth = 2.0f * indent + 2.0f * kWireEndWidth + widest;

@@ -15,6 +15,8 @@ NanoQPresenter::~NanoQPresenter() = default;
 void NanoQPresenter::on_attach(cycfi::elements::view& view)
 {
     mSession = std::make_unique<ui::UiSession>(mCtl.engine(), view);
+    mSession->getZoom = [this] { return zoom(); };
+    mSession->setZoom = [this](float scale) { zoom(scale); };
     mShell = std::make_unique<ui::Shell>(*mSession);
     mSession->onTick = [this] {
         if (mShell)
@@ -35,7 +37,11 @@ void NanoQPresenter::on_detach()
     // The shell holds elements the view still draws; drop the callback first, then the
     // shell, then the session (which tells the engine no view is showing).
     if (mSession)
+    {
         mSession->onTick = nullptr;
+        mSession->getZoom = nullptr;
+        mSession->setZoom = nullptr;
+    }
     mShell.reset();
     mSession.reset();
 }

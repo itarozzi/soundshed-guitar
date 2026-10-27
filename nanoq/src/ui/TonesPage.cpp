@@ -334,7 +334,7 @@ std::string Shell::TonesPageSignature() const
                     "|" + (mTonesMore ? "m" : "") + (mTonesLoading ? "l" : "") + "|" + mTonesError + "|" +
                     std::to_string(mToneItems.size()) + "/" + std::to_string(mTonePacks.size()) + "/" +
                     std::to_string(mToneHomePacks.size()) + "|" + (service.Account() ? service.Account()->Label() : std::string()) +
-                    (service.HasSession() ? "s" : "") + "|" + std::to_string(static_cast<int>(mSession.View().size().x / 32.0f));
+                    (service.HasSession() ? "s" : "") + "|" + std::to_string(static_cast<int>(ViewSize().x / 32.0f));
     // A card's Install button follows its install.
     for (const auto& entry : tones::InstalledEntries(mState.appSettings))
         s += "|i" + entry.id;
@@ -441,7 +441,7 @@ Ptr Shell::BuildTonesPage()
         LoadTones(false);
     }
 
-    const float stageWidth = mSession.View().size().x - metrics::kRailWidth;
+    const float stageWidth = StageWidth();
     const float contentWidth = stageWidth - 2.0f * 10.0f - 14.0f; // margins, scroll bar
     auto image = [this](const std::string& url) { return RemoteImage(url); };
 

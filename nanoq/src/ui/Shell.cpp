@@ -77,7 +77,10 @@ void Shell::Subscribe()
     on(Topic::Demo, kTransport);
 
     // Every change the engine reports to the preset may be an edit for the chain's history.
-    mSubscriptions.push_back(client.Subscribe(Topic::ActivePreset, [this] { NoteChainEdit(); }));
+    mSubscriptions.push_back(client.Subscribe(Topic::ActivePreset, [this] {
+        NoteChainEdit();
+        NotePresetTrail();
+    }));
 }
 
 void Shell::BuildRoot()
@@ -88,13 +91,17 @@ void Shell::BuildRoot()
     mChainSlot = MakeSlot();
     mPageSlot = MakeSlot();
     mTransportSlot = MakeSlot();
+    mEffectSlot = MakeSlot();
 
-    // The rail down the left; beside it the preset bar, the stage and the footer. The stage
-    // stretches between the bars; the background is its own slot because a theme change
-    // repaints it.
+    // The frame (BuildFrame) holds the regions as the layout in force places them; it is
+    // swapped when the window crosses the compact breakpoint. The background is its own slot
+    // because a theme change repaints it.
     mBgSlot = MakeSlot();
     Fill(*mBgSlot, el::share(el::box(mTheme.Background())));
-    mRoot = Over(Row({FixedWidth(metrics::kRailWidth, mRailSlot), Col({mTopSlot, mPageSlot, mTransportSlot})}), mBgSlot);
+    mFrameSlot = MakeSlot();
+    mWide = WantsWide();
+    Fill(*mFrameSlot, BuildFrame());
+    mRoot = Over(MinSize(metrics::kMinWidth, metrics::kMinHeight, mFrameSlot), mBgSlot);
 }
 
 void Shell::Rebuild()
@@ -109,6 +116,7 @@ void Shell::Rebuild()
         mChainSignature.clear();
         mEffectSignature.clear();
         mSceneSignature.clear();
+        mTopSignature.clear();
     }
     if (!mState.haveState)
     {
@@ -135,6 +143,21 @@ void Shell::Rebuild()
         mDirty |= kAll;
     }
 
+    // The full layout's play page holds the chain and the editor in one stage: it is put back
+    // when the page comes back to it, and its regions built afresh with it.
+    const bool playStage = mWide && PlayShown();
+    if (!playStage)
+    {
+        mPlayStageShown = false;
+    }
+    else if (!mPlayStageShown)
+    {
+        mDirty |= kPage | kChain | kScenes;
+        mEffectSignature.clear();
+        mChainSignature.clear();
+        mSceneSignature.clear();
+    }
+
 
     EnsureSelection();
     SelectAddedNode();
@@ -152,7 +175,7 @@ void Shell::Rebuild()
 
     // A page of sliders is patched in place when only values moved: rebuilding it under a drag
     // would drop the drag.
-    if ((mDirty & kPage) && mPage == Page::Effect && mState.activePreset)
+    if ((mDirty & kPage) && PlayShown() && mState.activePreset)
     {
         const auto signature = EffectPageSignature();
         if (signature == mEffectSignature)
@@ -176,6 +199,17 @@ void Shell::Rebuild()
         mTonesSignature.clear();
     }
 
+    // The bar is rebuilt only when what it shows changed: every edit to the preset marks it, and
+    // the full layout's bar holds knobs that a rebuild under a drag would drop.
+    if (mDirty & kTopBar)
+    {
+        const auto signature = TopBarSignature();
+        if (signature == mTopSignature)
+            mDirty &= ~kTopBar;
+        else
+            mTopSignature = signature;
+    }
+
     if (mDirty & kScenes)
     {
         const auto signature = SceneSignature();
@@ -193,7 +227,16 @@ void Shell::Rebuild()
         Fill(*mSceneSlot, BuildScenes());
     if (mDirty & kChain)
         Fill(*mChainSlot, BuildChain());
-    if (mDirty & kPage)
+    if ((mDirty & kPage) && playStage)
+    {
+        if (!mPlayStageShown)
+        {
+            Fill(*mPageSlot, BuildPlayStage());
+            mPlayStageShown = true;
+        }
+        Fill(*mEffectSlot, BuildEffectPage());
+    }
+    else if (mDirty & kPage)
     {
         switch (mPage)
         {
@@ -216,7 +259,7 @@ void Shell::Rebuild()
     }
     if (mDirty & kTransport)
         Fill(*mTransportSlot, BuildTransport());
-    if ((mDirty & kValues) && mPage == Page::Effect)
+    if ((mDirty & kValues) && PlayShown())
         SyncEffectValues();
     if ((mDirty & kSettings) && mPage == Page::Settings)
         SyncSettings();
@@ -233,6 +276,35 @@ void Shell::Rebuild()
 
 void Shell::OnTick()
 {
+    // A window resized (or zoomed) across the breakpoint gets the other frame, every region
+    // built for it.
+    if (const bool wide = WantsWide(); wide != mWide)
+    {
+        mWide = wide;
+        mPlayStageShown = false;
+        mInMeter.reset();
+        mOutMeter.reset();
+        mHeaderSubs.clear();
+        CloseOverlay();
+        CloseDropdown();
+        Fill(*mFrameSlot, BuildFrame());
+        mDirty |= kAll;
+        mChainSignature.clear();
+        mEffectSignature.clear();
+        mSceneSignature.clear();
+        mTopSignature.clear();
+        mTonesSignature.clear();
+        mShowingStarting = false;
+    }
+
+    // A new size: the regions laid out for the old one are looked at again (the chain and the
+    // pages only rebuild where their signatures see the change).
+    if (const auto size = ViewSize(); size.x != mLastSize.x || size.y != mLastSize.y)
+    {
+        mLastSize = size;
+        mDirty |= kTransport | kChain | kPage;
+    }
+
     if (mHistoryCommitAt > 0.0 && UiSession::Now() >= mHistoryCommitAt)
         CommitChainHistory();
     if (mDirty != 0)

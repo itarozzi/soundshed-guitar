@@ -1,10 +1,16 @@
 #pragma once
 
-// Shell - the frame every page sits in, laid out as the web UI's compact landscape layout
-// (html[data-compact-layout="rail"]): a rail at the left that switches between the Chain and
+// Shell - the frame every page sits in. At or below the web UI's compact breakpoint (980 x 620,
+// core/ui/ts/compactMode.ts; the ui.density setting can force either) it is laid out as the web
+// UI's compact landscape layout (html[data-compact-layout="rail"]): a rail at the left that switches between the Chain and
 // Effect stages (the two halves of the Play tab, which take turns at this size) and opens
 // Settings; the preset bar along the top; the stage; and the footer with its Options sheet.
 // Presets and Settings take the stage's place when open.
+//
+// Above it, the full layout: the PLAY / TONES / PRESETS tabs along the top, the control bar
+// (input, gate, transpose, the preset toolbar and selector, EQ, doubler, output), the chain with
+// the selected effect's editor under it, and the full footer. The same regions are rebuilt; the
+// frame around them is swapped when the window crosses the breakpoint.
 //
 // The UI is rebuilt from the client's state, region by region, rather than patched: what a
 // region shows is a pure function of ClientState, so a change just marks the regions it
@@ -20,6 +26,7 @@
 #include "uiclient/ChainHistory.h"
 #include "uiclient/ChainLayout.h"
 #include "uiclient/EffectPresentation.h"
+#include "uiclient/Instruments.h"
 #include "uiclient/PresetBrowse.h"
 
 #include <functional>
@@ -81,7 +88,7 @@ private:
         kTransport = 1u << 4,
         kValues = 1u << 5, // the effect page's slider values only
         kSettings = 1u << 6, // the settings page's controls only
-        kRail = 1u << 7,
+        kRail = 1u << 7, // the compact rail, or the full layout's tab row
         kAll = kTopBar | kScenes | kChain | kPage | kTransport | kRail
     };
 
@@ -94,6 +101,27 @@ private:
     void BuildRoot();
     void Rebuild();
 
+    // The window's size and which layout it gets (ShellFrame.cpp).
+    /// The view's size in layout units: the zoom divided out.
+    [[nodiscard]] el::extent ViewSize() const;
+    [[nodiscard]] bool WantsWide() const;
+    /// Where the stage starts and how wide it is: right of the rail when compact.
+    [[nodiscard]] float StageLeft() const
+    {
+        return mWide ? 0.0f : metrics::kRailWidth;
+    }
+    [[nodiscard]] float StageWidth() const
+    {
+        return ViewSize().x - StageLeft();
+    }
+    /// The frame for the layout in force, around the region slots.
+    Ptr BuildFrame();
+    /// Chain and Effect are one page in the full layout.
+    [[nodiscard]] bool PlayShown() const
+    {
+        return mPage == Page::Effect || (mWide && mPage == Page::Chain);
+    }
+
     // Shell.cpp
     Ptr BuildRail();
     Ptr BuildTopBar();
@@ -101,6 +129,35 @@ private:
     Ptr BuildTransport();
     Ptr BuildStarting();
     Ptr BuildChainStage();
+
+    // The full layout (WideFrame.cpp).
+    Ptr BuildTabBar();
+    Ptr BuildHeader();
+    Ptr BuildPlayStage();
+    Ptr BuildWideFooter();
+    /// The demo clip chooser and its play button, as both footers show them.
+    [[nodiscard]] Ptr BuildDemoControls(float chooserWidth, bool withRepeat);
+    /// The tempo, tap and the metronome's switch, as both footers show them.
+    [[nodiscard]] Ptr BuildTempoControls(bool withTap);
+    /// Undo, redo, the A/B pair and the copy between them, as both footers show them.
+    [[nodiscard]] Ptr BuildHistoryControls();
+    void PlayOrStopDemo();
+    /// The zoom's select (100%, ...), for the Options sheet and the full footer.
+    [[nodiscard]] Ptr ZoomButton();
+    /// The presets loaded, in order, for the control bar's back and forward (preset-undo/redo).
+    void NotePresetTrail();
+    void StepPresetTrail(int direction);
+
+    /// The global chain's cells (Controls.cpp): the compact Controls sheet and the full
+    /// layout's control bar lay out the same ones. Their values follow the state through
+    /// `subs`, for as long as those are held.
+    struct ControlCells
+    {
+        Ptr in, gate, transpose, eq, doubler, out;
+        std::shared_ptr<MeterBar> inMeter, outMeter;
+        Ptr mute;
+    };
+    ControlCells BuildControlCells(std::vector<guitarfx::uiclient::Subscription>& subs);
     /// A small panel beside `anchor` (a control's bounds), closed by a tap anywhere else.
     void ShowPopover(Ptr panel, el::rect anchor, float width, float height, bool above = false);
     /// The panel placed beside `anchor`, over a layer that calls `onOutside` when tapped.
@@ -134,6 +191,8 @@ private:
     void SyncChainLights();
 
     [[nodiscard]] std::string SceneSignature() const;
+    /// What the preset bar (or the full control bar) shows that a rebuild would change.
+    [[nodiscard]] std::string TopBarSignature() const;
 
     // EffectPage.cpp
     [[nodiscard]] std::string EffectPageSignature() const;
@@ -217,9 +276,18 @@ private:
     Images mImages;
 
     Ptr mRoot;
+    SlotPtr mFrameSlot, mEffectSlot;
     SlotPtr mBgSlot, mRailSlot, mTopSlot, mSceneSlot, mChainSlot, mPageSlot, mTransportSlot;
 
     Page mPage = Page::Chain;
+    bool mWide = false;            // the full layout is in force
+    el::extent mLastSize{0.0f, 0.0f}; // the regions sized to the window are rebuilt when it changes
+    bool mPlayStageShown = false;  // the full layout's page slot holds the chain and editor
+    float mChainAreaHeight = 0.0f; // the full layout's chain, as tall as its lines
+    std::vector<guitarfx::uiclient::Subscription> mHeaderSubs; // the control bar's live values
+    std::vector<std::string> mPresetTrail;
+    std::size_t mPresetTrailAt = 0;
+    std::shared_ptr<guitarfx::uiclient::TapTempo> mTapTempo;
     bool mWrapChain = true; // the web UI's signalPathWrapCompact, on unless turned off
 
     // The Tones page: what it shows, and what the service last answered.
@@ -267,6 +335,7 @@ private:
 
     std::string mEffectSignature;
     std::string mSceneSignature;
+    std::string mTopSignature;
     std::vector<ParamControl> mControls;
     std::vector<std::function<void()>> mSettingsSyncs; // the settings page's controls, patched in place
     std::shared_ptr<PowerSwitch> mBypass;

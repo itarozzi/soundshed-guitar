@@ -5,6 +5,7 @@
 
 #include "ui/Shell.h"
 
+#include "ui/FrameParts.h"
 #include "ui/ShellWidgets.h"
 
 #include "uiclient/NodeLabels.h"
@@ -16,32 +17,10 @@
 
 namespace nanoq::ui
 {
+using namespace frame;
+
 namespace
 {
-// The web UI's settings for the demo clip, shared with Soundshed Guitar and Nano.
-constexpr const char* kDemoClipSetting = "demoAudio.selectedId";
-constexpr const char* kDemoRenderRateSetting = "demoAudio.renderSampleRate";
-constexpr const char* kDemoRepeatSetting = "nativeUi.demoRepeat";
-
-bool BoolSetting(const nlohmann::json& settings, const char* key, bool fallback)
-{
-    return settings.contains(key) && settings[key].is_boolean() ? settings[key].get<bool>() : fallback;
-}
-
-double NumberSetting(const nlohmann::json& settings, const char* key, double fallback)
-{
-    return settings.contains(key) && settings[key].is_number() ? settings[key].get<double>() : fallback;
-}
-
-std::string PresetTitle(const guitarfx::uiclient::ClientState& state)
-{
-    if (const auto* summary = state.FindPresetSummary(state.activePresetId))
-        return summary->name;
-    if (state.activePreset && !state.activePreset->name.empty())
-        return state.activePreset->name;
-    return "No preset";
-}
-
 /// Takes a tap that lands outside a popover, and closes it; draws nothing, so what is under it
 /// stays in view.
 class ClickCatcher final : public el::element
@@ -124,20 +103,15 @@ private:
     el::color mInk;
 };
 
-std::shared_ptr<IconButton> ToolButton(const Theme& theme, Icons& icons, const char* icon, std::function<void()> onClick,
-                                       float size = 28.0f, float iconSize = 14.0f)
-{
-    auto b = std::make_shared<IconButton>(theme, icons, icon);
-    b->Size(size, size).IconSize(iconSize);
-    b->onClick = std::move(onClick);
-    return b;
-}
 } // namespace
 
 // ── The rail ────────────────────────────────────────────────────────────────────
 
 Ptr Shell::BuildRail()
 {
+    if (mWide)
+        return BuildTabBar();
+
     auto tab = [this](const char* icon, const char* label, Page page) {
         auto t = std::make_shared<RailTab>(mTheme, mIcons, icon, label, mPage == page);
         t->onClick = [this, page] { ShowPage(page); };
@@ -161,6 +135,9 @@ Ptr Shell::BuildRail()
 
 Ptr Shell::BuildTopBar()
 {
+    if (mWide)
+        return BuildHeader();
+
     auto& commands = mSession.Commands();
     const bool dirty = mState.activePresetDirty;
     const bool havePreset = mState.activePreset.has_value();
@@ -338,21 +315,8 @@ Ptr Shell::BuildChainStage()
 
 // ── The footer ──────────────────────────────────────────────────────────────────
 
-Ptr Shell::BuildTransport()
+Ptr Shell::BuildHistoryControls()
 {
-    mInMeter.reset();
-    mOutMeter.reset();
-    mLoadText.reset();
-
-    auto pads = ToolButton(mTheme, mIcons, "ui-pads", [this] {
-        mShowSetlists = true;
-        ShowPage(Page::Presets);
-        Mark(kPage);
-    }, 26.0f, 16.0f);
-    pads->Ink(mTheme.TextSecondary());
-    auto tuner = ToolButton(mTheme, mIcons, "ui-tuner", [this] { OpenTuner(); }, 26.0f, 16.0f);
-    tuner->Ink(mTheme.TextSecondary());
-
     // The chain's history: undo, redo, the A/B pair and copying the live chain to the other.
     using Slot = guitarfx::uiclient::ChainHistory::Slot;
     const bool seeded = mHistory.IsSeeded();
@@ -369,14 +333,51 @@ Ptr Shell::BuildTransport()
     auto ab = Over(PadXY(2, 2, Row({a, HGap(2), b})), el::share(Surface(mTheme.Bar(), mTheme.Pick(el::rgba(58, 58, 72, 255), mTheme.BorderStrong()), 6.0f)));
     auto copy = ToolButton(mTheme, mIcons, "ui-swap", [this] { CopyChainSlot(); }, 26.0f, 15.0f);
     copy->Disabled(!seeded);
+    return Tight({undo, HGap(2), redo, HGap(6), FixedWidth(54, FixedHeight(25, ab)), HGap(4), copy});
+}
+
+Ptr Shell::BuildTransport()
+{
+    if (mWide)
+        return BuildWideFooter();
+
+    // The compact footer keeps the everyday tools in reach rather than behind Options: the
+    // setlists and tuner, the demo clip and its play button, the chain's history and A/B, the
+    // tempo and the metronome, then Options for the rest. What does not fit a narrow window
+    // goes first (the demo clip, then the tempo).
+    const float width = StageWidth();
+    auto pads = ToolButton(mTheme, mIcons, "ui-pads", [this] {
+        mShowSetlists = true;
+        ShowPage(Page::Presets);
+        Mark(kPage);
+    }, 26.0f, 16.0f);
+    pads->Ink(mTheme.TextSecondary());
+    auto tuner = ToolButton(mTheme, mIcons, "ui-tuner", [this] { OpenTuner(); }, 26.0f, 16.0f);
+    tuner->Ink(mTheme.TextSecondary());
 
     auto options = std::make_shared<IconButton>(mTheme, mIcons, "", IconButton::Look::Boxed);
     options->Size(64, 26).Label("OPTIONS", 10.0f);
     options->onClick = [this, o = options.get()] { OpenOptions(o->Bounds()); };
 
-    auto bar = Row({HGap(8), pads, HGap(4), tuner, Stretch(), undo, HGap(2), redo, HGap(6), FixedWidth(54, FixedHeight(25, ab)),
-                    HGap(4), copy, Stretch(), options, HGap(8)});
-    return FixedHeight(metrics::kFooterHeight, Fill(mTheme.Footer(), PadXY(0, 3, bar)));
+    auto divider = [this] { return Pad(6, 4, 6, 4, FixedWidth(1, Fill(mTheme.Text().opacity(0.08f), std::make_shared<el::element>()))); };
+
+    std::vector<Ptr> row{HGap(8), pads, HGap(4), tuner};
+    if (width >= 760.0f)
+    {
+        row.push_back(divider());
+        row.push_back(BuildDemoControls(width >= 860.0f ? 132.0f : 104.0f, false));
+    }
+    row.push_back(Stretch());
+    row.push_back(BuildHistoryControls());
+    row.push_back(Stretch());
+    if (width >= 640.0f)
+    {
+        row.push_back(BuildTempoControls(false));
+        row.push_back(divider());
+    }
+    row.push_back(options);
+    row.push_back(HGap(8));
+    return FixedHeight(metrics::kFooterHeight, Fill(mTheme.Footer(), PadXY(0, 3, Row(row))));
 }
 
 void Shell::OpenOptions(el::rect anchor)
@@ -393,19 +394,8 @@ void Shell::OpenOptions(el::rect anchor)
     clipButton->Disabled(clip == nullptr);
     clipButton->onClick = [this] { OpenDemoClips(); };
 
-    auto play = ToolButton(mTheme, mIcons, playing ? "ui-stop" : "ui-play", [this, playing] {
-        auto& cmds = mSession.Commands();
-        if (playing)
-        {
-            cmds.StopDemo();
-        }
-        else if (const auto* c = SelectedDemoClip())
-        {
-            if (c->takeId.empty())
-                cmds.PreviewDemoClip(c->id, BoolSetting(mState.appSettings, kDemoRepeatSetting, false));
-            else
-                cmds.PreviewRiff(c->takeId);
-        }
+    auto play = ToolButton(mTheme, mIcons, playing ? "ui-stop" : "ui-play", [this] {
+        PlayOrStopDemo();
         CloseOverlay();
     }, 28.0f, 13.0f);
     play->Lit(playing).Disabled(clip == nullptr);
@@ -456,7 +446,7 @@ void Shell::OpenOptions(el::rect anchor)
     // The theme.
     auto themeButton = std::make_shared<IconButton>(mTheme, mIcons, "", IconButton::Look::Boxed);
     const std::string themeName = mState.theme == "light" ? "Light" : mState.theme == "classic" ? "Classic" : "Dark";
-    themeButton->Size(150, 28).Label(themeName, 11.0f).Caret(true);
+    themeButton->Size(84, 28).Label(themeName, 11.0f).Caret(true);
     themeButton->onClick = [this, t = themeButton.get()] {
         std::vector<MenuItem> items;
         for (const auto& [id, label] : {std::pair<const char*, const char*>{"dark", "Dark"}, {"light", "Light"}, {"classic", "Classic"}})
@@ -464,12 +454,31 @@ void Shell::OpenOptions(el::rect anchor)
         OpenDropdown(t->Bounds(), std::move(items), 150.0f);
     };
 
+    // The layout: automatic (compact at or below 980 x 620), or one of them always; and the zoom.
+    const auto density = StringSetting(mState.appSettings, kDensitySetting, "auto");
+    auto densityButton = std::make_shared<IconButton>(mTheme, mIcons, "", IconButton::Look::Boxed);
+    densityButton->Size(110, 28).Label(density == "full" ? "Full" : density == "compact" ? "Compact" : "Auto layout", 11.0f).Caret(true);
+    densityButton->onClick = [this, d = densityButton.get(), density] {
+        std::vector<MenuItem> items;
+        for (const auto& [id, label] : {std::pair<const char*, const char*>{"auto", "Auto layout"}, {"compact", "Compact"}, {"full", "Full"}})
+            items.push_back({label, density == id, false, [this, id = std::string(id)] { mSession.Commands().SetSetting(kDensitySetting, id); }});
+        OpenDropdown(d->Bounds(), std::move(items), 150.0f);
+    };
+    std::vector<Ptr> viewRow{themeButton, HGap(8), densityButton};
+    if (mSession.getZoom && mSession.setZoom)
+    {
+        auto zoom = ZoomButton();
+        viewRow.push_back(HGap(8));
+        viewRow.push_back(zoom);
+    }
+    viewRow.push_back(Stretch());
+
     auto rule = [this] { return FixedHeight(1, Fill(mTheme.Text().opacity(0.07f), std::make_shared<el::element>())); };
     auto panel = Pad(10, 10, 10, 10,
                      Col({FixedHeight(28, Row({clipButton, Stretch(), play, HGap(6), loop})), VGap(8), rule(), VGap(8),
                           FixedHeight(28, Row({pads, HGap(10), tuner, HGap(10), io, HGap(10), mute, Stretch()})), VGap(8), rule(),
                           VGap(8), FixedHeight(28, Row({HGap(8), tempo, HGap(14), metronome, HGap(6), tick, Stretch()})), VGap(8),
-                          rule(), VGap(8), FixedHeight(28, Row({themeButton, Stretch()}))}));
+                          rule(), VGap(8), FixedHeight(28, Row(viewRow))}));
     ShowPopover(panel, anchor, 350.0f, 190.0f, true);
 }
 
@@ -606,7 +615,7 @@ void Shell::CopyChainSlot()
 
 Ptr Shell::PlacePanel(Ptr panel, el::rect anchor, float width, float height, bool above, std::function<void()> onOutside)
 {
-    const auto view = mSession.View().size();
+    const auto view = ViewSize();
     width = std::min(width, view.x - 16.0f);
     height = std::min(height, view.y - 16.0f);
     // Right-aligned to its button where the button is on the right half, else left-aligned.
@@ -660,12 +669,14 @@ void Shell::OpenDropdown(el::rect anchor, std::vector<MenuItem> items, float wid
         rows.push_back(row);
     }
 
-    const float maxHeight = mSession.View().size().y - anchor.bottom - 16.0f;
+    // Near the bottom of the window (the footer's selects) the list opens upwards.
+    const bool above = anchor.top > ViewSize().y * 0.6f;
+    const float maxHeight = above ? anchor.top - 16.0f : ViewSize().y - anchor.bottom - 16.0f;
     Ptr list = Col(rows);
     if (height > maxHeight)
         list = VScroll(list);
     CloseDropdown();
-    mDropdown = PlacePanel(PadXY(6, 6, list), anchor, width, std::min(height, std::max(120.0f, maxHeight)), false, [this] { CloseDropdown(); });
+    mDropdown = PlacePanel(PadXY(6, 6, list), anchor, width, std::min(height, std::max(120.0f, maxHeight)), above, [this] { CloseDropdown(); });
     mSession.View().add(mDropdown);
 }
 

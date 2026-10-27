@@ -117,5 +117,17 @@ inline constexpr float kSmallText = 12.0f;
 inline constexpr float kRailWidth = 60.0f;
 inline constexpr float kTopBarHeight = 40.0f;
 inline constexpr float kFooterHeight = 32.0f;
+
+// The full layout, above the compact breakpoint (core/ui/ts/compactMode.ts): the PLAY / TONES tab
+// row, the control bar with the preset selector in it, and a 44 px footer.
+inline constexpr float kTabBarHeight = 36.0f;
+inline constexpr float kHeaderHeight = 134.0f;
+inline constexpr float kWideFooterHeight = 44.0f;
+/// The web UI goes compact at or below either (COMPACT_MAX_WIDTH, COMPACT_MAX_HEIGHT).
+inline constexpr float kCompactMaxWidth = 980.0f;
+inline constexpr float kCompactMaxHeight = 620.0f;
+/// The smallest window the compact layout still fits.
+inline constexpr float kMinWidth = 640.0f;
+inline constexpr float kMinHeight = 400.0f;
 } // namespace metrics
 } // namespace nanoq::ui

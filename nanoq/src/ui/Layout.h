@@ -74,6 +74,83 @@ private:
     return Expand(std::move(content), true, false);
 }
 
+/// Between `lo` and `hi` wide, whatever its content asks: a column that shares a bar's width.
+template <el::concepts::Element Subject>
+class WidthRangeElement : public el::proxy<Subject>
+{
+public:
+    using base_type = el::proxy<Subject>;
+
+    WidthRangeElement(Subject subject, float lo, float hi) : base_type(std::move(subject)), mLo(lo), mHi(hi) {}
+
+    el::view_limits limits(const el::basic_context& ctx) const override
+    {
+        auto l = this->subject().limits(ctx);
+        l.min.x = mLo;
+        l.max.x = mHi;
+        return l;
+    }
+
+private:
+    float mLo, mHi;
+};
+
+[[nodiscard]] inline Ptr WidthRange(float lo, float hi, Ptr content)
+{
+    return el::share(WidthRangeElement(el::hold_any(std::move(content)), lo, hi));
+}
+
+/// No minimum size: a region built for the window's last size, rebuilt for the new one at the
+/// next tick, does not hold the window at the old size meanwhile.
+template <el::concepts::Element Subject>
+class YieldingElement : public el::proxy<Subject>
+{
+public:
+    using base_type = el::proxy<Subject>;
+
+    explicit YieldingElement(Subject subject) : base_type(std::move(subject)) {}
+
+    el::view_limits limits(const el::basic_context& ctx) const override
+    {
+        auto l = this->subject().limits(ctx);
+        l.min = {0.0f, 0.0f};
+        return l;
+    }
+};
+
+[[nodiscard]] inline Ptr Yielding(Ptr content)
+{
+    return el::share(YieldingElement(el::hold_any(std::move(content))));
+}
+
+/// Never smaller than w x h: the window's floor, which the host is told (clap gui resize hints).
+template <el::concepts::Element Subject>
+class MinSizeElement : public el::proxy<Subject>
+{
+public:
+    using base_type = el::proxy<Subject>;
+
+    MinSizeElement(Subject subject, float w, float h) : base_type(std::move(subject)), mW(w), mH(h) {}
+
+    el::view_limits limits(const el::basic_context& ctx) const override
+    {
+        auto l = this->subject().limits(ctx);
+        l.min.x = std::max(l.min.x, mW);
+        l.min.y = std::max(l.min.y, mH);
+        l.max.x = std::max(l.max.x, l.min.x);
+        l.max.y = std::max(l.max.y, l.min.y);
+        return l;
+    }
+
+private:
+    float mW, mH;
+};
+
+[[nodiscard]] inline Ptr MinSize(float w, float h, Ptr content)
+{
+    return el::share(MinSizeElement(el::hold_any(std::move(content)), w, h));
+}
+
 /// Children left to right. A child of fixed width keeps it; the rest share what is left.
 [[nodiscard]] inline Ptr Row(const std::vector<Ptr>& children)
 {
@@ -81,6 +158,15 @@ private:
     for (const auto& c : children)
         row->push_back(c);
     return ExpandWidth(row);
+}
+
+/// Children left to right, as wide as they are together: a group of buttons in a bar.
+[[nodiscard]] inline Ptr Tight(const std::vector<Ptr>& children)
+{
+    auto row = std::make_shared<el::htile_composite>();
+    for (const auto& c : children)
+        row->push_back(c);
+    return row;
 }
 
 /// Children top to bottom.

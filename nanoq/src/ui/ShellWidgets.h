@@ -309,9 +309,21 @@ public:
 
     std::function<void()> onFavourite;
 
+    /// The full layout's selector is taller, with the preset's source (User, Factory) at its right.
+    PresetPill& Height(float h)
+    {
+        mHeight = h;
+        return *this;
+    }
+    PresetPill& Badge(std::string badge)
+    {
+        mBadge = std::move(badge);
+        return *this;
+    }
+
     el::view_limits limits(const el::basic_context&) const override
     {
-        return {{160.0f, 28.0f}, {el::full_extent, 28.0f}};
+        return {{160.0f, mHeight}, {el::full_extent, mHeight}};
     }
 
     void draw(const el::context& ctx) override
@@ -337,8 +349,20 @@ public:
         mIcons.Draw(cnv, mFavourite ? "heart-filled" : "heart", heart,
                     mFavourite ? mTheme.Accent() : (mHoverHeart ? mTheme.Text() : mTheme.TextSecondary()));
 
-        const auto font = Font(Weight::SemiBold).size(12.0f);
-        const el::rect text{heart.right + 14.0f, b.top, b.right - 12.0f, b.bottom};
+        float right = b.right - 12.0f;
+        if (!mBadge.empty())
+        {
+            const auto badgeFont = Font(Weight::SemiBold).size(9.5f);
+            const float w = el::measure_text(cnv, mBadge, badgeFont).x + 14.0f;
+            const float cy = b.top + b.height() * 0.5f;
+            const el::rect chip{b.right - 9.0f - w, cy - 9.0f, b.right - 9.0f, cy + 9.0f};
+            cnv.fill_style(mTheme.Text().opacity(0.08f));
+            cnv.fill_round_rect(chip, 5.0f);
+            FillText(cnv, mBadge, badgeFont, mTheme.TextSecondary(), chip, HAlign::Centre);
+            right = chip.left - 10.0f;
+        }
+        const auto font = Font(Weight::SemiBold).size(mHeight > 30.0f ? 13.0f : 12.0f);
+        const el::rect text{heart.right + 14.0f, b.top, right, b.bottom};
         std::string name = mDirty ? mName + " *" : mName;
         FillText(cnv, Ellipsize(cnv, name, font, text.width()), font, mTheme.Ink(), text, HAlign::Left);
     }
@@ -375,9 +399,10 @@ private:
 
     const Theme& mTheme;
     Icons& mIcons;
-    std::string mName;
+    std::string mName, mBadge;
     bool mFavourite, mDirty;
     bool mHoverHeart = false;
+    float mHeight = 28.0f;
 };
 
 /// A scene's chip (.scene-badge): its name, and an x to remove it when `onRemove` is set. The

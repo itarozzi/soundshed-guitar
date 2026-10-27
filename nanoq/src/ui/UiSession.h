@@ -49,6 +49,10 @@ public:
     /// Shows a transient message; the shell sets it.
     std::function<void(const std::string& title, const std::string& detail, bool isError)> onToast;
 
+    /// The editor's zoom (1 = 100%), kept by the plugin with its state; the presenter sets both.
+    std::function<float()> getZoom;
+    std::function<void(float)> setZoom;
+
     /// Called after every batch of engine messages has been applied, on the UI thread. The
     /// shell uses it to rebuild what the state changed; views subscribe to topics instead.
     std::function<void()> onTick;

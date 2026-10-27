@@ -2,7 +2,7 @@
 // under the preset bar (ui-components/control-bar.html): the input meter and level, with which
 // inputs feed it; the noise gate; a global transpose; the four band EQ; the doubler; the output
 // level and meter, and mute. It stays open while it is adjusted, patched in place. The output
-// limiter is in Settings.
+// limiter is in Settings. The full layout's control bar (WideFrame.cpp) lays out the same cells.
 
 #include "ui/Shell.h"
 
@@ -54,7 +54,7 @@ std::string Decibels(double v)
 }
 } // namespace
 
-void Shell::OpenControls()
+Shell::ControlCells Shell::BuildControlCells(std::vector<guitarfx::uiclient::Subscription>& subs)
 {
     auto& commands = mSession.Commands();
     auto syncs = std::make_shared<std::vector<std::function<void()>>>();
@@ -217,22 +217,6 @@ void Shell::OpenControls()
     mute->Size(20, 18).IconSize(12).Lit(mState.outputMuted);
     mute->onClick = [this] { mSession.Commands().SetOutputMuted(!mState.outputMuted); };
 
-    auto strip = Row({Stretch(), Col({FixedHeight(84, inMeter), std::make_shared<el::element>()}), HGap(14), in, gate, transpose, Stretch(),
-                      eq, doubler, out, HGap(14),
-                      Col({FixedHeight(84, outMeter), VGap(2), FixedHeight(18, Row({Stretch(), mute, Stretch()})), std::make_shared<el::element>()}),
-                      Stretch()});
-
-    const auto view = mSession.View().size();
-    ShowPopover(Pad(8, 10, 8, 6, strip), el::rect{metrics::kRailWidth + 6.0f, 0.0f, view.x - 6.0f, metrics::kTopBarHeight - 6.0f},
-                view.x - metrics::kRailWidth - 12.0f, 124.0f);
-
-    // The meters move while the strip is open (OnTick), and stop with it.
-    mInMeter = inMeter;
-    mOutMeter = outMeter;
-    mOnOverlayClosed = [this] {
-        mInMeter.reset();
-        mOutMeter.reset();
-    };
     syncs->push_back([this, mute] {
         mute->Lit(mState.outputMuted);
         mSession.View().refresh(*mute);
@@ -242,9 +226,47 @@ void Shell::OpenControls()
         for (auto& fn : *syncs)
             fn();
     };
-    mInstrumentSubs.push_back(mSession.Client().Subscribe(Topic::GlobalChain, sync));
-    mInstrumentSubs.push_back(mSession.Client().Subscribe(Topic::Session, sync));
+    subs.push_back(mSession.Client().Subscribe(Topic::GlobalChain, sync));
+    subs.push_back(mSession.Client().Subscribe(Topic::Session, sync));
     sync();
+
+    ControlCells cells;
+    cells.in = in;
+    cells.gate = gate;
+    cells.transpose = transpose;
+    cells.eq = eq;
+    cells.doubler = doubler;
+    cells.out = out;
+    cells.inMeter = inMeter;
+    cells.outMeter = outMeter;
+    cells.mute = mute;
+    return cells;
+}
+
+void Shell::OpenControls()
+{
+    std::vector<guitarfx::uiclient::Subscription> subs;
+    auto c = BuildControlCells(subs);
+    auto strip = Row({Stretch(), Col({FixedHeight(84, c.inMeter), std::make_shared<el::element>()}), HGap(14), c.in, c.gate, c.transpose,
+                      Stretch(), c.eq, c.doubler, c.out, HGap(14),
+                      Col({FixedHeight(84, c.outMeter), VGap(2), FixedHeight(18, Row({Stretch(), c.mute, Stretch()})),
+                           std::make_shared<el::element>()}),
+                      Stretch()});
+
+    const auto view = ViewSize();
+    ShowPopover(Pad(8, 10, 8, 6, strip), el::rect{metrics::kRailWidth + 6.0f, 0.0f, view.x - 6.0f, metrics::kTopBarHeight - 6.0f},
+                view.x - metrics::kRailWidth - 12.0f, 124.0f);
+    // After ShowPopover, which ends what an earlier dialog listened to.
+    for (auto& sub : subs)
+        mInstrumentSubs.push_back(std::move(sub));
+
+    // The meters move while the strip is open (OnTick), and stop with it.
+    mInMeter = c.inMeter;
+    mOutMeter = c.outMeter;
+    mOnOverlayClosed = [this] {
+        mInMeter.reset();
+        mOutMeter.reset();
+    };
 }
 
 void Shell::OpenGlobalEq(el::rect anchor)

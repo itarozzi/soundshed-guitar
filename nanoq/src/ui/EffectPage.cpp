@@ -150,9 +150,10 @@ std::string Shell::EffectPageSignature() const
     if (node == nullptr)
         return "none";
 
-    const float width = mSession.View().size().x;
+    const float width = ViewSize().x;
     std::string s = node->id + "|" + node->type + "|" + NodeDisplayName(mState, *node) + "|" + (node->enabled ? "1" : "0") +
-                    "|" + (mShowAdvanced ? "adv" : "main") + "|" + std::to_string(static_cast<int>(width / 24.0f)) + "|" +
+                    "|" + (mShowAdvanced ? "adv" : "main") + "|" + std::to_string(static_cast<int>(width / 24.0f)) + "x" +
+                    std::to_string(static_cast<int>(ViewSize().y / 24.0f)) + "|" +
                     NodeArchitectureBadge(mState, *node);
 
     const auto* type = mState.FindEffectType(node->type);
@@ -207,8 +208,10 @@ Ptr Shell::BuildEffectPage()
     const bool hasSlots = !boundary && type != nullptr && !type->resourceType.empty() && type->resourceType != "plugin" &&
                           node->type != guitarfx::EffectGuids::kAmpNamBlend;
 
-    const float stageWidth = mSession.View().size().x - metrics::kRailWidth;
-    const float stageHeight = mSession.View().size().y - metrics::kTopBarHeight - metrics::kFooterHeight;
+    // The full layout centres the editor under the chain, no wider than the web UI's panel.
+    const float stageWidth = mWide ? std::min(StageWidth(), 900.0f) : StageWidth();
+    const float stageHeight = mWide ? ViewSize().y - metrics::kTabBarHeight - metrics::kHeaderHeight - mChainAreaHeight - metrics::kWideFooterHeight
+                                    : ViewSize().y - metrics::kTopBarHeight - metrics::kFooterHeight;
 
     // ── Which controls: this tab's, and only those whose condition holds ──
     std::vector<EffectParamInfo> params;
