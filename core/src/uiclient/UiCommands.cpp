@@ -117,6 +117,35 @@ void UiCommands::SavePresetAs(const std::string& name, const std::string& catego
                                 {"includeGlobalSignalChain", false}});
 }
 
+void UiCommands::SavePresetWithDetails(const PresetDetails& details, bool asNew)
+{
+    const auto& state = mClient.State();
+
+    if (!state.activePreset || details.name.empty())
+    {
+        return;
+    }
+
+    nlohmann::json payload = {{"saveMode", asNew ? "save-as" : "overwrite"},
+                              {"name", details.name},
+                              {"category", details.category.empty() ? std::string("User") : details.category},
+                              {"description", details.description},
+                              {"tags", details.tags},
+                              {"includeGlobalSignalChain", false}};
+
+    if (!asNew)
+    {
+        payload["presetId"] = state.activePresetId;
+    }
+
+    if (details.folderId)
+    {
+        payload["folderId"] = *details.folderId;
+    }
+
+    mClient.Send("savePreset", std::move(payload));
+}
+
 void UiCommands::RenamePreset(const std::string& name, const std::string& category, const std::string& description)
 {
     const auto& state = mClient.State();

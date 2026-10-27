@@ -315,6 +315,15 @@ void PluginController::HandleSavePresetRequest(const nlohmann::json& payload)
         newPreset.description = presetDescription;
         newPreset.version = 2;
 
+        // Tags, when the save names them (a details dialog); otherwise the preset keeps its own.
+        if (payload.contains("tags") && payload["tags"].is_array())
+        {
+            newPreset.tags.clear();
+            for (const auto& tag : payload["tags"])
+                if (tag.is_string() && !tag.get<std::string>().empty())
+                    newPreset.tags.push_back(tag.get<std::string>());
+        }
+
         const auto currentChain = mPresetMixer.GetGlobalChainConfig();
 
         newPreset.global.inputTrim = currentChain.inputGain;
@@ -447,6 +456,11 @@ void PluginController::HandleSavePresetRequest(const nlohmann::json& payload)
         reply["preset"] = SerializePresetForUi(newPreset);
         reply["sceneId"] = GetResolvedActiveSceneId();
         SendMessageToUI(reply.dump());
+
+        // A folder named with the save files the preset there ("" or __all__: in no folder), as
+        // the web UI's save dialog does; without one, the preset stays where it was.
+        if (payload.contains("folderId") && payload["folderId"].is_string())
+            HandleMovePresetToFolderRequest({{"presetId", newPreset.id}, {"folderId", payload["folderId"]}});
     }
     catch (const std::exception& e)
     {

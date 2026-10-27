@@ -523,6 +523,30 @@ void TestPresetFolderCommands()
     Expect(folders().size() == 1 && folders().at(0).at("name") == "Live", "the stored tree holds the edits");
 }
 
+// A save can set the preset's tags and file it in a folder, as the details dialog asks.
+void TestSaveSetsTagsAndFolder()
+{
+    TestHost host(Sandbox("save-details"));
+    guitarfx::PluginController controller(host);
+    controller.Initialize();
+
+    Send(controller, "createPresetFolder", {{"name", "Live"}});
+    const auto live = Latest(host, "presetFolders")->at("folders").at(0).at("id").get<std::string>();
+    Send(controller, "savePreset", {{"saveMode", "save-as"}, {"name", "Tagged"}, {"category", "User"},
+                                    {"tags", {"live", "rhythm"}}, {"folderId", live}});
+    const auto saved = Latest(host, "presetSaved");
+    Expect(saved && saved->at("preset").at("tags") == nlohmann::json::array({"live", "rhythm"}), "the save sets the tags");
+    const auto id = saved->at("preset").at("id").get<std::string>();
+    Expect(Latest(host, "presetFolders")->at("folders").at(0).at("presetIds") == nlohmann::json::array({id}),
+           "and files the preset in the folder named");
+    Send(controller, "getPresetList");
+    const auto reply = Latest(host, "presetList");
+    const auto list = reply ? reply->value("presets", nlohmann::json::array()) : nlohmann::json::array();
+    const auto it = std::find_if(list.begin(), list.end(), [&id](const nlohmann::json& p) { return p.value("id", std::string()) == id; });
+    Expect(it != list.end() && it->value("tags", nlohmann::json()) == nlohmann::json::array({"live", "rhythm"}),
+           "the preset list carries the tags");
+}
+
 // The setlist commands keep the web UI's rules (presets/setlists.ts) and answer with setlists
 // and setlistCursorChanged.
 void TestSetlistCommands()
@@ -977,6 +1001,7 @@ int main()
     TestFavoriteAndRatingPatches();
     TestPresetFolderCommands();
     TestSetlistCommands();
+    TestSaveSetsTagsAndFolder();
     TestRecentsKeepTheWebUiRules();
     TestImportSaveLeavesThePlayingPresetAlone();
     TestImportWithoutABodyIsRefused();

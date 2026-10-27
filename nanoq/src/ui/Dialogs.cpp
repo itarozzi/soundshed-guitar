@@ -6,6 +6,8 @@
 #include "dsp/EffectGuids.h"
 #include "uiclient/FeatureFlags.h"
 #include "uiclient/FxMarks.h"
+#include "uiclient/PresetBrowse.h"
+#include "uiclient/ToneSharing.h"
 #include "uiclient/NodeLabels.h"
 
 #include <algorithm>
@@ -449,5 +451,171 @@ void Shell::OpenEffectPicker(const std::string& afterNodeId, const std::string& 
     ShowPopover(panel, el::rect{x, 2.0f, x + width, 2.0f}, width, height);
     // The state lives as long as the chooser.
     mOnOverlayClosed = [state] { state->fill = nullptr; };
+}
+
+void Shell::OpenPresetDetails(bool asNew)
+{
+    // The web UI's save dialog (save-preset-modal.html, Details): name, category, description,
+    // the folder it is filed in, and its tags. Saving as new names the copy; editing saves over
+    // the preset playing.
+    if (!mState.activePreset)
+        return;
+    const auto& preset = *mState.activePreset;
+    const auto* summary = mState.FindPresetSummary(mState.activePresetId);
+    const bool userPreset = summary != nullptr && summary->source == "user";
+
+    struct DetailsState
+    {
+        std::vector<std::string> tags;
+        std::string folderId; // "" for none
+        Button* folderButton = nullptr;
+    };
+    auto st = std::make_shared<DetailsState>();
+    st->tags = preset.tags;
+
+    // Saved as new it goes in the folder being browsed; edited, it stays in its own.
+    const std::function<const guitarfx::uiclient::PresetFolder*(const std::vector<guitarfx::uiclient::PresetFolder>&)> holding =
+        [&](const std::vector<guitarfx::uiclient::PresetFolder>& folders) -> const guitarfx::uiclient::PresetFolder* {
+        for (const auto& f : folders)
+        {
+            if (std::find(f.presetIds.begin(), f.presetIds.end(), mState.activePresetId) != f.presetIds.end())
+                return &f;
+            if (const auto* inner = holding(f.children))
+                return inner;
+        }
+        return nullptr;
+    };
+    const auto* current = asNew ? guitarfx::uiclient::FindPresetFolder(mState.presetFolders, mQuery.folderId) : holding(mState.presetFolders);
+    if (current != nullptr)
+        st->folderId = current->id;
+
+    const auto field = [](const char* placeholder, const std::string& text) {
+        auto [element, box] = el::input_box(placeholder, Font(Weight::Regular), 1.0f);
+        box->set_text(text);
+        return std::make_pair(el::share(std::move(element)), box);
+    };
+    auto [nameElement, nameBox] = field("Name", asNew && userPreset ? preset.name + " copy" : preset.name);
+    auto [categoryElement, categoryBox] = field("Category", preset.category);
+    auto [descriptionElement, descriptionBox] = field("Description", preset.description);
+
+    const auto label = [this](const char* text) {
+        auto t = std::make_shared<Text>(mTheme, text, 10.0f, Weight::SemiBold);
+        t->Colour(mTheme.TextMuted());
+        return FixedHeight(18, t);
+    };
+
+    auto folder = std::make_shared<Button>(mTheme, current != nullptr ? current->name : std::string("No folder"), [this, st] {
+        if (st->folderButton == nullptr)
+            return;
+        auto* button = st->folderButton;
+        std::vector<MenuItem> items;
+        items.push_back({"No folder", st->folderId.empty(), false, [st, button] {
+                             st->folderId.clear();
+                             button->Set("No folder");
+                         }});
+        std::function<void(const std::vector<guitarfx::uiclient::PresetFolder>&, int)> add =
+            [&](const std::vector<guitarfx::uiclient::PresetFolder>& folders, int depth) {
+                for (const auto& f : folders)
+                {
+                    items.push_back({std::string(static_cast<std::size_t>(depth) * 2, ' ') + f.name, f.id == st->folderId, false,
+                                     [st, button, id = f.id, name = f.name] {
+                                         st->folderId = id;
+                                         button->Set(name);
+                                     }});
+                    add(f.children, depth + 1);
+                }
+            };
+        add(mState.presetFolders, 0);
+        OpenDropdown(mFolderAnchor, std::move(items), 260.0f);
+    }, Button::Style::Plain);
+    folder->Flexible(true).Alignment(HAlign::Left);
+    st->folderButton = folder.get();
+    auto folderArea = std::make_shared<BoundsProbe>(folder, [this](el::rect bounds) { mFolderAnchor = bounds; });
+
+    // The standard tags, and any others the preset already has.
+    auto tagSlot = MakeSlot();
+    auto fillTags = std::make_shared<std::function<void()>>();
+    std::weak_ptr<std::function<void()>> weakFill = fillTags;
+    *fillTags = [this, st, tagSlot, weakFill] {
+        auto all = guitarfx::uiclient::tones::StandardTags();
+        for (const auto& t : st->tags)
+            if (std::find(all.begin(), all.end(), t) == all.end())
+                all.push_back(t);
+        std::vector<Ptr> rows, row;
+        float used = 0.0f;
+        for (const auto& tag : all)
+        {
+            const bool on = std::find(st->tags.begin(), st->tags.end(), tag) != st->tags.end();
+            auto chip = std::make_shared<Button>(mTheme, tag, [this, st, tag, on, weakFill] {
+                if (on)
+                    st->tags.erase(std::remove(st->tags.begin(), st->tags.end(), tag), st->tags.end());
+                else
+                    st->tags.push_back(tag);
+                mSession.View().post([alive = std::weak_ptr<bool>(mAlive), weakFill] {
+                    if (const auto fill = weakFill.lock(); fill && alive.lock())
+                        (*fill)();
+                });
+            }, Button::Style::Flat);
+            chip->Selected(on).TextSize(metrics::kSmallText);
+            const float w = MeasureTextWidth(tag, Font(Weight::Medium).size(metrics::kSmallText)) + 26.0f;
+            if (used + w > 400.0f && !row.empty())
+            {
+                row.push_back(Stretch());
+                rows.push_back(FixedHeight(30, Row(row)));
+                row.clear();
+                used = 0.0f;
+            }
+            row.push_back(chip);
+            row.push_back(HGap(4));
+            used += w + 4.0f;
+        }
+        if (!row.empty())
+        {
+            row.push_back(Stretch());
+            rows.push_back(FixedHeight(30, Row(row)));
+        }
+        Fill(*tagSlot, Col(rows));
+        mSession.View().layout();
+        mSession.View().refresh();
+    };
+    (*fillTags)();
+    mDetailsTags = fillTags; // kept while the dialog is open: the chips hold it only weakly
+
+    auto save = [this, st, asNew, nameBox = nameBox, categoryBox = categoryBox, descriptionBox = descriptionBox] {
+        const auto trim = [](std::string text) {
+            const auto first = text.find_first_not_of(" \t");
+            const auto last = text.find_last_not_of(" \t");
+            return first == std::string::npos ? std::string() : text.substr(first, last - first + 1);
+        };
+        guitarfx::uiclient::UiCommands::PresetDetails details;
+        details.name = trim(nameBox->get_utf8());
+        if (details.name.empty())
+            return;
+        details.category = trim(categoryBox->get_utf8());
+        details.description = trim(descriptionBox->get_utf8());
+        details.tags = st->tags;
+        details.folderId = st->folderId;
+        CloseOverlay();
+        mSession.Commands().SavePresetWithDetails(details, asNew);
+    };
+    nameBox->on_enter = [save](std::string_view) {
+        save();
+        return true;
+    };
+
+    auto heading = std::make_shared<Text>(mTheme, asNew ? "Save as a new preset" : "Preset details", 15.0f, Weight::SemiBold);
+    auto cancel = std::make_shared<Button>(mTheme, "Cancel", [this] { CloseOverlay(); }, Button::Style::Plain);
+    auto ok = std::make_shared<Button>(mTheme, "Save", save, Button::Style::Primary);
+    cancel->MinWidth(88);
+    ok->MinWidth(88);
+
+    const auto box = [](Ptr element) { return FixedHeight(36, element); };
+    ShowOverlay(Pad(16, 14, 16, 14,
+                    Col({FixedHeight(30, heading), label("NAME"), box(nameElement), VGap(8),
+                         FixedHeight(54, Row({Col({label("CATEGORY"), box(categoryElement)}), HGap(10),
+                                              Col({label("FOLDER"), FixedHeight(36, folderArea)})})),
+                         VGap(8), label("DESCRIPTION"), box(descriptionElement), VGap(8), label("TAGS"), tagSlot, VGap(10),
+                         FixedHeight(44, Row({Stretch(), cancel, HGap(8), ok}))})),
+                DialogWidth(ViewSize(), 460.0f), 470.0f);
 }
 } // namespace nanoq::ui

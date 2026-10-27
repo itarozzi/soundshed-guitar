@@ -197,10 +197,8 @@ Ptr Shell::BuildHeader()
             SaveActivePreset(true);
             return;
         }
-        OpenPrompt("Rename preset", preset->name, "Rename", [this](const std::string& entered) {
-            if (const auto& current = mState.activePreset)
-                mSession.Commands().RenamePreset(entered, current->category, current->description);
-        });
+        // The web UI's Edit: the save dialog over the preset playing.
+        OpenPresetDetails(false);
     });
     edit->Disabled(!havePreset);
     auto save = boxed("ui-save", [this] { SaveActivePreset(false); });

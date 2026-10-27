@@ -184,14 +184,7 @@ void Shell::SaveActivePreset(bool asNew)
         mSession.Commands().SavePreset();
         return;
     }
-
-    const auto& name = mState.activePreset->name;
-    OpenPrompt(asNew ? "Save as a new preset" : "Save preset", userPreset ? name + " copy" : name, "Save",
-               [this](const std::string& entered) {
-                   const auto& preset = mState.activePreset;
-                   mSession.Commands().SavePresetAs(entered, preset ? preset->category : std::string(),
-                                                    preset ? preset->description : std::string());
-               });
+    OpenPresetDetails(true);
 }
 
 void Shell::OpenPresetMenu(std::optional<el::rect> anchor)
@@ -210,15 +203,7 @@ void Shell::OpenPresetMenu(std::optional<el::rect> anchor)
         items.push_back({"Save", false, false, [this] { SaveActivePreset(false); }});
         items.push_back({"Save as new preset...", false, false, [this] { SaveActivePreset(true); }});
         if (userPreset)
-            items.push_back({"Rename...", false, false, [this] {
-                                 const auto& preset = mState.activePreset;
-                                 if (!preset)
-                                     return;
-                                 OpenPrompt("Rename preset", preset->name, "Rename", [this](const std::string& entered) {
-                                     if (const auto& current = mState.activePreset)
-                                         mSession.Commands().RenamePreset(entered, current->category, current->description);
-                                 });
-                             }});
+            items.push_back({"Edit details...", false, false, [this] { OpenPresetDetails(false); }});
         items.push_back({favourite ? "Remove from favourites" : "Add to favourites", false, false,
                          [&commands, presetId, favourite] { commands.SetPresetFavorite(presetId, !favourite); }});
     }

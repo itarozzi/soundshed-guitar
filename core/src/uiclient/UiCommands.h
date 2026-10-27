@@ -12,6 +12,7 @@
 #include "uiclient/UiClient.h"
 
 #include <optional>
+#include <vector>
 #include <string>
 
 namespace guitarfx::uiclient
@@ -34,6 +35,18 @@ public:
     void RemoveScene(const std::string& sceneId);
     void SavePreset();
     void SavePresetAs(const std::string& name, const std::string& category, const std::string& description);
+    /// What the save dialog edits (the web UI's Details tab). A folder files the preset there
+    /// ("" for none); nullopt leaves it where it is.
+    struct PresetDetails
+    {
+        std::string name;
+        std::string category;
+        std::string description;
+        std::vector<std::string> tags;
+        std::optional<std::string> folderId;
+    };
+    /// Saves the preset playing with these details: over itself, or (`asNew`) as a new preset.
+    void SavePresetWithDetails(const PresetDetails& details, bool asNew);
     void RenamePreset(const std::string& name, const std::string& category, const std::string& description);
     void NewPreset();
     void DeletePreset(const std::string& presetId);

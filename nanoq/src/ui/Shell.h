@@ -298,6 +298,8 @@ private:
     void OpenNodeMenu(const std::string& nodeId);
     void RenameNodeWithPrompt(const std::string& nodeId);
     void SaveActivePreset(bool asNew);
+    /// The save dialog: name, category, description, folder and tags (Dialogs.cpp).
+    void OpenPresetDetails(bool asNew);
     [[nodiscard]] std::string MoveTarget(const std::string& nodeId, int direction) const;
     [[nodiscard]] std::string LastNodeBeforeOutput() const;
 
@@ -360,6 +362,8 @@ private:
     bool mShowSetlists = false;
     std::vector<std::string> mPresetTags; // the tag chips that are on
     std::string mSeenPresetFolder;        // the engine's folder choice last followed
+    el::rect mFolderAnchor;               // the details dialog's folder button, for its drop-down
+    std::shared_ptr<std::function<void()>> mDetailsTags; // the details dialog's tag chips, refilled in place
     bool mSetlistPads = false;             // the Setlists tab shows pads rather than a list
     int mSetlistPadBank = 0;
     std::shared_ptr<el::basic_input_box> mSearchBox; // kept across rebuilds, with what was typed

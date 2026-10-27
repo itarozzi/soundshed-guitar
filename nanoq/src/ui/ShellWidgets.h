@@ -1003,6 +1003,34 @@ public:
     std::function<void()> onMenu;
 };
 
+/// What it wraps, telling `onBounds` where it was drawn (view coordinates): for hanging a
+/// drop-down from a control that does not record that itself.
+class BoundsProbe final : public el::proxy_base
+{
+public:
+    BoundsProbe(el::element_ptr subject, std::function<void(el::rect)> onBounds) : mSubject(std::move(subject)), mOnBounds(std::move(onBounds)) {}
+
+    el::element& subject() override
+    {
+        return *mSubject;
+    }
+    const el::element& subject() const override
+    {
+        return *mSubject;
+    }
+
+    void draw(const el::context& ctx) override
+    {
+        if (mOnBounds)
+            mOnBounds(ctx.bounds);
+        proxy_base::draw(ctx);
+    }
+
+private:
+    el::element_ptr mSubject;
+    std::function<void(el::rect)> mOnBounds;
+};
+
 /// The little switch beside a Controls strip label (GATE, EQ, DOUBLER): 22 by 12.
 class MiniSwitch final : public Pressable
 {
