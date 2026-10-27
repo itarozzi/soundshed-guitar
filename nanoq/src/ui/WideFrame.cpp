@@ -109,8 +109,8 @@ std::string Shell::TopBarSignature() const
     std::string s = std::string(mWide ? "w" : "c") + std::to_string(static_cast<int>(mPage)) + "|" + mState.activePresetId + "|" +
                     PresetTitle(mState) + "|" + (mState.activePresetDirty ? "d" : "") + (mState.activePreset ? "p" : "") +
                     (guitarfx::uiclient::IsPresetFavorite(mState, mState.activePresetId) ? "f" : "") + "|" +
-                    (summary != nullptr ? summary->source : std::string()) + "|" + std::to_string(mPresetTrailAt) + "/" +
-                    std::to_string(mPresetTrail.size());
+                    (summary != nullptr ? summary->source : std::string()) + "|" + (mPresetTrail.CanGoBack() ? "<" : "") +
+                    (mPresetTrail.CanGoForward() ? ">" : "");
     return s;
 }
 
@@ -118,41 +118,16 @@ std::string Shell::TopBarSignature() const
 
 void Shell::NotePresetTrail()
 {
-    const auto& id = mState.activePresetId;
-    if (id.empty())
-        return;
-    // Stepping back or forward lands on the trail's own entry, which stays where it is.
-    if (mPresetTrailAt < mPresetTrail.size() && mPresetTrail[mPresetTrailAt] == id)
-        return;
-
-    if (!mPresetTrail.empty())
-        mPresetTrail.resize(mPresetTrailAt + 1);
-    mPresetTrail.push_back(id);
-    constexpr std::size_t kMostKept = 50;
-    if (mPresetTrail.size() > kMostKept)
-        mPresetTrail.erase(mPresetTrail.begin(), mPresetTrail.begin() + static_cast<std::ptrdiff_t>(mPresetTrail.size() - kMostKept));
-    mPresetTrailAt = mPresetTrail.size() - 1;
+    mPresetTrail.Note(mState.activePresetId);
     Mark(kTopBar);
 }
 
 void Shell::StepPresetTrail(int direction)
 {
-    const auto target = static_cast<std::ptrdiff_t>(mPresetTrailAt) + direction;
-    if (target < 0 || target >= static_cast<std::ptrdiff_t>(mPresetTrail.size()))
-        return;
-    const auto& id = mPresetTrail[static_cast<std::size_t>(target)];
-    if (mState.FindPresetSummary(id) == nullptr)
-    {
-        // Deleted since: dropped from the trail rather than stepped onto.
-        mPresetTrail.erase(mPresetTrail.begin() + target);
-        if (mPresetTrailAt >= mPresetTrail.size())
-            mPresetTrailAt = mPresetTrail.empty() ? 0 : mPresetTrail.size() - 1;
-        Mark(kTopBar);
-        return;
-    }
-    mPresetTrailAt = static_cast<std::size_t>(target);
+    const auto id = mPresetTrail.Step(direction, [this](const std::string& presetId) { return mState.FindPresetSummary(presetId) != nullptr; });
     Mark(kTopBar);
-    LoadWithConfirm(id);
+    if (id)
+        LoadWithConfirm(*id);
 }
 
 // ── The tab row ─────────────────────────────────────────────────────────────────
@@ -236,9 +211,9 @@ Ptr Shell::BuildHeader()
 
     // Back and forward through the presets loaded (#preset-undo, #preset-redo).
     auto back = ToolButton(mTheme, mIcons, "ui-undo", [this] { StepPresetTrail(-1); }, 28.0f, 15.0f);
-    back->Disabled(mPresetTrailAt == 0);
+    back->Disabled(!mPresetTrail.CanGoBack());
     auto forward = ToolButton(mTheme, mIcons, "ui-redo", [this] { StepPresetTrail(1); }, 28.0f, 15.0f);
-    forward->Disabled(mPresetTrailAt + 1 >= mPresetTrail.size());
+    forward->Disabled(!mPresetTrail.CanGoForward());
 
     auto more = std::make_shared<IconButton>(mTheme, mIcons, "ui-more", IconButton::Look::Boxed);
     more->Size(30, 28).IconSize(14).Caret(true);

@@ -29,6 +29,7 @@
 #include "uiclient/EffectPresentation.h"
 #include "uiclient/Instruments.h"
 #include "uiclient/PresetBrowse.h"
+#include "uiclient/PresetTrail.h"
 
 #include <functional>
 #include <map>
@@ -314,8 +315,7 @@ private:
     float mChainAreaLimit = 0.0f;  // how tall it may grow, once the bar under it is dragged
     float mChainDragStart = -1.0f; // the chain's room when that drag began
     std::vector<guitarfx::uiclient::Subscription> mHeaderSubs; // the control bar's live values
-    std::vector<std::string> mPresetTrail;
-    std::size_t mPresetTrailAt = 0;
+    guitarfx::uiclient::PresetTrail mPresetTrail;
     std::shared_ptr<guitarfx::uiclient::TapTempo> mTapTempo;
     bool mWrapChain = true; // the web UI's signalPathWrapCompact, on unless turned off
 

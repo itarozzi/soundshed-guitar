@@ -40,6 +40,7 @@
 #include "uiclient/NodeLabels.h"
 #include "uiclient/ParamFormat.h"
 #include "uiclient/PresetBrowse.h"
+#include "uiclient/PresetTrail.h"
 #include "uiclient/Tone3000.h"
 #include "uiclient/ToneSharing.h"
 #include "uiclient/UiClient.h"
@@ -1042,6 +1043,31 @@ void TestFeatureFlagsAndFxMarks()
     Expect(IsFxFavorite(state, "b||") && !IsFxFavorite(state, "r0||"), "IsFxFavorite reads the favourites");
 }
 
+// The preset bar's back and forward, as presets/history.ts keeps it.
+void TestPresetTrail()
+{
+    PresetTrail trail;
+    const auto all = [](const std::string&) { return true; };
+    trail.Note("a");
+    trail.Note("b");
+    trail.Note("b");
+    trail.Note("c");
+    Expect(trail.CanGoBack() && !trail.CanGoForward(), "three loaded: back, no forward");
+    Expect(trail.Step(-1, all) == std::optional<std::string>("b"), "back to b");
+    trail.Note("b"); // the load of the stepped-to preset adds nothing
+    Expect(trail.CanGoForward(), "c is still forward");
+    trail.Note("d");
+    Expect(!trail.CanGoForward(), "a new load drops what was forward");
+    Expect(!trail.Step(-1, [](const std::string& id) { return id != "b"; }).has_value(), "a deleted preset is not stepped onto");
+    Expect(trail.Step(-1, all) == std::optional<std::string>("a"), "it was dropped: back goes on to a");
+    for (int i = 0; i < 20; ++i)
+        trail.Note("p" + std::to_string(i));
+    int back = 0;
+    while (trail.Step(-1, all))
+        ++back;
+    Expect(back == static_cast<int>(kPresetTrailLimit) - 1, "at most ten are kept");
+}
+
 int main()
 {
     TestClientMirrorsTheEngine();
@@ -1052,6 +1078,7 @@ int main()
     TestChainLayoutWalksParallelLanes();
     TestChainDropRules();
     TestFeatureFlagsAndFxMarks();
+    TestPresetTrail();
     TestNodeArchitectureBadge();
     TestPresetBrowse();
     TestParamFormatting();

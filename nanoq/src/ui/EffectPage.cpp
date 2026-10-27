@@ -171,6 +171,40 @@ private:
     float mShadeTo;
 };
 
+/// The effect's artwork beside its controls (.default-effect-shell-equipment-panel): the loaded
+/// model's own picture, read as it draws since it may still be downloading, else the stock
+/// picture of its kind, covering a rounded panel.
+class ArtworkPanel final : public el::element
+{
+public:
+    ArtworkPanel(const Theme& theme, std::function<std::shared_ptr<artist::image>()> picture, std::shared_ptr<artist::image> stock)
+        : mTheme(theme), mPicture(std::move(picture)), mStock(std::move(stock))
+    {
+    }
+
+    void draw(const el::context& ctx) override
+    {
+        auto& cnv = ctx.canvas;
+        const auto b = ctx.bounds;
+        auto image = mPicture ? mPicture() : nullptr;
+        if (!image)
+            image = mStock;
+        auto state = cnv.new_state();
+        cnv.begin_path();
+        cnv.add_round_rect(b, 10.0f);
+        cnv.clip();
+        cnv.fill_style(mTheme.Pick(el::rgba(10, 12, 18, 255), mTheme.Card()));
+        cnv.fill_rect(b);
+        if (image)
+            DrawImageCovering(cnv, *image, b);
+    }
+
+private:
+    const Theme& mTheme;
+    std::function<std::shared_ptr<artist::image>()> mPicture;
+    std::shared_ptr<artist::image> mStock;
+};
+
 /// A fixed-size box around `content`: a row of fixed children reports no maximum (Row()), so
 /// the size is given rather than measured.
 Ptr Sized(float w, float h, Ptr content)
@@ -407,10 +441,27 @@ Ptr Shell::BuildEffectPage()
     float groupsWidth = 0.0f;
     for (const auto& g : groups)
         groupsWidth += groupWidth(g) + (groupsWidth > 0.0f ? kGroupGap : 0.0f);
+    // The full layout shows the effect's artwork in a column left of its controls; compact, as
+    // in the web UI, leaves it to the chain card.
+    std::shared_ptr<artist::image> stockArt;
+    std::string artUrl;
+    if (mWide && !boundary && type != nullptr)
+    {
+        stockArt = mImages.Find(mPresentation.EquipmentImage(node->type, category));
+        for (const auto& ref : node->resources)
+            if ((ref.resourceType == "nam" || ref.resourceType == "ir") && !ref.resourceId.empty())
+                if (const auto* r = mState.FindLibraryResource(ref.resourceType, ref.resourceId); r != nullptr && artUrl.empty())
+                    artUrl = r->metadata.value("imageUrl", std::string());
+    }
+    const bool hasArt = stockArt != nullptr || !artUrl.empty();
+    constexpr float kArtWidth = 240.0f, kArtGap = 16.0f;
+    const float artRoom = hasArt ? kArtWidth + kArtGap : 0.0f;
+
     const float maxPanel = std::max(kPanelMinWidth, stageWidth - 20.0f);
-    const float panelWidth =
-        (hasSlots || hasPlugin) ? maxPanel : std::clamp(groupsWidth + 2.0f * (kPanelPad + kSectionPad), kPanelMinWidth, maxPanel);
-    const float sectionInner = panelWidth - 2.0f * (kPanelPad + kSectionPad);
+    const float panelWidth = (hasSlots || hasPlugin)
+                                 ? maxPanel
+                                 : std::clamp(groupsWidth + artRoom + 2.0f * (kPanelPad + kSectionPad), kPanelMinWidth, maxPanel);
+    const float sectionInner = panelWidth - 2.0f * (kPanelPad + kSectionPad) - artRoom;
 
     // ── Header ──
     const auto titleFont = Font(Weight::SemiBold).size(12.5f);
@@ -634,7 +685,13 @@ Ptr Shell::BuildEffectPage()
     // ── The panel ──
     const float sectionBox = sectionHeight + 2.0f * kSectionPad;
     const float panelHeight = kPanelPad + kHeaderHeight + 10.0f + sectionBox + kPanelPad;
-    auto sectionElement = Over(Pad(kSectionPad, kSectionPad, kSectionPad, kSectionPad, Col(section)), std::make_shared<InsetBox>(mTheme));
+    Ptr sectionElement = Over(Pad(kSectionPad, kSectionPad, kSectionPad, kSectionPad, Col(section)), std::make_shared<InsetBox>(mTheme));
+    if (hasArt)
+    {
+        auto art = std::make_shared<ArtworkPanel>(
+            mTheme, [this, artUrl] { return RemoteImage(artUrl); }, stockArt);
+        sectionElement = Row({FixedWidth(kArtWidth, FixedHeight(std::min(sectionBox, 220.0f), art)), HGap(kArtGap), sectionElement});
+    }
     auto body = Col({FixedHeight(kHeaderHeight, Row(header)), VGap(10), FixedHeight(sectionBox, sectionElement)});
     auto panel = Over(Pad(kPanelPad, kPanelPad, kPanelPad, kPanelPad, body), std::make_shared<EffectPanel>(mTheme, tint));
 
