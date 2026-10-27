@@ -377,8 +377,11 @@ bool ParamSlider::click(const el::context& ctx, el::mouse_button btn)
     }
     else
     {
+        const bool wasDragging = mDragging;
         mDragging = false;
         ctx.view.refresh(ctx);
+        if (wasDragging && onRelease)
+            onRelease();
     }
     return true;
 }

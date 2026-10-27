@@ -171,7 +171,8 @@ void Shell::SyncEqPlotFeeds()
     const bool effectShown = mEffectPlot && PlayShown() && !mOverlayPlot;
     EqPlotState* watched = mOverlayPlot ? &*mOverlayPlot : effectShown ? &*mEffectPlot : nullptr;
 
-    if (watched == nullptr)
+    // The Practice Tool's EQ shapes the backing track, which no spectrum feed watches.
+    if (watched == nullptr || watched->source.feedKeys.empty())
     {
         analysis.StopSpectrum();
         return;

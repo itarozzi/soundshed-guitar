@@ -638,6 +638,8 @@ bool Shell::DropFiles(const el::drop_info& info)
     const auto paths = DroppedPaths(info);
     if (paths.empty())
         return false;
+    if (DropPracticeTrack(paths))
+        return true;
     const auto& path = paths.front();
     const auto resourceType = ResourceTypeOfFile(path);
     const auto nodeId = FileDropTarget(resourceType, info.where);

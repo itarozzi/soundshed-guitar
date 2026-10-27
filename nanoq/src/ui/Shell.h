@@ -33,6 +33,7 @@
 #include "uiclient/UpdateCheck.h"
 #include "uiclient/EffectPresentation.h"
 #include "uiclient/Instruments.h"
+#include "uiclient/PracticeTool.h"
 #include "uiclient/PresetBrowse.h"
 #include "uiclient/PresetTrail.h"
 
@@ -50,6 +51,7 @@ enum class Page
     Chain,
     Effect,
     Tones,
+    Jam,
     Presets,
     Settings
 };
@@ -448,6 +450,52 @@ private:
     void OpenPackDetail(const guitarfx::uiclient::tones::Tone& pack);
     void ShareTone(const guitarfx::uiclient::tones::Tone& tone);
     [[nodiscard]] std::shared_ptr<artist::image> RemoteImage(const std::string& url);
+
+    // JamPage.cpp: the Jam tab, as the web UI's (ui-components/panels/jam-panel.html): its
+    // sections along the top, then the one open. PracticeToolPage.cpp: the Practice Tool section.
+    enum class JamSection
+    {
+        Search,
+        Favorites,
+        Scales,
+        Riffs,
+        Practice
+    };
+    [[nodiscard]] bool JamShown() const; // the feature is on
+    [[nodiscard]] std::vector<JamSection> JamSections() const;
+    Ptr BuildJamPage();
+    [[nodiscard]] std::string JamPageSignature() const;
+    /// Every tick: the Practice Tool's playhead and readouts, its sends that wait on a pause.
+    void SyncJam();
+    [[nodiscard]] Ptr BuildRiffSection();
+    [[nodiscard]] Ptr BuildPracticeTool(float width);
+    [[nodiscard]] std::string PracticeToolSignature() const;
+    void SyncPracticeTool();
+    void OpenPracticeProjects(el::rect anchor);
+    void OpenPracticeLoopMenu(const std::string& loopId, el::rect anchor);
+    void OpenPracticeEq();
+    void AddPracticeLink(const std::string& projectId);
+    /// An audio file dropped on the Practice Tool loads as its track.
+    bool DropPracticeTrack(const std::vector<std::string>& paths);
+    [[nodiscard]] Ptr BuildBackingTracks(float width);
+    void RunJamSearch();
+    void ToggleJamFavorite(const guitarfx::uiclient::jam::Video& video);
+    void PlayJamVideo(const guitarfx::uiclient::jam::Video& video);
+    JamSection mJamSection = JamSection::Search;
+    std::string mJamQuery;
+    std::vector<guitarfx::uiclient::jam::Video> mJamResults;
+    bool mJamLoading = false;
+    bool mJamSearched = false; // the first visit's search, or the cache, has been tried
+    int mJamGeneration = 0;    // answers to an older search are dropped
+    std::string mJamError;
+    std::shared_ptr<el::basic_input_box> mJamSearchBox;
+    Ptr mJamSearchElement;
+    std::weak_ptr<el::port_base> mJamScroll; // where the open section is scrolled to
+    std::unique_ptr<guitarfx::uiclient::PracticeTool> mPractice;
+    std::string mJamSignature;
+    struct PracticeView;
+    std::shared_ptr<PracticeView> mPracticeView; // the widgets moved in place each tick
+    double mPracticeDeletedAt = 0.0;             // when the loop shown in the undo banner was deleted
 
     // ResourceBrowser.cpp: the model and IR chooser, as the web UI's resource browser
     void OpenResourceBrowser(const std::string& nodeId, const std::string& resourceType, int resourceIndex,

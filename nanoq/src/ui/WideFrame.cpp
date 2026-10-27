@@ -152,6 +152,8 @@ Ptr Shell::BuildTabBar()
     std::vector<Ptr> tabItems{tab("PLAY", play, play ? mPage : Page::Chain)};
     if (guitarfx::uiclient::IsFeatureEnabled(mState, guitarfx::uiclient::Feature::ToneSharing))
         tabItems.push_back(tab("TONES", mPage == Page::Tones, Page::Tones));
+    if (JamShown())
+        tabItems.push_back(tab("JAM", mPage == Page::Jam, Page::Jam));
     tabItems.push_back(tab("PRESETS", mPage == Page::Presets, Page::Presets));
     auto tabs = Tight(tabItems);
     // A newer release's Update button sits beside the gear, as the web UI's header pill does.

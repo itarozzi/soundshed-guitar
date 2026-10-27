@@ -44,6 +44,15 @@ Shell::Shell(UiSession& session)
         }
     });
     mSession.onToast = [this](const std::string& title, const std::string& detail, bool isError) { ShowToast(title, detail, isError); };
+
+    // The Practice Tool's session lives as long as the window: its track plays on while other
+    // pages are shown (JamPage.cpp).
+    mPractice = std::make_unique<guitarfx::uiclient::PracticeTool>(mSession.Client(), mSession.Commands());
+    mPractice->onChanged = [this] {
+        if (mPage == Page::Jam)
+            Mark(kPage); // rebuilt only if what it lists changed (JamPageSignature)
+    };
+    mPractice->onNotice = [this](const std::string& title, const std::string& detail) { ShowToast(title, detail, false); };
 }
 
 Shell::~Shell()
@@ -256,10 +265,22 @@ void Shell::Rebuild()
         else
             mTonesSignature = signature;
     }
+    else if ((mDirty & kPage) && mPage == Page::Jam)
+    {
+        // As the Tones page: the playhead and the faders move in place (SyncJam).
+        mEffectSignature.clear();
+        mTonesSignature.clear();
+        const auto signature = JamPageSignature();
+        if (signature == mJamSignature)
+            mDirty &= ~kPage;
+        else
+            mJamSignature = signature;
+    }
     else if (mDirty & kPage)
     {
         mEffectSignature.clear();
         mTonesSignature.clear();
+        mJamSignature.clear();
     }
 
     // The bar is rebuilt only when what it shows changed: every edit to the preset marks it, and
@@ -311,6 +332,9 @@ void Shell::Rebuild()
             break;
         case Page::Tones:
             Fill(*mPageSlot, BuildTonesPage());
+            break;
+        case Page::Jam:
+            Fill(*mPageSlot, BuildJamPage());
             break;
         case Page::Presets:
             Fill(*mPageSlot, BuildPresetsPage());
@@ -379,6 +403,7 @@ void Shell::OnTick()
         mSceneSignature.clear();
         mTopSignature.clear();
         mTonesSignature.clear();
+        mJamSignature.clear();
         mShowingStarting = false;
     }
 
@@ -427,6 +452,7 @@ void Shell::OnTick()
     SyncUpdateCheck();
     SyncDevicePage();
     SyncTonePreview();
+    SyncJam();
 }
 
 // ── Selection and pages ─────────────────────────────────────────────────────────

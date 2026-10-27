@@ -552,7 +552,10 @@ double PracticeTool::PositionNow(double now) const
     const auto& t = Track();
     if (!t.playing)
         return t.positionSec;
-    const double projected = t.positionSec + std::max(0.0, now - t.positionAt) * mFaders.speed;
+    double projected = t.positionSec + std::max(0.0, now - t.positionAt) * mFaders.speed;
+    // Between reports the engine has gone round the loop: so does the playhead.
+    if (const auto* loop = ActiveLoop(); loop && loop->endSec > loop->startSec && t.positionSec <= loop->endSec && projected > loop->endSec)
+        projected = loop->startSec + std::fmod(projected - loop->startSec, loop->endSec - loop->startSec);
     return std::clamp(projected, 0.0, t.durationSec);
 }
 

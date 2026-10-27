@@ -28,6 +28,11 @@ void AddShellIcons(Icons& icons)
                                R"(<path d="M12 3v1.5M4.2 6.2l1.1 1.1M19.8 6.2l-1.1 1.1"/>)"));
     icons.Add("ui-tones", Svg("0 0 24 24", 1.8f,
                               R"(<path d="M9 17.5V5.5l11-2v12"/><circle cx="6.5" cy="17.5" r="2.5"/><circle cx="17.5" cy="15.5" r="2.5"/>)"));
+    icons.Add("ui-jam", Svg("0 0 24 24", 1.8f,
+                            R"(<path d="M4 17v-5a8 8 0 0 1 16 0v5"/><rect x="3" y="14" width="4.5" height="6.5" rx="1.5"/>)"
+                            R"(<rect x="16.5" y="14" width="4.5" height="6.5" rx="1.5"/>)"));
+    icons.Add("ui-pause", R"(<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>)");
+    icons.Add("ui-jump-back", R"(<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="5" y="5" width="2.5" height="14" rx="1"/><polygon points="19 5 19 19 9 12 19 5"/></svg>)");
     icons.Add("ui-clock", Svg("0 0 24 24", 1.8f, R"(<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>)"));
     icons.Add("ui-download", Svg("0 0 24 24", 2.0f, R"(<path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/>)"));
     icons.Add("ui-share", Svg("0 0 24 24", 2.0f,

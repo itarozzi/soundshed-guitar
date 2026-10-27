@@ -132,6 +132,11 @@ Ptr Shell::BuildRail()
         items.push_back(FixedHeight(46, tab("ui-tones", "Tones", Page::Tones)));
         items.push_back(VGap(4));
     }
+    if (JamShown())
+    {
+        items.push_back(FixedHeight(46, tab("ui-jam", "Jam", Page::Jam)));
+        items.push_back(VGap(4));
+    }
     items.push_back(FixedHeight(46, tab("ui-presets", "Presets", Page::Presets)));
     items.push_back(std::make_shared<el::element>());
     items.push_back(FixedHeight(42, Row({HGap(9), settings, Stretch()})));

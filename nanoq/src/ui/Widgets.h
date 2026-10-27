@@ -168,6 +168,8 @@ public:
     std::function<void(double normalised)> onChange;
     /// Called on a double click: the owner resets to the default.
     std::function<void()> onReset;
+    /// Called when a drag ends: the owner commits what the drag only previewed.
+    std::function<void()> onRelease;
 
 private:
     void Move(const el::context& ctx, el::point p);

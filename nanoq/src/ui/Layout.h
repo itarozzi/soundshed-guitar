@@ -255,6 +255,17 @@ private:
     return Expand(el::share(el::vscroller(el::hold_any(std::move(content)))));
 }
 
+/// A VScroll that stays where it was scrolled to when its page is rebuilt: `keep` holds the
+/// scroller, and the next one starts where it left off. Reset `keep` to start at the top.
+[[nodiscard]] inline Ptr KeptVScroll(Ptr content, std::weak_ptr<el::port_base>& keep)
+{
+    const auto old = keep.lock();
+    auto scroller = el::share(el::vscroller(el::hold_any(std::move(content))));
+    scroller->valign(old ? old->valign() : 0.0);
+    keep = scroller;
+    return Expand(scroller);
+}
+
 [[nodiscard]] inline Ptr HScroll(Ptr content)
 {
     return Expand(el::share(el::hscroller(el::hold_any(std::move(content)))));
