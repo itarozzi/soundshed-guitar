@@ -275,6 +275,16 @@ void UiCommands::ReplaceNode(const std::string& nodeId, const std::string& effec
     mClient.Send("replaceSignalPathNode", {{"nodeId", nodeId}, {"newEffectType", effectType}});
 }
 
+void UiCommands::SetNodeChannelMode(const std::string& nodeId, const std::string& channelMode)
+{
+    mClient.Send("setSignalPathNodeChannelMode", {{"nodeId", nodeId}, {"channelMode", channelMode}});
+}
+
+void UiCommands::DeleteEffectPreset(const std::string& effectType, const std::string& presetId)
+{
+    mClient.Send("deleteEffectPreset", {{"effectType", effectType}, {"presetId", presetId}});
+}
+
 void UiCommands::RenameNode(const std::string& nodeId, const std::string& title)
 {
     mClient.Send("renameSignalPathNode", {{"nodeId", nodeId}, {"title", title}});

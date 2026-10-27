@@ -71,6 +71,9 @@ public:
     void ReplaceNode(const std::string& nodeId, const std::string& effectType);
     /// The node's own name; empty hands it back its automatic one.
     void RenameNode(const std::string& nodeId, const std::string& title);
+    /// Which channels a node takes: "" (follow what arrives), "mono" (summed), "monoLeft" or
+    /// "monoRight".
+    void SetNodeChannelMode(const std::string& nodeId, const std::string& channelMode);
     /// Loads a library resource (a NAM model, an IR) into one of the node's slots. An empty
     /// `resourceId` clears the slot. `resourceIndex` -1 is the node's only (first) slot.
     void SetNodeResource(const std::string& nodeId, const std::string& resourceType, const std::string& resourceId,
@@ -101,6 +104,8 @@ public:
     void ApplyEffectPreset(const std::string& nodeId, const EffectPresetInfo& preset);
     /// Saves a node's current settings as a user preset for its effect type.
     void SaveEffectPreset(const std::string& nodeId, const std::string& name);
+    /// Deletes one of the user's own presets of an effect type.
+    void DeleteEffectPreset(const std::string& effectType, const std::string& presetId);
 
     // ── Global chain and output ─────────────────────────────────────────────
     void SetGlobalChainParam(const std::string& path, double value);

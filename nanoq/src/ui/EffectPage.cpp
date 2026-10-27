@@ -189,7 +189,8 @@ std::string Shell::EffectPageSignature() const
     std::string s = node->id + "|" + node->type + "|" + NodeDisplayName(mState, *node) + "|" + (node->enabled ? "1" : "0") +
                     "|" + (mShowAdvanced ? "adv" : "main") + "|" + std::to_string(static_cast<int>(width / 24.0f)) + "x" +
                     std::to_string(static_cast<int>(ViewSize().y / 24.0f)) + "|" +
-                    NodeArchitectureBadge(mState, *node);
+                    NodeArchitectureBadge(mState, *node) + "|cm" + node->channelMode +
+                    (mState.appSettings.value("audio.signalPath.channelModeControl", false) ? "+" : "-");
 
     const auto* type = mState.FindEffectType(node->type);
     if (type != nullptr)
@@ -412,6 +413,35 @@ Ptr Shell::BuildEffectPage()
     const auto badgeText = boundary ? std::string() : NodeArchitectureBadge(mState, *node);
 
     std::vector<Ptr> rightSide;
+    float channelsWidth = 0.0f;
+    // Which channels the effect takes, where Settings shows the choice (paramsPanel/channelMode.ts).
+    if (!boundary && !IsSplitterType(node->type) && !IsMixerType(node->type) &&
+        mState.appSettings.value("audio.signalPath.channelModeControl", false))
+    {
+        const auto& mode = node->channelMode;
+        const char* label = mode == guitarfx::kChannelModeMono        ? "Mono sum"
+                            : mode == guitarfx::kChannelModeMonoLeft  ? "Mono L"
+                            : mode == guitarfx::kChannelModeMonoRight ? "Mono R"
+                                                                      : "Follow";
+        auto channels = std::make_shared<IconButton>(mTheme, mIcons, "", IconButton::Look::Chip);
+        channels->Size(84, 26).Label(label, 11.0f).Caret(true);
+        channels->onClick = [this, nodeId, mode, c = channels.get()] {
+            std::vector<MenuItem> items;
+            const std::pair<const char*, const char*> choices[] = {{"Follow the input", ""},
+                                                                   {"Mono sum", guitarfx::kChannelModeMono},
+                                                                   {"Mono left", guitarfx::kChannelModeMonoLeft},
+                                                                   {"Mono right", guitarfx::kChannelModeMonoRight}};
+            for (const auto& [text, value] : choices)
+                items.push_back({text, mode == value, false, [this, nodeId, v = std::string(value)] {
+                                     mSession.Commands().SetNodeChannelMode(nodeId, v);
+                                     NoteChainEdit();
+                                 }});
+            OpenDropdown(c->Bounds(), std::move(items), 160.0f);
+        };
+        rightSide.push_back(channels);
+        rightSide.push_back(HGap(8));
+        channelsWidth = 84.0f + 8.0f;
+    }
     if (!IsSplitterType(node->type) && !IsMixerType(node->type))
     {
         if (type != nullptr || boundary)
@@ -436,7 +466,7 @@ Ptr Shell::BuildEffectPage()
     }
     float rightWidth = 0.0f;
     if (!rightSide.empty())
-        rightWidth = (type != nullptr || boundary) ? 77.0f + 8.0f + 40.0f : 40.0f;
+        rightWidth = channelsWidth + ((type != nullptr || boundary) ? 77.0f + 8.0f + 40.0f : 40.0f);
 
     const float subtitleWidth = MeasureTextWidth(subtitleText, subtitleFont) + 2.0f;
     const float badgeWidth = badgeText.empty() ? 0.0f : MeasureTextWidth(badgeText, Font(Weight::SemiBold).size(8.0f)) + 12.0f + 6.0f;
@@ -682,6 +712,24 @@ void Shell::OpenEffectPresets()
                              mSession.Commands().SaveEffectPreset(nodeId, entered);
                          });
                      }});
+
+    // One of the user's own can be deleted, as the web UI's flyout allows (factory ones cannot).
+    if (const auto custom = mState.customEffectPresets.find(node->type);
+        custom != mState.customEffectPresets.end() && !custom->second.empty())
+        items.push_back({"Delete one of yours...", false, false, [this, effectType = node->type, name = type->name, mine = custom->second] {
+                             std::vector<MenuItem> rows;
+                             for (const auto& preset : mine)
+                                 rows.push_back({preset.name, false, false, [this, effectType, preset] {
+                                                     OpenConfirm("Delete effect preset", "Delete " + preset.name + "?", "Delete",
+                                                                 [this, effectType, id = preset.id] {
+                                                                     mSession.Commands().DeleteEffectPreset(effectType, id);
+                                                                 });
+                                                 }});
+                             mSession.View().post([this, alive = std::weak_ptr<bool>(mAlive), name, rows] {
+                                 if (alive.lock())
+                                     OpenMenu("Delete a " + name + " preset", rows);
+                             });
+                         }});
 
     OpenMenu(type->name + " presets", std::move(items));
 }
