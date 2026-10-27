@@ -172,6 +172,12 @@ bool MessageDispatcher::DispatchStateAndLists(PluginController& c, const nlohman
         return true;
     }
 
+    if (type == "getIrAlignmentResponse")
+    {
+        c.HandleGetIrAlignmentResponseRequest(msg);
+        return true;
+    }
+
     if (type == "getTheme")
     {
         c.HandleGetThemeRequest();

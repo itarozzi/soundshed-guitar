@@ -596,6 +596,8 @@ set(GUITARFX_CORE_SOURCES
     src/dsp/EffectParamSpec.h
     src/dsp/EffectAnalysis.h
     src/dsp/EffectAnalysis.cpp
+    src/dsp/IrPairResponse.h
+    src/dsp/IrPairResponse.cpp
     src/dsp/SignalGraphExecutor.h
     src/dsp/SignalGraphExecutor.cpp
     src/dsp/SignalGraphExecutorPlan.cpp

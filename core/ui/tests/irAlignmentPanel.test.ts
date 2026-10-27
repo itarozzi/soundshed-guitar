@@ -16,16 +16,32 @@ document.body.innerHTML = `
 `;
 // jsdom draws nothing; without this it logs every attempt to.
 HTMLCanvasElement.prototype.getContext = (() => null) as typeof HTMLCanvasElement.prototype.getContext;
-type Sent = { type: string; requestId?: string; nodeId?: string; paramKey?: string; value?: number; irA?: ResourceRef; irB?: ResourceRef };
+type Sent = {
+  type: string;
+  requestId?: string;
+  nodeId?: string;
+  paramKey?: string;
+  value?: number;
+  irA?: ResourceRef;
+  irB?: ResourceRef;
+  params?: Record<string, number>;
+  offsetMs?: number;
+};
 let sent: Sent[] = [];
+/** Every response request of the run: one left out by an earlier test holds back the next. */
+const responseRequests: Sent[] = [];
 window.IPlugSendMsg = (payload: string) => {
-  sent.push(JSON.parse(payload) as Sent);
+  const message = JSON.parse(payload) as Sent;
+  sent.push(message);
+  if (message.type === "getIrAlignmentResponse") {
+    responseRequests.push(message);
+  }
 };
 
 const { EffectGuids } = await import("../ts/effectGuids.js");
 const { EffectTypeRegistry } = await import("../ts/presetV2.js");
 const { showNodeParamsPanel } = await import("../ts/signalPath/paramsPanel/panel.js");
-const { applyIrAlignment } = await import("../ts/irAlignment.js");
+const { applyIrAlignment, applyIrAlignmentResponse } = await import("../ts/irAlignment.js");
 
 EffectTypeRegistry.register(EffectGuids.kCabIr, {
   type: EffectGuids.kCabIr,
@@ -97,6 +113,15 @@ function paramUpdates(key: string): number[] {
 }
 
 beforeEach(() => {
+  // Answer whatever an earlier test left out, and what was waiting behind it, so each test
+  // starts with no response request in flight.
+  while (responseRequests.length > 0) {
+    const last = responseRequests[responseRequests.length - 1];
+    responseRequests.length = 0;
+    if (!applyIrAlignmentResponse({ type: "irAlignmentResponse", requestId: last.requestId, error: "test over" })) {
+      break;
+    }
+  }
   sent = [];
 });
 
@@ -173,6 +198,33 @@ describe("the IR Cabinet's Alignment section", () => {
     showNodeParamsPanel(node, presetWith(node));
     expect(sent.some((m) => m.type === "analyzeIrAlignment")).toBe(false);
     expect(panel().querySelector(".ir-alignment-status")?.textContent).toMatch(/^Lines up at/);
+  });
+
+  it("asks the engine for the summed response as the offset moves, one request at a time", () => {
+    const node = cab("cab-response", [IR_A, IR_B]);
+    showNodeParamsPanel(node, presetWith(node));
+    // The same pair as the test before: its analysis is still shown, so none is asked for.
+    const analysis = sent.find((m) => m.type === "analyzeIrAlignment");
+    if (analysis) {
+      answer(analysis, 0.1, false);
+    }
+    const responses = (): Sent[] => sent.filter((m) => m.type === "getIrAlignmentResponse");
+    expect(responses()).toHaveLength(1);
+    expect(responses()[0]).toMatchObject({ irA: IR_A, irB: IR_B, offsetMs: 0, params: { irBlend: 0.5 } });
+
+    // Two nudges while the first is out: one follow-up, with the newest offset.
+    panel().querySelector<HTMLButtonElement>('[data-nudge="0.1"]')?.click();
+    panel().querySelector<HTMLButtonElement>('[data-nudge="0.1"]')?.click();
+    expect(responses()).toHaveLength(1);
+    const curve = { frequencies: [20, 2000, 20000], summedDb: [0, 3, -6], unrelatedDb: [0, 0, -6], slots: "both" };
+    expect(applyIrAlignmentResponse({ type: "irAlignmentResponse", requestId: responses()[0].requestId, ...curve })).toBe(true);
+    expect(responses()).toHaveLength(2);
+    expect(responses()[1].offsetMs).toBeCloseTo(0.2, 6);
+    expect(responses()[1].params?.slotBOffset).toBeCloseTo(0.2, 6);
+
+    // Answered, and nothing changed since: nothing more to ask.
+    applyIrAlignmentResponse({ type: "irAlignmentResponse", requestId: responses()[1].requestId, ...curve });
+    expect(responses()).toHaveLength(2);
   });
 
   it("says when the blend leaves the offset unheard", () => {

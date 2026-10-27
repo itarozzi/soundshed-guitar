@@ -1,18 +1,19 @@
 /**
  * Lining up the IR Cabinet's two IRs: asking the engine where IR B lines up with
  * IR A (core/src/controller/PluginControllerEffectAnalysis.cpp, dsp/IrAlignment.h),
- * and the arithmetic the Alignment section draws from its answer.
+ * and for the two summed as the cab plays them (dsp/IrPairResponse.h).
  *
  * The engine reads both IR files and answers once: the start of each at 48 kHz,
  * the offset and polarity that line them up, and how alike the two are at every
- * offset in reach. What the section redraws while an offset is dragged (the match
- * there, the two summed) is worked out here from that answer, so a drag never
- * waits on the engine. With only one IR loaded it answers with that one's start
- * alone, and the section draws its response and nothing to align.
+ * offset in reach. The match at an offset is read from that answer here, so a drag
+ * never waits on the engine for it. The summed response comes from the engine on
+ * every change (getIrAlignmentResponse), worked out from the cab's own filter
+ * designs and gains, coalesced so a drag sends no more than it can answer. With
+ * only one IR loaded it answers with that one alone, and the section draws its
+ * response and nothing to align.
  */
 
-import { sendAnalyzeIrAlignment } from "./bridge.js";
-import { BUTTERWORTH_Q, bandMagnitude, highPassMagnitude, lowPassMagnitude, shelfQFromSlope } from "./eqPlot.js";
+import { postMessage, sendAnalyzeIrAlignment } from "./bridge.js";
 import type { ResourceRef } from "./types.js";
 
 /** An analysis takes well under a second; one not answered by then has failed. */
@@ -178,197 +179,175 @@ export function slotPolarities(params: Record<string, number>): { a: number; b: 
   };
 }
 
-/** Each slot's gain into the sum, as the cab applies it: blend, level, polarity,
- * Normalize, and the blend's level compensation (IRCabEffect::Process). With one
- * IR the blend does not apply: that IR plays alone, at its own level. */
-export function slotGains(params: Record<string, number>, analysis: IrAlignmentAnalysis): { a: number; b: number } {
-  const blend = analysis.slots === "both" ? Math.max(0, Math.min(1, params.irBlend ?? 0)) : (analysis.slots === "a" ? 0 : 1);
-  const normalize = (params.normalizeIR ?? 1) >= 0.5;
-  const compensate = (params.autoGainComp ?? 1) >= 0.5;
-  const blendA = 1 - blend;
-  const blendB = blend;
-  const compensation = compensate ? 1 / Math.sqrt(Math.max(1e-8, blendA * blendA + blendB * blendB)) : 1;
-  const polarity = slotPolarities(params);
-  const level = (db: number | undefined): number => Math.pow(10, Math.max(-24, Math.min(24, db ?? 0)) / 20);
-  return {
-    a: blendA * level(params.slotAGain) * polarity.a * (normalize ? analysis.normalizeGainA : 1) * compensation,
-    b: blendB * level(params.slotBGain) * polarity.b * (normalize ? analysis.normalizeGainB : 1) * compensation,
-  };
+// ── The summed response, from the engine ──────────────────────────────────
+
+/** Points per curve: log-spaced 20 Hz to 20 kHz. */
+export const IR_ALIGNMENT_RESPONSE_POINTS = 160;
+/** A curve the engine has not answered by then is given up on, so it cannot hold back the next. */
+export const IR_ALIGNMENT_RESPONSE_TIMEOUT_MS = 3000;
+
+/** What the curve is asked for: the two IRs as the node holds them, its parameters, and IR B's offset. */
+export interface AlignmentResponseQuery {
+  irA: ResourceRef | null;
+  irB: ResourceRef | null;
+  params: Record<string, number>;
+  offsetMs: number;
 }
 
-/** The frequencies a response is drawn at: log-spaced, 20 Hz to 20 kHz. */
-export function responseFrequencies(points = 160): number[] {
-  return Array.from({ length: points }, (_, i) => 20 * Math.pow(1000, i / (points - 1)));
-}
-
-/** Each band's response is the power average of this many points across it, as
- * the engine's SmoothedMagnitudeDb averages them. */
-const POINTS_PER_BAND = 7;
-const BAND_OCTAVES = 1 / 6;
-/** The part of each IR the response is taken from, faded out over its last fifth. */
-const RESPONSE_WINDOW_MS = 50;
-
-/** Each IR's complex response at every point of every band, worked out once per
- * analysis: summing them with an offset is then a rotation per point. */
-export interface AlignmentSpectra {
+export interface AlignmentResponse {
+  /** Which slots it was worked out for. */
+  slots: "both" | "a" | "b";
+  /** Hz, rising. */
   frequencies: number[];
-  /** Per band, per point: the frequency, and A's and B's response there (re, im). */
-  pointHz: Float64Array;
-  aRe: Float64Array;
-  aIm: Float64Array;
-  bRe: Float64Array;
-  bIm: Float64Array;
-}
-
-function windowed(samples: Float32Array, sampleRate: number): Float64Array {
-  const length = Math.min(samples.length, Math.max(1, Math.round(RESPONSE_WINDOW_MS * sampleRate / 1000)));
-  const fadeStart = length - Math.floor(length / 5);
-  const out = new Float64Array(length);
-  for (let n = 0; n < length; n += 1) {
-    const gain = n >= fadeStart && length > fadeStart
-      ? 0.5 * (1 + Math.cos(Math.PI * (n - fadeStart) / (length - fadeStart)))
-      : 1;
-    out[n] = samples[n] * gain;
-  }
-  return out;
-}
-
-export function buildAlignmentSpectra(analysis: IrAlignmentAnalysis, frequencies = responseFrequencies()): AlignmentSpectra {
-  const count = frequencies.length * POINTS_PER_BAND;
-  const spectra: AlignmentSpectra = {
-    frequencies,
-    pointHz: new Float64Array(count),
-    aRe: new Float64Array(count),
-    aIm: new Float64Array(count),
-    bRe: new Float64Array(count),
-    bIm: new Float64Array(count),
-  };
-  const a = windowed(analysis.waveformA, analysis.sampleRate);
-  const b = windowed(analysis.waveformB, analysis.sampleRate);
-  const nyquist = analysis.sampleRate / 2;
-
-  frequencies.forEach((centre, band) => {
-    for (let point = 0; point < POINTS_PER_BAND; point += 1) {
-      const offsetOctaves = BAND_OCTAVES * (point / (POINTS_PER_BAND - 1) - 0.5);
-      const hz = Math.min(centre * Math.pow(2, offsetOctaves), nyquist);
-      const index = band * POINTS_PER_BAND + point;
-      // A unit phasor rotated per sample, rather than a sin and cos per sample.
-      const stepRe = Math.cos(-2 * Math.PI * hz / analysis.sampleRate);
-      const stepIm = Math.sin(-2 * Math.PI * hz / analysis.sampleRate);
-      const response = (samples: Float64Array): [number, number] => {
-        let re = 0;
-        let im = 0;
-        let phaseRe = 1;
-        let phaseIm = 0;
-        for (let n = 0; n < samples.length; n += 1) {
-          re += samples[n] * phaseRe;
-          im += samples[n] * phaseIm;
-          const nextRe = phaseRe * stepRe - phaseIm * stepIm;
-          phaseIm = phaseRe * stepIm + phaseIm * stepRe;
-          phaseRe = nextRe;
-        }
-        return [re, im];
-      };
-      const [aRe, aIm] = response(a);
-      const [bRe, bIm] = response(b);
-      spectra.pointHz[index] = hz;
-      spectra.aRe[index] = aRe;
-      spectra.aIm[index] = aIm;
-      spectra.bRe[index] = bRe;
-      spectra.bIm[index] = bIm;
-    }
-  });
-  return spectra;
-}
-
-export interface CombinedResponse {
-  frequencies: number[];
-  /** The two summed with B moved by the offset, in dB. */
+  /** The two summed with B moved by the offset, shaped as the cab shapes them, in dB. */
   summedDb: number[];
-  /** The two added as if they could not interfere (their powers summed): where
-   * the summed curve falls below this, they are cancelling. */
-  unrelatedDb: number[];
+  /** The two added as if they could not interfere (their powers summed): where the summed
+   * curve falls below this, they are cancelling. Null for one IR alone. */
+  unrelatedDb: number[] | null;
 }
 
-/** A mic-position slot's magnitude at `hz`: an off-axis HF shelf and a close-mic low-mid
- * peak, exactly as IRCabEffect::ProcessMicPositionSlotA/B design them (UpdateMicCoefficients),
- * applied to that slot alone before it joins the blend. */
-function micPositionMagnitude(radial: number, proximity: number, hz: number, sampleRate: number): number {
-  const radialGainDb = Math.max(0, Math.min(1, radial)) * -12;
-  const proximityGainDb = Math.max(0, Math.min(1, proximity)) * 6;
-  const shelf = bandMagnitude(hz, { freq: 4000, gainDb: radialGainDb, q: shelfQFromSlope(0.7, radialGainDb), shelfType: "high" }, sampleRate);
-  const peak = bandMagnitude(hz, { freq: 150, gainDb: proximityGainDb, q: 1.0 }, sampleRate);
-  return shelf * peak;
+export type AlignmentResponseResult = { ok: true; response: AlignmentResponse } | { ok: false; error: string };
+
+interface ResponseRequest {
+  query: AlignmentResponseQuery;
+  listener: (result: AlignmentResponseResult) => void;
 }
 
-/** The magnitude at `hz` of what IRCabEffect::Process applies after the blend: Low Cut,
- * High Cut (ProcessCabFilters, UpdateCabFilterCoefficients), then Air (ProcessAirSample,
- * UpdateAirCoefficients) in whichever of its three modes is set. Shared by both slots, since
- * it runs on their sum. */
-function cabPostFilterMagnitude(params: Record<string, number>, hz: number, sampleRate: number): number {
-  let magnitude = 1;
-  const lowCutHz = params.lowCutHz ?? 20;
-  const highCutHz = params.highCutHz ?? 20000;
-  const nyquist = sampleRate / 2;
-  if (lowCutHz > 20.5) {
-    magnitude *= highPassMagnitude(hz, lowCutHz, BUTTERWORTH_Q, sampleRate);
-  }
-  if (highCutHz < 19999.5 && highCutHz < nyquist - 100) {
-    magnitude *= lowPassMagnitude(hz, highCutHz, BUTTERWORTH_Q, sampleRate);
-  }
-  const air = Math.max(0, Math.min(1, params.air ?? 0));
-  if (air > 0.0001) {
-    const airMode = Math.round(params.airMode ?? 0);
-    if (airMode !== 1) {
-      const gainDb = air * 12;
-      magnitude *= bandMagnitude(hz, { freq: 7000, gainDb, q: shelfQFromSlope(0.7, gainDb), shelfType: "high" }, sampleRate);
+/** One request out at a time; whatever is asked meanwhile is folded into one follow-up with
+ * the newest query, so a drag sends no more than the engine can answer. */
+let responseInFlight: { id: string; request: ResponseRequest; timer: ReturnType<typeof setTimeout> } | null = null;
+let responseQueued: ResponseRequest | null = null;
+
+function sendResponseRequest(request: ResponseRequest): void {
+  requestCounter += 1;
+  const id = `ir-alignment-response-${requestCounter}`;
+  const timer = setTimeout(() => {
+    if (responseInFlight?.id === id) {
+      responseInFlight = null;
+      request.listener({ ok: false, error: "The engine did not answer" });
+      sendQueuedResponseRequest();
     }
-    if (airMode !== 0) {
-      const gainDb = air * 8;
-      magnitude *= bandMagnitude(hz, { freq: 3600, gainDb, q: 1.8 }, sampleRate);
-    }
-  }
-  return magnitude;
+  }, IR_ALIGNMENT_RESPONSE_TIMEOUT_MS);
+  responseInFlight = { id, request, timer };
+  const { irA, irB, params, offsetMs } = request.query;
+  postMessage({
+    type: "getIrAlignmentResponse",
+    requestId: id,
+    ...(irA ? { irA } : {}),
+    ...(irB ? { irB } : {}),
+    params,
+    offsetMs,
+    points: IR_ALIGNMENT_RESPONSE_POINTS,
+  });
 }
 
-/** A and B summed with these gains and B moved by `offsetMs`, shaped the way the node's
- * current Low Cut/High Cut/Air/Mic Position controls shape it (IRCabEffect::Process):
- * Mic Position per slot before the sum, Low Cut/High Cut/Air after it. `params` and
- * `sampleRate` default to off/48kHz so existing callers without them are unaffected. */
-export function combinedResponse(
-  spectra: AlignmentSpectra,
-  gains: { a: number; b: number },
-  offsetMs: number,
-  params: Record<string, number> = {},
-  sampleRate = 48000,
-): CombinedResponse {
-  const bands = spectra.frequencies.length;
-  const summedDb = new Array<number>(bands);
-  const unrelatedDb = new Array<number>(bands);
-  const offsetSeconds = offsetMs / 1000;
-  const micOn = (params.micEmulation ?? 0) >= 0.5;
-  for (let band = 0; band < bands; band += 1) {
-    let summed = 0;
-    let unrelated = 0;
-    for (let point = 0; point < POINTS_PER_BAND; point += 1) {
-      const index = band * POINTS_PER_BAND + point;
-      const hz = spectra.pointHz[index];
-      const post = cabPostFilterMagnitude(params, hz, sampleRate);
-      const gainA = gains.a * post * (micOn ? micPositionMagnitude(params.micRadialA ?? 0, params.micProximityA ?? 0, hz, sampleRate) : 1);
-      const gainB = gains.b * post * (micOn ? micPositionMagnitude(params.micRadialB ?? 0, params.micProximityB ?? 0, hz, sampleRate) : 1);
-      // B played later by the offset: its response turns by -2*pi*f*offset.
-      const angle = -2 * Math.PI * hz * offsetSeconds;
-      const cos = Math.cos(angle);
-      const sin = Math.sin(angle);
-      const aRe = gainA * spectra.aRe[index];
-      const aIm = gainA * spectra.aIm[index];
-      const bRe = gainB * (spectra.bRe[index] * cos - spectra.bIm[index] * sin);
-      const bIm = gainB * (spectra.bRe[index] * sin + spectra.bIm[index] * cos);
-      summed += (aRe + bRe) ** 2 + (aIm + bIm) ** 2;
-      unrelated += aRe * aRe + aIm * aIm + bRe * bRe + bIm * bIm;
-    }
-    summedDb[band] = 10 * Math.log10(Math.max(summed / POINTS_PER_BAND, 1e-20));
-    unrelatedDb[band] = 10 * Math.log10(Math.max(unrelated / POINTS_PER_BAND, 1e-20));
+function sendQueuedResponseRequest(): void {
+  const next = responseQueued;
+  responseQueued = null;
+  if (next) {
+    sendResponseRequest(next);
   }
-  return { frequencies: spectra.frequencies, summedDb, unrelatedDb };
+}
+
+/** Asks the engine for the two IRs summed as the cab would play them
+ * (getIrAlignmentResponse). While a request is out this one waits, and a later call
+ * replaces it: only the newest settings are worth drawing. */
+export function requestIrAlignmentResponse(
+  query: AlignmentResponseQuery,
+  listener: (result: AlignmentResponseResult) => void,
+): void {
+  const request: ResponseRequest = { query: { ...query, params: { ...query.params } }, listener };
+  if (responseInFlight) {
+    responseQueued = request;
+    return;
+  }
+  sendResponseRequest(request);
+}
+
+function finiteNumbers(value: unknown, length?: number): number[] | null {
+  if (!Array.isArray(value) || !value.every((item) => typeof item === "number" && Number.isFinite(item))) {
+    return null;
+  }
+  return length === undefined || value.length === length ? (value as number[]) : null;
+}
+
+/** Reads an "irAlignmentResponse" reply; null when it is not a usable curve. */
+export function parseIrAlignmentResponse(payload: Record<string, unknown>): AlignmentResponse | null {
+  const frequencies = finiteNumbers(payload.frequencies);
+  if (!frequencies || frequencies.length < 2) {
+    return null;
+  }
+  const summedDb = finiteNumbers(payload.summedDb, frequencies.length);
+  const slots = payload.slots === "a" || payload.slots === "b" ? payload.slots : "both";
+  const unrelatedDb = finiteNumbers(payload.unrelatedDb, frequencies.length);
+  if (!summedDb || (slots === "both" && !unrelatedDb)) {
+    return null;
+  }
+  return { slots, frequencies, summedDb, unrelatedDb: slots === "both" ? unrelatedDb : null };
+}
+
+/** Handles an "irAlignmentResponse" reply. Returns false for one nobody is waiting for. */
+export function applyIrAlignmentResponse(payload: Record<string, unknown>): boolean {
+  if (!responseInFlight || payload.requestId !== responseInFlight.id) {
+    return false;
+  }
+  const { request, timer } = responseInFlight;
+  clearTimeout(timer);
+  responseInFlight = null;
+
+  if (typeof payload.error === "string") {
+    request.listener({ ok: false, error: payload.error });
+  } else {
+    const response = parseIrAlignmentResponse(payload);
+    request.listener(response ? { ok: true, response } : { ok: false, error: "No response came back" });
+  }
+  sendQueuedResponseRequest();
+  return true;
+}
+
+interface TrackedResponse {
+  key: string;
+  result: AlignmentResponseResult | null;
+  redraw: () => void;
+}
+
+const trackedResponses = new WeakMap<object, TrackedResponse>();
+
+function refKey(ref: ResourceRef | null): string {
+  return ref ? [ref.resourceId ?? ref.id ?? "", ref.filePath ?? "", ref.embeddedId ?? ""].join("|") : "-";
+}
+
+/**
+ * The engine's latest curve for the plot `owner` (a canvas), or null until the first
+ * arrives. When `query` differs from the one last asked about, the newer is asked for
+ * and `redraw` is called once the engine answers, so a plot draws what it has now and
+ * again with the answer.
+ */
+export function trackedIrAlignmentResponse(
+  owner: object,
+  query: AlignmentResponseQuery,
+  redraw: () => void,
+): AlignmentResponseResult | null {
+  let tracked = trackedResponses.get(owner);
+  if (!tracked) {
+    tracked = { key: "", result: null, redraw };
+    trackedResponses.set(owner, tracked);
+  }
+  tracked.redraw = redraw;
+  const key = JSON.stringify([
+    refKey(query.irA),
+    refKey(query.irB),
+    Object.entries(query.params).sort(([a], [b]) => a.localeCompare(b)),
+    query.offsetMs,
+  ]);
+  if (key !== tracked.key) {
+    tracked.key = key;
+    const plot = tracked;
+    requestIrAlignmentResponse(query, (result) => {
+      // A failure keeps the last curve on screen: the next change asks again.
+      plot.result = result.ok || !plot.result?.ok ? result : plot.result;
+      plot.redraw();
+    });
+  }
+  return tracked.result;
 }

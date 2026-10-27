@@ -1172,6 +1172,184 @@ class IRCabEffect : public EffectProcessor
         return "cab";
     }
 
+    // ── The two slots' sum, described ─────────────────────────────────────────
+    // The filter designs below are the ones the cab plays (the Update*Coefficients functions
+    // unpack them), and DescribeSlotSum says how Process puts the two slots together. The IR
+    // alignment panel's response (dsp/IrPairResponse.h) is worked out from them, so the curve it
+    // draws cannot drift from what the cab plays.
+
+    /// Mic Position on one slot: an off-axis HF shelf (on-axis 0 dB to off-axis -12 dB at 4 kHz)
+    /// and a close-mic low-mid peak (far 0 dB to close +6 dB at 150 Hz).
+    struct MicPositionFilters
+    {
+        BiquadCoefficients shelf;
+        BiquadCoefficients proximity;
+    };
+
+    [[nodiscard]] static MicPositionFilters DesignMicPosition(double radial, double proximity, double sampleRate)
+    {
+        const double shelfGainDb = radial * -12.0;
+        return {biquad::HighShelf(4000.0, biquad::ShelfQFromSlope(0.7, shelfGainDb), shelfGainDb, sampleRate),
+                biquad::Peaking(150.0, 1.0, proximity * 6.0, sampleRate)};
+    }
+
+    /// Air: a high-shelf lift in the air band (up to +12 dB at 7 kHz) and a high-mid presence
+    /// peak (up to +8 dB at 3.6 kHz); Air Mode picks one or both. Off below a trace of Air.
+    struct AirFilters
+    {
+        bool active = false;
+        BiquadCoefficients shelf;
+        BiquadCoefficients peak;
+    };
+
+    [[nodiscard]] static AirFilters DesignAir(double air, double sampleRate)
+    {
+        const double clamped = std::clamp(air, 0.0, 1.0);
+
+        if (sampleRate <= 0.0 || clamped <= 0.0001)
+        {
+            return {};
+        }
+
+        const double shelfGainDb = clamped * 12.0;
+        return {true, biquad::HighShelf(7000.0, biquad::ShelfQFromSlope(0.7, shelfGainDb), shelfGainDb, sampleRate),
+                biquad::Peaking(3600.0, 1.8, clamped * 8.0, sampleRate)};
+    }
+
+    /// Low Cut and High Cut: a Butterworth section each, off at its end of the range.
+    struct CabFilters
+    {
+        bool lowCutActive = false;
+        bool highCutActive = false;
+        BiquadCoefficients lowCut;
+        BiquadCoefficients highCut;
+    };
+
+    [[nodiscard]] static CabFilters DesignCabFilters(double lowCutHz, double highCutHz, double sampleRate)
+    {
+        CabFilters cuts;
+
+        if (sampleRate <= 0.0)
+        {
+            return cuts;
+        }
+
+        const double nyquist = sampleRate * 0.5;
+        cuts.lowCutActive = lowCutHz > 20.5;
+        cuts.highCutActive = (highCutHz < 19999.5) && (highCutHz < (nyquist - 100.0));
+
+        if (cuts.lowCutActive)
+        {
+            cuts.lowCut =
+                biquad::HighPass(std::clamp(lowCutHz, 20.0, nyquist - 100.0), biquad::kButterworthQ, sampleRate);
+        }
+
+        if (cuts.highCutActive)
+        {
+            cuts.highCut =
+                biquad::LowPass(std::clamp(highCutHz, 1000.0, nyquist - 100.0), biquad::kButterworthQ, sampleRate);
+        }
+
+        return cuts;
+    }
+
+    /// What Auto Gain Comp needs to know about the two IRs it blends: each one's energy, and how
+    /// alike they are (their cross-correlation) at every IR B Offset. Measured when the
+    /// convolvers are built, never on the audio thread, which only reads it.
+    struct BlendCorrelation
+    {
+        double energyA = 0.0;
+        double energyB = 0.0;
+        int maxLag = 0;            // whole samples either side of no offset
+        std::vector<double> cross; // the sum of a[n] * b[n - lag], at cross[lag + maxLag]
+
+        [[nodiscard]] bool Valid() const noexcept
+        {
+            return !cross.empty() && energyA > 0.0 && energyB > 0.0;
+        }
+
+        /// The cross term with IR B `lagSamples` later than IR A, linear between whole lags.
+        [[nodiscard]] double CrossAt(double lagSamples) const noexcept
+        {
+            const double reach = static_cast<double>(maxLag);
+            const double position = std::clamp(lagSamples, -reach, reach) + reach;
+            const auto below = static_cast<size_t>(position);
+            const size_t above = std::min(below + 1, cross.size() - 1);
+            const double fraction = position - static_cast<double>(below);
+            return cross[below] + fraction * (cross[above] - cross[below]);
+        }
+    };
+
+    /// Two mono impulses measured as Auto Gain Comp measures the slots' built ones, at `sampleRate`.
+    [[nodiscard]] static BlendCorrelation MeasureBlendCorrelation(const std::vector<float>& monoA,
+                                                                  const std::vector<float>& monoB, double sampleRate)
+    {
+        return ComputeBlendCorrelation(BuiltImpulse{monoA, {}}, BuiltImpulse{monoB, {}}, sampleRate);
+    }
+
+    /// How Process sums the slots outside L/R Split, with this instance's parameters: each slot's
+    /// gain into the sum (IR Blend, Level, Invert; a lone IR in full) and the filters it alone goes
+    /// through (Mic Position, when on), then Auto Gain Comp and the filters on the sum (Low Cut,
+    /// High Cut, Air). `correlation` is the pair's, and `offsetSamples` where IR B sits against
+    /// IR A at the rate the instance was prepared at. Speaker Drive, which depends on level, is
+    /// left out, as the offline analyses leave it out.
+    struct SlotSum
+    {
+        bool normalize = true; // whether each slot's impulse plays normalised (Normalize)
+        double slotAGain = 0.0;
+        double slotBGain = 0.0;
+        double compGain = 1.0;
+        std::vector<BiquadCoefficients> slotAFilters;
+        std::vector<BiquadCoefficients> slotBFilters;
+        std::vector<BiquadCoefficients> sumFilters;
+    };
+
+    [[nodiscard]] SlotSum DescribeSlotSum(bool hasA, bool hasB, const BlendCorrelation& correlation,
+                                          double offsetSamples) const
+    {
+        SlotSum sum;
+        const SlotMix mix = BlendedSlotMix(hasA, hasB, correlation, offsetSamples);
+        sum.normalize = EffectiveSetting(mPendingNormalizeIR, mNormalizeIR);
+        sum.slotAGain = mix.slotAGain;
+        sum.slotBGain = mix.slotBGain;
+        sum.compGain = mix.compGain;
+
+        if (mMicEmulationEnabled)
+        {
+            const MicPositionFilters micA = DesignMicPosition(mMicRadialA, mMicProximityA, mSampleRate);
+            const MicPositionFilters micB = DesignMicPosition(mMicRadialB, mMicProximityB, mSampleRate);
+            sum.slotAFilters = {micA.shelf, micA.proximity};
+            sum.slotBFilters = {micB.shelf, micB.proximity};
+        }
+
+        const CabFilters cuts = DesignCabFilters(mLowCutHz, mHighCutHz, mSampleRate);
+
+        if (cuts.lowCutActive)
+        {
+            sum.sumFilters.push_back(cuts.lowCut);
+        }
+
+        if (cuts.highCutActive)
+        {
+            sum.sumFilters.push_back(cuts.highCut);
+        }
+
+        if (const AirFilters air = DesignAir(mAir, mSampleRate); air.active)
+        {
+            if (mAirMode != AirMode::OptionB_Peak)
+            {
+                sum.sumFilters.push_back(air.shelf);
+            }
+
+            if (mAirMode != AirMode::OptionA_Shelf)
+            {
+                sum.sumFilters.push_back(air.peak);
+            }
+        }
+
+        return sum;
+    }
+
   private:
     static constexpr double kPi = 3.14159265358979323846;
     // Host rate the IR normalisation gain is anchored to (see ComputeL2NormGain).
@@ -1413,33 +1591,6 @@ class IRCabEffect : public EffectProcessor
     {
         std::vector<float> left;
         std::vector<float> right;
-    };
-
-    /// What Auto Gain Comp needs to know about the two IRs it blends: each one's energy, and how
-    /// alike they are (their cross-correlation) at every IR B Offset. Measured when the
-    /// convolvers are built, never on the audio thread, which only reads it.
-    struct BlendCorrelation
-    {
-        double energyA = 0.0;
-        double energyB = 0.0;
-        int maxLag = 0;            // whole samples either side of no offset
-        std::vector<double> cross; // the sum of a[n] * b[n - lag], at cross[lag + maxLag]
-
-        [[nodiscard]] bool Valid() const noexcept
-        {
-            return !cross.empty() && energyA > 0.0 && energyB > 0.0;
-        }
-
-        /// The cross term with IR B `lagSamples` later than IR A, linear between whole lags.
-        [[nodiscard]] double CrossAt(double lagSamples) const noexcept
-        {
-            const double reach = static_cast<double>(maxLag);
-            const double position = std::clamp(lagSamples, -reach, reach) + reach;
-            const auto below = static_cast<size_t>(position);
-            const size_t above = std::min(below + 1, cross.size() - 1);
-            const double fraction = position - static_cast<double>(below);
-            return cross[below] + fraction * (cross[above] - cross[below]);
-        }
     };
 
     /// The most Auto Gain Comp lifts a blend, +6 dB: a pair inverted against each other can
@@ -1967,19 +2118,6 @@ class IRCabEffect : public EffectProcessor
         a2 = c.a2;
     }
 
-    void ComputeHighShelf(double freq, double slope, double gainDb, double& b0, double& b1, double& b2, double& a1,
-                          double& a2)
-    {
-        Unpack(biquad::HighShelf(freq, biquad::ShelfQFromSlope(slope, gainDb), gainDb, mSampleRate), b0, b1, b2, a1,
-               a2);
-    }
-
-    void ComputePeakingEQ(double freq, double Q, double gainDb, double& b0, double& b1, double& b2, double& a1,
-                          double& a2)
-    {
-        Unpack(biquad::Peaking(freq, Q, gainDb, mSampleRate), b0, b1, b2, a1, a2);
-    }
-
     void UpdateAirCoefficients()
     {
         if (mSampleRate <= 0.0)
@@ -1988,29 +2126,14 @@ class IRCabEffect : public EffectProcessor
             return;
         }
 
-        const double clamped = std::clamp(mAir, 0.0, 1.0);
+        const AirFilters air = DesignAir(mAir, mSampleRate);
+        mAirActive = air.active;
 
-        if (clamped <= 0.0001)
+        if (air.active)
         {
-            mAirActive = false;
-            return;
+            Unpack(air.shelf, mAirShelfB0, mAirShelfB1, mAirShelfB2, mAirShelfA1, mAirShelfA2);
+            Unpack(air.peak, mAirPeakB0, mAirPeakB1, mAirPeakB2, mAirPeakA1, mAirPeakA2);
         }
-
-        // Option A (default): subtle high-shelf lift in the air band.
-        const double shelfGainDb = clamped * 12.0; // 0..+12 dB
-        const double shelfFreq = 7000.0;
-        const double shelfSlope = 0.7;
-        ComputeHighShelf(shelfFreq, shelfSlope, shelfGainDb, mAirShelfB0, mAirShelfB1, mAirShelfB2, mAirShelfA1,
-                         mAirShelfA2);
-
-        // Option B (optional): high-mid presence peak.
-        const double peakGainDb = clamped * 8.0; // 0..+8 dB
-        const double peakFreq = 3600.0;
-        const double peakQ = 1.8;
-        ComputePeakingEQ(peakFreq, peakQ, peakGainDb, mAirPeakB0, mAirPeakB1, mAirPeakB2, mAirPeakA1, mAirPeakA2);
-
-        // Option C (optional): shelf + peak combined (handled in ProcessAirSample).
-        mAirActive = true;
     }
 
     void ResetAirState()
@@ -2041,21 +2164,11 @@ class IRCabEffect : public EffectProcessor
             return;
         }
 
-        const double nyquist = mSampleRate * 0.5;
-        mLowCutActive = mLowCutHz > 20.5;
-        mHighCutActive = (mHighCutHz < 19999.5) && (mHighCutHz < (nyquist - 100.0));
-
-        if (mLowCutActive)
-        {
-            const double clamped = std::clamp(mLowCutHz, 20.0, nyquist - 100.0);
-            ComputeHighPass(clamped, mLowCutB0, mLowCutB1, mLowCutB2, mLowCutA1, mLowCutA2);
-        }
-
-        if (mHighCutActive)
-        {
-            const double clamped = std::clamp(mHighCutHz, 1000.0, nyquist - 100.0);
-            ComputeLowPass(clamped, mHighCutB0, mHighCutB1, mHighCutB2, mHighCutA1, mHighCutA2);
-        }
+        const CabFilters cuts = DesignCabFilters(mLowCutHz, mHighCutHz, mSampleRate);
+        mLowCutActive = cuts.lowCutActive;
+        mHighCutActive = cuts.highCutActive;
+        Unpack(cuts.lowCut, mLowCutB0, mLowCutB1, mLowCutB2, mLowCutA1, mLowCutA2);
+        Unpack(cuts.highCut, mHighCutB0, mHighCutB1, mHighCutB2, mHighCutA1, mHighCutA2);
     }
 
     void ResetCabFilterState()
@@ -2113,18 +2226,12 @@ class IRCabEffect : public EffectProcessor
             return;
         }
 
-        // Slot A — radial: HF shelf (on-axis=0dB → off-axis=-12dB at 4kHz)
-        //          proximity: low-mid peaking boost (far=0dB → close=+6dB at 150Hz)
-        ComputeHighShelf(4000.0, 0.7, mMicRadialA * -12.0, mMicAShelfB0, mMicAShelfB1, mMicAShelfB2, mMicAShelfA1,
-                         mMicAShelfA2);
-        ComputePeakingEQ(150.0, 1.0, mMicProximityA * 6.0, mMicAProxB0, mMicAProxB1, mMicAProxB2, mMicAProxA1,
-                         mMicAProxA2);
-
-        // Slot B
-        ComputeHighShelf(4000.0, 0.7, mMicRadialB * -12.0, mMicBShelfB0, mMicBShelfB1, mMicBShelfB2, mMicBShelfA1,
-                         mMicBShelfA2);
-        ComputePeakingEQ(150.0, 1.0, mMicProximityB * 6.0, mMicBProxB0, mMicBProxB1, mMicBProxB2, mMicBProxA1,
-                         mMicBProxA2);
+        const MicPositionFilters micA = DesignMicPosition(mMicRadialA, mMicProximityA, mSampleRate);
+        const MicPositionFilters micB = DesignMicPosition(mMicRadialB, mMicProximityB, mSampleRate);
+        Unpack(micA.shelf, mMicAShelfB0, mMicAShelfB1, mMicAShelfB2, mMicAShelfA1, mMicAShelfA2);
+        Unpack(micA.proximity, mMicAProxB0, mMicAProxB1, mMicAProxB2, mMicAProxA1, mMicAProxA2);
+        Unpack(micB.shelf, mMicBShelfB0, mMicBShelfB1, mMicBShelfB2, mMicBShelfA1, mMicBShelfA2);
+        Unpack(micB.proximity, mMicBProxB0, mMicBProxB1, mMicBProxB2, mMicBProxA1, mMicBProxA2);
     }
 
     void ResetMicPositionState()

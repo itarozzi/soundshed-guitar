@@ -7,7 +7,8 @@
  * one. The section draws the start of both IRs with B moved by the offset (drag it),
  * how alike the two are at every offset (click or drag along it), and the two
  * summed against the two added as if they could not interfere, so a cancellation
- * shows as a dip. Auto Align moves B, and flips it if it lines up inverted, to
+ * shows as a dip; the engine works that curve out from the cab's own designs on
+ * every change. Auto Align moves B, and flips it if it lines up inverted, to
  * where the engine finds the best fit (irAlignment.ts).
  *
  * The offset is the node's slotBOffset; polarity is slotAPolarity and
@@ -20,13 +21,10 @@
 import { EffectGuids } from "../../effectGuids.js";
 import { drawResponsePlot } from "../../eqPlot.js";
 import {
-  buildAlignmentSpectra,
-  combinedResponse,
   matchAtOffset,
   requestIrAlignment,
-  slotGains,
   slotPolarities,
-  type AlignmentSpectra,
+  trackedIrAlignmentResponse,
   type IrAlignmentAnalysis,
 } from "../../irAlignment.js";
 import { EffectTypeRegistry } from "../../presetV2.js";
@@ -49,7 +47,7 @@ const RESPONSE_MAX_DB = 18;
 const RESPONSE_GRID_DB = 12;
 
 /** The last analysis, for the pair of IRs it was made from. */
-let shown: { key: string; analysis: IrAlignmentAnalysis; spectra: AlignmentSpectra } | null = null;
+let shown: { key: string; analysis: IrAlignmentAnalysis } | null = null;
 let failed: { key: string; error: string } | null = null;
 let requestedKey: string | null = null;
 let resizeObserver: ResizeObserver | null = null;
@@ -313,15 +311,29 @@ function drawMatchStrip(canvas: HTMLCanvasElement, analysis: IrAlignmentAnalysis
   marker(offsetOf(node), themeColor(canvas, "--ir-alignment-b", "rgba(240, 160, 64, 0.95)"), false);
 }
 
-function drawResponse(canvas: HTMLCanvasElement, spectra: AlignmentSpectra, analysis: IrAlignmentAnalysis, node: GraphNode): void {
-  fitCanvasToLayout(canvas);
-  const response = combinedResponse(
-    spectra,
-    slotGains(node.params ?? {}, analysis),
-    offsetOf(node),
-    node.params ?? {},
-    analysis.sampleRate,
+/** The node's numeric parameters, which is all the engine reads. */
+function numericParams(node: GraphNode): Record<string, number> {
+  return Object.fromEntries(
+    Object.entries(node.params ?? {}).filter((entry): entry is [string, number] => typeof entry[1] === "number" && Number.isFinite(entry[1])),
   );
+}
+
+/** The two summed as the cab plays them, as the engine reports it for the node's IRs,
+ * parameters and offset. Until the engine answers it draws the last curve it had
+ * (nothing, the first time) and draws again when the answer comes. */
+function drawResponse(canvas: HTMLCanvasElement, node: GraphNode): void {
+  fitCanvasToLayout(canvas);
+  const query = { irA: slotRef(node, 0), irB: slotRef(node, 1), params: numericParams(node), offsetMs: offsetOf(node) };
+  const result = trackedIrAlignmentResponse(canvas, query, () => {
+    if (canvas.isConnected) {
+      drawResponse(canvas, node);
+    }
+  });
+  const response = result?.ok ? result.response : null;
+  if (!response) {
+    drawResponsePlot(canvas, () => Number.NaN, { minDb: RESPONSE_MIN_DB, maxDb: RESPONSE_MAX_DB, gridStepDb: RESPONSE_GRID_DB });
+    return;
+  }
   const at = (values: number[]) => (freq: number): number => {
     const { frequencies } = response;
     const last = frequencies.length - 1;
@@ -341,7 +353,7 @@ function drawResponse(canvas: HTMLCanvasElement, spectra: AlignmentSpectra, anal
     maxDb: RESPONSE_MAX_DB,
     gridStepDb: RESPONSE_GRID_DB,
     // One IR alone cannot interfere with anything, so there is nothing to compare it with.
-    reference: analysis.slots === "both" ? at(response.unrelatedDb) : null,
+    reference: response.unrelatedDb ? at(response.unrelatedDb) : null,
   });
 }
 
@@ -405,7 +417,7 @@ function redraw(node: GraphNode, view: WaveView | null = null): void {
     }
     const response = root.querySelector<HTMLCanvasElement>(".ir-alignment-response");
     if (response) {
-      drawResponse(response, shown.spectra, analysis, node);
+      drawResponse(response, node);
     }
     return;
   }
@@ -433,7 +445,7 @@ function redraw(node: GraphNode, view: WaveView | null = null): void {
   }
   const response = root.querySelector<HTMLCanvasElement>(".ir-alignment-response");
   if (response) {
-    drawResponse(response, shown.spectra, analysis, node);
+    drawResponse(response, node);
   }
 }
 
@@ -547,7 +559,7 @@ function analyse(node: GraphNode, key: string, irA: ResourceRef | null, irB: Res
   requestIrAlignment(irA, irB, (result) => {
     requestedKey = null;
     if (result.ok) {
-      shown = { key, analysis: result.analysis, spectra: buildAlignmentSpectra(result.analysis) };
+      shown = { key, analysis: result.analysis };
       failed = null;
     } else {
       failed = { key, error: result.error };

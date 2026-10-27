@@ -11,7 +11,9 @@
  * a strong cabinet resonance.
  *
  * The analyzeIrAlignment message answers a pair with the alignment, and a single IR with only
- * that IR's waveform, which the UI draws as its response.
+ * that IR's waveform. getIrAlignmentResponse answers with the curve the section draws: it must be
+ * the cab's own response, measured from an impulse rendered through the cab with those IRs and
+ * every control the curve follows set.
  */
 
 #include <cmath>
@@ -20,6 +22,7 @@
 #include <fstream>
 #include <functional>
 #include <iostream>
+#include <map>
 #include <memory>
 #include <random>
 #include <string>
@@ -32,6 +35,7 @@
 #include "dsp/BiquadDesign.h"
 #include "dsp/EffectRegistry.h"
 #include "dsp/IrAlignment.h"
+#include "dsp/IrPairResponse.h"
 #include "dsp/IrSlotAlignment.h"
 #include "dsp/effects/BuiltinEffects.h"
 #include "presets/PresetTypes.h"
@@ -692,6 +696,247 @@ bool TestAnalyzeMessage()
 
     return ok;
 }
+
+// ── The getIrAlignmentResponse message ────────────────────────────────────
+
+/// The irAlignmentResponse reply to the request with this id, or null.
+nlohmann::json ResponseReplyTo(const CapturingHost& host, const std::string& requestId)
+{
+    for (const auto& text : host.messages)
+    {
+        auto message = nlohmann::json::parse(text, nullptr, false);
+
+        if (message.is_object() && message.value("type", "") == "irAlignmentResponse" &&
+            message.value("requestId", "") == requestId)
+        {
+            return message;
+        }
+    }
+
+    return nullptr;
+}
+
+/// The cab's own output for a quiet impulse, scaled back up: what the panel's curve stands for.
+std::vector<float> RenderCabImpulse(const fs::path& irA, const fs::path& irB,
+                                    const std::map<std::string, double>& params)
+{
+    auto cab = EffectRegistry::Instance().Create("cab_ir");
+
+    for (const auto& [key, value] : params)
+    {
+        cab->SetParam(key, value);
+    }
+
+    std::vector<ResourceRef> refs;
+    std::vector<fs::path> paths;
+
+    if (!irA.empty())
+    {
+        refs.push_back(IRRef(irA, 0));
+        paths.push_back(irA);
+    }
+
+    if (!irB.empty())
+    {
+        refs.push_back(IRRef(irB, 1));
+        paths.push_back(irB);
+    }
+
+    cab->LoadResources(refs, paths);
+    cab->Prepare(kSampleRate, kBlockSize);
+    constexpr float kQuiet = 0.01f;
+    std::vector<float> input(64 * 64, 0.0f);
+    input[0] = kQuiet;
+    auto output = Render(*cab, input);
+
+    for (float& sample : output)
+    {
+        sample /= kQuiet;
+    }
+
+    // What the cab delays everything by moves no band's level.
+    const auto latency = static_cast<std::size_t>(std::max(0, cab->GetLatencySamples()));
+    output.erase(output.begin(), output.begin() + static_cast<std::ptrdiff_t>(std::min(latency, output.size())));
+    return output;
+}
+
+/// `rendered`'s level in each band: the power average over the same points the panel takes,
+/// from the whole render with no window, so a filter's ringing past the panel's 50 ms counts.
+std::vector<double> BandLevelsDb(const std::vector<float>& rendered, const std::vector<double>& frequencies)
+{
+    std::vector<double> levels;
+
+    for (const double centre : frequencies)
+    {
+        double power = 0.0;
+
+        for (int point = 0; point < ir_pair_response::kPointsPerBand; ++point)
+        {
+            const double octaves = ir_pair_response::kBandOctaves *
+                                   (static_cast<double>(point) / (ir_pair_response::kPointsPerBand - 1) - 0.5);
+            const double hz = std::min(centre * std::pow(2.0, octaves), kSampleRate / 2.0);
+            double re = 0.0;
+            double im = 0.0;
+
+            for (std::size_t n = 0; n < rendered.size(); ++n)
+            {
+                const double angle = -2.0 * kPi * hz * static_cast<double>(n) / kSampleRate;
+                re += rendered[n] * std::cos(angle);
+                im += rendered[n] * std::sin(angle);
+            }
+
+            power += re * re + im * im;
+        }
+
+        levels.push_back(10.0 * std::log10(std::max(power / ir_pair_response::kPointsPerBand, 1e-20)));
+    }
+
+    return levels;
+}
+
+/// The worst gap between the reply's summed curve and the rendered cab, over the bands within
+/// 30 dB of the loudest, as text with the band it is at.
+double WorstGapDb(const nlohmann::json& reply, const std::vector<float>& rendered, std::string& where)
+{
+    const auto frequencies = reply.value("frequencies", std::vector<double>{});
+    const auto summed = reply.value("summedDb", std::vector<double>{});
+    const auto expected = BandLevelsDb(rendered, frequencies);
+
+    if (summed.size() != expected.size() || summed.empty())
+    {
+        return 1e9;
+    }
+
+    const double loudest = *std::max_element(expected.begin(), expected.end());
+    double worst = 0.0;
+
+    for (std::size_t band = 0; band < expected.size(); ++band)
+    {
+        if (expected[band] > loudest - 30.0 && std::abs(summed[band] - expected[band]) > worst)
+        {
+            worst = std::abs(summed[band] - expected[band]);
+            where = std::to_string(worst) + " dB at " + std::to_string(static_cast<int>(frequencies[band])) + " Hz";
+        }
+    }
+
+    return worst;
+}
+
+bool TestResponseMessageMatchesTheCab()
+{
+    const fs::path profile = TempDir() / "response-profile";
+    fs::create_directories(profile);
+#ifdef _WIN32
+    _putenv_s("APPDATA", profile.string().c_str());
+#else
+    setenv("HOME", profile.string().c_str(), 1);
+#endif
+    // Two different "mics": B later, quieter and with a resonance of its own. Both shorter than
+    // Standard quality's 43 ms, so the cab plays them whole.
+    const auto pathA = WriteMonoWav("response-a.wav", CabLikeIR(10.0, 1600));
+    const auto pathB = WriteMonoWav("response-b.wav", CabLikeIR(14.5, 1600, 0.5, 900.0));
+    const auto ref = [](const fs::path& path) {
+        return nlohmann::json{{"resourceType", "ir"}, {"filePath", util::PathToUtf8(path)}};
+    };
+
+    // Every control the curve follows, away from its default.
+    const std::map<std::string, double> params = {
+        {"irBlend", 0.4},       {"slotAGain", 2.0},      {"slotBGain", -3.0},     {"slotBPolarity", 1.0},
+        {"slotBOffset", 0.37},  {"micEmulation", 1.0},   {"micRadialA", 0.2},     {"micProximityA", 0.5},
+        {"micRadialB", 0.7},    {"micProximityB", 0.1},  {"lowCutHz", 120.0},     {"highCutHz", 8000.0},
+        {"air", 0.5},           {"airMode", 2.0},        {"autoGainComp", 1.0},   {"normalizeIR", 1.0},
+    };
+
+    bool ok = true;
+    CapturingHost host(profile);
+    {
+        PluginController controller(host);
+        controller.Initialize();
+        const auto ask = [&](const std::string& id, nlohmann::json request) {
+            request["type"] = "getIrAlignmentResponse";
+            request["requestId"] = id;
+            controller.HandleUIMessage(request.dump());
+            return ResponseReplyTo(host, id);
+        };
+
+        const auto both = ask("both", {{"irA", ref(pathA)}, {"irB", ref(pathB)}, {"params", params}, {"points", 96}});
+        ok &= Expect(both.is_object() && both.value("slots", "") == "both" && both.contains("unrelatedDb") &&
+                         both.value("frequencies", nlohmann::json::array()).size() == 96,
+                     "a pair comes back with both curves at the points asked for");
+
+        if (both.is_object() && both.contains("summedDb"))
+        {
+            std::string where;
+            const double worst = WorstGapDb(both, RenderCabImpulse(pathA, pathB, params), where);
+            ok &= Expect(worst < 0.05, "the pair's summed curve is the cab's own response (worst gap " + where + ")");
+        }
+
+        // The offset in the request wins over the params' slotBOffset, and moves the curve.
+        auto moved = params;
+        moved["slotBOffset"] = -1.2;
+        const auto offset = ask("offset", {{"irA", ref(pathA)}, {"irB", ref(pathB)}, {"params", params},
+                                           {"offsetMs", -1.2}, {"points", 96}});
+
+        if (offset.is_object() && offset.contains("summedDb"))
+        {
+            std::string where;
+            const double worst = WorstGapDb(offset, RenderCabImpulse(pathA, pathB, moved), where);
+            // A fractional offset is played by interpolation, which dulls the top a little.
+            ok &= Expect(worst < 0.3,
+                         "an offset given on its own is the cab's response at that offset (worst gap " + where + ")");
+            ok &= Expect(offset.value("summedDb", nlohmann::json::array()) != both.value("summedDb", nlohmann::json::array()),
+                         "a new offset moves the curve");
+        }
+        else
+        {
+            ok &= Expect(false, "a request with an offset is answered");
+        }
+
+        // A lone IR plays in full whatever IR Blend says, with no interference to draw.
+        const auto onlyB = ask("only-b", {{"irB", ref(pathB)}, {"params", params}, {"points", 96}});
+        ok &= Expect(onlyB.is_object() && onlyB.value("slots", "") == "b" && !onlyB.contains("unrelatedDb"),
+                     "IR B alone comes back as B, with no curve to compare it with");
+
+        if (onlyB.is_object() && onlyB.contains("summedDb"))
+        {
+            std::string where;
+            const double worst = WorstGapDb(onlyB, RenderCabImpulse({}, pathB, params), where);
+            ok &= Expect(worst < 0.05, "a lone IR's curve is the cab's own response (worst gap " + where + ")");
+        }
+
+        // One IR in both slots, half each, no comp: lined up they sum 6 dB over each alone, 3 dB
+        // over the two added without interfering; one inverted, they cancel everywhere.
+        const nlohmann::json halfEach = {{"irBlend", 0.5}, {"autoGainComp", 0.0}};
+        const auto same = ask("same", {{"irA", ref(pathA)}, {"irB", ref(pathA)}, {"params", halfEach}, {"points", 32}});
+        const auto summedSame = same.value("summedDb", std::vector<double>{});
+        const auto unrelatedSame = same.value("unrelatedDb", std::vector<double>{});
+        bool threeDb = !summedSame.empty() && summedSame.size() == unrelatedSame.size();
+
+        for (std::size_t band = 0; threeDb && band < summedSame.size(); ++band)
+        {
+            threeDb = std::abs(summedSame[band] - unrelatedSame[band] - 3.01) < 0.02;
+        }
+
+        ok &= Expect(threeDb, "one IR lined up with itself sums 3 dB over the two added without interfering");
+
+        auto inverted = halfEach;
+        inverted["slotBPolarity"] = 1.0;
+        const auto cancelled =
+            ask("cancelled", {{"irA", ref(pathA)}, {"irB", ref(pathA)}, {"params", inverted}, {"points", 32}});
+        const auto summedCancelled = cancelled.value("summedDb", std::vector<double>{});
+        ok &= Expect(!summedCancelled.empty() &&
+                         *std::max_element(summedCancelled.begin(), summedCancelled.end()) < -100.0,
+                     "one IR inverted against itself cancels everywhere");
+
+        const auto missing = ask("missing", {{"irA", ref(pathA)}, {"irB", ref(TempDir() / "no-such.wav")}});
+        ok &= Expect(missing.is_object() && missing.value("error", "") == "IR B could not be read",
+                     "a missing IR B is reported");
+        const auto none = ask("none", nlohmann::json::object());
+        ok &= Expect(none.is_object() && none.value("error", "") == "No IR to analyse", "no IR is reported");
+    }
+
+    return ok;
+}
 } // namespace
 
 int main()
@@ -715,6 +960,7 @@ int main()
     ok &= TestCabOffsetNeedsIRB();
     ok &= TestCabParamRange();
     ok &= TestAnalyzeMessage();
+    ok &= TestResponseMessageMatchesTheCab();
 
     std::error_code ignored;
     fs::remove_all(TempDir(), ignored);

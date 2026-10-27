@@ -134,105 +134,112 @@ describe("the match at an offset", () => {
   });
 });
 
-describe("slot gains", () => {
-  const analysis = (): IrAlignmentModule.IrAlignmentAnalysis => {
-    const parsed = irAlignment.parseIrAlignment(analysisReply("x"));
-    if (!parsed) throw new Error("no analysis");
-    return parsed;
-  };
-
-  it("applies the blend, its level compensation and Normalize", () => {
-    const gains = irAlignment.slotGains({ irBlend: 0.5 }, analysis());
-    // Half each, lifted by 1/sqrt(0.5) so the blend keeps its level, times each IR's normalisation.
-    expect(gains.a).toBeCloseTo(0.5 * Math.SQRT2 * 2);
-    expect(gains.b).toBeCloseTo(0.5 * Math.SQRT2 * 0.5);
+describe("the summed response, from the engine", () => {
+  type ResponseMessage = SentMessage & { params?: Record<string, number>; offsetMs?: number; points?: number };
+  const responseRequests = (): ResponseMessage[] =>
+    sent.filter((message) => message.type === "getIrAlignmentResponse") as ResponseMessage[];
+  const query = (offsetMs: number, params: Record<string, number> = { irBlend: 0.5 }): IrAlignmentModule.AlignmentResponseQuery => ({
+    irA: { resourceId: "a" },
+    irB: { filePath: "C:/irs/b.wav" },
+    params,
+    offsetMs,
+  });
+  const reply = (requestId: string | undefined, extra: Record<string, unknown> = {}): Record<string, unknown> => ({
+    type: "irAlignmentResponse",
+    requestId,
+    slots: "both",
+    frequencies: [20, 200, 2000, 20000],
+    summedDb: [-3, 0, 2, -12],
+    unrelatedDb: [-4, -1, 1, -13],
+    ...extra,
   });
 
-  it("plays one IR alone at its own level, whatever the blend says", () => {
-    const single = irAlignment.parseIrAlignment({ sampleRate: SAMPLE_RATE, waveformA: encode(cabLike(0)), normalizeGainA: 2 });
-    if (!single) throw new Error("no analysis");
-    const gains = irAlignment.slotGains({ irBlend: 0.5, slotAGain: 6 }, single);
-    expect(gains.a).toBeCloseTo(2 * Math.pow(10, 6 / 20));
-    expect(gains.b).toBe(0);
+  it("asks with the IRs, the node's params and the offset, and delivers the curves", () => {
+    const listener = vi.fn();
+    irAlignment.requestIrAlignmentResponse(query(0.25, { irBlend: 0.4, lowCutHz: 120 }), listener);
+    const [request] = responseRequests();
+    expect(request).toMatchObject({
+      irA: { resourceId: "a" },
+      irB: { filePath: "C:/irs/b.wav" },
+      params: { irBlend: 0.4, lowCutHz: 120 },
+      offsetMs: 0.25,
+      points: irAlignment.IR_ALIGNMENT_RESPONSE_POINTS,
+    });
+
+    expect(irAlignment.applyIrAlignmentResponse(reply(request.requestId))).toBe(true);
+    expect(listener).toHaveBeenCalledWith({
+      ok: true,
+      response: {
+        slots: "both",
+        frequencies: [20, 200, 2000, 20000],
+        summedDb: [-3, 0, 2, -12],
+        unrelatedDb: [-4, -1, 1, -13],
+      },
+    });
   });
 
-  it("applies levels and polarity, and leaves Normalize off when it is off", () => {
-    const gains = irAlignment.slotGains(
-      { irBlend: 0.5, slotBGain: -6, slotBPolarity: 1, normalizeIR: 0, autoGainComp: 0 },
-      analysis(),
-    );
-    expect(gains.a).toBeCloseTo(0.5);
-    expect(gains.b).toBeCloseTo(-0.5 * Math.pow(10, -6 / 20));
-  });
-});
+  it("keeps one request out and folds a drag's changes into the newest", () => {
+    const first = vi.fn();
+    const skipped = vi.fn();
+    const newest = vi.fn();
+    irAlignment.requestIrAlignmentResponse(query(0.1), first);
+    irAlignment.requestIrAlignmentResponse(query(0.2), skipped);
+    irAlignment.requestIrAlignmentResponse(query(0.3), newest);
+    expect(responseRequests()).toHaveLength(1);
 
-describe("the summed response", () => {
-  const sameIrs = (): IrAlignmentModule.IrAlignmentAnalysis => {
-    const parsed = irAlignment.parseIrAlignment(analysisReply("x", { normalizeGainA: 1, normalizeGainB: 1 }));
-    if (!parsed) throw new Error("no analysis");
-    return parsed;
-  };
+    irAlignment.applyIrAlignmentResponse(reply(responseRequests()[0].requestId));
+    expect(first).toHaveBeenCalledTimes(1);
+    const requests = responseRequests();
+    expect(requests).toHaveLength(2);
+    expect(requests[1].offsetMs).toBe(0.3);
 
-  it("adds two lined-up copies 3 dB above the two added without interfering", () => {
-    const spectra = irAlignment.buildAlignmentSpectra(sameIrs(), [900]);
-    const response = irAlignment.combinedResponse(spectra, { a: 1, b: 1 }, 0);
-    expect(response.summedDb[0] - response.unrelatedDb[0]).toBeCloseTo(10 * Math.log10(2), 1);
+    irAlignment.applyIrAlignmentResponse(reply(requests[1].requestId));
+    expect(newest).toHaveBeenCalledTimes(1);
+    expect(skipped).not.toHaveBeenCalled();
   });
 
-  it("cancels where B is half a period late, and cancels everywhere when inverted", () => {
-    const spectra = irAlignment.buildAlignmentSpectra(sameIrs(), [900]);
-    const halfPeriodMs = 1000 / 900 / 2;
-    const late = irAlignment.combinedResponse(spectra, { a: 1, b: 1 }, halfPeriodMs);
-    expect(late.summedDb[0] - late.unrelatedDb[0]).toBeLessThan(-10);
-    const inverted = irAlignment.combinedResponse(spectra, { a: 1, b: -1 }, 0);
-    expect(inverted.summedDb[0]).toBeLessThan(-100);
-  });
-});
+  it("reports the engine's error, drops a reply nobody is waiting for, and gives up on silence", () => {
+    const listener = vi.fn();
+    irAlignment.requestIrAlignmentResponse(query(0), listener);
+    expect(irAlignment.applyIrAlignmentResponse({ requestId: "someone-else" })).toBe(false);
+    irAlignment.applyIrAlignmentResponse({ requestId: responseRequests()[0].requestId, error: "IR B could not be read" });
+    expect(listener).toHaveBeenCalledWith({ ok: false, error: "IR B could not be read" });
 
-describe("the response reflects Low Cut, High Cut, Air and Mic Position", () => {
-  const sameIrs = (): IrAlignmentModule.IrAlignmentAnalysis => {
-    const parsed = irAlignment.parseIrAlignment(analysisReply("x", { normalizeGainA: 1, normalizeGainB: 1 }));
-    if (!parsed) throw new Error("no analysis");
-    return parsed;
-  };
-
-  it("leaves the curve alone at the controls' off settings", () => {
-    const spectra = irAlignment.buildAlignmentSpectra(sameIrs(), [100, 900, 8000]);
-    const bare = irAlignment.combinedResponse(spectra, { a: 1, b: 1 }, 0);
-    const off = irAlignment.combinedResponse(spectra, { a: 1, b: 1 }, 0, { lowCutHz: 20, highCutHz: 20000, air: 0 }, 48000);
-    off.summedDb.forEach((db, i) => expect(db).toBeCloseTo(bare.summedDb[i], 6));
+    const unanswered = vi.fn();
+    const next = vi.fn();
+    irAlignment.requestIrAlignmentResponse(query(1), unanswered);
+    irAlignment.requestIrAlignmentResponse(query(2), next);
+    vi.advanceTimersByTime(irAlignment.IR_ALIGNMENT_RESPONSE_TIMEOUT_MS);
+    expect(unanswered).toHaveBeenCalledWith({ ok: false, error: "The engine did not answer" });
+    // The one waiting behind it goes out then.
+    expect(responseRequests().at(-1)?.offsetMs).toBe(2);
   });
 
-  it("Low Cut pulls down low frequencies but leaves highs alone", () => {
-    const spectra = irAlignment.buildAlignmentSpectra(sameIrs(), [100, 8000]);
-    const bare = irAlignment.combinedResponse(spectra, { a: 1, b: 1 }, 0);
-    const cut = irAlignment.combinedResponse(spectra, { a: 1, b: 1 }, 0, { lowCutHz: 500 }, 48000);
-    expect(cut.summedDb[0]).toBeLessThan(bare.summedDb[0] - 10);
-    expect(cut.summedDb[1]).toBeCloseTo(bare.summedDb[1], 1);
+  it("reads one IR alone without a curve to compare, and rejects a curve that does not fit", () => {
+    expect(irAlignment.parseIrAlignmentResponse(reply("x", { slots: "a", unrelatedDb: undefined }))).toEqual({
+      slots: "a",
+      frequencies: [20, 200, 2000, 20000],
+      summedDb: [-3, 0, 2, -12],
+      unrelatedDb: null,
+    });
+    expect(irAlignment.parseIrAlignmentResponse(reply("x", { summedDb: [0, 1] }))).toBeNull();
+    expect(irAlignment.parseIrAlignmentResponse(reply("x", { unrelatedDb: undefined }))).toBeNull();
   });
 
-  it("High Cut pulls down high frequencies but leaves lows alone", () => {
-    const spectra = irAlignment.buildAlignmentSpectra(sameIrs(), [100, 8000]);
-    const bare = irAlignment.combinedResponse(spectra, { a: 1, b: 1 }, 0);
-    const cut = irAlignment.combinedResponse(spectra, { a: 1, b: 1 }, 0, { highCutHz: 2000 }, 48000);
-    expect(cut.summedDb[1]).toBeLessThan(bare.summedDb[1] - 10);
-    expect(cut.summedDb[0]).toBeCloseTo(bare.summedDb[0], 1);
-  });
+  it("asks a tracked plot again only when its query changes, and redraws with the answer", () => {
+    const owner = {};
+    const redraw = vi.fn();
+    expect(irAlignment.trackedIrAlignmentResponse(owner, query(0.5), redraw)).toBeNull();
+    expect(irAlignment.trackedIrAlignmentResponse(owner, query(0.5), redraw)).toBeNull();
+    expect(responseRequests()).toHaveLength(1);
 
-  it("Air lifts the top end", () => {
-    const spectra = irAlignment.buildAlignmentSpectra(sameIrs(), [7000]);
-    const bare = irAlignment.combinedResponse(spectra, { a: 1, b: 1 }, 0);
-    const lifted = irAlignment.combinedResponse(spectra, { a: 1, b: 1 }, 0, { air: 1, airMode: 0 }, 48000);
-    expect(lifted.summedDb[0]).toBeGreaterThan(bare.summedDb[0] + 3);
-  });
+    irAlignment.applyIrAlignmentResponse(reply(responseRequests()[0].requestId));
+    expect(redraw).toHaveBeenCalledTimes(1);
+    expect(irAlignment.trackedIrAlignmentResponse(owner, query(0.5), redraw)).toMatchObject({ ok: true });
 
-  it("Mic Position's off-axis shelf pulls down the top end of the one slot it's set on", () => {
-    const spectra = irAlignment.buildAlignmentSpectra(sameIrs(), [8000]);
-    const bare = irAlignment.combinedResponse(spectra, { a: 1, b: 0 }, 0);
-    const offAxis = irAlignment.combinedResponse(spectra, { a: 1, b: 0 }, 0, { micEmulation: 1, micRadialA: 1 }, 48000);
-    expect(offAxis.summedDb[0]).toBeLessThan(bare.summedDb[0] - 5);
-    // Slot B is untouched by A's mic settings, so a gain of 0 on it still reads as silent either way.
-    const unaffectedB = irAlignment.combinedResponse(spectra, { a: 0, b: 1 }, 0, { micEmulation: 1, micRadialA: 1 }, 48000);
-    expect(unaffectedB.summedDb[0]).toBeCloseTo(bare.summedDb[0], 1);
+    // A failure keeps the last curve on screen.
+    irAlignment.trackedIrAlignmentResponse(owner, query(0.6), redraw);
+    irAlignment.applyIrAlignmentResponse({ requestId: responseRequests()[1].requestId, error: "IR B could not be read" });
+    expect(irAlignment.trackedIrAlignmentResponse(owner, query(0.6), redraw)).toMatchObject({ ok: true });
   });
 });
