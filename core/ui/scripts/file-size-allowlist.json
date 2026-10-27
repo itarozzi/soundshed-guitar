@@ -3,7 +3,7 @@
   "allowed": {
     "ts/resourceBrowser.ts": 2139,
     "ts/layoutDesigner.ts": 1982,
-    "ts/presets/archive.ts": 1369,
+    "ts/presets/archive.ts": 1231,
     "css/tone-sharing.css": 1239,
     "ts/signalPath.ts": 1325,
     "ts/views.ts": 1413,

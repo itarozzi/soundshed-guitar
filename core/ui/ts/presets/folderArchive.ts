@@ -7,45 +7,6 @@ import { PRESET_FOLDER_ALL_ID, PRESET_FOLDER_FAVORITES_ID, PRESET_FOLDER_RECENTS
 import { findFolderById } from "./folders.js";
 import { collectPresetIds } from "./folders.js";
 import { getRecentPresets, loadFavoritePresetIds } from "./favorites.js";
-import { isVirtualPresetFolderId } from "./folders.js";
-
-export function buildArchivePresetFolder(folder: PresetFolder, allowedPresetIds: Set<string>): PresetArchiveFolder | null {
-  const presetIds = (folder.presetIds ?? []).filter((presetId) => allowedPresetIds.has(presetId));
-  const children = (folder.children ?? [])
-    .map((child) => buildArchivePresetFolder(child, allowedPresetIds))
-    .filter((child): child is PresetArchiveFolder => Boolean(child));
-
-  if (presetIds.length === 0 && children.length === 0) {
-    return null;
-  }
-
-  return {
-    name: folder.name,
-    ...(presetIds.length > 0 ? { presetIds } : {}),
-    ...(children.length > 0 ? { children } : {}),
-  };
-}
-
-export function buildArchivePresetFoldersForExport(folderId: string, presets: Preset[]): PresetArchiveFolder[] {
-  if (isVirtualPresetFolderId(folderId) && folderId !== PRESET_FOLDER_ALL_ID) {
-    return [];
-  }
-
-  const allowedPresetIds = new Set(presets.map((preset) => preset.id));
-  if (allowedPresetIds.size === 0) {
-    return [];
-  }
-
-  if (folderId !== PRESET_FOLDER_ALL_ID) {
-    const folder = findFolderById(uiState.presetFolders ?? [], folderId);
-    const serializedFolder = folder ? buildArchivePresetFolder(folder, allowedPresetIds) : null;
-    return serializedFolder ? [serializedFolder] : [];
-  }
-
-  return (uiState.presetFolders ?? [])
-    .map((folder) => buildArchivePresetFolder(folder, allowedPresetIds))
-    .filter((folder): folder is PresetArchiveFolder => Boolean(folder));
-}
 
 export function getPresetsForFolderId(folderId: string): Preset[] {
   let presets = uiState.presets.slice();

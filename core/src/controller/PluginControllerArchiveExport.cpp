@@ -2,8 +2,9 @@
  * PluginControllerArchiveExport.cpp - Exporting presets as a preset archive
  * ("exportPresetArchive").
  *
- * One preset becomes a `.soundshed.preset` zip (preset.json); several become a
- * `.soundshed.presets` zip (presets.json) that also carries their folder layout and, for
+ * One preset becomes a `.soundshed.preset` zip (preset.json); several, or any number with
+ * `collection`, become a `.soundshed.presets` zip (presets.json) that also carries their folder
+ * layout and, for
  * factory archive authoring, the user's effect presets. Either way the models and IRs the
  * presets play travel under resources/, named and identified by the SHA-256 of their bytes,
  * with the blends they use. This is the format the web UI has written since it defined it
@@ -902,7 +903,10 @@ void PluginController::HandleExportPresetArchiveRequest(const nlohmann::json& pa
         return;
     }
 
-    const bool single = requestedIds.size() == 1;
+    // One id is a one-preset archive unless the caller asks for a collection: a folder or the
+    // whole library exported as a collection keeps its folders, however few presets it holds.
+    const bool single = requestedIds.size() == 1 &&
+                        !(payload.contains("collection") && payload["collection"].is_boolean() && payload["collection"].get<bool>());
     const std::string archiveName = payload.value("name", std::string{});
     const std::string folderId = payload.value("folderId", std::string{});
     std::vector<std::string> warnings;
@@ -928,7 +932,7 @@ void PluginController::HandleExportPresetArchiveRequest(const nlohmann::json& pa
 
     if (sourcePresets.empty())
     {
-        fail(single ? "Preset not found" : "No presets to export");
+        fail(requestedIds.size() == 1 ? "Preset not found" : "No presets to export");
         return;
     }
 

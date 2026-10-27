@@ -87,8 +87,15 @@ export function onPresetRecents(payload: IncomingPayload): void {
 }
 
 export function onPresetExportSaved(payload: IncomingPayload): void {
-  const info = payload as { path?: string };
+  const info = payload as { path?: string; warnings?: unknown };
   showNotification("Preset exported", info.path ?? "");
+  // What exportPresetArchive left out: a preset it could not find, a model or IR it could not read,
+  // an effect preset whose model, IR or blend the archive could not carry.
+  for (const warning of Array.isArray(info.warnings) ? info.warnings : []) {
+    if (typeof warning === "string" && warning.length > 0) {
+      showNotification("Export warning", warning);
+    }
+  }
 }
 
 export function onPresetExportFailed(payload: IncomingPayload): void {

@@ -1,5 +1,5 @@
 import { showNotification } from "../notifications.js";
-import { clonePreset, uiState } from "../state.js";
+import { uiState } from "../state.js";
 import { cachePreset, putLibraryPresetFirst, setActivePresetId } from "../presetLibraryStore.js";
 import { arrayBufferToBase64, sha256HexFromBase64 } from "../utils.js";
 import { buildArchiveFileNameWithHash, generateResourceId, requestResourceData, sanitizeFilename } from "../archiveUtils.js";
@@ -14,14 +14,12 @@ import { getLibraryResource, getLibraryResourceByHash } from "../resourceLibrary
 import type { ArchiveImportContext, ArchiveImportOptions, GeneratorPackManifest, GeneratorPresetV2, GeneratorResourceIndex, ImportPackContext, ImportPackSource, ImportPackSummary, ImportPackWithConfirmationOptions, PresetArchive, PresetArchiveFolder, PresetArchiveResource, PresetCollectionArchive, Tone3000ResourceRef } from "./archiveTypes.js";
 import { buildArchiveRemoteRef, importArchiveRemoteResources, prepareArchiveRemoteResourcesForPreview, readArchiveRemoteRefs, shouldReferenceRemotely } from "./remoteArchiveResources.js";
 import type { RemoteResourceRef } from "../remoteResources.js";
-import { applyImportedPresetFolders, assignImportedPresetsToTopLevelFolder, buildArchivePresetFoldersForExport, getPresetFolderExportName, getPresetsForFolderId } from "./folderArchive.js";
+import { applyImportedPresetFolders, assignImportedPresetsToTopLevelFolder, getPresetFolderExportName, getPresetsForFolderId } from "./folderArchive.js";
 import { PRESET_FOLDER_ALL_ID } from "./sorting.js";
 import { isShareableResourceType, sanitizeImportedPreset, sanitizePresetForArchive, getPresetArchiveSessionState } from "./sanitize.js";
-import { requestPresetFromBackend } from "./fetch.js";
 import { requestPresetLibraryRefresh } from "./refresh.js";
 import { cachePresetInMemory } from "./cache.js";
 import type { SavePresetMessage } from "./savePresetMessage.js";
-import { collectEffectPresetsForExport, finishEffectPresetsForArchive } from "./effectPresetExport.js";
 export function buildPresetImportSignature(preset: Preset): string {
   const json = JSON.stringify(preset ?? null);
   let hash = 5381;
@@ -300,10 +298,6 @@ export function getPresetGraphs(preset: Preset | null | undefined): SignalGraph[
   return graphs;
 }
 
-export function hasAnyGraphNodes(preset: Preset | null | undefined): boolean {
-  return getPresetGraphs(preset).some((graph) => Array.isArray(graph.nodes) && graph.nodes.length > 0);
-}
-
 export function remapPresetArchiveGraphReferences(
   preset: Preset,
   resourceIdMap: Map<string, string>,
@@ -449,178 +443,55 @@ export function collectPresetResourceRefs(preset: Preset, blendDefs: BlendDefini
   return refs;
 }
 
-export async function exportPresetCollectionArchive(presets: Preset[], archiveName: string, sourceFolderId: string): Promise<void> {
-  if (!presets.length) {
+/**
+ * Asks the engine to write presets as a preset archive and save it through a save dialog
+ * (`exportPresetArchive`, core/src/controller/PluginControllerArchiveExport.cpp). One preset
+ * becomes a `.soundshed.preset`; several, or any number with `collection`, a `.soundshed.presets`
+ * carrying their folders from `folderId` and, for factory archive authoring, the user's effect
+ * presets. The engine reads the
+ * presets, models, IRs and blends itself and answers `presetExportSaved` or `presetExportFailed`.
+ */
+export function requestPresetArchiveExport(presetIds: string[], name: string, options: { folderId?: string; collection?: boolean } = {}): void {
+  const ids = presetIds.filter((id) => typeof id === "string" && id.length > 0);
+  if (ids.length === 0) {
     showNotification("Export failed", "No presets to export");
     return;
   }
-
-  const zipLib = window.JSZip;
-  if (!zipLib) {
-    showNotification("Export failed", "Archive library not available");
-    return;
-  }
-
-  const zip = new zipLib();
-  const resourcesFolder = zip.folder("resources");
-  if (!resourcesFolder) {
-    showNotification("Export failed", "Unable to create archive");
-    return;
-  }
-
-  const exportSourcePresets: Preset[] = [];
-  let unresolvedPresetCount = 0;
-  for (const listedPreset of presets) {
-    const cachedPreset = uiState.presetCache.get(listedPreset.id) ?? listedPreset;
-    if (hasAnyGraphNodes(cachedPreset)) {
-      exportSourcePresets.push(clonePreset(cachedPreset));
-      continue;
-    }
-
-    try {
-      const fetchedPreset = await requestPresetFromBackend(listedPreset.id);
-      exportSourcePresets.push(clonePreset(fetchedPreset));
-    } catch {
-      // Fall back to whatever is available so metadata/name still exports.
-      exportSourcePresets.push(clonePreset(cachedPreset));
-      unresolvedPresetCount += 1;
-    }
-  }
-
-  const effectPresetExport = collectEffectPresetsForExport();
-  const blendIds = new Set<string>([...exportSourcePresets.flatMap(collectPresetBlendIds), ...effectPresetExport.blendIds]);
-  const blendDefs = (uiState.blendLibrary ?? []).filter((blend) => blendIds.has(blend.id));
-  const refMap = new Map<string, ResourceRef>();
-  [...exportSourcePresets.flatMap((preset) => collectPresetResourceRefs(preset, blendDefs)), ...effectPresetExport.refs].forEach((ref) => {
-    const resourceType = ref.resourceType ?? ref.type ?? "";
-    const resourceId = ref.resourceId ?? ref.id ?? "";
-    if (!resourceType || !resourceId) {
-      return;
-    }
-    refMap.set(`${resourceType}:${resourceId}`, ref);
-  });
-
-  const exportResources: PresetArchiveResource[] = [];
-  const idMap = new Map<string, string>();
-  let missingCount = 0;
-
-  for (const ref of refMap.values()) {
-    const resourceType = ref.resourceType ?? ref.type ?? "";
-    const resourceId = ref.resourceId ?? ref.id ?? "";
-    if (!resourceType || !resourceId) {
-      continue;
-    }
-    const resource = getLibraryResource(resourceType, resourceId);
-    if (!resource) {
-      missingCount += 1;
-      continue;
-    }
-    const data = await requestResourceData(resourceType, resourceId);
-    if (!data) {
-      missingCount += 1;
-      continue;
-    }
-    const hash = await sha256HexFromBase64(data);
-    const fileName = buildArchiveFileNameWithHash(resource, resourceType, hash);
-    resourcesFolder.file(fileName, data, { base64: true });
-
-    idMap.set(resourceId, hash);
-    if (resourceId.includes("__")) {
-      idMap.set(resourceId.split("__").pop()!, hash);
-    }
-
-    exportResources.push({
-      id: hash,
-      name: resource.name,
-      category: resource.category,
-      type: resourceType,
-      fileName,
-      hash,
-      ...(resource.metadata && Object.keys(resource.metadata).length > 0 ? { metadata: { ...resource.metadata } } : {}),
-    });
-  }
-
-  const exportPresets = exportSourcePresets.map((preset) => {
-    const sanitized = sanitizePresetForArchive(preset);
-    remapPresetResourceReferences(sanitized, idMap);
-    return sanitized;
-  });
-
-  const clonedBlends = JSON.parse(JSON.stringify(blendDefs)) as BlendDefinition[];
-  remapBlendResourceReferences(clonedBlends, idMap);
-
-  const presetFolders = buildArchivePresetFoldersForExport(sourceFolderId, exportPresets);
-  const archive: PresetCollectionArchive = {
-    formatVersion: 1,
-    createdAt: new Date().toISOString(),
-    presets: exportPresets,
-    resources: exportResources,
-    blends: clonedBlends,
-    ...(presetFolders.length > 0 ? { presetFolders } : {}),
-    ...finishEffectPresetsForArchive(effectPresetExport, idMap, clonedBlends),
-  };
-
-  zip.file("presets.json", JSON.stringify(archive, null, 2));
-  const blob = await zip.generateAsync({ type: "blob" });
-  const buffer = await blob.arrayBuffer();
-  const data = arrayBufferToBase64(buffer);
-
-  if (missingCount > 0) {
-    showNotification("Export warning", `${missingCount} resources could not be read`);
-  }
-  if (unresolvedPresetCount > 0) {
-    showNotification("Export warning", `${unresolvedPresetCount} presets could not be fully resolved before export`);
-  }
-
-  const normalizeArchiveExportBaseName = (raw: string, fallback: string): string => {
-    let normalized = sanitizeFilename(raw, fallback);
-    const suffixPattern = /\.(?:soundshed\.(?:preset|presets)|zip)$/i;
-    while (suffixPattern.test(normalized)) {
-      normalized = normalized.replace(suffixPattern, "");
-    }
-    normalized = normalized.replace(/\.+$/, "");
-    return normalized || fallback;
-  };
-
-  postMessage({
-    type: "savePresetArchive",
-    fileName: `${normalizeArchiveExportBaseName(archiveName, "presets")}.soundshed.presets`,
-    data,
-  });
+  const { folderId, collection } = options;
+  postMessage({ type: "exportPresetArchive", presetIds: ids, name, ...(folderId ? { folderId } : {}), ...(collection ? { collection: true } : {}) });
 }
 
-export async function exportActivePresetFolderArchive(): Promise<void> {
+/** A collection whatever its size, so a folder holding one preset still exports with its folder. */
+export function exportPresetCollectionArchive(presets: Preset[], archiveName: string, sourceFolderId: string): void {
+  requestPresetArchiveExport(presets.map((preset) => preset.id), archiveName, { folderId: sourceFolderId, collection: true });
+}
+
+export function exportActivePresetFolderArchive(): void {
   const activeFolderId = uiState.activePresetFolderId ?? PRESET_FOLDER_ALL_ID;
-  const presets = getPresetsForFolderId(activeFolderId);
-  const archiveName = getPresetFolderExportName(activeFolderId);
-  await exportPresetCollectionArchive(presets, archiveName, activeFolderId);
+  exportPresetCollectionArchive(getPresetsForFolderId(activeFolderId), getPresetFolderExportName(activeFolderId), activeFolderId);
 }
 
-export async function exportAllPresetsArchive(): Promise<void> {
-  const presets = uiState.presets.slice();
-  await exportPresetCollectionArchive(presets, "All-Presets", PRESET_FOLDER_ALL_ID);
+export function exportAllPresetsArchive(): void {
+  exportPresetCollectionArchive(uiState.presets.slice(), "All-Presets", PRESET_FOLDER_ALL_ID);
 }
 
-export async function exportPresetArchiveSession(): Promise<void> {
+export function exportPresetArchiveSession(): void {
   const session = getPresetArchiveSessionState();
   if (!session) {
     showNotification("No archive session", "Drop a preset archive to start a session.");
     return;
   }
-  await exportPresetCollectionArchive(
-    uiState.presets.slice(),
-    session.archiveName?.replace(/\.[^./\\]+$/g, "") || "Preset-Archive-Session",
-    PRESET_FOLDER_ALL_ID,
-  );
+  // The engine takes an archive suffix (.soundshed.presets, .zip) off the name itself.
+  exportPresetCollectionArchive(uiState.presets.slice(), session.archiveName || "Preset-Archive-Session", PRESET_FOLDER_ALL_ID);
 }
 
-export async function exportSelectedPresetCollectionArchive(): Promise<void> {
+export function exportSelectedPresetCollectionArchive(): void {
   const activeFolderId = uiState.activePresetFolderId ?? PRESET_FOLDER_ALL_ID;
   if (activeFolderId === PRESET_FOLDER_ALL_ID) {
-    await exportAllPresetsArchive();
+    exportAllPresetsArchive();
     return;
   }
-  await exportActivePresetFolderArchive();
+  exportActivePresetFolderArchive();
 }
 
 export async function buildPresetArchiveBlob(preset: Preset): Promise<Blob> {
@@ -774,39 +645,14 @@ export async function buildToneSharingPresetArchiveBlobs(preset: Preset): Promis
   };
 }
 
-export async function exportCurrentPresetArchive(): Promise<void> {
+export function exportCurrentPresetArchive(): void {
   const presetId = uiState.activePresetId ?? "";
   const preset = uiState.presetCache.get(presetId) ?? null;
   if (!preset) {
     showNotification("Export failed", "No preset selected");
     return;
   }
-
-  let blob: Blob;
-  try {
-    blob = await buildPresetArchiveBlob(preset);
-  } catch (error) {
-    showNotification("Export failed", (error as Error).message);
-    return;
-  }
-
-  const buffer = await blob.arrayBuffer();
-  const data = arrayBufferToBase64(buffer);
-  const normalizeArchiveExportBaseName = (raw: string, fallback: string): string => {
-    let normalized = sanitizeFilename(raw, fallback);
-    const suffixPattern = /\.(?:soundshed\.(?:preset|presets)|zip)$/i;
-    while (suffixPattern.test(normalized)) {
-      normalized = normalized.replace(suffixPattern, "");
-    }
-    normalized = normalized.replace(/\.+$/, "");
-    return normalized || fallback;
-  };
-
-  postMessage({
-    type: "savePresetArchive",
-    fileName: `${normalizeArchiveExportBaseName(preset.name || preset.id || "preset", "preset")}.soundshed.preset`,
-    data,
-  });
+  requestPresetArchiveExport([preset.id || presetId], preset.name || preset.id || "preset");
 }
 
 export function resolveImportedPresetName(

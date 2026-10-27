@@ -312,7 +312,7 @@ export function initializePresetActionButtons(): void {
         return;
       }
       closePresetExtraActionsMenu();
-      void exportCurrentPresetArchive();
+      exportCurrentPresetArchive();
     });
   }
 
@@ -328,7 +328,7 @@ export function initializePresetActionButtons(): void {
     exportSessionBtn.addEventListener("click", (event) => {
       event.stopPropagation();
       closePresetExtraActionsMenu();
-      void exportPresetArchiveSession();
+      exportPresetArchiveSession();
     });
   }
 

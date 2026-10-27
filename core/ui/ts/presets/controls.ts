@@ -260,7 +260,7 @@ export function initializePresetControls(): void {
   }
 
   if (presetExportFolderButton) {
-    presetExportFolderButton.addEventListener("click", () => void exportSelectedPresetCollectionArchive());
+    presetExportFolderButton.addEventListener("click", () => exportSelectedPresetCollectionArchive());
   }
 
   syncPresetFolderToolbarState();

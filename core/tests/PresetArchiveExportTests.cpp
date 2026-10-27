@@ -533,6 +533,44 @@ Exports TestExport()
         Expect(false, "preset.json can be read back");
     }
 
+    // ── One preset, asked for as a collection (a folder holding one) ────────────
+    host.sent.clear();
+    host.savePath = ExportDir() / "lead-folder";
+    Send(controller, "exportPresetArchive",
+         {{"presetIds", {leadId}}, {"name", "Lead Folder"}, {"folderId", "__all__"}, {"collection", true}});
+
+    Expect(host.lastDefaultName == "Lead-Folder.soundshed.presets",
+           "a one-preset collection is suggested as .soundshed.presets (got " + host.lastDefaultName + ")");
+    saved = Latest(host, "presetExportSaved");
+    Expect(saved.has_value(), "a one-preset collection is answered with presetExportSaved");
+
+    if (saved)
+    {
+        const fs::path path = guitarfx::util::PathFromUtf8(saved->value("path", ""));
+        Expect(path.filename() == "lead-folder.soundshed.presets",
+               "a bare saved name gets the collection's extension (got " + saved->value("path", "") + ")");
+        const auto zip = guitarfx::util::ReadFileBytes(path);
+        Expect(!ZipJson(zip, "preset.json").has_value(), "a one-preset collection has no preset.json");
+
+        if (const auto oneCollection = ZipJson(zip, "presets.json"))
+        {
+            const auto presets = oneCollection->value("presets", nlohmann::json::array());
+            Expect(presets.size() == 1 && presets[0].value("id", "") == leadId, "it holds the one preset");
+            Expect(oneCollection->contains("createdAt"), "in the collection format");
+            Expect(oneCollection->value("blends", nlohmann::json::array()).size() == 1 &&
+                       oneCollection->value("resources", nlohmann::json::array()).size() == 2,
+                   "with the blend it plays and both of the blend's models");
+            const auto folders = oneCollection->value("presetFolders", nlohmann::json::array());
+            Expect(folders.size() == 1 && folders[0].value("name", "") == "Seed Pack" &&
+                       folders[0].value("presetIds", nlohmann::json::array()) == nlohmann::json::array({leadId}),
+                   "and the folder it sits in");
+        }
+        else
+        {
+            Expect(false, "the one-preset collection's presets.json can be read back");
+        }
+    }
+
     // ── Both, with their folder ─────────────────────────────────────────────────
     host.sent.clear();
     host.savePath = ExportDir() / "seed-export.soundshed.presets";

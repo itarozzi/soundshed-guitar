@@ -48,6 +48,7 @@
     "exportEffectLayout",
     "exportGeneratedCustomEffectBundle",
     "exportLooperLayer",
+    "exportPresetArchive",
     "focusMixerPreset",
     "gateLearn",
     "getAppInfo",
@@ -133,7 +134,6 @@
     "saveLocalLibraryResource",
     "saveLooperProject",
     "savePreset",
-    "savePresetArchive",
     "saveRiffTake",
     "seekPracticeToolFile",
     "selectPresetFolder",
@@ -328,9 +328,9 @@
     "windowChromeState"
   ],
   "engineOnlyRequests": {
-    "exportPresetArchive": "The engine builds preset archives itself (PresetArchiveExportTests drives it) so a UI without JSZip can export; the native UI and the web UI move onto it next, the web UI dropping its TypeScript archive builder for savePresetArchive.",
     "getPerformanceStats": "A pull for tests and scripted debugging (MixerInstanceLockTests drives the telemetry read with it); the UI takes the pushed dspPerformance feed.",
     "getSignalDiagnostics": "A pull for tests and scripted debugging; the UI takes the pushed sld feed and asks for a roster with setSignalDiagnosticsEnabled.",
+    "savePresetArchive": "Kept for older UIs and scripted use (saves archive bytes a UI built itself); every UI now asks the engine to build and save the archive with exportPresetArchive.",
     "setMasterGain": "Kept for older UIs and scripted use; the UI mutes with setOutputMuted, which the mixer applies after the output gain so a chain rebuild cannot undo it, and sets levels with setGlobalChainParam output.gain.",
     "setPresetFavorites": "Kept for older UIs and scripted use (a whole favourites document); every UI now stars presets one at a time (setPresetFavorite), and removing an installed pack takes its presets out of favourites in the engine (deleteInstalledPresetArchive).",
     "setPresetRatings": "Kept for older UIs and scripted use (a whole ratings document); every UI now rates presets one at a time (setPresetRating), and removing an installed pack drops its presets' ratings in the engine (deleteInstalledPresetArchive).",
