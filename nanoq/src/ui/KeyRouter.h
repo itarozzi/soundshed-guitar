@@ -6,7 +6,8 @@
 // focus (every button, card and knob here) clears it, so with nothing focused a key reaches no
 // element at all. The router sits at the root and wants focus itself; Retake(), called each tick,
 // gives it back after a click took it away. A key goes to the focused element first (a text box
-// that is being typed in keeps every key), and only what nothing used reaches `onKey`.
+// that is being typed in keeps every key), and only what nothing used reaches `onKey`; Esc goes
+// to `onKey` first, so it closes a dialog from inside its text box.
 
 #include <elements.hpp>
 
@@ -44,8 +45,13 @@ public:
 
     bool key(const cycfi::elements::context& ctx, cycfi::elements::key_info k) override
     {
+        // Esc closes the menu or dialog on top first, even from its text box (which would
+        // otherwise take it to drop its own focus), as Esc closes a modal in the web UI.
+        if (k.key == cycfi::elements::key_code::escape && onKey && onKey(k))
+            return true;
         if (proxy_base::key(ctx, k))
             return true;
+        // A text box being typed in keeps every other key.
         if (Typing())
             return false;
         return onKey && onKey(k);

@@ -110,6 +110,9 @@ private:
     bool HandleKey(const el::key_info& k);
     /// Space with no effect picked out: a tap on the tempo.
     void TapTempo();
+    /// A layer of the view's own (a dialog, a drop-down), which takes keys while it has focus,
+    /// wrapped so the shortcuts (Esc above all) still reach HandleKey.
+    Ptr KeyLayer(Ptr layer);
     /// The standalone window's caption takes the colour of the bar under it (Windows).
     void SyncWindowChrome();
 
@@ -271,6 +274,7 @@ private:
     // Instruments.cpp
     void OpenDemoClips();
     [[nodiscard]] const guitarfx::uiclient::DemoClip* SelectedDemoClip() const;
+    [[nodiscard]] std::vector<const std::vector<guitarfx::uiclient::DemoClip>*> DemoClipLists() const;
     void OpenTuner();
     void OpenMetronome();
     void OpenControls();

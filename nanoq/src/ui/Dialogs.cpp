@@ -4,6 +4,8 @@
 #include "ui/Shell.h"
 
 #include "dsp/EffectGuids.h"
+#include "uiclient/FeatureFlags.h"
+#include "uiclient/FxMarks.h"
 #include "uiclient/NodeLabels.h"
 
 #include <algorithm>
@@ -18,16 +20,17 @@ using guitarfx::uiclient::EffectTypeInfo;
 
 namespace
 {
+// The chooser's two lists before the categories (not categories of any effect).
+const std::string kFavouritesTab = "__favourites__";
+const std::string kRecentTab = "__recent__";
+} // namespace
+
+namespace
+{
 std::string Lower(std::string text)
 {
     std::transform(text.begin(), text.end(), text.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     return text;
-}
-
-bool FeatureEnabled(const guitarfx::uiclient::ClientState& state, const char* feature)
-{
-    const auto key = std::string("features.") + feature + ".enabled";
-    return state.appSettings.contains(key) && state.appSettings[key].is_boolean() && state.appSettings[key].get<bool>();
 }
 } // namespace
 
@@ -56,7 +59,7 @@ void Shell::ShowOverlay(Ptr panel, float width, float height)
     // Expand: a column is only as wide as its narrowest row allows, and a row of fixed-size
     // buttons allows little; the dialog's width is the one given.
     auto centred = el::share(el::align_center(el::align_middle(el::hold_any(FixedWidth(width, FixedHeight(height, Expand(face)))))));
-    mOverlay = Over(centred, el::share(Backdrop([this] { CloseOverlay(); })));
+    mOverlay = KeyLayer(Over(centred, el::share(Backdrop([this] { CloseOverlay(); }))));
 
     mSession.View().add(mOverlay);
 }
@@ -205,9 +208,11 @@ std::vector<const EffectTypeInfo*> Shell::OfferedEffects() const
 {
     namespace guids = guitarfx::EffectGuids;
     const std::set<std::string> experimental{guids::kTransposeStft, guids::kTransposeHybrid};
-    const bool showExperimental = FeatureEnabled(mState, "experimentalEffects");
-    const bool showCustom = FeatureEnabled(mState, "customEffects");
-    const bool showPickupMatch = FeatureEnabled(mState, "pickupMatch");
+    using guitarfx::uiclient::Feature;
+    using guitarfx::uiclient::IsFeatureEnabled;
+    const bool showExperimental = IsFeatureEnabled(mState, Feature::ExperimentalEffects);
+    const bool showCustom = IsFeatureEnabled(mState, Feature::CustomEffects);
+    const bool showPickupMatch = IsFeatureEnabled(mState, Feature::PickupMatch);
 
     std::vector<const EffectTypeInfo*> offered;
     for (const auto& info : mState.catalog)
@@ -278,8 +283,12 @@ void Shell::OpenEffectPicker(const std::string& afterNodeId, const std::string& 
         return;
     }
 
-    if (mPickerCategory.empty() || std::find(categories.begin(), categories.end(), mPickerCategory) == categories.end())
+    if (mPickerCategory.empty() ||
+        (mPickerCategory != kFavouritesTab && mPickerCategory != kRecentTab &&
+         std::find(categories.begin(), categories.end(), mPickerCategory) == categories.end()))
         mPickerCategory = categories.front();
+    // The web UI's Favourites and Recent tabs come first (fxBrowser.ts).
+    categories.insert(categories.begin(), {kFavouritesTab, kRecentTab});
 
     // The web UI's chooser (fx-selector-panel.html): a title and a search over two columns, the
     // categories with their counts at the left and the chosen one's effects at the right. Both
@@ -300,6 +309,7 @@ void Shell::OpenEffectPicker(const std::string& afterNodeId, const std::string& 
         CloseOverlay();
         if (type == currentType)
             return; // a model or settings are not reset by accident
+        guitarfx::uiclient::RecordFxRecent(mSession.Commands(), mState, guitarfx::uiclient::FxItemKey(type));
         ExpectAddedNode();
         if (!replaceNodeId.empty())
         {
@@ -320,14 +330,32 @@ void Shell::OpenEffectPicker(const std::string& afterNodeId, const std::string& 
         };
         const auto query = lower(s->search);
 
+        // What the Favourites and Recent tabs list: offered effects, in the lists' own order.
+        const auto marked = [&offered](const std::vector<std::string>& keys) {
+            std::vector<const EffectTypeInfo*> effects;
+            for (const auto& key : keys)
+                for (const auto* e : offered)
+                    if (guitarfx::uiclient::FxItemKey(e->type) == key)
+                        effects.push_back(e);
+            return effects;
+        };
+        const auto favourites = marked(guitarfx::uiclient::FxFavoriteKeys(mState));
+        const auto recents = marked(guitarfx::uiclient::FxRecentKeys(mState));
+
         std::vector<Ptr> left;
         for (const auto& id : categories)
         {
-            const auto count = std::count_if(offered.begin(), offered.end(), [&id](const EffectTypeInfo* e) { return e->category == id; });
-            const auto* look = mPresentation.Category(id);
-            auto row = std::make_shared<CategoryRow>(mTheme, mIcons, look != nullptr ? look->icon : std::string("gear"),
-                                                     look != nullptr ? look->name : id, static_cast<int>(count),
-                                                     Theme::Argb(mPresentation.CategoryColour(id)), query.empty() && id == mPickerCategory);
+            const bool fav = id == kFavouritesTab, recent = id == kRecentTab;
+            const auto count = fav      ? favourites.size()
+                               : recent ? recents.size()
+                                        : static_cast<std::size_t>(std::count_if(offered.begin(), offered.end(),
+                                                                                 [&id](const EffectTypeInfo* e) { return e->category == id; }));
+            const auto* look = (fav || recent) ? nullptr : mPresentation.Category(id);
+            auto row = std::make_shared<CategoryRow>(mTheme, mIcons, fav ? std::string("star") : recent ? std::string("ui-clock") : look != nullptr ? look->icon : std::string("gear"),
+                                                     fav ? std::string("Favourites") : recent ? std::string("Recent") : look != nullptr ? look->name : id,
+                                                     static_cast<int>(count),
+                                                     (fav || recent) ? mTheme.Accent() : Theme::Argb(mPresentation.CategoryColour(id)),
+                                                     query.empty() && id == mPickerCategory);
             row->onClick = [this, s, id] {
                 mPickerCategory = id;
                 s->search.clear();
@@ -344,9 +372,15 @@ void Shell::OpenEffectPicker(const std::string& afterNodeId, const std::string& 
         }
 
         std::vector<Ptr> right;
-        for (const auto* effect : offered)
+        const auto& listed = query.empty() && mPickerCategory == kFavouritesTab ? favourites
+                             : query.empty() && mPickerCategory == kRecentTab   ? recents
+                                                                                 : offered;
+        const bool marksTab = &listed != &offered;
+        for (const auto* effect : listed)
         {
-            const bool match = query.empty() ? effect->category == mPickerCategory : lower(effect->name).find(query) != std::string::npos;
+            const bool match = marksTab        ? true
+                               : query.empty() ? effect->category == mPickerCategory
+                                               : lower(effect->name).find(query) != std::string::npos;
             if (!match)
                 continue;
             const auto* look = mPresentation.Category(effect->category);
@@ -357,12 +391,27 @@ void Shell::OpenEffectPicker(const std::string& afterNodeId, const std::string& 
                                                    look != nullptr ? look->name : effect->category,
                                                    Theme::Argb(mPresentation.CategoryColour(effect->category)), effect->type == currentType);
             row->onClick = [choose, type = effect->type] { choose(type); };
+            const auto key = guitarfx::uiclient::FxItemKey(effect->type);
+            row->Star(guitarfx::uiclient::IsFxFavorite(mState, key), [this, s, key] {
+                guitarfx::uiclient::ToggleFxFavorite(mSession.Commands(), mState, key);
+                // Refilled once this click is over (the row is in the column being replaced).
+                mSession.View().post([alive = std::weak_ptr<bool>(mAlive), weak = s->self] {
+                    const auto state = weak.lock();
+                    if (alive.lock() && state && state->fill)
+                        state->fill();
+                });
+            });
             right.push_back(row);
             right.push_back(VGap(4));
         }
         if (right.empty())
         {
-            auto none = std::make_shared<Text>(mTheme, "No effects match.", 12.0f);
+            const bool marks = query.empty() && (mPickerCategory == kFavouritesTab || mPickerCategory == kRecentTab);
+            auto none = std::make_shared<Text>(mTheme,
+                                               !marks ? "No effects match."
+                                               : mPickerCategory == kFavouritesTab ? "Star an effect to keep it here."
+                                                                                   : "The effects you add show here.",
+                                               12.0f);
             none->Colour(mTheme.TextMuted());
             right.push_back(FixedHeight(30, PadXY(8, 0, none)));
         }

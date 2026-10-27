@@ -4,6 +4,8 @@
 
 #include "uiclient/PresetBrowse.h"
 
+#include "uiclient/FeatureFlags.h"
+
 #include <algorithm>
 #include <cctype>
 #include <set>
@@ -163,6 +165,12 @@ std::vector<PresetSummary> FilterPresets(const ClientState& state, const PresetQ
     else
     {
         base = state.presetList;
+    }
+
+    // Factory presets switched off (Settings > Features) are left out of every list.
+    if (!IsFeatureEnabled(state, Feature::FactoryPresetPacks))
+    {
+        base.erase(std::remove_if(base.begin(), base.end(), [](const PresetSummary& p) { return p.source == "factory"; }), base.end());
     }
 
     if (query.folderId == kPresetFolderFavorites)

@@ -9,6 +9,7 @@
 #include "ui/FrameParts.h"
 #include "ui/ShellWidgets.h"
 
+#include "uiclient/FeatureFlags.h"
 #include "uiclient/PresetBrowse.h"
 
 #include <algorithm>
@@ -171,8 +172,11 @@ Ptr Shell::BuildTabBar()
     settings->onClick = [this] { ShowPage(mPage == Page::Settings ? Page::Chain : Page::Settings); };
 
     // The tabs sit in the middle of the row whatever is beside them.
-    auto tabs = Tight({tab("PLAY", play, play ? mPage : Page::Chain), tab("TONES", mPage == Page::Tones, Page::Tones),
-                       tab("PRESETS", mPage == Page::Presets, Page::Presets)});
+    std::vector<Ptr> tabItems{tab("PLAY", play, play ? mPage : Page::Chain)};
+    if (guitarfx::uiclient::IsFeatureEnabled(mState, guitarfx::uiclient::Feature::ToneSharing))
+        tabItems.push_back(tab("TONES", mPage == Page::Tones, Page::Tones));
+    tabItems.push_back(tab("PRESETS", mPage == Page::Presets, Page::Presets));
+    auto tabs = Tight(tabItems);
     return Fill(mTheme.Background(), Row({HGap(38), Stretch(), tabs, Stretch(), Pad(0, 4, 0, 4, settings), HGap(10)}));
 }
 

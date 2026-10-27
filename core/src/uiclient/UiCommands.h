@@ -132,6 +132,10 @@ public:
     void SetTheme(const std::string& theme);
     /// Merges into the "native" part of the UI settings, leaving the web UI's own alone.
     void PatchNativeUiSettings(const nlohmann::json& patch);
+    /// Merges `patch` into the shared UI settings, at the top level, for what every UI reads
+    /// (the web UI's own keys, such as the effect chooser's fxFavorites). An array replaces
+    /// the stored one whole.
+    void PatchUiSettings(const nlohmann::json& patch);
     void AudioDevice(const std::string& action, nlohmann::json payload = nlohmann::json::object());
     void OpenUrl(const std::string& url);
 

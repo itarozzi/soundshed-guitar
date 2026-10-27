@@ -33,6 +33,8 @@
 #include "uiclient/ChainHistory.h"
 #include "uiclient/ChainLayout.h"
 #include "uiclient/EffectPresentation.h"
+#include "uiclient/FeatureFlags.h"
+#include "uiclient/FxMarks.h"
 #include "uiclient/Instruments.h"
 #include "uiclient/LayoutMode.h"
 #include "uiclient/NodeLabels.h"
@@ -1019,6 +1021,27 @@ void TestChainDropRules()
     Expect(!IsBypassFlick(0, 20) && !IsBypassFlick(40, 40) && IsBypassFlick(0, -40), "enough, mostly vertical, either way");
 }
 
+// The shared feature switches and the effect chooser's lists, as the web UI reads them.
+void TestFeatureFlagsAndFxMarks()
+{
+    ClientState state;
+    Expect(IsFeatureEnabled(state, Feature::ToneSharing) && !IsFeatureEnabled(state, Feature::PickupMatch),
+           "unset, a feature reads as the web UI's default");
+    state.appSettings["features.toneSharing.enabled"] = false;
+    state.appSettings["features.pickupMatch.enabled"] = true;
+    Expect(!IsFeatureEnabled(state, Feature::ToneSharing) && IsFeatureEnabled(state, Feature::PickupMatch), "set, it reads as set");
+
+    Expect(FxItemKey("amp_nam") == "amp_nam||", "a plain effect's key, as fxItemKey makes it");
+    state.uiSettings["fxFavorites"] = nlohmann::json::array({"a||", 3, "a||", "", "b||"});
+    Expect(FxFavoriteKeys(state) == std::vector<std::string>{"a||", "b||"}, "strings only, each once, in order");
+    nlohmann::json recents = nlohmann::json::array();
+    for (int i = 0; i < 20; ++i)
+        recents.push_back("r" + std::to_string(i) + "||");
+    state.uiSettings["fxRecents"] = recents;
+    Expect(FxRecentKeys(state).size() == kFxRecentsLimit && FxRecentKeys(state).front() == "r0||", "recents keep the newest 12");
+    Expect(IsFxFavorite(state, "b||") && !IsFxFavorite(state, "r0||"), "IsFxFavorite reads the favourites");
+}
+
 int main()
 {
     TestClientMirrorsTheEngine();
@@ -1028,6 +1051,7 @@ int main()
     TestTelemetryDecoding();
     TestChainLayoutWalksParallelLanes();
     TestChainDropRules();
+    TestFeatureFlagsAndFxMarks();
     TestNodeArchitectureBadge();
     TestPresetBrowse();
     TestParamFormatting();

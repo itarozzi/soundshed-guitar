@@ -15,6 +15,7 @@
 #include "ui/Shell.h"
 
 #include "dsp/EffectGuids.h"
+#include "uiclient/FeatureFlags.h"
 #include "uiclient/NodeLabels.h"
 
 #include <algorithm>
@@ -841,7 +842,12 @@ void Shell::OpenResourceBrowser(const std::string& nodeId, const std::string& re
             };
             return t;
         };
-        Fill(*b->tabs, Row({HGap(4), tab("Resource Library", Tab::Library), tab("Folder", Tab::Folder), tab("Tone 3000", Tab::Tone3000), Stretch()}));
+        // Tone 3000 can be switched off in Settings > Features, as in the web UI.
+        std::vector<Ptr> tabs{HGap(4), tab("Resource Library", Tab::Library), tab("Folder", Tab::Folder)};
+        if (guitarfx::uiclient::IsFeatureEnabled(mState, guitarfx::uiclient::Feature::Tone3000))
+            tabs.push_back(tab("Tone 3000", Tab::Tone3000));
+        tabs.push_back(Stretch());
+        Fill(*b->tabs, Row(tabs));
     };
     b->fillControls = [this, b, libraryControls, folderControls, tone3000Controls] {
         const float height = b->tab == Tab::Folder ? 68.0f : 30.0f;

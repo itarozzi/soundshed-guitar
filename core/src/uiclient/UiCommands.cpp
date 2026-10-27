@@ -566,6 +566,19 @@ void UiCommands::PatchNativeUiSettings(const nlohmann::json& patch)
     mClient.Send("uiSettingsChanged", {{"patch", {{"native", patch}}}});
 }
 
+void UiCommands::PatchUiSettings(const nlohmann::json& patch)
+{
+    auto& state = mClient.MutableState();
+
+    if (!state.uiSettings.is_object())
+    {
+        state.uiSettings = nlohmann::json::object();
+    }
+
+    state.uiSettings.merge_patch(patch);
+    mClient.Send("uiSettingsChanged", {{"patch", patch}});
+}
+
 void UiCommands::AudioDevice(const std::string& action, nlohmann::json payload)
 {
     if (!payload.is_object())

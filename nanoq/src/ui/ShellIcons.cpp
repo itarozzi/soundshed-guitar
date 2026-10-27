@@ -28,6 +28,7 @@ void AddShellIcons(Icons& icons)
                                R"(<path d="M12 3v1.5M4.2 6.2l1.1 1.1M19.8 6.2l-1.1 1.1"/>)"));
     icons.Add("ui-tones", Svg("0 0 24 24", 1.8f,
                               R"(<path d="M9 17.5V5.5l11-2v12"/><circle cx="6.5" cy="17.5" r="2.5"/><circle cx="17.5" cy="15.5" r="2.5"/>)"));
+    icons.Add("ui-clock", Svg("0 0 24 24", 1.8f, R"(<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>)"));
     icons.Add("ui-download", Svg("0 0 24 24", 2.0f, R"(<path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/>)"));
     icons.Add("ui-share", Svg("0 0 24 24", 2.0f,
                               R"(<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>)"

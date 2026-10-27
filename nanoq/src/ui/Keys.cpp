@@ -5,7 +5,7 @@
 // The keyboard shortcuts, as the web UI's (docs/user-interface.md, keyboard shortcuts): chain
 // undo and redo; Space bypasses the effect whose card was clicked last, or taps the tempo;
 // Delete removes that effect (a splitter or mixer goes back to one lane); F2 renames the scene;
-// Esc closes the menu or dialog on top. None of them reach a text box being typed in (the
+// Esc closes the menu or dialog on top. None but Esc reach a text box being typed in (the
 // router keeps those keys), and only Esc works while a dialog is open.
 
 namespace nanoq::ui
@@ -21,6 +21,13 @@ bool CommandHeld(int modifiers)
 #endif
 }
 } // namespace
+
+Ptr Shell::KeyLayer(Ptr layer)
+{
+    auto router = std::make_shared<KeyRouter>(std::move(layer));
+    router->onKey = [this](const el::key_info& k) { return HandleKey(k); };
+    return router;
+}
 
 void Shell::TapTempo()
 {

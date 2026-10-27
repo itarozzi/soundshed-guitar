@@ -8,6 +8,7 @@
 #include "ui/FrameParts.h"
 #include "ui/ShellWidgets.h"
 
+#include "uiclient/FeatureFlags.h"
 #include "uiclient/NodeLabels.h"
 #include "uiclient/PresetBrowse.h"
 
@@ -123,11 +124,19 @@ Ptr Shell::BuildRail()
     settings->Ink(mPage == Page::Settings ? mTheme.Accent() : mTheme.TextSecondary());
     settings->onClick = [this] { ShowPage(mPage == Page::Settings ? Page::Chain : Page::Settings); };
 
-    auto rail = Col({VGap(6), FixedHeight(46, tab("ui-chain", "Chain", Page::Chain)), VGap(4),
-                     FixedHeight(46, tab("ui-effect", "Effect", Page::Effect)), VGap(4),
-                     FixedHeight(46, tab("ui-tones", "Tones", Page::Tones)), VGap(4),
-                     FixedHeight(46, tab("ui-presets", "Presets", Page::Presets)), std::make_shared<el::element>(),
-                     FixedHeight(42, Row({HGap(9), settings, Stretch()})), VGap(6)});
+    std::vector<Ptr> items{VGap(6), FixedHeight(46, tab("ui-chain", "Chain", Page::Chain)), VGap(4),
+                           FixedHeight(46, tab("ui-effect", "Effect", Page::Effect)), VGap(4)};
+    // Tone sharing can be switched off in Settings > Features, as in the web UI.
+    if (guitarfx::uiclient::IsFeatureEnabled(mState, guitarfx::uiclient::Feature::ToneSharing))
+    {
+        items.push_back(FixedHeight(46, tab("ui-tones", "Tones", Page::Tones)));
+        items.push_back(VGap(4));
+    }
+    items.push_back(FixedHeight(46, tab("ui-presets", "Presets", Page::Presets)));
+    items.push_back(std::make_shared<el::element>());
+    items.push_back(FixedHeight(42, Row({HGap(9), settings, Stretch()})));
+    items.push_back(VGap(6));
+    auto rail = Col(items);
     return Fill(mTheme.Bar(), rail);
 }
 
@@ -633,7 +642,7 @@ Ptr Shell::PlacePanel(Ptr panel, el::rect anchor, float width, float height, boo
 void Shell::ShowPopover(Ptr panel, el::rect anchor, float width, float height, bool above)
 {
     CloseOverlay();
-    mOverlay = PlacePanel(std::move(panel), anchor, width, height, above, [this] { CloseOverlay(); });
+    mOverlay = KeyLayer(PlacePanel(std::move(panel), anchor, width, height, above, [this] { CloseOverlay(); }));
     mSession.View().add(mOverlay);
 }
 
@@ -676,16 +685,25 @@ void Shell::OpenDropdown(el::rect anchor, std::vector<MenuItem> items, float wid
     if (height > maxHeight)
         list = VScroll(list);
     CloseDropdown();
-    mDropdown = PlacePanel(PadXY(6, 6, list), anchor, width, std::min(height, std::max(120.0f, maxHeight)), above, [this] { CloseDropdown(); });
+    mDropdown = KeyLayer(PlacePanel(PadXY(6, 6, list), anchor, width, std::min(height, std::max(120.0f, maxHeight)), above,
+                                    [this] { CloseDropdown(); }));
     mSession.View().add(mDropdown);
 }
 
 // ── Demo audio ──────────────────────────────────────────────────────────────────
 
+std::vector<const std::vector<guitarfx::uiclient::DemoClip>*> Shell::DemoClipLists() const
+{
+    // The built-in clips, and the favourite riffs unless the riff library is switched off.
+    if (guitarfx::uiclient::IsFeatureEnabled(mState, guitarfx::uiclient::Feature::RiffLibrary))
+        return {&mState.demo.clips, &mState.demo.riffClips};
+    return {&mState.demo.clips};
+}
+
 const guitarfx::uiclient::DemoClip* Shell::SelectedDemoClip() const
 {
     const auto selected = mState.appSettings.value(kDemoClipSetting, std::string{});
-    for (const auto* list : {&mState.demo.clips, &mState.demo.riffClips})
+    for (const auto* list : DemoClipLists())
         for (const auto& clip : *list)
             if (clip.id == selected)
                 return &clip;
@@ -697,7 +715,7 @@ void Shell::OpenDemoClips()
     const auto* current = SelectedDemoClip();
     std::vector<MenuItem> items;
 
-    for (const auto* list : {&mState.demo.clips, &mState.demo.riffClips})
+    for (const auto* list : DemoClipLists())
     {
         if (list == &mState.demo.riffClips && !list->empty())
             items.push_back({"Favourite riffs", false, true, {}});

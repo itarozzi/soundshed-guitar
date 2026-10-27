@@ -64,7 +64,8 @@ void Shell::Subscribe()
     };
 
     // A settings change is patched in place; a new theme is noticed in Rebuild and redraws everything.
-    on(Topic::Session, kTransport | kValues | kSettings);
+    // Settings include the feature switches, which show or hide the Tones tab.
+    on(Topic::Session, kTransport | kValues | kSettings | kRail);
     on(Topic::ActivePreset, kTopBar | kScenes | kChain | kPage | kValues);
     on(Topic::PresetLibrary, kTopBar | kPage);
     // Choosing a setlist moves only the cursor (nothing loads), so no other topic redraws the

@@ -831,12 +831,41 @@ public:
                  HAlign::Left);
         FillText(cnv, mCategory, Font(Weight::Regular).size(9.5f), mTheme.TextMuted(),
                  el::rect{b.left + 56.0f, b.top + 22.0f, b.right - 70.0f, b.bottom - 5.0f}, HAlign::Left);
+        const float labelRight = onStar ? b.right - 34.0f : b.right - 12.0f;
         if (mCurrent)
-            FillText(cnv, "CURRENT", Font(Weight::SemiBold).size(9.0f), mTheme.Accent(), el::rect{b.right - 70.0f, b.top, b.right - 12.0f, b.bottom},
+            FillText(cnv, "CURRENT", Font(Weight::SemiBold).size(9.0f), mTheme.Accent(), el::rect{labelRight - 58.0f, b.top, labelRight, b.bottom},
                      HAlign::Right);
+        // The star (.fx-favorite-toggle): the accent when starred, faint until hovered otherwise.
+        if (onStar)
+            mIcons.Draw(cnv, "star", StarRect(b),
+                        mFavourite ? mTheme.Accent() : (mHover ? mTheme.TextSecondary() : mTheme.TextMuted().opacity(0.6f)));
+    }
+
+    bool click(const el::context& ctx, el::mouse_button btn) override
+    {
+        if (onStar && btn.state == el::mouse_button::left && StarRect(ctx.bounds).inset(-6.0f, -6.0f).includes(btn.pos))
+        {
+            if (!btn.down)
+                onStar();
+            return true;
+        }
+        return Pressable::click(ctx, btn);
+    }
+
+    /// Shows the star, filled in when `favourite`; a click on it calls `onStar`.
+    void Star(bool favourite, std::function<void()> toggle)
+    {
+        mFavourite = favourite;
+        onStar = std::move(toggle);
     }
 
 private:
+    static el::rect StarRect(const el::rect& b)
+    {
+        const float cy = b.top + b.height() * 0.5f;
+        return el::rect{b.right - 28.0f, cy - 8.0f, b.right - 12.0f, cy + 8.0f};
+    }
+
     const Theme& mTheme;
     Icons& mIcons;
     std::string mIcon;
@@ -844,6 +873,8 @@ private:
     std::string mName, mCategory;
     el::color mTint;
     bool mCurrent;
+    bool mFavourite = false;
+    std::function<void()> onStar;
 };
 
 /// The little switch beside a Controls strip label (GATE, EQ, DOUBLER): 22 by 12.
