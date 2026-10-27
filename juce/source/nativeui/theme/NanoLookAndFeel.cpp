@@ -139,11 +139,6 @@ void NanoLookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y, int wid
         const auto end = NanoTheme::argb (t.knobRingEnd);
         g.setGradientFill (juce::ColourGradient (start, centre.x - ringRadius, centre.y + ringRadius,
                                                  start.interpolatedWith (end, sliderPos), centre.x + ringRadius, centre.y - ringRadius, false));
-
-        // A light theme's ring can start at white; the accent keeps it visible.
-        if (theme.isLight())
-            g.setColour (theme.accent());
-
         g.strokePath (value, ringStroke);
     }
 

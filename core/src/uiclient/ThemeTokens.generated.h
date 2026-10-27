@@ -53,32 +53,32 @@ inline constexpr ThemeTokens kLight {
     0xff6888a8, // info
     0xffc86868, // error
     0xffd63031, // warning
-    0xfff9fafb, // bgPrimary
-    0xffffffff, // bgSecondary
-    0xfff3f4f6, // bgTertiary
-    0xffffffff, // bgSurface
-    0xffffffff, // bgElevated
-    0xfff3f4f6, // bgPanel
-    0xffffffff, // bgCard
-    0xffffffff, // bgInput
+    0xffd5dbe7, // bgPrimary
+    0xffdbe0eb, // bgSecondary
+    0xffcfd5e3, // bgTertiary
+    0xffebeef5, // bgSurface
+    0xffeff1f8, // bgElevated
+    0xffccd3e1, // bgPanel
+    0xffebeef5, // bgCard
+    0xfff3f5f9, // bgInput
     0xff3a3a40, // bgHeader
-    0xffffffff, // bgFooter
-    0xff111318, // textPrimary
-    0xff4b5563, // textSecondary
-    0xff6a6a78, // textTertiary
-    0xff6a7280, // textMuted
+    0xffdbe0eb, // bgFooter
+    0xff12171f, // textPrimary
+    0xff3c434e, // textSecondary
+    0xff4c535f, // textTertiary
+    0xff4f5662, // textMuted
     0xffe0e0f0, // textOnDark
-    0xffe5e7eb, // borderLight
-    0xffd1d5db, // borderMedium
-    0xffbcc1cc, // borderStrong
-    0xffffffff, // controlBg
-    0xffe8eaef, // controlKnobBg
-    0xffc8cad6, // controlBorder
-    0xff5a5a6a, // controlIndicator
-    0xffffffff, // knobRingStart
-    0xff2ec868, // knobRingEnd
-    0x2e000000, // knobRingTrack
-    0xffb0b4c0, // toggleBg
+    0xffc3cad8, // borderLight
+    0xffb6bdcd, // borderMedium
+    0xffa3abbd, // borderStrong
+    0xffeff1f8, // controlBg
+    0xffeff1f8, // controlKnobBg
+    0xffb6bdcd, // controlBorder
+    0xff171c24, // controlIndicator
+    0xff171c24, // knobRingStart
+    0xff171c24, // knobRingEnd
+    0xffb7becf, // knobRingTrack
+    0xffb6bdcd, // toggleBg
 };
 
 inline constexpr ThemeTokens kDark {
