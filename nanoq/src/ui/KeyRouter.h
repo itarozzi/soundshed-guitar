@@ -69,6 +69,23 @@ public:
         return proxy_base::click(ctx, btn);
     }
 
+    // Files dragged in from the desktop are offered to the shell first (a model or IR onto an
+    // effect), then to whatever is under them.
+    void track_drop(const cycfi::elements::context& ctx, const cycfi::elements::drop_info& info,
+                    cycfi::elements::cursor_tracking status) override
+    {
+        if (onTrackDrop)
+            onTrackDrop(info, status == cycfi::elements::cursor_tracking::leaving);
+        proxy_base::track_drop(ctx, info, status);
+    }
+
+    bool drop(const cycfi::elements::context& ctx, const cycfi::elements::drop_info& info) override
+    {
+        if (onDrop && onDrop(info))
+            return true;
+        return proxy_base::drop(ctx, info);
+    }
+
     /// Gives the router focus again if a click took it. UI thread.
     static void Retake(cycfi::elements::view& view)
     {
@@ -96,6 +113,9 @@ public:
     std::function<bool(const cycfi::elements::key_info&)> onKey;
     /// Any press of a mouse button, before the element under it hears it.
     std::function<void()> onPointerDown;
+    /// Files held over the view (or leaving it), and dropped on it. onDrop returns whether it used them.
+    std::function<void(const cycfi::elements::drop_info&, bool leaving)> onTrackDrop;
+    std::function<bool(const cycfi::elements::drop_info&)> onDrop;
 
 private:
     cycfi::elements::element_ptr mSubject;

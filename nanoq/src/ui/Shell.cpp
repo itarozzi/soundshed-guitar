@@ -106,6 +106,8 @@ void Shell::BuildRoot()
     mKeys = std::make_shared<KeyRouter>(Over(MinSize(metrics::kMinWidth, metrics::kMinHeight, mFrameSlot), mBgSlot));
     mKeys->onKey = [this](const el::key_info& k) { return HandleKey(k); };
     mKeys->onPointerDown = [this] { mChainFocused = false; };
+    mKeys->onTrackDrop = [this](const el::drop_info& info, bool leaving) { TrackFileDrop(info, leaving); };
+    mKeys->onDrop = [this](const el::drop_info& info) { return DropFiles(info); };
     mRoot = mKeys;
 }
 

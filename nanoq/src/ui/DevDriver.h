@@ -14,6 +14,7 @@
 //   shot <file.png>    draws the view offscreen into a PNG (works while the window is hidden)
 //   key <spec>         a key press and release: "space", "escape", "delete", "f2", "ctrl+shift+z"
 //   type <text>        characters, as typed into whatever has focus
+//   drop x y <path>    a file dropped there from the desktop
 //   setting <key> <json>  sets an app setting, as the UI would (to seed a test profile)
 
 #include <elements.hpp>

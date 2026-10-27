@@ -205,6 +205,13 @@ private:
     [[nodiscard]] std::string ChainSignature() const;
     /// Moves each card's signal light to what the telemetry feed says. UI thread, per tick.
     void SyncChainLights();
+    /// Files dragged in from the desktop (ChainStrip.cpp): a .nam model or a .wav IR held over
+    /// an effect that plays one lights its card; dropped, it joins the library where it is and
+    /// loads into that effect, or into the one shown, as the web UI's file drop does.
+    void TrackFileDrop(const el::drop_info& info, bool leaving);
+    bool DropFiles(const el::drop_info& info);
+    /// The effect a model or IR file dropped at `where` goes into, or empty.
+    [[nodiscard]] std::string FileDropTarget(const std::string& resourceType, el::point where) const;
     /// A card being dragged: the drop target under `to` is lit, and on `done` the card moves
     /// there by the web UI's rules (ChainDropRules).
     void DragCard(const std::string& nodeId, el::point from, el::point to, bool done);

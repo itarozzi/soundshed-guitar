@@ -15,10 +15,14 @@
 #include "uiclient/ChainDropRules.h"
 #include "uiclient/ChainLayout.h"
 #include "uiclient/NodeLabels.h"
+#include "util/PathEncoding.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <map>
+#include <sstream>
+#include <variant>
 
 namespace nanoq::ui
 {
@@ -500,5 +504,103 @@ void Shell::DragCard(const std::string& nodeId, el::point from, el::point to, bo
     if (action.kind != NodeDropAction::Kind::None)
         NoteChainEdit();
     mSession.View().refresh();
+}
+
+namespace
+{
+/// The files in a drop, as paths (Elements hands them over as file:// lines).
+std::vector<std::string> DroppedPaths(const el::drop_info& info)
+{
+    std::vector<std::string> paths;
+    const auto it = info.data.find("text/uri-list");
+    if (it == info.data.end() || !std::holds_alternative<std::string>(it->second))
+        return paths;
+    std::istringstream lines(std::get<std::string>(it->second));
+    for (std::string line; std::getline(lines, line);)
+    {
+        if (!line.empty() && line.back() == '\r')
+            line.pop_back();
+        if (line.rfind("file://", 0) == 0)
+            line = line.substr(7);
+        if (!line.empty())
+            paths.push_back(line);
+    }
+    return paths;
+}
+
+/// "nam" for a model, "ir" for an impulse response, else empty.
+std::string ResourceTypeOfFile(const std::string& path)
+{
+    auto ext = guitarfx::util::PathToUtf8(guitarfx::util::PathFromUtf8(path).extension());
+    std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (ext == ".nam")
+        return "nam";
+    if (ext == ".wav")
+        return "ir";
+    return {};
+}
+} // namespace
+
+std::string Shell::FileDropTarget(const std::string& resourceType, el::point where) const
+{
+    if (resourceType.empty() || !mState.activePreset)
+        return {};
+    const auto& graph = mState.activePreset->graph;
+    const auto takes = [&](const std::string& nodeId) {
+        const auto* node = graph.FindNode(nodeId);
+        const auto* type = node != nullptr ? mState.FindEffectType(node->type) : nullptr;
+        return type != nullptr && type->resourceType == resourceType;
+    };
+    // The card under the pointer, else the effect whose editor is showing.
+    if (mHitMap)
+        for (const auto& card : mHitMap->cards)
+            if (card.bounds.includes(where))
+                return takes(card.nodeId) ? card.nodeId : std::string();
+    if (PlayShown() && !mSelectedNode.empty() && takes(mSelectedNode))
+        return mSelectedNode;
+    return {};
+}
+
+void Shell::TrackFileDrop(const el::drop_info& info, bool leaving)
+{
+    if (!mHitMap)
+        return;
+    std::string target;
+    if (!leaving)
+        if (const auto paths = DroppedPaths(info); !paths.empty())
+            target = FileDropTarget(ResourceTypeOfFile(paths.front()), info.where);
+    if (target != mHitMap->hoverNode)
+    {
+        mHitMap->hoverNode = target;
+        mSession.View().refresh();
+    }
+}
+
+bool Shell::DropFiles(const el::drop_info& info)
+{
+    if (mHitMap && !mHitMap->hoverNode.empty())
+    {
+        mHitMap->hoverNode.clear();
+        mSession.View().refresh();
+    }
+    const auto paths = DroppedPaths(info);
+    if (paths.empty())
+        return false;
+    const auto& path = paths.front();
+    const auto resourceType = ResourceTypeOfFile(path);
+    const auto nodeId = FileDropTarget(resourceType, info.where);
+    if (nodeId.empty())
+    {
+        if (!resourceType.empty())
+            ShowToast("Drop it on a model or IR effect", "A " + std::string(resourceType == "nam" ? "model" : "IR") +
+                                                             " goes into an effect that plays one.",
+                      false);
+        return !resourceType.empty();
+    }
+    // Into the library where it is, and into that effect's (first) slot.
+    const auto name = guitarfx::util::PathToUtf8(guitarfx::util::PathFromUtf8(path).stem());
+    mSession.Commands().SaveLocalLibraryResource(resourceType, path, name, nlohmann::json::object(), nodeId, 0);
+    NoteChainEdit();
+    return true;
 }
 } // namespace nanoq::ui

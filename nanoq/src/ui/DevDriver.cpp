@@ -104,6 +104,22 @@ void DevDriver::Poll(el::view& view)
             }
             continue;
         }
+        if (line.rfind("drop ", 0) == 0)
+        {
+            // drop x y <path>: a file dropped from the desktop, as Elements' host delivers it.
+            std::istringstream words(line.substr(5));
+            float x = 0.0f, y = 0.0f;
+            std::string path;
+            if (words >> x >> y && std::getline(words >> std::ws, path) && !path.empty())
+            {
+                el::drop_info info;
+                info.data["text/uri-list"] = std::string("file://") + path;
+                info.where = el::point{x, y};
+                view.track_drop(info, el::cursor_tracking::entering);
+                view.drop(info);
+            }
+            continue;
+        }
         if (line.rfind("type ", 0) == 0)
         {
             // Text, as typed into whatever has focus.
