@@ -104,18 +104,18 @@ public:
         auto b = ctx.bounds;
         if (heading)
         {
-            cnv.fill_style(el::rgba(255, 255, 255, mHover ? 14 : 8));
+            cnv.fill_style(mTheme.Pick(el::rgba(255, 255, 255, mHover ? 14 : 8), mTheme.Text().opacity(mHover ? 0.08f : 0.05f)));
             cnv.fill_round_rect(b.inset(0.0f, 2.0f), 6.0f);
             mIcons.Draw(cnv, icon.empty() ? "ui-chevron-right" : icon, el::rect{b.left + 10.0f, b.top + 9.0f, b.left + 22.0f, b.top + 21.0f},
                         mTheme.TextSecondary());
-            FillText(cnv, mTitle, Font(Weight::SemiBold).size(12.5f), mTheme.TextOnDark(), el::rect{b.left + 30.0f, b.top, b.right - 60.0f, b.bottom},
+            FillText(cnv, mTitle, Font(Weight::SemiBold).size(12.5f), mTheme.Ink(), el::rect{b.left + 30.0f, b.top, b.right - 60.0f, b.bottom},
                      HAlign::Left);
             if (!note.empty())
             {
                 const auto font = Font(Weight::SemiBold).size(9.5f);
                 const float w = el::measure_text(cnv, note, font).x + 14.0f;
                 const el::rect pill{b.right - 12.0f - w, b.top + 7.0f, b.right - 12.0f, b.bottom - 7.0f};
-                cnv.fill_style(el::rgba(255, 255, 255, 22));
+                cnv.fill_style(mTheme.Pick(el::rgba(255, 255, 255, 22), mTheme.Panel()));
                 cnv.fill_round_rect(pill, 8.0f);
                 FillText(cnv, note, font, mTheme.TextSecondary(), pill, HAlign::Centre);
             }
@@ -124,7 +124,8 @@ public:
         if (indent)
             b.left += 16.0f;
         const auto face = b.inset(0.0f, 2.0f);
-        cnv.fill_style(selected ? mTheme.Accent().opacity(0.22f).level(0.8f) : el::rgba(255, 255, 255, mHover ? 14 : 7));
+        cnv.fill_style(selected ? mTheme.Accent().opacity(0.22f).level(0.8f)
+                                : mTheme.Pick(el::rgba(255, 255, 255, mHover ? 14 : 7), mHover ? mTheme.Elevated() : mTheme.Card()));
         cnv.fill_round_rect(face, 6.0f);
         if (selected)
         {
@@ -157,11 +158,12 @@ public:
             const auto font = Font(Weight::SemiBold).size(11.0f);
             const float w = el::measure_text(cnv, button, font).x + 22.0f;
             mButton = el::rect{right - w, face.top + (face.height() - 26.0f) * 0.5f, right, face.top + (face.height() + 26.0f) * 0.5f};
-            cnv.fill_style(mHoverButton ? el::rgba(72, 72, 86, 255) : el::rgba(48, 48, 58, 255));
+            cnv.fill_style(mTheme.Pick(mHoverButton ? el::rgba(72, 72, 86, 255) : el::rgba(48, 48, 58, 255),
+                                       mHoverButton ? mTheme.Input() : mTheme.Elevated()));
             cnv.fill_round_rect(mButton, 6.0f);
-            cnv.stroke_style(el::rgba(255, 255, 255, 30));
+            cnv.stroke_style(mTheme.Pick(el::rgba(255, 255, 255, 30), mTheme.BorderStrong()));
             cnv.stroke_round_rect(mButton.inset(0.5f, 0.5f), 6.0f);
-            FillText(cnv, button, font, mTheme.TextOnDark(), mButton, HAlign::Centre);
+            FillText(cnv, button, font, mTheme.Ink(), mButton, HAlign::Centre);
             right = mButton.left - 10.0f;
         }
         else
@@ -181,12 +183,12 @@ public:
         const auto detailFont = Font(Weight::Regular).size(10.5f);
         if (mDetail.empty())
         {
-            FillText(cnv, Ellipsize(cnv, mTitle, titleFont, right - x), titleFont, mTheme.TextOnDark(), el::rect{x, face.top, right, face.bottom},
+            FillText(cnv, Ellipsize(cnv, mTitle, titleFont, right - x), titleFont, mTheme.Ink(), el::rect{x, face.top, right, face.bottom},
                      HAlign::Left);
         }
         else
         {
-            FillText(cnv, Ellipsize(cnv, mTitle, titleFont, right - x), titleFont, mTheme.TextOnDark(),
+            FillText(cnv, Ellipsize(cnv, mTitle, titleFont, right - x), titleFont, mTheme.Ink(),
                      el::rect{x, face.top + 5.0f, right, face.top + 21.0f}, HAlign::Left);
             FillText(cnv, Ellipsize(cnv, mDetail, detailFont, right - x), detailFont, mTheme.TextMuted(),
                      el::rect{x, face.top + 21.0f, right, face.bottom - 4.0f}, HAlign::Left);
@@ -1009,7 +1011,7 @@ void Shell::OpenResourceBrowser(const std::string& nodeId, const std::string& re
     b->fillFooter();
 
     auto title = std::make_shared<Text>(mTheme, b->role.title, 13.5f, Weight::SemiBold);
-    title->Colour(mTheme.TextOnDark());
+    title->Colour(mTheme.Ink());
     auto close = std::make_shared<IconButton>(mTheme, mIcons, "x", IconButton::Look::Ghost);
     close->Size(28, 28).IconSize(12);
     close->onClick = [this, b] {

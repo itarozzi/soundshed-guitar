@@ -315,7 +315,7 @@ Ptr Shell::BuildScenes()
         for (auto& chip : chips)
             tray->push_back(chip);
         tray->push_back(HGap(2));
-        row.push_back(Rounded(el::rgba(24, 24, 30, 184), 11.0f, PadXY(0, 2, tray)));
+        row.push_back(Rounded(mTheme.Pick(el::rgba(24, 24, 30, 184), mTheme.Text().opacity(0.06f)), 11.0f, PadXY(0, 2, tray)));
     }
     row.push_back(Stretch());
     row.push_back(Pad(0, 0, 0, 6, wrap));
@@ -366,7 +366,7 @@ Ptr Shell::BuildTransport()
     b->onClick = [this] { SetChainSlot(Slot::B); };
     a->Enabled(seeded);
     b->Enabled(seeded);
-    auto ab = Over(PadXY(2, 2, Row({a, HGap(2), b})), el::share(Surface(mTheme.Bar(), el::rgba(58, 58, 72, 255), 6.0f)));
+    auto ab = Over(PadXY(2, 2, Row({a, HGap(2), b})), el::share(Surface(mTheme.Bar(), mTheme.Pick(el::rgba(58, 58, 72, 255), mTheme.BorderStrong()), 6.0f)));
     auto copy = ToolButton(mTheme, mIcons, "ui-swap", [this] { CopyChainSlot(); }, 26.0f, 15.0f);
     copy->Disabled(!seeded);
 
@@ -615,7 +615,7 @@ Ptr Shell::PlacePanel(Ptr panel, el::rect anchor, float width, float height, boo
     float y = above ? anchor.top - height - 6.0f : anchor.bottom + 6.0f;
     y = std::clamp(y, 8.0f, std::max(8.0f, view.y - height - 8.0f));
 
-    auto face = Over(std::move(panel), el::share(Surface(mTheme.Bar(), el::rgba(58, 58, 72, 255), 10.0f)));
+    auto face = Over(std::move(panel), el::share(Surface(mTheme.Bar(), mTheme.Pick(el::rgba(58, 58, 72, 255), mTheme.BorderStrong()), 10.0f)));
     auto placed = Pad(x, y, std::max(0.0f, view.x - x - width), std::max(0.0f, view.y - y - height),
                       FixedWidth(width, FixedHeight(height, Expand(face))));
     return Over(placed, std::make_shared<ClickCatcher>(std::move(onOutside)));
@@ -646,7 +646,7 @@ void Shell::OpenDropdown(el::rect anchor, std::vector<MenuItem> items, float wid
     for (auto& item : items)
     {
         const bool heading = item.heading || !item.onChoose;
-        const el::color ink = item.tint != 0 ? Theme::Argb(item.tint) : mTheme.TextOnDark();
+        const el::color ink = item.tint != 0 ? Theme::Argb(item.tint) : mTheme.Ink();
         auto row = std::make_shared<MenuRow>(mTheme, item.label, item.selected, heading, ink);
         auto choose = item.onChoose;
         row->onClick = [this, choose] {

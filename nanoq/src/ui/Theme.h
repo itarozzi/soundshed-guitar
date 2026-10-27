@@ -72,6 +72,14 @@ public:
     /// The accent tinted into a surface: the playing scene, the loaded preset.
     [[nodiscard]] el::color AccentTint() const noexcept;
 
+    /// Text and icons on the chrome (bars, pills, chips): the dark themes' near-white, the light
+    /// theme's ink. TextOnDark() is near-white in every theme, so on a light surface it vanishes.
+    [[nodiscard]] el::color Ink() const noexcept { return IsLight() ? Text() : TextOnDark(); }
+
+    /// `dark` (a colour measured from the dark web UI) on the dark themes, and on the light one
+    /// `light`, the token the web UI's light theme draws that part with.
+    [[nodiscard]] el::color Pick(el::color dark, el::color light) const noexcept { return IsLight() ? light : dark; }
+
 private:
     using Tokens = guitarfx::uiclient::theme::ThemeTokens;
     [[nodiscard]] const Tokens& T() const noexcept

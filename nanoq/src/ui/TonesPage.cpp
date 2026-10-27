@@ -131,14 +131,15 @@ public:
             cnv.begin_path();
             cnv.add_round_rect(b, kRadius);
             cnv.clip();
-            cnv.fill_style(el::rgba(30, 30, 38, 255));
+            cnv.fill_style(mTheme.Pick(el::rgba(30, 30, 38, 255), mTheme.Card()));
             cnv.fill_rect(b);
             if (picture)
             {
                 DrawImageCovering(cnv, *picture, face);
                 artist::canvas::linear_gradient shade{face.top_left(), face.bottom_left()};
-                shade.add_color_stop(0.0f, el::rgba(12, 12, 16, 200));
-                shade.add_color_stop(1.0f, el::rgba(12, 12, 16, 110));
+                // The light theme fades the picture into the card instead (.tone-sharing-pack-hero).
+                shade.add_color_stop(0.0f, mTheme.Pick(el::rgba(12, 12, 16, 200), el::rgba(235, 238, 245, 240)));
+                shade.add_color_stop(1.0f, mTheme.Pick(el::rgba(12, 12, 16, 110), el::rgba(235, 238, 245, 205)));
                 cnv.fill_style(shade);
                 cnv.fill_rect(face);
             }
@@ -150,10 +151,10 @@ public:
                 cnv.fill_style(wash);
                 cnv.fill_rect(face);
             }
-            cnv.fill_style(el::rgba(20, 20, 26, 255));
+            cnv.fill_style(mTheme.Pick(el::rgba(20, 20, 26, 255), mTheme.Card()));
             cnv.fill_rect(el::rect{b.left, face.bottom, b.right, b.bottom});
         }
-        cnv.stroke_style(mHover ? el::rgba(255, 255, 255, 40) : el::rgba(255, 255, 255, 18));
+        cnv.stroke_style(mTheme.Pick(mHover ? el::rgba(255, 255, 255, 40) : el::rgba(255, 255, 255, 18), mHover ? mTheme.BorderStrong() : mTheme.Border()));
         cnv.line_width(1.0f);
         cnv.stroke_round_rect(b, kRadius);
 
@@ -163,12 +164,12 @@ public:
         const auto titleFont = Font(Weight::SemiBold).size(11.0f);
         for (const auto& line : Wrap(cnv, mTone.title, titleFont, w, 2))
         {
-            FillText(cnv, line, titleFont, mTheme.TextOnDark(), el::rect{x, y, x + w, y + 14.0f}, HAlign::Left);
+            FillText(cnv, line, titleFont, mTheme.Ink(), el::rect{x, y, x + w, y + 14.0f}, HAlign::Left);
             y += 14.0f;
         }
         y += 3.0f;
 
-        const auto chipFill = el::rgba(255, 255, 255, 22);
+        const auto chipFill = mTheme.Pick(el::rgba(255, 255, 255, 22), mTheme.Panel());
         if (!lines.empty())
         {
             const auto font = Font(Weight::Regular).size(10.0f);
@@ -208,7 +209,7 @@ public:
                     const float cw = el::measure_text(cnv, tag, Font(Weight::SemiBold).size(9.0f)).x + 12.0f;
                     if (tx + cw > x + w)
                         break;
-                    tx += DrawChip(cnv, tag, tx, y, mTheme.TextSecondary(), el::rgba(255, 255, 255, 14)) + 4.0f;
+                    tx += DrawChip(cnv, tag, tx, y, mTheme.TextSecondary(), mTheme.Pick(el::rgba(255, 255, 255, 14), mTheme.Panel())) + 4.0f;
                 }
             }
         }
@@ -228,14 +229,14 @@ public:
             }
             else
             {
-                cnv.fill_style(el::rgba(255, 255, 255, 30));
+                cnv.fill_style(mTheme.Pick(el::rgba(255, 255, 255, 30), mTheme.Text().opacity(0.12f)));
                 cnv.add_circle(artist::circle(c, 8.0f));
                 cnv.fill();
-                FillText(cnv, mTone.creatorName.substr(0, 1), Font(Weight::SemiBold).size(9.0f), mTheme.TextOnDark(),
+                FillText(cnv, mTone.creatorName.substr(0, 1), Font(Weight::SemiBold).size(9.0f), mTheme.Ink(),
                          el::rect{c.x - 8.0f, c.y - 8.0f, c.x + 8.0f, c.y + 8.0f}, HAlign::Centre);
             }
             const auto font = Font(Weight::SemiBold).size(10.0f);
-            FillText(cnv, Ellipsize(cnv, mTone.creatorName, font, w - 22.0f), font, mTheme.TextOnDark(),
+            FillText(cnv, Ellipsize(cnv, mTone.creatorName, font, w - 22.0f), font, mTheme.Ink(),
                      el::rect{x + 21.0f, cy - 7.0f, x + w, cy + 7.0f}, HAlign::Left);
         }
 
@@ -245,9 +246,10 @@ public:
             const auto r = ActionRect(b, i);
             const auto& a = actions[i];
             const bool hover = static_cast<int>(i) == mHoverAction && a.enabled;
-            el::color fill = a.primary ? mTheme.Accent().level(hover ? 1.08f : 0.95f) : el::rgba(255, 255, 255, hover ? 34 : 18);
+            el::color fill = a.primary ? mTheme.Accent().level(hover ? 1.08f : 0.95f)
+                                       : mTheme.Pick(el::rgba(255, 255, 255, hover ? 34 : 18), mTheme.Text().opacity(hover ? 0.12f : 0.06f));
             if (!a.enabled)
-                fill = el::rgba(255, 255, 255, 10);
+                fill = mTheme.Pick(el::rgba(255, 255, 255, 10), mTheme.Text().opacity(0.04f));
             cnv.fill_style(fill);
             cnv.fill_round_rect(r, 6.0f);
             const auto ink = a.primary && a.enabled ? el::rgba(255, 255, 255, 255) : (a.enabled ? mTheme.TextSecondary() : mTheme.TextMuted());
@@ -452,7 +454,7 @@ Ptr Shell::BuildTonesPage()
         auto t = std::make_shared<IconButton>(mTheme, mIcons, "", IconButton::Look::Ghost);
         t->Size(60, 28).Label(label, 12.0f);
         if (mTonesTab == which)
-            t->Lit(true).Ink(mTheme.TextOnDark());
+            t->Lit(true).Ink(mTheme.Ink());
         else
             t->Ink(mTheme.TextSecondary());
         t->onClick = [this, which] {

@@ -293,7 +293,7 @@ public:
         if (mLook.canBypass && (mHover || !on))
         {
             const auto p = PowerRect(r);
-            cnv.fill_style(mHoverPower ? mTheme.Elevated() : el::rgba(9, 11, 17, 170));
+            cnv.fill_style(mHoverPower ? mTheme.Elevated() : mTheme.Pick(el::rgba(9, 11, 17, 170), mTheme.Card()));
             cnv.add_circle(artist::circle(artist::center_point(p), kPowerSize * 0.5f));
             cnv.fill();
             mIcons.Draw(cnv, "output", p.inset(3.0f, 3.0f), on ? mTheme.Success() : mTheme.TextSecondary());
@@ -445,12 +445,12 @@ public:
             // The add button (.signal-add-btn): 24 px, raised, a bold +.
             auto state = cnv.new_state();
             artist::canvas::linear_gradient fill{el::point{c.x, c.y - 11.0f}, el::point{c.x, c.y + 11.0f}};
-            fill.add_color_stop(0.0f, el::rgba(58, 58, 68, 255));
-            fill.add_color_stop(1.0f, el::rgba(32, 32, 42, 255));
+            fill.add_color_stop(0.0f, mTheme.Pick(el::rgba(58, 58, 68, 255), mTheme.Elevated()));
+            fill.add_color_stop(1.0f, mTheme.Pick(el::rgba(32, 32, 42, 255), mTheme.Card()));
             cnv.fill_style(fill);
             cnv.add_circle(artist::circle(c, 11.0f));
             cnv.fill();
-            cnv.stroke_style(el::rgba(74, 74, 88, 255));
+            cnv.stroke_style(mTheme.Pick(el::rgba(74, 74, 88, 255), mTheme.BorderStrong()));
             cnv.line_width(2.0f);
             cnv.add_circle(artist::circle(c, 11.0f));
             cnv.stroke();

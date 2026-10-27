@@ -82,7 +82,7 @@ void Shell::OpenControls()
         });
 
         auto title = std::make_shared<Text>(mTheme, label, 9.0f, Weight::SemiBold);
-        title->Colour(el::rgba(201, 209, 225, 200)).Fixed(true);
+        title->Colour(mTheme.Pick(el::rgba(201, 209, 225, 200), mTheme.TextSecondary())).Fixed(true);
         std::vector<Ptr> head{Stretch(), title};
         if (readOn)
         {
@@ -189,7 +189,7 @@ void Shell::OpenControls()
         mSession.View().refresh(*eqOn);
     });
     auto eqTitle = std::make_shared<Text>(mTheme, "EQ", 9.0f, Weight::SemiBold);
-    eqTitle->Colour(el::rgba(201, 209, 225, 200)).Fixed(true);
+    eqTitle->Colour(mTheme.Pick(el::rgba(201, 209, 225, 200), mTheme.TextSecondary())).Fixed(true);
     auto eq = FixedWidth(72, Col({FixedHeight(12, Row({Stretch(), eqTitle, HGap(5), eqOn, Stretch()})), VGap(8),
                                   FixedHeight(46, Row({Stretch(), eqButton, Stretch()})), std::make_shared<el::element>()}));
 
@@ -278,7 +278,7 @@ void Shell::OpenGlobalEq(el::rect anchor)
     knobs.back() = Stretch();
 
     auto title = std::make_shared<Text>(mTheme, "GLOBAL EQ", 9.0f, Weight::SemiBold);
-    title->Colour(el::rgba(220, 227, 243, 173));
+    title->Colour(mTheme.Pick(el::rgba(220, 227, 243, 173), mTheme.TextSecondary()));
     ShowPopover(Pad(12, 10, 12, 10, Col({FixedHeight(14, title), VGap(6), FixedHeight(63, Row(knobs))})), anchor, 300.0f, 110.0f);
 
     auto sync = [syncs] {

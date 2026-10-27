@@ -259,7 +259,7 @@ Ptr Shell::BuildEffectPage()
             control.picker->Size(kPickerWidth, 26).Caret(true);
             control.picker->onClick = [this, nodeId, info] { OpenEnumPicker(nodeId, info); };
             auto label = std::make_shared<Text>(mTheme, Upper(info.name), 9.0f, Weight::SemiBold);
-            label->Colour(el::rgba(201, 209, 225, 184)).Alignment(Text::Align::Centre);
+            label->Colour(mTheme.Pick(el::rgba(201, 209, 225, 184), mTheme.TextSecondary())).Alignment(Text::Align::Centre);
             target.cells.emplace_back(kPickerWidth, Sized(kPickerWidth, kCellHeight, Col({FixedHeight(12, label), VGap(12),
                                                                                                FixedHeight(26, control.picker),
                                                                                                std::make_shared<el::element>()})));
@@ -394,7 +394,7 @@ Ptr Shell::BuildEffectPage()
 
     mHeaderLed = std::make_shared<HeaderLed>(node->enabled, false);
     auto title = std::make_shared<Text>(mTheme, titleText, 12.5f, Weight::SemiBold);
-    title->Colour(el::rgba(238, 242, 255, 255));
+    title->Colour(mTheme.Pick(el::rgba(238, 242, 255, 255), mTheme.Text()));
     auto subtitle = std::make_shared<Text>(mTheme, subtitleText, 9.0f, Weight::SemiBold);
     subtitle->Colour(mTheme.TextMuted()).Fixed(true);
 

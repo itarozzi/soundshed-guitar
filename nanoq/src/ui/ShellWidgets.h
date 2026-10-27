@@ -197,7 +197,7 @@ public:
         const auto b = ctx.bounds;
         float radius = 8.0f;
         el::color fill = el::rgba(0, 0, 0, 0), line = el::rgba(0, 0, 0, 0);
-        el::color ink = mTheme.TextOnDark();
+        el::color ink = mTheme.Ink();
 
         switch (mLook)
         {
@@ -213,7 +213,7 @@ public:
         case Look::Boxed:
             radius = 6.0f;
             fill = mHover ? mTheme.Elevated() : mTheme.Bar();
-            line = el::rgba(58, 58, 72, 255);
+            line = mTheme.Pick(el::rgba(58, 58, 72, 255), mTheme.BorderStrong());
             break;
         case Look::Primary:
             radius = 6.0f;
@@ -223,15 +223,15 @@ public:
             break;
         case Look::Chip:
             radius = 6.0f;
-            fill = mHover ? el::rgba(40, 40, 50, 255) : el::rgba(30, 30, 38, 255);
-            line = el::rgba(38, 38, 48, 255);
-            ink = el::rgba(235, 240, 250, 242);
+            fill = mTheme.Pick(mHover ? el::rgba(40, 40, 50, 255) : el::rgba(30, 30, 38, 255), mHover ? mTheme.Elevated() : mTheme.Card());
+            line = mTheme.Pick(el::rgba(38, 38, 48, 255), mTheme.Border());
+            ink = mTheme.Pick(el::rgba(235, 240, 250, 242), mTheme.Text());
             break;
         case Look::Slate:
             radius = 7.0f;
-            fill = mHover ? el::rgba(72, 78, 98, 255) : el::rgba(56, 61, 79, 255);
-            line = el::rgba(255, 255, 255, 18);
-            ink = el::rgba(203, 203, 220, 255);
+            fill = mTheme.Pick(mHover ? el::rgba(72, 78, 98, 255) : el::rgba(56, 61, 79, 255), mHover ? mTheme.Elevated() : mTheme.Card());
+            line = mTheme.Pick(el::rgba(255, 255, 255, 18), mTheme.BorderStrong());
+            ink = mTheme.Pick(el::rgba(203, 203, 220, 255), mTheme.Text());
             break;
         case Look::Accent:
             fill = mTheme.Accent().opacity(mHover ? 0.22f : 0.14f);
@@ -340,7 +340,7 @@ public:
         const auto font = Font(Weight::SemiBold).size(12.0f);
         const el::rect text{heart.right + 14.0f, b.top, b.right - 12.0f, b.bottom};
         std::string name = mDirty ? mName + " *" : mName;
-        FillText(cnv, Ellipsize(cnv, name, font, text.width()), font, mTheme.TextOnDark(), text, HAlign::Left);
+        FillText(cnv, Ellipsize(cnv, name, font, text.width()), font, mTheme.Ink(), text, HAlign::Left);
     }
 
     bool click(const el::context& ctx, el::mouse_button btn) override
@@ -405,8 +405,9 @@ public:
     {
         auto& cnv = ctx.canvas;
         const auto b = ctx.bounds;
-        const el::color fill = mActive ? mTheme.Accent().opacity(0.12f) : el::rgba(38, 38, 46, mHover ? 230 : 153);
-        const el::color line = mActive ? mTheme.Accent().opacity(0.55f) : el::rgba(38, 38, 48, 178);
+        const el::color fill =
+            mActive ? mTheme.Accent().opacity(0.12f) : mTheme.Pick(el::rgba(38, 38, 46, mHover ? 230 : 153), mHover ? mTheme.Elevated() : mTheme.Card());
+        const el::color line = mActive ? mTheme.Accent().opacity(0.55f) : mTheme.Pick(el::rgba(38, 38, 48, 178), mTheme.Border());
         const el::color ink = mActive ? mTheme.Accent() : (mHover ? mTheme.TextSecondary() : mTheme.TextMuted());
         cnv.fill_style(fill);
         cnv.fill_round_rect(b, 9.0f);
@@ -560,7 +561,7 @@ public:
         const auto b = ctx.bounds;
         if (mActive)
         {
-            cnv.fill_style(el::rgba(79, 51, 42, 255));
+            cnv.fill_style(mTheme.Pick(el::rgba(79, 51, 42, 255), mTheme.AccentTint()));
             cnv.fill_round_rect(b, 4.0f);
             cnv.stroke_style(mTheme.Accent().opacity(0.62f));
             cnv.line_width(1.0f);
@@ -571,7 +572,7 @@ public:
             cnv.fill_style(mTheme.Text().opacity(0.06f));
             cnv.fill_round_rect(b, 4.0f);
         }
-        FillText(cnv, mLabel, Font(Weight::SemiBold).size(11.0f), mActive ? mTheme.TextOnDark() : mTheme.TextSecondary(), b,
+        FillText(cnv, mLabel, Font(Weight::SemiBold).size(11.0f), mActive ? mTheme.Ink() : mTheme.TextSecondary(), b,
                  HAlign::Centre);
     }
 
@@ -600,18 +601,18 @@ public:
         {
             auto state = cnv.new_state();
             cycfi::artist::canvas::linear_gradient fill{el::point{c.x, c.y - r}, el::point{c.x, c.y + r}};
-            fill.add_color_stop(0.0f, mHover ? el::rgba(78, 78, 90, 255) : el::rgba(58, 58, 68, 255));
-            fill.add_color_stop(1.0f, el::rgba(32, 32, 42, 255));
+            fill.add_color_stop(0.0f, mTheme.Pick(mHover ? el::rgba(78, 78, 90, 255) : el::rgba(58, 58, 68, 255), mHover ? mTheme.Input() : mTheme.Elevated()));
+            fill.add_color_stop(1.0f, mTheme.Pick(el::rgba(32, 32, 42, 255), mTheme.Card()));
             cnv.fill_style(fill);
             cnv.add_circle(cycfi::artist::circle(c, r));
             cnv.fill();
         }
-        cnv.stroke_style(mHover ? mTheme.Accent() : el::rgba(74, 74, 88, 255));
+        cnv.stroke_style(mHover ? mTheme.Accent() : mTheme.Pick(el::rgba(74, 74, 88, 255), mTheme.BorderStrong()));
         cnv.line_width(1.7f);
         cnv.add_circle(cycfi::artist::circle(c, r));
         cnv.stroke();
         const float arm = mSize * 0.2f;
-        cnv.stroke_style(mHover ? mTheme.Text() : el::rgba(200, 200, 216, 255));
+        cnv.stroke_style(mHover ? mTheme.Text() : mTheme.Pick(el::rgba(200, 200, 216, 255), mTheme.TextSecondary()));
         cnv.line_width(2.0f);
         cnv.begin_path();
         cnv.move_to(c.x - arm, c.y);
@@ -653,7 +654,7 @@ public:
         cnv.stroke_round_rect(b.inset(0.5f, 0.5f), 6.0f);
         const auto font = Font(Weight::Medium).size(12.0f);
         const el::rect text{b.left + 9.0f, b.top, b.right - 24.0f, b.bottom};
-        FillText(cnv, Ellipsize(cnv, mText, font, text.width()), font, mChosen ? mTheme.TextOnDark() : mTheme.TextSecondary(), text,
+        FillText(cnv, Ellipsize(cnv, mText, font, text.width()), font, mChosen ? mTheme.Ink() : mTheme.TextSecondary(), text,
                  HAlign::Left);
         const float cy = b.top + b.height() * 0.5f;
         mIcons.Draw(cnv, "ui-caret", el::rect{b.right - 19.0f, cy - 5.0f, b.right - 9.0f, cy + 5.0f}, mTheme.TextSecondary());
@@ -688,7 +689,7 @@ public:
         auto& cnv = ctx.canvas;
         const auto b = ctx.bounds;
         const auto label = Font(Weight::SemiBold).size(9.0f);
-        FillText(cnv, Ellipsize(cnv, mName, label, b.width() + 6.0f), label, el::rgba(201, 209, 225, 184),
+        FillText(cnv, Ellipsize(cnv, mName, label, b.width() + 6.0f), label, mTheme.Pick(el::rgba(201, 209, 225, 184), mTheme.TextSecondary()),
                  el::rect{b.left, b.top, b.right, b.top + 12.0f}, HAlign::Centre);
         const float cx = (b.left + b.right) * 0.5f;
         const el::rect track{cx - 17.0f, b.top + 22.0f, cx + 17.0f, b.top + 40.0f};
@@ -697,7 +698,7 @@ public:
         cnv.fill_style(el::rgba(255, 255, 255, 240));
         cnv.add_circle(cycfi::artist::circle(el::point{mOn ? track.right - 9.0f : track.left + 9.0f, track.top + 9.0f}, 7.0f));
         cnv.fill();
-        FillText(cnv, mOn ? "On" : "Off", Font(Weight::SemiBold).size(10.0f), el::rgba(231, 236, 246, 194),
+        FillText(cnv, mOn ? "On" : "Off", Font(Weight::SemiBold).size(10.0f), mTheme.Pick(el::rgba(231, 236, 246, 194), mTheme.Text()),
                  el::rect{b.left, b.bottom - 13.0f, b.right, b.bottom}, HAlign::Centre);
     }
 
@@ -746,7 +747,7 @@ public:
         const auto countFont = Font(Weight::SemiBold).size(9.0f);
         const float w = std::max(18.0f, el::measure_text(cnv, countText, countFont).x + 10.0f);
         const el::rect pill{b.right - 8.0f - w, cy - 8.0f, b.right - 8.0f, cy + 8.0f};
-        cnv.fill_style(mActive ? mTheme.Accent().opacity(0.35f) : el::rgba(255, 255, 255, 18));
+        cnv.fill_style(mActive ? mTheme.Accent().opacity(0.35f) : mTheme.Pick(el::rgba(255, 255, 255, 18), mTheme.Text().opacity(0.07f)));
         cnv.fill_round_rect(pill, 8.0f);
         FillText(cnv, countText, countFont, mTheme.TextSecondary(), pill, HAlign::Centre);
     }
@@ -781,9 +782,9 @@ public:
     {
         auto& cnv = ctx.canvas;
         const auto b = ctx.bounds;
-        cnv.fill_style(mHover ? el::rgba(40, 40, 50, 255) : el::rgba(30, 30, 38, 255));
+        cnv.fill_style(mTheme.Pick(mHover ? el::rgba(40, 40, 50, 255) : el::rgba(30, 30, 38, 255), mHover ? mTheme.Elevated() : mTheme.Card()));
         cnv.fill_round_rect(b, 6.0f);
-        cnv.stroke_style(mCurrent ? mTheme.Accent().opacity(0.6f) : el::rgba(255, 255, 255, mHover ? 28 : 14));
+        cnv.stroke_style(mCurrent ? mTheme.Accent().opacity(0.6f) : mTheme.Pick(el::rgba(255, 255, 255, mHover ? 28 : 14), mTheme.Border()));
         cnv.line_width(1.0f);
         cnv.stroke_round_rect(b.inset(0.5f, 0.5f), 6.0f);
 
@@ -801,7 +802,7 @@ public:
             const auto c = cycfi::artist::center_point(picture);
             mIcons.Draw(cnv, mIcon, el::rect{c.x - 9.0f, c.y - 9.0f, c.x + 9.0f, c.y + 9.0f}, mTint);
         }
-        FillText(cnv, mName, Font(Weight::SemiBold).size(12.0f), mTheme.TextOnDark(), el::rect{b.left + 56.0f, b.top + 6.0f, b.right - 70.0f, b.top + 22.0f},
+        FillText(cnv, mName, Font(Weight::SemiBold).size(12.0f), mTheme.Ink(), el::rect{b.left + 56.0f, b.top + 6.0f, b.right - 70.0f, b.top + 22.0f},
                  HAlign::Left);
         FillText(cnv, mCategory, Font(Weight::Regular).size(9.5f), mTheme.TextMuted(),
                  el::rect{b.left + 56.0f, b.top + 22.0f, b.right - 70.0f, b.bottom - 5.0f}, HAlign::Left);

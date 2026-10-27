@@ -379,7 +379,7 @@ void Shell::OpenEffectPicker(const std::string& afterNodeId, const std::string& 
         if (const auto* node = mState.activePreset->graph.FindNode(replaceNodeId))
             title = Upper("Replace " + guitarfx::uiclient::NodeDisplayName(mState, *node));
     auto heading = std::make_shared<Text>(mTheme, title, 12.0f, Weight::SemiBold);
-    heading->Colour(mTheme.TextOnDark());
+    heading->Colour(mTheme.Ink());
 
     auto [searchElement, searchBox] = el::input_box("Search effects...", Font(Weight::Regular), 1.0f);
     searchBox->on_text = [s](std::string_view text) {
