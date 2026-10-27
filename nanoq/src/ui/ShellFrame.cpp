@@ -377,6 +377,8 @@ Ptr Shell::BuildTransport()
     auto divider = [this] { return Pad(6, 4, 6, 4, FixedWidth(1, Fill(mTheme.Text().opacity(0.08f), std::make_shared<el::element>()))); };
 
     std::vector<Ptr> row{HGap(8), pads, HGap(4), tuner};
+    for (auto& b : BuildCaptureButtons(26.0f))
+        row.insert(row.end(), {HGap(4), b});
     if (width >= 760.0f)
     {
         row.push_back(divider());
@@ -746,6 +748,12 @@ void Shell::OpenDemoClips()
                              else
                                  mSession.Commands().RenderRiffTake(c->takeId, rate);
                          }});
+    }
+
+    if (guitarfx::uiclient::IsFeatureEnabled(mState, guitarfx::uiclient::Feature::RiffLibrary))
+    {
+        items.push_back({"Riffs", false, true, {}});
+        items.push_back({"Riff library...", false, false, [this] { OpenRiffLibrary(); }});
     }
 
     OpenMenu("Demo audio", std::move(items));

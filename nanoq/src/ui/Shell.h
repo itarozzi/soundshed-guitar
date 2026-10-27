@@ -21,6 +21,7 @@
 #include "ui/Graphics.h"
 #include "ui/KeyRouter.h"
 #include "ui/Layout.h"
+#include "ui/LayoutView.h"
 #include "ui/ResponsePlot.h"
 #include "ui/ShellWidgets.h"
 #include "ui/UiSession.h"
@@ -245,6 +246,17 @@ private:
     /// The IR Cabinet's IR list between its slots (NodeControls.cpp).
     [[nodiscard]] Ptr BuildIrList(const guitarfx::GraphNode& node);
 
+    // EffectLayoutPage.cpp: an effect drawn with its custom layout (the web UI's layoutRenderer.ts).
+    /// The layout as one element `width` wide at most, its drawn height in `height`. A backdrop
+    /// layout carries `defaultControls`, the standard controls laid out `controlsSize` big.
+    [[nodiscard]] Ptr BuildEffectLayout(const guitarfx::GraphNode& node, const guitarfx::uiclient::EffectLayout& layout,
+                                        float width, float availableHeight, Ptr defaultControls, el::extent controlsSize,
+                                        float& height);
+    /// The header's chooser between the standard controls and the layouts the effect can wear,
+    /// or null when it has none to choose; `width` is what it takes.
+    [[nodiscard]] Ptr BuildLayoutChooser(const guitarfx::GraphNode& node, bool usingLayout, float& width);
+    void SyncLayoutControls();
+
     // EqPlot.cpp: the EQ curves, in the effect editor and the Global EQ dialog.
     struct EqPlotSource
     {
@@ -461,6 +473,25 @@ private:
     void OpenMenu(const std::string& title, std::vector<MenuItem> items);
     void OpenPrompt(const std::string& title, const std::string& initial, const std::string& confirmLabel,
                     std::function<void(const std::string&)> onSubmit);
+    // RiffDialogs.cpp
+    /// The riff capture dialog; `arm` starts counting in at once (the footer's Rec), and
+    /// `appendRiffId` saves the take as another take of that riff (the library's Edit).
+    void OpenRiffCapture(bool arm, const std::string& appendRiffId = {});
+    void OpenRiffLibrary();
+
+    // LooperStrip.cpp
+    [[nodiscard]] bool LooperShown() const; // the feature is on and the app is the standalone one
+    void ToggleLooper();
+    [[nodiscard]] std::string LooperShape() const;
+    Ptr BuildLooperStrip();
+    std::vector<Ptr> BuildCaptureButtons(float size);
+    void SyncLooper();
+    void SyncLooperLive();
+    void TickLooper();
+    void OpenLooperLayers();
+    void OpenLooperLoops();
+    void OpenLooperOptions();
+
     void OpenConfirm(const std::string& title, const std::string& detail, const std::string& confirmLabel,
                      std::function<void()> onYes);
     /// Adds the chosen effect after `afterNodeId`, or, with `replaceNodeId`, puts it in that
@@ -512,6 +543,18 @@ private:
     float mChainAreaHeight = 0.0f; // the full layout's chain, as tall as its lines
     float mChainAreaLimit = 0.0f;  // how tall it may grow, once the bar under it is dragged
     float mChainDragStart = -1.0f; // the chain's room when that drag began
+    // Riff capture's settings, kept while the app runs (RiffDialogs.cpp).
+    double mRiffTempo = 0.0; // 0 until the dialog first opens, then the metronome's tempo
+    int mRiffCountIn = 1;
+    bool mRiffClick = false;
+    // The looper strip over the footer (LooperStrip.cpp).
+    SlotPtr mLooperSlot;
+    bool mLooperOpen = false;
+    bool mLooperButtonShown = false;
+    std::string mLooperShape;
+    std::shared_ptr<class Waveform> mLooperWave;
+    std::shared_ptr<Button> mLooperMain;
+    std::shared_ptr<Text> mLooperStatus, mLooperTime, mLooperBar;
     bool mLibraryExportAll = false; // Settings > Library: the whole library, not only what presets use
     int mChainIcons = -1;          // the chain as icon tiles (1) or cards (0); -1 follows the setting
     bool mChainDragIcons = false;  // which it was when that drag began
@@ -535,6 +578,8 @@ private:
     int mToneListener = 0;
     std::string mTonesSignature;
     RemoteImages mRemoteImages;
+    std::unique_ptr<LayoutImages> mLayoutImages;                      // the custom layouts' pictures
+    std::vector<std::shared_ptr<LayoutControlView>> mLayoutControls; // the effect page's layout controls
 
     guitarfx::uiclient::ChainHistory mHistory;
     std::string mHistoryContext;     // presetId::sceneId the stacks describe; a change re-seeds them

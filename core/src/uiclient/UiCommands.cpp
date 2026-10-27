@@ -791,6 +791,7 @@ void UiCommands::SetSetting(const std::string& key, const nlohmann::json& value)
     // The engine does not echo a setting back to the UI that set it, so the views that read
     // it (the UI scale, the demo clip) hear of it here.
     mClient.Notify(Topic::Session);
+    mClient.SyncLooperEnabled();
 }
 
 void UiCommands::SetTheme(const std::string& theme)

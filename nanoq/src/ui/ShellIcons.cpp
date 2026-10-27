@@ -79,6 +79,7 @@ void AddShellIcons(Icons& icons)
                                   R"(<path d="M9 3.5h6L19 20.5H5L9 3.5Z"/><path d="M10 7.5h4"/><path d="M12 8.5v7"/><path d="M12 10.5l2.75-1.75"/>)"));
     icons.Add("ui-play", R"(<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg>)");
     icons.Add("ui-stop", R"(<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>)");
+    icons.Add("ui-record", Svg("0 0 24 24", 1.8f, R"(<circle cx="12" cy="12" r="7"/>)"));
     icons.Add("ui-loop", Svg("0 0 24 24", 1.8f, R"(<path d="M18.5 12a6.5 6.5 0 1 1-2-4.7"/><path d="M17 3.5v4h-4"/>)"));
     icons.Add("ui-io", Svg("0 0 24 24", 1.8f, R"(<path d="M4 7h10M4 17h6M18 7h2M14 17h6"/><circle cx="16" cy="7" r="2"/><circle cx="12" cy="17" r="2"/>)"));
     icons.Add("ui-mute", Svg("0 0 24 24", 1.8f, R"(<path d="M11 5 6 9H3v6h3l5 4V5z"/><path d="M22 9l-6 6M16 9l6 6"/>)"));

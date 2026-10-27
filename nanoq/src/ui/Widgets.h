@@ -98,6 +98,13 @@ public:
     }
 
     Button& Set(std::string text);
+    /// What a click does, for a button made before its action could be (one that reads the
+    /// dialog it sits in).
+    Button& OnClick(std::function<void()> onClick)
+    {
+        mOnClick = std::move(onClick);
+        return *this;
+    }
     Button& On(bool on);
     Button& Selected(bool selected);
     Button& Enabled(bool enabled);

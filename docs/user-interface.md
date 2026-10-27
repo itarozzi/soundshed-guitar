@@ -131,12 +131,19 @@ keeps the existing Library/Folder behavior.
 | `sldS` | `{scope, presetId?, id, r, s}` | Spectrum of one node's input, for the EQ curve backdrop, ~30 Hz while a `setSpectrumWatch` is held and the UI is visible. `s` is 128 whole-dB bins log-spaced across `r = [minHz, maxHz, floorDb, ceilingDb]` (20 Hz-20 kHz, -96-0 dB), both ends included, tilted +3 dB/octave about 1 kHz so pink noise reads flat. Nothing is sent for a node that is not there; the UI clears a spectrum that stops arriving. |
 | `spatialPosition` | `{nodes: [{scope, presetId?, nodeId, azimuth, elevation, distance, itdUs, ildDb, rateHz, moving}]}` | Live source position for every 3D Spatial node, ~20 Hz. Purely cosmetic: it keeps the spatial panner's puck in sync with what is being heard, and the widget falls back to the anchor position if it never arrives. Only sent while at least one such node exists. |
 | `riffLibraryState` | `{library: {path, riffs}, capture}` | Reply to `getRiffLibrary`: the riff library as it is on disk. The UI applies `library`; capture state reaches it through the live capture messages |
+| `riffCaptureArmed` | `{takeId, tempoBpm, timeSigNum, timeSigDen, countInBars, bars, metronomeClickEnabled}` | Reply to `armRiffCapture`: counting in, then waiting for the first note. A stop now drops the take. Nano Q enters its armed state on it; the web UI enters it when it sends the request |
+| `riffCaptureStarted` | `{takeId, bars, tempoBpm, timeSigNum, timeSigDen, countInBars, barAlignOffsetSamples?, estimatedSeconds?}` | Recording: at once for `startRiffCapture`, or for an armed take when its first note arrives (`barAlignOffsetSamples` is where the first bar starts) |
+| `riffCaptureProgress` | `{capturedSamples, waveformPeaks}` | About every 250 ms of a take being recorded: 256 peaks (0..1) across the whole buffer the take can fill, each message replacing the last |
+| `riffCaptureStopped` | `{takeId, bars, capturedSamples, sampleRate, hasAudio, metronomeClickEnabled, waveformPeaks, source?, tempoBpm?, timeSigNum?, timeSigDen?, originalTakeId?}` | A take waits to be trimmed, previewed and saved: captured (no `source`), or `source` `"import"`, `"trim"`, `"editLoad"` (with `originalTakeId`) or `"looper"` (a layer exported as a riff). `waveformPeaks` is 256 peaks over the take |
+| `riffCaptureCanceled` | `{takeId}` | The take was dropped: cancelled, or stopped before its first note |
+| `riffSaved` | `{riffId, takeId, path, library}` | `saveRiffTake` wrote the take; `riffLibraryState` follows |
 | `toneSharingPackDeleteFailed` | `{message}` | An installed pack's archive could not be deleted. The pack is already gone from the installed list; this only says its files were left behind |
 | `metronomeState` | `{bpm, enabled, volumeDb, pan, clickType, clickTypes, beatPattern, timeSigNum, timeSigDen, grouping, subdivision, subdivisions}` | Metronome state. `beatPattern` is one character per beat — `H` accent, `M` medium, `L` normal, `S` silent — always exactly `timeSigNum` long. `grouping` is `"2+2+3"` for an odd meter, empty otherwise. `clickTypes` and `subdivisions` are the lists the pickers are built from. |
 | `metronomeBeat` | `{beatIndex, beatsPerBar, level}` | One per beat while the click runs and the UI is visible, for the beat display. `level` is `accent`/`medium`/`normal`/`silent`. Subdivision ticks are not sent. |
 | `layoutSaved` | `{effectType, blendId, lookupKey, layoutId, layout}` | Reply to `saveEffectLayout`: the layout and its index entry are written, and every image it draws on has been copied into its own folder. The designer waits for this (or `layoutSaveFailed`) before it closes |
 | `layoutSaveFailed` | `{layoutId, message}` | Reply to `saveEffectLayout` when the layout or the index could not be written. The designer stays open with the work in it and shows `message` |
-| `layoutLibraryLoaded` | `{layoutLibrary}` | Layout library loaded |
+| `layoutLibraryLoaded` | `{layoutLibrary}` | The layout library: `{byEffectType: {[lookupKey]: [{layoutId, layout, isDefault, isFactory?, filePath}]}, defaults: {[lookupKey]: layoutId}, images: []}`, keyed by effect type or `effectType::blendId`. Sent on `uiReady` and after every layout save, delete or import. `images` is always empty: the list comes with `layoutImagesLoaded` |
+| `layoutImagesLoaded` | `{images: [{imageId, fileName, url, version, bytes, width?, height?, renditions?}]}` | Reply to `requestLayoutImages`: every image a layout can draw on, served by URL (`layout-images/id/<id>?v=<version>`), never as data. `version` (a string) changes when the file does. Soundshed Nano Q, in-process with the engine, reads the files themselves (`PluginController::ResolveLayoutImageFile`) and uses the list to know when they changed |
 | `compositeLibrary` | `{...}` | Composite effect library |
 | `compositeDefinitionAdded` | `{...}` | Composite effect added |
 | `compositeDefinitionRemoved` | `{...}` | Composite effect removed |
@@ -162,6 +169,7 @@ keeps the existing Library/Folder behavior.
 |------|---------|-------------|
 | `uiReady` | `{}` | WebView loaded and ready |
 | `requestState` | `{}` | Request full state sync |
+| `requestLayoutImages` | `{}` | Answered by `layoutImagesLoaded`. Both UIs ask the first time a custom layout draws, and again after the library reloads |
 | `requestResourceLibrary` | `{}` | Send `resourceLibrary` now, even if this page has the current revision, with every `fileMissing` re-checked. Sent when Settings → Library → Resource Library is opened |
 | `looperCommand` | `{command}` | The looper's transport: `recPlayDub` (record, then play, then overdub), `record`, `play`, `overdub`, `stop`, `undo`, `redo`, `clear`. Applied at the start of the engine's next block. A Bars take started with the metronome off counts in on the riff guidance click |
 | `setLooper` | `{enabled?, maxSeconds?, memoryBudgetMb?, level?, start?, length?, bars?, countInBars?, clickWhileRecording?, afterRecord?, armThresholdDb?, alignOffsetMs?}` | Looper settings, kept in the app settings under `looper`. `start` is `press` or `armed`, `length` `free` or `bars`, `afterRecord` `play` or `overdub`; `maxSeconds` snaps to 30, 60, 120 or 300 |
@@ -257,6 +265,10 @@ keeps the existing Library/Folder behavior.
 | `saveEffectPreset` | `{effectType, name, nodeId?, parameters?}` | Save a user preset for an effect type (a name already saved is overwritten, keeping its id). With `nodeId`, the engine snapshots its own copy of that node in the chain being edited: parameters (not the injected NAM calibration), every resource slot, and config bar transient keys, with a hosted plugin's live state read from the running plugin. Without it, or when the node is not found, `parameters` is saved alone. Answered by `effectPresets` |
 | `applyEffectPreset` | `{nodeId, effectType, presetId}` | Load user preset `presetId` of `effectType` into a node of that type, or a factory archive's (`factoryByEffectType` in `effectPresets`) when no user preset has that id; an unknown id reports `Effect preset not found`. Parameters are applied in the order the effect declares them, leaving out keys it no longer declares. When the entry carries resources or config that differ from the node's, they replace them and the chain is rebuilt, as choosing a model does; otherwise the parameters are set on the running chain with no rebuild. The node comes back in `state` |
 | `deleteEffectPreset` | `{effectType, presetId}` | Delete a user effect preset; answered by `effectPresets` |
+| `armRiffCapture` | `{tempoBpm, timeSigNum, timeSigDen, bars, countInBars, metronomeClickEnabled, patternType, patternId?, beatPattern?}` | Count in, then record from the first note heard, up to `bars` (both UIs send 64, which sets the live waveform's scale). Answered by `riffCaptureArmed`, then `riffCaptureStarted`, `riffCaptureProgress` and `riffCaptureStopped` |
+| `stopRiffCapture` | `{canceled}` | End the take, keeping what was played (`riffCaptureStopped`), or drop it (`riffCaptureCanceled`): an armed take with no note yet is always dropped |
+| `trimCapturedRiff` | `{startRatio, endRatio}` | Crop the pending take to the markers; answered by `riffCaptureStopped` with `source: "trim"` |
+| `saveRiffTake` | `{riffId?, title, categories, tags, notes, favorite, tempoBpm?, timeSigNum?, timeSigDen?, bars?, presetId?, ...}` | Save the pending take as a new riff, or with `riffId` as another take of that riff; answered by `riffSaved` |
 | `previewCapturedRiff` | `{startRatio, endRatio, repeat}` | Play the captured riff take. The whole take goes over once; the markers travel as a region and the engine loops it in place, so repeating costs no further messages. |
 | `setRiffPreviewRegion` | `{startRatio, endRatio, repeat}` | Retune the region/repeat of the preview already playing — for a marker dragged mid-playback. Debounced by the UI, since each one rebuilds the wrap crossfade behind the DSP lock. |
 | `importRemoteResource` | `{requestId?, provider, resourceType, resourceId, name?, description?, category?, subfolder?, fileName?, metadata?, tags?, data}` | Import a downloaded resource (base64 `data`) into the library under `resources/content/<provider>/<subfolder>`; answered by `resourceImported` or `resourceImportFailed` carrying the `requestId`, and other instances are told through shared sync. The engine hashes the bytes itself; a `hash` in the payload is ignored. A file already at the name is replaced only when it is this resource's own; another resource's file is left alone and this one is written beside it with a hash suffix |
@@ -984,6 +996,12 @@ it.)
   only supplies while the `EffectLayout` feature flag is on.
 - The signal-path node avatar uses the same resolver, so the thumbnail on the chain
   bar always matches what the parameter panel will render.
+- **Soundshed Nano Q** draws the same layouts (rendering only; designing stays here).
+  `core/src/uiclient/EffectLayouts.h` resolves them by the same rules and setting, sizes
+  them by `computeLayoutScale`'s rule and holds the colour and image-knob arithmetic;
+  `nanoq/src/ui/LayoutView.cpp` draws and plays them, and `EffectLayoutPage.cpp` places them
+  in the effect editor with a *Standard / Layout* chooser in its header, which writes the
+  rule `selectStandardControls` would (a layout is recorded at the same scope).
 
 ### Layout Designer name (`core/ui/ts/layoutDesigner.ts`)
 

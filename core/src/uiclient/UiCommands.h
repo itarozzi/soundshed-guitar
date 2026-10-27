@@ -257,6 +257,64 @@ public:
     /// text field.
     void AutomationKey(const std::string& key, bool repeat, bool ctrl = false, bool alt = false, bool meta = false);
 
+    // ── Riffs (Topic::Riffs) ─────────────────────────────────────────────────────────
+    void GetRiffLibrary();
+    /// Counts in, then records from the first note (armRiffCapture), up to 64 bars as the web UI
+    /// asks, so the live waveform's scale matches it.
+    void ArmRiffCapture(double tempoBpm, int timeSigNum, int timeSigDen, int countInBars, bool click);
+    /// Ends the take (keeping what was played), or with `cancel` drops it.
+    void StopRiffCapture(bool cancel);
+    /// Crops the pending take to [start, end] of its length (0..1).
+    void TrimCapturedRiff(double startRatio, double endRatio);
+    void PreviewCapturedRiff(double startRatio, double endRatio, bool repeat);
+    /// Moves a playing preview's region; a UI calls it at most every 80 ms while dragging.
+    void SetRiffPreviewRegion(double startRatio, double endRatio, bool repeat);
+    struct RiffSave
+    {
+        std::string riffId; // set to add the take to that riff, else a new riff
+        std::string title;
+        std::vector<std::string> categories;
+        std::vector<std::string> tags;
+        std::string notes;
+        bool favorite = false;
+        double tempoBpm = 0.0;
+        int timeSigNum = 4;
+        int timeSigDen = 4;
+        int bars = 0;
+        std::string presetId;
+    };
+    /// Saves the pending take (riffSaved, then riffLibraryState).
+    void SaveRiffTake(const RiffSave& save);
+    void DeleteRiff(const std::string& riffId);
+    void SetRiffFavorite(const std::string& riffId, bool favorite);
+    void MarkRiffUsed(const std::string& riffId, bool used, const std::string& songTitle = {});
+    /// Plays a library take, looping, with the guidance click (the riff list's Preview).
+    void PreviewRiffTake(const std::string& takeId);
+    /// Makes a library take the pending one again, under a new take id (riffCaptureStopped, editLoad).
+    void LoadRiffTakeForEdit(const std::string& takeId);
+
+    // ── Looper (Topic::Looper) ────────────────────────────────────────────────────────
+    /// "recPlayDub", "stop", "undo", "redo" or "clear".
+    void LooperCommand(const std::string& command);
+    /// Any of setLooper's fields: enabled, maxSeconds, start, length, bars, countInBars,
+    /// clickWhileRecording, afterRecord, alignOffsetMs.
+    void SetLooper(const nlohmann::json& patch);
+    /// Any of setLooperLayer's fields: level, balance, muted, solo, title.
+    void SetLooperLayer(const std::string& layerId, const nlohmann::json& patch);
+    void RemoveLooperLayer(const std::string& layerId);
+    /// Re-amps the layers (empty: all of them) through the current rig, or puts their tone back.
+    void RetoneLooperLayers(const std::vector<std::string>& layerIds, bool revert = false);
+    /// "riff" (it comes back as a take to save) or "wetWav" (through a save dialog).
+    void ExportLooperLayer(const std::string& layerId, const std::string& as);
+    void GetLooperState();
+    void GetLooperProjects();
+    void SaveLooperProject(const std::string& title);
+    void LoadLooperProject(const std::string& projectId);
+    void DeleteLooperProject(const std::string& projectId);
+    void RecoverLooperSession();
+    void DismissLooperRecovery();
+    void AddRiffAsLooperLayer(const std::string& takeId);
+
     // ── Input levelling (Topic::InputLevelling) ─────────────────────────────────────────
     /// Answered by "inputLevelling" (the profiles) and "inputLevellingTraining".
     void GetInputLevelling();

@@ -9,6 +9,7 @@
 #include "ui/Shell.h"
 
 #include "dsp/EffectGuids.h"
+#include "uiclient/EffectLayouts.h"
 #include "uiclient/NodeLabels.h"
 #include "uiclient/ParamFormat.h"
 
@@ -225,6 +226,18 @@ std::string Shell::EffectPageSignature() const
     if (std::find(mState.missingNodeResources.begin(), mState.missingNodeResources.end(), node->id) != mState.missingNodeResources.end())
         s += "|missing";
 
+    // The custom layout it resolves to (the rules are a setting), redrawn when the library or
+    // its pictures arrive; and how many it could choose from, for the header's chooser.
+    if (!IsBoundaryNode(*node))
+    {
+        if (const auto* layout = ResolveLayoutForNode(mState, *node))
+            s += "|lay" + layout->layoutId + ":" + layout->name + "#" + std::to_string(mState.layouts.revision);
+        const auto blend = node->config.find("blendId");
+        s += "|lays" + std::to_string(AvailableLayoutEntries(mState.layouts.library, node->type,
+                                                             blend != node->config.end() ? blend->second : std::string())
+                                          .size());
+    }
+
     // A splitter's Branches control follows its edges.
     if (IsSplitterType(node->type) && mState.activePreset)
         for (const auto& edge : mState.activePreset->graph.edges)
@@ -240,6 +253,7 @@ Ptr Shell::BuildEffectPage()
     mHeaderLed.reset();
     mEffectPlot.reset();
     mEffectDspStatus.reset();
+    mLayoutControls.clear();
 
     const auto* node = SelectedNode();
     if (node == nullptr)
@@ -259,6 +273,14 @@ Ptr Shell::BuildEffectPage()
     const bool hasSlots = !boundary && type != nullptr && !type->resourceType.empty() && type->resourceType != "plugin" &&
                           node->type != guitarfx::EffectGuids::kAmpNamBlend;
 
+    // A custom layout draws the effect in place of its groups of controls; a backdrop layout has
+    // them drawn on it (panel.ts). A layout that places the model or IR slots takes them too.
+    const auto* layout = boundary ? nullptr : ResolveLayoutForNode(mState, *node);
+    const bool backdrop = layout != nullptr && layout->useDefaultControls;
+    const bool customControls = layout != nullptr && !backdrop;
+    const bool layoutPlacesSlots = customControls && std::any_of(layout->controls.begin(), layout->controls.end(),
+                                                                 [](const LayoutControl& c) { return IsLayoutResourceControl(c); });
+
     // The full layout centres the editor under the chain, no wider than the web UI's panel.
     const float stageWidth = mWide ? std::min(StageWidth(), 900.0f) : StageWidth();
     const float stageHeight = mWide ? ViewSize().y - metrics::kTabBarHeight - metrics::kHeaderHeight - mChainAreaHeight - metrics::kWideFooterHeight
@@ -271,7 +293,7 @@ Ptr Shell::BuildEffectPage()
     {
         params.push_back(BoundaryTrim());
     }
-    else if (type != nullptr)
+    else if (type != nullptr && !customControls)
     {
         for (const auto& param : type->parameters)
         {
@@ -432,7 +454,7 @@ Ptr Shell::BuildEffectPage()
     // in the web UI, leaves it to the chain card.
     std::shared_ptr<artist::image> stockArt;
     std::string artUrl;
-    if (mWide && !boundary && type != nullptr)
+    if (mWide && !boundary && type != nullptr && layout == nullptr)
     {
         stockArt = mImages.Find(mPresentation.EquipmentImage(node->type, category));
         for (const auto& ref : node->resources)
@@ -447,9 +469,14 @@ Ptr Shell::BuildEffectPage()
     const float maxPanel = std::max(kPanelMinWidth, stageWidth - 20.0f);
     // The live sections (the analyzer, the spatial panner) want the room too.
     const bool wideSection = !boundary && (node->type == guitarfx::EffectGuids::kInputAnalyzer || node->type == guitarfx::EffectGuids::kSpatial3D);
-    const float panelWidth = (hasSlots || hasPlugin || wideSection)
-                                 ? maxPanel
-                                 : std::clamp(groupsWidth + artRoom + 2.0f * (kPanelPad + kSectionPad), kPanelMinWidth, maxPanel);
+    // A layout asks for its own width, or all there is when it may grow past it.
+    const bool layoutGrows = layout != nullptr && layout->scaling && layout->scaling->mode != "fixed" && layout->scaling->maxScale &&
+                             *layout->scaling->maxScale > 1.0;
+    const float layoutWidth = layout != nullptr ? static_cast<float>(std::round(layout->dimensions.width)) : 0.0f;
+    const float panelWidth =
+        (hasSlots || hasPlugin || wideSection || layoutGrows)
+            ? maxPanel
+            : std::clamp(std::max(groupsWidth + artRoom, layoutWidth) + 2.0f * (kPanelPad + kSectionPad), kPanelMinWidth, maxPanel);
     const float sectionInner = panelWidth - 2.0f * (kPanelPad + kSectionPad) - artRoom;
 
     // ── Header ──
@@ -491,6 +518,17 @@ Ptr Shell::BuildEffectPage()
         rightSide.push_back(channels);
         rightSide.push_back(HGap(8));
         channelsWidth = 84.0f + 8.0f;
+    }
+    // The standard controls or one of the effect's layouts, when it has layouts to choose from.
+    if (!boundary)
+    {
+        float chooserWidth = 0.0f;
+        if (auto chooser = BuildLayoutChooser(*node, layout != nullptr, chooserWidth))
+        {
+            rightSide.push_back(chooser);
+            rightSide.push_back(HGap(8));
+            channelsWidth += chooserWidth + 8.0f;
+        }
     }
     // The DSP chip shows the effect's status readout under the header, as the web UI's meter badge.
     if (!boundary)
@@ -601,7 +639,7 @@ Ptr Shell::BuildEffectPage()
                                     {"preset", node->id, mState.activePresetId}, false),
                      40.0f);
     bool tabsPlaced = false;
-    if (hasSlots)
+    if (hasSlots && !layoutPlacesSlots)
     {
         const auto& rt = type->resourceType;
         if (node->type == guitarfx::EffectGuids::kCabIr)
@@ -653,8 +691,8 @@ Ptr Shell::BuildEffectPage()
             addToSection(live, liveHeight);
     }
 
-    // The groups, laid into rows as they fit the section.
-    {
+    // The groups, laid into rows as they fit `inner`, each row handed to `add`.
+    auto layRows = [&](float inner, const std::function<void(Ptr, float)>& add) {
         std::vector<Ptr> row;
         float used = 0.0f;
         float rowHeight = 0.0f;
@@ -664,7 +702,7 @@ Ptr Shell::BuildEffectPage()
                 return;
             if (!spans)
                 row.push_back(Stretch());
-            addToSection(Row(row), rowHeight);
+            add(Row(row), rowHeight);
             row.clear();
             used = 0.0f;
             rowHeight = 0.0f;
@@ -673,8 +711,8 @@ Ptr Shell::BuildEffectPage()
         for (std::size_t i = 0; i < groups.size(); ++i)
         {
             const auto& g = groups[i];
-            const float w = std::min(groupWidth(g), sectionInner);
-            if (!row.empty() && used + kGroupGap + w > sectionInner)
+            const float w = std::min(groupWidth(g), inner);
+            if (!row.empty() && used + kGroupGap + w > inner)
                 flush();
             // An untitled group (the only one, since the rest are titled Other) spans its row.
             const bool alone = groups.size() == 1;
@@ -687,7 +725,7 @@ Ptr Shell::BuildEffectPage()
             if (alone && g.name.empty())
             {
                 row.push_back(buildGroup(g, true));
-                used = sectionInner;
+                used = inner;
                 spans = true;
             }
             else
@@ -697,7 +735,40 @@ Ptr Shell::BuildEffectPage()
             }
         }
         flush();
+    };
+
+    if (layout != nullptr)
+    {
+        // The layout may fill the height left under the header and the sections above it ("fit").
+        const float above = 2.0f * kPanelPad + kHeaderHeight + 10.0f + 2.0f * kSectionPad + sectionHeight + (section.empty() ? 0.0f : 8.0f);
+        const float roomBelow = std::max(0.0f, stageHeight - above - 8.0f);
+        Ptr standard;
+        el::extent standardSize{0.0f, 0.0f};
+        if (backdrop)
+        {
+            // The standard controls, wrapped at the layout's own width as the web UI's backdrop
+            // wraps them, and placed on it by the layout's offset and scale.
+            const float inner = layoutWidth;
+            std::vector<Ptr> rows;
+            float rowsHeight = 0.0f;
+            layRows(inner, [&rows, &rowsHeight](Ptr r, float h) {
+                if (!rows.empty())
+                {
+                    rows.push_back(VGap(8));
+                    rowsHeight += 8.0f;
+                }
+                rows.push_back(FixedHeight(h, std::move(r)));
+                rowsHeight += h;
+            });
+            standard = FixedWidth(inner, FixedHeight(rowsHeight, Col(rows)));
+            standardSize = {inner, rowsHeight};
+        }
+        float layoutHeight = 0.0f;
+        auto drawn = BuildEffectLayout(*node, *layout, sectionInner, roomBelow, standard, standardSize, layoutHeight);
+        addToSection(drawn, layoutHeight);
     }
+    else
+        layRows(sectionInner, addToSection);
 
     if (params.empty() && section.empty())
     {
@@ -767,6 +838,8 @@ void Shell::SyncEffectValues()
         mBypass->Set(node->enabled);
         mSession.View().refresh(*mBypass);
     }
+
+    SyncLayoutControls();
 
     if (mEffectPlot)
         SyncEqPlot(*mEffectPlot);

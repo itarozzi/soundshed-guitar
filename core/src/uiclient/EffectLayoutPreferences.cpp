@@ -1,0 +1,382 @@
+/**
+ * EffectLayoutPreferences.cpp - Which layout an effect is drawn with: the preference rules in
+ * the app settings, resolved as the web UI's layoutPreferences.ts resolves them (see
+ * EffectLayouts.h).
+ */
+
+#include "uiclient/EffectLayouts.h"
+
+#include "uiclient/NodeLabels.h"
+
+#include <algorithm>
+#include <cctype>
+#include <chrono>
+#include <random>
+#include <set>
+
+namespace guitarfx::uiclient
+{
+namespace
+{
+std::string StringOf(const nlohmann::json& object, const char* key)
+{
+    if (!object.is_object())
+    {
+        return {};
+    }
+
+    const auto it = object.find(key);
+    return it != object.end() && it->is_string() ? it->get<std::string>() : std::string{};
+}
+
+std::string Lower(std::string text)
+{
+    for (char& c : text)
+    {
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
+
+    return text;
+}
+
+std::string Trim(const std::string& text)
+{
+    const auto first = text.find_first_not_of(" \t\r\n");
+    return first == std::string::npos ? std::string{}
+                                      : text.substr(first, text.find_last_not_of(" \t\r\n") - first + 1);
+}
+} // namespace
+
+// ── Choosing a layout ───────────────────────────────────────────────────────────────────
+
+std::vector<LayoutPreferenceRule> ParseLayoutPreferenceRules(const nlohmann::json& appSettings)
+{
+    std::vector<LayoutPreferenceRule> rules;
+
+    if (!appSettings.is_object())
+    {
+        return rules;
+    }
+
+    const auto it = appSettings.find(kLayoutPreferencesSetting);
+
+    if (it == appSettings.end() || !it->is_array())
+    {
+        return rules;
+    }
+
+    for (const auto& raw : *it)
+    {
+        LayoutPreferenceRule rule;
+        rule.lookupKey = Trim(StringOf(raw, "lookupKey"));
+        rule.layoutId = Trim(StringOf(raw, "layoutId"));
+        rule.scope = StringOf(raw, "scope");
+
+        if (rule.lookupKey.empty() || rule.layoutId.empty() ||
+            (rule.scope != "effectType" && rule.scope != "keyword" && rule.scope != "preset"))
+        {
+            continue;
+        }
+
+        const auto keyword = Lower(Trim(StringOf(raw, "keyword")));
+        const auto presetId = Trim(StringOf(raw, "presetId"));
+
+        if ((rule.scope == "keyword" && keyword.empty()) || (rule.scope == "preset" && presetId.empty()))
+        {
+            continue;
+        }
+
+        rule.keyword = rule.scope == "keyword" ? keyword : std::string{};
+        rule.presetId = rule.scope == "preset" ? presetId : std::string{};
+        rule.id = StringOf(raw, "id");
+        rule.presetName = StringOf(raw, "presetName");
+        rule.createdAt = StringOf(raw, "createdAt");
+        rules.push_back(std::move(rule));
+    }
+
+    return rules;
+}
+
+std::vector<std::string> LayoutLookupKeys(const std::string& effectType, const std::string& blendId)
+{
+    std::vector<std::string> keys{blendId.empty() ? effectType : effectType + "::" + blendId};
+
+    if (keys.front() != effectType)
+    {
+        keys.push_back(effectType);
+    }
+
+    return keys;
+}
+
+LayoutSelection ResolveLayoutSelection(const LayoutLibrary* library, const std::vector<LayoutPreferenceRule>& rules,
+                                       const LayoutResolutionContext& context)
+{
+    const auto keys = LayoutLookupKeys(context.effectType, context.blendId);
+    const auto matchText = Lower(context.matchText);
+
+    for (const auto& key : keys)
+    {
+        std::vector<const LayoutPreferenceRule*> keyed;
+
+        for (const auto& rule : rules)
+        {
+            if (rule.lookupKey == key)
+            {
+                keyed.push_back(&rule);
+            }
+        }
+
+        if (keyed.empty())
+        {
+            continue;
+        }
+
+        if (!context.presetId.empty())
+        {
+            for (const auto* rule : keyed)
+            {
+                if (rule->scope == "preset" && rule->presetId == context.presetId)
+                {
+                    return {rule->layoutId, "preset", *rule};
+                }
+            }
+        }
+
+        // The longest keyword wins, so "vox ac30" beats a broader "vox".
+        const LayoutPreferenceRule* best = nullptr;
+
+        for (const auto* rule : keyed)
+        {
+            if (rule->scope == "keyword" && !matchText.empty() && matchText.find(rule->keyword) != std::string::npos &&
+                (best == nullptr || rule->keyword.size() > best->keyword.size()))
+            {
+                best = rule;
+            }
+        }
+
+        if (best != nullptr)
+        {
+            return {best->layoutId, "keyword", *best};
+        }
+
+        for (const auto* rule : keyed)
+        {
+            if (rule->scope == "effectType")
+            {
+                return {rule->layoutId, "effectType", *rule};
+            }
+        }
+    }
+
+    if (library != nullptr)
+    {
+        for (const auto& key : keys)
+        {
+            const auto def = library->defaults.find(key);
+            const auto entries = library->byEffectType.find(key);
+
+            if (def == library->defaults.end() || def->second.empty() || entries == library->byEffectType.end())
+            {
+                continue;
+            }
+
+            const bool exists =
+                std::any_of(entries->second.begin(), entries->second.end(),
+                            [&def](const LayoutLibraryEntry& entry) { return entry.layoutId == def->second; });
+
+            if (exists)
+            {
+                return {def->second, "libraryDefault", std::nullopt};
+            }
+        }
+    }
+
+    return {std::nullopt, "none", std::nullopt};
+}
+
+std::vector<const LayoutLibraryEntry*> AvailableLayoutEntries(const LayoutLibrary& library,
+                                                              const std::string& effectType, const std::string& blendId)
+{
+    std::vector<const LayoutLibraryEntry*> entries;
+    std::set<std::string> seen;
+
+    for (const auto& key : LayoutLookupKeys(effectType, blendId))
+    {
+        const auto it = library.byEffectType.find(key);
+
+        if (it == library.byEffectType.end())
+        {
+            continue;
+        }
+
+        for (const auto& entry : it->second)
+        {
+            if (!entry.layoutId.empty() && seen.insert(entry.layoutId).second)
+            {
+                entries.push_back(&entry);
+            }
+        }
+    }
+
+    return entries;
+}
+
+const EffectLayout* FindLayoutById(const LayoutLibrary& library, const std::string& layoutId,
+                                   const std::string& effectType, const std::string& blendId)
+{
+    if (layoutId.empty() || layoutId == kStandardLayoutId)
+    {
+        return nullptr;
+    }
+
+    for (const auto* entry : AvailableLayoutEntries(library, effectType, blendId))
+    {
+        if (entry->layoutId == layoutId)
+        {
+            return &entry->layout;
+        }
+    }
+
+    return nullptr;
+}
+
+std::string LayoutMatchText(const ClientState& state, const GraphNode& node)
+{
+    // The automatic name is what the node is called without the user's title.
+    GraphNode untitled = node;
+    untitled.title.clear();
+    const auto* typeInfo = state.FindEffectType(node.type);
+
+    std::string resources;
+
+    for (std::size_t i = 0; i < node.resources.size(); ++i)
+    {
+        const auto name = NodeResourceName(state, node, i);
+
+        if (!name.empty())
+        {
+            resources += resources.empty() ? name : " + " + name;
+        }
+    }
+
+    std::string text;
+
+    for (const auto& part : {NodeDisplayName(state, untitled), node.title, resources,
+                             typeInfo != nullptr ? typeInfo->name : std::string{}})
+    {
+        if (!Trim(part).empty())
+        {
+            text += text.empty() ? part : " " + part;
+        }
+    }
+
+    return Lower(text);
+}
+
+LayoutResolutionContext LayoutContextForNode(const ClientState& state, const GraphNode& node)
+{
+    LayoutResolutionContext context;
+    context.effectType = node.type;
+
+    if (const auto it = node.config.find("blendId"); it != node.config.end())
+    {
+        context.blendId = it->second;
+    }
+
+    context.matchText = LayoutMatchText(state, node);
+    context.presetId = state.activePresetId;
+    return context;
+}
+
+const EffectLayout* ResolveLayoutForNode(const ClientState& state, const GraphNode& node)
+{
+    if (!state.layouts.loaded)
+    {
+        return nullptr;
+    }
+
+    const auto context = LayoutContextForNode(state, node);
+    const auto selection =
+        ResolveLayoutSelection(&state.layouts.library, ParseLayoutPreferenceRules(state.appSettings), context);
+
+    if (!selection.layoutId || *selection.layoutId == kStandardLayoutId)
+    {
+        return nullptr;
+    }
+
+    return FindLayoutById(state.layouts.library, *selection.layoutId, context.effectType, context.blendId);
+}
+
+nlohmann::json RulesWithLayoutChoice(const nlohmann::json& appSettings, const ClientState& state, const GraphNode& node,
+                                     const std::string& layoutId, const std::string& nowIso)
+{
+    const auto context = LayoutContextForNode(state, node);
+    auto rules = ParseLayoutPreferenceRules(appSettings);
+    const auto deciding = ResolveLayoutSelection(&state.layouts.library, rules, context).rule;
+
+    LayoutPreferenceRule rule;
+    // A blend's choice is keyed on the blend, as the web UI's picker keys it.
+    rule.lookupKey = LayoutLookupKeys(context.effectType, context.blendId).front();
+    rule.scope = deciding ? deciding->scope : std::string("effectType");
+    rule.layoutId = layoutId;
+    rule.keyword = deciding ? deciding->keyword : std::string{};
+    rule.presetId = deciding ? deciding->presetId : std::string{};
+    rule.presetName = deciding ? deciding->presetName : std::string{};
+    rule.createdAt = nowIso;
+
+    // Ids as the web UI makes them: the time and a few random characters, in base 36.
+    const auto base36 = [](std::uint64_t value) {
+        static constexpr char kDigits[] = "0123456789abcdefghijklmnopqrstuvwxyz";
+        std::string text;
+
+        do
+        {
+            text.insert(text.begin(), kDigits[value % 36]);
+            value /= 36;
+        } while (value > 0);
+
+        return text;
+    };
+    const auto millis =
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
+            .count();
+    std::random_device random;
+    rule.id = "layoutpref-" + base36(static_cast<std::uint64_t>(millis)) + "-" + base36(random() % 2176782336u);
+
+    rules.erase(std::remove_if(rules.begin(), rules.end(),
+                               [&rule](const LayoutPreferenceRule& existing) {
+                                   return existing.lookupKey == rule.lookupKey && existing.scope == rule.scope &&
+                                          existing.keyword == rule.keyword && existing.presetId == rule.presetId;
+                               }),
+                rules.end());
+    rules.push_back(rule);
+
+    nlohmann::json serialized = nlohmann::json::array();
+
+    for (const auto& r : rules)
+    {
+        nlohmann::json entry{{"id", r.id}, {"lookupKey", r.lookupKey}, {"scope", r.scope}, {"layoutId", r.layoutId}};
+
+        if (!r.keyword.empty())
+        {
+            entry["keyword"] = r.keyword;
+        }
+
+        if (!r.presetId.empty())
+        {
+            entry["presetId"] = r.presetId;
+        }
+
+        if (!r.presetName.empty())
+        {
+            entry["presetName"] = r.presetName;
+        }
+
+        entry["createdAt"] = r.createdAt.empty() ? nowIso : r.createdAt;
+        serialized.push_back(std::move(entry));
+    }
+
+    return serialized;
+}
+} // namespace guitarfx::uiclient

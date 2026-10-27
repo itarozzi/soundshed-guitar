@@ -165,6 +165,9 @@ void UiClient::RegisterHandlers()
     RegisterAnalysisHandlers();
     RegisterAutomationHandlers();
     RegisterInputLevellingHandlers();
+    RegisterRiffHandlers();
+    RegisterLooperHandlers();
+    RegisterLayoutHandlers();
 }
 
 void UiClient::Start()
@@ -181,6 +184,7 @@ void UiClient::Start()
     Send("getEffectPresets");
     Send("getTheme");
     Send("getAutomation");
+    Send("getLooperState");
 
     // The level meters and clip LEDs ride on the signal diagnostics feed, which the engine
     // only runs while a UI asks for it.

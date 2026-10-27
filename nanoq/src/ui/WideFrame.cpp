@@ -95,13 +95,14 @@ Ptr Shell::BuildFrame()
     {
         auto rule = [this] { return FixedHeight(1, Fill(mTheme.Text().opacity(0.06f), std::make_shared<el::element>())); };
         return Col({FixedHeight(metrics::kTabBarHeight, Yielding(mRailSlot)), rule(), FixedHeight(metrics::kHeaderHeight - 1.0f, Yielding(mTopSlot)),
-                    rule(), Yielding(mPageSlot), FixedHeight(metrics::kWideFooterHeight, Yielding(mTransportSlot))});
+                    rule(), Yielding(mPageSlot), mLooperSlot, FixedHeight(metrics::kWideFooterHeight, Yielding(mTransportSlot))});
     }
     // The rail down the left; beside it the preset bar, the stage and the footer. The regions
     // yield their minimum sizes: each is built for the window's size and rebuilt when it changes
     // (OnTick), and the window's own floor is the root's (MinSize).
     return Row({FixedWidth(metrics::kRailWidth, Yielding(mRailSlot)),
-                Col({FixedHeight(metrics::kTopBarHeight, Yielding(mTopSlot)), Yielding(mPageSlot), FixedHeight(metrics::kFooterHeight, Yielding(mTransportSlot))})});
+                Col({FixedHeight(metrics::kTopBarHeight, Yielding(mTopSlot)), Yielding(mPageSlot), mLooperSlot,
+                     FixedHeight(metrics::kFooterHeight, Yielding(mTransportSlot))})});
 }
 
 std::string Shell::TopBarSignature() const
@@ -415,6 +416,28 @@ Ptr Shell::ZoomButton()
     return button;
 }
 
+/// The footers' Rec (the riff capture dialog, counting in at once: the standalone app with the
+/// riff library on, as the web UI's) and Loop (the looper strip) buttons, those that apply.
+std::vector<Ptr> Shell::BuildCaptureButtons(float size)
+{
+    std::vector<Ptr> buttons;
+    if (mState.environment.standalone && guitarfx::uiclient::IsFeatureEnabled(mState, guitarfx::uiclient::Feature::RiffLibrary))
+    {
+        auto rec = ToolButton(mTheme, mIcons, "ui-record", [this] { OpenRiffCapture(true); }, size, 14.0f);
+        rec->Ink(mTheme.Error());
+        buttons.push_back(rec);
+    }
+    if (LooperShown())
+    {
+        auto loop = ToolButton(mTheme, mIcons, "ui-loop", [this] { ToggleLooper(); }, size, 16.0f);
+        loop->Lit(mLooperOpen);
+        if (!mLooperOpen)
+            loop->Ink(mTheme.TextSecondary());
+        buttons.push_back(loop);
+    }
+    return buttons;
+}
+
 // ── The full footer ─────────────────────────────────────────────────────────────
 
 Ptr Shell::BuildWideFooter()
@@ -453,8 +476,12 @@ Ptr Shell::BuildWideFooter()
         OpenDropdown(t->Bounds(), std::move(items), 150.0f);
     };
 
+    std::vector<Ptr> tools;
+    for (auto& b : BuildCaptureButtons(28.0f))
+        tools.insert(tools.end(), {b, HGap(6)});
+    tools.insert(tools.end(), {pads, HGap(6), tuner, HGap(6), midi, HGap(6), mute});
     std::vector<Ptr> row{HGap(12), BuildHistoryControls(), divider(), BuildDemoControls(width >= 1180.0f ? 150.0f : 120.0f, true),
-                         HGap(2), render, Stretch(), Tight({pads, HGap(6), tuner, HGap(6), midi, HGap(6), mute}), Stretch(),
+                         HGap(2), render, Stretch(), Tight(tools), Stretch(),
                          BuildTempoControls(true), divider()};
     if (mSession.getZoom && mSession.setZoom)
     {

@@ -114,6 +114,7 @@ set(TEST_SOURCES
     PresetLevelMeasureTests.cpp
     PresetManagementWorkflowTests.cpp
     UiClientTests.cpp
+    UiClientLayoutTests.cpp
     PresetStorageTests.cpp
     PresetVoicePoolTests.cpp
     JsonStoreConcurrencyTests.cpp
@@ -294,6 +295,9 @@ target_sources(MixerInstanceLockTests PRIVATE MixerInstanceLockSupport.cpp Mixer
 
 # Soundshed Nano Q's client library (core/src/uiclient) against a real headless controller.
 target_link_libraries(UiClientTests PRIVATE SoundshedUiClient)
+# Custom effect layouts as the native UIs read them, checked against the web UI's own fixtures.
+target_link_libraries(UiClientLayoutTests PRIVATE SoundshedUiClient)
+target_compile_definitions(UiClientLayoutTests PRIVATE GUITARFX_UI_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../ui")
 # The tone sharing links and installed-item lookups the native UIs share (uiclient/ToneSharing.h).
 target_link_libraries(ToneSharingLinkTests PRIVATE SoundshedUiClient)
 

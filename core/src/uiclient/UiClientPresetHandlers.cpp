@@ -3,6 +3,7 @@
  */
 
 #include "uiclient/Automation.h"
+#include "uiclient/Riffs.h"
 #include "uiclient/UiClient.h"
 #include "uiclient/UiClientParsing.h"
 
@@ -195,6 +196,16 @@ std::vector<PresetFolder> ParseFolders(const nlohmann::json& folders)
 }
 } // namespace
 
+void UiClient::ApplyRiffLibrary(const nlohmann::json& library)
+{
+    mState.demo.riffClips = FavouriteRiffClips(library);
+    mState.riffs.known = true;
+    mState.riffs.path = library.value("path", std::string{});
+    mState.riffs.riffs = ParseRiffs(library);
+    Notify(Topic::Demo);
+    Notify(Topic::Riffs);
+}
+
 void UiClient::RegisterPresetHandlers()
 {
     On("state", [this](const nlohmann::json& m) {
@@ -241,6 +252,7 @@ void UiClient::RegisterPresetHandlers()
             s.theme = NormalizeTheme(s.appSettings.value("theme", s.theme));
             s.uiSettings = m.value("uiSettings", nlohmann::json::object());
             s.uiViewState = m.value("uiViewState", nlohmann::json::object());
+            SyncLooperEnabled();
 
             // The automation slots, as they stand after an edit elsewhere (the registry comes
             // with getAutomation's answer).
@@ -305,8 +317,7 @@ void UiClient::RegisterPresetHandlers()
 
             if (m.contains("riffLibrary") && m["riffLibrary"].is_object())
             {
-                s.demo.riffClips = FavouriteRiffClips(m["riffLibrary"]);
-                Notify(Topic::Demo);
+                ApplyRiffLibrary(m["riffLibrary"]);
             }
 
             Notify(Topic::Session);
@@ -508,10 +519,7 @@ void UiClient::RegisterPresetHandlers()
 
     On("riffLibraryState", [this](const nlohmann::json& m) {
         if (m.contains("library") && m["library"].is_object())
-        {
-            mState.demo.riffClips = FavouriteRiffClips(m["library"]);
-            Notify(Topic::Demo);
-        }
+            ApplyRiffLibrary(m["library"]);
     });
 
     On("setlistCursorChanged", [this](const nlohmann::json& m) {

@@ -32,6 +32,8 @@
 #include "dsp/effects/GraphicEQEffect.h"
 #include "presets/PresetStorage.h"
 #include "net/Http.h"
+#include "uiclient/Looper.h"
+#include "uiclient/Riffs.h"
 #include "uiclient/Analysis.h"
 #include "uiclient/Automation.h"
 #include "uiclient/DspStatus.h"
@@ -1815,6 +1817,138 @@ void TestLibraryExportAnswer()
     Expect(failed, "a cancelled or refused library export is told as a notification");
 }
 
+// The riff library and a capture, as the engine reports them (PluginControllerRiffs.cpp).
+void TestRiffMessages()
+{
+    std::vector<nlohmann::json> sent;
+    UiClient client([&sent](const std::string& json) { sent.push_back(nlohmann::json::parse(json)); });
+    UiCommands commands(client);
+    const auto deliver = [&client](const nlohmann::json& m) {
+        client.Enqueue(m.dump());
+        client.DrainPending();
+    };
+    const auto& riffs = client.State().riffs;
+
+    deliver({{"type", "riffLibraryState"},
+             {"library",
+              {{"path", "C:/riffs"},
+               {"riffs",
+                {{{"id", "r1"},
+                  {"title", "Chug"},
+                  {"favorite", true},
+                  {"tags", {"metal", "drop d"}},
+                  {"preferredTakeId", "t2"},
+                  {"takes",
+                   {{{"id", "t1"}, {"bars", 2}, {"tempoBpm", 120.0}, {"timeSigNum", 4}, {"timeSigDen", 4}, {"durationSec", 4.0}},
+                    {{"id", "t2"}, {"bars", 4}, {"tempoBpm", 120.0}, {"timeSigNum", 4}, {"timeSigDen", 4}, {"durationSec", 8.0}}}}},
+                 {{"id", "r2"}, {"title", "Lead"}, {"used", true}, {"usedSongTitle", "Song"}, {"takes", nlohmann::json::array()}}}}}}});
+    Expect(riffs.known && riffs.path == "C:/riffs" && riffs.riffs.size() == 2, "the riff library is read");
+    const auto* chug = riffs.Find("r1");
+    Expect(chug != nullptr && chug->PreferredTake() != nullptr && chug->PreferredTake()->id == "t2", "a riff plays its preferred take");
+    Expect(chug != nullptr && RiffTakeSummary(*chug->PreferredTake()) == "4 bars \xC2\xB7 120 BPM \xC2\xB7 4/4 \xC2\xB7 0:08", "a take in one line");
+    Expect(chug != nullptr && RiffMeta(*chug) == "Tags: metal, drop d \xC2\xB7 Unused \xC2\xB7 Takes: 2", "a riff's tags, use and takes");
+    Expect(riffs.Find("r2") != nullptr && riffs.Find("r2")->PreferredTake() == nullptr && RiffMeta(*riffs.Find("r2")).find("Used (Song)") != std::string::npos,
+           "a riff with no takes, used in a song");
+    Expect(client.State().demo.riffClips.size() == 1 && client.State().demo.riffClips[0].takeId == "t2", "favourites are still demo clips");
+
+    // Armed with 64 bars, as the web UI arms, so the live waveform's scale matches.
+    commands.ArmRiffCapture(120.0, 4, 4, 1, true);
+    Expect(!sent.empty() && sent.back().value("type", "") == "armRiffCapture" && sent.back().value("bars", 0) == 64, "a capture is armed for 64 bars");
+
+    deliver({{"type", "riffCaptureArmed"}, {"takeId", "k1"}, {"tempoBpm", 120.0}, {"timeSigNum", 4}, {"timeSigDen", 4}, {"bars", 64}});
+    Expect(riffs.capture.phase == RiffCapture::Phase::Armed && RiffCaptureStatus(riffs.capture, 48000.0).rfind("Armed", 0) == 0, "armed");
+
+    deliver({{"type", "riffCaptureStarted"}, {"takeId", "k1"}, {"bars", 64}, {"tempoBpm", 120.0}, {"timeSigNum", 4}, {"timeSigDen", 4},
+             {"countInBars", 0}, {"barAlignOffsetSamples", 4800}});
+    Expect(riffs.capture.phase == RiffCapture::Phase::Recording && riffs.capture.barAlignOffsetSamples == 4800, "recording from the first note");
+
+    // A bar at 120 BPM in 4/4 is 96000 samples at 48 kHz; the buffer is 64 of them.
+    deliver({{"type", "riffCaptureProgress"}, {"capturedSamples", 614400}, {"waveformPeaks", std::vector<double>(256, 0.25)}});
+    Expect(riffs.capture.peaks.size() == 256 && std::abs(RiffCaptureFill(riffs.capture, 48000.0) - 0.1) < 1e-9,
+           "the live trace stops a tenth of the way through the buffer");
+    Expect(RiffCaptureStatus(riffs.capture, 48000.0) == "Recording \xC2\xB7 ~7 bars @ 120 BPM", "and says how many bars so far");
+
+    deliver({{"type", "riffCaptureStopped"}, {"takeId", "k1"}, {"bars", 4}, {"capturedSamples", 384000}, {"sampleRate", 48000.0},
+             {"hasAudio", true}, {"waveformPeaks", std::vector<double>(256, 0.5)}});
+    Expect(riffs.capture.phase == RiffCapture::Phase::Complete && riffs.capture.serial == 1 && riffs.capture.barAlignOffsetSamples == 4800,
+           "a captured take keeps where its first bar starts");
+    Expect(RiffCaptureStatus(riffs.capture, 0.0) == "Captured \xC2\xB7 8.0 s, 4 bars", "and says how long it is");
+
+    deliver({{"type", "riffCaptureStopped"}, {"takeId", "k1"}, {"bars", 2}, {"capturedSamples", 192000}, {"sampleRate", 48000.0},
+             {"hasAudio", true}, {"source", "trim"}, {"tempoBpm", 120.0}, {"timeSigNum", 4}, {"timeSigDen", 4}});
+    Expect(riffs.capture.serial == 2 && riffs.capture.barAlignOffsetSamples == 0 && riffs.capture.source == "trim",
+           "a cropped take starts where it was cut");
+
+    deliver({{"type", "riffSaved"}, {"riffId", "r3"}, {"takeId", "k1"}, {"path", "C:/riffs/takes/r3/x.wav"}});
+    Expect(riffs.capture.phase == RiffCapture::Phase::Idle && riffs.savedSerial == 1 && riffs.lastSavedRiffId == "r3", "saving ends the take");
+
+    // A refused capture never starts: the dialog must not wait on it.
+    deliver({{"type", "riffCaptureArmed"}, {"takeId", "k2"}, {"tempoBpm", 100.0}, {"timeSigNum", 3}, {"timeSigDen", 4}});
+    deliver({{"type", "error"}, {"message", "Riff Capture"}, {"detail", "No audio device"}});
+    Expect(riffs.capture.phase == RiffCapture::Phase::Idle, "a refused capture is dropped");
+
+    deliver({{"type", "previewStarted"}, {"id", "t2"}, {"title", "Chug"}});
+    Expect(client.State().demo.previewId == "t2", "what is playing is known by its id");
+    deliver({{"type", "previewStopped"}});
+    Expect(client.State().demo.previewId.empty(), "and forgotten when it stops");
+    Expect(SplitRiffList(" a, b ,,c ") == std::vector<std::string>{"a", "b", "c"}, "the save form's lists");
+}
+
+// The looper's state, layers and waveforms (LooperService*.cpp), and the feature switch the
+// engine's looper follows.
+void TestLooperMessages()
+{
+    std::vector<nlohmann::json> sent;
+    UiClient client([&sent](const std::string& json) { sent.push_back(nlohmann::json::parse(json)); });
+    const auto deliver = [&client](const nlohmann::json& m) {
+        client.Enqueue(m.dump());
+        client.DrainPending();
+    };
+    const auto setLoopers = [&sent] {
+        return std::count_if(sent.begin(), sent.end(), [](const nlohmann::json& m) { return m.value("type", "") == "setLooper"; });
+    };
+    const auto& looper = client.State().looper;
+    client.MutableState().appSettings["features.looper.enabled"] = true;
+
+    const nlohmann::json playing = {{"type", "looperState"}, {"available", true}, {"state", "playing"}, {"playing", true},
+                                    {"positionSec", 1.0}, {"lengthSec", 4.0}, {"bars", 4}, {"barIndex", 2}, {"layerCount", 2},
+                                    {"settings", {{"enabled", false}, {"length", "bars"}, {"bars", 4}}}};
+    deliver(playing);
+    Expect(looper.known && looper.state == "playing" && looper.settings.length == "bars", "the looper's state is read");
+    Expect(setLoopers() == 1, "the engine's looper is turned on to follow the switch");
+    deliver(playing);
+    Expect(setLoopers() == 1, "once, until the engine agrees");
+    Expect(LooperMainButtonLabel(looper.state) == "Dub" && LooperStatusLabel(looper.state) == "Playing", "the state button overdubs next");
+    Expect(LooperBarText(looper) == "bar 2 of 4 \xC2\xB7 2 layers", "the bar readout");
+    Expect(LooperTimeText(looper, 1.0) == "0:01.0 / 0:04.0", "the time readout");
+    Expect(std::abs(LooperPositionNow(looper, looper.positionAt + 3.5) - 0.5) < 1e-9, "the playhead runs on and wraps by itself");
+
+    deliver({{"type", "looperLayers"},
+             {"layers",
+              {{{"id", "L2"}, {"title", "Layer 2"}, {"order", 2}, {"muted", true}, {"level", 1.0}},
+               {{"id", "L1"}, {"title", "Layer 1"}, {"order", 1}, {"level", 0.5}, {"tone", {{"presetName", "Clean"}}}, {"retone", {{"progress", 0.25}}}}}}});
+    Expect(looper.layers.size() == 2 && looper.layers[1].presetName == "Clean" && looper.layers[1].retoneProgress == 0.25, "the layers are read");
+    deliver({{"type", "looperWaveforms"},
+             {"layers", {{"L1", {{"peaksL", std::vector<double>(256, 0.8)}, {"peaksR", std::vector<double>(256, 0.2)}}},
+                         {"L2", {{"peaksL", std::vector<double>(256, 1.0)}, {"peaksR", std::vector<double>(256, 1.0)}}}}}});
+    const auto mix = LooperMixPeaks(looper);
+    Expect(mix.size() == 256 && std::abs(mix[0] - 0.4f) < 1e-6f, "the waveform sums the audible layers (the muted one left out) at their level");
+    deliver({{"type", "looperLayers"}, {"layers", {{{"id", "L1"}, {"order", 1}, {"level", 0.5}}}}});
+    Expect(looper.layers.size() == 1 && looper.layers[0].peaksL.size() == 256, "a layer keeps its peaks when the list changes");
+
+    auto withNotice = playing;
+    withNotice["settings"]["enabled"] = true;
+    withNotice["notice"] = "tooShort";
+    (void)client.TakeNotifications();
+    deliver(withNotice);
+    const auto notes = client.TakeNotifications();
+    Expect(notes.size() == 1 && notes[0].title == "Too short to loop.", "a notice is shown once, in words");
+
+    client.MutableState().appSettings["features.looper.enabled"] = false;
+    client.SyncLooperEnabled();
+    Expect(setLoopers() == 2 && sent.back().value("enabled", true) == false, "switching the feature off turns the engine's looper off");
+}
+
 int main()
 {
     TestClientMirrorsTheEngine();
@@ -1834,6 +1968,8 @@ int main()
     TestUpdateCheckVersions();
     TestGlobalChainEditsMirror();
     TestLibraryExportAnswer();
+    TestRiffMessages();
+    TestLooperMessages();
     TestIrAlignmentResponse();
     TestAutomation();
     TestInputLevelling();

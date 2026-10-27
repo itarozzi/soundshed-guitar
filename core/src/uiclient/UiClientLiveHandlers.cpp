@@ -209,16 +209,19 @@ void UiClient::RegisterLiveHandlers()
     On("previewStarted", [this](const nlohmann::json& m) {
         mState.demo.playing = true;
         mState.demo.title = m.value("title", "");
+        mState.demo.previewId = m.value("id", "");
         Notify(Topic::Demo);
     });
 
     On("previewComplete", [this](const nlohmann::json&) {
         mState.demo.playing = false;
+        mState.demo.previewId.clear();
         Notify(Topic::Demo);
     });
 
     On("previewStopped", [this](const nlohmann::json&) {
         mState.demo.playing = false;
+        mState.demo.previewId.clear();
         Notify(Topic::Demo);
     });
 

@@ -59,6 +59,9 @@ enum class Topic
     Analysis,        // spectra, loudness, analyzer frames, spatial positions, gate Learn
     Automation,      // automation slots and registry, MIDI and key learn, the MIDI Log
     InputLevelling,  // input levelling profiles and training
+    Riffs,           // the riff library and the take being captured
+    Looper,          // the looper's state, layers, waveforms and projects
+    EffectLayouts,   // the custom effect layout library and its images
     Count
 };
 
@@ -145,6 +148,14 @@ public:
     /// Adds a notification of the UI's own (a refusal it makes before asking the engine).
     void PostNotification(Notification notification);
 
+    /// Keeps the engine's looper on while the Looper feature switch is on, and off while it is
+    /// off, as the web UI does; called when the switch or the looper's state changes.
+    void SyncLooperEnabled();
+
+    /// Asks the engine for the layout images (layoutImagesLoaded), once until they arrive: a view
+    /// calls it when it first draws a layout, as the web UI's renderer does.
+    void RequestLayoutImages();
+
     // ── Leases ──────────────────────────────────────────────────────────────
     /// The audio device's input level feed (standalone), held while its page is on screen.
     void SetDeviceLevelWatch(bool enabled);
@@ -172,6 +183,13 @@ private:
     void RegisterAnalysisHandlers();
     void RegisterAutomationHandlers();
     void RegisterInputLevellingHandlers();
+    void RegisterRiffHandlers();
+    void RegisterLooperHandlers();
+    void RegisterLayoutHandlers();
+    bool mLooperEnabledSent = false;
+    bool mLooperEnabledPending = false;
+    /// A riff library from "state" or "riffLibraryState": the favourite clips and the library.
+    void ApplyRiffLibrary(const nlohmann::json& library);
     void Apply(const std::string& json);
     void Unsubscribe(Topic topic, int id);
 

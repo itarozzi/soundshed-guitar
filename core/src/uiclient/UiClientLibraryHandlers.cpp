@@ -184,6 +184,7 @@ void UiClient::RegisterLibraryHandlers()
         {
             mState.appSettings[key] = m.contains("value") ? m["value"] : nlohmann::json();
             Notify(Topic::Session);
+            SyncLooperEnabled();
         }
     });
 
@@ -195,6 +196,15 @@ void UiClient::RegisterLibraryHandlers()
 
     On("error", [this](const nlohmann::json& m) {
         PostNotification({Notification::Kind::Error, m.value("message", "Error"), m.value("detail", "")});
+        // A capture the engine refused (busy, no audio device) never started: the dialog's
+        // Record button would otherwise wait on it.
+        auto& capture = mState.riffs.capture;
+        if (m.value("message", "") == "Riff Capture" &&
+            (capture.phase == RiffCapture::Phase::Armed || capture.phase == RiffCapture::Phase::Recording))
+        {
+            capture = RiffCapture{};
+            Notify(Topic::Riffs);
+        }
     });
 
     // Tone sharing installs. A failure's reason also arrives as the engine's own error.

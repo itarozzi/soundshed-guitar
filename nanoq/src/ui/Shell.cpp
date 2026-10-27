@@ -18,7 +18,12 @@ Shell::Shell(UiSession& session)
           std::error_code ec;
           const auto temp = std::filesystem::temp_directory_path(ec);
           return (ec ? std::filesystem::path(".") : temp) / "soundshed-nanoq-images";
-      }())
+      }()),
+      mLayoutImages(std::make_unique<LayoutImages>([&engine = session.GetEngine()](const std::string& imageId) {
+          // The controller's lookup is thread-safe and cached, so the UI thread asks it directly
+          // rather than waiting on the engine thread in the middle of a draw.
+          return engine.Controller().ResolveLayoutImageFile(imageId);
+      }))
 {
     // The effect icons, colours and artwork: one table for every UI (core/ui/data/effect-presentation.json).
     mPresentation = guitarfx::uiclient::EffectPresentation::Load(session.GetEngine().GetBundledAssetsPath() / "ui" / "data" /
@@ -83,6 +88,20 @@ void Shell::Subscribe()
             Mark(kPage);
     }));
     on(Topic::Demo, kTransport);
+    // The layout library and its pictures, and the setting that picks a layout per effect: the
+    // effect page is rebuilt only when what it shows changes (EffectPageSignature).
+    mSubscriptions.push_back(client.Subscribe(Topic::EffectLayouts, [this] {
+        mLayoutImages->Clear();
+        if (PlayShown())
+            Mark(kPage);
+    }));
+    mSubscriptions.push_back(client.Subscribe(Topic::Session, [this] {
+        if (PlayShown())
+            Mark(kPage);
+    }));
+    // The looper strip over the footer, and the footer's Loop button (LooperStrip.cpp).
+    mSubscriptions.push_back(client.Subscribe(Topic::Looper, [this] { SyncLooper(); }));
+    mSubscriptions.push_back(client.Subscribe(Topic::Session, [this] { SyncLooper(); }));
     // Gate Learn's progress and result.
     mSubscriptions.push_back(client.Subscribe(Topic::Analysis, [this] {
         if (!mGateLearnViews.empty())
@@ -109,6 +128,8 @@ void Shell::BuildRoot()
     mChainSlot = MakeSlot();
     mPageSlot = MakeSlot();
     mTransportSlot = MakeSlot();
+    mLooperSlot = MakeSlot();
+    Fill(*mLooperSlot, FixedHeight(0, std::make_shared<el::element>()));
     mEffectSlot = MakeSlot();
 
     // The frame (BuildFrame) holds the regions as the layout in force places them; it is
@@ -314,6 +335,7 @@ void Shell::Rebuild()
 void Shell::OnTick()
 {
     KeyRouter::Retake(mSession.View());
+    TickLooper();
     {
         const auto wheel = mState.appSettings.find("ui.mouseWheelAdjustsControls");
         ParamKnob::sWheelAdjusts = wheel == mState.appSettings.end() || !wheel->is_boolean() || wheel->get<bool>();

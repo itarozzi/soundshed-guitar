@@ -13,6 +13,7 @@
  */
 
 #include "presets/PresetTypes.h"
+#include "uiclient/EffectLayoutTypes.h"
 
 #include <nlohmann/json.hpp>
 
@@ -477,7 +478,157 @@ struct DemoState
     std::vector<DemoClip> riffClips;  // favourite riffs from the riff library, as the web UI lists them
     bool playing = false;
     std::string title;
+    std::string previewId; // what is playing: a clip's id, a riff take's id, or the captured take's
     std::string lastRenderPath;
+};
+
+// ── Riffs (Topic::Riffs) ────────────────────────────────────────────────────────
+// The riff library and the take being captured, as the engine reports them
+// (PluginControllerRiffs.cpp; the web UI's riffLibrary.ts).
+
+struct RiffTake
+{
+    std::string id;
+    std::string filePath;
+    double durationSec = 0.0;
+    int bars = 0;
+    double tempoBpm = 0.0;
+    int timeSigNum = 4;
+    int timeSigDen = 4;
+    std::string presetName;
+    std::string createdAt;
+};
+
+struct Riff
+{
+    std::string id;
+    std::string title;
+    std::vector<std::string> categories;
+    std::vector<std::string> tags;
+    std::string notes;
+    bool favorite = false;
+    bool used = false;
+    std::string usedSongTitle;
+    std::string preferredTakeId;
+    std::vector<RiffTake> takes;
+
+    /// The preferred take, else the first; null when the riff has none.
+    [[nodiscard]] const RiffTake* PreferredTake() const;
+};
+
+/// The take being captured, or the one captured and not yet saved (the "pending" take).
+struct RiffCapture
+{
+    enum class Phase
+    {
+        Idle,      // nothing pending
+        Armed,     // counting in, or waiting for the first note
+        Recording,
+        Complete   // a take waits to be trimmed, previewed and saved
+    };
+    Phase phase = Phase::Idle;
+    std::string takeId;
+    double tempoBpm = 0.0;
+    int timeSigNum = 4;
+    int timeSigDen = 4;
+    int bars = 0;               // armed: the most it can hold; complete: its length in bars
+    std::int64_t capturedSamples = 0;
+    double sampleRate = 0.0;
+    bool hasAudio = false;
+    std::vector<float> peaks;   // 0..1; while recording, over the whole buffer the take can fill
+    std::int64_t barAlignOffsetSamples = 0; // where the first bar starts, from an armed capture
+    std::string source;         // "", "import", "trim", "editLoad" or "looper"
+    std::string originalTakeId; // editLoad: the library take it came from
+    int serial = 0;             // counts takes made complete, so a view can reset its markers
+};
+
+struct RiffState
+{
+    bool known = false; // a riff library has arrived
+    std::string path;
+    std::vector<Riff> riffs;
+    RiffCapture capture;
+    int savedSerial = 0; // counts "riffSaved", so a dialog can close on its own save
+    std::string lastSavedRiffId;
+
+    [[nodiscard]] const Riff* Find(const std::string& riffId) const;
+};
+
+// ── Looper (Topic::Looper) ──────────────────────────────────────────────────────
+// As the engine reports it (LooperServiceMessages.cpp BuildState and BuildLayers,
+// LooperService.cpp's feeds); docs/user-interface.md has the fields.
+
+struct LooperLayer
+{
+    std::string id;
+    std::string title;
+    int order = 0;
+    bool recording = false;
+    double level = 1.0;   // 0..2
+    double balance = 0.0; // -1..1
+    bool muted = false;
+    bool solo = false;
+    std::string presetName;
+    bool toneChanged = false;
+    bool canRevert = false;
+    double retoneProgress = -1.0; // 0..1 while it is re-amped, else -1
+    std::vector<float> peaksL;    // 256 buckets across the loop, once the layer is finished
+    std::vector<float> peaksR;
+};
+
+struct LooperSettings
+{
+    bool enabled = false;
+    int maxSeconds = 60;
+    std::string start = "press"; // "press" or "armed"
+    std::string length = "free"; // "free" or "bars"
+    int bars = 4;
+    int countInBars = 1;
+    bool clickWhileRecording = true;
+    std::string afterRecord = "play"; // "play" or "overdub"
+    double alignOffsetMs = 0.0;
+};
+
+struct LooperProject
+{
+    std::string id;
+    std::string title;
+    std::string modified;
+    double lengthSec = 0.0;
+    int layerCount = 0;
+    double tempoBpm = 0.0;
+    int bars = 0;
+};
+
+struct LooperState
+{
+    bool known = false;     // a looperState has arrived
+    bool available = false; // the standalone app only
+    std::string state = "empty";
+    bool playing = false;
+    double positionSec = 0.0;
+    double positionAt = 0.0; // when positionSec was reported (LooperClockNow)
+    double lengthSec = 0.0;
+    bool canUndo = false;
+    bool canRedo = false;
+    int layerCount = 0;
+    double memoryMb = 0.0;
+    bool tempoLocked = false;
+    bool click = false;
+    double clickBar = 0.0;
+    int bars = 0;     // a Bars loop's length, else 0
+    int barIndex = 0; // 1-based
+    double tempoBpm = 0.0;
+    int countInBeatsLeft = 0;
+    double recordedSec = 0.0;
+    LooperSettings settings;
+    std::string projectId;
+    std::string projectTitle;
+    bool dirty = false;
+    bool recoverable = false;
+    std::vector<LooperLayer> layers; // newest first
+    std::vector<float> livePeaks;    // the take being recorded, 256 buckets
+    std::vector<LooperProject> projects;
 };
 
 struct Environment
@@ -617,6 +768,9 @@ struct ClientState
     DeviceState device;
     DemoState demo;
     InputLevellingState inputLevelling;
+    RiffState riffs;
+    LooperState looper;
+    LayoutState layouts; // custom effect layouts and their images (Topic::EffectLayouts)
 
     std::map<std::string, ToneInstall> toneInstalls;
     std::map<std::string, ResourceImport> resourceImports; // by request id (Topic::Resources)
