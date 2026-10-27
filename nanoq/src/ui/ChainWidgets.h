@@ -13,12 +13,66 @@
 #include <cmath>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
+#include <vector>
 
 namespace nanoq::ui
 {
 namespace chain
 {
+/// Where the strip's cards and cables were last drawn, for dropping a dragged card: each card
+/// and cable notes its own bounds as it draws, in the view's coordinates. One per build of the
+/// strip. It also says what a drag is over, which those elements draw as a highlight.
+struct HitMap
+{
+    struct Card
+    {
+        std::string nodeId;
+        el::rect bounds;
+    };
+    struct Cable
+    {
+        guitarfx::GraphEdge edge;
+        el::rect bounds;
+    };
+
+    std::vector<Card> cards;
+    std::vector<Cable> cables;
+    std::string hoverNode;
+    std::optional<guitarfx::GraphEdge> hoverEdge;
+
+    void NoteCard(const std::string& nodeId, const el::rect& bounds)
+    {
+        for (auto& c : cards)
+            if (c.nodeId == nodeId)
+            {
+                c.bounds = bounds;
+                return;
+            }
+        cards.push_back({nodeId, bounds});
+    }
+
+    void NoteCable(const guitarfx::GraphEdge& edge, const el::rect& bounds)
+    {
+        for (auto& c : cables)
+            if (c.edge == edge)
+            {
+                c.bounds = bounds;
+                return;
+            }
+        cables.push_back({edge, bounds});
+    }
+
+    [[nodiscard]] const Card* FindCard(const std::string& nodeId) const
+    {
+        for (const auto& c : cards)
+            if (c.nodeId == nodeId)
+                return &c;
+        return nullptr;
+    }
+};
+
 // The web UI's .signal-node: 72 px square at the least, 86 px tall when its artwork sits over
 // its top edge; a row is tall enough for either, with the artwork's overhang.
 constexpr float kCardHeight = 92.0f; // a row of the chain, and a parallel lane
@@ -107,6 +161,14 @@ public:
 
     NodeCard(const Theme& theme, Icons& icons, Look look) : mTheme(theme), mIcons(icons), mLook(std::move(look)) {}
 
+    /// Notes the card in `hits` as `nodeId` when drawn, so drops find it; with onDrag it can be
+    /// dragged too.
+    void Draggable(std::shared_ptr<HitMap> hits, std::string nodeId)
+    {
+        mHits = std::move(hits);
+        mNodeId = std::move(nodeId);
+    }
+
     el::view_limits limits(const el::basic_context&) const override
     {
         return {{mLook.width, kCardHeight}, {mLook.width, el::full_extent}};
@@ -115,6 +177,14 @@ public:
     void draw(const el::context& ctx) override
     {
         auto& cnv = ctx.canvas;
+        if (mHits && !mNodeId.empty())
+            mHits->NoteCard(mNodeId, CardRect(ctx.bounds, CardHeight()));
+
+        // While dragged, the card follows the pointer.
+        auto dragState = cnv.new_state();
+        if (mDragging)
+            cnv.translate(mDragOffset.x, mDragOffset.y);
+
         const auto r = CardRect(ctx.bounds, CardHeight());
         const auto tint = mLook.tint;
         const bool on = mLook.enabled;
@@ -168,6 +238,13 @@ public:
             cnv.stroke_style(tint.opacity(0.36f));
             cnv.line_width(1.0f);
             cnv.stroke_round_rect(r.inset(-1.0f, -1.0f), kRadius + 1.0f);
+        }
+        // A dragged card would land after this one: an accent ring round it.
+        if (mHits && !mNodeId.empty() && mHits->hoverNode == mNodeId)
+        {
+            cnv.stroke_style(mTheme.Accent());
+            cnv.line_width(2.0f);
+            cnv.stroke_round_rect(r.inset(-3.0f, -3.0f), kRadius + 3.0f);
         }
         // The highlight along the top edge.
         cnv.stroke_style(Mix(el::rgba(255, 255, 255, 255), tint, 0.08f).opacity(0.18f * fade));
@@ -316,11 +393,22 @@ public:
         {
             mDown = true;
             mDownOnPower = mLook.canBypass && PowerRect(r).inset(-4.0f, -4.0f).includes(btn.pos);
+            mDownAt = btn.pos;
+            mDragging = false;
             return true;
         }
 
         const bool wasDown = mDown;
         mDown = false;
+        if (mDragging)
+        {
+            mDragging = false;
+            mDragOffset = {0.0f, 0.0f};
+            if (onDrag)
+                onDrag(mDownAt, btn.pos, true);
+            ctx.view.refresh();
+            return true;
+        }
         if (!wasDown || !r.includes(btn.pos))
             return true;
 
@@ -338,6 +426,19 @@ public:
             onSelect();
         }
         return true;
+    }
+
+    void drag(const el::context& ctx, el::mouse_button btn) override
+    {
+        if (!mDown || mDownOnPower || !onDrag)
+            return;
+        const el::point offset{btn.pos.x - mDownAt.x, btn.pos.y - mDownAt.y};
+        if (!mDragging && std::hypot(offset.x, offset.y) < 6.0f)
+            return;
+        mDragging = true;
+        mDragOffset = offset;
+        onDrag(mDownAt, btn.pos, false);
+        ctx.view.refresh();
     }
 
     bool cursor(const el::context& ctx, el::point p, el::cursor_tracking status) override
@@ -378,6 +479,8 @@ public:
     }
 
     std::function<void()> onSelect, onToggle, onMenu, onReplace;
+    /// A drag from `from` that is now at `to` (view coordinates); `done` when it is let go.
+    std::function<void(el::point from, el::point to, bool done)> onDrag;
 
 private:
     [[nodiscard]] float CardHeight() const
@@ -395,6 +498,11 @@ private:
     Look mLook;
     Light mLight = Light::Idle;
     bool mDown = false, mDownOnPower = false, mHover = false, mHoverPower = false;
+    std::shared_ptr<HitMap> mHits;
+    std::string mNodeId;
+    el::point mDownAt{0.0f, 0.0f};
+    el::point mDragOffset{0.0f, 0.0f};
+    bool mDragging = false;
 };
 
 /// A cable between two things in a row. With `onAdd` it carries a + in its middle that inserts
@@ -405,6 +513,13 @@ public:
     Connector(const Theme& theme, std::function<void()> onAdd, bool stretch = false)
         : mTheme(theme), mOnAdd(std::move(onAdd)), mStretch(stretch)
     {
+    }
+
+    /// The graph edge this cable draws, so a dragged card can be dropped on it.
+    void Edge(std::shared_ptr<HitMap> hits, guitarfx::GraphEdge edge)
+    {
+        mHits = std::move(hits);
+        mEdge = std::move(edge);
     }
 
     el::view_limits limits(const el::basic_context&) const override
@@ -418,9 +533,13 @@ public:
         const auto b = ctx.bounds;
         const float y = b.top + b.height() * 0.5f;
 
+        if (mHits && mEdge)
+            mHits->NoteCable(*mEdge, b);
+        const bool dropHere = mHits && mEdge && mHits->hoverEdge && *mHits->hoverEdge == *mEdge;
+
         // The cable (.signal-connector: 3 px, the route colour at 55%) with an arrowhead into
-        // what it feeds, in the full colour.
-        const auto route = CableColour(mTheme);
+        // what it feeds, in the full colour; the accent where a dragged card would land.
+        const auto route = dropHere ? mTheme.Accent() : CableColour(mTheme);
         cnv.stroke_style(route.opacity(0.55f));
         cnv.line_width(3.0f);
         cnv.line_cap(artist::canvas::round);
@@ -524,6 +643,8 @@ private:
     std::function<void()> mOnAdd;
     bool mStretch;
     bool mHover = false;
+    std::shared_ptr<HitMap> mHits;
+    std::optional<guitarfx::GraphEdge> mEdge;
 };
 
 /// Where a parallel block splits (or joins): the cable from the main line meets a rail that

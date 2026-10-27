@@ -12,6 +12,7 @@
 
 #include "ui/ChainWidgets.h"
 
+#include "uiclient/ChainDropRules.h"
 #include "uiclient/ChainLayout.h"
 #include "uiclient/NodeLabels.h"
 
@@ -73,6 +74,7 @@ Ptr Shell::BuildChain()
     using namespace guitarfx::uiclient;
 
     mChainCards.clear();
+    mHitMap = std::make_shared<chain::HitMap>();
     if (!mState.activePreset)
         return VGap(0);
 
@@ -150,6 +152,10 @@ Ptr Shell::BuildChain()
             mChainFocused = true;
         };
         card->onMenu = [this, nodeId] { OpenNodeMenu(nodeId); };
+        // Every card is somewhere to drop; effects can be dragged, the input and output stay put.
+        card->Draggable(mHitMap, nodeId);
+        if (card->BoundaryKind() == NodeCard::Boundary::None)
+            card->onDrag = [this, nodeId](el::point from, el::point to, bool done) { DragCard(nodeId, from, to, done); };
         if (canBypass)
         {
             card->onToggle = [this, nodeId] {
@@ -170,6 +176,17 @@ Ptr Shell::BuildChain()
                 return [this, edge] { OpenEffectPickerOnEdge(edge); };
         return [this, from] { OpenEffectPicker(from); };
     };
+    // A cable with its +, which knows its edge of the graph so a dragged card can land on it.
+    auto cable = [this, &graph, &plus](const std::string& from, const std::string& to, int fromPort = -1, bool stretch = false) {
+        auto connector = std::make_shared<Connector>(mTheme, plus(from, to, fromPort), stretch);
+        for (const auto& edge : graph.edges)
+            if (edge.from == from && edge.to == to && (fromPort < 0 || edge.fromPort == fromPort))
+            {
+                connector->Edge(mHitMap, edge);
+                break;
+            }
+        return connector;
+    };
 
     // ── The segments: the input, then each cable with what it leads into ──
     std::vector<Segment> segments;
@@ -185,9 +202,10 @@ Ptr Shell::BuildChain()
     {
         Segment segment;
         // Into a parallel block's mixer the cable is drawing only: the branches are its inputs.
-        segment.parts.push_back(std::make_shared<Connector>(
-            mTheme, afterParallel ? std::function<void()>{}
-                                  : plus(previous, item.kind == ChainItem::Kind::Node ? item.nodeId : item.splitNodeId)));
+        if (afterParallel)
+            segment.parts.push_back(std::make_shared<Connector>(mTheme, std::function<void()>{}));
+        else
+            segment.parts.push_back(cable(previous, item.kind == ChainItem::Kind::Node ? item.nodeId : item.splitNodeId));
         segment.width = kConnectorWidth;
         const bool joinsBlock = afterParallel;
         afterParallel = item.kind == ChainItem::Kind::Parallel;
@@ -224,15 +242,14 @@ Ptr Shell::BuildChain()
             std::string after = item.splitNodeId;
             for (const auto& id : branch.nodeIds)
             {
-                lane.push_back(std::make_shared<Connector>(mTheme, after == item.splitNodeId ? plus(after, id, branch.port) : plus(after, id)));
+                lane.push_back(after == item.splitNodeId ? cable(after, id, branch.port) : cable(after, id));
                 float w = 0.0f;
                 lane.push_back(makeCard(id, w));
                 laneWidth += kConnectorWidth + w;
                 after = id;
             }
             // The branch runs on to the join, with a + to add at its end (or into it, empty).
-            lane.push_back(std::make_shared<Connector>(
-                mTheme, after == item.splitNodeId ? plus(after, item.joinNodeId, branch.port) : plus(after, item.joinNodeId), true));
+            lane.push_back(after == item.splitNodeId ? cable(after, item.joinNodeId, branch.port, true) : cable(after, item.joinNodeId, -1, true));
             laneWidth += kConnectorWidth;
             lanesWidth = std::max(lanesWidth, std::max(laneWidth, 2.0f * kConnectorWidth));
             if (!lanes.empty())
@@ -256,7 +273,7 @@ Ptr Shell::BuildChain()
 
     {
         Segment output;
-        output.parts.push_back(std::make_shared<Connector>(mTheme, plus(previous, outputId)));
+        output.parts.push_back(cable(previous, outputId));
         float w = 0.0f;
         output.parts.push_back(makeCard(outputId, w));
         output.width = kConnectorWidth + w;
@@ -379,5 +396,94 @@ void Shell::SyncChainLights()
         if (card->SetLight(light))
             mSession.View().refresh(*card);
     }
+}
+
+void Shell::DragCard(const std::string& nodeId, el::point from, el::point to, bool done)
+{
+    using namespace guitarfx::uiclient;
+    if (!mHitMap || !mState.activePreset)
+        return;
+    auto& hits = *mHitMap;
+    const auto& graph = mState.activePreset->graph;
+    const auto* dragged = hits.FindCard(nodeId);
+
+    // What is under the pointer: another card, else a cable (a band round its line, as it is
+    // thin). The output takes the card before it (its cable in), never a place after it.
+    NodeDropTarget target;
+    for (const auto& card : hits.cards)
+    {
+        if (card.nodeId == nodeId || !card.bounds.includes(to))
+            continue;
+        const auto incoming = IncomingEdges(graph, card.nodeId);
+        if (card.nodeId == kOutputNodeId || graph.FindNode(card.nodeId) == nullptr ||
+            graph.FindNode(card.nodeId)->type == guitarfx::kNodeTypeOutput)
+        {
+            if (incoming.size() == 1)
+            {
+                target.kind = NodeDropTarget::Kind::Edge;
+                target.edge = incoming.front();
+            }
+            break;
+        }
+        target.kind = NodeDropTarget::Kind::Node;
+        target.nodeId = card.nodeId;
+        target.incoming = incoming;
+        target.isLeftOfDragged = dragged != nullptr && (card.bounds.left + card.bounds.right) < (dragged->bounds.left + dragged->bounds.right);
+        break;
+    }
+    if (target.kind == NodeDropTarget::Kind::None)
+        for (const auto& cable : hits.cables)
+            if (cable.bounds.inset(-2.0f, cable.bounds.height() * 0.5f - 18.0f).includes(to))
+            {
+                target.kind = NodeDropTarget::Kind::Edge;
+                target.edge = cable.edge;
+                break;
+            }
+
+    // Let go over another line of a wrapped chain: a card there spans the pointer's height but
+    // not the dragged card's.
+    bool anotherLine = false;
+    if (dragged != nullptr && (to.y < dragged->bounds.top || to.y > dragged->bounds.bottom))
+        for (const auto& card : hits.cards)
+            if (to.y >= card.bounds.top && to.y <= card.bounds.bottom)
+            {
+                anotherLine = true;
+                break;
+            }
+
+    const auto action = ResolveNodeDrop(nodeId, target, to.x - from.x, to.y - from.y, anotherLine);
+
+    // While dragging, light where it would land.
+    hits.hoverNode.clear();
+    hits.hoverEdge.reset();
+    if (!done)
+    {
+        if (action.kind == NodeDropAction::Kind::ReorderAfterNode)
+            hits.hoverNode = action.targetNodeId;
+        else if (action.kind == NodeDropAction::Kind::ReorderToEdge)
+            hits.hoverEdge = action.edge;
+        mSession.View().refresh();
+        return;
+    }
+
+    auto& commands = mSession.Commands();
+    switch (action.kind)
+    {
+        case NodeDropAction::Kind::ReorderAfterNode:
+            commands.MoveNode(nodeId, action.targetNodeId);
+            break;
+        case NodeDropAction::Kind::ReorderToEdge:
+            commands.MoveNodeToEdge(nodeId, action.edge);
+            break;
+        case NodeDropAction::Kind::ToggleBypass:
+            if (const auto* node = graph.FindNode(nodeId))
+                commands.SetNodeBypassed(nodeId, node->enabled);
+            break;
+        case NodeDropAction::Kind::None:
+            break;
+    }
+    if (action.kind != NodeDropAction::Kind::None)
+        NoteChainEdit();
+    mSession.View().refresh();
 }
 } // namespace nanoq::ui

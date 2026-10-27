@@ -62,6 +62,8 @@ public:
     void AddNodeOnEdge(const std::string& effectType, const GraphEdge& edge);
     void RemoveNode(const std::string& nodeId);
     void MoveNode(const std::string& nodeId, const std::string& afterNodeId);
+    /// Moves a node onto an edge of the graph: a cable, which may be inside a parallel branch.
+    void MoveNodeToEdge(const std::string& nodeId, const GraphEdge& edge);
     void CollapseSplit(const std::string& splitterId);
     /// Gives a split 2 to 4 branches; the engine adds empty ones and removes only empty ones.
     void SetSplitBranchCount(const std::string& splitterId, int count);

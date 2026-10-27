@@ -253,6 +253,13 @@ void UiCommands::MoveNode(const std::string& nodeId, const std::string& afterNod
     }
 }
 
+void UiCommands::MoveNodeToEdge(const std::string& nodeId, const GraphEdge& edge)
+{
+    mClient.Send("reorderSignalPathNode",
+                 {{"nodeId", nodeId},
+                  {"edge", {{"from", edge.from}, {"to", edge.to}, {"fromPort", edge.fromPort}, {"toPort", edge.toPort}}}});
+}
+
 void UiCommands::CollapseSplit(const std::string& splitterId)
 {
     mClient.Send("collapseSignalPathSplit", {{"splitterId", splitterId}});

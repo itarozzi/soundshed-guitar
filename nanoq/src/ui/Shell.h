@@ -61,6 +61,10 @@ struct MenuItem
 };
 
 class NodeCard; // ChainStrip.cpp
+namespace chain
+{
+struct HitMap; // ChainWidgets.h
+}
 
 class Shell
 {
@@ -197,6 +201,9 @@ private:
     [[nodiscard]] std::string ChainSignature() const;
     /// Moves each card's signal light to what the telemetry feed says. UI thread, per tick.
     void SyncChainLights();
+    /// A card being dragged: the drop target under `to` is lit, and on `done` the card moves
+    /// there by the web UI's rules (ChainDropRules).
+    void DragCard(const std::string& nodeId, el::point from, el::point to, bool done);
 
     [[nodiscard]] std::string SceneSignature() const;
     /// What the preset bar (or the full control bar) shows that a rebuild would change.
@@ -330,6 +337,7 @@ private:
     std::uint32_t mChromeCaption = 0xffffffffu; // the caption colour last applied, none yet
     std::string mChainSignature;
     std::vector<std::pair<std::string, std::shared_ptr<NodeCard>>> mChainCards; // node id, card: for the lights
+    std::shared_ptr<chain::HitMap> mHitMap; // where the chain's cards and cables are, for drops
     guitarfx::uiclient::PresetQuery mQuery;
     bool mShowSetlists = false;
     std::shared_ptr<el::basic_input_box> mSearchBox; // kept across rebuilds, with what was typed

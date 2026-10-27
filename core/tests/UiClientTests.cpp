@@ -29,6 +29,7 @@
 #include "dsp/effects/GraphicEQEffect.h"
 #include "presets/PresetStorage.h"
 #include "net/Http.h"
+#include "uiclient/ChainDropRules.h"
 #include "uiclient/ChainHistory.h"
 #include "uiclient/ChainLayout.h"
 #include "uiclient/EffectPresentation.h"
@@ -982,6 +983,42 @@ void TestLayoutDecisions()
 }
 } // namespace
 
+// Where a dragged chain card lands, as the web UI's signalPathDropTargets.test.ts has it.
+void TestChainDropRules()
+{
+    const auto edge = [](const char* from, const char* to) { return GraphEdge{from, to, 0, 0, 1.0}; };
+    const auto node = [](const char* id, bool left, std::vector<GraphEdge> incoming) {
+        NodeDropTarget t;
+        t.kind = NodeDropTarget::Kind::Node;
+        t.nodeId = id;
+        t.isLeftOfDragged = left;
+        t.incoming = std::move(incoming);
+        return t;
+    };
+    const auto onEdge = [](GraphEdge e) {
+        NodeDropTarget t;
+        t.kind = NodeDropTarget::Kind::Edge;
+        t.edge = std::move(e);
+        return t;
+    };
+    using K = NodeDropAction::Kind;
+
+    auto a = ResolveNodeDrop("drive", node("delay", false, {edge("amp", "delay")}), 0, 0);
+    Expect(a.kind == K::ReorderAfterNode && a.targetNodeId == "delay", "dragged rightwards: after the target");
+    a = ResolveNodeDrop("delay", node("drive", true, {edge("__input__", "drive")}), 0, 0);
+    Expect(a.kind == K::ReorderToEdge && a.edge.from == "__input__" && a.edge.to == "drive", "dragged leftwards: the target's slot");
+    a = ResolveNodeDrop("delay", node("mix", true, {edge("branchA", "mix"), edge("branchB", "mix")}), 0, 0);
+    Expect(a.kind == K::ReorderAfterNode && a.targetNodeId == "mix", "a leftward join target: after it");
+    a = ResolveNodeDrop("drive", onEdge(edge("amp", "delay")), 0, 0);
+    Expect(a.kind == K::ReorderToEdge && a.edge.to == "delay", "onto a cable");
+    Expect(ResolveNodeDrop("drive", onEdge(edge("drive", "amp")), 0, 0).kind == K::None, "onto its own cable: nothing");
+    Expect(ResolveNodeDrop("drive", node("drive", false, {}), 0, 0).kind == K::None, "onto itself: nothing");
+    Expect(ResolveNodeDrop("drive", {}, 4, 50).kind == K::ToggleBypass, "a vertical flick on nothing toggles bypass");
+    Expect(ResolveNodeDrop("drive", {}, 4, 50, true).kind == K::None, "not when it lands on another line");
+    Expect(ResolveNodeDrop("drive", {}, 80, 10).kind == K::None, "released away from a target, no flick: nothing");
+    Expect(!IsBypassFlick(0, 20) && !IsBypassFlick(40, 40) && IsBypassFlick(0, -40), "enough, mostly vertical, either way");
+}
+
 int main()
 {
     TestClientMirrorsTheEngine();
@@ -990,6 +1027,7 @@ int main()
     TestFactoryPresetParameterOrder();
     TestTelemetryDecoding();
     TestChainLayoutWalksParallelLanes();
+    TestChainDropRules();
     TestNodeArchitectureBadge();
     TestPresetBrowse();
     TestParamFormatting();
