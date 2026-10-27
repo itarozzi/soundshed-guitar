@@ -342,7 +342,7 @@ bool ParamSlider::cursor(const el::context& ctx, el::point, el::cursor_tracking 
 bool ParamSlider::scroll(const el::context& ctx, el::point dir, el::point)
 {
     // A wheel nudges by 2%; the page's own scroller gets it when the slider is not hovered.
-    if (dir.y == 0.0f || !mHover)
+    if (dir.y == 0.0f || !mHover || !ParamKnob::sWheelAdjusts)
         return false;
 
     mValue = std::clamp(mValue + (dir.y > 0.0f ? 0.02 : -0.02), 0.0, 1.0);
@@ -481,9 +481,13 @@ bool ParamKnob::click(const el::context& ctx, el::mouse_button btn)
 
     if (btn.down)
     {
-        if (btn.num_clicks == 2 && onReset)
+        if (btn.num_clicks == 2)
         {
-            onReset();
+            mDragging = false;
+            if (onEdit && btn.pos.y >= ctx.bounds.bottom - kKnobValueHeight - 2.0f)
+                onEdit();
+            else if (onReset)
+                onReset();
             return true;
         }
         mDragging = true;
@@ -525,7 +529,7 @@ bool ParamKnob::cursor(const el::context& ctx, el::point, el::cursor_tracking st
 
 bool ParamKnob::scroll(const el::context& ctx, el::point dir, el::point)
 {
-    if (dir.y == 0.0f || !mHover)
+    if (dir.y == 0.0f || !mHover || !sWheelAdjusts)
         return false;
 
     mValue = std::clamp(mValue + (dir.y > 0.0f ? 0.02 : -0.02), 0.0, 1.0);

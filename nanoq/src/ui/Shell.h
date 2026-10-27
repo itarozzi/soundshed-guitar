@@ -19,6 +19,7 @@
 // the values on the sliders of the page being shown (a rebuild would drop a drag).
 
 #include "ui/Graphics.h"
+#include "ui/KeyRouter.h"
 #include "ui/Layout.h"
 #include "ui/ShellWidgets.h"
 #include "ui/UiSession.h"
@@ -100,6 +101,13 @@ private:
     void Subscribe();
     void BuildRoot();
     void Rebuild();
+
+    /// The keyboard shortcuts (Keys.cpp), as the web UI's: undo and redo, Space, Delete, Esc, F2.
+    bool HandleKey(const el::key_info& k);
+    /// Space with no effect picked out: a tap on the tempo.
+    void TapTempo();
+    /// The standalone window's caption takes the colour of the bar under it (Windows).
+    void SyncWindowChrome();
 
     // The window's size and which layout it gets (ShellFrame.cpp).
     /// The view's size in layout units: the zoom divided out.
@@ -276,6 +284,10 @@ private:
     Images mImages;
 
     Ptr mRoot;
+    std::shared_ptr<KeyRouter> mKeys;
+    /// The last click picked a chain card: Space bypasses it and Delete removes it, as when
+    /// a card has focus in the web UI. Any other click clears it.
+    bool mChainFocused = false;
     SlotPtr mFrameSlot, mEffectSlot;
     SlotPtr mBgSlot, mRailSlot, mTopSlot, mSceneSlot, mChainSlot, mPageSlot, mTransportSlot;
 
@@ -315,6 +327,7 @@ private:
     unsigned mDirty = kAll;
     bool mShowingStarting = false;
     std::string mAppliedTheme;
+    std::uint32_t mChromeCaption = 0xffffffffu; // the caption colour last applied, none yet
     std::string mChainSignature;
     std::vector<std::pair<std::string, std::shared_ptr<NodeCard>>> mChainCards; // node id, card: for the lights
     guitarfx::uiclient::PresetQuery mQuery;

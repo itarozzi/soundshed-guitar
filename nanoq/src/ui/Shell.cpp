@@ -1,5 +1,6 @@
 #include "ui/Shell.h"
 
+#include "WindowChrome.h"
 #include "ui/ShellIcons.h"
 #include "uiclient/NodeLabels.h"
 
@@ -101,7 +102,24 @@ void Shell::BuildRoot()
     mFrameSlot = MakeSlot();
     mWide = WantsWide();
     Fill(*mFrameSlot, BuildFrame());
-    mRoot = Over(MinSize(metrics::kMinWidth, metrics::kMinHeight, mFrameSlot), mBgSlot);
+    mKeys = std::make_shared<KeyRouter>(Over(MinSize(metrics::kMinWidth, metrics::kMinHeight, mFrameSlot), mBgSlot));
+    mKeys->onKey = [this](const el::key_info& k) { return HandleKey(k); };
+    mKeys->onPointerDown = [this] { mChainFocused = false; };
+    mRoot = mKeys;
+}
+
+void Shell::SyncWindowChrome()
+{
+    const auto rgb = [](el::color c) {
+        const auto channel = [](float v) { return static_cast<std::uint32_t>(std::clamp(v, 0.0f, 1.0f) * 255.0f + 0.5f); };
+        return (channel(c.red) << 16) | (channel(c.green) << 8) | channel(c.blue);
+    };
+    // The compact preset bar or the full layout's tab row: what sits under the caption.
+    const auto caption = rgb(mWide ? mTheme.Background() : mTheme.Tertiary());
+    if (caption == mChromeCaption)
+        return;
+    mChromeCaption = caption;
+    nanoq::ThemeStandaloneWindow(static_cast<void*>(mSession.View().host()), caption, rgb(mTheme.Text()), caption);
 }
 
 void Shell::Rebuild()
@@ -276,6 +294,12 @@ void Shell::Rebuild()
 
 void Shell::OnTick()
 {
+    KeyRouter::Retake(mSession.View());
+    {
+        const auto wheel = mState.appSettings.find("ui.mouseWheelAdjustsControls");
+        ParamKnob::sWheelAdjusts = wheel == mState.appSettings.end() || !wheel->is_boolean() || wheel->get<bool>();
+    }
+
     // A window resized (or zoomed) across the breakpoint gets the other frame, every region
     // built for it.
     if (const bool wide = WantsWide(); wide != mWide)
@@ -309,6 +333,7 @@ void Shell::OnTick()
         CommitChainHistory();
     if (mDirty != 0)
         Rebuild();
+    SyncWindowChrome();
 
     // Errors and confirmations the engine sent (a save that failed, a preset saved).
     for (auto& n : mSession.Client().TakeNotifications())

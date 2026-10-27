@@ -145,7 +145,10 @@ Ptr Shell::BuildChain()
         width = look.width;
         const bool canBypass = look.canBypass;
         auto card = std::make_shared<NodeCard>(mTheme, mIcons, std::move(look));
-        card->onSelect = [this, nodeId] { SelectNode(nodeId); };
+        card->onSelect = [this, nodeId] {
+            SelectNode(nodeId);
+            mChainFocused = true;
+        };
         card->onMenu = [this, nodeId] { OpenNodeMenu(nodeId); };
         if (canBypass)
         {
@@ -239,7 +242,10 @@ Ptr Shell::BuildChain()
 
         const auto splitId = item.splitNodeId;
         segment.parts.push_back(std::make_shared<Rail>(mTheme, mIcons, laneCount, false, splitId == mSelectedNode,
-                                                       [this, splitId] { SelectNode(splitId); }));
+                                                       [this, splitId] {
+                                                           SelectNode(splitId);
+                                                           mChainFocused = true;
+                                                       }));
         segment.parts.push_back(FixedWidth(lanesWidth, Col(lanes)));
         segment.parts.push_back(std::make_shared<Rail>(mTheme, mIcons, laneCount, true, false, std::function<void()>{}));
         segment.width += kRailWidth * 2.0f + lanesWidth;

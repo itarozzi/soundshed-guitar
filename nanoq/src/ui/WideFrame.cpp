@@ -358,14 +358,9 @@ Ptr Shell::BuildTempoControls(bool withTap)
     std::vector<Ptr> parts{tempo};
     if (withTap)
     {
-        if (!mTapTempo)
-            mTapTempo = std::make_shared<guitarfx::uiclient::TapTempo>();
         auto tap = std::make_shared<IconButton>(mTheme, mIcons, "");
         tap->Size(40, 26).Label("TAP", 10.0f).Ink(mTheme.TextSecondary());
-        tap->onClick = [this] {
-            if (const auto bpm = mTapTempo->Tap(UiSession::Now()))
-                mSession.Commands().SetMetronomeBpm(guitarfx::uiclient::ClampBpm(*bpm));
-        };
+        tap->onClick = [this] { TapTempo(); };
         auto metronome = ToolButton(mTheme, mIcons, "ui-metronome", [this] { OpenMetronome(); }, 26.0f, 15.0f);
         metronome->Ink(mTheme.TextSecondary());
         parts.push_back(HGap(2));

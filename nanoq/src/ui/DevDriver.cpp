@@ -10,6 +10,54 @@ namespace nanoq::ui
 {
 namespace el = cycfi::elements;
 
+namespace
+{
+/// "ctrl+shift+z", "space", "escape", "delete", "f2", "a": a key and its modifiers.
+std::optional<el::key_info> ParseKey(std::string spec)
+{
+    int mods = 0;
+    for (std::size_t plus; (plus = spec.find('+')) != std::string::npos && plus + 1 < spec.size();)
+    {
+        const auto mod = spec.substr(0, plus);
+        spec = spec.substr(plus + 1);
+        if (mod == "ctrl")
+            mods |= el::mod_control | el::mod_action;
+        else if (mod == "shift")
+            mods |= el::mod_shift;
+        else if (mod == "alt")
+            mods |= el::mod_alt;
+        else if (mod == "cmd")
+            mods |= el::mod_command | el::mod_action;
+    }
+    el::key_code code = el::key_code::unknown;
+    if (spec == "space")
+        code = el::key_code::space;
+    else if (spec == "escape")
+        code = el::key_code::escape;
+    else if (spec == "enter")
+        code = el::key_code::enter;
+    else if (spec == "delete")
+        code = el::key_code::_delete;
+    else if (spec == "backspace")
+        code = el::key_code::backspace;
+    else if (spec == "left")
+        code = el::key_code::left;
+    else if (spec == "right")
+        code = el::key_code::right;
+    else if (spec == "up")
+        code = el::key_code::up;
+    else if (spec == "down")
+        code = el::key_code::down;
+    else if (spec.size() == 2 && spec[0] == 'f' && spec[1] >= '1' && spec[1] <= '9')
+        code = static_cast<el::key_code>(static_cast<int>(el::key_code::f1) + (spec[1] - '1'));
+    else if (spec.size() == 1 && spec[0] >= 'a' && spec[0] <= 'z')
+        code = static_cast<el::key_code>(static_cast<int>(el::key_code::a) + (spec[0] - 'a'));
+    if (code == el::key_code::unknown)
+        return std::nullopt;
+    return el::key_info{code, el::key_action::press, mods};
+}
+} // namespace
+
 std::optional<DevDriver> DevDriver::FromEnvironment()
 {
     const char* path = std::getenv("SOUNDSHED_NANOQ_DRIVE");
@@ -44,6 +92,23 @@ void DevDriver::Poll(el::view& view)
             const auto space = rest.find(' ');
             if (space != std::string::npos && onSetting)
                 onSetting(rest.substr(0, space), rest.substr(space + 1));
+            continue;
+        }
+        if (line.rfind("key ", 0) == 0)
+        {
+            if (auto k = ParseKey(line.substr(4)))
+            {
+                view.key(*k);
+                k->action = el::key_action::release;
+                view.key(*k);
+            }
+            continue;
+        }
+        if (line.rfind("type ", 0) == 0)
+        {
+            // Text, as typed into whatever has focus.
+            for (const char ch : line.substr(5))
+                view.text(el::text_info{static_cast<std::uint32_t>(static_cast<unsigned char>(ch)), 0});
             continue;
         }
         if (line.rfind("shot ", 0) == 0)

@@ -13,6 +13,10 @@
 #include "uiclient/ParamFormat.h"
 
 #include <algorithm>
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <optional>
 
 namespace nanoq::ui
 {
@@ -21,6 +25,37 @@ using namespace guitarfx::uiclient;
 namespace
 {
 namespace artist = cycfi::artist;
+
+/// A value as the knob's number field shows it: in the parameter's own unit, with as many
+/// decimals as its step has (two without one), as the web UI's knob fills its input.
+std::string EditableValue(const EffectParamInfo& info, double value)
+{
+    int decimals = 2;
+    if (info.step > 0.0)
+    {
+        decimals = 0;
+        for (double s = info.step; decimals < 6 && std::abs(s - std::round(s)) > 1e-9; s *= 10.0)
+            ++decimals;
+    }
+    char buffer[64];
+    std::snprintf(buffer, sizeof(buffer), "%.*f", decimals, value);
+    return buffer;
+}
+
+/// The number typed into a value prompt, if it reads as one ("440", "-6.5", "1.2k").
+std::optional<double> TypedNumber(const std::string& text)
+{
+    const char* begin = text.c_str();
+    char* end = nullptr;
+    double value = std::strtod(begin, &end);
+    if (end == begin || !std::isfinite(value))
+        return std::nullopt;
+    while (*end == ' ')
+        ++end;
+    if (*end == 'k' || *end == 'K')
+        value *= 1000.0;
+    return value;
+}
 
 /// The one control the input and output nodes carry: their gain in dB, which the effect catalog
 /// does not list since they are not effects.
@@ -302,6 +337,21 @@ Ptr Shell::BuildEffectPage()
                 NoteChainEdit();
                 Mark(kValues);
             };
+            if (!stepped)
+                control.knob->onEdit = [this, nodeId, info] {
+                    const auto* n = SelectedNode();
+                    if (n == nullptr)
+                        return;
+                    OpenPrompt(info.name, EditableValue(info, NodeParamValue(*n, info)), "Set",
+                               [this, nodeId, info](const std::string& entered) {
+                                   const auto typed = TypedNumber(entered);
+                                   if (!typed)
+                                       return;
+                                   mSession.Commands().SetNodeParam(nodeId, info.key, SnapParamValue(info, *typed));
+                                   NoteChainEdit();
+                                   Mark(kValues);
+                               });
+                };
             target.cells.emplace_back(kCellWidth, control.knob);
         }
 

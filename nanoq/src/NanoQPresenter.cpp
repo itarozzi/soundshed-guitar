@@ -1,6 +1,7 @@
 #include "NanoQPresenter.h"
 
 #include "Log.h"
+#include "WindowChrome.h"
 #include "ui/Shell.h"
 #include "ui/UiSession.h"
 
@@ -24,6 +25,7 @@ void NanoQPresenter::on_attach(cycfi::elements::view& view)
     };
 
     view.content(mShell->Root());
+    MakeStandaloneWindowResizable(static_cast<void*>(view.host()));
 
     const auto size = view.size();
     const auto limits = view.limits();

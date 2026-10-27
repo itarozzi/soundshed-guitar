@@ -190,6 +190,13 @@ public:
 
     std::function<void(double normalised)> onChange;
     std::function<void()> onReset;
+    /// A double click on the value text: the owner asks for a value to type in, as the web
+    /// UI's knob opens its number field. Without it, that double click resets too.
+    std::function<void()> onEdit;
+
+    /// Whether a wheel over a knob or slider turns it: the shared ui.mouseWheelAdjustsControls,
+    /// on unless turned off, kept current by the shell.
+    static inline bool sWheelAdjusts = true;
 
 private:
     const Theme& mTheme;

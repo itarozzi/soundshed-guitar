@@ -1,8 +1,7 @@
 # ── Soundshed Nano Q ────────────────────────────────────────────────────────────
-# Soundshed Nano without JUCE: the same engine (core/) and the same client library
-# (core/src/uiclient) as Soundshed Guitar Nano, hosted by Cycfi's QPlug and drawn with
-# Cycfi's Elements. A separate app: juce/ and its Nano target are untouched, and the two
-# install side by side (own plugin id, own name). They share the profile folder.
+# The native UI for Soundshed Guitar's engine (core/) and client library (core/src/uiclient),
+# hosted by Cycfi's QPlug and drawn with Cycfi's Elements, with no JUCE. A separate app: it
+# installs beside Soundshed Guitar (own plugin id, own name) and shares its profile folder.
 #
 # Configure and build from a shell with the MSVC environment loaded (QPlug wants Ninja):
 #   cmake -S nanoq -B nanoq/build -G Ninja -DCMAKE_BUILD_TYPE=Release
