@@ -5,7 +5,7 @@
 
 #include <cstdint>
 
-namespace soundshed::nano::theme
+namespace guitarfx::uiclient::theme
 {
 /// One theme's colours as 0xAARRGGBB, named after the web UI's CSS custom properties.
 struct ThemeTokens
@@ -153,4 +153,4 @@ inline constexpr ThemeTokens kClassic {
     0xff4a403a, // toggleBg
 };
 
-} // namespace soundshed::nano::theme
+} // namespace guitarfx::uiclient::theme

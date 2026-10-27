@@ -262,9 +262,12 @@ juce/source/editor/SoundshedEditorBase.{h,cpp}  shared by both editors
 juce/source/editor/WebEditor.{h,cpp}            today's PluginEditor, renamed; Soundshed Guitar only
 juce/source/nativeui/                NativeEditor, Shell, TopBar, NodeStrip, ChainView,
                                      EffectView, KnobGrid, SliderList, visuals/, sheets/,
-                                     widgets/, theme/ThemeTokens.generated.h
-juce/source/JuceHttpClient.{h,cpp}   IHttpClient on juce::URL
+                                     widgets/, theme/
+core/src/uiclient/ThemeTokens.generated.h  colours from the web UI's CSS, shared with Nano Q
+core/nativeui/fonts/                 static Inter cuts, shared with Nano Q
+juce/source/nativeui/tones/JuceHttpTransport.{h,cpp}  net::HttpTransport on juce::URL
 tools/gen-native-theme.mjs           CSS variables → ThemeTokens.generated.h (CI drift check)
+tools/gen-nano-fonts.mjs             the web UI's variable Inter → core/nativeui/fonts
 tools/agent-ui-debug/native/         live-driving tool for the native editor
 ```
 
@@ -473,7 +476,9 @@ follows the list below is the original design; what exists is:
 - **Theme:** `tools/gen-native-theme.mjs` turns `css/variables.css` and
   `css/themes/{light,dark,classic}.css` into `ThemeTokens.generated.h`, and CI fails on drift.
   The theme choice is the shared `theme` setting.
-- **Font:** the web UI's font is embedded as `BinaryData`.
+- **Font:** static cuts of the web UI's Inter in `core/nativeui/fonts` (JUCE cannot choose a
+  variable font's weight), copied beside the app as `resources/ui/fonts`; Nano Q ships the same
+  files.
 
 ## TypeScript logic to port into the client library
 

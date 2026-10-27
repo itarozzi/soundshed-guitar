@@ -6,7 +6,8 @@
  * the defaults on :root in core/ui/css/variables.css, overridden per theme in
  * core/ui/css/themes/<theme>.css. Nano cannot read CSS, so this resolves the tokens it uses
  * for each theme - following var() references, and taking a gradient's first stop - and
- * writes them as ARGB constants to juce/source/nativeui/theme/ThemeTokens.generated.h.
+ * writes them as ARGB constants to core/src/uiclient/ThemeTokens.generated.h, which both native
+ * UIs (Soundshed Guitar Nano and Nano Q) draw with.
  * Both products then change colour together, and the theme a user picks in either applies
  * to both (it is the shared "theme" app setting).
  *
@@ -20,7 +21,7 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CSS = path.join(ROOT, 'core', 'ui', 'css');
-const OUT = path.join(ROOT, 'juce', 'source', 'nativeui', 'theme', 'ThemeTokens.generated.h');
+const OUT = path.join(ROOT, 'core', 'src', 'uiclient', 'ThemeTokens.generated.h');
 
 // C++ field -> the CSS custom properties it reads, first one defined wins.
 const TOKENS = [
@@ -118,7 +119,7 @@ function generate() {
     '',
     '#include <cstdint>',
     '',
-    'namespace soundshed::nano::theme',
+    'namespace guitarfx::uiclient::theme',
     '{',
     '/// One theme\'s colours as 0xAARRGGBB, named after the web UI\'s CSS custom properties.',
     'struct ThemeTokens',
@@ -138,7 +139,7 @@ function generate() {
     TOKENS.forEach(([field], i) => lines.push(`    ${values[i]}, // ${field}`));
     lines.push('};', '');
   }
-  lines.push('} // namespace soundshed::nano::theme', '');
+  lines.push('} // namespace guitarfx::uiclient::theme', '');
   return lines.join('\n');
 }
 

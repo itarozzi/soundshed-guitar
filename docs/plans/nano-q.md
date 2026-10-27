@@ -24,9 +24,11 @@ through `core/src/uiclient`: the same JSON messages the web UI sends, parsed int
 | File dialogs, thread hops, message thread, paths (`PluginProcessorAdapter` as `IPluginHost`) | `nanoq/src/Engine.*`, `FileDialogs.*`, `Paths.*` |
 | The 10,000 lines of Components in `juce/source/nativeui` | `nanoq/src/ui/`, Elements elements drawn from the same theme tokens |
 
-What is **not** reused from `juce/`: all of it, with one exception: the generated colour tokens
-(`juce/source/nativeui/theme/ThemeTokens.generated.h`, a plain header made from the web UI's
-CSS) and the Inter font files, so a theme looks the same in every product.
+Nothing is reused from `juce/`. The two things both native UIs draw with live in core: the
+generated colour tokens (`core/src/uiclient/ThemeTokens.generated.h`, a plain header made from
+the web UI's CSS by `tools/gen-native-theme.mjs`) and the static Inter cuts
+(`core/nativeui/fonts`, made by `tools/gen-nano-fonts.mjs`), so a theme looks the same in every
+product.
 
 ## Architecture
 

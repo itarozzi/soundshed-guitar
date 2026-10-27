@@ -4,7 +4,7 @@
 // Nano uses, so a theme looks the same in every product), as Elements colours, plus the
 // measurements the views share.
 
-#include "nativeui/theme/ThemeTokens.generated.h"
+#include "uiclient/ThemeTokens.generated.h"
 
 #include <elements.hpp>
 
@@ -73,14 +73,14 @@ public:
     [[nodiscard]] el::color AccentTint() const noexcept;
 
 private:
-    using Tokens = soundshed::nano::theme::ThemeTokens;
+    using Tokens = guitarfx::uiclient::theme::ThemeTokens;
     [[nodiscard]] const Tokens& T() const noexcept
     {
         return *mTokens;
     }
 
     std::string mName = "dark";
-    const Tokens* mTokens = &soundshed::nano::theme::kDark;
+    const Tokens* mTokens = &guitarfx::uiclient::theme::kDark;
 };
 
 /// Text weights Nano draws in: Inter's static cuts.

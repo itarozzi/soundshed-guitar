@@ -1,6 +1,6 @@
 #pragma once
 
-#include "nativeui/theme/ThemeTokens.generated.h"
+#include "uiclient/ThemeTokens.generated.h"
 
 #include <juce_graphics/juce_graphics.h>
 
@@ -9,8 +9,10 @@
 
 namespace soundshed::nano
 {
-/// The weights Nano draws text in: static cuts of the web UI's Inter (theme/fonts, made by
-/// tools/gen-nano-fonts.mjs). Body text is Regular, labels and values Medium, headings SemiBold.
+namespace theme = guitarfx::uiclient::theme;
+
+/// The weights Nano draws text in: static cuts of the web UI's Inter (core/nativeui/fonts, made
+/// by tools/gen-nano-fonts.mjs). Body text is Regular, labels and values Medium, headings SemiBold.
 enum class FontWeight
 {
     regular,

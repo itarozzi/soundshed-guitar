@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * The fonts Soundshed Guitar Nano draws with: static Inter Regular, Medium and SemiBold, cut
- * from the web UI's variable Inter (core/ui/css/fonts) into juce/source/nativeui/theme/fonts.
+ * from the web UI's variable Inter (core/ui/css/fonts) into core/nativeui/fonts, which both native
+ * UIs (Soundshed Guitar Nano and Nano Q) ship.
  *
  * JUCE 8 cannot pick a variable font's weight - on Windows it draws Inter's first named
  * instance, Thin - so Nano needs one static file per weight. tools/nano-fonts/
@@ -27,7 +28,7 @@ const HARFBUZZ = path.join(ROOT, 'juce', 'JUCE', 'modules', 'juce_graphics', 'fo
 const TOOL = path.join(ROOT, 'tools', 'nano-fonts', 'make-inter-instances.cpp');
 const FONTS = path.join(ROOT, 'core', 'ui', 'css', 'fonts');
 const SOURCE = path.join(FONTS, 'Inter-VariableFont_opsz,wght.ttf');
-const OUT = path.join(ROOT, 'juce', 'source', 'nativeui', 'theme', 'fonts');
+const OUT = path.join(ROOT, 'core', 'nativeui', 'fonts');
 
 function fail(message) {
   console.error(`gen-nano-fonts: ${message}`);

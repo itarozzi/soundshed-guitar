@@ -24,7 +24,7 @@ val juceModules = rootProject.file("../juce/JUCE/modules")
 val uiSrcDir = rootProject.file("../core/ui")
 
 /** Nano's fonts: static cuts of the web UI's Inter (tools/gen-nano-fonts.mjs). */
-val nanoFontsDir = rootProject.file("../juce/source/nativeui/theme/fonts")
+val nanoFontsDir = rootProject.file("../core/nativeui/fonts")
 
 /** ABIs to build, from the ssg.abis property (see gradle.properties). */
 val targetAbis: List<String> =

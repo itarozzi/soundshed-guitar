@@ -128,10 +128,7 @@ endif()
 
 add_library(nanoq_impl STATIC ${NANOQ_SOURCES})
 target_include_directories(nanoq_impl PRIVATE
-    "${CMAKE_CURRENT_SOURCE_DIR}/src"
-    # Only for nativeui/theme/ThemeTokens.generated.h: the colours generated from the web UI's
-    # CSS, a plain header with no JUCE in it. Nothing else from juce/ is used.
-    "${CMAKE_CURRENT_SOURCE_DIR}/../juce/source")
+    "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_compile_definitions(nanoq_impl PRIVATE
     NANOQ_VERSION="${PROJECT_VERSION}"
     NANOQ_ID="${NANOQ_ID}"
@@ -152,10 +149,10 @@ endif()
 q_plug_add_host(nanoq_impl SoundshedNanoQ)
 
 # Fonts Nano Q draws with. Elements finds fonts only beside the plugin. Inter's static cuts are the
-# ones Nano uses (juce/source/nativeui/theme/fonts, made by tools/gen-nano-fonts.mjs); Open Sans
+# ones Nano uses (core/nativeui/fonts, made by tools/gen-nano-fonts.mjs); Open Sans
 # stays for anything Elements draws itself.
 get_property(_nanoq_elements GLOBAL PROPERTY Q_PLUG_ELEMENTS_SOURCE_DIR)
-set(_nanoq_fonts "${CMAKE_CURRENT_SOURCE_DIR}/../juce/source/nativeui/theme/fonts")
+set(_nanoq_fonts "${CMAKE_CURRENT_SOURCE_DIR}/../core/nativeui/fonts")
 set(ELEMENTS_FONTS
     "${_nanoq_fonts}/Inter-Regular.ttf"
     "${_nanoq_fonts}/Inter-Medium.ttf"
