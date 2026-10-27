@@ -606,6 +606,9 @@ void PluginController::SendPresetListToUI()
                     p["name"] = preset.name;
                     p["category"] = preset.category;
                     p["source"] = mFactoryArchivePresetIds.contains(preset.id) ? "factory" : source;
+                    // What a preset browser filters and searches on, besides the name.
+                    p["tags"] = preset.tags;
+                    p["description"] = preset.description;
                     presets.push_back(p);
                 }
                 catch (...)
@@ -633,6 +636,8 @@ void PluginController::SendPresetListToUI()
         p["name"] = preset.name;
         p["category"] = preset.category;
         p["source"] = mFactoryArchivePresetIds.contains(preset.id) ? "factory" : "user";
+        p["tags"] = preset.tags;
+        p["description"] = preset.description;
         presets.push_back(p);
     }
 

@@ -4,9 +4,10 @@
  * PresetBrowse.h - Which presets a preset browser shows, in what order.
  *
  * The rules of core/ui/ts/presets/filter.ts: a folder (the virtual All, Favourites and
- * Recents, or a real folder with its subfolders), then a text match on name and category,
- * then alphabetical by name (case-insensitive, numbers compared as numbers), except Recents,
- * which keep most-recent-first.
+ * Recents, or a real folder with its subfolders), then the tags a preset must all carry, then
+ * a text match on name, category and description, then alphabetical by name
+ * (case-insensitive, numbers compared as numbers), except Recents, which keep
+ * most-recent-first.
  */
 
 #include "uiclient/ClientState.h"
@@ -24,6 +25,8 @@ struct PresetQuery
 {
     std::string folderId = kPresetFolderAll;
     std::string text;
+    /// Tags a preset must all carry (the browser's tag chips).
+    std::vector<std::string> tags;
 };
 
 [[nodiscard]] std::vector<PresetSummary> FilterPresets(const ClientState& state, const PresetQuery& query);

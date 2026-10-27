@@ -234,6 +234,14 @@ private:
     void LoadWithConfirm(const std::string& presetId);
     void DeleteWithConfirm(const std::string& presetId);
     void OpenPresetRowMenu(const guitarfx::uiclient::PresetSummary& preset);
+    void OpenFolderMenu(const std::string& folderId);
+    void SelectPresetBrowserFolder(const std::string& folderId);
+    [[nodiscard]] Ptr BuildFolderColumn();
+    [[nodiscard]] Ptr BuildSetlistsView(Ptr tabs);
+    /// A menu or prompt opened from another menu's item, once that menu has closed.
+    void PostMenu(const std::string& title, std::vector<MenuItem> items);
+    void PostPrompt(const std::string& title, const std::string& initial, const std::string& confirmLabel,
+                    std::function<void(const std::string&)> onSubmit);
 
     // TonesPage.cpp: tone sharing, as the web UI's Tones tab
     enum class TonesTab
@@ -350,6 +358,10 @@ private:
     std::shared_ptr<chain::HitMap> mHitMap; // where the chain's cards and cables are, for drops
     guitarfx::uiclient::PresetQuery mQuery;
     bool mShowSetlists = false;
+    std::vector<std::string> mPresetTags; // the tag chips that are on
+    std::string mSeenPresetFolder;        // the engine's folder choice last followed
+    bool mSetlistPads = false;             // the Setlists tab shows pads rather than a list
+    int mSetlistPadBank = 0;
     std::shared_ptr<el::basic_input_box> mSearchBox; // kept across rebuilds, with what was typed
     Ptr mSearchElement;
     SlotPtr mPresetListSlot;

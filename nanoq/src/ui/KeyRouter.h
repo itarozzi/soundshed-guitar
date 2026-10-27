@@ -19,7 +19,12 @@ namespace nanoq::ui
 class KeyRouter final : public cycfi::elements::proxy_base
 {
 public:
-    explicit KeyRouter(cycfi::elements::element_ptr subject) : mSubject(std::move(subject)) {}
+    /// `focusContent`: a dialog's router passes focus on to what it holds (its text box gets the
+    /// caret as it opens); the root's keeps it, so taking focus back puts no caret anywhere.
+    explicit KeyRouter(cycfi::elements::element_ptr subject, bool focusContent = false)
+        : mSubject(std::move(subject)), mFocusContent(focusContent)
+    {
+    }
 
     cycfi::elements::element& subject() override
     {
@@ -39,7 +44,7 @@ public:
     // in the first text box); a window regaining focus restores what was focused before.
     void begin_focus(focus_request req) override
     {
-        if (req == focus_request::restore_previous)
+        if (mFocusContent || req == focus_request::restore_previous)
             proxy_base::begin_focus(req);
     }
 
@@ -94,5 +99,6 @@ public:
 
 private:
     cycfi::elements::element_ptr mSubject;
+    bool mFocusContent;
 };
 } // namespace nanoq::ui

@@ -31,6 +31,8 @@ struct PresetSummary
     std::string name;
     std::string category;
     std::string source; // "factory", "user" or "session"
+    std::string description;
+    std::vector<std::string> tags;
 };
 
 struct PresetFolder

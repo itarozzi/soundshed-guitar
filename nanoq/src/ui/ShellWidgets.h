@@ -877,6 +877,132 @@ private:
     std::function<void()> onStar;
 };
 
+/// One preset in the preset browser (the web UI's preset row): its name, a line under it with its
+/// category, folder and tags, and at the right its rating (five stars, a click sets one, the
+/// same one again clears it) and the favourite heart. A right click asks for its menu.
+class PresetRow final : public Pressable
+{
+public:
+    PresetRow(const Theme& theme, Icons& icons, std::string name, std::string detail, int rating, bool favourite, bool selected)
+        : mTheme(theme), mIcons(icons), mName(std::move(name)), mDetail(std::move(detail)), mRating(rating), mFavourite(favourite),
+          mSelected(selected)
+    {
+    }
+
+    el::view_limits limits(const el::basic_context&) const override
+    {
+        return {{200.0f, 44.0f}, {el::full_extent, 44.0f}};
+    }
+
+    void draw(const el::context& ctx) override
+    {
+        auto& cnv = ctx.canvas;
+        const auto b = ctx.bounds.inset(0.0f, 1.0f);
+        cnv.fill_style(mSelected ? mTheme.AccentTint() : mHover ? mTheme.Elevated().opacity(0.7f) : el::rgba(0, 0, 0, 0));
+        cnv.fill_round_rect(b, metrics::kRadius);
+
+        // Right to left: the heart, then the stars.
+        const float mid = b.top + b.height() * 0.5f;
+        mIcons.Draw(cnv, mFavourite ? "heart-filled" : "heart", HeartRect(b), mFavourite ? mTheme.Accent() : mTheme.TextMuted());
+        for (int i = 0; i < 5; ++i)
+            mIcons.Draw(cnv, "star", StarRect(b, i), i < mRating ? mTheme.Accent() : mTheme.TextMuted().opacity(mHover ? 0.7f : 0.35f));
+
+        const float right = StarRect(b, 0).left - 12.0f;
+        const auto nameFont = Font(mSelected ? Weight::SemiBold : Weight::Medium).size(metrics::kTextSize);
+        const auto detailFont = Font(Weight::Regular).size(10.5f);
+        const el::rect text{b.left + 12.0f, b.top + 4.0f, right, mid + 1.0f};
+        FillText(cnv, Ellipsize(cnv, mName, nameFont, text.width()), nameFont, mTheme.Text(), text, HAlign::Left);
+        if (!mDetail.empty())
+            FillText(cnv, Ellipsize(cnv, mDetail, detailFont, text.width()), detailFont, mTheme.TextMuted(),
+                     el::rect{text.left, mid + 1.0f, right, b.bottom - 4.0f}, HAlign::Left);
+    }
+
+    bool click(const el::context& ctx, el::mouse_button btn) override
+    {
+        if (btn.state == el::mouse_button::right)
+        {
+            if (btn.down && onMenu)
+                onMenu();
+            return true;
+        }
+        if (btn.state == el::mouse_button::left)
+        {
+            const auto b = ctx.bounds.inset(0.0f, 1.0f);
+            if (HeartRect(b).inset(-5.0f, -8.0f).includes(btn.pos))
+            {
+                if (!btn.down && onFavourite)
+                    onFavourite();
+                return true;
+            }
+            for (int i = 0; i < 5; ++i)
+                if (StarRect(b, i).inset(-2.0f, -8.0f).includes(btn.pos))
+                {
+                    if (!btn.down && onRate)
+                        onRate(i + 1 == mRating ? 0 : i + 1);
+                    return true;
+                }
+        }
+        return Pressable::click(ctx, btn);
+    }
+
+    std::function<void()> onMenu, onFavourite;
+    std::function<void(int rating)> onRate;
+
+private:
+    static el::rect HeartRect(const el::rect& b)
+    {
+        const float mid = b.top + b.height() * 0.5f;
+        return el::rect{b.right - 30.0f, mid - 8.0f, b.right - 14.0f, mid + 8.0f};
+    }
+
+    static el::rect StarRect(const el::rect& b, int index)
+    {
+        const float mid = b.top + b.height() * 0.5f;
+        const float left = b.right - 44.0f - 5.0f * 16.0f + static_cast<float>(index) * 16.0f;
+        return el::rect{left, mid - 6.5f, left + 13.0f, mid + 6.5f};
+    }
+
+    const Theme& mTheme;
+    Icons& mIcons;
+    std::string mName, mDetail;
+    int mRating = 0;
+    bool mFavourite = false, mSelected = false;
+};
+
+/// Something with a menu of its own: a right click on it calls `onMenu`; everything else goes to
+/// what it wraps (a pad's button keeps its tap).
+class MenuArea final : public el::proxy_base
+{
+public:
+    MenuArea(el::element_ptr subject, std::function<void()> menu) : mSubject(std::move(subject)), onMenu(std::move(menu)) {}
+
+    el::element& subject() override
+    {
+        return *mSubject;
+    }
+    const el::element& subject() const override
+    {
+        return *mSubject;
+    }
+
+    bool click(const el::context& ctx, el::mouse_button btn) override
+    {
+        if (btn.state == el::mouse_button::right)
+        {
+            if (btn.down && onMenu)
+                onMenu();
+            return true;
+        }
+        return proxy_base::click(ctx, btn);
+    }
+
+private:
+    el::element_ptr mSubject;
+
+public:
+    std::function<void()> onMenu;
+};
+
 /// The little switch beside a Controls strip label (GATE, EQ, DOUBLER): 22 by 12.
 class MiniSwitch final : public Pressable
 {

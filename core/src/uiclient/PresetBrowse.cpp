@@ -184,12 +184,22 @@ std::vector<PresetSummary> FilterPresets(const ClientState& state, const PresetQ
         std::erase_if(base, [&allowed](const PresetSummary& p) { return !allowed.contains(p.id); });
     }
 
+    // Every tag chip that is on must be on the preset.
+    if (!query.tags.empty())
+    {
+        std::erase_if(base, [&query](const PresetSummary& p) {
+            return !std::all_of(query.tags.begin(), query.tags.end(),
+                                [&p](const std::string& tag) { return std::find(p.tags.begin(), p.tags.end(), tag) != p.tags.end(); });
+        });
+    }
+
     const auto text = Lower(Trim(query.text));
 
     if (!text.empty())
     {
         std::erase_if(base, [&text](const PresetSummary& p) {
-            return Lower(p.name).find(text) == std::string::npos && Lower(p.category).find(text) == std::string::npos;
+            return Lower(p.name).find(text) == std::string::npos && Lower(p.category).find(text) == std::string::npos &&
+                   Lower(p.description).find(text) == std::string::npos;
         });
     }
 

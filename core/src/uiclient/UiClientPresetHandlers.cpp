@@ -341,6 +341,8 @@ void UiClient::RegisterPresetHandlers()
                 summary.name = entry.value("name", summary.id);
                 summary.category = entry.value("category", "Factory");
                 summary.source = entry.value("source", "");
+                summary.description = entry.value("description", "");
+                summary.tags = parse::StringArray(entry, "tags");
 
                 if (!summary.id.empty())
                 {
