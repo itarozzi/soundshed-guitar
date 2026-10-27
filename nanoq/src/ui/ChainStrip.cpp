@@ -343,16 +343,31 @@ Ptr Shell::BuildChain()
         // The full layout's chain is as tall as its lines, up to a third of the window, so the
         // editor under it keeps the rest; past that it scrolls.
         const float wanted = total + 24.0f;
-        const float most = std::max(kCardHeight + 24.0f, ViewSize().y / 3.0f);
-        mChainAreaHeight = std::min(wanted, most) + 24.0f + 30.0f; // the scene chips, the add button
+        // Unless the bar under it was dragged (chainAreaHeight), up to a third of the window;
+        // never less than a line, nor so much that the editor has no room.
+        float limit = mChainAreaLimit;
+        if (limit <= 0.0f)
+            if (const auto native = mState.uiSettings.find("native"); native != mState.uiSettings.end() && native->is_object())
+                limit = native->value("chainAreaHeight", 0.0f);
+        const float floor = kCardHeight + 24.0f;
+        const float most = limit > 0.0f ? std::clamp(limit, floor, std::max(floor, ViewSize().y - 360.0f))
+                                         : std::max(floor, ViewSize().y / 3.0f);
+        // Dragged, the chain gets that room whatever it holds (centred in it, or scrolling).
+        const float area = limit > 0.0f ? most : std::min(wanted, most);
+        mChainAreaHeight = area + 24.0f + 30.0f; // the scene chips, the add button
+        const auto centred = [area](Ptr block, float height) -> Ptr {
+            if (height >= area)
+                return FixedHeight(area, block);
+            return FixedHeight(area, Col({std::make_shared<el::element>(), FixedHeight(height, block), std::make_shared<el::element>()}));
+        };
         if (!mWrapChain)
         {
             const float lineWidth = 2.0f * indent + 2.0f * kWireEndWidth + widest;
-            return FixedHeight(wanted, HScroll(PadXY(0, 12, FixedWidth(lineWidth, Col(rows)))));
+            return centred(HScroll(PadXY(0, 12, FixedWidth(lineWidth, Col(rows)))), wanted);
         }
-        if (wanted > most)
-            return FixedHeight(most, VScroll(PadXY(0, 12, Col(rows))));
-        return FixedHeight(wanted, PadXY(0, 12, Col(rows)));
+        if (wanted > area)
+            return FixedHeight(area, VScroll(PadXY(0, 12, Col(rows))));
+        return centred(PadXY(0, 12, Col(rows)), wanted);
     }
     const float stageHeight = ViewSize().y - metrics::kTopBarHeight - metrics::kFooterHeight - 24.0f - 44.0f;
     if (!mWrapChain)

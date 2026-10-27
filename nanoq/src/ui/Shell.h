@@ -311,6 +311,8 @@ private:
     el::extent mLastSize{0.0f, 0.0f}; // the regions sized to the window are rebuilt when it changes
     bool mPlayStageShown = false;  // the full layout's page slot holds the chain and editor
     float mChainAreaHeight = 0.0f; // the full layout's chain, as tall as its lines
+    float mChainAreaLimit = 0.0f;  // how tall it may grow, once the bar under it is dragged
+    float mChainDragStart = -1.0f; // the chain's room when that drag began
     std::vector<guitarfx::uiclient::Subscription> mHeaderSubs; // the control bar's live values
     std::vector<std::string> mPresetTrail;
     std::size_t mPresetTrailAt = 0;

@@ -1024,6 +1024,87 @@ private:
     std::string mTitle;
 };
 
+/// The bar between the full layout's chain and the editor under it (the web UI's
+/// .signal-path-resize-handle): a grip that is dragged up or down. `onDrag` hears how far the
+/// pointer has moved since the press, and `done` on release.
+class SplitHandle final : public el::element
+{
+public:
+    explicit SplitHandle(const Theme& theme) : mTheme(theme) {}
+
+    el::view_limits limits(const el::basic_context&) const override
+    {
+        return {{0.0f, 10.0f}, {el::full_extent, 10.0f}};
+    }
+
+    void draw(const el::context& ctx) override
+    {
+        auto& cnv = ctx.canvas;
+        const auto b = ctx.bounds;
+        const float y = b.top + b.height() * 0.5f;
+        cnv.stroke_style(mTheme.Text().opacity(0.06f));
+        cnv.line_width(1.0f);
+        cnv.begin_path();
+        cnv.move_to(b.left, y);
+        cnv.line_to(b.right, y);
+        cnv.stroke();
+        const float cx = (b.left + b.right) * 0.5f;
+        cnv.fill_style(mHover || mDragging ? mTheme.TextSecondary() : mTheme.TextMuted().opacity(0.5f));
+        cnv.fill_round_rect(el::rect{cx - 18.0f, y - 2.0f, cx + 18.0f, y + 2.0f}, 2.0f);
+    }
+
+    bool click(const el::context& ctx, el::mouse_button btn) override
+    {
+        if (btn.state != el::mouse_button::left)
+            return false;
+        if (btn.down)
+        {
+            mDragging = true;
+            mStartY = btn.pos.y;
+        }
+        else if (mDragging)
+        {
+            mDragging = false;
+            if (onDrag)
+                onDrag(btn.pos.y - mStartY, true);
+            ctx.view.refresh(ctx);
+        }
+        return true;
+    }
+
+    void drag(const el::context&, el::mouse_button btn) override
+    {
+        if (mDragging && onDrag)
+            onDrag(btn.pos.y - mStartY, false);
+    }
+
+    bool cursor(const el::context& ctx, el::point, el::cursor_tracking status) override
+    {
+        const bool hover = status != el::cursor_tracking::leaving;
+        if (hover != mHover)
+        {
+            mHover = hover;
+            ctx.view.refresh(ctx);
+        }
+        if (hover)
+            el::set_cursor(el::cursor_type::v_resize);
+        return true;
+    }
+
+    bool wants_control() const override
+    {
+        return true;
+    }
+
+    std::function<void(float dy, bool done)> onDrag;
+
+private:
+    const Theme& mTheme;
+    float mStartY = 0.0f;
+    bool mDragging = false;
+    bool mHover = false;
+};
+
 /// A plain filled area with a soft radial highlight at its top, as the chain stage's
 /// (.signal-path-scroll's radial-gradient over --bg-secondary).
 class StageBackdrop final : public el::element

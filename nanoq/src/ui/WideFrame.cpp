@@ -300,8 +300,23 @@ Ptr Shell::BuildPlayStage()
     add->onClick = [this] { OpenEffectPicker(LastNodeBeforeOutput()); };
     auto chain = Over(Col({mSceneSlot, mChainSlot, FixedHeight(30, Pad(0, 0, 0, 6, Row({Stretch(), add, HGap(14)})))}),
                       std::make_shared<StageBackdrop>(mTheme));
-    auto rule = FixedHeight(1, Fill(mTheme.Text().opacity(0.06f), std::make_shared<el::element>()));
-    return Col({chain, rule, mEffectSlot});
+    // The bar between them is dragged to give the chain more room or less (kept in Nano Q's
+    // own UI settings, as chainAreaHeight).
+    auto handle = std::make_shared<SplitHandle>(mTheme);
+    handle->onDrag = [this](float dy, bool done) {
+        if (mChainDragStart < 0.0f)
+            mChainDragStart = mChainAreaHeight - 24.0f - 30.0f;
+        mChainAreaLimit = std::max(1.0f, mChainDragStart + dy);
+        mChainSignature.clear();
+        mEffectSignature.clear();
+        Mark(kChain | kPage);
+        if (done)
+        {
+            mChainDragStart = -1.0f;
+            mSession.Commands().PatchNativeUiSettings({{"chainAreaHeight", std::round(mChainAreaLimit)}});
+        }
+    };
+    return Col({chain, FixedHeight(10, handle), mEffectSlot});
 }
 
 // ── The footers' shared pieces ──────────────────────────────────────────────────
