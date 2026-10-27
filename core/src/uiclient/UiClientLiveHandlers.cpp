@@ -43,6 +43,19 @@ void UiClient::RegisterLiveHandlers()
         mRoster.clear();
         mRosterSeq = m.value("seq", -1);
 
+        // The analyzer's display ranges ride along with the roster, not every frame.
+        for (const auto& [field, range] : {std::pair{"spectrogramRange", &mState.analysis.analyzerRanges.spectrogram},
+                                            std::pair{"barkRange", &mState.analysis.analyzerRanges.bark}})
+        {
+            if (const auto it = m.find(field); it != m.end() && it->is_array() && it->size() == 4)
+            {
+                for (std::size_t i = 0; i < 4; ++i)
+                {
+                    (*range)[i] = (*it)[i].is_number() ? (*it)[i].get<double>() : (*range)[i];
+                }
+            }
+        }
+
         if (m.contains("nodes") && m["nodes"].is_array())
         {
             for (const auto& entry : m["nodes"])

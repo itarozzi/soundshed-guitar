@@ -7,6 +7,8 @@
 
 #include "uiclient/UiClient.h"
 
+#include "uiclient/Analysis.h"
+
 #include <algorithm>
 #include <chrono>
 #include <utility>
@@ -140,7 +142,7 @@ void Subscription::Reset()
 
 // ── UiClient ───────────────────────────────────────────────────────────────
 
-UiClient::UiClient(Transport transport) : mTransport(std::move(transport))
+UiClient::UiClient(Transport transport) : mTransport(std::move(transport)), mAnalysis(std::make_unique<Analysis>(*this))
 {
     RegisterHandlers();
 }
@@ -160,6 +162,7 @@ void UiClient::RegisterHandlers()
     RegisterPresetHandlers();
     RegisterLibraryHandlers();
     RegisterLiveHandlers();
+    RegisterAnalysisHandlers();
 }
 
 void UiClient::Start()
@@ -285,6 +288,7 @@ void UiClient::Apply(const std::string& json)
 void UiClient::Tick(double nowSeconds)
 {
     mNowSeconds = nowSeconds;
+    mAnalysis->Tick(nowSeconds);
 
     if (mDeviceLevelWatch && nowSeconds - mLastDeviceLevelRenewal >= kLeaseRenewalSeconds)
     {

@@ -56,10 +56,12 @@ enum class Topic
     Notifications,
     Tones, // tone sharing installs (what is installed is the toneSharing.installedPacks setting: Session)
     ResourceFolders, // the resource browser's folder listing, and a folder just picked to add
+    Analysis,        // spectra, loudness, analyzer frames, spatial positions, gate Learn
     Count
 };
 
 class UiClient;
+class Analysis;
 
 /// Unsubscribes when destroyed, so a view that goes away cannot be called back.
 class Subscription
@@ -125,6 +127,12 @@ public:
 
     [[nodiscard]] Subscription Subscribe(Topic topic, Listener listener);
 
+    /// Effect responses, the analysis feeds' leases and the editors' measuring tools.
+    [[nodiscard]] Analysis& GetAnalysis()
+    {
+        return *mAnalysis;
+    }
+
     /// Marks a topic changed; its listeners run at the end of the current drain, or right
     /// away when called outside one.
     void Notify(Topic topic);
@@ -159,6 +167,7 @@ private:
     void RegisterPresetHandlers();
     void RegisterLibraryHandlers();
     void RegisterLiveHandlers();
+    void RegisterAnalysisHandlers();
     void Apply(const std::string& json);
     void Unsubscribe(Topic topic, int id);
 
@@ -196,5 +205,6 @@ private:
     int mRosterSeq = -1;
     double mLastRosterRequest = -1.0e9;
     std::shared_ptr<bool> mAlive = std::make_shared<bool>(true);
+    std::unique_ptr<Analysis> mAnalysis;
 };
 } // namespace guitarfx::uiclient

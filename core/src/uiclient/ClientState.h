@@ -16,6 +16,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <array>
 #include <cstdint>
 #include <map>
 #include <optional>
@@ -145,6 +146,92 @@ struct TelemetryState
     int totalLatencySamples = 0;
     std::map<std::string, double> nodeProcessingUs;
     unsigned frameCounter = 0;
+};
+
+/// One node's input spectrum behind an EQ curve (sldS): `binsDb` log-spaced from minHz to
+/// maxHz, both ends included, tilted +3 dB/octave about 1 kHz so pink noise reads flat.
+struct NodeSpectrum
+{
+    double minHz = 20.0;
+    double maxHz = 20000.0;
+    double floorDb = -96.0;
+    double ceilingDb = 0.0;
+    std::vector<double> binsDb;
+    double receivedAt = 0.0; // UiClient's clock; a spectrum that stops arriving is cleared
+};
+
+/// BS.1770 loudness of a node's output or the app's output (sldL); each empty until its window
+/// has filled, for silence, or (integrated) until anything has passed the gates.
+struct LoudnessReading
+{
+    std::optional<double> momentaryLufs;
+    std::optional<double> shortTermLufs;
+    std::optional<double> integratedLufs;
+    double integratedSeconds = 0.0;
+    double receivedAt = 0.0;
+};
+
+/// A Signal Analyzer node's frame (sldA), with the display ranges its roster gave.
+struct AnalyzerFrame
+{
+    double peakPercent = 0.0;
+    double rmsPercent = 0.0;
+    double rmsDbu = 0.0;
+    double rmsDbv = 0.0;
+    double rmsVolts = 0.0;
+    std::optional<double> momentaryLufs;
+    std::optional<double> shortTermLufs;
+    std::optional<double> integratedLufs;
+    int activeChannelCount = 0;
+    bool stereo = false;
+    bool loudnessValid = false;
+    std::vector<double> spectrogramDb;
+    std::vector<double> barkDb;
+    double timeMs = 0.0;
+};
+
+/// The ranges every analyzer frame is drawn against: [minDb, maxDb, minHz, maxHz].
+struct AnalyzerRanges
+{
+    std::array<double, 4> spectrogram{-96.0, 0.0, 20.0, 20000.0};
+    std::array<double, 4> bark{-96.0, 0.0, 20.0, 20000.0};
+};
+
+/// Where a 3D Spatial node's source is right now (spatialPosition), for its panner's puck.
+struct SpatialPosition
+{
+    double azimuth = 0.0;
+    double elevation = 0.0;
+    double distance = 1.0;
+    double itdUs = 0.0;
+    double ildDb = 0.0;
+    double rateHz = 0.0;
+    bool moving = false;
+};
+
+/// A noise gate Learn's progress (gateLearnStatus).
+struct GateLearnStatus
+{
+    std::string state; // listening, done, failed, cancelled
+    double progress = 0.0;
+    std::optional<double> levelDb;
+    std::optional<double> noiseFloorDb;
+    std::optional<double> spreadDb;
+    std::optional<double> thresholdDb;
+    std::string reason;
+};
+
+/// The analysis feeds, keyed as the meters key nodes (NodeFeedKey: "pre::id", "post::id",
+/// "<presetId>::id"). Topic::Analysis.
+struct AnalysisState
+{
+    std::map<std::string, NodeSpectrum> spectra;
+    std::map<std::string, LoudnessReading> loudness;
+    LoudnessReading outputLoudness;
+    std::map<std::string, AnalyzerFrame> analyzers; // by node id
+    AnalyzerRanges analyzerRanges;
+    std::map<std::string, SpatialPosition> spatial;
+    std::map<std::string, GateLearnStatus> gateLearn; // "global::global_gate" for the global gate
 };
 
 struct TunerState
@@ -349,6 +436,7 @@ struct ClientState
     MixerState mixer;
 
     TelemetryState telemetry;
+    AnalysisState analysis;
     TunerState tuner;
     MetronomeState metronome;
     DeviceState device;

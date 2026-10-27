@@ -29,6 +29,7 @@
 #include "dsp/effects/GraphicEQEffect.h"
 #include "presets/PresetStorage.h"
 #include "net/Http.h"
+#include "uiclient/Analysis.h"
 #include "uiclient/ChainDropRules.h"
 #include "uiclient/ChainHistory.h"
 #include "uiclient/ChainLayout.h"
@@ -1120,6 +1121,111 @@ void TestResourceIndex()
            "ungrouped, previous/next follows the list as it is");
 }
 
+// The editors' analysis: EQ curves from the engine, coalesced per plot, and the live feeds.
+void TestAnalysis()
+{
+    {
+        LoopbackHost host(Sandbox("analysis"));
+        PluginController controller(host);
+        controller.Initialize();
+        UiClient client([&controller](const std::string& json) { controller.HandleUIMessage(json); });
+        host.client = &client;
+
+        std::optional<ResponseCurve> curve;
+        int answers = 0;
+        client.GetAnalysis().RequestResponse("eq", "eq_parametric", {{"lowGain", 9.0}, {"lowFreq", 100.0}, {"highGain", -6.0}}, true,
+                                             [&](const std::optional<ResponseCurve>& c) {
+                                                 curve = c;
+                                                 ++answers;
+                                             });
+        Pump(controller, client);
+        Expect(answers == 1 && curve && curve->frequencies.size() == static_cast<std::size_t>(Analysis::kResponsePoints),
+               "an EQ's curve comes from the engine");
+        Expect(curve && curve->bandsDb.size() == 4, "with each band's own curve");
+        Expect(curve && std::abs(ResponseDbAt(*curve, 25.0) - 9.0) < 0.5 && std::abs(ResponseDbAt(*curve, 19000.0) + 6.0) < 0.5,
+               "the low shelf lifts the lows and the high shelf cuts the highs");
+
+        std::optional<ResponseCurve> unsupported = ResponseCurve{};
+        client.GetAnalysis().RequestResponse("x", "reverb_hall", nlohmann::json::object(), false,
+                                             [&](const std::optional<ResponseCurve>& c) { unsupported = c; });
+        Pump(controller, client);
+        Expect(!unsupported, "an effect with no fixed response has no curve");
+    }
+
+    {
+        std::vector<nlohmann::json> sent;
+        UiClient client([&sent](const std::string& json) { sent.push_back(nlohmann::json::parse(json)); });
+        auto& analysis = client.GetAnalysis();
+        const auto sentOf = [&sent](const char* type) {
+            std::vector<nlohmann::json> out;
+            for (const auto& m : sent)
+                if (m.value("type", "") == type)
+                    out.push_back(m);
+            return out;
+        };
+        std::vector<std::string> answered;
+        const auto answer = [&](const nlohmann::json& request, bool supported) {
+            client.Enqueue(nlohmann::json{{"type", "effectResponse"}, {"requestId", request["requestId"]}, {"supported", supported},
+                                          {"frequencies", {20, 20000}}, {"magnitudesDb", {1, 2}}}
+                               .dump());
+            client.DrainPending();
+        };
+
+        analysis.RequestResponse("a", "eq_parametric", {{"lowGain", 1}}, false, [&](auto&) { answered.push_back("a1"); });
+        analysis.RequestResponse("a", "eq_parametric", {{"lowGain", 2}}, false, [&](auto&) { answered.push_back("a2"); });
+        analysis.RequestResponse("a", "eq_parametric", {{"lowGain", 3}}, false, [&](auto&) { answered.push_back("a3"); });
+        analysis.RequestResponse("b", "eq_graphic", {{"bandCount", 5}}, true, [&](auto&) { answered.push_back("b1"); });
+        auto requests = sentOf("getEffectResponse");
+        Expect(requests.size() == 2 && requests[1].value("bands", false), "one request in flight per lane, bands asked for");
+
+        answer(requests[0], true);
+        requests = sentOf("getEffectResponse");
+        Expect(requests.size() == 3 && requests[2]["params"]["lowGain"] == 3, "the newest parameters follow, the middle ones folded away");
+        answer(requests[1], true);
+        answer(requests[2], false);
+        Expect((answered == std::vector<std::string>{"a1", "b1", "a3"}), "each lane answers its own, a replaced request never");
+
+        analysis.RequestResponse("c", "eq_parametric", {}, false, [&](auto&) { answered.push_back("c1"); });
+        analysis.RequestResponse("c", "eq_parametric", {{"lowGain", 4}}, false, [&](auto&) { answered.push_back("c2"); });
+        client.Tick(10.0);
+        Expect(sentOf("getEffectResponse").size() == 5, "an unanswered request is given up on, so the next one goes");
+
+        analysis.WatchSpectrum({"preset", "eq1", "p1"});
+        analysis.WatchSpectrum({"preset", "eq1", "p1"});
+        client.Tick(13.0);
+        Expect(sentOf("setSpectrumWatch").size() == 2 && sentOf("setSpectrumWatch")[1]["nodeId"] == "eq1",
+               "a spectrum watch is sent once and renewed on the tick");
+        analysis.StopSpectrum();
+        client.Tick(16.0);
+        Expect(sentOf("setSpectrumWatch").size() == 3 && sentOf("setSpectrumWatch")[2].size() == 1, "stopping sends {} and renews nothing");
+        analysis.WatchOutputLoudness(true);
+        Expect(sentOf("setLoudnessWatch").back()["slot"] == 1, "the output's loudness is slot 1");
+    }
+
+    UiClient client([](const std::string&) {});
+    client.Enqueue(R"({"type":"sldS","scope":"preset","presetId":"p1","id":"eq1","r":[20,20000,-96,0],"s":[-50,-40,-30]})");
+    client.Enqueue(R"({"type":"sldL","scope":"post","id":"global_eq","l":[-18.2,-19,null,0]})");
+    client.Enqueue(R"({"type":"sldL","slot":1,"scope":"output","l":[-14,-15,-16,12]})");
+    client.Enqueue(R"({"type":"sldRoster","seq":3,"nodes":[],"spectrogramRange":[-90,-6,30,18000],"barkRange":[-80,0,40,16000]})");
+    client.Enqueue(R"({"type":"sldA","seq":3,"id":"an1","t":5,"l":[50,20,-10,-12,0.2,-20,-21,null,2,1,1],"s":[-40,-50],"b":[-30]})");
+    client.Enqueue(R"({"type":"spatialPosition","nodes":[{"scope":"preset","presetId":"p1","nodeId":"sp","azimuth":30,"moving":true}]})");
+    client.Enqueue(R"({"type":"gateLearnStatus","scope":"global","nodeId":"global_gate","state":"done","noiseFloorDb":-70,"thresholdDb":-64})");
+    client.DrainPending();
+    const auto& a = client.State().analysis;
+    Expect(a.spectra.count("p1::eq1") && a.spectra.at("p1::eq1").binsDb.size() == 3, "a node's spectrum is kept by its feed key");
+    Expect(a.loudness.count("post::global_eq") && a.loudness.at("post::global_eq").momentaryLufs == -18.2 &&
+               !a.loudness.at("post::global_eq").integratedLufs,
+           "a node's loudness, an unfilled window empty");
+    Expect(a.outputLoudness.integratedLufs == -16.0 && a.outputLoudness.integratedSeconds == 12.0, "the output's loudness");
+    Expect(a.analyzers.count("an1") && a.analyzers.at("an1").stereo && a.analyzers.at("an1").spectrogramDb.size() == 2 &&
+               a.analyzerRanges.spectrogram[3] == 18000.0,
+           "an analyzer frame, drawn against the roster's ranges");
+    Expect(a.spatial.count("p1::sp") && a.spatial.at("p1::sp").azimuth == 30.0 && a.spatial.at("p1::sp").moving, "a spatial position");
+    Expect(a.gateLearn.count("global::global_gate") && a.gateLearn.at("global::global_gate").thresholdDb == -64.0,
+           "the global gate's Learn result");
+    Expect(DecodeFloat32Base64("AACAPwAAAMA=") == std::vector<float>{1.0f, -2.0f}, "float32 samples from base64");
+}
+
 int main()
 {
     TestClientMirrorsTheEngine();
@@ -1132,6 +1238,7 @@ int main()
     TestFeatureFlagsAndFxMarks();
     TestPresetTrail();
     TestResourceIndex();
+    TestAnalysis();
     TestNodeArchitectureBadge();
     TestPresetBrowse();
     TestParamFormatting();
