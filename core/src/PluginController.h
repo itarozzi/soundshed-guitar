@@ -531,6 +531,18 @@ class PluginController
     void HandleNewPresetRequest(const nlohmann::json& payload);
     void HandleSetPresetFavoriteRequest(const nlohmann::json& payload);
     void HandleSetPresetRatingRequest(const nlohmann::json& payload);
+    // Preset folders (PluginControllerPresetFolders.cpp), edited by name.
+    void HandleCreatePresetFolderRequest(const nlohmann::json& payload);
+    void HandleRenamePresetFolderRequest(const nlohmann::json& payload);
+    void HandleMovePresetFolderRequest(const nlohmann::json& payload);
+    void HandleDeletePresetFolderRequest(const nlohmann::json& payload);
+    void HandleMovePresetToFolderRequest(const nlohmann::json& payload);
+    void HandleSelectPresetFolderRequest(const nlohmann::json& payload);
+    /// Takes a deleted preset out of every folder.
+    void RemovePresetFromFolders(const std::string& presetId);
+    [[nodiscard]] nlohmann::json LoadPresetFoldersDocument();
+    /// Stores the folder tree (or the archive session's) and sends it to the UI.
+    void SavePresetFoldersDocument(const nlohmann::json& document);
     void HandleGetPresetRecentsRequest();
     void HandleSelectSetlistRequest(const nlohmann::json& payload);
     /// The UI's pick of a slot in the active setlist: loads it as a footswitch would, and tells

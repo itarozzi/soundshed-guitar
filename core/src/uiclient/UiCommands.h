@@ -38,6 +38,21 @@ public:
     void NewPreset();
     void DeletePreset(const std::string& presetId);
     void SetPresetFavorite(const std::string& presetId, bool favorite);
+    /// 1 to 5 stars, or 0 to clear.
+    void SetPresetRating(const std::string& presetId, int rating);
+
+    // ── Preset folders, edited by the engine; each is answered by presetFolders ──
+    /// A new folder, at the top or inside `parentId`; it becomes the folder shown.
+    void CreatePresetFolder(const std::string& name, const std::string& parentId = {});
+    void RenamePresetFolder(const std::string& folderId, const std::string& name);
+    /// Into `parentId`, or to the top level with an empty one; never into itself.
+    void MovePresetFolder(const std::string& folderId, const std::string& parentId);
+    /// The folder and its subfolders go; their presets stay in the library.
+    void DeletePresetFolder(const std::string& folderId);
+    /// A preset into a folder (out of any other); an empty folder takes it out of all.
+    void MovePresetToFolder(const std::string& presetId, const std::string& folderId);
+    /// The folder the preset list shows (a real one, or __all__, __favorites__, __recents__).
+    void SelectPresetFolder(const std::string& folderId);
 
     // ── Multi-Rig (awareness only: rigs are built in Soundshed Guitar) ──────
     void FocusMixerPreset(const std::string& presetId);

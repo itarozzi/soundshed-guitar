@@ -477,6 +477,8 @@ void PluginController::HandleDeletePresetRequest(const nlohmann::json& payload)
 
     InvalidateResourceUsageIndex();
     ForgetPresetAutomation(presetId);
+    // Its folder no longer lists it (the UIs used to do this themselves).
+    RemovePresetFromFolders(presetId);
     TouchSharedSyncState({"presetLibrary"});
 
     // Shared sync only reaches other instances; the UI that asked gets the new list too.

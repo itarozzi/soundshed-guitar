@@ -178,6 +178,12 @@ keeps the existing Library/Folder behavior.
 | `removeScene` | `{sceneId}` | Remove a scene. The last one is refused with an `error`. If it was playing, the scene now in its place (else the new last one) becomes active and is applied, rebuilding only the preset's own slot when it shares a multi-preset mix, as `selectScene` does. Answered by `presetLoaded` |
 | `setPresetFavorite` | `{presetId, favorite}` | Mark or unmark one preset as a favourite, leaving the rest of the list alone; answered by `presetFavorites` |
 | `setPresetRating` | `{presetId, rating}` | Rate one preset 1-5 (clamped); `0` clears its rating. Answered by `presetRatings` |
+| `createPresetFolder` | `{name, parentId?}` | A new preset folder, at the top or inside `parentId`; the engine makes its id and shows it (`activeFolderId`); answered by `presetFolders` |
+| `renamePresetFolder` | `{folderId, name}` | Rename a preset folder; answered by `presetFolders` |
+| `movePresetFolder` | `{folderId, parentId}` | Put a folder inside another, or at the top level with an empty `parentId`; never inside itself or its own subfolder; answered by `presetFolders` |
+| `deletePresetFolder` | `{folderId}` | Delete a folder and its subfolders (their presets stay in the library) and show All; answered by `presetFolders` |
+| `movePresetToFolder` | `{presetId, folderId}` | Put a preset in one folder (out of any other), or out of all with `__all__` or an empty id; answered by `presetFolders` |
+| `selectPresetFolder` | `{folderId}` | The folder the preset list shows: a real one, or `__all__`, `__favorites__`, `__recents__`; answered by `presetFolders` |
 | `getPresetRecents` | `{}` | Request `presetRecents` |
 | `selectSetlist` | `{setlistId}` | Make a setlist the active one with its cursor on the first slot, as a bank select does, and store it; nothing is loaded. An unknown or already-active setlist is ignored. Answered by `setlistCursorChanged`. Edits to the setlists themselves still go whole with `setSetlists` |
 | `setResourceFavorite` | `{resourceId, favorite}` | Add or remove one id in the `resources.favorites` app setting; answered by `appSettingChanged` |
@@ -414,11 +420,14 @@ Some edits used to be made by the web UI to its own copy of a preset or document
 sent back whole. So that Soundshed Guitar and Soundshed Nano Q cannot make the same edit two
 different ways, the engine now makes them, asked by name (docs/plans/native-ui.md, "Engine-owned
 edits"): the scene commands, `newPreset`, `loadPreset` by id, `setPresetFavorite`,
-`setPresetRating`, `selectSetlist`, `setResourceFavorite` and `setOutputMuted`. The engine also
-records the recently played presets and tracks unsaved changes itself. The web UI may still draw
+`setPresetRating`, the preset folder commands (`createPresetFolder`, `renamePresetFolder`,
+`movePresetFolder`, `deletePresetFolder`, `movePresetToFolder`, `selectPresetFolder`),
+`selectSetlist`, `setResourceFavorite` and `setOutputMuted`. Deleting a preset takes it out of
+its folder too. The engine also records the recently played presets and tracks unsaved changes
+itself. The web UI may still draw
 the result before the answer arrives (a scene tab, a favourite star), but the engine's answer is
 what stands. The older whole-document forms (`setPresetFavorites`, `setPresetRatings`,
-`setSetlists`, a `loadPreset` body) still work, and the web UI uses them for real bulk edits and for
+`setPresetFolders`, `setSetlists`, a `loadPreset` body) still work, and the web UI uses them for real bulk edits and for
 presets the engine does not store.
 
 ## UI Views

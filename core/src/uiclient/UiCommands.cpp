@@ -144,6 +144,43 @@ void UiCommands::DeletePreset(const std::string& presetId)
     mClient.Send("deletePreset", {{"presetId", presetId}});
 }
 
+void UiCommands::SetPresetRating(const std::string& presetId, int rating)
+{
+    mClient.Send("setPresetRating", {{"presetId", presetId}, {"rating", std::clamp(rating, 0, 5)}});
+}
+
+void UiCommands::CreatePresetFolder(const std::string& name, const std::string& parentId)
+{
+    mClient.Send("createPresetFolder", {{"name", name}, {"parentId", parentId}});
+}
+
+void UiCommands::RenamePresetFolder(const std::string& folderId, const std::string& name)
+{
+    mClient.Send("renamePresetFolder", {{"folderId", folderId}, {"name", name}});
+}
+
+void UiCommands::MovePresetFolder(const std::string& folderId, const std::string& parentId)
+{
+    mClient.Send("movePresetFolder", {{"folderId", folderId}, {"parentId", parentId}});
+}
+
+void UiCommands::DeletePresetFolder(const std::string& folderId)
+{
+    mClient.Send("deletePresetFolder", {{"folderId", folderId}});
+}
+
+void UiCommands::MovePresetToFolder(const std::string& presetId, const std::string& folderId)
+{
+    mClient.Send("movePresetToFolder", {{"presetId", presetId}, {"folderId", folderId}});
+}
+
+void UiCommands::SelectPresetFolder(const std::string& folderId)
+{
+    auto& state = mClient.MutableState();
+    state.activePresetFolderId = folderId.empty() ? "__all__" : folderId;
+    mClient.Send("selectPresetFolder", {{"folderId", state.activePresetFolderId}});
+}
+
 void UiCommands::SetPresetFavorite(const std::string& presetId, bool favorite)
 {
     mClient.Send("setPresetFavorite", {{"presetId", presetId}, {"favorite", favorite}});

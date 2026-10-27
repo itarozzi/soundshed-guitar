@@ -2,14 +2,17 @@
  * The folder controls in the library popover — create, rename, delete, and
  * moving a preset or a whole folder between parents.
  *
- * The folder *model* lives in ./folders.ts; this is the UI on top of it.
+ * The folder *model* lives in ./folders.ts; this is the UI on top of it. Each edit is made by the
+ * engine, asked for by name (createPresetFolder, renamePresetFolder, movePresetFolder,
+ * deletePresetFolder, movePresetToFolder, selectPresetFolder), so every UI edits the tree the same
+ * way; the local copy changes at once and the engine's presetFolders reply confirms it.
  */
 
-import { generateResourceId } from "../archiveUtils.js";
+import { postMessage } from "../bridge.js";
 import { showNotification } from "../notifications.js";
 import { presetSearchElement } from "../presets/dom.js";
 import { toggleFavoritePreset } from "../presets/favorites.js";
-import { ensurePresetFolders, findFolderById, findFolderWithParent, isDescendantFolder, isVirtualPresetFolderId, persistPresetFolders, removePresetFromFolders, sortPresetFoldersAlphabetically } from "../presets/folders.js";
+import { ensurePresetFolders, findFolderById, findFolderWithParent, isDescendantFolder, isVirtualPresetFolderId, removePresetFromFolders, sortPresetFoldersAlphabetically } from "../presets/folders.js";
 import { PRESET_FOLDER_ALL_ID, PRESET_FOLDER_FAVORITES_ID, PRESET_FOLDER_RECENTS_ID } from "../presets/sorting.js";
 import { uiState } from "../state.js";
 import type { PresetFolder } from "../types.js";
@@ -54,7 +57,7 @@ export function applyPresetFoldersFromBackend(folders: PresetFolder[], activeFol
 
 export function setActivePresetFolder(folderId: string): void {
   uiState.activePresetFolderId = folderId;
-  persistPresetFolders();
+  postMessage({ type: "selectPresetFolder", folderId });
   filterPresets(presetSearchElement?.value ?? "");
   syncPresetFolderToolbarState();
 }
@@ -83,7 +86,7 @@ export function movePresetToFolder(presetId: string, folderId: string): void {
   if (folderId !== PRESET_FOLDER_ALL_ID) {
     addPresetToFolder(folderId, presetId);
   }
-  persistPresetFolders();
+  postMessage({ type: "movePresetToFolder", presetId, folderId });
   filterPresets(presetSearchElement?.value ?? "");
 }
 
@@ -128,7 +131,7 @@ export function movePresetFolder(folderId: string, targetParentId: string): void
     uiState.presetFolders.push(result.folder);
   }
 
-  persistPresetFolders();
+  postMessage({ type: "movePresetFolder", folderId, parentId: targetParentId === PRESET_FOLDER_ALL_ID ? "" : targetParentId });
   filterPresets(presetSearchElement?.value ?? "");
 }
 
@@ -139,27 +142,12 @@ export function createFolder(name: string, parentId?: string): boolean {
     return false;
   }
 
-  const newFolder: PresetFolder = {
-    id: generateResourceId(trimmed),
+  // The engine makes the folder (and its id) and shows it; its presetFolders reply redraws the list.
+  postMessage({
+    type: "createPresetFolder",
     name: trimmed,
-    children: [],
-    presetIds: [],
-  };
-
-  if (parentId && parentId !== PRESET_FOLDER_ALL_ID) {
-    const parent = findFolderById(uiState.presetFolders ?? [], parentId);
-    if (parent) {
-      parent.children = parent.children ?? [];
-      parent.children.push(newFolder);
-    } else {
-      uiState.presetFolders?.push(newFolder);
-    }
-  } else {
-    uiState.presetFolders?.push(newFolder);
-  }
-
-  persistPresetFolders();
-  setActivePresetFolder(newFolder.id);
+    parentId: parentId && parentId !== PRESET_FOLDER_ALL_ID ? parentId : "",
+  });
   showNotification("Folder created", trimmed);
   return true;
 }
@@ -178,7 +166,7 @@ export function renameFolder(folderId: string, nextName: string): boolean {
   }
 
   folder.name = trimmed;
-  persistPresetFolders();
+  postMessage({ type: "renamePresetFolder", folderId, name: trimmed });
   filterPresets(presetSearchElement?.value ?? "");
   showNotification("Folder renamed", trimmed);
   return true;
@@ -198,7 +186,11 @@ export function deleteFolderById(folderId: string): boolean {
     uiState.presetFolders = (uiState.presetFolders ?? []).filter((folder) => folder.id !== folderId);
   }
 
-  setActivePresetFolder(PRESET_FOLDER_ALL_ID);
+  // The engine deletes it and goes back to All itself.
+  postMessage({ type: "deletePresetFolder", folderId });
+  uiState.activePresetFolderId = PRESET_FOLDER_ALL_ID;
+  filterPresets(presetSearchElement?.value ?? "");
+  syncPresetFolderToolbarState();
   showNotification("Folder deleted", result.folder.name);
   return true;
 }

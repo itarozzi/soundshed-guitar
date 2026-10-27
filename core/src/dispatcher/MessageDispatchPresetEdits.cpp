@@ -31,6 +31,42 @@ bool MessageDispatcher::DispatchPresetEdits(PluginController& c, const nlohmann:
         return true;
     }
 
+    if (type == "createPresetFolder")
+    {
+        c.HandleCreatePresetFolderRequest(msg);
+        return true;
+    }
+
+    if (type == "renamePresetFolder")
+    {
+        c.HandleRenamePresetFolderRequest(msg);
+        return true;
+    }
+
+    if (type == "movePresetFolder")
+    {
+        c.HandleMovePresetFolderRequest(msg);
+        return true;
+    }
+
+    if (type == "deletePresetFolder")
+    {
+        c.HandleDeletePresetFolderRequest(msg);
+        return true;
+    }
+
+    if (type == "movePresetToFolder")
+    {
+        c.HandleMovePresetToFolderRequest(msg);
+        return true;
+    }
+
+    if (type == "selectPresetFolder")
+    {
+        c.HandleSelectPresetFolderRequest(msg);
+        return true;
+    }
+
     if (type == "newPreset")
     {
         c.HandleNewPresetRequest(msg);

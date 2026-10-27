@@ -480,6 +480,49 @@ void TestFavoriteAndRatingPatches()
            "setPresetRating sets, clamps to 5, and clears at 0");
 }
 
+// The folder commands edit the stored tree as the web UI's folderControls.ts did, and answer
+// with presetFolders.
+void TestPresetFolderCommands()
+{
+    TestHost host(Sandbox("folders"));
+    guitarfx::PluginController controller(host);
+    controller.Initialize();
+    const auto folders = [&host] { return Latest(host, "presetFolders")->at("folders"); };
+    const auto active = [&host] { return Latest(host, "presetFolders")->value("activeFolderId", std::string()); };
+
+    Send(controller, "createPresetFolder", {{"name", "  Live  "}});
+    const auto live = folders().at(0).at("id").get<std::string>();
+    Expect(folders().size() == 1 && folders().at(0).at("name") == "Live" && active() == live,
+           "a new folder is trimmed, stored, and becomes the folder shown");
+    Send(controller, "createPresetFolder", {{"name", "Leads"}, {"parentId", live}});
+    const auto leads = folders().at(0).at("children").at(0).at("id").get<std::string>();
+    Send(controller, "createPresetFolder", {{"name", ""}});
+    Expect(folders().size() == 1, "a folder needs a name");
+
+    Send(controller, "renamePresetFolder", {{"folderId", leads}, {"name", "Solos"}});
+    Expect(folders().at(0).at("children").at(0).at("name") == "Solos", "a nested folder is renamed");
+
+    Send(controller, "movePresetToFolder", {{"presetId", "p1"}, {"folderId", live}});
+    Send(controller, "movePresetToFolder", {{"presetId", "p1"}, {"folderId", leads}});
+    Expect(folders().at(0).at("presetIds").empty() && folders().at(0).at("children").at(0).at("presetIds") == nlohmann::json::array({"p1"}),
+           "a preset is in one folder at most");
+
+    Send(controller, "movePresetFolder", {{"folderId", live}, {"parentId", leads}});
+    Expect(folders().size() == 1 && folders().at(0).at("id") == live, "a folder cannot go inside its own child");
+    Send(controller, "movePresetFolder", {{"folderId", leads}, {"parentId", ""}});
+    Expect(folders().size() == 2 && folders().at(0).at("children").empty(), "moved to the top level");
+
+    Send(controller, "deletePreset", {{"presetId", "p1"}});
+    Send(controller, "selectPresetFolder", {{"folderId", leads}});
+    Expect(active() == leads, "selectPresetFolder sets the folder shown");
+
+    Send(controller, "deletePresetFolder", {{"folderId", leads}});
+    Expect(folders().size() == 1 && active() == "__all__", "a deleted folder goes, and the list goes back to All");
+
+    Send(controller, "getPresetFolders");
+    Expect(folders().size() == 1 && folders().at(0).at("name") == "Live", "the stored tree holds the edits");
+}
+
 void TestRecentsKeepTheWebUiRules()
 {
     TestHost host(Sandbox("recents"));
@@ -891,6 +934,7 @@ int main()
     TestDirtyFlagFollowsTheWorkingCopy();
     TestAutomationIsNotAnEdit();
     TestFavoriteAndRatingPatches();
+    TestPresetFolderCommands();
     TestRecentsKeepTheWebUiRules();
     TestImportSaveLeavesThePlayingPresetAlone();
     TestImportWithoutABodyIsRefused();

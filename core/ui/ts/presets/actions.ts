@@ -15,7 +15,7 @@ import { exportCurrentPresetArchive, exportPresetArchiveSession, getToneSharingO
 import { cachePresetInMemory } from "../presets/cache.js";
 import { presetSearchElement } from "../presets/dom.js";
 import { isPresetFavorite, setPresetFavorite } from "../presets/favorites.js";
-import { persistPresetFolders, removePresetFromFolders } from "../presets/folders.js";
+import { removePresetFromFolders } from "../presets/folders.js";
 import { requestPresetUIRender, setPresetLibraryRefresher } from "../presets/refresh.js";
 import { clonePreset, getActivePresetForRender, setActivePresetDraft, setActivePresetIsNew, setActivePresetSnapshot, setPresetDirty, uiState } from "../state.js";
 import { cachePreset, removeLibraryPresets, replaceLibraryPreset, setActivePresetId, setFilteredPresets } from "../presetLibraryStore.js";
@@ -84,8 +84,8 @@ export async function deleteCurrentPreset(): Promise<void> {
   if (deletePresetFromBackend(activePresetId)) {
     // Remove from UI state
     removeLibraryPresets([activePresetId]);
+    // The engine takes it out of its folder too; the local copy follows at once.
     removePresetFromFolders(uiState.presetFolders ?? [], activePresetId);
-    persistPresetFolders();
     if (isPresetFavorite(activePresetId)) {
       setPresetFavorite(activePresetId, false);
     }
