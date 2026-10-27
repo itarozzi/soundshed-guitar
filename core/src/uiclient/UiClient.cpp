@@ -168,6 +168,7 @@ void UiClient::RegisterHandlers()
     RegisterRiffHandlers();
     RegisterLooperHandlers();
     RegisterLayoutHandlers();
+    RegisterPracticeToolHandlers();
 }
 
 void UiClient::Start()

@@ -315,6 +315,26 @@ public:
     void DismissLooperRecovery();
     void AddRiffAsLooperLayer(const std::string& takeId);
 
+    // ── Practice Tool (Topic::PracticeTool) ───────────────────────────────────────────
+    /// The engine's file dialog for a backing track; its answer is practiceToolFileLoaded.
+    void BrowsePracticeToolFile();
+    void LoadPracticeToolFile(const std::string& path);
+    /// "play", "pause" or "stop".
+    void SetPracticeToolTransport(const std::string& action);
+    void SeekPracticeToolFile(double seconds);
+    void SetPracticeToolSpeed(double ratio);
+    void SetPracticeToolPitch(double semitones);
+    void SetPracticeToolGain(double gain);
+    void SetPracticeToolBalance(double balance);
+    /// The active loop's bounds; `restart` also turns looping on and jumps to its start, as one
+    /// change engine-side (what selecting a loop wants).
+    void SetPracticeToolLoopRegion(double startSec, double endSec, bool restart = false);
+    /// No loop region: the whole track.
+    void ClearPracticeToolLoopRegion();
+    void SetPracticeToolLooping(bool enabled);
+    /// The backing-track EQ: any of ParametricEQEffect's parameters, and/or the switch.
+    void SetPracticeToolEq(const std::optional<bool>& enabled, const nlohmann::json& params = nlohmann::json::object());
+
     // ── Input levelling (Topic::InputLevelling) ─────────────────────────────────────────
     /// Answered by "inputLevelling" (the profiles) and "inputLevellingTraining".
     void GetInputLevelling();

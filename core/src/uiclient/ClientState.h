@@ -631,6 +631,24 @@ struct LooperState
     std::vector<LooperProject> projects;
 };
 
+// ── Practice Tool (Topic::PracticeTool) ────────────────────────────────────────
+// The backing track as the engine reports it (PracticeToolService.cpp:
+// practiceToolFileLoaded, practiceToolTransportState, practiceToolPlaybackEnded). Loops,
+// faders and projects are the UI's (uiclient/PracticeTool.h), as in the web UI.
+
+struct PracticeToolTrack
+{
+    std::string filePath; // a real path, or a bare file name for one loaded from bytes
+    std::string title;
+    double durationSec = 0.0;
+    std::vector<float> peaksL, peaksR;
+    int loads = 0; // counts practiceToolFileLoaded: a change is a new track
+    bool playing = false;
+    double positionSec = 0.0;
+    double positionAt = 0.0; // when positionSec was reported (LooperClockNow)
+    int endings = 0;         // counts practiceToolPlaybackEnded
+};
+
 struct Environment
 {
     bool standalone = true;
@@ -770,6 +788,7 @@ struct ClientState
     InputLevellingState inputLevelling;
     RiffState riffs;
     LooperState looper;
+    PracticeToolTrack practiceTool;
     LayoutState layouts; // custom effect layouts and their images (Topic::EffectLayouts)
 
     std::map<std::string, ToneInstall> toneInstalls;

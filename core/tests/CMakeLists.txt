@@ -156,6 +156,7 @@ set(TEST_SOURCES
     Tone3000ResourceWorkflowTests.cpp
     TonePreviewTests.cpp
     ToneSharingLinkTests.cpp
+    JamPracticeToolTests.cpp
     TransposeBenchmark.cpp
     TransposeEffectTests.cpp
     WahEffectTests.cpp
@@ -300,6 +301,8 @@ target_link_libraries(UiClientLayoutTests PRIVATE SoundshedUiClient)
 target_compile_definitions(UiClientLayoutTests PRIVATE GUITARFX_UI_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../ui")
 # The tone sharing links and installed-item lookups the native UIs share (uiclient/ToneSharing.h).
 target_link_libraries(ToneSharingLinkTests PRIVATE SoundshedUiClient)
+# The Jam tab's backing tracks and Practice Tool (uiclient/Jam.h, uiclient/PracticeTool.h).
+target_link_libraries(JamPracticeToolTests PRIVATE SoundshedUiClient)
 
 # Builds real (deflated) zips to preview, as Tone3000 serves them; the core links miniz privately.
 target_link_libraries(Tone3000ResourceWorkflowTests PRIVATE guitarfx_miniz)

@@ -18,6 +18,7 @@
  */
 
 #include "net/Http.h"
+#include "uiclient/Jam.h"
 #include "uiclient/Tone3000.h"
 #include "uiclient/ToneSharing.h"
 #include "uiclient/UpdateCheck.h"
@@ -74,6 +75,12 @@ public:
     /// newer than `currentVersion`, else nothing; a failed request is nothing too.
     void CheckForUpdate(const std::string& currentVersion, const std::string& os, const std::string& cpu, bool standalone,
                         const std::string& instanceId, std::function<void(const std::optional<AvailableUpdate>&)> callback);
+
+    // ── Jam ─────────────────────────────────────────────────────────────────────
+    /// YouTube's search for embeddable backing tracks (the web UI's jam/search.ts), with the
+    /// engine's bundled key: the videos, or the API's own message.
+    using BackingTracksCallback = std::function<void(const std::vector<jam::Video>& videos, const std::string& error)>;
+    void SearchBackingTracks(const std::string& normalizedQuery, const std::string& apiKey, BackingTracksCallback callback);
 
     // ── Tone sharing ────────────────────────────────────────────────────────────
     void Get(const std::string& path, Callback callback);

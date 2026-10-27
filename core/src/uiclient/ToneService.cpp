@@ -161,6 +161,21 @@ void ToneService::CheckForUpdate(const std::string& currentVersion, const std::s
             });
 }
 
+void ToneService::SearchBackingTracks(const std::string& normalizedQuery, const std::string& apiKey, BackingTracksCallback callback)
+{
+    // json=false: no session header, which is the Soundshed service's, not Google's.
+    Request("GET", jam::SearchUrl(normalizedQuery, apiKey), {}, false, [callback = std::move(callback)](const HttpResult& result) {
+        const auto payload = nlohmann::json::parse(result.body, nullptr, false);
+        if (result.status < 200 || result.status >= 300)
+        {
+            auto error = result.status == 0 ? result.error : jam::DescribeError(payload);
+            callback({}, error.empty() ? std::string("Request failed.") : error);
+            return;
+        }
+        callback(jam::ParseSearchResults(payload), {});
+    });
+}
+
 void ToneService::Get(const std::string& path, Callback callback)
 {
     Request("GET", tones::ResolveUrl(path), {}, true, [this, callback = std::move(callback)](const HttpResult& result) {

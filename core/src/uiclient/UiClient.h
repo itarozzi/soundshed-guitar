@@ -62,6 +62,7 @@ enum class Topic
     Riffs,           // the riff library and the take being captured
     Looper,          // the looper's state, layers, waveforms and projects
     EffectLayouts,   // the custom effect layout library and its images
+    PracticeTool,    // the Practice Tool's backing track and transport
     Count
 };
 
@@ -186,6 +187,7 @@ private:
     void RegisterRiffHandlers();
     void RegisterLooperHandlers();
     void RegisterLayoutHandlers();
+    void RegisterPracticeToolHandlers();
     bool mLooperEnabledSent = false;
     bool mLooperEnabledPending = false;
     /// A riff library from "state" or "riffLibraryState": the favourite clips and the library.
