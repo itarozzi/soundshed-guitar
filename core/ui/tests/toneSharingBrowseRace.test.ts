@@ -20,7 +20,18 @@ vi.mock("../ts/toneSharingPanel/api.js", () => ({
 vi.mock("../ts/toneSharingPanel/dom.js", () => ({ element: () => null }));
 vi.mock("../ts/toneSharingPanel/format.js", () => ({ resolveCreatorProfileHandle: () => null }));
 vi.mock("../ts/toneSharingPanel/hostActions.js", () => ({
-  getToneSharingHostActions: () => ({ importPresetArchive: async (file: File) => [{ id: `imported-${file.name}` }] }),
+  getToneSharingHostActions: () => ({ prepareArchiveRemoteResourcesForPreview: async () => undefined }),
+}));
+vi.mock("../ts/toneSharingPanel/install.js", () => ({
+  readDownload: async (download: { title: string; itemId?: string }) => ({
+    title: download.title,
+    itemId: download.itemId,
+    base64: "UEs=",
+    presets: 1,
+    resources: 0,
+    blends: 0,
+    remoteRefs: [],
+  }),
 }));
 const { uiState } = await import("../ts/state.js");
 const { previewState } = await import("../ts/toneSharingPanel/state.js");
@@ -112,7 +123,7 @@ describe("Tone Sharing preview", () => {
     ok: true,
     status: 200,
     headers: { get: () => "" },
-    blob: async () => new Blob([itemId]),
+    arrayBuffer: async () => new TextEncoder().encode(itemId).buffer,
   });
   const sent = (type: string) => previewStubs.postMessage.mock.calls
     .map(([message]) => message as { type: string; presetId?: string })
@@ -138,7 +149,7 @@ describe("Tone Sharing preview", () => {
     slowB.resolve(download("b"));
     await b;
 
-    expect(sent("previewPreset").map((message) => message.presetId)).toEqual(["preview-a"]);
+    expect(sent("previewPresetArchive").map((message) => message.presetId)).toEqual(["preview-a"]);
     expect(previewState.itemId).toBeNull();
     expect(previewState.priorPresetId).toBeNull();
   });

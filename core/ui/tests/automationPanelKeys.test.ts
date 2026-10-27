@@ -32,32 +32,41 @@ beforeEach(() => {
     slots: [{ slotId: "s1", label: "Bank Up", address: "setlist.bankUp", keyMap: [{ key: "z", mode: 0, value: 1 }] }] as never,
     registry: [],
     maxCustomSlots: 8,
+    keyLearnSlotId: "",
   });
 });
 
+// The engine runs the mappings and the learn (automationKey, armKeyLearn); the panel only
+// decides which keys to pass on.
 describe("keyboard learn", () => {
-  it("waits through a bare modifier and backs out on Escape, storing neither", () => {
+  it("is armed in the engine, and takes every key there until the engine says it is done", () => {
     learnButton().click();
+    expect(sent("armKeyLearn")).toEqual([{ type: "armKeyLearn", slotId: "s1" }]);
     expect(learnArmed()).toBe(true);
 
-    press("Shift", { shiftKey: true });
-    expect(learnArmed()).toBe(true);
-    press("Control", { ctrlKey: true });
-    expect(learnArmed()).toBe(true);
+    // A bare modifier and Escape go to the engine, which waits through the one and backs out on the other.
+    const shift = press("Shift", { shiftKey: true });
+    const escape = press("Escape");
+    expect(sent("automationKey").map((message) => message.key)).toEqual(["Shift", "Escape"]);
+    expect(shift.defaultPrevented && escape.defaultPrevented).toBe(true);
+    expect(sent("setAutomationSlot")).toEqual([]);
 
-    press("Escape");
+    applyAutomationState({ keyLearnSlotId: "" });
     expect(learnArmed()).toBe(false);
+  });
+
+  it("passes an ordinary key to the engine to store, and stores nothing itself", () => {
+    learnButton().click();
+    press("x");
+
+    expect(sent("automationKey")).toEqual([{ type: "automationKey", key: "x", repeat: false }]);
     expect(sent("setAutomationSlot")).toEqual([]);
   });
 
-  it("still learns an ordinary key, and only that one", () => {
+  it("is cancelled by pressing Learn again", () => {
     learnButton().click();
-    press("x");
-    press("y");
-
-    expect(sent("setAutomationSlot")).toEqual([
-      { type: "setAutomationSlot", slotId: "s1", keyMap: [{ key: "z", mode: 0, value: 1 }, { key: "x", mode: 0, value: 1 }] },
-    ]);
+    learnButton().click();
+    expect(sent("armKeyLearn")).toEqual([{ type: "armKeyLearn", slotId: "s1" }, { type: "armKeyLearn", slotId: "" }]);
   });
 });
 
@@ -65,14 +74,22 @@ describe("mapped keys", () => {
   it("leave a chord to its shortcut: Ctrl+Z is undo, not the slot on z", () => {
     const event = press("z", { ctrlKey: true });
 
-    expect(sent("setAutomationValue")).toEqual([]);
+    expect(sent("automationKey")).toEqual([]);
     expect(event.defaultPrevented).toBe(false);
   });
 
-  it("fire on the bare key", () => {
-    const event = press("z");
+  it("go to the engine to fire, held back from the page", () => {
+    const event = press("Z", { repeat: true });
 
-    expect(sent("setAutomationValue")).toEqual([{ type: "setAutomationValue", slotId: "s1", value: 1, source: "keyboard" }]);
+    expect(sent("automationKey")).toEqual([{ type: "automationKey", key: "Z", repeat: true }]);
     expect(event.defaultPrevented).toBe(true);
+  });
+
+  it("leave a key no slot maps, and Space, to the page", () => {
+    const q = press("q");
+    const space = press(" ");
+
+    expect(sent("automationKey")).toEqual([]);
+    expect(q.defaultPrevented || space.defaultPrevented).toBe(false);
   });
 });

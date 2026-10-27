@@ -57,6 +57,8 @@ enum class Topic
     Tones, // tone sharing installs (what is installed is the toneSharing.installedPacks setting: Session)
     ResourceFolders, // the resource browser's folder listing, and a folder just picked to add
     Analysis,        // spectra, loudness, analyzer frames, spatial positions, gate Learn
+    Automation,      // automation slots and registry, MIDI and key learn, the MIDI Log
+    InputLevelling,  // input levelling profiles and training
     Count
 };
 
@@ -168,6 +170,8 @@ private:
     void RegisterLibraryHandlers();
     void RegisterLiveHandlers();
     void RegisterAnalysisHandlers();
+    void RegisterAutomationHandlers();
+    void RegisterInputLevellingHandlers();
     void Apply(const std::string& json);
     void Unsubscribe(Topic topic, int id);
 

@@ -310,8 +310,18 @@ std::optional<PackDetail> ParsePackDetail(const nlohmann::json& data)
             continue;
         }
 
-        detail.items.push_back({Text(entry, "itemId"), Trimmed(Text(entry, "title")), Text(entry, "type"),
-                                Integer(entry, "sortOrder")});
+        PackDetail::Entry item{Text(entry, "itemId"), Trimmed(Text(entry, "title")), Text(entry, "type"),
+                               Integer(entry, "sortOrder"), Trimmed(Text(entry, "description")), {}};
+
+        for (const auto& tag : Array(entry, "tags"))
+        {
+            if (tag.is_string() && !tag.get<std::string>().empty() && tag.get<std::string>() != "preset")
+            {
+                item.tags.push_back(tag.get<std::string>());
+            }
+        }
+
+        detail.items.push_back(std::move(item));
     }
 
     std::stable_sort(detail.items.begin(), detail.items.end(),
@@ -425,6 +435,96 @@ std::string ShareLink(const Tone& tone)
     return std::string(kApiOrigin) + (tone.IsPack() ? "/share/pack/" : "/share/item/") + EncodeQueryValue(tone.id);
 }
 
+std::string ItemFavoritePath(const std::string& itemId)
+{
+    return ItemPath(itemId) + "/favorite";
+}
+
+std::string ItemRatingPath(const std::string& itemId)
+{
+    return ItemPath(itemId) + "/rating";
+}
+
+namespace
+{
+std::string PercentDecode(const std::string& text)
+{
+    std::string out;
+
+    for (std::size_t i = 0; i < text.size(); ++i)
+    {
+        if (text[i] == '%' && i + 2 < text.size() && std::isxdigit(static_cast<unsigned char>(text[i + 1])) &&
+            std::isxdigit(static_cast<unsigned char>(text[i + 2])))
+        {
+            out.push_back(static_cast<char>(std::stoi(text.substr(i + 1, 2), nullptr, 16)));
+            i += 2;
+        }
+        else
+        {
+            out.push_back(text[i] == '+' ? ' ' : text[i]);
+        }
+    }
+
+    return out;
+}
+
+/// Ids the service hands out: letters, digits, '_' and '-'.
+bool IsLinkId(const std::string& id)
+{
+    return !id.empty() && id.size() <= 128 &&
+           std::all_of(id.begin(), id.end(), [](char c) { return std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '-'; });
+}
+
+/// The value of `key=` in a query, up to the next '&', '#', space or quote.
+std::string QueryValue(const std::string& text, const std::string& key)
+{
+    for (std::size_t at = text.find(key + "="); at != std::string::npos; at = text.find(key + "=", at + 1))
+    {
+        // A whole parameter name, not the end of another ("xitemId").
+        if (at > 0 && std::isalnum(static_cast<unsigned char>(text[at - 1])))
+        {
+            continue;
+        }
+
+        const auto start = at + key.size() + 1;
+        const auto end = text.find_first_of("&# \"'", start);
+        return text.substr(start, end == std::string::npos ? std::string::npos : end - start);
+    }
+
+    return {};
+}
+} // namespace
+
+std::optional<LinkTarget> ParseLink(const std::string& raw)
+{
+    const auto text = PercentDecode(Trimmed(raw));
+
+    for (const auto& [key, kind] : {std::pair{"itemId", Tone::Kind::Preset}, std::pair{"packId", Tone::Kind::Pack}})
+    {
+        if (const auto id = QueryValue(text, key); IsLinkId(id))
+        {
+            return LinkTarget{kind, id};
+        }
+    }
+
+    for (const auto& [marker, kind] : {std::pair{"/share/item/", Tone::Kind::Preset}, std::pair{"/share/pack/", Tone::Kind::Pack}})
+    {
+        if (const auto at = text.find(marker); at != std::string::npos)
+        {
+            const auto start = at + std::string(marker).size();
+            const auto end = text.find_first_of("/?#&\"' ", start);
+            const auto id = text.substr(start, end == std::string::npos ? std::string::npos : end - start);
+
+            if (IsLinkId(id))
+            {
+                return LinkTarget{kind, id};
+            }
+        }
+    }
+
+    return std::nullopt;
+}
+
 // ── What is installed ───────────────────────────────────────────────────────────
 
 std::string ItemEntryId(const std::string& itemId)
@@ -498,6 +598,49 @@ std::optional<InstalledEntry> FindInstalled(const nlohmann::json& appSettings, c
     }
 
     return std::nullopt;
+}
+
+std::string ItemIdForPreset(const nlohmann::json& appSettings, const std::string& presetId)
+{
+    const auto list = appSettings.is_object() ? appSettings.find(kInstalledSettingKey) : appSettings.end();
+
+    if (presetId.empty() || !appSettings.is_object() || list == appSettings.end() || !list->is_array())
+    {
+        return {};
+    }
+
+    const std::string itemPrefix = ItemEntryId("");
+
+    for (const auto& entry : *list)
+    {
+        if (!entry.is_object())
+        {
+            continue;
+        }
+
+        if (const auto items = entry.find("presetItems"); items != entry.end() && items->is_object())
+        {
+            if (const auto it = items->find(presetId); it != items->end() && it->is_string())
+            {
+                return it->get<std::string>();
+            }
+        }
+
+        const auto id = Text(entry, "id");
+
+        if (id.rfind(itemPrefix, 0) == 0)
+        {
+            for (const auto& value : Array(entry, "presetIds"))
+            {
+                if (value.is_string() && value.get<std::string>() == presetId)
+                {
+                    return id.substr(itemPrefix.size());
+                }
+            }
+        }
+    }
+
+    return {};
 }
 
 // ── Display ─────────────────────────────────────────────────────────────────────

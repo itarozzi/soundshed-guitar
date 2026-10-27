@@ -54,6 +54,7 @@ instead of scrolling one enormous one:
 | `controller/PluginControllerRiffs.cpp`          | Riff capture (recorded by `RiffRecorder`, the looper's recorder with playback off), editing, playback, library index |
 | `controller/PluginControllerBroadcast.cpp`      | `BroadcastState` and the `Send*ToUI` pushes           |
 | `controller/PluginControllerSettings.cpp`       | App settings load/apply/persist                       |
+| `controller/PluginControllerInputLevelling.cpp` | Input levelling: the profiles in `audio.userInputCalibration.*`, training on the raw input's peak (`InputLevelHold`), the trim maths |
 | `controller/PluginControllerHostedPlugins.cpp`  | Third-party plugin state capture and restore          |
 | `controller/PluginControllerPresetArchive.cpp`  | Factory archives and archive sessions                 |
 | `controller/PluginControllerArchiveInstall.cpp` | Installing tones downloaded from tone sharing (`installPresetArchives`) and removing them; the `toneSharing.installedPacks` record |

@@ -73,6 +73,43 @@ export function buildInstalledToneSharingLookup(): InstalledToneSharingLookup {
   return { itemIds, packIds };
 }
 
+const INSTALLED_ITEM_PREFIX = "tone-sharing-api:item:";
+
+/**
+ * The item an installed preset came from, by the install's record in toneSharing.installedPacks:
+ * a single item's entry id names it, and a pack's records each preset's item (`presetItems`). The
+ * engine installs presets without a toneSharingOrigin, so this is how they are found.
+ */
+export function installedToneSharingItemId(presetId: string): string | null {
+  const list = (uiState.appSettings as Record<string, unknown> | undefined)?.["toneSharing.installedPacks"];
+  if (!presetId || !Array.isArray(list)) {
+    return null;
+  }
+  for (const entry of list) {
+    if (!entry || typeof entry !== "object") {
+      continue;
+    }
+    const record = entry as Record<string, unknown>;
+    const items = record.presetItems;
+    if (items && typeof items === "object") {
+      const itemId = (items as Record<string, unknown>)[presetId];
+      if (typeof itemId === "string" && itemId) {
+        return itemId;
+      }
+    }
+    const id = typeof record.id === "string" ? record.id : "";
+    if (id.startsWith(INSTALLED_ITEM_PREFIX) && Array.isArray(record.presetIds) && record.presetIds.includes(presetId)) {
+      return id.slice(INSTALLED_ITEM_PREFIX.length) || null;
+    }
+  }
+  return null;
+}
+
+/** The item a favourite or rating of this preset belongs to on the service, if any. */
+function toneSharingItemIdForPreset(preset: Preset | null | undefined): string | null {
+  return getPresetToneSharingOrigin(preset)?.itemId ?? (preset?.id ? installedToneSharingItemId(preset.id) : null);
+}
+
 export function isToneSharingSignedIn(): boolean {
   return Boolean(toneSharingState.user);
 }
@@ -81,11 +118,11 @@ export async function syncToneSharingFavoriteForPreset(preset: Preset | null | u
   if (!toneSharingState.user) {
     return;
   }
-  const origin = getPresetToneSharingOrigin(preset);
-  if (!origin?.itemId) {
+  const itemId = toneSharingItemIdForPreset(preset);
+  if (!itemId) {
     return;
   }
-  await apiFetch(`/items/${origin.itemId}/favorite`, {
+  await apiFetch(`/items/${itemId}/favorite`, {
     method: favorite ? "PUT" : "DELETE",
   });
 }
@@ -94,15 +131,15 @@ export async function syncToneSharingRatingForPreset(preset: Preset | null | und
   if (!toneSharingState.user) {
     return;
   }
-  const origin = getPresetToneSharingOrigin(preset);
-  if (!origin?.itemId) {
+  const itemId = toneSharingItemIdForPreset(preset);
+  if (!itemId) {
     return;
   }
   if (rating === null) {
-    await apiFetch(`/items/${origin.itemId}/rating`, { method: "DELETE" });
+    await apiFetch(`/items/${itemId}/rating`, { method: "DELETE" });
     return;
   }
-  await apiFetch(`/items/${origin.itemId}/rating`, {
+  await apiFetch(`/items/${itemId}/rating`, {
     method: "PUT",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ rating }),

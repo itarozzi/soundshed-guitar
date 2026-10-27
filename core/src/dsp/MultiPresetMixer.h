@@ -12,6 +12,7 @@
 #include "dsp/SignalTelemetry.h"
 #include "dsp/SilenceSleepGate.h"
 #include "dsp/MixerTelemetry.h"
+#include "dsp/InputLevelHold.h"
 #include "dsp/RealtimeParallel.h"
 #include "dsp/TunerEngine.h"
 #include "dsp/looper/LooperEngine.h"
@@ -594,6 +595,12 @@ class MultiPresetMixer
 
     [[nodiscard]] SignalDiagnosticsSnapshot GetSignalDiagnosticsSnapshot() const;
 
+    /// The raw input's peak hold for input levelling training; armed and read by the controller.
+    [[nodiscard]] InputLevelHold& GetInputLevelHold() noexcept
+    {
+        return mInputLevelHold;
+    }
+
     /// Spectrum of one node's input, for an EQ display. `scope` is "pre", "post" or "preset",
     /// as in the diagnostics snapshot; `presetId` only matters for "preset", where empty means
     /// the first live instance. The node is tapped on first read and stays tapped -- including
@@ -768,6 +775,7 @@ class MultiPresetMixer
     looper::LooperEngine mLooper;
 
     MixerTelemetry mTelemetry;
+    InputLevelHold mInputLevelHold;
 
     /// See TakePeakDspLoadPercent(). Written by the audio thread, taken by the message thread.
     std::atomic<double> mPeakDspLoadPercent{0.0};

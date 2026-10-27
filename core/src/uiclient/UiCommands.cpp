@@ -176,6 +176,8 @@ void UiCommands::DeletePreset(const std::string& presetId)
 void UiCommands::SetPresetRating(const std::string& presetId, int rating)
 {
     mClient.Send("setPresetRating", {{"presetId", presetId}, {"rating", std::clamp(rating, 0, 5)}});
+    if (onPresetRatingSet)
+        onPresetRatingSet(presetId, std::clamp(rating, 0, 5));
 }
 
 void UiCommands::CreatePresetFolder(const std::string& name, const std::string& parentId)
@@ -249,6 +251,8 @@ void UiCommands::RemoveSetlistSlot(const std::string& setlistId, int index)
 void UiCommands::SetPresetFavorite(const std::string& presetId, bool favorite)
 {
     mClient.Send("setPresetFavorite", {{"presetId", presetId}, {"favorite", favorite}});
+    if (onPresetFavoriteSet)
+        onPresetFavoriteSet(presetId, favorite);
 }
 
 // ── Multi-Rig ──────────────────────────────────────────────────────────
@@ -261,6 +265,72 @@ void UiCommands::FocusMixerPreset(const std::string& presetId)
 void UiCommands::RemoveActivePreset(const std::string& presetId)
 {
     mClient.Send("removeActivePreset", {{"presetId", presetId}});
+}
+
+void UiCommands::AddActivePreset(const std::string& presetId)
+{
+    mClient.Send("addActivePreset", {{"presetId", presetId}});
+}
+
+void UiCommands::SetPresetMix(const std::string& presetId, double mix)
+{
+    mClient.MutableState().mixer.slots[presetId].mix = mix;
+    mClient.Send("setPresetMix", {{"presetId", presetId}, {"mix", mix}});
+    mClient.Notify(Topic::Mixer);
+}
+
+void UiCommands::SetPresetPan(const std::string& presetId, double pan)
+{
+    mClient.MutableState().mixer.slots[presetId].pan = pan;
+    mClient.Send("setPresetPan", {{"presetId", presetId}, {"pan", pan}});
+    mClient.Notify(Topic::Mixer);
+}
+
+void UiCommands::SetPresetMute(const std::string& presetId, bool mute)
+{
+    mClient.MutableState().mixer.slots[presetId].mute = mute;
+    mClient.Send("setPresetMute", {{"presetId", presetId}, {"mute", mute}});
+    mClient.Notify(Topic::Mixer);
+}
+
+void UiCommands::SetPresetSolo(const std::string& presetId, bool solo)
+{
+    mClient.MutableState().mixer.slots[presetId].solo = solo;
+    mClient.Send("setPresetSolo", {{"presetId", presetId}, {"solo", solo}});
+    mClient.Notify(Topic::Mixer);
+}
+
+void UiCommands::SetMixGain(double gainDb)
+{
+    mClient.MutableState().mixer.mixGainDb = gainDb;
+    mClient.Send("setMixGain", {{"gainDb", gainDb}});
+    mClient.Notify(Topic::Mixer);
+}
+
+void UiCommands::SaveCompositePreset(const std::string& name, const std::string& description, const std::vector<std::string>& tags,
+                                     const std::string& id)
+{
+    nlohmann::json payload = {{"name", name}, {"description", description}, {"tags", tags}};
+    if (!id.empty())
+    {
+        payload["id"] = id;
+    }
+    mClient.Send("saveCompositePreset", std::move(payload));
+}
+
+void UiCommands::LoadCompositePreset(const std::string& id)
+{
+    mClient.Send("loadCompositePreset", {{"id", id}});
+}
+
+void UiCommands::RemoveCompositePreset(const std::string& id)
+{
+    mClient.Send("removeCompositePreset", {{"id", id}});
+}
+
+void UiCommands::GetCompositePresetList()
+{
+    mClient.Send("getCompositePresetList");
 }
 
 // ── Setlists ───────────────────────────────────────────────────────────────
@@ -550,31 +620,66 @@ void UiCommands::SaveEffectPreset(const std::string& nodeId, const std::string& 
 
 // ── Global chain and output ───────────────────────────────────────────────
 
+namespace
+{
+/// Writes a global chain edit into the client's copy, where the engine keeps it
+/// (PluginControllerGlobalChain.cpp): the engine applies setGlobalChainParam without echoing it,
+/// as the web UI writes its own copy, so a UI that read the old value back would show it, and a
+/// switch would send the same state again. Returns false for a path it does not know.
+bool MirrorGlobalChainEdit(GlobalSignalChainConfig& chain, const std::string& path, const nlohmann::json& value)
+{
+    const auto number = [&value] { return value.is_boolean() ? (value.get<bool>() ? 1.0 : 0.0) : value.get<double>(); };
+    const auto on = [&value] { return value.is_boolean() ? value.get<bool>() : value.get<double>() >= 0.5; };
+    const auto node = [&chain](bool pre, const char* id) { return (pre ? chain.preChainGraph : chain.postChainGraph).FindNode(id); };
+    // "<stage>.<key>": the stage's node in its graph, its key a parameter of that node or, for
+    // "enabled", the node's switch.
+    const auto stage = [&](const char* prefix, bool pre, const char* id) {
+        const std::string head = std::string(prefix) + ".";
+        if (path.rfind(head, 0) != 0)
+            return false;
+        auto* n = node(pre, id);
+        if (n == nullptr)
+            return true;
+        const auto key = path.substr(head.size());
+        if (key == "enabled")
+            n->enabled = on();
+        else
+            n->params[key] = number();
+        return true;
+    };
+
+    if (!value.is_number() && !value.is_boolean())
+        return false;
+    if (path == "input.gain")
+        chain.inputGain = number();
+    else if (path == "output.gain")
+        chain.outputGain = number();
+    else if (path == "limiter.enabled")
+        chain.limiterEnabled = on();
+    else if (path == "doubler.delay" || path == "doubler.mix" || path == "doubler.detune")
+    {
+        // The doubler's paths name its parameters differently from its node.
+        if (auto* n = node(false, "global_doubler"))
+            n->params[path == "doubler.delay" ? "time" : path.substr(8)] = number();
+    }
+    else
+        return stage("gate", true, "global_gate") || stage("transpose", true, "global_transpose") ||
+               stage("pickup", true, "global_pickup") || stage("eq", false, "global_eq") || stage("doubler", false, "global_doubler");
+    return true;
+}
+} // namespace
+
 void UiCommands::SetGlobalChainParam(const std::string& path, double value)
 {
-    // The Global EQ's bands and the global gate's settings are mirrored at once, as the web UI
-    // writes those nodes, so a curve dragged in a plot or a Learn meter reads the value it was
-    // just given; the engine does not echo them.
-    if (path.rfind("eq.", 0) == 0 && path != "eq.enabled")
-    {
-        if (auto* node = mClient.MutableState().globalChain.postChainGraph.FindNode("global_eq"))
-        {
-            node->params[path.substr(3)] = value;
-        }
-    }
-    else if (path.rfind("gate.", 0) == 0 && path != "gate.enabled")
-    {
-        if (auto* node = mClient.MutableState().globalChain.preChainGraph.FindNode("global_gate"))
-        {
-            node->params[path.substr(5)] = value;
-        }
-    }
-
+    if (MirrorGlobalChainEdit(mClient.MutableState().globalChain, path, value))
+        mClient.Notify(Topic::GlobalChain);
     mClient.Send("setGlobalChainParam", {{"path", path}, {"value", value}});
 }
 
 void UiCommands::SetGlobalChainToggle(const std::string& path, bool enabled)
 {
+    if (MirrorGlobalChainEdit(mClient.MutableState().globalChain, path, enabled))
+        mClient.Notify(Topic::GlobalChain);
     mClient.Send("setGlobalChainParam", {{"path", path}, {"value", enabled}});
 }
 
@@ -625,9 +730,14 @@ void UiCommands::SetMetronomeClickType(const std::string& clickType)
     mClient.Send("setMetronome", {{"clickType", clickType}});
 }
 
-void UiCommands::SetMetronomeTimeSignature(int numerator, int denominator)
+void UiCommands::SetMetronomeTimeSignature(int numerator, int denominator, const std::string& grouping)
 {
-    mClient.Send("setMetronome", {{"timeSigNum", numerator}, {"timeSigDen", denominator}});
+    mClient.Send("setMetronome", {{"timeSigNum", numerator}, {"timeSigDen", denominator}, {"grouping", grouping}});
+}
+
+void UiCommands::SetMetronomePan(double pan)
+{
+    mClient.Send("setMetronome", {{"pan", std::clamp(pan, -1.0, 1.0)}});
 }
 
 void UiCommands::SetMetronomeBeatPattern(const std::string& pattern)
@@ -796,5 +906,106 @@ void UiCommands::InstallPresetArchives(const nlohmann::json& entry, const std::s
 void UiCommands::DeleteInstalledPresetArchive(const std::string& entryId)
 {
     mClient.Send("deleteInstalledPresetArchive", {{"id", entryId}});
+}
+
+// ── MIDI and automation ─────────────────────────────────────────────────────────
+
+void UiCommands::GetAutomation()
+{
+    mClient.Send("getAutomation");
+}
+
+void UiCommands::SetAutomationSlot(const std::string& slotId, const std::optional<std::string>& label,
+                                   const std::optional<std::string>& address, const std::string& presetId)
+{
+    nlohmann::json payload = {{"slotId", slotId}};
+
+    if (label)
+    {
+        payload["label"] = *label;
+    }
+
+    if (address)
+    {
+        payload["address"] = *address;
+    }
+
+    if (!presetId.empty())
+    {
+        payload["presetId"] = presetId;
+    }
+
+    mClient.Send("setAutomationSlot", std::move(payload));
+}
+
+void UiCommands::ClearAutomationMidiMap(const std::string& slotId)
+{
+    mClient.Send("setAutomationSlot", {{"slotId", slotId}, {"midiMap", nullptr}});
+}
+
+void UiCommands::ClearAutomationKeyMap(const std::string& slotId)
+{
+    mClient.Send("setAutomationSlot", {{"slotId", slotId}, {"keyMap", nullptr}});
+}
+
+void UiCommands::RemoveAutomationSlot(const std::string& slotId)
+{
+    mClient.Send("removeAutomationSlot", {{"slotId", slotId}});
+}
+
+void UiCommands::SetAutomationValue(const std::string& slotId, double value)
+{
+    mClient.Send("setAutomationValue", {{"slotId", slotId}, {"value", value}, {"source", "ui"}});
+}
+
+void UiCommands::ArmMidiLearn(const std::string& slotId)
+{
+    // The engine does not say which slot listens; this UI keeps it, as the web UI does.
+    mClient.MutableState().automation.midiLearnSlotId = slotId;
+    mClient.Send("armMidiLearn", {{"slotId", slotId}});
+    mClient.Notify(Topic::Automation);
+}
+
+void UiCommands::CancelMidiLearn()
+{
+    auto& automation = mClient.MutableState().automation;
+
+    if (automation.midiLearnSlotId.empty())
+    {
+        return;
+    }
+
+    automation.midiLearnSlotId.clear();
+    mClient.Send("cancelMidiLearn");
+    mClient.Notify(Topic::Automation);
+}
+
+void UiCommands::SetMidiLogEnabled(bool enabled)
+{
+    mClient.MutableState().automation.midiLogEnabled = enabled;
+    mClient.Send("setMidiLogEnabled", {{"enabled", enabled}});
+    mClient.Notify(Topic::Automation);
+}
+
+void UiCommands::ArmKeyLearn(const std::string& slotId)
+{
+    // Shown at once; the engine's answer (keyLearnSlotId in "automation") stands.
+    mClient.MutableState().automation.keyLearnSlotId = slotId;
+    mClient.Send("armKeyLearn", {{"slotId", slotId}});
+    mClient.Notify(Topic::Automation);
+}
+
+void UiCommands::AutomationKey(const std::string& key, bool repeat, bool ctrl, bool alt, bool meta)
+{
+    nlohmann::json payload = {{"key", key}, {"repeat", repeat}};
+
+    if (ctrl)
+        payload["ctrl"] = true;
+    if (alt)
+        payload["alt"] = true;
+    if (meta)
+        payload["meta"] = true;
+
+    mClient.Send("automationKey", std::move(payload));
 }
 } // namespace guitarfx::uiclient

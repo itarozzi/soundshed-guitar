@@ -13,13 +13,12 @@ import {
   handleDroppedPresetPack,
   renderActivePreset,
   populatePresetDropdown,
-  importPresetArchive,
   buildToneSharingPresetArchiveBlobs,
   requestSignalPathTest,
   applyPresetFromLibrary,
 } from "./presets.js";
 import { buildImportSummaryMessage } from "./presets/archive.js";
-import { importArchiveRemoteResources, readArchiveRemoteRefs } from "./presets/remoteArchiveResources.js";
+import { importArchiveRemoteResources, prepareArchiveRemoteResourcesForPreview, readArchiveRemoteRefs } from "./presets/remoteArchiveResources.js";
 import { initCompactMode, isCompact } from "./compactMode.js";
 import { initCompactStage } from "./compactStage.js";
 import { installFetchLogger, renderLogEntries } from "./logging.js";
@@ -187,8 +186,8 @@ async function bootstrap(): Promise<void> {
     buildImportSummaryMessage,
     buildToneSharingPresetArchiveBlobs,
     importArchiveRemoteResources,
-    importPresetArchive,
     populatePresetDropdown,
+    prepareArchiveRemoteResourcesForPreview,
     readArchiveRemoteRefs,
     renderActivePreset,
     switchMainPanel,

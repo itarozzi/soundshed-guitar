@@ -12,7 +12,7 @@ import type { InstalledPackMetadata } from "../toneSharingPanel.js";
 import { isTone3000ProxyModeEnabled } from "../tone3000.js";
 import { getLibraryResource, getLibraryResourceByHash } from "../resourceLibrary.js";
 import type { ArchiveImportContext, ArchiveImportOptions, GeneratorPackManifest, GeneratorPresetV2, GeneratorResourceIndex, ImportPackContext, ImportPackSource, ImportPackSummary, ImportPackWithConfirmationOptions, PresetArchive, PresetArchiveFolder, PresetArchiveResource, PresetCollectionArchive, Tone3000ResourceRef } from "./archiveTypes.js";
-import { buildArchiveRemoteRef, importArchiveRemoteResources, prepareArchiveRemoteResourcesForPreview, readArchiveRemoteRefs, shouldReferenceRemotely } from "./remoteArchiveResources.js";
+import { buildArchiveRemoteRef, importArchiveRemoteResources, readArchiveRemoteRefs, shouldReferenceRemotely } from "./remoteArchiveResources.js";
 import type { RemoteResourceRef } from "../remoteResources.js";
 import { applyImportedPresetFolders, assignImportedPresetsToTopLevelFolder, getPresetFolderExportName, getPresetsForFolderId } from "./folderArchive.js";
 import { PRESET_FOLDER_ALL_ID } from "./sorting.js";
@@ -793,7 +793,6 @@ export async function importPresetArchive(
   context: ArchiveImportContext = { source: "zipImport" },
   options: ArchiveImportOptions = {},
 ): Promise<Preset[]> {
-  const previewOnly = Boolean(options.previewOnly);
   const suppressNotifications = Boolean(options.suppressNotifications);
   const notifyImportError = (title: string, message: string): void => {
     if (!suppressNotifications) {
@@ -873,11 +872,6 @@ export async function importPresetArchive(
       continue;
     }
     const data = arrayBufferToBase64(await entry.async("arraybuffer"));
-    // A preview writes nothing to the library: a file it lacks goes to the engine to stage instead.
-    if (previewOnly) {
-      options.preview?.resources.push({ resourceType: resource.type, resourceId: resource.id, name: resource.name ?? fileName, data });
-      continue;
-    }
     const importFileName = buildImportResourceFileName(resource);
     const newId = generateResourceId(fileName);
     idMap.set(resource.id, newId);
@@ -903,28 +897,19 @@ export async function importPresetArchive(
     });
   }
 
-  // Fetch the resources the archive names but does not carry from their providers. A preview
-  // imports none of them: those the library lacks are fetched for the engine to stage. One
-  // that cannot be had leaves its slot empty; the presets are imported all the same.
+  // Fetch the resources the archive names but does not carry from their providers. One that
+  // cannot be had leaves its slot empty; the presets are imported all the same.
   let unavailableRemote: string[] = [];
-  if (previewOnly) {
-    await prepareArchiveRemoteResourcesForPreview(remoteResourcesToImport, idMap, options.preview);
-  } else if (remoteResourcesToImport.length > 0) {
+  if (remoteResourcesToImport.length > 0) {
     unavailableRemote = await importArchiveRemoteResources(remoteResourcesToImport, idMap, importedResources);
   }
 
   const blendIdMap = new Map<string, string>();
   const presetIdMap = new Map<string, string>();
-  // Nor does a preview save the pack's blends: they go to the engine with the preset, which plays
-  // them for the preview alone, under their own ids.
   blends.forEach((blend) => {
     const remapModel = (id: string) => idMap.get(id) ?? id;
     const models = (blend.models ?? []).map(remapModel);
     const modelMappings = (blend.modelMappings ?? []).map((mapping) => ({ ...mapping, id: remapModel(mapping.id) }));
-    if (previewOnly) {
-      options.preview?.blends.push({ ...blend, models, modelMappings });
-      return;
-    }
     const newBlendId = generateResourceId(blend.id || blend.name || "blend");
     blendIdMap.set(blend.id, newBlendId);
     postMessage({ type: "saveBlendDefinition", blend: { ...blend, id: newBlendId, models, modelMappings } });
@@ -975,32 +960,26 @@ export async function importPresetArchive(
       }));
     }
 
-    if (!previewOnly) {
-      postMessage({
-        type: "savePreset",
-        saveMode: "import",
-        presetId: importedPreset.id,
-        name: importedPreset.name,
-        category: importedPreset.category,
-        description: importedPreset.description,
-        includeGlobalSignalChain: false,
-        preset: importedPreset,
-      } satisfies SavePresetMessage);
+    postMessage({
+      type: "savePreset",
+      saveMode: "import",
+      presetId: importedPreset.id,
+      name: importedPreset.name,
+      category: importedPreset.category,
+      description: importedPreset.description,
+      includeGlobalSignalChain: false,
+      preset: importedPreset,
+    } satisfies SavePresetMessage);
 
-      cachePresetInMemory(importedPreset);
-      putLibraryPresetFirst(importedPreset);
-      cachePreset(importedPreset);
-    }
+    cachePresetInMemory(importedPreset);
+    putLibraryPresetFirst(importedPreset);
+    cachePreset(importedPreset);
     importedPresets.push(importedPreset);
   }
 
   if (importedPresets.length === 0) {
     notifyImportError("Import failed", "No presets were imported");
     return [];
-  }
-
-  if (previewOnly) {
-    return importedPresets;
   }
 
   const latestPreset = importedPresets[importedPresets.length - 1];

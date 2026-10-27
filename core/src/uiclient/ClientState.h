@@ -225,6 +225,99 @@ struct GateLearnStatus
     std::string reason;
 };
 
+// ── MIDI and automation (Topic::Automation) ─────────────────────────────────────────────
+// The engine's automation slots: each drives one address ("global.inputTrim",
+// "node.<effectType>.<param>", "setlist.bankUp") from the DAW, a MIDI mapping or keys.
+
+/// A slot's MIDI mapping. eventType: 0 CC, 1 Program Change, 2 Note On, 3 Note Off, 4 Pitch
+/// Bend; channel 0-15, or -1 for any; mode: 0 Absolute, 1 Relative, 2 Toggle, 3 Pickup.
+struct AutomationMidiMap
+{
+    int eventType = 0;
+    int channel = 0;
+    int controller = 0;
+    int mode = 0;
+    double sensitivity = 0.1;
+    double pickupRange = 0.1;
+};
+
+/// A key that fires a slot: mode 0 Trigger, 1 Set Value (to `value`, 0..1).
+struct AutomationKeyMap
+{
+    std::string key; // as a DOM KeyboardEvent.key names it, lower case for one character
+    int mode = 0;
+    double value = 0.0;
+};
+
+struct AutomationSlotInfo
+{
+    std::string slotId; // "default.inputLevel", "custom.3", "preset.2"
+    std::string label;
+    std::string address;
+    std::string nodeSelector;
+    bool isDefault = false;
+    std::string presetId; // set for a per-preset MIDI mapping, live only while that preset is active
+    double value = 0.0;
+    std::optional<AutomationMidiMap> midiMap;
+    std::vector<AutomationKeyMap> keyMap;
+};
+
+/// An address the engine's registry offers (the global and setlist ones; node addresses are
+/// built from the effect catalog).
+struct AutomationRegistryEntry
+{
+    std::string address;
+    std::string label;
+    std::string unit;
+    double min = 0.0;
+    double max = 1.0;
+    bool isStepped = false;
+    bool isTrigger = false;
+};
+
+/// One incoming MIDI event, as the MIDI Log shows it.
+struct MidiLogEntry
+{
+    double receivedAt = 0.0; // UiClient's clock (Tick), seconds
+    std::string clock;       // the wall clock then, "HH:MM:SS.mmm", as the log shows it
+    std::string type;        // "CC", "NoteOn", ...
+    int channel = 0;         // 0-15
+    int data1 = 0;
+    int data2 = 0;
+};
+
+/// What a MIDI learn captured (midiLearnCapture).
+struct MidiLearnCaptureInfo
+{
+    std::string slotId;
+    int eventType = 0;
+    int channel = 0;
+    int controller = 0;
+};
+
+struct AutomationState
+{
+    bool loaded = false; // the engine has sent its slots and registry
+    std::vector<AutomationSlotInfo> slots;
+    std::vector<AutomationRegistryEntry> registry;
+    int maxCustomSlots = 16;
+    int maxPresetSlots = 16;
+    /// The slot the engine's key learn waits on (armKeyLearn), empty when none.
+    std::string keyLearnSlotId;
+    /// The slot this UI armed for MIDI learn, until a capture or a cancel. One listens at a time.
+    std::string midiLearnSlotId;
+    /// The learn that completed last; a UI announces it once and clears it.
+    std::optional<MidiLearnCaptureInfo> capture;
+    /// Whether this UI asked the engine for the MIDI Log, and what it has sent, oldest first
+    /// (the last kMidiLogLimit kept).
+    bool midiLogEnabled = false;
+    std::vector<MidiLogEntry> midiLog;
+    static constexpr std::size_t kMidiLogLimit = 500;
+
+    [[nodiscard]] const AutomationSlotInfo* FindSlot(const std::string& slotId) const;
+    [[nodiscard]] const AutomationRegistryEntry* FindRegistryEntry(const std::string& address) const;
+};
+
 /// The analysis feeds, keyed as the meters key nodes (NodeFeedKey: "pre::id", "post::id",
 /// "<presetId>::id"). Topic::Analysis.
 struct AnalysisState
@@ -275,13 +368,90 @@ struct MetronomeState
     unsigned beatCounter = 0;
 };
 
+/// One preset in the Multi-Rig mix.
+struct MixerSlot
+{
+    std::string name;
+    double mix = 1.0;  // 0..1
+    double pan = 0.0;  // -1..1
+    bool mute = false;
+    bool solo = false;
+};
+
+/// A saved Multi-Rig (compositePresetList).
+struct CompositePreset
+{
+    std::string id;
+    std::string name;
+    std::string description;
+    std::vector<std::string> tags;
+    std::vector<std::string> presetIds; // its slots, in order
+    double mixGainDb = 0.0;
+};
+
 struct MixerState
 {
     double masterGain = 1.0;
-    double mixGainDb = 0.0;
+    double mixGainDb = 0.0; // the Multi-Rig's own level
     bool limiterEnabled = false;
     std::vector<std::string> activePresetIds;
     std::map<std::string, std::string> presetNames;
+    std::map<std::string, MixerSlot> slots; // by preset id
+
+    std::vector<CompositePreset> compositePresets;
+    bool compositePresetsKnown = false;
+    /// The Multi-Rig last saved or loaded; it stands while the mix holds the same presets.
+    std::string loadedCompositeId;
+};
+
+/// The saved Multi-Rig the mix is, while its membership is unchanged since it was saved or
+/// loaded; empty otherwise (the web UI then offers Save rather than Update and Delete).
+[[nodiscard]] const CompositePreset* LoadedComposite(const MixerState& mixer);
+
+// ── Input levelling (Topic::InputLevelling) ─────────────────────────────────────────────
+
+/// One trained guitar: the peak it produced and the trim that brings it to the target.
+struct InputLevellingProfile
+{
+    std::string id;
+    std::string name;
+    std::string description;
+    std::optional<double> capturedPeakDbfs;
+    double targetPeakDbfs = -12.0;
+    double gainDb = 0.0;
+    std::string createdAt;
+    std::string updatedAt;
+};
+
+/// "inputLevellingTraining": the raw input as the engine hears it while a profile is trained.
+struct InputLevellingTraining
+{
+    bool active = false;
+    std::optional<double> livePeakDbfs;
+    std::optional<double> capturedPeakDbfs;
+    std::optional<double> recommendedTrimDb;
+    bool clipped = false;
+};
+
+struct InputLevellingState
+{
+    bool known = false; // an "inputLevelling" has arrived
+    std::vector<InputLevellingProfile> profiles;
+    std::string activeId; // empty: no levelling
+    bool trainingActive = false;
+    double targetPeakDbfs = -12.0;
+    double maxTrimDb = 24.0;
+    InputLevellingTraining training;
+    /// The last "inputLevellingSaved"; `serial` counts them, so a dialog can tell a new one.
+    int saveSerial = 0;
+    bool saveOk = false;
+    std::string saveMessage;
+
+    [[nodiscard]] const InputLevellingProfile* Find(const std::string& id) const;
+    [[nodiscard]] const InputLevellingProfile* Active() const
+    {
+        return Find(activeId);
+    }
 };
 
 struct DeviceState
@@ -441,10 +611,12 @@ struct ClientState
 
     TelemetryState telemetry;
     AnalysisState analysis;
+    AutomationState automation;
     TunerState tuner;
     MetronomeState metronome;
     DeviceState device;
     DemoState demo;
+    InputLevellingState inputLevelling;
 
     std::map<std::string, ToneInstall> toneInstalls;
     std::map<std::string, ResourceImport> resourceImports; // by request id (Topic::Resources)

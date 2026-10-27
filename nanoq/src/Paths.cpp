@@ -2,12 +2,14 @@
 
 #include "util/FileSystem.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <string>
 
 #if defined(_WIN32)
  #include <shlobj.h>
  #include <windows.h>
+ #include <shellapi.h>
 #else
 #include <dlfcn.h>
  #if defined(__APPLE__)
@@ -78,6 +80,30 @@ bool RunningAsStandalone()
     const auto exe = std::filesystem::read_symlink("/proc/self/exe", ec);
   #endif
     return !ec && module == exe;
+#endif
+}
+
+std::string StandaloneCommandLine()
+{
+    if (!RunningAsStandalone())
+        return {};
+#if defined(_WIN32)
+    int count = 0;
+    LPWSTR* args = CommandLineToArgvW(GetCommandLineW(), &count);
+    if (args == nullptr)
+        return {};
+    std::wstring joined;
+    for (int i = 1; i < count; ++i)
+        joined += (joined.empty() ? L"" : L" ") + std::wstring(args[i]);
+    LocalFree(args);
+    if (joined.empty())
+        return {};
+    const int size = WideCharToMultiByte(CP_UTF8, 0, joined.c_str(), static_cast<int>(joined.size()), nullptr, 0, nullptr, nullptr);
+    std::string utf8(static_cast<std::size_t>(std::max(0, size)), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, joined.c_str(), static_cast<int>(joined.size()), utf8.data(), size, nullptr, nullptr);
+    return utf8;
+#else
+    return {};
 #endif
 }
 

@@ -110,7 +110,7 @@ std::string Shell::TopBarSignature() const
                     PresetTitle(mState) + "|" + (mState.activePresetDirty ? "d" : "") + (mState.activePreset ? "p" : "") +
                     (guitarfx::uiclient::IsPresetFavorite(mState, mState.activePresetId) ? "f" : "") + "|" +
                     (summary != nullptr ? summary->source : std::string()) + "|" + (mPresetTrail.CanGoBack() ? "<" : "") +
-                    (mPresetTrail.CanGoForward() ? ">" : "");
+                    (mPresetTrail.CanGoForward() ? ">" : "") + (mUpdate ? "|u" : "");
     return s;
 }
 
@@ -152,7 +152,12 @@ Ptr Shell::BuildTabBar()
         tabItems.push_back(tab("TONES", mPage == Page::Tones, Page::Tones));
     tabItems.push_back(tab("PRESETS", mPage == Page::Presets, Page::Presets));
     auto tabs = Tight(tabItems);
-    return Fill(mTheme.Background(), Row({HGap(38), Stretch(), tabs, Stretch(), Pad(0, 4, 0, 4, settings), HGap(10)}));
+    // A newer release's Update button sits beside the gear, as the web UI's header pill does.
+    std::vector<Ptr> row{HGap(38), Stretch(), tabs, Stretch()};
+    if (auto update = BuildUpdateButton())
+        row.insert(row.end(), {Pad(0, 5, 0, 5, update), HGap(8)});
+    row.insert(row.end(), {Pad(0, 4, 0, 4, settings), HGap(10)});
+    return Fill(mTheme.Background(), Row(row));
 }
 
 // ── The control bar ─────────────────────────────────────────────────────────────
@@ -257,7 +262,7 @@ Ptr Shell::BuildHeader()
         return Ptr(row);
     };
 
-    auto bar = Row({HGap(28), meterColumn(cells.inMeter, nullptr), HGap(14), cellsAt({cells.in, cells.gate, cells.transpose}), Stretch(),
+    auto bar = Row({HGap(28), meterColumn(cells.inMeter, cells.levelling), HGap(14), cellsAt({cells.in, cells.gate, cells.transpose}), Stretch(),
                     centre, Stretch(), cellsAt({cells.eq, cells.doubler, cells.out}), HGap(14), meterColumn(cells.outMeter, cells.mute),
                     HGap(28)});
     return Fill(mTheme.Tertiary(), bar);
@@ -384,7 +389,8 @@ Ptr Shell::ZoomButton()
     button->Size(72, 28).Label(std::to_string(percent) + "%", 11.0f).Caret(true);
     button->onClick = [this, b = button.get(), percent] {
         std::vector<MenuItem> items;
-        for (const int p : {70, 80, 90, 100, 110, 120, 130, 150})
+        // The web UI's choices (settings/keys.ts ZOOM_LEVEL_OPTIONS); QPlug allows 50% to 200%.
+        for (const int p : {75, 90, 100, 110, 125, 150, 175, 200})
             items.push_back({std::to_string(p) + "%", p == percent, false, [this, p] {
                                  if (mSession.setZoom)
                                      mSession.setZoom(static_cast<float>(p) / 100.0f);
@@ -410,6 +416,8 @@ Ptr Shell::BuildWideFooter()
     pads->Ink(mTheme.TextSecondary());
     auto tuner = ToolButton(mTheme, mIcons, "ui-tuner", [this] { OpenTuner(); }, 28.0f, 16.0f);
     tuner->Ink(mTheme.TextSecondary());
+    auto midi = ToolButton(mTheme, mIcons, "ui-midi", [this] { OpenMidiAutomation(); }, 28.0f, 16.0f); // MIDI & Automation
+    midi->Ink(mTheme.TextSecondary());
     const bool muted = mState.outputMuted;
     auto mute = ToolButton(mTheme, mIcons, muted ? "ui-mute" : "ui-speaker", [this, muted] { mSession.Commands().SetOutputMuted(!muted); },
                            28.0f, 16.0f);
@@ -432,7 +440,7 @@ Ptr Shell::BuildWideFooter()
     };
 
     std::vector<Ptr> row{HGap(12), BuildHistoryControls(), divider(), BuildDemoControls(width >= 1180.0f ? 150.0f : 120.0f, true),
-                         HGap(2), render, Stretch(), Tight({pads, HGap(6), tuner, HGap(6), mute}), Stretch(),
+                         HGap(2), render, Stretch(), Tight({pads, HGap(6), tuner, HGap(6), midi, HGap(6), mute}), Stretch(),
                          BuildTempoControls(true), divider()};
     if (mSession.getZoom && mSession.setZoom)
     {

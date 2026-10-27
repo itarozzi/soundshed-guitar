@@ -76,6 +76,10 @@ void UiSession::Schedule()
 
 void UiSession::Pump()
 {
+    // The standalone's device requests run here, on the app's main thread, where clap-wrapper
+    // drives its devices; their answers are collected just below.
+    mEngine.Devices().Pump();
+
     for (auto& message : mEngine.TakeMessagesForView())
         mClient.Enqueue(std::move(message));
 

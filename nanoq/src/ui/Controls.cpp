@@ -77,6 +77,17 @@ Shell::ControlCells Shell::BuildControlCells(std::vector<guitarfx::uiclient::Sub
             write(v);
         };
         knob->onReset = [info, write] { write(info.defaultValue); };
+        knob->onEdit = [this, label, info, read, write] {
+            OpenPrompt(label, guitarfx::uiclient::EditableParamText(info, read()), "Set", [info, write](const std::string& entered) {
+                if (const auto typed = guitarfx::uiclient::ParseTypedNumber(entered))
+                    write(guitarfx::uiclient::SnapParamValue(info, std::clamp(*typed, info.minValue, info.maxValue)));
+            });
+        };
+        // The input and output levels take a MIDI mapping, as the web UI's control-bar knobs do.
+        if (std::string_view(label) == "IN" || std::string_view(label) == "OUT")
+            knob->onMenu = [this, which = std::string(std::string_view(label) == "IN" ? "input" : "output")](el::point at) {
+                OpenGlobalKnobMidiMenu(which, at);
+            };
         syncs->push_back([this, knob, info, read, format] {
             const double v = read();
             knob->Update(guitarfx::uiclient::ParamValueToPosition(info, v), format(v));
@@ -249,6 +260,7 @@ Shell::ControlCells Shell::BuildControlCells(std::vector<guitarfx::uiclient::Sub
     cells.inMeter = inMeter;
     cells.outMeter = outMeter;
     cells.mute = mute;
+    cells.levelling = BuildInputLevellingButton(subs);
     return cells;
 }
 
@@ -256,7 +268,7 @@ void Shell::OpenControls()
 {
     std::vector<guitarfx::uiclient::Subscription> subs;
     auto c = BuildControlCells(subs);
-    auto strip = Row({Stretch(), Col({FixedHeight(84, c.inMeter), std::make_shared<el::element>()}), HGap(14), c.in, c.gate, c.transpose,
+    auto strip = Row({Stretch(), Col({FixedHeight(84, c.inMeter), VGap(2), FixedHeight(18, Row({Stretch(), c.levelling, Stretch()})), std::make_shared<el::element>()}), HGap(14), c.in, c.gate, c.transpose,
                       Stretch(), c.eq, c.doubler, c.out, HGap(14),
                       Col({FixedHeight(84, c.outMeter), VGap(2), FixedHeight(18, Row({Stretch(), c.mute, Stretch()})),
                            std::make_shared<el::element>()}),

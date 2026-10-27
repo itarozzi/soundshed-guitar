@@ -20,6 +20,7 @@
 #include "net/Http.h"
 #include "uiclient/Tone3000.h"
 #include "uiclient/ToneSharing.h"
+#include "uiclient/UpdateCheck.h"
 #include "uiclient/UiClient.h"
 #include "uiclient/UiCommands.h"
 
@@ -48,6 +49,15 @@ public:
     using Response = tones::Response;
     using Callback = std::function<void(const Response&)>;
 
+    /// One downloaded archive: its title, its bytes, and the item it is (recorded with the install,
+    /// so a favourite or rating of its preset can reach the service).
+    struct Download
+    {
+        std::string title;
+        std::string bytes;
+        std::string itemId;
+    };
+
     ToneService(UiClient& client, UiCommands& commands, Host host, std::shared_ptr<net::HttpTransport> transport = net::MakePlatformTransport());
     ~ToneService();
 
@@ -57,6 +67,13 @@ public:
     /// Called whenever the account, a picture, or a download's progress changes.
     int AddListener(std::function<void()> listener);
     void RemoveListener(int id);
+
+    // ── Software updates ────────────────────────────────────────────────────────
+    /// Asks the Soundshed service for its newest release (POST /app/updatecheck, without the
+    /// account's session: the web UI sends none either). The callback gets the update when it is
+    /// newer than `currentVersion`, else nothing; a failed request is nothing too.
+    void CheckForUpdate(const std::string& currentVersion, const std::string& os, const std::string& cpu, bool standalone,
+                        const std::string& instanceId, std::function<void(const std::optional<AvailableUpdate>&)> callback);
 
     // ── Tone sharing ────────────────────────────────────────────────────────────
     void Get(const std::string& path, Callback callback);
@@ -85,6 +102,30 @@ public:
     }
     /// Removes an install: its presets, and resources nothing else uses.
     void Remove(const std::string& entryId);
+
+    // ── Previewing (ToneServicePreview.cpp) ─────────────────────────────────────
+    /// Auditions a shared preset without installing it: downloads it, fetches the Tone3000 models
+    /// it names that the library lacks (found by their tone and model ids, never by a URL the
+    /// archive gives), and has the engine play it (previewPresetArchive), which writes nothing.
+    /// The preset playing before the first preview is remembered for StopPreview. A pack's
+    /// presets are previewed one by one.
+    void Preview(const tones::Tone& item);
+    /// Loads the preset that was playing before the first preview, and ends the preview.
+    void StopPreview();
+    /// The item previewed, or being fetched for a preview; empty when none.
+    [[nodiscard]] const std::string& PreviewItemId() const noexcept
+    {
+        return mPreviewItemId;
+    }
+    [[nodiscard]] const std::string& PreviewTitle() const noexcept
+    {
+        return mPreviewTitle;
+    }
+    /// Still downloading, or waiting for the engine to play it.
+    [[nodiscard]] bool IsPreviewLoading() const noexcept
+    {
+        return mPreviewLoading;
+    }
 
     // ── Tone3000 ────────────────────────────────────────────────────────────────
     using TonesCallback = std::function<void(const tone3000::Page<tone3000::Tone>& page, const std::string& error)>;
@@ -127,8 +168,8 @@ private:
     void InstallItem(const tones::Tone& tone);
     void InstallPack(const tones::Tone& tone);
     /// Fetches and imports what the archives lack, then sends the install.
-    void ResolveAndInstall(const nlohmann::json& entry, const std::string& folder, std::vector<std::pair<std::string, std::string>> archives);
-    void SendInstall(const nlohmann::json& entry, const std::string& folder, const std::vector<std::pair<std::string, std::string>>& archives);
+    void ResolveAndInstall(const nlohmann::json& entry, const std::string& folder, std::vector<Download> archives);
+    void SendInstall(const nlohmann::json& entry, const std::string& folder, const std::vector<Download>& archives);
     void DownloadFailed(const std::string& entryId, const std::string& title, const std::string& reason);
     void SetDownloading(const std::string& entryId, bool downloading);
     void OnInstallsChanged();
@@ -139,6 +180,16 @@ private:
     /// Sends an import and calls `done` once the engine answers it.
     void ImportAndWait(nlohmann::json payload, ImportCallback done);
     void OnResourcesChanged();
+
+    // ToneServicePreview.cpp
+    void SendPreview(int generation, const tones::Tone& item, const std::string& archive, const nlohmann::json& fetched);
+    void PreviewFailed(int generation, const std::string& reason);
+    void OnActivePresetChanged();
+    /// A favourite or rating given to a preset installed from tone sharing, sent to the service
+    /// when signed in (PUT or DELETE /items/<id>/favorite and /rating), as the web UI's preset
+    /// links send them. Others are local only.
+    void SyncFavorite(const std::string& presetId, bool favorite);
+    void SyncRating(const std::string& presetId, int rating);
 
     [[nodiscard]] std::string SessionId() const;
     void StoreSession(const std::string& session);
@@ -159,5 +210,12 @@ private:
     std::map<int, std::function<void()>> mListeners;
     int mNextListener = 1;
     Subscription mInstallSubscription, mResourceSubscription;
+
+    // The preview (ToneServicePreview.cpp).
+    std::string mPreviewItemId, mPreviewTitle;
+    std::string mPriorPresetId; // what played before the first preview, put back by StopPreview
+    bool mPreviewLoading = false;
+    int mPreviewGeneration = 0; // a newer preview or a stop drops what an older one fetches
+    Subscription mActivePresetSubscription;
 };
 } // namespace guitarfx::uiclient

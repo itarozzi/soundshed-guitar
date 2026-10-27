@@ -47,6 +47,18 @@ bool MessageDispatcher::DispatchAutomation(PluginController& c, const nlohmann::
         return true;
     }
 
+    if (type == "armKeyLearn")
+    {
+        c.HandleArmKeyLearnRequest(msg);
+        return true;
+    }
+
+    if (type == "automationKey")
+    {
+        c.HandleAutomationKeyRequest(msg);
+        return true;
+    }
+
     return false;
 }
 } // namespace guitarfx

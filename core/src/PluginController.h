@@ -461,6 +461,8 @@ class PluginController
     void HandleDeleteInstalledPresetArchiveRequest(const nlohmann::json& payload);
     // controller/PluginControllerTonePreview.cpp: a shared tone auditioned without installing it
     void HandlePreviewPresetRequest(const nlohmann::json& payload);
+    /// The same from a downloaded archive, read here and writing nothing (previewPresetArchive).
+    void HandlePreviewPresetArchiveRequest(const nlohmann::json& payload);
     void HandleSaveEffectLayoutRequest(const nlohmann::json& payload);
     void HandleExportEffectLayoutRequest(const nlohmann::json& payload);
     void HandleBrowseLayoutImageRequest(const nlohmann::json& payload);
@@ -595,6 +597,10 @@ class PluginController
     void HandleSetAutomationValueRequest(const nlohmann::json& payload);
     void HandleArmMidiLearnRequest(const nlohmann::json& payload);
     void HandleCancelMidiLearnRequest();
+    /// Keyboard mappings, run here for every UI: a key learn armed on a slot ("" cancels it),
+    /// and a key a UI did not use itself, which fires a mapping or completes the learn.
+    void HandleArmKeyLearnRequest(const nlohmann::json& payload);
+    void HandleAutomationKeyRequest(const nlohmann::json& payload);
     /// Drops a deleted preset's per-preset MIDI mappings.
     void ForgetPresetAutomation(const std::string& presetId);
     /// Message thread, never with mDSPMutex held: replaces the automation slots with those
@@ -868,6 +874,20 @@ class PluginController
     void UpdatePresetSwapTailBudget();
     bool ApplyNamQualitySettings();
     bool ApplyUserInputCalibrationSettingsFromAppSettings();
+    // Input levelling (PluginControllerInputLevelling.cpp): the profiles kept in
+    // audio.userInputCalibration.*, training on the raw input's peak, and the trim maths.
+    [[nodiscard]] nlohmann::json ReadInputLevellingProfiles() const;
+    void SendInputLevellingState();
+    void SendInputLevellingTraining();
+    void SetInputLevellingTraining(bool active);
+    void PollInputLevellingTraining();
+    void HandleSelectInputLevellingProfile(const nlohmann::json& payload);
+    void HandleSaveInputLevellingProfile(const nlohmann::json& payload);
+    void HandleRenameInputLevellingProfile(const nlohmann::json& payload);
+    void HandleDeleteInputLevellingProfile(const nlohmann::json& payload);
+    void HandleResetInputLevellingTraining();
+    /// Saves the settings, reports the changed keys and re-applies the active profile's trim.
+    void CommitInputLevellingSettings(bool profilesChanged);
     void PushNamQualityToDsp();
     void RestoreInstanceOwnedSettings();
     void ApplyNamInterfaceCalibrationFromAppSettings();
@@ -1275,6 +1295,8 @@ class PluginController
     std::optional<EditorWindowSize> mPendingEditorWindowSize;
     bool mEditorWindowSizeChangedSinceIdle = false;
     bool mUserInputCalibrationTrainingActive = false;
+    /// When the training status was last sent; it goes at ~15 Hz while training runs.
+    std::chrono::steady_clock::time_point mInputLevellingLastSent{};
     /// The interface calibration level injected into NAM nodes; empty while NAM auto input
     /// calibration is switched off. See InjectNamInterfaceCalibration().
     std::optional<double> mNamInterfaceCalibrationLevelDbu;
@@ -1363,6 +1385,8 @@ class PluginController
 
     // Automation
     AutomationSlotTable mAutomationSlots;
+    /// The slot waiting for a key to map (armKeyLearn), or empty. Message thread only.
+    std::string mKeyLearnSlotId;
     /// automation.json as this instance last read or wrote it. A DAW project restores its own
     /// slots, so a shared reload replaces them only when the store's have changed since.
     mutable nlohmann::json mStoreAutomationSnapshot = nlohmann::json::object();

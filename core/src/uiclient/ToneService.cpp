@@ -39,7 +39,7 @@ std::optional<std::pair<std::string, std::string>> UnzipModel(const std::string&
 /// Every preset of a pack that has no archive of its own, downloaded one by one.
 struct PackDownload
 {
-    std::vector<std::pair<std::string, std::string>> archives; // title, bytes; in the pack's order
+    std::vector<ToneService::Download> archives; // in the pack's order
     std::size_t remaining = 0;
     bool failed = false;
 };
@@ -51,6 +51,9 @@ ToneService::ToneService(UiClient& client, UiCommands& commands, Host host, std:
 {
     mInstallSubscription = mClient.Subscribe(Topic::Tones, [this] { OnInstallsChanged(); });
     mResourceSubscription = mClient.Subscribe(Topic::Resources, [this] { OnResourcesChanged(); });
+    mActivePresetSubscription = mClient.Subscribe(Topic::ActivePreset, [this] { OnActivePresetChanged(); });
+    mCommands.onPresetFavoriteSet = [this](const std::string& presetId, bool favorite) { SyncFavorite(presetId, favorite); };
+    mCommands.onPresetRatingSet = [this](const std::string& presetId, int rating) { SyncRating(presetId, rating); };
 }
 
 ToneService::~ToneService()
@@ -58,6 +61,8 @@ ToneService::~ToneService()
     // Callbacks already posted see this and do nothing; the workers, destroyed next, cut short
     // whatever is still in flight rather than waiting for the network to time out.
     mAlive->store(false);
+    mCommands.onPresetFavoriteSet = nullptr;
+    mCommands.onPresetRatingSet = nullptr;
     mWorkers.reset();
 }
 
@@ -124,6 +129,36 @@ void ToneService::Request(const std::string& method, const std::string& url, con
                 done(result);
         });
     });
+}
+
+void ToneService::CheckForUpdate(const std::string& currentVersion, const std::string& os, const std::string& cpu, bool standalone,
+                                 const std::string& instanceId, std::function<void(const std::optional<AvailableUpdate>&)> callback)
+{
+    const nlohmann::json body = {{"current_version", currentVersion}, {"os", os}, {"cpu", cpu}, {"is_standalone", standalone},
+                                 {"instance_id", instanceId}};
+    // json=false: no session header. The body still goes as JSON (every POST carries one).
+    Request("POST", tones::ResolveUrl("/app/updatecheck"), body.dump(), false,
+            [currentVersion, callback = std::move(callback)](const HttpResult& result) {
+                const auto response = tones::ParseResponse(result.status, result.body);
+                if (!response.ok || !response.data.is_object())
+                {
+                    callback(std::nullopt);
+                    return;
+                }
+                const auto& data = response.data;
+                const auto latest = data.value("latest_version", std::string());
+                if (!IsVersionNewer(latest, currentVersion))
+                {
+                    callback(std::nullopt);
+                    return;
+                }
+                AvailableUpdate update;
+                update.version = latest;
+                const auto url = data.value("download_url", std::string());
+                update.downloadUrl = url.rfind("https://", 0) == 0 || url.rfind("http://", 0) == 0 ? url : std::string();
+                update.releaseNotes = data.value("release_notes", std::string());
+                callback(update);
+            });
 }
 
 void ToneService::Get(const std::string& path, Callback callback)
@@ -280,7 +315,7 @@ void ToneService::InstallItem(const tones::Tone& tone)
             DownloadFailed(entryId, tone.title, result.status == 0 ? result.error : tones::ParseResponse(result.status, result.body).error);
             return;
         }
-        ResolveAndInstall({{"id", entryId}, {"title", tone.title}, {"source", "toneSharingApi"}}, {}, {{tone.title, result.body}});
+        ResolveAndInstall({{"id", entryId}, {"title", tone.title}, {"source", "toneSharingApi"}}, {}, {{tone.title, result.body, tone.id}});
     });
 }
 
@@ -305,7 +340,7 @@ void ToneService::InstallPack(const tones::Tone& tone)
                     // A pack with an archive of its own installs from it.
                     if (archive.status == 200 && !archive.body.empty())
                     {
-                        ResolveAndInstall(entry, title, {{title, archive.body}});
+                        ResolveAndInstall(entry, title, {{title, archive.body, {}}});
                         return;
                     }
                     // Most have none (409): its presets are fetched one by one, as the web UI does.
@@ -340,7 +375,7 @@ void ToneService::InstallPack(const tones::Tone& tone)
                                                                                : tones::ParseResponse(result.status, result.body).error));
                                         return;
                                     }
-                                    pack->archives[i] = {item.title, result.body};
+                                    pack->archives[i] = {item.title, result.body, item.itemId};
                                     if (--pack->remaining == 0)
                                         ResolveAndInstall(entry, title, pack->archives);
                                 });
@@ -350,13 +385,13 @@ void ToneService::InstallPack(const tones::Tone& tone)
 }
 
 void ToneService::ResolveAndInstall(const nlohmann::json& entry, const std::string& folder,
-                                    std::vector<std::pair<std::string, std::string>> archives)
+                                    std::vector<Download> archives)
 {
     // The models the archives name and the library lacks, once each.
     std::vector<tone3000::RemoteRef> missing;
     std::set<std::string> seen;
-    for (const auto& [title, bytes] : archives)
-        for (auto& ref : tone3000::MissingRemoteRefs(mClient.State(), bytes))
+    for (const auto& archive : archives)
+        for (auto& ref : tone3000::MissingRemoteRefs(mClient.State(), archive.bytes))
             if (ref.provider == "tone3000" && seen.insert(ref.id).second)
                 missing.push_back(std::move(ref));
 
@@ -375,7 +410,7 @@ void ToneService::ResolveAndInstall(const nlohmann::json& entry, const std::stri
     };
     auto pending = std::make_shared<Pending>();
     pending->remaining = missing.size();
-    auto shared = std::make_shared<std::vector<std::pair<std::string, std::string>>>(std::move(archives));
+    auto shared = std::make_shared<std::vector<Download>>(std::move(archives));
     const auto title = entry.value("title", std::string());
 
     const auto finishOne = [this, pending, shared, entry, folder, title](const std::string& name, const std::string& error) {
@@ -420,14 +455,19 @@ void ToneService::ResolveAndInstall(const nlohmann::json& entry, const std::stri
 }
 
 void ToneService::SendInstall(const nlohmann::json& entry, const std::string& folder,
-                              const std::vector<std::pair<std::string, std::string>>& archives)
+                              const std::vector<Download>& archives)
 {
     const auto entryId = entry.value("id", std::string());
     SetDownloading(entryId, false);
     mAwaiting[entryId] = entry.value("title", std::string());
     auto list = nlohmann::json::array();
-    for (const auto& [title, bytes] : archives)
-        list.push_back({{"title", title}, {"data", Base64(bytes)}});
+    for (const auto& archive : archives)
+    {
+        nlohmann::json item = {{"title", archive.title}, {"data", Base64(archive.bytes)}};
+        if (!archive.itemId.empty())
+            item["itemId"] = archive.itemId;
+        list.push_back(std::move(item));
+    }
     mCommands.InstallPresetArchives(entry, folder, std::move(list));
 }
 

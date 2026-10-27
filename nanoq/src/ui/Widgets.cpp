@@ -476,6 +476,12 @@ void ParamKnob::draw(const el::context& ctx)
 
 bool ParamKnob::click(const el::context& ctx, el::mouse_button btn)
 {
+    if (btn.state == el::mouse_button::right && onMenu)
+    {
+        if (btn.down)
+            onMenu(btn.pos);
+        return true;
+    }
     if (btn.state != el::mouse_button::left)
         return false;
 

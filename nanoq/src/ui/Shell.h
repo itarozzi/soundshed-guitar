@@ -29,6 +29,7 @@
 #include "uiclient/ChainLayout.h"
 #include "uiclient/DspStatus.h"
 #include "uiclient/SignalFlow.h"
+#include "uiclient/UpdateCheck.h"
 #include "uiclient/EffectPresentation.h"
 #include "uiclient/Instruments.h"
 #include "uiclient/PresetBrowse.h"
@@ -176,6 +177,7 @@ private:
         Ptr in, gate, transpose, eq, doubler, out;
         std::shared_ptr<MeterBar> inMeter, outMeter;
         Ptr mute;
+        Ptr levelling; // input levelling, under the input meter
     };
     ControlCells BuildControlCells(std::vector<guitarfx::uiclient::Subscription>& subs);
     /// A small panel beside `anchor` (a control's bounds), closed by a tap anywhere else.
@@ -282,6 +284,52 @@ private:
     void OpenGlobalGate(el::rect anchor);
     std::vector<GateLearnView> mGateLearnViews;
     std::map<std::string, std::string> mGateLearnSeen; // each gate's Learn state when last looked at
+    // InputLevelling.cpp: input levelling (the web UI's settings/inputCalibration.ts): the button
+    // under the input meter, its flyout of profiles, and the training dialog.
+    [[nodiscard]] Ptr BuildInputLevellingButton(std::vector<guitarfx::uiclient::Subscription>& subs);
+    void OpenInputLevelling(el::rect anchor);
+    void OpenInputLevellingTraining();
+    // DevicePage.cpp: the standalone app's audio and MIDI devices, at the top of Settings (the web
+    // UI's settings/audioDevice.ts). SyncDevicePage runs every tick: the level lease, the meter, and
+    // a redraw when a new device snapshot arrives.
+    struct DevicePage;
+    [[nodiscard]] Ptr BuildDeviceSection();
+    [[nodiscard]] Ptr BuildDeviceContent();
+    void SyncDevicePage();
+    void DeviceRequest(const std::string& action, nlohmann::json args = nlohmann::json::object());
+    std::shared_ptr<DevicePage> mDevicePage;
+    // TonePreview.cpp: a shared preset auditioned before installing it (a bar over every page
+    // while it plays), a pack's own view, and links that open the Tones page on a shared tone.
+    void SyncTonePreview();
+    [[nodiscard]] std::string TonePreviewSignature() const;
+    void OpenToneLink(const guitarfx::uiclient::tones::LinkTarget& target);
+    void ShowPackDetail(const guitarfx::uiclient::tones::PackDetail& detail);
+    Ptr mTonePreviewBar;
+    std::string mTonePreviewBarShown;
+    bool mToneLinkTaken = false;
+    std::optional<guitarfx::uiclient::tones::PackDetail> mPackDetail; // the pack view last shown,
+    Ptr mPackDetailOverlay;                                            // its overlay while open,
+    std::string mPackDetailSignature;                                  // and what it showed
+    std::optional<guitarfx::uiclient::tones::Tone> mTonesShared; // the tone a link opened the page on
+    // Automation.cpp: MIDI and automation, as the web UI's midiLearnMenu.ts and automationPanel.ts.
+    /// A control's right-click MIDI Learn menu, for the address it drives.
+    void OpenMidiLearnMenu(const std::string& address, const std::string& label, el::point at);
+    /// The same, for an effect parameter (nothing for one a mapping cannot reach), and for the
+    /// global input and output knobs ("input", "output").
+    void OpenNodeParamMidiMenu(const std::string& nodeType, const std::string& paramKey, el::point at);
+    void OpenGlobalKnobMidiMenu(const std::string& knob, el::point at);
+    /// The MIDI & Automation dialog: Mappings, Keyboard and MIDI Log.
+    void OpenMidiAutomation();
+    [[nodiscard]] Ptr BuildMidiAutomationBody();
+    void OpenAutomationTargetPicker(const std::string& slotId);
+    /// After every automation change: announces a finished learn, redraws the dialog.
+    void SyncAutomation();
+    /// Passes a key on to the engine's keyboard mappings when it is mapped, or a key learn waits.
+    bool RouteAutomationKey(const el::key_info& k);
+    bool mMidiDialogOpen = false;
+    int mMidiDialogTab = 0; // Mappings, Keyboard, MIDI Log
+    SlotPtr mMidiDialogBody;
+    std::string mMenuLearnSlotId, mMenuLearnLabel; // the learn the right-click menu armed
     // IrAlignment.cpp: the IR Cabinet's Alignment section, in its editor (the web UI's irAlignmentPanel.ts).
     struct IrAlignmentPanel;
     /// The section's height for this node: 0 for any other effect, or a cab with no IR.
@@ -318,6 +366,33 @@ private:
     void OpenOutputStatus(el::rect anchor);
     std::shared_ptr<DspStatusView> mEffectDspStatus, mOutputDspStatus;
     bool mShowDspStatus = false; // the effect's readout, under its header
+
+    // MultiRig.cpp: tabs over the chain, the inline mixer, saved Multi-Rigs.
+    [[nodiscard]] bool MultiRigShown() const;
+    [[nodiscard]] std::string MixerSignature() const;
+    [[nodiscard]] Ptr BuildMixerTabs();
+    [[nodiscard]] Ptr BuildInlineMixer();
+    void SyncMixerKnobs();
+    void SaveMultiRig();
+    [[nodiscard]] Ptr BuildMultiRigList();
+    struct MixerKnob
+    {
+        std::string presetId; // empty for the master's Out
+        char kind;            // 'm' mix, 'p' pan, 'g' the Multi-Rig's gain
+        std::weak_ptr<ParamKnob> knob;
+        std::weak_ptr<ParamToggle> toggle; // 'u' mute, 's' solo
+    };
+    std::vector<MixerKnob> mMixerKnobs;
+    bool mMixTab = false;        // the Mix tab: the inline mixer in place of the chain
+    bool mShowMultiRigs = false; // the Presets page lists saved Multi-Rigs
+
+    // SoftwareUpdate.cpp: the once-a-session update check and its Update button.
+    void SyncUpdateCheck();
+    [[nodiscard]] Ptr BuildUpdateButton();
+    void OpenUpdateDialog();
+    bool mUpdateChecked = false;
+    double mUpdateCheckAt = 0.0;
+    std::optional<guitarfx::uiclient::AvailableUpdate> mUpdate;
 
     /// The Simple Cabinet's Match an IR and Export as IR.
     [[nodiscard]] Ptr BuildCabTools(const guitarfx::GraphNode& node);
@@ -377,6 +452,9 @@ private:
     void ApplyElementsTheme();
     void ShowOverlay(Ptr panel, float width, float height);
     void CloseOverlay();
+    /// Takes a layer (dialog, dropdown, toast, bar) out of the view once the current event is done,
+    /// keeping the keyboard focus on the layer that has it.
+    void RemoveLayer(Ptr layer);
     void OpenMenu(const std::string& title, std::vector<MenuItem> items);
     void OpenPrompt(const std::string& title, const std::string& initial, const std::string& confirmLabel,
                     std::function<void(const std::string&)> onSubmit);

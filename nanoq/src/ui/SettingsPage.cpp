@@ -1,15 +1,19 @@
-// The settings page: the theme, the output, the amp model (NAM) quality settings, and what this
+// The settings page: the standalone app's audio and MIDI devices (DevicePage.cpp), the theme,
+// the output, the amp model (NAM) quality settings, levels, the interface, DSP performance,
+// Tone3000, software updates and the feature switches (as the web UI's Settings), and what this
 // build is. The controls patch themselves from the engine's settings in place (SyncSettings), so
 // dragging a slider is not interrupted by the setting it just changed coming back.
 
 #include "ui/Shell.h"
 
 #include "Paths.h"
+#include "uiclient/FeatureFlags.h"
 #include "uiclient/ParamFormat.h"
 #include "util/PathEncoding.h"
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 
 namespace nanoq::ui
 {
@@ -95,6 +99,9 @@ Ptr Shell::BuildSettingsPage()
         });
     };
 
+    // ── Audio and MIDI devices: the standalone app only (DevicePage.cpp) ──
+    page.push_back(BuildDeviceSection());
+
     // ── Appearance ──
     heading("APPEARANCE");
     choice("Theme", {"Dark", "Light", "Classic"},
@@ -131,6 +138,89 @@ Ptr Shell::BuildSettingsPage()
            [this] { return std::clamp(static_cast<int>(NumberSetting(mState.appSettings, kNamAntiAliasPhaseSetting, 0)), 0, 2); },
            [&commands](int i) { commands.SetSetting(kNamAntiAliasPhaseSetting, i); });
 
+    // A slider over [lo, hi] for a number setting, with its unit and decimals; a double click on the
+    // slider puts `def` back.
+    auto slider = [&](const char* title, const char* key, double lo, double hi, double def, const char* unit, int decimals) {
+        auto sl = std::make_shared<ParamSlider>(mTheme, title);
+        sl->onChange = [&commands, key, lo, hi, decimals](double v) {
+            const double scale = std::pow(10.0, decimals);
+            commands.SetSetting(key, std::round((lo + v * (hi - lo)) * scale) / scale);
+        };
+        sl->onReset = [&commands, key, def] { commands.SetSetting(key, def); };
+        page.push_back(FixedHeight(60, Row({FixedWidth(420, sl), Stretch()})));
+        mSettingsSyncs.push_back([this, sl, key, lo, hi, def, unit, decimals] {
+            const double v = std::clamp(NumberSetting(mState.appSettings, key, def), lo, hi);
+            char text[48];
+            std::snprintf(text, sizeof(text), "%.*f %s", decimals, v, unit);
+            sl->Update((v - lo) / (hi - lo), text);
+            mSession.View().refresh(*sl);
+        });
+    };
+    const auto boolOr = [this](const char* key, bool def) { return BoolSetting(mState.appSettings, key, def); };
+
+    // ── Levels (the web UI's General) ──
+    heading("LEVELS");
+    slider("Output ceiling", "audio.dsp.outputProtectionCeilingDbfs", -6.0, 0.0, -1.0, "dBFS", 1);
+    slider("Nominal level", "audio.dsp.nominalOperatingLevelDbfs", -30.0, -6.0, -18.0, "dBFS", 1);
+    note("The level the effects are voiced for, and the ceiling the limiter holds the output under.");
+    toggle("Mono output", "Make up the centre pan's 3 dB", [boolOr] { return boolOr("audio.dsp.monoOutputUnity", false); },
+           [&commands](bool on) { commands.SetSetting("audio.dsp.monoOutputUnity", on); });
+    toggle("NAM calibration", "Match models to the interface level", [boolOr] { return boolOr("audio.nam.autoInputCalibration", true); },
+           [&commands](bool on) { commands.SetSetting("audio.nam.autoInputCalibration", on); });
+    slider("Interface level", "audio.nam.interfaceCalibrationLevelDbu", 0.0, 24.0, 12.0, "dBu", 1);
+    note("Your interface's input level at 0 dBFS, from its manual; models captured at a known level are matched to it.");
+
+    // ── Interface (the web UI's UI section) ──
+    heading("INTERFACE");
+    toggle("Mouse wheel", "Turns knobs and sliders", [boolOr] { return boolOr("ui.mouseWheelAdjustsControls", true); },
+           [&commands](bool on) { commands.SetSetting("ui.mouseWheelAdjustsControls", on); });
+    toggle("Signal flow", "Animate the cables while playing", [boolOr] { return boolOr("ui.signalFlowAnimation", false); },
+           [&commands](bool on) { commands.SetSetting("ui.signalFlowAnimation", on); });
+    toggle("Channels", "Show the channel choice on effects", [boolOr] { return boolOr("audio.signalPath.channelModeControl", false); },
+           [&commands](bool on) { commands.SetSetting("audio.signalPath.channelModeControl", on); });
+
+    // ── DSP performance ──
+    heading("DSP PERFORMANCE");
+    toggle("Fast NAM engine", "Fused pass where a model allows", [boolOr] { return boolOr("audio.nam.fusedEngine", true); },
+           [&commands](bool on) { commands.SetSetting("audio.nam.fusedEngine", on); });
+    {
+        // The standalone app and the plugins keep their own choice, as in the web UI.
+        const char* key = mState.environment.standalone ? "audio.processing.multiCore.standalone" : "audio.processing.multiCore.plugin";
+        toggle("Multi-core", "Spread the chain over more cores", [boolOr, key] { return boolOr(key, true); },
+               [&commands, key](bool on) { commands.SetSetting(key, on); });
+    }
+
+    // ── Tone3000 ──
+    if (guitarfx::uiclient::IsFeatureEnabled(mState, guitarfx::uiclient::Feature::Tone3000))
+    {
+        heading("TONE3000");
+        toggle("Search", "Through Soundshed's relay", [boolOr] { return boolOr("tone3000.useSoundshedToneSearchApi", true); },
+               [&commands](bool on) { commands.SetSetting("tone3000.useSoundshedToneSearchApi", on); });
+        note("Off, searches use your own Tone3000 API key, set in Soundshed Guitar's Settings.");
+    }
+
+    // ── Software updates ──
+    heading("SOFTWARE UPDATES");
+    toggle("Updates", "Check for a new version at startup", [boolOr] { return boolOr("app.updateCheckEnabled", true); },
+           [&commands](bool on) { commands.SetSetting("app.updateCheckEnabled", on); });
+    if (mUpdate)
+    {
+        auto get = std::make_shared<Button>(mTheme, "Version " + mUpdate->version + " is available...", [this] { OpenUpdateDialog(); },
+                                            Button::Style::Primary);
+        get->MinWidth(260);
+        page.push_back(FixedHeight(44, Row({label(""), get, Stretch()})));
+    }
+
+    // ── Features: every UI hides what is switched off here ──
+    heading("FEATURES");
+    for (const auto feature : guitarfx::uiclient::AllFeatures())
+    {
+        const char* key = guitarfx::uiclient::FeatureSettingKey(feature);
+        toggle(guitarfx::uiclient::FeatureLabel(feature), "Enabled", [this, feature] { return guitarfx::uiclient::IsFeatureEnabled(mState, feature); },
+               [&commands, key](bool on) { commands.SetSetting(key, on); });
+    }
+    note("Shared with Soundshed Guitar. Some features (the AI Tone Builder, Jam, the editors) are there only.");
+
     // ── About ──
     heading("ABOUT");
     auto line = [this, &page](const std::string& labelText, const std::string& value) {
@@ -151,7 +241,7 @@ Ptr Shell::BuildSettingsPage()
         site->MinWidth(150);
         page.push_back(FixedHeight(44, Row({FixedWidth(190, std::make_shared<el::element>()), site, Stretch()})));
     }
-    note("Tone sharing, riff capture, the JAM tools, plugin hosting and preset blending are in Soundshed Guitar,");
+    note("Riff capture, the JAM tools, plugin hosting and preset blending are in Soundshed Guitar,");
     note("which shares this app's presets, library and settings.");
     if (!mState.environment.audioDeviceSettings)
         note("The audio device is set by the host, or in the window menu (Alt+Space) of the standalone app.");

@@ -44,6 +44,10 @@ bool Shell::HandleKey(const el::key_info& k)
         return false;
     const bool repeat = k.action == el::key_action::repeat;
 
+    // A key a slot maps, or any while a key learn waits, goes to the engine's mappings first.
+    if (RouteAutomationKey(k))
+        return true;
+
     if (k.key == key_code::escape)
     {
         if (mDropdown)

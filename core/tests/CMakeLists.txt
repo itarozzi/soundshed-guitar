@@ -154,6 +154,7 @@ set(TEST_SOURCES
     TestWavLoad.cpp
     Tone3000ResourceWorkflowTests.cpp
     TonePreviewTests.cpp
+    ToneSharingLinkTests.cpp
     TransposeBenchmark.cpp
     TransposeEffectTests.cpp
     WahEffectTests.cpp
@@ -293,6 +294,8 @@ target_sources(MixerInstanceLockTests PRIVATE MixerInstanceLockSupport.cpp Mixer
 
 # Soundshed Nano Q's client library (core/src/uiclient) against a real headless controller.
 target_link_libraries(UiClientTests PRIVATE SoundshedUiClient)
+# The tone sharing links and installed-item lookups the native UIs share (uiclient/ToneSharing.h).
+target_link_libraries(ToneSharingLinkTests PRIVATE SoundshedUiClient)
 
 # Builds real (deflated) zips to preview, as Tone3000 serves them; the core links miniz privately.
 target_link_libraries(Tone3000ResourceWorkflowTests PRIVATE guitarfx_miniz)

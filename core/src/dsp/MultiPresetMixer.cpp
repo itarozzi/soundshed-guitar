@@ -1132,6 +1132,10 @@ void MultiPresetMixer::ProcessStereoBlock(float** inputs, float** outputs, int n
     // Rebuilding global chains allocates memory which is unsafe on the audio thread.
     // The chains are rebuilt from Prepare() and SetGlobalChainConfig() on the UI/main thread.
 
+    // Input levelling training listens to the raw input whether or not anything is loaded to
+    // play it through.
+    mInputLevelHold.Feed(inputs ? inputs[0] : nullptr, inputs ? inputs[1] : nullptr, numSamples);
+
     // Safety check: ensure we're prepared before processing
     if (!mPrepared || mVoices.Instances().empty())
     {

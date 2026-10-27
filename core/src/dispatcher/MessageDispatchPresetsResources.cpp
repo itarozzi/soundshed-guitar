@@ -42,6 +42,12 @@ bool MessageDispatcher::DispatchPresetsAndResources(PluginController& c, const n
         return true;
     }
 
+    if (type == "previewPresetArchive")
+    {
+        c.HandlePreviewPresetArchiveRequest(msg);
+        return true;
+    }
+
     if (type == "startPresetArchiveSession")
     {
         c.HandleStartPresetArchiveSessionRequest(msg);

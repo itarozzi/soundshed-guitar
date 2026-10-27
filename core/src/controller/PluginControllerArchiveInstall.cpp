@@ -51,6 +51,7 @@ struct PendingArchive
 {
     ParsedFactoryPresetArchive parsed;
     std::string title; // names the preset of a one-preset archive: the shared item's title
+    std::string itemId; // the tone sharing item it was downloaded as, when the UI says
 };
 
 std::string ResourceKey(const std::string& type, const std::string& id)
@@ -204,7 +205,7 @@ void PluginController::HandleInstallPresetArchivesRequest(const nlohmann::json& 
             return;
         }
 
-        archives.push_back({std::move(*parsed), title});
+        archives.push_back({std::move(*parsed), title, archivePayload.value("itemId", "")});
     }
 
     // A remote model or IR is shared as a reference, not a file: it has to be in the library
@@ -263,6 +264,7 @@ void PluginController::HandleInstallPresetArchivesRequest(const nlohmann::json& 
     nlohmann::json installedBlends = nlohmann::json::array();
     std::vector<std::string> presetIds;
     nlohmann::json presetSignatures = nlohmann::json::object();
+    nlohmann::json presetItems = nlohmann::json::object(); // preset id -> its tone sharing item
     std::unordered_set<std::string> recordedResources;
     nlohmann::json packSubfolders = nlohmann::json::array();
     std::unordered_set<std::string> presetsInSubfolders;
@@ -454,6 +456,11 @@ void PluginController::HandleInstallPresetArchivesRequest(const nlohmann::json& 
                 std::span(reinterpret_cast<const std::uint8_t*>(presetJson.data()), presetJson.size()));
             presetIds.push_back(preset.id);
 
+            if (!archive.itemId.empty())
+            {
+                presetItems[preset.id] = archive.itemId;
+            }
+
             if (!archivePresetId.empty())
             {
                 presetIdMap[archivePresetId] = preset.id;
@@ -556,6 +563,13 @@ void PluginController::HandleInstallPresetArchivesRequest(const nlohmann::json& 
     if (!packId.empty())
     {
         entry["packId"] = packId;
+    }
+
+    // Which item each preset came from, so a favourite or rating given to it can follow it back
+    // to the service (a pack's presets are its items; a single item's id is in the entry's id).
+    if (!presetItems.empty())
+    {
+        entry["presetItems"] = presetItems;
     }
 
     // Shown on the web UI's Installed card.

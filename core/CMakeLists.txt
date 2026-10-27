@@ -534,6 +534,7 @@ set(GUITARFX_CORE_SOURCES
     src/controller/PresetLevelMeter.cpp
     src/controller/PluginControllerPresetLevel.cpp
     src/controller/PluginControllerMetronome.cpp
+    src/controller/PluginControllerInputLevelling.cpp
     src/controller/PluginControllerHostState.cpp
     src/controller/PluginControllerStorage.cpp
     src/controller/PluginControllerSharedSync.cpp
@@ -770,6 +771,7 @@ set(GUITARFX_CORE_SOURCES
     src/automation/AutomationSlotTable.h
     src/automation/AutomationSlotTable.cpp
     src/automation/AutomationSlotTableJson.cpp
+    src/automation/AutomationKeyboard.cpp
 )
 
 if(GUITARFX_CORE_ENABLE_WASM_EFFECTS)

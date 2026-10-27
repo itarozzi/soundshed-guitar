@@ -14,6 +14,7 @@
 #include "uiclient/ClientState.h"
 
 #include <cstddef>
+#include <optional>
 #include <string>
 
 namespace guitarfx::uiclient
@@ -28,6 +29,12 @@ namespace guitarfx::uiclient
 
 /// Clamps to the range and snaps to the parameter's step, if it has one.
 [[nodiscard]] double SnapParamValue(const EffectParamInfo& param, double value);
+
+/// A value as a knob's number field shows it for typing over: in the parameter's own unit, with
+/// as many decimals as its step has (two without one), as the web UI's knob fills its input.
+[[nodiscard]] std::string EditableParamText(const EffectParamInfo& param, double value);
+/// The number typed into a value field, if it reads as one ("440", "-6.5", "1.2k").
+[[nodiscard]] std::optional<double> ParseTypedNumber(const std::string& text);
 
 [[nodiscard]] bool IsToggleParam(const EffectParamInfo& param);
 [[nodiscard]] bool IsEnumParam(const EffectParamInfo& param);

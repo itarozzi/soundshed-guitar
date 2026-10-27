@@ -363,7 +363,7 @@ The automation state (slots plus registry) is requested from `main.ts` once `IPl
 
 ## 5b. Keyboard Handling
 
-Keyboard input arrives at the WebView as DOM `KeyboardEvent`s — it never enters the audio thread or the JUCE `MidiBuffer`. The keyboard mapping layer is therefore **UI-resident**: a document-level `keydown` listener (capture phase, mirroring the existing pattern in `core/ui/ts/signalPath.ts:1530`) intercepts keys and sends `setAutomationValue` messages to the engine, which reconciles them as UI-source writes (see §6).
+Keyboard input arrives at a UI — the WebView as DOM `KeyboardEvent`s, Soundshed Nano Q as Elements key events — and never enters the audio thread or the JUCE `MidiBuffer`. Since 2026-10-27 the **engine runs the mappings** for every UI: a UI passes on the keys it does not use itself as `automationKey {key, repeat, ctrl?, alt?, meta?}`, naming the key as `KeyboardEvent.key` does, and the engine decides which slot it fires and with what value (`AutomationSlotTable::MatchKey`, `core/src/automation/AutomationKeyboard.cpp`), applying it as a keyboard-source write (see §6). Key learn is the engine's too: `armKeyLearn {slotId}` ("" cancels) makes the next `automationKey` the slot's new mapping (`LearnedKeyMaps`), and `automation` reports the slot it waits on as `keyLearnSlotId`. Until then the web UI ran both (`automationPanel.ts`), and a native UI would have needed a copy; now the web UI's `keydown` listener (capture phase) only decides what to pass on, and Nano Q's key router does the same (`nanoq/src/ui/Automation.cpp`).
 
 ### `KeyboardMap`
 
@@ -385,8 +385,8 @@ struct KeyboardMap {
 The keydown listener activates only when **no specific input control is focused** — i.e. the window has focus but the user is not typing into a text field, number input, or contenteditable element. This mirrors the existing `isTextEntryElement` / `isSignalPathShortcutSuppressedElement` checks in `signalPath.ts:1542`:
 
 1. If `document.activeElement` is an `<input>`, `<textarea>`, `[contenteditable]`, or a known suppress-on class, bail (let the keystroke reach the control).
-2. Otherwise, look up `event.key` (case-insensitive for single letters) in the keyboard-map table across all slots.
-3. If found, send `setAutomationValue {slotId, value, source:"keyboard"}` to the engine and call `event.preventDefault()`.
+2. While a key learn waits (only with the MIDI panel open), pass every key to the engine and swallow it: the engine stores it, backs out on Escape, and waits through Space and a bare modifier.
+3. Otherwise leave Space (the DAW's transport) and chords (Ctrl+Z is undo, not "z") alone, and pass a key some slot maps (`isMappedKey`, case-insensitive for one character) as `automationKey`, calling `event.preventDefault()`. The engine fires the first slot that maps it; a held Trigger key fires once, not on every repeat.
 
 This lets the user press `"1"` to jump to the first setlist preset while not interfering with typing a preset name in a search box.
 
@@ -472,13 +472,15 @@ New UI ↔ Engine messages (added to `core/src/dispatcher/MessageDispatchState.c
 | Direction | Type | Payload |
 |---|---|---|
 | UI → Engine | `getAutomation` | `{}` |
-| Engine → UI | `automation` | `{slots:[{slotId,label,address,nodeSelector?,isDefault,presetId?,value,midiMap?,keyMap?}], registry:[{address,label,unit,min,max,isStepped,isTrigger}], maxCustomSlots:16, maxPresetSlots:16}` |
+| Engine → UI | `automation` | `{slots:[{slotId,label,address,nodeSelector?,isDefault,presetId?,value,midiMap?,keyMap?}], registry:[{address,label,unit,min,max,isStepped,isTrigger}], maxCustomSlots:16, maxPresetSlots:16, keyLearnSlotId}` |
 | UI → Engine | `setAutomationSlot` | `{slotId, label?, address?, nodeSelector?, midiMap?, keyMap?, presetId?}` (create/update custom; defaults allow `label`/`midiMap`/`keyMap` only; `presetId` on a new slot makes it a per-preset MIDI mapping, which takes `label`/`address`/`midiMap`) |
 | UI → Engine | `removeAutomationSlot` | `{slotId}` (custom only) |
 | UI → Engine | `setAutomationValue` | `{slotId, value:0..1, source?}` (source: `"ui"` (default) or `"keyboard"`) |
 | UI → Engine | `armMidiLearn` | `{slotId}` |
 | UI → Engine | `cancelMidiLearn` | `{}` |
 | Engine → UI | `midiLearnCapture` | `{slotId, eventType, channel, controller}` |
+| UI → Engine | `armKeyLearn` | `{slotId}` (`""` cancels); answered by `automation` with `keyLearnSlotId` |
+| UI → Engine | `automationKey` | `{key, repeat?, ctrl?, alt?, meta?}`: a key a UI did not use, as `KeyboardEvent.key` names it |
 | Engine → UI | `automationValue` | `{slotId, value, source}` (real-time from DAW/MIDI/keyboard) |
 
 State broadcast: include a compact `automationState` array in the existing `state` message so the UI always reflects current slot values without a separate request. The `registry` array is sent once on `getAutomation` and on registry changes (which only happen on app startup, so effectively once per session).

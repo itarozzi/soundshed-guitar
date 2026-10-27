@@ -6,10 +6,54 @@ namespace guitarfx
 {
 bool MessageDispatcher::DispatchSettings(PluginController& c, const nlohmann::json& msg, const std::string& type)
 {
+    // Input levelling (PluginControllerInputLevelling.cpp). The older training switch is the
+    // same as start/stop.
     if (type == "setUserInputCalibrationTrainingActive")
     {
-        c.mUserInputCalibrationTrainingActive = msg.value("active", false);
-        c.ApplyUserInputCalibrationSettingsFromAppSettings();
+        c.SetInputLevellingTraining(msg.value("active", false));
+        return true;
+    }
+
+    if (type == "startInputLevellingTraining" || type == "stopInputLevellingTraining")
+    {
+        c.SetInputLevellingTraining(type == "startInputLevellingTraining");
+        return true;
+    }
+
+    if (type == "resetInputLevellingTraining")
+    {
+        c.HandleResetInputLevellingTraining();
+        return true;
+    }
+
+    if (type == "getInputLevelling")
+    {
+        c.SendInputLevellingState();
+        c.SendInputLevellingTraining();
+        return true;
+    }
+
+    if (type == "selectInputLevellingProfile")
+    {
+        c.HandleSelectInputLevellingProfile(msg);
+        return true;
+    }
+
+    if (type == "saveInputLevellingProfile")
+    {
+        c.HandleSaveInputLevellingProfile(msg);
+        return true;
+    }
+
+    if (type == "renameInputLevellingProfile")
+    {
+        c.HandleRenameInputLevellingProfile(msg);
+        return true;
+    }
+
+    if (type == "deleteInputLevellingProfile")
+    {
+        c.HandleDeleteInputLevellingProfile(msg);
         return true;
     }
 

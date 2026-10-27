@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 
 namespace guitarfx::uiclient
 {
@@ -41,6 +42,34 @@ double EnumStep(const EffectParamInfo& param)
     return param.step > 0.0 ? param.step : 1.0;
 }
 } // namespace
+
+std::string EditableParamText(const EffectParamInfo& param, double value)
+{
+    int decimals = 2;
+    if (param.step > 0.0)
+    {
+        decimals = 0;
+        for (double s = param.step; decimals < 6 && std::abs(s - std::round(s)) > 1e-9; s *= 10.0)
+            ++decimals;
+    }
+    char buffer[64];
+    std::snprintf(buffer, sizeof(buffer), "%.*f", decimals, value);
+    return buffer;
+}
+
+std::optional<double> ParseTypedNumber(const std::string& text)
+{
+    const char* begin = text.c_str();
+    char* end = nullptr;
+    double value = std::strtod(begin, &end);
+    if (end == begin || !std::isfinite(value))
+        return std::nullopt;
+    while (*end == ' ')
+        ++end;
+    if (*end == 'k' || *end == 'K')
+        value *= 1000.0;
+    return value;
+}
 
 bool IsToggleParam(const EffectParamInfo& param)
 {

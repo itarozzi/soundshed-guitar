@@ -38,7 +38,7 @@ async function downloadPackItems(details: ToneSharingPackDetails): Promise<Downl
     if (!response.ok) {
       throw new Error(`Failed to download pack item ${item.title}: ${await parseApiErrorMessage(response)}`);
     }
-    downloads.push({ title: item.title || "Imported Preset", data: await response.arrayBuffer() });
+    downloads.push({ title: item.title || "Imported Preset", data: await response.arrayBuffer(), itemId: item.itemId });
   }
   if (downloads.length === 0) {
     throw new Error("Pack has no importable presets");
@@ -101,7 +101,7 @@ export async function downloadAsset(kind: "item" | "pack", id: string): Promise<
     const title = itemMeta?.title ?? fileName.replace(/\.(soundshed\.preset|soundshed\.presets|preset|zip)$/i, "");
     const presetIds = await installDownloadedArchives({
       entry: { id: `tone-sharing-api:item:${id}`, title, source: "toneSharingApi", archiveFileName: fileName },
-      downloads: [{ title, data: await response.arrayBuffer() }],
+      downloads: [{ title, data: await response.arrayBuffer(), itemId: id }],
     });
     if (presetIds?.length === 0) {
       throw new Error("Downloaded preset archive contained no importable presets");

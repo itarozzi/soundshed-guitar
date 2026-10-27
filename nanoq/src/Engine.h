@@ -12,6 +12,7 @@
 
 #include "IPluginHost.h"
 #include "PluginController.h"
+#include "StandaloneDevices.h"
 
 #include <atomic>
 #include <condition_variable>
@@ -82,6 +83,13 @@ public:
     void SetStreamInfo(double sampleRate, int blockSize, int inputs, int outputs);
     void SetTransport(double tempo, bool playing);
 
+    /// The standalone app's audio and MIDI device controls (StandaloneDevices.h). The processor
+    /// meters, mutes and adds the test tone through it; the editor's UI tick pumps it.
+    [[nodiscard]] StandaloneDevices& Devices()
+    {
+        return mDevices;
+    }
+
     // ── IPluginHost ─────────────────────────────────────────────────────────────
     void SendMessageToUI(const std::string& jsonMessage) override;
     void BrowseFileAsync(guitarfx::BrowseFileType type, const std::string& title,
@@ -98,6 +106,8 @@ public:
     [[nodiscard]] double GetHostTempo() const override;
     [[nodiscard]] bool IsHostPlaying() const override;
     [[nodiscard]] AudioChannelCounts GetAudioChannelCounts() const override;
+    [[nodiscard]] bool SupportsAudioDeviceSettings() const override;
+    void HandleAudioDeviceRequest(const std::string& requestJson) override;
 
 private:
     void Run(std::promise<void> ready);
@@ -123,5 +133,7 @@ private:
     std::atomic<int> mOutputs{2};
     std::atomic<double> mTempo{120.0};
     std::atomic<bool> mPlaying{false};
+
+    StandaloneDevices mDevices{[this](const std::string& json) { SendMessageToUI(json); }};
 };
 } // namespace nanoq

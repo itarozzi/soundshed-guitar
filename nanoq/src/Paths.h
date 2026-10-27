@@ -1,6 +1,7 @@
 #pragma once
 
 #include <filesystem>
+#include <string>
 #include <vector>
 
 namespace nanoq
@@ -21,6 +22,12 @@ void ApplyProfileOverride();
 /// True when this code is the running program rather than a plugin loaded into a host: the
 /// standalone app clap-wrapper builds links the plugin into its own executable.
 [[nodiscard]] bool RunningAsStandalone();
+
+/// The standalone app's command line after the program's name, as UTF-8: where a soundshed://
+/// link the browser hands the app arrives. Empty in a plugin (the host's command line is not
+/// ours to read) and where the platform has no such thing to ask (macOS hands links over as
+/// events instead).
+[[nodiscard]] std::string StandaloneCommandLine();
 
 /// Where a resources/ folder may sit relative to the binary, for every plugin layout.
 [[nodiscard]] std::vector<std::filesystem::path> ResourceCandidates();

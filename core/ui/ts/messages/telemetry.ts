@@ -12,7 +12,6 @@ import { applyEqSpectrumFrame } from "../eqSpectrum.js";
 import { applyNodeLoudnessFrame } from "../nodeLoudness.js";
 import { updateOutputStatusReadout } from "../outputStatus.js";
 import { refreshSavePresetModalPeakInfoIfOpen } from "../presets.js";
-import { handleUserInputCalibrationDiagnosticsUpdate } from "../settings.js";
 import { updateSelectedNodeAnalyzerPanel, updateSelectedNodeDspStatus, updateSelectedNodePeakMeter } from "../signalPath.js";
 import { uiState } from "../state.js";
 import { SIGNAL_DIAGNOSTICS_NODE_TUPLE_LENGTH, SIGNAL_DIAGNOSTICS_TUPLE_LENGTH } from "../types.js";
@@ -198,7 +197,6 @@ export function flushTelemetryUiUpdates(): void {
 
   if (telemetryUiPendingSignalDiagnostics) {
     updateSignalDiagnosticsView();
-    handleUserInputCalibrationDiagnosticsUpdate();
     updateSelectedNodePeakMeter();
     updateSelectedNodeDspStatus();
     updateOutputStatusReadout();

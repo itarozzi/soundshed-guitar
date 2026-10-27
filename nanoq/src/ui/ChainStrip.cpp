@@ -70,7 +70,7 @@ std::string Shell::ChainSignature() const
         s += "|" + edge.from + ">" + edge.to + "#" + std::to_string(edge.fromPort);
     for (const auto& missing : mState.missingNodeResources)
         s += "|!" + missing;
-    return s;
+    return s + "|" + MixerSignature();
 }
 
 Ptr Shell::BuildChain()
@@ -82,6 +82,8 @@ Ptr Shell::BuildChain()
     mHitMap = std::make_shared<chain::HitMap>();
     if (!mState.activePreset)
         return VGap(0);
+    if (mMixTab && MultiRigShown())
+        return BuildInlineMixer();
 
     const auto& graph = mState.activePreset->graph;
     const auto layout = BuildChainLayout(graph);

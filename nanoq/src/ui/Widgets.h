@@ -190,6 +190,9 @@ public:
 
     std::function<void(double normalised)> onChange;
     std::function<void()> onReset;
+    /// A right click (a long press on a touch screen), at a point in view coordinates: the
+    /// knob's context menu, MIDI Learn.
+    std::function<void(el::point at)> onMenu;
     /// A double click on the value text: the owner asks for a value to type in, as the web
     /// UI's knob opens its number field. Without it, that double click resets too.
     std::function<void()> onEdit;

@@ -52,6 +52,8 @@ export interface AutomationState {
   maxCustomSlots: number;
   /** How many per-preset MIDI mappings one preset may hold. */
   maxPresetSlots?: number;
+  /** The slot the engine's key learn is waiting on (armKeyLearn), or "" when none is. */
+  keyLearnSlotId?: string;
 }
 
 let maxPresetSlots = 16;
@@ -64,6 +66,10 @@ export function applyAutomationState(next: Partial<AutomationState>): void {
   };
   if (typeof next.maxPresetSlots === "number") {
     maxPresetSlots = next.maxPresetSlots;
+  }
+  // The engine runs key learn, and says which slot it is waiting on with every slot table.
+  if (typeof next.keyLearnSlotId === "string") {
+    pendingKeyLearnSlotId = next.keyLearnSlotId || null;
   }
   renderAutomationPanel();
   renderKeyboardPanel();
@@ -207,7 +213,7 @@ function closeMidiModal(): void {
   // Stop backend MIDI-log forwarding while the panel is closed.
   postMessage({ type: "setMidiLogEnabled", enabled: false });
   cancelMidiLearn();
-  pendingKeyLearnSlotId = null;
+  armKeyLearn(null);
   editingSlotId = null;
   // Nothing to redraw: both lists render only while the modal is open, and again when it opens.
 }
@@ -667,8 +673,7 @@ function wireKeyboardPanelEvents(container: HTMLElement): void {
   container.querySelectorAll<HTMLButtonElement>(".automation-key-learn-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
       const slotId = btn.dataset.slotId || "";
-      pendingKeyLearnSlotId = pendingKeyLearnSlotId === slotId ? null : slotId;
-      renderKeyboardPanel();
+      armKeyLearn(pendingKeyLearnSlotId === slotId ? null : slotId);
       blurActive();
     });
   });
@@ -723,9 +728,26 @@ function renderMidiLog(): void {
 }
 
 // ── Keyboard handling ─────────────────────────────────────────────────────
-// Mapped keys fire wherever the UI has focus. Key *learn* is confined to the
-// MIDI panel, since that is the only place a keystroke should be swallowed to
-// assign it rather than acted on.
+// The engine runs the keyboard mappings (automationKey): which slot a key fires, the value it
+// sets, and what a key learn stores, the same for every UI. This listener only decides which
+// keys to pass on. A text field keeps its keys, Space is the DAW's transport and a chord is a
+// shortcut, so none of those go; a key no slot maps goes nowhere either. Mapped keys fire
+// wherever the UI has focus; a key learn is confined to the MIDI panel, the one place a
+// keystroke should be swallowed to assign it rather than acted on.
+
+/** Asks the engine to map the next key to `slotId`, or with null to stop waiting for one. */
+function armKeyLearn(slotId: string | null): void {
+  if (!slotId && !pendingKeyLearnSlotId) return;
+  pendingKeyLearnSlotId = slotId;
+  postMessage({ type: "armKeyLearn", slotId: slotId ?? "" });
+  renderKeyboardPanel();
+}
+
+/** Whether any slot maps `key`, compared as the engine compares it, so the key can be held back from the page. */
+function isMappedKey(slots: readonly AutomationSlot[], key: string): boolean {
+  const pressed = normalizeMappedKey(key);
+  return slots.some((slot) => slot.keyMap?.some((mapping) => normalizeMappedKey(mapping.key) === pressed) ?? false);
+}
 
 document.addEventListener("keydown", (event: KeyboardEvent) => {
   const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -734,66 +756,18 @@ document.addEventListener("keydown", (event: KeyboardEvent) => {
   const modal = document.getElementById("midi-modal");
   const isMidiPanelOpen = modal?.style.display === "flex";
 
-  // Keyboard learn capture — intercept the next key and assign it to the slot
+  // A key learn takes every key, so none of them scroll or re-trigger the Learn button. The
+  // engine maps the key, backs out on Escape, and waits through Space and a bare modifier.
   if (isMidiPanelOpen && pendingKeyLearnSlotId) {
-    const key = normalizeMappedKey(event.key);
-
-    // Space is refused outright rather than stored as a mapping that could never fire, and a
-    // bare modifier is waited through (the key it is held for comes next); both are swallowed
-    // so they neither scroll nor re-trigger the Learn button. Escape backs out of learn.
-    if (key === "Escape") {
-      pendingKeyLearnSlotId = null;
-      renderKeyboardPanel();
-    }
-    if (key === "Escape" || key === SPACEBAR_KEY || ["Shift", "Control", "Alt", "Meta", "AltGraph", "CapsLock"].includes(key)) {
-      event.preventDefault();
-      return;
-    }
-
-    const state = uiState.automation;
-    if (!state) return;
-    const slot = state.slots.find((s) => s.slotId === pendingKeyLearnSlotId);
-    if (!slot) {
-      pendingKeyLearnSlotId = null;
-      return;
-    }
-
-    // Build new keyMap array: replace any existing mapping for this key, add new entry.
-    // Default to Trigger mode (mode=0) for trigger addresses, SetValue (mode=1) for continuous.
-    const isTrigger = slot.address.includes("bankUp")
-      || slot.address.includes("bankDown")
-      || /setlist\.preset\d+$/.test(slot.address)
-      || /scene\.select\d+$/.test(slot.address);
-    const mode = isTrigger ? 0 : 1;
-    const value = isTrigger ? 1.0 : 0.5;
-    const newKeyMap = (slot.keyMap ?? []).filter((k) => k.key !== key);
-    newKeyMap.push({ key, mode, value });
-
-    postMessage({ type: "setAutomationSlot", slotId: pendingKeyLearnSlotId, keyMap: newKeyMap });
-    pendingKeyLearnSlotId = null;
+    postMessage({ type: "automationKey", key: event.key, repeat: event.repeat });
     event.preventDefault();
     return;
   }
 
   const state = uiState.automation;
-  if (!state) return;
+  if (!state || event.key === SPACEBAR_KEY || event.ctrlKey || event.metaKey || event.altKey) return;
+  if (!isMappedKey(state.slots, event.key)) return;
 
-  const pressedKey = normalizeMappedKey(event.key);
-
-  // Space always passes through to the host, untouched; so does a chord (Ctrl+Z is undo, not "z").
-  if (pressedKey === SPACEBAR_KEY || event.ctrlKey || event.metaKey || event.altKey) return;
-
-  for (const slot of state.slots) {
-    if (!slot.keyMap) continue;
-    for (const km of slot.keyMap) {
-      if (pressedKey !== normalizeMappedKey(km.key)) continue;
-
-      if (km.mode === 0 && event.repeat) continue;
-
-      const value = km.mode === 0 ? 1.0 : km.value;
-      postMessage({ type: "setAutomationValue", slotId: slot.slotId, value, source: "keyboard" });
-      event.preventDefault();
-      return;
-    }
-  }
+  postMessage({ type: "automationKey", key: event.key, repeat: event.repeat });
+  event.preventDefault();
 }, true);

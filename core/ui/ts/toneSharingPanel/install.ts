@@ -19,8 +19,12 @@ import { arrayBufferToBase64 } from "../utils.js";
 import { getToneSharingHostActions } from "./hostActions.js";
 import type { ToneSharingHostActions } from "./hostActions.js";
 
-/** One download: a preset archive (zip), or a bare preset JSON as some items are. */
-export type DownloadedArchive = { title: string; data: ArrayBuffer };
+/**
+ * One download: a preset archive (zip), or a bare preset JSON as some items are. `itemId` is the
+ * shared item it is, recorded with the install so a favourite or rating of its preset reaches the
+ * service (presetLinks.ts).
+ */
+export type DownloadedArchive = { title: string; data: ArrayBuffer; itemId?: string };
 
 /** What `installPresetArchives` records the install under (the installedPacks schema). */
 export type InstallEntry = { id: string; title: string; source: "toneSharingApi"; packId?: string; archiveFileName?: string };
@@ -80,9 +84,22 @@ function stringList(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
 }
 
-type ReadArchive = { title: string; base64: string; presets: number; resources: number; blends: number; remoteRefs: RemoteResourceRef[] };
+export type ReadArchive = {
+  title: string;
+  itemId?: string;
+  base64: string;
+  presets: number;
+  resources: number;
+  blends: number;
+  remoteRefs: RemoteResourceRef[];
+};
 
-async function readDownload(download: DownloadedArchive): Promise<ReadArchive> {
+/**
+ * A download as the engine takes it (base64, a bare preset wrapped as a one-preset archive), and
+ * what it holds: enough to ask before a pack goes in, and the remote models to fetch first. Shared
+ * with the preview (preview.ts), which hands the same to "previewPresetArchive".
+ */
+export async function readDownload(download: DownloadedArchive): Promise<ReadArchive> {
   const zipLib = window.JSZip;
   if (!zipLib) {
     throw new Error("Archive library not available");
@@ -110,6 +127,7 @@ async function readDownload(download: DownloadedArchive): Promise<ReadArchive> {
   const count = (key: string): number => (Array.isArray(root[key]) ? (root[key] as unknown[]).length : 0);
   return {
     title: download.title,
+    ...(download.itemId ? { itemId: download.itemId } : {}),
     base64: arrayBufferToBase64(buffer),
     presets: root.preset ? 1 : count("presets"),
     resources: count("resources"),
@@ -169,7 +187,7 @@ export async function installDownloadedArchives(request: {
     requestId,
     entry: request.entry,
     ...(request.folder ? { folder: request.folder } : {}),
-    archives: archives.map((archive) => ({ title: archive.title, data: archive.base64 })),
+    archives: archives.map((archive) => ({ title: archive.title, data: archive.base64, ...(archive.itemId ? { itemId: archive.itemId } : {}) })),
     allowMissingRemote: true,
     fetchedResources,
   }));

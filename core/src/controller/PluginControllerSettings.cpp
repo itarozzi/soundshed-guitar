@@ -636,6 +636,12 @@ bool PluginController::ApplyUserInputCalibrationSettingsFromAppSettings()
 
     mPresetMixer.SetUserInputCalibrationGainDb(gainDb);
 
+    // Every change reaches the UIs this way: a command, a setSetting, another instance's sync.
+    if (mUIReady)
+    {
+        SendInputLevellingState();
+    }
+
     return settingsChanged;
 }
 

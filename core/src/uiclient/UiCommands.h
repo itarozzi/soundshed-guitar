@@ -11,6 +11,7 @@
 
 #include "uiclient/UiClient.h"
 
+#include <functional>
 #include <optional>
 #include <vector>
 #include <string>
@@ -53,6 +54,10 @@ public:
     void SetPresetFavorite(const std::string& presetId, bool favorite);
     /// 1 to 5 stars, or 0 to clear.
     void SetPresetRating(const std::string& presetId, int rating);
+    /// Told of each favourite and rating set above: ToneService passes those of presets installed
+    /// from tone sharing on to the service, as the web UI's preset links do.
+    std::function<void(const std::string& presetId, bool favorite)> onPresetFavoriteSet;
+    std::function<void(const std::string& presetId, int rating)> onPresetRatingSet;
 
     // ── Preset folders, edited by the engine; each is answered by presetFolders ──
     /// A new folder, at the top or inside `parentId`; it becomes the folder shown.
@@ -82,6 +87,20 @@ public:
     // ── Multi-Rig (awareness only: rigs are built in Soundshed Guitar) ──────
     void FocusMixerPreset(const std::string& presetId);
     void RemoveActivePreset(const std::string& presetId);
+
+    // ── Multi-Rig: the mix, mirrored at once (the engine does not echo levels) ──
+    void AddActivePreset(const std::string& presetId);
+    void SetPresetMix(const std::string& presetId, double mix);
+    void SetPresetPan(const std::string& presetId, double pan);
+    void SetPresetMute(const std::string& presetId, bool mute);
+    void SetPresetSolo(const std::string& presetId, bool solo);
+    void SetMixGain(double gainDb);
+    /// Saves the mix as a Multi-Rig; with `id`, updates that one in place.
+    void SaveCompositePreset(const std::string& name, const std::string& description, const std::vector<std::string>& tags,
+                             const std::string& id = {});
+    void LoadCompositePreset(const std::string& id);
+    void RemoveCompositePreset(const std::string& id);
+    void GetCompositePresetList();
 
     // ── Setlists ────────────────────────────────────────────────────────────
     void SetSetlistCursor(int index);
@@ -177,7 +196,9 @@ public:
     void SetMetronomeBpm(double bpm);
     void SetMetronomeVolume(double volumeDb);
     void SetMetronomeClickType(const std::string& clickType);
-    void SetMetronomeTimeSignature(int numerator, int denominator);
+    /// With `grouping` ("2+2+3") an odd meter's clusters; the engine re-seeds the accents.
+    void SetMetronomeTimeSignature(int numerator, int denominator, const std::string& grouping = {});
+    void SetMetronomePan(double pan);
     void SetMetronomeBeatPattern(const std::string& pattern);
     void SetMetronomeSubdivision(const std::string& subdivision);
     void PreviewDemoClip(const std::string& clipId, bool repeat);
@@ -206,6 +227,46 @@ public:
     void InstallPresetArchives(const nlohmann::json& entry, const std::string& folder, nlohmann::json archives);
     /// Takes an install out again: its presets, folder, and the models only it used.
     void DeleteInstalledPresetArchive(const std::string& entryId);
+
+    // ── MIDI and automation (answered by "automation": Topic::Automation) ───────
+    void GetAutomation();
+    /// Creates or edits a slot. Only the fields given change: `label` and `address` (a custom
+    /// slot's target; "" for none yet), and `presetId` for a new per-preset slot.
+    void SetAutomationSlot(const std::string& slotId, const std::optional<std::string>& label,
+                           const std::optional<std::string>& address, const std::string& presetId = {});
+    /// Removes a slot's MIDI mapping, or its key mappings; the slot itself stays.
+    void ClearAutomationMidiMap(const std::string& slotId);
+    void ClearAutomationKeyMap(const std::string& slotId);
+    void RemoveAutomationSlot(const std::string& slotId);
+    /// Fires a slot from the UI (the panel's Test button), 0..1.
+    void SetAutomationValue(const std::string& slotId, double value);
+    /// Listens for the next MIDI event on a slot, replacing any learn already armed.
+    void ArmMidiLearn(const std::string& slotId);
+    void CancelMidiLearn();
+    /// The engine forwards incoming MIDI as midiLog while enabled; a UI enables it only while
+    /// its log is on screen.
+    void SetMidiLogEnabled(bool enabled);
+    /// The engine maps the next key the UI passes (AutomationKey) to `slotId`; "" stops waiting.
+    void ArmKeyLearn(const std::string& slotId);
+    /// A key the UI did not use itself, named as a DOM KeyboardEvent.key names it: the engine
+    /// fires the slot it is mapped to, or completes a key learn. A UI passes no key typed into a
+    /// text field.
+    void AutomationKey(const std::string& key, bool repeat, bool ctrl = false, bool alt = false, bool meta = false);
+
+    // ── Input levelling (Topic::InputLevelling) ─────────────────────────────────────────
+    /// Answered by "inputLevelling" (the profiles) and "inputLevellingTraining".
+    void GetInputLevelling();
+    /// "" for no levelling.
+    void SelectInputLevellingProfile(const std::string& id);
+    /// Bypasses the active profile and follows the raw input's peak until stopped or saved.
+    void StartInputLevellingTraining();
+    void StopInputLevellingTraining();
+    /// Forgets the captured peak and clip, to capture again.
+    void ResetInputLevellingTraining();
+    /// Saves the peak captured since training started as a new, active profile; ends training.
+    void SaveInputLevellingProfile(const std::string& name, const std::string& description);
+    void RenameInputLevellingProfile(const std::string& id, const std::string& name, const std::string& description);
+    void DeleteInputLevellingProfile(const std::string& id);
 
 private:
     UiClient& mClient;

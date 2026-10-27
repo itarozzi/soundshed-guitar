@@ -266,6 +266,26 @@ class AutomationSlotTable
     /// If a result is returned, learn is automatically disarmed.
     [[nodiscard]] std::optional<MidiControlMap> PollMidiLearnCapture();
 
+    // ── Keyboard mappings (AutomationKeyboard.cpp) ──────────────────────────────
+    // A UI passes the keys it is not using itself (automationKey); the engine decides what
+    // they fire, and what a key learn stores, so every UI maps keys the same way.
+
+    /// A key as mappings store and compare it, from a DOM KeyboardEvent.key: one character in
+    /// lower case ("a", "1"), a named key as it is ("ArrowUp", "PageDown", "F5").
+    [[nodiscard]] static std::string NormalizeMappedKey(const std::string& key);
+
+    /// A key no mapping takes: Space, left to a DAW's transport, and a bare modifier.
+    [[nodiscard]] static bool IsUnmappableKey(const std::string& key);
+
+    /// The slot a key press fires and the value it sets, or nothing. The first slot in order
+    /// with a mapping for the key wins; a held Trigger key fires once, not on every repeat.
+    [[nodiscard]] std::optional<std::pair<std::string, float>> MatchKey(const std::string& key, bool repeat) const;
+
+    /// `slot`'s key mappings with `key` learned: any mapping the key had is replaced, and the new
+    /// one is a Trigger on a trigger address (a bank step, a setlist slot, a scene) and otherwise
+    /// sets the slot to half way.
+    [[nodiscard]] std::vector<KeyboardMap> LearnedKeyMaps(const AutomationSlot& slot, const std::string& key) const;
+
   private:
     /// The default slots, from kDefaultSlots, with no overrides.
     static std::vector<AutomationSlot> MakeDefaultSlots();

@@ -7,6 +7,7 @@
 // engine command (folders, setlists, ratings), answered with the new state.
 
 #include "ui/Shell.h"
+#include "uiclient/FeatureFlags.h"
 
 #include "uiclient/PresetBrowse.h"
 #include "uiclient/ToneSharing.h"
@@ -171,6 +172,12 @@ void Shell::OpenPresetRowMenu(const PresetSummary& preset)
         if (s.id == mState.activeSetlistId)
             items.push_back({"Add to " + s.name, false, false, [&commands, id] { commands.AddSetlistSlot({}, id); }});
 
+    // Multi-Rig: play it alongside the presets already in the mix (the web UI's + Mixer).
+    const auto& inMix = mState.mixer.activePresetIds;
+    if (guitarfx::uiclient::IsFeatureEnabled(mState, guitarfx::uiclient::Feature::MultiRig) &&
+        std::find(inMix.begin(), inMix.end(), id) == inMix.end())
+        items.push_back({"Add to the mix", false, false, [&commands, id] { commands.AddActivePreset(id); }});
+
     if (preset.source == "user")
         items.push_back({"Delete...", false, false, [this, id] { DeleteWithConfirm(id); }});
     OpenMenu(preset.name, std::move(items));
@@ -223,6 +230,7 @@ void Shell::OpenFolderMenu(const std::string& folderId)
 void Shell::SelectPresetBrowserFolder(const std::string& folderId)
 {
     mQuery.folderId = folderId;
+    mShowMultiRigs = false;
     mSession.Commands().SelectPresetFolder(folderId);
     Mark(kPage);
 }
@@ -237,9 +245,10 @@ Ptr Shell::BuildFolderColumn()
     };
     std::vector<Ptr> rows;
     const auto add = [&](const std::string& id, const std::string& label, const char* icon, int depth, bool editable) {
-        auto row = std::make_shared<ListRow>(mTheme, std::string(static_cast<std::size_t>(depth) * 3, ' ') + label, count(id),
-                                             mQuery.folderId == id, false, [this, id] { SelectPresetBrowserFolder(id); });
-        row->Icon(&mIcons, icon, mQuery.folderId == id ? mTheme.Accent() : mTheme.TextSecondary());
+        const bool chosen = mQuery.folderId == id && !mShowMultiRigs;
+        auto row = std::make_shared<ListRow>(mTheme, std::string(static_cast<std::size_t>(depth) * 3, ' ') + label, count(id), chosen, false,
+                                             [this, id] { SelectPresetBrowserFolder(id); });
+        row->Icon(&mIcons, icon, chosen ? mTheme.Accent() : mTheme.TextSecondary());
         if (editable)
             row->onMenu = [this, id] { OpenFolderMenu(id); };
         rows.push_back(FixedHeight(36, row));
@@ -247,6 +256,18 @@ Ptr Shell::BuildFolderColumn()
     add(kPresetFolderRecents, "Recents", "ui-clock", 0, false);
     add(kPresetFolderFavorites, "Favourites", "heart", 0, false);
     add(kPresetFolderAll, "All Presets", "ui-presets", 0, false);
+    // Saved Multi-Rigs, while the feature is on (the web UI's Multi-Rig tab).
+    if (guitarfx::uiclient::IsFeatureEnabled(mState, guitarfx::uiclient::Feature::MultiRig))
+    {
+        auto row = std::make_shared<ListRow>(mTheme, "Multi-Rigs", std::to_string(mState.mixer.compositePresets.size()), mShowMultiRigs, false,
+                                             [this] {
+                                                 mShowMultiRigs = true;
+                                                 mSession.Commands().GetCompositePresetList();
+                                                 Mark(kPage);
+                                             });
+        row->Icon(&mIcons, "ui-pads", mShowMultiRigs ? mTheme.Accent() : mTheme.TextSecondary());
+        rows.push_back(FixedHeight(36, row));
+    }
 
     std::vector<std::pair<const PresetFolder*, int>> flat;
     FlattenFolders(mState.presetFolders, 0, flat);
@@ -270,6 +291,8 @@ Ptr Shell::BuildFolderColumn()
 
 Ptr Shell::BuildPresetListContent()
 {
+    if (mShowMultiRigs)
+        return BuildMultiRigList();
     mQuery.tags = mPresetTags;
     const auto presets = FilterPresets(mState, mQuery);
     std::vector<Ptr> rows;

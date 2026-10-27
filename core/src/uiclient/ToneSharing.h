@@ -76,6 +76,8 @@ struct PackDetail
         std::string title;
         std::string type;
         int sortOrder = 0;
+        std::string description;
+        std::vector<std::string> tags;
     };
 
     Tone pack;
@@ -131,6 +133,24 @@ struct Response
 /// The link the web UI's Share button copies, which opens the tone in the app when installed.
 [[nodiscard]] std::string ShareLink(const Tone& tone);
 
+/// Where a signed-in user's favourite and rating of an item are kept: PUT marks, DELETE clears
+/// (the rating's PUT body is {"rating": 1..5}), as the web UI's preset links send them.
+[[nodiscard]] std::string ItemFavoritePath(const std::string& itemId);
+[[nodiscard]] std::string ItemRatingPath(const std::string& itemId);
+
+/// What a tone sharing link points at.
+struct LinkTarget
+{
+    Tone::Kind kind = Tone::Kind::Preset;
+    std::string id;
+};
+
+/// Reads a link to a shared tone: the deep link the browser hands the app
+/// ("soundshed://...?itemId=<id>" or "packId=<id>", or that query alone), or a share link
+/// (".../share/item/<id>", ".../share/pack/<id>"), as the JUCE standalone and the web UI read
+/// them. Anything else, or an id with characters no id has, is nothing.
+[[nodiscard]] std::optional<LinkTarget> ParseLink(const std::string& text);
+
 /// Percent-encodes a query parameter value.
 [[nodiscard]] std::string EncodeQueryValue(const std::string& value);
 
@@ -157,6 +177,10 @@ struct InstalledEntry
 /// The entries of the installedPacks setting, newest first as stored.
 [[nodiscard]] std::vector<InstalledEntry> InstalledEntries(const nlohmann::json& appSettings);
 [[nodiscard]] std::optional<InstalledEntry> FindInstalled(const nlohmann::json& appSettings, const std::string& entryId);
+
+/// The tone sharing item an installed preset came from, or empty: a single item's install names
+/// it in its entry id, a pack's records each preset's item (`presetItems`).
+[[nodiscard]] std::string ItemIdForPreset(const nlohmann::json& appSettings, const std::string& presetId);
 
 // ── Display ─────────────────────────────────────────────────────────────────────
 

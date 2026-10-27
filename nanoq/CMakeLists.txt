@@ -105,6 +105,9 @@ set(NANOQ_NAME "Soundshed Nano Q")
 file(GLOB_RECURSE NANOQ_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
 # The CLAP entry is compiled by clap-wrapper once per format, not into the impl library.
 list(FILTER NANOQ_SOURCES EXCLUDE REGEX "clap_entry[.]cpp$")
+# src/standalone/ talks to clap-wrapper's standalone host, which only the standalone executable
+# has: it is compiled into that target alone (below), so the plugin formats never reference it.
+list(FILTER NANOQ_SOURCES EXCLUDE REGEX "/src/standalone/[^/]*$")
 
 # macOS: the open and save dialogs are AppKit panels (src/FileDialogs_mac.mm), built with ARC so
 # the panel outlives the call that shows it. iOS: a document picker (src/FileDialogs_ios.mm), and
@@ -187,6 +190,15 @@ make_clapfirst_plugins(
     AUV2_INSTRUMENT_TYPE "aufx")
 
 q_plug_separate_import_libs(nanoq)
+
+# The standalone app's audio and MIDI device controls (src/StandaloneDevices.h): the backend over
+# clap-wrapper's standalone host is built into the standalone executable only, where that host
+# (getStandaloneHost, RtAudio, RtMidi) exists, and registers itself at static initialisation. A
+# plugin format links no backend, so it offers no device settings and needs none of those symbols.
+if(TARGET nanoq_standalone)
+    target_sources(nanoq_standalone PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/standalone/ClapWrapperDevices.cpp")
+    target_include_directories(nanoq_standalone PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+endif()
 q_plug_fix_auv2_plist(nanoq)
 
 # ── Fonts and runtime data ──────────────────────────────────────────────────────
@@ -224,7 +236,8 @@ add_executable(NanoQEngineDialogTests
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Engine.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/FileDialogs.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Log.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/Paths.cpp")
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/Paths.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/StandaloneDevices.cpp")
 target_include_directories(NanoQEngineDialogTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_compile_definitions(NanoQEngineDialogTests PRIVATE
     NANOQ_VERSION="${PROJECT_VERSION}"

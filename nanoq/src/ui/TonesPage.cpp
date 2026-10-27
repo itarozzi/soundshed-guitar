@@ -2,13 +2,13 @@
 // size (ui-components/panels/sharing-panel.html, css/tone-sharing.css, css/compact/panels.css):
 // a strip of chips (the account, Presets, Packs, Installed), a search with a tag filter, then the
 // tones as cards - the latest packs in a row that scrolls sideways over the community presets in
-// a grid - each with Install and Share, a pack with Open for its presets. Installed lists what
-// this profile has installed, each with a way to remove it.
+// a grid - each with Preview, Install and Share, a pack with Open for its presets. Installed lists
+// what this profile has installed, each with a way to remove it. A tone a link opened the page on
+// sits over the rest. Previews, a pack's own view and links are TonePreview.cpp's.
 //
-// The requests, the account and installing are the shared ToneService's
-// (core/src/uiclient/ToneService.h); installing fetches the Tone3000 models a preset names from
-// Soundshed's relay first. Publishing, packs of one's own, previews and favourites are Soundshed
-// Guitar's.
+// The requests, the account, previewing and installing are the shared ToneService's
+// (core/src/uiclient/ToneService.h); both fetch the Tone3000 models a preset names from Soundshed's
+// relay first. Publishing and packs of one's own are Soundshed Guitar's.
 
 #include "ui/Shell.h"
 
@@ -334,7 +334,9 @@ std::string Shell::TonesPageSignature() const
                     "|" + (mTonesMore ? "m" : "") + (mTonesLoading ? "l" : "") + "|" + mTonesError + "|" +
                     std::to_string(mToneItems.size()) + "/" + std::to_string(mTonePacks.size()) + "/" +
                     std::to_string(mToneHomePacks.size()) + "|" + (service.Account() ? service.Account()->Label() : std::string()) +
-                    (service.HasSession() ? "s" : "") + "|" + std::to_string(static_cast<int>(ViewSize().x / 32.0f));
+                    (service.HasSession() ? "s" : "") + "|" + std::to_string(static_cast<int>(ViewSize().x / 32.0f)) + "|" +
+                    (mTonesShared ? mTonesShared->id : std::string()) + "|" + service.PreviewItemId() +
+                    (service.IsPreviewLoading() ? "l" : "");
     // A card's Install button follows its install.
     for (const auto& entry : tones::InstalledEntries(mState.appSettings))
         s += "|i" + entry.id;
@@ -517,11 +519,18 @@ Ptr Shell::BuildTonesPage()
         body.push_back(VGap(4));
     }
 
-    // A card's actions: Open (a pack), Install (Installed once it is), Share.
+    // A card's actions: Open (a pack) or Preview (Stop while it plays), Install (Installed once it
+    // is), Share.
     auto actionsFor = [this, &service](const tones::Tone& tone) {
         std::vector<ToneCard::Action> actions;
         if (tone.IsPack())
             actions.push_back({"ui-eye", false, true, {}, [this, tone] { OpenPackDetail(tone); }});
+        else if (service.PreviewItemId() == tone.id && service.IsPreviewLoading())
+            actions.push_back({"", false, false, "Loading...", {}});
+        else if (service.PreviewItemId() == tone.id)
+            actions.push_back({"ui-stop", true, true, {}, [this] { mSession.Tones().StopPreview(); }});
+        else
+            actions.push_back({"ui-play", false, true, {}, [this, tone] { mSession.Tones().Preview(tone); }});
         const auto entryId = tones::EntryIdFor(tone);
         const bool installed = tones::FindInstalled(mState.appSettings, entryId).has_value();
         const bool busy = service.IsDownloading(entryId) ||
@@ -573,6 +582,18 @@ Ptr Shell::BuildTonesPage()
     {
     case TonesTab::Presets:
     {
+        // The tone a link opened the page on, over the rest until it is put away.
+        if (mTonesShared)
+        {
+            auto close = std::make_shared<IconButton>(mTheme, mIcons, "", IconButton::Look::Boxed);
+            close->Size(80, 24).Label("Show all", 10.5f);
+            close->onClick = [this] {
+                mTonesShared.reset();
+                Mark(kPage);
+            };
+            body.push_back(FixedHeight(30, Row({SectionTitle(mTheme, "Shared with you"), Stretch(), Pad(0, 4, 0, 2, close)})));
+            body.push_back(grid({*mTonesShared}, kPresetCardMin, kPresetCardHeight));
+        }
         if (!mToneHomePacks.empty())
         {
             body.push_back(SectionTitle(mTheme, "Latest packs"));
@@ -724,35 +745,6 @@ void Shell::OpenToneAccount(el::rect anchor)
                 });
             });
         });
-    });
-}
-
-void Shell::OpenPackDetail(const tones::Tone& pack)
-{
-    mSession.Tones().Get(tones::PackPath(pack.id), [this, pack](const tones::Response& response) {
-        const auto detail = response.ok ? tones::ParsePackDetail(response.data) : std::nullopt;
-        if (!detail)
-        {
-            ShowToast("Could not open \"" + pack.title + "\"", response.error, true);
-            return;
-        }
-        std::vector<MenuItem> items;
-        items.push_back({std::to_string(detail->items.size()) + (detail->items.size() == 1 ? " preset" : " presets"), false, true, {}});
-        for (const auto& entry : detail->items)
-        {
-            tones::Tone item;
-            item.id = entry.itemId;
-            item.title = entry.title;
-            item.type = entry.type;
-            const bool installed = tones::FindInstalled(mState.appSettings, tones::ItemEntryId(entry.itemId)).has_value();
-            MenuItem row{entry.title, false, installed, [this, item] { mSession.Tones().Install(item); }};
-            row.detail = installed ? "Installed" : "Install";
-            items.push_back(row);
-        }
-        items.push_back({"", false, true, {}});
-        items.push_back({"Install the whole pack", false, false, [this, pack] { mSession.Tones().Install(pack); }});
-        items.push_back({"Copy the link to share it", false, false, [this, pack] { ShareTone(pack); }});
-        OpenMenu(detail->pack.title.empty() ? pack.title : detail->pack.title, std::move(items));
     });
 }
 

@@ -27,12 +27,16 @@
 
 #include "IPluginHost.h"
 #include "PluginController.h"
+#include "dsp/EffectGuids.h"
 #include "dsp/EffectRegistry.h"
 #include "dsp/effects/GraphicEQEffect.h"
 #include "presets/PresetStorage.h"
 #include "net/Http.h"
 #include "uiclient/Analysis.h"
+#include "uiclient/Automation.h"
 #include "uiclient/DspStatus.h"
+#include "uiclient/Metronome.h"
+#include "uiclient/UpdateCheck.h"
 #include "uiclient/SignalFlow.h"
 #include "uiclient/ChainDropRules.h"
 #include "uiclient/ChainHistory.h"
@@ -40,6 +44,7 @@
 #include "uiclient/EffectPresentation.h"
 #include "uiclient/FeatureFlags.h"
 #include "uiclient/FxMarks.h"
+#include "uiclient/InputLevelling.h"
 #include "uiclient/Instruments.h"
 #include "uiclient/LayoutMode.h"
 #include "uiclient/NodeLabels.h"
@@ -1439,6 +1444,354 @@ void TestSignalFlow()
     Expect(!flow.AnyLive(), "and let go after it");
 }
 
+// MIDI and automation against a real engine: the slots and registry, a control's MIDI Learn menu
+// (learn, capture, clear, per preset), keyboard mappings run by the engine (key learn, firing,
+// chords left alone), and the MIDI Log; then midiMapping.ts's pure helpers.
+void TestAutomation()
+{
+    LoopbackHost host(Sandbox("automation"));
+    PluginController controller(host);
+    controller.Initialize();
+    UiClient client([&controller](const std::string& json) { controller.HandleUIMessage(json); });
+    host.client = &client;
+    UiCommands commands(client);
+    client.Start();
+    client.Send("getEffectCatalog");
+    Pump(controller, client);
+
+    const auto& state = client.State();
+    const auto& automation = state.automation;
+    Expect(automation.loaded && automation.FindRegistryEntry("global.inputTrim") != nullptr &&
+               FindSlotForAddress(automation.slots, "global.inputTrim") != nullptr,
+           "the slots and registry come with Start");
+
+    // ── MIDI Learn from a control's menu ──
+    const auto target = NodeParamLearnTarget(state.FindEffectType(EffectGuids::kGain), "gainDb");
+    Expect(target && target->address == std::string("node.") + EffectGuids::kGain + ".gainDb" && target->label == "Gain: Gain", "an effect parameter drives node.<type>.<key>");
+    Expect(!NodeParamLearnTarget(state.FindEffectType(EffectGuids::kGain), "noSuchParam"), "an undeclared parameter drives nothing");
+    if (!target)
+        return;
+
+    auto items = BuildMidiLearnMenuItems(automation, *target, state.activePresetId);
+    Expect(!items.empty() && items[0].action == MidiLearnMenuAction::Learn && !items[0].disabled &&
+               (state.activePresetId.empty() || (items.size() == 2 && items[1].action == MidiLearnMenuAction::LearnPreset)),
+           "a control nothing maps offers MIDI Learn, and for this preset");
+
+    Expect(RunMidiLearnMenuAction(commands, state, MidiLearnMenuAction::Learn, *target).empty(), "a learn starts");
+    Pump(controller, client);
+    const auto* learning = FindSlotForAddress(automation.slots, target->address);
+    Expect(learning != nullptr && learning->slotId == "custom.1" && automation.midiLearnSlotId == "custom.1",
+           "a custom slot is made for it and armed");
+    items = BuildMidiLearnMenuItems(automation, *target, state.activePresetId);
+    Expect(!items.empty() && items[0].action == MidiLearnMenuAction::Cancel, "while it listens the menu offers Cancel");
+
+    controller.EnqueueMidi(MidiEvent{0xB0, 21, 64, 0});
+    controller.ProcessQueuedMidi();
+    Pump(controller, client);
+    const auto* mapped = automation.FindSlot("custom.1");
+    Expect(automation.capture && automation.capture->slotId == "custom.1" && automation.midiLearnSlotId.empty(),
+           "the capture is reported and the learn ends");
+    Expect(mapped != nullptr && mapped->midiMap && DescribeMidiMap(*mapped->midiMap) == "CC 21 ch1 Abs", "the slot is mapped to CC 21");
+
+    const auto cleared = RunMidiLearnMenuAction(commands, state, MidiLearnMenuAction::Clear, *target);
+    Pump(controller, client);
+    Expect(cleared.rfind("Cleared MIDI mapping for ", 0) == 0 && automation.FindSlot("custom.1") != nullptr &&
+               !automation.FindSlot("custom.1")->midiMap,
+           "Clear drops the mapping and keeps the slot");
+
+    if (!state.activePresetId.empty())
+    {
+        RunMidiLearnMenuAction(commands, state, MidiLearnMenuAction::LearnPreset, *target);
+        Pump(controller, client);
+        const auto* own = FindPresetSlotForAddress(automation.slots, state.activePresetId, target->address);
+        Expect(own != nullptr && own->slotId == "preset.1" && automation.midiLearnSlotId == "preset.1",
+               "MIDI Learn for this preset learns into the preset's own slot");
+        RunMidiLearnMenuAction(commands, state, MidiLearnMenuAction::Cancel, *target);
+        Expect(automation.midiLearnSlotId.empty(), "Cancel stops listening");
+    }
+
+    // ── Keyboard mappings, run by the engine ──
+    const auto* input = FindSlotForAddress(automation.slots, "global.inputTrim");
+    const std::string inputSlot = input != nullptr ? input->slotId : std::string();
+    commands.ArmKeyLearn(inputSlot);
+    Pump(controller, client);
+    Expect(automation.keyLearnSlotId == inputSlot, "the engine says which slot its key learn waits on");
+    commands.AutomationKey("Shift", false);
+    commands.AutomationKey(" ", false);
+    commands.AutomationKey("W", false);
+    Pump(controller, client);
+    input = automation.FindSlot(inputSlot);
+    Expect(automation.keyLearnSlotId.empty() && input != nullptr && input->keyMap.size() == 1 && input->keyMap[0].key == "w" &&
+               input->keyMap[0].mode == 1 && std::abs(input->keyMap[0].value - 0.5) < 1e-6,
+           "a modifier and Space are waited through; the next key is stored in lower case, setting the level half way");
+    Expect(KeyIsMapped(automation, "w") && KeyIsMapped(automation, "W") && !KeyIsMapped(automation, " ") &&
+               !KeyIsMapped(automation, "x"),
+           "a UI can tell which keys to hold back");
+
+    commands.AutomationKey("w", false, true);
+    commands.GetAutomation();
+    Pump(controller, client);
+    input = automation.FindSlot(inputSlot);
+    Expect(input != nullptr && std::abs(input->value - 0.5) > 1e-3, "a chord leaves the mapping alone (Ctrl+W is a shortcut)");
+    commands.AutomationKey("W", false);
+    commands.GetAutomation();
+    Pump(controller, client);
+    input = automation.FindSlot(inputSlot);
+    Expect(input != nullptr && std::abs(input->value - 0.5) < 1e-3, "the bare key fires the slot");
+
+    commands.ArmKeyLearn(inputSlot);
+    commands.AutomationKey("Escape", false);
+    Pump(controller, client);
+    Expect(automation.keyLearnSlotId.empty() && automation.FindSlot(inputSlot)->keyMap.size() == 1, "Escape backs out of a key learn");
+
+    // ── The MIDI Log ──
+    controller.EnqueueMidi(MidiEvent{0xB0, 7, 99, 0});
+    controller.ProcessQueuedMidi();
+    Pump(controller, client);
+    Expect(automation.midiLog.empty(), "nothing is logged until the log is on");
+    commands.SetMidiLogEnabled(true);
+    Pump(controller, client);
+    controller.EnqueueMidi(MidiEvent{0x91, 7, 100, 0});
+    controller.ProcessQueuedMidi();
+    Pump(controller, client);
+    Expect(!automation.midiLog.empty() && automation.midiLog.back().channel == 1 && automation.midiLog.back().data1 == 7 &&
+               automation.midiLog.back().data2 == 100,
+           "an incoming event is logged");
+    commands.SetMidiLogEnabled(false);
+
+    // ── The pure helpers ──
+    std::vector<AutomationSlotInfo> slots(2);
+    slots[0].slotId = "custom.1";
+    slots[1].slotId = "custom.4";
+    Expect(NextCustomSlotId(slots) == "custom.5" && NextPresetSlotId(slots) == "preset.1", "the next free slot ids");
+    Expect(DescribeMidiMap(1, -1, 5, std::nullopt) == "PC 5 chany" && FormatMidiChannel(15) == "16", "mappings read as musicians count");
+    Expect(IsBypassAddress("node.x.bypassed") && !IsBypassAddress("node.x.mix") && !AllowsPresetMapping("setlist.bankUp") &&
+               AllowsPresetMapping("global.outputTrim"),
+           "bypass addresses, and which controls take per-preset mappings");
+    const auto options = BuildTargetOptions(state);
+    Expect(std::any_of(options.begin(), options.end(), [](const auto& o) { return o.address == "node.input.gainDb"; }) &&
+               WithCurrentTargetOption(options, "node.unknown.x", "X").front().group == "Current",
+           "the target picker offers the chain's gains, and a slot's own address");
+}
+
+// The metronome's meter picker and where a bar's groups start (metronomeMeters.ts).
+void TestInputLevelling()
+{
+    LoopbackHost host(Sandbox("input-levelling"));
+    PluginController controller(host);
+    controller.Initialize();
+    controller.Prepare(48000.0, 256);
+    UiClient client([&controller](const std::string& json) { controller.HandleUIMessage(json); });
+    host.client = &client;
+    UiCommands commands(client);
+    client.Start();
+    commands.GetInputLevelling();
+    Pump(controller, client);
+
+    const auto& levelling = client.State().inputLevelling;
+    Expect(levelling.known && levelling.profiles.empty() && levelling.activeId.empty() && !levelling.trainingActive,
+           "a new install has no levelling profiles");
+    Expect(std::abs(levelling.targetPeakDbfs + 12.0) < 1e-9 && std::abs(levelling.maxTrimDb - 24.0) < 1e-9,
+           "the engine names the target and the trim limit");
+
+    // The raw input, as the audio thread hands it over.
+    std::vector<float> left(256), right(256), outL(256), outR(256);
+    const auto play = [&](float amplitude, int blocks) {
+        for (int b = 0; b < blocks; ++b)
+        {
+            for (int i = 0; i < 256; ++i)
+            {
+                left[static_cast<std::size_t>(i)] = amplitude * static_cast<float>(std::sin(0.05 * (b * 256 + i)));
+                right[static_cast<std::size_t>(i)] = left[static_cast<std::size_t>(i)];
+            }
+
+            float* ins[2] = {left.data(), right.data()};
+            float* outs[2] = {outL.data(), outR.data()};
+            controller.ProcessAudio(ins, outs, 256);
+        }
+
+        // The training status goes at ~15 Hz; let the next one be due.
+        std::this_thread::sleep_for(std::chrono::milliseconds(80));
+    };
+    const auto closeTo = [](std::optional<double> value, double expected, double tolerance) {
+        return value && std::abs(*value - expected) < tolerance;
+    };
+
+    // ── Training follows the raw input's peak ──
+    commands.StartInputLevellingTraining();
+    Pump(controller, client);
+    Expect(levelling.trainingActive && levelling.training.active && !levelling.training.capturedPeakDbfs,
+           "training starts from silence");
+    Expect(InputLevellingTrainingStatus(levelling).find("Play your loudest") == 0, "and asks for a peak");
+
+    play(0.1f, 20); // -20 dBFS
+    Pump(controller, client);
+    Expect(closeTo(levelling.training.capturedPeakDbfs, -20.0, 0.1), "the captured peak is the raw input's");
+    Expect(closeTo(levelling.training.recommendedTrimDb, 8.0, 0.1), "the trim is target - captured");
+    Expect(!levelling.training.clipped && CanSaveInputLevellingTraining(levelling), "an unclipped peak can be saved");
+    Expect(InputLevellingTrainingStatus(levelling) ==
+               "Captured -20.0 dBFS. Saving this profile will apply +8.0 dB toward a -12.0 dBFS target.",
+           "the status says what saving applies");
+
+    play(0.02f, 10); // quieter playing does not lower the captured peak
+    Pump(controller, client);
+    Expect(closeTo(levelling.training.capturedPeakDbfs, -20.0, 0.1), "the captured peak holds the loudest");
+
+    // ── Saving ──
+    commands.SaveInputLevellingProfile("  ", "");
+    Pump(controller, client);
+    Expect(levelling.saveSerial == 1 && !levelling.saveOk && levelling.profiles.empty(), "a profile needs a name");
+
+    commands.SaveInputLevellingProfile("Strat", "Bridge pickup");
+    Pump(controller, client);
+    Expect(levelling.saveSerial == 2 && levelling.saveOk && levelling.profiles.size() == 1, "a named profile saves");
+    const auto* saved = levelling.Active();
+    Expect(saved && saved->name == "Strat" && saved->description == "Bridge pickup" && std::abs(saved->gainDb - 8.0) < 0.1 &&
+               closeTo(saved->capturedPeakDbfs, -20.0, 0.1) && !saved->createdAt.empty(),
+           "and becomes the active profile");
+    Expect(!levelling.trainingActive && !levelling.training.active, "saving ends the training");
+    Expect(std::abs(controller.GetMixer().GetUserInputCalibrationGainDb() - 8.0) < 0.1, "the new trim reaches the mixer");
+    const auto& settings = client.State().appSettings;
+    Expect(settings.contains("audio.userInputCalibration.profiles") &&
+               settings["audio.userInputCalibration.profiles"].size() == 1 &&
+               settings.value("audio.userInputCalibration.activeProfileId", std::string{}) == (saved ? saved->id : "x"),
+           "the settings keep the older keys");
+    const std::string stratId = saved ? saved->id : std::string{};
+
+    // ── A clip blocks the save; Reset starts the capture again ──
+    commands.StartInputLevellingTraining();
+    Pump(controller, client);
+    Expect(std::abs(controller.GetMixer().GetUserInputCalibrationGainDb()) < 1e-9, "training bypasses the active trim");
+    play(1.5f, 4);
+    Pump(controller, client);
+    Expect(levelling.training.clipped && !CanSaveInputLevellingTraining(levelling) &&
+               InputLevellingTrainingStatus(levelling).find("Input clipped") == 0,
+           "a clipped input is reported");
+    commands.SaveInputLevellingProfile("Hot", "");
+    Pump(controller, client);
+    Expect(!levelling.saveOk && levelling.profiles.size() == 1, "a clipped training is not saved");
+    commands.ResetInputLevellingTraining();
+    Pump(controller, client);
+    Expect(!levelling.training.clipped && !levelling.training.capturedPeakDbfs, "Reset forgets the peak and the clip");
+    commands.StopInputLevellingTraining();
+    Pump(controller, client);
+    Expect(!levelling.trainingActive && std::abs(controller.GetMixer().GetUserInputCalibrationGainDb() - 8.0) < 0.1,
+           "stopping restores the active trim");
+
+    // ── Rename, select, delete ──
+    commands.RenameInputLevellingProfile(stratId, "Strat bridge", "Neck off");
+    Pump(controller, client);
+    Expect(levelling.Active() && levelling.Active()->name == "Strat bridge" && levelling.Active()->description == "Neck off",
+           "a profile renames");
+
+    commands.SelectInputLevellingProfile("");
+    Pump(controller, client);
+    Expect(levelling.activeId.empty() && std::abs(controller.GetMixer().GetUserInputCalibrationGainDb()) < 1e-9,
+           "No levelling clears the trim");
+    commands.SelectInputLevellingProfile(stratId);
+    Pump(controller, client);
+    Expect(levelling.activeId == stratId && std::abs(controller.GetMixer().GetUserInputCalibrationGainDb() - 8.0) < 0.1,
+           "selecting a profile applies it");
+
+    commands.DeleteInputLevellingProfile(stratId);
+    Pump(controller, client);
+    Expect(levelling.profiles.empty() && levelling.activeId.empty() &&
+               std::abs(controller.GetMixer().GetUserInputCalibrationGainDb()) < 1e-9 &&
+               controller.GetAppSettings().value("audio.userInputCalibration.activeProfileId", nlohmann::json()).is_null(),
+           "deleting the active profile leaves no levelling");
+
+    // ── Profiles saved by an older build carry over ──
+    client.Send("setSetting", {{"key", "audio.userInputCalibration.profiles"},
+                               {"value", nlohmann::json::array({{{"id", "old"}, {"name", " Tele "}, {"capturedPeakDbfs", -18.0},
+                                                                 {"targetPeakDbfs", -12.0}},
+                                                                {{"id", "loud"}, {"name", "Loud"}, {"gainDb", 40.0}},
+                                                                {{"id", ""}, {"name", "No id"}}})}});
+    client.Send("setSetting", {{"key", "audio.userInputCalibration.activeProfileId"}, {"value", "old"}});
+    Pump(controller, client);
+    Expect(levelling.profiles.size() == 2 && levelling.Active() && levelling.Active()->name == "Tele" &&
+               std::abs(levelling.Active()->gainDb - 6.0) < 1e-9,
+           "an older profile's trim is target - captured");
+    Expect(levelling.Find("loud") && std::abs(levelling.Find("loud")->gainDb - 24.0) < 1e-9, "and a trim is held to 24 dB");
+    Expect(std::abs(controller.GetMixer().GetUserInputCalibrationGainDb() - 6.0) < 1e-9, "the older active profile applies");
+
+    // The older training switch still bypasses.
+    client.Send("setUserInputCalibrationTrainingActive", {{"active", true}});
+    Pump(controller, client);
+    Expect(levelling.trainingActive && std::abs(controller.GetMixer().GetUserInputCalibrationGainDb()) < 1e-9,
+           "setUserInputCalibrationTrainingActive still starts training");
+    client.Send("setUserInputCalibrationTrainingActive", {{"active", false}});
+    Pump(controller, client);
+    Expect(!levelling.trainingActive && std::abs(controller.GetMixer().GetUserInputCalibrationGainDb() - 6.0) < 1e-9,
+           "and stops it");
+}
+
+void TestMetronomeMeters()
+{
+    const auto& meters = TimeSignatures();
+    Expect(meters.size() == 21 && meters.front().id == "2/4" && meters.back().id == "7/8:2+2+3" && meters.back().label == "7/8 (2+2+3)",
+           "the web UI's meters, in its order");
+    Expect((ParseGrouping("2+2+3", 7) == std::vector<int>{2, 2, 3}), "a grouping that adds up");
+    Expect(ParseGrouping("2+2", 7).empty() && ParseGrouping("2+x+3", 7).empty(), "one that does not, or is malformed, is dropped");
+    Expect((GroupHeads(7, 8, "2+2+3") == std::vector<bool>{true, false, true, false, true, false, false}), "odd meter group heads");
+    Expect((GroupHeads(6, 8, "") == std::vector<bool>{true, false, false, true, false, false}), "a compound meter falls into threes");
+    Expect((GroupHeads(4, 4, "") == std::vector<bool>{true, false, false, false}), "a simple meter has one head");
+}
+
+// The update check's version comparison (updateCheck.ts toNumericSemver / isVersionNewer).
+void TestUpdateCheckVersions()
+{
+    Expect((ParseVersion("v1.7.2-beta") == std::array<int, 3>{1, 7, 2}), "a prefix and a pre-release suffix");
+    Expect((ParseVersion("2") == std::array<int, 3>{2, 0, 0}) && (ParseVersion("1.8") == std::array<int, 3>{1, 8, 0}), "missing parts are 0");
+    Expect(!ParseVersion("") && !ParseVersion("latest") && !ParseVersion("1.2.3 extra"), "text that is not a version");
+    Expect(IsVersionNewer("1.10.0", "1.9.9") && !IsVersionNewer("1.6.0", "1.6.0") && !IsVersionNewer("1.5.9", "1.6.0"),
+           "compared part by part, numerically");
+    Expect(!IsVersionNewer("garbage", "1.0.0") && !IsVersionNewer("2.0.0", ""), "an unreadable side is never newer");
+}
+
+// The engine applies a global chain edit without echoing it, so the client mirrors it: a switch
+// that read the old state back would send the same state again, and a reset would not show.
+void TestGlobalChainEditsMirror()
+{
+    LoopbackHost host(Sandbox("global-chain-mirror"));
+    PluginController controller(host);
+    controller.Initialize();
+    UiClient client([&controller](const std::string& json) { controller.HandleUIMessage(json); });
+    host.client = &client;
+    UiCommands commands(client);
+    client.Start();
+    Pump(controller, client);
+
+    int notified = 0;
+    auto subscription = client.Subscribe(Topic::GlobalChain, [&notified] { ++notified; });
+    const auto& chain = client.State().globalChain;
+    const auto* gate = chain.preChainGraph.FindNode("global_gate");
+    const auto* doubler = chain.postChainGraph.FindNode("global_doubler");
+    Expect(gate != nullptr && doubler != nullptr, "the global chain arrives with its gate and doubler");
+    if (gate == nullptr || doubler == nullptr)
+        return;
+
+    const bool gateWas = gate->enabled;
+    commands.SetGlobalChainToggle("gate.enabled", !gateWas);
+    commands.SetGlobalChainParam("gate.threshold", -44.0);
+    commands.SetGlobalChainToggle("doubler.enabled", true);
+    commands.SetGlobalChainParam("doubler.delay", 12.0);
+    commands.SetGlobalChainParam("output.gain", -3.0);
+    Expect(notified == 5, "each edit tells the controls");
+    Expect(gate->enabled == !gateWas && gate->params.at("threshold") == -44.0, "the gate's switch and threshold are mirrored");
+    Expect(doubler->enabled && doubler->params.at("time") == 12.0, "the doubler's delay is its node's time");
+    Expect(chain.outputGain == -3.0, "the output level");
+
+    // What the engine now holds agrees with the mirror.
+    client.Send("getGlobalChain");
+    Pump(controller, client);
+    const auto* engineGate = client.State().globalChain.preChainGraph.FindNode("global_gate");
+    const auto* engineDoubler = client.State().globalChain.postChainGraph.FindNode("global_doubler");
+    Expect(engineGate != nullptr && engineGate->enabled == !gateWas && engineGate->params.at("threshold") == -44.0,
+           "the engine's gate matches");
+    Expect(engineDoubler != nullptr && engineDoubler->enabled && engineDoubler->params.at("time") == 12.0, "the engine's doubler matches");
+    Expect(client.State().globalChain.outputGain == -3.0, "the engine's output level matches");
+}
+
 int main()
 {
     TestClientMirrorsTheEngine();
@@ -1454,7 +1807,12 @@ int main()
     TestAnalysis();
     TestAnalysisPresentation();
     TestSignalFlow();
+    TestMetronomeMeters();
+    TestUpdateCheckVersions();
+    TestGlobalChainEditsMirror();
     TestIrAlignmentResponse();
+    TestAutomation();
+    TestInputLevelling();
     TestNodeArchitectureBadge();
     TestPresetBrowse();
     TestParamFormatting();

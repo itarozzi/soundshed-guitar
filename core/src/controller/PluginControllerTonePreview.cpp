@@ -17,13 +17,20 @@
  * The files stay while the preview can still play them: a scene switch or a rebuild reads them
  * again. The next preview replaces the folder, and one left by a crashed or closed instance is
  * removed by the next preview after a day.
+ *
+ * A UI can also hand over the downloaded archive itself ("previewPresetArchive"), as it does to
+ * install one: it is read here as the install reads it, but nothing is written. The archive's
+ * files the library already holds (by content hash) and the remote models the library has play
+ * from the library; the rest are staged as above, the remote ones from what the UI fetched.
  */
 
 #include "PluginController.h"
 
 #include "controller/internal/BlendSupport.h"
 #include "controller/internal/PresetArchiveSupport.h"
+#include "controller/internal/RemoteResourceRefs.h"
 #include "presets/PresetStorage.h"
+#include "resources/ResourceLibrary.h"
 #include "util/Base64.h"
 #include "util/PathEncoding.h"
 #include "util/PathSanitizer.h"
@@ -32,6 +39,7 @@
 #include <filesystem>
 #include <map>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 
@@ -232,5 +240,209 @@ void PluginController::HandlePreviewPresetRequest(const nlohmann::json& payload)
     load["preset"] = nlohmann::json::parse(PresetStorage::SerializeToJson(preset));
     load["presetId"] = preset.id;
     HandlePresetLoadRequest(load);
+}
+void PluginController::HandlePreviewPresetArchiveRequest(const nlohmann::json& payload)
+{
+    const std::string requestId = payload.value("requestId", "");
+    const std::string title = payload.value("title", "");
+    const std::string itemId = payload.value("itemId", "");
+
+    const auto fail = [&](const std::string& detail) {
+        ReportErrorToUI("Preview failed", detail);
+        SendMessageToUI(nlohmann::json{{"type", "presetArchivePreviewFailed"},
+                                       {"requestId", requestId},
+                                       {"itemId", itemId},
+                                       {"message", "Preview failed"},
+                                       {"detail", detail}}
+                            .dump());
+    };
+
+    const auto bytes = util::DecodeBase64(payload.value("data", ""));
+    std::string error;
+    auto parsed = bytes.empty() ? std::nullopt
+                                : ParseFactoryPresetArchive(util::PathFromUtf8(title.empty() ? "archive" : title), bytes, error);
+
+    if (!parsed || parsed->presets.empty())
+    {
+        fail((title.empty() ? std::string("The download") : "\"" + title + "\"") + " could not be read: " +
+             (error.empty() ? "not a preset archive" : error));
+        return;
+    }
+
+    // The last preset of a collection is the one heard, as the web UI's preview played the last.
+    Preset preset = parsed->presets.back();
+    const bool onePreset = parsed->presets.size() == 1;
+    std::unordered_map<std::string, std::string> resourceIds; // archive id -> library id
+    nlohmann::json staged = nlohmann::json::array();          // what the library lacks
+    std::unordered_set<std::string> stagedKeys;
+
+    // The archive's own files: the library's copy where it holds the same bytes, else staged.
+    for (const auto& file : parsed->resources)
+    {
+        if ((file.type != "nam" && file.type != "ir") || file.id.empty() || file.bytes.empty())
+        {
+            continue;
+        }
+
+        const std::string contentHash = mHasher.HashBytes(file.bytes);
+        std::string libraryId;
+
+        for (const auto& resource : mResourceLibrary.GetAllResources())
+        {
+            std::error_code ec;
+
+            if (resource.type == file.type && resource.hash == contentHash && !resource.filePath.empty() &&
+                std::filesystem::exists(resource.filePath, ec))
+            {
+                libraryId = resource.id;
+                break;
+            }
+        }
+
+        if (!libraryId.empty())
+        {
+            resourceIds[file.id] = libraryId;
+        }
+        else if (stagedKeys.insert(file.type + ":" + file.id).second)
+        {
+            staged.push_back({{"resourceType", file.type},
+                              {"resourceId", file.id},
+                              {"name", file.name.empty() ? file.id : file.name},
+                              {"data", util::EncodeBase64(file.bytes)}});
+        }
+    }
+
+    // The models it names rather than carries: the library's, else what the UI fetched for this
+    // preview ({resourceType, resourceId, name, data}, under the reference's id), else none.
+    std::unordered_map<std::string, nlohmann::json> fetched;
+
+    for (const auto& resource : payload.value("fetchedResources", nlohmann::json::array()))
+    {
+        if (resource.is_object() && !resource.value("resourceId", "").empty() && !resource.value("data", "").empty())
+        {
+            fetched[resource.value("resourceType", "nam") + ":" + resource.value("resourceId", "")] = resource;
+        }
+    }
+
+    nlohmann::json unavailable = nlohmann::json::array();
+
+    for (const auto& reference : parsed->remoteResources)
+    {
+        const std::string id = reference.value("id", "");
+        const std::string type = reference.value("type", "nam");
+        const std::string found = FindRemoteResource(mResourceLibrary, reference);
+
+        if (!found.empty())
+        {
+            if (!id.empty())
+            {
+                resourceIds[id] = found;
+            }
+            continue;
+        }
+
+        const auto it = fetched.find(type + ":" + id);
+
+        if (it == fetched.end() || (type != "nam" && type != "ir"))
+        {
+            const std::string name = reference.value("name", "");
+            unavailable.push_back(name.empty() ? id : name);
+            continue;
+        }
+
+        if (stagedKeys.insert(type + ":" + id).second)
+        {
+            staged.push_back({{"resourceType", type},
+                              {"resourceId", id},
+                              {"name", it->second.value("name", reference.value("name", id))},
+                              {"data", it->second.value("data", "")}});
+        }
+    }
+
+    // Blends play for the preview under their own ids, their models on the library's where it
+    // has them; nothing joins the blend library (HandlePreviewPresetRequest bakes them in).
+    nlohmann::json blends = nlohmann::json::array();
+
+    for (auto blend : parsed->blends)
+    {
+        const auto remap = [&](nlohmann::json& value) {
+            if (value.is_string())
+            {
+                if (const auto mapped = resourceIds.find(value.get<std::string>()); mapped != resourceIds.end())
+                {
+                    value = mapped->second;
+                }
+            }
+        };
+
+        if (blend.contains("models") && blend["models"].is_array())
+        {
+            for (auto& modelId : blend["models"])
+            {
+                remap(modelId);
+            }
+        }
+
+        if (blend.contains("modelMappings") && blend["modelMappings"].is_array())
+        {
+            for (auto& mapping : blend["modelMappings"])
+            {
+                if (mapping.is_object() && mapping.contains("id"))
+                {
+                    remap(mapping["id"]);
+                }
+            }
+        }
+
+        blends.push_back(std::move(blend));
+    }
+
+    // As an install writes it: on the library's ids, without the sharer's rig.
+    RemapPresetArchiveReferences(preset, resourceIds, {});
+    const auto remapConfigKeys = [&](SignalGraph& graph) {
+        for (auto& node : graph.nodes)
+        {
+            for (const char* key : {"audioFxModelId", "irId"})
+            {
+                if (auto it = node.config.find(key); it != node.config.end())
+                {
+                    if (const auto mapped = resourceIds.find(it->second); mapped != resourceIds.end())
+                    {
+                        it->second = mapped->second;
+                    }
+                }
+            }
+        }
+    };
+    remapConfigKeys(preset.graph);
+
+    for (auto& scene : preset.scenes)
+    {
+        remapConfigKeys(scene.graph);
+    }
+
+    preset.globalSignalChain.reset();
+    preset.global = GlobalSettings{};
+
+    if (onePreset && !title.empty())
+    {
+        preset.name = title;
+    }
+
+    const std::string presetId =
+        payload.value("presetId", itemId.empty() ? std::string("preview-archive") : "preview-" + itemId);
+    HandlePreviewPresetRequest({{"preset", nlohmann::json::parse(PresetStorage::SerializeToJson(preset))},
+                                {"presetId", presetId},
+                                {"resources", staged},
+                                {"blends", blends}});
+
+    SendMessageToUI(nlohmann::json{{"type", "presetArchivePreviewed"},
+                                   {"requestId", requestId},
+                                   {"itemId", itemId},
+                                   {"presetId", presetId},
+                                   {"title", preset.name},
+                                   {"stagedCount", staged.size()},
+                                   {"unavailable", unavailable}}
+                        .dump());
 }
 } // namespace guitarfx

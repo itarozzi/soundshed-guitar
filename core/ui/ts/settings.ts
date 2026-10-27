@@ -41,7 +41,7 @@ import { updateSignalDiagnosticsView } from "./views.js";
 
 export { initDensitySelect, initThemeSelect, initZoomControls } from "./settings/appearance.js";
 export { initDiagnosticsToggle } from "./settings/dspSettings.js";
-export { handleUserInputCalibrationDiagnosticsUpdate, initUserInputCalibrationControls } from "./settings/inputCalibration.js";
+export { initUserInputCalibrationControls } from "./settings/inputCalibration.js";
 export { activateAdvancedSubTab, activateEquipmentTab, activateLibraryTab } from "./settings/tabs.js";
 export { refreshSettingsUpdateBanner } from "./settings/updateBanner.js";
 export { refreshTone3000ApiKeyField } from "./settings/tone3000Settings.js";

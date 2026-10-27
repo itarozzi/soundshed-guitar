@@ -18,6 +18,7 @@
 #include "controller/internal/SettingsKeys.h"
 
 #include <algorithm>
+#include <utility>
 
 using namespace guitarfx::controller_detail;
 
@@ -71,7 +72,77 @@ void PluginController::HandleGetAutomationRequest()
     msg["registry"] = std::move(registry);
     msg["maxCustomSlots"] = kMaxCustomSlots;
     msg["maxPresetSlots"] = kMaxPresetSlotsPerPreset;
+    msg["keyLearnSlotId"] = mKeyLearnSlotId;
     SendMessageToUI(msg.dump());
+}
+
+void PluginController::HandleArmKeyLearnRequest(const nlohmann::json& payload)
+{
+    const std::string slotId = payload.value("slotId", "");
+    const auto* slot = slotId.empty() ? nullptr : mAutomationSlots.FindSlot(slotId);
+    // Keys are global: a per-preset mapping is MIDI only.
+    mKeyLearnSlotId = slot != nullptr && slot->presetId.empty() ? slotId : std::string{};
+    HandleGetAutomationRequest();
+}
+
+void PluginController::HandleAutomationKeyRequest(const nlohmann::json& payload)
+{
+    const std::string key = payload.value("key", "");
+
+    if (key.empty())
+    {
+        return;
+    }
+
+    // A key learn takes the next key. Escape backs out of it; Space and a bare modifier are
+    // waited through (the key a modifier is held for comes next).
+    if (!mKeyLearnSlotId.empty())
+    {
+        if (key == "Escape")
+        {
+            mKeyLearnSlotId.clear();
+            HandleGetAutomationRequest();
+            return;
+        }
+
+        if (AutomationSlotTable::IsUnmappableKey(key))
+        {
+            return;
+        }
+
+        const std::string slotId = std::exchange(mKeyLearnSlotId, std::string{});
+        const auto* slot = mAutomationSlots.FindSlot(slotId);
+
+        if (slot == nullptr)
+        {
+            HandleGetAutomationRequest();
+            return;
+        }
+
+        nlohmann::json keyMap = nlohmann::json::array();
+
+        for (const auto& map : mAutomationSlots.LearnedKeyMaps(*slot, key))
+        {
+            keyMap.push_back({{"key", map.key}, {"mode", static_cast<int>(map.mode)}, {"value", map.value}});
+        }
+
+        // Saved and announced as any other edit of the slot.
+        HandleSetAutomationSlotRequest({{"slotId", slotId}, {"keyMap", std::move(keyMap)}});
+        return;
+    }
+
+    // A chord is a shortcut (Ctrl+Z is undo, not "z"), and leaves the mappings alone.
+    if (payload.value("ctrl", false) || payload.value("alt", false) || payload.value("meta", false))
+    {
+        return;
+    }
+
+    std::lock_guard<std::mutex> lock(mDSPMutex);
+
+    if (const auto match = mAutomationSlots.MatchKey(key, payload.value("repeat", false)))
+    {
+        mAutomationSlots.ApplyAutomationLocked(match->first, match->second, AutomationSource::Keyboard);
+    }
 }
 
 void PluginController::HandleSetAutomationSlotRequest(const nlohmann::json& payload)

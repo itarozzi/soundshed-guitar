@@ -7,7 +7,6 @@ import { createRequire } from "node:module";
 import { createHash } from "node:crypto";
 import JSZip from "jszip";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ArchivePreview } from "../ts/presets/archiveTypes";
 import type { Preset } from "../ts/types";
 
 vi.mock("../ts/notifications.js", () => ({ clearNotification: vi.fn(), showNotification: vi.fn() }));
@@ -20,6 +19,10 @@ window.IPlugSendMsg = (message: string) => sent.push(JSON.parse(message) as Reco
 const { uiState } = await import("../ts/state.js");
 const { sanitizeImportedPreset, SAFE_NODE_ID } = await import("../ts/presets/sanitize.js");
 const { importPresetArchive } = await import("../ts/presets/archive.js");
+const { previewPreset } = await import("../ts/toneSharingPanel/preview.js");
+const { configureToneSharingHostActions } = await import("../ts/toneSharingPanel/hostActions.js");
+const { prepareArchiveRemoteResourcesForPreview, readArchiveRemoteRefs } = await import("../ts/presets/remoteArchiveResources.js");
+configureToneSharingHostActions({ prepareArchiveRemoteResourcesForPreview, readArchiveRemoteRefs } as never);
 const { tone3000AuthenticatedFetch, isTone3000RequestUrlAllowed } = await import("../ts/tone3000.js");
 const { toneSharingFetch } = await import("../ts/toneSharingPanel/api.js");
 const { toneSharingState } = await import("../ts/toneSharingPanel/state.js");
@@ -176,25 +179,15 @@ describe("importing a shared archive", () => {
     expect(vi.mocked(showAlert).mock.calls[0][0]).not.toContain("Listed Amp");
   });
 
-  it("previews without downloading, importing or saving anything", async () => {
-    const fetchMock = vi.fn(async () => okBytes());
-    globalThis.fetch = fetchMock as typeof fetch;
-
-    const [preset] = await importPresetArchive(await archiveFile(), { source: "toneSharingApi", itemId: "item-1" }, {
-      previewOnly: true,
-      suppressNotifications: true,
-    });
-
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(sent.map((message) => message.type)).toEqual([]);
-    expect(preset.graph!.nodes.every((node) => SAFE_NODE_ID.test(node.id))).toBe(true);
-  });
-
-  it("hands a preview the files the library lacks, importing nothing and fetching Tone3000 models by id", async () => {
-    const fetched: string[] = [];
-    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+  // A preview is read by the engine ("previewPresetArchive"), which writes nothing; the UI sends
+  // the download whole, with the Tone3000 models the library lacks fetched by their ids.
+  function previewFetch(archive: ArrayBuffer, fetched: string[]): typeof fetch {
+    return vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       fetched.push(url);
+      if (url.includes("/items/item-1/download")) {
+        return { ok: true, status: 200, arrayBuffer: async () => archive, text: async () => "", headers: new Headers() } as Response;
+      }
       if (url.includes("/models?") || url.includes("tone_id=")) {
         return {
           ok: true,
@@ -206,43 +199,38 @@ describe("importing a shared archive", () => {
       }
       return okBytes();
     }) as typeof fetch;
-    const preview: ArchivePreview = { resources: [], blends: [], unavailable: [] };
+  }
 
-    const [preset] = await importPresetArchive(await archiveFile(), { source: "toneSharingApi", itemId: "item-1" }, {
-      previewOnly: true,
-      preview,
-      suppressNotifications: true,
-    });
+  it("previews by handing the engine the download and the Tone3000 models it fetched by id, importing nothing", async () => {
+    const archive = await (await archiveFile()).arrayBuffer();
+    const fetched: string[] = [];
+    globalThis.fetch = previewFetch(archive, fetched);
 
-    expect(sent.map((message) => message.type)).toEqual([]);
+    await previewPreset("item-1", "Shared Lead");
+
+    expect(sent.map((message) => message.type)).toEqual(["previewPresetArchive"]);
+    const [message] = sent;
+    expect(message).toMatchObject({ itemId: "item-1", presetId: "preview-item-1", title: "Shared Lead" });
+    expect(message.data).toBe(Buffer.from(archive).toString("base64"));
+    // The archive's own IR is the engine's to read from the archive; only the remote model is fetched.
+    expect(message.fetchedResources).toEqual([{ resourceType: "nam", resourceId: "t3k-model", name: "Amp", data: "AQID" }]);
     expect(fetched.some((url) => url.includes("evil.example"))).toBe(false);
-    expect(preview.unavailable).toEqual([]);
-    expect(preview.resources).toEqual([
-      { resourceType: "ir", resourceId: "bundled-ir", name: "Cab", data: "AQID" },
-      { resourceType: "nam", resourceId: "t3k-model", name: "Amp", data: "AQID" },
-    ]);
-    // Saved nowhere: the engine plays the blend for the preview, under its own id.
-    expect(preview.blends).toEqual([{ id: "blend-1", name: "Blend", models: ["t3k-model"], modelMappings: [] }]);
-    // The nodes keep naming the archive's ids, which is what the engine stages the files under.
-    expect(preset.graph!.nodes[1].resources).toEqual([{ resourceType: "nam", resourceId: "t3k-model", id: "t3k-model" }]);
   });
 
   it("previews without a Tone3000 model when there is no access, and never asks for a key", async () => {
     uiState.tone3000Session = null;
     uiState.appSettings = { ...uiState.appSettings, "tone3000.apiKey": "", "tone3000.useSoundshedToneSearchApi": false };
-    const fetchMock = vi.fn(async () => okBytes());
-    globalThis.fetch = fetchMock as typeof fetch;
-    const preview: ArchivePreview = { resources: [], blends: [], unavailable: [] };
+    const archive = await (await archiveFile()).arrayBuffer();
+    const fetched: string[] = [];
+    globalThis.fetch = previewFetch(archive, fetched);
 
-    await importPresetArchive(await archiveFile(), { source: "toneSharingApi", itemId: "item-1" }, {
-      previewOnly: true,
-      preview,
-      suppressNotifications: true,
-    });
+    await previewPreset("item-1", "Shared Lead");
 
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(preview.resources.map((resource) => resource.resourceId)).toEqual(["bundled-ir"]);
-    expect(preview.unavailable).toEqual(["Amp"]);
+    expect(fetched.every((url) => url.includes("/items/item-1/download"))).toBe(true);
+    expect(sent.map((message) => message.type)).toEqual(["previewPresetArchive"]);
+    expect(sent[0].fetchedResources).toEqual([]);
+    const { showNotification } = await import("../ts/notifications.js");
+    expect(showNotification).toHaveBeenCalledWith("Preview is missing models", expect.stringContaining("Amp"));
   });
 
   it("never fetches the archive's own modelUrl: the model is found by its Tone3000 ids", async () => {

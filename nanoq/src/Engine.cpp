@@ -228,7 +228,7 @@ bool Engine::IsStandalone() const
     // clap-wrapper's standalone app links the plugin into its own executable, which is what tells
     // it apart from a plugin in a DAW. The controller keeps a standalone's session in the profile,
     // and a plugin's in the host project. Its audio device settings are the wrapper's own window
-    // (Alt+Space on Windows).
+    // (Alt+Space on Windows) and, for what it can drive, the app's own Settings (StandaloneDevices).
     static const bool standalone = RunningAsStandalone();
     return standalone;
 }
@@ -246,5 +246,17 @@ bool Engine::IsHostPlaying() const
 guitarfx::IPluginHost::AudioChannelCounts Engine::GetAudioChannelCounts() const
 {
     return {mInputs.load(), mOutputs.load()};
+}
+
+bool Engine::SupportsAudioDeviceSettings() const
+{
+    // Only the standalone executable links a device backend; a plugin's host owns the devices.
+    return mDevices.Supported();
+}
+
+void Engine::HandleAudioDeviceRequest(const std::string& requestJson)
+{
+    // The engine thread; the devices are driven from the main thread, at the editor's next tick.
+    mDevices.Queue(requestJson);
 }
 } // namespace nanoq

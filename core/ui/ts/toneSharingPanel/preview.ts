@@ -4,16 +4,16 @@
  */
 
 import { postMessage } from "../bridge.js";
+import type { IncomingPayload } from "../messages/types.js";
 import { showNotification } from "../notifications.js";
 import type { ArchivePreview } from "../presets/archiveTypes.js";
 import { uiState } from "../state.js";
 import { syncFeedPreviewButton } from "./actionButtons.js";
-import { apiFetch, toneSharingFetch } from "./api.js";
+import { toneSharingFetch } from "./api.js";
 import { element } from "./dom.js";
-import { resolveCreatorProfileHandle } from "./format.js";
 import { getToneSharingHostActions } from "./hostActions.js";
+import { readDownload } from "./install.js";
 import { previewState } from "./state.js";
-import type { ToneSharingItem } from "./types.js";
 
 export function showPreviewIndicator(title: string): void {
   const selector = element<HTMLElement>("preset-selector");
@@ -60,15 +60,12 @@ export async function clearPreviewPreset(): Promise<void> {
 /**
  * Loads a Tone Sharing item into the engine to audition it, without saving it.
  *
- * The archive is read with `previewOnly`, which writes nothing: no preset, no
- * blend, no resource. Models and IRs the library already has (matched by
- * content hash, or by id for Tone3000 models) play from there. The rest are
- * handed to the engine with the preset ("previewPreset"), which stages them in
- * a temp folder for this preview alone: the archive's own files, and its
- * Tone3000 models fetched by their ids. The archive's blends go too, and play
- * for the preview without joining the blend library. The archive's own model
- * URL is never followed off Tone3000, so it cannot choose where the Tone3000
- * token goes.
+ * The engine reads the download and plays it ("previewPresetArchive"), writing nothing: no preset,
+ * blend or resource. Its own models and IRs play from the library where it holds the same bytes,
+ * else from a temp folder of the preview's own. The Tone3000 models it names but does not carry
+ * are fetched here first, when the library lacks them, by their Tone3000 tone and model ids: the
+ * archive's own model URL is never followed, so it cannot choose where the Tone3000 token goes.
+ * One that cannot be had leaves its slot empty for the preview.
  */
 export async function previewPreset(itemId: string, itemTitle: string): Promise<void> {
   const requestId = ++previewRequestId;
@@ -85,48 +82,26 @@ export async function previewPreset(itemId: string, itemTitle: string): Promise<
     throw new Error(`Preview download failed (${response.status})`);
   }
 
-  const disposition = response.headers.get("content-disposition") || "";
-  const fileMatch = disposition.match(/filename="?([^"]+)"?/i);
-  const fileName = fileMatch?.[1] || `item-${itemId}.soundshed.preset`;
-  const blob = await response.blob();
+  const archive = await readDownload({ title: itemTitle, data: await response.arrayBuffer(), itemId });
   if (requestId !== previewRequestId) {
     return;
   }
 
-  let itemMeta: ToneSharingItem | null = null;
-  try {
-    const itemResponse = await apiFetch<{ item: ToneSharingItem }>(`/items/${itemId}`);
-    itemMeta = itemResponse.item;
-  } catch {
-    itemMeta = null;
-  }
+  const preview: ArchivePreview = { resources: [], unavailable: [] };
+  await getToneSharingHostActions().prepareArchiveRemoteResourcesForPreview(archive.remoteRefs, new Map(), preview);
   if (requestId !== previewRequestId) {
     return;
   }
 
-  const importFile = new File([blob], fileName, { type: blob.type || "application/octet-stream" });
-  const preview: ArchivePreview = { resources: [], blends: [], unavailable: [] };
-  const importedPresets = await getToneSharingHostActions().importPresetArchive(importFile, {
-    source: "toneSharingApi",
+  postMessage({
+    type: "previewPresetArchive",
+    requestId: previewMessageId(requestId),
     itemId,
-    creatorId: itemMeta?.creatorUserId ?? undefined,
-    creatorHandle: resolveCreatorProfileHandle((itemMeta ?? {}) as unknown as Record<string, unknown>) ?? undefined,
-    titleHint: fileName.replace(/\.(soundshed\.preset|soundshed\.presets|preset|zip)$/i, ""),
-  }, {
-    previewOnly: true,
-    preview,
-    suppressNotifications: true,
+    presetId: `preview-${itemId}`,
+    title: itemTitle,
+    data: archive.base64,
+    fetchedResources: preview.resources,
   });
-
-  if (requestId !== previewRequestId) {
-    return;
-  }
-  const preset = importedPresets[importedPresets.length - 1];
-  if (!preset) {
-    throw new Error("Preview import produced no preset");
-  }
-
-  postMessage({ type: "previewPreset", preset, presetId: `preview-${itemId}`, resources: preview.resources, blends: preview.blends });
   if (preview.unavailable.length > 0) {
     showNotification(
       "Preview is missing models",
@@ -151,4 +126,34 @@ export async function previewPreset(itemId: string, itemTitle: string): Promise<
   }
 
   showPreviewIndicator(itemTitle);
+}
+
+function previewMessageId(requestId: number): string {
+  return `tone-preview-${requestId}`;
+}
+
+/** The engine played the preview ("presetArchivePreviewed"): its presetLoaded has shown it already. */
+export function onPresetArchivePreviewed(_payload: IncomingPayload): void {
+  // Nothing more to do: the indicator went up with the request, and the engine's presetLoaded
+  // brought the preset in. The models it plays without were named when they could not be fetched.
+}
+
+/**
+ * The engine could not read the download ("presetArchivePreviewFailed"; its error is shown as a
+ * notification already). The indicator comes down; nothing was loaded, so nothing is put back.
+ */
+export function onPresetArchivePreviewFailed(payload: IncomingPayload): void {
+  if (payload.requestId !== previewMessageId(previewRequestId)) {
+    return;
+  }
+  const feedEl = element<HTMLElement>("tone-sharing-feed");
+  if (previewState.itemId) {
+    const card = feedEl?.querySelector(`.tone-sharing-card-item[data-id="${CSS.escape(previewState.itemId)}"]`) as HTMLElement | null;
+    if (card) {
+      syncFeedPreviewButton(card, false);
+    }
+  }
+  previewState.itemId = null;
+  previewState.priorPresetId = null;
+  hidePreviewIndicator();
 }

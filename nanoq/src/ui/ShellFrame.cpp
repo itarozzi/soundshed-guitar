@@ -205,8 +205,12 @@ Ptr Shell::BuildTopBar()
     controls->Ink(mTheme.TextSecondary());
     controls->onClick = [this] { OpenControls(); };
 
-    auto bar = Row({HGap(15), prev, HGap(6), pill, HGap(6), next, HGap(10), create, HGap(4), edit, HGap(4), save, HGap(8), random,
-                    HGap(8), more, HGap(19), controls, HGap(6)});
+    std::vector<Ptr> items{HGap(15), prev, HGap(6), pill, HGap(6), next, HGap(10), create, HGap(4), edit, HGap(4), save, HGap(8), random,
+                           HGap(8), more, HGap(19)};
+    if (auto update = BuildUpdateButton())
+        items.insert(items.end(), {Pad(0, 1, 0, 1, update), HGap(8)});
+    items.insert(items.end(), {controls, HGap(6)});
+    auto bar = Row(items);
     return FixedHeight(metrics::kTopBarHeight, Fill(mTheme.Tertiary(), PadXY(0, 6, bar)));
 }
 
@@ -304,7 +308,11 @@ Ptr Shell::BuildScenes()
     row.push_back(Stretch());
     row.push_back(Pad(0, 0, 0, 6, wrap));
     row.push_back(HGap(6));
-    return FixedHeight(24, Pad(0, 2, 0, 0, Row(row)));
+    Ptr scenes = FixedHeight(24, Pad(0, 2, 0, 0, Row(row)));
+    // With two or more presets in the mix, their tabs and the Mix tab come first.
+    if (auto tabs = BuildMixerTabs())
+        return Col({FixedHeight(26, Pad(0, 4, 0, 0, tabs)), scenes});
+    return scenes;
 }
 
 // ── The chain stage ─────────────────────────────────────────────────────────────
@@ -423,6 +431,10 @@ void Shell::OpenOptions(el::rect anchor)
         CloseOverlay();
         OpenTuner();
     }, 28.0f, 16.0f);
+    auto midi = ToolButton(mTheme, mIcons, "ui-midi", [this] { // MIDI & Automation
+        CloseOverlay();
+        OpenMidiAutomation();
+    }, 28.0f, 16.0f);
     auto io = ToolButton(mTheme, mIcons, "ui-io", [this] {
         CloseOverlay();
         OpenControls();
@@ -483,7 +495,7 @@ void Shell::OpenOptions(el::rect anchor)
     auto rule = [this] { return FixedHeight(1, Fill(mTheme.Text().opacity(0.07f), std::make_shared<el::element>())); };
     auto panel = Pad(10, 10, 10, 10,
                      Col({FixedHeight(28, Row({clipButton, Stretch(), play, HGap(6), loop})), VGap(8), rule(), VGap(8),
-                          FixedHeight(28, Row({pads, HGap(10), tuner, HGap(10), io, HGap(10), mute, Stretch()})), VGap(8), rule(),
+                          FixedHeight(28, Row({pads, HGap(10), tuner, HGap(10), midi, HGap(10), io, HGap(10), mute, Stretch()})), VGap(8), rule(),
                           VGap(8), FixedHeight(28, Row({HGap(8), tempo, HGap(14), metronome, HGap(6), tick, Stretch()})), VGap(8),
                           rule(), VGap(8), FixedHeight(28, Row(viewRow))}));
     ShowPopover(panel, anchor, 350.0f, 190.0f, true);
@@ -651,8 +663,7 @@ void Shell::CloseDropdown()
     // As CloseOverlay: taken out once the event that closed it is done.
     auto dropdown = std::move(mDropdown);
     mDropdown.reset();
-    auto& view = mSession.View();
-    view.post([&view, dropdown] { view.remove(dropdown); });
+    RemoveLayer(std::move(dropdown));
 }
 
 void Shell::OpenDropdown(el::rect anchor, std::vector<MenuItem> items, float width)

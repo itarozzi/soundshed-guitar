@@ -2,6 +2,7 @@
  * UiClientPresetHandlers.cpp - The full state, the active preset and the preset library.
  */
 
+#include "uiclient/Automation.h"
 #include "uiclient/UiClient.h"
 #include "uiclient/UiClientParsing.h"
 
@@ -26,6 +27,31 @@ std::string NormalizeTheme(const std::string& theme)
     return "dark";
 }
 
+} // namespace
+
+const CompositePreset* LoadedComposite(const MixerState& mixer)
+{
+    if (mixer.loadedCompositeId.empty())
+    {
+        return nullptr;
+    }
+    for (const auto& preset : mixer.compositePresets)
+    {
+        if (preset.id != mixer.loadedCompositeId)
+        {
+            continue;
+        }
+        auto saved = preset.presetIds;
+        auto now = mixer.activePresetIds;
+        std::sort(saved.begin(), saved.end());
+        std::sort(now.begin(), now.end());
+        return saved == now ? &preset : nullptr;
+    }
+    return nullptr;
+}
+
+namespace
+{
 void ApplyMixer(ClientState& state, const nlohmann::json& mixer)
 {
     state.mixer.masterGain = mixer.value("masterGain", 1.0);
@@ -33,12 +59,23 @@ void ApplyMixer(ClientState& state, const nlohmann::json& mixer)
     state.mixer.limiterEnabled = mixer.value("limiterEnabled", false);
     state.mixer.activePresetIds = parse::StringArray(mixer, "activePresetIds");
     state.mixer.presetNames.clear();
+    state.mixer.slots.clear();
 
     if (mixer.contains("presets") && mixer["presets"].is_object())
     {
         for (const auto& [id, config] : mixer["presets"].items())
         {
             state.mixer.presetNames[id] = config.is_object() ? config.value("name", id) : id;
+            MixerSlot slot;
+            slot.name = state.mixer.presetNames[id];
+            if (config.is_object())
+            {
+                slot.mix = config.value("mix", 1.0);
+                slot.pan = config.value("pan", 0.0);
+                slot.mute = config.value("mute", false);
+                slot.solo = config.value("solo", false);
+            }
+            state.mixer.slots[id] = slot;
         }
     }
 }
@@ -205,6 +242,14 @@ void UiClient::RegisterPresetHandlers()
             s.uiSettings = m.value("uiSettings", nlohmann::json::object());
             s.uiViewState = m.value("uiViewState", nlohmann::json::object());
 
+            // The automation slots, as they stand after an edit elsewhere (the registry comes
+            // with getAutomation's answer).
+            if (m.contains("automation") && m["automation"].is_array())
+            {
+                s.automation.slots = ParseAutomationSlots(m["automation"]);
+                Notify(Topic::Automation);
+            }
+
             // The blends a blend node can name: their name, mode and how many models they hold.
             s.blends.clear();
             if (m.contains("blendLibrary") && m["blendLibrary"].is_array())
@@ -295,6 +340,44 @@ void UiClient::RegisterPresetHandlers()
 
         Notify(Topic::ActivePreset);
     });
+
+    // ── Multi-Rigs ──────────────────────────────────────────────────────────
+    On("compositePresetList", [this](const nlohmann::json& m) {
+        auto& list = mState.mixer.compositePresets;
+        list.clear();
+        for (const auto& entry : m.value("compositePresets", nlohmann::json::array()))
+        {
+            if (!entry.is_object())
+            {
+                continue;
+            }
+            CompositePreset preset;
+            preset.id = entry.value("id", std::string());
+            preset.name = entry.value("name", preset.id);
+            preset.description = entry.value("description", std::string());
+            preset.tags = parse::StringArray(entry, "tags");
+            preset.mixGainDb = entry.value("mixGainDb", 0.0);
+            for (const auto& slot : entry.value("slots", nlohmann::json::array()))
+            {
+                if (slot.is_object())
+                {
+                    preset.presetIds.push_back(slot.value("presetId", std::string()));
+                }
+            }
+            list.push_back(std::move(preset));
+        }
+        mState.mixer.compositePresetsKnown = true;
+        Notify(Topic::Mixer);
+    });
+
+    const auto noteComposite = [this](const nlohmann::json& m) {
+        mState.mixer.loadedCompositeId = m.value("id", std::string());
+        // A save or load changes the list's entry; ask for it again.
+        Send("getCompositePresetList");
+        Notify(Topic::Mixer);
+    };
+    On("compositePresetSaved", noteComposite);
+    On("compositePresetLoaded", noteComposite);
 
     On("presetDirtyChanged", [this](const nlohmann::json& m) {
         mState.activePresetDirty = m.value("dirty", false);
@@ -496,9 +579,16 @@ void UiClient::RegisterPresetHandlers()
             Send("getSetlists");
         }
 
-        if (touches("resourceLibrary") || touches("appSettings"))
+        // The full state carries the settings, the library's revision, the blends and the custom
+        // effects, so one request catches all of them up.
+        if (touches("resourceLibrary") || touches("appSettings") || touches("blends") || touches("customEffects"))
         {
             Send("requestState");
+        }
+
+        if (touches("composites"))
+        {
+            Send("getCompositePresetList");
         }
     });
 }

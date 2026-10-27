@@ -12,12 +12,14 @@ export function onAutomation(payload: IncomingPayload): void {
     registry?: AutomationRegistryEntry[];
     maxCustomSlots?: number;
     maxPresetSlots?: number;
+    keyLearnSlotId?: string;
   };
   applyAutomationState({
     slots: autoPayload.slots ?? [],
     registry: autoPayload.registry ?? [],
     maxCustomSlots: autoPayload.maxCustomSlots ?? 16,
     ...(typeof autoPayload.maxPresetSlots === "number" ? { maxPresetSlots: autoPayload.maxPresetSlots } : {}),
+    ...(typeof autoPayload.keyLearnSlotId === "string" ? { keyLearnSlotId: autoPayload.keyLearnSlotId } : {}),
   });
 }
 

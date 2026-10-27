@@ -4,133 +4,154 @@
  * the amp models expect. The code, settings keys and messages keep the older
  * "calibration" name, so saved profiles carry over.
  *
- * A profile is trained in a modal that watches the live input peak; the toolbar
- * menu is the same data in a smaller form, so both render from the same read of
- * the stored profiles.
+ * The engine owns all of it (PluginControllerInputLevelling.cpp): the stored profiles, the
+ * training that follows the raw input's peak, and the trim maths. This module draws what the
+ * engine reports ("inputLevelling", "inputLevellingTraining", "inputLevellingSaved") and sends
+ * the user's choices back as commands. The toolbar menu and the settings select render from
+ * the same profile list.
  */
 
 import { postMessage } from "../bridge.js";
-import { updateAppSetting } from "../appSettingsStore.js";
 import { showConfirm } from "../dialogs.js";
 import { Features, isFeatureEnabled } from "../featureFlags.js";
+import type { IncomingPayload } from "../messages/types.js";
 import { showNotification } from "../notifications.js";
 import { uiState } from "../state.js";
-import type { AppSettingValue, UserInputCalibrationProfile } from "../types.js";
+import type { UserInputCalibrationProfile } from "../types.js";
 import { renderPickupMatchTab } from "../pickupMatchGlobal.js";
 import { userInputCalibrationCancelButton, userInputCalibrationCapturedPeak, userInputCalibrationCloseButton, userInputCalibrationDeleteButton, userInputCalibrationDescriptionInput, userInputCalibrationLivePeak, userInputCalibrationModal, userInputCalibrationNameInput, userInputCalibrationProfileSelect, userInputCalibrationRecommendedTrim, userInputCalibrationResetButton, userInputCalibrationSaveButton, userInputCalibrationStatus, userInputCalibrationSummary, userInputCalibrationToolbarMenu, userInputCalibrationToolbarTrigger, userInputCalibrationTrainButton } from "./dom.js";
-import { USER_INPUT_CALIBRATION_ACTIVE_PROFILE_SETTING, USER_INPUT_CALIBRATION_NONE_VALUE, USER_INPUT_CALIBRATION_PROFILES_SETTING, USER_INPUT_CALIBRATION_TARGET_PEAK_DBFS } from "./keys.js";
-import { getSettingValue } from "./values.js";
+import { USER_INPUT_CALIBRATION_NONE_VALUE, USER_INPUT_CALIBRATION_TARGET_PEAK_DBFS } from "./keys.js";
 
 let userInputCalibrationControlsInitialized = false;
 
-let userInputCalibrationTrainingPeakDbfs = Number.NEGATIVE_INFINITY;
+/** The engine's "inputLevelling": the profiles, the active one and whether training runs. */
+interface LevellingState {
+  profiles: UserInputCalibrationProfile[];
+  activeId: string | null;
+  trainingActive: boolean;
+  targetPeakDbfs: number;
+}
 
-let userInputCalibrationLivePeakDbfs = Number.NEGATIVE_INFINITY;
+/** The engine's "inputLevellingTraining", in dBFS (NaN for no level yet). */
+interface TrainingStatus {
+  active: boolean;
+  livePeakDbfs: number;
+  capturedPeakDbfs: number;
+  recommendedTrimDb: number;
+  clipped: boolean;
+}
 
-let userInputCalibrationTrainingBypassActive = false;
+let levelling: LevellingState = {
+  profiles: [],
+  activeId: null,
+  trainingActive: false,
+  targetPeakDbfs: USER_INPUT_CALIBRATION_TARGET_PEAK_DBFS,
+};
+
+const IDLE_TRAINING: TrainingStatus = {
+  active: false,
+  livePeakDbfs: Number.NaN,
+  capturedPeakDbfs: Number.NaN,
+  recommendedTrimDb: Number.NaN,
+  clipped: false,
+};
+
+let training: TrainingStatus = { ...IDLE_TRAINING };
+
+function numberOrNaN(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : Number.NaN;
+}
+
+function stringOrEmpty(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function readProfile(entry: unknown): UserInputCalibrationProfile | null {
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+    return null;
+  }
+  const candidate = entry as Record<string, unknown>;
+  const id = stringOrEmpty(candidate.id);
+  if (!id) {
+    return null;
+  }
+  return {
+    id,
+    name: stringOrEmpty(candidate.name),
+    description: stringOrEmpty(candidate.description),
+    capturedPeakDbfs: numberOrNaN(candidate.capturedPeakDbfs),
+    targetPeakDbfs: numberOrNaN(candidate.targetPeakDbfs),
+    gainDb: numberOrNaN(candidate.gainDb),
+    createdAt: typeof candidate.createdAt === "string" ? candidate.createdAt : undefined,
+    updatedAt: typeof candidate.updatedAt === "string" ? candidate.updatedAt : undefined,
+  };
+}
+
+/** "inputLevelling": sent for getInputLevelling and after every change, whoever made it. */
+export function onInputLevelling(payload: IncomingPayload): void {
+  const message = payload as { profiles?: unknown; activeId?: unknown; trainingActive?: unknown; targetPeakDbfs?: unknown };
+  const profiles = Array.isArray(message.profiles)
+    ? message.profiles.map(readProfile).filter((profile): profile is UserInputCalibrationProfile => profile !== null)
+    : [];
+  const target = numberOrNaN(message.targetPeakDbfs);
+  levelling = {
+    profiles,
+    activeId: typeof message.activeId === "string" && message.activeId ? message.activeId : null,
+    trainingActive: message.trainingActive === true,
+    targetPeakDbfs: Number.isFinite(target) ? target : USER_INPUT_CALIBRATION_TARGET_PEAK_DBFS,
+  };
+  refreshUserInputCalibrationView();
+}
+
+/** "inputLevellingTraining": ~15 Hz while a profile is trained, and once when it stops. */
+export function onInputLevellingTraining(payload: IncomingPayload): void {
+  const message = payload as Record<string, unknown>;
+  training = {
+    active: message.active === true,
+    livePeakDbfs: numberOrNaN(message.livePeakDbfs),
+    capturedPeakDbfs: numberOrNaN(message.capturedPeakDbfs),
+    recommendedTrimDb: numberOrNaN(message.recommendedTrimDb),
+    clipped: message.clipped === true,
+  };
+  if (levelling.trainingActive !== training.active) {
+    levelling = { ...levelling, trainingActive: training.active };
+    refreshUserInputCalibrationView();
+    return;
+  }
+  if (isUserInputCalibrationModalOpen()) {
+    refreshUserInputCalibrationTrainingView();
+  }
+}
+
+/** "inputLevellingSaved": the save's outcome. A saved profile ends the training and the dialog. */
+export function onInputLevellingSaved(payload: IncomingPayload): void {
+  const message = payload as { ok?: unknown; message?: unknown; profile?: unknown };
+  if (message.ok !== true) {
+    showNotification("Input levelling profile not saved", stringOrEmpty(message.message));
+    return;
+  }
+  const profile = readProfile(message.profile);
+  closeUserInputCalibrationTrainingModal();
+  if (profile) {
+    showNotification("Input levelling profile saved", `${profile.name} • ${formatSignedDbValue(profile.gainDb)}`);
+  }
+}
 
 export function readUserInputCalibrationProfiles(): UserInputCalibrationProfile[] {
-  const raw = getSettingValue(USER_INPUT_CALIBRATION_PROFILES_SETTING);
-  if (!Array.isArray(raw)) {
-    return [];
-  }
-
-  return raw.flatMap((entry) => {
-    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
-      return [];
-    }
-
-    const candidate = entry as Record<string, unknown>;
-    const id = typeof candidate.id === "string" ? candidate.id.trim() : "";
-    const name = typeof candidate.name === "string" ? candidate.name.trim() : "";
-    if (!id || !name) {
-      return [];
-    }
-
-    const capturedPeakDbfs = Number(candidate.capturedPeakDbfs);
-    const targetPeakDbfsRaw = Number(candidate.targetPeakDbfs);
-    const targetPeakDbfs = Number.isFinite(targetPeakDbfsRaw)
-      ? targetPeakDbfsRaw
-      : USER_INPUT_CALIBRATION_TARGET_PEAK_DBFS;
-    const gainDbRaw = Number(candidate.gainDb);
-    const gainDb = Number.isFinite(gainDbRaw)
-      ? gainDbRaw
-      : (Number.isFinite(capturedPeakDbfs) ? targetPeakDbfs - capturedPeakDbfs : 0.0);
-
-    return [{
-      id,
-      name,
-      description: typeof candidate.description === "string" ? candidate.description : "",
-      capturedPeakDbfs: Number.isFinite(capturedPeakDbfs) ? capturedPeakDbfs : Number.NaN,
-      targetPeakDbfs,
-      gainDb: Math.max(-24.0, Math.min(24.0, gainDb)),
-      createdAt: typeof candidate.createdAt === "string" ? candidate.createdAt : undefined,
-      updatedAt: typeof candidate.updatedAt === "string" ? candidate.updatedAt : undefined,
-    } satisfies UserInputCalibrationProfile];
-  });
+  return levelling.profiles;
 }
 
 export function readActiveUserInputCalibrationProfileId(): string | null {
-  const raw = getSettingValue(USER_INPUT_CALIBRATION_ACTIVE_PROFILE_SETTING);
-  if (typeof raw !== "string") {
-    return null;
-  }
-  const trimmed = raw.trim();
-  return trimmed ? trimmed : null;
+  return levelling.activeId;
 }
 
 export function getActiveUserInputCalibrationProfile(): UserInputCalibrationProfile | null {
-  const profiles = readUserInputCalibrationProfiles();
   const activeProfileId = readActiveUserInputCalibrationProfileId();
-  if (!activeProfileId) {
-    return null;
-  }
-  return profiles.find((profile) => profile.id === activeProfileId) ?? null;
-}
-
-export function serializeUserInputCalibrationProfiles(profiles: UserInputCalibrationProfile[]): AppSettingValue {
-  return profiles.map((profile) => {
-    const payload: Record<string, AppSettingValue> = {
-      id: profile.id,
-      name: profile.name,
-      description: profile.description,
-      capturedPeakDbfs: profile.capturedPeakDbfs,
-      targetPeakDbfs: profile.targetPeakDbfs,
-      gainDb: profile.gainDb,
-    };
-    if (profile.createdAt) {
-      payload.createdAt = profile.createdAt;
-    }
-    if (profile.updatedAt) {
-      payload.updatedAt = profile.updatedAt;
-    }
-    return payload;
-  });
-}
-
-export function persistUserInputCalibrationState(profiles: UserInputCalibrationProfile[], activeProfileId: string | null): void {
-  const serializedProfiles = serializeUserInputCalibrationProfiles(profiles);
-  updateAppSetting(USER_INPUT_CALIBRATION_PROFILES_SETTING, serializedProfiles);
-  updateAppSetting(USER_INPUT_CALIBRATION_ACTIVE_PROFILE_SETTING, activeProfileId);
-  refreshUserInputCalibrationView();
-}
-
-export function setUserInputCalibrationTrainingBypassActive(active: boolean): void {
-  if (userInputCalibrationTrainingBypassActive === active) {
-    return;
-  }
-
-  userInputCalibrationTrainingBypassActive = active;
-  postMessage({ type: "setUserInputCalibrationTrainingActive", active });
-  refreshUserInputCalibrationView();
+  return activeProfileId ? levelling.profiles.find((profile) => profile.id === activeProfileId) ?? null : null;
 }
 
 export function readDisplayedUserInputCalibrationProfileId(): string | null {
-  if (userInputCalibrationTrainingBypassActive) {
-    return null;
-  }
-
-  return readActiveUserInputCalibrationProfileId();
+  return levelling.trainingActive ? null : readActiveUserInputCalibrationProfileId();
 }
 
 export function formatDbfsValue(value: number): string {
@@ -223,22 +244,17 @@ export function toggleUserInputCalibrationToolbarMenu(): void {
 
 export function refreshUserInputCalibrationTrainingView(): void {
   if (userInputCalibrationLivePeak) {
-    userInputCalibrationLivePeak.textContent = formatDbfsValue(userInputCalibrationLivePeakDbfs);
+    userInputCalibrationLivePeak.textContent = formatDbfsValue(training.livePeakDbfs);
   }
   if (userInputCalibrationCapturedPeak) {
-    userInputCalibrationCapturedPeak.textContent = formatDbfsValue(userInputCalibrationTrainingPeakDbfs);
+    userInputCalibrationCapturedPeak.textContent = formatDbfsValue(training.capturedPeakDbfs);
   }
-
-  const recommendedTrimDb = Number.isFinite(userInputCalibrationTrainingPeakDbfs)
-    ? Math.max(-24.0, Math.min(24.0, USER_INPUT_CALIBRATION_TARGET_PEAK_DBFS - userInputCalibrationTrainingPeakDbfs))
-    : Number.NaN;
   if (userInputCalibrationRecommendedTrim) {
-    userInputCalibrationRecommendedTrim.textContent = formatSignedDbValue(recommendedTrimDb);
+    userInputCalibrationRecommendedTrim.textContent = formatSignedDbValue(training.recommendedTrimDb);
   }
 
-  const rawInputClipped = Boolean(uiState.signalDiagnostics?.rawInput?.clipped);
   const trimmedName = userInputCalibrationNameInput?.value.trim() ?? "";
-  const canSave = trimmedName.length > 0 && Number.isFinite(userInputCalibrationTrainingPeakDbfs) && !rawInputClipped;
+  const canSave = trimmedName.length > 0 && training.active && Number.isFinite(training.capturedPeakDbfs) && !training.clipped;
 
   if (userInputCalibrationSaveButton) {
     userInputCalibrationSaveButton.disabled = !canSave;
@@ -248,23 +264,20 @@ export function refreshUserInputCalibrationTrainingView(): void {
     return;
   }
 
-  if (rawInputClipped) {
+  if (training.clipped) {
     userInputCalibrationStatus.textContent = "Input clipped during training. Back the interface gain down and capture again.";
     return;
   }
-  if (!Number.isFinite(userInputCalibrationTrainingPeakDbfs)) {
+  if (!Number.isFinite(training.capturedPeakDbfs)) {
     userInputCalibrationStatus.textContent = "Play your loudest picking or strumming to capture a training peak.";
     return;
   }
-  userInputCalibrationStatus.textContent = `Captured ${formatDbfsValue(userInputCalibrationTrainingPeakDbfs)}. Saving this profile will apply ${formatSignedDbValue(recommendedTrimDb)} toward a ${formatDbfsValue(USER_INPUT_CALIBRATION_TARGET_PEAK_DBFS)} target.`;
+  userInputCalibrationStatus.textContent = `Captured ${formatDbfsValue(training.capturedPeakDbfs)}. Saving this profile will apply ${formatSignedDbValue(training.recommendedTrimDb)} toward a ${formatDbfsValue(levelling.targetPeakDbfs)} target.`;
 }
 
+/** Forgets the captured peak and any clip, to capture again. */
 export function resetUserInputCalibrationTrainingPeak(): void {
-  userInputCalibrationLivePeakDbfs = getCurrentRawInputPeakDbfs();
-  userInputCalibrationTrainingPeakDbfs = Number.isFinite(userInputCalibrationLivePeakDbfs)
-    ? userInputCalibrationLivePeakDbfs
-    : Number.NEGATIVE_INFINITY;
-  refreshUserInputCalibrationTrainingView();
+  postMessage({ type: "resetInputLevellingTraining" });
 }
 
 export function openUserInputCalibrationTrainingModal(): void {
@@ -273,24 +286,24 @@ export function openUserInputCalibrationTrainingModal(): void {
   }
 
   closeUserInputCalibrationToolbarMenu();
-  setUserInputCalibrationTrainingBypassActive(true);
+  // The engine bypasses the active trim and listens to the raw input until it is stopped or saved.
+  postMessage({ type: "startInputLevellingTraining" });
   if (userInputCalibrationNameInput) userInputCalibrationNameInput.value = "";
   if (userInputCalibrationDescriptionInput) userInputCalibrationDescriptionInput.value = "";
-  userInputCalibrationLivePeakDbfs = Number.NEGATIVE_INFINITY;
-  userInputCalibrationTrainingPeakDbfs = Number.NEGATIVE_INFINITY;
+  training = { ...IDLE_TRAINING, active: true };
   userInputCalibrationModal.style.display = "flex";
   refreshUserInputCalibrationTrainingView();
   userInputCalibrationNameInput?.focus();
 }
 
 export function closeUserInputCalibrationTrainingModal(): void {
-  if (!userInputCalibrationModal) {
+  if (!userInputCalibrationModal || !isUserInputCalibrationModalOpen()) {
     return;
   }
   userInputCalibrationModal.style.display = "none";
-  userInputCalibrationLivePeakDbfs = Number.NEGATIVE_INFINITY;
-  userInputCalibrationTrainingPeakDbfs = Number.NEGATIVE_INFINITY;
-  setUserInputCalibrationTrainingBypassActive(false);
+  training = { ...IDLE_TRAINING };
+  // After a save the engine has already stopped; stopping again changes nothing.
+  postMessage({ type: "stopInputLevellingTraining" });
 }
 
 export async function deleteActiveUserInputCalibrationProfile(): Promise<void> {
@@ -303,8 +316,7 @@ export async function deleteActiveUserInputCalibrationProfile(): Promise<void> {
 }
 
 export async function deleteUserInputCalibrationProfile(profileId: string): Promise<void> {
-  const profiles = readUserInputCalibrationProfiles();
-  const profile = profiles.find((entry) => entry.id === profileId) ?? null;
+  const profile = levelling.profiles.find((entry) => entry.id === profileId) ?? null;
   if (!profile) {
     return;
   }
@@ -317,12 +329,11 @@ export async function deleteUserInputCalibrationProfile(profileId: string): Prom
     return;
   }
 
-  const activeProfileId = readActiveUserInputCalibrationProfileId();
-  const remainingProfiles = profiles.filter((entry) => entry.id !== profile.id);
-  persistUserInputCalibrationState(remainingProfiles, activeProfileId === profile.id ? null : activeProfileId);
+  postMessage({ type: "deleteInputLevellingProfile", id: profile.id });
   showNotification("Input levelling profile deleted", profile.name);
 }
 
+/** Saves the peak the engine captured as a new, active profile; "inputLevellingSaved" answers. */
 export function saveUserInputCalibrationProfile(): void {
   const name = userInputCalibrationNameInput?.value.trim() ?? "";
   if (!name) {
@@ -330,38 +341,17 @@ export function saveUserInputCalibrationProfile(): void {
     return;
   }
 
-  if (!Number.isFinite(userInputCalibrationTrainingPeakDbfs)) {
-    showNotification("No training level captured", "Play your guitar first.");
-    return;
-  }
-
-  if (uiState.signalDiagnostics?.rawInput?.clipped) {
-    showNotification("Input clipped during training", "Reduce interface gain and capture again.");
-    return;
-  }
-
-  const gainDb = Math.max(-24.0, Math.min(24.0, USER_INPUT_CALIBRATION_TARGET_PEAK_DBFS - userInputCalibrationTrainingPeakDbfs));
-  const timestamp = new Date().toISOString();
-  const profile: UserInputCalibrationProfile = {
-    id: globalThis.crypto?.randomUUID?.() ?? `input-cal-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  postMessage({
+    type: "saveInputLevellingProfile",
     name,
     description: userInputCalibrationDescriptionInput?.value.trim() ?? "",
-    capturedPeakDbfs: userInputCalibrationTrainingPeakDbfs,
-    targetPeakDbfs: USER_INPUT_CALIBRATION_TARGET_PEAK_DBFS,
-    gainDb,
-    createdAt: timestamp,
-    updatedAt: timestamp,
-  };
-
-  const profiles = readUserInputCalibrationProfiles();
-  profiles.push(profile);
-  persistUserInputCalibrationState(profiles, profile.id);
-  closeUserInputCalibrationTrainingModal();
-  showNotification("Input levelling profile saved", `${profile.name} • ${formatSignedDbValue(profile.gainDb)}`);
+  });
 }
 
 export function applyUserInputCalibrationProfileSelection(activeProfileId: string | null): void {
-  updateAppSetting(USER_INPUT_CALIBRATION_ACTIVE_PROFILE_SETTING, activeProfileId);
+  // Drawn at once; the engine's "inputLevelling" stands.
+  levelling = { ...levelling, activeId: activeProfileId };
+  postMessage({ type: "selectInputLevellingProfile", id: activeProfileId });
   refreshUserInputCalibrationView();
 }
 
@@ -460,7 +450,7 @@ export function renderUserInputCalibrationToolbarMenu(profiles: UserInputCalibra
 
   const subtitle = document.createElement("span");
   subtitle.className = "input-calibration-toolbar-menu-subtitle";
-  subtitle.textContent = userInputCalibrationTrainingBypassActive
+  subtitle.textContent = levelling.trainingActive
     ? "Training bypass active"
     : (activeProfile ? `${activeProfile.name} active` : "No active levelling");
   header.appendChild(subtitle);
@@ -647,7 +637,7 @@ export function refreshUserInputCalibrationView(): void {
 
   if (userInputCalibrationSummary) {
     const currentPeakDbfs = getCurrentRawInputPeakDbfs();
-    if (userInputCalibrationTrainingBypassActive) {
+    if (levelling.trainingActive) {
       userInputCalibrationSummary.textContent = persistedActiveProfile
         ? `${persistedActiveProfile.name} temporarily bypassed while training a new input level profile.`
         : "Input levelling temporarily bypassed while training a new profile.";
@@ -676,6 +666,8 @@ export function initUserInputCalibrationControls(): void {
   }
 
   userInputCalibrationControlsInitialized = true;
+  // The profiles are the engine's; it answers with "inputLevelling" and sends it again on every change.
+  postMessage({ type: "getInputLevelling" });
   userInputCalibrationProfileSelect?.addEventListener("change", handleUserInputCalibrationProfileSelection);
   userInputCalibrationTrainButton?.addEventListener("click", openUserInputCalibrationTrainingModal);
   userInputCalibrationDeleteButton?.addEventListener("click", () => void deleteActiveUserInputCalibrationProfile());
@@ -739,19 +731,4 @@ export function initUserInputCalibrationControls(): void {
     }
   });
   refreshUserInputCalibrationView();
-}
-
-export function handleUserInputCalibrationDiagnosticsUpdate(): void {
-  userInputCalibrationLivePeakDbfs = getCurrentRawInputPeakDbfs();
-  if (!isUserInputCalibrationModalOpen()) {
-    return;
-  }
-
-  if (Number.isFinite(userInputCalibrationLivePeakDbfs)
-      && (!Number.isFinite(userInputCalibrationTrainingPeakDbfs)
-        || userInputCalibrationLivePeakDbfs > userInputCalibrationTrainingPeakDbfs)) {
-    userInputCalibrationTrainingPeakDbfs = userInputCalibrationLivePeakDbfs;
-  }
-
-  refreshUserInputCalibrationTrainingView();
 }

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <vector>
+
 /**
  * FeatureFlags.h - The features a user can switch off (or on) in Settings > Features.
  *
@@ -37,6 +39,11 @@ enum class Feature
     EffectsPerformancePads,
     Looper
 };
+
+/// Every feature, in the web UI's Settings > Features order (featureFlags.ts).
+[[nodiscard]] const std::vector<Feature>& AllFeatures();
+/// Its name in Settings, as the web UI's.
+[[nodiscard]] const char* FeatureLabel(Feature feature);
 
 /// The app setting's key, "features.<key>.enabled".
 [[nodiscard]] const char* FeatureSettingKey(Feature feature);

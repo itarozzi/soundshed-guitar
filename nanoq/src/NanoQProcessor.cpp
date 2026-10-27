@@ -115,11 +115,18 @@ void NanoQProcessor::process(in_channels const& in, out_channels const& out)
     if (outPtrs[0] == nullptr || inPtrs[0] == nullptr)
         return;
 
+    // The standalone's device controls: the input meter and mute, then the test tone over the
+    // output. Nothing in a plugin build, where no device backend is linked.
+    auto& devices = mCtl.engine().Devices();
+    devices.ProcessInput(inPtrs, static_cast<int>(std::min<std::size_t>(2, inputs)), frames);
+
     if (!mCtl.engine().Controller().ProcessAudio(inPtrs, outPtrs, frames))
     {
         // The controller could not take the DSP lock for this block: silence, as in the JUCE adapter.
         for (std::size_t ch = 0; ch < 2 && ch < outputs; ++ch)
             std::memset(outPtrs[ch], 0, sizeof(float) * static_cast<std::size_t>(frames));
     }
+
+    devices.ProcessOutput(outPtrs, static_cast<int>(std::min<std::size_t>(2, outputs)), frames, static_cast<double>(sps()));
 }
 } // namespace nanoq

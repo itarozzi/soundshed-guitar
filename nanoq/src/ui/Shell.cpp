@@ -75,7 +75,13 @@ void Shell::Subscribe()
     on(Topic::Resources, kChain | kPage);
     on(Topic::Tones, kPage);
     on(Topic::GlobalChain, kTransport);
-    on(Topic::Mixer, kTransport);
+    on(Topic::Mixer, kTransport | kScenes | kChain);
+    // The mixer's knobs follow the mirrored levels; the Presets page lists the saved Multi-Rigs.
+    mSubscriptions.push_back(client.Subscribe(Topic::Mixer, [this] {
+        SyncMixerKnobs();
+        if (mShowMultiRigs && mPage == Page::Presets)
+            Mark(kPage);
+    }));
     on(Topic::Demo, kTransport);
     // Gate Learn's progress and result.
     mSubscriptions.push_back(client.Subscribe(Topic::Analysis, [this] {
@@ -84,6 +90,9 @@ void Shell::Subscribe()
         if (!mSpatialPanner.expired() || !mAnalyzerPanel.expired())
             SyncLiveSection();
     }));
+
+    // MIDI and key learns, the slots and the MIDI Log (Automation.cpp).
+    mSubscriptions.push_back(client.Subscribe(Topic::Automation, [this] { SyncAutomation(); }));
 
     // Every change the engine reports to the preset may be an edit for the chain's history.
     mSubscriptions.push_back(client.Subscribe(Topic::ActivePreset, [this] {
@@ -373,6 +382,9 @@ void Shell::OnTick()
     SyncIrExport();
     SyncDspStatus();
     SyncSignalFlow();
+    SyncUpdateCheck();
+    SyncDevicePage();
+    SyncTonePreview();
 }
 
 // ── Selection and pages ─────────────────────────────────────────────────────────
@@ -463,7 +475,7 @@ std::string Shell::SceneSignature() const
     if (!mState.activePreset)
         return {};
 
-    std::string s = mState.activeSceneId;
+    std::string s = mState.activeSceneId + "|" + MixerSignature();
     for (const auto& scene : mState.activePreset->scenes)
         s += "|" + scene.id + ":" + scene.title;
     return s;

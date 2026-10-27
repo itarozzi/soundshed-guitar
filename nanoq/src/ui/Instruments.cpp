@@ -3,6 +3,8 @@
 
 #include "ui/Shell.h"
 
+#include "uiclient/Metronome.h"
+
 #include "uiclient/Instruments.h"
 
 #include <elements/support/text_utils.hpp>
@@ -184,6 +186,21 @@ char NextLevel(char level)
     }
 }
 
+/// "C", "L40", "R25": the metronome's pan as the web UI writes it.
+std::string PanText(double pan)
+{
+    if (std::abs(pan) < 0.01)
+        return "C";
+    const int percent = static_cast<int>(std::lround(std::abs(pan) * 100.0));
+    return std::string(pan < 0.0 ? "L" : "R") + std::to_string(percent);
+}
+
+/// What the beat row is built for: a new meter or grouping needs a new row.
+std::string BarShape(const guitarfx::uiclient::MetronomeState& m)
+{
+    return std::to_string(m.beatPattern.size()) + "|" + m.grouping + "|" + std::to_string(m.timeSigDen);
+}
+
 constexpr double kMinBpm = 30.0;
 constexpr double kMaxBpm = 300.0;
 constexpr double kMinVolumeDb = -60.0;
@@ -222,17 +239,24 @@ void Shell::OpenMetronome()
         commands.SetMetronomeEnabled(!mState.metronome.enabled);
     }, Button::Style::Primary);
 
+    // The web UI's meter picker: simple meters, then compound ones and the odd meters' groupings.
     auto meter = std::make_shared<Button>(mTheme, "4/4", [this] {
-        const std::pair<int, int> meters[] = {{2, 4}, {3, 4}, {4, 4}, {5, 4}, {6, 4}, {7, 4},
-                                              {3, 8}, {5, 8}, {6, 8}, {7, 8}, {9, 8}, {12, 8}};
         std::vector<MenuItem> items;
-        for (const auto& [num, den] : meters)
-            items.push_back({std::to_string(num) + "/" + std::to_string(den),
-                             mState.metronome.timeSigNum == num && mState.metronome.timeSigDen == den, false,
-                             [this, num = num, den = den] {
-                                 mSession.Commands().SetMetronomeTimeSignature(num, den);
+        bool compound = false;
+        for (const auto& option : guitarfx::uiclient::TimeSignatures())
+        {
+            if (option.compound && !compound)
+            {
+                compound = true;
+                items.push_back({"Compound and odd", false, true, {}});
+            }
+            const auto& s = mState.metronome;
+            items.push_back({option.label, s.timeSigNum == option.num && s.timeSigDen == option.den && s.grouping == option.grouping, false,
+                             [this, option] {
+                                 mSession.Commands().SetMetronomeTimeSignature(option.num, option.den, option.grouping);
                                  OpenMetronome();
                              }});
+        }
         OpenMenu("Time signature", std::move(items));
     }, Button::Style::Plain);
     auto subdivision = std::make_shared<Button>(mTheme, "Subdivision", [this] {
@@ -258,12 +282,19 @@ void Shell::OpenMetronome()
     volume->onChange = [&commands](double v) {
         commands.SetMetronomeVolume(std::round((kMinVolumeDb + v * (kMaxVolumeDb - kMinVolumeDb)) * 2.0) / 2.0);
     };
+    auto pan = std::make_shared<ParamSlider>(mTheme, "Pan");
+    pan->onChange = [&commands](double v) { commands.SetMetronomePan(std::round((v * 2.0 - 1.0) * 100.0) / 100.0); };
 
-    // One button per beat: a tap steps its accent through accent, medium, normal and silent.
+    // One button per beat: a tap steps its accent through accent, medium, normal and silent. A gap
+    // marks where each of the bar's groups starts (an odd meter's 2+2+3, a compound meter's threes).
     auto beats = std::make_shared<std::vector<std::shared_ptr<Button>>>();
     std::vector<Ptr> beatRow;
+    const auto heads = guitarfx::uiclient::GroupHeads(m.timeSigNum, m.timeSigDen, m.grouping);
+    const float beatWidth = m.beatPattern.size() > 8 ? 30.0f : 48.0f;
     for (std::size_t i = 0; i < m.beatPattern.size(); ++i)
     {
+        if (i > 0 && i < heads.size() && heads[i])
+            beatRow.push_back(HGap(10));
         auto beat = std::make_shared<Button>(mTheme, std::to_string(i + 1), [this, i] {
             auto next = mState.metronome.beatPattern;
             if (i < next.size())
@@ -272,22 +303,23 @@ void Shell::OpenMetronome()
                 mSession.Commands().SetMetronomeBeatPattern(next);
             }
         }, Button::Style::Plain);
-        beat->MinWidth(48);
+        beat->MinWidth(beatWidth);
         beats->push_back(beat);
         beatRow.push_back(beat);
         beatRow.push_back(HGap(4));
     }
     beatRow.push_back(Stretch());
 
-    auto sync = [this, bpmText, bpmSlider, volume, startStop, meter, subdivision, click, slower, faster, tap, beats] {
+    auto sync = [this, bpmText, bpmSlider, volume, pan, startStop, meter, subdivision, click, slower, faster, tap, beats] {
         const auto& s = mState.metronome;
         char bpm[32];
         std::snprintf(bpm, sizeof(bpm), s.bpm == std::round(s.bpm) ? "%.0f" : "%.1f", s.bpm);
         bpmText->Set(bpm);
         bpmSlider->Update((s.bpm - kMinBpm) / (kMaxBpm - kMinBpm), std::string(bpm) + " BPM");
         volume->Update((s.volumeDb - kMinVolumeDb) / (kMaxVolumeDb - kMinVolumeDb), Fixed(s.volumeDb, 1) + " dB");
+        pan->Update((s.pan + 1.0) / 2.0, PanText(s.pan));
         startStop->Set(s.enabled ? "Stop" : "Start");
-        meter->Set(std::to_string(s.timeSigNum) + "/" + std::to_string(s.timeSigDen));
+        meter->Set(guitarfx::uiclient::DescribeTimeSignature(s.timeSigNum, s.timeSigDen, s.grouping));
         subdivision->Set(s.subdivision.empty() ? "Subdivision" : s.subdivision);
         std::string clickLabel = "Click";
         for (const auto& [id, label] : s.clickTypes)
@@ -305,7 +337,7 @@ void Shell::OpenMetronome()
         }
 
         auto& view = mSession.View();
-        for (const Ptr& e : std::initializer_list<Ptr>{bpmText, bpmSlider, volume, startStop, meter, subdivision, click})
+        for (const Ptr& e : std::initializer_list<Ptr>{bpmText, bpmSlider, volume, pan, startStop, meter, subdivision, click})
             view.refresh(*e);
         for (auto& b : *beats)
             view.refresh(*b);
@@ -319,13 +351,22 @@ void Shell::OpenMetronome()
                      FixedHeight(76, Row({slower, Stretch(Col({Stretch(bpmText), FixedHeight(16, bpmLabel)})), faster})),
                      bpmSlider, VGap(6), FixedHeight(44, Row({tap, HGap(8), startStop})), VGap(8),
                      FixedHeight(44, Row(beatRow)), VGap(6), FixedHeight(44, Row({meter, HGap(8), subdivision, HGap(8), click, Stretch()})),
-                     VGap(6), volume});
+                     VGap(6), volume, VGap(4), pan});
 
     const auto view = ViewSize();
     ShowOverlay(Pad(16, 14, 16, 14, page), std::min(560.0f, std::max(320.0f, view.x - 48.0f)),
-                std::min(500.0f, std::max(320.0f, view.y - 60.0f)));
+                std::min(540.0f, std::max(320.0f, view.y - 60.0f)));
 
     mInstrumentSubs.push_back(mSession.Client().Subscribe(Topic::Metronome, sync));
+    // The beat row is built for this bar: a new meter or grouping from the engine rebuilds the
+    // dialog, once the event that brought it is done.
+    mInstrumentSubs.push_back(mSession.Client().Subscribe(Topic::Metronome, [this, barShape = BarShape(m)] {
+        if (BarShape(mState.metronome) != barShape)
+            mSession.View().post([this, alive = std::weak_ptr<bool>(mAlive)] {
+                if (alive.lock())
+                    OpenMetronome();
+            });
+    }));
     mInstrumentSubs.push_back(mSession.Client().Subscribe(Topic::MetronomeBeat, sync));
     sync();
 }

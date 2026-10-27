@@ -23,9 +23,18 @@ class Pressable : public el::element
 {
 public:
     std::function<void()> onClick;
+    /// A right click (a long press on a touch screen), at a point in view coordinates: the
+    /// control's context menu, such as MIDI Learn.
+    std::function<void(el::point at)> onMenu;
 
     bool click(const el::context& ctx, el::mouse_button btn) override
     {
+        if (btn.state == el::mouse_button::right && onMenu)
+        {
+            if (btn.down)
+                onMenu(btn.pos);
+            return true;
+        }
         if (!mEnabled || btn.state != el::mouse_button::left)
             return false;
         if (btn.down)

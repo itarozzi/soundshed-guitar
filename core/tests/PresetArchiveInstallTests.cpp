@@ -5,7 +5,8 @@
  * Each test builds real zips in the web UI's archive format (preset.json or presets.json plus
  * resources/<file>), sends them to a headless controller as Soundshed Nano Q does, and
  * checks the library, the presets, the folders and the toneSharing.installedPacks entry the
- * web UI reads.
+ * web UI reads. The same archives are previewed too (previewPresetArchive,
+ * controller/PluginControllerTonePreview.cpp), which must write none of those.
  */
 
 #include <algorithm>
@@ -974,6 +975,190 @@ void TestCustomEffectModulesAreNotInstalled()
     Expect(Latest(host, "resourceImportFailed").has_value(), "the refused import is reported as failed");
 }
 
+// ── Previewing a downloaded archive (previewPresetArchive) ──────────────────────
+
+/// The node "amp_1"'s first resource in the running preset.
+const guitarfx::ResourceRef* ActiveAmp(const guitarfx::PluginController& controller)
+{
+    const auto& active = controller.GetActivePreset();
+
+    if (!active)
+    {
+        return nullptr;
+    }
+
+    for (const auto& node : active->graph.nodes)
+    {
+        if (node.id == "amp_1" && !node.resources.empty())
+        {
+            return &node.resources.front();
+        }
+    }
+
+    return nullptr;
+}
+
+/// A preview of an archive the library knows nothing of: its model is staged in temp, the preset
+/// plays under the preview's id, and the library, the presets and the installs are untouched.
+void TestArchivePreviewWritesNothing()
+{
+    TestHost host(Sandbox("preview-archive"));
+    guitarfx::PluginController controller(host);
+    controller.Initialize();
+    const auto models = LibraryCount(controller, "nam");
+    const auto zip = SinglePresetArchive(BuildPreset("shared-p", "Original", "sha-p"), "sha-p", kModelA);
+
+    host.sent.clear();
+    Send(controller, "previewPresetArchive",
+         {{"requestId", "p1"}, {"itemId", "item-9"}, {"title", "Shared Lead"}, {"data", guitarfx::util::EncodeBase64(zip)}});
+
+    const auto reply = Latest(host, "presetArchivePreviewed");
+    Expect(reply.has_value() && reply->value("requestId", "") == "p1", "a preview is answered with presetArchivePreviewed");
+
+    if (reply)
+    {
+        Expect(reply->value("presetId", "") == "preview-item-9", "it plays under the preview's id");
+        Expect(reply->value("stagedCount", 0) == 1, "the archive's model is staged");
+        Expect(reply->value("unavailable", nlohmann::json::array()).empty(), "nothing is missing");
+        Expect(reply->value("title", "") == "Shared Lead", "a one-preset archive's preset takes the title");
+    }
+
+    Expect(ActivePresetId(controller) == "preview-item-9", "the preview is the running preset");
+    const auto* amp = ActiveAmp(controller);
+    Expect(amp && fs::exists(amp->filePath) && amp->filePath.parent_path().parent_path().filename() == "tone-preview",
+           "its model plays from a staged file");
+    Expect(LibraryCount(controller, "nam") == models, "no model joins the library");
+    Expect(InstalledEntries(controller).empty(), "nothing is recorded as installed");
+    Expect(!StoredPreset(host, controller, "preview-item-9").has_value(), "no preset is saved");
+}
+
+/// An archive whose model the library already holds plays the library's copy: nothing is staged.
+void TestArchivePreviewPlaysTheLibrarysCopy()
+{
+    TestHost host(Sandbox("preview-library"));
+    guitarfx::PluginController controller(host);
+    controller.Initialize();
+    const auto zip = SinglePresetArchive(BuildPreset("shared-q", "Q", "sha-q"), "sha-q", kModelA);
+    Send(controller, "installPresetArchives",
+         {{"requestId", "i1"}, {"entry", {{"id", "tone-sharing-api:item:q"}, {"title", "Q"}}}, {"archives", {Archive(zip, "Q")}}});
+    const auto models = LibraryCount(controller, "nam");
+
+    host.sent.clear();
+    Send(controller, "previewPresetArchive", {{"itemId", "q"}, {"data", guitarfx::util::EncodeBase64(zip)}});
+
+    const auto reply = Latest(host, "presetArchivePreviewed");
+    Expect(reply.has_value() && reply->value("stagedCount", -1) == 0, "nothing is staged for a model the library has");
+    const auto* amp = ActiveAmp(controller);
+    Expect(amp && amp->resourceId != "sha-q" &&
+               controller.GetResourceLibrary().LookupResource("nam", amp->resourceId).has_value(),
+           "the node names the library's model");
+    Expect(LibraryCount(controller, "nam") == models, "and the library is unchanged");
+}
+
+/// A Tone3000 model the archive names is staged from what the UI fetched; without it, the
+/// preview still plays and the reply names what it lacks.
+void TestArchivePreviewStagesFetchedRemoteModels()
+{
+    TestHost host(Sandbox("preview-remote"));
+    guitarfx::PluginController controller(host);
+    controller.Initialize();
+    const auto models = LibraryCount(controller, "nam");
+
+    Preset preset = BuildPreset("shared-r", "Remote", "t3k-r");
+    const nlohmann::json root = {
+        {"formatVersion", 1},
+        {"preset", PresetJson(preset)},
+        {"resources", nlohmann::json::array()},
+        {"blends", nlohmann::json::array()},
+        {"remoteResources",
+         {{{"id", "t3k-r"},
+           {"type", "nam"},
+           {"name", "Borrowed Amp"},
+           {"provider", "tone3000"},
+           {"providerKey", "123:456"},
+           {"providerData", {{"toneId", "123"}, {"modelId", "456"}}}}}},
+    };
+    const auto zip = BuildZip({{"preset.json", ToBytes(root.dump())}});
+
+    host.sent.clear();
+    Send(controller, "previewPresetArchive", {{"itemId", "r"}, {"data", guitarfx::util::EncodeBase64(zip)}});
+    auto reply = Latest(host, "presetArchivePreviewed");
+    Expect(reply.has_value(), "a preview without the remote model still plays");
+
+    if (reply)
+    {
+        const auto unavailable = reply->value("unavailable", nlohmann::json::array());
+        Expect(unavailable.size() == 1 && unavailable[0] == "Borrowed Amp", "and names the model it lacks");
+        Expect(reply->value("stagedCount", -1) == 0, "nothing staged for it");
+    }
+
+    host.sent.clear();
+    Send(controller, "previewPresetArchive",
+         {{"itemId", "r"},
+          {"data", guitarfx::util::EncodeBase64(zip)},
+          {"fetchedResources",
+           {{{"resourceType", "nam"}, {"resourceId", "t3k-r"}, {"name", "Borrowed Amp"}, {"data", guitarfx::util::EncodeBase64(kModelB)}}}}});
+    reply = Latest(host, "presetArchivePreviewed");
+    Expect(reply.has_value() && reply->value("stagedCount", -1) == 1 &&
+               reply->value("unavailable", nlohmann::json::array()).empty(),
+           "the fetched model is staged");
+    const auto* amp = ActiveAmp(controller);
+    Expect(amp && amp->resourceId == "t3k-r" && fs::exists(amp->filePath), "the node plays the staged model");
+    Expect(LibraryCount(controller, "nam") == models, "the fetched model does not join the library");
+}
+
+void TestUnreadableArchivePreviewIsRefused()
+{
+    TestHost host(Sandbox("preview-bad"));
+    guitarfx::PluginController controller(host);
+    controller.Initialize();
+    const auto activeBefore = ActivePresetId(controller);
+
+    host.sent.clear();
+    Send(controller, "previewPresetArchive",
+         {{"requestId", "bad"}, {"title", "Junk"}, {"data", guitarfx::util::EncodeBase64(ToBytes("not a zip"))}});
+
+    const auto failed = Latest(host, "presetArchivePreviewFailed");
+    Expect(failed.has_value() && failed->value("requestId", "") == "bad", "an unreadable download is refused");
+    Expect(!Latest(host, "presetArchivePreviewed").has_value(), "and nothing reports a preview");
+    Expect(ActivePresetId(controller) == activeBefore, "the running preset stays");
+}
+
+/// An install records which item each preset came from, when the UI says, so a favourite or
+/// rating given to an installed pack preset can be sent to the service.
+void TestInstallRecordsEachPresetsItem()
+{
+    TestHost host(Sandbox("preset-items"));
+    guitarfx::PluginController controller(host);
+    controller.Initialize();
+    const auto first = SinglePresetArchive(BuildPreset("a", "A", "sha-a"), "sha-a", kModelA);
+    const auto second = SinglePresetArchive(BuildPreset("b", "B", "sha-b"), "sha-b", kModelB);
+    auto archiveA = Archive(first, "A");
+    archiveA["itemId"] = "item-a";
+    auto archiveB = Archive(second, "B");
+    archiveB["itemId"] = "item-b";
+
+    host.sent.clear();
+    Send(controller, "installPresetArchives",
+         {{"requestId", "pk"},
+          {"entry", {{"id", "tone-sharing-api:pack:pk"}, {"title", "Pack"}, {"packId", "pk"}}},
+          {"folder", "Pack"},
+          {"archives", {archiveA, archiveB}}});
+
+    const auto reply = Latest(host, "presetArchivesInstalled");
+    const auto entries = InstalledEntries(controller);
+    Expect(reply.has_value() && entries.size() == 1, "the pack installs");
+
+    if (reply && entries.size() == 1)
+    {
+        const auto ids = reply->value("presetIds", nlohmann::json::array());
+        const auto items = entries[0].value("presetItems", nlohmann::json::object());
+        Expect(ids.size() == 2 && items.value(ids[0].get<std::string>(), "") == "item-a" &&
+                   items.value(ids[1].get<std::string>(), "") == "item-b",
+               "each preset's item is recorded");
+    }
+}
+
 int main()
 {
     TestInstallOnePreset();
@@ -992,6 +1177,11 @@ int main()
     TestFetchedResourcesLeaveWithTheInstall();
     TestPackArchiveFoldersAreKept();
     TestDeletingAnUnknownInstallIsAnswered();
+    TestInstallRecordsEachPresetsItem();
+    TestArchivePreviewWritesNothing();
+    TestArchivePreviewPlaysTheLibrarysCopy();
+    TestArchivePreviewStagesFetchedRemoteModels();
+    TestUnreadableArchivePreviewIsRefused();
 
     if (gFailures > 0)
     {

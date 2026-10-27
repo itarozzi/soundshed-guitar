@@ -26,37 +26,6 @@ namespace
 {
 namespace artist = cycfi::artist;
 
-/// A value as the knob's number field shows it: in the parameter's own unit, with as many
-/// decimals as its step has (two without one), as the web UI's knob fills its input.
-std::string EditableValue(const EffectParamInfo& info, double value)
-{
-    int decimals = 2;
-    if (info.step > 0.0)
-    {
-        decimals = 0;
-        for (double s = info.step; decimals < 6 && std::abs(s - std::round(s)) > 1e-9; s *= 10.0)
-            ++decimals;
-    }
-    char buffer[64];
-    std::snprintf(buffer, sizeof(buffer), "%.*f", decimals, value);
-    return buffer;
-}
-
-/// The number typed into a value prompt, if it reads as one ("440", "-6.5", "1.2k").
-std::optional<double> TypedNumber(const std::string& text)
-{
-    const char* begin = text.c_str();
-    char* end = nullptr;
-    double value = std::strtod(begin, &end);
-    if (end == begin || !std::isfinite(value))
-        return std::nullopt;
-    while (*end == ' ')
-        ++end;
-    if (*end == 'k' || *end == 'K')
-        value *= 1000.0;
-    return value;
-}
-
 /// The one control the input and output nodes carry: their gain in dB, which the effect catalog
 /// does not list since they are not effects.
 EffectParamInfo BoundaryTrim()
@@ -392,9 +361,9 @@ Ptr Shell::BuildEffectPage()
                     const auto* n = SelectedNode();
                     if (n == nullptr)
                         return;
-                    OpenPrompt(info.name, EditableValue(info, NodeParamValue(*n, info)), "Set",
+                    OpenPrompt(info.name, EditableParamText(info, NodeParamValue(*n, info)), "Set",
                                [this, nodeId, info](const std::string& entered) {
-                                   const auto typed = TypedNumber(entered);
+                                   const auto typed = ParseTypedNumber(entered);
                                    if (!typed)
                                        return;
                                    mSession.Commands().SetNodeParam(nodeId, info.key, SnapParamValue(info, *typed));
@@ -405,6 +374,19 @@ Ptr Shell::BuildEffectPage()
             target.cells.emplace_back(kCellWidth, control.knob);
         }
 
+        // A right click on any of them: MIDI Learn, for whichever control it is (Automation.cpp).
+        {
+            auto menu = [this, key = info.key](el::point at) {
+                if (const auto* n = SelectedNode())
+                    OpenNodeParamMidiMenu(n->type, key, at);
+            };
+            if (control.knob)
+                control.knob->onMenu = menu;
+            if (control.toggle)
+                control.toggle->onMenu = menu;
+            if (control.picker)
+                control.picker->onMenu = menu;
+        }
         mControls.push_back(std::move(control));
     }
 

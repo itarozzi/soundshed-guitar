@@ -96,7 +96,10 @@ export type ArchiveImportContext = {
   titleHint?: string;
 };
 
-/** A model or IR a preview plays from a file the engine stages for it, never from the library. */
+/**
+ * A remote model a preview plays from a file the engine stages for it, never from the library:
+ * fetched by the UI and sent with "previewPresetArchive" as one of its `fetchedResources`.
+ */
 export interface PreviewResource {
   resourceType: string;
   /** The id the preset's nodes name it by. */
@@ -106,23 +109,16 @@ export interface PreviewResource {
   data: string;
 }
 
-/** What a preview needs besides the preset: the files the library lacks, the archive's blends, and what it could not get. */
+/**
+ * What a preview fetches besides the archive (the engine reads the archive itself): the remote
+ * models the library lacks, and the names of those it could not get, which the preview plays without.
+ */
 export interface ArchivePreview {
   resources: PreviewResource[];
-  /** The archive's blends under their own ids, their models on the library's ids where it has them. */
-  blends: BlendDefinition[];
-  /** Names of the remote models and IRs that could not be fetched; the preview plays without them. */
   unavailable: string[];
 }
 
 export type ArchiveImportOptions = {
-  previewOnly?: boolean;
-  /**
-   * With previewOnly: filled with the archive's files the library lacks, its remote ones fetched
-   * from their providers, and its blends, for the engine to play ("previewPreset"). Nothing is
-   * imported or saved.
-   */
-  preview?: ArchivePreview;
   suppressNotifications?: boolean;
   topLevelFolderName?: string;
 };

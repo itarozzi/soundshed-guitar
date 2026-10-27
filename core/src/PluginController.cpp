@@ -560,6 +560,8 @@ void PluginController::OnIdle()
 
     mGateLearn->OnIdle();
 
+    PollInputLevellingTraining();
+
     mTelemetry->OnIdle();
 
     mMetronome->OnIdle(mUIReady && mTelemetry->IsUiVisible());

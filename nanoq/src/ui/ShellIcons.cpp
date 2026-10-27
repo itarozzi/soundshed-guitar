@@ -66,6 +66,12 @@ void AddShellIcons(Icons& icons)
                              R"(<rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/>)"
                              R"(<rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/>)"));
     icons.Add("ui-tuner", Svg("0 0 24 24", 1.8f, R"(<path d="M9 3v7a3 3 0 0 0 6 0V3"/><path d="M12 13v8"/>)"));
+    // A DIN socket: MIDI & Automation (#footer-midi-btn).
+    icons.Add("ui-midi", Svg("0 0 24 24", 1.8f,
+                             R"(<circle cx="12" cy="12" r="9"/><path d="M10 20v-2h4v2"/>)"
+                             R"(<circle cx="7.5" cy="10.5" r="1.15" fill="currentColor"/><circle cx="9.6" cy="7.6" r="1.15" fill="currentColor"/>)"
+                             R"(<circle cx="12" cy="6.6" r="1.15" fill="currentColor"/><circle cx="14.4" cy="7.6" r="1.15" fill="currentColor"/>)"
+                             R"(<circle cx="16.5" cy="10.5" r="1.15" fill="currentColor"/>)"));
     icons.Add("ui-undo", Svg("0 0 24 24", 1.8f, R"(<path d="M9 7 4 12l5 5"/><path d="M4 12h9a6 6 0 0 1 0 12h-1"/>)"));
     icons.Add("ui-redo", Svg("0 0 24 24", 1.8f, R"(<path d="M15 7l5 5-5 5"/><path d="M20 12h-9a6 6 0 0 0 0 12h1"/>)"));
     icons.Add("ui-swap", Svg("0 0 24 24", 1.8f, R"(<path d="M4 8h13l-3.5-3.5"/><path d="M20 16H7l3.5 3.5"/>)"));

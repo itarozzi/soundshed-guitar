@@ -4,6 +4,45 @@
 
 namespace guitarfx::uiclient
 {
+const std::vector<Feature>& AllFeatures()
+{
+    static const std::vector<Feature> all = {
+        Feature::FactoryPresetPacks, Feature::Tone3000,          Feature::ResourceLibrary, Feature::RiffLibrary,
+        Feature::ToneSharing,        Feature::ToneBuilder,       Feature::Jam,             Feature::PracticeTool,
+        Feature::ExperimentalEffects, Feature::PickupMatch,      Feature::CustomEffects,   Feature::MultiRig,
+        Feature::CompositeEffects,   Feature::BlendTools,        Feature::EffectLayouts,   Feature::ResourceCleanup,
+        Feature::FactoryPresetArchives, Feature::DebugStateCapture, Feature::EffectsPerformancePads, Feature::Looper};
+    return all;
+}
+
+const char* FeatureLabel(Feature feature)
+{
+    switch (feature)
+    {
+        case Feature::FactoryPresetPacks: return "Factory Preset Packs";
+        case Feature::Tone3000: return "Tone3000 Integration";
+        case Feature::ResourceLibrary: return "Resource Library";
+        case Feature::RiffLibrary: return "Riff Library";
+        case Feature::ToneSharing: return "Tone Sharing";
+        case Feature::ToneBuilder: return "AI Tone Builder";
+        case Feature::Jam: return "Jam Panel";
+        case Feature::PracticeTool: return "Practice Tool";
+        case Feature::ExperimentalEffects: return "Experimental Effects";
+        case Feature::PickupMatch: return "Pickup Match";
+        case Feature::CustomEffects: return "Custom Effects";
+        case Feature::MultiRig: return "Multi-Rig Mixer";
+        case Feature::CompositeEffects: return "Composite Effects";
+        case Feature::BlendTools: return "Blend Tools";
+        case Feature::EffectLayouts: return "Effect Layout Editor";
+        case Feature::ResourceCleanup: return "Resource Cleanup Tools";
+        case Feature::FactoryPresetArchives: return "Factory Preset Archive Tools";
+        case Feature::DebugStateCapture: return "Capture Debug State";
+        case Feature::EffectsPerformancePads: return "Effects Performance Pads";
+        case Feature::Looper: return "Looper";
+    }
+    return "";
+}
+
 const char* FeatureSettingKey(Feature feature)
 {
     switch (feature)

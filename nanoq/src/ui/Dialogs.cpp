@@ -82,12 +82,38 @@ void Shell::CloseOverlay()
     if (!mOverlay)
         return;
 
-    // Removing it from inside one of its own click handlers would pull it out from under the
-    // event that is still being delivered; the view takes it out once that event is done.
     auto overlay = std::move(mOverlay);
     mOverlay.reset();
+    RemoveLayer(std::move(overlay));
+}
+
+void Shell::RemoveLayer(Ptr layer)
+{
+    if (!layer)
+        return;
+    // Removing it from inside one of its own click handlers would pull it out from under the
+    // event that is still being delivered, so it goes once that event is done: in one posted
+    // step, which keeps it ahead of a layer the same handler adds (a dialog opened from the
+    // Controls strip replaces it). Elements' view::remove posts its own step, so the new layer
+    // went in first; and it keeps the focus index only when the layer it takes out had the
+    // focus, so taking out one below the focused layer left the index one past it, and the next
+    // key was delivered past the end of the layers.
     auto& view = mSession.View();
-    view.post([&view, overlay] { view.remove(overlay); });
+    view.post([&view, layer] {
+        auto& layers = view.content();
+        const auto found = std::find(layers.begin(), layers.end(), layer);
+        if (found == layers.end())
+            return;
+        const auto index = static_cast<int>(found - layers.begin());
+        if (layers.focus_index() == index)
+            view.relinquish_focus();
+        const int focus = layers.focus_index();
+        layers.erase(found);
+        if (focus > index)
+            layers.focus(static_cast<std::size_t>(focus - 1));
+        view.layout();
+        view.refresh();
+    });
 }
 
 namespace
@@ -188,7 +214,7 @@ void Shell::ShowToast(const std::string& title, const std::string& detail, bool 
 {
     auto& view = mSession.View();
     if (mToast)
-        view.remove(std::exchange(mToast, nullptr));
+        RemoveLayer(std::exchange(mToast, nullptr));
 
     // At the bottom, centred, above the transport bar. It takes no clicks.
     auto toast = std::make_shared<Toast>(mTheme, title, detail, isError);
@@ -198,7 +224,7 @@ void Shell::ShowToast(const std::string& title, const std::string& detail, bool 
     view.post(std::chrono::seconds(isError ? 8 : 4), [&view, shown = mToast, alive = mAlive, this] {
         if (!*alive)
             return;
-        view.remove(shown);
+        RemoveLayer(shown);
         if (mToast == shown)
             mToast = nullptr;
     });
