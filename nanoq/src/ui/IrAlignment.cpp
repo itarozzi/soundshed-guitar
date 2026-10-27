@@ -14,6 +14,7 @@
 // change (the summed curve, from the cab's own designs). With one IR loaded there is nothing to
 // align, and the section shows that IR's response alone.
 
+#include "ui/Drawn.h"
 #include "ui/Shell.h"
 
 #include "dsp/EffectGuids.h"
@@ -178,7 +179,7 @@ void DashedVLine(canvas& cnv, float x, float top, float bottom)
 
 /// The start of both IRs, B moved by the offset, each drawn to its own peak: the shapes and their
 /// timing are what line up, not their levels. Dragging moves B.
-class AlignmentWaves final : public el::element
+class AlignmentWaves final : public el::element, public Drawn
 {
 public:
     AlignmentWaves(const Theme& theme, std::shared_ptr<DrawState> state) : mTheme(theme), mState(std::move(state)) {}
@@ -195,6 +196,7 @@ public:
 
     void draw(const el::context& ctx) override
     {
+        NoteDrawn(ctx);
         auto& cnv = ctx.canvas;
         const auto b = ctx.bounds;
         Well(cnv, mTheme, b);
@@ -313,7 +315,7 @@ private:
 /// How alike A and B are at every offset in reach, above the line where they reinforce and below
 /// where they cancel, as the polarities stand; the aligned offset dashed, the current one solid.
 /// A click or a drag along it moves B there.
-class AlignmentStrip final : public el::element
+class AlignmentStrip final : public el::element, public Drawn
 {
 public:
     AlignmentStrip(const Theme& theme, std::shared_ptr<DrawState> state) : mTheme(theme), mState(std::move(state)) {}
@@ -330,6 +332,7 @@ public:
 
     void draw(const el::context& ctx) override
     {
+        NoteDrawn(ctx);
         auto& cnv = ctx.canvas;
         const auto b = ctx.bounds;
         Well(cnv, mTheme, b);
@@ -649,7 +652,7 @@ void Shell::SyncIrAlignment()
         if (const auto t = weak.lock(); t && t->Value() != value)
         {
             t->Set(value);
-            mSession.View().refresh(*t);
+            mSession.Repaint(*t);
         }
     };
 
@@ -683,17 +686,17 @@ void Shell::SyncIrAlignment()
         if (const auto b = panel.autoAlign.lock())
         {
             b->Disabled(!ready);
-            mSession.View().refresh(*b);
+            mSession.Repaint(*b);
         }
         for (const auto& [weak, lit] : {std::pair{panel.invertA, draw.polarityA < 0.0}, std::pair{panel.invertB, draw.polarityB < 0.0}})
             if (const auto b = weak.lock())
             {
                 b->Lit(lit);
-                mSession.View().refresh(*b);
+                mSession.Repaint(*b);
             }
         for (const auto& weak : {panel.waves, panel.strip})
             if (const auto e = weak.lock())
-                mSession.View().refresh(*e);
+                mSession.Repaint(*e);
     }
 
     // The summed response, asked for only when the IRs, the parameters or the offset changed.
@@ -715,7 +718,7 @@ void Shell::SyncIrAlignment()
                 return;
             target->SetCurve(Curve(response->frequencies, response->summedDb));
             target->SetReference(Curve(response->frequencies, response->unrelatedDb));
-            mSession.View().refresh(*target);
+            mSession.Repaint(*target);
         });
 }
 } // namespace nanoq::ui

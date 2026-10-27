@@ -6,6 +6,7 @@
 // Shown in a Noise Gate node's editor and in the global gate's settings, which also carry the
 // gate's other parameters.
 
+#include "ui/Drawn.h"
 #include "ui/Shell.h"
 
 #include "dsp/EffectGuids.h"
@@ -29,7 +30,7 @@ using cycfi::artist::canvas;
 /// The meter: the threshold's range across, the noise floor heard filled from the left, the
 /// band between Threshold and where the gate closes again, Threshold as a line, and while
 /// listening the live level and the listen's progress.
-class GateLearnMeter final : public el::element
+class GateLearnMeter final : public el::element, public Drawn
 {
 public:
     explicit GateLearnMeter(const Theme& theme) : mTheme(theme) {}
@@ -53,6 +54,7 @@ public:
 
     void draw(const el::context& ctx) override
     {
+        NoteDrawn(ctx);
         auto& cnv = ctx.canvas;
         const auto b = ctx.bounds;
         const auto at = [&](double db) { return b.left + static_cast<float>(std::clamp((db - mMin) / (mMax - mMin), 0.0, 1.0)) * b.width(); };
@@ -163,20 +165,20 @@ void Shell::SyncGateLearn()
         if (!meter)
             continue;
         meter->Set(t.minDb, t.maxDb, t.threshold ? t.threshold() : -60.0, t.hysteresis ? t.hysteresis() : 0.0, status);
-        mSession.View().refresh(*meter);
+        mSession.Repaint(*meter);
         if (const auto text = view.status.lock())
         {
             const auto line = guitarfx::uiclient::GateLearnStatusText(status, t.minDb);
             if (text->Value() != line)
             {
                 text->Set(line);
-                mSession.View().refresh(*text);
+                mSession.Repaint(*text);
             }
         }
         if (const auto button = view.button.lock())
         {
             button->Label(status != nullptr && status->state == "listening" ? "Cancel" : "Learn", 11.0f);
-            mSession.View().refresh(*button);
+            mSession.Repaint(*button);
         }
         if (const auto low = view.low.lock())
             low->Set(WholeDb(t.minDb));
@@ -191,12 +193,15 @@ Shell::GateLearnTarget Shell::NodeGateLearnTarget(const guitarfx::GraphNode& nod
     GateLearnTarget target;
     target.address = NodeAddress{"preset", nodeId, mState.activePresetId};
     const auto* type = mState.FindEffectType(node.type);
-    const auto param = [this, nodeId, type](const char* key, double fallback) {
+    // The effect type is looked up on each call, not kept: the catalog is replaced whenever the
+    // engine sends it again, and a pointer into the old one read freed memory on the next sync
+    // (seen when a Bars loop started recording).
+    const auto param = [this, nodeId, typeId = node.type](const char* key, double fallback) {
         const auto* n = mState.activePreset ? mState.activePreset->graph.FindNode(nodeId) : nullptr;
         if (n != nullptr)
             if (const auto it = n->params.find(key); it != n->params.end())
                 return it->second;
-        if (type != nullptr)
+        if (const auto* type = mState.FindEffectType(typeId))
             for (const auto& p : type->parameters)
                 if (p.key == key)
                     return p.defaultValue;
@@ -274,7 +279,7 @@ void Shell::OpenGlobalGate(el::rect anchor)
                 };
                 syncs->push_back([this, toggle, key, info, gateParam] {
                     toggle->Set(gateParam(key, info.defaultValue) > 0.5 * (info.minValue + info.maxValue));
-                    mSession.View().refresh(*toggle);
+                    mSession.Repaint(*toggle);
                 });
                 cell = toggle;
             }
@@ -296,7 +301,7 @@ void Shell::OpenGlobalGate(el::rect anchor)
                 syncs->push_back([this, knob, key, info, gateParam] {
                     const double v = gateParam(key, info.defaultValue);
                     knob->Update(guitarfx::uiclient::ParamValueToPosition(info, v), guitarfx::uiclient::FormatParamValue(info, v));
-                    mSession.View().refresh(*knob);
+                    mSession.Repaint(*knob);
                 });
                 cell = knob;
             }

@@ -85,7 +85,7 @@ Ptr Shell::BuildSettingsPage()
             for (std::size_t i = 0; i < buttons->size(); ++i)
             {
                 (*buttons)[i]->Selected(static_cast<int>(i) == selected);
-                mSession.View().refresh(*(*buttons)[i]);
+                mSession.Repaint(*(*buttons)[i]);
             }
         });
     };
@@ -96,7 +96,7 @@ Ptr Shell::BuildSettingsPage()
         page.push_back(FixedHeight(44, Row({label(title), b, Stretch()})));
         mSettingsSyncs.push_back([this, b, get] {
             b->On(get());
-            mSession.View().refresh(*b);
+            mSession.Repaint(*b);
         });
     };
 
@@ -128,7 +128,7 @@ Ptr Shell::BuildSettingsPage()
         mSettingsSyncs.push_back([this, quality] {
             const double v = std::clamp(NumberSetting(mState.appSettings, kNamSlimmableSizeSetting, 1.0), 0.0, 1.0);
             quality->Update(v, std::to_string(static_cast<int>(std::lround(v * 100.0))) + "%");
-            mSession.View().refresh(*quality);
+            mSession.Repaint(*quality);
         });
     }
     note("Lower quality reduces CPU use on models that support it. Watch the DSP load while you adjust it.");
@@ -154,7 +154,7 @@ Ptr Shell::BuildSettingsPage()
             char text[48];
             std::snprintf(text, sizeof(text), "%.*f %s", decimals, v, unit);
             sl->Update((v - lo) / (hi - lo), text);
-            mSession.View().refresh(*sl);
+            mSession.Repaint(*sl);
         });
     };
     const auto boolOr = [this](const char* key, bool def) { return BoolSetting(mState.appSettings, key, def); };

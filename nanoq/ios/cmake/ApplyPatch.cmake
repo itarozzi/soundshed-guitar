@@ -9,8 +9,8 @@
 # apply stops the configure, since the pin and the patch no longer agree.
 #
 # git apply, not git am or patch(1): it needs no identity and no commit, and works on a
-# submodule's files from the superproject (Elements' lib/artist). Used for Nano Q's iOS build;
-# see docs/plans/nano-q-ios.md.
+# submodule's files from the superproject (Elements' lib/artist). Used for Nano Q's iOS build
+# (see docs/plans/nano-q-ios.md) and, on every platform, for patches/elements-input-redraws.patch.
 
 if(NOT PATCH OR NOT EXISTS "${PATCH}")
     message(FATAL_ERROR "ApplyPatch.cmake: PATCH is not a file: '${PATCH}'")

@@ -112,6 +112,7 @@ void ResponsePlot::SetBands(std::vector<PlotBand> bands)
 
 void ResponsePlot::draw(const el::context& ctx)
 {
+    NoteDrawn(ctx);
     auto& cnv = ctx.canvas;
     const auto b = ctx.bounds;
     const auto plot = Plot(b);

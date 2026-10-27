@@ -190,7 +190,14 @@ void Shell::OpenRiffCapture(bool arm, const std::string& appendRiffId)
         crop->Enabled(complete && c.hasAudio && (marks->first > 0.0f || marks->second < 1.0f));
         favourite->On(*favouriteOn);
         save->Enabled(complete && c.hasAudio && !TrimText(title->get_utf8()).empty());
-        mSession.View().refresh();
+        // Each control by where it was drawn: the waveform moves four times a second while a take
+        // records, and the rest of the window has nothing new.
+        for (el::element* e : std::initializer_list<el::element*>{tempo.get(), click.get(), record.get(), status.get(), wave.get(),
+                                                               startText.get(), endText.get(), preview.get(), repeatButton.get(),
+                                                               crop.get(), favourite.get(), save.get()})
+            mSession.Repaint(*e);
+        for (const auto& b : countIn)
+            mSession.Repaint(*b);
     };
 
     slower->OnClick([this, sync] {

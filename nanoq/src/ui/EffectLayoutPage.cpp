@@ -165,6 +165,6 @@ void Shell::SyncLayoutControls()
         return;
     for (const auto& control : mLayoutControls)
         if (control->Update(*node))
-            mSession.View().refresh(*control);
+            mSession.Repaint(*control);
 }
 } // namespace nanoq::ui

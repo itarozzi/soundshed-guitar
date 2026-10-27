@@ -39,6 +39,10 @@ public:
     [[nodiscard]] const guitarfx::uiclient::ClientState& State() const { return mClient.State(); }
     [[nodiscard]] Theme& GetTheme() { return mTheme; }
     [[nodiscard]] cycfi::elements::view& View() { return mView; }
+    /// Redraws an element: by the rectangle it last drew into when it keeps one (Drawn.h, and
+    /// nothing before its first draw), else by Elements' search for it, which redraws the whole
+    /// window past four in one poll.
+    void Repaint(cycfi::elements::element& element);
     [[nodiscard]] Engine& GetEngine() { return mEngine; }
     /// Tone sharing and Tone3000 over the network (core/src/uiclient/ToneService.h).
     [[nodiscard]] guitarfx::uiclient::ToneService& Tones() { return *mTones; }

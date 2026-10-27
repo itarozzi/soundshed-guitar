@@ -88,6 +88,7 @@ void SpatialPanner::SetLive(const guitarfx::uiclient::SpatialPosition* live)
 
 void SpatialPanner::draw(const el::context& ctx)
 {
+    NoteDrawn(ctx);
     auto& cnv = ctx.canvas;
     const auto b = ctx.bounds;
     const auto L = ComputeLayout(b);

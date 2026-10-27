@@ -196,7 +196,7 @@ void Shell::SyncMixerKnobs()
         {
             if (const auto it = mState.mixer.slots.find(entry.presetId); it != mState.mixer.slots.end())
                 t->Set(entry.kind == 'u' ? it->second.mute : it->second.solo);
-            mSession.View().refresh(*t);
+            mSession.Repaint(*t);
             continue;
         }
         const auto k = entry.knob.lock();
@@ -214,7 +214,7 @@ void Shell::SyncMixerKnobs()
             else
                 k->Update((it->second.pan + 1.0) / 2.0, Pan(it->second.pan));
         }
-        mSession.View().refresh(*k);
+        mSession.Repaint(*k);
     }
 }
 

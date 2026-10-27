@@ -140,6 +140,12 @@ drag 10 10 200 10      press, move, release    scroll 600 500 -40 wheel (negativ
 shot C:\t\view.png     draws the view offscreen into a PNG: works while the window is hidden or the PC is locked
 ```
 
+**How much it draws: `SOUNDSHED_NANOQ_DRAWSTATS=<file>`** wraps the view in a probe
+(`src/ui/DrawProbe.h`) that appends a line a second: paints, how much of the window they covered,
+and the time spent drawing. With `SOUNDSHED_NANOQ_DRAWRECTS` set too, each paint's rectangle goes
+to `<file>.rects`. On iOS, where Quartz draws on the CPU, the area is the cost; keep a widget that
+changes with the feeds redrawn by its own rectangle (`Drawn`, `UiSession::Repaint`).
+
 **Always run with a profile argument.** The engine's data root is not where the host says: it
 comes from the `APPDATA` environment variable through core's `FileSystem`. Nano Q's
 `SOUNDSHED_NANOQ_PROFILE` calls `FileSystem::SetPlatformRootOverride`, which is what keeps a

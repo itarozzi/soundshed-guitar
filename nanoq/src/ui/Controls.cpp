@@ -91,7 +91,7 @@ Shell::ControlCells Shell::BuildControlCells(std::vector<guitarfx::uiclient::Sub
         syncs->push_back([this, knob, info, read, format] {
             const double v = read();
             knob->Update(guitarfx::uiclient::ParamValueToPosition(info, v), format(v));
-            mSession.View().refresh(*knob);
+            mSession.Repaint(*knob);
         });
 
         auto title = std::make_shared<Text>(mTheme, label, 9.0f, Weight::SemiBold);
@@ -103,7 +103,7 @@ Shell::ControlCells Shell::BuildControlCells(std::vector<guitarfx::uiclient::Sub
             toggle->onClick = [readOn, writeOn] { writeOn(!readOn()); };
             syncs->push_back([this, toggle, readOn] {
                 toggle->Set(readOn());
-                mSession.View().refresh(*toggle);
+                mSession.Repaint(*toggle);
             });
             head.push_back(HGap(5));
             head.push_back(toggle);
@@ -158,7 +158,7 @@ Shell::ControlCells Shell::BuildControlCells(std::vector<guitarfx::uiclient::Sub
     };
     syncs->push_back([this, mode, inputModeLabel] {
         mode->Label(inputModeLabel(), 10.0f);
-        mSession.View().refresh(*mode);
+        mSession.Repaint(*mode);
     });
 
     auto in = knobCell("IN", Param("inputGain", "In", "dB", -12.0, 12.0, 0.0), [chain] { return chain().inputGain; },
@@ -203,7 +203,7 @@ Shell::ControlCells Shell::BuildControlCells(std::vector<guitarfx::uiclient::Sub
     };
     syncs->push_back([this, eqOn, chain] {
         eqOn->Set(NodeEnabled(chain().postChainGraph, "global_eq"));
-        mSession.View().refresh(*eqOn);
+        mSession.Repaint(*eqOn);
     });
     auto eqTitle = std::make_shared<Text>(mTheme, "EQ", 9.0f, Weight::SemiBold);
     eqTitle->Colour(mTheme.Pick(el::rgba(201, 209, 225, 200), mTheme.TextSecondary())).Fixed(true);
@@ -239,7 +239,7 @@ Shell::ControlCells Shell::BuildControlCells(std::vector<guitarfx::uiclient::Sub
 
     syncs->push_back([this, mute] {
         mute->Lit(mState.outputMuted);
-        mSession.View().refresh(*mute);
+        mSession.Repaint(*mute);
     });
 
     auto sync = [syncs] {
@@ -351,7 +351,7 @@ void Shell::OpenGlobalEq(el::rect anchor)
                 const auto found = params.find(key);
                 const double v = found != params.end() ? found->second : info.defaultValue;
                 knob->Update(guitarfx::uiclient::ParamValueToPosition(info, v), guitarfx::uiclient::FormatParamValue(info, v));
-                mSession.View().refresh(*knob);
+                mSession.Repaint(*knob);
             });
             if (!knobs.empty())
                 knobs.push_back(HGap(4));
@@ -389,7 +389,7 @@ void Shell::OpenGlobalEq(el::rect anchor)
                 const auto params = eqParams();
                 const auto found = params.find(shapeKey);
                 shape->Label(found != params.end() && found->second >= 0.5 ? "Bell" : "Shelf", 10.0f);
-                mSession.View().refresh(*shape);
+                mSession.Repaint(*shape);
             });
             heading = Row({name, HGap(6), shape, Stretch()});
         }

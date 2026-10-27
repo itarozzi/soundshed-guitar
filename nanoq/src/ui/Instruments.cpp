@@ -1,6 +1,7 @@
 // The tuner and the metronome: two dialogs that stay open while the player plays, so what they
 // show is patched in place from the engine's feeds rather than rebuilt.
 
+#include "ui/Drawn.h"
 #include "ui/Shell.h"
 
 #include "uiclient/Metronome.h"
@@ -41,7 +42,7 @@ void DrawText(canvas& cnv, const std::string& text, const el::font_descr& font, 
 // ── The tuner ───────────────────────────────────────────────────────────────────
 
 /// The note, its neighbours, a needle over a ±50 cent scale, and the reading in numbers.
-class TunerFace final : public el::element
+class TunerFace final : public el::element, public Drawn
 {
 public:
     explicit TunerFace(const Theme& theme) : mTheme(theme) {}
@@ -53,6 +54,7 @@ public:
 
     void draw(const el::context& ctx) override
     {
+        NoteDrawn(ctx);
         auto& cnv = ctx.canvas;
         auto area = ctx.bounds;
         const bool inTune = mReading.detected && mReading.inTune;
@@ -145,9 +147,9 @@ void Shell::OpenTuner()
         face->Set(model->Push(t.detected, t.noteName, t.octave, t.centOffset, t.frequency));
         mute->On(!t.liveMode);
         reference->Set("A = " + Fixed(t.referenceFrequency, 0) + " Hz");
-        mSession.View().refresh(*face);
-        mSession.View().refresh(*mute);
-        mSession.View().refresh(*reference);
+        mSession.Repaint(*face);
+        mSession.Repaint(*mute);
+        mSession.Repaint(*reference);
     };
 
     auto heading = std::make_shared<Text>(mTheme, "Tuner", 15.0f, Weight::SemiBold);

@@ -66,20 +66,29 @@ FetchContent_Declare(q
     GIT_TAG a08c4ca573bb92346ed616bdb6f850c864f59ab4
     ${_nanoq_q_patch})
 
-# Elements is Q's to fetch (q_plug/CMakeLists.txt). An iOS build declares it first, at the same
-# commit, with Artist's patch: the first declaration of a name is the one FetchContent uses.
-# When Q's pin moves, move this with it.
+# Elements is Q's to fetch (q_plug/CMakeLists.txt). Nano Q declares it first, at the same commit
+# and with the same options, to patch it: the first declaration of a name is the one FetchContent
+# uses. When Q's pin moves, move this with it. Every build takes patches/elements-input-redraws.patch:
+# a click no longer redraws the whole window, nor a press or a pointer move over a scroller's
+# content the whole scrolled area (on iOS, where Quartz draws on the CPU, each tap cost two
+# whole-window draws and each touch move one of the editor). An iOS build takes Artist's patch too.
+set(_nanoq_elements_patch PATCH_COMMAND ${CMAKE_COMMAND}
+    -DPATCH=${CMAKE_CURRENT_SOURCE_DIR}/patches/elements-input-redraws.patch
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/ios/cmake/ApplyPatch.cmake)
 if(NANOQ_IOS)
-    FetchContent_Declare(cycfi_elements
-        GIT_REPOSITORY https://github.com/cycfi/elements.git
-        GIT_TAG 046ec674e249817b8712c25826ce4e1f3c60b74a
-        GIT_SUBMODULES lib/artist
-        GIT_SUBMODULES_RECURSE OFF
-        SOURCE_SUBDIR do-not-add
-        PATCH_COMMAND ${CMAKE_COMMAND}
-            -DPATCH=${CMAKE_CURRENT_SOURCE_DIR}/ios/patches/elements.patch
-            -P ${CMAKE_CURRENT_SOURCE_DIR}/ios/cmake/ApplyPatch.cmake)
+    list(APPEND _nanoq_elements_patch COMMAND ${CMAKE_COMMAND}
+        -DPATCH=${CMAKE_CURRENT_SOURCE_DIR}/ios/patches/elements.patch
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/ios/cmake/ApplyPatch.cmake)
+endif()
+FetchContent_Declare(cycfi_elements
+    GIT_REPOSITORY https://github.com/cycfi/elements.git
+    GIT_TAG 046ec674e249817b8712c25826ce4e1f3c60b74a
+    GIT_SUBMODULES lib/artist
+    GIT_SUBMODULES_RECURSE OFF
+    SOURCE_SUBDIR do-not-add
+    ${_nanoq_elements_patch})
 
+if(NANOQ_IOS)
     # As Soundshed Guitar's iOS build (juce/CMakeLists.txt): Wasmtime has no iOS C API bundle and
     # iOS allows no JIT, and the SIMD level matters only to the x86_64 Simulator.
     set(GUITARFX_CORE_ENABLE_WASM_EFFECTS OFF CACHE BOOL "" FORCE)

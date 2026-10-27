@@ -242,14 +242,29 @@ void Shell::SyncLooper()
 
     if (const auto shape = LooperShape(); shape != mLooperShape)
     {
+        // Rebuilt while open it keeps its height, so only it is redrawn.
+        const bool wasOpen = static_cast<bool>(mLooperWave);
         mLooperShape = shape;
         Fill(*mLooperSlot, BuildLooperStrip());
-        mSession.View().layout();
-        mSession.View().refresh();
+        if (wasOpen)
+            mSession.View().layout(*mLooperSlot);
+        else
+        {
+            mSession.View().layout();
+            mSession.View().refresh();
+        }
         return;
     }
     SyncLooperLive();
-    mSession.View().refresh();
+    RepaintLooperLive();
+}
+
+void Shell::RepaintLooperLive()
+{
+    for (el::element* e : std::initializer_list<el::element*>{mLooperWave.get(), mLooperTime.get(), mLooperStatus.get(), mLooperBar.get(),
+                                                           mLooperMain.get()})
+        if (e != nullptr)
+            mSession.Repaint(*e);
 }
 
 void Shell::TickLooper()
@@ -258,8 +273,7 @@ void Shell::TickLooper()
     if (mLooperWave && mState.looper.playing && mState.looper.lengthSec > 0.0)
     {
         SyncLooperLive();
-        mSession.View().refresh(*mLooperWave);
-        mSession.View().refresh(*mLooperTime);
+        RepaintLooperLive();
     }
 }
 
@@ -377,9 +391,10 @@ void Shell::OpenLooperLayers()
                 std::snprintf(text, sizeof(text), "%+.2f", layer.balance);
                 if (!pair.second->Dragging())
                     pair.second->Update((layer.balance + 1.0) / 2.0, text);
+                mSession.Repaint(*pair.first);
+                mSession.Repaint(*pair.second);
             }
         }
-        mSession.View().refresh();
     };
 
     auto heading = std::make_shared<Text>(mTheme, "Loop Layers", 15.0f, Weight::SemiBold);
@@ -606,7 +621,17 @@ void Shell::OpenLooperOptions()
     const auto view = ViewSize();
     ShowOverlay(Pad(16, 14, 16, 14, Col(col)), std::min(560.0f, std::max(300.0f, view.x - 48.0f)), 460.0f);
 
-    auto sync = [this, syncs] {
+    // Redrawn only when an option or the memory moved: the looper reports several times a
+    // second while it plays.
+    auto shown = std::make_shared<std::string>();
+    auto sync = [this, syncs, shown] {
+        const auto& o = mState.looper.settings;
+        const auto now = o.start + o.length + std::to_string(o.bars) + "|" + std::to_string(o.countInBars) + (o.clickWhileRecording ? "c" : "") +
+                         o.afterRecord + std::to_string(o.maxSeconds) + "|" + std::to_string(static_cast<int>(o.alignOffsetMs)) + "|" +
+                         std::to_string(static_cast<int>(mState.looper.memoryMb));
+        if (now == *shown)
+            return;
+        *shown = now;
         for (const auto& f : syncs)
             f();
         mSession.View().refresh();

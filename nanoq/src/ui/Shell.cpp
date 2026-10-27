@@ -1,6 +1,7 @@
 #include "ui/Shell.h"
 
 #include "WindowChrome.h"
+#include "ui/DrawProbe.h"
 #include "ui/ShellIcons.h"
 #include "uiclient/NodeLabels.h"
 
@@ -140,7 +141,11 @@ void Shell::BuildRoot()
     mFrameSlot = MakeSlot();
     mWide = WantsWide();
     Fill(*mFrameSlot, BuildFrame());
-    mKeys = std::make_shared<KeyRouter>(Over(MinSize(metrics::kMinWidth, metrics::kMinHeight, mFrameSlot), mBgSlot));
+    Ptr frame = mFrameSlot;
+    // How much drawing the UI does, for performance work (DrawProbe.h); off unless asked for.
+    if (const auto stats = DrawProbe::PathFromEnvironment(); !stats.empty())
+        frame = std::make_shared<DrawProbe>(frame, stats);
+    mKeys = std::make_shared<KeyRouter>(Over(MinSize(metrics::kMinWidth, metrics::kMinHeight, frame), mBgSlot));
     mKeys->onKey = [this](const el::key_info& k) { return HandleKey(k); };
     mKeys->onPointerDown = [this] { mChainFocused = false; };
     mKeys->onTrackDrop = [this](const el::drop_info& info, bool leaving) { TrackFileDrop(info, leaving); };
@@ -322,10 +327,25 @@ void Shell::Rebuild()
     if ((mDirty & kSettings) && mPage == Page::Settings)
         SyncSettings();
 
-    const bool structural = (mDirty & (kTopBar | kScenes | kChain | kPage | kTransport | kRail)) != 0;
+    const unsigned rebuilt = mDirty & (kTopBar | kScenes | kChain | kPage | kTransport | kRail);
     mDirty = 0;
 
-    if (structural)
+    // The footer, the bar and the rail keep their size whatever they hold, so when only they
+    // were rebuilt only they are redrawn. A parameter edit commits to the chain's history, which
+    // rebuilds the footer for its Undo, and redrawing the whole window for it made a knob drag
+    // cost whole-window paints (dear on iOS, where Quartz draws on the CPU).
+    if (rebuilt != 0 && (rebuilt & ~(kTransport | kTopBar | kRail)) == 0)
+    {
+        auto& view = mSession.View();
+        view.layout(rebuilt & kTransport ? static_cast<el::element&>(*mTransportSlot)
+                    : rebuilt & kTopBar  ? static_cast<el::element&>(*mTopSlot)
+                                         : static_cast<el::element&>(*mRailSlot));
+        if ((rebuilt & kTopBar) && (rebuilt & kTransport))
+            mSession.Repaint(*mTopSlot);
+        if ((rebuilt & kRail) && (rebuilt & (kTransport | kTopBar)))
+            mSession.Repaint(*mRailSlot);
+    }
+    else if (rebuilt != 0)
     {
         mSession.View().layout();
         mSession.View().refresh();
@@ -385,16 +405,16 @@ void Shell::OnTick()
     {
         const auto& t = mState.telemetry;
         if (mInMeter->Set(t.input.peakDb, t.input.clipped))
-            mSession.View().refresh(*mInMeter);
+            mSession.Repaint(*mInMeter);
         if (mOutMeter->Set(t.output.peakDb, t.output.clipped))
-            mSession.View().refresh(*mOutMeter);
+            mSession.Repaint(*mOutMeter);
 
         char text[32];
         std::snprintf(text, sizeof(text), "DSP %d%%", static_cast<int>(t.dspLoadPercent + 0.5));
         if (mLoadText && mLoadText->Value() != text)
         {
             mLoadText->Set(text);
-            mSession.View().refresh(*mLoadText);
+            mSession.Repaint(*mLoadText);
         }
 
         SyncChainLights();

@@ -10,6 +10,7 @@
 // Drag on the radar for direction and distance, on the arc for height; a double click puts the
 // source back in front at 1.5 m.
 
+#include "ui/Drawn.h"
 #include "ui/Theme.h"
 #include "uiclient/ClientState.h"
 
@@ -30,7 +31,7 @@ struct SpatialPoint
     double distance = 1.5;
 };
 
-class SpatialPanner : public el::element
+class SpatialPanner : public el::element, public Drawn
 {
 public:
     explicit SpatialPanner(const Theme& theme) : mTheme(theme) {}

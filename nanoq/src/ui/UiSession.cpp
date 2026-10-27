@@ -1,5 +1,7 @@
 #include "ui/UiSession.h"
 
+#include "ui/Drawn.h"
+
 #include <chrono>
 
 namespace nanoq::ui
@@ -99,5 +101,20 @@ void UiSession::Pump()
 
     if (mDriver)
         mDriver->Poll(mView);
+}
+
+void UiSession::Repaint(cycfi::elements::element& element)
+{
+    // A widget that keeps its area is redrawn there, or not at all before its first draw: it is
+    // new (and the rebuild that made it redraws its region) or not on screen. It is never
+    // queued: Elements keeps a queued element as a pointer until the next poll, and a region
+    // rebuilt before then (the looper strip, on its next state) would leave it dangling.
+    if (const auto* drawn = dynamic_cast<const Drawn*>(&element))
+    {
+        if (drawn->DrawnArea())
+            mView.refresh(*drawn->DrawnArea());
+        return;
+    }
+    mView.refresh(element);
 }
 } // namespace nanoq::ui

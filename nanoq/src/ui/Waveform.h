@@ -6,6 +6,7 @@
 // handle at each end, dragged to trim it; the looper adds a second series (the take being
 // recorded, in red), bar lines and a playhead.
 
+#include "ui/Drawn.h"
 #include "ui/TextDraw.h"
 #include "ui/Theme.h"
 
@@ -21,7 +22,7 @@ namespace nanoq::ui
 {
 namespace el = cycfi::elements;
 
-class Waveform final : public el::element
+class Waveform final : public el::element, public Drawn
 {
 public:
     explicit Waveform(const Theme& theme, float height = 80.0f) : mTheme(theme), mHeight(height) {}
@@ -89,6 +90,7 @@ public:
 
     void draw(const el::context& ctx) override
     {
+        NoteDrawn(ctx);
         auto& cnv = ctx.canvas;
         const auto b = ctx.bounds;
         cnv.fill_style(mTheme.Pick(el::rgba(0, 0, 0, 70), el::rgba(0, 0, 0, 18)));

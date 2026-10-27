@@ -5,6 +5,7 @@
 // back under a wrapped line. Each is an Elements element that paints from the theme; the strip
 // decides where they go.
 
+#include "ui/Drawn.h"
 #include "ui/Graphics.h"
 #include "ui/Layout.h"
 #include "ui/Widgets.h"
@@ -129,7 +130,7 @@ inline el::rect CardRect(const el::rect& bounds, float height = kPlainCardHeight
 using namespace chain;
 
 /// One node in the chain.
-class NodeCard final : public el::element
+class NodeCard final : public el::element, public Drawn
 {
 public:
     enum class Light
@@ -181,6 +182,7 @@ public:
 
     void draw(const el::context& ctx) override
     {
+        NoteDrawn(ctx);
         auto& cnv = ctx.canvas;
         if (mHits && !mNodeId.empty())
             mHits->NoteCard(mNodeId, CardRect(ctx.bounds, CardHeight()));
@@ -545,7 +547,7 @@ private:
 
 /// A cable between two things in a row. With `onAdd` it carries a + in its middle that inserts
 /// an effect there; `stretch` lets it run on to fill a short branch.
-class Connector final : public el::element
+class Connector final : public el::element, public Drawn
 {
 public:
     Connector(const Theme& theme, std::function<void()> onAdd, bool stretch = false)
@@ -589,6 +591,7 @@ public:
 
     void draw(const el::context& ctx) override
     {
+        NoteDrawn(ctx);
         auto& cnv = ctx.canvas;
         const auto b = ctx.bounds;
         const float y = b.top + b.height() * 0.5f;

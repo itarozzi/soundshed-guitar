@@ -6,6 +6,7 @@
 // its colours and image knobs are the shared client's (core/src/uiclient/EffectLayouts.h); this
 // is the drawing and the gestures. Designing layouts stays in Soundshed Guitar.
 
+#include "ui/Drawn.h"
 #include "ui/Graphics.h"
 #include "ui/Layout.h"
 #include "ui/Theme.h"
@@ -55,7 +56,7 @@ struct LayoutActions
 };
 
 /// One placed control: a parameter's knob, switch or slider with its label and value.
-class LayoutControlView final : public el::element
+class LayoutControlView final : public el::element, public Drawn
 {
 public:
     struct Look

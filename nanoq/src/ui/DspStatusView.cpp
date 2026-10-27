@@ -137,7 +137,7 @@ void Shell::SyncDspStatus()
             if (const auto text = weak.lock(); text && text->Value() != view->meter.Value(item))
             {
                 text->Set(view->meter.Value(item));
-                mSession.View().refresh(*text);
+                mSession.Repaint(*text);
             }
     }
     if (!effectLoudness)

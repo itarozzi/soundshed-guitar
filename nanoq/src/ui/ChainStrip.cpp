@@ -445,7 +445,7 @@ void Shell::SyncChainLights()
         }
 
         if (card->SetLight(light))
-            mSession.View().refresh(*card);
+            mSession.Repaint(*card);
     }
 }
 
@@ -465,7 +465,7 @@ void Shell::SyncSignalFlow()
         {
             const auto from = cable->Source();
             if (cable->SetFlow(enabled && !from.empty() && mSignalFlow.IsLive(from), phase))
-                mSession.View().refresh(*cable);
+                mSession.Repaint(*cable);
         }
 }
 

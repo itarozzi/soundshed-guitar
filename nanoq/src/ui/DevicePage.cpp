@@ -482,14 +482,14 @@ void Shell::SyncDevicePage()
 
     const double db = mState.device.inputLevelDb;
     if (const auto meter = page.meter.lock(); meter && meter->Set(db, db > -0.5))
-        mSession.View().refresh(*meter);
+        mSession.Repaint(*meter);
     if (const auto level = page.level.lock())
     {
         const std::string text = db <= -99.0 ? "-inf dB" : std::to_string(static_cast<int>(std::lround(db))) + " dB";
         if (level->Value() != text)
         {
             level->Set(text);
-            mSession.View().refresh(*level);
+            mSession.Repaint(*level);
         }
     }
 }

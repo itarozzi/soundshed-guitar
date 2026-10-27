@@ -6,6 +6,7 @@
 // on/off switch, underlined tabs, the footer's A/B switch and the round + that floats over the
 // chain. Measurements are the web UI's at its compact density.
 
+#include "ui/Drawn.h"
 #include "ui/Graphics.h"
 #include "ui/Layout.h"
 #include "ui/Widgets.h"
@@ -19,7 +20,7 @@ namespace nanoq::ui
 {
 /// Hover and press tracking shared by the clickable pieces here: a left click released inside
 /// runs `onClick`.
-class Pressable : public el::element
+class Pressable : public el::element, public Drawn
 {
 public:
     std::function<void()> onClick;
@@ -101,6 +102,7 @@ public:
 
     void draw(const el::context& ctx) override
     {
+        NoteDrawn(ctx);
         auto& cnv = ctx.canvas;
         const auto b = ctx.bounds;
         if (mActive || mHover)
@@ -202,6 +204,7 @@ public:
 
     void draw(const el::context& ctx) override
     {
+        NoteDrawn(ctx);
         auto& cnv = ctx.canvas;
         const auto b = ctx.bounds;
         float radius = 8.0f;
@@ -337,6 +340,7 @@ public:
 
     void draw(const el::context& ctx) override
     {
+        NoteDrawn(ctx);
         auto& cnv = ctx.canvas;
         const auto b = ctx.bounds;
         cnv.fill_style(mTheme.IsLight() ? mTheme.Input() : el::rgba(17, 17, 24, 255));
@@ -437,6 +441,7 @@ public:
 
     void draw(const el::context& ctx) override
     {
+        NoteDrawn(ctx);
         auto& cnv = ctx.canvas;
         const auto b = ctx.bounds;
         const el::color fill =
@@ -513,6 +518,7 @@ public:
 
     void draw(const el::context& ctx) override
     {
+        NoteDrawn(ctx);
         auto& cnv = ctx.canvas;
         const auto b = ctx.bounds;
         const float radius = b.height() * 0.5f;
@@ -560,6 +566,7 @@ public:
 
     void draw(const el::context& ctx) override
     {
+        NoteDrawn(ctx);
         auto& cnv = ctx.canvas;
         const auto b = ctx.bounds;
         const auto ink = mActive ? mTheme.Accent() : (mHover ? mTheme.Text() : mTheme.TextSecondary());
@@ -591,6 +598,7 @@ public:
 
     void draw(const el::context& ctx) override
     {
+        NoteDrawn(ctx);
         auto& cnv = ctx.canvas;
         const auto b = ctx.bounds;
         if (mActive)
@@ -629,6 +637,7 @@ public:
 
     void draw(const el::context& ctx) override
     {
+        NoteDrawn(ctx);
         auto& cnv = ctx.canvas;
         const auto c = cycfi::artist::center_point(ctx.bounds);
         const float r = mSize * 0.5f - 1.0f;
@@ -678,6 +687,7 @@ public:
 
     void draw(const el::context& ctx) override
     {
+        NoteDrawn(ctx);
         auto& cnv = ctx.canvas;
         const auto b = ctx.bounds;
         const auto accent = mWarn ? mTheme.Error() : mTheme.Accent();
@@ -720,6 +730,7 @@ public:
 
     void draw(const el::context& ctx) override
     {
+        NoteDrawn(ctx);
         auto& cnv = ctx.canvas;
         const auto b = ctx.bounds;
         const auto label = Font(Weight::SemiBold).size(9.0f);
@@ -1103,7 +1114,7 @@ private:
 
 /// The effect header's light (.default-effect-shell-led): green while signal passes, red when
 /// it is quiet, grey when the effect is off.
-class HeaderLed final : public el::element
+class HeaderLed final : public el::element, public Drawn
 {
 public:
     HeaderLed(bool on, bool live) : mOn(on), mLive(live) {}
@@ -1115,6 +1126,7 @@ public:
 
     void draw(const el::context& ctx) override
     {
+        NoteDrawn(ctx);
         auto& cnv = ctx.canvas;
         const auto c = cycfi::artist::center_point(ctx.bounds);
         const el::color colour = !mOn ? el::rgba(110, 110, 124, 255) : mLive ? el::rgba(72, 224, 120, 255) : el::rgba(255, 92, 80, 255);

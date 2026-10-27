@@ -2,6 +2,7 @@
 // node's panner (spatialPosition) and the Signal Analyzer's readouts, spectrogram and Bark bands
 // (sldA), as the web UI's params panel shows them.
 
+#include "ui/Drawn.h"
 #include "ui/Shell.h"
 
 #include "dsp/EffectGuids.h"
@@ -43,7 +44,7 @@ el::color Hsl(double hue, double saturation, double lightness)
 
 /// The Signal Analyzer: a grid of readouts over a scrolling spectrogram (newest at the right)
 /// and the Bark bands as bars.
-class AnalyzerPanel final : public el::element
+class AnalyzerPanel final : public el::element, public Drawn
 {
 public:
     static constexpr std::size_t kHistory = 160; // ANALYZER_SPECTROGRAM_HISTORY_FRAMES
@@ -74,6 +75,7 @@ public:
 
     void draw(const el::context& ctx) override
     {
+        NoteDrawn(ctx);
         auto& cnv = ctx.canvas;
         const auto b = ctx.bounds;
         const auto labelFont = Font(Weight::SemiBold).size(9.0f);
@@ -215,7 +217,7 @@ void Shell::SyncLiveSection()
         if (live == spatial.end())
             live = spatial.find("::" + node->id);
         panner->SetLive(live != spatial.end() ? &live->second : nullptr);
-        mSession.View().refresh(*panner);
+        mSession.Repaint(*panner);
     }
 
     if (const auto panel = std::static_pointer_cast<AnalyzerPanel>(mAnalyzerPanel.lock()))
@@ -225,7 +227,7 @@ void Shell::SyncLiveSection()
         const auto levels = mState.telemetry.nodes.find(key);
         const int channels = levels != mState.telemetry.nodes.end() ? levels->second.channelCount : 0;
         if (panel->Set(frame != analyzers.end() ? &frame->second : nullptr, mState.analysis.analyzerRanges, channels))
-            mSession.View().refresh(*panel);
+            mSession.Repaint(*panel);
     }
 }
 } // namespace nanoq::ui

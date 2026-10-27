@@ -87,6 +87,17 @@ here needs none of that, and keeps clap-wrapper out of the iOS build.
   show it with); the preset search field needs it later.
 - File dialogs report cancelled on iOS for now; `UIDocumentPickerViewController` is the
   follow-up.
+- Drawing (2026-10-27). Quartz draws on the CPU, so on iOS the area drawn is what costs, and a
+  draw holds the main thread the touches wait on. UIKit merges every area invalidated in a frame
+  into one rectangle; the host keeps them apart (`invalidate_rect`) and `drawRect:` draws each
+  clipped to itself, leaving what lies between as the backing store holds it
+  (`clearsContextBeforeDrawing = NO`); the whole view, more than eight areas, a resize or a draw
+  UIKit asks for itself draws once. Nano Q redraws a changed widget by the rectangle it last drew
+  into (`ui/Drawn.h`, `UiSession::Repaint`), never by Elements' search, which redrew the whole
+  window past four in one poll and so on every telemetry tick while audio played; and
+  `patches/elements-input-redraws.patch` stops a click redrawing the whole window and a press or
+  move over a scroller's content redrawing all of it. Measure with `SOUNDSHED_NANOQ_DRAWSTATS`
+  (`ui/DrawProbe.h`): paints a second and how much of the window they covered.
 
 ## Carrying the changes to Cycfi's libraries
 
@@ -165,6 +176,7 @@ screenshot taken that way shows a band across the middle: rotate the Simulator
 | Touch | **Works** in the Simulator: a tap selects a chain card and switches pages, a drag turns a knob (and the preset shows unsaved changes), a long press opens a card's menu without selecting the card, a tap on the backdrop closes it, two fingers scroll the preset list in the natural direction, and the transport's Play runs the demo riff through the rig (meters and DSP load move). Two taps at different places 33 ms apart (the test tool firing two calls at once) lost the second; not seen with taps at a human pace |
 | Device (iOS 15+) | Not built separately: the legacy build below is the same arm64 code, compiled, linked and signed for a device |
 | Legacy (iOS 12) device | **Runs on an iPad mini 2** (iOS 12.5.8): the engine starts from the bundle on the NEON NAM kernel and opens the view; presets load by touch; the session gives 48 kHz and a 5.3 ms (256-frame) buffer with input, the unit calls back steadily (617 callbacks in the first 3 s) with the plugin active; the plugin's state is saved on going to the background (the iOS 12 app-delegate path) and the last preset is restored on the next launch. No errors in its logs. How it sounds and whether it glitches under load is for the ear: the logs record neither. **Builds and signs** (`build.sh legacy device release`, team as for the JUCE apps): arm64, `MinimumOSVersion` 12.0, the profile includes the iPad mini 2. std::filesystem is in the binary (no `__fs` imports), and UIScene, UniformTypeIdentifiers and `os_workgroup` are weak imports. Not yet installed or run on the device |
+| Drawing cost (2026-10-27) | Measured on Windows with `SOUNDSHED_NANOQ_DRAWSTATS`: playing, 22.5 windows of area a second (every paint the whole window) down to about 3.5, and to the meters and lights alone with the iOS host's separate areas; a knob drag no longer redraws the whole window on press and release or the editor on each move. **The iOS host's change is not built or run yet**: check on a device that the meters, lights and a knob draw cleanly (no stale or black areas between them) |
 | macOS regression | **Passes**: `nanoq/build/Release` configures and builds all four products, `NanoQEngineDialogTests` passes, and the standalone opens its view and loads its preset. A desktop build applies no patch |
 
 ## Not done yet

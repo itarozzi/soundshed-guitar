@@ -505,6 +505,7 @@ el::element* LayoutControlView::hit_test(const el::context& ctx, el::point p, bo
 
 void LayoutControlView::draw(const el::context& ctx)
 {
+    NoteDrawn(ctx);
     auto& cnv = ctx.canvas;
     const auto b = ctx.bounds;
     const auto labelFont = Font(Weight::SemiBold).size(mLook.labelSize);

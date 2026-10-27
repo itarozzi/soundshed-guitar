@@ -34,6 +34,7 @@ el::view_limits Text::limits(const el::basic_context& ctx) const
 
 void Text::draw(const el::context& ctx)
 {
+    NoteDrawn(ctx);
     const auto font = Font(mWeight).size(mSize);
     const auto shown = Ellipsize(ctx.canvas, mText, font, ctx.bounds.width());
     FillText(ctx.canvas, shown, font, mColour, ctx.bounds, mAlign);
@@ -141,6 +142,7 @@ el::view_limits Button::limits(const el::basic_context& ctx) const
 
 void Button::draw(const el::context& ctx)
 {
+    NoteDrawn(ctx);
     auto& cnv = ctx.canvas;
     const auto b = ctx.bounds;
     const bool lit = mOn || mSelected;
@@ -310,6 +312,7 @@ el::view_limits ParamSlider::limits(const el::basic_context&) const
 
 void ParamSlider::draw(const el::context& ctx)
 {
+    NoteDrawn(ctx);
     auto& cnv = ctx.canvas;
     const auto b = ctx.bounds;
 
@@ -443,6 +446,7 @@ el::view_limits ParamKnob::limits(const el::basic_context&) const
 
 void ParamKnob::draw(const el::context& ctx)
 {
+    NoteDrawn(ctx);
     auto& cnv = ctx.canvas;
     const auto b = ctx.bounds;
     const bool light = mTheme.IsLight();
@@ -658,6 +662,7 @@ el::view_limits MeterBar::limits(const el::basic_context&) const
 
 void MeterBar::draw(const el::context& ctx)
 {
+    NoteDrawn(ctx);
     auto& cnv = ctx.canvas;
     const auto b = ctx.bounds;
     if (mVertical)

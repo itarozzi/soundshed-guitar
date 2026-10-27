@@ -152,17 +152,17 @@ void Shell::SyncEqPlot(EqPlotState& state)
             if (!alive.lock() || !plot)
                 return;
             plot->SetCurve(curve);
-            mSession.View().refresh(*plot);
+            mSession.Repaint(*plot);
             // Pickup Match's custom designs are described from the same reply.
             if (pickup)
                 for (const auto& [side, text] : mPickupDesignLines)
                     if (const auto line = text.lock())
                     {
                         line->Set(curve ? guitarfx::uiclient::PickupDesignSummary(curve->summary, side) : std::string());
-                        mSession.View().refresh(*line);
+                        mSession.Repaint(*line);
                     }
         });
-    mSession.View().refresh(*state.plot);
+    mSession.Repaint(*state.plot);
 }
 
 void Shell::SyncEqPlotFeeds()
@@ -185,7 +185,7 @@ void Shell::SyncEqPlotFeeds()
         if (const auto it = spectra.find(key); it != spectra.end() && UiSession::Now() - it->second.receivedAt < 0.5)
             spectrum = &it->second;
     if (watched->plot->SetSpectrum(spectrum))
-        mSession.View().refresh(*watched->plot);
+        mSession.Repaint(*watched->plot);
 }
 
 Ptr Shell::BuildPickupDesignLines()
@@ -221,14 +221,14 @@ Ptr Shell::BuildCabTools(const guitarfx::GraphNode& node)
                 const auto* ir = mState.FindLibraryResource("ir", irId);
                 const std::string irName = ir != nullptr && !ir->name.empty() ? ir->name : irId;
                 status->Set("Matching...");
-                mSession.View().refresh(*status);
+                mSession.Repaint(*status);
                 mSession.Client().GetAnalysis().MatchSimpleCabToIr(
                     irId, [this, alive = std::weak_ptr<bool>(mAlive), nodeId, irName, status](
                               const std::optional<guitarfx::uiclient::SimpleCabMatch>& result, const std::string& error) {
                         if (!alive.lock())
                             return;
                         status->Set("");
-                        mSession.View().refresh(*status);
+                        mSession.Repaint(*status);
                         if (!result)
                         {
                             ShowToast("Match failed", error, true);
@@ -269,7 +269,7 @@ Ptr Shell::BuildCabTools(const guitarfx::GraphNode& node)
             params[key] = value;
         mPendingIrExport = mSession.Client().GetAnalysis().ExportEffectAsIr(n->type, params, name);
         status->Set("Exporting...");
-        mSession.View().refresh(*status);
+        mSession.Repaint(*status);
         mIrExportStatus = status;
     };
     return Row({match, HGap(8), exportIr, HGap(10), status, Stretch()});
@@ -288,7 +288,7 @@ void Shell::SyncIrExport()
     if (const auto status = mIrExportStatus.lock())
     {
         status->Set("");
-        mSession.View().refresh(*status);
+        mSession.Repaint(*status);
     }
     if (result.status == guitarfx::uiclient::ResourceImport::Status::Imported)
     {

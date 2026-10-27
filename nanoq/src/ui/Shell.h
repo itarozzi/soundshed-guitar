@@ -487,6 +487,7 @@ private:
     std::vector<Ptr> BuildCaptureButtons(float size);
     void SyncLooper();
     void SyncLooperLive();
+    void RepaintLooperLive();
     void TickLooper();
     void OpenLooperLayers();
     void OpenLooperLoops();

@@ -1,0 +1,124 @@
+diff --git a/lib/include/elements/element/port.hpp b/lib/include/elements/element/port.hpp
+index 8deec253..41ffd79f 100644
+--- a/lib/include/elements/element/port.hpp
++++ b/lib/include/elements/element/port.hpp
+@@ -286,6 +286,7 @@ namespace cycfi::elements
+       point             _offset;
+       tracking_status   _tracking;
+       int               _traits;
++      bool              _over_scrollbar = false;
+    };
+ 
+    //--------------------------------------------------------------------------
+diff --git a/lib/src/element/port.cpp b/lib/src/element/port.cpp
+index 82415828..5dd8504b 100644
+--- a/lib/src/element/port.cpp
++++ b/lib/src/element/port.cpp
+@@ -450,8 +450,15 @@ namespace cycfi::elements
+             if (reposition(ctx, btn.pos))
+                return true;
+          }
++         // Only the end of a scroll bar drag changes how the scroller looks.
++         // A press or release on its content redrew all of it, which on a CPU
++         // backend (Quartz on iOS) cost a draw of the whole scrolled area per
++         // tap.
++         else if (_tracking != none)
++         {
++            refresh(ctx);
++         }
+          _tracking = none;
+-         refresh(ctx);
+       }
+       return port_element::click(ctx, btn);
+    }
+@@ -575,13 +582,21 @@ namespace cycfi::elements
+       if (has_scrollbars())
+       {
+          scrollbar_bounds sb = get_scrollbar_bounds(ctx);
+-         if (sb.hscroll_bounds.includes(p) || sb.vscroll_bounds.includes(p))
+-         {
++         bool const on_bar = sb.hscroll_bounds.includes(p) || sb.vscroll_bounds.includes(p);
++         bool const over = on_bar && status != cursor_tracking::leaving;
++
++         // Redrawn while the pointer is on a scroll bar (its thumb lights up
++         // under it) and once as it leaves one, not on every move over the
++         // content: that redrew the whole scrolled area per mouse move, and on
++         // iOS per touch move.
++         if (over || _over_scrollbar)
+             ctx.view.refresh(ctx);
++         _over_scrollbar = over;
++         if (on_bar)
++         {
+             set_cursor(cursor_type::arrow);
+             return true;
+          }
+-         ctx.view.refresh(ctx);
+       }
+       return port_element::cursor(ctx, p, status);
+    }
+diff --git a/lib/src/view.cpp b/lib/src/view.cpp
+index 931ca1a5..97c41d17 100644
+--- a/lib/src/view.cpp
++++ b/lib/src/view.cpp
+@@ -4,6 +4,7 @@
+    Distributed under the MIT License [ https://opensource.org/licenses/MIT ]
+ =============================================================================*/
+ #include <elements/view.hpp>
++#include <elements/element/text.hpp>
+ #include <elements/window.hpp>
+ #include <elements/support/context.hpp>
+ #include <elements/support/log.hpp>
+@@ -276,15 +277,51 @@ namespace cycfi::elements
+ 
+       trace_new_gesture("click");
+       bool handled = false;
++
++      // The innermost focused element, to tell whether a click moved the
++      // focus.
++      auto const focus_leaf = [this]
++      {
++         element const* leaf = nullptr;
++         element const* e = _content.focus();
++         for (int depth = 0; e && e != leaf && depth < 64; ++depth)
++         {
++            leaf = e;
++            e = e->focus();
++         }
++         return leaf;
++      };
++      auto const is_text_box = [](element const* e)
++      {
++         return dynamic_cast<basic_text_box const*>(e) != nullptr;
++      };
++      auto const focused = focus_leaf();
++      // Asked now: the click may remove the element (a dialog it closes).
++      bool const focused_text_box = is_text_box(focused);
++
+       with_context_do(
+-         [btn, this, &handled](auto const& ctx, auto& _main_element)
++         [btn, this, &handled, focused, focused_text_box, &focus_leaf, &is_text_box](auto const& ctx, auto& _main_element)
+          {
+             handled = _main_element.click(ctx, btn);
+             if (handled)
+                _is_focus = _main_element.focus();
+             else if (btn.down)
+                elements::relinquish_focus(_content, ctx);
+-            refresh(_main_element);
++
++            // An element redraws what a click changed in it; the view is not
++            // redrawn whole on every press and release, which on a CPU
++            // backend (Quartz on iOS) cost two whole-window draws per tap.
++            // What focus shows is a text box's caret, so a text box that
++            // gains or loses the focus is redrawn (by address: the one that
++            // lost it may be gone, and is then simply not found).
++            auto const now = focus_leaf();
++            if (now != focused)
++            {
++               if (focused_text_box)
++                  refresh(const_cast<element&>(*focused));
++               if (is_text_box(now))
++                  refresh(const_cast<element&>(*now));
++            }
+          },
+          *this, _current_bounds
+       );

@@ -31,6 +31,7 @@
 #import <UIKit/UIKit.h>
 #import <CoreText/CoreText.h>
 #include <map>
+#include <vector>
 
 #if !defined(ARTIST_QUARTZ_2D)
 # error The UIKit host draws with Artist's Quartz 2D backend only
@@ -194,10 +195,17 @@ namespace
    // The two-finger pan, as scroll wheel deltas.
    UIPanGestureRecognizer*          _pan;
    CGPoint                          _pan_last;
+
+   // What was invalidated since the last draw (see drawRect:): each area
+   // apart, or the whole view.
+   std::vector<CGRect>              _pending_rects;
+   bool                             _pending_full;
 }
 
 - (void) on_tick;
 - (CGPoint) cursor_point;
+- (void) invalidate_all;
+- (void) invalidate_rect : (CGRect) area;
 
 @end
 
@@ -229,6 +237,10 @@ namespace
    self.contentScaleFactor = _scale;
    self.contentMode = UIViewContentModeRedraw;
    self.opaque = YES;
+   // drawRect: may paint only parts of the area it is given (the separate
+   // areas invalidated): the rest keeps what the backing store holds.
+   self.clearsContextBeforeDrawing = NO;
+   _pending_full = true;
    self.backgroundColor = [UIColor blackColor];
    self.multipleTouchEnabled = YES;
    self.clipsToBounds = YES;
@@ -308,8 +320,13 @@ namespace
 - (void) size_changed : (CGSize) old
 {
    auto const size = self.bounds.size;
-   if (_view && (size.width != old.width || size.height != old.height))
-      _view->on_size_change({float(size.width), float(size.height)});
+   if (size.width != old.width || size.height != old.height)
+   {
+      // UIKit redraws a resized view itself: all of it, not the areas pending.
+      _pending_full = true;
+      if (_view)
+         _view->on_size_change({float(size.width), float(size.height)});
+   }
 }
 
 - (void) didMoveToWindow
@@ -326,6 +343,7 @@ namespace
    if (scale != _scale)
    {
       _scale = scale;
+      _pending_full = true;
       self.contentScaleFactor = scale;
       if (_view)
          _view->on_scale_change(_scale);
@@ -340,13 +358,71 @@ namespace
    return YES;
 }
 
+// UIKit merges every area invalidated in a frame into one rectangle, so a
+// meter at each end of the window and a light in the middle cost a band
+// across all of it; Quartz draws on the CPU, and the time that takes is time
+// the touches wait. So each area invalidated is drawn apart, clipped to
+// itself (Elements draws only what meets the clip), and what lies between
+// them is left as it was. More than a few, or the whole view, or a draw
+// UIKit asks for itself (the first, a resize), draws the area given once.
 - (void) drawRect : (CGRect) dirty
 {
    if (!_view)
       return;
    auto context = UIGraphicsGetCurrentContext();
-   auto cnv = canvas{(cycfi::artist::canvas_impl*) context};
-   _view->draw(cnv);
+   auto rects = std::move(_pending_rects);
+   _pending_rects.clear();
+   bool const full = _pending_full || rects.empty() || rects.size() > 8;
+   _pending_full = false;
+
+   if (full)
+   {
+      auto cnv = canvas{(cycfi::artist::canvas_impl*) context};
+      _view->draw(cnv);
+      return;
+   }
+   for (auto const& r : rects)
+   {
+      auto const area = CGRectIntersection(r, dirty);
+      if (CGRectIsNull(area) || CGRectIsEmpty(area))
+         continue;
+      CGContextSaveGState(context);
+      CGContextClipToRect(context, area);
+      {
+         auto cnv = canvas{(cycfi::artist::canvas_impl*) context};
+         _view->draw(cnv);
+      }
+      CGContextRestoreGState(context);
+   }
+}
+
+- (void) invalidate_all
+{
+   _pending_full = true;
+   _pending_rects.clear();
+   [self setNeedsDisplay];
+}
+
+- (void) invalidate_rect : (CGRect) area
+{
+   // A pixel round it for antialiased edges, and areas that touch become one.
+   area = CGRectIntegral(CGRectInset(area, -1, -1));
+   if (!_pending_full)
+   {
+      bool merged = false;
+      for (auto& r : _pending_rects)
+      {
+         if (CGRectIntersectsRect(CGRectInset(r, -4, -4), area))
+         {
+            r = CGRectUnion(r, area);
+            merged = true;
+            break;
+         }
+      }
+      if (!merged)
+         _pending_rects.push_back(area);
+   }
+   [self setNeedsDisplayInRect : area];
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -612,14 +688,13 @@ namespace cycfi::elements
 
    void base_view::refresh()
    {
-      [get_view(host()) setNeedsDisplay];
+      [get_view(host()) invalidate_all];
    }
 
    void base_view::refresh(rect area)
    {
-      [get_view(host()) setNeedsDisplayInRect
-         : CGRectMake(area.left, area.top, area.width(), area.height())
-      ];
+      [get_view(host())
+         invalidate_rect : CGRectMake(area.left, area.top, area.width(), area.height())];
    }
 
    std::string clipboard()

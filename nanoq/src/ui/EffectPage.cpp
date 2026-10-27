@@ -815,12 +815,12 @@ void Shell::SyncEffectValues()
             const bool wasDragging = control.knob->Dragging();
             control.knob->Update(ParamValueToPosition(control.info, value), FormatParamValue(control.info, value));
             if (!wasDragging)
-                mSession.View().refresh(*control.knob);
+                mSession.Repaint(*control.knob);
         }
         else if (control.toggle)
         {
             control.toggle->Set(value > 0.5 * (control.info.minValue + control.info.maxValue));
-            mSession.View().refresh(*control.toggle);
+            mSession.Repaint(*control.toggle);
         }
         else if (control.picker)
         {
@@ -829,14 +829,14 @@ void Shell::SyncEffectValues()
                 index >= 0 && static_cast<std::size_t>(index) < control.info.labels.size())
                 text = control.info.labels[static_cast<std::size_t>(index)];
             control.picker->Label(text, 11.0f);
-            mSession.View().refresh(*control.picker);
+            mSession.Repaint(*control.picker);
         }
     }
 
     if (mBypass)
     {
         mBypass->Set(node->enabled);
-        mSession.View().refresh(*mBypass);
+        mSession.Repaint(*mBypass);
     }
 
     SyncLayoutControls();

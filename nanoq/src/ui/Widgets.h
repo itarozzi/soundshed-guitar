@@ -6,6 +6,7 @@
 // true here: each control is a small Elements element that paints from the theme and reports
 // gestures through a callback. Layout - rows, columns, margins, scrolling - is Elements' own.
 
+#include "ui/Drawn.h"
 #include "ui/Theme.h"
 #include "ui/TextDraw.h"
 
@@ -21,7 +22,7 @@ namespace nanoq::ui
 class Icons;
 
 /// A line of text. Truncated with an ellipsis when the space is short; it never wraps.
-class Text : public el::element
+class Text : public el::element, public Drawn
 {
 public:
     using Align = HAlign;
@@ -76,7 +77,7 @@ private:
 };
 
 /// A push button or, with Toggle(), a switch. Text, or text with a leading dot for a state.
-class Button : public el::element
+class Button : public el::element, public Drawn
 {
 public:
     enum class Style
@@ -140,7 +141,7 @@ private:
 
 /// One effect parameter: its name, its value as text, and a track to drag. The value is
 /// normalised 0..1 (the control does not know the parameter's range); the owner formats it.
-class ParamSlider : public el::element
+class ParamSlider : public el::element, public Drawn
 {
 public:
     ParamSlider(const Theme& theme, std::string name);
@@ -182,7 +183,7 @@ private:
 /// One effect parameter as a rotary knob, as the web app draws it: the name over the knob, the
 /// value text under it. Drag up or down to turn (200 px for the full travel), wheel to nudge,
 /// double click to reset. The value is normalised 0..1, as for ParamSlider.
-class ParamKnob : public el::element
+class ParamKnob : public el::element, public Drawn
 {
 public:
     ParamKnob(const Theme& theme, std::string name);
@@ -258,7 +259,7 @@ private:
 
 /// A level bar: -60 dB to 0 dB, with a clip tint. Horizontal, or with Vertical() the web UI's
 /// Controls strip meter: a column of segments under the peak in dB.
-class MeterBar : public el::element
+class MeterBar : public el::element, public Drawn
 {
 public:
     explicit MeterBar(const Theme& theme);

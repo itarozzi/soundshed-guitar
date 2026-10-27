@@ -10,6 +10,7 @@
 // put a band back. Changes are reported through onBandChange; the owner sets the parameters and
 // asks for the new curve.
 
+#include "ui/Drawn.h"
 #include "ui/Theme.h"
 #include "uiclient/Analysis.h"
 #include "uiclient/ClientState.h"
@@ -38,7 +39,7 @@ struct PlotBand
     double qMin = 0.1, qMax = 10.0;
 };
 
-class ResponsePlot : public el::element
+class ResponsePlot : public el::element, public Drawn
 {
 public:
     explicit ResponsePlot(const Theme& theme);

@@ -47,7 +47,7 @@ Ptr Shell::BuildInputLevellingButton(std::vector<guitarfx::uiclient::Subscriptio
     auto sync = [this, button] {
         const auto& levelling = mState.inputLevelling;
         button->Lit(!levelling.trainingActive && levelling.Active() != nullptr);
-        mSession.View().refresh(*button);
+        mSession.Repaint(*button);
     };
     subs.push_back(mSession.Client().Subscribe(Topic::InputLevelling, sync));
     if (!mState.inputLevelling.known)
