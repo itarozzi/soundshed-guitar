@@ -159,6 +159,7 @@ void UiClient::RegisterAnalysisHandlers()
     // ── Replies to the editors' requests ─────────────────────────────────────
     On("effectResponse", [this](const nlohmann::json& m) { mAnalysis->OnEffectResponse(m); });
     On("irAlignment", [this](const nlohmann::json& m) { mAnalysis->OnIrAlignment(m); });
+    On("irAlignmentResponse", [this](const nlohmann::json& m) { mAnalysis->OnIrAlignmentResponse(m); });
     On("simpleCabIrMatch", [this](const nlohmann::json& m) { mAnalysis->OnSimpleCabMatch(m); });
 }
 } // namespace guitarfx::uiclient

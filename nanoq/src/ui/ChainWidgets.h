@@ -527,6 +527,22 @@ public:
         return {{kConnectorWidth, kCardHeight}, {mStretch ? el::full_extent : kConnectorWidth, el::full_extent}};
     }
 
+    /// The node whose signal this cable carries (its edge's source), or "" for a drawing-only one.
+    [[nodiscard]] std::string Source() const
+    {
+        return mEdge ? mEdge->from : std::string();
+    }
+
+    /// Lights the cable with the signal (uiclient's SignalFlow): green, with pulses running down
+    /// it, `phase` (0..1) along their 18 px spacing. Returns true when it needs a redraw.
+    bool SetFlow(bool live, float phase)
+    {
+        const bool changed = live != mLive || (live && phase != mPhase);
+        mLive = live;
+        mPhase = phase;
+        return changed;
+    }
+
     void draw(const el::context& ctx) override
     {
         auto& cnv = ctx.canvas;
@@ -537,16 +553,52 @@ public:
             mHits->NoteCable(*mEdge, b);
         const bool dropHere = mHits && mEdge && mHits->hoverEdge && *mHits->hoverEdge == *mEdge;
 
+        // A live cable (.signal-live): the hot route colour with a glow, and bright pulses
+        // running toward what it feeds.
+        if (mLive && !dropHere)
+        {
+            const auto hot = el::rgba(72, 224, 120, 255);
+            auto state = cnv.new_state();
+            cnv.line_cap(artist::canvas::round);
+            cnv.stroke_style(hot.opacity(0.25f));
+            cnv.line_width(7.0f);
+            cnv.begin_path();
+            cnv.move_to(b.left + 1.5f, y);
+            cnv.line_to(b.right - 1.5f, y);
+            cnv.stroke();
+            cnv.stroke_style(hot);
+            cnv.line_width(3.0f);
+            cnv.begin_path();
+            cnv.move_to(b.left + 1.5f, y);
+            cnv.line_to(b.right - 1.5f, y);
+            cnv.stroke();
+            cnv.add_rect(el::rect{b.left + 1.5f, y - 2.0f, b.right - 1.5f, y + 2.0f});
+            cnv.clip();
+            constexpr float kSpacing = 18.0f;
+            for (float x = b.left - kSpacing + mPhase * kSpacing; x < b.right; x += kSpacing)
+            {
+                artist::canvas::linear_gradient pulse{el::point{x, y}, el::point{x + kSpacing, y}};
+                pulse.add_color_stop(0.0f, hot.opacity(0.0f));
+                pulse.add_color_stop(0.5f, el::rgba(220, 255, 230, 230));
+                pulse.add_color_stop(1.0f, hot.opacity(0.0f));
+                cnv.fill_style(pulse);
+                cnv.fill_rect(el::rect{x, y - 2.0f, x + kSpacing, y + 2.0f});
+            }
+        }
+
         // The cable (.signal-connector: 3 px, the route colour at 55%) with an arrowhead into
         // what it feeds, in the full colour; the accent where a dragged card would land.
-        const auto route = dropHere ? mTheme.Accent() : CableColour(mTheme);
-        cnv.stroke_style(route.opacity(0.55f));
-        cnv.line_width(3.0f);
-        cnv.line_cap(artist::canvas::round);
-        cnv.begin_path();
-        cnv.move_to(b.left + 1.5f, y);
-        cnv.line_to(b.right - 1.5f, y);
-        cnv.stroke();
+        const auto route = dropHere ? mTheme.Accent() : mLive ? el::rgba(72, 224, 120, 255) : CableColour(mTheme);
+        if (!mLive || dropHere)
+        {
+            cnv.stroke_style(route.opacity(0.55f));
+            cnv.line_width(3.0f);
+            cnv.line_cap(artist::canvas::round);
+            cnv.begin_path();
+            cnv.move_to(b.left + 1.5f, y);
+            cnv.line_to(b.right - 1.5f, y);
+            cnv.stroke();
+        }
         cnv.stroke_style(route);
         cnv.line_width(1.5f);
         cnv.begin_path();
@@ -627,6 +679,8 @@ public:
     }
 
 private:
+    bool mLive = false;
+    float mPhase = 0.0f;
     /// Where the + sits: two fifths along the cable (--signal-add-anchor-x: 40%).
     static el::point PlusCentre(const el::rect& b)
     {

@@ -148,6 +148,26 @@ void ResponsePlot::draw(const el::context& ctx)
         DrawSpectrum(cnv, plot);
         DrawBands(cnv, plot);
 
+        // The reference, dashed: 6 px drawn, 4 px left out.
+        if (mReference && mReference->frequencies.size() >= 2)
+        {
+            cnv.stroke_style(mTheme.TextMuted().opacity(0.8f));
+            cnv.line_width(1.25f);
+            for (float start = plot.left; start < plot.right; start += 10.0f)
+            {
+                cnv.begin_path();
+                for (float x = start; x <= std::min(start + 6.0f, plot.right); x += 1.0f)
+                {
+                    const float y = DbToY(plot, ResponseDbAt(*mReference, XToFreq(plot, x)));
+                    if (x == start)
+                        cnv.move_to(x, y);
+                    else
+                        cnv.line_to(x, y);
+                }
+                cnv.stroke();
+            }
+        }
+
         if (mCurve && mCurve->frequencies.size() >= 2)
         {
             cnv.stroke_style(mTheme.PlotCurve());

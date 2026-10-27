@@ -78,6 +78,7 @@ Ptr Shell::BuildChain()
     using namespace guitarfx::uiclient;
 
     mChainCards.clear();
+    mChainCables.clear();
     mHitMap = std::make_shared<chain::HitMap>();
     if (!mState.activePreset)
         return VGap(0);
@@ -189,6 +190,7 @@ Ptr Shell::BuildChain()
                 connector->Edge(mHitMap, edge);
                 break;
             }
+        mChainCables.push_back(connector);
         return connector;
     };
 
@@ -415,6 +417,26 @@ void Shell::SyncChainLights()
         if (card->SetLight(light))
             mSession.View().refresh(*card);
     }
+}
+
+void Shell::SyncSignalFlow()
+{
+    // The cables light with the signal while Animate signal flow is on (web: signalFlow.ts).
+    const bool enabled = guitarfx::uiclient::IsSignalFlowAnimationEnabled(mState);
+    if (enabled)
+        mSignalFlow.Update(mState, UiSession::Now());
+    if (!enabled && !mSignalFlowLit)
+        return;
+    mSignalFlowLit = enabled && mSignalFlow.AnyLive();
+    // The pulses move one spacing every 0.4 s, as the web UI's animation does.
+    const float phase = static_cast<float>(std::fmod(UiSession::Now() / 0.4, 1.0));
+    for (const auto& weak : mChainCables)
+        if (const auto cable = weak.lock())
+        {
+            const auto from = cable->Source();
+            if (cable->SetFlow(enabled && !from.empty() && mSignalFlow.IsLive(from), phase))
+                mSession.View().refresh(*cable);
+        }
 }
 
 void Shell::DragCard(const std::string& nodeId, el::point from, el::point to, bool done)

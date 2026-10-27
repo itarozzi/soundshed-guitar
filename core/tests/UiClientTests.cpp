@@ -13,7 +13,9 @@
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
+#include <cmath>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <iostream>
 #include <optional>
@@ -30,6 +32,8 @@
 #include "presets/PresetStorage.h"
 #include "net/Http.h"
 #include "uiclient/Analysis.h"
+#include "uiclient/DspStatus.h"
+#include "uiclient/SignalFlow.h"
 #include "uiclient/ChainDropRules.h"
 #include "uiclient/ChainHistory.h"
 #include "uiclient/ChainLayout.h"
@@ -48,6 +52,8 @@
 #include "uiclient/UiClient.h"
 #include "uiclient/UiClientParsing.h"
 #include "uiclient/UiCommands.h"
+#include "util/PathEncoding.h"
+#include "util/Wav.h"
 
 namespace fs = std::filesystem;
 using namespace guitarfx;
@@ -1226,6 +1232,213 @@ void TestAnalysis()
     Expect(DecodeFloat32Base64("AACAPwAAAMA=") == std::vector<float>{1.0f, -2.0f}, "float32 samples from base64");
 }
 
+// The IR Cabinet's Alignment section: where IR B lines up, and the two summed, from a real engine;
+// then the summed response's coalescing on its own.
+void TestIrAlignmentResponse()
+{
+    {
+        const auto dir = Sandbox("ir-alignment");
+        // A decaying cabinet-ish IR, and the same one 20 samples later as IR B.
+        const auto writeIr = [&dir](const char* name, int onset) {
+            std::vector<float> samples(2400, 0.0f);
+            for (std::size_t n = static_cast<std::size_t>(onset); n < samples.size(); ++n)
+            {
+                const double t = static_cast<double>(n - static_cast<std::size_t>(onset)) / 48000.0;
+                samples[n] = static_cast<float>(0.5 * std::exp(-t / 0.004) *
+                                                (std::sin(2.0 * 3.14159265358979 * 900.0 * t) +
+                                                 0.5 * std::sin(2.0 * 3.14159265358979 * 2700.0 * t)));
+            }
+            const std::vector<const std::vector<float>*> channels{&samples};
+            const auto bytes = util::Encode16BitWav(channels, 48000);
+            const auto path = dir / name;
+            std::ofstream(path, std::ios::binary).write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+            return nlohmann::json{{"resourceType", "ir"}, {"filePath", util::PathToUtf8(path)}};
+        };
+        const auto irA = writeIr("a.wav", 10);
+        const auto irB = writeIr("b.wav", 30);
+
+        LoopbackHost host(dir);
+        PluginController controller(host);
+        controller.Initialize();
+        UiClient client([&controller](const std::string& json) { controller.HandleUIMessage(json); });
+        host.client = &client;
+        auto& analysis = client.GetAnalysis();
+
+        std::optional<IrAlignment> alignment;
+        analysis.AnalyzeIrAlignment(irA, irB, [&](const std::optional<IrAlignment>& a, const std::string&) { alignment = a; });
+        Pump(controller, client);
+        Expect(alignment && std::abs(alignment->alignedOffsetMs + 20.0 / 48.0) < 0.01 && !alignment->invertB,
+               "B 20 samples late lines up 0.42 ms earlier, not inverted");
+
+        std::optional<IrAlignmentResponse> lined;
+        analysis.RequestIrAlignmentResponse(irA, irB, {{"irBlend", 0.5}}, alignment ? alignment->alignedOffsetMs : 0.0,
+                                            [&](const std::optional<IrAlignmentResponse>& r, const std::string&) { lined = r; });
+        Pump(controller, client);
+        Expect(lined && lined->slots == "both" &&
+                   lined->frequencies.size() == static_cast<std::size_t>(Analysis::kResponsePoints) &&
+                   lined->unrelatedDb.size() == lined->frequencies.size(),
+               "a pair's summed response comes with the curve to compare it with");
+        // Lined up, one IR with itself sums 3 dB over the two added without interfering.
+        const auto gainAt = [](const IrAlignmentResponse& r, double hz) {
+            return ResponseDbAt(r.frequencies, r.summedDb, hz) - ResponseDbAt(r.frequencies, r.unrelatedDb, hz);
+        };
+        Expect(lined && std::abs(gainAt(*lined, 900.0) - 3.0) < 0.3 && std::abs(gainAt(*lined, 2700.0) - 3.0) < 0.3,
+               "lined up, the pair reinforces");
+
+        std::optional<IrAlignmentResponse> combed;
+        analysis.RequestIrAlignmentResponse(irA, irB, {{"irBlend", 0.5}, {"slotBOffset", 0.0}}, 0.0,
+                                            [&](const std::optional<IrAlignmentResponse>& r, const std::string&) { combed = r; });
+        Pump(controller, client);
+        // 20 samples apart, they cancel at 1.2 kHz (half a period of 20 samples).
+        Expect(combed && gainAt(*combed, 1200.0) < -10.0, "left 0.42 ms apart, they comb-filter");
+
+        std::optional<IrAlignment> lone;
+        analysis.AnalyzeIrAlignment(irA, nullptr, [&](const std::optional<IrAlignment>& a, const std::string&) { lone = a; });
+        Pump(controller, client);
+        Expect(lone && !lone->waveformA.empty() && lone->waveformB.empty() && lone->matchByOffset.size() == 1,
+               "one IR is analysed alone: its waveform, nothing to align");
+
+        std::optional<IrAlignmentResponse> single;
+        analysis.RequestIrAlignmentResponse(irA, nullptr, {}, 0.0,
+                                            [&](const std::optional<IrAlignmentResponse>& r, const std::string&) { single = r; });
+        Pump(controller, client);
+        Expect(single && single->slots == "a" && single->unrelatedDb.empty(), "one IR alone has nothing to compare");
+
+        std::string error;
+        analysis.RequestIrAlignmentResponse(irA, nlohmann::json{{"resourceType", "ir"}, {"filePath", util::PathToUtf8(dir / "none.wav")}},
+                                            {}, 0.0, [&](const std::optional<IrAlignmentResponse>&, const std::string& e) { error = e; });
+        Pump(controller, client);
+        Expect(error == "IR B could not be read", "a missing IR is reported");
+    }
+
+    std::vector<nlohmann::json> sent;
+    UiClient client([&sent](const std::string& json) { sent.push_back(nlohmann::json::parse(json)); });
+    auto& analysis = client.GetAnalysis();
+    const auto requests = [&sent] {
+        std::vector<nlohmann::json> out;
+        for (const auto& m : sent)
+            if (m.value("type", "") == "getIrAlignmentResponse")
+                out.push_back(m);
+        return out;
+    };
+    std::vector<std::string> answered;
+    const nlohmann::json ir = {{"resourceId", "a"}};
+    analysis.RequestIrAlignmentResponse(ir, ir, {}, 0.1, [&](auto&, auto&) { answered.push_back("first"); });
+    analysis.RequestIrAlignmentResponse(ir, ir, {}, 0.2, [&](auto&, auto&) { answered.push_back("skipped"); });
+    analysis.RequestIrAlignmentResponse(ir, ir, {}, 0.3, [&](auto&, auto&) { answered.push_back("newest"); });
+    Expect(requests().size() == 1 && requests()[0]["offsetMs"] == 0.1 && requests()[0]["points"] == Analysis::kResponsePoints,
+           "one response request out at a time");
+    client.Enqueue(nlohmann::json{{"type", "irAlignmentResponse"}, {"requestId", requests()[0]["requestId"]}, {"slots", "both"},
+                                  {"frequencies", {20, 20000}}, {"summedDb", {1, 2}}, {"unrelatedDb", {0, 1}}}
+                       .dump());
+    client.DrainPending();
+    Expect(requests().size() == 2 && requests()[1]["offsetMs"] == 0.3, "the newest follows, the middle one folded away");
+    client.Tick(10.0);
+    Expect((answered == std::vector<std::string>{"first", "newest"}), "an unanswered request is given up on, its callback told");
+    Expect(!ParseIrAlignmentResponse({{"frequencies", {20, 20000}}, {"summedDb", {1, 2}}}),
+           "a pair's reply without the curve to compare it with is malformed");
+}
+
+// What the effect editors' live sections print: Gate Learn's line, the Signal Analyzer's
+// readouts, Pickup Match's custom design, and the DSP status tiles.
+void TestAnalysisPresentation()
+{
+    Expect(GateLearnStatusText(nullptr, -80.0) == "Mute the strings, then Learn.", "Learn before any listen");
+    GateLearnStatus done{"done"};
+    done.noiseFloorDb = -92.0;
+    done.thresholdDb = -76.0;
+    Expect(GateLearnStatusText(&done, -80.0) == "Noise under \xE2\x88\x92" "80 dB \xC2\xB7 threshold set to \xE2\x88\x92" "76 dB",
+           "noise below the meter reads as under its floor");
+    GateLearnStatus failed{"failed"};
+    failed.reason = "playing";
+    Expect(GateLearnStatusText(&failed, -80.0) == "Heard playing. Mute the strings and try again.", "a refused listen says why");
+
+    AnalyzerFrame frame;
+    frame.peakPercent = 50.0;
+    frame.rmsPercent = 10.0;
+    frame.momentaryLufs = -18.25;
+    frame.loudnessValid = true;
+    frame.activeChannelCount = 1;
+    auto readouts = AnalyzerReadouts(&frame, 2);
+    Expect(readouts.size() == 11 && readouts[0].value == "-6.0 dBFS" && readouts[2].value == "50.0 %", "peak in dBFS and %FS");
+    Expect(readouts[7].value == "-18.2 LUFS" || readouts[7].value == "-18.3 LUFS", "momentary loudness");
+    Expect(readouts[8].value == "\xE2\x80\x94", "a window not yet filled reads as a dash");
+    Expect(readouts[10].value == "Stereo" && readouts[10].hint == "one side silent", "the layout, with what is measured as a hint");
+    Expect(AnalyzerReadouts(nullptr, 0)[0].value == "\xE2\x80\x94", "no frame: dashes");
+
+    const std::map<std::string, double> summary = {{"targetWireLengthM", 1191.4}, {"targetInductanceH", 2.66}, {"targetResistanceKohm", 6.5},
+                                                   {"targetCapacitancePf", 118.0}, {"targetPeakHz", 3400.0},  {"targetQ", 1.42},
+                                                   {"targetLevelDb", -0.4}};
+    Expect(PickupDesignSummary(summary, "target") ==
+               "1,191 m of wire \xC2\xB7 2.66 H \xC2\xB7 6.50 k\xCE\xA9 \xC2\xB7 118 pF \xE2\x86\x92 peak 3.40 kHz, Q 1.42, output \xE2\x88\x92" "0.4 dB",
+           "a custom design's build, as the web UI words it");
+    Expect(PickupDesignSummary(summary, "source").empty(), "a side with no design figures says nothing");
+
+    ClientState state;
+    Expect(ShownDspStatusItems(state, EffectDspStatus()).size() == 4, "an effect's readout starts with its defaults");
+    state.appSettings["ui.dspStatus.items"] = nlohmann::json::array({"latency", "dspLoad", "momentary", "latency"});
+    const auto shown = ShownDspStatusItems(state, EffectDspStatus());
+    Expect((shown == std::vector<DspStatusItem>{DspStatusItem::Latency, DspStatusItem::Momentary}) && ShowsLoudness(shown),
+           "the stored choice, kept to what this readout can show, each once");
+    Expect(DspStatusSettingValue(shown) == nlohmann::json::array({"latency", "momentary"}), "the choice as the setting stores it");
+
+    state.telemetry.nodes["p1::amp"] = LevelReading{-6.0, -12.0, 0, false, 2};
+    state.telemetry.nodeProcessingUs["p1::amp"] = 25.0;
+    state.telemetry.totalProcessingUs = 100.0;
+    state.telemetry.nodeLatencySamples["p1::amp"] = 48.0;
+    state.telemetry.sampleRate = 48000.0;
+    state.telemetry.frameCounter = 1;
+    DspStatusMeter meter("p1::amp");
+    meter.Update(state, 0.0);
+    Expect(meter.Value(DspStatusItem::Peak) == "-6.0 dBFS" && meter.Value(DspStatusItem::Headroom) == "6.0 dB", "a node's levels");
+    Expect(meter.Value(DspStatusItem::Processing) == "25.0 \xCE\xBCs (25.0%)", "its time and share of all processing");
+    Expect(meter.Value(DspStatusItem::Latency) == "48 smp (1.00 ms)", "its latency");
+    Expect(meter.TakeRenderTurn(0.0) && !meter.TakeRenderTurn(0.2) && meter.TakeRenderTurn(0.6), "redrawn twice a second");
+
+    state.telemetry.peakDspLoadPercent = 40.0;
+    DspStatusMeter output;
+    output.Update(state, 0.0);
+    state.telemetry.peakDspLoadPercent = 10.0;
+    state.telemetry.frameCounter = 2;
+    output.Update(state, 5.0);
+    Expect(output.Value(DspStatusItem::DspPeak) == "40.0%", "the load peak holds the worst block of the window");
+    output.Update(state, 11.0);
+    Expect(output.Value(DspStatusItem::DspPeak) == "10.0%", "and lets it go after ten seconds");
+    Expect(output.Value(DspStatusItem::Latency) == "0 smp (0.00 ms)", "a whole chain's zero latency is a figure");
+}
+
+// Which cables light with the signal (signalFlow.ts): a node without its own reading hears what
+// feeds it, and a node stays lit a moment through quiet.
+void TestSignalFlow()
+{
+    ClientState state;
+    Expect(!IsSignalFlowAnimationEnabled(state), "off unless turned on");
+    state.appSettings[kSignalFlowAnimationSetting] = true;
+    Expect(IsSignalFlowAnimationEnabled(state), "the setting turns it on");
+
+    Preset preset;
+    preset.id = "p1";
+    preset.graph.nodes = {Node("__input__", kNodeTypeInput), Node("split", "splitter"), Node("amp", EffectGuids::kGain),
+                          Node("__output__", kNodeTypeOutput)};
+    preset.graph.edges = {GraphEdge{"__input__", "split", 0, 0, 1.0}, GraphEdge{"split", "amp", 0, 0, 1.0},
+                          GraphEdge{"amp", "__output__", 0, 0, 1.0}};
+    state.activePreset = preset;
+    state.activePresetId = "p1";
+    state.telemetry.input.rmsDb = -30.0;
+    state.telemetry.output.rmsDb = -80.0;
+    state.telemetry.nodes["p1::amp"] = LevelReading{-20.0, -70.0, 0, false, 1};
+
+    SignalFlow flow;
+    Expect(flow.Update(state, 0.0), "the first frame changes what is lit");
+    Expect(flow.IsLive("__input__") && flow.IsLive("split") && !flow.IsLive("amp") && !flow.IsLive("__output__"),
+           "a node with no reading hears its source; a quiet one is dark");
+    state.telemetry.input.rmsDb = -120.0;
+    flow.Update(state, 0.2);
+    Expect(flow.IsLive("__input__"), "held through a short quiet");
+    flow.Update(state, 0.5);
+    Expect(!flow.AnyLive(), "and let go after it");
+}
+
 int main()
 {
     TestClientMirrorsTheEngine();
@@ -1239,6 +1452,9 @@ int main()
     TestPresetTrail();
     TestResourceIndex();
     TestAnalysis();
+    TestAnalysisPresentation();
+    TestSignalFlow();
+    TestIrAlignmentResponse();
     TestNodeArchitectureBadge();
     TestPresetBrowse();
     TestParamFormatting();

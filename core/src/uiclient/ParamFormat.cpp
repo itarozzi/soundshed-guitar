@@ -4,6 +4,7 @@
 
 #include "uiclient/ParamFormat.h"
 
+#include "dsp/EffectGuids.h"
 #include "dsp/ParamTaper.h"
 
 #include <algorithm>
@@ -152,6 +153,13 @@ double NodeParamValue(const GraphNode& node, const EffectParamInfo& param)
 
 bool IsParamVisible(const EffectParamInfo& param, const GraphNode& node, const EffectTypeInfo* type)
 {
+    // The IR Cabinet's IR B offset is set in its Alignment section, which draws what it does
+    // (irAlignmentPanel.ts IR_ALIGNMENT_PARAM_KEYS): a knob as well would only repeat it.
+    if (param.key == "slotBOffset" && type != nullptr && type->type == EffectGuids::kCabIr)
+    {
+        return false;
+    }
+
     if (param.visibleWhenKey.empty())
     {
         return true;

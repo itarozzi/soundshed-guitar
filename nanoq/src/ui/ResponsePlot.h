@@ -69,6 +69,13 @@ public:
         mCurve = std::move(curve);
     }
 
+    /// A second curve drawn dashed behind the first, to compare it with (the IR Cabinet's two
+    /// IRs added without interfering); nothing draws none.
+    void SetReference(std::optional<guitarfx::uiclient::ResponseCurve> reference)
+    {
+        mReference = std::move(reference);
+    }
+
     /// The input's spectrum behind the curve, or null to clear it. Returns true when it changed.
     bool SetSpectrum(const guitarfx::uiclient::NodeSpectrum* spectrum);
 
@@ -116,6 +123,7 @@ private:
     double mMaxDb = 18.0;
     double mGridStepDb = 9.0;
     std::optional<guitarfx::uiclient::ResponseCurve> mCurve;
+    std::optional<guitarfx::uiclient::ResponseCurve> mReference;
     std::optional<guitarfx::uiclient::NodeSpectrum> mSpectrum;
     std::vector<PlotBand> mBands;
     int mDragBand = -1;

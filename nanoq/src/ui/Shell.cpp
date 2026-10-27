@@ -81,6 +81,8 @@ void Shell::Subscribe()
     mSubscriptions.push_back(client.Subscribe(Topic::Analysis, [this] {
         if (!mGateLearnViews.empty())
             SyncGateLearn();
+        if (!mSpatialPanner.expired() || !mAnalyzerPanel.expired())
+            SyncLiveSection();
     }));
 
     // Every change the engine reports to the preset may be an edit for the chain's history.
@@ -369,6 +371,8 @@ void Shell::OnTick()
 
     SyncEqPlotFeeds();
     SyncIrExport();
+    SyncDspStatus();
+    SyncSignalFlow();
 }
 
 // ── Selection and pages ─────────────────────────────────────────────────────────

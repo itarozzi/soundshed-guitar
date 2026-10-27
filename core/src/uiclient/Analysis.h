@@ -62,6 +62,17 @@ struct IrAlignment
     std::vector<double> matchByOffset; // -maxOffsetSamples first
 };
 
+/// The reply to getIrAlignmentResponse (irAlignment.ts AlignmentResponse): the IR Cabinet's two
+/// IRs summed as the cab plays them, with B moved by the offset.
+struct IrAlignmentResponse
+{
+    std::string slots = "both"; // "both", or "a" / "b" for one IR alone
+    double offsetMs = 0.0;
+    std::vector<double> frequencies; // Hz, rising
+    std::vector<double> summedDb;    // the two summed
+    std::vector<double> unrelatedDb; // their powers summed (where summedDb is below, they cancel); empty for one IR
+};
+
 /// The reply to matchSimpleCabToIr.
 struct SimpleCabMatch
 {
@@ -93,11 +104,34 @@ struct NodeAddress
 /// what it heard and set. `floorDb` is the meter's bottom; quieter noise reads as under it.
 [[nodiscard]] std::string GateLearnStatusText(const GateLearnStatus* status, double floorDb);
 
+/// One figure of a Signal Analyzer node's readout: its label, its value ("\xE2\x80\x94" while
+/// there is none) and, for Channels, a hint when the measurement disagrees with the layout.
+struct AnalyzerReadout
+{
+    std::string label;
+    std::string value;
+    std::string hint;
+};
+
+/// The Signal Analyzer's readouts in the web UI's order (telemetry.ts): peak and RMS in dBFS
+/// and %FS, RMS in dBu, dBV and volts, the three loudness windows, and the channels the engine
+/// runs the node in (`configuredChannels`, 0 when unknown) against what it measures.
+[[nodiscard]] std::vector<AnalyzerReadout> AnalyzerReadouts(const AnalyzerFrame* frame, int configuredChannels);
+
+/// A Pickup Match side's predicted build from its curve's summary (pickupResponse.ts
+/// describeDesign): "1,191 m of wire \xC2\xB7 2.66 H \xC2\xB7 6.50 k\xCE\xA9 \xC2\xB7 118 pF \xE2\x86\x92 peak 3.40 kHz,
+/// Q 1.42, output +0.4 dB". Empty unless the side is a custom design (only those are summed up).
+/// `side` is "source" or "target".
+[[nodiscard]] std::string PickupDesignSummary(const std::map<std::string, double>& summary, const std::string& side);
+
 /// Parses an effectResponse reply; nothing when it is not supported or malformed.
 [[nodiscard]] std::optional<ResponseCurve> ParseResponseCurve(const nlohmann::json& reply);
 
 /// Parses an irAlignment reply; nothing when it carries an error or is malformed.
 [[nodiscard]] std::optional<IrAlignment> ParseIrAlignment(const nlohmann::json& reply);
+
+/// Parses an irAlignmentResponse reply; nothing when it carries an error or is malformed.
+[[nodiscard]] std::optional<IrAlignmentResponse> ParseIrAlignmentResponse(const nlohmann::json& reply);
 
 class Analysis
 {
@@ -112,6 +146,8 @@ public:
     using ResponseCallback = std::function<void(const std::optional<ResponseCurve>&)>;
     using IrAlignmentCallback = std::function<void(const std::optional<IrAlignment>&, const std::string& error)>;
     using MatchCallback = std::function<void(const std::optional<SimpleCabMatch>&, const std::string& error)>;
+    using IrAlignmentResponseCallback =
+        std::function<void(const std::optional<IrAlignmentResponse>&, const std::string& error)>;
 
     explicit Analysis(UiClient& client);
 
@@ -136,6 +172,12 @@ public:
     /// Where an IR Cabinet's IR B lines up with IR A; each the slot's ref as the node holds
     /// it, or null for an empty slot. A newer request supersedes one still out.
     void AnalyzeIrAlignment(const nlohmann::json& irA, const nlohmann::json& irB, IrAlignmentCallback callback);
+    /// The two IRs summed as the cab with `params` plays them, B `offsetMs` later (null for an
+    /// empty slot). Coalesced as the response curves are: one out at a time, and a later request
+    /// replaces one waiting (whose callback is never called). One unanswered for
+    /// kResponseTimeoutSeconds is given up on, and its callback told so.
+    void RequestIrAlignmentResponse(const nlohmann::json& irA, const nlohmann::json& irB, const nlohmann::json& params,
+                                    double offsetMs, IrAlignmentResponseCallback callback);
     /// The Simple Cabinet settings closest to library IR `resourceId`.
     void MatchSimpleCabToIr(const std::string& resourceId, MatchCallback callback);
     /// Renders an effect as an IR into the library; the result arrives as resourceImports[id].
@@ -148,6 +190,7 @@ public:
     void Tick(double nowSeconds);
     void OnEffectResponse(const nlohmann::json& reply);
     void OnIrAlignment(const nlohmann::json& reply);
+    void OnIrAlignmentResponse(const nlohmann::json& reply);
     void OnSimpleCabMatch(const nlohmann::json& reply);
 
 private:
@@ -168,6 +211,18 @@ private:
     };
 
     void SendCurve(const std::string& laneName, Lane& lane, CurveRequest request);
+
+    struct AlignmentResponseRequest
+    {
+        nlohmann::json irA;
+        nlohmann::json irB;
+        nlohmann::json params;
+        double offsetMs = 0.0;
+        IrAlignmentResponseCallback callback;
+    };
+
+    void SendAlignmentResponse(AlignmentResponseRequest request);
+    void FinishAlignmentResponse(const std::optional<IrAlignmentResponse>& response, const std::string& error);
     std::string NextId(const char* kind);
 
     UiClient& mClient;
@@ -183,6 +238,10 @@ private:
     std::string mAlignmentId;
     double mAlignmentSentAt = 0.0;
     IrAlignmentCallback mAlignmentCallback;
+    std::string mAlignmentResponseId;
+    double mAlignmentResponseSentAt = 0.0;
+    std::optional<AlignmentResponseRequest> mAlignmentResponseInFlight;
+    std::optional<AlignmentResponseRequest> mAlignmentResponseQueued;
     std::string mMatchId;
     double mMatchSentAt = 0.0;
     MatchCallback mMatchCallback;

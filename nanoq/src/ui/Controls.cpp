@@ -211,9 +211,12 @@ Shell::ControlCells Shell::BuildControlCells(std::vector<guitarfx::uiclient::Sub
                             [chain] { return NodeEnabled(chain().postChainGraph, "global_doubler"); },
                             [&commands](bool on) { commands.SetGlobalChainToggle("doubler.enabled", on); });
 
-    // ── OUT, with mute under its meter ──
+    // ── OUT, with mute under its meter, and the output's status readout behind Status ──
+    auto outStatus = std::make_shared<IconButton>(mTheme, mIcons, "");
+    outStatus->Size(70, 16).Label("Status", 10.0f).Caret(true).Ink(mTheme.TextSecondary());
+    outStatus->onClick = [this, o = outStatus.get()] { OpenOutputStatus(o->Bounds()); };
     auto out = knobCell("OUT", Param("outputGain", "Out", "dB", -12.0, 12.0, 0.0), [chain] { return chain().outputGain; },
-                        [&commands](double v) { commands.SetGlobalChainParam("output.gain", v); }, Decibels);
+                        [&commands](double v) { commands.SetGlobalChainParam("output.gain", v); }, Decibels, {}, {}, outStatus);
 
     auto inMeter = std::make_shared<MeterBar>(mTheme);
     inMeter->Vertical(true);

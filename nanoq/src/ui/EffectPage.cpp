@@ -270,6 +270,7 @@ Ptr Shell::BuildEffectPage()
     mBypass.reset();
     mHeaderLed.reset();
     mEffectPlot.reset();
+    mEffectDspStatus.reset();
 
     const auto* node = SelectedNode();
     if (node == nullptr)
@@ -375,6 +376,9 @@ Ptr Shell::BuildEffectPage()
                 knob->SetValueText(FormatParamValue(info, value));
                 mSession.Commands().SetNodeParam(nodeId, info.key, value);
                 NoteChainEdit();
+                // The sections drawn from the values (a curve, the IR alignment) follow the turn;
+                // the knob being turned ignores the sync.
+                Mark(kValues);
                 if (stepped)
                     Mark(kPage); // a visibleWhen on this enum may show or hide others
             };
@@ -459,7 +463,9 @@ Ptr Shell::BuildEffectPage()
     const float artRoom = hasArt ? kArtWidth + kArtGap : 0.0f;
 
     const float maxPanel = std::max(kPanelMinWidth, stageWidth - 20.0f);
-    const float panelWidth = (hasSlots || hasPlugin)
+    // The live sections (the analyzer, the spatial panner) want the room too.
+    const bool wideSection = !boundary && (node->type == guitarfx::EffectGuids::kInputAnalyzer || node->type == guitarfx::EffectGuids::kSpatial3D);
+    const float panelWidth = (hasSlots || hasPlugin || wideSection)
                                  ? maxPanel
                                  : std::clamp(groupsWidth + artRoom + 2.0f * (kPanelPad + kSectionPad), kPanelMinWidth, maxPanel);
     const float sectionInner = panelWidth - 2.0f * (kPanelPad + kSectionPad) - artRoom;
@@ -503,6 +509,20 @@ Ptr Shell::BuildEffectPage()
         rightSide.push_back(channels);
         rightSide.push_back(HGap(8));
         channelsWidth = 84.0f + 8.0f;
+    }
+    // The DSP chip shows the effect's status readout under the header, as the web UI's meter badge.
+    if (!boundary)
+    {
+        auto dsp = std::make_shared<IconButton>(mTheme, mIcons, "", IconButton::Look::Chip);
+        dsp->Size(44, 26).Label("DSP", 11.0f).Ink(mShowDspStatus ? mTheme.Accent() : mTheme.TextSecondary());
+        dsp->onClick = [this] {
+            mShowDspStatus = !mShowDspStatus;
+            mEffectSignature.clear();
+            Mark(kPage);
+        };
+        rightSide.push_back(dsp);
+        rightSide.push_back(HGap(8));
+        channelsWidth += 44.0f + 8.0f;
     }
     if (!IsSplitterType(node->type) && !IsMixerType(node->type))
     {
@@ -594,6 +614,10 @@ Ptr Shell::BuildEffectPage()
         return t;
     };
 
+    if (mShowDspStatus && !boundary)
+        addToSection(BuildDspStatus(guitarfx::uiclient::EffectDspStatus(), mState.activePresetId + "::" + node->id,
+                                    {"preset", node->id, mState.activePresetId}, false),
+                     40.0f);
     bool tabsPlaced = false;
     if (hasSlots)
     {
@@ -635,8 +659,17 @@ Ptr Shell::BuildEffectPage()
         addToSection(MakeEqPlot(NodeEqPlotSource(*node), false), 170.0f);
     if (node->type == guitarfx::EffectGuids::kCabSimple)
         addToSection(BuildCabTools(*node), 28.0f);
+    if (node->type == guitarfx::EffectGuids::kPickupMatch)
+        addToSection(BuildPickupDesignLines(), 36.0f);
     if (node->type == guitarfx::EffectGuids::kDynamicsGate)
         addToSection(BuildGateLearn(NodeGateLearnTarget(*node)), 60.0f);
+    if (const float h = IrAlignmentHeight(*node); h > 0.0f && !boundary) addToSection(BuildIrAlignment(*node), h);
+    if (!boundary)
+    {
+        float liveHeight = 0.0f;
+        if (auto live = BuildLiveSection(*node, liveHeight))
+            addToSection(live, liveHeight);
+    }
 
     // The groups, laid into rows as they fit the section.
     {
@@ -756,6 +789,8 @@ void Shell::SyncEffectValues()
     if (mEffectPlot)
         SyncEqPlot(*mEffectPlot);
     SyncGateLearn(); // the meter follows Threshold and Hysteresis
+    SyncIrAlignment();
+    SyncLiveSection();
 }
 
 void Shell::OpenEffectPresets()

@@ -10,7 +10,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
+#include <limits>
 
 namespace guitarfx::uiclient
 {
@@ -113,6 +115,91 @@ std::vector<float> DecodeFloat32Base64(const std::string& text)
     return samples;
 }
 
+std::vector<AnalyzerReadout> AnalyzerReadouts(const AnalyzerFrame* frame, int configuredChannels)
+{
+    static const std::string kNone = "\xE2\x80\x94";
+    const auto number = [](double value, const char* unit, int digits) {
+        if (!std::isfinite(value))
+            return kNone;
+        char text[48];
+        std::snprintf(text, sizeof(text), "%.*f %s", digits, value, unit);
+        return std::string(text);
+    };
+    const auto lufs = [&number, frame](const std::optional<double>& value) {
+        return frame != nullptr && frame->loudnessValid && value ? number(*value, "LUFS", 1) : kNone;
+    };
+    const auto dbfs = [](double percent) {
+        if (!std::isfinite(percent))
+            return std::numeric_limits<double>::quiet_NaN();
+        const double linear = std::clamp(percent / 100.0, 0.0, 1.0);
+        return linear <= 1.0e-9 ? -120.0 : 20.0 * std::log10(linear);
+    };
+
+    std::vector<AnalyzerReadout> readouts = {{"Peak (dBFS)", kNone, {}},      {"RMS (dBFS)", kNone, {}},       {"Peak (%FS)", kNone, {}},
+                                             {"RMS (%FS)", kNone, {}},        {"RMS (dBu)", kNone, {}},        {"RMS (dBV)", kNone, {}},
+                                             {"RMS (Vrms)", kNone, {}},       {"Momentary (LUFS)", kNone, {}}, {"Short-term (LUFS)", kNone, {}},
+                                             {"Integrated (LUFS)", kNone, {}}, {"Channels", kNone, {}}};
+    if (frame == nullptr)
+        return readouts;
+
+    readouts[0].value = number(dbfs(frame->peakPercent), "dBFS", 1);
+    readouts[1].value = number(dbfs(frame->rmsPercent), "dBFS", 1);
+    readouts[2].value = number(frame->peakPercent, "%", 1);
+    readouts[3].value = number(frame->rmsPercent, "%", 1);
+    readouts[4].value = number(frame->rmsDbu, "dBu", 1);
+    readouts[5].value = number(frame->rmsDbv, "dBV", 1);
+    readouts[6].value = number(frame->rmsVolts, "Vrms", 3);
+    readouts[7].value = lufs(frame->momentaryLufs);
+    readouts[8].value = lufs(frame->shortTermLufs);
+    readouts[9].value = lufs(frame->integratedLufs);
+
+    // The layout the engine runs the node in, never guessed; what is measured is a hint when the
+    // two disagree (a stereo input with one side silent, or both sides the same).
+    auto& channels = readouts[10];
+    if (configuredChannels == 1)
+        channels.value = "Mono";
+    else if (configuredChannels == 2)
+    {
+        channels.value = "Stereo";
+        channels.hint = frame->activeChannelCount == 1 ? "one side silent" : frame->stereo ? "" : "sides identical";
+    }
+    else
+    {
+        channels.value = frame->stereo ? "Stereo" : "Mono";
+        if (frame->activeChannelCount > 0)
+            channels.hint = std::to_string(frame->activeChannelCount) + " ch";
+    }
+    return readouts;
+}
+
+std::string PickupDesignSummary(const std::map<std::string, double>& summary, const std::string& side)
+{
+    const auto get = [&summary, &side](const char* name) -> std::optional<double> {
+        const auto it = summary.find(side + name);
+        return it != summary.end() && std::isfinite(it->second) ? std::optional<double>(it->second) : std::nullopt;
+    };
+    const auto length = get("WireLengthM"), inductance = get("InductanceH"), resistance = get("ResistanceKohm"),
+               capacitance = get("CapacitancePf"), peak = get("PeakHz"), q = get("Q"), level = get("LevelDb");
+    if (!length || !inductance || !resistance || !capacitance || !peak || !q || !level)
+        return {};
+
+    // As toLocaleString in English: thousands grouped with commas.
+    const auto format = [](double value, int digits) {
+        char text[48];
+        std::snprintf(text, sizeof(text), "%.*f", digits, std::abs(value));
+        std::string s = text;
+        const auto dot = s.find('.');
+        for (auto i = static_cast<long>(dot == std::string::npos ? s.size() : dot) - 3; i > 0; i -= 3)
+            s.insert(static_cast<std::size_t>(i), ",");
+        return (value < 0 ? "-" : "") + s;
+    };
+    const std::string dotSep = " \xC2\xB7 ";
+    const std::string sign = *level >= 0 ? "+" : "\xE2\x88\x92";
+    return format(*length, 0) + " m of wire" + dotSep + format(*inductance, 2) + " H" + dotSep + format(*resistance, 2) + " k\xCE\xA9" +
+           dotSep + format(*capacitance, 0) + " pF \xE2\x86\x92 peak " + format(*peak / 1000.0, 2) + " kHz, Q " + format(*q, 2) +
+           ", output " + sign + format(std::abs(*level), 1) + " dB";
+}
+
 std::string GateLearnStatusText(const GateLearnStatus* status, double floorDb)
 {
     // Whole dB with a true minus sign, as the web UI writes them.
@@ -206,9 +293,31 @@ std::optional<IrAlignment> ParseIrAlignment(const nlohmann::json& reply)
         return std::nullopt;
     }
 
-    const auto byOffset = NumberArray(reply.value("matchByOffset", nlohmann::json()));
+    const bool hasA = reply.contains("waveformA") && reply["waveformA"].is_string();
+    const bool hasB = reply.contains("waveformB") && reply["waveformB"].is_string();
 
-    if (!byOffset || !reply.contains("sampleRate"))
+    if (!(reply.value("sampleRate", 0.0) > 0.0) || (!hasA && !hasB))
+    {
+        return std::nullopt;
+    }
+
+    // One IR alone comes back with its waveform and nothing to align (irAlignment.ts parseIrAlignment).
+    if (!hasA || !hasB)
+    {
+        IrAlignment single;
+        single.sampleRate = reply.value("sampleRate", 48000.0);
+        single.waveformA = DecodeFloat32Base64(reply.value("waveformA", ""));
+        single.waveformB = DecodeFloat32Base64(reply.value("waveformB", ""));
+        single.normalizeGainA = reply.value("normalizeGainA", 1.0);
+        single.normalizeGainB = reply.value("normalizeGainB", 1.0);
+        single.matchByOffset = {0.0};
+        return single;
+    }
+
+    const auto byOffset = NumberArray(reply.value("matchByOffset", nlohmann::json()));
+    const int maxOffsetSamples = reply.value("maxOffsetSamples", 0);
+
+    if (!byOffset || byOffset->size() != static_cast<std::size_t>(2 * maxOffsetSamples + 1))
     {
         return std::nullopt;
     }
@@ -227,6 +336,44 @@ std::optional<IrAlignment> ParseIrAlignment(const nlohmann::json& reply)
     alignment.maxOffsetSamples = reply.value("maxOffsetSamples", 0);
     alignment.matchByOffset = *byOffset;
     return alignment;
+}
+
+std::optional<IrAlignmentResponse> ParseIrAlignmentResponse(const nlohmann::json& reply)
+{
+    if (reply.contains("error"))
+    {
+        return std::nullopt;
+    }
+
+    auto frequencies = NumberArray(reply.value("frequencies", nlohmann::json()));
+    auto summed = NumberArray(reply.value("summedDb", nlohmann::json()));
+
+    if (!frequencies || !summed || frequencies->size() < 2 || summed->size() != frequencies->size())
+    {
+        return std::nullopt;
+    }
+
+    IrAlignmentResponse response;
+    const auto slots = reply.value("slots", std::string("both"));
+    response.slots = slots == "a" || slots == "b" ? slots : "both";
+    response.offsetMs = reply.value("offsetMs", 0.0);
+
+    // A pair is drawn against its powers summed; without them there is nothing to compare.
+    if (response.slots == "both")
+    {
+        auto unrelated = NumberArray(reply.value("unrelatedDb", nlohmann::json()));
+
+        if (!unrelated || unrelated->size() != frequencies->size())
+        {
+            return std::nullopt;
+        }
+
+        response.unrelatedDb = std::move(*unrelated);
+    }
+
+    response.frequencies = std::move(*frequencies);
+    response.summedDb = std::move(*summed);
+    return response;
 }
 
 Analysis::Analysis(UiClient& client) : mClient(client)
@@ -396,6 +543,77 @@ void Analysis::OnIrAlignment(const nlohmann::json& reply)
     }
 }
 
+void Analysis::RequestIrAlignmentResponse(const nlohmann::json& irA, const nlohmann::json& irB,
+                                          const nlohmann::json& params, double offsetMs,
+                                          IrAlignmentResponseCallback callback)
+{
+    AlignmentResponseRequest request{irA, irB, params.is_object() ? params : nlohmann::json::object(), offsetMs,
+                                     std::move(callback)};
+
+    if (mAlignmentResponseInFlight)
+    {
+        mAlignmentResponseQueued = std::move(request);
+        return;
+    }
+
+    SendAlignmentResponse(std::move(request));
+}
+
+void Analysis::SendAlignmentResponse(AlignmentResponseRequest request)
+{
+    mAlignmentResponseId = NextId("ir-alignment-response");
+    mAlignmentResponseSentAt = mNow;
+    nlohmann::json payload = {{"requestId", mAlignmentResponseId},
+                              {"params", request.params},
+                              {"offsetMs", request.offsetMs},
+                              {"points", kResponsePoints}};
+
+    if (request.irA.is_object())
+    {
+        payload["irA"] = request.irA;
+    }
+
+    if (request.irB.is_object())
+    {
+        payload["irB"] = request.irB;
+    }
+
+    mAlignmentResponseInFlight = std::move(request);
+    mClient.Send("getIrAlignmentResponse", std::move(payload));
+}
+
+void Analysis::FinishAlignmentResponse(const std::optional<IrAlignmentResponse>& response, const std::string& error)
+{
+    auto request = std::move(*mAlignmentResponseInFlight);
+    mAlignmentResponseInFlight.reset();
+    mAlignmentResponseId.clear();
+
+    if (mAlignmentResponseQueued)
+    {
+        auto next = std::move(*mAlignmentResponseQueued);
+        mAlignmentResponseQueued.reset();
+        SendAlignmentResponse(std::move(next));
+    }
+
+    // Last: the callback may ask again, which must find the queue in its new state.
+    if (request.callback)
+    {
+        request.callback(response, error);
+    }
+}
+
+void Analysis::OnIrAlignmentResponse(const nlohmann::json& reply)
+{
+    if (!mAlignmentResponseInFlight || reply.value("requestId", std::string()) != mAlignmentResponseId)
+    {
+        return;
+    }
+
+    const auto response = ParseIrAlignmentResponse(reply);
+    FinishAlignmentResponse(response,
+                            response ? std::string() : reply.value("error", std::string("No response came back")));
+}
+
 void Analysis::MatchSimpleCabToIr(const std::string& resourceId, MatchCallback callback)
 {
     mMatchId = NextId("cab-match");
@@ -510,6 +728,11 @@ void Analysis::Tick(double nowSeconds)
                 SendCurve(name, lane, std::move(next));
             }
         }
+    }
+
+    if (mAlignmentResponseInFlight && nowSeconds - mAlignmentResponseSentAt >= kResponseTimeoutSeconds)
+    {
+        FinishAlignmentResponse(std::nullopt, "The engine did not answer");
     }
 
     if (!mAlignmentId.empty() && nowSeconds - mAlignmentSentAt >= kToolTimeoutSeconds)

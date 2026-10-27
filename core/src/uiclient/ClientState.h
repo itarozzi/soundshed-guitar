@@ -145,6 +145,10 @@ struct TelemetryState
     double dspLoadPercent = 0.0;
     int totalLatencySamples = 0;
     std::map<std::string, double> nodeProcessingUs;
+    std::map<std::string, double> nodeLatencySamples; // keyed as nodeProcessingUs
+    double totalProcessingUs = 0.0;
+    std::optional<double> peakDspLoadPercent; // the worst block since the frame before
+    double sampleRate = 0.0;
     unsigned frameCounter = 0;
 };
 

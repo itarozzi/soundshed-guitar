@@ -56,7 +56,7 @@ double ParamOr(const std::map<std::string, double>& params, const EffectParamInf
 
 bool Shell::IsEqPlotType(const std::string& type)
 {
-    return type == guids::kEqParametric || type == guids::kEqGraphic || type == guids::kCabSimple;
+    return type == guids::kEqParametric || type == guids::kEqGraphic || type == guids::kCabSimple || type == guids::kPickupMatch;
 }
 
 Ptr Shell::MakeEqPlot(EqPlotSource source, bool overlay)
@@ -66,6 +66,8 @@ Ptr Shell::MakeEqPlot(EqPlotSource source, bool overlay)
     // to ~15 dB and rolls the top off by far more, so its axis leans low.
     if (source.effectType == guids::kCabSimple)
         plot->Range(-36.0, 18.0, 12.0);
+    else if (source.effectType == guids::kPickupMatch)
+        plot->Range(-24.0, 24.0, 12.0); // measured pickups differ by up to ~25 dB
     else
         plot->Range(-18.0, 18.0, 9.0);
     auto& slot = overlay ? mOverlayPlot : mEffectPlot;
@@ -144,12 +146,21 @@ void Shell::SyncEqPlot(EqPlotState& state)
     std::weak_ptr<ResponsePlot> weak = state.plot;
     mSession.Client().GetAnalysis().RequestResponse(
         overlay ? "overlay-eq" : "effect-eq", state.source.effectType, query, parametric,
-        [this, alive = std::weak_ptr<bool>(mAlive), weak](const std::optional<guitarfx::uiclient::ResponseCurve>& curve) {
+        [this, alive = std::weak_ptr<bool>(mAlive), weak, pickup = state.source.effectType == guids::kPickupMatch](
+            const std::optional<guitarfx::uiclient::ResponseCurve>& curve) {
             const auto plot = weak.lock();
             if (!alive.lock() || !plot)
                 return;
             plot->SetCurve(curve);
             mSession.View().refresh(*plot);
+            // Pickup Match's custom designs are described from the same reply.
+            if (pickup)
+                for (const auto& [side, text] : mPickupDesignLines)
+                    if (const auto line = text.lock())
+                    {
+                        line->Set(curve ? guitarfx::uiclient::PickupDesignSummary(curve->summary, side) : std::string());
+                        mSession.View().refresh(*line);
+                    }
         });
     mSession.View().refresh(*state.plot);
 }
@@ -175,6 +186,23 @@ void Shell::SyncEqPlotFeeds()
             spectrum = &it->second;
     if (watched->plot->SetSpectrum(spectrum))
         mSession.View().refresh(*watched->plot);
+}
+
+Ptr Shell::BuildPickupDesignLines()
+{
+    // What each side set to Custom Design is predicted to be built as; empty otherwise.
+    mPickupDesignLines.clear();
+    std::vector<Ptr> rows;
+    for (const char* side : {"source", "target"})
+    {
+        auto line = std::make_shared<Text>(mTheme, "", 11.0f);
+        line->Colour(mTheme.TextSecondary());
+        mPickupDesignLines.emplace_back(side, line);
+        auto label = std::make_shared<Text>(mTheme, side == std::string("source") ? "SOURCE" : "TARGET", 9.0f, Weight::SemiBold);
+        label->Colour(mTheme.TextMuted());
+        rows.push_back(FixedHeight(18, Row({FixedWidth(56, label), line})));
+    }
+    return Col(rows);
 }
 
 Ptr Shell::BuildCabTools(const guitarfx::GraphNode& node)

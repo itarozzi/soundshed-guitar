@@ -111,7 +111,23 @@ void UiClient::RegisterLiveHandlers()
         const auto stats = m.value("stats", nlohmann::json::object());
         telemetry.dspLoadPercent = stats.value("dspLoadPercent", 0.0);
         telemetry.totalLatencySamples = stats.value("totalLatencySamples", 0);
+        telemetry.totalProcessingUs = stats.value("totalProcessingTimeUs", 0.0);
+        const auto peak = stats.find("peakDspLoadPercent");
+        telemetry.peakDspLoadPercent = peak != stats.end() && peak->is_number() ? std::optional<double>(peak->get<double>()) : std::nullopt;
+        telemetry.sampleRate = m.value("sampleRate", telemetry.sampleRate);
         telemetry.nodeProcessingUs.clear();
+        telemetry.nodeLatencySamples.clear();
+
+        if (stats.contains("nodeLatencySamples") && stats["nodeLatencySamples"].is_object())
+        {
+            for (const auto& [key, value] : stats["nodeLatencySamples"].items())
+            {
+                if (value.is_number())
+                {
+                    telemetry.nodeLatencySamples[key] = value.get<double>();
+                }
+            }
+        }
 
         if (stats.contains("nodeProcessingTimesUs") && stats["nodeProcessingTimesUs"].is_object())
         {

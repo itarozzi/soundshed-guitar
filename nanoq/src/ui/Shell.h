@@ -27,6 +27,8 @@
 #include "ui/Widgets.h"
 #include "uiclient/ChainHistory.h"
 #include "uiclient/ChainLayout.h"
+#include "uiclient/DspStatus.h"
+#include "uiclient/SignalFlow.h"
 #include "uiclient/EffectPresentation.h"
 #include "uiclient/Instruments.h"
 #include "uiclient/PresetBrowse.h"
@@ -62,7 +64,8 @@ struct MenuItem
     std::uint32_t tint = 0;
 };
 
-class NodeCard; // ChainStrip.cpp
+class NodeCard;  // ChainWidgets.h
+class Connector; // ChainWidgets.h
 namespace chain
 {
 struct HitMap; // ChainWidgets.h
@@ -279,6 +282,42 @@ private:
     void OpenGlobalGate(el::rect anchor);
     std::vector<GateLearnView> mGateLearnViews;
     std::map<std::string, std::string> mGateLearnSeen; // each gate's Learn state when last looked at
+    // IrAlignment.cpp: the IR Cabinet's Alignment section, in its editor (the web UI's irAlignmentPanel.ts).
+    struct IrAlignmentPanel;
+    /// The section's height for this node: 0 for any other effect, or a cab with no IR.
+    [[nodiscard]] static float IrAlignmentHeight(const guitarfx::GraphNode& node);
+    [[nodiscard]] Ptr BuildIrAlignment(const guitarfx::GraphNode& node);
+    void SyncIrAlignment();
+    std::shared_ptr<IrAlignmentPanel> mIrAlignment;
+
+    // LiveSections.cpp: the 3D Spatial panner and the Signal Analyzer, fed live by the engine.
+    /// The section for `node`, or null for an effect without one; `height` is what it needs.
+    [[nodiscard]] Ptr BuildLiveSection(const guitarfx::GraphNode& node, float& height);
+    void SyncLiveSection();
+    std::weak_ptr<el::element> mSpatialPanner, mAnalyzerPanel;
+    std::string mLiveNodeId;
+
+    /// Pickup Match's custom designs, described from its curve's reply.
+    [[nodiscard]] Ptr BuildPickupDesignLines();
+    std::vector<std::pair<std::string, std::weak_ptr<Text>>> mPickupDesignLines;
+
+    // DspStatusView.cpp: the effect's and the output's DSP status readouts.
+    struct DspStatusView
+    {
+        const guitarfx::uiclient::DspStatusReadout* readout = nullptr;
+        guitarfx::uiclient::DspStatusMeter meter;
+        guitarfx::uiclient::NodeAddress address; // where its loudness is measured; no scope: the output
+        SlotPtr slot = MakeSlot();
+        std::map<guitarfx::uiclient::DspStatusItem, std::weak_ptr<Text>> values;
+    };
+    void FillDspStatus(const std::shared_ptr<DspStatusView>& view);
+    void SetDspStatusItems(const std::shared_ptr<DspStatusView>& view, const std::vector<guitarfx::uiclient::DspStatusItem>& items);
+    [[nodiscard]] Ptr BuildDspStatus(const guitarfx::uiclient::DspStatusReadout& readout, const std::string& nodeKey,
+                                     const guitarfx::uiclient::NodeAddress& address, bool overlay);
+    void SyncDspStatus();
+    void OpenOutputStatus(el::rect anchor);
+    std::shared_ptr<DspStatusView> mEffectDspStatus, mOutputDspStatus;
+    bool mShowDspStatus = false; // the effect's readout, under its header
 
     /// The Simple Cabinet's Match an IR and Export as IR.
     [[nodiscard]] Ptr BuildCabTools(const guitarfx::GraphNode& node);
@@ -426,6 +465,10 @@ private:
     std::uint32_t mChromeCaption = 0xffffffffu; // the caption colour last applied, none yet
     std::string mChainSignature;
     std::vector<std::pair<std::string, std::shared_ptr<NodeCard>>> mChainCards; // node id, card: for the lights
+    std::vector<std::weak_ptr<Connector>> mChainCables; // the cables, lit by the signal
+    guitarfx::uiclient::SignalFlow mSignalFlow;
+    bool mSignalFlowLit = false;
+    void SyncSignalFlow(); // ChainStrip.cpp
     std::shared_ptr<chain::HitMap> mHitMap; // where the chain's cards and cables are, for drops
     guitarfx::uiclient::PresetQuery mQuery;
     bool mShowSetlists = false;
