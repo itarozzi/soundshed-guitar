@@ -558,6 +558,7 @@ set(GUITARFX_CORE_SOURCES
     src/controller/PluginControllerPresets.cpp
     src/controller/PluginControllerPresetEdits.cpp
     src/controller/PluginControllerPresetFolders.cpp
+    src/controller/PluginControllerSetlists.cpp
     src/controller/PluginControllerMixer.cpp
     src/controller/PluginControllerDemo.cpp
     src/controller/internal/BlendSupport.h

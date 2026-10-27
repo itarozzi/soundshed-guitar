@@ -186,11 +186,11 @@ describe("choosing a setlist", () => {
 });
 
 describe("editing the setlist's slots", () => {
-  // The engine steps "next" from the cursor it was last sent, so the cursor has to follow the
-  // slot it was on: left alone, removing a slot before it moved the highlight (and the engine's
-  // next step) onto the slot after the one playing.
+  // The engine steps "next" from its cursor, so the cursor has to follow the slot it was on:
+  // left alone, removing a slot before it moved the highlight (and the engine's next step) onto
+  // the slot after the one playing. The engine moves its own cursor by the same rule when it
+  // makes the edit; the UI asks for the edit by name and moves its copy at once.
   const slotIds = () => (uiState.setlists[0] as { slots: Array<{ presetId: string }> }).slots.map((slot) => slot.presetId);
-  const sentCursor = () => (sent("setSetlists").at(-1) as { cursorIndex?: number } | undefined)?.cursorIndex;
 
   beforeEach(() => {
     uiState.setlists = [{ id: "set-1", name: "Set 1", slots: [{ presetId: "a" }, { presetId: "b" }, { presetId: "c" }] }] as never;
@@ -202,7 +202,7 @@ describe("editing the setlist's slots", () => {
 
     expect(slotIds()).toEqual(["b", "c"]);
     expect(uiState.setlistCursorIndex).toBe(0);
-    expect(sentCursor()).toBe(0);
+    expect(sent("removeSetlistSlot").at(-1)).toMatchObject({ setlistId: "set-1", index: 0 });
   });
 
   it("keeps the cursor in range when the last slot, the playing one, is removed", () => {
@@ -210,7 +210,7 @@ describe("editing the setlist's slots", () => {
     removeSetlistSlot(2);
 
     expect(uiState.setlistCursorIndex).toBe(1);
-    expect(sentCursor()).toBe(1);
+    expect(sent("removeSetlistSlot").at(-1)).toMatchObject({ setlistId: "set-1", index: 2 });
   });
 
   it("moves the cursor with its slot, and past a slot dragged over it", () => {
@@ -226,6 +226,6 @@ describe("editing the setlist's slots", () => {
     moveSetlistSlot(2, 0);
     expect(slotIds()).toEqual(["a", "c", "b"]);
     expect(uiState.setlistCursorIndex).toBe(2);
-    expect(sentCursor()).toBe(2);
+    expect(sent("moveSetlistSlot").at(-1)).toMatchObject({ setlistId: "set-1", fromIndex: 2, toIndex: 0 });
   });
 });

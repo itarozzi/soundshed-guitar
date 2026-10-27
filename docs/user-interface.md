@@ -184,6 +184,13 @@ keeps the existing Library/Folder behavior.
 | `deletePresetFolder` | `{folderId}` | Delete a folder and its subfolders (their presets stay in the library) and show All; answered by `presetFolders` |
 | `movePresetToFolder` | `{presetId, folderId}` | Put a preset in one folder (out of any other), or out of all with `__all__` or an empty id; answered by `presetFolders` |
 | `selectPresetFolder` | `{folderId}` | The folder the preset list shows: a real one, or `__all__`, `__favorites__`, `__recents__`; answered by `presetFolders` |
+| `createSetlist` | `{name, bank?, id?}` | A new setlist (a bank number is one setlist's at most), made active with its cursor at the first slot; `id` names it if free. Answered by `setlists` and `setlistCursorChanged` |
+| `updateSetlist` | `{setlistId?, name?, bank?}` | Rename a setlist or change its bank (`null` for none); the active one without `setlistId`. Answered by `setlists` and `setlistCursorChanged` |
+| `deleteSetlist` | `{setlistId?}` | Delete a setlist; the next (else the previous) becomes active. Answered by `setlists` and `setlistCursorChanged` |
+| `addSetlistSlot` | `{setlistId?, presetId}` | Add a preset at the end of a setlist (the active one without `setlistId`). Answered by `setlists` and `setlistCursorChanged` |
+| `setSetlistSlot` | `{setlistId?, index, presetId}` | Put a preset in a slot (a pad), padding with empty slots; an empty `presetId` clears it. Answered by `setlists` and `setlistCursorChanged` |
+| `moveSetlistSlot` | `{setlistId?, fromIndex, toIndex}` | Move a slot; the cursor stays on the slot it was on. Answered by `setlists` and `setlistCursorChanged` |
+| `removeSetlistSlot` | `{setlistId?, index}` | Remove a slot, keeping the cursor on its slot (or in range). Answered by `setlists` and `setlistCursorChanged` |
 | `getPresetRecents` | `{}` | Request `presetRecents` |
 | `selectSetlist` | `{setlistId}` | Make a setlist the active one with its cursor on the first slot, as a bank select does, and store it; nothing is loaded. An unknown or already-active setlist is ignored. Answered by `setlistCursorChanged`. Edits to the setlists themselves still go whole with `setSetlists` |
 | `setResourceFavorite` | `{resourceId, favorite}` | Add or remove one id in the `resources.favorites` app setting; answered by `appSettingChanged` |
@@ -421,7 +428,9 @@ sent back whole. So that Soundshed Guitar and Soundshed Nano Q cannot make the s
 different ways, the engine now makes them, asked by name (docs/plans/native-ui.md, "Engine-owned
 edits"): the scene commands, `newPreset`, `loadPreset` by id, `setPresetFavorite`,
 `setPresetRating`, the preset folder commands (`createPresetFolder`, `renamePresetFolder`,
-`movePresetFolder`, `deletePresetFolder`, `movePresetToFolder`, `selectPresetFolder`),
+`movePresetFolder`, `deletePresetFolder`, `movePresetToFolder`, `selectPresetFolder`), the setlist
+commands (`createSetlist`, `updateSetlist`, `deleteSetlist`, `addSetlistSlot`, `setSetlistSlot`,
+`moveSetlistSlot`, `removeSetlistSlot`),
 `selectSetlist`, `setResourceFavorite` and `setOutputMuted`. Deleting a preset takes it out of
 its folder too. The engine also records the recently played presets and tracks unsaved changes
 itself. The web UI may still draw

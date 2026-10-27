@@ -543,6 +543,19 @@ class PluginController
     [[nodiscard]] nlohmann::json LoadPresetFoldersDocument();
     /// Stores the folder tree (or the archive session's) and sends it to the UI.
     void SavePresetFoldersDocument(const nlohmann::json& document);
+    // Setlists (PluginControllerSetlists.cpp), edited by name.
+    void HandleCreateSetlistRequest(const nlohmann::json& payload);
+    void HandleUpdateSetlistRequest(const nlohmann::json& payload);
+    void HandleDeleteSetlistRequest(const nlohmann::json& payload);
+    void HandleAddSetlistSlotRequest(const nlohmann::json& payload);
+    void HandleSetSetlistSlotRequest(const nlohmann::json& payload);
+    void HandleMoveSetlistSlotRequest(const nlohmann::json& payload);
+    void HandleRemoveSetlistSlotRequest(const nlohmann::json& payload);
+    [[nodiscard]] nlohmann::json LoadSetlistsDocument();
+    /// Stores setlists.json and sends the setlists and the cursor to the UI.
+    void SaveSetlistsDocument(const nlohmann::json& document);
+    /// The setlist a command names (setlistId), else the active one; null if neither exists.
+    [[nodiscard]] nlohmann::json* SetlistToEdit(nlohmann::json& document, const nlohmann::json& payload);
     void HandleGetPresetRecentsRequest();
     void HandleSelectSetlistRequest(const nlohmann::json& payload);
     /// The UI's pick of a slot in the active setlist: loads it as a footswitch would, and tells

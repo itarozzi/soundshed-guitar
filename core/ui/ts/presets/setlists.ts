@@ -1,6 +1,8 @@
 /**
  * Setlists: banked slots of presets for live use, the editor behind them, and
- * the cursor the host moves through them.
+ * the cursor the host moves through them. Each edit is made by the engine, asked for by name
+ * (createSetlist, updateSetlist, deleteSetlist, addSetlistSlot, setSetlistSlot, moveSetlistSlot,
+ * removeSetlistSlot); the local copy changes at once and the engine's setlists reply confirms it.
  */
 
 import { generateResourceId } from "../archiveUtils.js";
@@ -29,15 +31,6 @@ export function setSetlistPanelVisible(visible: boolean): void {
 export function ensureSetlists(): void {
   const stored = uiState.setlists ?? [];
   uiState.activeSetlistId = uiState.activeSetlistId || (stored[0]?.id ?? null);
-}
-
-export function persistSetlists(): void {
-  postMessage({
-    type: "setSetlists",
-    setlists: uiState.setlists ?? [],
-    activeSetlistId: uiState.activeSetlistId ?? "",
-    cursorIndex: uiState.setlistCursorIndex ?? 0,
-  });
 }
 
 /**
@@ -134,8 +127,11 @@ export function createSetlist(name: string, bank?: number | null): Setlist | nul
   };
   uiState.setlists = uiState.setlists ?? [];
   uiState.setlists.push(newSetlist);
-  persistSetlists();
-  setActiveSetlist(newSetlist.id);
+  uiState.activeSetlistId = newSetlist.id;
+  uiState.setlistCursorIndex = 0;
+  // The engine stores it and makes it active; its setlists reply confirms what is drawn now.
+  postMessage({ type: "createSetlist", id: newSetlist.id, name: trimmed, bank: newSetlist.bank ?? null });
+  renderSetlistPanel();
   return newSetlist;
 }
 
@@ -145,7 +141,7 @@ export function addPresetToSetlist(presetId: string): void {
     return;
   }
   setlist.slots.push({ presetId });
-  persistSetlists();
+  postMessage({ type: "addSetlistSlot", setlistId: setlist.id, presetId });
   renderSetlistPanel();
 }
 
@@ -160,7 +156,7 @@ export function assignPresetToActiveSetlistSlot(slotIndex: number, presetId: str
   }
 
   setlist.slots[slotIndex] = { presetId };
-  persistSetlists();
+  postMessage({ type: "setSetlistSlot", setlistId: setlist.id, index: slotIndex, presetId });
   renderSetlistPanel();
   return true;
 }
@@ -171,7 +167,7 @@ export function clearActiveSetlistSlot(slotIndex: number): boolean {
     return false;
   }
   setlist.slots[slotIndex] = { presetId: "" };
-  persistSetlists();
+  postMessage({ type: "setSetlistSlot", setlistId: setlist.id, index: slotIndex, presetId: "" });
   renderSetlistPanel();
   return true;
 }
@@ -199,7 +195,7 @@ export function updateActiveSetlistDetails(name: string, bank?: number | null): 
 
   setlist.name = trimmed;
   setlist.bank = typeof bank === "number" ? bank : null;
-  persistSetlists();
+  postMessage({ type: "updateSetlist", setlistId: setlist.id, name: trimmed, bank: setlist.bank });
   renderSetlistPanel();
   return true;
 }
@@ -212,11 +208,11 @@ export function deleteActiveSetlist(): boolean {
     return false;
   }
 
-  setlists.splice(activeIndex, 1);
+  const [deleted] = setlists.splice(activeIndex, 1);
   const nextActive = setlists[activeIndex] ?? setlists[activeIndex - 1] ?? null;
   uiState.activeSetlistId = nextActive?.id ?? null;
   uiState.setlistCursorIndex = 0;
-  persistSetlists();
+  postMessage({ type: "deleteSetlist", setlistId: deleted.id });
   renderSetlistPanel();
   return true;
 }
@@ -244,7 +240,7 @@ export function moveSetlistSlot(fromIndex: number, toIndex: number): void {
   } else if (toIndex <= cursor && cursor < fromIndex) {
     uiState.setlistCursorIndex = cursor + 1;
   }
-  persistSetlists();
+  postMessage({ type: "moveSetlistSlot", setlistId: setlist.id, fromIndex, toIndex });
   renderSetlistPanel();
 }
 
@@ -260,7 +256,7 @@ export function removeSetlistSlot(index: number): void {
   } else if (index === cursor) {
     uiState.setlistCursorIndex = Math.max(0, Math.min(cursor, setlist.slots.length - 1));
   }
-  persistSetlists();
+  postMessage({ type: "removeSetlistSlot", setlistId: setlist.id, index });
   renderSetlistPanel();
 }
 

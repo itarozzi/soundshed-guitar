@@ -181,6 +181,42 @@ void UiCommands::SelectPresetFolder(const std::string& folderId)
     mClient.Send("selectPresetFolder", {{"folderId", state.activePresetFolderId}});
 }
 
+void UiCommands::CreateSetlist(const std::string& name, int bank)
+{
+    mClient.Send("createSetlist", {{"name", name}, {"bank", bank >= 0 ? nlohmann::json(bank) : nlohmann::json()}});
+}
+
+void UiCommands::UpdateSetlist(const std::string& setlistId, const std::string& name, int bank)
+{
+    mClient.Send("updateSetlist",
+                 {{"setlistId", setlistId}, {"name", name}, {"bank", bank >= 0 ? nlohmann::json(bank) : nlohmann::json()}});
+}
+
+void UiCommands::DeleteSetlist(const std::string& setlistId)
+{
+    mClient.Send("deleteSetlist", {{"setlistId", setlistId}});
+}
+
+void UiCommands::AddSetlistSlot(const std::string& setlistId, const std::string& presetId)
+{
+    mClient.Send("addSetlistSlot", {{"setlistId", setlistId}, {"presetId", presetId}});
+}
+
+void UiCommands::SetSetlistSlot(const std::string& setlistId, int index, const std::string& presetId)
+{
+    mClient.Send("setSetlistSlot", {{"setlistId", setlistId}, {"index", index}, {"presetId", presetId}});
+}
+
+void UiCommands::MoveSetlistSlot(const std::string& setlistId, int fromIndex, int toIndex)
+{
+    mClient.Send("moveSetlistSlot", {{"setlistId", setlistId}, {"fromIndex", fromIndex}, {"toIndex", toIndex}});
+}
+
+void UiCommands::RemoveSetlistSlot(const std::string& setlistId, int index)
+{
+    mClient.Send("removeSetlistSlot", {{"setlistId", setlistId}, {"index", index}});
+}
+
 void UiCommands::SetPresetFavorite(const std::string& presetId, bool favorite)
 {
     mClient.Send("setPresetFavorite", {{"presetId", presetId}, {"favorite", favorite}});

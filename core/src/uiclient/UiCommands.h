@@ -53,6 +53,18 @@ public:
     void MovePresetToFolder(const std::string& presetId, const std::string& folderId);
     /// The folder the preset list shows (a real one, or __all__, __favorites__, __recents__).
     void SelectPresetFolder(const std::string& folderId);
+    // ── Setlists, edited by the engine; each is answered by setlists and setlistCursorChanged ──
+    /// A new setlist (with a bank number, or -1 for none); it becomes the active one.
+    void CreateSetlist(const std::string& name, int bank = -1);
+    /// A setlist's name and bank (-1 for none); an empty id is the active setlist.
+    void UpdateSetlist(const std::string& setlistId, const std::string& name, int bank);
+    void DeleteSetlist(const std::string& setlistId);
+    /// The slot commands work on the active setlist when `setlistId` is empty.
+    void AddSetlistSlot(const std::string& setlistId, const std::string& presetId);
+    /// Puts a preset in a slot (a pad), padding with empty slots; an empty id clears it.
+    void SetSetlistSlot(const std::string& setlistId, int index, const std::string& presetId);
+    void MoveSetlistSlot(const std::string& setlistId, int fromIndex, int toIndex);
+    void RemoveSetlistSlot(const std::string& setlistId, int index);
 
     // ── Multi-Rig (awareness only: rigs are built in Soundshed Guitar) ──────
     void FocusMixerPreset(const std::string& presetId);

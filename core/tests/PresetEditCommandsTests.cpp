@@ -523,6 +523,47 @@ void TestPresetFolderCommands()
     Expect(folders().size() == 1 && folders().at(0).at("name") == "Live", "the stored tree holds the edits");
 }
 
+// The setlist commands keep the web UI's rules (presets/setlists.ts) and answer with setlists
+// and setlistCursorChanged.
+void TestSetlistCommands()
+{
+    TestHost host(Sandbox("setlist-edits"));
+    guitarfx::PluginController controller(host);
+    controller.Initialize();
+    const auto lists = [&host] { return Latest(host, "setlists")->at("setlists"); };
+    const auto activeId = [&host] { return Latest(host, "setlists")->value("activeSetlistId", std::string()); };
+    const auto cursor = [&host] { return Latest(host, "setlistCursorChanged")->value("cursorIndex", -1); };
+    const auto slots = [&] { return lists().at(lists().size() - 1).at("slots"); };
+
+    Send(controller, "createSetlist", {{"name", "Gig"}, {"bank", 2}});
+    const auto gig = lists().at(0).at("id").get<std::string>();
+    Expect(lists().size() == 1 && activeId() == gig && lists().at(0).at("bank") == 2, "a new setlist is stored and active");
+    Send(controller, "createSetlist", {{"name", "Other"}, {"bank", 2}});
+    Expect(lists().size() == 1, "a bank number belongs to one setlist");
+    Send(controller, "updateSetlist", {{"name", "Gig night"}, {"bank", nullptr}});
+    Expect(lists().at(0).at("name") == "Gig night" && lists().at(0).at("bank").is_null(), "the active setlist is renamed, its bank cleared");
+
+    for (const auto* id : {"a", "b", "c"})
+        Send(controller, "addSetlistSlot", {{"presetId", id}});
+    Send(controller, "setSetlistSlot", {{"index", 5}, {"presetId", "pad"}});
+    Expect(slots().size() == 6 && slots().at(4).at("presetId") == "" && slots().at(5).at("presetId") == "pad",
+           "a pad past the end pads with empty slots");
+    Send(controller, "setSetlistSlot", {{"index", 5}, {"presetId", ""}});
+    Expect(slots().at(5).at("presetId") == "", "an empty id clears a slot");
+
+    Send(controller, "setSetlistCursor", {{"cursorIndex", 1}});
+    Send(controller, "moveSetlistSlot", {{"fromIndex", 0}, {"toIndex", 2}});
+    Expect(slots().at(0).at("presetId") == "b" && slots().at(2).at("presetId") == "a" && cursor() == 0,
+           "a move keeps the cursor on the slot it was on");
+    Send(controller, "removeSetlistSlot", {{"index", 0}});
+    Expect(slots().at(0).at("presetId") == "c" && cursor() == 0, "removing the slot under the cursor keeps it in range");
+
+    Send(controller, "createSetlist", {{"name", "Rehearsal"}});
+    const auto rehearsal = activeId();
+    Send(controller, "deleteSetlist", {{"setlistId", rehearsal}});
+    Expect(lists().size() == 1 && activeId() == gig, "deleting the active setlist makes the one before active");
+}
+
 void TestRecentsKeepTheWebUiRules()
 {
     TestHost host(Sandbox("recents"));
@@ -935,6 +976,7 @@ int main()
     TestAutomationIsNotAnEdit();
     TestFavoriteAndRatingPatches();
     TestPresetFolderCommands();
+    TestSetlistCommands();
     TestRecentsKeepTheWebUiRules();
     TestImportSaveLeavesThePlayingPresetAlone();
     TestImportWithoutABodyIsRefused();

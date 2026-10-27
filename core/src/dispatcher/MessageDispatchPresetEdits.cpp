@@ -67,6 +67,48 @@ bool MessageDispatcher::DispatchPresetEdits(PluginController& c, const nlohmann:
         return true;
     }
 
+    if (type == "createSetlist")
+    {
+        c.HandleCreateSetlistRequest(msg);
+        return true;
+    }
+
+    if (type == "updateSetlist")
+    {
+        c.HandleUpdateSetlistRequest(msg);
+        return true;
+    }
+
+    if (type == "deleteSetlist")
+    {
+        c.HandleDeleteSetlistRequest(msg);
+        return true;
+    }
+
+    if (type == "addSetlistSlot")
+    {
+        c.HandleAddSetlistSlotRequest(msg);
+        return true;
+    }
+
+    if (type == "setSetlistSlot")
+    {
+        c.HandleSetSetlistSlotRequest(msg);
+        return true;
+    }
+
+    if (type == "moveSetlistSlot")
+    {
+        c.HandleMoveSetlistSlotRequest(msg);
+        return true;
+    }
+
+    if (type == "removeSetlistSlot")
+    {
+        c.HandleRemoveSetlistSlotRequest(msg);
+        return true;
+    }
+
     if (type == "newPreset")
     {
         c.HandleNewPresetRequest(msg);
