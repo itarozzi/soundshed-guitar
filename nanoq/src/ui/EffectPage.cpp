@@ -12,6 +12,7 @@
 #include "uiclient/EffectLayouts.h"
 #include "uiclient/NodeLabels.h"
 #include "uiclient/ParamFormat.h"
+#include "util/PathEncoding.h"
 
 #include <algorithm>
 #include <cmath>

@@ -13,6 +13,7 @@
 #include "IPluginHost.h"
 #include "PluginController.h"
 #include "StandaloneDevices.h"
+#include "ui/UiLink.h"
 
 #include <atomic>
 #include <condition_variable>
@@ -27,7 +28,7 @@
 
 namespace nanoq
 {
-class Engine final : public guitarfx::IPluginHost
+class Engine final : public guitarfx::IPluginHost, public ui::UiLink
 {
   public:
     Engine();
@@ -68,16 +69,35 @@ class Engine final : public guitarfx::IPluginHost
         return mHandle;
     }
 
-    // ── The view's end ──────────────────────────────────────────────────────────
+    // ── The view's end (ui::UiLink) ─────────────────────────────────────────────
     /// A view is open (or not). Only while one is does the engine collect messages for it and
     /// run the controller's idle work.
-    void SetViewAttached(bool attached);
+    void SetViewAttached(bool attached) override;
 
     /// Takes what the controller has sent since the last call. Any thread.
-    [[nodiscard]] std::vector<std::string> TakeMessagesForView();
+    [[nodiscard]] std::vector<std::string> TakeMessagesForView() override;
 
     /// Passes one JSON request to the controller, on the engine thread.
-    void SendRequest(std::string json);
+    void SendRequest(std::string json) override;
+
+    [[nodiscard]] std::filesystem::path AssetRoot() const override
+    {
+        return mAssetRoot;
+    }
+
+    /// The controller's lookup is thread-safe and cached, so the UI thread asks it directly
+    /// rather than waiting on the engine thread in the middle of a draw.
+    [[nodiscard]] std::optional<std::filesystem::path> ResolveLayoutImageFile(const std::string& imageId) override
+    {
+        return mController->ResolveLayoutImageFile(imageId);
+    }
+
+    /// The standalone's device requests run on the app's main thread, where clap-wrapper drives
+    /// its devices; their answers reach the view with the engine's messages.
+    void PumpOnUiThread() override
+    {
+        mDevices.Pump();
+    }
 
     // ── What the processor reports ──────────────────────────────────────────────
     void SetStreamInfo(double sampleRate, int blockSize, int inputs, int outputs);

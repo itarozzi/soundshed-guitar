@@ -575,6 +575,12 @@ target_link_libraries(SharedCode
 # Link the JUCE plugin targets our SharedCode target
 target_link_libraries("${PROJECT_NAME}" PRIVATE SharedCode)
 
+# Spike: Nano Q's native UI as the editor in place of the WebView (cmake/NanoQUi.cmake).
+option(SOUNDSHED_NANOQ_UI "Build the editor from Nano Q's native UI instead of the WebView (Windows, spike)" OFF)
+if(SOUNDSHED_NANOQ_UI)
+    include(NanoQUi)
+endif()
+
 # ── Copy core UI resources next to built artefacts ──────────────────────
 # The WebView editor resolves resources from a "resources/ui/" directory
 # relative to the executable.  We selectively copy the built UI output from

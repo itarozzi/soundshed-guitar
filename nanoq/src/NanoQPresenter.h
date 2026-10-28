@@ -10,12 +10,12 @@ namespace nanoq
 {
 namespace ui
 {
-class Shell;
-class UiSession;
+class UiRoot;
 } // namespace ui
 
-/// The editor. Exists only while the host has one open: attaching builds the engine session
-/// and the shell, detaching drops them, and the engine goes on running without a view.
+/// The editor. Exists only while the host has one open: attaching builds the UI (the engine
+/// session and the shell, ui/UiRoot.h), detaching drops it, and the engine goes on running
+/// without a view.
 class NanoQPresenter final : public q_plug::presenter
 {
   public:
@@ -28,7 +28,6 @@ class NanoQPresenter final : public q_plug::presenter
 
   private:
     NanoQController& mCtl;
-    std::unique_ptr<ui::UiSession> mSession;
-    std::unique_ptr<ui::Shell> mShell;
+    std::unique_ptr<ui::UiRoot> mRoot;
 };
 } // namespace nanoq

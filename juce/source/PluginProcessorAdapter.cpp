@@ -16,6 +16,10 @@
 #include "PluginEditor.h"
 #include "UiBridge.h"
 
+#if SOUNDSHED_NANOQ_UI
+    #include "NanoQUiEditor.h"
+#endif
+
 #include "ControllerMidiOutput.h"
 #include "resources/PluginPathUtils.h"
 
@@ -724,7 +728,12 @@ juce::AudioProcessorEditor* PluginProcessorAdapter::createEditor()
 
 #endif
 
+#if SOUNDSHED_NANOQ_UI
+    // The spike build (-DSOUNDSHED_NANOQ_UI=ON): Nano Q's native UI instead of the WebView.
+    return new NanoQUiEditor(*this);
+#else
     return new PluginEditor(*this);
+#endif
 }
 
 bool PluginProcessorAdapter::hasEditor() const

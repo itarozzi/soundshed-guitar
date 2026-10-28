@@ -2,8 +2,7 @@
 
 #include "Log.h"
 #include "WindowChrome.h"
-#include "ui/Shell.h"
-#include "ui/UiSession.h"
+#include "ui/UiRoot.h"
 
 #include <elements.hpp>
 
@@ -17,18 +16,10 @@ NanoQPresenter::~NanoQPresenter() = default;
 
 void NanoQPresenter::on_attach(cycfi::elements::view& view)
 {
-    mSession = std::make_unique<ui::UiSession>(mCtl.engine(), view);
-    mSession->getZoom = [this] { return zoom(); };
-    mSession->setZoom = [this](float scale) { zoom(scale); };
-    mShell = std::make_unique<ui::Shell>(*mSession);
-    mSession->onTick = [this] {
-        if (mShell)
-        {
-            mShell->OnTick();
-        }
-    };
-
-    view.content(mShell->Root());
+    ui::UiRoot::Options options;
+    options.getZoom = [this] { return zoom(); };
+    options.setZoom = [this](float scale) { zoom(scale); };
+    mRoot = std::make_unique<ui::UiRoot>(mCtl.engine(), view, std::move(options));
     MakeStandaloneWindowResizable(static_cast<void*>(view.host()));
 
     const auto size = view.size();
@@ -40,16 +31,6 @@ void NanoQPresenter::on_attach(cycfi::elements::view& view)
 
 void NanoQPresenter::on_detach()
 {
-    // The shell holds elements the view still draws; drop the callback first, then the
-    // shell, then the session (which tells the engine no view is showing).
-    if (mSession)
-    {
-        mSession->onTick = nullptr;
-        mSession->getZoom = nullptr;
-        mSession->setZoom = nullptr;
-    }
-
-    mShell.reset();
-    mSession.reset();
+    mRoot.reset();
 }
 } // namespace nanoq

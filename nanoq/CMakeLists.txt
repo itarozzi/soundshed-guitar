@@ -117,6 +117,9 @@ list(FILTER NANOQ_SOURCES EXCLUDE REGEX "clap_entry[.]cpp$")
 # src/standalone/ talks to clap-wrapper's standalone host, which only the standalone executable
 # has: it is compiled into that target alone (below), so the plugin formats never reference it.
 list(FILTER NANOQ_SOURCES EXCLUDE REGEX "/src/standalone/[^/]*$")
+# The UI as a child of another framework's window, for Soundshed Guitar's JUCE editor
+# (juce/cmake/NanoQUi.cmake). QPlug gives Nano Q its view, so Nano Q does not need it.
+list(FILTER NANOQ_SOURCES EXCLUDE REGEX "/src/ui/EmbeddedUi[.]cpp$")
 
 # macOS: the open and save dialogs are AppKit panels (src/FileDialogs_mac.mm), built with ARC so
 # the panel outlives the call that shows it. iOS: a document picker (src/FileDialogs_ios.mm), and

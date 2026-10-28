@@ -18,6 +18,7 @@
 #include "uiclient/FeatureFlags.h"
 #include "uiclient/NodeLabels.h"
 #include "uiclient/ResourceIndex.h"
+#include "util/PathEncoding.h"
 
 #include <algorithm>
 #include <map>

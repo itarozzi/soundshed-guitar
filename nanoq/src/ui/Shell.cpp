@@ -14,21 +14,18 @@ using guitarfx::uiclient::Topic;
 
 Shell::Shell(UiSession& session)
     : mSession(session), mState(session.Client().MutableState()), mTheme(session.GetTheme()),
-      mIcons(session.GetEngine().GetBundledAssetsPath() / "ui" / "images" / "icons"),
-      mImages(session.GetEngine().GetBundledAssetsPath() / "ui"), mRemoteImages([] {
+      mIcons(session.Link().AssetRoot() / "ui" / "images" / "icons"), mImages(session.Link().AssetRoot() / "ui"),
+      mRemoteImages([] {
           std::error_code ec;
           const auto temp = std::filesystem::temp_directory_path(ec);
           return (ec ? std::filesystem::path(".") : temp) / "soundshed-nanoq-images";
       }()),
-      mLayoutImages(std::make_unique<LayoutImages>([&engine = session.GetEngine()](const std::string& imageId) {
-          // The controller's lookup is thread-safe and cached, so the UI thread asks it directly
-          // rather than waiting on the engine thread in the middle of a draw.
-          return engine.Controller().ResolveLayoutImageFile(imageId);
-      }))
+      mLayoutImages(std::make_unique<LayoutImages>(
+          [&link = session.Link()](const std::string& imageId) { return link.ResolveLayoutImageFile(imageId); }))
 {
     // The effect icons, colours and artwork: one table for every UI (core/ui/data/effect-presentation.json).
-    mPresentation = guitarfx::uiclient::EffectPresentation::Load(session.GetEngine().GetBundledAssetsPath() / "ui" /
-                                                                 "data" / "effect-presentation.json");
+    mPresentation = guitarfx::uiclient::EffectPresentation::Load(session.Link().AssetRoot() / "ui" / "data" /
+                                                                 "effect-presentation.json");
     AddShellIcons(mIcons);
     ApplyElementsTheme();
     BuildRoot();

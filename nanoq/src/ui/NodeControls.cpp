@@ -12,6 +12,7 @@
 #include "uiclient/NodeLabels.h"
 #include "uiclient/ParamFormat.h"
 #include "uiclient/ResourceIndex.h"
+#include "util/PathEncoding.h"
 
 #include <algorithm>
 #include <cctype>

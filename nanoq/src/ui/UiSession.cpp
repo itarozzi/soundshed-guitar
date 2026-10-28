@@ -11,13 +11,13 @@ namespace
 constexpr auto kPumpInterval = std::chrono::milliseconds(16);
 }
 
-UiSession::UiSession(Engine& engine, cycfi::elements::view& view)
-    : mEngine(engine), mView(view), mClient([&engine](const std::string& json) { engine.SendRequest(json); })
+UiSession::UiSession(UiLink& link, cycfi::elements::view& view)
+    : mLink(link), mView(view), mClient([&link](const std::string& json) { link.SendRequest(json); })
 {
-    mEngine.SetViewAttached(true);
+    mLink.SetViewAttached(true);
 
     // Tells the engine a UI is showing, which is what turns the meter and diagnostics feeds on.
-    mEngine.SendRequest(R"({"type":"uiVisibility","visible":true})");
+    mLink.SendRequest(R"({"type":"uiVisibility","visible":true})");
 
     guitarfx::uiclient::ToneService::Host host;
     host.post = [queue = std::weak_ptr<PostQueue>(mPosted)](std::function<void()> fn) {
@@ -61,8 +61,8 @@ UiSession::~UiSession()
 {
     *mAlive = false;
     mTones.reset();
-    mEngine.SendRequest(R"({"type":"uiVisibility","visible":false})");
-    mEngine.SetViewAttached(false);
+    mLink.SendRequest(R"({"type":"uiVisibility","visible":false})");
+    mLink.SetViewAttached(false);
 }
 
 double UiSession::Now()
@@ -91,11 +91,11 @@ void UiSession::Schedule()
 
 void UiSession::Pump()
 {
-    // The standalone's device requests run here, on the app's main thread, where clap-wrapper
-    // drives its devices; their answers are collected just below.
-    mEngine.Devices().Pump();
+    // The host's own UI-thread work first (Nano Q's standalone devices), so what it answers is
+    // collected just below.
+    mLink.PumpOnUiThread();
 
-    for (auto& message : mEngine.TakeMessagesForView())
+    for (auto& message : mLink.TakeMessagesForView())
     {
         mClient.Enqueue(std::move(message));
     }

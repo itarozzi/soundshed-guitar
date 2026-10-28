@@ -8,9 +8,9 @@
 // that subscribed to what changed redraw. Exactly as in the JUCE product, messages are applied
 // between UI events and never inside the call that sent a request.
 
-#include "Engine.h"
 #include "ui/DevDriver.h"
 #include "ui/Theme.h"
+#include "ui/UiLink.h"
 #include "uiclient/ToneService.h"
 #include "uiclient/UiClient.h"
 #include "uiclient/UiCommands.h"
@@ -28,7 +28,7 @@ namespace nanoq::ui
 class UiSession
 {
   public:
-    UiSession(Engine& engine, cycfi::elements::view& view);
+    UiSession(UiLink& link, cycfi::elements::view& view);
     ~UiSession();
 
     UiSession(const UiSession&) = delete;
@@ -64,9 +64,10 @@ class UiSession
     /// window past four in one poll.
     void Repaint(cycfi::elements::element& element);
 
-    [[nodiscard]] Engine& GetEngine()
+    /// The engine's host: Nano Q's engine, or another framework's editor (UiLink.h).
+    [[nodiscard]] UiLink& Link()
     {
-        return mEngine;
+        return mLink;
     }
 
     /// Tone sharing and Tone3000 over the network (core/src/uiclient/ToneService.h).
@@ -96,7 +97,7 @@ class UiSession
     void Schedule();
     void Pump();
 
-    Engine& mEngine;
+    UiLink& mLink;
     cycfi::elements::view& mView;
     guitarfx::uiclient::UiClient mClient;
     guitarfx::uiclient::UiCommands mCommands{mClient};
