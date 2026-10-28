@@ -190,6 +190,23 @@ if(NANOQ_IOS)
 endif()
 q_plug_add_host(nanoq_impl SoundshedNanoQ)
 
+# A precompiled header for the UI. Parsing Elements and ui/Shell.h was ~9 s of the ~10 s each UI
+# file took to compile on its own; with them precompiled a file takes ~1.5 s. Only the sources that
+# include ui/Shell.h use it (read at configure time), so the engine, the platform glue and the
+# Elements host layer QPlug adds above never see its names. A source that starts including
+# Shell.h compiles without the PCH until the next configure.
+target_precompile_headers(nanoq_impl PRIVATE <elements.hpp> "${CMAKE_CURRENT_SOURCE_DIR}/src/ui/Shell.h")
+get_target_property(_nanoq_impl_sources nanoq_impl SOURCES)
+foreach(_src IN LISTS _nanoq_impl_sources)
+    set(_uses_shell)
+    if(EXISTS "${_src}")
+        file(STRINGS "${_src}" _uses_shell REGEX "^#include \"ui/Shell.h\"")
+    endif()
+    if(NOT _uses_shell)
+        set_source_files_properties("${_src}" PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
+    endif()
+endforeach()
+
 # Fonts Nano Q draws with. Elements finds fonts only beside the plugin. Inter's static cuts are the
 # ones Nano uses (core/nativeui/fonts, made by tools/gen-nano-fonts.mjs); Open Sans
 # stays for anything Elements draws itself.

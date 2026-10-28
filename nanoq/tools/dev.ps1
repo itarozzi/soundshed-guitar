@@ -1,14 +1,18 @@
 # Stop any running Nano Q, build, report compiler and linker errors only, and optionally run
 # the standalone on a throwaway profile and capture its window.
 #
-#   powershell -File nanoq/tools/dev.ps1 -Profile <dir> [-Shot out.png] [-Resize 1100x720] [-Wait 8] [-NoRun]
+#   powershell -File nanoq/tools/dev.ps1 -Profile <dir> [-Shot out.png] [-Resize 1100x720] [-Wait 8] [-NoRun] [-Target <t>]
+#
+# Builds only the standalone by default, which is all this runs: -Target "" builds every target
+# (CLAP, VST3, tests, and Q's unused q_io, whose libremidi does not build on every PC).
 param(
     [Parameter(Mandatory = $true)][string]$Profile,
     [string]$Shot = "",
     [string]$Resize = "",
     [int]$Wait = 8,
     [switch]$NoRun,
-    [string]$Config = "Release"
+    [string]$Config = "Release",
+    [string]$Target = "nanoq_standalone"
 )
 
 $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
@@ -16,7 +20,7 @@ Get-Process -Name "Soundshed Nano Q" -ErrorAction SilentlyContinue | Stop-Proces
 Start-Sleep -Milliseconds 700
 
 Push-Location $root
-$out = cmd.exe /c "nanoq\build.cmd $Config" 2>&1 | Out-String
+$out = cmd.exe /c "nanoq\build.cmd $Config $Target" 2>&1 | Out-String
 Pop-Location
 
 $lines = $out -split "`r?`n"

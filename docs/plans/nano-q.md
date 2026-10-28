@@ -101,7 +101,15 @@ place instead, so a drag is never interrupted by the value it just set coming ba
 
 ```powershell
 nanoq\build.cmd Release          # configures (first time: ~5 min, fetches Q, Elements, clap-wrapper, NAM, ...) and builds
+nanoq\build.cmd Release nanoq_standalone   # one target
 ```
+
+`build.cmd` configures only a new tree; after that Ninja re-runs CMake itself when a
+CMakeLists or the source list changes (delete `build.ninja` to force a configure). The UI
+sources that include `ui/Shell.h` share a precompiled header of Elements and `Shell.h`. With
+both, an edit to one UI file rebuilds the standalone in ~10 s here (was ~57 s), and an edit to
+`Shell.h` in ~40 s. Building every target also builds Q's `q_io`, which the plugins and the
+standalone do not link; its libremidi fails here for want of a generated WinMIDI projection.
 
 On macOS, with Xcode's command-line tools and Ninja:
 
@@ -131,7 +139,7 @@ of the web UI; Nano Q turns it off, so building it needs no Node.
 
 | Script | Does |
 |---|---|
-| `dev.ps1 -Profile <dir> [-Shot png] [-Wait n] [-NoRun]` | Stops a running Nano Q, builds, reports only errors, runs the standalone on a throwaway data root and captures its window |
+| `dev.ps1 -Profile <dir> [-Shot png] [-Wait n] [-NoRun] [-Target t]` | Stops a running Nano Q, builds the standalone (`-Target ""` for every target), reports only errors, runs the standalone on a throwaway data root and captures its window |
 | `run-isolated.ps1` | The run-and-capture half |
 | `window-shot.ps1 -Out png [-Resize WxH]` | DPI-aware `PrintWindow` capture, which works when the window is behind others |
 | `click.ps1 -X -Y [-ToX -ToY] [-Wheel n] [-Right] [-Hover] [-Text s]` | Posts mouse and character messages straight to the view window, in capture coordinates; leaves the user's pointer alone |
