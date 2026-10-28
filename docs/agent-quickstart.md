@@ -267,9 +267,10 @@ merging, and verification of both saved data and the audio path.
     -DFETCHCONTENT_SOURCE_DIR_NAM_OVERSAMPLER_AUDIO_DSP_TOOLS=$D/nam_oversampler_audio_dsp_tools-src
   cmake --build core/build-clangcl --config Release --target FastMathNanTests
   ```
-- C++ format (all of our C++, including nanoq/ and our code under juce/; never vendored code), in this order:
-  `uncrustify -c tools/uncrustify.cfg -l CPP --no-backup <files>` then
-  `clang-format --style=file -i <files>`
+- C++ format, before committing C++: `node tools/format-cpp.mjs --changed` (or name the
+  files). It covers all of our C++ (nanoq/ and our code under juce/ too, never vendored
+  code), runs uncrustify then clang-format at their pinned versions, and keeps line endings.
+  `--check` changes nothing and fails on drift; CI runs it (cpp-structure.yml).
 - C++ structure check: `node tools/check-cpp-file-sizes.js`
 - Benchmarks (`NAMPerformanceBenchmark`, `ResourceLoadBenchmark`, `SignalChainThreadingBenchmark`,
   `TransposeBenchmark`) print measurements and assert nothing about them, so ctest only

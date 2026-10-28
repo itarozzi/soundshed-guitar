@@ -10,7 +10,8 @@
 # code keeps its own style: core/src/compat/json.hpp, juce/JUCE (a submodule),
 # juce/modules/clap-juce-extensions and juce/ASIOSDK (each with a .clang-format),
 # ios/compat and android/oboe-overlay. Objective-C++ (.mm) is not covered: this
-# file has no ObjC section.
+# file has no ObjC section. tools/format-cpp.mjs holds the exact list and the
+# tool versions, runs uncrustify first, and is what CI checks.
 #
 # NOTE: the blank-line-around-control-flow conventions in
 # .github/copilot-instructions.md CANNOT be expressed here — clang-format has no

@@ -72,8 +72,19 @@
   `.clang-format` (Microsoft base: Allman braces, 4-space indent, 120 columns,
   `T* p` / `T& p`, flush namespaces, and braces inserted on every control
   statement), after uncrustify (below).
-  Run both before committing C++. clang-format ships with Visual Studio at
-  `VC/Tools/Llvm/x64/bin/clang-format.exe`.
+- **Format before committing C++:** `node tools/format-cpp.mjs --changed`
+  (every file changed against main, and new ones), or name the files. It runs
+  both tools in order until a file stops changing, and keeps its line endings.
+  CI fails a push whose C++ is off the standard (`node tools/format-cpp.mjs
+  --check`, the format job in `cpp-structure.yml`).
+- The script pins the tool versions (clang-format 22.1.3, uncrustify 0.83.0) and
+  refuses others, since another version formats differently. Visual Studio's
+  copy of clang-format (`VC/Tools/Llvm/x64/bin`) is found on its own if it is
+  that version; otherwise `pip install clang-format==22.1.3`, or point
+  `CLANG_FORMAT` / `UNCRUSTIFY` at the right binaries. A version bump is
+  deliberate: change the pin, run the script over the tree, commit both.
+- The script also says what "our C++" is: change its scope list, not the docs,
+  when a folder is added.
 - **Vendored code keeps its own style; never format it:** `core/src/compat/json.hpp`,
   `juce/JUCE` (a submodule), `juce/modules/clap-juce-extensions` and `juce/ASIOSDK`
   (each has its own `.clang-format`), `ios/compat`, `android/oboe-overlay`.
@@ -124,7 +135,7 @@ and preserves them (`MaxEmptyLinesToKeep: 1`), so the two compose rather than
 fight. The pair is convergent: a second run is a no-op. (It was not, for a
 multi-line `/** */` comment on a class member, until `indent_class = true` went
 into `tools/uncrustify.cfg`: each run pushed the comment's continuation lines 4
-columns deeper.)
+columns deeper.) `tools/format-cpp.mjs` does all of this; by hand it is:
 
 ```bash
 uncrustify -c tools/uncrustify.cfg -l CPP --no-backup <files>

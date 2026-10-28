@@ -11,6 +11,9 @@ name: C++ structure
 # release tag, so a clean build cannot change without a commit here. The UI/engine
 # message protocol is checked here too, since a route can change on either side.
 #
+# The format job checks that our C++ is in the repo style (tools/format-cpp.mjs, which
+# also holds the tool versions: another version formats differently).
+#
 # Not covered here: compiling. The platform build workflows do that.
 
 on:
@@ -21,6 +24,15 @@ on:
       - "core/tests/**"
       - "juce/source/**"
       - "juce/tests/**"
+      - "nanoq/src/**"
+      - "nanoq/tests/**"
+      - "juce/benchmarks/**"
+      - "tools/nam-benchmark/**"
+      - "tools/nano-fonts/**"
+      - ".clang-format"
+      - "juce/.clang-format"
+      - "tools/uncrustify.cfg"
+      - "tools/format-cpp.mjs"
       - "tools/check-cpp-file-sizes.js"
       - "tools/cpp-file-size-allowlist.json"
       - "core/CMakeLists.txt"
@@ -36,6 +48,15 @@ on:
       - "core/tests/**"
       - "juce/source/**"
       - "juce/tests/**"
+      - "nanoq/src/**"
+      - "nanoq/tests/**"
+      - "juce/benchmarks/**"
+      - "tools/nam-benchmark/**"
+      - "tools/nano-fonts/**"
+      - ".clang-format"
+      - "juce/.clang-format"
+      - "tools/uncrustify.cfg"
+      - "tools/format-cpp.mjs"
       - "tools/check-cpp-file-sizes.js"
       - "tools/cpp-file-size-allowlist.json"
       - "core/CMakeLists.txt"
@@ -71,3 +92,45 @@ jobs:
 
       - name: UI/engine protocol
         run: node tools/check-protocol.mjs
+
+  format:
+    name: C++ format
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+
+      - name: Tool versions
+        id: pins
+        run: |
+          echo "clang_format=$(node tools/format-cpp.mjs --pin clang-format)" >> "$GITHUB_OUTPUT"
+          echo "uncrustify=$(node tools/format-cpp.mjs --pin uncrustify)" >> "$GITHUB_OUTPUT"
+
+      # No distribution packages the pinned uncrustify, so it is built at its release tag, once.
+      - uses: actions/cache@v6
+        id: uncrustify
+        with:
+          path: ~/uncrustify
+          key: uncrustify-${{ steps.pins.outputs.uncrustify }}-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Build uncrustify
+        if: steps.uncrustify.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 --branch "uncrustify-${{ steps.pins.outputs.uncrustify }}" https://github.com/uncrustify/uncrustify.git "$RUNNER_TEMP/uncrustify-src"
+          cmake -S "$RUNNER_TEMP/uncrustify-src" -B "$RUNNER_TEMP/uncrustify-build" -DCMAKE_BUILD_TYPE=Release
+          cmake --build "$RUNNER_TEMP/uncrustify-build" -j "$(nproc)"
+          mkdir -p ~/uncrustify
+          cp "$RUNNER_TEMP/uncrustify-build/uncrustify" ~/uncrustify/
+
+      - name: Install the tools
+        run: |
+          echo "$HOME/uncrustify" >> "$GITHUB_PATH"
+          pipx install "clang-format==${{ steps.pins.outputs.clang_format }}"
+
+      - name: Format check
+        run: node tools/format-cpp.mjs --check
