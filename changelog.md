@@ -1,7 +1,7 @@
 # Changelog
 
 ## Unreleased
-* New Verbal reverb effect 
+* **Verbal**: twelve reverbs in one, for when you want a reverb to be a big part of the sound. Pick a machine (Room, Hall, Plate, Spring, Swell, Bloom, Cloud, Choir, Shimmer, Tape Echo, Nonlinear or Reflections) and the panel shows its own controls alongside the common ones. Decay is in seconds and is what you hear, from a 0.2 s room to a 60 s cloud, and Pre-Delay reaches 1.5 s. Mix adds the reverb to your dry signal rather than trading one for the other, and the top of the knob is fully wet. Hold sustains the tail: Infinite keeps adding what you play, Freeze holds it under whatever comes next. Changing machine lets the old tail ring out. 18 factory presets, from Studio Room to Octave Shimmer and Reverse Reverb.
 * IR Cab now has optional IR list for easy pairing
 * Many updates to the custom layout editor enabling better custom layout designs
 * Riff capture records on the new looper's recorder. An armed take now keeps the 10 ms before your first note, so the pick attack isn't cut, and waits for a note louder than your pickup's hum instead of a fixed level that a single coil's hum could set off. Your riff library and saved takes are unchanged.
@@ -15,7 +15,6 @@
 * The app can now tell your MIDI device when you pick a bank or a setlist slot in the app, so a controller or a second unit following along shows the same selection. Turn on **Send a program change to the MIDI device** in the MIDI & Automation panel's Mappings tab and choose the channel. Picking a slot sends its setlist's bank number as Bank Select, then a Program Change for the slot (slot 1 is program 0); picking a setlist sends its Bank Select alone. Choose CC0 + CC32, CC0 only or CC32 only to suit your device, or no Bank Select at all. Changes made from the MIDI device itself or from your DAW are not sent back to it.
 
 ### New Effects
-* **Verbal**: twelve reverbs in one, for when you want a reverb to be a big part of the sound. Pick a machine (Room, Hall, Plate, Spring, Swell, Bloom, Cloud, Choir, Shimmer, Tape Echo, Nonlinear or Reflections) and the panel shows its own controls alongside the common ones. Decay is in seconds and is what you hear, from a 0.2 s room to a 60 s cloud, and Pre-Delay reaches 1.5 s. Mix adds the reverb to your dry signal rather than trading one for the other, and the top of the knob is fully wet. Hold sustains the tail: Infinite keeps adding what you play, Freeze holds it under whatever comes next. Changing machine lets the old tail ring out. 18 factory presets, from Studio Room to Octave Shimmer and Reverse Reverb.
 * **Noise Reduction**: takes the hum, buzz and hiss out of a guitar or bass pickup without gating it. Put it first in the chain and pick your pickup type. It learns your hum and buzz in the pauses between notes and cancels it all the time, under the playing too, following the mains frequency as it drifts and working out for itself whether you are on 50 or 60 Hz. The hiss stage closes the top end only as a note fades into hiss, so the body of every note and its decay are left alone. No latency. Set Listen to Removed Noise to hear exactly what it takes out.
 
 ### Noise Gate
@@ -36,8 +35,6 @@
 
 ### Tone Sharing
 * Right-click a folder in the preset chooser and pick **Create Pack…** to start a Tone Sharing pack from the folder's presets, its subfolders' included. The pack takes the folder's name, and each preset shows whether it is already on Tone Sharing. Presets that aren't yet are uploaded as drafts when you save, and only go to the moderators when you publish the pack. Presets you installed from someone else's pack are left out.
-* **AI Tone Builder** (Settings → Features → Power Features, off by default; needs a Soundshed sign-in): press **Tone Builder…** in Tone Sharing, name an artist, song or style and pick how hard it should think. It first shows anything Tone Sharing already has for it, then researches the rig, picks NAM captures and IRs, and proposes ready-to-play presets with pack artwork. You review every capture it chose before anything is downloaded; gear no capture covers gets a built-in stand-in. The presets are balanced to the same level as the factory packs, saved to a "Tone Builder" folder, and can be shared on Tone Sharing under your account.
-* The AI Tone Search tab is gone; the Tone Builder replaces it.
 * Imported Tone3000 models now remember their licence and what the capture covers (amp only, full rig, pedal), and shared presets name models from any source, not only Tone3000.
 * Previewing a tone now sounds like the tone. A tone built on Tone3000 models or IRs you didn't already have played without them in a preview, so it often sounded clean until you installed it. The preview now fetches what it needs and plays it, its blends included, and still adds nothing to your library: only installing the tone does that. If it can't get a model (without a Tone3000 key, for example), it tells you which ones it left out.
 
