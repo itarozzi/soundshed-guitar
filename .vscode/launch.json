@@ -60,6 +60,14 @@
       "command": "& \"${workspaceFolder}/nanoq/build/Release/products/Standalone-nanoq_standalone/Soundshed Nano Q.exe\"",
       "cwd": "${workspaceFolder}/nanoq/build/Release/products/Standalone-nanoq_standalone",
       "preLaunchTask": "Build Soundshed Nano Q Release"
+    },
+    {
+      "name": "Run JUCE Nano (Nano Q UI) Release (No Debugger)",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "& \"${workspaceFolder}/juce/builds-nanoq-ui/SoundshedGuitar_artefacts/Release/Standalone/Soundshed Guitar.exe\"",
+      "cwd": "${workspaceFolder}/juce/builds-nanoq-ui/SoundshedGuitar_artefacts/Release/Standalone",
+      "preLaunchTask": "Build JUCE Nano (Nano Q UI) Standalone Release"
     }
   ]
 }

@@ -87,6 +87,24 @@
 			"problemMatcher": "$msCompile"
 		},
 		{
+			"label": "Build JUCE Nano (Nano Q UI) Standalone Release",
+			"detail": "The JUCE app with Nano Q's UI as its editor (juce/cmake/NanoQUi.cmake), in juce/builds-nanoq-ui. Configures that tree only when it is missing; delete its CMakeCache.txt to configure again.",
+			"type": "shell",
+			"command": "if (-not (Test-Path 'juce/builds-nanoq-ui/CMakeCache.txt')) { cmake -G 'Visual Studio 18 2026' -A x64 -S juce -B juce/builds-nanoq-ui -DSOUNDSHED_NANOQ_UI=ON }; if ($LASTEXITCODE -eq 0 -or $null -eq $LASTEXITCODE) { cmake --build juce/builds-nanoq-ui --config Release --target SoundshedGuitar_Standalone --parallel }; exit $LASTEXITCODE",
+			"options": {
+				"cwd": "${workspaceFolder}",
+				"shell": {
+					"executable": "powershell.exe",
+					"args": [
+						"-NoProfile",
+						"-Command"
+					]
+				}
+			},
+			"group": "build",
+			"problemMatcher": "$msCompile"
+		},
+		{
 			"label": "Build SoundshedGuitar (JUCE) VST3 Release",
 			"type": "shell",
 			"command": "cmake",
