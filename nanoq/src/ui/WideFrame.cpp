@@ -191,7 +191,7 @@ Ptr Shell::BuildTabBar()
         tabItems.push_back(tab("JAM", mPage == Page::Jam, Page::Jam));
     }
 
-    tabItems.push_back(tab("PRESETS", mPage == Page::Presets, Page::Presets));
+    // No Presets tab, as in the web UI: the preset pill opens the presets.
     auto tabs = Tight(tabItems);
     // A newer release's Update button sits beside the gear, as the web UI's header pill does.
     std::vector<Ptr> row{HGap(38), Stretch(), tabs, Stretch()};
