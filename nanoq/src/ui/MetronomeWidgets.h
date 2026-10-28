@@ -1,0 +1,505 @@
+#pragma once
+
+// The metronome card's own controls, drawn as the web UI draws them (css/modals/metronome.css):
+// the card with its header band, the close cross, the pickers' triggers, the tempo's arrows and
+// readout, the round TAP and transport buttons, and the beat strip. Metronome.cpp lays them out.
+
+#include "ui/Drawn.h"
+#include "ui/ShellWidgets.h"
+#include "ui/Widgets.h"
+
+#include <algorithm>
+#include <functional>
+#include <string>
+#include <vector>
+
+namespace nanoq::ui::metronome
+{
+using cycfi::artist::canvas;
+
+inline constexpr float kHeaderHeight = 56.0f;
+inline constexpr float kCardRadius = 12.0f;
+
+/// The card (.metronome-card): the page colour, with the header band (.metronome-card-header)
+/// across its top and a rule under the band.
+class CardFace final : public el::element
+{
+  public:
+    explicit CardFace(const Theme& theme) : mTheme(theme)
+    {
+    }
+
+    void draw(const el::context& ctx) override
+    {
+        auto& cnv = ctx.canvas;
+        const auto b = ctx.bounds;
+        cnv.fill_style(mTheme.Background());
+        cnv.fill_round_rect(b, kCardRadius);
+        {
+            auto state = cnv.new_state();
+            cnv.add_round_rect(b, kCardRadius);
+            cnv.clip();
+            cnv.fill_style(mTheme.Bar());
+            cnv.fill_rect(el::rect{b.left, b.top, b.right, b.top + kHeaderHeight});
+        }
+        cnv.fill_style(mTheme.BorderStrong());
+        cnv.fill_rect(el::rect{b.left, b.top + kHeaderHeight - 1.0f, b.right, b.top + kHeaderHeight});
+        cnv.stroke_style(mTheme.Border());
+        cnv.line_width(1.0f);
+        cnv.stroke_round_rect(b.inset(0.5f, 0.5f), kCardRadius);
+    }
+
+  private:
+    const Theme& mTheme;
+};
+
+/// The header's close cross (.metronome-close-btn): muted, brighter under the pointer.
+class CloseCross final : public Pressable
+{
+  public:
+    explicit CloseCross(const Theme& theme) : mTheme(theme)
+    {
+    }
+
+    el::view_limits limits(const el::basic_context&) const override
+    {
+        return {{24.0f, 24.0f}, {24.0f, 24.0f}};
+    }
+
+    void draw(const el::context& ctx) override
+    {
+        NoteDrawn(ctx);
+        auto& cnv = ctx.canvas;
+        const auto c = cycfi::artist::center_point(ctx.bounds);
+        constexpr float kArm = 4.5f;
+        cnv.stroke_style(mHover ? mTheme.Text() : mTheme.TextMuted());
+        cnv.line_width(2.0f);
+        cnv.line_cap(canvas::round);
+        cnv.begin_path();
+        cnv.move_to(c.x - kArm, c.y - kArm);
+        cnv.line_to(c.x + kArm, c.y + kArm);
+        cnv.move_to(c.x + kArm, c.y - kArm);
+        cnv.line_to(c.x - kArm, c.y + kArm);
+        cnv.stroke();
+    }
+
+  private:
+    const Theme& mTheme;
+};
+
+/// A picker's trigger (.metro-select-trigger): the choice in a filled box with a chevron at the
+/// right, its border lit under the pointer. A tap opens the list under it.
+class PickerField final : public Pressable
+{
+  public:
+    PickerField(const Theme& theme, Icons& icons) : mTheme(theme), mIcons(icons)
+    {
+    }
+
+    void Set(std::string text)
+    {
+        mText = std::move(text);
+    }
+
+    el::view_limits limits(const el::basic_context&) const override
+    {
+        return {{60.0f, 32.0f}, {el::full_extent, 32.0f}};
+    }
+
+    void draw(const el::context& ctx) override
+    {
+        NoteDrawn(ctx);
+        auto& cnv = ctx.canvas;
+        const auto b = ctx.bounds;
+        const float fade = mEnabled ? 1.0f : 0.6f;
+        cnv.fill_style(mTheme.Tertiary().opacity(fade));
+        cnv.fill_round_rect(b, 8.0f);
+        cnv.stroke_style((mHover && mEnabled ? mTheme.Accent() : mTheme.BorderStrong()).opacity(fade));
+        cnv.line_width(1.0f);
+        cnv.stroke_round_rect(b.inset(0.5f, 0.5f), 8.0f);
+        const auto font = Font(Weight::Regular).size(metrics::kSmallText);
+        const el::rect text{b.left + 10.0f, b.top, b.right - 30.0f, b.bottom};
+        FillText(cnv, Ellipsize(cnv, mText, font, text.width()), font, mTheme.Text().opacity(fade), text, HAlign::Left);
+        const float cy = b.top + b.height() * 0.5f;
+        mIcons.Draw(cnv, "ui-caret", el::rect{b.right - 24.0f, cy - 7.0f, b.right - 10.0f, cy + 7.0f},
+                    mTheme.TextMuted().opacity(fade));
+    }
+
+  private:
+    const Theme& mTheme;
+    Icons& mIcons;
+    std::string mText;
+};
+
+/// One of the tempo's arrows (.metronome-bpm-btn), up or down. Shift steps by a tenth.
+class TempoArrow final : public Pressable
+{
+  public:
+    TempoArrow(const Theme& theme, bool up) : mTheme(theme), mUp(up)
+    {
+        onClick = [this] {
+            if (onStep)
+            {
+                onStep(mFine);
+            }
+        };
+    }
+
+    /// Called on a click, with whether Shift was held.
+    std::function<void(bool fine)> onStep;
+
+    el::view_limits limits(const el::basic_context&) const override
+    {
+        return {{28.0f, 24.0f}, {28.0f, 24.0f}};
+    }
+
+    bool click(const el::context& ctx, el::mouse_button btn) override
+    {
+        mFine = (btn.modifiers & el::mod_shift) != 0;
+        return Pressable::click(ctx, btn);
+    }
+
+    void draw(const el::context& ctx) override
+    {
+        NoteDrawn(ctx);
+        auto& cnv = ctx.canvas;
+        const auto b = ctx.bounds;
+        const float fade = mEnabled ? 1.0f : 0.6f;
+        cnv.fill_style((mHover && mEnabled ? mTheme.Elevated() : mTheme.Tertiary()).opacity(fade));
+        cnv.fill_round_rect(b, 6.0f);
+        cnv.stroke_style(mTheme.BorderStrong().opacity(fade));
+        cnv.line_width(1.0f);
+        cnv.stroke_round_rect(b.inset(0.5f, 0.5f), 6.0f);
+        const auto c = cycfi::artist::center_point(b);
+        const float tip = mUp ? -3.5f : 3.5f;
+        cnv.fill_style((mHover && mEnabled ? mTheme.Text() : mTheme.TextSecondary()).opacity(fade));
+        cnv.begin_path();
+        cnv.move_to(c.x, c.y + tip);
+        cnv.line_to(c.x + 4.5f, c.y - tip);
+        cnv.line_to(c.x - 4.5f, c.y - tip);
+        cnv.close_path();
+        cnv.fill();
+    }
+
+  private:
+    const Theme& mTheme;
+    bool mUp;
+    bool mFine = false;
+};
+
+/// The round buttons: TAP (.metronome-tap) and the transport (.metronome-play). An outlined
+/// circle that lights its rim under the pointer and shrinks a little while pressed; the
+/// transport's rim and glyph take the accent while the click runs.
+class RoundButton final : public Pressable
+{
+  public:
+    RoundButton(const Theme& theme, Icons& icons, float diameter, std::string label)
+        : mTheme(theme), mIcons(icons), mDiameter(diameter), mLabel(std::move(label))
+    {
+    }
+
+    /// The glyph instead of a label: "ui-play" or "ui-stop".
+    void Icon(std::string icon)
+    {
+        mIcon = std::move(icon);
+    }
+
+    void Active(bool active)
+    {
+        mActive = active;
+    }
+
+    el::view_limits limits(const el::basic_context&) const override
+    {
+        return {{mDiameter, mDiameter}, {mDiameter, mDiameter}};
+    }
+
+    void draw(const el::context& ctx) override
+    {
+        NoteDrawn(ctx);
+        auto& cnv = ctx.canvas;
+        const auto c = cycfi::artist::center_point(ctx.bounds);
+        const float fade = mEnabled ? 1.0f : 0.6f;
+        const float r = (mDiameter * 0.5f - 1.0f) * (mDown && mEnabled ? 0.94f : 1.0f);
+        const bool lit = mEnabled && (mHover || mDown);
+        cnv.fill_style(mTheme.Bar().opacity(fade));
+        cnv.add_circle(cycfi::artist::circle(c, r));
+        cnv.fill();
+        cnv.stroke_style((mActive || lit ? mTheme.Accent() : mTheme.BorderStrong()).opacity(fade));
+        cnv.line_width(2.0f);
+        cnv.add_circle(cycfi::artist::circle(c, r));
+        cnv.stroke();
+
+        if (!mIcon.empty())
+        {
+            const float half = 9.0f;
+            mIcons.Draw(cnv, mIcon, el::rect{c.x - half, c.y - half, c.x + half, c.y + half},
+                        (mActive ? mTheme.Accent() : mTheme.Text()).opacity(fade));
+            return;
+        }
+
+        FillText(cnv, mLabel, Font(Weight::SemiBold).size(metrics::kSmallText),
+                 (lit ? mTheme.Text() : mTheme.TextSecondary()).opacity(fade),
+                 el::rect{c.x - r, c.y - r, c.x + r, c.y + r}, HAlign::Centre);
+    }
+
+  private:
+    const Theme& mTheme;
+    Icons& mIcons;
+    float mDiameter;
+    std::string mLabel;
+    std::string mIcon;
+    bool mActive = false;
+};
+
+/// The tempo in large figures (.metronome-bpm-input). The wheel steps it; a double click asks
+/// for a tempo to type, as the web UI's number field takes one.
+class TempoReadout final : public el::element, public Drawn
+{
+  public:
+    explicit TempoReadout(const Theme& theme) : mTheme(theme)
+    {
+    }
+
+    std::function<void(int steps)> onWheel;
+    std::function<void(el::rect at)> onEdit;
+
+    void Set(std::string text, bool enabled)
+    {
+        mText = std::move(text);
+        mEnabled = enabled;
+    }
+
+    el::view_limits limits(const el::basic_context&) const override
+    {
+        return {{150.0f, 58.0f}, {150.0f, 58.0f}};
+    }
+
+    void draw(const el::context& ctx) override
+    {
+        NoteDrawn(ctx);
+        FillText(ctx.canvas, mText, Font(Weight::SemiBold).size(48.0f), mTheme.Text(), ctx.bounds, HAlign::Left);
+    }
+
+    bool click(const el::context& ctx, el::mouse_button btn) override
+    {
+        if (mEnabled && btn.down && btn.state == el::mouse_button::left && btn.num_clicks == 2 && onEdit)
+        {
+            onEdit(ctx.bounds);
+        }
+
+        return mEnabled;
+    }
+
+    bool scroll(const el::context&, el::point dir, el::point) override
+    {
+        if (!mEnabled || dir.y == 0.0f || !ParamKnob::sWheelAdjusts || !onWheel)
+        {
+            return false;
+        }
+
+        onWheel(dir.y > 0.0f ? 1 : -1);
+        return true;
+    }
+
+    bool wants_control() const override
+    {
+        return true;
+    }
+
+  private:
+    const Theme& mTheme;
+    std::string mText = "120.0";
+    bool mEnabled = true;
+};
+
+/// The beat strip (.metro-beats): a dot per beat, sized and shaded by its accent, ticks under
+/// it for the subdivision, and a wider gap where a group starts (the 3 of 7/8 as 2+2+3). A click
+/// steps a beat's accent; the beat the engine just played is lit in the accent for a moment.
+class BeatStrip final : public el::element, public Drawn
+{
+  public:
+    explicit BeatStrip(const Theme& theme) : mTheme(theme)
+    {
+    }
+
+    /// Called with the beat clicked.
+    std::function<void(std::size_t beat)> onBeat;
+
+    void Set(std::string pattern, std::vector<bool> heads, int ticks, bool editable)
+    {
+        mPattern = std::move(pattern);
+        mHeads = std::move(heads);
+        mTicks = ticks;
+        mEditable = editable;
+    }
+
+    void Light(int beat)
+    {
+        mLit = beat;
+    }
+
+    el::view_limits limits(const el::basic_context&) const override
+    {
+        return {{0.0f, 46.0f}, {el::full_extent, 46.0f}};
+    }
+
+    void draw(const el::context& ctx) override
+    {
+        NoteDrawn(ctx);
+        auto& cnv = ctx.canvas;
+        const float fade = mEditable ? 1.0f : 0.55f;
+        const auto cells = Cells(ctx.bounds);
+
+        for (std::size_t i = 0; i < cells.size(); ++i)
+        {
+            const char level = mPattern[i];
+            const bool off = level == 'S';
+            const bool lit = static_cast<int>(i) == mLit;
+            float size = level == 'H' ? 22.0f : level == 'M' ? 19.0f : 16.0f;
+            // The dots hang from the top of the strip, as the web UI's do (align-items: flex-start).
+            const el::point c{(cells[i].left + cells[i].right) * 0.5f, cells[i].top + 6.0f + size * 0.5f};
+
+            if (static_cast<int>(i) == mHover && mEditable)
+            {
+                cnv.fill_style(mTheme.Accent().opacity(0.16f));
+                cnv.add_circle(cycfi::artist::circle(c, size * 0.5f + 3.0f));
+                cnv.fill();
+            }
+
+            if (lit)
+            {
+                size *= off ? 1.1f : 1.25f;
+            }
+
+            const float r = size * 0.5f;
+
+            if (!off)
+            {
+                const el::color fill = lit            ? mTheme.Accent()
+                                       : level == 'H' ? mTheme.Text()
+                                       : level == 'M' ? mTheme.TextSecondary()
+                                                      : mTheme.TextMuted();
+                cnv.fill_style(fill.opacity(fade));
+                cnv.add_circle(cycfi::artist::circle(c, r));
+                cnv.fill();
+            }
+            else
+            {
+                cnv.stroke_style((lit ? mTheme.Accent() : mTheme.BorderStrong()).opacity(fade));
+                cnv.line_width(2.0f);
+                cnv.add_circle(cycfi::artist::circle(c, r - 1.0f));
+                cnv.stroke();
+            }
+
+            // A tick for each subdivision after the beat itself, under the largest dot's foot.
+            if (mTicks > 1)
+            {
+                const int count = mTicks - 1;
+                const float width = static_cast<float>(count) * 3.0f + static_cast<float>(count - 1) * 3.0f;
+                float x = c.x - width * 0.5f + 1.5f;
+                const float y = cells[i].top + 6.0f + 22.0f + 5.0f + 2.0f;
+                cnv.fill_style(mTheme.TextMuted().opacity(0.7f * fade));
+
+                for (int t = 0; t < count; ++t, x += 6.0f)
+                {
+                    cnv.add_circle(cycfi::artist::circle(el::point{x, y}, 1.5f));
+                }
+
+                cnv.fill();
+            }
+        }
+    }
+
+    bool click(const el::context& ctx, el::mouse_button btn) override
+    {
+        if (!mEditable || btn.state != el::mouse_button::left)
+        {
+            return false;
+        }
+
+        if (btn.down)
+        {
+            if (const int beat = Hit(ctx.bounds, btn.pos); beat >= 0 && onBeat)
+            {
+                onBeat(static_cast<std::size_t>(beat));
+            }
+        }
+
+        return true;
+    }
+
+    bool cursor(const el::context& ctx, el::point p, el::cursor_tracking status) override
+    {
+        const int hover = status == el::cursor_tracking::leaving ? -1 : Hit(ctx.bounds, p);
+
+        if (hover != mHover)
+        {
+            mHover = hover;
+            ctx.view.refresh(ctx);
+        }
+
+        return false;
+    }
+
+    bool wants_control() const override
+    {
+        return true;
+    }
+
+  private:
+    static constexpr float kCell = 26.0f;     // the largest dot and its padding
+    static constexpr float kGap = 10.0f;      // between beats
+    static constexpr float kGroupGap = 14.0f; // before a group's first beat, on top of the gap
+
+    [[nodiscard]] std::vector<el::rect> Cells(el::rect bounds) const
+    {
+        std::vector<el::rect> cells;
+        float width = 0.0f;
+
+        for (std::size_t i = 0; i < mPattern.size(); ++i)
+        {
+            width += (i > 0 ? kGap : 0.0f) + (IsGroupHead(i) ? kGroupGap : 0.0f) + kCell;
+        }
+
+        float x = (bounds.left + bounds.right - width) * 0.5f;
+
+        for (std::size_t i = 0; i < mPattern.size(); ++i)
+        {
+            x += (i > 0 ? kGap : 0.0f) + (IsGroupHead(i) ? kGroupGap : 0.0f);
+            cells.push_back(el::rect{x, bounds.top, x + kCell, bounds.bottom});
+            x += kCell;
+        }
+
+        return cells;
+    }
+
+    [[nodiscard]] bool IsGroupHead(std::size_t i) const
+    {
+        return i > 0 && i < mHeads.size() && mHeads[i];
+    }
+
+    [[nodiscard]] int Hit(el::rect bounds, el::point p) const
+    {
+        const auto cells = Cells(bounds);
+
+        for (std::size_t i = 0; i < cells.size(); ++i)
+        {
+            if (p.x >= cells[i].left - kGap * 0.5f && p.x < cells[i].right + kGap * 0.5f)
+            {
+                return static_cast<int>(i);
+            }
+        }
+
+        return -1;
+    }
+
+    const Theme& mTheme;
+    std::string mPattern;
+    std::vector<bool> mHeads;
+    int mTicks = 1;
+    bool mEditable = true;
+    int mLit = -1;
+    int mHover = -1;
+};
+} // namespace nanoq::ui::metronome
