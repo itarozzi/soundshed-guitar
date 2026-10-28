@@ -196,10 +196,12 @@ class BlockPacer
     ~BlockPacer()
     {
 #if defined(_WIN32)
+
         if (mTimer)
         {
             CloseHandle(mTimer);
         }
+
 #endif
     }
 
@@ -217,6 +219,7 @@ class BlockPacer
         }
 
 #if defined(_WIN32)
+
         if (mTimer)
         {
             LARGE_INTEGER due;
@@ -225,6 +228,7 @@ class BlockPacer
             WaitForSingleObject(mTimer, INFINITE);
             return;
         }
+
 #endif
         std::this_thread::sleep_for(std::chrono::duration<double, std::micro>(leftUs));
     }

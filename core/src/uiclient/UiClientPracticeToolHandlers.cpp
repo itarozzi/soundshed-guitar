@@ -18,21 +18,32 @@ namespace
 std::vector<float> PeaksOf(const nlohmann::json& m, const char* key)
 {
     std::vector<float> peaks;
+
     if (const auto it = m.find(key); it != m.end() && it->is_array())
     {
         peaks.reserve(it->size());
+
         for (const auto& v : *it)
+        {
             if (v.is_number())
+            {
                 peaks.push_back(static_cast<float>(v.get<double>()));
+            }
+        }
     }
+
     return peaks;
 }
 
 double FiniteOr(const nlohmann::json& m, const char* key, double fallback)
 {
     const auto it = m.find(key);
+
     if (it == m.end() || !it->is_number())
+    {
         return fallback;
+    }
+
     const double v = it->get<double>();
     return std::isfinite(v) ? v : fallback;
 }
@@ -44,11 +55,13 @@ void UiClient::RegisterPracticeToolHandlers()
         auto& t = mState.practiceTool;
         t.filePath = m.value("path", std::string{});
         t.title = m.value("title", std::string{});
+
         if (t.title.find_first_not_of(" \t") == std::string::npos)
         {
             const auto slash = t.filePath.find_last_of("\\/");
             t.title = slash == std::string::npos ? t.filePath : t.filePath.substr(slash + 1);
         }
+
         t.durationSec = std::max(0.0, FiniteOr(m, "durationSec", 0.0));
         t.peaksL = PeaksOf(m, "waveformPeaksL");
         t.peaksR = PeaksOf(m, "waveformPeaksR");
@@ -121,8 +134,12 @@ void UiCommands::SetPracticeToolBalance(double balance)
 void UiCommands::SetPracticeToolLoopRegion(double startSec, double endSec, bool restart)
 {
     nlohmann::json payload = {{"startSec", startSec}, {"endSec", endSec}};
+
     if (restart)
+    {
         payload["restart"] = true;
+    }
+
     mClient.Send("setPracticeToolLoopRegion", payload);
 }
 
@@ -139,10 +156,17 @@ void UiCommands::SetPracticeToolLooping(bool enabled)
 void UiCommands::SetPracticeToolEq(const std::optional<bool>& enabled, const nlohmann::json& params)
 {
     nlohmann::json payload = nlohmann::json::object();
+
     if (params.is_object() && !params.empty())
+    {
         payload["params"] = params;
+    }
+
     if (enabled)
+    {
         payload["enabled"] = *enabled;
+    }
+
     mClient.Send("setPracticeToolEq", payload);
 }
 } // namespace guitarfx::uiclient

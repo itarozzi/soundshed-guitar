@@ -18,7 +18,8 @@ namespace
 std::string Trim(const std::string& text)
 {
     const auto first = text.find_first_not_of(" \t\r\n");
-    return first == std::string::npos ? std::string{} : text.substr(first, text.find_last_not_of(" \t\r\n") - first + 1);
+    return first == std::string::npos ? std::string{}
+                                      : text.substr(first, text.find_last_not_of(" \t\r\n") - first + 1);
 }
 
 std::string MetadataString(const nlohmann::json& metadata, const char* key)

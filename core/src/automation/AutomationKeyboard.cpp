@@ -18,13 +18,25 @@ namespace
 std::size_t Utf8SequenceLength(unsigned char lead)
 {
     if (lead < 0x80)
+    {
         return 1;
+    }
+
     if ((lead & 0xE0) == 0xC0)
+    {
         return 2;
+    }
+
     if ((lead & 0xF0) == 0xE0)
+    {
         return 3;
+    }
+
     if ((lead & 0xF8) == 0xF0)
+    {
         return 4;
+    }
+
     return 0;
 }
 } // namespace
@@ -45,7 +57,8 @@ std::string AutomationSlotTable::NormalizeMappedKey(const std::string& key)
 
 bool AutomationSlotTable::IsUnmappableKey(const std::string& key)
 {
-    static const std::array<const char*, 7> kModifiers = {" ", "Shift", "Control", "Alt", "Meta", "AltGraph", "CapsLock"};
+    static const std::array<const char*, 7> kModifiers = {" ",    "Shift",    "Control", "Alt",
+                                                          "Meta", "AltGraph", "CapsLock"};
     return std::any_of(kModifiers.begin(), kModifiers.end(), [&key](const char* name) { return key == name; });
 }
 

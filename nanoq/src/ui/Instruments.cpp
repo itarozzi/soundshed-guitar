@@ -29,7 +29,8 @@ std::string Fixed(double value, int decimals)
     return text;
 }
 
-void DrawText(canvas& cnv, const std::string& text, const el::font_descr& font, el::color colour, el::point at, int align)
+void DrawText(canvas& cnv, const std::string& text, const el::font_descr& font, el::color colour, el::point at,
+              int align)
 {
     auto state = cnv.new_state();
     cnv.font(font);
@@ -44,8 +45,10 @@ void DrawText(canvas& cnv, const std::string& text, const el::font_descr& font, 
 /// The note, its neighbours, a needle over a ±50 cent scale, and the reading in numbers.
 class TunerFace final : public el::element, public Drawn
 {
-public:
-    explicit TunerFace(const Theme& theme) : mTheme(theme) {}
+  public:
+    explicit TunerFace(const Theme& theme) : mTheme(theme)
+    {
+    }
 
     el::view_limits limits(const el::basic_context&) const override
     {
@@ -65,8 +68,9 @@ public:
         const float noteHeight = area.height() * 0.5f;
         const float noteSize = std::clamp(noteHeight * 0.7f, 34.0f, 110.0f);
         const el::point middle{area.left + area.width() * 0.5f, area.top + noteHeight * 0.5f};
-        DrawText(cnv, mReading.detected ? mReading.note : std::string("-"), Font(Weight::SemiBold).size(noteSize), noteColour,
-                 middle, canvas::center | canvas::middle);
+        DrawText(cnv, mReading.detected ? mReading.note : std::string("-"), Font(Weight::SemiBold).size(noteSize),
+                 noteColour, middle, canvas::center | canvas::middle);
+
         if (mReading.detected)
         {
             const auto side = Font(Weight::Regular).size(noteSize * 0.35f);
@@ -79,8 +83,8 @@ public:
         // The scale: ±50 cents across, the centre marked.
         const float scaleTop = area.top + noteHeight;
         const float scaleHeight = std::min(60.0f, area.height() * 0.28f);
-        const auto scale = el::rect{area.left + area.width() * 0.06f, scaleTop + 8.0f, area.right - area.width() * 0.06f,
-                                    scaleTop + 8.0f + scaleHeight};
+        const auto scale = el::rect{area.left + area.width() * 0.06f, scaleTop + 8.0f,
+                                    area.right - area.width() * 0.06f, scaleTop + 8.0f + scaleHeight};
         const float cy = scale.top + scale.height() * 0.5f;
 
         cnv.fill_style(mTheme.Border());
@@ -102,9 +106,13 @@ public:
         }
 
         std::string detail = "Play a string";
+
         if (mReading.detected)
+        {
             detail = std::string(mReading.cents >= 0 ? "+" : "") + Fixed(mReading.cents, 1) + " cents    " +
                      Fixed(mReading.frequency, 1) + " Hz";
+        }
+
         DrawText(cnv, detail, Font(Weight::Medium).size(metrics::kTextSize), mTheme.TextSecondary(),
                  {area.left + area.width() * 0.5f, scale.bottom + 22.0f}, canvas::center | canvas::middle);
     }
@@ -114,7 +122,7 @@ public:
         mReading = reading;
     }
 
-private:
+  private:
     const Theme& mTheme;
     guitarfx::uiclient::TunerModel::Reading mReading;
 };
@@ -125,20 +133,29 @@ void Shell::OpenTuner()
     auto face = std::make_shared<TunerFace>(mTheme);
     auto model = std::make_shared<guitarfx::uiclient::TunerModel>();
 
-    auto mute = std::make_shared<Button>(mTheme, "Mute while tuning", [this, &commands] {
-        commands.SetTunerLiveMode(!mState.tuner.liveMode); // live mode on means the sound plays
-    }, Button::Style::Plain);
+    auto mute = std::make_shared<Button>(
+        mTheme, "Mute while tuning",
+        [this, &commands] {
+            commands.SetTunerLiveMode(!mState.tuner.liveMode); // live mode on means the sound plays
+        },
+        Button::Style::Plain);
     mute->Dot(true).MinWidth(190);
 
     auto reference = std::make_shared<Text>(mTheme, "A = 440 Hz", metrics::kTextSize, Weight::Medium);
     reference->Alignment(Text::Align::Centre).Colour(mTheme.TextSecondary());
 
-    auto down = std::make_shared<Button>(mTheme, "\xE2\x88\x92", [this, &commands] {
-        commands.SetTunerReference(std::clamp(std::round(mState.tuner.referenceFrequency) - 1.0, 400.0, 480.0));
-    }, Button::Style::Plain);
-    auto up = std::make_shared<Button>(mTheme, "+", [this, &commands] {
-        commands.SetTunerReference(std::clamp(std::round(mState.tuner.referenceFrequency) + 1.0, 400.0, 480.0));
-    }, Button::Style::Plain);
+    auto down = std::make_shared<Button>(
+        mTheme, "\xE2\x88\x92",
+        [this, &commands] {
+            commands.SetTunerReference(std::clamp(std::round(mState.tuner.referenceFrequency) - 1.0, 400.0, 480.0));
+        },
+        Button::Style::Plain);
+    auto up = std::make_shared<Button>(
+        mTheme, "+",
+        [this, &commands] {
+            commands.SetTunerReference(std::clamp(std::round(mState.tuner.referenceFrequency) + 1.0, 400.0, 480.0));
+        },
+        Button::Style::Plain);
     down->MinWidth(44);
     up->MinWidth(44);
 
@@ -192,7 +209,10 @@ char NextLevel(char level)
 std::string PanText(double pan)
 {
     if (std::abs(pan) < 0.01)
+    {
         return "C";
+    }
+
     const int percent = static_cast<int>(std::lround(std::abs(pan) * 100.0));
     return std::string(pan < 0.0 ? "L" : "R") + std::to_string(percent);
 }
@@ -222,10 +242,10 @@ void Shell::OpenMetronome()
 
     auto setBpm = [&commands](double bpm) { commands.SetMetronomeBpm(ClampBpm(bpm)); };
 
-    auto slower = std::make_shared<Button>(mTheme, "\xE2\x80\xB9", [this, setBpm] { setBpm(mState.metronome.bpm - 1.0); },
-                                           Button::Style::Plain);
-    auto faster = std::make_shared<Button>(mTheme, "\xE2\x80\xBA", [this, setBpm] { setBpm(mState.metronome.bpm + 1.0); },
-                                           Button::Style::Plain);
+    auto slower = std::make_shared<Button>(
+        mTheme, "\xE2\x80\xB9", [this, setBpm] { setBpm(mState.metronome.bpm - 1.0); }, Button::Style::Plain);
+    auto faster = std::make_shared<Button>(
+        mTheme, "\xE2\x80\xBA", [this, setBpm] { setBpm(mState.metronome.bpm + 1.0); }, Button::Style::Plain);
     slower->MinWidth(52).TextSize(22);
     faster->MinWidth(52).TextSize(22);
 
@@ -233,52 +253,79 @@ void Shell::OpenMetronome()
     bpmSlider->onChange = [setBpm](double v) { setBpm(kMinBpm + v * (kMaxBpm - kMinBpm)); };
 
     auto tapTempo = std::make_shared<guitarfx::uiclient::TapTempo>();
-    auto tap = std::make_shared<Button>(mTheme, "TAP", [setBpm, tapTempo] {
-        if (const auto bpm = tapTempo->Tap(UiSession::Now()))
-            setBpm(*bpm);
-    }, Button::Style::Plain);
-    auto startStop = std::make_shared<Button>(mTheme, "Start", [this, &commands] {
-        commands.SetMetronomeEnabled(!mState.metronome.enabled);
-    }, Button::Style::Primary);
+    auto tap = std::make_shared<Button>(
+        mTheme, "TAP",
+        [setBpm, tapTempo] {
+            if (const auto bpm = tapTempo->Tap(UiSession::Now()))
+            {
+                setBpm(*bpm);
+            }
+        },
+        Button::Style::Plain);
+    auto startStop = std::make_shared<Button>(
+        mTheme, "Start", [this, &commands] { commands.SetMetronomeEnabled(!mState.metronome.enabled); },
+        Button::Style::Primary);
 
     // The web UI's meter picker: simple meters, then compound ones and the odd meters' groupings.
-    auto meter = std::make_shared<Button>(mTheme, "4/4", [this] {
-        std::vector<MenuItem> items;
-        bool compound = false;
-        for (const auto& option : guitarfx::uiclient::TimeSignatures())
-        {
-            if (option.compound && !compound)
+    auto meter = std::make_shared<Button>(
+        mTheme, "4/4",
+        [this] {
+            std::vector<MenuItem> items;
+            bool compound = false;
+
+            for (const auto& option : guitarfx::uiclient::TimeSignatures())
             {
-                compound = true;
-                items.push_back({"Compound and odd", false, true, {}});
+                if (option.compound && !compound)
+                {
+                    compound = true;
+                    items.push_back({"Compound and odd", false, true, {}});
+                }
+
+                const auto& s = mState.metronome;
+                items.push_back(
+                    {option.label,
+                     s.timeSigNum == option.num && s.timeSigDen == option.den && s.grouping == option.grouping, false,
+                     [this, option] {
+                         mSession.Commands().SetMetronomeTimeSignature(option.num, option.den, option.grouping);
+                         OpenMetronome();
+                     }});
             }
-            const auto& s = mState.metronome;
-            items.push_back({option.label, s.timeSigNum == option.num && s.timeSigDen == option.den && s.grouping == option.grouping, false,
-                             [this, option] {
-                                 mSession.Commands().SetMetronomeTimeSignature(option.num, option.den, option.grouping);
-                                 OpenMetronome();
-                             }});
-        }
-        OpenMenu("Time signature", std::move(items));
-    }, Button::Style::Plain);
-    auto subdivision = std::make_shared<Button>(mTheme, "Subdivision", [this] {
-        std::vector<MenuItem> items;
-        for (const auto& [id, ticks] : mState.metronome.subdivisions)
-            items.push_back({id, id == mState.metronome.subdivision, false, [this, id = id] {
-                                 mSession.Commands().SetMetronomeSubdivision(id);
-                                 OpenMetronome();
-                             }});
-        OpenMenu("Subdivision", std::move(items));
-    }, Button::Style::Plain);
-    auto click = std::make_shared<Button>(mTheme, "Click", [this] {
-        std::vector<MenuItem> items;
-        for (const auto& [id, label] : mState.metronome.clickTypes)
-            items.push_back({label, id == mState.metronome.clickType, false, [this, id = id] {
-                                 mSession.Commands().SetMetronomeClickType(id);
-                                 OpenMetronome();
-                             }});
-        OpenMenu("Click sound", std::move(items));
-    }, Button::Style::Plain);
+
+            OpenMenu("Time signature", std::move(items));
+        },
+        Button::Style::Plain);
+    auto subdivision = std::make_shared<Button>(
+        mTheme, "Subdivision",
+        [this] {
+            std::vector<MenuItem> items;
+
+            for (const auto& [id, ticks] : mState.metronome.subdivisions)
+            {
+                items.push_back({id, id == mState.metronome.subdivision, false, [this, id = id] {
+                                     mSession.Commands().SetMetronomeSubdivision(id);
+                                     OpenMetronome();
+                                 }});
+            }
+
+            OpenMenu("Subdivision", std::move(items));
+        },
+        Button::Style::Plain);
+    auto click = std::make_shared<Button>(
+        mTheme, "Click",
+        [this] {
+            std::vector<MenuItem> items;
+
+            for (const auto& [id, label] : mState.metronome.clickTypes)
+            {
+                items.push_back({label, id == mState.metronome.clickType, false, [this, id = id] {
+                                     mSession.Commands().SetMetronomeClickType(id);
+                                     OpenMetronome();
+                                 }});
+            }
+
+            OpenMenu("Click sound", std::move(items));
+        },
+        Button::Style::Plain);
 
     auto volume = std::make_shared<ParamSlider>(mTheme, "Volume");
     volume->onChange = [&commands](double v) {
@@ -293,26 +340,36 @@ void Shell::OpenMetronome()
     std::vector<Ptr> beatRow;
     const auto heads = guitarfx::uiclient::GroupHeads(m.timeSigNum, m.timeSigDen, m.grouping);
     const float beatWidth = m.beatPattern.size() > 8 ? 30.0f : 48.0f;
+
     for (std::size_t i = 0; i < m.beatPattern.size(); ++i)
     {
         if (i > 0 && i < heads.size() && heads[i])
+        {
             beatRow.push_back(HGap(10));
-        auto beat = std::make_shared<Button>(mTheme, std::to_string(i + 1), [this, i] {
-            auto next = mState.metronome.beatPattern;
-            if (i < next.size())
-            {
-                next[i] = NextLevel(next[i]);
-                mSession.Commands().SetMetronomeBeatPattern(next);
-            }
-        }, Button::Style::Plain);
+        }
+
+        auto beat = std::make_shared<Button>(
+            mTheme, std::to_string(i + 1),
+            [this, i] {
+                auto next = mState.metronome.beatPattern;
+
+                if (i < next.size())
+                {
+                    next[i] = NextLevel(next[i]);
+                    mSession.Commands().SetMetronomeBeatPattern(next);
+                }
+            },
+            Button::Style::Plain);
         beat->MinWidth(beatWidth);
         beats->push_back(beat);
         beatRow.push_back(beat);
         beatRow.push_back(HGap(4));
     }
+
     beatRow.push_back(Stretch());
 
-    auto sync = [this, bpmText, bpmSlider, volume, pan, startStop, meter, subdivision, click, slower, faster, tap, beats] {
+    auto sync = [this, bpmText, bpmSlider, volume, pan, startStop, meter, subdivision, click, slower, faster, tap,
+                 beats] {
         const auto& s = mState.metronome;
         char bpm[32];
         std::snprintf(bpm, sizeof(bpm), s.bpm == std::round(s.bpm) ? "%.0f" : "%.1f", s.bpm);
@@ -324,12 +381,21 @@ void Shell::OpenMetronome()
         meter->Set(guitarfx::uiclient::DescribeTimeSignature(s.timeSigNum, s.timeSigDen, s.grouping));
         subdivision->Set(s.subdivision.empty() ? "Subdivision" : s.subdivision);
         std::string clickLabel = "Click";
+
         for (const auto& [id, label] : s.clickTypes)
+        {
             if (id == s.clickType)
+            {
                 clickLabel = label;
+            }
+        }
+
         click->Set(clickLabel);
+
         for (auto* b : {slower.get(), faster.get(), tap.get()})
+        {
             b->Enabled(s.editable);
+        }
 
         for (std::size_t i = 0; i < beats->size() && i < s.beatPattern.size(); ++i)
         {
@@ -339,21 +405,29 @@ void Shell::OpenMetronome()
         }
 
         auto& view = mSession.View();
-        for (const Ptr& e : std::initializer_list<Ptr>{bpmText, bpmSlider, volume, pan, startStop, meter, subdivision, click})
+
+        for (const Ptr& e :
+             std::initializer_list<Ptr>{bpmText, bpmSlider, volume, pan, startStop, meter, subdivision, click})
+        {
             view.refresh(*e);
+        }
+
         for (auto& b : *beats)
+        {
             view.refresh(*b);
+        }
     };
 
     auto heading = std::make_shared<Text>(mTheme, "Metronome", 15.0f, Weight::SemiBold);
     auto close = std::make_shared<Button>(mTheme, "Done", [this] { CloseOverlay(); }, Button::Style::Plain);
     close->MinWidth(88);
 
-    auto page = Col({Row({FixedHeight(30, heading), Stretch(nullptr, 0.001), close}),
-                     FixedHeight(76, Row({slower, Stretch(Col({Stretch(bpmText), FixedHeight(16, bpmLabel)})), faster})),
-                     bpmSlider, VGap(6), FixedHeight(44, Row({tap, HGap(8), startStop})), VGap(8),
-                     FixedHeight(44, Row(beatRow)), VGap(6), FixedHeight(44, Row({meter, HGap(8), subdivision, HGap(8), click, Stretch()})),
-                     VGap(6), volume, VGap(4), pan});
+    auto page = Col(
+        {Row({FixedHeight(30, heading), Stretch(nullptr, 0.001), close}),
+         FixedHeight(76, Row({slower, Stretch(Col({Stretch(bpmText), FixedHeight(16, bpmLabel)})), faster})), bpmSlider,
+         VGap(6), FixedHeight(44, Row({tap, HGap(8), startStop})), VGap(8), FixedHeight(44, Row(beatRow)), VGap(6),
+         FixedHeight(44, Row({meter, HGap(8), subdivision, HGap(8), click, Stretch()})), VGap(6), volume, VGap(4),
+         pan});
 
     const auto view = ViewSize();
     ShowOverlay(Pad(16, 14, 16, 14, page), std::min(560.0f, std::max(320.0f, view.x - 48.0f)),
@@ -364,10 +438,14 @@ void Shell::OpenMetronome()
     // dialog, once the event that brought it is done.
     mInstrumentSubs.push_back(mSession.Client().Subscribe(Topic::Metronome, [this, barShape = BarShape(m)] {
         if (BarShape(mState.metronome) != barShape)
+        {
             mSession.View().post([this, alive = std::weak_ptr<bool>(mAlive)] {
                 if (alive.lock())
+                {
                     OpenMetronome();
+                }
             });
+        }
     }));
     mInstrumentSubs.push_back(mSession.Client().Subscribe(Topic::MetronomeBeat, sync));
     sync();

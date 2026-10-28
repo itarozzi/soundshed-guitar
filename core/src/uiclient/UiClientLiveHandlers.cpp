@@ -45,7 +45,7 @@ void UiClient::RegisterLiveHandlers()
 
         // The analyzer's display ranges ride along with the roster, not every frame.
         for (const auto& [field, range] : {std::pair{"spectrogramRange", &mState.analysis.analyzerRanges.spectrogram},
-                                            std::pair{"barkRange", &mState.analysis.analyzerRanges.bark}})
+                                           std::pair{"barkRange", &mState.analysis.analyzerRanges.bark}})
         {
             if (const auto it = m.find(field); it != m.end() && it->is_array() && it->size() == 4)
             {
@@ -82,8 +82,8 @@ void UiClient::RegisterLiveHandlers()
         telemetry.output = ReadTuple(m.value("o", nlohmann::json::array()), 0, false);
 
         const auto& frame = m.contains("d") ? m["d"] : nlohmann::json::array();
-        const bool rosterMatches = m.value("seq", -2) == mRosterSeq && frame.is_array() &&
-                                   frame.size() == mRoster.size() * kNodeTupleLength;
+        const bool rosterMatches =
+            m.value("seq", -2) == mRosterSeq && frame.is_array() && frame.size() == mRoster.size() * kNodeTupleLength;
 
         if (rosterMatches)
         {
@@ -113,7 +113,8 @@ void UiClient::RegisterLiveHandlers()
         telemetry.totalLatencySamples = stats.value("totalLatencySamples", 0);
         telemetry.totalProcessingUs = stats.value("totalProcessingTimeUs", 0.0);
         const auto peak = stats.find("peakDspLoadPercent");
-        telemetry.peakDspLoadPercent = peak != stats.end() && peak->is_number() ? std::optional<double>(peak->get<double>()) : std::nullopt;
+        telemetry.peakDspLoadPercent =
+            peak != stats.end() && peak->is_number() ? std::optional<double>(peak->get<double>()) : std::nullopt;
         telemetry.sampleRate = m.value("sampleRate", telemetry.sampleRate);
         telemetry.nodeProcessingUs.clear();
         telemetry.nodeLatencySamples.clear();

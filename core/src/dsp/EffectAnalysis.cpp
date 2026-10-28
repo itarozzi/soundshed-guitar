@@ -74,7 +74,7 @@ std::optional<std::vector<double>> MagnitudeResponseDb(const std::string& type,
 }
 
 std::vector<std::vector<double>> BandResponsesDb(const std::string& type, const std::map<std::string, double>& params,
-                                                const std::vector<double>& frequencies)
+                                                 const std::vector<double>& frequencies)
 {
     const auto effect = CreateConfigured(type, params);
     return effect ? effect->GetBandResponses(frequencies) : std::vector<std::vector<double>>{};

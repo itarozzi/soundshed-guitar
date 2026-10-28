@@ -269,6 +269,7 @@ void RaisePriorityOfThisThreadForAudio() noexcept
     {
         SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
     }
+
 #elif defined(__APPLE__)
     // A time-constraint thread, as the host's own audio thread is. Without this a helper is an
     // ordinary thread: when the host is not the frontmost app (a minimised window will do it)
@@ -442,11 +443,13 @@ void RealtimeTaskPool::Start(int workerCount, bool avoidDispatcherCore)
     mAvoidDispatcherCore.store(false, std::memory_order_relaxed);
 
 #if defined(_WIN32)
+
     if (avoidDispatcherCore)
     {
         (void)CoreAvoidance::Instance(); // reads the topology here, on the message thread
         mAvoidDispatcherCore.store(true, std::memory_order_relaxed);
     }
+
 #else
     (void)avoidDispatcherCore;
 #endif
@@ -519,6 +522,7 @@ void RealtimeTaskPool::WorkerLoop()
     {
         avoider.emplace();
     }
+
 #endif
 
     while (true)
@@ -534,10 +538,12 @@ void RealtimeTaskPool::WorkerLoop()
         RunClaims(true);
 
 #if defined(_WIN32)
+
         if (avoider)
         {
             avoider->Follow(mDispatcherCpu.load(std::memory_order_relaxed));
         }
+
 #endif
     }
 }
@@ -623,10 +629,12 @@ void RealtimeTaskPool::Run(TaskFn task, void* context, int count) noexcept
     mDone.store(0, std::memory_order_relaxed);
 
 #if defined(_WIN32)
+
     if (mAvoidDispatcherCore.load(std::memory_order_relaxed))
     {
         mDispatcherCpu.store(CurrentCpu(), std::memory_order_relaxed);
     }
+
 #endif
 
     ++mGeneration;

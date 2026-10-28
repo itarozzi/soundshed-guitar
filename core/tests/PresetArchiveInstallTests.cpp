@@ -229,7 +229,11 @@ Bytes SinglePresetArchive(const Preset& preset, const std::string& resourceId, c
         {"formatVersion", 1},
         {"preset", PresetJson(preset)},
         {"resources",
-         {{{"id", resourceId}, {"name", "Shared Model"}, {"category", "amp"}, {"type", "nam"}, {"fileName", resourceId + "-model.nam"},
+         {{{"id", resourceId},
+           {"name", "Shared Model"},
+           {"category", "amp"},
+           {"type", "nam"},
+           {"fileName", resourceId + "-model.nam"},
            {"hash", resourceId}}}},
         {"blends", nlohmann::json::array()},
     };
@@ -257,7 +261,8 @@ std::optional<Preset> StoredPreset(TestHost& host, guitarfx::PluginController& c
     {
         auto parsed = nlohmann::json::parse(host.sent[i], nullptr, false);
 
-        if (parsed.is_object() && parsed.value("type", "") == "presetData" && parsed.value("requestedPresetId", "") == id)
+        if (parsed.is_object() && parsed.value("type", "") == "presetData" &&
+            parsed.value("requestedPresetId", "") == id)
         {
             reply = parsed;
         }
@@ -293,8 +298,10 @@ std::size_t LibraryCount(guitarfx::PluginController& controller, const std::stri
     return count;
 }
 
-const Bytes kModelA = ToBytes(R"({"version":"0.5.0","architecture":"Linear","config":{"receptive_field":2,"bias":false},"weights":[1.0,0.0]})");
-const Bytes kModelB = ToBytes(R"({"version":"0.5.0","architecture":"Linear","config":{"receptive_field":2,"bias":false},"weights":[0.5,0.0]})");
+const Bytes kModelA = ToBytes(
+    R"({"version":"0.5.0","architecture":"Linear","config":{"receptive_field":2,"bias":false},"weights":[1.0,0.0]})");
+const Bytes kModelB = ToBytes(
+    R"({"version":"0.5.0","architecture":"Linear","config":{"receptive_field":2,"bias":false},"weights":[0.5,0.0]})");
 
 void TestInstallOnePreset()
 {
@@ -362,7 +369,8 @@ void TestInstallOnePreset()
     }
 
     const auto changed = Latest(host, "appSettingChanged");
-    Expect(changed && changed->value("key", "") == "toneSharing.installedPacks", "and the UI is told of the new setting");
+    Expect(changed && changed->value("key", "") == "toneSharing.installedPacks",
+           "and the UI is told of the new setting");
 }
 
 // The web UI writes node ids into markup, and a resource path would have the engine open any file
@@ -456,7 +464,8 @@ void TestSecondInstallReusesTheModel()
 
     Expect(LibraryCount(controller, "nam") == models, "the same model is not copied into the library twice");
     const auto entries = InstalledEntries(controller);
-    Expect(entries.size() == 2 && entries[0].value("id", "") == "tone-sharing-api:item:two", "the newest install is listed first");
+    Expect(entries.size() == 2 && entries[0].value("id", "") == "tone-sharing-api:item:two",
+           "the newest install is listed first");
 
     if (!entries.empty())
     {
@@ -492,9 +501,11 @@ void TestReusesAnOlderImportOfTheSameFile()
 
     const auto zip = SinglePresetArchive(BuildPreset("p", "Again", "sha-a"), "sha-a", kModelA);
     host.sent.clear();
-    Send(controller, "installPresetArchives", {{"entry", {{"id", "tone-sharing-api:item:again"}}}, {"archives", {Archive(zip, "Again")}}});
+    Send(controller, "installPresetArchives",
+         {{"entry", {{"id", "tone-sharing-api:item:again"}}}, {"archives", {Archive(zip, "Again")}}});
 
-    Expect(LibraryCount(controller, "nam") == models, "a file the library has under its archive name, same bytes, is reused");
+    Expect(LibraryCount(controller, "nam") == models,
+           "a file the library has under its archive name, same bytes, is reused");
     const auto reply = Latest(host, "presetArchivesInstalled");
     const auto ids = reply ? reply->value("presetIds", nlohmann::json::array()) : nlohmann::json::array();
     const auto preset = ids.empty() ? std::nullopt : StoredPreset(host, controller, ids[0].get<std::string>());
@@ -559,7 +570,9 @@ void TestMissingTone3000ModelsInstallNothing()
     const auto zip = SinglePresetArchive(BuildPreset("p", "Needs T3K", "sha-a"), "sha-a", kModelA, extra);
     host.sent.clear();
     Send(controller, "installPresetArchives",
-         {{"requestId", "r2"}, {"entry", {{"id", "tone-sharing-api:item:t3k"}}}, {"archives", {Archive(zip, "Needs T3K")}}});
+         {{"requestId", "r2"},
+          {"entry", {{"id", "tone-sharing-api:item:t3k"}}},
+          {"archives", {Archive(zip, "Needs T3K")}}});
 
     const auto failed = Latest(host, "presetArchivesInstallFailed");
     Expect(failed.has_value() && failed->value("requestId", "") == "r2", "the install fails, answering the request");
@@ -590,16 +603,23 @@ void TestRemoteResourceResolvesByProviderKey()
           {"fileName", "open-amp.nam"},
           {"metadata", {{"provider", "soundshed"}, {"providerKey", "open-amp-1"}, {"licence", "cc-by"}}},
           {"data", guitarfx::util::EncodeBase64(kModelB)}});
-    Expect(controller.GetResourceLibrary().LookupResource("nam", "soundshed:open-amp-1").has_value(), "the remote model is in the library");
+    Expect(controller.GetResourceLibrary().LookupResource("nam", "soundshed:open-amp-1").has_value(),
+           "the remote model is in the library");
 
-    const nlohmann::json extra = {
-        {"remoteResources",
-         {{{"id", "soundshed:renamed-on-the-sharers-machine"}, {"type", "nam"}, {"name", "Open Amp"}, {"provider", "soundshed"},
-           {"providerKey", "open-amp-1"}, {"licence", "cc-by"}}}}};
-    const auto zip = SinglePresetArchive(BuildPreset("p", "Open Tone", "soundshed:renamed-on-the-sharers-machine"), "sha-a", kModelA, extra);
+    const nlohmann::json extra = {{"remoteResources",
+                                   {{{"id", "soundshed:renamed-on-the-sharers-machine"},
+                                     {"type", "nam"},
+                                     {"name", "Open Amp"},
+                                     {"provider", "soundshed"},
+                                     {"providerKey", "open-amp-1"},
+                                     {"licence", "cc-by"}}}}};
+    const auto zip = SinglePresetArchive(BuildPreset("p", "Open Tone", "soundshed:renamed-on-the-sharers-machine"),
+                                         "sha-a", kModelA, extra);
     host.sent.clear();
     Send(controller, "installPresetArchives",
-         {{"requestId", "r3"}, {"entry", {{"id", "tone-sharing-api:item:open"}}}, {"archives", {Archive(zip, "Open Tone")}}});
+         {{"requestId", "r3"},
+          {"entry", {{"id", "tone-sharing-api:item:open"}}},
+          {"archives", {Archive(zip, "Open Tone")}}});
 
     const auto reply = Latest(host, "presetArchivesInstalled");
     Expect(reply.has_value(), "the install succeeds");
@@ -610,7 +630,8 @@ void TestRemoteResourceResolvesByProviderKey()
         if (const auto stored = StoredPreset(host, controller, presetIds[0].get<std::string>()))
         {
             const auto& amp = stored->graph.nodes[1];
-            Expect(!amp.resources.empty() && amp.resources[0].resourceId == "soundshed:open-amp-1", "the preset plays the library's copy");
+            Expect(!amp.resources.empty() && amp.resources[0].resourceId == "soundshed:open-amp-1",
+                   "the preset plays the library's copy");
         }
     }
 }
@@ -621,13 +642,18 @@ void TestMissingRemoteModelsFromOtherProvidersInstallNothing()
     guitarfx::PluginController controller(host);
     controller.Initialize();
 
-    const nlohmann::json extra = {
-        {"remoteResources",
-         {{{"id", "soundshed:nowhere"}, {"type", "nam"}, {"name", "Open Amp"}, {"provider", "soundshed"}, {"providerKey", "nowhere"}}}}};
+    const nlohmann::json extra = {{"remoteResources",
+                                   {{{"id", "soundshed:nowhere"},
+                                     {"type", "nam"},
+                                     {"name", "Open Amp"},
+                                     {"provider", "soundshed"},
+                                     {"providerKey", "nowhere"}}}}};
     const auto zip = SinglePresetArchive(BuildPreset("p", "Open Tone", "soundshed:nowhere"), "sha-a", kModelA, extra);
     host.sent.clear();
     Send(controller, "installPresetArchives",
-         {{"requestId", "r4"}, {"entry", {{"id", "tone-sharing-api:item:missing"}}}, {"archives", {Archive(zip, "Open Tone")}}});
+         {{"requestId", "r4"},
+          {"entry", {{"id", "tone-sharing-api:item:missing"}}},
+          {"archives", {Archive(zip, "Open Tone")}}});
 
     const auto failed = Latest(host, "presetArchivesInstallFailed");
     Expect(failed.has_value(), "the install fails");
@@ -646,7 +672,8 @@ void TestMissingRemoteModelsFromOtherProvidersInstallNothing()
 void TestBothListsNameTheModelOnce()
 {
     const nlohmann::json root = {
-        {"remoteResources", {{{"id", "tone3000:456"}, {"type", "nam"}, {"provider", "tone3000"}, {"providerKey", "456"}}}},
+        {"remoteResources",
+         {{{"id", "tone3000:456"}, {"type", "nam"}, {"provider", "tone3000"}, {"providerKey", "456"}}}},
         {"tone3000Resources",
          {{{"id", "tone3000:456"}, {"type", "nam"}, {"toneId", "123"}, {"modelId", "456"}},
           {{"id", "tone3000:789"}, {"type", "nam"}, {"toneId", "123"}, {"modelId", "789"}, {"name", "Legacy Only"}}}},
@@ -656,7 +683,8 @@ void TestBothListsNameTheModelOnce()
 
     if (refs.size() == 2)
     {
-        Expect(refs[1].value("provider", "") == "tone3000" && refs[1].value("providerKey", "") == "789", "a legacy entry becomes a tone3000 reference");
+        Expect(refs[1].value("provider", "") == "tone3000" && refs[1].value("providerKey", "") == "789",
+               "a legacy entry becomes a tone3000 reference");
         Expect(refs[1]["providerData"].value("toneId", "") == "123", "keeping its tone id");
     }
 }
@@ -694,16 +722,20 @@ void TestDeleteTakesOutWhatItAdded()
           {"archives", {Archive(first, "One"), Archive(second, "Two")}}});
 
     const auto installed = Latest(host, "presetArchivesInstalled");
-    const auto packPresetIds = installed ? installed->value("presetIds", nlohmann::json::array()) : nlohmann::json::array();
+    const auto packPresetIds =
+        installed ? installed->value("presetIds", nlohmann::json::array()) : nlohmann::json::array();
     const auto entries = InstalledEntries(controller);
-    const auto addedModels = entries.empty() ? nlohmann::json::array() : entries[0].value("resources", nlohmann::json::array());
+    const auto addedModels =
+        entries.empty() ? nlohmann::json::array() : entries[0].value("resources", nlohmann::json::array());
     Expect(addedModels.size() == 1, "the pack added only model A");
 
     const auto addedId = addedModels.empty() ? std::string{} : addedModels[0].value("id", "");
-    const auto addedPath = controller.GetResourceLibrary().LookupResource("nam", addedId).value_or(guitarfx::LibraryResource{}).filePath;
+    const auto addedPath =
+        controller.GetResourceLibrary().LookupResource("nam", addedId).value_or(guitarfx::LibraryResource{}).filePath;
     const auto modelsBefore = LibraryCount(controller, "nam");
 
-    Send(controller, "setPresetFavorite", {{"presetId", packPresetIds.empty() ? "" : packPresetIds[0].get<std::string>()}, {"favorite", true}});
+    Send(controller, "setPresetFavorite",
+         {{"presetId", packPresetIds.empty() ? "" : packPresetIds[0].get<std::string>()}, {"favorite", true}});
 
     host.sent.clear();
     Send(controller, "deleteInstalledPresetArchive", {{"id", "tone-sharing-api:pack-1"}});
@@ -714,14 +746,16 @@ void TestDeleteTakesOutWhatItAdded()
 
     for (const auto& id : packPresetIds)
     {
-        Expect(!StoredPreset(host, controller, id.get<std::string>()).has_value(), "a removed preset is gone from the store");
+        Expect(!StoredPreset(host, controller, id.get<std::string>()).has_value(),
+               "a removed preset is gone from the store");
     }
 
     Expect(LibraryCount(controller, "nam") == modelsBefore - 1, "the model only the pack used is removed");
     Expect(addedPath.empty() || !fs::exists(addedPath), "with its file");
 
     const auto remaining = InstalledEntries(controller);
-    Expect(remaining.size() == 1 && remaining[0].value("id", "") == "zipImport:mine", "the entry is gone; the other stays");
+    Expect(remaining.size() == 1 && remaining[0].value("id", "") == "zipImport:mine",
+           "the entry is gone; the other stays");
 
     const auto folders = Latest(host, "presetFolders");
     bool folderLeft = false;
@@ -736,6 +770,7 @@ void TestDeleteTakesOutWhatItAdded()
     const auto favorites = Latest(host, "presetFavorites");
     Expect(favorites && favorites->value("favorites", nlohmann::json::array()).empty(), "and its favourite");
 }
+
 /// The web UI installs even when a model it tried to fetch could not be had (its creator removed
 /// or hid it): it says so, and the engine leaves that slot empty and names the model back.
 void TestMissingRemoteModelsCanBeAllowed()
@@ -752,7 +787,8 @@ void TestMissingRemoteModelsCanBeAllowed()
     Send(controller, "installPresetArchives",
          {{"requestId", "r-allow"},
           {"allowMissingRemote", true},
-          {"entry", {{"id", "tone-sharing-api:item:partly"}, {"title", "Partly There"}, {"archiveFileName", "partly.zip"}}},
+          {"entry",
+           {{"id", "tone-sharing-api:item:partly"}, {"title", "Partly There"}, {"archiveFileName", "partly.zip"}}},
           {"archives", {Archive(zip, "Partly There")}}});
 
     const auto reply = Latest(host, "presetArchivesInstalled");
@@ -788,24 +824,31 @@ void TestFetchedResourcesLeaveWithTheInstall()
           {"metadata", {{"provider", "tone3000"}, {"providerKey", "456"}, {"toneId", "123"}, {"modelId", "456"}}},
           {"data", guitarfx::util::EncodeBase64(kModelB)}});
 
-    const nlohmann::json extra = {
-        {"remoteResources", {{{"id", "tone3000:456"}, {"type", "nam"}, {"name", "Fetched Amp"}, {"provider", "tone3000"},
-                              {"providerKey", "456"}, {"providerData", {{"toneId", "123"}, {"modelId", "456"}}}}}}};
+    const nlohmann::json extra = {{"remoteResources",
+                                   {{{"id", "tone3000:456"},
+                                     {"type", "nam"},
+                                     {"name", "Fetched Amp"},
+                                     {"provider", "tone3000"},
+                                     {"providerKey", "456"},
+                                     {"providerData", {{"toneId", "123"}, {"modelId", "456"}}}}}}};
     auto preset = BuildPreset("p", "Fetched", "sha-a");
     preset.graph.nodes[1].resources = {{"nam", "tone3000:456"}};
     const auto zip = SinglePresetArchive(preset, "sha-a", kModelA, extra);
     host.sent.clear();
-    Send(controller, "installPresetArchives",
-         {{"requestId", "r-fetched"},
-          {"entry", {{"id", "tone-sharing-api:item:fetched"}, {"title", "Fetched"}}},
-          {"fetchedResources", {{{"type", "nam"}, {"id", "tone3000:456"}}, {{"type", "nam"}, {"id", "not-in-library"}}}},
-          {"archives", {Archive(zip, "Fetched")}}});
+    Send(
+        controller, "installPresetArchives",
+        {{"requestId", "r-fetched"},
+         {"entry", {{"id", "tone-sharing-api:item:fetched"}, {"title", "Fetched"}}},
+         {"fetchedResources", {{{"type", "nam"}, {"id", "tone3000:456"}}, {{"type", "nam"}, {"id", "not-in-library"}}}},
+         {"archives", {Archive(zip, "Fetched")}}});
 
     Expect(Latest(host, "presetArchivesInstalled").has_value(), "the install succeeds");
     const auto entries = InstalledEntries(controller);
-    const auto resources = entries.empty() ? nlohmann::json::array() : entries[0].value("resources", nlohmann::json::array());
+    const auto resources =
+        entries.empty() ? nlohmann::json::array() : entries[0].value("resources", nlohmann::json::array());
     const auto recorded = [&](const std::string& id) {
-        return std::any_of(resources.begin(), resources.end(), [&](const nlohmann::json& r) { return r.value("id", "") == id; });
+        return std::any_of(resources.begin(), resources.end(),
+                           [&](const nlohmann::json& r) { return r.value("id", "") == id; });
     };
     Expect(recorded("tone3000:456"), "the fetched model is recorded with the install");
     Expect(!recorded("not-in-library"), "a resource the library lacks is not");
@@ -862,8 +905,10 @@ void TestPackArchiveFoldersAreKept()
     if (pack && presetIds.size() == 3)
     {
         const auto children = pack->value("children", nlohmann::json::array());
-        Expect(pack->value("presetIds", nlohmann::json::array()).empty(), "every preset sits in one of the pack's subfolders");
-        Expect(children.size() == 2 && children[0].value("name", "") == "Rhythm" && children[1].value("name", "") == "Lead",
+        Expect(pack->value("presetIds", nlohmann::json::array()).empty(),
+               "every preset sits in one of the pack's subfolders");
+        Expect(children.size() == 2 && children[0].value("name", "") == "Rhythm" &&
+                   children[1].value("name", "") == "Lead",
                "the archive's folders are rebuilt under it");
 
         if (children.size() == 2)
@@ -943,8 +988,8 @@ void TestCustomEffectModulesAreNotInstalled()
 
     const auto reply = Latest(host, "presetArchivesInstalled");
     const auto presetIds = reply ? reply->value("presetIds", nlohmann::json::array()) : nlohmann::json::array();
-    const auto stored = presetIds.size() == 1 ? StoredPreset(host, controller, presetIds[0].get<std::string>())
-                                              : std::nullopt;
+    const auto stored =
+        presetIds.size() == 1 ? StoredPreset(host, controller, presetIds[0].get<std::string>()) : std::nullopt;
     Expect(stored.has_value(), "the preset with a Custom Effect still installs");
 
     if (stored)
@@ -1010,10 +1055,14 @@ void TestArchivePreviewWritesNothing()
 
     host.sent.clear();
     Send(controller, "previewPresetArchive",
-         {{"requestId", "p1"}, {"itemId", "item-9"}, {"title", "Shared Lead"}, {"data", guitarfx::util::EncodeBase64(zip)}});
+         {{"requestId", "p1"},
+          {"itemId", "item-9"},
+          {"title", "Shared Lead"},
+          {"data", guitarfx::util::EncodeBase64(zip)}});
 
     const auto reply = Latest(host, "presetArchivePreviewed");
-    Expect(reply.has_value() && reply->value("requestId", "") == "p1", "a preview is answered with presetArchivePreviewed");
+    Expect(reply.has_value() && reply->value("requestId", "") == "p1",
+           "a preview is answered with presetArchivePreviewed");
 
     if (reply)
     {
@@ -1040,7 +1089,9 @@ void TestArchivePreviewPlaysTheLibrarysCopy()
     controller.Initialize();
     const auto zip = SinglePresetArchive(BuildPreset("shared-q", "Q", "sha-q"), "sha-q", kModelA);
     Send(controller, "installPresetArchives",
-         {{"requestId", "i1"}, {"entry", {{"id", "tone-sharing-api:item:q"}, {"title", "Q"}}}, {"archives", {Archive(zip, "Q")}}});
+         {{"requestId", "i1"},
+          {"entry", {{"id", "tone-sharing-api:item:q"}, {"title", "Q"}}},
+          {"archives", {Archive(zip, "Q")}}});
     const auto models = LibraryCount(controller, "nam");
 
     host.sent.clear();
@@ -1097,7 +1148,10 @@ void TestArchivePreviewStagesFetchedRemoteModels()
          {{"itemId", "r"},
           {"data", guitarfx::util::EncodeBase64(zip)},
           {"fetchedResources",
-           {{{"resourceType", "nam"}, {"resourceId", "t3k-r"}, {"name", "Borrowed Amp"}, {"data", guitarfx::util::EncodeBase64(kModelB)}}}}});
+           {{{"resourceType", "nam"},
+             {"resourceId", "t3k-r"},
+             {"name", "Borrowed Amp"},
+             {"data", guitarfx::util::EncodeBase64(kModelB)}}}}});
     reply = Latest(host, "presetArchivePreviewed");
     Expect(reply.has_value() && reply->value("stagedCount", -1) == 1 &&
                reply->value("unavailable", nlohmann::json::array()).empty(),

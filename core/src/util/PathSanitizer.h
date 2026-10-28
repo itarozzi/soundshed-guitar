@@ -22,5 +22,6 @@ namespace guitarfx::util
 [[nodiscard]] std::string CollapseRepeatedHashPrefix(const std::string& name);
 
 /// A sanitized subfolder path with every segment cut to at most `maxSegmentLength` characters.
-[[nodiscard]] std::filesystem::path LimitSubfolderSegments(const std::filesystem::path& subfolder, std::size_t maxSegmentLength);
+[[nodiscard]] std::filesystem::path LimitSubfolderSegments(const std::filesystem::path& subfolder,
+                                                           std::size_t maxSegmentLength);
 } // namespace guitarfx::util

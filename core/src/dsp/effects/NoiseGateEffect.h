@@ -394,13 +394,12 @@ class NoiseGateEffect : public EffectProcessor
   private:
     /// The detector's own timing, deliberately not user-facing. It has to see a pick attack
     /// the instant it arrives, and it has to bridge the gaps between the peaks of a low open E
-    /// (82 Hz, so 12 ms apart; 16 ms for a seven-string's low B) or it would sag once a cycle and chatter the gate within a
-    /// single note. It bridges them by holding each peak for kDetectorPeakHoldMs, not by
-    /// falling slowly. A slow fall (a 25 ms one-pole did this until 2026-10-13) also slows
-    /// every close: after a riff stops dead it took ~170 ms to fall the 58 dB to the close
-    /// threshold, before Hold even began, and the gate sits in front of the amp, so that
-    /// whole time the amp's full gain was turning the input noise floor into a burst of
-    /// hiss. Held and then falling fast, it is at the threshold ~40 ms after the playing stops.
+    /// (82 Hz, so 12 ms apart; 16 ms for a seven-string's low B) or it would sag once a cycle and chatter the gate
+    /// within a single note. It bridges them by holding each peak for kDetectorPeakHoldMs, not by falling slowly. A
+    /// slow fall (a 25 ms one-pole did this until 2026-10-13) also slows every close: after a riff stops dead it took
+    /// ~170 ms to fall the 58 dB to the close threshold, before Hold even began, and the gate sits in front of the amp,
+    /// so that whole time the amp's full gain was turning the input noise floor into a burst of hiss. Held and then
+    /// falling fast, it is at the threshold ~40 ms after the playing stops.
     static constexpr double kDetectorAttackMs = 0.2;
     static constexpr double kDetectorPeakHoldMs = 20.0;
     static constexpr double kDetectorReleaseMs = 3.0;
@@ -472,8 +471,7 @@ class NoiseGateEffect : public EffectProcessor
         for (int channel = 0; channel < 2; ++channel)
         {
             if (!IsFinite(mDetector[channel]) || !IsFinite(mGain[channel]) || !IsFinite(mHighPassState[channel]) ||
-                !IsFinite(mLowPassState[channel]) ||
-                !IsFinite(mSwell[channel]))
+                !IsFinite(mLowPassState[channel]) || !IsFinite(mSwell[channel]))
             {
                 Reset();
                 return;

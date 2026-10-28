@@ -221,7 +221,10 @@ void LoadBody(guitarfx::PluginController& controller, const Preset& preset, cons
 void Store(guitarfx::PluginController& controller, const Preset& preset)
 {
     Send(controller, "savePreset",
-         {{"saveMode", "overwrite"}, {"presetId", preset.id}, {"name", preset.name}, {"category", preset.category},
+         {{"saveMode", "overwrite"},
+          {"presetId", preset.id},
+          {"name", preset.name},
+          {"category", preset.category},
           {"preset", PresetJson(preset)}});
 }
 
@@ -329,7 +332,8 @@ void TestRenameNodeNamesItInEveryScene()
     Expect(controller.GetActivePreset()->graph.nodes[1].params.at("gain") == -6.0,
            "a rename leaves the scene's parameters alone");
 
-    const auto reloaded = guitarfx::PresetStorage::DeserializeFromJson(PresetJson(*controller.GetActivePreset()).dump());
+    const auto reloaded =
+        guitarfx::PresetStorage::DeserializeFromJson(PresetJson(*controller.GetActivePreset()).dump());
     Expect(reloaded && reloaded->graph.nodes[1].title == "Lead Boost", "the title survives a save and load");
 
     Send(controller, "renameSignalPathNode", {{"nodeId", "gain_1"}, {"title", std::string(200, 'x')}});
@@ -359,7 +363,8 @@ void TestLoadByIdMatchesLoadWithBody()
     LoadBody(controller, BuildTwoScenePreset("p-other"));
     Send(controller, "loadPreset", {{"presetId", "p-stored"}});
     Expect(controller.GetActivePreset()->id == "p-stored", "loadPreset {presetId} loads the stored preset");
-    Expect(PresetJson(*controller.GetActivePreset()) == viaBody, "a load by id gives the working copy a load with its body gives");
+    Expect(PresetJson(*controller.GetActivePreset()) == viaBody,
+           "a load by id gives the working copy a load with its body gives");
 
     Send(controller, "loadPreset", {{"presetId", "p-missing"}});
     Expect(controller.GetActivePreset()->id == "p-stored", "an unknown id leaves the preset alone");
@@ -504,7 +509,8 @@ void TestPresetFolderCommands()
 
     Send(controller, "movePresetToFolder", {{"presetId", "p1"}, {"folderId", live}});
     Send(controller, "movePresetToFolder", {{"presetId", "p1"}, {"folderId", leads}});
-    Expect(folders().at(0).at("presetIds").empty() && folders().at(0).at("children").at(0).at("presetIds") == nlohmann::json::array({"p1"}),
+    Expect(folders().at(0).at("presetIds").empty() &&
+               folders().at(0).at("children").at(0).at("presetIds") == nlohmann::json::array({"p1"}),
            "a preset is in one folder at most");
 
     Send(controller, "movePresetFolder", {{"folderId", live}, {"parentId", leads}});
@@ -532,17 +538,23 @@ void TestSaveSetsTagsAndFolder()
 
     Send(controller, "createPresetFolder", {{"name", "Live"}});
     const auto live = Latest(host, "presetFolders")->at("folders").at(0).at("id").get<std::string>();
-    Send(controller, "savePreset", {{"saveMode", "save-as"}, {"name", "Tagged"}, {"category", "User"},
-                                    {"tags", {"live", "rhythm"}}, {"folderId", live}});
+    Send(controller, "savePreset",
+         {{"saveMode", "save-as"},
+          {"name", "Tagged"},
+          {"category", "User"},
+          {"tags", {"live", "rhythm"}},
+          {"folderId", live}});
     const auto saved = Latest(host, "presetSaved");
-    Expect(saved && saved->at("preset").at("tags") == nlohmann::json::array({"live", "rhythm"}), "the save sets the tags");
+    Expect(saved && saved->at("preset").at("tags") == nlohmann::json::array({"live", "rhythm"}),
+           "the save sets the tags");
     const auto id = saved->at("preset").at("id").get<std::string>();
     Expect(Latest(host, "presetFolders")->at("folders").at(0).at("presetIds") == nlohmann::json::array({id}),
            "and files the preset in the folder named");
     Send(controller, "getPresetList");
     const auto reply = Latest(host, "presetList");
     const auto list = reply ? reply->value("presets", nlohmann::json::array()) : nlohmann::json::array();
-    const auto it = std::find_if(list.begin(), list.end(), [&id](const nlohmann::json& p) { return p.value("id", std::string()) == id; });
+    const auto it = std::find_if(list.begin(), list.end(),
+                                 [&id](const nlohmann::json& p) { return p.value("id", std::string()) == id; });
     Expect(it != list.end() && it->value("tags", nlohmann::json()) == nlohmann::json::array({"live", "rhythm"}),
            "the preset list carries the tags");
 }
@@ -561,14 +573,19 @@ void TestSetlistCommands()
 
     Send(controller, "createSetlist", {{"name", "Gig"}, {"bank", 2}});
     const auto gig = lists().at(0).at("id").get<std::string>();
-    Expect(lists().size() == 1 && activeId() == gig && lists().at(0).at("bank") == 2, "a new setlist is stored and active");
+    Expect(lists().size() == 1 && activeId() == gig && lists().at(0).at("bank") == 2,
+           "a new setlist is stored and active");
     Send(controller, "createSetlist", {{"name", "Other"}, {"bank", 2}});
     Expect(lists().size() == 1, "a bank number belongs to one setlist");
     Send(controller, "updateSetlist", {{"name", "Gig night"}, {"bank", nullptr}});
-    Expect(lists().at(0).at("name") == "Gig night" && lists().at(0).at("bank").is_null(), "the active setlist is renamed, its bank cleared");
+    Expect(lists().at(0).at("name") == "Gig night" && lists().at(0).at("bank").is_null(),
+           "the active setlist is renamed, its bank cleared");
 
     for (const auto* id : {"a", "b", "c"})
+    {
         Send(controller, "addSetlistSlot", {{"presetId", id}});
+    }
+
     Send(controller, "setSetlistSlot", {{"index", 5}, {"presetId", "pad"}});
     Expect(slots().size() == 6 && slots().at(4).at("presetId") == "" && slots().at(5).at("presetId") == "pad",
            "a pad past the end pads with empty slots");
@@ -580,7 +597,8 @@ void TestSetlistCommands()
     Expect(slots().at(0).at("presetId") == "b" && slots().at(2).at("presetId") == "a" && cursor() == 0,
            "a move keeps the cursor on the slot it was on");
     Send(controller, "removeSetlistSlot", {{"index", 0}});
-    Expect(slots().at(0).at("presetId") == "c" && cursor() == 0, "removing the slot under the cursor keeps it in range");
+    Expect(slots().at(0).at("presetId") == "c" && cursor() == 0,
+           "removing the slot under the cursor keeps it in range");
 
     Send(controller, "createSetlist", {{"name", "Rehearsal"}});
     const auto rehearsal = activeId();
@@ -875,7 +893,8 @@ void TestResourceFavoritePatch()
     Send(controller, "setResourceFavorite", {{"resourceId", "nam-1"}, {"favorite", true}});
     Send(controller, "setResourceFavorite", {{"resourceId", "ir-2"}, {"favorite", true}});
     Send(controller, "setResourceFavorite", {{"resourceId", "nam-1"}, {"favorite", false}});
-    Expect(controller.GetAppSettings().value("resources.favorites", nlohmann::json()) == nlohmann::json::array({"ir-2"}),
+    Expect(controller.GetAppSettings().value("resources.favorites", nlohmann::json()) ==
+               nlohmann::json::array({"ir-2"}),
            "setResourceFavorite edits the one id in resources.favorites");
     Expect(Latest(host, "appSettingChanged")->at("value") == nlohmann::json::array({"ir-2"}),
            "and tells the UI the setting's new value");

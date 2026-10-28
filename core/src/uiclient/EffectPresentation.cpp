@@ -108,7 +108,8 @@ std::optional<Argb> ParseCssColour(const std::string& raw)
 EffectPresentation::EffectPresentation()
 {
     // Enough to draw something sensible when the table cannot be read.
-    mCategoryOrder = {"amp", "cab", "drive", "dynamics", "eq", "modulation", "pitch", "delay", "reverb", "synth", "utility"};
+    mCategoryOrder = {"amp",   "cab",   "drive",  "dynamics", "eq",     "modulation",
+                      "pitch", "delay", "reverb", "synth",    "utility"};
 }
 
 EffectPresentation EffectPresentation::Load(const std::filesystem::path& file)
@@ -260,7 +261,8 @@ std::string EffectPresentation::NodeClass(const std::string& category) const
 
 std::string EffectPresentation::EquipmentImage(const std::string& effectType, const std::string& category) const
 {
-    if (const auto it = mEffectsByGuid.find(effectType); it != mEffectsByGuid.end() && !it->second.equipmentImage.empty())
+    if (const auto it = mEffectsByGuid.find(effectType);
+        it != mEffectsByGuid.end() && !it->second.equipmentImage.empty())
     {
         return it->second.equipmentImage;
     }

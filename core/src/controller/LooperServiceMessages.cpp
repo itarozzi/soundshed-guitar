@@ -49,9 +49,14 @@ const char* StateName(LooperState state)
 bool ParseAction(const std::string& command, LooperAction& action)
 {
     static const std::pair<const char*, LooperAction> kActions[] = {
-        {"recPlayDub", LooperAction::RecPlayDub}, {"record", LooperAction::Record}, {"play", LooperAction::Play},
-        {"overdub", LooperAction::Overdub},       {"stop", LooperAction::Stop},     {"undo", LooperAction::Undo},
-        {"redo", LooperAction::Redo},             {"clear", LooperAction::Clear},
+        {"recPlayDub", LooperAction::RecPlayDub},
+        {"record", LooperAction::Record},
+        {"play", LooperAction::Play},
+        {"overdub", LooperAction::Overdub},
+        {"stop", LooperAction::Stop},
+        {"undo", LooperAction::Undo},
+        {"redo", LooperAction::Redo},
+        {"clear", LooperAction::Clear},
     };
 
     for (const auto& [name, value] : kActions)
@@ -333,8 +338,9 @@ nlohmann::json LooperService::BuildState() const
         state["bars"] = static_cast<int>(std::lround(static_cast<double>(s.length) / samplesPerBar));
         // On the metronome's bar lines, which a loop starting on a later beat is part way into.
         const int bars = static_cast<int>(std::lround(static_cast<double>(s.length) / samplesPerBar));
-        state["barIndex"] =
-            static_cast<int>(std::floor(s.clickBar + static_cast<double>(s.playhead) / samplesPerBar)) % std::max(1, bars) + 1;
+        state["barIndex"] = static_cast<int>(std::floor(s.clickBar + static_cast<double>(s.playhead) / samplesPerBar)) %
+                                std::max(1, bars) +
+                            1;
         state["tempoBpm"] = mMetronome.EffectiveTempoBpm();
     }
 
@@ -389,7 +395,8 @@ nlohmann::json LooperService::BuildLayers() const
 
     // Newest first, as the layers panel lists them.
     std::sort(order.begin(), order.end(), [this](int a, int b) {
-        return mSnapshot.slots[static_cast<std::size_t>(a)].serial > mSnapshot.slots[static_cast<std::size_t>(b)].serial;
+        return mSnapshot.slots[static_cast<std::size_t>(a)].serial >
+               mSnapshot.slots[static_cast<std::size_t>(b)].serial;
     });
 
     nlohmann::json layers = nlohmann::json::array();
@@ -433,8 +440,9 @@ nlohmann::json LooperService::BuildLayers() const
 
 void LooperService::RegisterMessageHandlers(MessageHandlerRegistry& registry)
 {
-    registry.Register("looperCommand",
-                      [this](const nlohmann::json& payload) { HandleCommand(payload.value("command", std::string{})); });
+    registry.Register("looperCommand", [this](const nlohmann::json& payload) {
+        HandleCommand(payload.value("command", std::string{}));
+    });
     registry.Register("setLooper", [this](const nlohmann::json& payload) { ApplySettingsRequest(payload); });
     registry.Register("setLooperLayer", [this](const nlohmann::json& payload) { HandleSetLayer(payload); });
     registry.Register("removeLooperLayer", [this](const nlohmann::json& payload) {
@@ -455,9 +463,8 @@ void LooperService::RegisterMessageHandlers(MessageHandlerRegistry& registry)
     registry.Register("dismissLooperRecovery", [this](const nlohmann::json&) { HandleDismissRecovery(); });
     registry.Register("exportLooperLayer", [this](const nlohmann::json& payload) { HandleExportLayer(payload); });
     registry.Register("retoneLooperLayer", [this](const nlohmann::json& payload) { HandleRetone(payload); });
-    registry.Register("addRiffAsLooperLayer", [this](const nlohmann::json& payload) {
-        HandleAddRiff(payload.value("takeId", std::string{}));
-    });
+    registry.Register("addRiffAsLooperLayer",
+                      [this](const nlohmann::json& payload) { HandleAddRiff(payload.value("takeId", std::string{})); });
     registry.Register("getLooperState", [this](const nlohmann::json&) {
         // Everything again on the next idle tick, waveforms included.
         mLastState.clear();

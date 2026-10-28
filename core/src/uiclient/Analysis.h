@@ -119,9 +119,9 @@ struct AnalyzerReadout
 [[nodiscard]] std::vector<AnalyzerReadout> AnalyzerReadouts(const AnalyzerFrame* frame, int configuredChannels);
 
 /// A Pickup Match side's predicted build from its curve's summary (pickupResponse.ts
-/// describeDesign): "1,191 m of wire \xC2\xB7 2.66 H \xC2\xB7 6.50 k\xCE\xA9 \xC2\xB7 118 pF \xE2\x86\x92 peak 3.40 kHz,
-/// Q 1.42, output +0.4 dB". Empty unless the side is a custom design (only those are summed up).
-/// `side` is "source" or "target".
+/// describeDesign): "1,191 m of wire \xC2\xB7 2.66 H \xC2\xB7 6.50 k\xCE\xA9 \xC2\xB7 118 pF \xE2\x86\x92 peak 3.40
+/// kHz, Q 1.42, output +0.4 dB". Empty unless the side is a custom design (only those are summed up). `side` is
+/// "source" or "target".
 [[nodiscard]] std::string PickupDesignSummary(const std::map<std::string, double>& summary, const std::string& side);
 
 /// Parses an effectResponse reply; nothing when it is not supported or malformed.
@@ -135,7 +135,7 @@ struct AnalyzerReadout
 
 class Analysis
 {
-public:
+  public:
     /// Points per curve: log-spaced 20 Hz to 20 kHz, as the web UI asks.
     static constexpr int kResponsePoints = 160;
     /// A curve request the engine never answers is given up on after this.
@@ -193,7 +193,7 @@ public:
     void OnIrAlignmentResponse(const nlohmann::json& reply);
     void OnSimpleCabMatch(const nlohmann::json& reply);
 
-private:
+  private:
     struct CurveRequest
     {
         std::string effectType;

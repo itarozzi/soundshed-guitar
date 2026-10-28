@@ -32,13 +32,19 @@ bool Is(const std::optional<tones::LinkTarget>& target, tones::Tone::Kind kind, 
 void TestDeepLinks()
 {
     using Kind = tones::Tone::Kind;
-    Expect(Is(tones::ParseLink("soundshed://tone-sharing?itemId=itm_abc123"), Kind::Preset, "itm_abc123"), "an item deep link");
-    Expect(Is(tones::ParseLink("soundshed://tone-sharing?packId=pck_9&utm=x"), Kind::Pack, "pck_9"), "a pack deep link, other parameters ignored");
-    Expect(Is(tones::ParseLink("  \"soundshed://open?itemId=itm_1\"  "), Kind::Preset, "itm_1"), "the command line's quotes and spaces");
-    Expect(Is(tones::ParseLink("itemId=itm_2"), Kind::Preset, "itm_2"), "the query alone, as the JUCE editor passes it");
+    Expect(Is(tones::ParseLink("soundshed://tone-sharing?itemId=itm_abc123"), Kind::Preset, "itm_abc123"),
+           "an item deep link");
+    Expect(Is(tones::ParseLink("soundshed://tone-sharing?packId=pck_9&utm=x"), Kind::Pack, "pck_9"),
+           "a pack deep link, other parameters ignored");
+    Expect(Is(tones::ParseLink("  \"soundshed://open?itemId=itm_1\"  "), Kind::Preset, "itm_1"),
+           "the command line's quotes and spaces");
+    Expect(Is(tones::ParseLink("itemId=itm_2"), Kind::Preset, "itm_2"),
+           "the query alone, as the JUCE editor passes it");
     Expect(Is(tones::ParseLink("soundshed%3A%2F%2Fx%3FitemId%3Ditm_3"), Kind::Preset, "itm_3"), "percent-encoded");
-    Expect(Is(tones::ParseLink("https://api-guitar.soundshed.com/share/item/itm_4"), Kind::Preset, "itm_4"), "an item share link");
-    Expect(Is(tones::ParseLink("https://api-guitar.soundshed.com/share/pack/pck_5?ref=a"), Kind::Pack, "pck_5"), "a pack share link");
+    Expect(Is(tones::ParseLink("https://api-guitar.soundshed.com/share/item/itm_4"), Kind::Preset, "itm_4"),
+           "an item share link");
+    Expect(Is(tones::ParseLink("https://api-guitar.soundshed.com/share/pack/pck_5?ref=a"), Kind::Pack, "pck_5"),
+           "a pack share link");
     Expect(!tones::ParseLink("").has_value(), "nothing");
     Expect(!tones::ParseLink("C:\\Users\\me\\preset.zip").has_value(), "a file path");
     Expect(!tones::ParseLink("soundshed://x?xitemId=itm_6").has_value(), "only a whole parameter name counts");
@@ -77,15 +83,21 @@ void TestPackDetailEntries()
     const nlohmann::json data = {
         {"pack", {{"id", "pck_1"}, {"title", "Pack"}}},
         {"items",
-         {{{"itemId", "itm_b"}, {"title", "B"}, {"sortOrder", 2}, {"description", " Second "}, {"tags", {"lead", "preset"}}},
+         {{{"itemId", "itm_b"},
+           {"title", "B"},
+           {"sortOrder", 2},
+           {"description", " Second "},
+           {"tags", {"lead", "preset"}}},
           {{"itemId", "itm_a"}, {"title", "A"}, {"sortOrder", 1}}}},
     };
     const auto detail = tones::ParsePackDetail(data);
     Expect(detail && detail->items.size() == 2 && detail->items[0].itemId == "itm_a", "a pack's presets in its order");
+
     if (detail && detail->items.size() == 2)
     {
         Expect(detail->items[1].description == "Second", "with their descriptions");
-        Expect(detail->items[1].tags.size() == 1 && detail->items[1].tags[0] == "lead", "and their tags, without \"preset\"");
+        Expect(detail->items[1].tags.size() == 1 && detail->items[1].tags[0] == "lead",
+               "and their tags, without \"preset\"");
     }
 }
 } // namespace

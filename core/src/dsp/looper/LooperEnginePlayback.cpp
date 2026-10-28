@@ -101,9 +101,8 @@ void LooperEngine::Publish()
     }
 
     mPublishedCountIn.store(mState == LooperState::CountIn ? mCountInLeft : 0, std::memory_order_relaxed);
-    mPublishedArmWait.store(
-        (mState == LooperState::Armed || mState == LooperState::OverdubArmed) ? mArmWait : 0,
-        std::memory_order_relaxed);
+    mPublishedArmWait.store((mState == LooperState::Armed || mState == LooperState::OverdubArmed) ? mArmWait : 0,
+                            std::memory_order_relaxed);
     mSequence.store(sequence + 2, std::memory_order_release);
 }
 
@@ -168,8 +167,7 @@ bool LooperEngine::MixPlayback(float* outL, float* outR, int numSamples)
         std::int64_t pos = Wrap(mPlayheadAtPlayFrom + (from - mPlayFrom), mLength);
         const float* wetL = slot.audio->wet[0];
         const float* wetR = slot.audio->wet[1] ? slot.audio->wet[1] : wetL;
-        const std::int64_t validLength =
-            slot.firstLayer ? mLength : std::min(mLength, slot.spanLength + slot.ringOut);
+        const std::int64_t validLength = slot.firstLayer ? mLength : std::min(mLength, slot.spanLength + slot.ringOut);
         float gl = slot.gainL;
         float gr = slot.gainR;
         // A ReplaceAudio crossfade: the old audio and the new, mixed sample by sample.

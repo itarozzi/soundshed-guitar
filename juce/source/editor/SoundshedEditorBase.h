@@ -13,7 +13,8 @@ namespace soundshed::editor
 /// Sends one UI→engine message from the host side of an editor, the way the page or the
 /// native client would. The type is a literal at every call site, which is what lets
 /// tools/check-protocol.mjs see these sends.
-void sendUiMessage (PluginProcessorAdapter& processor, const char* type, nlohmann::json payload = nlohmann::json::object());
+void sendUiMessage(PluginProcessorAdapter& processor, const char* type,
+                   nlohmann::json payload = nlohmann::json::object());
 
 /// Everything an editor does that has nothing to do with how it draws (the WebView editor,
 /// PluginEditor, is the one built on it).
@@ -24,10 +25,9 @@ void sendUiMessage (PluginProcessorAdapter& processor, const char* type, nlohman
 ///    so per-node metering stops costing audio-thread time once nobody reads it.
 ///  - Opens at the size this instance was left at, and remembers the size it is left at.
 ///  - Works around double DPI scaling under CLAP on Windows (applyHostScaleWorkaround).
-class SoundshedEditorBase : public juce::AudioProcessorEditor,
-                            private juce::Timer
+class SoundshedEditorBase : public juce::AudioProcessorEditor, private juce::Timer
 {
-public:
+  public:
     struct SizeLimits
     {
         int minWidth = 640;
@@ -38,23 +38,23 @@ public:
         int preferredHeight = 1100;
     };
 
-    SoundshedEditorBase (PluginProcessorAdapter& processor, SizeLimits limits);
+    SoundshedEditorBase(PluginProcessorAdapter& processor, SizeLimits limits);
     ~SoundshedEditorBase() override;
 
-    void setScaleFactor (float newScale) override;
+    void setScaleFactor(float newScale) override;
     void parentHierarchyChanged() override;
 
     /// A deep link handed over by a second launch of the standalone app.
-    virtual void handleDeepLinkFromAnotherInstance (const juce::String& deepLinkQuery);
+    virtual void handleDeepLinkFromAnotherInstance(const juce::String& deepLinkQuery);
 
     /// For the standalone's MainWindow, to drop its launch curtain once the editor has
     /// something worth looking at: calls `callback` once, from notifyReadyToShow(), or now if
     /// that has already happened, so an editor that is ready before MainWindow asks does not
     /// keep the curtain up for the whole eight-second timeout. Unused, and never called,
     /// inside a plugin host.
-    void whenReadyToShow (std::function<void()> callback);
+    void whenReadyToShow(std::function<void()> callback);
 
-protected:
+  protected:
     /// Call at the end of the derived constructor, once the content exists: applies the
     /// resize limits and opens at the remembered or default size.
     void applyInitialEditorSize();
@@ -69,16 +69,18 @@ protected:
     void rememberEditorSize();
 
     /// Per-tick work of the derived editor, after the controller's own idle pass.
-    virtual void idleTick() {}
+    virtual void idleTick()
+    {
+    }
 
     /// Reports whether a UI is on screen; a repeat of the last report is not re-sent. The
     /// base reports "hidden" on close. While open, the WebView page reports its own
     /// visibility, and the native editor reports isShowing() from its idle tick.
-    void reportUiVisible (bool visible);
+    void reportUiVisible(bool visible);
 
     PluginProcessorAdapter& processorRef;
 
-private:
+  private:
     void timerCallback() override;
     void applyHostScaleWorkaround();
     [[nodiscard]] juce::Point<int> defaultEditorSize() const;
@@ -95,7 +97,7 @@ private:
 
     // Last off-screen size we logged as not-remembered, so a host that keeps re-reporting
     // one does not fill the log with it. See rememberEditorSize().
-    juce::Point<int> lastIgnoredResize { -1, -1 };
+    juce::Point<int> lastIgnoredResize{-1, -1};
 
     // What was last reported through reportUiVisible, so a repeat is not re-sent.
     int lastReportedVisible = -1;
@@ -105,6 +107,6 @@ private:
     bool readyToShowNotified = false;
     std::function<void()> onReadyToShow;
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SoundshedEditorBase)
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SoundshedEditorBase)
 };
 } // namespace soundshed::editor

@@ -32,8 +32,10 @@ using cycfi::artist::canvas;
 /// listening the live level and the listen's progress.
 class GateLearnMeter final : public el::element, public Drawn
 {
-public:
-    explicit GateLearnMeter(const Theme& theme) : mTheme(theme) {}
+  public:
+    explicit GateLearnMeter(const Theme& theme) : mTheme(theme)
+    {
+    }
 
     el::view_limits limits(const el::basic_context&) const override
     {
@@ -44,11 +46,16 @@ public:
     bool Set(double minDb, double maxDb, double threshold, double hysteresis, const GateLearnStatus* status)
     {
         const bool listening = status != nullptr && status->state == "listening";
-        const auto next = std::make_tuple(minDb, std::max(minDb + 1.0, maxDb), threshold, threshold - std::max(0.0, hysteresis),
-                                          status != nullptr ? status->noiseFloorDb : std::nullopt,
-                                          listening ? status->levelDb : std::nullopt, listening ? status->progress : 0.0);
+        const auto next =
+            std::make_tuple(minDb, std::max(minDb + 1.0, maxDb), threshold, threshold - std::max(0.0, hysteresis),
+                            status != nullptr ? status->noiseFloorDb : std::nullopt,
+                            listening ? status->levelDb : std::nullopt, listening ? status->progress : 0.0);
+
         if (next == std::tie(mMin, mMax, mThreshold, mClose, mNoise, mLevel, mProgress))
+        {
             return false;
+        }
+
         std::tie(mMin, mMax, mThreshold, mClose, mNoise, mLevel, mProgress) = next;
         return true;
     }
@@ -58,7 +65,9 @@ public:
         NoteDrawn(ctx);
         auto& cnv = ctx.canvas;
         const auto b = ctx.bounds;
-        const auto at = [&](double db) { return b.left + static_cast<float>(std::clamp((db - mMin) / (mMax - mMin), 0.0, 1.0)) * b.width(); };
+        const auto at = [&](double db) {
+            return b.left + static_cast<float>(std::clamp((db - mMin) / (mMax - mMin), 0.0, 1.0)) * b.width();
+        };
 
         cnv.fill_style(mTheme.Pick(el::rgba(0, 0, 0, 90), el::rgba(0, 0, 0, 28)));
         cnv.add_round_rect(b, 3.0f);
@@ -67,29 +76,35 @@ public:
         auto state = cnv.new_state();
         cnv.add_round_rect(b, 3.0f);
         cnv.clip();
+
         if (mNoise)
         {
             cnv.fill_style(mTheme.TextMuted().opacity(0.35f));
             cnv.fill_rect(el::rect{b.left, b.top, at(*mNoise), b.bottom});
         }
+
         cnv.fill_style(mTheme.Accent().opacity(0.22f));
         cnv.fill_rect(el::rect{at(mClose), b.top, at(mThreshold), b.bottom});
+
         if (mLevel)
         {
             cnv.fill_style(mTheme.Success().opacity(0.7f));
             cnv.fill_rect(el::rect{b.left, b.top + 4.0f, at(*mLevel), b.bottom - 4.0f});
         }
+
         if (mProgress > 0.0)
         {
             cnv.fill_style(mTheme.Accent());
-            cnv.fill_rect(el::rect{b.left, b.bottom - 2.0f, b.left + static_cast<float>(std::clamp(mProgress, 0.0, 1.0)) * b.width(), b.bottom});
+            cnv.fill_rect(el::rect{b.left, b.bottom - 2.0f,
+                                   b.left + static_cast<float>(std::clamp(mProgress, 0.0, 1.0)) * b.width(), b.bottom});
         }
+
         cnv.fill_style(mTheme.Accent());
         const float x = at(mThreshold);
         cnv.fill_rect(el::rect{x - 1.0f, b.top, x + 1.0f, b.bottom});
     }
 
-private:
+  private:
     const Theme& mTheme;
     double mMin = -80.0, mMax = 0.0, mThreshold = -60.0, mClose = -64.0;
     std::optional<double> mNoise, mLevel;
@@ -115,7 +130,8 @@ Ptr Shell::BuildGateLearn(GateLearnTarget target)
     auto button = std::make_shared<IconButton>(mTheme, mIcons, "", IconButton::Look::Boxed);
     button->Size(72, 26);
 
-    const auto key = guitarfx::uiclient::NodeFeedKey(target.address.scope, target.address.presetId, target.address.nodeId);
+    const auto key =
+        guitarfx::uiclient::NodeFeedKey(target.address.scope, target.address.presetId, target.address.nodeId);
     // What the engine last said of this gate's listen, if anything.
     const auto learnStatus = [this, key]() -> const GateLearnStatus* {
         const auto it = mState.analysis.gateLearn.find(key);
@@ -124,13 +140,18 @@ Ptr Shell::BuildGateLearn(GateLearnTarget target)
     button->onClick = [this, key, address = target.address, ensureEnabled = target.ensureEnabled] {
         auto& analysis = mSession.Client().GetAnalysis();
         auto& learn = mSession.Client().MutableState().analysis.gateLearn;
+
         if (const auto it = learn.find(key); it != learn.end() && it->second.state == "listening")
         {
             analysis.CancelGateLearn(address);
             return;
         }
+
         if (ensureEnabled)
+        {
             ensureEnabled();
+        }
+
         // Listening at once, as the web UI shows it, until the engine's first status.
         learn[key] = GateLearnStatus{"listening"};
         mGateLearnSeen[key] = "listening";
@@ -139,22 +160,33 @@ Ptr Shell::BuildGateLearn(GateLearnTarget target)
 
     mLive.Feed(meter, [this, key, learnStatus, target](GateLearnMeter& m) {
         const auto* s = learnStatus();
+
         // A listen that just finished sets Threshold, once, where it measured.
         if (s != nullptr)
         {
             auto& seen = mGateLearnSeen[key];
+
             if (s->state == "done" && seen == "listening" && s->thresholdDb && target.apply)
+            {
                 target.apply(*s->thresholdDb);
+            }
+
             seen = s->state;
         }
+
         return m.Set(target.minDb, target.maxDb, target.threshold ? target.threshold() : -60.0,
                      target.hysteresis ? target.hysteresis() : 0.0, s);
     });
     mLive.Bind(
-        status, [learnStatus, minDb = target.minDb] { return guitarfx::uiclient::GateLearnStatusText(learnStatus(), minDb); },
+        status,
+        [learnStatus, minDb = target.minDb] { return guitarfx::uiclient::GateLearnStatusText(learnStatus(), minDb); },
         &Text::Set);
     mLive.Bind(
-        button, [learnStatus] { const auto* s = learnStatus(); return s != nullptr && s->state == "listening"; },
+        button,
+        [learnStatus] {
+            const auto* s = learnStatus();
+            return s != nullptr && s->state == "listening";
+        },
         [](IconButton& b, bool listening) { b.Label(listening ? "Cancel" : "Learn", 11.0f); });
     return Col({FixedHeight(14, meter), VGap(2), FixedHeight(12, Row({low, Stretch(), high})), VGap(6),
                 FixedHeight(26, Row({button, HGap(10), status, Stretch()}))});
@@ -171,34 +203,61 @@ Shell::GateLearnTarget Shell::NodeGateLearnTarget(const guitarfx::GraphNode& nod
     // (seen when a Bars loop started recording).
     const auto param = [this, nodeId, typeId = node.type](const char* key, double fallback) {
         const auto* n = mState.activePreset ? mState.activePreset->graph.FindNode(nodeId) : nullptr;
+
         if (n != nullptr)
+        {
             if (const auto it = n->params.find(key); it != n->params.end())
+            {
                 return it->second;
+            }
+        }
+
         if (const auto* type = mState.FindEffectType(typeId))
+        {
             for (const auto& p : type->parameters)
+            {
                 if (p.key == key)
+                {
                     return p.defaultValue;
+                }
+            }
+        }
+
         return fallback;
     };
     target.threshold = [param] { return param("threshold", -60.0); };
     target.hysteresis = [param] { return param("hysteresis", 4.0); };
+
     if (type != nullptr)
+    {
         for (const auto& p : type->parameters)
+        {
             if (p.key == "threshold")
+            {
                 target.minDb = p.minValue, target.maxDb = p.maxValue;
+            }
+        }
+    }
+
     const std::string presetId = mState.activePresetId;
     target.apply = [this, nodeId, presetId](double thresholdDb) {
         // Only into the preset it measured: one switched away from while listening is left alone.
         if (mState.activePresetId != presetId)
+        {
             return;
+        }
+
         mSession.Commands().SetNodeParam(nodeId, "threshold", thresholdDb);
         NoteChainEdit();
         Mark(kValues);
     };
     target.ensureEnabled = [this, nodeId] {
         const auto* n = mState.activePreset ? mState.activePreset->graph.FindNode(nodeId) : nullptr;
+
         if (n != nullptr && !n->enabled)
+        {
             mSession.Commands().SetNodeBypassed(nodeId, false);
+        }
     };
     return target;
 }
@@ -212,8 +271,13 @@ void Shell::OpenGlobalGate(el::rect anchor)
     const auto* type = mState.FindEffectType(guids::kDynamicsGate);
     const auto gateParam = [this](const std::string& key, double fallback) {
         if (const auto* node = mState.globalChain.preChainGraph.FindNode("global_gate"))
+        {
             if (const auto it = node->params.find(key); it != node->params.end())
+            {
                 return it->second;
+            }
+        }
+
         return fallback;
     };
 
@@ -223,24 +287,37 @@ void Shell::OpenGlobalGate(el::rect anchor)
     target.hysteresis = [gateParam] { return gateParam("hysteresis", 4.0); };
     target.apply = [&commands](double thresholdDb) { commands.SetGlobalChainParam("gate.threshold", thresholdDb); };
     target.ensureEnabled = [this, &commands] {
-        if (const auto* node = mState.globalChain.preChainGraph.FindNode("global_gate"); node != nullptr && !node->enabled)
+        if (const auto* node = mState.globalChain.preChainGraph.FindNode("global_gate");
+            node != nullptr && !node->enabled)
+        {
             commands.SetGlobalChainToggle("gate.enabled", true);
+        }
     };
 
     std::vector<Ptr> knobs{Stretch()};
     int count = 0;
+
     if (type != nullptr)
+    {
         for (const auto& info : type->parameters)
         {
             if (info.key == "threshold")
+            {
                 target.minDb = info.minValue, target.maxDb = info.maxValue;
+            }
+
             const std::string key = info.key;
             Ptr cell;
+
             if (guitarfx::uiclient::IsToggleParam(info))
             {
                 auto toggle = std::make_shared<ParamToggle>(mTheme, info.name);
-                const auto on = [key, info, gateParam] { return gateParam(key, info.defaultValue) > 0.5 * (info.minValue + info.maxValue); };
-                toggle->onClick = [key, info, on, &commands] { commands.SetGlobalChainParam("gate." + key, on() ? info.minValue : info.maxValue); };
+                const auto on = [key, info, gateParam] {
+                    return gateParam(key, info.defaultValue) > 0.5 * (info.minValue + info.maxValue);
+                };
+                toggle->onClick = [key, info, on, &commands] {
+                    commands.SetGlobalChainParam("gate." + key, on() ? info.minValue : info.maxValue);
+                };
                 mLive.Bind(toggle, on, &ParamToggle::Set);
                 cell = toggle;
             }
@@ -249,27 +326,38 @@ void Shell::OpenGlobalGate(el::rect anchor)
                 auto knob = std::make_shared<ParamKnob>(mTheme, info.name);
                 knob->DefaultPosition(guitarfx::uiclient::ParamValueToPosition(info, info.defaultValue));
                 knob->onChange = [info, key, &commands, k = knob.get()](double position) {
-                    const double v = guitarfx::uiclient::SnapParamValue(info, guitarfx::uiclient::ParamPositionToValue(info, position));
+                    const double v = guitarfx::uiclient::SnapParamValue(
+                        info, guitarfx::uiclient::ParamPositionToValue(info, position));
                     k->SetValueText(guitarfx::uiclient::FormatParamValue(info, v));
                     commands.SetGlobalChainParam("gate." + key, v);
                 };
-                knob->onReset = [info, key, &commands] { commands.SetGlobalChainParam("gate." + key, info.defaultValue); };
-                mLive.Bind(knob, [key, info, gateParam] { return gateParam(key, info.defaultValue); }, [info](ParamKnob& k, double v) {
-                    k.Update(guitarfx::uiclient::ParamValueToPosition(info, v), guitarfx::uiclient::FormatParamValue(info, v));
-                });
+                knob->onReset = [info, key, &commands] {
+                    commands.SetGlobalChainParam("gate." + key, info.defaultValue);
+                };
+                mLive.Bind(
+                    knob, [key, info, gateParam] { return gateParam(key, info.defaultValue); },
+                    [info](ParamKnob& k, double v) {
+                        k.Update(guitarfx::uiclient::ParamValueToPosition(info, v),
+                                 guitarfx::uiclient::FormatParamValue(info, v));
+                    });
                 cell = knob;
             }
+
             knobs.push_back(cell);
             knobs.push_back(HGap(6));
             ++count;
         }
+    }
+
     knobs.back() = Stretch();
 
     auto title = std::make_shared<Text>(mTheme, "NOISE GATE", 9.0f, Weight::SemiBold);
     title->Colour(mTheme.Pick(el::rgba(220, 227, 243, 173), mTheme.TextSecondary()));
     auto learn = BuildGateLearn(std::move(target));
     const float width = std::min(std::max(360.0f, count * 66.0f + 24.0f), ViewSize().x - 24.0f);
-    ShowPopover(Pad(12, 10, 12, 10, Col({FixedHeight(14, title), VGap(8), FixedHeight(60, learn), VGap(10), FixedHeight(63, Row(knobs))})),
-                anchor, width, 14.0f + 8.0f + 60.0f + 10.0f + 63.0f + 20.0f);
+    ShowPopover(
+        Pad(12, 10, 12, 10,
+            Col({FixedHeight(14, title), VGap(8), FixedHeight(60, learn), VGap(10), FixedHeight(63, Row(knobs))})),
+        anchor, width, 14.0f + 8.0f + 60.0f + 10.0f + 63.0f + 20.0f);
 }
 } // namespace nanoq::ui

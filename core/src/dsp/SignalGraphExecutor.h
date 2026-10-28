@@ -390,6 +390,7 @@ class SignalGraphExecutor
     {
         return mLastTotalProcessingTimeUs.load(std::memory_order_relaxed);
     }
+
     /// Returns the enabled-node longest-path latency through the graph.
     [[nodiscard]] int GetTotalLatencySamples() const;
 
@@ -613,6 +614,7 @@ class SignalGraphExecutor
         std::string nodeId;
         EffectProcessor* previous = nullptr;
     };
+
     std::vector<PendingHandOver> mPendingHandOvers;
 
     // Config applied to every node of a given type at creation — see SetNodeTypeConfigDefault().

@@ -17,73 +17,75 @@
 
 namespace
 {
-    constexpr auto kFailCode = 1;
+constexpr auto kFailCode = 1;
 
-    int Fail (const std::string& message)
-    {
-        std::cerr << "[JucePathConversionTests] " << message << std::endl;
-        return kFailCode;
-    }
-
-    // Names in UTF-8, as JUCE hands them over: the reported folder, Turkish letters the
-    // Western code page cannot spell, and a script no single-byte code page holds.
-    const char* const kNames[] = {
-        "M\xC3\xBCzik",
-        "\xC5\x9F"
-        "ark\xC4\xB1lar",
-        "\xD7\xA4\xD7\x93\xD7\x9C \xE9\x9F\xB3\xE6\xA5\xBD",
-    };
+int Fail(const std::string& message)
+{
+    std::cerr << "[JucePathConversionTests] " << message << std::endl;
+    return kFailCode;
 }
+
+// Names in UTF-8, as JUCE hands them over: the reported folder, Turkish letters the
+// Western code page cannot spell, and a script no single-byte code page holds.
+const char* const kNames[] = {
+    "M\xC3\xBCzik",
+    "\xC5\x9F"
+    "ark\xC4\xB1lar",
+    "\xD7\xA4\xD7\x93\xD7\x9C \xE9\x9F\xB3\xE6\xA5\xBD",
+};
+} // namespace
 
 int main()
 {
-    const auto scratch = juce::File::getSpecialLocation (juce::File::tempDirectory)
-                             .getChildFile ("SoundshedJucePathConversionTests-" + juce::Uuid().toString());
+    const auto scratch = juce::File::getSpecialLocation(juce::File::tempDirectory)
+                             .getChildFile("SoundshedJucePathConversionTests-" + juce::Uuid().toString());
 
     int result = 0;
 
     for (const auto* name : kNames)
     {
-        const auto folder = scratch.getChildFile (juce::String::fromUTF8 (name));
+        const auto folder = scratch.getChildFile(juce::String::fromUTF8(name));
 
         if (!folder.createDirectory())
         {
-            result = Fail ("could not create the test folder '" + std::string (name) + "'");
+            result = Fail("could not create the test folder '" + std::string(name) + "'");
             break;
         }
 
         // JUCE to std: the path names the folder JUCE made, and keeps its name.
-        const auto stdPath = soundshed::toStdPath (folder);
+        const auto stdPath = soundshed::toStdPath(folder);
         std::error_code ec;
 
-        if (!std::filesystem::is_directory (stdPath, ec)
-            || guitarfx::util::PathToUtf8 (stdPath.filename()) != name)
+        if (!std::filesystem::is_directory(stdPath, ec) || guitarfx::util::PathToUtf8(stdPath.filename()) != name)
         {
-            result = Fail ("toStdPath lost the folder '" + std::string (name) + "', got '"
-                           + guitarfx::util::PathToUtf8 (stdPath) + "'");
+            result = Fail("toStdPath lost the folder '" + std::string(name) + "', got '" +
+                          guitarfx::util::PathToUtf8(stdPath) + "'");
             break;
         }
 
         // std to JUCE: a path built on the std side, as the core builds its profile paths.
         const auto child = stdPath / "child.txt";
 
-        if (!soundshed::toJuceFile (child).replaceWithText ("x")
-            || !std::filesystem::exists (child, ec)
-            || soundshed::toJuceFile (stdPath) != folder)
+        if (!soundshed::toJuceFile(child).replaceWithText("x") || !std::filesystem::exists(child, ec) ||
+            soundshed::toJuceFile(stdPath) != folder)
         {
-            result = Fail ("toJuceFile did not reach the folder '" + std::string (name) + "'");
+            result = Fail("toJuceFile did not reach the folder '" + std::string(name) + "'");
             break;
         }
     }
 
     // An empty path stays empty: the editor hands an unresolved resource root through.
-    if (result == 0 && soundshed::toJuceFile ({}) != juce::File())
-        result = Fail ("an empty path should become an empty juce::File");
+    if (result == 0 && soundshed::toJuceFile({}) != juce::File())
+    {
+        result = Fail("an empty path should become an empty juce::File");
+    }
 
     scratch.deleteRecursively();
 
     if (result == 0)
+    {
         std::cout << "[JucePathConversionTests] all passed" << std::endl;
+    }
 
     return result;
 }

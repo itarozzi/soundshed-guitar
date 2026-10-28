@@ -12,8 +12,8 @@ namespace guitarfx::uiclient
 {
 namespace
 {
-constexpr std::array<const char*, 12> kNoteNames = {"C",  "C#/Db", "D",  "D#/Eb", "E",  "F",
-                                                    "F#/Gb", "G", "G#/Ab", "A", "A#/Bb", "B"};
+constexpr std::array<const char*, 12> kNoteNames = {"C",     "C#/Db", "D",     "D#/Eb", "E",     "F",
+                                                    "F#/Gb", "G",     "G#/Ab", "A",     "A#/Bb", "B"};
 
 std::string FirstSpelling(const std::string& name)
 {

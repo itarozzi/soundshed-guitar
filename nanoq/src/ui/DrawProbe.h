@@ -24,8 +24,10 @@ namespace el = cycfi::elements;
 
 class DrawProbe final : public el::proxy_base
 {
-public:
-    DrawProbe(el::element_ptr subject, std::string path) : mSubject(std::move(subject)), mPath(std::move(path)) {}
+  public:
+    DrawProbe(el::element_ptr subject, std::string path) : mSubject(std::move(subject)), mPath(std::move(path))
+    {
+    }
 
     /// The path from SOUNDSHED_NANOQ_DRAWSTATS, or empty when the probe is off.
     [[nodiscard]] static std::string PathFromEnvironment()
@@ -38,6 +40,7 @@ public:
     {
         return *mSubject;
     }
+
     const el::element& subject() const override
     {
         return *mSubject;
@@ -52,36 +55,45 @@ public:
 
         const auto dirty = cycfi::artist::intersection(ctx.bounds, ctx.canvas.clip_extent());
         const double window = static_cast<double>(ctx.bounds.width()) * ctx.bounds.height();
+
         if (std::getenv("SOUNDSHED_NANOQ_DRAWRECTS") != nullptr)
+        {
             if (std::FILE* f = std::fopen((mPath + ".rects").c_str(), "a"))
             {
                 std::fprintf(f, "%.0f %.0f %.0f %.0f\n", dirty.left, dirty.top, dirty.right, dirty.bottom);
                 std::fclose(f);
             }
+        }
+
         ++mPaints;
         mArea += window > 0.0 ? static_cast<double>(dirty.width()) * dirty.height() / window : 0.0;
         mMs += ms;
         mMaxMs = std::max(mMaxMs, ms);
 
         const double now = std::chrono::duration<double>(clock::now().time_since_epoch()).count();
+
         if (mSince == 0.0)
+        {
             mSince = now;
+        }
+
         if (now - mSince >= 1.0)
         {
             if (std::FILE* f = std::fopen(mPath.c_str(), "a"))
             {
                 // paints/s, windows repainted per second, ms drawing per second, slowest paint.
-                std::fprintf(f, "paints %d  area %.2f windows/s  draw %.1f ms/s  max %.1f ms\n", mPaints, mArea / (now - mSince),
-                             mMs / (now - mSince), mMaxMs);
+                std::fprintf(f, "paints %d  area %.2f windows/s  draw %.1f ms/s  max %.1f ms\n", mPaints,
+                             mArea / (now - mSince), mMs / (now - mSince), mMaxMs);
                 std::fclose(f);
             }
+
             mSince = now;
             mPaints = 0;
             mArea = mMs = mMaxMs = 0.0;
         }
     }
 
-private:
+  private:
     el::element_ptr mSubject;
     std::string mPath;
     int mPaints = 0;

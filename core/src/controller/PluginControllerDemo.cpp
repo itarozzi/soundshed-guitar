@@ -111,7 +111,8 @@ void PluginController::HandlePreviewDemoRequest(const nlohmann::json& payload)
             return;
         }
 
-        const std::vector<std::uint8_t> bytes((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+        const std::vector<std::uint8_t> bytes((std::istreambuf_iterator<char>(input)),
+                                              std::istreambuf_iterator<char>());
         mDemoPreview->StartPreviewFromBytes(bytes, clipId, title, payload.value("repeat", false));
         return;
     }

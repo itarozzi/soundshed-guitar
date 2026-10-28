@@ -55,15 +55,16 @@ class RiffRecorder
     // ── Holding the DSP lock ─────────────────────────────────────────────────────────
     /// Counting in, armed or recording.
     [[nodiscard]] bool Busy() const noexcept;
+
     /// Holding a take, finished or not, that Release() or Drop() has not handed back.
     [[nodiscard]] bool HasTake() const noexcept
     {
         return !mLeft.empty();
     }
+
     /// Starts a take into `left` and `right`, each as long as the longest take allowed: counting in
     /// `countInBars` bars of `samplesPerBar`, then recording at once or, `armed`, on the first note.
-    void Start(std::vector<float> left, std::vector<float> right, bool armed, double samplesPerBar,
-               int countInBars);
+    void Start(std::vector<float> left, std::vector<float> right, bool armed, double samplesPerBar, int countInBars);
     /// Ends the take where it is. False when it had not started recording, and it is then dropped.
     bool Close();
     /// Drops the take, finished or not.
@@ -78,6 +79,7 @@ class RiffRecorder
 
     // ── Message thread, no lock ──────────────────────────────────────────────────────
     [[nodiscard]] Status Poll() const;
+
     /// The DI peaks so far, per bucket of an equal share of the longest take.
     [[nodiscard]] float LivePeak(int bucket) const noexcept
     {

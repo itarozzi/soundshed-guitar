@@ -176,8 +176,11 @@ void UiCommands::DeletePreset(const std::string& presetId)
 void UiCommands::SetPresetRating(const std::string& presetId, int rating)
 {
     mClient.Send("setPresetRating", {{"presetId", presetId}, {"rating", std::clamp(rating, 0, 5)}});
+
     if (onPresetRatingSet)
+    {
         onPresetRatingSet(presetId, std::clamp(rating, 0, 5));
+    }
 }
 
 void UiCommands::CreatePresetFolder(const std::string& name, const std::string& parentId)
@@ -219,8 +222,9 @@ void UiCommands::CreateSetlist(const std::string& name, int bank)
 
 void UiCommands::UpdateSetlist(const std::string& setlistId, const std::string& name, int bank)
 {
-    mClient.Send("updateSetlist",
-                 {{"setlistId", setlistId}, {"name", name}, {"bank", bank >= 0 ? nlohmann::json(bank) : nlohmann::json()}});
+    mClient.Send(
+        "updateSetlist",
+        {{"setlistId", setlistId}, {"name", name}, {"bank", bank >= 0 ? nlohmann::json(bank) : nlohmann::json()}});
 }
 
 void UiCommands::DeleteSetlist(const std::string& setlistId)
@@ -251,8 +255,11 @@ void UiCommands::RemoveSetlistSlot(const std::string& setlistId, int index)
 void UiCommands::SetPresetFavorite(const std::string& presetId, bool favorite)
 {
     mClient.Send("setPresetFavorite", {{"presetId", presetId}, {"favorite", favorite}});
+
     if (onPresetFavoriteSet)
+    {
         onPresetFavoriteSet(presetId, favorite);
+    }
 }
 
 // ── Multi-Rig ──────────────────────────────────────────────────────────
@@ -307,14 +314,16 @@ void UiCommands::SetMixGain(double gainDb)
     mClient.Notify(Topic::Mixer);
 }
 
-void UiCommands::SaveCompositePreset(const std::string& name, const std::string& description, const std::vector<std::string>& tags,
-                                     const std::string& id)
+void UiCommands::SaveCompositePreset(const std::string& name, const std::string& description,
+                                     const std::vector<std::string>& tags, const std::string& id)
 {
     nlohmann::json payload = {{"name", name}, {"description", description}, {"tags", tags}};
+
     if (!id.empty())
     {
         payload["id"] = id;
     }
+
     mClient.Send("saveCompositePreset", std::move(payload));
 }
 
@@ -355,31 +364,53 @@ void UiCommands::SetNodeBypassed(const std::string& nodeId, bool bypassed)
 void UiCommands::SetNodeConfig(const std::string& nodeId, const std::string& key, const std::string& value)
 {
     auto& state = mClient.MutableState();
-    if (state.activePreset)
-        if (auto* node = state.activePreset->graph.FindNode(nodeId))
-            node->config[key] = value;
 
-    mClient.Send("updateSignalPathNodeConfig", {{"nodeId", nodeId}, {"key", key}, {"value", value}, {"persist", true}, {"capture", false}});
+    if (state.activePreset)
+    {
+        if (auto* node = state.activePreset->graph.FindNode(nodeId))
+        {
+            node->config[key] = value;
+        }
+    }
+
+    mClient.Send("updateSignalPathNodeConfig",
+                 {{"nodeId", nodeId}, {"key", key}, {"value", value}, {"persist", true}, {"capture", false}});
 }
 
 void UiCommands::LoadActivePresetWithGraph(const SignalGraph& graph)
 {
     const auto& state = mClient.State();
+
     if (!state.activePreset)
+    {
         return;
+    }
 
     Preset preset = *state.activePreset;
     preset.graph = graph;
+
     for (auto& scene : preset.scenes)
+    {
         if (scene.id == state.activeSceneId)
+        {
             scene.graph = graph;
+        }
+    }
 
     const auto body = nlohmann::json::parse(PresetStorage::SerializeToJson(preset), nullptr, false);
+
     if (body.is_discarded())
+    {
         return;
+    }
+
     nlohmann::json payload = {{"preset", body}};
+
     if (!state.activeSceneId.empty())
+    {
         payload["sceneId"] = state.activeSceneId;
+    }
+
     mClient.Send("loadPreset", payload);
 }
 
@@ -407,9 +438,10 @@ void UiCommands::AddNode(const std::string& effectType, const std::string& after
 
 void UiCommands::AddNodeOnEdge(const std::string& effectType, const GraphEdge& edge)
 {
-    mClient.Send("addSignalPathNode",
-                 {{"effectType", effectType},
-                  {"edge", {{"from", edge.from}, {"to", edge.to}, {"fromPort", edge.fromPort}, {"toPort", edge.toPort}}}});
+    mClient.Send(
+        "addSignalPathNode",
+        {{"effectType", effectType},
+         {"edge", {{"from", edge.from}, {"to", edge.to}, {"fromPort", edge.fromPort}, {"toPort", edge.toPort}}}});
 }
 
 void UiCommands::RemoveNode(const std::string& nodeId)
@@ -427,9 +459,10 @@ void UiCommands::MoveNode(const std::string& nodeId, const std::string& afterNod
 
 void UiCommands::MoveNodeToEdge(const std::string& nodeId, const GraphEdge& edge)
 {
-    mClient.Send("reorderSignalPathNode",
-                 {{"nodeId", nodeId},
-                  {"edge", {{"from", edge.from}, {"to", edge.to}, {"fromPort", edge.fromPort}, {"toPort", edge.toPort}}}});
+    mClient.Send(
+        "reorderSignalPathNode",
+        {{"nodeId", nodeId},
+         {"edge", {{"from", edge.from}, {"to", edge.to}, {"fromPort", edge.fromPort}, {"toPort", edge.toPort}}}});
 }
 
 void UiCommands::CollapseSplit(const std::string& splitterId)
@@ -462,12 +495,13 @@ void UiCommands::RenameNode(const std::string& nodeId, const std::string& title)
     mClient.Send("renameSignalPathNode", {{"nodeId", nodeId}, {"title", title}});
 }
 
-void UiCommands::SetNodeResource(const std::string& nodeId, const std::string& resourceType, const std::string& resourceId,
-                                 int resourceIndex)
+void UiCommands::SetNodeResource(const std::string& nodeId, const std::string& resourceType,
+                                 const std::string& resourceId, int resourceIndex)
 {
     // As the web UI's resource picker sends it: a library entry by id, with no file path (the
     // engine resolves it); an empty id and path clears the slot.
-    nlohmann::json payload = {{"nodeId", nodeId}, {"resourceType", resourceType}, {"resourceId", resourceId}, {"filePath", ""}};
+    nlohmann::json payload = {
+        {"nodeId", nodeId}, {"resourceType", resourceType}, {"resourceId", resourceId}, {"filePath", ""}};
 
     if (resourceIndex >= 0)
     {
@@ -483,12 +517,17 @@ void UiCommands::SetNodeResource(const std::string& nodeId, const std::string& r
     mClient.Send("updateNodeResource", std::move(payload));
 }
 
-void UiCommands::SetNodeResourceFile(const std::string& nodeId, const std::string& resourceType, const std::string& filePath,
-                                     int resourceIndex)
+void UiCommands::SetNodeResourceFile(const std::string& nodeId, const std::string& resourceType,
+                                     const std::string& filePath, int resourceIndex)
 {
-    nlohmann::json payload = {{"nodeId", nodeId}, {"resourceType", resourceType}, {"resourceId", ""}, {"filePath", filePath}};
+    nlohmann::json payload = {
+        {"nodeId", nodeId}, {"resourceType", resourceType}, {"resourceId", ""}, {"filePath", filePath}};
+
     if (resourceIndex >= 0)
+    {
         payload["resourceIndex"] = resourceIndex;
+    }
+
     mClient.Send("updateNodeResource", std::move(payload));
 }
 
@@ -496,13 +535,15 @@ std::string UiCommands::ImportRemoteResource(nlohmann::json payload)
 {
     static int sequence = 0;
     auto requestId = payload.value("requestId", std::string());
+
     if (requestId.empty())
     {
         requestId = "nativeImport-" + std::to_string(++sequence);
         payload["requestId"] = requestId;
     }
-    mClient.MutableState().resourceImports[requestId] = {ResourceImport::Status::Importing, payload.value("resourceType", ""),
-                                                         payload.value("resourceId", ""), {}};
+
+    mClient.MutableState().resourceImports[requestId] = {
+        ResourceImport::Status::Importing, payload.value("resourceType", ""), payload.value("resourceId", ""), {}};
     mClient.Send("importRemoteResource", std::move(payload));
     return requestId;
 }
@@ -512,22 +553,24 @@ void UiCommands::ExportLibraryArchive(bool allResources)
     mClient.Send("exportLibraryArchive", {{"resources", allResources ? "all" : "used"}});
 }
 
-void UiCommands::SaveLocalLibraryResource(const std::string& resourceType, const std::string& filePath, const std::string& name,
-                                          const nlohmann::json& metadata, const std::string& nodeId, int resourceIndex)
+void UiCommands::SaveLocalLibraryResource(const std::string& resourceType, const std::string& filePath,
+                                          const std::string& name, const nlohmann::json& metadata,
+                                          const std::string& nodeId, int resourceIndex)
 {
-    nlohmann::json payload = {{"resourceType", resourceType},
-                              {"filePath", filePath},
-                              {"name", name},
-                              {"category", ""},
-                              {"tags", nlohmann::json::array()},
-                              {"description", ""},
-                              {"metadata", metadata}};
+    nlohmann::json payload = {
+        {"resourceType", resourceType},    {"filePath", filePath}, {"name", name},        {"category", ""},
+        {"tags", nlohmann::json::array()}, {"description", ""},    {"metadata", metadata}};
+
     if (!nodeId.empty())
     {
         payload["nodeId"] = nodeId;
+
         if (resourceIndex >= 0)
+        {
             payload["resourceIndex"] = resourceIndex;
+        }
     }
+
     mClient.Send("saveLocalLibraryResource", std::move(payload));
 }
 
@@ -635,41 +678,72 @@ bool MirrorGlobalChainEdit(GlobalSignalChainConfig& chain, const std::string& pa
 {
     const auto number = [&value] { return value.is_boolean() ? (value.get<bool>() ? 1.0 : 0.0) : value.get<double>(); };
     const auto on = [&value] { return value.is_boolean() ? value.get<bool>() : value.get<double>() >= 0.5; };
-    const auto node = [&chain](bool pre, const char* id) { return (pre ? chain.preChainGraph : chain.postChainGraph).FindNode(id); };
+    const auto node = [&chain](bool pre, const char* id) {
+        return (pre ? chain.preChainGraph : chain.postChainGraph).FindNode(id);
+    };
     // "<stage>.<key>": the stage's node in its graph, its key a parameter of that node or, for
     // "enabled", the node's switch.
     const auto stage = [&](const char* prefix, bool pre, const char* id) {
         const std::string head = std::string(prefix) + ".";
+
         if (path.rfind(head, 0) != 0)
+        {
             return false;
+        }
+
         auto* n = node(pre, id);
+
         if (n == nullptr)
+        {
             return true;
+        }
+
         const auto key = path.substr(head.size());
+
         if (key == "enabled")
+        {
             n->enabled = on();
+        }
         else
+        {
             n->params[key] = number();
+        }
+
         return true;
     };
 
     if (!value.is_number() && !value.is_boolean())
+    {
         return false;
+    }
+
     if (path == "input.gain")
+    {
         chain.inputGain = number();
+    }
     else if (path == "output.gain")
+    {
         chain.outputGain = number();
+    }
     else if (path == "limiter.enabled")
+    {
         chain.limiterEnabled = on();
+    }
     else if (path == "doubler.delay" || path == "doubler.mix" || path == "doubler.detune")
     {
         // The doubler's paths name its parameters differently from its node.
         if (auto* n = node(false, "global_doubler"))
+        {
             n->params[path == "doubler.delay" ? "time" : path.substr(8)] = number();
+        }
     }
     else
+    {
         return stage("gate", true, "global_gate") || stage("transpose", true, "global_transpose") ||
-               stage("pickup", true, "global_pickup") || stage("eq", false, "global_eq") || stage("doubler", false, "global_doubler");
+               stage("pickup", true, "global_pickup") || stage("eq", false, "global_eq") ||
+               stage("doubler", false, "global_doubler");
+    }
+
     return true;
 }
 } // namespace
@@ -677,14 +751,20 @@ bool MirrorGlobalChainEdit(GlobalSignalChainConfig& chain, const std::string& pa
 void UiCommands::SetGlobalChainParam(const std::string& path, double value)
 {
     if (MirrorGlobalChainEdit(mClient.MutableState().globalChain, path, value))
+    {
         mClient.Notify(Topic::GlobalChain);
+    }
+
     mClient.Send("setGlobalChainParam", {{"path", path}, {"value", value}});
 }
 
 void UiCommands::SetGlobalChainToggle(const std::string& path, bool enabled)
 {
     if (MirrorGlobalChainEdit(mClient.MutableState().globalChain, path, enabled))
+    {
         mClient.Notify(Topic::GlobalChain);
+    }
+
     mClient.Send("setGlobalChainParam", {{"path", path}, {"value", enabled}});
 }
 
@@ -841,11 +921,15 @@ void UiCommands::SetResourceFavorite(const std::string& resourceId, bool favorit
     mClient.Send("setResourceFavorite", {{"resourceId", resourceId}, {"favorite", favorite}});
 }
 
-void UiCommands::UpdateLibraryResource(const std::string& resourceType, const std::string& resourceId, const std::string& name,
-                                       const std::string& category, const std::vector<std::string>& tags)
+void UiCommands::UpdateLibraryResource(const std::string& resourceType, const std::string& resourceId,
+                                       const std::string& name, const std::string& category,
+                                       const std::vector<std::string>& tags)
 {
-    mClient.Send("updateLibraryResource",
-                 {{"resourceType", resourceType}, {"resourceId", resourceId}, {"name", name}, {"category", category}, {"tags", tags}});
+    mClient.Send("updateLibraryResource", {{"resourceType", resourceType},
+                                           {"resourceId", resourceId},
+                                           {"name", name},
+                                           {"category", category},
+                                           {"tags", tags}});
 }
 
 void UiCommands::DeleteLibraryResource(const std::string& resourceType, const std::string& resourceId)
@@ -858,8 +942,9 @@ void UiCommands::QueryResourceUsage(const std::string& resourceType, const std::
     mClient.Send("queryResourceUsage", {{"resourceType", resourceType}, {"resourceId", resourceId}});
 }
 
-void UiCommands::PreviewRemoteResource(const std::string& resourceType, const std::string& tempResourceId, const std::string& nodeId,
-                                       int resourceIndex, bool isZip, const std::string& base64)
+void UiCommands::PreviewRemoteResource(const std::string& resourceType, const std::string& tempResourceId,
+                                       const std::string& nodeId, int resourceIndex, bool isZip,
+                                       const std::string& base64)
 {
     mClient.Send("previewRemoteResource", {{"resourceType", resourceType},
                                            {"tempResourceId", tempResourceId},
@@ -871,8 +956,9 @@ void UiCommands::PreviewRemoteResource(const std::string& resourceType, const st
 
 void UiCommands::CancelPreviewResource(const std::string& nodeId, int resourceIndex, bool restoreOriginal)
 {
-    mClient.Send("cancelPreviewResource",
-                 {{"nodeId", nodeId}, {"resourceIndex", std::max(0, resourceIndex)}, {"restoreOriginal", restoreOriginal}});
+    mClient.Send(
+        "cancelPreviewResource",
+        {{"nodeId", nodeId}, {"resourceIndex", std::max(0, resourceIndex)}, {"restoreOriginal", restoreOriginal}});
 }
 
 void UiCommands::AudioDevice(const std::string& action, nlohmann::json payload)
@@ -1006,11 +1092,19 @@ void UiCommands::AutomationKey(const std::string& key, bool repeat, bool ctrl, b
     nlohmann::json payload = {{"key", key}, {"repeat", repeat}};
 
     if (ctrl)
+    {
         payload["ctrl"] = true;
+    }
+
     if (alt)
+    {
         payload["alt"] = true;
+    }
+
     if (meta)
+    {
         payload["meta"] = true;
+    }
 
     mClient.Send("automationKey", std::move(payload));
 }

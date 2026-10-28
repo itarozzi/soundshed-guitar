@@ -32,6 +32,7 @@ inline void MeasureLevelTable(const std::vector<std::vector<float>>& guitar)
     // Laid out as clang-format leaves it, so it pastes in as it is.
     const std::string declaration = "inline constexpr float kHeardGainDb[2][kMaxStages][5][5] = ";
     std::cout << std::fixed << std::setprecision(2);
+
     for (int cell = 0; cell < kCells; ++cell)
     {
         if (cell % 5 == 0)
@@ -40,7 +41,9 @@ inline void MeasureLevelTable(const std::vector<std::vector<float>>& guitar)
             std::cout << (cell == 0 ? declaration + "{" : std::string(declaration.size() + 4 - opened, ' '))
                       << std::string(opened, '{');
         }
+
         std::cout << cells[cell] << "f" << (cell % 5 < 4 ? ", " : "}");
+
         if (cell % 5 == 4)
         {
             std::cout << (cell % 25 != 24      ? ",\n"
@@ -65,44 +68,55 @@ inline void MeasureTrimTable(const std::vector<std::vector<float>>& guitar)
         Voicing v{TrimGainAtRow(static_cast<std::size_t>(row)), static_cast<double>(voice), 0.5, stages};
         v.trimDb = kTrimMinDb + (kTrimMaxDb - kTrimMinDb) * column / (kColumns - 1);
         double sum = 0.0;
+
         for (const auto& take : guitar)
         {
             sum += HeardGainDb(v, take);
         }
+
         levels[cell] = sum / static_cast<double>(guitar.size());
     });
 
     std::cout << "// clang-format off\n// *INDENT-OFF*\ninline constexpr TrimGrid kTrimGainDb = {\n" << std::fixed;
+
     for (int cell = 0; cell < kCells; cell += kColumns)
     {
         const int voice = cell / (kMaxStages * kRows * kColumns), stages = cell / (kRows * kColumns) % kMaxStages + 1;
         const int row = cell / kColumns % kRows;
+
         if (row == 0 && stages == 1)
         {
             std::cout << "    { // " << (voice == 0 ? "Clean" : "Drive") << "\n";
         }
+
         if (row == 0)
         {
             std::cout << "        { // " << stages << (stages == 1 ? " stage" : " stages") << "\n";
         }
+
         std::cout << "            {";
+
         for (int column = 0; column < kColumns; ++column)
         {
             const double change = levels[cell + column] - levels[cell + kColumns / 2];
             std::cout << (column ? ", " : "") << std::setprecision(2) << (std::fabs(change) < 0.005 ? 0.0 : change)
                       << "f";
         }
+
         std::cout << "}" << (row + 1 < kRows ? "," : "") << " // Gain " << std::setprecision(3)
                   << TrimGainAtRow(static_cast<std::size_t>(row)) << "\n";
+
         if (row + 1 == kRows)
         {
             std::cout << "        }" << (stages < kMaxStages ? "," : "") << "\n";
         }
+
         if (row + 1 == kRows && stages == kMaxStages)
         {
             std::cout << "    }" << (voice == 0 ? "," : "") << "\n";
         }
     }
+
     std::cout << "};\n// *INDENT-ON*\n// clang-format on\n";
 }
 
@@ -113,6 +127,7 @@ inline void FitPowerFeed(const std::vector<std::vector<float>>& guitar)
 {
     using namespace guitarfx::builtin_amp;
     std::vector<Voicing> voicings;
+
     for (const double voice : {0.0, 1.0})
     {
         for (const int stages : {1, 2, 4})
@@ -122,18 +137,21 @@ inline void FitPowerFeed(const std::vector<std::vector<float>>& guitar)
                 for (const double character : {0.0, 0.5, 1.0})
                 {
                     voicings.push_back({gain, voice, character, stages});
+
                     for (const double drive : {0.5, 1.0})
                     {
                         for (const double bias : {-1.0, 0.0, 1.0})
                         {
                             voicings.push_back({gain, voice, character, stages, drive, 0.0, bias});
                         }
+
                         voicings.push_back({gain, voice, character, stages, drive, 1.0});
                     }
                 }
             }
         }
     }
+
     std::vector<double> raw(voicings.size());
     ParallelFor(static_cast<int>(voicings.size()), [&](int i) { raw[i] = RawGainDb(voicings[i], guitar); });
 
@@ -146,14 +164,17 @@ inline void FitPowerFeed(const std::vector<std::vector<float>>& guitar)
 
     std::vector<Point> points;
     double undriven = 0.0;
+
     for (std::size_t i = 0; i < voicings.size(); ++i)
     {
         const Voicing& v = voicings[i];
+
         if (v.powerDrive == 0.0)
         {
             undriven = raw[i];
             continue;
         }
+
         Point point{{}, static_cast<float>(v.powerDrive), static_cast<float>(v.sag), 0.0f, raw[i] - undriven};
         point.preampDb = PreampGainDb(static_cast<float>(v.gain), static_cast<float>(v.voice),
                                       static_cast<float>(v.character), v.stages);
@@ -164,11 +185,13 @@ inline void FitPowerFeed(const std::vector<std::vector<float>>& guitar)
 
     float bestFeed = 0.0f, bestSlope = 0.0f;
     double bestRms = 1.0e9, bestWorst = 0.0;
+
     for (int feed = -200; feed <= 0; ++feed)
     {
         for (int slope = 40; slope <= 100; ++slope)
         {
             double squares = 0.0, worst = 0.0;
+
             for (const Point& point : points)
             {
                 const float sinePeakDb =
@@ -178,6 +201,7 @@ inline void FitPowerFeed(const std::vector<std::vector<float>>& guitar)
                 squares += error * error;
                 worst = std::max(worst, std::abs(error));
             }
+
             if (std::sqrt(squares / static_cast<double>(points.size())) < bestRms)
             {
                 bestRms = std::sqrt(squares / static_cast<double>(points.size()));
@@ -187,6 +211,7 @@ inline void FitPowerFeed(const std::vector<std::vector<float>>& guitar)
             }
         }
     }
+
     std::cout << std::fixed << std::setprecision(2) << "inline constexpr float kPowerFeedDb = " << bestFeed
               << "f;\ninline constexpr float kPowerFeedSlope = " << bestSlope << "f; // " << bestRms << " dB RMS, "
               << bestWorst << " dB at worst\n";

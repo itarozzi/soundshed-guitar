@@ -168,14 +168,15 @@ int main()
         controller.HandleUIMessage(R"({"type":"audioDevice","action":"setDevice","kind":"input","name":"USB In"})");
         controller.HandleUIMessage(R"({"type":"audioDevice","action":"setBufferSize","bufferSize":128})");
 
-        allPassed &= Expect(host.audioDeviceRequests.size() == 2, "Each audioDevice message should reach the host once");
+        allPassed &=
+            Expect(host.audioDeviceRequests.size() == 2, "Each audioDevice message should reach the host once");
 
         if (host.audioDeviceRequests.size() == 2)
         {
             const auto device = nlohmann::json::parse(host.audioDeviceRequests[0]);
-            allPassed &= Expect(device.value("action", std::string{}) == "setDevice"
-                                    && device.value("kind", std::string{}) == "input"
-                                    && device.value("name", std::string{}) == "USB In",
+            allPassed &= Expect(device.value("action", std::string{}) == "setDevice" &&
+                                    device.value("kind", std::string{}) == "input" &&
+                                    device.value("name", std::string{}) == "USB In",
                                 "The host should receive the request's action and arguments unchanged");
 
             const auto buffer = nlohmann::json::parse(host.audioDeviceRequests[1]);

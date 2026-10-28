@@ -43,8 +43,8 @@ constexpr double kMaxOffsetMs = 10.0;
 constexpr double kCmPerMs = 34.3;
 
 // The section's rows, top to bottom.
-constexpr float kTitleH = 14.0f, kHeaderH = 16.0f, kWavesH = 84.0f, kStripH = 28.0f, kControlsH = 26.0f, kReadoutH = 26.0f,
-                kPlotLabelH = 14.0f, kPlotH = 150.0f, kNoteH = 14.0f, kGap = 6.0f;
+constexpr float kTitleH = 14.0f, kHeaderH = 16.0f, kWavesH = 84.0f, kStripH = 28.0f, kControlsH = 26.0f,
+                kReadoutH = 26.0f, kPlotLabelH = 14.0f, kPlotH = 150.0f, kNoteH = 14.0f, kGap = 6.0f;
 
 const el::color kColourA = el::rgba(72, 168, 224, 242);
 const el::color kColourB = el::rgba(240, 160, 64, 242);
@@ -53,7 +53,10 @@ const el::color kColourB = el::rgba(240, 160, 64, 242);
 const guitarfx::ResourceRef* SlotRef(const guitarfx::GraphNode& node, std::size_t index)
 {
     if (index >= node.resources.size())
+    {
         return nullptr;
+    }
+
     const auto& ref = node.resources[index];
     return !ref.resourceId.empty() || !ref.filePath.empty() || !ref.embeddedId.empty() ? &ref : nullptr;
 }
@@ -67,7 +70,9 @@ nlohmann::json RefJson(const guitarfx::ResourceRef* ref)
 std::string PairKey(const guitarfx::ResourceRef* a, const guitarfx::ResourceRef* b)
 {
     const auto one = [](const guitarfx::ResourceRef* ref) {
-        return ref != nullptr ? ref->resourceId + "|" + guitarfx::util::PathToUtf8(ref->filePath) + "|" + ref->embeddedId : std::string("-");
+        return ref != nullptr
+                   ? ref->resourceId + "|" + guitarfx::util::PathToUtf8(ref->filePath) + "|" + ref->embeddedId
+                   : std::string("-");
     };
     return one(a) + "::" + one(b);
 }
@@ -99,8 +104,12 @@ double PolarityB(const guitarfx::GraphNode& node)
 double MatchAtOffset(const IrAlignment& analysis, double offsetMs)
 {
     const auto& curve = analysis.matchByOffset;
+
     if (curve.empty())
+    {
         return 0.0;
+    }
+
     const double position = std::clamp(offsetMs * analysis.sampleRate / 1000.0 + analysis.maxOffsetSamples, 0.0,
                                        static_cast<double>(curve.size() - 1));
     const auto below = static_cast<std::size_t>(std::floor(position));
@@ -120,13 +129,23 @@ std::string FormatOffset(double ms)
 std::string DescribeDistance(double ms)
 {
     const double cm = std::abs(ms) * kCmPerMs;
+
     if (cm < 0.05)
+    {
         return "B where it was captured";
+    }
+
     char text[48];
+
     if (cm < 10.0)
+    {
         std::snprintf(text, sizeof(text), "B %.1f cm %s", cm, ms < 0.0 ? "closer" : "further away");
+    }
     else
+    {
         std::snprintf(text, sizeof(text), "B %ld cm %s", std::lround(cm), ms < 0.0 ? "closer" : "further away");
+    }
+
     return text;
 }
 
@@ -134,10 +153,17 @@ std::string DescribeDistance(double ms)
 std::string NoteFor(const guitarfx::GraphNode& node)
 {
     if (Param(node, "lrSplit", 0.0) >= 0.5)
+    {
         return "L/R Split is on: A plays left and B right, so the offset sets the stereo width.";
+    }
+
     const double blend = Param(node, "irBlend", 0.0);
+
     if (blend <= 0.01 || blend >= 0.99)
+    {
         return std::string("IR Blend is all ") + (blend <= 0.01 ? "A" : "B") + ", so the offset is not heard yet.";
+    }
+
     return {};
 }
 
@@ -181,8 +207,10 @@ void DashedVLine(canvas& cnv, float x, float top, float bottom)
 /// timing are what line up, not their levels. Dragging moves B.
 class AlignmentWaves final : public el::element, public Drawn
 {
-public:
-    AlignmentWaves(const Theme& theme, std::shared_ptr<DrawState> state) : mTheme(theme), mState(std::move(state)) {}
+  public:
+    AlignmentWaves(const Theme& theme, std::shared_ptr<DrawState> state) : mTheme(theme), mState(std::move(state))
+    {
+    }
 
     el::view_limits limits(const el::basic_context&) const override
     {
@@ -200,8 +228,12 @@ public:
         auto& cnv = ctx.canvas;
         const auto b = ctx.bounds;
         Well(cnv, mTheme, b);
+
         if (!mState->analysis)
+        {
             return;
+        }
+
         const auto& analysis = *mState->analysis;
         const auto [startMs, spanMs] = mState->heldView.value_or(WaveView(analysis, mState->offsetMs));
         const float middle = (b.top + b.bottom) * 0.5f;
@@ -216,44 +248,64 @@ public:
         cnv.begin_path();
         cnv.move_to(b.left, middle);
         cnv.line_to(b.right, middle);
+
         for (double ms = std::ceil(startMs); ms <= startMs + spanMs; ms += 1.0)
         {
             cnv.move_to(toX(ms), b.top);
             cnv.line_to(toX(ms), b.bottom);
         }
+
         cnv.stroke();
 
         const auto trace = [&](const std::vector<float>& samples, double shiftMs, double sign, el::color colour) {
             float peak = 0.0f;
+
             for (const float s : samples)
+            {
                 peak = std::max(peak, std::abs(s));
+            }
+
             if (peak <= 0.0f)
+            {
                 return;
+            }
+
             const float scale = static_cast<float>(sign) * b.height() * 0.44f / peak;
             const double msPerSample = 1000.0 / analysis.sampleRate;
             cnv.stroke_style(colour);
             cnv.line_width(1.5f);
             cnv.begin_path();
             bool penDown = false;
+
             for (float px = b.left; px < b.right; px += 1.0f)
             {
                 const double ms = startMs + (px - b.left) / b.width() * spanMs - shiftMs;
                 const double position = ms / msPerSample;
                 const auto index = static_cast<long>(std::floor(position));
+
                 if (index < 0 || index + 1 >= static_cast<long>(samples.size()))
                 {
                     penDown = false;
                     continue;
                 }
+
                 const auto i = static_cast<std::size_t>(index);
-                const float value = samples[i] + static_cast<float>(position - static_cast<double>(index)) * (samples[i + 1] - samples[i]);
+                const float value = samples[i] + static_cast<float>(position - static_cast<double>(index)) *
+                                                     (samples[i + 1] - samples[i]);
                 const float y = middle - value * scale;
+
                 if (penDown)
+                {
                     cnv.line_to(px, y);
+                }
                 else
+                {
                     cnv.move_to(px, y);
+                }
+
                 penDown = true;
             }
+
             cnv.stroke();
         };
         trace(analysis.waveformA, 0.0, mState->polarityA, kColourA);
@@ -272,7 +324,10 @@ public:
     bool click(const el::context& ctx, el::mouse_button btn) override
     {
         if (btn.state != el::mouse_button::left || !mState->analysis)
+        {
             return false;
+        }
+
         if (btn.down)
         {
             mStartX = btn.pos.x;
@@ -281,30 +336,43 @@ public:
             mDragging = true;
             return true;
         }
+
         if (mDragging)
         {
             mDragging = false;
             mState->heldView.reset();
+
             if (mState->onOffset)
+            {
                 mState->onOffset(mState->offsetMs, true);
+            }
+
             ctx.view.refresh(ctx);
         }
+
         return true;
     }
 
     void drag(const el::context& ctx, el::mouse_button btn) override
     {
         if (!mDragging || !mState->heldView)
+        {
             return;
+        }
+
         // Shift for fine moves, a tenth of the pointer's travel.
         const double msPerPixel = mState->heldView->second / std::max(1.0f, ctx.bounds.width()) *
                                   ((btn.modifiers & el::mod_shift) != 0 ? 0.1 : 1.0);
+
         if (mState->onOffset)
+        {
             mState->onOffset(mStartOffset + (btn.pos.x - mStartX) * msPerPixel, false);
+        }
+
         ctx.view.refresh(ctx);
     }
 
-private:
+  private:
     const Theme& mTheme;
     std::shared_ptr<DrawState> mState;
     bool mDragging = false;
@@ -317,8 +385,10 @@ private:
 /// A click or a drag along it moves B there.
 class AlignmentStrip final : public el::element, public Drawn
 {
-public:
-    AlignmentStrip(const Theme& theme, std::shared_ptr<DrawState> state) : mTheme(theme), mState(std::move(state)) {}
+  public:
+    AlignmentStrip(const Theme& theme, std::shared_ptr<DrawState> state) : mTheme(theme), mState(std::move(state))
+    {
+    }
 
     el::view_limits limits(const el::basic_context&) const override
     {
@@ -337,31 +407,41 @@ public:
         const auto b = ctx.bounds;
         Well(cnv, mTheme, b);
         const float middle = (b.top + b.bottom) * 0.5f;
-        const auto toX = [&](double ms) { return b.left + static_cast<float>((ms + kMaxOffsetMs) / (2.0 * kMaxOffsetMs)) * b.width(); };
+        const auto toX = [&](double ms) {
+            return b.left + static_cast<float>((ms + kMaxOffsetMs) / (2.0 * kMaxOffsetMs)) * b.width();
+        };
 
         cnv.stroke_style(mTheme.PlotGrid());
         cnv.line_width(1.0f);
         cnv.begin_path();
         cnv.move_to(b.left, middle);
         cnv.line_to(b.right, middle);
+
         for (double ms = -kMaxOffsetMs; ms <= kMaxOffsetMs; ms += 2.0)
         {
             cnv.move_to(toX(ms), middle - 3.0f);
             cnv.line_to(toX(ms), middle + 3.0f);
         }
+
         cnv.stroke();
+
         if (!mState->analysis)
+        {
             return;
+        }
 
         const double sign = mState->polarityA * mState->polarityB;
         cnv.fill_style(kColourA.opacity(0.45f));
         cnv.begin_path();
         cnv.move_to(b.left, middle);
+
         for (float px = b.left; px <= b.right; px += 1.0f)
         {
             const double ms = (px - b.left) / b.width() * 2.0 * kMaxOffsetMs - kMaxOffsetMs;
-            cnv.line_to(px, middle - static_cast<float>(sign * MatchAtOffset(*mState->analysis, ms)) * (middle - b.top - 2.0f));
+            cnv.line_to(px, middle - static_cast<float>(sign * MatchAtOffset(*mState->analysis, ms)) *
+                                         (middle - b.top - 2.0f));
         }
+
         cnv.line_to(b.right, middle);
         cnv.close_path();
         cnv.fill();
@@ -381,10 +461,17 @@ public:
     bool click(const el::context& ctx, el::mouse_button btn) override
     {
         if (btn.state != el::mouse_button::left || !mState->analysis)
+        {
             return false;
+        }
+
         mDragging = btn.down;
+
         if (mState->onOffset)
+        {
             mState->onOffset(OffsetAt(ctx, btn.pos.x), !btn.down);
+        }
+
         ctx.view.refresh(ctx);
         return true;
     }
@@ -392,13 +479,19 @@ public:
     void drag(const el::context& ctx, el::mouse_button btn) override
     {
         if (!mDragging)
+        {
             return;
+        }
+
         if (mState->onOffset)
+        {
             mState->onOffset(OffsetAt(ctx, btn.pos.x), false);
+        }
+
         ctx.view.refresh(ctx);
     }
 
-private:
+  private:
     static double OffsetAt(const el::context& ctx, float x)
     {
         return (x - ctx.bounds.left) / std::max(1.0f, ctx.bounds.width()) * 2.0 * kMaxOffsetMs - kMaxOffsetMs;
@@ -412,7 +505,10 @@ private:
 std::optional<ResponseCurve> Curve(const std::vector<double>& frequencies, const std::vector<double>& db)
 {
     if (frequencies.size() < 2 || db.size() != frequencies.size())
+    {
         return std::nullopt;
+    }
+
     ResponseCurve curve;
     curve.frequencies = frequencies;
     curve.magnitudesDb = db;
@@ -447,18 +543,28 @@ float Shell::IrAlignmentHeight(const guitarfx::GraphNode& node)
 {
     const bool hasA = SlotRef(node, 0) != nullptr;
     const bool hasB = SlotRef(node, 1) != nullptr;
+
     if (node.type != guitarfx::EffectGuids::kCabIr || (!hasA && !hasB))
+    {
         return 0.0f;
+    }
+
     if (!hasA || !hasB)
+    {
         return kTitleH + kGap + kHeaderH + kPlotH;
-    return kTitleH + kGap + kHeaderH + kGap + kWavesH + kGap + kStripH + kGap + kControlsH + kGap + kReadoutH + kGap + kPlotLabelH +
-           kPlotH + kGap + kNoteH;
+    }
+
+    return kTitleH + kGap + kHeaderH + kGap + kWavesH + kGap + kStripH + kGap + kControlsH + kGap + kReadoutH + kGap +
+           kPlotLabelH + kPlotH + kGap + kNoteH;
 }
 
 Ptr Shell::BuildIrAlignment(const guitarfx::GraphNode& node)
 {
     if (!mIrAlignment)
+    {
         mIrAlignment = std::make_shared<IrAlignmentPanel>();
+    }
+
     auto& panel = *mIrAlignment;
     const auto* refA = SlotRef(node, 0);
     const auto* refB = SlotRef(node, 1);
@@ -501,13 +607,19 @@ Ptr Shell::BuildIrAlignment(const guitarfx::GraphNode& node)
         const double value = std::round(std::clamp(offsetMs, -kMaxOffsetMs, kMaxOffsetMs) * 1000.0) / 1000.0;
         mSession.Commands().SetNodeParam(nodeId, "slotBOffset", value);
         NoteChainEdit();
+
         if (commit)
+        {
             Mark(kValues);
+        }
+
         SyncIrAlignment();
     };
     const auto setOffset = [this](double offsetMs) {
         if (mIrAlignment && mIrAlignment->draw->onOffset)
+        {
             mIrAlignment->draw->onOffset(offsetMs, true);
+        }
     };
     const auto setParam = [this, nodeId](const char* key, double value) {
         mSession.Commands().SetNodeParam(nodeId, key, value);
@@ -531,8 +643,15 @@ Ptr Shell::BuildIrAlignment(const guitarfx::GraphNode& node)
     panel.strip = strip;
 
     std::vector<Ptr> controls;
-    for (const auto& [label, step] : std::vector<std::pair<const char*, double>>{
-             {"\xE2\x88\x92" "0.1", -0.1}, {"\xE2\x88\x92" ".01", -0.01}, {"+.01", 0.01}, {"+0.1", 0.1}})
+
+    for (const auto& [label, step] : std::vector<std::pair<const char*, double>>{{"\xE2\x88\x92"
+                                                                                  "0.1",
+                                                                                  -0.1},
+                                                                                 {"\xE2\x88\x92"
+                                                                                  ".01",
+                                                                                  -0.01},
+                                                                                 {"+.01", 0.01},
+                                                                                 {"+0.1", 0.1}})
     {
         auto nudge = std::make_shared<IconButton>(mTheme, mIcons, "", IconButton::Look::Boxed);
         nudge->Size(44, kControlsH).Label(label, 11.0f);
@@ -540,20 +659,32 @@ Ptr Shell::BuildIrAlignment(const guitarfx::GraphNode& node)
         controls.push_back(nudge);
         controls.push_back(HGap(4));
     }
+
     auto autoAlign = std::make_shared<IconButton>(mTheme, mIcons, "", IconButton::Look::Boxed);
     autoAlign->Size(84, kControlsH).Label("Auto Align", 11.0f);
     autoAlign->onClick = [this, nodeId, setOffset, setParam] {
         if (!mIrAlignment || !mIrAlignment->shown || mIrAlignment->shownKey != mIrAlignment->pairKey)
+        {
             return;
+        }
+
         const auto* n = mState.activePreset ? mState.activePreset->graph.FindNode(nodeId) : nullptr;
+
         if (n == nullptr)
+        {
             return;
+        }
+
         // B's polarity is set against A's as it stands, so A is never flipped behind the user's back.
         const bool invertA = PolarityA(*n) < 0.0;
         const bool invertB = invertA != mIrAlignment->shown->invertB;
         const double aligned = mIrAlignment->shown->alignedOffsetMs;
+
         if ((PolarityB(*n) < 0.0) != invertB)
+        {
             setParam("slotBPolarity", invertB ? 1.0 : 0.0);
+        }
+
         setOffset(aligned);
     };
     panel.autoAlign = autoAlign;
@@ -595,23 +726,34 @@ Ptr Shell::BuildIrAlignment(const guitarfx::GraphNode& node)
     SyncIrAlignment();
     return Col({FixedHeight(kTitleH, title), VGap(kGap),
                 FixedHeight(kHeaderH, Row({FixedWidth(40, keyA), FixedWidth(40, keyB), Stretch(), status})), VGap(kGap),
-                FixedHeight(kWavesH, waves), VGap(kGap), FixedHeight(kStripH, strip), VGap(kGap), FixedHeight(kControlsH, Row(controls)),
-                VGap(kGap), FixedHeight(kReadoutH, Row({invertA, HGap(6), invertB, HGap(12), distance, Stretch(), match})), VGap(kGap),
-                FixedHeight(kPlotLabelH, Row({plotLabel, Stretch(), plotKey})), FixedHeight(kPlotH, plot), VGap(kGap),
-                FixedHeight(kNoteH, note)});
+                FixedHeight(kWavesH, waves), VGap(kGap), FixedHeight(kStripH, strip), VGap(kGap),
+                FixedHeight(kControlsH, Row(controls)), VGap(kGap),
+                FixedHeight(kReadoutH, Row({invertA, HGap(6), invertB, HGap(12), distance, Stretch(), match})),
+                VGap(kGap), FixedHeight(kPlotLabelH, Row({plotLabel, Stretch(), plotKey})), FixedHeight(kPlotH, plot),
+                VGap(kGap), FixedHeight(kNoteH, note)});
 }
 
 void Shell::SyncIrAlignment()
 {
     if (!mIrAlignment)
+    {
         return;
+    }
+
     auto& panel = *mIrAlignment;
     const auto plot = panel.plot.lock();
+
     if (!plot)
+    {
         return; // the section is not on screen
+    }
+
     const auto* node = mState.activePreset ? mState.activePreset->graph.FindNode(panel.nodeId) : nullptr;
+
     if (node == nullptr)
+    {
         return;
+    }
 
     // A pair not analysed yet is asked about once; a new IR in either slot rebuilds the page with
     // a new pair, which is asked about in turn.
@@ -620,12 +762,20 @@ void Shell::SyncIrAlignment()
         panel.requestedKey = panel.pairKey;
         mSession.Client().GetAnalysis().AnalyzeIrAlignment(
             panel.irA, panel.irB,
-            [this, alive = std::weak_ptr<bool>(mAlive), key = panel.pairKey](const std::optional<IrAlignment>& result, const std::string& error) {
+            [this, alive = std::weak_ptr<bool>(mAlive), key = panel.pairKey](const std::optional<IrAlignment>& result,
+                                                                             const std::string& error) {
                 if (!alive.lock() || !mIrAlignment)
+                {
                     return;
+                }
+
                 auto& p = *mIrAlignment;
+
                 if (p.requestedKey == key)
+                {
                     p.requestedKey.clear();
+                }
+
                 if (result)
                 {
                     p.shownKey = key;
@@ -636,6 +786,7 @@ void Shell::SyncIrAlignment()
                     p.failedKey = key;
                     p.failedError = error;
                 }
+
                 SyncIrAlignment();
             });
     }
@@ -657,20 +808,27 @@ void Shell::SyncIrAlignment()
     };
 
     std::string status;
+
     if (!ready)
+    {
         status = panel.failedKey == panel.pairKey ? panel.failedError : "Analysing\xE2\x80\xA6";
+    }
     else if (!panel.single)
     {
         const bool lined = std::abs(offset - panel.shown->alignedOffsetMs) < 0.02 &&
                            ((draw.polarityA * draw.polarityB < 0.0) == panel.shown->invertB);
-        status = lined ? "Lined up" : "Lines up at " + FormatOffset(panel.shown->alignedOffsetMs) + (panel.shown->invertB ? ", B inverted" : "");
+        status = lined ? "Lined up"
+                       : "Lines up at " + FormatOffset(panel.shown->alignedOffsetMs) +
+                             (panel.shown->invertB ? ", B inverted" : "");
     }
+
     setText(panel.status, status);
 
     if (!panel.single)
     {
         setText(panel.distance, FormatOffset(offset) + " \xC2\xB7 " + DescribeDistance(offset));
         std::string matchText;
+
         if (ready)
         {
             const double m = MatchAtOffset(*panel.shown, offset) * draw.polarityA * draw.polarityB;
@@ -681,41 +839,67 @@ void Shell::SyncIrAlignment()
                           cancelling ? " (cancelling)" : "");
             matchText = text;
         }
+
         setText(panel.match, matchText);
         setText(panel.note, NoteFor(*node));
+
         if (const auto b = panel.autoAlign.lock())
         {
             b->Disabled(!ready);
             mSession.Repaint(*b);
         }
-        for (const auto& [weak, lit] : {std::pair{panel.invertA, draw.polarityA < 0.0}, std::pair{panel.invertB, draw.polarityB < 0.0}})
+
+        for (const auto& [weak, lit] :
+             {std::pair{panel.invertA, draw.polarityA < 0.0}, std::pair{panel.invertB, draw.polarityB < 0.0}})
+        {
             if (const auto b = weak.lock())
             {
                 b->Lit(lit);
                 mSession.Repaint(*b);
             }
+        }
+
         for (const auto& weak : {panel.waves, panel.strip})
+        {
             if (const auto e = weak.lock())
+            {
                 mSession.Repaint(*e);
+            }
+        }
     }
 
     // The summed response, asked for only when the IRs, the parameters or the offset changed.
     nlohmann::json params = nlohmann::json::object();
+
     for (const auto& [key, value] : node->params)
+    {
         if (std::isfinite(value))
+        {
             params[key] = value;
+        }
+    }
+
     auto query = nlohmann::json{panel.pairKey, params, offset}.dump();
+
     if (query == panel.lastQuery)
+    {
         return;
+    }
+
     panel.lastQuery = std::move(query);
     std::weak_ptr<ResponsePlot> weak = plot;
     mSession.Client().GetAnalysis().RequestIrAlignmentResponse(
         panel.irA, panel.irB, params, offset,
-        [this, alive = std::weak_ptr<bool>(mAlive), weak](const std::optional<IrAlignmentResponse>& response, const std::string&) {
+        [this, alive = std::weak_ptr<bool>(mAlive), weak](const std::optional<IrAlignmentResponse>& response,
+                                                          const std::string&) {
             const auto target = weak.lock();
+
             // A failure keeps the last curve on screen: the next change asks again.
             if (!alive.lock() || !target || !response)
+            {
                 return;
+            }
+
             target->SetCurve(Curve(response->frequencies, response->summedDb));
             target->SetReference(Curve(response->frequencies, response->unrelatedDb));
             mSession.Repaint(*target);

@@ -319,9 +319,14 @@ void PluginController::HandleSavePresetRequest(const nlohmann::json& payload)
         if (payload.contains("tags") && payload["tags"].is_array())
         {
             newPreset.tags.clear();
+
             for (const auto& tag : payload["tags"])
+            {
                 if (tag.is_string() && !tag.get<std::string>().empty())
+                {
                     newPreset.tags.push_back(tag.get<std::string>());
+                }
+            }
         }
 
         const auto currentChain = mPresetMixer.GetGlobalChainConfig();
@@ -460,7 +465,9 @@ void PluginController::HandleSavePresetRequest(const nlohmann::json& payload)
         // A folder named with the save files the preset there ("" or __all__: in no folder), as
         // the web UI's save dialog does; without one, the preset stays where it was.
         if (payload.contains("folderId") && payload["folderId"].is_string())
+        {
             HandleMovePresetToFolderRequest({{"presetId", newPreset.id}, {"folderId", payload["folderId"]}});
+        }
     }
     catch (const std::exception& e)
     {
@@ -953,8 +960,7 @@ std::optional<std::string> PluginController::FindPresetIdByTitle(const std::stri
         [&](const Preset& preset) { return NormalizePresetTitle(preset.name) == normalizedTitle; });
 }
 
-std::optional<std::string>
-PluginController::FindPresetIdWhere(const std::function<bool(const Preset&)>& matches) const
+std::optional<std::string> PluginController::FindPresetIdWhere(const std::function<bool(const Preset&)>& matches) const
 {
     const bool factoryArchiveLoadingEnabled = IsFactoryPresetArchiveLoadingEnabled();
 

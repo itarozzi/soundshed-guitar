@@ -334,7 +334,8 @@ class ParametricEQEffect : public EffectProcessor
         return true;
     }
 
-    [[nodiscard]] std::vector<std::vector<double>> GetBandResponses(std::span<const double> frequenciesHz) const override
+    [[nodiscard]] std::vector<std::vector<double>> GetBandResponses(
+        std::span<const double> frequenciesHz) const override
     {
         std::vector<std::vector<double>> curves;
 

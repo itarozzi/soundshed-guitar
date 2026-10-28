@@ -52,10 +52,9 @@ std::string SanitizeCustomEffectThumbnail(const std::string& dataUrl)
             continue;
         }
 
-        const bool base64 = std::all_of(dataUrl.begin() + static_cast<std::ptrdiff_t>(prefixView.size()), dataUrl.end(),
-                                        [](unsigned char ch) {
-                                            return std::isalnum(ch) != 0 || ch == '+' || ch == '/' || ch == '=';
-                                        });
+        const bool base64 =
+            std::all_of(dataUrl.begin() + static_cast<std::ptrdiff_t>(prefixView.size()), dataUrl.end(),
+                        [](unsigned char ch) { return std::isalnum(ch) != 0 || ch == '+' || ch == '/' || ch == '='; });
         return base64 ? dataUrl : std::string{};
     }
 

@@ -48,12 +48,30 @@ class TunerEngine
 
     void Prepare(double sampleRate);
     void SetEnabled(bool enabled);
-    [[nodiscard]] bool IsEnabled() const noexcept { return mEnabled; }
+
+    [[nodiscard]] bool IsEnabled() const noexcept
+    {
+        return mEnabled;
+    }
+
     void SetCallback(Callback callback);
     void SetReferenceFrequency(double frequency);
-    [[nodiscard]] double GetReferenceFrequency() const noexcept { return mReferenceFrequency; }
-    void SetLiveMode(bool enabled) noexcept { mLiveMode = enabled; }
-    [[nodiscard]] bool IsLiveMode() const noexcept { return mLiveMode; }
+
+    [[nodiscard]] double GetReferenceFrequency() const noexcept
+    {
+        return mReferenceFrequency;
+    }
+
+    void SetLiveMode(bool enabled) noexcept
+    {
+        mLiveMode = enabled;
+    }
+
+    [[nodiscard]] bool IsLiveMode() const noexcept
+    {
+        return mLiveMode;
+    }
+
     void Process(const float* input, int numSamples);
 
   private:

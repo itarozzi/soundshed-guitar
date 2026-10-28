@@ -549,8 +549,8 @@ void LooperEngine::WriteSample(Writer& w, float diL, float diR, float wetL, floa
 void LooperEngine::NoteLivePeak(bool di, std::int64_t rel, float peak) noexcept
 {
     const std::int64_t bucketSize = mLiveBucketSamples.load(std::memory_order_relaxed);
-    const std::int64_t bucket = std::clamp<std::int64_t>(rel / std::max<std::int64_t>(1, bucketSize), 0,
-                                                         kPeakBuckets - 1);
+    const std::int64_t bucket =
+        std::clamp<std::int64_t>(rel / std::max<std::int64_t>(1, bucketSize), 0, kPeakBuckets - 1);
     auto& cell = (di ? mLivePeaksDi : mLivePeaksWet)[static_cast<std::size_t>(bucket)];
 
     if (peak > cell.load(std::memory_order_relaxed))
@@ -585,8 +585,7 @@ bool LooperEngine::CheckArmTrigger(float peak)
 
         if (mArmFloorLeft == 0)
         {
-            mArmThreshold =
-                std::max(mArmFloor * kArmOverFloor, mSettings.armThreshold.load(std::memory_order_relaxed));
+            mArmThreshold = std::max(mArmFloor * kArmOverFloor, mSettings.armThreshold.load(std::memory_order_relaxed));
         }
 
         // Plainly playing while the floor is still being measured.
@@ -630,8 +629,6 @@ bool LooperEngine::WantsChainsAwake() const noexcept
         return true;
     }
 
-    return std::any_of(mWriters.begin(), mWriters.end(),
-                       [](const Writer& w) { return w.phase != WriterPhase::Off; });
+    return std::any_of(mWriters.begin(), mWriters.end(), [](const Writer& w) { return w.phase != WriterPhase::Off; });
 }
-
 } // namespace guitarfx::looper

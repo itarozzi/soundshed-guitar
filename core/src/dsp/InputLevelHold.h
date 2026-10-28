@@ -18,7 +18,7 @@ namespace guitarfx
  */
 class InputLevelHold
 {
-public:
+  public:
     void Arm(bool armed) noexcept
     {
         if (armed)
@@ -104,7 +104,7 @@ public:
         return mClipped.load(std::memory_order_relaxed);
     }
 
-private:
+  private:
     std::atomic<bool> mArmed{false};
     std::atomic<float> mCaptured{0.0f};
     std::atomic<float> mLive{0.0f};

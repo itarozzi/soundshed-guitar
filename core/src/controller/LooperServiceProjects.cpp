@@ -191,7 +191,8 @@ nlohmann::json LooperService::ProjectJson(const std::string& id, const std::stri
     }
 
     std::sort(order.begin(), order.end(), [this](int a, int b) {
-        return mSnapshot.slots[static_cast<std::size_t>(a)].serial < mSnapshot.slots[static_cast<std::size_t>(b)].serial;
+        return mSnapshot.slots[static_cast<std::size_t>(a)].serial <
+               mSnapshot.slots[static_cast<std::size_t>(b)].serial;
     });
 
     nlohmann::json layers = nlohmann::json::array();
@@ -201,25 +202,24 @@ nlohmann::json LooperService::ProjectJson(const std::string& id, const std::stri
         const auto& slot = mSnapshot.slots[static_cast<std::size_t>(s)];
         const LayerMeta& meta = mLayers.at(slot.serial);
         const auto& mix = mEngine.Mix(s);
-        layers.push_back(
-            {{"id", meta.key},
-             {"title", meta.title},
-             {"order", layers.size()},
-             {"firstLayer", slot.firstLayer},
-             {"startSample", slot.spanStart},
-             {"lengthSamples", slot.firstLayer ? mSnapshot.length : slot.spanLength},
-             {"ringOutSamples", slot.firstLayer ? 0 : slot.ringOut},
-             {"diChannels", slot.diChannels},
-             {"calibrationGainDb", 20.0 * std::log10(std::max(1.0e-6f, slot.calibrationGain))},
-             {"latencySamples", slot.latencySamples},
-             {"level", mix.level.load()},
-             {"balance", mix.balance.load()},
-             {"muted", mix.muted.load()},
-             {"solo", mix.solo.load()},
-             {"wetSource", meta.reamped ? "reamp" : "live"},
-             {"riffId", meta.riffId},
-             {"tone", ToneJson(meta.tone)},
-             {"toneChanged", meta.toneChanged}});
+        layers.push_back({{"id", meta.key},
+                          {"title", meta.title},
+                          {"order", layers.size()},
+                          {"firstLayer", slot.firstLayer},
+                          {"startSample", slot.spanStart},
+                          {"lengthSamples", slot.firstLayer ? mSnapshot.length : slot.spanLength},
+                          {"ringOutSamples", slot.firstLayer ? 0 : slot.ringOut},
+                          {"diChannels", slot.diChannels},
+                          {"calibrationGainDb", 20.0 * std::log10(std::max(1.0e-6f, slot.calibrationGain))},
+                          {"latencySamples", slot.latencySamples},
+                          {"level", mix.level.load()},
+                          {"balance", mix.balance.load()},
+                          {"muted", mix.muted.load()},
+                          {"solo", mix.solo.load()},
+                          {"wetSource", meta.reamped ? "reamp" : "live"},
+                          {"riffId", meta.riffId},
+                          {"tone", ToneJson(meta.tone)},
+                          {"toneChanged", meta.toneChanged}});
     }
 
     project["layers"] = std::move(layers);
@@ -243,8 +243,9 @@ void LooperService::ProjectsOnIdle(const LooperSnapshot& snapshot)
     {
         for (auto it = mPendingMetas.begin(); it != mPendingMetas.end();)
         {
-            const auto slot = std::find_if(snapshot.slots.begin(), snapshot.slots.end(),
-                                           [&](const SlotInfo& s) { return s.audio == it->first && s.status != SlotStatus::Free; });
+            const auto slot = std::find_if(snapshot.slots.begin(), snapshot.slots.end(), [&](const SlotInfo& s) {
+                return s.audio == it->first && s.status != SlotStatus::Free;
+            });
 
             if (slot != snapshot.slots.end())
             {
@@ -424,7 +425,8 @@ void LooperService::SendProjectList()
     nlohmann::json index = mHooks.loadIndex ? mHooks.loadIndex() : nlohmann::json::object();
     nlohmann::json msg;
     msg["type"] = "looperProjects";
-    msg["projects"] = index.is_object() ? index.value(kIndexProjects, nlohmann::json::array()) : nlohmann::json::array();
+    msg["projects"] =
+        index.is_object() ? index.value(kIndexProjects, nlohmann::json::array()) : nlohmann::json::array();
     msg["recoverable"] = mRecoverable;
     msg["currentId"] = mProjectId;
 
@@ -449,7 +451,8 @@ void LooperService::HandleSaveProject(const nlohmann::json& payload)
     std::string id = payload.value("projectId", std::string{});
     std::string title = payload.value("title", std::string{});
     id = !id.empty() ? id : (!mProjectId.empty() ? mProjectId : lf::NewKey());
-    title = !title.empty() ? title.substr(0, 120) : (!mProjectTitle.empty() ? mProjectTitle : "Loop " + lf::NowIso().substr(0, 10));
+    title = !title.empty() ? title.substr(0, 120)
+                           : (!mProjectTitle.empty() ? mProjectTitle : "Loop " + lf::NowIso().substr(0, 10));
 
     nlohmann::json project = ProjectJson(id, title);
     project["modified"] = lf::NowIso();
@@ -492,7 +495,8 @@ void LooperService::HandleSaveProject(const nlohmann::json& payload)
 
             if (mSendMessage)
             {
-                mSendMessage(nlohmann::json{{"type", "looperProjectSaved"}, {"projectId", id}, {"title", title}}.dump());
+                mSendMessage(
+                    nlohmann::json{{"type", "looperProjectSaved"}, {"projectId", id}, {"title", title}}.dump());
             }
 
             SendProjectList();
@@ -523,8 +527,8 @@ void LooperService::LoadFrom(const fs::path& folder, const std::string& projectI
         };
         const std::int64_t length = project ? scale(project->value("lengthSamples", std::int64_t{0})) : 0;
 
-        for (const auto& layer : project && length > 0 ? project->value("layers", nlohmann::json::array())
-                                                       : nlohmann::json::array())
+        for (const auto& layer :
+             project&& length > 0 ? project->value("layers", nlohmann::json::array()) : nlohmann::json::array())
         {
             const std::string key = layer.value("id", std::string{});
             const auto di = lf::ReadWav(lf::DiPath(folder, key), rate);
@@ -539,8 +543,11 @@ void LooperService::LoadFrom(const fs::path& folder, const std::string& projectI
             auto buffer = std::make_shared<Buffer>(length, diChannels, true);
             const bool first = layer.value("firstLayer", false);
             const std::int64_t start = scale(layer.value("startSample", std::int64_t{0})) % length;
-            const std::int64_t span = first ? length : std::clamp<std::int64_t>(scale(layer.value("lengthSamples", std::int64_t{0})), 1, length);
-            const auto wetLength = static_cast<std::int64_t>(std::min<std::size_t>((*wet)[0].size(), static_cast<std::size_t>(length)));
+            const std::int64_t span =
+                first ? length
+                      : std::clamp<std::int64_t>(scale(layer.value("lengthSamples", std::int64_t{0})), 1, length);
+            const auto wetLength =
+                static_cast<std::int64_t>(std::min<std::size_t>((*wet)[0].size(), static_cast<std::size_t>(length)));
 
             for (std::int64_t k = 0; k < wetLength; ++k)
             {
@@ -773,5 +780,4 @@ void LooperService::HandleRenameProject(const std::string& projectId, const std:
 
     SendProjectList();
 }
-
 } // namespace guitarfx

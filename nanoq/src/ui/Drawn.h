@@ -18,7 +18,7 @@ namespace el = cycfi::elements;
 
 class Drawn
 {
-public:
+  public:
     virtual ~Drawn() = default;
 
     /// Remembers the rectangle this draws into, in the view's coordinates (as
@@ -36,7 +36,7 @@ public:
         return mDrawn;
     }
 
-private:
+  private:
     std::optional<el::rect> mDrawn;
 };
 } // namespace nanoq::ui

@@ -31,24 +31,24 @@
 #include <cstdint>
 
 #if defined(__ANDROID__)
- #include <sched.h>
- #include <sys/types.h>
+    #include <sched.h>
+    #include <sys/types.h>
 #endif
 
 namespace soundshed::android_audio
 {
 class AudioThreadPlacement
 {
-public:
+  public:
     AudioThreadPlacement() = default;
     ~AudioThreadPlacement();
 
-    AudioThreadPlacement (const AudioThreadPlacement&) = delete;
-    AudioThreadPlacement& operator= (const AudioThreadPlacement&) = delete;
+    AudioThreadPlacement(const AudioThreadPlacement&) = delete;
+    AudioThreadPlacement& operator=(const AudioThreadPlacement&) = delete;
 
     /** Off the audio thread, with audio stopped: reads the core layout and the policy, and
         binds the hint API. The next block places whichever thread runs it. */
-    void prepare (double sampleRate);
+    void prepare(double sampleRate);
 
     /** Off the audio thread, with audio stopped: ends the hint session. */
     void release();
@@ -58,13 +58,18 @@ public:
     void beginBlock() noexcept;
 
     /** Audio thread, last thing in a block: reports the block's work to the hint session. */
-    void endBlock (int numSamples) noexcept;
+    void endBlock(int numSamples) noexcept;
 #else
-    void beginBlock() noexcept {}
-    void endBlock (int) noexcept {}
+    void beginBlock() noexcept
+    {
+    }
+
+    void endBlock(int) noexcept
+    {
+    }
 #endif
 
-private:
+  private:
 #if defined(__ANDROID__)
     enum class Policy
     {
@@ -87,15 +92,15 @@ private:
 
     Policy mPolicy = Policy::automatic;
     double mSampleRate = 48000.0;
-    cpu_set_t mBigCores {};
-    cpu_set_t mPrimeCores {};
+    cpu_set_t mBigCores{};
+    cpu_set_t mPrimeCores{};
     bool mHaveBigCores = false;
     bool mHavePrimeCores = false;
 
     // Audio thread only, while audio runs; prepare() and release() touch them with audio stopped.
     pid_t mPlacedTid = 0;
     const cpu_set_t* mPin = nullptr; // the cores wanted, or null to leave it to the scheduler
-    cpu_set_t mPinnedAs {};          // the affinity the kernel gave the last pin
+    cpu_set_t mPinnedAs{};           // the affinity the kernel gave the last pin
     PinState mPinState = PinState::unknown;
     int mBlocksUntilAffinityCheck = 0;
     void* mSession = nullptr; // APerformanceHintSession*

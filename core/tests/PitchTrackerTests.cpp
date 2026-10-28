@@ -288,7 +288,8 @@ void TestBassRange()
         }
     }
 
-    Check(worst >= 95.0, "plucks down to a semitone under a bass's low C# find their pitch on at least 95% of detections",
+    Check(worst >= 95.0,
+          "plucks down to a semitone under a bass's low C# find their pitch on at least 95% of detections",
           "worst " + Num(worst, 1) + "%" + (where.empty() ? "" : ", " + where));
     Check(worstCents < 2.0, "and read within 2 cents", "worst " + Num(worstCents, 2) + " cents");
     Check(FoundPercent(Tone(30.87, 0.6, 48000.0, Kind::Pluck), 48000.0) < 5.0 &&

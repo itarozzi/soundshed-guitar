@@ -56,7 +56,10 @@ struct Tone
     std::int64_t downloads = -1; // -1 where the service does not say (packs)
     bool featured = false;
 
-    [[nodiscard]] bool IsPack() const noexcept { return kind == Kind::Pack; }
+    [[nodiscard]] bool IsPack() const noexcept
+    {
+        return kind == Kind::Pack;
+    }
 };
 
 /// One row of the featured page.
@@ -94,7 +97,10 @@ struct User
     std::string role;
 
     /// What the account button shows: the display name, else the email.
-    [[nodiscard]] std::string Label() const { return displayName.empty() ? email : displayName; }
+    [[nodiscard]] std::string Label() const
+    {
+        return displayName.empty() ? email : displayName;
+    }
 };
 
 /// One answer from the service, unwrapped from its {ok, data, error} envelope.
@@ -102,8 +108,8 @@ struct Response
 {
     int status = 0;
     bool ok = false;
-    nlohmann::json data;  // the envelope's data, on success
-    std::string error;    // the service's message, or "Request failed (<status>)"
+    nlohmann::json data;   // the envelope's data, on success
+    std::string error;     // the service's message, or "Request failed (<status>)"
     std::string sessionId; // a session the answer handed out (sign-in), or empty
 };
 
@@ -171,12 +177,16 @@ struct InstalledEntry
     std::vector<std::string> presetIds;
     std::size_t resourceCount = 0;
 
-    [[nodiscard]] bool IsPack() const { return !packId.empty() || presetIds.size() > 1; }
+    [[nodiscard]] bool IsPack() const
+    {
+        return !packId.empty() || presetIds.size() > 1;
+    }
 };
 
 /// The entries of the installedPacks setting, newest first as stored.
 [[nodiscard]] std::vector<InstalledEntry> InstalledEntries(const nlohmann::json& appSettings);
-[[nodiscard]] std::optional<InstalledEntry> FindInstalled(const nlohmann::json& appSettings, const std::string& entryId);
+[[nodiscard]] std::optional<InstalledEntry> FindInstalled(const nlohmann::json& appSettings,
+                                                          const std::string& entryId);
 
 /// The tone sharing item an installed preset came from, or empty: a single item's install names
 /// it in its entry id, a pack's records each preset's item (`presetItems`).

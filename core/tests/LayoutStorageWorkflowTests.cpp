@@ -575,9 +575,9 @@ bool TestImagesAreListedByUrlAndServedByTheRoute()
         return false;
     }
 
-    for (const std::string refused : {"layout-images/id/", "layout-images/id/..", "layout-images/id/%2E%2E",
-                                      "layout-images/id/a%2Fb", "layout-images/id/a/b", "layout-images/id/%zz",
-                                      "layout-images/bg_1.png", "layout-images/id/not_an_image"})
+    for (const std::string refused :
+         {"layout-images/id/", "layout-images/id/..", "layout-images/id/%2E%2E", "layout-images/id/a%2Fb",
+          "layout-images/id/a/b", "layout-images/id/%zz", "layout-images/bg_1.png", "layout-images/id/not_an_image"})
     {
         if (controller.ResolveLayoutImageResource(refused))
         {
@@ -618,44 +618,53 @@ bool TestImageSizesAreReadFromHeaders()
 
     std::vector<std::uint8_t> jpeg = {0xFF, 0xD8, 0xFF, 0xE1, 0xC0, 0x02}; // APP1 of 0xC002 bytes
     jpeg.resize(jpeg.size() + 0xC000, 0x00);
+
     for (const std::uint8_t b : {0xFF, 0xC0, 0x00, 0x11, 0x08, 0x05, 0xA0, 0x0F, 0x00, 0x03})
     {
         jpeg.push_back(b); // SOF0: 8-bit, 1440 high, 3840 wide
     }
+
     jpeg.resize(jpeg.size() + 16, 0);
 
     std::vector<std::uint8_t> vp8 = webp("VP8 ");
     vp8.resize(26, 0);
+
     for (const std::uint8_t b : {0x80, 0x07, 0x38, 0x04})
     {
         vp8.push_back(b); // 1920 x 1080
     }
+
     vp8.resize(40, 0);
 
     std::vector<std::uint8_t> vp8l = webp("VP8L");
     vp8l.resize(21, 0);
     // 14-bit width-1 then 14-bit height-1, little-endian: 1024 x 768.
     const std::uint32_t bits = (1024 - 1) | ((768 - 1) << 14);
+
     for (int i = 0; i < 4; ++i)
     {
         vp8l.push_back(static_cast<std::uint8_t>(bits >> (8 * i)));
     }
+
     vp8l.resize(40, 0);
 
     std::vector<std::uint8_t> vp8x = webp("VP8X");
     vp8x.resize(24, 0);
+
     for (const std::uint8_t b : {0xFF, 0x1D, 0x00, 0x6F, 0x17, 0x00})
     {
         vp8x.push_back(b); // 7680 x 6000
     }
+
     vp8x.resize(40, 0);
 
     return check("a.png", PngOfSize(4096, 3072), 4096, 3072) &&
            check("a.gif", {'G', 'I', 'F', '8', '9', 'a', 0x40, 0x01, 0xF0, 0x00, 0, 0}, 320, 240) &&
            check("a.jpg", jpeg, 3840, 1440) && check("vp8.webp", vp8, 1920, 1080) &&
            check("vp8l.webp", vp8l, 1024, 768) && check("vp8x.webp", vp8x, 7680, 6000) &&
-           check("attrs.svg", text("<?xml version=\"1.0\"?>\n<svg xmlns=\"http://www.w3.org/2000/svg\" "
-                                   "stroke-width=\"3\" width=\"640px\" height='480'><rect/></svg>"),
+           check("attrs.svg",
+                 text("<?xml version=\"1.0\"?>\n<svg xmlns=\"http://www.w3.org/2000/svg\" "
+                      "stroke-width=\"3\" width=\"640px\" height='480'><rect/></svg>"),
                  640, 480) &&
            check("box.svg", text("<svg viewBox=\"0 0 1200.4 300\"></svg>"), 1200, 300);
 }
@@ -750,7 +759,8 @@ bool TestRenditionsAreStoredListedAndServed()
     const auto listed = ListedImage(host, controller, "huge_1");
     const auto renditions = listed.value("renditions", nlohmann::json::array());
 
-    if (!saved || saved->value("edge", 0) != 1024 || renditions.size() != 1 || renditions[0].value("width", 0) != 1024 ||
+    if (!saved || saved->value("edge", 0) != 1024 || renditions.size() != 1 ||
+        renditions[0].value("width", 0) != 1024 ||
         renditions[0].value("url", "").rfind("layout-images/rendition/huge_1/1024?v=" + version, 0) != 0)
     {
         std::cerr << "The copy was not listed with the image: " << listed.dump() << "\n";
@@ -766,12 +776,12 @@ bool TestRenditionsAreStoredListedAndServed()
     }
 
     const std::size_t keptBefore = static_cast<std::size_t>(std::distance(fs::directory_iterator(copies), {}));
-    SaveRendition(controller, "huge_1", "12345", 2048, WebpOfSize(2048, 1365));     // stale version
-    SaveRendition(controller, "huge_1", version, 1500, WebpOfSize(1500, 1000));     // a size not kept
-    SaveRendition(controller, "huge_1", version, 2048, PngOfSize(2048, 1365));      // not WebP
-    SaveRendition(controller, "huge_1", version, 2048, WebpOfSize(1024, 683));      // not the size it says
+    SaveRendition(controller, "huge_1", "12345", 2048, WebpOfSize(2048, 1365)); // stale version
+    SaveRendition(controller, "huge_1", version, 1500, WebpOfSize(1500, 1000)); // a size not kept
+    SaveRendition(controller, "huge_1", version, 2048, PngOfSize(2048, 1365));  // not WebP
+    SaveRendition(controller, "huge_1", version, 2048, WebpOfSize(1024, 683));  // not the size it says
     const std::string midVersion = ListedImage(host, controller, "mid_1").value("version", "");
-    SaveRendition(controller, "mid_1", midVersion, 4096, WebpOfSize(4096, 2731));   // not smaller than its source
+    SaveRendition(controller, "mid_1", midVersion, 4096, WebpOfSize(4096, 2731)); // not smaller than its source
     const std::size_t keptAfter = static_cast<std::size_t>(std::distance(fs::directory_iterator(copies), {}));
 
     if (keptAfter != keptBefore || controller.ResolveLayoutImageResource("layout-images/rendition/huge_1/2048") ||
@@ -816,7 +826,8 @@ bool TestImageControlReferencesAreCopiedOnSave()
 
     TestHost host(sandbox);
     guitarfx::PluginController controller(host);
-    const std::vector<std::string> ids = {"strip_1", "skirt_1", "glare_1", "on_1", "off_1", "rail_1", "cap_1", "logo_1"};
+    const std::vector<std::string> ids = {"strip_1", "skirt_1", "glare_1", "on_1",
+                                          "off_1",   "rail_1",  "cap_1",   "logo_1"};
 
     for (const auto& id : ids)
     {
@@ -836,8 +847,12 @@ bool TestImageControlReferencesAreCopiedOnSave()
            {"type", "knob"},
            {"position", {{"x", 0}, {"y", 0}}},
            {"style",
-            {{"knobImage", {{"mode", "filmstrip"}, {"imageId", "strip_1"}, {"frames", 64}, {"baseImageId", "skirt_1"},
-                            {"glareImageId", "glare_1"}}}}}},
+            {{"knobImage",
+              {{"mode", "filmstrip"},
+               {"imageId", "strip_1"},
+               {"frames", 64},
+               {"baseImageId", "skirt_1"},
+               {"glareImageId", "glare_1"}}}}}},
           {{"paramKey", "b"},
            {"type", "toggle"},
            {"position", {{"x", 0}, {"y", 0}}},
@@ -846,8 +861,11 @@ bool TestImageControlReferencesAreCopiedOnSave()
            {"type", "slider"},
            {"position", {{"x", 0}, {"y", 0}}},
            {"style", {{"sliderImage", {{"trackImageId", "rail_1"}, {"thumbImageId", "cap_1"}}}}}}}},
-        {"overlays", {{{"id", "o"}, {"position", {{"x", 0}, {"y", 0}}}, {"size", {{"width", 10}, {"height", 10}}},
-                       {"style", {{"imageId", "logo_1"}}}}}},
+        {"overlays",
+         {{{"id", "o"},
+           {"position", {{"x", 0}, {"y", 0}}},
+           {"size", {{"width", 10}, {"height", 10}}},
+           {"style", {{"imageId", "logo_1"}}}}}},
         {"textLabels", nlohmann::json::array()}};
 
     if (guitarfx::controller_detail::CollectLayoutImageIds(layout) != ids)
@@ -856,11 +874,8 @@ bool TestImageControlReferencesAreCopiedOnSave()
         return false;
     }
 
-    controller.HandleUIMessage(nlohmann::json{{"type", "saveEffectLayout"},
-                                              {"effectType", "fx_b"},
-                                              {"blendId", ""},
-                                              {"layoutId", "B"},
-                                              {"layout", layout}}
+    controller.HandleUIMessage(nlohmann::json{
+        {"type", "saveEffectLayout"}, {"effectType", "fx_b"}, {"blendId", ""}, {"layoutId", "B"}, {"layout", layout}}
                                    .dump());
 
     for (const auto& id : ids)

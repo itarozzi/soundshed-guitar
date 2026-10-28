@@ -125,9 +125,9 @@ struct LayoutImageSource
 /// reads an image by id resolves it here. With `includeUnindexed`, layout folders the index does
 /// not list (a layout never saved, or one a delete left behind) come first, so they only supply an
 /// id found nowhere else. `excludeImagesDir` is left out entirely.
-[[nodiscard]] std::vector<LayoutImageSource>
-CollectLayoutImageSources(const FileSystem& fileSystem, const std::filesystem::path& factoryLayoutsDir,
-                          bool includeUnindexed = false, const std::filesystem::path& excludeImagesDir = {});
+[[nodiscard]] std::vector<LayoutImageSource> CollectLayoutImageSources(
+    const FileSystem& fileSystem, const std::filesystem::path& factoryLayoutsDir, bool includeUnindexed = false,
+    const std::filesystem::path& excludeImagesDir = {});
 
 /// The image ids a layout document draws on, each once, in the order they appear: image background
 /// layers, custom knob faces, image knobs (face, base, glare), image toggles and sliders, and image

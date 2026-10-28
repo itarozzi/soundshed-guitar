@@ -33,7 +33,7 @@ namespace q_plug = cycfi::q_plug;
 
 class NanoQController final : public q_plug::controller
 {
-public:
+  public:
     NanoQController();
     ~NanoQController() override;
 
@@ -65,11 +65,11 @@ public:
     /// Main thread.
     void RescanHostValues();
 
-protected:
+  protected:
     void save_extra(json& j) const override;
     void load_extra(json const& j, std::uint32_t version) override;
 
-private:
+  private:
     void BuildParameters();
 
     std::unique_ptr<Engine> mEngine;

@@ -44,16 +44,33 @@ class MixerTelemetry
         std::vector<NodeSignalLevel> nodes;
     };
 
-    enum class Stage { RawInput, Input, Output };
+    enum class Stage
+    {
+        RawInput,
+        Input,
+        Output
+    };
 
-    void SetEnabled(bool enabled) noexcept { mEnabled.store(enabled, std::memory_order_release); }
-    [[nodiscard]] bool IsEnabled() const noexcept { return mEnabled.load(std::memory_order_acquire); }
+    void SetEnabled(bool enabled) noexcept
+    {
+        mEnabled.store(enabled, std::memory_order_release);
+    }
+
+    [[nodiscard]] bool IsEnabled() const noexcept
+    {
+        return mEnabled.load(std::memory_order_acquire);
+    }
+
     void Record(Stage stage, const float* left, const float* right, int numSamples) noexcept;
     [[nodiscard]] Snapshot GetSnapshot() const noexcept;
     [[nodiscard]] static NodeSignalLevel ToSnapshotNode(const SignalGraphExecutor::NodeSignalLevel& entry,
                                                         std::string_view scope, const std::string& presetId);
 
-    void NoteOversizedBlock() noexcept { mOversizedBlockCount.fetch_add(1, std::memory_order_relaxed); }
+    void NoteOversizedBlock() noexcept
+    {
+        mOversizedBlockCount.fetch_add(1, std::memory_order_relaxed);
+    }
+
     [[nodiscard]] std::uint64_t GetOversizedBlockCount() const noexcept
     {
         return mOversizedBlockCount.load(std::memory_order_relaxed);

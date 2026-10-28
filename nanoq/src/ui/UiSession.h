@@ -27,25 +27,53 @@ namespace nanoq::ui
 {
 class UiSession
 {
-public:
+  public:
     UiSession(Engine& engine, cycfi::elements::view& view);
     ~UiSession();
 
     UiSession(const UiSession&) = delete;
     UiSession& operator=(const UiSession&) = delete;
 
-    [[nodiscard]] guitarfx::uiclient::UiClient& Client() { return mClient; }
-    [[nodiscard]] guitarfx::uiclient::UiCommands& Commands() { return mCommands; }
-    [[nodiscard]] const guitarfx::uiclient::ClientState& State() const { return mClient.State(); }
-    [[nodiscard]] Theme& GetTheme() { return mTheme; }
-    [[nodiscard]] cycfi::elements::view& View() { return mView; }
+    [[nodiscard]] guitarfx::uiclient::UiClient& Client()
+    {
+        return mClient;
+    }
+
+    [[nodiscard]] guitarfx::uiclient::UiCommands& Commands()
+    {
+        return mCommands;
+    }
+
+    [[nodiscard]] const guitarfx::uiclient::ClientState& State() const
+    {
+        return mClient.State();
+    }
+
+    [[nodiscard]] Theme& GetTheme()
+    {
+        return mTheme;
+    }
+
+    [[nodiscard]] cycfi::elements::view& View()
+    {
+        return mView;
+    }
+
     /// Redraws an element: by the rectangle it last drew into when it keeps one (Drawn.h, and
     /// nothing before its first draw), else by Elements' search for it, which redraws the whole
     /// window past four in one poll.
     void Repaint(cycfi::elements::element& element);
-    [[nodiscard]] Engine& GetEngine() { return mEngine; }
+
+    [[nodiscard]] Engine& GetEngine()
+    {
+        return mEngine;
+    }
+
     /// Tone sharing and Tone3000 over the network (core/src/uiclient/ToneService.h).
-    [[nodiscard]] guitarfx::uiclient::ToneService& Tones() { return *mTones; }
+    [[nodiscard]] guitarfx::uiclient::ToneService& Tones()
+    {
+        return *mTones;
+    }
 
     /// Runs `fn` on the UI thread at the next pump. Any thread.
     void PostToUi(std::function<void()> fn);
@@ -64,7 +92,7 @@ public:
     /// Seconds on a monotonic clock, for leases and animations.
     [[nodiscard]] static double Now();
 
-private:
+  private:
     void Schedule();
     void Pump();
 
@@ -82,6 +110,7 @@ private:
         std::mutex mutex;
         std::vector<std::function<void()>> pending;
     };
+
     std::shared_ptr<PostQueue> mPosted = std::make_shared<PostQueue>();
     // Last: destroyed first, so its workers stop before anything they post to goes.
     std::unique_ptr<guitarfx::uiclient::ToneService> mTones;

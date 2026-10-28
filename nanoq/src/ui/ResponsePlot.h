@@ -41,7 +41,7 @@ struct PlotBand
 
 class ResponsePlot : public el::element, public Drawn
 {
-public:
+  public:
     explicit ResponsePlot(const Theme& theme);
 
     el::view_limits limits(const el::basic_context& ctx) const override;
@@ -50,6 +50,7 @@ public:
     void drag(const el::context& ctx, el::mouse_button btn) override;
     bool cursor(const el::context& ctx, el::point p, el::cursor_tracking status) override;
     bool scroll(const el::context& ctx, el::point dir, el::point p) override;
+
     bool wants_control() const override
     {
         return !mBands.empty();
@@ -93,7 +94,7 @@ public:
     /// A double click on a band's handle.
     std::function<void(int band)> onBandReset;
 
-private:
+  private:
     enum class Grip
     {
         None,

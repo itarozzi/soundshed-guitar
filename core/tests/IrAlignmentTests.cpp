@@ -841,10 +841,10 @@ bool TestResponseMessageMatchesTheCab()
 
     // Every control the curve follows, away from its default.
     const std::map<std::string, double> params = {
-        {"irBlend", 0.4},       {"slotAGain", 2.0},      {"slotBGain", -3.0},     {"slotBPolarity", 1.0},
-        {"slotBOffset", 0.37},  {"micEmulation", 1.0},   {"micRadialA", 0.2},     {"micProximityA", 0.5},
-        {"micRadialB", 0.7},    {"micProximityB", 0.1},  {"lowCutHz", 120.0},     {"highCutHz", 8000.0},
-        {"air", 0.5},           {"airMode", 2.0},        {"autoGainComp", 1.0},   {"normalizeIR", 1.0},
+        {"irBlend", 0.4},      {"slotAGain", 2.0},     {"slotBGain", -3.0},   {"slotBPolarity", 1.0},
+        {"slotBOffset", 0.37}, {"micEmulation", 1.0},  {"micRadialA", 0.2},   {"micProximityA", 0.5},
+        {"micRadialB", 0.7},   {"micProximityB", 0.1}, {"lowCutHz", 120.0},   {"highCutHz", 8000.0},
+        {"air", 0.5},          {"airMode", 2.0},       {"autoGainComp", 1.0}, {"normalizeIR", 1.0},
     };
 
     bool ok = true;
@@ -874,8 +874,9 @@ bool TestResponseMessageMatchesTheCab()
         // The offset in the request wins over the params' slotBOffset, and moves the curve.
         auto moved = params;
         moved["slotBOffset"] = -1.2;
-        const auto offset = ask("offset", {{"irA", ref(pathA)}, {"irB", ref(pathB)}, {"params", params},
-                                           {"offsetMs", -1.2}, {"points", 96}});
+        const auto offset =
+            ask("offset",
+                {{"irA", ref(pathA)}, {"irB", ref(pathB)}, {"params", params}, {"offsetMs", -1.2}, {"points", 96}});
 
         if (offset.is_object() && offset.contains("summedDb"))
         {
@@ -884,7 +885,8 @@ bool TestResponseMessageMatchesTheCab()
             // A fractional offset is played by interpolation, which dulls the top a little.
             ok &= Expect(worst < 0.3,
                          "an offset given on its own is the cab's response at that offset (worst gap " + where + ")");
-            ok &= Expect(offset.value("summedDb", nlohmann::json::array()) != both.value("summedDb", nlohmann::json::array()),
+            ok &= Expect(offset.value("summedDb", nlohmann::json::array()) !=
+                             both.value("summedDb", nlohmann::json::array()),
                          "a new offset moves the curve");
         }
         else

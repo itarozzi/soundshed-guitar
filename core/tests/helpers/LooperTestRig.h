@@ -78,9 +78,9 @@ struct Rig
     bool muted = false;
     double barOrigin = 0.0; // when the clock runs, a bar line sits here
     std::vector<float> outL, outR;
-    std::vector<int> metronomeResets; // absolute sample of each requested restart
+    std::vector<int> metronomeResets;       // absolute sample of each requested restart
     std::vector<double> metronomeResetBars; // ...and where in the bar it lands
-    LoopClickSync lastClickSync;          // the last block's
+    LoopClickSync lastClickSync;            // the last block's
 
     Rig(double rate = 48000.0, int blockSize = 64, int chainLatency = 100, double captureSeconds = 4.0)
         : sampleRate(rate), block(blockSize), latency(chainLatency)
@@ -150,6 +150,7 @@ struct Rig
             {
                 clock.samplesSinceBar.store(std::fmod(std::fmod(static_cast<double>(now) - barOrigin, spb) + spb, spb));
             }
+
             samples -= n;
 
             if (autoSpare)
@@ -158,7 +159,8 @@ struct Rig
 
                 if (!s.spare && s.length > 0)
                 {
-                    engine.Enqueue({LooperCommand::Type::SetSpare, LooperAction::RecPlayDub, -1, &Own(s.length)->audio});
+                    engine.Enqueue(
+                        {LooperCommand::Type::SetSpare, LooperAction::RecPlayDub, -1, &Own(s.length)->audio});
                 }
             }
         }
@@ -194,21 +196,22 @@ struct Rig
             }
         }
 
-        std::sort(layers.begin(), layers.end(), [](const SlotInfo& a, const SlotInfo& b) { return a.serial < b.serial; });
+        std::sort(layers.begin(), layers.end(),
+                  [](const SlotInfo& a, const SlotInfo& b) { return a.serial < b.serial; });
         return layers;
     }
 
     static float WetAt(const SlotInfo& slot, std::int64_t length, std::int64_t pos)
     {
-        const std::int64_t index = ((slot.head + pos % length) % slot.audio->capacity + slot.audio->capacity) %
-                                   slot.audio->capacity;
+        const std::int64_t index =
+            ((slot.head + pos % length) % slot.audio->capacity + slot.audio->capacity) % slot.audio->capacity;
         return slot.audio->wet[0][index];
     }
 
     static float DiAt(const SlotInfo& slot, std::int64_t length, std::int64_t pos)
     {
-        const std::int64_t index = ((slot.head + pos % length) % slot.audio->capacity + slot.audio->capacity) %
-                                   slot.audio->capacity;
+        const std::int64_t index =
+            ((slot.head + pos % length) % slot.audio->capacity + slot.audio->capacity) % slot.audio->capacity;
         return slot.audio->di[0][index];
     }
 };

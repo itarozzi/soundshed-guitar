@@ -50,6 +50,7 @@ struct ResourceFacets
     std::vector<std::string> tags;
     std::vector<std::string> creators;
 };
+
 [[nodiscard]] ResourceFacets LibraryFacets(const std::vector<const LibraryResource*>& resources);
 
 /// Starred in any chooser: the engine-owned app setting resources.favorites.
@@ -69,8 +70,10 @@ struct ResourceFilter
 
 /// The Library tab's list for one resource type: deduped, filtered, favourites first, by name.
 /// `selectedId` is kept over its duplicates. `aliases`, when given, receives the dedup's map.
-[[nodiscard]] std::vector<const LibraryResource*> FilterLibrary(const ClientState& state, const std::string& resourceType,
-                                                                const ResourceFilter& filter, const std::string& selectedId = {},
+[[nodiscard]] std::vector<const LibraryResource*> FilterLibrary(const ClientState& state,
+                                                                const std::string& resourceType,
+                                                                const ResourceFilter& filter,
+                                                                const std::string& selectedId = {},
                                                                 std::map<std::string, std::string>* aliases = nullptr);
 
 /// The categories the library holds for a type, in name order ("Uncategorized" for none).

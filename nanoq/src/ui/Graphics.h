@@ -55,8 +55,10 @@ void DrawIcon(artist::canvas& cnv, const SvgIcon& icon, el::rect bounds, el::col
 /// each read the first time it is asked for.
 class Icons
 {
-public:
-    explicit Icons(std::filesystem::path folder) : mFolder(std::move(folder)) {}
+  public:
+    explicit Icons(std::filesystem::path folder) : mFolder(std::move(folder))
+    {
+    }
 
     /// The icon, or null when the file is missing or unreadable.
     [[nodiscard]] const SvgIcon* Find(const std::string& name);
@@ -68,7 +70,7 @@ public:
     /// markup rather than keeping as files.
     void Add(const std::string& name, const std::string& svg);
 
-private:
+  private:
     std::filesystem::path mFolder;
     std::map<std::string, std::optional<SvgIcon>> mIcons;
 };
@@ -77,13 +79,15 @@ private:
 /// loaded the first time it is asked for.
 class Images
 {
-public:
-    explicit Images(std::filesystem::path uiFolder) : mFolder(std::move(uiFolder)) {}
+  public:
+    explicit Images(std::filesystem::path uiFolder) : mFolder(std::move(uiFolder))
+    {
+    }
 
     /// The image, or null when the file is missing or cannot be decoded.
     [[nodiscard]] std::shared_ptr<artist::image> Find(const std::string& relativePath);
 
-private:
+  private:
     std::filesystem::path mFolder;
     std::map<std::string, std::shared_ptr<artist::image>> mImages;
 };
@@ -97,14 +101,16 @@ private:
 /// and loaded from there. UI thread.
 class RemoteImages
 {
-public:
-    explicit RemoteImages(std::filesystem::path cacheFolder) : mFolder(std::move(cacheFolder)) {}
+  public:
+    explicit RemoteImages(std::filesystem::path cacheFolder) : mFolder(std::move(cacheFolder))
+    {
+    }
 
     /// The picture for `url`, given its bytes: null when `bytes` is null (still fetching) or the
     /// picture cannot be decoded.
     [[nodiscard]] std::shared_ptr<artist::image> Find(const std::string& url, const std::string* bytes);
 
-private:
+  private:
     std::filesystem::path mFolder;
     std::map<std::string, std::shared_ptr<artist::image>> mImages; // a null entry: tried, failed
 };

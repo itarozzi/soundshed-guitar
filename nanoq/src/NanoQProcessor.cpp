@@ -8,7 +8,9 @@
 
 namespace nanoq
 {
-NanoQProcessor::NanoQProcessor(NanoQController& ctl) : mCtl(ctl) {}
+NanoQProcessor::NanoQProcessor(NanoQController& ctl) : mCtl(ctl)
+{
+}
 
 void NanoQProcessor::activate()
 {
@@ -32,7 +34,9 @@ void NanoQProcessor::deactivate()
     engine.Call([&] { engine.Controller().Reset(); });
 }
 
-void NanoQProcessor::reset() {}
+void NanoQProcessor::reset()
+{
+}
 
 void NanoQProcessor::midi(cycfi::q::midi_1_0::raw_message msg, std::size_t time)
 {
@@ -71,8 +75,12 @@ void NanoQProcessor::midi(cycfi::q::midi_2_0::packet const& p, std::size_t time)
         case 0x80: // note off, note on: velocity in the top 16 bits
         case 0x90:
             ev.data2 = static_cast<std::uint8_t>(std::min<std::uint32_t>(127, (w1 >> 16) >> 9));
+
             if ((status & 0xF0) == 0x90 && ev.data2 == 0)
+            {
                 ev.data2 = 1; // a 16-bit velocity that rounds to 0 must stay a note on
+            }
+
             break;
         case 0xB0: // control change: 32-bit value
             ev.data2 = static_cast<std::uint8_t>(w1 >> 25);
@@ -107,13 +115,21 @@ void NanoQProcessor::process(in_channels const& in, out_channels const& out)
 
     float* inPtrs[2] = {nullptr, nullptr};
     float* outPtrs[2] = {nullptr, nullptr};
+
     for (std::size_t ch = 0; ch < 2 && ch < inputs; ++ch)
+    {
         inPtrs[ch] = const_cast<float*>(in[ch].begin());
+    }
+
     for (std::size_t ch = 0; ch < 2 && ch < outputs; ++ch)
+    {
         outPtrs[ch] = out[ch].begin();
+    }
 
     if (outPtrs[0] == nullptr || inPtrs[0] == nullptr)
+    {
         return;
+    }
 
     // The standalone's device controls: the input meter and mute, then the test tone over the
     // output. Nothing in a plugin build, where no device backend is linked.
@@ -124,9 +140,12 @@ void NanoQProcessor::process(in_channels const& in, out_channels const& out)
     {
         // The controller could not take the DSP lock for this block: silence, as in the JUCE adapter.
         for (std::size_t ch = 0; ch < 2 && ch < outputs; ++ch)
+        {
             std::memset(outPtrs[ch], 0, sizeof(float) * static_cast<std::size_t>(frames));
+        }
     }
 
-    devices.ProcessOutput(outPtrs, static_cast<int>(std::min<std::size_t>(2, outputs)), frames, static_cast<double>(sps()));
+    devices.ProcessOutput(outPtrs, static_cast<int>(std::min<std::size_t>(2, outputs)), frames,
+                          static_cast<double>(sps()));
 }
 } // namespace nanoq

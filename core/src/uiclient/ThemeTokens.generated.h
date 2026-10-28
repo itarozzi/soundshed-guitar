@@ -10,48 +10,48 @@ namespace guitarfx::uiclient::theme
 /// One theme's colours as 0xAARRGGBB, named after the web UI's CSS custom properties.
 struct ThemeTokens
 {
-    std::uint32_t accent; // --color-accent
-    std::uint32_t accentHover; // --color-accent-hover
-    std::uint32_t accentDark; // --color-accent-dark
-    std::uint32_t success; // --color-success
-    std::uint32_t info; // --color-info
-    std::uint32_t error; // --color-error
-    std::uint32_t warning; // --color-warning
-    std::uint32_t bgPrimary; // --bg-primary
-    std::uint32_t bgSecondary; // --bg-secondary
-    std::uint32_t bgTertiary; // --bg-tertiary
-    std::uint32_t bgSurface; // --bg-surface
-    std::uint32_t bgElevated; // --bg-elevated
-    std::uint32_t bgPanel; // --bg-panel
-    std::uint32_t bgCard; // --bg-card
-    std::uint32_t bgInput; // --bg-input
-    std::uint32_t bgHeader; // --bg-header-dark
-    std::uint32_t bgFooter; // --bg-footer
-    std::uint32_t textPrimary; // --text-primary
-    std::uint32_t textSecondary; // --text-secondary
-    std::uint32_t textTertiary; // --text-tertiary
-    std::uint32_t textMuted; // --text-muted
-    std::uint32_t textOnDark; // --text-dark-primary
-    std::uint32_t borderLight; // --border-light
-    std::uint32_t borderMedium; // --border-medium
-    std::uint32_t borderStrong; // --border-strong
-    std::uint32_t controlBg; // --control-bg
-    std::uint32_t controlKnobBg; // --control-knob-bg
-    std::uint32_t controlBorder; // --control-border
-    std::uint32_t controlIndicator; // --control-indicator
-    std::uint32_t knobRingStart; // --knob-ring-start
-    std::uint32_t knobRingEnd; // --knob-ring-end
-    std::uint32_t knobRingTrack; // --knob-ring-track
-    std::uint32_t toggleBg; // --toggle-bg
-    std::uint32_t eqCurveGrid; // --eq-curve-grid
-    std::uint32_t eqCurveResponse; // --eq-curve-response
-    std::uint32_t eqCurveHandleStroke; // --eq-curve-handle-stroke
-    std::uint32_t eqCurveSpectrumFillTop; // --eq-curve-spectrum-fill-top
+    std::uint32_t accent;                    // --color-accent
+    std::uint32_t accentHover;               // --color-accent-hover
+    std::uint32_t accentDark;                // --color-accent-dark
+    std::uint32_t success;                   // --color-success
+    std::uint32_t info;                      // --color-info
+    std::uint32_t error;                     // --color-error
+    std::uint32_t warning;                   // --color-warning
+    std::uint32_t bgPrimary;                 // --bg-primary
+    std::uint32_t bgSecondary;               // --bg-secondary
+    std::uint32_t bgTertiary;                // --bg-tertiary
+    std::uint32_t bgSurface;                 // --bg-surface
+    std::uint32_t bgElevated;                // --bg-elevated
+    std::uint32_t bgPanel;                   // --bg-panel
+    std::uint32_t bgCard;                    // --bg-card
+    std::uint32_t bgInput;                   // --bg-input
+    std::uint32_t bgHeader;                  // --bg-header-dark
+    std::uint32_t bgFooter;                  // --bg-footer
+    std::uint32_t textPrimary;               // --text-primary
+    std::uint32_t textSecondary;             // --text-secondary
+    std::uint32_t textTertiary;              // --text-tertiary
+    std::uint32_t textMuted;                 // --text-muted
+    std::uint32_t textOnDark;                // --text-dark-primary
+    std::uint32_t borderLight;               // --border-light
+    std::uint32_t borderMedium;              // --border-medium
+    std::uint32_t borderStrong;              // --border-strong
+    std::uint32_t controlBg;                 // --control-bg
+    std::uint32_t controlKnobBg;             // --control-knob-bg
+    std::uint32_t controlBorder;             // --control-border
+    std::uint32_t controlIndicator;          // --control-indicator
+    std::uint32_t knobRingStart;             // --knob-ring-start
+    std::uint32_t knobRingEnd;               // --knob-ring-end
+    std::uint32_t knobRingTrack;             // --knob-ring-track
+    std::uint32_t toggleBg;                  // --toggle-bg
+    std::uint32_t eqCurveGrid;               // --eq-curve-grid
+    std::uint32_t eqCurveResponse;           // --eq-curve-response
+    std::uint32_t eqCurveHandleStroke;       // --eq-curve-handle-stroke
+    std::uint32_t eqCurveSpectrumFillTop;    // --eq-curve-spectrum-fill-top
     std::uint32_t eqCurveSpectrumFillBottom; // --eq-curve-spectrum-fill-bottom
-    std::uint32_t eqCurveSpectrumLine; // --eq-curve-spectrum-line
+    std::uint32_t eqCurveSpectrumLine;       // --eq-curve-spectrum-line
 };
 
-inline constexpr ThemeTokens kLight {
+inline constexpr ThemeTokens kLight{
     0xffb5521e, // accent
     0xffc9601f, // accentHover
     0xff964118, // accentDark
@@ -93,7 +93,7 @@ inline constexpr ThemeTokens kLight {
     0x573a4a60, // eqCurveSpectrumLine
 };
 
-inline constexpr ThemeTokens kDark {
+inline constexpr ThemeTokens kDark{
     0xffff8850, // accent
     0xffff9860, // accentHover
     0xffe86838, // accentDark
@@ -135,7 +135,7 @@ inline constexpr ThemeTokens kDark {
     0x5cbed6f0, // eqCurveSpectrumLine
 };
 
-inline constexpr ThemeTokens kClassic {
+inline constexpr ThemeTokens kClassic{
     0xfff0a010, // accent
     0xfff8b533, // accentHover
     0xffd88a00, // accentDark
@@ -176,5 +176,4 @@ inline constexpr ThemeTokens kClassic {
     0x08f5e2c0, // eqCurveSpectrumFillBottom
     0x5cf5e2c0, // eqCurveSpectrumLine
 };
-
 } // namespace guitarfx::uiclient::theme

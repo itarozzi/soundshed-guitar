@@ -801,16 +801,16 @@ std::optional<std::filesystem::path> PluginController::ResolveLayoutImageFile(co
     return found != mLayoutImageIndex->end() ? std::optional<std::filesystem::path>(found->second) : std::nullopt;
 }
 
-std::optional<std::pair<std::filesystem::path, std::string>>
-PluginController::ResolveLayoutImageResource(const std::string& resourcePath)
+std::optional<std::pair<std::filesystem::path, std::string>> PluginController::ResolveLayoutImageResource(
+    const std::string& resourcePath)
 {
     // A smaller copy: served only while it was made from the image's current file.
     if (const auto rendition = LayoutRenditionFromResourcePath(resourcePath))
     {
         const auto source = ResolveLayoutImageFile(rendition->first);
         const auto copy = source ? ResolveLayoutRenditionsDir(mFileSystem) /
-                                       util::PathFromUtf8(LayoutRenditionFileName(
-                                           rendition->first, rendition->second, LayoutImageVersion(*source)))
+                                       util::PathFromUtf8(LayoutRenditionFileName(rendition->first, rendition->second,
+                                                                                  LayoutImageVersion(*source)))
                                  : std::filesystem::path{};
         std::error_code ec;
 

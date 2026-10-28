@@ -978,18 +978,18 @@ ByteVector MakeHostileModule(HostileKind kind)
 
     switch (kind)
     {
-        case HostileKind::LoopingProcess:
-            processOps = foreverOps;
-            break;
-        case HostileKind::RecursiveProcess:
-            AppendOp(processOps, LocalGet(0));
-            AppendOp(processOps, LocalGet(1));
-            AppendOp(processOps, Call(2));
-            break;
-        default:
-            AppendOp(processOps, LocalGet(0));
-            AppendOp(processOps, LocalGet(1));
-            break;
+    case HostileKind::LoopingProcess:
+        processOps = foreverOps;
+        break;
+    case HostileKind::RecursiveProcess:
+        AppendOp(processOps, LocalGet(0));
+        AppendOp(processOps, LocalGet(1));
+        AppendOp(processOps, Call(2));
+        break;
+    default:
+        AppendOp(processOps, LocalGet(0));
+        AppendOp(processOps, LocalGet(1));
+        break;
     }
 
     std::vector<DefinedFuncDef> functions = {
@@ -1057,8 +1057,8 @@ bool TestHostileProcessIsStopped(const TempDir& tempDir, HostileKind kind, const
 
     if (!effect || !loaded)
     {
-        std::cerr << "The " << label << " module failed to load: "
-                  << (effect ? effect->GetConfig("lastError") : std::string{}) << "\n";
+        std::cerr << "The " << label
+                  << " module failed to load: " << (effect ? effect->GetConfig("lastError") : std::string{}) << "\n";
         return false;
     }
 
@@ -1243,12 +1243,8 @@ ByteVector MakeDescriptorModule(const ByteVector& descriptorBlob)
     AppendOp(processOps, LocalGet(1));
 
     const std::vector<DefinedFuncDef> functions = {
-        {0, I32Const(0)},
-        {1, {}},
-        {2, processOps},
-        {3, I32Const(0)},
-        {3, I32Const(0)},
-        {3, I32Const(static_cast<int32_t>(descriptorBlob.size()))},
+        {0, I32Const(0)}, {1, {}},          {2, processOps},
+        {3, I32Const(0)}, {3, I32Const(0)}, {3, I32Const(static_cast<int32_t>(descriptorBlob.size()))},
     };
 
     return MakeModule(types, {}, {}, functions,
@@ -1297,8 +1293,7 @@ bool TestHostileDescriptorIsSanitised(const TempDir& tempDir)
 
     for (const auto& entry : descriptor->entries)
     {
-        if ((entry.key == "effect.category" && entry.value != "utility") ||
-            entry.key.rfind("effect.thumbnail", 0) == 0)
+        if ((entry.key == "effect.category" && entry.value != "utility") || entry.key.rfind("effect.thumbnail", 0) == 0)
         {
             std::cerr << "The stored descriptor entries still carry '" << entry.key << "' unsanitised.\n";
             return false;
@@ -1325,12 +1320,12 @@ int main()
     allPassed = guitarfx::TestSignalGraphStereoModule(tempDir) && allPassed;
     allPassed = guitarfx::TestResourceBackedModule(tempDir) && allPassed;
     allPassed = guitarfx::TestResetStatefulModule(tempDir) && allPassed;
-    allPassed = guitarfx::TestHostileProcessIsStopped(tempDir, guitarfx::HostileKind::LoopingProcess,
-                                                      "looping_process") &&
-                allPassed;
-    allPassed = guitarfx::TestHostileProcessIsStopped(tempDir, guitarfx::HostileKind::RecursiveProcess,
-                                                      "recursive_process") &&
-                allPassed;
+    allPassed =
+        guitarfx::TestHostileProcessIsStopped(tempDir, guitarfx::HostileKind::LoopingProcess, "looping_process") &&
+        allPassed;
+    allPassed =
+        guitarfx::TestHostileProcessIsStopped(tempDir, guitarfx::HostileKind::RecursiveProcess, "recursive_process") &&
+        allPassed;
     allPassed = guitarfx::TestLoopingStartFunctionIsStopped(tempDir) && allPassed;
     allPassed = guitarfx::TestHugeMemoryIsRefused(tempDir) && allPassed;
     allPassed = guitarfx::TestNetworkPathsAreRefused(tempDir) && allPassed;

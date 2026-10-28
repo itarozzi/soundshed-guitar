@@ -567,6 +567,7 @@ void PluginController::HandleImportGeneratedCustomEffectRequest(const nlohmann::
     ReportErrorToUI("Generated Custom Effect import failed", "Custom Effects are not supported in this build");
     return;
 #else
+
     if (!WasmEffect::IsHostingEnabled())
     {
         ReportErrorToUI("Generated Custom Effect import failed", "Custom Effects are turned off in Settings");

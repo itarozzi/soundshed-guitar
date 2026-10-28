@@ -164,7 +164,8 @@ void TestArmedTakeAfterCountIn()
     for (std::int64_t k = preRoll; exact && k < static_cast<std::int64_t>(kBar); ++k)
     {
         const std::int64_t t = feed.soundFrom - preRoll + k;
-        exact = audio.left[static_cast<std::size_t>(k)] == Left(t) && audio.right[static_cast<std::size_t>(k)] == Right(t);
+        exact =
+            audio.left[static_cast<std::size_t>(k)] == Left(t) && audio.right[static_cast<std::size_t>(k)] == Right(t);
     }
 
     Check(exact, "then the note on, in order, though the ring wrapped");

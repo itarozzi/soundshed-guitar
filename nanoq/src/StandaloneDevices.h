@@ -37,9 +37,9 @@ struct DeviceSnapshot
     std::string api;
     bool separateIO = true; // false where input and output must be one device (ASIO)
     std::vector<std::string> inputs, outputs;
-    std::string input, output; // "" when that side is not used
+    std::string input, output;                 // "" when that side is not used
     int inputChannels = 0, outputChannels = 0; // what the chosen devices have
-    bool open = false;                          // a stream is running
+    bool open = false;                         // a stream is running
     std::vector<int> sampleRates;
     std::vector<int> bufferSizes;
     int sampleRate = 0, bufferSize = 0; // what the stream runs at
@@ -52,7 +52,7 @@ struct DeviceSnapshot
 /// returns "" or why it failed, and saves the setup when it succeeded.
 class DeviceBackend
 {
-public:
+  public:
     virtual ~DeviceBackend() = default;
 
     [[nodiscard]] virtual DeviceSnapshot Snapshot(bool rescan) = 0;
@@ -79,7 +79,7 @@ void RegisterDeviceBackend(DeviceBackend* backend);
 
 class StandaloneDevices
 {
-public:
+  public:
     using Send = std::function<void(const std::string& json)>;
 
     explicit StandaloneDevices(Send send);
@@ -99,7 +99,7 @@ public:
     /// Adds the test tone, while one is playing.
     void ProcessOutput(float* const* channels, int numChannels, int frames, double sampleRate);
 
-private:
+  private:
     void Handle(const std::string& requestJson);
     void SendState(const std::string& error, bool rescan);
     void SendLevels();
@@ -111,7 +111,7 @@ private:
     std::mutex mQueueMutex;
     std::vector<std::string> mQueue;
 
-    bool mStarted = false;   // the persisted mute has been read (main thread)
+    bool mStarted = false;    // the persisted mute has been read (main thread)
     double mLeaseUntil = 0.0; // the level feed's lease, in Now() seconds
     double mNextLevels = 0.0;
 

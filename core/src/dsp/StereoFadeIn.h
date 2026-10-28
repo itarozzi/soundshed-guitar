@@ -35,8 +35,7 @@ class StereoFadeIn
     }
 
     /// Rewrites `right` in place from `left` for as much of the fade as falls in this block.
-    template <typename Sample>
-    void Apply(const Sample* left, Sample* right, int numSamples) noexcept
+    template <typename Sample> void Apply(const Sample* left, Sample* right, int numSamples) noexcept
     {
         if (mPosition < 0 || !left || !right)
         {

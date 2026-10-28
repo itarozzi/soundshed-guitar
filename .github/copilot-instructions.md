@@ -67,14 +67,17 @@
 - In-app dragging is pointer-driven via core/ui/ts/pointerDrag.ts — do not add `draggable="true"` for it. WebKitGTK (the Linux WebView) never delivers the HTML5 `drop` event to our targets. Native drag-and-drop is only for drags that start outside the WebView, i.e. files from the OS.
 
 ### C++ formatting
-- `core/` is formatted by the repo-root `.clang-format` (Microsoft base: Allman
-  braces, 4-space indent, 120 columns, `T* p` / `T& p`, flush namespaces, and
-  braces inserted on every control statement).
-  Run it before committing C++:
-  `clang-format --style=file -i <files>` — the binary ships with Visual Studio at
+- All of our C++ — `core/`, `nanoq/`, our code under `juce/` (`source/`,
+  `tests/`, `benchmarks/`) and `tools/` — is formatted by the repo-root
+  `.clang-format` (Microsoft base: Allman braces, 4-space indent, 120 columns,
+  `T* p` / `T& p`, flush namespaces, and braces inserted on every control
+  statement), after uncrustify (below).
+  Run both before committing C++. clang-format ships with Visual Studio at
   `VC/Tools/Llvm/x64/bin/clang-format.exe`.
-- **`juce/` is out of scope.** That subtree has its own `.clang-format` (JUCE
-  house style, `SortIncludes: true`). Do not reformat it with the root config.
+- **Vendored code keeps its own style; never format it:** `core/src/compat/json.hpp`,
+  `juce/JUCE` (a submodule), `juce/modules/clap-juce-extensions` and `juce/ASIOSDK`
+  (each has its own `.clang-format`), `ios/compat`, `android/oboe-overlay`.
+- Objective-C++ (`.mm`) is not covered: the root config has no ObjC section.
 - Include order is hand-maintained (own header, then project, then std) and
   sorting is disabled on purpose — reordering can break implicit header
   dependencies.
@@ -118,7 +121,10 @@ handles this via `eat_blanks_after_open_brace` / `eat_blanks_before_close_brace`
 Run uncrustify FIRST and clang-format SECOND — always both, in that order.
 Uncrustify inserts the blank lines; clang-format then normalises everything else
 and preserves them (`MaxEmptyLinesToKeep: 1`), so the two compose rather than
-fight. The pair is confirmed convergent: a second run is a no-op.
+fight. The pair is convergent: a second run is a no-op. (It was not, for a
+multi-line `/** */` comment on a class member, until `indent_class = true` went
+into `tools/uncrustify.cfg`: each run pushed the comment's continuation lines 4
+columns deeper.)
 
 ```bash
 uncrustify -c tools/uncrustify.cfg -l CPP --no-backup <files>

@@ -157,9 +157,8 @@ bool MessageDispatcher::DispatchSettings(PluginController& c, const nlohmann::js
 
         if (msg.contains("settings") && msg["settings"].is_object())
         {
-            const auto native = c.mUiSettings.is_object() && c.mUiSettings.contains("native")
-                                    ? c.mUiSettings["native"]
-                                    : nlohmann::json();
+            const auto native = c.mUiSettings.is_object() && c.mUiSettings.contains("native") ? c.mUiSettings["native"]
+                                                                                              : nlohmann::json();
             c.mUiSettings = msg["settings"];
 
             if (!native.is_null() && !c.mUiSettings.contains("native"))

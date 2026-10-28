@@ -32,10 +32,10 @@ constexpr const char* kPluginNodeId = "plugin-host-node";
 
 class TestHost final : public guitarfx::IPluginHost
 {
-public:
+  public:
     explicit TestHost(fs::path userDataPath, fs::path bundledAssetsPath = {})
-        : mUserDataPath(std::move(userDataPath))
-        , mBundledAssetsPath(bundledAssetsPath.empty() ? mUserDataPath : std::move(bundledAssetsPath))
+        : mUserDataPath(std::move(userDataPath)),
+          mBundledAssetsPath(bundledAssetsPath.empty() ? mUserDataPath : std::move(bundledAssetsPath))
     {
     }
 
@@ -44,16 +44,13 @@ public:
         sentMessages.push_back(jsonMessage);
     }
 
-    void BrowseFileAsync(guitarfx::BrowseFileType,
-                         const std::string&,
+    void BrowseFileAsync(guitarfx::BrowseFileType, const std::string&,
                          std::function<void(const guitarfx::BrowseFileResult&)> callback) override
     {
         callback(guitarfx::BrowseFileResult{});
     }
 
-    void SaveFileAsync(guitarfx::BrowseFileType,
-                       const std::string&,
-                       const std::string&,
+    void SaveFileAsync(guitarfx::BrowseFileType, const std::string&, const std::string&,
                        std::function<void(const guitarfx::BrowseFileResult&)> callback) override
     {
         callback(guitarfx::BrowseFileResult{});
@@ -92,7 +89,7 @@ public:
     std::vector<std::string> sentMessages;
     int stateChangedNotifications = 0;
 
-private:
+  private:
     fs::path mUserDataPath;
     fs::path mBundledAssetsPath;
 };
@@ -106,23 +103,27 @@ void SetSettingsEnvRoot(const fs::path& root)
 #endif
 }
 
-template <typename Function>
-auto CallOnMessageThread(Function&& fn) -> decltype(fn())
+template <typename Function> auto CallOnMessageThread(Function&& fn) -> decltype(fn())
 {
     using ReturnType = decltype(fn());
 
     if (juce::MessageManager::getInstance()->isThisTheMessageThread())
+    {
         return fn();
+    }
 
     if constexpr (std::is_void_v<ReturnType>)
     {
-        (void) juce::MessageManager::callSync(std::forward<Function>(fn));
+        (void)juce::MessageManager::callSync(std::forward<Function>(fn));
     }
     else
     {
         auto result = juce::MessageManager::callSync(std::forward<Function>(fn));
+
         if (!result.has_value())
+        {
             return ReturnType{};
+        }
 
         return *result;
     }
@@ -156,16 +157,26 @@ struct NamedParameterSnapshot
 bool CompareSnapshots(const PluginSnapshot& lhs, const PluginSnapshot& rhs)
 {
     if (lhs.currentProgram != rhs.currentProgram)
+    {
         return false;
+    }
+
     if (lhs.parameterValues.size() != rhs.parameterValues.size())
+    {
         return false;
+    }
+
     if (lhs.stateBase64 != rhs.stateBase64)
+    {
         return false;
+    }
 
     for (size_t index = 0; index < lhs.parameterValues.size(); ++index)
     {
         if (!NearlyEqual(lhs.parameterValues[index], rhs.parameterValues[index]))
+        {
             return false;
+        }
     }
 
     return true;
@@ -178,8 +189,11 @@ std::optional<nlohmann::json> FindLastUiMessageOfType(const TestHost& host, cons
         try
         {
             const auto message = nlohmann::json::parse(*it);
+
             if (message.value("type", "") == type)
+            {
                 return message;
+            }
         }
         catch (...)
         {
@@ -193,31 +207,33 @@ std::string DescribeSnapshotDifference(const PluginSnapshot& expected, const Plu
 {
     if (expected.currentProgram != actual.currentProgram)
     {
-        return "current program mismatch: expected "
-            + (expected.currentProgram.has_value() ? std::to_string(*expected.currentProgram) : std::string{"<none>"})
-            + ", got "
-            + (actual.currentProgram.has_value() ? std::to_string(*actual.currentProgram) : std::string{"<none>"});
+        return "current program mismatch: expected " +
+               (expected.currentProgram.has_value() ? std::to_string(*expected.currentProgram)
+                                                    : std::string{"<none>"}) +
+               ", got " +
+               (actual.currentProgram.has_value() ? std::to_string(*actual.currentProgram) : std::string{"<none>"});
     }
 
     if (expected.parameterValues.size() != actual.parameterValues.size())
     {
-        return "parameter count mismatch: expected " + std::to_string(expected.parameterValues.size())
-            + ", got " + std::to_string(actual.parameterValues.size());
+        return "parameter count mismatch: expected " + std::to_string(expected.parameterValues.size()) + ", got " +
+               std::to_string(actual.parameterValues.size());
     }
 
     for (size_t index = 0; index < expected.parameterValues.size(); ++index)
     {
         if (!NearlyEqual(expected.parameterValues[index], actual.parameterValues[index]))
         {
-            return "parameter[" + std::to_string(index) + "] mismatch: expected "
-                + std::to_string(expected.parameterValues[index]) + ", got " + std::to_string(actual.parameterValues[index]);
+            return "parameter[" + std::to_string(index) + "] mismatch: expected " +
+                   std::to_string(expected.parameterValues[index]) + ", got " +
+                   std::to_string(actual.parameterValues[index]);
         }
     }
 
     if (expected.stateBase64 != actual.stateBase64)
     {
-        return "state blob mismatch after restore: expected length " + std::to_string(expected.stateBase64.size())
-            + ", got length " + std::to_string(actual.stateBase64.size());
+        return "state blob mismatch after restore: expected length " + std::to_string(expected.stateBase64.size()) +
+               ", got length " + std::to_string(actual.stateBase64.size());
     }
 
     return {};
@@ -234,8 +250,7 @@ juce::AudioPluginInstance* RequirePlugin(guitarfx::JuceHostedPluginEffect& effec
 }
 
 guitarfx::JuceHostedPluginEffect* RequireHostedEffect(guitarfx::PluginController& controller,
-                                                      const std::string& presetId,
-                                                      const std::string& nodeId)
+                                                      const std::string& presetId, const std::string& nodeId)
 {
     auto* processor = controller.GetMixer().GetNodeProcessor(presetId, nodeId);
     return dynamic_cast<guitarfx::JuceHostedPluginEffect*>(processor);
@@ -243,10 +258,11 @@ guitarfx::JuceHostedPluginEffect* RequireHostedEffect(guitarfx::PluginController
 
 std::optional<int> GetCurrentProgram(juce::AudioPluginInstance& plugin)
 {
-    return CallOnMessageThread([&plugin]() -> std::optional<int>
-    {
+    return CallOnMessageThread([&plugin]() -> std::optional<int> {
         if (plugin.getNumPrograms() <= 1)
+        {
             return std::nullopt;
+        }
 
         return plugin.getCurrentProgram();
     });
@@ -261,33 +277,42 @@ PluginSnapshot CaptureSnapshot(guitarfx::JuceHostedPluginEffect& effect, juce::A
         std::vector<float> values;
         const auto& parameters = plugin.getParameters();
         values.reserve(parameters.size());
+
         for (auto* parameter : parameters)
         {
             if (parameter == nullptr)
+            {
                 continue;
+            }
 
             values.push_back(parameter->getValue());
         }
+
         return values;
     });
     return snapshot;
 }
 
-std::optional<NamedParameterSnapshot> FindParameterByName(juce::AudioPluginInstance& plugin,
-                                                          const std::string& needle)
+std::optional<NamedParameterSnapshot> FindParameterByName(juce::AudioPluginInstance& plugin, const std::string& needle)
 {
-    return CallOnMessageThread([&plugin, needle]() -> std::optional<NamedParameterSnapshot>
-    {
+    return CallOnMessageThread([&plugin, needle]() -> std::optional<NamedParameterSnapshot> {
         const auto& parameters = plugin.getParameters();
+
         for (int index = 0; index < static_cast<int>(parameters.size()); ++index)
         {
             auto* parameter = parameters[static_cast<size_t>(index)];
+
             if (parameter == nullptr)
+            {
                 continue;
+            }
 
             const auto name = parameter->getName(256);
+
             if (!name.containsIgnoreCase(needle))
+            {
                 continue;
+            }
 
             return NamedParameterSnapshot{
                 index,
@@ -303,9 +328,15 @@ std::optional<NamedParameterSnapshot> FindParameterByName(juce::AudioPluginInsta
 float ChooseDistinctParameterValue(float currentValue)
 {
     if (currentValue < 0.2f)
+    {
         return 0.82f;
+    }
+
     if (currentValue > 0.8f)
+    {
         return 0.18f;
+    }
+
     return currentValue < 0.5f ? 0.86f : 0.14f;
 }
 
@@ -313,15 +344,23 @@ bool SetParameterValue(juce::AudioPluginInstance& plugin, int index, float targe
 {
     return CallOnMessageThread([&plugin, index, targetValue]() {
         const auto& parameters = plugin.getParameters();
+
         if (index < 0 || index >= static_cast<int>(parameters.size()))
+        {
             return false;
+        }
 
         auto* parameter = parameters[static_cast<size_t>(index)];
+
         if (parameter == nullptr)
+        {
             return false;
+        }
 
         if (NearlyEqual(parameter->getValue(), targetValue))
+        {
             return false;
+        }
 
         parameter->beginChangeGesture();
         parameter->setValueNotifyingHost(targetValue);
@@ -330,21 +369,29 @@ bool SetParameterValue(juce::AudioPluginInstance& plugin, int index, float targe
     });
 }
 
-bool MutateSpecificParameter(juce::AudioPluginInstance& plugin,
-                             const std::string& parameterNeedle,
+bool MutateSpecificParameter(juce::AudioPluginInstance& plugin, const std::string& parameterNeedle,
                              NamedParameterSnapshot& mutatedParameter)
 {
     const auto foundParameter = FindParameterByName(plugin, parameterNeedle);
+
     if (!foundParameter.has_value())
+    {
         return false;
+    }
 
     const float targetValue = ChooseDistinctParameterValue(foundParameter->value);
+
     if (!SetParameterValue(plugin, foundParameter->index, targetValue))
+    {
         return false;
+    }
 
     const auto updatedParameter = FindParameterByName(plugin, parameterNeedle);
+
     if (!updatedParameter.has_value())
+    {
         return false;
+    }
 
     mutatedParameter = *updatedParameter;
     return !NearlyEqual(foundParameter->value, mutatedParameter.value);
@@ -362,7 +409,9 @@ PluginMutationSummary MutatePluginState(juce::AudioPluginInstance& plugin)
 
     summary.changedProgram = CallOnMessageThread([&plugin]() {
         if (plugin.getNumPrograms() <= 1)
+        {
             return false;
+        }
 
         const int currentProgram = plugin.getCurrentProgram();
         const int targetProgram = currentProgram == 0 ? 1 : 0;
@@ -371,20 +420,29 @@ PluginMutationSummary MutatePluginState(juce::AudioPluginInstance& plugin)
     });
 
     if (summary.changedProgram)
+    {
         return summary;
+    }
 
     summary.changedParameter = CallOnMessageThread([&plugin]() {
         const auto& parameters = plugin.getParameters();
+
         for (int index = 0; index < static_cast<int>(parameters.size()); ++index)
         {
             auto* parameter = parameters[static_cast<size_t>(index)];
+
             if (parameter == nullptr || parameter->isMetaParameter())
+            {
                 continue;
+            }
 
             const float currentValue = parameter->getValue();
             const float targetValue = currentValue < 0.5f ? 0.75f : 0.25f;
+
             if (NearlyEqual(parameter->getValue(), targetValue))
+            {
                 continue;
+            }
 
             parameter->setValueNotifyingHost(targetValue);
             return true;
@@ -441,6 +499,7 @@ guitarfx::Preset BuildHostedPluginPreset(const std::string& presetId, const std:
 bool TestHostedPluginSnapshotRoundTrip()
 {
     guitarfx::JuceHostedPluginEffect sourceEffect;
+
     if (!LoadPreparedPlugin(sourceEffect))
     {
         Fail("Failed to load Graphene in source effect");
@@ -448,6 +507,7 @@ bool TestHostedPluginSnapshotRoundTrip()
     }
 
     auto* sourcePlugin = RequirePlugin(sourceEffect);
+
     if (sourcePlugin == nullptr)
     {
         Fail("Source effect did not expose a hosted plugin instance");
@@ -455,6 +515,7 @@ bool TestHostedPluginSnapshotRoundTrip()
     }
 
     const PluginSnapshot baselineSnapshot = CaptureSnapshot(sourceEffect, *sourcePlugin);
+
     if (baselineSnapshot.stateBase64.empty())
     {
         Fail("Baseline Graphene state capture returned an empty blob");
@@ -462,6 +523,7 @@ bool TestHostedPluginSnapshotRoundTrip()
     }
 
     const auto mutation = MutatePluginState(*sourcePlugin);
+
     if (!mutation.changedProgram && !mutation.changedParameter)
     {
         Fail("Graphene exposed neither mutable programs nor mutable parameters for state mutation");
@@ -469,6 +531,7 @@ bool TestHostedPluginSnapshotRoundTrip()
     }
 
     const PluginSnapshot mutatedSnapshot = CaptureSnapshot(sourceEffect, *sourcePlugin);
+
     if (mutatedSnapshot.stateBase64.empty())
     {
         Fail("Mutated Graphene state capture returned an empty blob");
@@ -484,6 +547,7 @@ bool TestHostedPluginSnapshotRoundTrip()
     guitarfx::JuceHostedPluginEffect restoredEffect;
     restoredEffect.Prepare(kSampleRate, kBlockSize);
     restoredEffect.SetConfig(kStateConfigKey, mutatedSnapshot.stateBase64);
+
     if (!restoredEffect.LoadResource(fs::path{kGraphenePath}))
     {
         Fail("Failed to load Graphene in restored effect");
@@ -491,6 +555,7 @@ bool TestHostedPluginSnapshotRoundTrip()
     }
 
     auto* restoredPlugin = RequirePlugin(restoredEffect);
+
     if (restoredPlugin == nullptr)
     {
         Fail("Restored effect did not expose a hosted plugin instance");
@@ -498,10 +563,11 @@ bool TestHostedPluginSnapshotRoundTrip()
     }
 
     const PluginSnapshot restoredSnapshot = CaptureSnapshot(restoredEffect, *restoredPlugin);
+
     if (!CompareSnapshots(mutatedSnapshot, restoredSnapshot))
     {
-        Fail("Restored Graphene snapshot did not match the captured full plugin snapshot: "
-            + DescribeSnapshotDifference(mutatedSnapshot, restoredSnapshot));
+        Fail("Restored Graphene snapshot did not match the captured full plugin snapshot: " +
+             DescribeSnapshotDifference(mutatedSnapshot, restoredSnapshot));
         return false;
     }
 
@@ -527,10 +593,11 @@ bool TestControllerPresetSaveLoadRoundTrip()
     sourceController.HandleUIMessage(nlohmann::json{
         {"type", "loadPreset"},
         {"presetId", sourcePreset.id},
-        {"preset", nlohmann::json::parse(guitarfx::PresetStorage::SerializeToJson(sourcePreset))}
-    }.dump());
+        {"preset", nlohmann::json::parse(guitarfx::PresetStorage::SerializeToJson(
+                       sourcePreset))}}.dump());
 
     auto* sourceEffect = RequireHostedEffect(sourceController, sourcePreset.id, kPluginNodeId);
+
     if (sourceEffect == nullptr)
     {
         Fail("Controller source preset did not create a hosted plugin effect");
@@ -538,6 +605,7 @@ bool TestControllerPresetSaveLoadRoundTrip()
     }
 
     auto* sourcePlugin = RequirePlugin(*sourceEffect);
+
     if (sourcePlugin == nullptr)
     {
         Fail("Controller source preset did not expose a hosted plugin instance");
@@ -545,6 +613,7 @@ bool TestControllerPresetSaveLoadRoundTrip()
     }
 
     const auto mutation = MutatePluginState(*sourcePlugin);
+
     if (!mutation.changedProgram && !mutation.changedParameter)
     {
         Fail("Controller source preset could not mutate Graphene state");
@@ -552,6 +621,7 @@ bool TestControllerPresetSaveLoadRoundTrip()
     }
 
     const PluginSnapshot mutatedSnapshot = CaptureSnapshot(*sourceEffect, *sourcePlugin);
+
     if (mutatedSnapshot.stateBase64.empty())
     {
         Fail("Controller source preset captured an empty hosted plugin state blob");
@@ -564,11 +634,12 @@ bool TestControllerPresetSaveLoadRoundTrip()
         {"name", "Graphene Controller Saved"},
         {"category", "Unit"},
         {"description", "Hosted plugin preset save/load round-trip"},
-        {"presetId", savedPresetId}
-    }.dump());
+        {"presetId", savedPresetId}}.dump());
 
-    const fs::path savedPresetPath = sandbox / "Soundshed Guitar" / "data" / "v1" / "presets" / "user" / (savedPresetId + ".json");
+    const fs::path savedPresetPath =
+        sandbox / "Soundshed Guitar" / "data" / "v1" / "presets" / "user" / (savedPresetId + ".json");
     const auto savedPreset = guitarfx::PresetStorage::LoadFromFile(savedPresetPath);
+
     if (!savedPreset)
     {
         Fail("Saved preset file was not written for the controller round-trip test");
@@ -576,6 +647,7 @@ bool TestControllerPresetSaveLoadRoundTrip()
     }
 
     const auto* savedNode = savedPreset->graph.FindNode(kPluginNodeId);
+
     if (savedNode == nullptr)
     {
         Fail("Saved preset is missing the hosted plugin node");
@@ -583,6 +655,7 @@ bool TestControllerPresetSaveLoadRoundTrip()
     }
 
     const auto savedStateIt = savedNode->config.find(kStateConfigKey);
+
     if (savedStateIt == savedNode->config.end() || savedStateIt->second.empty())
     {
         Fail("Saved preset did not persist the hosted plugin state blob");
@@ -602,10 +675,11 @@ bool TestControllerPresetSaveLoadRoundTrip()
     restoredController.HandleUIMessage(nlohmann::json{
         {"type", "loadPreset"},
         {"presetId", savedPreset->id},
-        {"preset", nlohmann::json::parse(guitarfx::PresetStorage::SerializeToJson(*savedPreset))}
-    }.dump());
+        {"preset", nlohmann::json::parse(guitarfx::PresetStorage::SerializeToJson(
+                       *savedPreset))}}.dump());
 
     auto* restoredEffect = RequireHostedEffect(restoredController, savedPreset->id, kPluginNodeId);
+
     if (restoredEffect == nullptr)
     {
         Fail("Restored controller preset did not create a hosted plugin effect");
@@ -613,6 +687,7 @@ bool TestControllerPresetSaveLoadRoundTrip()
     }
 
     auto* restoredPlugin = RequirePlugin(*restoredEffect);
+
     if (restoredPlugin == nullptr)
     {
         Fail("Restored controller preset did not expose a hosted plugin instance");
@@ -620,10 +695,11 @@ bool TestControllerPresetSaveLoadRoundTrip()
     }
 
     const PluginSnapshot restoredSnapshot = CaptureSnapshot(*restoredEffect, *restoredPlugin);
+
     if (!CompareSnapshots(mutatedSnapshot, restoredSnapshot))
     {
-        Fail("Controller preset save/load did not restore the full Graphene plugin snapshot: "
-            + DescribeSnapshotDifference(mutatedSnapshot, restoredSnapshot));
+        Fail("Controller preset save/load did not restore the full Graphene plugin snapshot: " +
+             DescribeSnapshotDifference(mutatedSnapshot, restoredSnapshot));
         return false;
     }
 
@@ -635,7 +711,8 @@ bool TestControllerPresetSaveLoadRoundTrip()
 /// used to re-create every plugin in the chain.
 bool TestControllerChainEditKeepsHostedPluginInstance()
 {
-    const fs::path sandbox = fs::temp_directory_path() / "guitarfx-hosted-plugin-tests" / "controller-edit-keeps-instance";
+    const fs::path sandbox =
+        fs::temp_directory_path() / "guitarfx-hosted-plugin-tests" / "controller-edit-keeps-instance";
     std::error_code ec;
     fs::remove_all(sandbox, ec);
     fs::create_directories(sandbox, ec);
@@ -652,11 +729,12 @@ bool TestControllerChainEditKeepsHostedPluginInstance()
     controller.HandleUIMessage(nlohmann::json{
         {"type", "loadPreset"},
         {"presetId", preset.id},
-        {"preset", nlohmann::json::parse(guitarfx::PresetStorage::SerializeToJson(preset))}
-    }.dump());
+        {"preset", nlohmann::json::parse(guitarfx::PresetStorage::SerializeToJson(
+                       preset))}}.dump());
 
     auto* effect = RequireHostedEffect(controller, preset.id, kPluginNodeId);
     auto* plugin = effect != nullptr ? RequirePlugin(*effect) : nullptr;
+
     if (plugin == nullptr)
     {
         Fail("Controller edit preset did not load Graphene");
@@ -664,21 +742,22 @@ bool TestControllerChainEditKeepsHostedPluginInstance()
     }
 
     const auto mutation = MutatePluginState(*plugin);
+
     if (!mutation.changedProgram && !mutation.changedParameter)
     {
         Fail("Controller edit preset could not mutate Graphene state");
         return false;
     }
+
     const PluginSnapshot before = CaptureSnapshot(*effect, *plugin);
 
     // An edit elsewhere in the chain: a Gain ahead of the plugin.
     controller.HandleUIMessage(nlohmann::json{
-        {"type", "addSignalPathNode"},
-        {"effectType", guitarfx::EffectGuids::kGain},
-        {"insertAfter", "__input__"}
-    }.dump());
+        {"type", "addSignalPathNode"}, {"effectType", guitarfx::EffectGuids::kGain}, {"insertAfter", "__input__"}}
+                                   .dump());
 
     auto* rebuiltEffect = RequireHostedEffect(controller, preset.id, kPluginNodeId);
+
     if (rebuiltEffect == nullptr || rebuiltEffect == effect)
     {
         Fail("Adding a node did not rebuild the chain");
@@ -692,6 +771,7 @@ bool TestControllerChainEditKeepsHostedPluginInstance()
     }
 
     const PluginSnapshot after = CaptureSnapshot(*rebuiltEffect, *plugin);
+
     if (!CompareSnapshots(before, after))
     {
         Fail("The kept instance lost its state across the edit: " + DescribeSnapshotDifference(before, after));
@@ -703,7 +783,8 @@ bool TestControllerChainEditKeepsHostedPluginInstance()
 
 bool TestControllerAutoCapturesHostedPluginStateOnParameterChange(const std::string& parameterNeedle)
 {
-    const fs::path sandbox = fs::temp_directory_path() / "guitarfx-hosted-plugin-tests" / ("controller-auto-capture-" + parameterNeedle);
+    const fs::path sandbox =
+        fs::temp_directory_path() / "guitarfx-hosted-plugin-tests" / ("controller-auto-capture-" + parameterNeedle);
     std::error_code ec;
     fs::remove_all(sandbox, ec);
     fs::create_directories(sandbox, ec);
@@ -718,14 +799,16 @@ bool TestControllerAutoCapturesHostedPluginStateOnParameterChange(const std::str
     sourceController.OnWebContentLoaded();
     sourceHost.sentMessages.clear();
 
-    const auto sourcePreset = BuildHostedPluginPreset("graphene-controller-auto-capture-source", "Graphene Controller Auto Capture Source");
+    const auto sourcePreset =
+        BuildHostedPluginPreset("graphene-controller-auto-capture-source", "Graphene Controller Auto Capture Source");
     sourceController.HandleUIMessage(nlohmann::json{
         {"type", "loadPreset"},
         {"presetId", sourcePreset.id},
-        {"preset", nlohmann::json::parse(guitarfx::PresetStorage::SerializeToJson(sourcePreset))}
-    }.dump());
+        {"preset", nlohmann::json::parse(guitarfx::PresetStorage::SerializeToJson(
+                       sourcePreset))}}.dump());
 
     auto* sourceEffect = RequireHostedEffect(sourceController, sourcePreset.id, kPluginNodeId);
+
     if (sourceEffect == nullptr)
     {
         Fail("Controller auto-capture test did not create a hosted plugin effect");
@@ -733,6 +816,7 @@ bool TestControllerAutoCapturesHostedPluginStateOnParameterChange(const std::str
     }
 
     auto* sourcePlugin = RequirePlugin(*sourceEffect);
+
     if (sourcePlugin == nullptr)
     {
         Fail("Controller auto-capture test did not expose a hosted plugin instance");
@@ -742,6 +826,7 @@ bool TestControllerAutoCapturesHostedPluginStateOnParameterChange(const std::str
     const PluginSnapshot baselineSnapshot = CaptureSnapshot(*sourceEffect, *sourcePlugin);
 
     NamedParameterSnapshot mutatedParameter;
+
     if (!MutateSpecificParameter(*sourcePlugin, parameterNeedle, mutatedParameter))
     {
         Fail("Controller auto-capture test could not mutate parameter '" + parameterNeedle + "'");
@@ -757,18 +842,17 @@ bool TestControllerAutoCapturesHostedPluginStateOnParameterChange(const std::str
     }
 
     const auto nodeConfigMessage = FindLastUiMessageOfType(sourceHost, "signalPathNodeConfigUpdated");
+
     if (!nodeConfigMessage.has_value())
     {
         Fail("Controller auto-capture test did not emit a signalPathNodeConfigUpdated message");
         return false;
     }
 
-    if (nodeConfigMessage->value("nodeId", "") != kPluginNodeId
-        || nodeConfigMessage->value("key", "") != kStateConfigKey
-        || !nodeConfigMessage->value("captured", false)
-        || !nodeConfigMessage->value("dirty", false)
-        || !nodeConfigMessage->value("persist", false)
-        || !nodeConfigMessage->value("silent", false))
+    if (nodeConfigMessage->value("nodeId", "") != kPluginNodeId ||
+        nodeConfigMessage->value("key", "") != kStateConfigKey || !nodeConfigMessage->value("captured", false) ||
+        !nodeConfigMessage->value("dirty", false) || !nodeConfigMessage->value("persist", false) ||
+        !nodeConfigMessage->value("silent", false))
     {
         Fail("Controller auto-capture emitted an unexpected signalPathNodeConfigUpdated payload");
         return false;
@@ -776,11 +860,13 @@ bool TestControllerAutoCapturesHostedPluginStateOnParameterChange(const std::str
 
     if (nodeConfigMessage->value("valueLength", 0) <= 0)
     {
-        Fail("Controller auto-capture signalPathNodeConfigUpdated message did not include the hosted plugin state length");
+        Fail(
+            "Controller auto-capture signalPathNodeConfigUpdated message did not include the hosted plugin state length");
         return false;
     }
 
     const auto stateMessage = FindLastUiMessageOfType(sourceHost, "state");
+
     if (!stateMessage.has_value())
     {
         Fail("Controller auto-capture test did not broadcast updated state");
@@ -788,6 +874,7 @@ bool TestControllerAutoCapturesHostedPluginStateOnParameterChange(const std::str
     }
 
     const auto presetGraphsIt = stateMessage->find("mixer");
+
     if (presetGraphsIt == stateMessage->end() || !presetGraphsIt->is_object())
     {
         Fail("Controller auto-capture state broadcast is missing mixer state");
@@ -795,6 +882,7 @@ bool TestControllerAutoCapturesHostedPluginStateOnParameterChange(const std::str
     }
 
     const auto graphsIt = presetGraphsIt->find("presetGraphs");
+
     if (graphsIt == presetGraphsIt->end() || !graphsIt->is_object())
     {
         Fail("Controller auto-capture state broadcast is missing presetGraphs");
@@ -802,30 +890,38 @@ bool TestControllerAutoCapturesHostedPluginStateOnParameterChange(const std::str
     }
 
     const auto uiPresetIt = stateMessage->find("preset");
+
     if (uiPresetIt == stateMessage->end() || !uiPresetIt->is_object())
     {
         Fail("Controller auto-capture state broadcast is missing the scrubbed UI preset");
         return false;
     }
 
-    const auto* uiPresetNode = [&]() -> const nlohmann::json*
-    {
+    const auto* uiPresetNode = [&]() -> const nlohmann::json* {
         if (const auto scenesIt = uiPresetIt->find("scenes"); scenesIt != uiPresetIt->end() && scenesIt->is_array())
         {
             for (const auto& scene : *scenesIt)
             {
                 const auto graphIt = scene.find("graph");
+
                 if (graphIt == scene.end() || !graphIt->is_object())
+                {
                     continue;
+                }
 
                 const auto nodesIt = graphIt->find("nodes");
+
                 if (nodesIt == graphIt->end() || !nodesIt->is_array())
+                {
                     continue;
+                }
 
                 for (const auto& node : *nodesIt)
                 {
                     if (node.value("id", "") == kPluginNodeId)
+                    {
                         return &node;
+                    }
                 }
             }
         }
@@ -840,6 +936,7 @@ bool TestControllerAutoCapturesHostedPluginStateOnParameterChange(const std::str
     }
 
     const auto uiConfigIt = uiPresetNode->find("config");
+
     if (uiConfigIt == uiPresetNode->end() || !uiConfigIt->is_object())
     {
         Fail("Controller auto-capture scrubbed UI preset is missing hosted plugin config");
@@ -847,6 +944,7 @@ bool TestControllerAutoCapturesHostedPluginStateOnParameterChange(const std::str
     }
 
     const auto presetIt = graphsIt->find(sourcePreset.id);
+
     if (presetIt == graphsIt->end() || !presetIt->is_object())
     {
         Fail("Controller auto-capture state broadcast is missing the active preset graph");
@@ -854,6 +952,7 @@ bool TestControllerAutoCapturesHostedPluginStateOnParameterChange(const std::str
     }
 
     const auto autoCapturedPreset = guitarfx::PresetStorage::DeserializeFromJson(presetIt->dump());
+
     if (!autoCapturedPreset)
     {
         Fail("Controller auto-capture state broadcast did not contain a valid preset graph");
@@ -861,6 +960,7 @@ bool TestControllerAutoCapturesHostedPluginStateOnParameterChange(const std::str
     }
 
     const auto* pluginNode = autoCapturedPreset->graph.FindNode(kPluginNodeId);
+
     if (pluginNode == nullptr)
     {
         Fail("Controller auto-capture preset graph is missing the hosted plugin node");
@@ -868,6 +968,7 @@ bool TestControllerAutoCapturesHostedPluginStateOnParameterChange(const std::str
     }
 
     const auto stateIt = pluginNode->config.find(kStateConfigKey);
+
     if (stateIt == pluginNode->config.end() || stateIt->second.empty())
     {
         Fail("Controller auto-capture did not persist the hosted plugin state blob into the active preset graph");
@@ -876,15 +977,16 @@ bool TestControllerAutoCapturesHostedPluginStateOnParameterChange(const std::str
 
     if (stateIt->second == baselineSnapshot.stateBase64)
     {
-        Fail("Controller auto-capture left the active preset graph at the baseline hosted plugin state after mutating parameter '"
-            + mutatedParameter.name + "'");
+        Fail(
+            "Controller auto-capture left the active preset graph at the baseline hosted plugin state after mutating parameter '" +
+            mutatedParameter.name + "'");
         return false;
     }
 
     if (stateIt->second != CaptureState(*sourceEffect))
     {
-        Fail("Controller auto-capture active preset graph does not match the hosted runtime state for parameter '"
-            + mutatedParameter.name + "'");
+        Fail("Controller auto-capture active preset graph does not match the hosted runtime state for parameter '" +
+             mutatedParameter.name + "'");
         return false;
     }
 
@@ -896,8 +998,7 @@ bool TestControllerAutoCapturesHostedPluginStateOnParameterChange(const std::str
         {"key", kStateConfigKey},
         {"value", "__capture_plugin_state__"},
         {"persist", true},
-        {"capture", true}
-    }.dump());
+        {"capture", true}}.dump());
 
     if (sourceHost.stateChangedNotifications <= notifyCountBeforeManualCapture)
     {
@@ -906,19 +1007,18 @@ bool TestControllerAutoCapturesHostedPluginStateOnParameterChange(const std::str
     }
 
     const auto manualCaptureMessage = FindLastUiMessageOfType(sourceHost, "signalPathNodeConfigUpdated");
-    if (!manualCaptureMessage.has_value()
-        || manualCaptureMessage->value("nodeId", "") != kPluginNodeId
-        || manualCaptureMessage->value("key", "") != kStateConfigKey
-        || !manualCaptureMessage->value("captured", false)
-        || !manualCaptureMessage->value("dirty", false)
-        || !manualCaptureMessage->value("persist", false)
-        || manualCaptureMessage->value("silent", false))
+
+    if (!manualCaptureMessage.has_value() || manualCaptureMessage->value("nodeId", "") != kPluginNodeId ||
+        manualCaptureMessage->value("key", "") != kStateConfigKey || !manualCaptureMessage->value("captured", false) ||
+        !manualCaptureMessage->value("dirty", false) || !manualCaptureMessage->value("persist", false) ||
+        manualCaptureMessage->value("silent", false))
     {
         Fail("Manual hosted plugin state capture emitted an unexpected signalPathNodeConfigUpdated payload");
         return false;
     }
 
     sourceController.OnIdle();
+
     if (!FindLastUiMessageOfType(sourceHost, "state").has_value())
     {
         Fail("Manual hosted plugin state capture did not broadcast updated state");
@@ -930,7 +1030,8 @@ bool TestControllerAutoCapturesHostedPluginStateOnParameterChange(const std::str
 
 bool TestControllerAutoCaptureAfterStateRestore(const std::string& parameterNeedle)
 {
-    const fs::path sandbox = fs::temp_directory_path() / "guitarfx-hosted-plugin-tests" / ("controller-auto-capture-after-restore-" + parameterNeedle);
+    const fs::path sandbox = fs::temp_directory_path() / "guitarfx-hosted-plugin-tests" /
+                             ("controller-auto-capture-after-restore-" + parameterNeedle);
     std::error_code ec;
     fs::remove_all(sandbox, ec);
     fs::create_directories(sandbox, ec);
@@ -938,7 +1039,8 @@ bool TestControllerAutoCaptureAfterStateRestore(const std::string& parameterNeed
 
     guitarfx::RegisterJuceHostedPluginEffect();
 
-    const auto sourcePreset = BuildHostedPluginPreset("graphene-controller-restored-auto-capture-source", "Graphene Restored Auto Capture Source");
+    const auto sourcePreset = BuildHostedPluginPreset("graphene-controller-restored-auto-capture-source",
+                                                      "Graphene Restored Auto Capture Source");
 
     TestHost sourceHost(sandbox);
     guitarfx::PluginController sourceController(sourceHost);
@@ -948,8 +1050,8 @@ bool TestControllerAutoCaptureAfterStateRestore(const std::string& parameterNeed
     sourceController.HandleUIMessage(nlohmann::json{
         {"type", "loadPreset"},
         {"presetId", sourcePreset.id},
-        {"preset", nlohmann::json::parse(guitarfx::PresetStorage::SerializeToJson(sourcePreset))}
-    }.dump());
+        {"preset", nlohmann::json::parse(guitarfx::PresetStorage::SerializeToJson(
+                       sourcePreset))}}.dump());
 
     const std::string serializedState = sourceController.SerializeState();
 
@@ -963,6 +1065,7 @@ bool TestControllerAutoCaptureAfterStateRestore(const std::string& parameterNeed
     restoredHost.sentMessages.clear();
 
     auto* restoredEffect = RequireHostedEffect(restoredController, sourcePreset.id, kPluginNodeId);
+
     if (restoredEffect == nullptr)
     {
         Fail("Controller restored auto-capture test did not create a hosted plugin effect");
@@ -970,6 +1073,7 @@ bool TestControllerAutoCaptureAfterStateRestore(const std::string& parameterNeed
     }
 
     auto* restoredPlugin = RequirePlugin(*restoredEffect);
+
     if (restoredPlugin == nullptr)
     {
         Fail("Controller restored auto-capture test did not expose a hosted plugin instance");
@@ -977,6 +1081,7 @@ bool TestControllerAutoCaptureAfterStateRestore(const std::string& parameterNeed
     }
 
     NamedParameterSnapshot mutatedParameter;
+
     if (!MutateSpecificParameter(*restoredPlugin, parameterNeedle, mutatedParameter))
     {
         Fail("Controller restored auto-capture test could not mutate parameter '" + parameterNeedle + "'");
@@ -992,18 +1097,17 @@ bool TestControllerAutoCaptureAfterStateRestore(const std::string& parameterNeed
     }
 
     const auto nodeConfigMessage = FindLastUiMessageOfType(restoredHost, "signalPathNodeConfigUpdated");
+
     if (!nodeConfigMessage.has_value())
     {
         Fail("Controller restored auto-capture did not emit a signalPathNodeConfigUpdated message");
         return false;
     }
 
-    if (nodeConfigMessage->value("nodeId", "") != kPluginNodeId
-        || nodeConfigMessage->value("key", "") != kStateConfigKey
-        || !nodeConfigMessage->value("captured", false)
-        || !nodeConfigMessage->value("dirty", false)
-        || !nodeConfigMessage->value("persist", false)
-        || !nodeConfigMessage->value("silent", false))
+    if (nodeConfigMessage->value("nodeId", "") != kPluginNodeId ||
+        nodeConfigMessage->value("key", "") != kStateConfigKey || !nodeConfigMessage->value("captured", false) ||
+        !nodeConfigMessage->value("dirty", false) || !nodeConfigMessage->value("persist", false) ||
+        !nodeConfigMessage->value("silent", false))
     {
         Fail("Controller restored auto-capture emitted an unexpected signalPathNodeConfigUpdated payload");
         return false;
@@ -1024,11 +1128,13 @@ int main()
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
 
     int failed = 0;
-    const auto run = [&failed](const char* name, bool ok)
-    {
+    const auto run = [&failed](const char* name, bool ok) {
         std::cout << (ok ? "[PASS] " : "[FAIL] ") << name << std::endl;
+
         if (!ok)
+        {
             ++failed;
+        }
     };
 
     run("Hosted effect full snapshot round-trip", TestHostedPluginSnapshotRoundTrip());
@@ -1040,7 +1146,9 @@ int main()
         TestControllerAutoCaptureAfterStateRestore("Blue Amp Tight"));
 
     if (failed != 0)
+    {
         return kFailCode;
+    }
 
     std::cout << "Graphene hosted plugin snapshot round-trip tests passed" << std::endl;
     return 0;

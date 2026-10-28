@@ -60,14 +60,22 @@ std::vector<fs::path> GetScanRoots()
 
         std::string remaining(overrideDirs);
         size_t pos = 0;
+
         while ((pos = remaining.find(kPathSeparator)) != std::string::npos)
         {
             if (pos > 0)
+            {
                 roots.emplace_back(remaining.substr(0, pos));
+            }
+
             remaining.erase(0, pos + 1);
         }
+
         if (!remaining.empty())
+        {
             roots.emplace_back(remaining);
+        }
+
         return roots;
     }
 
@@ -76,8 +84,11 @@ std::vector<fs::path> GetScanRoots()
         roots.emplace_back(fs::path(commonFiles) / "VST3");
         roots.emplace_back(fs::path(commonFiles) / "LV2");
     }
+
     if (const char* appData = std::getenv("APPDATA"))
+    {
         roots.emplace_back(fs::path(appData) / "LV2");
+    }
 
 #if JUCE_MAC
     roots.emplace_back("/Library/Audio/Plug-Ins/VST3");
@@ -98,14 +109,18 @@ bool ShouldSkipCandidate(const fs::path& candidate)
 std::vector<fs::path> CollectPluginCandidates(const std::vector<fs::path>& roots)
 {
     std::vector<fs::path> candidates;
+
     for (const auto& root : roots)
     {
         std::error_code ec;
-        if (!fs::exists(root, ec))
-            continue;
 
-        for (fs::directory_iterator it(root, fs::directory_options::skip_permission_denied, ec), end;
-             it != end && !ec; it.increment(ec))
+        if (!fs::exists(root, ec))
+        {
+            continue;
+        }
+
+        for (fs::directory_iterator it(root, fs::directory_options::skip_permission_denied, ec), end; it != end && !ec;
+             it.increment(ec))
         {
             const fs::path& entry = it->path();
             const std::string ext = ToLower(entry.extension().string());
@@ -119,7 +134,9 @@ std::vector<fs::path> CollectPluginCandidates(const std::vector<fs::path>& roots
 #endif
 
             if ((isVst3 || isLv2Bundle || isAudioUnitBundle) && !ShouldSkipCandidate(entry))
+            {
                 candidates.push_back(entry);
+            }
         }
     }
 
@@ -132,9 +149,13 @@ size_t GetScanLimit(size_t available)
     if (const char* limitVar = std::getenv("GUITARFX_PLUGIN_SCAN_LIMIT"))
     {
         const long parsed = std::strtol(limitVar, nullptr, 10);
+
         if (parsed > 0)
+        {
             return std::min(available, static_cast<size_t>(parsed));
+        }
     }
+
     return available;
 }
 
@@ -147,28 +168,30 @@ void PumpMessageLoop(int milliseconds)
 // device thread that races editor open/close in the real application.
 class AudioPumpThread
 {
-public:
-    explicit AudioPumpThread(guitarfx::JuceHostedPluginEffect& effect)
-        : mThread([this, &effect]() { Run(effect); })
+  public:
+    explicit AudioPumpThread(guitarfx::JuceHostedPluginEffect& effect) : mThread([this, &effect]() { Run(effect); })
     {
     }
 
     ~AudioPumpThread()
     {
         mStop.store(true, std::memory_order_release);
+
         if (mThread.joinable())
+        {
             mThread.join();
+        }
     }
 
-private:
+  private:
     void Run(guitarfx::JuceHostedPluginEffect& effect)
     {
         std::vector<float> left(kBlockSize, 0.05f);
         std::vector<float> right(kBlockSize, -0.05f);
         std::vector<float> outLeft(kBlockSize, 0.0f);
         std::vector<float> outRight(kBlockSize, 0.0f);
-        std::array<float*, 2> inputs { left.data(), right.data() };
-        std::array<float*, 2> outputs { outLeft.data(), outRight.data() };
+        std::array<float*, 2> inputs{left.data(), right.data()};
+        std::array<float*, 2> outputs{outLeft.data(), outRight.data()};
 
         while (!mStop.load(std::memory_order_acquire))
         {
@@ -178,7 +201,7 @@ private:
         }
     }
 
-    std::atomic<bool> mStop { false };
+    std::atomic<bool> mStop{false};
     std::thread mThread;
 };
 
@@ -205,22 +228,37 @@ enum class PluginCandidateType
 PluginCandidateType DetectCandidateType(const fs::path& candidate)
 {
     const auto ext = ToLower(candidate.extension().string());
+
     if (ext == ".vst3")
+    {
         return PluginCandidateType::vst3;
+    }
+
     if (ext == ".component")
+    {
         return PluginCandidateType::component;
+    }
+
     if (ext == ".lv2")
+    {
         return PluginCandidateType::lv2;
+    }
+
     return PluginCandidateType::unknown;
 }
 
 void ExercisePlugin(const fs::path& candidate, ScanResult& result)
 {
     const PluginCandidateType candidateType = DetectCandidateType(candidate);
+
     if (candidateType == PluginCandidateType::vst3)
+    {
         ++result.vst3Candidates;
+    }
     else if (candidateType == PluginCandidateType::component)
+    {
         ++result.componentCandidates;
+    }
 
     std::cout << "[SCAN] " << candidate.string() << std::endl;
 
@@ -228,6 +266,7 @@ void ExercisePlugin(const fs::path& candidate, ScanResult& result)
     effect.Prepare(kSampleRate, kBlockSize);
 
     const bool loadedOk = effect.LoadResource(candidate);
+
     if (!loadedOk)
     {
         const std::string error = effect.GetConfig("lastError");
@@ -238,6 +277,7 @@ void ExercisePlugin(const fs::path& candidate, ScanResult& result)
         if (candidateType == PluginCandidateType::vst3)
         {
             ++result.hardFailures;
+
             if (error.empty())
             {
                 result.failureMessages.push_back(candidate.string() + ": VST3 load failed without setting lastError");
@@ -248,6 +288,7 @@ void ExercisePlugin(const fs::path& candidate, ScanResult& result)
                 result.failureMessages.push_back(candidate.string() + ": VST3 load failed: " + error);
                 std::cout << "  [FAIL] VST3 load failed: " << error << std::endl;
             }
+
             return;
         }
 
@@ -262,18 +303,24 @@ void ExercisePlugin(const fs::path& candidate, ScanResult& result)
             ++result.gracefulLoadFailures;
             std::cout << "  [SKIP] graceful load failure: " << error << std::endl;
         }
+
         return;
     }
 
     ++result.loaded;
     const std::string loadedFormat = ToLower(effect.GetConfig("pluginFormat"));
-    if (loadedFormat.find("vst3") != std::string::npos)
-        ++result.loadedVst3;
-    else if (loadedFormat.find("audio") != std::string::npos || loadedFormat.find("au") != std::string::npos)
-        ++result.loadedComponent;
 
-    std::cout << "  loaded: " << effect.GetConfig("pluginName")
-              << " (" << effect.GetConfig("pluginFormat") << ")" << std::endl;
+    if (loadedFormat.find("vst3") != std::string::npos)
+    {
+        ++result.loadedVst3;
+    }
+    else if (loadedFormat.find("audio") != std::string::npos || loadedFormat.find("au") != std::string::npos)
+    {
+        ++result.loadedComponent;
+    }
+
+    std::cout << "  loaded: " << effect.GetConfig("pluginName") << " (" << effect.GetConfig("pluginFormat") << ")"
+              << std::endl;
 
     {
         // Race audio against editor open/close, like the device thread does.
@@ -286,10 +333,12 @@ void ExercisePlugin(const fs::path& candidate, ScanResult& result)
         if (!effect.IsPluginEditorOpenForTesting())
         {
             const std::string error = effect.GetConfig("lastError");
+
             if (error.empty())
             {
                 ++result.hardFailures;
-                result.failureMessages.push_back(candidate.string() + ": editor did not open and no error was reported");
+                result.failureMessages.push_back(candidate.string() +
+                                                 ": editor did not open and no error was reported");
                 std::cout << "  [FAIL] editor did not open, no error reported" << std::endl;
             }
             else
@@ -324,6 +373,7 @@ int main()
 
     const auto roots = GetScanRoots();
     auto candidates = CollectPluginCandidates(roots);
+
     if (candidates.empty())
     {
         std::cout << "Skipping hosted plugin batch scan; no plugin candidates found." << std::endl;
@@ -336,36 +386,46 @@ int main()
     std::cout << "Batch scanning " << candidates.size() << " plugin candidate(s)" << std::endl;
 
     ScanResult result;
+
     for (const auto& candidate : candidates)
+    {
         ExercisePlugin(candidate, result);
+    }
 
     std::cout << "\nBatch scan summary: loaded=" << result.loaded
-              << ", gracefulLoadFailures=" << result.gracefulLoadFailures
-              << ", hardFailures=" << result.hardFailures << std::endl;
-    std::cout << "Format summary: vst3 candidates=" << result.vst3Candidates
-              << ", vst3 loaded=" << result.loadedVst3
+              << ", gracefulLoadFailures=" << result.gracefulLoadFailures << ", hardFailures=" << result.hardFailures
+              << std::endl;
+    std::cout << "Format summary: vst3 candidates=" << result.vst3Candidates << ", vst3 loaded=" << result.loadedVst3
               << ", component candidates=" << result.componentCandidates
               << ", component loaded=" << result.loadedComponent << std::endl;
 
 #if JUCE_MAC
+
     if (result.vst3Candidates > 0 && result.loadedVst3 == 0)
     {
         ++result.hardFailures;
-        result.failureMessages.push_back("No VST3 plugin loaded successfully on macOS (despite VST3 candidates being discovered)");
+        result.failureMessages.push_back(
+            "No VST3 plugin loaded successfully on macOS (despite VST3 candidates being discovered)");
     }
 
     if (result.componentCandidates > 0 && result.loadedComponent == 0)
     {
         ++result.hardFailures;
-        result.failureMessages.push_back("No Audio Unit (.component) plugin loaded successfully on macOS (despite component candidates being discovered)");
+        result.failureMessages.push_back(
+            "No Audio Unit (.component) plugin loaded successfully on macOS (despite component candidates being discovered)");
     }
+
 #endif
 
     for (const auto& message : result.failureMessages)
+    {
         std::cerr << "[HostedPluginBatchScanTests] " << message << std::endl;
+    }
 
     if (result.hardFailures > 0)
+    {
         return kFailCode;
+    }
 
     if (result.loaded == 0)
     {

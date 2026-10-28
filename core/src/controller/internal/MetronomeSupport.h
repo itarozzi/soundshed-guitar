@@ -437,5 +437,4 @@ inline constexpr std::uint32_t PackBeatPulse(std::uint32_t seq, int beatIndex, i
     return ((seq & kBeatPulseSeqMask) << 18) | ((static_cast<std::uint32_t>(level) & 0x3u) << 16) |
            ((static_cast<std::uint32_t>(beatsPerBar) & 0xFFu) << 8) | (static_cast<std::uint32_t>(beatIndex) & 0xFFu);
 }
-
 } // namespace guitarfx::controller_detail

@@ -11,7 +11,7 @@
 
 namespace juce
 {
-    class StandalonePluginHolder;
+class StandalonePluginHolder;
 }
 
 //==============================================================================
@@ -57,47 +57,46 @@ namespace juce
  *
  * Message thread only, like the device manager itself.
  */
-class StandaloneAudioSettings final : private juce::ChangeListener,
-                                      private juce::Timer
+class StandaloneAudioSettings final : private juce::ChangeListener, private juce::Timer
 {
-public:
-    using SendToUI = std::function<void (const juce::String& json)>;
+  public:
+    using SendToUI = std::function<void(const juce::String& json)>;
 
-    StandaloneAudioSettings (juce::StandalonePluginHolder& holder, SendToUI sendToUI);
+    StandaloneAudioSettings(juce::StandalonePluginHolder& holder, SendToUI sendToUI);
     ~StandaloneAudioSettings() override;
 
     /// One "audioDevice" message from the UI, as JSON text.
-    void handleRequest (const std::string& requestJson);
+    void handleRequest(const std::string& requestJson);
     /// The open device's input plus output latency in samples, 0 with none open. Message thread.
     [[nodiscard]] int deviceLatencySamples() const;
 
-private:
-    void changeListenerCallback (juce::ChangeBroadcaster*) override;
+  private:
+    void changeListenerCallback(juce::ChangeBroadcaster*) override;
     void timerCallback() override;
 
     // Every reply is the whole state, with the error from the request that caused
     // it, if any. A rescan asks the driver for its device lists again, which is
     // slow for some drivers, so only an explicit getState does it.
-    void sendState (const juce::String& error = {}, bool rescan = false);
-    [[nodiscard]] nlohmann::json buildState (bool rescan);
+    void sendState(const juce::String& error = {}, bool rescan = false);
+    [[nodiscard]] nlohmann::json buildState(bool rescan);
 
-    juce::String setDeviceType (const juce::String& typeName);
-    juce::String setDevice (const juce::String& kind, const juce::String& name);
-    juce::String setChannelGroup (bool isInput, int group);
-    juce::String setSampleRate (double sampleRate);
-    juce::String setBufferSize (int bufferSize);
-    juce::String setInputMuted (bool muted);
+    juce::String setDeviceType(const juce::String& typeName);
+    juce::String setDevice(const juce::String& kind, const juce::String& name);
+    juce::String setChannelGroup(bool isInput, int group);
+    juce::String setSampleRate(double sampleRate);
+    juce::String setBufferSize(int bufferSize);
+    juce::String setInputMuted(bool muted);
     juce::String showControlPanel();
     juce::String resetDevice();
     juce::String requestInputPermission();
-    juce::String setMidiInputEnabled (const juce::String& identifier, bool enabled);
-    juce::String setMidiOutput (const juce::String& identifier);
+    juce::String setMidiInputEnabled(const juce::String& identifier, bool enabled);
+    juce::String setMidiOutput(const juce::String& identifier);
 
     /// Opens the input side again once record permission has been granted.
     void enableInput();
 
     /// Channels per group: the width of the plugin's main bus on that side, as JUCE's dialog uses.
-    [[nodiscard]] int groupSize (bool isInput) const;
+    [[nodiscard]] int groupSize(bool isInput) const;
 
     /// A change the user made: persist the device setup now rather than on a clean exit.
     void saveDeviceSetup();
@@ -106,8 +105,8 @@ private:
     void applyMonitoringPolicy();
     [[nodiscard]] bool computeFeedbackRisk() const;
     [[nodiscard]] juce::String currentDevicePairKey() const;
-    [[nodiscard]] std::optional<bool> rememberedMute (const juce::String& pairKey) const;
-    void rememberMute (const juce::String& pairKey, bool muted);
+    [[nodiscard]] std::optional<bool> rememberedMute(const juce::String& pairKey) const;
+    void rememberMute(const juce::String& pairKey, bool muted);
 
     // The MIDI ports the user chose (see the class comment); defined in StandaloneAudioSettingsMidi.cpp.
     void loadWantedMidiDevices();
@@ -117,7 +116,7 @@ private:
     // The level meter lease. The UI renews it every couple of seconds while the
     // meter is on screen; it lapses on its own, so a page that went away without
     // saying so does not leave the feed running.
-    void watchLevels (bool enabled);
+    void watchLevels(bool enabled);
 
     juce::StandalonePluginHolder& mHolder;
     juce::AudioDeviceManager& mDeviceManager;
@@ -142,6 +141,6 @@ private:
     juce::MidiDeviceInfo mWantedMidiOutput;
     juce::MidiDeviceListConnection mMidiDeviceListConnection;
 
-    JUCE_DECLARE_WEAK_REFERENCEABLE (StandaloneAudioSettings)
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (StandaloneAudioSettings)
+    JUCE_DECLARE_WEAK_REFERENCEABLE(StandaloneAudioSettings)
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(StandaloneAudioSettings)
 };

@@ -238,7 +238,8 @@ class EffectProcessor
     /// each band's part of the response (an EQ; getEffectResponse with `bands`). The bands are
     /// those that play, in the order the effect lists them; their product is
     /// GetFrequencyResponse. Empty for effects without bands.
-    [[nodiscard]] virtual std::vector<std::vector<double>> GetBandResponses(std::span<const double> /*frequenciesHz*/) const
+    [[nodiscard]] virtual std::vector<std::vector<double>> GetBandResponses(
+        std::span<const double> /*frequenciesHz*/) const
     {
         return {};
     }

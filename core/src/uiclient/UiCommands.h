@@ -20,7 +20,7 @@ namespace guitarfx::uiclient
 {
 class UiCommands
 {
-public:
+  public:
     explicit UiCommands(UiClient& client) : mClient(client)
     {
     }
@@ -36,6 +36,7 @@ public:
     void RemoveScene(const std::string& sceneId);
     void SavePreset();
     void SavePresetAs(const std::string& name, const std::string& category, const std::string& description);
+
     /// What the save dialog edits (the web UI's Details tab). A folder files the preset there
     /// ("" for none); nullopt leaves it where it is.
     struct PresetDetails
@@ -46,6 +47,7 @@ public:
         std::vector<std::string> tags;
         std::optional<std::string> folderId;
     };
+
     /// Saves the preset playing with these details: over itself, or (`asNew`) as a new preset.
     void SavePresetWithDetails(const PresetDetails& details, bool asNew);
     void RenamePreset(const std::string& name, const std::string& category, const std::string& description);
@@ -96,8 +98,8 @@ public:
     void SetPresetSolo(const std::string& presetId, bool solo);
     void SetMixGain(double gainDb);
     /// Saves the mix as a Multi-Rig; with `id`, updates that one in place.
-    void SaveCompositePreset(const std::string& name, const std::string& description, const std::vector<std::string>& tags,
-                             const std::string& id = {});
+    void SaveCompositePreset(const std::string& name, const std::string& description,
+                             const std::vector<std::string>& tags, const std::string& id = {});
     void LoadCompositePreset(const std::string& id);
     void RemoveCompositePreset(const std::string& id);
     void GetCompositePresetList();
@@ -153,7 +155,8 @@ public:
     /// Adds a file where it is to the library (saveLocalLibraryResource), so it is referenced in
     /// place rather than copied; with a node, loads it into that node's slot too.
     void SaveLocalLibraryResource(const std::string& resourceType, const std::string& filePath, const std::string& name,
-                                  const nlohmann::json& metadata, const std::string& nodeId = {}, int resourceIndex = -1);
+                                  const nlohmann::json& metadata, const std::string& nodeId = {},
+                                  int resourceIndex = -1);
     /// Stars or unstars a library resource (the shared resources.favorites setting).
     void SetResourceFavorite(const std::string& resourceId, bool favorite);
     /// Renames, recategorises or retags a library resource (updateLibraryResource).
@@ -169,8 +172,8 @@ public:
     void ExportLibraryArchive(bool allResources);
     /// Plays downloaded bytes (base64) on a node's slot without importing them, until
     /// CancelPreviewResource or a selection takes the slot.
-    void PreviewRemoteResource(const std::string& resourceType, const std::string& tempResourceId, const std::string& nodeId,
-                               int resourceIndex, bool isZip, const std::string& base64);
+    void PreviewRemoteResource(const std::string& resourceType, const std::string& tempResourceId,
+                               const std::string& nodeId, int resourceIndex, bool isZip, const std::string& base64);
     void CancelPreviewResource(const std::string& nodeId, int resourceIndex, bool restoreOriginal = true);
     /// Lists a folder's model and IR files (resourceFolderListing, then resourceFolderMetadata).
     void ListResourceFolder(const std::string& path);
@@ -269,6 +272,7 @@ public:
     void PreviewCapturedRiff(double startRatio, double endRatio, bool repeat);
     /// Moves a playing preview's region; a UI calls it at most every 80 ms while dragging.
     void SetRiffPreviewRegion(double startRatio, double endRatio, bool repeat);
+
     struct RiffSave
     {
         std::string riffId; // set to add the take to that riff, else a new riff
@@ -283,6 +287,7 @@ public:
         int bars = 0;
         std::string presetId;
     };
+
     /// Saves the pending take (riffSaved, then riffLibraryState).
     void SaveRiffTake(const RiffSave& save);
     void DeleteRiff(const std::string& riffId);
@@ -350,7 +355,7 @@ public:
     void RenameInputLevellingProfile(const std::string& id, const std::string& name, const std::string& description);
     void DeleteInputLevellingProfile(const std::string& id);
 
-private:
+  private:
     UiClient& mClient;
 };
 } // namespace guitarfx::uiclient

@@ -38,6 +38,7 @@ namespace guitarfx
 {
 class IPluginHost;
 class LooperWorker;
+
 namespace looper_render
 {
 struct Graphs;
@@ -65,8 +66,8 @@ class LooperService
         int maxSeconds = 60; ///< 30, 60, 120 or 300
         int memoryBudgetMb = 512;
         double level = 1.0;
-        bool startArmed = false;   ///< looper.start "armed"
-        bool lengthBars = false;   ///< looper.length "bars"
+        bool startArmed = false; ///< looper.start "armed"
+        bool lengthBars = false; ///< looper.length "bars"
         int bars = 4;
         int countInBars = 1;
         bool clickWhileRecording = true;
@@ -88,9 +89,8 @@ class LooperService
     };
 
     LooperService(IPluginHost& host, MultiPresetMixer& mixer, MetronomeService& metronome, std::mutex& dspMutex,
-                  nlohmann::json& appSettings, std::function<void()> saveSettings,
-                  std::function<Tone()> currentTone, std::function<void()> metronomeStateChanged,
-                  SendMessageFn sendMessage);
+                  nlohmann::json& appSettings, std::function<void()> saveSettings, std::function<Tone()> currentTone,
+                  std::function<void()> metronomeStateChanged, SendMessageFn sendMessage);
     ~LooperService();
 
     LooperService(const LooperService&) = delete;
@@ -106,8 +106,8 @@ class LooperService
         std::function<void(std::shared_ptr<RiffTake>)> offerRiffTake;
         /// Re-tone's graphs: the preset and scene (the active ones when empty) with the global chains.
         /// Message thread. Null with the reason in `error` when it cannot be rendered offline.
-        std::function<std::unique_ptr<looper_render::Graphs>(const std::string& presetId,
-                                                             const std::string& sceneId, std::string& error)>
+        std::function<std::unique_ptr<looper_render::Graphs>(const std::string& presetId, const std::string& sceneId,
+                                                             std::string& error)>
             buildRender;
         /// A riff take's audio at `sampleRate`, two channels, and its riff's title. Worker thread.
         std::function<bool(const std::string& takeId, double sampleRate, std::vector<std::vector<float>>& audio,
@@ -182,7 +182,7 @@ class LooperService
         Tone tone;
         bool toneChanged = false;
         bool peaksSent = false;
-        std::string key;            ///< Its name on disk, kept across save and load
+        std::string key;             ///< Its name on disk, kept across save and load
         bool sessionWritten = false; ///< Its files are in the session folder
         bool copiedOut = false;      ///< A first layer moved out of the capture buffer
         bool reamped = false;        ///< Its wet sound was rendered, not played live

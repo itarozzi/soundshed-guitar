@@ -133,10 +133,10 @@ struct LooperCommand
 /// Read on the audio thread when a take starts, written from anywhere.
 struct LooperSettings
 {
-    std::atomic<bool> startArmed{false};         ///< looper.start == "armed"
-    std::atomic<bool> lengthBars{false};         ///< looper.length == "bars"
-    std::atomic<int> bars{4};                    ///< looper.bars
-    std::atomic<int> countInBars{1};             ///< looper.countInBars
+    std::atomic<bool> startArmed{false}; ///< looper.start == "armed"
+    std::atomic<bool> lengthBars{false}; ///< looper.length == "bars"
+    std::atomic<int> bars{4};            ///< looper.bars
+    std::atomic<int> countInBars{1};     ///< looper.countInBars
     /// Count in before every first layer, free and armed ones too, not only a Bars take started on
     /// a press. Riff capture counts in this way; an armed take then listens from the downbeat.
     std::atomic<bool> countInEveryTake{false};
@@ -187,7 +187,7 @@ struct SlotInfo
     float calibrationGain = 1.0f;
     int diChannels = 1;
     bool firstLayer = false;
-    bool final = false; ///< Nothing will write to it again
+    bool final = false;                     ///< Nothing will write to it again
     const LayerAudio* fadingFrom = nullptr; ///< Audio a ReplaceAudio is crossfading away from
 };
 
@@ -226,13 +226,13 @@ class LooperEngine
     static constexpr std::uint32_t kNoticeSpareTaken = 1u << 9;
 
     // Times, in seconds.
-    static constexpr double kRampSeconds = 0.010;     ///< Level, mute, undo, stop and clear fades
-    static constexpr double kPunchSeconds = 0.005;    ///< Punch-in and punch-out ramps; ring-out's end
-    static constexpr double kPreRollSeconds = 0.010;  ///< An armed take starts this far before the note
-    static constexpr double kRingOutSeconds = 5.0;    ///< The longest a tail is written on
+    static constexpr double kRampSeconds = 0.010;    ///< Level, mute, undo, stop and clear fades
+    static constexpr double kPunchSeconds = 0.005;   ///< Punch-in and punch-out ramps; ring-out's end
+    static constexpr double kPreRollSeconds = 0.010; ///< An armed take starts this far before the note
+    static constexpr double kRingOutSeconds = 5.0;   ///< The longest a tail is written on
     static constexpr double kRingOutQuietSeconds = 0.020;
-    static constexpr float kRingOutQuietPeak = 3.16e-4f; ///< -70 dBFS
-    static constexpr double kArmFloorSeconds = 0.200;    ///< Arming measures the input floor this long
+    static constexpr float kRingOutQuietPeak = 3.16e-4f;  ///< -70 dBFS
+    static constexpr double kArmFloorSeconds = 0.200;     ///< Arming measures the input floor this long
     static constexpr float kArmFloorTriggerPeak = 0.063f; ///< -24 dBFS: plainly playing, even mid-measure
     static constexpr float kArmOverFloor = 3.98f;         ///< +12 dB
     static constexpr double kMinLayerSeconds = 0.050;
@@ -242,6 +242,7 @@ class LooperEngine
 
     /// Message thread, with the audio stopped: sizes the engine's own buffers.
     void Prepare(double sampleRate, int maxBlockSize);
+
     /// The clock the metronome writes. Not owned; set before the audio starts.
     void SetTransportClock(const TransportClock* clock) noexcept
     {
@@ -251,10 +252,12 @@ class LooperEngine
     // ── Message thread ──────────────────────────────────────────────────────────────
     /// False when the queue is full; the command is dropped.
     bool Enqueue(const LooperCommand& command);
+
     LooperSettings& Settings() noexcept
     {
         return mSettings;
     }
+
     LayerMix& Mix(int slot) noexcept
     {
         return mMix[static_cast<std::size_t>(slot)];
@@ -264,27 +267,33 @@ class LooperEngine
     {
         return mMix[static_cast<std::size_t>(slot)];
     }
+
     /// A consistent view of what the last block left, or false when the engine was publishing.
     bool ReadSnapshot(LooperSnapshot& out) const;
+
     /// The notices raised since the last call.
     [[nodiscard]] std::uint32_t TakeNotices() noexcept
     {
         return mNotices.exchange(0, std::memory_order_acquire);
     }
+
     /// The recording layer's waveform so far: wet (or DI) peaks per bucket of `LiveBucketSamples`.
     [[nodiscard]] float LivePeak(bool di, int bucket) const noexcept
     {
         return (di ? mLivePeaksDi : mLivePeaksWet)[static_cast<std::size_t>(bucket)].load(std::memory_order_relaxed);
     }
+
     [[nodiscard]] std::int64_t LiveBucketSamples() const noexcept
     {
         return mLiveBucketSamples.load(std::memory_order_relaxed);
     }
+
     /// Samples recorded into the layer being recorded, or 0.
     [[nodiscard]] std::int64_t LiveRecordedSamples() const noexcept
     {
         return mLiveRecorded.load(std::memory_order_relaxed);
     }
+
     /// Blocks the engine has processed. A command enqueued when this read b has been applied once it
     /// reads b + 2: the block running at the time may have drained the queue just before it.
     [[nodiscard]] std::uint64_t BlocksProcessed() const noexcept
@@ -296,10 +305,12 @@ class LooperEngine
     {
         return mPublishedPlayhead.load(std::memory_order_relaxed);
     }
+
     [[nodiscard]] std::int64_t CountInSamplesLeft() const noexcept
     {
         return mPublishedCountIn.load(std::memory_order_relaxed);
     }
+
     [[nodiscard]] std::int64_t ArmWaitingSamples() const noexcept
     {
         return mPublishedArmWait.load(std::memory_order_relaxed);
@@ -330,6 +341,7 @@ class LooperEngine
     /// Whether the chains must keep running through silence: armed, counting in, recording, or
     /// writing a tail. The mixer's sleep gate asks before it decides.
     [[nodiscard]] bool WantsChainsAwake() const noexcept;
+
     /// What the click does in the block just processed (TransportClock.h). Cleared by the call.
     LoopClickSync TakeClickSync() noexcept
     {
@@ -337,6 +349,7 @@ class LooperEngine
         mClickSync = {};
         return sync;
     }
+
     [[nodiscard]] LooperState State() const noexcept
     {
         return mState;
@@ -359,7 +372,7 @@ class LooperEngine
         bool firstLayer = false;
         bool final = false;
         bool freeWhenSilent = false;
-        int audibleFrom = 0; ///< First sample of this block it may be heard on
+        int audibleFrom = 0;                  ///< First sample of this block it may be heard on
         const LayerAudio* fadeFrom = nullptr; ///< ReplaceAudio's crossfade: the audio going
         std::int64_t fadeFromHead = 0;
         std::int64_t fadeFromCapacity = 0;
@@ -380,12 +393,12 @@ class LooperEngine
     {
         WriterPhase phase = WriterPhase::Off;
         int slot = -1;
-        std::int64_t recAbs = 0;    ///< DI position of the next sample (unwrapped)
+        std::int64_t recAbs = 0; ///< DI position of the next sample (unwrapped)
         std::int64_t spanStartAbs = 0;
         std::int64_t spanEndAbs = 0; ///< INT64_MAX while recording
         std::int64_t armStartAbs = 0;
         bool fadeIn = false;
-        bool butted = false;     ///< Closed into the next layer: no ring-out
+        bool butted = false;      ///< Closed into the next layer: no ring-out
         bool ringOutAdds = false; ///< First layer: the tail is added onto its own start
         bool ringOutStopping = false;
         std::int64_t ringOutCap = 0;
@@ -481,6 +494,7 @@ class LooperEngine
     [[nodiscard]] std::int64_t Index(const Slot& slot, std::int64_t abs) const noexcept;
     [[nodiscard]] float PunchRamp(std::int64_t rel) const noexcept;
     void Publish();
+
     void Raise(std::uint32_t notice) noexcept
     {
         mNotices.fetch_or(notice, std::memory_order_release);
@@ -522,8 +536,8 @@ class LooperEngine
     int mHistoryCount = 0;
     int mRedoCount = 0;
 
-    std::int64_t mLength = 0;     ///< The loop's length, once the first layer closes
-    std::int64_t mPlayhead = 0;   ///< Loop position of the next sample played
+    std::int64_t mLength = 0;   ///< The loop's length, once the first layer closes
+    std::int64_t mPlayhead = 0; ///< Loop position of the next sample played
     bool mPlaying = false;
     bool mStopping = false;
     bool mClearing = false;
@@ -534,7 +548,7 @@ class LooperEngine
     std::int64_t mPendingStart = -1; ///< Samples until the first layer starts recording
     std::int64_t mPendingArm = -1;   ///< Samples until a counted-in armed take starts listening
     std::int64_t mCountInLeft = 0;
-    int mAlign = 0;               ///< D, for the overdub being recorded or awaited
+    int mAlign = 0;                ///< D, for the overdub being recorded or awaited
     bool mDeferredOverdub = false; ///< Opens at the next record wrap
     bool mWrapPending = false;     ///< The loop wrapped after the last sample
     bool mAnyRecordingWet = false; ///< This sample, a recording layer is taking the wet sound

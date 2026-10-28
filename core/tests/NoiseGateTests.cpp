@@ -609,8 +609,8 @@ void TestLowNotesDoNotSagTheDetector()
     // the gate shuts once a cycle within the one note.
     for (const double frequency : {82.41, 61.74})
     {
-        auto effect = MakeGate({{"threshold", -40.0}, {"attack", 1.0}, {"hold", 0.0}, {"release", 10.0},
-                                {"hysteresis", 0.0}});
+        auto effect =
+            MakeGate({{"threshold", -40.0}, {"attack", 1.0}, {"hold", 0.0}, {"release", 10.0}, {"hysteresis", 0.0}});
         auto* gate = dynamic_cast<NoiseGateEffect*>(effect.get());
 
         if (gate == nullptr)

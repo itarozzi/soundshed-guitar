@@ -18,15 +18,15 @@ class UiSession;
 /// and the shell, detaching drops them, and the engine goes on running without a view.
 class NanoQPresenter final : public q_plug::presenter
 {
-public:
+  public:
     explicit NanoQPresenter(NanoQController& ctl);
     ~NanoQPresenter() override;
 
-protected:
+  protected:
     void on_attach(cycfi::elements::view& view) override;
     void on_detach() override;
 
-private:
+  private:
     NanoQController& mCtl;
     std::unique_ptr<ui::UiSession> mSession;
     std::unique_ptr<ui::Shell> mShell;

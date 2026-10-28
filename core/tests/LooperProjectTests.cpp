@@ -147,8 +147,7 @@ void TestRecovery(const fs::path& sandbox)
     s.Settle();
     const auto state = s.State();
     Check(state.value("layerCount", 0) == 2, "and recovered: " + state.dump());
-    Check(state.value("dirty", false) && state.value("projectId", std::string{"x"}).empty(),
-          "as an unsaved loop");
+    Check(state.value("dirty", false) && state.value("projectId", std::string{"x"}).empty(), "as an unsaved loop");
     Check(!state.value("recoverable", true), "once, not again");
 }
 } // namespace

@@ -223,8 +223,9 @@ std::optional<PresetLevelJob> PluginController::BuildPresetLevelJob(const nlohma
         {
             const bool playerOff = forPlayer && !mNamInterfaceCalibrationLevelDbu.has_value();
             job.executor->SetNodeParam(node.id, "calibrationInputLevel",
-                                       forPlayer && mNamInterfaceCalibrationLevelDbu ? *mNamInterfaceCalibrationLevelDbu
-                                                                                     : kNamInterfaceCalibrationLevelDbuDefault);
+                                       forPlayer && mNamInterfaceCalibrationLevelDbu
+                                           ? *mNamInterfaceCalibrationLevelDbu
+                                           : kNamInterfaceCalibrationLevelDbuDefault);
             job.executor->SetNodeParam(node.id, "calibrationInputLevelEnabled", playerOff ? 0.0 : 1.0);
         }
     }

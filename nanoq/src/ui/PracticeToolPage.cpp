@@ -32,7 +32,7 @@ constexpr float kHandleReach = 8.0f; // how near a press must be to an edge to m
 /// range for a new loop; the picked loop's edges (or the marked range's) drag.
 class PracticeWave final : public el::element, public Drawn
 {
-public:
+  public:
     struct Band
     {
         double start = 0.0, end = 0.0;
@@ -40,7 +40,9 @@ public:
         bool operator==(const Band&) const = default;
     };
 
-    explicit PracticeWave(const Theme& theme) : mTheme(theme) {}
+    explicit PracticeWave(const Theme& theme) : mTheme(theme)
+    {
+    }
 
     void Track(std::vector<float> left, std::vector<float> right, double duration)
     {
@@ -48,22 +50,29 @@ public:
         mRight = std::move(right);
         mDuration = duration;
     }
+
     /// The loops, and the range marked for the next one. Ignored while a drag is changing them.
     void Ranges(std::vector<Band> bands, std::optional<std::pair<double, double>> candidate)
     {
         if (mMode != Mode::None)
+        {
             return;
+        }
+
         mBands = std::move(bands);
         mCandidate = std::move(candidate);
     }
+
     void Playhead(double seconds)
     {
         mPlayhead = seconds;
     }
+
     void Marker(std::optional<double> seconds)
     {
         mMarker = seconds;
     }
+
     [[nodiscard]] bool Dragging() const
     {
         return mMode != Mode::None;
@@ -87,30 +96,39 @@ public:
         const auto b = ctx.bounds;
         cnv.fill_style(mTheme.Pick(el::rgba(0, 0, 0, 80), el::rgba(0, 0, 0, 18)));
         cnv.fill_round_rect(b, 8.0f);
+
         if (!HasAudio())
         {
-            FillText(cnv, "Drop a WAV, AIFF, or MP3 file here, or use Browse File...", Font(Weight::Regular).size(12.0f), mTheme.TextMuted(), b,
-                     HAlign::Centre);
+            FillText(cnv, "Drop a WAV, AIFF, or MP3 file here, or use Browse File...",
+                     Font(Weight::Regular).size(12.0f), mTheme.TextMuted(), b, HAlign::Centre);
             return;
         }
 
-        const auto x = [&](double seconds) { return b.left + static_cast<float>(std::clamp(seconds / mDuration, 0.0, 1.0)) * b.width(); };
+        const auto x = [&](double seconds) {
+            return b.left + static_cast<float>(std::clamp(seconds / mDuration, 0.0, 1.0)) * b.width();
+        };
 
         // The loops not picked, faintly; the picked one tinted, the marked range lighter.
         for (const auto& band : mBands)
+        {
             if (!band.active)
             {
                 cnv.fill_style(mTheme.Text().opacity(0.05f));
                 cnv.fill_rect(el::rect{x(band.start), b.top, x(band.end), b.bottom});
             }
+        }
 
         // Two lanes, each mirrored about its own middle (a backing track is genuinely stereo).
         const auto lane = [&](const std::vector<float>& peaks, float top, float bottom) {
             if (peaks.empty())
+            {
                 return;
+            }
+
             const float mid = (top + bottom) * 0.5f, half = (bottom - top) * 0.5f - 2.0f;
             const float step = b.width() / static_cast<float>(peaks.size());
             cnv.fill_style(mTheme.Accent().opacity(0.8f));
+
             for (std::size_t i = 0; i < peaks.size(); ++i)
             {
                 const float px = b.left + step * static_cast<float>(i);
@@ -126,6 +144,7 @@ public:
             const float x0 = x(start), x1 = x(end);
             cnv.fill_style(active ? mTheme.Accent().opacity(0.20f) : mTheme.Text().opacity(0.10f));
             cnv.fill_rect(el::rect{x0, b.top, x1, b.bottom});
+
             // Outside a picked loop is shaded, so the part that plays stands out.
             if (active)
             {
@@ -133,10 +152,13 @@ public:
                 cnv.fill_rect(el::rect{b.left, b.top, x0, b.bottom});
                 cnv.fill_rect(el::rect{x1, b.top, b.right, b.bottom});
             }
+
             const auto edge = active ? mTheme.Accent() : mTheme.Text().opacity(0.75f);
+
             for (const float ex : {x0, x1})
             {
                 cnv.fill_style(edge);
+
                 if (active)
                 {
                     cnv.fill_rect(el::rect{ex - 1.0f, b.top, ex + 1.0f, b.bottom});
@@ -145,23 +167,34 @@ public:
                 {
                     // Dashed while it is only a marked range.
                     for (float y = b.top; y < b.bottom; y += 8.0f)
+                    {
                         cnv.fill_rect(el::rect{ex - 0.75f, y, ex + 0.75f, std::min(b.bottom, y + 4.0f)});
+                    }
                 }
+
                 cnv.fill_round_rect(el::rect{ex - 4.0f, b.top, ex + 4.0f, b.top + 12.0f}, 2.0f);
             }
         };
+
         if (const auto* active = ActiveBand())
+        {
             range(active->start, active->end, true);
+        }
         else if (mCandidate)
+        {
             range(mCandidate->first, mCandidate->second, false);
+        }
 
         // Where Jump Back returns to, when a click set it.
         if (mMarker)
         {
             const float mx = std::round(x(*mMarker)) + 0.5f;
             cnv.fill_style(mTheme.Text().opacity(0.55f));
+
             for (float y = b.top + 2.0f; y < b.bottom; y += 6.0f)
+            {
                 cnv.fill_rect(el::rect{mx - 0.5f, y, mx + 0.5f, std::min(b.bottom, y + 3.0f)});
+            }
         }
 
         const float px = std::round(x(mPlayhead)) + 0.5f;
@@ -172,20 +205,29 @@ public:
     bool click(const el::context& ctx, el::mouse_button btn) override
     {
         if (btn.state != el::mouse_button::left)
+        {
             return false;
+        }
+
         if (!HasAudio())
+        {
             return true;
+        }
+
         const double seconds = At(ctx, btn.pos);
+
         if (btn.down)
         {
             mAnchor = seconds;
             mAnchorX = btn.pos.x;
             mMode = Mode::Pending;
+
             // An edge of what can be edited, near enough, is taken by the press.
             if (const auto edit = Editable())
             {
                 const float x0 = X(ctx, edit->first), x1 = X(ctx, edit->second);
                 const float d0 = std::abs(btn.pos.x - x0), d1 = std::abs(btn.pos.x - x1);
+
                 if (std::min(d0, d1) <= kHandleReach)
                 {
                     mMode = Mode::Edge;
@@ -194,25 +236,36 @@ public:
                     mEnd = edit->second;
                 }
             }
+
             return true;
         }
 
         const auto mode = mMode;
         mMode = Mode::None;
+
         switch (mode)
         {
         case Mode::Pending:
+
             if (onSeek)
+            {
                 onSeek(seconds);
+            }
+
             break;
         case Mode::Sweep:
         case Mode::Edge:
+
             if (onRange)
+            {
                 onRange(mStart, mEnd, true);
+            }
+
             break;
         default:
             break;
         }
+
         ctx.view.refresh(ctx);
         return true;
     }
@@ -220,11 +273,16 @@ public:
     void drag(const el::context& ctx, el::mouse_button btn) override
     {
         if (!HasAudio())
+        {
             return;
+        }
+
         const double seconds = At(ctx, btn.pos);
+
         if (mMode == Mode::Pending && std::abs(btn.pos.x - mAnchorX) > 4.0f)
         {
             const auto* active = ActiveBand();
+
             if (active && mAnchor >= active->start && mAnchor <= active->end)
             {
                 // A sweep inside the picked loop is not a request for a new one.
@@ -235,37 +293,57 @@ public:
                 if (active)
                 {
                     for (auto& band : mBands)
+                    {
                         band.active = false;
+                    }
+
                     if (onSweepOutside)
+                    {
                         onSweepOutside();
+                    }
                 }
+
                 mMode = Mode::Sweep;
             }
         }
+
         if (mMode == Mode::Sweep)
         {
             mStart = std::min(mAnchor, seconds);
             mEnd = std::max(mAnchor, seconds);
             mCandidate = std::make_pair(mStart, mEnd);
+
             if (onRange)
+            {
                 onRange(mStart, mEnd, false);
+            }
         }
         else if (mMode == Mode::Edge)
         {
             // An edge dragged past the other swaps with it.
             (mEdge == 0 ? mStart : mEnd) = seconds;
+
             if (mStart > mEnd)
             {
                 std::swap(mStart, mEnd);
                 mEdge = 1 - mEdge;
             }
+
             if (auto* active = ActiveBand())
+            {
                 active->start = mStart, active->end = mEnd;
+            }
             else
+            {
                 mCandidate = std::make_pair(mStart, mEnd);
+            }
+
             if (onRange)
+            {
                 onRange(mStart, mEnd, false);
+            }
         }
+
         ctx.view.refresh(ctx);
     }
 
@@ -274,7 +352,7 @@ public:
         return true;
     }
 
-private:
+  private:
     enum class Mode
     {
         None,
@@ -288,21 +366,29 @@ private:
     {
         return mDuration > 0.0 && !mLeft.empty();
     }
+
     [[nodiscard]] Band* ActiveBand()
     {
         const auto it = std::find_if(mBands.begin(), mBands.end(), [](const Band& band) { return band.active; });
         return it != mBands.end() ? &*it : nullptr;
     }
+
     [[nodiscard]] std::optional<std::pair<double, double>> Editable()
     {
         if (const auto* active = ActiveBand())
+        {
             return std::make_pair(active->start, active->end);
+        }
+
         return mCandidate;
     }
+
     [[nodiscard]] double At(const el::context& ctx, el::point p) const
     {
-        return std::clamp(static_cast<double>((p.x - ctx.bounds.left) / std::max(1.0f, ctx.bounds.width())), 0.0, 1.0) * mDuration;
+        return std::clamp(static_cast<double>((p.x - ctx.bounds.left) / std::max(1.0f, ctx.bounds.width())), 0.0, 1.0) *
+               mDuration;
     }
+
     [[nodiscard]] float X(const el::context& ctx, double seconds) const
     {
         return ctx.bounds.left + static_cast<float>(std::clamp(seconds / mDuration, 0.0, 1.0)) * ctx.bounds.width();
@@ -348,22 +434,40 @@ std::string LoopRange(const practice::Loop& loop)
 std::string Shell::PracticeToolSignature() const
 {
     if (!mPractice)
+    {
         return {};
+    }
+
     const auto& t = mPractice->Track();
-    std::string s = t.filePath + "|" + std::to_string(t.loads) + (t.playing ? "|p" : "|") + (mPractice->Candidate() ? "c" : "") +
-                    (practice::IsEqShaping(mPractice->GetEq()) ? "e" : "") + "|" + mPractice->SelectedProjectId();
+    std::string s = t.filePath + "|" + std::to_string(t.loads) + (t.playing ? "|p" : "|") +
+                    (mPractice->Candidate() ? "c" : "") + (practice::IsEqShaping(mPractice->GetEq()) ? "e" : "") + "|" +
+                    mPractice->SelectedProjectId();
+
     for (const auto& loop : mPractice->Loops())
+    {
         s += "|" + loop.id + ":" + loop.name + ":" + LoopRange(loop);
+    }
+
     if (const auto* active = mPractice->ActiveLoop())
+    {
         s += "|a" + active->id;
+    }
+
     if (const auto& deleted = mPractice->DeletedLoop())
+    {
         s += "|d" + deleted->id;
+    }
+
     for (const auto& project : mPractice->Projects())
     {
         s += "|P" + project.id + ":" + project.name;
+
         for (const auto& link : project.links)
+        {
             s += "," + link.id;
+        }
     }
+
     return s;
 }
 
@@ -377,10 +481,15 @@ Ptr Shell::BuildPracticeTool(float width)
 
     // ── The project bar: the saved projects, Save, and Browse File ──
     const auto projects = tool.Projects();
-    const auto selected = std::find_if(projects.begin(), projects.end(), [&tool](const practice::Project& p) { return p.id == tool.SelectedProjectId(); });
+    const auto selected = std::find_if(projects.begin(), projects.end(), [&tool](const practice::Project& p) {
+        return p.id == tool.SelectedProjectId();
+    });
     auto projectButton = std::make_shared<IconButton>(mTheme, mIcons, "", IconButton::Look::Boxed);
     projectButton->Size(180, 30)
-        .Label(selected != projects.end() ? selected->name : projects.empty() ? std::string("No saved projects") : std::string("Projects"), 11.0f)
+        .Label(selected != projects.end() ? selected->name
+               : projects.empty()         ? std::string("No saved projects")
+                                          : std::string("Projects"),
+               11.0f)
         .Caret(true);
     projectButton->onClick = [this, b = projectButton.get()] { OpenPracticeProjects(b->Bounds()); };
     auto save = std::make_shared<IconButton>(mTheme, mIcons, "ui-save", IconButton::Look::Boxed);
@@ -389,13 +498,20 @@ Ptr Shell::BuildPracticeTool(float width)
         // Under the selected project's name (saving over it), or the track's title.
         const auto saveAs = [this](bool withPreset) {
             const auto projects = mPractice->Projects();
-            const auto it = std::find_if(projects.begin(), projects.end(), [this](const practice::Project& p) { return p.id == mPractice->SelectedProjectId(); });
-            PostPrompt(withPreset ? "Save project with the preset" : "Save project", it != projects.end() ? it->name : mPractice->SuggestedProjectName(),
-                       "Save", [this, withPreset](const std::string& text) {
+            const auto it = std::find_if(projects.begin(), projects.end(), [this](const practice::Project& p) {
+                return p.id == mPractice->SelectedProjectId();
+            });
+            PostPrompt(withPreset ? "Save project with the preset" : "Save project",
+                       it != projects.end() ? it->name : mPractice->SuggestedProjectName(), "Save",
+                       [this, withPreset](const std::string& text) {
                            if (!mPractice->SaveProject(text, withPreset))
+                           {
                                ShowToast("Project not saved", "Give it a name, with a track loaded.", true);
+                           }
                            else
+                           {
                                ShowToast("Project saved", text, false);
+                           }
                        });
         };
         OpenDropdown(b->Bounds(),
@@ -412,8 +528,10 @@ Ptr Shell::BuildPracticeTool(float width)
             mPractice->Browse();
             return;
         }
-        OpenConfirm("Load a new file", "Volume, Balance, Speed and Pitch go back to their defaults. Save a project first to keep them.", "Load New File",
-                    [this] { mPractice->Browse(); });
+
+        OpenConfirm("Load a new file",
+                    "Volume, Balance, Speed and Pitch go back to their defaults. Save a project first to keep them.",
+                    "Load New File", [this] { mPractice->Browse(); });
     };
     body.push_back(FixedHeight(30, Row({projectButton, HGap(6), save, Stretch(), browse})));
     body.push_back(VGap(10));
@@ -427,10 +545,15 @@ Ptr Shell::BuildPracticeTool(float width)
     mLive.Bind(
         wave,
         [this, position, step = std::max(1.0, track.durationSec) / 2000.0] {
-            WaveShown shown{std::floor(position() / step) * step, {}, mPractice->Candidate(), mPractice->JumpBackMarker()};
+            WaveShown shown{
+                std::floor(position() / step) * step, {}, mPractice->Candidate(), mPractice->JumpBackMarker()};
             const auto* active = mPractice->ActiveLoop();
+
             for (const auto& loop : mPractice->Loops())
+            {
                 shown.bands.push_back({loop.startSec, loop.endSec, active && active->id == loop.id});
+            }
+
             return shown;
         },
         [](PracticeWave& w, const WaveShown& shown) {
@@ -442,15 +565,21 @@ Ptr Shell::BuildPracticeTool(float width)
     body.push_back(VGap(6));
 
     // ── The track and where it is, then + Add Loop for a marked range ──
-    auto clock = std::make_shared<Text>(mTheme, hasAudio ? track.title : std::string("No file loaded"), 11.5f, Weight::Medium);
+    auto clock =
+        std::make_shared<Text>(mTheme, hasAudio ? track.title : std::string("No file loaded"), 11.5f, Weight::Medium);
     clock->Colour(hasAudio ? mTheme.Ink() : mTheme.TextMuted());
+
     if (hasAudio)
+    {
         mLive.Bind(
             clock, [position] { return static_cast<long>(std::floor(position())); },
             [title = track.title, total = practice::FormatClock(track.durationSec)](Text& t, long seconds) {
                 t.Set(title + "   " + practice::FormatClock(static_cast<double>(seconds)) + " / " + total);
             });
+    }
+
     std::vector<Ptr> info{clock};
+
     if (hasAudio && tool.Candidate() && !tool.ActiveLoop())
     {
         auto add = std::make_shared<IconButton>(mTheme, mIcons, "", IconButton::Look::Accent);
@@ -458,11 +587,13 @@ Ptr Shell::BuildPracticeTool(float width)
         add->onClick = [this] { mPractice->AddLoop(); };
         info.push_back(add);
     }
+
     body.push_back(FixedHeight(24, Row(info)));
     body.push_back(VGap(8));
 
     // ── The transport ──
-    auto play = std::make_shared<IconButton>(mTheme, mIcons, track.playing ? "ui-pause" : "ui-play", IconButton::Look::Boxed);
+    auto play =
+        std::make_shared<IconButton>(mTheme, mIcons, track.playing ? "ui-pause" : "ui-play", IconButton::Look::Boxed);
     play->Size(40, 32).IconSize(14).Disabled(!hasAudio);
     play->onClick = [this] { mPractice->PlayPause(); };
     auto stop = std::make_shared<IconButton>(mTheme, mIcons, "ui-stop", IconButton::Look::Boxed);
@@ -474,10 +605,15 @@ Ptr Shell::BuildPracticeTool(float width)
     auto eq = std::make_shared<IconButton>(mTheme, mIcons, "", IconButton::Look::Boxed);
     // Lit only when the EQ is on and doing something.
     eq->Size(48, 32).Label("EQ", 11.0f).Lit(practice::IsEqShaping(tool.GetEq()));
+
     if (practice::IsEqShaping(tool.GetEq()))
+    {
         eq->Ink(mTheme.Accent());
+    }
+
     eq->onClick = [this] { OpenPracticeEq(); };
     std::vector<Ptr> transport{play, HGap(6), stop, HGap(6), back, HGap(12), eq, HGap(12)};
+
     if (const auto* active = tool.ActiveLoop(); active && hasAudio)
     {
         auto status = std::make_shared<Text>(mTheme, "Looping \"" + active->name + "\"", 11.0f, Weight::Medium);
@@ -488,6 +624,7 @@ Ptr Shell::BuildPracticeTool(float width)
     {
         transport.push_back(Stretch());
     }
+
     body.push_back(FixedHeight(32, Row(transport)));
     body.push_back(VGap(14));
 
@@ -499,6 +636,7 @@ Ptr Shell::BuildPracticeTool(float width)
         newLoop->onClick = [this] { mPractice->AddLoop(); };
         loops.push_back(FixedHeight(24, Row({Heading(mTheme, "Loops"), Stretch(), newLoop})));
         loops.push_back(VGap(6));
+
         if (const auto& deleted = tool.DeletedLoop())
         {
             auto text = std::make_shared<Text>(mTheme, "Deleted \"" + deleted->name + "\".", 11.0f);
@@ -506,15 +644,19 @@ Ptr Shell::BuildPracticeTool(float width)
             auto undo = std::make_shared<IconButton>(mTheme, mIcons, "", IconButton::Look::Boxed);
             undo->Size(56, 22).Label("Undo", 10.5f);
             undo->onClick = [this] { mPractice->UndoDelete(); };
-            loops.push_back(FixedHeight(28, Rounded(mTheme.Text().opacity(0.05f), 6.0f, Pad(8, 3, 4, 3, Row({text, undo})))));
+            loops.push_back(
+                FixedHeight(28, Rounded(mTheme.Text().opacity(0.05f), 6.0f, Pad(8, 3, 4, 3, Row({text, undo})))));
             loops.push_back(VGap(4));
         }
+
         if (tool.Loops().empty())
         {
-            auto none = std::make_shared<Text>(mTheme, hasAudio ? "No loops saved for this file yet." : "Load a track to mark loops on it.", 11.0f);
+            auto none = std::make_shared<Text>(
+                mTheme, hasAudio ? "No loops saved for this file yet." : "Load a track to mark loops on it.", 11.0f);
             none->Colour(mTheme.TextMuted());
             loops.push_back(FixedHeight(28, none));
         }
+
         for (const auto& loop : tool.Loops())
         {
             const bool active = tool.ActiveLoop() && tool.ActiveLoop()->id == loop.id;
@@ -523,10 +665,15 @@ Ptr Shell::BuildPracticeTool(float width)
             auto pick = std::make_shared<IconButton>(mTheme, mIcons, "", IconButton::Look::Ghost);
             // U+25CF / U+25CB, as the web UI's row.
             pick->Size(26, 26).Label(active ? "\xE2\x97\x8F" : "\xE2\x97\x8B", 12.0f);
+
             if (active)
+            {
                 pick->Ink(mTheme.Accent());
+            }
+
             pick->onClick = [this, id] { mPractice->SelectLoop(id); };
-            auto playLoop = std::make_shared<IconButton>(mTheme, mIcons, playingThis ? "ui-stop" : "ui-play", IconButton::Look::Ghost);
+            auto playLoop = std::make_shared<IconButton>(mTheme, mIcons, playingThis ? "ui-stop" : "ui-play",
+                                                         IconButton::Look::Ghost);
             playLoop->Size(26, 26).IconSize(11);
             playLoop->onClick = [this, id] { mPractice->ToggleLoopPlayback(id); };
             auto name = std::make_shared<Text>(mTheme, loop.name, 11.5f, active ? Weight::SemiBold : Weight::Regular);
@@ -546,6 +693,7 @@ Ptr Shell::BuildPracticeTool(float width)
 
     // ── The faders: the default in the middle, double click to reset ──
     std::vector<Ptr> faders{FixedHeight(24, Heading(mTheme, "Track")), VGap(2)};
+
     for (const auto fader : {Fader::Volume, Fader::Balance, Fader::Speed, Fader::Pitch})
     {
         const auto& spec = practice::SpecFor(fader);
@@ -553,16 +701,21 @@ Ptr Shell::BuildPracticeTool(float width)
         // It follows a loop picked or a project recalled; a dragged one leads.
         mLive.Bind(
             slider, [this, fader] { return practice::FaderValue(mPractice->Faders(), fader); },
-            [fader](ParamSlider& s, double value) { s.Update(practice::FaderToSlider(fader, value), practice::FormatFader(fader, value)); });
+            [fader](ParamSlider& s, double value) {
+                s.Update(practice::FaderToSlider(fader, value), practice::FormatFader(fader, value));
+            });
         slider->onChange = [this, fader, s = slider.get()](double position) {
             const double v = practice::SliderToFader(fader, position);
             mPractice->SetFader(fader, v, false);
             s->Update(position, practice::FormatFader(fader, v));
         };
-        slider->onRelease = [this, fader] { mPractice->SetFader(fader, practice::FaderValue(mPractice->Faders(), fader), true); };
+        slider->onRelease = [this, fader] {
+            mPractice->SetFader(fader, practice::FaderValue(mPractice->Faders(), fader), true);
+        };
         slider->onReset = [this, fader] { mPractice->SetFader(fader, practice::SpecFor(fader).def, true); };
         faders.push_back(slider);
     }
+
     auto hint = std::make_shared<Text>(mTheme, "Speed and pitch are independent.", 10.5f);
     hint->Colour(mTheme.TextMuted());
     faders.push_back(FixedHeight(20, hint));
@@ -589,12 +742,15 @@ Ptr Shell::BuildPracticeTool(float width)
         add->onClick = [this, projectId] { AddPracticeLink(projectId); };
         body.push_back(FixedHeight(24, Row({Heading(mTheme, "Links"), Stretch(), add})));
         body.push_back(VGap(4));
+
         if (selected->links.empty())
         {
-            auto none = std::make_shared<Text>(mTheme, "Keep the tablature, a lesson or the lyrics with \"" + selected->name + "\".", 11.0f);
+            auto none = std::make_shared<Text>(
+                mTheme, "Keep the tablature, a lesson or the lyrics with \"" + selected->name + "\".", 11.0f);
             none->Colour(mTheme.TextMuted());
             body.push_back(FixedHeight(26, none));
         }
+
         for (const auto& link : selected->links)
         {
             const auto url = link.url;
@@ -609,9 +765,11 @@ Ptr Shell::BuildPracticeTool(float width)
             auto remove = std::make_shared<IconButton>(mTheme, mIcons, "ui-trash", IconButton::Look::Ghost);
             remove->Size(26, 26).IconSize(12);
             remove->onClick = [this, projectId, linkId] { mPractice->RemoveLink(projectId, linkId); };
-            body.push_back(FixedHeight(28, Row({open, HGap(4), FixedWidth(std::min(220.0f, width * 0.35f), title), HGap(8), address, remove})));
+            body.push_back(FixedHeight(28, Row({open, HGap(4), FixedWidth(std::min(220.0f, width * 0.35f), title),
+                                                HGap(8), address, remove})));
         }
     }
+
     body.push_back(VGap(20));
     return Col(body);
 }
@@ -620,83 +778,124 @@ void Shell::OpenPracticeProjects(el::rect anchor)
 {
     const auto projects = mPractice->Projects();
     std::vector<MenuItem> items;
+
     if (projects.empty())
+    {
         items.push_back({"No saved projects", false, true, {}});
+    }
+
     for (const auto& project : projects)
     {
         const auto id = project.id;
         const auto name = project.name;
         MenuItem item{project.name, project.id == mPractice->SelectedProjectId(), false, [this, id, name] {
                           if (!mPractice->LoadProject(id))
-                              ShowToast("Open the track first", "\"" + name + "\" was made from a dropped-in file: open it, then load the project.", true);
+                          {
+                              ShowToast("Open the track first",
+                                        "\"" + name +
+                                            "\" was made from a dropped-in file: open it, then load the project.",
+                                        true);
+                          }
                       }};
         item.detail = project.fileTitle + (project.presetName.empty() ? "" : " \xC2\xB7 " + project.presetName);
         items.push_back(std::move(item));
     }
-    const auto selected = std::find_if(projects.begin(), projects.end(), [this](const practice::Project& p) { return p.id == mPractice->SelectedProjectId(); });
+
+    const auto selected = std::find_if(projects.begin(), projects.end(), [this](const practice::Project& p) {
+        return p.id == mPractice->SelectedProjectId();
+    });
+
     if (selected != projects.end())
     {
         const auto id = selected->id;
         const auto name = selected->name;
         items.push_back({"Delete \"" + name + "\"...", false, false, [this, id, name] {
-                             OpenConfirm("Delete project", "\"" + name + "\" and its links are deleted. The track itself stays.", "Delete",
-                                         [this, id] { mPractice->DeleteProject(id); });
+                             OpenConfirm("Delete project",
+                                         "\"" + name + "\" and its links are deleted. The track itself stays.",
+                                         "Delete", [this, id] { mPractice->DeleteProject(id); });
                          }});
     }
+
     OpenDropdown(anchor, std::move(items), 300.0f);
 }
 
 void Shell::OpenPracticeLoopMenu(const std::string& loopId, el::rect anchor)
 {
     const auto& loops = mPractice->Loops();
-    const auto it = std::find_if(loops.begin(), loops.end(), [&loopId](const practice::Loop& l) { return l.id == loopId; });
+    const auto it =
+        std::find_if(loops.begin(), loops.end(), [&loopId](const practice::Loop& l) { return l.id == loopId; });
+
     if (it == loops.end())
+    {
         return;
+    }
+
     const auto loop = *it;
-    std::vector<MenuItem> items{{"Rename...", false, false, [this, loop] {
-                                     PostPrompt("Rename loop", loop.name, "Rename", [this, id = loop.id](const std::string& name) { mPractice->RenameLoop(id, name); });
-                                 }},
-                                {"Set times...", false, false, [this, loop] {
-                                     char text[64];
-                                     std::snprintf(text, sizeof(text), "%.2f - %.2f", loop.startSec, loop.endSec);
-                                     PostPrompt("Start - end, in seconds", text, "Set", [this, id = loop.id](const std::string& value) {
-                                         double start = 0.0, end = 0.0;
-                                         char dash = 0;
-                                         if (std::sscanf(value.c_str(), " %lf %c %lf", &start, &dash, &end) == 3 && end > start)
-                                             mPractice->SetLoopTimes(id, start, end);
-                                         else
-                                             ShowToast("Times not set", "Write them as start - end, such as 12.5 - 20.", true);
-                                     });
-                                 }},
-                                {"Name it", false, true, {}}};
+    std::vector<MenuItem> items{
+        {"Rename...", false, false,
+         [this, loop] {
+             PostPrompt("Rename loop", loop.name, "Rename",
+                        [this, id = loop.id](const std::string& name) { mPractice->RenameLoop(id, name); });
+         }},
+        {"Set times...", false, false,
+         [this, loop] {
+             char text[64];
+             std::snprintf(text, sizeof(text), "%.2f - %.2f", loop.startSec, loop.endSec);
+             PostPrompt("Start - end, in seconds", text, "Set", [this, id = loop.id](const std::string& value) {
+                 double start = 0.0, end = 0.0;
+                 char dash = 0;
+
+                 if (std::sscanf(value.c_str(), " %lf %c %lf", &start, &dash, &end) == 3 && end > start)
+                 {
+                     mPractice->SetLoopTimes(id, start, end);
+                 }
+                 else
+                 {
+                     ShowToast("Times not set", "Write them as start - end, such as 12.5 - 20.", true);
+                 }
+             });
+         }},
+        {"Name it", false, true, {}}};
     // The song sections, numbered past those already used.
     std::vector<std::string> names;
+
     for (const auto& l : loops)
+    {
         names.push_back(l.name);
+    }
+
     for (const auto& base : practice::kLoopNameTemplates)
     {
         const auto name = practice::SuggestLoopTemplateName(base, names);
         items.push_back({name, false, false, [this, id = loop.id, name] { mPractice->RenameLoop(id, name); }});
     }
+
     OpenDropdown(anchor, std::move(items), 180.0f);
 }
 
 void Shell::AddPracticeLink(const std::string& projectId)
 {
-    OpenPrompt("Link address (the tablature, a lesson, the lyrics)", "", "Next", [this, projectId](const std::string& url) {
-        if (!practice::NormalizeLinkUrl(url))
-        {
-            ShowToast("Not a web address", "Links open in the browser: http or https only.", true);
-            return;
-        }
-        PostPrompt("Title (optional)", "", "Add Link", [this, projectId, url](const std::string& title) {
-            const auto result = mPractice->AddLink(projectId, title, url);
-            if (result == "too-many")
-                ShowToast("Link not added", "A project keeps up to 30 links.", true);
-            else if (result != "added")
-                ShowToast("Link not added", "Save the project first.", true);
-        });
-    });
+    OpenPrompt("Link address (the tablature, a lesson, the lyrics)", "", "Next",
+               [this, projectId](const std::string& url) {
+                   if (!practice::NormalizeLinkUrl(url))
+                   {
+                       ShowToast("Not a web address", "Links open in the browser: http or https only.", true);
+                       return;
+                   }
+
+                   PostPrompt("Title (optional)", "", "Add Link", [this, projectId, url](const std::string& title) {
+                       const auto result = mPractice->AddLink(projectId, title, url);
+
+                       if (result == "too-many")
+                       {
+                           ShowToast("Link not added", "A project keeps up to 30 links.", true);
+                       }
+                       else if (result != "added")
+                       {
+                           ShowToast("Link not added", "Save the project first.", true);
+                       }
+                   });
+               });
 }
 
 void Shell::OpenPracticeEq()
@@ -724,18 +923,23 @@ void Shell::OpenPracticeEq()
     reset->Size(60, 26).Label("Reset", 11.0f);
     reset->onClick = [this] {
         mPractice->ResetEq();
+
         if (mOverlayPlot)
+        {
             SyncEqPlot(*mOverlayPlot);
+        }
     };
     auto close = std::make_shared<IconButton>(mTheme, mIcons, "", IconButton::Look::Boxed);
     close->Size(60, 26).Label("Done", 11.0f);
     close->onClick = [this] { CloseOverlay(); };
-    auto hint = std::make_shared<Text>(mTheme, "Drag a band's handle; double click it to reset. Shapes the track only, not your guitar.", 10.5f);
+    auto hint = std::make_shared<Text>(
+        mTheme, "Drag a band's handle; double click it to reset. Shapes the track only, not your guitar.", 10.5f);
     hint->Colour(mTheme.TextMuted());
 
     const float width = std::min(620.0f, ViewSize().x - 32.0f);
-    ShowOverlay(Pad(14, 12, 14, 12, Col({FixedHeight(26, Row({title, Stretch(), power, HGap(6), reset, HGap(6), close})), VGap(8), FixedHeight(200, plot),
-                                         VGap(8), FixedHeight(18, hint)})),
+    ShowOverlay(Pad(14, 12, 14, 12,
+                    Col({FixedHeight(26, Row({title, Stretch(), power, HGap(6), reset, HGap(6), close})), VGap(8),
+                         FixedHeight(200, plot), VGap(8), FixedHeight(18, hint)})),
                 width, 26.0f + 8.0f + 200.0f + 8.0f + 18.0f + 24.0f);
     mOnOverlayClosed = [this] {
         mOverlayPlot.reset();
@@ -746,24 +950,40 @@ void Shell::OpenPracticeEq()
 bool Shell::DropPracticeTrack(const std::vector<std::string>& paths)
 {
     if (mPage != Page::Jam || mJamSection != JamSection::Practice || !mPractice)
+    {
         return false;
+    }
+
     for (const auto& path : paths)
     {
         auto lower = path;
-        std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        std::transform(lower.begin(), lower.end(), lower.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
         for (const char* ext : {".wav", ".aiff", ".aif", ".mp3"})
-            if (lower.size() > std::strlen(ext) && lower.compare(lower.size() - std::strlen(ext), std::strlen(ext), ext) == 0)
+        {
+            if (lower.size() > std::strlen(ext) &&
+                lower.compare(lower.size() - std::strlen(ext), std::strlen(ext), ext) == 0)
             {
                 // The path straight through: unlike the web view, a native drop has it. A new
                 // track resets the faders: ask first when one is loaded, as Browse does.
                 if (!mPractice->HasAudio())
+                {
                     mSession.Commands().LoadPracticeToolFile(path);
+                }
                 else
-                    OpenConfirm("Load a new file", "Volume, Balance, Speed and Pitch go back to their defaults. Save a project first to keep them.",
-                                "Load New File", [this, path] { mSession.Commands().LoadPracticeToolFile(path); });
+                {
+                    OpenConfirm(
+                        "Load a new file",
+                        "Volume, Balance, Speed and Pitch go back to their defaults. Save a project first to keep them.",
+                        "Load New File", [this, path] { mSession.Commands().LoadPracticeToolFile(path); });
+                }
+
                 return true;
             }
+        }
     }
+
     return false;
 }
 } // namespace nanoq::ui

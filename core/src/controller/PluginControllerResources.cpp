@@ -164,8 +164,11 @@ void PluginController::HandleImportRemoteResourceRequest(const nlohmann::json& p
     const auto fail = [&](const std::string& detail) {
         ReportErrorToUI("Import failed", detail);
         SendMessageToUI(nlohmann::json{
-            {"type", "resourceImportFailed"}, {"requestId", requestId}, {"message", "Import failed"}, {"detail", detail}}
-                            .dump());
+            {"type", "resourceImportFailed"},
+            {"requestId", requestId},
+            {"message", "Import failed"},
+            {"detail",
+             detail}}.dump());
     };
 
     if (resourceType.empty() || resourceId.empty() || data.empty())
@@ -230,8 +233,9 @@ void PluginController::HandleImportRemoteResourceRequest(const nlohmann::json& p
     }
 
     std::string error;
-    const auto imported = ImportResourceFile(std::move(resource), payload.value("provider", "remote"),
-                                             payload.value("subfolder", ""), payload.value("fileName", ""), bytes, error);
+    const auto imported =
+        ImportResourceFile(std::move(resource), payload.value("provider", "remote"), payload.value("subfolder", ""),
+                           payload.value("fileName", ""), bytes, error);
 
     if (!imported)
     {
@@ -253,11 +257,9 @@ void PluginController::HandleImportRemoteResourceRequest(const nlohmann::json& p
     SendMessageToUI(msg.dump());
 }
 
-std::optional<LibraryResource> PluginController::ImportResourceFile(LibraryResource resource, const std::string& provider,
-                                                                    const std::string& subfolder,
-                                                                    const std::string& fileName,
-                                                                    const std::vector<std::uint8_t>& bytes,
-                                                                    std::string& error)
+std::optional<LibraryResource> PluginController::ImportResourceFile(
+    LibraryResource resource, const std::string& provider, const std::string& subfolder, const std::string& fileName,
+    const std::vector<std::uint8_t>& bytes, std::string& error)
 {
     const std::string resourceType = resource.type;
     const std::string resourceId = resource.id;
@@ -267,7 +269,8 @@ std::optional<LibraryResource> PluginController::ImportResourceFile(LibraryResou
     auto targetDir = settingsDir / "resources" / "content" / sanitizedProvider;
     // Provider titles name subfolders and files; capped so the full path stays under Windows'
     // 260-character limit below the settings folder, with room for a hash suffix on a clash.
-    const auto sanitizedSubfolder = util::LimitSubfolderSegments(util::SanitizeSubfolderPath(subfolder), kMaxImportSubfolderSegment);
+    const auto sanitizedSubfolder =
+        util::LimitSubfolderSegments(util::SanitizeSubfolderPath(subfolder), kMaxImportSubfolderSegment);
 
     if (!sanitizedSubfolder.empty())
     {
@@ -363,7 +366,8 @@ std::optional<LibraryResource> PluginController::ImportResourceFile(LibraryResou
 
     mResourceLibrary.AddResource(resource);
     AppendUserLibraryResource(resource);
-    AppendSessionLog("Imported resource " + resourceType + ":" + resourceId + " (" + util::PathToUtf8(targetPath) + ")");
+    AppendSessionLog("Imported resource " + resourceType + ":" + resourceId + " (" + util::PathToUtf8(targetPath) +
+                     ")");
     return resource;
 }
 

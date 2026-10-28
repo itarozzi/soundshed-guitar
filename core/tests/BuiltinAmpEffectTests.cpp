@@ -65,6 +65,7 @@ void TestGainRange()
     // interstage high-pass is looser than the one before it, because the stage
     // then clips a waveform the previous filter had already tilted into spikes.
     double previous = 0.0;
+
     for (int stages = 1; stages <= 4; ++stages)
     {
         const double thd = stages == 2 ? full : DriveThd(1.0, stages);
@@ -89,12 +90,14 @@ void TestLevelHoldsAtNominal()
 {
     const auto guitar = NominalGuitar("guitar-riff-01.wav");
     Check(!guitar.empty(), "the demo riff loads");
+
     if (guitar.empty())
     {
         return;
     }
 
     std::vector<Voicing> voicings;
+
     for (const double voice : {0.0, 1.0})
     {
         for (const int stages : {1, 2, 4})
@@ -105,6 +108,7 @@ void TestLevelHoldsAtNominal()
                 {
                     voicings.push_back({gain, voice, character, stages});
                 }
+
                 // Character follows Gain here and Bias follows the voice, which reaches
                 // each of their ends without multiplying the count. Sag is tried at
                 // full Power Drive, where it costs the most.
@@ -112,10 +116,12 @@ void TestLevelHoldsAtNominal()
                 {
                     voicings.push_back({gain, voice, gain, stages, powerDrive, 0.0, voice * 2.0 - 1.0});
                 }
+
                 voicings.push_back({gain, voice, gain, stages, 1.0, 1.0, voice * 2.0 - 1.0});
             }
         }
     }
+
     // Between the table's steps.
     voicings.push_back({0.6, 1.0, 0.3, 3, 0.7, 0.4, 0.5});
     voicings.push_back({0.15, 0.0, 0.85, 3, 0.3, 0.0, -0.5});
@@ -124,16 +130,19 @@ void TestLevelHoldsAtNominal()
 
     double worst = 0.0, squares = 0.0;
     Voicing worstAt;
+
     for (const Voicing& v : voicings)
     {
         const double heard = HeardGainDb(v, guitar);
         squares += heard * heard;
+
         if (std::abs(heard) > std::abs(worst))
         {
             worst = heard;
             worstAt = v;
         }
     }
+
     const double rms = std::sqrt(squares / static_cast<double>(voicings.size()));
     std::cout << "Heard level against a guitar at the nominal level over " << voicings.size() << " settings: " << rms
               << " dB RMS, worst " << worst << " dB (voice " << worstAt.voice << ", " << worstAt.stages
@@ -152,6 +161,7 @@ void TestLevelHoldsAtNominal()
 void TestPowerDriveHoldsAtAnyTrim()
 {
     const auto guitar = NominalGuitar("guitar-riff-01.wav");
+
     if (guitar.empty())
     {
         return;
@@ -160,6 +170,7 @@ void TestPowerDriveHoldsAtAnyTrim()
     double worst = 0.0, squares = 0.0;
     int count = 0;
     Voicing worstAt;
+
     for (const double voice : {0.0, 1.0})
     {
         for (const int stages : {1, 4})
@@ -178,6 +189,7 @@ void TestPowerDriveHoldsAtAnyTrim()
                     const double moved = HeardGainDb(driven, guitar) - untouched;
                     squares += moved * moved;
                     ++count;
+
                     if (std::abs(moved) > std::abs(worst))
                     {
                         worst = moved;
@@ -187,6 +199,7 @@ void TestPowerDriveHoldsAtAnyTrim()
             }
         }
     }
+
     const double rms = std::sqrt(squares / count);
     std::cout << "Level change from Power Drive and Sag at an Input Trim of 12 dB either way: " << rms
               << " dB RMS, worst " << worst << " dB (voice " << worstAt.voice << ", " << worstAt.stages
@@ -270,17 +283,20 @@ void TestCharacterRange()
 {
     double previousEvenOdd = 1.0e9, previousRumble = 1.0e9, previousBite = -1.0e9;
     double evenOddEnds[2] = {}, rumbleEnds[2] = {}, biteEnds[2] = {}, levelEnds[2] = {};
+
     for (const double character : {0.0, 0.5, 1.0})
     {
         const Voicing v{0.8, 1.0, character, 2};
 
         const auto sine = RenderVoicing(v, Signal::Sine, 0.10, 48000);
         double even = 0.0, odd = 0.0;
+
         for (int h = 2; h <= 15; ++h)
         {
             const double magnitude = ToneMagnitude(sine, 12000, 220.0 * h, 48000.0);
             (h % 2 ? odd : even) += magnitude * magnitude;
         }
+
         const double evenOdd = std::sqrt(even / odd);
 
         const auto chord = RenderVoicing(v, Signal::PowerChord, 0.10, 48000);
@@ -366,16 +382,19 @@ void TestCharacterSweepIsSmooth()
     amp.Reset();
 
     std::vector<float> input(frames), output(frames);
+
     for (int i = 0; i < frames; ++i)
     {
         input[i] = static_cast<float>(0.1 * std::sin(2.0 * kPi * 220.0 * i / sampleRate));
     }
+
     for (int start = 0; start < frames; start += 64)
     {
         if (start == change)
         {
             amp.SetParam("character", 1.0);
         }
+
         float* in[2] = {input.data() + start, input.data() + start};
         float* out[2] = {output.data() + start, nullptr};
         amp.Process(in, out, 64);
@@ -383,10 +402,12 @@ void TestCharacterSweepIsSmooth()
 
     auto worstCurvature = [&](int from, int to) {
         double worst = 0.0;
+
         for (int i = from + 1; i < to - 1; ++i)
         {
             worst = std::max(worst, std::abs(static_cast<double>(output[i + 1]) - 2.0 * output[i] + output[i - 1]));
         }
+
         return worst;
     };
     const double steady = std::max(worstCurvature(12000, change), worstCurvature(frames - 8000, frames));
@@ -411,16 +432,19 @@ void TestStageChangeIsSmooth()
     amp.Reset();
 
     std::vector<float> input(frames), output(frames);
+
     for (int i = 0; i < frames; ++i)
     {
         input[i] = static_cast<float>(0.1 * std::sin(2.0 * kPi * 220.0 * i / sampleRate));
     }
+
     for (int start = 0; start < frames; start += 64)
     {
         if (start == up || start == down)
         {
             amp.SetParam("stageCount", start == up ? 4 : 1);
         }
+
         amp.ProcessMono(input.data() + start, output.data() + start, 64);
     }
 
@@ -444,6 +468,7 @@ void TestReturningStageStartsFresh()
     constexpr double sampleRate = 48000.0;
     constexpr int block = 64, frames = 96000, dropped = 12032, restored = 48000;
     guitarfx::BuiltinAmpEffect former, fresh;
+
     for (auto* amp : {&former, &fresh})
     {
         amp->SetParam("gain", 0.8);
@@ -454,6 +479,7 @@ void TestReturningStageStartsFresh()
 
     // A loud low chord while stages 3 and 4 are in, then a quieter high note.
     std::vector<float> input(frames);
+
     for (int i = 0; i < frames; ++i)
     {
         const double t = i / sampleRate;
@@ -463,27 +489,32 @@ void TestReturningStageStartsFresh()
     }
 
     std::vector<float> formerOut(frames), freshOut(frames);
+
     for (int start = 0; start < frames; start += block)
     {
         if (start == dropped)
         {
             former.SetParam("stageCount", 2);
         }
+
         if (start == restored)
         {
             former.SetParam("stageCount", 4);
             fresh.SetParam("stageCount", 4);
         }
+
         former.ProcessMono(input.data() + start, formerOut.data() + start, block);
         fresh.ProcessMono(input.data() + start, freshOut.data() + start, block);
     }
 
     double before = 0.0, after = 0.0;
+
     for (int i = restored - 2400; i < frames; ++i)
     {
         double& worst = i < restored ? before : after;
         worst = std::max(worst, std::abs(static_cast<double>(formerOut[i]) - freshOut[i]));
     }
+
     std::cout << "Stages 3 and 4 back in: worst difference from an amp that never had them " << after << " (" << before
               << " just before)\n";
     Check(after < 1.0e-5, "a stage switched back in starts fresh, not where it was left");
@@ -515,11 +546,13 @@ void TestNominalLevelIsFollowed()
     guitarfx::SetNominalOperatingLevelDbfs(guitarfx::kDefaultNominalOperatingLevelDbfs);
 
     double worst = 0.0, peak = 0.0;
+
     for (std::size_t i = 0; i < raised.size(); ++i)
     {
         worst = std::max(worst, std::abs(raised[i] - up * atDefault[i]));
         peak = std::max(peak, std::abs(up * atDefault[i]));
     }
+
     std::cout << "Nominal level at -12 dBFS: worst difference from the -18 dBFS render, 6 dB up, " << worst / peak
               << " of its peak\n";
     Check(worst < 1.0e-4 * peak, "a guitar at the nominal level drives the amp the same, wherever that level is");
@@ -536,6 +569,7 @@ void TestNonFiniteValuesIgnored()
     const auto nan = std::bit_cast<double>(static_cast<std::uint64_t>(nanBits));
     const auto infinity = std::bit_cast<double>(static_cast<std::uint64_t>(infinityBits));
     bool kept = true, finite = true;
+
     for (const auto& spec : guitarfx::builtin_amp::kParams)
     {
         for (const double value : {nan, infinity, -infinity})
@@ -547,6 +581,7 @@ void TestNonFiniteValuesIgnored()
             kept = kept && amp.GetParam(spec.id) == before;
 
             std::vector<float> block(64, 0.05f), out(64);
+
             for (int b = 0; b < 8; ++b)
             {
                 amp.ProcessMono(block.data(), out.data(), 64);
@@ -554,6 +589,7 @@ void TestNonFiniteValuesIgnored()
             }
         }
     }
+
     Check(kept, "a control ignores NaN and infinity");
     Check(finite, "the output stays finite after a non-finite control value");
 }
@@ -568,6 +604,7 @@ void TestMonoPath()
     constexpr double sampleRate = 48000.0;
     constexpr int block = 64;
     std::vector<float> note(block * 400);
+
     for (std::size_t i = 0; i < note.size(); ++i)
     {
         const double t = static_cast<double>(i) / sampleRate;
@@ -602,6 +639,7 @@ void TestMonoPath()
 
     std::vector<float> monoOut(block), left(block), right(block);
     double worstMismatch = 0.0;
+
     for (int b = 0; b < 200; ++b)
     {
         float* in = note.data() + b * block;
@@ -609,11 +647,13 @@ void TestMonoPath()
         float* ins[2] = {in, in};
         float* outs[2] = {left.data(), right.data()};
         stereo.Process(ins, outs, block);
+
         for (int i = 0; i < block; ++i)
         {
             worstMismatch = std::max(worstMismatch, std::abs(static_cast<double>(monoOut[i] - left[i])));
         }
     }
+
     Check(worstMismatch == 0.0, "one channel sounds exactly like the left of two");
 
     // Stereo, then a mono stretch, then stereo again with the input still
@@ -621,17 +661,21 @@ void TestMonoPath()
     guitarfx::BuiltinAmpEffect flipping;
     configure(flipping);
     double worstSplit = 0.0;
+
     for (int b = 0; b < 400; ++b)
     {
         float* in = note.data() + b * block;
+
         if (b >= 100 && b < 250)
         {
             flipping.ProcessMono(in, monoOut.data(), block);
             continue;
         }
+
         float* ins[2] = {in, in};
         float* outs[2] = {left.data(), right.data()};
         flipping.Process(ins, outs, block);
+
         if (b >= 250)
         {
             for (int i = 0; i < block; ++i)
@@ -640,6 +684,7 @@ void TestMonoPath()
             }
         }
     }
+
     std::cout << "Mono path: worst difference from stereo left " << worstMismatch
               << ", worst left/right split after a mono stretch " << worstSplit << "\n";
     Check(worstSplit == 0.0, "the right channel comes back from a mono stretch in step with the left");
@@ -658,6 +703,7 @@ std::vector<float> HalfbandImpulseResponse(int block)
     std::vector<float> input(128, 0.0f), output(128);
     input[0] = 1.0f;
     std::vector<float> twice(2 * block), fourTimes(4 * block);
+
     for (int at = 0; at < static_cast<int>(output.size()); at += block)
     {
         const int n = std::min(block, static_cast<int>(output.size()) - at);
@@ -666,6 +712,7 @@ std::vector<float> HalfbandImpulseResponse(int block)
         downSecond.DownsampleBlock(fourTimes.data(), 2 * n, twice.data());
         downFirst.DownsampleBlock(twice.data(), n, output.data() + at);
     }
+
     return output;
 }
 
@@ -673,19 +720,23 @@ void TestHalfbandLatency()
 {
     const auto output = HalfbandImpulseResponse(64);
     bool sameInAnyBlocks = true;
+
     for (const int block : {1, 7, 17, 47})
     {
         sameInAnyBlocks = sameInAnyBlocks && HalfbandImpulseResponse(block) == output;
     }
+
     Check(sameInAnyBlocks, "the halfband stages give the same output in blocks of any size");
 
     const auto peak = std::max_element(output.begin(), output.end());
     Check(std::distance(output.begin(), peak) == 48, "4x halfband latency is 48 host samples");
     double impulseSum = 0.0;
+
     for (const float sample : output)
     {
         impulseSum += sample;
     }
+
     Check(std::abs(impulseSum - 1.0) < 0.002, "4x halfband has unity DC gain");
 
     guitarfx::BuiltinAmpEffect amp;
@@ -705,8 +756,7 @@ void TestDynamicsAndBlocks()
     const auto driveLoud = Render(48000.0, 0.10, 440.0, 127, 1.0, 2);
     const double cleanRatio = Rms(cleanLoud, 4096) / Rms(cleanQuiet, 4096);
     const double driveRatio = Rms(driveLoud, 4096) / Rms(driveQuiet, 4096);
-    std::cout << "Clean RMS at 0.10 input: " << Rms(cleanLoud, 4096)
-              << ", drive RMS: " << Rms(driveLoud, 4096) << '\n';
+    std::cout << "Clean RMS at 0.10 input: " << Rms(cleanLoud, 4096) << ", drive RMS: " << Rms(driveLoud, 4096) << '\n';
     std::cout << "Clean 0.10/0.02 RMS ratio: " << cleanRatio << ", drive ratio: " << driveRatio << '\n';
     Check(cleanRatio > 2.0, "clean path retains useful input dynamics");
     Check(driveRatio > 1.1, "drive path retains useful input dynamics");
@@ -715,10 +765,12 @@ void TestDynamicsAndBlocks()
     const auto oneBlock = Render(48000.0, 0.08, 1234.0, 48000, 1.0, 4, 0.5);
     const auto manyBlocks = Render(48000.0, 0.08, 1234.0, 127, 1.0, 4, 0.5);
     double maximumDifference = 0.0;
+
     for (std::size_t i = 0; i < oneBlock.size(); ++i)
     {
         maximumDifference = std::max(maximumDifference, std::abs(static_cast<double>(oneBlock[i] - manyBlocks[i])));
     }
+
     Check(maximumDifference < 1.0e-6, "block partition does not change the output");
 }
 
@@ -728,8 +780,7 @@ void TestAliasing()
     const double fundamental = ToneMagnitude(brightDrive, 24000, 7000.0, 48000.0);
     const double alias = ToneMagnitude(brightDrive, 24000, 13000.0, 48000.0);
     const double aliasDb = 20.0 * std::log10(std::max(alias, 1.0e-12) / std::max(fundamental, 1.0e-12));
-    std::cout << "7 kHz drive fundamental: " << fundamental << ", 13 kHz folded harmonic: " << aliasDb
-              << " dBc\n";
+    std::cout << "7 kHz drive fundamental: " << fundamental << ", 13 kHz folded harmonic: " << aliasDb << " dBc\n";
     Check(fundamental > 1.0e-4, "alias test retains a measurable fundamental");
     Check(aliasDb < -35.0, "high-gain folded fifth harmonic is attenuated");
 
@@ -738,14 +789,16 @@ void TestAliasing()
     // 48 kHz half-band path must reject.
     const auto highRate = Render(192000.0, 0.15, 7000.0, 256, 1.0, 4);
     std::vector<float> unfiltered(highRate.size() / 4);
+
     for (std::size_t i = 0; i < unfiltered.size(); ++i)
     {
         unfiltered[i] = highRate[4 * i];
     }
+
     const double unfilteredFundamental = ToneMagnitude(unfiltered, 6000, 7000.0, 48000.0);
     const double unfilteredAlias = ToneMagnitude(unfiltered, 6000, 13000.0, 48000.0);
-    const double unfilteredDb = 20.0 * std::log10(std::max(unfilteredAlias, 1.0e-12) /
-                                                 std::max(unfilteredFundamental, 1.0e-12));
+    const double unfilteredDb =
+        20.0 * std::log10(std::max(unfilteredAlias, 1.0e-12) / std::max(unfilteredFundamental, 1.0e-12));
     std::cout << "Same model without decimation filtering: " << unfilteredDb << " dBc\n";
     Check(aliasDb < unfilteredDb - 20.0, "half-band path suppresses aliasing by at least 20 dB");
 }
@@ -756,11 +809,13 @@ int main(int argc, char** argv)
     if (argc > 1 && std::string(argv[1]) == "--measure-levels")
     {
         const auto guitar = MeasuringGuitar();
+
         if (std::any_of(guitar.begin(), guitar.end(), [](const auto& take) { return take.empty(); }))
         {
             std::cerr << "The demo guitar did not load from " << GUITARFX_DEMO_AUDIO_DIR << '\n';
             return 1;
         }
+
         MeasureLevelTable(guitar);
         MeasureTrimTable(guitar);
         FitPowerFeed(guitar);
@@ -784,11 +839,13 @@ int main(int argc, char** argv)
     TestMonoPath();
     TestDynamicsAndBlocks();
     TestAliasing();
+
     if (failures)
     {
         std::cerr << failures << " test(s) failed\n";
         return 1;
     }
+
     std::cout << "BuiltinAmpEffectTests passed\n";
     return 0;
 }

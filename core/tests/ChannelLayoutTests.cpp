@@ -695,10 +695,10 @@ void TestChannelCountsHoldThroughTheBlock()
         }
 
         MidBlockProbe::sHook = nullptr;
-        Check(reads > 0 && zeroReads == 0,
-              std::string(layout == ChannelLayout::Mono ? "mono" : "stereo") +
-                  " input: a node later in the chain never reads 0 channels mid-block; " +
-                  std::to_string(zeroReads) + " of " + std::to_string(reads) + " reads did");
+        Check(reads > 0 && zeroReads == 0, std::string(layout == ChannelLayout::Mono ? "mono" : "stereo") +
+                                               " input: a node later in the chain never reads 0 channels mid-block; " +
+                                               std::to_string(zeroReads) + " of " + std::to_string(reads) +
+                                               " reads did");
 
         const auto counts = ChannelCounts(Chain({{"amp", kAmpBuiltin}}), layout);
         Check(counts.count("amp") && counts.at("amp") != 0, "and a node that ran reads its layout after the block");

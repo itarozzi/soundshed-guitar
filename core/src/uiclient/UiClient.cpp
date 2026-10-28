@@ -332,9 +332,9 @@ Subscription UiClient::Subscribe(Topic topic, Listener listener)
 void UiClient::Unsubscribe(Topic topic, int id)
 {
     auto& listeners = mListeners[static_cast<std::size_t>(topic)];
-    listeners.erase(std::remove_if(listeners.begin(), listeners.end(),
-                                   [id](const ListenerEntry& entry) { return entry.id == id; }),
-                    listeners.end());
+    listeners.erase(
+        std::remove_if(listeners.begin(), listeners.end(), [id](const ListenerEntry& entry) { return entry.id == id; }),
+        listeners.end());
 }
 
 void UiClient::Notify(Topic topic)

@@ -138,7 +138,6 @@ LayerCopy ExtractLayer(const looper::SlotInfo& slot, std::int64_t length)
     return copy;
 }
 
-
 bool PublishProject(const fs::path& from, const fs::path& to, const std::vector<std::string>& keys,
                     const nlohmann::json& project)
 {

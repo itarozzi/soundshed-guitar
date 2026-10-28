@@ -258,10 +258,9 @@ std::optional<WasmModuleDescriptor> BuildDescriptorFromEntries(const std::vector
     for (const auto& rawEntry : entries)
     {
         // Every value is the module's own word, bound for UI markup and saved presets.
-        const WasmMetadataEntry entry{LimitDescriptorText(rawEntry.key),
-                                      rawEntry.key.rfind("effect.thumbnail", 0) == 0
-                                          ? rawEntry.value
-                                          : LimitDescriptorText(rawEntry.value)};
+        const WasmMetadataEntry entry{LimitDescriptorText(rawEntry.key), rawEntry.key.rfind("effect.thumbnail", 0) == 0
+                                                                             ? rawEntry.value
+                                                                             : LimitDescriptorText(rawEntry.value)};
 
         // The thumbnail keys are replaced by one checked effect.thumbnailDataUrl below; the UI reads
         // these entries again from the node config, so they are kept only as sanitised here.
@@ -1366,8 +1365,7 @@ bool WasmEffect::BuildRuntimeOnly()
 
     if (mModuleBytes.size() > kMaxModuleBytes)
     {
-        SetError("WASM module is larger than the " + std::to_string(kMaxModuleBytes / (1024u * 1024u)) +
-                 " MB limit.");
+        SetError("WASM module is larger than the " + std::to_string(kMaxModuleBytes / (1024u * 1024u)) + " MB limit.");
         return false;
     }
 

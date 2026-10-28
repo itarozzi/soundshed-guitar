@@ -468,6 +468,7 @@ class HarmonizerEffect : public EffectProcessor
                 break;
             }
             case ScaleNoteFollower::Event::Type::TimedOut:
+
                 // No note found in time (a chord, a muted chug): from the pick, at the intervals there are.
                 if (mDucked)
                 {

@@ -63,6 +63,7 @@ int main()
                                 [&callbackRan](const guitarfx::BrowseFileResult&) { callbackRan = true; });
 
         std::unique_lock<std::mutex> lock(mutex);
+
         if (!shown.wait_for(lock, std::chrono::seconds(5), [&] { return dialogDone != nullptr; }))
         {
             Fail("the dialog was never shown");
@@ -83,13 +84,18 @@ int main()
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
 
     if (callbackRan)
+    {
         Fail("the controller's callback ran after the engine was destroyed");
+    }
 
     nanoq::SetFileDialogHookForTesting(nullptr);
     std::error_code ec;
     std::filesystem::remove_all(root, ec);
 
     if (gFailures == 0)
+    {
         std::cout << "[EngineDialogLifetimeTests] passed" << std::endl;
+    }
+
     return gFailures == 0 ? 0 : 1;
 }

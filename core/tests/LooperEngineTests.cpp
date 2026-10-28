@@ -451,7 +451,8 @@ void TestArmedTakeStartsOnTheNearestBeat()
             }
 
             rig.RunTo(start + 48000 + 64);
-            const std::string name = std::string(bars ? "Bars" : "free") + ", a note " + std::to_string(beats) + " beats in";
+            const std::string name =
+                std::string(bars ? "Bars" : "free") + ", a note " + std::to_string(beats) + " beats in";
             const auto layers = rig.Layers();
             Check(layers.size() == 1, name + ": one layer");
 
@@ -462,7 +463,8 @@ void TestArmedTakeStartsOnTheNearestBeat()
 
             const auto length = rig.Snap().length;
             Check(std::abs(rig.Snap().clickBar - static_cast<double>(onBeat) / 4.0) < 1e-9,
-                  name + ": the loop starts on beat " + std::to_string(onBeat + 1) + ": " + std::to_string(rig.Snap().clickBar));
+                  name + ": the loop starts on beat " + std::to_string(onBeat + 1) + ": " +
+                      std::to_string(rig.Snap().clickBar));
             Check(Rig::DiAt(layers[0], length, 5000) == 0.4f && Rig::DiAt(layers[0], length, 4999) == 0.0f,
                   name + ": the take starts on that beat");
 
@@ -691,9 +693,9 @@ void TestNoAllocationOnTheAudioThread()
             }
         };
 
-        for (const auto action : {LooperAction::RecPlayDub, LooperAction::RecPlayDub, LooperAction::Overdub,
-                                  LooperAction::Play, LooperAction::Undo, LooperAction::Redo, LooperAction::Stop,
-                                  LooperAction::Play, LooperAction::Clear})
+        for (const auto action :
+             {LooperAction::RecPlayDub, LooperAction::RecPlayDub, LooperAction::Overdub, LooperAction::Play,
+              LooperAction::Undo, LooperAction::Redo, LooperAction::Stop, LooperAction::Play, LooperAction::Clear})
         {
             engine.Press(action);
             run(400);
@@ -709,8 +711,8 @@ void TestNoAllocationOnTheAudioThread()
         run(10);
     });
 
-    Check(allocations.count == 0, "the engine allocates nothing on the audio thread: " +
-                                      audio_thread_allocations::Describe(allocations));
+    Check(allocations.count == 0,
+          "the engine allocates nothing on the audio thread: " + audio_thread_allocations::Describe(allocations));
 }
 } // namespace
 

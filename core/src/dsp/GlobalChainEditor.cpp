@@ -23,6 +23,7 @@ bool GraphHasNodeType(const SignalGraph& graph, const std::string& type)
             return true;
         }
     }
+
     return false;
 }
 
@@ -49,6 +50,7 @@ GraphNode* FindNodeByIdOrType(SignalGraph& graph, const char* id, const char* ty
     {
         return node;
     }
+
     for (auto& node : graph.nodes)
     {
         if (node.type == type)
@@ -56,6 +58,7 @@ GraphNode* FindNodeByIdOrType(SignalGraph& graph, const char* id, const char* ty
             return &node;
         }
     }
+
     return nullptr;
 }
 } // namespace
@@ -105,6 +108,7 @@ GraphNode* GlobalChainEditor::FindPreNode(const char* id, const char* type)
     {
         mConfig.preChainGraph = GlobalSignalChainConfig::BuildDefaultPreChainGraph();
     }
+
     return FindNodeByIdOrType(mConfig.preChainGraph, id, type);
 }
 
@@ -114,6 +118,7 @@ GraphNode* GlobalChainEditor::FindPostNode(const char* id, const char* type)
     {
         mConfig.postChainGraph = GlobalSignalChainConfig::BuildDefaultPostChainGraph();
     }
+
     return FindNodeByIdOrType(mConfig.postChainGraph, id, type);
 }
 
@@ -250,6 +255,7 @@ void GlobalChainEditor::SetTranspose(int semitones)
 {
     const double value = static_cast<double>(std::clamp(semitones, -12, 12));
     const bool enabled = value != 0.0;
+
     if (auto* node = FindPreNode("global_transpose", EffectGuids::kTranspose))
     {
         node->enabled = enabled;
@@ -270,10 +276,12 @@ void GlobalChainEditor::SetEQEnabled(bool enabled)
 void GlobalChainEditor::SetEQBandGain(int band, double dB)
 {
     static const char* kParamNames[] = {"lowGain", "lowMidGain", "highMidGain", "highGain"};
+
     if (band < 0 || band > 3)
     {
         return;
     }
+
     if (auto* node = FindPostNode("global_eq", EffectGuids::kEqParametric))
     {
         node->params[kParamNames[band]] = dB;
@@ -284,10 +292,12 @@ void GlobalChainEditor::SetEQBandGain(int band, double dB)
 void GlobalChainEditor::SetEQBandFrequency(int band, double freq)
 {
     static const char* kParamNames[] = {"lowFreq", "lowMidFreq", "highMidFreq", "highFreq"};
+
     if (band < 0 || band > 3)
     {
         return;
     }
+
     if (auto* node = FindPostNode("global_eq", EffectGuids::kEqParametric))
     {
         node->params[kParamNames[band]] = freq;
@@ -299,10 +309,12 @@ void GlobalChainEditor::SetEQBandQ(int band, double q)
 {
     // The shelves have a Q too: it sets their slope, and the UI's EQ panel offers it.
     static const char* kParamNames[] = {"lowQ", "lowMidQ", "highMidQ", "highQ"};
+
     if (band < 0 || band > 3)
     {
         return;
     }
+
     if (auto* node = FindPostNode("global_eq", EffectGuids::kEqParametric))
     {
         node->params[kParamNames[band]] = q;
@@ -338,6 +350,7 @@ void GlobalChainEditor::SetDoublerEnabled(bool enabled)
 void GlobalChainEditor::SetDoublerDelay(double delayMs)
 {
     const double clamped = std::clamp(delayMs, 0.5, 100.0);
+
     if (auto* node = FindPostNode("global_doubler", EffectGuids::kDelayDoubler))
     {
         node->params["time"] = clamped;
@@ -348,6 +361,7 @@ void GlobalChainEditor::SetDoublerDelay(double delayMs)
 void GlobalChainEditor::SetDoublerMix(double mix)
 {
     const double clamped = std::clamp(mix, 0.0, 1.0);
+
     if (auto* node = FindPostNode("global_doubler", EffectGuids::kDelayDoubler))
     {
         node->params["mix"] = clamped;

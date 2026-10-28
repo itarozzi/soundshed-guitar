@@ -38,9 +38,9 @@ bool IsSensitiveDebugKey(std::string_view key)
     // "sessionid" covers toneSharing.sessionId, which signs in to Tone Sharing on its own.
     return normalizedKey.find("token") != std::string::npos || normalizedKey.find("sessionid") != std::string::npos ||
            normalizedKey.find("session_id") != std::string::npos ||
-           normalizedKey.find("session-id") != std::string::npos || normalizedKey.find("api_key") != std::string::npos ||
-           normalizedKey.find("apikey") != std::string::npos || normalizedKey.find("secret") != std::string::npos ||
-           normalizedKey.find("password") != std::string::npos ||
+           normalizedKey.find("session-id") != std::string::npos ||
+           normalizedKey.find("api_key") != std::string::npos || normalizedKey.find("apikey") != std::string::npos ||
+           normalizedKey.find("secret") != std::string::npos || normalizedKey.find("password") != std::string::npos ||
            normalizedKey.find("authorization") != std::string::npos ||
            normalizedKey.find("cookie") != std::string::npos || normalizedKey.find("credential") != std::string::npos;
 }

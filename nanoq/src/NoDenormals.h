@@ -8,16 +8,16 @@
 // ScopedNoDenormals does for the JUCE products.
 
 #if defined(__SSE__) || defined(_M_X64) || defined(_M_IX86)
- #include <xmmintrin.h>
+    #include <xmmintrin.h>
 #elif defined(_M_ARM64) && defined(_MSC_VER)
- #include <intrin.h>
+    #include <intrin.h>
 #endif
 
 namespace nanoq
 {
 class ScopedNoDenormals
 {
-public:
+  public:
     ScopedNoDenormals() noexcept
     {
 #if defined(__SSE__) || defined(_M_X64) || defined(_M_IX86)
@@ -48,7 +48,7 @@ public:
     ScopedNoDenormals(const ScopedNoDenormals&) = delete;
     ScopedNoDenormals& operator=(const ScopedNoDenormals&) = delete;
 
-private:
+  private:
 #if defined(__SSE__) || defined(_M_X64) || defined(_M_IX86)
     unsigned int mPrevious = 0;
 #else

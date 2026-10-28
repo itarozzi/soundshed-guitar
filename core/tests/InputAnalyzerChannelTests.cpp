@@ -186,7 +186,8 @@ void TestSideDropout()
     const auto held = Inspect(readings, 1.0, 2.9, [](const auto& s) { return s.activeChannelCount == 2; });
     Check(held.readings > 0 && held.failing == 0, "a side quiet for under the hold still counts", Describe(held));
 
-    const auto dropped = Inspect(readings, 3.1, 4.5, [](const auto& s) { return s.activeChannelCount == 1 && !s.stereo; });
+    const auto dropped =
+        Inspect(readings, 3.1, 4.5, [](const auto& s) { return s.activeChannelCount == 1 && !s.stereo; });
     Check(dropped.readings > 0 && dropped.failing == 0, "past the hold it is one side, not stereo", Describe(dropped));
 
     const auto back = Inspect(readings, 4.51, 6.0, StereoOnTwo);
@@ -215,7 +216,8 @@ void TestStereoReleasesAfterHold()
     const auto kept = Inspect(readings, 0.5, 3.0, StereoOnTwo);
     Check(kept.readings > 0 && kept.failing == 0, "stays stereo for the release time", Describe(kept));
 
-    const auto released = Inspect(readings, 4.6, 6.0, [](const auto& s) { return !s.stereo && s.activeChannelCount == 2; });
+    const auto released =
+        Inspect(readings, 4.6, 6.0, [](const auto& s) { return !s.stereo && s.activeChannelCount == 2; });
     Check(released.readings > 0 && released.failing == 0, "then reads identical sides", Describe(released));
 }
 

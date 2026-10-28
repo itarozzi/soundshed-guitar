@@ -8,11 +8,11 @@
 // WebView2 only, and only where JUCE's web browser is built in (not Nano, which draws natively).
 #define SOUNDSHED_LAUNCH_WEBVIEW_WARMUP (JUCE_WINDOWS && JUCE_WEB_BROWSER)
 
-#if ! SOUNDSHED_MOBILE
+#if !SOUNDSHED_MOBILE
 
-#if SOUNDSHED_LAUNCH_WEBVIEW_WARMUP
+    #if SOUNDSHED_LAUNCH_WEBVIEW_WARMUP
 class LaunchWebViewWarmup;
-#endif
+    #endif
 
 //==============================================================================
 // Hides the startup flicker between MainWindow going on screen and the editor having
@@ -37,14 +37,13 @@ class LaunchWebViewWarmup;
 // (LaunchCurtain.cpp). It only goes always-on-top once MainWindow exists (coverMainWindow):
 // until then there is nothing of ours to hide, and an audio driver that puts up its own
 // message while the device opens must not end up behind it.
-class LaunchCurtain : public juce::Component,
-                      private juce::Timer
+class LaunchCurtain : public juce::Component, private juce::Timer
 {
-public:
-    LaunchCurtain (juce::Rectangle<int> bounds, bool warmUpWebView);
+  public:
+    LaunchCurtain(juce::Rectangle<int> bounds, bool warmUpWebView);
     ~LaunchCurtain() override;
 
-    void paint (juce::Graphics& g) override;
+    void paint(juce::Graphics& g) override;
 
     /** From MainWindow's constructor, before it shows: stays above it from now on, and gives
         the page its time to load from here. */
@@ -52,19 +51,19 @@ public:
 
     /** Takes the curtain off the screen now, and calls `deleteMe` (asynchronously) once
         nothing it carries is still being set up, at which point the owner deletes it. */
-    void dismiss (std::function<void()> deleteMe);
+    void dismiss(std::function<void()> deleteMe);
 
     std::function<void()> onTimedOut;
 
-private:
+  private:
     void timerCallback() override;
     void runWhenIdle();
 
     std::function<void()> whenIdle;
 
-#if SOUNDSHED_LAUNCH_WEBVIEW_WARMUP
+    #if SOUNDSHED_LAUNCH_WEBVIEW_WARMUP
     std::unique_ptr<LaunchWebViewWarmup> warmup;
-#endif
+    #endif
 };
 
 #endif

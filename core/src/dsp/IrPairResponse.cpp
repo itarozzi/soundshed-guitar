@@ -23,11 +23,9 @@ std::vector<double> Windowed(const std::vector<float>& mono, double sampleRate)
 
     for (std::size_t n = 0; n < length; ++n)
     {
-        const double gain =
-            n >= fadeStart
-                ? 0.5 * (1.0 + std::cos(biquad::kPi * static_cast<double>(n - fadeStart) /
-                                        static_cast<double>(span - fadeStart)))
-                : 1.0;
+        const double gain = n >= fadeStart ? 0.5 * (1.0 + std::cos(biquad::kPi * static_cast<double>(n - fadeStart) /
+                                                                   static_cast<double>(span - fadeStart)))
+                                           : 1.0;
         out[n] = static_cast<double>(mono[n]) * gain;
     }
 
@@ -85,8 +83,8 @@ BandSpectrum MeasureBandSpectrum(const std::vector<float>& mono, double sampleRa
     return spectrum;
 }
 
-Curves Combine(const BandSpectrum* a, const BandSpectrum* b, const IRCabEffect::SlotSum& sum,
-               double normalizeGainA, double normalizeGainB, double offsetMs, double sampleRate)
+Curves Combine(const BandSpectrum* a, const BandSpectrum* b, const IRCabEffect::SlotSum& sum, double normalizeGainA,
+               double normalizeGainB, double offsetMs, double sampleRate)
 {
     Curves curves;
     const BandSpectrum* reference = a ? a : b;

@@ -65,16 +65,20 @@ Ptr Shell::BuildSettingsPage()
     };
 
     // A row of options, one lit: `get` says which, `set` is told which was tapped.
-    auto choice = [&](const char* title, const std::vector<std::string>& options, std::function<int()> get, std::function<void(int)> set) {
+    auto choice = [&](const char* title, const std::vector<std::string>& options, std::function<int()> get,
+                      std::function<void(int)> set) {
         std::vector<Ptr> row{label(title)};
+
         for (int i = 0; i < static_cast<int>(options.size()); ++i)
         {
-            auto b = std::make_shared<Button>(mTheme, options[static_cast<std::size_t>(i)], [set, i] { set(i); }, Button::Style::Plain);
+            auto b = std::make_shared<Button>(
+                mTheme, options[static_cast<std::size_t>(i)], [set, i] { set(i); }, Button::Style::Plain);
             b->MinWidth(76).TextSize(metrics::kSmallText);
             mLive.Bind(b, [get, i] { return get() == i; }, &Button::Selected);
             row.push_back(b);
             row.push_back(HGap(6));
         }
+
         row.push_back(Stretch());
         page.push_back(FixedHeight(44, Row(row)));
     };
@@ -91,41 +95,61 @@ Ptr Shell::BuildSettingsPage()
 
     // ── Appearance ──
     heading("APPEARANCE");
-    choice("Theme", {"Dark", "Light", "Classic"},
-           [this] { return mState.theme == "light" ? 1 : (mState.theme == "classic" ? 2 : 0); },
-           [&commands](int i) { commands.SetTheme(i == 1 ? "light" : (i == 2 ? "classic" : "dark")); });
+    choice(
+        "Theme", {"Dark", "Light", "Classic"},
+        [this] { return mState.theme == "light" ? 1 : (mState.theme == "classic" ? 2 : 0); },
+        [&commands](int i) { commands.SetTheme(i == 1 ? "light" : (i == 2 ? "classic" : "dark")); });
 
     // ── Output ──
     heading("OUTPUT");
-    toggle("Limiter", "Soft limit the output", [this] { return BoolSetting(mState.appSettings, kOutputLimiterSetting, false); },
-           [&commands](bool on) { commands.SetSetting(kOutputLimiterSetting, on); });
-    choice("Preset switch tails", {"Off", "1 bar", "2 bars", "3 bars", "4 bars"},
-           [this] { return std::clamp(static_cast<int>(NumberSetting(mState.appSettings, kPresetSwitchTailSetting, kPresetSwitchTailDefault)), 0, 4); },
-           [&commands](int i) { commands.SetSetting(kPresetSwitchTailSetting, i); });
+    toggle(
+        "Limiter", "Soft limit the output",
+        [this] { return BoolSetting(mState.appSettings, kOutputLimiterSetting, false); },
+        [&commands](bool on) { commands.SetSetting(kOutputLimiterSetting, on); });
+    choice(
+        "Preset switch tails", {"Off", "1 bar", "2 bars", "3 bars", "4 bars"},
+        [this] {
+            return std::clamp(
+                static_cast<int>(NumberSetting(mState.appSettings, kPresetSwitchTailSetting, kPresetSwitchTailDefault)),
+                0, 4);
+        },
+        [&commands](int i) { commands.SetSetting(kPresetSwitchTailSetting, i); });
     note("How many bars of delay and reverb tail carry over when you change preset.");
 
     // ── Amp models ──
     heading("AMP MODELS (NAM)");
     {
         auto quality = std::make_shared<ParamSlider>(mTheme, "Quality");
-        quality->onChange = [&commands](double v) { commands.SetSetting(kNamSlimmableSizeSetting, std::round(v * 100.0) / 100.0); };
+        quality->onChange = [&commands](double v) {
+            commands.SetSetting(kNamSlimmableSizeSetting, std::round(v * 100.0) / 100.0);
+        };
         quality->onReset = [&commands] { commands.SetSetting(kNamSlimmableSizeSetting, 1.0); };
         mLive.Bind(
-            quality, [this] { return std::clamp(NumberSetting(mState.appSettings, kNamSlimmableSizeSetting, 1.0), 0.0, 1.0); },
-            [](ParamSlider& s, double v) { s.Update(v, std::to_string(static_cast<int>(std::lround(v * 100.0))) + "%"); });
+            quality,
+            [this] { return std::clamp(NumberSetting(mState.appSettings, kNamSlimmableSizeSetting, 1.0), 0.0, 1.0); },
+            [](ParamSlider& s, double v) {
+                s.Update(v, std::to_string(static_cast<int>(std::lround(v * 100.0))) + "%");
+            });
         page.push_back(FixedHeight(60, Row({FixedWidth(420, quality), Stretch()})));
     }
     note("Lower quality reduces CPU use on models that support it. Watch the DSP load while you adjust it.");
-    choice("Oversampling", {"Off", "2x", "4x", "8x", "16x", "32x"},
-           [this] { return std::clamp(static_cast<int>(NumberSetting(mState.appSettings, kNamOversamplingSetting, 0)), 0, 5); },
-           [&commands](int i) { commands.SetSetting(kNamOversamplingSetting, i); });
-    choice("Anti-alias filter", {"Minimum phase", "Linear short", "Linear long"},
-           [this] { return std::clamp(static_cast<int>(NumberSetting(mState.appSettings, kNamAntiAliasPhaseSetting, 0)), 0, 2); },
-           [&commands](int i) { commands.SetSetting(kNamAntiAliasPhaseSetting, i); });
+    choice(
+        "Oversampling", {"Off", "2x", "4x", "8x", "16x", "32x"},
+        [this] {
+            return std::clamp(static_cast<int>(NumberSetting(mState.appSettings, kNamOversamplingSetting, 0)), 0, 5);
+        },
+        [&commands](int i) { commands.SetSetting(kNamOversamplingSetting, i); });
+    choice(
+        "Anti-alias filter", {"Minimum phase", "Linear short", "Linear long"},
+        [this] {
+            return std::clamp(static_cast<int>(NumberSetting(mState.appSettings, kNamAntiAliasPhaseSetting, 0)), 0, 2);
+        },
+        [&commands](int i) { commands.SetSetting(kNamAntiAliasPhaseSetting, i); });
 
     // A slider over [lo, hi] for a number setting, with its unit and decimals; a double click on the
     // slider puts `def` back.
-    auto slider = [&](const char* title, const char* key, double lo, double hi, double def, const char* unit, int decimals) {
+    auto slider = [&](const char* title, const char* key, double lo, double hi, double def, const char* unit,
+                      int decimals) {
         auto sl = std::make_shared<ParamSlider>(mTheme, title);
         sl->onChange = [&commands, key, lo, hi, decimals](double v) {
             const double scale = std::pow(10.0, decimals);
@@ -148,49 +172,64 @@ Ptr Shell::BuildSettingsPage()
     slider("Output ceiling", "audio.dsp.outputProtectionCeilingDbfs", -6.0, 0.0, -1.0, "dBFS", 1);
     slider("Nominal level", "audio.dsp.nominalOperatingLevelDbfs", -30.0, -6.0, -18.0, "dBFS", 1);
     note("The level the effects are voiced for, and the ceiling the limiter holds the output under.");
-    toggle("Mono output", "Make up the centre pan's 3 dB", [boolOr] { return boolOr("audio.dsp.monoOutputUnity", false); },
-           [&commands](bool on) { commands.SetSetting("audio.dsp.monoOutputUnity", on); });
-    toggle("NAM calibration", "Match models to the interface level", [boolOr] { return boolOr("audio.nam.autoInputCalibration", true); },
-           [&commands](bool on) { commands.SetSetting("audio.nam.autoInputCalibration", on); });
+    toggle(
+        "Mono output", "Make up the centre pan's 3 dB", [boolOr] { return boolOr("audio.dsp.monoOutputUnity", false); },
+        [&commands](bool on) { commands.SetSetting("audio.dsp.monoOutputUnity", on); });
+    toggle(
+        "NAM calibration", "Match models to the interface level",
+        [boolOr] { return boolOr("audio.nam.autoInputCalibration", true); },
+        [&commands](bool on) { commands.SetSetting("audio.nam.autoInputCalibration", on); });
     slider("Interface level", "audio.nam.interfaceCalibrationLevelDbu", 0.0, 24.0, 12.0, "dBu", 1);
-    note("Your interface's input level at 0 dBFS, from its manual; models captured at a known level are matched to it.");
+    note(
+        "Your interface's input level at 0 dBFS, from its manual; models captured at a known level are matched to it.");
 
     // ── Interface (the web UI's UI section) ──
     heading("INTERFACE");
-    toggle("Mouse wheel", "Turns knobs and sliders", [boolOr] { return boolOr("ui.mouseWheelAdjustsControls", true); },
-           [&commands](bool on) { commands.SetSetting("ui.mouseWheelAdjustsControls", on); });
-    toggle("Signal flow", "Animate the cables while playing", [boolOr] { return boolOr("ui.signalFlowAnimation", false); },
-           [&commands](bool on) { commands.SetSetting("ui.signalFlowAnimation", on); });
-    toggle("Channels", "Show the channel choice on effects", [boolOr] { return boolOr("audio.signalPath.channelModeControl", false); },
-           [&commands](bool on) { commands.SetSetting("audio.signalPath.channelModeControl", on); });
+    toggle(
+        "Mouse wheel", "Turns knobs and sliders", [boolOr] { return boolOr("ui.mouseWheelAdjustsControls", true); },
+        [&commands](bool on) { commands.SetSetting("ui.mouseWheelAdjustsControls", on); });
+    toggle(
+        "Signal flow", "Animate the cables while playing", [boolOr] { return boolOr("ui.signalFlowAnimation", false); },
+        [&commands](bool on) { commands.SetSetting("ui.signalFlowAnimation", on); });
+    toggle(
+        "Channels", "Show the channel choice on effects",
+        [boolOr] { return boolOr("audio.signalPath.channelModeControl", false); },
+        [&commands](bool on) { commands.SetSetting("audio.signalPath.channelModeControl", on); });
 
     // ── DSP performance ──
     heading("DSP PERFORMANCE");
-    toggle("Fast NAM engine", "Fused pass where a model allows", [boolOr] { return boolOr("audio.nam.fusedEngine", true); },
-           [&commands](bool on) { commands.SetSetting("audio.nam.fusedEngine", on); });
+    toggle(
+        "Fast NAM engine", "Fused pass where a model allows",
+        [boolOr] { return boolOr("audio.nam.fusedEngine", true); },
+        [&commands](bool on) { commands.SetSetting("audio.nam.fusedEngine", on); });
     {
         // The standalone app and the plugins keep their own choice, as in the web UI.
-        const char* key = mState.environment.standalone ? "audio.processing.multiCore.standalone" : "audio.processing.multiCore.plugin";
-        toggle("Multi-core", "Spread the chain over more cores", [boolOr, key] { return boolOr(key, true); },
-               [&commands, key](bool on) { commands.SetSetting(key, on); });
+        const char* key = mState.environment.standalone ? "audio.processing.multiCore.standalone"
+                                                        : "audio.processing.multiCore.plugin";
+        toggle(
+            "Multi-core", "Spread the chain over more cores", [boolOr, key] { return boolOr(key, true); },
+            [&commands, key](bool on) { commands.SetSetting(key, on); });
     }
 
     // ── Tone3000 ──
     if (guitarfx::uiclient::IsFeatureEnabled(mState, guitarfx::uiclient::Feature::Tone3000))
     {
         heading("TONE3000");
-        toggle("Search", "Through Soundshed's relay", [boolOr] { return boolOr("tone3000.useSoundshedToneSearchApi", true); },
-               [&commands](bool on) { commands.SetSetting("tone3000.useSoundshedToneSearchApi", on); });
+        toggle(
+            "Search", "Through Soundshed's relay",
+            [boolOr] { return boolOr("tone3000.useSoundshedToneSearchApi", true); },
+            [&commands](bool on) { commands.SetSetting("tone3000.useSoundshedToneSearchApi", on); });
         note("Off, searches use your own Tone3000 API key, set in Soundshed Guitar's Settings.");
     }
 
     // ── Library: the web UI's Export Presets & Blends ──
     heading("LIBRARY");
-    choice("Export resources", {"Used by presets", "Whole library"}, [this] { return mLibraryExportAll ? 1 : 0; },
-           [this](int i) { mLibraryExportAll = i == 1; });
+    choice(
+        "Export resources", {"Used by presets", "Whole library"}, [this] { return mLibraryExportAll ? 1 : 0; },
+        [this](int i) { mLibraryExportAll = i == 1; });
     {
-        auto exportButton = std::make_shared<Button>(mTheme, "Export Library...",
-                                                     [this, &commands] { commands.ExportLibraryArchive(mLibraryExportAll); });
+        auto exportButton = std::make_shared<Button>(
+            mTheme, "Export Library...", [this, &commands] { commands.ExportLibraryArchive(mLibraryExportAll); });
         exportButton->MinWidth(180);
         page.push_back(FixedHeight(44, Row({label(""), exportButton, Stretch()})));
     }
@@ -198,24 +237,31 @@ Ptr Shell::BuildSettingsPage()
 
     // ── Software updates ──
     heading("SOFTWARE UPDATES");
-    toggle("Updates", "Check for a new version at startup", [boolOr] { return boolOr("app.updateCheckEnabled", true); },
-           [&commands](bool on) { commands.SetSetting("app.updateCheckEnabled", on); });
+    toggle(
+        "Updates", "Check for a new version at startup", [boolOr] { return boolOr("app.updateCheckEnabled", true); },
+        [&commands](bool on) { commands.SetSetting("app.updateCheckEnabled", on); });
+
     if (mUpdate)
     {
-        auto get = std::make_shared<Button>(mTheme, "Version " + mUpdate->version + " is available...", [this] { OpenUpdateDialog(); },
-                                            Button::Style::Primary);
+        auto get = std::make_shared<Button>(
+            mTheme, "Version " + mUpdate->version + " is available...", [this] { OpenUpdateDialog(); },
+            Button::Style::Primary);
         get->MinWidth(260);
         page.push_back(FixedHeight(44, Row({label(""), get, Stretch()})));
     }
 
     // ── Features: every UI hides what is switched off here ──
     heading("FEATURES");
+
     for (const auto feature : guitarfx::uiclient::AllFeatures())
     {
         const char* key = guitarfx::uiclient::FeatureSettingKey(feature);
-        toggle(guitarfx::uiclient::FeatureLabel(feature), "Enabled", [this, feature] { return guitarfx::uiclient::IsFeatureEnabled(mState, feature); },
-               [&commands, key](bool on) { commands.SetSetting(key, on); });
+        toggle(
+            guitarfx::uiclient::FeatureLabel(feature), "Enabled",
+            [this, feature] { return guitarfx::uiclient::IsFeatureEnabled(mState, feature); },
+            [&commands, key](bool on) { commands.SetSetting(key, on); });
     }
+
     note("Shared with Soundshed Guitar. Some features (the AI Tone Builder, Jam, the editors) are there only.");
 
     // ── Help: the web UI's Help tab, told for this app ──
@@ -245,8 +291,8 @@ Ptr Shell::BuildSettingsPage()
           "while the machine reports a low overall load. In an effect's DSP readouts a blank figure means it did not "
           "run in the last block (bypassed, or fed no signal) rather than a measured zero.");
     {
-        auto guides = std::make_shared<Button>(mTheme, "guitar.soundshed.com", [&commands] { commands.OpenUrl(kGuides); },
-                                               Button::Style::Flat);
+        auto guides = std::make_shared<Button>(
+            mTheme, "guitar.soundshed.com", [&commands] { commands.OpenUrl(kGuides); }, Button::Style::Flat);
         guides->MinWidth(190);
         page.push_back(FixedHeight(44, Row({label("Guides and release notes"), guides, Stretch()})));
     }
@@ -267,14 +313,18 @@ Ptr Shell::BuildSettingsPage()
     // app down with it.
     line("Profile", guitarfx::util::PathToUtf8(ProfileFolder()));
     {
-        auto site = std::make_shared<Button>(mTheme, "soundshed.com", [&commands] { commands.OpenUrl(kWebsite); }, Button::Style::Flat);
+        auto site = std::make_shared<Button>(
+            mTheme, "soundshed.com", [&commands] { commands.OpenUrl(kWebsite); }, Button::Style::Flat);
         site->MinWidth(150);
         page.push_back(FixedHeight(44, Row({FixedWidth(190, std::make_shared<el::element>()), site, Stretch()})));
     }
     note("Riff capture, the JAM tools, plugin hosting and preset blending are in Soundshed Guitar,");
     note("which shares this app's presets, library and settings.");
+
     if (!mState.environment.audioDeviceSettings)
+    {
         note("The audio device is set by the host, or in the window menu (Alt+Space) of the standalone app.");
+    }
 
     return Fill(mTheme.Background(), Pad(24, 8, 24, 12, VScroll(Col(page))));
 }

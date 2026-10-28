@@ -29,19 +29,22 @@ namespace nanoq::ui
 /// file the engine resolves the id to. Cleared when the library or its image list changes.
 class LayoutImages
 {
-public:
+  public:
     using Resolver = std::function<std::optional<std::filesystem::path>(const std::string& imageId)>;
 
-    explicit LayoutImages(Resolver resolve) : mResolve(std::move(resolve)) {}
+    explicit LayoutImages(Resolver resolve) : mResolve(std::move(resolve))
+    {
+    }
 
     /// The picture, or null when the id names no file or the file cannot be decoded.
     [[nodiscard]] std::shared_ptr<artist::image> Find(const std::string& imageId);
+
     void Clear()
     {
         mImages.clear();
     }
 
-private:
+  private:
     Resolver mResolve;
     std::map<std::string, std::shared_ptr<artist::image>> mImages; // a null entry: tried, failed
 };
@@ -50,7 +53,7 @@ private:
 struct LayoutActions
 {
     std::function<void(const guitarfx::uiclient::EffectParamInfo& param, double value)> setParam;
-    std::function<void(const guitarfx::uiclient::EffectParamInfo& param)> editValue; // typed entry
+    std::function<void(const guitarfx::uiclient::EffectParamInfo& param)> editValue;          // typed entry
     std::function<void(const guitarfx::uiclient::EffectParamInfo& param, el::point at)> menu; // MIDI Learn
     std::function<void()> toggleBypass;
 };
@@ -58,7 +61,7 @@ struct LayoutActions
 /// One placed control: a parameter's knob, switch or slider with its label and value.
 class LayoutControlView final : public el::element, public Drawn
 {
-public:
+  public:
     struct Look
     {
         guitarfx::uiclient::LayoutControlKind kind = guitarfx::uiclient::LayoutControlKind::Knob;
@@ -67,7 +70,7 @@ public:
         bool labelTop = false, labelBottom = false;
         float labelSize = 10.0f, valueSize = 9.0f, labelMaxWidth = 80.0f;
         el::color labelInk, valueInk, accent;
-        float width = 80.0f;       // the wrapper's
+        float width = 80.0f;              // the wrapper's
         el::extent control{38.0f, 38.0f}; // the knob, switch or slider itself
     };
 
@@ -84,6 +87,7 @@ public:
     void drag(const el::context& ctx, el::mouse_button btn) override;
     bool cursor(const el::context& ctx, el::point p, el::cursor_tracking status) override;
     bool scroll(const el::context& ctx, el::point dir, el::point p) override;
+
     bool wants_control() const override
     {
         return true;
@@ -91,12 +95,13 @@ public:
 
     /// Moves the control to the node's value, unless it is being dragged. True when it changed.
     bool Update(const guitarfx::GraphNode& node);
+
     [[nodiscard]] bool Dragging() const
     {
         return mDragging;
     }
 
-private:
+  private:
     [[nodiscard]] el::rect ControlBox(el::rect bounds) const;
     [[nodiscard]] el::rect ValueBox(el::rect bounds) const;
     void SetPosition(double position, const el::context& ctx);
@@ -120,8 +125,8 @@ private:
 /// What BuildLayoutView makes.
 struct LayoutViewParts
 {
-    Ptr element;      // drawn size: the layout's at `scale`
-    el::extent size;  // that size
+    Ptr element;     // drawn size: the layout's at `scale`
+    el::extent size; // that size
     std::vector<std::shared_ptr<LayoutControlView>> controls;
 };
 
@@ -135,7 +140,8 @@ struct LayoutViewInput
     Ptr defaultControls;
     el::extent defaultControlsSize{0.0f, 0.0f};
     /// A model or IR slot placed by the layout: the slot's row, `width` wide, or null to leave it out.
-    std::function<Ptr(const guitarfx::uiclient::LayoutResourceSlot& slot, const std::string& label, float width)> resourceSlot;
+    std::function<Ptr(const guitarfx::uiclient::LayoutResourceSlot& slot, const std::string& label, float width)>
+        resourceSlot;
 };
 
 [[nodiscard]] LayoutViewParts BuildLayoutView(const Theme& theme, LayoutImages& images, const LayoutViewInput& input,

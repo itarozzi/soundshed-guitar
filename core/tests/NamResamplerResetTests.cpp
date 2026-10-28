@@ -131,6 +131,7 @@ void SetTestEnvironment(const char* name, const char* value)
 #ifdef _WIN32
     _putenv_s(name, value != nullptr ? value : "");
 #else
+
     if (value != nullptr)
     {
         setenv(name, value, 1);
@@ -139,6 +140,7 @@ void SetTestEnvironment(const char* name, const char* value)
     {
         unsetenv(name);
     }
+
 #endif
 }
 

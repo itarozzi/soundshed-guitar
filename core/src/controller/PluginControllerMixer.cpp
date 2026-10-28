@@ -315,8 +315,8 @@ void PluginController::ApplyActivePresetInItsSlot()
     }
 
     const auto activeMixerIds = SnapshotActivePresetIds();
-    const bool sharesTheMix = activeMixerIds.size() > 1 &&
-                              std::find(activeMixerIds.begin(), activeMixerIds.end(), mActivePresetId) != activeMixerIds.end();
+    const bool sharesTheMix = activeMixerIds.size() > 1 && std::find(activeMixerIds.begin(), activeMixerIds.end(),
+                                                                     mActivePresetId) != activeMixerIds.end();
 
     if (!sharesTheMix)
     {
@@ -432,5 +432,4 @@ void PluginController::ApplyMonoOutputUnityFromAppSettings()
     mPresetMixer.SetMonoOutputUnity(enabled);
     mMonoOutputUnityOwned = !mHost.IsStandalone();
 }
-
 } // namespace guitarfx

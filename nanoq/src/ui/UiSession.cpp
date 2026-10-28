@@ -29,16 +29,23 @@ UiSession::UiSession(Engine& engine, cycfi::elements::view& view)
     };
     host.toast = [this](const std::string& title, const std::string& detail, bool isError) {
         if (onToast)
+        {
             onToast(title, detail, isError);
+        }
     };
     mTones = std::make_unique<guitarfx::uiclient::ToneService>(mClient, mCommands, std::move(host));
 
     if (mDriver)
+    {
         mDriver->onSetting = [this](const std::string& key, const std::string& json) {
             const auto value = nlohmann::json::parse(json, nullptr, false);
+
             if (!value.is_discarded())
+            {
                 mCommands.SetSetting(key, value);
+            }
         };
+    }
 
     mClient.Start();
     Schedule();
@@ -69,10 +76,16 @@ void UiSession::Schedule()
     // Elements' timers are one-shot: each tick schedules the next.
     mView.post(kPumpInterval, [this, alive = mAlive] {
         if (!*alive)
+        {
             return;
+        }
+
         Pump();
+
         if (*alive)
+        {
             Schedule();
+        }
     });
 }
 
@@ -83,7 +96,9 @@ void UiSession::Pump()
     mEngine.Devices().Pump();
 
     for (auto& message : mEngine.TakeMessagesForView())
+    {
         mClient.Enqueue(std::move(message));
+    }
 
     mClient.Tick(Now());
     mClient.DrainPending();
@@ -93,14 +108,21 @@ void UiSession::Pump()
         std::lock_guard<std::mutex> lock(mPosted->mutex);
         posted.swap(mPosted->pending);
     }
+
     for (auto& fn : posted)
+    {
         fn();
+    }
 
     if (onTick)
+    {
         onTick();
+    }
 
     if (mDriver)
+    {
         mDriver->Poll(mView);
+    }
 }
 
 void UiSession::Repaint(cycfi::elements::element& element)
@@ -112,9 +134,13 @@ void UiSession::Repaint(cycfi::elements::element& element)
     if (const auto* drawn = dynamic_cast<const Drawn*>(&element))
     {
         if (drawn->DrawnArea())
+        {
             mView.refresh(*drawn->DrawnArea());
+        }
+
         return;
     }
+
     mView.refresh(element);
 }
 } // namespace nanoq::ui

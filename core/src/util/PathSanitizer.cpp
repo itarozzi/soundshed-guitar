@@ -128,7 +128,8 @@ std::string LimitFilenameLength(const std::string& name, std::size_t maxLength)
 
     // Keep a short extension (".nam", ".wav", ".json"); a long "extension" is part of the title.
     const auto dot = name.rfind('.');
-    const std::string extension = dot != std::string::npos && dot > 0 && name.size() - dot <= 8 ? name.substr(dot) : std::string{};
+    const std::string extension =
+        dot != std::string::npos && dot > 0 && name.size() - dot <= 8 ? name.substr(dot) : std::string{};
     const std::size_t stemLimit = maxLength > extension.size() ? maxLength - extension.size() : 1;
     std::string stem = name.substr(0, std::min(stemLimit, name.size() - extension.size()));
 

@@ -359,8 +359,8 @@ struct MetronomeState
     int timeSigDen = 4;
     std::string grouping;
     std::string subdivision;
-    std::vector<std::pair<std::string, std::string>> clickTypes;   // id, label
-    std::vector<std::pair<std::string, int>> subdivisions;         // id, ticks per beat
+    std::vector<std::pair<std::string, std::string>> clickTypes; // id, label
+    std::vector<std::pair<std::string, int>> subdivisions;       // id, ticks per beat
 
     // The last beat the engine reported, for the beat display.
     int beatIndex = -1;
@@ -373,8 +373,8 @@ struct MetronomeState
 struct MixerSlot
 {
     std::string name;
-    double mix = 1.0;  // 0..1
-    double pan = 0.0;  // -1..1
+    double mix = 1.0; // 0..1
+    double pan = 0.0; // -1..1
     bool mute = false;
     bool solo = false;
 };
@@ -449,6 +449,7 @@ struct InputLevellingState
     std::string saveMessage;
 
     [[nodiscard]] const InputLevellingProfile* Find(const std::string& id) const;
+
     [[nodiscard]] const InputLevellingProfile* Active() const
     {
         return Find(activeId);
@@ -467,15 +468,15 @@ struct DeviceState
 
 struct DemoClip
 {
-    std::string id;     // a built-in clip's id, or "riff:<takeId>"
+    std::string id; // a built-in clip's id, or "riff:<takeId>"
     std::string title;
     std::string takeId; // set for a favourite riff, played through previewRiffTake
 };
 
 struct DemoState
 {
-    std::vector<DemoClip> clips;      // the built-in clips (ui/demo/clips.json)
-    std::vector<DemoClip> riffClips;  // favourite riffs from the riff library, as the web UI lists them
+    std::vector<DemoClip> clips;     // the built-in clips (ui/demo/clips.json)
+    std::vector<DemoClip> riffClips; // favourite riffs from the riff library, as the web UI lists them
     bool playing = false;
     std::string title;
     std::string previewId; // what is playing: a clip's id, a riff take's id, or the captured take's
@@ -521,25 +522,25 @@ struct RiffCapture
 {
     enum class Phase
     {
-        Idle,      // nothing pending
-        Armed,     // counting in, or waiting for the first note
+        Idle,  // nothing pending
+        Armed, // counting in, or waiting for the first note
         Recording,
-        Complete   // a take waits to be trimmed, previewed and saved
+        Complete // a take waits to be trimmed, previewed and saved
     };
     Phase phase = Phase::Idle;
     std::string takeId;
     double tempoBpm = 0.0;
     int timeSigNum = 4;
     int timeSigDen = 4;
-    int bars = 0;               // armed: the most it can hold; complete: its length in bars
+    int bars = 0; // armed: the most it can hold; complete: its length in bars
     std::int64_t capturedSamples = 0;
     double sampleRate = 0.0;
     bool hasAudio = false;
-    std::vector<float> peaks;   // 0..1; while recording, over the whole buffer the take can fill
+    std::vector<float> peaks;               // 0..1; while recording, over the whole buffer the take can fill
     std::int64_t barAlignOffsetSamples = 0; // where the first bar starts, from an armed capture
-    std::string source;         // "", "import", "trim", "editLoad" or "looper"
-    std::string originalTakeId; // editLoad: the library take it came from
-    int serial = 0;             // counts takes made complete, so a view can reset its markers
+    std::string source;                     // "", "import", "trim", "editLoad" or "looper"
+    std::string originalTakeId;             // editLoad: the library take it came from
+    int serial = 0;                         // counts takes made complete, so a view can reset its markers
 };
 
 struct RiffState
@@ -683,7 +684,7 @@ struct ToneInstall
     };
 
     Status status = Status::Installing;
-    std::string detail;                  // why it failed
+    std::string detail;                 // why it failed
     std::vector<std::string> presetIds; // what it installed
 };
 
@@ -711,6 +712,7 @@ struct ResourceFolderListing
     {
         std::string name, path;
     };
+
     struct File
     {
         std::string name, path, resourceType;
@@ -766,12 +768,14 @@ struct ClientState
 
     std::map<std::string, std::vector<LibraryResource>> resources; // by resource type
     std::vector<BlendSummary> blends;
+
     /// What uses each library resource, by "type:id", as queryResourceUsage answered.
     struct ResourceUsage
     {
         bool inUse = false;
         std::string detail; // e.g. "Used by preset Clean Bass"
     };
+
     std::map<std::string, ResourceUsage> resourceUsage;
 
     GlobalSignalChainConfig globalChain;
@@ -794,7 +798,7 @@ struct ClientState
     std::map<std::string, ToneInstall> toneInstalls;
     std::map<std::string, ResourceImport> resourceImports; // by request id (Topic::Resources)
     ResourceFolderListing resourceFolder;                  // the folder last listed (Topic::ResourceFolders)
-    std::string pickedResourceFolder;                       // a folder the user just picked to add, until taken
+    std::string pickedResourceFolder;                      // a folder the user just picked to add, until taken
 
     [[nodiscard]] const EffectTypeInfo* FindEffectType(const std::string& type) const;
     [[nodiscard]] const PresetSummary* FindPresetSummary(const std::string& id) const;

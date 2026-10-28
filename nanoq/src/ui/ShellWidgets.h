@@ -22,7 +22,7 @@ namespace nanoq::ui
 /// runs `onClick`.
 class Pressable : public el::element, public Drawn
 {
-public:
+  public:
     std::function<void()> onClick;
     /// A right click (a long press on a touch screen), at a point in view coordinates: the
     /// control's context menu, such as MIDI Learn.
@@ -33,23 +33,35 @@ public:
         if (btn.state == el::mouse_button::right && onMenu)
         {
             if (btn.down)
+            {
                 onMenu(btn.pos);
+            }
+
             return true;
         }
+
         if (!mEnabled || btn.state != el::mouse_button::left)
+        {
             return false;
+        }
+
         if (btn.down)
         {
             mDown = true;
             ctx.view.refresh(ctx);
             return true;
         }
+
         const bool fire = mDown && ctx.bounds.includes(btn.pos);
         mDown = false;
         mBounds = ctx.bounds;
         ctx.view.refresh(ctx);
+
         if (fire && onClick)
+        {
             onClick();
+        }
+
         return true;
     }
 
@@ -62,11 +74,13 @@ public:
     bool cursor(const el::context& ctx, el::point, el::cursor_tracking status) override
     {
         const bool hover = status != el::cursor_tracking::leaving;
+
         if (hover != mHover)
         {
             mHover = hover;
             ctx.view.refresh(ctx);
         }
+
         return false;
     }
 
@@ -80,7 +94,7 @@ public:
         mEnabled = enabled;
     }
 
-protected:
+  protected:
     bool mHover = false, mDown = false, mEnabled = true;
     el::rect mBounds;
 };
@@ -89,7 +103,7 @@ protected:
 /// the stage on show (.nav-tab.nav-rail-stage).
 class RailTab final : public Pressable
 {
-public:
+  public:
     RailTab(const Theme& theme, Icons& icons, std::string icon, std::string label, bool active)
         : mTheme(theme), mIcons(icons), mIcon(std::move(icon)), mLabel(Upper(std::move(label))), mActive(active)
     {
@@ -105,19 +119,21 @@ public:
         NoteDrawn(ctx);
         auto& cnv = ctx.canvas;
         const auto b = ctx.bounds;
+
         if (mActive || mHover)
         {
             cnv.fill_style(mActive ? mTheme.Accent().opacity(0.18f) : mTheme.Text().opacity(0.05f));
             cnv.fill_round_rect(b, 8.0f);
         }
+
         const auto ink = mActive ? mTheme.Accent() : (mHover ? mTheme.TextSecondary() : mTheme.TextMuted());
         const float cx = (b.left + b.right) * 0.5f;
         mIcons.Draw(cnv, mIcon, el::rect{cx - 9.0f, b.top + 7.0f, cx + 9.0f, b.top + 25.0f}, ink);
-        FillText(cnv, mLabel, Font(Weight::SemiBold).size(9.0f), ink, el::rect{b.left, b.top + 28.0f, b.right, b.top + 40.0f},
-                 HAlign::Centre);
+        FillText(cnv, mLabel, Font(Weight::SemiBold).size(9.0f), ink,
+                 el::rect{b.left, b.top + 28.0f, b.right, b.top + 40.0f}, HAlign::Centre);
     }
 
-private:
+  private:
     const Theme& mTheme;
     Icons& mIcons;
     std::string mIcon, mLabel;
@@ -129,7 +145,7 @@ private:
 /// footer's text buttons and the Controls tab, `Accent` a tinted one (.preset-action-btn-primary).
 class IconButton final : public Pressable
 {
-public:
+  public:
     enum class Look
     {
         Ghost,
@@ -138,7 +154,7 @@ public:
         Accent,
         Chip,    // the effect header's Presets (.default-effect-shell-chip)
         Primary, // a dialog's confirming button: filled with the accent
-        Slate, // a model slot's previous, next and clear
+        Slate,   // a model slot's previous, next and clear
     };
 
     IconButton(const Theme& theme, Icons& icons, std::string icon, Look look = Look::Ghost)
@@ -152,35 +168,41 @@ public:
         mH = h;
         return *this;
     }
+
     IconButton& IconSize(float s)
     {
         mIconSize = s;
         return *this;
     }
+
     IconButton& Label(std::string label, float size = 10.0f)
     {
         mLabel = std::move(label);
         mLabelSize = size;
         return *this;
     }
+
     /// A small down-pointing caret after the icon: the button opens a menu.
     IconButton& Caret(bool caret)
     {
         mCaret = caret;
         return *this;
     }
+
     /// Lit: the accent tint of a pressed toggle (an open sheet, the tuner on).
     IconButton& Lit(bool lit)
     {
         mLit = lit;
         return *this;
     }
+
     IconButton& Ink(el::color ink)
     {
         mInk = ink;
         mHasInk = true;
         return *this;
     }
+
     IconButton& Disabled(bool disabled)
     {
         Enabled(!disabled);
@@ -190,6 +212,7 @@ public:
     el::view_limits limits(const el::basic_context& ctx) const override
     {
         float w = mW;
+
         if (!mLabel.empty())
         {
             const float text = el::measure_text(ctx.canvas, mLabel, Font(Weight::SemiBold).size(mLabelSize)).x;
@@ -199,6 +222,7 @@ public:
         {
             w += 12.0f;
         }
+
         return {{w, mH}, {w, mH}};
     }
 
@@ -214,8 +238,12 @@ public:
         switch (mLook)
         {
         case Look::Ghost:
+
             if (mHover || mLit)
+            {
                 fill = mTheme.Text().opacity(0.06f);
+            }
+
             break;
         case Look::Soft:
             fill = mTheme.Text().opacity(mHover ? 0.09f : 0.05f);
@@ -235,13 +263,15 @@ public:
             break;
         case Look::Chip:
             radius = 6.0f;
-            fill = mTheme.Pick(mHover ? el::rgba(40, 40, 50, 255) : el::rgba(30, 30, 38, 255), mHover ? mTheme.Elevated() : mTheme.Card());
+            fill = mTheme.Pick(mHover ? el::rgba(40, 40, 50, 255) : el::rgba(30, 30, 38, 255),
+                               mHover ? mTheme.Elevated() : mTheme.Card());
             line = mTheme.Pick(el::rgba(38, 38, 48, 255), mTheme.Border());
             ink = mTheme.Pick(el::rgba(235, 240, 250, 242), mTheme.Text());
             break;
         case Look::Slate:
             radius = 7.0f;
-            fill = mTheme.Pick(mHover ? el::rgba(72, 78, 98, 255) : el::rgba(56, 61, 79, 255), mHover ? mTheme.Elevated() : mTheme.Card());
+            fill = mTheme.Pick(mHover ? el::rgba(72, 78, 98, 255) : el::rgba(56, 61, 79, 255),
+                               mHover ? mTheme.Elevated() : mTheme.Card());
             line = mTheme.Pick(el::rgba(255, 255, 255, 18), mTheme.BorderStrong());
             ink = mTheme.Pick(el::rgba(203, 203, 220, 255), mTheme.Text());
             break;
@@ -251,24 +281,35 @@ public:
             ink = mTheme.Text();
             break;
         }
+
         if (mLit)
         {
             fill = mTheme.Accent().opacity(0.16f);
             line = mTheme.Accent().opacity(0.55f);
             ink = mTheme.Accent();
         }
+
         if (mHasInk)
+        {
             ink = mInk;
+        }
+
         if (!mEnabled)
+        {
             ink = ink.opacity(0.35f);
+        }
+
         if (mDown)
+        {
             fill = fill.alpha > 0.0f ? fill.level(0.8f) : mTheme.Text().opacity(0.04f);
+        }
 
         if (fill.alpha > 0.0f)
         {
             cnv.fill_style(fill);
             cnv.fill_round_rect(b, radius);
         }
+
         if (line.alpha > 0.0f)
         {
             cnv.stroke_style(line);
@@ -285,21 +326,27 @@ public:
         const float total = iconW + gap + textW + (mCaret ? 2.0f + caretW : 0.0f);
         float x = b.left + (b.width() - total) * 0.5f;
         const float cy = b.top + b.height() * 0.5f;
+
         if (!mIcon.empty())
         {
             mIcons.Draw(cnv, mIcon, el::rect{x, cy - mIconSize * 0.5f, x + mIconSize, cy + mIconSize * 0.5f}, ink);
             x += iconW + gap;
         }
+
         if (!mLabel.empty())
         {
             FillText(cnv, mLabel, font, ink, el::rect{x, b.top, x + textW + 1.0f, b.bottom}, HAlign::Left);
             x += textW;
         }
+
         if (mCaret)
-            mIcons.Draw(cnv, "ui-caret", el::rect{x + 2.0f, cy - 5.0f, x + 2.0f + caretW, cy + 5.0f}, ink.opacity(ink.alpha * 0.8f));
+        {
+            mIcons.Draw(cnv, "ui-caret", el::rect{x + 2.0f, cy - 5.0f, x + 2.0f + caretW, cy + 5.0f},
+                        ink.opacity(ink.alpha * 0.8f));
+        }
     }
 
-private:
+  private:
     const Theme& mTheme;
     Icons& mIcons;
     std::string mIcon, mLabel;
@@ -313,7 +360,7 @@ private:
 /// (.preset-selector). A tap on the heart toggles it; anywhere else opens the presets.
 class PresetPill final : public Pressable
 {
-public:
+  public:
     PresetPill(const Theme& theme, Icons& icons, std::string name, bool favourite, bool dirty)
         : mTheme(theme), mIcons(icons), mName(std::move(name)), mFavourite(favourite), mDirty(dirty)
     {
@@ -327,6 +374,7 @@ public:
         mHeight = h;
         return *this;
     }
+
     PresetPill& Badge(std::string badge)
     {
         mBadge = std::move(badge);
@@ -363,6 +411,7 @@ public:
                     mFavourite ? mTheme.Accent() : (mHoverHeart ? mTheme.Text() : mTheme.TextSecondary()));
 
         float right = b.right - 12.0f;
+
         if (!mBadge.empty())
         {
             const auto badgeFont = Font(Weight::SemiBold).size(9.5f);
@@ -374,6 +423,7 @@ public:
             FillText(cnv, mBadge, badgeFont, mTheme.TextSecondary(), chip, HAlign::Centre);
             right = chip.left - 10.0f;
         }
+
         const auto font = Font(Weight::SemiBold).size(mHeight > 30.0f ? 13.0f : 12.0f);
         const el::rect text{heart.right + 14.0f, b.top, right, b.bottom};
         std::string name = mDirty ? mName + " *" : mName;
@@ -382,28 +432,37 @@ public:
 
     bool click(const el::context& ctx, el::mouse_button btn) override
     {
-        if (btn.state == el::mouse_button::left && !btn.down && HeartRect(ctx.bounds).inset(-6.0f, -6.0f).includes(btn.pos))
+        if (btn.state == el::mouse_button::left && !btn.down &&
+            HeartRect(ctx.bounds).inset(-6.0f, -6.0f).includes(btn.pos))
         {
             mDown = false;
+
             if (onFavourite)
+            {
                 onFavourite();
+            }
+
             return true;
         }
+
         return Pressable::click(ctx, btn);
     }
 
     bool cursor(const el::context& ctx, el::point p, el::cursor_tracking status) override
     {
-        const bool heart = status != el::cursor_tracking::leaving && HeartRect(ctx.bounds).inset(-6.0f, -6.0f).includes(p);
+        const bool heart =
+            status != el::cursor_tracking::leaving && HeartRect(ctx.bounds).inset(-6.0f, -6.0f).includes(p);
+
         if (heart != mHoverHeart)
         {
             mHoverHeart = heart;
             ctx.view.refresh(ctx);
         }
+
         return Pressable::cursor(ctx, p, status);
     }
 
-private:
+  private:
     static el::rect HeartRect(const el::rect& b)
     {
         const float cy = b.top + b.height() * 0.5f;
@@ -422,7 +481,7 @@ private:
 /// playing scene is tinted with the accent.
 class SceneChip final : public Pressable
 {
-public:
+  public:
     SceneChip(const Theme& theme, std::string label, bool active, bool add = false)
         : mTheme(theme), mLabel(std::move(label)), mActive(active), mAdd(add)
     {
@@ -445,8 +504,10 @@ public:
         auto& cnv = ctx.canvas;
         const auto b = ctx.bounds;
         const el::color fill =
-            mActive ? mTheme.Accent().opacity(0.12f) : mTheme.Pick(el::rgba(38, 38, 46, mHover ? 230 : 153), mHover ? mTheme.Elevated() : mTheme.Card());
-        const el::color line = mActive ? mTheme.Accent().opacity(0.55f) : mTheme.Pick(el::rgba(38, 38, 48, 178), mTheme.Border());
+            mActive ? mTheme.Accent().opacity(0.12f)
+                    : mTheme.Pick(el::rgba(38, 38, 46, mHover ? 230 : 153), mHover ? mTheme.Elevated() : mTheme.Card());
+        const el::color line =
+            mActive ? mTheme.Accent().opacity(0.55f) : mTheme.Pick(el::rgba(38, 38, 48, 178), mTheme.Border());
         const el::color ink = mActive ? mTheme.Accent() : (mHover ? mTheme.TextSecondary() : mTheme.TextMuted());
         cnv.fill_style(fill);
         cnv.fill_round_rect(b, 9.0f);
@@ -455,13 +516,16 @@ public:
         cnv.stroke_round_rect(b.inset(0.5f, 0.5f), 9.0f);
 
         const auto font = Font(Weight::SemiBold).size(mAdd ? 12.0f : 10.0f);
+
         if (mAdd)
         {
             FillText(cnv, "+", font, ink, b, HAlign::Centre);
             return;
         }
+
         el::rect text{b.left + 8.0f, b.top, b.right - (onRemove ? 18.0f : 8.0f), b.bottom};
         FillText(cnv, mLabel, font, ink, text, HAlign::Left);
+
         if (onRemove)
         {
             const el::point c{b.right - 10.0f, b.top + b.height() * 0.5f};
@@ -481,19 +545,24 @@ public:
         if (btn.state == el::mouse_button::right)
         {
             if (btn.down && onMenu)
+            {
                 onMenu();
+            }
+
             return true;
         }
+
         if (onRemove && btn.state == el::mouse_button::left && !btn.down && btn.pos.x > ctx.bounds.right - 18.0f)
         {
             mDown = false;
             onRemove();
             return true;
         }
+
         return Pressable::click(ctx, btn);
     }
 
-private:
+  private:
     const Theme& mTheme;
     std::string mLabel;
     bool mActive, mAdd;
@@ -503,8 +572,10 @@ private:
 /// with its thumb at the right, or a grey one reading OFF with it at the left.
 class PowerSwitch final : public Pressable
 {
-public:
-    PowerSwitch(const Theme& theme, bool on) : mTheme(theme), mOn(on) {}
+  public:
+    PowerSwitch(const Theme& theme, bool on) : mTheme(theme), mOn(on)
+    {
+    }
 
     void Set(bool on)
     {
@@ -522,6 +593,7 @@ public:
         auto& cnv = ctx.canvas;
         const auto b = ctx.bounds;
         const float radius = b.height() * 0.5f;
+
         if (mOn)
         {
             cycfi::artist::canvas::linear_gradient fill{b.top_left(), b.bottom_left()};
@@ -533,6 +605,7 @@ public:
         {
             cnv.fill_style(mTheme.ToggleBg());
         }
+
         cnv.fill_round_rect(b, radius);
 
         const float thumbR = radius - 4.0f;
@@ -547,7 +620,7 @@ public:
         FillText(cnv, mOn ? "ON" : "OFF", font, el::rgba(255, 255, 255, mOn ? 240 : 170), label, HAlign::Centre);
     }
 
-private:
+  private:
     const Theme& mTheme;
     bool mOn;
 };
@@ -555,8 +628,11 @@ private:
 /// A tab drawn as text with an accent underline when chosen (.node-param-tab).
 class UnderlineTab final : public Pressable
 {
-public:
-    UnderlineTab(const Theme& theme, std::string label, bool active) : mTheme(theme), mLabel(Upper(std::move(label))), mActive(active) {}
+  public:
+    UnderlineTab(const Theme& theme, std::string label, bool active)
+        : mTheme(theme), mLabel(Upper(std::move(label))), mActive(active)
+    {
+    }
 
     el::view_limits limits(const el::basic_context& ctx) const override
     {
@@ -570,8 +646,9 @@ public:
         auto& cnv = ctx.canvas;
         const auto b = ctx.bounds;
         const auto ink = mActive ? mTheme.Accent() : (mHover ? mTheme.Text() : mTheme.TextSecondary());
-        FillText(cnv, mLabel, Font(Weight::SemiBold).size(10.0f), ink, el::rect{b.left, b.top, b.right, b.bottom - 3.0f},
-                 HAlign::Centre);
+        FillText(cnv, mLabel, Font(Weight::SemiBold).size(10.0f), ink,
+                 el::rect{b.left, b.top, b.right, b.bottom - 3.0f}, HAlign::Centre);
+
         if (mActive)
         {
             cnv.fill_style(mTheme.Accent());
@@ -579,7 +656,7 @@ public:
         }
     }
 
-private:
+  private:
     const Theme& mTheme;
     std::string mLabel;
     bool mActive;
@@ -588,8 +665,11 @@ private:
 /// One half of the footer's A/B switch (.footer-ab-btn).
 class AbButton final : public Pressable
 {
-public:
-    AbButton(const Theme& theme, std::string label, bool active) : mTheme(theme), mLabel(std::move(label)), mActive(active) {}
+  public:
+    AbButton(const Theme& theme, std::string label, bool active)
+        : mTheme(theme), mLabel(std::move(label)), mActive(active)
+    {
+    }
 
     el::view_limits limits(const el::basic_context&) const override
     {
@@ -601,6 +681,7 @@ public:
         NoteDrawn(ctx);
         auto& cnv = ctx.canvas;
         const auto b = ctx.bounds;
+
         if (mActive)
         {
             cnv.fill_style(mTheme.Pick(el::rgba(79, 51, 42, 255), mTheme.AccentTint()));
@@ -614,11 +695,12 @@ public:
             cnv.fill_style(mTheme.Text().opacity(0.06f));
             cnv.fill_round_rect(b, 4.0f);
         }
+
         FillText(cnv, mLabel, Font(Weight::SemiBold).size(11.0f), mActive ? mTheme.Ink() : mTheme.TextSecondary(), b,
                  HAlign::Centre);
     }
 
-private:
+  private:
     const Theme& mTheme;
     std::string mLabel;
     bool mActive;
@@ -627,8 +709,10 @@ private:
 /// The round + (.signal-add-btn, .signal-path-add-menu-trigger).
 class RoundAdd final : public Pressable
 {
-public:
-    explicit RoundAdd(const Theme& theme, float size = 24.0f) : mTheme(theme), mSize(size) {}
+  public:
+    explicit RoundAdd(const Theme& theme, float size = 24.0f) : mTheme(theme), mSize(size)
+    {
+    }
 
     el::view_limits limits(const el::basic_context&) const override
     {
@@ -644,7 +728,8 @@ public:
         {
             auto state = cnv.new_state();
             cycfi::artist::canvas::linear_gradient fill{el::point{c.x, c.y - r}, el::point{c.x, c.y + r}};
-            fill.add_color_stop(0.0f, mTheme.Pick(mHover ? el::rgba(78, 78, 90, 255) : el::rgba(58, 58, 68, 255), mHover ? mTheme.Input() : mTheme.Elevated()));
+            fill.add_color_stop(0.0f, mTheme.Pick(mHover ? el::rgba(78, 78, 90, 255) : el::rgba(58, 58, 68, 255),
+                                                  mHover ? mTheme.Input() : mTheme.Elevated()));
             fill.add_color_stop(1.0f, mTheme.Pick(el::rgba(32, 32, 42, 255), mTheme.Card()));
             cnv.fill_style(fill);
             cnv.add_circle(cycfi::artist::circle(c, r));
@@ -665,7 +750,7 @@ public:
         cnv.stroke();
     }
 
-private:
+  private:
     const Theme& mTheme;
     float mSize;
 };
@@ -674,7 +759,7 @@ private:
 /// with a caret at the right. A tap opens the library.
 class SelectField final : public Pressable
 {
-public:
+  public:
     SelectField(const Theme& theme, Icons& icons, std::string text, bool chosen, bool warn)
         : mTheme(theme), mIcons(icons), mText(std::move(text)), mChosen(chosen), mWarn(warn)
     {
@@ -691,20 +776,22 @@ public:
         auto& cnv = ctx.canvas;
         const auto b = ctx.bounds;
         const auto accent = mWarn ? mTheme.Error() : mTheme.Accent();
-        cnv.fill_style(mChosen ? accent.opacity(mHover ? 0.3f : 0.22f).level(0.75f) : (mHover ? mTheme.Elevated() : mTheme.Input()));
+        cnv.fill_style(mChosen ? accent.opacity(mHover ? 0.3f : 0.22f).level(0.75f)
+                               : (mHover ? mTheme.Elevated() : mTheme.Input()));
         cnv.fill_round_rect(b, 6.0f);
         cnv.stroke_style(mChosen ? accent.opacity(0.42f) : mTheme.Border());
         cnv.line_width(1.0f);
         cnv.stroke_round_rect(b.inset(0.5f, 0.5f), 6.0f);
         const auto font = Font(Weight::Medium).size(12.0f);
         const el::rect text{b.left + 9.0f, b.top, b.right - 24.0f, b.bottom};
-        FillText(cnv, Ellipsize(cnv, mText, font, text.width()), font, mChosen ? mTheme.Ink() : mTheme.TextSecondary(), text,
-                 HAlign::Left);
+        FillText(cnv, Ellipsize(cnv, mText, font, text.width()), font, mChosen ? mTheme.Ink() : mTheme.TextSecondary(),
+                 text, HAlign::Left);
         const float cy = b.top + b.height() * 0.5f;
-        mIcons.Draw(cnv, "ui-caret", el::rect{b.right - 19.0f, cy - 5.0f, b.right - 9.0f, cy + 5.0f}, mTheme.TextSecondary());
+        mIcons.Draw(cnv, "ui-caret", el::rect{b.right - 19.0f, cy - 5.0f, b.right - 9.0f, cy + 5.0f},
+                    mTheme.TextSecondary());
     }
 
-private:
+  private:
     const Theme& mTheme;
     Icons& mIcons;
     std::string mText;
@@ -715,8 +802,10 @@ private:
 /// switch, and On or Off under it. A tap flips it.
 class ParamToggle final : public Pressable
 {
-public:
-    ParamToggle(const Theme& theme, std::string name) : mTheme(theme), mName(Upper(std::move(name))) {}
+  public:
+    ParamToggle(const Theme& theme, std::string name) : mTheme(theme), mName(Upper(std::move(name)))
+    {
+    }
 
     void Set(bool on)
     {
@@ -734,20 +823,24 @@ public:
         auto& cnv = ctx.canvas;
         const auto b = ctx.bounds;
         const auto label = Font(Weight::SemiBold).size(9.0f);
-        FillText(cnv, Ellipsize(cnv, mName, label, b.width() + 6.0f), label, mTheme.Pick(el::rgba(201, 209, 225, 184), mTheme.TextSecondary()),
+        FillText(cnv, Ellipsize(cnv, mName, label, b.width() + 6.0f), label,
+                 mTheme.Pick(el::rgba(201, 209, 225, 184), mTheme.TextSecondary()),
                  el::rect{b.left, b.top, b.right, b.top + 12.0f}, HAlign::Centre);
         const float cx = (b.left + b.right) * 0.5f;
         const el::rect track{cx - 17.0f, b.top + 22.0f, cx + 17.0f, b.top + 40.0f};
-        cnv.fill_style(mOn ? mTheme.Accent().level(mHover ? 1.05f : 0.92f) : mTheme.ToggleBg().level(mHover ? 1.15f : 1.0f));
+        cnv.fill_style(mOn ? mTheme.Accent().level(mHover ? 1.05f : 0.92f)
+                           : mTheme.ToggleBg().level(mHover ? 1.15f : 1.0f));
         cnv.fill_round_rect(track, 9.0f);
         cnv.fill_style(el::rgba(255, 255, 255, 240));
-        cnv.add_circle(cycfi::artist::circle(el::point{mOn ? track.right - 9.0f : track.left + 9.0f, track.top + 9.0f}, 7.0f));
+        cnv.add_circle(
+            cycfi::artist::circle(el::point{mOn ? track.right - 9.0f : track.left + 9.0f, track.top + 9.0f}, 7.0f));
         cnv.fill();
-        FillText(cnv, mOn ? "On" : "Off", Font(Weight::SemiBold).size(10.0f), mTheme.Pick(el::rgba(231, 236, 246, 194), mTheme.Text()),
+        FillText(cnv, mOn ? "On" : "Off", Font(Weight::SemiBold).size(10.0f),
+                 mTheme.Pick(el::rgba(231, 236, 246, 194), mTheme.Text()),
                  el::rect{b.left, b.bottom - 13.0f, b.right, b.bottom}, HAlign::Centre);
     }
 
-private:
+  private:
     const Theme& mTheme;
     std::string mName;
     bool mOn = false;
@@ -757,9 +850,11 @@ private:
 /// colour, its name in capitals, and how many effects it holds; the open one tinted.
 class CategoryRow final : public Pressable
 {
-public:
-    CategoryRow(const Theme& theme, Icons& icons, std::string icon, std::string label, int count, el::color tint, bool active)
-        : mTheme(theme), mIcons(icons), mIcon(std::move(icon)), mLabel(Upper(std::move(label))), mCount(count), mTint(tint), mActive(active)
+  public:
+    CategoryRow(const Theme& theme, Icons& icons, std::string icon, std::string label, int count, el::color tint,
+                bool active)
+        : mTheme(theme), mIcons(icons), mIcon(std::move(icon)), mLabel(Upper(std::move(label))), mCount(count),
+          mTint(tint), mActive(active)
     {
     }
 
@@ -772,10 +867,12 @@ public:
     {
         auto& cnv = ctx.canvas;
         const auto b = ctx.bounds;
+
         if (mActive || mHover)
         {
             cnv.fill_style(mActive ? mTheme.Accent().opacity(0.16f) : mTheme.Text().opacity(0.05f));
             cnv.fill_round_rect(b, 6.0f);
+
             if (mActive)
             {
                 cnv.stroke_style(mTheme.Accent().opacity(0.5f));
@@ -783,21 +880,23 @@ public:
                 cnv.stroke_round_rect(b.inset(0.5f, 0.5f), 6.0f);
             }
         }
+
         const float cy = b.top + b.height() * 0.5f;
         mIcons.Draw(cnv, mIcon, el::rect{b.left + 10.0f, cy - 8.0f, b.left + 26.0f, cy + 8.0f}, mTint);
         const auto font = Font(Weight::SemiBold).size(10.5f);
-        FillText(cnv, mLabel, font, mActive ? mTheme.Text() : mTheme.TextSecondary(), el::rect{b.left + 34.0f, b.top, b.right - 34.0f, b.bottom},
-                 HAlign::Left);
+        FillText(cnv, mLabel, font, mActive ? mTheme.Text() : mTheme.TextSecondary(),
+                 el::rect{b.left + 34.0f, b.top, b.right - 34.0f, b.bottom}, HAlign::Left);
         const auto countText = std::to_string(mCount);
         const auto countFont = Font(Weight::SemiBold).size(9.0f);
         const float w = std::max(18.0f, el::measure_text(cnv, countText, countFont).x + 10.0f);
         const el::rect pill{b.right - 8.0f - w, cy - 8.0f, b.right - 8.0f, cy + 8.0f};
-        cnv.fill_style(mActive ? mTheme.Accent().opacity(0.35f) : mTheme.Pick(el::rgba(255, 255, 255, 18), mTheme.Text().opacity(0.07f)));
+        cnv.fill_style(mActive ? mTheme.Accent().opacity(0.35f)
+                               : mTheme.Pick(el::rgba(255, 255, 255, 18), mTheme.Text().opacity(0.07f)));
         cnv.fill_round_rect(pill, 8.0f);
         FillText(cnv, countText, countFont, mTheme.TextSecondary(), pill, HAlign::Centre);
     }
 
-private:
+  private:
     const Theme& mTheme;
     Icons& mIcons;
     std::string mIcon, mLabel;
@@ -810,9 +909,9 @@ private:
 /// category, on a raised card; marked when it is the effect being replaced.
 class EffectRow final : public Pressable
 {
-public:
-    EffectRow(const Theme& theme, Icons& icons, std::string icon, std::shared_ptr<cycfi::artist::image> thumb, std::string name,
-              std::string category, el::color tint, bool current)
+  public:
+    EffectRow(const Theme& theme, Icons& icons, std::string icon, std::shared_ptr<cycfi::artist::image> thumb,
+              std::string name, std::string category, el::color tint, bool current)
         : mTheme(theme), mIcons(icons), mIcon(std::move(icon)), mThumb(std::move(thumb)), mName(std::move(name)),
           mCategory(std::move(category)), mTint(tint), mCurrent(current)
     {
@@ -827,13 +926,16 @@ public:
     {
         auto& cnv = ctx.canvas;
         const auto b = ctx.bounds;
-        cnv.fill_style(mTheme.Pick(mHover ? el::rgba(40, 40, 50, 255) : el::rgba(30, 30, 38, 255), mHover ? mTheme.Elevated() : mTheme.Card()));
+        cnv.fill_style(mTheme.Pick(mHover ? el::rgba(40, 40, 50, 255) : el::rgba(30, 30, 38, 255),
+                                   mHover ? mTheme.Elevated() : mTheme.Card()));
         cnv.fill_round_rect(b, 6.0f);
-        cnv.stroke_style(mCurrent ? mTheme.Accent().opacity(0.6f) : mTheme.Pick(el::rgba(255, 255, 255, mHover ? 28 : 14), mTheme.Border()));
+        cnv.stroke_style(mCurrent ? mTheme.Accent().opacity(0.6f)
+                                  : mTheme.Pick(el::rgba(255, 255, 255, mHover ? 28 : 14), mTheme.Border()));
         cnv.line_width(1.0f);
         cnv.stroke_round_rect(b.inset(0.5f, 0.5f), 6.0f);
 
         const el::rect picture{b.left + 10.0f, b.top + 7.0f, b.left + 46.0f, b.bottom - 7.0f};
+
         if (mThumb)
         {
             auto state = cnv.new_state();
@@ -847,18 +949,26 @@ public:
             const auto c = cycfi::artist::center_point(picture);
             mIcons.Draw(cnv, mIcon, el::rect{c.x - 9.0f, c.y - 9.0f, c.x + 9.0f, c.y + 9.0f}, mTint);
         }
-        FillText(cnv, mName, Font(Weight::SemiBold).size(12.0f), mTheme.Ink(), el::rect{b.left + 56.0f, b.top + 6.0f, b.right - 70.0f, b.top + 22.0f},
-                 HAlign::Left);
+
+        FillText(cnv, mName, Font(Weight::SemiBold).size(12.0f), mTheme.Ink(),
+                 el::rect{b.left + 56.0f, b.top + 6.0f, b.right - 70.0f, b.top + 22.0f}, HAlign::Left);
         FillText(cnv, mCategory, Font(Weight::Regular).size(9.5f), mTheme.TextMuted(),
                  el::rect{b.left + 56.0f, b.top + 22.0f, b.right - 70.0f, b.bottom - 5.0f}, HAlign::Left);
         const float labelRight = onStar ? b.right - 34.0f : b.right - 12.0f;
+
         if (mCurrent)
-            FillText(cnv, "CURRENT", Font(Weight::SemiBold).size(9.0f), mTheme.Accent(), el::rect{labelRight - 58.0f, b.top, labelRight, b.bottom},
-                     HAlign::Right);
+        {
+            FillText(cnv, "CURRENT", Font(Weight::SemiBold).size(9.0f), mTheme.Accent(),
+                     el::rect{labelRight - 58.0f, b.top, labelRight, b.bottom}, HAlign::Right);
+        }
+
         // The star (.fx-favorite-toggle): the accent when starred, faint until hovered otherwise.
         if (onStar)
+        {
             mIcons.Draw(cnv, "star", StarRect(b),
-                        mFavourite ? mTheme.Accent() : (mHover ? mTheme.TextSecondary() : mTheme.TextMuted().opacity(0.6f)));
+                        mFavourite ? mTheme.Accent()
+                                   : (mHover ? mTheme.TextSecondary() : mTheme.TextMuted().opacity(0.6f)));
+        }
     }
 
     bool click(const el::context& ctx, el::mouse_button btn) override
@@ -866,9 +976,13 @@ public:
         if (onStar && btn.state == el::mouse_button::left && StarRect(ctx.bounds).inset(-6.0f, -6.0f).includes(btn.pos))
         {
             if (!btn.down)
+            {
                 onStar();
+            }
+
             return true;
         }
+
         return Pressable::click(ctx, btn);
     }
 
@@ -879,7 +993,7 @@ public:
         onStar = std::move(toggle);
     }
 
-private:
+  private:
     static el::rect StarRect(const el::rect& b)
     {
         const float cy = b.top + b.height() * 0.5f;
@@ -902,10 +1016,11 @@ private:
 /// same one again clears it) and the favourite heart. A right click asks for its menu.
 class PresetRow final : public Pressable
 {
-public:
-    PresetRow(const Theme& theme, Icons& icons, std::string name, std::string detail, int rating, bool favourite, bool selected)
-        : mTheme(theme), mIcons(icons), mName(std::move(name)), mDetail(std::move(detail)), mRating(rating), mFavourite(favourite),
-          mSelected(selected)
+  public:
+    PresetRow(const Theme& theme, Icons& icons, std::string name, std::string detail, int rating, bool favourite,
+              bool selected)
+        : mTheme(theme), mIcons(icons), mName(std::move(name)), mDetail(std::move(detail)), mRating(rating),
+          mFavourite(favourite), mSelected(selected)
     {
     }
 
@@ -918,23 +1033,33 @@ public:
     {
         auto& cnv = ctx.canvas;
         const auto b = ctx.bounds.inset(0.0f, 1.0f);
-        cnv.fill_style(mSelected ? mTheme.AccentTint() : mHover ? mTheme.Elevated().opacity(0.7f) : el::rgba(0, 0, 0, 0));
+        cnv.fill_style(mSelected ? mTheme.AccentTint()
+                       : mHover  ? mTheme.Elevated().opacity(0.7f)
+                                 : el::rgba(0, 0, 0, 0));
         cnv.fill_round_rect(b, metrics::kRadius);
 
         // Right to left: the heart, then the stars.
         const float mid = b.top + b.height() * 0.5f;
-        mIcons.Draw(cnv, mFavourite ? "heart-filled" : "heart", HeartRect(b), mFavourite ? mTheme.Accent() : mTheme.TextMuted());
+        mIcons.Draw(cnv, mFavourite ? "heart-filled" : "heart", HeartRect(b),
+                    mFavourite ? mTheme.Accent() : mTheme.TextMuted());
+
         for (int i = 0; i < 5; ++i)
-            mIcons.Draw(cnv, "star", StarRect(b, i), i < mRating ? mTheme.Accent() : mTheme.TextMuted().opacity(mHover ? 0.7f : 0.35f));
+        {
+            mIcons.Draw(cnv, "star", StarRect(b, i),
+                        i < mRating ? mTheme.Accent() : mTheme.TextMuted().opacity(mHover ? 0.7f : 0.35f));
+        }
 
         const float right = StarRect(b, 0).left - 12.0f;
         const auto nameFont = Font(mSelected ? Weight::SemiBold : Weight::Medium).size(metrics::kTextSize);
         const auto detailFont = Font(Weight::Regular).size(10.5f);
         const el::rect text{b.left + 12.0f, b.top + 4.0f, right, mid + 1.0f};
         FillText(cnv, Ellipsize(cnv, mName, nameFont, text.width()), nameFont, mTheme.Text(), text, HAlign::Left);
+
         if (!mDetail.empty())
+        {
             FillText(cnv, Ellipsize(cnv, mDetail, detailFont, text.width()), detailFont, mTheme.TextMuted(),
                      el::rect{text.left, mid + 1.0f, right, b.bottom - 4.0f}, HAlign::Left);
+        }
     }
 
     bool click(const el::context& ctx, el::mouse_button btn) override
@@ -942,33 +1067,48 @@ public:
         if (btn.state == el::mouse_button::right)
         {
             if (btn.down && onMenu)
+            {
                 onMenu();
+            }
+
             return true;
         }
+
         if (btn.state == el::mouse_button::left)
         {
             const auto b = ctx.bounds.inset(0.0f, 1.0f);
+
             if (HeartRect(b).inset(-5.0f, -8.0f).includes(btn.pos))
             {
                 if (!btn.down && onFavourite)
+                {
                     onFavourite();
+                }
+
                 return true;
             }
+
             for (int i = 0; i < 5; ++i)
+            {
                 if (StarRect(b, i).inset(-2.0f, -8.0f).includes(btn.pos))
                 {
                     if (!btn.down && onRate)
+                    {
                         onRate(i + 1 == mRating ? 0 : i + 1);
+                    }
+
                     return true;
                 }
+            }
         }
+
         return Pressable::click(ctx, btn);
     }
 
     std::function<void()> onMenu, onFavourite;
     std::function<void(int rating)> onRate;
 
-private:
+  private:
     static el::rect HeartRect(const el::rect& b)
     {
         const float mid = b.top + b.height() * 0.5f;
@@ -993,13 +1133,17 @@ private:
 /// what it wraps (a pad's button keeps its tap).
 class MenuArea final : public el::proxy_base
 {
-public:
-    MenuArea(el::element_ptr subject, std::function<void()> menu) : mSubject(std::move(subject)), onMenu(std::move(menu)) {}
+  public:
+    MenuArea(el::element_ptr subject, std::function<void()> menu)
+        : mSubject(std::move(subject)), onMenu(std::move(menu))
+    {
+    }
 
     el::element& subject() override
     {
         return *mSubject;
     }
+
     const el::element& subject() const override
     {
         return *mSubject;
@@ -1010,16 +1154,20 @@ public:
         if (btn.state == el::mouse_button::right)
         {
             if (btn.down && onMenu)
+            {
                 onMenu();
+            }
+
             return true;
         }
+
         return proxy_base::click(ctx, btn);
     }
 
-private:
+  private:
     el::element_ptr mSubject;
 
-public:
+  public:
     std::function<void()> onMenu;
 };
 
@@ -1027,13 +1175,17 @@ public:
 /// drop-down from a control that does not record that itself.
 class BoundsProbe final : public el::proxy_base
 {
-public:
-    BoundsProbe(el::element_ptr subject, std::function<void(el::rect)> onBounds) : mSubject(std::move(subject)), mOnBounds(std::move(onBounds)) {}
+  public:
+    BoundsProbe(el::element_ptr subject, std::function<void(el::rect)> onBounds)
+        : mSubject(std::move(subject)), mOnBounds(std::move(onBounds))
+    {
+    }
 
     el::element& subject() override
     {
         return *mSubject;
     }
+
     const el::element& subject() const override
     {
         return *mSubject;
@@ -1042,11 +1194,14 @@ public:
     void draw(const el::context& ctx) override
     {
         if (mOnBounds)
+        {
             mOnBounds(ctx.bounds);
+        }
+
         proxy_base::draw(ctx);
     }
 
-private:
+  private:
     el::element_ptr mSubject;
     std::function<void(el::rect)> mOnBounds;
 };
@@ -1054,8 +1209,10 @@ private:
 /// The little switch beside a Controls strip label (GATE, EQ, DOUBLER): 22 by 12.
 class MiniSwitch final : public Pressable
 {
-public:
-    MiniSwitch(const Theme& theme, bool on) : mTheme(theme), mOn(on) {}
+  public:
+    MiniSwitch(const Theme& theme, bool on) : mTheme(theme), mOn(on)
+    {
+    }
 
     void Set(bool on)
     {
@@ -1078,7 +1235,7 @@ public:
         cnv.fill();
     }
 
-private:
+  private:
     const Theme& mTheme;
     bool mOn;
 };
@@ -1086,8 +1243,10 @@ private:
 /// A loaded model's architecture as a small green pill (.node-architecture-badge, "A2").
 class ArchBadge final : public el::element
 {
-public:
-    explicit ArchBadge(std::string text) : mText(std::move(text)) {}
+  public:
+    explicit ArchBadge(std::string text) : mText(std::move(text))
+    {
+    }
 
     el::view_limits limits(const el::basic_context& ctx) const override
     {
@@ -1108,7 +1267,7 @@ public:
         FillText(cnv, mText, Font(Weight::SemiBold).size(8.0f), el::rgba(186, 255, 226, 255), pill, HAlign::Centre);
     }
 
-private:
+  private:
     std::string mText;
 };
 
@@ -1116,8 +1275,10 @@ private:
 /// it is quiet, grey when the effect is off.
 class HeaderLed final : public el::element, public Drawn
 {
-public:
-    HeaderLed(bool on, bool live) : mOn(on), mLive(live) {}
+  public:
+    HeaderLed(bool on, bool live) : mOn(on), mLive(live)
+    {
+    }
 
     el::view_limits limits(const el::basic_context&) const override
     {
@@ -1129,10 +1290,16 @@ public:
         NoteDrawn(ctx);
         auto& cnv = ctx.canvas;
         const auto c = cycfi::artist::center_point(ctx.bounds);
-        const el::color colour = !mOn ? el::rgba(110, 110, 124, 255) : mLive ? el::rgba(72, 224, 120, 255) : el::rgba(255, 92, 80, 255);
+        const el::color colour = !mOn    ? el::rgba(110, 110, 124, 255)
+                                 : mLive ? el::rgba(72, 224, 120, 255)
+                                         : el::rgba(255, 92, 80, 255);
         auto state = cnv.new_state();
+
         if (mOn)
+        {
             cnv.shadow_style(el::point{0.0f, 0.0f}, 6.0f, colour.opacity(0.7f));
+        }
+
         cycfi::artist::canvas::radial_gradient dot{el::point{c.x - 1.0f, c.y - 1.0f}, 0.0f, c, 4.0f};
         dot.add_color_stop(0.0f, colour.level(1.3f));
         dot.add_color_stop(1.0f, colour.level(0.85f));
@@ -1144,13 +1311,16 @@ public:
     bool Set(bool on, bool live)
     {
         if (on == mOn && live == mLive)
+        {
             return false;
+        }
+
         mOn = on;
         mLive = live;
         return true;
     }
 
-private:
+  private:
     bool mOn, mLive;
 };
 
@@ -1159,8 +1329,10 @@ private:
 /// one, in small capitals at the top.
 class InsetBox final : public el::element
 {
-public:
-    InsetBox(const Theme& theme, std::string title = {}) : mTheme(theme), mTitle(Upper(std::move(title))) {}
+  public:
+    InsetBox(const Theme& theme, std::string title = {}) : mTheme(theme), mTitle(Upper(std::move(title)))
+    {
+    }
 
     void draw(const el::context& ctx) override
     {
@@ -1189,12 +1361,16 @@ public:
         cnv.move_to(b.left + 10.0f, b.bottom + 0.5f);
         cnv.line_to(b.right - 10.0f, b.bottom + 0.5f);
         cnv.stroke();
+
         if (!mTitle.empty())
-            FillText(cnv, mTitle, Font(Weight::SemiBold).size(9.0f), light ? mTheme.TextSecondary() : el::rgba(220, 227, 243, 173),
+        {
+            FillText(cnv, mTitle, Font(Weight::SemiBold).size(9.0f),
+                     light ? mTheme.TextSecondary() : el::rgba(220, 227, 243, 173),
                      el::rect{b.left, b.top + 4.0f, b.right, b.top + 16.0f}, HAlign::Centre);
+        }
     }
 
-private:
+  private:
     const Theme& mTheme;
     std::string mTitle;
 };
@@ -1204,8 +1380,10 @@ private:
 /// pointer has moved since the press, and `done` on release.
 class SplitHandle final : public el::element
 {
-public:
-    explicit SplitHandle(const Theme& theme) : mTheme(theme) {}
+  public:
+    explicit SplitHandle(const Theme& theme) : mTheme(theme)
+    {
+    }
 
     el::view_limits limits(const el::basic_context&) const override
     {
@@ -1231,7 +1409,10 @@ public:
     bool click(const el::context& ctx, el::mouse_button btn) override
     {
         if (btn.state != el::mouse_button::left)
+        {
             return false;
+        }
+
         if (btn.down)
         {
             mDragging = true;
@@ -1240,29 +1421,41 @@ public:
         else if (mDragging)
         {
             mDragging = false;
+
             if (onDrag)
+            {
                 onDrag(btn.pos.y - mStartY, true);
+            }
+
             ctx.view.refresh(ctx);
         }
+
         return true;
     }
 
     void drag(const el::context&, el::mouse_button btn) override
     {
         if (mDragging && onDrag)
+        {
             onDrag(btn.pos.y - mStartY, false);
+        }
     }
 
     bool cursor(const el::context& ctx, el::point, el::cursor_tracking status) override
     {
         const bool hover = status != el::cursor_tracking::leaving;
+
         if (hover != mHover)
         {
             mHover = hover;
             ctx.view.refresh(ctx);
         }
+
         if (hover)
+        {
             el::set_cursor(el::cursor_type::v_resize);
+        }
+
         return true;
     }
 
@@ -1273,7 +1466,7 @@ public:
 
     std::function<void(float dy, bool done)> onDrag;
 
-private:
+  private:
     const Theme& mTheme;
     float mStartY = 0.0f;
     bool mDragging = false;
@@ -1284,8 +1477,10 @@ private:
 /// (.signal-path-scroll's radial-gradient over --bg-secondary).
 class StageBackdrop final : public el::element
 {
-public:
-    explicit StageBackdrop(const Theme& theme) : mTheme(theme) {}
+  public:
+    explicit StageBackdrop(const Theme& theme) : mTheme(theme)
+    {
+    }
 
     void draw(const el::context& ctx) override
     {
@@ -1293,8 +1488,12 @@ public:
         const auto b = ctx.bounds;
         cnv.fill_style(mTheme.Bar());
         cnv.fill_rect(b);
+
         if (mTheme.IsLight())
+        {
             return;
+        }
+
         auto state = cnv.new_state();
         const auto c = cycfi::artist::center_point(b);
         cycfi::artist::canvas::radial_gradient glow{c, 0.0f, c, std::max(b.width(), b.height()) * 0.6f};
@@ -1304,7 +1503,7 @@ public:
         cnv.fill_rect(b);
     }
 
-private:
+  private:
     const Theme& mTheme;
 };
 } // namespace nanoq::ui

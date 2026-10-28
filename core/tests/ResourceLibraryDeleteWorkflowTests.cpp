@@ -1095,8 +1095,12 @@ bool TestStartupBackfillsNamMetadataOnce()
 bool TestNamGearTypesMapToLibraryCategories()
 {
     const std::pair<const char*, const char*> expected[] = {
-        {"amp", "amp"},           {"pedal", "pedal"},          {"pedal_amp", "amp"},
-        {"amp_cab", "full-rig"},  {"amp_pedal_cab", "full-rig"}, {"preamp", "preamp"},
+        {"amp", "amp"},
+        {"pedal", "pedal"},
+        {"pedal_amp", "amp"},
+        {"amp_cab", "full-rig"},
+        {"amp_pedal_cab", "full-rig"},
+        {"preamp", "preamp"},
         {"studio", "preamp"},
     };
 

@@ -244,9 +244,11 @@ class DualLaneExecutor
       public:
         Lease() noexcept = default;
         ~Lease();
+
         Lease(Lease&& other) noexcept : mHeld(std::exchange(other.mHeld, false))
         {
         }
+
         Lease& operator=(Lease&& other) noexcept;
         Lease(const Lease&) = delete;
         Lease& operator=(const Lease&) = delete;
@@ -258,9 +260,11 @@ class DualLaneExecutor
 
       private:
         friend class DualLaneExecutor;
+
         explicit Lease(bool held) noexcept : mHeld(held)
         {
         }
+
         bool mHeld = false;
     };
 

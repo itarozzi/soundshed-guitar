@@ -173,6 +173,7 @@ class MultiPresetMixer
     // Returns true if a rebuild was staged.
     bool PrepareGlobalChainSwap(const GlobalSignalChainConfig& config);
     void CommitGlobalChainSwap();
+
     /// Makes the next PrepareGlobalChainSwap rebuild the executors even for an unchanged config,
     /// for a change that lives outside the config (the NAM engine).
     void MarkGlobalChainForRebuild() noexcept

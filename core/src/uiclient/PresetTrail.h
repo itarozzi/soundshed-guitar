@@ -21,7 +21,7 @@ inline constexpr std::size_t kPresetTrailLimit = 10;
 
 class PresetTrail
 {
-public:
+  public:
     /// A preset was loaded. One the trail stepped to is already where the place is.
     void Note(const std::string& presetId);
 
@@ -34,12 +34,13 @@ public:
     {
         return mAt > 0 && !mIds.empty();
     }
+
     [[nodiscard]] bool CanGoForward() const
     {
         return mAt + 1 < mIds.size();
     }
 
-private:
+  private:
     std::vector<std::string> mIds;
     std::size_t mAt = 0;
 };

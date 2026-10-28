@@ -13,29 +13,39 @@
 #include <xmmintrin.h>
 #include <pmmintrin.h>
 
-namespace nam { namespace factory { void ForceFactoryRegistration(); } }
+namespace nam
+{
+namespace factory
+{
+void ForceFactoryRegistration();
+}
+} // namespace nam
 
 static std::vector<double> Run(nam::DSP& d, std::vector<double> in)
 {
     d.ResetAndPrewarm(48000.0, 64);
     std::vector<double> out(in.size());
+
     for (size_t s = 0; s < in.size(); s += 64)
     {
         NAM_SAMPLE* ip[1] = {in.data() + s};
         NAM_SAMPLE* op[1] = {out.data() + s};
         d.process(ip, op, 64);
     }
+
     return out;
 }
 
 static double Snr(const std::vector<double>& r, const std::vector<double>& x, size_t from = 0)
 {
     double e = 0, s = 0;
+
     for (size_t i = from; i < r.size(); ++i)
     {
         e += (x[i] - r[i]) * (x[i] - r[i]);
         s += r[i] * r[i];
     }
+
     return e == 0 ? 999 : 10 * std::log10(s / e);
 }
 
@@ -46,11 +56,13 @@ int main(int argc, char** argv)
     nam::factory::ForceFactoryRegistration();
     nam::activations::Activation::enable_fast_tanh();
     std::vector<double> x(48000);
+
     for (size_t i = 0; i < x.size(); ++i)
     {
         const double t = i / 48000.0;
         x[i] = 0.3 * std::exp(-std::fmod(t, 0.25) * 6.0) * std::sin(2 * 3.14159265 * (110.0 + 40.0 * t) * t);
     }
+
     for (int a = 1; a < argc; ++a)
     {
         auto g = nam::get_dsp(std::filesystem::path(argv[a]));
@@ -58,22 +70,32 @@ int main(int argc, char** argv)
         const auto ref = Run(*g, x);
         const auto fused = Run(*f, x);
         std::printf("%s\n  fused vs generic: %.1f dB\n", argv[a], Snr(ref, fused));
+
         for (double eps : {1e-7, 1e-6})
         {
             std::vector<double> xp = x;
+
             for (auto& v : xp)
+            {
                 v *= 1.0 + eps;
+            }
+
             const auto gp = Run(*g, xp);
             std::printf("  generic vs generic with input x(1+%g): %.1f dB\n", eps, Snr(ref, gp));
         }
+
         // Per 0.1 s window, to see whether the gap is everywhere or in one passage.
         std::printf("  per 100 ms, fused vs generic:");
+
         for (size_t w = 0; w + 4800 <= x.size(); w += 4800)
         {
-            std::vector<double> r(ref.begin() + w, ref.begin() + w + 4800), q(fused.begin() + w, fused.begin() + w + 4800);
+            std::vector<double> r(ref.begin() + w, ref.begin() + w + 4800),
+                q(fused.begin() + w, fused.begin() + w + 4800);
             std::printf(" %.0f", Snr(r, q));
         }
+
         std::printf("\n");
     }
+
     return 0;
 }

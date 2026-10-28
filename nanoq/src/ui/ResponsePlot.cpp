@@ -42,10 +42,16 @@ double HalfBandwidthOctaves(double q)
 std::string FormatFreq(double hz)
 {
     char text[32];
+
     if (hz >= 1000.0)
+    {
         std::snprintf(text, sizeof(text), "%.2fk Hz", hz / 1000.0);
+    }
     else
+    {
         std::snprintf(text, sizeof(text), "%.0f Hz", hz);
+    }
+
     return text;
 }
 } // namespace
@@ -95,8 +101,12 @@ bool ResponsePlot::SetSpectrum(const guitarfx::uiclient::NodeSpectrum* spectrum)
         mSpectrum.reset();
         return had;
     }
+
     if (mSpectrum && mSpectrum->receivedAt == spectrum->receivedAt && mSpectrum->binsDb == spectrum->binsDb)
+    {
         return false;
+    }
+
     mSpectrum = *spectrum;
     return true;
 }
@@ -104,10 +114,16 @@ bool ResponsePlot::SetSpectrum(const guitarfx::uiclient::NodeSpectrum* spectrum)
 void ResponsePlot::SetBands(std::vector<PlotBand> bands)
 {
     if (mDragBand >= 0 && bands.size() == mBands.size())
+    {
         return;
+    }
+
     mBands = std::move(bands);
+
     if (mDragBand >= static_cast<int>(mBands.size()))
+    {
         mDragBand = -1;
+    }
 }
 
 void ResponsePlot::draw(const el::context& ctx)
@@ -125,6 +141,7 @@ void ResponsePlot::draw(const el::context& ctx)
     // The grid: a line every grid step in level, and at the usual frequencies.
     cnv.stroke_style(mTheme.PlotGrid());
     cnv.line_width(1.0f);
+
     for (double db = std::ceil(mMinDb / mGridStepDb) * mGridStepDb; db <= mMaxDb + 1e-9; db += mGridStepDb)
     {
         const float y = std::round(DbToY(plot, db)) + 0.5f;
@@ -133,6 +150,7 @@ void ResponsePlot::draw(const el::context& ctx)
         cnv.line_to(plot.right, y);
         cnv.stroke();
     }
+
     for (const double freq : {50.0, 100.0, 200.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0})
     {
         const float x = std::round(FreqToX(plot, freq)) + 0.5f;
@@ -154,17 +172,25 @@ void ResponsePlot::draw(const el::context& ctx)
         {
             cnv.stroke_style(mTheme.TextMuted().opacity(0.8f));
             cnv.line_width(1.25f);
+
             for (float start = plot.left; start < plot.right; start += 10.0f)
             {
                 cnv.begin_path();
+
                 for (float x = start; x <= std::min(start + 6.0f, plot.right); x += 1.0f)
                 {
                     const float y = DbToY(plot, ResponseDbAt(*mReference, XToFreq(plot, x)));
+
                     if (x == start)
+                    {
                         cnv.move_to(x, y);
+                    }
                     else
+                    {
                         cnv.line_to(x, y);
+                    }
                 }
+
                 cnv.stroke();
             }
         }
@@ -175,14 +201,21 @@ void ResponsePlot::draw(const el::context& ctx)
             cnv.line_width(2.0f);
             cnv.line_join(canvas::round_join);
             cnv.begin_path();
+
             for (float x = plot.left; x <= plot.right; x += 1.0f)
             {
                 const float y = DbToY(plot, ResponseDbAt(*mCurve, XToFreq(plot, x)));
+
                 if (x == plot.left)
+                {
                     cnv.move_to(x, y);
+                }
                 else
+                {
                     cnv.line_to(x, y);
+                }
             }
+
             cnv.stroke();
         }
     }
@@ -191,12 +224,13 @@ void ResponsePlot::draw(const el::context& ctx)
 
     // The band being moved or pointed at, named with its values, as the web UI's tooltip.
     const int shown = mDragBand >= 0 ? mDragBand : mHoverBand;
+
     if (shown >= 0 && shown < static_cast<int>(mBands.size()))
     {
         const auto& band = mBands[static_cast<std::size_t>(shown)];
         char text[96];
-        std::snprintf(text, sizeof(text), "%s  %s  %+.1f dB%s", band.label.c_str(), FormatFreq(band.freq).c_str(), band.gainDb,
-                      band.hasQ ? ("  Q " + std::to_string(band.q).substr(0, 4)).c_str() : "");
+        std::snprintf(text, sizeof(text), "%s  %s  %+.1f dB%s", band.label.c_str(), FormatFreq(band.freq).c_str(),
+                      band.gainDb, band.hasQ ? ("  Q " + std::to_string(band.q).substr(0, 4)).c_str() : "");
         FillText(cnv, text, Font(Weight::SemiBold).size(10.0f), mTheme.Ink(),
                  el::rect{plot.left + 6.0f, plot.top + 2.0f, plot.right, plot.top + 16.0f}, HAlign::Left);
     }
@@ -205,13 +239,18 @@ void ResponsePlot::draw(const el::context& ctx)
 void ResponsePlot::DrawSpectrum(canvas& cnv, const el::rect& plot) const
 {
     if (!mSpectrum)
+    {
         return;
+    }
+
     const auto& bins = mSpectrum->binsDb;
     const double logMin = std::log10(std::max(1.0, mSpectrum->minHz));
     const double logSpan = std::log10(std::max(mSpectrum->minHz + 1.0, mSpectrum->maxHz)) - logMin;
     const auto point = [&](std::size_t i) {
-        const double freq = std::pow(10.0, logMin + logSpan * static_cast<double>(i) / static_cast<double>(bins.size() - 1));
-        const double level = std::clamp((bins[i] - kSpectrumFloorDb) / (kSpectrumCeilingDb - kSpectrumFloorDb), 0.0, 1.0);
+        const double freq =
+            std::pow(10.0, logMin + logSpan * static_cast<double>(i) / static_cast<double>(bins.size() - 1));
+        const double level =
+            std::clamp((bins[i] - kSpectrumFloorDb) / (kSpectrumCeilingDb - kSpectrumFloorDb), 0.0, 1.0);
         return el::point{FreqToX(plot, freq), plot.bottom - static_cast<float>(level) * plot.height()};
     };
 
@@ -221,8 +260,12 @@ void ResponsePlot::DrawSpectrum(canvas& cnv, const el::rect& plot) const
     cnv.fill_style(fill);
     cnv.begin_path();
     cnv.move_to(point(0).x, plot.bottom);
+
     for (std::size_t i = 0; i < bins.size(); ++i)
+    {
         cnv.line_to(point(i));
+    }
+
     cnv.line_to(point(bins.size() - 1).x, plot.bottom);
     cnv.close_path();
     cnv.fill();
@@ -230,38 +273,61 @@ void ResponsePlot::DrawSpectrum(canvas& cnv, const el::rect& plot) const
     cnv.stroke_style(mTheme.PlotSpectrumLine());
     cnv.line_width(1.0f);
     cnv.begin_path();
+
     for (std::size_t i = 0; i < bins.size(); ++i)
     {
         if (i == 0)
+        {
             cnv.move_to(point(i));
+        }
         else
+        {
             cnv.line_to(point(i));
+        }
     }
+
     cnv.stroke();
 }
 
 void ResponsePlot::DrawBands(canvas& cnv, const el::rect& plot) const
 {
     if (!mCurve || mBands.empty() || mCurve->bandsDb.size() != mBands.size())
+    {
         return;
+    }
+
     const float zeroY = DbToY(plot, 0.0);
+
     for (std::size_t i = 0; i < mBands.size(); ++i)
     {
         if (std::abs(mBands[i].gainDb) < 0.05)
+        {
             continue;
+        }
+
         const auto& db = mCurve->bandsDb[i];
         const auto trace = [&](bool fill) {
             cnv.begin_path();
+
             if (fill)
+            {
                 cnv.move_to(plot.left, zeroY);
+            }
+
             for (float x = plot.left; x <= plot.right; x += 2.0f)
             {
                 const float y = DbToY(plot, ResponseDbAt(mCurve->frequencies, db, XToFreq(plot, x)));
+
                 if (!fill && x == plot.left)
+                {
                     cnv.move_to(x, y);
+                }
                 else
+                {
                     cnv.line_to(x, y);
+                }
             }
+
             if (fill)
             {
                 cnv.line_to(plot.right, zeroY);
@@ -291,6 +357,7 @@ void ResponsePlot::DrawHandles(canvas& cnv, const el::rect& plot) const
         if (band.hasQ)
         {
             const double half = HalfBandwidthOctaves(band.q);
+
             for (const double side : {-1.0, 1.0})
             {
                 const float wx = FreqToX(plot, std::clamp(band.freq * std::pow(2.0, side * half), kMinFreq, kMaxFreq));
@@ -321,6 +388,7 @@ ResponsePlot::Hit ResponsePlot::HitTest(const el::rect& bounds, el::point p) con
     const auto plot = Plot(bounds);
     Hit best;
     float bestDistance = 1.0e9f;
+
     for (std::size_t i = 0; i < mBands.size(); ++i)
     {
         const auto& band = mBands[i];
@@ -328,6 +396,7 @@ ResponsePlot::Hit ResponsePlot::HitTest(const el::rect& bounds, el::point p) con
         const float y = DbToY(plot, band.gainDb);
         const auto consider = [&](float cx, float radius, Grip grip) {
             const float d = std::hypot(p.x - cx, p.y - y);
+
             if (d <= radius + kHitSlop && d < bestDistance)
             {
                 bestDistance = d;
@@ -335,20 +404,27 @@ ResponsePlot::Hit ResponsePlot::HitTest(const el::rect& bounds, el::point p) con
             }
         };
         consider(x, kHandleRadius, Grip::Main);
+
         if (band.hasQ)
         {
             const double half = HalfBandwidthOctaves(band.q);
-            consider(FreqToX(plot, std::clamp(band.freq / std::pow(2.0, half), kMinFreq, kMaxFreq)), kQHandleRadius, Grip::QLeft);
-            consider(FreqToX(plot, std::clamp(band.freq * std::pow(2.0, half), kMinFreq, kMaxFreq)), kQHandleRadius, Grip::QRight);
+            consider(FreqToX(plot, std::clamp(band.freq / std::pow(2.0, half), kMinFreq, kMaxFreq)), kQHandleRadius,
+                     Grip::QLeft);
+            consider(FreqToX(plot, std::clamp(band.freq * std::pow(2.0, half), kMinFreq, kMaxFreq)), kQHandleRadius,
+                     Grip::QRight);
         }
     }
+
     return best;
 }
 
 void ResponsePlot::Report(int band, bool commit)
 {
     if (!onBandChange || band < 0 || band >= static_cast<int>(mBands.size()))
+    {
         return;
+    }
+
     const auto& b = mBands[static_cast<std::size_t>(band)];
     onBandChange(band, b.freq, b.gainDb, b.q, commit);
 }
@@ -356,20 +432,31 @@ void ResponsePlot::Report(int band, bool commit)
 bool ResponsePlot::click(const el::context& ctx, el::mouse_button btn)
 {
     if (btn.state != el::mouse_button::left || mBands.empty())
+    {
         return false;
+    }
 
     if (btn.down)
     {
         const auto hit = HitTest(ctx.bounds, btn.pos);
+
         if (hit.band < 0)
+        {
             return false;
+        }
+
         if (btn.num_clicks == 2 && hit.grip == Grip::Main)
         {
             mDragBand = -1;
+
             if (onBandReset)
+            {
                 onBandReset(hit.band);
+            }
+
             return true;
         }
+
         mDragBand = hit.band;
         mDragGrip = hit.grip;
         ctx.view.refresh(ctx);
@@ -384,13 +471,17 @@ bool ResponsePlot::click(const el::context& ctx, el::mouse_button btn)
         Report(band, true);
         ctx.view.refresh(ctx);
     }
+
     return true;
 }
 
 void ResponsePlot::drag(const el::context& ctx, el::mouse_button btn)
 {
     if (mDragBand < 0 || mDragBand >= static_cast<int>(mBands.size()))
+    {
         return;
+    }
+
     const auto plot = Plot(ctx.bounds);
     auto& band = mBands[static_cast<std::size_t>(mDragBand)];
 
@@ -405,6 +496,7 @@ void ResponsePlot::drag(const el::context& ctx, el::mouse_button btn)
         const double half = std::max(0.02, std::abs(std::log2(XToFreq(plot, btn.pos.x) / band.freq)));
         band.q = std::clamp(1.0 / (2.0 * std::sinh(std::log(2.0) * half)), band.qMin, band.qMax);
     }
+
     Report(mDragBand, false);
     ctx.view.refresh(ctx);
 }
@@ -412,11 +504,13 @@ void ResponsePlot::drag(const el::context& ctx, el::mouse_button btn)
 bool ResponsePlot::cursor(const el::context& ctx, el::point p, el::cursor_tracking status)
 {
     const int hover = status == el::cursor_tracking::leaving ? -1 : HitTest(ctx.bounds, p).band;
+
     if (hover != mHoverBand)
     {
         mHoverBand = hover;
         ctx.view.refresh(ctx);
     }
+
     return hover >= 0;
 }
 
@@ -424,11 +518,19 @@ bool ResponsePlot::scroll(const el::context& ctx, el::point dir, el::point p)
 {
     // The wheel over a band narrows or widens it, as the web UI's curve does.
     const auto hit = HitTest(ctx.bounds, p);
+
     if (dir.y == 0.0f || hit.band < 0)
+    {
         return false;
+    }
+
     auto& band = mBands[static_cast<std::size_t>(hit.band)];
+
     if (!band.hasQ)
+    {
         return false;
+    }
+
     band.q = std::clamp(band.q * (dir.y > 0.0f ? 1.1 : 1.0 / 1.1), band.qMin, band.qMax);
     Report(hit.band, true);
     ctx.view.refresh(ctx);

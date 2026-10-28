@@ -58,8 +58,8 @@ struct NodeDropAction
 
 /// `releasedOnAnotherLine`: a wrapped chain's card let go over another line than its own, where
 /// a straight up or down move that misses is a missed move, not a flick.
-[[nodiscard]] NodeDropAction ResolveNodeDrop(const std::string& draggedNodeId, const NodeDropTarget& target, double deltaX,
-                                             double deltaY, bool releasedOnAnotherLine = false);
+[[nodiscard]] NodeDropAction ResolveNodeDrop(const std::string& draggedNodeId, const NodeDropTarget& target,
+                                             double deltaX, double deltaY, bool releasedOnAnotherLine = false);
 
 /// The edges arriving at a node.
 [[nodiscard]] std::vector<GraphEdge> IncomingEdges(const SignalGraph& graph, const std::string& nodeId);

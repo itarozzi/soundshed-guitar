@@ -41,9 +41,9 @@
 #include <vector>
 
 #if JUCE_WINDOWS
-#include <windows.h>
-#include <psapi.h>
-#include <tlhelp32.h>
+    #include <windows.h>
+    #include <psapi.h>
+    #include <tlhelp32.h>
 #endif
 
 namespace fs = std::filesystem;
@@ -61,14 +61,18 @@ int gSettleMs = 400;
 
 class TestHost final : public guitarfx::IPluginHost
 {
-public:
-    explicit TestHost(fs::path userDataPath) : mUserDataPath(std::move(userDataPath)) {}
+  public:
+    explicit TestHost(fs::path userDataPath) : mUserDataPath(std::move(userDataPath))
+    {
+    }
 
     void SendMessageToUI(const std::string& jsonMessage) override
     {
         // Only errors matter here; the rest is state broadcasts.
         if (jsonMessage.find("\"error\"") != std::string::npos && jsonMessage.size() < 2000)
+        {
             lastErrors.push_back(jsonMessage);
+        }
     }
 
     void BrowseFileAsync(guitarfx::BrowseFileType, const std::string&,
@@ -84,7 +88,10 @@ public:
     }
 
     // As the app's own host does.
-    void RunOnMainThread(std::function<void()> fn) override { juce::MessageManager::callAsync(std::move(fn)); }
+    void RunOnMainThread(std::function<void()> fn) override
+    {
+        juce::MessageManager::callAsync(std::move(fn));
+    }
 
     [[nodiscard]] bool IsMessageThread() const override
     {
@@ -94,24 +101,45 @@ public:
 
     // The standalone app, so multi-core processing is on as it is there by default, and a split's
     // branches run on helper threads once a level carries enough work.
-    [[nodiscard]] bool IsStandalone() const override { return true; }
+    [[nodiscard]] bool IsStandalone() const override
+    {
+        return true;
+    }
 
-    [[nodiscard]] fs::path GetUserDataPath() const override { return mUserDataPath; }
-    [[nodiscard]] fs::path GetBundledAssetsPath() const override { return mUserDataPath; }
-    [[nodiscard]] double GetSampleRate() const override { return kSampleRate; }
-    [[nodiscard]] int GetBlockSize() const override { return gBlockSize; }
-    void NotifyStateChanged() override {}
+    [[nodiscard]] fs::path GetUserDataPath() const override
+    {
+        return mUserDataPath;
+    }
+
+    [[nodiscard]] fs::path GetBundledAssetsPath() const override
+    {
+        return mUserDataPath;
+    }
+
+    [[nodiscard]] double GetSampleRate() const override
+    {
+        return kSampleRate;
+    }
+
+    [[nodiscard]] int GetBlockSize() const override
+    {
+        return gBlockSize;
+    }
+
+    void NotifyStateChanged() override
+    {
+    }
 
     std::vector<std::string> lastErrors;
 
-private:
+  private:
     fs::path mUserDataPath;
 };
 
 /// The host's audio callback: paced to the block's real duration, with a sine in.
 class AudioThread
 {
-public:
+  public:
     explicit AudioThread(guitarfx::PluginController& controller) : mController(controller)
     {
         mThread = std::thread([this] { Run(); });
@@ -143,7 +171,7 @@ public:
         return s;
     }
 
-private:
+  private:
     void Run()
     {
         std::vector<float> inL(static_cast<size_t>(gBlockSize)), inR(inL.size()), outL(inL.size()), outR(inL.size());
@@ -169,13 +197,22 @@ private:
             const auto tookUs = std::chrono::duration_cast<std::chrono::microseconds>(Clock::now() - start).count();
 
             ++mBlocks;
+
             if (!ran)
+            {
                 ++mRefused;
+            }
+
             if (tookUs > deadlineUs)
+            {
                 ++mOverDeadline;
+            }
 
             long long prev = mLongestUs.load();
-            while (tookUs > prev && !mLongestUs.compare_exchange_weak(prev, tookUs)) {}
+
+            while (tookUs > prev && !mLongestUs.compare_exchange_weak(prev, tookUs))
+            {
+            }
 
             for (int i = 0; i < gBlockSize; ++i)
             {
@@ -188,8 +225,12 @@ private:
 
             next += period;
             const auto now = Clock::now();
+
             if (next < now)
+            {
                 next = now;
+            }
+
             std::this_thread::sleep_until(next);
         }
     }
@@ -213,8 +254,12 @@ double ProcessMemoryMb()
 {
 #if JUCE_WINDOWS
     PROCESS_MEMORY_COUNTERS_EX pmc{};
+
     if (GetProcessMemoryInfo(GetCurrentProcess(), reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&pmc), sizeof(pmc)))
+    {
         return static_cast<double>(pmc.PrivateUsage) / (1024.0 * 1024.0);
+    }
+
 #endif
     return 0.0;
 }
@@ -224,20 +269,28 @@ int ProcessThreadCount()
 #if JUCE_WINDOWS
     // Cheap enough per step: a toolhelp snapshot of this process's threads.
     HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+
     if (snap == INVALID_HANDLE_VALUE)
+    {
         return 0;
+    }
+
     THREADENTRY32 te{};
     te.dwSize = sizeof(te);
     int count = 0;
     const DWORD pid = GetCurrentProcessId();
+
     if (Thread32First(snap, &te))
     {
         do
         {
             if (te.th32OwnerProcessID == pid)
+            {
                 ++count;
+            }
         } while (Thread32Next(snap, &te));
     }
+
     CloseHandle(snap);
     return count;
 #else
@@ -250,6 +303,7 @@ int ProcessThreadCount()
 void Pump(guitarfx::PluginController& controller, int ms)
 {
     const auto until = Clock::now() + std::chrono::milliseconds(ms);
+
     while (Clock::now() < until)
     {
         juce::MessageManager::getInstance()->runDispatchLoopUntil(16);
@@ -316,47 +370,73 @@ ChainCount CountHostedPlugins(guitarfx::PluginController& controller)
 {
     ChainCount count;
     const auto& preset = controller.GetActivePreset();
+
     if (!preset)
+    {
         return count;
+    }
 
     for (const auto& node : preset->graph.nodes)
     {
         if (node.type != guitarfx::EffectGuids::kPluginHost)
+        {
             continue;
+        }
+
         ++count.hosts;
         auto* effect = dynamic_cast<guitarfx::JuceHostedPluginEffect*>(
             controller.GetMixer().GetNodeProcessor(preset->id, node.id));
+
         if (effect != nullptr && effect->HasResource())
+        {
             ++count.loaded;
+        }
         else if (effect != nullptr)
+        {
             count.errors.push_back(node.label + ": " + effect->GetConfig("lastError"));
+        }
         else
+        {
             count.errors.push_back(node.label + ": no processor");
+        }
     }
+
     return count;
 }
 
 std::set<std::string> NodeIds(guitarfx::PluginController& controller)
 {
     std::set<std::string> ids;
+
     if (const auto& preset = controller.GetActivePreset())
+    {
         for (const auto& node : preset->graph.nodes)
+        {
             ids.insert(node.id);
+        }
+    }
+
     return ids;
 }
 
 std::string NewNodeId(const std::set<std::string>& before, guitarfx::PluginController& controller)
 {
     for (const auto& id : NodeIds(controller))
+    {
         if (!before.count(id))
+        {
             return id;
+        }
+    }
+
     return {};
 }
 
 void PrintHeader(const std::string& scenario)
 {
-    std::cout << "\n== " << scenario << " (block " << gBlockSize << ", " << kSampleRate / 1000.0 << " kHz) ==\n"
-              << "  step  plugins loaded   add ms   mem MB  threads   blocks refused  over  longest ms  nonfinite  plugin\n";
+    std::cout
+        << "\n== " << scenario << " (block " << gBlockSize << ", " << kSampleRate / 1000.0 << " kHz) ==\n"
+        << "  step  plugins loaded   add ms   mem MB  threads   blocks refused  over  longest ms  nonfinite  plugin\n";
 }
 
 /// One line per step. False when the step left the chain in a state worth stopping on.
@@ -372,7 +452,9 @@ bool PrintStep(int step, guitarfx::PluginController& controller, AudioThread& au
               << stats.nonFinite << "  " << pluginName << std::endl;
 
     for (const auto& error : count.errors)
+    {
         std::cout << "        not loaded: " << error << std::endl;
+    }
 
     return stats.nonFinite == 0;
 }
@@ -391,27 +473,32 @@ bool RunSeries(guitarfx::PluginController& controller, AudioThread& audio, const
 
     std::string tail = "__input__";
     bool ok = true;
+
     for (int i = 0; i < gMaxPlugins; ++i)
     {
         const auto& plugin = plugins[static_cast<size_t>(i) % plugins.size()];
         const auto before = NodeIds(controller);
         const auto start = Clock::now();
-        SendUi(controller, {{"type", "addSignalPathNode"},
-                            {"effectType", guitarfx::EffectGuids::kPluginHost},
-                            {"insertAfter", tail},
-                            {"resources", nlohmann::json::array({{{"resourceType", "plugin"},
-                                                                   {"filePath", guitarfx::util::PathToUtf8(plugin)}}})}});
+        SendUi(controller,
+               {{"type", "addSignalPathNode"},
+                {"effectType", guitarfx::EffectGuids::kPluginHost},
+                {"insertAfter", tail},
+                {"resources", nlohmann::json::array(
+                                  {{{"resourceType", "plugin"}, {"filePath", guitarfx::util::PathToUtf8(plugin)}}})}});
         const double addMs = std::chrono::duration<double, std::milli>(Clock::now() - start).count();
         const auto added = NewNodeId(before, controller);
+
         if (added.empty())
         {
             std::cout << "  add " << (i + 1) << " did not add a node" << std::endl;
             return false;
         }
+
         tail = added;
         Pump(controller, gSettleMs);
         ok = PrintStep(i + 1, controller, audio, addMs, PluginName(plugin)) && ok;
     }
+
     return ok;
 }
 
@@ -426,20 +513,23 @@ bool RunUiFlow(guitarfx::PluginController& controller, AudioThread& audio, const
 
     std::string tail = "__input__";
     bool ok = true;
+
     for (int i = 0; i < gMaxPlugins; ++i)
     {
         const auto& plugin = plugins[static_cast<size_t>(i) % plugins.size()];
         const auto before = NodeIds(controller);
         const auto start = Clock::now();
-        SendUi(controller, {{"type", "addSignalPathNode"},
-                            {"effectType", guitarfx::EffectGuids::kPluginHost},
-                            {"insertAfter", tail}});
+        SendUi(
+            controller,
+            {{"type", "addSignalPathNode"}, {"effectType", guitarfx::EffectGuids::kPluginHost}, {"insertAfter", tail}});
         const auto added = NewNodeId(before, controller);
+
         if (added.empty())
         {
             std::cout << "  add " << (i + 1) << " did not add a node" << std::endl;
             return false;
         }
+
         tail = added;
         Pump(controller, 50);
         SendUi(controller, {{"type", "updateNodeResource"},
@@ -453,6 +543,7 @@ bool RunUiFlow(guitarfx::PluginController& controller, AudioThread& audio, const
         Pump(controller, gSettleMs);
         ok = PrintStep(i + 1, controller, audio, addMs, PluginName(plugin)) && ok;
     }
+
     return ok;
 }
 
@@ -464,24 +555,37 @@ bool RunSplit(guitarfx::PluginController& controller, AudioThread& audio, const 
     Pump(controller, gSettleMs);
 
     auto before = NodeIds(controller);
-    SendUi(controller, {{"type", "addSignalPathNode"}, {"effectType", guitarfx::EffectGuids::kSplitter},
+    SendUi(controller, {{"type", "addSignalPathNode"},
+                        {"effectType", guitarfx::EffectGuids::kSplitter},
                         {"insertAfter", "__input__"}});
     std::string splitId, mixId;
+
     if (const auto& preset = controller.GetActivePreset())
+    {
         for (const auto& node : preset->graph.nodes)
         {
             if (before.count(node.id))
+            {
                 continue;
+            }
+
             if (node.type == guitarfx::EffectGuids::kSplitter)
+            {
                 splitId = node.id;
+            }
             else if (node.type == guitarfx::EffectGuids::kMixer)
+            {
                 mixId = node.id;
+            }
         }
+    }
+
     if (splitId.empty() || mixId.empty())
     {
         std::cout << "  the splitter was not added" << std::endl;
         return false;
     }
+
     SendUi(controller, {{"type", "setSplitBranchCount"}, {"splitterId", splitId}, {"count", kBranches}});
     Pump(controller, gSettleMs);
     audio.TakeStats();
@@ -493,11 +597,20 @@ bool RunSplit(guitarfx::PluginController& controller, AudioThread& audio, const 
         int fromPort;
         int toPort;
     };
+
     std::vector<BranchTail> tails;
+
     if (const auto& preset = controller.GetActivePreset())
+    {
         for (const auto& edge : preset->graph.edges)
+        {
             if (edge.from == splitId && edge.to == mixId)
+            {
                 tails.push_back({edge.from, edge.fromPort, edge.toPort});
+            }
+        }
+    }
+
     if (static_cast<int>(tails.size()) != kBranches)
     {
         std::cout << "  expected " << kBranches << " branches, found " << tails.size() << std::endl;
@@ -505,29 +618,35 @@ bool RunSplit(guitarfx::PluginController& controller, AudioThread& audio, const 
     }
 
     bool ok = true;
+
     for (int i = 0; i < gMaxPlugins; ++i)
     {
         auto& tail = tails[static_cast<size_t>(i % kBranches)];
         const auto& plugin = plugins[static_cast<size_t>(i) % plugins.size()];
         before = NodeIds(controller);
         const auto start = Clock::now();
-        SendUi(controller, {{"type", "addSignalPathNode"},
-                            {"effectType", guitarfx::EffectGuids::kPluginHost},
-                            {"edge", {{"from", tail.from}, {"to", mixId}, {"fromPort", tail.fromPort}, {"toPort", tail.toPort}}},
-                            {"resources", nlohmann::json::array({{{"resourceType", "plugin"},
-                                                                   {"filePath", guitarfx::util::PathToUtf8(plugin)}}})}});
+        SendUi(controller,
+               {{"type", "addSignalPathNode"},
+                {"effectType", guitarfx::EffectGuids::kPluginHost},
+                {"edge", {{"from", tail.from}, {"to", mixId}, {"fromPort", tail.fromPort}, {"toPort", tail.toPort}}},
+                {"resources", nlohmann::json::array(
+                                  {{{"resourceType", "plugin"}, {"filePath", guitarfx::util::PathToUtf8(plugin)}}})}});
         const double addMs = std::chrono::duration<double, std::milli>(Clock::now() - start).count();
         const auto added = NewNodeId(before, controller);
+
         if (added.empty())
         {
             std::cout << "  add " << (i + 1) << " did not add a node" << std::endl;
             return false;
         }
+
         tail = {added, 0, tail.toPort};
         Pump(controller, gSettleMs);
         ok = PrintStep(i + 1, controller, audio, addMs,
-                       "branch " + std::to_string(i % kBranches + 1) + ": " + PluginName(plugin)) && ok;
+                       "branch " + std::to_string(i % kBranches + 1) + ": " + PluginName(plugin)) &&
+             ok;
     }
+
     return ok;
 }
 
@@ -536,6 +655,7 @@ guitarfx::Preset SeriesPresetOf(const std::string& id, const std::vector<fs::pat
     auto preset = EmptyPreset(id);
     preset.graph.edges.clear();
     std::string prev = "__input__";
+
     for (int i = 0; i < n; ++i)
     {
         const std::string nodeId = "plugin-" + std::to_string(i);
@@ -543,6 +663,7 @@ guitarfx::Preset SeriesPresetOf(const std::string& id, const std::vector<fs::pat
         preset.graph.edges.push_back({prev, nodeId, 0, 0, 1.0});
         prev = nodeId;
     }
+
     preset.graph.edges.push_back({prev, "__output__", 0, 0, 1.0});
     return preset;
 }
@@ -551,6 +672,7 @@ bool RunPresetLoads(guitarfx::PluginController& controller, AudioThread& audio, 
 {
     PrintHeader("preset: load a series chain of N at once, then switch between two");
     bool ok = true;
+
     for (int n = 4; n <= gMaxPlugins; n += 4)
     {
         const auto start = Clock::now();
@@ -570,31 +692,45 @@ bool RunPresetLoads(guitarfx::PluginController& controller, AudioThread& audio, 
         Pump(controller, gSettleMs);
         ok = PrintStep(n, controller, audio, loadMs, "switch " + std::to_string(i + 1)) && ok;
     }
+
     return ok;
 }
 
 std::vector<fs::path> DefaultPlugins()
 {
     std::vector<fs::path> plugins;
+
     if (const char* env = std::getenv("GUITARFX_STRESS_PLUGINS"))
     {
         std::string list = env;
         size_t pos = 0;
+
         while (pos <= list.size())
         {
             const auto end = std::min(list.find(';', pos), list.size());
+
             if (end > pos)
+            {
                 plugins.emplace_back(list.substr(pos, end - pos));
+            }
+
             pos = end + 1;
         }
+
         return plugins;
     }
 
     const fs::path kilohearts = R"(C:\Program Files\Common Files\VST3\Kilohearts)";
     std::error_code ec;
+
     for (const auto& entry : fs::directory_iterator(kilohearts, ec))
+    {
         if (entry.path().extension() == ".vst3")
+        {
             plugins.push_back(entry.path());
+        }
+    }
+
     std::sort(plugins.begin(), plugins.end());
     return plugins;
 }
@@ -605,27 +741,45 @@ int main(int argc, char** argv)
     std::string scenario = "all";
     bool keepSandbox = false;
     std::vector<fs::path> plugins;
+
     for (int i = 1; i < argc; ++i)
     {
         const std::string arg = argv[i];
+
         if (arg == "--max" && i + 1 < argc)
+        {
             gMaxPlugins = std::max(1, std::atoi(argv[++i]));
+        }
         else if (arg == "--block" && i + 1 < argc)
+        {
             gBlockSize = std::max(16, std::atoi(argv[++i]));
+        }
         else if (arg == "--settle-ms" && i + 1 < argc)
+        {
             gSettleMs = std::max(0, std::atoi(argv[++i]));
+        }
         else if (arg == "--keep-sandbox")
+        {
             keepSandbox = true;
+        }
         else if (arg == "--scenario" && i + 1 < argc)
+        {
             scenario = argv[++i];
+        }
         else
+        {
             plugins.emplace_back(arg);
+        }
     }
+
     if (plugins.empty())
+    {
         plugins = DefaultPlugins();
+    }
 
     plugins.erase(std::remove_if(plugins.begin(), plugins.end(), [](const fs::path& p) { return !fs::exists(p); }),
                   plugins.end());
+
     if (plugins.empty())
     {
         std::cout << "No plugins to host; name some, or set GUITARFX_STRESS_PLUGINS" << std::endl;
@@ -633,18 +787,25 @@ int main(int argc, char** argv)
     }
 
     std::cout << "Hosting up to " << gMaxPlugins << " plugins from " << plugins.size() << ":" << std::endl;
+
     for (const auto& p : plugins)
+    {
         std::cout << "  " << guitarfx::util::PathToUtf8(p) << std::endl;
+    }
 
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
     guitarfx::RegisterJuceHostedPluginEffect();
 
     const fs::path sandbox = fs::temp_directory_path() / "guitarfx-hosted-plugin-tests" / "chain-stress";
     std::error_code ec;
+
     // Kept, the previous run's settings and caches (the plugin description cache) stay, as an
     // app restart finds them.
     if (!keepSandbox)
+    {
         fs::remove_all(sandbox, ec);
+    }
+
     fs::create_directories(sandbox, ec);
     SetSettingsEnvRoot(sandbox);
 
@@ -658,14 +819,26 @@ int main(int argc, char** argv)
 
         {
             AudioThread audio(controller);
+
             if (scenario == "series" || scenario == "all")
+            {
                 ok = RunSeries(controller, audio, plugins) && ok;
+            }
+
             if (scenario == "ui" || scenario == "all")
+            {
                 ok = RunUiFlow(controller, audio, plugins) && ok;
+            }
+
             if (scenario == "split" || scenario == "all")
+            {
                 ok = RunSplit(controller, audio, plugins) && ok;
+            }
+
             if (scenario == "preset" || scenario == "all")
+            {
                 ok = RunPresetLoads(controller, audio, plugins) && ok;
+            }
 
             LoadPreset(controller, EmptyPreset("stress-empty"));
             Pump(controller, gSettleMs);

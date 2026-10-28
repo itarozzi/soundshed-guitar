@@ -238,9 +238,10 @@ const ir_pair_response::BandSpectrum& SpectrumOf(CachedIr& ir, int points, const
 
     if (found == ir.spectraByPoints.end())
     {
-        found = ir.spectraByPoints
-                    .emplace(points, ir_pair_response::MeasureBandSpectrum(ir.impulse.mono, kAlignmentRate, frequencies))
-                    .first;
+        found =
+            ir.spectraByPoints
+                .emplace(points, ir_pair_response::MeasureBandSpectrum(ir.impulse.mono, kAlignmentRate, frequencies))
+                .first;
     }
 
     return found->second;
@@ -261,7 +262,8 @@ IRCabEffect::BlendCorrelation PairCorrelation(AlignmentResponseCache& cache, con
         }
     }
 
-    cache.pairs.emplace_front(key, IRCabEffect::MeasureBlendCorrelation(a.impulse.mono, b.impulse.mono, kAlignmentRate));
+    cache.pairs.emplace_front(key,
+                              IRCabEffect::MeasureBlendCorrelation(a.impulse.mono, b.impulse.mono, kAlignmentRate));
 
     if (cache.pairs.size() > kCachedPairs)
     {
@@ -317,7 +319,8 @@ void PluginController::HandleGetEffectResponseRequest(const nlohmann::json& payl
         reply["magnitudesDb"] = std::move(rounded);
 
         // Each band's own curve, for a plot that shades them (the EQs).
-        if (const auto bands = payload.find("bands"); bands != payload.end() && bands->is_boolean() && bands->get<bool>())
+        if (const auto bands = payload.find("bands");
+            bands != payload.end() && bands->is_boolean() && bands->get<bool>())
         {
             nlohmann::json bandCurves = nlohmann::json::array();
 
@@ -694,9 +697,8 @@ void PluginController::HandleGetIrAlignmentResponseRequest(const nlohmann::json&
         offsetMs = param->second;
     }
 
-    offsetMs = IsFinite(offsetMs)
-                   ? std::clamp(offsetMs, -IrSlotAlignment::kMaxOffsetMs, IrSlotAlignment::kMaxOffsetMs)
-                   : 0.0;
+    offsetMs =
+        IsFinite(offsetMs) ? std::clamp(offsetMs, -IrSlotAlignment::kMaxOffsetMs, IrSlotAlignment::kMaxOffsetMs) : 0.0;
 
     auto& cache = ResponseCache();
     const std::lock_guard lock(cache.mutex);
@@ -749,8 +751,8 @@ void PluginController::HandleGetIrAlignmentResponseRequest(const nlohmann::json&
         }
     }
 
-    const auto sum = cab->DescribeSlotSum(irA != nullptr, irB != nullptr, correlation,
-                                          offsetMs * kAlignmentRate / 1000.0);
+    const auto sum =
+        cab->DescribeSlotSum(irA != nullptr, irB != nullptr, correlation, offsetMs * kAlignmentRate / 1000.0);
     const auto* spectrumA = irA ? &SpectrumOf(*irA, points, frequencies) : nullptr;
     const auto* spectrumB = irB ? &SpectrumOf(*irB, points, frequencies) : nullptr;
     const auto curves = ir_pair_response::Combine(spectrumA, spectrumB, sum, irA ? irA->impulse.normalizeGain : 1.0,

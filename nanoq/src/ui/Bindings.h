@@ -32,8 +32,10 @@ namespace nanoq::ui
 {
 class Bindings
 {
-public:
-    explicit Bindings(UiSession& session) : mSession(session) {}
+  public:
+    explicit Bindings(UiSession& session) : mSession(session)
+    {
+    }
 
     Bindings(const Bindings&) = delete;
     Bindings& operator=(const Bindings&) = delete;
@@ -47,8 +49,7 @@ public:
 
     /// Feeds `widget` from a stream, at once and then each tick: `update` returns true when it
     /// changed enough to redraw.
-    template <class Widget, class Update>
-    void Feed(const std::shared_ptr<Widget>& widget, Update update)
+    template <class Widget, class Update> void Feed(const std::shared_ptr<Widget>& widget, Update update)
     {
         Add(std::make_unique<FeedOf<Widget, Update>>(widget, std::move(update)));
     }
@@ -65,7 +66,7 @@ public:
         return std::any_of(mBindings.begin(), mBindings.end(), [](const auto& b) { return b->Dragging(); });
     }
 
-private:
+  private:
     struct Binding
     {
         virtual ~Binding() = default;
@@ -74,18 +75,26 @@ private:
         [[nodiscard]] virtual bool Dragging() const = 0;
     };
 
-    template <class Widget>
-    struct On : Binding
+    template <class Widget> struct On : Binding
     {
-        explicit On(const std::shared_ptr<Widget>& w) : widget(w) {}
+        explicit On(const std::shared_ptr<Widget>& w) : widget(w)
+        {
+        }
 
         bool Sync(UiSession& session, bool repaint) final
         {
             const auto w = widget.lock();
+
             if (!w)
+            {
                 return false;
+            }
+
             if (!IsDragging(*w) && Apply(*w) && repaint)
+            {
                 session.Repaint(*w);
+            }
+
             return true;
         }
 
@@ -101,26 +110,35 @@ private:
         static bool IsDragging(const Widget& w)
         {
             if constexpr (requires { w.Dragging(); })
+            {
                 return w.Dragging();
+            }
             else
+            {
                 return false;
+            }
         }
 
         std::weak_ptr<Widget> widget;
     };
 
-    template <class Widget, class Read, class Show>
-    struct BindOf final : On<Widget>
+    template <class Widget, class Read, class Show> struct BindOf final : On<Widget>
     {
         using Key = std::decay_t<std::invoke_result_t<Read&>>;
 
-        BindOf(const std::shared_ptr<Widget>& w, Read r, Show s) : On<Widget>(w), read(std::move(r)), show(std::move(s)) {}
+        BindOf(const std::shared_ptr<Widget>& w, Read r, Show s) : On<Widget>(w), read(std::move(r)), show(std::move(s))
+        {
+        }
 
         bool Apply(Widget& w) override
         {
             auto key = read();
+
             if (shown && *shown == key)
+            {
                 return false;
+            }
+
             std::invoke(show, w, key);
             shown = std::move(key);
             return true;
@@ -131,10 +149,11 @@ private:
         std::optional<Key> shown;
     };
 
-    template <class Widget, class Update>
-    struct FeedOf final : On<Widget>
+    template <class Widget, class Update> struct FeedOf final : On<Widget>
     {
-        FeedOf(const std::shared_ptr<Widget>& w, Update u) : On<Widget>(w), update(std::move(u)) {}
+        FeedOf(const std::shared_ptr<Widget>& w, Update u) : On<Widget>(w), update(std::move(u))
+        {
+        }
 
         bool Apply(Widget& w) override
         {

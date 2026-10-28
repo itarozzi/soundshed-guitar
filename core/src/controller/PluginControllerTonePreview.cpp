@@ -241,6 +241,7 @@ void PluginController::HandlePreviewPresetRequest(const nlohmann::json& payload)
     load["presetId"] = preset.id;
     HandlePresetLoadRequest(load);
 }
+
 void PluginController::HandlePreviewPresetArchiveRequest(const nlohmann::json& payload)
 {
     const std::string requestId = payload.value("requestId", "");
@@ -249,23 +250,25 @@ void PluginController::HandlePreviewPresetArchiveRequest(const nlohmann::json& p
 
     const auto fail = [&](const std::string& detail) {
         ReportErrorToUI("Preview failed", detail);
-        SendMessageToUI(nlohmann::json{{"type", "presetArchivePreviewFailed"},
-                                       {"requestId", requestId},
-                                       {"itemId", itemId},
-                                       {"message", "Preview failed"},
-                                       {"detail", detail}}
-                            .dump());
+        SendMessageToUI(nlohmann::json{
+            {"type", "presetArchivePreviewFailed"},
+            {"requestId", requestId},
+            {"itemId", itemId},
+            {"message", "Preview failed"},
+            {"detail",
+             detail}}.dump());
     };
 
     const auto bytes = util::DecodeBase64(payload.value("data", ""));
     std::string error;
-    auto parsed = bytes.empty() ? std::nullopt
-                                : ParseFactoryPresetArchive(util::PathFromUtf8(title.empty() ? "archive" : title), bytes, error);
+    auto parsed = bytes.empty()
+                      ? std::nullopt
+                      : ParseFactoryPresetArchive(util::PathFromUtf8(title.empty() ? "archive" : title), bytes, error);
 
     if (!parsed || parsed->presets.empty())
     {
-        fail((title.empty() ? std::string("The download") : "\"" + title + "\"") + " could not be read: " +
-             (error.empty() ? "not a preset archive" : error));
+        fail((title.empty() ? std::string("The download") : "\"" + title + "\"") +
+             " could not be read: " + (error.empty() ? "not a preset archive" : error));
         return;
     }
 
@@ -338,6 +341,7 @@ void PluginController::HandlePreviewPresetArchiveRequest(const nlohmann::json& p
             {
                 resourceIds[id] = found;
             }
+
             continue;
         }
 
@@ -436,13 +440,14 @@ void PluginController::HandlePreviewPresetArchiveRequest(const nlohmann::json& p
                                 {"resources", staged},
                                 {"blends", blends}});
 
-    SendMessageToUI(nlohmann::json{{"type", "presetArchivePreviewed"},
-                                   {"requestId", requestId},
-                                   {"itemId", itemId},
-                                   {"presetId", presetId},
-                                   {"title", preset.name},
-                                   {"stagedCount", staged.size()},
-                                   {"unavailable", unavailable}}
-                        .dump());
+    SendMessageToUI(nlohmann::json{
+        {"type", "presetArchivePreviewed"},
+        {"requestId", requestId},
+        {"itemId", itemId},
+        {"presetId", presetId},
+        {"title", preset.name},
+        {"stagedCount", staged.size()},
+        {"unavailable",
+         unavailable}}.dump());
 }
 } // namespace guitarfx

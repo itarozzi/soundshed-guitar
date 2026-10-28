@@ -50,7 +50,7 @@ constexpr const char* kPackFolderIdPrefix = "tone-sharing::";
 struct PendingArchive
 {
     ParsedFactoryPresetArchive parsed;
-    std::string title; // names the preset of a one-preset archive: the shared item's title
+    std::string title;  // names the preset of a one-preset archive: the shared item's title
     std::string itemId; // the tone sharing item it was downloaded as, when the UI says
 };
 
@@ -146,8 +146,8 @@ nlohmann::json BuildPackSubfolders(const nlohmann::json& source, const std::stri
             }
         }
 
-        folder["children"] =
-            BuildPackSubfolders(node.value("children", nlohmann::json::array()), folder.value("id", ""), presetIds, placed);
+        folder["children"] = BuildPackSubfolders(node.value("children", nlohmann::json::array()),
+                                                 folder.value("id", ""), presetIds, placed);
 
         if (!folder["presetIds"].empty() || !folder["children"].empty())
         {
@@ -172,12 +172,13 @@ void PluginController::HandleInstallPresetArchivesRequest(const nlohmann::json& 
 
     const auto fail = [&](const std::string& message, const std::string& detail) {
         ReportErrorToUI(message, detail);
-        SendMessageToUI(nlohmann::json{{"type", "presetArchivesInstallFailed"},
-                                       {"requestId", requestId},
-                                       {"entryId", entryId},
-                                       {"message", message},
-                                       {"detail", detail}}
-                            .dump());
+        SendMessageToUI(nlohmann::json{
+            {"type", "presetArchivesInstallFailed"},
+            {"requestId", requestId},
+            {"entryId", entryId},
+            {"message", message},
+            {"detail",
+             detail}}.dump());
     };
 
     if (entryId.empty() || !archivesPayload.is_array() || archivesPayload.empty())
@@ -200,8 +201,8 @@ void PluginController::HandleInstallPresetArchivesRequest(const nlohmann::json& 
 
         if (!parsed)
         {
-            fail("Install failed", (title.empty() ? std::string("A download") : "\"" + title + "\"") + " could not be read: " +
-                                       (error.empty() ? "not a preset archive" : error));
+            fail("Install failed", (title.empty() ? std::string("A download") : "\"" + title + "\"") +
+                                       " could not be read: " + (error.empty() ? "not a preset archive" : error));
             return;
         }
 
@@ -226,6 +227,7 @@ void PluginController::HandleInstallPresetArchivesRequest(const nlohmann::json& 
                 const std::string name = reference.value("name", "");
                 const std::string provider = reference.value("provider", "");
                 missingRemote.push_back(name.empty() ? id : name);
+
                 if (std::find(missingProviders.begin(), missingProviders.end(), provider) == missingProviders.end())
                 {
                     missingProviders.push_back(provider);
@@ -244,10 +246,12 @@ void PluginController::HandleInstallPresetArchivesRequest(const nlohmann::json& 
     {
         const auto join = [](const std::vector<std::string>& items) {
             std::string joined;
+
             for (const auto& item : items)
             {
                 joined += (joined.empty() ? "" : ", ") + item;
             }
+
             return joined;
         };
         const bool onlyTone3000 = missingProviders.size() == 1 && missingProviders.front() == "tone3000";
@@ -296,7 +300,8 @@ void PluginController::HandleInstallPresetArchivesRequest(const nlohmann::json& 
             {
                 std::error_code ec;
 
-                if (resource.type != file.type || resource.filePath.empty() || !std::filesystem::exists(resource.filePath, ec))
+                if (resource.type != file.type || resource.filePath.empty() ||
+                    !std::filesystem::exists(resource.filePath, ec))
                 {
                     continue;
                 }
@@ -363,7 +368,8 @@ void PluginController::HandleInstallPresetArchivesRequest(const nlohmann::json& 
                 {
                     if (modelId.is_string())
                     {
-                        if (const auto mapped = resourceIds.find(modelId.get<std::string>()); mapped != resourceIds.end())
+                        if (const auto mapped = resourceIds.find(modelId.get<std::string>());
+                            mapped != resourceIds.end())
                         {
                             modelId = mapped->second;
                         }
@@ -469,8 +475,8 @@ void PluginController::HandleInstallPresetArchivesRequest(const nlohmann::json& 
 
         if (!folderName.empty())
         {
-            for (auto& folder : BuildPackSubfolders(archive.parsed.presetFolders, packFolderId, presetIdMap,
-                                                    presetsInSubfolders))
+            for (auto& folder :
+                 BuildPackSubfolders(archive.parsed.presetFolders, packFolderId, presetIdMap, presetsInSubfolders))
             {
                 packSubfolders.push_back(std::move(folder));
             }
@@ -585,9 +591,10 @@ void PluginController::HandleInstallPresetArchivesRequest(const nlohmann::json& 
         installed = nlohmann::json::array();
     }
 
-    installed.erase(std::remove_if(installed.begin(), installed.end(),
-                                   [&](const nlohmann::json& e) { return e.is_object() && e.value("id", "") == entryId; }),
-                    installed.end());
+    installed.erase(
+        std::remove_if(installed.begin(), installed.end(),
+                       [&](const nlohmann::json& e) { return e.is_object() && e.value("id", "") == entryId; }),
+        installed.end());
     installed.insert(installed.begin(), entry);
     mAppSettings[kInstalledPacksSettingKey] = installed;
     SaveAppSettings();
@@ -603,8 +610,8 @@ void PluginController::HandleInstallPresetArchivesRequest(const nlohmann::json& 
         HandleGetPresetFoldersRequest();
     }
 
-    SendMessageToUI(nlohmann::json{{"type", "appSettingChanged"}, {"key", kInstalledPacksSettingKey}, {"value", installed}}
-                        .dump());
+    SendMessageToUI(
+        nlohmann::json{{"type", "appSettingChanged"}, {"key", kInstalledPacksSettingKey}, {"value", installed}}.dump());
     nlohmann::json installedReply = {{"type", "presetArchivesInstalled"},
                                      {"requestId", requestId},
                                      {"entryId", entryId},
@@ -640,9 +647,8 @@ void PluginController::HandleDeleteInstalledPresetArchiveRequest(const nlohmann:
     if (entryIt == installed.end())
     {
         ReportErrorToUI("Not installed", entryId);
-        SendMessageToUI(nlohmann::json{{"type", "installedPresetArchiveDeleted"},
-                                       {"id", entryId},
-                                       {"presetIds", nlohmann::json::array()}}
+        SendMessageToUI(nlohmann::json{
+            {"type", "installedPresetArchiveDeleted"}, {"id", entryId}, {"presetIds", nlohmann::json::array()}}
                             .dump());
         return;
     }
@@ -655,7 +661,8 @@ void PluginController::HandleDeleteInstalledPresetArchiveRequest(const nlohmann:
 
     for (const auto& value : entry.value("presetIds", nlohmann::json::array()))
     {
-        if (value.is_string() && UserPresetExists(value.get<std::string>()) && DeleteUserPreset(value.get<std::string>()))
+        if (value.is_string() && UserPresetExists(value.get<std::string>()) &&
+            DeleteUserPreset(value.get<std::string>()))
         {
             removedPresetIds.insert(value.get<std::string>());
             ForgetPresetAutomation(value.get<std::string>());
@@ -750,8 +757,8 @@ void PluginController::HandleDeleteInstalledPresetArchiveRequest(const nlohmann:
     HandleGetPresetFoldersRequest();
     HandleGetPresetFavoritesRequest();
     HandleGetPresetRatingsRequest();
-    SendMessageToUI(nlohmann::json{{"type", "appSettingChanged"}, {"key", kInstalledPacksSettingKey}, {"value", installed}}
-                        .dump());
+    SendMessageToUI(
+        nlohmann::json{{"type", "appSettingChanged"}, {"key", kInstalledPacksSettingKey}, {"value", installed}}.dump());
 
     nlohmann::json removed = nlohmann::json::array();
 

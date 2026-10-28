@@ -14,8 +14,8 @@ namespace guitarfx::uiclient
 {
 struct TimeSignatureOption
 {
-    std::string id;       // "7/8:2+2+3"
-    std::string label;    // "7/8 (2+2+3)"
+    std::string id;    // "7/8:2+2+3"
+    std::string label; // "7/8 (2+2+3)"
     int num = 4;
     int den = 4;
     std::string grouping; // empty when the meter divides evenly

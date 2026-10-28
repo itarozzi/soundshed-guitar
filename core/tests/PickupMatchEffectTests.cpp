@@ -385,10 +385,12 @@ void TestSensing()
     auto there = Make({{"source", P(Pickup::SingleCoilBridge)}, {"target", P(Pickup::HumbuckerNeck)}});
     auto back = Make({{"source", P(Pickup::HumbuckerNeck)}, {"target", P(Pickup::SingleCoilBridge)}});
     double worst = 0.0;
+
     for (double f = 30.0; f <= 20000.0; f *= 1.2)
     {
         worst = std::max(worst, std::abs(ResponseDb(*there, f) + ResponseDb(*back, f)));
     }
+
     Check(worst < 1.0e-6, "bridge single coil to neck humbucker and back is flat",
           "worst " + std::to_string(worst) + " dB");
 
@@ -461,11 +463,13 @@ void TestExaggerate()
     using guitarfx::pickup_match::kPickups;
     std::size_t quietest = 0;
     std::size_t loudest = 0;
+
     for (std::size_t i = 0; i < kPickups.size(); ++i)
     {
         quietest = kPickups[i].levelDb < kPickups[quietest].levelDb ? i : quietest;
         loudest = kPickups[i].levelDb > kPickups[loudest].levelDb ? i : loudest;
     }
+
     auto widest =
         Make({{"source", static_cast<double>(quietest)}, {"target", static_cast<double>(loudest)}, {"sensing", 0.0}});
     const double gap = kPickups[loudest].levelDb - kPickups[quietest].levelDb;
@@ -475,6 +479,7 @@ void TestExaggerate()
     // Pushed to 3 between the most different pickups, every pairing stays a finite, bounded filter.
     bool stable = true;
     const auto noise = Noise(4096);
+
     for (Pickup from : {Pickup::P90, Pickup::ActiveHumbucker, Pickup::SingleCoilNeck, Pickup::HumbuckerBridge})
     {
         for (Pickup to : {Pickup::P90, Pickup::ActiveHumbucker, Pickup::SingleCoilNeck, Pickup::HumbuckerBridge})
@@ -488,6 +493,7 @@ void TestExaggerate()
             }
         }
     }
+
     Check(stable, "Amount 3 stays finite and bounded between the most different pickups, at 8 and 48 kHz");
 }
 
@@ -682,6 +688,7 @@ void TestDesign()
 
     // The same design on both sides is no change at all.
     Params same = {{"source", kCustomChoice}, {"target", kCustomChoice}};
+
     for (const char* side : {"source", "target"})
     {
         const std::string s = side;
@@ -689,6 +696,7 @@ void TestDesign()
         same.emplace_back(s + "Resistance", 9.1);
         same.emplace_back(s + "Magnet", 3.0);
     }
+
     auto identity = Make(same);
     const auto noise = Noise(4096);
     Check(Run(*identity, noise) == noise, "the same custom design on both sides passes audio bit for bit");
@@ -754,6 +762,7 @@ void TestSweepsAndRecovery()
         {
             effect->SetParam(unit(rng) < 0.5 ? "source" : "target", kCustomChoice);
         }
+
         auto in = noise;
         float* inputs[2] = {in.data(), in.data()};
         float* outputs[2] = {left.data(), right.data()};

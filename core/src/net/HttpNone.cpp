@@ -10,7 +10,7 @@ namespace
 {
 class NoTransport final : public HttpTransport
 {
-public:
+  public:
     HttpResponse Perform(const HttpRequest&, CancelToken&) override
     {
         HttpResponse response;

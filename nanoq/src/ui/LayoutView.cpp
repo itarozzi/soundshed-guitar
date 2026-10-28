@@ -26,10 +26,9 @@ constexpr float kCornerRadius = 8.0f;
 /// corner, optionally clipped to a rounded rectangle of the subject's own size. Points and
 /// bounds are mapped on the way in, so the subject handles events in its own coordinates and a
 /// refresh it asks for lands where it is on screen (the view maps it through the canvas).
-template <el::concepts::Element Subject>
-class ScaledElement : public el::proxy<Subject>
+template <el::concepts::Element Subject> class ScaledElement : public el::proxy<Subject>
 {
-public:
+  public:
     using base_type = el::proxy<Subject>;
 
     ScaledElement(Subject subject, float sx, float sy, float radius)
@@ -62,6 +61,7 @@ public:
         cnv.translate(b.left, b.top);
         cnv.scale(mSx, mSy);
         ctx.bounds = el::rect{0.0f, 0.0f, b.width() / mSx, b.height() / mSy};
+
         // Clipped only while drawing: the canvas an event is handled with is not drawing, and
         // Direct2D clips only between the begin and end of a draw.
         if (mRadius > 0.0f && mDrawing)
@@ -84,7 +84,7 @@ public:
         ctx.canvas.restore();
     }
 
-private:
+  private:
     float mSx, mSy, mRadius;
     bool mDrawing = false;
 };
@@ -98,8 +98,10 @@ Ptr Scaled(Ptr content, float sx, float sy, float radius)
 /// absolute positioning.
 class PlacedLayer final : public el::vector_composite<el::layer_element>
 {
-public:
-    PlacedLayer(float w, float h) : mW(w), mH(h) {}
+  public:
+    PlacedLayer(float w, float h) : mW(w), mH(h)
+    {
+    }
 
     void Add(Ptr child, el::rect at)
     {
@@ -118,7 +120,7 @@ public:
         return {ctx.bounds.left + r.left, ctx.bounds.top + r.top, ctx.bounds.left + r.right, ctx.bounds.top + r.bottom};
     }
 
-private:
+  private:
     float mW, mH;
     std::vector<el::rect> mRects;
 };
@@ -146,27 +148,44 @@ struct Inks
 Inks InksFor(const Theme& theme, const std::string& containerTheme)
 {
     if (containerTheme == "light")
+    {
         return {el::rgba(70, 74, 86, 255), el::rgba(96, 100, 112, 255), el::rgba(24, 26, 32, 255)};
+    }
+
     if (containerTheme == "dark" || containerTheme == "classic")
+    {
         return {el::rgba(201, 209, 225, 210), el::rgba(160, 168, 186, 230), el::rgba(238, 242, 255, 255)};
+    }
+
     return {theme.Pick(el::rgba(201, 209, 225, 184), theme.TextSecondary()), theme.TextMuted(), theme.Text()};
 }
 
 void DrawImageInto(artist::canvas& cnv, const artist::image& image, el::rect box, const std::string& fit)
 {
     if (fit == "cover")
+    {
         DrawImageCovering(cnv, image, box);
+    }
     else if (fit == "stretch")
+    {
         cnv.draw(image, box);
+    }
     else
+    {
         DrawImageFitted(cnv, image, box);
+    }
 }
 
-void DrawBackgroundImage(artist::canvas& cnv, const artist::image& image, const LayoutBackground& bg, el::rect canvasBox)
+void DrawBackgroundImage(artist::canvas& cnv, const artist::image& image, const LayoutBackground& bg,
+                         el::rect canvasBox)
 {
     const auto size = image.size();
+
     if (size.x <= 0.0f || size.y <= 0.0f)
+    {
         return;
+    }
+
     const float w = canvasBox.width(), h = canvasBox.height();
     // CSS background-position: the top-left corner moved by the offsets, for every size mode.
     const float x = canvasBox.left + static_cast<float>(bg.offsetX);
@@ -177,13 +196,20 @@ void DrawBackgroundImage(artist::canvas& cnv, const artist::image& image, const 
         // Repeated both ways from the offset at the picture's own size, covering the canvas.
         const float startX = x - std::ceil((x - canvasBox.left) / size.x) * size.x;
         const float startY = y - std::ceil((y - canvasBox.top) / size.y) * size.y;
+
         for (float ty = startY; ty < canvasBox.bottom; ty += size.y)
+        {
             for (float tx = startX; tx < canvasBox.right; tx += size.x)
+            {
                 cnv.draw(image, el::rect{tx, ty, tx + size.x, ty + size.y});
+            }
+        }
+
         return;
     }
 
     float dw = size.x, dh = size.y; // "auto": its own size, as CSS draws a size it cannot read
+
     if (bg.size == "cover" || bg.size == "contain")
     {
         const float s = bg.size == "cover" ? std::max(w / size.x, h / size.y) : std::min(w / size.x, h / size.y);
@@ -201,6 +227,7 @@ void DrawBackgroundImage(artist::canvas& cnv, const artist::image& image, const 
         dw = static_cast<float>(*bg.scale) * w;
         dh = dw * size.y / size.x;
     }
+
     cnv.draw(image, el::rect{x, y, x + dw, y + dh});
 }
 
@@ -220,6 +247,7 @@ void DrawOverlay(artist::canvas& cnv, LayoutImages& images, const LayoutOverlay&
     cnv.fill();
 
     if (!overlay.imageId.empty())
+    {
         if (const auto image = images.Find(overlay.imageId))
         {
             auto clip = cnv.new_state();
@@ -228,6 +256,7 @@ void DrawOverlay(artist::canvas& cnv, LayoutImages& images, const LayoutOverlay&
             cnv.clip();
             DrawImageInto(cnv, *image, r, overlay.imageFit);
         }
+    }
 
     if (overlay.borderWidth > 0.0)
     {
@@ -245,7 +274,7 @@ void DrawOverlay(artist::canvas& cnv, LayoutImages& images, const LayoutOverlay&
 /// not bypass switches. It takes no events.
 class LayoutBackdropView final : public el::element
 {
-public:
+  public:
     LayoutBackdropView(LayoutImages& images, std::shared_ptr<const EffectLayout> layout, bool bypassed)
         : mImages(images), mLayout(std::move(layout)), mBypassed(bypassed)
     {
@@ -260,36 +289,54 @@ public:
     {
         auto& cnv = ctx.canvas;
         const auto b = ctx.bounds;
+
         for (const auto& bg : mLayout->backgrounds)
+        {
             DrawLayer(cnv, bg, b);
+        }
+
         for (const auto& overlay : mLayout->overlays)
+        {
             if (!overlay.toggleBypassOnClick && LayoutOverlayVisible(overlay, mBypassed))
+            {
                 DrawOverlay(cnv, mImages, overlay, Place(b, overlay));
+            }
+        }
     }
 
     static el::rect Place(el::rect b, const LayoutOverlay& overlay)
     {
         const float x = b.left + std::round(static_cast<float>(overlay.position.x));
         const float y = b.top + std::round(static_cast<float>(overlay.position.y));
-        return {x, y, x + std::round(static_cast<float>(overlay.size.width)), y + std::round(static_cast<float>(overlay.size.height))};
+        return {x, y, x + std::round(static_cast<float>(overlay.size.width)),
+                y + std::round(static_cast<float>(overlay.size.height))};
     }
 
-private:
+  private:
     void DrawLayer(artist::canvas& cnv, const LayoutBackground& bg, el::rect b)
     {
         const double opacity = std::clamp(bg.opacity, 0.0, 1.0);
         auto state = cnv.new_state();
+
         if (bg.type == "image")
         {
             // Artist draws pictures without an opacity, so a faded picture is drawn whole and
             // one faded out entirely is left out.
             if (opacity <= 0.01)
+            {
                 return;
+            }
+
             if (const auto image = mImages.Find(bg.value))
+            {
                 DrawBackgroundImage(cnv, *image, bg, b);
+            }
+
             return;
         }
+
         const auto paint = ParseLayoutPaint(bg.value);
+
         if (paint.kind == LayoutPaint::Kind::Solid)
         {
             cnv.fill_style(ToColour(paint.colour, opacity));
@@ -299,10 +346,15 @@ private:
         {
             double x0 = 0, y0 = 0, x1 = 0, y1 = 0;
             LinearGradientLine(paint.angleDegrees, b.width(), b.height(), x0, y0, x1, y1);
-            artist::canvas::linear_gradient gradient{el::point{b.left + static_cast<float>(x0), b.top + static_cast<float>(y0)},
-                                                     el::point{b.left + static_cast<float>(x1), b.top + static_cast<float>(y1)}};
+            artist::canvas::linear_gradient gradient{
+                el::point{b.left + static_cast<float>(x0), b.top + static_cast<float>(y0)},
+                el::point{b.left + static_cast<float>(x1), b.top + static_cast<float>(y1)}};
+
             for (const auto& stop : paint.stops)
+            {
                 gradient.add_color_stop(static_cast<float>(stop.offset), ToColour(stop.colour, opacity));
+            }
+
             cnv.fill_style(gradient);
             cnv.fill_rect(b);
         }
@@ -316,8 +368,10 @@ private:
 /// The layout's own text, over the controls. It takes no events.
 class LayoutTextView final : public el::element
 {
-public:
-    LayoutTextView(std::shared_ptr<const EffectLayout> layout, el::color ink) : mLayout(std::move(layout)), mInk(ink) {}
+  public:
+    LayoutTextView(std::shared_ptr<const EffectLayout> layout, el::color ink) : mLayout(std::move(layout)), mInk(ink)
+    {
+    }
 
     el::element* hit_test(const el::context&, el::point, bool, bool) override
     {
@@ -328,10 +382,14 @@ public:
     {
         auto& cnv = ctx.canvas;
         const auto b = ctx.bounds;
+
         for (const auto& label : mLayout->textLabels)
         {
             if (label.text.empty())
+            {
                 continue;
+            }
+
             // A span shrinks to its text, so its alignment moves nothing: each starts at its position.
             std::string text = label.text;
             std::replace(text.begin(), text.end(), '\n', ' ');
@@ -340,12 +398,12 @@ public:
             const float x = b.left + std::round(static_cast<float>(label.position.x));
             const float y = b.top + std::round(static_cast<float>(label.position.y));
             const auto colour = ParseLayoutColour(label.color);
-            FillText(cnv, text, font, colour ? ToColour(*colour) : mInk, el::rect{x, y, std::max(b.right, x + 4096.0f), y + size * 1.25f},
-                     HAlign::Left);
+            FillText(cnv, text, font, colour ? ToColour(*colour) : mInk,
+                     el::rect{x, y, std::max(b.right, x + 4096.0f), y + size * 1.25f}, HAlign::Left);
         }
     }
 
-private:
+  private:
     std::shared_ptr<const EffectLayout> mLayout;
     el::color mInk;
 };
@@ -354,7 +412,7 @@ private:
 /// visibility mode says so, over everything else.
 class BypassHotspot final : public el::element
 {
-public:
+  public:
     BypassHotspot(LayoutImages& images, LayoutOverlay overlay, bool visible, std::function<void()> onClick)
         : mImages(images), mOverlay(std::move(overlay)), mVisible(visible), mOnClick(std::move(onClick))
     {
@@ -368,25 +426,36 @@ public:
     void draw(const el::context& ctx) override
     {
         if (mVisible)
+        {
             DrawOverlay(ctx.canvas, mImages, mOverlay, ctx.bounds);
+        }
     }
 
     bool click(const el::context& ctx, el::mouse_button btn) override
     {
         if (btn.state != el::mouse_button::left)
+        {
             return false;
+        }
+
         if (btn.down)
+        {
             mDown = true;
+        }
         else if (mDown && ctx.bounds.includes(btn.pos))
         {
             mDown = false;
+
             if (mOnClick)
+            {
                 mOnClick();
+            }
         }
+
         return true;
     }
 
-private:
+  private:
     LayoutImages& mImages;
     LayoutOverlay mOverlay;
     bool mVisible;
@@ -411,16 +480,17 @@ el::extent ControlExtent(LayoutControlKind kind, const LayoutControlStyle& style
     switch (kind)
     {
     case LayoutControlKind::Toggle:
+
         if (imageToggle)
         {
             const auto size = LayoutToggleSize(style);
             return {static_cast<float>(size.width), static_cast<float>(size.height)};
         }
+
         return {36.0f, 20.0f};
     case LayoutControlKind::Slider:
         return {static_cast<float>(LayoutSliderLength(style)), imageSlider ? 32.0f : 20.0f};
-    default:
-    {
+    default: {
         const float d = static_cast<float>(LayoutKnobDiameter(style));
         return {d, d};
     }
@@ -433,24 +503,34 @@ el::extent ControlExtent(LayoutControlKind kind, const LayoutControlStyle& style
 std::shared_ptr<artist::image> LayoutImages::Find(const std::string& imageId)
 {
     if (imageId.empty())
+    {
         return nullptr;
+    }
+
     if (const auto it = mImages.find(imageId); it != mImages.end())
+    {
         return it->second;
+    }
 
     std::shared_ptr<artist::image> image;
+
     if (const auto file = mResolve ? mResolve(imageId) : std::nullopt)
     {
         try
         {
             image = std::make_shared<artist::image>(*file);
+
             if (image->size().x <= 0.0f || image->size().y <= 0.0f)
+            {
                 image.reset();
+            }
         }
         catch (...)
         {
             image.reset(); // a format the backend cannot decode (an SVG) draws nothing
         }
     }
+
     mImages[imageId] = image;
     return image;
 }
@@ -468,12 +548,22 @@ LayoutControlView::LayoutControlView(const Theme& theme, LayoutImages& images, E
 el::extent LayoutControlView::Size() const
 {
     float h = mLook.control.y;
+
     if (mLook.labelTop)
+    {
         h += LabelLine(mLook.labelSize) + 4.0f;
+    }
+
     if (mLook.labelBottom)
+    {
         h += 4.0f + LabelLine(mLook.labelSize);
+    }
+
     if (mLook.style.showValue)
+    {
         h += 2.0f + ValueLine(mLook.valueSize);
+    }
+
     return {mLook.width, h};
 }
 
@@ -493,7 +583,10 @@ el::rect LayoutControlView::ControlBox(el::rect b) const
 el::rect LayoutControlView::ValueBox(el::rect b) const
 {
     if (!mLook.style.showValue)
+    {
         return {};
+    }
+
     return {b.left, b.bottom - ValueLine(mLook.valueSize), b.right, b.bottom};
 }
 
@@ -514,8 +607,11 @@ void LayoutControlView::draw(const el::context& ctx)
     const auto box = ControlBox(b);
 
     if (mLook.labelTop)
+    {
         FillText(cnv, Ellipsize(cnv, mLook.label, labelFont, labelWidth), labelFont, mLook.labelInk,
-                 el::rect{cx - labelWidth * 0.5f, b.top, cx + labelWidth * 0.5f, b.top + LabelLine(mLook.labelSize)}, HAlign::Centre);
+                 el::rect{cx - labelWidth * 0.5f, b.top, cx + labelWidth * 0.5f, b.top + LabelLine(mLook.labelSize)},
+                 HAlign::Centre);
+    }
 
     switch (mLook.kind)
     {
@@ -531,15 +627,18 @@ void LayoutControlView::draw(const el::context& ctx)
     }
 
     if (mLook.labelBottom)
+    {
         FillText(cnv, Ellipsize(cnv, mLook.label, labelFont, labelWidth), labelFont, mLook.labelInk,
-                 el::rect{cx - labelWidth * 0.5f, box.bottom + 4.0f, cx + labelWidth * 0.5f, box.bottom + 4.0f + LabelLine(mLook.labelSize)},
+                 el::rect{cx - labelWidth * 0.5f, box.bottom + 4.0f, cx + labelWidth * 0.5f,
+                          box.bottom + 4.0f + LabelLine(mLook.labelSize)},
                  HAlign::Centre);
+    }
 
     if (mLook.style.showValue)
     {
         const auto valueFont = Font(Weight::SemiBold).size(mLook.valueSize);
-        FillText(cnv, Ellipsize(cnv, FormatParamValue(mParam, mValue), valueFont, b.width()), valueFont, mLook.valueInk, ValueBox(b),
-                 HAlign::Centre);
+        FillText(cnv, Ellipsize(cnv, FormatParamValue(mParam, mValue), valueFont, b.width()), valueFont, mLook.valueInk,
+                 ValueBox(b), HAlign::Centre);
     }
 }
 
@@ -554,39 +653,55 @@ void LayoutControlView::DrawKnob(artist::canvas& cnv, el::rect box)
     // An image knob (a turning face or a filmstrip, with its base and glare) wins, then a custom
     // knob's turning face; either one whose face cannot be drawn is drawn as a styled knob.
     if (const auto* knobImage = UsableKnobImage(style))
+    {
         if (const auto face = mImages.Find(knobImage->imageId))
         {
             if (const auto base = mImages.Find(knobImage->baseImageId))
+            {
                 DrawImageFitted(cnv, *base, box);
+            }
+
             if (knobImage->mode == "filmstrip")
             {
                 const int frame = FilmstripFrame(position, knobImage->frames);
                 const auto cell = FilmstripCellOf(frame, knobImage->frames, knobImage->columns);
                 const auto size = face->size();
                 const float cw = size.x / static_cast<float>(cell.columns), ch = size.y / static_cast<float>(cell.rows);
-                cnv.draw(*face, el::rect{cell.column * cw, cell.row * ch, (cell.column + 1) * cw, (cell.row + 1) * ch}, box);
+                cnv.draw(*face, el::rect{cell.column * cw, cell.row * ch, (cell.column + 1) * cw, (cell.row + 1) * ch},
+                         box);
             }
             else
             {
                 auto state = cnv.new_state();
-                const el::rect faceBox = knobImage->clip ? el::rect{box.left + 4.0f, box.top + 4.0f, box.right - 4.0f, box.bottom - 4.0f} : box;
+                const el::rect faceBox =
+                    knobImage->clip ? el::rect{box.left + 4.0f, box.top + 4.0f, box.right - 4.0f, box.bottom - 4.0f}
+                                    : box;
+
                 if (knobImage->clip)
                 {
                     cnv.begin_path();
                     cnv.add_circle(artist::circle(c, faceBox.width() * 0.5f));
                     cnv.clip();
                 }
+
                 cnv.translate(c.x, c.y);
-                cnv.rotate(static_cast<float>(KnobFaceAngle(position, knobImage->minAngle, knobImage->maxAngle)) * kPi / 180.0f);
+                cnv.rotate(static_cast<float>(KnobFaceAngle(position, knobImage->minAngle, knobImage->maxAngle)) * kPi /
+                           180.0f);
                 const float half = faceBox.width() * 0.5f;
                 DrawImageFitted(cnv, *face, el::rect{-half, -half, half, half});
             }
+
             if (const auto glare = mImages.Find(knobImage->glareImageId))
+            {
                 DrawImageFitted(cnv, *glare, box);
+            }
+
             return;
         }
+    }
 
     if (style.knobStyle == "custom" && !style.knobImageId.empty() && !UsableKnobImage(style))
+    {
         if (const auto face = mImages.Find(style.knobImageId))
         {
             auto state = cnv.new_state();
@@ -599,6 +714,7 @@ void LayoutControlView::DrawKnob(artist::canvas& cnv, el::rect box)
             DrawImageFitted(cnv, *face, el::rect{-half, -half, half, half});
             return;
         }
+    }
 
     // A styled knob (custom-layouts.css), its pointer at the position on a 270 degree sweep.
     const float angle = (-135.0f + position * 270.0f - 90.0f) * kPi / 180.0f;
@@ -632,12 +748,14 @@ void LayoutControlView::DrawKnob(artist::canvas& cnv, el::rect box)
         pointer(el::rgba(51, 51, 51, 255), 2.0f, 6.0f, 13.0f);
         return;
     }
+
     if (style.knobStyle == "amp")
     {
         body(el::rgba(47, 48, 56, 255), el::rgba(102, 102, 102, 255), 1.0f);
         pointer(el::rgba(240, 192, 64, 255), 2.0f, 6.0f, 13.0f);
         return;
     }
+
     if (style.knobStyle == "minimal")
     {
         cnv.stroke_style(el::rgba(255, 255, 255, 77));
@@ -659,6 +777,7 @@ void LayoutControlView::DrawKnob(artist::canvas& cnv, el::rect box)
         cnv.begin_path();
         cnv.arc(c.x, c.y, arcR, 0.0f, 2.0f * kPi);
         cnv.stroke();
+
         if (position > 0.002f)
         {
             cnv.stroke_style(mTheme.KnobRingEnd());
@@ -687,23 +806,28 @@ void LayoutControlView::DrawToggle(artist::canvas& cnv, el::rect box)
 {
     const bool on = mValue >= 0.5;
     const auto& style = mLook.style;
+
     // An image switch needs both of its pictures; with one missing it is the standard switch.
     if (!style.toggleOnImageId.empty() && !style.toggleOffImageId.empty())
     {
         const auto onImage = mImages.Find(style.toggleOnImageId);
         const auto offImage = mImages.Find(style.toggleOffImageId);
+
         if (onImage && offImage)
         {
             DrawImageFitted(cnv, on ? *onImage : *offImage, box);
             return;
         }
     }
-    const el::rect track{box.left, box.top + (box.height() - 20.0f) * 0.5f, box.left + 36.0f, box.top + (box.height() + 20.0f) * 0.5f};
+
+    const el::rect track{box.left, box.top + (box.height() - 20.0f) * 0.5f, box.left + 36.0f,
+                         box.top + (box.height() + 20.0f) * 0.5f};
     cnv.fill_style(on ? mTheme.Accent().level(mHover ? 1.05f : 0.92f) : mTheme.ToggleBg().level(mHover ? 1.15f : 1.0f));
     cnv.fill_round_rect(track, 10.0f);
     cnv.fill_style(el::rgba(255, 255, 255, 240));
     cnv.begin_path();
-    cnv.add_circle(artist::circle(el::point{on ? track.right - 10.0f : track.left + 10.0f, (track.top + track.bottom) * 0.5f}, 7.0f));
+    cnv.add_circle(artist::circle(
+        el::point{on ? track.right - 10.0f : track.left + 10.0f, (track.top + track.bottom) * 0.5f}, 7.0f));
     cnv.fill();
 }
 
@@ -714,28 +838,38 @@ void LayoutControlView::DrawSlider(artist::canvas& cnv, el::rect box)
     const float cy = (box.top + box.bottom) * 0.5f;
     const auto track = mImages.Find(style.sliderTrackImageId);
     const auto thumb = mImages.Find(style.sliderThumbImageId);
+
     if (!style.sliderTrackImageId.empty() || !style.sliderThumbImageId.empty())
     {
         // An image slider: a 16 px track, the picture stretched along it, and a 24 px thumb.
         const el::rect bar{box.left, cy - 8.0f, box.right, cy + 8.0f};
+
         if (track)
+        {
             cnv.draw(*track, bar);
+        }
         else
         {
             cnv.fill_style(el::rgba(255, 255, 255, 38));
             cnv.fill_rect(bar);
         }
+
         const float x = box.left + 12.0f + position * (box.width() - 24.0f);
         const el::rect knob{x - 12.0f, cy - 12.0f, x + 12.0f, cy + 12.0f};
+
         if (thumb)
+        {
             DrawImageFitted(cnv, *thumb, knob);
+        }
         else
         {
             cnv.fill_style(mLook.accent);
             cnv.fill_rect(knob);
         }
+
         return;
     }
+
     cnv.fill_style(mTheme.IsLight() ? el::rgba(0, 0, 0, 38) : el::rgba(255, 255, 255, 38));
     cnv.fill_round_rect(el::rect{box.left, cy - 2.0f, box.right, cy + 2.0f}, 2.0f);
     const float x = box.left + 7.0f + position * (box.width() - 14.0f);
@@ -753,14 +887,20 @@ void LayoutControlView::DrawSlider(artist::canvas& cnv, el::rect box)
 void LayoutControlView::SetPosition(double position, const el::context& ctx)
 {
     const double value = SnapParamValue(mParam, ParamPositionToValue(mParam, std::clamp(position, 0.0, 1.0)));
+
     if (value != mValue)
     {
         mValue = value;
+
         if (mActions.setParam)
+        {
             mActions.setParam(mParam, value);
+        }
     }
+
     // A stepped control sits on its steps; a continuous one follows the pointer.
-    mPosition = mParam.step > 0.0 || IsEnumParam(mParam) ? ParamValueToPosition(mParam, mValue) : std::clamp(position, 0.0, 1.0);
+    mPosition = mParam.step > 0.0 || IsEnumParam(mParam) ? ParamValueToPosition(mParam, mValue)
+                                                         : std::clamp(position, 0.0, 1.0);
     ctx.view.refresh(ctx);
 }
 
@@ -769,17 +909,25 @@ bool LayoutControlView::click(const el::context& ctx, el::mouse_button btn)
     if (btn.state == el::mouse_button::right)
     {
         if (btn.down && mActions.menu)
+        {
             mActions.menu(mParam, ToView(ctx, btn.pos));
+        }
+
         return true;
     }
+
     if (btn.state != el::mouse_button::left)
+    {
         return false;
+    }
 
     const auto box = ControlBox(ctx.bounds);
+
     if (!btn.down)
     {
         const bool wasDragging = mDragging;
         mDragging = false;
+
         // A switch flips on the release over it, as a click on its checkbox does.
         if (mLook.kind == LayoutControlKind::Toggle && box.includes(btn.pos) && mActions.setParam)
         {
@@ -787,90 +935,131 @@ bool LayoutControlView::click(const el::context& ctx, el::mouse_button btn)
             mValue = std::clamp(mValue >= 0.5 ? 0.0 : 1.0, mParam.minValue, mParam.maxValue);
             mActions.setParam(mParam, mValue);
         }
+
         if (wasDragging || mLook.kind == LayoutControlKind::Toggle)
+        {
             ctx.view.refresh(ctx);
+        }
+
         return true;
     }
 
     if (mLook.kind == LayoutControlKind::Toggle)
+    {
         return true;
+    }
 
     if (btn.num_clicks == 2)
     {
         mDragging = false;
+
         // A double click on the value types one in; anywhere else on the control resets it.
         if (ValueBox(ctx.bounds).includes(btn.pos) && !IsEnumParam(mParam) && mActions.editValue)
+        {
             mActions.editValue(mParam);
+        }
         else
+        {
             SetPosition(ParamValueToPosition(mParam, mParam.defaultValue), ctx);
+        }
+
         return true;
     }
 
     if (!box.includes(btn.pos))
+    {
         return true;
+    }
+
     mDragging = true;
     // In view pixels, so a knob drawn small on a scaled layout turns no faster than a big one,
     // as the web UI's knob measures the pointer on the screen.
     mDragStartY = ToView(ctx, btn.pos).y;
     mDragStartPosition = mPosition;
+
     // A slider's thumb jumps to where its track is pressed, as a range input's does.
     if (mLook.kind == LayoutControlKind::Slider)
     {
-        const float inset = mLook.style.sliderThumbImageId.empty() && mLook.style.sliderTrackImageId.empty() ? 7.0f : 12.0f;
+        const float inset =
+            mLook.style.sliderThumbImageId.empty() && mLook.style.sliderTrackImageId.empty() ? 7.0f : 12.0f;
         SetPosition((btn.pos.x - box.left - inset) / std::max(1.0f, box.width() - 2.0f * inset), ctx);
     }
+
     return true;
 }
 
 void LayoutControlView::drag(const el::context& ctx, el::mouse_button btn)
 {
     if (!mDragging)
+    {
         return;
+    }
+
     if (mLook.kind == LayoutControlKind::Slider)
     {
         const auto box = ControlBox(ctx.bounds);
-        const float inset = mLook.style.sliderThumbImageId.empty() && mLook.style.sliderTrackImageId.empty() ? 7.0f : 12.0f;
+        const float inset =
+            mLook.style.sliderThumbImageId.empty() && mLook.style.sliderTrackImageId.empty() ? 7.0f : 12.0f;
         SetPosition((btn.pos.x - box.left - inset) / std::max(1.0f, box.width() - 2.0f * inset), ctx);
         return;
     }
+
     // Up turns it up; Shift slows the turn to a fifth, as ParamKnob does.
     const float slow = btn.modifiers & el::mod_shift ? 5.0f : 1.0f;
-    SetPosition(mDragStartPosition + static_cast<double>(mDragStartY - ToView(ctx, btn.pos).y) / (kDragPixels * slow), ctx);
+    SetPosition(mDragStartPosition + static_cast<double>(mDragStartY - ToView(ctx, btn.pos).y) / (kDragPixels * slow),
+                ctx);
 }
 
 bool LayoutControlView::cursor(const el::context& ctx, el::point, el::cursor_tracking status)
 {
     const bool hover = status != el::cursor_tracking::leaving;
+
     if (hover != mHover)
     {
         mHover = hover;
         ctx.view.refresh(ctx);
     }
+
     return false;
 }
 
 bool LayoutControlView::scroll(const el::context& ctx, el::point dir, el::point)
 {
     if (dir.y == 0.0f || !mHover || !ParamKnob::sWheelAdjusts || mLook.kind == LayoutControlKind::Toggle)
+    {
         return false;
+    }
+
     // One label at a time for a list, else a fiftieth of the travel.
     if (IsEnumParam(mParam))
     {
         const double step = mParam.step > 0.0 ? mParam.step : 1.0;
-        SetPosition(ParamValueToPosition(mParam, std::clamp(mValue + (dir.y > 0.0f ? step : -step), mParam.minValue, mParam.maxValue)), ctx);
+        SetPosition(ParamValueToPosition(
+                        mParam, std::clamp(mValue + (dir.y > 0.0f ? step : -step), mParam.minValue, mParam.maxValue)),
+                    ctx);
     }
     else
+    {
         SetPosition(mPosition + (dir.y > 0.0f ? 0.02 : -0.02), ctx);
+    }
+
     return true;
 }
 
 bool LayoutControlView::Update(const guitarfx::GraphNode& node)
 {
     if (mDragging)
+    {
         return false;
+    }
+
     const double value = NodeParamValue(node, mParam);
+
     if (value == mValue)
+    {
         return false;
+    }
+
     mValue = value;
     mPosition = ParamValueToPosition(mParam, value);
     return true;
@@ -905,25 +1094,42 @@ LayoutControlView::Look MakeLook(const Theme& theme, const EffectLayout& layout,
     // The wrapper: its own width when the layout gives one, else at least 80 and as wide as
     // what it holds (the web UI's column of centred items).
     if (control.size && control.size->width > 0.0)
+    {
         look.width = std::round(static_cast<float>(control.size->width));
+    }
     else
     {
         float content = look.control.x;
+
         if (look.labelTop || look.labelBottom)
-            content = std::max(content, std::min(look.labelMaxWidth, MeasureTextWidth(look.label, Font(Weight::SemiBold).size(look.labelSize))));
+        {
+            content =
+                std::max(content, std::min(look.labelMaxWidth,
+                                           MeasureTextWidth(look.label, Font(Weight::SemiBold).size(look.labelSize))));
+        }
+
         if (control.style.showValue)
-            content = std::max(content, MeasureTextWidth(FormatParamValue(param, param.maxValue), Font(Weight::SemiBold).size(look.valueSize)));
+        {
+            content = std::max(content, MeasureTextWidth(FormatParamValue(param, param.maxValue),
+                                                         Font(Weight::SemiBold).size(look.valueSize)));
+        }
+
         look.width = std::max(80.0f, std::ceil(content));
     }
+
     return look;
 }
 } // namespace
 
-LayoutViewParts BuildLayoutView(const Theme& theme, LayoutImages& images, const LayoutViewInput& input, const LayoutActions& actions)
+LayoutViewParts BuildLayoutView(const Theme& theme, LayoutImages& images, const LayoutViewInput& input,
+                                const LayoutActions& actions)
 {
     LayoutViewParts parts;
+
     if (input.layout == nullptr || input.node == nullptr)
+    {
         return parts;
+    }
 
     const auto layout = std::make_shared<const EffectLayout>(*input.layout);
     const auto& node = *input.node;
@@ -954,23 +1160,38 @@ LayoutViewParts BuildLayoutView(const Theme& theme, LayoutImages& images, const 
         {
             const float x = std::round(static_cast<float>(control.position.x));
             const float y = std::round(static_cast<float>(control.position.y));
+
             if (IsLayoutResourceControl(control))
             {
                 const auto slot = LayoutControlResourceSlot(control);
+
                 if (!slot || !input.resourceSlot)
+                {
                     continue;
+                }
+
                 // A slot as wide as the layout gives it, else to the layout's right edge.
                 const float width = control.size && control.size->width > 0.0 ? static_cast<float>(control.size->width)
-                                                                               : std::min(360.0f, w - x);
+                                                                              : std::min(360.0f, w - x);
                 const std::string label = control.labelOverride.empty() ? std::string() : control.labelOverride;
+
                 if (auto row = input.resourceSlot(*slot, label, width))
+                {
                     placed->Add(row, el::rect{x, y, x + width, y + 26.0f});
+                }
+
                 continue;
             }
+
             const auto* param = input.type != nullptr ? input.type->FindParam(control.paramKey) : nullptr;
+
             if (param == nullptr)
+            {
                 continue; // a parameter this effect no longer has
-            auto view = std::make_shared<LayoutControlView>(theme, images, *param, MakeLook(theme, *layout, control, *param, inks), actions);
+            }
+
+            auto view = std::make_shared<LayoutControlView>(theme, images, *param,
+                                                            MakeLook(theme, *layout, control, *param, inks), actions);
             view->Update(node);
             const auto size = view->Size();
             placed->Add(view, el::rect{x, y, x + size.x, y + size.y});
@@ -981,9 +1202,14 @@ LayoutViewParts BuildLayoutView(const Theme& theme, LayoutImages& images, const 
     placed->Add(std::make_shared<LayoutTextView>(layout, inks.text), el::rect{0.0f, 0.0f, w, h});
 
     for (const auto& overlay : layout->overlays)
+    {
         if (overlay.toggleBypassOnClick)
-            placed->Add(std::make_shared<BypassHotspot>(images, overlay, LayoutOverlayVisible(overlay, bypassed), actions.toggleBypass),
+        {
+            placed->Add(std::make_shared<BypassHotspot>(images, overlay, LayoutOverlayVisible(overlay, bypassed),
+                                                        actions.toggleBypass),
                         LayoutBackdropView::Place(el::rect{0.0f, 0.0f, w, h}, overlay));
+        }
+    }
 
     const float scale = static_cast<float>(input.scale > 0.0 ? input.scale : 1.0);
     parts.element = Scaled(placed, scale, scale, kCornerRadius);

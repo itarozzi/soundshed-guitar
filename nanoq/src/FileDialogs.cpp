@@ -5,8 +5,8 @@
 #include <vector>
 
 #if defined(_WIN32)
- #include <shobjidl.h>
- #include <windows.h>
+    #include <shobjidl.h>
+    #include <windows.h>
 #endif
 
 namespace nanoq
@@ -34,7 +34,10 @@ namespace
 std::wstring Widen(const std::string& utf8)
 {
     if (utf8.empty())
+    {
         return {};
+    }
+
     const int n = MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), nullptr, 0);
     std::wstring out(static_cast<size_t>(n), L'\0');
     MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), out.data(), n);
@@ -50,6 +53,7 @@ struct Filter
 std::vector<Filter> FiltersFor(guitarfx::BrowseFileType type)
 {
     using T = guitarfx::BrowseFileType;
+
     switch (type)
     {
     case T::NAMModel:
@@ -81,26 +85,39 @@ guitarfx::BrowseFileResult RunDialog(bool save, guitarfx::BrowseFileType type, c
     IFileDialog* dialog = nullptr;
     const HRESULT created = CoCreateInstance(save ? CLSID_FileSaveDialog : CLSID_FileOpenDialog, nullptr,
                                              CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog));
+
     if (SUCCEEDED(created) && dialog != nullptr)
     {
         DWORD options = 0;
         dialog->GetOptions(&options);
         options |= FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST;
+
         if (type == guitarfx::BrowseFileType::Folder)
+        {
             options |= FOS_PICKFOLDERS;
+        }
+
         dialog->SetOptions(options);
 
         const auto wideTitle = Widen(title);
+
         if (!wideTitle.empty())
+        {
             dialog->SetTitle(wideTitle.c_str());
+        }
 
         const auto filters = FiltersFor(type);
+
         if (!filters.empty())
         {
             std::vector<COMDLG_FILTERSPEC> specs;
             specs.reserve(filters.size());
+
             for (const auto& f : filters)
+            {
                 specs.push_back({f.name.c_str(), f.spec.c_str()});
+            }
+
             dialog->SetFileTypes(static_cast<UINT>(specs.size()), specs.data());
         }
 
@@ -113,23 +130,30 @@ guitarfx::BrowseFileResult RunDialog(bool save, guitarfx::BrowseFileType type, c
         if (SUCCEEDED(dialog->Show(nullptr)))
         {
             IShellItem* item = nullptr;
+
             if (SUCCEEDED(dialog->GetResult(&item)) && item != nullptr)
             {
                 PWSTR path = nullptr;
+
                 if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path)) && path != nullptr)
                 {
                     result.success = true;
                     result.path = std::filesystem::path(path);
                     CoTaskMemFree(path);
                 }
+
                 item->Release();
             }
         }
+
         dialog->Release();
     }
 
     if (coInitialised)
+    {
         CoUninitialize();
+    }
+
     return result;
 }
 } // namespace
@@ -167,7 +191,7 @@ void ShowSaveDialog(guitarfx::BrowseFileType type, const std::string& title, con
 #elif defined(__APPLE__)
     RunAppleDialog(true, type, title, defaultName, std::move(done));
 #else
-    (void) defaultName;
+    (void)defaultName;
     done({});
 #endif
 }

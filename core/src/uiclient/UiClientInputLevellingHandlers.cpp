@@ -95,19 +95,20 @@ std::string InputLevellingTrainingStatus(const InputLevellingState& state)
     }
 
     return "Captured " + FormatInputLevelDbfs(state.training.capturedPeakDbfs) + ". Saving this profile will apply " +
-           FormatInputTrimDb(state.training.recommendedTrimDb) + " toward a " + FormatInputLevelDbfs(state.targetPeakDbfs) +
-           " target.";
+           FormatInputTrimDb(state.training.recommendedTrimDb) + " toward a " +
+           FormatInputLevelDbfs(state.targetPeakDbfs) + " target.";
 }
 
 std::string InputLevellingProfileNote(const InputLevellingProfile& profile, bool active)
 {
     if (active)
     {
-        return "Applies " + FormatInputTrimDb(profile.gainDb) + " toward " + FormatInputLevelDbfs(profile.targetPeakDbfs);
+        return "Applies " + FormatInputTrimDb(profile.gainDb) + " toward " +
+               FormatInputLevelDbfs(profile.targetPeakDbfs);
     }
 
     return !profile.description.empty() ? profile.description
-                                         : "Captured " + FormatInputLevelDbfs(profile.capturedPeakDbfs);
+                                        : "Captured " + FormatInputLevelDbfs(profile.capturedPeakDbfs);
 }
 
 void UiClient::RegisterInputLevellingHandlers()
@@ -174,8 +175,9 @@ void UiClient::RegisterInputLevellingHandlers()
         if (levelling.saveOk && m.contains("profile") && m["profile"].is_object())
         {
             const auto& profile = m["profile"];
-            PostNotification({Notification::Kind::Info, "Input levelling profile saved",
-                              StringOf(profile, "name") + " • " + FormatInputTrimDb(OptionalNumber(profile, "gainDb"))});
+            PostNotification(
+                {Notification::Kind::Info, "Input levelling profile saved",
+                 StringOf(profile, "name") + " • " + FormatInputTrimDb(OptionalNumber(profile, "gainDb"))});
         }
         else if (!levelling.saveOk)
         {

@@ -39,7 +39,7 @@ struct CategoryPresentation
 
 class EffectPresentation
 {
-public:
+  public:
     EffectPresentation();
 
     /// From the JSON document; anything missing keeps the built-in fallback.
@@ -75,7 +75,7 @@ public:
         return mLoaded;
     }
 
-private:
+  private:
     [[nodiscard]] std::string AliasCategory(const std::string& category) const;
 
     struct EffectEntry

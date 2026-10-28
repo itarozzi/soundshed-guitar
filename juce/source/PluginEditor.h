@@ -9,21 +9,21 @@
 
 class SinglePageBrowser : public juce::WebBrowserComponent
 {
-public:
-    using PageFinishedCallback = std::function<void (const juce::String&)>;
-    using NetworkErrorCallback = std::function<bool (const juce::String&)>;
+  public:
+    using PageFinishedCallback = std::function<void(const juce::String&)>;
+    using NetworkErrorCallback = std::function<bool(const juce::String&)>;
 
     using juce::WebBrowserComponent::WebBrowserComponent;
 
-    void setPageFinishedCallback (PageFinishedCallback callback);
-    void setNetworkErrorCallback (NetworkErrorCallback callback);
+    void setPageFinishedCallback(PageFinishedCallback callback);
+    void setNetworkErrorCallback(NetworkErrorCallback callback);
 
-    bool pageAboutToLoad (const juce::String& newURL) override;
-    void pageFinishedLoading (const juce::String& url) override;
-    bool pageLoadHadNetworkError (const juce::String& errorInfo) override;
-    void newWindowAttemptingToLoad (const juce::String& newURL) override;
+    bool pageAboutToLoad(const juce::String& newURL) override;
+    void pageFinishedLoading(const juce::String& url) override;
+    bool pageLoadHadNetworkError(const juce::String& errorInfo) override;
+    void newWindowAttemptingToLoad(const juce::String& newURL) override;
 
-private:
+  private:
     PageFinishedCallback pageFinishedCallback;
     NetworkErrorCallback networkErrorCallback;
 };
@@ -33,33 +33,33 @@ private:
 /// how it draws (idle tick, sizing, DPI, visibility) lives in SoundshedEditorBase.
 class PluginEditor : public soundshed::editor::SoundshedEditorBase
 {
-public:
-    explicit PluginEditor (PluginProcessorAdapter&);
+  public:
+    explicit PluginEditor(PluginProcessorAdapter&);
     ~PluginEditor() override;
 
     //==============================================================================
-    void paint (juce::Graphics&) override;
+    void paint(juce::Graphics&) override;
     void resized() override;
 
     // Handle deep link from another instance of the app
-    void handleDeepLinkFromAnotherInstance (const juce::String& deepLinkQuery) override;
+    void handleDeepLinkFromAnotherInstance(const juce::String& deepLinkQuery) override;
 
-private:
+  private:
     void idleTick() override;
-    std::optional<juce::WebBrowserComponent::Resource> getResource (const juce::String& url);
+    std::optional<juce::WebBrowserComponent::Resource> getResource(const juce::String& url);
     juce::String getResourceRootUrl() const;
 
-   #if JUCE_LINUX
-    void markLinuxWebViewLoaded (const juce::String& url);
-    bool handleLinuxWebViewNetworkError (const juce::String& errorInfo);
-    void showLinuxWebViewDependencyMessage (const juce::String& reason);
-   #endif
+#if JUCE_LINUX
+    void markLinuxWebViewLoaded(const juce::String& url);
+    bool handleLinuxWebViewNetworkError(const juce::String& errorInfo);
+    void showLinuxWebViewDependencyMessage(const juce::String& reason);
+#endif
 
     juce::File resourceRoot;
 
     SinglePageBrowser webView;
 
-   #if JUCE_LINUX
+#if JUCE_LINUX
     juce::Label linuxWebViewStatusLabel;
     bool linuxWebViewLoadCompleted = false;
     bool linuxWebViewFallbackShown = false;
@@ -68,7 +68,7 @@ private:
     int linuxWebViewNetworkErrorCount = 0;
     juce::uint32 linuxWebViewInitTimeMs = 0;
     juce::String linuxInitialUrl;
-   #endif
+#endif
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PluginEditor)
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PluginEditor)
 };

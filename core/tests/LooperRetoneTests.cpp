@@ -46,7 +46,8 @@ void TestRetone(const fs::path& sandbox)
     s.Run(0.05);
     s.Send({{"type", "getRiffLibrary"}});
     s.Run(0.01);
-    const fs::path session = fs::path(host.Last("riffLibraryState")["library"].value("path", std::string{})) / "loops" / ".session";
+    const fs::path session =
+        fs::path(host.Last("riffLibraryState")["library"].value("path", std::string{})) / "loops" / ".session";
 
     s.playing = true;
     s.Command("recPlayDub");
@@ -60,7 +61,8 @@ void TestRetone(const fs::path& sandbox)
     Check(layers.is_array() && layers.size() == 1 && layers[0].value("wetSource", std::string{}) == "live",
           "one layer, recorded live");
     const auto project = looper_files::ReadJson(session / "project.json");
-    const std::string key = project && !(*project)["layers"].empty() ? (*project)["layers"][0].value("id", std::string{}) : "";
+    const std::string key =
+        project && !(*project)["layers"].empty() ? (*project)["layers"][0].value("id", std::string{}) : "";
     const auto live = looper_files::ReadWav(looper_files::WetPath(session, key), kSampleRate);
     Check(live.has_value() && !live->empty(), "the live wet sound is in the session folder");
 
@@ -82,12 +84,13 @@ void TestRetone(const fs::path& sandbox)
     {
         const std::size_t length = (*live)[0].size();
         const auto [correlation, levelDb] = Compare((*live)[0], (*rendered)[0], length / 4, length);
-        Check(correlation > 0.99 && std::abs(levelDb) < 0.5,
-              "the re-amp matches the live take: correlation " + std::to_string(correlation) + ", level " +
-                  std::to_string(levelDb) + " dB");
+        Check(correlation > 0.99 && std::abs(levelDb) < 0.5, "the re-amp matches the live take: correlation " +
+                                                                 std::to_string(correlation) + ", level " +
+                                                                 std::to_string(levelDb) + " dB");
     }
 
-    s.Send({{"type", "retoneLooperLayer"}, {"layerIds", nlohmann::json::array({layers[0].value("id", std::string{})})},
+    s.Send({{"type", "retoneLooperLayer"},
+            {"layerIds", nlohmann::json::array({layers[0].value("id", std::string{})})},
             {"revert", true}});
     s.Settle(300);
     layers = host.Last("looperLayers")["layers"];
@@ -106,7 +109,8 @@ void TestRetone(const fs::path& sandbox)
     s.Settle(2500);
     layers = host.Last("looperLayers")["layers"];
     Check(layers.size() == 2 && layers[0].value("title", std::string{}) == "Looped riff" &&
-              layers[0].value("wetSource", std::string{}) == "reamp" && layers[0].value("riffId", std::string{}) == takeId,
+              layers[0].value("wetSource", std::string{}) == "reamp" &&
+              layers[0].value("riffId", std::string{}) == takeId,
           "a riff becomes a layer, rendered through the rig: " + layers.dump().substr(0, 240));
     Check(s.State().value("canUndo", false), "and it can be undone");
 }

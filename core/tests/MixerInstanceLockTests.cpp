@@ -757,11 +757,13 @@ int main()
     // a Debug CRT assertion to stderr rather than to a dialog nobody will click.
     std::cout << std::unitbuf;
 #if defined(_WIN32) && defined(_DEBUG)
+
     for (const int report : {_CRT_ERROR, _CRT_ASSERT})
     {
         _CrtSetReportMode(report, _CRTDBG_MODE_FILE);
         _CrtSetReportFile(report, _CRTDBG_FILE_STDERR);
     }
+
 #endif
 
     // A deadlock on the DSP lock would otherwise hang ctest until its own timeout.

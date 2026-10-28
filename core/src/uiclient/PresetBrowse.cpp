@@ -170,7 +170,9 @@ std::vector<PresetSummary> FilterPresets(const ClientState& state, const PresetQ
     // Factory presets switched off (Settings > Features) are left out of every list.
     if (!IsFeatureEnabled(state, Feature::FactoryPresetPacks))
     {
-        base.erase(std::remove_if(base.begin(), base.end(), [](const PresetSummary& p) { return p.source == "factory"; }), base.end());
+        base.erase(
+            std::remove_if(base.begin(), base.end(), [](const PresetSummary& p) { return p.source == "factory"; }),
+            base.end());
     }
 
     if (query.folderId == kPresetFolderFavorites)
@@ -188,8 +190,9 @@ std::vector<PresetSummary> FilterPresets(const ClientState& state, const PresetQ
     if (!query.tags.empty())
     {
         std::erase_if(base, [&query](const PresetSummary& p) {
-            return !std::all_of(query.tags.begin(), query.tags.end(),
-                                [&p](const std::string& tag) { return std::find(p.tags.begin(), p.tags.end(), tag) != p.tags.end(); });
+            return !std::all_of(query.tags.begin(), query.tags.end(), [&p](const std::string& tag) {
+                return std::find(p.tags.begin(), p.tags.end(), tag) != p.tags.end();
+            });
         });
     }
 

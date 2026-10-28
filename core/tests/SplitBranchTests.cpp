@@ -216,18 +216,20 @@ void TestCollapse()
 
     // gate → split → [ | delay → reverb ] → mix → output: the used branch moves into the main path.
     SignalGraph oneLane;
-    oneLane.nodes = {Node("__input__", "input"), Node("gate", "gate"),     Node("split", guitarfx::EffectGuids::kSplitter),
-                     Node("delay", "delay"),     Node("reverb", "reverb"), Node("mix", guitarfx::EffectGuids::kMixer),
-                     Node("__output__", "output")};
-    oneLane.edges = {Edge("__input__", "gate"),     Edge("gate", "split"),         Edge("split", "mix", 0, 0),
-                     Edge("split", "delay", 1),     Edge("delay", "reverb"),       Edge("reverb", "mix", 0, 1),
+    oneLane.nodes = {
+        Node("__input__", "input"),  Node("gate", "gate"),     Node("split", guitarfx::EffectGuids::kSplitter),
+        Node("delay", "delay"),      Node("reverb", "reverb"), Node("mix", guitarfx::EffectGuids::kMixer),
+        Node("__output__", "output")};
+    oneLane.edges = {Edge("__input__", "gate"), Edge("gate", "split"),   Edge("split", "mix", 0, 0),
+                     Edge("split", "delay", 1), Edge("delay", "reverb"), Edge("reverb", "mix", 0, 1),
                      Edge("mix", "__output__")};
     const auto laneChange = split::CollapseSplit(oneLane, "split", "mix");
     Check(laneChange.changed && laneChange.error.empty(), "a split with one branch in use collapses");
     Check(oneLane.edges.size() == 4 && HasEdge(oneLane, "__input__", "gate") && HasEdge(oneLane, "gate", "delay") &&
               HasEdge(oneLane, "delay", "reverb") && HasEdge(oneLane, "reverb", "__output__"),
           "its effects sit in the main path, in order");
-    Check(!HasNode(oneLane, "split") && !HasNode(oneLane, "mix") && HasNode(oneLane, "delay") && HasNode(oneLane, "reverb"),
+    Check(!HasNode(oneLane, "split") && !HasNode(oneLane, "mix") && HasNode(oneLane, "delay") &&
+              HasNode(oneLane, "reverb"),
           "the splitter and mixer go, the effects stay");
 
     // The used branch can be any of them, and can hold a split of its own:
@@ -241,15 +243,15 @@ void TestCollapse()
                     Node("innerMix", guitarfx::EffectGuids::kMixer),
                     Node("mix", guitarfx::EffectGuids::kMixer),
                     Node("__output__", "output")};
-    nested.edges = {Edge("__input__", "split"),         Edge("split", "mix", 0, 0),
-                    Edge("split", "mix", 1, 1),         Edge("split", "amp", 2),
-                    Edge("amp", "innerSplit"),          Edge("innerSplit", "innerMix", 0, 0),
-                    Edge("innerSplit", "cab", 1),       Edge("cab", "innerMix", 0, 1),
-                    Edge("innerMix", "mix", 0, 2),      Edge("mix", "__output__")};
+    nested.edges = {Edge("__input__", "split"),   Edge("split", "mix", 0, 0),    Edge("split", "mix", 1, 1),
+                    Edge("split", "amp", 2),      Edge("amp", "innerSplit"),     Edge("innerSplit", "innerMix", 0, 0),
+                    Edge("innerSplit", "cab", 1), Edge("cab", "innerMix", 0, 1), Edge("innerMix", "mix", 0, 2),
+                    Edge("mix", "__output__")};
     const auto nestedChange = split::CollapseSplit(nested, "split", "mix");
     Check(nestedChange.changed, "the third branch in use, with a split inside it");
-    Check(nested.edges.size() == 6 && HasEdge(nested, "__input__", "amp") && HasEdge(nested, "innerMix", "__output__") &&
-              HasEdge(nested, "innerSplit", "cab") && HasNode(nested, "innerSplit") && HasNode(nested, "innerMix"),
+    Check(nested.edges.size() == 6 && HasEdge(nested, "__input__", "amp") &&
+              HasEdge(nested, "innerMix", "__output__") && HasEdge(nested, "innerSplit", "cab") &&
+              HasNode(nested, "innerSplit") && HasNode(nested, "innerMix"),
           "the inner split comes along intact");
 
     auto blend = ThreeAmpBlend();

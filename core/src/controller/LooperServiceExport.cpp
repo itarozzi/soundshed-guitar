@@ -53,9 +53,10 @@ void LooperService::HandleExportLayer(const nlohmann::json& payload)
         take->config.timeSigNum = mMetronome.TimeSigNum();
         take->config.timeSigDen = mMetronome.TimeSigDen();
         const double samplesPerBar = mMetronome.Clock().samplesPerBar.load(std::memory_order_relaxed);
-        take->config.bars = samplesPerBar > 1.0
-                                ? std::max(1, static_cast<int>(std::lround(static_cast<double>(take->left.size()) / samplesPerBar)))
-                                : 1;
+        take->config.bars =
+            samplesPerBar > 1.0
+                ? std::max(1, static_cast<int>(std::lround(static_cast<double>(take->left.size()) / samplesPerBar)))
+                : 1;
         take->config.countInBars = 0;
         take->config.presetId = meta.tone.presetId;
         take->config.presetName = meta.tone.presetName;
@@ -89,8 +90,9 @@ void LooperService::HandleExportLayer(const nlohmann::json& payload)
 
                             const std::vector<const std::vector<float>*> channels{&wet[0], &wet[1]};
                             const auto bytes = util::Encode32BitFloatWav(channels, static_cast<int>(std::lround(rate)));
-                            mPendingNotice = !bytes.empty() && util::WriteFileAtomic(result.path, bytes) ? "exported"
-                                                                                                          : "exportFailed";
+                            mPendingNotice = !bytes.empty() && util::WriteFileAtomic(result.path, bytes)
+                                                 ? "exported"
+                                                 : "exportFailed";
                             mLastState.clear();
                         });
 }

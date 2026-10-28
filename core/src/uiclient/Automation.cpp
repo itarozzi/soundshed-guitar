@@ -52,7 +52,8 @@ std::string NextNumberedSlotId(const std::vector<AutomationSlotInfo>& slots, con
 
         const std::string digits = slot.slotId.substr(prefix.size() + 1);
 
-        if (!digits.empty() && std::all_of(digits.begin(), digits.end(), [](unsigned char c) { return std::isdigit(c) != 0; }))
+        if (!digits.empty() &&
+            std::all_of(digits.begin(), digits.end(), [](unsigned char c) { return std::isdigit(c) != 0; }))
         {
             highest = std::max(highest, std::stoi(digits));
         }
@@ -98,14 +99,15 @@ std::string EffectName(const ClientState& state, const std::string& type)
 
 const AutomationSlotInfo* AutomationState::FindSlot(const std::string& slotId) const
 {
-    const auto it = std::find_if(slots.begin(), slots.end(), [&](const AutomationSlotInfo& s) { return s.slotId == slotId; });
+    const auto it =
+        std::find_if(slots.begin(), slots.end(), [&](const AutomationSlotInfo& s) { return s.slotId == slotId; });
     return it != slots.end() ? &*it : nullptr;
 }
 
 const AutomationRegistryEntry* AutomationState::FindRegistryEntry(const std::string& address) const
 {
-    const auto it =
-        std::find_if(registry.begin(), registry.end(), [&](const AutomationRegistryEntry& e) { return e.address == address; });
+    const auto it = std::find_if(registry.begin(), registry.end(),
+                                 [&](const AutomationRegistryEntry& e) { return e.address == address; });
     return it != registry.end() ? &*it : nullptr;
 }
 
@@ -224,13 +226,15 @@ std::optional<MidiLearnTarget> NodeParamLearnTarget(const EffectTypeInfo* type, 
         return std::nullopt;
     }
 
-    return MidiLearnTarget{"node." + type->type + "." + paramKey,
-                           (type->name.empty() ? type->type : type->name) + ": " + (param->name.empty() ? paramKey : param->name)};
+    return MidiLearnTarget{"node." + type->type + "." + paramKey, (type->name.empty() ? type->type : type->name) +
+                                                                      ": " +
+                                                                      (param->name.empty() ? paramKey : param->name)};
 }
 
 std::optional<MidiLearnTarget> SetlistPadLearnTarget(const AutomationState& automation, int slotIndex)
 {
-    return slotIndex >= 0 ? RegistryLearnTarget(automation, "setlist.preset" + std::to_string(slotIndex + 1)) : std::nullopt;
+    return slotIndex >= 0 ? RegistryLearnTarget(automation, "setlist.preset" + std::to_string(slotIndex + 1))
+                          : std::nullopt;
 }
 
 // ── Slots ────────────────────────────────────────────────────────────────────────
@@ -256,8 +260,8 @@ const AutomationSlotInfo* FindSlotForAddress(const std::vector<AutomationSlotInf
     return nullptr;
 }
 
-const AutomationSlotInfo* FindPresetSlotForAddress(const std::vector<AutomationSlotInfo>& slots, const std::string& presetId,
-                                                   const std::string& address)
+const AutomationSlotInfo* FindPresetSlotForAddress(const std::vector<AutomationSlotInfo>& slots,
+                                                   const std::string& presetId, const std::string& address)
 {
     for (const auto& slot : slots)
     {
@@ -283,8 +287,8 @@ bool AllowsPresetMapping(const std::string& address)
 
 int CountCustomSlots(const std::vector<AutomationSlotInfo>& slots)
 {
-    return static_cast<int>(
-        std::count_if(slots.begin(), slots.end(), [](const AutomationSlotInfo& s) { return !s.isDefault && s.presetId.empty(); }));
+    return static_cast<int>(std::count_if(
+        slots.begin(), slots.end(), [](const AutomationSlotInfo& s) { return !s.isDefault && s.presetId.empty(); }));
 }
 
 int CountPresetSlots(const std::vector<AutomationSlotInfo>& slots, const std::string& presetId)
@@ -313,8 +317,8 @@ std::string FormatMidiChannel(int channel)
 std::string DescribeMidiMap(int eventType, int channel, int controller, std::optional<int> mode)
 {
     const bool knownEvent = eventType >= 0 && eventType < static_cast<int>(std::size(kMidiEventNames));
-    std::string text = std::string(knownEvent ? kMidiEventNames[eventType] : "CC") + " " + std::to_string(controller) + " ch" +
-                       FormatMidiChannel(channel);
+    std::string text = std::string(knownEvent ? kMidiEventNames[eventType] : "CC") + " " + std::to_string(controller) +
+                       " ch" + FormatMidiChannel(channel);
 
     if (mode)
     {
@@ -401,23 +405,26 @@ std::vector<MidiLearnMenuItem> BuildMidiLearnMenuItems(const AutomationState& au
     {
         // A control no slot drives yet needs a free slot to learn into.
         const bool noCustomSlot = slot == nullptr && CountCustomSlots(automation.slots) >= automation.maxCustomSlots;
-        items.push_back({MidiLearnMenuAction::Learn, "MIDI Learn\xE2\x80\xA6",
-                         noCustomSlot ? "All " + std::to_string(automation.maxCustomSlots) + " custom slots in use" : "",
-                         noCustomSlot});
+        items.push_back(
+            {MidiLearnMenuAction::Learn, "MIDI Learn\xE2\x80\xA6",
+             noCustomSlot ? "All " + std::to_string(automation.maxCustomSlots) + " custom slots in use" : "",
+             noCustomSlot});
 
         if (!activePresetId.empty() && AllowsPresetMapping(target.address))
         {
-            const bool noPresetSlot =
-                presetSlot == nullptr && CountPresetSlots(automation.slots, activePresetId) >= automation.maxPresetSlots;
-            items.push_back({MidiLearnMenuAction::LearnPreset, "MIDI Learn for this preset\xE2\x80\xA6",
-                             noPresetSlot ? "All " + std::to_string(automation.maxPresetSlots) + " preset slots in use" : "",
-                             noPresetSlot});
+            const bool noPresetSlot = presetSlot == nullptr &&
+                                      CountPresetSlots(automation.slots, activePresetId) >= automation.maxPresetSlots;
+            items.push_back(
+                {MidiLearnMenuAction::LearnPreset, "MIDI Learn for this preset\xE2\x80\xA6",
+                 noPresetSlot ? "All " + std::to_string(automation.maxPresetSlots) + " preset slots in use" : "",
+                 noPresetSlot});
         }
     }
 
     if (presetSlot != nullptr && presetSlot->midiMap)
     {
-        items.push_back({MidiLearnMenuAction::Clear, "Clear Mapping", DescribeMidiMap(*presetSlot->midiMap) + " \xC2\xB7 this preset", false});
+        items.push_back({MidiLearnMenuAction::Clear, "Clear Mapping",
+                         DescribeMidiMap(*presetSlot->midiMap) + " \xC2\xB7 this preset", false});
     }
     else if (slot != nullptr && slot->midiMap)
     {
@@ -430,7 +437,8 @@ std::vector<MidiLearnMenuItem> BuildMidiLearnMenuItems(const AutomationState& au
 std::string MidiLearnMenuTitle(const AutomationState& automation, const MidiLearnTarget& target,
                                const std::string& activePresetId)
 {
-    if (const auto* slot = FindSlotForAddress(automation.slots, target.address); slot != nullptr && !slot->label.empty())
+    if (const auto* slot = FindSlotForAddress(automation.slots, target.address);
+        slot != nullptr && !slot->label.empty())
     {
         return slot->label;
     }
@@ -454,35 +462,42 @@ std::string RunMidiLearnMenuAction(UiCommands& commands, const ClientState& stat
 
     switch (action)
     {
-        case MidiLearnMenuAction::Cancel:
-            commands.CancelMidiLearn();
-            return {};
+    case MidiLearnMenuAction::Cancel:
+        commands.CancelMidiLearn();
+        return {};
 
-        case MidiLearnMenuAction::Clear:
-            // The active preset's own mapping goes first; the global one is left for the next clear.
-            if (presetSlot != nullptr && presetSlot->midiMap)
-            {
-                // A per-preset slot is nothing but its mapping, so the slot goes with it; one still
-                // listening would leave the engine a learn with nowhere to land.
-                const std::string id = presetSlot->slotId;
-                const std::string label = presetSlot->label;
-                if (automation.midiLearnSlotId == id)
-                    commands.CancelMidiLearn();
-                commands.RemoveAutomationSlot(id);
-                const auto* preset = state.FindPresetSummary(presetId);
-                return "Cleared MIDI mapping for " + label + " in " + (preset != nullptr ? preset->name : presetId);
-            }
-            if (slot != nullptr)
-            {
-                // The slot stays, with any keys and DAW automation, for a later learn to fill again.
-                commands.ClearAutomationMidiMap(slot->slotId);
-                return "Cleared MIDI mapping for " + slot->label;
-            }
-            return {};
+    case MidiLearnMenuAction::Clear:
 
-        case MidiLearnMenuAction::Learn:
-        case MidiLearnMenuAction::LearnPreset:
-            break;
+        // The active preset's own mapping goes first; the global one is left for the next clear.
+        if (presetSlot != nullptr && presetSlot->midiMap)
+        {
+            // A per-preset slot is nothing but its mapping, so the slot goes with it; one still
+            // listening would leave the engine a learn with nowhere to land.
+            const std::string id = presetSlot->slotId;
+            const std::string label = presetSlot->label;
+
+            if (automation.midiLearnSlotId == id)
+            {
+                commands.CancelMidiLearn();
+            }
+
+            commands.RemoveAutomationSlot(id);
+            const auto* preset = state.FindPresetSummary(presetId);
+            return "Cleared MIDI mapping for " + label + " in " + (preset != nullptr ? preset->name : presetId);
+        }
+
+        if (slot != nullptr)
+        {
+            // The slot stays, with any keys and DAW automation, for a later learn to fill again.
+            commands.ClearAutomationMidiMap(slot->slotId);
+            return "Cleared MIDI mapping for " + slot->label;
+        }
+
+        return {};
+
+    case MidiLearnMenuAction::Learn:
+    case MidiLearnMenuAction::LearnPreset:
+        break;
     }
 
     const bool forPreset = action == MidiLearnMenuAction::LearnPreset;
@@ -500,8 +515,10 @@ std::string RunMidiLearnMenuAction(UiCommands& commands, const ClientState& stat
     {
         if (CountPresetSlots(automation.slots, presetId) >= automation.maxPresetSlots)
         {
-            return "MIDI Learn unavailable: this preset already has " + std::to_string(automation.maxPresetSlots) + " mappings";
+            return "MIDI Learn unavailable: this preset already has " + std::to_string(automation.maxPresetSlots) +
+                   " mappings";
         }
+
         slotId = NextPresetSlotId(automation.slots);
         commands.SetAutomationSlot(slotId, target.label, target.address, presetId);
     }
@@ -509,8 +526,10 @@ std::string RunMidiLearnMenuAction(UiCommands& commands, const ClientState& stat
     {
         if (CountCustomSlots(automation.slots) >= automation.maxCustomSlots)
         {
-            return "MIDI Learn unavailable: all " + std::to_string(automation.maxCustomSlots) + " custom slots are in use";
+            return "MIDI Learn unavailable: all " + std::to_string(automation.maxCustomSlots) +
+                   " custom slots are in use";
         }
+
         slotId = NextCustomSlotId(automation.slots);
         commands.SetAutomationSlot(slotId, target.label, target.address);
     }
@@ -549,7 +568,9 @@ std::string DeriveSlotLabel(const ClientState& state, const std::string& address
         const bool routing = type == "input" || type == "output";
         const auto* info = routing ? nullptr : state.FindEffectType(type);
         const auto* p = info != nullptr ? info->FindParam(param) : nullptr;
-        const std::string paramName = routing && param == "gainDb" ? "Gain" : p != nullptr && !p->name.empty() ? p->name : param;
+        const std::string paramName = routing && param == "gainDb"       ? "Gain"
+                                      : p != nullptr && !p->name.empty() ? p->name
+                                                                         : param;
         return effect + ": " + paramName;
     }
 
@@ -593,7 +614,8 @@ std::vector<AutomationTargetOption> BuildTargetOptions(const ClientState& state)
 
     for (const auto& routing : kRoutingNodes)
     {
-        options.push_back({std::string("node.") + routing.type + ".gainDb", std::string(routing.name) + ": Gain", "Signal Chain"});
+        options.push_back(
+            {std::string("node.") + routing.type + ".gainDb", std::string(routing.name) + ": Gain", "Signal Chain"});
     }
 
     // As the web UI's picker: every effect the catalog offers with parameters, by category.
@@ -601,8 +623,8 @@ std::vector<AutomationTargetOption> BuildTargetOptions(const ClientState& state)
 
     for (const auto& info : state.catalog)
     {
-        if (info.parameters.empty() || info.type == EffectGuids::kAmpNamBlend || info.type == EffectGuids::kPickupMatch ||
-            info.type.rfind("composite:", 0) == 0)
+        if (info.parameters.empty() || info.type == EffectGuids::kAmpNamBlend ||
+            info.type == EffectGuids::kPickupMatch || info.type.rfind("composite:", 0) == 0)
         {
             continue;
         }
@@ -612,7 +634,10 @@ std::vector<AutomationTargetOption> BuildTargetOptions(const ClientState& state)
 
     std::sort(effects.begin(), effects.end(), [](const EffectTypeInfo* a, const EffectTypeInfo* b) {
         if (a->category != b->category)
+        {
             return a->category < b->category;
+        }
+
         return (a->name.empty() ? a->type : a->name) < (b->name.empty() ? b->type : b->name);
     });
 
@@ -624,7 +649,8 @@ std::vector<AutomationTargetOption> BuildTargetOptions(const ClientState& state)
 
         for (const auto& param : info->parameters)
         {
-            options.push_back({"node." + info->type + "." + param.key, name + ": " + (param.name.empty() ? param.key : param.name), group});
+            options.push_back({"node." + info->type + "." + param.key,
+                               name + ": " + (param.name.empty() ? param.key : param.name), group});
         }
     }
 
@@ -634,8 +660,8 @@ std::vector<AutomationTargetOption> BuildTargetOptions(const ClientState& state)
 std::vector<AutomationTargetOption> WithCurrentTargetOption(std::vector<AutomationTargetOption> options,
                                                             const std::string& address, const std::string& label)
 {
-    if (address.empty() ||
-        std::any_of(options.begin(), options.end(), [&](const AutomationTargetOption& o) { return o.address == address; }))
+    if (address.empty() || std::any_of(options.begin(), options.end(),
+                                       [&](const AutomationTargetOption& o) { return o.address == address; }))
     {
         return options;
     }

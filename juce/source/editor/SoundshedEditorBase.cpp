@@ -4,37 +4,41 @@
 
 namespace soundshed::editor
 {
-void sendUiMessage (PluginProcessorAdapter& processor, const char* type, nlohmann::json payload)
+void sendUiMessage(PluginProcessorAdapter& processor, const char* type, nlohmann::json payload)
 {
-    if (! payload.is_object())
+    if (!payload.is_object())
+    {
         payload = nlohmann::json::object();
+    }
 
     payload["type"] = type;
-    processor.handleWebMessage (juce::String (payload.dump()));
+    processor.handleWebMessage(juce::String(payload.dump()));
 }
 
-SoundshedEditorBase::SoundshedEditorBase (PluginProcessorAdapter& processor, SizeLimits limits)
-    : AudioProcessorEditor (&processor),
-      processorRef (processor),
-      sizeLimits (limits),
-      constructedAtMs (juce::Time::getMillisecondCounterHiRes())
+SoundshedEditorBase::SoundshedEditorBase(PluginProcessorAdapter& processor, SizeLimits limits)
+    : AudioProcessorEditor(&processor), processorRef(processor), sizeLimits(limits),
+      constructedAtMs(juce::Time::getMillisecondCounterHiRes())
 {
     // One line that says where every later line came from, so a log a user sends in can be
     // read without asking which build, format, host and display it was.
-    auto line = juce::String ("[Editor] ") + JucePlugin_Name + " " + JucePlugin_VersionString + " ("
-                + juce::AudioProcessor::getWrapperTypeDescription (processor.wrapperType) + ")";
+    auto line = juce::String("[Editor] ") + JucePlugin_Name + " " + JucePlugin_VersionString + " (" +
+                juce::AudioProcessor::getWrapperTypeDescription(processor.wrapperType) + ")";
 
     if (processor.wrapperType != juce::AudioProcessor::wrapperType_Standalone)
+    {
         line << " in " << juce::PluginHostType().getHostDescription();
+    }
 
     line << "; " << juce::SystemStats::getOperatingSystemName() << "; " << juce::SystemStats::getJUCEVersion();
 
     if (const auto* display = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay())
-        line << "; display " << juce::roundToInt (display->logicalBounds.getWidth()) << "x"
-             << juce::roundToInt (display->logicalBounds.getHeight()) << " @ "
-             << display->scale << "x, " << juce::roundToInt (display->dpi) << " dpi";
+    {
+        line << "; display " << juce::roundToInt(display->logicalBounds.getWidth()) << "x"
+             << juce::roundToInt(display->logicalBounds.getHeight()) << " @ " << display->scale << "x, "
+             << juce::roundToInt(display->dpi) << " dpi";
+    }
 
-    writeStartupLog (line);
+    writeStartupLog(line);
 }
 
 SoundshedEditorBase::~SoundshedEditorBase()
@@ -43,54 +47,61 @@ SoundshedEditorBase::~SoundshedEditorBase()
 
     // The editor is going, so nobody reads the telemetry feeds any more: say so, which also
     // switches the per-node metering on the audio thread off until an editor comes back.
-    reportUiVisible (false);
+    reportUiVisible(false);
 
     // One line per editor lifetime, and the pair that matters when a window comes back at
     // the wrong size: what the editor was last laid out at, and what was actually kept.
     const auto remembered = processorRef.getController().GetEditorWindowSize();
-    writeStartupLog ("[Editor] closing at " + juce::String (getWidth()) + "x" + juce::String (getHeight())
-                     + "; remembered "
-                     + (remembered.IsValid() ? juce::String (remembered.width) + "x" + juce::String (remembered.height)
-                                             : juce::String ("nothing")));
+    writeStartupLog("[Editor] closing at " + juce::String(getWidth()) + "x" + juce::String(getHeight()) +
+                    "; remembered " +
+                    (remembered.IsValid() ? juce::String(remembered.width) + "x" + juce::String(remembered.height)
+                                          : juce::String("nothing")));
 }
 
-void SoundshedEditorBase::handleDeepLinkFromAnotherInstance (const juce::String&)
+void SoundshedEditorBase::handleDeepLinkFromAnotherInstance(const juce::String&)
 {
     if (auto* window = getTopLevelComponent())
-        window->toFront (true);
+    {
+        window->toFront(true);
+    }
 }
 
 void SoundshedEditorBase::notifyReadyToShow()
 {
     if (readyToShowNotified)
+    {
         return;
+    }
 
     readyToShowNotified = true;
-    writeStartupLog ("[Editor] ready to show after "
-                     + juce::String (juce::roundToInt (juce::Time::getMillisecondCounterHiRes() - constructedAtMs))
-                     + " ms");
+    writeStartupLog("[Editor] ready to show after " +
+                    juce::String(juce::roundToInt(juce::Time::getMillisecondCounterHiRes() - constructedAtMs)) + " ms");
 
     if (onReadyToShow != nullptr)
+    {
         onReadyToShow();
+    }
 }
 
-void SoundshedEditorBase::whenReadyToShow (std::function<void()> callback)
+void SoundshedEditorBase::whenReadyToShow(std::function<void()> callback)
 {
     if (readyToShowNotified)
     {
         if (callback != nullptr)
+        {
             callback();
+        }
 
         return;
     }
 
-    onReadyToShow = std::move (callback);
+    onReadyToShow = std::move(callback);
 }
 
 void SoundshedEditorBase::applyInitialEditorSize()
 {
-    setResizable (true, true);
-    setResizeLimits (sizeLimits.minWidth, sizeLimits.minHeight, sizeLimits.maxWidth, sizeLimits.maxHeight);
+    setResizable(true, true);
+    setResizeLimits(sizeLimits.minWidth, sizeLimits.minHeight, sizeLimits.maxWidth, sizeLimits.maxHeight);
 
     // Reopen at the size this instance was last left at. The size is restored from the
     // DAW project (host state), so it survives both closing the editor window and
@@ -99,17 +110,17 @@ void SoundshedEditorBase::applyInitialEditorSize()
     const auto rememberedSize = processorRef.getController().GetEditorWindowSize();
     const auto defaultSize = defaultEditorSize();
     const auto initialWidth = rememberedSize.IsValid()
-                                  ? juce::jlimit (sizeLimits.minWidth, sizeLimits.maxWidth, rememberedSize.width)
+                                  ? juce::jlimit(sizeLimits.minWidth, sizeLimits.maxWidth, rememberedSize.width)
                                   : defaultSize.x;
     const auto initialHeight = rememberedSize.IsValid()
-                                   ? juce::jlimit (sizeLimits.minHeight, sizeLimits.maxHeight, rememberedSize.height)
+                                   ? juce::jlimit(sizeLimits.minHeight, sizeLimits.maxHeight, rememberedSize.height)
                                    : defaultSize.y;
-    setSize (initialWidth, initialHeight);
-    writeStartupLog ("[Editor] opening at " + juce::String (initialWidth) + "x" + juce::String (initialHeight)
-                     + (rememberedSize.IsValid() ? " (remembered)" : " (default for this display)"));
+    setSize(initialWidth, initialHeight);
+    writeStartupLog("[Editor] opening at " + juce::String(initialWidth) + "x" + juce::String(initialHeight) +
+                    (rememberedSize.IsValid() ? " (remembered)" : " (default for this display)"));
 
     // This drives state broadcasts, DSP performance updates, tuner data, etc.
-    startTimerHz (60);
+    startTimerHz(60);
 }
 
 juce::Point<int> SoundshedEditorBase::defaultEditorSize() const
@@ -128,12 +139,12 @@ juce::Point<int> SoundshedEditorBase::defaultEditorSize() const
     if (auto* display = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay())
     {
         const auto usable = display->userArea;
-        width = juce::jmin (width, juce::roundToInt ((double) usable.getWidth() * displayFraction));
-        height = juce::jmin (height, juce::roundToInt ((double) usable.getHeight() * displayFraction));
+        width = juce::jmin(width, juce::roundToInt((double)usable.getWidth() * displayFraction));
+        height = juce::jmin(height, juce::roundToInt((double)usable.getHeight() * displayFraction));
     }
 
-    return { juce::jlimit (sizeLimits.minWidth, sizeLimits.maxWidth, width),
-             juce::jlimit (sizeLimits.minHeight, sizeLimits.maxHeight, height) };
+    return {juce::jlimit(sizeLimits.minWidth, sizeLimits.maxWidth, width),
+            juce::jlimit(sizeLimits.minHeight, sizeLimits.maxHeight, height)};
 }
 
 void SoundshedEditorBase::rememberEditorSize()
@@ -148,25 +159,27 @@ void SoundshedEditorBase::rememberEditorSize()
     // tiny. The controller drops anything that does not then survive an idle tick.
     if (isShowing())
     {
-        processorRef.getController().SetEditorWindowSize (getWidth(), getHeight());
+        processorRef.getController().SetEditorWindowSize(getWidth(), getHeight());
     }
     else if (getWidth() != lastIgnoredResize.x || getHeight() != lastIgnoredResize.y)
     {
-        lastIgnoredResize = { getWidth(), getHeight() };
-        writeStartupLog ("[Editor] not remembering off-screen resize to "
-                         + juce::String (getWidth()) + "x" + juce::String (getHeight()));
+        lastIgnoredResize = {getWidth(), getHeight()};
+        writeStartupLog("[Editor] not remembering off-screen resize to " + juce::String(getWidth()) + "x" +
+                        juce::String(getHeight()));
     }
 }
 
-void SoundshedEditorBase::reportUiVisible (bool visible)
+void SoundshedEditorBase::reportUiVisible(bool visible)
 {
     const int state = visible ? 1 : 0;
 
     if (state == lastReportedVisible)
+    {
         return;
+    }
 
     lastReportedVisible = state;
-    sendUiMessage (processorRef, "uiVisibility", { { "visible", visible } });
+    sendUiMessage(processorRef, "uiVisibility", {{"visible", visible}});
 }
 
 void SoundshedEditorBase::timerCallback()
@@ -175,10 +188,10 @@ void SoundshedEditorBase::timerCallback()
     idleTick();
 }
 
-void SoundshedEditorBase::setScaleFactor (float newScale)
+void SoundshedEditorBase::setScaleFactor(float newScale)
 {
     hostSuppliedScaleFactor = true;
-    juce::AudioProcessorEditor::setScaleFactor (newScale);
+    juce::AudioProcessorEditor::setScaleFactor(newScale);
     applyHostScaleWorkaround();
 }
 
@@ -214,18 +227,24 @@ void SoundshedEditorBase::parentHierarchyChanged()
 void SoundshedEditorBase::applyHostScaleWorkaround()
 {
 #if JUCE_WINDOWS && JUCE_WIN_PER_MONITOR_DPI_AWARE
-    if (! hostSuppliedScaleFactor)
+
+    if (!hostSuppliedScaleFactor)
+    {
         return;
+    }
 
     auto* peer = getPeer();
+
     if (peer == nullptr || peer->getCustomPlatformScaleFactor().has_value())
+    {
         return;
+    }
 
-    writeStartupLog ("[Editor] pinning peer platform scale to 1.0 (was "
-                     + juce::String (peer->getPlatformScaleFactor(), 3)
-                     + "); host scale factor is applied as an editor transform");
+    writeStartupLog("[Editor] pinning peer platform scale to 1.0 (was " +
+                    juce::String(peer->getPlatformScaleFactor(), 3) +
+                    "); host scale factor is applied as an editor transform");
 
-    peer->setCustomPlatformScaleFactor (1.0);
+    peer->setCustomPlatformScaleFactor(1.0);
 #endif
 }
 } // namespace soundshed::editor

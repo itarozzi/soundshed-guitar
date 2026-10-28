@@ -15,12 +15,17 @@ namespace
 std::vector<float> PeaksOf(const nlohmann::json& m, const char* key)
 {
     std::vector<float> peaks;
+
     if (const auto it = m.find(key); it != m.end() && it->is_array())
     {
         peaks.reserve(it->size());
+
         for (const auto& v : *it)
+        {
             peaks.push_back(v.is_number() ? static_cast<float>(v.get<double>()) : 0.0f);
+        }
     }
+
     return peaks;
 }
 
@@ -63,8 +68,12 @@ void UiClient::RegisterRiffHandlers()
     // About every 250 ms of audio: the whole buffer's peaks so far, each message replacing the last.
     On("riffCaptureProgress", [this](const nlohmann::json& m) {
         auto& c = mState.riffs.capture;
+
         if (c.phase != RiffCapture::Phase::Recording)
+        {
             return;
+        }
+
         c.capturedSamples = m.value("capturedSamples", c.capturedSamples);
         c.peaks = PeaksOf(m, "waveformPeaks");
         Notify(Topic::Riffs);
@@ -85,9 +94,13 @@ void UiClient::RegisterRiffHandlers()
         c.source = source;
         c.originalTakeId = m.value("originalTakeId", std::string{});
         ReadTiming(c, m);
+
         // Where the first bar starts is only known for a take the engine armed itself.
         if (!source.empty())
+        {
             c.barAlignOffsetSamples = 0;
+        }
+
         ++c.serial;
         Notify(Topic::Riffs);
     });
@@ -148,24 +161,31 @@ void UiCommands::SetRiffPreviewRegion(double startRatio, double endRatio, bool r
 
 void UiCommands::SaveRiffTake(const RiffSave& save)
 {
-    nlohmann::json payload = {{"title", save.title},
-                              {"categories", save.categories},
-                              {"tags", save.tags},
-                              {"notes", save.notes},
-                              {"favorite", save.favorite},
-                              {"patternType", "click"}};
+    nlohmann::json payload = {{"title", save.title}, {"categories", save.categories}, {"tags", save.tags},
+                              {"notes", save.notes}, {"favorite", save.favorite},     {"patternType", "click"}};
+
     if (!save.riffId.empty())
+    {
         payload["riffId"] = save.riffId;
+    }
+
     if (save.tempoBpm > 0.0)
     {
         payload["tempoBpm"] = save.tempoBpm;
         payload["timeSigNum"] = save.timeSigNum;
         payload["timeSigDen"] = save.timeSigDen;
     }
+
     if (save.bars > 0)
+    {
         payload["bars"] = save.bars;
+    }
+
     if (!save.presetId.empty())
+    {
         payload["presetId"] = save.presetId;
+    }
+
     mClient.Send("saveRiffTake", payload);
 }
 

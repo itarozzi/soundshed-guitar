@@ -206,7 +206,9 @@ void TestClientMirrorsTheEngine()
 
     for (const auto& preset : {BuildPreset("pa", "Alpha", 2), BuildPreset("pb", "Beta")})
     {
-        client.Send("savePreset", {{"saveMode", "overwrite"}, {"presetId", preset.id}, {"name", preset.name},
+        client.Send("savePreset", {{"saveMode", "overwrite"},
+                                   {"presetId", preset.id},
+                                   {"name", preset.name},
                                    {"preset", nlohmann::json::parse(PresetStorage::SerializeToJson(preset))}});
     }
 
@@ -232,14 +234,16 @@ void TestClientMirrorsTheEngine()
     Expect(state.activeSceneId == "scene-2", "SelectScene switches scene");
 
     commands.SetNodeParam("gain_1", "gain", 4.5);
-    Expect(state.activePreset->graph.FindNode("gain_1")->params.at("gain") == 4.5, "a param change is mirrored at once");
+    Expect(state.activePreset->graph.FindNode("gain_1")->params.at("gain") == 4.5,
+           "a param change is mirrored at once");
     Expect(controller.GetActivePreset()->graph.FindNode("gain_1")->params.at("gain") == 4.5, "and reaches the engine");
 
     // Stepping follows the engine's list order and wraps, as the web UI's previous/next.
     const auto& list = state.presetList;
     const auto index = [&list](const std::string& id) {
-        return static_cast<int>(std::find_if(list.begin(), list.end(), [&id](const PresetSummary& p) { return p.id == id; }) -
-                                list.begin());
+        return static_cast<int>(
+            std::find_if(list.begin(), list.end(), [&id](const PresetSummary& p) { return p.id == id; }) -
+            list.begin());
     };
     commands.StepPreset(+1);
     Pump(controller, client);
@@ -507,7 +511,8 @@ void TestChainHistory()
     history.Push(MakeSnapshot(turned, "p", "", "Noise gate off"));
     Expect(history.CanUndo() && history.UndoLabel() == "Noise gate off", "history: an edit is a step");
     const auto* back = history.Undo();
-    Expect(back != nullptr && back->signature == GraphSignature(graph) && history.CanRedo(), "history: undo returns the state before");
+    Expect(back != nullptr && back->signature == GraphSignature(graph) && history.CanRedo(),
+           "history: undo returns the state before");
 
     // A branch from a past position drops the redo; B keeps its own stack.
     history.Push(MakeSnapshot(grown, "p", "", "Add compressor"));
@@ -515,21 +520,25 @@ void TestChainHistory()
     const auto* b = history.SetActiveSlot(ChainHistory::Slot::B);
     Expect(b != nullptr && b->signature == GraphSignature(graph) && !history.CanUndo(), "history: B starts as loaded");
     history.SetActiveSlot(ChainHistory::Slot::A);
-    Expect(history.CopyActiveToOther() && history.EditCount(ChainHistory::Slot::B) == 1, "history: copying A over B is a step in B");
+    Expect(history.CopyActiveToOther() && history.EditCount(ChainHistory::Slot::B) == 1,
+           "history: copying A over B is a step in B");
 }
 
 // Tone3000 through Soundshed's relay (Tone3000.h), and the HTTP workers' cancelling (net/Http.h).
 void TestTone3000AndHttp()
 {
     namespace t3 = tone3000;
-    Expect(t3::Url(t3::TonesSearchPath("Super Reverb", "full-rig", "newest", "2", 3)) ==
-               "https://api-guitar.soundshed.com/v1/resourcesearch/tones/search?page=3&page_size=20&query=Super%20Reverb&gear=full-rig&sort=newest&architecture=2",
-           "tone3000: a search path");
-    Expect(t3::ModelsPath("87866", 1, "2") == "/models?tone_id=87866&page=1&page_size=100&architecture=2", "tone3000: a models path");
+    Expect(
+        t3::Url(t3::TonesSearchPath("Super Reverb", "full-rig", "newest", "2", 3)) ==
+            "https://api-guitar.soundshed.com/v1/resourcesearch/tones/search?page=3&page_size=20&query=Super%20Reverb&gear=full-rig&sort=newest&architecture=2",
+        "tone3000: a search path");
+    Expect(t3::ModelsPath("87866", 1, "2") == "/models?tone_id=87866&page=1&page_size=100&architecture=2",
+           "tone3000: a models path");
     Expect(t3::ThroughRelay("https://www.tone3000.com/api/v1/models/742072/download/x.nam") ==
                "https://api-guitar.soundshed.com/v1/resourcesearch/models/742072/download/x.nam",
            "tone3000: a model download goes through the relay");
-    Expect(t3::ThroughRelay("https://cdn.example.com/x.nam") == "https://cdn.example.com/x.nam", "tone3000: other URLs stay");
+    Expect(t3::ThroughRelay("https://cdn.example.com/x.nam") == "https://cdn.example.com/x.nam",
+           "tone3000: other URLs stay");
 
     const auto tones = t3::ParseTones(nlohmann::json::parse(
         R"({"data":[{"id":87866,"title":"Mesa","gear":"amp-cab","models_count":2,"images":["https://img/x.png"],
@@ -539,10 +548,12 @@ void TestTone3000AndHttp()
            "tone3000: tones parse, ids as text");
     const auto models = t3::ParseModels(nlohmann::json::parse(
         R"({"data":[{"id":742072,"name":"Red Modern","model_url":"https://www.tone3000.com/api/v1/models/742072/download/a.nam","tone_id":87866,"architecture_version":"2"}],"total_pages":0})"));
-    Expect(models.items.size() == 1 && models.items[0].architecture == "2" && models.totalPages == 1, "tone3000: models parse");
+    Expect(models.items.size() == 1 && models.items[0].architecture == "2" && models.totalPages == 1,
+           "tone3000: models parse");
 
     const auto payload = t3::ImportPayload(tones.items[0], models.items[0], "nam", "", "AAAA");
-    Expect(payload.value("resourceId", "") == "tone3000:742072" && payload["metadata"].value("modelId", "") == "742072" &&
+    Expect(payload.value("resourceId", "") == "tone3000:742072" &&
+               payload["metadata"].value("modelId", "") == "742072" &&
                payload["metadata"].value("captureScope", "") == "amp+cab" && payload.value("category", "") == "amp-cab",
            "tone3000: an import is named as the web UI names it");
 
@@ -552,32 +563,46 @@ void TestTone3000AndHttp()
     imported.type = "nam";
     imported.metadata = {{"provider", "tone3000"}, {"modelId", "742072"}};
     state.resources["nam"].push_back(imported);
-    Expect(t3::FindImported(state, "nam", models.items[0]) != nullptr, "tone3000: an import is found by the model id it records");
+    Expect(t3::FindImported(state, "nam", models.items[0]) != nullptr,
+           "tone3000: an import is found by the model id it records");
 
     // A transport that blocks until cancelled: destroying the workers cuts it short at once.
     struct Blocking final : net::HttpTransport
     {
         std::atomic<bool> started{false};
+
         net::HttpResponse Perform(const net::HttpRequest&, net::CancelToken& cancel) override
         {
             std::atomic<bool> aborted{false};
+
             if (!cancel.SetAbort([&aborted] { aborted = true; }))
+            {
                 return {};
+            }
+
             started = true;
+
             while (!aborted.load())
+            {
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+
             cancel.ClearAbort();
             return {};
         }
     };
+
     auto transport = std::make_shared<Blocking>();
     std::atomic<bool> cut{false};
     const auto began = std::chrono::steady_clock::now();
     {
         net::HttpWorkers workers(transport, 2);
         workers.Run([&workers, &cut] { cut = workers.Perform(net::HttpRequest{}).cancelled; });
+
         while (!transport->started.load())
+        {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
     }
     Expect(cut.load() && std::chrono::steady_clock::now() - began < std::chrono::seconds(5),
            "http: destroying the workers cancels a request in flight");
@@ -588,12 +613,14 @@ void TestToneSharing()
     using namespace guitarfx::uiclient::tones;
 
     // The envelope, and a session handed out by sign-in.
-    const auto signedIn = ParseResponse(200, R"({"ok":true,"data":{"sessionId":"s-1","user":{"id":"u1","email":"a@b.c","displayName":"Ann"}}})");
+    const auto signedIn = ParseResponse(
+        200, R"({"ok":true,"data":{"sessionId":"s-1","user":{"id":"u1","email":"a@b.c","displayName":"Ann"}}})");
     Expect(signedIn.ok && signedIn.sessionId == "s-1", "a sign-in answer's session is found in its data");
     Expect(ParseUser(signedIn.data) && ParseUser(signedIn.data)->Label() == "Ann", "the user reads by display name");
     Expect(ParseResponse(200, "{}", "s-2").sessionId == "s-2", "the x-session-id header wins");
 
-    const auto refused = ParseResponse(401, R"({"ok":false,"error":{"code":"INVALID_TOKEN","message":"Invalid code"}})");
+    const auto refused =
+        ParseResponse(401, R"({"ok":false,"error":{"code":"INVALID_TOKEN","message":"Invalid code"}})");
     Expect(!refused.ok && refused.error == "Invalid code", "an error reads as the service's message");
     Expect(ParseResponse(409, "").error == "Request failed (409)", "a bodiless error reads as its status");
     Expect(!ParseResponse(200, R"({"ok":false})").ok, "ok:false is a failure whatever the status");
@@ -615,7 +642,8 @@ void TestToneSharing()
         Expect(preset.title == "Crunch" && !preset.IsPack(), "a preset card, title trimmed");
         Expect(preset.downloads == 1250 && FormatCount(preset.downloads) == "1.3K", "downloads, compact");
         Expect(preset.creatorHandle == "@ann_b", "the creator's handle gets its @");
-        Expect(preset.creatorAvatarUrl == "https://api-guitar.soundshed.com/v1/auth/avatar/a1", "and the avatar a full URL");
+        Expect(preset.creatorAvatarUrl == "https://api-guitar.soundshed.com/v1/auth/avatar/a1",
+               "and the avatar a full URL");
         Expect(preset.tags == std::vector<std::string>{"crunch"}, "\"preset\" is not shown as a tag");
 
         const auto& pack = home[0].tones[1];
@@ -645,10 +673,13 @@ void TestToneSharing()
            "counts read as the web UI writes them");
 
     // What is installed: the setting both UIs keep.
-    nlohmann::json settings = {{kInstalledSettingKey,
-                                {{{"id", "tone-sharing-api:item:i1"}, {"title", "Crunch"}, {"presetIds", {"user-1"}},
-                                  {"resources", {{{"type", "nam"}, {"id", "r1"}}}}},
-                                 {{"id", "tone-sharing-api:p1"}, {"packId", "p1"}, {"presetIds", {"user-2", "user-3"}}}}}};
+    nlohmann::json settings = {
+        {kInstalledSettingKey,
+         {{{"id", "tone-sharing-api:item:i1"},
+           {"title", "Crunch"},
+           {"presetIds", {"user-1"}},
+           {"resources", {{{"type", "nam"}, {"id", "r1"}}}}},
+          {{"id", "tone-sharing-api:p1"}, {"packId", "p1"}, {"presetIds", {"user-2", "user-3"}}}}}};
     Expect(InstalledEntries(settings).size() == 2, "installed entries are read from the setting");
     Expect(FindInstalled(settings, EntryIdFor(home.empty() ? Tone{} : home[0].tones[0])).has_value(),
            "a preset is installed under its item entry id");
@@ -664,14 +695,17 @@ void TestToneSharing()
     sendingCommands.InstallPresetArchives({{"id", "tone-sharing-api:item:i1"}, {"title", "Crunch"}}, {},
                                           nlohmann::json::array({{{"title", "Crunch"}, {"data", "UEsFBg=="}}}));
     const auto request = sent.empty() ? nlohmann::json() : nlohmann::json::parse(sent.back());
-    Expect(request.value("type", "") == "installPresetArchives" && request.value("requestId", "") == "tone-sharing-api:item:i1",
+    Expect(request.value("type", "") == "installPresetArchives" &&
+               request.value("requestId", "") == "tone-sharing-api:item:i1",
            "an install is sent with its entry id as the request id");
     Expect(sending.State().toneInstalls.count("tone-sharing-api:item:i1") == 1 &&
-               sending.State().toneInstalls.at("tone-sharing-api:item:i1").status == guitarfx::uiclient::ToneInstall::Status::Installing,
+               sending.State().toneInstalls.at("tone-sharing-api:item:i1").status ==
+                   guitarfx::uiclient::ToneInstall::Status::Installing,
            "and is shown installing until it is answered");
 
     client.Enqueue(R"({"type":"presetArchivesInstalled","entryId":"e1","presetIds":["user-9"]})");
-    client.Enqueue(R"({"type":"presetArchivesInstallFailed","entryId":"e2","message":"Install failed","detail":"Needs Tone3000 models"})");
+    client.Enqueue(
+        R"({"type":"presetArchivesInstallFailed","entryId":"e2","message":"Install failed","detail":"Needs Tone3000 models"})");
     client.DrainPending();
     const auto& installs = client.State().toneInstalls;
     Expect(installs.count("e1") && installs.at("e1").status == guitarfx::uiclient::ToneInstall::Status::Installed &&
@@ -682,13 +716,14 @@ void TestToneSharing()
     client.Enqueue(R"({"type":"installedPresetArchiveDeleted","id":"e1","presetIds":["user-9"]})");
     client.DrainPending();
     Expect(client.State().toneInstalls.count("e1") == 0, "a removed install is forgotten");
-    (void) commands;
+    (void)commands;
 }
 
 void TestTelemetryDecoding()
 {
     UiClient client([](const std::string&) {});
-    client.Enqueue(R"({"type":"sldRoster","seq":7,"nodes":[["preset","p1","amp","x",0],["post","","global_eq","y",0]]})");
+    client.Enqueue(
+        R"({"type":"sldRoster","seq":7,"nodes":[["preset","p1","amp","x",0],["post","","global_eq","y",0]]})");
     client.Enqueue(R"({"type":"sld","seq":7,"r":[-12.5,-20,0,0],"i":[-10,-18,0,0],"o":[-0.1,-6,2,1],)"
                    R"("d":[-3,-9,0,0,2,-40,-50,0,0,1]})");
     client.DrainPending();
@@ -704,24 +739,27 @@ void TestTelemetryDecoding()
 void TestChainLayoutWalksParallelLanes()
 {
     SignalGraph graph;
-    graph.nodes = {Node("__input__", kNodeTypeInput), Node("drive", EffectGuids::kOverdrive),
+    graph.nodes = {Node("__input__", kNodeTypeInput),     Node("drive", EffectGuids::kOverdrive),
                    Node("split", EffectGuids::kSplitter), Node("a", EffectGuids::kDelayDigital),
                    Node("b1", EffectGuids::kChorus),      Node("b2", EffectGuids::kPhaser),
                    Node("mix", EffectGuids::kMixer),      Node("rev", EffectGuids::kReverbRoom),
                    Node("__output__", kNodeTypeOutput)};
     graph.edges = {{"__input__", "drive", 0, 0, 1.0}, {"drive", "split", 0, 0, 1.0}, {"split", "b1", 1, 0, 1.0},
-                   {"split", "a", 0, 0, 1.0},         {"a", "mix", 0, 0, 1.0},      {"b1", "b2", 0, 0, 1.0},
-                   {"b2", "mix", 0, 1, 1.0},          {"mix", "rev", 0, 0, 1.0},    {"rev", "__output__", 0, 0, 1.0}};
+                   {"split", "a", 0, 0, 1.0},         {"a", "mix", 0, 0, 1.0},       {"b1", "b2", 0, 0, 1.0},
+                   {"b2", "mix", 0, 1, 1.0},          {"mix", "rev", 0, 0, 1.0},     {"rev", "__output__", 0, 0, 1.0}};
 
     const auto layout = BuildChainLayout(graph);
     Expect(layout.items.size() == 4, "drive, the parallel block, its join and the reverb");
     Expect(layout.items[1].kind == ChainItem::Kind::Parallel && layout.items[1].collapsible,
            "a splitter/mixer pair is a collapsible parallel block");
-    Expect(layout.items[1].branches.size() == 2 && layout.items[1].branches[0].nodeIds == std::vector<std::string>{"a"} &&
+    Expect(layout.items[1].branches.size() == 2 &&
+               layout.items[1].branches[0].nodeIds == std::vector<std::string>{"a"} &&
                layout.items[1].branches[1].nodeIds == std::vector<std::string>{"b1", "b2"},
            "branches in port order, each walked to the join");
-    Expect(layout.items[2].nodeId == "mix" && layout.items[3].nodeId == "rev", "the join is drawn, then the chain goes on");
-    Expect(layout.NodeBefore("b2") == "b1" && layout.NodeBefore("a") == "split" && layout.NodeBefore("drive") == kInputNodeId,
+    Expect(layout.items[2].nodeId == "mix" && layout.items[3].nodeId == "rev",
+           "the join is drawn, then the chain goes on");
+    Expect(layout.NodeBefore("b2") == "b1" && layout.NodeBefore("a") == "split" &&
+               layout.NodeBefore("drive") == kInputNodeId,
            "NodeBefore follows the branch a node is on");
 }
 
@@ -761,8 +799,10 @@ void TestNodeArchitectureBadge()
 void TestPresetBrowse()
 {
     ClientState state;
-    state.presetList = {{"t10", "Tone 10", "Lead", "user"}, {"t2", "tone 2", "Clean", "user"},
-                        {"f1", "Factory Crunch", "Crunch", "factory"}, {"x", "", "Misc", "user"}};
+    state.presetList = {{"t10", "Tone 10", "Lead", "user"},
+                        {"t2", "tone 2", "Clean", "user"},
+                        {"f1", "Factory Crunch", "Crunch", "factory"},
+                        {"x", "", "Misc", "user"}};
     state.presetFavorites = {"t10", "x"};
     state.presetRecents = {"f1", "t10"};
     state.presetFolders = {{"live", "Live", {{"sub", "Sub", {}, {"t2"}}}, {"t10"}}};
@@ -780,10 +820,12 @@ void TestPresetBrowse()
 
     Expect(ids(FilterPresets(state, {})) == std::vector<std::string>{"f1", "t2", "t10", "x"},
            "names compare case-insensitively with numbers as numbers; an unnamed preset sorts by id");
-    Expect(ids(FilterPresets(state, {kPresetFolderFavorites, ""})) == std::vector<std::string>{"t10", "x"}, "favourites");
+    Expect(ids(FilterPresets(state, {kPresetFolderFavorites, ""})) == std::vector<std::string>{"t10", "x"},
+           "favourites");
     Expect(ids(FilterPresets(state, {kPresetFolderRecents, ""})) == std::vector<std::string>{"f1", "t10"},
            "recents keep their order");
-    Expect(ids(FilterPresets(state, {"live", ""})) == std::vector<std::string>{"t2", "t10"}, "a folder includes its subfolders");
+    Expect(ids(FilterPresets(state, {"live", ""})) == std::vector<std::string>{"t2", "t10"},
+           "a folder includes its subfolders");
     Expect(ids(FilterPresets(state, {kPresetFolderAll, "CRUNCH"})) == std::vector<std::string>{"f1"},
            "search matches name or category, ignoring case");
 }
@@ -807,7 +849,8 @@ void TestParamFormatting()
     Expect(EnumLabelValue(steps, 0) == 2 && EnumLabelValue(steps, 6) == 8 && EnumLabelIndex(steps, 5) == 3 &&
                EnumLabelIndex(steps, 1) == -1 && EnumLabelIndex(enumParam, 2) == 2,
            "a label stands for the minimum plus its index");
-    Expect(FormatParamValue(pan, 0.004) == "C" && FormatParamValue(pan, -0.25) == "L25" && FormatParamValue(pan, 0.5) == "R50",
+    Expect(FormatParamValue(pan, 0.004) == "C" && FormatParamValue(pan, -0.25) == "L25" &&
+               FormatParamValue(pan, 0.5) == "R50",
            "pan shows L/C/R");
     Expect(FormatParamValue(freq, 999.6) == "1.00kHz" && FormatParamValue(freq, 12500) == "12.5kHz" &&
                FormatParamValue(freq, 440) == "440Hz" && FormatParamValue(freq, 55.5) == "55.5Hz",
@@ -826,35 +869,42 @@ void TestParamFormatting()
     Expect(FormatParamValue(halves, 5) == "5.00" && FormatParamValue(transpose, 0.5) == "0.50st",
            "but not one with a fractional step, or a value between steps");
 
-    Expect(std::abs(ParamPositionToValue(freq, 0.5) - std::sqrt(20.0 * 20000.0)) < 1e-6, "a log taper's middle is the geometric mean");
+    Expect(std::abs(ParamPositionToValue(freq, 0.5) - std::sqrt(20.0 * 20000.0)) < 1e-6,
+           "a log taper's middle is the geometric mean");
     Expect(std::abs(ParamValueToPosition(db, 12) - 0.75) < 1e-9, "a linear taper is linear");
     EffectParamInfo stepped{"s", "S", "", "", 0, 10, 0, 2.5};
-    Expect(SnapParamValue(stepped, 6.4) == 7.5 && SnapParamValue(stepped, 42) == 10, "values snap to the step and clamp");
+    Expect(SnapParamValue(stepped, 6.4) == 7.5 && SnapParamValue(stepped, 42) == 10,
+           "values snap to the step and clamp");
 }
 
 /// A parameter shown only under some values of another (Verbal's machine controls), and the
 /// "picker" an enum asks for, as the engine describes them.
 void TestParamVisibility()
 {
-    const auto json = nlohmann::json::parse(R"({"key": "diffusion", "name": "Diffusion", "unit": "amount", "min": 0, "max": 1,
+    const auto json =
+        nlohmann::json::parse(R"({"key": "diffusion", "name": "Diffusion", "unit": "amount", "min": 0, "max": 1,
         "default": 0.6, "control": "picker", "visibleWhen": {"key": "machine", "values": [0, 6, 9]}})");
     const auto param = parse::EffectParam(json);
     Expect(param.control == "picker", "an enum's control is read");
-    Expect(param.visibleWhenKey == "machine" && param.visibleWhenValues == std::vector<int>{0, 6, 9}, "visibleWhen is read");
+    Expect(param.visibleWhenKey == "machine" && param.visibleWhenValues == std::vector<int>{0, 6, 9},
+           "visibleWhen is read");
 
     uiclient::EffectTypeInfo type;
-    type.parameters = {parse::EffectParam(nlohmann::json::parse(R"({"key": "machine", "unit": "enum", "min": 0, "max": 11, "default": 1})")),
+    type.parameters = {parse::EffectParam(nlohmann::json::parse(
+                           R"({"key": "machine", "unit": "enum", "min": 0, "max": 11, "default": 1})")),
                        param};
 
     GraphNode node = Node("verbal_1", "verbal");
-    Expect(!IsParamVisible(param, node, &type), "without a value the controlling parameter's default decides (1: hidden)");
+    Expect(!IsParamVisible(param, node, &type),
+           "without a value the controlling parameter's default decides (1: hidden)");
     node.params["machine"] = 6.2;
     Expect(IsParamVisible(param, node, &type), "a value it lists shows it, rounded as the web UI rounds it");
     node.params["machine"] = 2.0;
     Expect(!IsParamVisible(param, node, &type), "any other value hides it");
     Expect(IsParamVisible(type.parameters[0], node, &type), "a parameter with no condition always shows");
 
-    const auto empty = parse::EffectParam(nlohmann::json::parse(R"({"key": "x", "visibleWhen": {"key": "machine", "values": []}})"));
+    const auto empty =
+        parse::EffectParam(nlohmann::json::parse(R"({"key": "x", "visibleWhen": {"key": "machine", "values": []}})"));
     Expect(empty.visibleWhenKey.empty(), "a condition with no values is no condition");
 }
 
@@ -871,7 +921,9 @@ void TestChainEditCommands()
     UiCommands commands(client);
 
     const auto preset = BuildPreset("pe", "Edits");
-    client.Send("savePreset", {{"saveMode", "overwrite"}, {"presetId", preset.id}, {"name", preset.name},
+    client.Send("savePreset", {{"saveMode", "overwrite"},
+                               {"presetId", preset.id},
+                               {"name", preset.name},
                                {"preset", nlohmann::json::parse(PresetStorage::SerializeToJson(preset))}});
     client.Start();
     Pump(controller, client);
@@ -888,6 +940,7 @@ void TestChainEditCommands()
                 return &node;
             }
         }
+
         return nullptr;
     };
 
@@ -912,6 +965,7 @@ void TestChainEditCommands()
 
     auto branchEdges = [&graph, &splitterId] {
         std::vector<GraphEdge> out;
+
         for (const auto& edge : graph().edges)
         {
             if (edge.from == splitterId)
@@ -919,6 +973,7 @@ void TestChainEditCommands()
                 out.push_back(edge);
             }
         }
+
         return out;
     };
 
@@ -928,6 +983,7 @@ void TestChainEditCommands()
 
     // The second branch is empty: its one edge runs from the splitter straight to the mixer.
     std::optional<GraphEdge> second;
+
     for (const auto& edge : branchEdges())
     {
         if (edge.fromPort == 1)
@@ -935,17 +991,21 @@ void TestChainEditCommands()
             second = edge;
         }
     }
+
     Expect(second.has_value(), "the split has a branch on port 1");
+
     if (second)
     {
         commands.AddNodeOnEdge(EffectGuids::kGain, *second);
         Pump(controller, client);
         const auto* added = firstOfType(EffectGuids::kGain);
         bool onBranch = false;
+
         for (const auto& edge : branchEdges())
         {
             onBranch = onBranch || (added != nullptr && edge.fromPort == 1 && edge.to == added->id);
         }
+
         Expect(onBranch, "AddNodeOnEdge inserts into that branch, which an add after a node cannot name");
     }
 }
@@ -976,18 +1036,21 @@ void TestInstruments()
 
 void TestEffectPresentationTable()
 {
-    const auto table = EffectPresentation::Load(fs::path(GUITARFX_DEMO_AUDIO_DIR) / ".." / "data" / "effect-presentation.json");
+    const auto table =
+        EffectPresentation::Load(fs::path(GUITARFX_DEMO_AUDIO_DIR) / ".." / "data" / "effect-presentation.json");
     Expect(table.IsLoaded(), "core/ui/data/effect-presentation.json loads");
     Expect(table.IconFor(EffectGuids::kDynamicsGate, "dynamics") == "door", "an effect's own icon");
     Expect(table.IconFor("unknown-type", "delay") == "delay", "else its category's");
     Expect(table.IconFor("unknown-type", "nope") == "gear", "else the default");
     Expect(table.CategoryColour("amp") == 0xffe07848 && table.CategoryColour("pedal") == 0xffe07848,
            "category colours, with pedal folded into amp");
-    Expect(table.NodeClass("channel") == "amp" && table.NodeClass("drive") == "utility", "node classes as the web UI's");
+    Expect(table.NodeClass("channel") == "amp" && table.NodeClass("drive") == "utility",
+           "node classes as the web UI's");
     Expect(table.EquipmentImage(EffectGuids::kDelayTape, "delay") == "images/equipment/fx/studio-rack-delay.png" &&
                table.EquipmentImage("fx_nam", "amp") == "images/equipment/pedals/colourful-pedal2.png",
            "stock artwork by effect, legacy id and category");
-    Expect(ParseCssColour("rgba(255, 0, 0, 0.5)").value_or(0) == 0x80ff0000 && ParseCssColour("#abc").value_or(0) == 0xffaabbcc,
+    Expect(ParseCssColour("rgba(255, 0, 0, 0.5)").value_or(0) == 0x80ff0000 &&
+               ParseCssColour("#abc").value_or(0) == 0xffaabbcc,
            "css colours parse");
 }
 
@@ -1024,7 +1087,8 @@ void TestChainDropRules()
     auto a = ResolveNodeDrop("drive", node("delay", false, {edge("amp", "delay")}), 0, 0);
     Expect(a.kind == K::ReorderAfterNode && a.targetNodeId == "delay", "dragged rightwards: after the target");
     a = ResolveNodeDrop("delay", node("drive", true, {edge("__input__", "drive")}), 0, 0);
-    Expect(a.kind == K::ReorderToEdge && a.edge.from == "__input__" && a.edge.to == "drive", "dragged leftwards: the target's slot");
+    Expect(a.kind == K::ReorderToEdge && a.edge.from == "__input__" && a.edge.to == "drive",
+           "dragged leftwards: the target's slot");
     a = ResolveNodeDrop("delay", node("mix", true, {edge("branchA", "mix"), edge("branchB", "mix")}), 0, 0);
     Expect(a.kind == K::ReorderAfterNode && a.targetNodeId == "mix", "a leftward join target: after it");
     a = ResolveNodeDrop("drive", onEdge(edge("amp", "delay")), 0, 0);
@@ -1034,7 +1098,8 @@ void TestChainDropRules()
     Expect(ResolveNodeDrop("drive", {}, 4, 50).kind == K::ToggleBypass, "a vertical flick on nothing toggles bypass");
     Expect(ResolveNodeDrop("drive", {}, 4, 50, true).kind == K::None, "not when it lands on another line");
     Expect(ResolveNodeDrop("drive", {}, 80, 10).kind == K::None, "released away from a target, no flick: nothing");
-    Expect(!IsBypassFlick(0, 20) && !IsBypassFlick(40, 40) && IsBypassFlick(0, -40), "enough, mostly vertical, either way");
+    Expect(!IsBypassFlick(0, 20) && !IsBypassFlick(40, 40) && IsBypassFlick(0, -40),
+           "enough, mostly vertical, either way");
 }
 
 // The shared feature switches and the effect chooser's lists, as the web UI reads them.
@@ -1045,16 +1110,22 @@ void TestFeatureFlagsAndFxMarks()
            "unset, a feature reads as the web UI's default");
     state.appSettings["features.toneSharing.enabled"] = false;
     state.appSettings["features.pickupMatch.enabled"] = true;
-    Expect(!IsFeatureEnabled(state, Feature::ToneSharing) && IsFeatureEnabled(state, Feature::PickupMatch), "set, it reads as set");
+    Expect(!IsFeatureEnabled(state, Feature::ToneSharing) && IsFeatureEnabled(state, Feature::PickupMatch),
+           "set, it reads as set");
 
     Expect(FxItemKey("amp_nam") == "amp_nam||", "a plain effect's key, as fxItemKey makes it");
     state.uiSettings["fxFavorites"] = nlohmann::json::array({"a||", 3, "a||", "", "b||"});
     Expect(FxFavoriteKeys(state) == std::vector<std::string>{"a||", "b||"}, "strings only, each once, in order");
     nlohmann::json recents = nlohmann::json::array();
+
     for (int i = 0; i < 20; ++i)
+    {
         recents.push_back("r" + std::to_string(i) + "||");
+    }
+
     state.uiSettings["fxRecents"] = recents;
-    Expect(FxRecentKeys(state).size() == kFxRecentsLimit && FxRecentKeys(state).front() == "r0||", "recents keep the newest 12");
+    Expect(FxRecentKeys(state).size() == kFxRecentsLimit && FxRecentKeys(state).front() == "r0||",
+           "recents keep the newest 12");
     Expect(IsFxFavorite(state, "b||") && !IsFxFavorite(state, "r0||"), "IsFxFavorite reads the favourites");
 }
 
@@ -1073,20 +1144,30 @@ void TestPresetTrail()
     Expect(trail.CanGoForward(), "c is still forward");
     trail.Note("d");
     Expect(!trail.CanGoForward(), "a new load drops what was forward");
-    Expect(!trail.Step(-1, [](const std::string& id) { return id != "b"; }).has_value(), "a deleted preset is not stepped onto");
+    Expect(!trail.Step(-1, [](const std::string& id) { return id != "b"; }).has_value(),
+           "a deleted preset is not stepped onto");
     Expect(trail.Step(-1, all) == std::optional<std::string>("a"), "it was dropped: back goes on to a");
+
     for (int i = 0; i < 20; ++i)
+    {
         trail.Note("p" + std::to_string(i));
+    }
+
     int back = 0;
+
     while (trail.Step(-1, all))
+    {
         ++back;
+    }
+
     Expect(back == static_cast<int>(kPresetTrailLimit) - 1, "at most ten are kept");
 }
 
 // The resource chooser's list, as resourceDedup.ts, renderLibraryList and libraryPacks.ts make it.
 void TestResourceIndex()
 {
-    const auto res = [](const char* id, const char* name, const char* hash, nlohmann::json meta = nlohmann::json::object()) {
+    const auto res = [](const char* id, const char* name, const char* hash,
+                        nlohmann::json meta = nlohmann::json::object()) {
         uiclient::LibraryResource r;
         r.id = id;
         r.type = "nam";
@@ -1101,14 +1182,17 @@ void TestResourceIndex()
     auto& list = state.resources["nam"];
     list.push_back(res("a1", "Crunch", "H1", {{"architectureVersion", "1"}}));
     list.push_back(res("a2", "Crunch", "h1", {{"architectureVersion", "2"}}));
-    list.push_back(res("b", "Clean Bass", "H2", {{"creatorName", "Ann"}, {"tags", "clean; vintage"}, {"toneId", "7"}, {"toneTitle", "Tweed"}}));
+    list.push_back(res("b", "Clean Bass", "H2",
+                       {{"creatorName", "Ann"}, {"tags", "clean; vintage"}, {"toneId", "7"}, {"toneTitle", "Tweed"}}));
     list.push_back(res("c", "Tweed Deluxe", "H3", {{"toneId", "7"}, {"toneTitle", "Tweed"}}));
     list.push_back(res("z", "Zed", "H4"));
 
     const auto dedup = DeduplicateResources(list);
-    Expect(dedup.deduped.size() == 4 && dedup.aliasById.at("a1") == "a2", "one entry per hash, ignoring case; A2 over A1 of the same name");
+    Expect(dedup.deduped.size() == 4 && dedup.aliasById.at("a1") == "a2",
+           "one entry per hash, ignoring case; A2 over A1 of the same name");
     Expect(DeduplicateResources(list, {"a1"}).aliasById.at("a2") == "a1", "a preferred id is kept over its duplicate");
-    Expect(ResourceTags(list[2]) == std::vector<std::string>{"clean", "vintage"} && ResourceCreator(list[2]) == "Ann", "tags from metadata, and the creator");
+    Expect(ResourceTags(list[2]) == std::vector<std::string>{"clean", "vintage"} && ResourceCreator(list[2]) == "Ann",
+           "tags from metadata, and the creator");
 
     ResourceFilter filter;
     filter.tags = {"CLEAN"};
@@ -1126,9 +1210,11 @@ void TestResourceIndex()
 
     const auto groups = GroupLibraryByPack(state, ordered);
     Expect(groups.size() == 3 && groups[0].items.front()->id == "z" &&
-               std::count_if(groups.begin(), groups.end(), [](const LibraryEntry& g) { return g.pack && g.items.size() == 2; }) == 1,
+               std::count_if(groups.begin(), groups.end(),
+                             [](const LibraryEntry& g) { return g.pack && g.items.size() == 2; }) == 1,
            "a pack groups its tone's models; a favourite's entry first");
-    Expect(NameWithinPack("Tweed Deluxe", *LibraryPackOf(list[3])) == "Deluxe", "the pack's title comes off the model's name");
+    Expect(NameWithinPack("Tweed Deluxe", *LibraryPackOf(list[3])) == "Deluxe",
+           "the pack's title comes off the model's name");
     state.appSettings["resources.library.groupPacks"] = false;
     Expect(NavigationOrder(state, ordered).size() == ordered.size() && NavigationOrder(state, ordered)[1] == ordered[1],
            "ungrouped, previous/next follows the list as it is");
@@ -1146,16 +1232,19 @@ void TestAnalysis()
 
         std::optional<ResponseCurve> curve;
         int answers = 0;
-        client.GetAnalysis().RequestResponse("eq", "eq_parametric", {{"lowGain", 9.0}, {"lowFreq", 100.0}, {"highGain", -6.0}}, true,
+        client.GetAnalysis().RequestResponse("eq", "eq_parametric",
+                                             {{"lowGain", 9.0}, {"lowFreq", 100.0}, {"highGain", -6.0}}, true,
                                              [&](const std::optional<ResponseCurve>& c) {
                                                  curve = c;
                                                  ++answers;
                                              });
         Pump(controller, client);
-        Expect(answers == 1 && curve && curve->frequencies.size() == static_cast<std::size_t>(Analysis::kResponsePoints),
+        Expect(answers == 1 && curve &&
+                   curve->frequencies.size() == static_cast<std::size_t>(Analysis::kResponsePoints),
                "an EQ's curve comes from the engine");
         Expect(curve && curve->bandsDb.size() == 4, "with each band's own curve");
-        Expect(curve && std::abs(ResponseDbAt(*curve, 25.0) - 9.0) < 0.5 && std::abs(ResponseDbAt(*curve, 19000.0) + 6.0) < 0.5,
+        Expect(curve && std::abs(ResponseDbAt(*curve, 25.0) - 9.0) < 0.5 &&
+                   std::abs(ResponseDbAt(*curve, 19000.0) + 6.0) < 0.5,
                "the low shelf lifts the lows and the high shelf cuts the highs");
 
         std::optional<ResponseCurve> unsupported = ResponseCurve{};
@@ -1171,35 +1260,52 @@ void TestAnalysis()
         auto& analysis = client.GetAnalysis();
         const auto sentOf = [&sent](const char* type) {
             std::vector<nlohmann::json> out;
+
             for (const auto& m : sent)
+            {
                 if (m.value("type", "") == type)
+                {
                     out.push_back(m);
+                }
+            }
+
             return out;
         };
         std::vector<std::string> answered;
         const auto answer = [&](const nlohmann::json& request, bool supported) {
-            client.Enqueue(nlohmann::json{{"type", "effectResponse"}, {"requestId", request["requestId"]}, {"supported", supported},
-                                          {"frequencies", {20, 20000}}, {"magnitudesDb", {1, 2}}}
-                               .dump());
+            client.Enqueue(nlohmann::json{
+                {"type", "effectResponse"},
+                {"requestId", request["requestId"]},
+                {"supported", supported},
+                {"frequencies", {20, 20000}},
+                {"magnitudesDb",
+                 {1, 2}}}.dump());
             client.DrainPending();
         };
 
-        analysis.RequestResponse("a", "eq_parametric", {{"lowGain", 1}}, false, [&](auto&) { answered.push_back("a1"); });
-        analysis.RequestResponse("a", "eq_parametric", {{"lowGain", 2}}, false, [&](auto&) { answered.push_back("a2"); });
-        analysis.RequestResponse("a", "eq_parametric", {{"lowGain", 3}}, false, [&](auto&) { answered.push_back("a3"); });
+        analysis.RequestResponse("a", "eq_parametric", {{"lowGain", 1}}, false,
+                                 [&](auto&) { answered.push_back("a1"); });
+        analysis.RequestResponse("a", "eq_parametric", {{"lowGain", 2}}, false,
+                                 [&](auto&) { answered.push_back("a2"); });
+        analysis.RequestResponse("a", "eq_parametric", {{"lowGain", 3}}, false,
+                                 [&](auto&) { answered.push_back("a3"); });
         analysis.RequestResponse("b", "eq_graphic", {{"bandCount", 5}}, true, [&](auto&) { answered.push_back("b1"); });
         auto requests = sentOf("getEffectResponse");
-        Expect(requests.size() == 2 && requests[1].value("bands", false), "one request in flight per lane, bands asked for");
+        Expect(requests.size() == 2 && requests[1].value("bands", false),
+               "one request in flight per lane, bands asked for");
 
         answer(requests[0], true);
         requests = sentOf("getEffectResponse");
-        Expect(requests.size() == 3 && requests[2]["params"]["lowGain"] == 3, "the newest parameters follow, the middle ones folded away");
+        Expect(requests.size() == 3 && requests[2]["params"]["lowGain"] == 3,
+               "the newest parameters follow, the middle ones folded away");
         answer(requests[1], true);
         answer(requests[2], false);
-        Expect((answered == std::vector<std::string>{"a1", "b1", "a3"}), "each lane answers its own, a replaced request never");
+        Expect((answered == std::vector<std::string>{"a1", "b1", "a3"}),
+               "each lane answers its own, a replaced request never");
 
         analysis.RequestResponse("c", "eq_parametric", {}, false, [&](auto&) { answered.push_back("c1"); });
-        analysis.RequestResponse("c", "eq_parametric", {{"lowGain", 4}}, false, [&](auto&) { answered.push_back("c2"); });
+        analysis.RequestResponse("c", "eq_parametric", {{"lowGain", 4}}, false,
+                                 [&](auto&) { answered.push_back("c2"); });
         client.Tick(10.0);
         Expect(sentOf("getEffectResponse").size() == 5, "an unanswered request is given up on, so the next one goes");
 
@@ -1210,30 +1316,39 @@ void TestAnalysis()
                "a spectrum watch is sent once and renewed on the tick");
         analysis.StopSpectrum();
         client.Tick(16.0);
-        Expect(sentOf("setSpectrumWatch").size() == 3 && sentOf("setSpectrumWatch")[2].size() == 1, "stopping sends {} and renews nothing");
+        Expect(sentOf("setSpectrumWatch").size() == 3 && sentOf("setSpectrumWatch")[2].size() == 1,
+               "stopping sends {} and renews nothing");
         analysis.WatchOutputLoudness(true);
         Expect(sentOf("setLoudnessWatch").back()["slot"] == 1, "the output's loudness is slot 1");
     }
 
     UiClient client([](const std::string&) {});
-    client.Enqueue(R"({"type":"sldS","scope":"preset","presetId":"p1","id":"eq1","r":[20,20000,-96,0],"s":[-50,-40,-30]})");
+    client.Enqueue(
+        R"({"type":"sldS","scope":"preset","presetId":"p1","id":"eq1","r":[20,20000,-96,0],"s":[-50,-40,-30]})");
     client.Enqueue(R"({"type":"sldL","scope":"post","id":"global_eq","l":[-18.2,-19,null,0]})");
     client.Enqueue(R"({"type":"sldL","slot":1,"scope":"output","l":[-14,-15,-16,12]})");
-    client.Enqueue(R"({"type":"sldRoster","seq":3,"nodes":[],"spectrogramRange":[-90,-6,30,18000],"barkRange":[-80,0,40,16000]})");
-    client.Enqueue(R"({"type":"sldA","seq":3,"id":"an1","t":5,"l":[50,20,-10,-12,0.2,-20,-21,null,2,1,1],"s":[-40,-50],"b":[-30]})");
-    client.Enqueue(R"({"type":"spatialPosition","nodes":[{"scope":"preset","presetId":"p1","nodeId":"sp","azimuth":30,"moving":true}]})");
-    client.Enqueue(R"({"type":"gateLearnStatus","scope":"global","nodeId":"global_gate","state":"done","noiseFloorDb":-70,"thresholdDb":-64})");
+    client.Enqueue(
+        R"({"type":"sldRoster","seq":3,"nodes":[],"spectrogramRange":[-90,-6,30,18000],"barkRange":[-80,0,40,16000]})");
+    client.Enqueue(
+        R"({"type":"sldA","seq":3,"id":"an1","t":5,"l":[50,20,-10,-12,0.2,-20,-21,null,2,1,1],"s":[-40,-50],"b":[-30]})");
+    client.Enqueue(
+        R"({"type":"spatialPosition","nodes":[{"scope":"preset","presetId":"p1","nodeId":"sp","azimuth":30,"moving":true}]})");
+    client.Enqueue(
+        R"({"type":"gateLearnStatus","scope":"global","nodeId":"global_gate","state":"done","noiseFloorDb":-70,"thresholdDb":-64})");
     client.DrainPending();
     const auto& a = client.State().analysis;
-    Expect(a.spectra.count("p1::eq1") && a.spectra.at("p1::eq1").binsDb.size() == 3, "a node's spectrum is kept by its feed key");
+    Expect(a.spectra.count("p1::eq1") && a.spectra.at("p1::eq1").binsDb.size() == 3,
+           "a node's spectrum is kept by its feed key");
     Expect(a.loudness.count("post::global_eq") && a.loudness.at("post::global_eq").momentaryLufs == -18.2 &&
                !a.loudness.at("post::global_eq").integratedLufs,
            "a node's loudness, an unfilled window empty");
-    Expect(a.outputLoudness.integratedLufs == -16.0 && a.outputLoudness.integratedSeconds == 12.0, "the output's loudness");
-    Expect(a.analyzers.count("an1") && a.analyzers.at("an1").stereo && a.analyzers.at("an1").spectrogramDb.size() == 2 &&
-               a.analyzerRanges.spectrogram[3] == 18000.0,
+    Expect(a.outputLoudness.integratedLufs == -16.0 && a.outputLoudness.integratedSeconds == 12.0,
+           "the output's loudness");
+    Expect(a.analyzers.count("an1") && a.analyzers.at("an1").stereo &&
+               a.analyzers.at("an1").spectrogramDb.size() == 2 && a.analyzerRanges.spectrogram[3] == 18000.0,
            "an analyzer frame, drawn against the roster's ranges");
-    Expect(a.spatial.count("p1::sp") && a.spatial.at("p1::sp").azimuth == 30.0 && a.spatial.at("p1::sp").moving, "a spatial position");
+    Expect(a.spatial.count("p1::sp") && a.spatial.at("p1::sp").azimuth == 30.0 && a.spatial.at("p1::sp").moving,
+           "a spatial position");
     Expect(a.gateLearn.count("global::global_gate") && a.gateLearn.at("global::global_gate").thresholdDb == -64.0,
            "the global gate's Learn result");
     Expect(DecodeFloat32Base64("AACAPwAAAMA=") == std::vector<float>{1.0f, -2.0f}, "float32 samples from base64");
@@ -1248,6 +1363,7 @@ void TestIrAlignmentResponse()
         // A decaying cabinet-ish IR, and the same one 20 samples later as IR B.
         const auto writeIr = [&dir](const char* name, int onset) {
             std::vector<float> samples(2400, 0.0f);
+
             for (std::size_t n = static_cast<std::size_t>(onset); n < samples.size(); ++n)
             {
                 const double t = static_cast<double>(n - static_cast<std::size_t>(onset)) / 48000.0;
@@ -1255,10 +1371,12 @@ void TestIrAlignmentResponse()
                                                 (std::sin(2.0 * 3.14159265358979 * 900.0 * t) +
                                                  0.5 * std::sin(2.0 * 3.14159265358979 * 2700.0 * t)));
             }
+
             const std::vector<const std::vector<float>*> channels{&samples};
             const auto bytes = util::Encode16BitWav(channels, 48000);
             const auto path = dir / name;
-            std::ofstream(path, std::ios::binary).write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+            std::ofstream(path, std::ios::binary)
+                .write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
             return nlohmann::json{{"resourceType", "ir"}, {"filePath", util::PathToUtf8(path)}};
         };
         const auto irA = writeIr("a.wav", 10);
@@ -1272,14 +1390,16 @@ void TestIrAlignmentResponse()
         auto& analysis = client.GetAnalysis();
 
         std::optional<IrAlignment> alignment;
-        analysis.AnalyzeIrAlignment(irA, irB, [&](const std::optional<IrAlignment>& a, const std::string&) { alignment = a; });
+        analysis.AnalyzeIrAlignment(irA, irB,
+                                    [&](const std::optional<IrAlignment>& a, const std::string&) { alignment = a; });
         Pump(controller, client);
         Expect(alignment && std::abs(alignment->alignedOffsetMs + 20.0 / 48.0) < 0.01 && !alignment->invertB,
                "B 20 samples late lines up 0.42 ms earlier, not inverted");
 
         std::optional<IrAlignmentResponse> lined;
-        analysis.RequestIrAlignmentResponse(irA, irB, {{"irBlend", 0.5}}, alignment ? alignment->alignedOffsetMs : 0.0,
-                                            [&](const std::optional<IrAlignmentResponse>& r, const std::string&) { lined = r; });
+        analysis.RequestIrAlignmentResponse(
+            irA, irB, {{"irBlend", 0.5}}, alignment ? alignment->alignedOffsetMs : 0.0,
+            [&](const std::optional<IrAlignmentResponse>& r, const std::string&) { lined = r; });
         Pump(controller, client);
         Expect(lined && lined->slots == "both" &&
                    lined->frequencies.size() == static_cast<std::size_t>(Analysis::kResponsePoints) &&
@@ -1293,27 +1413,31 @@ void TestIrAlignmentResponse()
                "lined up, the pair reinforces");
 
         std::optional<IrAlignmentResponse> combed;
-        analysis.RequestIrAlignmentResponse(irA, irB, {{"irBlend", 0.5}, {"slotBOffset", 0.0}}, 0.0,
-                                            [&](const std::optional<IrAlignmentResponse>& r, const std::string&) { combed = r; });
+        analysis.RequestIrAlignmentResponse(
+            irA, irB, {{"irBlend", 0.5}, {"slotBOffset", 0.0}}, 0.0,
+            [&](const std::optional<IrAlignmentResponse>& r, const std::string&) { combed = r; });
         Pump(controller, client);
         // 20 samples apart, they cancel at 1.2 kHz (half a period of 20 samples).
         Expect(combed && gainAt(*combed, 1200.0) < -10.0, "left 0.42 ms apart, they comb-filter");
 
         std::optional<IrAlignment> lone;
-        analysis.AnalyzeIrAlignment(irA, nullptr, [&](const std::optional<IrAlignment>& a, const std::string&) { lone = a; });
+        analysis.AnalyzeIrAlignment(irA, nullptr,
+                                    [&](const std::optional<IrAlignment>& a, const std::string&) { lone = a; });
         Pump(controller, client);
         Expect(lone && !lone->waveformA.empty() && lone->waveformB.empty() && lone->matchByOffset.size() == 1,
                "one IR is analysed alone: its waveform, nothing to align");
 
         std::optional<IrAlignmentResponse> single;
-        analysis.RequestIrAlignmentResponse(irA, nullptr, {}, 0.0,
-                                            [&](const std::optional<IrAlignmentResponse>& r, const std::string&) { single = r; });
+        analysis.RequestIrAlignmentResponse(
+            irA, nullptr, {}, 0.0,
+            [&](const std::optional<IrAlignmentResponse>& r, const std::string&) { single = r; });
         Pump(controller, client);
         Expect(single && single->slots == "a" && single->unrelatedDb.empty(), "one IR alone has nothing to compare");
 
         std::string error;
-        analysis.RequestIrAlignmentResponse(irA, nlohmann::json{{"resourceType", "ir"}, {"filePath", util::PathToUtf8(dir / "none.wav")}},
-                                            {}, 0.0, [&](const std::optional<IrAlignmentResponse>&, const std::string& e) { error = e; });
+        analysis.RequestIrAlignmentResponse(
+            irA, nlohmann::json{{"resourceType", "ir"}, {"filePath", util::PathToUtf8(dir / "none.wav")}}, {}, 0.0,
+            [&](const std::optional<IrAlignmentResponse>&, const std::string& e) { error = e; });
         Pump(controller, client);
         Expect(error == "IR B could not be read", "a missing IR is reported");
     }
@@ -1323,9 +1447,15 @@ void TestIrAlignmentResponse()
     auto& analysis = client.GetAnalysis();
     const auto requests = [&sent] {
         std::vector<nlohmann::json> out;
+
         for (const auto& m : sent)
+        {
             if (m.value("type", "") == "getIrAlignmentResponse")
+            {
                 out.push_back(m);
+            }
+        }
+
         return out;
     };
     std::vector<std::string> answered;
@@ -1333,15 +1463,23 @@ void TestIrAlignmentResponse()
     analysis.RequestIrAlignmentResponse(ir, ir, {}, 0.1, [&](auto&, auto&) { answered.push_back("first"); });
     analysis.RequestIrAlignmentResponse(ir, ir, {}, 0.2, [&](auto&, auto&) { answered.push_back("skipped"); });
     analysis.RequestIrAlignmentResponse(ir, ir, {}, 0.3, [&](auto&, auto&) { answered.push_back("newest"); });
-    Expect(requests().size() == 1 && requests()[0]["offsetMs"] == 0.1 && requests()[0]["points"] == Analysis::kResponsePoints,
+    Expect(requests().size() == 1 && requests()[0]["offsetMs"] == 0.1 &&
+               requests()[0]["points"] == Analysis::kResponsePoints,
            "one response request out at a time");
-    client.Enqueue(nlohmann::json{{"type", "irAlignmentResponse"}, {"requestId", requests()[0]["requestId"]}, {"slots", "both"},
-                                  {"frequencies", {20, 20000}}, {"summedDb", {1, 2}}, {"unrelatedDb", {0, 1}}}
-                       .dump());
+    client.Enqueue(nlohmann::json{
+        {"type", "irAlignmentResponse"},
+        {"requestId", requests()[0]["requestId"]},
+        {"slots", "both"},
+        {"frequencies", {20, 20000}},
+        {"summedDb", {1, 2}},
+        {"unrelatedDb",
+         {0, 1}}}.dump());
     client.DrainPending();
-    Expect(requests().size() == 2 && requests()[1]["offsetMs"] == 0.3, "the newest follows, the middle one folded away");
+    Expect(requests().size() == 2 && requests()[1]["offsetMs"] == 0.3,
+           "the newest follows, the middle one folded away");
     client.Tick(10.0);
-    Expect((answered == std::vector<std::string>{"first", "newest"}), "an unanswered request is given up on, its callback told");
+    Expect((answered == std::vector<std::string>{"first", "newest"}),
+           "an unanswered request is given up on, its callback told");
     Expect(!ParseIrAlignmentResponse({{"frequencies", {20, 20000}}, {"summedDb", {1, 2}}}),
            "a pair's reply without the curve to compare it with is malformed");
 }
@@ -1354,11 +1492,14 @@ void TestAnalysisPresentation()
     GateLearnStatus done{"done"};
     done.noiseFloorDb = -92.0;
     done.thresholdDb = -76.0;
-    Expect(GateLearnStatusText(&done, -80.0) == "Noise under \xE2\x88\x92" "80 dB \xC2\xB7 threshold set to \xE2\x88\x92" "76 dB",
+    Expect(GateLearnStatusText(&done, -80.0) == "Noise under \xE2\x88\x92"
+                                                "80 dB \xC2\xB7 threshold set to \xE2\x88\x92"
+                                                "76 dB",
            "noise below the meter reads as under its floor");
     GateLearnStatus failed{"failed"};
     failed.reason = "playing";
-    Expect(GateLearnStatusText(&failed, -80.0) == "Heard playing. Mute the strings and try again.", "a refused listen says why");
+    Expect(GateLearnStatusText(&failed, -80.0) == "Heard playing. Mute the strings and try again.",
+           "a refused listen says why");
 
     AnalyzerFrame frame;
     frame.peakPercent = 50.0;
@@ -1367,27 +1508,34 @@ void TestAnalysisPresentation()
     frame.loudnessValid = true;
     frame.activeChannelCount = 1;
     auto readouts = AnalyzerReadouts(&frame, 2);
-    Expect(readouts.size() == 11 && readouts[0].value == "-6.0 dBFS" && readouts[2].value == "50.0 %", "peak in dBFS and %FS");
+    Expect(readouts.size() == 11 && readouts[0].value == "-6.0 dBFS" && readouts[2].value == "50.0 %",
+           "peak in dBFS and %FS");
     Expect(readouts[7].value == "-18.2 LUFS" || readouts[7].value == "-18.3 LUFS", "momentary loudness");
     Expect(readouts[8].value == "\xE2\x80\x94", "a window not yet filled reads as a dash");
-    Expect(readouts[10].value == "Stereo" && readouts[10].hint == "one side silent", "the layout, with what is measured as a hint");
+    Expect(readouts[10].value == "Stereo" && readouts[10].hint == "one side silent",
+           "the layout, with what is measured as a hint");
     Expect(AnalyzerReadouts(nullptr, 0)[0].value == "\xE2\x80\x94", "no frame: dashes");
 
-    const std::map<std::string, double> summary = {{"targetWireLengthM", 1191.4}, {"targetInductanceH", 2.66}, {"targetResistanceKohm", 6.5},
-                                                   {"targetCapacitancePf", 118.0}, {"targetPeakHz", 3400.0},  {"targetQ", 1.42},
+    const std::map<std::string, double> summary = {{"targetWireLengthM", 1191.4}, {"targetInductanceH", 2.66},
+                                                   {"targetResistanceKohm", 6.5}, {"targetCapacitancePf", 118.0},
+                                                   {"targetPeakHz", 3400.0},      {"targetQ", 1.42},
                                                    {"targetLevelDb", -0.4}};
-    Expect(PickupDesignSummary(summary, "target") ==
-               "1,191 m of wire \xC2\xB7 2.66 H \xC2\xB7 6.50 k\xCE\xA9 \xC2\xB7 118 pF \xE2\x86\x92 peak 3.40 kHz, Q 1.42, output \xE2\x88\x92" "0.4 dB",
-           "a custom design's build, as the web UI words it");
+    Expect(
+        PickupDesignSummary(summary, "target") ==
+            "1,191 m of wire \xC2\xB7 2.66 H \xC2\xB7 6.50 k\xCE\xA9 \xC2\xB7 118 pF \xE2\x86\x92 peak 3.40 kHz, Q 1.42, output \xE2\x88\x92"
+            "0.4 dB",
+        "a custom design's build, as the web UI words it");
     Expect(PickupDesignSummary(summary, "source").empty(), "a side with no design figures says nothing");
 
     ClientState state;
     Expect(ShownDspStatusItems(state, EffectDspStatus()).size() == 4, "an effect's readout starts with its defaults");
     state.appSettings["ui.dspStatus.items"] = nlohmann::json::array({"latency", "dspLoad", "momentary", "latency"});
     const auto shown = ShownDspStatusItems(state, EffectDspStatus());
-    Expect((shown == std::vector<DspStatusItem>{DspStatusItem::Latency, DspStatusItem::Momentary}) && ShowsLoudness(shown),
+    Expect((shown == std::vector<DspStatusItem>{DspStatusItem::Latency, DspStatusItem::Momentary}) &&
+               ShowsLoudness(shown),
            "the stored choice, kept to what this readout can show, each once");
-    Expect(DspStatusSettingValue(shown) == nlohmann::json::array({"latency", "momentary"}), "the choice as the setting stores it");
+    Expect(DspStatusSettingValue(shown) == nlohmann::json::array({"latency", "momentary"}),
+           "the choice as the setting stores it");
 
     state.telemetry.nodes["p1::amp"] = LevelReading{-6.0, -12.0, 0, false, 2};
     state.telemetry.nodeProcessingUs["p1::amp"] = 25.0;
@@ -1397,10 +1545,12 @@ void TestAnalysisPresentation()
     state.telemetry.frameCounter = 1;
     DspStatusMeter meter("p1::amp");
     meter.Update(state, 0.0);
-    Expect(meter.Value(DspStatusItem::Peak) == "-6.0 dBFS" && meter.Value(DspStatusItem::Headroom) == "6.0 dB", "a node's levels");
+    Expect(meter.Value(DspStatusItem::Peak) == "-6.0 dBFS" && meter.Value(DspStatusItem::Headroom) == "6.0 dB",
+           "a node's levels");
     Expect(meter.Value(DspStatusItem::Processing) == "25.0 \xCE\xBCs (25.0%)", "its time and share of all processing");
     Expect(meter.Value(DspStatusItem::Latency) == "48 smp (1.00 ms)", "its latency");
-    Expect(meter.TakeRenderTurn(0.0) && !meter.TakeRenderTurn(0.2) && meter.TakeRenderTurn(0.6), "redrawn twice a second");
+    Expect(meter.TakeRenderTurn(0.0) && !meter.TakeRenderTurn(0.2) && meter.TakeRenderTurn(0.6),
+           "redrawn twice a second");
 
     state.telemetry.peakDspLoadPercent = 40.0;
     DspStatusMeter output;
@@ -1469,14 +1619,21 @@ void TestAutomation()
 
     // ── MIDI Learn from a control's menu ──
     const auto target = NodeParamLearnTarget(state.FindEffectType(EffectGuids::kGain), "gainDb");
-    Expect(target && target->address == std::string("node.") + EffectGuids::kGain + ".gainDb" && target->label == "Gain: Gain", "an effect parameter drives node.<type>.<key>");
-    Expect(!NodeParamLearnTarget(state.FindEffectType(EffectGuids::kGain), "noSuchParam"), "an undeclared parameter drives nothing");
+    Expect(target && target->address == std::string("node.") + EffectGuids::kGain + ".gainDb" &&
+               target->label == "Gain: Gain",
+           "an effect parameter drives node.<type>.<key>");
+    Expect(!NodeParamLearnTarget(state.FindEffectType(EffectGuids::kGain), "noSuchParam"),
+           "an undeclared parameter drives nothing");
+
     if (!target)
+    {
         return;
+    }
 
     auto items = BuildMidiLearnMenuItems(automation, *target, state.activePresetId);
     Expect(!items.empty() && items[0].action == MidiLearnMenuAction::Learn && !items[0].disabled &&
-               (state.activePresetId.empty() || (items.size() == 2 && items[1].action == MidiLearnMenuAction::LearnPreset)),
+               (state.activePresetId.empty() ||
+                (items.size() == 2 && items[1].action == MidiLearnMenuAction::LearnPreset)),
            "a control nothing maps offers MIDI Learn, and for this preset");
 
     Expect(RunMidiLearnMenuAction(commands, state, MidiLearnMenuAction::Learn, *target).empty(), "a learn starts");
@@ -1493,7 +1650,8 @@ void TestAutomation()
     const auto* mapped = automation.FindSlot("custom.1");
     Expect(automation.capture && automation.capture->slotId == "custom.1" && automation.midiLearnSlotId.empty(),
            "the capture is reported and the learn ends");
-    Expect(mapped != nullptr && mapped->midiMap && DescribeMidiMap(*mapped->midiMap) == "CC 21 ch1 Abs", "the slot is mapped to CC 21");
+    Expect(mapped != nullptr && mapped->midiMap && DescribeMidiMap(*mapped->midiMap) == "CC 21 ch1 Abs",
+           "the slot is mapped to CC 21");
 
     const auto cleared = RunMidiLearnMenuAction(commands, state, MidiLearnMenuAction::Clear, *target);
     Pump(controller, client);
@@ -1523,8 +1681,9 @@ void TestAutomation()
     commands.AutomationKey("W", false);
     Pump(controller, client);
     input = automation.FindSlot(inputSlot);
-    Expect(automation.keyLearnSlotId.empty() && input != nullptr && input->keyMap.size() == 1 && input->keyMap[0].key == "w" &&
-               input->keyMap[0].mode == 1 && std::abs(input->keyMap[0].value - 0.5) < 1e-6,
+    Expect(automation.keyLearnSlotId.empty() && input != nullptr && input->keyMap.size() == 1 &&
+               input->keyMap[0].key == "w" && input->keyMap[0].mode == 1 &&
+               std::abs(input->keyMap[0].value - 0.5) < 1e-6,
            "a modifier and Space are waited through; the next key is stored in lower case, setting the level half way");
     Expect(KeyIsMapped(automation, "w") && KeyIsMapped(automation, "W") && !KeyIsMapped(automation, " ") &&
                !KeyIsMapped(automation, "x"),
@@ -1534,7 +1693,8 @@ void TestAutomation()
     commands.GetAutomation();
     Pump(controller, client);
     input = automation.FindSlot(inputSlot);
-    Expect(input != nullptr && std::abs(input->value - 0.5) > 1e-3, "a chord leaves the mapping alone (Ctrl+W is a shortcut)");
+    Expect(input != nullptr && std::abs(input->value - 0.5) > 1e-3,
+           "a chord leaves the mapping alone (Ctrl+W is a shortcut)");
     commands.AutomationKey("W", false);
     commands.GetAutomation();
     Pump(controller, client);
@@ -1544,7 +1704,8 @@ void TestAutomation()
     commands.ArmKeyLearn(inputSlot);
     commands.AutomationKey("Escape", false);
     Pump(controller, client);
-    Expect(automation.keyLearnSlotId.empty() && automation.FindSlot(inputSlot)->keyMap.size() == 1, "Escape backs out of a key learn");
+    Expect(automation.keyLearnSlotId.empty() && automation.FindSlot(inputSlot)->keyMap.size() == 1,
+           "Escape backs out of a key learn");
 
     // ── The MIDI Log ──
     controller.EnqueueMidi(MidiEvent{0xB0, 7, 99, 0});
@@ -1556,8 +1717,8 @@ void TestAutomation()
     controller.EnqueueMidi(MidiEvent{0x91, 7, 100, 0});
     controller.ProcessQueuedMidi();
     Pump(controller, client);
-    Expect(!automation.midiLog.empty() && automation.midiLog.back().channel == 1 && automation.midiLog.back().data1 == 7 &&
-               automation.midiLog.back().data2 == 100,
+    Expect(!automation.midiLog.empty() && automation.midiLog.back().channel == 1 &&
+               automation.midiLog.back().data1 == 7 && automation.midiLog.back().data2 == 100,
            "an incoming event is logged");
     commands.SetMidiLogEnabled(false);
 
@@ -1566,14 +1727,16 @@ void TestAutomation()
     slots[0].slotId = "custom.1";
     slots[1].slotId = "custom.4";
     Expect(NextCustomSlotId(slots) == "custom.5" && NextPresetSlotId(slots) == "preset.1", "the next free slot ids");
-    Expect(DescribeMidiMap(1, -1, 5, std::nullopt) == "PC 5 chany" && FormatMidiChannel(15) == "16", "mappings read as musicians count");
-    Expect(IsBypassAddress("node.x.bypassed") && !IsBypassAddress("node.x.mix") && !AllowsPresetMapping("setlist.bankUp") &&
-               AllowsPresetMapping("global.outputTrim"),
+    Expect(DescribeMidiMap(1, -1, 5, std::nullopt) == "PC 5 chany" && FormatMidiChannel(15) == "16",
+           "mappings read as musicians count");
+    Expect(IsBypassAddress("node.x.bypassed") && !IsBypassAddress("node.x.mix") &&
+               !AllowsPresetMapping("setlist.bankUp") && AllowsPresetMapping("global.outputTrim"),
            "bypass addresses, and which controls take per-preset mappings");
     const auto options = BuildTargetOptions(state);
-    Expect(std::any_of(options.begin(), options.end(), [](const auto& o) { return o.address == "node.input.gainDb"; }) &&
-               WithCurrentTargetOption(options, "node.unknown.x", "X").front().group == "Current",
-           "the target picker offers the chain's gains, and a slot's own address");
+    Expect(
+        std::any_of(options.begin(), options.end(), [](const auto& o) { return o.address == "node.input.gainDb"; }) &&
+            WithCurrentTargetOption(options, "node.unknown.x", "X").front().group == "Current",
+        "the target picker offers the chain's gains, and a slot's own address");
 }
 
 // The metronome's meter picker and where a bar's groups start (metronomeMeters.ts).
@@ -1648,11 +1811,13 @@ void TestInputLevelling()
     Pump(controller, client);
     Expect(levelling.saveSerial == 2 && levelling.saveOk && levelling.profiles.size() == 1, "a named profile saves");
     const auto* saved = levelling.Active();
-    Expect(saved && saved->name == "Strat" && saved->description == "Bridge pickup" && std::abs(saved->gainDb - 8.0) < 0.1 &&
-               closeTo(saved->capturedPeakDbfs, -20.0, 0.1) && !saved->createdAt.empty(),
+    Expect(saved && saved->name == "Strat" && saved->description == "Bridge pickup" &&
+               std::abs(saved->gainDb - 8.0) < 0.1 && closeTo(saved->capturedPeakDbfs, -20.0, 0.1) &&
+               !saved->createdAt.empty(),
            "and becomes the active profile");
     Expect(!levelling.trainingActive && !levelling.training.active, "saving ends the training");
-    Expect(std::abs(controller.GetMixer().GetUserInputCalibrationGainDb() - 8.0) < 0.1, "the new trim reaches the mixer");
+    Expect(std::abs(controller.GetMixer().GetUserInputCalibrationGainDb() - 8.0) < 0.1,
+           "the new trim reaches the mixer");
     const auto& settings = client.State().appSettings;
     Expect(settings.contains("audio.userInputCalibration.profiles") &&
                settings["audio.userInputCalibration.profiles"].size() == 1 &&
@@ -1683,7 +1848,8 @@ void TestInputLevelling()
     // ── Rename, select, delete ──
     commands.RenameInputLevellingProfile(stratId, "Strat bridge", "Neck off");
     Pump(controller, client);
-    Expect(levelling.Active() && levelling.Active()->name == "Strat bridge" && levelling.Active()->description == "Neck off",
+    Expect(levelling.Active() && levelling.Active()->name == "Strat bridge" &&
+               levelling.Active()->description == "Neck off",
            "a profile renames");
 
     commands.SelectInputLevellingProfile("");
@@ -1697,24 +1863,29 @@ void TestInputLevelling()
 
     commands.DeleteInputLevellingProfile(stratId);
     Pump(controller, client);
-    Expect(levelling.profiles.empty() && levelling.activeId.empty() &&
-               std::abs(controller.GetMixer().GetUserInputCalibrationGainDb()) < 1e-9 &&
-               controller.GetAppSettings().value("audio.userInputCalibration.activeProfileId", nlohmann::json()).is_null(),
-           "deleting the active profile leaves no levelling");
+    Expect(
+        levelling.profiles.empty() && levelling.activeId.empty() &&
+            std::abs(controller.GetMixer().GetUserInputCalibrationGainDb()) < 1e-9 &&
+            controller.GetAppSettings().value("audio.userInputCalibration.activeProfileId", nlohmann::json()).is_null(),
+        "deleting the active profile leaves no levelling");
 
     // ── Profiles saved by an older build carry over ──
-    client.Send("setSetting", {{"key", "audio.userInputCalibration.profiles"},
-                               {"value", nlohmann::json::array({{{"id", "old"}, {"name", " Tele "}, {"capturedPeakDbfs", -18.0},
-                                                                 {"targetPeakDbfs", -12.0}},
-                                                                {{"id", "loud"}, {"name", "Loud"}, {"gainDb", 40.0}},
-                                                                {{"id", ""}, {"name", "No id"}}})}});
+    client.Send(
+        "setSetting",
+        {{"key", "audio.userInputCalibration.profiles"},
+         {"value", nlohmann::json::array(
+                       {{{"id", "old"}, {"name", " Tele "}, {"capturedPeakDbfs", -18.0}, {"targetPeakDbfs", -12.0}},
+                        {{"id", "loud"}, {"name", "Loud"}, {"gainDb", 40.0}},
+                        {{"id", ""}, {"name", "No id"}}})}});
     client.Send("setSetting", {{"key", "audio.userInputCalibration.activeProfileId"}, {"value", "old"}});
     Pump(controller, client);
     Expect(levelling.profiles.size() == 2 && levelling.Active() && levelling.Active()->name == "Tele" &&
                std::abs(levelling.Active()->gainDb - 6.0) < 1e-9,
            "an older profile's trim is target - captured");
-    Expect(levelling.Find("loud") && std::abs(levelling.Find("loud")->gainDb - 24.0) < 1e-9, "and a trim is held to 24 dB");
-    Expect(std::abs(controller.GetMixer().GetUserInputCalibrationGainDb() - 6.0) < 1e-9, "the older active profile applies");
+    Expect(levelling.Find("loud") && std::abs(levelling.Find("loud")->gainDb - 24.0) < 1e-9,
+           "and a trim is held to 24 dB");
+    Expect(std::abs(controller.GetMixer().GetUserInputCalibrationGainDb() - 6.0) < 1e-9,
+           "the older active profile applies");
 
     // The older training switch still bypasses.
     client.Send("setUserInputCalibrationTrainingActive", {{"active", true}});
@@ -1730,12 +1901,16 @@ void TestInputLevelling()
 void TestMetronomeMeters()
 {
     const auto& meters = TimeSignatures();
-    Expect(meters.size() == 21 && meters.front().id == "2/4" && meters.back().id == "7/8:2+2+3" && meters.back().label == "7/8 (2+2+3)",
+    Expect(meters.size() == 21 && meters.front().id == "2/4" && meters.back().id == "7/8:2+2+3" &&
+               meters.back().label == "7/8 (2+2+3)",
            "the web UI's meters, in its order");
     Expect((ParseGrouping("2+2+3", 7) == std::vector<int>{2, 2, 3}), "a grouping that adds up");
-    Expect(ParseGrouping("2+2", 7).empty() && ParseGrouping("2+x+3", 7).empty(), "one that does not, or is malformed, is dropped");
-    Expect((GroupHeads(7, 8, "2+2+3") == std::vector<bool>{true, false, true, false, true, false, false}), "odd meter group heads");
-    Expect((GroupHeads(6, 8, "") == std::vector<bool>{true, false, false, true, false, false}), "a compound meter falls into threes");
+    Expect(ParseGrouping("2+2", 7).empty() && ParseGrouping("2+x+3", 7).empty(),
+           "one that does not, or is malformed, is dropped");
+    Expect((GroupHeads(7, 8, "2+2+3") == std::vector<bool>{true, false, true, false, true, false, false}),
+           "odd meter group heads");
+    Expect((GroupHeads(6, 8, "") == std::vector<bool>{true, false, false, true, false, false}),
+           "a compound meter falls into threes");
     Expect((GroupHeads(4, 4, "") == std::vector<bool>{true, false, false, false}), "a simple meter has one head");
 }
 
@@ -1743,7 +1918,8 @@ void TestMetronomeMeters()
 void TestUpdateCheckVersions()
 {
     Expect((ParseVersion("v1.7.2-beta") == std::array<int, 3>{1, 7, 2}), "a prefix and a pre-release suffix");
-    Expect((ParseVersion("2") == std::array<int, 3>{2, 0, 0}) && (ParseVersion("1.8") == std::array<int, 3>{1, 8, 0}), "missing parts are 0");
+    Expect((ParseVersion("2") == std::array<int, 3>{2, 0, 0}) && (ParseVersion("1.8") == std::array<int, 3>{1, 8, 0}),
+           "missing parts are 0");
     Expect(!ParseVersion("") && !ParseVersion("latest") && !ParseVersion("1.2.3 extra"), "text that is not a version");
     Expect(IsVersionNewer("1.10.0", "1.9.9") && !IsVersionNewer("1.6.0", "1.6.0") && !IsVersionNewer("1.5.9", "1.6.0"),
            "compared part by part, numerically");
@@ -1769,8 +1945,11 @@ void TestGlobalChainEditsMirror()
     const auto* gate = chain.preChainGraph.FindNode("global_gate");
     const auto* doubler = chain.postChainGraph.FindNode("global_doubler");
     Expect(gate != nullptr && doubler != nullptr, "the global chain arrives with its gate and doubler");
+
     if (gate == nullptr || doubler == nullptr)
+    {
         return;
+    }
 
     const bool gateWas = gate->enabled;
     commands.SetGlobalChainToggle("gate.enabled", !gateWas);
@@ -1779,7 +1958,8 @@ void TestGlobalChainEditsMirror()
     commands.SetGlobalChainParam("doubler.delay", 12.0);
     commands.SetGlobalChainParam("output.gain", -3.0);
     Expect(notified == 5, "each edit tells the controls");
-    Expect(gate->enabled == !gateWas && gate->params.at("threshold") == -44.0, "the gate's switch and threshold are mirrored");
+    Expect(gate->enabled == !gateWas && gate->params.at("threshold") == -44.0,
+           "the gate's switch and threshold are mirrored");
     Expect(doubler->enabled && doubler->params.at("time") == 12.0, "the doubler's delay is its node's time");
     Expect(chain.outputGain == -3.0, "the output level");
 
@@ -1790,7 +1970,8 @@ void TestGlobalChainEditsMirror()
     const auto* engineDoubler = client.State().globalChain.postChainGraph.FindNode("global_doubler");
     Expect(engineGate != nullptr && engineGate->enabled == !gateWas && engineGate->params.at("threshold") == -44.0,
            "the engine's gate matches");
-    Expect(engineDoubler != nullptr && engineDoubler->enabled && engineDoubler->params.at("time") == 12.0, "the engine's doubler matches");
+    Expect(engineDoubler != nullptr && engineDoubler->enabled && engineDoubler->params.at("time") == 12.0,
+           "the engine's doubler matches");
     Expect(client.State().globalChain.outputGain == -3.0, "the engine's output level matches");
 }
 
@@ -1839,51 +2020,105 @@ void TestRiffMessages()
                   {"tags", {"metal", "drop d"}},
                   {"preferredTakeId", "t2"},
                   {"takes",
-                   {{{"id", "t1"}, {"bars", 2}, {"tempoBpm", 120.0}, {"timeSigNum", 4}, {"timeSigDen", 4}, {"durationSec", 4.0}},
-                    {{"id", "t2"}, {"bars", 4}, {"tempoBpm", 120.0}, {"timeSigNum", 4}, {"timeSigDen", 4}, {"durationSec", 8.0}}}}},
-                 {{"id", "r2"}, {"title", "Lead"}, {"used", true}, {"usedSongTitle", "Song"}, {"takes", nlohmann::json::array()}}}}}}});
+                   {{{"id", "t1"},
+                     {"bars", 2},
+                     {"tempoBpm", 120.0},
+                     {"timeSigNum", 4},
+                     {"timeSigDen", 4},
+                     {"durationSec", 4.0}},
+                    {{"id", "t2"},
+                     {"bars", 4},
+                     {"tempoBpm", 120.0},
+                     {"timeSigNum", 4},
+                     {"timeSigDen", 4},
+                     {"durationSec", 8.0}}}}},
+                 {{"id", "r2"},
+                  {"title", "Lead"},
+                  {"used", true},
+                  {"usedSongTitle", "Song"},
+                  {"takes", nlohmann::json::array()}}}}}}});
     Expect(riffs.known && riffs.path == "C:/riffs" && riffs.riffs.size() == 2, "the riff library is read");
     const auto* chug = riffs.Find("r1");
-    Expect(chug != nullptr && chug->PreferredTake() != nullptr && chug->PreferredTake()->id == "t2", "a riff plays its preferred take");
-    Expect(chug != nullptr && RiffTakeSummary(*chug->PreferredTake()) == "4 bars \xC2\xB7 120 BPM \xC2\xB7 4/4 \xC2\xB7 0:08", "a take in one line");
-    Expect(chug != nullptr && RiffMeta(*chug) == "Tags: metal, drop d \xC2\xB7 Unused \xC2\xB7 Takes: 2", "a riff's tags, use and takes");
-    Expect(riffs.Find("r2") != nullptr && riffs.Find("r2")->PreferredTake() == nullptr && RiffMeta(*riffs.Find("r2")).find("Used (Song)") != std::string::npos,
+    Expect(chug != nullptr && chug->PreferredTake() != nullptr && chug->PreferredTake()->id == "t2",
+           "a riff plays its preferred take");
+    Expect(chug != nullptr &&
+               RiffTakeSummary(*chug->PreferredTake()) == "4 bars \xC2\xB7 120 BPM \xC2\xB7 4/4 \xC2\xB7 0:08",
+           "a take in one line");
+    Expect(chug != nullptr && RiffMeta(*chug) == "Tags: metal, drop d \xC2\xB7 Unused \xC2\xB7 Takes: 2",
+           "a riff's tags, use and takes");
+    Expect(riffs.Find("r2") != nullptr && riffs.Find("r2")->PreferredTake() == nullptr &&
+               RiffMeta(*riffs.Find("r2")).find("Used (Song)") != std::string::npos,
            "a riff with no takes, used in a song");
-    Expect(client.State().demo.riffClips.size() == 1 && client.State().demo.riffClips[0].takeId == "t2", "favourites are still demo clips");
+    Expect(client.State().demo.riffClips.size() == 1 && client.State().demo.riffClips[0].takeId == "t2",
+           "favourites are still demo clips");
 
     // Armed with 64 bars, as the web UI arms, so the live waveform's scale matches.
     commands.ArmRiffCapture(120.0, 4, 4, 1, true);
-    Expect(!sent.empty() && sent.back().value("type", "") == "armRiffCapture" && sent.back().value("bars", 0) == 64, "a capture is armed for 64 bars");
+    Expect(!sent.empty() && sent.back().value("type", "") == "armRiffCapture" && sent.back().value("bars", 0) == 64,
+           "a capture is armed for 64 bars");
 
-    deliver({{"type", "riffCaptureArmed"}, {"takeId", "k1"}, {"tempoBpm", 120.0}, {"timeSigNum", 4}, {"timeSigDen", 4}, {"bars", 64}});
-    Expect(riffs.capture.phase == RiffCapture::Phase::Armed && RiffCaptureStatus(riffs.capture, 48000.0).rfind("Armed", 0) == 0, "armed");
+    deliver({{"type", "riffCaptureArmed"},
+             {"takeId", "k1"},
+             {"tempoBpm", 120.0},
+             {"timeSigNum", 4},
+             {"timeSigDen", 4},
+             {"bars", 64}});
+    Expect(riffs.capture.phase == RiffCapture::Phase::Armed &&
+               RiffCaptureStatus(riffs.capture, 48000.0).rfind("Armed", 0) == 0,
+           "armed");
 
-    deliver({{"type", "riffCaptureStarted"}, {"takeId", "k1"}, {"bars", 64}, {"tempoBpm", 120.0}, {"timeSigNum", 4}, {"timeSigDen", 4},
-             {"countInBars", 0}, {"barAlignOffsetSamples", 4800}});
-    Expect(riffs.capture.phase == RiffCapture::Phase::Recording && riffs.capture.barAlignOffsetSamples == 4800, "recording from the first note");
+    deliver({{"type", "riffCaptureStarted"},
+             {"takeId", "k1"},
+             {"bars", 64},
+             {"tempoBpm", 120.0},
+             {"timeSigNum", 4},
+             {"timeSigDen", 4},
+             {"countInBars", 0},
+             {"barAlignOffsetSamples", 4800}});
+    Expect(riffs.capture.phase == RiffCapture::Phase::Recording && riffs.capture.barAlignOffsetSamples == 4800,
+           "recording from the first note");
 
     // A bar at 120 BPM in 4/4 is 96000 samples at 48 kHz; the buffer is 64 of them.
-    deliver({{"type", "riffCaptureProgress"}, {"capturedSamples", 614400}, {"waveformPeaks", std::vector<double>(256, 0.25)}});
+    deliver({{"type", "riffCaptureProgress"},
+             {"capturedSamples", 614400},
+             {"waveformPeaks", std::vector<double>(256, 0.25)}});
     Expect(riffs.capture.peaks.size() == 256 && std::abs(RiffCaptureFill(riffs.capture, 48000.0) - 0.1) < 1e-9,
            "the live trace stops a tenth of the way through the buffer");
-    Expect(RiffCaptureStatus(riffs.capture, 48000.0) == "Recording \xC2\xB7 ~7 bars @ 120 BPM", "and says how many bars so far");
+    Expect(RiffCaptureStatus(riffs.capture, 48000.0) == "Recording \xC2\xB7 ~7 bars @ 120 BPM",
+           "and says how many bars so far");
 
-    deliver({{"type", "riffCaptureStopped"}, {"takeId", "k1"}, {"bars", 4}, {"capturedSamples", 384000}, {"sampleRate", 48000.0},
-             {"hasAudio", true}, {"waveformPeaks", std::vector<double>(256, 0.5)}});
-    Expect(riffs.capture.phase == RiffCapture::Phase::Complete && riffs.capture.serial == 1 && riffs.capture.barAlignOffsetSamples == 4800,
+    deliver({{"type", "riffCaptureStopped"},
+             {"takeId", "k1"},
+             {"bars", 4},
+             {"capturedSamples", 384000},
+             {"sampleRate", 48000.0},
+             {"hasAudio", true},
+             {"waveformPeaks", std::vector<double>(256, 0.5)}});
+    Expect(riffs.capture.phase == RiffCapture::Phase::Complete && riffs.capture.serial == 1 &&
+               riffs.capture.barAlignOffsetSamples == 4800,
            "a captured take keeps where its first bar starts");
     Expect(RiffCaptureStatus(riffs.capture, 0.0) == "Captured \xC2\xB7 8.0 s, 4 bars", "and says how long it is");
 
-    deliver({{"type", "riffCaptureStopped"}, {"takeId", "k1"}, {"bars", 2}, {"capturedSamples", 192000}, {"sampleRate", 48000.0},
-             {"hasAudio", true}, {"source", "trim"}, {"tempoBpm", 120.0}, {"timeSigNum", 4}, {"timeSigDen", 4}});
+    deliver({{"type", "riffCaptureStopped"},
+             {"takeId", "k1"},
+             {"bars", 2},
+             {"capturedSamples", 192000},
+             {"sampleRate", 48000.0},
+             {"hasAudio", true},
+             {"source", "trim"},
+             {"tempoBpm", 120.0},
+             {"timeSigNum", 4},
+             {"timeSigDen", 4}});
     Expect(riffs.capture.serial == 2 && riffs.capture.barAlignOffsetSamples == 0 && riffs.capture.source == "trim",
            "a cropped take starts where it was cut");
 
     deliver({{"type", "riffSaved"}, {"riffId", "r3"}, {"takeId", "k1"}, {"path", "C:/riffs/takes/r3/x.wav"}});
-    Expect(riffs.capture.phase == RiffCapture::Phase::Idle && riffs.savedSerial == 1 && riffs.lastSavedRiffId == "r3", "saving ends the take");
+    Expect(riffs.capture.phase == RiffCapture::Phase::Idle && riffs.savedSerial == 1 && riffs.lastSavedRiffId == "r3",
+           "saving ends the take");
 
     // A refused capture never starts: the dialog must not wait on it.
-    deliver({{"type", "riffCaptureArmed"}, {"takeId", "k2"}, {"tempoBpm", 100.0}, {"timeSigNum", 3}, {"timeSigDen", 4}});
+    deliver(
+        {{"type", "riffCaptureArmed"}, {"takeId", "k2"}, {"tempoBpm", 100.0}, {"timeSigNum", 3}, {"timeSigDen", 4}});
     deliver({{"type", "error"}, {"message", "Riff Capture"}, {"detail", "No audio device"}});
     Expect(riffs.capture.phase == RiffCapture::Phase::Idle, "a refused capture is dropped");
 
@@ -1905,36 +2140,56 @@ void TestLooperMessages()
         client.DrainPending();
     };
     const auto setLoopers = [&sent] {
-        return std::count_if(sent.begin(), sent.end(), [](const nlohmann::json& m) { return m.value("type", "") == "setLooper"; });
+        return std::count_if(sent.begin(), sent.end(),
+                             [](const nlohmann::json& m) { return m.value("type", "") == "setLooper"; });
     };
     const auto& looper = client.State().looper;
     client.MutableState().appSettings["features.looper.enabled"] = true;
 
-    const nlohmann::json playing = {{"type", "looperState"}, {"available", true}, {"state", "playing"}, {"playing", true},
-                                    {"positionSec", 1.0}, {"lengthSec", 4.0}, {"bars", 4}, {"barIndex", 2}, {"layerCount", 2},
+    const nlohmann::json playing = {{"type", "looperState"},
+                                    {"available", true},
+                                    {"state", "playing"},
+                                    {"playing", true},
+                                    {"positionSec", 1.0},
+                                    {"lengthSec", 4.0},
+                                    {"bars", 4},
+                                    {"barIndex", 2},
+                                    {"layerCount", 2},
                                     {"settings", {{"enabled", false}, {"length", "bars"}, {"bars", 4}}}};
     deliver(playing);
     Expect(looper.known && looper.state == "playing" && looper.settings.length == "bars", "the looper's state is read");
     Expect(setLoopers() == 1, "the engine's looper is turned on to follow the switch");
     deliver(playing);
     Expect(setLoopers() == 1, "once, until the engine agrees");
-    Expect(LooperMainButtonLabel(looper.state) == "Dub" && LooperStatusLabel(looper.state) == "Playing", "the state button overdubs next");
+    Expect(LooperMainButtonLabel(looper.state) == "Dub" && LooperStatusLabel(looper.state) == "Playing",
+           "the state button overdubs next");
     Expect(LooperBarText(looper) == "bar 2 of 4 \xC2\xB7 2 layers", "the bar readout");
     Expect(LooperTimeText(looper, 1.0) == "0:01.0 / 0:04.0", "the time readout");
-    Expect(std::abs(LooperPositionNow(looper, looper.positionAt + 3.5) - 0.5) < 1e-9, "the playhead runs on and wraps by itself");
+    Expect(std::abs(LooperPositionNow(looper, looper.positionAt + 3.5) - 0.5) < 1e-9,
+           "the playhead runs on and wraps by itself");
 
     deliver({{"type", "looperLayers"},
              {"layers",
               {{{"id", "L2"}, {"title", "Layer 2"}, {"order", 2}, {"muted", true}, {"level", 1.0}},
-               {{"id", "L1"}, {"title", "Layer 1"}, {"order", 1}, {"level", 0.5}, {"tone", {{"presetName", "Clean"}}}, {"retone", {{"progress", 0.25}}}}}}});
-    Expect(looper.layers.size() == 2 && looper.layers[1].presetName == "Clean" && looper.layers[1].retoneProgress == 0.25, "the layers are read");
+               {{"id", "L1"},
+                {"title", "Layer 1"},
+                {"order", 1},
+                {"level", 0.5},
+                {"tone", {{"presetName", "Clean"}}},
+                {"retone", {{"progress", 0.25}}}}}}});
+    Expect(looper.layers.size() == 2 && looper.layers[1].presetName == "Clean" &&
+               looper.layers[1].retoneProgress == 0.25,
+           "the layers are read");
     deliver({{"type", "looperWaveforms"},
-             {"layers", {{"L1", {{"peaksL", std::vector<double>(256, 0.8)}, {"peaksR", std::vector<double>(256, 0.2)}}},
-                         {"L2", {{"peaksL", std::vector<double>(256, 1.0)}, {"peaksR", std::vector<double>(256, 1.0)}}}}}});
+             {"layers",
+              {{"L1", {{"peaksL", std::vector<double>(256, 0.8)}, {"peaksR", std::vector<double>(256, 0.2)}}},
+               {"L2", {{"peaksL", std::vector<double>(256, 1.0)}, {"peaksR", std::vector<double>(256, 1.0)}}}}}});
     const auto mix = LooperMixPeaks(looper);
-    Expect(mix.size() == 256 && std::abs(mix[0] - 0.4f) < 1e-6f, "the waveform sums the audible layers (the muted one left out) at their level");
+    Expect(mix.size() == 256 && std::abs(mix[0] - 0.4f) < 1e-6f,
+           "the waveform sums the audible layers (the muted one left out) at their level");
     deliver({{"type", "looperLayers"}, {"layers", {{{"id", "L1"}, {"order", 1}, {"level", 0.5}}}}});
-    Expect(looper.layers.size() == 1 && looper.layers[0].peaksL.size() == 256, "a layer keeps its peaks when the list changes");
+    Expect(looper.layers.size() == 1 && looper.layers[0].peaksL.size() == 256,
+           "a layer keeps its peaks when the list changes");
 
     auto withNotice = playing;
     withNotice["settings"]["enabled"] = true;
@@ -1946,7 +2201,8 @@ void TestLooperMessages()
 
     client.MutableState().appSettings["features.looper.enabled"] = false;
     client.SyncLooperEnabled();
-    Expect(setLoopers() == 2 && sent.back().value("enabled", true) == false, "switching the feature off turns the engine's looper off");
+    Expect(setLoopers() == 2 && sent.back().value("enabled", true) == false,
+           "switching the feature off turns the engine's looper off");
 }
 
 int main()

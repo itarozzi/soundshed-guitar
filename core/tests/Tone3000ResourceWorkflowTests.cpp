@@ -595,8 +595,8 @@ bool TestRemoteImportShortensLongNames()
     const auto fileName = resource->filePath.filename().string();
     const auto folder = resource->filePath.parent_path().filename().string();
 
-    if (fileName.size() > 72 || fileName.rfind(".nam") != fileName.size() - 4 || fileName.rfind("Fender_Vibroverb_1964", 0) != 0 ||
-        folder.size() > 40)
+    if (fileName.size() > 72 || fileName.rfind(".nam") != fileName.size() - 4 ||
+        fileName.rfind("Fender_Vibroverb_1964", 0) != 0 || folder.size() > 40)
     {
         std::cerr << "  The import wrote " << folder << "/" << fileName << "\n";
         return false;

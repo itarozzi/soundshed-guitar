@@ -258,7 +258,7 @@ class MetronomeService
     std::uint32_t mLastBeatPulseSeq = 0; // message thread
     LoopClickSync mLoopSync;             // audio thread, for the next Render()
     double mSamplesUntilTick = 0.0;
-    double mSamplesSinceTick = 1.0e9;    // since the last tick played
+    double mSamplesSinceTick = 1.0e9; // since the last tick played
     int mClickSamplesRemaining = 0;
     double mClickPhase = 0.0;
     double mClickPhaseIncrement = 0.0;

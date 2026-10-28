@@ -9,7 +9,7 @@ namespace nanoq
 /// The audio side: hands each block to the engine. Stereo in, stereo out, plus MIDI in.
 class NanoQProcessor final : public q_plug::processor
 {
-public:
+  public:
     explicit NanoQProcessor(NanoQController& ctl);
 
     channel_config channels() const override
@@ -20,6 +20,7 @@ public:
     void activate() override;
     void deactivate() override;
     void reset() override;
+
     bool has_midi_input() const override
     {
         return true;
@@ -30,7 +31,7 @@ public:
 
     void process(in_channels const& in, out_channels const& out) override;
 
-private:
+  private:
     NanoQController& mCtl;
 };
 } // namespace nanoq

@@ -240,12 +240,14 @@ void AutomationSlotTable::InitializeRegistry(
     // Not in kDefaultSlots, which fixes the VST3 parameter order.
     {
         static constexpr std::pair<const char*, looper::LooperAction> kLooperTriggers[] = {
-            {"recPlayDub", looper::LooperAction::RecPlayDub}, {"stop", looper::LooperAction::Stop},
-            {"undo", looper::LooperAction::Undo},             {"redo", looper::LooperAction::Redo},
+            {"recPlayDub", looper::LooperAction::RecPlayDub},
+            {"stop", looper::LooperAction::Stop},
+            {"undo", looper::LooperAction::Undo},
+            {"redo", looper::LooperAction::Redo},
             {"clear", looper::LooperAction::Clear},
         };
         static constexpr const char* kLooperLabels[] = {"Looper Rec/Play/Dub", "Looper Stop", "Looper Undo",
-                                                       "Looper Redo", "Looper Clear"};
+                                                        "Looper Redo", "Looper Clear"};
 
         for (std::size_t i = 0; i < std::size(kLooperTriggers); ++i)
         {
@@ -456,6 +458,7 @@ void AutomationSlotTable::BindDawParameters(const std::vector<std::string>& slot
     {
         AttachDawValue(slot);
     }
+
     SyncGlobalSlotValues();
 }
 
@@ -474,7 +477,9 @@ void AutomationSlotTable::SyncGlobalSlotValues()
     for (auto& slot : mSlots)
     {
         const auto* entry = mRegistry.Find(slot.address);
-        if (entry == nullptr || !entry->get || entry->isTrigger || entry->isStepped || entry->maxValue <= entry->minValue)
+
+        if (entry == nullptr || !entry->get || entry->isTrigger || entry->isStepped ||
+            entry->maxValue <= entry->minValue)
         {
             continue;
         }

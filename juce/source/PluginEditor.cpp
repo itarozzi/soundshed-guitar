@@ -17,444 +17,508 @@
 
 namespace
 {
-    const juce::String kResourceOrigin = "http://soundshed.local/";
+const juce::String kResourceOrigin = "http://soundshed.local/";
 
-    bool isYouTubeUrl (const juce::String& url)
-    {
-        return url.containsIgnoreCase ("youtube-nocookie.com")
-               || url.containsIgnoreCase ("youtube.com")
-               || url.containsIgnoreCase ("youtu.be");
-    }
+bool isYouTubeUrl(const juce::String& url)
+{
+    return url.containsIgnoreCase("youtube-nocookie.com") || url.containsIgnoreCase("youtube.com") ||
+           url.containsIgnoreCase("youtu.be");
+}
 
-    bool isScalexUrl (const juce::String& url)
-    {
-         return url.equalsIgnoreCase ("https://scalex.soundshed.com")
-             || url.startsWithIgnoreCase ("https://scalex.soundshed.com/")
-             || url.startsWithIgnoreCase ("https://scalex.soundshed.com?");
-    }
+bool isScalexUrl(const juce::String& url)
+{
+    return url.equalsIgnoreCase("https://scalex.soundshed.com") ||
+           url.startsWithIgnoreCase("https://scalex.soundshed.com/") ||
+           url.startsWithIgnoreCase("https://scalex.soundshed.com?");
+}
 
-    // The Jam view embeds YouTube through a first-party wrapper page served from
-    // the Soundshed API (see api /v1/embed/youtube). On WebKit backends the app
-    // WebView has an opaque origin, so YouTube only initialises when its parent
-    // frame has a real https origin. The wrapper must therefore stay inside the
-    // WebView rather than being kicked out to the system browser.
-    bool isSoundshedEmbedUrl (const juce::String& url)
-    {
-        return url.startsWithIgnoreCase ("https://api-guitar.soundshed.com/")
-               && url.containsIgnoreCase ("/embed/");
-    }
+// The Jam view embeds YouTube through a first-party wrapper page served from
+// the Soundshed API (see api /v1/embed/youtube). On WebKit backends the app
+// WebView has an opaque origin, so YouTube only initialises when its parent
+// frame has a real https origin. The wrapper must therefore stay inside the
+// WebView rather than being kicked out to the system browser.
+bool isSoundshedEmbedUrl(const juce::String& url)
+{
+    return url.startsWithIgnoreCase("https://api-guitar.soundshed.com/") && url.containsIgnoreCase("/embed/");
+}
 
-    juce::WebBrowserComponent::Options::Backend getPreferredBrowserBackend()
-    {
+juce::WebBrowserComponent::Options::Backend getPreferredBrowserBackend()
+{
 #if JUCE_WINDOWS
-        return juce::WebBrowserComponent::Options::Backend::webview2;
+    return juce::WebBrowserComponent::Options::Backend::webview2;
 #else
-        return juce::WebBrowserComponent::Options::Backend::defaultBackend;
+    return juce::WebBrowserComponent::Options::Backend::defaultBackend;
 #endif
-    }
+}
 
-    const char* getMimeForExtension (const juce::String& extension)
-    {
-        // Android's WebResourceResponse documents that the MIME type "must not
-        // include a charset parameter" — it takes the encoding as a separate
-        // argument, which JUCE fills in for any "text" type. Handing it
-        // "text/html; charset=utf-8" makes the WebView treat the page as an
-        // unknown type and render the markup as plain text.
+const char* getMimeForExtension(const juce::String& extension)
+{
+    // Android's WebResourceResponse documents that the MIME type "must not
+    // include a charset parameter" — it takes the encoding as a separate
+    // argument, which JUCE fills in for any "text" type. Handing it
+    // "text/html; charset=utf-8" makes the WebView treat the page as an
+    // unknown type and render the markup as plain text.
 #if JUCE_ANDROID
-        constexpr auto htmlMime = "text/html";
+    constexpr auto htmlMime = "text/html";
 #else
-        constexpr auto htmlMime = "text/html; charset=utf-8";
+    constexpr auto htmlMime = "text/html; charset=utf-8";
 #endif
 
-        static const std::unordered_map<juce::String, const char*> mimeMap = {
-            { "htm", htmlMime },
-            { "html", htmlMime },
-            { "txt", "text/plain" },
-            { "jpg", "image/jpeg" },
-            { "jpeg", "image/jpeg" },
-            { "svg", "image/svg+xml" },
-            { "ico", "image/vnd.microsoft.icon" },
-            { "json", "application/json" },
-            { "png", "image/png" },
-            { "css", "text/css" },
-            { "map", "application/json" },
-            { "js", "text/javascript" },
-            { "woff2", "font/woff2" }
-        };
+    static const std::unordered_map<juce::String, const char*> mimeMap = {{"htm", htmlMime},
+                                                                          {"html", htmlMime},
+                                                                          {"txt", "text/plain"},
+                                                                          {"jpg", "image/jpeg"},
+                                                                          {"jpeg", "image/jpeg"},
+                                                                          {"svg", "image/svg+xml"},
+                                                                          {"ico", "image/vnd.microsoft.icon"},
+                                                                          {"json", "application/json"},
+                                                                          {"png", "image/png"},
+                                                                          {"css", "text/css"},
+                                                                          {"map", "application/json"},
+                                                                          {"js", "text/javascript"},
+                                                                          {"woff2", "font/woff2"}};
 
-        const auto key = extension.toLowerCase();
-        if (const auto it = mimeMap.find (key); it != mimeMap.end())
-            return it->second;
+    const auto key = extension.toLowerCase();
 
-        return "application/octet-stream";
+    if (const auto it = mimeMap.find(key); it != mimeMap.end())
+    {
+        return it->second;
     }
 
-    std::vector<std::byte> readFileToVector (const juce::File& file)
+    return "application/octet-stream";
+}
+
+std::vector<std::byte> readFileToVector(const juce::File& file)
+{
+    juce::FileInputStream stream(file);
+
+    if (!stream.openedOk())
     {
-        juce::FileInputStream stream (file);
-        if (!stream.openedOk())
-            return {};
+        return {};
+    }
 
-        std::vector<std::byte> result (static_cast<size_t> (stream.getTotalLength()));
-        if (result.empty())
-            return result;
+    std::vector<std::byte> result(static_cast<size_t>(stream.getTotalLength()));
 
-        stream.read (result.data(), static_cast<int> (result.size()));
+    if (result.empty())
+    {
         return result;
     }
 
-    void prependUtf8Bom (std::vector<std::byte>& data)
-    {
-        constexpr std::byte bom[] { std::byte { 0xef }, std::byte { 0xbb }, std::byte { 0xbf } };
-
-        if (data.size() >= 3
-            && data[0] == bom[0]
-            && data[1] == bom[1]
-            && data[2] == bom[2])
-            return;
-
-        data.insert (data.begin(), bom, bom + 3);
-    }
-
-    bool isSafeResourcePath (const juce::String& path)
-    {
-        if (path.isEmpty() || path.startsWithChar ('/') || path.startsWithChar ('\\') || path.contains (":"))
-            return false;
-
-        juce::StringArray parts;
-        parts.addTokens (path.replaceCharacter ('\\', '/'), "/", "");
-        for (const auto& part : parts)
-        {
-            if (part.isEmpty() || part == "." || part == "..")
-                return false;
-        }
-
-        return true;
-    }
-
-    juce::String getResourcePathFromUrl (juce::String url)
-    {
-        url = url.upToFirstOccurrenceOf ("#", false, false)
-                  .upToFirstOccurrenceOf ("?", false, false);
-
-        if (url.startsWith (kResourceOrigin))
-            url = url.substring (kResourceOrigin.length());
-        else if (url.startsWithChar ('/'))
-            url = url.substring (1);
-
-        return url.isEmpty() ? juce::String ("index.html") : url;
-    }
-
-    juce::String extractToneSharingDeepLinkQuery (juce::String commandLine)
-    {
-        auto normalized = juce::URL::removeEscapeChars (commandLine.unquoted().trim());
-
-        auto extractValue = [&normalized] (const juce::String& key) -> juce::String
-        {
-            const auto marker = key + "=";
-            const auto index = normalized.indexOfIgnoreCase (marker);
-            if (index < 0)
-                return {};
-
-            auto value = normalized.substring (index + marker.length());
-            const auto ampPos = value.indexOfChar ('&');
-            if (ampPos >= 0)
-                value = value.substring (0, ampPos);
-            const auto spacePos = value.indexOfChar (' ');
-            if (spacePos >= 0)
-                value = value.substring (0, spacePos);
-            const auto quotePos = value.indexOfChar ('\"');
-            if (quotePos >= 0)
-                value = value.substring (0, quotePos);
-            const auto hashPos = value.indexOfChar ('#');
-            if (hashPos >= 0)
-                value = value.substring (0, hashPos);
-
-            return value.trim();
-        };
-
-        const auto itemId = extractValue ("itemId");
-        const auto packId = extractValue ("packId");
-
-        juce::String sanitized;
-        if (itemId.isNotEmpty())
-            sanitized << "itemId=" << itemId;
-        if (packId.isNotEmpty())
-        {
-            if (sanitized.isNotEmpty())
-                sanitized << "&";
-            sanitized << "packId=" << packId;
-        }
-
-        return sanitized;
-    }
-
-    juce::String getStandaloneDeepLinkQuery()
-    {
-        return extractToneSharingDeepLinkQuery (juce::JUCEApplicationBase::getCommandLineParameters());
-    }
-
+    stream.read(result.data(), static_cast<int>(result.size()));
+    return result;
 }
 
-bool SinglePageBrowser::pageAboutToLoad (const juce::String& newURL)
+void prependUtf8Bom(std::vector<std::byte>& data)
 {
-    if (newURL.startsWith (getResourceProviderRoot()))
+    constexpr std::byte bom[]{std::byte{0xef}, std::byte{0xbb}, std::byte{0xbf}};
+
+    if (data.size() >= 3 && data[0] == bom[0] && data[1] == bom[1] && data[2] == bom[2])
+    {
+        return;
+    }
+
+    data.insert(data.begin(), bom, bom + 3);
+}
+
+bool isSafeResourcePath(const juce::String& path)
+{
+    if (path.isEmpty() || path.startsWithChar('/') || path.startsWithChar('\\') || path.contains(":"))
+    {
+        return false;
+    }
+
+    juce::StringArray parts;
+    parts.addTokens(path.replaceCharacter('\\', '/'), "/", "");
+
+    for (const auto& part : parts)
+    {
+        if (part.isEmpty() || part == "." || part == "..")
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+juce::String getResourcePathFromUrl(juce::String url)
+{
+    url = url.upToFirstOccurrenceOf("#", false, false).upToFirstOccurrenceOf("?", false, false);
+
+    if (url.startsWith(kResourceOrigin))
+    {
+        url = url.substring(kResourceOrigin.length());
+    }
+    else if (url.startsWithChar('/'))
+    {
+        url = url.substring(1);
+    }
+
+    return url.isEmpty() ? juce::String("index.html") : url;
+}
+
+juce::String extractToneSharingDeepLinkQuery(juce::String commandLine)
+{
+    auto normalized = juce::URL::removeEscapeChars(commandLine.unquoted().trim());
+
+    auto extractValue = [&normalized](const juce::String& key) -> juce::String {
+        const auto marker = key + "=";
+        const auto index = normalized.indexOfIgnoreCase(marker);
+
+        if (index < 0)
+        {
+            return {};
+        }
+
+        auto value = normalized.substring(index + marker.length());
+        const auto ampPos = value.indexOfChar('&');
+
+        if (ampPos >= 0)
+        {
+            value = value.substring(0, ampPos);
+        }
+
+        const auto spacePos = value.indexOfChar(' ');
+
+        if (spacePos >= 0)
+        {
+            value = value.substring(0, spacePos);
+        }
+
+        const auto quotePos = value.indexOfChar('\"');
+
+        if (quotePos >= 0)
+        {
+            value = value.substring(0, quotePos);
+        }
+
+        const auto hashPos = value.indexOfChar('#');
+
+        if (hashPos >= 0)
+        {
+            value = value.substring(0, hashPos);
+        }
+
+        return value.trim();
+    };
+
+    const auto itemId = extractValue("itemId");
+    const auto packId = extractValue("packId");
+
+    juce::String sanitized;
+
+    if (itemId.isNotEmpty())
+    {
+        sanitized << "itemId=" << itemId;
+    }
+
+    if (packId.isNotEmpty())
+    {
+        if (sanitized.isNotEmpty())
+        {
+            sanitized << "&";
+        }
+
+        sanitized << "packId=" << packId;
+    }
+
+    return sanitized;
+}
+
+juce::String getStandaloneDeepLinkQuery()
+{
+    return extractToneSharingDeepLinkQuery(juce::JUCEApplicationBase::getCommandLineParameters());
+}
+} // namespace
+
+bool SinglePageBrowser::pageAboutToLoad(const juce::String& newURL)
+{
+    if (newURL.startsWith(getResourceProviderRoot()))
+    {
         return true;
+    }
 
     // Allow local file navigation when resource-provider mode is unavailable.
-    if (newURL.startsWith ("file://") || newURL.startsWith ("about:blank"))
+    if (newURL.startsWith("file://") || newURL.startsWith("about:blank"))
+    {
         return true;
+    }
 
     // Allow data: URLs (used by the WebView2-missing error page)
-    if (newURL.startsWith ("data:"))
+    if (newURL.startsWith("data:"))
+    {
         return true;
+    }
 
     // The Jam view embeds trusted tool/player pages that should remain inside the WebView.
-    if (isYouTubeUrl (newURL) || isScalexUrl (newURL) || isSoundshedEmbedUrl (newURL))
-        return true;
-
-    if (newURL.startsWith ("https://") || newURL.startsWith ("http://"))
+    if (isYouTubeUrl(newURL) || isScalexUrl(newURL) || isSoundshedEmbedUrl(newURL))
     {
-        juce::URL (newURL).launchInDefaultBrowser();
+        return true;
+    }
+
+    if (newURL.startsWith("https://") || newURL.startsWith("http://"))
+    {
+        juce::URL(newURL).launchInDefaultBrowser();
         return false;
     }
 
     return false;
 }
 
-void SinglePageBrowser::setPageFinishedCallback (PageFinishedCallback callback)
+void SinglePageBrowser::setPageFinishedCallback(PageFinishedCallback callback)
 {
-    pageFinishedCallback = std::move (callback);
+    pageFinishedCallback = std::move(callback);
 }
 
-void SinglePageBrowser::setNetworkErrorCallback (NetworkErrorCallback callback)
+void SinglePageBrowser::setNetworkErrorCallback(NetworkErrorCallback callback)
 {
-    networkErrorCallback = std::move (callback);
+    networkErrorCallback = std::move(callback);
 }
 
-void SinglePageBrowser::pageFinishedLoading (const juce::String& url)
+void SinglePageBrowser::pageFinishedLoading(const juce::String& url)
 {
     if (pageFinishedCallback != nullptr)
-        pageFinishedCallback (url);
+    {
+        pageFinishedCallback(url);
+    }
 }
 
-bool SinglePageBrowser::pageLoadHadNetworkError (const juce::String& errorInfo)
+bool SinglePageBrowser::pageLoadHadNetworkError(const juce::String& errorInfo)
 {
     if (networkErrorCallback != nullptr)
-        return networkErrorCallback (errorInfo);
+    {
+        return networkErrorCallback(errorInfo);
+    }
 
     return false;
 }
 
-void SinglePageBrowser::newWindowAttemptingToLoad (const juce::String& newURL)
+void SinglePageBrowser::newWindowAttemptingToLoad(const juce::String& newURL)
 {
     // YouTube embeds frequently request popup windows for watch pages, sign-in, and
     // player chrome. Ignore those requests so the iframe remains in-place on macOS.
-    if (isYouTubeUrl (newURL) || isSoundshedEmbedUrl (newURL))
+    if (isYouTubeUrl(newURL) || isSoundshedEmbedUrl(newURL))
+    {
         return;
+    }
 
-    if (newURL.startsWith ("https://") || newURL.startsWith ("http://"))
-        juce::URL (newURL).launchInDefaultBrowser();
+    if (newURL.startsWith("https://") || newURL.startsWith("http://"))
+    {
+        juce::URL(newURL).launchInDefaultBrowser();
+    }
 }
 
 namespace
 {
-    using soundshed::editor::writeStartupLog;
+using soundshed::editor::writeStartupLog;
 
-    // The WebView2 profile: one stable per-user folder, shared by the support probe,
-    // the editor itself and the standalone's launch warm-up (WebView2UserData.h says
-    // why it is keyed on the runtime's extra browser arguments).
-    juce::File webView2UserDataFolder()
-    {
-        return guitarfx::webview2::userDataFolderForThisProcess();
-    }
+// The WebView2 profile: one stable per-user folder, shared by the support probe,
+// the editor itself and the standalone's launch warm-up (WebView2UserData.h says
+// why it is keyed on the runtime's extra browser arguments).
+juce::File webView2UserDataFolder()
+{
+    return guitarfx::webview2::userDataFolderForThisProcess();
+}
 
 #if JUCE_WINDOWS
-    // Builds before September 2026 left one profile per launch under %TEMP%. Once per
-    // process, off the message thread; a profile another process still holds is left
-    // for a later pass (sweepLegacyProfileFolders).
-    //
-    // A thread JUCE deletes at shutdown rather than a detached one: in a plugin, JUCE's
-    // singletons go when the last instance does, before the host can unload the DLL, and
-    // this one stops the sweep at the next folder and waits for it there. A detached sweep
-    // still deleting gigabytes of profiles would run on into unmapped code.
-    class LegacyWebView2Sweep final : public juce::DeletedAtShutdown, private juce::Thread
+// Builds before September 2026 left one profile per launch under %TEMP%. Once per
+// process, off the message thread; a profile another process still holds is left
+// for a later pass (sweepLegacyProfileFolders).
+//
+// A thread JUCE deletes at shutdown rather than a detached one: in a plugin, JUCE's
+// singletons go when the last instance does, before the host can unload the DLL, and
+// this one stops the sweep at the next folder and waits for it there. A detached sweep
+// still deleting gigabytes of profiles would run on into unmapped code.
+class LegacyWebView2Sweep final : public juce::DeletedAtShutdown, private juce::Thread
+{
+  public:
+    LegacyWebView2Sweep() : juce::Thread("Legacy WebView2 profile sweep")
     {
-    public:
-        LegacyWebView2Sweep() : juce::Thread ("Legacy WebView2 profile sweep")
-        {
-            startThread();
-        }
-
-        ~LegacyWebView2Sweep() override
-        {
-            stopThread (-1);
-            clearSingletonInstance();
-        }
-
-        JUCE_DECLARE_SINGLETON_INLINE (LegacyWebView2Sweep, true)
-
-    private:
-        void run() override
-        {
-            const auto swept = guitarfx::webview2::sweepLegacyProfileFolders (
-                juce::File::getSpecialLocation (juce::File::tempDirectory),
-                [this] { return threadShouldExit(); });
-
-            if (swept.removed > 0 || swept.skipped > 0)
-                writeStartupLog ("[PluginEditor] Legacy WebView2 profiles: removed "
-                                 + juce::String (swept.removed) + ", still in use "
-                                 + juce::String (swept.skipped));
-        }
-    };
-
-    void sweepLegacyWebView2ProfilesOnce()
-    {
-        static std::once_flag once;
-
-        std::call_once (once, [] { (void) LegacyWebView2Sweep::getInstance(); });
+        startThread();
     }
+
+    ~LegacyWebView2Sweep() override
+    {
+        stopThread(-1);
+        clearSingletonInstance();
+    }
+
+    JUCE_DECLARE_SINGLETON_INLINE(LegacyWebView2Sweep, true)
+
+  private:
+    void run() override
+    {
+        const auto swept = guitarfx::webview2::sweepLegacyProfileFolders(
+            juce::File::getSpecialLocation(juce::File::tempDirectory), [this] { return threadShouldExit(); });
+
+        if (swept.removed > 0 || swept.skipped > 0)
+        {
+            writeStartupLog("[PluginEditor] Legacy WebView2 profiles: removed " + juce::String(swept.removed) +
+                            ", still in use " + juce::String(swept.skipped));
+        }
+    }
+};
+
+void sweepLegacyWebView2ProfilesOnce()
+{
+    static std::once_flag once;
+
+    std::call_once(once, [] { (void)LegacyWebView2Sweep::getInstance(); });
+}
 #endif
 
 #if JUCE_LINUX
-    bool hasNonEmptyEnvironmentVariable (const char* name)
+bool hasNonEmptyEnvironmentVariable(const char* name)
+{
+    if (const auto* value = std::getenv(name); value != nullptr)
     {
-        if (const auto* value = std::getenv (name); value != nullptr)
-            return value[0] != '\0';
-
-        return false;
+        return value[0] != '\0';
     }
 
-    void setLinuxWebKitExecPathFallback()
-    {
-        if (hasNonEmptyEnvironmentVariable ("WEBKIT_EXEC_PATH"))
-            return;
-
-        const std::filesystem::path candidateDirs[] = {
-            "/usr/libexec/webkit2gtk-4.1",
-            "/usr/libexec/webkit2gtk-4.0"
-        };
-
-        for (const auto& candidateDir : candidateDirs)
-        {
-            std::error_code error;
-            if (!std::filesystem::exists (candidateDir / "WebKitWebProcess", error))
-                continue;
-
-            if (::setenv ("WEBKIT_EXEC_PATH", candidateDir.c_str(), 0) == 0)
-                writeStartupLog ("[PluginEditor] WEBKIT_EXEC_PATH fallback: " + juce::String (candidateDir.string()));
-            else
-                writeStartupLog ("[PluginEditor] WARNING: failed to set WEBKIT_EXEC_PATH fallback: " + juce::String (candidateDir.string()));
-
-            return;
-        }
-    }
-#endif
+    return false;
 }
 
-PluginEditor::PluginEditor (PluginProcessorAdapter& p)
-    : SoundshedEditorBase (p, {}),
-      resourceRoot ([&p] {
-          const auto exeFile = juce::File::getSpecialLocation (juce::File::currentExecutableFile);
-          const auto exeDir = soundshed::toStdPath (exeFile.getParentDirectory());
+void setLinuxWebKitExecPathFallback()
+{
+    if (hasNonEmptyEnvironmentVariable("WEBKIT_EXEC_PATH"))
+    {
+        return;
+    }
+
+    const std::filesystem::path candidateDirs[] = {"/usr/libexec/webkit2gtk-4.1", "/usr/libexec/webkit2gtk-4.0"};
+
+    for (const auto& candidateDir : candidateDirs)
+    {
+        std::error_code error;
+
+        if (!std::filesystem::exists(candidateDir / "WebKitWebProcess", error))
+        {
+            continue;
+        }
+
+        if (::setenv("WEBKIT_EXEC_PATH", candidateDir.c_str(), 0) == 0)
+        {
+            writeStartupLog("[PluginEditor] WEBKIT_EXEC_PATH fallback: " + juce::String(candidateDir.string()));
+        }
+        else
+        {
+            writeStartupLog("[PluginEditor] WARNING: failed to set WEBKIT_EXEC_PATH fallback: " +
+                            juce::String(candidateDir.string()));
+        }
+
+        return;
+    }
+}
+#endif
+} // namespace
+
+PluginEditor::PluginEditor(PluginProcessorAdapter& p)
+    : SoundshedEditorBase(p, {}), resourceRoot([&p] {
+          const auto exeFile = juce::File::getSpecialLocation(juce::File::currentExecutableFile);
+          const auto exeDir = soundshed::toStdPath(exeFile.getParentDirectory());
           const auto cwd = std::filesystem::current_path();
           const auto adapterRoot = p.GetBundledAssetsPath();
 
           std::vector<std::filesystem::path> candidates;
+
           if (!adapterRoot.empty())
-              candidates.push_back (adapterRoot);
-          candidates.push_back (exeDir / "resources");
-          candidates.push_back (exeDir / "Resources");
-          candidates.push_back (cwd / "resources");
-          candidates.push_back (cwd / "Resources");
+          {
+              candidates.push_back(adapterRoot);
+          }
 
-          writeStartupLog ("[PluginEditor] exe       : " + exeFile.getFullPathName());
-          writeStartupLog ("[PluginEditor] cwd       : " + soundshed::toJuceString (cwd));
-          writeStartupLog ("[PluginEditor] adapter   : " + soundshed::toJuceString (adapterRoot));
+          candidates.push_back(exeDir / "resources");
+          candidates.push_back(exeDir / "Resources");
+          candidates.push_back(cwd / "resources");
+          candidates.push_back(cwd / "Resources");
 
-          const auto resolved = guitarfx::ui::ResolveResourceRoot (candidates);
-          writeStartupLog ("[PluginEditor] resolved  : " + soundshed::toJuceString (resolved));
+          writeStartupLog("[PluginEditor] exe       : " + exeFile.getFullPathName());
+          writeStartupLog("[PluginEditor] cwd       : " + soundshed::toJuceString(cwd));
+          writeStartupLog("[PluginEditor] adapter   : " + soundshed::toJuceString(adapterRoot));
+
+          const auto resolved = guitarfx::ui::ResolveResourceRoot(candidates);
+          writeStartupLog("[PluginEditor] resolved  : " + soundshed::toJuceString(resolved));
 
           if (resolved.empty())
           {
-              writeStartupLog ("[PluginEditor] WARNING: resource root NOT found – UI will show fallback");
+              writeStartupLog("[PluginEditor] WARNING: resource root NOT found – UI will show fallback");
           }
           else
           {
               const auto indexPath = resolved / "ui" / "index.html";
-              const bool indexExists = std::filesystem::exists (indexPath);
-              writeStartupLog ("[PluginEditor] index.html exists: " + juce::String (indexExists ? "YES" : "NO")
-                               + " (" + soundshed::toJuceString (indexPath) + ")");
+              const bool indexExists = std::filesystem::exists(indexPath);
+              writeStartupLog("[PluginEditor] index.html exists: " + juce::String(indexExists ? "YES" : "NO") + " (" +
+                              soundshed::toJuceString(indexPath) + ")");
           }
 
-          return soundshed::toJuceFile (resolved);
+          return soundshed::toJuceFile(resolved);
       }()),
-      webView ([this] {
+      webView([this] {
 #if JUCE_LINUX
           setLinuxWebKitExecPathFallback();
 #endif
 
-          auto options = juce::WebBrowserComponent::Options {}
-                             .withBackend (getPreferredBrowserBackend())
-                             .withWinWebView2Options (juce::WebBrowserComponent::Options::WinWebView2 {}
-                                     .withUserDataFolder (webView2UserDataFolder()))
-                             // JUCE's default swaps a hidden browser onto about:blank and goes back
-                             // when it shows again. For this app that is a full reload on restoring a
-                             // minimised window: a white flash, a fresh handshake, and every piece of
-                             // unsaved UI state lost, the Jam view's YouTube player with it. Hidden but
-                             // loaded costs next to nothing: JUCE still hides the native view, so the
-                             // page goes hidden and says so ("uiVisibility"), which stops the telemetry
-                             // feeds and the per-node metering, and the browser stops drawing and
-                             // throttles the page's timers. A video playing in the Jam view keeps
-                             // playing through a minimise, as the engine's own playback does. (The
-                             // Linux backend never unloaded; this brings the others into line.)
-                             .withKeepPageLoadedWhenBrowserIsHidden()
-                             .withUserScript (
-                                 "window.IPlugSendMsg = function(payload) {"
-                                 "  try {"
-                                 "    const data = (typeof payload === 'string') ? payload : JSON.stringify(payload);"
-                                 "    window.__JUCE__.backend.emitEvent('iplugSendMsg', data);"
-                                 "  } catch (e) {"
-                                 "    window.__JUCE__.backend.emitEvent('iplugSendMsg', '');"
-                                 "  }"
-                                 "};")
-                             .withNativeIntegrationEnabled()
-                             .withEventListener ("iplugSendMsg", [this] (const juce::var& payload) {
-                                 const auto message = payload.isString() ? payload.toString()
-                                                                         : juce::JSON::toString (payload);
-                                 if (message.isNotEmpty())
-                                     processorRef.handleWebMessage (message);
-                             })
-                             .withNativeFunction ("IPlugSendMsg", [this] (const juce::Array<juce::var>& args, auto complete) {
-                                 if (args.size() > 0)
-                                 {
-                                     const auto& arg = args[0];
-                                     const auto payload = arg.isString() ? arg.toString()
-                                                                         : juce::JSON::toString (arg);
-                                     processorRef.handleWebMessage (payload);
-                                 }
+          auto options =
+              juce::WebBrowserComponent::Options{}
+                  .withBackend(getPreferredBrowserBackend())
+                  .withWinWebView2Options(
+                      juce::WebBrowserComponent::Options::WinWebView2{}.withUserDataFolder(webView2UserDataFolder()))
+                  // JUCE's default swaps a hidden browser onto about:blank and goes back
+                  // when it shows again. For this app that is a full reload on restoring a
+                  // minimised window: a white flash, a fresh handshake, and every piece of
+                  // unsaved UI state lost, the Jam view's YouTube player with it. Hidden but
+                  // loaded costs next to nothing: JUCE still hides the native view, so the
+                  // page goes hidden and says so ("uiVisibility"), which stops the telemetry
+                  // feeds and the per-node metering, and the browser stops drawing and
+                  // throttles the page's timers. A video playing in the Jam view keeps
+                  // playing through a minimise, as the engine's own playback does. (The
+                  // Linux backend never unloaded; this brings the others into line.)
+                  .withKeepPageLoadedWhenBrowserIsHidden()
+                  .withUserScript("window.IPlugSendMsg = function(payload) {"
+                                  "  try {"
+                                  "    const data = (typeof payload === 'string') ? payload : JSON.stringify(payload);"
+                                  "    window.__JUCE__.backend.emitEvent('iplugSendMsg', data);"
+                                  "  } catch (e) {"
+                                  "    window.__JUCE__.backend.emitEvent('iplugSendMsg', '');"
+                                  "  }"
+                                  "};")
+                  .withNativeIntegrationEnabled()
+                  .withEventListener("iplugSendMsg",
+                                     [this](const juce::var& payload) {
+                                         const auto message =
+                                             payload.isString() ? payload.toString() : juce::JSON::toString(payload);
 
-                                 complete (juce::var());
-                             })
-                             .withNativeFunction ("postMessage", [this] (const juce::Array<juce::var>& args, auto complete) {
-                                 if (args.size() > 0)
-                                 {
-                                     const auto& arg = args[0];
-                                     const auto payload = arg.isString() ? arg.toString()
-                                                                         : juce::JSON::toString (arg);
-                                     processorRef.handleWebMessage (payload);
-                                 }
+                                         if (message.isNotEmpty())
+                                             processorRef.handleWebMessage(message);
+                                     })
+                  .withNativeFunction("IPlugSendMsg",
+                                      [this](const juce::Array<juce::var>& args, auto complete) {
+                                          if (args.size() > 0)
+                                          {
+                                              const auto& arg = args[0];
+                                              const auto payload =
+                                                  arg.isString() ? arg.toString() : juce::JSON::toString(arg);
+                                              processorRef.handleWebMessage(payload);
+                                          }
 
-                                 complete (juce::var());
-                             });
+                                          complete(juce::var());
+                                      })
+                  .withNativeFunction("postMessage", [this](const juce::Array<juce::var>& args, auto complete) {
+                      if (args.size() > 0)
+                      {
+                          const auto& arg = args[0];
+                          const auto payload = arg.isString() ? arg.toString() : juce::JSON::toString(arg);
+                          processorRef.handleWebMessage(payload);
+                      }
+
+                      complete(juce::var());
+                  });
 
 #if JUCE_WEB_BROWSER_RESOURCE_PROVIDER_AVAILABLE
-          options = options.withResourceProvider ([this] (const auto& url) {
-              return getResource (url);
-          },
-              std::optional<juce::String> { getResourceRootUrl() });
+          options = options.withResourceProvider([this](const auto& url) { return getResource(url); },
+                                                 std::optional<juce::String>{getResourceRootUrl()});
 #else
-          writeStartupLog ("[PluginEditor] Resource provider unavailable for this JUCE configuration; using file:// UI loading");
+          writeStartupLog(
+              "[PluginEditor] Resource provider unavailable for this JUCE configuration; using file:// UI loading");
 #endif
 
           return options;
@@ -462,56 +526,54 @@ PluginEditor::PluginEditor (PluginProcessorAdapter& p)
 {
     // Already under way in the standalone (PluginProcessorAdapter's constructor); in a plugin
     // host, the WebView takes long enough to come up for most of it to be read first.
-    soundshed::editor::prefetchUiResources (resourceRoot.getChildFile ("ui"));
+    soundshed::editor::prefetchUiResources(resourceRoot.getChildFile("ui"));
 
-    addAndMakeVisible (webView);
+    addAndMakeVisible(webView);
 
     // The standalone's launch curtain (Main.cpp) waits on this to know the page has
     // actually loaded, not just that the native WebView control exists.
-    webView.setPageFinishedCallback ([this] (const juce::String& url) {
+    webView.setPageFinishedCallback([this](const juce::String& url) {
 #if JUCE_LINUX
-        markLinuxWebViewLoaded (url);
+        markLinuxWebViewLoaded(url);
 #else
-        juce::ignoreUnused (url);
+        juce::ignoreUnused(url);
 #endif
         soundshed::editor::releasePrefetchedUiResources();
         notifyReadyToShow();
     });
 
 #if JUCE_LINUX
-    webView.setNetworkErrorCallback ([this] (const juce::String& errorInfo) {
-        return handleLinuxWebViewNetworkError (errorInfo);
-    });
+    webView.setNetworkErrorCallback(
+        [this](const juce::String& errorInfo) { return handleLinuxWebViewNetworkError(errorInfo); });
 
     linuxWebViewInitTimeMs = juce::Time::getMillisecondCounter();
     linuxWebViewSlowLoadLogged = false;
     linuxWebViewRetryAttempted = false;
     linuxWebViewNetworkErrorCount = 0;
-    linuxWebViewStatusLabel.setJustificationType (juce::Justification::centred);
-    linuxWebViewStatusLabel.setColour (juce::Label::backgroundColourId, juce::Colour::fromRGBA (18, 19, 24, 242));
-    linuxWebViewStatusLabel.setColour (juce::Label::textColourId, juce::Colours::white);
-    linuxWebViewStatusLabel.setVisible (false);
+    linuxWebViewStatusLabel.setJustificationType(juce::Justification::centred);
+    linuxWebViewStatusLabel.setColour(juce::Label::backgroundColourId, juce::Colour::fromRGBA(18, 19, 24, 242));
+    linuxWebViewStatusLabel.setColour(juce::Label::textColourId, juce::Colours::white);
+    linuxWebViewStatusLabel.setVisible(false);
 
-    const auto linuxWebViewSupported = juce::WebBrowserComponent::areOptionsSupported (
-        juce::WebBrowserComponent::Options {}
-            .withBackend (getPreferredBrowserBackend())
-            .withNativeIntegrationEnabled());
+    const auto linuxWebViewSupported = juce::WebBrowserComponent::areOptionsSupported(
+        juce::WebBrowserComponent::Options{}.withBackend(getPreferredBrowserBackend()).withNativeIntegrationEnabled());
 
     if (!linuxWebViewSupported)
     {
-        showLinuxWebViewDependencyMessage ("Embedded WebKit support was not detected. webkit2gtk is required.");
-        writeStartupLog ("[PluginEditor] Linux WebView unsupported: missing runtime dependencies");
+        showLinuxWebViewDependencyMessage("Embedded WebKit support was not detected. webkit2gtk is required.");
+        writeStartupLog("[PluginEditor] Linux WebView unsupported: missing runtime dependencies");
     }
+
 #endif
 
-    processorRef.setWebMessageCallback ([this] (const juce::String& message) {
-        const auto script = guitarfx::ui::BuildIPlugReceiveScript (message.toStdString());
+    processorRef.setWebMessageCallback([this](const juce::String& message) {
+        const auto script = guitarfx::ui::BuildIPlugReceiveScript(message.toStdString());
 #if JUCE_LINUX
         // JUCE's Linux WebKit backend emits evaluation callbacks even when none
         // were requested; providing a no-op callback avoids assertion noise.
-        webView.evaluateJavascript (juce::String (script), [] (const auto&) {});
+        webView.evaluateJavascript(juce::String(script), [](const auto&) {});
 #else
-        webView.evaluateJavascript (juce::String (script));
+        webView.evaluateJavascript(juce::String(script));
 #endif
     });
 
@@ -521,13 +583,13 @@ PluginEditor::PluginEditor (PluginProcessorAdapter& p)
     // read-only for standard users, causing the check to falsely return false. It
     // probes the editor's own profile folder, so the view below joins the browser
     // process the probe started instead of opening a second profile.
-    const auto webView2Supported = juce::WebBrowserComponent::areOptionsSupported (
-        juce::WebBrowserComponent::Options {}
-            .withBackend (getPreferredBrowserBackend())
-            .withWinWebView2Options (juce::WebBrowserComponent::Options::WinWebView2 {}
-                    .withUserDataFolder (webView2UserDataFolder())));
+    const auto webView2Supported = juce::WebBrowserComponent::areOptionsSupported(
+        juce::WebBrowserComponent::Options{}
+            .withBackend(getPreferredBrowserBackend())
+            .withWinWebView2Options(
+                juce::WebBrowserComponent::Options::WinWebView2{}.withUserDataFolder(webView2UserDataFolder())));
 
-    writeStartupLog ("[PluginEditor] WebView2 supported: " + juce::String (webView2Supported ? "YES" : "NO"));
+    writeStartupLog("[PluginEditor] WebView2 supported: " + juce::String(webView2Supported ? "YES" : "NO"));
     sweepLegacyWebView2ProfilesOnce();
 
     if (!webView2Supported)
@@ -542,30 +604,41 @@ PluginEditor::PluginEditor (PluginProcessorAdapter& p)
             "<p>Install the runtime, then restart the app.</p>"
             "<p>Download: <a href='https://aka.ms/webview2' style='color:#8ab4ff;'>https://aka.ms/webview2</a></p>"
             "</body></html>";
-        webView.goToURL (missingRuntimeHtml);
+        webView.goToURL(missingRuntimeHtml);
     }
     else
 #endif
     {
-        auto cacheBust = "?v=" + juce::String (juce::Time::getCurrentTime().toMilliseconds());
+        auto cacheBust = "?v=" + juce::String(juce::Time::getCurrentTime().toMilliseconds());
         const auto deepLinkQuery = getStandaloneDeepLinkQuery();
+
         if (deepLinkQuery.isNotEmpty())
+        {
             cacheBust << "&" << deepLinkQuery;
+        }
+
         juce::String startUrl;
 
 #if JUCE_WEB_BROWSER_RESOURCE_PROVIDER_AVAILABLE
         startUrl = juce::WebBrowserComponent::getResourceProviderRoot() + cacheBust;
 #else
-        const auto indexFile = resourceRoot.getChildFile ("ui").getChildFile ("index.html");
+        const auto indexFile = resourceRoot.getChildFile("ui").getChildFile("index.html");
+
         if (indexFile.existsAsFile())
-            startUrl = juce::URL (indexFile).toString (false) + cacheBust;
+        {
+            startUrl = juce::URL(indexFile).toString(false) + cacheBust;
+        }
         else
+        {
             startUrl = "data:text/html;charset=UTF-8,<html><body><h2>UI not found</h2></body></html>";
+        }
+
 #endif
 
-        writeStartupLog ("[PluginEditor] goToURL: " + startUrl);
+        writeStartupLog("[PluginEditor] goToURL: " + startUrl);
 
 #if JUCE_LINUX
+
         if (!linuxWebViewFallbackShown)
         {
             linuxInitialUrl = startUrl;
@@ -573,10 +646,11 @@ PluginEditor::PluginEditor (PluginProcessorAdapter& p)
             linuxWebViewSlowLoadLogged = false;
             linuxWebViewRetryAttempted = false;
             linuxWebViewNetworkErrorCount = 0;
-            webView.goToURL (startUrl);
+            webView.goToURL(startUrl);
         }
+
 #else
-        webView.goToURL (startUrl);
+        webView.goToURL(startUrl);
 #endif
     }
 
@@ -584,14 +658,14 @@ PluginEditor::PluginEditor (PluginProcessorAdapter& p)
 
     // A previous editor's close switched the telemetry off; turn it back on now rather than
     // when the page finishes booting. The page still reports its real visibility then.
-    reportUiVisible (true);
+    reportUiVisible(true);
 }
 
 PluginEditor::~PluginEditor()
 {
     // The base destructor then reports the editor hidden (switching the audio thread's
     // metering off), after the page's callback is gone so nothing reaches the dying page.
-    processorRef.setWebMessageCallback (nullptr);
+    processorRef.setWebMessageCallback(nullptr);
 
     // Closed before its page finished loading: nothing is coming for the rest.
     soundshed::editor::releasePrefetchedUiResources();
@@ -600,6 +674,7 @@ PluginEditor::~PluginEditor()
 void PluginEditor::idleTick()
 {
 #if JUCE_LINUX
+
     if (!linuxWebViewLoadCompleted && !linuxWebViewFallbackShown)
     {
         constexpr juce::uint32 loadWarningMs = 8000;
@@ -610,7 +685,7 @@ void PluginEditor::idleTick()
         if (!linuxWebViewSlowLoadLogged && elapsedMs > loadWarningMs)
         {
             linuxWebViewSlowLoadLogged = true;
-            writeStartupLog ("[PluginEditor] Linux WebView still loading after 8s");
+            writeStartupLog("[PluginEditor] Linux WebView still loading after 8s");
         }
 
         if (!linuxWebViewRetryAttempted && elapsedMs > loadRetryMs && linuxInitialUrl.isNotEmpty())
@@ -618,35 +693,39 @@ void PluginEditor::idleTick()
             linuxWebViewRetryAttempted = true;
             linuxWebViewInitTimeMs = juce::Time::getMillisecondCounter();
             linuxWebViewNetworkErrorCount = 0;
-            writeStartupLog ("[PluginEditor] Linux WebView load retry after slow startup");
-            webView.goToURL (linuxInitialUrl);
+            writeStartupLog("[PluginEditor] Linux WebView load retry after slow startup");
+            webView.goToURL(linuxInitialUrl);
             return;
         }
 
         if (elapsedMs > loadTimeoutMs)
-            showLinuxWebViewDependencyMessage ("Timed out while waiting for the embedded WebView to finish loading. May need system webview update, e.e.: sudo apt install libwebkit2gtk-4.1-dev");
+        {
+            showLinuxWebViewDependencyMessage(
+                "Timed out while waiting for the embedded WebView to finish loading. May need system webview update, e.e.: sudo apt install libwebkit2gtk-4.1-dev");
+        }
     }
+
 #endif
 }
 
-std::optional<juce::WebBrowserComponent::Resource> PluginEditor::getResource (const juce::String& url)
+std::optional<juce::WebBrowserComponent::Resource> PluginEditor::getResource(const juce::String& url)
 {
-    const auto urlToRetrieve = getResourcePathFromUrl (url);
+    const auto urlToRetrieve = getResourcePathFromUrl(url);
 
-    if (!isSafeResourcePath (urlToRetrieve))
+    if (!isSafeResourcePath(urlToRetrieve))
     {
-        writeStartupLog ("[getResource] rejected unsafe path: " + urlToRetrieve);
+        writeStartupLog("[getResource] rejected unsafe path: " + urlToRetrieve);
         return std::nullopt;
     }
 
     // Layout images live in the profile, not the UI bundle: the controller says which file an
     // image id is, resolved as the layout library resolves it.
-    if (urlToRetrieve.startsWith ("layout-images/"))
+    if (urlToRetrieve.startsWith("layout-images/"))
     {
-        if (const auto image = processorRef.getController().ResolveLayoutImageResource (urlToRetrieve.toStdString()))
+        if (const auto image = processorRef.getController().ResolveLayoutImageResource(urlToRetrieve.toStdString()))
         {
-            return juce::WebBrowserComponent::Resource { readFileToVector (soundshed::toJuceFile (image->first)),
-                                                         juce::String (image->second) };
+            return juce::WebBrowserComponent::Resource{readFileToVector(soundshed::toJuceFile(image->first)),
+                                                       juce::String(image->second)};
         }
 
         return std::nullopt;
@@ -654,49 +733,55 @@ std::optional<juce::WebBrowserComponent::Resource> PluginEditor::getResource (co
 
     if (resourceRoot.exists())
     {
-        const auto file = resourceRoot.getChildFile ("ui").getChildFile (urlToRetrieve);
-        auto prefetched = soundshed::editor::takePrefetchedUiResource (file);
+        const auto file = resourceRoot.getChildFile("ui").getChildFile(urlToRetrieve);
+        auto prefetched = soundshed::editor::takePrefetchedUiResource(file);
 
         if (prefetched.has_value() || file.existsAsFile())
         {
-            auto data = prefetched.has_value() ? std::move (*prefetched) : readFileToVector (file);
-            const auto mimeType = getMimeForExtension (file.getFileExtension().substring (1));
+            auto data = prefetched.has_value() ? std::move(*prefetched) : readFileToVector(file);
+            const auto mimeType = getMimeForExtension(file.getFileExtension().substring(1));
 
 #if !JUCE_ANDROID
+
             // WebKitGTK ignores the charset header for custom juce:// resources.
             // Android does not need this: JUCE passes the encoding to
             // WebResourceResponse explicitly.
-            if (juce::String (mimeType).startsWith ("text/html"))
-                prependUtf8Bom (data);
+            if (juce::String(mimeType).startsWith("text/html"))
+            {
+                prependUtf8Bom(data);
+            }
+
 #endif
 
-            return juce::WebBrowserComponent::Resource { std::move (data),
-                mimeType };
+            return juce::WebBrowserComponent::Resource{std::move(data), mimeType};
         }
 
-        writeStartupLog ("[getResource] MISS " + resourceRoot.getChildFile ("ui").getChildFile (urlToRetrieve).getFullPathName());
+        writeStartupLog("[getResource] MISS " +
+                        resourceRoot.getChildFile("ui").getChildFile(urlToRetrieve).getFullPathName());
     }
     else
     {
-        writeStartupLog ("[getResource] resourceRoot invalid (" + resourceRoot.getFullPathName() + ") for: " + urlToRetrieve);
+        writeStartupLog("[getResource] resourceRoot invalid (" + resourceRoot.getFullPathName() +
+                        ") for: " + urlToRetrieve);
     }
 
     if (urlToRetrieve == "index.html")
     {
-        writeStartupLog ("[getResource] serving fallback index.html (resources not found)");
+        writeStartupLog("[getResource] serving fallback index.html (resources not found)");
         const juce::String fallbackHtml =
             "<!doctype html><html><head><meta charset=\"utf-8\"/>"
             "<title>Soundshed Guitar</title></head>"
             "<body style=\"font-family:sans-serif;background:#101014;color:#eee;padding:24px;\">"
             "<h1>UI not found</h1><p>Expected resources/ui/index.html on disk.</p>"
-            "<p>Resource root: "
-            + resourceRoot.getFullPathName() + "</p>"
-                                               "</body></html>";
+            "<p>Resource root: " +
+            resourceRoot.getFullPathName() +
+            "</p>"
+            "</body></html>";
 
-        std::vector<std::byte> bytes (fallbackHtml.getNumBytesAsUTF8());
-        std::memcpy (bytes.data(), fallbackHtml.toRawUTF8(), bytes.size());
-        prependUtf8Bom (bytes);
-        return juce::WebBrowserComponent::Resource { std::move (bytes), "text/html; charset=utf-8" };
+        std::vector<std::byte> bytes(fallbackHtml.getNumBytesAsUTF8());
+        std::memcpy(bytes.data(), fallbackHtml.toRawUTF8(), bytes.size());
+        prependUtf8Bom(bytes);
+        return juce::WebBrowserComponent::Resource{std::move(bytes), "text/html; charset=utf-8"};
     }
 
     return std::nullopt;
@@ -708,10 +793,12 @@ juce::String PluginEditor::getResourceRootUrl() const
 }
 
 #if JUCE_LINUX
-void PluginEditor::markLinuxWebViewLoaded (const juce::String& url)
+void PluginEditor::markLinuxWebViewLoaded(const juce::String& url)
 {
     if (!linuxWebViewLoadCompleted)
-        writeStartupLog ("[PluginEditor] Linux WebView loaded: " + url);
+    {
+        writeStartupLog("[PluginEditor] Linux WebView loaded: " + url);
+    }
 
     linuxWebViewLoadCompleted = true;
     linuxWebViewNetworkErrorCount = 0;
@@ -719,85 +806,94 @@ void PluginEditor::markLinuxWebViewLoaded (const juce::String& url)
     if (linuxWebViewFallbackShown)
     {
         linuxWebViewFallbackShown = false;
-        linuxWebViewStatusLabel.setVisible (false);
+        linuxWebViewStatusLabel.setVisible(false);
     }
 }
 
-bool PluginEditor::handleLinuxWebViewNetworkError (const juce::String& errorInfo)
+bool PluginEditor::handleLinuxWebViewNetworkError(const juce::String& errorInfo)
 {
-    writeStartupLog ("[PluginEditor] Linux WebView network error: " + errorInfo);
+    writeStartupLog("[PluginEditor] Linux WebView network error: " + errorInfo);
 
     if (linuxWebViewLoadCompleted || linuxWebViewFallbackShown)
+    {
         return false;
+    }
 
     ++linuxWebViewNetworkErrorCount;
 
-    const bool missingResourceError = errorInfo.containsIgnoreCase ("ERR_FILE_NOT_FOUND")
-                                      || errorInfo.containsIgnoreCase ("FILE_DOES_NOT_EXIST")
-                                      || errorInfo.containsIgnoreCase ("404");
+    const bool missingResourceError = errorInfo.containsIgnoreCase("ERR_FILE_NOT_FOUND") ||
+                                      errorInfo.containsIgnoreCase("FILE_DOES_NOT_EXIST") ||
+                                      errorInfo.containsIgnoreCase("404");
 
     if (missingResourceError || linuxWebViewNetworkErrorCount >= 3)
-        showLinuxWebViewDependencyMessage ("Network/WebView error: " + errorInfo);
+    {
+        showLinuxWebViewDependencyMessage("Network/WebView error: " + errorInfo);
+    }
 
     return false;
 }
 
-void PluginEditor::showLinuxWebViewDependencyMessage (const juce::String& reason)
+void PluginEditor::showLinuxWebViewDependencyMessage(const juce::String& reason)
 {
     if (!linuxWebViewFallbackShown)
     {
-        writeStartupLog ("[PluginEditor] Linux WebView fallback shown: " + reason);
+        writeStartupLog("[PluginEditor] Linux WebView fallback shown: " + reason);
         linuxWebViewFallbackShown = true;
     }
 
-    const juce::String message =
-        "The Soundshed Guitar UI could not be displayed in the embedded browser on Linux.\n\n"
-        "Please confirm the required app dependencies are installed.\n"
-        "See guitar.soundshed.com for details.\n\n"
-        "Details: "
-        + reason;
+    const juce::String message = "The Soundshed Guitar UI could not be displayed in the embedded browser on Linux.\n\n"
+                                 "Please confirm the required app dependencies are installed.\n"
+                                 "See guitar.soundshed.com for details.\n\n"
+                                 "Details: " +
+                                 reason;
 
-    linuxWebViewStatusLabel.setText (message, juce::dontSendNotification);
+    linuxWebViewStatusLabel.setText(message, juce::dontSendNotification);
 
     if (linuxWebViewStatusLabel.getParentComponent() == nullptr)
-        addAndMakeVisible (linuxWebViewStatusLabel);
+    {
+        addAndMakeVisible(linuxWebViewStatusLabel);
+    }
     else
-        linuxWebViewStatusLabel.setVisible (true);
+    {
+        linuxWebViewStatusLabel.setVisible(true);
+    }
 
-    linuxWebViewStatusLabel.toFront (false);
+    linuxWebViewStatusLabel.toFront(false);
     resized();
 }
 #endif
 
-void PluginEditor::paint (juce::Graphics& g)
+void PluginEditor::paint(juce::Graphics& g)
 {
-    g.fillAll (getLookAndFeel().findColour (juce::ResizableWindow::backgroundColourId));
+    g.fillAll(getLookAndFeel().findColour(juce::ResizableWindow::backgroundColourId));
 }
 
 void PluginEditor::resized()
 {
-    webView.setBounds (getLocalBounds());
+    webView.setBounds(getLocalBounds());
     rememberEditorSize();
 
 #if JUCE_LINUX
-    linuxWebViewStatusLabel.setBounds (getLocalBounds().reduced (24));
+    linuxWebViewStatusLabel.setBounds(getLocalBounds().reduced(24));
 #endif
 }
 
-void PluginEditor::handleDeepLinkFromAnotherInstance (const juce::String& deepLinkQuery)
+void PluginEditor::handleDeepLinkFromAnotherInstance(const juce::String& deepLinkQuery)
 {
     // Route incoming deep link to UI via postMessage
     // The UI handler will navigate to the appropriate tone sharing item/pack
     if (deepLinkQuery.isEmpty())
+    {
         return;
+    }
 
     nlohmann::json msg;
     msg["type"] = "navigateToToneSharingDeepLink";
     msg["deepLink"] = deepLinkQuery.toStdString();
 
     const auto jsonStr = msg.dump();
-    processorRef.SendMessageToUI (jsonStr);
+    processorRef.SendMessageToUI(jsonStr);
 
     // Also bring the window to focus
-    SoundshedEditorBase::handleDeepLinkFromAnotherInstance (deepLinkQuery);
+    SoundshedEditorBase::handleDeepLinkFromAnotherInstance(deepLinkQuery);
 }

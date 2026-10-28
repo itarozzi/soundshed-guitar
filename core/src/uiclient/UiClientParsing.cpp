@@ -117,6 +117,7 @@ EffectParamInfo EffectParam(const nlohmann::json& param)
     if (const auto found = param.find("visibleWhen"); found != param.end() && found->is_object())
     {
         info.visibleWhenKey = found->value("key", std::string{});
+
         if (const auto values = found->find("values"); values != found->end() && values->is_array())
         {
             for (const auto& value : *values)
@@ -127,6 +128,7 @@ EffectParamInfo EffectParam(const nlohmann::json& param)
                 }
             }
         }
+
         if (info.visibleWhenValues.empty())
         {
             info.visibleWhenKey.clear();

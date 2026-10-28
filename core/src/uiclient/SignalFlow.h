@@ -25,7 +25,7 @@ inline constexpr const char* kSignalFlowAnimationSetting = "ui.signalFlowAnimati
 
 class SignalFlow
 {
-public:
+  public:
     /// RMS above this counts as signal.
     static constexpr double kLiveThresholdDb = -54.0;
     /// How long a node stays live through quiet.
@@ -33,16 +33,18 @@ public:
 
     /// Re-reads the levels of the active preset's nodes. Returns true when any node's state flipped.
     bool Update(const ClientState& state, double nowSeconds);
+
     [[nodiscard]] bool IsLive(const std::string& nodeId) const
     {
         return mLive.count(nodeId) != 0;
     }
+
     [[nodiscard]] bool AnyLive() const
     {
         return !mLive.empty();
     }
 
-private:
+  private:
     std::map<std::string, double> mLastHeard;
     std::set<std::string> mLive;
 };

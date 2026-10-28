@@ -357,7 +357,8 @@ int main(int argc, char** argv)
         }
 
         // The six seconds of playing, without the tail of silence the renders leave.
-        const std::vector<float> left(stim.samples.begin(), stim.samples.begin() + static_cast<std::ptrdiff_t>(stim.playFrames));
+        const std::vector<float> left(stim.samples.begin(),
+                                      stim.samples.begin() + static_cast<std::ptrdiff_t>(stim.playFrames));
         std::vector<float> right = left;
 
         if (o.stereo)

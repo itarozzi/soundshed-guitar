@@ -191,6 +191,7 @@ void RealtimeConvolver::RunSpreadPhase(size_t phase, size_t begin, size_t end)
         break;
 
     case kSpreadMultiply:
+
         // Partition p pairs with the frame p blocks back from this one, which is in mJobSlot.
         for (size_t pos = begin; pos < end;)
         {

@@ -27,7 +27,8 @@ std::string WallClockText()
     localtime_r(&seconds, &local);
 #endif
     char text[16];
-    std::snprintf(text, sizeof(text), "%02d:%02d:%02d.%03d", local.tm_hour, local.tm_min, local.tm_sec, static_cast<int>(millis));
+    std::snprintf(text, sizeof(text), "%02d:%02d:%02d.%03d", local.tm_hour, local.tm_min, local.tm_sec,
+                  static_cast<int>(millis));
     return text;
 }
 } // namespace
@@ -105,9 +106,10 @@ void UiClient::RegisterAutomationHandlers()
 
         if (automation.midiLog.size() > AutomationState::kMidiLogLimit)
         {
-            automation.midiLog.erase(automation.midiLog.begin(),
-                                     automation.midiLog.begin() +
-                                         static_cast<std::ptrdiff_t>(automation.midiLog.size() - AutomationState::kMidiLogLimit));
+            automation.midiLog.erase(
+                automation.midiLog.begin(),
+                automation.midiLog.begin() +
+                    static_cast<std::ptrdiff_t>(automation.midiLog.size() - AutomationState::kMidiLogLimit));
         }
 
         Notify(Topic::Automation);

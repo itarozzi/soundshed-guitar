@@ -5,9 +5,12 @@
 # of core/src and core/tests already do, so adopting this was a
 # one-time normalisation rather than a rewrite.
 #
-# SCOPE: this governs core/. The juce/ subtree carries its own .clang-format
-# (JUCE house style, Chromium-based, SortIncludes on) and is deliberately left
-# under it - do not reformat juce/ with this config.
+# SCOPE: all of our C++: core/, nanoq/, our code under juce/ (source/, tests/,
+# benchmarks/, whose juce/.clang-format inherits this one) and tools/. Vendored
+# code keeps its own style: core/src/compat/json.hpp, juce/JUCE (a submodule),
+# juce/modules/clap-juce-extensions and juce/ASIOSDK (each with a .clang-format),
+# ios/compat and android/oboe-overlay. Objective-C++ (.mm) is not covered: this
+# file has no ObjC section.
 #
 # NOTE: the blank-line-around-control-flow conventions in
 # .github/copilot-instructions.md CANNOT be expressed here — clang-format has no

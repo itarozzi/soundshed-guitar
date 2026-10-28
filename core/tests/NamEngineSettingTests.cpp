@@ -103,9 +103,9 @@ void TestToggleRebuildsRunningModels(const fs::path& root)
     SetSetting(controller, host, false);
     Check(!nammodelcache::IsFusedEngineEnabled(), "turning the setting off turns the engine off");
     auto stats = nammodelcache::GetStats();
-    Check(stats.coreBuilds > 0 && stats.fusedBuilds == 0,
-          "the running preset rebuilt its NAM model on the NAM core (" + std::to_string(stats.coreBuilds) +
-              " core, " + std::to_string(stats.fusedBuilds) + " fused)");
+    Check(stats.coreBuilds > 0 && stats.fusedBuilds == 0, "the running preset rebuilt its NAM model on the NAM core (" +
+                                                              std::to_string(stats.coreBuilds) + " core, " +
+                                                              std::to_string(stats.fusedBuilds) + " fused)");
 
     nammodelcache::ResetStats();
     SetSetting(controller, host, false);

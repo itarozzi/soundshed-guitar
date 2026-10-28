@@ -199,14 +199,16 @@ std::string DefaultExtension(const std::string& type)
 
 /// archiveUtils.ts buildArchiveFileNameWithHash: "<hash>-<stem><ext>", the stem from the
 /// library file's name, at most 120 characters in all.
-std::string BuildArchiveFileNameWithHash(const LibraryResource& resource, const std::string& type, const std::string& hash)
+std::string BuildArchiveFileNameWithHash(const LibraryResource& resource, const std::string& type,
+                                         const std::string& hash)
 {
-    std::string baseName =
-        resource.filePath.empty() ? std::string{} : util::PathToUtf8(resource.filePath.filename());
+    std::string baseName = resource.filePath.empty() ? std::string{} : util::PathToUtf8(resource.filePath.filename());
 
     if (baseName.empty())
     {
-        baseName = SanitizeArchiveName(!resource.id.empty() ? resource.id : !resource.name.empty() ? resource.name : "resource") +
+        baseName = SanitizeArchiveName(!resource.id.empty()     ? resource.id
+                                       : !resource.name.empty() ? resource.name
+                                                                : "resource") +
                    DefaultExtension(type);
     }
 
@@ -226,9 +228,10 @@ std::string BuildArchiveFileNameWithHash(const LibraryResource& resource, const 
         extension = DefaultExtension(type);
     }
 
-    std::string sanitizedStem = SanitizeArchiveName(
-        stem, SanitizeArchiveName(!resource.name.empty() ? resource.name : !resource.id.empty() ? resource.id : "resource",
-                                  "resource"));
+    std::string sanitizedStem = SanitizeArchiveName(stem, SanitizeArchiveName(!resource.name.empty() ? resource.name
+                                                                              : !resource.id.empty() ? resource.id
+                                                                                                     : "resource",
+                                                                              "resource"));
 
     const std::string marker = hashPrefix + "-";
 
@@ -243,12 +246,13 @@ std::string BuildArchiveFileNameWithHash(const LibraryResource& resource, const 
     }
 
     const std::size_t reserved = hashPrefix.size() + extension.size() + 1;
-    const std::size_t maxStemLength = std::max<std::size_t>(
-        16, kMaxArchiveFileNameLength > reserved ? kMaxArchiveFileNameLength - reserved : 0);
+    const std::size_t maxStemLength =
+        std::max<std::size_t>(16, kMaxArchiveFileNameLength > reserved ? kMaxArchiveFileNameLength - reserved : 0);
 
     std::string trimmedStem = sanitizedStem.substr(0, maxStemLength);
 
-    while (!trimmedStem.empty() && (trimmedStem.back() == '-' || trimmedStem.back() == '_' || trimmedStem.back() == '.'))
+    while (!trimmedStem.empty() &&
+           (trimmedStem.back() == '-' || trimmedStem.back() == '_' || trimmedStem.back() == '.'))
     {
         trimmedStem.pop_back();
     }
@@ -273,7 +277,8 @@ std::string NormalizeExportBaseName(const std::string& raw, const std::string& f
 
         for (const std::string suffix : {".soundshed.presets", ".soundshed.preset", ".zip"})
         {
-            if (lower.size() >= suffix.size() && lower.compare(lower.size() - suffix.size(), suffix.size(), suffix) == 0)
+            if (lower.size() >= suffix.size() &&
+                lower.compare(lower.size() - suffix.size(), suffix.size(), suffix) == 0)
             {
                 normalized.resize(normalized.size() - suffix.size());
                 trimmed = true;
@@ -295,8 +300,7 @@ std::string IsoTimestampWithMilliseconds()
 {
     const auto now = std::chrono::system_clock::now();
     const auto tt = std::chrono::system_clock::to_time_t(now);
-    const auto millis =
-        std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count() % 1000;
+    const auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count() % 1000;
     std::tm utcTime{};
 #ifdef _WIN32
     gmtime_s(&utcTime, &tt);
@@ -760,10 +764,12 @@ nlohmann::json FinishEffectPresetsForArchive(const EffectPresetExport& collected
                     // The rest is a blend model's place on the sweep; a path or embedded id names a
                     // file on this machine.
                     nlohmann::json moved = ref;
+
                     for (const char* key : {"type", "id", "filePath", "embeddedId"})
                     {
                         moved.erase(key);
                     }
+
                     moved["resourceType"] = type;
                     moved["resourceId"] = mapped->second;
                     resources.push_back(std::move(moved));
@@ -887,7 +893,9 @@ std::string LibraryArchiveFileName(const LibraryResource& resource, const std::s
 
     if (name.empty())
     {
-        name = SanitizeArchiveName(!resource.id.empty() ? resource.id : !resource.name.empty() ? resource.name : "resource",
+        name = SanitizeArchiveName(!resource.id.empty()     ? resource.id
+                                   : !resource.name.empty() ? resource.name
+                                                            : "resource",
                                    "resource") +
                DefaultExtension(type);
     }
@@ -941,8 +949,9 @@ void PluginController::HandleExportPresetArchiveRequest(const nlohmann::json& pa
 
     // One id is a one-preset archive unless the caller asks for a collection: a folder or the
     // whole library exported as a collection keeps its folders, however few presets it holds.
-    const bool single = requestedIds.size() == 1 &&
-                        !(payload.contains("collection") && payload["collection"].is_boolean() && payload["collection"].get<bool>());
+    const bool single =
+        requestedIds.size() == 1 &&
+        !(payload.contains("collection") && payload["collection"].is_boolean() && payload["collection"].get<bool>());
     const std::string archiveName = payload.value("name", std::string{});
     const std::string folderId = payload.value("folderId", std::string{});
     std::vector<std::string> warnings;
@@ -995,8 +1004,8 @@ void PluginController::HandleExportPresetArchiveRequest(const nlohmann::json& pa
     if (!single && archiveToolsOn && settingIsTrue(kExportEffectPresetsSettingKey))
     {
         const auto document = LoadUiStorageJson(kEffectPresetsDocument, nlohmann::json::object());
-        const auto byEffectType = document.is_object() ? document.value("byEffectType", nlohmann::json::object())
-                                                       : nlohmann::json::object();
+        const auto byEffectType =
+            document.is_object() ? document.value("byEffectType", nlohmann::json::object()) : nlohmann::json::object();
 
         for (const auto& [effectType, entries] : byEffectType.items())
         {
@@ -1125,8 +1134,8 @@ void PluginController::HandleExportPresetArchiveRequest(const nlohmann::json& pa
         }
 
         const std::string fileName = BuildArchiveFileNameWithHash(*resource, ref.type, hash);
-        nlohmann::json entry = {{"id", hash},          {"name", resource->name}, {"category", resource->category},
-                                {"type", ref.type},    {"fileName", fileName},   {"hash", hash}};
+        nlohmann::json entry = {{"id", hash},       {"name", resource->name}, {"category", resource->category},
+                                {"type", ref.type}, {"fileName", fileName},   {"hash", hash}};
 
         if (!resource->metadata.empty())
         {
@@ -1171,9 +1180,9 @@ void PluginController::HandleExportPresetArchiveRequest(const nlohmann::json& pa
 
         const auto& preset = exportPresets[0];
         const std::string presetName = StringField(preset, "name");
-        const std::string fallbackName = !presetName.empty()           ? presetName
+        const std::string fallbackName = !presetName.empty()                  ? presetName
                                          : !StringField(preset, "id").empty() ? StringField(preset, "id")
-                                                                       : std::string("preset");
+                                                                              : std::string("preset");
         fileName = NormalizeExportBaseName(Trim(archiveName).empty() ? fallbackName : archiveName, "preset") +
                    ".soundshed.preset";
     }
@@ -1287,6 +1296,7 @@ void PluginController::HandleExportPresetArchiveRequest(const nlohmann::json& pa
                              " resource(s))");
         });
 }
+
 /// The library as one archive, `.soundshed-library.zip`: the user's presets, every blend, and the
 /// models and IRs they use (resources "used", the default) or the whole library ("all"), in the
 /// layout the web UI's libraryExport.ts wrote with JSZip: library.json, {formatVersion: 1,
@@ -1476,5 +1486,4 @@ void PluginController::HandleExportLibraryArchiveRequest(const nlohmann::json& p
                              " resource(s))");
         });
 }
-
 } // namespace guitarfx

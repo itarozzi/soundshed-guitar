@@ -19,14 +19,14 @@ namespace guitarfx
  */
 struct ResourceRef
 {
-    std::string resourceType;                    // "nam", "ir", etc.
-    std::string resourceId;                      // Library ID (e.g., "plexi-bright")
-    std::filesystem::path filePath;              // Direct file path
-    std::string embeddedId;                      // References EmbeddedResource.id
-    std::string parameterId;                     // Mapped parameter identifier (e.g., "gain", "warp")
-    std::optional<double> parameterValue;        // Captured parameter value for blending
-    std::map<std::string, double> parameters;    // Multi-parameter mappings for blends
-    std::optional<double> levelTrimDb;           // Blend model: level trim (dB), filled from its definition, never serialized
+    std::string resourceType;                 // "nam", "ir", etc.
+    std::string resourceId;                   // Library ID (e.g., "plexi-bright")
+    std::filesystem::path filePath;           // Direct file path
+    std::string embeddedId;                   // References EmbeddedResource.id
+    std::string parameterId;                  // Mapped parameter identifier (e.g., "gain", "warp")
+    std::optional<double> parameterValue;     // Captured parameter value for blending
+    std::map<std::string, double> parameters; // Multi-parameter mappings for blends
+    std::optional<double> levelTrimDb; // Blend model: level trim (dB), filled from its definition, never serialized
     std::map<std::string, std::string> metadata; // Transient library metadata, not serialized into presets
 
     [[nodiscard]] bool IsLibraryRef() const

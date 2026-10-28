@@ -444,9 +444,9 @@ bool Run()
             driver.Settle();
             const double trimmed = driver.MeasureGain();
             const double want = std::pow(10.0, 6.0 / 20.0);
-            passed = Check(Near(Ratio(trimmed, plain), want, 0.1),
-                           "trim: +6 dB on the playing model is heard (x" + Describe(Ratio(trimmed, plain)) +
-                               ", want x" + Describe(want) + ")") &&
+            passed = Check(Near(Ratio(trimmed, plain), want, 0.1), "trim: +6 dB on the playing model is heard (x" +
+                                                                       Describe(Ratio(trimmed, plain)) + ", want x" +
+                                                                       Describe(want) + ")") &&
                      passed;
         }
 

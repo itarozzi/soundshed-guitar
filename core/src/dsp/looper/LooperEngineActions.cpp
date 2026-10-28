@@ -28,8 +28,7 @@ void LooperEngine::ApplyCommand(const LooperCommand& command)
     case LooperCommand::Type::Action:
         ApplyAction(command.action, 0);
         break;
-    case LooperCommand::Type::SetCapture:
-    {
+    case LooperCommand::Type::SetCapture: {
         // Only while nothing records into, or plays from, the one there now. The service sees
         // the published capture and asks again if this was refused.
         const bool inUse = mRingArmed || mPendingStart >= 0 || mPendingArm >= 0 ||
@@ -78,6 +77,7 @@ void LooperEngine::ApplyAction(LooperAction action, int at)
     switch (mState)
     {
     case LooperState::Empty:
+
         if (action == LooperAction::RecPlayDub || action == LooperAction::Record)
         {
             StartFirstLayer(at);
@@ -99,6 +99,7 @@ void LooperEngine::ApplyAction(LooperAction action, int at)
 
     case LooperState::CountIn:
     case LooperState::Armed:
+
         if (StartsTake(action) && mState == LooperState::Armed && mPendingStart < 0)
         {
             // A press while Armed starts the take at once.
@@ -113,6 +114,7 @@ void LooperEngine::ApplyAction(LooperAction action, int at)
         break;
 
     case LooperState::Recording:
+
         if (action == LooperAction::Stop)
         {
             BeginStop();
@@ -142,6 +144,7 @@ void LooperEngine::ApplyAction(LooperAction action, int at)
         break;
 
     case LooperState::Playing:
+
         if (StartsTake(action))
         {
             RequestOverdub(at);
@@ -166,6 +169,7 @@ void LooperEngine::ApplyAction(LooperAction action, int at)
         break;
 
     case LooperState::OverdubArmed:
+
         if (StartsTake(action))
         {
             TriggerArmedOverdub(at);
@@ -187,6 +191,7 @@ void LooperEngine::ApplyAction(LooperAction action, int at)
         break;
 
     case LooperState::Overdubbing:
+
         if (action == LooperAction::RecPlayDub || action == LooperAction::Play)
         {
             if (mDeferredOverdub)
@@ -217,6 +222,7 @@ void LooperEngine::ApplyAction(LooperAction action, int at)
         break;
 
     case LooperState::Stopped:
+
         if (action == LooperAction::RecPlayDub || action == LooperAction::Play || action == LooperAction::Record ||
             action == LooperAction::Overdub)
         {
@@ -295,9 +301,8 @@ void LooperEngine::StartFirstLayer(int at)
     const bool everyTake = mSettings.countInEveryTake.load(std::memory_order_relaxed);
     const int countInBars = std::clamp(mSettings.countInBars.load(std::memory_order_relaxed), 0, 16);
     const std::int64_t countIn =
-        samplesPerBar > 1.0
-            ? static_cast<std::int64_t>(std::llround(static_cast<double>(countInBars) * samplesPerBar))
-            : 0;
+        samplesPerBar > 1.0 ? static_cast<std::int64_t>(std::llround(static_cast<double>(countInBars) * samplesPerBar))
+                            : 0;
     mPublishedArmLead.store(0, std::memory_order_relaxed);
     mClosePlayhead = 0;
 
@@ -395,7 +400,8 @@ void LooperEngine::StartFirstWriter(int at, std::int64_t recAbs)
     for (std::int64_t k = 0; k < recAbs; ++k)
     {
         const auto idx = static_cast<std::size_t>(Index(slot, k));
-        const float di = std::max(std::abs(mCapture->di[0][idx]), mCapture->di[1] ? std::abs(mCapture->di[1][idx]) : 0.0f);
+        const float di =
+            std::max(std::abs(mCapture->di[0][idx]), mCapture->di[1] ? std::abs(mCapture->di[1][idx]) : 0.0f);
         NoteLivePeak(true, k, di);
     }
 }
@@ -767,5 +773,4 @@ void LooperEngine::DiscardRecording()
         slot = Slot{};
     }
 }
-
 } // namespace guitarfx::looper

@@ -10,7 +10,8 @@ namespace guitarfx
 namespace
 {
 constexpr std::array<const char*, 12> kNoteNames = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
-constexpr std::array<const char*, 12> kNoteNamesFlat = {"C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B"};
+constexpr std::array<const char*, 12> kNoteNamesFlat = {"C",  "Db", "D",  "Eb", "E",  "F",
+                                                        "Gb", "G",  "Ab", "A",  "Bb", "B"};
 } // namespace
 
 TunerEngine::~TunerEngine()
@@ -223,6 +224,7 @@ void TunerEngine::QueueReading()
 TunerEngine::Result TunerEngine::FrequencyToNote(double frequency, double referenceFrequency)
 {
     Result result;
+
     if (!(frequency >= PitchTracker::kBassLowestHz && frequency <= 20000.0))
     {
         return result;
@@ -239,6 +241,7 @@ TunerEngine::Result TunerEngine::FrequencyToNote(double frequency, double refere
     const int totalSemitones = nearestSemitone + 57;
     const int noteIndex = ((totalSemitones % 12) + 12) % 12;
     result.octave = totalSemitones / 12;
+
     if (totalSemitones < 0 && totalSemitones % 12 != 0)
     {
         result.octave -= 1;
@@ -246,6 +249,7 @@ TunerEngine::Result TunerEngine::FrequencyToNote(double frequency, double refere
 
     const char* sharpName = kNoteNames[static_cast<std::size_t>(noteIndex)];
     const char* flatName = kNoteNamesFlat[static_cast<std::size_t>(noteIndex)];
+
     if (std::string(sharpName) != std::string(flatName))
     {
         result.noteName = std::string(sharpName) + "/" + std::string(flatName);

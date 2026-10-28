@@ -14,19 +14,34 @@ std::vector<std::string> Keys(const ClientState& state, const char* name, std::s
 {
     std::vector<std::string> keys;
     const auto it = state.uiSettings.find(name);
+
     if (it == state.uiSettings.end() || !it->is_array())
+    {
         return keys;
+    }
+
     for (const auto& entry : *it)
     {
         if (!entry.is_string())
+        {
             continue;
+        }
+
         auto key = entry.get<std::string>();
+
         if (key.empty() || std::find(keys.begin(), keys.end(), key) != keys.end())
+        {
             continue;
+        }
+
         keys.push_back(std::move(key));
+
         if (keys.size() >= limit)
+        {
             break;
+        }
     }
+
     return keys;
 }
 } // namespace
@@ -57,10 +72,16 @@ bool ToggleFxFavorite(UiCommands& commands, const ClientState& state, const std:
     auto keys = FxFavoriteKeys(state);
     const auto it = std::find(keys.begin(), keys.end(), key);
     const bool favorite = it == keys.end();
+
     if (favorite)
+    {
         keys.push_back(key);
+    }
     else
+    {
         keys.erase(it);
+    }
+
     commands.PatchUiSettings({{"fxFavorites", keys}});
     return favorite;
 }
@@ -68,12 +89,20 @@ bool ToggleFxFavorite(UiCommands& commands, const ClientState& state, const std:
 void RecordFxRecent(UiCommands& commands, const ClientState& state, const std::string& key)
 {
     auto keys = FxRecentKeys(state);
+
     if (!keys.empty() && keys.front() == key)
+    {
         return;
+    }
+
     keys.erase(std::remove(keys.begin(), keys.end(), key), keys.end());
     keys.insert(keys.begin(), key);
+
     if (keys.size() > kFxRecentsLimit)
+    {
         keys.resize(kFxRecentsLimit);
+    }
+
     commands.PatchUiSettings({{"fxRecents", keys}});
 }
 } // namespace guitarfx::uiclient

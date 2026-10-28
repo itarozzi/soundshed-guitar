@@ -55,8 +55,7 @@ struct Model
     std::string architecture; // "1", "2", "custom", or empty
 };
 
-template <typename T>
-struct Page
+template <typename T> struct Page
 {
     std::vector<T> items;
     int page = 1;
@@ -66,7 +65,7 @@ struct Page
 /// A path under kProxyBase. `gear` and `sort` as the API takes them (sort: downloads-all-time,
 /// newest, trending, best-match); `architecture` "1", "2" or empty for any.
 [[nodiscard]] std::string TonesSearchPath(const std::string& query, const std::string& gear, const std::string& sort,
-                                     const std::string& architecture, int page, int pageSize = kSearchPageSize);
+                                          const std::string& architecture, int page, int pageSize = kSearchPageSize);
 /// A tone's models. Without an architecture the API lists A1 and custom models only; A2 twins
 /// need architecture "2" (and newer tones are A2 only).
 [[nodiscard]] std::string ModelsPath(const std::string& toneId, int page, const std::string& architecture,
@@ -90,11 +89,13 @@ struct Page
 [[nodiscard]] std::string LibraryId(const Model& model, const std::string& zipEntry = {});
 
 /// The library entry a model was imported as, by its id or the model id its metadata records.
-[[nodiscard]] const LibraryResource* FindImported(const ClientState& state, const std::string& resourceType, const Model& model);
+[[nodiscard]] const LibraryResource* FindImported(const ClientState& state, const std::string& resourceType,
+                                                  const Model& model);
 
 /// The importRemoteResource payload for a model's bytes (base64 in `data`).
 [[nodiscard]] nlohmann::json ImportPayload(const Tone& tone, const Model& model, const std::string& resourceType,
-                                           const std::string& category, std::string base64Data, const std::string& zipEntry = {});
+                                           const std::string& category, std::string base64Data,
+                                           const std::string& zipEntry = {});
 
 // ── A shared preset's models ────────────────────────────────────────────────────
 

@@ -14,7 +14,7 @@ namespace guitarfx::uiclient
 /// Smooths the tuner's readings over the last six, and says what the display shows.
 class TunerModel
 {
-public:
+  public:
     static constexpr std::size_t kWindow = 6;
 
     /// Within this many cents either way the note reads as in tune.
@@ -41,7 +41,7 @@ public:
 
     void Reset();
 
-private:
+  private:
     struct Sample
     {
         double cents;
@@ -54,14 +54,14 @@ private:
 /// Tap tempo: at least three taps, averaged over the last eight, reset after 2.5 s of quiet.
 class TapTempo
 {
-public:
+  public:
     static constexpr double kResetSeconds = 2.5;
     static constexpr std::size_t kHistory = 8;
 
     /// A tap at `nowSeconds`; the tempo once there are enough taps to tell.
     std::optional<double> Tap(double nowSeconds);
 
-private:
+  private:
     std::deque<double> mTaps;
 };
 

@@ -21,8 +21,7 @@ class LooperWorker
   public:
     using Job = std::function<void()>;
 
-    LooperWorker()
-        : mThread([this] { Run(); })
+    LooperWorker() : mThread([this] { Run(); })
     {
     }
 

@@ -141,6 +141,7 @@ int main()
 
     GlobalSignalChainConfig config;
     GlobalChainEditor::NormalizeConfig(config);
+
     if (!config.preChainGraph.FindNode("global_gate") || !config.preChainGraph.FindNode("global_transpose") ||
         !config.postChainGraph.FindNode("global_eq") || !config.postChainGraph.FindNode("global_doubler"))
     {
@@ -171,6 +172,7 @@ int main()
     const auto* transpose = config.preChainGraph.FindNode("global_transpose");
     const auto* eq = config.postChainGraph.FindNode("global_eq");
     const auto* doubler = config.postChainGraph.FindNode("global_doubler");
+
     if (!gate->enabled || gate->params.at("threshold") != -48.0 || gate->params.at("attack") != 9.0 ||
         !transpose->enabled || transpose->params.at("semitones") != 12.0 || !eq->enabled ||
         eq->params.at("highMidGain") != 1.75 || eq->params.at("highMidQ") != 1.4 || eq->params.count("lowQ") == 0 ||
@@ -181,5 +183,6 @@ int main()
         std::cerr << "Global chain edit rules changed\n";
         return 1;
     }
+
     return 0;
 }

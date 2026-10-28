@@ -65,6 +65,7 @@ class TunerService;
 class GateLearnService;
 class PracticeToolService;
 class LooperService;
+
 namespace looper_render
 {
 struct Graphs;
@@ -377,8 +378,8 @@ class PluginController
     [[nodiscard]] std::optional<std::filesystem::path> ResolveLayoutImageFile(const std::string& imageId);
     /// The file and MIME type for a UI resource path of the form `layout-images/id/<id>` (no
     /// query), or nullopt when the path is not one or names no image.
-    [[nodiscard]] std::optional<std::pair<std::filesystem::path, std::string>>
-    ResolveLayoutImageResource(const std::string& resourcePath);
+    [[nodiscard]] std::optional<std::pair<std::filesystem::path, std::string>> ResolveLayoutImageResource(
+        const std::string& resourcePath);
 
     // ── Signal path test ───────────────────────────────────────────
     /// Injects a test tone and reports what reached the output. Returns false
@@ -969,11 +970,9 @@ class PluginController
     /// Writes a model or IR into the library's content folder and adds it to the user library,
     /// for importRemoteResource and archive installs alike. Does not broadcast. On failure
     /// returns nullopt with `error` set.
-    [[nodiscard]] std::optional<LibraryResource> ImportResourceFile(LibraryResource resource, const std::string& provider,
-                                                                    const std::string& subfolder,
-                                                                    const std::string& fileName,
-                                                                    const std::vector<std::uint8_t>& bytes,
-                                                                    std::string& error);
+    [[nodiscard]] std::optional<LibraryResource> ImportResourceFile(
+        LibraryResource resource, const std::string& provider, const std::string& subfolder,
+        const std::string& fileName, const std::vector<std::uint8_t>& bytes, std::string& error);
     void RemoveUserLibraryResource(const std::string& type, const std::string& id);
     void EnsureBasicGraph();
     bool ExtractFirstResourceFromZip(const std::vector<std::uint8_t>& zipData, const std::string& resourceType,

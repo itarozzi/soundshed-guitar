@@ -132,9 +132,8 @@ void GateLearnService::Finish()
 
 NoiseGateEffect* GateLearnService::FindGate() const
 {
-    EffectProcessor* processor = mTarget.scope == "global"
-                                     ? mMixer.GetGlobalPreNodeProcessor(mTarget.nodeId)
-                                     : mMixer.GetNodeProcessor(mTarget.presetId, mTarget.nodeId);
+    EffectProcessor* processor = mTarget.scope == "global" ? mMixer.GetGlobalPreNodeProcessor(mTarget.nodeId)
+                                                           : mMixer.GetNodeProcessor(mTarget.presetId, mTarget.nodeId);
     return dynamic_cast<NoiseGateEffect*>(processor);
 }
 
@@ -209,8 +208,8 @@ void GateLearnService::OnIdle()
     if (found && snapshot.session == mSession && now - mLastProgressSent >= kProgressInterval)
     {
         mLastProgressSent = now;
-        Send("listening", {{"progress", Rounded(snapshot.progress * 100.0) / 100.0},
-                           {"levelDb", Rounded(snapshot.levelDb)}});
+        Send("listening",
+             {{"progress", Rounded(snapshot.progress * 100.0) / 100.0}, {"levelDb", Rounded(snapshot.levelDb)}});
     }
 }
 

@@ -96,6 +96,7 @@ bool TestRemoveEntry()
 
     return true;
 }
+
 // A Custom Effect's category and thumbnail are its module's word, and both reach UI markup.
 bool TestSanitisesCategoryAndThumbnail()
 {
@@ -107,10 +108,11 @@ bool TestSanitisesCategoryAndThumbnail()
                             SanitizeCustomEffectCategory("<img src=x>") == "utility" &&
                             SanitizeCustomEffectCategory("") == "utility" &&
                             SanitizeCustomEffectCategory(std::string(41, 'a')) == "utility";
-    const bool thumbnails = SanitizeCustomEffectThumbnail("data:image/png;base64,AAAA") == "data:image/png;base64,AAAA" &&
-                            SanitizeCustomEffectThumbnail("https://tracker.example/p.png").empty() &&
-                            SanitizeCustomEffectThumbnail("data:image/svg+xml;base64,PHN2Zz4=").empty() &&
-                            SanitizeCustomEffectThumbnail("data:image/png;base64,A\" onerror=\"x").empty();
+    const bool thumbnails =
+        SanitizeCustomEffectThumbnail("data:image/png;base64,AAAA") == "data:image/png;base64,AAAA" &&
+        SanitizeCustomEffectThumbnail("https://tracker.example/p.png").empty() &&
+        SanitizeCustomEffectThumbnail("data:image/svg+xml;base64,PHN2Zz4=").empty() &&
+        SanitizeCustomEffectThumbnail("data:image/png;base64,A\" onerror=\"x").empty();
 
     guitarfx::CustomEffectLibrary library;
     guitarfx::CustomEffectLibraryEntry entry;

@@ -38,7 +38,7 @@ namespace guitarfx::uiclient
 {
 class ToneService
 {
-public:
+  public:
     struct Host
     {
         /// Runs `fn` on the UI thread, soon. Called from worker threads.
@@ -59,7 +59,8 @@ public:
         std::string itemId;
     };
 
-    ToneService(UiClient& client, UiCommands& commands, Host host, std::shared_ptr<net::HttpTransport> transport = net::MakePlatformTransport());
+    ToneService(UiClient& client, UiCommands& commands, Host host,
+                std::shared_ptr<net::HttpTransport> transport = net::MakePlatformTransport());
     ~ToneService();
 
     ToneService(const ToneService&) = delete;
@@ -73,14 +74,16 @@ public:
     /// Asks the Soundshed service for its newest release (POST /app/updatecheck, without the
     /// account's session: the web UI sends none either). The callback gets the update when it is
     /// newer than `currentVersion`, else nothing; a failed request is nothing too.
-    void CheckForUpdate(const std::string& currentVersion, const std::string& os, const std::string& cpu, bool standalone,
-                        const std::string& instanceId, std::function<void(const std::optional<AvailableUpdate>&)> callback);
+    void CheckForUpdate(const std::string& currentVersion, const std::string& os, const std::string& cpu,
+                        bool standalone, const std::string& instanceId,
+                        std::function<void(const std::optional<AvailableUpdate>&)> callback);
 
     // ── Jam ─────────────────────────────────────────────────────────────────────
     /// YouTube's search for embeddable backing tracks (the web UI's jam/search.ts), with the
     /// engine's bundled key: the videos, or the API's own message.
     using BackingTracksCallback = std::function<void(const std::vector<jam::Video>& videos, const std::string& error)>;
-    void SearchBackingTracks(const std::string& normalizedQuery, const std::string& apiKey, BackingTracksCallback callback);
+    void SearchBackingTracks(const std::string& normalizedQuery, const std::string& apiKey,
+                             BackingTracksCallback callback);
 
     // ── Tone sharing ────────────────────────────────────────────────────────────
     void Get(const std::string& path, Callback callback);
@@ -94,6 +97,7 @@ public:
     {
         return mAccount;
     }
+
     [[nodiscard]] bool HasSession() const;
     void RefreshAccount();
     void RequestCode(const std::string& email, Callback callback);
@@ -103,10 +107,12 @@ public:
     /// Downloads a shared preset, or every preset of a pack, fetches the Tone3000 models it
     /// names that the library lacks, and asks the engine to install it.
     void Install(const tones::Tone& tone);
+
     [[nodiscard]] bool IsDownloading(const std::string& entryId) const
     {
         return mDownloading.count(entryId) > 0;
     }
+
     /// Removes an install: its presets, and resources nothing else uses.
     void Remove(const std::string& entryId);
 
@@ -119,15 +125,18 @@ public:
     void Preview(const tones::Tone& item);
     /// Loads the preset that was playing before the first preview, and ends the preview.
     void StopPreview();
+
     /// The item previewed, or being fetched for a preview; empty when none.
     [[nodiscard]] const std::string& PreviewItemId() const noexcept
     {
         return mPreviewItemId;
     }
+
     [[nodiscard]] const std::string& PreviewTitle() const noexcept
     {
         return mPreviewTitle;
     }
+
     /// Still downloading, or waiting for the engine to play it.
     [[nodiscard]] bool IsPreviewLoading() const noexcept
     {
@@ -140,8 +149,8 @@ public:
     /// The library id the model was stored under, or an error.
     using ImportCallback = std::function<void(const std::string& resourceId, const std::string& error)>;
 
-    void SearchTone3000(const std::string& query, const std::string& gear, const std::string& sort, const std::string& architecture,
-                        int page, TonesCallback callback);
+    void SearchTone3000(const std::string& query, const std::string& gear, const std::string& sort,
+                        const std::string& architecture, int page, TonesCallback callback);
     /// Every model of a tone, both the default listing (A1 and custom) and the A2 twins, in the
     /// creator's order with A2 after.
     void Tone3000Models(const std::string& toneId, ModelsCallback callback);
@@ -153,12 +162,13 @@ public:
     /// audition plays (UiCommands::PreviewRemoteResource), as the web UI's preview fetches it.
     using DownloadCallback = std::function<void(const std::string& base64, const std::string& error)>;
     void DownloadTone3000(const tone3000::Model& model, const std::string& resourceType, DownloadCallback callback);
+
     [[nodiscard]] bool IsImporting(const std::string& modelId) const
     {
         return mImporting.count(modelId) > 0;
     }
 
-private:
+  private:
     struct HttpResult
     {
         int status = 0;
@@ -167,9 +177,11 @@ private:
         std::string error;
         bool droppedSession = false; // asked again without a session the service refused
     };
+
     using BytesCallback = std::function<void(const HttpResult&)>;
 
-    void Request(const std::string& method, const std::string& url, const std::string& jsonBody, bool json, BytesCallback done);
+    void Request(const std::string& method, const std::string& url, const std::string& jsonBody, bool json,
+                 BytesCallback done);
     void Changed();
 
     void InstallItem(const tones::Tone& tone);
@@ -183,13 +195,15 @@ private:
 
     /// Downloads a referenced model: its own URL when the archive gave one, else found among its
     /// tone's models. Answers with the bytes, or an error.
-    void FetchRemoteRef(const tone3000::RemoteRef& ref, std::function<void(const std::string& bytes, const std::string& error)> done);
+    void FetchRemoteRef(const tone3000::RemoteRef& ref,
+                        std::function<void(const std::string& bytes, const std::string& error)> done);
     /// Sends an import and calls `done` once the engine answers it.
     void ImportAndWait(nlohmann::json payload, ImportCallback done);
     void OnResourcesChanged();
 
     // ToneServicePreview.cpp
-    void SendPreview(int generation, const tones::Tone& item, const std::string& archive, const nlohmann::json& fetched);
+    void SendPreview(int generation, const tones::Tone& item, const std::string& archive,
+                     const nlohmann::json& fetched);
     void PreviewFailed(int generation, const std::string& reason);
     void OnActivePresetChanged();
     /// A favourite or rating given to a preset installed from tone sharing, sent to the service
@@ -211,8 +225,8 @@ private:
     std::map<std::string, std::string> mImages; // url -> bytes ("" when the fetch failed)
     std::set<std::string> mImagesRequested;
     std::set<std::string> mDownloading;
-    std::map<std::string, std::string> mAwaiting; // entry id -> title: installs sent to the engine
-    std::set<std::string> mImporting;             // Tone3000 model ids being imported
+    std::map<std::string, std::string> mAwaiting;          // entry id -> title: installs sent to the engine
+    std::set<std::string> mImporting;                      // Tone3000 model ids being imported
     std::map<std::string, ImportCallback> mPendingImports; // request id -> callback
     std::map<int, std::function<void()>> mListeners;
     int mNextListener = 1;

@@ -18,7 +18,7 @@ namespace el = cycfi::elements;
 /// web UI normalises it.
 class Theme
 {
-public:
+  public:
     void Set(const std::string& name);
 
     [[nodiscard]] const std::string& Name() const noexcept
@@ -37,37 +37,156 @@ public:
                         static_cast<std::uint8_t>(value), static_cast<std::uint8_t>(value >> 24));
     }
 
-    [[nodiscard]] el::color Accent() const noexcept { return Argb(T().accent); }
-    [[nodiscard]] el::color Background() const noexcept { return Argb(T().bgPrimary); }
-    [[nodiscard]] el::color Bar() const noexcept { return Argb(T().bgSecondary); }
-    [[nodiscard]] el::color Panel() const noexcept { return Argb(T().bgPanel); }
-    [[nodiscard]] el::color Card() const noexcept { return Argb(T().bgCard); }
-    [[nodiscard]] el::color Elevated() const noexcept { return Argb(T().bgElevated); }
-    [[nodiscard]] el::color Input() const noexcept { return Argb(T().bgInput); }
-    [[nodiscard]] el::color Text() const noexcept { return Argb(T().textPrimary); }
-    [[nodiscard]] el::color TextSecondary() const noexcept { return Argb(T().textSecondary); }
-    [[nodiscard]] el::color TextMuted() const noexcept { return Argb(T().textMuted); }
-    [[nodiscard]] el::color Border() const noexcept { return Argb(T().borderLight); }
-    [[nodiscard]] el::color BorderStrong() const noexcept { return Argb(T().borderMedium); }
-    [[nodiscard]] el::color Success() const noexcept { return Argb(T().success); }
-    [[nodiscard]] el::color Error() const noexcept { return Argb(T().error); }
-    [[nodiscard]] el::color Warning() const noexcept { return Argb(T().warning); }
-    [[nodiscard]] el::color Tertiary() const noexcept { return Argb(T().bgTertiary); }
-    [[nodiscard]] el::color Footer() const noexcept { return Argb(T().bgFooter); }
-    [[nodiscard]] el::color Header() const noexcept { return Argb(T().bgHeader); }
-    [[nodiscard]] el::color TextOnDark() const noexcept { return Argb(T().textOnDark); }
-    [[nodiscard]] el::color ControlBorder() const noexcept { return Argb(T().controlBorder); }
-    [[nodiscard]] el::color KnobRingStart() const noexcept { return Argb(T().knobRingStart); }
-    [[nodiscard]] el::color KnobRingEnd() const noexcept { return Argb(T().knobRingEnd); }
+    [[nodiscard]] el::color Accent() const noexcept
+    {
+        return Argb(T().accent);
+    }
+
+    [[nodiscard]] el::color Background() const noexcept
+    {
+        return Argb(T().bgPrimary);
+    }
+
+    [[nodiscard]] el::color Bar() const noexcept
+    {
+        return Argb(T().bgSecondary);
+    }
+
+    [[nodiscard]] el::color Panel() const noexcept
+    {
+        return Argb(T().bgPanel);
+    }
+
+    [[nodiscard]] el::color Card() const noexcept
+    {
+        return Argb(T().bgCard);
+    }
+
+    [[nodiscard]] el::color Elevated() const noexcept
+    {
+        return Argb(T().bgElevated);
+    }
+
+    [[nodiscard]] el::color Input() const noexcept
+    {
+        return Argb(T().bgInput);
+    }
+
+    [[nodiscard]] el::color Text() const noexcept
+    {
+        return Argb(T().textPrimary);
+    }
+
+    [[nodiscard]] el::color TextSecondary() const noexcept
+    {
+        return Argb(T().textSecondary);
+    }
+
+    [[nodiscard]] el::color TextMuted() const noexcept
+    {
+        return Argb(T().textMuted);
+    }
+
+    [[nodiscard]] el::color Border() const noexcept
+    {
+        return Argb(T().borderLight);
+    }
+
+    [[nodiscard]] el::color BorderStrong() const noexcept
+    {
+        return Argb(T().borderMedium);
+    }
+
+    [[nodiscard]] el::color Success() const noexcept
+    {
+        return Argb(T().success);
+    }
+
+    [[nodiscard]] el::color Error() const noexcept
+    {
+        return Argb(T().error);
+    }
+
+    [[nodiscard]] el::color Warning() const noexcept
+    {
+        return Argb(T().warning);
+    }
+
+    [[nodiscard]] el::color Tertiary() const noexcept
+    {
+        return Argb(T().bgTertiary);
+    }
+
+    [[nodiscard]] el::color Footer() const noexcept
+    {
+        return Argb(T().bgFooter);
+    }
+
+    [[nodiscard]] el::color Header() const noexcept
+    {
+        return Argb(T().bgHeader);
+    }
+
+    [[nodiscard]] el::color TextOnDark() const noexcept
+    {
+        return Argb(T().textOnDark);
+    }
+
+    [[nodiscard]] el::color ControlBorder() const noexcept
+    {
+        return Argb(T().controlBorder);
+    }
+
+    [[nodiscard]] el::color KnobRingStart() const noexcept
+    {
+        return Argb(T().knobRingStart);
+    }
+
+    [[nodiscard]] el::color KnobRingEnd() const noexcept
+    {
+        return Argb(T().knobRingEnd);
+    }
+
     // The response plots (the web UI's --eq-curve-* properties).
-    [[nodiscard]] el::color PlotGrid() const noexcept { return Argb(T().eqCurveGrid); }
-    [[nodiscard]] el::color PlotCurve() const noexcept { return Argb(T().eqCurveResponse); }
-    [[nodiscard]] el::color PlotHandleStroke() const noexcept { return Argb(T().eqCurveHandleStroke); }
-    [[nodiscard]] el::color PlotSpectrumTop() const noexcept { return Argb(T().eqCurveSpectrumFillTop); }
-    [[nodiscard]] el::color PlotSpectrumBottom() const noexcept { return Argb(T().eqCurveSpectrumFillBottom); }
-    [[nodiscard]] el::color PlotSpectrumLine() const noexcept { return Argb(T().eqCurveSpectrumLine); }
-    [[nodiscard]] el::color KnobRingTrack() const noexcept { return Argb(T().knobRingTrack); }
-    [[nodiscard]] el::color ToggleBg() const noexcept { return Argb(T().toggleBg); }
+    [[nodiscard]] el::color PlotGrid() const noexcept
+    {
+        return Argb(T().eqCurveGrid);
+    }
+
+    [[nodiscard]] el::color PlotCurve() const noexcept
+    {
+        return Argb(T().eqCurveResponse);
+    }
+
+    [[nodiscard]] el::color PlotHandleStroke() const noexcept
+    {
+        return Argb(T().eqCurveHandleStroke);
+    }
+
+    [[nodiscard]] el::color PlotSpectrumTop() const noexcept
+    {
+        return Argb(T().eqCurveSpectrumFillTop);
+    }
+
+    [[nodiscard]] el::color PlotSpectrumBottom() const noexcept
+    {
+        return Argb(T().eqCurveSpectrumFillBottom);
+    }
+
+    [[nodiscard]] el::color PlotSpectrumLine() const noexcept
+    {
+        return Argb(T().eqCurveSpectrumLine);
+    }
+
+    [[nodiscard]] el::color KnobRingTrack() const noexcept
+    {
+        return Argb(T().knobRingTrack);
+    }
+
+    [[nodiscard]] el::color ToggleBg() const noexcept
+    {
+        return Argb(T().toggleBg);
+    }
 
     /// The accent as a fill. On the dark themes the token is a bright orange that glares as a
     /// block of colour, so fills take it a fifth of the way into the panel colour.
@@ -81,14 +200,21 @@ public:
 
     /// Text and icons on the chrome (bars, pills, chips): the dark themes' near-white, the light
     /// theme's ink. TextOnDark() is near-white in every theme, so on a light surface it vanishes.
-    [[nodiscard]] el::color Ink() const noexcept { return IsLight() ? Text() : TextOnDark(); }
+    [[nodiscard]] el::color Ink() const noexcept
+    {
+        return IsLight() ? Text() : TextOnDark();
+    }
 
     /// `dark` (a colour measured from the dark web UI) on the dark themes, and on the light one
     /// `light`, the token the web UI's light theme draws that part with.
-    [[nodiscard]] el::color Pick(el::color dark, el::color light) const noexcept { return IsLight() ? light : dark; }
+    [[nodiscard]] el::color Pick(el::color dark, el::color light) const noexcept
+    {
+        return IsLight() ? light : dark;
+    }
 
-private:
+  private:
     using Tokens = guitarfx::uiclient::theme::ThemeTokens;
+
     [[nodiscard]] const Tokens& T() const noexcept
     {
         return *mTokens;

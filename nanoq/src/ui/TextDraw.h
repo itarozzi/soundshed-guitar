@@ -17,7 +17,8 @@ enum class HAlign
 };
 
 /// Cuts `text` to fit `width`, ending it with an ellipsis. Measures, so proportional fonts fit exactly.
-[[nodiscard]] std::string Ellipsize(cycfi::artist::canvas& cnv, const std::string& text, const el::font_descr& font, float width);
+[[nodiscard]] std::string Ellipsize(cycfi::artist::canvas& cnv, const std::string& text, const el::font_descr& font,
+                                    float width);
 
 [[nodiscard]] float LineHeight(cycfi::artist::canvas& cnv, const el::font_descr& font);
 

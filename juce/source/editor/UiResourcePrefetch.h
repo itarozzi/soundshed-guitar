@@ -18,10 +18,10 @@ namespace soundshed::editor
 ///
 /// Each file is handed out once, and whatever the page has not asked for when it has loaded is
 /// let go, so nothing here outlives a page load or serves a file edited since.
-void prefetchUiResources (const juce::File& uiFolder);
+void prefetchUiResources(const juce::File& uiFolder);
 
 /// The file's bytes if the prefetch has read it and nothing has taken them yet.
-std::optional<std::vector<std::byte>> takePrefetchedUiResource (const juce::File& file);
+std::optional<std::vector<std::byte>> takePrefetchedUiResource(const juce::File& file);
 
 /// Lets go of whatever is left, and stops a prefetch still reading. Once the page has loaded.
 void releasePrefetchedUiResources();

@@ -18,7 +18,7 @@ namespace nanoq::ui
 {
 class KeyRouter final : public cycfi::elements::proxy_base
 {
-public:
+  public:
     /// `focusContent`: a dialog's router passes focus on to what it holds (its text box gets the
     /// caret as it opens); the root's keeps it, so taking focus back puts no caret anywhere.
     explicit KeyRouter(cycfi::elements::element_ptr subject, bool focusContent = false)
@@ -30,6 +30,7 @@ public:
     {
         return *mSubject;
     }
+
     const cycfi::elements::element& subject() const override
     {
         return *mSubject;
@@ -45,7 +46,9 @@ public:
     void begin_focus(focus_request req) override
     {
         if (mFocusContent || req == focus_request::restore_previous)
+        {
             proxy_base::begin_focus(req);
+        }
     }
 
     bool key(const cycfi::elements::context& ctx, cycfi::elements::key_info k) override
@@ -53,19 +56,31 @@ public:
         // Esc closes the menu or dialog on top first, even from its text box (which would
         // otherwise take it to drop its own focus), as Esc closes a modal in the web UI.
         if (k.key == cycfi::elements::key_code::escape && onKey && onKey(k))
+        {
             return true;
+        }
+
         if (proxy_base::key(ctx, k))
+        {
             return true;
+        }
+
         // A text box being typed in keeps every other key.
         if (Typing())
+        {
             return false;
+        }
+
         return onKey && onKey(k);
     }
 
     bool click(const cycfi::elements::context& ctx, cycfi::elements::mouse_button btn) override
     {
         if (btn.down && onPointerDown)
+        {
             onPointerDown();
+        }
+
         return proxy_base::click(ctx, btn);
     }
 
@@ -75,14 +90,20 @@ public:
                     cycfi::elements::cursor_tracking status) override
     {
         if (onTrackDrop)
+        {
             onTrackDrop(info, status == cycfi::elements::cursor_tracking::leaving);
+        }
+
         proxy_base::track_drop(ctx, info, status);
     }
 
     bool drop(const cycfi::elements::context& ctx, const cycfi::elements::drop_info& info) override
     {
         if (onDrop && onDrop(info))
+        {
             return true;
+        }
+
         return proxy_base::drop(ctx, info);
     }
 
@@ -90,21 +111,30 @@ public:
     static void Retake(cycfi::elements::view& view)
     {
         auto& content = view.content();
+
         if (content.focus_index() == -1)
+        {
             content.begin_focus(focus_request::from_top);
+        }
     }
 
     /// Whether a text box holds focus with its caret showing.
     [[nodiscard]] bool Typing() const
     {
         const cycfi::elements::element* e = &subject();
+
         for (int depth = 0; depth < 64; ++depth)
         {
             const auto* next = e->focus();
+
             if (next == nullptr || next == e)
+            {
                 break;
+            }
+
             e = next;
         }
+
         const auto* box = dynamic_cast<const cycfi::elements::basic_text_box*>(e);
         return box != nullptr && box->select_start() != -1;
     }
@@ -117,7 +147,7 @@ public:
     std::function<void(const cycfi::elements::drop_info&, bool leaving)> onTrackDrop;
     std::function<bool(const cycfi::elements::drop_info&)> onDrop;
 
-private:
+  private:
     cycfi::elements::element_ptr mSubject;
     bool mFocusContent;
 };

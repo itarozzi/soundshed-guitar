@@ -51,22 +51,25 @@ struct NodeStateChange
 /// the edges in a fixed order. Engine-owned config (a hosted plugin's state blob) is left out.
 [[nodiscard]] std::string GraphSignature(const SignalGraph& graph);
 
-[[nodiscard]] ChainSnapshot MakeSnapshot(const SignalGraph& graph, std::string presetId, std::string sceneId, std::string label);
+[[nodiscard]] ChainSnapshot MakeSnapshot(const SignalGraph& graph, std::string presetId, std::string sceneId,
+                                         std::string label);
 
 /// The per-node changes that turn `from` into `to`, or nullopt when the targeted messages cannot
 /// say it: a different topology, a renamed node, a swapped resource, or a key that appeared or
 /// disappeared (there is no message that unsets one).
-[[nodiscard]] std::optional<std::vector<NodeStateChange>> DiffNodeStates(const SignalGraph& from, const SignalGraph& to);
+[[nodiscard]] std::optional<std::vector<NodeStateChange>> DiffNodeStates(const SignalGraph& from,
+                                                                         const SignalGraph& to);
 
 using NodeLabelResolver = std::function<std::string(const GraphNode&)>;
 
 /// A short description of what one edit did ("Add Doubler", "Noise Gate off"). Best effort: it
 /// reads the difference, it is not told what happened.
-[[nodiscard]] std::string DescribeGraphChange(const SignalGraph* from, const SignalGraph& to, const NodeLabelResolver& label);
+[[nodiscard]] std::string DescribeGraphChange(const SignalGraph* from, const SignalGraph& to,
+                                              const NodeLabelResolver& label);
 
 class ChainHistory
 {
-public:
+  public:
     enum class Slot
     {
         A,
@@ -77,10 +80,12 @@ public:
     void Reset(const ChainSnapshot& seed);
 
     [[nodiscard]] bool IsSeeded() const;
+
     [[nodiscard]] Slot ActiveSlot() const
     {
         return mActive;
     }
+
     [[nodiscard]] const ChainSnapshot* Current() const;
 
     /// Records a new state; from a past cursor position the redo entries go.
@@ -103,7 +108,7 @@ public:
     /// Edits behind a slot, for its tooltip.
     [[nodiscard]] int EditCount(Slot slot) const;
 
-private:
+  private:
     struct Stack
     {
         std::vector<ChainSnapshot> entries;
@@ -114,10 +119,12 @@ private:
     {
         return mActive == Slot::A ? mA : mB;
     }
+
     [[nodiscard]] const Stack& Live() const
     {
         return mActive == Slot::A ? mA : mB;
     }
+
     static void PushTo(Stack& stack, ChainSnapshot snapshot);
 
     Stack mA, mB;

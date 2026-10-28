@@ -33,26 +33,44 @@ namespace
 {
 /// A card's signal light from the telemetry feed: `levels` is its node's reading, or null for the
 /// input and output, which have their own.
-NodeCard::Light CardLight(const guitarfx::uiclient::ClientState& state, const NodeCard& card, const std::string& levelsKey)
+NodeCard::Light CardLight(const guitarfx::uiclient::ClientState& state, const NodeCard& card,
+                          const std::string& levelsKey)
 {
     const auto lightFor = [](const guitarfx::uiclient::LevelReading& reading) {
         if (reading.clipped)
+        {
             return NodeCard::Light::Clip;
+        }
+
         if (reading.channelCount > 0 && reading.peakDb > -60.0)
+        {
             return NodeCard::Light::Live;
+        }
+
         return NodeCard::Light::Idle;
     };
     const auto& telemetry = state.telemetry;
+
     if (card.BoundaryKind() == NodeCard::Boundary::Input)
+    {
         return lightFor(telemetry.input);
+    }
+
     if (card.BoundaryKind() == NodeCard::Boundary::Output)
+    {
         return lightFor(telemetry.output);
+    }
+
     if (!card.Enabled())
+    {
         return NodeCard::Light::None;
+    }
+
     const auto it = telemetry.nodes.find(levelsKey);
     return it != telemetry.nodes.end() ? lightFor(it->second) : NodeCard::Light::Idle;
 }
 } // namespace
+
 using guitarfx::uiclient::kOutputNodeId;
 
 namespace
@@ -80,30 +98,47 @@ el::color NodeAccent(const std::string& nodeClass)
 std::string Shell::ChainSignature() const
 {
     if (!mState.activePreset)
+    {
         return {};
+    }
 
     // The width decides where lines wrap, so a resize past a break redraws.
     std::string s = mSelectedNode + "|" + mState.activePresetId + "|" + mState.activeSceneId + "|" +
                     std::to_string(static_cast<int>(ViewSize().x / 16.0f)) + "x" +
                     std::to_string(mWide ? static_cast<int>(ViewSize().y / 24.0f) : 0);
+
     for (const auto& node : mState.activePreset->graph.nodes)
     {
         s += "|" + node.id + ":" + node.type + ":" + (node.enabled ? "1" : "0") + ":" +
-             guitarfx::uiclient::NodeDisplayName(mState, node) + ":" + guitarfx::uiclient::NodeArchitectureBadge(mState, node);
+             guitarfx::uiclient::NodeDisplayName(mState, node) + ":" +
+             guitarfx::uiclient::NodeArchitectureBadge(mState, node);
     }
+
     for (const auto& edge : mState.activePreset->graph.edges)
+    {
         s += "|" + edge.from + ">" + edge.to + "#" + std::to_string(edge.fromPort);
+    }
+
     for (const auto& missing : mState.missingNodeResources)
+    {
         s += "|!" + missing;
+    }
+
     return s + "|" + MixerSignature() + (IconChain() ? "|icons" : "");
 }
 
 bool Shell::IconChain() const
 {
     if (!mWide)
+    {
         return false;
+    }
+
     if (mChainIcons >= 0)
+    {
         return mChainIcons == 1;
+    }
+
     const auto native = mState.uiSettings.find("native");
     return native != mState.uiSettings.end() && native->is_object() && native->value("chainIcons", false);
 }
@@ -113,10 +148,16 @@ Ptr Shell::BuildChain()
     using namespace guitarfx::uiclient;
 
     mHitMap = std::make_shared<chain::HitMap>();
+
     if (!mState.activePreset)
+    {
         return VGap(0);
+    }
+
     if (mMixTab && MultiRigShown())
+    {
         return BuildInlineMixer();
+    }
 
     const auto& graph = mState.activePreset->graph;
     const auto layout = BuildChainLayout(graph);
@@ -127,9 +168,14 @@ Ptr Shell::BuildChain()
     // graph that lacks one still gets its card, under the layout's own id.
     auto boundaryId = [&graph](bool input) {
         for (const auto& node : graph.nodes)
+        {
             if (node.type == (input ? guitarfx::kNodeTypeInput : guitarfx::kNodeTypeOutput) ||
                 node.id == (input ? kInputNodeId : kOutputNodeId))
+            {
                 return node.id;
+            }
+        }
+
         return std::string(input ? kInputNodeId : kOutputNodeId);
     };
     const auto inputId = boundaryId(true);
@@ -141,11 +187,14 @@ Ptr Shell::BuildChain()
     };
 
     // A card for a node of the graph; its width is returned too, for the wrap.
-    auto makeCard = [this, &graph, &isMissing, &inputId, &outputId, icons](const std::string& nodeId, float& width) -> Ptr {
+    auto makeCard = [this, &graph, &isMissing, &inputId, &outputId, icons](const std::string& nodeId,
+                                                                           float& width) -> Ptr {
         NodeCard::Look look;
         const auto* node = graph.FindNode(nodeId);
-        const bool input = nodeId == inputId || (node != nullptr && IsBoundaryNode(*node) && node->type == guitarfx::kNodeTypeInput);
-        const bool output = nodeId == outputId || (node != nullptr && IsBoundaryNode(*node) && node->type == guitarfx::kNodeTypeOutput);
+        const bool input =
+            nodeId == inputId || (node != nullptr && IsBoundaryNode(*node) && node->type == guitarfx::kNodeTypeInput);
+        const bool output =
+            nodeId == outputId || (node != nullptr && IsBoundaryNode(*node) && node->type == guitarfx::kNodeTypeOutput);
 
         if (input || output)
         {
@@ -163,20 +212,33 @@ Ptr Shell::BuildChain()
             const auto category = NodeCategory(mState, *node);
             look.name = NodeDisplayName(mState, *node);
             look.detail = type != nullptr ? type->name : std::string();
+
             // Renamed, a model or IR node names what it plays under the user's name (signalPath.ts).
             if (!node->title.empty() && type != nullptr && type->requiresResource)
+            {
                 if (auto resource = NodeResourceName(mState, *node); !resource.empty())
+                {
                     look.detail = std::move(resource);
+                }
+            }
+
             if (look.detail == look.name)
+            {
                 look.detail.clear();
+            }
+
             look.badge = NodeArchitectureBadge(mState, *node);
             look.icon = mPresentation.IconFor(node->type, category);
             look.tint = NodeAccent(mPresentation.NodeClass(category));
             look.enabled = node->enabled;
             look.missing = isMissing(nodeId);
             look.canBypass = !IsMixerType(node->type) && !IsSplitterType(node->type);
+
             if (type != nullptr && (type->requiresResource || !type->resourceType.empty()))
+            {
                 look.thumbnail = mImages.Find(mPresentation.EquipmentImage(node->type, category));
+            }
+
             look.width = CardWidthFor(look.name, look.detail);
         }
         else
@@ -190,6 +252,7 @@ Ptr Shell::BuildChain()
             look.iconOnly = true;
             look.width = kIconCardSize;
         }
+
         look.selected = nodeId == mSelectedNode;
         width = look.width;
         const bool canBypass = look.canBypass;
@@ -201,43 +264,66 @@ Ptr Shell::BuildChain()
         card->onMenu = [this, nodeId] { OpenNodeMenu(nodeId); };
         // Every card is somewhere to drop; effects can be dragged, the input and output stay put.
         card->Draggable(mHitMap, nodeId);
+
         if (card->BoundaryKind() == NodeCard::Boundary::None)
-            card->onDrag = [this, nodeId](el::point from, el::point to, bool done) { DragCard(nodeId, from, to, done); };
+        {
+            card->onDrag = [this, nodeId](el::point from, el::point to, bool done) {
+                DragCard(nodeId, from, to, done);
+            };
+        }
+
         if (canBypass)
         {
             card->onToggle = [this, nodeId] {
                 if (const auto* n = mState.activePreset ? mState.activePreset->graph.FindNode(nodeId) : nullptr)
+                {
                     mSession.Commands().SetNodeBypassed(nodeId, n->enabled);
+                }
             };
             card->onReplace = [this, nodeId] { OpenEffectPicker({}, nodeId); };
         }
+
         // Its light follows the telemetry feed.
-        mLive.Feed(card, [this, key = mState.activePresetId + "::" + nodeId](NodeCard& c) { return c.SetLight(CardLight(mState, c, key)); });
+        mLive.Feed(card, [this, key = mState.activePresetId + "::" + nodeId](NodeCard& c) {
+            return c.SetLight(CardLight(mState, c, key));
+        });
         return card;
     };
 
     // A cable's +: inserts on the cable's own edge of the graph, as the web UI's connectors do,
     // which is the only way into a parallel branch; after `from` when no edge is found.
-    auto plus = [this, &graph](const std::string& from, const std::string& to, int fromPort = -1) -> std::function<void()> {
+    auto plus = [this, &graph](const std::string& from, const std::string& to,
+                               int fromPort = -1) -> std::function<void()> {
         for (const auto& edge : graph.edges)
+        {
             if (edge.from == from && edge.to == to && (fromPort < 0 || edge.fromPort == fromPort))
+            {
                 return [this, edge] { OpenEffectPickerOnEdge(edge); };
+            }
+        }
+
         return [this, from] { OpenEffectPicker(from); };
     };
     // A cable with its +, which knows its edge of the graph so a dragged card can land on it.
-    auto cable = [this, &graph, &plus, rowHeight](const std::string& from, const std::string& to, int fromPort = -1, bool stretch = false) {
+    auto cable = [this, &graph, &plus, rowHeight](const std::string& from, const std::string& to, int fromPort = -1,
+                                                  bool stretch = false) {
         auto connector = std::make_shared<Connector>(mTheme, plus(from, to, fromPort), stretch);
         connector->RowHeight(rowHeight);
+
         for (const auto& edge : graph.edges)
+        {
             if (edge.from == from && edge.to == to && (fromPort < 0 || edge.fromPort == fromPort))
             {
                 connector->Edge(mHitMap, edge);
                 break;
             }
+        }
+
         // Lit with the signal while Animate signal flow is on; the pulses move one spacing every
         // 0.4 s, as the web UI's animation does.
         mLive.Feed(connector, [this, source = connector->Source()](Connector& c) {
-            const bool live = !source.empty() && guitarfx::uiclient::IsSignalFlowAnimationEnabled(mState) && mSignalFlow.IsLive(source);
+            const bool live = !source.empty() && guitarfx::uiclient::IsSignalFlowAnimationEnabled(mState) &&
+                              mSignalFlow.IsLive(source);
             return c.SetFlow(live, static_cast<float>(std::fmod(UiSession::Now() / 0.4, 1.0)));
         });
         return connector;
@@ -253,9 +339,11 @@ Ptr Shell::BuildChain()
 
     std::string previous = inputId;
     bool afterParallel = false;
+
     for (const auto& item : layout.items)
     {
         Segment segment;
+
         // Into a parallel block's mixer the cable is drawing only: the branches are its inputs.
         if (afterParallel)
         {
@@ -264,7 +352,11 @@ Ptr Shell::BuildChain()
             segment.parts.push_back(drawing);
         }
         else
-            segment.parts.push_back(cable(previous, item.kind == ChainItem::Kind::Node ? item.nodeId : item.splitNodeId));
+        {
+            segment.parts.push_back(
+                cable(previous, item.kind == ChainItem::Kind::Node ? item.nodeId : item.splitNodeId));
+        }
+
         segment.width = kConnectorWidth;
         const bool joinsBlock = afterParallel;
         afterParallel = item.kind == ChainItem::Kind::Parallel;
@@ -275,6 +367,7 @@ Ptr Shell::BuildChain()
             segment.parts.push_back(makeCard(item.nodeId, w));
             segment.width += w;
             previous = item.nodeId;
+
             // The mixer stays on the line of the block it joins (chainRow.ts's segments).
             if (joinsBlock && !segments.empty())
             {
@@ -286,6 +379,7 @@ Ptr Shell::BuildChain()
             {
                 segments.push_back(std::move(segment));
             }
+
             continue;
         }
 
@@ -294,11 +388,13 @@ Ptr Shell::BuildChain()
         const int laneCount = static_cast<int>(std::max<std::size_t>(1, item.branches.size()));
         std::vector<Ptr> lanes;
         float lanesWidth = 0.0f;
+
         for (const auto& branch : item.branches)
         {
             std::vector<Ptr> lane;
             float laneWidth = 0.0f;
             std::string after = item.splitNodeId;
+
             for (const auto& id : branch.nodeIds)
             {
                 lane.push_back(after == item.splitNodeId ? cable(after, id, branch.port) : cable(after, id));
@@ -307,20 +403,27 @@ Ptr Shell::BuildChain()
                 laneWidth += kConnectorWidth + w;
                 after = id;
             }
+
             // The branch runs on to the join, with a + to add at its end (or into it, empty).
-            lane.push_back(after == item.splitNodeId ? cable(after, item.joinNodeId, branch.port, true) : cable(after, item.joinNodeId, -1, true));
+            lane.push_back(after == item.splitNodeId ? cable(after, item.joinNodeId, branch.port, true)
+                                                     : cable(after, item.joinNodeId, -1, true));
             laneWidth += kConnectorWidth;
             lanesWidth = std::max(lanesWidth, std::max(laneWidth, 2.0f * kConnectorWidth));
+
             if (!lanes.empty())
+            {
                 lanes.push_back(VGap(kLaneGap));
+            }
+
             lanes.push_back(FixedHeight(rowHeight, Row(lane)));
         }
 
         const auto splitId = item.splitNodeId;
-        auto split = std::make_shared<Rail>(mTheme, mIcons, laneCount, false, splitId == mSelectedNode, [this, splitId] {
-            SelectNode(splitId);
-            mChainFocused = true;
-        });
+        auto split =
+            std::make_shared<Rail>(mTheme, mIcons, laneCount, false, splitId == mSelectedNode, [this, splitId] {
+                SelectNode(splitId);
+                mChainFocused = true;
+            });
         auto join = std::make_shared<Rail>(mTheme, mIcons, laneCount, true, false, std::function<void()>{});
         split->RowHeight(rowHeight);
         join->RowHeight(rowHeight);
@@ -353,11 +456,16 @@ Ptr Shell::BuildChain()
         float width = 0.0f;
         float height = 0.0f;
     };
+
     std::vector<Line> lines(1);
+
     for (const auto& segment : segments)
     {
         if (!lines.back().segments.empty() && lines.back().width + segment.width > room)
+        {
             lines.emplace_back();
+        }
+
         auto& line = lines.back();
         line.segments.push_back(&segment);
         line.width += segment.width;
@@ -367,23 +475,38 @@ Ptr Shell::BuildChain()
     // The lines are centred as one block, as the web UI centres the chain in its stage; each line
     // starts at the same place, with room for the cable in on the left.
     float widest = 0.0f;
+
     for (const auto& line : lines)
+    {
         widest = std::max(widest, line.width);
+    }
+
     const float indent = std::max(kSidePad, (viewWidth - widest - 2.0f * kWireEndWidth) * 0.5f);
 
     std::vector<Ptr> rows;
     float total = 0.0f;
+
     for (std::size_t i = 0; i < lines.size(); ++i)
     {
         const auto& line = lines[i];
         const bool first = i == 0, last = i + 1 == lines.size();
         std::vector<Ptr> row{HGap(indent)};
-        row.push_back(first ? HGap(kWireEndWidth) : std::static_pointer_cast<el::element>(std::make_shared<WireEnd>(mTheme, false)));
+        row.push_back(first ? HGap(kWireEndWidth)
+                            : std::static_pointer_cast<el::element>(std::make_shared<WireEnd>(mTheme, false)));
+
         for (const auto* segment : line.segments)
+        {
             for (const auto& part : segment->parts)
+            {
                 row.push_back(part);
+            }
+        }
+
         if (!last)
+        {
             row.push_back(std::make_shared<WireEnd>(mTheme, true));
+        }
+
         row.push_back(Stretch());
         rows.push_back(FixedHeight(line.height, Row(row)));
         total += line.height;
@@ -408,32 +531,53 @@ Ptr Shell::BuildChain()
         // never less than a line, nor so much that the editor has no room.
         // As tiles it is as tall as its lines again: the drag that made them only chose them.
         float limit = mChainAreaLimit;
+
         if (limit <= 0.0f)
-            if (const auto native = mState.uiSettings.find("native"); native != mState.uiSettings.end() && native->is_object())
+        {
+            if (const auto native = mState.uiSettings.find("native");
+                native != mState.uiSettings.end() && native->is_object())
+            {
                 limit = native->value("chainAreaHeight", 0.0f);
+            }
+        }
+
         if (icons)
+        {
             limit = 0.0f;
+        }
+
         const float floor = rowHeight + 24.0f;
         const float most = limit > 0.0f ? std::clamp(limit, floor, std::max(floor, ViewSize().y - 360.0f))
-                                         : std::max(floor, ViewSize().y / 3.0f);
+                                        : std::max(floor, ViewSize().y / 3.0f);
         // Dragged, the chain gets that room whatever it holds (centred in it, or scrolling).
         const float area = limit > 0.0f ? most : std::min(wanted, most);
         mChainAreaHeight = area + 24.0f + 30.0f; // the scene chips, the add button
         const auto centred = [area](Ptr block, float height) -> Ptr {
             if (height >= area)
+            {
                 return FixedHeight(area, block);
-            return FixedHeight(area, Col({std::make_shared<el::element>(), FixedHeight(height, block), std::make_shared<el::element>()}));
+            }
+
+            return FixedHeight(area, Col({std::make_shared<el::element>(), FixedHeight(height, block),
+                                          std::make_shared<el::element>()}));
         };
+
         if (!mWrapChain)
         {
             const float lineWidth = 2.0f * indent + 2.0f * kWireEndWidth + widest;
             return centred(HScroll(PadXY(0, 12, FixedWidth(lineWidth, Col(rows)))), wanted);
         }
+
         if (wanted > area)
+        {
             return FixedHeight(area, VScroll(PadXY(0, 12, Col(rows))));
+        }
+
         return centred(PadXY(0, 12, Col(rows)), wanted);
     }
+
     const float stageHeight = ViewSize().y - metrics::kTopBarHeight - metrics::kFooterHeight - 24.0f - 44.0f;
+
     if (!mWrapChain)
     {
         const float lineWidth = 2.0f * indent + 2.0f * kWireEndWidth + widest;
@@ -441,16 +585,24 @@ Ptr Shell::BuildChain()
         return Col({std::make_shared<el::element>(), FixedHeight(total + 24.0f, HScroll(PadXY(0, 12, block))),
                     std::make_shared<el::element>()});
     }
+
     if (total + 24.0f > stageHeight)
+    {
         return VScroll(PadXY(0, 12, Col(rows)));
+    }
+
     return Col({std::make_shared<el::element>(), FixedHeight(total, Col(rows)), std::make_shared<el::element>()});
 }
 
 void Shell::DragCard(const std::string& nodeId, el::point from, el::point to, bool done)
 {
     using namespace guitarfx::uiclient;
+
     if (!mHitMap || !mState.activePreset)
+    {
         return;
+    }
+
     auto& hits = *mHitMap;
     const auto& graph = mState.activePreset->graph;
     const auto* dragged = hits.FindCard(nodeId);
@@ -458,11 +610,16 @@ void Shell::DragCard(const std::string& nodeId, el::point from, el::point to, bo
     // What is under the pointer: another card, else a cable (a band round its line, as it is
     // thin). The output takes the card before it (its cable in), never a place after it.
     NodeDropTarget target;
+
     for (const auto& card : hits.cards)
     {
         if (card.nodeId == nodeId || !card.bounds.includes(to))
+        {
             continue;
+        }
+
         const auto incoming = IncomingEdges(graph, card.nodeId);
+
         if (card.nodeId == kOutputNodeId || graph.FindNode(card.nodeId) == nullptr ||
             graph.FindNode(card.nodeId)->type == guitarfx::kNodeTypeOutput)
         {
@@ -471,67 +628,95 @@ void Shell::DragCard(const std::string& nodeId, el::point from, el::point to, bo
                 target.kind = NodeDropTarget::Kind::Edge;
                 target.edge = incoming.front();
             }
+
             break;
         }
+
         target.kind = NodeDropTarget::Kind::Node;
         target.nodeId = card.nodeId;
         target.incoming = incoming;
-        target.isLeftOfDragged = dragged != nullptr && (card.bounds.left + card.bounds.right) < (dragged->bounds.left + dragged->bounds.right);
+        target.isLeftOfDragged = dragged != nullptr && (card.bounds.left + card.bounds.right) <
+                                                           (dragged->bounds.left + dragged->bounds.right);
         break;
     }
+
     if (target.kind == NodeDropTarget::Kind::None)
+    {
         for (const auto& cable : hits.cables)
+        {
             if (cable.bounds.inset(-2.0f, cable.bounds.height() * 0.5f - 18.0f).includes(to))
             {
                 target.kind = NodeDropTarget::Kind::Edge;
                 target.edge = cable.edge;
                 break;
             }
+        }
+    }
 
     // Let go over another line of a wrapped chain: a card there spans the pointer's height but
     // not the dragged card's.
     bool anotherLine = false;
+
     if (dragged != nullptr && (to.y < dragged->bounds.top || to.y > dragged->bounds.bottom))
+    {
         for (const auto& card : hits.cards)
+        {
             if (to.y >= card.bounds.top && to.y <= card.bounds.bottom)
             {
                 anotherLine = true;
                 break;
             }
+        }
+    }
 
     const auto action = ResolveNodeDrop(nodeId, target, to.x - from.x, to.y - from.y, anotherLine);
 
     // While dragging, light where it would land.
     hits.hoverNode.clear();
     hits.hoverEdge.reset();
+
     if (!done)
     {
         if (action.kind == NodeDropAction::Kind::ReorderAfterNode)
+        {
             hits.hoverNode = action.targetNodeId;
+        }
         else if (action.kind == NodeDropAction::Kind::ReorderToEdge)
+        {
             hits.hoverEdge = action.edge;
+        }
+
         mSession.View().refresh();
         return;
     }
 
     auto& commands = mSession.Commands();
+
     switch (action.kind)
     {
-        case NodeDropAction::Kind::ReorderAfterNode:
-            commands.MoveNode(nodeId, action.targetNodeId);
-            break;
-        case NodeDropAction::Kind::ReorderToEdge:
-            commands.MoveNodeToEdge(nodeId, action.edge);
-            break;
-        case NodeDropAction::Kind::ToggleBypass:
-            if (const auto* node = graph.FindNode(nodeId))
-                commands.SetNodeBypassed(nodeId, node->enabled);
-            break;
-        case NodeDropAction::Kind::None:
-            break;
+    case NodeDropAction::Kind::ReorderAfterNode:
+        commands.MoveNode(nodeId, action.targetNodeId);
+        break;
+    case NodeDropAction::Kind::ReorderToEdge:
+        commands.MoveNodeToEdge(nodeId, action.edge);
+        break;
+    case NodeDropAction::Kind::ToggleBypass:
+
+        if (const auto* node = graph.FindNode(nodeId))
+        {
+            commands.SetNodeBypassed(nodeId, node->enabled);
+        }
+
+        break;
+    case NodeDropAction::Kind::None:
+        break;
     }
+
     if (action.kind != NodeDropAction::Kind::None)
+    {
         NoteChainEdit();
+    }
+
     mSession.View().refresh();
 }
 
@@ -542,18 +727,32 @@ std::vector<std::string> DroppedPaths(const el::drop_info& info)
 {
     std::vector<std::string> paths;
     const auto it = info.data.find("text/uri-list");
+
     if (it == info.data.end() || !std::holds_alternative<std::string>(it->second))
+    {
         return paths;
+    }
+
     std::istringstream lines(std::get<std::string>(it->second));
+
     for (std::string line; std::getline(lines, line);)
     {
         if (!line.empty() && line.back() == '\r')
+        {
             line.pop_back();
+        }
+
         if (line.rfind("file://", 0) == 0)
+        {
             line = line.substr(7);
+        }
+
         if (!line.empty())
+        {
             paths.push_back(line);
+        }
     }
+
     return paths;
 }
 
@@ -561,11 +760,19 @@ std::vector<std::string> DroppedPaths(const el::drop_info& info)
 std::string ResourceTypeOfFile(const std::string& path)
 {
     auto ext = guitarfx::util::PathToUtf8(guitarfx::util::PathFromUtf8(path).extension());
-    std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    std::transform(ext.begin(), ext.end(), ext.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
     if (ext == ".nam")
+    {
         return "nam";
+    }
+
     if (ext == ".wav")
+    {
         return "ir";
+    }
+
     return {};
 }
 } // namespace
@@ -573,31 +780,54 @@ std::string ResourceTypeOfFile(const std::string& path)
 std::string Shell::FileDropTarget(const std::string& resourceType, el::point where) const
 {
     if (resourceType.empty() || !mState.activePreset)
+    {
         return {};
+    }
+
     const auto& graph = mState.activePreset->graph;
     const auto takes = [&](const std::string& nodeId) {
         const auto* node = graph.FindNode(nodeId);
         const auto* type = node != nullptr ? mState.FindEffectType(node->type) : nullptr;
         return type != nullptr && type->resourceType == resourceType;
     };
+
     // The card under the pointer, else the effect whose editor is showing.
     if (mHitMap)
+    {
         for (const auto& card : mHitMap->cards)
+        {
             if (card.bounds.includes(where))
+            {
                 return takes(card.nodeId) ? card.nodeId : std::string();
+            }
+        }
+    }
+
     if (PlayShown() && !mSelectedNode.empty() && takes(mSelectedNode))
+    {
         return mSelectedNode;
+    }
+
     return {};
 }
 
 void Shell::TrackFileDrop(const el::drop_info& info, bool leaving)
 {
     if (!mHitMap)
+    {
         return;
+    }
+
     std::string target;
+
     if (!leaving)
+    {
         if (const auto paths = DroppedPaths(info); !paths.empty())
+        {
             target = FileDropTarget(ResourceTypeOfFile(paths.front()), info.where);
+        }
+    }
+
     if (target != mHitMap->hoverNode)
     {
         mHitMap->hoverNode = target;
@@ -612,22 +842,36 @@ bool Shell::DropFiles(const el::drop_info& info)
         mHitMap->hoverNode.clear();
         mSession.View().refresh();
     }
+
     const auto paths = DroppedPaths(info);
+
     if (paths.empty())
+    {
         return false;
+    }
+
     if (DropPracticeTrack(paths))
+    {
         return true;
+    }
+
     const auto& path = paths.front();
     const auto resourceType = ResourceTypeOfFile(path);
     const auto nodeId = FileDropTarget(resourceType, info.where);
+
     if (nodeId.empty())
     {
         if (!resourceType.empty())
-            ShowToast("Drop it on a model or IR effect", "A " + std::string(resourceType == "nam" ? "model" : "IR") +
-                                                             " goes into an effect that plays one.",
+        {
+            ShowToast("Drop it on a model or IR effect",
+                      "A " + std::string(resourceType == "nam" ? "model" : "IR") +
+                          " goes into an effect that plays one.",
                       false);
+        }
+
         return !resourceType.empty();
     }
+
     // Into the library where it is, and into that effect's (first) slot.
     const auto name = guitarfx::util::PathToUtf8(guitarfx::util::PathFromUtf8(path).stem());
     mSession.Commands().SaveLocalLibraryResource(resourceType, path, name, nlohmann::json::object(), nodeId, 0);

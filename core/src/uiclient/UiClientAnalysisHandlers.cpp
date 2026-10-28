@@ -55,7 +55,8 @@ void UiClient::RegisterAnalysisHandlers()
 {
     // ── The spectrum behind an EQ curve, ~30 Hz while watched ─────────────────
     On("sldS", [this](const nlohmann::json& m) {
-        auto& spectrum = mState.analysis.spectra[NodeFeedKey(m.value("scope", ""), m.value("presetId", ""), m.value("id", ""))];
+        auto& spectrum =
+            mState.analysis.spectra[NodeFeedKey(m.value("scope", ""), m.value("presetId", ""), m.value("id", ""))];
         const auto range = m.value("r", nlohmann::json::array());
         spectrum.minHz = OptionalNumber(range, 0).value_or(20.0);
         spectrum.maxHz = OptionalNumber(range, 1).value_or(20000.0);
@@ -82,7 +83,8 @@ void UiClient::RegisterAnalysisHandlers()
         }
         else
         {
-            mState.analysis.loudness[NodeFeedKey(m.value("scope", ""), m.value("presetId", ""), m.value("id", ""))] = reading;
+            mState.analysis.loudness[NodeFeedKey(m.value("scope", ""), m.value("presetId", ""), m.value("id", ""))] =
+                reading;
         }
 
         Notify(Topic::Analysis);
@@ -137,7 +139,8 @@ void UiClient::RegisterAnalysisHandlers()
             position.ildDb = node.value("ildDb", 0.0);
             position.rateHz = node.value("rateHz", 0.0);
             position.moving = node.value("moving", false);
-            spatial[NodeFeedKey(node.value("scope", ""), node.value("presetId", ""), node.value("nodeId", ""))] = position;
+            spatial[NodeFeedKey(node.value("scope", ""), node.value("presetId", ""), node.value("nodeId", ""))] =
+                position;
         }
 
         Notify(Topic::Analysis);
@@ -145,7 +148,9 @@ void UiClient::RegisterAnalysisHandlers()
 
     // ── Noise gate Learn ─────────────────────────────────────────────────────
     On("gateLearnStatus", [this](const nlohmann::json& m) {
-        auto& status = mState.analysis.gateLearn[NodeFeedKey(m.value("scope", ""), m.value("presetId", ""), m.value("nodeId", ""))];
+        auto& status =
+            mState.analysis
+                .gateLearn[NodeFeedKey(m.value("scope", ""), m.value("presetId", ""), m.value("nodeId", ""))];
         status.state = m.value("state", std::string());
         status.progress = m.value("progress", status.state == "done" ? 1.0 : 0.0);
         status.levelDb = OptionalField(m, "levelDb");

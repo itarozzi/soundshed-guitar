@@ -77,7 +77,8 @@ double ResponseDbAt(const std::vector<double>& frequencies, const std::vector<do
     }
 
     const auto high = static_cast<std::size_t>(
-        std::upper_bound(frequencies.begin(), frequencies.begin() + static_cast<std::ptrdiff_t>(count), hz) - frequencies.begin());
+        std::upper_bound(frequencies.begin(), frequencies.begin() + static_cast<std::ptrdiff_t>(count), hz) -
+        frequencies.begin());
     const std::size_t low = high - 1;
     const double t = std::log(hz / frequencies[low]) / std::log(frequencies[high] / frequencies[low]);
     return magnitudesDb[low] + t * (magnitudesDb[high] - magnitudesDb[low]);
@@ -106,9 +107,9 @@ std::vector<float> DecodeFloat32Base64(const std::string& text)
 
     for (std::size_t i = 0; i < samples.size(); ++i)
     {
-        const std::uint32_t bits = static_cast<std::uint32_t>(bytes[i * 4]) | (static_cast<std::uint32_t>(bytes[i * 4 + 1]) << 8) |
-                                   (static_cast<std::uint32_t>(bytes[i * 4 + 2]) << 16) |
-                                   (static_cast<std::uint32_t>(bytes[i * 4 + 3]) << 24);
+        const std::uint32_t bits =
+            static_cast<std::uint32_t>(bytes[i * 4]) | (static_cast<std::uint32_t>(bytes[i * 4 + 1]) << 8) |
+            (static_cast<std::uint32_t>(bytes[i * 4 + 2]) << 16) | (static_cast<std::uint32_t>(bytes[i * 4 + 3]) << 24);
         std::memcpy(&samples[i], &bits, sizeof(float));
     }
 
@@ -120,7 +121,10 @@ std::vector<AnalyzerReadout> AnalyzerReadouts(const AnalyzerFrame* frame, int co
     static const std::string kNone = "\xE2\x80\x94";
     const auto number = [](double value, const char* unit, int digits) {
         if (!std::isfinite(value))
+        {
             return kNone;
+        }
+
         char text[48];
         std::snprintf(text, sizeof(text), "%.*f %s", digits, value, unit);
         return std::string(text);
@@ -130,17 +134,24 @@ std::vector<AnalyzerReadout> AnalyzerReadouts(const AnalyzerFrame* frame, int co
     };
     const auto dbfs = [](double percent) {
         if (!std::isfinite(percent))
+        {
             return std::numeric_limits<double>::quiet_NaN();
+        }
+
         const double linear = std::clamp(percent / 100.0, 0.0, 1.0);
         return linear <= 1.0e-9 ? -120.0 : 20.0 * std::log10(linear);
     };
 
-    std::vector<AnalyzerReadout> readouts = {{"Peak (dBFS)", kNone, {}},      {"RMS (dBFS)", kNone, {}},       {"Peak (%FS)", kNone, {}},
-                                             {"RMS (%FS)", kNone, {}},        {"RMS (dBu)", kNone, {}},        {"RMS (dBV)", kNone, {}},
-                                             {"RMS (Vrms)", kNone, {}},       {"Momentary (LUFS)", kNone, {}}, {"Short-term (LUFS)", kNone, {}},
-                                             {"Integrated (LUFS)", kNone, {}}, {"Channels", kNone, {}}};
+    std::vector<AnalyzerReadout> readouts = {
+        {"Peak (dBFS)", kNone, {}},       {"RMS (dBFS)", kNone, {}},       {"Peak (%FS)", kNone, {}},
+        {"RMS (%FS)", kNone, {}},         {"RMS (dBu)", kNone, {}},        {"RMS (dBV)", kNone, {}},
+        {"RMS (Vrms)", kNone, {}},        {"Momentary (LUFS)", kNone, {}}, {"Short-term (LUFS)", kNone, {}},
+        {"Integrated (LUFS)", kNone, {}}, {"Channels", kNone, {}}};
+
     if (frame == nullptr)
+    {
         return readouts;
+    }
 
     readouts[0].value = number(dbfs(frame->peakPercent), "dBFS", 1);
     readouts[1].value = number(dbfs(frame->rmsPercent), "dBFS", 1);
@@ -156,8 +167,11 @@ std::vector<AnalyzerReadout> AnalyzerReadouts(const AnalyzerFrame* frame, int co
     // The layout the engine runs the node in, never guessed; what is measured is a hint when the
     // two disagree (a stereo input with one side silent, or both sides the same).
     auto& channels = readouts[10];
+
     if (configuredChannels == 1)
+    {
         channels.value = "Mono";
+    }
     else if (configuredChannels == 2)
     {
         channels.value = "Stereo";
@@ -166,9 +180,13 @@ std::vector<AnalyzerReadout> AnalyzerReadouts(const AnalyzerFrame* frame, int co
     else
     {
         channels.value = frame->stereo ? "Stereo" : "Mono";
+
         if (frame->activeChannelCount > 0)
+        {
             channels.hint = std::to_string(frame->activeChannelCount) + " ch";
+        }
     }
+
     return readouts;
 }
 
@@ -180,8 +198,11 @@ std::string PickupDesignSummary(const std::map<std::string, double>& summary, co
     };
     const auto length = get("WireLengthM"), inductance = get("InductanceH"), resistance = get("ResistanceKohm"),
                capacitance = get("CapacitancePf"), peak = get("PeakHz"), q = get("Q"), level = get("LevelDb");
+
     if (!length || !inductance || !resistance || !capacitance || !peak || !q || !level)
+    {
         return {};
+    }
 
     // As toLocaleString in English: thousands grouped with commas.
     const auto format = [](double value, int digits) {
@@ -189,15 +210,20 @@ std::string PickupDesignSummary(const std::map<std::string, double>& summary, co
         std::snprintf(text, sizeof(text), "%.*f", digits, std::abs(value));
         std::string s = text;
         const auto dot = s.find('.');
+
         for (auto i = static_cast<long>(dot == std::string::npos ? s.size() : dot) - 3; i > 0; i -= 3)
+        {
             s.insert(static_cast<std::size_t>(i), ",");
+        }
+
         return (value < 0 ? "-" : "") + s;
     };
     const std::string dotSep = " \xC2\xB7 ";
     const std::string sign = *level >= 0 ? "+" : "\xE2\x88\x92";
-    return format(*length, 0) + " m of wire" + dotSep + format(*inductance, 2) + " H" + dotSep + format(*resistance, 2) + " k\xCE\xA9" +
-           dotSep + format(*capacitance, 0) + " pF \xE2\x86\x92 peak " + format(*peak / 1000.0, 2) + " kHz, Q " + format(*q, 2) +
-           ", output " + sign + format(std::abs(*level), 1) + " dB";
+    return format(*length, 0) + " m of wire" + dotSep + format(*inductance, 2) + " H" + dotSep +
+           format(*resistance, 2) + " k\xCE\xA9" + dotSep + format(*capacitance, 0) + " pF \xE2\x86\x92 peak " +
+           format(*peak / 1000.0, 2) + " kHz, Q " + format(*q, 2) + ", output " + sign + format(std::abs(*level), 1) +
+           " dB";
 }
 
 std::string GateLearnStatusText(const GateLearnStatus* status, double floorDb)
@@ -209,26 +235,46 @@ std::string GateLearnStatusText(const GateLearnStatus* status, double floorDb)
     };
 
     if (status == nullptr || status->state.empty())
+    {
         return "Mute the strings, then Learn.";
+    }
+
     if (status->state == "listening")
+    {
         return "Listening\xE2\x80\xA6 keep the strings quiet";
+    }
+
     if (status->state == "done")
     {
         if (!status->noiseFloorDb || !status->thresholdDb)
+        {
             return "Threshold set";
+        }
+
         const auto noise = *status->noiseFloorDb < floorDb ? "under " + db(floorDb) : db(*status->noiseFloorDb);
         return "Noise " + noise + " \xC2\xB7 threshold set to " + db(*status->thresholdDb);
     }
+
     if (status->state == "failed")
     {
         if (status->reason == "playing")
+        {
             return "Heard playing. Mute the strings and try again.";
+        }
+
         if (status->reason == "noSignal")
+        {
             return "No audio reached the gate. Is the audio device running?";
+        }
+
         return "This gate is not in the running chain.";
     }
+
     if (status->state == "cancelled")
+    {
         return "Learn cancelled.";
+    }
+
     return "Mute the strings, then Learn.";
 }
 
@@ -388,7 +434,8 @@ std::string Analysis::NextId(const char* kind)
 void Analysis::RequestResponse(const std::string& lane, const std::string& effectType, const nlohmann::json& params,
                                bool bands, ResponseCallback callback)
 {
-    CurveRequest request{effectType, params.is_object() ? params : nlohmann::json::object(), bands, std::move(callback)};
+    CurveRequest request{effectType, params.is_object() ? params : nlohmann::json::object(), bands,
+                         std::move(callback)};
     auto& state = mLanes[lane];
 
     if (state.inFlight)
@@ -502,7 +549,8 @@ void Analysis::WatchOutputLoudness(bool enabled)
     }
 
     mOutputLoudness = enabled;
-    mClient.Send("setLoudnessWatch", enabled ? nlohmann::json{{"slot", 1}, {"scope", "output"}} : nlohmann::json{{"slot", 1}});
+    mClient.Send("setLoudnessWatch",
+                 enabled ? nlohmann::json{{"slot", 1}, {"scope", "output"}} : nlohmann::json{{"slot", 1}});
 }
 
 void Analysis::AnalyzeIrAlignment(const nlohmann::json& irA, const nlohmann::json& irB, IrAlignmentCallback callback)
@@ -660,7 +708,8 @@ void Analysis::OnSimpleCabMatch(const nlohmann::json& reply)
     callback(match, {});
 }
 
-std::string Analysis::ExportEffectAsIr(const std::string& effectType, const nlohmann::json& params, const std::string& name)
+std::string Analysis::ExportEffectAsIr(const std::string& effectType, const nlohmann::json& params,
+                                       const std::string& name)
 {
     const auto requestId = NextId("effect-ir");
     mClient.MutableState().resourceImports[requestId] = {ResourceImport::Status::Importing, "ir", {}, {}};

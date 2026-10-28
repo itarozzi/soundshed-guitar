@@ -27,7 +27,6 @@ std::string NormalizeTheme(const std::string& theme)
 
     return "dark";
 }
-
 } // namespace
 
 const CompositePreset* LoadedComposite(const MixerState& mixer)
@@ -36,18 +35,21 @@ const CompositePreset* LoadedComposite(const MixerState& mixer)
     {
         return nullptr;
     }
+
     for (const auto& preset : mixer.compositePresets)
     {
         if (preset.id != mixer.loadedCompositeId)
         {
             continue;
         }
+
         auto saved = preset.presetIds;
         auto now = mixer.activePresetIds;
         std::sort(saved.begin(), saved.end());
         std::sort(now.begin(), now.end());
         return saved == now ? &preset : nullptr;
     }
+
     return nullptr;
 }
 
@@ -69,6 +71,7 @@ void ApplyMixer(ClientState& state, const nlohmann::json& mixer)
             state.mixer.presetNames[id] = config.is_object() ? config.value("name", id) : id;
             MixerSlot slot;
             slot.name = state.mixer.presetNames[id];
+
             if (config.is_object())
             {
                 slot.mix = config.value("mix", 1.0);
@@ -76,6 +79,7 @@ void ApplyMixer(ClientState& state, const nlohmann::json& mixer)
                 slot.mute = config.value("mute", false);
                 slot.solo = config.value("solo", false);
             }
+
             state.mixer.slots[id] = slot;
         }
     }
@@ -136,8 +140,8 @@ std::vector<DemoClip> FavouriteRiffClips(const nlohmann::json& library)
 
     for (const auto& riff : library["riffs"])
     {
-        if (!riff.is_object() || !riff.value("favorite", false) || !riff.contains("takes") || !riff["takes"].is_array() ||
-            riff["takes"].empty())
+        if (!riff.is_object() || !riff.value("favorite", false) || !riff.contains("takes") ||
+            !riff["takes"].is_array() || riff["takes"].empty())
         {
             continue;
         }
@@ -264,22 +268,31 @@ void UiClient::RegisterPresetHandlers()
 
             // The blends a blend node can name: their name, mode and how many models they hold.
             s.blends.clear();
+
             if (m.contains("blendLibrary") && m["blendLibrary"].is_array())
             {
                 for (const auto& b : m["blendLibrary"])
                 {
                     if (!b.is_object() || !b.contains("id") || !b["id"].is_string())
+                    {
                         continue;
+                    }
+
                     BlendSummary blend;
                     blend.id = b["id"].get<std::string>();
                     blend.name = b.value("name", blend.id);
+
                     if (b.value("blendMode", std::string()) == "snap")
+                    {
                         blend.blendMode = "snap";
+                    }
+
                     const auto mappings = b.find("modelMappings");
                     const auto models = b.find("models");
-                    blend.modelCount = mappings != b.end() && mappings->is_array() && !mappings->empty() ? mappings->size()
-                                       : models != b.end() && models->is_array()                       ? models->size()
-                                                                                                       : 0;
+                    blend.modelCount = mappings != b.end() && mappings->is_array() && !mappings->empty()
+                                           ? mappings->size()
+                                       : models != b.end() && models->is_array() ? models->size()
+                                                                                 : 0;
                     s.blends.push_back(std::move(blend));
                 }
             }
@@ -356,18 +369,21 @@ void UiClient::RegisterPresetHandlers()
     On("compositePresetList", [this](const nlohmann::json& m) {
         auto& list = mState.mixer.compositePresets;
         list.clear();
+
         for (const auto& entry : m.value("compositePresets", nlohmann::json::array()))
         {
             if (!entry.is_object())
             {
                 continue;
             }
+
             CompositePreset preset;
             preset.id = entry.value("id", std::string());
             preset.name = entry.value("name", preset.id);
             preset.description = entry.value("description", std::string());
             preset.tags = parse::StringArray(entry, "tags");
             preset.mixGainDb = entry.value("mixGainDb", 0.0);
+
             for (const auto& slot : entry.value("slots", nlohmann::json::array()))
             {
                 if (slot.is_object())
@@ -375,8 +391,10 @@ void UiClient::RegisterPresetHandlers()
                     preset.presetIds.push_back(slot.value("presetId", std::string()));
                 }
             }
+
             list.push_back(std::move(preset));
         }
+
         mState.mixer.compositePresetsKnown = true;
         Notify(Topic::Mixer);
     });
@@ -519,7 +537,9 @@ void UiClient::RegisterPresetHandlers()
 
     On("riffLibraryState", [this](const nlohmann::json& m) {
         if (m.contains("library") && m["library"].is_object())
+        {
             ApplyRiffLibrary(m["library"]);
+        }
     });
 
     On("setlistCursorChanged", [this](const nlohmann::json& m) {

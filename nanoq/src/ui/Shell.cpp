@@ -27,8 +27,8 @@ Shell::Shell(UiSession& session)
       }))
 {
     // The effect icons, colours and artwork: one table for every UI (core/ui/data/effect-presentation.json).
-    mPresentation = guitarfx::uiclient::EffectPresentation::Load(session.GetEngine().GetBundledAssetsPath() / "ui" / "data" /
-                                                                  "effect-presentation.json");
+    mPresentation = guitarfx::uiclient::EffectPresentation::Load(session.GetEngine().GetBundledAssetsPath() / "ui" /
+                                                                 "data" / "effect-presentation.json");
     AddShellIcons(mIcons);
     ApplyElementsTheme();
     BuildRoot();
@@ -43,16 +43,22 @@ Shell::Shell(UiSession& session)
             mSession.View().refresh();
         }
     });
-    mSession.onToast = [this](const std::string& title, const std::string& detail, bool isError) { ShowToast(title, detail, isError); };
+    mSession.onToast = [this](const std::string& title, const std::string& detail, bool isError) {
+        ShowToast(title, detail, isError);
+    };
 
     // The Practice Tool's session lives as long as the window: its track plays on while other
     // pages are shown (JamPage.cpp).
     mPractice = std::make_unique<guitarfx::uiclient::PracticeTool>(mSession.Client(), mSession.Commands());
     mPractice->onChanged = [this] {
         if (mPage == Page::Jam)
+        {
             Mark(kPage); // rebuilt only if what it lists changed (JamPageSignature)
+        }
     };
-    mPractice->onNotice = [this](const std::string& title, const std::string& detail) { ShowToast(title, detail, false); };
+    mPractice->onNotice = [this](const std::string& title, const std::string& detail) {
+        ShowToast(title, detail, false);
+    };
 }
 
 Shell::~Shell()
@@ -65,8 +71,11 @@ Shell::~Shell()
     // tuner left on with the window closed kept the output muted, with nothing left to turn it
     // off. The session, and so the engine, is still there (NanoQPresenter::on_detach).
     mInstrumentSubs.clear();
+
     if (auto closed = std::move(mOnOverlayClosed))
+    {
         closed();
+    }
 
     mSubscriptions.clear();
 }
@@ -94,19 +103,26 @@ void Shell::Subscribe()
     // The Presets page lists the saved Multi-Rigs.
     mSubscriptions.push_back(client.Subscribe(Topic::Mixer, [this] {
         if (mShowMultiRigs && mPage == Page::Presets)
+        {
             Mark(kPage);
+        }
     }));
     on(Topic::Demo, kTransport);
     // The layout library and its pictures, and the setting that picks a layout per effect: the
     // effect page is rebuilt only when what it shows changes (EffectPageSignature).
     mSubscriptions.push_back(client.Subscribe(Topic::EffectLayouts, [this] {
         mLayoutImages->Clear();
+
         if (PlayShown())
+        {
             Mark(kPage);
+        }
     }));
     mSubscriptions.push_back(client.Subscribe(Topic::Session, [this] {
         if (PlayShown())
+        {
             Mark(kPage);
+        }
     }));
     // The looper strip over the footer, and the footer's Loop button (LooperStrip.cpp).
     mSubscriptions.push_back(client.Subscribe(Topic::Looper, [this] { SyncLooper(); }));
@@ -114,7 +130,9 @@ void Shell::Subscribe()
     // The live sections' feeds (the spatial panner, the analyzer).
     mSubscriptions.push_back(client.Subscribe(Topic::Analysis, [this] {
         if (!mSpatialPanner.expired() || !mAnalyzerPanel.expired())
+        {
             SyncLiveSection();
+        }
     }));
 
     // MIDI and key learns, the slots and the MIDI Log (Automation.cpp).
@@ -148,9 +166,13 @@ void Shell::BuildRoot()
     mWide = WantsWide();
     Fill(*mFrameSlot, BuildFrame());
     Ptr frame = mFrameSlot;
+
     // How much drawing the UI does, for performance work (DrawProbe.h); off unless asked for.
     if (const auto stats = DrawProbe::PathFromEnvironment(); !stats.empty())
+    {
         frame = std::make_shared<DrawProbe>(frame, stats);
+    }
+
     mKeys = std::make_shared<KeyRouter>(Over(MinSize(metrics::kMinWidth, metrics::kMinHeight, frame), mBgSlot));
     mKeys->onKey = [this](const el::key_info& k) { return HandleKey(k); };
     mKeys->onPointerDown = [this] { mChainFocused = false; };
@@ -162,13 +184,19 @@ void Shell::BuildRoot()
 void Shell::SyncWindowChrome()
 {
     const auto rgb = [](el::color c) {
-        const auto channel = [](float v) { return static_cast<std::uint32_t>(std::clamp(v, 0.0f, 1.0f) * 255.0f + 0.5f); };
+        const auto channel = [](float v) {
+            return static_cast<std::uint32_t>(std::clamp(v, 0.0f, 1.0f) * 255.0f + 0.5f);
+        };
         return (channel(c.red) << 16) | (channel(c.green) << 8) | channel(c.blue);
     };
     // The compact preset bar or the full layout's tab row: what sits under the caption.
     const auto caption = rgb(mWide ? mTheme.Background() : mTheme.Tertiary());
+
     if (caption == mChromeCaption)
+    {
         return;
+    }
+
     mChromeCaption = caption;
     nanoq::ThemeStandaloneWindow(static_cast<void*>(mSession.View().host()), caption, rgb(mTheme.Text()), caption);
 }
@@ -187,6 +215,7 @@ void Shell::Rebuild()
         mSceneSignature.clear();
         mTopSignature.clear();
     }
+
     if (!mState.haveState)
     {
         if (!mShowingStarting)
@@ -201,6 +230,7 @@ void Shell::Rebuild()
             mSession.View().layout();
             mSession.View().refresh();
         }
+
         mDirty = 0;
         return;
     }
@@ -215,6 +245,7 @@ void Shell::Rebuild()
     // The full layout's play page holds the chain and the editor in one stage: it is put back
     // when the page comes back to it, and its regions built afresh with it.
     const bool playStage = mWide && PlayShown();
+
     if (!playStage)
     {
         mPlayStageShown = false;
@@ -226,7 +257,6 @@ void Shell::Rebuild()
         mChainSignature.clear();
         mSceneSignature.clear();
     }
-
 
     EnsureSelection();
     SelectAddedNode();
@@ -241,10 +271,15 @@ void Shell::Rebuild()
     if (mDirty & kChain)
     {
         const auto signature = ChainSignature();
+
         if (signature == mChainSignature)
+        {
             mDirty &= ~kChain;
+        }
         else
+        {
             mChainSignature = signature;
+        }
     }
 
     // A page of sliders is patched in place when only values moved: rebuilding it under a drag
@@ -252,20 +287,30 @@ void Shell::Rebuild()
     if ((mDirty & kPage) && PlayShown() && mState.activePreset)
     {
         const auto signature = EffectPageSignature();
+
         if (signature == mEffectSignature)
+        {
             mDirty &= ~kPage;
+        }
         else
+        {
             mEffectSignature = signature;
+        }
     }
     else if ((mDirty & kPage) && mPage == Page::Tones)
     {
         // The Tones page scrolls; it is rebuilt (back to the top) only when what it lists changed.
         mEffectSignature.clear();
         const auto signature = TonesPageSignature();
+
         if (signature == mTonesSignature)
+        {
             mDirty &= ~kPage;
+        }
         else
+        {
             mTonesSignature = signature;
+        }
     }
     else if ((mDirty & kPage) && mPage == Page::Jam)
     {
@@ -273,10 +318,15 @@ void Shell::Rebuild()
         mEffectSignature.clear();
         mTonesSignature.clear();
         const auto signature = JamPageSignature();
+
         if (signature == mJamSignature)
+        {
             mDirty &= ~kPage;
+        }
         else
+        {
             mJamSignature = signature;
+        }
     }
     else if (mDirty & kPage)
     {
@@ -290,29 +340,51 @@ void Shell::Rebuild()
     if (mDirty & kTopBar)
     {
         const auto signature = TopBarSignature();
+
         if (signature == mTopSignature)
+        {
             mDirty &= ~kTopBar;
+        }
         else
+        {
             mTopSignature = signature;
+        }
     }
 
     if (mDirty & kScenes)
     {
         const auto signature = SceneSignature();
+
         if (signature == mSceneSignature)
+        {
             mDirty &= ~kScenes;
+        }
         else
+        {
             mSceneSignature = signature;
+        }
     }
 
     if (mDirty & kRail)
+    {
         Fill(*mRailSlot, BuildRail());
+    }
+
     if (mDirty & kTopBar)
+    {
         Fill(*mTopSlot, BuildTopBar());
+    }
+
     if (mDirty & kScenes)
+    {
         Fill(*mSceneSlot, BuildScenes());
+    }
+
     if (mDirty & kChain)
+    {
         Fill(*mChainSlot, BuildChain());
+    }
+
     if ((mDirty & kPage) && playStage)
     {
         if (!mPlayStageShown)
@@ -320,6 +392,7 @@ void Shell::Rebuild()
             Fill(*mPageSlot, BuildPlayStage());
             mPlayStageShown = true;
         }
+
         Fill(*mEffectSlot, BuildEffectPage());
     }
     else if (mDirty & kPage)
@@ -346,10 +419,16 @@ void Shell::Rebuild()
             break;
         }
     }
+
     if (mDirty & kTransport)
+    {
         Fill(*mTransportSlot, BuildTransport());
+    }
+
     if ((mDirty & kValues) && PlayShown())
+    {
         SyncEffectValues();
+    }
 
     const unsigned rebuilt = mDirty & kRebuilds;
     mDirty = held;
@@ -364,10 +443,16 @@ void Shell::Rebuild()
         view.layout(rebuilt & kTransport ? static_cast<el::element&>(*mTransportSlot)
                     : rebuilt & kTopBar  ? static_cast<el::element&>(*mTopSlot)
                                          : static_cast<el::element&>(*mRailSlot));
+
         if ((rebuilt & kTopBar) && (rebuilt & kTransport))
+        {
             mSession.Repaint(*mTopSlot);
+        }
+
         if ((rebuilt & kRail) && (rebuilt & (kTransport | kTopBar)))
+        {
             mSession.Repaint(*mRailSlot);
+        }
     }
     else if (rebuilt != 0)
     {
@@ -413,18 +498,28 @@ void Shell::OnTick()
     }
 
     if (mHistoryCommitAt > 0.0 && UiSession::Now() >= mHistoryCommitAt)
+    {
         CommitChainHistory();
+    }
+
     if (mDirty != 0)
+    {
         Rebuild();
+    }
+
     SyncWindowChrome();
 
     // Errors and confirmations the engine sent (a save that failed, a preset saved).
     for (auto& n : mSession.Client().TakeNotifications())
+    {
         ShowToast(n.title, n.detail, n.kind == guitarfx::uiclient::Notification::Kind::Error);
+    }
 
     // The cables light with the signal while Animate signal flow is on (web: signalFlow.ts).
     if (guitarfx::uiclient::IsSignalFlowAnimationEnabled(mState))
+    {
         mSignalFlow.Update(mState, UiSession::Now());
+    }
 
     SyncEqPlotFeeds();
     SyncIrExport();
@@ -441,7 +536,10 @@ void Shell::OnTick()
 const guitarfx::GraphNode* Shell::SelectedNode() const
 {
     if (!mState.activePreset || mSelectedNode.empty())
+    {
         return nullptr;
+    }
+
     return mState.activePreset->graph.FindNode(mSelectedNode);
 }
 
@@ -454,18 +552,23 @@ void Shell::EnsureSelection()
     }
 
     if (SelectedNode() != nullptr)
+    {
         return;
+    }
 
     // The first thing worth editing: an effect, not the input or output.
     const auto layout = guitarfx::uiclient::BuildChainLayout(mState.activePreset->graph);
+
     for (const auto& id : layout.DrawnNodeIds())
     {
-        if (const auto* node = mState.activePreset->graph.FindNode(id); node && !guitarfx::uiclient::IsBoundaryNode(*node))
+        if (const auto* node = mState.activePreset->graph.FindNode(id);
+            node && !guitarfx::uiclient::IsBoundaryNode(*node))
         {
             mSelectedNode = id;
             return;
         }
     }
+
     mSelectedNode.clear();
 }
 
@@ -473,7 +576,10 @@ void Shell::SelectAddedNode()
 {
     // After adding an effect, the node that appears next is the one to show.
     if (mSelectAddedUntil <= 0.0)
+    {
         return;
+    }
+
     if (UiSession::Now() > mSelectAddedUntil || !mState.activePreset)
     {
         mSelectAddedUntil = 0.0;
@@ -505,7 +611,10 @@ void Shell::SelectNode(const std::string& nodeId)
 void Shell::ShowPage(Page page)
 {
     if (page == mPage)
+    {
         return;
+    }
+
     mPage = page;
     Mark(kTopBar | kPage | kRail);
 }
@@ -522,11 +631,17 @@ Ptr Shell::BuildStarting()
 std::string Shell::SceneSignature() const
 {
     if (!mState.activePreset)
+    {
         return {};
+    }
 
     std::string s = mState.activeSceneId + "|" + MixerSignature();
+
     for (const auto& scene : mState.activePreset->scenes)
+    {
         s += "|" + scene.id + ":" + scene.title;
+    }
+
     return s;
 }
 } // namespace nanoq::ui

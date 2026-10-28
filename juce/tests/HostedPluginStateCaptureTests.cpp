@@ -41,7 +41,7 @@ int Fail(const std::string& message)
  */
 class StubPluginInstance final : public juce::AudioPluginInstance
 {
-public:
+  public:
     /**
      * @param withParameter  Whether to expose an automatable parameter. Without one, and
      *                       with an empty chunk, the state envelope encodes to nothing at
@@ -49,19 +49,22 @@ public:
      *                       With one, parameter and gesture listeners have something to
      *                       attach to.
      */
-    explicit StubPluginInstance(juce::String stateText, bool withParameter = true)
-        : mStateText(std::move(stateText))
+    explicit StubPluginInstance(juce::String stateText, bool withParameter = true) : mStateText(std::move(stateText))
     {
         if (!withParameter)
+        {
             return;
+        }
 
-        auto parameter = std::make_unique<juce::AudioParameterFloat>(
-            juce::ParameterID{"p", 1}, "P", 0.0f, 1.0f, 0.5f);
+        auto parameter = std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"p", 1}, "P", 0.0f, 1.0f, 0.5f);
         mParameter = parameter.get();
         addHostedParameter(std::move(parameter));
     }
 
-    void SetStateText(juce::String stateText) { mStateText = std::move(stateText); }
+    void SetStateText(juce::String stateText)
+    {
+        mStateText = std::move(stateText);
+    }
 
     /// Stands in for a plugin reporting that something other than a parameter changed —
     /// an internal preset load, a sample swap. The only capture trigger available to a
@@ -70,11 +73,31 @@ public:
     {
         updateHostDisplay(juce::AudioProcessor::ChangeDetails().withNonParameterStateChanged(true));
     }
-    [[nodiscard]] int StateReadCount() const { return mStateReadCount; }
-    void ResetStateReadCount() { mStateReadCount = 0; }
-    [[nodiscard]] int StateWriteCount() const { return mStateWriteCount; }
-    [[nodiscard]] const juce::String& StateText() const { return mStateText; }
-    [[nodiscard]] juce::AudioParameterFloat* Parameter() const { return mParameter; }
+
+    [[nodiscard]] int StateReadCount() const
+    {
+        return mStateReadCount;
+    }
+
+    void ResetStateReadCount()
+    {
+        mStateReadCount = 0;
+    }
+
+    [[nodiscard]] int StateWriteCount() const
+    {
+        return mStateWriteCount;
+    }
+
+    [[nodiscard]] const juce::String& StateText() const
+    {
+        return mStateText;
+    }
+
+    [[nodiscard]] juce::AudioParameterFloat* Parameter() const
+    {
+        return mParameter;
+    }
 
     // ── AudioPluginInstance ────────────────────────────────────────
     void fillInPluginDescription(juce::PluginDescription& description) const override
@@ -86,27 +109,80 @@ public:
     }
 
     // ── AudioProcessor ─────────────────────────────────────────────
-    const juce::String getName() const override { return "Stub"; }
-    void prepareToPlay(double, int) override {}
-    void releaseResources() override {}
-    void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override {}
-    juce::AudioProcessorEditor* createEditor() override { return nullptr; }
-    bool hasEditor() const override { return false; }
-    bool acceptsMidi() const override { return false; }
-    bool producesMidi() const override { return false; }
-    double getTailLengthSeconds() const override { return 0.0; }
-    int getNumPrograms() override { return 1; }
-    int getCurrentProgram() override { return 0; }
-    void setCurrentProgram(int) override {}
-    const juce::String getProgramName(int) override { return {}; }
-    void changeProgramName(int, const juce::String&) override {}
+    const juce::String getName() const override
+    {
+        return "Stub";
+    }
+
+    void prepareToPlay(double, int) override
+    {
+    }
+
+    void releaseResources() override
+    {
+    }
+
+    void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override
+    {
+    }
+
+    juce::AudioProcessorEditor* createEditor() override
+    {
+        return nullptr;
+    }
+
+    bool hasEditor() const override
+    {
+        return false;
+    }
+
+    bool acceptsMidi() const override
+    {
+        return false;
+    }
+
+    bool producesMidi() const override
+    {
+        return false;
+    }
+
+    double getTailLengthSeconds() const override
+    {
+        return 0.0;
+    }
+
+    int getNumPrograms() override
+    {
+        return 1;
+    }
+
+    int getCurrentProgram() override
+    {
+        return 0;
+    }
+
+    void setCurrentProgram(int) override
+    {
+    }
+
+    const juce::String getProgramName(int) override
+    {
+        return {};
+    }
+
+    void changeProgramName(int, const juce::String&) override
+    {
+    }
 
     void getStateInformation(juce::MemoryBlock& destData) override
     {
         ++mStateReadCount;
         destData.reset();
+
         if (mStateText.isNotEmpty())
+        {
             destData.append(mStateText.toRawUTF8(), static_cast<size_t>(mStateText.getNumBytesAsUTF8()));
+        }
     }
 
     void setStateInformation(const void* data, int sizeInBytes) override
@@ -115,7 +191,7 @@ public:
         mStateText = juce::String::fromUTF8(static_cast<const char*>(data), sizeInBytes);
     }
 
-private:
+  private:
     juce::String mStateText;
     int mStateReadCount = 0;
     int mStateWriteCount = 0;
@@ -129,11 +205,15 @@ struct CapturedRuntimeConfig
     [[nodiscard]] int StateChangeCount() const
     {
         int count = 0;
+
         for (const auto& change : changes)
         {
             if (change.first == kStateConfigKey)
+            {
                 ++count;
+            }
         }
+
         return count;
     }
 
@@ -142,8 +222,11 @@ struct CapturedRuntimeConfig
         for (auto it = changes.rbegin(); it != changes.rend(); ++it)
         {
             if (it->first == kStateConfigKey)
+            {
                 return it->second;
+            }
         }
+
         return "<none>";
     }
 };
@@ -156,9 +239,8 @@ bool TestEmptyCaptureDoesNotOverwriteStoredState()
     guitarfx::JuceHostedPluginEffect effect;
 
     CapturedRuntimeConfig captured;
-    effect.SetRuntimeConfigChangedCallback([&captured](const std::string& key, const std::string& value) {
-        captured.changes.emplace_back(key, value);
-    });
+    effect.SetRuntimeConfigChangedCallback(
+        [&captured](const std::string& key, const std::string& value) { captured.changes.emplace_back(key, value); });
 
     // No automatable parameters: with an empty chunk this plugin encodes to nothing at all.
     auto plugin = std::make_unique<StubPluginInstance>("plugin-state-worth-keeping", /*withParameter*/ false);
@@ -167,6 +249,7 @@ bool TestEmptyCaptureDoesNotOverwriteStoredState()
     effect.Prepare(48000.0, 512);
 
     const auto storedState = effect.GetConfig(kStateConfigKey);
+
     if (storedState.empty())
     {
         Fail("stub plugin produced no state to begin with");
@@ -208,9 +291,8 @@ bool TestRealCaptureIsStillPublished()
     guitarfx::JuceHostedPluginEffect effect;
 
     CapturedRuntimeConfig captured;
-    effect.SetRuntimeConfigChangedCallback([&captured](const std::string& key, const std::string& value) {
-        captured.changes.emplace_back(key, value);
-    });
+    effect.SetRuntimeConfigChangedCallback(
+        [&captured](const std::string& key, const std::string& value) { captured.changes.emplace_back(key, value); });
 
     auto plugin = std::make_unique<StubPluginInstance>("state-one");
     auto* raw = plugin.get();
@@ -229,6 +311,7 @@ bool TestRealCaptureIsStillPublished()
     }
 
     const auto published = captured.LastStateValue();
+
     if (published.empty() || published == "<none>")
     {
         Fail("published state was empty for a genuine change");
@@ -245,9 +328,8 @@ bool TestGestureCoalescesCaptures()
     guitarfx::JuceHostedPluginEffect effect;
 
     CapturedRuntimeConfig captured;
-    effect.SetRuntimeConfigChangedCallback([&captured](const std::string& key, const std::string& value) {
-        captured.changes.emplace_back(key, value);
-    });
+    effect.SetRuntimeConfigChangedCallback(
+        [&captured](const std::string& key, const std::string& value) { captured.changes.emplace_back(key, value); });
 
     auto plugin = std::make_unique<StubPluginInstance>("state-initial");
     auto* raw = plugin.get();
@@ -259,11 +341,13 @@ bool TestGestureCoalescesCaptures()
     raw->ResetStateReadCount();
 
     parameter->beginChangeGesture();
+
     for (int step = 1; step <= 20; ++step)
     {
         raw->SetStateText("state-drag-" + juce::String(step));
         parameter->setValueNotifyingHost(static_cast<float>(step) / 20.0f);
     }
+
     const int readsDuringDrag = raw->StateReadCount();
 
     parameter->endChangeGesture();
@@ -271,8 +355,8 @@ bool TestGestureCoalescesCaptures()
 
     if (readsDuringDrag != 0)
     {
-        Fail("the drag captured state " + std::to_string(readsDuringDrag)
-             + " time(s) before the gesture ended; it should capture once, at the end");
+        Fail("the drag captured state " + std::to_string(readsDuringDrag) +
+             " time(s) before the gesture ended; it should capture once, at the end");
         return false;
     }
 
@@ -293,6 +377,7 @@ bool TestGestureCoalescesCaptures()
     raw->ResetStateReadCount();
     raw->SetStateText("state-after-drag");
     parameter->setValueNotifyingHost(0.1f);
+
     if (raw->StateReadCount() == 0)
     {
         Fail("a change outside a gesture did not capture");
@@ -361,8 +446,8 @@ bool TestPrepareDoesNotRestoreStateTwice()
 
     if (raw->StateWriteCount() != 1 || raw->StateText() != "state-saved")
     {
-        Fail("the first prepare did not restore the state once: " + std::to_string(raw->StateWriteCount())
-             + " write(s), plugin holds '" + raw->StateText().toStdString() + "'");
+        Fail("the first prepare did not restore the state once: " + std::to_string(raw->StateWriteCount()) +
+             " write(s), plugin holds '" + raw->StateText().toStdString() + "'");
         return false;
     }
 
@@ -371,8 +456,7 @@ bool TestPrepareDoesNotRestoreStateTwice()
 
     if (raw->StateWriteCount() != 1)
     {
-        Fail("a prepare restored state the plugin already had: " + std::to_string(raw->StateWriteCount())
-             + " writes");
+        Fail("a prepare restored state the plugin already had: " + std::to_string(raw->StateWriteCount()) + " writes");
         return false;
     }
 
@@ -433,9 +517,8 @@ bool TestRebuiltNodeTakesOverItsPredecessorsInstance()
 
     guitarfx::JuceHostedPluginEffect rebuilt;
     CapturedRuntimeConfig published;
-    rebuilt.SetRuntimeConfigChangedCallback([&published](const std::string& key, const std::string& value) {
-        published.changes.emplace_back(key, value);
-    });
+    rebuilt.SetRuntimeConfigChangedCallback(
+        [&published](const std::string& key, const std::string& value) { published.changes.emplace_back(key, value); });
 
     if (!rebuilt.ExpectHandOver(*previous))
     {
@@ -445,8 +528,8 @@ bool TestRebuiltNodeTakesOverItsPredecessorsInstance()
 
     rebuilt.SetConfig(kStateConfigKey, captured);
 
-    if (!rebuilt.LoadResource(StubPluginPath()) || !rebuilt.IsAwaitingHandOverForTesting()
-        || !rebuilt.HasResource() || rebuilt.GetHostedPluginForTesting() != nullptr)
+    if (!rebuilt.LoadResource(StubPluginPath()) || !rebuilt.IsAwaitingHandOverForTesting() || !rebuilt.HasResource() ||
+        rebuilt.GetHostedPluginForTesting() != nullptr)
     {
         Fail("loading the predecessor's plugin did not wait for the hand-over");
         return false;
@@ -463,8 +546,8 @@ bool TestRebuiltNodeTakesOverItsPredecessorsInstance()
 
     if (raw->StateWriteCount() != writesBefore || raw->StateText() != "state-live")
     {
-        Fail("the hand-over restored state the instance already had: "
-             + std::to_string(raw->StateWriteCount() - writesBefore) + " write(s)");
+        Fail("the hand-over restored state the instance already had: " +
+             std::to_string(raw->StateWriteCount() - writesBefore) + " write(s)");
         return false;
     }
 
@@ -506,7 +589,7 @@ bool TestHandOverRestoresStateTheInstanceDoesNotHold()
     auto* raw = plugin.get();
     previous.InstallHostedPluginForTesting(std::move(plugin), StubPluginPath());
     previous.Prepare(48000.0, 512);
-    (void) previous.GetConfig(kStateConfigKey);
+    (void)previous.GetConfig(kStateConfigKey);
 
     guitarfx::JuceHostedPluginEffect rebuilt;
     rebuilt.ExpectHandOver(previous);
@@ -517,8 +600,8 @@ bool TestHandOverRestoresStateTheInstanceDoesNotHold()
 
     if (rebuilt.GetHostedPluginForTesting() != raw || raw->StateText() != "state-other")
     {
-        Fail("a state the instance did not hold was not restored on hand-over: plugin holds '"
-             + raw->StateText().toStdString() + "'");
+        Fail("a state the instance did not hold was not restored on hand-over: plugin holds '" +
+             raw->StateText().toStdString() + "'");
         return false;
     }
 
@@ -571,8 +654,8 @@ bool TestHandOverWithoutPredecessorLoadsItself()
     rebuilt.CompleteHandOver(nullptr);
 
     // The stub's file does not exist, so the load it falls back to fails, and says so.
-    if (rebuilt.IsAwaitingHandOverForTesting() || rebuilt.HasResource()
-        || rebuilt.GetConfig("lastErrorCode") != "file-not-found")
+    if (rebuilt.IsAwaitingHandOverForTesting() || rebuilt.HasResource() ||
+        rebuilt.GetConfig("lastErrorCode") != "file-not-found")
     {
         Fail("a hand-over with no predecessor did not fall back to a load of its own");
         return false;
@@ -580,7 +663,6 @@ bool TestHandOverWithoutPredecessorLoadsItself()
 
     return true;
 }
-
 } // namespace
 
 int main()
@@ -592,7 +674,15 @@ int main()
 
     const auto run = [&](const std::string& name, bool ok) {
         std::cout << (ok ? "[PASS] " : "[FAIL] ") << name << "\n";
-        if (ok) ++passed; else ++failed;
+
+        if (ok)
+        {
+            ++passed;
+        }
+        else
+        {
+            ++failed;
+        }
     };
 
     run("Empty capture does not overwrite stored state", TestEmptyCaptureDoesNotOverwriteStoredState());

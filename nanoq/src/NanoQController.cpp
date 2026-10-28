@@ -42,8 +42,11 @@ void NanoQController::BuildParameters()
 
     std::vector<std::string> defaults;
     std::vector<std::string> customs;
+
     for (const auto& id : slotIds)
+    {
         (id.rfind("default.", 0) == 0 ? defaults : customs).push_back(id);
+    }
 
     std::vector<std::pair<std::string, std::string>> layout; // slot id, name
     const auto addSlot = [&](const std::string& id) {
@@ -52,14 +55,26 @@ void NanoQController::BuildParameters()
     };
 
     const int stable = std::min(guitarfx::kLayoutStableDefaultSlots, static_cast<int>(defaults.size()));
+
     for (int i = 0; i < stable; ++i)
+    {
         addSlot(defaults[static_cast<std::size_t>(i)]);
+    }
+
     for (const auto& id : customs)
+    {
         addSlot(id);
+    }
+
     for (int i = static_cast<int>(customs.size()); i < guitarfx::kMaxCustomSlots; ++i)
+    {
         layout.emplace_back("custom._reserved_" + std::to_string(i), "Reserved " + std::to_string(i));
+    }
+
     for (std::size_t i = static_cast<std::size_t>(stable); i < defaults.size(); ++i)
+    {
         addSlot(defaults[i]);
+    }
 
     for (const auto& [id, name] : layout)
     {
@@ -77,12 +92,16 @@ void NanoQController::BuildParameters()
     // start and a DAW project alike. The trims' slots now hold the trims
     // (AutomationSlotTable::SyncGlobalSlotValues).
     mParams.reserve(layout.size());
+
     for (std::size_t i = 0; i < layout.size(); ++i)
     {
-        const double init = std::clamp(static_cast<double>(controller.GetDawParameterValue(static_cast<int>(i))), 0.0, 1.0);
+        const double init =
+            std::clamp(static_cast<double>(controller.GetDawParameterValue(static_cast<int>(i))), 0.0, 1.0);
         // Ids are positions (1-based: CLAP ids are free, and 0 reads as "none" in some hosts).
-        mParams.push_back(parameter{static_cast<parameter::id_type>(i + 1), mNames[i].c_str(), init}.range(0.0, 1.0).dont_save());
+        mParams.push_back(
+            parameter{static_cast<parameter::id_type>(i + 1), mNames[i].c_str(), init}.range(0.0, 1.0).dont_save());
     }
+
     mPending.reserve(mSlotIds.size() * 8);
 }
 
@@ -94,14 +113,19 @@ NanoQController::parameter_list NanoQController::parameters() const
 double NanoQController::get_parameter(int index) const
 {
     if (index < 0 || static_cast<std::size_t>(index) >= mSlotIds.size())
+    {
         return 0.0;
+    }
+
     return mEngine->Controller().GetDawParameterValue(index);
 }
 
 void NanoQController::set_parameter(int index, double value)
 {
     if (index < 0 || static_cast<std::size_t>(index) >= mSlotIds.size())
+    {
         return;
+    }
 
     // Nothing drains the queue before the first activation or after deactivation, so a value
     // set then would never reach the chain and the engine would go on reporting the old one;
@@ -109,7 +133,8 @@ void NanoQController::set_parameter(int index, double value)
     // race, apply it now.
     if (!mAudioActive.load(std::memory_order_acquire))
     {
-        mEngine->Controller().ApplyAutomationFromDAW(mSlotIds[static_cast<std::size_t>(index)], static_cast<float>(value));
+        mEngine->Controller().ApplyAutomationFromDAW(mSlotIds[static_cast<std::size_t>(index)],
+                                                     static_cast<float>(value));
         return;
     }
 
@@ -128,20 +153,31 @@ void NanoQController::ApplyPendingParameters(bool mayBlock)
     // place, so the audio thread frees nothing. A busy DSP lock leaves the changes queued for
     // the next block rather than the audio thread waiting on another thread for it.
     std::lock_guard<std::mutex> lock(mPendingMutex);
+
     if (mPending.empty())
+    {
         return;
+    }
+
     if (mEngine->Controller().ApplyAutomationFromDAW(mPending, mSlotIds, mayBlock))
+    {
         mPending.clear();
+    }
 }
 
 void NanoQController::RescanHostValues()
 {
     if (mHost == nullptr || mHost->get_extension == nullptr)
+    {
         return;
+    }
 
     const auto* params = static_cast<const clap_host_params_t*>(mHost->get_extension(mHost, CLAP_EXT_PARAMS));
+
     if (params != nullptr && params->rescan != nullptr)
+    {
         params->rescan(mHost, CLAP_PARAM_RESCAN_VALUES);
+    }
 }
 
 void NanoQController::save_extra(json& j) const
@@ -154,13 +190,18 @@ void NanoQController::save_extra(json& j) const
 void NanoQController::load_extra(json const& j, std::uint32_t)
 {
     const auto it = j.find("engine");
+
     if (it == j.end() || !it->is_string())
+    {
         return;
+    }
 
     // Restores on the engine thread, and hands calls from elsewhere over to it. If it could not
     // get to the restore in time, nothing has changed yet and it finishes later
     // (IPluginHost::NotifyDeferredStateRestored).
     if (mEngine->Controller().DeserializeState(it->get<std::string>()))
+    {
         RescanHostValues();
+    }
 }
 } // namespace nanoq

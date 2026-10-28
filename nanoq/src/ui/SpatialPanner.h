@@ -33,13 +33,16 @@ struct SpatialPoint
 
 class SpatialPanner : public el::element, public Drawn
 {
-public:
-    explicit SpatialPanner(const Theme& theme) : mTheme(theme) {}
+  public:
+    explicit SpatialPanner(const Theme& theme) : mTheme(theme)
+    {
+    }
 
     el::view_limits limits(const el::basic_context& ctx) const override;
     void draw(const el::context& ctx) override;
     bool click(const el::context& ctx, el::mouse_button btn) override;
     void drag(const el::context& ctx, el::mouse_button btn) override;
+
     bool wants_control() const override
     {
         return true;
@@ -49,6 +52,7 @@ public:
     void SetPosition(const SpatialPoint& position);
     /// Where the source is heard now, or nothing when the node is not moving it.
     void SetLive(const guitarfx::uiclient::SpatialPosition* live);
+
     void SetSpeakerMode(bool speakers)
     {
         mSpeakers = speakers;
@@ -57,7 +61,7 @@ public:
     /// `commit` is false while dragging and true once on release.
     std::function<void(const SpatialPoint& position, bool commit)> onChange;
 
-private:
+  private:
     enum class Target
     {
         None,

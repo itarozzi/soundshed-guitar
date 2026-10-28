@@ -24,7 +24,7 @@ class Icons;
 /// A line of text. Truncated with an ellipsis when the space is short; it never wraps.
 class Text : public el::element, public Drawn
 {
-public:
+  public:
     using Align = HAlign;
 
     Text(const Theme& theme, std::string text, float size = metrics::kTextSize, Weight weight = Weight::Regular);
@@ -45,7 +45,7 @@ public:
         return mText;
     }
 
-private:
+  private:
     const Theme& mTheme;
     std::string mText;
     float mSize;
@@ -58,7 +58,7 @@ private:
 /// Text wrapped at word breaks to a fixed width, as tall as its lines.
 class Paragraph : public el::element
 {
-public:
+  public:
     Paragraph(const Theme& theme, std::string text, float width, float size = metrics::kTextSize);
 
     el::view_limits limits(const el::basic_context& ctx) const override;
@@ -66,7 +66,7 @@ public:
 
     Paragraph& Colour(el::color c);
 
-private:
+  private:
     [[nodiscard]] std::vector<std::string> Lines(cycfi::artist::canvas& cnv) const;
 
     const Theme& mTheme;
@@ -79,12 +79,12 @@ private:
 /// A push button or, with Toggle(), a switch. Text, or text with a leading dot for a state.
 class Button : public el::element, public Drawn
 {
-public:
+  public:
     enum class Style
     {
-        Plain,    // an outlined control
-        Primary,  // the one thing that confirms: filled with the accent
-        Flat,     // a label that reacts: a tab, a chip
+        Plain,   // an outlined control
+        Primary, // the one thing that confirms: filled with the accent
+        Flat,    // a label that reacts: a tab, a chip
     };
 
     Button(const Theme& theme, std::string text, std::function<void()> onClick = {}, Style style = Style::Plain);
@@ -93,12 +93,14 @@ public:
     void draw(const el::context& ctx) override;
     bool click(const el::context& ctx, el::mouse_button btn) override;
     bool cursor(const el::context& ctx, el::point p, el::cursor_tracking status) override;
+
     bool wants_control() const override
     {
         return true;
     }
 
     Button& Set(std::string text);
+
     /// What a click does, for a button made before its action could be (one that reads the
     /// dialog it sits in).
     Button& OnClick(std::function<void()> onClick)
@@ -106,6 +108,7 @@ public:
         mOnClick = std::move(onClick);
         return *this;
     }
+
     Button& On(bool on);
     Button& Selected(bool selected);
     Button& Enabled(bool enabled);
@@ -122,7 +125,7 @@ public:
         return mOn;
     }
 
-private:
+  private:
     const Theme& mTheme;
     std::string mText;
     std::function<void()> mOnClick;
@@ -143,7 +146,7 @@ private:
 /// normalised 0..1 (the control does not know the parameter's range); the owner formats it.
 class ParamSlider : public el::element, public Drawn
 {
-public:
+  public:
     ParamSlider(const Theme& theme, std::string name);
 
     el::view_limits limits(const el::basic_context& ctx) const override;
@@ -152,6 +155,7 @@ public:
     void drag(const el::context& ctx, el::mouse_button btn) override;
     bool cursor(const el::context& ctx, el::point p, el::cursor_tracking status) override;
     bool scroll(const el::context& ctx, el::point dir, el::point p) override;
+
     bool wants_control() const override
     {
         return true;
@@ -159,6 +163,7 @@ public:
 
     /// Moves the thumb to a value the engine reports. Ignored while the user is dragging it.
     void Update(double normalised, std::string valueText);
+
     [[nodiscard]] bool Dragging() const
     {
         return mDragging;
@@ -171,7 +176,7 @@ public:
     /// Called when a drag ends: the owner commits what the drag only previewed.
     std::function<void()> onRelease;
 
-private:
+  private:
     void Move(const el::context& ctx, el::point p);
 
     const Theme& mTheme;
@@ -187,7 +192,7 @@ private:
 /// double click to reset. The value is normalised 0..1, as for ParamSlider.
 class ParamKnob : public el::element, public Drawn
 {
-public:
+  public:
     ParamKnob(const Theme& theme, std::string name);
 
     el::view_limits limits(const el::basic_context& ctx) const override;
@@ -196,6 +201,7 @@ public:
     void drag(const el::context& ctx, el::mouse_button btn) override;
     bool cursor(const el::context& ctx, el::point p, el::cursor_tracking status) override;
     bool scroll(const el::context& ctx, el::point dir, el::point p) override;
+
     bool wants_control() const override
     {
         return true;
@@ -203,6 +209,7 @@ public:
 
     /// Moves the knob to a value the engine reports. Ignored while the user is dragging it.
     void Update(double normalised, std::string valueText);
+
     [[nodiscard]] bool Dragging() const
     {
         return mDragging;
@@ -233,7 +240,7 @@ public:
     /// on unless turned off, kept current by the shell.
     static inline bool sWheelAdjusts = true;
 
-private:
+  private:
     const Theme& mTheme;
     std::string mName;
     std::string mValueText;
@@ -248,13 +255,13 @@ private:
 /// A small muted capital heading that starts a group of controls, with a rule after it.
 class GroupHeading : public el::element
 {
-public:
+  public:
     GroupHeading(const Theme& theme, std::string text);
 
     el::view_limits limits(const el::basic_context& ctx) const override;
     void draw(const el::context& ctx) override;
 
-private:
+  private:
     const Theme& mTheme;
     std::string mText;
 };
@@ -263,7 +270,7 @@ private:
 /// Controls strip meter: a column of segments under the peak in dB.
 class MeterBar : public el::element, public Drawn
 {
-public:
+  public:
     explicit MeterBar(const Theme& theme);
 
     MeterBar& Vertical(bool vertical)
@@ -278,7 +285,7 @@ public:
     /// Returns true if the bar changed enough to be worth a redraw.
     bool Set(double peakDb, bool clipped);
 
-private:
+  private:
     const Theme& mTheme;
     double mPeakDb = -120.0;
     bool mClipped = false;
@@ -289,7 +296,7 @@ private:
 /// is a caption and does nothing when tapped.
 class ListRow : public el::element
 {
-public:
+  public:
     ListRow(const Theme& theme, std::string text, std::string secondary, bool selected, bool heading,
             std::function<void()> onClick);
 
@@ -297,6 +304,7 @@ public:
     void draw(const el::context& ctx) override;
     bool click(const el::context& ctx, el::mouse_button btn) override;
     bool cursor(const el::context& ctx, el::point p, el::cursor_tracking status) override;
+
     bool wants_control() const override
     {
         return !mHeading;
@@ -308,7 +316,7 @@ public:
     /// An icon at the left, in `tint`.
     ListRow& Icon(Icons* icons, std::string name, el::color tint);
 
-private:
+  private:
     const Theme& mTheme;
     std::string mText, mSecondary;
     Icons* mIcons = nullptr;
@@ -322,20 +330,24 @@ private:
 /// A rounded, filled area that takes clicks, so nothing behind it hears them: the face of a pop-up.
 class Surface : public el::element
 {
-public:
-    Surface(el::color fill, el::color line, float radius) : mFill(fill), mLine(line), mRadius(radius) {}
+  public:
+    Surface(el::color fill, el::color line, float radius) : mFill(fill), mLine(line), mRadius(radius)
+    {
+    }
 
     void draw(const el::context& ctx) override;
+
     bool click(const el::context&, el::mouse_button) override
     {
         return true;
     }
+
     bool wants_control() const override
     {
         return true;
     }
 
-private:
+  private:
     el::color mFill, mLine;
     float mRadius;
 };
@@ -343,17 +355,20 @@ private:
 /// A full-view dimmed backdrop that calls `onClick` when tapped.
 class Backdrop : public el::element
 {
-public:
-    explicit Backdrop(std::function<void()> onClick) : mOnClick(std::move(onClick)) {}
+  public:
+    explicit Backdrop(std::function<void()> onClick) : mOnClick(std::move(onClick))
+    {
+    }
 
     void draw(const el::context& ctx) override;
     bool click(const el::context& ctx, el::mouse_button btn) override;
+
     bool wants_control() const override
     {
         return true;
     }
 
-private:
+  private:
     std::function<void()> mOnClick;
     bool mDown = false;
 };
@@ -362,13 +377,13 @@ private:
 /// under it stays usable while it shows.
 class Toast : public el::element
 {
-public:
+  public:
     Toast(const Theme& theme, std::string title, std::string detail, bool isError);
 
     el::view_limits limits(const el::basic_context& ctx) const override;
     void draw(const el::context& ctx) override;
 
-private:
+  private:
     const Theme& mTheme;
     std::string mTitle, mDetail;
     bool mError;

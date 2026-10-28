@@ -46,6 +46,7 @@ class IRReverbEffect : public EffectProcessor
         {
             mDualLaneLease = rtparallel::DualLaneExecutor::Acquire(); // here, so Process() never starts its thread
         }
+
         mSampleRate = sampleRate;
         mMaxBlockSize = maxBlockSize;
         mPrepared = true;

@@ -161,15 +161,15 @@ void PluginController::SendInputLevellingTraining()
     const bool clipped = active && hold.Clipped();
 
     mInputLevellingLastSent = std::chrono::steady_clock::now();
-    SendMessageToUI(nlohmann::json{{"type", "inputLevellingTraining"},
-                                   {"active", active},
-                                   {"livePeakDbfs", DbOrNull(live)},
-                                   {"capturedPeakDbfs", DbOrNull(captured)},
-                                   {"clipped", clipped},
-                                   {"recommendedTrimDb",
-                                    std::isfinite(captured) ? DbOrNull(TrimFor(kInputLevellingTargetPeakDbfs, captured))
-                                                            : nlohmann::json()},
-                                   {"targetPeakDbfs", kInputLevellingTargetPeakDbfs}}
+    SendMessageToUI(nlohmann::json{
+        {"type", "inputLevellingTraining"},
+        {"active", active},
+        {"livePeakDbfs", DbOrNull(live)},
+        {"capturedPeakDbfs", DbOrNull(captured)},
+        {"clipped", clipped},
+        {"recommendedTrimDb",
+         std::isfinite(captured) ? DbOrNull(TrimFor(kInputLevellingTargetPeakDbfs, captured)) : nlohmann::json()},
+        {"targetPeakDbfs", kInputLevellingTargetPeakDbfs}}
                         .dump());
 }
 
@@ -219,11 +219,11 @@ void PluginController::CommitInputLevellingSettings(bool profilesChanged)
                             .dump());
     }
 
-    SendMessageToUI(nlohmann::json{{"type", "appSettingChanged"},
-                                   {"key", kUserInputCalibrationActiveProfileIdSettingKey},
-                                   {"value", mAppSettings.value(kUserInputCalibrationActiveProfileIdSettingKey,
-                                                                nlohmann::json())}}
-                        .dump());
+    SendMessageToUI(
+        nlohmann::json{{"type", "appSettingChanged"},
+                       {"key", kUserInputCalibrationActiveProfileIdSettingKey},
+                       {"value", mAppSettings.value(kUserInputCalibrationActiveProfileIdSettingKey, nlohmann::json())}}
+            .dump());
 }
 
 void PluginController::HandleSelectInputLevellingProfile(const nlohmann::json& payload)
@@ -238,7 +238,8 @@ void PluginController::HandleSaveInputLevellingProfile(const nlohmann::json& pay
 {
     const auto fail = [this](const char* error, const char* message) {
         SendMessageToUI(
-            nlohmann::json{{"type", "inputLevellingSaved"}, {"ok", false}, {"error", error}, {"message", message}}.dump());
+            nlohmann::json{{"type", "inputLevellingSaved"}, {"ok", false}, {"error", error}, {"message", message}}
+                .dump());
     };
 
     const std::string name = Trimmed(payload.value("name", std::string{}));
@@ -250,8 +251,9 @@ void PluginController::HandleSaveInputLevellingProfile(const nlohmann::json& pay
     }
 
     auto& hold = mPresetMixer.GetInputLevelHold();
-    const double captured =
-        mUserInputCalibrationTrainingActive && hold.IsArmed() ? PeakDbfs(hold.CapturedPeak()) : -std::numeric_limits<double>::infinity();
+    const double captured = mUserInputCalibrationTrainingActive && hold.IsArmed()
+                                ? PeakDbfs(hold.CapturedPeak())
+                                : -std::numeric_limits<double>::infinity();
 
     if (!std::isfinite(captured))
     {

@@ -113,7 +113,11 @@ void TestTheClickFollowsTheLoop(const fs::path& sandbox)
     s.capture = &out;
 
     s.Send({{"type", "setMetronome"}, {"enabled", true}, {"bpm", kBpm}, {"timeSigNum", 4}, {"timeSigDen", 4}});
-    s.Send({{"type", "setLooper"}, {"enabled", true}, {"maxSeconds", 30}, {"length", "free"}, {"clickWhileRecording", true}});
+    s.Send({{"type", "setLooper"},
+            {"enabled", true},
+            {"maxSeconds", 30},
+            {"length", "free"},
+            {"clickWhileRecording", true}});
     s.Run(0.37);
 
     // A free loop of about a bar and a third, started off the beat, played to the click.
@@ -216,8 +220,13 @@ void TestABarsLoopAfterStopAndPlay(const fs::path& sandbox)
     s.capture = &out;
 
     s.Send({{"type", "setMetronome"}, {"enabled", true}, {"bpm", kBpm}, {"timeSigNum", 4}, {"timeSigDen", 4}});
-    s.Send({{"type", "setLooper"}, {"enabled", true}, {"maxSeconds", 30}, {"length", "bars"}, {"bars", 1},
-            {"countInBars", 1}, {"clickWhileRecording", true}});
+    s.Send({{"type", "setLooper"},
+            {"enabled", true},
+            {"maxSeconds", 30},
+            {"length", "bars"},
+            {"bars", 1},
+            {"countInBars", 1},
+            {"clickWhileRecording", true}});
     s.Run(0.21);
     s.Command("recPlayDub");
     s.Run(2.5);
@@ -237,6 +246,7 @@ void TestABarsLoopAfterStopAndPlay(const fs::path& sandbox)
     s.Run(0.2);
     s.Send({{"type", "setLooper"}, {"length", "free"}});
 }
+
 /// An armed Bars take started half way into a bar starts on that beat, and the click follows it.
 void TestAnArmedTakeOnABeat(const fs::path& sandbox)
 {
@@ -250,8 +260,14 @@ void TestAnArmedTakeOnABeat(const fs::path& sandbox)
     s.capture = &out;
 
     s.Send({{"type", "setMetronome"}, {"enabled", true}, {"bpm", kBpm}, {"timeSigNum", 4}, {"timeSigDen", 4}});
-    s.Send({{"type", "setLooper"}, {"enabled", true}, {"maxSeconds", 30}, {"length", "bars"}, {"bars", 1},
-            {"start", "armed"}, {"countInBars", 0}, {"clickWhileRecording", true}});
+    s.Send({{"type", "setLooper"},
+            {"enabled", true},
+            {"maxSeconds", 30},
+            {"length", "bars"},
+            {"bars", 1},
+            {"start", "armed"},
+            {"countInBars", 0},
+            {"clickWhileRecording", true}});
     s.Run(0.3);
     s.Command("recPlayDub");
     // A bar is a second at 240 BPM, from the click starting at the first block: play on its third beat.
@@ -266,7 +282,9 @@ void TestAnArmedTakeOnABeat(const fs::path& sandbox)
           "an armed take played on the third beat starts on it: " + state.dump().substr(0, 260));
     // Muted, so the click is all there is to hear.
     const auto layers = host.Last("looperLayers")["layers"];
-    s.Send({{"type", "setLooperLayer"}, {"layerId", layers.empty() ? std::string{} : layers[0].value("id", std::string{})}, {"muted", true}});
+    s.Send({{"type", "setLooperLayer"},
+            {"layerId", layers.empty() ? std::string{} : layers[0].value("id", std::string{})},
+            {"muted", true}});
     s.Command("stop");
     s.Run(0.61);
     const std::size_t from = s.phase;

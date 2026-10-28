@@ -610,7 +610,8 @@ std::optional<std::pair<std::string, int>> LayoutRenditionFromResourcePath(const
 
     const std::string_view edgeText = rest.substr(slash + 1);
 
-    if (edgeText.size() > 4 || !std::all_of(edgeText.begin(), edgeText.end(), [](char c) { return c >= '0' && c <= '9'; }))
+    if (edgeText.size() > 4 ||
+        !std::all_of(edgeText.begin(), edgeText.end(), [](char c) { return c >= '0' && c <= '9'; }))
     {
         return std::nullopt;
     }

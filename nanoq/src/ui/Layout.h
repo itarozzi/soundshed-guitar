@@ -39,10 +39,9 @@ inline void Fill(Slot& slot, Ptr content)
 /// Lets its subject grow without limit in the chosen directions: the subject's own minimum, and
 /// no maximum. A scroller otherwise reports its content's height as its maximum, which would
 /// cap the whole window at the height of the page it is showing.
-template <el::concepts::Element Subject>
-class ExpandElement : public el::proxy<Subject>
+template <el::concepts::Element Subject> class ExpandElement : public el::proxy<Subject>
 {
-public:
+  public:
     using base_type = el::proxy<Subject>;
 
     ExpandElement(Subject subject, bool horizontal, bool vertical)
@@ -53,14 +52,21 @@ public:
     el::view_limits limits(const el::basic_context& ctx) const override
     {
         auto l = this->subject().limits(ctx);
+
         if (mHorizontal)
+        {
             l.max.x = el::full_extent;
+        }
+
         if (mVertical)
+        {
             l.max.y = el::full_extent;
+        }
+
         return l;
     }
 
-private:
+  private:
     bool mHorizontal, mVertical;
 };
 
@@ -75,13 +81,14 @@ private:
 }
 
 /// Between `lo` and `hi` wide, whatever its content asks: a column that shares a bar's width.
-template <el::concepts::Element Subject>
-class WidthRangeElement : public el::proxy<Subject>
+template <el::concepts::Element Subject> class WidthRangeElement : public el::proxy<Subject>
 {
-public:
+  public:
     using base_type = el::proxy<Subject>;
 
-    WidthRangeElement(Subject subject, float lo, float hi) : base_type(std::move(subject)), mLo(lo), mHi(hi) {}
+    WidthRangeElement(Subject subject, float lo, float hi) : base_type(std::move(subject)), mLo(lo), mHi(hi)
+    {
+    }
 
     el::view_limits limits(const el::basic_context& ctx) const override
     {
@@ -91,7 +98,7 @@ public:
         return l;
     }
 
-private:
+  private:
     float mLo, mHi;
 };
 
@@ -102,13 +109,14 @@ private:
 
 /// No minimum size: a region built for the window's last size, rebuilt for the new one at the
 /// next tick, does not hold the window at the old size meanwhile.
-template <el::concepts::Element Subject>
-class YieldingElement : public el::proxy<Subject>
+template <el::concepts::Element Subject> class YieldingElement : public el::proxy<Subject>
 {
-public:
+  public:
     using base_type = el::proxy<Subject>;
 
-    explicit YieldingElement(Subject subject) : base_type(std::move(subject)) {}
+    explicit YieldingElement(Subject subject) : base_type(std::move(subject))
+    {
+    }
 
     el::view_limits limits(const el::basic_context& ctx) const override
     {
@@ -124,13 +132,14 @@ public:
 }
 
 /// Never smaller than w x h: the window's floor, which the host is told (clap gui resize hints).
-template <el::concepts::Element Subject>
-class MinSizeElement : public el::proxy<Subject>
+template <el::concepts::Element Subject> class MinSizeElement : public el::proxy<Subject>
 {
-public:
+  public:
     using base_type = el::proxy<Subject>;
 
-    MinSizeElement(Subject subject, float w, float h) : base_type(std::move(subject)), mW(w), mH(h) {}
+    MinSizeElement(Subject subject, float w, float h) : base_type(std::move(subject)), mW(w), mH(h)
+    {
+    }
 
     el::view_limits limits(const el::basic_context& ctx) const override
     {
@@ -142,7 +151,7 @@ public:
         return l;
     }
 
-private:
+  private:
     float mW, mH;
 };
 
@@ -155,8 +164,12 @@ private:
 [[nodiscard]] inline Ptr Row(const std::vector<Ptr>& children)
 {
     auto row = std::make_shared<el::htile_composite>();
+
     for (const auto& c : children)
+    {
         row->push_back(c);
+    }
+
     return ExpandWidth(row);
 }
 
@@ -164,8 +177,12 @@ private:
 [[nodiscard]] inline Ptr Tight(const std::vector<Ptr>& children)
 {
     auto row = std::make_shared<el::htile_composite>();
+
     for (const auto& c : children)
+    {
         row->push_back(c);
+    }
+
     return row;
 }
 
@@ -173,8 +190,12 @@ private:
 [[nodiscard]] inline Ptr Col(const std::vector<Ptr>& children)
 {
     auto col = std::make_shared<el::vtile_composite>();
+
     for (const auto& c : children)
+    {
         col->push_back(c);
+    }
+
     return ExpandWidth(col);
 }
 
@@ -217,7 +238,10 @@ private:
 [[nodiscard]] inline Ptr Stretch(Ptr content = nullptr, double weight = 1.0)
 {
     if (!content)
+    {
         content = std::make_shared<el::element>();
+    }
+
     return el::share(el::hstretch(weight, el::hold_any(std::move(content))));
 }
 

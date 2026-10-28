@@ -293,7 +293,8 @@ std::optional<Preset> StoredPreset(TestHost& host, guitarfx::PluginController& c
     {
         auto parsed = nlohmann::json::parse(host.sent[i], nullptr, false);
 
-        if (parsed.is_object() && parsed.value("type", "") == "presetData" && parsed.value("requestedPresetId", "") == id)
+        if (parsed.is_object() && parsed.value("type", "") == "presetData" &&
+            parsed.value("requestedPresetId", "") == id)
         {
             return guitarfx::PresetStorage::DeserializeFromJson(parsed["preset"].dump());
         }
@@ -302,23 +303,36 @@ std::optional<Preset> StoredPreset(TestHost& host, guitarfx::PluginController& c
     return std::nullopt;
 }
 
-const Bytes kModelA = ToBytes(R"({"version":"0.5.0","architecture":"Linear","config":{"receptive_field":2,"bias":false},"weights":[1.0,0.0]})");
-const Bytes kModelB = ToBytes(R"({"version":"0.5.0","architecture":"Linear","config":{"receptive_field":2,"bias":false},"weights":[0.5,0.0]})");
+const Bytes kModelA = ToBytes(
+    R"({"version":"0.5.0","architecture":"Linear","config":{"receptive_field":2,"bias":false},"weights":[1.0,0.0]})");
+const Bytes kModelB = ToBytes(
+    R"({"version":"0.5.0","architecture":"Linear","config":{"receptive_field":2,"bias":false},"weights":[0.5,0.0]})");
 
 /// A pack as tone sharing serves one: "Chug" plays model A, "Lead" plays a blend of A and B.
 Bytes SeedPack()
 {
-    const nlohmann::json blend = {{"id", "blend-1"},
-                                  {"name", "Sweep"},
-                                  {"models", {"sha-a", "sha-b"}},
-                                  {"modelMappings", {{{"id", "sha-a"}, {"parameterValue", 0.0}},
-                                                     {{"id", "sha-b"}, {"parameterValue", 1.0}}}}};
+    const nlohmann::json blend = {
+        {"id", "blend-1"},
+        {"name", "Sweep"},
+        {"models", {"sha-a", "sha-b"}},
+        {"modelMappings", {{{"id", "sha-a"}, {"parameterValue", 0.0}}, {{"id", "sha-b"}, {"parameterValue", 1.0}}}}};
     const nlohmann::json root = {
         {"formatVersion", 1},
-        {"presets", {PresetJson(BuildPreset("p1", "Chug", "sha-a")), PresetJson(BuildPreset("p2", "Lead", "sha-b", "blend-1"))}},
+        {"presets",
+         {PresetJson(BuildPreset("p1", "Chug", "sha-a")), PresetJson(BuildPreset("p2", "Lead", "sha-b", "blend-1"))}},
         {"resources",
-         {{{"id", "sha-a"}, {"name", "Model A"}, {"category", "amp"}, {"type", "nam"}, {"fileName", "sha-a-Model A.nam"}, {"hash", "sha-a"}},
-          {{"id", "sha-b"}, {"name", "Model B"}, {"category", "amp"}, {"type", "nam"}, {"fileName", "sha-b-model-b.nam"}, {"hash", "sha-b"}}}},
+         {{{"id", "sha-a"},
+           {"name", "Model A"},
+           {"category", "amp"},
+           {"type", "nam"},
+           {"fileName", "sha-a-Model A.nam"},
+           {"hash", "sha-a"}},
+          {{"id", "sha-b"},
+           {"name", "Model B"},
+           {"category", "amp"},
+           {"type", "nam"},
+           {"fileName", "sha-b-model-b.nam"},
+           {"hash", "sha-b"}}}},
         {"blends", {blend}},
     };
 
@@ -453,7 +467,8 @@ Exports TestExport()
     host.savePath.clear();
     Send(controller, "exportPresetArchive", {{"presetIds", {chugId}}, {"name", "Chug"}});
     failed = Latest(host, "presetExportFailed");
-    Expect(failed && failed->value("message", "") == "Save cancelled", "a cancelled dialog is answered as savePresetArchive's is");
+    Expect(failed && failed->value("message", "") == "Save cancelled",
+           "a cancelled dialog is answered as savePresetArchive's is");
     Expect(!Latest(host, "presetExportSaved").has_value(), "and nothing is saved");
 
     // ── One preset ──────────────────────────────────────────────────────────────
@@ -488,7 +503,8 @@ Exports TestExport()
         Expect(!manifest->contains("createdAt") && !manifest->contains("presetFolders") &&
                    !manifest->contains("effectPresets"),
                "the single format carries no createdAt, folders or effect presets");
-        Expect(manifest->value("blends", nlohmann::json::object()) == nlohmann::json::array(), "and no blends it does not use");
+        Expect(manifest->value("blends", nlohmann::json::object()) == nlohmann::json::array(),
+               "and no blends it does not use");
 
         const auto resources = manifest->value("resources", nlohmann::json::array());
         Expect(resources.size() == 1, "the model it plays is carried");
@@ -503,8 +519,7 @@ Exports TestExport()
                        resource.value("category", "") == "amp",
                    "with its library type, name and category");
             Expect(fileName.rfind(hashA + "-", 0) == 0 && fileName.size() > 4 &&
-                       fileName.compare(fileName.size() - 4, 4, ".nam") == 0 &&
-                       fileName.find(' ') == std::string::npos,
+                       fileName.compare(fileName.size() - 4, 4, ".nam") == 0 && fileName.find(' ') == std::string::npos,
                    "filed as <hash>-<name>.nam (got " + fileName + ")");
             Expect(resource.contains("metadata") && resource["metadata"].is_object(),
                    "and the library entry's metadata");
@@ -513,7 +528,8 @@ Exports TestExport()
         }
 
         const auto preset = manifest->value("preset", nlohmann::json::object());
-        Expect(preset.value("id", "") == chugId && preset.value("name", "") == "Chug", "the preset is the one asked for");
+        Expect(preset.value("id", "") == chugId && preset.value("name", "") == "Chug",
+               "the preset is the one asked for");
         Expect(!preset.contains("globalSignalChain") && !preset.contains("globals"), "without the rig's globals");
 
         if (const auto* amp = NodeById(preset, "amp_1"))
@@ -616,13 +632,15 @@ Exports TestExport()
             Expect(blends[0].value("models", nlohmann::json::array()) == nlohmann::json({hashA, hashB}),
                    "its models moved onto the archive's hashes");
             const auto mapping = At(At(blends[0], "modelMappings"), 1);
-            Expect(mapping.is_object() && mapping.value("id", "") == hashB && mapping.value("parameterValue", 0.0) == 1.0,
+            Expect(mapping.is_object() && mapping.value("id", "") == hashB &&
+                       mapping.value("parameterValue", 0.0) == 1.0,
                    "and its mappings too, keeping their places");
 
             if (presets.size() == 2)
             {
                 const auto* amp = NodeById(presets[1], "amp_1");
-                Expect(amp && amp->value("config", nlohmann::json::object()).value("blendId", "") == blends[0].value("id", "x"),
+                Expect(amp && amp->value("config", nlohmann::json::object()).value("blendId", "") ==
+                                  blends[0].value("id", "x"),
                        "the preset names the blend it carries");
             }
         }
@@ -662,9 +680,10 @@ Exports TestExport()
     host.savePath = ExportDir() / "with-effects.soundshed.presets";
     Send(controller, "exportPresetArchive", {{"presetIds", {leadId, chugId}}, {"name", "With Effects"}});
     saved = Latest(host, "presetExportSaved");
-    const auto withEffects = saved ? ZipJson(guitarfx::util::ReadFileBytes(guitarfx::util::PathFromUtf8(saved->value("path", ""))),
-                                             "presets.json")
-                                   : std::nullopt;
+    const auto withEffects =
+        saved ? ZipJson(guitarfx::util::ReadFileBytes(guitarfx::util::PathFromUtf8(saved->value("path", ""))),
+                        "presets.json")
+              : std::nullopt;
     Expect(withEffects.has_value(), "the export with effect presets is saved");
 
     if (withEffects)
@@ -674,7 +693,9 @@ Exports TestExport()
         const auto amps = effectPresets.value(guitarfx::EffectGuids::kAmpNamOptimized, nlohmann::json::array());
         const auto gains = effectPresets.value(guitarfx::EffectGuids::kGain, nlohmann::json::array());
         Expect(amps.size() == 1 && amps[0].value("name", "") == "Chugs", "the NAM effect preset rides along");
-        Expect(gains.size() == 1 && At(gains[0], "parameters").is_object() && At(gains[0], "parameters").value("gain", 0.0) == 6.0, "and the parameters-only one");
+        Expect(gains.size() == 1 && At(gains[0], "parameters").is_object() &&
+                   At(gains[0], "parameters").value("gain", 0.0) == 6.0,
+               "and the parameters-only one");
 
         if (amps.size() == 1)
         {
@@ -811,7 +832,8 @@ void TestLibraryExport()
     host.savePath.clear();
     Send(controller, "exportLibraryArchive");
     auto failed = Latest(host, "libraryExportFailed");
-    Expect(failed && failed->value("message", "") == "Save cancelled", "a cancelled library export is answered as saveLibraryArchive's is");
+    Expect(failed && failed->value("message", "") == "Save cancelled",
+           "a cancelled library export is answered as saveLibraryArchive's is");
     Expect(host.lastDefaultName == "Soundshed-Library.soundshed-library.zip",
            "the dialog suggests the web UI's library file name (got " + host.lastDefaultName + ")");
 
@@ -841,7 +863,8 @@ void TestLibraryExport()
         for (const auto& resource : manifest.value("resources", nlohmann::json::array()))
         {
             const std::string type = resource.value("type", "");
-            const auto bytes = guitarfx::controller_detail::ExtractZipEntry(zip, "resources/" + type + "/" + resource.value("fileName", ""));
+            const auto bytes = guitarfx::controller_detail::ExtractZipEntry(zip, "resources/" + type + "/" +
+                                                                                     resource.value("fileName", ""));
             Expect(bytes && guitarfx::util::Sha256Hex(*bytes) == resource.value("hash", ""),
                    "resources/" + type + "/" + resource.value("fileName", "") + " holds the listed file");
             Expect(resource.contains("id") && resource.contains("name") && resource.contains("category") &&
@@ -857,8 +880,8 @@ void TestLibraryExport()
     if (const auto zip = exportTo("library-used", nlohmann::json::object()))
     {
         const auto names = ZipEntryNames(*zip);
-        Expect(names.size() >= 4 && names[0] == "resources/" && names[1] == "resources/nam/" && names[2] == "resources/ir/" &&
-                   names.back() == "library.json",
+        Expect(names.size() >= 4 && names[0] == "resources/" && names[1] == "resources/nam/" &&
+                   names[2] == "resources/ir/" && names.back() == "library.json",
                "laid out as JSZip laid it out: the folders, the files, then library.json");
 
         if (const auto manifest = ZipJson(*zip, "library.json"))
@@ -876,8 +899,12 @@ void TestLibraryExport()
                 hasLead = hasLead || preset.value("id", "") == leadId;
 
                 if (preset.value("id", "") == chugId)
+                {
                     if (const auto* amp = NodeById(preset, "amp_1"))
+                    {
                         chugModel = At(At(*amp, "resources"), 0).value("resourceId", "");
+                    }
+                }
             }
 
             Expect(hasChug && !hasLead, "the user's presets, without the deleted one");
@@ -891,7 +918,10 @@ void TestLibraryExport()
             bool keptId = false;
 
             for (const auto& resource : manifest->value("resources", nlohmann::json::array()))
-                keptId = keptId || (resource.value("hash", "") == hashA && resource.value("id", "") == chugModel && !chugModel.empty());
+            {
+                keptId = keptId || (resource.value("hash", "") == hashA && resource.value("id", "") == chugModel &&
+                                    !chugModel.empty());
+            }
 
             Expect(keptId, "the library's own id is kept, the one Chug's node names");
         }

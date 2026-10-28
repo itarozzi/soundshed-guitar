@@ -262,8 +262,7 @@ void SignalGraphExecutor::ResolveChannelLayout(bool notifyAll)
             // A bypassed effect passes its input on as it arrived, so it widens nothing, unless it
             // is still holding its stereo (kBypassedWidenerHoldSeconds). A mixer pans its inputs as
             // it gathers them, bypassed or not.
-            const bool widens =
-                canWiden && (processor->IsEnabled() || state.widenHoldSamples > 0 || planned.isMixer);
+            const bool widens = canWiden && (processor->IsEnabled() || state.widenHoldSamples > 0 || planned.isMixer);
             const bool outputStereo = !monoMode && (inputStereo || widens);
             const bool processesMono = !inputStereo || monoMode;
             const bool inputChanged = (inputStereo != state.inputStereo);

@@ -26,18 +26,32 @@ el::color Hsl(double hue, double saturation, double lightness)
     const double hp = std::fmod(hue / 60.0, 6.0);
     const double x = c * (1.0 - std::abs(std::fmod(hp, 2.0) - 1.0));
     double r = 0, g = 0, b = 0;
+
     if (hp < 1)
+    {
         r = c, g = x;
+    }
     else if (hp < 2)
+    {
         r = x, g = c;
+    }
     else if (hp < 3)
+    {
         g = c, b = x;
+    }
     else if (hp < 4)
+    {
         g = x, b = c;
+    }
     else if (hp < 5)
+    {
         r = x, b = c;
+    }
     else
+    {
         r = c, b = x;
+    }
+
     const double m = lightness - c / 2.0;
     return el::color{static_cast<float>(r + m), static_cast<float>(g + m), static_cast<float>(b + m), 1.0f};
 }
@@ -46,10 +60,12 @@ el::color Hsl(double hue, double saturation, double lightness)
 /// and the Bark bands as bars.
 class AnalyzerPanel final : public el::element, public Drawn
 {
-public:
+  public:
     static constexpr std::size_t kHistory = 160; // ANALYZER_SPECTROGRAM_HISTORY_FRAMES
 
-    explicit AnalyzerPanel(const Theme& theme) : mTheme(theme) {}
+    explicit AnalyzerPanel(const Theme& theme) : mTheme(theme)
+    {
+    }
 
     el::view_limits limits(const el::basic_context&) const override
     {
@@ -57,18 +73,30 @@ public:
     }
 
     /// Takes a frame; returns true when it was a new one.
-    bool Set(const guitarfx::uiclient::AnalyzerFrame* frame, const guitarfx::uiclient::AnalyzerRanges& ranges, int configuredChannels)
+    bool Set(const guitarfx::uiclient::AnalyzerFrame* frame, const guitarfx::uiclient::AnalyzerRanges& ranges,
+             int configuredChannels)
     {
         mReadouts = guitarfx::uiclient::AnalyzerReadouts(frame, configuredChannels);
         mRanges = ranges;
+
         if (frame == nullptr)
+        {
             return false;
+        }
+
         if (frame->timeMs == mLastTime && !mHistory.empty())
+        {
             return false;
+        }
+
         mLastTime = frame->timeMs;
         mHistory.push_back(frame->spectrogramDb);
+
         while (mHistory.size() > kHistory)
+        {
             mHistory.pop_front();
+        }
+
         mBark = frame->barkDb;
         return true;
     }
@@ -85,17 +113,22 @@ public:
         constexpr int kColumns = 6;
         constexpr float kRow = 40.0f;
         const float cell = b.width() / kColumns;
+
         for (std::size_t i = 0; i < mReadouts.size(); ++i)
         {
             const float x = b.left + cell * static_cast<float>(i % kColumns);
             const float y = b.top + kRow * static_cast<float>(i / kColumns);
             const auto& r = mReadouts[i];
-            FillText(cnv, Ellipsize(cnv, r.label, labelFont, cell - 8.0f), labelFont, mTheme.TextMuted(), el::rect{x + 4.0f, y, x + cell - 4.0f, y + 12.0f},
-                     HAlign::Left);
-            FillText(cnv, Ellipsize(cnv, r.value, valueFont, cell - 8.0f), valueFont, mTheme.Ink(), el::rect{x + 4.0f, y + 13.0f, x + cell - 4.0f, y + 28.0f}, HAlign::Left);
+            FillText(cnv, Ellipsize(cnv, r.label, labelFont, cell - 8.0f), labelFont, mTheme.TextMuted(),
+                     el::rect{x + 4.0f, y, x + cell - 4.0f, y + 12.0f}, HAlign::Left);
+            FillText(cnv, Ellipsize(cnv, r.value, valueFont, cell - 8.0f), valueFont, mTheme.Ink(),
+                     el::rect{x + 4.0f, y + 13.0f, x + cell - 4.0f, y + 28.0f}, HAlign::Left);
+
             if (!r.hint.empty())
-                FillText(cnv, r.hint, Font().size(9.0f), mTheme.TextSecondary(), el::rect{x + 4.0f, y + 28.0f, x + cell - 4.0f, y + 39.0f},
-                         HAlign::Left);
+            {
+                FillText(cnv, r.hint, Font().size(9.0f), mTheme.TextSecondary(),
+                         el::rect{x + 4.0f, y + 28.0f, x + cell - 4.0f, y + 39.0f}, HAlign::Left);
+            }
         }
 
         const float top = b.top + 2.0f * kRow + 6.0f;
@@ -106,6 +139,7 @@ public:
 
         cnv.fill_style(well);
         cnv.fill_rect(spec);
+
         if (!mHistory.empty() && !mHistory.back().empty())
         {
             const auto [minDb, maxDb, minHz, maxHz] = mRanges.spectrogram;
@@ -114,15 +148,21 @@ public:
             const float rowHeight = spec.height() / static_cast<float>(bins);
             const float columnWidth = std::max(1.0f, spec.width() / static_cast<float>(kHistory));
             const std::size_t start = kHistory > mHistory.size() ? kHistory - mHistory.size() : 0;
+
             for (std::size_t c = 0; c < mHistory.size(); ++c)
             {
                 const auto& frame = mHistory[c];
                 const float x = spec.left + columnWidth * static_cast<float>(start + c);
+
                 for (std::size_t y = 0; y < frame.size() && y < bins; ++y)
                 {
                     const double norm = std::clamp((frame[y] - minDb) / range, 0.0, 1.0);
+
                     if (norm <= 0.001)
+                    {
                         continue;
+                    }
+
                     cnv.fill_style(Hsl(230.0 - std::round(norm * 190.0), (76.0 + std::round(norm * 18.0)) / 100.0,
                                        (12.0 + std::round(norm * 56.0)) / 100.0));
                     cnv.fill_rect(el::rect{x, spec.bottom - static_cast<float>(y + 1) * rowHeight, x + columnWidth,
@@ -131,26 +171,32 @@ public:
             }
         }
 
-        FillText(cnv, "BARK PERCEPTION", labelFont, mTheme.TextMuted(), el::rect{b.left, bark.top - 15.0f, b.right, bark.top - 3.0f}, HAlign::Left);
+        FillText(cnv, "BARK PERCEPTION", labelFont, mTheme.TextMuted(),
+                 el::rect{b.left, bark.top - 15.0f, b.right, bark.top - 3.0f}, HAlign::Left);
         cnv.fill_style(well);
         cnv.fill_rect(bark);
+
         if (!mBark.empty())
         {
             const auto [minDb, maxDb, minHz, maxHz] = mRanges.bark;
             const double range = std::max(1.0, maxDb - minDb);
             const float gap = 1.0f;
-            const float width = std::max(1.0f, (bark.width() - gap * static_cast<float>(mBark.size() - 1)) / static_cast<float>(mBark.size()));
+            const float width = std::max(1.0f, (bark.width() - gap * static_cast<float>(mBark.size() - 1)) /
+                                                   static_cast<float>(mBark.size()));
+
             for (std::size_t i = 0; i < mBark.size(); ++i)
             {
                 const double norm = std::clamp((mBark[i] - minDb) / range, 0.0, 1.0);
                 const float x = bark.left + static_cast<float>(i) * (width + gap);
-                cnv.fill_style(Hsl(232.0 - std::round(norm * 168.0), (76.0 + std::round(norm * 14.0)) / 100.0, (14.0 + std::round(norm * 58.0)) / 100.0));
-                cnv.fill_rect(el::rect{x, bark.bottom - static_cast<float>(norm) * bark.height(), x + width, bark.bottom});
+                cnv.fill_style(Hsl(232.0 - std::round(norm * 168.0), (76.0 + std::round(norm * 14.0)) / 100.0,
+                                   (14.0 + std::round(norm * 58.0)) / 100.0));
+                cnv.fill_rect(
+                    el::rect{x, bark.bottom - static_cast<float>(norm) * bark.height(), x + width, bark.bottom});
             }
         }
     }
 
-private:
+  private:
     const Theme& mTheme;
     std::vector<guitarfx::uiclient::AnalyzerReadout> mReadouts = guitarfx::uiclient::AnalyzerReadouts(nullptr, 0);
     guitarfx::uiclient::AnalyzerRanges mRanges;
@@ -175,8 +221,11 @@ Ptr Shell::BuildLiveSection(const guitarfx::GraphNode& node, float& height)
             mSession.Commands().SetNodeParam(nodeId, "elevation", p.elevation);
             mSession.Commands().SetNodeParam(nodeId, "distance", p.distance);
             NoteChainEdit();
+
             if (commit)
+            {
                 Mark(kValues);
+            }
         };
         mSpatialPanner = panner;
         SyncLiveSection();
@@ -184,6 +233,7 @@ Ptr Shell::BuildLiveSection(const guitarfx::GraphNode& node, float& height)
         // The radar is as big as the height allows; wider only parts it from its height arc.
         return Row({Stretch(), FixedWidth(440, panner), Stretch()});
     }
+
     if (node.type == guids::kInputAnalyzer)
     {
         auto panel = std::make_shared<AnalyzerPanel>(mTheme);
@@ -192,6 +242,7 @@ Ptr Shell::BuildLiveSection(const guitarfx::GraphNode& node, float& height)
         height = 340.0f;
         return panel;
     }
+
     height = 0.0f;
     return nullptr;
 }
@@ -199,8 +250,12 @@ Ptr Shell::BuildLiveSection(const guitarfx::GraphNode& node, float& height)
 void Shell::SyncLiveSection()
 {
     const auto* node = mState.activePreset ? mState.activePreset->graph.FindNode(mLiveNodeId) : nullptr;
+
     if (node == nullptr)
+    {
         return;
+    }
+
     const std::string key = mState.activePresetId + "::" + node->id;
 
     if (const auto panner = std::static_pointer_cast<SpatialPanner>(mSpatialPanner.lock()))
@@ -213,8 +268,12 @@ void Shell::SyncLiveSection()
         panner->SetSpeakerMode(param("listenMode", 0.0) >= 0.5);
         const auto& spatial = mState.analysis.spatial;
         auto live = spatial.find(key);
+
         if (live == spatial.end())
+        {
             live = spatial.find("::" + node->id);
+        }
+
         panner->SetLive(live != spatial.end() ? &live->second : nullptr);
         mSession.Repaint(*panner);
     }
@@ -225,8 +284,11 @@ void Shell::SyncLiveSection()
         const auto frame = analyzers.find(node->id);
         const auto levels = mState.telemetry.nodes.find(key);
         const int channels = levels != mState.telemetry.nodes.end() ? levels->second.channelCount : 0;
+
         if (panel->Set(frame != analyzers.end() ? &frame->second : nullptr, mState.analysis.analyzerRanges, channels))
+        {
             mSession.Repaint(*panel);
+        }
     }
 }
 } // namespace nanoq::ui

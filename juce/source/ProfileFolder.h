@@ -12,7 +12,6 @@ inline constexpr const char* kProfileFolderName = "Soundshed Guitar";
 
 inline juce::File profileFolder()
 {
-    return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
-        .getChildFile (kProfileFolderName);
+    return juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory).getChildFile(kProfileFolderName);
 }
 } // namespace soundshed

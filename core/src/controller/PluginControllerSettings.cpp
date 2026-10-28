@@ -439,6 +439,7 @@ bool PluginController::ApplySettingsToRuntime(SettingsApplyMode mode)
     bool settingsChanged = false;
 
     mMetronome->ApplySettingsFromAppSettings();
+
     if (mLooper)
     {
         mLooper->ApplySettingsFromAppSettings();

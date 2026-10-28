@@ -44,9 +44,8 @@ class BuiltinAmpHalfband2x
             }
             else if ((offset & 1) != 0)
             {
-                const double window =
-                    0.42 + 0.5 * std::cos(2.0 * pi * offset / (kTaps - 1)) +
-                    0.08 * std::cos(4.0 * pi * offset / (kTaps - 1));
+                const double window = 0.42 + 0.5 * std::cos(2.0 * pi * offset / (kTaps - 1)) +
+                                      0.08 * std::cos(4.0 * pi * offset / (kTaps - 1));
                 taps[tap] = static_cast<float>(std::sin(0.5 * pi * offset) / (pi * offset) * window);
                 oddSum += taps[tap];
             }

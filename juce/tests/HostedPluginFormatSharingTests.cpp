@@ -84,8 +84,8 @@ bool TestLivePluginHostsShareOneSetOfFormats()
 
     if (second.GetPluginFormatsForTesting().getNumFormats() != formatCount)
     {
-        Fail("a second load set the formats up again: " + std::to_string(formatCount) + " formats became "
-             + std::to_string(second.GetPluginFormatsForTesting().getNumFormats()));
+        Fail("a second load set the formats up again: " + std::to_string(formatCount) + " formats became " +
+             std::to_string(second.GetPluginFormatsForTesting().getNumFormats()));
         return false;
     }
 
@@ -169,6 +169,7 @@ bool TestDescriptionCacheRemembersUntilThePluginChanges()
     WriteFile(plugin, "binary-v1");
 
     guitarfx::HostedPluginDescriptionCache cache;
+
     if (!cache.Find(plugin).empty())
     {
         Fail("an empty cache found a plugin");
@@ -177,6 +178,7 @@ bool TestDescriptionCacheRemembersUntilThePluginChanges()
 
     cache.Store(plugin, FakeScan(plugin));
     const auto found = cache.Find(plugin);
+
     if (found.size() != 1 || found.front().name != "Fake" || found.front().uniqueId != 1234)
     {
         Fail("a stored description was not found again");
@@ -184,6 +186,7 @@ bool TestDescriptionCacheRemembersUntilThePluginChanges()
     }
 
     guitarfx::HostedPluginDescriptionCache restarted;
+
     if (restarted.Find(plugin).size() != 1)
     {
         Fail("a stored description did not survive a restart");
@@ -191,6 +194,7 @@ bool TestDescriptionCacheRemembersUntilThePluginChanges()
     }
 
     WriteFile(plugin, "binary-v2, updated in place");
+
     if (!restarted.Find(plugin).empty())
     {
         Fail("a plugin that changed was still taken from the cache");
@@ -199,6 +203,7 @@ bool TestDescriptionCacheRemembersUntilThePluginChanges()
 
     cache.Store(plugin, FakeScan(plugin));
     cache.Forget(plugin);
+
     if (!cache.Find(plugin).empty() || !guitarfx::HostedPluginDescriptionCache().Find(plugin).empty())
     {
         Fail("a forgotten description was still found");
@@ -220,6 +225,7 @@ bool TestDescriptionCacheWatchesABundlesBinaries()
 
     guitarfx::HostedPluginDescriptionCache cache;
     cache.Store(bundle, FakeScan(bundle));
+
     if (cache.Find(bundle).size() != 1)
     {
         Fail("a stored bundle was not found again");
@@ -227,6 +233,7 @@ bool TestDescriptionCacheWatchesABundlesBinaries()
     }
 
     WriteFile(binary, "binary-v2, a longer build");
+
     if (!cache.Find(bundle).empty())
     {
         Fail("a bundle whose binary changed was still taken from the cache");
@@ -237,6 +244,7 @@ bool TestDescriptionCacheWatchesABundlesBinaries()
     const auto empty = root / "plugins" / "Empty.vst3";
     std::filesystem::create_directories(empty / "Contents");
     cache.Store(empty, FakeScan(empty));
+
     if (!cache.Find(empty).empty())
     {
         Fail("a bundle with no binaries was cached");
@@ -245,7 +253,6 @@ bool TestDescriptionCacheWatchesABundlesBinaries()
 
     return true;
 }
-
 } // namespace
 
 int main()
@@ -257,7 +264,15 @@ int main()
 
     const auto run = [&](const std::string& name, bool ok) {
         std::cout << (ok ? "[PASS] " : "[FAIL] ") << name << "\n";
-        if (ok) ++passed; else ++failed;
+
+        if (ok)
+        {
+            ++passed;
+        }
+        else
+        {
+            ++failed;
+        }
     };
 
     run("Formats are not set up at construction", TestFormatsAreNotSetUpAtConstruction());

@@ -1257,8 +1257,8 @@ void MultiPresetMixer::ProcessStereoBlock(float** inputs, float** outputs, int n
     // A looper armed, counting in, recording or writing a tail needs the chains to hear the first
     // note; a loop that only plays does not keep them awake.
     bool sleepAllowed = mSleepOnSilenceEnabled.load(std::memory_order_acquire) &&
-                        !mHoldAwake.load(std::memory_order_acquire) && !mTuner->IsEnabled() &&
-                        !preTraits.keepsAwake && !postTraits.keepsAwake && !mLooper.WantsChainsAwake();
+                        !mHoldAwake.load(std::memory_order_acquire) && !mTuner->IsEnabled() && !preTraits.keepsAwake &&
+                        !postTraits.keepsAwake && !mLooper.WantsChainsAwake();
     bool sleepCanRingOut = preTraits.canRingOut || postTraits.canRingOut;
 
     for (const auto& inst : mVoices.Instances())
@@ -1686,8 +1686,8 @@ void MultiPresetMixer::FinishOutputBlock(float** outputs, int numSamples, float 
 
     if (diagnosticsEnabled)
     {
-        mTelemetry.Record(MixerTelemetry::Stage::Output, outputs ? outputs[0] : nullptr,
-                          outputs ? outputs[1] : nullptr, numSamples);
+        mTelemetry.Record(MixerTelemetry::Stage::Output, outputs ? outputs[0] : nullptr, outputs ? outputs[1] : nullptr,
+                          numSamples);
 
         // Kept when it beats the span's peak so far. A take between the load and the store can
         // only move this one block into the next span.
@@ -2027,5 +2027,4 @@ void MultiPresetMixer::SetTunerReferenceFrequency(double frequency)
 {
     mTuner->SetReferenceFrequency(frequency);
 }
-
 } // namespace guitarfx

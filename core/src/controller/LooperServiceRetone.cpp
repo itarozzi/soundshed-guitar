@@ -27,7 +27,8 @@ looper_render::Channels LoopDi(const SlotInfo& slot, std::int64_t length)
     const looper::LayerAudio& audio = *slot.audio;
     const int channels = std::clamp(slot.diChannels, 1, audio.di[1] ? 2 : 1);
     const std::int64_t span = slot.firstLayer ? length : slot.spanLength;
-    looper_render::Channels di(static_cast<std::size_t>(channels), std::vector<float>(static_cast<std::size_t>(length)));
+    looper_render::Channels di(static_cast<std::size_t>(channels),
+                               std::vector<float>(static_cast<std::size_t>(length)));
 
     for (std::int64_t k = 0; k < span; ++k)
     {
@@ -172,7 +173,8 @@ void LooperService::HandleRetone(const nlohmann::json& payload)
     {
         mWorker->Post([this, worker, shared, item, tone, length] {
             const looper_render::Channels di = LoopDi(item.slot, length);
-            looper_render::Channels wet = looper_render::RenderLoop(*shared, di, item.slot.calibrationGain, item.progress.get());
+            looper_render::Channels wet =
+                looper_render::RenderLoop(*shared, di, item.slot.calibrationGain, item.progress.get());
             auto buffer = wet.empty() ? nullptr : MakeBuffer(di, std::move(wet));
 
             worker->Deliver([this, item, tone, length, buffer] {
@@ -258,7 +260,8 @@ void LooperService::HandleAddRiff(const std::string& takeId)
         // Fitted to the loop: padded with silence, or cut at its end. With no loop, it is the loop.
         const std::int64_t length = loopLength > 0 ? loopLength : static_cast<std::int64_t>(audio[0].size());
         looper_render::Channels di(2, std::vector<float>(static_cast<std::size_t>(length)));
-        const auto copy = static_cast<std::size_t>(std::min<std::int64_t>(length, static_cast<std::int64_t>(audio[0].size())));
+        const auto copy =
+            static_cast<std::size_t>(std::min<std::int64_t>(length, static_cast<std::int64_t>(audio[0].size())));
 
         for (std::size_t c = 0; c < 2; ++c)
         {

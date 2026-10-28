@@ -20,9 +20,8 @@ constexpr std::size_t kMaxPreviewCrossfadeFrames = 16384; // ~340ms @ 48kHz; saf
 constexpr double kHalfPi = 1.5707963267948966;
 } // namespace
 
-std::shared_ptr<const DemoPreviewService::PreviewRegion>
-DemoPreviewService::BuildRegion(const std::shared_ptr<DemoAudioBuffer>& buffer, double startSec, double endSec,
-                               bool looping)
+std::shared_ptr<const DemoPreviewService::PreviewRegion> DemoPreviewService::BuildRegion(
+    const std::shared_ptr<DemoAudioBuffer>& buffer, double startSec, double endSec, bool looping)
 {
     if (!buffer || buffer->channelSamples.empty() || buffer->sampleRate <= 0.0)
     {
@@ -72,8 +71,8 @@ DemoPreviewService::BuildRegion(const std::shared_ptr<DemoAudioBuffer>& buffer, 
     // crossfade over more than it plays).
     const std::size_t regionLength = region->endFrame - region->startFrame;
     const std::size_t nominal = static_cast<std::size_t>(std::max(1.0, buffer->sampleRate * kPreviewCrossfadeSeconds));
-    const std::size_t fadeLength = std::min({nominal, total - region->endFrame, total - region->startFrame,
-                                             regionLength, kMaxPreviewCrossfadeFrames});
+    const std::size_t fadeLength = std::min(
+        {nominal, total - region->endFrame, total - region->startFrame, regionLength, kMaxPreviewCrossfadeFrames});
 
     if (fadeLength > 0)
     {
@@ -187,9 +186,8 @@ void DemoPreviewService::MixIntoInput(float** inputs, int numSamples)
             // Wrap: emit the crossfade, then resume just past the frames it
             // already covered so the seam is not played twice.
             mCarryPos = 0;
-            cursor = region->carryL.empty()
-                         ? region->startFrame // no room for a fade — hard cut
-                         : region->startFrame + region->carryL.size();
+            cursor = region->carryL.empty() ? region->startFrame // no room for a fade — hard cut
+                                            : region->startFrame + region->carryL.size();
 
             continue;
         }
@@ -270,8 +268,7 @@ void DemoPreviewService::StartPreview(const nlohmann::json& payload)
 
     const auto id = audioIter->value("id", "");
     const auto regionIter = payload.find("region");
-    const nlohmann::json* region =
-        regionIter != payload.end() && regionIter->is_object() ? &*regionIter : nullptr;
+    const nlohmann::json* region = regionIter != payload.end() && regionIter->is_object() ? &*regionIter : nullptr;
     StartDecodedPreview(decodedBytes, id, audioIter->value("title", id), region, false);
 }
 
@@ -288,8 +285,7 @@ void DemoPreviewService::StartPreviewFromBytes(const std::vector<std::uint8_t>& 
 }
 
 void DemoPreviewService::StartDecodedPreview(const std::vector<std::uint8_t>& decodedBytes, const std::string& id,
-                                             const std::string& title, const nlohmann::json* regionJson,
-                                             bool loopWhole)
+                                             const std::string& title, const nlohmann::json* regionJson, bool loopWhole)
 {
     const auto wavData = util::DecodeAudioBytes(decodedBytes);
 

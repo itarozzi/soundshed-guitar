@@ -26,6 +26,7 @@ nlohmann::json ReadArchiveRemoteResources(const nlohmann::json& root)
         for (const auto& reference : *it)
         {
             const auto id = reference.is_object() ? Text(reference, "id") : std::string{};
+
             if (!id.empty() && !Text(reference, "provider").empty() && seen.insert(id).second)
             {
                 merged.push_back(reference);
@@ -39,6 +40,7 @@ nlohmann::json ReadArchiveRemoteResources(const nlohmann::json& root)
         for (const auto& legacy : *it)
         {
             const auto id = legacy.is_object() ? Text(legacy, "id") : std::string{};
+
             if (id.empty() || !seen.insert(id).second)
             {
                 continue;
@@ -53,10 +55,12 @@ nlohmann::json ReadArchiveRemoteResources(const nlohmann::json& root)
                 {"providerKey", modelId},
                 {"providerData", {{"toneId", Text(legacy, "toneId")}, {"modelId", modelId}}},
             };
+
             if (const auto creator = Text(legacy, "creatorName"); !creator.empty())
             {
                 reference["creatorName"] = creator;
             }
+
             merged.push_back(std::move(reference));
         }
     }
@@ -78,8 +82,9 @@ std::string FindRemoteResource(const ResourceLibrary& library, const nlohmann::j
 
     const auto resources = library.GetAllResources();
     const auto find = [&](const auto& matches) {
-        const auto it = std::find_if(resources.begin(), resources.end(),
-                                     [&](const LibraryResource& resource) { return resource.type == type && matches(resource); });
+        const auto it = std::find_if(resources.begin(), resources.end(), [&](const LibraryResource& resource) {
+            return resource.type == type && matches(resource);
+        });
         return it == resources.end() ? std::string{} : it->id;
     };
     const auto meta = [](const LibraryResource& resource, const char* key) {
@@ -102,13 +107,16 @@ std::string FindRemoteResource(const ResourceLibrary& library, const nlohmann::j
             {
                 return false;
             }
+
             if (!providerKey.empty() && meta(resource, "providerKey") == providerKey)
             {
                 return true;
             }
+
             return provider == "tone3000" && !toneId.empty() && meta(resource, "toneId") == toneId &&
                    meta(resource, "modelId") == modelId;
         });
+
         if (!found.empty())
         {
             return found;

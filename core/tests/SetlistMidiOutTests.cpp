@@ -117,10 +117,11 @@ bool RunBuildTests()
              passed;
     passed = ExpectBuild(Build(3, Mode::Lsb, 7, 4), {{0xB2, 32, 7}, {0xC2, 4}}, "LSB only: CC32 7, PC 4") && passed;
     passed = ExpectBuild(Build(1, Mode::None, 7, 4), {{0xC0, 4}}, "no bank select: PC alone") && passed;
-    passed = ExpectBuild(Build(1, Mode::MsbLsb, std::nullopt, 4), {{0xC0, 4}}, "a setlist with no bank: PC alone") &&
-             passed;
-    passed = ExpectBuild(Build(1, Mode::Msb, 9, std::nullopt), {{0xB0, 0, 9}}, "a bank on its own: Bank Select alone") &&
-             passed;
+    passed =
+        ExpectBuild(Build(1, Mode::MsbLsb, std::nullopt, 4), {{0xC0, 4}}, "a setlist with no bank: PC alone") && passed;
+    passed =
+        ExpectBuild(Build(1, Mode::Msb, 9, std::nullopt), {{0xB0, 0, 9}}, "a bank on its own: Bank Select alone") &&
+        passed;
 
     passed = ExpectBuild(Build(1, Mode::Msb, 128, 0), {}, "MSB only cannot send bank 128: nothing") && passed;
     passed = ExpectBuild(Build(1, Mode::MsbLsb, 16384, 0), {}, "MSB + LSB cannot send bank 16384: nothing") && passed;
@@ -308,8 +309,8 @@ bool RunControllerTests(const fs::path& sandbox)
 
     SetSetting(controller, "midi.setlistOut.bankSelect", "msb");
     PickSlot(controller, 0);
-    passed = ExpectBuild(TakeSent(controller), {}, "CC0 only cannot send bank 200: nothing, not the wrong bank") &&
-             passed;
+    passed =
+        ExpectBuild(TakeSent(controller), {}, "CC0 only cannot send bank 200: nothing, not the wrong bank") && passed;
 
     PickSetlist(controller, "set-1");
     passed = ExpectBuild(TakeSent(controller), {{0xB2, 0, 1}}, "CC0 only: set 1's bank as CC0 1") && passed;

@@ -33,10 +33,10 @@ struct HttpRequest
 
 struct HttpResponse
 {
-    int status = 0;    // 0: no answer (no network, a timeout, or cut short)
-    std::string body;  // bytes, as received
+    int status = 0;                             // 0: no answer (no network, a timeout, or cut short)
+    std::string body;                           // bytes, as received
     std::map<std::string, std::string> headers; // names in lower case
-    std::string error; // why there was no answer, when status is 0
+    std::string error;                          // why there was no answer, when status is 0
     bool cancelled = false;
 
     [[nodiscard]] std::string Header(const std::string& lowerCaseName) const
@@ -51,8 +51,9 @@ struct HttpResponse
 /// request that starts afterwards.
 class CancelToken
 {
-public:
+  public:
     void Cancel();
+
     [[nodiscard]] bool IsCancelled() const noexcept
     {
         return mCancelled.load();
@@ -63,7 +64,7 @@ public:
     bool SetAbort(std::function<void()> abort);
     void ClearAbort();
 
-private:
+  private:
     std::atomic<bool> mCancelled{false};
     std::mutex mMutex;
     std::function<void()> mAbort;
@@ -72,7 +73,7 @@ private:
 /// One request, blocking, on the calling thread.
 class HttpTransport
 {
-public:
+  public:
     virtual ~HttpTransport() = default;
     [[nodiscard]] virtual HttpResponse Perform(const HttpRequest& request, CancelToken& cancel) = 0;
 };
@@ -85,7 +86,7 @@ public:
 /// for the workers, which then return at once; jobs still queued are dropped.
 class HttpWorkers
 {
-public:
+  public:
     HttpWorkers(std::shared_ptr<HttpTransport> transport, int threads);
     ~HttpWorkers();
 
@@ -99,7 +100,7 @@ public:
     /// workers are being destroyed.
     [[nodiscard]] HttpResponse Perform(const HttpRequest& request);
 
-private:
+  private:
     struct Impl;
     std::unique_ptr<Impl> mImpl;
 };

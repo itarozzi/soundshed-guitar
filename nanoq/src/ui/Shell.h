@@ -2,10 +2,10 @@
 
 // Shell - the frame every page sits in. At or below the web UI's compact breakpoint (980 x 620,
 // core/ui/ts/compactMode.ts; the ui.density setting can force either) it is laid out as the web
-// UI's compact landscape layout (html[data-compact-layout="rail"]): a rail at the left that switches between the Chain and
-// Effect stages (the two halves of the Play tab, which take turns at this size) and opens
-// Settings; the preset bar along the top; the stage; and the footer with its Options sheet.
-// Presets and Settings take the stage's place when open.
+// UI's compact landscape layout (html[data-compact-layout="rail"]): a rail at the left that switches between the Chain
+// and Effect stages (the two halves of the Play tab, which take turns at this size) and opens Settings; the preset bar
+// along the top; the stage; and the footer with its Options sheet. Presets and Settings take the stage's place when
+// open.
 //
 // Above it, the full layout: the PLAY / TONES / PRESETS tabs along the top, the control bar
 // (input, gate, transpose, the preset toolbar and selector, EQ, doubler, output), the chain with
@@ -72,8 +72,9 @@ struct MenuItem
 };
 
 class WebViewSlot; // JamPage.cpp
-class NodeCard;  // ChainWidgets.h
-class Connector; // ChainWidgets.h
+class NodeCard;    // ChainWidgets.h
+class Connector;   // ChainWidgets.h
+
 namespace chain
 {
 struct HitMap; // ChainWidgets.h
@@ -81,7 +82,7 @@ struct HitMap; // ChainWidgets.h
 
 class Shell
 {
-public:
+  public:
     explicit Shell(UiSession& session);
     ~Shell();
 
@@ -96,7 +97,7 @@ public:
     /// Rebuilds the regions the last messages touched and moves the meters. UI thread.
     void OnTick();
 
-private:
+  private:
     enum Dirty : unsigned
     {
         kTopBar = 1u << 0,
@@ -105,7 +106,7 @@ private:
         kPage = 1u << 3,
         kTransport = 1u << 4,
         kValues = 1u << 5, // the effect page's sections drawn from its values (curve, IR alignment)
-        kRail = 1u << 6, // the compact rail, or the full layout's tab row
+        kRail = 1u << 6,   // the compact rail, or the full layout's tab row
         kRebuilds = kTopBar | kScenes | kChain | kPage | kTransport | kRail,
         kAll = kRebuilds
     };
@@ -133,17 +134,21 @@ private:
     /// The view's size in layout units: the zoom divided out.
     [[nodiscard]] el::extent ViewSize() const;
     [[nodiscard]] bool WantsWide() const;
+
     /// Where the stage starts and how wide it is: right of the rail when compact.
     [[nodiscard]] float StageLeft() const
     {
         return mWide ? 0.0f : metrics::kRailWidth;
     }
+
     [[nodiscard]] float StageWidth() const
     {
         return ViewSize().x - StageLeft();
     }
+
     /// The frame for the layout in force, around the region slots.
     Ptr BuildFrame();
+
     /// Chain and Effect are one page in the full layout.
     [[nodiscard]] bool PlayShown() const
     {
@@ -185,11 +190,13 @@ private:
         Ptr mute;
         Ptr levelling; // input levelling, under the input meter
     };
+
     ControlCells BuildControlCells();
     /// A small panel beside `anchor` (a control's bounds), closed by a tap anywhere else.
     void ShowPopover(Ptr panel, el::rect anchor, float width, float height, bool above = false);
     /// The panel placed beside `anchor`, over a layer that calls `onOutside` when tapped.
-    [[nodiscard]] Ptr PlacePanel(Ptr panel, el::rect anchor, float width, float height, bool above, std::function<void()> onOutside);
+    [[nodiscard]] Ptr PlacePanel(Ptr panel, el::rect anchor, float width, float height, bool above,
+                                 std::function<void()> onOutside);
     void CloseDropdown();
     /// A drop-down list under `anchor`, as the web UI's menus open from their buttons.
     void OpenDropdown(el::rect anchor, std::vector<MenuItem> items, float width = 180.0f);
@@ -239,8 +246,8 @@ private:
     void SyncEffectValues();
     void OpenEffectPresets();
     void OpenEnumPicker(const std::string& nodeId, const guitarfx::uiclient::EffectParamInfo& info);
-    [[nodiscard]] Ptr BuildResourceSlot(const guitarfx::GraphNode& node, const std::string& resourceType, int resourceIndex,
-                                        const std::string& label, bool optional);
+    [[nodiscard]] Ptr BuildResourceSlot(const guitarfx::GraphNode& node, const std::string& resourceType,
+                                        int resourceIndex, const std::string& label, bool optional);
     [[nodiscard]] Ptr BuildSplitBranches(const guitarfx::GraphNode& splitter);
     /// A third-party plugin node's list, Open Plugin and Browse (NodeControls.cpp).
     [[nodiscard]] Ptr BuildPluginHost(const guitarfx::GraphNode& node);
@@ -253,8 +260,8 @@ private:
     /// The layout as one element `width` wide at most, its drawn height in `height`. A backdrop
     /// layout carries `defaultControls`, the standard controls laid out `controlsSize` big.
     [[nodiscard]] Ptr BuildEffectLayout(const guitarfx::GraphNode& node, const guitarfx::uiclient::EffectLayout& layout,
-                                        float width, float availableHeight, Ptr defaultControls, el::extent controlsSize,
-                                        float& height);
+                                        float width, float availableHeight, Ptr defaultControls,
+                                        el::extent controlsSize, float& height);
     /// The header's chooser between the standard controls and the layouts the effect can wear,
     /// or null when it has none to choose; `width` is what it takes.
     [[nodiscard]] Ptr BuildLayoutChooser(const guitarfx::GraphNode& node, bool usingLayout, float& width);
@@ -268,17 +275,20 @@ private:
         std::function<std::map<std::string, double>()> read;
         std::function<void(const std::string& key, double value, bool commit)> write;
     };
+
     struct EqPlotState
     {
         std::shared_ptr<ResponsePlot> plot;
         EqPlotSource source;
         std::string lastQuery; // the parameters last asked about
     };
+
     [[nodiscard]] static bool IsEqPlotType(const std::string& type);
     [[nodiscard]] Ptr MakeEqPlot(EqPlotSource source, bool overlay);
     void SyncEqPlot(EqPlotState& state);
     void SyncEqPlotFeeds();
     [[nodiscard]] EqPlotSource NodeEqPlotSource(const guitarfx::GraphNode& node);
+
     // GateLearn.cpp: the noise gate's Learn, in a gate node's editor and the global gate's settings.
     struct GateLearnTarget
     {
@@ -288,6 +298,7 @@ private:
         std::function<void(double thresholdDb)> apply;
         std::function<void()> ensureEnabled; // a bypassed gate hears nothing
     };
+
     [[nodiscard]] Ptr BuildGateLearn(GateLearnTarget target);
     [[nodiscard]] GateLearnTarget NodeGateLearnTarget(const guitarfx::GraphNode& node);
     void OpenGlobalGate(el::rect anchor);
@@ -316,9 +327,9 @@ private:
     std::string mTonePreviewBarShown;
     bool mToneLinkTaken = false;
     std::optional<guitarfx::uiclient::tones::PackDetail> mPackDetail; // the pack view last shown,
-    Ptr mPackDetailOverlay;                                            // its overlay while open,
-    std::string mPackDetailSignature;                                  // and what it showed
-    std::optional<guitarfx::uiclient::tones::Tone> mTonesShared; // the tone a link opened the page on
+    Ptr mPackDetailOverlay;                                           // its overlay while open,
+    std::string mPackDetailSignature;                                 // and what it showed
+    std::optional<guitarfx::uiclient::tones::Tone> mTonesShared;      // the tone a link opened the page on
     // Automation.cpp: MIDI and automation, as the web UI's midiLearnMenu.ts and automationPanel.ts.
     /// A control's right-click MIDI Learn menu, for the address it drives.
     void OpenMidiLearnMenu(const std::string& address, const std::string& label, el::point at);
@@ -366,8 +377,10 @@ private:
         SlotPtr slot = MakeSlot();
         std::map<guitarfx::uiclient::DspStatusItem, std::weak_ptr<Text>> values;
     };
+
     void FillDspStatus(const std::shared_ptr<DspStatusView>& view);
-    void SetDspStatusItems(const std::shared_ptr<DspStatusView>& view, const std::vector<guitarfx::uiclient::DspStatusItem>& items);
+    void SetDspStatusItems(const std::shared_ptr<DspStatusView>& view,
+                           const std::vector<guitarfx::uiclient::DspStatusItem>& items);
     [[nodiscard]] Ptr BuildDspStatus(const guitarfx::uiclient::DspStatusReadout& readout, const std::string& nodeKey,
                                      const guitarfx::uiclient::NodeAddress& address, bool overlay);
     void SyncDspStatus();
@@ -489,12 +502,12 @@ private:
     std::weak_ptr<el::port_base> mJamScroll; // where the open section is scrolled to
     std::unique_ptr<guitarfx::uiclient::PracticeTool> mPractice;
     std::string mJamSignature;
-    double mPracticeDeletedAt = 0.0;             // when the loop shown in the undo banner was deleted
+    double mPracticeDeletedAt = 0.0; // when the loop shown in the undo banner was deleted
 
     // ResourceBrowser.cpp: the model and IR chooser, as the web UI's resource browser
     void OpenResourceBrowser(const std::string& nodeId, const std::string& resourceType, int resourceIndex,
-                             std::function<void(const std::string& resourceId)> onPick = {}, const std::string& title = {},
-                             const std::string& category = {});
+                             std::function<void(const std::string& resourceId)> onPick = {},
+                             const std::string& title = {}, const std::string& category = {});
     /// A library row's menu: details, rename, recategorise, copy the path, delete.
     void OpenLibraryResourceMenu(const std::string& resourceType, const std::string& resourceId, el::rect anchor);
     /// A one-line prompt on the drop-down layer, so it stacks over a dialog.
@@ -581,12 +594,12 @@ private:
     SlotPtr mBgSlot, mRailSlot, mTopSlot, mSceneSlot, mChainSlot, mPageSlot, mTransportSlot;
 
     Page mPage = Page::Chain;
-    bool mWide = false;            // the full layout is in force
+    bool mWide = false;               // the full layout is in force
     el::extent mLastSize{0.0f, 0.0f}; // the regions sized to the window are rebuilt when it changes
-    bool mPlayStageShown = false;  // the full layout's page slot holds the chain and editor
-    float mChainAreaHeight = 0.0f; // the full layout's chain, as tall as its lines
-    float mChainAreaLimit = 0.0f;  // how tall it may grow, once the bar under it is dragged
-    float mChainDragStart = -1.0f; // the chain's room when that drag began
+    bool mPlayStageShown = false;     // the full layout's page slot holds the chain and editor
+    float mChainAreaHeight = 0.0f;    // the full layout's chain, as tall as its lines
+    float mChainAreaLimit = 0.0f;     // how tall it may grow, once the bar under it is dragged
+    float mChainDragStart = -1.0f;    // the chain's room when that drag began
     // Riff capture's settings, kept while the app runs (RiffDialogs.cpp).
     double mRiffTempo = 0.0; // 0 until the dialog first opens, then the metronome's tempo
     int mRiffCountIn = 1;
@@ -600,8 +613,8 @@ private:
     std::shared_ptr<Button> mLooperMain;
     std::shared_ptr<Text> mLooperStatus, mLooperTime, mLooperBar;
     bool mLibraryExportAll = false; // Settings > Library: the whole library, not only what presets use
-    int mChainIcons = -1;          // the chain as icon tiles (1) or cards (0); -1 follows the setting
-    bool mChainDragIcons = false;  // which it was when that drag began
+    int mChainIcons = -1;           // the chain as icon tiles (1) or cards (0); -1 follows the setting
+    bool mChainDragIcons = false;   // which it was when that drag began
     guitarfx::uiclient::PresetTrail mPresetTrail;
     std::shared_ptr<guitarfx::uiclient::TapTempo> mTapTempo;
     bool mWrapChain = true; // the web UI's signalPathWrapCompact, on unless turned off
@@ -610,10 +623,10 @@ private:
     TonesTab mTonesTab = TonesTab::Presets;
     std::string mTonesQuery, mTonesTag;
     int mTonesPage = 1;
-    bool mTonesMore = false;     // another page of presets to load, or of packs to step to
+    bool mTonesMore = false; // another page of presets to load, or of packs to step to
     bool mTonesLoading = false;
-    bool mTonesLoaded = false;   // the open tab has been asked for since it was opened
-    int mTonesGeneration = 0;    // answers to an older request are dropped
+    bool mTonesLoaded = false; // the open tab has been asked for since it was opened
+    int mTonesGeneration = 0;  // answers to an older request are dropped
     std::string mTonesError;
     std::vector<guitarfx::uiclient::tones::Tone> mToneItems, mTonePacks, mToneHomePacks;
     std::shared_ptr<el::basic_input_box> mTonesSearchBox;
@@ -624,8 +637,8 @@ private:
     std::unique_ptr<LayoutImages> mLayoutImages; // the custom layouts' pictures
 
     guitarfx::uiclient::ChainHistory mHistory;
-    std::string mHistoryContext;     // presetId::sceneId the stacks describe; a change re-seeds them
-    double mHistoryCommitAt = 0.0;   // when to compare the chain again, 0 for no pending edit
+    std::string mHistoryContext;      // presetId::sceneId the stacks describe; a change re-seeds them
+    double mHistoryCommitAt = 0.0;    // when to compare the chain again, 0 for no pending edit
     double mHistorySettleUntil = 0.0; // the engine's echo of a restore is not a new edit until then
     std::string mSelectedNode;
     bool mShowAdvanced = false;
@@ -636,14 +649,14 @@ private:
     std::uint32_t mChromeCaption = 0xffffffffu; // the caption colour last applied, none yet
     std::string mChainSignature;
     guitarfx::uiclient::SignalFlow mSignalFlow; // what lights the cables, updated per tick
-    std::shared_ptr<chain::HitMap> mHitMap; // where the chain's cards and cables are, for drops
+    std::shared_ptr<chain::HitMap> mHitMap;     // where the chain's cards and cables are, for drops
     guitarfx::uiclient::PresetQuery mQuery;
     bool mShowSetlists = false;
-    std::vector<std::string> mPresetTags; // the tag chips that are on
-    std::string mSeenPresetFolder;        // the engine's folder choice last followed
-    el::rect mFolderAnchor;               // the details dialog's folder button, for its drop-down
+    std::vector<std::string> mPresetTags;                // the tag chips that are on
+    std::string mSeenPresetFolder;                       // the engine's folder choice last followed
+    el::rect mFolderAnchor;                              // the details dialog's folder button, for its drop-down
     std::shared_ptr<std::function<void()>> mDetailsTags; // the details dialog's tag chips, refilled in place
-    bool mSetlistPads = false;             // the Setlists tab shows pads rather than a list
+    bool mSetlistPads = false;                           // the Setlists tab shows pads rather than a list
     int mSetlistPadBank = 0;
     std::shared_ptr<el::basic_input_box> mSearchBox; // kept across rebuilds, with what was typed
     Ptr mSearchElement;
@@ -658,7 +671,7 @@ private:
     Ptr mDropdown; // a drop-down list: a layer of its own, so one opened from a dialog stacks over it
     Ptr mToast;
     std::shared_ptr<bool> mAlive = std::make_shared<bool>(true);
-    std::function<void()> mOnOverlayClosed;                       // runs when the overlay closes
+    std::function<void()> mOnOverlayClosed;                        // runs when the overlay closes
     std::vector<guitarfx::uiclient::Subscription> mInstrumentSubs; // an open dialog's live feeds
     std::string mPickerCategory;
     std::optional<guitarfx::GraphEdge> mPickerEdge; // the open picker adds on this edge, not after a node

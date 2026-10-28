@@ -1118,9 +1118,8 @@ void PluginController::HandleSetRiffPreviewRegionRequest(const nlohmann::json& p
         capture = mRiffCapture;
     }
 
-    const double totalSec = capture && capture->sampleRate > 0.0
-                                ? static_cast<double>(capture->left.size()) / capture->sampleRate
-                                : 0.0;
+    const double totalSec =
+        capture && capture->sampleRate > 0.0 ? static_cast<double>(capture->left.size()) / capture->sampleRate : 0.0;
 
     if (totalSec <= 0.0)
     {
@@ -1313,9 +1312,9 @@ void PluginController::CreateLooper(const std::function<void(const std::string&)
     const auto tone = [this]() {
         return LooperService::Tone{mActivePresetId, mActivePreset ? mActivePreset->name : "", mActiveSceneId};
     };
-    mLooper = std::make_unique<LooperService>(mHost, mPresetMixer, *mMetronome, mDSPMutex, mAppSettings,
-                                              [this]() { SaveAppSettings(); }, tone,
-                                              [this]() { mPendingStateBroadcast = true; }, sendToUI);
+    mLooper = std::make_unique<LooperService>(
+        mHost, mPresetMixer, *mMetronome, mDSPMutex, mAppSettings, [this]() { SaveAppSettings(); }, tone,
+        [this]() { mPendingStateBroadcast = true; }, sendToUI);
     mLooper->RegisterMessageHandlers(mMessageHandlers);
 
     LooperService::ProjectHooks hooks;
@@ -1358,7 +1357,8 @@ void PluginController::CreateLooper(const std::function<void(const std::string&)
             return false;
         }
 
-        const auto decoded = util::DecodePcmWav(util::ReadFileBytes(util::PathFromUtf8((*take)["filePath"].get<std::string>())));
+        const auto decoded =
+            util::DecodePcmWav(util::ReadFileBytes(util::PathFromUtf8((*take)["filePath"].get<std::string>())));
 
         if (!decoded || decoded->channelSamples.empty())
         {
@@ -1518,9 +1518,9 @@ void PluginController::SendRiffLibraryStateToUI()
     capture["capturedSamples"] = recording ? static_cast<std::size_t>(status.recorded) : (take ? take->left.size() : 0);
     capture["sampleRate"] = take ? take->sampleRate : 0.0;
     capture["hasAudio"] = recording ? status.recorded > 0 : (take && !take->left.empty() && !take->right.empty());
-    capture["waveformPeaks"] = recording ? LivePeaksToJson(*mRiffRecorder)
-                                         : (take ? BuildWaveformPeaks(take->left, take->right, 256)
-                                                 : nlohmann::json::array());
+    capture["waveformPeaks"] =
+        recording ? LivePeaksToJson(*mRiffRecorder)
+                  : (take ? BuildWaveformPeaks(take->left, take->right, 256) : nlohmann::json::array());
     msg["capture"] = std::move(capture);
 
     SendMessageToUI(msg.dump());

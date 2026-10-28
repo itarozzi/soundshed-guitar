@@ -51,9 +51,13 @@ bool ContainsWord(const std::string& text, const std::string& word)
         const bool startOk = at == 0 || !std::isalnum(static_cast<unsigned char>(text[at - 1]));
         const std::size_t end = at + word.size();
         const bool endOk = end >= text.size() || !std::isalnum(static_cast<unsigned char>(text[end]));
+
         if (startOk && endOk)
+        {
             return true;
+        }
     }
+
     return false;
 }
 
@@ -62,7 +66,8 @@ bool ContainsWord(const std::string& text, const std::string& word)
 bool LooksLikeMicrophone(const std::string& name)
 {
     const auto n = Lower(name);
-    return n.find("microphone") != std::string::npos || n.find("mic array") != std::string::npos || ContainsWord(n, "mic");
+    return n.find("microphone") != std::string::npos || n.find("mic array") != std::string::npos ||
+           ContainsWord(n, "mic");
 }
 
 bool LooksLikeSpeakers(const std::string& name)
@@ -93,8 +98,12 @@ bool BoolArg(const nlohmann::json& request, const char* key, bool fallback)
 nlohmann::json ChannelGroups(const std::string& device, int channels)
 {
     auto groups = nlohmann::json::array();
+
     if (!device.empty() && channels > 0)
+    {
         groups.push_back({{"name", channels >= 2 ? "1 + 2" : "1"}, {"active", true}});
+    }
+
     return groups;
 }
 } // namespace
@@ -109,7 +118,9 @@ DeviceBackend* RegisteredDeviceBackend()
     return gBackend.load();
 }
 
-StandaloneDevices::StandaloneDevices(Send send) : mSend(std::move(send)), mBackend(RegisteredDeviceBackend()) {}
+StandaloneDevices::StandaloneDevices(Send send) : mSend(std::move(send)), mBackend(RegisteredDeviceBackend())
+{
+}
 
 bool StandaloneDevices::Supported() const
 {
@@ -119,18 +130,26 @@ bool StandaloneDevices::Supported() const
 void StandaloneDevices::Queue(const std::string& requestJson)
 {
     if (mBackend == nullptr)
+    {
         return;
+    }
+
     std::lock_guard<std::mutex> lock(mQueueMutex);
+
     // A UI renews its lease every two seconds and asks again on every change; a queue this long
     // means nothing is pumping it.
     if (mQueue.size() < 256)
+    {
         mQueue.push_back(requestJson);
+    }
 }
 
 void StandaloneDevices::Pump()
 {
     if (mBackend == nullptr)
+    {
         return;
+    }
 
     if (!mStarted)
     {
@@ -144,10 +163,14 @@ void StandaloneDevices::Pump()
         std::lock_guard<std::mutex> lock(mQueueMutex);
         requests.swap(mQueue);
     }
+
     for (const auto& request : requests)
+    {
         Handle(request);
+    }
 
     const double now = Now();
+
     if (mLeaseUntil > 0.0)
     {
         if (now > mLeaseUntil)
@@ -165,6 +188,7 @@ void StandaloneDevices::Pump()
 void StandaloneDevices::Handle(const std::string& requestJson)
 {
     const auto request = nlohmann::json::parse(requestJson, nullptr, false);
+
     if (!request.is_object())
     {
         Log("[audio] ignoring a malformed audioDevice request");
@@ -179,6 +203,7 @@ void StandaloneDevices::Handle(const std::string& requestJson)
         SendState({}, BoolArg(request, "rescan", false));
         return;
     }
+
     if (action == "watchLevels")
     {
         WatchLevels(BoolArg(request, "enabled", true));
@@ -193,12 +218,19 @@ void StandaloneDevices::Handle(const std::string& requestJson)
     {
         const auto kind = StringArg(request, "kind");
         const auto name = StringArg(request, "name");
+
         if (kind == "linked")
+        {
             error = mBackend->SetLinkedDevice(name);
+        }
         else if (kind == "input" || kind == "output")
+        {
             error = mBackend->SetDevice(kind == "input", name);
+        }
         else
+        {
             error = "Unknown device kind: " + kind;
+        }
     }
     else if (action == "setInputChannels" || action == "setOutputChannels")
     {
@@ -206,10 +238,15 @@ void StandaloneDevices::Handle(const std::string& requestJson)
         // between those and none, which is the same as no device on that side.
         const bool input = action == "setInputChannels";
         const int group = static_cast<int>(NumberArg(request, "group", -1.0));
+
         if (group < 0)
+        {
             error = mBackend->SetDevice(input, "");
+        }
         else if (group > 0)
+        {
             error = "The standalone app opens a device's first two channels only.";
+        }
     }
     else if (action == "setSampleRate")
     {
@@ -228,10 +265,15 @@ void StandaloneDevices::Handle(const std::string& requestJson)
     else if (action == "playTestTone")
     {
         const auto snapshot = mBackend->Snapshot(false);
+
         if (!snapshot.open || snapshot.output.empty())
+        {
             error = "No output device is open.";
+        }
         else
+        {
             mToneRequests.fetch_add(1);
+        }
     }
     else if (action == "showControlPanel")
     {
@@ -253,7 +295,9 @@ void StandaloneDevices::Handle(const std::string& requestJson)
     {
         // clap-wrapper's standalone host drops the MIDI a plugin sends.
         if (!StringArg(request, "identifier").empty())
+        {
             error = "The standalone app has no MIDI output.";
+        }
     }
     else
     {
@@ -261,7 +305,9 @@ void StandaloneDevices::Handle(const std::string& requestJson)
     }
 
     if (!error.empty())
+    {
         Log("[audio] " + action + " failed: " + error);
+    }
 
     SendState(error, false);
 }
@@ -291,16 +337,19 @@ void StandaloneDevices::SendState(const std::string& error, bool rescan)
     state["hasControlPanel"] = false;
     state["canMuteInput"] = true;
     state["inputMuted"] = mInputMuted.load();
-    state["feedbackRisk"] = !s.input.empty() && !s.output.empty() && LooksLikeMicrophone(s.input) && LooksLikeSpeakers(s.output);
+    state["feedbackRisk"] =
+        !s.input.empty() && !s.output.empty() && LooksLikeMicrophone(s.input) && LooksLikeSpeakers(s.output);
     state["inputPermission"] = "granted";
 
     auto midiInputs = nlohmann::json::array();
+
     for (std::size_t i = 0; i < s.midiInputs.size(); ++i)
     {
         // RtMidi has no stable port id; the name is what clap-wrapper saves and matches by.
         const bool enabled = i < s.midiEnabled.size() && s.midiEnabled[i];
         midiInputs.push_back({{"identifier", s.midiInputs[i]}, {"name", s.midiInputs[i]}, {"enabled", enabled}});
     }
+
     state["midiInputs"] = std::move(midiInputs);
     state["midiOutputs"] = nlohmann::json::array();
     state["midiOutput"] = "";
@@ -323,6 +372,7 @@ void StandaloneDevices::WatchLevels(bool enabled)
         mInputPeak.store(0.0f);
         return;
     }
+
     mLeaseUntil = Now() + kLevelLeaseSeconds;
     mMeterInput.store(true);
 }
@@ -330,7 +380,8 @@ void StandaloneDevices::WatchLevels(bool enabled)
 void StandaloneDevices::SendLevels()
 {
     const float peak = mInputPeak.exchange(0.0f);
-    const double db = peak > 0.0f ? std::max(kLevelFloorDb, 20.0 * std::log10(static_cast<double>(peak))) : kLevelFloorDb;
+    const double db =
+        peak > 0.0f ? std::max(kLevelFloorDb, 20.0 * std::log10(static_cast<double>(peak))) : kLevelFloorDb;
 
     nlohmann::json message;
     message["type"] = "audioDeviceLevels";
@@ -343,19 +394,29 @@ void StandaloneDevices::SendLevels()
 void StandaloneDevices::ProcessInput(float* const* channels, int numChannels, int frames)
 {
     if (mBackend == nullptr || frames <= 0)
+    {
         return;
+    }
 
     if (mMeterInput.load(std::memory_order_relaxed))
     {
         float peak = 0.0f;
+
         for (int ch = 0; ch < numChannels; ++ch)
         {
             if (channels[ch] == nullptr)
+            {
                 continue;
+            }
+
             for (int i = 0; i < frames; ++i)
+            {
                 peak = std::max(peak, std::fabs(channels[ch][i]));
+            }
         }
+
         float seen = mInputPeak.load(std::memory_order_relaxed);
+
         while (peak > seen && !mInputPeak.compare_exchange_weak(seen, peak, std::memory_order_relaxed))
         {
         }
@@ -364,17 +425,24 @@ void StandaloneDevices::ProcessInput(float* const* channels, int numChannels, in
     if (mInputMuted.load(std::memory_order_relaxed))
     {
         for (int ch = 0; ch < numChannels; ++ch)
+        {
             if (channels[ch] != nullptr)
+            {
                 std::memset(channels[ch], 0, sizeof(float) * static_cast<std::size_t>(frames));
+            }
+        }
     }
 }
 
 void StandaloneDevices::ProcessOutput(float* const* channels, int numChannels, int frames, double sampleRate)
 {
     if (mBackend == nullptr || frames <= 0 || sampleRate <= 0.0)
+    {
         return;
+    }
 
     const auto requests = mToneRequests.load(std::memory_order_relaxed);
+
     if (requests != mToneSeen)
     {
         mToneSeen = requests;
@@ -382,12 +450,16 @@ void StandaloneDevices::ProcessOutput(float* const* channels, int numChannels, i
         mToneRemaining = mToneLength;
         mTonePhase = 0.0;
     }
+
     if (mToneRemaining <= 0)
+    {
         return;
+    }
 
     const double step = 2.0 * std::numbers::pi * kToneHz / sampleRate;
     const double fade = std::max(1.0, sampleRate * kToneFadeSeconds);
     const int count = static_cast<int>(std::min<std::int64_t>(frames, mToneRemaining));
+
     for (int i = 0; i < count; ++i)
     {
         const auto played = static_cast<double>(mToneLength - mToneRemaining + i);
@@ -395,12 +467,21 @@ void StandaloneDevices::ProcessOutput(float* const* channels, int numChannels, i
         const double envelope = std::min({1.0, played / fade, left / fade});
         const float sample = kToneGain * static_cast<float>(envelope * std::sin(mTonePhase));
         mTonePhase += step;
+
         if (mTonePhase > 2.0 * std::numbers::pi)
+        {
             mTonePhase -= 2.0 * std::numbers::pi;
+        }
+
         for (int ch = 0; ch < numChannels; ++ch)
+        {
             if (channels[ch] != nullptr)
+            {
                 channels[ch][i] += sample;
+            }
+        }
     }
+
     mToneRemaining -= count;
 }
 } // namespace nanoq

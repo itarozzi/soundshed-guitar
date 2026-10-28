@@ -367,9 +367,10 @@ SplitBranchChange CollapseSplit(SignalGraph& graph, const std::string& splitterI
                                }),
                 edges.end());
 
-    graph.nodes.erase(std::remove_if(graph.nodes.begin(), graph.nodes.end(),
-                                     [&](const GraphNode& node) { return node.id == splitterId || node.id == mixerId; }),
-                      graph.nodes.end());
+    graph.nodes.erase(
+        std::remove_if(graph.nodes.begin(), graph.nodes.end(),
+                       [&](const GraphNode& node) { return node.id == splitterId || node.id == mixerId; }),
+        graph.nodes.end());
 
     return {true, {}};
 }

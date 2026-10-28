@@ -9,6 +9,7 @@ namespace guitarfx
 MixerTelemetry::LevelStats MixerTelemetry::ComputeLevels(const float* left, const float* right, int numSamples) noexcept
 {
     LevelStats stats;
+
     if (numSamples <= 0)
     {
         return stats;
@@ -16,6 +17,7 @@ MixerTelemetry::LevelStats MixerTelemetry::ComputeLevels(const float* left, cons
 
     double sumSquares = 0.0;
     std::size_t sampleCount = 0;
+
     for (const float* channel : {left, right})
     {
         if (!channel)
@@ -29,11 +31,13 @@ MixerTelemetry::LevelStats MixerTelemetry::ComputeLevels(const float* left, cons
             const float absValue = std::abs(value);
             stats.peak = std::max(stats.peak, static_cast<double>(absValue));
             sumSquares += static_cast<double>(value) * static_cast<double>(value);
+
             if (absValue > 1.0f)
             {
                 ++stats.clipCount;
             }
         }
+
         sampleCount += static_cast<std::size_t>(numSamples);
     }
 
@@ -41,6 +45,7 @@ MixerTelemetry::LevelStats MixerTelemetry::ComputeLevels(const float* left, cons
     {
         stats.rms = std::sqrt(sumSquares / static_cast<double>(sampleCount));
     }
+
     return stats;
 }
 
@@ -63,6 +68,7 @@ void MixerTelemetry::WriteLevels(AtomicLevelStats& destination, const LevelStats
 void MixerTelemetry::Record(Stage stage, const float* left, const float* right, int numSamples) noexcept
 {
     AtomicLevelStats* destination = nullptr;
+
     switch (stage)
     {
     case Stage::RawInput:
@@ -77,6 +83,7 @@ void MixerTelemetry::Record(Stage stage, const float* left, const float* right, 
     default:
         return;
     }
+
     WriteLevels(*destination, ComputeLevels(left, right, numSamples));
 }
 
@@ -89,8 +96,8 @@ MixerTelemetry::Snapshot MixerTelemetry::GetSnapshot() const noexcept
     return snapshot;
 }
 
-MixerTelemetry::NodeSignalLevel MixerTelemetry::ToSnapshotNode(
-    const SignalGraphExecutor::NodeSignalLevel& entry, std::string_view scope, const std::string& presetId)
+MixerTelemetry::NodeSignalLevel MixerTelemetry::ToSnapshotNode(const SignalGraphExecutor::NodeSignalLevel& entry,
+                                                               std::string_view scope, const std::string& presetId)
 {
     NodeSignalLevel node;
     node.scope = scope;

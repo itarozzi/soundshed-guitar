@@ -148,6 +148,7 @@ class ScopedProfileRoot
 
         _wputenv_s(L"APPDATA", root.c_str());
 #else
+
         if (const char* value = std::getenv("HOME"))
         {
             mPrevious = value;
@@ -502,6 +503,7 @@ bool TestProfileUnderNonAsciiUserName()
                   << "', or the document store is missing\n";
         return false;
     }
+
 #endif
 
     return true;

@@ -1325,7 +1325,8 @@ bool TestEqResponsesMatchProcessing()
                 bandSum += band[i];
             }
 
-            const bool pointOk = std::abs(measured - magnitudes[i]) < 0.15 && std::abs(bandSum - magnitudes[i]) < 1.0e-6;
+            const bool pointOk =
+                std::abs(measured - magnitudes[i]) < 0.15 && std::abs(bandSum - magnitudes[i]) < 1.0e-6;
             std::cout << "  " << label << " " << frequencies[i] << " Hz: reported=" << magnitudes[i]
                       << ", measured=" << measured << ", bands=" << bandSum << (pointOk ? " PASS\n" : " FAIL\n");
             ok = ok && pointOk;
@@ -1333,7 +1334,8 @@ bool TestEqResponsesMatchProcessing()
 
         if (bands.size() != expectedBands)
         {
-            std::cout << "  " << label << ": " << bands.size() << " band curves, expected " << expectedBands << " FAIL\n";
+            std::cout << "  " << label << ": " << bands.size() << " band curves, expected " << expectedBands
+                      << " FAIL\n";
         }
 
         return ok;

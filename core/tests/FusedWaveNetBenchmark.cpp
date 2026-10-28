@@ -259,9 +259,10 @@ std::vector<NAM_SAMPLE> MakeInput(int frames)
         const double t = i / kSampleRate;
         const double env = std::exp(-std::fmod(t, 0.5) * 5.0);
         seed = seed * 1664525u + 1013904223u;
-        x[static_cast<std::size_t>(i)] = static_cast<NAM_SAMPLE>(
-            0.3 * env * std::sin(2 * 3.14159265358979 * 110.0 * t) +
-            0.25 * env * std::sin(2 * 3.14159265358979 * 331.0 * t) + (double(seed >> 8) / double(1 << 24) - 0.5) * 0.01);
+        x[static_cast<std::size_t>(i)] =
+            static_cast<NAM_SAMPLE>(0.3 * env * std::sin(2 * 3.14159265358979 * 110.0 * t) +
+                                    0.25 * env * std::sin(2 * 3.14159265358979 * 331.0 * t) +
+                                    (double(seed >> 8) / double(1 << 24) - 0.5) * 0.01);
     }
 
     return x;
@@ -352,7 +353,8 @@ double MatchDb(const Subject& s, int block, const std::vector<NAM_SAMPLE>& input
     const auto frames = static_cast<std::size_t>(kSampleRate);
     double signal = 0.0, error = 0.0;
 
-    for (std::size_t done = 0; done + static_cast<std::size_t>(block) <= frames; done += static_cast<std::size_t>(block))
+    for (std::size_t done = 0; done + static_cast<std::size_t>(block) <= frames;
+         done += static_cast<std::size_t>(block))
     {
         std::copy_n(input.begin() + static_cast<std::ptrdiff_t>(done), block, in.begin());
         NAM_SAMPLE* inPtr[1] = {in.data()};
@@ -478,9 +480,10 @@ void WriteMarkdown(const fs::path& file, const std::vector<Row>& rows, const Opt
         const std::string fusedCell = r.fusedEngine ? Fixed(r.fused.bestMeanUs, 2) : "not fused";
         f << "| " << r.subject.label << " | " << SizeLabel(r.subject) << " | " << r.block << " | "
           << Fixed(r.core.bestMeanUs, 2) << " | " << fusedCell << " | **"
-          << Fixed(r.core.bestMeanUs / r.fused.bestMeanUs, 2) << "x** | " << Fixed(LoadPercent(r.core.bestMeanUs, r.block), 1)
-          << "% | " << Fixed(LoadPercent(r.fused.bestMeanUs, r.block), 1) << "% | " << Fixed(r.fused.p99AtBestUs, 1)
-          << " | " << (r.matchDb >= 999.0 ? "identical" : Fixed(r.matchDb, 1)) << (r.matchDb < kMinMatchDb ? " ✗" : "")
+          << Fixed(r.core.bestMeanUs / r.fused.bestMeanUs, 2) << "x** | "
+          << Fixed(LoadPercent(r.core.bestMeanUs, r.block), 1) << "% | "
+          << Fixed(LoadPercent(r.fused.bestMeanUs, r.block), 1) << "% | " << Fixed(r.fused.p99AtBestUs, 1) << " | "
+          << (r.matchDb >= 999.0 ? "identical" : Fixed(r.matchDb, 1)) << (r.matchDb < kMinMatchDb ? " ✗" : "")
           << " |\n";
     }
 
@@ -512,14 +515,19 @@ json ToJson(const std::vector<Row>& rows, const Options& o)
                            {"fusedEngine", r.fusedEngine},
                            {"matchDb", r.matchDb},
                            {"speedup", r.core.bestMeanUs / r.fused.bestMeanUs},
-                           {"core", {{"bestMeanUs", r.core.bestMeanUs}, {"p99AtBestUs", r.core.p99AtBestUs},
-                                     {"roundMeansUs", r.core.roundMeansUs}}},
-                           {"fused", {{"bestMeanUs", r.fused.bestMeanUs}, {"p99AtBestUs", r.fused.p99AtBestUs},
-                                      {"roundMeansUs", r.fused.roundMeansUs}}}});
+                           {"core",
+                            {{"bestMeanUs", r.core.bestMeanUs},
+                             {"p99AtBestUs", r.core.p99AtBestUs},
+                             {"roundMeansUs", r.core.roundMeansUs}}},
+                           {"fused",
+                            {{"bestMeanUs", r.fused.bestMeanUs},
+                             {"p99AtBestUs", r.fused.p99AtBestUs},
+                             {"roundMeansUs", r.fused.roundMeansUs}}}});
     }
 
-    return {{"kernel", fwn::KernelName()},  {"architecture", Architecture()}, {"compiler", Compiler()},
-            {"sampleRate", kSampleRate},    {"rounds", o.rounds},             {"secondsPerRound", o.seconds},
+    return {{"kernel", fwn::KernelName()},  {"architecture", Architecture()},
+            {"compiler", Compiler()},       {"sampleRate", kSampleRate},
+            {"rounds", o.rounds},           {"secondsPerRound", o.seconds},
             {"results", std::move(results)}};
 }
 } // namespace
@@ -532,9 +540,10 @@ int main(int argc, char** argv)
 
         if (!ParseArgs(argc, argv, o))
         {
-            std::cerr << "usage: FusedWaveNetBenchmark [--block N[,N...]] [--rounds R] [--seconds S] [--sizes 1.0,0.0]\n"
-                         "                             [--markdown FILE] [--json FILE] [--require-kernel NAME] "
-                         "[model.nam]...\n";
+            std::cerr
+                << "usage: FusedWaveNetBenchmark [--block N[,N...]] [--rounds R] [--seconds S] [--sizes 1.0,0.0]\n"
+                   "                             [--markdown FILE] [--json FILE] [--require-kernel NAME] "
+                   "[model.nam]...\n";
             return 2;
         }
 
@@ -549,8 +558,8 @@ int main(int argc, char** argv)
 
         if (!o.requireKernel.empty() && o.requireKernel != fwn::KernelName())
         {
-            std::cerr << "ERROR: expected the " << o.requireKernel << " kernel, this build has "
-                      << fwn::KernelName() << "\n";
+            std::cerr << "ERROR: expected the " << o.requireKernel << " kernel, this build has " << fwn::KernelName()
+                      << "\n";
             return 2;
         }
 

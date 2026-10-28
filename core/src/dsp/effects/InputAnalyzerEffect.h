@@ -83,7 +83,8 @@ class InputAnalyzerEffect : public EffectProcessor
 
         mSampleRate = sampleRate;
         mMaxBlockSize = maxBlockSize;
-        mStereoReleaseSamples = std::max<std::uint64_t>(1, static_cast<std::uint64_t>(kStereoReleaseSeconds * sampleRate));
+        mStereoReleaseSamples =
+            std::max<std::uint64_t>(1, static_cast<std::uint64_t>(kStereoReleaseSeconds * sampleRate));
         mChannelHoldSamples = std::max<std::uint64_t>(1, static_cast<std::uint64_t>(kChannelHoldSeconds * sampleRate));
         ConfigureLoudnessAnalysis();
         Reset();
@@ -236,6 +237,7 @@ class InputAnalyzerEffect : public EffectProcessor
             {
                 lastActiveEnd = blockEnd;
             }
+
             return lastActiveEnd != 0 && blockEnd - lastActiveEnd < mChannelHoldSamples;
         };
         const bool leftHeld = heldActive(leftActive, mLeftLastActiveEnd);

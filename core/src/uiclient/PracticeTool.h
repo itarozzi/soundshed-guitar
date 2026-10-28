@@ -37,8 +37,8 @@ inline constexpr double kDefaultNewLoopSec = 4.0;
 inline constexpr int kMaxProjects = 200;
 inline constexpr int kMaxLinks = 30;
 /// Song sections offered for a loop's name.
-inline const std::vector<std::string> kLoopNameTemplates = {"Intro", "Verse", "Pre-Chorus", "Chorus", "Bridge",
-                                                            "Solo", "Outro", "Turnaround", "Breakdown"};
+inline const std::vector<std::string> kLoopNameTemplates = {"Intro", "Verse", "Pre-Chorus", "Chorus",   "Bridge",
+                                                            "Solo",  "Outro", "Turnaround", "Breakdown"};
 
 struct LoopSettings
 {
@@ -97,11 +97,13 @@ enum class Fader
     Speed,
     Pitch
 };
+
 struct FaderSpec
 {
     const char* label;
     double min, max, def;
 };
+
 [[nodiscard]] const FaderSpec& SpecFor(Fader fader);
 /// A slider's place (0..1) for a value: each half scaled on its own, so the default sits in
 /// the middle whatever the range.
@@ -157,7 +159,7 @@ void SetFaderValue(LoopSettings& settings, Fader fader, double value);
 
 class PracticeTool
 {
-public:
+  public:
     PracticeTool(UiClient& client, UiCommands& commands);
 
     PracticeTool(const PracticeTool&) = delete;
@@ -191,6 +193,7 @@ public:
     {
         return mFaders;
     }
+
     /// `immediate` on release, reset or a typed value; a drag's ticks wait for a pause before
     /// speed and pitch go (they flush the engine's render-ahead).
     void SetFader(practice::Fader fader, double value, bool immediate);
@@ -200,6 +203,7 @@ public:
     {
         return mEq;
     }
+
     void SetEqEnabled(bool enabled);
     void SetEqParam(const std::string& key, double value);
     void ResetEq();
@@ -209,12 +213,15 @@ public:
     {
         return mLoops;
     }
+
     [[nodiscard]] const practice::Loop* ActiveLoop() const;
+
     /// A range marked on the waveform not yet made a loop, in seconds.
     [[nodiscard]] const std::optional<std::pair<double, double>>& Candidate() const
     {
         return mCandidate;
     }
+
     /// A drag on the waveform: moves the active loop's edges, or marks a candidate.
     void SetRange(double startSec, double endSec, bool done);
     /// A sweep begun outside the active loop lets the loop go.
@@ -229,25 +236,30 @@ public:
     void RenameLoop(const std::string& loopId, const std::string& name);
     void SetLoopTimes(const std::string& loopId, double startSec, double endSec);
     void DeleteLoop(const std::string& loopId);
+
     /// The loop deleted last, which can still be put back.
     [[nodiscard]] const std::optional<practice::Loop>& DeletedLoop() const
     {
         return mDeleted;
     }
+
     void UndoDelete();
     void ForgetDeleted();
 
     // ── Projects ──
     [[nodiscard]] std::vector<practice::Project> Projects() const;
+
     [[nodiscard]] const std::string& SelectedProjectId() const
     {
         return mSelectedProject;
     }
+
     void SelectProject(const std::string& projectId)
     {
         mSelectedProject = projectId;
         Changed();
     }
+
     /// A name for a new project: the track's title.
     [[nodiscard]] std::string SuggestedProjectName() const;
     /// Saves the session under `name` (over a project of that name, keeping its id and links),
@@ -261,7 +273,7 @@ public:
     std::string AddLink(const std::string& projectId, const std::string& title, const std::string& url);
     void RemoveLink(const std::string& projectId, const std::string& linkId);
 
-private:
+  private:
     void OnTrack();
     void Changed();
     void SendFader(practice::Fader fader, double value, bool immediate);
@@ -298,6 +310,7 @@ private:
         double due = 0.0;
         bool set = false;
     };
+
     Pending mPendingSpeed, mPendingPitch;
     bool mPendingRegion = false;
     double mPendingRegionDue = 0.0;

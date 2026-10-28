@@ -28,7 +28,7 @@ namespace nanoq::ui
 {
 class DevDriver
 {
-public:
+  public:
     /// The driver the environment asks for, or nullopt (the normal case).
     static std::optional<DevDriver> FromEnvironment();
 
@@ -38,8 +38,10 @@ public:
     /// Called with `setting` lines' key and JSON value; the session sends them to the engine.
     std::function<void(const std::string& key, const std::string& json)> onSetting;
 
-private:
-    explicit DevDriver(std::filesystem::path file) : mFile(std::move(file)) {}
+  private:
+    explicit DevDriver(std::filesystem::path file) : mFile(std::move(file))
+    {
+    }
 
     std::filesystem::path mFile;
 };

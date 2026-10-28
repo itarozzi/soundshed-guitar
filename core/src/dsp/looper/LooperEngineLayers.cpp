@@ -84,6 +84,7 @@ void LooperEngine::BeginStop()
     switch (mState)
     {
     case LooperState::Recording:
+
         if (mFirstBars)
         {
             CancelFirstLayer();
@@ -102,6 +103,7 @@ void LooperEngine::BeginStop()
         DiscardRecording();
         break;
     case LooperState::Overdubbing:
+
         if (mDeferredOverdub)
         {
             mDeferredOverdub = false;
@@ -410,6 +412,7 @@ void LooperEngine::ReplaceAudio(const LooperCommand& command)
 {
     const int slotIndex = command.slot;
     const LayerAudio* audio = command.audio;
+
     if (slotIndex < 0 || slotIndex >= kMaxLayers || !audio || !audio->wet[0] || audio->capacity < mLength)
     {
         return;

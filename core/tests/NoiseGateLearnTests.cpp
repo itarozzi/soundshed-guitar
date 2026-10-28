@@ -91,7 +91,8 @@ std::vector<float> Tone(double peakDb, double seconds, double frequency = 440.0)
 
     for (std::size_t i = 0; i < signal.size(); ++i)
     {
-        signal[i] = static_cast<float>(Amplitude(peakDb) * std::sin(2.0 * kPi * frequency * static_cast<double>(i) / kSampleRate));
+        signal[i] = static_cast<float>(Amplitude(peakDb) *
+                                       std::sin(2.0 * kPi * frequency * static_cast<double>(i) / kSampleRate));
     }
 
     return signal;
@@ -207,7 +208,8 @@ void TestAKnockDoesNotMoveTheFloor()
     std::copy(knock.begin(), knock.end(), input.begin() + static_cast<std::ptrdiff_t>(kSampleRate * 1.2));
     const auto heard = Learn(*knocked, input);
 
-    Check(GateNoiseLearner::HeardOnlyNoise(heard), "a knock is not taken for playing", Num(heard.spreadDb) + " dB spread");
+    Check(GateNoiseLearner::HeardOnlyNoise(heard), "a knock is not taken for playing",
+          Num(heard.spreadDb) + " dB spread");
     Check(std::abs(heard.noiseFloorDb - quiet.noiseFloorDb) < 1.0, "the floor moves by under 1 dB",
           Num(quiet.noiseFloorDb) + " -> " + Num(heard.noiseFloorDb) + " dB");
 }
@@ -340,6 +342,7 @@ void TestSessions()
     Run(*gate, half);
     Check(gate->Learner().Read().state == GateNoiseLearner::State::Idle, "Cancel goes idle");
 }
+
 void TestServiceListensOnTheGlobalGate()
 {
     std::cout << "\n-- the service, on the live global gate --" << std::endl;

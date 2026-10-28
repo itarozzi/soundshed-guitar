@@ -144,11 +144,13 @@ void PluginController::HandleUpdateSignalPathNodeBypassRequest(const nlohmann::j
 void PluginController::HandleRenameSignalPathNodeRequest(const nlohmann::json& payload)
 {
     const std::string nodeId = payload.value("nodeId", "");
-    std::string title = payload.contains("title") && payload["title"].is_string() ? payload["title"].get<std::string>() : "";
+    std::string title =
+        payload.contains("title") && payload["title"].is_string() ? payload["title"].get<std::string>() : "";
 
     // Surrounding whitespace is dropped, and an empty title hands the node back its automatic name.
     const auto first = title.find_first_not_of(" \t\r\n");
-    title = first == std::string::npos ? std::string{} : title.substr(first, title.find_last_not_of(" \t\r\n") - first + 1);
+    title =
+        first == std::string::npos ? std::string{} : title.substr(first, title.find_last_not_of(" \t\r\n") - first + 1);
     constexpr std::size_t kMaxTitleBytes = 128;
 
     if (title.size() > kMaxTitleBytes)

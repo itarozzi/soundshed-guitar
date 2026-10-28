@@ -407,10 +407,12 @@ inline double RawGainDb(const Voicing& v, const std::vector<std::vector<float>>&
     const auto gain = static_cast<float>(v.gain), voice = static_cast<float>(v.voice);
     const auto character = static_cast<float>(v.character);
     double sum = 0.0;
+
     for (const auto& take : guitar)
     {
         sum += HeardGainDb(v, take);
     }
+
     const double makeupDb =
         LevelMakeupDb(gain, voice, character, v.stages) +
         20.0 * std::log10(PowerDriveMakeup(gain, voice, v.stages, character, static_cast<float>(v.powerDrive),

@@ -30,7 +30,7 @@ using guitarfx::uiclient::IsFeatureEnabled;
 /// drawn, which is where the native view is put; Elements' drawing is under that view.
 class WebViewSlot final : public el::element
 {
-public:
+  public:
     WebViewSlot(const Theme& theme, float width, float height, std::string text)
         : mTheme(theme), mWidth(width), mHeight(height), mText(std::move(text))
     {
@@ -39,7 +39,10 @@ public:
     el::view_limits limits(const el::basic_context&) const override
     {
         if (mWidth <= 0.0f)
+        {
             return {{60.0f, mHeight}, {el::full_extent, mHeight > 0.0f ? mHeight : el::full_extent}};
+        }
+
         return {{mWidth, mHeight}, {mWidth, mHeight}};
     }
 
@@ -59,7 +62,7 @@ public:
         return mDrawn ? std::optional<el::rect>(mBounds) : std::nullopt;
     }
 
-private:
+  private:
     const Theme& mTheme;
     float mWidth, mHeight;
     std::string mText;
@@ -79,9 +82,9 @@ constexpr float kCardMin = 220.0f; // .jam-results: minmax(220px, 1fr)
 /// title and channel, and the favourite star.
 class VideoCard final : public el::element
 {
-public:
-    VideoCard(const Theme& theme, jam::Video video, bool favorite, std::function<std::shared_ptr<artist::image>(const std::string&)> image,
-              float width)
+  public:
+    VideoCard(const Theme& theme, jam::Video video, bool favorite,
+              std::function<std::shared_ptr<artist::image>(const std::string&)> image, float width)
         : mTheme(theme), mVideo(std::move(video)), mFavorite(favorite), mImage(std::move(image)), mWidth(width)
     {
     }
@@ -109,15 +112,20 @@ public:
             cnv.fill_rect(b);
             cnv.fill_style(el::rgba(0, 0, 0, 255));
             cnv.fill_rect(art);
+
             if (const auto picture = mImage ? mImage(mVideo.thumbnailUrl) : nullptr)
+            {
                 DrawImageCovering(cnv, *picture, art);
+            }
+
             if (mHoverArt)
             {
                 cnv.fill_style(el::rgba(0, 0, 0, 70));
                 cnv.fill_rect(art);
             }
         }
-        cnv.stroke_style(mTheme.Pick(mHover ? el::rgba(255, 255, 255, 40) : el::rgba(255, 255, 255, 18), mHover ? mTheme.BorderStrong() : mTheme.Border()));
+        cnv.stroke_style(mTheme.Pick(mHover ? el::rgba(255, 255, 255, 40) : el::rgba(255, 255, 255, 18),
+                                     mHover ? mTheme.BorderStrong() : mTheme.Border()));
         cnv.line_width(1.0f);
         cnv.stroke_round_rect(b, kRadius);
 
@@ -138,11 +146,13 @@ public:
         const float x = b.left + 10.0f, w = star.left - 6.0f - x;
         float y = art.bottom + 8.0f;
         const auto titleFont = Font(Weight::SemiBold).size(11.5f);
+
         for (const auto& line : WrapTitle(cnv, titleFont, w))
         {
             FillText(cnv, line, titleFont, mTheme.Ink(), el::rect{x, y, x + w, y + 15.0f}, HAlign::Left);
             y += 15.0f;
         }
+
         const auto chipFont = Font(Weight::Medium).size(9.5f);
         const auto channel = Ellipsize(cnv, mVideo.channelTitle, chipFont, w - 12.0f);
         const float cw = el::measure_text(cnv, channel, chipFont).x + 12.0f;
@@ -161,20 +171,27 @@ public:
     bool click(const el::context& ctx, el::mouse_button btn) override
     {
         if (btn.state != el::mouse_button::left)
+        {
             return false;
+        }
+
         if (!btn.down)
         {
             const auto b = ctx.bounds.inset(0.5f, 0.5f);
+
             if (StarRect(b).includes(btn.pos))
             {
                 if (onFavorite)
+                {
                     onFavorite();
+                }
             }
             else if (ArtRect(b).includes(btn.pos) && onPlay)
             {
                 onPlay();
             }
         }
+
         return true;
     }
 
@@ -184,6 +201,7 @@ public:
         const auto b = ctx.bounds.inset(0.5f, 0.5f);
         const bool art = inside && ArtRect(b).includes(p);
         const bool star = inside && StarRect(b).includes(p);
+
         if (inside != mHover || art != mHoverArt || star != mHoverStar)
         {
             mHover = inside;
@@ -191,6 +209,7 @@ public:
             mHoverStar = star;
             ctx.view.refresh(ctx);
         }
+
         return false;
     }
 
@@ -199,32 +218,41 @@ public:
         return true;
     }
 
-private:
+  private:
     [[nodiscard]] float Height() const
     {
         return mWidth * 9.0f / 16.0f + 70.0f;
     }
+
     [[nodiscard]] el::rect ArtRect(const el::rect& b) const
     {
         return el::rect{b.left, b.top, b.right, b.top + b.width() * 9.0f / 16.0f};
     }
+
     [[nodiscard]] static el::rect StarRect(const el::rect& b)
     {
         return el::rect{b.right - 34.0f, b.bottom - 34.0f, b.right - 6.0f, b.bottom - 6.0f};
     }
+
     std::vector<std::string> WrapTitle(artist::canvas& cnv, const el::font_descr& font, float width) const
     {
         std::vector<std::string> lines;
         std::string line;
         std::size_t i = 0;
         const auto& text = mVideo.title;
+
         while (i < text.size() && lines.size() < 2)
         {
             auto end = text.find(' ', i);
+
             if (end == std::string::npos)
+            {
                 end = text.size();
+            }
+
             const auto word = text.substr(i, end - i);
             const auto candidate = line.empty() ? word : line + " " + word;
+
             if (!line.empty() && el::measure_text(cnv, candidate, font).x > width)
             {
                 lines.push_back(line);
@@ -234,12 +262,20 @@ private:
             {
                 line = candidate;
             }
+
             i = end + 1;
         }
+
         if (lines.size() < 2 && !line.empty())
+        {
             lines.push_back(line);
+        }
+
         if (!lines.empty() && (i < text.size() || el::measure_text(cnv, lines.back(), font).x > width))
+        {
             lines.back() = Ellipsize(cnv, lines.back() + (i < text.size() ? "..." : ""), font, width);
+        }
+
         return lines;
     }
 
@@ -269,13 +305,24 @@ std::vector<Shell::JamSection> Shell::JamSections() const
 {
     // The web UI's order; each section follows its feature switch (Scales is always there).
     std::vector<JamSection> sections;
+
     if (IsFeatureEnabled(mState, Feature::Jam))
+    {
         sections.insert(sections.end(), {JamSection::Search, JamSection::Favorites});
+    }
+
     sections.push_back(JamSection::Scales);
+
     if (IsFeatureEnabled(mState, Feature::RiffLibrary))
+    {
         sections.push_back(JamSection::Riffs);
+    }
+
     if (IsFeatureEnabled(mState, Feature::PracticeTool))
+    {
         sections.push_back(JamSection::Practice);
+    }
+
     return sections;
 }
 
@@ -283,17 +330,22 @@ std::string Shell::JamPageSignature() const
 {
     const auto sections = JamSections();
     std::string s = std::to_string(static_cast<int>(mJamSection)) + "|" + std::to_string(sections.size()) + "|" +
-                    std::to_string(static_cast<int>(ViewSize().x / 16.0f)) + "x" + std::to_string(static_cast<int>(ViewSize().y / 16.0f)) +
-                    (mJamWebViewUnavailable ? "|nw" : "");
+                    std::to_string(static_cast<int>(ViewSize().x / 16.0f)) + "x" +
+                    std::to_string(static_cast<int>(ViewSize().y / 16.0f)) + (mJamWebViewUnavailable ? "|nw" : "");
+
     switch (mJamSection)
     {
     case JamSection::Search:
-    case JamSection::Favorites:
-    {
-        s += "|" + mJamQuery + (mJamLoading ? "|l" : "|") + mJamError + "|v" + (mJamVideo ? mJamVideo->videoId : std::string());
+    case JamSection::Favorites: {
+        s += "|" + mJamQuery + (mJamLoading ? "|l" : "|") + mJamError + "|v" +
+             (mJamVideo ? mJamVideo->videoId : std::string());
         const auto favorites = jam::Favorites(mState.appSettings);
+
         for (const auto& v : mJamSection == JamSection::Search ? mJamResults : favorites)
+        {
             s += "|" + v.videoId + (jam::IsFavorite(favorites, v.videoId) ? "*" : "");
+        }
+
         s += "|" + std::to_string(favorites.size());
         break;
     }
@@ -304,6 +356,7 @@ std::string Shell::JamPageSignature() const
     case JamSection::Riffs:
         break;
     }
+
     return s;
 }
 
@@ -311,6 +364,7 @@ void Shell::RunJamSearch()
 {
     const auto query = jam::NormalizeQuery(mJamQuery);
     mJamSearched = true;
+
     if (query.empty())
     {
         mJamError = "Enter a search term to find backing tracks.";
@@ -318,6 +372,7 @@ void Shell::RunJamSearch()
         Mark(kPage);
         return;
     }
+
     // The last search is kept: asked again, it answers without the network.
     if (const auto cached = jam::CachedSearch(mState.appSettings, mJamQuery))
     {
@@ -328,7 +383,9 @@ void Shell::RunJamSearch()
         Mark(kPage);
         return;
     }
+
     const auto key = jam::ApiKey(mState.appSettings);
+
     if (key.empty())
     {
         mJamError = "Jam search is unavailable in this build.";
@@ -342,24 +399,30 @@ void Shell::RunJamSearch()
     mJamError.clear();
     Mark(kPage);
     const auto rawQuery = mJamQuery;
-    mSession.Tones().SearchBackingTracks(query, key, [this, generation, rawQuery](const std::vector<jam::Video>& videos, const std::string& error) {
-        if (generation != mJamGeneration)
-            return;
-        mJamLoading = false;
-        if (!error.empty())
-        {
-            mJamResults.clear();
-            mJamError = error;
-            ShowToast("Jam search failed", error, true);
-        }
-        else
-        {
-            mJamResults = videos;
-            mJamError = videos.empty() ? "No matching backing tracks found." : "";
-            mSession.Commands().SetSetting(jam::kSearchCacheSetting, jam::SearchCacheJson(rawQuery, videos));
-        }
-        Mark(kPage);
-    });
+    mSession.Tones().SearchBackingTracks(
+        query, key, [this, generation, rawQuery](const std::vector<jam::Video>& videos, const std::string& error) {
+            if (generation != mJamGeneration)
+            {
+                return;
+            }
+
+            mJamLoading = false;
+
+            if (!error.empty())
+            {
+                mJamResults.clear();
+                mJamError = error;
+                ShowToast("Jam search failed", error, true);
+            }
+            else
+            {
+                mJamResults = videos;
+                mJamError = videos.empty() ? "No matching backing tracks found." : "";
+                mSession.Commands().SetSetting(jam::kSearchCacheSetting, jam::SearchCacheJson(rawQuery, videos));
+            }
+
+            Mark(kPage);
+        });
 }
 
 void Shell::ToggleJamFavorite(const jam::Video& video)
@@ -372,11 +435,13 @@ void Shell::ToggleJamFavorite(const jam::Video& video)
 nanoq::WebView* Shell::JamWebView(bool scales)
 {
     auto& view = scales ? mScalesView : mJamPlayerView;
+
     if (view && view->Failed())
     {
         view.reset();
         mJamWebViewUnavailable = true;
     }
+
     if (!view && !mJamWebViewUnavailable)
     {
         nanoq::WebView::Options options;
@@ -385,24 +450,32 @@ nanoq::WebView* Shell::JamWebView(bool scales)
         options.allowNavigation = [](const std::string& url) { return jam::StaysInWebView(url); };
         options.openExternal = [this, alive = std::weak_ptr<bool>(mAlive)](const std::string& url) {
             if (alive.lock())
+            {
                 mSession.Commands().OpenUrl(url);
+            }
         };
         view = nanoq::WebView::Create(static_cast<void*>(mSession.View().host()), std::move(options));
+
         if (!view)
+        {
             mJamWebViewUnavailable = true;
+        }
     }
+
     return view.get();
 }
 
 void Shell::PlayJamVideo(const jam::Video& video)
 {
     auto* player = JamWebView(false);
+
     if (player == nullptr)
     {
         // No web view here: YouTube plays it in the browser.
         mSession.Commands().OpenUrl(jam::WatchUrl(video.videoId));
         return;
     }
+
     mJamVideo = video;
     player->Navigate(jam::EmbedUrl(video.videoId));
     Mark(kPage);
@@ -428,8 +501,12 @@ Ptr Shell::BuildJamPlayer(float width)
     const bool favorite = jam::IsFavorite(jam::Favorites(mState.appSettings), video.videoId);
     auto star = std::make_shared<IconButton>(mTheme, mIcons, "", IconButton::Look::Ghost);
     star->Size(30, 30).Label(favorite ? "\xE2\x98\x85" : "\xE2\x98\x86", 15.0f);
+
     if (favorite)
+    {
         star->Ink(el::rgba(245, 190, 60, 255));
+    }
+
     star->onClick = [this, video] { ToggleJamFavorite(video); };
     auto youtube = std::make_shared<IconButton>(mTheme, mIcons, "ui-share", IconButton::Look::Ghost);
     youtube->Size(30, 30).IconSize(13);
@@ -440,11 +517,12 @@ Ptr Shell::BuildJamPlayer(float width)
 
     auto slot = std::make_shared<WebViewSlot>(mTheme, width, std::floor(width * 9.0f / 16.0f), "Loading the player...");
     mJamPlayerSlot = slot;
-    auto hint = std::make_shared<Paragraph>(mTheme, "It plays on while you use the rest of the app; a bar over the other pages stops it.", width,
-                                            10.5f);
+    auto hint = std::make_shared<Paragraph>(
+        mTheme, "It plays on while you use the rest of the app; a bar over the other pages stops it.", width, 10.5f);
     hint->Colour(mTheme.TextMuted());
-    return Col({FixedHeight(36, Row({Col({FixedHeight(18, title), FixedHeight(16, channel)}), HGap(4), star, youtube, close})), VGap(6),
-                FixedHeight(std::floor(width * 9.0f / 16.0f), slot), VGap(8), FixedHeight(30, hint), Stretch()});
+    return Col(
+        {FixedHeight(36, Row({Col({FixedHeight(18, title), FixedHeight(16, channel)}), HGap(4), star, youtube, close})),
+         VGap(6), FixedHeight(std::floor(width * 9.0f / 16.0f), slot), VGap(8), FixedHeight(30, hint), Stretch()});
 }
 
 void Shell::SyncJamWebViews()
@@ -456,38 +534,56 @@ void Shell::SyncJamWebViews()
     const float dpi = nanoq::WebView::PixelScale(static_cast<void*>(mSession.View().host()));
     const auto place = [&](nanoq::WebView* web, const std::weak_ptr<WebViewSlot>& weak, bool wanted) {
         if (web == nullptr)
+        {
             return;
+        }
+
         const auto slot = weak.lock();
         const auto bounds = slot ? slot->Bounds() : std::nullopt;
+
         if (!wanted || covered || !bounds)
         {
             web->Show(false);
             return;
         }
+
         const float k = scale * dpi;
         const int x = static_cast<int>(std::lround(bounds->left * k));
         const int y = static_cast<int>(std::lround(bounds->top * k));
-        web->Place(x, y, static_cast<int>(std::lround(bounds->right * k)) - x, static_cast<int>(std::lround(bounds->bottom * k)) - y);
+        web->Place(x, y, static_cast<int>(std::lround(bounds->right * k)) - x,
+                   static_cast<int>(std::lround(bounds->bottom * k)) - y);
         web->Show(true);
     };
     const bool jam = mPage == Page::Jam;
+
     if (mJamPlayerView)
+    {
         place(mJamPlayerView.get(), mJamPlayerSlot,
               jam && mJamVideo && (mJamSection == JamSection::Search || mJamSection == JamSection::Favorites));
+    }
+
     if (mScalesView)
+    {
         // A toast lands on the page it fills.
         place(mScalesView.get(), mScalesSlot, jam && mJamSection == JamSection::Scales && mToast == nullptr);
+    }
+
     // Whether the player is making sound, in the log: what tells a hidden player still plays.
     if (const bool audible = mJamPlayerView && mJamPlayerView->PlayingAudio(); audible != mJamPlayerAudible)
     {
         mJamPlayerAudible = audible;
-        nanoq::Log(std::string("Jam player ") + (audible ? "playing" : "silent") + (mPage == Page::Jam ? "" : " (on another page)"));
+        nanoq::Log(std::string("Jam player ") + (audible ? "playing" : "silent") +
+                   (mPage == Page::Jam ? "" : " (on another page)"));
     }
+
     // A view that could not start: its page goes to the browser from now on.
     if ((mJamPlayerView && mJamPlayerView->Failed()) || (mScalesView && mScalesView->Failed()))
     {
         if (mJamPlayerView && mJamPlayerView->Failed() && mJamVideo)
+        {
             mSession.Commands().OpenUrl(jam::WatchUrl(mJamVideo->videoId));
+        }
+
         mJamPlayerView.reset();
         mScalesView.reset();
         mJamVideo.reset();
@@ -500,24 +596,40 @@ void Shell::SyncJamPlayerBar()
 {
     // Away from the Jam tab, a bar over the page says what plays, with Show and Stop.
     const bool wanted = mJamVideo && mJamPlayerView && mPage != Page::Jam;
-    const auto signature = wanted ? mJamVideo->videoId + "|" + mAppliedTheme + "|" + std::to_string(static_cast<int>(ViewSize().x / 40.0f)) : std::string();
+    const auto signature =
+        wanted ? mJamVideo->videoId + "|" + mAppliedTheme + "|" + std::to_string(static_cast<int>(ViewSize().x / 40.0f))
+               : std::string();
+
     if (signature == mJamPlayerBarShown)
+    {
         return;
+    }
+
     mJamPlayerBarShown = signature;
+
     if (mJamPlayerBar)
+    {
         RemoveLayer(std::exchange(mJamPlayerBar, nullptr));
+    }
+
     if (!wanted)
+    {
         return;
+    }
 
     auto icon = std::make_shared<IconButton>(mTheme, mIcons, "ui-jam", IconButton::Look::Ghost);
     icon->Size(24, 24).IconSize(14).Ink(mTheme.Accent());
-    auto text = std::make_shared<Text>(mTheme, "Backing track: " + mJamVideo->title, metrics::kSmallText, Weight::Medium);
+    auto text =
+        std::make_shared<Text>(mTheme, "Backing track: " + mJamVideo->title, metrics::kSmallText, Weight::Medium);
     auto show = std::make_shared<IconButton>(mTheme, mIcons, "", IconButton::Look::Boxed);
     show->Size(64, 28).Label("Show", 10.5f);
     show->onClick = [this] {
         // The player shows beside Search and Favourites.
         if (mJamSection != JamSection::Favorites)
+        {
             mJamSection = JamSection::Search;
+        }
+
         ShowPage(Page::Jam);
     };
     auto stop = std::make_shared<IconButton>(mTheme, mIcons, "ui-stop", IconButton::Look::Primary);
@@ -527,8 +639,8 @@ void Shell::SyncJamPlayerBar()
     const float width = std::min(520.0f, std::max(300.0f, ViewSize().x - 24.0f));
     auto content = PadXY(10, 6, Row({icon, HGap(6), text, HGap(8), show, HGap(6), stop}));
     auto face = Over(content, el::share(Surface(mTheme.Elevated(), mTheme.Accent().opacity(0.55f), 10.0f)));
-    mJamPlayerBar = el::share(el::align_bottom(el::align_center(
-        el::margin({0.0f, 0.0f, 0.0f, kBarAboveFooter}, el::hold_any(FixedWidth(width, FixedHeight(kBarHeight, Expand(face))))))));
+    mJamPlayerBar = el::share(el::align_bottom(el::align_center(el::margin(
+        {0.0f, 0.0f, 0.0f, kBarAboveFooter}, el::hold_any(FixedWidth(width, FixedHeight(kBarHeight, Expand(face))))))));
     mSession.View().add(mJamPlayerBar, false);
     mSession.View().refresh();
 }
@@ -544,6 +656,7 @@ Ptr Shell::BuildBackingTracks(float width)
         if (!mJamSearched && !mJamLoading)
         {
             mJamSearched = true;
+
             if (const auto cache = jam::ReadSearchCache(mState.appSettings))
             {
                 mJamQuery = cache->query;
@@ -553,20 +666,27 @@ Ptr Shell::BuildBackingTracks(float width)
             else
             {
                 if (mJamQuery.empty())
+                {
                     mJamQuery = jam::kDefaultQuery;
+                }
+
                 if (!jam::ApiKey(mState.appSettings).empty() && jam::Favorites(mState.appSettings).empty())
                 {
                     // After this build, so the page it marks is the next one.
                     mSession.View().post([this, alive = std::weak_ptr<bool>(mAlive)] {
                         if (alive.lock())
+                        {
                             RunJamSearch();
+                        }
                     });
                 }
             }
         }
+
         if (!mJamSearchBox)
         {
-            auto [element, box] = el::input_box("Search by artist, song, key, or style...", Font(Weight::Regular), 1.0f);
+            auto [element, box] =
+                el::input_box("Search by artist, song, key, or style...", Font(Weight::Regular), 1.0f);
             mJamSearchBox = box;
             mJamSearchElement = el::share(std::move(element));
             mJamSearchBox->on_text = [this](std::string_view text) { mJamQuery = std::string(text); };
@@ -577,6 +697,7 @@ Ptr Shell::BuildBackingTracks(float width)
             };
             mJamSearchBox->set_text(mJamQuery);
         }
+
         auto go = std::make_shared<IconButton>(mTheme, mIcons, "", IconButton::Look::Accent);
         go->Size(80, 30).Label(mJamLoading ? "Searching..." : "Search", 11.0f).Disabled(mJamLoading);
         go->onClick = [this] { RunJamSearch(); }; // the box keeps mJamQuery current
@@ -586,44 +707,70 @@ Ptr Shell::BuildBackingTracks(float width)
 
     const auto favorites = jam::Favorites(mState.appSettings);
     const auto& list = search ? mJamResults : favorites;
+
     if (!IsFeatureEnabled(mState, Feature::Jam))
+    {
         body.push_back(Message(mTheme, "Backing tracks are turned off in Settings > Features."));
+    }
     else if (search && mJamLoading)
+    {
         body.push_back(Message(mTheme, "Searching YouTube for backing tracks..."));
+    }
     else if (search && !mJamError.empty())
+    {
         body.push_back(Message(mTheme, mJamError, true));
+    }
     else if (!search && favorites.empty())
+    {
         body.push_back(Message(mTheme, "No favourites yet. Star a backing track to pin it here."));
+    }
     else if (search && list.empty())
-        body.push_back(Message(mTheme, "Search for an artist, song, style, or key. \"Backing track\" is added automatically."));
+    {
+        body.push_back(
+            Message(mTheme, "Search for an artist, song, style, or key. \"Backing track\" is added automatically."));
+    }
     else
     {
         const int columns = std::max(1, static_cast<int>((width + kCardGap) / (kCardMin + kCardGap)));
         const float cardWidth = (width - static_cast<float>(columns - 1) * kCardGap) / static_cast<float>(columns);
         auto image = [this](const std::string& url) { return RemoteImage(url); };
         std::vector<Ptr> rows;
+
         for (std::size_t i = 0; i < list.size(); i += static_cast<std::size_t>(columns))
         {
             std::vector<Ptr> row;
             float height = 0.0f;
+
             for (std::size_t j = i; j < std::min(list.size(), i + static_cast<std::size_t>(columns)); ++j)
             {
                 const auto video = list[j];
-                auto card = std::make_shared<VideoCard>(mTheme, video, jam::IsFavorite(favorites, video.videoId), image, cardWidth);
+                auto card = std::make_shared<VideoCard>(mTheme, video, jam::IsFavorite(favorites, video.videoId), image,
+                                                        cardWidth);
                 card->onPlay = [this, video] { PlayJamVideo(video); };
                 card->onFavorite = [this, video] { ToggleJamFavorite(video); };
                 height = cardWidth * 9.0f / 16.0f + 70.0f;
+
                 if (!row.empty())
+                {
                     row.push_back(HGap(kCardGap));
+                }
+
                 row.push_back(card);
             }
+
             row.push_back(Stretch());
+
             if (!rows.empty())
+            {
                 rows.push_back(VGap(kCardGap));
+            }
+
             rows.push_back(FixedHeight(height, Row(row)));
         }
+
         body.push_back(Col(rows));
     }
+
     body.push_back(VGap(16));
     return Col(body);
 }
@@ -634,26 +781,30 @@ Ptr Shell::BuildRiffSection()
     // storage folder is set too). Both are RiffDialogs.cpp's.
     auto heading = std::make_shared<Text>(mTheme, "Riff Library", 15.0f, Weight::SemiBold);
     heading->Colour(mTheme.Ink());
-    auto hint = std::make_shared<Paragraph>(mTheme,
-                                            "Riffs are saved as measure-aligned DI WAV takes with metadata for tempo, time signature, "
-                                            "pattern and preset context. Capture one from your playing, then keep, audition and reuse "
-                                            "takes from the library - or add one to the looper.",
-                                            std::min(560.0f, StageWidth() - 32.0f), 12.0f);
+    auto hint = std::make_shared<Paragraph>(
+        mTheme,
+        "Riffs are saved as measure-aligned DI WAV takes with metadata for tempo, time signature, "
+        "pattern and preset context. Capture one from your playing, then keep, audition and reuse "
+        "takes from the library - or add one to the looper.",
+        std::min(560.0f, StageWidth() - 32.0f), 12.0f);
     auto capture = std::make_shared<IconButton>(mTheme, mIcons, "ui-record", IconButton::Look::Accent);
     capture->Size(120, 32).IconSize(14).Label("New Riff", 11.5f);
     capture->onClick = [this] { OpenRiffCapture(false); };
     auto library = std::make_shared<IconButton>(mTheme, mIcons, "ui-folder", IconButton::Look::Boxed);
     library->Size(150, 32).IconSize(14).Label("Open Riff Library", 11.5f);
     library->onClick = [this] { OpenRiffLibrary(); };
-    return Col({FixedHeight(28, heading), VGap(6), FixedHeight(60, hint), VGap(10), FixedHeight(32, Row({capture, HGap(10), library, Stretch()})),
-                Stretch()});
+    return Col({FixedHeight(28, heading), VGap(6), FixedHeight(60, hint), VGap(10),
+                FixedHeight(32, Row({capture, HGap(10), library, Stretch()})), Stretch()});
 }
 
 Ptr Shell::BuildJamPage()
 {
     const auto sections = JamSections();
+
     if (std::find(sections.begin(), sections.end(), mJamSection) == sections.end())
+    {
         mJamSection = sections.front();
+    }
 
     const float stageWidth = StageWidth();
     const float contentWidth = stageWidth - 2.0f * 12.0f - 14.0f; // margins, scroll bar
@@ -663,25 +814,41 @@ Ptr Shell::BuildJamPage()
     const auto label = [](JamSection section) {
         switch (section)
         {
-        case JamSection::Search: return "Search";
-        case JamSection::Favorites: return "Favourites";
-        case JamSection::Scales: return "Scales";
-        case JamSection::Riffs: return "Riff Library";
-        case JamSection::Practice: return "Practice Tool";
+        case JamSection::Search:
+            return "Search";
+        case JamSection::Favorites:
+            return "Favourites";
+        case JamSection::Scales:
+            return "Scales";
+        case JamSection::Riffs:
+            return "Riff Library";
+        case JamSection::Practice:
+            return "Practice Tool";
         }
+
         return "";
     };
+
     for (const auto section : sections)
     {
         auto t = std::make_shared<IconButton>(mTheme, mIcons, "", IconButton::Look::Ghost);
         t->Size(60, 28).Label(label(section), 12.0f);
+
         if (mJamSection == section)
+        {
             t->Lit(true).Ink(mTheme.Ink());
+        }
         else
+        {
             t->Ink(mTheme.TextSecondary());
+        }
+
         t->onClick = [this, section] {
             if (mJamSection == section)
+            {
                 return;
+            }
+
             mJamSection = section;
             mJamScroll.reset(); // a section opens at its top
             Mark(kPage);
@@ -689,15 +856,18 @@ Ptr Shell::BuildJamPage()
         chips.push_back(t);
         chips.push_back(HGap(6));
     }
+
     chips.push_back(Stretch());
     auto top = FixedHeight(46, Pad(0, 9, 0, 9, Row(chips)));
     auto rule = FixedHeight(1, Fill(mTheme.Text().opacity(0.06f), std::make_shared<el::element>()));
 
     Ptr content;
+
     switch (mJamSection)
     {
     case JamSection::Search:
     case JamSection::Favorites:
+
         if (mJamVideo)
         {
             // The player beside the results, as wide as leaves two columns of cards when it can.
@@ -710,9 +880,9 @@ Ptr Shell::BuildJamPage()
         {
             content = KeptVScroll(Pad(12, 10, 14, 0, BuildBackingTracks(contentWidth)), mJamScroll);
         }
+
         break;
-    case JamSection::Scales:
-    {
+    case JamSection::Scales: {
         if (auto* web = JamWebView(true))
         {
             // The page fills the section, under the chips.
@@ -722,12 +892,14 @@ Ptr Shell::BuildJamPage()
             content = Pad(0, 0, 0, 0, slot);
             break;
         }
+
         // No web view here: the scale explorer opens in the browser.
         auto open = std::make_shared<IconButton>(mTheme, mIcons, "", IconButton::Look::Accent);
         open->Size(170, 32).Label("Open the scale explorer", 11.5f);
         open->onClick = [this] { mSession.Commands().OpenUrl(jam::kScalesUrl); };
-        content = Pad(12, 16, 12, 0, Col({Message(mTheme, "Scales is Soundshed's scale explorer, a web page."), FixedHeight(32, Row({Stretch(), open, Stretch()})),
-                                         Stretch()}));
+        content = Pad(12, 16, 12, 0,
+                      Col({Message(mTheme, "Scales is Soundshed's scale explorer, a web page."),
+                           FixedHeight(32, Row({Stretch(), open, Stretch()})), Stretch()}));
         break;
     }
     case JamSection::Riffs:
@@ -737,6 +909,7 @@ Ptr Shell::BuildJamPage()
         content = KeptVScroll(Pad(12, 10, 14, 0, BuildPracticeTool(contentWidth)), mJamScroll);
         break;
     }
+
     return Over(Col({top, rule, content}), std::make_shared<StageBackdrop>(mTheme));
 }
 
@@ -745,19 +918,25 @@ void Shell::SyncJam()
     if (mPractice)
     {
         mPractice->Tick(UiSession::Now());
+
         // The undo banner goes after ten seconds, as the web UI's.
         if (mPractice->DeletedLoop())
         {
             if (mPracticeDeletedAt <= 0.0)
+            {
                 mPracticeDeletedAt = UiSession::Now();
+            }
             else if (UiSession::Now() - mPracticeDeletedAt > 10.0)
+            {
                 mPractice->ForgetDeleted();
+            }
         }
         else
         {
             mPracticeDeletedAt = 0.0;
         }
     }
+
     SyncJamWebViews();
     SyncJamPlayerBar();
 }

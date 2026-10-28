@@ -206,8 +206,8 @@ bool TestLoopWrapIsCrossfadedNotCut()
     const std::size_t start = 4800;  // 0.1s
     const std::size_t end = 19200;   // 0.4s
     DemoPreviewServiceTestAccess::Seat(*f.svc, MakeRamp(total, start, end), MakeRamp(total, start, end), kSampleRate,
-                                       static_cast<double>(start) / kSampleRate,
-                                       static_cast<double>(end) / kSampleRate, true);
+                                       static_cast<double>(start) / kSampleRate, static_cast<double>(end) / kSampleRate,
+                                       true);
 
     const bool built = DemoPreviewServiceTestAccess::HasRegion(*f.svc);
     const bool hasFade = DemoPreviewServiceTestAccess::CarryLength(*f.svc) > 0;
@@ -239,8 +239,8 @@ bool TestNonLoopingRegionPlaysOnceAndStops()
     const std::size_t start = 4800;
     const std::size_t end = 9600;
     DemoPreviewServiceTestAccess::Seat(*f.svc, MakeRamp(total, start, end), MakeRamp(total, start, end), kSampleRate,
-                                       static_cast<double>(start) / kSampleRate,
-                                       static_cast<double>(end) / kSampleRate, false);
+                                       static_cast<double>(start) / kSampleRate, static_cast<double>(end) / kSampleRate,
+                                       false);
 
     const bool noFade = DemoPreviewServiceTestAccess::CarryLength(*f.svc) == 0;
     const auto rendered = Render(*f.svc, 512, 40); // 20480 frames, well past the region
@@ -297,8 +297,8 @@ bool TestVeryShortLoopStaysInBounds()
     const std::size_t start = 1000;
     const std::size_t end = 1050; // 50 frames, ~1ms — far shorter than the 8ms fade
     DemoPreviewServiceTestAccess::Seat(*f.svc, MakeRamp(total, start, end), MakeRamp(total, start, end), kSampleRate,
-                                       static_cast<double>(start) / kSampleRate,
-                                       static_cast<double>(end) / kSampleRate, true);
+                                       static_cast<double>(start) / kSampleRate, static_cast<double>(end) / kSampleRate,
+                                       true);
 
     const std::size_t fade = DemoPreviewServiceTestAccess::CarryLength(*f.svc);
     const bool fadeClamped = fade <= (end - start);
@@ -349,8 +349,7 @@ bool TestMonoInputBusFoldsInsteadOfCrashing()
     const std::vector<float> right(total, 0.6f);
 
     Fixture oneShot;
-    DemoPreviewServiceTestAccess::Seat(*oneShot.svc, left, right, kSampleRate,
-                                       static_cast<double>(start) / kSampleRate,
+    DemoPreviewServiceTestAccess::Seat(*oneShot.svc, left, right, kSampleRate, static_cast<double>(start) / kSampleRate,
                                        static_cast<double>(end) / kSampleRate, false);
 
     // Whole region in one render, well short of its end.

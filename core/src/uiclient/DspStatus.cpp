@@ -21,8 +21,7 @@ std::string Fixed(double value, int digits, const char* unit)
     return text;
 }
 
-template <typename Map>
-std::optional<double> Find(const Map& map, const std::string& key)
+template <typename Map> std::optional<double> Find(const Map& map, const std::string& key)
 {
     const auto it = map.find(key);
     return it != map.end() && std::isfinite(it->second) ? std::optional<double>(it->second) : std::nullopt;
@@ -35,15 +34,19 @@ const std::vector<DspStatusItemInfo>& DspStatusItems()
         {DspStatusItem::Peak, "peak", "Peak avg", "Peak level, averaged", "Levels"},
         {DspStatusItem::Rms, "rms", "RMS avg", "RMS level, averaged", "Levels"},
         {DspStatusItem::Headroom, "headroom", "Headroom avg", "Room left below 0 dBFS, averaged", "Levels"},
-        {DspStatusItem::Momentary, "momentary", "Momentary", "Momentary loudness: the last 400 ms (BS.1770)", "Loudness"},
-        {DspStatusItem::ShortTerm, "shortTerm", "Short-term", "Short-term loudness: the last 3 seconds (BS.1770)", "Loudness"},
-        {DspStatusItem::Integrated, "integrated", "Integrated", "Integrated loudness since this readout opened", "Loudness"},
+        {DspStatusItem::Momentary, "momentary", "Momentary", "Momentary loudness: the last 400 ms (BS.1770)",
+         "Loudness"},
+        {DspStatusItem::ShortTerm, "shortTerm", "Short-term", "Short-term loudness: the last 3 seconds (BS.1770)",
+         "Loudness"},
+        {DspStatusItem::Integrated, "integrated", "Integrated", "Integrated loudness since this readout opened",
+         "Loudness"},
         {DspStatusItem::Processing, "processing", "Processing avg",
          "Processing time per block, averaged, and its share of all processing", "DSP"},
         {DspStatusItem::Latency, "latency", "Latency", "Delay this adds to the signal", "DSP"},
-        {DspStatusItem::DspLoad, "dspLoad", "DSP load avg", "Processing time as a share of each block's real time, averaged", "DSP"},
-        {DspStatusItem::DspPeak, "dspPeak", "Load peak", "The heaviest single block in the last 10 seconds, as a share of its real time",
-         "DSP"},
+        {DspStatusItem::DspLoad, "dspLoad", "DSP load avg",
+         "Processing time as a share of each block's real time, averaged", "DSP"},
+        {DspStatusItem::DspPeak, "dspPeak", "Load peak",
+         "The heaviest single block in the last 10 seconds, as a share of its real time", "DSP"},
     };
     return items;
 }
@@ -57,10 +60,11 @@ const DspStatusItemInfo& DspStatusInfo(DspStatusItem item)
 const DspStatusReadout& EffectDspStatus()
 {
     using I = DspStatusItem;
-    static const DspStatusReadout readout{"ui.dspStatus.items",
-                                          {I::Peak, I::Rms, I::Headroom, I::Momentary, I::ShortTerm, I::Integrated, I::Processing, I::Latency},
-                                          {I::Peak, I::Rms, I::Processing, I::Latency},
-                                          {}};
+    static const DspStatusReadout readout{
+        "ui.dspStatus.items",
+        {I::Peak, I::Rms, I::Headroom, I::Momentary, I::ShortTerm, I::Integrated, I::Processing, I::Latency},
+        {I::Peak, I::Rms, I::Processing, I::Latency},
+        {}};
     return readout;
 }
 
@@ -69,7 +73,8 @@ const DspStatusReadout& OutputDspStatus()
     using I = DspStatusItem;
     static const DspStatusReadout readout{
         "ui.outputStatus.items",
-        {I::Peak, I::Rms, I::Headroom, I::Momentary, I::ShortTerm, I::Integrated, I::DspLoad, I::DspPeak, I::Processing, I::Latency},
+        {I::Peak, I::Rms, I::Headroom, I::Momentary, I::ShortTerm, I::Integrated, I::DspLoad, I::DspPeak, I::Processing,
+         I::Latency},
         {I::DspLoad, I::DspPeak, I::Latency, I::Peak, I::Rms},
         {{I::Peak, "Output peak level after the master volume, averaged"},
          {I::Rms, "Output RMS level after the master volume, averaged"},
@@ -85,34 +90,52 @@ const DspStatusReadout& OutputDspStatus()
 std::vector<DspStatusItem> ShownDspStatusItems(const ClientState& state, const DspStatusReadout& readout)
 {
     const auto stored = state.appSettings.find(readout.settingKey);
+
     if (stored == state.appSettings.end() || !stored->is_array())
+    {
         return readout.defaults;
+    }
+
     std::vector<DspStatusItem> shown;
+
     for (const auto& value : *stored)
     {
         if (!value.is_string())
+        {
             continue;
+        }
+
         for (const auto& info : DspStatusItems())
+        {
             if (value.get<std::string>() == info.key &&
                 std::find(readout.available.begin(), readout.available.end(), info.id) != readout.available.end() &&
                 std::find(shown.begin(), shown.end(), info.id) == shown.end())
+            {
                 shown.push_back(info.id);
+            }
+        }
     }
+
     return shown;
 }
 
 nlohmann::json DspStatusSettingValue(const std::vector<DspStatusItem>& items)
 {
     nlohmann::json value = nlohmann::json::array();
+
     for (const auto item : items)
+    {
         value.push_back(DspStatusInfo(item).key);
+    }
+
     return value;
 }
 
 bool ShowsLoudness(const std::vector<DspStatusItem>& items)
 {
     return std::any_of(items.begin(), items.end(), [](DspStatusItem item) {
-        return item == DspStatusItem::Momentary || item == DspStatusItem::ShortTerm || item == DspStatusItem::Integrated;
+        return item == DspStatusItem::Momentary || item == DspStatusItem::ShortTerm ||
+               item == DspStatusItem::Integrated;
     });
 }
 
@@ -130,10 +153,17 @@ std::string FormatDspStatusDb(std::optional<double> value)
 std::string FormatDspStatusTime(std::optional<double> timeUs, std::optional<double> totalUs)
 {
     if (!timeUs)
+    {
         return kNone;
+    }
+
     std::string text = Fixed(*timeUs, 1, " \xCE\xBCs");
+
     if (totalUs && *totalUs > 0.0)
+    {
         text += " (" + Fixed(*timeUs / *totalUs * 100.0, 1, "%") + ")";
+    }
+
     return text;
 }
 
@@ -141,17 +171,27 @@ std::string FormatDspStatusLatency(std::optional<double> samples, double sampleR
 {
     // A node that adds none reads as a dash; a whole chain's 0 is a figure worth seeing.
     if (!samples || *samples < 0.0 || (*samples == 0.0 && !showZero))
+    {
         return kNone;
+    }
+
     std::string text = std::to_string(std::lround(*samples)) + " smp";
+
     if (sampleRate > 0.0)
+    {
         text += " (" + Fixed(*samples / sampleRate * 1000.0, 2, " ms") + ")";
+    }
+
     return text;
 }
 
 std::optional<double> DspStatusMeter::Average(const char* name, std::optional<double> value)
 {
     if (!value)
+    {
         return std::nullopt;
+    }
+
     const auto it = mAverages.find(name);
     const double average = it == mAverages.end() ? *value : it->second + kSmoothing * (*value - it->second);
     mAverages[name] = average;
@@ -164,9 +204,14 @@ void DspStatusMeter::Update(const ClientState& state, double nowSeconds)
     const auto& t = state.telemetry;
     const bool output = mNodeKey.empty();
     const LevelReading* level = output ? &t.output : nullptr;
+
     if (!output)
+    {
         if (const auto it = t.nodes.find(mNodeKey); it != t.nodes.end())
+        {
             level = &it->second;
+        }
+    }
 
     // Levels: averaged once per frame, so a frame applied twice does not count twice.
     if (t.frameCounter != mLastFrame)
@@ -192,19 +237,31 @@ void DspStatusMeter::Update(const ClientState& state, double nowSeconds)
     mIntegratedSeconds = loudness.integratedLufs ? std::optional<double>(loudness.integratedSeconds) : std::nullopt;
 
     const auto total = t.totalProcessingUs > 0.0 ? std::optional<double>(t.totalProcessingUs) : std::nullopt;
+
     if (output)
     {
         mValues[I::Processing] = FormatDspStatusTime(Average("processing", total), std::nullopt);
         mValues[I::Latency] = FormatDspStatusLatency(static_cast<double>(t.totalLatencySamples), t.sampleRate, true);
         const auto load = Average("dspLoad", t.dspLoadPercent);
         mValues[I::DspLoad] = load ? Fixed(*load, 1, "%") : kNone;
+
         if (t.peakDspLoadPercent)
+        {
             mPeaks.emplace_back(nowSeconds, *t.peakDspLoadPercent);
+        }
+
         while (!mPeaks.empty() && nowSeconds - mPeaks.front().first > kPeakWindowSeconds)
+        {
             mPeaks.pop_front();
+        }
+
         std::optional<double> peak;
+
         for (const auto& [at, percent] : mPeaks)
+        {
             peak = peak ? std::max(*peak, percent) : percent;
+        }
+
         mValues[I::DspPeak] = peak ? Fixed(*peak, 1, "%") : kNone;
     }
     else
@@ -217,7 +274,10 @@ void DspStatusMeter::Update(const ClientState& state, double nowSeconds)
 bool DspStatusMeter::TakeRenderTurn(double nowSeconds)
 {
     if (nowSeconds - mLastRender < kRenderIntervalSeconds)
+    {
         return false;
+    }
+
     mLastRender = nowSeconds;
     return true;
 }
@@ -231,7 +291,10 @@ std::string DspStatusMeter::Value(DspStatusItem item) const
 std::string DspStatusMeter::IntegratedTitle() const
 {
     if (!mIntegratedSeconds)
+    {
         return "Integrated loudness since this readout opened";
+    }
+
     const long whole = std::max(0L, static_cast<long>(*mIntegratedSeconds));
     char duration[24];
     std::snprintf(duration, sizeof(duration), "%ld:%02ld", whole / 60, whole % 60);

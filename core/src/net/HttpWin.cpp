@@ -5,10 +5,10 @@
 #include "net/Http.h"
 
 #ifndef NOMINMAX
-#define NOMINMAX
+    #define NOMINMAX
 #endif
 #ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
+    #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
 #include <winhttp.h>
@@ -23,7 +23,10 @@ namespace
 std::wstring Widen(const std::string& text)
 {
     if (text.empty())
+    {
         return {};
+    }
+
     const int length = MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0);
     std::wstring wide(static_cast<std::size_t>(length), L'\0');
     MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), wide.data(), length);
@@ -33,16 +36,22 @@ std::wstring Widen(const std::string& text)
 std::string Narrow(const std::wstring& text)
 {
     if (text.empty())
+    {
         return {};
-    const int length = WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0, nullptr, nullptr);
+    }
+
+    const int length =
+        WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0, nullptr, nullptr);
     std::string narrow(static_cast<std::size_t>(length), '\0');
-    WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), narrow.data(), length, nullptr, nullptr);
+    WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), narrow.data(), length, nullptr,
+                        nullptr);
     return narrow;
 }
 
 std::string Lower(std::string text)
 {
-    std::transform(text.begin(), text.end(), text.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    std::transform(text.begin(), text.end(), text.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     return text;
 }
 
@@ -67,11 +76,18 @@ std::string Describe(DWORD code)
 struct Session
 {
     HINTERNET handle = nullptr;
+
     Session()
     {
-        handle = WinHttpOpen(L"Soundshed", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+        handle = WinHttpOpen(L"Soundshed", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME,
+                             WINHTTP_NO_PROXY_BYPASS, 0);
+
         if (handle == nullptr) // before Windows 8.1 there is no automatic proxy
-            handle = WinHttpOpen(L"Soundshed", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+        {
+            handle = WinHttpOpen(L"Soundshed", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME,
+                                 WINHTTP_NO_PROXY_BYPASS, 0);
+        }
+
         if (handle != nullptr)
         {
             DWORD protocols = WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_2;
@@ -81,19 +97,23 @@ struct Session
             WinHttpSetOption(handle, WINHTTP_OPTION_SECURE_PROTOCOLS, &protocols, sizeof(protocols));
         }
     }
+
     ~Session()
     {
         if (handle != nullptr)
+        {
             WinHttpCloseHandle(handle);
+        }
     }
 };
 
 class WinHttpTransport final : public HttpTransport
 {
-public:
+  public:
     HttpResponse Perform(const HttpRequest& request, CancelToken& cancel) override
     {
         HttpResponse response;
+
         if (mSession.handle == nullptr)
         {
             response.error = "Networking could not start";
@@ -106,17 +126,20 @@ public:
         parts.dwHostNameLength = static_cast<DWORD>(-1);
         parts.dwUrlPathLength = static_cast<DWORD>(-1);
         parts.dwExtraInfoLength = static_cast<DWORD>(-1);
+
         if (!WinHttpCrackUrl(url.c_str(), 0, 0, &parts))
         {
             response.error = "Not a URL: " + request.url;
             return response;
         }
+
         const std::wstring host(parts.lpszHostName, parts.dwHostNameLength);
         std::wstring path(parts.lpszUrlPath, parts.dwUrlPathLength);
         path.append(parts.lpszExtraInfo, parts.dwExtraInfoLength);
         const bool secure = parts.nScheme == INTERNET_SCHEME_HTTPS;
 
         HINTERNET connection = WinHttpConnect(mSession.handle, host.c_str(), parts.nPort, 0);
+
         if (connection == nullptr)
         {
             response.error = Describe(GetLastError());
@@ -126,6 +149,7 @@ public:
         const auto method = Widen(request.method.empty() ? std::string("GET") : request.method);
         HINTERNET handle = WinHttpOpenRequest(connection, method.c_str(), path.c_str(), nullptr, WINHTTP_NO_REFERER,
                                               WINHTTP_DEFAULT_ACCEPT_TYPES, secure ? WINHTTP_FLAG_SECURE : 0);
+
         if (handle == nullptr)
         {
             response.error = Describe(GetLastError());
@@ -138,8 +162,11 @@ public:
         auto closed = std::make_shared<std::atomic<bool>>(false);
         const auto closeRequest = [handle, closed] {
             if (!closed->exchange(true))
+            {
                 WinHttpCloseHandle(handle);
+            }
         };
+
         if (!cancel.SetAbort(closeRequest))
         {
             closeRequest();
@@ -153,8 +180,11 @@ public:
         WinHttpSetTimeouts(handle, timeout, timeout, timeout, timeout);
 
         std::wstring headers;
+
         for (const auto& [name, value] : request.headers)
+        {
             headers += Widen(name + ": " + value + "\r\n");
+        }
 
         const bool hasBody = request.method != "GET" && request.method != "HEAD";
         auto* body = hasBody ? const_cast<char*>(request.body.data()) : nullptr;
@@ -167,29 +197,36 @@ public:
         if (ok)
         {
             DWORD status = 0, size = sizeof(status);
-            WinHttpQueryHeaders(handle, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX, &status,
-                                &size, WINHTTP_NO_HEADER_INDEX);
+            WinHttpQueryHeaders(handle, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+                                WINHTTP_HEADER_NAME_BY_INDEX, &status, &size, WINHTTP_NO_HEADER_INDEX);
             response.status = static_cast<int>(status);
             ReadHeaders(handle, response);
 
             for (;;)
             {
                 DWORD available = 0;
+
                 if (!WinHttpQueryDataAvailable(handle, &available))
                 {
                     ok = false;
                     break;
                 }
+
                 if (available == 0)
+                {
                     break;
+                }
+
                 const auto offset = response.body.size();
                 response.body.resize(offset + available);
                 DWORD read = 0;
+
                 if (!WinHttpReadData(handle, response.body.data() + offset, available, &read))
                 {
                     ok = false;
                     break;
                 }
+
                 response.body.resize(offset + read);
             }
         }
@@ -209,32 +246,47 @@ public:
         return response;
     }
 
-private:
+  private:
     static void ReadHeaders(HINTERNET handle, HttpResponse& response)
     {
         DWORD size = 0;
-        WinHttpQueryHeaders(handle, WINHTTP_QUERY_RAW_HEADERS_CRLF, WINHTTP_HEADER_NAME_BY_INDEX, WINHTTP_NO_OUTPUT_BUFFER, &size,
-                            WINHTTP_NO_HEADER_INDEX);
+        WinHttpQueryHeaders(handle, WINHTTP_QUERY_RAW_HEADERS_CRLF, WINHTTP_HEADER_NAME_BY_INDEX,
+                            WINHTTP_NO_OUTPUT_BUFFER, &size, WINHTTP_NO_HEADER_INDEX);
+
         if (size == 0)
+        {
             return;
+        }
+
         std::wstring raw(size / sizeof(wchar_t), L'\0');
-        if (!WinHttpQueryHeaders(handle, WINHTTP_QUERY_RAW_HEADERS_CRLF, WINHTTP_HEADER_NAME_BY_INDEX, raw.data(), &size,
-                                 WINHTTP_NO_HEADER_INDEX))
+
+        if (!WinHttpQueryHeaders(handle, WINHTTP_QUERY_RAW_HEADERS_CRLF, WINHTTP_HEADER_NAME_BY_INDEX, raw.data(),
+                                 &size, WINHTTP_NO_HEADER_INDEX))
+        {
             return;
+        }
+
         const auto text = Narrow(raw);
         std::size_t start = 0;
+
         while (start < text.size())
         {
             auto end = text.find("\r\n", start);
+
             if (end == std::string::npos)
+            {
                 end = text.size();
+            }
+
             const auto line = text.substr(start, end - start);
+
             if (const auto colon = line.find(':'); colon != std::string::npos)
             {
                 auto value = line.substr(colon + 1);
                 value.erase(0, value.find_first_not_of(' '));
                 response.headers[Lower(line.substr(0, colon))] = value;
             }
+
             start = end + 2;
         }
     }

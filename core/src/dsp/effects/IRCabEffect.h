@@ -54,6 +54,7 @@ class IRCabEffect : public EffectProcessor
         {
             mDualLaneLease = rtparallel::DualLaneExecutor::Acquire(); // here, so Process() never starts its thread
         }
+
         mSampleRate = sampleRate;
         mMaxBlockSize = maxBlockSize;
         mPrepared = true;
@@ -767,9 +768,7 @@ class IRCabEffect : public EffectProcessor
 
         auto work = std::make_unique<ConvolverRebuild>();
         work->generation = mBuildGeneration;
-        work->settings = {mSampleRate,
-                          mMaxBlockSize,
-                          EffectiveQuality(),
+        work->settings = {mSampleRate, mMaxBlockSize, EffectiveQuality(),
                           EffectiveSetting(mPendingNormalizeIR, mNormalizeIR),
                           EffectiveSetting(mPendingTrimLeadingSilence, mTrimLeadingSilence)};
         work->slotA = {mImpulseL, mImpulseR, mIsStereo, mIRSampleRate};

@@ -29,7 +29,7 @@ namespace nanoq
 {
 class Engine final : public guitarfx::IPluginHost
 {
-public:
+  public:
     Engine();
     ~Engine() override;
 
@@ -54,10 +54,10 @@ public:
     /// closed, with the dialog open). Work posted once the engine has gone is dropped.
     class Handle
     {
-    public:
+      public:
         void Post(std::function<void()> fn);
 
-    private:
+      private:
         friend class Engine;
         std::mutex mMutex;
         Engine* mEngine = nullptr;
@@ -109,7 +109,7 @@ public:
     [[nodiscard]] bool SupportsAudioDeviceSettings() const override;
     void HandleAudioDeviceRequest(const std::string& requestJson) override;
 
-private:
+  private:
     void Run(std::promise<void> ready);
 
     std::unique_ptr<guitarfx::PluginController> mController;

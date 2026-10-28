@@ -51,8 +51,8 @@ struct DspStatusItemInfo
 struct DspStatusReadout
 {
     const char* settingKey;
-    std::vector<DspStatusItem> available; // what it can show, in menu order
-    std::vector<DspStatusItem> defaults;  // what it shows until the user chooses
+    std::vector<DspStatusItem> available;        // what it can show, in menu order
+    std::vector<DspStatusItem> defaults;         // what it shows until the user chooses
     std::map<DspStatusItem, std::string> titles; // tooltips that differ from the general ones
 };
 
@@ -72,7 +72,7 @@ struct DspStatusReadout
 /// The figures of one readout, as they stand: fed every telemetry frame, formatted for the tiles.
 class DspStatusMeter
 {
-public:
+  public:
     /// The smoothing factor of the averaged figures; lower is slower.
     static constexpr double kSmoothing = 0.01;
     /// How often averaged figures are worth redrawing.
@@ -81,7 +81,9 @@ public:
     static constexpr double kPeakWindowSeconds = 10.0;
 
     /// For an effect, `nodeKey` is its feed key ("<presetId>::<nodeId>"); empty for the output.
-    explicit DspStatusMeter(std::string nodeKey = {}) : mNodeKey(std::move(nodeKey)) {}
+    explicit DspStatusMeter(std::string nodeKey = {}) : mNodeKey(std::move(nodeKey))
+    {
+    }
 
     /// Folds in the state's latest telemetry. Call once per telemetry frame.
     void Update(const ClientState& state, double nowSeconds);
@@ -93,7 +95,7 @@ public:
     [[nodiscard]] std::string IntegratedTitle() const;
     void Reset();
 
-private:
+  private:
     std::optional<double> Average(const char* name, std::optional<double> value);
 
     std::string mNodeKey;

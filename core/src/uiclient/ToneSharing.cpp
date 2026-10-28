@@ -193,7 +193,8 @@ Response ParseResponse(int status, const std::string& body, const std::string& s
     }
 
     const auto okField = payload.is_object() ? payload.find("ok") : payload.end();
-    const bool refused = payload.is_object() && okField != payload.end() && okField->is_boolean() && !okField->get<bool>();
+    const bool refused =
+        payload.is_object() && okField != payload.end() && okField->is_boolean() && !okField->get<bool>();
     response.ok = status >= 200 && status < 300 && payload.is_object() && !refused;
 
     if (!response.ok && response.error.empty())
@@ -310,7 +311,7 @@ std::optional<PackDetail> ParsePackDetail(const nlohmann::json& data)
             continue;
         }
 
-        PackDetail::Entry item{Text(entry, "itemId"), Trimmed(Text(entry, "title")), Text(entry, "type"),
+        PackDetail::Entry item{Text(entry, "itemId"),       Trimmed(Text(entry, "title")),       Text(entry, "type"),
                                Integer(entry, "sortOrder"), Trimmed(Text(entry, "description")), {}};
 
         for (const auto& tag : Array(entry, "tags"))
@@ -372,7 +373,8 @@ std::string EncodeQueryValue(const std::string& value)
 
 std::string ItemsPath(int page, const std::string& query, const std::string& tag)
 {
-    std::string path = "/items?page=" + std::to_string(std::max(1, page)) + "&pageSize=" + std::to_string(kItemsPageSize);
+    std::string path =
+        "/items?page=" + std::to_string(std::max(1, page)) + "&pageSize=" + std::to_string(kItemsPageSize);
 
     if (const auto q = Trimmed(query); !q.empty())
     {
@@ -471,8 +473,9 @@ std::string PercentDecode(const std::string& text)
 /// Ids the service hands out: letters, digits, '_' and '-'.
 bool IsLinkId(const std::string& id)
 {
-    return !id.empty() && id.size() <= 128 &&
-           std::all_of(id.begin(), id.end(), [](char c) { return std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '-'; });
+    return !id.empty() && id.size() <= 128 && std::all_of(id.begin(), id.end(), [](char c) {
+        return std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '-';
+    });
 }
 
 /// The value of `key=` in a query, up to the next '&', '#', space or quote.
@@ -507,7 +510,8 @@ std::optional<LinkTarget> ParseLink(const std::string& raw)
         }
     }
 
-    for (const auto& [marker, kind] : {std::pair{"/share/item/", Tone::Kind::Preset}, std::pair{"/share/pack/", Tone::Kind::Pack}})
+    for (const auto& [marker, kind] :
+         {std::pair{"/share/item/", Tone::Kind::Preset}, std::pair{"/share/pack/", Tone::Kind::Pack}})
     {
         if (const auto at = text.find(marker); at != std::string::npos)
         {

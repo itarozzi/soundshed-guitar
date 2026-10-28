@@ -19,7 +19,13 @@
 #include "NAM/slimmable.h"
 #include "FusedWaveNet.h"
 
-namespace nam { namespace factory { void ForceFactoryRegistration(); } }
+namespace nam
+{
+namespace factory
+{
+void ForceFactoryRegistration();
+}
+} // namespace nam
 
 static std::wstring Widen(const std::string& s)
 {
@@ -37,6 +43,7 @@ int main(int argc, char** argv)
     nam::activations::Activation::enable_fast_tanh();
 
     std::vector<double> input(24000);
+
     for (size_t i = 0; i < input.size(); ++i)
     {
         const double t = i / 48000.0;
@@ -49,12 +56,19 @@ int main(int argc, char** argv)
     double worst = 1e9;
     std::string worstName;
     std::map<std::string, int> rejected;
+
     while (std::getline(list, line))
     {
         if (!line.empty() && line.back() == '\r')
+        {
             line.pop_back();
+        }
+
         if (line.empty())
+        {
             continue;
+        }
+
         ++total;
         try
         {
@@ -63,29 +77,41 @@ int main(int argc, char** argv)
             nlohmann::json j = nlohmann::json::parse(f);
             const std::string arch = j.value("architecture", std::string("?"));
             const bool container = arch == "SlimmableContainer";
+
             for (double size : container ? std::vector<double>{0.0, 1.0} : std::vector<double>{1.0})
             {
                 nlohmann::json m = j;
+
                 if (container)
                 {
                     const auto& subs = j["config"]["submodels"];
                     size_t pick = subs.size() - 1;
+
                     for (size_t i = 0; i < subs.size(); ++i)
+                    {
                         if (size < subs[i]["max_value"].get<double>())
                         {
                             pick = i;
                             break;
                         }
+                    }
+
                     nlohmann::json sub = subs[pick]["model"];
                     m = std::move(sub);
                 }
+
                 std::unique_ptr<nam::DSP> fm;
+
                 if (m.contains("weights"))
+                {
                     fm = fusedwn::TryCreateFromConfig(m, m["weights"].get<std::vector<float>>(), 48000.0);
+                }
+
                 if (!fm)
                 {
                     ++generic;
                     std::string key = m.value("architecture", std::string("?"));
+
                     if (key == "WaveNet")
                     {
                         const auto& l0 = m["config"]["layers"][0];
@@ -93,15 +119,22 @@ int main(int argc, char** argv)
                                (l0.contains("gating_mode") ? l0["gating_mode"].dump().substr(0, 20)
                                                            : std::to_string(l0.value("gated", false)));
                     }
+
                     rejected[key]++;
                     continue;
                 }
+
                 auto gm = nam::get_dsp(p);
+
                 if (auto* sl = dynamic_cast<nam::SlimmableModel*>(gm.get()))
+                {
                     sl->SetSlimmableSize(size);
+                }
+
                 fm->ResetAndPrewarm(48000.0, 64);
                 gm->ResetAndPrewarm(48000.0, 64);
                 std::vector<double> a(input.size()), b(input.size()), in = input;
+
                 for (size_t s = 0; s < in.size(); s += 64)
                 {
                     NAM_SAMPLE* ip[1] = {in.data() + s};
@@ -110,28 +143,35 @@ int main(int argc, char** argv)
                     fm->process(ip, ao, 64);
                     gm->process(ip, bo, 64);
                 }
+
                 double e = 0, sig = 0;
+
                 for (size_t s = 0; s < a.size(); ++s)
                 {
                     e += (a[s] - b[s]) * (a[s] - b[s]);
                     sig += b[s] * b[s];
                 }
+
                 const double snr = e == 0 ? 999.0 : 10 * std::log10(sig / e);
                 ++fused;
+
                 if (snr < worst)
                 {
                     worst = snr;
                     worstName = line + (container ? (size < 0.5 ? " [nano]" : " [full]") : "");
                 }
+
                 if (snr < 90.0)
                 {
                     ++bad;
                     double peak = 0, maxErr = 0;
+
                     for (size_t s = 0; s < a.size(); ++s)
                     {
                         peak = std::max(peak, std::abs(b[s]));
                         maxErr = std::max(maxErr, std::abs(a[s] - b[s]));
                     }
+
                     std::printf("LOW SNR %.1f dB (output rms %.2e, peak %.2e, max error %.2e): %s\n", snr,
                                 std::sqrt(sig / a.size()), peak, maxErr, line.c_str());
                 }
@@ -143,9 +183,15 @@ int main(int argc, char** argv)
             std::printf("error (%s): %s\n", ex.what(), line.c_str());
         }
     }
-    std::printf("\nfiles %d | models fused %d, left to generic %d, unreadable %d | below 90 dB: %d | worst %.1f dB (%s)\n",
-                total, fused, generic, failed, bad, worst, worstName.c_str());
+
+    std::printf(
+        "\nfiles %d | models fused %d, left to generic %d, unreadable %d | below 90 dB: %d | worst %.1f dB (%s)\n",
+        total, fused, generic, failed, bad, worst, worstName.c_str());
+
     for (auto& [k, n] : rejected)
+    {
         std::printf("  generic: %4d  %s\n", n, k.c_str());
+    }
+
     return 0;
 }

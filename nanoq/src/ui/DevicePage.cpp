@@ -22,12 +22,12 @@ using guitarfx::uiclient::Topic;
 
 struct Shell::DevicePage
 {
-    SlotPtr slot;                 // the section in the settings page now built
+    SlotPtr slot; // the section in the settings page now built
     std::vector<guitarfx::uiclient::Subscription> subs;
-    std::string signature;        // what the section was last drawn from
-    std::string error;            // the last request's failure, kept until the next request
-    bool dirty = false;           // a new snapshot arrived
-    bool watching = false;        // the page is showing: the level lease is held
+    std::string signature; // what the section was last drawn from
+    std::string error;     // the last request's failure, kept until the next request
+    bool dirty = false;    // a new snapshot arrived
+    bool watching = false; // the page is showing: the level lease is held
 };
 
 namespace
@@ -40,7 +40,7 @@ using Option = std::pair<std::string, std::string>;
 /// A select: the choice shown in a box with a caret, opening a drop-down list when tapped.
 class SelectBox final : public Pressable
 {
-public:
+  public:
     SelectBox(const Theme& theme, Icons& icons, std::string text, float width)
         : mTheme(theme), mIcons(icons), mText(std::move(text)), mWidth(width)
     {
@@ -65,14 +65,16 @@ public:
         const auto font = Font(Weight::Medium).size(metrics::kSmallText);
         const el::rect text{b.left + 10.0f, b.top, b.right - 26.0f, b.bottom};
         FillText(cnv, Ellipsize(cnv, mText, font, text.width()), font, ink, text, HAlign::Left);
+
         if (mEnabled)
         {
             const float cy = b.top + b.height() * 0.5f;
-            mIcons.Draw(cnv, "ui-caret", el::rect{b.right - 20.0f, cy - 5.0f, b.right - 10.0f, cy + 5.0f}, ink.opacity(0.8f));
+            mIcons.Draw(cnv, "ui-caret", el::rect{b.right - 20.0f, cy - 5.0f, b.right - 10.0f, cy + 5.0f},
+                        ink.opacity(0.8f));
         }
     }
 
-private:
+  private:
     const Theme& mTheme;
     Icons& mIcons;
     std::string mText;
@@ -83,10 +85,18 @@ std::vector<std::string> Strings(const Json& state, const char* key)
 {
     std::vector<std::string> out;
     const auto it = state.find(key);
+
     if (it != state.end() && it->is_array())
+    {
         for (const auto& v : *it)
+        {
             if (v.is_string())
+            {
                 out.push_back(v.get<std::string>());
+            }
+        }
+    }
+
     return out;
 }
 
@@ -94,10 +104,18 @@ std::vector<double> Numbers(const Json& state, const char* key)
 {
     std::vector<double> out;
     const auto it = state.find(key);
+
     if (it != state.end() && it->is_array())
+    {
         for (const auto& v : *it)
+        {
             if (v.is_number())
+            {
                 out.push_back(v.get<double>());
+            }
+        }
+    }
+
     return out;
 }
 
@@ -122,8 +140,12 @@ bool Flag(const Json& state, const char* key, bool fallback = false)
 bool AnyActive(const Json& state, const char* key)
 {
     const auto it = state.find(key);
+
     if (it == state.end() || !it->is_array())
+    {
         return false;
+    }
+
     return std::any_of(it->begin(), it->end(), [](const Json& g) { return g.is_object() && g.value("active", false); });
 }
 
@@ -140,13 +162,21 @@ std::string Ms(double samples, double rate)
 }
 
 /// Devices, then "none". A chosen device that has gone stays listed, so the picker shows what broke.
-std::vector<Option> DeviceOptions(const std::vector<std::string>& devices, const std::string& selected, const std::string& noneLabel)
+std::vector<Option> DeviceOptions(const std::vector<std::string>& devices, const std::string& selected,
+                                  const std::string& noneLabel)
 {
     std::vector<Option> options;
+
     if (!selected.empty() && std::find(devices.begin(), devices.end(), selected) == devices.end())
+    {
         options.emplace_back(selected, selected + " (disconnected)");
+    }
+
     for (const auto& name : devices)
+    {
         options.emplace_back(name, name);
+    }
+
     options.emplace_back("", noneLabel);
     return options;
 }
@@ -159,6 +189,7 @@ std::vector<double> WithCurrent(std::vector<double> values, double current)
         values.push_back(current);
         std::sort(values.begin(), values.end());
     }
+
     return values;
 }
 
@@ -172,28 +203,57 @@ struct Alert
 std::optional<Alert> DeviceAlert(const Json& s, const std::string& error)
 {
     if (Str(s, "inputPermission") == "denied")
-        return Alert{"Microphone access is off, so the amp can't hear your instrument.", "Allow Access", "requestInputPermission"};
+    {
+        return Alert{"Microphone access is off, so the amp can't hear your instrument.", "Allow Access",
+                     "requestInputPermission"};
+    }
+
     if (!error.empty())
+    {
         return Alert{error, "Reset Device", "resetDevice"};
+    }
+
     if (Str(s, "inputDevice").empty() && Str(s, "outputDevice").empty())
+    {
         return Alert{"No audio device is selected.", {}, {}};
+    }
+
     if (!Flag(s, "deviceOpen"))
-        return Alert{"The audio device couldn't be opened. Plug it back in and retry, or choose another device.", "Retry", "resetDevice"};
+    {
+        return Alert{"The audio device couldn't be opened. Plug it back in and retry, or choose another device.",
+                     "Retry", "resetDevice"};
+    }
+
     if (Str(s, "outputDevice").empty() || !AnyActive(s, "outputChannels"))
+    {
         return Alert{"No output is selected, so nothing will be heard.", {}, {}};
+    }
+
     if (Str(s, "inputDevice").empty() || !AnyActive(s, "inputChannels"))
+    {
         return Alert{"No input is selected, so the amp hears nothing.", {}, {}};
+    }
+
     return std::nullopt;
 }
 
 std::string MuteHint(bool muted, bool risk)
 {
     if (muted && risk)
+    {
         return "Muted because the built-in microphone can hear the speakers. Plug in headphones or an interface, then turn this off.";
+    }
+
     if (muted)
+    {
         return "The amp hears nothing while the input is muted.";
+    }
+
     if (risk)
+    {
         return "The built-in microphone can hear the speakers, which can howl. Use headphones, or mute the input.";
+    }
+
     return "Silences the input, to stop feedback when a microphone can hear the speakers.";
 }
 
@@ -207,15 +267,22 @@ void Shell::DeviceRequest(const std::string& action, nlohmann::json args)
 {
     // An error belongs to the request that caused it, and stays until the next one.
     if (mDevicePage)
+    {
         mDevicePage->error.clear();
+    }
+
     mSession.Commands().AudioDevice(action, std::move(args));
 }
 
 Ptr Shell::BuildDeviceSection()
 {
     if (!mDevicePage)
+    {
         mDevicePage = std::make_shared<DevicePage>();
+    }
+
     auto& page = *mDevicePage;
+
     if (!mState.environment.audioDeviceSettings)
     {
         // A plugin: the host owns the devices. SyncDevicePage rebuilds the page if the engine
@@ -223,6 +290,7 @@ Ptr Shell::BuildDeviceSection()
         page.slot.reset();
         return VGap(0);
     }
+
     page.slot = MakeSlot();
     page.signature = mState.device.state.dump() + "\n" + page.error + (mState.device.known ? "1" : "0");
     Fill(*page.slot, BuildDeviceContent());
@@ -259,23 +327,37 @@ Ptr Shell::BuildDeviceContent()
     auto select = [&](const std::vector<Option>& options, const std::string& selected, float width, bool enabled,
                       std::function<void(const std::string&)> onPick) -> Ptr {
         std::string shown = selected;
+
         for (const auto& [value, text] : options)
+        {
             if (value == selected)
+            {
                 shown = text;
+            }
+        }
+
         auto box = std::make_shared<SelectBox>(mTheme, mIcons, shown, width);
         box->Enabled(enabled);
         box->onClick = [this, b = box.get(), options, selected, width, onPick] {
             std::vector<MenuItem> items;
+
             for (const auto& [value, text] : options)
+            {
                 items.push_back({text, value == selected, false, [onPick, value] { onPick(value); }});
+            }
+
             OpenDropdown(b->Bounds(), std::move(items), width);
         };
         return Middle(box);
     };
     auto row = [&](const std::string& title, std::vector<Ptr> controls) {
         std::vector<Ptr> parts{label(title)};
+
         for (auto& c : controls)
+        {
             parts.push_back(std::move(c));
+        }
+
         parts.push_back(Stretch());
         rows.push_back(FixedHeight(44, Row(parts)));
     };
@@ -286,6 +368,7 @@ Ptr Shell::BuildDeviceContent()
     };
 
     heading("AUDIO DEVICE");
+
     if (!device.known)
     {
         hint("Looking for audio devices...");
@@ -300,41 +383,54 @@ Ptr Shell::BuildDeviceContent()
         // Text in align_middle, here and in every row: a row is no taller than its children allow,
         // and a line of text alone is one line high.
         std::vector<Ptr> parts{Middle(text), Stretch(nullptr, 0.01)};
+
         if (!alert->action.empty())
         {
-            auto fix = std::make_shared<Button>(mTheme, alert->actionLabel, [this, action = alert->action] { DeviceRequest(action); },
-                                                Button::Style::Plain);
+            auto fix = std::make_shared<Button>(
+                mTheme, alert->actionLabel, [this, action = alert->action] { DeviceRequest(action); },
+                Button::Style::Plain);
             fix->MinWidth(96).TextSize(metrics::kSmallText);
             parts.push_back(HGap(8));
             parts.push_back(Middle(fix));
         }
-        rows.push_back(Pad(0, 4, 0, 8, FixedHeight(40, Rounded(mTheme.Warning().opacity(0.12f), 6.0f, PadXY(12, 0, Row(parts))))));
+
+        rows.push_back(
+            Pad(0, 4, 0, 8, FixedHeight(40, Rounded(mTheme.Warning().opacity(0.12f), 6.0f, PadXY(12, 0, Row(parts))))));
     }
 
     // ── Driver and devices ──
     const auto types = Strings(s, "deviceTypes");
+
     if (types.size() > 1)
     {
         std::vector<Option> options;
+
         for (const auto& t : types)
+        {
             options.emplace_back(t, t);
+        }
+
         row("Driver", {select(options, Str(s, "deviceType"), kNarrow, true,
                               [this](const std::string& v) { DeviceRequest("setDeviceType", {{"deviceType", v}}); })});
     }
 
     const bool separate = Flag(s, "separateIO", true);
+
     if (separate)
     {
         const auto input = Str(s, "inputDevice");
-        row("Input Device", {select(DeviceOptions(Strings(s, "inputDevices"), input, "No input"), input, kWide, true,
-                                    [this](const std::string& v) { DeviceRequest("setDevice", {{"kind", "input"}, {"name", v}}); })});
+        row("Input Device",
+            {select(DeviceOptions(Strings(s, "inputDevices"), input, "No input"), input, kWide, true,
+                    [this](const std::string& v) { DeviceRequest("setDevice", {{"kind", "input"}, {"name", v}}); })});
     }
+
     {
         const auto output = Str(s, "outputDevice");
         const bool open = Flag(s, "deviceOpen");
         auto test = button("Test", [this] { DeviceRequest("playTestTone"); }, open && !output.empty());
         row(separate ? "Output Device" : "Device",
-            {select(DeviceOptions(Strings(s, "outputDevices"), output, separate ? "No output" : "No device"), output, kWide, true,
+            {select(DeviceOptions(Strings(s, "outputDevices"), output, separate ? "No output" : "No device"), output,
+                    kWide, true,
                     [this, separate](const std::string& v) {
                         DeviceRequest("setDevice", {{"kind", separate ? "output" : "linked"}, {"name", v}});
                     }),
@@ -347,41 +443,65 @@ Ptr Shell::BuildDeviceContent()
         const double rate = Num(s, "sampleRate");
         const auto rates = WithCurrent(Numbers(s, "sampleRates"), rate);
         std::vector<Option> rateOptions;
+
         for (const double r : rates)
+        {
             rateOptions.emplace_back(Integer(r), Integer(r) + " Hz");
-        row("Sample Rate", {select(rateOptions, Integer(rate), kNarrow, rates.size() > 1,
-                                   [this](const std::string& v) { DeviceRequest("setSampleRate", {{"sampleRate", std::stod(v)}}); })});
+        }
+
+        row("Sample Rate", {select(rateOptions, Integer(rate), kNarrow, rates.size() > 1, [this](const std::string& v) {
+                DeviceRequest("setSampleRate", {{"sampleRate", std::stod(v)}});
+            })});
+
         if (Numbers(s, "sampleRates").size() <= 1)
+        {
             hint("The audio driver sets the sample rate.");
+        }
 
         const double buffer = Num(s, "bufferSize");
         const auto sizes = WithCurrent(Numbers(s, "bufferSizes"), buffer);
         std::vector<Option> sizeOptions;
+
         for (const double b : sizes)
-            sizeOptions.emplace_back(Integer(b), Integer(b) + " samples" + (rate > 0.0 ? " (" + Ms(b, rate) + " ms)" : std::string()));
-        row("Buffer Size", {select(sizeOptions, Integer(buffer), kNarrow, sizes.size() > 1,
-                                   [this](const std::string& v) { DeviceRequest("setBufferSize", {{"bufferSize", std::stoi(v)}}); })});
+        {
+            sizeOptions.emplace_back(Integer(b), Integer(b) + " samples" +
+                                                     (rate > 0.0 ? " (" + Ms(b, rate) + " ms)" : std::string()));
+        }
+
+        row("Buffer Size",
+            {select(sizeOptions, Integer(buffer), kNarrow, sizes.size() > 1,
+                    [this](const std::string& v) { DeviceRequest("setBufferSize", {{"bufferSize", std::stoi(v)}}); })});
+
         if (Numbers(s, "bufferSizes").size() <= 1)
+        {
             hint("The audio driver sets the buffer size.");
+        }
 
         const double latency = Num(s, "inputLatency") + Num(s, "outputLatency");
+
         if (latency > 0.0 && rate > 0.0)
+        {
             hint("Latency reported by the driver: " + Ms(latency, rate) + " ms.");
+        }
     }
 
     // ── The input: its level while this page shows, and the mute ──
     if (!Str(s, "inputDevice").empty())
     {
         auto meter = std::make_shared<MeterBar>(mTheme);
-        mLive.Feed(meter, [this](MeterBar& m) { return m.Set(mState.device.inputLevelDb, mState.device.inputLevelDb > -0.5); });
+        mLive.Feed(meter, [this](MeterBar& m) {
+            return m.Set(mState.device.inputLevelDb, mState.device.inputLevelDb > -0.5);
+        });
         auto level = std::make_shared<Text>(mTheme, "", metrics::kSmallText);
         level->Colour(mTheme.TextMuted());
         // In whole dB; below -99 as -inf.
         mLive.Bind(
-            level, [this] { return mState.device.inputLevelDb <= -99.0 ? -100L : std::lround(mState.device.inputLevelDb); },
+            level,
+            [this] { return mState.device.inputLevelDb <= -99.0 ? -100L : std::lround(mState.device.inputLevelDb); },
             [](Text& t, long db) { t.Set(db <= -100L ? std::string("-inf dB") : std::to_string(db) + " dB"); });
         row("Input Level", {FixedWidth(kWide, Middle(meter)), HGap(10), FixedWidth(70, Middle(level))});
     }
+
     if (Flag(s, "canMuteInput"))
     {
         const bool muted = Flag(s, "inputMuted");
@@ -404,13 +524,17 @@ Ptr Shell::BuildDeviceContent()
     }
     const auto inputs = s.find("midiInputs");
     bool anyPort = false;
+
     if (inputs != s.end() && inputs->is_array())
     {
         // One full-width row per port: their names are long.
         for (const auto& port : *inputs)
         {
             if (!port.is_object() || !port.contains("identifier"))
+            {
                 continue;
+            }
+
             anyPort = true;
             const auto identifier = port.value("identifier", std::string());
             const bool enabled = port.value("enabled", false);
@@ -422,21 +546,33 @@ Ptr Shell::BuildDeviceContent()
             rows.push_back(FixedHeight(40, Row({HGap(16), Middle(name), HGap(12), Middle(toggle), HGap(4)})));
         }
     }
+
     if (!anyPort)
+    {
         hint("None");
+    }
 
     if (Flag(s, "showMidiOutput"))
     {
         std::vector<Option> outputs;
         const auto chosen = Str(s, "midiOutput");
         const auto ports = s.find("midiOutputs");
+
         if (ports != s.end() && ports->is_array())
+        {
             for (const auto& port : *ports)
+            {
                 if (port.is_object() && port.contains("identifier"))
+                {
                     outputs.emplace_back(port.value("identifier", std::string()), port.value("name", std::string()));
+                }
+            }
+        }
+
         outputs.emplace_back("", "None");
-        row("MIDI Output", {select(outputs, chosen, kWide, true,
-                                   [this](const std::string& v) { DeviceRequest("setMidiOutput", {{"identifier", v}}); })});
+        row("MIDI Output", {select(outputs, chosen, kWide, true, [this](const std::string& v) {
+                DeviceRequest("setMidiOutput", {{"identifier", v}});
+            })});
     }
 
     return Col(rows);
@@ -445,22 +581,36 @@ Ptr Shell::BuildDeviceContent()
 void Shell::SyncDevicePage()
 {
     if (!mDevicePage)
+    {
         mDevicePage = std::make_shared<DevicePage>();
+    }
+
     auto& page = *mDevicePage;
+
     if (page.subs.empty())
+    {
         page.subs.push_back(mSession.Client().Subscribe(Topic::Device, [this] { mDevicePage->dirty = true; }));
+    }
 
     // The level lease is held while the page shows; uiclient renews it.
     const bool shown = mPage == Page::Settings && mState.environment.audioDeviceSettings;
+
     if (shown != page.watching)
     {
         page.watching = shown;
         mSession.Client().SetDeviceLevelWatch(shown);
+
         if (shown)
+        {
             mSession.Commands().AudioDevice("getState", {{"rescan", true}});
+        }
     }
+
     if (!shown)
+    {
         return;
+    }
+
     if (!page.slot)
     {
         // Settings was built before the engine said this app has device controls.
@@ -471,13 +621,20 @@ void Shell::SyncDevicePage()
     if (page.dirty)
     {
         page.dirty = false;
+
         if (!mState.device.error.empty())
+        {
             page.error = mState.device.error;
+        }
+
         const auto signature = mState.device.state.dump() + "\n" + page.error + (mState.device.known ? "1" : "0");
+
         // The whole page is rebuilt: a section refilled in place inside the page's scroller kept
         // the height it had been laid out with, and its rows were squeezed into that.
         if (signature != page.signature)
+        {
             Mark(kPage);
+        }
     }
 }
 } // namespace nanoq::ui

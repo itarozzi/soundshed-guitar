@@ -38,15 +38,15 @@ namespace guitarfx::uiclient
 /// What changed, so a view redraws only for the state it shows.
 enum class Topic
 {
-    Session,        // state arrived: environment, settings, theme
-    ActivePreset,   // preset, scene, dirty flag, node params
-    PresetLibrary,  // list, folders, favourites, ratings, recents
+    Session,       // state arrived: environment, settings, theme
+    ActivePreset,  // preset, scene, dirty flag, node params
+    PresetLibrary, // list, folders, favourites, ratings, recents
     Setlists,
-    Catalog,        // effect types and effect presets
-    Resources,      // the resource library
-    GlobalChain,    // input/output stage, gate, EQ, transpose, doubler, mute
+    Catalog,     // effect types and effect presets
+    Resources,   // the resource library
+    GlobalChain, // input/output stage, gate, EQ, transpose, doubler, mute
     Mixer,
-    Telemetry,      // meters and DSP load (20 Hz)
+    Telemetry, // meters and DSP load (20 Hz)
     Tuner,
     Metronome,
     MetronomeBeat,
@@ -54,7 +54,7 @@ enum class Topic
     DeviceLevels,
     Demo,
     Notifications,
-    Tones, // tone sharing installs (what is installed is the toneSharing.installedPacks setting: Session)
+    Tones,           // tone sharing installs (what is installed is the toneSharing.installedPacks setting: Session)
     ResourceFolders, // the resource browser's folder listing, and a folder just picked to add
     Analysis,        // spectra, loudness, analyzer frames, spatial positions, gate Learn
     Automation,      // automation slots and registry, MIDI and key learn, the MIDI Log
@@ -72,7 +72,7 @@ class Analysis;
 /// Unsubscribes when destroyed, so a view that goes away cannot be called back.
 class Subscription
 {
-public:
+  public:
     Subscription() = default;
     Subscription(UiClient* client, Topic topic, int id);
     Subscription(Subscription&& other) noexcept;
@@ -83,7 +83,7 @@ public:
 
     void Reset();
 
-private:
+  private:
     UiClient* mClient = nullptr;
     Topic mTopic = Topic::Session;
     int mId = 0;
@@ -91,7 +91,7 @@ private:
 
 class UiClient
 {
-public:
+  public:
     using Transport = std::function<void(const std::string& json)>;
     using Handler = std::function<void(const nlohmann::json& message)>;
     using Listener = std::function<void()>;
@@ -173,7 +173,7 @@ public:
         return mLastFullStateApplyMs;
     }
 
-private:
+  private:
     friend class Subscription;
 
     void On(const char* type, Handler handler);

@@ -32,6 +32,7 @@ struct HitMap
         std::string nodeId;
         el::rect bounds;
     };
+
     struct Cable
     {
         guitarfx::GraphEdge edge;
@@ -46,30 +47,41 @@ struct HitMap
     void NoteCard(const std::string& nodeId, const el::rect& bounds)
     {
         for (auto& c : cards)
+        {
             if (c.nodeId == nodeId)
             {
                 c.bounds = bounds;
                 return;
             }
+        }
+
         cards.push_back({nodeId, bounds});
     }
 
     void NoteCable(const guitarfx::GraphEdge& edge, const el::rect& bounds)
     {
         for (auto& c : cables)
+        {
             if (c.edge == edge)
             {
                 c.bounds = bounds;
                 return;
             }
+        }
+
         cables.push_back({edge, bounds});
     }
 
     [[nodiscard]] const Card* FindCard(const std::string& nodeId) const
     {
         for (const auto& c : cards)
+        {
             if (c.nodeId == nodeId)
+            {
                 return &c;
+            }
+        }
+
         return nullptr;
     }
 };
@@ -98,7 +110,8 @@ constexpr float kIconRowHeight = 48.0f;
 inline float CardWidthFor(const std::string& name, const std::string& detail)
 {
     const auto chars = [](const std::string& s) {
-        return static_cast<float>(std::count_if(s.begin(), s.end(), [](char c) { return (static_cast<unsigned char>(c) & 0xC0) != 0x80; }));
+        return static_cast<float>(
+            std::count_if(s.begin(), s.end(), [](char c) { return (static_cast<unsigned char>(c) & 0xC0) != 0x80; }));
     };
     const float wanted = std::min(160.0f, std::max(chars(name) * 6.6f, chars(detail) * 5.2f)) + 24.0f;
     return std::clamp(wanted, 72.0f, 185.0f);
@@ -108,7 +121,8 @@ inline float CardWidthFor(const std::string& name, const std::string& detail)
 inline el::color CableColour(const Theme& theme)
 {
     const auto t = theme.TextSecondary(), g = theme.Success();
-    return el::color{t.red * 0.78f + g.red * 0.22f, t.green * 0.78f + g.green * 0.22f, t.blue * 0.78f + g.blue * 0.22f, 1.0f};
+    return el::color{t.red * 0.78f + g.red * 0.22f, t.green * 0.78f + g.green * 0.22f, t.blue * 0.78f + g.blue * 0.22f,
+                     1.0f};
 }
 
 /// `a` mixed into `b` by `amount` (CSS color-mix).
@@ -132,12 +146,12 @@ using namespace chain;
 /// One node in the chain.
 class NodeCard final : public el::element, public Drawn
 {
-public:
+  public:
     enum class Light
     {
-        None,  // the card is off, or it is the splitter
-        Idle,  // on, nothing passing
-        Live,  // passing signal
+        None, // the card is off, or it is the splitter
+        Idle, // on, nothing passing
+        Live, // passing signal
         Clip
     };
 
@@ -165,7 +179,9 @@ public:
         Boundary boundary = Boundary::None;
     };
 
-    NodeCard(const Theme& theme, Icons& icons, Look look) : mTheme(theme), mIcons(icons), mLook(std::move(look)) {}
+    NodeCard(const Theme& theme, Icons& icons, Look look) : mTheme(theme), mIcons(icons), mLook(std::move(look))
+    {
+    }
 
     /// Notes the card in `hits` as `nodeId` when drawn, so drops find it; with onDrag it can be
     /// dragged too.
@@ -184,13 +200,19 @@ public:
     {
         NoteDrawn(ctx);
         auto& cnv = ctx.canvas;
+
         if (mHits && !mNodeId.empty())
+        {
             mHits->NoteCard(mNodeId, CardRect(ctx.bounds, CardHeight()));
+        }
 
         // While dragged, the card follows the pointer.
         auto dragState = cnv.new_state();
+
         if (mDragging)
+        {
             cnv.translate(mDragOffset.x, mDragOffset.y);
+        }
 
         const auto r = CardRect(ctx.bounds, CardHeight());
         const auto tint = mLook.tint;
@@ -202,15 +224,23 @@ public:
         // A bypassed card fades and greys (opacity .45, saturate .35): drawn here by mixing each
         // colour toward the stage behind it.
         const float fade = on ? 1.0f : 0.45f;
-        const auto ghost = [&](el::color c) { return on ? c : Mix(Mix(c, el::color{0.5f, 0.5f, 0.55f, c.alpha}, 0.35f), mTheme.Bar(), fade); };
+        const auto ghost = [&](el::color c) {
+            return on ? c : Mix(Mix(c, el::color{0.5f, 0.5f, 0.55f, c.alpha}, 0.35f), mTheme.Bar(), fade);
+        };
 
         // The shadow under it, and for the selected card a glow in its colour.
         {
             auto state = cnv.new_state();
+
             if (mLook.selected)
+            {
                 cnv.shadow_style(el::point{0.0f, 0.0f}, 22.0f, tint.opacity(0.24f));
+            }
             else
+            {
                 cnv.shadow_style(el::point{0.0f, 3.0f}, 8.0f, el::rgba(0, 0, 0, on ? 90 : 40));
+            }
+
             cnv.fill_style(ghost(face));
             cnv.fill_round_rect(r, kRadius);
         }
@@ -234,18 +264,20 @@ public:
         // The border: the category colour mixed into the border colour, full strength with an inner
         // ring when selected; red when its file is missing.
         const el::color border = mLook.missing    ? el::rgba(232, 76, 76, 153)
-                               : mLook.selected   ? tint
-                               : boundary         ? Mix(tint, mTheme.Border(), 0.6f)
+                                 : mLook.selected ? tint
+                                 : boundary       ? Mix(tint, mTheme.Border(), 0.6f)
                                                   : Mix(tint, mTheme.Border(), 0.42f);
         cnv.stroke_style(ghost(border));
         cnv.line_width(mLook.selected ? 2.0f : 1.0f);
         cnv.stroke_round_rect(mLook.selected ? r.inset(0.5f, 0.5f) : r, kRadius);
+
         if (mLook.selected)
         {
             cnv.stroke_style(tint.opacity(0.36f));
             cnv.line_width(1.0f);
             cnv.stroke_round_rect(r.inset(-1.0f, -1.0f), kRadius + 1.0f);
         }
+
         // A dragged card would land after this one: an accent ring round it.
         if (mHits && !mNodeId.empty() && mHits->hoverNode == mNodeId)
         {
@@ -253,6 +285,7 @@ public:
             cnv.line_width(2.0f);
             cnv.stroke_round_rect(r.inset(-3.0f, -3.0f), kRadius + 3.0f);
         }
+
         // The highlight along the top edge.
         cnv.stroke_style(Mix(el::rgba(255, 255, 255, 255), tint, 0.08f).opacity(0.18f * fade));
         cnv.line_width(1.0f);
@@ -282,6 +315,7 @@ public:
         if (mLook.iconOnly)
         {
             const auto c = artist::center_point(r);
+
             if (mLook.thumbnail)
             {
                 const el::rect picture{c.x - 13.0f, c.y - 13.0f, c.x + 13.0f, c.y + 13.0f};
@@ -290,6 +324,7 @@ public:
                 cnv.add_round_rect(picture, 4.0f);
                 cnv.clip();
                 DrawImageCovering(cnv, *mLook.thumbnail, picture);
+
                 if (!on)
                 {
                     cnv.fill_style(mTheme.Bar().opacity(0.6f));
@@ -331,14 +366,16 @@ public:
                 cnv.fill_style(el::rgba(9, 11, 17, 102));
                 cnv.add_circle(artist::circle(c, 11.0f));
                 cnv.fill();
-                mIcons.Draw(cnv, mLook.icon, el::rect{c.x - 7.0f, c.y - 7.0f, c.x + 7.0f, c.y + 7.0f}, ghost(tint).opacity(0.85f));
+                mIcons.Draw(cnv, mLook.icon, el::rect{c.x - 7.0f, c.y - 7.0f, c.x + 7.0f, c.y + 7.0f},
+                            ghost(tint).opacity(0.85f));
                 y += 24.0f + 4.0f;
             }
             else
             {
                 const el::point c{cx, y + 15.0f};
                 auto state = cnv.new_state();
-                artist::canvas::radial_gradient badge{el::point{c.x, c.y - 3.5f}, 0.0f, el::point{c.x, c.y - 3.5f}, 15.0f * 1.1f};
+                artist::canvas::radial_gradient badge{el::point{c.x, c.y - 3.5f}, 0.0f, el::point{c.x, c.y - 3.5f},
+                                                      15.0f * 1.1f};
                 badge.add_color_stop(0.0f, tint.opacity(0.28f * fade));
                 badge.add_color_stop(0.72f, tint.opacity(0.07f * fade));
                 cnv.fill_style(badge);
@@ -357,15 +394,18 @@ public:
             const auto nameFont = Font(Weight::Medium).size(10.0f);
             const auto detailFont = Font(Weight::Medium).size(9.0f);
             const float textWidth = std::min(160.0f, r.width() - 16.0f);
-            FillText(cnv, Ellipsize(cnv, Upper(mLook.name), nameFont, textWidth), nameFont, ink, el::rect{r.left + 6.0f, y, r.right - 6.0f, y + 12.0f},
-                     HAlign::Centre);
+            FillText(cnv, Ellipsize(cnv, Upper(mLook.name), nameFont, textWidth), nameFont, ink,
+                     el::rect{r.left + 6.0f, y, r.right - 6.0f, y + 12.0f}, HAlign::Centre);
             y += 14.0f;
+
             if (!mLook.detail.empty())
             {
-                FillText(cnv, Ellipsize(cnv, mLook.detail, detailFont, textWidth), detailFont, ghost(Mix(tint, mTheme.TextMuted(), 0.26f)),
+                FillText(cnv, Ellipsize(cnv, mLook.detail, detailFont, textWidth), detailFont,
+                         ghost(Mix(tint, mTheme.TextMuted(), 0.26f)),
                          el::rect{r.left + 6.0f, y, r.right - 6.0f, y + 11.0f}, HAlign::Centre);
                 y += 13.0f;
             }
+
             if (!mLook.badge.empty())
             {
                 const auto badgeFont = Font(Weight::SemiBold).size(8.0f);
@@ -378,7 +418,6 @@ public:
                 cnv.stroke_round_rect(pill.inset(0.5f, 0.5f), 6.5f);
                 FillText(cnv, mLook.badge, badgeFont, el::rgba(186, 255, 226, 255), pill, HAlign::Centre);
             }
-
         }
 
         // The signal light, bottom right.
@@ -387,8 +426,12 @@ public:
             const el::color colour = mLight == Light::Clip ? mTheme.Error() : el::rgba(72, 224, 120, 255);
             const el::point c{r.right - 9.0f, r.bottom - 9.0f};
             auto state = cnv.new_state();
+
             if (mLight != Light::Idle)
+            {
                 cnv.shadow_style(el::point{0.0f, 0.0f}, 6.0f, colour.opacity(0.8f));
+            }
+
             cnv.fill_style(mLight == Light::Idle ? colour.opacity(0.35f) : colour);
             cnv.add_circle(artist::circle(c, 3.0f));
             cnv.fill();
@@ -397,8 +440,8 @@ public:
         if (mLook.missing && !mLook.iconOnly)
         {
             const auto font = Font(Weight::SemiBold).size(9.0f);
-            FillText(cnv, "\xE2\x9A\xA0", font, el::rgba(255, 102, 102, 255), el::rect{r.left + 4.0f, r.bottom - 15.0f, r.left + 16.0f, r.bottom - 3.0f},
-                     HAlign::Centre);
+            FillText(cnv, "\xE2\x9A\xA0", font, el::rgba(255, 102, 102, 255),
+                     el::rect{r.left + 4.0f, r.bottom - 15.0f, r.left + 16.0f, r.bottom - 3.0f}, HAlign::Centre);
         }
 
         // The power button: shown while the card is hovered, and while it is off.
@@ -417,13 +460,20 @@ public:
         if (btn.state == el::mouse_button::right)
         {
             if (btn.down && onMenu)
+            {
                 onMenu();
+            }
+
             return true;
         }
+
         if (btn.state != el::mouse_button::left)
+        {
             return false;
+        }
 
         const auto r = CardRect(ctx.bounds, CardHeight());
+
         if (btn.down)
         {
             mDown = true;
@@ -435,22 +485,32 @@ public:
 
         const bool wasDown = mDown;
         mDown = false;
+
         if (mDragging)
         {
             mDragging = false;
             mDragOffset = {0.0f, 0.0f};
+
             if (onDrag)
+            {
                 onDrag(mDownAt, btn.pos, true);
+            }
+
             ctx.view.refresh();
             return true;
         }
+
         if (!wasDown || !r.includes(btn.pos))
+        {
             return true;
+        }
 
         if (mDownOnPower)
         {
             if (onToggle)
+            {
                 onToggle();
+            }
         }
         else if (btn.num_clicks >= 2 && onReplace)
         {
@@ -460,16 +520,24 @@ public:
         {
             onSelect();
         }
+
         return true;
     }
 
     void drag(const el::context& ctx, el::mouse_button btn) override
     {
         if (!mDown || mDownOnPower || !onDrag)
+        {
             return;
+        }
+
         const el::point offset{btn.pos.x - mDownAt.x, btn.pos.y - mDownAt.y};
+
         if (!mDragging && std::hypot(offset.x, offset.y) < 6.0f)
+        {
             return;
+        }
+
         mDragging = true;
         mDragOffset = offset;
         onDrag(mDownAt, btn.pos, false);
@@ -479,13 +547,16 @@ public:
     bool cursor(const el::context& ctx, el::point p, el::cursor_tracking status) override
     {
         const bool inside = status != el::cursor_tracking::leaving;
-        const bool power = inside && mLook.canBypass && PowerRect(CardRect(ctx.bounds, CardHeight())).inset(-4.0f, -4.0f).includes(p);
+        const bool power =
+            inside && mLook.canBypass && PowerRect(CardRect(ctx.bounds, CardHeight())).inset(-4.0f, -4.0f).includes(p);
+
         if (inside != mHover || power != mHoverPower)
         {
             mHover = inside;
             mHoverPower = power;
             ctx.view.refresh(ctx);
         }
+
         return false;
     }
 
@@ -498,7 +569,10 @@ public:
     bool SetLight(Light light)
     {
         if (light == mLight)
+        {
             return false;
+        }
+
         mLight = light;
         return true;
     }
@@ -517,11 +591,14 @@ public:
     /// A drag from `from` that is now at `to` (view coordinates); `done` when it is let go.
     std::function<void(el::point from, el::point to, bool done)> onDrag;
 
-private:
+  private:
     [[nodiscard]] float CardHeight() const
     {
         if (mLook.iconOnly)
+        {
             return kIconCardSize;
+        }
+
         return mLook.thumbnail ? kThumbCardHeight : kPlainCardHeight;
     }
 
@@ -529,7 +606,11 @@ private:
     {
         // On a tile it sits over the corner, clear of the icon.
         if (mLook.iconOnly)
-            return el::rect{card.left - 5.0f, card.top - 5.0f, card.left - 5.0f + kPowerSize, card.top - 5.0f + kPowerSize};
+        {
+            return el::rect{card.left - 5.0f, card.top - 5.0f, card.left - 5.0f + kPowerSize,
+                            card.top - 5.0f + kPowerSize};
+        }
+
         return el::rect{card.left + 6.0f, card.top + 6.0f, card.left + 6.0f + kPowerSize, card.top + 6.0f + kPowerSize};
     }
 
@@ -549,7 +630,7 @@ private:
 /// an effect there; `stretch` lets it run on to fill a short branch.
 class Connector final : public el::element, public Drawn
 {
-public:
+  public:
     Connector(const Theme& theme, std::function<void()> onAdd, bool stretch = false)
         : mTheme(theme), mOnAdd(std::move(onAdd)), mStretch(stretch)
     {
@@ -597,7 +678,10 @@ public:
         const float y = b.top + b.height() * 0.5f;
 
         if (mHits && mEdge)
+        {
             mHits->NoteCable(*mEdge, b);
+        }
+
         const bool dropHere = mHits && mEdge && mHits->hoverEdge && *mHits->hoverEdge == *mEdge;
 
         // A live cable (.signal-live): the hot route colour with a glow, and bright pulses
@@ -622,6 +706,7 @@ public:
             cnv.add_rect(el::rect{b.left + 1.5f, y - 2.0f, b.right - 1.5f, y + 2.0f});
             cnv.clip();
             constexpr float kSpacing = 18.0f;
+
             for (float x = b.left - kSpacing + mPhase * kSpacing; x < b.right; x += kSpacing)
             {
                 artist::canvas::linear_gradient pulse{el::point{x, y}, el::point{x + kSpacing, y}};
@@ -636,6 +721,7 @@ public:
         // The cable (.signal-connector: 3 px, the route colour at 55%) with an arrowhead into
         // what it feeds, in the full colour; the accent where a dragged card would land.
         const auto route = dropHere ? mTheme.Accent() : mLive ? el::rgba(72, 224, 120, 255) : CableColour(mTheme);
+
         if (!mLive || dropHere)
         {
             cnv.stroke_style(route.opacity(0.55f));
@@ -646,6 +732,7 @@ public:
             cnv.line_to(b.right - 1.5f, y);
             cnv.stroke();
         }
+
         cnv.stroke_style(route);
         cnv.line_width(1.5f);
         cnv.begin_path();
@@ -655,9 +742,12 @@ public:
         cnv.stroke();
 
         if (!mOnAdd)
+        {
             return;
+        }
 
         const el::point c = PlusCentre(b);
+
         if (mHover)
         {
             // The add button (.signal-add-btn): 24 px, raised, a bold +.
@@ -703,20 +793,28 @@ public:
     bool click(const el::context& ctx, el::mouse_button btn) override
     {
         if (!mOnAdd || btn.state != el::mouse_button::left)
+        {
             return false;
+        }
+
         if (!btn.down && HitsPlus(ctx, btn.pos))
+        {
             mOnAdd();
+        }
+
         return HitsPlus(ctx, btn.pos);
     }
 
     bool cursor(const el::context& ctx, el::point p, el::cursor_tracking status) override
     {
         const bool hover = mOnAdd && status != el::cursor_tracking::leaving && HitsPlus(ctx, p);
+
         if (hover != mHover)
         {
             mHover = hover;
             ctx.view.refresh(ctx);
         }
+
         return false;
     }
 
@@ -725,9 +823,10 @@ public:
         return static_cast<bool>(mOnAdd);
     }
 
-private:
+  private:
     bool mLive = false;
     float mPhase = 0.0f;
+
     /// Where the + sits: two fifths along the cable (--signal-add-anchor-x: 40%).
     static el::point PlusCentre(const el::rect& b)
     {
@@ -754,7 +853,7 @@ private:
 /// which is where its Branches control is.
 class Rail final : public el::element
 {
-public:
+  public:
     Rail(const Theme& theme, Icons& icons, int lanes, bool join, bool selected, std::function<void()> onSelect)
         : mTheme(theme), mIcons(icons), mLanes(lanes), mJoin(join), mSelected(selected), mOnSelect(std::move(onSelect))
     {
@@ -792,12 +891,14 @@ public:
         const float last = top + Height() - mRowHeight * 0.5f;
         cnv.move_to(x, first);
         cnv.line_to(x, last);
+
         for (int i = 0; i < mLanes; ++i)
         {
             const float y = first + static_cast<float>(i) * (mRowHeight + kLaneGap);
             cnv.move_to(x, y);
             cnv.line_to(inside, y);
         }
+
         cnv.stroke();
 
         const el::point c{x, mid};
@@ -808,27 +909,35 @@ public:
         cnv.line_width(mSelected ? 2.0f : 1.0f);
         cnv.add_circle(artist::circle(c, 11.0f));
         cnv.stroke();
-        mIcons.Draw(cnv, mJoin ? "parallel-join" : "parallel-split", el::rect{c.x - 7.0f, c.y - 7.0f, c.x + 7.0f, c.y + 7.0f},
-                    mTheme.TextSecondary());
+        mIcons.Draw(cnv, mJoin ? "parallel-join" : "parallel-split",
+                    el::rect{c.x - 7.0f, c.y - 7.0f, c.x + 7.0f, c.y + 7.0f}, mTheme.TextSecondary());
     }
 
     bool click(const el::context& ctx, el::mouse_button btn) override
     {
         if (!mOnSelect || btn.state != el::mouse_button::left)
+        {
             return false;
+        }
+
         if (!btn.down)
+        {
             mOnSelect();
+        }
+
         return true;
     }
 
     bool cursor(const el::context& ctx, el::point, el::cursor_tracking status) override
     {
         const bool hover = status != el::cursor_tracking::leaving;
+
         if (hover != mHover)
         {
             mHover = hover;
             ctx.view.refresh(ctx);
         }
+
         return false;
     }
 
@@ -837,7 +946,7 @@ public:
         return static_cast<bool>(mOnSelect);
     }
 
-private:
+  private:
     [[nodiscard]] float Height() const
     {
         return static_cast<float>(mLanes) * mRowHeight + static_cast<float>(std::max(0, mLanes - 1)) * kLaneGap;
@@ -856,8 +965,10 @@ private:
 /// on to the right (the next line's start).
 class WireEnd final : public el::element
 {
-public:
-    WireEnd(const Theme& theme, bool out) : mTheme(theme), mOut(out) {}
+  public:
+    WireEnd(const Theme& theme, bool out) : mTheme(theme), mOut(out)
+    {
+    }
 
     el::view_limits limits(const el::basic_context&) const override
     {
@@ -873,6 +984,7 @@ public:
         cnv.stroke_style(CableColour(mTheme).opacity(0.55f));
         cnv.line_width(3.0f);
         cnv.begin_path();
+
         if (mOut)
         {
             cnv.move_to(b.left, mid);
@@ -885,10 +997,11 @@ public:
             cnv.arc_to(el::point{x, mid}, el::point{b.right, mid}, 6.0f);
             cnv.line_to(b.right, mid);
         }
+
         cnv.stroke();
     }
 
-private:
+  private:
     const Theme& mTheme;
     bool mOut;
 };
@@ -896,8 +1009,10 @@ private:
 /// The cable back under a line: down from where the line ended, across, and down into the next.
 class ReturnRoute final : public el::element
 {
-public:
-    ReturnRoute(const Theme& theme, float fromX, float toX) : mTheme(theme), mFrom(fromX), mTo(toX) {}
+  public:
+    ReturnRoute(const Theme& theme, float fromX, float toX) : mTheme(theme), mFrom(fromX), mTo(toX)
+    {
+    }
 
     el::view_limits limits(const el::basic_context&) const override
     {
@@ -920,9 +1035,8 @@ public:
         cnv.stroke();
     }
 
-private:
+  private:
     const Theme& mTheme;
     float mFrom, mTo;
 };
-
 } // namespace nanoq::ui

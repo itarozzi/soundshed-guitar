@@ -32,21 +32,32 @@ Ptr Shell::KeyLayer(Ptr layer)
 void Shell::TapTempo()
 {
     if (!mTapTempo)
+    {
         mTapTempo = std::make_shared<guitarfx::uiclient::TapTempo>();
+    }
+
     if (const auto bpm = mTapTempo->Tap(UiSession::Now()))
+    {
         mSession.Commands().SetMetronomeBpm(guitarfx::uiclient::ClampBpm(*bpm));
+    }
 }
 
 bool Shell::HandleKey(const el::key_info& k)
 {
     using el::key_code;
+
     if (k.action != el::key_action::press && k.action != el::key_action::repeat)
+    {
         return false;
+    }
+
     const bool repeat = k.action == el::key_action::repeat;
 
     // A key a slot maps, or any while a key learn waits, goes to the engine's mappings first.
     if (RouteAutomationKey(k))
+    {
         return true;
+    }
 
     if (k.key == key_code::escape)
     {
@@ -55,99 +66,125 @@ bool Shell::HandleKey(const el::key_info& k)
             CloseDropdown();
             return true;
         }
+
         if (mOverlay)
         {
             CloseOverlay();
             return true;
         }
+
         return false;
     }
 
     // Under a menu or dialog the page's shortcuts are off, as the web UI's are under a modal.
     if (mDropdown || mOverlay || !mState.activePreset)
+    {
         return false;
+    }
 
     if (CommandHeld(k.modifiers))
     {
         if (k.key == key_code::z)
         {
             if (k.modifiers & el::mod_shift)
+            {
                 RedoChain();
+            }
             else
+            {
                 UndoChain();
+            }
+
             return true;
         }
+
         if (k.key == key_code::y)
         {
             RedoChain();
             return true;
         }
+
         return false;
     }
+
     if (k.modifiers & (el::mod_alt | el::mod_control | el::mod_super))
+    {
         return false;
+    }
 
     const auto* node = mChainFocused ? SelectedNode() : nullptr;
     auto& commands = mSession.Commands();
 
     switch (k.key)
     {
-        case key_code::space:
+    case key_code::space: {
+        if (repeat)
         {
-            if (repeat)
-                return true;
-            if (node != nullptr && !guitarfx::uiclient::IsSplitterType(node->type) &&
-                !guitarfx::uiclient::IsMixerType(node->type))
-            {
-                commands.SetNodeBypassed(node->id, node->enabled);
-                return true;
-            }
-            TapTempo();
             return true;
         }
 
-        case key_code::_delete:
-        case key_code::backspace:
+        if (node != nullptr && !guitarfx::uiclient::IsSplitterType(node->type) &&
+            !guitarfx::uiclient::IsMixerType(node->type))
         {
-            if (node == nullptr || repeat)
-                return false;
-            const std::string nodeId = node->id;
-            if (guitarfx::uiclient::IsSplitterType(node->type) || guitarfx::uiclient::IsMixerType(node->type))
-            {
-                const auto layout = guitarfx::uiclient::BuildChainLayout(mState.activePreset->graph);
-                for (const auto& item : layout.items)
-                {
-                    if (item.kind == guitarfx::uiclient::ChainItem::Kind::Parallel && item.collapsible &&
-                        (item.splitNodeId == nodeId || item.joinNodeId == nodeId))
-                    {
-                        commands.CollapseSplit(item.splitNodeId);
-                        mSelectedNode.clear();
-                        mChainFocused = false;
-                        return true;
-                    }
-                }
-                return false;
-            }
-            mSelectedNode.clear();
-            mChainFocused = false;
-            commands.RemoveNode(nodeId);
-            Mark(kChain | kPage);
+            commands.SetNodeBypassed(node->id, node->enabled);
             return true;
         }
 
-        case key_code::f2:
-        {
-            const auto* scene = mState.ActiveScene();
-            if (scene == nullptr || mState.activePreset->scenes.size() < 2)
-                return false;
-            const std::string id = scene->id;
-            OpenPrompt("Rename scene", scene->title, "Rename",
-                       [this, id](const std::string& entered) { mSession.Commands().RenameScene(id, entered); });
-            return true;
-        }
+        TapTempo();
+        return true;
+    }
 
-        default:
+    case key_code::_delete:
+    case key_code::backspace: {
+        if (node == nullptr || repeat)
+        {
             return false;
+        }
+
+        const std::string nodeId = node->id;
+
+        if (guitarfx::uiclient::IsSplitterType(node->type) || guitarfx::uiclient::IsMixerType(node->type))
+        {
+            const auto layout = guitarfx::uiclient::BuildChainLayout(mState.activePreset->graph);
+
+            for (const auto& item : layout.items)
+            {
+                if (item.kind == guitarfx::uiclient::ChainItem::Kind::Parallel && item.collapsible &&
+                    (item.splitNodeId == nodeId || item.joinNodeId == nodeId))
+                {
+                    commands.CollapseSplit(item.splitNodeId);
+                    mSelectedNode.clear();
+                    mChainFocused = false;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        mSelectedNode.clear();
+        mChainFocused = false;
+        commands.RemoveNode(nodeId);
+        Mark(kChain | kPage);
+        return true;
+    }
+
+    case key_code::f2: {
+        const auto* scene = mState.ActiveScene();
+
+        if (scene == nullptr || mState.activePreset->scenes.size() < 2)
+        {
+            return false;
+        }
+
+        const std::string id = scene->id;
+        OpenPrompt("Rename scene", scene->title, "Rename",
+                   [this, id](const std::string& entered) { mSession.Commands().RenameScene(id, entered); });
+        return true;
+    }
+
+    default:
+        return false;
     }
 }
 } // namespace nanoq::ui

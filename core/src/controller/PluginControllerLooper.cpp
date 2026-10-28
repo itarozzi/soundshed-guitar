@@ -56,7 +56,8 @@ std::unique_ptr<looper_render::Graphs> PluginController::BuildLooperRenderGraphs
     };
 
     auto graphs = std::make_unique<looper_render::Graphs>();
-    graphs->pre = build(GlobalChainEditor::LivePreChain(chains.preChainGraph), ChannelLayout::Stereo, &chains.inputGain);
+    graphs->pre =
+        build(GlobalChainEditor::LivePreChain(chains.preChainGraph), ChannelLayout::Stereo, &chains.inputGain);
     graphs->preset = std::move(job->executor);
     graphs->post = build(chains.postChainGraph, ChannelLayout::Stereo, nullptr);
 

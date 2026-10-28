@@ -37,14 +37,20 @@ inline std::string StringSetting(const nlohmann::json& settings, const char* key
 inline std::string PresetTitle(const guitarfx::uiclient::ClientState& state)
 {
     if (const auto* summary = state.FindPresetSummary(state.activePresetId))
+    {
         return summary->name;
+    }
+
     if (state.activePreset && !state.activePreset->name.empty())
+    {
         return state.activePreset->name;
+    }
+
     return "No preset";
 }
 
-inline std::shared_ptr<IconButton> ToolButton(const Theme& theme, Icons& icons, const char* icon, std::function<void()> onClick,
-                                              float size = 28.0f, float iconSize = 14.0f)
+inline std::shared_ptr<IconButton> ToolButton(const Theme& theme, Icons& icons, const char* icon,
+                                              std::function<void()> onClick, float size = 28.0f, float iconSize = 14.0f)
 {
     auto b = std::make_shared<IconButton>(theme, icons, icon);
     b->Size(size, size).IconSize(iconSize);

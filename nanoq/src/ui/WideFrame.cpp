@@ -26,8 +26,11 @@ namespace
 /// A tab of the top row (.nav-tab): its capital label, the accent and an underline when open.
 class NavTab final : public Pressable
 {
-public:
-    NavTab(const Theme& theme, std::string label, bool active) : mTheme(theme), mLabel(std::move(label)), mActive(active) {}
+  public:
+    NavTab(const Theme& theme, std::string label, bool active)
+        : mTheme(theme), mLabel(std::move(label)), mActive(active)
+    {
+    }
 
     el::view_limits limits(const el::basic_context& ctx) const override
     {
@@ -40,7 +43,9 @@ public:
         auto& cnv = ctx.canvas;
         const auto b = ctx.bounds;
         const auto ink = mActive ? mTheme.Accent() : (mHover ? mTheme.Text() : mTheme.TextSecondary());
-        FillText(cnv, mLabel, Font(Weight::SemiBold).size(12.0f), ink, el::rect{b.left, b.top, b.right, b.bottom - 2.0f}, HAlign::Centre);
+        FillText(cnv, mLabel, Font(Weight::SemiBold).size(12.0f), ink,
+                 el::rect{b.left, b.top, b.right, b.bottom - 2.0f}, HAlign::Centre);
+
         if (mActive)
         {
             cnv.fill_style(mTheme.Accent());
@@ -48,7 +53,7 @@ public:
         }
     }
 
-private:
+  private:
     const Theme& mTheme;
     std::string mLabel;
     bool mActive;
@@ -57,11 +62,20 @@ private:
 std::string SourceLabel(const std::string& source)
 {
     if (source == "user")
+    {
         return "User";
+    }
+
     if (source == "factory")
+    {
         return "Factory";
+    }
+
     if (source == "session")
+    {
         return "Session";
+    }
+
     return {};
 }
 } // namespace
@@ -81,10 +95,17 @@ bool Shell::WantsWide() const
     // The web UI's rule (compactMode.ts): compact at or below 980 wide or 620 high, in layout
     // pixels (the zoom divided out), unless the density setting says always one or the other.
     const auto density = StringSetting(mState.appSettings, kDensitySetting, "auto");
+
     if (density == "full")
+    {
         return true;
+    }
+
     if (density == "compact")
+    {
         return false;
+    }
+
     const auto size = ViewSize();
     return size.x > metrics::kCompactMaxWidth && size.y > metrics::kCompactMaxHeight;
 }
@@ -93,10 +114,14 @@ Ptr Shell::BuildFrame()
 {
     if (mWide)
     {
-        auto rule = [this] { return FixedHeight(1, Fill(mTheme.Text().opacity(0.06f), std::make_shared<el::element>())); };
-        return Col({FixedHeight(metrics::kTabBarHeight, Yielding(mRailSlot)), rule(), FixedHeight(metrics::kHeaderHeight - 1.0f, Yielding(mTopSlot)),
-                    rule(), Yielding(mPageSlot), mLooperSlot, FixedHeight(metrics::kWideFooterHeight, Yielding(mTransportSlot))});
+        auto rule = [this] {
+            return FixedHeight(1, Fill(mTheme.Text().opacity(0.06f), std::make_shared<el::element>()));
+        };
+        return Col({FixedHeight(metrics::kTabBarHeight, Yielding(mRailSlot)), rule(),
+                    FixedHeight(metrics::kHeaderHeight - 1.0f, Yielding(mTopSlot)), rule(), Yielding(mPageSlot),
+                    mLooperSlot, FixedHeight(metrics::kWideFooterHeight, Yielding(mTransportSlot))});
     }
+
     // The rail down the left; beside it the preset bar, the stage and the footer. The regions
     // yield their minimum sizes: each is built for the window's size and rebuilt when it changes
     // (OnTick), and the window's own floor is the root's (MinSize).
@@ -108,11 +133,12 @@ Ptr Shell::BuildFrame()
 std::string Shell::TopBarSignature() const
 {
     const auto* summary = mState.FindPresetSummary(mState.activePresetId);
-    std::string s = std::string(mWide ? "w" : "c") + std::to_string(static_cast<int>(mPage)) + "|" + mState.activePresetId + "|" +
-                    PresetTitle(mState) + "|" + (mState.activePresetDirty ? "d" : "") + (mState.activePreset ? "p" : "") +
-                    (guitarfx::uiclient::IsPresetFavorite(mState, mState.activePresetId) ? "f" : "") + "|" +
-                    (summary != nullptr ? summary->source : std::string()) + "|" + (mPresetTrail.CanGoBack() ? "<" : "") +
-                    (mPresetTrail.CanGoForward() ? ">" : "") + (mUpdate ? "|u" : "");
+    std::string s =
+        std::string(mWide ? "w" : "c") + std::to_string(static_cast<int>(mPage)) + "|" + mState.activePresetId + "|" +
+        PresetTitle(mState) + "|" + (mState.activePresetDirty ? "d" : "") + (mState.activePreset ? "p" : "") +
+        (guitarfx::uiclient::IsPresetFavorite(mState, mState.activePresetId) ? "f" : "") + "|" +
+        (summary != nullptr ? summary->source : std::string()) + "|" + (mPresetTrail.CanGoBack() ? "<" : "") +
+        (mPresetTrail.CanGoForward() ? ">" : "") + (mUpdate ? "|u" : "");
     return s;
 }
 
@@ -126,10 +152,14 @@ void Shell::NotePresetTrail()
 
 void Shell::StepPresetTrail(int direction)
 {
-    const auto id = mPresetTrail.Step(direction, [this](const std::string& presetId) { return mState.FindPresetSummary(presetId) != nullptr; });
+    const auto id = mPresetTrail.Step(
+        direction, [this](const std::string& presetId) { return mState.FindPresetSummary(presetId) != nullptr; });
     Mark(kTopBar);
+
     if (id)
+    {
         LoadWithConfirm(*id);
+    }
 }
 
 // ── The tab row ─────────────────────────────────────────────────────────────────
@@ -150,16 +180,27 @@ Ptr Shell::BuildTabBar()
 
     // The tabs sit in the middle of the row whatever is beside them.
     std::vector<Ptr> tabItems{tab("PLAY", play, play ? mPage : Page::Chain)};
+
     if (guitarfx::uiclient::IsFeatureEnabled(mState, guitarfx::uiclient::Feature::ToneSharing))
+    {
         tabItems.push_back(tab("TONES", mPage == Page::Tones, Page::Tones));
+    }
+
     if (JamShown())
+    {
         tabItems.push_back(tab("JAM", mPage == Page::Jam, Page::Jam));
+    }
+
     tabItems.push_back(tab("PRESETS", mPage == Page::Presets, Page::Presets));
     auto tabs = Tight(tabItems);
     // A newer release's Update button sits beside the gear, as the web UI's header pill does.
     std::vector<Ptr> row{HGap(38), Stretch(), tabs, Stretch()};
+
     if (auto update = BuildUpdateButton())
+    {
         row.insert(row.end(), {Pad(0, 5, 0, 5, update), HGap(8)});
+    }
+
     row.insert(row.end(), {Pad(0, 4, 0, 4, settings), HGap(10)});
     return Fill(mTheme.Background(), Row(row));
 }
@@ -186,7 +227,9 @@ Ptr Shell::BuildHeader()
         b->onClick = std::move(onClick);
         return b;
     };
-    auto divider = [this] { return Pad(7, 6, 7, 6, FixedWidth(1, Fill(mTheme.Text().opacity(0.1f), std::make_shared<el::element>()))); };
+    auto divider = [this] {
+        return Pad(7, 6, 7, 6, FixedWidth(1, Fill(mTheme.Text().opacity(0.1f), std::make_shared<el::element>())));
+    };
 
     auto create = std::make_shared<IconButton>(mTheme, mIcons, "ui-new", IconButton::Look::Boxed);
     create->Size(72, 28).IconSize(13).Label("NEW", 10.5f).Caret(true);
@@ -195,21 +238,30 @@ Ptr Shell::BuildHeader()
     auto edit = boxed("ui-edit", [this] {
         const auto* s = mState.FindPresetSummary(mState.activePresetId);
         const auto& preset = mState.activePreset;
+
         if (!preset)
+        {
             return;
+        }
+
         if (s == nullptr || s->source != "user")
         {
             SaveActivePreset(true);
             return;
         }
+
         // The web UI's Edit: the save dialog over the preset playing.
         OpenPresetDetails(false);
     });
     edit->Disabled(!havePreset);
     auto save = boxed("ui-save", [this] { SaveActivePreset(false); });
     save->Disabled(!dirty);
+
     if (dirty)
+    {
         save->Ink(mTheme.Accent());
+    }
+
     auto random = boxed("ui-random", [this] { LoadRandomPreset(); });
 
     // Back and forward through the presets loaded (#preset-undo, #preset-redo).
@@ -222,7 +274,8 @@ Ptr Shell::BuildHeader()
     more->Size(30, 28).IconSize(14).Caret(true);
     more->onClick = [this, b = more.get()] { OpenPresetMenu(b->Bounds()); };
 
-    auto toolbar = Tight({create, HGap(6), edit, HGap(6), save, divider(), random, divider(), back, HGap(2), forward, divider(), more});
+    auto toolbar = Tight(
+        {create, HGap(6), edit, HGap(6), save, divider(), random, divider(), back, HGap(2), forward, divider(), more});
 
     // ── The preset selector ──
     auto prev = std::make_shared<IconButton>(mTheme, mIcons, "ui-prev", IconButton::Look::Soft);
@@ -237,33 +290,44 @@ Ptr Shell::BuildHeader()
     pill->onClick = [this] { ShowPage(mPage == Page::Presets ? Page::Chain : Page::Presets); };
     pill->onFavourite = [&commands, presetId, favourite] {
         if (!presetId.empty())
+        {
             commands.SetPresetFavorite(presetId, !favourite);
+        }
     };
 
     // The middle gets what the knobs leave, up to the web UI's 680 px.
-    auto centre = WidthRange(330.0f, 680.0f, Col({VGap(27), FixedHeight(28, Row({Stretch(), toolbar, Stretch()})), VGap(9),
-                                          FixedHeight(36, Row({Pad(0, 3, 0, 3, prev), HGap(8), pill, HGap(8), Pad(0, 3, 0, 3, next)})),
-                                          std::make_shared<el::element>()}));
+    auto centre =
+        WidthRange(330.0f, 680.0f,
+                   Col({VGap(27), FixedHeight(28, Row({Stretch(), toolbar, Stretch()})), VGap(9),
+                        FixedHeight(36, Row({Pad(0, 3, 0, 3, prev), HGap(8), pill, HGap(8), Pad(0, 3, 0, 3, next)})),
+                        std::make_shared<el::element>()}));
 
     auto meterColumn = [](Ptr meter, Ptr below) {
         std::vector<Ptr> parts{VGap(26), FixedHeight(84, std::move(meter))};
+
         if (below)
         {
             parts.push_back(VGap(2));
             parts.push_back(FixedHeight(18, Row({Stretch(), std::move(below), Stretch()})));
         }
+
         parts.push_back(std::make_shared<el::element>());
         return FixedWidth(30, Col(parts));
     };
     auto cellsAt = [](std::vector<Ptr> list) {
         auto row = std::make_shared<el::htile_composite>();
+
         for (auto& c : list)
+        {
             row->push_back(Pad(0, 28, 0, 0, c));
+        }
+
         return Ptr(row);
     };
 
-    auto bar = Row({HGap(28), meterColumn(cells.inMeter, cells.levelling), HGap(14), cellsAt({cells.in, cells.gate, cells.transpose}), Stretch(),
-                    centre, Stretch(), cellsAt({cells.eq, cells.doubler, cells.out}), HGap(14), meterColumn(cells.outMeter, cells.mute),
+    auto bar = Row({HGap(28), meterColumn(cells.inMeter, cells.levelling), HGap(14),
+                    cellsAt({cells.in, cells.gate, cells.transpose}), Stretch(), centre, Stretch(),
+                    cellsAt({cells.eq, cells.doubler, cells.out}), HGap(14), meterColumn(cells.outMeter, cells.mute),
                     HGap(28)});
     return Fill(mTheme.Tertiary(), bar);
 }
@@ -285,25 +349,36 @@ Ptr Shell::BuildPlayStage()
     auto handle = std::make_shared<SplitHandle>(mTheme);
     handle->onDrag = [this](float dy, bool done) {
         constexpr float kModeGesture = 12.0f;
+
         if (mChainDragStart < 0.0f)
         {
             mChainDragStart = mChainAreaHeight - 24.0f - 30.0f;
             mChainDragIcons = IconChain();
         }
+
         const float wanted = mChainDragStart + dy;
         const bool icons = mChainDragIcons ? dy < kModeGesture : wanted < kCardHeight + 24.0f - kModeGesture;
         mChainIcons = icons ? 1 : 0;
+
         if (!icons)
+        {
             mChainAreaLimit = std::max(1.0f, wanted);
+        }
+
         mChainSignature.clear();
         mEffectSignature.clear();
         Mark(kChain | kPage);
+
         if (done)
         {
             mChainDragStart = -1.0f;
             nlohmann::json patch{{"chainIcons", icons}};
+
             if (!icons)
+            {
                 patch["chainAreaHeight"] = std::round(mChainAreaLimit);
+            }
+
             mSession.Commands().PatchNativeUiSettings(patch);
         }
     };
@@ -315,6 +390,7 @@ Ptr Shell::BuildPlayStage()
 void Shell::PlayOrStopDemo()
 {
     auto& commands = mSession.Commands();
+
     if (mState.demo.playing)
     {
         commands.StopDemo();
@@ -322,9 +398,13 @@ void Shell::PlayOrStopDemo()
     else if (const auto* c = SelectedDemoClip())
     {
         if (c->takeId.empty())
+        {
             commands.PreviewDemoClip(c->id, BoolSetting(mState.appSettings, kDemoRepeatSetting, false));
+        }
         else
+        {
             commands.PreviewRiff(c->takeId);
+        }
     }
 }
 
@@ -344,15 +424,18 @@ Ptr Shell::BuildDemoControls(float chooserWidth, bool withRepeat)
     play->Lit(playing).Disabled(clip == nullptr);
 
     std::vector<Ptr> parts{chooserBox, HGap(4), play};
+
     if (withRepeat)
     {
         const bool repeat = BoolSetting(mState.appSettings, kDemoRepeatSetting, false);
-        auto loop = ToolButton(mTheme, mIcons, "ui-loop", [this, repeat] { mSession.Commands().SetSetting(kDemoRepeatSetting, !repeat); },
-                               26.0f, 14.0f);
+        auto loop = ToolButton(
+            mTheme, mIcons, "ui-loop", [this, repeat] { mSession.Commands().SetSetting(kDemoRepeatSetting, !repeat); },
+            26.0f, 14.0f);
         loop->Lit(repeat);
         parts.push_back(HGap(2));
         parts.push_back(loop);
     }
+
     return Tight(parts);
 }
 
@@ -366,6 +449,7 @@ Ptr Shell::BuildTempoControls(bool withTap)
     tempo->onClick = [this] { OpenMetronome(); };
 
     std::vector<Ptr> parts{tempo};
+
     if (withTap)
     {
         auto tap = std::make_shared<IconButton>(mTheme, mIcons, "");
@@ -378,10 +462,13 @@ Ptr Shell::BuildTempoControls(bool withTap)
         parts.push_back(HGap(2));
         parts.push_back(metronome);
     }
+
     const bool ticking = mState.metronome.enabled;
-    auto tick = ToolButton(mTheme, mIcons, ticking ? "ui-stop" : "ui-play", [&commands, ticking] { commands.SetMetronomeEnabled(!ticking); },
-                           26.0f, 12.0f);
+    auto tick = ToolButton(
+        mTheme, mIcons, ticking ? "ui-stop" : "ui-play",
+        [&commands, ticking] { commands.SetMetronomeEnabled(!ticking); }, 26.0f, 12.0f);
     tick->Lit(ticking);
+
     if (!withTap)
     {
         // Compact: the metronome's glyph stands in for the TAP and the dialog button.
@@ -389,6 +476,7 @@ Ptr Shell::BuildTempoControls(bool withTap)
         metronome->Ink(mTheme.TextSecondary());
         parts.push_back(metronome);
     }
+
     parts.push_back(HGap(2));
     parts.push_back(tick);
     return Tight(parts);
@@ -402,13 +490,20 @@ Ptr Shell::ZoomButton()
     button->Size(72, 28).Label(std::to_string(percent) + "%", 11.0f).Caret(true);
     button->onClick = [this, b = button.get(), percent] {
         std::vector<MenuItem> items;
+
         // The web UI's choices (settings/keys.ts ZOOM_LEVEL_OPTIONS); QPlug allows 50% to 200%.
         for (const int p : {75, 90, 100, 110, 125, 150, 175, 200})
+        {
             items.push_back({std::to_string(p) + "%", p == percent, false, [this, p] {
                                  if (mSession.setZoom)
+                                 {
                                      mSession.setZoom(static_cast<float>(p) / 100.0f);
+                                 }
+
                                  Mark(kTransport);
                              }});
+        }
+
         OpenDropdown(b->Bounds(), std::move(items), 110.0f);
     };
     return button;
@@ -419,20 +514,28 @@ Ptr Shell::ZoomButton()
 std::vector<Ptr> Shell::BuildCaptureButtons(float size)
 {
     std::vector<Ptr> buttons;
-    if (mState.environment.standalone && guitarfx::uiclient::IsFeatureEnabled(mState, guitarfx::uiclient::Feature::RiffLibrary))
+
+    if (mState.environment.standalone &&
+        guitarfx::uiclient::IsFeatureEnabled(mState, guitarfx::uiclient::Feature::RiffLibrary))
     {
         auto rec = ToolButton(mTheme, mIcons, "ui-record", [this] { OpenRiffCapture(true); }, size, 14.0f);
         rec->Ink(mTheme.Error());
         buttons.push_back(rec);
     }
+
     if (LooperShown())
     {
         auto loop = ToolButton(mTheme, mIcons, "ui-loop", [this] { ToggleLooper(); }, size, 16.0f);
         loop->Lit(mLooperOpen);
+
         if (!mLooperOpen)
+        {
             loop->Ink(mTheme.TextSecondary());
+        }
+
         buttons.push_back(loop);
     }
+
     return buttons;
 }
 
@@ -441,24 +544,34 @@ std::vector<Ptr> Shell::BuildCaptureButtons(float size)
 Ptr Shell::BuildWideFooter()
 {
     const float width = ViewSize().x;
-    auto divider = [this] { return Pad(10, 8, 10, 8, FixedWidth(1, Fill(mTheme.Text().opacity(0.08f), std::make_shared<el::element>()))); };
+    auto divider = [this] {
+        return Pad(10, 8, 10, 8, FixedWidth(1, Fill(mTheme.Text().opacity(0.08f), std::make_shared<el::element>())));
+    };
 
-    auto pads = ToolButton(mTheme, mIcons, "ui-pads", [this] {
-        mShowSetlists = true;
-        ShowPage(Page::Presets);
-        Mark(kPage);
-    }, 28.0f, 16.0f);
+    auto pads = ToolButton(
+        mTheme, mIcons, "ui-pads",
+        [this] {
+            mShowSetlists = true;
+            ShowPage(Page::Presets);
+            Mark(kPage);
+        },
+        28.0f, 16.0f);
     pads->Ink(mTheme.TextSecondary());
     auto tuner = ToolButton(mTheme, mIcons, "ui-tuner", [this] { OpenTuner(); }, 28.0f, 16.0f);
     tuner->Ink(mTheme.TextSecondary());
-    auto midi = ToolButton(mTheme, mIcons, "ui-midi", [this] { OpenMidiAutomation(); }, 28.0f, 16.0f); // MIDI & Automation
+    auto midi =
+        ToolButton(mTheme, mIcons, "ui-midi", [this] { OpenMidiAutomation(); }, 28.0f, 16.0f); // MIDI & Automation
     midi->Ink(mTheme.TextSecondary());
     const bool muted = mState.outputMuted;
-    auto mute = ToolButton(mTheme, mIcons, muted ? "ui-mute" : "ui-speaker", [this, muted] { mSession.Commands().SetOutputMuted(!muted); },
-                           28.0f, 16.0f);
+    auto mute = ToolButton(
+        mTheme, mIcons, muted ? "ui-mute" : "ui-speaker", [this, muted] { mSession.Commands().SetOutputMuted(!muted); },
+        28.0f, 16.0f);
     mute->Lit(muted);
+
     if (!muted)
+    {
         mute->Ink(mTheme.TextSecondary());
+    }
 
     // Render the clip through the preset: the web UI's camera (#footer-demo-render-btn).
     auto render = ToolButton(mTheme, mIcons, "ui-more", [this] { OpenDemoClips(); }, 26.0f, 14.0f);
@@ -469,23 +582,38 @@ Ptr Shell::BuildWideFooter()
     themeButton->Size(84, 28).Label(themeName, 11.0f).Caret(true);
     themeButton->onClick = [this, t = themeButton.get()] {
         std::vector<MenuItem> items;
-        for (const auto& [id, label] : {std::pair<const char*, const char*>{"dark", "Dark"}, {"light", "Light"}, {"classic", "Classic"}})
-            items.push_back({label, mState.theme == id, false, [this, id = std::string(id)] { mSession.Commands().SetTheme(id); }});
+
+        for (const auto& [id, label] :
+             {std::pair<const char*, const char*>{"dark", "Dark"}, {"light", "Light"}, {"classic", "Classic"}})
+        {
+            items.push_back(
+                {label, mState.theme == id, false, [this, id = std::string(id)] { mSession.Commands().SetTheme(id); }});
+        }
+
         OpenDropdown(t->Bounds(), std::move(items), 150.0f);
     };
 
     std::vector<Ptr> tools;
+
     for (auto& b : BuildCaptureButtons(28.0f))
+    {
         tools.insert(tools.end(), {b, HGap(6)});
+    }
+
     tools.insert(tools.end(), {pads, HGap(6), tuner, HGap(6), midi, HGap(6), mute});
-    std::vector<Ptr> row{HGap(12), BuildHistoryControls(), divider(), BuildDemoControls(width >= 1180.0f ? 150.0f : 120.0f, true),
-                         HGap(2), render, Stretch(), Tight(tools), Stretch(),
-                         BuildTempoControls(true), divider()};
+    std::vector<Ptr> row{HGap(12),  BuildHistoryControls(),
+                         divider(), BuildDemoControls(width >= 1180.0f ? 150.0f : 120.0f, true),
+                         HGap(2),   render,
+                         Stretch(), Tight(tools),
+                         Stretch(), BuildTempoControls(true),
+                         divider()};
+
     if (mSession.getZoom && mSession.setZoom)
     {
         row.push_back(ZoomButton());
         row.push_back(HGap(8));
     }
+
     row.push_back(themeButton);
     row.push_back(HGap(12));
     return Fill(mTheme.Footer(), PadXY(0, 8, Row(row)));

@@ -38,8 +38,11 @@ Engine::~Engine()
         mStopping = true;
     }
     mWake.notify_all();
+
     if (mThread.joinable())
+    {
         mThread.join();
+    }
 }
 
 void Engine::Run(std::promise<void> ready)
@@ -53,6 +56,7 @@ void Engine::Run(std::promise<void> ready)
     ready.set_value();
 
     std::unique_lock<std::mutex> lock(mTaskMutex);
+
     while (!mStopping)
     {
         mWake.wait_for(lock, kTick, [this] { return mStopping || !mTasks.empty(); });
@@ -68,17 +72,24 @@ void Engine::Run(std::promise<void> ready)
         }
 
         if (mStopping)
+        {
             break;
+        }
 
         lock.unlock();
         // A footswitch mapped to a setlist preset or scene must work with no view open; the
         // rest of the idle work only runs while a view is there to show it (as in the JUCE
         // product, where a closed editor does not tick).
         mController->DrainControlSurfaceRequests();
+
         if (mViewAttached.load(std::memory_order_acquire))
+        {
             mController->OnIdle();
+        }
+
         lock.lock();
     }
+
     lock.unlock();
 
     // Tasks left behind may own state the controller touches; drop them first.
@@ -90,8 +101,12 @@ void Engine::Post(std::function<void()> fn)
 {
     {
         std::lock_guard<std::mutex> lock(mTaskMutex);
+
         if (mStopping)
+        {
             return;
+        }
+
         mTasks.push_back(std::move(fn));
     }
     mWake.notify_one();
@@ -101,8 +116,11 @@ void Engine::Handle::Post(std::function<void()> fn)
 {
     // Held while posting, so the engine cannot go between the check and the post.
     std::lock_guard<std::mutex> lock(mMutex);
+
     if (mEngine != nullptr)
+    {
         mEngine->Post(std::move(fn));
+    }
 }
 
 void Engine::Call(const std::function<void()>& fn)
@@ -125,6 +143,7 @@ void Engine::Call(const std::function<void()>& fn)
 void Engine::SetViewAttached(bool attached)
 {
     mViewAttached.store(attached, std::memory_order_release);
+
     if (!attached)
     {
         std::lock_guard<std::mutex> lock(mOutboxMutex);
@@ -166,11 +185,16 @@ void Engine::SendMessageToUI(const std::string& jsonMessage)
     // The controller may send from any thread (the audio thread's telemetry too). With no view
     // there is nobody to read it.
     if (!mViewAttached.load(std::memory_order_acquire))
+    {
         return;
+    }
 
     std::lock_guard<std::mutex> lock(mOutboxMutex);
+
     if (mOutbox.size() < kMaxOutbox)
+    {
         mOutbox.push_back(jsonMessage);
+    }
 }
 
 void Engine::BrowseFileAsync(guitarfx::BrowseFileType type, const std::string& title,
@@ -179,9 +203,10 @@ void Engine::BrowseFileAsync(guitarfx::BrowseFileType type, const std::string& t
     // The callback is documented to fire on the message thread: bounce the result onto it. The
     // dialog's thread is not the engine's to wait for and may outlive it (the plugin removed with
     // the dialog still up), so it reaches the engine through the handle, not the engine itself.
-    ShowOpenDialog(type, title, [handle = mHandle, callback = std::move(callback)](const guitarfx::BrowseFileResult& result) {
-        handle->Post([callback, result] { callback(result); });
-    });
+    ShowOpenDialog(type, title,
+                   [handle = mHandle, callback = std::move(callback)](const guitarfx::BrowseFileResult& result) {
+                       handle->Post([callback, result] { callback(result); });
+                   });
 }
 
 void Engine::SaveFileAsync(guitarfx::BrowseFileType type, const std::string& title, const std::string& defaultName,

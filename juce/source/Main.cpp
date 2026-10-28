@@ -13,58 +13,82 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #if JUCE_ANDROID
- #include <sys/system_properties.h>
+    #include <sys/system_properties.h>
 
- #include <optional>
+    #include <optional>
 #endif
 
 //==============================================================================
 namespace
 {
-    juce::String extractToneSharingDeepLinkQuery (juce::String commandLine)
-    {
-        auto normalized = juce::URL::removeEscapeChars (commandLine.unquoted().trim());
+juce::String extractToneSharingDeepLinkQuery(juce::String commandLine)
+{
+    auto normalized = juce::URL::removeEscapeChars(commandLine.unquoted().trim());
 
-        auto extractValue = [&normalized] (const juce::String& key) -> juce::String
+    auto extractValue = [&normalized](const juce::String& key) -> juce::String {
+        const auto marker = key + "=";
+        const auto index = normalized.indexOfIgnoreCase(marker);
+
+        if (index < 0)
         {
-            const auto marker = key + "=";
-            const auto index = normalized.indexOfIgnoreCase (marker);
-            if (index < 0)
-                return {};
-
-            auto value = normalized.substring (index + marker.length());
-            const auto ampPos = value.indexOfChar ('&');
-            if (ampPos >= 0)
-                value = value.substring (0, ampPos);
-            const auto spacePos = value.indexOfChar (' ');
-            if (spacePos >= 0)
-                value = value.substring (0, spacePos);
-            const auto quotePos = value.indexOfChar ('\"');
-            if (quotePos >= 0)
-                value = value.substring (0, quotePos);
-            const auto hashPos = value.indexOfChar ('#');
-            if (hashPos >= 0)
-                value = value.substring (0, hashPos);
-
-            return value.trim();
-        };
-
-        const auto itemId = extractValue ("itemId");
-        const auto packId = extractValue ("packId");
-
-        juce::String sanitized;
-        if (itemId.isNotEmpty())
-            sanitized << "itemId=" << itemId;
-        if (packId.isNotEmpty())
-        {
-            if (sanitized.isNotEmpty())
-                sanitized << "&";
-            sanitized << "packId=" << packId;
+            return {};
         }
 
-        return sanitized;
+        auto value = normalized.substring(index + marker.length());
+        const auto ampPos = value.indexOfChar('&');
+
+        if (ampPos >= 0)
+        {
+            value = value.substring(0, ampPos);
+        }
+
+        const auto spacePos = value.indexOfChar(' ');
+
+        if (spacePos >= 0)
+        {
+            value = value.substring(0, spacePos);
+        }
+
+        const auto quotePos = value.indexOfChar('\"');
+
+        if (quotePos >= 0)
+        {
+            value = value.substring(0, quotePos);
+        }
+
+        const auto hashPos = value.indexOfChar('#');
+
+        if (hashPos >= 0)
+        {
+            value = value.substring(0, hashPos);
+        }
+
+        return value.trim();
+    };
+
+    const auto itemId = extractValue("itemId");
+    const auto packId = extractValue("packId");
+
+    juce::String sanitized;
+
+    if (itemId.isNotEmpty())
+    {
+        sanitized << "itemId=" << itemId;
     }
+
+    if (packId.isNotEmpty())
+    {
+        if (sanitized.isNotEmpty())
+        {
+            sanitized << "&";
+        }
+
+        sanitized << "packId=" << packId;
+    }
+
+    return sanitized;
 }
+} // namespace
 
 #if JUCE_ANDROID
 //==============================================================================
@@ -105,167 +129,193 @@ namespace
 // Set it to 0 to keep JUCE's default.
 namespace
 {
-    constexpr const char* kBufferSizeProperty = "debug.soundshed.audio.buffer";
+constexpr const char* kBufferSizeProperty = "debug.soundshed.audio.buffer";
 
-    // Two native bursts, see above.
-    constexpr int kDefaultAndroidBufferFrames = 192;
+// Two native bursts, see above.
+constexpr int kDefaultAndroidBufferFrames = 192;
 
-    // The tuning property, or nothing if it is not set.
-    std::optional<int> readRequestedBufferFrames()
+// The tuning property, or nothing if it is not set.
+std::optional<int> readRequestedBufferFrames()
+{
+    char value[PROP_VALUE_MAX] = {};
+
+    if (__system_property_get(kBufferSizeProperty, value) > 0)
     {
-        char value[PROP_VALUE_MAX] = {};
+        const auto parsed = juce::String(value).trim().getIntValue();
 
-        if (__system_property_get (kBufferSizeProperty, value) > 0)
+        if (parsed >= 0)
         {
-            const auto parsed = juce::String (value).trim().getIntValue();
-
-            if (parsed >= 0)
-                return parsed;
+            return parsed;
         }
-
-        return std::nullopt;
     }
 
-    // Enforces the tuning property, if set, on the open device.
-    void applyAndroidBufferSize (juce::StandalonePluginHolder& holder)
+    return std::nullopt;
+}
+
+// Enforces the tuning property, if set, on the open device.
+void applyAndroidBufferSize(juce::StandalonePluginHolder& holder)
+{
+    // Only the property is enforced. Without it the device keeps whatever
+    // it opened with: the default from the preferred setup, or a saved
+    // setup, which is how a size chosen in Settings > Audio Device is
+    // left alone rather than snapped back on the next change message.
+    const auto requested = readRequestedBufferFrames();
+
+    if (!requested.has_value() || *requested <= 0)
     {
-        // Only the property is enforced. Without it the device keeps whatever
-        // it opened with: the default from the preferred setup, or a saved
-        // setup, which is how a size chosen in Settings > Audio Device is
-        // left alone rather than snapped back on the next change message.
-        const auto requested = readRequestedBufferFrames();
-
-        if (! requested.has_value() || *requested <= 0)
-            return;
-
-        // Nothing to do until a device exists. On a first run the open is
-        // deferred behind the microphone permission, and that open takes its
-        // buffer size from the preferred setup handed to the holder instead.
-        // Applying an override here would only discard an empty setup.
-        if (holder.deviceManager.getCurrentAudioDevice() == nullptr)
-            return;
-
-        auto setup = holder.deviceManager.getAudioDeviceSetup();
-
-        if (setup.bufferSize == *requested)
-            return;
-
-        juce::Logger::writeToLog ("[audio] requesting buffer size " + juce::String (*requested)
-                                  + " (was " + juce::String (setup.bufferSize) + ")");
-
-        setup.bufferSize = *requested;
-
-        if (const auto error = holder.deviceManager.setAudioDeviceSetup (setup, true); error.isNotEmpty())
-            juce::Logger::writeToLog ("[audio] buffer size request failed: " + error);
+        return;
     }
+
+    // Nothing to do until a device exists. On a first run the open is
+    // deferred behind the microphone permission, and that open takes its
+    // buffer size from the preferred setup handed to the holder instead.
+    // Applying an override here would only discard an empty setup.
+    if (holder.deviceManager.getCurrentAudioDevice() == nullptr)
+    {
+        return;
+    }
+
+    auto setup = holder.deviceManager.getAudioDeviceSetup();
+
+    if (setup.bufferSize == *requested)
+    {
+        return;
+    }
+
+    juce::Logger::writeToLog("[audio] requesting buffer size " + juce::String(*requested) + " (was " +
+                             juce::String(setup.bufferSize) + ")");
+
+    setup.bufferSize = *requested;
+
+    if (const auto error = holder.deviceManager.setAudioDeviceSetup(setup, true); error.isNotEmpty())
+    {
+        juce::Logger::writeToLog("[audio] buffer size request failed: " + error);
+    }
+}
 } // namespace
 #endif
 
 #if JUCE_IOS
 namespace
 {
-    // The default buffer size on iOS; see createPluginHolder(). An iOS 12 (legacy) build runs on
-    // A7 and A8 devices, two cores and far slower ones: on an iPad mini 2 at 48 kHz, 64 frames
-    // glitched with the load readout well short of full, and 256 (5.3 ms) played much better.
-   #if defined (__ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__) && __ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__ < 130000
-    constexpr int kDefaultIosBufferFrames = 256;
-   #else
-    constexpr int kDefaultIosBufferFrames = 128;
-   #endif
+// The default buffer size on iOS; see createPluginHolder(). An iOS 12 (legacy) build runs on
+// A7 and A8 devices, two cores and far slower ones: on an iPad mini 2 at 48 kHz, 64 frames
+// glitched with the load readout well short of full, and 256 (5.3 ms) played much better.
+    #if defined(__ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__) &&                                                     \
+        __ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__ < 130000
+constexpr int kDefaultIosBufferFrames = 256;
+    #else
+constexpr int kDefaultIosBufferFrames = 128;
+    #endif
 } // namespace
 #endif
 
 //==============================================================================
 class MainWindow : public juce::DocumentWindow
 #if JUCE_ANDROID
-    , private juce::ChangeListener
+    ,
+                   private juce::ChangeListener
 #endif
 {
-public:
-    MainWindow (const juce::String& appName,
-        std::unique_ptr<juce::StandalonePluginHolder> pluginHolderIn
-#if ! SOUNDSHED_MOBILE
-        ,
-        std::unique_ptr<LaunchCurtain> launchCurtain
+  public:
+    MainWindow(const juce::String& appName, std::unique_ptr<juce::StandalonePluginHolder> pluginHolderIn
+#if !SOUNDSHED_MOBILE
+               ,
+               std::unique_ptr<LaunchCurtain> launchCurtain
 #endif
-        )
-        : DocumentWindow (appName,
-              juce::Desktop::getInstance().getDefaultLookAndFeel().findColour (juce::ResizableWindow::backgroundColourId),
-              juce::DocumentWindow::allButtons),
-          mPluginHolder (std::move (pluginHolderIn))
+               )
+        : DocumentWindow(appName,
+                         juce::Desktop::getInstance().getDefaultLookAndFeel().findColour(
+                             juce::ResizableWindow::backgroundColourId),
+                         juce::DocumentWindow::allButtons),
+          mPluginHolder(std::move(pluginHolderIn))
     {
-#if ! SOUNDSHED_MOBILE
+#if !SOUNDSHED_MOBILE
         // Already on screen, put up by the app before the plugin holder (see LaunchCurtain
         // for why covering MainWindow cannot wait until after the editor exists).
         const auto state = loadWindowState();
-        mLaunchCurtain = std::move (launchCurtain);
+        mLaunchCurtain = std::move(launchCurtain);
 
         if (mLaunchCurtain != nullptr)
         {
             mLaunchCurtain->onTimedOut = [this] { dismissLaunchCurtain(); };
             mLaunchCurtain->coverMainWindow();
         }
+
 #endif
 
         // On Android and iOS this also matters for layout, not just looks: it is
         // what stops ResizableWindow reserving a border and insetting the content
         // by a pixel. Mobile peers have no decoration to draw anyway.
-        setUsingNativeTitleBar (true);
+        setUsingNativeTitleBar(true);
 
 #if SOUNDSHED_MOBILE
         // There is no window manager to negotiate with — the activity (or the iOS
         // scene) owns the screen, and the window fills it.
-        setResizable (false, false);
+        setResizable(false, false);
 #else
-        setResizable (true, true);
-        setResizeLimits (minWindowWidth, minWindowHeight, maxWindowSize, maxWindowSize);
+        setResizable(true, true);
+        setResizeLimits(minWindowWidth, minWindowHeight, maxWindowSize, maxWindowSize);
 #endif
 
         if (auto* processor = mPluginHolder != nullptr ? mPluginHolder->processor.get() : nullptr)
         {
-            auto* editor = processor->hasEditor()
-                               ? processor->createEditorIfNeeded()
-                               : static_cast<juce::AudioProcessorEditor*> (new juce::GenericAudioProcessorEditor (*processor));
+            auto* editor =
+                processor->hasEditor()
+                    ? processor->createEditorIfNeeded()
+                    : static_cast<juce::AudioProcessorEditor*>(new juce::GenericAudioProcessorEditor(*processor));
 
             if (editor != nullptr)
             {
-                setContentOwned (editor, true);
-#if ! SOUNDSHED_MOBILE
-                setResizable (editor->isResizable(), true);
+                setContentOwned(editor, true);
+#if !SOUNDSHED_MOBILE
+                setResizable(editor->isResizable(), true);
 
-                if (auto* soundshedEditor = dynamic_cast<soundshed::editor::SoundshedEditorBase*> (editor))
-                    soundshedEditor->whenReadyToShow ([this] { dismissLaunchCurtain(); });
+                if (auto* soundshedEditor = dynamic_cast<soundshed::editor::SoundshedEditorBase*>(editor))
+                {
+                    soundshedEditor->whenReadyToShow([this] { dismissLaunchCurtain(); });
+                }
                 else
+                {
                     // A plain GenericAudioProcessorEditor (processor->hasEditor() was
                     // false): nothing async to wait for, so nothing will ever call
                     // notifyReadyToShow() for it.
                     dismissLaunchCurtain();
+                }
+
 #endif
             }
-#if ! SOUNDSHED_MOBILE
+
+#if !SOUNDSHED_MOBILE
             else
             {
                 dismissLaunchCurtain();
             }
 #endif
         }
-#if ! SOUNDSHED_MOBILE
+
+#if !SOUNDSHED_MOBILE
         else
         {
             dismissLaunchCurtain();
         }
 #endif
 
-#if ! SOUNDSHED_MOBILE
-        centreWithSize (state.width, state.height);
+#if !SOUNDSHED_MOBILE
+        centreWithSize(state.width, state.height);
 
-        if (state.maximized || hasCommandLineFlag ("--fullscreen"))
-            setFullScreen (true);
+        if (state.maximized || hasCommandLineFlag("--fullscreen"))
+        {
+            setFullScreen(true);
+        }
 
         // For a dedicated device (a small board with a touch screen): no title bar, no
         // desktop, just the app.
-        if (hasCommandLineFlag ("--kiosk"))
-            juce::Desktop::getInstance().setKioskModeComponent (this, false);
+        if (hasCommandLineFlag("--kiosk"))
+        {
+            juce::Desktop::getInstance().setKioskModeComponent(this, false);
+        }
+
 #endif
 
         mPluginHolder->startPlaying();
@@ -274,29 +324,31 @@ public:
         // JUCE's own dialog, which on Android and iOS cannot share the screen with the WebView.
         if (auto* adapter = getAdapter())
         {
-            mAudioSettings = std::make_unique<StandaloneAudioSettings> (*mPluginHolder, [adapter] (const juce::String& json) {
-                adapter->SendMessageToUI (json.toStdString());
-            });
+            mAudioSettings = std::make_unique<StandaloneAudioSettings>(
+                *mPluginHolder, [adapter](const juce::String& json) { adapter->SendMessageToUI(json.toStdString()); });
 
-            adapter->setAudioDeviceRequestHandler ([this] (const std::string& requestJson) {
+            adapter->setAudioDeviceRequestHandler([this](const std::string& requestJson) {
                 if (mAudioSettings != nullptr)
-                    mAudioSettings->handleRequest (requestJson);
+                {
+                    mAudioSettings->handleRequest(requestJson);
+                }
             });
 
-            adapter->setDeviceLatencyQuery ([this] {
-                return mAudioSettings != nullptr ? mAudioSettings->deviceLatencySamples() : 0;
-            });
+            adapter->setDeviceLatencyQuery(
+                [this] { return mAudioSettings != nullptr ? mAudioSettings->deviceLatencySamples() : 0; });
 
-#if ! SOUNDSHED_MOBILE
+#if !SOUNDSHED_MOBILE
             // The page sends its header colours whenever the theme changes, and is told
             // whether the caption took them, so it can drop the title it would repeat.
             // Answered even when nothing changed: a reloaded page sends the same colours.
-            adapter->setWindowChromeHandler ([this, adapter] (const juce::var& message) {
-                if (const auto colours = soundshed::WindowChromeColours::fromVar (message))
-                    setWindowChrome (*colours);
+            adapter->setWindowChromeHandler([this, adapter](const juce::var& message) {
+                if (const auto colours = soundshed::WindowChromeColours::fromVar(message))
+                {
+                    setWindowChrome(*colours);
+                }
 
-                adapter->SendMessageToUI (mCustomCaption ? R"({"type":"windowChromeState","customCaption":true})"
-                                                         : R"({"type":"windowChromeState","customCaption":false})");
+                adapter->SendMessageToUI(mCustomCaption ? R"({"type":"windowChromeState","customCaption":true})"
+                                                        : R"({"type":"windowChromeState","customCaption":false})");
             });
 #endif
         }
@@ -306,20 +358,24 @@ public:
         // notifications so it covers every open: the one the holder's
         // constructor already did, the deferred first-run open behind the
         // microphone permission, and any later reopen.
-        mPluginHolder->deviceManager.addChangeListener (this);
-        applyAndroidBufferSize (*mPluginHolder);
+        mPluginHolder->deviceManager.addChangeListener(this);
+        applyAndroidBufferSize(*mPluginHolder);
 #endif
 
-#if ! SOUNDSHED_MOBILE
+#if !SOUNDSHED_MOBILE
+
         // Last run's theme colours, so the title bar matches from the first frame rather
         // than switching once the page has loaded and sent them again. Last of the window
         // set-up: setUsingNativeTitleBar() and each setResizable() that changes the style
         // make a new native peer, which starts with the system's colours.
         if (state.chrome.has_value())
-            setWindowChrome (*state.chrome);
+        {
+            setWindowChrome(*state.chrome);
+        }
+
 #endif
 
-        setVisible (true);
+        setVisible(true);
 
 #if JUCE_ANDROID
         // Fill the display, ignoring any persisted desktop geometry — but only
@@ -336,7 +392,7 @@ public:
         // Note this deliberately does not call setFullScreen(). On Android that
         // collapses the window to 0x0 — the peer already covers the activity, so
         // there is no separate full-screen state to ask for.
-        setBounds (juce::Desktop::getInstance().getDisplays().getPrimaryDisplay()->userArea);
+        setBounds(juce::Desktop::getInstance().getDisplays().getPrimaryDisplay()->userArea);
 #elif JUCE_IOS
         // The opposite of Android: on iOS full screen is exactly what is wanted. The peer
         // takes the display's user area (the screen less the safe-area insets, so the UI
@@ -349,7 +405,7 @@ public:
         // UIStatusBarHidden cannot do it: JUCE turns on view-controller-based status bar
         // appearance, and its view controller hides the bar only for the kiosk component.
         // On iOS, kiosk mode is exactly that plus setFullScreen (true).
-        juce::Desktop::getInstance().setKioskModeComponent (this, false);
+        juce::Desktop::getInstance().setKioskModeComponent(this, false);
 #endif
     }
 
@@ -357,9 +413,9 @@ public:
     {
         if (auto* adapter = getAdapter())
         {
-            adapter->setAudioDeviceRequestHandler (nullptr);
-            adapter->setDeviceLatencyQuery (nullptr);
-            adapter->setWindowChromeHandler (nullptr);
+            adapter->setAudioDeviceRequestHandler(nullptr);
+            adapter->setDeviceLatencyQuery(nullptr);
+            adapter->setWindowChromeHandler(nullptr);
         }
 
         mAudioSettings = nullptr;
@@ -367,23 +423,35 @@ public:
         // JUCE asserts if a kiosk component leaves the desktop still in kiosk mode (iOS, or
         // --kiosk on a desktop).
         if (juce::Desktop::getInstance().getKioskModeComponent() == this)
-            juce::Desktop::getInstance().setKioskModeComponent (nullptr, false);
+        {
+            juce::Desktop::getInstance().setKioskModeComponent(nullptr, false);
+        }
 
 #if JUCE_ANDROID
+
         if (mPluginHolder != nullptr)
-            mPluginHolder->deviceManager.removeChangeListener (this);
+        {
+            mPluginHolder->deviceManager.removeChangeListener(this);
+        }
+
 #endif
 
         saveWindowState();
 
-        if (auto* editor = dynamic_cast<juce::AudioProcessorEditor*> (getContentComponent()))
+        if (auto* editor = dynamic_cast<juce::AudioProcessorEditor*>(getContentComponent()))
+        {
             if (auto* processor = mPluginHolder != nullptr ? mPluginHolder->processor.get() : nullptr)
-                processor->editorBeingDeleted (editor);
+            {
+                processor->editorBeingDeleted(editor);
+            }
+        }
 
         clearContentComponent();
 
         if (mPluginHolder != nullptr)
+        {
             mPluginHolder->stopPlaying();
+        }
     }
 
     void resized() override
@@ -391,7 +459,9 @@ public:
         juce::DocumentWindow::resized();
 
         if (!isFullScreen())
+        {
             mLastNonMaximizedBounds = getBounds();
+        }
     }
 
 #if JUCE_ANDROID
@@ -404,8 +474,12 @@ public:
         juce::DocumentWindow::parentSizeChanged();
 
         if (const auto* display = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay())
+        {
             if (isVisible() && getBounds() != display->userArea)
-                setBounds (display->userArea);
+            {
+                setBounds(display->userArea);
+            }
+        }
     }
 #endif
 
@@ -414,7 +488,9 @@ public:
         saveWindowState();
 
         if (mPluginHolder != nullptr)
+        {
             mPluginHolder->savePluginState();
+        }
 
         juce::JUCEApplication::getInstance()->systemRequestedQuit();
     }
@@ -424,15 +500,17 @@ public:
         return mPluginHolder.get();
     }
 
-private:
+  private:
 #if JUCE_ANDROID
-    void changeListenerCallback (juce::ChangeBroadcaster*) override
+    void changeListenerCallback(juce::ChangeBroadcaster*) override
     {
         // Also fires for MIDI device changes and for the open that happened
         // before this window existed. Without the tuning property set this
         // does nothing, and with it applying the same size again is a no-op.
         if (mPluginHolder != nullptr)
-            applyAndroidBufferSize (*mPluginHolder);
+        {
+            applyAndroidBufferSize(*mPluginHolder);
+        }
     }
 #endif
 
@@ -449,13 +527,13 @@ private:
         std::optional<soundshed::WindowChromeColours> chrome;
     };
 
-    static bool hasCommandLineFlag (const juce::String& flag)
+    static bool hasCommandLineFlag(const juce::String& flag)
     {
-        return juce::JUCEApplicationBase::getCommandLineParameterArray().contains (flag);
+        return juce::JUCEApplicationBase::getCommandLineParameterArray().contains(flag);
     }
 
-public:
-#if ! SOUNDSHED_MOBILE
+  public:
+#if !SOUNDSHED_MOBILE
     // Mirrors the centreWithSize()/setFullScreen() pair in the constructor, which only runs
     // once this window has an editor sized to show - too late for the curtain, which needs
     // to be up before that work (and the flicker it causes) even starts.
@@ -463,41 +541,55 @@ public:
     {
         const auto state = loadWindowState();
         auto* primary = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay();
+
         if (primary == nullptr)
-            return { state.width, state.height };
+        {
+            return {state.width, state.height};
+        }
 
-        if (state.maximized || hasCommandLineFlag ("--fullscreen"))
+        if (state.maximized || hasCommandLineFlag("--fullscreen"))
+        {
             return primary->userArea;
+        }
 
-        return juce::Rectangle<int> (state.width, state.height).withCentre (primary->userArea.getCentre());
+        return juce::Rectangle<int>(state.width, state.height).withCentre(primary->userArea.getCentre());
     }
 #endif
 
-private:
-#if ! SOUNDSHED_MOBILE
+  private:
+#if !SOUNDSHED_MOBILE
     void dismissLaunchCurtain()
     {
         if (mLaunchCurtain == nullptr)
+        {
             return;
+        }
 
-        mLaunchCurtain->dismiss ([safeThis = juce::Component::SafePointer<MainWindow> (this)] {
+        mLaunchCurtain->dismiss([safeThis = juce::Component::SafePointer<MainWindow>(this)] {
             if (safeThis != nullptr)
+            {
                 safeThis->mLaunchCurtain = nullptr;
+            }
         });
     }
 #endif
 
     PluginProcessorAdapter* getAdapter() const
     {
-        return dynamic_cast<PluginProcessorAdapter*> (
-            mPluginHolder != nullptr ? mPluginHolder->processor.get() : nullptr);
+        return dynamic_cast<PluginProcessorAdapter*>(mPluginHolder != nullptr ? mPluginHolder->processor.get()
+                                                                              : nullptr);
     }
 
     // The profile folder is the adapter's user data path (PluginProcessorAdapter::GetUserDataPath),
     // read here directly so the curtain can be sized before the adapter exists.
     static juce::File getWindowStateFile()
     {
-        return soundshed::profileFolder().getChildFile ("data").getChildFile ("v1").getChildFile ("settings").getChildFile ("ui").getChildFile (soundshed::product::windowStateFileName);
+        return soundshed::profileFolder()
+            .getChildFile("data")
+            .getChildFile("v1")
+            .getChildFile("settings")
+            .getChildFile("ui")
+            .getChildFile(soundshed::product::windowStateFileName);
     }
 
     static WindowState loadWindowState()
@@ -505,37 +597,47 @@ private:
         WindowState state;
 
         const auto file = getWindowStateFile();
+
         if (file.existsAsFile())
         {
-            const auto parsed = juce::JSON::parse (file.loadFileAsString());
+            const auto parsed = juce::JSON::parse(file.loadFileAsString());
+
             if (auto* obj = parsed.getDynamicObject(); obj != nullptr)
             {
-                const auto widthId = juce::Identifier { "width" };
-                const auto heightId = juce::Identifier { "height" };
-                const auto maximizedId = juce::Identifier { "maximized" };
+                const auto widthId = juce::Identifier{"width"};
+                const auto heightId = juce::Identifier{"height"};
+                const auto maximizedId = juce::Identifier{"maximized"};
 
-                if (obj->hasProperty (widthId))
-                    state.width = static_cast<int> (obj->getProperty (widthId));
-                if (obj->hasProperty (heightId))
-                    state.height = static_cast<int> (obj->getProperty (heightId));
-                if (obj->hasProperty (maximizedId))
-                    state.maximized = static_cast<bool> (obj->getProperty (maximizedId));
+                if (obj->hasProperty(widthId))
+                {
+                    state.width = static_cast<int>(obj->getProperty(widthId));
+                }
 
-                state.chrome = soundshed::WindowChromeColours::fromVar (obj->getProperty ("chrome"));
+                if (obj->hasProperty(heightId))
+                {
+                    state.height = static_cast<int>(obj->getProperty(heightId));
+                }
+
+                if (obj->hasProperty(maximizedId))
+                {
+                    state.maximized = static_cast<bool>(obj->getProperty(maximizedId));
+                }
+
+                state.chrome = soundshed::WindowChromeColours::fromVar(obj->getProperty("chrome"));
             }
         }
 
         // The window's own limits first, then the primary display's usable area last, so
         // the display always wins: on a screen smaller than the minimum (an 800x480 touch
         // panel, say) the window fits the screen rather than hanging off it.
-        state.width = juce::jlimit (minWindowWidth, maxWindowSize, state.width);
-        state.height = juce::jlimit (minWindowHeight, maxWindowSize, state.height);
+        state.width = juce::jlimit(minWindowWidth, maxWindowSize, state.width);
+        state.height = juce::jlimit(minWindowHeight, maxWindowSize, state.height);
 
         if (auto* primary = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay())
         {
             const auto userArea = primary->userArea;
-            state.width = juce::jmin (state.width, userArea.getWidth());
-            state.height = juce::jmin (state.height, userArea.getHeight());
+            state.width = juce::jmin(state.width, userArea.getWidth());
+            state.height = juce::jmin(state.height, userArea.getHeight());
         }
 
         return state;
@@ -544,31 +646,41 @@ private:
     void saveWindowState() const
     {
         const auto file = getWindowStateFile();
-        if (file == juce::File {})
+
+        if (file == juce::File{})
+        {
             return;
+        }
 
         file.getParentDirectory().createDirectory();
 
-        juce::DynamicObject::Ptr state (new juce::DynamicObject());
-        state->setProperty ("width", mLastNonMaximizedBounds.getWidth());
-        state->setProperty ("height", mLastNonMaximizedBounds.getHeight());
-        state->setProperty ("maximized", isFullScreen());
+        juce::DynamicObject::Ptr state(new juce::DynamicObject());
+        state->setProperty("width", mLastNonMaximizedBounds.getWidth());
+        state->setProperty("height", mLastNonMaximizedBounds.getHeight());
+        state->setProperty("maximized", isFullScreen());
+
         if (mWindowChrome.has_value())
-            state->setProperty ("chrome", mWindowChrome->toVar());
-        file.replaceWithText (juce::JSON::toString (juce::var (state)));
+        {
+            state->setProperty("chrome", mWindowChrome->toVar());
+        }
+
+        file.replaceWithText(juce::JSON::toString(juce::var(state)));
     }
 
-    void setWindowChrome (const soundshed::WindowChromeColours& colours)
+    void setWindowChrome(const soundshed::WindowChromeColours& colours)
     {
         // The colours live on the native window, so a recreated peer (a style change, kiosk
         // mode) needs them again even when they are the same.
         auto* handle = getWindowHandle();
+
         if (mWindowChrome == colours && handle == mChromeWindowHandle)
+        {
             return;
+        }
 
         mWindowChrome = colours;
         mChromeWindowHandle = handle;
-        mCustomCaption = soundshed::applyWindowChrome (*this, colours);
+        mCustomCaption = soundshed::applyWindowChrome(*this, colours);
     }
 
     std::unique_ptr<juce::StandalonePluginHolder> mPluginHolder;
@@ -576,24 +688,25 @@ private:
     // After the holder, so it goes first: it listens to the holder's device manager.
     std::unique_ptr<StandaloneAudioSettings> mAudioSettings;
 
-#if ! SOUNDSHED_MOBILE
+#if !SOUNDSHED_MOBILE
     std::unique_ptr<LaunchCurtain> mLaunchCurtain;
 #endif
 
-    juce::Rectangle<int> mLastNonMaximizedBounds { 0, 0, soundshed::product::defaultWindowWidth, soundshed::product::defaultWindowHeight };
+    juce::Rectangle<int> mLastNonMaximizedBounds{0, 0, soundshed::product::defaultWindowWidth,
+                                                 soundshed::product::defaultWindowHeight};
 
     // What the title bar was last given (setWindowChrome), kept in the window state file.
     std::optional<soundshed::WindowChromeColours> mWindowChrome;
     void* mChromeWindowHandle = nullptr; // the native window they were applied to
     bool mCustomCaption = false;
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainWindow)
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainWindow)
 };
 
 //==============================================================================
 class SoundshedGuitarApplication : public juce::JUCEApplication
 {
-public:
+  public:
     SoundshedGuitarApplication()
     {
         // The audio device setup and the standalone's saved plugin state live here. Named for
@@ -608,14 +721,25 @@ public:
 #else
         options.folderName = {};
 #endif
-        mAppProperties.setStorageParameters (options);
+        mAppProperties.setStorageParameters(options);
     }
 
-    const juce::String getApplicationName() override { return PRODUCT_NAME_WITHOUT_VERSION; }
-    const juce::String getApplicationVersion() override { return JucePlugin_VersionString; }
-    bool moreThanOneInstanceAllowed() override { return false; }
+    const juce::String getApplicationName() override
+    {
+        return PRODUCT_NAME_WITHOUT_VERSION;
+    }
 
-    void initialise (const juce::String&) override
+    const juce::String getApplicationVersion() override
+    {
+        return JucePlugin_VersionString;
+    }
+
+    bool moreThanOneInstanceAllowed() override
+    {
+        return false;
+    }
+
+    void initialise(const juce::String&) override
     {
         if (juce::Desktop::getInstance().getDisplays().displays.isEmpty())
         {
@@ -623,32 +747,32 @@ public:
             return;
         }
 
-#if ! SOUNDSHED_MOBILE
-        mStandaloneLock = std::make_unique<juce::InterProcessLock> (soundshed::product::standaloneLockName);
+#if !SOUNDSHED_MOBILE
+        mStandaloneLock = std::make_unique<juce::InterProcessLock>(soundshed::product::standaloneLockName);
 
-        if (! mStandaloneLock->enter (0))
+        if (!mStandaloneLock->enter(0))
         {
             // Not systemRequestedQuit(): there is no window or plugin state to save yet.
-            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon,
-                                                    getApplicationName(),
-                                                    "Soundshed Guitar is already running.\n\n"
-                                                    "Two copies would share one profile and one audio device, so only one "
-                                                    "can run at a time. Close the other one, then start this again.",
-                                                    "OK",
-                                                    nullptr,
-                                                    juce::ModalCallbackFunction::create ([] (int) { quit(); }));
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::MessageBoxIconType::WarningIcon, getApplicationName(),
+                "Soundshed Guitar is already running.\n\n"
+                "Two copies would share one profile and one audio device, so only one "
+                "can run at a time. Close the other one, then start this again.",
+                "OK", nullptr, juce::ModalCallbackFunction::create([](int) { quit(); }));
             return;
         }
+
 #endif
 
-#if ! SOUNDSHED_MOBILE
+#if !SOUNDSHED_MOBILE
         // Before the plugin holder, whose constructor initialises the engine and opens the
         // audio device on this thread: a window now, and (Windows) the WebView's browser
         // process booting meanwhile.
-        auto launchCurtain = std::make_unique<LaunchCurtain> (MainWindow::launchCurtainBounds(), true);
-        mMainWindow = std::make_unique<MainWindow> (getApplicationName(), createPluginHolder(), std::move (launchCurtain));
+        auto launchCurtain = std::make_unique<LaunchCurtain>(MainWindow::launchCurtainBounds(), true);
+        mMainWindow =
+            std::make_unique<MainWindow>(getApplicationName(), createPluginHolder(), std::move(launchCurtain));
 #else
-        mMainWindow = std::make_unique<MainWindow> (getApplicationName(), createPluginHolder());
+        mMainWindow = std::make_unique<MainWindow>(getApplicationName(), createPluginHolder());
 #endif
     }
 
@@ -661,14 +785,20 @@ public:
     void systemRequestedQuit() override
     {
         if (mMainWindow != nullptr)
+        {
             if (auto* holder = mMainWindow->getPluginHolder())
+            {
                 holder->savePluginState();
+            }
+        }
 
         if (juce::ModalComponentManager::getInstance()->cancelAllModalComponents())
         {
-            juce::Timer::callAfterDelay (100, []() {
+            juce::Timer::callAfterDelay(100, []() {
                 if (auto* app = juce::JUCEApplicationBase::getInstance())
+                {
                     app->systemRequestedQuit();
+                }
             });
 
             return;
@@ -683,28 +813,33 @@ public:
     void suspended() override
     {
         if (mMainWindow != nullptr)
+        {
             if (auto* holder = mMainWindow->getPluginHolder())
+            {
                 holder->savePluginState();
+            }
+        }
 
         mAppProperties.saveIfNeeded();
     }
 
-    void anotherInstanceStarted (const juce::String& commandLine) override
+    void anotherInstanceStarted(const juce::String& commandLine) override
     {
         // Extract deep link from incoming command line and route to existing instance
-        const auto deepLink = extractToneSharingDeepLinkQuery (commandLine);
+        const auto deepLink = extractToneSharingDeepLinkQuery(commandLine);
+
         if (deepLink.isNotEmpty() && mMainWindow != nullptr)
         {
-            if (auto* editor = dynamic_cast<soundshed::editor::SoundshedEditorBase*> (mMainWindow->getContentComponent()))
+            if (auto* editor =
+                    dynamic_cast<soundshed::editor::SoundshedEditorBase*>(mMainWindow->getContentComponent()))
             {
-                juce::MessageManager::callAsync ([editor, deepLink]() {
-                    editor->handleDeepLinkFromAnotherInstance (deepLink);
-                });
+                juce::MessageManager::callAsync(
+                    [editor, deepLink]() { editor->handleDeepLinkFromAnotherInstance(deepLink); });
             }
         }
     }
 
-private:
+  private:
     std::unique_ptr<juce::StandalonePluginHolder> createPluginHolder()
     {
         constexpr auto autoOpenMidiDevices =
@@ -715,8 +850,9 @@ private:
 #endif
 
 #ifdef JucePlugin_PreferredChannelConfigurations
-        constexpr juce::StandalonePluginHolder::PluginInOuts channels[] { JucePlugin_PreferredChannelConfigurations };
-        const juce::Array<juce::StandalonePluginHolder::PluginInOuts> channelConfig (channels, juce::numElementsInArray (channels));
+        constexpr juce::StandalonePluginHolder::PluginInOuts channels[]{JucePlugin_PreferredChannelConfigurations};
+        const juce::Array<juce::StandalonePluginHolder::PluginInOuts> channelConfig(channels,
+                                                                                    juce::numElementsInArray(channels));
 #else
         const juce::Array<juce::StandalonePluginHolder::PluginInOuts> channelConfig;
 #endif
@@ -730,7 +866,8 @@ private:
         // the Android audio notes above.
         std::optional<juce::AudioDeviceManager::AudioDeviceSetup> preferredSetup;
 
-        if (const auto bufferFrames = readRequestedBufferFrames().value_or (kDefaultAndroidBufferFrames); bufferFrames > 0)
+        if (const auto bufferFrames = readRequestedBufferFrames().value_or(kDefaultAndroidBufferFrames);
+            bufferFrames > 0)
         {
             preferredSetup.emplace();
             preferredSetup->bufferSize = bufferFrames;
@@ -746,15 +883,12 @@ private:
         preferredSetup.bufferSize = kDefaultIosBufferFrames;
         const auto* preferredSetupOptions = &preferredSetup;
 #else
-        const juce::AudioDeviceManager::AudioDeviceSetup* preferredSetupOptions = nullptr;
+            const juce::AudioDeviceManager::AudioDeviceSetup* preferredSetupOptions = nullptr;
 #endif
 
-        return std::make_unique<juce::StandalonePluginHolder> (mAppProperties.getUserSettings(),
-            false,
-            juce::String {},
-            preferredSetupOptions,
-            channelConfig,
-            autoOpenMidiDevices);
+        return std::make_unique<juce::StandalonePluginHolder>(mAppProperties.getUserSettings(), false, juce::String{},
+                                                              preferredSetupOptions, channelConfig,
+                                                              autoOpenMidiDevices);
     }
 
     juce::ApplicationProperties mAppProperties;
@@ -776,12 +910,11 @@ private:
 //
 // The matching half of this is in android/CMakeLists.txt, which forces the
 // linker to keep this translation unit at all.
-extern "C" __attribute__ ((visibility ("default")))
-juce::JUCEApplicationBase* juce_CreateApplication()
+extern "C" __attribute__((visibility("default"))) juce::JUCEApplicationBase* juce_CreateApplication()
 {
     return new SoundshedGuitarApplication();
 }
 
 #else
-START_JUCE_APPLICATION (SoundshedGuitarApplication)
+START_JUCE_APPLICATION(SoundshedGuitarApplication)
 #endif

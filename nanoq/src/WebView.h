@@ -17,7 +17,7 @@ namespace nanoq
 {
 class WebView
 {
-public:
+  public:
     struct Options
     {
         /// Where the browser keeps its cache and cookies.

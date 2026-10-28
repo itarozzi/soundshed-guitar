@@ -14,8 +14,8 @@ namespace guitarfx::uiclient
 {
 enum class ShellLayout
 {
-    Rail,  // landscape: navigation rail on the left
-    Stack  // portrait: tab bar along the bottom
+    Rail, // landscape: navigation rail on the left
+    Stack // portrait: tab bar along the bottom
 };
 
 struct LayoutMetrics

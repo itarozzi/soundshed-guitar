@@ -16,13 +16,14 @@
 
 #include <cstring>
 
-extern "C" {
-bool q_plug_entry_init(const char* plugin_path);
-void q_plug_entry_deinit(void);
-const void* q_plug_entry_get_factory(const char* factory_id);
+extern "C"
+{
+    bool q_plug_entry_init(const char* plugin_path);
+    void q_plug_entry_deinit(void);
+    const void* q_plug_entry_get_factory(const char* factory_id);
 
-// Defined by Nano Q's controller: the host the plugin about to be created belongs to.
-void nanoq_set_creating_host(const clap_host_t* host);
+    // Defined by Nano Q's controller: the host the plugin about to be created belongs to.
+    void nanoq_set_creating_host(const clap_host_t* host);
 }
 
 namespace
@@ -47,8 +48,11 @@ const clap_plugin_descriptor_t* PluginDescriptor(const clap_plugin_factory_t*, u
 const clap_plugin_t* CreatePlugin(const clap_plugin_factory_t*, const clap_host_t* host, const char* id)
 {
     const auto* q = QFactory();
+
     if (q == nullptr)
+    {
         return nullptr;
+    }
 
     // QPlug builds the controller inside create_plugin, on this thread.
     nanoq_set_creating_host(host);
@@ -62,14 +66,17 @@ const clap_plugin_factory_t gFactory = {PluginCount, PluginDescriptor, CreatePlu
 const void* GetFactory(const char* factoryId)
 {
     if (factoryId != nullptr && std::strcmp(factoryId, CLAP_PLUGIN_FACTORY_ID) == 0)
+    {
         return &gFactory;
+    }
+
     return q_plug_entry_get_factory(factoryId);
 }
 } // namespace
 
 #ifdef __GNUC__
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wattributes"
+    #pragma GCC diagnostic push
+    #pragma GCC diagnostic ignored "-Wattributes"
 #endif
 
 extern "C" CLAP_EXPORT const clap_plugin_entry_t clap_entry = {
@@ -80,5 +87,5 @@ extern "C" CLAP_EXPORT const clap_plugin_entry_t clap_entry = {
 };
 
 #ifdef __GNUC__
-#pragma GCC diagnostic pop
+    #pragma GCC diagnostic pop
 #endif

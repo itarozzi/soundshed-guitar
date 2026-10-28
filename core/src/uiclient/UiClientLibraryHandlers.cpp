@@ -72,7 +72,10 @@ void UiClient::RegisterLibraryHandlers()
         entry.fileMissing = false;
 
         if (const auto requestId = m.value("requestId", ""); !requestId.empty())
+        {
             mState.resourceImports[requestId] = {ResourceImport::Status::Imported, type, id, {}};
+        }
+
         Notify(Topic::Resources);
     });
 
@@ -93,13 +96,22 @@ void UiClient::RegisterLibraryHandlers()
         listing.parent = m.value("parent", "");
         listing.name = m.value("name", "");
         listing.truncated = m.value("truncated", false);
+
         for (const auto& d : m.value("dirs", nlohmann::json::array()))
+        {
             if (d.is_object())
+            {
                 listing.dirs.push_back({d.value("name", ""), d.value("path", "")});
+            }
+        }
+
         for (const auto& f : m.value("files", nlohmann::json::array()))
         {
             if (!f.is_object())
+            {
                 continue;
+            }
+
             ResourceFolderListing::File file;
             file.name = f.value("name", "");
             file.path = f.value("path", "");
@@ -107,10 +119,15 @@ void UiClient::RegisterLibraryHandlers()
             file.sizeBytes = f.value("sizeBytes", std::int64_t{0});
             file.inLibrary = f.value("alreadyInLibrary", false);
             file.libraryId = f.value("libraryId", "");
+
             if (const auto meta = f.find("metadata"); meta != f.end() && meta->is_object())
+            {
                 file.metadata = *meta;
+            }
+
             listing.files.push_back(std::move(file));
         }
+
         mState.resourceFolder = std::move(listing);
         Notify(Topic::ResourceFolders);
     });
@@ -118,17 +135,31 @@ void UiClient::RegisterLibraryHandlers()
     On("resourceFolderMetadata", [this](const nlohmann::json& m) {
         // Parsed in batches after the listing: the files' metadata, by path.
         if (m.value("path", "") != mState.resourceFolder.path)
+        {
             return;
+        }
+
         for (const auto& item : m.value("items", nlohmann::json::array()))
         {
             if (!item.is_object())
+            {
                 continue;
+            }
+
             const auto path = item.value("path", "");
+
             for (auto& file : mState.resourceFolder.files)
+            {
                 if (file.path == path)
+                {
                     if (const auto meta = item.find("metadata"); meta != item.end() && meta->is_object())
+                    {
                         file.metadata = *meta;
+                    }
+                }
+            }
         }
+
         Notify(Topic::ResourceFolders);
     });
 
@@ -199,6 +230,7 @@ void UiClient::RegisterLibraryHandlers()
         // A capture the engine refused (busy, no audio device) never started: the dialog's
         // Record button would otherwise wait on it.
         auto& capture = mState.riffs.capture;
+
         if (m.value("message", "") == "Riff Capture" &&
             (capture.phase == RiffCapture::Phase::Armed || capture.phase == RiffCapture::Phase::Recording))
         {
@@ -244,10 +276,17 @@ void UiClient::RegisterLibraryHandlers()
     // exportLibraryArchive's answer, and what it could not carry, as the web UI shows them.
     On("libraryExportSaved", [this](const nlohmann::json& m) {
         PostNotification({Notification::Kind::Info, "Library exported", m.value("path", "")});
+
         if (const auto warnings = m.find("warnings"); warnings != m.end() && warnings->is_array())
+        {
             for (const auto& warning : *warnings)
+            {
                 if (warning.is_string() && !warning.get<std::string>().empty())
+                {
                     PostNotification({Notification::Kind::Error, "Export warning", warning.get<std::string>()});
+                }
+            }
+        }
     });
 
     On("libraryExportFailed", [this](const nlohmann::json& m) {
@@ -262,13 +301,18 @@ void UiClient::RegisterLibraryHandlers()
         ClientState::ResourceUsage usage;
         usage.inUse = m.value("inUse", false);
         usage.detail = m.value("detail", std::string());
+
         if (usage.detail.empty() && usage.inUse)
         {
             const auto preset = m.value("presetName", std::string());
             const auto blend = m.value("blendName", std::string());
-            usage.detail = !preset.empty() ? "Used by preset " + preset : !blend.empty() ? "Used by blend " + blend : "In use";
+            usage.detail = !preset.empty()  ? "Used by preset " + preset
+                           : !blend.empty() ? "Used by blend " + blend
+                                            : "In use";
         }
-        MutableState().resourceUsage[m.value("resourceType", std::string()) + ":" + m.value("id", std::string())] = usage;
+
+        MutableState().resourceUsage[m.value("resourceType", std::string()) + ":" + m.value("id", std::string())] =
+            usage;
         Notify(Topic::Resources);
     });
 
@@ -285,7 +329,9 @@ void UiClient::RegisterLibraryHandlers()
     });
     On("nodeResourceBrowseCancelled", [this](const nlohmann::json& m) {
         if (MutableState().pluginLoadsPending.erase(m.value("nodeId", "")) > 0)
+        {
             Notify(Topic::ActivePreset);
+        }
     });
 }
 } // namespace guitarfx::uiclient

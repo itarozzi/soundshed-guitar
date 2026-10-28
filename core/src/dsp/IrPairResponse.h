@@ -32,9 +32,9 @@ inline constexpr double kWindowMs = 50.0;
 /// One IR's complex response at every point of every band.
 struct BandSpectrum
 {
-    std::vector<double> frequencies;           // the band centres
-    std::vector<double> pointHz;               // per band, kPointsPerBand points
-    std::vector<std::complex<double>> values;  // the IR's response at each point
+    std::vector<double> frequencies;          // the band centres
+    std::vector<double> pointHz;              // per band, kPointsPerBand points
+    std::vector<std::complex<double>> values; // the IR's response at each point
 };
 
 /// The response of the start of `mono` (kWindowMs of it, at `sampleRate`) around each of

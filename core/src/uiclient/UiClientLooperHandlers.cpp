@@ -18,12 +18,17 @@ namespace
 std::vector<float> PeaksOf(const nlohmann::json& m, const char* key)
 {
     std::vector<float> peaks;
+
     if (const auto it = m.find(key); it != m.end() && it->is_array())
     {
         peaks.reserve(it->size());
+
         for (const auto& v : *it)
+        {
             peaks.push_back(v.is_number() ? static_cast<float>(v.get<double>()) : 0.0f);
+        }
     }
+
     return peaks;
 }
 
@@ -73,8 +78,12 @@ void UiClient::RegisterLooperHandlers()
         l.tempoBpm = m.value("tempoBpm", 0.0);
         l.countInBeatsLeft = m.value("countInBeatsLeft", 0);
         l.recordedSec = m.value("recordedSec", 0.0);
+
         if (m.contains("settings") && m["settings"].is_object())
+        {
             l.settings = ParseSettings(m["settings"]);
+        }
+
         l.projectId = m.value("projectId", std::string{});
         l.projectTitle = m.value("projectTitle", std::string{});
         l.dirty = m.value("dirty", false);
@@ -89,16 +98,21 @@ void UiClient::RegisterLooperHandlers()
                 layer.peaksR.clear();
             }
         }
+
         if (l.state != "recording" && l.state != "overdubbing")
+        {
             l.livePeaks.clear();
+        }
 
         // A notice comes once.
         const auto notice = m.value("notice", std::string{});
+
         if (const auto text = LooperNoticeText(notice); !text.empty())
         {
             PostNotification({notice == "exported" ? Notification::Kind::Info : Notification::Kind::Error, text,
                               m.value("noticeDetail", std::string{})});
         }
+
         SyncLooperEnabled();
         Notify(Topic::Looper);
     });
@@ -108,14 +122,19 @@ void UiClient::RegisterLooperHandlers()
     On("looperLayers", [this](const nlohmann::json& m) {
         auto& l = mState.looper;
         std::vector<LooperLayer> layers;
+
         if (const auto list = m.find("layers"); list != m.end() && list->is_array())
         {
             for (const auto& item : *list)
             {
                 if (!item.is_object())
+                {
                     continue;
+                }
+
                 LooperLayer layer;
                 layer.id = item.value("id", std::string{});
+
                 for (const auto& old : l.layers)
                 {
                     if (old.id == layer.id)
@@ -124,6 +143,7 @@ void UiClient::RegisterLooperHandlers()
                         layer.peaksR = old.peaksR;
                     }
                 }
+
                 layer.title = item.value("title", std::string{});
                 layer.order = item.value("order", 0);
                 layer.recording = item.value("recording", false);
@@ -131,15 +151,21 @@ void UiClient::RegisterLooperHandlers()
                 layer.balance = item.value("balance", 0.0);
                 layer.muted = item.value("muted", false);
                 layer.solo = item.value("solo", false);
+
                 if (const auto tone = item.find("tone"); tone != item.end() && tone->is_object())
+                {
                     layer.presetName = tone->value("presetName", std::string{});
+                }
+
                 layer.toneChanged = item.value("toneChanged", false);
                 layer.canRevert = item.value("canRevert", false);
                 const auto retone = item.find("retone");
-                layer.retoneProgress = retone != item.end() && retone->is_object() ? retone->value("progress", 0.0) : -1.0;
+                layer.retoneProgress =
+                    retone != item.end() && retone->is_object() ? retone->value("progress", 0.0) : -1.0;
                 layers.push_back(std::move(layer));
             }
         }
+
         l.layers = std::move(layers);
         Notify(Topic::Looper);
     });
@@ -147,31 +173,44 @@ void UiClient::RegisterLooperHandlers()
     // Finished layers' peaks (merged: one message may carry only some), and the take in progress.
     On("looperWaveforms", [this](const nlohmann::json& m) {
         auto& l = mState.looper;
+
         if (const auto layers = m.find("layers"); layers != m.end() && layers->is_object())
         {
             for (auto& layer : l.layers)
             {
                 const auto it = layers->find(layer.id);
+
                 if (it == layers->end() || !it->is_object())
+                {
                     continue;
+                }
+
                 layer.peaksL = PeaksOf(*it, "peaksL");
                 layer.peaksR = PeaksOf(*it, "peaksR");
             }
         }
+
         if (const auto live = m.find("live"); live != m.end() && live->is_object())
+        {
             l.livePeaks = PeaksOf(*live, "peaks");
+        }
+
         Notify(Topic::Looper);
     });
 
     On("looperProjects", [this](const nlohmann::json& m) {
         auto& l = mState.looper;
         l.projects.clear();
+
         if (const auto list = m.find("projects"); list != m.end() && list->is_array())
         {
             for (const auto& item : *list)
             {
                 if (!item.is_object())
+                {
                     continue;
+                }
+
                 LooperProject p;
                 p.id = item.value("id", std::string{});
                 p.title = item.value("title", std::string{});
@@ -183,28 +222,39 @@ void UiClient::RegisterLooperHandlers()
                 l.projects.push_back(std::move(p));
             }
         }
+
         Notify(Topic::Looper);
     });
 
     On("looperProjectSaved", [this](const nlohmann::json& m) {
-        PostNotification({Notification::Kind::Info, "Saved \"" + m.value("title", std::string{}) + "\" in the riff library", ""});
+        PostNotification(
+            {Notification::Kind::Info, "Saved \"" + m.value("title", std::string{}) + "\" in the riff library", ""});
     });
 }
 
 void UiClient::SyncLooperEnabled()
 {
     const auto& l = mState.looper;
+
     if (!l.known || !l.available)
+    {
         return;
+    }
+
     const bool on = IsFeatureEnabled(mState, Feature::Looper);
+
     if (l.settings.enabled == on)
     {
         mLooperEnabledPending = false;
         return;
     }
+
     // Once per change of mind, until the engine's state agrees.
     if (mLooperEnabledPending && mLooperEnabledSent == on)
+    {
         return;
+    }
+
     mLooperEnabledPending = true;
     mLooperEnabledSent = on;
     Send("setLooper", {{"enabled", on}});
@@ -237,8 +287,12 @@ void UiCommands::RemoveLooperLayer(const std::string& layerId)
 void UiCommands::RetoneLooperLayers(const std::vector<std::string>& layerIds, bool revert)
 {
     nlohmann::json payload = {{"layerIds", layerIds.empty() ? nlohmann::json("all") : nlohmann::json(layerIds)}};
+
     if (revert)
+    {
         payload["revert"] = true;
+    }
+
     mClient.Send("retoneLooperLayer", payload);
 }
 
