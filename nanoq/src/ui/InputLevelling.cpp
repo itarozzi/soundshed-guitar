@@ -38,21 +38,21 @@ std::string Trimmed(std::string text)
 }
 } // namespace
 
-Ptr Shell::BuildInputLevellingButton(std::vector<guitarfx::uiclient::Subscription>& subs)
+Ptr Shell::BuildInputLevellingButton()
 {
     // The web UI's chevron under the input meter; lit while a profile is applied.
     auto button = std::make_shared<IconButton>(mTheme, mIcons, "ui-caret");
     button->Size(20, 18).IconSize(11);
     button->onClick = [this, b = button.get()] { OpenInputLevelling(b->Bounds()); };
-    auto sync = [this, button] {
-        const auto& levelling = mState.inputLevelling;
-        button->Lit(!levelling.trainingActive && levelling.Active() != nullptr);
-        mSession.Repaint(*button);
-    };
-    subs.push_back(mSession.Client().Subscribe(Topic::InputLevelling, sync));
+    mLive.Bind(
+        button,
+        [this] {
+            const auto& levelling = mState.inputLevelling;
+            return !levelling.trainingActive && levelling.Active() != nullptr;
+        },
+        &IconButton::Lit);
     if (!mState.inputLevelling.known)
         mSession.Commands().GetInputLevelling();
-    sync();
     return button;
 }
 

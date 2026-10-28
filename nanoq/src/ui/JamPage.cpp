@@ -758,8 +758,6 @@ void Shell::SyncJam()
             mPracticeDeletedAt = 0.0;
         }
     }
-    if (mPage == Page::Jam && mJamSection == JamSection::Practice)
-        SyncPracticeTool();
     SyncJamWebViews();
     SyncJamPlayerBar();
 }

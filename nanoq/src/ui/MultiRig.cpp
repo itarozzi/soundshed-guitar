@@ -106,51 +106,53 @@ Ptr Shell::BuildMixerTabs()
 
 Ptr Shell::BuildInlineMixer()
 {
-    mMixerKnobs.clear();
     auto& commands = mSession.Commands();
 
-    const auto knob = [this](const char* name, double position, std::string text, std::function<void(double)> onChange,
-                             std::function<std::string(double)> format, std::string id, char kind) {
+    // A knob at `position` (0..1), which follows the mixer's state as the engine mirrors it.
+    const auto knob = [this](const char* name, std::function<double()> position, std::function<void(double)> onChange,
+                             std::function<std::string(double)> format, double defaultPosition) {
         auto k = std::make_shared<ParamKnob>(mTheme, name);
-        k->Update(position, std::move(text));
-        k->DefaultPosition(kind == 'p' ? 0.5 : kind == 'g' ? (0.0 - kMixGainMinDb) / (kMixGainMaxDb - kMixGainMinDb) : 1.0);
+        k->DefaultPosition(defaultPosition);
         k->onChange = [onChange, format, raw = k.get()](double p) {
             raw->SetValueText(format(p));
             onChange(p);
         };
-        k->onReset = [onChange, kind, raw = k.get(), format] {
-            const double p = kind == 'p' ? 0.5 : kind == 'g' ? (0.0 - kMixGainMinDb) / (kMixGainMaxDb - kMixGainMinDb) : 1.0;
-            raw->Update(p, format(p));
-            onChange(p);
+        k->onReset = [onChange, defaultPosition, raw = k.get(), format] {
+            raw->Update(defaultPosition, format(defaultPosition));
+            onChange(defaultPosition);
         };
-        mMixerKnobs.push_back({std::move(id), kind, k, {}});
+        mLive.Bind(k, std::move(position), [format](ParamKnob& raw, double p) { raw.Update(p, format(p)); });
         return k;
+    };
+    // A strip's preset in the mixer's state now, if it is still there.
+    const auto slotOf = [this](const std::string& id) -> const guitarfx::uiclient::MixerSlot* {
+        const auto it = mState.mixer.slots.find(id);
+        return it != mState.mixer.slots.end() ? &it->second : nullptr;
     };
 
     std::vector<Ptr> strips;
     for (const auto& id : mState.mixer.activePresetIds)
     {
-        const auto it = mState.mixer.slots.find(id);
-        const auto slot = it != mState.mixer.slots.end() ? it->second : guitarfx::uiclient::MixerSlot{};
-        auto name = std::make_shared<Text>(mTheme, slot.name.empty() ? id : slot.name, 11.5f, Weight::SemiBold);
+        const auto* slot = slotOf(id);
+        auto name = std::make_shared<Text>(mTheme, slot != nullptr && !slot->name.empty() ? slot->name : id, 11.5f, Weight::SemiBold);
         name->Colour(mTheme.Ink()).Alignment(Text::Align::Centre);
-        auto mixKnob = knob("Mix", slot.mix, Percent(slot.mix), [&commands, id](double p) { commands.SetPresetMix(id, p); }, Percent, id, 'm');
-        auto panKnob = knob("Pan", (slot.pan + 1.0) / 2.0, Pan(slot.pan), [&commands, id](double p) { commands.SetPresetPan(id, p * 2.0 - 1.0); },
-                            [](double p) { return Pan(p * 2.0 - 1.0); }, id, 'p');
+        auto mixKnob = knob("Mix", [slotOf, id] { const auto* s = slotOf(id); return s != nullptr ? s->mix : 1.0; },
+                            [&commands, id](double p) { commands.SetPresetMix(id, p); }, Percent, 1.0);
+        auto panKnob = knob("Pan", [slotOf, id] { const auto* s = slotOf(id); return s != nullptr ? (s->pan + 1.0) / 2.0 : 0.5; },
+                            [&commands, id](double p) { commands.SetPresetPan(id, p * 2.0 - 1.0); }, [](double p) { return Pan(p * 2.0 - 1.0); }, 0.5);
+        // Mute and Solo are patched in place: the chain region does not rebuild under the pointer.
         auto mute = std::make_shared<ParamToggle>(mTheme, "Mute");
-        mute->Set(slot.mute);
-        mute->onClick = [this, id] {
-            const auto s = mState.mixer.slots.find(id);
-            mSession.Commands().SetPresetMute(id, s == mState.mixer.slots.end() || !s->second.mute);
+        mute->onClick = [this, slotOf, id] {
+            const auto* s = slotOf(id);
+            mSession.Commands().SetPresetMute(id, s == nullptr || !s->mute);
         };
+        mLive.Bind(mute, [slotOf, id] { const auto* s = slotOf(id); return s != nullptr && s->mute; }, &ParamToggle::Set);
         auto solo = std::make_shared<ParamToggle>(mTheme, "Solo");
-        solo->Set(slot.solo);
-        solo->onClick = [this, id] {
-            const auto s = mState.mixer.slots.find(id);
-            mSession.Commands().SetPresetSolo(id, s == mState.mixer.slots.end() || !s->second.solo);
+        solo->onClick = [this, slotOf, id] {
+            const auto* s = slotOf(id);
+            mSession.Commands().SetPresetSolo(id, s == nullptr || !s->solo);
         };
-        mMixerKnobs.push_back({id, 'u', {}, mute});
-        mMixerKnobs.push_back({id, 's', {}, solo});
+        mLive.Bind(solo, [slotOf, id] { const auto* s = slotOf(id); return s != nullptr && s->solo; }, &ParamToggle::Set);
         auto body = Col({FixedHeight(20, name), VGap(4), FixedHeight(92, Row({Stretch(), mixKnob, panKnob, Stretch()})), VGap(6),
                          FixedHeight(63, Row({Stretch(), mute, solo, Stretch()}))});
         strips.push_back(FixedWidth(140, Over(PadXY(4, 8, body), std::make_shared<InsetBox>(mTheme))));
@@ -159,11 +161,11 @@ Ptr Shell::BuildInlineMixer()
 
     // The master: the Multi-Rig's own level, and saving it as a Multi-Rig preset (or updating
     // the one it is, while its presets are the same).
-    const double gain = mState.mixer.mixGainDb;
     const auto toGain = [](double p) { return kMixGainMinDb + p * (kMixGainMaxDb - kMixGainMinDb); };
-    auto out = knob("Out", (gain - kMixGainMinDb) / (kMixGainMaxDb - kMixGainMinDb), GainDb(gain),
+    auto out = knob("Out", [this] { return (mState.mixer.mixGainDb - kMixGainMinDb) / (kMixGainMaxDb - kMixGainMinDb); },
                     [&commands, toGain](double p) { commands.SetMixGain(std::round(toGain(p) * 10.0) / 10.0); },
-                    [toGain](double p) { return GainDb(std::round(toGain(p) * 10.0) / 10.0); }, {}, 'g');
+                    [toGain](double p) { return GainDb(std::round(toGain(p) * 10.0) / 10.0); },
+                    (0.0 - kMixGainMinDb) / (kMixGainMaxDb - kMixGainMinDb));
     const auto* loaded = guitarfx::uiclient::LoadedComposite(mState.mixer);
     auto save = std::make_shared<IconButton>(mTheme, mIcons, "ui-save", IconButton::Look::Boxed);
     save->Size(30, 30).IconSize(14).Ink(loaded != nullptr ? mTheme.Accent() : mTheme.TextSecondary());
@@ -185,37 +187,6 @@ Ptr Shell::BuildInlineMixer()
     for (auto& s : strips)
         row->push_back(s);
     return Col({VGap(16), FixedHeight(210, Row({HGap(24), HScroll(row), Stretch()})), std::make_shared<el::element>()});
-}
-
-void Shell::SyncMixerKnobs()
-{
-    for (const auto& entry : mMixerKnobs)
-    {
-        // Mute and Solo are patched in place: the chain region does not rebuild under the pointer.
-        if (const auto t = entry.toggle.lock())
-        {
-            if (const auto it = mState.mixer.slots.find(entry.presetId); it != mState.mixer.slots.end())
-                t->Set(entry.kind == 'u' ? it->second.mute : it->second.solo);
-            mSession.Repaint(*t);
-            continue;
-        }
-        const auto k = entry.knob.lock();
-        if (!k || k->Dragging())
-            continue;
-        if (entry.kind == 'g')
-        {
-            const double db = mState.mixer.mixGainDb;
-            k->Update((db - kMixGainMinDb) / (kMixGainMaxDb - kMixGainMinDb), GainDb(db));
-        }
-        else if (const auto it = mState.mixer.slots.find(entry.presetId); it != mState.mixer.slots.end())
-        {
-            if (entry.kind == 'm')
-                k->Update(it->second.mix, Percent(it->second.mix));
-            else
-                k->Update((it->second.pan + 1.0) / 2.0, Pan(it->second.pan));
-        }
-        mSession.Repaint(*k);
-    }
 }
 
 void Shell::SaveMultiRig()

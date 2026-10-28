@@ -1,7 +1,7 @@
 // Controls: the global chain around every preset, as the web UI's compact Controls strip drops it
 // under the preset bar (ui-components/control-bar.html): the input meter and level, with which
 // inputs feed it; the noise gate; a global transpose; the four band EQ; the doubler; the output
-// level and meter, and mute. It stays open while it is adjusted, patched in place. The output
+// level and meter, and mute. It stays open while it is adjusted, bound in place. The output
 // limiter is in Settings. The full layout's control bar (WideFrame.cpp) lays out the same cells.
 
 #include "ui/Shell.h"
@@ -56,10 +56,9 @@ std::string Decibels(double v)
 }
 } // namespace
 
-Shell::ControlCells Shell::BuildControlCells(std::vector<guitarfx::uiclient::Subscription>& subs)
+Shell::ControlCells Shell::BuildControlCells()
 {
     auto& commands = mSession.Commands();
-    auto syncs = std::make_shared<std::vector<std::function<void()>>>();
     const auto chain = [this]() -> const guitarfx::GlobalSignalChainConfig& { return mState.globalChain; };
     using Read = std::function<double()>;
     using Write = std::function<void(double)>;
@@ -88,11 +87,7 @@ Shell::ControlCells Shell::BuildControlCells(std::vector<guitarfx::uiclient::Sub
             knob->onMenu = [this, which = std::string(std::string_view(label) == "IN" ? "input" : "output")](el::point at) {
                 OpenGlobalKnobMidiMenu(which, at);
             };
-        syncs->push_back([this, knob, info, read, format] {
-            const double v = read();
-            knob->Update(guitarfx::uiclient::ParamValueToPosition(info, v), format(v));
-            mSession.Repaint(*knob);
-        });
+        mLive.Bind(knob, read, [info, format](ParamKnob& k, double v) { k.Update(guitarfx::uiclient::ParamValueToPosition(info, v), format(v)); });
 
         auto title = std::make_shared<Text>(mTheme, label, 9.0f, Weight::SemiBold);
         title->Colour(mTheme.Pick(el::rgba(201, 209, 225, 200), mTheme.TextSecondary())).Fixed(true);
@@ -101,10 +96,7 @@ Shell::ControlCells Shell::BuildControlCells(std::vector<guitarfx::uiclient::Sub
         {
             auto toggle = std::make_shared<MiniSwitch>(mTheme, readOn());
             toggle->onClick = [readOn, writeOn] { writeOn(!readOn()); };
-            syncs->push_back([this, toggle, readOn] {
-                toggle->Set(readOn());
-                mSession.Repaint(*toggle);
-            });
+            mLive.Bind(toggle, readOn, &MiniSwitch::Set);
             head.push_back(HGap(5));
             head.push_back(toggle);
         }
@@ -156,10 +148,7 @@ Shell::ControlCells Shell::BuildControlCells(std::vector<guitarfx::uiclient::Sub
         items.push_back({"Dual mono", c.dualMono, false, set(false, c.inputChannel, true)});
         OpenDropdown(m->Bounds(), std::move(items), 150.0f);
     };
-    syncs->push_back([this, mode, inputModeLabel] {
-        mode->Label(inputModeLabel(), 10.0f);
-        mSession.Repaint(*mode);
-    });
+    mLive.Bind(mode, inputModeLabel, [](IconButton& m, const std::string& label) { m.Label(label, 10.0f); });
 
     auto in = knobCell("IN", Param("inputGain", "In", "dB", -12.0, 12.0, 0.0), [chain] { return chain().inputGain; },
                        [&commands](double v) { commands.SetGlobalChainParam("input.gain", v); }, Decibels, {}, {}, mode);
@@ -201,10 +190,7 @@ Shell::ControlCells Shell::BuildControlCells(std::vector<guitarfx::uiclient::Sub
     eqOn->onClick = [this, chain] {
         mSession.Commands().SetGlobalChainToggle("eq.enabled", !NodeEnabled(chain().postChainGraph, "global_eq"));
     };
-    syncs->push_back([this, eqOn, chain] {
-        eqOn->Set(NodeEnabled(chain().postChainGraph, "global_eq"));
-        mSession.Repaint(*eqOn);
-    });
+    mLive.Bind(eqOn, [chain] { return NodeEnabled(chain().postChainGraph, "global_eq"); }, &MiniSwitch::Set);
     auto eqTitle = std::make_shared<Text>(mTheme, "EQ", 9.0f, Weight::SemiBold);
     eqTitle->Colour(mTheme.Pick(el::rgba(201, 209, 225, 200), mTheme.TextSecondary())).Fixed(true);
     auto eq = FixedWidth(72, Col({FixedHeight(12, Row({Stretch(), eqTitle, HGap(5), eqOn, Stretch()})), VGap(8),
@@ -229,26 +215,17 @@ Shell::ControlCells Shell::BuildControlCells(std::vector<guitarfx::uiclient::Sub
     auto out = knobCell("OUT", Param("outputGain", "Out", "dB", -12.0, 12.0, 0.0), [chain] { return chain().outputGain; },
                         [&commands](double v) { commands.SetGlobalChainParam("output.gain", v); }, Decibels, {}, {}, outStatus);
 
+    // The meters, from the telemetry feed (20 Hz): only a bar that moved is redrawn.
     auto inMeter = std::make_shared<MeterBar>(mTheme);
     inMeter->Vertical(true);
+    mLive.Feed(inMeter, [this](MeterBar& m) { return m.Set(mState.telemetry.input.peakDb, mState.telemetry.input.clipped); });
     auto outMeter = std::make_shared<MeterBar>(mTheme);
     outMeter->Vertical(true);
+    mLive.Feed(outMeter, [this](MeterBar& m) { return m.Set(mState.telemetry.output.peakDb, mState.telemetry.output.clipped); });
     auto mute = std::make_shared<IconButton>(mTheme, mIcons, mState.outputMuted ? "ui-mute" : "ui-speaker");
-    mute->Size(20, 18).IconSize(12).Lit(mState.outputMuted);
+    mute->Size(20, 18).IconSize(12);
     mute->onClick = [this] { mSession.Commands().SetOutputMuted(!mState.outputMuted); };
-
-    syncs->push_back([this, mute] {
-        mute->Lit(mState.outputMuted);
-        mSession.Repaint(*mute);
-    });
-
-    auto sync = [syncs] {
-        for (auto& fn : *syncs)
-            fn();
-    };
-    subs.push_back(mSession.Client().Subscribe(Topic::GlobalChain, sync));
-    subs.push_back(mSession.Client().Subscribe(Topic::Session, sync));
-    sync();
+    mLive.Bind(mute, [this] { return mState.outputMuted; }, &IconButton::Lit);
 
     ControlCells cells;
     cells.in = in;
@@ -260,14 +237,13 @@ Shell::ControlCells Shell::BuildControlCells(std::vector<guitarfx::uiclient::Sub
     cells.inMeter = inMeter;
     cells.outMeter = outMeter;
     cells.mute = mute;
-    cells.levelling = BuildInputLevellingButton(subs);
+    cells.levelling = BuildInputLevellingButton();
     return cells;
 }
 
 void Shell::OpenControls()
 {
-    std::vector<guitarfx::uiclient::Subscription> subs;
-    auto c = BuildControlCells(subs);
+    auto c = BuildControlCells();
     auto strip = Row({Stretch(), Col({FixedHeight(84, c.inMeter), VGap(2), FixedHeight(18, Row({Stretch(), c.levelling, Stretch()})), std::make_shared<el::element>()}), HGap(14), c.in, c.gate, c.transpose,
                       Stretch(), c.eq, c.doubler, c.out, HGap(14),
                       Col({FixedHeight(84, c.outMeter), VGap(2), FixedHeight(18, Row({Stretch(), c.mute, Stretch()})),
@@ -277,17 +253,6 @@ void Shell::OpenControls()
     const auto view = ViewSize();
     ShowPopover(Pad(8, 10, 8, 6, strip), el::rect{metrics::kRailWidth + 6.0f, 0.0f, view.x - 6.0f, metrics::kTopBarHeight - 6.0f},
                 view.x - metrics::kRailWidth - 12.0f, 124.0f);
-    // After ShowPopover, which ends what an earlier dialog listened to.
-    for (auto& sub : subs)
-        mInstrumentSubs.push_back(std::move(sub));
-
-    // The meters move while the strip is open (OnTick), and stop with it.
-    mInMeter = c.inMeter;
-    mOutMeter = c.outMeter;
-    mOnOverlayClosed = [this] {
-        mInMeter.reset();
-        mOutMeter.reset();
-    };
 }
 
 void Shell::OpenGlobalEq(el::rect anchor)

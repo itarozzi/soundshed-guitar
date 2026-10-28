@@ -28,6 +28,31 @@ namespace nanoq::ui
 {
 using guitarfx::uiclient::ChainItem;
 using guitarfx::uiclient::kInputNodeId;
+
+namespace
+{
+/// A card's signal light from the telemetry feed: `levels` is its node's reading, or null for the
+/// input and output, which have their own.
+NodeCard::Light CardLight(const guitarfx::uiclient::ClientState& state, const NodeCard& card, const std::string& levelsKey)
+{
+    const auto lightFor = [](const guitarfx::uiclient::LevelReading& reading) {
+        if (reading.clipped)
+            return NodeCard::Light::Clip;
+        if (reading.channelCount > 0 && reading.peakDb > -60.0)
+            return NodeCard::Light::Live;
+        return NodeCard::Light::Idle;
+    };
+    const auto& telemetry = state.telemetry;
+    if (card.BoundaryKind() == NodeCard::Boundary::Input)
+        return lightFor(telemetry.input);
+    if (card.BoundaryKind() == NodeCard::Boundary::Output)
+        return lightFor(telemetry.output);
+    if (!card.Enabled())
+        return NodeCard::Light::None;
+    const auto it = telemetry.nodes.find(levelsKey);
+    return it != telemetry.nodes.end() ? lightFor(it->second) : NodeCard::Light::Idle;
+}
+} // namespace
 using guitarfx::uiclient::kOutputNodeId;
 
 namespace
@@ -87,8 +112,6 @@ Ptr Shell::BuildChain()
 {
     using namespace guitarfx::uiclient;
 
-    mChainCards.clear();
-    mChainCables.clear();
     mHitMap = std::make_shared<chain::HitMap>();
     if (!mState.activePreset)
         return VGap(0);
@@ -188,7 +211,8 @@ Ptr Shell::BuildChain()
             };
             card->onReplace = [this, nodeId] { OpenEffectPicker({}, nodeId); };
         }
-        mChainCards.emplace_back(nodeId, card);
+        // Its light follows the telemetry feed.
+        mLive.Feed(card, [this, key = mState.activePresetId + "::" + nodeId](NodeCard& c) { return c.SetLight(CardLight(mState, c, key)); });
         return card;
     };
 
@@ -210,7 +234,12 @@ Ptr Shell::BuildChain()
                 connector->Edge(mHitMap, edge);
                 break;
             }
-        mChainCables.push_back(connector);
+        // Lit with the signal while Animate signal flow is on; the pulses move one spacing every
+        // 0.4 s, as the web UI's animation does.
+        mLive.Feed(connector, [this, source = connector->Source()](Connector& c) {
+            const bool live = !source.empty() && guitarfx::uiclient::IsSignalFlowAnimationEnabled(mState) && mSignalFlow.IsLive(source);
+            return c.SetFlow(live, static_cast<float>(std::fmod(UiSession::Now() / 0.4, 1.0)));
+        });
         return connector;
     };
 
@@ -370,7 +399,6 @@ Ptr Shell::BuildChain()
 
     // The block sits in the middle of the stage, between the scene chips and the add button; it
     // scrolls when taller than that, and sideways when the wrap is off.
-    SyncChainLights();
     if (mWide)
     {
         // The full layout's chain is as tall as its lines, up to a third of the window, so the
@@ -416,57 +444,6 @@ Ptr Shell::BuildChain()
     if (total + 24.0f > stageHeight)
         return VScroll(PadXY(0, 12, Col(rows)));
     return Col({std::make_shared<el::element>(), FixedHeight(total, Col(rows)), std::make_shared<el::element>()});
-}
-
-void Shell::SyncChainLights()
-{
-    const auto& telemetry = mState.telemetry;
-    const std::string scope = mState.activePresetId + "::";
-
-    auto lightFor = [](const guitarfx::uiclient::LevelReading& reading) {
-        if (reading.clipped)
-            return NodeCard::Light::Clip;
-        if (reading.channelCount > 0 && reading.peakDb > -60.0)
-            return NodeCard::Light::Live;
-        return NodeCard::Light::Idle;
-    };
-
-    for (auto& [nodeId, card] : mChainCards)
-    {
-        NodeCard::Light light = NodeCard::Light::None;
-        if (card->BoundaryKind() == NodeCard::Boundary::Input)
-            light = lightFor(telemetry.input);
-        else if (card->BoundaryKind() == NodeCard::Boundary::Output)
-            light = lightFor(telemetry.output);
-        else if (card->Enabled())
-        {
-            const auto it = telemetry.nodes.find(scope + nodeId);
-            light = it != telemetry.nodes.end() ? lightFor(it->second) : NodeCard::Light::Idle;
-        }
-
-        if (card->SetLight(light))
-            mSession.Repaint(*card);
-    }
-}
-
-void Shell::SyncSignalFlow()
-{
-    // The cables light with the signal while Animate signal flow is on (web: signalFlow.ts).
-    const bool enabled = guitarfx::uiclient::IsSignalFlowAnimationEnabled(mState);
-    if (enabled)
-        mSignalFlow.Update(mState, UiSession::Now());
-    if (!enabled && !mSignalFlowLit)
-        return;
-    mSignalFlowLit = enabled && mSignalFlow.AnyLive();
-    // The pulses move one spacing every 0.4 s, as the web UI's animation does.
-    const float phase = static_cast<float>(std::fmod(UiSession::Now() / 0.4, 1.0));
-    for (const auto& weak : mChainCables)
-        if (const auto cable = weak.lock())
-        {
-            const auto from = cable->Source();
-            if (cable->SetFlow(enabled && !from.empty() && mSignalFlow.IsLive(from), phase))
-                mSession.Repaint(*cable);
-        }
 }
 
 void Shell::DragCard(const std::string& nodeId, el::point from, el::point to, bool done)

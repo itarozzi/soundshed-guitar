@@ -15,13 +15,13 @@
 
 #include <algorithm>
 #include <cmath>
+#include <tuple>
 
 namespace nanoq::ui
 {
 namespace guids = guitarfx::EffectGuids;
 using guitarfx::uiclient::GateLearnStatus;
 using guitarfx::uiclient::NodeAddress;
-using guitarfx::uiclient::Topic;
 
 namespace
 {
@@ -40,16 +40,17 @@ public:
         return {{120.0f, 14.0f}, {el::full_extent, 14.0f}};
     }
 
-    void Set(double minDb, double maxDb, double threshold, double hysteresis, const GateLearnStatus* status)
+    /// Returns true if anything it draws changed.
+    bool Set(double minDb, double maxDb, double threshold, double hysteresis, const GateLearnStatus* status)
     {
-        mMin = minDb;
-        mMax = std::max(minDb + 1.0, maxDb);
-        mThreshold = threshold;
-        mClose = threshold - std::max(0.0, hysteresis);
-        mNoise = status != nullptr ? status->noiseFloorDb : std::nullopt;
         const bool listening = status != nullptr && status->state == "listening";
-        mLevel = listening ? status->levelDb : std::nullopt;
-        mProgress = listening ? status->progress : 0.0;
+        const auto next = std::make_tuple(minDb, std::max(minDb + 1.0, maxDb), threshold, threshold - std::max(0.0, hysteresis),
+                                          status != nullptr ? status->noiseFloorDb : std::nullopt,
+                                          listening ? status->levelDb : std::nullopt, listening ? status->progress : 0.0);
+        if (next == std::tie(mMin, mMax, mThreshold, mClose, mNoise, mLevel, mProgress))
+            return false;
+        std::tie(mMin, mMax, mThreshold, mClose, mNoise, mLevel, mProgress) = next;
+        return true;
     }
 
     void draw(const el::context& ctx) override
@@ -105,16 +106,21 @@ std::string WholeDb(double value)
 Ptr Shell::BuildGateLearn(GateLearnTarget target)
 {
     auto meter = std::make_shared<GateLearnMeter>(mTheme);
-    auto low = std::make_shared<Text>(mTheme, "", 9.0f);
-    auto high = std::make_shared<Text>(mTheme, "", 9.0f);
+    auto low = std::make_shared<Text>(mTheme, WholeDb(target.minDb), 9.0f);
+    auto high = std::make_shared<Text>(mTheme, WholeDb(target.maxDb), 9.0f);
     low->Colour(mTheme.TextMuted());
     high->Colour(mTheme.TextMuted()).Alignment(Text::Align::Right);
     auto status = std::make_shared<Text>(mTheme, "", 11.0f);
     status->Colour(mTheme.TextSecondary());
     auto button = std::make_shared<IconButton>(mTheme, mIcons, "", IconButton::Look::Boxed);
-    button->Size(72, 26).Label("Learn", 11.0f);
+    button->Size(72, 26);
 
     const auto key = guitarfx::uiclient::NodeFeedKey(target.address.scope, target.address.presetId, target.address.nodeId);
+    // What the engine last said of this gate's listen, if anything.
+    const auto learnStatus = [this, key]() -> const GateLearnStatus* {
+        const auto it = mState.analysis.gateLearn.find(key);
+        return it != mState.analysis.gateLearn.end() ? &it->second : nullptr;
+    };
     button->onClick = [this, key, address = target.address, ensureEnabled = target.ensureEnabled] {
         auto& analysis = mSession.Client().GetAnalysis();
         auto& learn = mSession.Client().MutableState().analysis.gateLearn;
@@ -129,62 +135,29 @@ Ptr Shell::BuildGateLearn(GateLearnTarget target)
         learn[key] = GateLearnStatus{"listening"};
         mGateLearnSeen[key] = "listening";
         analysis.StartGateLearn(address);
-        SyncGateLearn();
     };
 
-    mGateLearnViews.push_back({std::move(target), meter, button, status, low, high});
-    SyncGateLearn();
-    return Col({FixedHeight(14, meter), VGap(2), FixedHeight(12, Row({low, Stretch(), high})), VGap(6),
-                FixedHeight(26, Row({button, HGap(10), status, Stretch()}))});
-}
-
-void Shell::SyncGateLearn()
-{
-    // Views of a page or dialog that has gone are dropped.
-    mGateLearnViews.erase(std::remove_if(mGateLearnViews.begin(), mGateLearnViews.end(),
-                                         [](const GateLearnView& v) { return v.meter.expired(); }),
-                          mGateLearnViews.end());
-
-    for (auto& view : mGateLearnViews)
-    {
-        const auto& t = view.target;
-        const auto key = guitarfx::uiclient::NodeFeedKey(t.address.scope, t.address.presetId, t.address.nodeId);
-        const auto it = mState.analysis.gateLearn.find(key);
-        const GateLearnStatus* status = it != mState.analysis.gateLearn.end() ? &it->second : nullptr;
-
+    mLive.Feed(meter, [this, key, learnStatus, target](GateLearnMeter& m) {
+        const auto* s = learnStatus();
         // A listen that just finished sets Threshold, once, where it measured.
-        if (status != nullptr)
+        if (s != nullptr)
         {
             auto& seen = mGateLearnSeen[key];
-            if (status->state == "done" && seen == "listening" && status->thresholdDb && t.apply)
-                t.apply(*status->thresholdDb);
-            seen = status->state;
+            if (s->state == "done" && seen == "listening" && s->thresholdDb && target.apply)
+                target.apply(*s->thresholdDb);
+            seen = s->state;
         }
-
-        const auto meter = std::static_pointer_cast<GateLearnMeter>(view.meter.lock());
-        if (!meter)
-            continue;
-        meter->Set(t.minDb, t.maxDb, t.threshold ? t.threshold() : -60.0, t.hysteresis ? t.hysteresis() : 0.0, status);
-        mSession.Repaint(*meter);
-        if (const auto text = view.status.lock())
-        {
-            const auto line = guitarfx::uiclient::GateLearnStatusText(status, t.minDb);
-            if (text->Value() != line)
-            {
-                text->Set(line);
-                mSession.Repaint(*text);
-            }
-        }
-        if (const auto button = view.button.lock())
-        {
-            button->Label(status != nullptr && status->state == "listening" ? "Cancel" : "Learn", 11.0f);
-            mSession.Repaint(*button);
-        }
-        if (const auto low = view.low.lock())
-            low->Set(WholeDb(t.minDb));
-        if (const auto high = view.high.lock())
-            high->Set(WholeDb(t.maxDb));
-    }
+        return m.Set(target.minDb, target.maxDb, target.threshold ? target.threshold() : -60.0,
+                     target.hysteresis ? target.hysteresis() : 0.0, s);
+    });
+    mLive.Bind(
+        status, [learnStatus, minDb = target.minDb] { return guitarfx::uiclient::GateLearnStatusText(learnStatus(), minDb); },
+        &Text::Set);
+    mLive.Bind(
+        button, [learnStatus] { const auto* s = learnStatus(); return s != nullptr && s->state == "listening"; },
+        [](IconButton& b, bool listening) { b.Label(listening ? "Cancel" : "Learn", 11.0f); });
+    return Col({FixedHeight(14, meter), VGap(2), FixedHeight(12, Row({low, Stretch(), high})), VGap(6),
+                FixedHeight(26, Row({button, HGap(10), status, Stretch()}))});
 }
 
 Shell::GateLearnTarget Shell::NodeGateLearnTarget(const guitarfx::GraphNode& node)
@@ -243,17 +216,12 @@ void Shell::OpenGlobalGate(el::rect anchor)
                 return it->second;
         return fallback;
     };
-    auto syncs = std::make_shared<std::vector<std::function<void()>>>();
 
     GateLearnTarget target;
     target.address = NodeAddress{"global", "global_gate", {}};
     target.threshold = [gateParam] { return gateParam("threshold", -60.0); };
     target.hysteresis = [gateParam] { return gateParam("hysteresis", 4.0); };
-    target.apply = [this, &commands, syncs](double thresholdDb) {
-        commands.SetGlobalChainParam("gate.threshold", thresholdDb);
-        for (auto& fn : *syncs)
-            fn();
-    };
+    target.apply = [&commands](double thresholdDb) { commands.SetGlobalChainParam("gate.threshold", thresholdDb); };
     target.ensureEnabled = [this, &commands] {
         if (const auto* node = mState.globalChain.preChainGraph.FindNode("global_gate"); node != nullptr && !node->enabled)
             commands.SetGlobalChainToggle("gate.enabled", true);
@@ -271,37 +239,23 @@ void Shell::OpenGlobalGate(el::rect anchor)
             if (guitarfx::uiclient::IsToggleParam(info))
             {
                 auto toggle = std::make_shared<ParamToggle>(mTheme, info.name);
-                toggle->onClick = [this, key, info, gateParam, &commands, syncs] {
-                    const bool on = gateParam(key, info.defaultValue) > 0.5 * (info.minValue + info.maxValue);
-                    commands.SetGlobalChainParam("gate." + key, on ? info.minValue : info.maxValue);
-                    for (auto& fn : *syncs)
-                        fn();
-                };
-                syncs->push_back([this, toggle, key, info, gateParam] {
-                    toggle->Set(gateParam(key, info.defaultValue) > 0.5 * (info.minValue + info.maxValue));
-                    mSession.Repaint(*toggle);
-                });
+                const auto on = [key, info, gateParam] { return gateParam(key, info.defaultValue) > 0.5 * (info.minValue + info.maxValue); };
+                toggle->onClick = [key, info, on, &commands] { commands.SetGlobalChainParam("gate." + key, on() ? info.minValue : info.maxValue); };
+                mLive.Bind(toggle, on, &ParamToggle::Set);
                 cell = toggle;
             }
             else
             {
                 auto knob = std::make_shared<ParamKnob>(mTheme, info.name);
                 knob->DefaultPosition(guitarfx::uiclient::ParamValueToPosition(info, info.defaultValue));
-                knob->onChange = [this, info, key, &commands, k = knob.get()](double position) {
+                knob->onChange = [info, key, &commands, k = knob.get()](double position) {
                     const double v = guitarfx::uiclient::SnapParamValue(info, guitarfx::uiclient::ParamPositionToValue(info, position));
                     k->SetValueText(guitarfx::uiclient::FormatParamValue(info, v));
                     commands.SetGlobalChainParam("gate." + key, v);
-                    SyncGateLearn();
                 };
-                knob->onReset = [this, info, key, &commands, syncs] {
-                    commands.SetGlobalChainParam("gate." + key, info.defaultValue);
-                    for (auto& fn : *syncs)
-                        fn();
-                };
-                syncs->push_back([this, knob, key, info, gateParam] {
-                    const double v = gateParam(key, info.defaultValue);
-                    knob->Update(guitarfx::uiclient::ParamValueToPosition(info, v), guitarfx::uiclient::FormatParamValue(info, v));
-                    mSession.Repaint(*knob);
+                knob->onReset = [info, key, &commands] { commands.SetGlobalChainParam("gate." + key, info.defaultValue); };
+                mLive.Bind(knob, [key, info, gateParam] { return gateParam(key, info.defaultValue); }, [info](ParamKnob& k, double v) {
+                    k.Update(guitarfx::uiclient::ParamValueToPosition(info, v), guitarfx::uiclient::FormatParamValue(info, v));
                 });
                 cell = knob;
             }
@@ -310,7 +264,6 @@ void Shell::OpenGlobalGate(el::rect anchor)
             ++count;
         }
     knobs.back() = Stretch();
-    syncs->push_back([this] { SyncGateLearn(); });
 
     auto title = std::make_shared<Text>(mTheme, "NOISE GATE", 9.0f, Weight::SemiBold);
     title->Colour(mTheme.Pick(el::rgba(220, 227, 243, 173), mTheme.TextSecondary()));
@@ -318,12 +271,5 @@ void Shell::OpenGlobalGate(el::rect anchor)
     const float width = std::min(std::max(360.0f, count * 66.0f + 24.0f), ViewSize().x - 24.0f);
     ShowPopover(Pad(12, 10, 12, 10, Col({FixedHeight(14, title), VGap(8), FixedHeight(60, learn), VGap(10), FixedHeight(63, Row(knobs))})),
                 anchor, width, 14.0f + 8.0f + 60.0f + 10.0f + 63.0f + 20.0f);
-
-    auto sync = [syncs] {
-        for (auto& fn : *syncs)
-            fn();
-    };
-    mInstrumentSubs.push_back(mSession.Client().Subscribe(Topic::GlobalChain, sync));
-    sync();
 }
 } // namespace nanoq::ui

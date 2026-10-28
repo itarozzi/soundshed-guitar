@@ -23,8 +23,6 @@ using guitarfx::uiclient::Topic;
 struct Shell::DevicePage
 {
     SlotPtr slot;                 // the section in the settings page now built
-    std::weak_ptr<MeterBar> meter;
-    std::weak_ptr<Text> level;
     std::vector<guitarfx::uiclient::Subscription> subs;
     std::string signature;        // what the section was last drawn from
     std::string error;            // the last request's failure, kept until the next request
@@ -375,11 +373,13 @@ Ptr Shell::BuildDeviceContent()
     if (!Str(s, "inputDevice").empty())
     {
         auto meter = std::make_shared<MeterBar>(mTheme);
-        meter->Set(device.inputLevelDb, device.inputLevelDb > -0.5);
-        page.meter = meter;
+        mLive.Feed(meter, [this](MeterBar& m) { return m.Set(mState.device.inputLevelDb, mState.device.inputLevelDb > -0.5); });
         auto level = std::make_shared<Text>(mTheme, "", metrics::kSmallText);
         level->Colour(mTheme.TextMuted());
-        page.level = level;
+        // In whole dB; below -99 as -inf.
+        mLive.Bind(
+            level, [this] { return mState.device.inputLevelDb <= -99.0 ? -100L : std::lround(mState.device.inputLevelDb); },
+            [](Text& t, long db) { t.Set(db <= -100L ? std::string("-inf dB") : std::to_string(db) + " dB"); });
         row("Input Level", {FixedWidth(kWide, Middle(meter)), HGap(10), FixedWidth(70, Middle(level))});
     }
     if (Flag(s, "canMuteInput"))
@@ -478,19 +478,6 @@ void Shell::SyncDevicePage()
         // the height it had been laid out with, and its rows were squeezed into that.
         if (signature != page.signature)
             Mark(kPage);
-    }
-
-    const double db = mState.device.inputLevelDb;
-    if (const auto meter = page.meter.lock(); meter && meter->Set(db, db > -0.5))
-        mSession.Repaint(*meter);
-    if (const auto level = page.level.lock())
-    {
-        const std::string text = db <= -99.0 ? "-inf dB" : std::to_string(static_cast<int>(std::lround(db))) + " dB";
-        if (level->Value() != text)
-        {
-            level->Set(text);
-            mSession.Repaint(*level);
-        }
     }
 }
 } // namespace nanoq::ui

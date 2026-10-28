@@ -5,19 +5,17 @@
 //
 // The engine plays the track (PracticeToolService); loops, faders, the EQ and projects are the
 // shared uiclient::PracticeTool's, which keeps them in the web UI's own settings. The playhead,
-// the clock and the faders move in place each tick (SyncPracticeTool); the section is rebuilt
-// only when what it lists changes, and never under a drag on the waveform.
+// the clock and the faders are bound (mLive) and move in place; the section is rebuilt only
+// when what it lists changes, and never under a drag on the waveform or a fader.
 
 #include "ui/Shell.h"
 
 #include "uiclient/Looper.h"
 
 #include <algorithm>
-#include <array>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
-#include <limits>
 
 namespace nanoq::ui
 {
@@ -39,6 +37,7 @@ public:
     {
         double start = 0.0, end = 0.0;
         bool active = false;
+        bool operator==(const Band&) const = default;
     };
 
     explicit PracticeWave(const Theme& theme) : mTheme(theme) {}
@@ -75,7 +74,6 @@ public:
     std::function<void(double start, double end, bool done)> onRange;
     /// A sweep begun outside the picked loop: it lets the loop go first.
     std::function<void()> onSweepOutside;
-    std::function<void()> onDragEnd;
 
     el::view_limits limits(const el::basic_context&) const override
     {
@@ -215,8 +213,6 @@ public:
         default:
             break;
         }
-        if (onDragEnd)
-            onDragEnd();
         ctx.view.refresh(ctx);
         return true;
     }
@@ -325,6 +321,17 @@ private:
     float mAnchorX = 0.0f;
 };
 
+/// What the waveform shows over the track, as its binding compares it each tick: the playhead is
+/// cut to 1/2000 of the track, so the wave is redrawn only when something on it moves a pixel.
+struct WaveShown
+{
+    double head = 0.0;
+    std::vector<PracticeWave::Band> bands;
+    std::optional<std::pair<double, double>> candidate;
+    std::optional<double> marker;
+    bool operator==(const WaveShown&) const = default;
+};
+
 Ptr Heading(const Theme& theme, const std::string& text)
 {
     auto t = std::make_shared<Text>(theme, Upper(text), 9.5f, Weight::SemiBold);
@@ -338,27 +345,10 @@ std::string LoopRange(const practice::Loop& loop)
 }
 } // namespace
 
-struct Shell::PracticeView
-{
-    std::weak_ptr<PracticeWave> wave;
-    std::weak_ptr<Text> clock;
-    std::array<std::weak_ptr<ParamSlider>, 4> faders;
-    std::array<double, 4> faderShown{std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::quiet_NaN(),
-                                     std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::quiet_NaN()};
-    std::string signature; // the section's last, kept while the waveform is dragged
-    std::string drawn;     // what the waveform last drew, to redraw only on a change
-};
-
 std::string Shell::PracticeToolSignature() const
 {
     if (!mPractice)
         return {};
-    // A drag on the waveform changes the loops as it goes: the section stays as it is until the
-    // drag ends, which would otherwise drop it.
-    if (mPracticeView)
-        if (const auto wave = mPracticeView->wave.lock(); wave && wave->Dragging())
-            return mPracticeView->signature;
-
     const auto& t = mPractice->Track();
     std::string s = t.filePath + "|" + std::to_string(t.loads) + (t.playing ? "|p" : "|") + (mPractice->Candidate() ? "c" : "") +
                     (practice::IsEqShaping(mPractice->GetEq()) ? "e" : "") + "|" + mPractice->SelectedProjectId();
@@ -374,8 +364,6 @@ std::string Shell::PracticeToolSignature() const
         for (const auto& link : project.links)
             s += "," + link.id;
     }
-    if (mPracticeView)
-        mPracticeView->signature = s;
     return s;
 }
 
@@ -384,8 +372,7 @@ Ptr Shell::BuildPracticeTool(float width)
     auto& tool = *mPractice;
     const auto& track = tool.Track();
     const bool hasAudio = tool.HasAudio();
-    mPracticeView = std::make_shared<PracticeView>();
-    auto view = mPracticeView;
+    const auto position = [this] { return mPractice->PositionNow(guitarfx::uiclient::LooperClockNow()); };
     std::vector<Ptr> body;
 
     // ── The project bar: the saved projects, Save, and Browse File ──
@@ -434,22 +421,35 @@ Ptr Shell::BuildPracticeTool(float width)
     // ── The waveform ──
     auto wave = std::make_shared<PracticeWave>(mTheme);
     wave->Track(track.peaksL, track.peaksR, track.durationSec);
-    view->wave = wave;
     wave->onSeek = [this](double seconds) { mPractice->ClickAt(seconds); };
     wave->onSweepOutside = [this] { mPractice->ReleaseActiveLoop(); };
     wave->onRange = [this](double start, double end, bool done) { mPractice->SetRange(start, end, done); };
-    wave->onDragEnd = [this] {
-        // What the drag held back.
-        mJamSignature.clear();
-        Mark(kPage);
-    };
+    mLive.Bind(
+        wave,
+        [this, position, step = std::max(1.0, track.durationSec) / 2000.0] {
+            WaveShown shown{std::floor(position() / step) * step, {}, mPractice->Candidate(), mPractice->JumpBackMarker()};
+            const auto* active = mPractice->ActiveLoop();
+            for (const auto& loop : mPractice->Loops())
+                shown.bands.push_back({loop.startSec, loop.endSec, active && active->id == loop.id});
+            return shown;
+        },
+        [](PracticeWave& w, const WaveShown& shown) {
+            w.Ranges(shown.bands, shown.candidate);
+            w.Playhead(shown.head);
+            w.Marker(shown.marker);
+        });
     body.push_back(FixedHeight(kWaveHeight, wave));
     body.push_back(VGap(6));
 
     // ── The track and where it is, then + Add Loop for a marked range ──
     auto clock = std::make_shared<Text>(mTheme, hasAudio ? track.title : std::string("No file loaded"), 11.5f, Weight::Medium);
     clock->Colour(hasAudio ? mTheme.Ink() : mTheme.TextMuted());
-    view->clock = clock;
+    if (hasAudio)
+        mLive.Bind(
+            clock, [position] { return static_cast<long>(std::floor(position())); },
+            [title = track.title, total = practice::FormatClock(track.durationSec)](Text& t, long seconds) {
+                t.Set(title + "   " + practice::FormatClock(static_cast<double>(seconds)) + " / " + total);
+            });
     std::vector<Ptr> info{clock};
     if (hasAudio && tool.Candidate() && !tool.ActiveLoop())
     {
@@ -550,8 +550,10 @@ Ptr Shell::BuildPracticeTool(float width)
     {
         const auto& spec = practice::SpecFor(fader);
         auto slider = std::make_shared<ParamSlider>(mTheme, spec.label);
-        const double value = practice::FaderValue(tool.Faders(), fader);
-        slider->Update(practice::FaderToSlider(fader, value), practice::FormatFader(fader, value));
+        // It follows a loop picked or a project recalled; a dragged one leads.
+        mLive.Bind(
+            slider, [this, fader] { return practice::FaderValue(mPractice->Faders(), fader); },
+            [fader](ParamSlider& s, double value) { s.Update(practice::FaderToSlider(fader, value), practice::FormatFader(fader, value)); });
         slider->onChange = [this, fader, s = slider.get()](double position) {
             const double v = practice::SliderToFader(fader, position);
             mPractice->SetFader(fader, v, false);
@@ -559,7 +561,6 @@ Ptr Shell::BuildPracticeTool(float width)
         };
         slider->onRelease = [this, fader] { mPractice->SetFader(fader, practice::FaderValue(mPractice->Faders(), fader), true); };
         slider->onReset = [this, fader] { mPractice->SetFader(fader, practice::SpecFor(fader).def, true); };
-        view->faders[static_cast<std::size_t>(fader)] = slider;
         faders.push_back(slider);
     }
     auto hint = std::make_shared<Text>(mTheme, "Speed and pitch are independent.", 10.5f);
@@ -612,62 +613,7 @@ Ptr Shell::BuildPracticeTool(float width)
         }
     }
     body.push_back(VGap(20));
-    static_cast<void>(PracticeToolSignature()); // what this build shows, kept for a drag
     return Col(body);
-}
-
-void Shell::SyncPracticeTool()
-{
-    if (!mPractice || !mPracticeView)
-        return;
-    auto& view = *mPracticeView;
-    const auto& track = mPractice->Track();
-    const double position = mPractice->PositionNow(guitarfx::uiclient::LooperClockNow());
-
-    if (const auto wave = view.wave.lock())
-    {
-        std::vector<PracticeWave::Band> bands;
-        const auto* active = mPractice->ActiveLoop();
-        for (const auto& loop : mPractice->Loops())
-            bands.push_back({loop.startSec, loop.endSec, active && active->id == loop.id});
-        wave->Ranges(std::move(bands), mPractice->Candidate());
-        wave->Playhead(position);
-        wave->Marker(mPractice->JumpBackMarker());
-        // Redrawn only when what it shows moved by a pixel or more.
-        std::string drawn = std::to_string(static_cast<long>(position * 200.0 / std::max(1.0, track.durationSec) * 10.0));
-        for (const auto& loop : mPractice->Loops())
-            drawn += "|" + std::to_string(loop.startSec) + "," + std::to_string(loop.endSec);
-        if (const auto& candidate = mPractice->Candidate())
-            drawn += "|c" + std::to_string(candidate->first) + "," + std::to_string(candidate->second);
-        if (const auto marker = mPractice->JumpBackMarker())
-            drawn += "|m" + std::to_string(*marker);
-        if (drawn != view.drawn && !wave->Dragging())
-        {
-            view.drawn = std::move(drawn);
-            mSession.Repaint(*wave);
-        }
-    }
-    if (const auto clock = view.clock.lock(); clock && mPractice->HasAudio())
-    {
-        const auto text = track.title + "   " + practice::FormatClock(position) + " / " + practice::FormatClock(track.durationSec);
-        if (clock->Value() != text)
-        {
-            clock->Set(text);
-            mSession.Repaint(*clock);
-        }
-    }
-    // The faders follow a loop picked or a project recalled; a dragged one leads.
-    for (const auto fader : {Fader::Volume, Fader::Balance, Fader::Speed, Fader::Pitch})
-        if (const auto slider = view.faders[static_cast<std::size_t>(fader)].lock(); slider && !slider->Dragging())
-        {
-            const double value = practice::FaderValue(mPractice->Faders(), fader);
-            auto& shown = view.faderShown[static_cast<std::size_t>(fader)];
-            if (shown == value)
-                continue;
-            shown = value;
-            slider->Update(practice::FaderToSlider(fader, value), practice::FormatFader(fader, value));
-            mSession.Repaint(*slider);
-        }
 }
 
 void Shell::OpenPracticeProjects(el::rect anchor)

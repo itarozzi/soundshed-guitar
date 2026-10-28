@@ -248,12 +248,8 @@ std::string Shell::EffectPageSignature() const
 
 Ptr Shell::BuildEffectPage()
 {
-    mControls.clear();
-    mBypass.reset();
-    mHeaderLed.reset();
     mEffectPlot.reset();
     mEffectDspStatus.reset();
-    mLayoutControls.clear();
 
     const auto* node = SelectedNode();
     if (node == nullptr)
@@ -313,6 +309,13 @@ Ptr Shell::BuildEffectPage()
     };
     std::vector<Group> groups;
 
+    // The node's value of a parameter now, which the controls follow (automation, a preset recalled,
+    // another editor). By id, not the selection, which may move on before this page is rebuilt.
+    const auto valueOf = [this, nodeId](const EffectParamInfo& info) {
+        const auto* n = mState.activePreset ? mState.activePreset->graph.FindNode(nodeId) : nullptr;
+        return n != nullptr ? NodeParamValue(*n, info) : info.defaultValue;
+    };
+
     for (const auto& info : params)
     {
         // A group gathers every control of its name, where they are apart in the list too
@@ -324,26 +327,37 @@ Ptr Shell::BuildEffectPage()
             group = std::prev(groups.end());
         }
         auto& target = *group;
-
-        ParamControl control;
-        control.info = info;
+        // A right click on any of them: MIDI Learn, for whichever control it is (Automation.cpp).
+        auto menu = [this, key = info.key](el::point at) {
+            if (const auto* n = SelectedNode())
+                OpenNodeParamMidiMenu(n->type, key, at);
+        };
 
         if (IsEnumParam(info) && WantsPicker(info))
         {
             // A long list: its current choice on a chip; a tap opens the list.
-            control.picker = std::make_shared<IconButton>(mTheme, mIcons, "", IconButton::Look::Chip);
-            control.picker->Size(kPickerWidth, 26).Caret(true);
-            control.picker->onClick = [this, nodeId, info] { OpenEnumPicker(nodeId, info); };
+            auto picker = std::make_shared<IconButton>(mTheme, mIcons, "", IconButton::Look::Chip);
+            picker->Size(kPickerWidth, 26).Caret(true);
+            picker->onClick = [this, nodeId, info] { OpenEnumPicker(nodeId, info); };
+            picker->onMenu = menu;
+            mLive.Bind(
+                picker, [valueOf, info] { return EnumLabelIndex(info, valueOf(info)); },
+                [labels = info.labels](IconButton& p, int index) {
+                    p.Label(index >= 0 && static_cast<std::size_t>(index) < labels.size() ? labels[static_cast<std::size_t>(index)] : std::string(), 11.0f);
+                });
             auto label = std::make_shared<Text>(mTheme, Upper(info.name), 9.0f, Weight::SemiBold);
             label->Colour(mTheme.Pick(el::rgba(201, 209, 225, 184), mTheme.TextSecondary())).Alignment(Text::Align::Centre);
             target.cells.emplace_back(kPickerWidth, Sized(kPickerWidth, kCellHeight, Col({FixedHeight(12, label), VGap(12),
-                                                                                               FixedHeight(26, control.picker),
+                                                                                               FixedHeight(26, picker),
                                                                                                std::make_shared<el::element>()})));
         }
         else if (IsToggleParam(info))
         {
-            control.toggle = std::make_shared<ParamToggle>(mTheme, info.name);
-            control.toggle->onClick = [this, nodeId, info] {
+            auto toggle = std::make_shared<ParamToggle>(mTheme, info.name);
+            toggle->onMenu = menu;
+            mLive.Bind(
+                toggle, [valueOf, info] { return valueOf(info) > 0.5 * (info.minValue + info.maxValue); }, &ParamToggle::Set);
+            toggle->onClick = [this, nodeId, info] {
                 const auto* n = SelectedNode();
                 if (n == nullptr)
                     return;
@@ -353,33 +367,35 @@ Ptr Shell::BuildEffectPage()
                 NoteChainEdit();
                 Mark(kValues | kPage);
             };
-            target.cells.emplace_back(kCellWidth, control.toggle);
+            target.cells.emplace_back(kCellWidth, toggle);
         }
         else
         {
             // A knob: continuous values, and an enum short enough to turn through, as the web
             // UI's Mode knobs are.
-            control.knob = std::make_shared<ParamKnob>(mTheme, info.name);
-            control.knob->DefaultPosition(ParamValueToPosition(info, info.defaultValue));
+            auto knob = std::make_shared<ParamKnob>(mTheme, info.name);
+            knob->DefaultPosition(ParamValueToPosition(info, info.defaultValue));
+            knob->onMenu = menu;
+            mLive.Bind(knob, [valueOf, info] { return valueOf(info); },
+                       [info](ParamKnob& k, double v) { k.Update(ParamValueToPosition(info, v), FormatParamValue(info, v)); });
             const bool stepped = IsEnumParam(info);
-            control.knob->onChange = [this, nodeId, info, stepped, knob = control.knob.get()](double position) {
+            knob->onChange = [this, nodeId, info, stepped, k = knob.get()](double position) {
                 const double value = SnapParamValue(info, ParamPositionToValue(info, position));
-                knob->SetValueText(FormatParamValue(info, value));
+                k->SetValueText(FormatParamValue(info, value));
                 mSession.Commands().SetNodeParam(nodeId, info.key, value);
                 NoteChainEdit();
-                // The sections drawn from the values (a curve, the IR alignment) follow the turn;
-                // the knob being turned ignores the sync.
+                // The sections drawn from the values (a curve, the IR alignment) follow the turn.
                 Mark(kValues);
                 if (stepped)
                     Mark(kPage); // a visibleWhen on this enum may show or hide others
             };
-            control.knob->onReset = [this, nodeId, info] {
+            knob->onReset = [this, nodeId, info] {
                 mSession.Commands().SetNodeParam(nodeId, info.key, info.defaultValue);
                 NoteChainEdit();
                 Mark(kValues);
             };
             if (!stepped)
-                control.knob->onEdit = [this, nodeId, info] {
+                knob->onEdit = [this, nodeId, info] {
                     const auto* n = SelectedNode();
                     if (n == nullptr)
                         return;
@@ -393,23 +409,8 @@ Ptr Shell::BuildEffectPage()
                                    Mark(kValues);
                                });
                 };
-            target.cells.emplace_back(kCellWidth, control.knob);
+            target.cells.emplace_back(kCellWidth, knob);
         }
-
-        // A right click on any of them: MIDI Learn, for whichever control it is (Automation.cpp).
-        {
-            auto menu = [this, key = info.key](el::point at) {
-                if (const auto* n = SelectedNode())
-                    OpenNodeParamMidiMenu(n->type, key, at);
-            };
-            if (control.knob)
-                control.knob->onMenu = menu;
-            if (control.toggle)
-                control.toggle->onMenu = menu;
-            if (control.picker)
-                control.picker->onMenu = menu;
-        }
-        mControls.push_back(std::move(control));
     }
 
     // Beside named groups, the controls that have none are titled Other, as the web UI does.
@@ -555,16 +556,23 @@ Ptr Shell::BuildEffectPage()
             rightSide.push_back(presets);
             rightSide.push_back(HGap(8));
         }
-        mBypass = std::make_shared<PowerSwitch>(mTheme, node->enabled);
-        mBypass->Enabled(!boundary);
+        auto bypass = std::make_shared<PowerSwitch>(mTheme, node->enabled);
+        bypass->Enabled(!boundary);
         // Read the node at the time of the tap: the switch outlives the value it was built with.
-        mBypass->onClick = [this, nodeId, boundary] {
+        bypass->onClick = [this, nodeId, boundary] {
             const auto* n = SelectedNode();
             if (boundary || n == nullptr || n->id != nodeId)
                 return;
             mSession.Commands().SetNodeBypassed(nodeId, n->enabled);
         };
-        rightSide.push_back(mBypass);
+        mLive.Bind(
+            bypass,
+            [this, nodeId] {
+                const auto* n = mState.activePreset ? mState.activePreset->graph.FindNode(nodeId) : nullptr;
+                return n != nullptr && n->enabled;
+            },
+            &PowerSwitch::Set);
+        rightSide.push_back(bypass);
     }
     float rightWidth = 0.0f;
     if (!rightSide.empty())
@@ -577,13 +585,13 @@ Ptr Shell::BuildEffectPage()
         panelWidth - 2.0f * kPanelPad - 14.0f - 6.0f - pencilWidth - 10.0f - subtitleWidth - badgeWidth - rightWidth - 16.0f;
     const float titleWidth = std::clamp(MeasureTextWidth(titleText, titleFont) + 2.0f, 40.0f, std::max(40.0f, roomForTitle));
 
-    mHeaderLed = std::make_shared<HeaderLed>(node->enabled, false);
+    auto led = std::make_shared<HeaderLed>(node->enabled, false);
     auto title = std::make_shared<Text>(mTheme, titleText, 12.5f, Weight::SemiBold);
     title->Colour(mTheme.Pick(el::rgba(238, 242, 255, 255), mTheme.Text()));
     auto subtitle = std::make_shared<Text>(mTheme, subtitleText, 9.0f, Weight::SemiBold);
     subtitle->Colour(mTheme.TextMuted()).Fixed(true);
 
-    std::vector<Ptr> header{mHeaderLed, HGap(6), FixedWidth(titleWidth, title)};
+    std::vector<Ptr> header{led, HGap(6), FixedWidth(titleWidth, title)};
     if (!boundary)
     {
         auto pencil = std::make_shared<IconButton>(mTheme, mIcons, "pencil");
@@ -797,53 +805,14 @@ Ptr Shell::BuildEffectPage()
     else
         stage = Col({placed, std::make_shared<el::element>()});
 
-    SyncEffectValues();
     return Over(stage, std::make_shared<EffectBackdrop>(mTheme, panelHeight + 120.0f));
 }
 
 void Shell::SyncEffectValues()
 {
-    const auto* node = SelectedNode();
-    if (node == nullptr)
-        return;
-
-    for (auto& control : mControls)
-    {
-        const double value = NodeParamValue(*node, control.info);
-        if (control.knob)
-        {
-            const bool wasDragging = control.knob->Dragging();
-            control.knob->Update(ParamValueToPosition(control.info, value), FormatParamValue(control.info, value));
-            if (!wasDragging)
-                mSession.Repaint(*control.knob);
-        }
-        else if (control.toggle)
-        {
-            control.toggle->Set(value > 0.5 * (control.info.minValue + control.info.maxValue));
-            mSession.Repaint(*control.toggle);
-        }
-        else if (control.picker)
-        {
-            std::string text;
-            if (const int index = EnumLabelIndex(control.info, value);
-                index >= 0 && static_cast<std::size_t>(index) < control.info.labels.size())
-                text = control.info.labels[static_cast<std::size_t>(index)];
-            control.picker->Label(text, 11.0f);
-            mSession.Repaint(*control.picker);
-        }
-    }
-
-    if (mBypass)
-    {
-        mBypass->Set(node->enabled);
-        mSession.Repaint(*mBypass);
-    }
-
-    SyncLayoutControls();
-
+    // The controls are bound (mLive); what is drawn from the values as a whole follows here.
     if (mEffectPlot)
         SyncEqPlot(*mEffectPlot);
-    SyncGateLearn(); // the meter follows Threshold and Hysteresis
     SyncIrAlignment();
     SyncLiveSection();
 }

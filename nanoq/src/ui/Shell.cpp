@@ -80,7 +80,7 @@ void Shell::Subscribe()
 
     // A settings change is patched in place; a new theme is noticed in Rebuild and redraws everything.
     // Settings include the feature switches, which show or hide the Tones tab.
-    on(Topic::Session, kTransport | kValues | kSettings | kRail);
+    on(Topic::Session, kTransport | kValues | kRail);
     on(Topic::ActivePreset, kTopBar | kScenes | kChain | kPage | kValues);
     on(Topic::PresetLibrary, kTopBar | kPage);
     // Choosing a setlist moves only the cursor (nothing loads), so no other topic redraws the
@@ -91,9 +91,8 @@ void Shell::Subscribe()
     on(Topic::Tones, kPage);
     on(Topic::GlobalChain, kTransport);
     on(Topic::Mixer, kTransport | kScenes | kChain);
-    // The mixer's knobs follow the mirrored levels; the Presets page lists the saved Multi-Rigs.
+    // The Presets page lists the saved Multi-Rigs.
     mSubscriptions.push_back(client.Subscribe(Topic::Mixer, [this] {
-        SyncMixerKnobs();
         if (mShowMultiRigs && mPage == Page::Presets)
             Mark(kPage);
     }));
@@ -112,10 +111,8 @@ void Shell::Subscribe()
     // The looper strip over the footer, and the footer's Loop button (LooperStrip.cpp).
     mSubscriptions.push_back(client.Subscribe(Topic::Looper, [this] { SyncLooper(); }));
     mSubscriptions.push_back(client.Subscribe(Topic::Session, [this] { SyncLooper(); }));
-    // Gate Learn's progress and result.
+    // The live sections' feeds (the spatial panner, the analyzer).
     mSubscriptions.push_back(client.Subscribe(Topic::Analysis, [this] {
-        if (!mGateLearnViews.empty())
-            SyncGateLearn();
         if (!mSpatialPanner.expired() || !mAnalyzerPanel.expired())
             SyncLiveSection();
     }));
@@ -234,6 +231,11 @@ void Shell::Rebuild()
     EnsureSelection();
     SelectAddedNode();
 
+    // Nothing is rebuilt under a drag on a bound widget (a knob, a fader, the waveform): a rebuild
+    // would drop the drag, so it waits for the drop.
+    const unsigned held = mLive.Dragging() ? (mDirty & kRebuilds) : 0u;
+    mDirty &= ~held;
+
     // The chain strip is rebuilt only when what it shows changed: a parameter edit marks the
     // chain dirty too, and a rebuild under the cursor would cancel a click in progress.
     if (mDirty & kChain)
@@ -348,11 +350,9 @@ void Shell::Rebuild()
         Fill(*mTransportSlot, BuildTransport());
     if ((mDirty & kValues) && PlayShown())
         SyncEffectValues();
-    if ((mDirty & kSettings) && mPage == Page::Settings)
-        SyncSettings();
 
-    const unsigned rebuilt = mDirty & (kTopBar | kScenes | kChain | kPage | kTransport | kRail);
-    mDirty = 0;
+    const unsigned rebuilt = mDirty & kRebuilds;
+    mDirty = held;
 
     // The footer, the bar and the rail keep their size whatever they hold, so when only they
     // were rebuilt only they are redrawn. A parameter edit commits to the chain's history, which
@@ -391,9 +391,6 @@ void Shell::OnTick()
     {
         mWide = wide;
         mPlayStageShown = false;
-        mInMeter.reset();
-        mOutMeter.reset();
-        mHeaderSubs.clear();
         CloseOverlay();
         CloseDropdown();
         Fill(*mFrameSlot, BuildFrame());
@@ -425,34 +422,18 @@ void Shell::OnTick()
     for (auto& n : mSession.Client().TakeNotifications())
         ShowToast(n.title, n.detail, n.kind == guitarfx::uiclient::Notification::Kind::Error);
 
-    // The meters: the telemetry feed arrives at 20 Hz; only a bar that moved is redrawn.
-    if (mInMeter && mOutMeter && mState.haveState)
-    {
-        const auto& t = mState.telemetry;
-        if (mInMeter->Set(t.input.peakDb, t.input.clipped))
-            mSession.Repaint(*mInMeter);
-        if (mOutMeter->Set(t.output.peakDb, t.output.clipped))
-            mSession.Repaint(*mOutMeter);
-
-        char text[32];
-        std::snprintf(text, sizeof(text), "DSP %d%%", static_cast<int>(t.dspLoadPercent + 0.5));
-        if (mLoadText && mLoadText->Value() != text)
-        {
-            mLoadText->Set(text);
-            mSession.Repaint(*mLoadText);
-        }
-
-        SyncChainLights();
-    }
+    // The cables light with the signal while Animate signal flow is on (web: signalFlow.ts).
+    if (guitarfx::uiclient::IsSignalFlowAnimationEnabled(mState))
+        mSignalFlow.Update(mState, UiSession::Now());
 
     SyncEqPlotFeeds();
     SyncIrExport();
     SyncDspStatus();
-    SyncSignalFlow();
     SyncUpdateCheck();
     SyncDevicePage();
     SyncTonePreview();
     SyncJam();
+    mLive.Sync();
 }
 
 // ── Selection and pages ─────────────────────────────────────────────────────────

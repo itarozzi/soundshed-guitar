@@ -1,8 +1,8 @@
 // The settings page: the standalone app's audio and MIDI devices (DevicePage.cpp), the theme,
 // the output, the amp model (NAM) quality settings, levels, the interface, DSP performance,
 // Tone3000, software updates and the feature switches (as the web UI's Settings), and what this
-// build is. The controls patch themselves from the engine's settings in place (SyncSettings), so
-// dragging a slider is not interrupted by the setting it just changed coming back.
+// build is. The controls are bound to the engine's settings (mLive), so they follow a change
+// made anywhere, and dragging a slider is not interrupted by the setting it just changed coming back.
 
 #include "ui/Shell.h"
 
@@ -44,8 +44,6 @@ bool BoolSetting(const nlohmann::json& settings, const char* key, bool fallback)
 Ptr Shell::BuildSettingsPage()
 {
     auto& commands = mSession.Commands();
-    mSettingsSyncs.clear();
-
     std::vector<Ptr> page;
 
     auto heading = [this, &page](const char* text) {
@@ -68,36 +66,24 @@ Ptr Shell::BuildSettingsPage()
 
     // A row of options, one lit: `get` says which, `set` is told which was tapped.
     auto choice = [&](const char* title, const std::vector<std::string>& options, std::function<int()> get, std::function<void(int)> set) {
-        auto buttons = std::make_shared<std::vector<std::shared_ptr<Button>>>();
         std::vector<Ptr> row{label(title)};
-        for (std::size_t i = 0; i < options.size(); ++i)
+        for (int i = 0; i < static_cast<int>(options.size()); ++i)
         {
-            auto b = std::make_shared<Button>(mTheme, options[i], [set, i] { set(static_cast<int>(i)); }, Button::Style::Plain);
+            auto b = std::make_shared<Button>(mTheme, options[static_cast<std::size_t>(i)], [set, i] { set(i); }, Button::Style::Plain);
             b->MinWidth(76).TextSize(metrics::kSmallText);
-            buttons->push_back(b);
+            mLive.Bind(b, [get, i] { return get() == i; }, &Button::Selected);
             row.push_back(b);
             row.push_back(HGap(6));
         }
         row.push_back(Stretch());
         page.push_back(FixedHeight(44, Row(row)));
-        mSettingsSyncs.push_back([this, buttons, get] {
-            const int selected = get();
-            for (std::size_t i = 0; i < buttons->size(); ++i)
-            {
-                (*buttons)[i]->Selected(static_cast<int>(i) == selected);
-                mSession.Repaint(*(*buttons)[i]);
-            }
-        });
     };
 
     auto toggle = [&](const char* title, const char* text, std::function<bool()> get, std::function<void(bool)> set) {
         auto b = std::make_shared<Button>(mTheme, text, [get, set] { set(!get()); }, Button::Style::Plain);
         b->Dot(true).MinWidth(220);
+        mLive.Bind(b, get, &Button::On);
         page.push_back(FixedHeight(44, Row({label(title), b, Stretch()})));
-        mSettingsSyncs.push_back([this, b, get] {
-            b->On(get());
-            mSession.Repaint(*b);
-        });
     };
 
     // ── Audio and MIDI devices: the standalone app only (DevicePage.cpp) ──
@@ -124,12 +110,10 @@ Ptr Shell::BuildSettingsPage()
         auto quality = std::make_shared<ParamSlider>(mTheme, "Quality");
         quality->onChange = [&commands](double v) { commands.SetSetting(kNamSlimmableSizeSetting, std::round(v * 100.0) / 100.0); };
         quality->onReset = [&commands] { commands.SetSetting(kNamSlimmableSizeSetting, 1.0); };
+        mLive.Bind(
+            quality, [this] { return std::clamp(NumberSetting(mState.appSettings, kNamSlimmableSizeSetting, 1.0), 0.0, 1.0); },
+            [](ParamSlider& s, double v) { s.Update(v, std::to_string(static_cast<int>(std::lround(v * 100.0))) + "%"); });
         page.push_back(FixedHeight(60, Row({FixedWidth(420, quality), Stretch()})));
-        mSettingsSyncs.push_back([this, quality] {
-            const double v = std::clamp(NumberSetting(mState.appSettings, kNamSlimmableSizeSetting, 1.0), 0.0, 1.0);
-            quality->Update(v, std::to_string(static_cast<int>(std::lround(v * 100.0))) + "%");
-            mSession.Repaint(*quality);
-        });
     }
     note("Lower quality reduces CPU use on models that support it. Watch the DSP load while you adjust it.");
     choice("Oversampling", {"Off", "2x", "4x", "8x", "16x", "32x"},
@@ -148,14 +132,14 @@ Ptr Shell::BuildSettingsPage()
             commands.SetSetting(key, std::round((lo + v * (hi - lo)) * scale) / scale);
         };
         sl->onReset = [&commands, key, def] { commands.SetSetting(key, def); };
+        mLive.Bind(
+            sl, [this, key, lo, hi, def] { return std::clamp(NumberSetting(mState.appSettings, key, def), lo, hi); },
+            [lo, hi, unit, decimals](ParamSlider& s, double v) {
+                char text[48];
+                std::snprintf(text, sizeof(text), "%.*f %s", decimals, v, unit);
+                s.Update((v - lo) / (hi - lo), text);
+            });
         page.push_back(FixedHeight(60, Row({FixedWidth(420, sl), Stretch()})));
-        mSettingsSyncs.push_back([this, sl, key, lo, hi, def, unit, decimals] {
-            const double v = std::clamp(NumberSetting(mState.appSettings, key, def), lo, hi);
-            char text[48];
-            std::snprintf(text, sizeof(text), "%.*f %s", decimals, v, unit);
-            sl->Update((v - lo) / (hi - lo), text);
-            mSession.Repaint(*sl);
-        });
     };
     const auto boolOr = [this](const char* key, bool def) { return BoolSetting(mState.appSettings, key, def); };
 
@@ -203,10 +187,7 @@ Ptr Shell::BuildSettingsPage()
     // ── Library: the web UI's Export Presets & Blends ──
     heading("LIBRARY");
     choice("Export resources", {"Used by presets", "Whole library"}, [this] { return mLibraryExportAll ? 1 : 0; },
-           [this](int i) {
-               mLibraryExportAll = i == 1;
-               SyncSettings();
-           });
+           [this](int i) { mLibraryExportAll = i == 1; });
     {
         auto exportButton = std::make_shared<Button>(mTheme, "Export Library...",
                                                      [this, &commands] { commands.ExportLibraryArchive(mLibraryExportAll); });
@@ -295,13 +276,6 @@ Ptr Shell::BuildSettingsPage()
     if (!mState.environment.audioDeviceSettings)
         note("The audio device is set by the host, or in the window menu (Alt+Space) of the standalone app.");
 
-    SyncSettings();
     return Fill(mTheme.Background(), Pad(24, 8, 24, 12, VScroll(Col(page))));
-}
-
-void Shell::SyncSettings()
-{
-    for (auto& sync : mSettingsSyncs)
-        sync();
 }
 } // namespace nanoq::ui

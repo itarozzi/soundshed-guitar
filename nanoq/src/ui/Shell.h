@@ -14,11 +14,13 @@
 //
 // The UI is rebuilt from the client's state, region by region, rather than patched: what a
 // region shows is a pure function of ClientState, so a change just marks the regions it
-// touches and the next tick (on the UI thread, between events) rebuilds them. Two things are
-// updated in place instead, because rebuilding them would be visible: the meters (20 Hz) and
-// the values on the sliders of the page being shown (a rebuild would drop a drag).
+// touches and the next tick (on the UI thread, between events) rebuilds them. What moves on its
+// own - knob and slider values, meters, lights, readouts - is bound as each region builds
+// (mLive, Bindings.h) and patched in place each tick, since a rebuild would be visible and would
+// drop a drag.
 
 #include "WebView.h"
+#include "ui/Bindings.h"
 #include "ui/Graphics.h"
 #include "ui/KeyRouter.h"
 #include "ui/Layout.h"
@@ -102,10 +104,10 @@ private:
         kChain = 1u << 2,
         kPage = 1u << 3,
         kTransport = 1u << 4,
-        kValues = 1u << 5, // the effect page's slider values only
-        kSettings = 1u << 6, // the settings page's controls only
-        kRail = 1u << 7, // the compact rail, or the full layout's tab row
-        kAll = kTopBar | kScenes | kChain | kPage | kTransport | kRail
+        kValues = 1u << 5, // the effect page's sections drawn from its values (curve, IR alignment)
+        kRail = 1u << 6, // the compact rail, or the full layout's tab row
+        kRebuilds = kTopBar | kScenes | kChain | kPage | kTransport | kRail,
+        kAll = kRebuilds
     };
 
     void Mark(unsigned bits)
@@ -175,8 +177,7 @@ private:
     void StepPresetTrail(int direction);
 
     /// The global chain's cells (Controls.cpp): the compact Controls sheet and the full
-    /// layout's control bar lay out the same ones. Their values follow the state through
-    /// `subs`, for as long as those are held.
+    /// layout's control bar lay out the same ones. Their values and meters are bound (mLive).
     struct ControlCells
     {
         Ptr in, gate, transpose, eq, doubler, out;
@@ -184,7 +185,7 @@ private:
         Ptr mute;
         Ptr levelling; // input levelling, under the input meter
     };
-    ControlCells BuildControlCells(std::vector<guitarfx::uiclient::Subscription>& subs);
+    ControlCells BuildControlCells();
     /// A small panel beside `anchor` (a control's bounds), closed by a tap anywhere else.
     void ShowPopover(Ptr panel, el::rect anchor, float width, float height, bool above = false);
     /// The panel placed beside `anchor`, over a layer that calls `onOutside` when tapped.
@@ -217,8 +218,6 @@ private:
     /// past the cards' height, as the web UI's splitter does (signalPath/layout.ts).
     [[nodiscard]] bool IconChain() const;
     [[nodiscard]] std::string ChainSignature() const;
-    /// Moves each card's signal light to what the telemetry feed says. UI thread, per tick.
-    void SyncChainLights();
     /// Files dragged in from the desktop (ChainStrip.cpp): a .nam model or a .wav IR held over
     /// an effect that plays one lights its card; dropped, it joins the library where it is and
     /// loads into that effect, or into the one shown, as the web UI's file drop does.
@@ -259,7 +258,6 @@ private:
     /// The header's chooser between the standard controls and the layouts the effect can wear,
     /// or null when it has none to choose; `width` is what it takes.
     [[nodiscard]] Ptr BuildLayoutChooser(const guitarfx::GraphNode& node, bool usingLayout, float& width);
-    void SyncLayoutControls();
 
     // EqPlot.cpp: the EQ curves, in the effect editor and the Global EQ dialog.
     struct EqPlotSource
@@ -290,27 +288,18 @@ private:
         std::function<void(double thresholdDb)> apply;
         std::function<void()> ensureEnabled; // a bypassed gate hears nothing
     };
-    struct GateLearnView
-    {
-        GateLearnTarget target;
-        std::weak_ptr<el::element> meter;
-        std::weak_ptr<IconButton> button;
-        std::weak_ptr<Text> status, low, high;
-    };
     [[nodiscard]] Ptr BuildGateLearn(GateLearnTarget target);
-    void SyncGateLearn();
     [[nodiscard]] GateLearnTarget NodeGateLearnTarget(const guitarfx::GraphNode& node);
     void OpenGlobalGate(el::rect anchor);
-    std::vector<GateLearnView> mGateLearnViews;
     std::map<std::string, std::string> mGateLearnSeen; // each gate's Learn state when last looked at
     // InputLevelling.cpp: input levelling (the web UI's settings/inputCalibration.ts): the button
     // under the input meter, its flyout of profiles, and the training dialog.
-    [[nodiscard]] Ptr BuildInputLevellingButton(std::vector<guitarfx::uiclient::Subscription>& subs);
+    [[nodiscard]] Ptr BuildInputLevellingButton();
     void OpenInputLevelling(el::rect anchor);
     void OpenInputLevellingTraining();
     // DevicePage.cpp: the standalone app's audio and MIDI devices, at the top of Settings (the web
-    // UI's settings/audioDevice.ts). SyncDevicePage runs every tick: the level lease, the meter, and
-    // a redraw when a new device snapshot arrives.
+    // UI's settings/audioDevice.ts). SyncDevicePage runs every tick: the level lease, and a redraw
+    // when a new device snapshot arrives. The meter is bound (mLive).
     struct DevicePage;
     [[nodiscard]] Ptr BuildDeviceSection();
     [[nodiscard]] Ptr BuildDeviceContent();
@@ -391,17 +380,8 @@ private:
     [[nodiscard]] std::string MixerSignature() const;
     [[nodiscard]] Ptr BuildMixerTabs();
     [[nodiscard]] Ptr BuildInlineMixer();
-    void SyncMixerKnobs();
     void SaveMultiRig();
     [[nodiscard]] Ptr BuildMultiRigList();
-    struct MixerKnob
-    {
-        std::string presetId; // empty for the master's Out
-        char kind;            // 'm' mix, 'p' pan, 'g' the Multi-Rig's gain
-        std::weak_ptr<ParamKnob> knob;
-        std::weak_ptr<ParamToggle> toggle; // 'u' mute, 's' solo
-    };
-    std::vector<MixerKnob> mMixerKnobs;
     bool mMixTab = false;        // the Mix tab: the inline mixer in place of the chain
     bool mShowMultiRigs = false; // the Presets page lists saved Multi-Rigs
 
@@ -472,7 +452,6 @@ private:
     [[nodiscard]] Ptr BuildRiffSection();
     [[nodiscard]] Ptr BuildPracticeTool(float width);
     [[nodiscard]] std::string PracticeToolSignature() const;
-    void SyncPracticeTool();
     void OpenPracticeProjects(el::rect anchor);
     void OpenPracticeLoopMenu(const std::string& loopId, el::rect anchor);
     void OpenPracticeEq();
@@ -510,8 +489,6 @@ private:
     std::weak_ptr<el::port_base> mJamScroll; // where the open section is scrolled to
     std::unique_ptr<guitarfx::uiclient::PracticeTool> mPractice;
     std::string mJamSignature;
-    struct PracticeView;
-    std::shared_ptr<PracticeView> mPracticeView; // the widgets moved in place each tick
     double mPracticeDeletedAt = 0.0;             // when the loop shown in the undo banner was deleted
 
     // ResourceBrowser.cpp: the model and IR chooser, as the web UI's resource browser
@@ -526,7 +503,6 @@ private:
 
     // SettingsPage.cpp
     Ptr BuildSettingsPage();
-    void SyncSettings();
 
     // Dialogs.cpp
     void ApplyElementsTheme();
@@ -593,6 +569,8 @@ private:
     Theme& mTheme;
     Icons mIcons;
     Images mImages;
+    /// What every region moves in place, synced each tick; a binding goes with its widget.
+    Bindings mLive{mSession};
 
     Ptr mRoot;
     std::shared_ptr<KeyRouter> mKeys;
@@ -624,7 +602,6 @@ private:
     bool mLibraryExportAll = false; // Settings > Library: the whole library, not only what presets use
     int mChainIcons = -1;          // the chain as icon tiles (1) or cards (0); -1 follows the setting
     bool mChainDragIcons = false;  // which it was when that drag began
-    std::vector<guitarfx::uiclient::Subscription> mHeaderSubs; // the control bar's live values
     guitarfx::uiclient::PresetTrail mPresetTrail;
     std::shared_ptr<guitarfx::uiclient::TapTempo> mTapTempo;
     bool mWrapChain = true; // the web UI's signalPathWrapCompact, on unless turned off
@@ -644,8 +621,7 @@ private:
     int mToneListener = 0;
     std::string mTonesSignature;
     RemoteImages mRemoteImages;
-    std::unique_ptr<LayoutImages> mLayoutImages;                      // the custom layouts' pictures
-    std::vector<std::shared_ptr<LayoutControlView>> mLayoutControls; // the effect page's layout controls
+    std::unique_ptr<LayoutImages> mLayoutImages; // the custom layouts' pictures
 
     guitarfx::uiclient::ChainHistory mHistory;
     std::string mHistoryContext;     // presetId::sceneId the stacks describe; a change re-seeds them
@@ -659,11 +635,7 @@ private:
     std::string mAppliedTheme;
     std::uint32_t mChromeCaption = 0xffffffffu; // the caption colour last applied, none yet
     std::string mChainSignature;
-    std::vector<std::pair<std::string, std::shared_ptr<NodeCard>>> mChainCards; // node id, card: for the lights
-    std::vector<std::weak_ptr<Connector>> mChainCables; // the cables, lit by the signal
-    guitarfx::uiclient::SignalFlow mSignalFlow;
-    bool mSignalFlowLit = false;
-    void SyncSignalFlow(); // ChainStrip.cpp
+    guitarfx::uiclient::SignalFlow mSignalFlow; // what lights the cables, updated per tick
     std::shared_ptr<chain::HitMap> mHitMap; // where the chain's cards and cables are, for drops
     guitarfx::uiclient::PresetQuery mQuery;
     bool mShowSetlists = false;
@@ -678,26 +650,9 @@ private:
     SlotPtr mPresetListSlot;
     std::shared_ptr<Text> mPresetCount;
 
-    // The effect page's controls, kept to move their values without rebuilding.
-    struct ParamControl
-    {
-        guitarfx::uiclient::EffectParamInfo info;
-        std::shared_ptr<ParamKnob> knob;      // continuous values, and enums short enough to turn through
-        std::shared_ptr<ParamToggle> toggle;  // on/off
-        std::shared_ptr<IconButton> picker;   // an enum the engine asks to show as a list
-    };
-
     std::string mEffectSignature;
     std::string mSceneSignature;
     std::string mTopSignature;
-    std::vector<ParamControl> mControls;
-    std::vector<std::function<void()>> mSettingsSyncs; // the settings page's controls, patched in place
-    std::shared_ptr<PowerSwitch> mBypass;
-    std::shared_ptr<HeaderLed> mHeaderLed;
-
-    // The meters, and the labels beside them.
-    std::shared_ptr<MeterBar> mInMeter, mOutMeter;
-    std::shared_ptr<Text> mLoadText;
 
     Ptr mOverlay;
     Ptr mDropdown; // a drop-down list: a layer of its own, so one opened from a dialog stacks over it

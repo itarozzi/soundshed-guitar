@@ -108,7 +108,11 @@ Ptr Shell::BuildEffectLayout(const guitarfx::GraphNode& node, const EffectLayout
     };
 
     auto parts = BuildLayoutView(mTheme, *mLayoutImages, input, actions);
-    mLayoutControls = parts.controls;
+    for (const auto& control : parts.controls)
+        mLive.Feed(control, [this, nodeId](LayoutControlView& c) {
+            const auto* n = mState.activePreset ? mState.activePreset->graph.FindNode(nodeId) : nullptr;
+            return n != nullptr && c.Update(*n);
+        });
     height = parts.size.y;
     if (!parts.element)
         return std::make_shared<el::element>();
@@ -156,15 +160,5 @@ Ptr Shell::BuildLayoutChooser(const guitarfx::GraphNode& node, bool usingLayout,
         OpenDropdown(c->Bounds(), std::move(items), 200.0f);
     };
     return chip;
-}
-
-void Shell::SyncLayoutControls()
-{
-    const auto* node = SelectedNode();
-    if (node == nullptr)
-        return;
-    for (const auto& control : mLayoutControls)
-        if (control->Update(*node))
-            mSession.Repaint(*control);
 }
 } // namespace nanoq::ui

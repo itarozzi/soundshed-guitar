@@ -177,7 +177,6 @@ Ptr Shell::BuildLiveSection(const guitarfx::GraphNode& node, float& height)
             NoteChainEdit();
             if (commit)
                 Mark(kValues);
-            SyncEffectValues(); // the knobs follow the drag
         };
         mSpatialPanner = panner;
         SyncLiveSection();

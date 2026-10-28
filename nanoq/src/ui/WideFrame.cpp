@@ -170,12 +170,8 @@ Ptr Shell::BuildHeader()
 {
     auto& commands = mSession.Commands();
 
-    // The global chain at either end, the same cells as the compact Controls sheet; the meters
-    // move with OnTick.
-    mHeaderSubs.clear();
-    auto cells = BuildControlCells(mHeaderSubs);
-    mInMeter = cells.inMeter;
-    mOutMeter = cells.outMeter;
+    // The global chain at either end, the same cells as the compact Controls sheet.
+    auto cells = BuildControlCells();
 
     // ── The preset toolbar ──
     const bool dirty = mState.activePresetDirty;
