@@ -111,6 +111,7 @@ set(TEST_SOURCES
     PresetArchiveInstallTests.cpp
     PresetArchiveExportTests.cpp
     PresetEditCommandsTests.cpp
+    ParamFormatTests.cpp
     PresetInspectTests.cpp
     PresetLevelMeasureTests.cpp
     PresetManagementWorkflowTests.cpp
@@ -306,6 +307,8 @@ target_link_libraries(ToneSharingLinkTests PRIVATE SoundshedUiClient)
 target_link_libraries(JamPracticeToolTests PRIVATE SoundshedUiClient)
 # The save dialog's preset inspector (uiclient/PresetInspect.h), against the web UI's validate.ts.
 target_link_libraries(PresetInspectTests PRIVATE SoundshedUiClient)
+# The settings flyouts' parameter rows (uiclient/ParamFormat.h), against flyoutParamControls.ts.
+target_link_libraries(ParamFormatTests PRIVATE SoundshedUiClient)
 
 # Builds real (deflated) zips to preview, as Tone3000 serves them; the core links miniz privately.
 target_link_libraries(Tone3000ResourceWorkflowTests PRIVATE guitarfx_miniz)

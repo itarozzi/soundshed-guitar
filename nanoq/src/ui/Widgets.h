@@ -227,6 +227,14 @@ class ParamKnob : public el::element, public Drawn
         mDefault = normalised;
     }
 
+    /// Just the knob, this wide, with no name over it or value under it: a settings flyout's
+    /// row, which has its label and value beside it.
+    ParamKnob& Bare(float diameter)
+    {
+        mBare = diameter;
+        return *this;
+    }
+
     std::function<void(double normalised)> onChange;
     std::function<void()> onReset;
     /// A right click (a long press on a touch screen), at a point in view coordinates: the
@@ -246,6 +254,7 @@ class ParamKnob : public el::element, public Drawn
     std::string mValueText;
     double mValue = 0.0;
     double mDefault = 0.0;
+    float mBare = 0.0f; // the diameter of a bare knob; 0 for the named one
     double mDragStartValue = 0.0;
     float mDragStartY = 0.0f;
     bool mDragging = false;

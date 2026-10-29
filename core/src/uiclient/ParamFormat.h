@@ -39,6 +39,14 @@ namespace guitarfx::uiclient
 [[nodiscard]] bool IsToggleParam(const EffectParamInfo& param);
 [[nodiscard]] bool IsEnumParam(const EffectParamInfo& param);
 
+/// A settings flyout's switch (flyoutParamControls.ts isSwitchParam): a toggle, or any 0..1
+/// parameter with two labels, as the gate's Stereo Link is ({0,1}, "Independent"/"Linked").
+[[nodiscard]] bool IsSwitchParam(const EffectParamInfo& param);
+
+/// A settings flyout's value (formatFlyoutParamValue): a switch's label, an enum's label, or
+/// the number to the decimals its span calls for (2 within 2, 1 within 60, else 0) with its unit.
+[[nodiscard]] std::string FormatFlyoutParamValue(const EffectParamInfo& param, double value);
+
 /// Which of an enum's labels a value shows, or -1 for none. Labels are listed in value order from
 /// the minimum, one per step, so the Auto Arpeggiator's Steps (2 to 8) shows "4" at 4, where
 /// indexing by the value showed "6".

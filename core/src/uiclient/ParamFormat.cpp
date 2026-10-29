@@ -91,6 +91,34 @@ bool IsToggleParam(const EffectParamInfo& param)
     return param.unit == "toggle";
 }
 
+bool IsSwitchParam(const EffectParamInfo& param)
+{
+    return IsToggleParam(param) || (param.labels.size() == 2 && param.minValue == 0.0 && param.maxValue == 1.0);
+}
+
+std::string FormatFlyoutParamValue(const EffectParamInfo& param, double value)
+{
+    if (IsSwitchParam(param))
+    {
+        const bool on = value >= 0.5;
+        return param.labels.size() == 2 ? param.labels[on ? 1 : 0] : std::string(on ? "On" : "Off");
+    }
+
+    if (!param.labels.empty())
+    {
+        const double step = param.step > 0.0 ? param.step : 1.0;
+        const auto index = std::llround((value - param.minValue) / step);
+        return index >= 0 && index < static_cast<long long>(param.labels.size())
+                   ? param.labels[static_cast<std::size_t>(index)]
+                   : std::to_string(std::llround(value));
+    }
+
+    const double span = std::abs(param.maxValue - param.minValue);
+    const int decimals = span <= 2.0 ? 2 : (span <= 60.0 ? 1 : 0);
+    const std::string text = Fixed(value, decimals);
+    return !param.unit.empty() && param.unit != "amount" ? text + " " + param.unit : text;
+}
+
 bool IsEnumParam(const EffectParamInfo& param)
 {
     return param.unit == "enum" && !param.labels.empty();

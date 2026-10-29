@@ -7,6 +7,7 @@
 // gate's other parameters.
 
 #include "ui/Drawn.h"
+#include "ui/DialogChrome.h"
 #include "ui/Shell.h"
 
 #include "dsp/EffectGuids.h"
@@ -264,13 +265,15 @@ Shell::GateLearnTarget Shell::NodeGateLearnTarget(const guitarfx::GraphNode& nod
 
 void Shell::OpenGlobalGate(el::rect anchor)
 {
-    // The web UI's gate settings flyout: Learn, then every parameter the gate has, from the
-    // engine's own definitions, sent as gate.<key>.
+    // The web UI's gate settings flyout (gateSettings.ts): the title with the gate's switch,
+    // Learn, then the gate's parameters from the engine's own definitions as rows (the main
+    // ones, then Advanced), sent as gate.<key>, and Reset to defaults.
     CloseOverlay();
     auto& commands = mSession.Commands();
     const auto* type = mState.FindEffectType(guids::kDynamicsGate);
-    const auto gateParam = [this](const std::string& key, double fallback) {
-        if (const auto* node = mState.globalChain.preChainGraph.FindNode("global_gate"))
+    const auto gateNode = [this] { return mState.globalChain.preChainGraph.FindNode("global_gate"); };
+    const auto gateParam = [gateNode](const std::string& key, double fallback) {
+        if (const auto* node = gateNode())
         {
             if (const auto it = node->params.find(key); it != node->params.end())
             {
@@ -286,16 +289,14 @@ void Shell::OpenGlobalGate(el::rect anchor)
     target.threshold = [gateParam] { return gateParam("threshold", -60.0); };
     target.hysteresis = [gateParam] { return gateParam("hysteresis", 4.0); };
     target.apply = [&commands](double thresholdDb) { commands.SetGlobalChainParam("gate.threshold", thresholdDb); };
-    target.ensureEnabled = [this, &commands] {
-        if (const auto* node = mState.globalChain.preChainGraph.FindNode("global_gate");
-            node != nullptr && !node->enabled)
+    target.ensureEnabled = [gateNode, &commands] {
+        if (const auto* node = gateNode(); node != nullptr && !node->enabled)
         {
             commands.SetGlobalChainToggle("gate.enabled", true);
         }
     };
 
-    std::vector<Ptr> knobs{Stretch()};
-    int count = 0;
+    std::vector<guitarfx::uiclient::EffectParamInfo> main, advanced;
 
     if (type != nullptr)
     {
@@ -306,58 +307,70 @@ void Shell::OpenGlobalGate(el::rect anchor)
                 target.minDb = info.minValue, target.maxDb = info.maxValue;
             }
 
-            const std::string key = info.key;
-            Ptr cell;
-
-            if (guitarfx::uiclient::IsToggleParam(info))
-            {
-                auto toggle = std::make_shared<ParamToggle>(mTheme, info.name);
-                const auto on = [key, info, gateParam] {
-                    return gateParam(key, info.defaultValue) > 0.5 * (info.minValue + info.maxValue);
-                };
-                toggle->onClick = [key, info, on, &commands] {
-                    commands.SetGlobalChainParam("gate." + key, on() ? info.minValue : info.maxValue);
-                };
-                mLive.Bind(toggle, on, &ParamToggle::Set);
-                cell = toggle;
-            }
-            else
-            {
-                auto knob = std::make_shared<ParamKnob>(mTheme, info.name);
-                knob->DefaultPosition(guitarfx::uiclient::ParamValueToPosition(info, info.defaultValue));
-                knob->onChange = [info, key, &commands, k = knob.get()](double position) {
-                    const double v = guitarfx::uiclient::SnapParamValue(
-                        info, guitarfx::uiclient::ParamPositionToValue(info, position));
-                    k->SetValueText(guitarfx::uiclient::FormatParamValue(info, v));
-                    commands.SetGlobalChainParam("gate." + key, v);
-                };
-                knob->onReset = [info, key, &commands] {
-                    commands.SetGlobalChainParam("gate." + key, info.defaultValue);
-                };
-                mLive.Bind(
-                    knob, [key, info, gateParam] { return gateParam(key, info.defaultValue); },
-                    [info](ParamKnob& k, double v) {
-                        k.Update(guitarfx::uiclient::ParamValueToPosition(info, v),
-                                 guitarfx::uiclient::FormatParamValue(info, v));
-                    });
-                cell = knob;
-            }
-
-            knobs.push_back(cell);
-            knobs.push_back(HGap(6));
-            ++count;
+            (info.advanced ? advanced : main).push_back(info);
         }
     }
 
-    knobs.back() = Stretch();
+    FlyoutBinding binding;
+    binding.value = [gateParam](const guitarfx::uiclient::EffectParamInfo& info) {
+        return gateParam(info.key, info.defaultValue);
+    };
+    binding.apply = [&commands](const std::string& key, double value, bool) {
+        commands.SetGlobalChainParam("gate." + key, value);
+    };
 
-    auto title = std::make_shared<Text>(mTheme, "NOISE GATE", 9.0f, Weight::SemiBold);
-    title->Colour(mTheme.Pick(el::rgba(220, 227, 243, 173), mTheme.TextSecondary()));
-    auto learn = BuildGateLearn(std::move(target));
-    const float width = std::min(std::max(360.0f, count * 66.0f + 24.0f), ViewSize().x - 24.0f);
-    ShowPopover(
-        Pad(12, 10, 12, 10,
-            Col({FixedHeight(14, title), VGap(8), FixedHeight(60, learn), VGap(10), FixedHeight(63, Row(knobs))})),
-        anchor, width, 14.0f + 8.0f + 60.0f + 10.0f + 63.0f + 20.0f);
+    // The header (.flyout-settings-header): the title and the gate's on/off.
+    const auto heading = [this](const std::string& text, float size) {
+        auto t = std::make_shared<Text>(mTheme, Upper(text), size, Weight::SemiBold);
+        t->Colour(mTheme.Pick(el::rgba(220, 227, 243, 200), mTheme.TextSecondary()));
+        return t;
+    };
+    auto enabled = std::make_shared<ToggleSwitch>(mTheme);
+    enabled->onClick = [gateNode, &commands] {
+        const auto* node = gateNode();
+        commands.SetGlobalChainToggle("gate.enabled", node == nullptr || !node->enabled);
+    };
+    mLive.Bind(
+        enabled,
+        [gateNode] {
+            const auto* n = gateNode();
+            return n != nullptr && n->enabled;
+        },
+        &ToggleSwitch::Set);
+
+    const auto rule = [this] { return FixedHeight(1, Fill(mTheme.Border(), std::make_shared<el::element>())); };
+    auto reset = std::make_shared<Button>(
+        mTheme, "Reset to defaults",
+        [main, advanced, &commands] {
+            for (const auto* list : {&main, &advanced})
+            {
+                for (const auto& info : *list)
+                {
+                    commands.SetGlobalChainParam("gate." + info.key, info.defaultValue);
+                }
+            }
+        },
+        Button::Style::Flat);
+    reset->TextSize(11.0f);
+
+    std::vector<Ptr> column{FixedHeight(26, Row({Middle(heading("Noise Gate", 11.0f)), Stretch(), Middle(enabled)})),
+                            VGap(8), FixedHeight(60, BuildGateLearn(std::move(target))), VGap(6),
+                            BuildFlyoutParamRows(main, binding)};
+    float height = 26.0f + 8.0f + 60.0f + 6.0f + 38.0f * static_cast<float>(main.size());
+
+    if (!advanced.empty())
+    {
+        column.push_back(VGap(6));
+        column.push_back(FixedHeight(20, Middle(heading("Advanced", 10.0f))));
+        column.push_back(BuildFlyoutParamRows(advanced, binding));
+        height += 6.0f + 20.0f + 38.0f * static_cast<float>(advanced.size());
+    }
+
+    column.push_back(VGap(8));
+    column.push_back(rule());
+    column.push_back(FixedHeight(34, Row({Stretch(), reset})));
+    height += 8.0f + 1.0f + 34.0f;
+
+    ShowPopover(Pad(12, 10, 12, 8, Col(column)), anchor, std::min(300.0f, ViewSize().x - 24.0f), height + 18.0f);
 }
 } // namespace nanoq::ui

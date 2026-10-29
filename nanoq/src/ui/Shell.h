@@ -335,6 +335,17 @@ class Shell
     };
 
     [[nodiscard]] Ptr BuildGateLearn(GateLearnTarget target);
+
+    // FlyoutParams.cpp: a settings flyout's parameter rows (flyoutParamControls.ts).
+    struct FlyoutBinding
+    {
+        std::function<double(const guitarfx::uiclient::EffectParamInfo&)> value;
+        std::function<void(const std::string& key, double value, bool commit)> apply;
+    };
+
+    /// One row per parameter: label | knob, switch or picker | value; the rows follow the values.
+    [[nodiscard]] Ptr BuildFlyoutParamRows(const std::vector<guitarfx::uiclient::EffectParamInfo>& params,
+                                           const FlyoutBinding& binding);
     [[nodiscard]] GateLearnTarget NodeGateLearnTarget(const guitarfx::GraphNode& node);
     void OpenGlobalGate(el::rect anchor);
     std::map<std::string, std::string> mGateLearnSeen; // each gate's Learn state when last looked at

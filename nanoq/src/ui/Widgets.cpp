@@ -510,6 +510,11 @@ ParamKnob::ParamKnob(const Theme& theme, std::string name) : mTheme(theme), mNam
 
 el::view_limits ParamKnob::limits(const el::basic_context&) const
 {
+    if (mBare > 0.0f)
+    {
+        return {{mBare, mBare}, {mBare, mBare}};
+    }
+
     const float h = kKnobNameHeight + kKnobDiameter + kKnobValueHeight + 4.0f;
     return {{kKnobCellWidth, h}, {kKnobCellWidth, h}};
 }
@@ -527,12 +532,17 @@ void ParamKnob::draw(const el::context& ctx)
     const el::color valueInk = light ? mTheme.Text() : el::rgba(231, 236, 246, 194);
 
     const auto nameBounds = el::rect{b.left, b.top, b.right, b.top + kKnobNameHeight};
-    FillText(cnv, Ellipsize(cnv, Upper(mName), labelFont, nameBounds.width() + 6.0f), labelFont, labelInk, nameBounds,
-             Text::Align::Centre);
 
+    if (mBare <= 0.0f)
+    {
+        FillText(cnv, Ellipsize(cnv, Upper(mName), labelFont, nameBounds.width() + 6.0f), labelFont, labelInk,
+                 nameBounds, Text::Align::Centre);
+    }
+
+    const float diameter = mBare > 0.0f ? mBare : kKnobDiameter;
     const float cx = (b.left + b.right) * 0.5f;
-    const float cy = nameBounds.bottom + 2.0f + kKnobDiameter * 0.5f;
-    const float r = kKnobDiameter * 0.5f;
+    const float cy = mBare > 0.0f ? (b.top + b.bottom) * 0.5f : nameBounds.bottom + 2.0f + diameter * 0.5f;
+    const float r = diameter * 0.5f;
     const float v = static_cast<float>(std::clamp(mValue, 0.0, 1.0));
 
     // The ring: a faint track all the way round, and the travel over it, shading from the ring's
@@ -604,6 +614,11 @@ void ParamKnob::draw(const el::context& ctx)
         cnv.stroke();
     }
 
+    if (mBare > 0.0f)
+    {
+        return;
+    }
+
     const auto valueBounds = el::rect{b.left, b.bottom - kKnobValueHeight, b.right, b.bottom};
     FillText(cnv, Ellipsize(cnv, mValueText, valueFont, valueBounds.width() + 6.0f), valueFont, valueInk, valueBounds,
              Text::Align::Centre);
@@ -632,7 +647,7 @@ bool ParamKnob::click(const el::context& ctx, el::mouse_button btn)
         {
             mDragging = false;
 
-            if (onEdit && btn.pos.y >= ctx.bounds.bottom - kKnobValueHeight - 2.0f)
+            if (onEdit && mBare <= 0.0f && btn.pos.y >= ctx.bounds.bottom - kKnobValueHeight - 2.0f)
             {
                 onEdit();
             }
