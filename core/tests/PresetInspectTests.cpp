@@ -148,9 +148,29 @@ void TestUserPresetIds()
     Expect(!uic::IsUserPresetId(""), "nor is no preset");
 }
 
+void TestFolders()
+{
+    std::vector<guitarfx::uiclient::PresetFolder> folders(2);
+    folders[0].id = "b";
+    folders[0].name = "beta";
+    folders[1].id = "a";
+    folders[1].name = "Alpha";
+    folders[1].children.resize(1);
+    folders[1].children[0].id = "a1";
+    folders[1].children[0].name = "Leads";
+    folders[1].children[0].presetIds = {"p1"};
+    const auto flat = uic::FlattenPresetFolders(folders);
+    Expect(flat.size() == 3 && flat[0].first->id == "a" && flat[1].first->id == "a1" && flat[1].second == 1 &&
+               flat[2].first->id == "b",
+           "folders by name, ignoring case, each followed by its own");
+    Expect(uic::PresetFolderPath(folders, "p1") == "Alpha > Leads", "a preset's folders, outermost first");
+    Expect(uic::PresetFolderPath(folders, "p2").empty(), "none for a preset in no folder");
+}
+
 int main()
 {
     TestUserPresetIds();
+    TestFolders();
     TestPeakHold();
     TestValidate();
     TestCleanup();

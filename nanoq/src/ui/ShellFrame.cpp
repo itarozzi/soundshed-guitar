@@ -233,7 +233,7 @@ Ptr Shell::BuildTopBar()
 
     // The name opens the presets; the heart in it favourites the preset.
     auto pill = std::make_shared<PresetPill>(mTheme, mIcons, PresetTitle(mState), favourite, dirty);
-    pill->onClick = [this] { ShowPage(mPage == Page::Presets ? Page::Chain : Page::Presets); };
+    pill->onClick = [this, p = pill.get()] { OpenPresetChooser(p->Bounds()); };
     pill->onFavourite = [&commands, presetId, favourite] {
         if (!presetId.empty())
         {

@@ -272,7 +272,7 @@ Ptr Shell::BuildHeader()
 
     auto pill = std::make_shared<PresetPill>(mTheme, mIcons, PresetTitle(mState), favourite, dirty);
     pill->Height(36).Badge(summary != nullptr ? SourceLabel(summary->source) : std::string());
-    pill->onClick = [this] { ShowPage(mPage == Page::Presets ? Page::Chain : Page::Presets); };
+    pill->onClick = [this, p = pill.get()] { OpenPresetChooser(p->Bounds()); };
     pill->onFavourite = [&commands, presetId, favourite] {
         if (!presetId.empty())
         {

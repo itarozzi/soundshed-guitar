@@ -41,6 +41,18 @@ struct PresetQuery
 /// starting "user-", or a UUID. Factory and pack presets have other ids.
 [[nodiscard]] bool IsUserPresetId(const std::string& presetId);
 
+/// The folder tree in display order, each folder with its depth: by name at every level, ignoring
+/// case, as the web UI's sortPresetFoldersAlphabetically.
+[[nodiscard]] std::vector<std::pair<const PresetFolder*, int>> FlattenPresetFolders(
+    const std::vector<PresetFolder>& folders);
+
+/// The folders a preset is filed in, outermost first, as the web UI's preset card shows them
+/// ("Preset Pack Vol. 1 > High Gain Rhythm"); empty when it is in none.
+[[nodiscard]] std::string PresetFolderPath(const std::vector<PresetFolder>& folders, const std::string& presetId);
+
+/// A preset's rating, 0 (not rated) to 5.
+[[nodiscard]] int PresetRating(const ClientState& state, const std::string& presetId);
+
 /// Whether the preset playing may be overwritten, renamed or deleted (canModifyPreset): a user
 /// preset the library holds, or any preset while the Factory Preset Archives tools are on. The
 /// toolbar's Edit and Save are off otherwise, and Save As makes the copy.

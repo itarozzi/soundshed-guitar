@@ -123,6 +123,72 @@ int ComparePresetNames(const PresetSummary& left, const PresetSummary& right)
     return NaturalCompare(left.id, right.id);
 }
 
+namespace
+{
+void Flatten(const std::vector<PresetFolder>& folders, int depth, std::vector<std::pair<const PresetFolder*, int>>& out)
+{
+    std::vector<const PresetFolder*> sorted;
+
+    for (const auto& f : folders)
+    {
+        sorted.push_back(&f);
+    }
+
+    const auto lower = [](std::string text) {
+        std::transform(text.begin(), text.end(), text.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        return text;
+    };
+    std::stable_sort(sorted.begin(), sorted.end(), [&lower](const PresetFolder* a, const PresetFolder* b) {
+        return lower(a->name) < lower(b->name);
+    });
+
+    for (const auto* f : sorted)
+    {
+        out.emplace_back(f, depth);
+        Flatten(f->children, depth + 1, out);
+    }
+}
+
+std::string FolderPath(const std::vector<PresetFolder>& folders, const std::string& presetId, const std::string& prefix)
+{
+    for (const auto& f : folders)
+    {
+        const auto path = prefix.empty() ? f.name : prefix + " > " + f.name;
+
+        if (std::find(f.presetIds.begin(), f.presetIds.end(), presetId) != f.presetIds.end())
+        {
+            return path;
+        }
+
+        if (auto inner = FolderPath(f.children, presetId, path); !inner.empty())
+        {
+            return inner;
+        }
+    }
+
+    return {};
+}
+} // namespace
+
+std::vector<std::pair<const PresetFolder*, int>> FlattenPresetFolders(const std::vector<PresetFolder>& folders)
+{
+    std::vector<std::pair<const PresetFolder*, int>> out;
+    Flatten(folders, 0, out);
+    return out;
+}
+
+std::string PresetFolderPath(const std::vector<PresetFolder>& folders, const std::string& presetId)
+{
+    return FolderPath(folders, presetId, {});
+}
+
+int PresetRating(const ClientState& state, const std::string& presetId)
+{
+    const auto it = state.presetRatings.find(presetId);
+    return it != state.presetRatings.end() && it->is_number() ? std::clamp(it->get<int>(), 0, 5) : 0;
+}
+
 bool IsUserPresetId(const std::string& presetId)
 {
     if (presetId.empty())

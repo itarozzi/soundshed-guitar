@@ -443,6 +443,11 @@ class Shell
     [[nodiscard]] Ptr BuildInlineMixer();
     void SaveMultiRig();
     [[nodiscard]] Ptr BuildMultiRigList();
+    // PresetChooser.cpp: the preset library as the web UI's popover under the preset selector.
+    void OpenPresetChooser(el::rect anchor);
+    [[nodiscard]] Ptr BuildPresetChooser();
+    void RebuildPresetChooser();
+    [[nodiscard]] Ptr BuildPresetCard(const guitarfx::uiclient::PresetSummary& preset);
     bool mMixTab = false;        // the Mix tab: the inline mixer in place of the chain
     bool mShowMultiRigs = false; // the Presets page lists saved Multi-Rigs
 
@@ -723,6 +728,11 @@ class Shell
     std::shared_ptr<el::basic_input_box> mSearchBox; // kept across rebuilds, with what was typed
     Ptr mSearchElement;
     SlotPtr mPresetListSlot;
+    SlotPtr mChooserSlot; // the preset chooser's content, rebuilt as the library changes
+    bool mChooserOpen = false;
+    bool mChooserSetlistsOpen = false;                   // its Setlists section unfolded
+    std::shared_ptr<el::basic_input_box> mFolderNameBox; // its New Folder Name, kept across rebuilds
+    Ptr mFolderNameElement;
     std::shared_ptr<Text> mPresetCount;
 
     std::string mEffectSignature;

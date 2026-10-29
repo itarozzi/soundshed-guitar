@@ -96,61 +96,6 @@ void Shell::PostPrompt(const std::string& title, const std::string& initial, con
 
 namespace
 {
-/// The tree in display order: by name at every level, ignoring case, as sortPresetFoldersAlphabetically.
-void FlattenFolders(const std::vector<PresetFolder>& folders, int depth,
-                    std::vector<std::pair<const PresetFolder*, int>>& out)
-{
-    std::vector<const PresetFolder*> sorted;
-
-    for (const auto& f : folders)
-    {
-        sorted.push_back(&f);
-    }
-
-    const auto lower = [](std::string text) {
-        std::transform(text.begin(), text.end(), text.begin(),
-                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-        return text;
-    };
-    std::stable_sort(sorted.begin(), sorted.end(), [&lower](const PresetFolder* a, const PresetFolder* b) {
-        return lower(a->name) < lower(b->name);
-    });
-
-    for (const auto* f : sorted)
-    {
-        out.emplace_back(f, depth);
-        FlattenFolders(f->children, depth + 1, out);
-    }
-}
-
-/// The folder a preset is filed in, as a path ("Live / Leads"), or empty.
-std::string FolderPathOf(const std::vector<PresetFolder>& folders, const std::string& presetId,
-                         const std::string& prefix = {})
-{
-    for (const auto& f : folders)
-    {
-        const auto path = prefix.empty() ? f.name : prefix + " / " + f.name;
-
-        if (std::find(f.presetIds.begin(), f.presetIds.end(), presetId) != f.presetIds.end())
-        {
-            return path;
-        }
-
-        if (auto inner = FolderPathOf(f.children, presetId, path); !inner.empty())
-        {
-            return inner;
-        }
-    }
-
-    return {};
-}
-
-int RatingOf(const ClientState& state, const std::string& presetId)
-{
-    const auto it = state.presetRatings.find(presetId);
-    return it != state.presetRatings.end() && it->is_number() ? std::clamp(it->get<int>(), 0, 5) : 0;
-}
-
 /// A bank number typed into a prompt: a whole number from 0, or -1 for none.
 int TypedBank(const std::string& text)
 {
@@ -171,7 +116,7 @@ void Shell::OpenPresetRowMenu(const PresetSummary& preset)
     items.push_back({favourite ? "Remove from favourites" : "Add to favourites", false, false,
                      [&commands, id, favourite] { commands.SetPresetFavorite(id, !favourite); }});
 
-    const int rating = RatingOf(mState, id);
+    const int rating = PresetRating(mState, id);
     items.push_back({"Rate...", false, false, [this, id, name, rating] {
                          std::vector<MenuItem> rates;
 
@@ -188,8 +133,7 @@ void Shell::OpenPresetRowMenu(const PresetSummary& preset)
                      }});
 
     items.push_back({"Move to folder...", false, false, [this, id, name] {
-                         std::vector<std::pair<const PresetFolder*, int>> flat;
-                         FlattenFolders(mState.presetFolders, 0, flat);
+                         const auto flat = FlattenPresetFolders(mState.presetFolders);
                          std::vector<MenuItem> rows;
                          rows.push_back({"No folder", false, false,
                                          [this, id] { mSession.Commands().MovePresetToFolder(id, kPresetFolderAll); }});
@@ -255,8 +199,7 @@ void Shell::OpenFolderMenu(const std::string& folderId)
                      }});
     items.push_back(
         {"Move into...", false, false, [this, folderId, name] {
-             std::vector<std::pair<const PresetFolder*, int>> flat;
-             FlattenFolders(mState.presetFolders, 0, flat);
+             const auto flat = FlattenPresetFolders(mState.presetFolders);
              std::vector<MenuItem> rows;
              rows.push_back({"The top level", false, false,
                              [this, folderId] { mSession.Commands().MovePresetFolder(folderId, {}); }});
@@ -300,11 +243,13 @@ void Shell::SelectPresetBrowserFolder(const std::string& folderId)
     mShowMultiRigs = false;
     mSession.Commands().SelectPresetFolder(folderId);
     Mark(kPage);
+    RebuildPresetChooser();
 }
 
 Ptr Shell::BuildFolderColumn()
 {
-    // The virtual folders first, then the user's as a tree, each with its count.
+    // The virtual folders first, then the user's as a tree, each with its count. Multi-Rigs are
+    // the chooser's other tab, and new folders come from its folder tools.
     const auto count = [this](const std::string& folderId) {
         PresetQuery q;
         q.folderId = folderId;
@@ -328,21 +273,7 @@ Ptr Shell::BuildFolderColumn()
     add(kPresetFolderFavorites, "Favourites", "heart", 0, false);
     add(kPresetFolderAll, "All Presets", "ui-presets", 0, false);
 
-    // Saved Multi-Rigs, while the feature is on (the web UI's Multi-Rig tab).
-    if (guitarfx::uiclient::IsFeatureEnabled(mState, guitarfx::uiclient::Feature::MultiRig))
-    {
-        auto row = std::make_shared<ListRow>(mTheme, "Multi-Rigs", std::to_string(mState.mixer.compositePresets.size()),
-                                             mShowMultiRigs, false, [this] {
-                                                 mShowMultiRigs = true;
-                                                 mSession.Commands().GetCompositePresetList();
-                                                 Mark(kPage);
-                                             });
-        row->Icon(&mIcons, "ui-pads", mShowMultiRigs ? mTheme.Accent() : mTheme.TextSecondary());
-        rows.push_back(FixedHeight(36, row));
-    }
-
-    std::vector<std::pair<const PresetFolder*, int>> flat;
-    FlattenFolders(mState.presetFolders, 0, flat);
+    const auto flat = FlattenPresetFolders(mState.presetFolders);
 
     if (!flat.empty())
     {
@@ -356,16 +287,6 @@ Ptr Shell::BuildFolderColumn()
         add(f->id, f->name, "ui-folder", depth, true);
     }
 
-    auto newFolder = std::make_shared<Button>(
-        mTheme, "+ New folder",
-        [this] {
-            OpenPrompt("New folder", "", "Create",
-                       [this](const std::string& entered) { mSession.Commands().CreatePresetFolder(entered); });
-        },
-        Button::Style::Flat);
-    newFolder->TextSize(metrics::kSmallText);
-    rows.push_back(VGap(6));
-    rows.push_back(FixedHeight(32, Row({newFolder, Stretch()})));
     return VScroll(Col(rows));
 }
 
@@ -382,31 +303,7 @@ Ptr Shell::BuildPresetListContent()
 
     for (const auto& p : presets)
     {
-        // Under the name: its category, the folder it is in (outside that folder), its tags.
-        std::string detail = p.category;
-
-        if (FindPresetFolder(mState.presetFolders, mQuery.folderId) == nullptr)
-        {
-            if (auto path = FolderPathOf(mState.presetFolders, p.id); !path.empty())
-            {
-                detail += "  \xC2\xB7  " + path;
-            }
-        }
-
-        for (const auto& tag : p.tags)
-        {
-            detail += "  #" + tag;
-        }
-
-        auto row = std::make_shared<PresetRow>(mTheme, mIcons, p.name, detail, RatingOf(mState, p.id),
-                                               IsPresetFavorite(mState, p.id), p.id == mState.activePresetId);
-        row->onClick = [this, id = p.id] { LoadWithConfirm(id); };
-        row->onMenu = [this, p] { OpenPresetRowMenu(p); };
-        row->onFavourite = [this, id = p.id] {
-            mSession.Commands().SetPresetFavorite(id, !IsPresetFavorite(mState, id));
-        };
-        row->onRate = [this, id = p.id](int rating) { mSession.Commands().SetPresetRating(id, rating); };
-        rows.push_back(row);
+        rows.push_back(BuildPresetCard(p));
     }
 
     if (rows.empty())
@@ -712,6 +609,11 @@ Ptr Shell::BuildSetlistsView(Ptr tabs)
         }
 
         body = VScroll(Col(rows));
+    }
+
+    if (!tabs)
+    {
+        return Col({FixedHeight(48, PadXY(0, 4, Row(toolbar))), body});
     }
 
     return Fill(mTheme.Background(), Pad(16, 8, 16, 8, Col({tabs, FixedHeight(48, PadXY(0, 4, Row(toolbar))), body})));

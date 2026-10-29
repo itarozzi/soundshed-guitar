@@ -240,8 +240,10 @@ class UiCommands
     /// under `requestId` (importPresetArchiveFile). The answer is a ToneInstall under that id.
     void ImportPresetArchiveFile(const std::string& requestId, const std::string& path = {});
     /// Writes presets as a preset archive through a save dialog (exportPresetArchive): one id
-    /// gives a .soundshed.preset named `name`.
-    void ExportPresetArchive(const std::vector<std::string>& presetIds, const std::string& name);
+    /// gives a .soundshed.preset named `name`; `collection` (a folder's export) always gives a
+    /// .soundshed.presets, with the folders `folderId` holds them in.
+    void ExportPresetArchive(const std::vector<std::string>& presetIds, const std::string& name,
+                             const std::string& folderId = {}, bool collection = false);
     /// Takes an install out again: its presets, folder, and the models only it used.
     void DeleteInstalledPresetArchive(const std::string& entryId);
 

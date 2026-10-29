@@ -157,6 +157,21 @@ void AddShellIcons(Icons& icons)
         icons.Add("input-dualMono", open + in1 + in2 + lanes + dualChains + close);
     }
 
+    // The preset chooser's tools (preset-library-popover.html).
+    icons.Add("ui-upload",
+              Svg("0 0 24 24", 2.0f,
+                  R"(<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 5 17 10"/>)"
+                  R"(<line x1="12" y1="5" x2="12" y2="19"/>)"));
+    icons.Add("ui-folder-add",
+              Svg("0 0 24 24", 2.0f,
+                  R"(<path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>)"
+                  R"(<line x1="12" y1="10" x2="12" y2="16"/><line x1="9" y1="13" x2="15" y2="13"/>)"));
+    icons.Add(
+        "ui-folder-rename",
+        Svg("0 0 24 24", 2.0f,
+            R"(<path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v3"/><path d="M14 20h7"/><path d="M16.5 6.5l3 3"/>)"
+            R"(<path d="M13 17l6.5-6.5a2.12 2.12 0 0 0-3-3L10 14v3z"/>)"));
+
     // The chain (signal-path-bar.html).
     icons.Add(
         "ui-wrap",
