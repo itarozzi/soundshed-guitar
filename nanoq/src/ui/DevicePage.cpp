@@ -587,8 +587,9 @@ void Shell::SyncDevicePage()
         page.subs.push_back(mSession.Client().Subscribe(Topic::Device, [this] { mDevicePage->dirty = true; }));
     }
 
-    // The level lease is held while the page shows; uiclient renews it.
-    const bool shown = mPage == Page::Settings && mState.environment.audioDeviceSettings;
+    // The level lease is held while the devices show (Settings > Audio & MIDI); uiclient renews it.
+    const bool shown =
+        mPage == Page::Settings && mSettingsSection == SettingsSection::Audio && mState.environment.audioDeviceSettings;
 
     if (shown != page.watching)
     {

@@ -612,6 +612,15 @@ class Shell
                           std::function<void(const std::string&)> onSubmit);
 
     // SettingsPage.cpp
+    enum class SettingsSection
+    {
+        General,
+        Audio,
+        Dsp,
+        Features,
+        Help
+    };
+    SettingsSection mSettingsSection = SettingsSection::General; // the section Settings shows
     Ptr BuildSettingsPage();
 
     // Dialogs.cpp
